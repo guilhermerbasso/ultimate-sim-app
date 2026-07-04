@@ -24,6 +24,20 @@ This is an independent community project maintained by Guilherme Basso.
 - Optional USB/COM friendly-name setup for Windows.
 - Build workflow for Windows NSIS installers.
 
+## Screenshots
+
+| Dashboards | Overlays |
+|---|---|
+| ![Dashboard gallery](app-v2/concepts/ux/menus/01-dashboards.png) | ![Overlay manager](app-v2/concepts/ux/menus/03-overlays.png) |
+
+| Devices | Arduino setup |
+|---|---|
+| ![Devices screen](app-v2/concepts/ux/menus/12-dispositivos.png) | ![Arduino setup screen](app-v2/concepts/ux/menus/13-arduinos.png) |
+
+| GT3 dashboard concept | Pinout designer |
+|---|---|
+| ![GT3 dashboard concept](app-v2/concepts/dash-fix/gt3_race_warm-1280x720.png) | ![Pinout designer](app-v2/concepts/ux/menus/19-pinout-designer.png) |
+
 ## Quick start for users
 
 1. Download a trusted release build when available.

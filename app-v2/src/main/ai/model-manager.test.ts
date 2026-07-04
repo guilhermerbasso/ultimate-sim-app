@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { join } from 'node:path'
 import { DEFAULT_MODEL_ID, LIGHT_MODEL_ID, QUALITY_MODEL_ID, type ModelDownloadProgress } from '../../shared/ai'
 import {
   ModelManager,
@@ -8,7 +9,7 @@ import {
   type ModelManagerFs
 } from './model-manager'
 
-const MODELS_DIR = '/data/models'
+const MODELS_DIR = join('data', 'models')
 // Above the 90%-of-catalog-size validity threshold for both built-in models (~1.0 GB
 // default, ~0.36 GB light), so a "present" fake reads as a COMPLETE model.
 const VALID_SIZE = 2_000_000_000
@@ -40,7 +41,7 @@ function makeDownloader(
   const finalSize = opts?.finalSize ?? VALID_SIZE
   const create: CreateModelDownloader = async (o) => {
     created.push(o)
-    const target = `${o.dirPath}/${o.fileName}`
+    const target = join(o.dirPath, o.fileName)
     const downloader: ModelDownloaderLike = {
       entrypointFilePath: target,
       totalSize: finalSize,
@@ -64,7 +65,7 @@ function makeDownloader(
 }
 
 function path(fileName: string): string {
-  return `${MODELS_DIR}/${fileName}`
+  return join(MODELS_DIR, fileName)
 }
 
 const DEFAULT_FILE = 'qwen2.5-1.5b-instruct-q4_k_m.gguf'
@@ -305,7 +306,7 @@ describe('offline-friendly', () => {
     let createCalls = 0
     const create: CreateModelDownloader = async (o) => {
       createCalls++
-      return { entrypointFilePath: `${o.dirPath}/${o.fileName}`, async download() {} }
+      return { entrypointFilePath: join(o.dirPath, o.fileName), async download() {} }
     }
     const mgr = new ModelManager({ modelsDir: MODELS_DIR }, { fs, createDownloader: create })
     await mgr.ensureModel()

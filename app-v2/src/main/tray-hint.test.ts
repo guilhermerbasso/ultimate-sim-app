@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { join } from 'node:path'
 import {
   TRAY_HINT_FLAG_FILENAME,
   claimFirstTrayHint,
@@ -8,7 +9,7 @@ import {
 
 describe('trayHintFlagPath', () => {
   it('places the flag file inside the given userData directory', () => {
-    expect(trayHintFlagPath('/data/userData')).toBe(`/data/userData/${TRAY_HINT_FLAG_FILENAME}`)
+    expect(trayHintFlagPath(join('data', 'userData'))).toBe(join('data', 'userData', TRAY_HINT_FLAG_FILENAME))
   })
 })
 

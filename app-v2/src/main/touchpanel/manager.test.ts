@@ -5,7 +5,7 @@ import { panelFileName } from './manager'
 // Security regression: panel ids are UNTRUSTED (user-edited / imported JSON). A
 // crafted id must never let a save/delete escape the panels directory.
 
-const STORE_DIR = '/home/user/.config/app/touch-panels'
+const STORE_DIR = resolve('home', 'user', '.config', 'app', 'touch-panels')
 
 function pathFor(id: string): string {
   return resolve(join(STORE_DIR, `${panelFileName(id)}.json`))
