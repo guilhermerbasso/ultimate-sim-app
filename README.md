@@ -26,17 +26,37 @@ This is an independent community project maintained by Guilherme Basso.
 
 ## Screenshots
 
-| Dashboards | Overlays |
+| AI coach / driver insights | Voice spotter |
+|---|---|
+| ![Career ratings and coaching insights](app-v2/concepts/t1/carreira-ratings.png) | ![Voice spotter setup](app-v2/concepts/t1/voice-spotter.png) |
+
+| Telemetry workspace | Strategy and stint tools |
+|---|---|
+| ![Telemetry screen](app-v2/concepts/ux/menus/00-telemetria.png) | ![Race profiles screen](app-v2/concepts/ux/menus/09-perfis-corrida.png) |
+
+| Dashboard gallery | Overlay manager |
 |---|---|
 | ![Dashboard gallery](app-v2/concepts/ux/menus/01-dashboards.png) | ![Overlay manager](app-v2/concepts/ux/menus/03-overlays.png) |
+
+| GT3 race dashboard | Endurance dashboard |
+|---|---|
+| ![GT3 race dashboard concept](app-v2/concepts/dash-fix/gt3_race_warm-1280x720.png) | ![Endurance dashboard concept](app-v2/concepts/dash-fix/endurance-1280x720.png) |
+
+| Spotter dashboard | Formula dashboard |
+|---|---|
+| ![Spotter dashboard example](app-v2/concepts/dash10/01-spotter-800x480.png) | ![Formula dashboard concept](app-v2/concepts/dash-fix/formula-1280x720.png) |
+
+| Overlay: gear and speed | Overlay: rev lights |
+|---|---|
+| ![Gear and speed overlay](app-v2/concepts/overlay-fix/gearSpeed.png) | ![Rev lights overlay](app-v2/concepts/overlay-fix/revlights.png) |
 
 | Devices | Arduino setup |
 |---|---|
 | ![Devices screen](app-v2/concepts/ux/menus/12-dispositivos.png) | ![Arduino setup screen](app-v2/concepts/ux/menus/13-arduinos.png) |
 
-| GT3 dashboard concept | Pinout designer |
+| Pinout designer | Controls and keyboard mapping |
 |---|---|
-| ![GT3 dashboard concept](app-v2/concepts/dash-fix/gt3_race_warm-1280x720.png) | ![Pinout designer](app-v2/concepts/ux/menus/19-pinout-designer.png) |
+| ![Pinout designer](app-v2/concepts/ux/menus/19-pinout-designer.png) | ![Controls and keyboard mapping](app-v2/concepts/ux/menus/18-controls-keyboard.png) |
 
 ## Quick start for users
 
