@@ -92,6 +92,12 @@ Contributions are welcome. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md), open
 
 Pull requests must be reviewed and approved by the maintainer before merge.
 
+## Support
+
+If this project helps your sim racing setup, you can support development here:
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-support-yellow?style=for-the-badge&logo=buymeacoffee)](https://buymeacoffee.com/bettercalllbasso)
+
 ## License
 
 Licensed under the Apache License, Version 2.0. See [`LICENSE`](LICENSE).
