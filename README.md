@@ -90,6 +90,8 @@ Release installers should be generated from source and attached to GitHub Releas
 
 Contributions are welcome. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md), open an issue for larger changes, and keep changes focused.
 
+Pull requests must be reviewed and approved by the maintainer before merge.
+
 ## License
 
 Licensed under the Apache License, Version 2.0. See [`LICENSE`](LICENSE).

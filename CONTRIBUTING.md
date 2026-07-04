@@ -6,9 +6,17 @@ Thanks for helping improve Ultimate Sim App.
 
 1. Open an issue for bugs, feature requests, or larger design changes.
 2. Fork or branch from `main`.
-3. Keep pull requests focused and explain the user-facing change.
-4. Add or update tests when behavior changes.
-5. Run relevant checks before opening a pull request.
+3. Open a pull request for review.
+4. Wait for maintainer approval before merge.
+5. Keep pull requests focused and explain the user-facing change.
+6. Add or update tests when behavior changes.
+7. Run relevant checks before opening a pull request.
+
+## Review and merge policy
+
+All community contributions must be reviewed and approved by Guilherme Basso before they are merged. Direct pushes to `main` are reserved for maintainers only.
+
+When GitHub branch protection is available for this repository, `main` should require pull requests, at least one approval, resolved conversations, and no force-pushes or branch deletion.
 
 ## Development commands
 
