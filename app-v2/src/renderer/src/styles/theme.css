@@ -363,10 +363,46 @@ h3 {
   padding: var(--space-8) var(--space-8) var(--space-6);
   border-bottom: 1px solid var(--border-subtle);
   background: var(--surface-raised);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-6);
 }
 
 .content-header p {
   color: var(--text-secondary);
+}
+
+.support-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: var(--space-2) var(--space-5);
+  border: 1px solid rgba(var(--accent-rgb), 0.45);
+  border-radius: var(--radius-pill);
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent-primary-bright);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: background var(--motion-fast), border-color var(--motion-fast), color var(--motion-fast), transform var(--motion-fast);
+}
+
+.support-button:hover,
+.support-button:focus-visible {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary-bright);
+  color: var(--text-on-accent);
+  outline: none;
+}
+
+.support-button:active {
+  transform: translateY(1px);
 }
 
 .view-stage {

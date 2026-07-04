@@ -28,6 +28,7 @@ const FAVORITES_STORAGE_KEY = 'usa.favorites'
 const RECENTS_STORAGE_KEY = 'usa.recents'
 const ONBOARDING_STORAGE_KEY = 'usa.onboardingCompleted'
 const MAX_RECENTS = 5
+const SUPPORT_URL = 'https://buymeacoffee.com/bettercalllbasso'
 
 export interface ToastState {
   message: string
@@ -336,6 +337,16 @@ function App(): ReactElement {
               <h2>{current.label}</h2>
               <p>{current.description}</p>
             </div>
+            <a
+              aria-label="Apoiar o projeto no Buy Me a Coffee"
+              className="support-button"
+              href={SUPPORT_URL}
+              rel="noreferrer"
+              target="_blank"
+              title="Apoiar o projeto"
+            >
+              ☕ Apoiar
+            </a>
           </header>
 
           <div className="view-stage">
