@@ -39,6 +39,7 @@ jobs:
           name: UltimateSimApp-Setup
           path: |
             app-v2/dist-win/*.exe
+            app-v2/dist-win/*.zip
             app-v2/dist-win/*.exe.blockmap
             app-v2/dist-win/latest.yml
           if-no-files-found: error
@@ -48,4 +49,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: app-v2/dist-win/*.exe
+          generate_release_notes: true
+          files: |
+            app-v2/dist-win/*.exe
+            app-v2/dist-win/*.zip
+            app-v2/dist-win/*.exe.blockmap
+            app-v2/dist-win/latest.yml
