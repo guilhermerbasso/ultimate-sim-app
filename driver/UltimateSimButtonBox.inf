@@ -1,0 +1,72 @@
+; ============================================================================
+;  UltimateSimButtonBox.inf
+;  Pacote INF que associa o driver NATIVO usbser.sys do Windows à porta serial
+;  CDC do "Ultimate Sim ButtonBox" e dá a ela um nome amigável.
+;
+;  >>> NÃO contém código de kernel. Não é um driver novo: apenas aponta para o
+;      usbser.sys que já vem no Windows. <<<
+;
+;  Windows 10/11 já reconhece o dispositivo como porta COM automaticamente — este
+;  INF é OPCIONAL (use para nome próprio ou em Windows mais antigo). Veja INSTALL.md.
+;
+;  NOTA: este INF é NÃO ASSINADO (sem .cat). Em Win10/11 x64 a instalação pode exigir
+;  desabilitar a imposição de assinatura ou usar test-signing — veja a seção de
+;  assinatura em INSTALL.md.
+;
+;  Ajuste os VID/PID na seção [DeviceList.*] para casar com o SEU dispositivo
+;  (Gerenciador de Dispositivos > Propriedades > Detalhes > IDs de Hardware).
+; ============================================================================
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = Ports
+ClassGuid   = {4D36E978-E325-11CE-BFC1-08002BE10318}
+Provider    = %MFGNAME%
+DriverVer   = 06/13/2026,3.0.0.0
+PnpLockdown = 1
+
+[Manufacturer]
+%MFGNAME% = DeviceList, NTamd64, NTarm64
+
+; --- Lista de dispositivos (VID/PID). Ajuste/adicione conforme o seu clone. ---
+; 2341:8036/8037 = Arduino Leonardo  | 1B4F:9205/9206 = SparkFun Pro Micro
+; 1209:0001       = VID/PID de teste (pid.codes) — só se você usou o Método B
+[DeviceList.NTamd64]
+%DESCRIPTION% = DriverInstall, USB\VID_2341&PID_8036
+%DESCRIPTION% = DriverInstall, USB\VID_2341&PID_8037
+%DESCRIPTION% = DriverInstall, USB\VID_1B4F&PID_9205
+%DESCRIPTION% = DriverInstall, USB\VID_1B4F&PID_9206
+%DESCRIPTION% = DriverInstall, USB\VID_1209&PID_0001
+
+[DeviceList.NTarm64]
+%DESCRIPTION% = DriverInstall, USB\VID_2341&PID_8036
+%DESCRIPTION% = DriverInstall, USB\VID_2341&PID_8037
+%DESCRIPTION% = DriverInstall, USB\VID_1B4F&PID_9205
+%DESCRIPTION% = DriverInstall, USB\VID_1B4F&PID_9206
+%DESCRIPTION% = DriverInstall, USB\VID_1209&PID_0001
+
+[DriverInstall.NT]
+AddReg = DriverInstall.NT.AddReg
+
+[DriverInstall.NT.AddReg]
+HKR,,DevLoader,,*ntkern
+HKR,,NTMPDriver,,usbser.sys
+HKR,,EnumPropPages32,,"MsPorts.dll,SerialPortPropPageProvider"
+
+[DriverInstall.NT.Services]
+AddService = usbser, 0x00000002, DriverService
+
+[DriverService]
+DisplayName    = %SERVICE%
+ServiceType    = 1               ; SERVICE_KERNEL_DRIVER (usbser nativo)
+StartType      = 3               ; SERVICE_DEMAND_START
+ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %12%\usbser.sys ; binário NATIVO já presente no Windows
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[Strings]
+MFGNAME     = "Ultimate Sim"
+DESCRIPTION = "Ultimate Sim ButtonBox"
+SERVICE     = "Ultimate Sim ButtonBox (usbser)"

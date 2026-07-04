@@ -1,0 +1,68 @@
+import { existsSync } from 'node:fs'
+import type { FlashBoardSpec, FlashProgress } from '../../shared/setup'
+import {
+  FlashError,
+  prepareAvrdudePort,
+  runAvrdude,
+  type FlashToolPaths,
+  throwIfAborted
+} from './flasher'
+
+const DEFAULT_DUMP_TIMEOUT_MS = 120_000
+
+export interface DumpHexOptions {
+  board: FlashBoardSpec
+  port: string
+  baud: number
+  outputPath: string
+  tools: FlashToolPaths
+  onProgress: (progress: FlashProgress) => void
+  timeoutMs?: number
+  signal?: AbortSignal
+}
+
+export async function dumpHexFirmware(opts: DumpHexOptions): Promise<void> {
+  if (opts.board.flashTool === 'arduino-cli' || opts.board.programmer === 'arduino-cli') {
+    throw new FlashError('Backup .hex via avrdude não está disponível para placas ESP32/arduino-cli.')
+  }
+  if (process.platform !== 'win32') {
+    throw new FlashError('Backup .hex via avrdude está disponível apenas no Windows.')
+  }
+  if (!opts.port.trim()) throw new FlashError('Selecione a porta serial (COM) da placa.')
+  if (!existsSync(opts.tools.avrdudeExe)) {
+    throw new FlashError(`avrdude.exe não foi encontrado em ${opts.tools.avrdudeExe}.`)
+  }
+  if (!existsSync(opts.tools.avrdudeConf)) {
+    throw new FlashError(`avrdude.conf não foi encontrado em ${opts.tools.avrdudeConf}.`)
+  }
+
+  throwIfAborted(opts.signal)
+  const targetPort = await prepareAvrdudePort(opts.board, opts.port, opts.onProgress, opts.signal)
+  const args = [
+    '-C',
+    opts.tools.avrdudeConf,
+    '-c',
+    opts.board.programmer,
+    '-p',
+    opts.board.mcu,
+    '-P',
+    targetPort,
+    '-b',
+    String(opts.baud),
+    '-U',
+    `flash:r:${opts.outputPath}:i`
+  ]
+  opts.onProgress({
+    phase: 'upload',
+    message: `Lendo firmware da placa para ${opts.outputPath}…`,
+    percent: 20,
+    line: `> avrdude ${args.join(' ')}`
+  })
+  await runAvrdude(opts.tools.avrdudeExe, args, opts.onProgress, opts.timeoutMs ?? DEFAULT_DUMP_TIMEOUT_MS, opts.signal)
+  opts.onProgress({
+    phase: 'done',
+    message: `Backup .hex salvo em ${opts.outputPath}.`,
+    percent: 100,
+    tone: 'success'
+  })
+}

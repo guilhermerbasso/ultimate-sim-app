@@ -1,0 +1,1942 @@
+/* ────────────────────────────────────────────────────────────────────────────
+ * redesign-radar.css — per-design-family treatments for the RADAR / MAP / GT3
+ * overlay widgets (ProximityRadar, TrackMap, CarSilhouetteRadar, GT3Cluster,
+ * GT3Alarm). Each widget branches on `overlayDesignFamily(stylePreset)` and the
+ * markup below gives every family a structurally distinct look — not a recolor.
+ *
+ * Colour rule (app-wide): WARM (accent / amber / red) carries chrome, attention
+ * and alarms; COOL (green / blue) is reserved for genuinely good states (radar
+ * clear, healthy temps, faster delta). Preset surface colours arrive as the
+ * --overlay-* custom properties and are inherited here as --rd3-* tokens.
+ *
+ * Owns only `rd3-`-prefixed classes. Does NOT touch overlay-runtime.css or
+ * overlayWidgetsR16.css.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+.rd3-root {
+  box-sizing: border-box;
+  overflow: hidden;
+  color: var(--rd3-ink);
+  font-family: var(--overlay-font, 'Segoe UI', sans-serif);
+  --rd3-accent: var(--overlay-accent, #ff6a00);
+  --rd3-ink: #fdf2e8;
+  --rd3-muted: rgba(228, 224, 218, 0.55);
+  --rd3-danger: #ff2d2d;
+  --rd3-warn: #ffb000;
+  --rd3-good: #22c55e;
+  --rd3-line: color-mix(in srgb, var(--overlay-accent, #ff6a00) 28%, rgba(150, 168, 196, 0.22));
+}
+
+.rd3-root * {
+  box-sizing: border-box;
+}
+
+/* Family shape language — guarantee the radius regardless of which preset in the
+ * family is active (this is layout, not colour). */
+.rd3-fam-bauhaus {
+  border-radius: 0;
+}
+.rd3-fam-terminal {
+  border-radius: 3px;
+}
+.rd3-fam-broadcast {
+  border-radius: 6px;
+}
+.rd3-fam-heatmap {
+  border-radius: 8px;
+}
+.rd3-fam-glass {
+  border-radius: 24px;
+}
+
+.rd3-radar-head,
+.rd3-map-head,
+.rd3-spotter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--rd3-muted);
+  font: 800 12px var(--overlay-font, 'Segoe UI', sans-serif);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.rd3-fam-neon .rd3-radar-head,
+.rd3-fam-neon .rd3-map-head,
+.rd3-fam-neon .rd3-spotter-head {
+  color: color-mix(in srgb, var(--rd3-accent) 70%, #ffe7d7);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--rd3-accent) 45%, transparent);
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * 1 · PROXIMITY RADAR
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── disc — minimal / neon / glass ──────────────────────────────────────────── */
+.rd3-radar--disc {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 8px;
+  padding: 14px;
+}
+.rd3-disc {
+  position: relative;
+  align-self: center;
+  justify-self: center;
+  width: min(100%, 86%);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+}
+.rd3-disc-ring {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  border: 1px solid var(--rd3-line);
+  border-radius: 50%;
+}
+.rd3-disc-ring.r1 {
+  width: 100%;
+  height: 100%;
+}
+.rd3-disc-ring.r2 {
+  width: 66%;
+  height: 66%;
+}
+.rd3-disc-ring.r3 {
+  width: 32%;
+  height: 32%;
+}
+.rd3-disc-cross {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  background: var(--rd3-line);
+}
+.rd3-disc-cross.x {
+  width: 100%;
+  height: 1px;
+}
+.rd3-disc-cross.y {
+  width: 1px;
+  height: 100%;
+}
+.rd3-disc-self {
+  width: 14px;
+  height: 22px;
+  border-radius: 6px 6px 4px 4px;
+  background: var(--rd3-accent);
+}
+.rd3-blip {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--rd3-blip, var(--rd3-accent));
+  transform: translate(-50%, -50%);
+}
+.rd3-blip.is-clear {
+  opacity: 0.7;
+}
+.rd3-sides {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font: 800 12px var(--overlay-font, 'Segoe UI', sans-serif);
+  letter-spacing: 0.08em;
+}
+.rd3-side {
+  color: var(--rd3-muted);
+}
+.rd3-side.is-beside {
+  color: var(--rd3-danger);
+}
+.rd3-side.is-clear {
+  color: var(--rd3-good);
+}
+
+/* minimal — hairline + dots, airy, no glow */
+.rd3-fam-minimal .rd3-disc-self {
+  width: 10px;
+  height: 16px;
+  background: var(--rd3-accent);
+  opacity: 0.9;
+}
+.rd3-fam-minimal .rd3-blip {
+  width: 9px;
+  height: 9px;
+}
+
+/* neon — glowing rings, rotating sweep, emissive blips */
+.rd3-fam-neon .rd3-disc-cross {
+  display: none;
+}
+.rd3-fam-neon .rd3-disc-ring {
+  border-color: color-mix(in srgb, var(--rd3-accent) 55%, transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--rd3-accent) 30%, transparent),
+    inset 0 0 12px color-mix(in srgb, var(--rd3-accent) 18%, transparent);
+}
+.rd3-disc-sweep {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    color-mix(in srgb, var(--rd3-accent) 42%, transparent) 0deg,
+    transparent 64deg
+  );
+  animation: rd3-spin 4s linear infinite;
+}
+.rd3-fam-neon .rd3-disc-self {
+  box-shadow: 0 0 18px color-mix(in srgb, var(--rd3-accent) 70%, transparent);
+}
+.rd3-fam-neon .rd3-blip {
+  box-shadow: 0 0 16px var(--rd3-blip, var(--rd3-accent));
+}
+
+/* glass — frosted disc with depth */
+.rd3-fam-glass .rd3-disc {
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 32%, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.02) 62%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 0 28px rgba(255, 255, 255, 0.06),
+    0 12px 30px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(4px);
+}
+.rd3-fam-glass .rd3-disc-cross {
+  display: none;
+}
+.rd3-fam-glass .rd3-disc-ring {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.rd3-fam-glass .rd3-blip {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+/* ── scope — analog (tick ring + sweep + needle) ────────────────────────────── */
+.rd3-radar--scope {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 6px;
+  padding: 12px;
+}
+.rd3-scope-svg {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+.rd3-scope-bezel {
+  fill: none;
+  stroke: color-mix(in srgb, var(--rd3-accent) 46%, #6b5836);
+  stroke-width: 4;
+}
+.rd3-scope-ring {
+  fill: none;
+  stroke: var(--rd3-line);
+  stroke-width: 1;
+}
+.rd3-tick {
+  stroke: color-mix(in srgb, var(--rd3-accent) 38%, transparent);
+  stroke-width: 1.4;
+}
+.rd3-tick.major {
+  stroke: color-mix(in srgb, var(--rd3-accent) 72%, #d8b27a);
+  stroke-width: 2.4;
+}
+.rd3-scope-axis {
+  stroke: var(--rd3-line);
+  stroke-width: 0.8;
+  stroke-dasharray: 3 4;
+}
+.rd3-scope-sweep {
+  transform-box: view-box;
+  transform-origin: 100px 100px;
+  animation: rd3-spin 4.6s linear infinite;
+}
+.rd3-scope-sweep path {
+  fill: color-mix(in srgb, var(--rd3-accent) 20%, transparent);
+}
+.rd3-scope-needle {
+  stroke: color-mix(in srgb, var(--rd3-accent) 88%, #ffe9d8);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.rd3-scope-blip {
+  stroke: rgba(0, 0, 0, 0.4);
+  stroke-width: 0.6;
+}
+.rd3-scope-blip.is-beside {
+  filter: drop-shadow(0 0 4px var(--rd3-danger));
+}
+.rd3-scope-hub {
+  fill: color-mix(in srgb, var(--rd3-accent) 80%, #d8b27a);
+  stroke: #1a120a;
+  stroke-width: 1;
+}
+.rd3-scope-tag {
+  font: 800 11px var(--overlay-font, Bahnschrift, sans-serif);
+  fill: var(--rd3-muted);
+}
+.rd3-scope-tag.is-beside {
+  fill: var(--rd3-danger);
+}
+.rd3-scope-tag.is-clear {
+  fill: var(--rd3-good);
+}
+
+/* ── cells — heatmap (proximity-tinted zone grid) ───────────────────────────── */
+.rd3-radar--cells {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  padding: 12px;
+}
+.rd3-cells-flag {
+  font: 800 11px var(--overlay-font, Bahnschrift, sans-serif);
+  letter-spacing: 0.06em;
+}
+.rd3-cells-flag.is-clear {
+  color: var(--rd3-good);
+}
+.rd3-cells-flag.is-beside {
+  color: var(--rd3-danger);
+}
+.rd3-cells-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(5, 1fr);
+  gap: 5px;
+  min-height: 0;
+}
+.rd3-cell {
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  background: rgba(140, 160, 190, 0.07);
+  border: 1px solid rgba(140, 160, 190, 0.12);
+  line-height: 1;
+}
+.rd3-cell.is-on.is-clear {
+  background: color-mix(in srgb, var(--rd3-good) calc(var(--rd3-i, 0.4) * 80%), transparent);
+  border-color: color-mix(in srgb, var(--rd3-good) 40%, transparent);
+}
+.rd3-cell.is-on.is-beside {
+  background: color-mix(in srgb, var(--rd3-danger) calc(var(--rd3-i, 0.4) * 86%), transparent);
+  border-color: color-mix(in srgb, var(--rd3-danger) 50%, transparent);
+}
+.rd3-cell b {
+  color: #fff8ef;
+  font: 800 14px var(--overlay-font, Bahnschrift, sans-serif);
+}
+.rd3-cell small {
+  color: var(--rd3-muted);
+  font-size: 8px;
+  font-weight: 700;
+}
+.rd3-cell.is-self {
+  background: color-mix(in srgb, var(--rd3-accent) 24%, transparent);
+  border-color: color-mix(in srgb, var(--rd3-accent) 55%, transparent);
+}
+.rd3-cell.is-self span {
+  color: var(--rd3-accent);
+  font-size: 16px;
+}
+
+/* ── ascii — terminal (monospace bracketed scope) ───────────────────────────── */
+.rd3-radar--ascii {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 4px;
+  padding: 12px;
+  background: #04070a;
+}
+.rd3-ascii-head {
+  font-family: var(--overlay-font, 'Cascadia Code', monospace);
+  color: var(--rd3-muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.rd3-ascii-grid {
+  font-family: var(--overlay-font, 'Cascadia Code', monospace);
+  color: var(--rd3-accent);
+  white-space: pre;
+  font-size: clamp(9px, 3vw, 14px);
+  line-height: 1.18;
+  letter-spacing: 1px;
+  text-shadow: 0 0 6px color-mix(in srgb, var(--rd3-accent) 40%, transparent);
+  align-self: center;
+}
+.rd3-ascii-sides {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--overlay-font, 'Cascadia Code', monospace);
+  font-weight: 700;
+  font-size: 12px;
+}
+.rd3-ascii-sides .is-beside {
+  color: var(--rd3-danger);
+}
+.rd3-ascii-sides .is-clear {
+  color: var(--rd3-good);
+}
+
+/* ── blocks — bauhaus (geometric quadrants + giant L/R) ─────────────────────── */
+.rd3-radar--blocks {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 6px;
+  padding: 8px;
+  background: #050506;
+}
+.rd3-blk-side {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  font: 900 40px Impact, 'Arial Narrow', sans-serif;
+  color: #1a1a1a;
+  background: var(--rd3-muted);
+}
+.rd3-blk-side.is-beside {
+  background: var(--rd3-danger);
+  color: #1a0000;
+}
+.rd3-blk-side.is-clear {
+  background: color-mix(in srgb, var(--rd3-good) 30%, #0c0c0e);
+  color: #06140a;
+}
+.rd3-blk-scope {
+  position: relative;
+  background: #0c0c0e;
+  overflow: hidden;
+}
+.rd3-blk-rule {
+  position: absolute;
+  background: color-mix(in srgb, var(--rd3-accent) 60%, transparent);
+}
+.rd3-blk-rule.v {
+  left: 50%;
+  top: 0;
+  width: 3px;
+  height: 100%;
+  transform: translateX(-50%);
+}
+.rd3-blk-rule.h {
+  top: 50%;
+  left: 0;
+  height: 3px;
+  width: 100%;
+  transform: translateY(-50%);
+}
+.rd3-blk-self {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 26px;
+  background: var(--rd3-accent);
+  transform: translate(-50%, -50%);
+}
+.rd3-blk-blip {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  background: var(--rd3-blip, var(--rd3-accent));
+  transform: translate(-50%, -50%);
+}
+.rd3-blk-blip.is-beside {
+  width: 20px;
+  height: 20px;
+}
+
+/* ── boxed — broadcast (lower-third framed scope + chips) ────────────────────── */
+.rd3-radar--boxed {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 6px;
+  padding: 8px;
+}
+.rd3-box-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rd3-box-tab {
+  background: var(--rd3-accent);
+  color: #10110f;
+  font: 800 12px var(--overlay-font, 'DIN Condensed', Bahnschrift, sans-serif);
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+}
+.rd3-box-meta {
+  color: var(--rd3-muted);
+  font: 700 11px var(--overlay-font, Bahnschrift, sans-serif);
+  letter-spacing: 0.12em;
+}
+.rd3-box-scope {
+  position: relative;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--rd3-line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.rd3-box-self {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 20px;
+  border-radius: 3px;
+  background: var(--rd3-accent);
+  transform: translate(-50%, -50%);
+}
+.rd3-box-blip {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  background: var(--rd3-blip, var(--rd3-accent));
+  transform: translate(-50%, -50%);
+}
+.rd3-box-blip.is-clear {
+  opacity: 0.82;
+}
+.rd3-box-cells {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.rd3-box-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  font: 800 13px var(--overlay-font, 'DIN Condensed', Bahnschrift, sans-serif);
+}
+.rd3-box-cell b {
+  background: var(--rd3-muted);
+  color: #10110f;
+  padding: 1px 6px;
+}
+.rd3-box-cell.is-beside {
+  background: color-mix(in srgb, var(--rd3-danger) 26%, transparent);
+}
+.rd3-box-cell.is-beside b {
+  background: var(--rd3-danger);
+  color: #fff;
+}
+.rd3-box-cell.is-clear b {
+  background: var(--rd3-good);
+  color: #06140a;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * 2 · TRACK MAP
+ * ════════════════════════════════════════════════════════════════════════════ */
+.rd3-map {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 6px;
+  padding: 12px;
+}
+.rd3-map-stage {
+  position: relative;
+  min-height: 0;
+}
+.rd3-map-canvas {
+  width: 100%;
+  height: 100%;
+}
+.rd3-map-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--rd3-muted);
+  font: 700 11px var(--overlay-font, 'Segoe UI', sans-serif);
+}
+.rd3-map-meta span:last-child {
+  text-align: right;
+}
+.rd3-map-pct {
+  color: var(--rd3-accent);
+  font-weight: 800;
+}
+
+/* family map line treatments (geometry intact — heft + glow only) */
+.rd3-fam-neon .rd3-map-canvas svg {
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--rd3-accent) 55%, transparent));
+}
+.rd3-fam-minimal .rd3-map-canvas svg {
+  opacity: 0.92;
+}
+.rd3-fam-bauhaus .rd3-map-canvas svg {
+  filter: contrast(1.25) saturate(1.1);
+}
+
+/* analog — engraved bezel label */
+.rd3-map-head--engraved {
+  justify-content: center;
+  color: color-mix(in srgb, var(--rd3-accent) 58%, #e8d9c4);
+  letter-spacing: 0.18em;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.55);
+}
+
+/* broadcast — TV bar */
+.rd3-map-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rd3-map-tab {
+  background: var(--rd3-accent);
+  color: #10110f;
+  font: 800 12px var(--overlay-font, 'DIN Condensed', Bahnschrift, sans-serif);
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+}
+.rd3-map-track {
+  flex: 1;
+  min-width: 0;
+  color: #fff;
+  font: 800 13px var(--overlay-font, 'DIN Condensed', Bahnschrift, sans-serif);
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rd3-map-lap {
+  color: var(--rd3-accent);
+  font: 800 14px var(--overlay-font, Bahnschrift, sans-serif);
+}
+.rd3-map-strip {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--rd3-muted);
+  font: 700 11px var(--overlay-font, 'Segoe UI', sans-serif);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* terminal — bracketed mono frame */
+.rd3-fam-terminal.rd3-map {
+  background: #04070a;
+}
+.rd3-map-ascii-head,
+.rd3-map-ascii-foot {
+  font-family: var(--overlay-font, 'Cascadia Code', monospace);
+  color: var(--rd3-accent);
+  white-space: pre;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
+/* bauhaus — heavy block head */
+.rd3-map-blk-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--rd3-accent);
+  color: #0a0500;
+  padding: 2px 8px;
+}
+.rd3-map-blk-title {
+  min-width: 0;
+  font: 900 16px Impact, 'Arial Narrow', sans-serif;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rd3-map-blk-lap {
+  font: 900 18px Impact, 'Arial Narrow', sans-serif;
+}
+
+/* heatmap — grid backdrop */
+.rd3-map-stage--grid {
+  background-image: linear-gradient(rgba(140, 160, 190, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(140, 160, 190, 0.08) 1px, transparent 1px);
+  background-size: 18px 18px;
+  border-radius: 4px;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * 3 · CAR SILHOUETTE RADAR (SPOTTER)
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── svg car — minimal / neon / glass / analog ──────────────────────────────── */
+.rd3-spotter--svg {
+  display: grid;
+  place-items: center;
+  padding: 8px;
+}
+.rd3-spotter-svg {
+  width: 100%;
+  height: 100%;
+}
+.rd3-spotter-zonelabel {
+  fill: color-mix(in srgb, var(--rd3-accent) 50%, var(--rd3-muted));
+  font: 800 9px var(--overlay-font, Bahnschrift, sans-serif);
+  letter-spacing: 0.12em;
+}
+.rd3-spotter-zone {
+  fill: var(--rd3-zone, var(--rd3-danger));
+}
+.rd3-spotter-side {
+  font: 900 11px var(--overlay-font, Bahnschrift, sans-serif);
+}
+.rd3-spotter-side.is-clear {
+  opacity: 0.45;
+}
+.rd3-car-wing {
+  fill: rgba(194, 184, 174, 0.68);
+}
+.rd3-car-body {
+  fill: rgba(212, 205, 198, 0.82);
+}
+.rd3-car-spine {
+  fill: rgba(255, 255, 255, 0.08);
+}
+.rd3-car-glass {
+  fill: rgba(6, 16, 28, 0.92);
+}
+.rd3-car-nose {
+  fill: rgba(194, 184, 174, 0.75);
+}
+.rd3-car-wheel {
+  fill: rgba(138, 154, 170, 0.82);
+}
+.rd3-spotter-bezel rect {
+  fill: none;
+  stroke: color-mix(in srgb, var(--rd3-accent) 52%, #6b5836);
+  stroke-width: 3;
+}
+.rd3-spotter-bezel line {
+  stroke: color-mix(in srgb, var(--rd3-accent) 40%, transparent);
+  stroke-width: 1.5;
+}
+
+/* minimal — stroke-only car + outlined zone edges */
+.rd3-fam-minimal .rd3-spotter-car > * {
+  fill: none;
+  stroke: rgba(202, 212, 226, 0.6);
+  stroke-width: 1.3;
+}
+.rd3-fam-minimal .rd3-car-glass {
+  fill: rgba(6, 16, 28, 0.55);
+  stroke: rgba(202, 212, 226, 0.4);
+}
+.rd3-fam-minimal .rd3-spotter-zone {
+  fill: none;
+  stroke: var(--rd3-zone, var(--rd3-danger));
+  stroke-width: 2.5;
+}
+
+/* neon — emissive glowing zones + bright car edges */
+.rd3-fam-neon .rd3-spotter-zone {
+  filter: drop-shadow(0 0 6px var(--rd3-zone, var(--rd3-danger)));
+}
+.rd3-fam-neon .rd3-spotter-car > * {
+  stroke: color-mix(in srgb, var(--rd3-accent) 55%, transparent);
+  stroke-width: 0.8;
+}
+.rd3-fam-neon .rd3-spotter-side {
+  filter: drop-shadow(0 0 5px currentColor);
+}
+
+/* glass — frosted translucent panels */
+.rd3-fam-glass .rd3-spotter-zone {
+  opacity: 0.6;
+  filter: blur(0.4px);
+}
+.rd3-fam-glass .rd3-car-body {
+  fill: rgba(220, 226, 235, 0.4);
+}
+.rd3-fam-glass .rd3-car-nose,
+.rd3-fam-glass .rd3-car-wing {
+  fill: rgba(220, 226, 235, 0.32);
+}
+
+/* ── ascii spotter — terminal ───────────────────────────────────────────────── */
+.rd3-spotter--ascii {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #04070a;
+}
+.rd3-spotter-ascii-head {
+  font-family: var(--overlay-font, 'Cascadia Code', monospace);
+  color: var(--rd3-accent);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+.rd3-spotter-ascii-grid {
+  font-family: var(--overlay-font, 'Cascadia Code', monospace);
+  color: color-mix(in srgb, var(--rd3-accent) 86%, #fff);
+  white-space: pre;
+  font-size: 14px;
+  line-height: 1.25;
+  align-self: center;
+}
+.rd3-spotter-ascii-sides {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--overlay-font, 'Cascadia Code', monospace);
+  font-weight: 800;
+  font-size: 12px;
+}
+.rd3-spotter-ascii-sides .is-beside {
+  color: var(--rd3-danger);
+}
+.rd3-spotter-ascii-sides .is-clear {
+  color: var(--rd3-good);
+}
+
+/* ── blocks spotter — bauhaus ───────────────────────────────────────────────── */
+.rd3-spotter--blocks {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 5px;
+  padding: 6px;
+}
+.rd3-spotter-blk-side {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  font: 900 44px Impact, 'Arial Narrow', sans-serif;
+  color: #1a1a1a;
+  background: var(--rd3-muted);
+}
+.rd3-spotter-blk-side.is-beside {
+  background: var(--rd3-danger);
+  color: #1a0000;
+}
+.rd3-spotter-blk-side.is-clear {
+  background: color-mix(in srgb, var(--rd3-good) 26%, #0c0c0e);
+  color: #06140a;
+}
+.rd3-spotter-blk-core {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 6px;
+  background: #0c0c0e;
+  padding: 8px;
+}
+.rd3-spotter-blk-blips {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  align-items: center;
+  min-height: 14px;
+}
+.rd3-spotter-blk-blips span {
+  width: 14px;
+  height: 14px;
+}
+.rd3-spotter-blk-car {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  align-content: center;
+}
+.rd3-spotter-blk-car .wing {
+  width: 70%;
+  height: 10px;
+  background: var(--rd3-accent);
+}
+.rd3-spotter-blk-car .body {
+  width: 42%;
+  height: 54px;
+  background: color-mix(in srgb, var(--rd3-accent) 72%, #fff);
+}
+
+/* ── cells spotter — heatmap ────────────────────────────────────────────────── */
+.rd3-spotter--cells {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  padding: 10px;
+}
+.rd3-spotter-cells {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 5px;
+  min-height: 0;
+}
+.rd3-spcell {
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  background: rgba(140, 160, 190, 0.08);
+  border: 1px solid rgba(140, 160, 190, 0.12);
+  line-height: 1;
+}
+.rd3-spcell b {
+  color: #fff8ef;
+  font: 800 16px var(--overlay-font, Bahnschrift, sans-serif);
+}
+.rd3-spcell.is-self {
+  background: color-mix(in srgb, var(--rd3-accent) 24%, transparent);
+  border-color: color-mix(in srgb, var(--rd3-accent) 55%, transparent);
+}
+.rd3-spcell.is-self span {
+  color: var(--rd3-accent);
+  font-size: 20px;
+}
+.rd3-spcell.is-on.is-clear {
+  background: color-mix(in srgb, var(--rd3-good) calc(var(--rd3-i, 0.4) * 80%), transparent);
+}
+.rd3-spcell.is-on.is-beside {
+  background: color-mix(in srgb, var(--rd3-danger) calc(var(--rd3-i, 0.4) * 86%), transparent);
+}
+
+/* ── boxed spotter — broadcast ──────────────────────────────────────────────── */
+.rd3-spotter--boxed {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 6px;
+  padding: 8px;
+}
+.rd3-spotter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rd3-spotter-tab {
+  background: var(--rd3-accent);
+  color: #10110f;
+  font: 800 12px var(--overlay-font, 'DIN Condensed', Bahnschrift, sans-serif);
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+}
+.rd3-spotter-meta {
+  color: var(--rd3-muted);
+  font: 700 11px var(--overlay-font, Bahnschrift, sans-serif);
+  letter-spacing: 0.1em;
+}
+.rd3-spotter-stage {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+}
+.rd3-spotter-cellrow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.rd3-spotter-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  font: 800 13px var(--overlay-font, 'DIN Condensed', Bahnschrift, sans-serif);
+}
+.rd3-spotter-chip b {
+  background: var(--rd3-muted);
+  color: #10110f;
+  padding: 1px 6px;
+}
+.rd3-spotter-chip.is-beside {
+  background: color-mix(in srgb, var(--rd3-danger) 24%, transparent);
+}
+.rd3-spotter-chip.is-beside b {
+  background: var(--rd3-danger);
+  color: #fff;
+}
+.rd3-spotter-chip.is-clear b {
+  background: var(--rd3-good);
+  color: #06140a;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * 4 · GT3 CLUSTER
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/* shared shift segments + readouts + gear */
+.rd3-clu-seg {
+  border-radius: 3px;
+  opacity: 0.18;
+}
+.rd3-clu-seg.green {
+  background: var(--rd3-good);
+}
+.rd3-clu-seg.amber {
+  background: var(--rd3-warn);
+}
+.rd3-clu-seg.red {
+  background: var(--rd3-danger);
+}
+.rd3-clu-seg.is-active {
+  opacity: 1;
+}
+.rd3-clu-shift {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 4px;
+  height: 14px;
+}
+.rd3-clu-ro {
+  display: grid;
+  grid-auto-flow: column;
+  justify-content: start;
+  align-items: baseline;
+  gap: 5px;
+}
+.rd3-clu-group.right .rd3-clu-ro {
+  justify-content: end;
+}
+.rd3-clu-ro span {
+  color: var(--rd3-muted);
+  font: 700 11px var(--overlay-font, 'Segoe UI', sans-serif);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.rd3-clu-ro strong {
+  color: var(--rd3-ink);
+  font: 800 22px var(--overlay-font, Bahnschrift, sans-serif);
+}
+.rd3-clu-ro strong.is-good {
+  color: var(--rd3-good);
+}
+.rd3-clu-ro strong.is-warn {
+  color: var(--rd3-warn);
+}
+.rd3-clu-ro small {
+  color: var(--rd3-muted);
+  font: 700 11px var(--overlay-font, 'Segoe UI', sans-serif);
+}
+.rd3-clu-gear {
+  display: grid;
+  place-items: center;
+}
+.rd3-clu-gear strong {
+  color: var(--rd3-accent);
+  font: 900 64px var(--overlay-font, Bahnschrift, sans-serif);
+  line-height: 0.82;
+}
+.rd3-clu-gear span {
+  color: var(--rd3-muted);
+  font: 800 11px var(--overlay-font, 'Segoe UI', sans-serif);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* ── panel — minimal / neon / glass ─────────────────────────────────────────── */
+.rd3-cluster--panel {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 8px;
+  padding: 10px 12px;
+}
+.rd3-clu-panel-body {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
+  min-height: 0;
+}
+.rd3-clu-group {
+  display: grid;
+  gap: 6px;
+}
+.rd3-clu-group.right {
+  justify-items: end;
+}
+.rd3-clu-fuelbar i {
+  display: block;
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--rd3-danger), var(--rd3-warn), var(--rd3-good)) 0 0 /
+      var(--fuel-level, 0%) 100% no-repeat,
+    rgba(255, 255, 255, 0.1);
+}
+
+/* minimal — hairline dividers, flat */
+.rd3-fam-minimal .rd3-clu-group {
+  border-left: 1px solid var(--rd3-line);
+  border-right: 1px solid var(--rd3-line);
+  padding: 0 10px;
+}
+.rd3-fam-minimal .rd3-clu-gear strong {
+  text-shadow: none;
+}
+
+/* neon — glow gear + emissive segments + VECTOR-HUD framing (reticle / corner
+ * brackets / scanlines) so it reads structurally different from minimal. */
+.rd3-fam-neon.rd3-cluster--panel {
+  position: relative;
+  overflow: hidden;
+}
+.rd3-fam-neon .rd3-clu-shift,
+.rd3-fam-neon .rd3-clu-panel-body,
+.rd3-fam-neon .rd3-clu-fuelbar {
+  position: relative;
+  z-index: 1;
+}
+.rd3-fam-neon .rd3-clu-gear strong {
+  text-shadow: 0 0 24px color-mix(in srgb, var(--rd3-accent) 55%, transparent);
+}
+.rd3-fam-neon .rd3-clu-seg {
+  transform: skewX(-12deg);
+}
+.rd3-fam-neon .rd3-clu-seg.is-active {
+  box-shadow: 0 0 12px currentColor;
+}
+.rd3-fam-neon .rd3-clu-ro span,
+.rd3-fam-neon .rd3-clu-ro small {
+  font-family: 'Cascadia Code', Consolas, monospace;
+}
+.rd3-fam-neon .rd3-clu-gear span {
+  color: color-mix(in srgb, var(--rd3-accent) 75%, #ffe7d7);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--rd3-accent) 40%, transparent);
+}
+.rd3-clu-neon-corners {
+  position: absolute;
+  inset: 6px;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.85;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--rd3-accent) 55%, transparent));
+  background:
+    linear-gradient(var(--rd3-accent), var(--rd3-accent)) left top / 16px 2px no-repeat,
+    linear-gradient(var(--rd3-accent), var(--rd3-accent)) left top / 2px 16px no-repeat,
+    linear-gradient(var(--rd3-accent), var(--rd3-accent)) right top / 16px 2px no-repeat,
+    linear-gradient(var(--rd3-accent), var(--rd3-accent)) right top / 2px 16px no-repeat,
+    linear-gradient(var(--rd3-accent), var(--rd3-accent)) left bottom / 16px 2px no-repeat,
+    linear-gradient(var(--rd3-accent), var(--rd3-accent)) left bottom / 2px 16px no-repeat,
+    linear-gradient(var(--rd3-accent), var(--rd3-accent)) right bottom / 16px 2px no-repeat,
+    linear-gradient(var(--rd3-accent), var(--rd3-accent)) right bottom / 2px 16px no-repeat;
+}
+.rd3-clu-neon-reticle {
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  width: 104px;
+  height: 104px;
+  z-index: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  border: 1px solid color-mix(in srgb, var(--rd3-accent) 42%, transparent);
+  border-radius: 50%;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--rd3-accent) 22%, transparent),
+    inset 0 0 16px color-mix(in srgb, var(--rd3-accent) 14%, transparent);
+  background:
+    linear-gradient(var(--rd3-accent), var(--rd3-accent)) 50% 0 / 1px 9px no-repeat,
+    linear-gradient(var(--rd3-accent), var(--rd3-accent)) 50% 100% / 1px 9px no-repeat,
+    linear-gradient(var(--rd3-accent), var(--rd3-accent)) 0 50% / 9px 1px no-repeat,
+    linear-gradient(var(--rd3-accent), var(--rd3-accent)) 100% 50% / 9px 1px no-repeat;
+}
+.rd3-clu-neon-scan {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: screen;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0 3px,
+    color-mix(in srgb, var(--rd3-accent) 8%, transparent) 3px 4px
+  );
+}
+
+/* glass — heavily frosted: blurred translucent cards with layered depth, bright
+ * top edge and inner shadow so it is obviously glass, not a flat gray panel. */
+.rd3-fam-glass.rd3-cluster--panel {
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.02) 60%),
+    color-mix(in srgb, var(--overlay-bg, rgba(10, 14, 22, 0.5)) 70%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 0 36px rgba(255, 255, 255, 0.06),
+    0 16px 40px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(14px) saturate(1.3);
+}
+.rd3-fam-glass .rd3-clu-group {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 16px;
+  padding: 9px 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 -10px 20px rgba(0, 0, 0, 0.16),
+    0 8px 22px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(10px) saturate(1.25);
+}
+.rd3-fam-glass .rd3-clu-gear {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 18px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 0 24px rgba(255, 255, 255, 0.06),
+    0 8px 20px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(8px);
+}
+.rd3-fam-glass .rd3-clu-gear strong {
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+}
+.rd3-fam-glass .rd3-clu-shift {
+  padding: 3px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  backdrop-filter: blur(6px);
+}
+.rd3-fam-glass .rd3-clu-seg {
+  border-radius: 4px;
+}
+
+/* ── analog cluster — rev dial + needle ─────────────────────────────────────── */
+.rd3-cluster--analog {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+}
+.rd3-clu-ang-svg {
+  width: 100%;
+  height: 100%;
+}
+.rd3-clu-ang-track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.1);
+  stroke-width: 12;
+  stroke-linecap: round;
+}
+.rd3-clu-ang-zone {
+  fill: none;
+  stroke-width: 5;
+  opacity: 0.34;
+  stroke-linecap: round;
+}
+.rd3-clu-ang-zone.green {
+  stroke: var(--rd3-good);
+}
+.rd3-clu-ang-zone.amber {
+  stroke: var(--rd3-warn);
+}
+.rd3-clu-ang-zone.red {
+  stroke: var(--rd3-danger);
+}
+.rd3-clu-ang-fill {
+  fill: none;
+  stroke-width: 9;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 6px currentColor);
+}
+.rd3-clu-ang-needle {
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.rd3-clu-ang-hub {
+  stroke: #1a120a;
+  stroke-width: 1;
+}
+.rd3-clu-ang-gear {
+  fill: var(--rd3-accent);
+  font: 900 46px var(--overlay-font, Bahnschrift, sans-serif);
+}
+.rd3-clu-ang-speed {
+  fill: var(--rd3-ink);
+  font: 800 18px var(--overlay-font, Bahnschrift, sans-serif);
+}
+.rd3-clu-ang-speed .u {
+  fill: var(--rd3-muted);
+  font-size: 9px;
+}
+.rd3-clu-ang-readouts {
+  display: grid;
+  gap: 9px;
+}
+
+/* ── terminal cluster — digital DSEG ────────────────────────────────────────── */
+.rd3-cluster--terminal {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #04070a;
+}
+.rd3-dseg {
+  /* DSEG = numerals only; gear N/R must use a condensed class in TSX */
+  font-family: var(--rc-num, 'DSEG7Classic-Regular', 'Cascadia Code', monospace);
+  letter-spacing: 0.06em;
+}
+.rd3-clu-trm-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.rd3-clu-trm-gear {
+  font-size: 54px;
+  font-weight: 800;
+  color: var(--rd3-accent);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--rd3-accent) 45%, transparent);
+}
+.rd3-clu-trm-speed {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--rd3-ink);
+}
+.rd3-clu-trm-speed i {
+  margin-left: 4px;
+  font-size: 12px;
+  font-style: normal;
+  color: var(--rd3-muted);
+}
+.rd3-clu-trm-shift,
+.rd3-clu-trm-rows {
+  font-family: var(--overlay-font, 'Cascadia Code', monospace);
+  white-space: pre;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.rd3-clu-trm-shift {
+  color: var(--rd3-accent);
+}
+.rd3-clu-trm-rows {
+  color: color-mix(in srgb, var(--rd3-accent) 78%, #fff);
+}
+
+/* ── heatmap cluster — digital gear + dense tinted cells ─────────────────────── */
+.rd3-cluster--heatmap {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  padding: 10px 12px;
+}
+.rd3-clu-heat-shift {
+  height: 10px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.rd3-clu-heat-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--rd3-good), var(--rd3-warn), var(--rd3-danger));
+}
+.rd3-clu-heat-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1fr 1fr 1fr;
+  gap: 5px;
+  min-height: 0;
+}
+.rd3-clu-hcell {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 1px;
+  border-radius: 5px;
+  background: rgba(140, 160, 190, 0.08);
+  padding: 6px 4px;
+}
+.rd3-clu-hcell span {
+  color: var(--rd3-muted);
+  font: 800 10px var(--overlay-font, Bahnschrift, sans-serif);
+  letter-spacing: 0.06em;
+}
+.rd3-clu-hcell b {
+  color: #fff8ef;
+  font: 800 22px var(--overlay-font, Bahnschrift, sans-serif);
+  line-height: 1;
+}
+.rd3-clu-hcell small {
+  color: var(--rd3-muted);
+  font: 700 9px var(--overlay-font, 'Segoe UI', sans-serif);
+}
+.rd3-clu-hcell.gear .rd3-dseg {
+  font-size: 40px;
+  font-weight: 800;
+  color: var(--rd3-accent);
+  line-height: 1;
+}
+.rd3-clu-hcell.is-hot {
+  background: color-mix(in srgb, var(--rd3-danger) 30%, transparent);
+}
+.rd3-clu-hcell.is-warm {
+  background: color-mix(in srgb, var(--rd3-warn) 26%, transparent);
+}
+.rd3-clu-hcell.is-cool {
+  background: color-mix(in srgb, var(--rd3-good) 22%, transparent);
+}
+
+/* ── bauhaus cluster — giant gear + flat blocks ─────────────────────────────── */
+.rd3-cluster--bauhaus {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  padding: 8px;
+  background: #0a0a0b;
+}
+.rd3-clu-bh-gear {
+  display: grid;
+  place-items: center;
+  min-width: 118px;
+  background: var(--rd3-accent);
+  color: #0a0500;
+  font: 900 108px Impact, 'Arial Narrow', sans-serif;
+  line-height: 0.78;
+}
+.rd3-clu-bh-stack {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  min-height: 0;
+}
+.rd3-clu-bh-shift {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 5px;
+  height: 18px;
+}
+.rd3-clu-bh-shift .rd3-clu-seg {
+  border-radius: 0;
+}
+.rd3-clu-bh-blocks {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.rd3-clu-bh-blk {
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  padding: 6px 8px;
+  background: #15151a;
+}
+.rd3-clu-bh-blk span {
+  color: var(--rd3-accent);
+  font: 900 12px 'Arial Narrow', Impact, sans-serif;
+  letter-spacing: 0.06em;
+}
+.rd3-clu-bh-blk b {
+  color: #fff;
+  font: 900 30px Impact, 'Arial Narrow', sans-serif;
+  line-height: 0.85;
+}
+.rd3-clu-bh-blk.is-good b {
+  color: var(--rd3-good);
+}
+.rd3-clu-bh-blk.is-warn b {
+  color: var(--rd3-warn);
+}
+
+/* ── broadcast cluster — boxed lower-third cells ────────────────────────────── */
+.rd3-cluster--boxed {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 6px;
+  padding: 8px;
+}
+.rd3-clu-box-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rd3-clu-tab {
+  background: var(--rd3-accent);
+  color: #10110f;
+  font: 800 13px var(--overlay-font, 'DIN Condensed', Bahnschrift, sans-serif);
+  letter-spacing: 0.06em;
+  padding: 3px 9px;
+}
+.rd3-clu-shift.broadcast {
+  flex: 1;
+  height: 12px;
+}
+.rd3-clu-box-status {
+  color: var(--rd3-muted);
+  font: 800 11px var(--overlay-font, Bahnschrift, sans-serif);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.rd3-clu-box-cells {
+  display: grid;
+  grid-template-columns: 1fr 0.8fr 0.9fr 1fr 1.2fr;
+  gap: 5px;
+  min-height: 0;
+}
+.rd3-clu-box-cell {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 1px;
+  background: rgba(255, 255, 255, 0.05);
+  border-bottom: 3px solid var(--rd3-accent);
+  padding: 6px 4px;
+}
+.rd3-clu-box-cell span {
+  color: var(--rd3-muted);
+  font: 800 10px var(--overlay-font, Bahnschrift, sans-serif);
+  letter-spacing: 0.04em;
+}
+.rd3-clu-box-cell b {
+  color: #fff;
+  font: 800 22px var(--overlay-font, 'DIN Condensed', Bahnschrift, sans-serif);
+  line-height: 1;
+}
+.rd3-clu-box-cell b.is-good {
+  color: var(--rd3-good);
+}
+.rd3-clu-box-cell b.is-warn {
+  color: var(--rd3-warn);
+}
+.rd3-clu-box-cell i {
+  color: var(--rd3-muted);
+  font: 700 9px var(--overlay-font, 'Segoe UI', sans-serif);
+  font-style: normal;
+}
+.rd3-clu-box-cell.gear {
+  background: color-mix(in srgb, var(--rd3-accent) 16%, transparent);
+}
+.rd3-clu-box-cell.gear b {
+  font-size: 40px;
+  color: var(--rd3-accent);
+}
+
+/* redline flash (snap on, honoured by all cluster families) */
+.rd3-cluster.is-redline .rd3-clu-seg.red.is-active,
+.rd3-cluster.is-redline .rd3-clu-gear strong,
+.rd3-cluster.is-redline .rd3-clu-bh-gear,
+.rd3-cluster.is-redline .rd3-clu-trm-gear {
+  animation: rd3-flash 120ms steps(1, end) infinite;
+}
+
+/* shared LedShiftBar — redline full-flash. The component owns the `is-blink`
+   hook, the consumer owns this keyframe. Additive; defined identically in each
+   overlay css that hosts a LedShiftBar so the flash works in isolation. */
+.led-shift-bar.is-blink { animation: led-shift-flash 110ms steps(1, end) infinite; }
+@keyframes led-shift-flash { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * 5 · GT3 ALARM
+ * ════════════════════════════════════════════════════════════════════════════ */
+.rd3-alarm {
+  transition: opacity 120ms ease, visibility 120ms ease;
+}
+.rd3-alarm.is-idle {
+  visibility: hidden;
+  opacity: 0;
+}
+
+/* ── panel — minimal / neon / glass ─────────────────────────────────────────── */
+.rd3-alarm--panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+}
+.rd3-alarm-banner {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 7px 10px;
+  border-radius: 8px;
+  text-align: center;
+  color: #fff8ef;
+  background: linear-gradient(135deg, var(--rd3-danger), #d4140a);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+.rd3-alarm.is-amber .rd3-alarm-banner {
+  color: #160800;
+  background: linear-gradient(135deg, var(--rd3-warn), var(--rd3-accent));
+}
+.rd3-alarm-temps {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.rd3-alarm-temps > div {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  background: rgba(150, 168, 196, 0.1);
+}
+.rd3-alarm-temps span {
+  color: var(--rd3-muted);
+  font: 800 10px var(--overlay-font, Bahnschrift, sans-serif);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.rd3-alarm-temps strong {
+  color: var(--rd3-ink);
+  font: 800 18px var(--overlay-font, Bahnschrift, sans-serif);
+  line-height: 0.9;
+}
+.rd3-alarm-temps .is-hot strong {
+  color: var(--rd3-danger);
+}
+.rd3-alarm-temps .is-warm strong {
+  color: var(--rd3-warn);
+}
+.rd3-alarm-temps .is-cool strong {
+  color: var(--rd3-good);
+}
+.rd3-alarm-tagline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.rd3-alarm-tagline strong {
+  font: 900 13px var(--overlay-font, Bahnschrift, sans-serif);
+  line-height: 0.85;
+  letter-spacing: 0.06em;
+}
+.rd3-alarm-tagline span {
+  font-size: 14px;
+}
+.rd3-alarm-name {
+  width: 100%;
+  max-width: 100%;
+  font: 900 18px var(--overlay-font, Bahnschrift, sans-serif);
+  line-height: 0.98;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.rd3-alarm-detail {
+  width: 100%;
+  max-width: 100%;
+  font: 800 11px var(--overlay-font, Bahnschrift, sans-serif);
+  line-height: 1.15;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.rd3-fam-neon .rd3-alarm-banner {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.2), 0 0 28px color-mix(in srgb, var(--rd3-danger) 55%, transparent);
+}
+.rd3-fam-neon.rd3-alarm.is-amber .rd3-alarm-banner {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.2), 0 0 28px color-mix(in srgb, var(--rd3-warn) 50%, transparent);
+}
+.rd3-fam-glass .rd3-alarm-banner {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--rd3-danger) 70%, transparent), rgba(120, 10, 6, 0.5));
+  backdrop-filter: blur(6px);
+}
+
+/* ── ascii alarm — terminal ─────────────────────────────────────────────────── */
+.rd3-alarm--ascii {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 6px;
+  padding: 10px 12px;
+  background: #0a0402;
+}
+.rd3-alarm-ascii-head {
+  font-family: var(--overlay-font, 'Cascadia Code', monospace);
+  color: var(--rd3-danger);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-shadow: 0 0 8px color-mix(in srgb, var(--rd3-danger) 50%, transparent);
+}
+.rd3-alarm.is-amber .rd3-alarm-ascii-head {
+  color: var(--rd3-warn);
+}
+.rd3-alarm-ascii-body {
+  font-family: var(--overlay-font, 'Cascadia Code', monospace);
+  color: var(--rd3-warn);
+  white-space: pre;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* ── blocks alarm — bauhaus ─────────────────────────────────────────────────── */
+.rd3-alarm--blocks {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  padding: 0;
+}
+.rd3-alarm-bh-glyph {
+  display: grid;
+  place-items: center;
+  width: 84px;
+  background: var(--rd3-danger);
+  color: #1a0000;
+  font-size: 52px;
+}
+.rd3-alarm.is-amber .rd3-alarm-bh-glyph {
+  background: var(--rd3-warn);
+}
+.rd3-alarm-bh-main {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 8px 12px;
+  background: #0c0c0e;
+}
+.rd3-alarm-bh-main strong {
+  color: #fff;
+  font: 900 32px Impact, 'Arial Narrow', sans-serif;
+  line-height: 0.85;
+}
+.rd3-alarm-bh-main span {
+  color: var(--rd3-muted);
+  font: 800 13px 'Arial Narrow', Impact, sans-serif;
+  text-transform: uppercase;
+}
+.rd3-alarm-bh-vitals {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  min-width: 72px;
+}
+.rd3-alarm-bh-vitals div {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  background: #15151a;
+}
+.rd3-alarm-bh-vitals div + div {
+  border-top: 2px solid #000;
+}
+.rd3-alarm-bh-vitals span {
+  color: var(--rd3-muted);
+  font: 900 10px 'Arial Narrow', Impact, sans-serif;
+}
+.rd3-alarm-bh-vitals b {
+  color: #fff;
+  font: 900 22px Impact, 'Arial Narrow', sans-serif;
+}
+.rd3-alarm-bh-vitals .is-hot b {
+  color: var(--rd3-danger);
+}
+.rd3-alarm-bh-vitals .is-warm b {
+  color: var(--rd3-warn);
+}
+.rd3-alarm-bh-vitals .is-cool b {
+  color: var(--rd3-good);
+}
+
+/* ── lamp alarm — analog tell-tale ──────────────────────────────────────────── */
+.rd3-alarm--lamp {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+}
+.rd3-alarm-lamp-svg {
+  width: 78px;
+  height: 78px;
+}
+.rd3-alarm-lamp-bezel {
+  fill: #15100a;
+  stroke: color-mix(in srgb, var(--rd3-accent) 58%, #6b5836);
+  stroke-width: 3;
+}
+.rd3-alarm-lamp-glass {
+  fill: var(--rd3-danger);
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--rd3-danger) 60%, transparent));
+  animation: rd3-pulse 700ms ease-in-out infinite;
+}
+.rd3-alarm.is-amber .rd3-alarm-lamp-glass {
+  fill: var(--rd3-warn);
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--rd3-warn) 55%, transparent));
+}
+.rd3-alarm-lamp-glyph {
+  fill: #1a0000;
+  font-size: 34px;
+  font-weight: 900;
+}
+.rd3-alarm-lamp-body {
+  display: grid;
+  gap: 3px;
+}
+.rd3-alarm-lamp-body strong {
+  color: var(--rd3-ink);
+  font: 900 26px var(--overlay-font, Bahnschrift, sans-serif);
+  line-height: 0.9;
+}
+.rd3-alarm-lamp-body span {
+  color: var(--rd3-muted);
+  font: 800 12px var(--overlay-font, Bahnschrift, sans-serif);
+  text-transform: uppercase;
+}
+.rd3-alarm-lamp-vitals {
+  display: flex;
+  gap: 12px;
+  margin-top: 2px;
+}
+.rd3-alarm-lamp-vitals span {
+  font: 800 12px var(--overlay-font, Bahnschrift, sans-serif);
+  color: var(--rd3-muted);
+}
+.rd3-alarm-lamp-vitals .is-hot {
+  color: var(--rd3-danger);
+}
+.rd3-alarm-lamp-vitals .is-warm {
+  color: var(--rd3-warn);
+}
+.rd3-alarm-lamp-vitals .is-cool {
+  color: var(--rd3-good);
+}
+
+/* ── cells alarm — heatmap ──────────────────────────────────────────────────── */
+.rd3-alarm--cells {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr 1fr;
+  gap: 6px;
+  padding: 8px;
+}
+.rd3-alarm-hcell {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 2px;
+  border-radius: 5px;
+  background: rgba(140, 160, 190, 0.08);
+  padding: 8px 6px;
+}
+.rd3-alarm-hcell span {
+  color: var(--rd3-muted);
+  font: 800 10px var(--overlay-font, Bahnschrift, sans-serif);
+  letter-spacing: 0.06em;
+}
+.rd3-alarm-hcell b {
+  color: #fff8ef;
+  font: 800 22px var(--overlay-font, Bahnschrift, sans-serif);
+  line-height: 1;
+  text-align: center;
+}
+.rd3-alarm-hcell small {
+  color: var(--rd3-muted);
+  font: 700 9px var(--overlay-font, 'Segoe UI', sans-serif);
+}
+.rd3-alarm-hcell.alarm {
+  background: color-mix(in srgb, var(--rd3-danger) 36%, transparent);
+}
+.rd3-alarm.is-amber .rd3-alarm-hcell.alarm {
+  background: color-mix(in srgb, var(--rd3-warn) 32%, transparent);
+}
+.rd3-alarm-hcell.is-hot {
+  background: color-mix(in srgb, var(--rd3-danger) 30%, transparent);
+}
+.rd3-alarm-hcell.is-warm {
+  background: color-mix(in srgb, var(--rd3-warn) 26%, transparent);
+}
+.rd3-alarm-hcell.is-cool {
+  background: color-mix(in srgb, var(--rd3-good) 22%, transparent);
+}
+
+/* ── boxed alarm — broadcast ────────────────────────────────────────────────── */
+.rd3-alarm--boxed {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 6px;
+  padding: 8px;
+}
+.rd3-alarm-box-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rd3-alarm-tab {
+  background: var(--rd3-danger);
+  color: #fff;
+  font: 800 13px var(--overlay-font, 'DIN Condensed', Bahnschrift, sans-serif);
+  letter-spacing: 0.06em;
+  padding: 3px 9px;
+}
+.rd3-alarm.is-amber .rd3-alarm-tab {
+  background: var(--rd3-warn);
+  color: #160800;
+}
+.rd3-alarm-box-name {
+  color: #fff;
+  font: 800 20px var(--overlay-font, 'DIN Condensed', Bahnschrift, sans-serif);
+  text-transform: uppercase;
+}
+.rd3-alarm-box-body {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+.rd3-alarm-box-detail {
+  color: var(--rd3-muted);
+  font: 800 13px var(--overlay-font, Bahnschrift, sans-serif);
+  text-transform: uppercase;
+}
+.rd3-alarm-box-chips {
+  display: flex;
+  gap: 6px;
+}
+.rd3-alarm-box-chips span {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 3px 8px;
+  color: #fff;
+  font: 800 12px var(--overlay-font, 'DIN Condensed', Bahnschrift, sans-serif);
+}
+.rd3-alarm-box-chips b {
+  margin-right: 4px;
+  color: var(--rd3-muted);
+}
+.rd3-alarm-box-chips .is-hot {
+  color: var(--rd3-danger);
+}
+.rd3-alarm-box-chips .is-warm {
+  color: var(--rd3-warn);
+}
+.rd3-alarm-box-chips .is-cool {
+  color: var(--rd3-good);
+}
+
+/* ── animations ─────────────────────────────────────────────────────────────── */
+@keyframes rd3-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes rd3-flash {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+@keyframes rd3-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rd3-disc-sweep,
+  .rd3-scope-sweep,
+  .rd3-alarm-lamp-glass,
+  .rd3-cluster.is-redline .rd3-clu-seg.red.is-active,
+  .rd3-cluster.is-redline .rd3-clu-gear strong,
+  .rd3-cluster.is-redline .rd3-clu-bh-gear,
+  .rd3-cluster.is-redline .rd3-clu-trm-gear {
+    animation: none !important;
+  }
+}

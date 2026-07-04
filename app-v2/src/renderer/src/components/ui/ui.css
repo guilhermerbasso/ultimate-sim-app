@@ -1,0 +1,333 @@
+/*
+ * Reusable modern UI primitives (glassmorphism / neon).
+ *
+ * Every rule is driven by the themed CSS variables defined in styles/theme.css
+ * and overridden per-theme by applyAppTheme. On flat (non-glass) themes the
+ * glass/glow tokens are inert, so these components degrade to clean, sharp
+ * panels instead of breaking the motorsport look.
+ *
+ * Colour rule: warm (red/orange/amber) is the generic accent; cool/green is
+ * reserved for "good" states. Neon glow is used only as an effect.
+ */
+
+/* ── GlassCard ─────────────────────────────────────────────── */
+.ui-glass-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  background: var(--glass-tint), var(--surface-raised);
+  color: var(--text-primary);
+  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  box-shadow: var(--shadow-card);
+  transition: transform var(--motion-med) var(--ease-out),
+    box-shadow var(--motion-med) var(--ease-out),
+    border-color var(--motion-med) var(--ease-out);
+}
+
+.ui-glass-card[data-elevated='true'] {
+  background: var(--glass-tint), var(--surface-overlay);
+  box-shadow: var(--shadow-raised);
+}
+
+.ui-glass-card[data-interactive='true']:hover {
+  transform: translateY(-2px);
+  border-color: var(--glass-border);
+  box-shadow: var(--shadow-elevated), var(--glow-accent-soft);
+}
+
+.ui-glass-card[data-accent='true'] {
+  border-color: var(--border-accent);
+  box-shadow: var(--shadow-card), var(--glow-accent-soft);
+}
+
+.ui-glass-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.ui-glass-card__title {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* ── NeonStatTile ──────────────────────────────────────────── */
+.ui-stat-tile {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-6);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: var(--glass-tint), var(--surface-raised);
+  backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(130%);
+  box-shadow: var(--shadow-card);
+  transition: transform var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+.ui-stat-tile[data-interactive='true']:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-raised), var(--glow-accent-soft);
+}
+
+.ui-stat-tile__icon {
+  flex-shrink: 0;
+}
+
+.ui-stat-tile__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ui-stat-tile__label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ui-stat-tile__value {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 24px;
+  line-height: 1.05;
+  color: var(--text-primary);
+}
+
+.ui-stat-tile__value[data-tone='accent'] {
+  color: var(--text-accent);
+  text-shadow: var(--glow-accent-soft);
+}
+
+.ui-stat-tile__value[data-tone='good'] {
+  color: var(--accent-success);
+}
+
+.ui-stat-tile__value[data-tone='danger'] {
+  color: var(--text-danger);
+}
+
+.ui-stat-tile__delta {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ui-stat-tile__delta[data-dir='up'] {
+  color: var(--accent-success);
+}
+
+.ui-stat-tile__delta[data-dir='down'] {
+  color: var(--text-danger);
+}
+
+/* ── GradientBar ───────────────────────────────────────────── */
+.ui-gradient-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ui-gradient-bar__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.ui-gradient-bar__value {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ui-gradient-bar__track {
+  position: relative;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+}
+
+.ui-gradient-bar__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--radius-pill);
+  background: var(--gradient-accent);
+  box-shadow: var(--glow-accent-soft);
+  transition: width var(--motion-med) var(--ease-out);
+}
+
+.ui-gradient-bar__fill[data-tone='good'] {
+  background: linear-gradient(135deg, var(--accent-success), var(--accent-success));
+  box-shadow: none;
+}
+
+.ui-gradient-bar__fill[data-tone='danger'] {
+  background: linear-gradient(135deg, var(--accent-danger), var(--accent-danger));
+}
+
+/* ── PillToggle ────────────────────────────────────────────── */
+.ui-pill-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ui-pill-toggle__track {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-overlay);
+  border: 1px solid var(--border-default);
+  transition: background var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+.ui-pill-toggle__knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  background: var(--text-secondary);
+  transition: transform var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out);
+}
+
+.ui-pill-toggle[data-on='true'] .ui-pill-toggle__track {
+  background: var(--accent-primary-dim);
+  border-color: var(--border-accent);
+  box-shadow: var(--glow-accent-soft);
+}
+
+.ui-pill-toggle[data-on='true'] .ui-pill-toggle__knob {
+  transform: translateX(18px);
+  background: var(--accent-primary);
+}
+
+.ui-pill-toggle[data-disabled='true'] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ui-pill-toggle__label {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+/* ── GlowIcon ──────────────────────────────────────────────── */
+.ui-glow-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--accent-primary-dim);
+  color: var(--text-accent);
+  box-shadow: var(--glow-accent-soft);
+  transition: transform var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+.ui-glow-icon[data-size='sm'] {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+}
+
+.ui-glow-icon[data-size='lg'] {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-lg);
+}
+
+.ui-glow-icon[data-tone='good'] {
+  color: var(--accent-success);
+  background: color-mix(in srgb, var(--accent-success) 16%, transparent);
+}
+
+.ui-glow-icon[data-tone='danger'] {
+  color: var(--text-danger);
+  background: var(--accent-danger-dim);
+}
+
+.ui-glow-icon[data-interactive='true']:hover {
+  transform: translateY(-1px) scale(1.04);
+  box-shadow: var(--glow-accent);
+}
+
+/* ── SegmentedControl ──────────────────────────────────────── */
+.ui-segmented {
+  display: inline-flex;
+  padding: var(--space-1);
+  gap: var(--space-1);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+.ui-segmented__item {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-pill);
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+.ui-segmented__item:hover:not([data-active='true']):not(:disabled) {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.ui-segmented__item[data-active='true'] {
+  color: var(--text-on-accent);
+  background: var(--gradient-accent);
+  box-shadow: var(--glow-accent-soft);
+}
+
+.ui-segmented__item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

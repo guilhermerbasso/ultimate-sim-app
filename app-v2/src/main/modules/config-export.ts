@@ -1,0 +1,655 @@
+import { dialog, type OpenDialogOptions, type SaveDialogOptions } from 'electron'
+import { lstat, mkdir, readFile, readdir, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve, sep } from 'node:path'
+import type { ModuleContext } from '../module-context'
+import {
+  CONFIG_BUNDLE_APP_ID,
+  CONFIG_BUNDLE_VERSION,
+  CONFIG_IO_CHANNELS,
+  CONFIG_SECTION_RELOAD_SIGNAL,
+  CONFIG_SECTION_RESET_SIGNAL,
+  CONFIG_SECTIONS,
+  getConfigSection,
+  isConfigBundle,
+  isConfigSectionExport,
+  isForbiddenConfigPath,
+  isPlainObject,
+  type ConfigBundle,
+  type ConfigDeleteResult,
+  type ConfigExportResult,
+  type ConfigImportResult,
+  type ConfigImportSummary,
+  type ConfigSectionExport,
+  type SavedSectionInfo
+} from '../../shared/config-io'
+
+// ─── Storage abstraction ───────────────────────────────────────────────────────
+// The engine reads/writes config ONLY through this interface, so the whole
+// export/import flow can be unit-tested in-memory (no disk, no electron). The
+// production implementation is a thin node:fs wrapper bound to userData.
+
+export interface ConfigStorage {
+  /** Parsed JSON of a single file, or undefined if it does not exist. */
+  readFileJson(relPath: string): Promise<unknown>
+  writeFileJson(relPath: string, data: unknown): Promise<void>
+  /** Map of `<filename>.json` → parsed JSON for every JSON file in a directory. */
+  readDirJson(relDir: string): Promise<Record<string, unknown>>
+  writeDirJson(relDir: string, files: Record<string, unknown>): Promise<void>
+  /** Size/last-modified for a 'file' store (exists:false when absent). */
+  statFile(relPath: string): Promise<ConfigStorageStat>
+  /** Aggregate size/last-modified + .json count for a 'dir' store. */
+  statDir(relDir: string): Promise<ConfigStorageStat>
+  /** Remove a 'file' store. Returns true if it existed (idempotent otherwise). */
+  removeFile(relPath: string): Promise<boolean>
+  /** Remove every .json inside a 'dir' store (non-.json assets are kept). Returns true if any were removed. */
+  removeDirJson(relDir: string): Promise<boolean>
+}
+
+// Saved-state stat returned by the storage layer. `itemCount` is populated by
+// statDir (number of .json files); for files the engine derives it from content.
+export interface ConfigStorageStat {
+  exists: boolean
+  sizeBytes: number
+  modifiedAt: number | null
+  itemCount?: number
+}
+
+function isMissing(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException)?.code === 'ENOENT'
+}
+
+// Serialized on-disk footprint of a value, matching writeFileJson's exact format
+// (pretty JSON + trailing newline). Used by the in-memory storage to report a
+// size that mirrors what the file store would write.
+function jsonByteLength(value: unknown): number {
+  return Buffer.byteLength(`${JSON.stringify(value, null, 2)}\n`, 'utf8')
+}
+
+// Only ever target plain *.json filenames INSIDE a section dir — never other
+// file types, never a path with separators or traversal.
+function isPlainJsonName(name: string): boolean {
+  return name.endsWith('.json') && !name.includes('/') && !name.includes('\\') && !name.includes('..')
+}
+
+// Above this size a 'file' section's itemCount isn't worth a full read+parse on
+// every listing. listSavedSections runs on each `config:changed`, and a deleteAll
+// fans out to ~N+1 listings, so large stores report size only (count omitted).
+const ITEM_COUNT_MAX_BYTES = 64 * 1024
+
+// Real filesystem storage rooted at `baseDir` (app.getPath('userData')). Every
+// access is checked against isForbiddenConfigPath so secret/cache paths can
+// never be touched even if a caller passes one in.
+export function createFileStorage(baseDir: string): ConfigStorage {
+  const root = resolve(baseDir)
+  const resolveSafe = (rel: string): string => {
+    if (isForbiddenConfigPath(rel)) throw new Error(`Caminho de configuração protegido recusado: ${rel}`)
+    const full = resolve(root, rel)
+    // Boundary lock (defense-in-depth): the resolved path MUST stay inside baseDir.
+    // isForbiddenConfigPath already blocks '..' traversal and secret names, but this
+    // additionally rejects any absolute/escaping path a future caller might pass that
+    // slips past the name-based allowlist.
+    if (full !== root && !full.startsWith(root + sep)) {
+      throw new Error(`Caminho de configuração fora do diretório base recusado: ${rel}`)
+    }
+    return full
+  }
+
+  return {
+    async readFileJson(relPath) {
+      try {
+        return JSON.parse(await readFile(resolveSafe(relPath), 'utf8')) as unknown
+      } catch (error) {
+        if (isMissing(error)) return undefined
+        throw error
+      }
+    },
+    async writeFileJson(relPath, data) {
+      const full = resolveSafe(relPath)
+      await mkdir(dirname(full), { recursive: true })
+      await writeFile(full, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
+    },
+    async readDirJson(relDir) {
+      const dir = resolveSafe(relDir)
+      const out: Record<string, unknown> = {}
+      let names: string[] = []
+      try {
+        names = await readdir(dir)
+      } catch (error) {
+        if (isMissing(error)) return out
+        throw error
+      }
+      for (const name of names) {
+        if (!name.endsWith('.json')) continue
+        try {
+          out[name] = JSON.parse(await readFile(join(dir, name), 'utf8')) as unknown
+        } catch {
+          // Ignore corrupt/unreadable entries — a partial export is fine.
+        }
+      }
+      return out
+    },
+    async writeDirJson(relDir, files) {
+      const dir = resolveSafe(relDir)
+      await mkdir(dir, { recursive: true })
+      // Clean-replace: delete the directory's existing *.json BEFORE writing the
+      // bundle's files, so an imported section fully REPLACES the previous one
+      // (matches the "vai SOBRESCREVER" wording the UI shows). `resolveSafe`
+      // already refused forbidden/allowlisted-only paths, and we additionally
+      // only ever delete REGULAR *.json files INSIDE this dir — never other file
+      // types (images, etc.) and never anything outside it.
+      try {
+        const entries = await readdir(dir, { withFileTypes: true })
+        await Promise.all(
+          entries
+            .filter(
+              (ent) =>
+                ent.isFile() &&
+                ent.name.endsWith('.json') &&
+                !ent.name.includes('/') &&
+                !ent.name.includes('\\') &&
+                !ent.name.includes('..')
+            )
+            .map((ent) => rm(join(dir, ent.name), { force: true }))
+        )
+      } catch (error) {
+        if (!isMissing(error)) throw error
+      }
+      for (const [name, content] of Object.entries(files)) {
+        // Only ever write plain JSON filenames inside the target directory.
+        if (!name.endsWith('.json') || name.includes('/') || name.includes('\\') || name.includes('..')) continue
+        await writeFile(join(dir, name), `${JSON.stringify(content, null, 2)}\n`, 'utf8')
+      }
+    },
+    async statFile(relPath) {
+      const full = resolveSafe(relPath)
+      try {
+        const info = await stat(full)
+        return { exists: true, sizeBytes: info.size, modifiedAt: info.mtimeMs }
+      } catch (error) {
+        if (isMissing(error)) return { exists: false, sizeBytes: 0, modifiedAt: null }
+        throw error
+      }
+    },
+    async statDir(relDir) {
+      const dir = resolveSafe(relDir)
+      let names: string[] = []
+      try {
+        names = await readdir(dir)
+      } catch (error) {
+        if (isMissing(error)) return { exists: false, sizeBytes: 0, modifiedAt: null, itemCount: 0 }
+        throw error
+      }
+      let sizeBytes = 0
+      let modifiedAt: number | null = null
+      let itemCount = 0
+      for (const name of names) {
+        if (!isPlainJsonName(name)) continue
+        try {
+          // lstat (NOT stat) so a planted symlink reports its OWN metadata and is
+          // skipped below — never the (possibly huge/outside) target's size/mtime.
+          const info = await lstat(join(dir, name))
+          if (info.isSymbolicLink() || !info.isFile()) continue
+          sizeBytes += info.size
+          modifiedAt = modifiedAt === null ? info.mtimeMs : Math.max(modifiedAt, info.mtimeMs)
+          itemCount += 1
+        } catch {
+          // Ignore unreadable entries — they don't count toward the saved state.
+        }
+      }
+      return { exists: true, sizeBytes, modifiedAt, itemCount }
+    },
+    async removeFile(relPath) {
+      const full = resolveSafe(relPath)
+      try {
+        await unlink(full)
+        return true
+      } catch (error) {
+        if (isMissing(error)) return false
+        throw error
+      }
+    },
+    async removeDirJson(relDir) {
+      const dir = resolveSafe(relDir)
+      try {
+        const entries = await readdir(dir, { withFileTypes: true })
+        // Mirror writeDirJson's clean-replace: remove ONLY regular *.json files
+        // inside this dir (keep images/other assets), never anything outside it.
+        const targets = entries.filter((ent) => ent.isFile() && isPlainJsonName(ent.name))
+        await Promise.all(targets.map((ent) => rm(join(dir, ent.name), { force: true })))
+        return targets.length > 0
+      } catch (error) {
+        if (isMissing(error)) return false
+        throw error
+      }
+    }
+  }
+}
+
+// In-memory storage for tests. Keys are relative paths; 'file' sections store
+// the parsed value, 'dir' sections store a `Record<filename, value>`.
+export function createMemoryStorage(
+  seed: Record<string, unknown> = {}
+): ConfigStorage & { dump(): Record<string, unknown> } {
+  const store = new Map<string, unknown>(Object.entries(seed))
+  return {
+    dump() {
+      return Object.fromEntries(store.entries())
+    },
+    async readFileJson(relPath) {
+      return store.has(relPath) ? store.get(relPath) : undefined
+    },
+    async writeFileJson(relPath, data) {
+      if (isForbiddenConfigPath(relPath)) throw new Error(`Caminho protegido recusado: ${relPath}`)
+      store.set(relPath, data)
+    },
+    async readDirJson(relDir) {
+      const value = store.get(relDir)
+      return isPlainObject(value) ? { ...value } : {}
+    },
+    async writeDirJson(relDir, files) {
+      if (isForbiddenConfigPath(relDir)) throw new Error(`Caminho protegido recusado: ${relDir}`)
+      store.set(relDir, { ...files })
+    },
+    async statFile(relPath) {
+      if (!store.has(relPath)) return { exists: false, sizeBytes: 0, modifiedAt: null }
+      return { exists: true, sizeBytes: jsonByteLength(store.get(relPath)), modifiedAt: null }
+    },
+    async statDir(relDir) {
+      const value = store.get(relDir)
+      if (!isPlainObject(value)) return { exists: false, sizeBytes: 0, modifiedAt: null, itemCount: 0 }
+      const names = Object.keys(value).filter(isPlainJsonName)
+      let sizeBytes = 0
+      for (const name of names) sizeBytes += jsonByteLength(value[name])
+      return { exists: names.length > 0, sizeBytes, modifiedAt: null, itemCount: names.length }
+    },
+    async removeFile(relPath) {
+      if (isForbiddenConfigPath(relPath)) throw new Error(`Caminho protegido recusado: ${relPath}`)
+      return store.delete(relPath)
+    },
+    async removeDirJson(relDir) {
+      if (isForbiddenConfigPath(relDir)) throw new Error(`Caminho protegido recusado: ${relDir}`)
+      const value = store.get(relDir)
+      const had = isPlainObject(value) && Object.keys(value).some(isPlainJsonName)
+      store.delete(relDir)
+      return had
+    }
+  }
+}
+
+// ─── Section registry ───────────────────────────────────────────────────────────
+// Maps each sectionId → { read(), write(data) } bound to the storage layer.
+
+export interface SectionAccessor {
+  read(): Promise<unknown>
+  write(data: unknown): Promise<void>
+}
+
+export function buildRegistry(storage: ConfigStorage): Record<string, SectionAccessor> {
+  const registry: Record<string, SectionAccessor> = {}
+  for (const section of CONFIG_SECTIONS) {
+    // Defense-in-depth: never wire a forbidden path into the registry.
+    if (isForbiddenConfigPath(section.path)) continue
+    registry[section.id] =
+      section.kind === 'dir'
+        ? {
+            read: async () => {
+              const map = await storage.readDirJson(section.path)
+              return Object.keys(map).length > 0 ? map : undefined
+            },
+            write: (data) => storage.writeDirJson(section.path, isPlainObject(data) ? data : {})
+          }
+        : {
+            read: () => storage.readFileJson(section.path),
+            write: (data) => storage.writeFileJson(section.path, data)
+          }
+  }
+  return registry
+}
+
+// ─── Engine ───────────────────────────────────────────────────────────────────
+
+export interface ConfigEngine {
+  registry: Record<string, SectionAccessor>
+  exportAll(): Promise<ConfigBundle>
+  importAll(bundle: unknown, opts?: { sections?: string[] }): Promise<ConfigImportSummary>
+  exportSection(sectionId: string): Promise<ConfigSectionExport>
+  importSection(sectionId: string, payload: unknown): Promise<ConfigImportSummary>
+  /** Read-only metadata for every allowlisted section's saved state under userData. */
+  listSavedSections(): Promise<SavedSectionInfo[]>
+  /** Delete a section's userData store so it returns to factory default on next load. */
+  deleteSection(sectionId: string): Promise<ConfigDeleteResult>
+  /** Reset a section to factory default — identical to deleteSection (the store is removed). */
+  resetSection(sectionId: string): Promise<ConfigDeleteResult>
+}
+
+export function createConfigEngine(storage: ConfigStorage): ConfigEngine {
+  const registry = buildRegistry(storage)
+
+  async function exportAll(): Promise<ConfigBundle> {
+    const sections: Record<string, unknown> = {}
+    for (const section of CONFIG_SECTIONS) {
+      const accessor = registry[section.id]
+      if (!accessor) continue
+      const data = await accessor.read()
+      if (data !== undefined) sections[section.id] = data
+    }
+    return {
+      app: CONFIG_BUNDLE_APP_ID,
+      version: CONFIG_BUNDLE_VERSION,
+      exportedAt: new Date().toISOString(),
+      sections
+    }
+  }
+
+  async function importAll(bundle: unknown, opts?: { sections?: string[] }): Promise<ConfigImportSummary> {
+    if (!isConfigBundle(bundle)) {
+      throw new Error('Arquivo inválido: não é um perfil do Ultimate Sim App.')
+    }
+    const filter = opts?.sections ? new Set(opts.sections) : null
+    const applied: string[] = []
+    const skipped: string[] = []
+    const unknown: string[] = []
+
+    for (const [id, data] of Object.entries(bundle.sections)) {
+      if (filter && !filter.has(id)) {
+        skipped.push(id)
+        continue
+      }
+      const section = getConfigSection(id)
+      const accessor = registry[id]
+      // Unknown OR forbidden ids are ignored — auth stores can never be targeted.
+      if (!section || !accessor || isForbiddenConfigPath(section.path)) {
+        unknown.push(id)
+        continue
+      }
+      await accessor.write(data)
+      applied.push(id)
+    }
+
+    return { app: CONFIG_BUNDLE_APP_ID, version: bundle.version, applied, skipped, unknown }
+  }
+
+  async function exportSection(sectionId: string): Promise<ConfigSectionExport> {
+    const section = getConfigSection(sectionId)
+    const accessor = registry[sectionId]
+    if (!section || !accessor) throw new Error(`Seção de configuração desconhecida: ${sectionId}`)
+    const data = (await accessor.read()) ?? null
+    return {
+      app: CONFIG_BUNDLE_APP_ID,
+      version: CONFIG_BUNDLE_VERSION,
+      exportedAt: new Date().toISOString(),
+      sectionId,
+      data
+    }
+  }
+
+  async function importSection(sectionId: string, payload: unknown): Promise<ConfigImportSummary> {
+    const section = getConfigSection(sectionId)
+    const accessor = registry[sectionId]
+    if (!section || !accessor || isForbiddenConfigPath(section.path)) {
+      throw new Error(`Seção de configuração desconhecida ou protegida: ${sectionId}`)
+    }
+
+    // Accept a section-export file, a full bundle (extract the matching section),
+    // or raw section data — whichever the user opened.
+    let data: unknown = payload
+    if (isConfigSectionExport(payload)) {
+      if (payload.sectionId !== sectionId) {
+        throw new Error(`O arquivo é da seção "${payload.sectionId}", não "${sectionId}".`)
+      }
+      data = payload.data
+    } else if (isConfigBundle(payload)) {
+      if (!(sectionId in payload.sections)) {
+        throw new Error(`O perfil não contém a seção "${sectionId}".`)
+      }
+      data = payload.sections[sectionId]
+    }
+
+    await accessor.write(data)
+    return { app: CONFIG_BUNDLE_APP_ID, version: CONFIG_BUNDLE_VERSION, applied: [sectionId], skipped: [], unknown: [] }
+  }
+
+  // Cheap top-level count for a 'file' section: array length or object key count
+  // when the value is trivially shaped; undefined otherwise (so the UI omits it).
+  function fileItemCount(data: unknown): number | undefined {
+    if (Array.isArray(data)) return data.length
+    if (isPlainObject(data)) return Object.keys(data).length
+    return undefined
+  }
+
+  async function listSavedSections(): Promise<SavedSectionInfo[]> {
+    const out: SavedSectionInfo[] = []
+    for (const section of CONFIG_SECTIONS) {
+      // Defense-in-depth: an allowlisted-but-forbidden path is never inspected.
+      if (isForbiddenConfigPath(section.path)) continue
+      try {
+        if (section.kind === 'dir') {
+          const info = await storage.statDir(section.path)
+          out.push({
+            id: section.id,
+            label: section.label,
+            kind: 'dir',
+            exists: info.exists && (info.itemCount ?? 0) > 0,
+            sizeBytes: info.sizeBytes,
+            modifiedAt: info.modifiedAt,
+            itemCount: info.itemCount
+          })
+        } else {
+          const info = await storage.statFile(section.path)
+          let itemCount: number | undefined
+          // Only read+parse the file for a count when it's small. A deleteAll fans
+          // out to ~N+1 listings, so re-reading a large store on every refresh is
+          // wasteful — above the threshold we report size only and omit itemCount.
+          if (info.exists && info.sizeBytes <= ITEM_COUNT_MAX_BYTES) {
+            try {
+              itemCount = fileItemCount(await storage.readFileJson(section.path))
+            } catch {
+              // Corrupt/unparseable file → omit the count, still report it exists.
+            }
+          }
+          out.push({
+            id: section.id,
+            label: section.label,
+            kind: 'file',
+            exists: info.exists,
+            sizeBytes: info.sizeBytes,
+            modifiedAt: info.modifiedAt,
+            itemCount
+          })
+        }
+      } catch {
+        // A SINGLE unreadable store (EACCES, a file lock, a transient FS error)
+        // must never reject the whole listing and blank the panel. Report this
+        // section as not-saved + flagged and keep listing the rest.
+        out.push({
+          id: section.id,
+          label: section.label,
+          kind: section.kind,
+          exists: false,
+          sizeBytes: 0,
+          modifiedAt: null,
+          error: true
+        })
+      }
+    }
+    return out
+  }
+
+  // Remove a section's userData store. 'delete' and 'reset' are the SAME
+  // operation: dropping the file/dir contents returns the section to its
+  // factory default on the next launch. Guarded by getConfigSection (allowlist)
+  // + isForbiddenConfigPath; the storage layer re-checks the path again.
+  async function removeSection(sectionId: string): Promise<ConfigDeleteResult> {
+    const section = getConfigSection(sectionId)
+    if (!section) throw new Error(`Seção de configuração desconhecida: ${sectionId}`)
+    if (isForbiddenConfigPath(section.path)) {
+      throw new Error(`Seção de configuração protegida: ${sectionId}`)
+    }
+    const removed =
+      section.kind === 'dir'
+        ? await storage.removeDirJson(section.path)
+        : await storage.removeFile(section.path)
+    return { id: sectionId, removed }
+  }
+
+  return {
+    registry,
+    exportAll,
+    importAll,
+    exportSection,
+    importSection,
+    listSavedSections,
+    deleteSection: removeSection,
+    resetSection: removeSection
+  }
+}
+
+// ─── Dialog helpers ─────────────────────────────────────────────────────────────
+
+function dateStamp(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+const JSON_FILTER = [{ name: 'Ultimate Sim App config', extensions: ['json'] }]
+
+function exportAllDialogOpts(): SaveDialogOptions {
+  return {
+    title: 'Exportar perfil completo',
+    defaultPath: `ultimate-sim-app-profile-${dateStamp()}.json`,
+    filters: JSON_FILTER
+  }
+}
+
+function exportSectionDialogOpts(sectionId: string): SaveDialogOptions {
+  return {
+    title: `Exportar configuração — ${sectionId}`,
+    defaultPath: `${sectionId}-config-${dateStamp()}.json`,
+    filters: JSON_FILTER
+  }
+}
+
+function importDialogOpts(): OpenDialogOptions {
+  return { title: 'Importar configuração', properties: ['openFile'], filters: JSON_FILTER }
+}
+
+// ─── Module registration (IPC + native dialogs) ─────────────────────────────────
+
+export function register(ctx: ModuleContext): void {
+  const storage = createFileStorage(ctx.app.getPath('userData'))
+  const engine = createConfigEngine(storage)
+
+  // Tell the in-memory module that OWNS each freshly-imported section to RE-READ
+  // its store from disk so the change applies live, with no restart. Fired on the
+  // main-process-internal CONFIG_SECTION_RELOAD_SIGNAL (never a renderer channel),
+  // BEFORE the renderer `config:imported` broadcast so the live module is already
+  // reloaded by the time any UI reacts. A module that reloads also holds FRESH
+  // in-memory data, so its before-quit flush can no longer clobber the imported
+  // file — the import counterpart of the reset-signal protection used by delete.
+  const emitReload = (sectionIds: readonly string[]): void => {
+    for (const sectionId of sectionIds) {
+      ctx.ipcMain.emit(CONFIG_SECTION_RELOAD_SIGNAL, { source: 'config-export' }, sectionId)
+    }
+  }
+
+  const showSave = (opts: SaveDialogOptions): Promise<Electron.SaveDialogReturnValue> => {
+    const win = ctx.getMainWindow()
+    return win ? dialog.showSaveDialog(win, opts) : dialog.showSaveDialog(opts)
+  }
+  const showOpen = (opts: OpenDialogOptions): Promise<Electron.OpenDialogReturnValue> => {
+    const win = ctx.getMainWindow()
+    return win ? dialog.showOpenDialog(win, opts) : dialog.showOpenDialog(opts)
+  }
+
+  ctx.ipcMain.handle(CONFIG_IO_CHANNELS.exportAll, async (): Promise<ConfigExportResult> => {
+    const bundle = await engine.exportAll()
+    const result = await showSave(exportAllDialogOpts())
+    if (result.canceled || !result.filePath) return { canceled: true }
+    await writeFile(result.filePath, `${JSON.stringify(bundle, null, 2)}\n`, 'utf8')
+    return { canceled: false, filePath: result.filePath, sections: Object.keys(bundle.sections) }
+  })
+
+  ctx.ipcMain.handle(
+    CONFIG_IO_CHANNELS.importAll,
+    async (_event, opts?: { sections?: string[] }): Promise<ConfigImportResult> => {
+      const result = await showOpen(importDialogOpts())
+      if (result.canceled || result.filePaths.length === 0) return { canceled: true }
+      const raw = JSON.parse(await readFile(result.filePaths[0], 'utf8')) as unknown
+      const summary = await engine.importAll(raw, opts)
+      emitReload(summary.applied)
+      ctx.broadcast(CONFIG_IO_CHANNELS.imported, summary)
+      return { canceled: false, summary }
+    }
+  )
+
+  ctx.ipcMain.handle(
+    CONFIG_IO_CHANNELS.exportSection,
+    async (_event, sectionId: string): Promise<ConfigExportResult> => {
+      const payload = await engine.exportSection(sectionId)
+      const result = await showSave(exportSectionDialogOpts(sectionId))
+      if (result.canceled || !result.filePath) return { canceled: true }
+      await writeFile(result.filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
+      return { canceled: false, filePath: result.filePath, sections: [sectionId] }
+    }
+  )
+
+  ctx.ipcMain.handle(
+    CONFIG_IO_CHANNELS.importSection,
+    async (_event, sectionId: string): Promise<ConfigImportResult> => {
+      const result = await showOpen(importDialogOpts())
+      if (result.canceled || result.filePaths.length === 0) return { canceled: true }
+      const raw = JSON.parse(await readFile(result.filePaths[0], 'utf8')) as unknown
+      const summary = await engine.importSection(sectionId, raw)
+      emitReload(summary.applied)
+      ctx.broadcast(CONFIG_IO_CHANNELS.imported, summary)
+      return { canceled: false, summary }
+    }
+  )
+
+  // ─── Saved-state inspection + deletion ────────────────────────────────────────
+  // Read-only listing of what is persisted under userData (so the user can SEE
+  // why old flags/profiles survived a reinstall) plus per-section deletion. Both
+  // are bounded to the allowlist + isForbiddenConfigPath, so auth/credential
+  // stores can never be listed or removed.
+  ctx.ipcMain.handle(CONFIG_IO_CHANNELS.listSaved, (): Promise<SavedSectionInfo[]> => engine.listSavedSections())
+
+  ctx.ipcMain.handle(
+    CONFIG_IO_CHANNELS.deleteSection,
+    async (_event, sectionId: string): Promise<ConfigDeleteResult> => {
+      const result = await engine.deleteSection(sectionId)
+      // Main-process-internal: let the module that OWNS this section drop its
+      // in-memory copy, so a before-quit flush can't resurrect the deleted store
+      // (the overlays manager debounce-saves on quit). Fired before the renderer
+      // broadcast so the live module is neutralized first.
+      ctx.ipcMain.emit(CONFIG_SECTION_RESET_SIGNAL, { source: 'config-export' }, sectionId)
+      // Tell every window to re-read the on-disk metadata so the panel refreshes.
+      ctx.broadcast(CONFIG_IO_CHANNELS.changed, { id: sectionId, action: 'delete', removed: result.removed })
+      return result
+    }
+  )
+
+  ctx.ipcMain.handle(
+    CONFIG_IO_CHANNELS.resetSection,
+    async (_event, sectionId: string): Promise<ConfigDeleteResult> => {
+      const result = await engine.resetSection(sectionId)
+      ctx.ipcMain.emit(CONFIG_SECTION_RESET_SIGNAL, { source: 'config-export' }, sectionId)
+      ctx.broadcast(CONFIG_IO_CHANNELS.changed, { id: sectionId, action: 'reset', removed: result.removed })
+      return result
+    }
+  )
+
+  // Restart the app so freshly-imported config (written to disk above) is
+  // re-read at boot. Every main store caches its file in memory on first load
+  // and only re-reads on the next launch, so relaunch is the reliable path —
+  // the import UI offers this right after a successful import. Use app.quit()
+  // (not exit) so before-quit teardown runs: the iRacing session is flushed to
+  // disk and rev-lights/RGB-matrix/OLED are cleared instead of left lit. The
+  // ONLY before-quit handler that writes config is the overlays manager (it
+  // flushes a pending debounced overlay-position save); a freshly DELETED
+  // section is protected separately — deleteSection signals the overlays manager
+  // to stop persisting (dropInMemoryForReset) so its flush can't resurrect the
+  // deleted file. All other sections persist only on explicit user action.
+  ctx.ipcMain.handle(CONFIG_IO_CHANNELS.relaunch, (): void => {
+    ctx.app.relaunch()
+    ctx.app.quit()
+  })
+}

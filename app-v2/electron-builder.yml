@@ -1,0 +1,97 @@
+appId: io.github.ultimatesim.app
+productName: "Ultimate Sim App"
+copyright: Copyright (c) 2026 Guilherme Basso
+
+directories:
+  output: dist-win
+  buildResources: build
+
+files:
+  - out/**
+  - package.json
+  # node-llama-cpp ships a native binary per platform/accelerator. We run CPU-only on
+  # Windows x64, so package ONLY @node-llama-cpp/win-x64 and drop the mac/linux/arm and
+  # GPU (cuda/vulkan) variants to keep the installer lean and load the right binary.
+  #
+  # CRITICAL (P1 NoBinaryFoundError fix): @node-llama-cpp/win-x64 is an OPTIONAL, os-locked
+  # ("os": ["win32"]) dependency of node-llama-cpp. On a macOS/Linux build host npm SKIPS it,
+  # so electron-builder's production-dependency collector never sees it — even though
+  # scripts/fetch-win-llama.sh places it on disk. The negation patterns below only TRIM
+  # node_modules that would already be included, so they are not enough on their own. We must
+  # FORCE-INCLUDE the win-x64 backend (and node-llama-cpp's own bins/ dir) explicitly, or the
+  # llama-addon.node is absent from the package and the runtime throws NoBinaryFoundError.
+  - "node_modules/@node-llama-cpp/win-x64/**"
+  - "node_modules/node-llama-cpp/bins/**"
+  - "!**/node_modules/@node-llama-cpp/{mac-arm64-metal,mac-x64,linux-x64,linux-arm64,linux-armv7l,linux-x64-cuda,linux-x64-cuda-ext,linux-x64-vulkan,win-arm64,win-x64-cuda,win-x64-cuda-ext,win-x64-vulkan}/**"
+  # sherpa-onnx-node ships a native engine per platform. Windows x64 needs
+  # sherpa-onnx-win-x64 (installed by scripts/fetch-win-sherpa.sh); drop the
+  # mac/linux/ia32 variants so the Windows installer stays lean and loads the right
+  # native addon + DLLs.
+  - "!**/node_modules/sherpa-onnx-{darwin-arm64,darwin-x64,linux-x64,linux-arm64,win-ia32}/**"
+
+extraResources:
+  - from: ../driver
+    to: driver
+  - from: resources/tools
+    to: tools
+  - from: resources/firmware
+    to: firmware
+  # Shared TTS assets: the sherpa VITS `dataDir` (espeak-ng-data) lives here and is
+  # populated by scripts/fetch-win-sherpa.sh. Per-voice weights download on demand.
+  - from: resources/tts
+    to: tts
+  # Out-of-process sherpa synth worker. Synthesis runs in a child process (spawned
+  # with ELECTRON_RUN_AS_NODE) so a native onnxruntime crash kills only the child,
+  # not the app. Shipped as a plain .cjs and loaded by absolute path from
+  # process.resourcesPath (see resolveSherpaWorkerPath in src/main/tts/piper.ts).
+  - from: src/main/tts/sherpa-worker.cjs
+    to: sherpa-worker.cjs
+  - from: resources/whisper
+    to: whisper
+
+asarUnpack:
+  - "**/node_modules/@serialport/**"
+  - "**/node_modules/serialport/**"
+  - "**/node_modules/koffi/**"
+  - "**/node_modules/@nut-tree/**"
+  - "**/node_modules/@nut-tree/libnut/**"
+  - "**/node_modules/vigemclient/**"
+  - "**/node_modules/bonjour-service/**"
+  # node-llama-cpp native addon (.node/.dll) must run unpacked from the asar.
+  # The win-x64 backend (@node-llama-cpp/win-x64/bins/win-x64/llama-addon.node + the
+  # dependent libllama/libggml DLLs) is the binary whose absence triggers
+  # NoBinaryFoundError, so it MUST be unpacked — the broad @node-llama-cpp/** glob covers
+  # it; the explicit win-x64 line documents the requirement and survives glob refactors.
+  - "**/node_modules/node-llama-cpp/**"
+  - "**/node_modules/@node-llama-cpp/**"
+  - "**/node_modules/@node-llama-cpp/win-x64/**"
+  # onnxruntime-node ships a native addon (.node) — must run unpacked from the asar.
+  - "**/node_modules/onnxruntime-node/**"
+  # sherpa-onnx neural TTS engine: the loader (sherpa-onnx-node) + the platform
+  # native package (sherpa-onnx-win-x64 → sherpa-onnx.node + onnxruntime/sherpa
+  # DLLs) must run UNPACKED so the addon and its dependent DLLs resolve at runtime.
+  - "**/node_modules/sherpa-onnx-node/**"
+  - "**/node_modules/sherpa-onnx-win-x64/**"
+  # @xenova/transformers loads wasm/onnx assets at runtime — unpack so they resolve.
+  - "**/node_modules/@xenova/transformers/**"
+  # sharp (pulled in by @xenova) ships a native addon + libvips — unpack so it resolves.
+  - "**/node_modules/sharp/**"
+  - "**/node_modules/@img/**"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: zip
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "Ultimate Sim App"

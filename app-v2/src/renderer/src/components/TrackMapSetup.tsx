@@ -1,0 +1,729 @@
+import { useEffect, useState } from 'react'
+import type { CSSProperties, FormEvent } from 'react'
+import type {
+  TrackMapAuthResult,
+  TrackMapBrowserLoginResult,
+  TrackMapDataApiDiagnostic,
+  TrackMapLoginDiagnostics,
+  TrackMapOAuthConfig,
+  TrackMapStatus
+} from '../../../shared/track-map'
+import { TRACK_MAP_CHANNELS } from '../../../shared/track-map'
+import { useTrackMapStatus } from '../lib/track-map'
+
+const statusLabels: Record<TrackMapStatus['auth'], string> = {
+  unconfigured: 'Não configurado',
+  ready: 'Conectado',
+  authenticating: 'Conectando…',
+  'mfa-required': 'Código de verificação necessário',
+  'needs-login': 'Necessário entrar novamente',
+  'rate-limited': 'Limite de tentativas atingido',
+  error: 'Erro',
+  disabled: 'Armazenamento seguro indisponível'
+}
+
+const LOGIN_OK_MESSAGE = 'iRacing conectado. Os mapas de pista serão atualizados para a pista atual.'
+const BROWSER_LOGIN_OK_MESSAGE =
+  'Você voltou ao app. A telemetria continua funcionando; a Data API foi testada em segundo plano.'
+const BROWSER_LOGIN_OPENING_MESSAGE =
+  'Abrindo a janela de login do iRacing… conclua e-mail, senha, CAPTCHA e verificação (2FA) na janela. ' +
+  'O mapa offline continua funcionando sem login.'
+
+function loginMethodLabel(method: TrackMapStatus['loginMethod']): string {
+  if (method === 'oauth') return 'OAuth2 + PKCE'
+  if (method === 'browser') return 'Navegador (sessão capturada)'
+  if (method === 'password') return 'E-mail e senha (legado)'
+  return '—'
+}
+
+// Human-readable, PT-BR summary of the embedded-login capture diagnostics so a
+// failed capture is never a silent "nada acontece".
+function diagnosticText(d: TrackMapLoginDiagnostics): string {
+  const cookie = d.authCookieSeen ? 'cookie de sessão detectado' : 'nenhum cookie de sessão detectado'
+  const verdictLabel =
+    d.probeVerdict === 'authed'
+      ? 'verificação: autenticado'
+      : d.probeVerdict === 'unauthed'
+        ? 'verificação: não autenticado'
+        : 'verificação: inconclusiva'
+  return `Diagnóstico: ${cookie} · ${verdictLabel} · ${d.cookieCount} cookie(s) na sessão.`
+}
+
+function formatExpiry(epochMs: number | undefined): string | null {
+  if (!epochMs || !Number.isFinite(epochMs)) return null
+  return new Date(epochMs).toLocaleString()
+}
+
+type LearnTone = 'ok' | 'recording' | 'warn'
+
+// Build the PT-BR status line for the telemetry-learner panel from the live
+// learner state broadcast by the main process.
+function learnStatusDisplay(learn: TrackMapStatus['learn']): { text: string; tone: LearnTone } {
+  if (!learn) return { text: 'Aguardando telemetria…', tone: 'warn' }
+  if (learn.phase === 'recording') {
+    const pct = Math.round(Math.max(0, Math.min(1, learn.progress)) * 100)
+    const manual = learn.manual ? ' (manual)' : ''
+    return { text: `Aprendendo mapa… ${pct}%${manual}`, tone: 'recording' }
+  }
+  if (learn.phase === 'warming') {
+    return { text: learn.reasonLabel || 'Indo até a linha de chegada para iniciar a gravação…', tone: 'recording' }
+  }
+  // Idle: a learned map already exists, or we show the reason it's stalled.
+  if (learn.hasMap) return { text: 'Mapa aprendido para esta pista', tone: 'ok' }
+  return { text: learn.reasonLabel || 'Aguardando telemetria…', tone: 'warn' }
+}
+
+export function TrackMapSetup() {
+  const { status, refresh } = useTrackMapStatus()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [mfaPending, setMfaPending] = useState(false)
+  const [mfaCode, setMfaCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [diagnostics, setDiagnostics] = useState<TrackMapLoginDiagnostics | null>(null)
+  const [oauthClientId, setOauthClientId] = useState('')
+  const [oauthClientSecret, setOauthClientSecret] = useState('')
+  const [dataApiDiagnostic, setDataApiDiagnostic] = useState<TrackMapDataApiDiagnostic | null>(null)
+
+  const auth = status?.auth ?? 'unconfigured'
+  const disabled = busy || auth === 'disabled'
+  const connected = auth === 'ready'
+  const expiresAt = formatExpiry(status?.sessionExpiresAt)
+  // Show the verification-code form both when our local submit triggered MFA and
+  // when a background (boot) silent re-login parked an MFA challenge.
+  const showMfa = mfaPending || auth === 'mfa-required'
+
+  // Prefill the e-mail from the saved password login so re-authenticating only
+  // needs the password (and a 2FA code, if iRacing asks).
+  useEffect(() => {
+    if (!email && status?.loginMethod === 'password' && status.email && status.email.includes('@')) {
+      setEmail(status.email)
+    }
+  }, [email, status?.loginMethod, status?.email])
+
+  useEffect(() => {
+    let active = true
+    void window.ipc.invoke<TrackMapOAuthConfig | null>(TRACK_MAP_CHANNELS.getOAuthConfig).then((config) => {
+      if (!active || !config) return
+      setOauthClientId(config.clientId)
+      if (config.clientSecret && !config.clientSecret.includes('•')) setOauthClientSecret(config.clientSecret)
+    }).catch(() => undefined)
+    return () => {
+      active = false
+    }
+  }, [])
+
+  async function saveOAuthConfig(): Promise<void> {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const saved = await window.ipc.invoke<TrackMapOAuthConfig>(TRACK_MAP_CHANNELS.setOAuthConfig, {
+        clientId: oauthClientId,
+        clientSecret: oauthClientSecret
+      })
+      setOauthClientId(saved.clientId)
+      setMessage(saved.clientId ? 'Client ID OAuth salvo com segurança.' : 'Configuração OAuth removida.')
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function oauthLogin(): Promise<void> {
+    setBusy(true)
+    setError(null)
+    setMessage('Abrindo OAuth2 iRacing (Authorization Code + PKCE)…')
+    try {
+      const result = await window.ipc.invoke<TrackMapBrowserLoginResult>(TRACK_MAP_CHANNELS.oauthLogin)
+      if (result.status === 'ok') {
+        setMessage('OAuth conectado. A Data API usará Bearer token e refresh-token rotativo.')
+      } else {
+        setError(result.message ?? 'OAuth cancelado.')
+        setMessage(null)
+      }
+      await refresh()
+    } catch (err) {
+      setMessage(null)
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function testDataApi(): Promise<void> {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const result = await window.ipc.invoke<TrackMapDataApiDiagnostic>(TRACK_MAP_CHANNELS.testDataApi)
+      setDataApiDiagnostic(result)
+      setMessage(`Teste Data API: HTTP ${result.status} usando ${result.authMode}.`)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // PRIMARY path: open iRacing's genuine web login so the user can clear
+  // CAPTCHA / 2FA, then the main process captures the session cookie. The IPC
+  // call only resolves once the login window closes, so we keep a local
+  // "opening…" message for the whole duration.
+  async function browserLogin(): Promise<void> {
+    setBusy(true)
+    setError(null)
+    setMessage(BROWSER_LOGIN_OPENING_MESSAGE)
+    try {
+      const result = await window.ipc.invoke<TrackMapBrowserLoginResult>(
+        TRACK_MAP_CHANNELS.browserLogin
+      )
+      setDiagnostics(result.diagnostics ?? null)
+      if (result.status === 'ok') {
+        setPassword('')
+        setMfaPending(false)
+        setMfaCode('')
+        setMessage(BROWSER_LOGIN_OK_MESSAGE)
+        setError(null)
+      } else {
+        // Cancelled / closed / timed out — honest message, offline map intact.
+        setMessage(null)
+        setError(result.message ?? 'Login cancelado. O mapa offline continua funcionando sem login.')
+      }
+      await refresh()
+    } catch (err) {
+      setMessage(null)
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submit(event: FormEvent): Promise<void> {
+    event.preventDefault()
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      const result = await window.ipc.invoke<TrackMapAuthResult>(TRACK_MAP_CHANNELS.setCredentials, {
+        email,
+        password
+      })
+      if (result.status === 'mfa_required') {
+        // iRacing wants a verification code — prompt for it and keep the session
+        // open. The offline learned map keeps working regardless.
+        setMfaPending(true)
+        setMfaCode('')
+        setMessage(
+          result.message ??
+            'O iRacing enviou um código de verificação. Insira o código abaixo para concluir o login.'
+        )
+      } else {
+        setPassword('')
+        setMfaPending(false)
+        setMfaCode('')
+        setMessage(LOGIN_OK_MESSAGE)
+      }
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submitMfa(event: FormEvent): Promise<void> {
+    event.preventDefault()
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      await window.ipc.invoke<TrackMapAuthResult>(TRACK_MAP_CHANNELS.submitMfa, { code: mfaCode })
+      setPassword('')
+      setMfaPending(false)
+      setMfaCode('')
+      setMessage(LOGIN_OK_MESSAGE)
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function refreshMap(): Promise<void> {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      await window.ipc.invoke(TRACK_MAP_CHANNELS.refresh)
+      await refresh()
+      setMessage('Atualização do mapa de pista solicitada.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function clearCredentials(): Promise<void> {
+    setBusy(true)
+    setError(null)
+    setMessage(null)
+    try {
+      await window.ipc.invoke<TrackMapStatus>(TRACK_MAP_CHANNELS.clearCredentials)
+      setPassword('')
+      setMfaPending(false)
+      setMfaCode('')
+      setMessage('Login do iRacing removido. Os mapas offline (telemetria) continuam disponíveis.')
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Force the telemetry learner to start capturing NOW (anchored at the car's
+  // current position, mid-lap allowed). Doubles as "Reiniciar gravação".
+  async function startLearning(): Promise<void> {
+    setError(null)
+    try {
+      await window.ipc.invoke<TrackMapStatus>(TRACK_MAP_CHANNELS.startLearning)
+      setMessage('Gravando o mapa a partir da posição atual. Dê uma volta completa para concluir.')
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  async function cancelLearning(): Promise<void> {
+    setError(null)
+    try {
+      await window.ipc.invoke<TrackMapStatus>(TRACK_MAP_CHANNELS.cancelLearning)
+      setMessage('Gravação do mapa cancelada.')
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  return (
+    <section style={styles.card} aria-label="Configuração do mapa de pista iRacing">
+      <div style={styles.header}>
+        <div>
+          <p style={styles.eyebrow}>Fonte do mapa de pista</p>
+          <h3 style={styles.title}>Telemetria funciona sem login</h3>
+        </div>
+        <span style={{ ...styles.badge, ...(connected ? styles.badgeReady : styles.badgeWarn) }}>
+          {statusLabels[auth]}
+        </span>
+      </div>
+
+      <p style={styles.copy}>
+        Mapa, radar, relatives, dashboards e overlays vêm do iRacing SDK local e funcionam sem login web.
+        Login é somente para extras da <strong>Data API</strong> (estatísticas, resultados, séries e metadados).
+      </p>
+
+      {(() => {
+        const learn = status?.learn
+        const display = learnStatusDisplay(learn)
+        const progressPct = learn ? Math.round(Math.max(0, Math.min(1, learn.progress)) * 100) : 0
+        const recordingActive = learn?.phase === 'recording' || learn?.phase === 'warming'
+        const toneStyle =
+          display.tone === 'ok'
+            ? styles.learnBadgeOk
+            : display.tone === 'recording'
+              ? styles.learnBadgeRec
+              : styles.learnBadgeWarn
+        return (
+          <div style={styles.learnPanel} aria-label="Aprendizado do mapa por telemetria">
+            <div style={styles.learnHeader}>
+              <p style={styles.altTitle}>Aprendizado do mapa (telemetria)</p>
+              <span style={{ ...styles.learnBadge, ...toneStyle }}>{display.text}</span>
+            </div>
+            <p style={styles.hint}>
+              O mapa é desenhado gravando a posição do carro por uma volta limpa — igual ao SimHub, sem login.
+              Se não estiver aprendendo, o motivo aparece acima.
+            </p>
+            {learn?.phase === 'recording' && (
+              <div style={styles.progressTrack} aria-hidden>
+                <div style={{ ...styles.progressFill, width: `${progressPct}%` }} />
+              </div>
+            )}
+            <div style={styles.actions}>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void startLearning()}
+                style={{ ...styles.primaryButton, ...styles.primaryCta }}
+              >
+                {recordingActive ? 'Reiniciar gravação' : 'Gravar mapa agora'}
+              </button>
+              {recordingActive && (
+                <button type="button" disabled={busy} onClick={() => void cancelLearning()} style={styles.secondaryButton}>
+                  Cancelar gravação
+                </button>
+              )}
+            </div>
+          </div>
+        )
+      })()}
+
+      <div style={styles.callout}>
+        <p style={styles.calloutTitle}>Situação oficial da Data API</p>
+        <p style={styles.calloutBody}>
+          O iRacing desativou o login legado <strong>/auth</strong> e pausou novos client IDs OAuth para apps
+          de terceiros. Quando a iRacing liberar seu <strong>client_id</strong>, cole abaixo para ativar OAuth2.
+          Referências:{' '}
+          <a href="https://forums.iracing.com/discussion/93956/oauth-client-id-creation" target="_blank" rel="noreferrer" style={styles.calloutLink}>
+            fórum OAuth client ID
+          </a>{' '}
+          ·{' '}
+          <a href="https://support.iracing.com/support/solutions/articles/31000174478" target="_blank" rel="noreferrer" style={styles.calloutLink}>
+            suporte iRacing
+          </a>
+        </p>
+      </div>
+
+      <div style={styles.altLogin}>
+        <p style={styles.altTitle}>OAuth2 + PKCE (primário quando houver client_id)</p>
+        <p style={styles.hint}>Registro OAuth está pausado pela iRacing — cole um client_id quando disponível.</p>
+        <label style={styles.label}>
+          OAuth client_id
+          <input value={oauthClientId} disabled={busy} onChange={(event) => setOauthClientId(event.target.value)} placeholder="Cole o client_id da iRacing" style={styles.input} />
+        </label>
+        <label style={styles.label}>
+          client_secret (opcional; normalmente vazio em app desktop)
+          <input value={oauthClientSecret} disabled={busy} onChange={(event) => setOauthClientSecret(event.target.value)} placeholder="Opcional" style={styles.input} />
+        </label>
+        <div style={styles.actions}>
+          <button type="button" disabled={busy} onClick={() => void saveOAuthConfig()} style={styles.secondaryButton}>Salvar OAuth</button>
+          <button type="button" disabled={busy || !oauthClientId.trim()} onClick={() => void oauthLogin()} style={{ ...styles.primaryButton, ...styles.primaryCta }}>
+            {busy ? 'Conectando…' : 'Conectar com OAuth'}
+          </button>
+        </div>
+      </div>
+
+      {/* Legacy fallback: kept for diagnostics/MFA paths, no longer the primary iRacing auth path. */}
+      <form onSubmit={(event) => void submit(event)} style={styles.form}>
+        <label style={styles.label}>
+          E-mail do iRacing
+          <input
+            type="email"
+            autoComplete="username"
+            value={email}
+            disabled={disabled}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="voce@exemplo.com"
+            style={styles.input}
+          />
+        </label>
+        <label style={styles.label}>
+          Senha do iRacing
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            disabled={disabled}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Senha"
+            style={styles.input}
+          />
+        </label>
+        <div style={styles.actions}>
+          <button
+            type="submit"
+            disabled={disabled || !email || !password}
+            style={{ ...styles.primaryButton, ...styles.primaryCta }}
+          >
+            {busy ? 'Entrando…' : 'Entrar'}
+          </button>
+        </div>
+      </form>
+      <p style={styles.hint}>
+        Caminho legado mantido apenas como fallback. A iRacing desativou <strong>/auth</strong> para usuários em geral.
+      </p>
+
+      {showMfa && (
+        <form onSubmit={(event) => void submitMfa(event)} style={styles.mfaBox}>
+          <p style={styles.mfaTitle}>Código de verificação por e-mail</p>
+          <p style={styles.copy}>
+            O iRacing enviou um <strong>código de verificação de dispositivo por e-mail</strong>. Insira-o
+            abaixo para concluir o login.
+          </p>
+          <p style={styles.mfaWarn}>
+            ⚠️ Este campo <strong>não</strong> é para o código do app autenticador (TOTP). Se a sua conta usa 2FA
+            por app, este código não vai resolver — habilite <strong>“Legacy read-only authentication”</strong>{' '}
+            em iRacing → Conta → Segurança, ou use o <strong>Login pelo navegador</strong> abaixo.
+          </p>
+          <label style={styles.label}>
+            Código enviado por e-mail pelo iRacing
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={mfaCode}
+              disabled={busy}
+              onChange={(event) => setMfaCode(event.target.value)}
+              placeholder="Código recebido por e-mail"
+              style={styles.input}
+            />
+          </label>
+          <div style={styles.actions}>
+            <button type="submit" disabled={busy || !mfaCode.trim()} style={styles.primaryButton}>
+              {busy ? 'Verificando…' : 'Confirmar código'}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setMfaPending(false)
+                setMfaCode('')
+              }}
+              style={styles.secondaryButton}
+            >
+              Cancelar
+            </button>
+          </div>
+        </form>
+      )}
+
+      <dl style={styles.statusGrid}>
+        <div>
+          <dt style={styles.term}>Pista atual</dt>
+          <dd style={styles.value}>{status?.currentTrackName ?? 'Aguardando telemetria'}</dd>
+        </div>
+        <div>
+          <dt style={styles.term}>Fonte atual</dt>
+          <dd style={styles.value}>{status?.currentSource ?? 'none'}</dd>
+        </div>
+        <div>
+          <dt style={styles.term}>Método de login</dt>
+          <dd style={styles.value}>{loginMethodLabel(status?.loginMethod)}</dd>
+        </div>
+        <div>
+          <dt style={styles.term}>Login salvo</dt>
+          <dd style={styles.value}>{status?.email ?? 'Nenhum'}</dd>
+        </div>
+        <div>
+          <dt style={styles.term}>Último login</dt>
+          <dd style={styles.value}>
+            {status?.lastAuthAt ? new Date(status.lastAuthAt).toLocaleString() : 'Nunca'}
+          </dd>
+        </div>
+        {expiresAt && (
+          <div>
+            <dt style={styles.term}>Sessão expira em</dt>
+            <dd style={styles.value}>{expiresAt}</dd>
+          </div>
+        )}
+      </dl>
+
+      {status?.encryptionAvailable === false && (
+        <div style={styles.warn}>
+          O armazenamento seguro do sistema está indisponível, então o login por e-mail e senha não pode ser
+          salvo neste dispositivo. Você ainda pode usar o login pelo navegador (método alternativo abaixo).
+        </div>
+      )}
+      {(error || status?.lastErrorMessage) && <div style={styles.error}>{error ?? status?.lastErrorMessage}</div>}
+      {status?.dataApiMessage && !status.dataApiAvailable && <div style={styles.warn}>{status.dataApiMessage}</div>}
+      {message && <div style={styles.success}>{message}</div>}
+
+      <div style={styles.actions}>
+        <button type="button" disabled={busy} onClick={() => void refreshMap()} style={styles.secondaryButton}>
+          Atualizar mapa
+        </button>
+        <button type="button" disabled={busy} onClick={() => void testDataApi()} style={styles.secondaryButton}>
+          Testar acesso à Data API
+        </button>
+        <button type="button" disabled={busy} onClick={() => void clearCredentials()} style={styles.dangerButton}>
+          Esquecer credenciais / Sair
+        </button>
+        {(error || message) && (
+          <button
+            type="button"
+            onClick={() => {
+              setError(null)
+              setMessage(null)
+              setDiagnostics(null)
+              setDataApiDiagnostic(null)
+            }}
+            style={styles.secondaryButton}
+          >
+            Limpar mensagem
+          </button>
+        )}
+      </div>
+      {dataApiDiagnostic && (
+        <pre style={styles.rawDiagnostic}>
+{`HTTP ${dataApiDiagnostic.status} · auth=${dataApiDiagnostic.authMode}
+${dataApiDiagnostic.body}`}
+        </pre>
+      )}
+
+      {/* SECOND first-class option: embedded iRacing web login. Recommended for
+          accounts with app-based (TOTP) 2FA that don't use legacy auth. */}
+      <div style={styles.altLogin}>
+        <p style={styles.altTitle}>Login pelo navegador</p>
+        <p style={styles.altRecommend}>Retorna sempre ao app; a Data API é testada só como diagnóstico.</p>
+        <p style={styles.hint}>
+          Abre a página real do iRacing numa janela. Você conclui e-mail, senha, CAPTCHA e 2FA ali mesmo —
+          capturamos apenas cookies de sessão (a senha não é armazenada). Se a Data API recusar o cookie, você volta
+          ao app mesmo assim e verá o aviso honesto acima.
+        </p>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void browserLogin()}
+          style={{ ...styles.primaryButton, ...styles.primaryCta }}
+        >
+          {busy ? 'Abrindo login do iRacing…' : 'Entrar no iRacing (abrir login)'}
+        </button>
+        <p style={styles.hint}>
+          Para voltar ao app depois de logar: clique em “✓ Voltar ao Ultimate Sim App”. Se os botões não
+          responderem, use o menu <strong>Login → Concluí o login</strong> ou as teclas{' '}
+          <strong>Ctrl+Enter</strong> (concluir) / <strong>Esc</strong> (cancelar).
+        </p>
+        {diagnostics && <div style={styles.diagnostic}>{diagnosticText(diagnostics)}</div>}
+      </div>
+    </section>
+  )
+}
+
+const styles: Record<string, CSSProperties> = {
+  card: {
+    display: 'grid',
+    gap: 14,
+    padding: 18,
+    borderRadius: 'var(--radius-sm)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    background: 'rgba(7, 18, 31, 0.78)',
+    color: '#e7f2ff'
+  },
+  header: { display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start' },
+  eyebrow: { margin: 0, color: 'var(--accent-primary)', fontSize: 12, fontWeight: 800, textTransform: 'uppercase' },
+  title: { margin: '4px 0 0', fontSize: 20 },
+  badge: { borderRadius: 'var(--radius-sm)', padding: '6px 10px', fontSize: 12, fontWeight: 800 },
+  badgeReady: { background: 'rgba(var(--accent-rgb),0.16)', color: '#74f2db' },
+  badgeWarn: { background: 'rgba(255,185,0,0.16)', color: '#ffd166' },
+  copy: { margin: 0, color: '#9bb7d8', lineHeight: 1.5 },
+  hint: { margin: 0, color: '#7f9fbd', fontSize: 12, lineHeight: 1.5 },
+  learnPanel: {
+    display: 'grid',
+    gap: 10,
+    padding: 14,
+    borderRadius: 'var(--radius-sm)',
+    border: '1px solid rgba(var(--accent-rgb),0.35)',
+    background: 'rgba(var(--accent-rgb),0.08)'
+  },
+  learnHeader: { display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' },
+  learnBadge: { borderRadius: 'var(--radius-sm)', padding: '6px 10px', fontSize: 12, fontWeight: 800 },
+  learnBadgeOk: { background: 'rgba(var(--accent-rgb),0.16)', color: '#74f2db' },
+  learnBadgeRec: { background: 'rgba(86,160,255,0.18)', color: '#9fc9ff' },
+  learnBadgeWarn: { background: 'rgba(255,185,0,0.16)', color: '#ffd166' },
+  progressTrack: { height: 8, borderRadius: 999, background: 'rgba(255,255,255,0.12)', overflow: 'hidden' },
+  progressFill: { height: '100%', background: 'var(--accent-primary)', transition: 'width 200ms ease' },
+  statusGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, margin: 0 },
+  term: { color: '#7f9fbd', fontSize: 11, fontWeight: 800, textTransform: 'uppercase' },
+  value: { margin: '4px 0 0', fontWeight: 800, overflowWrap: 'anywhere' },
+  form: { display: 'grid', gap: 12 },
+  label: { display: 'grid', gap: 6, fontSize: 13, fontWeight: 800, color: '#b8cce3' },
+  input: {
+    border: '1px solid rgba(255,255,255,0.16)',
+    borderRadius: 'var(--radius-sm)',
+    background: 'rgba(255,255,255,0.06)',
+    color: '#ffffff',
+    padding: '10px 12px',
+    outline: 'none'
+  },
+  actions: { display: 'flex', flexWrap: 'wrap', gap: 10 },
+  primaryButton: { border: 0, borderRadius: 'var(--radius-sm)', background: 'var(--accent-primary)', color: '#04131f', padding: '10px 12px', fontWeight: 900 },
+  primaryCta: { padding: '14px 16px', fontSize: 15, justifySelf: 'start' },
+  secondaryButton: { border: '1px solid rgba(255,255,255,0.16)', borderRadius: 'var(--radius-sm)', background: 'transparent', color: '#e7f2ff', padding: '10px 12px', fontWeight: 800 },
+  dangerButton: { border: '1px solid rgba(255,84,104,0.5)', borderRadius: 'var(--radius-sm)', background: 'transparent', color: '#ff8a9a', padding: '10px 12px', fontWeight: 800 },
+  error: { borderRadius: 'var(--radius-sm)', background: 'rgba(255,84,104,0.14)', color: '#ffb8c2', padding: 10, fontWeight: 800 },
+  warn: { borderRadius: 'var(--radius-sm)', background: 'rgba(255,185,0,0.12)', color: '#ffd166', padding: 10, fontWeight: 800, lineHeight: 1.45 },
+  success: { borderRadius: 'var(--radius-sm)', background: 'rgba(var(--accent-rgb),0.14)', color: '#9ff5e5', padding: 10, fontWeight: 800 },
+  diagnostic: {
+    borderRadius: 'var(--radius-sm)',
+    background: 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    color: '#9bb7d8',
+    padding: 10,
+    fontSize: 12,
+    fontWeight: 700,
+    lineHeight: 1.45
+  },
+  rawDiagnostic: {
+    margin: 0,
+    whiteSpace: 'pre-wrap',
+    overflow: 'auto',
+    maxHeight: 220,
+    borderRadius: 'var(--radius-sm)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    background: 'rgba(0,0,0,0.28)',
+    color: '#d9ecff',
+    padding: 10,
+    fontSize: 11,
+    lineHeight: 1.45
+  },
+  advanced: {
+    borderTop: '1px solid rgba(255,255,255,0.1)',
+    paddingTop: 12,
+    display: 'grid',
+    gap: 12
+  },
+  advancedToggle: {
+    border: 0,
+    background: 'transparent',
+    color: '#9bb7d8',
+    fontWeight: 800,
+    fontSize: 13,
+    textAlign: 'left',
+    padding: 0,
+    cursor: 'pointer',
+    justifySelf: 'start'
+  },
+  advancedBody: { display: 'grid', gap: 12 },
+  mfaBox: {
+    display: 'grid',
+    gap: 10,
+    padding: 14,
+    borderRadius: 'var(--radius-sm)',
+    border: '1px solid rgba(255,185,0,0.4)',
+    background: 'rgba(255,185,0,0.08)'
+  },
+  mfaTitle: { margin: 0, fontSize: 14, fontWeight: 900, color: '#ffd166', textTransform: 'uppercase' },
+  mfaWarn: {
+    margin: 0,
+    color: '#ffd166',
+    fontSize: 12,
+    fontWeight: 800,
+    lineHeight: 1.45
+  },
+  callout: {
+    display: 'grid',
+    gap: 6,
+    padding: 14,
+    borderRadius: 'var(--radius-sm)',
+    border: '1px solid rgba(255,185,0,0.45)',
+    background: 'rgba(255,185,0,0.10)'
+  },
+  calloutTitle: { margin: 0, fontSize: 13, fontWeight: 900, color: '#ffd166' },
+  calloutBody: { margin: 0, color: '#e8d9a8', fontSize: 13, lineHeight: 1.5 },
+  calloutLink: { color: '#ffe39a', fontWeight: 800 },
+  altLogin: {
+    display: 'grid',
+    gap: 10,
+    marginTop: 4,
+    paddingTop: 14,
+    borderTop: '1px solid rgba(255,255,255,0.1)'
+  },
+  altTitle: { margin: 0, fontSize: 16, fontWeight: 900, color: '#e7f2ff' },
+  altRecommend: { margin: 0, color: 'var(--accent-primary)', fontSize: 12, fontWeight: 800 }
+}

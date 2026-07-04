@@ -1,0 +1,4 @@
+# Downloaded/bundled TTS assets are fetched by scripts/fetch-win-sherpa.sh — not committed.
+espeak-ng-data/
+voices/*/
+*.tar.bz2

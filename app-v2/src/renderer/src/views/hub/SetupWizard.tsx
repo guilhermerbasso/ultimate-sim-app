@@ -1,0 +1,1024 @@
+// Arduino Setup Wizard — the in-app, SimHub-style "pick a module → flash
+// prebuilt firmware → it just works" flow, but friendlier: every step explains
+// the wiring, shows the exact avrdude command, and gives targeted
+// troubleshooting when a flash fails.
+//
+// Steps: módulo → placa → porta → gravar (log ao vivo) → pronto.
+// The heavy lifting (avrdude, the 1200bps touch, the capability handshake and
+// the auto-created Hardware Hub profile) all happen in main; this component
+// only drives the SETUP_CHANNELS IPC contract and renders progress.
+
+import { type CSSProperties, type ReactElement, type RefObject, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  FLASH_BOARDS,
+  SETUP_CHANNELS,
+  SETUP_MODULES,
+  buildAvrdudeCommandPreview,
+  findFlashBaud,
+  findFlashBoard,
+  findModuleFirmware,
+  findSetupModule,
+  moduleSupportsBoard,
+  type FlashBoardGuess,
+  type FlashBoardId,
+  type FlashBoardSpec,
+  type FlashProgress,
+  type FlashRequest,
+  type FlashResult,
+  type SetupModule
+} from '../../../../shared/setup'
+import type { PortInfo } from '../../../../shared/ipc'
+import {
+  ACCENT,
+  ACCENT_BORDER,
+  ACCENT_SOFT,
+  buttonStyle,
+  card,
+  getErrorMessage,
+  helper,
+  label,
+  panel
+} from './styles'
+
+type WizardStep = 'module' | 'board' | 'port' | 'flash'
+const CANCEL_FLASH_CHANNEL = 'arduinosetup:cancelFlash'
+const DUMP_HEX_CHANNEL = 'arduinosetup:dumpHex'
+
+interface DumpHexResult {
+  ok: boolean
+  message: string
+  path?: string
+}
+
+type IdentifiedPortInfo = PortInfo & {
+  identify?: {
+    status: 'identified' | 'unknown' | 'busy' | 'error'
+    label: string
+    detail?: string
+    capabilities?: Array<{ key: string; detail: string }>
+    // Additive identify fields surfaced by the main-process identify (no new IPC):
+    // true when the device answered the companion `?` handshake / the iFlag
+    // RGB-matrix protocol, plus a USB-descriptor board guess for preselection.
+    speaksCompanion?: boolean
+    speaksMatrix?: boolean
+    boardGuess?: FlashBoardGuess
+  }
+}
+
+interface LogLine {
+  message: string
+  tone: 'info' | 'success' | 'error'
+}
+
+interface SetupWizardProps {
+  onClose: () => void
+  onComplete: (profileId: string) => void | Promise<void>
+  onFlashSettled?: () => void | Promise<void>
+  showToast: (message: string, tone?: 'success' | 'error' | 'info') => void
+}
+
+const STEP_LABELS: Array<{ id: WizardStep; label: string }> = [
+  { id: 'module', label: 'Módulo' },
+  { id: 'board', label: 'Placa' },
+  { id: 'port', label: 'Porta' },
+  { id: 'flash', label: 'Gravar' }
+]
+
+// Preselect the module's recommended bootloader baud when the chosen board is
+// the module's recommended board and actually offers that option; otherwise fall
+// back to the board's generic default. The flasher still auto-retries the other
+// Optiboot speed, so this only improves the first-attempt UX (e.g. the iFlag
+// Nano ships on the old/57600 bootloader).
+function preselectBaudId(module: SetupModule | null, board: FlashBoardSpec | null | undefined): string | undefined {
+  if (!board) return undefined
+  if (
+    module?.recommendedBaudId &&
+    board.id === module.recommendedBoard &&
+    board.baudOptions.some((option) => option.id === module.recommendedBaudId)
+  ) {
+    return module.recommendedBaudId
+  }
+  return board.defaultBaudId
+}
+
+export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast }: SetupWizardProps): ReactElement {
+  const [step, setStep] = useState<WizardStep>('module')
+  const [moduleId, setModuleId] = useState<string | null>(null)
+  const [boardId, setBoardId] = useState<FlashBoardId | null>(null)
+  const [baudId, setBaudId] = useState<string | undefined>(undefined)
+  const [port, setPort] = useState<string | null>(null)
+  const [ports, setPorts] = useState<IdentifiedPortInfo[]>([])
+  const [loadingPorts, setLoadingPorts] = useState(false)
+  const [flashing, setFlashing] = useState(false)
+  const [dumping, setDumping] = useState(false)
+  const [log, setLog] = useState<LogLine[]>([])
+  const [percent, setPercent] = useState(0)
+  const [result, setResult] = useState<FlashResult | null>(null)
+  const [showCommand, setShowCommand] = useState(false)
+
+  const logEndRef = useRef<HTMLDivElement | null>(null)
+  const mountedRef = useRef(true)
+
+  const selectedModule = useMemo(() => (moduleId ? findSetupModule(moduleId) : null), [moduleId])
+  const selectedBoard = useMemo(() => (boardId ? findFlashBoard(boardId) : null), [boardId])
+  const availableBoards = useMemo(
+    () => (selectedModule ? FLASH_BOARDS.filter((b) => moduleSupportsBoard(selectedModule, b.id)) : []),
+    [selectedModule]
+  )
+  const baud = useMemo(
+    () => (selectedBoard ? findFlashBaud(selectedBoard, baudId) : null),
+    [selectedBoard, baudId]
+  )
+  // USB board guess from identify, preferring the selected port — surfaced so the
+  // board/baud preselection stays transparent.
+  const detectedGuess = useMemo<FlashBoardGuess | undefined>(() => {
+    const selected = ports.find((info) => info.path === port)?.identify?.boardGuess
+    return selected ?? ports.find((info) => info.identify?.boardGuess)?.identify?.boardGuess
+  }, [ports, port])
+
+  // Live flash progress (broadcast from main during a flash).
+  useEffect(() => {
+    const unsubscribe = window.ipc.subscribe<FlashProgress>(SETUP_CHANNELS.progress, (progress) => {
+      setLog((prev) => [...prev, { message: progress.message, tone: progress.tone ?? 'info' }])
+      if (typeof progress.percent === 'number') setPercent(progress.percent)
+    })
+    return () => unsubscribe()
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ block: 'end' })
+  }, [log])
+
+  async function loadPorts(): Promise<void> {
+    setLoadingPorts(true)
+    try {
+      const list = await window.ipc.invoke<IdentifiedPortInfo[]>(SETUP_CHANNELS.listPorts)
+      if (!mountedRef.current) return
+      setPorts(list)
+    } catch (error) {
+      if (!mountedRef.current) return
+      showToast(getErrorMessage(error), 'error')
+    } finally {
+      if (mountedRef.current) setLoadingPorts(false)
+    }
+  }
+
+  function pickModule(module: SetupModule): void {
+    if (module.status !== 'available') return
+    setModuleId(module.id)
+    const recommended = findFlashBoard(module.recommendedBoard)
+    setBoardId(recommended ? recommended.id : null)
+    setBaudId(preselectBaudId(module, recommended))
+    setStep('board')
+  }
+
+  function pickBoard(board: FlashBoardSpec): void {
+    setBoardId(board.id)
+    setBaudId(preselectBaudId(selectedModule, board))
+    setStep('port')
+    void loadPorts()
+  }
+
+  // Picking a port also preselects the flash board + baud from the USB board
+  // guess (when the chosen module offers that board). This is the fix for the
+  // classic stk500 not-in-sync error: a 32U4 iFlag flashed with the 328P
+  // 'arduino' programmer. We only auto-switch to a board the module supports.
+  function pickPort(path: string): void {
+    setPort(path)
+    const guess = ports.find((info) => info.path === path)?.identify?.boardGuess
+    if (!guess) return
+    const guessedBoard = availableBoards.find((board) => board.id === guess.boardId)
+    if (guessedBoard && guessedBoard.id !== boardId) {
+      setBoardId(guessedBoard.id)
+      setBaudId(preselectBaudId(selectedModule, guessedBoard))
+      showToast(`Placa ajustada para ${guessedBoard.name} via detecção USB. ${guess.reason}`, 'info')
+    }
+  }
+
+  function goToFlash(): void {
+    setStep('flash')
+    setResult(null)
+    setLog([])
+    setPercent(0)
+  }
+
+  async function startFlash(): Promise<void> {
+    if (!selectedModule || !selectedBoard || !port) return
+    setFlashing(true)
+    setResult(null)
+    setLog([{ message: `Iniciando gravação de ${selectedModule.name}…`, tone: 'info' }])
+    setPercent(2)
+    const request: FlashRequest = {
+      moduleId: selectedModule.id,
+      board: selectedBoard.id,
+      port,
+      baudId
+    }
+    try {
+      const res = await window.ipc.invoke<FlashResult>(SETUP_CHANNELS.flash, request)
+      if (!mountedRef.current) return
+      setResult(res)
+      if (res.ok && res.verified) {
+        showToast(res.message, 'success')
+      } else {
+        showToast(res.message || 'Não foi possível concluir a gravação.', 'error')
+      }
+    } catch (error) {
+      if (!mountedRef.current) return
+      const message = getErrorMessage(error)
+      setResult({ ok: false, verified: false, message, port: port ?? '', board: selectedBoard.id, capabilities: [] })
+      showToast(message, 'error')
+    } finally {
+      if (mountedRef.current) {
+        setFlashing(false)
+        setPercent((prev) => (prev < 100 ? 100 : prev))
+      }
+      // Re-enumerate serial after the post-flash board reset so "My Hardware" shows
+      // the device as connected — without auto-closing the wizard, so the user can
+      // still reach the success screen (Dump hex / "Ir para o dispositivo").
+      try {
+        await onFlashSettled?.()
+      } catch (error) {
+        if (mountedRef.current) showToast(getErrorMessage(error), 'error')
+      }
+    }
+  }
+
+  async function startDumpHex(): Promise<void> {
+    if (!selectedBoard || !port) return
+    setDumping(true)
+    setResult(null)
+    setLog([
+      {
+        message:
+          'Iniciando backup .hex. Isto salva o firmware compilado da placa; não reverse-engineera nem identifica funções automaticamente.',
+        tone: 'info'
+      }
+    ])
+    setPercent(2)
+    try {
+      const res = await window.ipc.invoke<DumpHexResult>(DUMP_HEX_CHANNEL, {
+        board: selectedBoard.id,
+        port,
+        baudId
+      })
+      if (!mountedRef.current) return
+      showToast(res.message, res.ok ? 'success' : 'error')
+    } catch (error) {
+      if (!mountedRef.current) return
+      showToast(getErrorMessage(error), 'error')
+    } finally {
+      if (mountedRef.current) {
+        setDumping(false)
+        setPercent((prev) => (prev < 100 ? 100 : prev))
+      }
+    }
+  }
+
+  async function cancelActiveOperation(): Promise<void> {
+    if (!flashing && !dumping) return
+    try {
+      await window.ipc.invoke(CANCEL_FLASH_CHANNEL)
+    } catch (error) {
+      showToast(getErrorMessage(error), 'error')
+    } finally {
+      if (mountedRef.current) {
+        setFlashing(false)
+        setDumping(false)
+      }
+    }
+  }
+
+  function closeWizard(): void {
+    void cancelActiveOperation()
+    onClose()
+  }
+
+  async function handleComplete(): Promise<void> {
+    if (result?.profileId) await onComplete(result.profileId)
+    onClose()
+  }
+
+  const canFlash = Boolean(selectedModule && selectedBoard && port && !flashing && !dumping)
+
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label="Setup do Arduino">
+      <div style={modal}>
+        {/* Header + stepper */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+          <div>
+            <span style={label}>Setup / Gravar firmware</span>
+            <h2 style={{ margin: '6px 0 0', fontSize: 22 }}>Assistente de gravação</h2>
+            <p style={{ ...helper, marginTop: 4 }}>
+              Escolha um módulo, conecte a placa e grave o firmware pronto. Sem Arduino IDE, sem código.
+            </p>
+          </div>
+          <button style={buttonStyle('ghost')} onClick={closeWizard} type="button" aria-label="Fechar">
+            ✕
+          </button>
+        </div>
+
+        <Stepper current={step} />
+
+        <div style={{ marginTop: 16 }}>
+          {step === 'module' && <ModuleStep onPick={pickModule} selectedId={moduleId} />}
+
+          {step === 'board' && selectedModule && (
+            <BoardStep
+              module={selectedModule}
+              boards={availableBoards}
+              selectedBoardId={boardId}
+              baudId={baudId}
+              detectedGuess={detectedGuess}
+              onPickBoard={pickBoard}
+              onPickBaud={setBaudId}
+              onBack={() => setStep('module')}
+            />
+          )}
+
+          {step === 'port' && selectedModule && selectedBoard && (
+            <PortStep
+              module={selectedModule}
+              board={selectedBoard}
+              ports={ports}
+              loading={loadingPorts}
+              selectedPort={port}
+              onPick={pickPort}
+              onRefresh={() => void loadPorts()}
+              onBack={() => setStep('board')}
+              onNext={goToFlash}
+            />
+          )}
+
+          {step === 'flash' && selectedModule && selectedBoard && baud && (
+            <FlashStep
+              module={selectedModule}
+              board={selectedBoard}
+              port={port}
+              baudLabel={baud.label}
+              command={buildAvrdudeCommandPreview(
+                selectedBoard,
+                port ?? '',
+                baud.baud,
+                findModuleFirmware(selectedModule, selectedBoard.id)?.hex ?? `${selectedModule.id}.hex`
+              )}
+              showCommand={showCommand}
+              onToggleCommand={() => setShowCommand((v) => !v)}
+              flashing={flashing}
+              dumping={dumping}
+              log={log}
+              percent={percent}
+              result={result}
+              canFlash={canFlash}
+              logEndRef={logEndRef}
+              onFlash={() => void startFlash()}
+              onDumpHex={() => void startDumpHex()}
+              onCancel={() => void cancelActiveOperation()}
+              onBack={() => setStep('port')}
+              onComplete={handleComplete}
+              onClose={closeWizard}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Stepper ──────────────────────────────────────────────────────────────────
+
+function Stepper({ current }: { current: WizardStep }): ReactElement {
+  const currentIndex = STEP_LABELS.findIndex((s) => s.id === current)
+  return (
+    <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+      {STEP_LABELS.map((entry, index) => {
+        const done = index < currentIndex
+        const active = index === currentIndex
+        return (
+          <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+            <div
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: '50%',
+                display: 'grid',
+                placeItems: 'center',
+                fontSize: 12,
+                fontWeight: 800,
+                background: active || done ? ACCENT : 'rgba(255,255,255,0.08)',
+                color: active || done ? '#06121f' : 'rgba(255,255,255,0.6)',
+                flexShrink: 0
+              }}
+            >
+              {done ? '✓' : index + 1}
+            </div>
+            <span
+              style={{
+                fontSize: 12.5,
+                fontWeight: active ? 800 : 600,
+                color: active ? '#fff' : 'rgba(255,255,255,0.55)'
+              }}
+            >
+              {entry.label}
+            </span>
+            {index < STEP_LABELS.length - 1 && (
+              <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.12)' }} />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── Step 1: module ─────────────────────────────────────────────────────────
+
+function ModuleStep({
+  onPick,
+  selectedId
+}: {
+  onPick: (module: SetupModule) => void
+  selectedId: string | null
+}): ReactElement {
+  return (
+    <div>
+      <p style={helper}>O que você quer montar? Comece pela matriz iFlag — é o módulo mais fácil.</p>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+        {SETUP_MODULES.map((module) => {
+          const available = module.status === 'available'
+          const isSelected = module.id === selectedId
+          return (
+            <button
+              key={module.id}
+              type="button"
+              disabled={!available}
+              onClick={() => onPick(module)}
+              style={{
+                ...card,
+                textAlign: 'left',
+                cursor: available ? 'pointer' : 'not-allowed',
+                opacity: available ? 1 : 0.55,
+                borderColor: isSelected ? ACCENT : 'rgba(255,255,255,0.1)',
+                background: isSelected ? ACCENT_SOFT : card.background
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <strong style={{ fontSize: 14 }}>{module.name}</strong>
+                {available ? (
+                  <span style={difficultyBadge}>{module.difficulty}</span>
+                ) : (
+                  <span style={{ ...difficultyBadge, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', borderColor: 'transparent' }}>
+                    em breve
+                  </span>
+                )}
+              </div>
+              <p style={{ ...helper, marginTop: 6 }}>{module.tagline}</p>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── Step 2: board ────────────────────────────────────────────────────────────
+
+function BoardStep({
+  module,
+  boards,
+  selectedBoardId,
+  baudId,
+  detectedGuess,
+  onPickBoard,
+  onPickBaud,
+  onBack
+}: {
+  module: SetupModule
+  boards: FlashBoardSpec[]
+  selectedBoardId: FlashBoardId | null
+  baudId: string | undefined
+  detectedGuess?: FlashBoardGuess
+  onPickBoard: (board: FlashBoardSpec) => void
+  onPickBaud: (baudId: string) => void
+  onBack: () => void
+}): ReactElement {
+  const selected = boards.find((b) => b.id === selectedBoardId) ?? null
+  return (
+    <div>
+      <p style={helper}>
+        Qual placa você vai usar para o <strong>{module.name}</strong>? A recomendada é a mais barata e simples.
+      </p>
+      {detectedGuess && (
+        <div style={guessBanner}>
+          <strong style={{ fontSize: 12.5 }}>🔌 Detectado pela USB: {detectedGuess.label}</strong>
+          <p style={{ ...helper, marginTop: 4 }}>{detectedGuess.reason}</p>
+          {detectedGuess.needsAvr109 && (
+            <p style={{ ...helper, marginTop: 4, color: '#ffd37a' }}>
+              Bootloader Caterina (avr109 + reset 1200 bps) — não use o programmer “arduino”/stk500.
+            </p>
+          )}
+        </div>
+      )}
+      <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
+        {boards.map((board) => {
+          const isRecommended = board.id === module.recommendedBoard
+          const isSelected = board.id === selectedBoardId
+          return (
+            <button
+              key={board.id}
+              type="button"
+              onClick={() => onPickBoard(board)}
+              style={{
+                ...card,
+                textAlign: 'left',
+                cursor: 'pointer',
+                borderColor: isSelected ? ACCENT : 'rgba(255,255,255,0.1)',
+                background: isSelected ? ACCENT_SOFT : card.background
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <strong style={{ fontSize: 14 }}>{board.name}</strong>
+                <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
+                  {detectedGuess?.boardId === board.id && <span style={detectedBadge}>detectada por USB</span>}
+                  {isRecommended && <span style={difficultyBadge}>recomendada</span>}
+                </span>
+              </div>
+              {board.hint && <p style={{ ...helper, marginTop: 6 }}>{board.hint}</p>}
+            </button>
+          )
+        })}
+      </div>
+
+      {selected && selected.baudOptions.length > 1 && (
+        <div style={{ marginTop: 14 }}>
+          <span style={label}>Bootloader / velocidade</span>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+            {selected.baudOptions.map((option) => {
+              const active = (baudId ?? selected.defaultBaudId) === option.id
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => onPickBaud(option.id)}
+                  style={buttonStyle('soft', active)}
+                >
+                  {option.label}
+                </button>
+              )
+            })}
+          </div>
+          <p style={{ ...helper, marginTop: 6 }}>
+            Clones com chip CH340 (Nano/Uno) normalmente precisam do <strong>bootloader antigo (57600)</strong> se a gravação falhar logo no início.
+          </p>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
+        <button style={buttonStyle('ghost')} onClick={onBack} type="button">
+          ← Voltar
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Step 3: port ─────────────────────────────────────────────────────────────
+
+function PortStep({
+  module,
+  board,
+  ports,
+  loading,
+  selectedPort,
+  onPick,
+  onRefresh,
+  onBack,
+  onNext
+}: {
+  module: SetupModule
+  board: FlashBoardSpec
+  ports: IdentifiedPortInfo[]
+  loading: boolean
+  selectedPort: string | null
+  onPick: (port: string) => void
+  onRefresh: () => void
+  onBack: () => void
+  onNext: () => void
+}): ReactElement {
+  return (
+    <div>
+      <WiringPanel module={module} board={board} />
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
+        <span style={label}>Porta serial (COM)</span>
+        <button style={buttonStyle('ghost')} onClick={onRefresh} type="button" disabled={loading}>
+          {loading ? 'Procurando…' : 'Atualizar'}
+        </button>
+      </div>
+
+      <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+        {ports.length === 0 && (
+          <p style={helper}>
+            {loading
+              ? 'Procurando portas…'
+              : 'Nenhuma porta encontrada. Conecte a placa via USB (cabo de dados) e clique em Atualizar.'}
+          </p>
+        )}
+        {ports.map((info) => {
+          const isSelected = info.path === selectedPort
+          return (
+            <button
+              key={info.path}
+              type="button"
+              onClick={() => onPick(info.path)}
+              style={{
+                ...card,
+                textAlign: 'left',
+                cursor: 'pointer',
+                borderColor: isSelected ? ACCENT : 'rgba(255,255,255,0.1)',
+                background: isSelected ? ACCENT_SOFT : card.background
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <strong style={{ fontSize: 14 }}>{info.path}</strong>
+                <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
+                  {info.identify?.speaksMatrix && <span style={matrixBadge}>iFlag / RGB Matrix</span>}
+                  {info.isSimX && <span style={{ ...difficultyBadge, background: 'rgba(209,52,56,0.16)', color: '#ff9a9c', borderColor: 'rgba(209,52,56,0.5)' }}>SIM-X — não use</span>}
+                </span>
+              </div>
+              {(info.friendlyName || info.manufacturer) && (
+                <p style={{ ...helper, marginTop: 4 }}>{info.friendlyName ?? info.manufacturer}</p>
+              )}
+              {info.identify && (
+                <p
+                  style={{
+                    ...helper,
+                    marginTop: 4,
+                    color:
+                      info.identify.status === 'identified'
+                        ? '#7ee2b8'
+                        : info.identify.status === 'busy'
+                          ? '#ffd37a'
+                          : 'rgba(255,255,255,0.55)'
+                  }}
+                >
+                  Identify: {info.identify.label}
+                  {info.identify.detail ? ` — ${info.identify.detail}` : ''}
+                </p>
+              )}
+              {info.identify?.boardGuess && info.identify.status !== 'unknown' && (
+                <p style={{ ...helper, marginTop: 4 }}>
+                  Placa (USB): {info.identify.boardGuess.label} — {info.identify.boardGuess.reason}
+                </p>
+              )}
+              {info.identify &&
+                info.identify.status !== 'busy' &&
+                info.identify.speaksMatrix !== true &&
+                info.identify.speaksCompanion !== true &&
+                info.identify.boardGuess && (
+                  <p style={companionPrompt}>
+                    ⚠️ Firmware não‑companion (ex.: SimHub/WLED) — grave o firmware companion do módulo para a placa acender e ser reconhecida.
+                  </p>
+                )}
+            </button>
+          )
+        })}
+      </div>
+
+      {selectedPort && ports.find((p) => p.path === selectedPort)?.isSimX && (
+        <p style={{ ...helper, color: '#ff9a9c', marginTop: 8 }}>
+          ⚠️ Essa porta parece ser o SIM-X principal. Não grave firmware nele por aqui — escolha um Arduino secundário.
+        </p>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
+        <button style={buttonStyle('ghost')} onClick={onBack} type="button">
+          ← Voltar
+        </button>
+        <button style={buttonStyle('primary')} onClick={onNext} type="button" disabled={!selectedPort}>
+          Continuar →
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Step 4: flash ────────────────────────────────────────────────────────────
+
+function FlashStep({
+  module,
+  board,
+  port,
+  baudLabel,
+  command,
+  showCommand,
+  onToggleCommand,
+  flashing,
+  dumping,
+  log,
+  percent,
+  result,
+  canFlash,
+  logEndRef,
+  onFlash,
+  onDumpHex,
+  onCancel,
+  onBack,
+  onComplete,
+  onClose
+}: {
+  module: SetupModule
+  board: FlashBoardSpec
+  port: string | null
+  baudLabel: string
+  command: string[]
+  showCommand: boolean
+  onToggleCommand: () => void
+  flashing: boolean
+  dumping: boolean
+  log: LogLine[]
+  percent: number
+  result: FlashResult | null
+  canFlash: boolean
+  logEndRef: RefObject<HTMLDivElement | null>
+  onFlash: () => void
+  onDumpHex: () => void
+  onCancel: () => void
+  onBack: () => void
+  onComplete: () => void | Promise<void>
+  onClose: () => void
+}): ReactElement {
+  const done = result?.ok && result.verified
+  const failed = result !== null && !done
+  const busy = flashing || dumping
+
+  return (
+    <div>
+      <div style={{ ...card, background: ACCENT_SOFT, borderColor: ACCENT_BORDER }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+          <span>
+            <strong>{module.name}</strong> · {board.name}
+          </span>
+          <span style={{ color: 'rgba(255,255,255,0.7)' }}>
+            {port ?? '—'} · {baudLabel}
+          </span>
+        </div>
+      </div>
+
+      <WiringPanel module={module} board={board} compact />
+
+      <div style={{ ...card, marginTop: 12, background: 'rgba(255,255,255,0.04)' }}>
+        <strong>Backup do firmware atual</strong>
+        <p style={{ ...helper, marginTop: 6 }}>
+          “Dump hex firmware from Arduino” salva uma cópia .hex da flash atual. Ele não reverse-engineera o binário
+          nem descobre automaticamente quais funções o firmware implementa.
+        </p>
+        <button style={{ ...buttonStyle('soft'), marginTop: 8 }} onClick={onDumpHex} type="button" disabled={!port || busy}>
+          {dumping ? 'Lendo .hex…' : 'Dump hex firmware from Arduino'}
+        </button>
+      </div>
+
+      <button style={{ ...buttonStyle('ghost'), marginTop: 12 }} onClick={onToggleCommand} type="button">
+        {showCommand ? 'Esconder comando avrdude' : 'Ver comando avrdude (avançado)'}
+      </button>
+      {showCommand && (
+        <pre style={commandBox}>
+          {command.join('\n')}
+        </pre>
+      )}
+
+      {(busy || log.length > 0) && (
+        <div style={{ marginTop: 14 }}>
+          <div style={progressTrack}>
+            <div
+              style={{
+                ...progressFill,
+                width: `${Math.max(0, Math.min(100, percent))}%`,
+                background: failed ? 'var(--accent-danger)' : ACCENT
+              }}
+            />
+          </div>
+          <div style={logBox}>
+            {log.map((line, index) => (
+              <div
+                key={index}
+                style={{
+                  color: line.tone === 'error' ? '#ff9a9c' : line.tone === 'success' ? '#7ee2b8' : 'rgba(255,255,255,0.78)'
+                }}
+              >
+                {line.message}
+              </div>
+            ))}
+            <div ref={logEndRef} />
+          </div>
+        </div>
+      )}
+
+      {done && result && (
+        <div style={{ ...card, marginTop: 14, borderColor: 'rgba(var(--accent-rgb),0.5)', background: 'rgba(var(--accent-rgb),0.12)' }}>
+          <strong style={{ color: '#7ee2b8' }}>✓ Pronto! Componente criado.</strong>
+          <p style={{ ...helper, marginTop: 6 }}>
+            Capacidades confirmadas: {result.capabilities.map((c) => `K:${c.key}=${c.detail}`).join(', ') || '—'}.
+            O dispositivo já foi criado no Hardware Hub e vinculado à porta {result.port}.
+          </p>
+        </div>
+      )}
+
+      {failed && result && (
+        <div style={{ ...card, marginTop: 14, borderColor: 'rgba(209,52,56,0.5)', background: 'rgba(209,52,56,0.12)' }}>
+          <strong style={{ color: '#ff9a9c' }}>Não deu certo</strong>
+          <p style={{ ...helper, marginTop: 6 }}>{result.message}</p>
+          <ul style={{ ...helper, marginTop: 8, paddingLeft: 18 }}>
+            <li>Confirme a fiação: DIN no pino certo, 5V e GND comuns.</li>
+            <li>Use um cabo USB de <strong>dados</strong> (alguns cabos só carregam).</li>
+            <li>Feche o SimHub/Arduino IDE (eles podem estar segurando a porta).</li>
+            <li>Nano clone? Volte e troque para o bootloader antigo (57600).</li>
+          </ul>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18, gap: 8 }}>
+        <button style={buttonStyle('ghost')} onClick={busy ? onCancel : onBack} type="button">
+          {busy ? 'Cancelar operação' : '← Voltar'}
+        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {busy && (
+            <button style={buttonStyle('ghost')} onClick={onClose} type="button">
+              Fechar agora
+            </button>
+          )}
+          {!busy && !done && (
+            <button style={buttonStyle('primary')} onClick={onFlash} type="button" disabled={!canFlash}>
+              {failed ? 'Tentar de novo' : '⚡ Gravar firmware'}
+            </button>
+          )}
+          {done ? (
+            <button style={buttonStyle('primary')} onClick={() => void onComplete()} type="button">
+              Ir para o dispositivo →
+            </button>
+          ) : (
+            !busy && (
+              <button style={buttonStyle('ghost')} onClick={onClose} type="button">
+                Fechar
+              </button>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Shared: wiring panel ─────────────────────────────────────────────────────
+
+function WiringPanel({
+  module,
+  board,
+  compact
+}: {
+  module: SetupModule
+  board: FlashBoardSpec
+  compact?: boolean
+}): ReactElement {
+  return (
+    <div style={{ ...card, marginTop: compact ? 12 : 0 }}>
+      <span style={label}>Como ligar ({board.name})</span>
+      <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+        {module.wiring.map((step) => (
+          <div key={step.signal} style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <code style={pinChip}>{step.signal}</code>
+            <span style={{ color: 'rgba(255,255,255,0.5)' }}>→</span>
+            <code style={{ ...pinChip, background: ACCENT_SOFT, borderColor: ACCENT_BORDER, color: 'var(--accent-primary)' }}>
+              {step.pin}
+            </code>
+            {step.detail && <span style={{ ...helper, margin: 0 }}>{step.detail}</span>}
+          </div>
+        ))}
+      </div>
+      {!compact && module.powerNote && (
+        <p style={{ ...helper, marginTop: 10 }}>💡 {module.powerNote}</p>
+      )}
+      {!compact && module.parts.length > 0 && (
+        <p style={{ ...helper, marginTop: 8 }}>
+          <strong>Peças:</strong> {module.parts.join(' · ')}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ─── Inline style tokens local to the wizard ──────────────────────────────────
+
+const overlay: CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 40,
+  background: 'rgba(2,5,9,0.72)',
+  backdropFilter: 'blur(4px)',
+  display: 'grid',
+  placeItems: 'center',
+  padding: 20
+}
+
+const modal: CSSProperties = {
+  ...panel,
+  width: 'min(720px, 96vw)',
+  maxHeight: '92vh',
+  overflowY: 'auto'
+}
+
+const difficultyBadge: CSSProperties = {
+  alignItems: 'center',
+  background: ACCENT_SOFT,
+  border: `1px solid ${ACCENT_BORDER}`,
+  borderRadius: 'var(--radius-sm)',
+  color: 'var(--accent-primary)',
+  display: 'inline-flex',
+  fontSize: 10.5,
+  fontWeight: 700,
+  letterSpacing: 0.4,
+  padding: '2px 9px',
+  textTransform: 'uppercase'
+}
+
+const matrixBadge: CSSProperties = {
+  ...difficultyBadge,
+  background: 'rgba(0,180,120,0.16)',
+  color: '#7ee2b8',
+  borderColor: 'rgba(0,180,120,0.5)'
+}
+
+const detectedBadge: CSSProperties = {
+  ...difficultyBadge,
+  background: 'rgba(232,105,32,0.18)',
+  color: 'var(--accent-primary)',
+  borderColor: ACCENT_BORDER
+}
+
+const companionPrompt: CSSProperties = {
+  ...helper,
+  marginTop: 6,
+  color: '#ffd37a'
+}
+
+const guessBanner: CSSProperties = {
+  marginTop: 12,
+  padding: '10px 12px',
+  borderRadius: 'var(--radius-sm)',
+  background: ACCENT_SOFT,
+  border: `1px solid ${ACCENT_BORDER}`
+}
+
+const pinChip: CSSProperties = {
+  background: 'rgba(255,255,255,0.06)',
+  border: '1px solid rgba(255,255,255,0.14)',
+  borderRadius: 'var(--radius-sm)',
+  fontSize: 12,
+  fontWeight: 700,
+  padding: '2px 8px'
+}
+
+const commandBox: CSSProperties = {
+  background: 'rgba(0,0,0,0.42)',
+  border: '1px solid rgba(255,255,255,0.12)',
+  borderRadius: 'var(--radius-sm)',
+  color: 'rgba(255,255,255,0.78)',
+  fontSize: 11.5,
+  lineHeight: 1.5,
+  margin: '8px 0 0',
+  padding: 12,
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-all'
+}
+
+const progressTrack: CSSProperties = {
+  height: 8,
+  borderRadius: 'var(--radius-sm)',
+  background: 'rgba(255,255,255,0.1)',
+  overflow: 'hidden'
+}
+
+const progressFill: CSSProperties = {
+  height: '100%',
+  borderRadius: 'var(--radius-sm)',
+  transition: 'width 200ms ease'
+}
+
+const logBox: CSSProperties = {
+  marginTop: 10,
+  maxHeight: 200,
+  overflowY: 'auto',
+  background: 'rgba(0,0,0,0.42)',
+  border: '1px solid rgba(255,255,255,0.12)',
+  borderRadius: 'var(--radius-sm)',
+  padding: 12,
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontSize: 11.5,
+  lineHeight: 1.55
+}

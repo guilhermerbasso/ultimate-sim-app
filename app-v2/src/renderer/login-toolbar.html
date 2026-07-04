@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Login do iRacing — Ultimate Sim App</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        background: #0b0f14;
+        color: #f4f6f8;
+      }
+      .bar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        height: 56px;
+        padding: 0 14px;
+        background: linear-gradient(180deg, #11161d, #0b0f14);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .brand {
+        font-weight: 700;
+        font-size: 13px;
+        letter-spacing: 0.01em;
+        white-space: nowrap;
+      }
+      .brand b {
+        color: #ff6a00;
+      }
+      .spacer {
+        flex: 1 1 auto;
+      }
+      .status {
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.6);
+        max-width: 220px;
+        line-height: 1.25;
+        text-align: right;
+      }
+      button {
+        appearance: none;
+        border: 1px solid rgba(255, 106, 0, 0.6);
+        background: #ff6a00;
+        color: #0b0f14;
+        font-weight: 700;
+        font-size: 12.5px;
+        padding: 9px 14px;
+        border-radius: 9px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      button:hover {
+        background: #ff7d22;
+      }
+      button:active {
+        transform: translateY(1px);
+      }
+      button.ghost {
+        background: transparent;
+        color: #f4f6f8;
+        border: 1px solid rgba(255, 255, 255, 0.28);
+      }
+      button.ghost:hover {
+        background: rgba(255, 255, 255, 0.08);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <span class="brand">Login do <b>iRacing</b> · Ultimate Sim App</span>
+      <span class="spacer"></span>
+      <span class="status" id="s">
+        Faça login no iRacing abaixo. Ao terminar, clique aqui →
+      </span>
+      <button id="cancel" class="ghost" type="button">Cancelar</button>
+      <button id="done" type="button">✓ Voltar ao Ultimate Sim App</button>
+    </div>
+    <script>
+      ;(function () {
+        // Sentinels are passed by the main process as query params so a missing
+        // preload still has a working way back: the button navigates to the
+        // sentinel URL, which main intercepts via `will-navigate`.
+        var params = new URLSearchParams(location.search)
+        var doneSentinel = params.get('done') || ''
+        var cancelSentinel = params.get('cancel') || ''
+        var HINT =
+          'Se os botões não responderem: use o menu Login acima, ou aperte Ctrl+Enter para concluir.'
+
+        function done() {
+          if (window.simLogin && typeof window.simLogin.done === 'function') {
+            window.simLogin.done()
+          } else if (doneSentinel) {
+            location.href = doneSentinel
+          }
+        }
+        function cancel() {
+          if (window.simLogin && typeof window.simLogin.cancel === 'function') {
+            window.simLogin.cancel()
+          } else if (cancelSentinel) {
+            location.href = cancelSentinel
+          }
+        }
+
+        var doneBtn = document.getElementById('done')
+        var cancelBtn = document.getElementById('cancel')
+        if (doneBtn) doneBtn.addEventListener('click', done)
+        if (cancelBtn) cancelBtn.addEventListener('click', cancel)
+
+        // Keyboard backstop that works even from this page's own focus.
+        window.addEventListener('keydown', function (e) {
+          var key = (e.key || '').toLowerCase()
+          if ((e.ctrlKey || e.metaKey) && (key === 'enter' || key === 'return')) {
+            e.preventDefault()
+            done()
+          } else if (key === 'escape' || key === 'esc') {
+            e.preventDefault()
+            cancel()
+          }
+        })
+
+        // Main can push status updates over this hook (window.__setStatus).
+        window.__setStatus = function (t) {
+          var e = document.getElementById('s')
+          if (e) e.textContent = t
+        }
+
+        // Always-visible fallback hint so the user knows the guaranteed paths.
+        window.__setStatus(HINT)
+      })()
+    </script>
+  </body>
+</html>

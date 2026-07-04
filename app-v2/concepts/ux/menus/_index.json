@@ -1,0 +1,107 @@
+[
+  {
+    "i": 0,
+    "label": "Telemetria",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/00-telemetria.png"
+  },
+  {
+    "i": 1,
+    "label": "Dashboards",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/01-dashboards.png"
+  },
+  {
+    "i": 2,
+    "label": "OLED Dashboard",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/02-oled-dashboard.png"
+  },
+  {
+    "i": 3,
+    "label": "Overlays",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/03-overlays.png"
+  },
+  {
+    "i": 4,
+    "label": "Combustível",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/04-combust-vel.png"
+  },
+  {
+    "i": 5,
+    "label": "Pneus",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/05-pneus.png"
+  },
+  {
+    "i": 6,
+    "label": "Análise",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/06-an-lise.png"
+  },
+  {
+    "i": 7,
+    "label": "Alertas",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/07-alertas.png"
+  },
+  {
+    "i": 8,
+    "label": "Expressões",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/08-express-es.png"
+  },
+  {
+    "i": 9,
+    "label": "Perfis Corrida",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/09-perfis-corrida.png"
+  },
+  {
+    "i": 10,
+    "label": "Sounds",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/10-sounds.png"
+  },
+  {
+    "i": 11,
+    "label": "Setups",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/11-setups.png"
+  },
+  {
+    "i": 12,
+    "label": "Dispositivos",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/12-dispositivos.png"
+  },
+  {
+    "i": 13,
+    "label": "Arduinos",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/13-arduinos.png"
+  },
+  {
+    "i": 14,
+    "label": "OLED manual",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/14-oled-manual.png"
+  },
+  {
+    "i": 15,
+    "label": "Rev Lights",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/15-rev-lights.png"
+  },
+  {
+    "i": 16,
+    "label": "Monitor de Inputs",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/16-monitor-de-inputs.png"
+  },
+  {
+    "i": 17,
+    "label": "Perfis",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/17-perfis.png"
+  },
+  {
+    "i": 18,
+    "label": "Controls & Keyboard",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/18-controls-keyboard.png"
+  },
+  {
+    "i": 19,
+    "label": "Pinout Designer",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/19-pinout-designer.png"
+  },
+  {
+    "i": 20,
+    "label": "Configurações",
+    "file": "/Users/guilhermebasso/Documents/Copilot CLI/projects/simracing-buttonbox-v2/app/concepts/ux/menus/20-configura-es.png"
+  }
+]

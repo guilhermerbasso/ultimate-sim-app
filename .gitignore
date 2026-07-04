@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+
+# Electron / build outputs
+app-v2/out/
+app-v2/dist/
+app-v2/dist-win/
+app-v2/dist-zip/
+app-v2/dist-dir/
+dist/
+dist-win/
+out/
+
+# Logs and local env
+*.log
+*.pid
+*.patch
+.env
+.env.*
+!.env.example
+
+# Caches and generated reports
+.cache/
+.vite/
+coverage/
+.nyc_output/
+app-v2/visual-audit/shots/
+app-v2/visual-audit/thumbs/
+app-v2/visual-audit/widgets/
+app-v2/visual-audit/contact/
+app-v2/visual-audit/dash/
+app-v2/visual-audit/dash-contact/
+app-v2/visual-audit/touch/
+app-v2/visual-audit/touch-contact/
+app-v2/tests/visual/current/*
+app-v2/tests/visual/diff/*
+!app-v2/tests/visual/**/.gitkeep
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+__MACOSX/
+.idea/
+.vscode/
+
+# Large generated release artifacts
+*.exe
+*.blockmap
+latest.yml

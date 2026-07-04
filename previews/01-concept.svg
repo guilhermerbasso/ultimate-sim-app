@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" width="800" height="500">
+  <defs>
+    <linearGradient id="deskGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#2a2a2a"/>
+      <stop offset="100%" stop-color="#1a1a1a"/>
+    </linearGradient>
+    <linearGradient id="boxGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4a4a5a"/>
+      <stop offset="100%" stop-color="#2a2a35"/>
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="3" dy="3" stdDeviation="4" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+  <!-- Background -->
+  <rect width="800" height="500" fill="#0d0d1a"/>
+  <!-- Title -->
+  <text x="400" y="35" font-family="Arial" font-size="18" font-weight="bold" fill="#0078D4" text-anchor="middle">Button Box V2 — Concept Preview</text>
+  <text x="400" y="52" font-family="Arial" font-size="11" fill="#888" text-anchor="middle">P2.3 · 6 Encoders EC11 + OLED SSD1306 · Pro Micro + CD74HC4067</text>
+  <!-- Desk surface -->
+  <rect x="0" y="380" width="800" height="120" fill="url(#deskGrad)"/>
+  <line x1="0" y1="380" x2="800" y2="380" stroke="#444" stroke-width="1"/>
+  <!-- Monitor (background) -->
+  <rect x="280" y="80" width="240" height="150" rx="6" fill="#1a1a2e" stroke="#555" stroke-width="2"/>
+  <rect x="290" y="88" width="220" height="132" fill="#0d0d20"/>
+  <text x="400" y="160" font-family="Arial" font-size="10" fill="#00ff41" text-anchor="middle">iRacing — Nordschleife</text>
+  <text x="400" y="175" font-family="Arial" font-size="9" fill="#888" text-anchor="middle">BB: 52.5% | MAP: 3 | TC: 5</text>
+  <rect x="380" y="230" width="40" height="150" fill="#2a2a35" stroke="#555"/>
+  <!-- Steering Wheel (right side) -->
+  <circle cx="620" cy="290" r="70" fill="none" stroke="#555" stroke-width="8"/>
+  <circle cx="620" cy="290" r="8" fill="#333" stroke="#444" stroke-width="2"/>
+  <line x1="620" y1="220" x2="620" y2="290" stroke="#444" stroke-width="6"/>
+  <line x1="550" y1="290" x2="620" y2="290" stroke="#444" stroke-width="6"/>
+  <line x1="690" y1="290" x2="620" y2="290" stroke="#444" stroke-width="6"/>
+  <text x="620" y="380" font-family="Arial" font-size="10" fill="#666" text-anchor="middle">Steering Wheel</text>
+  <!-- BUTTON BOX (main subject) -->
+  <rect x="140" y="280" width="200" height="120" rx="8" fill="url(#boxGrad)" stroke="#0078D4" stroke-width="2" filter="url(#shadow)"/>
+  <!-- OLED display on box -->
+  <rect x="258" y="291" width="70" height="40" rx="3" fill="#000d1a" stroke="#0078D4" stroke-width="1.5"/>
+  <text x="293" y="305" font-family="Courier New" font-size="7" fill="#00ff41" text-anchor="middle">BB 52.5%</text>
+  <text x="293" y="315" font-family="Courier New" font-size="7" fill="#00aaff" text-anchor="middle">MAP:3 TC:5</text>
+  <text x="293" y="325" font-family="Courier New" font-size="7" fill="#ffaa00" text-anchor="middle">FUEL:28.4L</text>
+  <!-- Encoder knobs (row 1) -->
+  <circle cx="165" cy="308" r="14" fill="#2a2a35" stroke="#888" stroke-width="2"/>
+  <circle cx="165" cy="308" r="4" fill="#555"/>
+  <line x1="165" y1="294" x2="165" y2="308" stroke="#aaa" stroke-width="1.5"/>
+  <circle cx="210" cy="308" r="14" fill="#2a2a35" stroke="#888" stroke-width="2"/>
+  <circle cx="210" cy="308" r="4" fill="#555"/>
+  <line x1="210" y1="294" x2="210" y2="308" stroke="#aaa" stroke-width="1.5"/>
+  <!-- Encoder knobs (row 2) -->
+  <circle cx="165" cy="355" r="14" fill="#2a2a35" stroke="#888" stroke-width="2"/>
+  <circle cx="165" cy="355" r="4" fill="#555"/>
+  <circle cx="210" cy="355" r="14" fill="#2a2a35" stroke="#888" stroke-width="2"/>
+  <circle cx="210" cy="355" r="4" fill="#555"/>
+  <circle cx="255" cy="355" r="14" fill="#2a2a35" stroke="#888" stroke-width="2"/>
+  <circle cx="255" cy="355" r="4" fill="#555"/>
+  <!-- Labels -->
+  <text x="165" y="388" font-family="Arial" font-size="7" fill="#0078D4" text-anchor="middle">BB</text>
+  <text x="210" y="388" font-family="Arial" font-size="7" fill="#0078D4" text-anchor="middle">MAP</text>
+  <text x="255" y="388" font-family="Arial" font-size="7" fill="#0078D4" text-anchor="middle">TC</text>
+  <!-- USB cable -->
+  <path d="M 240 400 Q 300 420 350 415" fill="none" stroke="#444" stroke-width="3" stroke-dasharray="4,2"/>
+  <rect x="350" y="410" width="8" height="10" rx="1" fill="#666"/>
+  <!-- Box label -->
+  <text x="240" y="420" font-family="Arial" font-size="11" font-weight="bold" fill="#0078D4" text-anchor="middle">Button Box V2</text>
+  <text x="240" y="433" font-family="Arial" font-size="8" fill="#888" text-anchor="middle">200 × 120 × 40mm · PETG</text>
+  <!-- Legend -->
+  <rect x="30" y="80" width="190" height="180" rx="6" fill="#111" stroke="#333"/>
+  <text x="125" y="100" font-family="Arial" font-size="11" font-weight="bold" fill="#0078D4" text-anchor="middle">Componentes</text>
+  <circle cx="50" cy="120" r="6" fill="#2a2a35" stroke="#888" stroke-width="1.5"/>
+  <text x="65" y="124" font-family="Arial" font-size="9" fill="#ccc">6× Encoder EC11</text>
+  <rect x="44" y="135" width="12" height="8" fill="#000d1a" stroke="#0078D4" stroke-width="1"/>
+  <text x="65" y="142" font-family="Arial" font-size="9" fill="#ccc">OLED SSD1306</text>
+  <rect x="44" y="152" width="12" height="10" fill="#2a2a35" stroke="#555" stroke-width="1"/>
+  <text x="65" y="160" font-family="Arial" font-size="9" fill="#ccc">Arduino Pro Micro</text>
+  <rect x="44" y="170" width="12" height="10" fill="#1a3a2a" stroke="#0078D4" stroke-width="1"/>
+  <text x="65" y="179" font-family="Arial" font-size="9" fill="#ccc">CD74HC4067 Mux</text>
+  <line x1="44" y1="193" x2="56" y2="193" stroke="#444" stroke-width="3" stroke-dasharray="3,2"/>
+  <text x="65" y="196" font-family="Arial" font-size="9" fill="#ccc">USB → PC</text>
+  <text x="50" y="222" font-family="Arial" font-size="8" fill="#555" text-anchor="middle">HID Joystick + Serial</text>
+  <text x="50" y="234" font-family="Arial" font-size="8" fill="#555" text-anchor="middle">SimHub telemetria</text>
+  <!-- Footer -->
+  <text x="400" y="488" font-family="Arial" font-size="9" fill="#444" text-anchor="middle">Projeto P2.3 — iRacing DIY Roadmap — Guilherme Basso</text>
+</svg>

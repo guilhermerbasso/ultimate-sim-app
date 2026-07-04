@@ -1,0 +1,580 @@
+.overlays-view {
+  display: grid;
+  gap: 18px;
+}
+
+.overlays-view .panel {
+  border: 1px solid rgba(138, 164, 200, 0.18);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.035);
+  padding: 18px;
+}
+
+.overlays-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.overlays-header h3 {
+  margin: 0 0 6px;
+  color: #F0EBE0;
+  font-size: 24px;
+}
+
+.overlays-header p,
+.overlay-help {
+  margin: 0;
+  color: #8A8A7A;
+}
+
+.overlay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.overlay-button {
+  border: 1px solid rgba(138, 164, 200, 0.28);
+  border-radius: 12px;
+  background: rgba(12, 24, 38, 0.86);
+  color: #e7f2ff;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 10px 14px;
+}
+
+.overlay-button.primary {
+  border-color: var(--border-accent);
+  background: var(--accent-primary);
+}
+
+.overlay-button.danger {
+  border-color: rgba(255, 77, 93, 0.6);
+  color: #ffadb6;
+}
+
+.overlay-button:disabled,
+.position-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.overlay-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 14px;
+}
+
+.overlay-config-card {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(138, 164, 200, 0.18);
+  border-radius: 18px;
+  background: rgba(8, 15, 25, 0.56);
+  padding: 16px;
+}
+
+.overlay-config-card.is-enabled {
+  border-color: var(--accent-border);
+  box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.12);
+}
+
+.overlay-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.overlay-card-top h4 {
+  margin: 0 0 4px;
+  color: #F0EBE0;
+}
+
+.overlay-card-top p {
+  margin: 0;
+  color: #8A8A7A;
+  font-size: 13px;
+}
+
+.status-pill {
+  border-radius: 999px;
+  background: rgba(138, 164, 200, 0.12);
+  color: #8A8A7A;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 5px 9px;
+  text-transform: uppercase;
+}
+
+.status-pill.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.overlay-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.overlay-fav {
+  border: 1px solid rgba(138, 164, 200, 0.28);
+  border-radius: 999px;
+  background: rgba(5, 10, 18, 0.72);
+  color: #8A8A7A;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 5px 9px;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.overlay-fav:hover:not(:disabled) {
+  color: #ffb000;
+  border-color: rgba(255, 176, 0, 0.45);
+}
+
+.overlay-fav.is-fav {
+  border-color: rgba(255, 176, 0, 0.55);
+  background: rgba(255, 176, 0, 0.14);
+  color: #ffb000;
+}
+
+.overlay-fav:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.overlays-active-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.overlays-active-head h3 {
+  margin: 0;
+  color: #F0EBE0;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.overlays-active-count {
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 900;
+  padding: 2px 9px;
+}
+
+.overlays-active-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.overlay-active-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--accent-border);
+  border-radius: 999px;
+  background: rgba(var(--accent-rgb), 0.08);
+  padding: 6px 8px 6px 6px;
+}
+
+.overlay-active-chip-title {
+  color: #F0EBE0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.overlay-active-chip-off {
+  border: 1px solid rgba(255, 77, 93, 0.55);
+  border-radius: 999px;
+  background: rgba(255, 77, 93, 0.12);
+  color: #ffadb6;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+  text-transform: uppercase;
+}
+
+.overlay-active-chip-off:hover:not(:disabled) {
+  background: rgba(255, 77, 93, 0.2);
+}
+
+.overlay-active-chip-off:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.overlay-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.position-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.position-grid label {
+  display: grid;
+  gap: 4px;
+  color: #8A8A7A;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.position-input {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid rgba(138, 164, 200, 0.22);
+  border-radius: 10px;
+  background: rgba(5, 10, 18, 0.72);
+  color: #F0EBE0;
+  padding: 8px;
+}
+
+.opacity-control label,
+.font-control,
+.monitor-control,
+.style-grid label {
+  display: grid;
+  gap: 6px;
+  color: #8A8A7A;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.opacity-control label strong {
+  color: #F0EBE0;
+  justify-self: end;
+  margin-top: -20px;
+}
+
+.opacity-control input[type='range'] {
+  accent-color: var(--accent);
+  width: 100%;
+}
+
+.preset-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.preset-button {
+  border: 1px solid rgba(138, 164, 200, 0.22);
+  border-radius: 999px;
+  background: rgba(5, 10, 18, 0.72);
+  color: #8A8A7A;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 900;
+  padding: 8px 10px;
+}
+
+.preset-button.active {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.style-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.style-grid input[type='color'] {
+  box-sizing: border-box;
+  width: 100%;
+  height: 38px;
+  border: 1px solid rgba(138, 164, 200, 0.22);
+  border-radius: 10px;
+  background: rgba(5, 10, 18, 0.72);
+  padding: 4px;
+}
+
+.font-control select,
+.monitor-control select {
+  border: 1px solid rgba(138, 164, 200, 0.22);
+  border-radius: 10px;
+  background: rgba(5, 10, 18, 0.72);
+  color: #F0EBE0;
+  padding: 9px;
+}
+
+.custom-overlays-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.custom-overlays-head h4 {
+  font-size: 18px;
+}
+
+.overlay-designer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(2, 6, 12, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.overlay-designer {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, 100%);
+  max-height: calc(100vh - 48px);
+  border: 1px solid rgba(138, 164, 200, 0.24);
+  border-radius: 18px;
+  background: #0a131f;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+.overlay-designer-head,
+.overlay-designer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.overlay-designer-head {
+  border-bottom: 1px solid rgba(138, 164, 200, 0.18);
+}
+
+.overlay-designer-foot {
+  border-top: 1px solid rgba(138, 164, 200, 0.18);
+  justify-content: flex-end;
+}
+
+.overlay-designer-head h4 {
+  margin: 0;
+  color: #F0EBE0;
+  font-size: 18px;
+}
+
+.overlay-designer-body {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  overflow-y: auto;
+}
+
+.designer-field {
+  display: grid;
+  gap: 6px;
+  color: #8A8A7A;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.designer-field input[type='text'],
+.designer-field input[type='number'],
+.designer-field select {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid rgba(138, 164, 200, 0.22);
+  border-radius: 10px;
+  background: rgba(5, 10, 18, 0.72);
+  color: #F0EBE0;
+  padding: 8px;
+}
+
+.designer-field input[type='color'] {
+  box-sizing: border-box;
+  width: 100%;
+  height: 38px;
+  border: 1px solid rgba(138, 164, 200, 0.22);
+  border-radius: 10px;
+  background: rgba(5, 10, 18, 0.72);
+  padding: 4px;
+}
+
+.designer-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 14px;
+}
+
+.designer-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #cde0f5;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.designer-check input[type='checkbox'] {
+  accent-color: var(--accent);
+  width: 16px;
+  height: 16px;
+}
+
+.designer-elements {
+  display: grid;
+  gap: 12px;
+}
+
+.designer-element {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(138, 164, 200, 0.18);
+  border-radius: 14px;
+  background: rgba(8, 15, 25, 0.56);
+  padding: 14px;
+}
+
+.designer-element-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #F0EBE0;
+}
+
+.designer-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.designer-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* ─── "Criar novo overlay" widget builder ──────────────────────────────────── */
+.overlay-designer.overlay-builder {
+  width: min(1320px, 100%);
+}
+
+.overlay-builder-grid {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 340px;
+  gap: 14px;
+  padding: 16px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.overlay-builder-palette,
+.overlay-builder-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.overlay-builder-gallery {
+  border-top: 1px solid rgba(138, 164, 200, 0.16);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+
+.overlay-builder-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.overlay-builder-stage {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(138, 164, 200, 0.24);
+  border-radius: 12px;
+  /* Transparent-aware checkerboard so the user sees through where nothing is drawn. */
+  background-color: #0a0f17;
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.045) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.045) 75%),
+    linear-gradient(45deg, rgba(255, 255, 255, 0.045) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.045) 75%);
+  background-size: 22px 22px;
+  background-position: 0 0, 11px 11px;
+}
+
+.overlay-builder-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+}
+
+.overlay-builder-inspector-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.overlay-builder-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid rgba(138, 164, 200, 0.16);
+  border-radius: 12px;
+  background: rgba(8, 15, 25, 0.5);
+  padding: 12px;
+}
+
+.overlay-builder-section-title {
+  color: var(--accent-primary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.overlay-builder-slot-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.overlay-builder-slot-tabs .ghost-action.active,
+.ghost-action.active {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}

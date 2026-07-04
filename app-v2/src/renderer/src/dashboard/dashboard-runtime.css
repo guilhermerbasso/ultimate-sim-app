@@ -1,0 +1,1420 @@
+@import url('../assets/fonts/dashboard-display-fonts.css');
+@font-face { font-family: 'Chakra Petch'; src: url('../assets/fonts/ChakraPetch-Bold.ttf'); font-weight: bold; }
+@font-face { font-family: 'Michroma'; src: url('../assets/fonts/Michroma-Regular.ttf'); }
+@font-face { font-family: 'Rajdhani'; src: url('../assets/fonts/Rajdhani-SemiBold.ttf'); font-weight: 600; }
+@font-face { font-family: 'Barlow Condensed'; src: url('../assets/fonts/BarlowCondensed-Black.ttf'); font-weight: 900; }
+@font-face { font-family: 'DSEG7Classic-Regular'; src: url('../assets/fonts/DSEG7Classic-Regular.ttf'); }
+@font-face { font-family: 'DSEG14Classic-Regular'; src: url('../assets/fonts/DSEG14Classic-Regular.ttf'); }
+
+:root {
+  color: #F4F4F4;
+  font-family: "Chakra Petch", "Michroma", monospace;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: #000;
+}
+
+button {
+  font: inherit;
+}
+
+.dashboard-shell {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #0A0A0A;
+}
+
+.dashboard-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.dashboard-canvas::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: none;
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Primitive elements (rect / text / bar / gauge / table / …)
+   Every element renderer in DashboardRoot only sets left/top/width/height
+   inline, so the absolute positioning + internal layout must come from CSS.
+   Without these rules elements collapse into static document flow and stack
+   on top of each other at their natural size.
+   ─────────────────────────────────────────────────────────────────────────── */
+.dash-element {
+  position: absolute;
+  box-sizing: border-box;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+.dash-element > span {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* WS-DASH: an embedded full-frame overlay widget maps 1:1 to its element box.
+   The shared .dash-element centres a single child via flex; for an embedded
+   widget we want plain block flow and let the widget root fill the box. The
+   `> *` rule is a safety net so the widget fills even if its own root lacks an
+   explicit 100% size. */
+.dash-overlaywidget {
+  display: block;
+  padding: 0;
+}
+
+.dash-overlaywidget > * {
+  width: 100%;
+  height: 100%;
+}
+
+/* WS-5: clamp ALL widget internals, not just the tile's direct span. The fit
+   engine measures with overflow:visible to allow growth, so the tile + every
+   structural wrapper must clip as the final safety net — no glyph may ever spill
+   past its tile, even mid-resize before the fit RAF settles. */
+.dash-element .gt3-widget,
+.dash-element .gt3-curated-body,
+.dash-element .gt3-curated-value,
+.dash-element .gt3-gear-face,
+.dash-element .gt3-speed-block,
+.dash-element .gt3-position-main,
+.dash-element .gt3-fuel-hero,
+.dash-element .gt3-temp-card,
+.dash-element .gt3-corner-cell,
+.dash-element .gt3-deltatile {
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dash-image {
+  display: block;
+}
+
+/* Horizontal bar */
+.dash-bar {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.dash-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: var(--bar-pct, 0%);
+}
+
+/* Vertical bar */
+.dash-barv {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.dash-barv-fill {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: var(--bar-pct, 0%);
+}
+.dash-barv.reverse .dash-barv-fill {
+  bottom: auto;
+  top: 0;
+}
+
+/* Dual bar (throttle/brake stacked) */
+.dash-dualbar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+}
+.dash-dualbar-track {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+.dash-dualbar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: var(--bar-pct, 0%);
+}
+
+/* Delta bar (centre-anchored) */
+.dash-deltabar {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.dash-deltabar-fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+}
+.dash-deltabar-center {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-0.5px);
+  background: rgba(255, 255, 255, 0.4);
+}
+
+/* Shift-light strip (primitive) */
+.dash-shiftlights {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  align-items: stretch;
+}
+.dash-shiftlight {
+  width: 100%;
+  height: 100%;
+  border-radius: 1px;
+}
+/* Near the top of the shift-light band the whole strip pulses, matching the
+   buttonbox/overlay blink so every surface signals "shift now" together. */
+.dash-shiftlights.is-flash {
+  animation: dash-shiftlights-flash 120ms steps(1, end) infinite;
+}
+@keyframes dash-shiftlights-flash {
+  50% { opacity: 0.35; }
+}
+
+/* Radial gauge */
+.dash-gauge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+.dash-gauge-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Trace / oscilloscope */
+.dash-trace-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Flag */
+.dash-flag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Standings / table */
+.dash-table {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.dash-table-row {
+  display: grid;
+  align-items: center;
+  width: 100%;
+}
+.dash-table-row.header {
+  font-size: 0.92em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.dash-table-row.player {
+  /* Player row highlight is decorative chrome — warm orange, never green (GT3 rule). */
+  background: rgba(255, 122, 0, 0.16);
+  font-weight: 700;
+}
+.dash-table-cell {
+  padding: 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.dash-table-cell.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.dash-table-cell.classchip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.dash-table-cell .chip {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+/* Status / loading overlays */
+.dash-missing,
+.dash-status {
+  position: absolute;
+  box-sizing: border-box;
+}
+.dash-missing {
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  color: #f6fbff;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 20px;
+  padding: 24px;
+}
+.dash-status {
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: rgba(10, 12, 16, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #9aa6b2;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.gt3-widget {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Flexbox overflow safety net: allow children to shrink below content size so
+   long values/icons clip to their box instead of pushing neighbours out. */
+.dash-element *,
+.gt3-widget * {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+}
+
+.gt3-label {
+  font-family: "Rajdhani", "Barlow Condensed", sans-serif;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1;
+}
+
+.gt3-value {
+  font-family: "Chakra Petch", "Michroma", monospace;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  line-height: 1;
+}
+
+.gt3-module-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.gt3-head-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gt3-head-meta {
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70%;
+  text-align: right;
+  color: #555550 !important;
+}
+
+/* ShiftBar */
+.gt3-shiftbar {
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.gt3-shiftbar-flashing {
+}
+
+.gt3-rev-scale {
+  display: none;
+}
+
+.gt3-led-rail {
+  flex: 1;
+  display: grid;
+  align-items: stretch;
+}
+
+.gt3-led-well {
+  background: #000000;
+  border-radius: 1px;
+}
+
+.gt3-led-well.round {
+  border-radius: 1px;
+}
+
+.gt3-led {
+  width: 100%;
+  height: 100%;
+  background: var(--led-color);
+  border-radius: 1px;
+  opacity: 0;
+}
+
+.gt3-led-well.round .gt3-led {
+  border-radius: 1px;
+}
+
+.gt3-led.lit {
+  opacity: 1;
+}
+
+.gt3-led.flash {
+  animation: gt3-led-flash 0.125s step-end infinite;
+}
+
+@keyframes gt3-led-flash {
+  0% { opacity: 1; }
+  50% { opacity: 0.2; }
+  100% { opacity: 1; }
+}
+
+.gt3-led.pit {
+  animation: gt3-pit-flash 0.25s infinite alternate step-end;
+}
+
+@keyframes gt3-pit-flash {
+  0% { opacity: 1; }
+  100% { opacity: 0.2; }
+}
+
+.gt3-gearcluster {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.gt3-gear-face {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0;
+  border: none;
+  background: #000000 !important;
+  border-right: 1px solid #1F1F1F;
+  overflow: hidden;
+}
+
+.gt3-rpm-arc {
+  position: absolute;
+  inset: -12px;
+  width: calc(100% + 24px);
+  height: calc(100% + 24px);
+  fill: none;
+  stroke-width: 12;
+  stroke-linecap: butt;
+}
+
+.gt3-gear-val {
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+  line-height: 0.8;
+}
+
+.gt3-cluster-flash, .gt3-cluster-flash .gt3-gear-face {
+  background: #E01400 !important;
+}
+
+.gt3-cluster-flash .gt3-gear-val, .gt3-cluster-flash * {
+  color: #FFF !important;
+  text-shadow: none !important;
+}
+
+.gt3-speed-block {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.gt3-speed-val {
+  font-family: "Michroma", sans-serif;
+  font-weight: 700;
+  line-height: 1;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.gt3-alarm-cell {
+  background: #E01400 !important;
+}
+.gt3-alarm-cell * {
+  color: #FFF !important;
+}
+
+.dseg-font {
+  font-family: 'DSEG7Classic-Regular', monospace !important;
+}
+.dseg-14-font {
+  font-family: 'DSEG14Classic-Regular', monospace !important;
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   GT3 widget internals.
+   The widgets in gt3-widgets.tsx position their Shell via .gt3-widget (absolute
+   + width/height), but their inner grids/flex rows/bars rely entirely on these
+   classes. Without them children render at natural size and overflow the box —
+   the "figuras muito grandes / textos se sobrepondo" regression. Every block
+   below keeps content inside element.w/h with explicit flex/grid + overflow.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+.gt3-unit {
+  font-family: "Rajdhani", "Barlow Condensed", sans-serif;
+  font-weight: 600;
+  white-space: nowrap;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+
+/* Vertical breathing room between a widget header and its body/bars. */
+.gt3-fuelstint,
+.gt3-positiongaps,
+.gt3-steering,
+.gt3-weather,
+.gt3-curated,
+.gt3-tyres-curated,
+.gt3-relatives,
+.gt3-temps-curated,
+.gt3-trackmap-curated,
+.gt3-setupstrip {
+  gap: 5px;
+}
+
+/* Tyre / brake corner grid (2×2) */
+.gt3-cornergrid-shell,
+.gt3-cornerstack-shell {
+  gap: 4px;
+}
+.gt3-corner-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 7px;
+  flex: 1;
+  min-height: 0;
+}
+.gt3-corner-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #0A0A0A;
+  padding: 2px;
+}
+.gt3-corner-band {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--corner-color, #2A2A2A);
+}
+.gt3-corner-tag {
+  position: absolute;
+  top: 3px;
+  left: 7px;
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+/* Corner stack (per-corner mini cards) */
+.gt3-corner-stack {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 6px;
+  flex: 1;
+  min-height: 0;
+}
+.gt3-corner-stack-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #0A0A0A;
+  padding: 4px 6px 4px 10px;
+}
+.gt3-stack-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+.gt3-mini-track {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.gt3-mini-track > div {
+  height: 100%;
+}
+
+/* Fuel stint */
+.gt3-fuel-hero {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  flex: 1;
+  min-height: 0;
+}
+.gt3-fuel-bar {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.gt3-fuel-bar > div {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+}
+
+/* Generic label/value data row (fuel, weather, …) */
+.gt3-data-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.gt3-data-row > span {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Lap timing */
+.gt3-timing-stack {
+  overflow: hidden;
+}
+.gt3-timing-row {
+  min-width: 0;
+}
+
+/* Position + gaps */
+.gt3-positiongaps {
+  justify-content: space-between;
+}
+.gt3-position-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  gap: 2px;
+  overflow: hidden;
+}
+.gt3-pos-line {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  max-width: 100%;
+  overflow: hidden;
+}
+.gt3-pos-class {
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.gt3-gap-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+.gt3-gap-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.gt3-gap-arrow {
+  line-height: 1;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+/* Flag overlay */
+.gt3-flag-face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  text-align: center;
+  font-family: "Chakra Petch", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+/* Pedal input bars */
+.gt3-inputbars {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 8px;
+}
+.gt3-input-channel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 4px;
+}
+.gt3-input-track {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  width: 70%;
+  max-width: 34px;
+  border-radius: 3px;
+  background: #0A0A0A;
+  overflow: hidden;
+}
+.gt3-input-track > div {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+.gt3-input-track > span {
+  position: absolute;
+  top: 3px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  color: #F2EDE4;
+}
+
+/* Input trace (svg) */
+.gt3-inputtrace svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.gt3-inputtrace svg .grid {
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-width: 0.5;
+}
+
+/* Steering */
+.gt3-steer-bar {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  max-height: 22px;
+  margin-top: 6px;
+  border-radius: 4px;
+  background: #0A0A0A;
+  overflow: hidden;
+}
+.gt3-steer-bar > span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+.gt3-steer-bar > span.center {
+  left: 50%;
+  width: 2px;
+  transform: translateX(-1px);
+  background: rgba(255, 255, 255, 0.35);
+}
+
+/* Setup strip */
+.gt3-setup-row {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+.gt3-setup-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 3px 4px;
+  border: 1px solid #2A2A2A;
+  border-radius: 4px;
+  background: #0A0A0A;
+}
+
+/* Engine temps / curated temps */
+.gt3-temp-row {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+.gt3-temp-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+.gt3-temp-card {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+/* Curated metric tiles */
+.gt3-curated-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.gt3-curated-watermark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.06;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+.gt3-curated-value {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 3px;
+  max-width: 100%;
+  overflow: hidden;
+}
+.gt3-curated-bar {
+  position: relative;
+  height: 6px;
+  margin-top: 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.gt3-curated-bar > span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+}
+
+/* Curated tyres (2×2 with tyre silhouette) */
+.gt3-tyre-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 6px;
+  flex: 1;
+  min-height: 0;
+}
+.gt3-tyre-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 5px;
+  background: #0A0A0A;
+}
+.gt3-tyre-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: 0;
+}
+.gt3-tyre-corner {
+  position: absolute;
+  top: 3px;
+  left: 6px;
+  z-index: 1;
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  line-height: 1;
+}
+.gt3-tyre-temp {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gt3-tyre-sub {
+  position: absolute;
+  bottom: 3px;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  text-align: center;
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+  color: #8A8A7A;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.gt3-tyre-sub i {
+  font-style: normal;
+  opacity: 0.5;
+  margin: 0 2px;
+}
+
+/* Curated relatives */
+.gt3-relative-grid {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  justify-content: center;
+  gap: 4px;
+  overflow: hidden;
+}
+.gt3-relative-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+.gt3-relative-row > * {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.gt3-rel-arrow {
+  line-height: 1;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+.gt3-relative-player {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  color: #8A8A7A;
+}
+.gt3-relative-player span {
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Curated radar (svg) */
+.gt3-radar-curated svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Curated track map */
+.gt3-trackmap-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.gt3-trackmap-label {
+  flex: 0 0 auto;
+  text-align: center;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+/* Track mini (svg) */
+.gt3-trackmini svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.gt3-trackmini svg .track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.14);
+  stroke-width: 2;
+}
+.gt3-trackmini svg .track-dash {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+
+
+/* ═══ Round-7 extra widgets (analog/digital/graph/chart/ring/led/heatmap/status) ═══ */
+.gt3-extra {
+  font-family: "Rajdhani", "Barlow Condensed", sans-serif;
+}
+.gt3-extra svg { display: block; }
+.gt3-extra-cap {
+  font-family: "Rajdhani", "Barlow Condensed", sans-serif;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 12px;
+  color: #6A6A62;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1;
+}
+.gt3-extra-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+/* Analog / ring / donut / gforce / radial — svg fills box */
+.gt3-analoggauge,
+.gt3-ringgauge,
+.gt3-donut,
+.gt3-gforcemeter,
+.gt3-radialbars {
+  align-items: center;
+  justify-content: center;
+}
+.gt3-analoggauge svg,
+.gt3-ringgauge svg,
+.gt3-donut svg,
+.gt3-gforcemeter svg,
+.gt3-radialbars svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Linear meter */
+.gt3-linearmeter { justify-content: center; }
+
+/* 7-segment */
+.gt3-sevenseg { justify-content: center; }
+.gt3-seg-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  overflow: hidden;
+}
+.gt3-seg-ghost {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.12;
+  pointer-events: none;
+  line-height: 1;
+  white-space: nowrap;
+}
+.gt3-seg-live {
+  position: relative;
+  z-index: 1;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Big text */
+.gt3-bigtext { justify-content: center; }
+
+/* History graph */
+.gt3-historygraph svg { width: 100%; }
+.gt3-historygraph.spark { justify-content: center; }
+
+/* Bar chart */
+.gt3-barchart-cols {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  margin-top: 4px;
+}
+.gt3-barchart-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.gt3-barchart-val {
+  font-family: "Chakra Petch", monospace;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.gt3-barchart-track {
+  flex: 1;
+  width: 70%;
+  min-height: 0;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.gt3-barchart-track > div {
+  width: 100%;
+  border-radius: 3px 3px 0 0;
+  min-height: 1px;
+  transition: height 0.08s linear;
+}
+
+/* Segment / LED bars */
+.gt3-segbar-rail,
+.gt3-ledbar-rail {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 3px;
+  margin-top: 4px;
+}
+.gt3-segbar-rail.h,
+.gt3-ledbar-rail.h { flex-direction: row; align-items: stretch; }
+.gt3-segbar-rail.v,
+.gt3-ledbar-rail.v { flex-direction: column; align-items: stretch; }
+.gt3-segbar-cell {
+  flex: 1;
+  min-width: 2px;
+  min-height: 2px;
+  border-radius: 2px;
+}
+.gt3-ledbar-cell {
+  flex: 1;
+  min-width: 2px;
+  min-height: 2px;
+  border-radius: 3px;
+  background: #161616;
+}
+.gt3-ledbar-cell.lit {
+  background: var(--led);
+  box-shadow: 0 0 6px var(--led), inset 0 0 3px rgba(255, 255, 255, 0.4);
+}
+
+/* Heatmap */
+.gt3-heatmap-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 5px;
+  flex: 1;
+  min-height: 0;
+  margin-top: 4px;
+}
+.gt3-heatmap-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.gt3-heatmap-corner {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: rgba(0, 0, 0, 0.7);
+}
+.gt3-heatmap-val {
+  font-family: "Chakra Petch", monospace;
+  font-weight: 800;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  color: #050505;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.25);
+}
+
+/* Status lamp */
+.gt3-statuslamp { justify-content: center; }
+.gt3-statuslamp-body {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+.gt3-statuslamp-dot {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid #2E2E2E;
+}
+.gt3-statuslamp-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+.gt3-statuslamp-tag {
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gt3-statuslamp-state {
+  font-family: "Chakra Petch", monospace;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* ─── Adaptive blink (WS-ADAPTIVE) ──────────────────────────────────────────────
+ * Driven by DashboardRoot's adaptive runtime. A targeted element (or the whole
+ * board) pulses between its normal look and a configured colour. Contract:
+ *   • element wrapper gets class `.adp-blink`
+ *   • whole-board overlay gets class `.adp-dash-blink-overlay`
+ *   • both read the inline CSS custom properties:
+ *       --adp-blink-color     (required) the pulse colour
+ *       --adp-blink-duration  (optional) one cycle, default 0.667s (~1.5 Hz)
+ * Pure CSS animation (no per-frame React) so it stays smooth + cheap. Honours
+ * prefers-reduced-motion by holding a steady glow instead of pulsing. */
+@keyframes adpBlink {
+  0%,
+  100% {
+    box-shadow: none;
+    outline-color: transparent;
+  }
+  50% {
+    box-shadow: 0 0 18px var(--adp-blink-color, #ff7a00), inset 0 0 12px var(--adp-blink-color, #ff7a00);
+    outline-color: var(--adp-blink-color, #ff7a00);
+  }
+}
+.adp-blink {
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+  border-radius: inherit;
+  animation: adpBlink var(--adp-blink-duration, 0.667s) ease-in-out infinite;
+  will-change: box-shadow, outline-color;
+}
+@keyframes adpDashBlink {
+  0%,
+  100% {
+    box-shadow: inset 0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow: inset 0 0 42px 8px var(--adp-blink-color, #ff7a00);
+  }
+}
+.adp-dash-blink-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 99999;
+  border-radius: inherit;
+  animation: adpDashBlink var(--adp-blink-duration, 0.667s) ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .adp-blink {
+    animation: none;
+    box-shadow: 0 0 12px var(--adp-blink-color, #ff7a00);
+    outline-color: var(--adp-blink-color, #ff7a00);
+  }
+  .adp-dash-blink-overlay {
+    animation: none;
+    box-shadow: inset 0 0 30px 6px var(--adp-blink-color, #ff7a00);
+  }
+}
+
+/* ─── Touch kiosk (?kiosk=1) ──────────────────────────────────────────────────
+   Fullscreen gesture layer: hides the cursor, captures swipes/edge taps to
+   cycle presets via app:dash:cycle, long-press closes via app:dash:close.    */
+.dashboard-shell.is-kiosk {
+  cursor: none;
+}
+
+.dash-kiosk-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  background: transparent;
+}
+
+.dash-kiosk-edge {
+  width: 22vw;
+  min-width: 96px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: rgba(244, 244, 244, 0.0);
+  font-size: clamp(48px, 9vw, 120px);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  cursor: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.dash-kiosk-edge-prev {
+  justify-content: flex-start;
+  padding-left: 2vw;
+}
+
+.dash-kiosk-edge-next {
+  justify-content: flex-end;
+  padding-right: 2vw;
+}
+
+.dash-kiosk-edge:active {
+  background: rgba(0, 120, 212, 0.18);
+  color: rgba(244, 244, 244, 0.85);
+}

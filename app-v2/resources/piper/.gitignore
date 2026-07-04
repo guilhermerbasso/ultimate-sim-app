@@ -1,0 +1,10 @@
+# Large Piper assets are fetched by scripts/fetch-piper-voices.sh and bundled at
+# build time (electron-builder extraResources) — NOT committed to the repo.
+# Keep the directory + docs tracked (.gitkeep / README.md / LICENSE.txt / .gitignore).
+*.exe
+*.dll
+espeak-ng-data/
+voices/*.onnx
+voices/*.onnx.json
+_extract_tmp/
+*.zip

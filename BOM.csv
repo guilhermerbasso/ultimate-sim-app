@@ -1,0 +1,18 @@
+Item,Componente,Descrição,Quantidade,Unidade,Preço Unit (R$),Total (R$),Link Sugerido,Observações
+1,Encoder EC11 com botão,Encoder rotativo 20 pulsos/volta com push-button integrado,6,un,8.00,48.00,AliExpress / Shopee,Eixo 6mm; confirmar altura 30mm
+2,Display OLED 0.96" SSD1306 I2C,Display OLED monocromático 128x64px I2C,1,un,25.00,25.00,AliExpress / Shopee,Endereço I2C 0x3C
+3,Arduino Pro Micro ATmega32U4,Microcontrolador 5V/16MHz com USB HID nativo,1,un,45.00,45.00,Mercado Livre / Robocore,Clone funciona (verificar pinout)
+4,CD74HC4067 Multiplexador 16ch,Mux analógico/digital 16 canais Texas Instruments,1,un,8.00,8.00,AliExpress / Shopee,⚠️ Pacote DIP24/SOIC24 (NÃO DIP16); preferir módulo breakout com labels C0-C15
+5,Caixa PETG impressa 200x120x40mm,Caixa customizada 3D printed PETG,1,un,20.00,20.00,Impressão própria Bambu A1,~4h de impressão; ~80g filamento
+6,Knob alumínio 19mm para encoder,Knob anodizado com parafuso Allen para eixo 6mm,6,un,3.00,18.00,AliExpress / Shopee,Cor prata ou preto; confirmar D do furo (6mm)
+7,Parafuso M3x8mm Cabeça Allen,Parafuso inox para fixação da tampa,16,un,0.50,8.00,Mercado Livre / Parafuso.net,M3 × 8mm; 4 para tampa + 12 para montagem PCB
+8,Porca M3 sextavada inox,Porca para pilares internos,16,un,0.20,3.20,Mercado Livre / Parafuso.net,M3 padrão
+9,Fio jumper 22AWG multicor,Kit fios para conexões internas,1,kit,12.00,12.00,AliExpress / Shopee,Preferir stranded (mais flexível)
+10,PCB perfboard 5x7cm,Placa de prototipagem para conexões,1,un,6.00,6.00,AliExpress / Mercado Livre,Furos 2.54mm padrão
+11,Conector USB Micro-B,Conector USB fêmea para slot da caixa (opcional),1,un,4.00,4.00,AliExpress,Alternativa: usar cabo direto
+12,Pino macho 2.54mm,Header pinos para conexão PCB-Arduino,1,kit,3.00,3.00,AliExpress / Mercado Livre,Kit 40 pinos; cortar conforme necessário
+13,Resistor 10kΩ 1/4W,Pull-up para SW dos encoders (se não usar interno),12,un,0.10,1.20,Mercado Livre / Baudaeletrônica,Opcional — firmware usa pull-up interno do Arduino
+,,,,,,,
+,TOTAL ESTIMADO,,,,,,189.40,
+,TOTAL MÍNIMO (sem caixa impressa),,,,,,,169.40,
+,TOTAL MÁXIMO (+frete internacional),,,,,,,246.22,"Margem +30% para frete, variação cambial"

@@ -1,0 +1,161 @@
+/* GT3 full-frame dashboard replica primitives. Container-query driven so tiles scale
+   with the widget box. Black-matte surfaces + thin per-metric accent borders. */
+
+.dr-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 4% 6%;
+  border: 2px solid var(--dr-stroke, #202020);
+  border-radius: 4px;
+  background: #000;
+  overflow: hidden;
+  container-type: size;
+}
+
+.dr-tile-label {
+  font-size: clamp(8px, 22cqh, 18px);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dr-tile-value {
+  display: flex;
+  align-items: baseline;
+  gap: 0.18em;
+  font-weight: 700;
+  line-height: 0.95;
+  white-space: nowrap;
+}
+
+.dr-tile[style*='center'] .dr-tile-value { justify-content: center; }
+.dr-tile[style*='right'] .dr-tile-value { justify-content: flex-end; }
+
+.dr-tile-unit {
+  font-size: 0.42em;
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+/* Coin button (Aston bottom row) */
+.dr-coin-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.dr-coin {
+  display: grid;
+  place-items: center;
+  width: clamp(28px, 6vw, 56px);
+  aspect-ratio: 1;
+  border: 3px solid #888;
+  border-radius: 50%;
+  background: #000;
+}
+.dr-coin b { font-size: clamp(13px, 3vw, 26px); font-weight: 700; }
+.dr-coin-label {
+  font-size: clamp(7px, 1.4vw, 12px);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #cfcfcf;
+  white-space: nowrap;
+}
+
+/* Tyre 2x2 */
+.dr-tyre-grid { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.dr-tyre-title {
+  font-size: clamp(8px, 1.6vw, 13px);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #8a8a8a;
+}
+.dr-tyre-cells {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 10px;
+}
+.dr-tyre-cell {
+  font-size: clamp(14px, 3vw, 30px);
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.05;
+}
+
+/* Lap times stack */
+.dr-laps { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dr-lap-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 8px;
+  border: 2px solid #333;
+  border-radius: 4px;
+  background: #000;
+}
+.dr-lap-label {
+  font-size: clamp(11px, 2.4vw, 26px);
+  font-weight: 700;
+  color: #cfcfcf;
+  letter-spacing: 0.02em;
+}
+.dr-lap-value {
+  font-size: clamp(14px, 3.4vw, 40px);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Vertical gap bar */
+.dr-gapbar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  min-width: 0;
+}
+.dr-gapbar-label { font-size: clamp(8px, 1.6vw, 13px); text-transform: uppercase; letter-spacing: 0.05em; }
+.dr-gapbar-track {
+  position: relative;
+  flex: 1;
+  width: clamp(10px, 2vw, 22px);
+  border: 1px solid #333;
+  border-radius: 3px;
+  background: #0a0a0a;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+}
+.dr-gapbar-fill { width: 100%; }
+.dr-gapbar-value { font-size: clamp(11px, 2.4vw, 22px); font-weight: 700; color: #f4f4f4; }
+
+/* Pedal mini bars */
+.dr-pedals { display: flex; flex-direction: column; gap: 3px; width: 100%; }
+.dr-pedal {
+  height: clamp(6px, 1.4vh, 12px);
+  border-radius: 3px;
+  background: #161616;
+  overflow: hidden;
+}
+.dr-pedal i { display: block; height: 100%; }
+
+/* Shared full-frame replica shell */
+.dr-root {
+  width: 100%;
+  height: 100%;
+  background: #000;
+  color: #f4f4f4;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}

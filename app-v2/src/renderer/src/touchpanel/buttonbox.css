@@ -1,0 +1,281 @@
+/* RGB button-box look — square, rounded keys with distinct materials. Shared by the
+   in-app editor preview and the fullscreen touch window. Tuned for finger targets on a
+   7" panel (≥56px). Every material derives its colour from the per-button --bb-body /
+   --bb-border custom properties set inline by the renderer. Labels/icons are drawn by
+   KeyFace (auto-fit SVG) on top, so they never overflow. */
+
+.bb-stage {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.bb-grid {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.bb-btn {
+  position: relative;
+  isolation: isolate;
+  display: block;
+  min-width: 56px;
+  min-height: 56px;
+  padding: 0;
+  border-style: solid;
+  border-color: var(--bb-border, #60a5fa);
+  border-radius: 16px;
+  background: #0a0d13;
+  background-clip: padding-box;
+  color: #f8fafc;
+  cursor: pointer;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+  transition: transform 0.05s ease, filter 0.12s ease, box-shadow 0.12s ease;
+}
+
+/* Auto-fit icon + label overlay. Fills the key, never intercepts pointer. */
+.bb-face-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  display: block;
+}
+.bb-face {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Material: solid neon (legacy default look) ─────────────────────────────── */
+.bb-mat-solid {
+  background: var(--bb-body, #1d4ed8);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 0 14px var(--bb-glow, rgba(96, 165, 250, 0.55)),
+    inset 0 2px 6px rgba(255, 255, 255, 0.18),
+    inset 0 -10px 18px rgba(0, 0, 0, 0.35);
+}
+
+/* ── Material: backlit RGB (the physical button-box reference) ───────────────── */
+.bb-mat-backlit {
+  background: radial-gradient(125% 120% at 50% 0%, #131a24 0%, #080b11 62%, #05070d 100%);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.65),
+    0 0 20px -3px var(--bb-glow, rgba(96, 165, 250, 0.7)),
+    inset 0 0 16px -5px var(--bb-border, #60a5fa),
+    inset 0 2px 4px rgba(255, 255, 255, 0.08),
+    inset 0 -14px 22px rgba(0, 0, 0, 0.55);
+}
+.bb-mat-backlit::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  z-index: 1;
+  border-radius: 12px;
+  border: 1px solid var(--bb-border, #60a5fa);
+  box-shadow: inset 0 0 10px -2px var(--bb-border, #60a5fa);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+/* ── Material: glass ────────────────────────────────────────────────────────── */
+.bb-mat-glass {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.03) 55%);
+  box-shadow:
+    0 0 16px var(--bb-glow, rgba(96, 165, 250, 0.5)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -8px 16px rgba(0, 0, 0, 0.28);
+}
+.bb-mat-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: var(--bb-body, #1d4ed8);
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* ── Material: carbon fibre + neon accent bar ───────────────────────────────── */
+.bb-mat-carbon {
+  background-color: #0b0b0d;
+  background-image:
+    linear-gradient(45deg, #17181c 25%, transparent 25%, transparent 75%, #17181c 75%),
+    linear-gradient(45deg, #17181c 25%, transparent 25%, transparent 75%, #17181c 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 4px 4px;
+  box-shadow:
+    0 0 14px var(--bb-glow, rgba(96, 165, 250, 0.45)),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    inset 0 -10px 18px rgba(0, 0, 0, 0.4);
+}
+.bb-mat-carbon::after {
+  content: '';
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  bottom: 7%;
+  height: 4px;
+  z-index: 1;
+  border-radius: 3px;
+  background: var(--bb-border, #60a5fa);
+  box-shadow: 0 0 10px var(--bb-border, #60a5fa);
+  pointer-events: none;
+}
+
+/* ── Material: toggle switch (corner bat indicator) ─────────────────────────── */
+.bb-mat-toggle {
+  background: linear-gradient(180deg, #1b202a 0%, #0c0f15 100%);
+  box-shadow:
+    0 0 12px var(--bb-glow, rgba(96, 165, 250, 0.4)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -8px 16px rgba(0, 0, 0, 0.45);
+}
+.bb-mat-toggle::after {
+  content: '';
+  position: absolute;
+  top: 8%;
+  right: 9%;
+  width: 16%;
+  height: 30%;
+  min-width: 10px;
+  min-height: 16px;
+  z-index: 1;
+  border-radius: 5px;
+  background: linear-gradient(180deg, var(--bb-body, #1d4ed8), rgba(0, 0, 0, 0.6));
+  box-shadow: 0 0 8px var(--bb-glow, rgba(96, 165, 250, 0.6)), inset 0 1px 1px rgba(255, 255, 255, 0.4);
+  pointer-events: none;
+}
+
+/* ── Material: rotary / encoder knob ────────────────────────────────────────── */
+.bb-mat-rotary {
+  border-radius: 22px;
+  background: radial-gradient(circle at 50% 42%, #262c38 0%, #12151c 46%, #0a0d13 70%);
+  box-shadow:
+    0 0 16px var(--bb-glow, rgba(96, 165, 250, 0.5)),
+    inset 0 0 0 3px rgba(255, 255, 255, 0.04),
+    inset 0 0 14px -3px var(--bb-border, #60a5fa),
+    inset 0 -8px 16px rgba(0, 0, 0, 0.5);
+}
+.bb-mat-rotary::after {
+  content: '';
+  position: absolute;
+  top: 8%;
+  left: 50%;
+  width: 4px;
+  height: 16%;
+  z-index: 1;
+  transform: translateX(-50%);
+  border-radius: 3px;
+  background: var(--bb-border, #60a5fa);
+  box-shadow: 0 0 8px var(--bb-border, #60a5fa);
+  pointer-events: none;
+}
+
+/* ── Material: LED status (corner indicator) ────────────────────────────────── */
+.bb-mat-led_status {
+  background: linear-gradient(180deg, #12151c, #080b11);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    inset 0 -8px 16px rgba(0, 0, 0, 0.45);
+}
+.bb-mat-led_status::after {
+  content: '';
+  position: absolute;
+  top: 10%;
+  right: 10%;
+  width: 12%;
+  height: 12%;
+  min-width: 9px;
+  min-height: 9px;
+  z-index: 1;
+  border-radius: 50%;
+  background: var(--bb-body, #16a34a);
+  box-shadow: 0 0 10px 2px var(--bb-body, #16a34a);
+  pointer-events: none;
+}
+
+/* ── Material: guarded / emergency (hazard cover) ───────────────────────────── */
+.bb-mat-guarded {
+  background: linear-gradient(180deg, #1a1013 0%, #0c0708 100%);
+  box-shadow:
+    0 0 16px -2px rgba(220, 38, 38, 0.6),
+    inset 0 0 0 1px rgba(248, 113, 113, 0.35),
+    inset 0 -10px 18px rgba(0, 0, 0, 0.5);
+}
+.bb-mat-guarded::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 30%;
+  z-index: 1;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(250, 204, 21, 0.85) 0,
+    rgba(250, 204, 21, 0.85) 8px,
+    rgba(17, 17, 17, 0.9) 8px,
+    rgba(17, 17, 17, 0.9) 16px
+  );
+  border-bottom: 1px solid rgba(220, 38, 38, 0.7);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* ── Pressed / active ───────────────────────────────────────────────────────── */
+.bb-btn:active,
+.bb-btn.is-active {
+  transform: scale(0.96);
+  filter: brightness(1.25) saturate(1.2);
+  background: var(--bb-active-bg, inherit);
+  color: var(--bb-active-fg, inherit);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.25),
+    0 0 26px var(--bb-glow, rgba(96, 165, 250, 0.9)),
+    inset 0 2px 6px rgba(255, 255, 255, 0.28),
+    inset 0 -6px 14px rgba(0, 0, 0, 0.3);
+}
+
+.bb-btn.is-empty {
+  opacity: 0.34;
+  cursor: default;
+}
+.bb-btn.is-empty::before,
+.bb-btn.is-empty::after {
+  opacity: 0.15;
+}
+
+.bb-btn.is-selected {
+  outline: 3px dashed rgba(255, 255, 255, 0.85);
+  outline-offset: 2px;
+}
+
+.bb-btn-image {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 8px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+/* Legacy label span (kept harmless; labels now render via KeyFace SVG). */
+.bb-btn-label {
+  line-height: 1.05;
+  word-break: break-word;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}

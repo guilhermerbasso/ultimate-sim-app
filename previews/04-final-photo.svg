@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" width="600" height="400">
+  <defs>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#1a1a2e" stroke-width="0.5"/>
+    </pattern>
+  </defs>
+  <rect width="600" height="400" fill="#0a0a14"/>
+  <rect width="600" height="400" fill="url(#grid)"/>
+
+  <!-- Camera icon -->
+  <rect x="240" y="140" width="120" height="90" rx="8" fill="#1a1a2e" stroke="#333" stroke-width="2"/>
+  <circle cx="300" cy="182" r="28" fill="#111" stroke="#444" stroke-width="2"/>
+  <circle cx="300" cy="182" r="18" fill="#0d0d1a" stroke="#333" stroke-width="1.5"/>
+  <circle cx="300" cy="182" r="8" fill="#0078D4" opacity="0.3"/>
+  <rect x="264" y="144" width="18" height="10" rx="3" fill="#222" stroke="#333" stroke-width="1"/>
+
+  <!-- Text -->
+  <text x="300" y="275" font-family="Arial" font-size="18" font-weight="bold" fill="#0078D4" text-anchor="middle">Foto Final</text>
+  <text x="300" y="298" font-family="Arial" font-size="13" fill="#888" text-anchor="middle">Em construção — adicione aqui</text>
+  <text x="300" y="316" font-family="Arial" font-size="11" fill="#555" text-anchor="middle">a foto do hardware montado</text>
+
+  <!-- Instructions -->
+  <rect x="100" y="340" width="400" height="40" rx="4" fill="#111" stroke="#333"/>
+  <text x="300" y="358" font-family="Arial" font-size="9" fill="#666" text-anchor="middle">Substitua este arquivo por: foto real do Button Box V2 montado</text>
+  <text x="300" y="372" font-family="Arial" font-size="9" fill="#555" text-anchor="middle">Resolução sugerida: 1920×1080px | Formato: JPG ou PNG</text>
+
+  <text x="300" y="395" font-family="Arial" font-size="8" fill="#333" text-anchor="middle">P2.3 Final Photo Placeholder — Guilherme Basso iRacing DIY</text>
+</svg>

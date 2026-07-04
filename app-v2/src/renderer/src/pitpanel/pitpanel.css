@@ -1,0 +1,333 @@
+/* Touch Pit & Command panel — tuned for a 7" 1024×600 touchscreen.
+   Segoe-aligned, matte dark, ≥64px touch targets.                            */
+
+:root {
+  --pp-bg: #0a0c10;
+  --pp-surface: #14181f;
+  --pp-surface-2: #1c222b;
+  --pp-line: #2a323d;
+  --pp-text: #f3f4f6;
+  --pp-muted: #9aa6b2;
+  --pp-blue: #0078d4;
+  --pp-blue-dark: #2a446f;
+  --pp-teal: #49c5b1;
+  --pp-danger: #c4314b;
+  --pp-amber: #ffb900;
+  --pp-touch: 64px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: var(--pp-bg);
+  color: var(--pp-text);
+  font-family: "Segoe UI", "Segoe UI Variable", system-ui, -apple-system, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.pp-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  padding: 8px 10px 10px;
+}
+
+.pp-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 4px 8px;
+}
+
+.pp-title {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.pp-conn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.pp-conn .pp-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--pp-danger);
+}
+
+.pp-conn.is-on {
+  color: var(--pp-teal);
+}
+
+.pp-conn.is-on .pp-dot {
+  background: var(--pp-teal);
+  box-shadow: 0 0 8px rgba(73, 197, 177, 0.7);
+}
+
+.pp-conn.is-off {
+  color: var(--pp-muted);
+}
+
+.pp-close {
+  width: var(--pp-touch);
+  height: 60px;
+  min-height: 56px;
+  border: 1px solid var(--pp-line);
+  border-radius: 10px;
+  background: var(--pp-surface-2);
+  color: var(--pp-text);
+  font-size: 20px;
+}
+
+.pp-gate-banner {
+  margin: 0 4px 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(196, 49, 75, 0.14);
+  border: 1px solid rgba(196, 49, 75, 0.4);
+  color: #ffd5dc;
+  font-size: 14px;
+}
+
+.pp-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  /* grid-template-rows is set inline from the layout helper (row count). */
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.pp-section {
+  display: flex;
+  flex-direction: column;
+  background: var(--pp-surface);
+  border: 1px solid var(--pp-line);
+  border-radius: 14px;
+  padding: 10px 12px 12px;
+  min-height: 0;
+  /* Clip the card so its content can never spill onto a neighbouring card. */
+  overflow: hidden;
+}
+
+.pp-section-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pp-muted);
+  flex: 0 0 auto;
+}
+
+.pp-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  /* Each section scrolls independently when its controls exceed the card. */
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.pp-row {
+  display: flex;
+  gap: 8px;
+}
+
+.pp-row.pp-wrap {
+  flex-wrap: wrap;
+}
+
+.pp-btn {
+  flex: 1 1 auto;
+  min-width: 64px;
+  min-height: var(--pp-touch);
+  padding: 0 14px;
+  border: 1px solid var(--pp-line);
+  border-radius: 12px;
+  background: var(--pp-surface-2);
+  color: var(--pp-text);
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.05s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.pp-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.pp-btn:disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+}
+
+.pp-btn.is-wide {
+  flex-basis: 100%;
+}
+
+.pp-btn-primary {
+  background: var(--pp-blue);
+  border-color: var(--pp-blue);
+}
+
+.pp-btn-primary:active:not(:disabled) {
+  background: #0a66b8;
+}
+
+.pp-btn-danger {
+  background: rgba(196, 49, 75, 0.18);
+  border-color: var(--pp-danger);
+  color: #ffd5dc;
+}
+
+.pp-btn-ghost {
+  background: transparent;
+}
+
+.pp-btn.is-active {
+  border-color: var(--pp-teal);
+  box-shadow: inset 0 0 0 2px var(--pp-teal);
+}
+
+/* Fuel */
+.pp-fuel-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  justify-content: center;
+  padding: 4px 0;
+}
+
+.pp-fuel-value {
+  font-size: 44px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.pp-fuel-unit {
+  font-size: 20px;
+  color: var(--pp-muted);
+}
+
+/* Keep the primary "Abastecer" CTA pinned to the bottom of the fuel card so it
+   is always visible even when the readout + steppers + presets overflow and the
+   card scrolls internally on the 1024×600 panel. */
+.pp-fuel-cta {
+  position: sticky;
+  bottom: 0;
+  margin-top: auto;
+  padding-top: 8px;
+  background: var(--pp-surface);
+  box-shadow: 0 -8px 8px -6px var(--pp-surface);
+}
+
+/* Tyres */
+.pp-tyre-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.pp-tyre {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--pp-line);
+  border-radius: 12px;
+  background: var(--pp-surface-2);
+}
+
+.pp-tyre.is-queued {
+  border-color: var(--pp-teal);
+  background: rgba(73, 197, 177, 0.1);
+}
+
+.pp-tyre-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--pp-muted);
+}
+
+.pp-tyre-pressure {
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.pp-tyre-pressure small {
+  font-size: 12px;
+  color: var(--pp-muted);
+  margin-left: 4px;
+}
+
+.pp-tyre-steppers {
+  display: flex;
+  gap: 6px;
+}
+
+.pp-hint,
+.pp-compound-label {
+  font-size: 12px;
+  color: var(--pp-muted);
+}
+
+.pp-compound,
+.pp-camgroup {
+  align-items: center;
+}
+
+.pp-compound-label {
+  align-self: center;
+  margin-right: 4px;
+}
+
+.pp-camgroup-value {
+  font-size: 22px;
+  font-weight: 700;
+  min-width: 28px;
+  text-align: center;
+}
+
+/* Chat macros — 4 columns so each key stays ≥56px wide on the 1/3-width card. */
+.pp-macro-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.pp-macro-grid .pp-btn {
+  min-width: 0;
+  padding: 0;
+}
+
+/* Touch targets ≥56px even on the most cramped cards. */
+.pp-macro-grid .pp-btn {
+  min-height: 56px;
+}

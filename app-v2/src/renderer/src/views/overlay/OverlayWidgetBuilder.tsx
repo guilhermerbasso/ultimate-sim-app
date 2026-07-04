@@ -1,0 +1,837 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react'
+import type { CustomOverlayDef } from '../../../../shared/overlays'
+import { DEFAULT_RICH_OVERLAY_CANVAS } from '../../../../shared/overlays'
+import type { DashboardElement, DashboardElementStyle, TextSlotStyle } from '../../../../shared/dashboards'
+import {
+  DASHBOARD_FONT_OPTIONS,
+  WIDGET_SLOTS,
+  createElementId,
+  reorderElements,
+  sortElementsByZ
+} from '../../../../shared/dashboards'
+import { renderDashboardElement } from '../../dashboard/DashboardRoot'
+import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
+import { WidgetGallery, variantToElement } from '../dashboard/widget-catalog'
+import type { WidgetVariant } from '../dashboard/widget-catalog'
+import '../../dashboard/dashboard-runtime.css'
+
+// "Criar novo overlay" builder — assembles a RICH custom overlay (a free-form
+// canvas of dashboard widgets + images) reusing the SAME widget palette
+// (WidgetGallery) and the SAME element renderer (renderDashboardElement) the
+// dashboards use, plus an equivalent granular styling inspector (per-slot fonts,
+// borders, image filters, z-order). The saved def opens in a transparent
+// always-on-top overlay window via CustomOverlayWidget's rich branch.
+
+const RESIZE_HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
+type ResizeHandle = (typeof RESIZE_HANDLES)[number]
+const MIN_SIZE = 8
+
+const TRANSFORM_OPTIONS = [
+  { value: 'none', label: 'Nenhum' },
+  { value: 'uppercase', label: 'MAIÚSCULAS' },
+  { value: 'lowercase', label: 'minúsculas' },
+  { value: 'capitalize', label: 'Capitalizar' }
+]
+const WEIGHT_OPTIONS = [
+  { value: '', label: '(auto)' },
+  ...[300, 400, 500, 600, 700, 800, 900].map((w) => ({ value: String(w), label: String(w) }))
+]
+const ALIGN_OPTIONS = [
+  { value: '', label: '(auto)' },
+  { value: 'left', label: 'Esquerda' },
+  { value: 'center', label: 'Centro' },
+  { value: 'right', label: 'Direita' }
+]
+// Unidades semânticas lidas por widgets GT3/extra (velocidade/temperatura/pressão/
+// volume). '' = deixar o widget escolher seu default. Espelha o enum `unit` em
+// DashboardElementStyle.
+const UNIT_OPTIONS = [
+  { value: '', label: '(padrão)' },
+  { value: 'kmh', label: 'km/h' },
+  { value: 'mph', label: 'mph' },
+  { value: 'C', label: '°C' },
+  { value: 'F', label: '°F' },
+  { value: 'kpa', label: 'kPa' },
+  { value: 'psi', label: 'psi' },
+  { value: 'bar', label: 'bar' },
+  { value: 'L', label: 'L' },
+  { value: 'gal', label: 'gal' }
+]
+const IMAGE_FILTER_PRESETS: Array<{ id: string; label: string; patch: Partial<DashboardElementStyle> }> = [
+  { id: 'original', label: 'Original', patch: { filterGrayscale: undefined, filterSepia: undefined, redTint: undefined, brightness: undefined, contrast: undefined, saturate: undefined, hueRotate: undefined, invert: undefined, blur: undefined } },
+  { id: 'bw', label: 'P&B', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: undefined, brightness: undefined, contrast: 1.05, saturate: undefined, hueRotate: undefined, invert: undefined } },
+  { id: 'red', label: 'Vermelho', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: 1, brightness: 0.95, contrast: 1.1, saturate: undefined, hueRotate: undefined, invert: undefined } },
+  { id: 'sepia', label: 'Sépia', patch: { filterGrayscale: undefined, filterSepia: 1, redTint: undefined, brightness: 1.02, contrast: undefined, saturate: undefined, hueRotate: undefined, invert: undefined } }
+]
+
+// ── Pure style helpers (mirrors the dashboard editor; kept local + stateless) ──
+function hexFromCss(value: string | undefined): string {
+  if (!value) return '#000000'
+  const t = value.trim()
+  if (/^#[0-9a-f]{6}$/i.test(t)) return t
+  if (/^#[0-9a-f]{8}$/i.test(t)) return `#${t.slice(1, 7)}`
+  if (/^#[0-9a-f]{3}$/i.test(t)) return `#${t[1]}${t[1]}${t[2]}${t[2]}${t[3]}${t[3]}`
+  const rgb = t.match(/^rgba?\(\s*(\d+)\D+(\d+)\D+(\d+)/i)
+  if (rgb) {
+    const r = Number(rgb[1]).toString(16).padStart(2, '0')
+    const g = Number(rgb[2]).toString(16).padStart(2, '0')
+    const b = Number(rgb[3]).toString(16).padStart(2, '0')
+    return `#${r}${g}${b}`
+  }
+  return '#000000'
+}
+
+function applySlotField(
+  style: DashboardElementStyle,
+  slot: string,
+  field: keyof TextSlotStyle,
+  value: unknown
+): Record<string, Partial<TextSlotStyle>> {
+  const prev = style.slots ?? {}
+  const nextSlot: Record<string, unknown> = { ...(prev[slot] ?? {}) }
+  if (value === undefined || value === '') delete nextSlot[field]
+  else nextSlot[field] = value
+  const nextSlots: Record<string, Partial<TextSlotStyle>> = { ...prev, [slot]: nextSlot as Partial<TextSlotStyle> }
+  if (Object.keys(nextSlot).length === 0) delete nextSlots[slot]
+  return nextSlots
+}
+
+function loadImageEl(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('falha ao carregar imagem'))
+    img.src = src
+  })
+}
+
+async function fileToDataUrl(file: File): Promise<string> {
+  const LIMIT = 3_000_000
+  const raw = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error ?? new Error('falha ao ler arquivo'))
+    reader.readAsDataURL(file)
+  })
+  if (raw.length <= LIMIT) return raw
+  try {
+    const img = await loadImageEl(raw)
+    const maxDim = 1600
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+    const w = Math.max(1, Math.round(img.width * scale))
+    const h = Math.max(1, Math.round(img.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return raw
+    ctx.drawImage(img, 0, 0, w, h)
+    let quality = 0.9
+    let out = canvas.toDataURL('image/jpeg', quality)
+    while (out.length > LIMIT && quality > 0.4) {
+      quality -= 0.1
+      out = canvas.toDataURL('image/jpeg', quality)
+    }
+    return out
+  } catch {
+    return raw
+  }
+}
+
+function constrainGeo(
+  geo: { x: number; y: number; w: number; h: number },
+  cw: number,
+  ch: number
+): { x: number; y: number; w: number; h: number } {
+  const w = Math.max(MIN_SIZE, Math.min(Math.round(geo.w), cw))
+  const h = Math.max(MIN_SIZE, Math.min(Math.round(geo.h), ch))
+  const x = Math.max(0, Math.min(Math.round(geo.x), cw - w))
+  const y = Math.max(0, Math.min(Math.round(geo.y), ch - h))
+  return { x, y, w, h }
+}
+
+function resizeGeo(
+  start: { x: number; y: number; w: number; h: number },
+  handle: ResizeHandle,
+  dx: number,
+  dy: number
+): { x: number; y: number; w: number; h: number } {
+  let { x, y, w, h } = start
+  if (handle.includes('e')) w = start.w + dx
+  if (handle.includes('s')) h = start.h + dy
+  if (handle.includes('w')) {
+    w = start.w - dx
+    x = start.x + dx
+  }
+  if (handle.includes('n')) {
+    h = start.h - dy
+    y = start.y + dy
+  }
+  if (w < MIN_SIZE) {
+    if (handle.includes('w')) x = start.x + (start.w - MIN_SIZE)
+    w = MIN_SIZE
+  }
+  if (h < MIN_SIZE) {
+    if (handle.includes('n')) y = start.y + (start.h - MIN_SIZE)
+    h = MIN_SIZE
+  }
+  return { x, y, w, h }
+}
+
+function handleCursor(handle: ResizeHandle): string {
+  switch (handle) {
+    case 'n':
+    case 's':
+      return 'ns-resize'
+    case 'e':
+    case 'w':
+      return 'ew-resize'
+    case 'ne':
+    case 'sw':
+      return 'nesw-resize'
+    default:
+      return 'nwse-resize'
+  }
+}
+
+// ── Small reusable fields ─────────────────────────────────────────────────────
+function Field({ label, children }: { label: string; children: ReactNode }): ReactElement {
+  return (
+    <label className="designer-field">
+      {label}
+      {children}
+    </label>
+  )
+}
+
+function NumberField({ label, value, onChange, min, max, step }: { label: string; value: number; onChange(v: number): void; min?: number; max?: number; step?: number }): ReactElement {
+  return (
+    <Field label={label}>
+      <input type="number" value={value} min={min} max={max} step={step ?? 1} onChange={(e) => onChange(Number(e.target.value))} />
+    </Field>
+  )
+}
+
+function TextField({ label, value, onChange, placeholder }: { label: string; value: string; onChange(v: string): void; placeholder?: string }): ReactElement {
+  return (
+    <Field label={label}>
+      <input type="text" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+    </Field>
+  )
+}
+
+function SelectField({ label, value, options, onChange }: { label: string; value: string; options: Array<{ value: string; label: string }>; onChange(v: string): void }): ReactElement {
+  return (
+    <Field label={label}>
+      <select value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </Field>
+  )
+}
+
+function ColorField({ label, value, onChange }: { label: string; value: string; onChange(v: string): void }): ReactElement {
+  return (
+    <Field label={label}>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input type="color" value={hexFromCss(value)} style={{ width: 40, flex: '0 0 auto' }} onChange={(e) => onChange(e.target.value)} />
+        <input type="text" value={value} onChange={(e) => onChange(e.target.value)} />
+      </div>
+    </Field>
+  )
+}
+
+function SliderField({ label, value, onChange, min, max, step }: { label: string; value: number; onChange(v: number): void; min: number; max: number; step?: number }): ReactElement {
+  return (
+    <Field label={`${label} · ${Number.isInteger(value) ? value : value.toFixed(2)}`}>
+      <input type="range" min={min} max={max} step={step ?? 0.01} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+    </Field>
+  )
+}
+
+function ToggleField({ label, value, onChange }: { label: string; value: boolean; onChange(v: boolean): void }): ReactElement {
+  return (
+    <Field label={label}>
+      <select value={value ? 'yes' : 'no'} onChange={(e) => onChange(e.target.value === 'yes')}>
+        <option value="yes">Sim</option>
+        <option value="no">Não</option>
+      </select>
+    </Field>
+  )
+}
+
+const FONT_OPTIONS = DASHBOARD_FONT_OPTIONS
+
+// ── Canvas (scaled live preview with selection + drag/resize) ─────────────────
+interface CanvasProps {
+  widgets: DashboardElement[]
+  canvasWidth: number
+  canvasHeight: number
+  selectedId: string | null
+  onSelect(id: string | null): void
+  onGeometry(id: string, geo: { x: number; y: number; w: number; h: number }): void
+}
+
+interface ActiveEdit {
+  id: string
+  mode: 'move' | 'resize'
+  handle?: ResizeHandle
+  pointerId: number
+  startX: number
+  startY: number
+  start: { x: number; y: number; w: number; h: number }
+}
+
+function BuilderCanvas({ widgets, canvasWidth, canvasHeight, selectedId, onSelect, onGeometry }: CanvasProps): ReactElement {
+  const MAX_W = 760
+  const MAX_H = 460
+  const scale = Math.min(MAX_W / canvasWidth, MAX_H / canvasHeight)
+  const previewW = Math.round(canvasWidth * scale)
+  const previewH = Math.round(canvasHeight * scale)
+  const handleSize = Math.max(8, 11 / scale)
+  const activeRef = useRef<ActiveEdit | null>(null)
+  const sorted = useMemo(() => sortElementsByZ(widgets), [widgets])
+
+  const onPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLElement>): void => {
+      const active = activeRef.current
+      if (!active || active.pointerId !== event.pointerId) return
+      event.preventDefault()
+      const dx = (event.clientX - active.startX) / scale
+      const dy = (event.clientY - active.startY) / scale
+      const geo =
+        active.mode === 'move'
+          ? constrainGeo({ ...active.start, x: active.start.x + dx, y: active.start.y + dy }, canvasWidth, canvasHeight)
+          : constrainGeo(resizeGeo(active.start, active.handle ?? 'se', dx, dy), canvasWidth, canvasHeight)
+      onGeometry(active.id, geo)
+    },
+    [scale, canvasWidth, canvasHeight, onGeometry]
+  )
+
+  const endEdit = useCallback((event: ReactPointerEvent<HTMLElement>): void => {
+    const active = activeRef.current
+    if (!active || active.pointerId !== event.pointerId) return
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    activeRef.current = null
+  }, [])
+
+  function beginEdit(event: ReactPointerEvent<HTMLElement>, el: DashboardElement, mode: 'move' | 'resize', handle?: ResizeHandle): void {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    onSelect(el.id)
+    event.currentTarget.setPointerCapture(event.pointerId)
+    activeRef.current = {
+      id: el.id,
+      mode,
+      handle,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      start: { x: el.x, y: el.y, w: el.w, h: el.h }
+    }
+  }
+
+  return (
+    <div
+      className="overlay-builder-stage"
+      style={{ width: previewW, height: previewH }}
+      onPointerDown={() => onSelect(null)}
+    >
+      <div
+        className="overlay-builder-canvas"
+        style={{ width: canvasWidth, height: canvasHeight, transform: `scale(${scale})` }}
+      >
+        {sorted.map((el) => (
+          <div key={el.id} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+            {renderDashboardElement({ element: el, snapshot: PREVIEW_SNAPSHOT })}
+          </div>
+        ))}
+        {sorted.map((el) => {
+          const selected = el.id === selectedId
+          return (
+            <div
+              key={`sel-${el.id}`}
+              role="button"
+              tabIndex={-1}
+              onPointerDown={(event) => beginEdit(event, el, 'move')}
+              onPointerMove={onPointerMove}
+              onPointerUp={endEdit}
+              onPointerCancel={endEdit}
+              style={{
+                position: 'absolute',
+                left: el.x,
+                top: el.y,
+                width: el.w,
+                height: el.h,
+                cursor: 'move',
+                border: selected ? '2px solid var(--accent-primary, #ff7a1a)' : '1px dashed rgba(255,170,90,0.45)',
+                background: selected ? 'rgba(255,122,26,0.07)' : 'transparent',
+                boxSizing: 'border-box',
+                touchAction: 'none'
+              }}
+            >
+              {selected &&
+                RESIZE_HANDLES.map((handle) => {
+                  const isW = handle.includes('w')
+                  const isE = handle.includes('e')
+                  const isN = handle.includes('n')
+                  const isS = handle.includes('s')
+                  const left = isW ? -handleSize / 2 : isE ? el.w - handleSize / 2 : el.w / 2 - handleSize / 2
+                  const top = isN ? -handleSize / 2 : isS ? el.h - handleSize / 2 : el.h / 2 - handleSize / 2
+                  return (
+                    <div
+                      key={handle}
+                      onPointerDown={(event) => beginEdit(event, el, 'resize', handle)}
+                      onPointerMove={onPointerMove}
+                      onPointerUp={endEdit}
+                      onPointerCancel={endEdit}
+                      style={{
+                        position: 'absolute',
+                        left,
+                        top,
+                        width: handleSize,
+                        height: handleSize,
+                        background: 'var(--accent-primary, #ff7a1a)',
+                        border: '1px solid #1a0f06',
+                        borderRadius: 2,
+                        cursor: handleCursor(handle),
+                        touchAction: 'none'
+                      }}
+                    />
+                  )
+                })}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── Inspector ─────────────────────────────────────────────────────────────────
+interface InspectorProps {
+  element: DashboardElement | null
+  canvasWidth: number
+  canvasHeight: number
+  onChange(patch: Partial<DashboardElement>): void
+  onChangeStyle(patch: Partial<DashboardElementStyle>): void
+  onReorder(direction: 'front' | 'back' | 'forward' | 'backward'): void
+  onDuplicate(): void
+  onRemove(): void
+}
+
+function SlotEditor({ element, slots, onChangeStyle }: { element: DashboardElement; slots: Array<{ slot: string; label: string }>; onChangeStyle(p: Partial<DashboardElementStyle>): void }): ReactElement {
+  const [active, setActive] = useState<string>(slots[0]?.slot ?? 'value')
+  const slot = slots.some((s) => s.slot === active) ? active : (slots[0]?.slot ?? 'value')
+  const cur: Partial<TextSlotStyle> = element.style.slots?.[slot] ?? {}
+  const set = (field: keyof TextSlotStyle, value: unknown): void => onChangeStyle({ slots: applySlotField(element.style, slot, field, value) })
+  return (
+    <div className="overlay-builder-section">
+      <div className="overlay-builder-section-title">Estilo por texto (granular)</div>
+      <div className="overlay-builder-slot-tabs">
+        {slots.map((s) => {
+          const touched = Boolean(element.style.slots?.[s.slot] && Object.keys(element.style.slots[s.slot]).length > 0)
+          return (
+            <button key={s.slot} className={s.slot === slot ? 'ghost-action active' : 'ghost-action'} onClick={() => setActive(s.slot)}>
+              {s.label}{touched ? ' •' : ''}
+            </button>
+          )
+        })}
+      </div>
+      <div className="designer-grid-2">
+        <SelectField label="Fonte" value={String(cur.fontFamily ?? '')} options={FONT_OPTIONS} onChange={(v) => set('fontFamily', v || undefined)} />
+        <NumberField label="Tamanho (0=auto)" value={Number(cur.fontSize ?? 0)} onChange={(v) => set('fontSize', v > 0 ? Math.round(v) : undefined)} min={0} max={400} />
+        <ColorField label="Cor" value={String(cur.fontColor ?? '')} onChange={(v) => set('fontColor', v || undefined)} />
+        <SelectField label="Peso" value={String(cur.fontWeight ?? '')} options={WEIGHT_OPTIONS} onChange={(v) => set('fontWeight', v ? Number(v) : undefined)} />
+        <SelectField label="Alinhamento" value={String(cur.align ?? '')} options={ALIGN_OPTIONS} onChange={(v) => set('align', v || undefined)} />
+        <NumberField label="Espaçamento (px)" value={Number(cur.letterSpacing ?? 0)} onChange={(v) => set('letterSpacing', Number.isFinite(v) && v !== 0 ? v : undefined)} min={-5} max={30} step={0.5} />
+        <SelectField label="Transformar" value={String(cur.textTransform ?? 'none')} options={TRANSFORM_OPTIONS} onChange={(v) => set('textTransform', v === 'none' ? undefined : v)} />
+        <ToggleField label="Sombra/glow" value={Boolean(cur.shadow)} onChange={(on) => set('shadow', on ? '0 2px 6px rgba(0,0,0,0.65)' : undefined)} />
+      </div>
+    </div>
+  )
+}
+
+function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle, onReorder, onDuplicate, onRemove }: InspectorProps): ReactElement {
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  if (!element) {
+    return <p className="overlay-help">Selecione um widget no canvas para editar posição, tamanho, fontes, bordas, filtros e ordem.</p>
+  }
+  const s = element.style
+  const isBarLike = ['bar', 'gauge', 'shiftlights', 'barv', 'dualbar', 'deltabar', 'trace'].includes(element.type)
+  const isImage = element.type === 'image'
+  const isFlag = element.type === 'flag'
+  const isText = element.type === 'text'
+  const slots = WIDGET_SLOTS[element.type] ?? []
+  // Semantic GT3/extra/curated widgets (everything that is not a primitive text,
+  // image, flag or bar/gauge). These honour accent/threshold colours, opacity,
+  // unit/prefix/suffix/decimals and the show-labels/icon toggles below.
+  const isDataWidget = !isText && !isImage && !isFlag && !isBarLike
+
+  return (
+    <div className="overlay-builder-inspector-body">
+      <TextField label="Nome" value={element.name ?? ''} onChange={(v) => onChange({ name: v })} />
+      <div className="overlay-builder-section">
+        <div className="overlay-builder-section-title">Posição e tamanho</div>
+        <div className="designer-grid-4">
+          <NumberField label="X" value={element.x} onChange={(v) => onChange({ x: Math.max(0, Math.min(Math.round(v), canvasWidth - element.w)) })} min={0} max={canvasWidth} />
+          <NumberField label="Y" value={element.y} onChange={(v) => onChange({ y: Math.max(0, Math.min(Math.round(v), canvasHeight - element.h)) })} min={0} max={canvasHeight} />
+          <NumberField label="Largura" value={element.w} onChange={(v) => onChange({ w: Math.max(MIN_SIZE, Math.min(Math.round(v), canvasWidth)) })} min={MIN_SIZE} max={canvasWidth} />
+          <NumberField label="Altura" value={element.h} onChange={(v) => onChange({ h: Math.max(MIN_SIZE, Math.min(Math.round(v), canvasHeight)) })} min={MIN_SIZE} max={canvasHeight} />
+        </div>
+        <div className="overlay-builder-section-title">Ordem (z)</div>
+        <div className="designer-grid-4">
+          <button className="ghost-action" onClick={() => onReorder('backward')}>↓ trás</button>
+          <button className="ghost-action" onClick={() => onReorder('forward')}>↑ frente</button>
+          <button className="ghost-action" onClick={() => onReorder('back')}>⤓ fundo</button>
+          <button className="ghost-action" onClick={() => onReorder('front')}>⤒ topo</button>
+        </div>
+      </div>
+
+      <div className="overlay-builder-section">
+        <div className="overlay-builder-section-title">Fundo e borda</div>
+        <div className="designer-grid-2">
+          <ColorField label="Fundo" value={s.background ?? 'transparent'} onChange={(v) => onChangeStyle({ background: v })} />
+          <ColorField label="Borda" value={s.border ?? 'transparent'} onChange={(v) => onChangeStyle({ border: v })} />
+          <NumberField label="Borda (px)" value={s.borderWidth ?? 0} onChange={(v) => onChangeStyle({ borderWidth: Math.max(0, Math.round(v)) })} min={0} max={20} />
+          <NumberField label="Radius (px)" value={s.radius ?? 0} onChange={(v) => onChangeStyle({ radius: Math.max(0, Math.round(v)) })} min={0} max={120} />
+        </div>
+      </div>
+
+      {(isText || slots.length === 0) && !isImage && !isFlag && (
+        <div className="overlay-builder-section">
+          <div className="overlay-builder-section-title">Texto</div>
+          {isText && <TextField label="Texto (sem binding)" value={s.text ?? ''} onChange={(v) => onChangeStyle({ text: v })} />}
+          <div className="designer-grid-2">
+            <SelectField label="Fonte" value={String(s.fontFamily ?? '')} options={FONT_OPTIONS} onChange={(v) => onChangeStyle({ fontFamily: v || undefined })} />
+            <NumberField label="Fonte (px)" value={Number(s.fontSize ?? 18)} onChange={(v) => onChangeStyle({ fontSize: v })} min={8} max={400} />
+            <ColorField label="Cor do texto" value={s.color ?? '#f6fbff'} onChange={(v) => onChangeStyle({ color: v })} />
+            <SelectField label="Peso" value={String(s.fontWeight ?? 700)} options={WEIGHT_OPTIONS.filter((o) => o.value !== '')} onChange={(v) => onChangeStyle({ fontWeight: Number(v) })} />
+            <SelectField label="Alinhamento" value={String(s.align ?? 'left')} options={ALIGN_OPTIONS.filter((o) => o.value !== '')} onChange={(v) => onChangeStyle({ align: v as 'left' | 'center' | 'right' })} />
+            <TextField label="Prefixo" value={s.prefix ?? ''} onChange={(v) => onChangeStyle({ prefix: v || undefined })} />
+            <TextField label="Sufixo" value={s.suffix ?? ''} onChange={(v) => onChangeStyle({ suffix: v || undefined })} />
+            <NumberField label="Casas decimais" value={s.decimals ?? 0} onChange={(v) => onChangeStyle({ decimals: Math.max(0, Math.min(4, Math.round(v))) })} min={0} max={4} />
+          </div>
+        </div>
+      )}
+
+      {isBarLike && (
+        <div className="overlay-builder-section">
+          <div className="overlay-builder-section-title">Barras / medidores</div>
+          <div className="designer-grid-2">
+            <ColorField label="Preenchimento" value={s.fillColor ?? 'var(--accent-primary)'} onChange={(v) => onChangeStyle({ fillColor: v })} />
+            <ColorField label="Aviso" value={s.warnColor ?? '#ffb84d'} onChange={(v) => onChangeStyle({ warnColor: v })} />
+            <ColorField label="Perigo" value={s.dangerColor ?? '#ff5468'} onChange={(v) => onChangeStyle({ dangerColor: v })} />
+            <NumberField label="Aviso (0–1)" value={s.warnAt ?? 0.7} onChange={(v) => onChangeStyle({ warnAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
+            <NumberField label="Perigo (0–1)" value={s.dangerAt ?? 0.9} onChange={(v) => onChangeStyle({ dangerAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
+            {element.type === 'shiftlights' && (
+              <NumberField label="Segmentos" value={s.segments ?? 12} onChange={(v) => onChangeStyle({ segments: Math.max(4, Math.min(24, Math.round(v))) })} min={4} max={24} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {isDataWidget && (
+        <div className="overlay-builder-section">
+          <div className="overlay-builder-section-title">Dados, cores e formatação</div>
+          <div className="designer-grid-2">
+            <ColorField label="Cor de destaque" value={s.accentColor ?? ''} onChange={(v) => onChangeStyle({ accentColor: v || undefined })} />
+            <SliderField label="Opacidade" value={s.opacity ?? 1} onChange={(v) => onChangeStyle({ opacity: v >= 1 ? undefined : Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
+            <SelectField label="Unidade" value={s.unit ?? ''} options={UNIT_OPTIONS} onChange={(v) => onChangeStyle({ unit: v || undefined })} />
+            <NumberField label="Casas decimais" value={s.decimals ?? 0} onChange={(v) => onChangeStyle({ decimals: Number.isFinite(v) && v > 0 ? Math.min(6, Math.round(v)) : undefined })} min={0} max={6} />
+            <TextField label="Prefixo" value={s.prefix ?? ''} onChange={(v) => onChangeStyle({ prefix: v || undefined })} />
+            <TextField label="Sufixo / unidade" value={s.suffix ?? ''} onChange={(v) => onChangeStyle({ suffix: v || undefined })} />
+            <ToggleField label="Mostrar rótulos" value={s.showLabels !== false} onChange={(on) => onChangeStyle({ showLabels: on ? undefined : false })} />
+            <ToggleField label="Mostrar ícone" value={s.showIcon !== false} onChange={(on) => onChangeStyle({ showIcon: on ? undefined : false })} />
+          </div>
+          <div className="overlay-builder-section-title">Limiares de cor</div>
+          <div className="designer-grid-2">
+            <ColorField label="Aviso" value={s.warnColor ?? '#ffb84d'} onChange={(v) => onChangeStyle({ warnColor: v || undefined })} />
+            <ColorField label="Perigo" value={s.dangerColor ?? '#ff5468'} onChange={(v) => onChangeStyle({ dangerColor: v || undefined })} />
+            <NumberField label="Aviso (0–1)" value={s.warnAt ?? 0} onChange={(v) => onChangeStyle({ warnAt: v > 0 ? Math.max(0, Math.min(1, v)) : undefined })} min={0} max={1} step={0.05} />
+            <NumberField label="Perigo (0–1)" value={s.dangerAt ?? 0} onChange={(v) => onChangeStyle({ dangerAt: v > 0 ? Math.max(0, Math.min(1, v)) : undefined })} min={0} max={1} step={0.05} />
+          </div>
+        </div>
+      )}
+
+      {isFlag && (
+        <div className="overlay-builder-section">
+          <div className="overlay-builder-section-title">Bandeira</div>
+          <SelectField
+            label="Bandeira observada"
+            value={s.flagKey ?? ''}
+            options={[
+              { value: '', label: '(qualquer ativa)' },
+              ...['green', 'yellow', 'blue', 'white', 'checkered', 'red', 'black', 'meatball', 'greenWhiteCheckered'].map((f) => ({ value: f, label: f }))
+            ]}
+            onChange={(v) => onChangeStyle({ flagKey: v || undefined })}
+          />
+        </div>
+      )}
+
+      {isImage && (
+        <div className="overlay-builder-section">
+          <div className="overlay-builder-section-title">Imagem</div>
+          <button className="primary-action" onClick={() => fileInputRef.current?.click()}>Escolher imagem…</button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              e.target.value = ''
+              if (!file) return
+              void fileToDataUrl(file).then((url) => onChangeStyle({ src: url })).catch(() => undefined)
+            }}
+          />
+          <TextField label="URL ou data: URL" value={s.src ?? ''} onChange={(v) => onChangeStyle({ src: v || undefined })} placeholder="data:image/png;base64,…" />
+          {s.src && <button className="ghost-action danger" onClick={() => onChangeStyle({ src: undefined })}>Remover imagem</button>}
+          <div className="designer-grid-2">
+            <SelectField label="Ajuste" value={s.fit ?? 'contain'} options={[{ value: 'contain', label: 'contain' }, { value: 'cover', label: 'cover' }, { value: 'fill', label: 'fill' }, { value: 'none', label: 'none' }]} onChange={(v) => onChangeStyle({ fit: v as 'contain' | 'cover' | 'fill' | 'none' })} />
+            <NumberField label="Opacidade" value={s.opacity ?? 1} onChange={(v) => onChangeStyle({ opacity: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
+          </div>
+          <div className="overlay-builder-section-title">Filtros</div>
+          <div className="overlay-builder-slot-tabs">
+            {IMAGE_FILTER_PRESETS.map((p) => (
+              <button key={p.id} className="ghost-action" onClick={() => onChangeStyle(p.patch)}>{p.label}</button>
+            ))}
+          </div>
+          <div className="designer-grid-2">
+            <SliderField label="P&B" value={s.filterGrayscale ?? 0} onChange={(v) => onChangeStyle({ filterGrayscale: v || undefined })} min={0} max={1} step={0.05} />
+            <SliderField label="Vermelho" value={s.redTint ?? 0} onChange={(v) => onChangeStyle({ redTint: v || undefined })} min={0} max={1} step={0.05} />
+            <SliderField label="Sépia" value={s.filterSepia ?? 0} onChange={(v) => onChangeStyle({ filterSepia: v || undefined })} min={0} max={1} step={0.05} />
+            <SliderField label="Inverter" value={s.invert ?? 0} onChange={(v) => onChangeStyle({ invert: v || undefined })} min={0} max={1} step={0.05} />
+            <SliderField label="Brilho" value={s.brightness ?? 1} onChange={(v) => onChangeStyle({ brightness: v === 1 ? undefined : v })} min={0} max={2} step={0.05} />
+            <SliderField label="Contraste" value={s.contrast ?? 1} onChange={(v) => onChangeStyle({ contrast: v === 1 ? undefined : v })} min={0} max={2} step={0.05} />
+            <SliderField label="Saturação" value={s.saturate ?? 1} onChange={(v) => onChangeStyle({ saturate: v === 1 ? undefined : v })} min={0} max={3} step={0.05} />
+            <SliderField label="Matiz (°)" value={s.hueRotate ?? 0} onChange={(v) => onChangeStyle({ hueRotate: v || undefined })} min={-180} max={180} step={1} />
+            <SliderField label="Desfoque (px)" value={s.blur ?? 0} onChange={(v) => onChangeStyle({ blur: v || undefined })} min={0} max={10} step={0.5} />
+          </div>
+        </div>
+      )}
+
+      {slots.length > 0 && <SlotEditor element={element} slots={slots} onChangeStyle={onChangeStyle} />}
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button className="ghost-action" onClick={onDuplicate}>Duplicar</button>
+        <button className="ghost-action danger" onClick={onRemove}>Remover widget</button>
+      </div>
+    </div>
+  )
+}
+
+// ── Main modal ────────────────────────────────────────────────────────────────
+export interface OverlayWidgetBuilderProps {
+  initial: CustomOverlayDef
+  editing: boolean
+  busy?: boolean
+  onSave(def: CustomOverlayDef): void
+  onCancel(): void
+}
+
+export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel }: OverlayWidgetBuilderProps): ReactElement {
+  const [def, setDef] = useState<CustomOverlayDef>(() => ({ ...initial, widgets: [...(initial.widgets ?? [])] }))
+  const [selectedId, setSelectedId] = useState<string | null>(initial.widgets?.[0]?.id ?? null)
+  const widgets = def.widgets ?? []
+  const canvasWidth = def.canvasWidth ?? DEFAULT_RICH_OVERLAY_CANVAS.width
+  const canvasHeight = def.canvasHeight ?? DEFAULT_RICH_OVERLAY_CANVAS.height
+  const selected = widgets.find((w) => w.id === selectedId) ?? null
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === 'Escape') onCancel()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onCancel])
+
+  const patchDef = useCallback((patch: Partial<CustomOverlayDef>): void => {
+    setDef((cur) => ({ ...cur, ...patch }))
+  }, [])
+
+  const setWidgets = useCallback((next: DashboardElement[]): void => {
+    setDef((cur) => ({ ...cur, widgets: next }))
+  }, [])
+
+  const addVariant = useCallback((variant: WidgetVariant): void => {
+    setDef((cur) => {
+      const list = cur.widgets ?? []
+      const n = list.length
+      const cw = cur.canvasWidth ?? DEFAULT_RICH_OVERLAY_CANVAS.width
+      const ch = cur.canvasHeight ?? DEFAULT_RICH_OVERLAY_CANVAS.height
+      const x = Math.min(40 + (n % 6) * 24, Math.max(0, cw - variant.w))
+      const y = Math.min(40 + (n % 6) * 24, Math.max(0, ch - variant.h))
+      const el = variantToElement(variant, x, y)
+      setSelectedId(el.id)
+      return { ...cur, widgets: [...list, el] }
+    })
+  }, [])
+
+  const addImage = useCallback((): void => {
+    setDef((cur) => {
+      const list = cur.widgets ?? []
+      const n = list.length
+      const cw = cur.canvasWidth ?? DEFAULT_RICH_OVERLAY_CANVAS.width
+      const ch = cur.canvasHeight ?? DEFAULT_RICH_OVERLAY_CANVAS.height
+      const el: DashboardElement = {
+        id: createElementId(),
+        type: 'image',
+        x: Math.min(40 + (n % 6) * 24, Math.max(0, cw - 240)),
+        y: Math.min(40 + (n % 6) * 24, Math.max(0, ch - 135)),
+        w: 240,
+        h: 135,
+        name: 'Imagem',
+        style: { fit: 'contain', opacity: 1 }
+      }
+      setSelectedId(el.id)
+      return { ...cur, widgets: [...list, el] }
+    })
+  }, [])
+
+  const patchSelected = useCallback(
+    (patch: Partial<DashboardElement>): void => {
+      if (!selectedId) return
+      setWidgets(widgets.map((w) => (w.id === selectedId ? { ...w, ...patch } : w)))
+    },
+    [selectedId, widgets, setWidgets]
+  )
+
+  const patchSelectedStyle = useCallback(
+    (patch: Partial<DashboardElementStyle>): void => {
+      if (!selectedId) return
+      setWidgets(widgets.map((w) => (w.id === selectedId ? { ...w, style: { ...w.style, ...patch } } : w)))
+    },
+    [selectedId, widgets, setWidgets]
+  )
+
+  const reorderSelected = useCallback(
+    (direction: 'front' | 'back' | 'forward' | 'backward'): void => {
+      if (!selectedId) return
+      setWidgets(reorderElements(widgets, selectedId, direction))
+    },
+    [selectedId, widgets, setWidgets]
+  )
+
+  const duplicateSelected = useCallback((): void => {
+    if (!selected) return
+    const copy: DashboardElement = { ...selected, id: createElementId(), x: selected.x + 16, y: selected.y + 16, style: { ...selected.style } }
+    setWidgets([...widgets, copy])
+    setSelectedId(copy.id)
+  }, [selected, widgets, setWidgets])
+
+  const removeSelected = useCallback((): void => {
+    if (!selectedId) return
+    setWidgets(widgets.filter((w) => w.id !== selectedId))
+    setSelectedId(null)
+  }, [selectedId, widgets, setWidgets])
+
+  const onGeometry = useCallback(
+    (id: string, geo: { x: number; y: number; w: number; h: number }): void => {
+      setWidgets(widgets.map((w) => (w.id === id ? { ...w, ...geo } : w)))
+    },
+    [widgets, setWidgets]
+  )
+
+  function handleSave(): void {
+    // Keep window size in sync with the design canvas so the overlay opens 1:1.
+    const next: CustomOverlayDef = {
+      ...def,
+      widgets,
+      canvasWidth,
+      canvasHeight,
+      position: { ...def.position, width: canvasWidth, height: canvasHeight }
+    }
+    onSave(next)
+  }
+
+  const stageStyle: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center' }
+
+  return (
+    <div className="overlay-designer-backdrop" role="dialog" aria-modal="true">
+      <div className="overlay-designer overlay-builder">
+        <div className="overlay-designer-head">
+          <h4>{editing ? 'Editar overlay de widgets' : 'Criar novo overlay (widgets do dashboard)'}</h4>
+          <button className="ghost-action" disabled={busy} onClick={onCancel}>Fechar</button>
+        </div>
+
+        <div className="overlay-builder-grid">
+          <aside className="overlay-builder-palette">
+            <label className="designer-field">
+              Título
+              <input type="text" value={def.title} maxLength={60} onChange={(e) => patchDef({ title: e.target.value })} />
+            </label>
+            <div className="designer-grid-2">
+              <label className="designer-field">
+                Canvas largura
+                <input type="number" min={64} max={8000} value={canvasWidth} onChange={(e) => patchDef({ canvasWidth: Math.max(64, Math.min(8000, Math.round(Number(e.target.value)))) })} />
+              </label>
+              <label className="designer-field">
+                Canvas altura
+                <input type="number" min={64} max={8000} value={canvasHeight} onChange={(e) => patchDef({ canvasHeight: Math.max(64, Math.min(8000, Math.round(Number(e.target.value)))) })} />
+              </label>
+            </div>
+            <div className="designer-settings">
+              <label className="designer-check">
+                <input type="checkbox" checked={def.enabled} onChange={(e) => patchDef({ enabled: e.target.checked })} />
+                Mostrar
+              </label>
+              <label className="designer-check">
+                <input type="checkbox" checked={def.locked} onChange={(e) => patchDef({ locked: e.target.checked })} />
+                Fixado (click-through)
+              </label>
+            </div>
+            <label className="designer-field">
+              Opacidade · {def.opacity}%
+              <input type="range" min={0} max={100} value={def.opacity} onChange={(e) => patchDef({ opacity: Number(e.target.value) })} />
+            </label>
+            <button className="ghost-action" onClick={addImage}>+ Imagem</button>
+            <div className="overlay-builder-gallery">
+              <WidgetGallery onAdd={addVariant} busy={busy} />
+            </div>
+          </aside>
+
+          <section className="overlay-builder-center">
+            <div style={stageStyle}>
+              <BuilderCanvas
+                widgets={widgets}
+                canvasWidth={canvasWidth}
+                canvasHeight={canvasHeight}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                onGeometry={onGeometry}
+              />
+            </div>
+            <p className="overlay-help">
+              {widgets.length} widget(s) · arraste para mover, puxe os cantos para redimensionar. Pré-visualização com telemetria simulada.
+            </p>
+          </section>
+
+          <aside className="overlay-builder-inspector">
+            <Inspector
+              element={selected}
+              canvasWidth={canvasWidth}
+              canvasHeight={canvasHeight}
+              onChange={patchSelected}
+              onChangeStyle={patchSelectedStyle}
+              onReorder={reorderSelected}
+              onDuplicate={duplicateSelected}
+              onRemove={removeSelected}
+            />
+          </aside>
+        </div>
+
+        <div className="overlay-designer-foot">
+          <button className="ghost-action" disabled={busy} onClick={onCancel}>Cancelar</button>
+          <button className="primary-action" disabled={busy || !def.title.trim()} onClick={handleSave}>
+            {editing ? 'Salvar alterações' : 'Criar overlay'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

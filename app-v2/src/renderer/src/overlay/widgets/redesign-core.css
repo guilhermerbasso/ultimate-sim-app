@@ -1,0 +1,646 @@
+/* ───────────────────────────────────────────────────────────────────────────
+ * redesign-core.css — per-design-family LAYOUT language for the CORE overlays.
+ *
+ * Owned by the rd-g1-core redesign. DO NOT edit overlay-runtime.css or
+ * overlayWidgetsR16.css here (other agents touch those in parallel). Every class
+ * is prefixed `rc-` and most selectors are deliberately 2-class (e.g.
+ * `.overlay-card.rc-fam-terminal`) so they win over the single-class base
+ * surface regardless of stylesheet source order.
+ *
+ * Colour rule (strict, applied everywhere):
+ *   warm  (red/orange/amber)  → chrome, accents, redline, "hot"/attention
+ *   cool  (green/blue)        → ONLY a genuinely positive "good" state
+ *                               (faster delta, full-fuel margin, optimal shift,
+ *                                clear radar, green/go flag)
+ * Each preset still tints through --overlay-accent; only the LAYOUT forks by
+ * family.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/* ─── Display / 7-segment families ─────────────────────────────────────────────
+ * OVERLAY windows do NOT import fonts.css / theme.css, so mirror the @font-face
+ * declarations from dashboard-runtime.css here. Without this the overlay digit
+ * readouts fall back to system monospace instead of the DSEG 7-seg face. */
+@font-face { font-family: 'Chakra Petch'; src: url('../../assets/fonts/ChakraPetch-Bold.ttf'); font-weight: bold; }
+@font-face { font-family: 'Michroma'; src: url('../../assets/fonts/Michroma-Regular.ttf'); }
+@font-face { font-family: 'Rajdhani'; src: url('../../assets/fonts/Rajdhani-SemiBold.ttf'); font-weight: 600; }
+@font-face { font-family: 'Barlow Condensed'; src: url('../../assets/fonts/BarlowCondensed-Black.ttf'); font-weight: 900; }
+@font-face { font-family: 'DSEG7Classic-Regular'; src: url('../../assets/fonts/DSEG7Classic-Regular.ttf'); }
+@font-face { font-family: 'DSEG14Classic-Regular'; src: url('../../assets/fonts/DSEG14Classic-Regular.ttf'); }
+
+.rc-card {
+  --rc-accent: var(--overlay-accent, #ff6a00);
+  --rc-good: #18d27b;
+  --rc-good-2: #46e0ff;
+  --rc-warn: #ffb000;
+  --rc-bad: #ff3b30;
+  --rc-ink: #fdf7f0;
+  --rc-muted: rgba(255, 231, 215, 0.62);
+  --rc-faint: rgba(255, 231, 215, 0.34);
+  --rc-track: rgba(138, 164, 200, 0.16);
+  --rc-mono: 'Cascadia Code', 'Consolas', 'SFMono-Regular', ui-monospace, monospace;
+  --rc-num: 'DSEG7Classic-Regular', 'Chakra Petch', 'Rajdhani', 'Cascadia Code';
+  --rc-cond: 'Chakra Petch', 'Michroma', 'Bahnschrift', 'DIN Condensed', 'Saira Condensed', 'Arial Narrow', system-ui, sans-serif;
+  --rc-heavy: 'Rajdhani', 'Barlow Condensed', 'Arial Narrow', Impact, Haettenschweiler, 'Franklin Gothic Bold', system-ui, sans-serif;
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.rc-card * { box-sizing: border-box; }
+
+.rc-good { color: var(--rc-good); }
+.rc-warn { color: var(--rc-warn); }
+.rc-bad { color: var(--rc-bad); }
+
+/* ─── Family surface modifiers ─────────────────────────────────────────────── */
+
+/* GT3 DEFAULT — matte black, single hairline, no glow/blur/gradient.
+ * minimal is the fallback family, so it sets the race-cluster baseline. */
+.overlay-card.rc-fam-minimal {
+  border: 1px solid #1f1f1f;
+  border-radius: clamp(12px, var(--overlay-radius, 16px), 20px);
+  background: #060606;
+}
+
+/* neon — toned-down: matte void + warm accent hairline (identity), no glow/scan. */
+.overlay-card.rc-fam-neon {
+  border: 1px solid color-mix(in srgb, var(--rc-accent) 55%, #1f1f1f);
+  border-radius: 14px;
+  background: #050608;
+}
+.overlay-card.rc-fam-neon > * { position: relative; z-index: 1; }
+
+/* glass — toned-down: matte black + bright hairline, rounded identity, no blur. */
+.overlay-card.rc-fam-glass {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: clamp(24px, var(--overlay-radius, 28px), 34px);
+  background: #070708;
+}
+.overlay-card.rc-fam-glass > * { position: relative; z-index: 1; }
+
+/* broadcast — boxy, small radius, matte, thick warm baseline (identity). */
+.overlay-card.rc-fam-broadcast {
+  border: 0;
+  border-radius: 7px;
+  background: #060606;
+  border-bottom: 4px solid var(--rc-accent);
+}
+
+/* terminal — zero radius, mono border, matte black (no CRT scan/inner glow). */
+.overlay-card.rc-fam-terminal {
+  border: 1px solid color-mix(in srgb, var(--rc-accent) 45%, #1f1f1f);
+  border-radius: 2px;
+  background: #050505;
+}
+
+/* bauhaus — zero radius, flat, thick dark rule (identity), no offset shadow. */
+.overlay-card.rc-fam-bauhaus {
+  border: 3px solid #1a1a1a;
+  border-radius: 0;
+  background: #000;
+}
+
+/* analog — matte black with a warm chrome bezel hairline, no depth gradient. */
+.overlay-card.rc-fam-analog {
+  border: 1px solid rgba(196, 178, 150, 0.28);
+  border-radius: clamp(14px, var(--overlay-radius, 18px), 22px);
+  background: #060606;
+}
+
+/* heatmap — small radius, matte black, dense (no grid gradient/shadow). */
+.overlay-card.rc-fam-heatmap {
+  border: 1px solid #1f1f1f;
+  border-radius: 8px;
+  background: #060606;
+}
+
+/* ─── Shared text primitives ───────────────────────────────────────────────── */
+
+.rc-mono { font-family: var(--rc-mono); font-variant-numeric: tabular-nums; }
+.rc-cond { font-family: var(--rc-cond); }
+
+/* =========================================================================== *
+ *  MINIMAL — restrained stat lines, hairline dividers, one warm accent.
+ * =========================================================================== */
+
+.rc-min {
+  display: grid;
+  align-content: center;
+  gap: clamp(4px, 2.4vh, 12px);
+  padding: clamp(10px, 4%, 18px) clamp(12px, 5%, 20px);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  height: 100%;
+}
+.rc-min-hero {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3em;
+  color: var(--rc-accent);
+  font-weight: 350;
+  font-size: clamp(26px, 9vh, 56px);
+  line-height: 0.92;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.rc-min-hero.is-good { color: var(--rc-good); }
+.rc-min-hero.is-bad { color: var(--rc-bad); }
+.rc-min-hero b { font-weight: 600; }
+.rc-min-unit { color: var(--rc-muted); font-size: 0.36em; font-weight: 500; letter-spacing: 0.06em; }
+.rc-min-rows { display: grid; gap: 0; }
+.rc-min-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: clamp(4px, 1.4vh, 8px) 0;
+  font-size: clamp(11px, 2.4vh, 14px);
+}
+.rc-min-row + .rc-min-row { border-top: 1px solid rgba(255, 231, 215, 0.12); }
+.rc-min-label { color: var(--rc-muted); font-weight: 500; letter-spacing: 0.04em; }
+.rc-min-val { color: var(--rc-ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.rc-min-val.is-good { color: var(--rc-good); }
+.rc-min-track {
+  position: relative;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--rc-track);
+  overflow: hidden;
+}
+.rc-min-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--rc-accent); }
+.rc-min-fill.is-good { background: var(--rc-good); }
+.rc-min-dots { display: flex; gap: 6px; align-items: center; }
+.rc-min-dot {
+  font-size: clamp(10px, 2vh, 12px);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--rc-faint);
+}
+.rc-min-dot.on { color: var(--rc-accent); }
+.rc-min-ticks { display: flex; gap: clamp(3px, 1.2%, 7px); align-items: stretch; height: clamp(14px, 38%, 30px); }
+.rc-min-tick { flex: 1; border-radius: 2px; background: rgba(255, 231, 215, 0.14); }
+.rc-min-tick.on { background: var(--rc-accent); }
+.rc-min-tick.hot { background: var(--rc-bad); }
+.rc-min-tick.good { background: var(--rc-good); }
+
+/* =========================================================================== *
+ *  NEON — glowing vector HUD, emissive rings/bars, condensed numerals.
+ * =========================================================================== */
+
+.rc-neon {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: clamp(4px, 1.6vh, 10px);
+  padding: clamp(8px, 3%, 16px);
+  height: 100%;
+  font-family: var(--rc-cond);
+}
+.rc-neon-num {
+  color: #fff;
+  font-weight: 700;
+  font-size: clamp(28px, 12vh, 70px);
+  line-height: 0.86;
+  letter-spacing: 0.01em;
+}
+.rc-neon-num.is-good { color: var(--rc-good); }
+.rc-neon-num.is-bad { color: #fff; text-shadow: 0 0 10px var(--rc-bad), 0 0 26px color-mix(in srgb, var(--rc-bad) 75%, transparent); }
+.rc-neon-unit { font-size: 0.3em; color: var(--rc-muted); letter-spacing: 0.16em; text-transform: uppercase; }
+.rc-neon-tags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.rc-neon-tag {
+  font-family: var(--rc-mono);
+  font-size: clamp(9px, 1.9vh, 12px);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 4px;
+  color: color-mix(in srgb, var(--rc-accent) 60%, #fff);
+  border: 1px solid color-mix(in srgb, var(--rc-accent) 45%, transparent);
+}
+.rc-neon-tag.on {
+  color: #fff;
+  background: color-mix(in srgb, var(--rc-accent) 26%, transparent);
+  border-color: var(--rc-accent);
+}
+.rc-neon-tag.good { color: #eafff6; border-color: var(--rc-good); }
+.rc-neon-svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.rc-neon-bar {
+  position: relative;
+  width: 100%;
+  height: clamp(12px, 30%, 26px);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid color-mix(in srgb, var(--rc-accent) 40%, transparent);
+  overflow: hidden;
+}
+.rc-neon-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: var(--rc-accent);
+}
+.rc-neon-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px;
+  border-left: 2px solid color-mix(in srgb, var(--rc-accent) 60%, transparent);
+  font-family: var(--rc-cond);
+  font-size: clamp(11px, 2.3vh, 14px);
+  color: var(--rc-ink);
+}
+.rc-neon-row.is-self {
+  border-left-color: var(--rc-accent);
+  background: color-mix(in srgb, var(--rc-accent) 16%, transparent);
+}
+
+/* =========================================================================== *
+ *  GLASS — frosted floating cards, airy spacing, low-opacity labels.
+ * =========================================================================== */
+
+.rc-glass {
+  display: grid;
+  align-content: center;
+  gap: clamp(6px, 2.4vh, 14px);
+  padding: clamp(12px, 6%, 22px);
+  height: 100%;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+.rc-glass-hero {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3em;
+  color: #fff;
+  font-weight: 300;
+  font-size: clamp(28px, 10vh, 60px);
+  line-height: 0.9;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.rc-glass-hero.is-good { color: #d8fff0; }
+.rc-glass-hero.is-bad { color: #ffd9d4; }
+.rc-glass-accent { color: color-mix(in srgb, var(--rc-accent) 80%, #fff); }
+.rc-glass-unit { font-size: 0.32em; color: rgba(255, 255, 255, 0.66); font-weight: 400; letter-spacing: 0.14em; }
+.rc-glass-label { color: rgba(255, 255, 255, 0.6); font-size: clamp(10px, 2.2vh, 13px); font-weight: 400; letter-spacing: 0.16em; text-transform: uppercase; }
+.rc-glass-rows { display: grid; gap: clamp(4px, 1.6vh, 9px); }
+.rc-glass-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: clamp(5px, 1.6vh, 9px) clamp(8px, 3%, 13px);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: clamp(11px, 2.3vh, 14px);
+}
+.rc-glass-row.is-self {
+  background: color-mix(in srgb, var(--rc-accent) 22%, rgba(255, 255, 255, 0.08));
+  border-color: color-mix(in srgb, var(--rc-accent) 50%, transparent);
+}
+.rc-glass-row span { color: rgba(255, 255, 255, 0.66); font-weight: 400; }
+.rc-glass-row strong { color: #fff; font-weight: 600; font-variant-numeric: tabular-nums; }
+.rc-glass-bar {
+  position: relative;
+  height: clamp(8px, 18%, 16px);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  overflow: hidden;
+}
+.rc-glass-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: var(--rc-accent);
+}
+.rc-glass-bar i.is-good { background: var(--rc-good); }
+
+/* =========================================================================== *
+ *  BROADCAST — TV lower-third, label tab + value field cells, chips.
+ * =========================================================================== */
+
+.rc-bc {
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  padding: 4px;
+  height: 100%;
+  font-family: var(--rc-cond);
+}
+.rc-bc.col { flex-direction: column; }
+.rc-bc-cell { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.rc-bc-cell.grow2 { flex: 2; }
+.rc-bc-tab {
+  background: var(--rc-accent);
+  color: #1a0a02;
+  font-weight: 700;
+  font-size: clamp(9px, 1.9vh, 12px);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  line-height: 1.5;
+}
+.rc-bc-tab.neutral { background: #56606f; color: #fff; }
+.rc-bc-tab.good { background: var(--rc-good); color: #042016; }
+.rc-bc-field {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-weight: 700;
+  font-size: clamp(16px, 6vh, 34px);
+  letter-spacing: 0.01em;
+  padding: 2px 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  min-height: 0;
+}
+.rc-bc-field small { font-size: 0.42em; font-weight: 600; color: var(--rc-muted); letter-spacing: 0.08em; }
+.rc-bc-field.is-good { color: #b7ffe4; }
+.rc-bc-field.is-bad { color: #ffc9c2; }
+.rc-bc-chips { display: flex; gap: 3px; flex-wrap: wrap; align-content: center; }
+.rc-bc-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: clamp(9px, 1.8vh, 12px);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 3px 6px;
+  border-radius: 3px;
+  color: var(--rc-faint);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.rc-bc-chip.on { color: #1a0a02; background: var(--rc-accent); border-color: var(--rc-accent); }
+.rc-bc-chip.good { color: #042016; background: var(--rc-good); border-color: var(--rc-good); }
+.rc-bc-meter {
+  position: relative;
+  flex: 1;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.rc-bc-meter i { position: absolute; inset: 0 auto 0 0; background: var(--rc-accent); }
+.rc-bc-meter i.brk { background: var(--rc-bad); }
+.rc-bc-meter i.is-good { background: var(--rc-good); }
+.rc-bc-list { display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+.rc-bc-rrow {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 6px;
+  font-size: clamp(10px, 2.1vh, 13px);
+  color: #fff;
+}
+.rc-bc-rrow.is-self { background: var(--rc-accent); color: #160800; }
+.rc-bc-rrow .pos { font-weight: 700; min-width: 2.2em; }
+.rc-bc-rrow .num { font-weight: 700; color: var(--rc-accent); }
+.rc-bc-rrow.is-self .num { color: #160800; }
+.rc-bc-rrow .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; font-weight: 600; }
+.rc-bc-rrow .gp { font-variant-numeric: tabular-nums; font-weight: 700; }
+
+/* =========================================================================== *
+ *  TERMINAL — bracketed monospace rows, ASCII bars, key:value columns.
+ * =========================================================================== */
+
+.rc-trm {
+  margin: 0;
+  padding: clamp(8px, 4%, 14px);
+  height: 100%;
+  display: grid;
+  align-content: center;
+  font-family: var(--rc-mono);
+  font-size: clamp(13px, 3.1vh, 17px);
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--rc-accent) 88%, #ffe8c8);
+  white-space: pre;
+  font-variant-numeric: tabular-nums;
+  position: relative;
+  z-index: 1;
+}
+.rc-trm b { color: #fff; font-weight: 700; }
+.rc-trm .ok { color: var(--rc-good); }
+.rc-trm .warn { color: var(--rc-warn); }
+.rc-trm .bad { color: var(--rc-bad); text-shadow: 0 0 8px color-mix(in srgb, var(--rc-bad) 45%, transparent); }
+
+/* =========================================================================== *
+ *  BAUHAUS — flat saturated blocks, one giant numeral, primary shapes.
+ * =========================================================================== */
+
+.rc-bhs {
+  display: grid;
+  gap: 3px;
+  padding: 3px;
+  height: 100%;
+  background: #0a0a0a;
+  font-family: var(--rc-heavy);
+}
+.rc-bhs-hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--rc-accent);
+  color: #140800;
+  font-weight: 400;
+  line-height: 0.8;
+  letter-spacing: -0.02em;
+  overflow: hidden;
+}
+.rc-bhs-hero.is-good { background: var(--rc-good); color: #042016; }
+.rc-bhs-hero.is-bad { background: var(--rc-bad); color: #fff; }
+.rc-bhs-hero .n { font-size: clamp(34px, 16vh, 96px); font-variant-numeric: tabular-nums; }
+.rc-bhs-hero .u { font-size: 0.26em; align-self: flex-end; margin: 0 0 0.6em 0.2em; letter-spacing: 0.1em; font-family: var(--rc-cond); }
+.rc-bhs-row { display: flex; gap: 3px; }
+.rc-bhs-block {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 4px 8px;
+  background: #1c1c1c;
+  color: #fff;
+  flex: 1;
+  min-width: 0;
+}
+.rc-bhs-block .k { font-family: var(--rc-cond); font-size: clamp(9px, 1.8vh, 11px); letter-spacing: 0.12em; color: rgba(255, 255, 255, 0.62); text-transform: uppercase; }
+.rc-bhs-block .v { font-family: var(--rc-cond); font-weight: 700; font-size: clamp(13px, 3.4vh, 20px); font-variant-numeric: tabular-nums; }
+.rc-bhs-block.accent { background: var(--rc-accent); color: #140800; }
+.rc-bhs-block.accent .k { color: rgba(20, 8, 0, 0.7); }
+.rc-bhs-block.good { background: var(--rc-good); color: #042016; }
+.rc-bhs-block.good .k { color: rgba(4, 32, 22, 0.72); }
+.rc-bhs-bar { height: clamp(10px, 16%, 18px); background: #1c1c1c; overflow: hidden; display: flex; }
+.rc-bhs-bar i { background: var(--rc-accent); }
+.rc-bhs-bar i.is-good { background: var(--rc-good); }
+.rc-bhs-shape { width: clamp(14px, 6vh, 26px); height: clamp(14px, 6vh, 26px); flex: none; align-self: center; }
+.rc-bhs-circle { border-radius: 50%; background: var(--rc-accent); }
+.rc-bhs-square { background: #fff; }
+.rc-bhs-tri { width: 0; height: 0; border-left: 0.5em solid transparent; border-right: 0.5em solid transparent; border-bottom: 0.9em solid var(--rc-bad); font-size: clamp(14px, 6vh, 26px); }
+.rc-bhs-list { display: flex; flex-direction: column; gap: 3px; overflow: hidden; }
+.rc-bhs-rrow { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; background: #1c1c1c; color: #fff; padding: 6px 11px; font-family: var(--rc-cond); font-size: clamp(12px, 2.6vh, 15px); }
+.rc-bhs-rrow.is-self { background: var(--rc-accent); color: #140800; }
+.rc-bhs-rrow .p { font-weight: 700; }
+.rc-bhs-rrow .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; }
+.rc-bhs-rrow .g { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* =========================================================================== *
+ *  ANALOG — round dials, needles, tick rings, metallic depth.
+ * =========================================================================== */
+
+.rc-ang {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: clamp(4px, 2%, 10px);
+}
+.rc-ang-svg { width: 100%; height: 100%; display: block; }
+.rc-ang-tick { stroke: rgba(255, 231, 215, 0.4); }
+.rc-ang-tick.major { stroke: rgba(255, 231, 215, 0.72); }
+.rc-ang-num { fill: #fdf7f0; font-family: var(--rc-num); font-weight: 700; }
+.rc-ang-sub { fill: var(--rc-muted); font-family: var(--rc-cond); }
+.rc-ang-needle { stroke: var(--rc-ink); }
+.rc-ang-cap { fill: var(--rc-accent); }
+.rc-ang-row { display: flex; gap: clamp(4px, 2%, 10px); align-items: center; justify-content: center; height: 100%; padding: clamp(4px, 2%, 10px); }
+
+/* =========================================================================== *
+ *  HEATMAP — dense intensity cells / segmented bars, cold→hot fills.
+ * =========================================================================== */
+
+.rc-hm {
+  display: grid;
+  align-content: center;
+  gap: clamp(4px, 1.6vh, 9px);
+  padding: clamp(8px, 3.5%, 14px);
+  height: 100%;
+  font-family: var(--rc-cond);
+}
+.rc-hm-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.rc-hm-head span { color: var(--rc-muted); font-size: clamp(10px, 2.2vh, 13px); letter-spacing: 0.12em; text-transform: uppercase; }
+.rc-hm-head strong { font-weight: 700; font-size: clamp(18px, 6vh, 32px); font-variant-numeric: tabular-nums; }
+.rc-hm-segs { display: flex; gap: 2px; height: clamp(14px, 30%, 28px); }
+.rc-hm-seg { flex: 1; border-radius: 2px; background: rgba(255, 255, 255, 0.08); }
+/* thermal matrix — forces a cell-grid encoding for scalar channels */
+.rc-hm-matrix { display: grid; gap: 3px; }
+.rc-hm-tile {
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.045);
+  min-height: clamp(10px, 4.5vh, 18px);
+  min-width: 0;
+}
+.rc-hm-cells { display: grid; gap: 3px; }
+.rc-hm-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  border-radius: 4px;
+  padding: 4px 2px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  min-width: 0;
+}
+.rc-hm-cell .k { font-size: clamp(8px, 1.7vh, 11px); letter-spacing: 0.08em; opacity: 0.82; text-transform: uppercase; }
+.rc-hm-cell .v { font-weight: 700; font-size: clamp(12px, 3vh, 18px); font-variant-numeric: tabular-nums; }
+.rc-hm-rows { display: grid; gap: 2px; }
+.rc-hm-rrow {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 7px;
+  border-radius: 3px;
+  font-size: clamp(10px, 2.2vh, 13px);
+  color: #fff;
+}
+.rc-hm-rrow .p { font-weight: 700; min-width: 2.2em; }
+.rc-hm-rrow .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; }
+.rc-hm-rrow .g { font-weight: 700; font-variant-numeric: tabular-nums; }
+.rc-hm-rrow.is-self { outline: 1px solid var(--rc-accent); }
+
+/* ─── Widget-specific: RevLights LED variants ──────────────────────────────── */
+
+.rc-rev { display: grid; align-content: center; gap: 6px; padding: clamp(8px, 6%, 16px) clamp(10px, 5%, 18px); height: 100%; }
+.rc-rev-strip { display: grid; gap: clamp(3px, 1.4%, 7px); }
+.rc-rev-led { min-width: 0; height: 100%; opacity: 0.18; }
+.rc-rev-led.on { opacity: 1; }
+.rc-rev-led.green { background: var(--rc-good); color: var(--rc-good); }
+.rc-rev-led.amber { background: var(--rc-warn); color: var(--rc-warn); }
+.rc-rev-led.red { background: var(--rc-bad); color: var(--rc-bad); }
+.rc-rev-led.shift { background: var(--rc-good-2); color: var(--rc-good-2); }
+/* neon round, glowing */
+.rc-rev.neon .rc-rev-led { border-radius: 50%; aspect-ratio: 1; height: auto; box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.5); }
+.rc-rev.neon .rc-rev-led.on { box-shadow: 0 0 12px currentColor, 0 0 4px currentColor; }
+/* broadcast boxy LED bar with a label tab */
+.rc-rev.bc { grid-template-columns: auto 1fr; align-items: stretch; gap: 8px; }
+.rc-rev.bc .rc-rev-led { border-radius: 2px; }
+/* bauhaus square blocks */
+.rc-rev.bhs { gap: 4px; }
+.rc-rev.bhs .rc-rev-strip { gap: 4px; }
+.rc-rev.bhs .rc-rev-led { border-radius: 0; }
+/* glass frosted cells */
+.rc-rev.glass .rc-rev-led { border-radius: 5px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4); }
+.rc-rev.glass .rc-rev-led:not(.on) { background: rgba(255, 255, 255, 0.1); }
+/* terminal dense thin bars */
+.rc-rev.trm .rc-rev-led { border-radius: 0; }
+.rc-rev-flash .rc-rev-led { animation: rc-rev-flash 150ms steps(1, end) infinite; background: var(--rc-good-2); color: var(--rc-good-2); opacity: 1; }
+@keyframes rc-rev-flash { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
+.rc-rev-pct { text-align: right; font-family: var(--rc-cond); font-weight: 700; font-size: clamp(12px, 3vh, 18px); color: var(--rc-ink); }
+.rc-rev-pct small { color: var(--rc-muted); font-size: 0.6em; }
+
+/* shared LedShiftBar — redline full-flash. The component owns the `is-blink`
+   hook, the consumer owns this keyframe. Additive; defined identically in each
+   overlay css that hosts a LedShiftBar so the flash works in isolation. */
+.led-shift-bar.is-blink { animation: led-shift-flash 110ms steps(1, end) infinite; }
+@keyframes led-shift-flash { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+/* ─── Widget-specific: Inputs channels ─────────────────────────────────────── */
+
+.rc-in-thr { --rc-ch: var(--rc-good); }
+.rc-in-brk { --rc-ch: var(--rc-bad); }
+.rc-in-clt { --rc-ch: #cdd6e2; }
+.rc-in-min { display: grid; align-content: center; gap: clamp(7px, 3vh, 14px); padding: clamp(10px, 5%, 18px); height: 100%; font-family: 'Segoe UI', system-ui, sans-serif; }
+.rc-in-min-row { display: grid; grid-template-columns: 2.4em 1fr 2.6em; align-items: center; gap: 8px; font-size: clamp(11px, 2.4vh, 13px); }
+.rc-in-min-row .k { color: var(--rc-muted); font-weight: 600; letter-spacing: 0.08em; }
+.rc-in-min-row .v { text-align: right; color: var(--rc-ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+.rc-in-track { position: relative; height: 5px; border-radius: 999px; background: var(--rc-track); overflow: hidden; }
+.rc-in-track i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--rc-ch); }
+/* broadcast meter rows */
+.rc-in-bc-row { display: grid; grid-template-columns: auto 1fr auto; gap: 3px; align-items: stretch; }
+/* bauhaus vertical bars */
+.rc-in-bhs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; height: 100%; background: #0a0a0a; align-items: end; }
+.rc-in-bhs-col { position: relative; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; background: #1c1c1c; overflow: hidden; }
+.rc-in-bhs-fill { background: var(--rc-ch); width: 100%; }
+.rc-in-bhs-lbl { position: absolute; inset: auto 0 4px 0; text-align: center; font-family: var(--rc-heavy); color: #fff; font-size: clamp(12px, 3vh, 18px); mix-blend-mode: difference; }
+.rc-in-bhs-k { position: absolute; inset: 4px 0 auto 0; text-align: center; font-family: var(--rc-cond); font-weight: 700; font-size: clamp(9px, 1.9vh, 11px); letter-spacing: 0.1em; color: rgba(255, 255, 255, 0.7); }
+/* heatmap segmented channel rows */
+.rc-in-hm { display: grid; align-content: center; gap: clamp(5px, 2vh, 10px); padding: clamp(8px, 4%, 14px); height: 100%; font-family: var(--rc-cond); }
+.rc-in-hm-row { display: grid; grid-template-columns: 2.2em 1fr 2.6em; gap: 7px; align-items: center; }
+.rc-in-hm-row .k { font-size: clamp(10px, 2.2vh, 12px); letter-spacing: 0.1em; color: var(--rc-muted); }
+.rc-in-hm-row .v { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rc-in-hm-segs { display: flex; gap: 2px; height: clamp(11px, 4vh, 18px); }
+.rc-in-hm-segs i { flex: 1; border-radius: 2px; background: rgba(255, 255, 255, 0.08); }
+/* svg trace (neon / glass) */
+.rc-in-trace { width: 100%; height: 100%; display: block; }
+
+/* ─── Widget-specific: G-force pads ────────────────────────────────────────── */
+
+.rc-g-canvas { width: 100%; height: 100%; display: block; }
+.rc-g-wrap { position: relative; height: 100%; width: 100%; }
+.rc-g-bc { display: grid; align-content: center; gap: 8px; padding: 8px; height: 100%; }
+.rc-g-pad { position: relative; aspect-ratio: 1; margin: 0 auto; height: min(100%, 100cqw); }
+.rc-g-bhs { display: grid; grid-template-rows: 1fr auto; gap: 3px; padding: 3px; height: 100%; background: #0a0a0a; }
+.rc-g-bhs-pad { position: relative; background: #161616; overflow: hidden; }
+.rc-g-bhs-dot { position: absolute; width: 22%; aspect-ratio: 1; background: var(--rc-accent); transform: translate(-50%, -50%); box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.16); }
+.rc-g-bhs-cross { position: absolute; background: rgba(255, 255, 255, 0.16); }
+.rc-g-min-pad { position: relative; border-radius: 50%; border: 1px solid rgba(255, 231, 215, 0.2); aspect-ratio: 1; height: min(100%, 100cqw); margin: 0 auto; }
+.rc-g-min-dot { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: var(--rc-accent); transform: translate(-50%, -50%); }
+.rc-g-hm-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; aspect-ratio: 1; height: min(100%, 100cqw); margin: 0 auto; }
+.rc-g-hm-grid i { border-radius: 2px; background: rgba(255, 255, 255, 0.05); }

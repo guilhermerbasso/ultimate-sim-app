@@ -1,0 +1,522 @@
+/* ───────────────────────────────────────────────────────────────────────────
+ * R16 overlay batch — futuristic + minimalist HUDs.
+ * Imported from ./index.ts so it loads wherever the overlay dispatcher renders.
+ * Every widget sits on the shared translucent `.overlay-card` surface (good
+ * contrast for a floating transparent HUD). COLOR RULE: warm chrome/accents,
+ * cool/green/blue ONLY for genuinely positive states.
+ * Classes are namespaced `r16-*` to avoid any collision with existing widgets.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+.r16-hud,
+.r16-min {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  color: #fff7ed;
+  font-family: var(--overlay-font, 'Segoe UI', sans-serif);
+  overflow: hidden;
+}
+
+.r16-hud {
+  padding: 10px 13px;
+  gap: 9px;
+}
+
+.r16-min {
+  padding: 11px 13px;
+  gap: 7px;
+}
+
+/* Faint engineering grid behind futuristic HUDs. */
+.r16-hud::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(transparent calc(100% - 1px), rgba(255, 255, 255, 0.05) calc(100% - 1px)),
+    linear-gradient(90deg, transparent calc(100% - 1px), rgba(255, 255, 255, 0.05) calc(100% - 1px));
+  background-size: 15px 15px;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.r16-hud.is-empty::before { opacity: 0.22; }
+
+/* ── shared atoms ─────────────────────────────────────────────────────────── */
+.r16-tag {
+  position: relative;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--overlay-accent, #ff8a3d);
+  opacity: 0.95;
+}
+
+.r16-min-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.r16-min-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255, 247, 237, 0.6);
+}
+
+.r16-min-value {
+  font-size: clamp(20px, 8vh, 34px);
+  font-weight: 850;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.r16-min-value i,
+.r16-bop-cell b i,
+.r16-ers-pct i,
+.r16-wet-meta b i,
+.r16-neon-speed i {
+  font-size: 0.46em;
+  font-style: normal;
+  opacity: 0.62;
+  margin-left: 2px;
+}
+
+.r16-min-track {
+  position: relative;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.r16-min-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+.r16-min-note {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 247, 237, 0.45);
+}
+
+.r16-min-headline {
+  font-size: clamp(14px, 6vh, 22px);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.05;
+}
+
+.r16-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.r16-na {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 247, 237, 0.4);
+}
+
+@keyframes r16-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+@keyframes r16-flow { from { left: -44px; } to { left: 100%; } }
+@keyframes r16-scan { from { background-position-y: 0; } to { background-position-y: 9px; } }
+@keyframes r16-sweep { to { transform: translate(-50%, -50%) rotate(360deg); } }
+@keyframes r16-flash {
+  50% { box-shadow: inset 0 0 0 2px var(--rev-color, #ff6a00), 0 0 26px color-mix(in srgb, var(--rev-color, #ff6a00) 60%, transparent); }
+}
+
+/* ── ERS battery (futuristic) ─────────────────────────────────────────────── */
+.r16-ers-battery { gap: 10px; }
+.r16-ers-head { display: flex; align-items: baseline; justify-content: space-between; }
+.r16-ers-pct {
+  font-size: clamp(22px, 9vh, 40px);
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 14px currentColor;
+}
+.r16-battery {
+  position: relative;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-height: 30px;
+}
+.r16-battery-cap {
+  width: 6px;
+  height: 38%;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.32);
+  flex: none;
+}
+.r16-battery-cells {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 4px;
+  flex: 1;
+  height: 100%;
+}
+.r16-battery-cells i {
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.r16-battery-cells i.on {
+  background: var(--cell-color, #13c27b);
+  border-color: transparent;
+  box-shadow: 0 0 12px var(--cell-color, #13c27b);
+}
+
+/* ── ERS flow (futuristic) ────────────────────────────────────────────────── */
+.r16-ers-flow { justify-content: center; }
+.r16-flow-row { display: flex; align-items: center; gap: 10px; }
+.r16-flow-lane {
+  position: relative;
+  flex: 1;
+  height: 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+.r16-flow-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--flow-color, #ff6a00) 35%, transparent), var(--flow-color, #ff6a00));
+  box-shadow: 0 0 14px var(--flow-color, #ff6a00);
+  transition: width 0.2s ease;
+}
+.r16-flow-scan {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 44px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: r16-flow 1s linear infinite;
+}
+.r16-flow-pct {
+  font-size: 15px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  min-width: 3.4ch;
+  text-align: right;
+}
+.r16-ers-flow.is-deploy { animation: r16-pulse 0.9s ease-in-out infinite; }
+
+/* ── Push-to-Pass HUD (futuristic) ────────────────────────────────────────── */
+.r16-p2p { align-items: center; justify-content: center; gap: 6px; text-align: center; }
+.r16-p2p-core { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.r16-p2p-mark {
+  font-size: clamp(26px, 13vh, 54px);
+  font-weight: 950;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  color: var(--p2p-color, #13c27b);
+  text-shadow: 0 0 22px var(--p2p-color, #13c27b);
+}
+.r16-p2p-state {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(255, 247, 237, 0.72);
+}
+.r16-p2p-count { display: flex; align-items: baseline; gap: 6px; }
+.r16-p2p-count b {
+  font-size: 20px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: var(--p2p-color, #13c27b);
+}
+.r16-p2p-count span { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.6; }
+.r16-p2p.state-active { animation: r16-pulse 0.7s ease-in-out infinite; }
+
+/* ── Push-to-Pass pips (minimalist) ───────────────────────────────────────── */
+.r16-pip-row { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 5px; }
+.r16-pip-row i { height: 11px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); }
+.r16-pip-row i.on { box-shadow: 0 0 8px rgba(255, 255, 255, 0.28); }
+
+/* ── Pit status HUD (futuristic) ──────────────────────────────────────────── */
+.r16-pit { gap: 10px; }
+.r16-pit-head { display: flex; align-items: center; gap: 8px; }
+.r16-pit-headline {
+  font-size: clamp(14px, 6vh, 22px);
+  font-weight: 850;
+  letter-spacing: 0.01em;
+  color: var(--pit-color, #13c27b);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--pit-color, #13c27b) 55%, transparent);
+}
+.r16-pit-lamps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.r16-pit-lamps i {
+  display: grid;
+  place-items: center;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.r16-pit-lamps i b {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: rgba(255, 247, 237, 0.5);
+}
+.r16-pit-lamps i.on {
+  background: color-mix(in srgb, var(--lamp-color, #ff3b1f) 22%, transparent);
+  border-color: var(--lamp-color, #ff3b1f);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--lamp-color, #ff3b1f) 50%, transparent),
+    inset 0 0 10px color-mix(in srgb, var(--lamp-color, #ff3b1f) 28%, transparent);
+}
+.r16-pit-lamps i.on b { color: #fff7ed; }
+.r16-pit.tone-alert { animation: r16-pulse 0.85s ease-in-out infinite; }
+
+/* ── Pit ticket (minimalist) ──────────────────────────────────────────────── */
+.r16-pit-ticket .r16-min-headline,
+.r16-surface-tag .r16-min-headline { text-transform: lowercase; }
+
+/* ── Wet radar (futuristic) ───────────────────────────────────────────────── */
+.r16-wet { flex-direction: row; align-items: center; justify-content: flex-start; gap: 13px; }
+.r16-wet-scope {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid color-mix(in srgb, var(--wet-color, #13c27b) 55%, transparent);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--wet-color, #13c27b) 40%, transparent);
+  background: rgba(0, 0, 0, 0.25);
+}
+.r16-wet-ring { position: absolute; inset: 5px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.12); }
+.r16-wet-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--wet-color, #13c27b) 38%, transparent);
+  transition: height 0.3s ease;
+}
+.r16-wet-glyph { position: relative; font-size: 24px; line-height: 1; filter: drop-shadow(0 0 8px var(--wet-color, #13c27b)); }
+.r16-wet-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.r16-wet-meta b { font-size: clamp(20px, 9vh, 34px); font-weight: 900; font-variant-numeric: tabular-nums; line-height: 1; }
+.r16-wet-meta span {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--wet-color, #13c27b);
+}
+.r16-wet.is-wet .r16-wet-scope::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(transparent 0 4px, color-mix(in srgb, var(--wet-color, #ffb000) 30%, transparent) 4px 5px);
+  animation: r16-scan 0.9s linear infinite;
+  opacity: 0.65;
+  pointer-events: none;
+}
+.r16-wet.is-declared { animation: r16-pulse 1s ease-in-out infinite; }
+
+/* ── Wet tag (minimalist) ─────────────────────────────────────────────────── */
+.r16-wet-tag { gap: 8px; }
+.r16-tag-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.r16-chip {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  padding: 3px 11px;
+  border-radius: 999px;
+  border: 1.5px solid currentColor;
+}
+
+/* ── Surface scope (futuristic) ───────────────────────────────────────────── */
+.r16-surface { align-items: center; justify-content: center; gap: 9px; }
+.r16-surface-glow {
+  position: absolute;
+  top: 9px;
+  left: 50%;
+  width: 74px;
+  height: 74px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  border: 1px dashed color-mix(in srgb, var(--surf-color, #13c27b) 38%, transparent);
+  pointer-events: none;
+}
+.r16-surface-core {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 2px solid var(--surf-color, #13c27b);
+  background: radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--surf-color, #13c27b) 55%, transparent), color-mix(in srgb, var(--surf-color, #13c27b) 12%, transparent));
+  box-shadow: 0 0 16px color-mix(in srgb, var(--surf-color, #13c27b) 45%, transparent), inset 0 0 12px rgba(0, 0, 0, 0.45);
+}
+.r16-surface-meta { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.r16-surface-meta b {
+  font-size: clamp(13px, 5.4vh, 18px);
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  color: var(--surf-color, #13c27b);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--surf-color, #13c27b) 50%, transparent);
+}
+.r16-surface.tone-off { animation: r16-pulse 0.8s ease-in-out infinite; }
+
+/* ── Track clock (futuristic) ─────────────────────────────────────────────── */
+.r16-track-clock { align-items: center; gap: 3px; }
+.r16-track-clock.is-night { background: linear-gradient(160deg, rgba(20, 28, 54, 0.55), rgba(8, 10, 22, 0.45)); }
+.r16-sky { width: 100%; max-height: 58%; }
+.r16-clock-meta { display: flex; flex-direction: column; align-items: center; }
+.r16-clock-meta b {
+  font-size: clamp(20px, 9vh, 32px);
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.r16-clock-meta span { font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: rgba(255, 247, 237, 0.5); }
+
+/* ── Session clock (minimalist) ───────────────────────────────────────────── */
+.r16-session-clock { gap: 4px; }
+.r16-clock-glyph { font-size: 16px; line-height: 1; }
+.r16-clock-big {
+  font-size: clamp(26px, 12vh, 46px);
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* ── BoP badge (minimalist) ───────────────────────────────────────────────── */
+.r16-bop-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.r16-bop-cell { display: flex; flex-direction: column; gap: 1px; }
+.r16-bop-cell b { font-size: clamp(18px, 8vh, 28px); font-weight: 850; font-variant-numeric: tabular-nums; line-height: 1; }
+.r16-bop-cell span { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255, 247, 237, 0.45); }
+
+/* ── Cold pressure grid (futuristic) ──────────────────────────────────────── */
+.r16-cold-grid { gap: 6px; }
+.r16-cold-tag { align-self: flex-start; }
+.r16-cold-corners {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 6px 16px;
+  flex: 1;
+  min-height: 0;
+}
+.r16-cold-cell { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; }
+.r16-cold-bar {
+  position: relative;
+  width: 12px;
+  flex: 1;
+  min-height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+.r16-cold-bar i { width: 100%; border-radius: 999px; transition: height 0.2s ease; }
+.r16-cold-cell b { font-size: 14px; font-weight: 850; font-variant-numeric: tabular-nums; line-height: 1; }
+.r16-cold-key { font-size: 9px; letter-spacing: 0.12em; color: rgba(255, 247, 237, 0.5); }
+
+/* ── Cold pressure card (minimalist) ──────────────────────────────────────── */
+.r16-cold-2x2 { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 14px; }
+.r16-cc {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.r16-cc-key { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: rgba(255, 247, 237, 0.5); }
+.r16-cc b { font-size: clamp(15px, 6vh, 22px); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+
+/* ── Neon gear bar (futuristic) ───────────────────────────────────────────── */
+.r16-neon-gear { gap: 8px; justify-content: center; }
+.r16-neon-strip { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 3px; height: 13px; }
+.r16-neon-strip i { border-radius: 3px; background: rgba(255, 255, 255, 0.1); }
+.r16-neon-strip i.on { background: var(--seg, #ff6a00); box-shadow: 0 0 10px var(--seg, #ff6a00); }
+.r16-neon-core { display: flex; align-items: baseline; justify-content: center; gap: 16px; }
+.r16-neon-gear-num {
+  font-size: clamp(34px, 16vh, 64px);
+  font-weight: 950;
+  line-height: 1;
+  color: var(--rev-color, #ff6a00);
+  text-shadow: 0 0 20px var(--rev-color, #ff6a00);
+}
+.r16-neon-speed { font-size: clamp(16px, 7vh, 26px); font-weight: 800; font-variant-numeric: tabular-nums; }
+.r16-neon-gear.is-flash { animation: r16-flash 0.14s steps(1, end) infinite; }
+
+/* ── Apex sweep radar (futuristic) ────────────────────────────────────────── */
+.r16-apex-radar { padding: 6px; }
+.r16-apex-ring,
+.r16-apex-sweep,
+.r16-apex-self { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.r16-apex-ring { border-radius: 50%; border: 1px solid rgba(120, 200, 160, 0.18); }
+.r16-apex-ring.r1 { width: 90%; height: 90%; }
+.r16-apex-ring.r2 { width: 54%; height: 54%; }
+.r16-apex-cross { position: absolute; background: rgba(120, 200, 160, 0.14); }
+.r16-apex-cross.v { left: 50%; top: 6%; bottom: 6%; width: 1px; }
+.r16-apex-cross.h { top: 50%; left: 6%; right: 6%; height: 1px; }
+.r16-apex-sweep {
+  width: 90%;
+  height: 90%;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, color-mix(in srgb, var(--overlay-accent, #ff7a33) 45%, transparent) 0deg, transparent 52deg);
+  animation: r16-sweep 2.6s linear infinite;
+  pointer-events: none;
+}
+.r16-apex-self {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--overlay-accent, #ff8a3d);
+  box-shadow: 0 0 10px var(--overlay-accent, #ff8a3d);
+}
+.r16-apex-blip {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 7px rgba(255, 255, 255, 0.4);
+}
+.r16-apex-blip.threat { width: 11px; height: 11px; box-shadow: 0 0 12px #ff3b1f; animation: r16-pulse 0.7s ease-in-out infinite; }
+
+/* ── Delta bar (minimalist) ───────────────────────────────────────────────── */
+.r16-delta-track { position: relative; height: 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.r16-delta-zero { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; transform: translateX(-1px); background: rgba(255, 255, 255, 0.5); z-index: 1; }
+.r16-delta-fill { position: absolute; top: 0; bottom: 0; border-radius: 999px; transition: width 0.15s ease; }
+
+/* ── Lap readout (minimalist) ─────────────────────────────────────────────── */
+.r16-lap-readout { gap: 4px; }
+.r16-lap-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.r16-lap-key { font-size: 10px; font-weight: 700; letter-spacing: 0.16em; color: rgba(255, 247, 237, 0.5); }
+.r16-lap-row b { font-size: clamp(15px, 6vh, 22px); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+.r16-lap-row.is-best b { color: var(--overlay-accent, #ffb000); }
+.r16-lap-row.is-delta { margin-top: 2px; padding-top: 4px; border-top: 1px solid rgba(255, 255, 255, 0.08); }

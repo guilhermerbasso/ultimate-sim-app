@@ -1,0 +1,27 @@
+node_modules/
+out/
+dist/
+dist-win/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+dist-zip/
+dist-dir/
+visual-audit/shots/
+visual-audit/thumbs/
+
+# visual-regression working dirs (keep baseline, ignore generated)
+tests/visual/current/*
+tests/visual/diff/*
+!tests/visual/**/.gitkeep
+visual-audit/widgets/
+visual-audit/contact/
+visual-audit/overflow-report.json
+visual-audit/dash/
+visual-audit/dash-contact/
+visual-audit/touch/
+visual-audit/touch-contact/
+visual-audit/dashboard-report.json
+visual-audit/touchpanel-report.json

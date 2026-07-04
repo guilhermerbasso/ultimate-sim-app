@@ -1,0 +1,145 @@
+/* AR HUD — high-contrast, edge-anchored, dark-transparent layout tuned for AR
+   glasses / camera passthrough. Pure black reads as transparent on optical
+   see-through displays, so panels stay near-black with bright values and the
+   thinnest possible chrome. Colours are explicit (not theme tokens) so the HUD
+   is legible regardless of the app theme. Cool green is reserved for GOOD states
+   only; everything else is neutral white or warm. */
+
+.arhud {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  box-sizing: border-box;
+  padding: clamp(12px, 3vw, 40px);
+  background: #000;
+  color: #f5f7fa;
+  font-family: 'Rajdhani', 'Barlow Condensed', system-ui, sans-serif;
+  overflow: hidden;
+  --arhud-good: #2ee06a;
+  --arhud-cool: #49c5b1;
+  --arhud-warn: #ffb020;
+  --arhud-bad: #ff3b30;
+  --arhud-dim: rgba(245, 247, 250, 0.55);
+  --arhud-panel: rgba(0, 0, 0, 0.42);
+  --arhud-edge: rgba(255, 255, 255, 0.14);
+}
+
+.arhud--preview {
+  border-radius: 14px;
+  min-height: 260px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+/* Preview is shown docked inside BiometricsView — shrink the oversized glance
+   values so nothing clips while keeping the same composition. */
+.arhud--preview .arhud-gear { font-size: clamp(56px, 11vw, 110px); }
+.arhud--preview .arhud-value--lg { font-size: clamp(24px, 4vw, 44px); }
+.arhud--preview .arhud-delta { font-size: clamp(24px, 4vw, 48px); }
+.arhud--preview .arhud-hr-beat { font-size: clamp(22px, 3.4vw, 38px); }
+.arhud--preview .arhud-value--md { font-size: clamp(18px, 2.4vw, 28px); }
+
+/* Edge-anchored zones */
+.arhud-zone {
+  position: absolute;
+  display: flex;
+  gap: clamp(10px, 1.6vw, 22px);
+  align-items: center;
+}
+.arhud-zone--tl { top: clamp(12px, 3vw, 40px); left: clamp(12px, 3vw, 40px); }
+.arhud-zone--tr { top: clamp(12px, 3vw, 40px); right: clamp(12px, 3vw, 40px); }
+.arhud-zone--bl { bottom: clamp(12px, 3vw, 40px); left: clamp(12px, 3vw, 40px); }
+.arhud-zone--br { bottom: clamp(12px, 3vw, 40px); right: clamp(12px, 3vw, 40px); }
+.arhud-zone--center {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  flex-direction: column;
+  text-align: center;
+}
+.arhud-zone--bottom {
+  left: 50%;
+  bottom: clamp(12px, 3vw, 40px);
+  transform: translateX(-50%);
+  flex-direction: column;
+  text-align: center;
+}
+
+/* A readout block: tiny uppercase label + large value */
+.arhud-block {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+.arhud-block--right { align-items: flex-end; text-align: right; }
+.arhud-label {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: clamp(10px, 1.3vw, 15px);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--arhud-dim);
+  margin-bottom: 0.35em;
+}
+.arhud-value {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.9);
+}
+.arhud-value--xl { font-size: clamp(56px, 13vw, 150px); }
+.arhud-value--lg { font-size: clamp(30px, 6vw, 72px); }
+.arhud-value--md { font-size: clamp(20px, 3.4vw, 40px); }
+.arhud-unit {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 0.34em;
+  letter-spacing: 0.12em;
+  color: var(--arhud-dim);
+  margin-left: 0.3em;
+}
+
+/* Center gear + speed cluster */
+.arhud-gear {
+  font-size: clamp(96px, 22vw, 260px);
+  font-weight: 700;
+  line-height: 0.82;
+  text-shadow: 0 4px 26px rgba(0, 0, 0, 0.95);
+}
+.arhud-speed { margin-top: 0.1em; }
+
+.arhud-delta { font-size: clamp(34px, 7vw, 84px); }
+
+/* HR pill */
+.arhud-hr {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3em;
+  padding: 0.18em 0.55em;
+  border-radius: 999px;
+  background: var(--arhud-panel);
+  box-shadow: inset 0 0 0 1px var(--arhud-edge);
+}
+.arhud-hr-beat {
+  font-size: clamp(28px, 5vw, 56px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Flag chip */
+.arhud-flag {
+  padding: 0.22em 0.7em;
+  border-radius: 6px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: clamp(13px, 1.8vw, 22px);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  box-shadow: inset 0 0 0 1px var(--arhud-edge);
+}
+
+.arhud-good { color: var(--arhud-good); }
+.arhud-cool { color: var(--arhud-cool); }
+.arhud-warn { color: var(--arhud-warn); }
+.arhud-bad { color: var(--arhud-bad); }
+.arhud-dim { color: var(--arhud-dim); }
+
+.arhud-stale { opacity: 0.4; }

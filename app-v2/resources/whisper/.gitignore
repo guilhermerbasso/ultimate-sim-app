@@ -1,0 +1,7 @@
+# The Windows whisper.cpp binary + CPU DLLs are fetched by scripts/fetch-win-whisper.sh
+# and bundled at build time (electron-builder extraResources) — NOT committed to the repo.
+# The ggml MODEL is NOT bundled at all: it downloads on demand at runtime
+# (src/main/stt/whisper-model.ts). Keep the directory + .gitkeep tracked.
+*.exe
+*.dll
+*.zip

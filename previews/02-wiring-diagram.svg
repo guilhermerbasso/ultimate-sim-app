@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 600" width="900" height="600">
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#0078D4"/>
+    </marker>
+    <marker id="arrGray" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#888"/>
+    </marker>
+    <marker id="arrGreen" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#00aa44"/>
+    </marker>
+  </defs>
+  <rect width="900" height="600" fill="#0d0d1a"/>
+  <text x="450" y="30" font-family="Arial" font-size="16" font-weight="bold" fill="#0078D4" text-anchor="middle">Wiring Diagram — Button Box V2</text>
+  <text x="450" y="48" font-family="Arial" font-size="10" fill="#888" text-anchor="middle">Pro Micro + CD74HC4067 + 6× EC11 + OLED SSD1306 I2C</text>
+
+  <!-- PRO MICRO -->
+  <rect x="350" y="80" width="200" height="220" rx="6" fill="#1a1a2e" stroke="#0078D4" stroke-width="2"/>
+  <text x="450" y="100" font-family="Arial" font-size="11" font-weight="bold" fill="#0078D4" text-anchor="middle">Arduino Pro Micro</text>
+  <text x="450" y="113" font-family="Arial" font-size="9" fill="#888" text-anchor="middle">ATmega32U4 · 5V/16MHz</text>
+  <!-- Pro Micro pins left -->
+  <text x="360" y="135" font-family="Courier New" font-size="8" fill="#aaa">D5  → S0</text>
+  <text x="360" y="150" font-family="Courier New" font-size="8" fill="#aaa">D6  → S1</text>
+  <text x="360" y="165" font-family="Courier New" font-size="8" fill="#aaa">D14 → S2</text>
+  <text x="360" y="180" font-family="Courier New" font-size="8" fill="#aaa">D16 → S3</text>
+  <text x="360" y="195" font-family="Courier New" font-size="8" fill="#0f0">A0  → SIG</text>
+  <text x="360" y="220" font-family="Courier New" font-size="8" fill="#fa0">D2  → SDA</text>
+  <text x="360" y="235" font-family="Courier New" font-size="8" fill="#fa0">D3  → SCL</text>
+  <!-- Pro Micro pins right -->
+  <text x="460" y="135" font-family="Courier New" font-size="8" fill="#f88">D4  → SW1</text>
+  <text x="460" y="150" font-family="Courier New" font-size="8" fill="#f88">D7  → SW2</text>
+  <text x="460" y="165" font-family="Courier New" font-size="8" fill="#f88">D8  → SW3</text>
+  <text x="460" y="180" font-family="Courier New" font-size="8" fill="#f88">D9  → SW4</text>
+  <text x="460" y="195" font-family="Courier New" font-size="8" fill="#f88">A2  → SW5</text>
+  <text x="460" y="210" font-family="Courier New" font-size="8" fill="#f88">A3  → SW6</text>
+  <text x="460" y="235" font-family="Courier New" font-size="8" fill="#888">5V / GND</text>
+  <text x="450" y="285" font-family="Arial" font-size="9" fill="#0078D4" text-anchor="middle">USB CDC + HID</text>
+  <text x="450" y="298" font-family="Arial" font-size="8" fill="#555" text-anchor="middle">Serial 115200 baud</text>
+
+  <!-- CD74HC4067 -->
+  <rect x="100" y="130" width="160" height="180" rx="6" fill="#1a2a1a" stroke="#00aa44" stroke-width="2"/>
+  <text x="180" y="150" font-family="Arial" font-size="10" font-weight="bold" fill="#00aa44" text-anchor="middle">CD74HC4067</text>
+  <text x="180" y="163" font-family="Arial" font-size="8" fill="#888" text-anchor="middle">16-Ch Mux</text>
+  <!-- Mux channels -->
+  <text x="110" y="182" font-family="Courier New" font-size="7" fill="#8af">C0  ENC1-CLK</text>
+  <text x="110" y="194" font-family="Courier New" font-size="7" fill="#8af">C1  ENC2-CLK</text>
+  <text x="110" y="206" font-family="Courier New" font-size="7" fill="#8af">C2  ENC3-CLK</text>
+  <text x="110" y="218" font-family="Courier New" font-size="7" fill="#8af">C3  ENC4-CLK</text>
+  <text x="110" y="230" font-family="Courier New" font-size="7" fill="#8af">C4  ENC5-CLK</text>
+  <text x="110" y="242" font-family="Courier New" font-size="7" fill="#8af">C5  ENC6-CLK</text>
+  <text x="110" y="258" font-family="Courier New" font-size="7" fill="#d8b">C6  ENC1-DT</text>
+  <text x="110" y="270" font-family="Courier New" font-size="7" fill="#d8b">C7-C11  DT 2-6</text>
+  <text x="180" y="298" font-family="Courier New" font-size="7" fill="#0f0" text-anchor="middle">S0-S3 + SIG</text>
+
+  <!-- Arrows: Pro Micro → Mux SELECT -->
+  <line x1="350" y1="133" x2="262" y2="155" stroke="#ffaa00" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="350" y1="148" x2="262" y2="168" stroke="#ffaa00" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="350" y1="163" x2="262" y2="181" stroke="#ffaa00" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="350" y1="178" x2="262" y2="194" stroke="#ffaa00" stroke-width="1.5" marker-end="url(#arr)"/>
+  <!-- Label -->
+  <text x="306" y="152" font-family="Arial" font-size="8" fill="#ffaa00" transform="rotate(-12, 306, 152)">S0-S3</text>
+
+  <!-- Arrow: Mux SIG → Pro Micro A0 -->
+  <line x1="260" y1="200" x2="350" y2="195" stroke="#00ff41" stroke-width="2" marker-end="url(#arrGreen)"/>
+  <text x="300" y="190" font-family="Arial" font-size="8" fill="#00ff41" text-anchor="middle">SIG</text>
+
+  <!-- OLED -->
+  <rect x="600" y="130" width="130" height="100" rx="6" fill="#000d20" stroke="#0078D4" stroke-width="2"/>
+  <text x="665" y="150" font-family="Arial" font-size="10" font-weight="bold" fill="#0078D4" text-anchor="middle">OLED SSD1306</text>
+  <text x="665" y="163" font-family="Arial" font-size="8" fill="#888" text-anchor="middle">0.96" 128×64 I2C</text>
+  <rect x="620" y="170" width="90" height="45" rx="2" fill="#001a00"/>
+  <text x="665" y="185" font-family="Courier New" font-size="8" fill="#00ff41" text-anchor="middle">BB  MAP TC  ABS</text>
+  <text x="665" y="197" font-family="Courier New" font-size="8" fill="#00aaff" text-anchor="middle">52.5  3   5   2</text>
+  <text x="665" y="209" font-family="Courier New" font-size="8" fill="#ffaa00" text-anchor="middle">FUEL: 28.4 L</text>
+  <!-- I2C arrows -->
+  <line x1="550" y1="218" x2="600" y2="178" stroke="#ffaa00" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="550" y1="233" x2="600" y2="188" stroke="#ffaa00" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="580" y="210" font-family="Arial" font-size="8" fill="#ffaa00">SDA/SCL</text>
+
+  <!-- ENCODERS (bottom) -->
+  <text x="450" y="380" font-family="Arial" font-size="12" font-weight="bold" fill="#888" text-anchor="middle">6× Encoder EC11</text>
+  <!-- 6 encoder circles -->
+  <g transform="translate(0, 0)">
+    <circle cx="130" cy="430" r="25" fill="#1a1a2e" stroke="#888" stroke-width="2"/>
+    <text x="130" y="425" font-family="Arial" font-size="8" fill="#aaa" text-anchor="middle">ENC1</text>
+    <text x="130" y="437" font-family="Arial" font-size="7" fill="#8af" text-anchor="middle">BB</text>
+    <text x="130" y="465" font-family="Arial" font-size="7" fill="#8af" text-anchor="middle">CLK·DT→mux</text>
+    <text x="130" y="475" font-family="Arial" font-size="7" fill="#f88" text-anchor="middle">SW→D4</text>
+
+    <circle cx="270" cy="430" r="25" fill="#1a1a2e" stroke="#888" stroke-width="2"/>
+    <text x="270" y="425" font-family="Arial" font-size="8" fill="#aaa" text-anchor="middle">ENC2</text>
+    <text x="270" y="437" font-family="Arial" font-size="7" fill="#8af" text-anchor="middle">MAP</text>
+    <text x="270" y="465" font-family="Arial" font-size="7" fill="#8af" text-anchor="middle">CLK·DT→mux</text>
+    <text x="270" y="475" font-family="Arial" font-size="7" fill="#f88" text-anchor="middle">SW→D7</text>
+
+    <circle cx="410" cy="430" r="25" fill="#1a1a2e" stroke="#888" stroke-width="2"/>
+    <text x="410" y="425" font-family="Arial" font-size="8" fill="#aaa" text-anchor="middle">ENC3</text>
+    <text x="410" y="437" font-family="Arial" font-size="7" fill="#8af" text-anchor="middle">TC</text>
+
+    <circle cx="550" cy="430" r="25" fill="#1a1a2e" stroke="#888" stroke-width="2"/>
+    <text x="550" y="425" font-family="Arial" font-size="8" fill="#aaa" text-anchor="middle">ENC4</text>
+    <text x="550" y="437" font-family="Arial" font-size="7" fill="#8af" text-anchor="middle">ABS</text>
+
+    <circle cx="690" cy="430" r="25" fill="#1a1a2e" stroke="#888" stroke-width="2"/>
+    <text x="690" y="425" font-family="Arial" font-size="8" fill="#aaa" text-anchor="middle">ENC5</text>
+    <text x="690" y="437" font-family="Arial" font-size="7" fill="#8af" text-anchor="middle">FUEL</text>
+
+    <circle cx="820" cy="430" r="25" fill="#1a1a2e" stroke="#888" stroke-width="2"/>
+    <text x="820" y="425" font-family="Arial" font-size="8" fill="#aaa" text-anchor="middle">ENC6</text>
+    <text x="820" y="437" font-family="Arial" font-size="7" fill="#8af" text-anchor="middle">LIVRE</text>
+  </g>
+
+  <!-- Lines encoders to mux -->
+  <line x1="130" y1="405" x2="155" y2="310" stroke="#4488ff" stroke-width="1.2" stroke-dasharray="4,2"/>
+  <line x1="270" y1="405" x2="200" y2="310" stroke="#4488ff" stroke-width="1.2" stroke-dasharray="4,2"/>
+  <text x="165" y="360" font-family="Arial" font-size="8" fill="#4488ff" text-anchor="middle">CLK+DT</text>
+
+  <!-- Lines encoders to Pro Micro (SW direct) -->
+  <line x1="130" y1="405" x2="480" y2="133" stroke="#ff8888" stroke-width="1" stroke-dasharray="3,3" opacity="0.4"/>
+
+  <!-- PC block -->
+  <rect x="380" y="500" width="140" height="40" rx="4" fill="#111" stroke="#555" stroke-width="1.5"/>
+  <text x="450" y="516" font-family="Arial" font-size="9" fill="#888" text-anchor="middle">PC (Windows)</text>
+  <text x="450" y="529" font-family="Arial" font-size="8" fill="#0078D4" text-anchor="middle">SimHub + iRacing</text>
+  <line x1="450" y1="300" x2="450" y2="500" stroke="#555" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#arrGray)"/>
+  <text x="462" y="410" font-family="Arial" font-size="8" fill="#555">USB</text>
+
+  <!-- Legend -->
+  <rect x="30" y="490" width="320" height="85" rx="4" fill="#111" stroke="#333"/>
+  <text x="190" y="508" font-family="Arial" font-size="9" font-weight="bold" fill="#888" text-anchor="middle">Legenda</text>
+  <line x1="40" y1="520" x2="70" y2="520" stroke="#4488ff" stroke-width="2" stroke-dasharray="4,2"/>
+  <text x="80" y="524" font-family="Arial" font-size="8" fill="#4488ff">CLK/DT via mux (12 sinais → 5 pinos)</text>
+  <line x1="40" y1="535" x2="70" y2="535" stroke="#f88" stroke-width="2" stroke-dasharray="3,3"/>
+  <text x="80" y="539" font-family="Arial" font-size="8" fill="#f88">SW direto (6 pinos)</text>
+  <line x1="40" y1="550" x2="70" y2="550" stroke="#fa0" stroke-width="2"/>
+  <text x="80" y="554" font-family="Arial" font-size="8" fill="#fa0">I2C SDA/SCL + Select</text>
+  <line x1="40" y1="565" x2="70" y2="565" stroke="#0f0" stroke-width="2"/>
+  <text x="80" y="569" font-family="Arial" font-size="8" fill="#0f0">Sinal mux SIG</text>
+
+  <text x="450" y="590" font-family="Arial" font-size="8" fill="#333" text-anchor="middle">P2.3 Wiring Diagram — Guilherme Basso iRacing DIY</text>
+</svg>

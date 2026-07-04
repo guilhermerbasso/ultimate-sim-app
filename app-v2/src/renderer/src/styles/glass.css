@@ -1,0 +1,89 @@
+/*
+ * Glass surface treatment for the app shell.
+ *
+ * Only active when a glass theme is selected (applyAppTheme sets
+ * html[data-surface-style="glass"]). Everything here is a light, tasteful
+ * polish of the shell containers — sidebar, content panel, header and status
+ * card — using the themed tokens. Feature views are NOT restructured: they
+ * pick up the new surface/border/radius colours automatically through the CSS
+ * variables, and rounded elevated cards land where the shell + ui components
+ * opt in.
+ */
+
+html[data-surface-style='glass'] body {
+  background: var(--body-gradient);
+  background-attachment: fixed;
+}
+
+/* Frosted sidebar floating over the gradient backdrop. */
+html[data-surface-style='glass'] .sidebar {
+  background: var(--glass-tint), var(--surface-raised);
+  border-right: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--glass-blur)) saturate(135%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(135%);
+  box-shadow: var(--shadow-raised);
+}
+
+html[data-surface-style='glass'] .content-panel {
+  background: transparent;
+}
+
+html[data-surface-style='glass'] .content-header {
+  background: var(--glass-tint), var(--surface-raised);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  margin: var(--space-5) var(--space-6) 0;
+  padding: var(--space-6) var(--space-7);
+  backdrop-filter: blur(var(--glass-blur)) saturate(135%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(135%);
+  box-shadow: var(--shadow-card);
+}
+
+/* Elevated status card with soft layered shadow + neon edge. */
+html[data-surface-style='glass'] .sidebar-card {
+  background: var(--glass-tint), var(--surface-overlay);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--motion-med) var(--ease-out),
+    transform var(--motion-med) var(--ease-out);
+}
+
+html[data-surface-style='glass'] .sidebar-card.is-online {
+  box-shadow: var(--shadow-card), var(--glow-accent-soft);
+}
+
+html[data-surface-style='glass'] .sidebar-card .status-dot {
+  box-shadow: var(--glow-accent-soft);
+}
+
+/* Brand mark gets a subtle glow to anchor the look. */
+html[data-surface-style='glass'] .brand-mark {
+  border-radius: var(--radius-md);
+  box-shadow: var(--glow-accent-soft);
+}
+
+/* Active nav item reads as a glowing pill. */
+html[data-surface-style='glass'] .nav-item {
+  border-radius: var(--radius-md);
+  transition: background var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+html[data-surface-style='glass'] .nav-item.is-active {
+  box-shadow: var(--glow-accent-soft);
+}
+
+html[data-surface-style='glass'] .nav-search {
+  border-radius: var(--radius-md);
+}
+
+/* Toasts float as glass chips. */
+html[data-surface-style='glass'] .toast {
+  background: var(--glass-tint), var(--surface-overlay);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(var(--glass-blur)) saturate(135%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(135%);
+  box-shadow: var(--shadow-raised);
+}

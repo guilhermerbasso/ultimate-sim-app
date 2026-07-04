@@ -1,0 +1,60 @@
+De_Componente,De_Pino,De_Pino_Nome,Para_Componente,Para_Pino,Para_Pino_Nome,Cor_Fio,Bitola,Notas,Aba
+Pro Micro,VCC,5V,CD74HC4067,16,VCC,Vermelho,22AWG,,Conexões
+Pro Micro,GND,GND,CD74HC4067,8,GND,Preto,22AWG,,Conexões
+Pro Micro,GND,GND,CD74HC4067,6,GND (VEE),Preto,22AWG,Pin 8 e 6 ambos para GND,Conexões
+Pro Micro,5,D5,CD74HC4067,10,S0,Amarelo,22AWG,,Conexões
+Pro Micro,6,D6,CD74HC4067,11,S1,Laranja,22AWG,,Conexões
+Pro Micro,14,A0/D14,CD74HC4067,14,S2,Verde,22AWG,,Conexões
+Pro Micro,16,D16,CD74HC4067,13,S3,Azul,22AWG,,Conexões
+Pro Micro,A0,A0,CD74HC4067,1,SIG/COM,Branco,22AWG,Pino de sinal multiplexado,Conexões
+CD74HC4067,2,C0,ENC1,CLK,CLK,Cinza,22AWG,,Conexões
+CD74HC4067,3,C1,ENC2,CLK,CLK,Cinza,22AWG,,Conexões
+CD74HC4067,4,C2,ENC3,CLK,CLK,Cinza,22AWG,,Conexões
+CD74HC4067,5,C3,ENC4,CLK,CLK,Cinza,22AWG,,Conexões
+CD74HC4067,6,C4,ENC5,CLK,CLK,Cinza,22AWG,,Conexões
+CD74HC4067,7,C5,ENC6,CLK,CLK,Cinza,22AWG,,Conexões
+CD74HC4067,8,C6,ENC1,DT,DT,Roxo,22AWG,,Conexões
+CD74HC4067,9,C7,ENC2,DT,DT,Roxo,22AWG,,Conexões
+CD74HC4067,12,C8,ENC3,DT,DT,Roxo,22AWG,,Conexões
+CD74HC4067,15,C9,ENC4,DT,DT,Roxo,22AWG,,Conexões
+CD74HC4067,16,C10,ENC5,DT,DT,Roxo,22AWG,,Conexões
+CD74HC4067,7,C11,ENC6,DT,DT,Roxo,22AWG,Pin 7 do mux (C5 e C11 — verificar datasheet),Conexões
+Pro Micro,4,D4,ENC1,SW,SW,Rosa,22AWG,Lido direto sem mux,Conexões
+Pro Micro,7,D7,ENC2,SW,SW,Rosa,22AWG,Lido direto sem mux,Conexões
+Pro Micro,8,D8,ENC3,SW,SW,Rosa,22AWG,Lido direto sem mux,Conexões
+Pro Micro,9,D9,ENC4,SW,SW,Rosa,22AWG,Lido direto sem mux,Conexões
+Pro Micro,A2,A2,ENC5,SW,SW,Rosa,22AWG,Lido direto sem mux,Conexões
+Pro Micro,A3,A3,ENC6,SW,SW,Rosa,22AWG,Lido direto sem mux,Conexões
+ENC1,COM,GND,GND,GND,GND,Preto,22AWG,Pino central do encoder ao GND,Conexões
+ENC2,COM,GND,GND,GND,GND,Preto,22AWG,,Conexões
+ENC3,COM,GND,GND,GND,GND,Preto,22AWG,,Conexões
+ENC4,COM,GND,GND,GND,GND,Preto,22AWG,,Conexões
+ENC5,COM,GND,GND,GND,GND,Preto,22AWG,,Conexões
+ENC6,COM,GND,GND,GND,GND,Preto,22AWG,,Conexões
+Pro Micro,2,SDA,OLED SSD1306,SDA,SDA,Azul claro,22AWG,I2C — hardware fixo Pro Micro,Conexões
+Pro Micro,3,SCL,OLED SSD1306,SCL,SCL,Verde claro,22AWG,I2C — hardware fixo Pro Micro,Conexões
+Pro Micro,VCC,3.3V,OLED SSD1306,VCC,VCC,Vermelho,22AWG,OLED aceita 3.3V ou 5V,Conexões
+Pro Micro,GND,GND,OLED SSD1306,GND,GND,Preto,22AWG,,Conexões
+Canal_Mux,Pino_Mux,Sinal,Encoder,Pino_Encoder,Tipo,Leitura,Latencia,Notas,Multiplexador
+C0,2,CLK,ENC1,CLK,CLK via mux,A0 + S=0000,~2µs,,Multiplexador
+C1,3,CLK,ENC2,CLK,CLK via mux,A0 + S=0001,~2µs,,Multiplexador
+C2,4,CLK,ENC3,CLK,CLK via mux,A0 + S=0010,~2µs,,Multiplexador
+C3,5,CLK,ENC4,CLK,CLK via mux,A0 + S=0011,~2µs,,Multiplexador
+C4,6,CLK,ENC5,CLK,CLK via mux,A0 + S=0100,~2µs,,Multiplexador
+C5,7,CLK,ENC6,CLK,CLK via mux,A0 + S=0101,~2µs,,Multiplexador
+C6,8,DT,ENC1,DT,DT via mux,A0 + S=0110,~2µs,,Multiplexador
+C7,9,DT,ENC2,DT,DT via mux,A0 + S=0111,~2µs,,Multiplexador
+C8,12,DT,ENC3,DT,DT via mux,A0 + S=1000,~2µs,,Multiplexador
+C9,15,DT,ENC4,DT,DT via mux,A0 + S=1001,~2µs,,Multiplexador
+C10,16,DT,ENC5,DT,DT via mux,A0 + S=1010,~2µs,,Multiplexador
+C11,7,DT,ENC6,DT,DT via mux,A0 + S=1011,~2µs,Atenção: pin 7 = C5 e C11 no CD74HC4067 standard. Verificar datasheet específico do módulo.,Multiplexador
+C12,—,LIVRE,—,—,Disponível,—,—,Canal livre para expansão futura,Multiplexador
+C13,—,LIVRE,—,—,Disponível,—,—,Canal livre para expansão futura,Multiplexador
+C14,—,LIVRE,—,—,Disponível,—,—,Canal livre para expansão futura,Multiplexador
+C15,—,LIVRE,—,—,Disponível,—,—,Canal livre para expansão futura,Multiplexador
+SW-ENC1,D4,SW direto,ENC1,SW,SW direto,D4,<1µs,Sem mux — pull-up interno,Multiplexador
+SW-ENC2,D7,SW direto,ENC2,SW,SW direto,D7,<1µs,Sem mux — pull-up interno,Multiplexador
+SW-ENC3,D8,SW direto,ENC3,SW,SW direto,D8,<1µs,Sem mux — pull-up interno,Multiplexador
+SW-ENC4,D9,SW direto,ENC4,SW,SW direto,D9,<1µs,Sem mux — pull-up interno,Multiplexador
+SW-ENC5,A2,SW direto,ENC5,SW,SW direto,A2,<1µs,Sem mux — pull-up interno,Multiplexador
+SW-ENC6,A3,SW direto,ENC6,SW,SW direto,A3,<1µs,Sem mux — pull-up interno,Multiplexador
