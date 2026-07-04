@@ -4,6 +4,7 @@ import {
   APP_THEME_PRESETS,
   DEFAULT_APP_SETTINGS,
   type AppSettings,
+  isAppLanguage,
   isAppTelemetrySource,
   isAppTheme,
   isTcSensitivity
@@ -26,6 +27,7 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
     autoStartSimX: Boolean(value?.autoStartSimX ?? DEFAULT_APP_SETTINGS.autoStartSimX),
     autoConnectDevices: Boolean(value?.autoConnectDevices ?? DEFAULT_APP_SETTINGS.autoConnectDevices),
     closeToTray: Boolean(value?.closeToTray ?? DEFAULT_APP_SETTINGS.closeToTray),
+    language: isAppLanguage(value?.language) ? value.language : DEFAULT_APP_SETTINGS.language,
     theme,
     accentColor: theme === 'custom' ? normalizeAccentColor(value?.accentColor) : presetAccent,
     defaultTelemetrySource: isAppTelemetrySource(value?.defaultTelemetrySource)

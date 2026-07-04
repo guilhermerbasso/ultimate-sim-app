@@ -1,6 +1,7 @@
 import { Suspense, type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
 import type { Config, DeviceInfo, Mapping } from '../../shared/ipc'
 import type { AppSettings } from '../../shared/settings'
+import { DEFAULT_APP_SETTINGS } from '../../shared/settings'
 import { applyAppTheme } from './lib/theme'
 import { useGlobalActionRuntime } from './lib/action-runtime'
 import { useEngineerActionRuntime } from './lib/engineer-action-runtime'
@@ -20,6 +21,14 @@ import { CommandPalette } from './components/CommandPalette'
 import { BrandLogo } from './components/BrandLogo'
 import { OnboardingFlow } from './onboarding/OnboardingFlow'
 import { navSections } from './navigation/navModel'
+import {
+  APP_SETTINGS_CHANGED_EVENT,
+  resolveAppLanguage,
+  t,
+  translateNavTitle,
+  translateView,
+  type ResolvedLanguage
+} from './i18n'
 import './styles/navigation.css'
 
 type ToastTone = 'success' | 'error' | 'info'
@@ -42,6 +51,7 @@ export interface AppViewProps {
   setConnectedDevice(device: DeviceInfo | null): void
   refreshDeviceState(): Promise<void>
   showToast(message: string, tone?: ToastTone): void
+  language?: ResolvedLanguage
 }
 
 function getErrorMessage(error: unknown): string {
@@ -84,6 +94,10 @@ function App(): ReactElement {
   const [toast, setToast] = useState<ToastState | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(() => !readOnboardingCompleted())
+  const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS)
+
+  const language = useMemo(() => resolveAppLanguage(appSettings.language), [appSettings.language])
+  const translatedViews = useMemo(() => viewRegistry.map((view) => translateView(view, language)), [language])
 
   const showToast = useCallback((message: string, tone: ToastTone = 'info') => {
     setToast({ message, tone })
@@ -99,7 +113,7 @@ function App(): ReactElement {
   useSpotter3DRuntime()
   useWakeWord()
 
-  const viewById = useMemo(() => new Map(viewRegistry.map((view) => [view.id, view])), [])
+  const viewById = useMemo(() => new Map(translatedViews.map((view) => [view.id, view])), [translatedViews])
 
   const current = useMemo(
     () => viewById.get(activeId) ?? viewRegistry[0],
@@ -171,7 +185,8 @@ function App(): ReactElement {
     config,
     setConnectedDevice: setPrimaryDevice,
     refreshDeviceState,
-    showToast
+    showToast,
+    language
   }
 
   const activateView = useCallback((id: string) => {
@@ -213,17 +228,17 @@ function App(): ReactElement {
           </span>
         </button>
         <button
-          aria-label={isPinned ? `Remover ${view.label} dos favoritos` : `Adicionar ${view.label} aos favoritos`}
+          aria-label={isPinned ? t(language, 'removeFavorite', { label: view.label }) : t(language, 'addFavorite', { label: view.label })}
           className={`nav-pin ${isPinned ? 'is-pinned' : ''}`}
           onClick={() => toggleFavorite(view.id)}
-          title={isPinned ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+          title={isPinned ? t(language, 'removeFavorite', { label: view.label }) : t(language, 'addFavorite', { label: view.label })}
           type="button"
         >
           {isPinned ? '★' : '☆'}
         </button>
       </div>
     )
-  }, [activeId, activateView, favorites, toggleFavorite])
+  }, [activeId, activateView, favorites, language, toggleFavorite])
 
   // Mapping/config only make sense while the SIM-X is connected. Clearing them
   // here keeps every disconnect path (registry action, DevicesView, ArduinosView)
@@ -256,9 +271,27 @@ function App(): ReactElement {
   useEffect(() => {
     window.ipc
       .invoke<AppSettings>('app:getSettings')
-      .then(applyAppTheme)
+      .then((settings) => {
+        setAppSettings(settings)
+        applyAppTheme(settings)
+      })
       .catch((error) => showToast(getErrorMessage(error), 'error'))
   }, [showToast])
+
+  useEffect(() => {
+    const onSettingsChanged = (event: Event): void => {
+      const detail = (event as CustomEvent<AppSettings>).detail
+      if (!detail) return
+      setAppSettings(detail)
+      applyAppTheme(detail)
+    }
+    window.addEventListener(APP_SETTINGS_CHANGED_EVENT, onSettingsChanged)
+    return () => window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, onSettingsChanged)
+  }, [])
+
+  useEffect(() => {
+    document.documentElement.lang = language
+  }, [language])
 
   // Global command palette shortcut (Ctrl/Cmd+K) to jump to any view.
   useEffect(() => {
@@ -276,7 +309,7 @@ function App(): ReactElement {
     <div className="app-root">
       <WakeWordIndicator />
       <main className="app-shell">
-        <aside className="sidebar" aria-label="Navegação principal">
+        <aside className="sidebar" aria-label={t(language, 'mainNav')}>
           <div className="brand-block">
             <div className="brand-mark" aria-hidden="true"><BrandLogo /></div>
             <div>
@@ -287,25 +320,25 @@ function App(): ReactElement {
 
           <button className="nav-search" type="button" onClick={() => setPaletteOpen(true)}>
             <span className="nav-search-icon" aria-hidden="true">⌕</span>
-            <span>Buscar telas…</span>
+            <span>{t(language, 'searchScreens')}</span>
             <kbd>⌘K</kbd>
           </button>
 
           <nav className="nav-list nav-list--sections">
-            <div className="nav-quick-group" aria-label="Favoritos">
+            <div className="nav-quick-group" aria-label={t(language, 'favorites')}>
               <div className="nav-quick-title">
-                <span>Favoritos</span>
+                <span>{t(language, 'favorites')}</span>
                 <span className="nav-quick-count">{favoriteViews.length}</span>
               </div>
               {favoriteViews.length > 0
                 ? favoriteViews.map((view) => renderNavRow(view, 'favorite'))
-                : <div className="nav-empty-state">Fixe telas com a estrela para acesso rápido.</div>}
+                : <div className="nav-empty-state">{t(language, 'favoritesEmpty')}</div>}
             </div>
 
             {recentViews.length > 0 && (
-              <div className="nav-quick-group" aria-label="Recentes">
+              <div className="nav-quick-group" aria-label={t(language, 'recents')}>
                 <div className="nav-quick-title">
-                  <span>Recentes</span>
+                  <span>{t(language, 'recents')}</span>
                   <span className="nav-quick-count">{recentViews.length}</span>
                 </div>
                 {recentViews.map((view) => renderNavRow(view, 'recent'))}
@@ -314,7 +347,7 @@ function App(): ReactElement {
 
             {sidebarSections.map((section) => (
               <div className="nav-group" key={section.title}>
-                <span className="nav-group-label nav-section-heading">{section.title}</span>
+                <span className="nav-group-label nav-section-heading">{translateNavTitle(section.title, language)}</span>
                 {section.items.map((view) => renderNavRow(view, section.title))}
                 <div className="nav-divider"></div>
               </div>
@@ -324,8 +357,8 @@ function App(): ReactElement {
           <div className={`sidebar-card ${connectedDevice ? 'is-online' : ''}`}>
             <span className="status-dot" />
             <div>
-              <strong>{connectedDevice ? 'SIM-X conectado' : 'SIM-X desconectado'}</strong>
-              <p>{connectedDevice ? `${connectedDevice.path} · FW ${connectedDevice.firmwareVersion}` : 'Conecte em Dispositivos'}</p>
+              <strong>{connectedDevice ? t(language, 'simXConnected') : t(language, 'simXDisconnected')}</strong>
+              <p>{connectedDevice ? `${connectedDevice.path} · FW ${connectedDevice.firmwareVersion}` : t(language, 'connectInDevices')}</p>
             </div>
           </div>
         </aside>
@@ -338,14 +371,14 @@ function App(): ReactElement {
               <p>{current.description}</p>
             </div>
             <a
-              aria-label="Apoiar o projeto no Buy Me a Coffee"
+              aria-label={t(language, 'supportAria')}
               className="support-button"
               href={SUPPORT_URL}
               rel="noreferrer"
               target="_blank"
-              title="Apoiar o projeto"
+              title={t(language, 'supportTitle')}
             >
-              ☕ Apoiar
+              {t(language, 'supportButton')}
             </a>
           </header>
 
@@ -354,7 +387,7 @@ function App(): ReactElement {
               <div className="nav-loading-state" role="status">
                 <div className="nav-loading-card">
                   <div className="nav-loading-pulse" aria-hidden="true" />
-                  <strong>Carregando tela…</strong>
+                  <strong>{t(language, 'loadingScreen')}</strong>
                 </div>
               </div>
             )}>
@@ -374,6 +407,8 @@ function App(): ReactElement {
           setActiveId(id)
           setPaletteOpen(false)
         }}
+        views={translatedViews}
+        language={language}
       />
 
       {showOnboarding && (

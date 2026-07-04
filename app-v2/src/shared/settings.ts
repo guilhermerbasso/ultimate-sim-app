@@ -2,6 +2,7 @@ import type { TelemetrySource } from './telemetry'
 import type { TcSensitivity } from './telemetry'
 
 export const APP_TELEMETRY_SOURCES = ['off', 'auto', 'mock', 'iracing', 'acc', 'ac', 'ams2', 'lmu'] as const
+export const APP_LANGUAGES = ['auto', 'pt-BR', 'en', 'es', 'fr', 'de'] as const
 export const APP_THEMES = [
   'raceRed',
   'amberGt',
@@ -26,6 +27,7 @@ export const APP_THEMES = [
 ] as const
 
 export type AppTelemetrySource = (typeof APP_TELEMETRY_SOURCES)[number]
+export type AppLanguage = (typeof APP_LANGUAGES)[number]
 export type AppTheme = (typeof APP_THEMES)[number]
 
 export interface AppThemeTokens {
@@ -88,6 +90,8 @@ export interface AppSettings {
   // Clicking the window's close button minimizes to the Windows system tray instead
   // of quitting (quit via the tray menu). Default ON.
   closeToTray: boolean
+  // UI language. "auto" follows the OS/browser language exposed by Electron.
+  language: AppLanguage
   theme: AppTheme
   accentColor: string
   defaultTelemetrySource: AppTelemetrySource
@@ -565,6 +569,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   autoStartSimX: true,
   autoConnectDevices: true,
   closeToTray: true,
+  language: 'auto',
   theme: 'midnight',
   accentColor: APP_THEME_PRESETS.midnight.accent,
   defaultTelemetrySource: 'off',
@@ -573,6 +578,10 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
 
 export function isAppTelemetrySource(value: unknown): value is AppTelemetrySource {
   return APP_TELEMETRY_SOURCES.includes(value as AppTelemetrySource)
+}
+
+export function isAppLanguage(value: unknown): value is AppLanguage {
+  return APP_LANGUAGES.includes(value as AppLanguage)
 }
 
 export function isAppTheme(value: unknown): value is AppTheme {

@@ -1,10 +1,12 @@
 import { type CSSProperties, type ReactElement, useEffect, useMemo, useState } from 'react'
 import {
+  APP_LANGUAGES,
   APP_TELEMETRY_SOURCES,
   APP_THEMES,
   APP_THEME_PRESETS,
   DEFAULT_APP_SETTINGS,
   TC_SENSITIVITIES,
+  type AppLanguage,
   type AppSettings,
   type AppTelemetrySource,
   type AppTheme,
@@ -21,6 +23,7 @@ import {
   type ConfigImportResult
 } from '../../../shared/config-io'
 import { LOG_CHANNELS, type LogExportResult, type LogInfo } from '../../../shared/logger'
+import { APP_SETTINGS_CHANGED_EVENT, LANGUAGE_LABELS, resolveAppLanguage, t } from '../i18n'
 
 const SOURCE_LABELS: Record<AppTelemetrySource, string> = {
   off: 'Desligado',
@@ -111,6 +114,7 @@ function sameSettings(left: AppSettings, right: AppSettings): boolean {
     left.autoStartSimX === right.autoStartSimX &&
     left.autoConnectDevices === right.autoConnectDevices &&
     left.closeToTray === right.closeToTray &&
+    left.language === right.language &&
     left.theme === right.theme &&
     left.accentColor === right.accentColor &&
     left.defaultTelemetrySource === right.defaultTelemetrySource &&
@@ -181,7 +185,8 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
       setSettings(saved)
       setSavedSettings(saved)
       applyAppTheme(saved)
-      showToast('Configurações salvas.', 'success')
+      window.dispatchEvent(new CustomEvent<AppSettings>(APP_SETTINGS_CHANGED_EVENT, { detail: saved }))
+      showToast(t(resolveAppLanguage(saved.language), 'settingsSaved'), 'success')
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
     } finally {
@@ -359,6 +364,28 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
       </div>
 
       <div className="panel-card" style={{ display: 'grid', gap: 14 }}>
+        <div>
+          <label className="field-label" htmlFor="language">
+            Idioma / Language
+          </label>
+          <select
+            disabled={loading || saving}
+            id="language"
+            onChange={(event) => patch({ language: event.currentTarget.value as AppLanguage })}
+            className="select-field wide"
+            value={settings.language}
+          >
+            {APP_LANGUAGES.map((language) => (
+              <option key={language} value={language}>
+                {LANGUAGE_LABELS[language]}
+              </option>
+            ))}
+          </select>
+          <p style={{ margin: '8px 0 0', color: 'var(--muted)', fontSize: 13 }}>
+            {t(resolveAppLanguage(settings.language), 'languageHelp')}
+          </p>
+        </div>
+
         <div>
           <label className="field-label" htmlFor="defaultTelemetrySource">
             Fonte de telemetria padrão

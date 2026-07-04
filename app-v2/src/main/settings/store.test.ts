@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { APP_TELEMETRY_SOURCES, TC_SENSITIVITIES } from '../../shared/settings'
+import { APP_LANGUAGES, APP_TELEMETRY_SOURCES, TC_SENSITIVITIES } from '../../shared/settings'
 import { SettingsStore } from './store'
 
 const dirs: string[] = []
@@ -47,5 +47,22 @@ describe('SettingsStore.tcSensitivity', () => {
     expect(new SettingsStore(dir).load().tcSensitivity).toBe('medium')
     new SettingsStore(dir).setSettings({ tcSensitivity: 'bogus' as never })
     expect(new SettingsStore(dir).load().tcSensitivity).toBe('medium')
+  })
+})
+
+describe('SettingsStore.language', () => {
+  it('persists every supported language across a reload (simulated restart)', () => {
+    for (const language of APP_LANGUAGES) {
+      const dir = tempDir()
+      new SettingsStore(dir).setSettings({ language })
+      expect(new SettingsStore(dir).load().language).toBe(language)
+    }
+  })
+
+  it('defaults to auto and falls back to it for an unknown language', () => {
+    const dir = tempDir()
+    expect(new SettingsStore(dir).load().language).toBe('auto')
+    new SettingsStore(dir).setSettings({ language: 'it' as never })
+    expect(new SettingsStore(dir).load().language).toBe('auto')
   })
 })

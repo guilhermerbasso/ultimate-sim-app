@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
-import { viewRegistry } from '../views/registry'
 import { ViewIcon } from '../views/icons'
+import type { ViewDef } from '../views/registry'
+import { t, type ResolvedLanguage } from '../i18n'
 
 interface CommandPaletteProps {
   open: boolean
   activeId: string
+  views: ViewDef[]
+  language: ResolvedLanguage
   onClose(): void
   onSelect(id: string): void
 }
@@ -18,7 +21,7 @@ function optionId(id: string): string {
 // Ctrl/Cmd+K palette: fuzzy-free substring search over every registered view
 // (label, group, eyebrow, description, shortcut) so the user can jump anywhere
 // without hunting the sidebar. Additive — does not touch the view components.
-export function CommandPalette({ open, activeId, onClose, onSelect }: CommandPaletteProps): ReactElement | null {
+export function CommandPalette({ open, activeId, views, language, onClose, onSelect }: CommandPaletteProps): ReactElement | null {
   const [query, setQuery] = useState('')
   const [highlight, setHighlight] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -26,11 +29,11 @@ export function CommandPalette({ open, activeId, onClose, onSelect }: CommandPal
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return viewRegistry
-    return viewRegistry.filter((view) =>
+    if (!q) return views
+    return views.filter((view) =>
       `${view.label} ${view.group} ${view.eyebrow} ${view.description} ${view.shortcut}`.toLowerCase().includes(q)
     )
-  }, [query])
+  }, [query, views])
 
   useEffect(() => {
     if (!open) return
@@ -87,7 +90,7 @@ export function CommandPalette({ open, activeId, onClose, onSelect }: CommandPal
   }
 
   return (
-    <div className="cmdk-backdrop" role="dialog" aria-modal="true" aria-label="Buscar telas" onMouseDown={onClose}>
+    <div className="cmdk-backdrop" role="dialog" aria-modal="true" aria-label={t(language, 'searchScreens')} onMouseDown={onClose}>
       <div ref={panelRef} className="cmdk-panel" onKeyDown={handleKeyDown} onMouseDown={(event) => event.stopPropagation()}>
         <div className="cmdk-input-row">
           <span className="cmdk-input-icon" aria-hidden="true">⌕</span>
@@ -99,14 +102,14 @@ export function CommandPalette({ open, activeId, onClose, onSelect }: CommandPal
             aria-controls={LISTBOX_ID}
             aria-activedescendant={activeOptionId}
             aria-autocomplete="list"
-            placeholder="Buscar telas, estratégia, hardware…"
+            placeholder={t(language, 'searchScreens')}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
           <kbd className="cmdk-kbd">Esc</kbd>
         </div>
         <ul id={LISTBOX_ID} className="cmdk-list" role="listbox">
-          {results.length === 0 && <li className="cmdk-empty">Nenhum resultado</li>}
+          {results.length === 0 && <li className="cmdk-empty">{t(language, 'noResults')}</li>}
           {results.map((view, index) => (
             <li
               id={optionId(view.id)}
