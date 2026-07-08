@@ -1,7 +1,7 @@
 import { type ReactElement, type ReactNode } from 'react'
 import type { DriverEntry, RadarCarEntry, RelativeCarEntry, TelemetrySnapshot } from '../../../../../shared/telemetry'
 import type { HifiWidgetModule, HifiWidgetProps, TelemetryField } from '../types'
-import { Bar, BigNum, C, FONT_LABEL, FONT_NUM, fixed, num, signed } from '../kit'
+import { C, CleanTile, FONT_LABEL, FONT_NUM, Hairline, LEGIBLE, condColor, fixed, legibleStroke, num, signed } from '../kit'
 
 const BIG_W = 232
 const BIG_H = 172
@@ -69,6 +69,14 @@ function gapValue(snapshot: TelemetrySnapshot | null | undefined, side: 'ahead' 
   return num(other?.gapToPlayerSec)
 }
 
+// Stateless approximation of closing/distancing: compare last-lap pace only.
+function paceProxyColor(snapshot: TelemetrySnapshot | null | undefined, side: 'ahead' | 'behind'): string {
+  const playerLap = num(snapshot?.lastLapTimeSec)
+  const relativeLap = num(fallbackEntry(snapshot, side)?.lastLapTimeSec)
+  if (playerLap == null || relativeLap == null) return C.text
+  return condColor(relativeLap - playerLap, { positiveIsGood: true, deadzone: 0.001, neutral: C.text })
+}
+
 function fallbackEntry(snapshot: TelemetrySnapshot | null | undefined, side: 'ahead' | 'behind'): RelativeCarEntry | undefined {
   const direct = snapshot?.relatives?.[side]
   if (direct) return direct
@@ -85,6 +93,7 @@ function fallbackEntry(snapshot: TelemetrySnapshot | null | undefined, side: 'ah
     position: driver.position,
     classPosition: driver.classPosition,
     gapSec: driver.gapToPlayerSec,
+    lastLapTimeSec: driver.lastLapTimeSec,
     classColor: driver.classColor
   }
 }
@@ -94,60 +103,27 @@ function playerDriver(snapshot: TelemetrySnapshot | null | undefined): DriverEnt
 }
 
 function Tile({
-  label,
   w,
   h,
-  accent = CYAN,
   children
 }: {
-  label: string
   w: number
   h: number
-  accent?: string
   children: ReactNode
 }): ReactElement {
-  const pid = `gaps-${label.replace(/\W+/g, '-').toLowerCase()}-${Math.round(w)}x${Math.round(h)}`
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} preserveAspectRatio="xMidYMid meet" role="img" aria-label={label}>
-      <defs>
-        <pattern id={`${pid}-carbon`} width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
-          <rect width="8" height="8" fill="#0b0d10" />
-          <path d="M0 0 h2 v8 h-2z" fill="rgba(255,255,255,0.028)" />
-        </pattern>
-        <filter id={`${pid}-glow`} x="-35%" y="-35%" width="170%" height="170%">
-          <feGaussianBlur stdDeviation="2" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-      </defs>
-      <rect width={w} height={h} rx={16} fill={C.bg} />
-      <rect x={1.5} y={1.5} width={w - 3} height={h - 3} rx={16} fill={`url(#${pid}-carbon)`} stroke="rgba(255,255,255,0.20)" />
-      <rect x={8} y={8} width={w - 16} height={h - 16} rx={11} fill="#030405" stroke="rgba(255,255,255,0.08)" />
-      <text x={w / 2} y={30} textAnchor="middle" fill="#a8adb4" fontFamily={FONT_LABEL} fontSize={22} fontWeight={800} letterSpacing={2.4}>
-        {label.toUpperCase()}
-      </text>
-      <rect x={13} y={43} width={w - 26} height={1.4} fill={accent} opacity={0.95} />
-      <g filter={`url(#${pid}-glow)`}>{children}</g>
-    </svg>
-  )
+  return <CleanTile width={w} height={h}>{children}</CleanTile>
 }
 
 function GapBig({ snapshot, width, height, side }: HifiWidgetProps & { side: 'ahead' | 'behind' }): ReactElement {
   const w = width ?? BIG_W
   const h = height ?? BIG_H
   const value = gapValue(snapshot, side)
-  const color = value == null ? C.dim : CYAN
-  const arrow = side === 'ahead' ? '▲' : '▼'
+  const color = value == null ? C.dim : paceProxyColor(snapshot, side)
+  const size = Math.min(68, w * 0.28)
   return (
-    <Tile label={side === 'ahead' ? 'Gap Ahead' : 'Gap Behind'} w={w} h={h} accent={color}>
-      <text x={34} y={92} fill={color} fontFamily={FONT_LABEL} fontSize={34} fontWeight={900}>
-        {arrow}
-      </text>
-      <BigNum x={w / 2 + 8} y={118} value={value == null ? '—' : signed(value, 2)} unit="s" color={color} size={Math.min(52, w * 0.22)} />
-      <text x={w / 2} y={148} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={14} fontWeight={700} letterSpacing={1.4}>
-        PLAYER-CENTRIC RELATIVE
+    <Tile w={w} h={h}>
+      <text x={w / 2} y={h / 2 + size * 0.34} textAnchor="middle" fill={color} fontFamily={FONT_NUM} fontWeight={900} fontSize={size} letterSpacing={-1.6} {...legibleStroke(size)}>
+        {value == null ? '—' : `${signed(value, 2)}s`}
       </text>
     </Tile>
   )
@@ -159,7 +135,7 @@ function DeltaBars({ snapshot, width, height, side }: HifiWidgetProps & { side: 
   const value = gapValue(snapshot, side)
   const text = value == null ? '—' : signed(value, 2)
   const improving = value != null && value <= 0
-  const color = value == null ? C.dim : CYAN
+  const color = value == null ? C.dim : C.text
   const mag = value == null ? 0 : Math.min(1, Math.abs(value) / 5)
   const x = 24
   const y = 126
@@ -167,12 +143,13 @@ function DeltaBars({ snapshot, width, height, side }: HifiWidgetProps & { side: 
   const center = x + barW / 2
   const segs = 18
   return (
-    <Tile label={side === 'ahead' ? 'Delta Ahead' : 'Delta Behind'} w={w} h={h} accent={color}>
-      <text x={w / 2} y={104} textAnchor="middle" fill={color} fontFamily={FONT_NUM} fontSize={58} fontWeight={900} letterSpacing={-1.5}>
+    <Tile w={w} h={h}>
+      <text x={w / 2} y={88} textAnchor="middle" fill={color} fontFamily={FONT_NUM} fontSize={58} fontWeight={900} letterSpacing={-1.5} {...legibleStroke(58)}>
         {text}
       </text>
-      <Bar x={x} y={y - 14} w={barW} h={3} f={mag} color={improving ? GREEN : RED} />
-      <rect x={x} y={y} width={barW} height={24} rx={4} fill="#121417" stroke="rgba(255,255,255,0.12)" />
+      <rect x={x} y={y - 14} width={barW} height={3} rx={1.5} fill="rgba(255,255,255,0.10)" />
+      <rect x={x} y={y - 14} width={barW * mag} height={3} rx={1.5} fill={improving ? GREEN : RED} />
+      <rect x={x} y={y} width={barW} height={24} rx={4} fill="rgba(18,20,23,0.58)" />
       {Array.from({ length: segs }, (_, i) => {
         const left = i < segs / 2
         const sideLit = value != null && ((value < 0 && left) || (value > 0 && !left))
@@ -188,7 +165,7 @@ function ClassPill({ x, y, label, color }: { x: number; y: number; label: string
   return (
     <g>
       <rect x={x} y={y} width={45} height={25} rx={5} fill={color} opacity={0.9} />
-      <text x={x + 22.5} y={y + 17.5} textAnchor="middle" fill="#fff" fontFamily={FONT_LABEL} fontSize={14} fontWeight={900} fontStyle="italic">
+      <text x={x + 22.5} y={y + 17.5} textAnchor="middle" fill="#fff" fontFamily={FONT_LABEL} fontSize={14} fontWeight={900} fontStyle="italic" {...LEGIBLE}>
         {label}
       </text>
     </g>
@@ -196,21 +173,31 @@ function ClassPill({ x, y, label, color }: { x: number; y: number; label: string
 }
 
 function RelativeRow({ row, y, w }: { row: RowData; y: number; w: number }): ReactElement {
+  const gapX = w - 15
+  const gapColumnWidth = 88
+  const nameX = 168
+  const nameClipWidth = Math.max(24, w - gapColumnWidth - nameX)
+  const nameClipId = `gaps-name-clip-${row.key.replace(/[^a-z0-9_-]/gi, '-')}-${Math.round(y)}-${Math.round(w)}`
   return (
     <g>
-      <rect x={13} y={y} width={w - 26} height={43} rx={7} fill={row.isPlayer ? 'rgba(34,195,255,0.10)' : '#080a0c'} stroke={row.isPlayer ? CYAN : 'rgba(255,255,255,0.10)'} />
+      <defs>
+        <clipPath id={nameClipId}>
+          <rect x={nameX} y={y + 5} width={nameClipWidth} height={34} />
+        </clipPath>
+      </defs>
+      <rect x={13} y={y} width={w - 26} height={43} rx={7} fill={row.isPlayer ? 'rgba(34,195,255,0.10)' : 'rgba(8,10,12,0.50)'} />
       <rect x={15} y={y + 2} width={4} height={39} rx={2} fill={row.classColor} />
-      <text x={39} y={y + 28} textAnchor="middle" fill={C.text} fontFamily={FONT_NUM} fontSize={20} fontWeight={800}>
+      <text x={39} y={y + 28} textAnchor="middle" fill={C.text} fontFamily={FONT_NUM} fontSize={20} fontWeight={800} {...LEGIBLE}>
         {row.pos}
       </text>
       <ClassPill x={62} y={y + 9} label={row.klass} color={row.classColor} />
-      <text x={126} y={y + 28} fill={C.text} fontFamily={FONT_NUM} fontSize={18} fontWeight={900}>
+      <text x={126} y={y + 28} fill={C.text} fontFamily={FONT_NUM} fontSize={18} fontWeight={900} {...LEGIBLE}>
         {row.carNumber}
       </text>
-      <text x={174} y={y + 28} fill={row.isPlayer ? C.text : '#d8dde3'} fontFamily={FONT_LABEL} fontSize={21} fontWeight={900}>
+      <text x={nameX} y={y + 28} clipPath={`url(#${nameClipId})`} fill={row.isPlayer ? C.text : '#d8dde3'} fontFamily={FONT_LABEL} fontSize={21} fontWeight={900} {...LEGIBLE}>
         {row.name}
       </text>
-      <text x={w - 15} y={y + 28} textAnchor="end" fill={row.gap === '—' ? C.dim : CYAN} fontFamily={FONT_NUM} fontSize={17} fontWeight={800}>
+      <text x={gapX} y={y + 28} textAnchor="end" fill={row.gap === '—' ? C.dim : CYAN} fontFamily={FONT_NUM} fontSize={17} fontWeight={800} {...LEGIBLE}>
         {row.gap}
       </text>
     </g>
@@ -262,8 +249,13 @@ function RelativeList({ snapshot, width, height }: HifiWidgetProps): ReactElemen
   const h = height ?? LIST_H
   const rows = relativeRows(snapshot)
   return (
-    <Tile label="Relative" w={w} h={h} accent={CYAN}>
-      {rows.map((row, i) => <RelativeRow key={row.key} row={row} y={58 + i * 46} w={w} />)}
+    <Tile w={w} h={h}>
+      {rows.map((row, i) => (
+        <g key={row.key}>
+          {i > 0 ? <Hairline x={17} y={55 + i * 46} len={w - 34} opacity={0.08} /> : null}
+          <RelativeRow row={row} y={35 + i * 46} w={w} />
+        </g>
+      ))}
     </Tile>
   )
 }
@@ -303,8 +295,13 @@ function Standings({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const h = height ?? 262
   const rows = standingsRows(snapshot)
   return (
-    <Tile label="Standings" w={w} h={h} accent={CYAN}>
-      {rows.map((row, i) => <RelativeRow key={row.key} row={row} y={55 + i * 39} w={w} />)}
+    <Tile w={w} h={h}>
+      {rows.map((row, i) => (
+        <g key={row.key}>
+          {i > 0 ? <Hairline x={17} y={36 + i * 43} len={w - 34} opacity={0.08} /> : null}
+          <RelativeRow row={row} y={18 + i * 43} w={w} />
+        </g>
+      ))}
     </Tile>
   )
 }
@@ -327,7 +324,7 @@ function Radar({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const cy = h / 2 + 14
   const cars = radarFallback(snapshot).slice(0, 8)
   return (
-    <Tile label="Radar" w={w} h={h} accent={CYAN}>
+    <Tile w={w} h={h}>
       <g transform={`translate(${cx},${cy})`}>
         {[34, 62, 90].map((r) => <circle key={r} cx={0} cy={0} r={r} fill="none" stroke="rgba(255,255,255,0.16)" strokeDasharray={r === 62 ? '4 5' : undefined} />)}
         <line x1={0} x2={0} y1={-96} y2={96} stroke="rgba(255,255,255,0.16)" />
@@ -335,7 +332,7 @@ function Radar({ snapshot, width, height }: HifiWidgetProps): ReactElement {
         <g>
           <rect x={-12} y={-25} width={24} height={50} rx={7} fill="#18222a" stroke={CYAN} strokeWidth={2} />
           <rect x={-7} y={-17} width={14} height={12} rx={3} fill="rgba(56,216,239,0.22)" />
-          <text x={0} y={42} textAnchor="middle" fill={C.text} fontFamily={FONT_LABEL} fontSize={13} fontWeight={900}>
+          <text x={0} y={42} textAnchor="middle" fill={C.text} fontFamily={FONT_LABEL} fontSize={13} fontWeight={900} {...LEGIBLE}>
             YOU
           </text>
         </g>
@@ -346,16 +343,13 @@ function Radar({ snapshot, width, height }: HifiWidgetProps): ReactElement {
           return (
             <g key={car.carIdx} transform={`translate(${x},${y})`}>
               <circle r={14} fill={color} stroke="rgba(255,255,255,0.35)" strokeWidth={1.5} />
-              <text y={5} textAnchor="middle" fill="#fff" fontFamily={FONT_NUM} fontSize={13} fontWeight={900}>
+              <text y={5} textAnchor="middle" fill="#fff" fontFamily={FONT_NUM} fontSize={13} fontWeight={900} {...LEGIBLE}>
                 {safeText(car.name, String(car.carIdx)).slice(0, 2).toUpperCase()}
               </text>
             </g>
           )
         })}
       </g>
-      <text x={w / 2} y={h - 15} textAnchor="middle" fill={cars.length > 0 ? CYAN : C.dim} fontFamily={FONT_LABEL} fontSize={14} fontWeight={800} letterSpacing={1.6}>
-        {cars.length > 0 ? 'PROXIMITY LIVE' : 'NO CARS NEARBY'}
-      </text>
     </Tile>
   )
 }
@@ -373,8 +367,8 @@ function makeWidget(
 }
 
 export const widgets: HifiWidgetModule[] = [
-  makeWidget('gapAhead', 'Gap Ahead', 'Big signed seconds to the car ahead with an up arrow.', ['gap-ahead', 'bignum'], ['relatives'], { w: BIG_W, h: BIG_H }, (props) => <GapBig {...props} side="ahead" />),
-  makeWidget('gapBehind', 'Gap Behind', 'Big signed seconds to the car behind with a down arrow.', ['gap-behind', 'bignum'], ['relatives'], { w: BIG_W, h: BIG_H }, (props) => <GapBig {...props} side="behind" />),
+  makeWidget('gapAhead', 'Gap Ahead', 'Big signed seconds to the car ahead colored by last-lap pace proxy.', ['gap-ahead', 'bignum'], ['relatives'], { w: BIG_W, h: BIG_H }, (props) => <GapBig {...props} side="ahead" />),
+  makeWidget('gapBehind', 'Gap Behind', 'Big signed seconds to the car behind colored by last-lap pace proxy.', ['gap-behind', 'bignum'], ['relatives'], { w: BIG_W, h: BIG_H }, (props) => <GapBig {...props} side="behind" />),
   makeWidget('deltaAhead', 'Delta Ahead', 'Gap trend to the car ahead with diverging micro-bars.', ['gap-ahead', 'delta', 'bar'], ['relatives'], { w: DELTA_W, h: DELTA_H }, (props) => <DeltaBars {...props} side="ahead" />),
   makeWidget('deltaBehind', 'Delta Behind', 'Gap trend to the car behind with diverging micro-bars.', ['gap-behind', 'delta', 'bar'], ['relatives'], { w: DELTA_W, h: DELTA_H }, (props) => <DeltaBars {...props} side="behind" />),
   makeWidget('relative', 'Relative', 'Compact three-row relative list with the player highlighted.', ['relative', 'list'], ['relatives', 'drivers', 'playerCarIdx'], { w: LIST_W, h: LIST_H }, (props) => <RelativeList {...props} />),

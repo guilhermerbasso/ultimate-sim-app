@@ -1,13 +1,13 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, FONT_NUM } from '../kit'
+import { C, FONT_NUM, LEGIBLE } from '../kit'
 import { COMBO_H, COMBO_W, MiniVBar, WidgetSvg } from './shared'
 
 export function InputsComboWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const w = width ?? COMBO_W
   const h = height ?? COMBO_H
-  const barY = 74
-  const barH = 108
+  const barY = 56
+  const barH = 120
   return (
     <WidgetSvg w={w} h={h} label="Inputs" accent={C.green}>
       <g>
@@ -16,7 +16,7 @@ export function InputsComboWidget({ snapshot, width, height }: HifiWidgetProps):
           return (
             <g key={tick}>
               <line x1={36} x2={43} y1={y} y2={y} stroke={C.dim} strokeWidth={1} />
-              <text x={32} y={y + 4} textAnchor="end" fill={C.text} fontFamily={FONT_NUM} fontSize={12}>
+              <text x={32} y={y + 4} textAnchor="end" fill={C.text} fontFamily={FONT_NUM} fontSize={12} {...LEGIBLE}>
                 {tick}
               </text>
             </g>

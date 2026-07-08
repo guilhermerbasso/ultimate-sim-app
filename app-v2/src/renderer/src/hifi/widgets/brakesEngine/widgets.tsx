@@ -1,6 +1,6 @@
 import { type ReactElement, type ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { Bar, BigNum, C, FONT_BIG, FONT_LABEL, FONT_NUM, Frame, GaugeArc, LedRow, fixed, num, tempColor } from '../kit'
+import { Bar, BigNum, C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, Hairline, LEGIBLE, LedRow, fixed, legibleStroke, num, tempColor } from '../kit'
 
 const W = 420
 const H = 286
@@ -16,7 +16,6 @@ type CornerKey = 'lf' | 'rf' | 'lr' | 'rr'
 interface CornerSpec {
   id: CornerKey
   label: string
-  name: string
 }
 
 interface GaugeSpec {
@@ -30,10 +29,10 @@ interface GaugeSpec {
 }
 
 const CORNERS: CornerSpec[] = [
-  { id: 'lf', label: 'FL', name: 'Front Left' },
-  { id: 'rf', label: 'FR', name: 'Front Right' },
-  { id: 'lr', label: 'RL', name: 'Rear Left' },
-  { id: 'rr', label: 'RR', name: 'Rear Right' }
+  { id: 'lf', label: 'FL' },
+  { id: 'rf', label: 'FR' },
+  { id: 'lr', label: 'RL' },
+  { id: 'rr', label: 'RR' }
 ]
 
 function clamp01(v: number): number {
@@ -66,23 +65,13 @@ function idBase(label: string, width: number, height: number): string {
   return `brakes-engine-${label.replace(/\W+/g, '-').toLowerCase()}-${Math.round(width)}-${Math.round(height)}`
 }
 
-function Tile({ label, width, height, accent = CYAN, children }: { label: string; width?: number; height?: number; accent?: string; children: ReactNode }): ReactElement {
+function Tile({ label, width, height, children }: { label: string; width?: number; height?: number; accent?: string; children: ReactNode }): ReactElement {
   const w = width ?? W
   const h = height ?? H
   const id = idBase(label, w, h)
   return (
-    <Frame w={w} h={h} label={label} accent={WHITE}>
+    <CleanTile width={w} height={h}>
       <defs>
-        <radialGradient id={`${id}-halo`} cx="50%" cy="42%" r="65%">
-          <stop offset="0" stopColor={accent} stopOpacity="0.12" />
-          <stop offset="0.48" stopColor={accent} stopOpacity="0.035" />
-          <stop offset="1" stopColor="#000" stopOpacity="0" />
-        </radialGradient>
-        <linearGradient id={`${id}-rim`} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="rgba(255,255,255,0.42)" />
-          <stop offset="0.52" stopColor="rgba(255,255,255,0.08)" />
-          <stop offset="1" stopColor="rgba(255,255,255,0.28)" />
-        </linearGradient>
         <filter id={`${id}-glow`} x="-60%" y="-60%" width="220%" height="220%">
           <feGaussianBlur stdDeviation="3" result="blur" />
           <feMerge>
@@ -91,10 +80,8 @@ function Tile({ label, width, height, accent = CYAN, children }: { label: string
           </feMerge>
         </filter>
       </defs>
-      <rect x={5} y={5} width={w - 10} height={h - 10} rx={18} fill={`url(#${id}-halo)`} stroke={`url(#${id}-rim)`} strokeWidth={1.4} />
-      <rect x={15} y={42} width={w - 30} height={h - 58} rx={12} fill="rgba(0,0,0,0.34)" stroke="rgba(255,255,255,0.06)" />
       <g filter={`url(#${id}-glow)`}>{children}</g>
-    </Frame>
+    </CleanTile>
   )
 }
 
@@ -122,17 +109,19 @@ function BrakeDisc({ cx, cy, r, temp }: { cx: number; cy: number; r: number; tem
   )
 }
 
-function BrakeCornerReadout({ x, y, corner, temp, compact = false }: { x: number; y: number; corner: CornerSpec; temp: number | undefined; compact?: boolean }): ReactElement {
+function BrakeCornerReadout({ x, y, corner, temp, compact = false, anchor = 'start' }: { x: number; y: number; corner: CornerSpec; temp: number | undefined; compact?: boolean; anchor?: 'start' | 'end' }): ReactElement {
   const color = brakeColor(temp)
+  const valueSize = compact ? 42 : 28
+  const unitX = anchor === 'end' ? x + 12 : x + (compact ? 108 : 66)
   return (
     <g>
-      <text x={x} y={y} fill={WHITE} fontFamily={FONT_LABEL} fontSize={compact ? 18 : 20} fontWeight={900} letterSpacing={3}>
+      <text x={x} y={y} textAnchor={anchor} fill={WHITE} fontFamily={FONT_LABEL} fontSize={compact ? 18 : 20} fontWeight={900} letterSpacing={3} {...LEGIBLE}>
         {corner.label}
       </text>
-      <text x={x} y={y + (compact ? 43 : 54)} fill={temp == null ? C.dim : color} fontFamily={FONT_NUM} fontSize={compact ? 42 : 28} fontWeight={900}>
+      <text x={x} y={y + (compact ? 43 : 54)} textAnchor={anchor} fill={temp == null ? C.dim : color} fontFamily={FONT_NUM} fontSize={valueSize} fontWeight={900} {...legibleStroke(valueSize)}>
         {fixed(temp)}
       </text>
-      <text x={x + (compact ? 86 : 48)} y={y + (compact ? 43 : 54)} fill={WHITE} fontFamily={FONT_LABEL} fontSize={compact ? 18 : 14} fontWeight={800}>
+      <text x={unitX} y={y + (compact ? 43 : 54)} fill={WHITE} fontFamily={FONT_LABEL} fontSize={compact ? 16 : 12} fontWeight={800} {...LEGIBLE}>
         °C
       </text>
     </g>
@@ -143,18 +132,19 @@ function BrakeTempWidget({ snapshot, width, height }: HifiWidgetProps): ReactEle
   const temps = CORNERS.map((corner) => ({ corner, temp: brakeTemp(snapshot, corner.id) }))
   return (
     <Tile label="Brake Temp" width={width} height={height} accent={ORANGE}>
-      <path d="M210 52 v178 M26 139 h368" stroke="rgba(255,255,255,0.12)" />
+      <Hairline x={210} y={48} len={190} vertical opacity={0.12} />
+      <Hairline x={26} y={139} len={368} opacity={0.12} />
       {temps.map(({ corner, temp }, i) => {
         const left = i % 2 === 0
         const top = i < 2
         const discX = left ? 126 : 286
         const discY = top ? 94 : 196
-        const textX = left ? 24 : 346
+        const textX = left ? 24 : 338
         const textY = top ? 76 : 178
         return (
           <g key={corner.id}>
             <BrakeDisc cx={discX} cy={discY} r={30} temp={temp} />
-            <BrakeCornerReadout x={textX} y={textY} corner={corner} temp={temp} />
+            <BrakeCornerReadout x={textX} y={textY} corner={corner} temp={temp} anchor={left ? 'start' : 'end'} />
           </g>
         )
       })}
@@ -169,9 +159,6 @@ function BrakeTempSingleWidget({ snapshot, width, height, corner }: HifiWidgetPr
       <BrakeDisc cx={146} cy={158} r={68} temp={temp} />
       <BrakeCornerReadout x={248} y={112} corner={corner} temp={temp} compact />
       <Bar x={250} y={190} w={112} h={12} f={fraction(temp, 250, 760)} color={brakeColor(temp)} />
-      <text x={250} y={226} fill={C.dim} fontFamily={FONT_LABEL} fontSize={17} fontWeight={800} letterSpacing={2}>
-        {corner.name.toUpperCase()}
-      </text>
     </Tile>
   )
 }
@@ -184,14 +171,8 @@ function BiasWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement 
   return (
     <Tile label="Brake Bias" width={width} height={height} accent={CYAN}>
       <BigNum x={210} y={132} value={fixed(front, 1)} unit="%" color={front == null ? C.dim : WHITE} size={78} />
-      <text x={210} y={172} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontSize={30} fontWeight={900} letterSpacing={5}>
-        FRONT
-      </text>
-      <text x={70} y={222} fill={CYAN} fontFamily={FONT_LABEL} fontSize={18} fontWeight={900} letterSpacing={2}>
-        FRONT
-      </text>
-      <text x={350} y={222} textAnchor="end" fill={AMBER} fontFamily={FONT_LABEL} fontSize={18} fontWeight={900} letterSpacing={2}>
-        REAR
+      <text x={210} y={170} textAnchor="middle" fill={CYAN} fontFamily={FONT_LABEL} fontSize={24} fontWeight={900} letterSpacing={5} {...LEGIBLE}>
+        BB
       </text>
       <rect x={138} y={204} width={144} height={24} fill={CYAN} opacity={0.16} stroke="rgba(255,255,255,0.25)" />
       <Bar x={138} y={204} w={144} h={24} f={f} color={CYAN} />
@@ -199,6 +180,12 @@ function BiasWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement 
         <rect x={0} y={198} width={3} height={36} fill={WHITE} />
       </g>
       <rect x={282} y={204} width={92} height={24} fill={AMBER} opacity={rear == null ? 0.18 : 0.9} stroke="rgba(255,255,255,0.25)" />
+      <text x={128} y={224} textAnchor="end" fill={CYAN} fontFamily={FONT_LABEL} fontSize={16} fontWeight={900} letterSpacing={2} {...LEGIBLE}>
+        F
+      </text>
+      <text x={384} y={224} fill={AMBER} fontFamily={FONT_LABEL} fontSize={16} fontWeight={900} letterSpacing={2} {...LEGIBLE}>
+        R
+      </text>
     </Tile>
   )
 }
@@ -217,7 +204,7 @@ function GaugeTicks({ cx, cy, r, min, max, ticks }: { cx: number; cy: number; r:
         const pct = (tick - min) / (max - min)
         const a = (-180 + pct * 180) * (Math.PI / 180)
         return (
-          <text key={tick} x={cx + Math.cos(a) * (r - 38)} y={cy + Math.sin(a) * (r - 38) + 5} textAnchor="middle" fill={WHITE} fontFamily={FONT_NUM} fontSize={14} fontWeight={800}>
+          <text key={tick} x={cx + Math.cos(a) * (r - 34)} y={cy + Math.sin(a) * (r - 34) + 5} textAnchor="middle" fill={WHITE} fontFamily={FONT_NUM} fontSize={14} fontWeight={800} {...LEGIBLE}>
             {tick}
           </text>
         )
@@ -226,20 +213,36 @@ function GaugeTicks({ cx, cy, r, min, max, ticks }: { cx: number; cy: number; r:
   )
 }
 
+function GaugeValue({ x, y, value, unit, missing }: { x: number; y: number; value: number | undefined; unit: string; missing: boolean }): ReactElement {
+  const size = unit === 'bar' ? 50 : 56
+  const valueLabel = fixed(value, unit === 'bar' ? 1 : 0)
+  const unitOffset = unit === 'bar' ? 108 : 92
+  return (
+    <g>
+      <text x={x} y={y} textAnchor="middle" fill={missing ? C.dim : WHITE} fontFamily={FONT_BIG} fontSize={size} fontWeight={900} {...legibleStroke(size)}>
+        {valueLabel}
+      </text>
+      <text x={x + unitOffset} y={y} fill={WHITE} fontFamily={FONT_LABEL} fontSize={unit === 'bar' ? 18 : 20} fontWeight={900} {...LEGIBLE}>
+        {unit}
+      </text>
+    </g>
+  )
+}
+
 function GaugeWidget({ width, height, label, value, unit, min, max, ticks, color }: HifiWidgetProps & GaugeSpec): ReactElement {
   const f = fraction(value, min, max)
   const angle = (-180 + f * 180) * (Math.PI / 180)
   const cx = 210
-  const cy = 170
-  const r = 82
-  const needleR = 62
+  const cy = 154
+  const r = 104
+  const needleR = 70
   return (
     <Tile label={label} width={width} height={height} accent={color}>
       <GaugeArc cx={cx} cy={cy} r={r} thickness={8} f={value == null ? 0 : f} color={value == null ? C.dim : color} />
       <GaugeTicks cx={cx} cy={cy} r={r} min={min} max={max} ticks={ticks} />
       <path d={`M${cx} ${cy} L${cx + Math.cos(angle) * needleR} ${cy + Math.sin(angle) * needleR}`} stroke={value == null ? C.dim : WHITE} strokeWidth={9} strokeLinecap="round" />
       <circle cx={cx} cy={cy} r={17} fill="#17191d" stroke="rgba(255,255,255,0.2)" />
-      <BigNum x={cx} y={252} value={fixed(value, unit === 'bar' ? 1 : 0)} unit={unit} color={value == null ? C.dim : WHITE} size={52} />
+      <GaugeValue x={cx} y={cy + 18} value={value} unit={unit} missing={value == null} />
     </Tile>
   )
 }
@@ -248,10 +251,14 @@ function LevelWidget({ snapshot, width, height, label, field, accent }: HifiWidg
   const raw = snapshot?.[field]
   const parsed = num(raw)
   const display = valueText(raw)
+  const controlLabel = field === 'engineMap' ? 'MAP' : label
   return (
     <Tile label={label} width={width} height={height} accent={accent}>
       <LedRow x={76} y={74} w={268} h={4} f={parsed == null ? 0 : parsed / 10} count={12} />
-      <text x={210} y={202} textAnchor="middle" fill={display === '—' ? C.dim : accent} fontFamily={FONT_BIG} fontSize={128} fontWeight={900}>
+      <text x={210} y={116} textAnchor="middle" fill={accent} fontFamily={FONT_LABEL} fontSize={28} fontWeight={900} letterSpacing={5} {...LEGIBLE}>
+        {controlLabel}
+      </text>
+      <text x={210} y={218} textAnchor="middle" fill={display === '—' ? C.dim : accent} fontFamily={FONT_BIG} fontSize={124} fontWeight={900} {...legibleStroke(124)}>
         {display}
       </text>
       <path d="M76 230 h268" stroke={accent} strokeWidth={1} opacity={display === '—' ? 0.22 : 0.55} />
@@ -286,9 +293,6 @@ function ErsWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
     <Tile label="ERS / Hybrid" width={width} height={height} accent={CYAN}>
       <SegmentedBattery x={91} y={94} w={238} h={50} f={f} missing={pct == null} />
       <BigNum x={210} y={218} value={fixed(pct)} unit="%" color={pct == null ? C.dim : WHITE} size={62} />
-      <text x={210} y={248} textAnchor="middle" fill={CYAN} fontFamily={FONT_LABEL} fontSize={24} fontWeight={900} letterSpacing={3}>
-        DEPLOY
-      </text>
     </Tile>
   )
 }

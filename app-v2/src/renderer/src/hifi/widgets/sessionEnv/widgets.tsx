@@ -1,6 +1,6 @@
 ﻿import { type ReactElement, type ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { BigNum, C, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, fixed, num } from '../kit'
+import { BigNum, C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, LEGIBLE, fixed, legibleStroke, num } from '../kit'
 
 const TILE_W = 264
 const TILE_H = 336
@@ -73,17 +73,8 @@ function Tile({ label, width, height, accent, children }: TileProps): ReactEleme
   const h = height ?? TILE_H
   const id = tileId(label, w, h)
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} preserveAspectRatio="xMidYMid meet" role="img" aria-label={label}>
+    <CleanTile width={w} height={h}>
       <defs>
-        <pattern id={`${id}-carbon`} width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
-          <rect width="8" height="8" fill="#050607" />
-          <path d="M0 0 h2 v8 h-2z" fill="rgba(255,255,255,0.025)" />
-        </pattern>
-        <linearGradient id={`${id}-rim`} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="rgba(255,255,255,0.34)" />
-          <stop offset="0.5" stopColor="rgba(255,255,255,0.08)" />
-          <stop offset="1" stopColor="rgba(255,255,255,0.26)" />
-        </linearGradient>
         <filter id={`${id}-glow`} x="-65%" y="-65%" width="230%" height="230%">
           <feGaussianBlur stdDeviation="3" result="blur" />
           <feMerge>
@@ -95,15 +86,8 @@ function Tile({ label, width, height, accent, children }: TileProps): ReactEleme
           <feDropShadow dx="0" dy="2" stdDeviation="2" floodColor="#000" floodOpacity="0.75" />
         </filter>
       </defs>
-      <rect width={w} height={h} rx={20} fill={C.bg} />
-      <rect x={2} y={2} width={w - 4} height={h - 4} rx={18} fill={`url(#${id}-carbon)`} stroke={`url(#${id}-rim)`} strokeWidth={2} />
-      <rect x={15} y={16} width={w - 30} height={h - 31} rx={11} fill="rgba(0,0,0,0.28)" stroke="rgba(255,255,255,0.08)" />
-      <text x={w / 2} y={30} textAnchor="middle" fill="#bfc1c5" fontFamily={FONT_LABEL} fontSize={20} fontWeight={800} letterSpacing={5}>
-        {label.toUpperCase()}
-      </text>
-      <path d={`M${w * 0.07} 46 H${w * 0.93}`} stroke="rgba(255,255,255,0.18)" strokeWidth={1.2} />
       <g filter={`url(#${id}-glow)`}>{children}</g>
-    </svg>
+    </CleanTile>
   )
 }
 
@@ -146,7 +130,6 @@ function FlagWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement 
         <filter id="flag-shadow"><feDropShadow dx="0" dy="0" stdDeviation="4" floodColor={state.color} floodOpacity="0.65" /></filter>
       </defs>
       <FlagIcon x={w * 0.23} y={h * 0.3} color={state.color} checkered={state.name === 'checkered'} />
-      <text x={w / 2} y={h - 18} textAnchor="middle" fill={state.color} fontFamily={FONT_LABEL} fontSize={16} fontWeight={800} letterSpacing={3}>{state.text}</text>
     </Tile>
   )
 }
@@ -165,8 +148,7 @@ function PitLimiterWidget({ snapshot, width, height }: HifiWidgetProps): ReactEl
       <g filter={active ? undefined : 'none'}>
         {cells}
         <circle cx={132} cy={178} r={61} fill="rgba(255,176,0,0.08)" stroke={color} strokeWidth={active ? 3 : 1.5} opacity={active ? 1 : 0.55} />
-        <text x={132} y={172} textAnchor="middle" fill={color} fontFamily={FONT_BIG} fontSize={42} fontWeight={900}>PIT</text>
-        <text x={132} y={207} textAnchor="middle" fill={color} fontFamily={FONT_LABEL} fontSize={27} fontWeight={800}>LIMITER</text>
+        <path d="M105 155 H159 V204 H105 Z M113 165 H151 M113 178 H151 M113 191 H151" fill="none" stroke={color} strokeWidth={5} strokeLinecap="round" strokeLinejoin="round" />
       </g>
     </Tile>
   )
@@ -215,10 +197,11 @@ function WeatherWidget({ snapshot, width, height }: HifiWidgetProps): ReactEleme
     <Tile label="Weather" width={width} height={height} accent={CYAN}>
       <WeatherIcon x={55} y={82} />
       <path d="M28 222 H236 M28 278 H236" stroke="rgba(255,255,255,0.16)" />
-      <text x={32} y={263} fill={C.dim} fontFamily={FONT_LABEL} fontSize={25} fontWeight={800} letterSpacing={2}>AIR</text>
-      <text x={228} y={263} textAnchor="end" fill={present(air) ? CYAN : C.dim} fontFamily={FONT_NUM} fontSize={38} fontWeight={800}>{fixed(air)}°C</text>
-      <text x={32} y={315} fill={C.dim} fontFamily={FONT_LABEL} fontSize={25} fontWeight={800} letterSpacing={2}>TRACK</text>
-      <text x={228} y={315} textAnchor="end" fill={present(track) ? CYAN : C.dim} fontFamily={FONT_NUM} fontSize={38} fontWeight={800}>{fixed(track)}°C</text>
+      <text x={54} y={263} fill={present(air) ? CYAN : C.dim} fontFamily={FONT_NUM} fontSize={38} fontWeight={800} {...legibleStroke(38)}>{fixed(air)}°C</text>
+      <path d="M37 237 v30" stroke={CYAN} strokeWidth={4} strokeLinecap="round" opacity={present(air) ? 1 : 0.45} />
+      <circle cx={37} cy={273} r={9} fill="none" stroke={CYAN} strokeWidth={4} opacity={present(air) ? 1 : 0.45} />
+      <text x={54} y={315} fill={present(track) ? CYAN : C.dim} fontFamily={FONT_NUM} fontSize={38} fontWeight={800} {...legibleStroke(38)}>{fixed(track)}°C</text>
+      <path d="M29 307 h22 m-18 -10 h14 m-10 -10 h6" stroke={CYAN} strokeWidth={4} strokeLinecap="round" opacity={present(track) ? 1 : 0.45} />
     </Tile>
   )
 }
@@ -239,7 +222,7 @@ function WetnessWidget({ snapshot, width, height }: HifiWidgetProps): ReactEleme
   return (
     <Tile label="Wetness" width={width} height={height} accent={CYAN}>
       <RainCloud x={49} y={91} />
-      <text x={132} y={265} textAnchor="middle" fill={wetness == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontSize={50} fontWeight={900}>{pctText(wetness)}</text>
+      <text x={132} y={265} textAnchor="middle" fill={wetness == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontSize={50} fontWeight={900} {...legibleStroke(50)}>{pctText(wetness)}</text>
       {cells}
     </Tile>
   )
@@ -250,10 +233,10 @@ function GripWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement 
   const f = grip == null ? 0 : clamp01(grip)
   return (
     <Tile label="Grip" width={width} height={height} accent={CYAN}>
-      <GaugeArc cx={132} cy={200} r={88} thickness={13} f={f} color={grip == null ? C.dim : CYAN} />
-      <text x={132} y={210} textAnchor="middle" fill={grip == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontSize={54} fontWeight={900}>{pctText(grip)}</text>
-      <text x={42} y={308} fill={WHITE} fontFamily={FONT_LABEL} fontSize={18} fontWeight={700}>0%</text>
-      <text x={222} y={308} textAnchor="end" fill={WHITE} fontFamily={FONT_LABEL} fontSize={18} fontWeight={700}>100%</text>
+      <GaugeArc cx={132} cy={132} r={82} thickness={13} f={f} color={grip == null ? C.dim : CYAN} />
+      <text x={132} y={278} textAnchor="middle" fill={grip == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontSize={50} fontWeight={900} {...legibleStroke(50)}>{pctText(grip)}</text>
+      <text x={42} y={320} fill={WHITE} fontFamily={FONT_LABEL} fontSize={18} fontWeight={700} {...LEGIBLE}>0%</text>
+      <text x={222} y={320} textAnchor="end" fill={WHITE} fontFamily={FONT_LABEL} fontSize={18} fontWeight={700} {...LEGIBLE}>100%</text>
     </Tile>
   )
 }
@@ -331,10 +314,10 @@ function GForceWidget({ snapshot, width, height }: HifiWidgetProps): ReactElemen
       <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.32)" strokeWidth={1.5} />
       {[0.33, 0.66].map((f) => <circle key={f} cx={cx} cy={cy} r={r * f} fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth={1} strokeDasharray="4 4" />)}
       <path d={`M${cx - r} ${cy} H${cx + r} M${cx} ${cy - r} V${cy + r}`} stroke="rgba(255,255,255,0.28)" />
-      <text x={cx} y={cy - r - 9} textAnchor="middle" fill={WHITE} fontFamily={FONT_NUM} fontSize={16}>1.5G</text>
-      <text x={cx - r - 5} y={cy + 4} textAnchor="end" fill={WHITE} fontFamily={FONT_NUM} fontSize={15}>-1.5G</text>
-      <text x={cx + r + 5} y={cy + 4} fill={WHITE} fontFamily={FONT_NUM} fontSize={15}>1.5G</text>
-      <text x={cx} y={cy + r + 18} textAnchor="middle" fill={WHITE} fontFamily={FONT_NUM} fontSize={16}>-1.5G</text>
+      <text x={cx} y={cy - r - 9} textAnchor="middle" fill={WHITE} fontFamily={FONT_NUM} fontSize={16} {...LEGIBLE}>1.5G</text>
+      <text x={cx - r - 5} y={cy + 4} textAnchor="end" fill={WHITE} fontFamily={FONT_NUM} fontSize={15} {...LEGIBLE}>-1.5G</text>
+      <text x={cx + r + 5} y={cy + 4} fill={WHITE} fontFamily={FONT_NUM} fontSize={15} {...LEGIBLE}>1.5G</text>
+      <text x={cx} y={cy + r + 18} textAnchor="middle" fill={WHITE} fontFamily={FONT_NUM} fontSize={16} {...LEGIBLE}>-1.5G</text>
       <circle cx={dotX} cy={dotY} r={has ? 9 : 0} fill={CYAN} stroke="#a7f2ff" strokeWidth={2} />
     </Tile>
   )
@@ -348,10 +331,10 @@ function SessionWidget({ snapshot, width, height }: HifiWidgetProps): ReactEleme
   const total = current != null && lapsRemaining != null && current >= 0 && lapsRemaining >= 0 ? String(current + lapsRemaining) : '—'
   return (
     <Tile label="Session" width={width} height={height} accent={CYAN}>
-      <text x={132} y={180} textAnchor="middle" fill={type === '—' ? C.dim : CYAN} fontFamily={FONT_BIG} fontSize={54} fontWeight={900}>{type}</text>
+      <text x={132} y={180} textAnchor="middle" fill={type === '—' ? C.dim : CYAN} fontFamily={FONT_BIG} fontSize={54} fontWeight={900} {...legibleStroke(54)}>{type}</text>
       <path d="M28 232 H236" stroke="rgba(255,255,255,0.16)" />
-      <text x={36} y={285} fill={WHITE} fontFamily={FONT_LABEL} fontSize={28} fontWeight={800} letterSpacing={2}>LAP</text>
-      <text x={230} y={285} textAnchor="end" fill={WHITE} fontFamily={FONT_NUM} fontSize={32} fontWeight={800}>{lap} / {total}</text>
+      <path d="M42 260 h48 m-48 22 h36 m-36 -44 v62" stroke={WHITE} strokeWidth={5} strokeLinecap="round" opacity="0.82" />
+      <text x={230} y={285} textAnchor="end" fill={WHITE} fontFamily={FONT_NUM} fontSize={32} fontWeight={800} {...legibleStroke(32)}>{lap} / {total}</text>
     </Tile>
   )
 }
@@ -360,8 +343,9 @@ function ClockWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement
   const time = formatClock(snapshot?.sessionTimeRemainingSec)
   return (
     <Tile label="Clock" width={width} height={height} accent={WHITE}>
-      <text x={132} y={195} textAnchor="middle" fill={time === '—' ? C.dim : WHITE} fontFamily={FONT_BIG} fontSize={50} fontWeight={900}>{time}</text>
-      <text x={132} y={242} textAnchor="middle" fill={GREY} fontFamily={FONT_LABEL} fontSize={18} fontWeight={800} letterSpacing={2}>TIME REMAINING</text>
+      <circle cx={132} cy={182} r={68} fill="none" stroke={GREY} strokeWidth={5} opacity="0.72" />
+      <path d="M132 182 v-39 M132 182 h34" stroke={GREY} strokeWidth={6} strokeLinecap="round" opacity="0.82" />
+      <text x={132} y={286} textAnchor="middle" fill={time === '—' ? C.dim : WHITE} fontFamily={FONT_BIG} fontSize={50} fontWeight={900} {...legibleStroke(50)}>{time}</text>
     </Tile>
   )
 }

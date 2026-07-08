@@ -1,6 +1,6 @@
 import { type ReactElement, type ReactNode } from 'react'
 import type { HifiAiSeverity, HifiWidgetModule, HifiWidgetProps } from '../types'
-import { Bar, BigNum, C, FONT_BIG, FONT_LABEL, FONT_NUM, Frame, GaugeArc, clamp01 } from '../kit'
+import { BigNum, C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, LEGIBLE, clamp01, legibleStroke } from '../kit'
 
 const W = 420
 const H = 260
@@ -59,14 +59,12 @@ function alertColor(level?: 'info' | 'warn' | 'crit' | null): string {
 
 function AiFrame({
   id,
-  label,
   accent = CYAN,
   width,
   height,
   children
 }: {
   id: string
-  label: string
   accent?: string
   width?: number
   height?: number
@@ -76,12 +74,8 @@ function AiFrame({
   const h = height ?? H
   const uid = `ai-${id}-${Math.round(w)}-${Math.round(h)}`
   return (
-    <Frame w={w} h={h} label={label} accent={accent}>
+    <CleanTile width={w} height={h}>
       <defs>
-        <pattern id={`${uid}-carbon`} width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
-          <rect width="10" height="10" fill="#07090a" />
-          <path d="M0 0 h2 v10 h-2z" fill="rgba(255,255,255,0.025)" />
-        </pattern>
         <filter id={`${uid}-glow`} x="-60%" y="-60%" width="220%" height="220%">
           <feGaussianBlur stdDeviation="3.5" result="blur" />
           <feMerge>
@@ -90,25 +84,22 @@ function AiFrame({
           </feMerge>
         </filter>
         <clipPath id={`${uid}-clip`}>
-          <rect x={22} y={54} width={w - 44} height={h - 74} rx={8} />
+          <rect x={10} y={10} width={w - 20} height={h - 20} rx={8} />
         </clipPath>
       </defs>
-      <rect x={7} y={7} width={w - 14} height={h - 14} rx={15} fill={`url(#${uid}-carbon)`} opacity={0.72} />
-      <path d={`M${w - 136} 8 h108 q10 0 10 10 v14`} fill="none" stroke={accent} strokeWidth={2.2} filter={`url(#${uid}-glow)`} />
-      <path d={`M${w - 132} 8 l22 22 h90`} fill="none" stroke={accent} strokeWidth={2.2} opacity={0.9} />
-      <rect x={12} y={46} width={w - 24} height={1} fill="rgba(255,255,255,0.10)" />
+      <path d={`M${w - 90} 16 h48 q14 0 18 14`} fill="none" stroke={accent} strokeWidth={2.2} opacity={0.82} filter={`url(#${uid}-glow)`} />
       <g clipPath={`url(#${uid}-clip)`}>{children}</g>
-    </Frame>
+    </CleanTile>
   )
 }
 
 function Placeholder({ x, y, anchor = 'middle' }: { x: number; y: number; anchor?: 'start' | 'middle' | 'end' }): ReactElement {
   return (
     <g opacity={0.76}>
-      <text x={x} y={y} textAnchor={anchor} fill={C.dim} fontFamily={FONT_LABEL} fontSize={24} fontWeight={800} letterSpacing={2}>
+      <text x={x} y={y} textAnchor={anchor} fill={C.dim} fontFamily={FONT_LABEL} fontSize={24} fontWeight={800} letterSpacing={2} {...LEGIBLE}>
         Awaiting AI
       </text>
-      <text x={x} y={y + 30} textAnchor={anchor} fill={C.muted} fontFamily={FONT_BIG} fontSize={28} fontWeight={800}>
+      <text x={x} y={y + 30} textAnchor={anchor} fill={C.muted} fontFamily={FONT_BIG} fontSize={28} fontWeight={800} {...legibleStroke(28)}>
         —
       </text>
     </g>
@@ -192,21 +183,20 @@ function Waveform({ x, y, w, h, active }: { x: number; y: number; w: number; h: 
 export function CoachTipWidget({ ai, width, height }: HifiWidgetProps): ReactElement {
   const text = safeText(ai?.coachTip?.text)
   const corner = safeText(ai?.coachTip?.corner)
-  const lines = text ? wrapText(text, 32, 2) : []
+  const lines = text ? wrapText(text, 26, 3) : []
   return (
-    <AiFrame id="coach-tip" label="AI Coach Tip" width={width} height={height}>
+    <AiFrame id="coach-tip" width={width} height={height}>
       <HeadsetIcon x={166} y={58} />
       {text ? (
         <>
-          <text x={210} y={174} textAnchor="middle" fill={WHITE} fontFamily={FONT_NUM} fontSize={25} fontWeight={700}>
+          <text x={210} y={156} textAnchor="middle" fill={WHITE} fontFamily={FONT_NUM} fontSize={23} fontWeight={700} {...legibleStroke(23)}>
             {lines.map((line, i) => (
-              <tspan key={line} x={210} dy={i === 0 ? 0 : 30}>
+              <tspan key={line} x={210} dy={i === 0 ? 0 : 28}>
                 {line}
               </tspan>
             ))}
           </text>
-          <path d="M286 218 l34 -34 h92 v42 h-126 z" fill="rgba(53,218,244,0.08)" stroke={CYAN} strokeWidth={1.4} />
-          <text x={350} y={216} textAnchor="middle" fill={CYAN} fontFamily={FONT_BIG} fontSize={28} fontStyle="italic" fontWeight={800}>
+          <text x={350} y={216} textAnchor="middle" fill={CYAN} fontFamily={FONT_BIG} fontSize={28} fontStyle="italic" fontWeight={800} {...legibleStroke(28)}>
             {ellipsize(corner ?? 'AI', 5)}
           </text>
         </>
@@ -220,17 +210,16 @@ export function CoachTipWidget({ ai, width, height }: HifiWidgetProps): ReactEle
 export function CoachFindingsWidget({ ai, width, height }: HifiWidgetProps): ReactElement {
   const findings = Array.isArray(ai?.coachFindings) ? ai?.coachFindings?.filter((f) => safeText(f?.label)).slice(0, 3) : []
   return (
-    <AiFrame id="coach-findings" label="Coach Findings" width={width} height={height}>
+    <AiFrame id="coach-findings" width={width} height={height}>
       {findings && findings.length > 0 ? (
         findings.map((finding, i) => {
           const y = 80 + i * 58
           const color = severityColor(finding.severity)
           return (
             <g key={`${finding.label}-${i}`}>
-              <rect x={14} y={y - 32} width={392} height={58} fill={i % 2 === 0 ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.12)'} stroke="rgba(255,255,255,0.08)" />
               <circle cx={44} cy={y - 4} r={12} fill={color} filter="drop-shadow(0 0 7px currentColor)" />
-              <text x={82} y={y + 4} fill={WHITE} fontFamily={FONT_NUM} fontSize={26} fontWeight={700}>
-                {ellipsize(finding.label, 24)}
+              <text x={82} y={y + 4} fill={WHITE} fontFamily={FONT_NUM} fontSize={26} fontWeight={700} {...legibleStroke(26)}>
+                {ellipsize(finding.label, 18)}
               </text>
             </g>
           )
@@ -239,9 +228,8 @@ export function CoachFindingsWidget({ ai, width, height }: HifiWidgetProps): Rea
         <>
           {[0, 1, 2].map((i) => (
             <g key={i} opacity={0.42}>
-              <rect x={14} y={48 + i * 58} width={392} height={58} fill="rgba(255,255,255,0.018)" stroke="rgba(255,255,255,0.06)" />
               <circle cx={44} cy={76 + i * 58} r={10} fill={C.muted} />
-              <text x={82} y={84 + i * 58} fill={C.dim} fontFamily={FONT_LABEL} fontSize={22} fontWeight={800}>
+              <text x={82} y={84 + i * 58} fill={C.dim} fontFamily={FONT_LABEL} fontSize={22} fontWeight={800} {...LEGIBLE}>
                 {i === 0 ? 'Awaiting AI' : '—'}
               </text>
             </g>
@@ -254,15 +242,15 @@ export function CoachFindingsWidget({ ai, width, height }: HifiWidgetProps): Rea
 
 export function EngineerRadioWidget({ ai, width, height }: HifiWidgetProps): ReactElement {
   const text = safeText(ai?.engineerRadio?.text)
-  const lines = text ? wrapText(text, 36, 2) : []
+  const lines = text ? wrapText(text, 29, 3) : []
   return (
-    <AiFrame id="engineer-radio" label="Engineer Radio" width={width} height={height}>
+    <AiFrame id="engineer-radio" width={width} height={height}>
       <RadioIcon x={50} y={96} />
       <Waveform x={132} y={74} w={232} h={62} active={Boolean(text)} />
       {text ? (
-        <text x={54} y={190} fill={WHITE} fontFamily={FONT_NUM} fontSize={25} fontWeight={700}>
+        <text x={54} y={178} fill={WHITE} fontFamily={FONT_NUM} fontSize={23} fontWeight={700} {...legibleStroke(23)}>
           {lines.map((line, i) => (
-            <tspan key={line} x={54} dy={i === 0 ? 0 : 29}>
+            <tspan key={line} x={54} dy={i === 0 ? 0 : 27}>
               {line}
             </tspan>
           ))}
@@ -277,14 +265,14 @@ export function EngineerRadioWidget({ ai, width, height }: HifiWidgetProps): Rea
 export function ProactiveAlertWidget({ ai, width, height }: HifiWidgetProps): ReactElement {
   const text = safeText(ai?.proactiveAlert?.text)
   const color = text ? alertColor(ai?.proactiveAlert?.level) : C.dim
-  const lines = text ? wrapText(text, 34, 2) : []
+  const lines = text ? wrapText(text, 30, 3) : []
   return (
-    <AiFrame id="proactive-alert" label="Proactive Alert" accent={color === CYAN ? AMBER : color} width={width} height={height}>
+    <AiFrame id="proactive-alert" accent={color === CYAN ? AMBER : color} width={width} height={height}>
       <AlertIcon x={166} y={70} color={color === CYAN ? AMBER : color} />
       {text ? (
-        <text x={210} y={202} textAnchor="middle" fill={WHITE} fontFamily={FONT_NUM} fontSize={24} fontWeight={700}>
+        <text x={210} y={190} textAnchor="middle" fill={WHITE} fontFamily={FONT_NUM} fontSize={22} fontWeight={700} {...legibleStroke(22)}>
           {lines.map((line, i) => (
-            <tspan key={line} x={210} dy={i === 0 ? 0 : 28}>
+            <tspan key={line} x={210} dy={i === 0 ? 0 : 26}>
               {line}
             </tspan>
           ))}
@@ -302,18 +290,18 @@ export function StrategyCallWidget({ ai, width, height }: HifiWidgetProps): Reac
   const hasPit = pitIn != null && pitIn >= 0
   const lines = text ? wrapText(text, 22, 2) : []
   return (
-    <AiFrame id="strategy-call" label="Strategy Call" width={width} height={height}>
+    <AiFrame id="strategy-call" width={width} height={height}>
       <StrategyIcon x={46} y={100} />
       <path d="M210 70 v128" stroke="rgba(255,255,255,0.13)" strokeWidth={1.2} />
       {hasPit ? (
         <>
-          <text x={298} y={98} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontSize={34} fontWeight={800}>
+          <text x={298} y={98} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontSize={34} fontWeight={800} {...legibleStroke(34)}>
             PIT IN
           </text>
           <BigNum x={298} y={190} value={String(Math.max(0, Math.round(pitIn)))} color={AMBER} size={96} />
         </>
       ) : text ? (
-        <text x={300} y={126} textAnchor="middle" fill={WHITE} fontFamily={FONT_NUM} fontSize={24} fontWeight={700}>
+        <text x={300} y={126} textAnchor="middle" fill={WHITE} fontFamily={FONT_NUM} fontSize={24} fontWeight={700} {...legibleStroke(24)}>
           {lines.map((line, i) => (
             <tspan key={line} x={300} dy={i === 0 ? 0 : 29}>
               {line}
@@ -333,30 +321,28 @@ export function AiConfidenceWidget({ ai, width, height }: HifiWidgetProps): Reac
   const f = hasConfidence ? clamp01(confidence) : 0
   const pct = Math.round(f * 100)
   return (
-    <AiFrame id="ai-confidence" label="AI Confidence" width={width} height={height}>
+    <AiFrame id="ai-confidence" width={width} height={height}>
       <g opacity={hasConfidence ? 1 : 0.48}>
-        <GaugeArc cx={210} cy={145} r={76} thickness={16} f={hasConfidence ? f : 0} color={hasConfidence ? CYAN : C.dim} />
-        <circle cx={210} cy={145} r={54} fill="#080a0c" stroke="rgba(255,255,255,0.10)" />
+        <GaugeArc cx={210} cy={130} r={80} thickness={16} f={hasConfidence ? f : 0} color={hasConfidence ? CYAN : C.dim} />
         {Array.from({ length: 34 }, (_, i) => {
           const a = (-135 + (270 * i) / 33) * (Math.PI / 180)
-          const x1 = 210 + Math.cos(a) * 66
-          const y1 = 145 + Math.sin(a) * 66
-          const x2 = 210 + Math.cos(a) * 72
-          const y2 = 145 + Math.sin(a) * 72
+          const x1 = 210 + Math.cos(a) * 70
+          const y1 = 130 + Math.sin(a) * 70
+          const x2 = 210 + Math.cos(a) * 76
+          const y2 = 130 + Math.sin(a) * 76
           return <path key={i} d={`M${x1} ${y1} L${x2} ${y2}`} stroke={i / 33 <= f && hasConfidence ? CYAN : 'rgba(255,255,255,0.12)'} strokeWidth={1.5} />
         })}
       </g>
       {hasConfidence ? (
-        <text x={210} y={163} textAnchor="middle" fill={WHITE} fontFamily={FONT_BIG} fontSize={52} fontWeight={800}>
+        <text x={210} y={149} textAnchor="middle" fill={WHITE} fontFamily={FONT_BIG} fontSize={52} fontWeight={800} {...legibleStroke(52)}>
           {pct}
           <tspan fontFamily={FONT_LABEL} fontSize={28}>
             %
           </tspan>
         </text>
       ) : (
-        <Placeholder x={210} y={140} />
+        <Placeholder x={210} y={126} />
       )}
-      <Bar x={114} y={226} w={192} h={5} f={f} color={hasConfidence ? CYAN : C.dim} />
     </AiFrame>
   )
 }

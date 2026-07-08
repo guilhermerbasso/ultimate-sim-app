@@ -1,6 +1,6 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, clamp01, fixed, num } from '../kit'
+import { C, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, LEGIBLE, clamp01, fixed, legibleStroke, num } from '../kit'
 import { SINGLE_H, SINGLE_W, WidgetSvg } from './shared'
 
 function angleFrac(angle: number | undefined): number {
@@ -34,7 +34,7 @@ export function SteeringWidget({ snapshot, width, height }: HifiWidgetProps): Re
           const tx = cx + Math.cos(rad) * (r + 12)
           const ty = cy + Math.sin(rad) * (r + 12)
           return (
-            <text key={tick} x={tx} y={ty + 4} textAnchor="middle" fill={tick === 0 ? C.text : C.dim} fontFamily={FONT_NUM} fontSize={11}>
+            <text key={tick} x={tx} y={ty + 4} textAnchor="middle" fill={tick === 0 ? C.text : C.dim} fontFamily={FONT_NUM} fontSize={11} {...LEGIBLE}>
               {tick}
             </text>
           )
@@ -59,10 +59,10 @@ export function SteeringWidget({ snapshot, width, height }: HifiWidgetProps): Re
         })}
         <path d={needlePath(cx, cy, r - 24, angle)} stroke={angle == null ? C.dim : C.cyan} strokeWidth={4} strokeLinecap="round" />
         <circle cx={cx} cy={cy} r={5} fill={C.text} />
-        <text x={cx} y={176} textAnchor="middle" fill={angle == null ? C.dim : C.text} fontFamily={FONT_BIG} fontSize={34} fontWeight={800}>
+        <text x={cx} y={176} textAnchor="middle" fill={angle == null ? C.dim : C.text} fontFamily={FONT_BIG} fontSize={34} fontWeight={800} {...legibleStroke(34)}>
           {signedDisplay}
         </text>
-        <text x={cx + 38} y={162} fill={angle == null ? C.dim : C.cyan} fontFamily={FONT_LABEL} fontSize={18} fontWeight={800}>
+        <text x={cx + 38} y={162} fill={angle == null ? C.dim : C.cyan} fontFamily={FONT_LABEL} fontSize={18} fontWeight={800} {...LEGIBLE}>
           °
         </text>
       </g>

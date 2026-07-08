@@ -1,78 +1,21 @@
-﻿import { type ReactElement, type ReactNode } from 'react'
+import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { Bar, C, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, LedRow, fixed, frac, gearLabel, num } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, Hairline, fixed, frac, gearLabel, legibleStroke, num } from '../kit'
 
 const W = 420
 const H = 286
 const CYAN = '#19c9ff'
-const BLUE = '#1ea7ff'
 const GREEN = '#28dd4b'
 const YELLOW = '#ffd32d'
 const RED = '#ff2026'
 const WHITE = '#f4f5f7'
 
-interface TileProps {
-  label: string
-  width?: number
-  height?: number
-  children: ReactNode
-}
-
-interface Tick {
-  value: number
-  label: string
-}
-
-function cleanId(label: string, w: number, h: number): string {
-  return `drive-${label.replace(/\W+/g, '-').toLowerCase()}-${Math.round(w)}-${Math.round(h)}`
-}
-
-function Tile({ label, width, height, children }: TileProps): ReactElement {
-  const w = width ?? W
-  const h = height ?? H
-  const id = cleanId(label, w, h)
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} preserveAspectRatio="xMidYMid meet" role="img" aria-label={label}>
-      <defs>
-        <pattern id={`${id}-carbon`} width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
-          <rect width="8" height="8" fill="#050607" />
-          <path d="M0 0 h2 v8 h-2z" fill="rgba(255,255,255,0.025)" />
-        </pattern>
-        <linearGradient id={`${id}-rim`} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="rgba(255,255,255,0.36)" />
-          <stop offset="0.5" stopColor="rgba(255,255,255,0.08)" />
-          <stop offset="1" stopColor="rgba(255,255,255,0.28)" />
-        </linearGradient>
-        <filter id={`${id}-soft-glow`} x="-55%" y="-55%" width="210%" height="210%">
-          <feGaussianBlur stdDeviation="3" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-        <filter id={`${id}-led-glow`} x="-90%" y="-90%" width="280%" height="280%">
-          <feGaussianBlur stdDeviation="5" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-      </defs>
-      <rect width={w} height={h} rx={20} fill={C.bg} />
-      <rect x={2} y={2} width={w - 4} height={h - 4} rx={20} fill={`url(#${id}-carbon)`} stroke={`url(#${id}-rim)`} strokeWidth={2} />
-      <rect x={16} y={20} width={w - 32} height={h - 40} rx={13} fill="rgba(0,0,0,0.42)" stroke={CYAN} strokeWidth={1.2} />
-      <rect x={28} y={19} width={92} height={3} fill="#070808" />
-      <rect x={w - 120} y={19} width={92} height={3} fill="#070808" />
-      <text x={w / 2} y={30} textAnchor="middle" fill="#c9cbd0" fontFamily={FONT_LABEL} fontSize={22} fontWeight={800} letterSpacing={5}>
-        {label.toUpperCase()}
-      </text>
-      <g filter={`url(#${id}-soft-glow)`}>{children}</g>
-    </svg>
-  )
-}
-
 function valueColor(value: number | undefined, color = WHITE): string {
   return value == null ? C.dim : color
+}
+
+function driveGearLabel(gear: number | undefined): string {
+  return gear == null ? '?' : gearLabel(gear)
 }
 
 function rpmFraction(rpm: number | undefined, maxRpm: number | undefined): number {
@@ -88,17 +31,28 @@ function rpmColor(f: number, missing: boolean): string {
   return RED
 }
 
+function shiftFraction(snapshot: HifiWidgetProps['snapshot']): { f: number; missing: boolean } {
+  const shiftPct = num(snapshot?.shiftIndicatorPct)
+  if (shiftPct != null) return { f: frac(shiftPct, 0, 1), missing: false }
+
+  const rpm = num(snapshot?.rpm)
+  const maxRpm = num(snapshot?.maxRpm)
+  if (rpm != null && maxRpm != null && maxRpm > 0) return { f: rpmFraction(rpm, maxRpm), missing: false }
+
+  return { f: 0, missing: true }
+}
+
 function SpeedWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const speed = num(snapshot?.speedKmh)
   return (
-    <Tile label="Speed" width={width} height={height}>
-      <text x="50%" y="55%" textAnchor="middle" dominantBaseline="middle" fill={valueColor(speed)} fontFamily={FONT_BIG} fontSize={106} fontWeight={900} letterSpacing={-5}>
+    <CleanTile width={width ?? W} height={height ?? H}>
+      <text x="50%" y="53%" textAnchor="middle" dominantBaseline="middle" fill={valueColor(speed)} fontFamily={FONT_BIG} fontSize={112} fontWeight={900} letterSpacing={-5} {...legibleStroke(112)}>
         {fixed(speed)}
       </text>
-      <text x="50%" y={H - 58} textAnchor="middle" fill={speed == null ? C.dim : CYAN} fontFamily={FONT_LABEL} fontSize={34} fontWeight={700}>
+      <text x="50%" y={224} textAnchor="middle" fill={speed == null ? C.dim : CYAN} fontFamily={FONT_LABEL} fontSize={34} fontWeight={700} {...legibleStroke(34)}>
         km/h
       </text>
-    </Tile>
+    </CleanTile>
   )
 }
 
@@ -116,27 +70,10 @@ function RpmTicks({ rpm, maxRpm, cx, cy, radius }: { rpm: number | undefined; ma
     const y1 = cy + Math.sin(angle) * r1
     const x2 = cx + Math.cos(angle) * r2
     const y2 = cy + Math.sin(angle) * r2
-    const zone = pct
-    const color = rpmAtTick <= current ? rpmColor(zone, false) : zone > 0.84 ? RED : zone > 0.72 ? YELLOW : CYAN
+    const color = rpmAtTick <= current ? rpmColor(pct, false) : pct > 0.84 ? RED : pct > 0.72 ? YELLOW : CYAN
     return <path key={i} d={`M${x1} ${y1} L${x2} ${y2}`} stroke={color} strokeWidth={major ? 4 : 2.2} opacity={rpmAtTick <= current ? 1 : 0.62} />
   })
-  const labels: Tick[] = [0, 2, 4, 6, 8, 10, 12, 14, 16].map((v) => ({ value: v, label: String(v) }))
-  return (
-    <g>
-      {ticks}
-      {labels.map((tick) => {
-        const pct = tick.value / 16
-        const angle = (-220 + pct * 280) * (Math.PI / 180)
-        const x = cx + Math.cos(angle) * (radius - 50)
-        const y = cy + Math.sin(angle) * (radius - 50) + 8
-        return (
-          <text key={tick.value} x={x} y={y} textAnchor="middle" fill={tick.value >= 14 ? RED : WHITE} fontFamily={FONT_NUM} fontSize={22} fontWeight={800}>
-            {tick.label}
-          </text>
-        )
-      })}
-    </g>
-  )
+  return <g>{ticks}</g>
 }
 
 function RpmWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
@@ -144,92 +81,75 @@ function RpmWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const maxRpm = num(snapshot?.maxRpm)
   const f = rpmFraction(rpm, maxRpm)
   return (
-    <Tile label="RPM" width={width} height={height}>
-      <GaugeArc cx={210} cy={167} r={84} thickness={11} f={f} color={rpmColor(f, rpm == null)} />
-      <RpmTicks rpm={rpm} maxRpm={maxRpm} cx={210} cy={167} radius={124} />
-      <circle cx={210} cy={167} r={58} fill="rgba(2,4,6,0.78)" stroke="rgba(25,201,255,0.45)" />
-      <text x={210} y={165} textAnchor="middle" fill={valueColor(rpm)} fontFamily={FONT_NUM} fontSize={38} fontWeight={900} letterSpacing={-1}>
+    <CleanTile width={width ?? W} height={height ?? H}>
+      <GaugeArc cx={210} cy={154} r={86} thickness={12} f={f} color={rpmColor(f, rpm == null)} />
+      <RpmTicks rpm={rpm} maxRpm={maxRpm} cx={210} cy={154} radius={124} />
+      <circle cx={210} cy={154} r={59} fill="rgba(0,0,0,0.22)" stroke="rgba(255,255,255,0.10)" />
+      <text x={210} y={165} textAnchor="middle" fill={valueColor(rpm)} fontFamily={FONT_NUM} fontSize={42} fontWeight={900} letterSpacing={-1} {...legibleStroke(42)}>
         {fixed(rpm)}
       </text>
-      <text x={210} y={198} textAnchor="middle" fill={rpm == null ? C.dim : CYAN} fontFamily={FONT_LABEL} fontSize={24} fontWeight={800} letterSpacing={4}>
-        RPM
-      </text>
-    </Tile>
+    </CleanTile>
   )
 }
 
 function SegmentedRpmBar({ f, x, y, w, h, missing }: { f: number; x: number; y: number; w: number; h: number; missing: boolean }): ReactElement {
   const count = 20
-  const gap = 4
+  const gap = 5
   const cellW = (w - gap * (count - 1)) / count
-  const lit = Math.round(Math.max(0, Math.min(1, f)) * count)
+  const lit = Math.round(frac(f, 0, 1) * count)
   return (
     <g>
       {Array.from({ length: count }, (_, i) => {
         const pct = i / (count - 1)
-        const color = pct < 0.36 ? BLUE : pct < 0.62 ? GREEN : pct < 0.8 ? YELLOW : RED
-        return <rect key={i} x={x + i * (cellW + gap)} y={y} width={cellW} height={h} rx={3} fill={i < lit && !missing ? color : C.recess} stroke="rgba(255,255,255,0.10)" opacity={i < lit && !missing ? 1 : 0.58} />
+        const color = pct < 0.55 ? GREEN : pct < 0.78 ? YELLOW : RED
+        const on = i < lit && !missing
+        return <rect key={i} x={x + i * (cellW + gap)} y={y} width={cellW} height={h} rx={5} fill={on ? color : C.recess} opacity={on ? 1 : 0.42} />
       })}
     </g>
   )
 }
 
 function RpmBarWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
-  const rpm = num(snapshot?.rpm)
-  const maxRpm = num(snapshot?.maxRpm)
-  const f = rpmFraction(rpm, maxRpm)
-  const ticks: Tick[] = [0, 4, 8, 12, 16].map((value) => ({ value, label: String(value) }))
+  const { f, missing } = shiftFraction(snapshot)
   return (
-    <Tile label="RPM Bar" width={width} height={height}>
-      <SegmentedRpmBar f={f} x={36} y={112} w={348} h={58} missing={rpm == null} />
-      <path d="M36 180 h348" stroke="rgba(255,255,255,0.32)" strokeWidth={2} />
-      {ticks.map((tick) => {
-        const x = 36 + (tick.value / 16) * 348
-        return (
-          <g key={tick.value}>
-            <path d={`M${x} 176 v8`} stroke="rgba(255,255,255,0.65)" strokeWidth={2} />
-            <text x={x} y={204} textAnchor="middle" fill={tick.value === 16 ? RED : WHITE} fontFamily={FONT_NUM} fontSize={20} fontWeight={800}>
-              {tick.label}
-            </text>
-          </g>
-        )
-      })}
-      <text x={210} y={230} textAnchor="middle" fill={rpm == null ? C.dim : CYAN} fontFamily={FONT_LABEL} fontSize={22} fontWeight={800} letterSpacing={2}>
-        x1000 RPM
-      </text>
-      <Bar x={84} y={244} w={252} h={5} f={f} color={rpmColor(f, rpm == null)} />
-    </Tile>
+    <CleanTile width={width ?? W} height={height ?? H}>
+      <SegmentedRpmBar f={f} x={18} y={108} w={384} h={70} missing={missing} />
+    </CleanTile>
   )
 }
 
 function GearWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const gear = num(snapshot?.gear)
-  const label = gearLabel(gear)
+  const { f } = shiftFraction(snapshot)
+  const color = gear == null ? C.dim : rpmColor(f, false)
   return (
-    <Tile label="Gear" width={width} height={height}>
-      <text x="50%" y="56%" textAnchor="middle" dominantBaseline="middle" fill={gear == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontSize={174} fontWeight={900}>
-        {label}
+    <CleanTile width={width ?? W} height={height ?? H}>
+      <text x="50%" y="53%" textAnchor="middle" dominantBaseline="middle" fill={color} fontFamily={FONT_BIG} fontSize={184} fontWeight={900} {...legibleStroke(184)}>
+        {driveGearLabel(gear)}
       </text>
-    </Tile>
+    </CleanTile>
   )
 }
 
-function ShiftLedArc({ f, missing }: { f: number; missing: boolean }): ReactElement {
-  const count = 8
-  const lit = Math.round(Math.max(0, Math.min(1, f)) * count)
+function RevLedStrip({ f, missing }: { f: number; missing: boolean }): ReactElement {
+  const count = 16
+  const gap = 4
+  const x = 0
+  const y = 0
+  const w = 420
+  const h = 46
+  const cellW = (w - gap * (count - 1)) / count
+  const lit = Math.round(frac(f, 0, 1) * count)
   return (
     <g>
       {Array.from({ length: count }, (_, i) => {
-        const t = i / (count - 1)
-        const x = 72 + i * 39.5
-        const y = 151 - Math.sin(t * Math.PI) * 29
-        const color = t < 0.28 ? BLUE : t < 0.58 ? GREEN : t < 0.78 ? YELLOW : RED
-        const on = !missing && i < lit
+        const pct = i / (count - 1)
+        const color = pct < 0.5 ? GREEN : pct < 0.75 ? YELLOW : RED
+        const on = i < lit && !missing
         return (
-          <g key={i} filter={on ? 'url(#drive-shift-rev-lights-420-286-led-glow)' : undefined}>
-            <circle cx={x} cy={y} r={16} fill={on ? color : '#111419'} opacity={on ? 0.32 : 0.8} />
-            <circle cx={x} cy={y} r={11} fill={on ? color : C.recess} stroke={on ? color : 'rgba(255,255,255,0.16)'} strokeWidth={2} />
-            <circle cx={x - 4} cy={y - 5} r={3.5} fill="rgba(255,255,255,0.75)" opacity={on ? 0.85 : 0.18} />
+          <g key={i}>
+            <rect x={x + i * (cellW + gap)} y={y} width={cellW} height={h} rx={4} fill={on ? color : C.recess} opacity={on ? 1 : 0.45} />
+            {on ? <rect x={x + i * (cellW + gap) + 3} y={y + 4} width={Math.max(0, cellW - 6)} height={7} rx={2} fill="rgba(255,255,255,0.34)" /> : null}
           </g>
         )
       })}
@@ -238,16 +158,11 @@ function ShiftLedArc({ f, missing }: { f: number; missing: boolean }): ReactElem
 }
 
 function RevLightsWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
-  const shiftPct = num(snapshot?.shiftIndicatorPct)
-  const f = shiftPct == null ? 0 : Math.max(0, Math.min(1, shiftPct))
+  const { f, missing } = shiftFraction(snapshot)
   return (
-    <Tile label="Shift / Rev Lights" width={width} height={height}>
-      <LedRow x={69} y={106} w={282} h={8} f={f} count={8} />
-      <ShiftLedArc f={f} missing={shiftPct == null} />
-      <text x={210} y={222} textAnchor="middle" fill={shiftPct == null ? C.dim : CYAN} fontFamily={FONT_NUM} fontSize={24} fontWeight={800}>
-        {shiftPct == null ? '—' : `${fixed(f * 100)}%`}
-      </text>
-    </Tile>
+    <CleanTile width={width ?? W} height={height ?? H}>
+      <RevLedStrip f={f} missing={missing} />
+    </CleanTile>
   )
 }
 
@@ -255,18 +170,155 @@ function SpeedGearWidget({ snapshot, width, height }: HifiWidgetProps): ReactEle
   const speed = num(snapshot?.speedKmh)
   const gear = num(snapshot?.gear)
   return (
-    <Tile label="Speed + Gear" width={width} height={height}>
-      <text x={142} y={157} textAnchor="middle" fill={valueColor(speed)} fontFamily={FONT_BIG} fontSize={78} fontWeight={900} letterSpacing={-4}>
+    <CleanTile width={width ?? W} height={height ?? H}>
+      <text x={142} y={157} textAnchor="middle" fill={valueColor(speed)} fontFamily={FONT_BIG} fontSize={82} fontWeight={900} letterSpacing={-4} {...legibleStroke(82)}>
         {fixed(speed)}
       </text>
-      <text x={142} y={198} textAnchor="middle" fill={speed == null ? C.dim : CYAN} fontFamily={FONT_LABEL} fontSize={28} fontWeight={700}>
+      <text x={142} y={199} textAnchor="middle" fill={speed == null ? C.dim : CYAN} fontFamily={FONT_LABEL} fontSize={28} fontWeight={700} {...legibleStroke(28)}>
         km/h
       </text>
-      <path d="M268 70 v166" stroke={gear == null && speed == null ? C.dim : CYAN} strokeWidth={1.4} opacity={0.75} />
-      <text x={336} y={163} textAnchor="middle" fill={gear == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontSize={90} fontWeight={900}>
-        {gearLabel(gear)}
+      <Hairline x={268} y={62} len={172} vertical opacity={0.22} />
+      <text x={336} y={166} textAnchor="middle" fill={gear == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontSize={96} fontWeight={900} {...legibleStroke(96)}>
+        {driveGearLabel(gear)}
       </text>
-    </Tile>
+    </CleanTile>
+  )
+}
+
+const REV_WIDE_W = 960
+const REV_WIDE_H = 90
+const REV_MUSTANG_W = 520
+const REV_MUSTANG_H = 90
+const ORANGE = '#ff7a00'
+const BLUE_OVERRUN = '#009dff'
+
+function revRampColor(pct: number): string {
+  if (pct < 0.32) return GREEN
+  if (pct < 0.58) return YELLOW
+  if (pct < 0.75) return '#ffb020'
+  if (pct < 0.88) return ORANGE
+  return RED
+}
+
+function RevlightsGradientWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+  const { f, missing } = shiftFraction(snapshot)
+  const w = width ?? REV_WIDE_W
+  const h = height ?? REV_WIDE_H
+  const x = 24
+  const y = h / 2 - 15
+  const barW = w - x * 2
+  const barH = 30
+  const litW = missing ? 0 : barW * f
+  return (
+    <CleanTile width={w} height={h}>
+      <defs>
+        <linearGradient id="drive-revlights-gradient-fill" x1={x} x2={x + barW} y1="0" y2="0" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#12ff00" />
+          <stop offset="42%" stopColor="#f8ff00" />
+          <stop offset="68%" stopColor={ORANGE} />
+          <stop offset="100%" stopColor={RED} />
+        </linearGradient>
+        <clipPath id="drive-revlights-gradient-clip">
+          <rect x={x} y={y} width={barW} height={barH} rx={barH / 2} />
+        </clipPath>
+        <filter id="drive-revlights-gradient-glow" x="-10%" y="-120%" width="120%" height="340%">
+          <feGaussianBlur stdDeviation="7" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+      <rect x={x} y={y} width={barW} height={barH} rx={barH / 2} fill={C.recess} opacity={0.5} />
+      <g clipPath="url(#drive-revlights-gradient-clip)">
+        <rect x={x} y={y} width={litW} height={barH} fill="url(#drive-revlights-gradient-fill)" filter={litW > 0 ? 'url(#drive-revlights-gradient-glow)' : undefined} />
+      </g>
+    </CleanTile>
+  )
+}
+
+function RevlightsLedStripWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+  const { f, missing } = shiftFraction(snapshot)
+  const w = width ?? REV_WIDE_W
+  const h = height ?? REV_WIDE_H
+  const count = 42
+  const gap = 7
+  const x = 20
+  const y = 16
+  const stripW = w - x * 2
+  const ledW = (stripW - gap * (count - 1)) / count
+  const lit = missing ? 0 : Math.round(f * count)
+  return (
+    <CleanTile width={w} height={h}>
+      {Array.from({ length: count }, (_, i) => {
+        const pct = i / (count - 1)
+        const on = i < lit
+        return <rect key={i} x={x + i * (ledW + gap)} y={y} width={ledW} height={58} rx={2} fill={on ? revRampColor(pct) : C.recess} opacity={on ? 1 : 0.48} />
+      })}
+    </CleanTile>
+  )
+}
+
+function RevlightsLedBarWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+  const { f, missing } = shiftFraction(snapshot)
+  const w = width ?? REV_WIDE_W
+  const h = height ?? REV_WIDE_H
+  const count = 16
+  const gap = 12
+  const x = 22
+  const y = 15
+  const barW = w - x * 2
+  const ledW = (barW - gap * (count - 1)) / count
+  const lit = missing ? 0 : Math.round(f * count)
+  const flashBlue = !missing && f >= 0.97
+  return (
+    <CleanTile width={w} height={h}>
+      {Array.from({ length: count }, (_, i) => {
+        const pct = i / (count - 1)
+        const overrun = flashBlue && i >= count - 2
+        const on = i < lit || overrun
+        const color = overrun ? BLUE_OVERRUN : revRampColor(pct)
+        return (
+          <g key={i}>
+            <rect x={x + i * (ledW + gap)} y={y} width={ledW} height={60} rx={7} fill={on ? color : C.recess} opacity={on ? 1 : 0.45} />
+            {on ? <rect x={x + i * (ledW + gap) + 6} y={y + 5} width={Math.max(0, ledW - 12)} height={10} rx={3} fill="rgba(255,255,255,0.28)" /> : null}
+          </g>
+        )
+      })}
+    </CleanTile>
+  )
+}
+
+function mustangDotColor(index: number, half: 'left' | 'right', countPerSide: number): string {
+  const outward = index / Math.max(1, countPerSide - 1)
+  if (half === 'left') return outward < 0.45 ? YELLOW : GREEN
+  return outward < 0.45 ? '#ffb020' : RED
+}
+
+function RevlightsMustangWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+  const { f, missing } = shiftFraction(snapshot)
+  const w = width ?? REV_MUSTANG_W
+  const h = height ?? REV_MUSTANG_H
+  const countPerSide = 8
+  const gap = 26
+  const centerX = w / 2
+  const cy = h / 2
+  const litPairs = missing ? 0 : Math.round(f * countPerSide)
+  return (
+    <CleanTile width={w} height={h}>
+      <Hairline x={centerX - 0.5} y={18} len={54} vertical opacity={0.45} />
+      {Array.from({ length: countPerSide }, (_, i) => {
+        const pairLit = i < litPairs
+        const leftX = centerX - 24 - i * gap
+        const rightX = centerX + 24 + i * gap
+        return (
+          <g key={i}>
+            <circle cx={leftX} cy={cy} r={10} fill={pairLit ? mustangDotColor(i, 'left', countPerSide) : C.recess} opacity={pairLit ? 1 : 0.45} />
+            <circle cx={rightX} cy={cy} r={10} fill={pairLit ? mustangDotColor(i, 'right', countPerSide) : C.recess} opacity={pairLit ? 1 : 0.45} />
+          </g>
+        )
+      })}
+    </CleanTile>
   )
 }
 
@@ -317,7 +369,7 @@ export const gearWidget: HifiWidgetModule = {
 export const revlightsWidget: HifiWidgetModule = {
   id: 'revlights',
   title: 'Rev Lights',
-  description: 'Blue-to-red shift LED arc with shift percentage.',
+  description: 'Blue-to-red shift LED strip.',
   category: 'drive',
   tags: ['revlights', 'led', 'shift'],
   requires: ['shiftIndicatorPct'],
@@ -334,4 +386,48 @@ export const speedGearWidget: HifiWidgetModule = {
   requires: ['speedKmh', 'gear'],
   defaultSize: { w: W, h: H },
   render: (props) => <SpeedGearWidget {...props} />
+}
+
+export const revlightsGradientWidget: HifiWidgetModule = {
+  id: 'revlightsGradient',
+  title: 'Rev Lights Gradient',
+  description: 'Smooth horizontal rev-lights gradient bar.',
+  category: 'drive',
+  tags: ['rev-lights', 'gradient', 'rpm', 'shift'],
+  requires: ['shiftIndicatorPct', 'rpm', 'maxRpm'],
+  defaultSize: { w: REV_WIDE_W, h: REV_WIDE_H },
+  render: (props) => <RevlightsGradientWidget {...props} />
+}
+
+export const revlightsLedStripWidget: HifiWidgetModule = {
+  id: 'revlightsLedStrip',
+  title: 'Rev Lights LED Strip',
+  description: 'Dense thin-segment rev-lights strip.',
+  category: 'drive',
+  tags: ['rev-lights', 'led-strip', 'rpm', 'shift'],
+  requires: ['shiftIndicatorPct', 'rpm', 'maxRpm'],
+  defaultSize: { w: REV_WIDE_W, h: REV_WIDE_H },
+  render: (props) => <RevlightsLedStripWidget {...props} />
+}
+
+export const revlightsLedBarWidget: HifiWidgetModule = {
+  id: 'revlightsLedBar',
+  title: 'Rev Lights LED Bar',
+  description: 'Chunky LED rev-lights bar with blue over-rev LEDs.',
+  category: 'drive',
+  tags: ['rev-lights', 'led-bar', 'rpm', 'shift'],
+  requires: ['shiftIndicatorPct', 'rpm', 'maxRpm'],
+  defaultSize: { w: REV_WIDE_W, h: REV_WIDE_H },
+  render: (props) => <RevlightsLedBarWidget {...props} />
+}
+
+export const revlightsMustangWidget: HifiWidgetModule = {
+  id: 'revlightsMustang',
+  title: 'Rev Lights Mustang',
+  description: 'Center-out Mustang-style shift dot cluster.',
+  category: 'drive',
+  tags: ['rev-lights', 'mustang', 'rpm', 'shift', 'center'],
+  requires: ['shiftIndicatorPct', 'rpm', 'maxRpm'],
+  defaultSize: { w: REV_MUSTANG_W, h: REV_MUSTANG_H },
+  render: (props) => <RevlightsMustangWidget {...props} />
 }

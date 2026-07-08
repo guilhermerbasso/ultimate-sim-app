@@ -17,6 +17,16 @@ describe('TYRES_WIDGETS', () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
+  it('includes the per-corner tyre image temperature modules', () => {
+    for (const corner of ['FL', 'FR', 'RL', 'RR']) {
+      const widget = TYRES_WIDGETS.find((item) => item.id === `tyreTempImg${corner}`)
+      expect(widget).toBeDefined()
+      expect(widget?.category).toBe('tyres')
+      expect(widget?.tags).toEqual(expect.arrayContaining(['tyre-temp', 'tyre-image']))
+      expect(widget?.requires).toEqual(expect.arrayContaining(['tyres']))
+    }
+  })
+
   it('renders base, null, and extreme invalid snapshots without unsafe tokens', () => {
     const extreme: TelemetrySnapshot = {
       ...baseSnapshot(),

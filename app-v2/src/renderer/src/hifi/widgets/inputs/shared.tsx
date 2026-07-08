@@ -1,6 +1,6 @@
 import { type ReactElement, type ReactNode } from 'react'
 import type { HifiWidgetProps } from '../types'
-import { C, FONT_BIG, FONT_LABEL, FONT_NUM, VBar, Bar, clamp01, fixed, frac, num } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, LEGIBLE, VBar, Bar, clamp01, fixed, frac, legibleStroke, num } from '../kit'
 
 export const SINGLE_W = 180
 export const SINGLE_H = 220
@@ -29,7 +29,6 @@ export function WidgetSvg({
   w,
   h,
   label,
-  accent,
   children
 }: {
   w: number
@@ -39,25 +38,14 @@ export function WidgetSvg({
   children: ReactNode
 }): ReactElement {
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} preserveAspectRatio="xMidYMid meet" role="img" aria-label={label}>
+    <CleanTile width={w} height={h}>
       <defs>
-        <pattern id={`${label}-carbon`} width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
-          <rect width="10" height="10" fill={C.panel} />
-          <path d="M0 0 h3 v10 h-3z" fill="rgba(255,255,255,0.025)" />
-        </pattern>
         <filter id={`${label}-soft`} x="-40%" y="-40%" width="180%" height="180%">
           <feGaussianBlur stdDeviation="3" />
         </filter>
       </defs>
-      <rect x={0} y={0} width={w} height={h} fill={C.bg} />
-      <rect x={1} y={1} width={w - 2} height={h - 2} rx={12} fill={`url(#${label}-carbon)`} stroke="rgba(255,255,255,0.22)" />
-      <rect x={5} y={5} width={w - 10} height={h - 10} rx={9} fill="none" stroke="rgba(255,255,255,0.07)" />
-      <text x={w / 2} y={25} textAnchor="middle" fill={C.text} fontFamily={FONT_LABEL} fontSize={15} fontWeight={800} letterSpacing={3}>
-        {label.toUpperCase()}
-      </text>
-      <rect x={18} y={38} width={w - 36} height={1} fill={accent} opacity={0.18} />
       {children}
-    </svg>
+    </CleanTile>
   )
 }
 
@@ -88,7 +76,7 @@ export function PercentBarWidget({
           return (
             <g key={tick}>
               <line x1={barX - 7} x2={barX - 2} y1={y} y2={y} stroke={C.dim} strokeWidth={1} />
-              <text x={barX - 10} y={y + 4} textAnchor="end" fill={C.text} fontFamily={FONT_NUM} fontSize={10}>
+              <text x={barX - 10} y={y + 4} textAnchor="end" fill={C.text} fontFamily={FONT_NUM} fontSize={10} {...LEGIBLE}>
                 {tick}
               </text>
             </g>
@@ -97,10 +85,10 @@ export function PercentBarWidget({
         <VBar x={barX} y={barY} w={barW} h={barH} f={f} color={color} />
         <rect x={barX + 3} y={barY + 3} width={barW - 6} height={barH - 6} rx={(barW - 6) / 2} fill="none" stroke="rgba(255,255,255,0.18)" />
         <rect x={barX + 5} y={barY + barH - Math.max(0, barH * f) - 10} width={barW - 10} height={14} rx={7} fill={color} opacity={pct == null ? 0 : 0.35} filter={`url(#${label}-soft)`} />
-        <text x={w - 42} y={118} textAnchor="middle" fill={valueColor(pct, C.text)} fontFamily={FONT_BIG} fontSize={46} fontWeight={800}>
+        <text x={w - 42} y={118} textAnchor="middle" fill={valueColor(pct, C.text)} fontFamily={FONT_BIG} fontSize={46} fontWeight={800} {...legibleStroke(46)}>
           {inputPctText(value)}
         </text>
-        <text x={w - 42} y={148} textAnchor="middle" fill={valueColor(pct, color)} fontFamily={FONT_LABEL} fontSize={24} fontWeight={800}>
+        <text x={w - 42} y={148} textAnchor="middle" fill={valueColor(pct, color)} fontFamily={FONT_LABEL} fontSize={24} fontWeight={800} {...LEGIBLE}>
           %
         </text>
       </g>
@@ -129,13 +117,13 @@ export function MiniVBar({
   const pct = pctValue(value)
   return (
     <g>
-      <text x={x + w / 2} y={y - 12} textAnchor="middle" fill={valueColor(pct, color)} fontFamily={FONT_LABEL} fontSize={13} fontWeight={800} letterSpacing={1.6}>
+      <text x={x + w / 2} y={y - 12} textAnchor="middle" fill={valueColor(pct, color)} fontFamily={FONT_LABEL} fontSize={13} fontWeight={800} letterSpacing={1.6} {...LEGIBLE}>
         {label}
       </text>
       <VBar x={x} y={y} w={w} h={h} f={f} color={color} />
       <rect x={x + 3} y={y + 3} width={w - 6} height={h - 6} rx={(w - 6) / 2} fill="none" stroke="rgba(255,255,255,0.18)" />
-      <text x={x + w / 2} y={y + h + 22} textAnchor="middle" fill={C.text} fontFamily={FONT_NUM} fontSize={15} fontWeight={800}>
-        {inputPctText(value)}
+      <text x={x + w / 2} y={y + h + 22} textAnchor="middle" fill={C.text} fontFamily={FONT_NUM} fontSize={15} fontWeight={800} {...LEGIBLE}>
+        {inputPctText(value)}%
       </text>
     </g>
   )
@@ -157,13 +145,15 @@ export function TraceBar({
   value: unknown
 }): ReactElement {
   const pct = pctValue(value)
+  const barX = x + 58
+  const barW = Math.max(24, w - 58)
   return (
     <g>
-      <text x={x} y={y - 9} fill={valueColor(pct, color)} fontFamily={FONT_LABEL} fontSize={13} fontWeight={800} letterSpacing={1.8}>
+      <text x={x} y={y + 16} fill={valueColor(pct, color)} fontFamily={FONT_LABEL} fontSize={14} fontWeight={800} letterSpacing={1.8} {...LEGIBLE}>
         {label}
       </text>
-      <Bar x={x} y={y} w={w} h={22} f={pctFrac(value)} color={color} />
-      <text x={x + w - 8} y={y + 16} textAnchor="end" fill={C.text} fontFamily={FONT_NUM} fontSize={14} fontWeight={800}>
+      <Bar x={barX} y={y} w={barW} h={22} f={pctFrac(value)} color={color} />
+      <text x={x + w - 8} y={y + 16} textAnchor="end" fill={C.text} fontFamily={FONT_NUM} fontSize={14} fontWeight={800} {...LEGIBLE}>
         {inputPctText(value)}%
       </text>
     </g>

@@ -1,6 +1,6 @@
 import { type ReactElement, type ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { Bar, BigNum, C, FONT_LABEL, Frame, GaugeArc, VBar, fixed, num, signed } from '../kit'
+import { Bar, BigNum, C, CleanTile, FONT_BIG, FONT_LABEL, GaugeArc, LEGIBLE, VBar, condColor, fixed, legibleStroke, num, signed } from '../kit'
 
 const W = 420
 const H = 286
@@ -50,25 +50,19 @@ function Tile({
   width,
   height,
   label,
-  children,
-  aria
+  children
 }: {
   width?: number
   height?: number
   label: string
   children: ReactNode
-  aria?: string
 }): ReactElement {
   const w = width ?? W
   const h = height ?? H
   const id = `fuel-${label.replace(/\W+/g, '-').toLowerCase()}-${Math.round(w)}-${Math.round(h)}`
   return (
-    <Frame w={w} h={h} label={aria ?? label} accent={AMBER}>
+    <CleanTile width={w} height={h}>
       <defs>
-        <pattern id={`${id}-carbon`} width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(35)">
-          <rect width="9" height="9" fill="#070808" />
-          <path d="M0 0 h2 v9 h-2z" fill="rgba(255,255,255,0.025)" />
-        </pattern>
         <filter id={`${id}-glow`} x="-45%" y="-45%" width="190%" height="190%">
           <feGaussianBlur stdDeviation="2.8" result="blur" />
           <feMerge>
@@ -77,14 +71,9 @@ function Tile({
           </feMerge>
         </filter>
       </defs>
-      <rect x={8} y={8} width={w - 16} height={h - 16} rx={16} fill={`url(#${id}-carbon)`} stroke="rgba(242,180,43,0.8)" />
-      <rect x={14} y={14} width={w - 28} height={h - 28} rx={13} fill="none" stroke="rgba(255,255,255,0.07)" />
-      <FuelIcon x={28} y={28} />
-      <text x={86} y={60} fill={AMBER} fontFamily={FONT_LABEL} fontSize={30} fontWeight={800} letterSpacing={4}>
-        {label.toUpperCase()}
-      </text>
+      <FuelIcon x={28} y={24} />
       <g filter={`url(#${id}-glow)`}>{children}</g>
-    </Frame>
+    </CleanTile>
   )
 }
 
@@ -123,12 +112,12 @@ export function FuelWidget({ snapshot, width, height }: HifiWidgetProps): ReactE
   return (
     <Tile width={width} height={height} label="Fuel">
       <BigNum x={170} y={176} value={fixed(fuel, 1)} unit="L" color={fuel == null ? C.dim : WHITE} size={86} />
-      <text x={342} y={88} fill={C.text} fontFamily={FONT_LABEL} fontSize={22} fontWeight={800}>
+      <text x={342} y={88} fill={C.text} fontFamily={FONT_LABEL} fontSize={22} fontWeight={800} {...LEGIBLE}>
         F
       </text>
       <SegmentedFuelBar x={300} y={90} w={30} h={132} f={f} color={color} />
       <FuelLevelTicks x={340} y={88} h={134} />
-      <text x={342} y={226} fill={C.text} fontFamily={FONT_LABEL} fontSize={22} fontWeight={800}>
+      <text x={342} y={226} fill={C.text} fontFamily={FONT_LABEL} fontSize={22} fontWeight={800} {...LEGIBLE}>
         E
       </text>
     </Tile>
@@ -140,7 +129,7 @@ export function FuelLapsWidget({ snapshot, width, height }: HifiWidgetProps): Re
   return (
     <Tile width={width} height={height} label="Fuel Laps">
       <BigNum x={210} y={178} value={fixed(laps, 1)} unit="" color={laps == null ? C.dim : WHITE} size={96} />
-      <text x={316} y={222} textAnchor="middle" fill={AMBER} fontFamily={FONT_LABEL} fontSize={34} fontWeight={800} letterSpacing={3}>
+      <text x={316} y={222} textAnchor="middle" fill={AMBER} fontFamily={FONT_LABEL} fontSize={34} fontWeight={800} letterSpacing={3} {...LEGIBLE}>
         LAPS
       </text>
     </Tile>
@@ -168,7 +157,7 @@ export function FuelPerLapWidget({ snapshot, width, height }: HifiWidgetProps): 
         return <path key={i} d={`M${x1} ${y1} L${x2} ${y2}`} stroke={i < 6 ? CYAN : i > 12 ? AMBER : 'rgba(255,255,255,0.35)'} strokeWidth={i % 4 === 0 ? 3 : 1.8} />
       })}
       <BigNum x={178} y={238} value={fixed(perLap, 2)} unit="" color={perLap == null ? C.dim : WHITE} size={56} />
-      <text x={278} y={238} fill={AMBER} fontFamily={FONT_LABEL} fontSize={24} fontWeight={800} letterSpacing={1.5}>
+      <text x={278} y={238} fill={AMBER} fontFamily={FONT_LABEL} fontSize={24} fontWeight={800} letterSpacing={1.5} {...LEGIBLE}>
         L/LAP
       </text>
     </Tile>
@@ -179,13 +168,28 @@ export function FuelDeltaWidget({ snapshot, width, height }: HifiWidgetProps): R
   const fuelLaps = fuelLapsRemaining(snapshot)
   const raceLaps = num(snapshot?.lapsRemaining)
   const delta = fuelLaps != null && raceLaps != null ? fuelLaps - raceLaps : undefined
-  const color = delta == null ? C.dim : delta >= 0 ? GREEN : RED
+  const color = condColor(delta, { positiveIsGood: true, deadzone: 0.05, good: GREEN, bad: RED })
   const barF = delta == null ? 0.5 : 0.5 + Math.max(-MAX_DELTA_LAPS, Math.min(MAX_DELTA_LAPS, delta)) / (MAX_DELTA_LAPS * 2)
   const magnitude = Math.abs(barF - 0.5) * 2
+  const deltaText = signed(delta, 1)
+  const deltaSize = deltaText.length > 7 ? 58 : deltaText.length > 5 ? 70 : 82
   return (
     <Tile width={width} height={height} label="Fuel Delta">
-      <BigNum x={204} y={156} value={signed(delta, 1)} unit="" color={color} size={82} />
-      <text x={306} y={196} fill={color} fontFamily={FONT_LABEL} fontSize={30} fontWeight={800} letterSpacing={2}>
+      <text
+        x={202}
+        y={156}
+        textAnchor="middle"
+        fill={color}
+        fontFamily={FONT_BIG}
+        fontSize={deltaSize}
+        fontWeight={800}
+        lengthAdjust="spacingAndGlyphs"
+        textLength={deltaText.length > 7 ? 250 : undefined}
+        {...legibleStroke(deltaSize)}
+      >
+        {deltaText}
+      </text>
+      <text x={306} y={196} fill={color} fontFamily={FONT_LABEL} fontSize={30} fontWeight={800} letterSpacing={2} {...LEGIBLE}>
         LAPS
       </text>
       <path d="M54 216 h312" stroke="rgba(255,255,255,0.45)" strokeWidth={2} strokeLinecap="round" />
