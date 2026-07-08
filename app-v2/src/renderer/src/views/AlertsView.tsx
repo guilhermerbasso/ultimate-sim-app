@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
+﻿import { type CSSProperties, type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AlertEvent,
   AlertOutput,
@@ -15,8 +15,8 @@ import type {
 } from '../../../shared/alerts'
 import type { AppViewProps } from '../App'
 import { SectionExportImport } from '../components/SectionExportImport'
+import { tt, type ResolvedLanguage } from '../i18n'
 
-// ─── Styles ────────────────────────────────────────────────────────────────
 
 const card: CSSProperties = {
   background: 'rgba(255,255,255,0.04)',
@@ -52,7 +52,6 @@ const inputBase: CSSProperties = {
   minWidth: 80
 }
 
-// ─── Rule metadata ─────────────────────────────────────────────────────────
 
 type RuleKey =
   | 'pitLimiter'
@@ -68,24 +67,23 @@ type RuleKey =
 
 interface RuleMeta {
   key: RuleKey
-  title: string
-  description: string
+  titleKey: string
+  descriptionKey: string
 }
 
 const RULES: RuleMeta[] = [
-  { key: 'pitLimiter', title: 'Pit limiter', description: 'Alerta na borda quando o limitador de pit liga.' },
-  { key: 'flags', title: 'Bandeiras', description: 'Azul, amarela, preta e preta/laranja.' },
-  { key: 'lowFuel', title: 'Combustível baixo', description: 'Avisa ao cruzar abaixo do número de voltas.' },
-  { key: 'shiftPoint', title: 'Ponto de troca', description: 'Usa shiftIndicatorPct ou RPM/maxRpm.' },
-  { key: 'incidentLimit', title: 'Incidentes', description: 'Avisa quando faltam poucos incidentes para o limite.' },
-  { key: 'tyrePressure', title: 'Pressão de pneu', description: 'Sai da janela de pressão por canto (kPa).' },
-  { key: 'tyreTemp', title: 'Temperatura de pneu', description: 'Pneu acima do limite por canto (°C).' },
-  { key: 'brakeTemp', title: 'Temperatura de freio', description: 'Freio acima do limite por canto (°C).' },
-  { key: 'drsAvailable', title: 'DRS disponível', description: 'Alerta quando DRS fica disponível na zona.' },
-  { key: 'blueFlag', title: 'Bandeira azul (dedicada)', description: 'Canal separado para saídas exclusivas da azul.' }
+  { key: 'pitLimiter', titleKey: 'alerts.rule.pitLimiter.title', descriptionKey: 'alerts.rule.pitLimiter.desc' },
+  { key: 'flags', titleKey: 'alerts.rule.flags.title', descriptionKey: 'alerts.rule.flags.desc' },
+  { key: 'lowFuel', titleKey: 'alerts.rule.lowFuel.title', descriptionKey: 'alerts.rule.lowFuel.desc' },
+  { key: 'shiftPoint', titleKey: 'alerts.rule.shiftPoint.title', descriptionKey: 'alerts.rule.shiftPoint.desc' },
+  { key: 'incidentLimit', titleKey: 'alerts.rule.incidentLimit.title', descriptionKey: 'alerts.rule.incidentLimit.desc' },
+  { key: 'tyrePressure', titleKey: 'alerts.rule.tyrePressure.title', descriptionKey: 'alerts.rule.tyrePressure.desc' },
+  { key: 'tyreTemp', titleKey: 'alerts.rule.tyreTemp.title', descriptionKey: 'alerts.rule.tyreTemp.desc' },
+  { key: 'brakeTemp', titleKey: 'alerts.rule.brakeTemp.title', descriptionKey: 'alerts.rule.brakeTemp.desc' },
+  { key: 'drsAvailable', titleKey: 'alerts.rule.drsAvailable.title', descriptionKey: 'alerts.rule.drsAvailable.desc' },
+  { key: 'blueFlag', titleKey: 'alerts.rule.blueFlag.title', descriptionKey: 'alerts.rule.blueFlag.desc' }
 ]
 
-// ─── IPC helpers ───────────────────────────────────────────────────────────
 
 function patchConfig(patch: AlertsConfigPatch): Promise<AlertsConfig> {
   return window.ipc.invoke<AlertsConfig>('alerts:setConfig', patch)
@@ -95,7 +93,6 @@ function getConfig(): Promise<AlertsConfig> {
   return window.ipc.invoke<AlertsConfig>('alerts:getConfig')
 }
 
-// ─── Audio ─────────────────────────────────────────────────────────────────
 
 type AudioContextWindow = Window & { webkitAudioContext?: typeof AudioContext }
 
@@ -160,9 +157,8 @@ function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-// ─── View ──────────────────────────────────────────────────────────────────
 
-export default function AlertsView({ showToast }: AppViewProps): ReactElement {
+export default function AlertsView({ showToast, language }: AppViewProps): ReactElement {
   const [config, setConfig] = useState<AlertsConfig | null>(null)
   const [events, setEvents] = useState<AlertEvent[]>([])
   const audioEnabled = useRef(true)
@@ -173,7 +169,7 @@ export default function AlertsView({ showToast }: AppViewProps): ReactElement {
         setConfig(nextConfig)
         audioEnabled.current = nextConfig.audioEnabled
       })
-      .catch(() => showToast('Não foi possível carregar os alertas.', 'error'))
+      .catch(() => showToast(tt(language, 'alerts.loadFailed'), 'error'))
 
     const unsubscribe = window.ipc.subscribe<AlertEvent>('alerts:event', (event) => {
       setEvents((current) => [event, ...current].slice(0, 40))
@@ -189,7 +185,7 @@ export default function AlertsView({ showToast }: AppViewProps): ReactElement {
       setConfig(nextConfig)
       audioEnabled.current = nextConfig.audioEnabled
     } catch {
-      showToast('Não foi possível salvar a configuração de alertas.', 'error')
+      showToast(tt(language, 'alerts.saveFailed'), 'error')
     }
   }
 
@@ -199,30 +195,30 @@ export default function AlertsView({ showToast }: AppViewProps): ReactElement {
       setConfig(nextConfig)
       audioEnabled.current = nextConfig.audioEnabled
     } catch {
-      showToast('Não foi possível recarregar os alertas.', 'error')
+      showToast(tt(language, 'alerts.reloadFailed'), 'error')
     }
   }
 
   if (!config) {
-    return <div style={card}>Carregando alertas…</div>
+    return <div style={card}>{tt(language, 'alerts.loading')}</div>
   }
 
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <div style={{ ...card, display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center' }}>
         <div>
-          <div style={label}>Módulo de alertas</div>
-          <h3 style={{ margin: '4px 0 0' }}>Condições de corrida em tempo real</h3>
+          <div style={label}>{tt(language, 'alerts.module')}</div>
+          <h3 style={{ margin: '4px 0 0' }}>{tt(language, 'alerts.title')}</h3>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <SectionExportImport sectionId="alerts" label="Alertas" onImported={() => void reloadConfig()} />
+          <SectionExportImport sectionId="alerts" label={tt(language, 'alerts.exportLabel')} language={language} onImported={() => void reloadConfig()} />
           <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <input
               checked={config.audioEnabled}
               onChange={(event) => updateConfig({ audioEnabled: event.target.checked })}
               type="checkbox"
             />
-            Áudio ligado
+            {tt(language, 'alerts.audioOn')}
           </label>
         </div>
       </div>
@@ -233,25 +229,27 @@ export default function AlertsView({ showToast }: AppViewProps): ReactElement {
             key={meta.key}
             meta={meta}
             config={config}
+            language={language}
             onPatch={(patch) => updateConfig(patch)}
           />
         ))}
       </div>
 
-      <Feed events={events} onClear={() => setEvents([])} />
+      <Feed events={events} language={language} onClear={() => setEvents([])} />
     </div>
   )
 }
 
-// ─── Per-rule editor ───────────────────────────────────────────────────────
 
 function RuleEditor({
   meta,
   config,
+  language,
   onPatch
 }: {
   meta: RuleMeta
   config: AlertsConfig
+  language: ResolvedLanguage | undefined
   onPatch(patch: AlertsConfigPatch): void
 }): ReactElement {
   const rule = readRule(config, meta.key)
@@ -268,22 +266,23 @@ function RuleEditor({
   return (
     <div style={card}>
       <label style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-        <strong>{meta.title}</strong>
+        <strong>{tt(language, meta.titleKey)}</strong>
         <input
           checked={rule?.enabled === true}
           onChange={(event) => patchRule({ enabled: event.target.checked })}
           type="checkbox"
         />
       </label>
-      <p style={{ margin: '8px 0 12px', opacity: 0.72, fontSize: 13 }}>{meta.description}</p>
+      <p style={{ margin: '8px 0 12px', opacity: 0.72, fontSize: 13 }}>{tt(language, meta.descriptionKey)}</p>
 
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
         <SeverityField
+          language={language}
           value={rule?.severity}
           onChange={(severity) => patchRule({ severity })}
         />
         <NumberField
-          labelText="Cooldown (ms)"
+          labelText={tt(language, 'alerts.cooldownMs')}
           min={0}
           max={60000}
           step={100}
@@ -291,7 +290,7 @@ function RuleEditor({
           onCommit={(value) => patchRule({ cooldownMs: value })}
         />
         <NumberField
-          labelText="Repetir (ms)"
+          labelText={tt(language, 'alerts.repeatMs')}
           min={0}
           max={600000}
           step={500}
@@ -300,9 +299,9 @@ function RuleEditor({
         />
       </div>
 
-      <ThresholdFields meta={meta} config={config} onPatch={onPatch} />
+      <ThresholdFields meta={meta} config={config} language={language} onPatch={onPatch} />
 
-      <OutputsEditor outputs={outputs} onChange={patchOutputs} />
+      <OutputsEditor outputs={outputs} language={language} onChange={patchOutputs} />
     </div>
   )
 }
@@ -310,10 +309,12 @@ function RuleEditor({
 function ThresholdFields({
   meta,
   config,
+  language,
   onPatch
 }: {
   meta: RuleMeta
   config: AlertsConfig
+  language: ResolvedLanguage | undefined
   onPatch(patch: AlertsConfigPatch): void
 }): ReactElement | null {
   switch (meta.key) {
@@ -321,7 +322,7 @@ function ThresholdFields({
       return (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
           <NumberField
-            labelText="Voltas"
+            labelText={tt(language, 'alerts.laps')}
             max={20}
             min={0.5}
             step={0.5}
@@ -336,7 +337,7 @@ function ThresholdFields({
       return (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
           <NumberField
-            labelText="Indicador %"
+            labelText={tt(language, 'alerts.indicatorPct')}
             max={100}
             min={50}
             step={1}
@@ -346,7 +347,7 @@ function ThresholdFields({
             }
           />
           <NumberField
-            labelText="RPM %"
+            labelText={tt(language, 'alerts.rpmPct')}
             max={100}
             min={50}
             step={1}
@@ -359,7 +360,7 @@ function ThresholdFields({
       return (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
           <NumberField
-            labelText="Restantes"
+            labelText={tt(language, 'alerts.remaining')}
             max={20}
             min={0}
             step={1}
@@ -379,7 +380,7 @@ function ThresholdFields({
       return (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
           <NumberField
-            labelText="Mín (kPa)"
+            labelText={tt(language, 'alerts.minKpa')}
             max={500}
             min={0}
             step={1}
@@ -387,7 +388,7 @@ function ThresholdFields({
             onCommit={(minKpa) => onPatch({ tyrePressure: { minKpa } })}
           />
           <NumberField
-            labelText="Máx (kPa)"
+            labelText={tt(language, 'alerts.maxKpa')}
             max={500}
             min={0}
             step={1}
@@ -400,7 +401,7 @@ function ThresholdFields({
       return (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
           <NumberField
-            labelText="Máx (°C)"
+            labelText={tt(language, 'alerts.maxC')}
             max={250}
             min={0}
             step={1}
@@ -413,7 +414,7 @@ function ThresholdFields({
       return (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
           <NumberField
-            labelText="Máx (°C)"
+            labelText={tt(language, 'alerts.maxC')}
             max={1200}
             min={0}
             step={5}
@@ -427,13 +428,14 @@ function ThresholdFields({
   }
 }
 
-// ─── Output editor ─────────────────────────────────────────────────────────
 
 function OutputsEditor({
   outputs,
+  language,
   onChange
 }: {
   outputs: AlertOutput[]
+  language: ResolvedLanguage | undefined
   onChange(next: AlertOutput[] | undefined): void
 }): ReactElement {
   const addOutput = (kind: AlertOutput['kind']): void => {
@@ -455,15 +457,15 @@ function OutputsEditor({
   return (
     <div style={{ display: 'grid', gap: 8 }}>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <span style={label}>Saídas</span>
+        <span style={label}>{tt(language, 'alerts.outputs')}</span>
         <button type="button" style={buttonStyle} onClick={() => addOutput('buttonbox')}>+ ButtonBox</button>
         <button type="button" style={buttonStyle} onClick={() => addOutput('serial')}>+ Serial</button>
-        <button type="button" style={buttonStyle} onClick={() => addOutput('secondScreen')}>+ 2ª tela</button>
-        <button type="button" style={buttonStyle} onClick={() => addOutput('sound')}>+ Som</button>
+        <button type="button" style={buttonStyle} onClick={() => addOutput('secondScreen')}>+ {tt(language, 'alerts.secondScreen')}</button>
+        <button type="button" style={buttonStyle} onClick={() => addOutput('sound')}>+ {tt(language, 'alerts.sound')}</button>
       </div>
       {outputs.length === 0 && (
         <div style={{ opacity: 0.6, fontSize: 12 }}>
-          Sem saídas configuradas — esse alerta só aparece no feed e toca o beep padrão.
+          {tt(language, 'alerts.noOutputs')}
         </div>
       )}
       {outputs.map((output, index) => (
@@ -471,6 +473,7 @@ function OutputsEditor({
           key={`${output.kind}-${index}`}
           output={output}
           onChange={(next) => updateOutput(index, next)}
+          language={language}
           onRemove={() => removeOutput(index)}
         />
       ))}
@@ -493,10 +496,12 @@ function createDefaultOutput(kind: AlertOutput['kind']): AlertOutput {
 
 function OutputRow({
   output,
+  language,
   onChange,
   onRemove
 }: {
   output: AlertOutput
+  language: ResolvedLanguage | undefined
   onChange(next: AlertOutput): void
   onRemove(): void
 }): ReactElement {
@@ -512,7 +517,7 @@ function OutputRow({
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-        <strong style={{ fontSize: 13 }}>{outputTitle(output)}</strong>
+        <strong style={{ fontSize: 13 }}>{outputTitle(output, language)}</strong>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <label style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 12 }}>
             <input
@@ -520,13 +525,13 @@ function OutputRow({
               checked={output.enabled !== false}
               onChange={(event) => onChange({ ...output, enabled: event.target.checked })}
             />
-            Ativo
+            {tt(language, 'common.active')}
           </label>
-          <button type="button" style={buttonStyle} onClick={onRemove}>Remover</button>
+          <button type="button" style={buttonStyle} onClick={onRemove}>{tt(language, 'common.remove')}</button>
         </div>
       </div>
       {output.kind === 'buttonbox' && (
-        <ButtonboxFields output={output} onChange={(next) => onChange(next)} />
+        <ButtonboxFields output={output} language={language} onChange={(next) => onChange(next)} />
       )}
       {output.kind === 'serial' && (
         <SerialFields output={output} onChange={(next) => onChange(next)} />
@@ -535,30 +540,32 @@ function OutputRow({
         <SecondScreenFields output={output} onChange={(next) => onChange(next)} />
       )}
       {output.kind === 'sound' && (
-        <SoundFields output={output} onChange={(next) => onChange(next)} />
+        <SoundFields output={output} language={language} onChange={(next) => onChange(next)} />
       )}
     </div>
   )
 }
 
-function outputTitle(output: AlertOutput): string {
+function outputTitle(output: AlertOutput, language: ResolvedLanguage | undefined): string {
   switch (output.kind) {
     case 'buttonbox':
       return `ButtonBox · ${output.preset}`
     case 'serial':
       return `Serial · ${output.deviceId ?? 'primary'}`
     case 'secondScreen':
-      return `2ª tela · slot "${output.slot}"`
+      return tt(language, 'alerts.output.secondScreenTitle', { slot: output.slot })
     case 'sound':
-      return 'Som personalizado'
+      return tt(language, 'alerts.output.customSound')
   }
 }
 
 function ButtonboxFields({
   output,
+  language,
   onChange
 }: {
   output: AlertOutputButtonbox
+  language: ResolvedLanguage | undefined
   onChange(next: AlertOutputButtonbox): void
 }): ReactElement {
   const presets: AlertOutputButtonboxPreset[] = [
@@ -577,7 +584,7 @@ function ButtonboxFields({
         options={presets.map((preset) => ({ value: preset, label: preset }))}
       />
       <NumberField
-        labelText="Duração (ms)"
+        labelText={tt(language, 'alerts.durationMs')}
         min={0}
         max={60000}
         step={100}
@@ -680,15 +687,17 @@ function SecondScreenFields({
 
 function SoundFields({
   output,
+  language,
   onChange
 }: {
   output: AlertOutputSound
+  language: ResolvedLanguage | undefined
   onChange(next: AlertOutputSound): void
 }): ReactElement {
   return (
     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
       <NumberField
-        labelText="Tom (Hz)"
+        labelText={tt(language, 'alerts.toneHz')}
         min={50}
         max={8000}
         step={10}
@@ -696,7 +705,7 @@ function SoundFields({
         onCommit={(toneHz) => onChange({ ...output, toneHz })}
       />
       <NumberField
-        labelText="Duração (ms)"
+        labelText={tt(language, 'alerts.durationMs')}
         min={0}
         max={5000}
         step={50}
@@ -715,24 +724,23 @@ function SoundFields({
   )
 }
 
-// ─── Live feed ─────────────────────────────────────────────────────────────
 
-function Feed({ events, onClear }: { events: AlertEvent[]; onClear(): void }): ReactElement {
+function Feed({ events, language, onClear }: { events: AlertEvent[]; language: ResolvedLanguage | undefined; onClear(): void }): ReactElement {
   return (
     <div style={card}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
         <div>
-          <div style={label}>Feed ao vivo</div>
-          <strong>{events.length > 0 ? `${events.length} eventos recentes` : 'Aguardando eventos'}</strong>
+          <div style={label}>{tt(language, 'alerts.liveFeed')}</div>
+          <strong>{events.length > 0 ? tt(language, 'alerts.recentEvents', { count: events.length }) : tt(language, 'alerts.waitingEvents')}</strong>
         </div>
         <button onClick={onClear} style={buttonStyle} type="button">
-          Limpar feed
+          {tt(language, 'alerts.clearFeed')}
         </button>
       </div>
       <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
         {events.length === 0 && (
           <div style={{ opacity: 0.7 }}>
-            Selecione a fonte <strong>Demo (mock)</strong> em Telemetria para validar o ponto de troca.
+            {tt(language, 'alerts.demoHint')}
           </div>
         )}
         {events.map((event) => (
@@ -761,22 +769,23 @@ function Feed({ events, onClear }: { events: AlertEvent[]; onClear(): void }): R
   )
 }
 
-// ─── Field primitives ──────────────────────────────────────────────────────
 
 function SeverityField({
+  language,
   value,
   onChange
 }: {
+  language: ResolvedLanguage | undefined
   value: AlertSeverity | undefined
   onChange(value: AlertSeverity | undefined): void
 }): ReactElement {
   return (
     <SelectField
-      labelText="Severidade"
+      labelText={tt(language, 'alerts.severity')}
       value={value ?? ''}
       onChange={(next) => onChange(next ? (next as AlertSeverity) : undefined)}
       options={[
-        { value: '', label: 'Padrão' },
+        { value: '', label: tt(language, 'alerts.default') },
         { value: 'info', label: 'Info' },
         { value: 'warning', label: 'Warning' },
         { value: 'critical', label: 'Critical' }
@@ -877,7 +886,6 @@ function SelectField({
   )
 }
 
-// ─── Patch helpers ─────────────────────────────────────────────────────────
 
 function readRule(config: AlertsConfig, key: RuleKey): AlertRuleConfig | undefined {
   switch (key) {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { CustomOverlayDef, CustomOverlayElement, CustomOverlayElementAlign, CustomOverlayListItem, IracingGraphicsStatus, FixIracingFullscreenResult, OverlayListItem, OverlayPosition, OverlayWidgetId, OverlayWidgetStyle, OverlaysConfig } from '../../../shared/overlays'
-import { createCustomOverlayDef, createCustomOverlayElement, createDefaultOverlaysConfig, createRichCustomOverlayDef, isRichCustomOverlay, OVERLAY_STYLE_PRESETS, OVERLAY_WIDGETS, overlayWidgetDisplayTitle } from '../../../shared/overlays'
+import { createCustomOverlayDef, createCustomOverlayElement, createDefaultOverlaysConfig, createRichCustomOverlayDef, isRichCustomOverlay, OVERLAY_FORMS, OVERLAY_WIDGETS, overlayDesignFamily, overlayWidgetDisplayTitle } from '../../../shared/overlays'
 import type { SimId } from '../../../shared/telemetry'
 import { PLAYABLE_SIMS, simLabel, widgetSupportedSims } from '../../../shared/sim-coverage'
 import { OverlayWidgetBuilder } from './overlay/OverlayWidgetBuilder'
@@ -74,15 +74,12 @@ function configModeFrom(items: OverlayListItem[], fallback: OverlaysConfig): Ove
   }
 }
 
-// Configuration-list ordering: currently-active overlays float to the top, then
-// user favorites, then the original catalog order (stable). Mirrors the feedback
-// "overlays ativos devem ir para o topo" + the new favorite shortcut.
+// Configuration-list ordering is intentionally independent from enabled state:
+// toggling an overlay must not move its card and make the page jump.
 function sortOverlayEntries<T extends { enabled: boolean; favorite?: boolean }>(entries: T[]): T[] {
   return entries
     .map((entry, index) => ({ entry, index }))
     .sort((a, b) => {
-      const activeRank = (a.entry.enabled ? 0 : 1) - (b.entry.enabled ? 0 : 1)
-      if (activeRank !== 0) return activeRank
       const favoriteRank = (a.entry.favorite ? 0 : 1) - (b.entry.favorite ? 0 : 1)
       if (favoriteRank !== 0) return favoriteRank
       return a.index - b.index
@@ -93,6 +90,10 @@ function sortOverlayEntries<T extends { enabled: boolean; favorite?: boolean }>(
 // Flattened quick-access entry for the "Overlays ativos" panel — unifies built-in
 // widgets and custom overlays so each can be toggled/favorited from one place.
 type ActiveOverlayEntry = { id: string; title: string; favorite: boolean; kind: 'widget' | 'custom' }
+
+function isSelectedOverlayForm(currentPreset: string | undefined, formPreset: string): boolean {
+  return overlayDesignFamily(currentPreset) === overlayDesignFamily(formPreset)
+}
 
 export default function OverlaysView(_props: AppViewProps): ReactElement {
   const [items, setItems] = useState<OverlayListItem[]>([])
@@ -869,10 +870,10 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
 
                 {!isRichCustomOverlay(overlay) && (
                   <div className="preset-row">
-                    {OVERLAY_STYLE_PRESETS.map((preset) => (
+                    {OVERLAY_FORMS.map((preset) => (
                       <button
                         key={preset.id}
-                        className={overlay.stylePreset === preset.id ? 'preset-button active' : 'preset-button'}
+                        className={isSelectedOverlayForm(overlay.stylePreset, preset.id) ? 'preset-button active' : 'preset-button'}
                         disabled={busy}
                         title={preset.description}
                         onClick={() => applyCustomPatch(overlay.id, { stylePreset: preset.id, style: preset.style })}
@@ -1017,10 +1018,10 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             </div>
 
             <div className="preset-row">
-              {OVERLAY_STYLE_PRESETS.map((preset) => (
+              {OVERLAY_FORMS.map((preset) => (
                 <button
                   key={preset.id}
-                  className={item.stylePreset === preset.id ? 'preset-button active' : 'preset-button'}
+                  className={isSelectedOverlayForm(item.stylePreset, preset.id) ? 'preset-button active' : 'preset-button'}
                   disabled={busy}
                   title={preset.description}
                   onClick={() => run(async () => {
@@ -1144,11 +1145,11 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                     value={draft.stylePreset}
                     disabled={busy}
                     onChange={(event) => {
-                      const preset = OVERLAY_STYLE_PRESETS.find((item) => item.id === event.target.value)
+                      const preset = OVERLAY_FORMS.find((item) => item.id === event.target.value)
                       if (preset) updateDraft({ stylePreset: preset.id, style: { ...preset.style } })
                     }}
                   >
-                    {OVERLAY_STYLE_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.title}</option>)}
+                    {OVERLAY_FORMS.map((preset) => <option key={preset.id} value={preset.id}>{preset.title}</option>)}
                   </select>
                 </label>
               </div>

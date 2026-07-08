@@ -11,14 +11,17 @@ const EMBEDDED: Array<{
   id: string
   widgetId: OverlayWidgetId
   name: string
-  family: 'gt3' | 'lmu'
+  family: 'gt3' | 'lmu' | 'endurance' | 'engineer'
 }> = [
   { id: 'grid_stack_dash', widgetId: 'gridStackDash', name: 'GT3 — Grid (SimHub)', family: 'gt3' },
   { id: 'grid_pro_dash', widgetId: 'gridProDash', name: 'GT3 — Pro (neon)', family: 'gt3' },
   { id: 'bosch_296_dash', widgetId: 'bosch296Dash', name: 'GT3 — Bosch 296', family: 'gt3' },
   { id: 'ring_dash', widgetId: 'ringDash', name: 'GT3 — Anel circular', family: 'gt3' },
   { id: 'lmu_endurance_dash', widgetId: 'lmuEnduranceDash', name: 'LMU — Endurance', family: 'lmu' },
-  { id: 'lmu_stint_dash', widgetId: 'lmuStintDash', name: 'LMU — Stint/Fuel', family: 'lmu' }
+  { id: 'lmu_stint_dash', widgetId: 'lmuStintDash', name: 'LMU — Stint/Fuel', family: 'lmu' },
+  { id: 'hifi_ddu_cockpit', widgetId: 'hifiDdu', name: 'GT3 — DDU Cockpit (hi-fi)', family: 'gt3' },
+  { id: 'hifi_endurance', widgetId: 'hifiEndurance', name: 'Endurance — Stint (hi-fi)', family: 'endurance' },
+  { id: 'hifi_engineer', widgetId: 'hifiEngineer', name: 'Engineer — MoTeC Analysis (hi-fi)', family: 'engineer' }
 ]
 
 const EMBEDDED_WIDGET_IDS: OverlayWidgetId[] = EMBEDDED.map((e) => e.widgetId)
@@ -45,7 +48,7 @@ describe('full-frame dashboards embedded from the overlay-widget library', () =>
       it('is a BUILTIN_PRESETS entry carrying the PT name + family/dashboard/fullscreen tags', () => {
         expect(entry, `missing BUILTIN_PRESETS entry ${e.id}`).toBeDefined()
         expect(entry?.name).toContain(e.name)
-        expect(entry?.tags).toEqual([e.family, 'dashboard', 'fullscreen'])
+        expect(entry?.tags).toEqual(expect.arrayContaining([e.family, 'dashboard', 'fullscreen']))
       })
 
       it('builds a Dashboard with ONE overlaywidget element bound to the right widgetId', () => {

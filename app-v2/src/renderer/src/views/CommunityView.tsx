@@ -10,6 +10,7 @@ import {
   type SharePackSummary
 } from '../../../shared/community'
 import type { AppViewProps } from '../App'
+import { tt, type ResolvedLanguage } from '../i18n'
 
 // ─── Warm-chrome style kit (cool/green is reserved for "faster than ghost") ───
 
@@ -45,7 +46,7 @@ const primaryButton: CSSProperties = {
 const fasterText: CSSProperties = { color: 'var(--accent-success)' }
 const slowerText: CSSProperties = { color: 'var(--accent-primary)' }
 
-const KIND_LABEL: Record<string, string> = { ghost: 'Ghost lap', telemetry: 'Telemetria', setup: 'Setup' }
+const KIND_LABEL_KEY: Record<string, string> = { ghost: 'community.kind.ghost', telemetry: 'community.kind.telemetry', setup: 'community.kind.setup' }
 type CommunitySourceSim = 'iracing' | 'acc' | 'ac' | 'ams2' | 'lmu'
 type CommunitySourceKind = 'telemetry' | 'setup' | 'community'
 
@@ -74,9 +75,9 @@ const SIM_LABEL: Record<CommunitySourceSim, string> = {
 }
 
 const SOURCE_KIND_LABEL: Record<CommunitySourceKind, string> = {
-  telemetry: 'Telemetria',
+  telemetry: 'Telemetry',
   setup: 'Setup',
-  community: 'Comunidade'
+  community: 'Community'
 }
 
 const SIMS = Object.keys(SIM_LABEL) as CommunitySourceSim[]
@@ -115,7 +116,7 @@ function formatDate(ms: number): string {
 
 function summaryLabel(summary: SharePackSummary): string {
   const bits = [summary.track, summary.car].filter(Boolean)
-  return bits.join(' · ') || summary.author || KIND_LABEL[summary.kind] || 'Pack'
+  return bits.join(' · ') || summary.author || summary.kind || 'Pack'
 }
 
 // Cumulative delta ribbon. Bars BELOW the centre line + green = you are faster
@@ -135,7 +136,7 @@ function DeltaTrace({ bins }: { bins: GhostCompareBin[] }): ReactElement {
   )
 
   if (points.length === 0) {
-    return <div style={{ opacity: 0.6, padding: 12 }}>Sem dados de comparação.</div>
+    return <div style={{ opacity: 0.6, padding: 12 }}>No comparison data.</div>
   }
 
   const width = 100 / points.length
@@ -144,7 +145,7 @@ function DeltaTrace({ bins }: { bins: GhostCompareBin[] }): ReactElement {
       viewBox="0 0 100 40"
       preserveAspectRatio="none"
       role="img"
-      aria-label="Delta acumulado por distância da volta"
+      aria-label="Cumulative delta by lap distance"
       style={{ width: '100%', height: 120, background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)' }}
     >
       <line x1={0} y1={20} x2={100} y2={20} stroke="rgba(255,255,255,0.2)" strokeWidth={0.25} />
@@ -168,7 +169,7 @@ function DeltaTrace({ bins }: { bins: GhostCompareBin[] }): ReactElement {
   )
 }
 
-export default function CommunityView({ showToast }: AppViewProps): ReactElement {
+export default function CommunityView({ showToast, language }: AppViewProps): ReactElement {
   const [status, setStatus] = useState<CommunityStatus | null>(null)
   const [imported, setImported] = useState<SharePackSummary[]>([])
   const [note, setNote] = useState('')
@@ -227,7 +228,7 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
     try {
       const result = await window.ipc.invoke<CommunityExportResult>(channel, exportOpts())
       if (result.canceled) return
-      showToast(`${kind} exportado para arquivo .simshare.`, 'success')
+      showToast(tt(language, 'community.exported', { kind }), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -240,7 +241,7 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
     try {
       const result = await window.ipc.invoke<CommunityImportResult>(COMMUNITY_CHANNELS.import)
       if (result.canceled) return
-      showToast(`Importado: ${result.summary ? summaryLabel(result.summary) : 'pack'}.`, 'success')
+      showToast(tt(language, 'community.imported', { summary: result.summary ? summaryLabel(result.summary) : 'pack' }), 'success')
       await refreshList()
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
@@ -267,7 +268,7 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
       await window.ipc.invoke<boolean>(COMMUNITY_CHANNELS.delete, id)
       if (report?.targetId === id) setReport(null)
       await refreshList()
-      showToast('Pack removido.', 'success')
+      showToast(tt(language, 'community.packRemoved'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -279,7 +280,7 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
       const saved = await window.ipc.invoke<CommunitySource[]>(COMMUNITY_SOURCE_CHANNELS.add, sourceForm)
       setCommunitySources(saved)
       setSourceForm({ ...EMPTY_SOURCE_FORM })
-      showToast('Fonte adicionada.', 'success')
+      showToast(tt(language, 'community.sourceAdded'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -290,7 +291,7 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
   async function removeSource(id: string): Promise<void> {
     try {
       setCommunitySources(await window.ipc.invoke<CommunitySource[]>(COMMUNITY_SOURCE_CHANNELS.remove, id))
-      showToast('Fonte removida.', 'success')
+      showToast(tt(language, 'community.sourceRemoved'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -299,7 +300,7 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
   async function resetSources(): Promise<void> {
     try {
       setCommunitySources(await window.ipc.invoke<CommunitySource[]>(COMMUNITY_SOURCE_CHANNELS.reset))
-      showToast('Fontes confiáveis restauradas.', 'success')
+      showToast(tt(language, 'community.sourcesRestored'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -311,12 +312,10 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
     <div style={{ display: 'grid', gap: 16 }}>
       <div style={{ ...card, display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
-          <div style={label}>Comunidade · local-first</div>
-          <h3 style={{ margin: '4px 0 0' }}>Compartilhar voltas, telemetria e setups</h3>
+          <div style={label}>{tt(language, 'community.eyebrow')}</div>
+          <h3 style={{ margin: '4px 0 0' }}>{tt(language, 'community.title')}</h3>
           <p style={{ margin: '6px 0 0', opacity: 0.72, maxWidth: 720 }}>
-            Tudo aqui é <strong>compartilhamento por arquivo</strong> (<code>.simshare</code>) — 100% local, sem conta e sem
-            servidor. Exporte um ghost, sua telemetria ou um setup e envie o arquivo para um amigo; importe os arquivos que
-            receber e compare onde você ganha ou perde. Uma rede ao vivo é um próximo passo planejado.
+            {tt(language, 'community.help')}
           </p>
         </div>
       </div>
@@ -324,14 +323,14 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
       <section style={card}>
         <div style={{ ...row, justifyContent: 'space-between' }}>
           <div>
-            <div style={label}>Fontes confiáveis por simulador</div>
-            <h3 style={{ margin: '4px 0 0' }}>Hubs editáveis de telemetria, setups e comunidade</h3>
+            <div style={label}>{tt(language, 'community.sourcesEyebrow')}</div>
+            <h3 style={{ margin: '4px 0 0' }}>{tt(language, 'community.sourcesTitle')}</h3>
             <p style={{ margin: '6px 0 0', opacity: 0.72, maxWidth: 760 }}>
-              Lista inicial curada com fontes HTTPS conhecidas. Remova o que não usa ou adicione seus próprios links confiáveis.
+              {tt(language, 'community.sourcesHelp')}
             </p>
           </div>
           <button style={button} type="button" disabled={busy} onClick={() => void resetSources()}>
-            Restaurar padrões
+            {tt(language, 'community.restoreDefaults')}
           </button>
         </div>
 
@@ -346,7 +345,7 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
                     <div key={source.id} style={{ ...row, justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{ ...row, gap: 8 }}>
-                          <span style={{ ...label, opacity: 0.8 }}>{SOURCE_KIND_LABEL[source.kind]}</span>
+                          <span style={{ ...label, opacity: 0.8 }}>{tt(language, `community.sourceKind.${source.kind}`)}</span>
                           <a href={source.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>
                             {source.name}
                           </a>
@@ -354,11 +353,11 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
                         <small style={{ opacity: 0.66 }}>{source.description || source.url}</small>
                       </div>
                       <button style={button} type="button" onClick={() => void removeSource(source.id)}>
-                        Remover
+                        {tt(language, 'common.remove')}
                       </button>
                     </div>
                   ))}
-                  {sources.length === 0 && <small style={{ opacity: 0.62 }}>Nenhuma fonte cadastrada para este simulador.</small>}
+                  {sources.length === 0 && <small style={{ opacity: 0.62 }}>{tt(language, 'community.noSource')}</small>}
                 </div>
               </div>
             )
@@ -381,53 +380,53 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
             onChange={(e) => setSourceForm((current) => ({ ...current, kind: e.currentTarget.value as CommunitySourceKind }))}
           >
             {(Object.keys(SOURCE_KIND_LABEL) as CommunitySourceKind[]).map((kind) => (
-              <option key={kind} value={kind}>{SOURCE_KIND_LABEL[kind]}</option>
+              <option key={kind} value={kind}>{tt(language, `community.sourceKind.${kind}`)}</option>
             ))}
           </select>
-          <input style={{ ...input, flex: 1, minWidth: 160 }} value={sourceForm.name} onChange={(e) => setSourceForm((current) => ({ ...current, name: e.currentTarget.value }))} placeholder="Nome da fonte" />
+          <input style={{ ...input, flex: 1, minWidth: 160 }} value={sourceForm.name} onChange={(e) => setSourceForm((current) => ({ ...current, name: e.currentTarget.value }))} placeholder={tt(language, 'community.sourceNamePlaceholder')} />
           <input style={{ ...input, flex: 2, minWidth: 240 }} value={sourceForm.url} onChange={(e) => setSourceForm((current) => ({ ...current, url: e.currentTarget.value }))} placeholder="https://…" />
-          <input style={{ ...input, flex: 2, minWidth: 220 }} value={sourceForm.description} onChange={(e) => setSourceForm((current) => ({ ...current, description: e.currentTarget.value }))} placeholder="Descrição (opcional)" />
+          <input style={{ ...input, flex: 2, minWidth: 220 }} value={sourceForm.description} onChange={(e) => setSourceForm((current) => ({ ...current, description: e.currentTarget.value }))} placeholder={tt(language, 'community.sourceDescriptionPlaceholder')} />
           <button style={primaryButton} type="button" disabled={busy} onClick={() => void addSource()}>
-            Adicionar fonte
+            {tt(language, 'community.addSource')}
           </button>
         </div>
       </section>
 
       <section style={card}>
-        <div style={label}>Captura ao vivo</div>
+        <div style={label}>{tt(language, 'community.liveCapture')}</div>
         <div style={{ ...row, justifyContent: 'space-between', marginTop: 8 }}>
           <div>
-            <strong>{status?.car || status?.track ? [status?.track, status?.car].filter(Boolean).join(' · ') : 'Sem telemetria no momento'}</strong>
+            <strong>{status?.car || status?.track ? [status?.track, status?.car].filter(Boolean).join(' · ') : tt(language, 'community.noTelemetry')}</strong>
             <div style={{ opacity: 0.72, fontSize: 12, marginTop: 2 }}>
-              Última volta capturada:{' '}
+              {tt(language, 'community.lastCapturedLap')}{' '}
               {liveReady ? (
-                <span style={fasterText}>{formatLapTime(status?.liveLapTimeSec)} · {status?.liveSampleCount} amostras</span>
+                <span style={fasterText}>{formatLapTime(status?.liveLapTimeSec)} · {tt(language, 'community.samples', { count: status?.liveSampleCount ?? 0 })}</span>
               ) : (
-                <span style={{ opacity: 0.7 }}>nenhuma volta completa ainda</span>
+                <span style={{ opacity: 0.7 }}>{tt(language, 'community.noCompleteLap')}</span>
               )}
-              {status?.telemetryReady ? <span style={{ opacity: 0.6 }}> · telemetria: {status.telemetrySampleCount} amostras</span> : null}
+              {status?.telemetryReady ? <span style={{ opacity: 0.6 }}> · {tt(language, 'community.telemetrySamples', { count: status.telemetrySampleCount })}</span> : null}
             </div>
           </div>
         </div>
 
         <div style={{ ...row, marginTop: 12 }}>
-          <input style={{ ...input, flex: 1, minWidth: 180 }} value={author} onChange={(e) => setAuthor(e.target.value)} placeholder="Seu nome (opcional)" />
-          <input style={{ ...input, flex: 2, minWidth: 220 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Nota para o arquivo (opcional)" />
+          <input style={{ ...input, flex: 1, minWidth: 180 }} value={author} onChange={(e) => setAuthor(e.target.value)} placeholder={tt(language, 'community.authorPlaceholder')} />
+          <input style={{ ...input, flex: 2, minWidth: 220 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder={tt(language, 'community.notePlaceholder')} />
         </div>
 
         <div style={{ ...row, marginTop: 12 }}>
           <button style={primaryButton} type="button" disabled={busy || !liveReady} onClick={() => void runExport(COMMUNITY_CHANNELS.exportGhost, 'Ghost')}>
-            Exportar minha volta (ghost)
+            {tt(language, 'community.exportMyLap')}
           </button>
           <button style={button} type="button" disabled={busy || !status?.telemetryReady} onClick={() => void runExport(COMMUNITY_CHANNELS.exportTelemetry, 'Telemetria')}>
-            Exportar telemetria
+            {tt(language, 'community.exportTelemetry')}
           </button>
           <button style={button} type="button" disabled={busy} onClick={() => void runExport(COMMUNITY_CHANNELS.exportSetup, 'Setup')}>
-            Exportar setup (.sto)
+            {tt(language, 'community.exportSetup')}
           </button>
           <span style={{ flex: 1 }} />
           <button style={primaryButton} type="button" disabled={busy} onClick={() => void runImport()}>
-            Importar .simshare
+            {tt(language, 'community.importSimshare')}
           </button>
         </div>
       </section>
@@ -435,13 +434,13 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
       <section style={card}>
         <div style={{ ...row, justifyContent: 'space-between' }}>
           <div>
-            <div style={label}>Importados</div>
-            <h3 style={{ margin: '4px 0 0' }}>{imported.length} pack(s) na biblioteca local</h3>
+            <div style={label}>{tt(language, 'community.importedTitle')}</div>
+            <h3 style={{ margin: '4px 0 0' }}>{tt(language, 'community.localLibraryCount', { count: imported.length })}</h3>
           </div>
           <label style={row}>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>comparar usando</span>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>{tt(language, 'community.compareUsing')}</span>
             <select style={input} value={baselineId} onChange={(e) => setBaselineId(e.target.value)}>
-              <option value="">Minha volta (ao vivo)</option>
+              <option value="">{tt(language, 'community.myLiveLap')}</option>
               {ghostImports.map((pack) => (
                 <option key={pack.id} value={pack.id}>{summaryLabel(pack)} · {formatLapTime(pack.lapTimeSec)}</option>
               ))}
@@ -454,7 +453,7 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
             <div key={pack.id} style={{ ...row, justifyContent: 'space-between', padding: 10, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 'var(--radius-sm)' }}>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ ...row, gap: 8 }}>
-                  <span style={{ ...label, opacity: 0.8 }}>{KIND_LABEL[pack.kind] ?? pack.kind}</span>
+                  <span style={{ ...label, opacity: 0.8 }}>{tt(language, KIND_LABEL_KEY[pack.kind] ?? 'community.kind.pack')}</span>
                   <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{summaryLabel(pack)}</strong>
                   {pack.kind === 'ghost' ? <span style={{ opacity: 0.8 }}>· {formatLapTime(pack.lapTimeSec)}</span> : null}
                 </div>
@@ -467,67 +466,67 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
               <div style={row}>
                 {pack.kind === 'ghost' ? (
                   <button style={button} type="button" disabled={busy || (!baselineId && !liveReady)} onClick={() => void compareTo(pack.id)}>
-                    Comparar
+                    {tt(language, 'community.compare')}
                   </button>
                 ) : null}
                 <button style={{ ...button, borderColor: 'rgba(var(--danger-rgb,196,26,26),0.4)' }} type="button" onClick={() => void remove(pack.id)}>
-                  Excluir
+                  {tt(language, 'community.delete')}
                 </button>
               </div>
             </div>
           ))}
           {imported.length === 0 && (
-            <p style={{ opacity: 0.7, margin: 0 }}>Nenhum arquivo importado ainda. Use “Importar .simshare” para adicionar ghosts, telemetria ou setups recebidos.</p>
+            <p style={{ opacity: 0.7, margin: 0 }}>{tt(language, 'community.noImported')}</p>
           )}
         </div>
         {!liveReady && !baselineId ? (
           <p style={{ opacity: 0.6, marginTop: 10, fontSize: 12 }}>
-            Dica: para “Comparar” você precisa de uma volta sua capturada ao vivo, ou escolha um ghost importado como base no seletor acima.
+            {tt(language, 'community.compareHint')}
           </p>
         ) : null}
       </section>
 
-      {report ? <ComparePanel report={report} onClose={() => setReport(null)} /> : null}
+      {report ? <ComparePanel language={language} report={report} onClose={() => setReport(null)} /> : null}
     </div>
   )
 }
 
-function ComparePanel({ report, onClose }: { report: GhostCompareReport; onClose: () => void }): ReactElement {
+function ComparePanel({ language, report, onClose }: { language: ResolvedLanguage | undefined; report: GhostCompareReport; onClose: () => void }): ReactElement {
   const { result } = report
   const faster = result.totalDeltaSec < 0
   return (
     <section style={{ ...card, borderColor: faster ? 'rgba(26,138,58,0.45)' : 'rgba(var(--accent-rgb),0.4)' }}>
       <div style={{ ...row, justifyContent: 'space-between' }}>
         <div>
-          <div style={label}>Comparação de ghost</div>
+          <div style={label}>{tt(language, 'community.ghostComparison')}</div>
           <h3 style={{ margin: '4px 0 0' }}>
             {report.baselineLabel} <span style={{ opacity: 0.6 }}>vs</span> {report.targetLabel}
           </h3>
         </div>
-        <button style={button} type="button" onClick={onClose}>Fechar</button>
+        <button style={button} type="button" onClick={onClose}>{tt(language, 'common.close')}</button>
       </div>
 
       <div style={{ ...row, gap: 18, marginTop: 12 }}>
-        <Metric title="Delta total" value={formatDelta(result.totalDeltaSec)} tone={faster ? 'faster' : 'slower'} hint={faster ? 'você está mais rápido' : 'você está mais lento'} />
-        <Metric title="Tempo ganho" value={`-${result.gainSec.toFixed(3)}s`} tone="faster" />
-        <Metric title="Tempo perdido" value={`+${result.lossSec.toFixed(3)}s`} tone="slower" />
-        <Metric title="Sua volta" value={formatLapTime(result.lapTimeASec)} tone="neutral" />
+        <Metric title={tt(language, 'community.totalDelta')} value={formatDelta(result.totalDeltaSec)} tone={faster ? 'faster' : 'slower'} hint={faster ? tt(language, 'community.youFaster') : tt(language, 'community.youSlower')} />
+        <Metric title={tt(language, 'community.timeGained')} value={`-${result.gainSec.toFixed(3)}s`} tone="faster" />
+        <Metric title={tt(language, 'community.timeLost')} value={`+${result.lossSec.toFixed(3)}s`} tone="slower" />
+        <Metric title={tt(language, 'community.yourLap')} value={formatLapTime(result.lapTimeASec)} tone="neutral" />
         <Metric title="Ghost" value={formatLapTime(result.lapTimeBSec)} tone="neutral" />
       </div>
 
       <div style={{ marginTop: 14 }}>
         <DeltaTrace bins={result.bins} />
         <div style={{ ...row, justifyContent: 'space-between', marginTop: 6, fontSize: 11, opacity: 0.7 }}>
-          <span>início da volta</span>
-          <span><span style={fasterText}>■</span> mais rápido &nbsp; <span style={slowerText}>■</span> mais lento</span>
-          <span>fim da volta</span>
+          <span>{tt(language, 'community.lapStart')}</span>
+          <span><span style={fasterText}>■</span> {tt(language, 'community.faster')} &nbsp; <span style={slowerText}>■</span> {tt(language, 'community.slower')}</span>
+          <span>{tt(language, 'community.lapEnd')}</span>
         </div>
       </div>
 
       <div style={{ ...row, gap: 18, marginTop: 12 }}>
         {result.bestGain ? (
           <div style={{ ...card, padding: '10px 12px', flex: 1 }}>
-            <div style={{ ...label, color: 'var(--accent-success)' }}>Onde você mais ganha</div>
+            <div style={{ ...label, color: 'var(--accent-success)' }}>{tt(language, 'community.bestGain')}</div>
             <div style={{ marginTop: 4 }}>
               {Math.round(result.bestGain.fromPct * 100)}%–{Math.round(result.bestGain.toPct * 100)}% da volta ·{' '}
               <span style={fasterText}>{formatDelta(result.bestGain.deltaSec)}</span>
@@ -536,7 +535,7 @@ function ComparePanel({ report, onClose }: { report: GhostCompareReport; onClose
         ) : null}
         {result.worstLoss ? (
           <div style={{ ...card, padding: '10px 12px', flex: 1 }}>
-            <div style={{ ...label, color: 'var(--accent-primary)' }}>Onde você mais perde</div>
+            <div style={{ ...label, color: 'var(--accent-primary)' }}>{tt(language, 'community.worstLoss')}</div>
             <div style={{ marginTop: 4 }}>
               {Math.round(result.worstLoss.fromPct * 100)}%–{Math.round(result.worstLoss.toPct * 100)}% da volta ·{' '}
               <span style={slowerText}>{formatDelta(result.worstLoss.deltaSec)}</span>

@@ -96,6 +96,7 @@ import { Bosch296DashWidget } from './Bosch296DashWidget'
 import { RingDashWidget } from './RingDashWidget'
 import { LmuEnduranceDashWidget } from './LmuEnduranceDashWidget'
 import { LmuStintDashWidget } from './LmuStintDashWidget'
+import { HifiDduWidget, HifiEnduranceWidget, HifiEngineerWidget } from './HifiDashWidgets'
 import { PerCornerTyrePressureWidget } from './PerCornerTyrePressureWidget'
 import { BrakeTempCornersWidget } from './BrakeTempCornersWidget'
 import { FuelDeltaTileWidget } from './FuelDeltaTileWidget'
@@ -148,6 +149,9 @@ export const WIDGET_COMPONENTS: Record<OverlayWidgetId, (props: WidgetProps) => 
   ringDash: RingDashWidget,
   lmuEnduranceDash: LmuEnduranceDashWidget,
   lmuStintDash: LmuStintDashWidget,
+  hifiDdu: HifiDduWidget,
+  hifiEndurance: HifiEnduranceWidget,
+  hifiEngineer: HifiEngineerWidget,
   perCornerTyrePressure: PerCornerTyrePressureWidget,
   brakeTempCorners: BrakeTempCornersWidget,
   fuelDeltaTile: FuelDeltaTileWidget,

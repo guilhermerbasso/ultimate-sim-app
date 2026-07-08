@@ -17,6 +17,7 @@ import StintDebrief from './coach/StintDebrief'
 import { TrackCoachingHeatmap } from '../components/TrackCoachingHeatmap'
 import { useTrackMapData } from '../lib/track-map'
 import { useTelemetrySelector } from '../lib/telemetry'
+import { tt } from '../i18n'
 
 // AI Coach + Setup Engineer (F2). Renders the DETERMINISTIC per-lap report from
 // the `coach:` module: ranked findings (worst-first by estimated time loss),
@@ -54,14 +55,14 @@ const SEVERITY_COLOR: Record<CoachSeverity, string> = {
 }
 
 const SEVERITY_LABEL: Record<CoachSeverity, string> = {
-  high: 'Alta',
-  med: 'Média',
-  low: 'Baixa',
-  good: 'Bom'
+  high: 'High',
+  med: 'Medium',
+  low: 'Low',
+  good: 'Good'
 }
 
-const PHASE_LABEL: Record<string, string> = { entry: 'Entrada', mid: 'Meio', exit: 'Saída' }
-const CONFIDENCE_LABEL: Record<string, string> = { high: 'Alta', med: 'Média', low: 'Baixa' }
+const PHASE_LABEL: Record<string, string> = { entry: 'Entry', mid: 'Mid', exit: 'Exit' }
+const CONFIDENCE_LABEL: Record<string, string> = { high: 'High', med: 'Medium', low: 'Low' }
 
 const page: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 18 }
 
@@ -184,7 +185,7 @@ interface ExplainState {
   source?: CoachExplainResult['source']
 }
 
-export default function CoachView({ showToast }: AppViewProps): ReactElement {
+export default function CoachView({ showToast, language }: AppViewProps): ReactElement {
   const [tab, setTab] = useState<CoachTab>('report')
   const [report, setReport] = useState<CoachReport | null>(null)
   const [setup, setSetup] = useState<SetupReport | null>(null)
@@ -257,7 +258,7 @@ export default function CoachView({ showToast }: AppViewProps): ReactElement {
         setExplains((prev) => ({ ...prev, [finding.id]: { loading: false, text: result.text, source: result.source } }))
       } catch {
         setExplains((prev) => ({ ...prev, [finding.id]: { loading: false } }))
-        showToast('Não foi possível explicar agora.', 'error')
+        showToast(tt(language, 'coach.explainFailed'), 'error')
       }
     },
     [useLlm, showToast]
@@ -271,8 +272,8 @@ export default function CoachView({ showToast }: AppViewProps): ReactElement {
       <section style={panel}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
           <div>
-            <div style={eyebrow}>Coach · IA local opcional · hub de análise</div>
-            <h1 style={title}>Coach IA & análise</h1>
+            <div style={eyebrow}>{tt(language, 'coach.eyebrow')}</div>
+            <h1 style={title}>{tt(language, 'coach.title')}</h1>
           </div>
           <label style={{ ...chip, cursor: 'pointer', textTransform: 'none' }}>
             <input type="checkbox" checked={useLlm} onChange={(e) => void togglePhraseWithAi(e.target.checked)} />
@@ -292,7 +293,7 @@ export default function CoachView({ showToast }: AppViewProps): ReactElement {
             style={{ ...tabButton, ...(tab === 'analysis' ? { background: 'var(--accent-primary)', color: 'var(--text-on-accent)', borderColor: 'var(--accent-primary)' } : {}) }}
             onClick={() => setTab('analysis')}
           >
-            Análise & Live Coach
+            {tt(language, 'coach.analysisLive')}
           </button>
         </div>
       </section>
@@ -310,7 +311,7 @@ export default function CoachView({ showToast }: AppViewProps): ReactElement {
                 <span style={{ ...chip, color: deltaColor(report.deltaToBestSec) }}>Δ melhor {fmtDelta(report.deltaToBestSec)}</span>
                 {report.consistency && (
                   <span style={chip}>
-                    Consistência {report.consistency.rating} · σ {report.consistency.stdevSec.toFixed(2)}s
+                    {tt(language, 'coach.consistency', { rating: report.consistency.rating })} · σ {report.consistency.stdevSec.toFixed(2)}s
                   </span>
                 )}
                 <span style={chip}>{report.sampleCount} amostras</span>
@@ -333,7 +334,7 @@ export default function CoachView({ showToast }: AppViewProps): ReactElement {
 
           <section style={panel}>
             <h2 style={sectionTitle}>Pontos de melhoria {issues.length > 0 && <span style={mutedText}>· por perda de tempo</span>}</h2>
-            {issues.length === 0 && <p style={mutedText}>Sem perdas relevantes detectadas na última volta.</p>}
+            {issues.length === 0 && <p style={mutedText}>{tt(language, 'coach.noRelevantLosses')}</p>}
             {issues.map((f) => (
               <FindingCard key={f.id} finding={f} explain={explains[f.id]} onExplain={() => explain(f)} />
             ))}
@@ -351,8 +352,8 @@ export default function CoachView({ showToast }: AppViewProps): ReactElement {
           <StintDebriefSeam />
 
           <section style={panel}>
-            <h2 style={sectionTitle}>Sugestões de setup</h2>
-            <p style={mutedText}>{setup?.summary ?? 'As recomendações aparecem após uma volta com dados de pneus/handling.'}</p>
+            <h2 style={sectionTitle}>{tt(language, 'coach.setupSuggestions')}</h2>
+            <p style={mutedText}>{setup?.summary ?? tt(language, 'coach.setupRecommendationsAfterLap')}</p>
             {(setup?.suggestions ?? []).map((s) => (
               <SetupCard key={s.id} suggestion={s} />
             ))}
@@ -384,7 +385,7 @@ function SectorCard({ sector }: { sector: CoachSectorSummary }): ReactElement {
           {good ? 'No ritmo' : `+${sector.timeLossSec.toFixed(2)}s`}
         </span>
       </div>
-      <span style={mutedText}>Vel. mín {Math.round(sector.minSpeedKmh)} km/h</span>
+      <span style={mutedText}>Min speed {Math.round(sector.minSpeedKmh)} km/h</span>
       <span style={mutedText}>
         Freio {pct(sector.brakePct)} · Coast {pct(sector.coastPct)} · Throttle {pct(sector.throttlePct)}
       </span>
@@ -423,7 +424,7 @@ function FindingCard({
       {explain?.text && (
         <div style={{ ...cardBase, background: 'var(--surface-raised)', gap: 4 }}>
           <span style={{ ...eyebrow, color: explain.source === 'llm' ? 'var(--accent-primary)' : 'var(--text-muted)' }}>
-            {explain.source === 'llm' ? 'IA local' : 'Determinístico'}
+            {explain.source === 'llm' ? 'Local AI' : 'Deterministic'}
           </span>
           <span style={bodyText}>{explain.text}</span>
         </div>
@@ -440,7 +441,7 @@ function SetupCard({ suggestion }: { suggestion: SetupSuggestion }): ReactElemen
     <div style={cardBase}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <strong style={{ color: 'var(--text-primary)', fontFamily: '"Rajdhani", sans-serif', fontSize: 15 }}>{suggestion.primary.change}</strong>
-        <span style={{ ...chip, padding: '2px 8px' }}>Confiança {CONFIDENCE_LABEL[suggestion.confidence] ?? suggestion.confidence}</span>
+        <span style={{ ...chip, padding: '2px 8px' }}>Confidence {CONFIDENCE_LABEL[suggestion.confidence] ?? suggestion.confidence}</span>
       </div>
       <span style={bodyText}>{suggestion.rationale}</span>
       <span style={mutedText}>{suggestion.evidence}</span>

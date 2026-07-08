@@ -15,9 +15,9 @@ import {
 // node environment (no DOM): the functions under test never touch window.
 
 describe('DEFAULT_TTS_PREF', () => {
-  it('defaults to Piper + pt_BR-faber-medium + rate 1', () => {
-    expect(DEFAULT_TTS_PREF).toEqual({ engine: 'piper', voiceId: 'pt_BR-faber-medium', rate: 1 })
-    expect(DEFAULT_TTS_VOICE_ID).toBe('pt_BR-faber-medium')
+  it('defaults to Piper + en_US-lessac-medium + rate 1', () => {
+    expect(DEFAULT_TTS_PREF).toEqual({ engine: 'piper', voiceId: 'en_US-lessac-medium', rate: 1 })
+    expect(DEFAULT_TTS_VOICE_ID).toBe('en_US-lessac-medium')
   })
 })
 

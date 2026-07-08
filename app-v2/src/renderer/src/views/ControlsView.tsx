@@ -15,6 +15,7 @@ import type { AppViewProps } from '../App'
 import { setActionRuntimeSuppressed } from '../lib/action-runtime'
 import { SectionExportImport } from '../components/SectionExportImport'
 import { findFirstPressedButton, listConnectedGamepads, type GamepadSummary } from '../lib/gamepad'
+import { tt } from '../i18n'
 import {
   composeKeyboardCombo,
   isKeyboardCaptureCancel,
@@ -195,7 +196,7 @@ const SWITCH_TYPE_OPTIONS: Array<{ value: HidSwitchType; label: string; hint: st
   { value: 'momentary', label: 'Momentary (push)', hint: 'Fire on press. Standard push button.' },
   { value: 'toggle', label: 'Toggle (fire on ON)', hint: 'Maintained switch — fire only when turned ON.' },
   { value: 'pulse-both-edges', label: 'Pulse on both edges', hint: 'Maintained switch — one pulse per flip (On→Off and Off→On).' },
-  { value: 'flip-cover', label: 'Flip cover (ignição)', hint: 'Syncs the cover position to the iRacing engine/ignition state.' }
+  { value: 'flip-cover', label: 'Flip cover (ignition)', hint: 'Syncs the cover position to the iRacing engine/ignition state.' }
 ]
 
 const BUTTON_TYPE_OPTIONS: Array<{ value: HidButtonType; label: string }> = [
@@ -376,7 +377,7 @@ async function dispatchAppAction(action: Extract<ActionDefinition, { type: 'app'
   return `dashboard ${direction}`
 }
 
-function ControlsView({ showToast }: AppViewProps): ReactElement {
+function ControlsView({ showToast, language }: AppViewProps): ReactElement {
   const [bindings, setBindings] = useState<ActionBinding[]>([])
   const [draft, setDraft] = useState<DraftState>(EMPTY_DRAFT)
   const [gamepads, setGamepads] = useState<GamepadSummary[]>([])
@@ -673,7 +674,7 @@ function ControlsView({ showToast }: AppViewProps): ReactElement {
           <p>Map every physical HID button to keyboard macros, a virtual gamepad, iRacing pit/camera commands, or app actions.</p>
         </div>
         <div className="controls-hero-actions">
-          <SectionExportImport sectionId="actions" label="Ações & mapeamentos de teclado" onImported={() => void reloadBindings()} />
+          <SectionExportImport sectionId="actions" label={tt(language, 'controls.actionsExportLabel')} language={language} onImported={() => void reloadBindings()} />
           <button className="primary-action compact" type="button" onClick={() => setCaptureTarget('hid')}>{captureTarget === 'hid' ? 'Press a HID button…' : 'Capture HID button'}</button>
           <button className="ghost-action compact" type="button" onClick={() => setCaptureTarget('keyboard')}>{captureTarget === 'keyboard' ? 'Press keys…' : 'Capture keyboard combo'}</button>
           {captureArmed && <button className="ghost-action compact danger" type="button" onClick={cancelCapture}>Cancel / Esc</button>}

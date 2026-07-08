@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { resolveAppLanguage, t, translateNavTitle } from './i18n'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { resolveAppLanguage, t, translateNavTitle, tt } from './i18n'
 
 describe('resolveAppLanguage', () => {
   it('uses the manual language when configured', () => {
@@ -26,8 +30,39 @@ describe('i18n text helpers', () => {
     expect(t('en', 'addFavorite', { label: 'Telemetry' })).toBe('Add Telemetry to favorites')
   })
 
+  it('interpolates view catalog strings with English fallback', () => {
+    expect(tt('en', 'fuel.untilLap', { lap: 12 })).toBe('until lap 12')
+    expect(tt('pt-BR', 'fuel.untilLap', { lap: 12 })).toBe('até volta 12')
+    expect(tt('es', 'fuel.untilLap', { lap: 12 })).toBe('until lap 12')
+  })
+
   it('translates known navigation section titles', () => {
     expect(translateNavTitle('IA & Coaching', 'en')).toBe('AI & Coaching')
     expect(translateNavTitle('Strategy', 'es')).toBe('Estrategia')
+  })
+})
+
+describe('migrated view i18n coverage', () => {
+  it('keeps curated migrated views free of hardcoded pt-BR UI copy', () => {
+    const files = [
+      'TelemetryView.tsx',
+      'FuelStrategyView.tsx',
+      'TireStrategyView.tsx',
+      'StrategyView.tsx',
+      'SettingsView.tsx',
+      'AlertsView.tsx',
+      'DevicesView.tsx',
+      'CommunityView.tsx',
+      'ControlsView.tsx',
+      'CoachView.tsx'
+    ]
+    const portugueseUiPattern =
+      /[áéíóúâêôãõçÁÉÍÓÚÂÊÔÃÕÇ]|Salvar|Novo|Buscar|Conectar|Configura|Combust|Voltas|Pneus|Bandeira|Ativar|Desativar|Cancelar|Excluir|Adicionar|Atualizar|Carregar|Nenhum|Sucesso/
+    const offenders = files.flatMap((file) => {
+      const here = dirname(fileURLToPath(import.meta.url))
+      const source = readFileSync(join(here, 'views', file), 'utf8')
+      return portugueseUiPattern.test(source) ? [file] : []
+    })
+    expect(offenders).toEqual([])
   })
 })

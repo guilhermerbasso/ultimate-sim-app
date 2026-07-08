@@ -4,6 +4,7 @@ import {
   type ConfigDeleteResult,
   type SavedSectionInfo
 } from '../../../shared/config-io'
+import type { ResolvedLanguage } from '../i18n'
 
 // ─── Pure presentation helpers (exported for unit tests) ───────────────────────
 
@@ -100,7 +101,7 @@ const DANGER = 'var(--danger, #e5484d)'
 // a deletion the affected store returns to factory default — but running stores
 // are cached in memory, so the panel surfaces a restart prompt (config:relaunch)
 // exactly like the import flow. Auth/credentials are never listed or deletable.
-export function SavedConfigsPanel(): ReactElement {
+export function SavedConfigsPanel({ language: _language }: { language?: ResolvedLanguage } = {}): ReactElement {
   const [items, setItems] = useState<SavedSectionInfo[] | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [status, setStatus] = useState<Status>(null)

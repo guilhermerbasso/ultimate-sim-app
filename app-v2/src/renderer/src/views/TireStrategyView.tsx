@@ -2,6 +2,7 @@ import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo,
 import type { TireCornerId, TireStrategySettings, TireStrategyState } from '../../../shared/tire-strategy'
 import { TIRE_CHANNELS } from '../../../shared/tire-strategy'
 import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 
 const CORNERS: Array<[TireCornerId, string]> = [['lf', 'DE'], ['rf', 'DD'], ['lr', 'TE'], ['rr', 'TD']]
 
@@ -59,7 +60,7 @@ function Metric({ title, main, unit, accent }: { title: string; main: string; un
   )
 }
 
-export default function TireStrategyView(_props: AppViewProps): ReactElement {
+export default function TireStrategyView({ language }: AppViewProps): ReactElement {
   const [tire, setTire] = useState<TireStrategyState | null>(null)
   const [thresholdPct, setThresholdPct] = useState('30')
   const [targetLaps, setTargetLaps] = useState('')
@@ -102,32 +103,32 @@ export default function TireStrategyView(_props: AppViewProps): ReactElement {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: 12, alignItems: 'end' }}>
         <div>
-          <div style={label}>Limite de vida restante (%)</div>
+          <div style={label}>{tt(language, 'tire.lifeLimit')}</div>
           <input style={input} type="number" min="5" max="90" step="1" value={thresholdPct} onChange={(event) => setThresholdPct(event.target.value)} />
         </div>
         <div>
-          <div style={label}>Voltas-alvo</div>
+          <div style={label}>{tt(language, 'fuel.targetLaps')}</div>
           <input style={input} type="number" min="1" placeholder="Auto" value={targetLaps} onChange={(event) => setTargetLaps(event.target.value)} />
         </div>
         <div>
-          <div style={label}>Tempo de corrida (min)</div>
+          <div style={label}>{tt(language, 'fuel.raceTime')}</div>
           <input style={input} type="number" min="1" placeholder="Auto" value={raceMinutes} onChange={(event) => setRaceMinutes(event.target.value)} />
         </div>
-        <button style={button} type="button" onClick={() => void reset()}>Resetar pneus</button>
+        <button style={button} type="button" onClick={() => void reset()}>{tt(language, 'tire.reset')}</button>
         <div style={{ fontSize: 13, opacity: 0.78 }}>
-          {connected ? '● telemetria ao vivo' : '○ sem telemetria — use mock na aba Telemetria'}
+          {connected ? tt(language, 'fuel.live') : tt(language, 'fuel.noTelemetry')}
         </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
-        <Metric title="Pior pneu" main={cornerName(tire?.worstCorner)} accent={(tire?.lapsRemainingOnTyres ?? 99) <= 3 ? 'var(--accent-danger)' : 'var(--accent-primary)'} />
-        <Metric title="Vida até limite" main={fmtNumber(tire?.lapsRemainingOnTyres, 1)} unit="voltas" accent={canFinish === false ? 'var(--accent-warning)' : 'var(--accent-primary)'} />
-        <Metric title="Pit recomendado" main={tire?.recommendedPitLap ? `V${tire.recommendedPitLap}` : '—'} />
-        <Metric title="Desgaste médio" main={fmtPercentPoints(tire?.avgWearPerLap)} unit="p.p./volta" />
+        <Metric title={tt(language, 'tire.worst')} main={cornerName(tire?.worstCorner)} accent={(tire?.lapsRemainingOnTyres ?? 99) <= 3 ? 'var(--accent-danger)' : 'var(--accent-primary)'} />
+        <Metric title={tt(language, 'tire.lifeToLimit')} main={fmtNumber(tire?.lapsRemainingOnTyres, 1)} unit={tt(language, 'fuel.lapUnit')} accent={canFinish === false ? 'var(--accent-warning)' : 'var(--accent-primary)'} />
+        <Metric title={tt(language, 'tire.pitRecommended')} main={tire?.recommendedPitLap ? `V${tire.recommendedPitLap}` : '—'} />
+        <Metric title={tt(language, 'tire.avgWear')} main={fmtPercentPoints(tire?.avgWearPerLap)} unit="p.p./lap" />
       </div>
 
       <section style={card}>
-        <div style={label}>Pneus por canto</div>
+        <div style={label}>{tt(language, 'tire.byCorner')}</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginTop: 12 }}>
           {CORNERS.map(([corner, cornerLabel]) => {
             const data = tire?.corners[corner]
@@ -135,11 +136,11 @@ export default function TireStrategyView(_props: AppViewProps): ReactElement {
             const accent = (life ?? 100) <= thresholdLife ? 'var(--accent-danger)' : 'var(--accent-primary)'
             return (
               <div key={corner} style={{ ...card,  }}>
-                <div style={{ ...label, display: 'flex', justifyContent: 'space-between' }}><span>{cornerLabel}</span>{data?.estimated && <span>estimado</span>}</div>
-                <div style={{ ...value, color: accent }}>{fmtNumber(life, 1)} <small style={{ fontSize: 13, opacity: 0.66 }}>% vida</small></div>
+                <div style={{ ...label, display: 'flex', justifyContent: 'space-between' }}><span>{cornerLabel}</span>{data?.estimated && <span>{tt(language, 'tire.estimated')}</span>}</div>
+                <div style={{ ...value, color: accent }}>{fmtNumber(life, 1)} <small style={{ fontSize: 13, opacity: 0.66 }}>% {tt(language, 'tire.life')}</small></div>
                 <div style={{ display: 'grid', gap: 6, marginTop: 10, fontVariantNumeric: 'tabular-nums' }}>
-                  <span>Desgaste: <strong>{fmtPercentPoints(data?.wearPerLap)} p.p./volta</strong></span>
-                  <span>Até limite: <strong>{fmtNumber(data?.lapsToThreshold, 1)} voltas</strong></span>
+                  <span>{tt(language, 'tire.wear')} <strong>{fmtPercentPoints(data?.wearPerLap)} p.p./volta</strong></span>
+                  <span>{tt(language, 'tire.untilLimit')} <strong>{fmtNumber(data?.lapsToThreshold, 1)} {tt(language, 'fuel.lapUnit')}</strong></span>
                 </div>
               </div>
             )
@@ -148,13 +149,13 @@ export default function TireStrategyView(_props: AppViewProps): ReactElement {
       </section>
 
       <section style={card}>
-        <div style={label}>Estratégia</div>
-        <h3 style={{ margin: '6px 0 12px' }}>{canFinish === true ? 'Pneus seguros até o fim' : canFinish === false ? 'Troca provável necessária' : 'Aguardando dados'}</h3>
+        <div style={label}>{tt(language, 'tire.strategy')}</div>
+        <h3 style={{ margin: '6px 0 12px' }}>{canFinish === true ? tt(language, 'tire.safeToFinish') : canFinish === false ? tt(language, 'tire.changeLikely') : tt(language, 'fuel.status.waiting')}</h3>
         <div style={{ display: 'grid', gap: 8, fontVariantNumeric: 'tabular-nums' }}>
-          <div>Limite configurado: <strong>{fmtNumber(thresholdLife, 0)}% de vida restante</strong></div>
-          <div>Voltas restantes estimadas: <strong>{fmtNumber(tire?.raceLapsRemaining, 1)}</strong></div>
-          <div>Janela sugerida: <strong>{tire?.recommendedPitLap ? `até volta ${tire.recommendedPitLap}` : '—'}</strong></div>
-          <div>Fonte: <strong>{tire?.estimated ? 'estimativa por carga' : 'desgaste real por telemetria'}</strong></div>
+          <div>{tt(language, 'tire.configuredLimit')} <strong>{fmtNumber(thresholdLife, 0)}% {tt(language, 'tire.remainingLife')}</strong></div>
+          <div>{tt(language, 'fuel.estimatedLapsRemaining')} <strong>{fmtNumber(tire?.raceLapsRemaining, 1)}</strong></div>
+          <div>{tt(language, 'tire.suggestedWindow')} <strong>{tire?.recommendedPitLap ? tt(language, 'fuel.untilLap', { lap: tire.recommendedPitLap }) : '—'}</strong></div>
+          <div>{tt(language, 'tire.source')} <strong>{tire?.estimated ? tt(language, 'tire.loadEstimate') : tt(language, 'tire.realWear')}</strong></div>
           {(tire?.notes ?? []).map((note) => <div key={note} style={{ opacity: 0.72 }}>{note}</div>)}
         </div>
       </section>

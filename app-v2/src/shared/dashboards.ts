@@ -2826,6 +2826,30 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     description:
       'Quadro de estratégia estilo Le Mans Ultimate: fuel restante + voltas até esvaziar + fuel/volta, timer de stint, desgaste de pneu, clima e gaps. Funciona em qualquer sim que forneça os dados.',
     tags: ['lmu', 'dashboard', 'fullscreen']
+  },
+  {
+    id: 'hifi_ddu_cockpit',
+    name: 'GT3 — DDU Cockpit (hi-fi)',
+    widgetId: 'hifiDdu',
+    description:
+      'Photorealistic GT3 DDU cluster: shift-LED arc, huge gear, speed/RPM step bar, live delta, 4-corner tyre grid, TC/ABS/brake-bias and oil/water/oil-press/battery vitals. 1024×600, scales to any screen.',
+    tags: ['gt3', 'dashboard', 'fullscreen', 'hifi', '1024x600']
+  },
+  {
+    id: 'hifi_endurance',
+    name: 'Endurance — Stint (hi-fi)',
+    widgetId: 'hifiEndurance',
+    description:
+      'Endurance/IMSA prototype dash: ERS deploy, current lap + delta, fuel remaining and laps-to-empty, stint panel, 4-corner tyre + brake temperature matrix with car pictogram, position and gaps. 1024×600, adaptive.',
+    tags: ['endurance', 'prototype', 'dashboard', 'fullscreen', 'hifi', '1024x600']
+  },
+  {
+    id: 'hifi_engineer',
+    name: 'Engineer — MoTeC Analysis (hi-fi)',
+    widgetId: 'hifiEngineer',
+    description:
+      'MoTeC-style engineer screen: live multi-channel speed/throttle/brake traces, gear-step trace, G-G diagram, sector and lap-time tables, min/max/avg and a per-corner tyre-temperature strip. 1024×600, adaptive.',
+    tags: ['engineer', 'motec', 'analysis', 'dashboard', 'fullscreen', 'hifi', '1024x600']
   }
 ]
 

@@ -15,6 +15,7 @@ import {
   type IncidentType
 } from '../../../shared/incidents'
 import type { AppViewProps } from '../App'
+import { tt, type ResolvedLanguage } from '../i18n'
 
 // ─── warm-chrome styling (cool/green ONLY for "good") ─────────────────────────
 
@@ -57,42 +58,42 @@ function fmtSigned(value?: number, digits = 1): string {
   return `${value >= 0 ? '+' : ''}${value.toFixed(digits)}`
 }
 
-function fmtClock(ts?: number): string {
+function fmtClock(ts: number | undefined, language: ResolvedLanguage | undefined): string {
   if (typeof ts !== 'number' || !Number.isFinite(ts)) return '—'
   const seconds = Math.max(0, Math.round((Date.now() - ts) / 1000))
-  if (seconds <= 1) return 'agora'
-  if (seconds < 60) return `${seconds}s atrás`
-  return `${Math.round(seconds / 60)}min atrás`
+  if (seconds <= 1) return tt(language, 'common.now')
+  if (seconds < 60) return tt(language, 'strategy.ago.seconds', { seconds })
+  return tt(language, 'strategy.ago.minutes', { minutes: Math.round(seconds / 60) })
 }
 
-const ACTION_META: Record<StrategyAction, { text: string; color: string }> = {
-  'box-now': { text: 'BOX AGORA', color: BAD },
-  'box-soon': { text: 'Preparar pit', color: WARN },
-  'short-fill': { text: 'Splash & dash', color: WARN },
-  extend: { text: 'Seguir na pista', color: GOOD },
-  hold: { text: 'Aguardando', color: WARM },
-  unknown: { text: 'Sem dados', color: 'var(--text-muted)' }
+const ACTION_META: Record<StrategyAction, { key: string; color: string }> = {
+  'box-now': { key: 'strategy.boxNow', color: BAD },
+  'box-soon': { key: 'strategy.preparePit', color: WARN },
+  'short-fill': { key: 'strategy.shortFill', color: WARN },
+  extend: { key: 'strategy.stayOut', color: GOOD },
+  hold: { key: 'strategy.waiting', color: WARM },
+  unknown: { key: 'strategy.noData', color: 'var(--text-muted)' }
 }
 
 const UNDERCUT_LABEL: Record<UndercutAnalysis['recommendation'], string> = {
   undercut: 'Undercut',
   overcut: 'Overcut',
-  defend: 'Defender',
-  'track-position': 'Manter posição',
+  defend: 'Defend',
+  'track-position': 'Keep position',
   none: '—'
 }
 
-const INCIDENT_LABEL: Record<IncidentType, string> = {
-  spin: 'Rodada',
-  'off-track': 'Saída de pista',
-  contact: 'Contato',
-  lockup: 'Travada de freio'
+const INCIDENT_KEY: Record<IncidentType, string> = {
+  spin: 'strategy.spin',
+  'off-track': 'strategy.offTrack',
+  contact: 'strategy.contact',
+  lockup: 'strategy.lockup'
 }
 
-const SEVERITY_META: Record<IncidentSeverity, { text: string; color: string }> = {
-  minor: { text: 'leve', color: 'var(--text-muted)' },
-  moderate: { text: 'moderado', color: WARN },
-  major: { text: 'grave', color: BAD }
+const SEVERITY_META: Record<IncidentSeverity, { key: string; color: string }> = {
+  minor: { key: 'strategy.minor', color: 'var(--text-muted)' },
+  moderate: { key: 'strategy.moderate', color: WARN },
+  major: { key: 'strategy.major', color: BAD }
 }
 
 function Metric({ title, main, unit, color }: { title: string; main: string; unit?: string; color?: string }): ReactElement {
@@ -106,12 +107,12 @@ function Metric({ title, main, unit, color }: { title: string; main: string; uni
   )
 }
 
-function GuidedEmptyState(): ReactElement {
+function GuidedEmptyState({ language }: { language?: ResolvedLanguage }): ReactElement {
   return (
     <section style={guidedEmptyState}>
-      <div style={label}>Aguardando telemetria</div>
+      <div style={label}>{tt(language, 'fuel.empty.title')}</div>
       <p style={{ margin: '6px 0 0', lineHeight: 1.45 }}>
-        Conecte ao iRacing ou escolha Demo (mock) na aba Telemetria para ver o plano de estratégia.
+        {tt(language, 'strategy.empty.body')}
       </p>
     </section>
   )
@@ -122,7 +123,7 @@ function toNumber(text: string): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
 }
 
-export default function StrategyView(_props: AppViewProps): ReactElement {
+export default function StrategyView({ language }: AppViewProps): ReactElement {
   const [plan, setPlan] = useState<StrategyPlan | null>(null)
   const [clips, setClips] = useState<IncidentClipMeta[]>([])
   const [analyses, setAnalyses] = useState<Record<string, IncidentAnalysis>>({})
@@ -207,7 +208,7 @@ export default function StrategyView(_props: AppViewProps): ReactElement {
     setBusyId('narrate')
     try {
       const result = await window.ipc.invoke<StrategyNarration>(STRATEGY_CHANNELS.narrate, {
-        lang: 'pt',
+        lang: language ?? 'en',
         useLlm: useAi,
         settings
       })
@@ -223,7 +224,7 @@ export default function StrategyView(_props: AppViewProps): ReactElement {
     async (id: string): Promise<void> => {
       setBusyId(id)
       try {
-        const result = await window.ipc.invoke<IncidentAnalysis>(INCIDENT_CHANNELS.analyze, { id, lang: 'pt', useLlm: useAi })
+        const result = await window.ipc.invoke<IncidentAnalysis>(INCIDENT_CHANNELS.analyze, { id, lang: language ?? 'en', useLlm: useAi })
         setAnalyses((prev) => ({ ...prev, [id]: result }))
       } finally {
         setBusyId(null)
@@ -263,44 +264,44 @@ export default function StrategyView(_props: AppViewProps): ReactElement {
           <input style={input} type="number" min="0" step="1" value={pitLoss} onChange={(event) => setPitLoss(event.target.value)} />
         </div>
         <div>
-          <div style={label}>Margem (voltas)</div>
+          <div style={label}>{tt(language, 'strategy.fuelMargin')}</div>
           <input style={input} type="number" min="0" step="0.5" value={fuelMargin} onChange={(event) => setFuelMargin(event.target.value)} />
         </div>
         <div>
-          <div style={label}>Limite pneu (% vida)</div>
+          <div style={label}>{tt(language, 'strategy.tyreLimit')}</div>
           <input style={input} type="number" min="5" max="90" step="5" value={tyreThreshold} onChange={(event) => setTyreThreshold(event.target.value)} />
         </div>
         <div>
-          <div style={label}>Voltas-alvo</div>
+          <div style={label}>{tt(language, 'fuel.targetLaps')}</div>
           <input style={input} type="number" min="1" placeholder="Auto" value={targetLaps} onChange={(event) => setTargetLaps(event.target.value)} />
         </div>
         <div>
-          <div style={label}>Tempo (min)</div>
+          <div style={label}>{tt(language, 'strategy.time')}</div>
           <input style={input} type="number" min="1" placeholder="Auto" value={raceMinutes} onChange={(event) => setRaceMinutes(event.target.value)} />
         </div>
         <div style={{ fontSize: 13, opacity: 0.78 }}>{connected ? '● telemetria ao vivo' : '○ sem telemetria'}</div>
       </div>
 
       {!connected || !available ? (
-        <GuidedEmptyState />
+        <GuidedEmptyState language={language} />
       ) : (
         <>
           {/* ── Headline recommendation ── */}
           <section style={{ ...card, borderColor: actionMeta.color, borderWidth: 1, borderLeft: `4px solid ${actionMeta.color}` }}>
-            <div style={label}>Recomendação</div>
-            <h2 style={{ margin: '6px 0 4px', color: actionMeta.color }}>{actionMeta.text}</h2>
+            <div style={label}>{tt(language, 'strategy.recommendation')}</div>
+            <h2 style={{ margin: '6px 0 4px', color: actionMeta.color }}>{tt(language, actionMeta.key)}</h2>
             <p style={{ margin: 0, lineHeight: 1.5, opacity: 0.92 }}>{plan?.headline}</p>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12, alignItems: 'center' }}>
               <button onClick={() => void narrate()} disabled={busyId === 'narrate'}>
-                {busyId === 'narrate' ? 'Narrando…' : '📻 Narrar no rádio'}
+                {busyId === 'narrate' ? tt(language, 'strategy.narrating') : tt(language, 'strategy.narrateRadio')}
               </button>
               <label style={{ fontSize: 13, display: 'flex', gap: 6, alignItems: 'center', opacity: 0.85 }}>
                 <input type="checkbox" checked={useAi} onChange={(event) => void toggleUseAi(event.target.checked)} />
-                usar IA local (se baixada)
+                {tt(language, 'strategy.useLocalAi')}
               </label>
               {narration && (
                 <span style={{ fontSize: 13, opacity: 0.85 }}>
-                  “{narration.text}” <small style={{ opacity: 0.6 }}>({narration.source === 'llm' ? 'IA' : 'determinístico'})</small>
+                  “{narration.text}” <small style={{ opacity: 0.6 }}>({narration.source === 'llm' ? 'AI' : tt(language, 'strategy.deterministic')})</small>
                 </span>
               )}
             </div>
@@ -308,18 +309,18 @@ export default function StrategyView(_props: AppViewProps): ReactElement {
 
           {/* ── Fuel + tyres metrics ── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-            <Metric title="Combustível" main={fmt(fuel?.fuelLiters, 1)} unit="L" />
-            <Metric title="Voltas no tanque" main={fmt(fuel?.lapsOfFuel, 1)} unit="voltas" />
+            <Metric title={tt(language, 'fuel.fuel')} main={fmt(fuel?.fuelLiters, 1)} unit="L" />
+            <Metric title={tt(language, 'fuel.lapsInTank')} main={fmt(fuel?.lapsOfFuel, 1)} unit={tt(language, 'fuel.lapUnit')} />
             <Metric
-              title="Margem combustível"
+              title={tt(language, 'strategy.fuelMarginMetric')}
               main={fmtSigned(fuel?.marginLaps, 1)}
-              unit="voltas"
+              unit={tt(language, 'fuel.lapUnit')}
               color={fuelGood ? GOOD : (fuel?.marginLaps ?? 0) < 0 ? BAD : WARN}
             />
             <Metric
-              title="Pneu até o limite"
+              title={tt(language, 'strategy.tyreToLimit')}
               main={fmt(tyres?.lapsToThreshold, 1)}
-              unit="voltas"
+              unit={tt(language, 'fuel.lapUnit')}
               color={(tyres?.lapsToThreshold ?? 99) <= 2 ? BAD : (tyres?.lapsToThreshold ?? 99) <= 5 ? WARN : '#fff'}
             />
           </div>
@@ -327,25 +328,25 @@ export default function StrategyView(_props: AppViewProps): ReactElement {
           {/* ── Pit window + undercut ── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12 }}>
             <section style={card}>
-              <div style={label}>Janela de pit</div>
+              <div style={label}>{tt(language, 'strategy.pitWindow')}</div>
               <h3 style={{ margin: '6px 0 12px', color: pitWindow?.open ? GOOD : '#fff' }}>
-                {pitWindow?.open ? 'ABERTA' : 'Fechada'}
+                {pitWindow?.open ? tt(language, 'strategy.open') : tt(language, 'strategy.closed')}
               </h3>
               <div style={{ display: 'grid', gap: 8, fontVariantNumeric: 'tabular-nums' }}>
-                <div>Volta ótima: <strong>{pitWindow?.optimalLap ?? '—'}</strong></div>
-                <div>Mais cedo: <strong>{pitWindow?.earliestLap ?? '—'}</strong></div>
-                <div>Mais tarde: <strong>{pitWindow?.latestLap ?? '—'}</strong></div>
+                <div>{tt(language, 'strategy.optimalLap')} <strong>{pitWindow?.optimalLap ?? '—'}</strong></div>
+                <div>{tt(language, 'strategy.earliest')} <strong>{pitWindow?.earliestLap ?? '—'}</strong></div>
+                <div>{tt(language, 'strategy.latest')} <strong>{pitWindow?.latestLap ?? '—'}</strong></div>
                 <div>
-                  Limitado por: <strong style={{ color: pitWindow?.limitedBy === 'fuel' ? WARN : pitWindow?.limitedBy === 'tyres' ? WARM : 'inherit' }}>
-                    {pitWindow?.limitedBy === 'fuel' ? 'combustível' : pitWindow?.limitedBy === 'tyres' ? 'pneus' : pitWindow?.limitedBy === 'none' ? 'nada' : '—'}
+                  {tt(language, 'strategy.limitedBy')} <strong style={{ color: pitWindow?.limitedBy === 'fuel' ? WARN : pitWindow?.limitedBy === 'tyres' ? WARM : 'inherit' }}>
+                    {pitWindow?.limitedBy === 'fuel' ? tt(language, 'fuel.fuel') : pitWindow?.limitedBy === 'tyres' ? tt(language, 'tire.byCorner') : pitWindow?.limitedBy === 'none' ? tt(language, 'strategy.nothing') : '—'}
                   </strong>
                 </div>
-                <div>Combustível p/ terminar: <strong>{fmt(fuel?.fuelToFinishLiters, 1)} L</strong></div>
+                <div>{tt(language, 'fuel.fuelToFinish')} <strong>{fmt(fuel?.fuelToFinishLiters, 1)} L</strong></div>
                 {fuel?.canFinish === false && (
-                  <div>Splash mínimo: <strong style={{ color: WARN }}>{fmt(fuel?.shortFillLiters, 1)} L</strong></div>
+                  <div>{tt(language, 'strategy.shortFill')} <strong style={{ color: WARN }}>{fmt(fuel?.shortFillLiters, 1)} L</strong></div>
                 )}
                 {(fuel?.savePerLapLiters ?? 0) > 0 && (
-                  <div>Economia p/ esticar: <strong style={{ color: WARN }}>{fmt(fuel?.savePerLapLiters, 2)} L/volta</strong></div>
+                  <div>{tt(language, 'strategy.saveToExtend')} <strong style={{ color: WARN }}>{fmt(fuel?.savePerLapLiters, 2)} L/volta</strong></div>
                 )}
               </div>
             </section>
@@ -357,29 +358,29 @@ export default function StrategyView(_props: AppViewProps): ReactElement {
               </h3>
               {undercut?.available ? (
                 <div style={{ display: 'grid', gap: 8, fontVariantNumeric: 'tabular-nums' }}>
-                  <div>Rival: <strong>{undercut.rivalName ?? '—'}</strong></div>
+                  <div>{tt(language, 'strategy.rival')} <strong>{undercut.rivalName ?? '—'}</strong></div>
                   <div>
                     Gap: <strong style={{ color: (undercut.gapSec ?? 0) >= 0 ? '#fff' : WARM }}>{fmtSigned(undercut.gapSec, 1)} s</strong>
-                    <small style={{ opacity: 0.6 }}> {(undercut.gapSec ?? 0) >= 0 ? '(à frente)' : '(atrás)'}</small>
+                    <small style={{ opacity: 0.6 }}> {(undercut.gapSec ?? 0) >= 0 ? tt(language, 'strategy.ahead') : tt(language, 'strategy.behind')}</small>
                   </div>
                   <div>Pit loss: <strong>{fmt(undercut.pitLossSec, 0)} s</strong></div>
-                  <div>Ganho pneu novo: <strong>{fmt(undercut.freshTyreGainSec, 1)} s</strong></div>
+                  <div>{tt(language, 'strategy.freshTyreGain')} <strong>{fmt(undercut.freshTyreGainSec, 1)} s</strong></div>
                   <div>
-                    Gap pós-undercut: <strong style={{ color: (undercut.netGapAfterUndercutSec ?? 1) <= 0 ? GOOD : '#fff' }}>
+                    {tt(language, 'strategy.netGapAfterUndercut')} <strong style={{ color: (undercut.netGapAfterUndercutSec ?? 1) <= 0 ? GOOD : '#fff' }}>
                       {fmtSigned(undercut.netGapAfterUndercutSec, 1)} s
                     </strong>
                   </div>
                   <p style={{ margin: '4px 0 0', lineHeight: 1.45, opacity: 0.82, fontSize: 13 }}>{undercut.summary}</p>
                 </div>
               ) : (
-                <p style={{ margin: 0, color: 'var(--text-muted)', lineHeight: 1.45 }}>Sem gap de rival para calcular undercut.</p>
+                <p style={{ margin: 0, color: 'var(--text-muted)', lineHeight: 1.45 }}>{tt(language, 'strategy.noRivalGap')}</p>
               )}
             </section>
           </div>
 
           {plan?.notes && plan.notes.length > 0 && (
             <section style={{ ...card, background: 'var(--surface-sunken)' }}>
-              <div style={label}>Notas</div>
+              <div style={label}>{tt(language, 'strategy.notes')}</div>
               <ul style={{ margin: '8px 0 0', paddingLeft: 18, lineHeight: 1.5, opacity: 0.8 }}>
                 {plan.notes.map((note) => (
                   <li key={note}>{note}</li>
@@ -394,17 +395,17 @@ export default function StrategyView(_props: AppViewProps): ReactElement {
       <section style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
           <div>
-            <div style={label}>Incidentes · clipes de telemetria</div>
-            <h3 style={{ margin: '6px 0 0' }}>Análise de incidentes ({clips.length})</h3>
+            <div style={label}>{tt(language, 'strategy.incidentClips')}</div>
+            <h3 style={{ margin: '6px 0 0' }}>{tt(language, 'strategy.incidentAnalysis', { count: clips.length })}</h3>
           </div>
           {clips.length > 0 && (
-            <button onClick={() => void clearClips()} style={{ color: BAD }}>Limpar tudo</button>
+            <button onClick={() => void clearClips()} style={{ color: BAD }}>{tt(language, 'strategy.clearAll')}</button>
           )}
         </div>
 
         {clips.length === 0 ? (
           <p style={{ margin: '12px 0 0', color: 'var(--text-muted)', lineHeight: 1.45 }}>
-            Nenhum incidente gravado ainda. Rodadas, saídas de pista, contatos e travadas de freio aparecem aqui automaticamente.
+            {tt(language, 'strategy.noIncidents')}
           </p>
         ) : (
           <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
@@ -415,24 +416,24 @@ export default function StrategyView(_props: AppViewProps): ReactElement {
                 <div key={clip.id} style={{ ...card, background: 'var(--surface-sunken)', borderLeft: `4px solid ${severity.color}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                     <div style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                      <strong style={{ fontSize: 15 }}>{INCIDENT_LABEL[clip.type]}</strong>
-                      <span style={{ color: severity.color, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 }}>{severity.text}</span>
+                      <strong style={{ fontSize: 15 }}>{tt(language, INCIDENT_KEY[clip.type])}</strong>
+                      <span style={{ color: severity.color, fontSize: 12, textTransform: 'uppercase', letterSpacing: 1 }}>{tt(language, severity.key)}</span>
                       <span style={{ opacity: 0.7, fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-                        {clip.lap ? `volta ${clip.lap}` : 'volta ?'}
+                        {clip.lap ? tt(language, 'strategy.lap', { lap: clip.lap }) : tt(language, 'strategy.lapUnknown')}
                         {typeof clip.lapDistPct === 'number' ? ` · ${Math.round(clip.lapDistPct * 100)}%` : ''}
                         {' · '}
-                        {clip.sampleCount} amostras
+                        {clip.sampleCount} {tt(language, 'strategy.samples')}
                       </span>
-                      <span style={{ opacity: 0.5, fontSize: 12 }}>{fmtClock(clip.createdAt)}</span>
+                      <span style={{ opacity: 0.5, fontSize: 12 }}>{fmtClock(clip.createdAt, language)}</span>
                     </div>
                     <button onClick={() => void analyze(clip.id)} disabled={busyId === clip.id}>
-                      {busyId === clip.id ? 'Analisando…' : '🔍 Analisar'}
+                      {busyId === clip.id ? tt(language, 'strategy.analyzing') : tt(language, 'strategy.analyze')}
                     </button>
                   </div>
                   <p style={{ margin: '8px 0 0', lineHeight: 1.45, opacity: 0.9, fontSize: 13 }}>{clip.summary}</p>
                   {analysis && (
                     <p style={{ margin: '8px 0 0', lineHeight: 1.5, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                      {analysis.text} <small style={{ opacity: 0.55 }}>({analysis.source === 'llm' ? 'IA local' : 'determinístico'})</small>
+                      {analysis.text} <small style={{ opacity: 0.55 }}>({analysis.source === 'llm' ? 'Local AI' : tt(language, 'strategy.deterministic')})</small>
                     </p>
                   )}
                 </div>

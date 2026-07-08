@@ -35,6 +35,9 @@ export type OverlayWidgetId =
   | 'ringDash'
   | 'lmuEnduranceDash'
   | 'lmuStintDash'
+  | 'hifiDdu'
+  | 'hifiEndurance'
+  | 'hifiEngineer'
   | 'perCornerTyrePressure'
   | 'brakeTempCorners'
   | 'fuelDeltaTile'
@@ -451,7 +454,7 @@ export const OVERLAY_STYLE_PRESETS: OverlayStylePreset[] = [
   {
     id: 'minimal',
     title: 'Minimal',
-    description: 'Preto limpo, linhas discretas e foco em leitura.',
+    description: 'Forma limpa: linhas discretas, pouco chrome e leitura sem distracao.',
     style: {
       background: 'rgba(5, 10, 18, 0.72)',
       accent: '#ff6a00',
@@ -461,81 +464,9 @@ export const OVERLAY_STYLE_PRESETS: OverlayStylePreset[] = [
     }
   },
   {
-    id: 'neon',
-    title: 'Neon',
-    description: 'Ember orange, glow forte e visual night race.',
-    style: {
-      background: 'rgba(18, 8, 2, 0.82)',
-      accent: '#ff6a00',
-      border: 'rgba(255, 106, 0, 0.62)',
-      radius: 18,
-      fontFamily: 'Bahnschrift, Segoe UI, sans-serif'
-    }
-  },
-  {
-    id: 'glass',
-    title: 'Glass',
-    description: 'Vidro fumê com borda clara e blur premium.',
-    style: {
-      background: 'rgba(28, 22, 18, 0.46)',
-      accent: '#E86920',
-      border: 'rgba(200, 183, 168, 0.32)',
-      radius: 22,
-      fontFamily: 'Segoe UI, sans-serif'
-    }
-  },
-  {
-    id: 'race',
-    title: 'Race',
-    description: 'Asfalto escuro, vermelho de alerta e cantos compactos.',
-    style: {
-      background: 'rgba(18, 10, 10, 0.78)',
-      accent: '#ff3b30',
-      border: 'rgba(255, 209, 102, 0.42)',
-      radius: 10,
-      fontFamily: 'DIN Condensed, Bahnschrift, Segoe UI, sans-serif'
-    }
-  },
-  {
-    id: 'carbon',
-    title: 'Carbon',
-    description: 'Fibra de carbono, aço escovado e contraste limpo.',
-    style: {
-      background: 'rgba(7, 8, 9, 0.84)',
-      accent: '#b6c2cf',
-      border: 'rgba(182, 194, 207, 0.34)',
-      radius: 12,
-      fontFamily: 'Bahnschrift, Segoe UI, sans-serif'
-    }
-  },
-  {
-    id: 'gulf',
-    title: 'Gulf',
-    description: 'Azul petróleo escuro com laranja endurance.',
-    style: {
-      background: 'rgba(4, 18, 24, 0.82)',
-      accent: '#ff7a1a',
-      border: 'rgba(95, 188, 214, 0.36)',
-      radius: 18,
-      fontFamily: 'Segoe UI, sans-serif'
-    }
-  },
-  {
-    id: 'lemans',
-    title: 'Le Mans',
-    description: 'British racing green profundo com detalhe bronze.',
-    style: {
-      background: 'rgba(3, 15, 10, 0.84)',
-      accent: '#c88a2c',
-      border: 'rgba(200, 138, 44, 0.38)',
-      radius: 14,
-      fontFamily: 'Bahnschrift, Segoe UI, sans-serif'
-    }
-  },
-  {
     id: 'broadcast',
     title: 'Broadcast',
-    description: 'Lower-third esportivo, legível e pronto para stream.',
+    description: 'Forma TV/lower-third: blocos, abas e celulas fortes para stream.',
     style: {
       background: 'rgba(8, 10, 14, 0.88)',
       accent: '#f5a623',
@@ -545,57 +476,9 @@ export const OVERLAY_STYLE_PRESETS: OverlayStylePreset[] = [
     }
   },
   {
-    id: 'stealth',
-    title: 'Stealth',
-    description: 'Preto tático, borda mínima e leitura sem distração.',
-    style: {
-      background: 'rgba(2, 3, 4, 0.78)',
-      accent: '#8f9aa6',
-      border: 'rgba(143, 154, 166, 0.24)',
-      radius: 6,
-      fontFamily: 'Segoe UI, sans-serif'
-    }
-  },
-  {
-    id: 'amber',
-    title: 'Amber',
-    description: 'Cockpit GT noturno com âmbar quente e painel denso.',
-    style: {
-      background: 'rgba(18, 11, 3, 0.84)',
-      accent: '#ffb000',
-      border: 'rgba(255, 176, 0, 0.42)',
-      radius: 16,
-      fontFamily: 'Bahnschrift, Segoe UI, sans-serif'
-    }
-  },
-  {
-    id: 'terminal',
-    title: 'Terminal',
-    description: 'CRT monoespaçado, bordas ASCII e âmbar quente — hacker cockpit.',
-    style: {
-      background: 'rgba(4, 8, 6, 0.92)',
-      accent: '#ffb000',
-      border: 'rgba(255, 176, 0, 0.38)',
-      radius: 4,
-      fontFamily: 'Cascadia Code, Consolas, Courier New, monospace'
-    }
-  },
-  {
-    id: 'bauhaus',
-    title: 'Bauhaus',
-    description: 'Blocos geométricos ousados, tipografia bold e contraste máximo.',
-    style: {
-      background: 'rgba(2, 2, 4, 0.94)',
-      accent: '#ff3b1f',
-      border: 'rgba(255, 59, 31, 0.5)',
-      radius: 0,
-      fontFamily: 'Impact, Arial Narrow, Haettenschweiler, sans-serif'
-    }
-  },
-  {
     id: 'analog',
     title: 'Analog',
-    description: 'Gauges analógicos com agulhas SVG e mostradores circulares.',
+    description: 'Forma cockpit classico: dials circulares, ponteiros, arcos e bezels.',
     style: {
       background: 'rgba(10, 8, 5, 0.88)',
       accent: '#ff8c00',
@@ -607,7 +490,7 @@ export const OVERLAY_STYLE_PRESETS: OverlayStylePreset[] = [
   {
     id: 'heatmap',
     title: 'Heatmap',
-    description: 'Intensidade codificada em cor — frio a quente por valor.',
+    description: 'Forma engenharia: grades, celulas e barras densas codificadas por intensidade.',
     style: {
       background: 'rgba(5, 5, 12, 0.86)',
       accent: '#ff6a00',
@@ -615,127 +498,35 @@ export const OVERLAY_STYLE_PRESETS: OverlayStylePreset[] = [
       radius: 14,
       fontFamily: 'Bahnschrift, Segoe UI, sans-serif'
     }
-  }
-,  {
-    id: 'apexIgnition',
-    title: 'Apex Ignition',
-    description: 'HUD gráfico com anéis de ignição laranja e alerta redline.',
-    style: { background: 'rgba(9, 6, 4, 0.68)', accent: '#ff6a00', border: 'rgba(255, 106, 0, 0.44)', radius: 24, fontFamily: 'Bahnschrift, Segoe UI, sans-serif' }
   },
   {
-    id: 'ionEmber',
-    title: 'Ion Ember',
-    description: 'Vidro escuro, amber quente e flash azul apenas no shift.',
-    style: { background: 'rgba(6, 8, 12, 0.58)', accent: '#ffb000', border: 'rgba(255, 176, 0, 0.38)', radius: 28, fontFamily: 'Segoe UI, sans-serif' }
-  },
-  {
-    id: 'vectorPulse',
-    title: 'Vector Pulse',
-    description: 'Linhas vetoriais vermelhas/laranja para gauges sem texto.',
-    style: { background: 'rgba(10, 4, 3, 0.72)', accent: '#ff3b1f', border: 'rgba(255, 59, 31, 0.46)', radius: 8, fontFamily: 'DIN Condensed, Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'cinderGlass',
-    title: 'Cinder Glass',
-    description: 'Fumaça translúcida com cinder orange e borda sutil.',
-    style: { background: 'rgba(18, 14, 12, 0.42)', accent: '#ff7a1a', border: 'rgba(255, 122, 26, 0.30)', radius: 30, fontFamily: 'Segoe UI, sans-serif' }
-  },
-  {
-    id: 'thermalGhost',
-    title: 'Thermal Ghost',
-    description: 'Superfície quase invisível e telemetria em glow térmico.',
-    style: { background: 'rgba(3, 3, 5, 0.34)', accent: '#ff8a00', border: 'rgba(255, 138, 0, 0.24)', radius: 18, fontFamily: 'Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'emberCircuit',
-    title: 'Ember Circuit',
-    description: 'Grade eletrônica âmbar para barras segmentadas e chips.',
-    style: { background: 'rgba(12, 7, 2, 0.82)', accent: '#ffb000', border: 'rgba(255, 176, 0, 0.48)', radius: 12, fontFamily: 'Cascadia Code, Consolas, monospace' }
-  },
-  {
-    id: 'radarClear',
-    title: 'Radar Clear',
-    description: 'Radar limpo: verde somente para clear/no-car, vermelho para alongside.',
-    style: { background: 'rgba(3, 8, 7, 0.62)', accent: '#ff6a00', border: 'rgba(19, 194, 123, 0.36)', radius: 22, fontFamily: 'Segoe UI, sans-serif' }
-  },
-  {
-    id: 'orangeCore',
-    title: 'Orange Core',
-    description: 'Núcleo quente, anéis grossos e brilho endurance.',
-    style: { background: 'rgba(18, 8, 0, 0.78)', accent: '#ff6a00', border: 'rgba(255, 106, 0, 0.54)', radius: 20, fontFamily: 'Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'blackGold',
-    title: 'Black Gold',
-    description: 'Preto premium com highlight dourado quente.',
-    style: { background: 'rgba(2, 2, 2, 0.86)', accent: '#d9962a', border: 'rgba(217, 150, 42, 0.42)', radius: 14, fontFamily: 'Segoe UI, sans-serif' }
-  },
-  {
-    id: 'redlineVoid',
-    title: 'Redline Void',
-    description: 'Vazio escuro com vermelho de limite e recortes agressivos.',
-    style: { background: 'rgba(4, 2, 3, 0.88)', accent: '#ff3b1f', border: 'rgba(255, 59, 31, 0.58)', radius: 4, fontFamily: 'DIN Condensed, Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'amberVector',
-    title: 'Amber Vector',
-    description: 'Vetores geométricos âmbar para delta, fuel e inputs.',
-    style: { background: 'rgba(13, 9, 3, 0.74)', accent: '#ffb000', border: 'rgba(255, 176, 0, 0.44)', radius: 6, fontFamily: 'Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'copperMesh',
-    title: 'Copper Mesh',
-    description: 'Malha cobre translúcida para grids de pneus e freios.',
-    style: { background: 'rgba(16, 9, 5, 0.68)', accent: '#c7772d', border: 'rgba(199, 119, 45, 0.40)', radius: 18, fontFamily: 'Segoe UI, sans-serif' }
-  },
-  {
-    id: 'moltenCarbon',
-    title: 'Molten Carbon',
-    description: 'Carbono derretido com laranja quente e bordas profundas.',
-    style: { background: 'rgba(3, 3, 3, 0.82)', accent: '#ff5a14', border: 'rgba(255, 90, 20, 0.48)', radius: 10, fontFamily: 'Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'safetyGreen',
-    title: 'Safety Green',
-    description: 'Tema radar: verde reservado a estado saudável/clear.',
-    style: { background: 'rgba(2, 9, 5, 0.70)', accent: '#ff6a00', border: 'rgba(19, 194, 123, 0.42)', radius: 26, fontFamily: 'Segoe UI, sans-serif' }
-  },
-  {
-    id: 'laserGrid',
-    title: 'Laser Grid',
-    description: 'Grade laser âmbar com contraste e marcas segmentadas.',
-    style: { background: 'rgba(5, 5, 9, 0.78)', accent: '#ffb000', border: 'rgba(255, 176, 0, 0.34)', radius: 2, fontFamily: 'Cascadia Code, Consolas, monospace' }
-  },
-  {
-    id: 'solarFlare',
-    title: 'Solar Flare',
-    description: 'Flare laranja de alta energia para gauges circulares.',
-    style: { background: 'rgba(20, 7, 0, 0.68)', accent: '#ff7a00', border: 'rgba(255, 122, 0, 0.52)', radius: 34, fontFamily: 'Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'obsidianRing',
-    title: 'Obsidian Ring',
-    description: 'Anéis finos em obsidiana com glow quente minimalista.',
-    style: { background: 'rgba(0, 0, 0, 0.72)', accent: '#ff8c1a', border: 'rgba(255, 140, 26, 0.28)', radius: 36, fontFamily: 'Segoe UI, sans-serif' }
-  },
-  {
-    id: 'brakeGlow',
-    title: 'Brake Glow',
-    description: 'Glow de freio quente para heat tiles e alertas.',
-    style: { background: 'rgba(12, 3, 2, 0.78)', accent: '#ff3b1f', border: 'rgba(255, 59, 31, 0.44)', radius: 16, fontFamily: 'Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'nightStint',
-    title: 'Night Stint',
-    description: 'Stint noturno translúcido, amber suave e baixa intrusão.',
-    style: { background: 'rgba(3, 5, 8, 0.50)', accent: '#f59e0b', border: 'rgba(245, 158, 11, 0.26)', radius: 24, fontFamily: 'Segoe UI, sans-serif' }
+    id: 'neon',
+    title: 'Neon',
+    description: 'Forma HUD futurista: segmentos flutuantes, rings/barras e brilho vetorial.',
+    style: {
+      background: 'rgba(18, 8, 2, 0.82)',
+      accent: '#ff6a00',
+      border: 'rgba(255, 106, 0, 0.62)',
+      radius: 18,
+      fontFamily: 'Bahnschrift, Segoe UI, sans-serif'
+    }
   }
 ]
+
+export const OVERLAY_FORMS = OVERLAY_STYLE_PRESETS
 
 export const DEFAULT_OVERLAY_STYLE_PRESET: OverlayStylePresetId = 'minimal'
 
 export function getOverlayStylePreset(id?: string): OverlayStylePreset {
-  return OVERLAY_STYLE_PRESETS.find((preset) => preset.id === id) ?? OVERLAY_STYLE_PRESETS[0]
+  const exact = OVERLAY_STYLE_PRESETS.find((preset) => preset.id === id)
+  if (exact) return exact
+  const family = overlayDesignFamily(id)
+  const formId: OverlayStylePresetId = family === 'analog' || family === 'broadcast' || family === 'heatmap' || family === 'neon'
+    ? family
+    : family === 'bauhaus'
+      ? 'broadcast'
+      : 'minimal'
+  return OVERLAY_STYLE_PRESETS.find((preset) => preset.id === formId) ?? OVERLAY_STYLE_PRESETS[0]
 }
 
 export function createDefaultOverlayStyle(preset: OverlayStylePresetId = DEFAULT_OVERLAY_STYLE_PRESET): OverlayWidgetStyle {
@@ -964,52 +755,49 @@ export const OVERLAY_DESIGN_FAMILY_SPECS: Record<OverlayDesignFamily, OverlayDes
 }
 
 /**
- * Canonical mapping of every style preset to its design family. Typed as a total
- * `Record<OverlayStylePresetId, OverlayDesignFamily>` so adding a preset without a
- * family (or removing one) is a compile error. The 8 namesake presets
- * (minimal/neon/glass/broadcast/terminal/bauhaus/analog/heatmap) are the archetype
- * of each family; the remaining color variants are grouped by their closest design
- * language. See `visual-audit/DESIGN-FAMILIES.md` for the rationale per preset.
+ * Canonical mapping of every current or legacy style preset to a structural
+ * family. Only five forms are selectable now; legacy structural ids stay accepted
+ * so persisted configs and old tests render with their previous layout.
  */
 export const OVERLAY_PRESET_FAMILY: Record<OverlayStylePresetId, OverlayDesignFamily> = {
-  // ── Archetype presets (namesake of their family) ──
+  // Five user-facing structural forms.
   minimal: 'minimal',
-  neon: 'neon',
-  glass: 'glass',
   broadcast: 'broadcast',
-  terminal: 'terminal',
-  bauhaus: 'bauhaus',
   analog: 'analog',
   heatmap: 'heatmap',
-  // ── Original color variants ──
-  race: 'broadcast', // DIN-condensed race TV, compact alert-red bars
-  carbon: 'broadcast', // brushed-steel structural panels, boxy + solid
-  gulf: 'broadcast', // endurance livery, lower-third spectating vibe
-  lemans: 'analog', // heritage endurance, bronze, classic instrument feel
-  stealth: 'minimal', // tactical restraint, minimal border, no distraction
-  amber: 'analog', // GT cockpit instrument cluster, dense dial panel
-  // ── R16 batch: futuristic + minimalist color/style variants ──
-  apexIgnition: 'neon', // glowing ignition HUD rings + redline alert
-  ionEmber: 'glass', // dark glass surface, blue shift-flash
-  vectorPulse: 'neon', // glowing vector pulse lines for textless gauges
-  cinderGlass: 'glass', // translucent smoke / frosted glass
-  thermalGhost: 'heatmap', // near-invisible surface, thermal telemetry glow
-  emberCircuit: 'neon', // electronic circuit grid, segmented bars + chips
-  radarClear: 'analog', // circular radar sweep, green reserved for clear
-  orangeCore: 'neon', // glowing hot core with thick emissive rings
-  blackGold: 'minimal', // premium restraint, warm gold accent
-  redlineVoid: 'bauhaus', // aggressive geometric cutouts, limit-red blocks
-  amberVector: 'neon', // amber geometric vector linework
-  copperMesh: 'heatmap', // copper mesh grids for tyre/brake cells
-  moltenCarbon: 'broadcast', // structural carbon, deep boxy borders
-  safetyGreen: 'analog', // radar instrument, green = healthy/clear state
-  laserGrid: 'neon', // laser cyber grid, segmented mono marks
-  solarFlare: 'analog', // circular gauges with high-energy flare
-  obsidianRing: 'analog', // thin circular rings / minimal gauge dial
-  brakeGlow: 'heatmap', // brake heat tiles, hot-cell alerts
-  nightStint: 'minimal' // low-intrusion soft restraint, night stint
+  neon: 'neon',
+  // Legacy archetypes preserved for persisted configs.
+  glass: 'glass',
+  terminal: 'terminal',
+  bauhaus: 'bauhaus',
+  // Original color variants.
+  race: 'broadcast',
+  carbon: 'broadcast',
+  gulf: 'broadcast',
+  lemans: 'analog',
+  stealth: 'minimal',
+  amber: 'analog',
+  // R16 batch: futuristic + minimalist color/style variants.
+  apexIgnition: 'neon',
+  ionEmber: 'minimal',
+  vectorPulse: 'neon',
+  cinderGlass: 'minimal',
+  thermalGhost: 'heatmap',
+  emberCircuit: 'neon',
+  radarClear: 'analog',
+  orangeCore: 'neon',
+  blackGold: 'minimal',
+  redlineVoid: 'broadcast',
+  amberVector: 'neon',
+  copperMesh: 'heatmap',
+  moltenCarbon: 'broadcast',
+  safetyGreen: 'analog',
+  laserGrid: 'neon',
+  solarFlare: 'analog',
+  obsidianRing: 'analog',
+  brakeGlow: 'heatmap',
+  nightStint: 'minimal'
 }
-
 /**
  * Resolve a style preset id to its design family. Unknown or missing ids fall
  * back to the family of the default preset (`minimal`). Widgets should switch

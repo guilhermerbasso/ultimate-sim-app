@@ -83,10 +83,10 @@ const PREV_TOKENS = ['anterior', 'previous', 'prev', 'voltar', 'volta', 'atras',
 
 // ─── public entry ────────────────────────────────────────────────────────────
 
-export function routeIntent(rawText: string, ctx: EngineerContext): IntentResult {
+export function routeIntent(rawText: string, ctx: EngineerContext, forcedLang?: IntentLang): IntentResult {
   const text = normalize(rawText ?? '')
   if (!text) return { type: 'passthrough', reason: 'empty' }
-  const lang = detectLang(text)
+  const lang = forcedLang ?? detectLang(text)
 
   return (
     matchCommand(text, lang) ??

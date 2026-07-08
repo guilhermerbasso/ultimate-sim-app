@@ -3,12 +3,13 @@ import { GENERIC_DEVICE_DEFAULT_BAUD } from '../../../shared/arduino'
 import type { AppViewProps } from '../App'
 import { useDevices } from '../lib/devices/DeviceRegistry'
 import { SectionExportImport } from '../components/SectionExportImport'
+import { tt } from '../i18n'
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElement {
+function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps): ReactElement {
   const {
     ports,
     serialDevices,
@@ -62,7 +63,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
     try {
       const nextPorts = await refreshPorts()
       showToast(
-        nextPorts.length ? `${nextPorts.length} porta(s) encontrada(s).` : 'Nenhuma porta serial encontrada.',
+        nextPorts.length ? tt(language, 'devices.portsFound', { count: nextPorts.length }) : tt(language, 'devices.noPorts'),
         'info'
       )
     } catch (error) {
@@ -76,7 +77,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
       const device = await connectPrimary(selectedPath)
       await refreshDeviceState()
       showToast(
-        `SIM-X conectado em ${device.path} — enviando teste de saída (rev lights + OLED) para confirmar o link…`,
+        tt(language, 'devices.simxConnectedToast', { path: device.path }),
         'success'
       )
     } catch (error) {
@@ -86,9 +87,9 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
 
   async function testOutput(): Promise<void> {
     try {
-      showToast('Enviando teste de saída ao SIM-X… observe as rev lights e o OLED.', 'info')
+      showToast(tt(language, 'devices.sendingOutputTest'), 'info')
       await testPrimaryOutput()
-      showToast('Teste de saída enviado: rev lights varreram e o OLED mostrou “SIM-X CONECTADO”.', 'success')
+      showToast(tt(language, 'devices.outputTestSent'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -97,7 +98,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
   async function disconnect(): Promise<void> {
     try {
       await disconnectPrimary()
-      showToast('Porta serial liberada. O SimHub pode usá-la novamente.', 'success')
+      showToast(tt(language, 'devices.serialReleased'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -112,7 +113,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
       setSecondaryPath('')
       setSecondaryLabel('')
       setSecondaryBaud(GENERIC_DEVICE_DEFAULT_BAUD)
-      showToast(`Dispositivo serial "${label}" conectado em ${path}.`, 'success')
+      showToast(tt(language, 'devices.secondaryConnectedToast', { label, path }), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -121,7 +122,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
   async function disconnectSecondary(id: string): Promise<void> {
     try {
       await disconnectSecondaryDevice(id)
-      showToast('Dispositivo serial desconectado. Os demais continuam conectados.', 'success')
+      showToast(tt(language, 'devices.secondaryDisconnectedToast'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -130,7 +131,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
   async function reconnectSecondary(id: string): Promise<void> {
     try {
       await reconnectSecondaryDevice(id)
-      showToast('Dispositivo serial reconectado.', 'success')
+      showToast(tt(language, 'devices.secondaryReconnectedToast'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -139,7 +140,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
   async function removeSecondary(id: string): Promise<void> {
     try {
       await removeSecondaryDevice(id)
-      showToast('Dispositivo serial removido da lista.', 'success')
+      showToast(tt(language, 'devices.secondaryRemovedToast'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -150,21 +151,18 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
       <article className="panel-card">
         <div className="panel-heading-row">
           <div>
-            <span className="panel-label">Hub de dispositivos · serial + Windows</span>
-            <h3>Central de dispositivos</h3>
+            <span className="panel-label">{tt(language, 'devices.hubEyebrow')}</span>
+            <h3>{tt(language, 'devices.hubTitle')}</h3>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <SectionExportImport sectionId="devices" label="Perfis de dispositivos (ButtonBox/controles)" onImported={() => void refreshDeviceState()} />
+            <SectionExportImport sectionId="devices" label={tt(language, 'devices.profilesExportLabel')} language={language} onImported={() => void refreshDeviceState()} />
             <button className="ghost-action compact" disabled={busy} onClick={() => void searchPorts()} type="button">
-              Procurar portas
+              {tt(language, 'devices.searchPorts')}
             </button>
           </div>
         </div>
         <p className="helper-text">
-          Este é o hub central: o que você conecta aqui é compartilhado com <strong>todos os outros menus</strong>, sem
-          reconectar. Conecte os dispositivos <strong>seriais</strong> (SIM-X ButtonBox, Arduinos extras e iFlag em
-          portas COM/USB) abaixo. Saídas de áudio (USB/HDMI) e monitores são gerenciados pelo Windows e aparecem como
-          referência compartilhada no fim da página.
+          {tt(language, 'devices.hubHelp')}
         </p>
       </article>
 
@@ -173,34 +171,32 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
           <div className="panel-heading-row">
             <div>
               <span className="panel-label">SIM-X principal · 115200 8N1</span>
-              <h3>ButtonBox primário</h3>
+              <h3>{tt(language, 'devices.primaryButtonBox')}</h3>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <SectionExportImport sectionId="simx-identity" label="Identidade do SIM-X primário" onImported={() => void refreshDeviceState()} />
+              <SectionExportImport sectionId="simx-identity" label={tt(language, 'devices.primaryIdentity')} language={language} onImported={() => void refreshDeviceState()} />
               <span className={`conn-pill ${connectedDevice ? 'online' : 'offline'}`}>
-                {connectedDevice ? `● Conectado · ${connectedDevice.path}` : '○ Desconectado'}
+                {connectedDevice ? tt(language, 'devices.connectedPath', { path: connectedDevice.path }) : tt(language, 'devices.disconnected')}
               </span>
             </div>
           </div>
 
           {connectedDevice && (
             <div className="notice-card success device-status-banner">
-              <strong>SIM-X conectado • porta {connectedDevice.path}</strong>
+              <strong>{tt(language, 'devices.simxConnectedPort', { path: connectedDevice.path })}</strong>
               <p>
-                Link serial aberto (rev lights + OLED + encoder). Sem iRacing aberto a saída fica ociosa — use{' '}
-                <strong>Testar saída</strong> para ver as rev lights varrerem e o OLED escrever no hardware.
+                {tt(language, 'devices.connectedHelp')}
               </p>
             </div>
           )}
 
           <p className="helper-text">
-            A porta é exclusiva: feche o SimHub antes de conectar pelo app. O SIM-X continua no caminho legado para
-            rev lights, OLED e encoder; dispositivos extras usam conexões secundárias separadas.
+            {tt(language, 'devices.primaryHelp')}
           </p>
 
           <div className="port-list">
             {ports.length === 0 && (
-              <p className="empty-state">Clique em “Procurar portas” para listar as portas seriais disponíveis.</p>
+              <p className="empty-state">{tt(language, 'devices.searchPortsHint')}</p>
             )}
             {ports.map((port) => (
               <label className={`port-item ${selectedPath === port.path ? 'is-selected' : ''}`} key={port.path}>
@@ -221,11 +217,11 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
                     )}
                     {serialDevices.some((device) => device.kind !== 'sim-x' && device.path === port.path) && (
                       <em className="muted-pill" style={{ marginLeft: 8 }}>
-                        em uso por secundário
+                        {tt(language, 'devices.usedBySecondary')}
                       </em>
                     )}
                   </strong>
-                  <small>{port.friendlyName || port.manufacturer || 'Fabricante não identificado'}</small>
+                  <small>{port.friendlyName || port.manufacturer || tt(language, 'devices.unknownManufacturer')}</small>
                   {(port.vendorId || port.productId) && (
                     <small>
                       VID:{port.vendorId || '????'} · PID:{port.productId || '????'}
@@ -243,16 +239,16 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
               onClick={() => void connect()}
               type="button"
             >
-              Conectar SIM-X
+              {tt(language, 'devices.connectSimx')}
             </button>
             <button
               className="ghost-action"
               disabled={busy || !connectedDevice}
               onClick={() => void testOutput()}
-              title="Envia uma varredura de rev lights + mensagem no OLED para confirmar a saída serial (não precisa do iRacing)."
+              title={tt(language, 'devices.testOutputTitle')}
               type="button"
             >
-              Testar saída
+              {tt(language, 'devices.testOutput')}
             </button>
             <button
               className="ghost-action"
@@ -260,7 +256,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
               onClick={() => void disconnect()}
               type="button"
             >
-              Desconectar SIM-X
+              {tt(language, 'devices.disconnectSimx')}
             </button>
           </div>
         </article>
@@ -294,7 +290,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
                 <dd>{connectedDevice.protocolVersion ? `v${connectedDevice.protocolVersion}` : 'SimHub one-letter'}</dd>
               </div>
               <div>
-                <dt>Botões HID</dt>
+                <dt>{tt(language, 'devices.hidButtons')}</dt>
                 <dd>{connectedDevice.hidButtons ?? 32}</dd>
               </div>
               <div>
@@ -310,10 +306,9 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
             </dl>
           ) : (
             <div className="notice-card warning">
-              <strong>SIM-X desconectado</strong>
+              <strong>{tt(language, 'devices.simxDisconnected')}</strong>
               <p>
-                Escolha a COM do ButtonBox e clique em <strong>Conectar SIM-X</strong>. Isso não desconecta Arduinos ou
-                iFlag já abertos em outras portas.
+                {tt(language, 'devices.disconnectedHelp')}
               </p>
             </div>
           )}
@@ -323,18 +318,17 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
       <article className="panel-card">
         <div className="panel-heading-row">
           <div>
-            <span className="panel-label">Secundários · Arduinos / iFlag</span>
-            <h3>Dispositivos seriais adicionais</h3>
+            <span className="panel-label">{tt(language, 'devices.secondariesEyebrow')}</span>
+            <h3>{tt(language, 'devices.secondariesTitle')}</h3>
           </div>
         </div>
         <p className="helper-text">
-          Conecte cada Arduino extra ou iFlag em sua própria porta. Eles usam a frota serial existente e não assumem o
-          papel do SIM-X primário.
+          {tt(language, 'devices.secondariesHelp')}
         </p>
 
         <div className="port-list">
           {secondaryDevices.length === 0 && (
-            <p className="empty-state">Nenhum dispositivo secundário conectado.</p>
+            <p className="empty-state">{tt(language, 'devices.noSecondary')}</p>
           )}
           {secondaryDevices.map((device) => (
             <div className="port-item is-static" key={device.id}>
@@ -342,7 +336,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
                 <strong>
                   {device.label}
                   <em className={`muted-pill ${device.connected ? 'is-online' : ''}`} style={{ marginLeft: 8 }}>
-                    {device.connected ? '● conectado' : '○ desconectado'}
+                    {device.connected ? tt(language, 'devices.connectedLower') : tt(language, 'devices.disconnectedLower')}
                   </em>
                 </strong>
                 <small>
@@ -356,7 +350,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
                   onClick={() => void disconnectSecondary(device.id)}
                   type="button"
                 >
-                  Desconectar
+                  {tt(language, 'devices.disconnect')}
                 </button>
                 <button
                   className="ghost-action compact danger"
@@ -364,7 +358,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
                   onClick={() => void removeSecondary(device.id)}
                   type="button"
                 >
-                  Esquecer
+                  {tt(language, 'devices.forget')}
                 </button>
               </div>
             </div>
@@ -373,7 +367,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
 
         {offlineSecondaries.length > 0 && (
           <div className="config-block">
-            <strong>Dispositivos salvos desconectados</strong>
+            <strong>{tt(language, 'devices.savedDisconnected')}</strong>
             <ul className="plain-list">
               {offlineSecondaries.map((config) => (
                 <li key={`${config.path}-${config.id ?? 'new'}`}>
@@ -387,7 +381,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
                         style={{ marginLeft: 8 }}
                         type="button"
                       >
-                        Conectar
+                        {tt(language, 'devices.connect')}
                       </button>
                       <button
                         className="ghost-action compact danger"
@@ -396,12 +390,12 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
                         style={{ marginLeft: 6 }}
                         type="button"
                       >
-                        Esquecer
+                        {tt(language, 'devices.forget')}
                       </button>
                     </>
                   ) : (
                     <em className="muted-pill" style={{ marginLeft: 8 }}>
-                      sem id salvo
+                      {tt(language, 'devices.noSavedId')}
                     </em>
                   )}
                 </li>
@@ -411,8 +405,8 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
         )}
 
         <div className="config-block">
-          <strong>Adicionar secundário</strong>
-          <small>Use para iFlag, Arduino companion ou outro CDC serial. Não selecione a porta do SIM-X primário.</small>
+          <strong>{tt(language, 'devices.addSecondary')}</strong>
+          <small>{tt(language, 'devices.addSecondaryHelp')}</small>
           <form
             className="command-row"
             onSubmit={(event) => {
@@ -434,14 +428,14 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
               style={{ minWidth: 220 }}
               value={secondaryPath}
             >
-              <option value="">Selecione uma porta…</option>
+              <option value="">{tt(language, 'devices.selectPort')}</option>
               {ports.map((port) => {
                 const inUse = serialDevices.some((device) => device.path === port.path)
                 const reservedForPrimary = port.isSimX
                 return (
                   <option disabled={inUse || reservedForPrimary} key={port.path} value={port.path}>
                     {port.path} {port.friendlyName ? `· ${port.friendlyName}` : ''}{' '}
-                    {inUse ? '· em uso' : reservedForPrimary ? '· SIM-X primário' : ''}
+                    {inUse ? tt(language, 'devices.inUseSuffix') : reservedForPrimary ? tt(language, 'devices.primarySuffix') : ''}
                   </option>
                 )
               })}
@@ -449,7 +443,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
             <input
               className="command-input"
               onChange={(event) => setSecondaryLabel(event.target.value)}
-              placeholder="Rótulo (ex.: iFlag)"
+              placeholder={tt(language, 'devices.labelPlaceholder')}
               style={{ minWidth: 180 }}
               type="text"
               value={secondaryLabel}
@@ -469,7 +463,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
               disabled={busy || !secondaryPath || secondaryPathInUse || ports.some((port) => port.path === secondaryPath && port.isSimX)}
               type="submit"
             >
-              Conectar secundário
+              {tt(language, 'devices.connectSecondary')}
             </button>
           </form>
         </div>
@@ -478,8 +472,8 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
       <article className="panel-card">
         <div className="panel-heading-row">
           <div>
-            <span className="panel-label">Saídas de áudio · Windows (USB/HDMI/Bluetooth)</span>
-            <h3>Dispositivos de som detectados</h3>
+            <span className="panel-label">{tt(language, 'devices.audioOutputsEyebrow')}</span>
+            <h3>{tt(language, 'devices.audioOutputsTitle')}</h3>
           </div>
           <button
             className="ghost-action compact"
@@ -487,13 +481,11 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
             onClick={() => void refreshAudioOutputs(true)}
             type="button"
           >
-            Atualizar
+            {tt(language, 'devices.refresh')}
           </button>
         </div>
         <p className="helper-text">
-          Saídas de áudio são gerenciadas pelo Windows e <strong>não precisam ser conectadas aqui</strong>. Esta mesma
-          lista alimenta o menu <strong>Sounds</strong>, onde você escolhe a saída dos alertas do app — sem reconfigurar
-          em cada menu.
+          {tt(language, 'devices.audioOutputsHelp')}
         </p>
         <div className="port-list">
           {audioOutputs.length === 0 && <p className="empty-state">{audioOutputsStatus}</p>}
@@ -501,7 +493,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
             <div className="port-item is-static" key={output.deviceId}>
               <span>
                 <strong>{output.label}</strong>
-                <small>Saída de áudio · Windows</small>
+                <small>{tt(language, 'devices.audioOutputWindows')}</small>
               </span>
             </div>
           ))}
@@ -511,19 +503,18 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
       <article className="panel-card">
         <div className="panel-heading-row">
           <div>
-            <span className="panel-label">Monitores · HDMI / DisplayPort</span>
-            <h3>Telas disponíveis no Windows</h3>
+            <span className="panel-label">{tt(language, 'devices.monitorsEyebrow')}</span>
+            <h3>{tt(language, 'devices.monitorsTitle')}</h3>
           </div>
           <button className="ghost-action compact" disabled={busy} onClick={() => void refreshDisplays()} type="button">
-            Atualizar
+            {tt(language, 'devices.refresh')}
           </button>
         </div>
         <p className="helper-text">
-          Os monitores conectados via HDMI/DisplayPort são compartilhados com <strong>Overlays</strong> e{' '}
-          <strong>Dashboards</strong> para escolher em qual tela exibir — sem reconfigurar em cada menu.
+          {tt(language, 'devices.monitorsHelp')}
         </p>
         <div className="port-list">
-          {displays.length === 0 && <p className="empty-state">Nenhum monitor detectado.</p>}
+          {displays.length === 0 && <p className="empty-state">{tt(language, 'devices.noMonitor')}</p>}
           {displays.map((display) => (
             <div className="port-item is-static" key={display.id}>
               <span>
@@ -531,7 +522,7 @@ function DevicesView({ refreshDeviceState, showToast }: AppViewProps): ReactElem
                   {display.label}
                   {display.primary && (
                     <em className="muted-pill" style={{ marginLeft: 8 }}>
-                      principal
+                      {tt(language, 'devices.primary')}
                     </em>
                   )}
                 </strong>

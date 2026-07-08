@@ -354,7 +354,7 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
 
   it("the 'Full-Frame Dashboards' cluster is non-empty (the 6 overlay presets)", () => {
     const fullFrame = curated.filter((v) => v.cluster === 'Full-Frame Dashboards')
-    expect(fullFrame.length).toBe(6)
+    expect(fullFrame.length).toBe(9)
     for (const v of fullFrame) {
       expect(v.type).toBe('overlaywidget')
       expect(v.widgetId, `${v.id} missing widgetId`).toBeTruthy()
@@ -362,7 +362,7 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
       expect((v as NormalizedVariant).supportedSims.length).toBeGreaterThan(0)
     }
     const section = groupVariantsByCluster(curated).find((s) => s.cluster === 'Full-Frame Dashboards')
-    expect(section?.variants.length).toBe(6)
+    expect(section?.variants.length).toBe(9)
   })
 
   it('full-frame variants carry their widgetId through variantToElement', () => {

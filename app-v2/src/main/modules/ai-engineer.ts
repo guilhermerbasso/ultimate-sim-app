@@ -44,11 +44,13 @@ import {
   resolveCommandDirective
 } from '../../shared/engineer-ipc'
 import type { Logger } from '../../shared/logger'
+import type { AppLanguage } from '../../shared/settings'
 import { buildContextPack, renderContextText } from '../ai/context-pack'
 import { routeIntent } from '../ai/intent-router'
 import { getLlmRuntime } from '../ai/llm-runtime'
 import { getModelManager } from '../ai/model-manager'
 import { buildEngineerTools } from '../ai/tools'
+import { settingsEvents } from '../settings/events'
 import { logger } from './logger'
 import { getLatestPredictions } from './predictions'
 import { getLatestCoachFindings } from './proactive-engineer'
@@ -127,7 +129,14 @@ export function getEngineerConfigSnapshot(): EngineerConfig {
 }
 
 function isPt(config: EngineerConfig): boolean {
-  return config.language !== 'en-US'
+  return config.language === 'pt-BR'
+}
+
+function engineerLanguageFromAppLanguage(language: AppLanguage): EngineerConfig['language'] {
+  if (language === 'auto') {
+    return Intl.DateTimeFormat().resolvedOptions().locale.toLowerCase().startsWith('pt') ? 'pt-BR' : 'en-US'
+  }
+  return language === 'pt-BR' ? 'pt-BR' : 'en-US'
 }
 
 // Tone block keyed by assertiveness — the ONLY part of the persona that changes
@@ -406,7 +415,7 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     if (!question) return finalize('', pick(config, FALLBACK.empty), 'answer', 'system')
     if (!config.enabled) return finalize(question, pick(config, FALLBACK.disabled), 'disabled', 'system')
 
-    const intent = routeIntent(question, deps.context)
+    const intent = routeIntent(question, deps.context, isPt(config) ? 'pt' : 'en')
     if (intent.type === 'answer') {
       return finalize(question, intent.text, 'answer', 'intent')
     }
@@ -536,6 +545,13 @@ export function register(ctx: ModuleContext): void {
       activeEngineerConfig = next
     },
     logger
+  })
+
+  settingsEvents.onChanged((settings) => {
+    const language = engineerLanguageFromAppLanguage(settings.language)
+    if (orchestrator.getConfig().language !== language) {
+      void orchestrator.setConfig({ language })
+    }
   })
 
   ctx.ipcMain.handle(ENGINEER_CHANNELS.ask, (_event, text: unknown) => orchestrator.ask(typeof text === 'string' ? text : String(text ?? '')))

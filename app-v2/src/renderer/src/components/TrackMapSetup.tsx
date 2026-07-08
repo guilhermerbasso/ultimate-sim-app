@@ -10,6 +10,7 @@ import type {
 } from '../../../shared/track-map'
 import { TRACK_MAP_CHANNELS } from '../../../shared/track-map'
 import { useTrackMapStatus } from '../lib/track-map'
+import type { ResolvedLanguage } from '../i18n'
 
 const statusLabels: Record<TrackMapStatus['auth'], string> = {
   unconfigured: 'Não configurado',
@@ -73,7 +74,7 @@ function learnStatusDisplay(learn: TrackMapStatus['learn']): { text: string; ton
   return { text: learn.reasonLabel || 'Aguardando telemetria…', tone: 'warn' }
 }
 
-export function TrackMapSetup() {
+export function TrackMapSetup({ language: _language }: { language?: ResolvedLanguage } = {}) {
   const { status, refresh } = useTrackMapStatus()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
