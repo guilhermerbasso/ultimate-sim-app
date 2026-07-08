@@ -428,6 +428,8 @@ export interface DashboardElement {
   // Which registered overlay widget (WIDGET_COMPONENTS[widgetId]) to mount inside
   // this element's box. Ignored by every other element type.
   widgetId?: OverlayWidgetId
+  // Renderer-only hi-fi module metadata for dynamic `hifi:<id>` overlay widgets.
+  hifiModuleId?: string
 }
 
 // ── R19 seam: adaptive dashboard rule model (owned/extended by WS-ADAPTIVE) ────

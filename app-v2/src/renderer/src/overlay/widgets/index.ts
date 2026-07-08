@@ -114,9 +114,12 @@ import { EnduranceMultiWidget } from './EnduranceMultiWidget'
 import { OledStripWidget } from './OledStripWidget'
 import { MotecDenseWidget } from './MotecDenseWidget'
 import { Gt3WheelWidget } from './Gt3WheelWidget'
+import { HifiWidgetHost } from './HifiWidgetHost'
 import type { WidgetProps } from './types'
 
-export const WIDGET_COMPONENTS: Record<OverlayWidgetId, (props: WidgetProps) => ReactElement> = {
+type LegacyOverlayWidgetId = Exclude<OverlayWidgetId, `hifi:${string}`>
+
+export const WIDGET_COMPONENTS: Record<string, (props: WidgetProps) => ReactElement> = {
   revlights: RevLightsWidget,
   gearSpeed: GearSpeedWidget,
   deltaLap: DeltaLapWidget,
@@ -231,3 +234,9 @@ export const WIDGET_COMPONENTS: Record<OverlayWidgetId, (props: WidgetProps) => 
   motecDense: MotecDenseWidget,
   gt3Wheel: Gt3WheelWidget
 }
+
+export function resolveWidgetComponent(id: OverlayWidgetId): ((props: WidgetProps) => ReactElement) | undefined {
+  return id.startsWith('hifi:') ? HifiWidgetHost : WIDGET_COMPONENTS[id as LegacyOverlayWidgetId]
+}
+
+export { HifiWidgetHost }

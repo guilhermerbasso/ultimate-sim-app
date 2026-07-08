@@ -46,10 +46,10 @@ import { resolveElementSkin, FitText } from '../skins'
 // WS-DASH: the six full-frame dashboards (gridStackDash … lmuStintDash) are
 // embedded as `overlaywidget` dashboard elements. They are no longer floating
 // overlays, but their COMPONENTS stay registered here so the dashboard renderer
-// can mount them. WIDGET_COMPONENTS' module side-effects (overlayWidgetsR16.css)
+// can mount them. The overlay widget module side-effects (overlayWidgetsR16.css)
 // and the widgets' own `dashboard-replicas.css` (.dr-root → width/height:100%)
 // are namespaced, so importing them here adds no global styles.
-import { WIDGET_COMPONENTS } from '../overlay/widgets'
+import { resolveWidgetComponent } from '../overlay/widgets'
 import './dashboard-runtime.css'
 
 function getDashIdFromQuery(): string | null {
@@ -1243,7 +1243,7 @@ function ElementTable({ element, snapshot }: ElementProps) {
 // `config.id`). Missing/unknown widgetId → render nothing (never break a board).
 function ElementOverlayWidget({ element, snapshot }: ElementProps) {
   const widgetId = element.widgetId
-  const Widget = widgetId ? WIDGET_COMPONENTS[widgetId] : undefined
+  const Widget = widgetId ? resolveWidgetComponent(widgetId) : undefined
   if (!widgetId || !Widget) return null
   const config: OverlayWidgetConfig = {
     id: widgetId,
@@ -1254,7 +1254,8 @@ function ElementOverlayWidget({ element, snapshot }: ElementProps) {
     opacity: 100,
     stylePreset: DEFAULT_OVERLAY_STYLE_PRESET,
     style: createDefaultOverlayStyle(),
-    display: null
+    display: null,
+    hifiModuleId: element.hifiModuleId
   }
   const containerStyle: CSSProperties = {
     left: element.x,

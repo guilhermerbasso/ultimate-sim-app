@@ -29,6 +29,7 @@ import {
   type CoverageSimId
 } from '../../../../shared/sim-coverage'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
+import { HIFI_WIDGETS, hifiWidgetTags } from '../../hifi/widgets/registry'
 // v2.40 extra widget variants (separate files; they import nx from ./widget-nx so
 // there is NO import cycle back into this module). Added as a WIDGET_CATALOG category.
 import { EXTRA_READOUT_VARIANTS } from './widgets-extra-readouts'
@@ -80,6 +81,8 @@ export interface WidgetVariant {
   /** For `type: 'overlaywidget'` full-frame dashboards — which registered overlay
    *  widget (WIDGET_COMPONENTS[widgetId]) to mount inside the placed element. */
   widgetId?: OverlayWidgetId
+  /** Dynamic hi-fi module id for `widgetId: hifi:<id>` overlay widgets. */
+  hifiModuleId?: string
   /** Generated/secondary entry (raw iRacing channel tile) demoted behind the
    *  collapsed "Advanced iRacing Channels" section in the gallery. */
   advanced?: boolean
@@ -598,8 +601,54 @@ const GT3_INSTRUMENT_VARIANTS: WidgetVariant[] = [
   gt3InstrumentVariant('gt3Wheel', 'tcLevel', 'Driver Aids', 'Flags/Status', 360, 240, ['wheel', 'steering', 'telltale', 'tc', 'abs', 'map', 'bb', 'knob'])
 ]
 
+const HIFI_CATEGORY_MAP: Record<string, WidgetCategoryTag> = {
+  inputs: 'Inputs',
+  drive: 'Speed/Engine',
+  timing: 'Timing/Delta',
+  gaps: 'Position/Standings',
+  fuel: 'Fuel',
+  tyres: 'Tyres/Brakes',
+  brakesEngine: 'Speed/Engine',
+  sessionEnv: 'Flags/Status',
+  ai: 'Text/Image'
+}
+
+const HIFI_CLUSTER_MAP: Record<string, WidgetClusterTag> = {
+  inputs: 'DDU / Cluster',
+  drive: 'DDU / Cluster',
+  timing: 'Timing / Delta',
+  gaps: 'Radar / Relative',
+  fuel: 'Stint / Endurance',
+  tyres: 'Tyre / Brake',
+  brakesEngine: 'Engine Vitals',
+  sessionEnv: 'Race Control / Flags',
+  ai: 'Race Control / Flags'
+}
+
+const HIFI_WIDGET_VARIANTS: WidgetVariant[] = HIFI_WIDGETS.map((module) => ({
+  id: `hifi-${module.id}`,
+  label: module.title,
+  hint: module.description,
+  type: 'overlaywidget',
+  widgetId: `hifi:${module.id}`,
+  hifiModuleId: module.id,
+  binding: module.requires[0],
+  w: Math.max(160, Math.round(module.defaultSize.w)),
+  h: Math.max(70, Math.round(module.defaultSize.h)),
+  category: HIFI_CATEGORY_MAP[module.category] ?? 'Digital',
+  styleFamily: 'clean',
+  cluster: HIFI_CLUSTER_MAP[module.category] ?? 'DDU / Cluster',
+  tags: ['hifi', 'overlay', module.category, ...hifiWidgetTags(module)],
+  style: gt3({ background: '#000000', border: '#1F1F1F', borderWidth: 0, radius: 0, label: module.title })
+}))
+
 // ─── Catalogo ────────────────────────────────────────────────────────────────
 export const WIDGET_CATALOG: WidgetCategory[] = [
+  {
+    id: 'hifi-per-telemetry',
+    label: 'Hi-Fi · per telemetry',
+    variants: HIFI_WIDGET_VARIANTS
+  },
   {
     id: 'full-frame',
     label: 'Dashboards full-frame',
@@ -887,6 +936,7 @@ export function variantToElement(v: WidgetVariant, x: number, y: number): Dashbo
     binding: v.binding,
     name: v.label,
     ...(v.widgetId ? { widgetId: v.widgetId } : {}),
+    ...(v.hifiModuleId ? { hifiModuleId: v.hifiModuleId } : {}),
     style: { ...v.style }
   }
 }

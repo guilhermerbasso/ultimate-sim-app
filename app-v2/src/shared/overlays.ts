@@ -119,6 +119,7 @@ export type OverlayWidgetId =
   | 'oledStrip' // thin minimalist horizontal cluster strip
   | 'motecDense' // dense MoTeC/AiM-like multi-field data panel
   | 'gt3Wheel' // GT3 steering-wheel face: telltales + TC/ABS/MAP/BB knobs
+  | `hifi:${string}`
 
 export type OverlayStylePresetId =
   | 'minimal'
@@ -235,6 +236,7 @@ export interface OverlayWidgetConfig {
   stylePreset: OverlayStylePresetId
   style: OverlayWidgetStyle
   display?: OverlayDisplayRef | null
+  hifiModuleId?: string
 }
 
 // ─── Custom overlays (user-built designer) ──────────────────────────────────

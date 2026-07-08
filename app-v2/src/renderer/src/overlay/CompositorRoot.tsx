@@ -8,9 +8,9 @@ import type {
   OverlayWidgetId,
   OverlaysConfig
 } from '../../../shared/overlays'
-import { createDefaultOverlaysConfig, OVERLAY_WIDGETS } from '../../../shared/overlays'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
-import { WIDGET_COMPONENTS } from './widgets'
+import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, mergeHifiOverlayConfigs } from './hifi-overlays'
+import { resolveWidgetComponent } from './widgets'
 import './overlay-runtime.css'
 
 const RESIZE_DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
@@ -83,7 +83,7 @@ function shellStyle(config: OverlayWidgetConfig): CSSProperties {
 export function CompositorRoot() {
   const display = useMemo(displayFromUrl, [])
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
-  const [config, setConfig] = useState<OverlaysConfig>(createDefaultOverlaysConfig())
+  const [config, setConfig] = useState<OverlaysConfig>(createDefaultOverlaysConfigWithHifi())
   const configRef = useRef(config)
   const lastHitRef = useRef<boolean | null>(null)
   const hitHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -93,7 +93,7 @@ export function CompositorRoot() {
   }, [config])
 
   const enabledLayers = useMemo(() => {
-    return OVERLAY_WIDGETS
+    return ALL_OVERLAY_WIDGETS
       .map((definition) => {
         const widgetConfig = config.widgets[definition.id]
         return widgetConfig?.enabled ? { definition, config: widgetConfig } : null
@@ -198,13 +198,13 @@ export function CompositorRoot() {
   useEffect(() => {
     const offTelemetry = window.ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', setSnapshot)
     const offState = window.ipc.subscribe<OverlayListItem[]>('overlays:state', (items) => {
-      if (Array.isArray(items)) setConfig((current) => configFromItems(items, current))
+      if (Array.isArray(items)) setConfig((current) => mergeHifiOverlayConfigs(configFromItems(items, current)))
     })
     const offRefresh = window.ipc.subscribe<null>('overlays:compositorRefresh', () => {
-      void window.ipc.invoke<OverlaysConfig>('overlays:getConfig').then(setConfig).catch(() => undefined)
+      void window.ipc.invoke<OverlaysConfig>('overlays:getConfig').then((next) => setConfig(mergeHifiOverlayConfigs(next))).catch(() => undefined)
     })
     void window.ipc.invoke<TelemetrySnapshot | null>('telemetry:getLatest').then(setSnapshot).catch(() => setSnapshot(null))
-    void window.ipc.invoke<OverlaysConfig>('overlays:getConfig').then(setConfig).catch(() => undefined)
+    void window.ipc.invoke<OverlaysConfig>('overlays:getConfig').then((next) => setConfig(mergeHifiOverlayConfigs(next))).catch(() => undefined)
     return () => {
       reportHit(false)
       if (hitHeartbeatRef.current) {
@@ -224,7 +224,8 @@ export function CompositorRoot() {
       onMouseLeave={() => reportHit(false)}
     >
       {enabledLayers.map(({ definition, config: widgetConfig }) => {
-        const Widget = WIDGET_COMPONENTS[definition.id]
+        const Widget = resolveWidgetComponent(definition.id)
+        if (!Widget) return null
         const layerStyle: CSSProperties = {
           position: 'absolute',
           left: widgetConfig.position.x - display.x,

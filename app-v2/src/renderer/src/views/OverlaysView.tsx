@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { CustomOverlayDef, CustomOverlayElement, CustomOverlayElementAlign, CustomOverlayListItem, IracingGraphicsStatus, FixIracingFullscreenResult, OverlayListItem, OverlayPosition, OverlayWidgetId, OverlayWidgetStyle, OverlaysConfig } from '../../../shared/overlays'
-import { createCustomOverlayDef, createCustomOverlayElement, createDefaultOverlaysConfig, createRichCustomOverlayDef, isRichCustomOverlay, OVERLAY_FORMS, OVERLAY_WIDGETS, overlayDesignFamily, overlayWidgetDisplayTitle } from '../../../shared/overlays'
+import { createCustomOverlayDef, createCustomOverlayElement, createRichCustomOverlayDef, isRichCustomOverlay, OVERLAY_FORMS, overlayDesignFamily, overlayWidgetDisplayTitle } from '../../../shared/overlays'
 import type { SimId } from '../../../shared/telemetry'
 import { PLAYABLE_SIMS, simLabel, widgetSupportedSims } from '../../../shared/sim-coverage'
 import { OverlayWidgetBuilder } from './overlay/OverlayWidgetBuilder'
@@ -12,6 +12,7 @@ import { STREAMING_CHANNELS } from '../../../shared/streaming'
 import type { AppViewProps } from '../App'
 import { useDevices } from '../lib/devices/DeviceRegistry'
 import { SectionExportImport } from '../components/SectionExportImport'
+import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, hasAllHifiOverlayConfigs, mergeHifiOverlayConfigs, mergeHifiOverlayItems } from '../overlay/hifi-overlays'
 import '../overlay/overlay-view.css'
 
 const POSITION_KEYS: Array<keyof OverlayPosition> = ['x', 'y', 'width', 'height']
@@ -60,18 +61,27 @@ function configModeFrom(items: OverlayListItem[], fallback: OverlaysConfig): Ove
   return {
     ...fallback,
     overlayCompositorEnabled: fallback.overlayCompositorEnabled ?? false,
-    widgets: Object.fromEntries(items.map((item) => [item.id, {
-      id: item.id,
-      enabled: item.enabled,
-      locked: item.locked,
-      favorite: item.favorite,
-      position: item.position,
-      display: item.display,
-      opacity: item.opacity,
-      stylePreset: item.stylePreset,
-      style: item.style
-    }])) as OverlaysConfig['widgets']
+    widgets: {
+      ...fallback.widgets,
+      ...Object.fromEntries(items.map((item) => [item.id, {
+        id: item.id,
+        enabled: item.enabled,
+        locked: item.locked,
+        favorite: item.favorite,
+        position: item.position,
+        display: item.display,
+        opacity: item.opacity,
+        stylePreset: item.stylePreset,
+        style: item.style,
+        hifiModuleId: item.hifiModuleId
+      }]))
+    } as OverlaysConfig['widgets']
   }
+}
+
+function definitionTags(def: { category?: string; tags?: string[] } | undefined): string[] {
+  if (!def) return []
+  return [...new Set([def.category, ...(def.tags ?? [])].filter((tag): tag is string => Boolean(tag)))]
 }
 
 // Configuration-list ordering is intentionally independent from enabled state:
@@ -97,7 +107,7 @@ function isSelectedOverlayForm(currentPreset: string | undefined, formPreset: st
 
 export default function OverlaysView(_props: AppViewProps): ReactElement {
   const [items, setItems] = useState<OverlayListItem[]>([])
-  const [config, setConfig] = useState<OverlaysConfig>(createDefaultOverlaysConfig())
+  const [config, setConfig] = useState<OverlaysConfig>(createDefaultOverlaysConfigWithHifi())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [posDrafts, setPosDrafts] = useState<Record<string, string>>({})
@@ -127,7 +137,13 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   // live telemetry provides every field the widget requires (sim-coverage). 'all'
   // shows everything. The title is prefixed "(IR/ACC/LMU)" with its supported sims.
   const [simFilter, setSimFilter] = useState<SimId | 'all'>('all')
-  const defById = useMemo(() => new Map(OVERLAY_WIDGETS.map((def) => [def.id, def])), [])
+  const [tagFilter, setTagFilter] = useState<string>('all')
+  const defById = useMemo(() => new Map(ALL_OVERLAY_WIDGETS.map((def) => [def.id, def])), [])
+  const availableTags = useMemo(() => {
+    const tags = new Set<string>()
+    for (const def of ALL_OVERLAY_WIDGETS) for (const tag of definitionTags(def)) tags.add(tag)
+    return [...tags].sort((a, b) => a.localeCompare(b))
+  }, [])
   const displayTitleFor = useCallback(
     (id: string, fallback: string): string => {
       const def = defById.get(id as OverlayWidgetId)
@@ -136,12 +152,14 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
     [defById]
   )
   const visibleItems = useMemo(() => {
-    if (simFilter === 'all') return sortedItems
     return sortedItems.filter((item) => {
       const def = defById.get(item.id as OverlayWidgetId)
-      return !def || widgetSupportedSims(def.requires).includes(simFilter)
+      const matchesSim = simFilter === 'all' || !def || widgetSupportedSims(def.requires).includes(simFilter)
+      const tags = definitionTags(def)
+      const matchesTag = tagFilter === 'all' || tags.includes(tagFilter)
+      return matchesSim && matchesTag
     })
-  }, [sortedItems, simFilter, defById])
+  }, [sortedItems, simFilter, tagFilter, defById])
   const sortedCustomOverlays = useMemo(() => sortOverlayEntries(customOverlays), [customOverlays])
   const activeOverlays = useMemo<ActiveOverlayEntry[]>(() => [
     ...items
@@ -243,14 +261,17 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   }
 
   async function refresh(): Promise<void> {
-    const [nextItems, nextConfig, nextCustom, nextExpressions, compositorEnabled] = await Promise.all([
+    const [nextItems, loadedConfig, nextCustom, nextExpressions, compositorEnabled] = await Promise.all([
       window.ipc.invoke<OverlayListItem[]>('overlays:list'),
       window.ipc.invoke<OverlaysConfig>('overlays:getConfig'),
       window.ipc.invoke<CustomOverlayListItem[]>('overlays:listCustom'),
       window.ipc.invoke<ExpressionDef[]>(EXPR_CHANNELS.getExpressions),
       window.ipc.invoke<boolean>('overlays:getCompositorEnabled')
     ])
-    setItems(nextItems)
+    const nextConfig = hasAllHifiOverlayConfigs(loadedConfig)
+      ? mergeHifiOverlayConfigs(loadedConfig)
+      : mergeHifiOverlayConfigs(await window.ipc.invoke<OverlaysConfig>('overlays:setConfig', mergeHifiOverlayConfigs(loadedConfig)))
+    setItems(mergeHifiOverlayItems(nextItems, nextConfig))
     setConfig({ ...nextConfig, overlayCompositorEnabled: Boolean(compositorEnabled) })
     setCustomOverlays(Array.isArray(nextCustom) ? nextCustom : [])
     setExpressions(Array.isArray(nextExpressions) ? nextExpressions : [])
@@ -275,8 +296,11 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
     void refreshIracingGfx().catch(() => { /* status card stays in loading state */ })
     void refreshStreamingStatus().catch(() => { /* streaming module may be pending preload allowlist wiring */ })
     const off = window.ipc.subscribe<OverlayListItem[]>('overlays:state', (nextItems) => {
-      setItems(nextItems)
-      setConfig((current) => configModeFrom(nextItems, current))
+      setConfig((current) => {
+        const nextConfig = mergeHifiOverlayConfigs(configModeFrom(nextItems, current))
+        setItems(mergeHifiOverlayItems(nextItems, nextConfig))
+        return nextConfig
+      })
     })
     const offCustom = window.ipc.subscribe<CustomOverlayListItem[]>('overlays:customState', (nextCustom) => {
       setCustomOverlays(Array.isArray(nextCustom) ? nextCustom : [])
@@ -908,6 +932,27 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
           {simFilter !== 'all' && (
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>{visibleItems.length} widget(s) com telemetria ao vivo neste sim</span>
           )}
+          <span style={{ width: 1, height: 18, background: 'var(--border-default)', margin: '0 2px' }} />
+          <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Tag</span>
+          <button
+            type="button"
+            className={tagFilter === 'all' ? 'overlay-fav is-fav' : 'overlay-fav'}
+            onClick={() => setTagFilter('all')}
+            style={{ padding: '2px 10px', fontSize: 12 }}
+          >
+            Todas
+          </button>
+          {availableTags.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              className={tagFilter === tag ? 'overlay-fav is-fav' : 'overlay-fav'}
+              onClick={() => setTagFilter(tag)}
+              style={{ padding: '2px 10px', fontSize: 12 }}
+            >
+              {tag}
+            </button>
+          ))}
         </div>
         {visibleItems.map((item) => (
           <article key={item.id} className={item.enabled ? 'overlay-config-card is-enabled' : 'overlay-config-card'}>

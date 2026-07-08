@@ -35,7 +35,7 @@ import {
 import { renderGt3Widget } from '../../dashboard/widgets/gt3-widgets'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
 import { WidgetGallery, variantToElement, type WidgetVariant } from './widget-catalog'
-import { WIDGET_COMPONENTS } from '../../overlay/widgets'
+import { resolveWidgetComponent } from '../../overlay/widgets'
 import {
   createDefaultOverlayStyle,
   DEFAULT_OVERLAY_STYLE_PRESET,
@@ -93,12 +93,12 @@ function FallbackTile({ element }: { element: DashboardElement }): ReactElement 
 // editor/IA-preview canvas, exactly like DashboardRoot's live `ElementOverlayWidget`.
 // The six "GT3 — …"/"LMU — …" preset dashboards embed a single `overlaywidget`
 // element carrying a `widgetId`; without this the editor canvas fell back to a gray
-// FallbackTile ("dashboards sem nada dentro"). Resolve WIDGET_COMPONENTS[widgetId]
+// FallbackTile ("dashboards sem nada dentro"). Resolve the overlay widget by id
 // and feed it the live/preview snapshot with a locked config stub. Unknown id →
 // labelled tile (never crash a board).
 function OverlayWidgetEmbed({ element }: { element: DashboardElement }): ReactElement {
   const widgetId = element.widgetId
-  const Widget = widgetId ? WIDGET_COMPONENTS[widgetId] : undefined
+  const Widget = widgetId ? resolveWidgetComponent(widgetId) : undefined
   if (!widgetId || !Widget) return <FallbackTile element={element} />
   const config: OverlayWidgetConfig = {
     id: widgetId,
@@ -109,7 +109,8 @@ function OverlayWidgetEmbed({ element }: { element: DashboardElement }): ReactEl
     opacity: 100,
     stylePreset: DEFAULT_OVERLAY_STYLE_PRESET,
     style: createDefaultOverlayStyle(),
-    display: null
+    display: null,
+    hifiModuleId: element.hifiModuleId
   }
   return (
     <div style={{ width: '100%', height: '100%', display: 'block' }}>
