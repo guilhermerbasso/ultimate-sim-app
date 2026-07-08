@@ -9,6 +9,7 @@ import {
 } from '../../../shared/touch-panel'
 import { TOUCH_PANEL_PRESETS } from '../../../shared/touch-panel-presets'
 import type { AppViewProps } from '../App'
+import { TagFilter, filterByTags } from '../components/TagFilter'
 import { ButtonBoxEditor } from '../touchpanel/ButtonBoxEditor'
 
 interface DisplayInfo {
@@ -49,6 +50,24 @@ function input(): CSSProperties {
   return { background: '#0b0e13', color: TEXT_FG, border: `1px solid ${PANEL_BORDER}`, borderRadius: 8, padding: '8px 10px', fontSize: 13 }
 }
 
+function touchPresetTags(preset: ButtonBoxPanel): string[] {
+  const tags = new Set<string>([
+    `${preset.columns}×${preset.rows}`,
+    `${preset.buttons.length} buttons`,
+    preset.buttons.length <= 9 ? 'compact' : preset.buttons.length >= 20 ? 'large' : 'standard'
+  ])
+  const name = preset.name.toLocaleLowerCase()
+  if (name.includes('pit')) tags.add('pit')
+  if (name.includes('race')) tags.add('race')
+  if (name.includes('stream')) tags.add('stream')
+  for (const button of preset.buttons) {
+    if (button.action.kind === 'iracing') tags.add('iRacing')
+    if (button.action.kind === 'keyboard') tags.add('keyboard')
+    if (button.action.kind === 'app') tags.add('app')
+  }
+  return Array.from(tags)
+}
+
 export default function TouchControlsView({ showToast }: AppViewProps): ReactElement {
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
   const [pitDisplayId, setPitDisplayId] = useState<number | null>(null)
@@ -62,6 +81,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
   const [fullscreen, setFullscreen] = useState(true)
   const [busy, setBusy] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [presetTagFilters, setPresetTagFilters] = useState<string[]>([])
 
   const refreshDisplays = useCallback(async () => {
     const list = await window.ipc.invoke<DisplayInfo[]>('app:touchpanel:listDisplays')
@@ -238,6 +258,11 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
     [displays]
   )
 
+  const filteredTouchPresets = useMemo(
+    () => filterByTags(TOUCH_PANEL_PRESETS, presetTagFilters, touchPresetTags),
+    [presetTagFilters]
+  )
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* ── Pit panel launcher (moved out of Dashboards) ──────────────────── */}
@@ -279,19 +304,26 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
 
         <details style={{ marginBottom: 12 }}>
           <summary style={{ color: TEXT_FG, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            📋 Começar de um modelo pronto ({TOUCH_PANEL_PRESETS.length})
+            📋 Start from a built-in preset ({TOUCH_PANEL_PRESETS.length})
           </summary>
+          <TagFilter
+            items={TOUCH_PANEL_PRESETS}
+            selectedTags={presetTagFilters}
+            onSelectedTagsChange={setPresetTagFilters}
+            getTags={touchPresetTags}
+            style={{ marginTop: 10, marginBottom: 10 }}
+          />
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-            {TOUCH_PANEL_PRESETS.map((p) => (
+            {filteredTouchPresets.map((p) => (
               <button
                 key={p.id}
                 style={{ ...btn('default'), display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}
                 disabled={busy}
                 onClick={() => requestCreateFromPreset(p.id)}
-                title={`${p.buttons.length} teclas`}
+                title={`${p.buttons.length} keys`}
               >
                 <span>{p.name}</span>
-                <span style={{ fontSize: 11, opacity: 0.7 }}>{p.columns}×{p.rows} · {p.buttons.length} teclas</span>
+                <span style={{ fontSize: 11, opacity: 0.7 }}>{p.columns}×{p.rows} · {p.buttons.length} keys</span>
               </button>
             ))}
           </div>

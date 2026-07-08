@@ -1212,9 +1212,9 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
       )}
 
       <section style={panel()}>
-        <h4 style={{ margin: '0 0 4px' }}>Galeria de presets</h4>
+        <h4 style={{ margin: '0 0 4px' }}>Preset gallery</h4>
         <p style={{ margin: '0 0 12px', color: TEXT_DIM, fontSize: 13 }}>
-          Layouts ready com preview real do modelo. Filtre por tag e clique em <strong>Duplicate and edit</strong> para criar uma copia editavel (os presets originais never sao alterados). Procure o <strong>Dashboard Adaptive</strong> (badge “Adaptive”, filtro <code>adaptive</code>): ele se reorganiza sozinho ao vivo conforme a fase da sessao e o momento da lap.
+          Ready layouts with a real model preview. Filter by multiple tags and click <strong>Duplicate and edit</strong> to create an editable copy (original presets are never changed). Look for <strong>Dashboard Adaptive</strong> (the “Adaptive” badge, tag <code>adaptive</code>): it reorganizes itself live based on the session phase and lap moment.
         </p>
         <PresetGallery presets={BUILTIN_PRESETS} busy={busy} onPick={(id) => (id === ADAPTIVE_DASHBOARD_ID ? newBlankAdaptive() : run(() => newFromPreset(id)))} />
       </section>

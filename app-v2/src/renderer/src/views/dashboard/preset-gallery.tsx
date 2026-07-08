@@ -5,6 +5,7 @@
 import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { Dashboard, DashboardElementType } from '../../../../shared/dashboards'
+import { TagFilter, filterByTags } from '../../components/TagFilter'
 import { CanvasElementVisual } from './DashboardCanvasEditor'
 
 const ACCENT = 'var(--accent-primary)'
@@ -110,7 +111,7 @@ function PresetCard({ entry, busy, onPick }: { entry: PresetEntry; busy?: boolea
       </div>
       {isAdaptive && (
         <div style={{ color: TEXT_DIM, fontSize: 11, margin: '0 0 8px' }}>
-          Reorganiza-se sozinho ao vivo conforme a fase da sessao e o momento da lap.
+          Reorganizes itself live based on the session phase and lap moment.
         </div>
       )}
       {entry.tags && entry.tags.length > 0 && (
@@ -136,31 +137,17 @@ export function PresetGallery({
   busy?: boolean
   onPick(id: string): void
 }): ReactElement {
-  const tags = useMemo(() => {
-    const set = new Set<string>()
-    for (const p of presets) for (const t of p.tags ?? []) set.add(t)
-    return ['All', ...Array.from(set)]
-  }, [presets])
-  const [filter, setFilter] = useState('All')
-  const filtered = filter === 'All' ? presets : presets.filter((p) => p.tags?.includes(filter))
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const filtered = useMemo(() => filterByTags(presets, selectedTags, (preset) => preset.tags), [presets, selectedTags])
   return (
     <div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-        {tags.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setFilter(t)}
-            style={{
-              ...filterChip,
-              background: filter === t ? ACCENT : 'var(--surface-base)',
-              color: filter === t ? '#05070a' : TEXT_DIM
-            }}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <TagFilter
+        items={presets}
+        selectedTags={selectedTags}
+        onSelectedTagsChange={setSelectedTags}
+        getTags={(preset) => preset.tags}
+        style={{ marginBottom: 12 }}
+      />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(264px, 1fr))', gap: 12 }}>
         {filtered.map((p) => (
           <PresetCard key={p.id} entry={p} busy={busy} onPick={onPick} />
@@ -219,13 +206,4 @@ const tagChip: CSSProperties = {
   padding: '1px 6px',
   fontSize: 10,
   fontWeight: 700
-}
-
-const filterChip: CSSProperties = {
-  border: 'none',
-  borderRadius: 14,
-  padding: '5px 12px',
-  fontSize: 12,
-  fontWeight: 700,
-  cursor: 'pointer'
 }

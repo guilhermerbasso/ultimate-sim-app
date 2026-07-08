@@ -12,6 +12,7 @@ import { STREAMING_CHANNELS } from '../../../shared/streaming'
 import type { AppViewProps } from '../App'
 import { useDevices } from '../lib/devices/DeviceRegistry'
 import { SectionExportImport } from '../components/SectionExportImport'
+import { TagFilter, filterByTags } from '../components/TagFilter'
 import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, hasAllHifiOverlayConfigs, mergeHifiOverlayConfigs, mergeHifiOverlayItems } from '../overlay/hifi-overlays'
 import '../overlay/overlay-view.css'
 
@@ -137,13 +138,8 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   // live telemetry provides every field the widget requires (sim-coverage). 'all'
   // shows everything. The title is prefixed "(IR/ACC/LMU)" with its supported sims.
   const [simFilter, setSimFilter] = useState<SimId | 'all'>('all')
-  const [tagFilter, setTagFilter] = useState<string>('all')
+  const [tagFilters, setTagFilters] = useState<string[]>([])
   const defById = useMemo(() => new Map(ALL_OVERLAY_WIDGETS.map((def) => [def.id, def])), [])
-  const availableTags = useMemo(() => {
-    const tags = new Set<string>()
-    for (const def of ALL_OVERLAY_WIDGETS) for (const tag of definitionTags(def)) tags.add(tag)
-    return [...tags].sort((a, b) => a.localeCompare(b))
-  }, [])
   const displayTitleFor = useCallback(
     (id: string, fallback: string): string => {
       const def = defById.get(id as OverlayWidgetId)
@@ -151,15 +147,15 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
     },
     [defById]
   )
-  const visibleItems = useMemo(() => {
+  const simFilteredItems = useMemo(() => {
     return sortedItems.filter((item) => {
       const def = defById.get(item.id as OverlayWidgetId)
-      const matchesSim = simFilter === 'all' || !def || widgetSupportedSims(def.requires).includes(simFilter)
-      const tags = definitionTags(def)
-      const matchesTag = tagFilter === 'all' || tags.includes(tagFilter)
-      return matchesSim && matchesTag
+      return simFilter === 'all' || !def || widgetSupportedSims(def.requires).includes(simFilter)
     })
-  }, [sortedItems, simFilter, tagFilter, defById])
+  }, [sortedItems, simFilter, defById])
+  const visibleItems = useMemo(() => {
+    return filterByTags(simFilteredItems, tagFilters, (item) => definitionTags(defById.get(item.id as OverlayWidgetId)))
+  }, [simFilteredItems, tagFilters, defById])
   const sortedCustomOverlays = useMemo(() => sortOverlayEntries(customOverlays), [customOverlays])
   const activeOverlays = useMemo<ActiveOverlayEntry[]>(() => [
     ...items
@@ -917,7 +913,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
 
       <section className="overlay-grid">
         <div className="overlay-sim-filter" style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-          <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Filtrar por Sim</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Filter by Sim</span>
           {(['all', ...PLAYABLE_SIMS] as const).map((sim) => (
             <button
               key={sim}
@@ -926,33 +922,19 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
               onClick={() => setSimFilter(sim)}
               style={{ padding: '2px 10px', fontSize: 12 }}
             >
-              {sim === 'all' ? 'Todos' : simLabel(sim)}
+              {sim === 'all' ? 'All' : simLabel(sim)}
             </button>
           ))}
           {simFilter !== 'all' && (
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{visibleItems.length} widget(s) com telemetria ao vivo neste sim</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{visibleItems.length} widget(s) with live telemetry in this sim</span>
           )}
           <span style={{ width: 1, height: 18, background: 'var(--border-default)', margin: '0 2px' }} />
-          <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Tag</span>
-          <button
-            type="button"
-            className={tagFilter === 'all' ? 'overlay-fav is-fav' : 'overlay-fav'}
-            onClick={() => setTagFilter('all')}
-            style={{ padding: '2px 10px', fontSize: 12 }}
-          >
-            Todas
-          </button>
-          {availableTags.map((tag) => (
-            <button
-              key={tag}
-              type="button"
-              className={tagFilter === tag ? 'overlay-fav is-fav' : 'overlay-fav'}
-              onClick={() => setTagFilter(tag)}
-              style={{ padding: '2px 10px', fontSize: 12 }}
-            >
-              {tag}
-            </button>
-          ))}
+          <TagFilter
+            items={simFilteredItems}
+            selectedTags={tagFilters}
+            onSelectedTagsChange={setTagFilters}
+            getTags={(item) => definitionTags(defById.get(item.id as OverlayWidgetId))}
+          />
         </div>
         {visibleItems.map((item) => (
           <article key={item.id} className={item.enabled ? 'overlay-config-card is-enabled' : 'overlay-config-card'}>
