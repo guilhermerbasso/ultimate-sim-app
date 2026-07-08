@@ -90,7 +90,17 @@ describe('global shortcut target guard', () => {
 
   it('treats contentEditable elements as editable targets', () => {
     expect(isEditableTarget(asEventTarget({ isContentEditable: true }))).toBe(true)
-    expect(isEditableTarget(asEventTarget({ closest: () => ({}) }))).toBe(true)
+  })
+
+  it('treats descendants of form fields as editable targets', () => {
+    expect(
+      isEditableTarget(
+        asEventTarget({
+          tagName: 'option',
+          closest: (selector: string) => (selector === 'input, textarea, select' ? {} : null)
+        })
+      )
+    ).toBe(true)
   })
 
   it('ignores non-editable targets', () => {

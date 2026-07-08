@@ -108,7 +108,7 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') return true
   if (element.isContentEditable === true) return true
   if (typeof element.closest === 'function') {
-    return Boolean(element.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]'))
+    return Boolean(element.closest('input, textarea, select'))
   }
   return false
 }
