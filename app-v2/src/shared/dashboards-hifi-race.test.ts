@@ -44,7 +44,10 @@ describe('HIFI_RACE_PRESETS', () => {
 
       for (const element of overlayWidgets) {
         expect(element.hifiModuleId).toBeTruthy()
-        expect(HIFI_WIDGETS_BY_ID[element.hifiModuleId ?? '']).toBeTruthy()
+        const widget = HIFI_WIDGETS_BY_ID[element.hifiModuleId ?? '']
+        expect(widget).toBeTruthy()
+        expect(element.w, `${preset.id}: ${element.name ?? element.hifiModuleId} width is below 75% of default`).toBeGreaterThanOrEqual(widget.defaultSize.w * 0.75)
+        expect(element.h, `${preset.id}: ${element.name ?? element.hifiModuleId} height is below 75% of default`).toBeGreaterThanOrEqual(widget.defaultSize.h * 0.75)
       }
 
       for (let i = 0; i < overlayWidgets.length; i += 1) {

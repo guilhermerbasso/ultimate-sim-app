@@ -48,7 +48,7 @@ export const HIFI_RACE_PRESETS: HifiCompPreset[] = [
         hifiEl('wetness', 292, 24, 264, 260),
         hifiEl('tyreTemp', 584, 24, 420, 260),
         hifiEl('grip', 16, 312, 264, 260),
-        hifiEl('incidents', 292, 312, 198, 250),
+        hifiEl('incidents', 292, 312, 198, 252),
         hifiEl('position', 506, 312, 220, 184),
         hifiEl('timeRemaining', 742, 312, 220, 184)
       ])
@@ -66,7 +66,7 @@ export const HIFI_RACE_PRESETS: HifiCompPreset[] = [
         hifiEl('position', 788, 24, 220, 184),
         hifiEl('fuelDelta', 16, 312, 420, 260),
         hifiEl('fuelPerLap', 452, 312, 360, 260),
-        hifiEl('deltaBest', 828, 312, 180, 184)
+        hifiEl('deltaBest', 828, 312, 192, 184)
       ])
   ),
   comp(
@@ -91,13 +91,13 @@ export const HIFI_RACE_PRESETS: HifiCompPreset[] = [
     () =>
       dashboard('Race Start Launch', 'Launch and first-corner awareness.', [
         bg(),
-        hifiEl('revlights', 24, 24, 420, 250),
-        hifiEl('gear', 464, 24, 180, 250),
-        hifiEl('speed', 664, 24, 336, 250),
-        hifiEl('clutch', 24, 302, 180, 220),
-        hifiEl('inputsBrakeThrottle', 224, 302, 320, 220),
-        hifiEl('position', 564, 302, 208, 220),
-        hifiEl('gapAhead', 792, 302, 208, 220)
+        hifiEl('revlights', 16, 24, 315, 250),
+        hifiEl('gear', 347, 24, 315, 250),
+        hifiEl('speed', 678, 24, 330, 250),
+        hifiEl('clutch', 16, 302, 180, 220),
+        hifiEl('inputsBrakeThrottle', 212, 302, 320, 220),
+        hifiEl('position', 548, 302, 220, 220),
+        hifiEl('gapAhead', 784, 302, 220, 220)
       ])
   ),
   comp(
@@ -140,9 +140,9 @@ export const HIFI_RACE_PRESETS: HifiCompPreset[] = [
     () =>
       dashboard('Restart Sprint', 'Green-flag restart focus.', [
         bg(),
-        hifiEl('revlights', 24, 24, 420, 250),
-        hifiEl('gear', 464, 24, 180, 250),
-        hifiEl('speed', 664, 24, 336, 250),
+        hifiEl('revlights', 16, 24, 315, 250),
+        hifiEl('gear', 347, 24, 315, 250),
+        hifiEl('speed', 678, 24, 330, 250),
         hifiEl('gapAhead', 24, 312, 220, 184),
         hifiEl('gapBehind', 264, 312, 220, 184),
         hifiEl('deltaBest', 504, 312, 236, 184)

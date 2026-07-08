@@ -42,11 +42,14 @@ describe('HIFI_ENDURANCE_PRESETS', () => {
 
       for (const widget of widgets) {
         expect(widget.hifiModuleId, `${preset.id}:${widget.name ?? widget.id}`).toBeTruthy()
-        expect(HIFI_WIDGETS_BY_ID[widget.hifiModuleId ?? ''], `${preset.id}:${widget.hifiModuleId}`).toBeTruthy()
+        const hifiWidget = HIFI_WIDGETS_BY_ID[widget.hifiModuleId ?? '']
+        expect(hifiWidget, `${preset.id}:${widget.hifiModuleId}`).toBeTruthy()
         expect(widget.x, `${preset.id}:${widget.hifiModuleId}:x`).toBeGreaterThanOrEqual(0)
         expect(widget.y, `${preset.id}:${widget.hifiModuleId}:y`).toBeGreaterThanOrEqual(0)
         expect(widget.x + widget.w, `${preset.id}:${widget.hifiModuleId}:right`).toBeLessThanOrEqual(DASH_W)
         expect(widget.y + widget.h, `${preset.id}:${widget.hifiModuleId}:bottom`).toBeLessThanOrEqual(DASH_H)
+        expect(widget.w, `${preset.id}:${widget.hifiModuleId}:min-width`).toBeGreaterThanOrEqual(hifiWidget.defaultSize.w * 0.75)
+        expect(widget.h, `${preset.id}:${widget.hifiModuleId}:min-height`).toBeGreaterThanOrEqual(hifiWidget.defaultSize.h * 0.75)
       }
 
       for (let i = 0; i < widgets.length; i += 1) {

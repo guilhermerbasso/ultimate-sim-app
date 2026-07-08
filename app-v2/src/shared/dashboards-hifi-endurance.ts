@@ -91,18 +91,17 @@ export const HIFI_ENDURANCE_PRESETS: HifiCompPreset[] = [
   comp(
     'hifi_endur_night_stint',
     'Endurance — Night Stint',
-    'Night-stint cockpit page with shift lights, gear, speed, tyre temperature, water temperature, oil temperature and fuel laps.',
-    ['endurance', 'night', 'stint', 'revlights', 'gear', 'speed', 'tyre-temp', 'engine-temps', 'fuel-laps'],
+    'Night-stint cockpit page with shift lights, combined speed and gear, tyre temperature, water temperature, oil temperature and fuel laps.',
+    ['endurance', 'night', 'stint', 'revlights', 'speed-gear', 'tyre-temp', 'engine-temps', 'fuel-laps'],
     () =>
       dashboard('Endurance — Night Stint', 'Night stint endurance cockpit page.', [
         bg(),
-        hifiEl('revlights', 24, 16, 976, 52),
-        hifiEl('gear', 16, 80, 200, 230),
-        hifiEl('speed', 236, 80, 300, 230),
-        hifiEl('fuelLaps', 556, 80, 420, 230),
-        hifiEl('tyreTemp', 16, 322, 330, 260),
-        hifiEl('waterTemp', 366, 322, 300, 260),
-        hifiEl('oilTemp', 686, 322, 300, 260)
+        hifiEl('revlights', 16, 24, 320, 260),
+        hifiEl('speedGear', 352, 24, 320, 260),
+        hifiEl('fuelLaps', 688, 24, 320, 260),
+        hifiEl('tyreTemp', 16, 304, 320, 260),
+        hifiEl('waterTemp', 352, 304, 320, 260),
+        hifiEl('oilTemp', 688, 304, 320, 260)
       ])
   ),
   comp(
@@ -145,12 +144,12 @@ export const HIFI_ENDURANCE_PRESETS: HifiCompPreset[] = [
     () =>
       dashboard('Endurance — Energy Hybrid', 'Hybrid energy endurance page.', [
         bg(),
-        hifiEl('deltaBest', 16, 24, 300, 172),
-        hifiEl('speed', 16, 214, 300, 172),
-        hifiEl('ers', 336, 24, 332, 260),
-        hifiEl('engineMap', 680, 24, 332, 260),
-        hifiEl('tc', 336, 304, 332, 260),
-        hifiEl('abs', 680, 304, 332, 260)
+        hifiEl('ers', 16, 24, 320, 260),
+        hifiEl('engineMap', 352, 24, 320, 260),
+        hifiEl('tc', 688, 24, 320, 260),
+        hifiEl('abs', 16, 304, 320, 260),
+        hifiEl('deltaBest', 352, 304, 320, 260),
+        hifiEl('speed', 688, 304, 320, 260)
       ])
   ),
   comp(
@@ -177,11 +176,11 @@ export const HIFI_ENDURANCE_PRESETS: HifiCompPreset[] = [
       dashboard('Endurance — Broadcast', 'Endurance broadcast composition page.', [
         bg(),
         hifiEl('standings', 24, 24, 380, 300),
+        hifiEl('clock', 24, 336, 380, 252),
         hifiEl('position', 428, 24, 276, 172),
         hifiEl('classPosition', 728, 24, 272, 172),
         hifiEl('gapAhead', 428, 220, 276, 172),
-        hifiEl('lapBest', 728, 220, 272, 172),
-        hifiEl('clock', 428, 416, 572, 160)
+        hifiEl('lapBest', 728, 220, 272, 172)
       ])
   ),
   comp(
