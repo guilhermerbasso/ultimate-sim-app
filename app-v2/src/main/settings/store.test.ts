@@ -1,7 +1,7 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { APP_LANGUAGES, APP_TELEMETRY_SOURCES, TC_SENSITIVITIES } from '../../shared/settings'
+import { APP_LANGUAGES, APP_TELEMETRY_SOURCES, DEFAULT_APP_SETTINGS, TC_SENSITIVITIES } from '../../shared/settings'
 import { SettingsStore } from './store'
 
 const dirs: string[] = []
@@ -30,6 +30,16 @@ describe('SettingsStore.defaultTelemetrySource', () => {
       defaultTelemetrySource: 'bogus' as never
     })
     expect(new SettingsStore(dir).load().defaultTelemetrySource).toBe('off')
+  })
+
+  it('merges saved settings over defaults when loading', () => {
+    const dir = tempDir()
+    writeFileSync(join(dir, 'settings.json'), JSON.stringify({ defaultTelemetrySource: 'iracing' }), 'utf8')
+
+    expect(new SettingsStore(dir).load()).toEqual({
+      ...DEFAULT_APP_SETTINGS,
+      defaultTelemetrySource: 'iracing'
+    })
   })
 })
 

@@ -748,7 +748,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>OBS / Streaming</h4>
           <span className={streamingStatus?.running ? 'status-pill on' : 'status-pill'}>
-            {streamingStatus?.running ? `online · ${streamingStatus.clients} cliente(s)` : 'offline'}
+            {streamingStatus?.running ? `online · ${streamingStatus.clients} client(s)` : 'offline'}
           </span>
         </div>
         <p className="overlay-help">
@@ -806,7 +806,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             </label>
             {streamingStatus.touchUrl ? (
               <label className="designer-field">
-                URL Touch Controls Dash (celular/tablet)
+                Touch Controls Dash URL (phone/tablet)
                 <input readOnly value={streamingStatus.touchUrl} onFocus={(event) => event.currentTarget.select()} />
               </label>
             ) : (

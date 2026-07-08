@@ -69,11 +69,28 @@ const MIN_ZOOM = 0.5
 const MAX_ZOOM = 6
 const ZOOM_STEP = 1.35
 const MAP_BASE_HEIGHT = 360
+const MAP_BASE_WIDTH = 720
 const MAP_MIN_HEIGHT = 220
+const MAP_MIN_WIDTH = 320
 const MAP_MAX_HEIGHT = 760
+const MAP_MAX_WIDTH = 1180
+
+export interface TrackMapFrameSize {
+  widthPx: number
+  heightPx: number
+}
 
 function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value
+}
+
+export function getInteractiveTrackMapFrameSize(zoom: number): TrackMapFrameSize {
+  const safeZoom = Number.isFinite(zoom) ? zoom : 1
+  const scale = clamp(safeZoom, MIN_ZOOM, MAX_ZOOM)
+  return {
+    widthPx: Math.round(clamp(MAP_BASE_WIDTH * scale, MAP_MIN_WIDTH, MAP_MAX_WIDTH)),
+    heightPx: Math.round(clamp(MAP_BASE_HEIGHT * scale, MAP_MIN_HEIGHT, MAP_MAX_HEIGHT))
+  }
 }
 
 function fmtDelta(seconds: number): string {
@@ -255,10 +272,13 @@ export function TrackCoachingHeatmap({
     cursor: svgCursor,
     touchAction: zoomable ? 'none' : undefined
   }
+  const frameSize = getInteractiveTrackMapFrameSize(effZoom)
   const mapFrameStyle: CSSProperties = {
     ...mapFrameBaseStyle,
-    height: zoomable ? clamp(MAP_BASE_HEIGHT * effZoom, MAP_MIN_HEIGHT, MAP_MAX_HEIGHT) : '100%',
-    minHeight: zoomable ? MAP_MIN_HEIGHT : undefined
+    width: zoomable ? `min(100%, ${frameSize.widthPx}px)` : '100%',
+    height: zoomable ? `min(${frameSize.heightPx}px, 70vh)` : '100%',
+    minHeight: zoomable ? MAP_MIN_HEIGHT : undefined,
+    alignSelf: zoomable ? 'center' : undefined
   }
 
   return (
@@ -388,9 +408,8 @@ export function TrackCoachingHeatmap({
 const svgStyle: CSSProperties = { width: '100%', height: '100%', display: 'block', overflow: 'visible' }
 const mapFrameBaseStyle: CSSProperties = {
   position: 'relative',
-  width: '100%',
   minHeight: MAP_MIN_HEIGHT,
-  transition: 'height 140ms ease',
+  transition: 'width 140ms ease, height 140ms ease',
   overflow: 'hidden'
 }
 

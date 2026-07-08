@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactElement, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
 import {
   APP_LANGUAGES,
   APP_TELEMETRY_SOURCES,
@@ -137,6 +137,8 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
   const [logInfo, setLogInfo] = useState<LogInfo | null>(null)
   const [verbose, setVerbose] = useState(false)
   const [verboseBusy, setVerboseBusy] = useState(false)
+  const settingsRef = useRef<AppSettings>(DEFAULT_APP_SETTINGS)
+  const saveRevision = useRef(0)
 
   useEffect(() => {
     window.ipc
@@ -153,6 +155,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
     window.ipc
       .invoke<AppSettings>('app:getSettings')
       .then((loaded) => {
+        settingsRef.current = loaded
         setSettings(loaded)
         setSavedSettings(loaded)
         applyAppTheme(loaded)
@@ -167,31 +170,43 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
 
   const dirty = useMemo(() => !sameSettings(settings, savedSettings), [settings, savedSettings])
 
-  const patch = (next: Partial<AppSettings>): void => {
-    setSettings((current) => ({ ...current, ...next }))
-  }
-
-  const selectTheme = (theme: AppTheme): void => {
-    patch({
-      theme,
-      accentColor: theme === 'custom' ? settings.accentColor : APP_THEME_PRESETS[theme].accent
-    })
-  }
-
-  const save = async (): Promise<void> => {
+  const persistSettings = async (nextSettings: AppSettings): Promise<void> => {
+    const revision = ++saveRevision.current
     setSaving(true)
     try {
-      const saved = await window.ipc.invoke<AppSettings>('app:setSettings', settings)
+      const saved = await window.ipc.invoke<AppSettings>('app:setSettings', nextSettings)
+      if (revision !== saveRevision.current) return
+      settingsRef.current = saved
       setSettings(saved)
       setSavedSettings(saved)
       applyAppTheme(saved)
       window.dispatchEvent(new CustomEvent<AppSettings>(APP_SETTINGS_CHANGED_EVENT, { detail: saved }))
       showToast(t(resolveAppLanguage(saved.language), 'settingsSaved'), 'success')
     } catch (error) {
-      showToast(error instanceof Error ? error.message : String(error), 'error')
+      if (revision === saveRevision.current) {
+        showToast(error instanceof Error ? error.message : String(error), 'error')
+      }
     } finally {
-      setSaving(false)
+      if (revision === saveRevision.current) setSaving(false)
     }
+  }
+
+  const patch = (next: Partial<AppSettings>): void => {
+    const nextSettings = { ...settingsRef.current, ...next }
+    settingsRef.current = nextSettings
+    setSettings(nextSettings)
+    void persistSettings(nextSettings)
+  }
+
+  const selectTheme = (theme: AppTheme): void => {
+    patch({
+      theme,
+      accentColor: theme === 'custom' ? settingsRef.current.accentColor : APP_THEME_PRESETS[theme].accent
+    })
+  }
+
+  const save = async (): Promise<void> => {
+    await persistSettings(settingsRef.current)
   }
 
   const quitApp = (): void => {
