@@ -54,7 +54,7 @@ describe('overlays2 catalogue', () => {
 
   it('sizes widgets to the computed grid cells when the canvas shrinks', () => {
     const overlay = OVERLAYS2.find((o) => o.id === 'cockpit-core')
-    if (!overlay) throw new Error("Overlay 'cockpit-core' not found in OVERLAYS2 catalogue")
+    if (!overlay) throw new Error(`Overlay 'cockpit-core' not found in OVERLAYS2 catalogue`)
     const family = 'minimal' as const
     const { padding, gap } = overlay2FamilyStyle(family)
     const html = renderToStaticMarkup(
