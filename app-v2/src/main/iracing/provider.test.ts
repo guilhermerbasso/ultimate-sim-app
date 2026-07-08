@@ -1,4 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
+
+// provider.ts → logger.ts imports `electron` for in-app dialog/shell helpers.
+// Those are never called during unit tests, so a stub avoids the Electron binary
+// install race condition that occurs when multiple vitest workers run in parallel.
+vi.mock('electron', () => ({ dialog: {}, shell: {}, app: {} }))
+
 import { __iracingTelemetryTest, IRacingProvider } from './provider'
 import { logger } from '../modules/logger'
 
