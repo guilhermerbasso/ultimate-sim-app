@@ -106,45 +106,45 @@ export interface CalloutMeta {
 // Catalog drives both the default config and the UI. Order = display order.
 export const CALLOUT_CATALOG: CalloutMeta[] = [
   // ── Flags ──────────────────────────────────────────────────────────────────
-  { id: 'flag.green', category: 'flags', label: 'Verde', description: 'Largada / relargada — pista liberada.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 8000 },
-  { id: 'flag.yellow', category: 'flags', label: 'Amarela', description: 'Bandeira amarela (local/total) — atenção, reduza.', defaultEnabled: true, defaultPriority: 9, defaultCooldownMs: 6000 },
-  { id: 'flag.blue', category: 'flags', label: 'Azul', description: 'Deixe o carro mais rápido passar.', defaultEnabled: true, defaultPriority: 7, defaultCooldownMs: 6000 },
-  { id: 'flag.white', category: 'flags', label: 'Branca', description: 'Última volta.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 8000 },
-  { id: 'flag.checkered', category: 'flags', label: 'Quadriculada', description: 'Fim de prova.', defaultEnabled: true, defaultPriority: 6, defaultCooldownMs: 30000 },
-  { id: 'flag.meatball', category: 'flags', label: 'Meatball', description: 'Bandeira preta-laranja — dano, vá aos boxes.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 10000 },
-  { id: 'flag.black', category: 'flags', label: 'Preta', description: 'Penalidade.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 10000 },
+  { id: 'flag.green', category: 'flags', label: 'Green', description: 'Start / restart — track clear.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 8000 },
+  { id: 'flag.yellow', category: 'flags', label: 'Yellow', description: 'Yellow flag (local/full-course) — caution, slow down.', defaultEnabled: true, defaultPriority: 9, defaultCooldownMs: 6000 },
+  { id: 'flag.blue', category: 'flags', label: 'Blue', description: 'Let the faster car through.', defaultEnabled: true, defaultPriority: 7, defaultCooldownMs: 6000 },
+  { id: 'flag.white', category: 'flags', label: 'White', description: 'Final lap.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 8000 },
+  { id: 'flag.checkered', category: 'flags', label: 'Checkered', description: 'Race finish.', defaultEnabled: true, defaultPriority: 6, defaultCooldownMs: 30000 },
+  { id: 'flag.meatball', category: 'flags', label: 'Meatball', description: 'Black/orange flag — damage, go to the pits.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 10000 },
+  { id: 'flag.black', category: 'flags', label: 'Black', description: 'Penalty.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 10000 },
   // ── Fuel ───────────────────────────────────────────────────────────────────
-  { id: 'fuel.low', category: 'fuel', label: 'Combustível baixo', description: 'Combustível abaixo do limite de voltas.', defaultEnabled: true, defaultPriority: 7, defaultCooldownMs: 30000 },
-  { id: 'fuel.lapsLeft', category: 'fuel', label: 'Voltas de combustível', description: 'Anuncia, a cada volta, quantas voltas de combustível restam.', defaultEnabled: false, defaultPriority: 4, defaultCooldownMs: 25000 },
-  { id: 'fuel.box', category: 'fuel', label: 'Boxe nesta volta', description: 'Combustível insuficiente para terminar — pare nos boxes.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 20000 },
+  { id: 'fuel.low', category: 'fuel', label: 'Low fuel', description: 'Fuel below the configured lap limit.', defaultEnabled: true, defaultPriority: 7, defaultCooldownMs: 30000 },
+  { id: 'fuel.lapsLeft', category: 'fuel', label: 'Fuel laps left', description: 'Announces remaining fuel laps once per lap.', defaultEnabled: false, defaultPriority: 4, defaultCooldownMs: 25000 },
+  { id: 'fuel.box', category: 'fuel', label: 'Box this lap', description: 'Not enough fuel to finish — stop in the pits.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 20000 },
   // ── Pit ────────────────────────────────────────────────────────────────────
-  { id: 'pit.windowOpen', category: 'pit', label: 'Janela de boxes aberta', description: 'Voltas restantes dentro da janela de parada.', defaultEnabled: false, defaultPriority: 5, defaultCooldownMs: 60000 },
-  { id: 'pit.onPitRoad', category: 'pit', label: 'No pit lane', description: 'Você entrou no pit road.', defaultEnabled: true, defaultPriority: 4, defaultCooldownMs: 8000 },
-  { id: 'pit.speeding', category: 'pit', label: 'Velocidade no pit', description: 'Acima do limite no pit lane com o limitador desligado.', defaultEnabled: true, defaultPriority: 9, defaultCooldownMs: 1500 },
+  { id: 'pit.windowOpen', category: 'pit', label: 'Pit window open', description: 'Remaining laps inside the pit window.', defaultEnabled: false, defaultPriority: 5, defaultCooldownMs: 60000 },
+  { id: 'pit.onPitRoad', category: 'pit', label: 'On pit road', description: 'You entered pit road.', defaultEnabled: true, defaultPriority: 4, defaultCooldownMs: 8000 },
+  { id: 'pit.speeding', category: 'pit', label: 'Pit speeding', description: 'Above the pit-lane limit with the limiter off.', defaultEnabled: true, defaultPriority: 9, defaultCooldownMs: 1500 },
   // ── Proximity & gaps ────────────────────────────────────────────────────────
-  { id: 'proximity.spotter', category: 'proximity', label: 'Carro ao lado', description: 'Carro à esquerda, à direita ou três largos (radar/relativos).', defaultEnabled: true, defaultPriority: 10, defaultCooldownMs: 1200 },
-  { id: 'gap.ahead', category: 'proximity', label: 'Gap à frente', description: 'Diferença para o carro à frente + se aproximando/abrindo.', defaultEnabled: false, defaultPriority: 3, defaultCooldownMs: 12000 },
-  { id: 'gap.behind', category: 'proximity', label: 'Gap atrás', description: 'Diferença para o carro atrás + se aproximando/abrindo.', defaultEnabled: false, defaultPriority: 3, defaultCooldownMs: 12000 },
-  { id: 'position.change', category: 'proximity', label: 'Mudança de posição', description: 'Anuncia a nova posição quando ela muda.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 4000 },
+  { id: 'proximity.spotter', category: 'proximity', label: 'Car alongside', description: 'Car left, car right, or three-wide (radar/relatives).', defaultEnabled: true, defaultPriority: 10, defaultCooldownMs: 1200 },
+  { id: 'gap.ahead', category: 'proximity', label: 'Gap ahead', description: 'Gap to the car ahead plus closing/opening trend.', defaultEnabled: false, defaultPriority: 3, defaultCooldownMs: 12000 },
+  { id: 'gap.behind', category: 'proximity', label: 'Gap behind', description: 'Gap to the car behind plus closing/opening trend.', defaultEnabled: false, defaultPriority: 3, defaultCooldownMs: 12000 },
+  { id: 'position.change', category: 'proximity', label: 'Position change', description: 'Announces the new position when it changes.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 4000 },
   // ── Incidents ───────────────────────────────────────────────────────────────
-  { id: 'incident.points', category: 'incidents', label: 'Pontos de incidente', description: 'Quando os pontos de incidente aumentam (track limits/contato).', defaultEnabled: false, defaultPriority: 4, defaultCooldownMs: 4000 },
-  { id: 'incident.limit', category: 'incidents', label: 'Limite de incidentes', description: 'Aviso quando o limite de incidentes se aproxima.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 15000 },
+  { id: 'incident.points', category: 'incidents', label: 'Incident points', description: 'When incident points increase (track limits/contact).', defaultEnabled: false, defaultPriority: 4, defaultCooldownMs: 4000 },
+  { id: 'incident.limit', category: 'incidents', label: 'Incident limit', description: 'Warning when the incident limit is getting close.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 15000 },
   // ── Shift ───────────────────────────────────────────────────────────────────
-  { id: 'shift.point', category: 'shift', label: 'Troca de marcha', description: 'Fala "troca" no ponto ótimo. Leve — o menu Sounds já bipa.', defaultEnabled: false, defaultPriority: 2, defaultCooldownMs: 400 },
+  { id: 'shift.point', category: 'shift', label: 'Shift point', description: 'Says "shift" at the optimal point. Light — the Sounds menu already beeps.', defaultEnabled: false, defaultPriority: 2, defaultCooldownMs: 400 },
   // ── Lap ─────────────────────────────────────────────────────────────────────
-  { id: 'lap.delta', category: 'lap', label: 'Delta da última volta', description: 'Diferença da última volta para a melhor (+/- s).', defaultEnabled: false, defaultPriority: 3, defaultCooldownMs: 8000 },
-  { id: 'lap.personalBest', category: 'lap', label: 'Recorde pessoal', description: 'Quando você crava uma nova melhor volta.', defaultEnabled: true, defaultPriority: 4, defaultCooldownMs: 8000 },
-  { id: 'session.start', category: 'lap', label: 'Início de sessão', description: 'Quando a telemetria fica ao vivo / a sessão começa.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 30000 }
+  { id: 'lap.delta', category: 'lap', label: 'Last-lap delta', description: 'Difference from the last lap to the best (+/- s).', defaultEnabled: false, defaultPriority: 3, defaultCooldownMs: 8000 },
+  { id: 'lap.personalBest', category: 'lap', label: 'Personal best', description: 'When you set a new best lap.', defaultEnabled: true, defaultPriority: 4, defaultCooldownMs: 8000 },
+  { id: 'session.start', category: 'lap', label: 'Session start', description: 'When telemetry goes live / the session starts.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 30000 }
 ]
 
 export const CATEGORY_LABELS: Record<CalloutCategory, string> = {
-  flags: 'Bandeiras',
-  fuel: 'Combustível',
+  flags: 'Flags',
+  fuel: 'Fuel',
   pit: 'Pit',
-  proximity: 'Proximidade & Gaps',
-  incidents: 'Incidentes',
-  shift: 'Troca',
-  lap: 'Voltas'
+  proximity: 'Proximity & gaps',
+  incidents: 'Incidents',
+  shift: 'Shift',
+  lap: 'Laps'
 }
 
 export const DEFAULT_SPOTTER_THRESHOLDS: SpotterThresholds = {
@@ -181,8 +181,8 @@ export const DEFAULT_SPOTTER_CONFIG: SpotterConfig = {
   enabled: true,
   muted: false,
   masterVolume: 1,
-  language: 'pt-BR',
-  defaultVoiceURI: 'piper:pt_BR-faber-medium',
+  language: 'en-US',
+  defaultVoiceURI: 'piper:en_US-lessac-medium',
   outputDeviceId: '',
   thresholds: DEFAULT_SPOTTER_THRESHOLDS,
   callouts: buildDefaultCallouts(),

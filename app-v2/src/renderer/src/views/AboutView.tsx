@@ -14,28 +14,28 @@ type CreditItem = {
 }
 
 const LIBRARIES: CreditItem[] = [
-  { name: 'bonjour-service', license: 'MIT', note: 'Descoberta de serviços na rede local.' },
-  { name: 'koffi', license: 'MIT', note: 'FFI para integrações nativas.' },
+  { name: 'bonjour-service', license: 'MIT', note: 'Local network service discovery.' },
+  { name: 'koffi', license: 'MIT', note: 'FFI for native integrations.' },
   { name: 'React', license: 'MIT', note: 'UI renderer.' },
-  { name: 'React DOM', license: 'MIT', note: 'Renderização DOM.' },
-  { name: 'serialport', license: 'MIT', note: 'Comunicação serial com hardware.' },
-  { name: 'unzipper', license: 'MIT', note: 'Leitura de pacotes ZIP.' },
-  { name: 'yaml', license: 'ISC', note: 'Parsing e escrita YAML.' },
+  { name: 'React DOM', license: 'MIT', note: 'DOM rendering.' },
+  { name: 'serialport', license: 'MIT', note: 'Serial communication with hardware.' },
+  { name: 'unzipper', license: 'MIT', note: 'ZIP package reading.' },
+  { name: 'yaml', license: 'ISC', note: 'YAML parsing and writing.' },
   { name: 'ws', license: 'MIT', note: 'WebSocket client/server.' }
 ]
 
 const FONTS: CreditItem[] = [
-  { name: 'Rajdhani', license: 'SIL OFL 1.1', note: 'Tipografia de interface e títulos.' },
-  { name: 'Instrument Sans', license: 'SIL OFL 1.1', note: 'Texto de interface.' },
-  { name: 'Barlow Condensed', license: 'SIL OFL 1.1', note: 'Headlines compactas.' },
-  { name: 'IBM Plex Mono', license: 'SIL OFL 1.1', note: 'Dados técnicos e código.' },
-  { name: 'Michroma', license: 'SIL OFL 1.1', note: 'Display futurista.' },
-  { name: 'Chakra Petch', license: 'SIL OFL 1.1', note: 'Labels racing.' },
-  { name: 'DSEG', license: 'SIL OFL 1.1', note: 'Displays digitais DSEG7 e DSEG14.' }
+  { name: 'Rajdhani', license: 'SIL OFL 1.1', note: 'Interface typography and headings.' },
+  { name: 'Instrument Sans', license: 'SIL OFL 1.1', note: 'Interface body text.' },
+  { name: 'Barlow Condensed', license: 'SIL OFL 1.1', note: 'Compact headlines.' },
+  { name: 'IBM Plex Mono', license: 'SIL OFL 1.1', note: 'Technical data and code.' },
+  { name: 'Michroma', license: 'SIL OFL 1.1', note: 'Futuristic display type.' },
+  { name: 'Chakra Petch', license: 'SIL OFL 1.1', note: 'Racing labels.' },
+  { name: 'DSEG', license: 'SIL OFL 1.1', note: 'DSEG7 and DSEG14 digital displays.' }
 ]
 
 const TOOLS: CreditItem[] = [
-  { name: 'avrdude', license: 'GNU GPL v2', note: 'Upload de firmware para placas AVR.' }
+  { name: 'avrdude', license: 'GNU GPL v2', note: 'Firmware uploads for AVR boards.' }
 ]
 
 function CreditSection({ items, title }: { items: CreditItem[]; title: string }): ReactElement {
@@ -45,7 +45,7 @@ function CreditSection({ items, title }: { items: CreditItem[]; title: string })
         <h2 style={{ margin: 0, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: '0.08em', textTransform: 'uppercase' }}>
           {title}
         </h2>
-        <span className="field-label" style={{ margin: 0 }}>{items.length} itens</span>
+        <span className="field-label" style={{ margin: 0 }}>{items.length} items</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
         {items.map((item) => (
@@ -85,14 +85,14 @@ function CreditSection({ items, title }: { items: CreditItem[]; title: string })
 }
 
 function updateStatusText(status: UpdaterStatus): string {
-  if (!status.enabled) return 'Atualizações automáticas ficam ativas apenas na versão instalada do app.'
-  if (status.state === 'checking') return 'Verificando atualizações no GitHub Releases...'
-  if (status.state === 'available') return `Atualização ${status.updateVersion ?? ''} disponível. Preparando download...`
-  if (status.state === 'downloading') return 'Baixando atualização...'
-  if (status.state === 'downloaded') return `Atualização ${status.updateVersion ?? ''} pronta para instalar.`
-  if (status.state === 'not-available') return 'Você já está usando a versão mais recente.'
-  if (status.state === 'error') return status.error ?? 'Não foi possível verificar atualizações.'
-  return 'Clique para verificar atualizações agora.'
+  if (!status.enabled) return 'Automatic updates are active only in the installed app build.'
+  if (status.state === 'checking') return 'Checking GitHub Releases for updates...'
+  if (status.state === 'available') return `Update ${status.updateVersion ?? ''} available. Preparing download...`
+  if (status.state === 'downloading') return 'Downloading update...'
+  if (status.state === 'downloaded') return `Update ${status.updateVersion ?? ''} ready to install.`
+  if (status.state === 'not-available') return 'You are already using the latest version.'
+  if (status.state === 'error') return status.error ?? 'Could not check for updates.'
+  return 'Click to check for updates now.'
 }
 
 function isUpdaterEvent(value: unknown): value is UpdaterEvent {
@@ -131,9 +131,9 @@ export default function AboutView(): ReactElement {
       if (checked.ok && checked.status.state === 'available') {
         const downloaded = await window.ipc.invoke<UpdaterIpcResult>(UPDATE_CHANNELS.download)
         setStatus(downloaded.status)
-        if (!downloaded.ok) setActionError(downloaded.message ?? downloaded.status.error ?? 'Falha ao baixar atualização.')
+        if (!downloaded.ok) setActionError(downloaded.message ?? downloaded.status.error ?? 'Failed to download update.')
       } else if (!checked.ok) {
-        setActionError(checked.message ?? checked.status.error ?? 'Falha ao verificar atualizações.')
+        setActionError(checked.message ?? checked.status.error ?? 'Failed to check for updates.')
       }
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error))
@@ -148,7 +148,7 @@ export default function AboutView(): ReactElement {
     try {
       const result = await window.ipc.invoke<UpdaterIpcResult>(UPDATE_CHANNELS.installNow)
       setStatus(result.status)
-      if (!result.ok) setActionError(result.message ?? result.status.error ?? 'Falha ao iniciar instalação.')
+      if (!result.ok) setActionError(result.message ?? result.status.error ?? 'Failed to start installation.')
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error))
     } finally {
@@ -184,13 +184,13 @@ export default function AboutView(): ReactElement {
           }}
         />
         <div style={{ position: 'relative', display: 'grid', gap: 8 }}>
-          <span className="field-label" style={{ margin: 0 }}>Sobre / Créditos</span>
+          <span className="field-label" style={{ margin: 0 }}>About / Credits</span>
           <h1 style={{ margin: 0, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 42, letterSpacing: '0.04em' }}>
             {appName}
           </h1>
           <p style={{ margin: 0, color: 'var(--text-secondary)', maxWidth: 760, lineHeight: 1.6 }}>
-            Versão {appVersion}. Este app usa componentes open-source, fontes redistribuíveis e ferramentas de firmware.
-            Os textos completos ficam em <code>THIRD-PARTY-LICENSES.md</code> e em <code>src/renderer/src/assets/fonts/LICENSES/</code>.
+            Version {appVersion}. This app uses open-source components, redistributable fonts, and firmware tools.
+            Full license texts are in <code>THIRD-PARTY-LICENSES.md</code> and <code>src/renderer/src/assets/fonts/LICENSES/</code>.
           </p>
         </div>
       </section>
@@ -200,10 +200,10 @@ export default function AboutView(): ReactElement {
           <div style={{ display: 'grid', gap: 4 }}>
             <span className="field-label" style={{ margin: 0 }}>Updates</span>
             <h2 style={{ margin: 0, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              Atualizações
+              Updates
             </h2>
           </div>
-          <span className="field-label" style={{ margin: 0 }}>Versão atual {status.currentVersion}</span>
+          <span className="field-label" style={{ margin: 0 }}>Current version {status.currentVersion}</span>
         </div>
         <p style={{ margin: 0, color: status.state === 'error' ? 'var(--danger)' : 'var(--text-secondary)', lineHeight: 1.55 }}>
           {statusText}
@@ -211,7 +211,7 @@ export default function AboutView(): ReactElement {
         {(status.state === 'downloading' || status.state === 'downloaded') && (
           <div style={{ display: 'grid', gap: 6 }}>
             <div
-              aria-label="Progresso do download da atualização"
+              aria-label="Update download progress"
               aria-valuemax={100}
               aria-valuemin={0}
               aria-valuenow={progress}
@@ -226,26 +226,26 @@ export default function AboutView(): ReactElement {
         {actionError && <p style={{ margin: 0, color: 'var(--danger)', lineHeight: 1.45 }}>{actionError}</p>}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button className="primary-button" type="button" onClick={() => void checkForUpdates()} disabled={busy || status.state === 'checking' || status.state === 'downloading'}>
-            Verificar atualizações
+            Check for updates
           </button>
           {status.downloaded && (
             <button className="primary-button" type="button" onClick={() => void installNow()} disabled={busy}>
-              Instalar e reiniciar
+              Install and restart
             </button>
           )}
         </div>
       </section>
 
-      <CreditSection title="Bibliotecas de produção" items={LIBRARIES} />
-      <CreditSection title="Fontes bundled" items={FONTS} />
-      <CreditSection title="Ferramentas bundled" items={TOOLS} />
+      <CreditSection title="Production libraries" items={LIBRARIES} />
+      <CreditSection title="Bundled fonts" items={FONTS} />
+      <CreditSection title="Bundled tools" items={TOOLS} />
 
       <section className="panel-card" style={{ display: 'grid', gap: 8 }}>
         <span className="field-label" style={{ margin: 0 }}>Compliance</span>
         <p style={{ margin: 0, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-          DSEG7Classic-Regular.ttf e DSEG14Classic-Regular.ttf foram obtidas do release oficial keshikan/DSEG
-          e distribuídas sob SIL OFL 1.1. avrdude é redistribuído sob GPL v2 com link/oferta de código-fonte
-          documentados no arquivo de licenças de terceiros.
+          DSEG7Classic-Regular.ttf and DSEG14Classic-Regular.ttf were obtained from the official keshikan/DSEG release
+          and distributed under SIL OFL 1.1. avrdude is redistributed under GPL v2 with source-code links/offers
+          documented in the third-party license file.
         </p>
       </section>
     </div>

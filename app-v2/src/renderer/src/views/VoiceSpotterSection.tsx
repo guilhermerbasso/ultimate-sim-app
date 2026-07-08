@@ -27,6 +27,7 @@ import {
   useSpotterRuntime
 } from '../lib/spotter-runtime'
 import { useDevices } from '../lib/devices/DeviceRegistry'
+import { tt } from '../i18n'
 
 const shell: CSSProperties = {
   display: 'grid',
@@ -114,18 +115,18 @@ function lapsOfFuel(live: TelemetrySnapshot | null): number | undefined {
   return fuel / per
 }
 
-function activeFlags(live: TelemetrySnapshot | null): string {
+function activeFlags(live: TelemetrySnapshot | null, language: AppViewProps['language']): string {
   const flags = live?.flags
   if (!flags) return '—'
   const names: string[] = []
-  if (flags.green) names.push('verde')
-  if (flags.yellow) names.push('amarela')
-  if (flags.blue) names.push('azul')
-  if (flags.white) names.push('branca')
-  if (flags.checkered) names.push('quadriculada')
+  if (flags.green) names.push(tt(language, 'spotter.flag.green'))
+  if (flags.yellow) names.push(tt(language, 'spotter.flag.yellow'))
+  if (flags.blue) names.push(tt(language, 'spotter.flag.blue'))
+  if (flags.white) names.push(tt(language, 'spotter.flag.white'))
+  if (flags.checkered) names.push(tt(language, 'spotter.flag.checkered'))
   if (flags.meatball) names.push('meatball')
-  if (flags.black) names.push('preta')
-  return names.length ? names.join(', ') : 'nenhuma'
+  if (flags.black) names.push(tt(language, 'spotter.flag.black'))
+  return names.length ? names.join(', ') : tt(language, 'common.none')
 }
 
 // Voice Spotter / Avisos falados — absorbed into Engenheiro IA (the single VOICE
@@ -133,7 +134,7 @@ function activeFlags(live: TelemetrySnapshot | null): string {
 // toggles, telemetry-driven spoken-callout settings). The spotter RUNTIME stays
 // globally mounted in App.tsx; the hook below is ref-counted so co-mounting here
 // is a no-op driver (no double-speak — see spotter-runtime.ts).
-export function VoiceSpotterSection({ showToast }: Pick<AppViewProps, 'showToast'>): ReactElement {
+export function VoiceSpotterSection({ showToast, language }: Pick<AppViewProps, 'showToast' | 'language'>): ReactElement {
   // Drive the engine while this section is open. The hook is ref-counted + backed
   // by a module singleton, so this co-exists with the App-root mount without
   // any double-speak (see spotter-runtime.ts).
@@ -217,14 +218,12 @@ export function VoiceSpotterSection({ showToast }: Pick<AppViewProps, 'showToast
     <section style={shell}>
       <article style={{ ...panel, minHeight: 560 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
-          <span style={label}>Voice Spotter · Avisos falados · TTS</span>
-          <SectionExportImport sectionId="spotter" label="Spotter / vozes / TTS" onImported={() => void reloadConfig()} />
+          <span style={label}>{tt(language, 'spotter.eyebrow')}</span>
+          <SectionExportImport sectionId="spotter" label={tt(language, 'spotter.exportLabel')} onImported={() => void reloadConfig()} />
         </div>
-        <h3 style={{ margin: '8px 0 4px', fontSize: 26 }}>Voice Spotter / Avisos falados</h3>
+        <h3 style={{ margin: '8px 0 4px', fontSize: 26 }}>{tt(language, 'spotter.title')}</h3>
         <p style={{ color: 'var(--text-secondary)', marginTop: 0 }}>
-          Avisos falados de engenheiro/spotter a partir da telemetria ao vivo. Diferente do menu Sounds (que apenas bipa),
-          aqui o app fala bandeiras, combustível, pit, proximidade, incidentes e voltas. {enabledCount} de {CALLOUT_CATALOG.length}{' '}
-          avisos ativos.
+          {tt(language, 'spotter.help', { enabled: enabledCount, total: CALLOUT_CATALOG.length })}
         </p>
 
         <MasterControls
@@ -233,15 +232,16 @@ export function VoiceSpotterSection({ showToast }: Pick<AppViewProps, 'showToast
           audioBusy={audioBusy}
           busy={busy}
           config={config}
+          language={language}
           voices={voices}
           onRefreshOutputs={() => void refreshAudioOutputs(true)}
           onToggleEnabled={() =>
-            void persist({ enabled: !config.enabled }, config.enabled ? 'Spotter pausado.' : 'Spotter ativo.')
+            void persist({ enabled: !config.enabled }, config.enabled ? tt(language, 'spotter.toast.paused') : tt(language, 'spotter.toast.active'))
           }
           onToggleMuted={() => void persist({ muted: !config.muted })}
           onChangeMasterVolumeLocal={(masterVolume) => setConfig((c) => ({ ...c, masterVolume }))}
           onCommitMasterVolume={(masterVolume) => void persist({ masterVolume })}
-          onChangeLanguage={(language) => void persist({ language }, `Idioma das falas: ${language}.`)}
+          onChangeLanguage={(spotterLanguage) => void persist({ language: spotterLanguage }, tt(language, 'spotter.toast.language', { language: spotterLanguage }))}
           onChangeDefaultVoice={(defaultVoiceURI) => void persist({ defaultVoiceURI })}
           onChangeOutput={(outputDeviceId) => void persist({ outputDeviceId })}
           onTestVoice={() => testSpotterVoice(config)}
@@ -273,6 +273,7 @@ export function VoiceSpotterSection({ showToast }: Pick<AppViewProps, 'showToast
               description={meta.description}
               title={meta.label}
               voices={voices}
+              appLanguage={language}
               language={config.language}
               onToggle={() =>
                 commitCallout(meta.id, { enabled: !config.callouts[meta.id].enabled })
@@ -293,25 +294,25 @@ export function VoiceSpotterSection({ showToast }: Pick<AppViewProps, 'showToast
       </article>
 
       <article style={panel}>
-        <span style={label}>Telemetria ao vivo</span>
+        <span style={label}>{tt(language, 'spotter.liveTelemetry')}</span>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, margin: '10px 0 16px' }}>
-          <LiveTile labelText="Telemetria" value={live?.connected ? 'conectada' : 'aguardando'} />
-          <LiveTile labelText="Bandeiras" value={activeFlags(live)} />
-          <LiveTile labelText="Combustível (voltas)" value={formatSec(lapsOfFuel(live), 1).replace('s', '')} />
-          <LiveTile labelText="Voltas restantes" value={live?.lapsRemaining == null ? '—' : String(Math.floor(live.lapsRemaining))} />
-          <LiveTile labelText="Posição" value={live?.position == null ? '—' : `P${live.position}`} />
-          <LiveTile labelText="Incidentes" value={live?.incidentCount == null ? '—' : `${live.incidentCount}${live.incidentLimit ? ` / ${live.incidentLimit}` : ''}`} />
-          <LiveTile labelText="Gap à frente" value={formatSec(live?.relatives?.ahead?.gapSec)} />
-          <LiveTile labelText="Gap atrás" value={formatSec(live?.relatives?.behind?.gapSec)} />
-          <LiveTile labelText="No pit road" value={live?.onPitRoad == null ? '—' : live.onPitRoad ? 'sim' : 'não'} />
-          <LiveTile labelText="Velocidade" value={live?.speedKmh == null ? '—' : `${Math.round(live.speedKmh)} km/h`} />
+          <LiveTile labelText={tt(language, 'spotter.telemetry')} value={live?.connected ? tt(language, 'spotter.connected') : tt(language, 'spotter.waiting')} />
+          <LiveTile labelText={tt(language, 'spotter.flags')} value={activeFlags(live, language)} />
+          <LiveTile labelText={tt(language, 'spotter.fuelLaps')} value={formatSec(lapsOfFuel(live), 1).replace('s', '')} />
+          <LiveTile labelText={tt(language, 'spotter.lapsRemaining')} value={live?.lapsRemaining == null ? '—' : String(Math.floor(live.lapsRemaining))} />
+          <LiveTile labelText={tt(language, 'spotter.position')} value={live?.position == null ? '—' : `P${live.position}`} />
+          <LiveTile labelText={tt(language, 'spotter.incidents')} value={live?.incidentCount == null ? '—' : `${live.incidentCount}${live.incidentLimit ? ` / ${live.incidentLimit}` : ''}`} />
+          <LiveTile labelText={tt(language, 'spotter.gapAhead')} value={formatSec(live?.relatives?.ahead?.gapSec)} />
+          <LiveTile labelText={tt(language, 'spotter.gapBehind')} value={formatSec(live?.relatives?.behind?.gapSec)} />
+          <LiveTile labelText={tt(language, 'spotter.onPitRoad')} value={live?.onPitRoad == null ? '—' : live.onPitRoad ? tt(language, 'common.yes') : tt(language, 'common.no')} />
+          <LiveTile labelText={tt(language, 'spotter.speed')} value={live?.speedKmh == null ? '—' : `${Math.round(live.speedKmh)} km/h`} />
         </div>
 
-        <span style={label}>Últimas falas</span>
+        <span style={label}>{tt(language, 'spotter.lastCallouts')}</span>
         <div style={{ display: 'grid', gap: 6, marginTop: 8, minHeight: 96 }}>
           {log.length === 0 ? (
             <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: 0 }}>
-              Nenhuma fala ainda. Ative avisos e conecte a telemetria, ou use os botões “Testar”.
+              {tt(language, 'spotter.noCallouts')}
             </p>
           ) : (
             log.slice(0, 10).map((entry, index) => (
@@ -335,24 +336,22 @@ export function VoiceSpotterSection({ showToast }: Pick<AppViewProps, 'showToast
         </div>
 
         <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
-          <span style={label}>Vozes & saída</span>
+          <span style={label}>{tt(language, 'spotter.voicesOutput')}</span>
           <p style={{ color: 'var(--text-secondary)', fontSize: 13, margin: '6px 0 0' }}>
             {(() => {
               const osCount = voices.filter((v) => v.engine === 'os').length
               const piperInstalled = voices.filter((v) => v.engine === 'piper' && v.piperInstalled).length
               const piperTotal = voices.filter((v) => v.engine === 'piper').length
-              if (osCount === 0 && piperTotal === 0) return 'Carregando vozes…'
+              if (osCount === 0 && piperTotal === 0) return tt(language, 'spotter.loadingVoices')
               const parts: string[] = []
-              if (osCount > 0) parts.push(`${osCount} vozes do sistema`)
-              if (piperInstalled > 0) parts.push(`${piperInstalled} vozes Piper instaladas`)
-              else if (piperTotal > 0) parts.push(`${piperTotal} vozes Piper disponíveis (não instaladas)`)
+              if (osCount > 0) parts.push(tt(language, 'spotter.systemVoices', { count: osCount }))
+              if (piperInstalled > 0) parts.push(tt(language, 'spotter.piperInstalled', { count: piperInstalled }))
+              else if (piperTotal > 0) parts.push(tt(language, 'spotter.piperAvailable', { count: piperTotal }))
               return parts.join(' · ')
             })()}
           </p>
           <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: '6px 0 0' }}>
-            Vozes Piper (offline, MIT) tocam via HTMLAudio e suportam roteamento de saída.
-            Vozes do sistema (Web Speech) tocam sempre na saída padrão do Windows.
-            Para baixar/gerenciar as vozes neurais e o wake-word, use a tela <strong>Voz / TTS</strong>.
+            {tt(language, 'spotter.voiceHelp')} <strong>{tt(language, 'voice.viewName')}</strong>.
           </p>
         </div>
       </article>
@@ -366,6 +365,7 @@ function MasterControls({
   audioBusy,
   busy,
   config,
+  language,
   voices,
   onRefreshOutputs,
   onToggleEnabled,
@@ -382,6 +382,7 @@ function MasterControls({
   audioBusy: boolean
   busy: boolean
   config: SpotterConfig
+  language: AppViewProps['language']
   voices: UnifiedVoice[]
   onRefreshOutputs(): void
   onToggleEnabled(): void
@@ -409,9 +410,9 @@ function MasterControls({
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
         <div>
-          <h4 style={{ margin: '0 0 4px', fontSize: 18 }}>Engine de voz</h4>
+          <h4 style={{ margin: '0 0 4px', fontSize: 18 }}>{tt(language, 'spotter.voiceEngine')}</h4>
           <p style={{ color: 'var(--text-secondary)', margin: 0, fontSize: 13 }}>
-            {config.enabled ? (config.muted ? 'Ativo, mas mudo.' : 'Ativo e falando.') : 'Pausado.'}
+            {config.enabled ? (config.muted ? tt(language, 'spotter.status.muted') : tt(language, 'spotter.status.speaking')) : tt(language, 'spotter.status.paused')}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -425,7 +426,7 @@ function MasterControls({
             }}
             type="button"
           >
-            {config.muted ? 'Mudo' : 'Mute'}
+            {config.muted ? tt(language, 'spotter.muted') : 'Mute'}
           </button>
           <button
             disabled={busy}
@@ -433,13 +434,13 @@ function MasterControls({
             style={{ ...primaryButton, background: config.enabled ? 'var(--accent-danger)' : 'var(--accent-primary)' }}
             type="button"
           >
-            {config.enabled ? 'Pausar' : 'Ativar'}
+            {config.enabled ? tt(language, 'spotter.pause') : tt(language, 'spotter.activate')}
           </button>
         </div>
       </div>
 
       <RangeField
-        labelText="Volume mestre"
+        labelText={tt(language, 'spotter.masterVolume')}
         min={0}
         max={1}
         step={0.05}
@@ -451,28 +452,28 @@ function MasterControls({
 
       <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 10, alignItems: 'end' }}>
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={label}>Idioma</span>
+          <span style={label}>{tt(language, 'spotter.language')}</span>
           <select onChange={(event) => onChangeLanguage(event.target.value as SpotterLang)} style={inputStyle} value={config.language}>
-            <option value="pt-BR">Português</option>
+            <option value="pt-BR">Portuguese (BR)</option>
             <option value="en-US">English</option>
           </select>
         </label>
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={label}>Voz padrão</span>
+          <span style={label}>{tt(language, 'spotter.defaultVoice')}</span>
           <VoiceSelect language={config.language} onChange={onChangeDefaultVoice} value={config.defaultVoiceURI} voices={voices} />
         </label>
       </div>
 
       <div style={{ display: 'grid', gap: 6 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-          <span style={label}>Dispositivo de saída</span>
+          <span style={label}>{tt(language, 'spotter.outputDevice')}</span>
           <button disabled={audioBusy} onClick={onRefreshOutputs} style={ghostButton} type="button">
-            Atualizar
+            {tt(language, 'spotter.refresh')}
           </button>
         </div>
         <select disabled={audioBusy} onChange={(event) => onChangeOutput(event.target.value)} style={inputStyle} value={config.outputDeviceId}>
-          <option value="">Padrão do sistema</option>
-          {selectedDeviceMissing ? <option value={config.outputDeviceId}>Dispositivo indisponível</option> : null}
+          <option value="">{tt(language, 'spotter.systemDefault')}</option>
+          {selectedDeviceMissing ? <option value={config.outputDeviceId}>{tt(language, 'spotter.deviceUnavailable')}</option> : null}
           {audioOutputs.map((device) => (
             <option key={device.deviceId} value={device.deviceId}>
               {device.label}
@@ -484,7 +485,7 @@ function MasterControls({
 
       <div>
         <button onClick={onTestVoice} style={ghostButton} type="button">
-          Testar voz
+          {tt(language, 'spotter.testVoice')}
         </button>
       </div>
     </div>
@@ -496,6 +497,7 @@ function CalloutRow({
   description,
   title,
   voices,
+  appLanguage,
   language,
   onToggle,
   onChangeLocal,
@@ -506,6 +508,7 @@ function CalloutRow({
   description: string
   title: string
   voices: UnifiedVoice[]
+  appLanguage: AppViewProps['language']
   language: SpotterLang
   onToggle(): void
   onChangeLocal(patch: Partial<CalloutConfig>): void
@@ -529,14 +532,14 @@ function CalloutRow({
         </div>
         <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
           <button onClick={onTest} style={ghostButton} type="button">
-            Testar
+            {tt(appLanguage, 'spotter.test')}
           </button>
           <button
             onClick={() => setOpen((value) => !value)}
             style={{ ...ghostButton, padding: '0 10px' }}
             type="button"
           >
-            {open ? 'Fechar' : 'Ajustes'}
+            {open ? tt(appLanguage, 'common.close') : tt(appLanguage, 'spotter.adjustments')}
           </button>
           <button
             onClick={onToggle}
@@ -557,13 +560,13 @@ function CalloutRow({
       {open ? (
         <div style={{ display: 'grid', gap: 12, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-subtle)' }}>
           <label style={{ display: 'grid', gap: 6 }}>
-            <span style={label}>Voz</span>
+            <span style={label}>{tt(appLanguage, 'spotter.voice')}</span>
             <VoiceSelect language={language} onChange={(voiceURI) => onCommit({ voiceURI })} value={cfg.voiceURI} voices={voices} />
           </label>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
             <RangeField
-              labelText="Velocidade"
+              labelText={tt(appLanguage, 'spotter.rate')}
               min={0.5}
               max={2}
               step={0.05}
@@ -573,7 +576,7 @@ function CalloutRow({
               onCommit={(rate) => onCommit({ rate })}
             />
             <RangeField
-              labelText="Tom"
+              labelText={tt(appLanguage, 'spotter.pitch')}
               min={0}
               max={2}
               step={0.05}
@@ -583,7 +586,7 @@ function CalloutRow({
               onCommit={(pitch) => onCommit({ pitch })}
             />
             <RangeField
-              labelText="Volume"
+              labelText={tt(appLanguage, 'spotter.volume')}
               min={0}
               max={1}
               step={0.05}
@@ -605,7 +608,7 @@ function CalloutRow({
               onCommit={(cooldownMs) => onCommit({ cooldownMs })}
             />
             <NumberField
-              labelText="Prioridade (1-10)"
+              labelText={tt(appLanguage, 'spotter.priority')}
               min={1}
               max={10}
               step={1}
@@ -643,7 +646,7 @@ function AdvancedThresholds({
         marginTop: 4
       }}
     >
-      <span style={label}>Avançado · gatilhos</span>
+      <span style={label}>Advanced · triggers</span>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12, marginTop: 10 }}>
         {fields.map((field) => (
           <NumberField
@@ -672,19 +675,19 @@ interface ThresholdField {
 
 const THRESHOLD_FIELDS: Partial<Record<CalloutCategory, ThresholdField[]>> = {
   fuel: [
-    { key: 'fuelLowLaps', labelText: 'Combustível baixo (voltas)', min: 0.5, max: 20, step: 0.5 },
-    { key: 'fuelBoxLaps', labelText: 'Boxe nesta volta (voltas)', min: 0.2, max: 10, step: 0.5 }
+    { key: 'fuelLowLaps', labelText: 'Low fuel (laps)', min: 0.5, max: 20, step: 0.5 },
+    { key: 'fuelBoxLaps', labelText: 'Box this lap (laps)', min: 0.2, max: 10, step: 0.5 }
   ],
   pit: [
-    { key: 'pitSpeedLimitKmh', labelText: 'Limite de pit (km/h)', min: 20, max: 120, step: 1 },
-    { key: 'pitWindowOpenLaps', labelText: 'Janela de boxes (voltas)', min: 1, max: 100, step: 1 }
+    { key: 'pitSpeedLimitKmh', labelText: 'Pit speed limit (km/h)', min: 20, max: 120, step: 1 },
+    { key: 'pitWindowOpenLaps', labelText: 'Pit window (laps)', min: 1, max: 100, step: 1 }
   ],
   proximity: [
-    { key: 'gapChangeSec', labelText: 'Variação de gap (s)', min: 0.05, max: 5, step: 0.05 },
-    { key: 'proximityAheadMeters', labelText: 'Alcance long. (m)', min: 1, max: 20, step: 0.5 },
-    { key: 'proximitySideMeters', labelText: 'Alcance lateral (m)', min: 1, max: 20, step: 0.5 }
+    { key: 'gapChangeSec', labelText: 'Gap change (s)', min: 0.05, max: 5, step: 0.05 },
+    { key: 'proximityAheadMeters', labelText: 'Longitudinal range (m)', min: 1, max: 20, step: 0.5 },
+    { key: 'proximitySideMeters', labelText: 'Side range (m)', min: 1, max: 20, step: 0.5 }
   ],
-  incidents: [{ key: 'incidentWarnMargin', labelText: 'Margem do limite (pts)', min: 1, max: 20, step: 1 }]
+  incidents: [{ key: 'incidentWarnMargin', labelText: 'Limit margin (pts)', min: 1, max: 20, step: 1 }]
 }
 
 function VoiceSelect({
@@ -715,8 +718,8 @@ function VoiceSelect({
   const selectedMissing = value.length > 0 && !voices.some((v) => v.id === value)
   return (
     <select onChange={(event) => onChange(event.target.value)} style={inputStyle} value={value}>
-      <option value="">Voz padrão ({language})</option>
-      {selectedMissing ? <option value={value}>Voz indisponível</option> : null}
+      <option value="">Default voice ({language})</option>
+      {selectedMissing ? <option value={value}>Voice unavailable</option> : null}
       {sorted.map((voice) => (
         <option
           key={voice.id}
@@ -724,7 +727,7 @@ function VoiceSelect({
           disabled={voice.engine === 'piper' && voice.piperInstalled === false}
         >
           {voice.name} · {voice.lang}
-          {voice.engine === 'piper' && voice.piperInstalled === false ? ' (não instalado)' : ''}
+          {voice.engine === 'piper' && voice.piperInstalled === false ? ' (not installed)' : ''}
         </option>
       ))}
     </select>

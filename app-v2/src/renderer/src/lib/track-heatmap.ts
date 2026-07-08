@@ -192,13 +192,13 @@ export interface HeatLegendItem {
   label: string
 }
 
-/** Legend rows (PT-BR) — vermelho=ruim, verde=padrão, azul=muito melhor, cinza=não avaliada. */
+/** Legend rows — red=bad, green=on pace, blue=much better, grey=not evaluated. */
 export function heatLegend(palette: HeatPalette = HEAT_COLORS): HeatLegendItem[] {
   return [
-    { bucket: 'loss', color: palette.loss, label: 'Vermelho · perdendo tempo' },
-    { bucket: 'onpar', color: palette.onpar, label: 'Verde · no padrão' },
-    { bucket: 'gain', color: palette.gain, label: 'Azul · muito melhor' },
-    { bucket: 'unknown', color: palette.unknown, label: 'Cinza · sem referência' }
+    { bucket: 'loss', color: palette.loss, label: 'Red · losing time' },
+    { bucket: 'onpar', color: palette.onpar, label: 'Green · on pace' },
+    { bucket: 'gain', color: palette.gain, label: 'Blue · much better' },
+    { bucket: 'unknown', color: palette.unknown, label: 'Grey · no reference' }
   ]
 }
 

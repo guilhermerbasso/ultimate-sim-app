@@ -113,11 +113,11 @@ export const MODEL_TIERS: Readonly<Record<ModelTier, ModelId>> = {
   quality: QUALITY_MODEL_ID
 } as const
 
-/** PT-BR labels for the tier picker (short, intuitive). */
+/** English labels for the tier picker (short, intuitive). */
 export const MODEL_TIER_LABELS: Readonly<Record<ModelTier, string>> = {
-  light: 'Leve',
-  balanced: 'Equilibrado',
-  quality: 'Qualidade'
+  light: 'Light',
+  balanced: 'Balanced',
+  quality: 'Quality'
 } as const
 
 /** Stable ordered list of built-in models (default first). */

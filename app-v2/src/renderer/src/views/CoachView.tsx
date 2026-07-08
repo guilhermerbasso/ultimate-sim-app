@@ -22,7 +22,7 @@ import { tt } from '../i18n'
 // AI Coach + Setup Engineer (F2). Renders the DETERMINISTIC per-lap report from
 // the `coach:` module: ranked findings (worst-first by estimated time loss),
 // a sector strip (green only when a sector is at/above benchmark), and the setup
-// advisor's concrete suggestions. The local LLM is optional — the "Explicar com
+// advisor's concrete suggestions. The local LLM is optional — the explain button
 // IA" button calls `coach:explain`, which falls back to deterministic phrasing
 // whenever the model is off or slow. Warm chrome throughout; cool/green is
 // reserved strictly for "good".
@@ -159,21 +159,21 @@ type CoachTab = 'report' | 'analysis'
 
 // Mount points (SEAMS) reserved for other agents. The integrator replaces the
 // placeholder bodies below with the real components — do not implement them here.
-function TrackHeatMapSeam({ report }: { report: CoachReport | null }): ReactElement {
+function TrackHeatMapSeam({ report, language }: { report: CoachReport | null; language: AppViewProps['language'] }): ReactElement {
   const { data } = useTrackMapData()
   const playerPct = useTelemetrySelector((s) => (typeof s?.lapDistPct === 'number' ? s.lapDistPct : undefined))
   return (
     <section style={panel}>
-      <h2 style={sectionTitle}>Mapa da pista · coaching</h2>
+      <h2 style={sectionTitle}>{tt(language, 'coach.trackMap')}</h2>
       <TrackCoachingHeatmap mode="interactive" data={data} report={report} playerPct={playerPct} />
     </section>
   )
 }
 
-function StintDebriefSeam(): ReactElement {
+function StintDebriefSeam({ language }: { language: AppViewProps['language'] }): ReactElement {
   return (
     <section style={panel}>
-      <h2 style={sectionTitle}>Debrief do stint</h2>
+      <h2 style={sectionTitle}>{tt(language, 'coach.stintDebrief')}</h2>
       <StintDebrief />
     </section>
   )
@@ -192,7 +192,7 @@ export default function CoachView({ showToast, language }: AppViewProps): ReactE
   const [useLlm, setUseLlm] = useState(DEFAULT_COACH_CONFIG.phraseWithAi)
   const [explains, setExplains] = useState<Record<string, ExplainState>>({})
 
-  // "Frasear com IA" is PERSISTED in the coach config (not local-only state, which
+  // The AI phrasing toggle is PERSISTED in the coach config (not local-only state, which
   // reset on navigation). Load it on mount, follow config broadcasts (cross-window),
   // and write through setConfig on toggle so it survives leaving the page.
   useEffect(() => {
@@ -277,7 +277,7 @@ export default function CoachView({ showToast, language }: AppViewProps): ReactE
           </div>
           <label style={{ ...chip, cursor: 'pointer', textTransform: 'none' }}>
             <input type="checkbox" checked={useLlm} onChange={(e) => void togglePhraseWithAi(e.target.checked)} />
-            Frasear com IA
+            {tt(language, 'coach.phraseWithAi')}
           </label>
         </div>
         <div style={chipRow}>
@@ -286,7 +286,7 @@ export default function CoachView({ showToast, language }: AppViewProps): ReactE
             style={{ ...tabButton, ...(tab === 'report' ? { background: 'var(--accent-primary)', color: 'var(--text-on-accent)', borderColor: 'var(--accent-primary)' } : {}) }}
             onClick={() => setTab('report')}
           >
-            Resumo & Setup
+            {tt(language, 'coach.summarySetup')}
           </button>
           <button
             type="button"
@@ -303,40 +303,42 @@ export default function CoachView({ showToast, language }: AppViewProps): ReactE
       ) : (
         <>
           <section style={panel}>
-            <p style={bodyText}>{report?.summary ?? 'Aguardando a primeira volta completa para analisar a telemetria…'}</p>
+            <p style={bodyText}>{report?.summary ?? tt(language, 'coach.waitingFirstLap')}</p>
             {report && (
               <div style={chipRow}>
-                {report.lapNumber !== undefined && <span style={chip}>Volta {report.lapNumber}</span>}
-                <span style={chip}>Tempo {fmtTime(report.lapTimeSec)}</span>
-                <span style={{ ...chip, color: deltaColor(report.deltaToBestSec) }}>Δ melhor {fmtDelta(report.deltaToBestSec)}</span>
+                {report.lapNumber !== undefined && <span style={chip}>{tt(language, 'coach.lap', { lap: report.lapNumber })}</span>}
+                <span style={chip}>{tt(language, 'coach.time', { time: fmtTime(report.lapTimeSec) })}</span>
+                <span style={{ ...chip, color: deltaColor(report.deltaToBestSec) }}>{tt(language, 'coach.bestDelta', { delta: fmtDelta(report.deltaToBestSec) })}</span>
                 {report.consistency && (
                   <span style={chip}>
                     {tt(language, 'coach.consistency', { rating: report.consistency.rating })} · σ {report.consistency.stdevSec.toFixed(2)}s
                   </span>
                 )}
-                <span style={chip}>{report.sampleCount} amostras</span>
+                <span style={chip}>{tt(language, 'coach.samples', { count: report.sampleCount })}</span>
               </div>
             )}
           </section>
 
-          <TrackHeatMapSeam report={report} />
+          <TrackHeatMapSeam report={report} language={language} />
 
           {report && (
             <section style={panel}>
-              <h2 style={sectionTitle}>Setores</h2>
+              <h2 style={sectionTitle}>{tt(language, 'coach.sectors')}</h2>
               <div style={{ display: 'grid', gridTemplateColumns: `repeat(${report.sectors.length}, minmax(140px, 1fr))`, gap: 12 }}>
                 {report.sectors.map((s) => (
-                  <SectorCard key={s.sector} sector={s} />
+                  <SectorCard key={s.sector} sector={s} language={language} />
                 ))}
               </div>
             </section>
           )}
 
           <section style={panel}>
-            <h2 style={sectionTitle}>Pontos de melhoria {issues.length > 0 && <span style={mutedText}>· por perda de tempo</span>}</h2>
+            <h2 style={sectionTitle}>
+              {tt(language, 'coach.improvementPoints')} {issues.length > 0 && <span style={mutedText}>{tt(language, 'coach.byTimeLoss')}</span>}
+            </h2>
             {issues.length === 0 && <p style={mutedText}>{tt(language, 'coach.noRelevantLosses')}</p>}
             {issues.map((f) => (
-              <FindingCard key={f.id} finding={f} explain={explains[f.id]} onExplain={() => explain(f)} />
+              <FindingCard key={f.id} finding={f} explain={explains[f.id]} onExplain={() => explain(f)} language={language} />
             ))}
             {goods.length > 0 && (
               <div style={chipRow}>
@@ -349,13 +351,13 @@ export default function CoachView({ showToast, language }: AppViewProps): ReactE
             )}
           </section>
 
-          <StintDebriefSeam />
+          <StintDebriefSeam language={language} />
 
           <section style={panel}>
             <h2 style={sectionTitle}>{tt(language, 'coach.setupSuggestions')}</h2>
             <p style={mutedText}>{setup?.summary ?? tt(language, 'coach.setupRecommendationsAfterLap')}</p>
             {(setup?.suggestions ?? []).map((s) => (
-              <SetupCard key={s.id} suggestion={s} />
+              <SetupCard key={s.id} suggestion={s} language={language} />
             ))}
           </section>
         </>
@@ -369,7 +371,7 @@ function deltaColor(delta?: number): string {
   return delta <= 0 ? 'var(--accent-success)' : 'var(--text-secondary)'
 }
 
-function SectorCard({ sector }: { sector: CoachSectorSummary }): ReactElement {
+function SectorCard({ sector, language }: { sector: CoachSectorSummary; language: AppViewProps['language'] }): ReactElement {
   const good = sector.benchmark
   return (
     <div
@@ -380,14 +382,14 @@ function SectorCard({ sector }: { sector: CoachSectorSummary }): ReactElement {
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <strong style={{ color: 'var(--text-primary)', fontFamily: '"Rajdhani", sans-serif', fontSize: 15 }}>Setor {sector.sector}</strong>
+        <strong style={{ color: 'var(--text-primary)', fontFamily: '"Rajdhani", sans-serif', fontSize: 15 }}>{tt(language, 'coach.sector', { sector: sector.sector })}</strong>
         <span style={{ ...chip, padding: '2px 8px', color: good ? 'var(--accent-success)' : deltaColor(sector.timeLossSec) }}>
-          {good ? 'No ritmo' : `+${sector.timeLossSec.toFixed(2)}s`}
+          {good ? tt(language, 'coach.onPace') : `+${sector.timeLossSec.toFixed(2)}s`}
         </span>
       </div>
       <span style={mutedText}>Min speed {Math.round(sector.minSpeedKmh)} km/h</span>
       <span style={mutedText}>
-        Freio {pct(sector.brakePct)} · Coast {pct(sector.coastPct)} · Throttle {pct(sector.throttlePct)}
+        {tt(language, 'coach.inputsSummary', { brake: pct(sector.brakePct), coast: pct(sector.coastPct), throttle: pct(sector.throttlePct) })}
       </span>
       {(sector.absSec > 0.3 || sector.tcSec > 0.3) && (
         <span style={mutedText}>
@@ -402,11 +404,13 @@ function SectorCard({ sector }: { sector: CoachSectorSummary }): ReactElement {
 function FindingCard({
   finding,
   explain,
-  onExplain
+  onExplain,
+  language
 }: {
   finding: CoachFinding
   explain?: ExplainState
   onExplain: () => void
+  language: AppViewProps['language']
 }): ReactElement {
   const color = SEVERITY_COLOR[finding.severity]
   return (
@@ -430,13 +434,13 @@ function FindingCard({
         </div>
       )}
       <button style={{ ...primaryButton, opacity: explain?.loading ? 0.6 : 1 }} onClick={onExplain} disabled={explain?.loading}>
-        {explain?.loading ? 'Explicando…' : 'Explicar'}
+        {explain?.loading ? tt(language, 'coach.explaining') : tt(language, 'coach.explain')}
       </button>
     </div>
   )
 }
 
-function SetupCard({ suggestion }: { suggestion: SetupSuggestion }): ReactElement {
+function SetupCard({ suggestion, language }: { suggestion: SetupSuggestion; language: AppViewProps['language'] }): ReactElement {
   return (
     <div style={cardBase}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -447,7 +451,7 @@ function SetupCard({ suggestion }: { suggestion: SetupSuggestion }): ReactElemen
       <span style={mutedText}>{suggestion.evidence}</span>
       {suggestion.alternatives.length > 0 && (
         <span style={mutedText}>
-          Alternativas: {suggestion.alternatives.map((a) => a.change).join(' · ')}
+          {tt(language, 'coach.alternatives', { alternatives: suggestion.alternatives.map((a) => a.change).join(' · ') })}
         </span>
       )}
     </div>

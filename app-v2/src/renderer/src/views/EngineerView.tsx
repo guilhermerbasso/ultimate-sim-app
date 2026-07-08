@@ -2,7 +2,7 @@ import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo,
 import type { AppViewProps } from '../App'
 import { VoiceSpotterSection } from './VoiceSpotterSection'
 import type { ModelDownloadProgress, ModelId, ModelStatus, ModelTier } from '../../../shared/ai'
-import { MODEL_TIER_LABELS, MODEL_TIER_ORDER } from '../../../shared/ai'
+import { MODEL_TIER_ORDER } from '../../../shared/ai'
 import {
   DEFAULT_ENGINEER_CONFIG,
   ENGINEER_CHANNELS,
@@ -30,7 +30,7 @@ import { seedEngineerBindingPressed, subscribeEngineerListening } from '../lib/e
 // `engineer:` IPC: a status/settings panel + an ask box with a scrollable Q&A log.
 // Deterministic intent answers come back instantly (no model); open-ended questions
 // lazily load the local model. Answers are spoken via the browser Web Speech API
-// (the same engine the Voice Spotter uses) when "falar respostas" is on.
+// (the same engine the Voice Spotter uses) when answer speech is enabled.
 //
 // SEAM: push-to-talk + preset-question hardware triggers live in the APP-LEVEL
 // `useEngineerActionRuntime` hook (mounted in App.tsx) so they fire on every screen.
@@ -200,10 +200,10 @@ function deriveModelView(language: AppViewProps['language'], status: EngineerSta
   }
   if (progress?.phase === 'error') return { text: tt(language, 'engineer.model.downloadFailed'), tone: 'idle', ratio: null }
   const runtime = status?.runtime.status
-  if (runtime === 'generating') return { text: 'Generating answer…', tone: 'active', ratio: null }
-  if (!active?.present) return { text: 'Not downloaded', tone: 'idle', ratio: null }
+  if (runtime === 'generating') return { text: tt(language, 'engineer.model.generating'), tone: 'active', ratio: null }
+  if (!active?.present) return { text: tt(language, 'engineer.model.notDownloaded'), tone: 'idle', ratio: null }
   if (runtime === 'ready') return { text: tt(language, 'engineer.model.loaded'), tone: 'good', ratio: null }
-  if (runtime === 'loading') return { text: 'Loading…', tone: 'active', ratio: null }
+  if (runtime === 'loading') return { text: tt(language, 'engineer.model.loading'), tone: 'active', ratio: null }
   return { text: tt(language, 'engineer.model.ready'), tone: 'good', ratio: null }
 }
 
@@ -373,7 +373,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
         void refreshStatus()
       }
     },
-    [busy, addAnswer, refreshStatus, showToast]
+    [busy, addAnswer, refreshStatus, showToast, language]
   )
 
   // Fire push-to-talk through the app-level runtime (works even when this view is the
@@ -395,7 +395,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
         showToast(tt(language, 'engineer.toast.saveFailed', { error: getErrorMessage(error) }), 'error')
       }
     },
-    [refreshStatus, showToast]
+    [refreshStatus, showToast, language]
   )
 
   // The model highlighted in the picker: the session pick if any, else the persisted
@@ -410,8 +410,8 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
     if (selectionIsDefault) return
     logClient.info('engineer', 'set default model', { modelId: selectedModelId })
     void patchConfig({ modelId: selectedModelId })
-    showToast('Default model set', 'success')
-  }, [patchConfig, selectedModelId, selectionIsDefault, showToast])
+    showToast(tt(language, 'engineer.toast.defaultModelSet'), 'success')
+  }, [patchConfig, selectedModelId, selectionIsDefault, showToast, language])
 
   // ── Preset questions CRUD ───────────────────────────────────────────────────
   const addPreset = useCallback(() => {
@@ -427,7 +427,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
     setDraftLabel('')
     setDraftText('')
     void patchConfig({ presetQuestions: next })
-  }, [draftLabel, draftText, patchConfig, showToast])
+  },   [draftLabel, draftText, patchConfig, showToast, language])
 
   const removePreset = useCallback(
     (id: string) => {
@@ -514,7 +514,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
       setDownloading(false)
       void refreshStatus()
     }
-  }, [refreshStatus, showToast])
+  }, [refreshStatus, showToast, language])
 
   const cancel = useCallback(() => {
     void window.ipc.invoke(ENGINEER_CHANNELS.cancel).catch(() => undefined)
@@ -568,7 +568,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
       {/* ── Left: ask + log ─────────────────────────────────────────────── */}
       <section style={panel}>
         <div>
-          <div style={eyebrow}>Engenheiro IA · local</div>
+          <div style={eyebrow}>{tt(language, 'engineer.ask.eyebrow')}</div>
           <h2 style={title}>{tt(language, 'engineer.ask.title')}</h2>
         </div>
 
@@ -583,7 +583,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
               padding: 'var(--space-3) var(--space-4)'
             }}
           >
-            The engineer is disabled. Enable it in the side panel.
+            {tt(language, 'engineer.disabled')}
           </div>
         )}
 
@@ -591,7 +591,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
           <input
             ref={inputRef}
             style={inputStyle}
-            placeholder="E.g. can we finish on this fuel?"
+            placeholder={tt(language, 'engineer.ask.placeholder')}
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
@@ -605,7 +605,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
             disabled={busy || !input.trim()}
             onClick={() => void ask(input)}
           >
-            {busy ? 'Pensando…' : 'Perguntar'}
+            {busy ? tt(language, 'engineer.ask.thinking') : tt(language, 'engineer.ask.button')}
           </button>
           {busy && (
             <button type="button" style={ghostButton} onClick={cancel}>
@@ -622,10 +622,10 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
               color: listening ? 'var(--accent-primary)' : 'var(--text-primary)'
             }}
             onClick={triggerPushToTalk}
-            title={pushToTalkBinding ? `Push-to-talk · ${formatBinding(pushToTalkBinding)}` : 'Push-to-talk (click or bind a button)'}
-            aria-label="Push-to-talk"
+            title={pushToTalkBinding ? tt(language, 'engineer.ptt.boundTitle', { binding: formatBinding(pushToTalkBinding) }) : tt(language, 'engineer.ptt.title')}
+            aria-label={tt(language, 'engineer.ptt.aria')}
           >
-            {listening ? '● ouvindo' : '🎙'}
+            {listening ? tt(language, 'engineer.ptt.listening') : '🎙'}
           </button>
         </div>
 
@@ -640,7 +640,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
         {/* ── Proactive per-sector call-outs feed (newest first) ───────────── */}
         {proactive.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={eyebrow}>Radio · proactive coaching</div>
+            <div style={eyebrow}>{tt(language, 'engineer.proactive.eyebrow')}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
               {[...proactive].reverse().map((event) => (
                 <div
@@ -680,9 +680,9 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
         >
           {log.length === 0 && (
             <div style={{ color: 'var(--text-muted)', fontSize: 13, margin: 'auto', textAlign: 'center' }}>
-              Ask a question or tap an example above.
+              {tt(language, 'engineer.empty.ask')}
               <br />
-              Direct answers (fuel, tyres, gaps) arrive immediately without loading the model.
+              {tt(language, 'engineer.empty.direct')}
             </div>
           )}
           {log.map((entry) => (
@@ -731,11 +731,11 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
       <section style={panel}>
         <div>
           <div style={eyebrow}>Status</div>
-          <h2 style={title}>Modelo & runtime</h2>
+          <h2 style={title}>{tt(language, 'engineer.modelRuntime')}</h2>
         </div>
 
         <div style={settingRow}>
-          <span style={label}>Estado do modelo</span>
+          <span style={label}>{tt(language, 'engineer.modelStatus')}</span>
           <strong style={{ color: toneColor(modelView.tone), fontFamily: '"Rajdhani", sans-serif' }}>{modelView.text}</strong>
         </div>
         {modelView.ratio != null && (
@@ -750,7 +750,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
         </div>
 
         <div>
-          <span style={{ ...label, display: 'block', marginBottom: 'var(--space-3)' }}>Model level</span>
+          <span style={{ ...label, display: 'block', marginBottom: 'var(--space-3)' }}>{tt(language, 'engineer.modelLevel')}</span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
             {tierModels.map(({ tier, model }) => {
               // Highlight the SESSION pick (falls back to the persisted default). The
@@ -787,7 +787,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
                         fontSize: 14
                       }}
                     >
-                      {MODEL_TIER_LABELS[tier]}
+                      {tt(language, `engineer.tier.${tier}`)}
                       {isDefault && (
                         <span
                           style={{
@@ -799,14 +799,14 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
                             fontSize: 9
                           }}
                         >
-                          Default
+                          {tt(language, 'engineer.default')}
                         </span>
                       )}
                     </span>
                     <span style={{ color: 'var(--text-muted)', fontSize: 11.5, lineHeight: 1.35 }}>
                       {formatModelSize(model.approxBytes)}
-                      {tier === 'quality' ? ' · para PCs mais fortes' : ''}
-                      {model.present ? ' · instalado' : ' · baixar sob demanda'}
+                      {tier === 'quality' ? tt(language, 'engineer.tier.qualityHelp') : ''}
+                      {model.present ? tt(language, 'engineer.model.installed') : tt(language, 'engineer.model.downloadOnDemand')}
                     </span>
                   </span>
                   <span
@@ -816,7 +816,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
                       color: model.present ? 'var(--accent-success)' : 'var(--text-muted)'
                     }}
                   >
-                    {model.present ? '● pronto' : '○ baixar'}
+                    {model.present ? tt(language, 'engineer.model.readyBadge') : tt(language, 'engineer.model.downloadBadge')}
                   </span>
                 </button>
               )
@@ -830,7 +830,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
           disabled={selectionIsDefault}
           onClick={setSelectedAsDefault}
         >
-          {selectionIsDefault ? 'Selected model is already the default' : 'Set selected model as default'}
+          {selectionIsDefault ? tt(language, 'engineer.defaultAlready') : tt(language, 'engineer.setDefault')}
         </button>
 
         {needsDownload && (
@@ -841,21 +841,21 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
             onClick={() => void downloadModel()}
           >
             {downloading
-              ? 'Baixando…'
-              : `Baixar ${activeModel ? formatModelSize(activeModel.approxBytes) : 'modelo'}`}
+              ? tt(language, 'engineer.model.downloadingShort')
+              : tt(language, 'engineer.model.downloadSize', { size: activeModel ? formatModelSize(activeModel.approxBytes) : tt(language, 'engineer.model.generic') })}
           </button>
         )}
 
         <div style={{ height: 1, background: 'var(--border-default)', margin: '4px 0' }} />
-        <div style={eyebrow}>Recursos & idioma</div>
+        <div style={eyebrow}>{tt(language, 'engineer.featuresLanguage')}</div>
 
         <div style={settingRow}>
-          <span style={label}>Habilitar engenheiro</span>
+          <span style={label}>{tt(language, 'engineer.enable')}</span>
           <input type="checkbox" checked={config.enabled} onChange={(event) => void patchConfig({ enabled: event.target.checked })} />
         </div>
 
         <div style={settingRow}>
-          <span style={label}>Falar respostas (TTS)</span>
+          <span style={label}>{tt(language, 'engineer.speakAnswers')}</span>
           <input
             type="checkbox"
             checked={config.speakAnswers}
@@ -864,7 +864,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
         </div>
 
         <div style={settingRow}>
-          <span style={label}>Coaching proativo por voz</span>
+          <span style={label}>{tt(language, 'engineer.proactiveVoice')}</span>
           <input
             type="checkbox"
             checked={config.proactiveCoaching}
@@ -873,20 +873,20 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
         </div>
 
         <div style={settingRow}>
-          <span style={label}>Postura do engenheiro</span>
+          <span style={label}>{tt(language, 'engineer.assertiveness')}</span>
           <select
             style={{ ...selectStyle, width: 'auto' }}
             value={config.assertiveness}
             onChange={(event) => void patchConfig({ assertiveness: event.target.value as EngineerAssertiveness })}
           >
-            <option value="balanced">Equilibrado</option>
-            <option value="assertive">Assertivo</option>
+            <option value="balanced">{tt(language, 'engineer.assertiveness.balanced')}</option>
+            <option value="assertive">{tt(language, 'engineer.assertiveness.assertive')}</option>
             <option value="brutal">Brutal</option>
           </select>
         </div>
 
         <div style={settingRow}>
-          <span style={label}>Idioma</span>
+          <span style={label}>{tt(language, 'engineer.language')}</span>
           <select
             style={{ ...selectStyle, width: 'auto' }}
             value={config.language}
@@ -947,7 +947,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
           only — they never touch serial / iFlag / revlights. */}
       <section style={{ ...panel, gap: 'var(--space-4)' }}>
         <div>
-          <div style={eyebrow}>Q&amp;A · gatilhos</div>
+          <div style={eyebrow}>{tt(language, 'engineer.triggers.eyebrow')}</div>
           <h2 style={title}>Quick questions &amp; buttons</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: '4px 0 0' }}>
             Call the engineer from the button box: push-to-talk or preset questions, each bindable to a button.
@@ -987,7 +987,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
             </button>
             {pushToTalkBinding && (
               <button type="button" style={ghostButton} onClick={() => clearBinding({ kind: 'pushToTalk' })}>
-                Limpar
+                {tt(language, 'common.clear')}
               </button>
             )}
           </div>
@@ -1018,7 +1018,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
                   type="button"
                   style={{ ...ghostButton, padding: '0 var(--space-3)', height: 30 }}
                   disabled={busy || !config.enabled}
-                  title="Perguntar agora"
+                  title={tt(language, 'engineer.askNow')}
                   onClick={() => void ask(preset.text)}
                 >
                   ▶
@@ -1037,7 +1037,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
                   <input
                     style={{ ...inputStyle, height: 28, fontSize: 12 }}
                     value={presetValue(preset, 'text')}
-                    aria-label="Texto da pergunta"
+                    aria-label={tt(language, 'engineer.questionText')}
                     onChange={(event) => editPresetDraft(preset.id, 'text', event.target.value.slice(0, ENGINEER_LIMITS.presetTextMax))}
                     onBlur={() => commitPresetDraft(preset.id, 'text')}
                     onKeyDown={(event) => {
@@ -1060,13 +1060,13 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
                 </button>
                 {binding && (
                   <button type="button" style={ghostButton} onClick={() => clearBinding({ kind: 'preset', id: preset.id })}>
-                    Limpar
+                    {tt(language, 'common.clear')}
                   </button>
                 )}
                 <button
                   type="button"
                   style={{ ...ghostButton, color: 'var(--accent-danger)', borderColor: 'var(--accent-danger)' }}
-                  title="Remover pergunta"
+                  title={tt(language, 'engineer.removeQuestion')}
                   onClick={() => removePreset(preset.id)}
                 >
                   ✕
@@ -1089,7 +1089,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
             style={{ ...inputStyle, height: 32, fontSize: 12, flex: 1, minWidth: 180 }}
             placeholder="Question (e.g. how are the tyres?)"
             value={draftText}
-            aria-label="Texto da nova pergunta"
+            aria-label={tt(language, 'engineer.newQuestionText')}
             onChange={(event) => setDraftText(event.target.value.slice(0, ENGINEER_LIMITS.presetTextMax))}
             onKeyDown={(event) => {
               if (event.key === 'Enter') addPreset()
@@ -1114,13 +1114,13 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
       {/* ── Voice Spotter / spoken alerts (absorbed from the old Voice Spotter) ── */}
       <section style={{ ...panel, gap: 'var(--space-5)' }}>
         <div>
-          <div style={eyebrow}>Voice · spotter</div>
-          <h2 style={title}>Voice Spotter / spoken alerts</h2>
+          <div style={eyebrow}>{tt(language, 'engineer.voice.eyebrow')}</div>
+          <h2 style={title}>{tt(language, 'engineer.voice.title')}</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: '4px 0 0' }}>
             Spoken engineer/spotter telemetry alerts. Unlike Sounds, this screen speaks. Choose voices, tune each alert, and test audio output.
           </p>
         </div>
-        <VoiceSpotterSection showToast={showToast} />
+        <VoiceSpotterSection showToast={showToast} language={language} />
       </section>
     </div>
   )

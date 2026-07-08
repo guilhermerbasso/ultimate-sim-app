@@ -99,12 +99,12 @@ const rangeStyle: CSSProperties = {
 }
 
 const LANG_LABEL: Record<PiperVoiceInfo['lang'], string> = {
-  'pt-BR': 'Português (BR)',
+  'pt-BR': 'Portuguese (BR)',
   'en-US': 'English (US)'
 }
 
 const PREVIEW_TEXT: Record<string, string> = {
-  'pt-BR': 'Curva três à direita. Você está livre, boa volta.',
+  'pt-BR': 'Turn three on your right. You are clear, good lap.',
   'en-US': 'Turn three on your right. You are clear, good lap.'
 }
 
@@ -117,15 +117,15 @@ function phaseLabel(progress: PiperVoiceProgress | undefined): string {
   if (!progress) return ''
   switch (progress.phase) {
     case 'resolving':
-      return 'Preparando…'
+      return 'Preparing…'
     case 'downloading':
-      return `Baixando… ${Math.round(progress.ratio * 100)}%`
+      return `Downloading… ${Math.round(progress.ratio * 100)}%`
     case 'verifying':
-      return 'Verificando…'
+      return 'Verifying…'
     case 'done':
-      return 'Concluído'
+      return 'Done'
     case 'error':
-      return `Erro: ${progress.error ?? 'falhou'}`
+      return `Error: ${progress.error ?? 'failed'}`
     default:
       return ''
   }
@@ -227,7 +227,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
   const handleEngine = useCallback(
     (engine: TtsEngine) => {
       updatePref({ engine })
-      showToast(engine === 'piper' ? 'Motor: Piper (neural offline · padrão)' : 'Motor: voz do sistema (fallback Web Speech)', 'info')
+      showToast(engine === 'piper' ? 'Engine: Piper (offline neural · default)' : 'Engine: system voice (Web Speech fallback)', 'info')
     },
     [updatePref, showToast]
   )
@@ -236,8 +236,8 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
     async (voiceId: string) => {
       const outcome = await ensureVoiceReady(voiceId)
       if (outcome === 'failed') showToast(`Falha ao baixar ${voiceId}.`, 'error')
-      else if (outcome === 'system') showToast(`Voz baixada: ${voiceId} (motor Piper indisponível neste host — usará a voz do sistema).`, 'info')
-      else showToast(`Voz baixada: ${voiceId}`, 'success')
+      else if (outcome === 'system') showToast(`Voice downloaded: ${voiceId} (Piper engine unavailable on this host — system voice will be used).`, 'info')
+      else showToast(`Voice downloaded: ${voiceId}`, 'success')
     },
     [ensureVoiceReady, showToast]
   )
@@ -249,12 +249,12 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
       if (pref.engine === 'piper' && !voice.installed) {
         const outcome = await ensureVoiceReady(voice.id)
         if (outcome === 'system') {
-          showToast('Motor Piper indisponível — usando voz do sistema.', 'info')
+          showToast('Piper engine unavailable — using system voice.', 'info')
         } else if (outcome === 'failed') {
-          showToast('Falha ao baixar a voz — usando voz do sistema.', 'info')
+          showToast('Voice download failed — using system voice.', 'info')
         }
       } else if (pref.engine !== 'piper') {
-        showToast('Motor em voz do sistema — testando com a voz do sistema.', 'info')
+        showToast('System voice engine selected — testing with the system voice.', 'info')
       }
       void speakViaTts(previewFor(voice.id), { voiceId: voice.id })
     },
@@ -269,11 +269,11 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
       // to the single OS voice and every voice would sound the same).
       if (pref.engine === 'piper') {
         const outcome = await ensureVoiceReady(voiceId)
-        if (outcome === 'system') showToast(`Voz padrão: ${voiceId} (motor indisponível — voz do sistema).`, 'info')
-        else if (outcome === 'failed') showToast(`Voz padrão: ${voiceId}, mas o download falhou.`, 'info')
-        else showToast(`Voz padrão do engenheiro: ${voiceId}`, 'success')
+        if (outcome === 'system') showToast(`Default voice: ${voiceId} (engine unavailable — system voice).`, 'info')
+        else if (outcome === 'failed') showToast(`Default voice: ${voiceId}, but the download failed.`, 'info')
+        else showToast(`Engineer default voice: ${voiceId}`, 'success')
       } else {
-        showToast(`Voz padrão do engenheiro: ${voiceId}`, 'success')
+        showToast(`Engineer default voice: ${voiceId}`, 'success')
       }
     },
     [updatePref, pref.engine, ensureVoiceReady, showToast]
@@ -286,7 +286,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
         await refreshSttStatus()
         showToast(enabled ? 'Wake-word ativado ("Oi, Engenheiro").' : 'Wake-word desativado.', 'info')
       } catch {
-        showToast('Não foi possível alterar a entrada de voz.', 'error')
+        showToast('Could not change voice input.', 'error')
       }
     },
     [refreshSttStatus, showToast]
@@ -297,9 +297,9 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
     try {
       await ensureSttModel()
       await refreshSttStatus()
-      showToast('Reconhecimento de voz pronto. Diga "Oi, Engenheiro".', 'success')
+      showToast('Voice recognition ready. Say "Hey, Engineer".', 'success')
     } catch {
-      showToast('Falha ao baixar o reconhecimento de voz.', 'error')
+      showToast('Failed to download voice recognition.', 'error')
     } finally {
       setSttBusy(false)
     }
@@ -328,25 +328,25 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
   return (
     <div style={shell}>
       <header>
-        <div style={eyebrow}>Voz · TTS neural offline</div>
-        <h1 style={title}>Voz do Engenheiro</h1>
+        <div style={eyebrow}>Voice · offline neural TTS</div>
+        <h1 style={title}>Engineer Voice</h1>
         <p style={{ color: 'var(--text-secondary)', maxWidth: 620, marginTop: 'var(--space-2)' }}>
-          O Piper sintetiza voz neural localmente (sem nuvem). As vozes são baixadas sob demanda — o instalador traz
-          apenas o motor. Sem voz instalada, o app usa a voz do sistema automaticamente. A voz escolhida aqui é usada
-          pelo <strong>Engenheiro IA</strong> (respostas, coaching proativo e debrief). O <strong>Voice Spotter</strong>
-          tem a própria voz, selecionável na seção Voice Spotter dentro de Engenheiro IA.
+          Piper synthesizes neural speech locally (no cloud). Voices are downloaded on demand — the installer ships
+          only the engine. If no voice is installed, the app automatically uses the system voice. The voice chosen here is used
+          by the <strong>AI Engineer</strong> (answers, proactive coaching, and debrief). <strong>Voice Spotter</strong>
+          has its own voice, selectable in the Voice Spotter section inside AI Engineer.
         </p>
         {engineStatus && (
           <div style={enginePill} title={engineStatus.reason ?? undefined}>
             <span aria-hidden>{engineOk ? '●' : '▲'}</span>
-            {engineOk ? 'Motor neural OK' : 'Motor neural indisponível — usando vozes do Windows distintas'}
+            {engineOk ? 'Neural engine OK' : 'Neural engine unavailable — using distinct Windows voices'}
           </div>
         )}
       </header>
 
       {/* Engine + rate */}
       <section style={panel}>
-        <div style={sectionLabel}>Motor de voz · neural é o padrão; voz do sistema só como fallback</div>
+        <div style={sectionLabel}>Voice engine · neural is the default; system voice is fallback only</div>
         <div style={{ display: 'flex', gap: 'var(--space-2)', marginBottom: 'var(--space-6)' }}>
           {(['piper', 'webspeech'] as TtsEngine[]).map((engine) => {
             const active = pref.engine === engine
@@ -364,14 +364,14 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
                   color: active ? 'var(--accent-primary)' : 'var(--text-primary)'
                 }}
               >
-                {engine === 'piper' ? 'Piper (neural · padrão)' : 'Sistema (fallback)'}
+                {engine === 'piper' ? 'Piper (neural · default)' : 'System (fallback)'}
               </button>
             )
           })}
         </div>
 
         <div style={sectionLabel}>
-          Velocidade da fala · <span style={{ color: 'var(--text-primary)' }}>{ratePct}%</span>
+          Speech rate · <span style={{ color: 'var(--text-primary)' }}>{ratePct}%</span>
         </div>
         <input
           type="range"
@@ -389,7 +389,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
             onClick={() => updatePref({ rate: DEFAULT_TTS_PREF.rate })}
             style={{ ...ghostButton, height: 22, fontSize: 10 }}
           >
-            Resetar
+            Reset
           </button>
           <span>2.0×</span>
         </div>
@@ -397,7 +397,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
 
       {/* Voice catalog */}
       <section style={panel}>
-        <div style={sectionLabel}>Vozes ({voices.filter((v) => v.installed).length} instaladas)</div>
+        <div style={sectionLabel}>Voices ({voices.filter((v) => v.installed).length} installed)</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           {voices.map((voice) => {
             const isDefault = pref.voiceId === voice.id
@@ -428,7 +428,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
                       </span>
                       {voice.installed && (
                         <span
-                          title="Instalada"
+                          title="Installed"
                           style={{
                             color: 'var(--accent-success)',
                             fontWeight: 700,
@@ -438,19 +438,19 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
                             padding: '1px 8px'
                           }}
                         >
-                          ✓ Pronta
+                          ✓ Ready
                         </span>
                       )}
                     </div>
                     <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 2 }}>
-                      {LANG_LABEL[voice.lang]} · qualidade {voice.quality}
+                      {LANG_LABEL[voice.lang]} · quality {voice.quality}
                       {voice.onnxBytes ? ` · ~${Math.round(voice.onnxBytes / 1_000_000)} MB` : ''}
                     </div>
                   </div>
 
                   <div style={{ display: 'flex', gap: 'var(--space-2)', flexShrink: 0 }}>
                     <button type="button" onClick={() => void handleTest(voice)} style={ghostButton}>
-                      Testar voz
+                      Test voice
                     </button>
                     {!voice.installed ? (
                       <button
@@ -459,7 +459,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
                         disabled={!!downloading}
                         style={{ ...primaryButton, opacity: downloading ? 0.6 : 1 }}
                       >
-                        {downloading ? 'Baixando…' : 'Baixar'}
+                        {downloading ? 'Downloading…' : 'Download'}
                       </button>
                     ) : (
                       <button
@@ -473,7 +473,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
                           cursor: isDefault ? 'default' : 'pointer'
                         }}
                       >
-                        {isDefault ? 'Padrão' : 'Definir padrão'}
+                        {isDefault ? 'Default' : 'Set default'}
                       </button>
                     )}
                   </div>
@@ -517,10 +517,10 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
       </section>
 
       <section style={panel}>
-        <div style={sectionLabel}>Entrada de voz — "Oi, Engenheiro"</div>
+        <div style={sectionLabel}>Voice input — "Hey, Engineer"</div>
         <div style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 'var(--space-4)' }}>
-          Fale com o engenheiro durante a corrida: diga <strong>"Oi, Engenheiro"</strong> e faça sua pergunta.
-          Reconhecimento 100% offline (whisper.cpp). Requer microfone.
+          Talk to the engineer during the race: say <strong>"Hey, Engineer"</strong> and ask your question.
+          100% offline recognition (whisper.cpp). Requires a microphone.
         </div>
 
         <label
@@ -532,7 +532,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
             marginBottom: 'var(--space-4)'
           }}
         >
-          <span>Ativar wake-word</span>
+          <span>Enable wake word</span>
           <input
             type="checkbox"
             checked={sttStatus?.enabled ?? true}
@@ -550,14 +550,14 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
         >
           <div style={{ fontSize: 12, color: sttStatus?.available ? 'var(--accent-success)' : 'var(--text-muted)' }}>
             {sttStatus?.available
-              ? 'Reconhecimento pronto (modelo instalado).'
+              ? 'Recognition ready (model installed).'
               : sttStatus?.binaryPresent === false
-                ? 'Disponível apenas no app Windows empacotado.'
-                : 'Baixe o modelo de reconhecimento (~75MB) para ativar.'}
+                ? 'Available only in the packaged Windows app.'
+                : 'Download the recognition model (~75MB) to enable it.'}
           </div>
           {!sttStatus?.modelPresent && sttStatus?.binaryPresent !== false && (
             <button type="button" style={primaryButton} disabled={sttBusy} onClick={() => void handleSttDownload()}>
-              {sttBusy ? 'Baixando…' : 'Baixar reconhecimento (~75MB)'}
+              {sttBusy ? 'Downloading…' : 'Download recognition (~75MB)'}
             </button>
           )}
         </div>
@@ -582,9 +582,9 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
               }}
             >
               {sttProgress.phase === 'downloading'
-                ? `Baixando reconhecimento… ${Math.round((sttProgress.ratio || 0) * 100)}%`
+                ? `Downloading recognition… ${Math.round((sttProgress.ratio || 0) * 100)}%`
                 : sttProgress.phase === 'error'
-                  ? `Erro: ${sttProgress.error ?? 'falha'}`
+                  ? `Error: ${sttProgress.error ?? 'failed'}`
                   : sttProgress.phase}
             </div>
           </div>

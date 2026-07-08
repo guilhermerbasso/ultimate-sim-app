@@ -281,7 +281,7 @@ export function TrackCoachingHeatmap({
           preserveAspectRatio="xMidYMid meet"
           style={dynamicSvgStyle}
           role={interactive ? 'group' : 'img'}
-          aria-label="Mapa de coaching colorido por curva"
+          aria-label="Coaching map colored by corner"
           onWheel={zoomable ? handleWheel : undefined}
           onPointerDown={zoomable ? handlePointerDown : undefined}
           onPointerMove={zoomable ? handlePointerMove : undefined}
@@ -321,7 +321,7 @@ export function TrackCoachingHeatmap({
                 strokeLinejoin="round"
                 opacity={isSelected ? 1 : 0.92}
               >
-                {!interactive && <title>{`Curva ${corner.index} · ${fmtDelta(corner.deltaSec)}`}</title>}
+                {!interactive && <title>{`Corner ${corner.index} · ${fmtDelta(corner.deltaSec)}`}</title>}
               </path>
               {/* Wide transparent hit target (interactive only). */}
               {interactive && (
@@ -333,7 +333,7 @@ export function TrackCoachingHeatmap({
                   strokeLinecap="round"
                   style={{ pointerEvents: 'stroke' }}
                 >
-                  <title>{`Curva ${corner.index} · ${fmtDelta(corner.deltaSec)} — clique para detalhes`}</title>
+                  <title>{`Corner ${corner.index} · ${fmtDelta(corner.deltaSec)} — click for details`}</title>
                 </path>
               )}
               {/* Apex marker + number (interactive map only, to stay glanceable). */}
@@ -438,9 +438,9 @@ function ZoomControls({
   )
   return (
     <div style={zoomStyles.bar}>
-      {button('+', 'Aproximar', canZoomIn, onZoomIn)}
-      {button('−', 'Afastar', canZoomOut, onZoomOut)}
-      {button('⤢', 'Ajustar a pista', canReset, onReset)}
+      {button('+', 'Zoom in', canZoomIn, onZoomIn)}
+      {button('−', 'Zoom out', canZoomOut, onZoomOut)}
+      {button('⤢', 'Fit track', canReset, onReset)}
     </div>
   )
 }
@@ -493,7 +493,7 @@ function CornerDetail({ corner }: { corner: CornerHeat | null }): ReactElement {
   if (!corner) {
     return (
       <div style={detailStyles.panel}>
-        <span style={detailStyles.hint}>Clique numa curva no mapa para ver o detalhe (o que melhorar, o que voce fez de certo, ou no padrao).</span>
+        <span style={detailStyles.hint}>Click a corner on the map to see details (what to improve, what you did right, or on pace).</span>
       </div>
     )
   }
@@ -503,25 +503,25 @@ function CornerDetail({ corner }: { corner: CornerHeat | null }): ReactElement {
     kind === 'improve'
       ? 'What to IMPROVE'
       : kind === 'replicate'
-        ? 'O que voce fez de CERTO'
+        ? 'What you did RIGHT'
         : kind === 'unknown'
-          ? 'Sem referencia'
-          : 'No padrao'
+          ? 'No reference'
+          : 'On pace'
 
   return (
     <div style={{ ...detailStyles.panel, borderColor: corner.color }}>
       <div style={detailStyles.header}>
-        <span style={{ ...detailStyles.badge, background: corner.color }}>Curva {corner.index}</span>
+        <span style={{ ...detailStyles.badge, background: corner.color }}>Corner {corner.index}</span>
         <span style={{ ...detailStyles.heading, color: corner.color }}>{heading}</span>
         {corner.dominant && <span style={detailStyles.delta}>{fmtDelta(corner.deltaSec)}</span>}
       </div>
 
       {kind === 'onpar' && (
-        <p style={detailStyles.body}>Curva limpa — voce esta no padrao da referencia aqui. Mantenha a execucao.</p>
+        <p style={detailStyles.body}>Clean corner — you are on the reference pace here. Keep the execution.</p>
       )}
 
       {kind === 'unknown' && (
-        <p style={detailStyles.body}>Sem lap de referencia ainda — esta curva not foi avaliada. Complete uma lap limpa para gerar a referencia.</p>
+        <p style={detailStyles.body}>No reference lap yet — this corner was not evaluated. Complete a clean lap to generate the reference.</p>
       )}
 
       {corner.dominant && kind !== 'onpar' && <FindingBlock finding={corner.dominant} primary />}
