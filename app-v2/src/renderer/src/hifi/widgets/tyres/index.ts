@@ -1,4 +1,4 @@
-﻿import type { HifiWidgetModule } from '../types'
+import type { HifiWidgetModule } from '../types'
+import { TYRES_WIDGETS as widgets } from './widgets'
 
-// Owned by the 'tyres' group agent. Add HifiWidgetModule entries here (one per telemetry).
-export const TYRES_WIDGETS: HifiWidgetModule[] = []
+export const TYRES_WIDGETS: HifiWidgetModule[] = widgets

@@ -1,4 +1,4 @@
-﻿import type { HifiWidgetModule } from '../types'
+﻿import { gearWidget, revlightsWidget, rpmBarWidget, rpmWidget, speedGearWidget, speedWidget } from './widgets'
+import type { HifiWidgetModule } from '../types'
 
-// Owned by the 'drive' group agent. Add HifiWidgetModule entries here (one per telemetry).
-export const DRIVE_WIDGETS: HifiWidgetModule[] = []
+export const DRIVE_WIDGETS: HifiWidgetModule[] = [speedWidget, rpmWidget, gearWidget, rpmBarWidget, revlightsWidget, speedGearWidget]

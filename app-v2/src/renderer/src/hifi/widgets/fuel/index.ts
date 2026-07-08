@@ -1,4 +1,4 @@
-﻿import type { HifiWidgetModule } from '../types'
+import { fuelDeltaWidget, fuelLapsWidget, fuelPerLapWidget, fuelWidget } from './widgets'
+import type { HifiWidgetModule } from '../types'
 
-// Owned by the 'fuel' group agent. Add HifiWidgetModule entries here (one per telemetry).
-export const FUEL_WIDGETS: HifiWidgetModule[] = []
+export const FUEL_WIDGETS: HifiWidgetModule[] = [fuelWidget, fuelLapsWidget, fuelPerLapWidget, fuelDeltaWidget]

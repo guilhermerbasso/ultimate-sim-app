@@ -1,4 +1,11 @@
-﻿import type { HifiWidgetModule } from '../types'
+import { aiConfidenceWidget, coachFindingsWidget, coachTipWidget, engineerRadioWidget, proactiveAlertWidget, strategyCallWidget } from './widgets'
+import type { HifiWidgetModule } from '../types'
 
-// Owned by the 'ai' group agent. AI Coach / AI Engineer info widgets (tips, findings, radio, strategy calls).
-export const AI_WIDGETS: HifiWidgetModule[] = []
+export const AI_WIDGETS: HifiWidgetModule[] = [
+  coachTipWidget,
+  coachFindingsWidget,
+  engineerRadioWidget,
+  proactiveAlertWidget,
+  strategyCallWidget,
+  aiConfidenceWidget
+]

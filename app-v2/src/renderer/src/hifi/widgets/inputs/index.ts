@@ -1,4 +1,16 @@
 ﻿import type { HifiWidgetModule } from '../types'
+import { brakeWidget } from './brake'
+import { clutchWidget } from './clutch'
+import { inputsBrakeThrottleWidget } from './inputsBrakeThrottle'
+import { inputsComboWidget } from './inputsCombo'
+import { steeringWidget } from './steering'
+import { throttleWidget } from './throttle'
 
-// Owned by the 'inputs' group agent. Add HifiWidgetModule entries here (one per telemetry).
-export const INPUTS_WIDGETS: HifiWidgetModule[] = []
+export const INPUTS_WIDGETS: HifiWidgetModule[] = [
+  throttleWidget,
+  brakeWidget,
+  clutchWidget,
+  steeringWidget,
+  inputsComboWidget,
+  inputsBrakeThrottleWidget
+]

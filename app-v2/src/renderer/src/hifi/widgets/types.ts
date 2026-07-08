@@ -10,9 +10,35 @@ import type { TelemetrySnapshot } from '../../../../shared/telemetry'
 
 export type TelemetryField = keyof TelemetrySnapshot
 
+/** Severity used by AI coach findings / alerts. */
+export type HifiAiSeverity = 'low' | 'med' | 'high'
+
+/**
+ * Optional AI view-model fed to AI-powered widgets (coach/engineer). It is a
+ * renderer-side, decoupled snapshot of the local AI engines (coach, ai-engineer,
+ * proactive-engineer) — the widget layer never imports main-process modules. When
+ * absent (SSR/tests/no AI running) AI widgets render placeholders, never fake data.
+ */
+export interface HifiAiContext {
+  /** Single most-relevant coaching cue for the current moment. */
+  coachTip?: { text: string; corner?: string; confidence?: number } | null
+  /** Ranked driving-improvement findings. */
+  coachFindings?: { label: string; severity: HifiAiSeverity }[] | null
+  /** Latest race-engineer radio message. */
+  engineerRadio?: { text: string; at?: number } | null
+  /** Latest proactive alert. */
+  proactiveAlert?: { text: string; level?: 'info' | 'warn' | 'crit' } | null
+  /** Strategy call (e.g. pit window). */
+  strategy?: { text: string; pitInLaps?: number } | null
+  /** Overall AI confidence 0..1. */
+  confidence?: number | null
+}
+
 export interface HifiWidgetProps {
   /** Live telemetry (null → render em-dashes, never fake data). */
   snapshot: TelemetrySnapshot | null
+  /** Optional AI view-model for AI-powered widgets (absent → placeholders). */
+  ai?: HifiAiContext | null
   /** Pixel box to fill; the module renders an SVG with its own viewBox and scales. */
   width?: number
   height?: number

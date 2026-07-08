@@ -1,4 +1,4 @@
 ﻿import type { HifiWidgetModule } from '../types'
+import { TIMING_WIDGETS as widgets } from './widgets'
 
-// Owned by the 'timing' group agent. Add HifiWidgetModule entries here (one per telemetry).
-export const TIMING_WIDGETS: HifiWidgetModule[] = []
+export const TIMING_WIDGETS: HifiWidgetModule[] = widgets
