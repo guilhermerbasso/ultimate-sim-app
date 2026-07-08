@@ -80,7 +80,7 @@ const eyebrow: CSSProperties = {
 const heading: CSSProperties = { margin: '4px 0 0', fontSize: 20, color: 'var(--text-primary)', letterSpacing: '0.01em' }
 const muted: CSSProperties = { color: 'var(--text-secondary)', fontSize: 13 }
 const sectionTitle: CSSProperties = { margin: 0, fontSize: 13, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-secondary)' }
-const guidedEmptyCopy = 'Conecte ao iRacing ou escolha Demo (mock) para ver dados.'
+const guidedEmptyCopy = 'Connect ao iRacing ou escolha Demo (mock) para ver data.'
 const guidedEmptyState: CSSProperties = {
   margin: 0,
   padding: 14,
@@ -193,16 +193,16 @@ function fmtDate(when: string): string {
 }
 
 function fmtDateTime(ms: number | undefined): string {
-  if (ms === undefined || !Number.isFinite(ms)) return 'nunca'
+  if (ms === undefined || !Number.isFinite(ms)) return 'never'
   return new Date(ms).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
 }
 
 function fmtRelativeTime(ms: number | undefined): string {
   if (ms === undefined || !Number.isFinite(ms)) return '—'
   const diffDays = Math.max(0, Math.floor((Date.now() - ms) / (24 * 60 * 60 * 1000)))
-  if (diffDays === 0) return 'hoje'
-  if (diffDays === 1) return 'ontem'
-  return `${diffDays} dias`
+  if (diffDays === 0) return 'today'
+  if (diffDays === 1) return 'yesterday'
+  return `${diffDays} days`
 }
 
 function deltaColor(value: number): string {
@@ -220,16 +220,16 @@ function positionLabel(position: number, fieldSize?: number): string {
 function statusHint(status: CareerStatus): { text: string; tone: string } | null {
   switch (status.auth) {
     case 'loading':
-      return { text: 'Atualizando dados da iRacing…', tone: 'var(--text-secondary)' }
+      return { text: 'Updating iRacing data…', tone: 'var(--text-secondary)' }
     case 'rate-limited':
-      return { text: 'Limite de requisições da iRacing atingido. Mostrando dados em cache.', tone: 'var(--accent-warning)' }
+      return { text: 'Limite de requisicoes da iRacing atingido. Mostrando data em cache.', tone: 'var(--accent-warning)' }
     case 'error':
-      return { text: status.message ? `Erro ao atualizar: ${status.message}. Mostrando cache.` : 'Erro ao atualizar. Mostrando cache.', tone: 'var(--accent-warning)' }
+      return { text: status.message ? `Error updating: ${status.message}. Showing cache.` : 'Error updating. Showing cache.', tone: 'var(--accent-warning)' }
     case 'needs-login':
       return {
         text:
           status.message ??
-          'O iRacing desativou o login legado e pausou novos apps OAuth; telemetria, mapa, radar, relatives, dashboards e overlays funcionam sem login.',
+          'iRacing disabled legacy login and paused new OAuth apps; telemetry, map, radar, relatives, dashboards, and overlays work without login.',
         tone: 'var(--accent-warning)'
       }
     default:
@@ -244,17 +244,17 @@ function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
 function tagLabel(tag: DriverTag): string {
   switch (tag) {
     case 'clean':
-      return 'Limpo'
+      return 'Clean'
     case 'aggressive':
-      return 'Agressivo'
+      return 'Aggressive'
     case 'avoid':
-      return 'Evitar'
+      return 'Avoid'
     case 'fast':
-      return 'Rápido'
+      return 'Rapido'
     case 'friend':
-      return 'Amigo'
+      return 'Friend'
     default:
-      return 'Sem tag'
+      return 'No tag'
   }
 }
 
@@ -339,13 +339,13 @@ function StrengthTable({ title, scope, rows }: { title: string; scope: string; r
           <table style={tableStyle}>
             <thead>
               <tr>
-                <th style={thLeft}>Nome</th>
-                <th style={th}>Corridas</th>
-                <th style={th}>Vit.</th>
+                <th style={thLeft}>Name</th>
+                <th style={th}>Races</th>
+                <th style={th}>Wins</th>
                 <th style={th}>Melhor</th>
-                <th style={th}>Chegada méd.</th>
-                <th style={th}>Inc. méd.</th>
-                <th style={th}>Δ iR méd.</th>
+                <th style={th}>Finish med.</th>
+                <th style={th}>Inc. med.</th>
+                <th style={th}>Δ iR med.</th>
               </tr>
             </thead>
             <tbody>
@@ -370,13 +370,13 @@ function StrengthTable({ title, scope, rows }: { title: string; scope: string; r
 
 function TabSwitcher({ activeTab, onChange }: { activeTab: CareerTab; onChange: (tab: CareerTab) => void }): ReactElement {
   const tabs: Array<{ id: CareerTab; label: string }> = [
-    { id: 'career', label: 'Carreira' },
-    { id: 'profile', label: 'Perfil & Séries' },
-    { id: 'drivers', label: 'Pilotos' },
+    { id: 'career', label: 'Career' },
+    { id: 'profile', label: 'Profile & Series' },
+    { id: 'drivers', label: 'Drivers' },
     { id: 'paints', label: 'Paints' }
   ]
   return (
-    <nav style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} aria-label="Abas da carreira">
+    <nav style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} aria-label="Abas da career">
       {tabs.map((tab) => {
         const active = tab.id === activeTab
         return (
@@ -461,17 +461,17 @@ function DriverNoteEditor({
       <input
         style={inputStyle}
         value={noteText}
-        placeholder="Nota livre"
+        placeholder="Free note"
         onChange={(event) => setNoteText(event.currentTarget.value)}
         onKeyDown={(event) => {
           if (event.key === 'Enter') void save()
         }}
       />
       <button type="button" style={smallButton} disabled={saving} onClick={() => void save()}>
-        {saving ? 'Salvando…' : 'Salvar'}
+        {saving ? 'Saving…' : 'Save'}
       </button>
       <button type="button" style={smallButton} disabled={!note || saving} onClick={() => void onRemove(custId)}>
-        Remover
+        Remove
       </button>
     </div>
   )
@@ -480,11 +480,11 @@ function DriverNoteEditor({
 function paintStatusCopy(status: TradingPaintsDriverPaintStatus['status']): { label: string; color: string; background: string; border: string } {
   switch (status) {
     case 'downloaded':
-      return { label: 'Baixado', color: 'var(--accent-success)', background: 'rgba(40, 180, 120, 0.12)', border: 'rgba(40, 180, 120, 0.35)' }
+      return { label: 'Downloaded', color: 'var(--accent-success)', background: 'rgba(40, 180, 120, 0.12)', border: 'rgba(40, 180, 120, 0.35)' }
     case 'stale':
-      return { label: 'Antigo', color: '#D7A75C', background: 'rgba(215, 167, 92, 0.12)', border: 'rgba(215, 167, 92, 0.38)' }
+      return { label: 'Stale', color: '#D7A75C', background: 'rgba(215, 167, 92, 0.12)', border: 'rgba(215, 167, 92, 0.38)' }
     default:
-      return { label: 'Ausente', color: '#D7A75C', background: 'rgba(215, 167, 92, 0.08)', border: 'rgba(215, 167, 92, 0.28)' }
+      return { label: 'Missing', color: '#D7A75C', background: 'rgba(215, 167, 92, 0.08)', border: 'rgba(215, 167, 92, 0.28)' }
   }
 }
 
@@ -587,42 +587,42 @@ function PaintsTab({ showToast }: { showToast: AppViewProps['showToast'] }): Rea
           <div>
             <h3 style={sectionTitle}>Trading Paints client</h3>
             <p style={{ ...muted, margin: '6px 0 0' }}>
-              Status observacional: o app oficial baixa os arquivos; o Hub só detecta presença local.
+              Status observacional: o app oficial baixa os arquivos; o Hub so detecta presenca local.
             </p>
           </div>
           <button type="button" style={client?.installed ? button : primaryButton} disabled={opening} onClick={() => void openTradingPaints()}>
-            {opening ? 'Abrindo…' : client?.installed ? 'Abrir Trading Paints' : 'Instalar Trading Paints'}
+            {opening ? 'Opening…' : client?.installed ? 'Open Trading Paints' : 'Install Trading Paints'}
           </button>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
           <span style={chip}>
-            Cliente: <strong style={{ color: client?.installed ? 'var(--accent-success)' : '#D7A75C' }}>{client?.installed ? 'instalado' : 'não detectado'}</strong>
+            Client: <strong style={{ color: client?.installed ? 'var(--accent-success)' : '#D7A75C' }}>{client?.installed ? 'installed' : 'not detectado'}</strong>
           </span>
-          <span style={chip}>Plataforma: {client?.platform ?? '—'}</span>
-          {result?.supported === false ? <span style={{ ...chip, color: '#D7A75C' }}>Monitoramento disponível no Windows</span> : null}
+          <span style={chip}>Platform: {client?.platform ?? '—'}</span>
+          {result?.supported === false ? <span style={{ ...chip, color: '#D7A75C' }}>Monitoring available on Windows</span> : null}
         </div>
       </section>
 
       <section style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'baseline' }}>
           <div>
-            <h3 style={sectionTitle}>Paints dos adversários</h3>
-            <p style={{ ...muted, margin: '6px 0 0' }}>Checa Documents/iRacing/paint/&lt;carPath&gt; para cada Cust ID da sessão atual.</p>
+            <h3 style={sectionTitle}>Paints dos adversarios</h3>
+            <p style={{ ...muted, margin: '6px 0 0' }}>Checa Documents/iRacing/paint/&lt;carPath&gt; para cada Cust ID da sessao current.</p>
           </div>
-          <span style={muted}>{snapshot?.connected ? `${drivers.length} adversários` : 'Telemetria desconectada'}</span>
+          <span style={muted}>{snapshot?.connected ? `${drivers.length} adversarios` : 'Telemetry disconnected'}</span>
         </div>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
-          <span style={chip}>Baixados: {downloaded}</span>
-          <span style={chip}>Antigos: {stale}</span>
-          <span style={chip}>Ausentes: {missing}</span>
-          {loading ? <span style={chip}>Atualizando…</span> : null}
+          <span style={chip}>Downloaded: {downloaded}</span>
+          <span style={chip}>Stale: {stale}</span>
+          <span style={chip}>Missing: {missing}</span>
+          {loading ? <span style={chip}>Updating…</span> : null}
         </div>
 
         {drivers.length === 0 ? (
-          <p style={{ ...muted, margin: '14px 0 0' }}>Nenhum adversário com Cust ID e carPath na sessão atual.</p>
+          <p style={{ ...muted, margin: '14px 0 0' }}>None adversario com Cust ID e carPath na sessao current.</p>
         ) : result?.supported === false ? (
-          <p style={{ ...muted, margin: '14px 0 0' }}>No Mac, esta aba só valida tipos. A checagem real das pastas do iRacing precisa de Windows.</p>
+          <p style={{ ...muted, margin: '14px 0 0' }}>No Mac, esta aba so valida tipos. A checagem real das pastas do iRacing precisa de Windows.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
             {drivers.map((driver) => {
@@ -706,13 +706,13 @@ function DriversTab({ showToast }: { showToast: AppViewProps['showToast'] }): Re
       <section style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'baseline' }}>
           <div>
-            <h3 style={sectionTitle}>Pilotos da sessão atual</h3>
-            <p style={{ ...muted, margin: '6px 0 0' }}>Tags salvas por Cust ID estável da iRacing.</p>
+            <h3 style={sectionTitle}>Drivers da sessao current</h3>
+            <p style={{ ...muted, margin: '6px 0 0' }}>Saved tags por Cust ID estavel da iRacing.</p>
           </div>
-          <span style={muted}>{snapshot?.connected ? `${drivers.length} adversários` : 'Telemetria desconectada'}</span>
+          <span style={muted}>{snapshot?.connected ? `${drivers.length} adversarios` : 'Telemetry disconnected'}</span>
         </div>
         {drivers.length === 0 ? (
-          <p style={{ ...muted, margin: '14px 0 0' }}>Nenhum piloto com Cust ID na sessão atual.</p>
+          <p style={{ ...muted, margin: '14px 0 0' }}>None piloto com Cust ID na sessao current.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
             {drivers.map((driver) => {
@@ -733,11 +733,11 @@ function DriversTab({ showToast }: { showToast: AppViewProps['showToast'] }): Re
 
       <section style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <h3 style={sectionTitle}>Notas salvas</h3>
-          <SectionExportImport sectionId="driver-notes" label="Anotações do piloto" onImported={() => void loadNotes().catch((error) => showToast(error instanceof Error ? error.message : String(error), 'error'))} />
+          <h3 style={sectionTitle}>Saved notes</h3>
+          <SectionExportImport sectionId="driver-notes" label="Anotacoes do piloto" onImported={() => void loadNotes().catch((error) => showToast(error instanceof Error ? error.message : String(error), 'error'))} />
         </div>
         {notes.length === 0 ? (
-          <p style={{ ...muted, margin: '10px 0 0' }}>Nenhum piloto anotado ainda.</p>
+          <p style={{ ...muted, margin: '10px 0 0' }}>No noted driver yet.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
             {notes.map((note) => {
@@ -748,7 +748,7 @@ function DriversTab({ showToast }: { showToast: AppViewProps['showToast'] }): Re
                     <div>
                       <div style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{driver?.name ?? `Cust ID #${note.custId}`}</div>
                       <div style={{ ...muted, fontSize: 11 }}>
-                        Cust ID #{note.custId}{driver?.carNumber ? ` · #${driver.carNumber}` : ''} · Atualizado {fmtDateTime(note.updatedAt)}
+                        Cust ID #{note.custId}{driver?.carNumber ? ` · #${driver.carNumber}` : ''} · Updated {fmtDateTime(note.updatedAt)}
                       </div>
                     </div>
                     <DriverTagBadge tag={note.tag} />
@@ -822,13 +822,13 @@ function YearlyStatsTable({ rows }: { rows: CareerYearlyStat[] }): ReactElement 
         <thead>
           <tr>
             <th style={thLeft}>Ano</th>
-            <th style={thLeft}>Disciplina</th>
-            <th style={th}>Corridas</th>
-            <th style={th}>Vitórias</th>
+            <th style={thLeft}>Discipline</th>
+            <th style={th}>Races</th>
+            <th style={th}>Vitorias</th>
             <th style={th}>Top 5</th>
-            <th style={th}>Vit.%</th>
-            <th style={th}>Chegada méd.</th>
-            <th style={th}>Inc. méd.</th>
+            <th style={th}>Wins%</th>
+            <th style={th}>Finish med.</th>
+            <th style={th}>Inc. med.</th>
           </tr>
         </thead>
         <tbody>
@@ -854,7 +854,7 @@ function YearlyStatsTable({ rows }: { rows: CareerYearlyStat[] }): ReactElement 
 
 function LeagueList({ leagues }: { leagues: CareerLeague[] }): ReactElement {
   if (leagues.length === 0) {
-    return <p style={{ ...muted, margin: '10px 0 0' }}>Nenhuma liga encontrada.</p>
+    return <p style={{ ...muted, margin: '10px 0 0' }}>No league found.</p>
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
@@ -876,11 +876,11 @@ function LeagueList({ leagues }: { leagues: CareerLeague[] }): ReactElement {
             <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 13 }}>{league.leagueName}</div>
             <div style={{ ...muted, fontSize: 11, marginTop: 2 }}>
               ID #{league.leagueId}
-              {league.rosterCount !== undefined ? ` · ${league.rosterCount} membros` : ''}
+              {league.rosterCount !== undefined ? ` · ${league.rosterCount} members` : ''}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-            {league.owner ? <span style={{ ...chip, fontSize: 11, color: 'var(--accent-primary)' }}>Dono</span> : null}
+            {league.owner ? <span style={{ ...chip, fontSize: 11, color: 'var(--accent-primary)' }}>Owner</span> : null}
             {league.admin && !league.owner ? <span style={{ ...chip, fontSize: 11 }}>Admin</span> : null}
           </div>
         </div>
@@ -891,7 +891,7 @@ function LeagueList({ leagues }: { leagues: CareerLeague[] }): ReactElement {
 
 function SeasonsList({ seasons }: { seasons: CareerActiveSeason[] }): ReactElement {
   if (seasons.length === 0) {
-    return <p style={{ ...muted, margin: '10px 0 0' }}>Nenhuma temporada ativa encontrada para a disciplina principal.</p>
+    return <p style={{ ...muted, margin: '10px 0 0' }}>No active season found for the main discipline.</p>
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
@@ -911,8 +911,8 @@ function SeasonsList({ seasons }: { seasons: CareerActiveSeason[] }): ReactEleme
               <div style={{ ...muted, fontSize: 11, marginTop: 2 }}>{s.seasonName}</div>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flexShrink: 0 }}>
-              {s.official ? <span style={{ ...chip, fontSize: 11 }}>Oficial</span> : <span style={{ ...chip, fontSize: 11, color: 'var(--text-muted)' }}>Informal</span>}
-              {s.fixedSetup ? <span style={{ ...chip, fontSize: 11, color: 'var(--text-muted)' }}>Setup fixo</span> : null}
+              {s.official ? <span style={{ ...chip, fontSize: 11 }}>Official</span> : <span style={{ ...chip, fontSize: 11, color: 'var(--text-muted)' }}>Informal</span>}
+              {s.fixedSetup ? <span style={{ ...chip, fontSize: 11, color: 'var(--text-muted)' }}>Fixed setup</span> : null}
             </div>
           </div>
         </div>
@@ -924,9 +924,9 @@ function SeasonsList({ seasons }: { seasons: CareerActiveSeason[] }): ReactEleme
 function DivisionBadge({ division }: { division: CareerDivision }): ReactElement {
   return (
     <div style={{ display: 'flex', gap: 12 }}>
-      <StatTile label="Divisão" value={String(division.division)} />
-      {division.rank > 0 ? <StatTile label="Posição" value={`#${division.rank}`} /> : null}
-      {division.points > 0 ? <StatTile label="Pontos" value={fmtInt(division.points)} /> : null}
+      <StatTile label="Divisao" value={String(division.division)} />
+      {division.rank > 0 ? <StatTile label="Position" value={`#${division.rank}`} /> : null}
+      {division.points > 0 ? <StatTile label="Points" value={fmtInt(division.points)} /> : null}
     </div>
   )
 }
@@ -951,19 +951,19 @@ function ProfileTab({
       {/* Member profile card */}
       {profile ? (
         <section style={card}>
-          <h3 style={sectionTitle}>Perfil do piloto</h3>
+          <h3 style={sectionTitle}>Driver profile</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 12, flexWrap: 'wrap' }}>
             <HelmetBadge color1={profile.helmetColor1} color2={profile.helmetColor2} />
             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
               {profile.clubName ? (
                 <div>
-                  <div style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Clube</div>
+                  <div style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Club</div>
                   <div style={{ fontSize: 14, color: 'var(--text-primary)', marginTop: 2 }}>{profile.clubName}</div>
                 </div>
               ) : null}
               {profile.memberSince ? (
                 <div>
-                  <div style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Membro desde</div>
+                  <div style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Member since</div>
                   <div style={{ fontSize: 14, color: 'var(--text-primary)', marginTop: 2 }}>{fmtDate(profile.memberSince)}</div>
                 </div>
               ) : null}
@@ -971,22 +971,22 @@ function ProfileTab({
           </div>
           {division ? (
             <div style={{ marginTop: 14 }}>
-              <div style={{ ...sectionTitle, marginBottom: 10 }}>Divisão (temporada atual)</div>
+              <div style={{ ...sectionTitle, marginBottom: 10 }}>Divisao (temporada current)</div>
               <DivisionBadge division={division} />
             </div>
           ) : null}
         </section>
       ) : loading ? (
         <section style={{ ...card, padding: '14px 16px' }}>
-          <span style={muted}>Carregando perfil…</span>
+          <span style={muted}>Loading profile…</span>
         </section>
       ) : null}
 
       {/* Yearly stats */}
       <section style={{ ...card, padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '14px 16px 0' }}>
-          <h3 style={sectionTitle}>Estatísticas anuais</h3>
-          <p style={{ ...muted, margin: '4px 0 12px', fontSize: 11 }}>Resultados por ano e disciplina (máx. 30 linhas).</p>
+          <h3 style={sectionTitle}>Estatisticas yearly</h3>
+          <p style={{ ...muted, margin: '4px 0 12px', fontSize: 11 }}>Resultados por ano e disciplina (max. 30 linhas).</p>
         </div>
         <YearlyStatsTable rows={yearly} />
       </section>
@@ -999,8 +999,8 @@ function ProfileTab({
 
       {/* Active seasons */}
       <section style={card}>
-        <h3 style={sectionTitle}>Temporadas ativas (disciplina principal)</h3>
-        <p style={{ ...muted, margin: '4px 0 0', fontSize: 11 }}>Séries disponíveis para correr agora na sua disciplina.</p>
+        <h3 style={sectionTitle}>Active seasons (main discipline)</h3>
+        <p style={{ ...muted, margin: '4px 0 0', fontSize: 11 }}>Series disponiveis para correr agora na sua disciplina.</p>
         <SeasonsList seasons={activeSeasonsForPrimary} />
       </section>
     </>
@@ -1091,7 +1091,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       await loadRecent()
       if (category !== null) await loadCharts(category, true)
       if (next.status.auth === 'needs-login') {
-        showToast('Data API indisponível; telemetria e overlays continuam sem login.', 'info')
+        showToast('Data API unavailable; telemetry and overlays continue without login.', 'info')
       }
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
@@ -1108,7 +1108,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       if (result.status === 'ok') {
         await refresh()
       } else {
-        showToast(result.message ?? 'Login cancelado.', 'info')
+        showToast(result.message ?? 'Login canceled.', 'info')
       }
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
@@ -1133,9 +1133,9 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       <div style={column}>
         <header style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
           <div>
-            <span style={eyebrow}>iRacing · Pilotos</span>
-            <h2 style={heading}>Tags de adversários</h2>
-            <p style={{ ...muted, margin: '6px 0 0' }}>Anote pilotos por Cust ID estável e reencontre essas notas em sessões futuras.</p>
+            <span style={eyebrow}>iRacing · Drivers</span>
+            <h2 style={heading}>Tags de adversarios</h2>
+            <p style={{ ...muted, margin: '6px 0 0' }}>Anote pilotos por Cust ID estavel e reencontre essas notas em sessoes futuras.</p>
           </div>
         </header>
         <TabSwitcher activeTab={activeTab} onChange={setActiveTab} />
@@ -1150,8 +1150,8 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
         <header style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <span style={eyebrow}>iRacing · Trading Paints</span>
-            <h2 style={heading}>Paints da sessão</h2>
-            <p style={{ ...muted, margin: '6px 0 0' }}>Observa o cliente oficial e os arquivos locais, sem baixar ou consultar CDN.</p>
+            <h2 style={heading}>Paints da sessao</h2>
+            <p style={{ ...muted, margin: '6px 0 0' }}>Observes the official client and local files without downloading or querying CDN.</p>
           </div>
         </header>
         <TabSwitcher activeTab={activeTab} onChange={setActiveTab} />
@@ -1167,23 +1167,23 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       <div style={column}>
         <header style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
           <div>
-            <span style={eyebrow}>iRacing · Perfil & Séries</span>
-            <h2 style={heading}>{overview?.identity?.displayName ?? 'Piloto'}</h2>
+            <span style={eyebrow}>iRacing · Profile & Series</span>
+            <h2 style={heading}>{overview?.identity?.displayName ?? 'Driver'}</h2>
             <p style={{ ...muted, margin: '6px 0 0' }}>
-              Perfil, divisão, estatísticas anuais, ligas e temporadas ativas na disciplina principal
+              Profile, divisao, estatisticas yearly, leagues e temporadas active na disciplina principal
               {primaryCatId !== undefined && primaryCatId !== null ? ` (${careerCategoryLabel(primaryCatId)})` : ''}.
             </p>
           </div>
           <button type="button" style={button} disabled={enrichmentLoading} onClick={() => void loadEnrichment()}>
-            {enrichmentLoading ? 'Carregando…' : 'Atualizar'}
+            {enrichmentLoading ? 'Loading…' : 'Refresh'}
           </button>
         </header>
         <TabSwitcher activeTab={activeTab} onChange={setActiveTab} />
         {!hasIdentity ? (
           <section style={{ ...card, padding: 24 }}>
-            <p style={muted}>Conecte sua conta iRacing para ver o perfil enriquecido.</p>
+            <p style={muted}>Connect your iRacing account to see the enriched profile.</p>
             <button type="button" style={{ ...primaryButton, marginTop: 12 }} disabled={loggingIn} onClick={() => void connect()}>
-              {loggingIn ? 'Abrindo login…' : 'Conectar à iRacing'}
+              {loggingIn ? 'Opening login…' : 'Connect a iRacing'}
             </button>
           </section>
         ) : (
@@ -1206,24 +1206,24 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       <div style={column}>
         <header style={card}>
           <span style={eyebrow}>iRacing</span>
-          <h2 style={heading}>Carreira & Ratings</h2>
+          <h2 style={heading}>Career & Ratings</h2>
           <p style={{ ...muted, margin: '8px 0 0', maxWidth: 620 }}>
-            Acompanhe sua progressão de iRating, Safety Rating, licenças, incidentes e resultados recentes —
-            tudo direto da API da iRacing, com cache offline.
+            Acompanhe sua progressao de iRating, Safety Rating, licencas, incidents e resultados recent —
+            all directly from the iRacing API, with offline cache.
           </p>
         </header>
         <TabSwitcher activeTab={activeTab} onChange={setActiveTab} />
         <section style={{ ...card, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 14, padding: 24 }}>
-          <span style={eyebrow}>{needsLogin ? 'Sessão necessária' : 'Conecte sua conta'}</span>
+          <span style={eyebrow}>{needsLogin ? 'Sessao necessaria' : 'Connect your account'}</span>
           <h3 style={{ margin: 0, fontSize: 17, color: 'var(--text-primary)' }}>
-            {initialized ? 'Conecte sua conta iRacing para carregar sua carreira' : 'Carregando…'}
+            {initialized ? 'Connect your iRacing account to load your career' : 'Loading…'}
           </h3>
           <p style={{ ...muted, margin: 0, maxWidth: 560 }}>
-            O Hub usa a mesma sessão do navegador embutido dos mapas de pista. Faça login na iRacing
-            (resolvendo CAPTCHA/2FA na janela) e os dados aparecem aqui — depois ficam disponíveis offline.
+            O Hub usa a mesma sessao do navegador embutido dos mapas de pista. Faca login na iRacing
+            (resolvendo CAPTCHA/2FA na janela) e os data aparecem aqui — depois ficam disponiveis offline.
           </p>
           <button type="button" style={primaryButton} disabled={loggingIn} onClick={() => void connect()}>
-            {loggingIn ? 'Abrindo login da iRacing…' : 'Conectar à iRacing'}
+            {loggingIn ? 'Opening iRacing login…' : 'Connect a iRacing'}
           </button>
           {hint ? <span style={{ fontSize: 12, color: hint.tone }}>{hint.text}</span> : null}
         </section>
@@ -1241,21 +1241,21 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       {/* Header */}
       <header style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <span style={eyebrow}>iRacing · Carreira</span>
-          <h2 style={heading}>{identity?.displayName ?? 'Piloto'}</h2>
+          <span style={eyebrow}>iRacing · Career</span>
+          <h2 style={heading}>{identity?.displayName ?? 'Driver'}</h2>
           <p style={{ ...muted, margin: '6px 0 0' }}>
-            Cust ID #{identity?.custId} · Atualizado {fmtDateTime(status?.lastUpdated)}
+            Cust ID #{identity?.custId} · Updated {fmtDateTime(status?.lastUpdated)}
             {status?.fromCache ? ' · cache' : ''}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           {needsLogin ? (
             <button type="button" style={primaryButton} disabled={loggingIn} onClick={() => void connect()}>
-              {loggingIn ? 'Abrindo login…' : 'Tentar login Data API'}
+              {loggingIn ? 'Opening login…' : 'Try Data API login'}
             </button>
           ) : null}
           <button type="button" style={button} disabled={busy} onClick={() => void refresh()}>
-            {busy ? 'Atualizando…' : 'Atualizar'}
+            {busy ? 'Updating…' : 'Refresh'}
           </button>
         </div>
       </header>
@@ -1272,7 +1272,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
             </a>{' '}
             ·{' '}
             <a href="https://support.iracing.com/support/solutions/articles/31000174478" target="_blank" rel="noreferrer" style={{ color: hint.tone, fontWeight: 700 }}>
-              suporte iRacing
+              iRacing support
             </a>
           </span>
         </div>
@@ -1280,7 +1280,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
 
       {/* Licenses */}
       <section style={card}>
-        <h3 style={sectionTitle}>Licenças & Ratings atuais</h3>
+        <h3 style={sectionTitle}>Licencas & Ratings current</h3>
         {licenses.length === 0 ? (
           <GuidedEmptyState style={{ marginTop: 12 }} />
         ) : (
@@ -1295,7 +1295,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       {/* History charts */}
       <section style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-          <h3 style={sectionTitle}>Histórico de progressão</h3>
+          <h3 style={sectionTitle}>Historico de progressao</h3>
           {availableCategoryIds.length > 0 ? (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {availableCategoryIds.map((categoryId) => {
@@ -1328,7 +1328,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
                 {fmtInt(selectedCharts?.iRating.at(-1)?.value)}
               </span>
             </div>
-            <HistoryChart points={selectedCharts?.iRating ?? []} color={IRATING_COLOR} valueDigits={0} ariaLabel="Histórico de iRating" />
+            <HistoryChart points={selectedCharts?.iRating ?? []} color={IRATING_COLOR} valueDigits={0} ariaLabel="Historico de iRating" />
           </div>
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
@@ -1337,7 +1337,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
                 {fmtSR(selectedCharts?.safetyRating.at(-1)?.value)}
               </span>
             </div>
-            <HistoryChart points={selectedCharts?.safetyRating ?? []} color={SR_COLOR} valueDigits={2} ariaLabel="Histórico de Safety Rating" />
+            <HistoryChart points={selectedCharts?.safetyRating ?? []} color={SR_COLOR} valueDigits={2} ariaLabel="Historico de Safety Rating" />
           </div>
         </div>
       </section>
@@ -1345,17 +1345,17 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       {/* Incident trend + this-year */}
       <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 16 }}>
         <div style={card}>
-          <h3 style={sectionTitle}>Tendência de incidentes</h3>
-          <p style={{ ...muted, margin: '4px 0 12px', fontSize: 11 }}>Incidentes por corrida nas corridas recentes (mais antigas → recentes).</p>
+          <h3 style={sectionTitle}>Tendencia de incidents</h3>
+          <p style={{ ...muted, margin: '4px 0 12px', fontSize: 11 }}>Incidents por corrida nas corridas recent (mais antigas → recent).</p>
           <IncidentTrendChart points={overview?.incidentTrend ?? []} />
         </div>
         <div style={card}>
-          <h3 style={sectionTitle}>Este ano</h3>
+          <h3 style={sectionTitle}>This year</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
-            <StatTile label="Largadas oficiais" value={fmtInt(thisYear?.officialStarts)} />
-            <StatTile label="Vitórias oficiais" value={fmtInt(thisYear?.officialWins)} accent="var(--accent-primary)" />
-            <StatTile label="Largadas liga" value={fmtInt(thisYear?.leagueStarts)} />
-            <StatTile label="Vitórias liga" value={fmtInt(thisYear?.leagueWins)} />
+            <StatTile label="Official starts" value={fmtInt(thisYear?.officialStarts)} />
+            <StatTile label="Vitorias official" value={fmtInt(thisYear?.officialWins)} accent="var(--accent-primary)" />
+            <StatTile label="League starts" value={fmtInt(thisYear?.leagueStarts)} />
+            <StatTile label="Vitorias league" value={fmtInt(thisYear?.leagueWins)} />
           </div>
         </div>
       </section>
@@ -1363,7 +1363,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       {/* Career stats per discipline */}
       <section style={{ ...card, padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '14px 16px 0' }}>
-          <h3 style={sectionTitle}>Estatísticas de carreira por disciplina</h3>
+          <h3 style={sectionTitle}>Estatisticas de career por disciplina</h3>
         </div>
         {careerRows.length === 0 ? (
           <GuidedEmptyState style={{ margin: '16px' }} />
@@ -1372,17 +1372,17 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
             <table style={tableStyle}>
               <thead>
                 <tr>
-                  <th style={thLeft}>Disciplina</th>
-                  <th style={th}>Largadas</th>
-                  <th style={th}>Vitórias</th>
+                  <th style={thLeft}>Discipline</th>
+                  <th style={th}>Starts</th>
+                  <th style={th}>Vitorias</th>
                   <th style={th}>Top 5</th>
                   <th style={th}>Poles</th>
-                  <th style={th}>Vit.%</th>
+                  <th style={th}>Wins%</th>
                   <th style={th}>Top5%</th>
-                  <th style={th}>Largada méd.</th>
-                  <th style={th}>Chegada méd.</th>
-                  <th style={th}>Inc. méd.</th>
-                  <th style={th}>Voltas lid.</th>
+                  <th style={th}>Start med.</th>
+                  <th style={th}>Finish med.</th>
+                  <th style={th}>Inc. med.</th>
+                  <th style={th}>Laps lid.</th>
                 </tr>
               </thead>
               <tbody>
@@ -1410,7 +1410,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       {/* Recent races */}
       <section style={{ ...card, padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '14px 16px 0' }}>
-          <h3 style={sectionTitle}>Corridas recentes</h3>
+          <h3 style={sectionTitle}>Recent races</h3>
         </div>
         {recent.length === 0 ? (
           <GuidedEmptyState style={{ margin: '16px' }} />
@@ -1420,11 +1420,11 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
               <thead>
                 <tr>
                   <th style={thLeft}>Data</th>
-                  <th style={thLeft}>Série</th>
+                  <th style={thLeft}>Serie</th>
                   <th style={thLeft}>Carro</th>
                   <th style={thLeft}>Pista</th>
-                  <th style={th}>Largada</th>
-                  <th style={th}>Chegada</th>
+                  <th style={th}>Start</th>
+                  <th style={th}>Finish</th>
                   <th style={th}>Inc.</th>
                   <th style={th}>Δ iR</th>
                   <th style={th}>SR</th>
@@ -1456,8 +1456,8 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
 
       {/* Strengths */}
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
-        <StrengthTable title="Pontos fortes por carro" scope="Forma recente (janela de corridas recentes)" rows={overview?.strengthsByCar ?? []} />
-        <StrengthTable title="Pontos fortes por pista" scope="Forma recente (janela de corridas recentes)" rows={overview?.strengthsByTrack ?? []} />
+        <StrengthTable title="Strengths by car" scope="Recent form (recent races window)" rows={overview?.strengthsByCar ?? []} />
+        <StrengthTable title="Strengths by track" scope="Recent form (recent races window)" rows={overview?.strengthsByTrack ?? []} />
       </section>
     </div>
   )

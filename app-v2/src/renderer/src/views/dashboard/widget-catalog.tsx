@@ -1,9 +1,9 @@
-// Catálogo de widgets (galeria visual) compartilhado pelo editor de dashboards
-// (DashboardsView) e pelo construtor de overlays (OverlayWidgetBuilder). Os dados
+// Catalogo de widgets (galeria visual) compartilhado pelo editor de dashboards
+// (DashboardsView) e pelo construtor de overlays (OverlayWidgetBuilder). Os data
 // puros (variantes + taxonomia + filtros) vivem em widget-catalog-data.ts; este
-// arquivo cuida só da UI React: miniaturas ao vivo + galeria com busca e filtros
+// arquivo cuida so da UI React: miniaturas ao vivo + galeria com busca e filtros
 // por categoria/estilo. As miniaturas reaproveitam os renderers GT3/extra ao vivo
-// com um snapshot simulado e fallbacks estáticos para os tipos legados.
+// com um snapshot simulado e fallbacks statics para os tipos legados.
 
 import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement, ReactNode } from 'react'
@@ -86,7 +86,7 @@ function LegacyMini({ variant }: { variant: WidgetVariant }): ReactElement {
       <div style={{ width: '90%', margin: 'auto', marginTop: '10%', fontSize: 12, color: TEXT_DIM }}>
         {[0, 1, 2].map((i) => (
           <div key={i} style={{ display: 'flex', gap: 6, padding: '2px 0', color: i === 1 ? ACCENT : TEXT_FG, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-            <span style={{ width: 12 }}>{i + 1}</span><span style={{ flex: 1 }}>Piloto {i + 1}</span><span>{i === 1 ? '0.0' : '+0.4'}</span>
+            <span style={{ width: 12 }}>{i + 1}</span><span style={{ flex: 1 }}>Driver {i + 1}</span><span>{i === 1 ? '0.0' : '+0.4'}</span>
           </div>
         ))}
       </div>
@@ -159,22 +159,22 @@ export function WidgetGallery({
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar widget (nome, categoria, tag)…"
-          aria-label="Buscar widget"
+          placeholder="Search widget (nome, categoria, tag)…"
+          aria-label="Search widget"
           style={searchStyle}
         />
         <span style={{ color: TEXT_DIM, fontSize: 12, whiteSpace: 'nowrap' }}>{filtered.length} widget{filtered.length === 1 ? '' : 's'}</span>
         {hasFilter && (
-          <button type="button" onClick={() => { setSearch(''); setCategory(null); setCluster(null); setStyleFamily(null); setSim(null) }} style={clearBtnStyle} title="Limpar filtros">
-            Limpar ✕
+          <button type="button" onClick={() => { setSearch(''); setCategory(null); setCluster(null); setStyleFamily(null); setSim(null) }} style={clearBtnStyle} title="Clear filters">
+            Clear ✕
           </button>
         )}
       </div>
 
       <div>
-        <div style={chipRowLabel}>Categoria</div>
+        <div style={chipRowLabel}>Category</div>
         <div style={chipRow}>
-          <Chip active={category === null} onClick={() => setCategory(null)}>Todas</Chip>
+          <Chip active={category === null} onClick={() => setCategory(null)}>All</Chip>
           {ALL_CATEGORIES.map((c) => (
             <Chip key={c} active={category === c} onClick={() => setCategory(category === c ? null : c)}>
               {WIDGET_CATEGORY_LABELS[c]}
@@ -186,7 +186,7 @@ export function WidgetGallery({
       <div>
         <div style={chipRowLabel}>Cluster</div>
         <div style={chipRow}>
-          <Chip active={cluster === null} onClick={() => setCluster(null)}>Todos</Chip>
+          <Chip active={cluster === null} onClick={() => setCluster(null)}>All</Chip>
           {ALL_CLUSTERS.map((c) => (
             <Chip key={c} active={cluster === c} onClick={() => setCluster(cluster === c ? null : c)}>
               {WIDGET_CLUSTER_LABELS[c]}
@@ -198,7 +198,7 @@ export function WidgetGallery({
       <div>
         <div style={chipRowLabel}>Sim</div>
         <div style={chipRow}>
-          <Chip active={sim === null} onClick={() => setSim(null)}>Todos</Chip>
+          <Chip active={sim === null} onClick={() => setSim(null)}>All</Chip>
           {PLAYABLE_SIMS.map((s) => (
             <Chip key={s} active={sim === s} onClick={() => setSim(sim === s ? null : s)}>
               {simLabel(s)}
@@ -208,9 +208,9 @@ export function WidgetGallery({
       </div>
 
       <div>
-        <div style={chipRowLabel}>Estilo</div>
+        <div style={chipRowLabel}>Style</div>
         <div style={chipRow}>
-          <Chip active={styleFamily === null} onClick={() => setStyleFamily(null)}>Todos</Chip>
+          <Chip active={styleFamily === null} onClick={() => setStyleFamily(null)}>All</Chip>
           {ALL_STYLES.map((s) => (
             <Chip key={s} active={styleFamily === s} onClick={() => setStyleFamily(styleFamily === s ? null : s)}>
               {WIDGET_STYLE_LABELS[s]}
@@ -220,15 +220,15 @@ export function WidgetGallery({
       </div>
 
       {filtered.length === 0 ? (
-        <div style={emptyStyle}>Nenhum widget corresponde aos filtros.</div>
+        <div style={emptyStyle}>No widget matches the filters.</div>
       ) : (
         <>
           {(curatedClusterSections.length > 0 || curatedFallbackSections.length > 0) && (
             <>
               <div style={featuredHeader}>
-                <span style={featuredTitle}>★ Curados GT3</span>
+                <span style={featuredTitle}>★ Curated GT3</span>
                 <span style={{ color: TEXT_DIM, fontWeight: 600, fontSize: 11 }}>
-                  {curated.length} widget{curated.length === 1 ? '' : 's'} prontos
+                  {curated.length} widget{curated.length === 1 ? '' : 's'} ready
                 </span>
               </div>
               {curatedClusterSections.map((sec) => (
@@ -247,12 +247,12 @@ export function WidgetGallery({
                 onClick={() => setAdvancedOpen((v) => !v)}
                 style={advancedToggle}
                 aria-expanded={showAdvanced}
-                title="Canais brutos de telemetria iRacing (secundário)"
+                title="Canais brutos de telemetria iRacing (secondary)"
               >
                 <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-                  <span style={{ color: TEXT_FG, fontSize: 13, fontWeight: 800 }}>Canais iRacing avançados</span>
+                  <span style={{ color: TEXT_FG, fontSize: 13, fontWeight: 800 }}>Canais iRacing avancados</span>
                   <span style={{ color: TEXT_DIM, fontSize: 11, fontWeight: 600 }}>
-                    {advanced.length} canal{advanced.length === 1 ? '' : 'is'} brutos · use a busca para filtrar
+                    {advanced.length} channel{advanced.length === 1 ? '' : 'is'} brutos · use a busca para filtrar
                   </span>
                 </span>
                 <span style={{ color: ACCENT, fontSize: 16, fontWeight: 900 }}>{showAdvanced ? '▾' : '▸'}</span>
@@ -292,7 +292,7 @@ function SectionGrid({
             type="button"
             disabled={busy}
             onClick={() => onAdd(v)}
-            title={v.hint ?? `Adicionar ${v.label}`}
+            title={v.hint ?? `Add ${v.label}`}
             style={cardStyle}
           >
             <WidgetMini variant={v} />
@@ -302,7 +302,7 @@ function SectionGrid({
             </div>
             <div style={styleBadge}>{WIDGET_STYLE_LABELS[v.styleFamily]}</div>
             {v.hardwareFamily && (
-              <div style={hwBadge} title={`Inspirado em ${v.hardwareFamily}`}>⌁ {v.hardwareFamily}</div>
+              <div style={hwBadge} title={`Inspired by ${v.hardwareFamily}`}>⌁ {v.hardwareFamily}</div>
             )}
             <SimBadge sims={v.supportedSims} />
             {v.missing && (
@@ -335,7 +335,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick(): void;
 function SimBadge({ sims }: { sims: readonly CoverageSimId[] }): ReactElement {
   const universal = sims.length >= PLAYABLE_SIMS.length
   const none = sims.length === 0
-  const text = none ? '— sem sim ao vivo' : universal ? 'Todos os sims' : sims.map(simLabel).join('·')
+  const text = none ? '— sem sim ao vivo' : universal ? 'All os sims' : sims.map(simLabel).join('·')
   const tone: CSSProperties = none
     ? { color: '#ffb84d', background: 'rgba(255,184,77,0.12)', borderColor: 'rgba(255,184,77,0.4)' }
     : universal

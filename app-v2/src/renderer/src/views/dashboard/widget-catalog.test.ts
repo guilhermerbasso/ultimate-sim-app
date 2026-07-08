@@ -309,15 +309,15 @@ describe('WidgetGallery — curated-first, advanced collapsed', () => {
     return renderToStaticMarkup(createElement(WidgetGallery, { onAdd: () => {} }))
   }
 
-  it('leads with the featured "Curados GT3" section and a sim filter row', () => {
+  it('leads with the featured "Curated GT3" section and a sim filter row', () => {
     const html = render()
-    expect(html).toContain('Curados GT3')
+    expect(html).toContain('Curated GT3')
     expect(html).toContain('Sim') // per-sim coverage filter preserved
   })
 
-  it('demotes the raw channels behind a collapsed "Canais iRacing avançados" accordion', () => {
+  it('demotes the raw channels behind a collapsed "Canais iRacing avancados" accordion', () => {
     const html = render()
-    expect(html).toContain('Canais iRacing avançados')
+    expect(html).toContain('Canais iRacing avancados')
     // Collapsed by default: an iRacing-only raw channel (StrengthOfField) is not
     // rendered until the accordion is expanded — so the wall of tiles is hidden.
     expect(html).not.toContain('StrengthOfField')
@@ -354,7 +354,7 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
 
   it("the 'Full-Frame Dashboards' cluster is non-empty (the 6 overlay presets)", () => {
     const fullFrame = curated.filter((v) => v.cluster === 'Full-Frame Dashboards')
-    expect(fullFrame.length).toBe(9)
+    expect(fullFrame.length).toBe(11)
     for (const v of fullFrame) {
       expect(v.type).toBe('overlaywidget')
       expect(v.widgetId, `${v.id} missing widgetId`).toBeTruthy()
@@ -362,7 +362,7 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
       expect((v as NormalizedVariant).supportedSims.length).toBeGreaterThan(0)
     }
     const section = groupVariantsByCluster(curated).find((s) => s.cluster === 'Full-Frame Dashboards')
-    expect(section?.variants.length).toBe(9)
+    expect(section?.variants.length).toBe(11)
   })
 
   it('full-frame variants carry their widgetId through variantToElement', () => {

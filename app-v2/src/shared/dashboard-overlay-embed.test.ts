@@ -11,7 +11,7 @@ const EMBEDDED: Array<{
   id: string
   widgetId: OverlayWidgetId
   name: string
-  family: 'gt3' | 'lmu' | 'endurance' | 'engineer'
+  family: 'gt3' | 'lmu' | 'endurance' | 'engineer' | 'broadcast' | 'minimal'
 }> = [
   { id: 'grid_stack_dash', widgetId: 'gridStackDash', name: 'GT3 — Grid (SimHub)', family: 'gt3' },
   { id: 'grid_pro_dash', widgetId: 'gridProDash', name: 'GT3 — Pro (neon)', family: 'gt3' },
@@ -21,7 +21,9 @@ const EMBEDDED: Array<{
   { id: 'lmu_stint_dash', widgetId: 'lmuStintDash', name: 'LMU — Stint/Fuel', family: 'lmu' },
   { id: 'hifi_ddu_cockpit', widgetId: 'hifiDdu', name: 'GT3 — DDU Cockpit (hi-fi)', family: 'gt3' },
   { id: 'hifi_endurance', widgetId: 'hifiEndurance', name: 'Endurance — Stint (hi-fi)', family: 'endurance' },
-  { id: 'hifi_engineer', widgetId: 'hifiEngineer', name: 'Engineer — MoTeC Analysis (hi-fi)', family: 'engineer' }
+  { id: 'hifi_engineer', widgetId: 'hifiEngineer', name: 'Engineer — MoTeC Analysis (hi-fi)', family: 'engineer' },
+  { id: 'hifi_minimal', widgetId: 'hifiMinimal', name: 'GT3 — Minimal (hi-fi)', family: 'gt3' },
+  { id: 'hifi_broadcast', widgetId: 'hifiBroadcast', name: 'Broadcast — Standings (hi-fi)', family: 'broadcast' }
 ]
 
 const EMBEDDED_WIDGET_IDS: OverlayWidgetId[] = EMBEDDED.map((e) => e.widgetId)

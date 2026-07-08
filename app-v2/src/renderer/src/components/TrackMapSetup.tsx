@@ -13,41 +13,41 @@ import { useTrackMapStatus } from '../lib/track-map'
 import type { ResolvedLanguage } from '../i18n'
 
 const statusLabels: Record<TrackMapStatus['auth'], string> = {
-  unconfigured: 'Não configurado',
+  unconfigured: 'Nao configured',
   ready: 'Conectado',
-  authenticating: 'Conectando…',
-  'mfa-required': 'Código de verificação necessário',
-  'needs-login': 'Necessário entrar novamente',
-  'rate-limited': 'Limite de tentativas atingido',
+  authenticating: 'Connecting',
+  'mfa-required': 'Codigo de check necessario',
+  'needs-login': 'Necessario entrar novamente',
+  'rate-limited': 'Limite de tentactive atingido',
   error: 'Erro',
-  disabled: 'Armazenamento seguro indisponível'
+  disabled: 'Secure storage unavailable'
 }
 
-const LOGIN_OK_MESSAGE = 'iRacing conectado. Os mapas de pista serão atualizados para a pista atual.'
+const LOGIN_OK_MESSAGE = 'iRacing connected. Track maps will update for the current track.'
 const BROWSER_LOGIN_OK_MESSAGE =
-  'Você voltou ao app. A telemetria continua funcionando; a Data API foi testada em segundo plano.'
+  'Voce voltou ao app. A telemetria continua funcionando; a Data API foi testada em segundo plano.'
 const BROWSER_LOGIN_OPENING_MESSAGE =
-  'Abrindo a janela de login do iRacing… conclua e-mail, senha, CAPTCHA e verificação (2FA) na janela. ' +
+  'Opening the iRacing login window. Complete email, password, CAPTCHA, and 2FA in that window. ' +
   'O mapa offline continua funcionando sem login.'
 
 function loginMethodLabel(method: TrackMapStatus['loginMethod']): string {
   if (method === 'oauth') return 'OAuth2 + PKCE'
-  if (method === 'browser') return 'Navegador (sessão capturada)'
+  if (method === 'browser') return 'Navegador (session capturada)'
   if (method === 'password') return 'E-mail e senha (legado)'
-  return '—'
+  return ''
 }
 
 // Human-readable, PT-BR summary of the embedded-login capture diagnostics so a
 // failed capture is never a silent "nada acontece".
 function diagnosticText(d: TrackMapLoginDiagnostics): string {
-  const cookie = d.authCookieSeen ? 'cookie de sessão detectado' : 'nenhum cookie de sessão detectado'
+  const cookie = d.authCookieSeen ? 'cookie de session detectado' : 'no cookie de session detectado'
   const verdictLabel =
     d.probeVerdict === 'authed'
-      ? 'verificação: autenticado'
+      ? 'check: autenticado'
       : d.probeVerdict === 'unauthed'
-        ? 'verificação: não autenticado'
-        : 'verificação: inconclusiva'
-  return `Diagnóstico: ${cookie} · ${verdictLabel} · ${d.cookieCount} cookie(s) na sessão.`
+        ? 'check: not autenticado'
+        : 'check: inconclusiva'
+  return `Diagnostics: ${cookie}  ${verdictLabel}  ${d.cookieCount} cookie(s) in the session.`
 }
 
 function formatExpiry(epochMs: number | undefined): string | null {
@@ -60,18 +60,18 @@ type LearnTone = 'ok' | 'recording' | 'warn'
 // Build the PT-BR status line for the telemetry-learner panel from the live
 // learner state broadcast by the main process.
 function learnStatusDisplay(learn: TrackMapStatus['learn']): { text: string; tone: LearnTone } {
-  if (!learn) return { text: 'Aguardando telemetria…', tone: 'warn' }
+  if (!learn) return { text: 'Waiting for telemetry', tone: 'warn' }
   if (learn.phase === 'recording') {
     const pct = Math.round(Math.max(0, Math.min(1, learn.progress)) * 100)
     const manual = learn.manual ? ' (manual)' : ''
-    return { text: `Aprendendo mapa… ${pct}%${manual}`, tone: 'recording' }
+    return { text: `Learning map ${pct}%${manual}`, tone: 'recording' }
   }
   if (learn.phase === 'warming') {
-    return { text: learn.reasonLabel || 'Indo até a linha de chegada para iniciar a gravação…', tone: 'recording' }
+    return { text: learn.reasonLabel || 'Drive to the start/finish line to start recording', tone: 'recording' }
   }
   // Idle: a learned map already exists, or we show the reason it's stalled.
   if (learn.hasMap) return { text: 'Mapa aprendido para esta pista', tone: 'ok' }
-  return { text: learn.reasonLabel || 'Aguardando telemetria…', tone: 'warn' }
+  return { text: learn.reasonLabel || 'Waiting for telemetry', tone: 'warn' }
 }
 
 export function TrackMapSetup({ language: _language }: { language?: ResolvedLanguage } = {}) {
@@ -109,7 +109,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
     void window.ipc.invoke<TrackMapOAuthConfig | null>(TRACK_MAP_CHANNELS.getOAuthConfig).then((config) => {
       if (!active || !config) return
       setOauthClientId(config.clientId)
-      if (config.clientSecret && !config.clientSecret.includes('•')) setOauthClientSecret(config.clientSecret)
+      if (config.clientSecret && !config.clientSecret.includes('')) setOauthClientSecret(config.clientSecret)
     }).catch(() => undefined)
     return () => {
       active = false
@@ -126,7 +126,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
         clientSecret: oauthClientSecret
       })
       setOauthClientId(saved.clientId)
-      setMessage(saved.clientId ? 'Client ID OAuth salvo com segurança.' : 'Configuração OAuth removida.')
+      setMessage(saved.clientId ? 'Client ID OAuth saved securely.' : 'OAuth configuration removed.')
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -138,13 +138,13 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
   async function oauthLogin(): Promise<void> {
     setBusy(true)
     setError(null)
-    setMessage('Abrindo OAuth2 iRacing (Authorization Code + PKCE)…')
+    setMessage('Opening OAuth2 iRacing (Authorization Code + PKCE)')
     try {
       const result = await window.ipc.invoke<TrackMapBrowserLoginResult>(TRACK_MAP_CHANNELS.oauthLogin)
       if (result.status === 'ok') {
-        setMessage('OAuth conectado. A Data API usará Bearer token e refresh-token rotativo.')
+        setMessage('OAuth conectado. A Data API usara Bearer token e refresh-token rotativo.')
       } else {
-        setError(result.message ?? 'OAuth cancelado.')
+        setError(result.message ?? 'OAuth canceled.')
         setMessage(null)
       }
       await refresh()
@@ -174,7 +174,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
   // PRIMARY path: open iRacing's genuine web login so the user can clear
   // CAPTCHA / 2FA, then the main process captures the session cookie. The IPC
   // call only resolves once the login window closes, so we keep a local
-  // "opening…" message for the whole duration.
+  // "opening" message for the whole duration.
   async function browserLogin(): Promise<void> {
     setBusy(true)
     setError(null)
@@ -191,9 +191,9 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
         setMessage(BROWSER_LOGIN_OK_MESSAGE)
         setError(null)
       } else {
-        // Cancelled / closed / timed out — honest message, offline map intact.
+        // Cancelled / closed / timed out  honest message, offline map intact.
         setMessage(null)
-        setError(result.message ?? 'Login cancelado. O mapa offline continua funcionando sem login.')
+        setError(result.message ?? 'Login canceled. The offline map continues working without login.')
       }
       await refresh()
     } catch (err) {
@@ -215,13 +215,13 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
         password
       })
       if (result.status === 'mfa_required') {
-        // iRacing wants a verification code — prompt for it and keep the session
+        // iRacing wants a verification code  prompt for it and keep the session
         // open. The offline learned map keeps working regardless.
         setMfaPending(true)
         setMfaCode('')
         setMessage(
           result.message ??
-            'O iRacing enviou um código de verificação. Insira o código abaixo para concluir o login.'
+            'O iRacing enviou um codigo de check. Insira o codigo abaixo para concluir o login.'
         )
       } else {
         setPassword('')
@@ -263,7 +263,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
     try {
       await window.ipc.invoke(TRACK_MAP_CHANNELS.refresh)
       await refresh()
-      setMessage('Atualização do mapa de pista solicitada.')
+      setMessage('Atualizacao do mapa de pista solicitada.')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -280,7 +280,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
       setPassword('')
       setMfaPending(false)
       setMfaCode('')
-      setMessage('Login do iRacing removido. Os mapas offline (telemetria) continuam disponíveis.')
+      setMessage('Login do iRacing removido. Os mapas offline (telemetria) continuam disponiveis.')
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -290,12 +290,12 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
   }
 
   // Force the telemetry learner to start capturing NOW (anchored at the car's
-  // current position, mid-lap allowed). Doubles as "Reiniciar gravação".
+  // current position, mid-lap allowed). Doubles as "Restart recording".
   async function startLearning(): Promise<void> {
     setError(null)
     try {
       await window.ipc.invoke<TrackMapStatus>(TRACK_MAP_CHANNELS.startLearning)
-      setMessage('Gravando o mapa a partir da posição atual. Dê uma volta completa para concluir.')
+      setMessage('Gravando o mapa a partir da posicao current. De uma lap completa para concluir.')
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -306,7 +306,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
     setError(null)
     try {
       await window.ipc.invoke<TrackMapStatus>(TRACK_MAP_CHANNELS.cancelLearning)
-      setMessage('Gravação do mapa cancelada.')
+      setMessage('Gravacao do mapa cancelada.')
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -314,10 +314,10 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
   }
 
   return (
-    <section style={styles.card} aria-label="Configuração do mapa de pista iRacing">
+    <section style={styles.card} aria-label="iRacing track map setup">
       <div style={styles.header}>
         <div>
-          <p style={styles.eyebrow}>Fonte do mapa de pista</p>
+          <p style={styles.eyebrow}>Font do mapa de pista</p>
           <h3 style={styles.title}>Telemetria funciona sem login</h3>
         </div>
         <span style={{ ...styles.badge, ...(connected ? styles.badgeReady : styles.badgeWarn) }}>
@@ -326,8 +326,8 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
       </div>
 
       <p style={styles.copy}>
-        Mapa, radar, relatives, dashboards e overlays vêm do iRacing SDK local e funcionam sem login web.
-        Login é somente para extras da <strong>Data API</strong> (estatísticas, resultados, séries e metadados).
+        Mapa, radar, relatives, dashboards e overlays vem do iRacing SDK local e funcionam sem login web.
+        Login e somente para extras da <strong>Data API</strong> (estatisticas, resultados, seriess e metadata).
       </p>
 
       {(() => {
@@ -348,8 +348,8 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
               <span style={{ ...styles.learnBadge, ...toneStyle }}>{display.text}</span>
             </div>
             <p style={styles.hint}>
-              O mapa é desenhado gravando a posição do carro por uma volta limpa — igual ao SimHub, sem login.
-              Se não estiver aprendendo, o motivo aparece acima.
+              The map is drawn by recording car position over a clean lap, like SimHub, with no login.
+              Se not estiver aprendendo, o motivo aparece acima.
             </p>
             {learn?.phase === 'recording' && (
               <div style={styles.progressTrack} aria-hidden>
@@ -363,11 +363,11 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
                 onClick={() => void startLearning()}
                 style={{ ...styles.primaryButton, ...styles.primaryCta }}
               >
-                {recordingActive ? 'Reiniciar gravação' : 'Gravar mapa agora'}
+                {recordingActive ? 'Restart recording' : 'Record map now'}
               </button>
               {recordingActive && (
                 <button type="button" disabled={busy} onClick={() => void cancelLearning()} style={styles.secondaryButton}>
-                  Cancelar gravação
+                  Cancel gravacao
                 </button>
               )}
             </div>
@@ -376,24 +376,24 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
       })()}
 
       <div style={styles.callout}>
-        <p style={styles.calloutTitle}>Situação oficial da Data API</p>
+        <p style={styles.calloutTitle}>Situacao oficial da Data API</p>
         <p style={styles.calloutBody}>
           O iRacing desativou o login legado <strong>/auth</strong> e pausou novos client IDs OAuth para apps
-          de terceiros. Quando a iRacing liberar seu <strong>client_id</strong>, cole abaixo para ativar OAuth2.
-          Referências:{' '}
+          de terceiros. Quando a iRacing liberar seu <strong>client_id</strong>, cole abaixo para activer OAuth2.
+          References:{' '}
           <a href="https://forums.iracing.com/discussion/93956/oauth-client-id-creation" target="_blank" rel="noreferrer" style={styles.calloutLink}>
-            fórum OAuth client ID
+            forum OAuth client ID
           </a>{' '}
-          ·{' '}
+          {' '}
           <a href="https://support.iracing.com/support/solutions/articles/31000174478" target="_blank" rel="noreferrer" style={styles.calloutLink}>
-            suporte iRacing
+            iRacing support
           </a>
         </p>
       </div>
 
       <div style={styles.altLogin}>
-        <p style={styles.altTitle}>OAuth2 + PKCE (primário quando houver client_id)</p>
-        <p style={styles.hint}>Registro OAuth está pausado pela iRacing — cole um client_id quando disponível.</p>
+        <p style={styles.altTitle}>OAuth2 + PKCE (primary quando houver client_id)</p>
+        <p style={styles.hint}>OAuth registration is paused by iRacing; paste a client_id when available.</p>
         <label style={styles.label}>
           OAuth client_id
           <input value={oauthClientId} disabled={busy} onChange={(event) => setOauthClientId(event.target.value)} placeholder="Cole o client_id da iRacing" style={styles.input} />
@@ -403,9 +403,9 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
           <input value={oauthClientSecret} disabled={busy} onChange={(event) => setOauthClientSecret(event.target.value)} placeholder="Opcional" style={styles.input} />
         </label>
         <div style={styles.actions}>
-          <button type="button" disabled={busy} onClick={() => void saveOAuthConfig()} style={styles.secondaryButton}>Salvar OAuth</button>
+          <button type="button" disabled={busy} onClick={() => void saveOAuthConfig()} style={styles.secondaryButton}>Save OAuth</button>
           <button type="button" disabled={busy || !oauthClientId.trim()} onClick={() => void oauthLogin()} style={{ ...styles.primaryButton, ...styles.primaryCta }}>
-            {busy ? 'Conectando…' : 'Conectar com OAuth'}
+            {busy ? 'Connecting' : 'Connect with OAuth'}
           </button>
         </div>
       </div>
@@ -442,28 +442,28 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
             disabled={disabled || !email || !password}
             style={{ ...styles.primaryButton, ...styles.primaryCta }}
           >
-            {busy ? 'Entrando…' : 'Entrar'}
+            {busy ? 'Signing in' : 'Sign in'}
           </button>
         </div>
       </form>
       <p style={styles.hint}>
-        Caminho legado mantido apenas como fallback. A iRacing desativou <strong>/auth</strong> para usuários em geral.
+        Caminho legado mantido apenas como fallback. A iRacing desativou <strong>/auth</strong> para usuarios em geral.
       </p>
 
       {showMfa && (
         <form onSubmit={(event) => void submitMfa(event)} style={styles.mfaBox}>
-          <p style={styles.mfaTitle}>Código de verificação por e-mail</p>
+          <p style={styles.mfaTitle}>Codigo de check por e-mail</p>
           <p style={styles.copy}>
-            O iRacing enviou um <strong>código de verificação de dispositivo por e-mail</strong>. Insira-o
+            O iRacing enviou um <strong>codigo de check de dispositivo por e-mail</strong>. Insira-o
             abaixo para concluir o login.
           </p>
           <p style={styles.mfaWarn}>
-            ⚠️ Este campo <strong>não</strong> é para o código do app autenticador (TOTP). Se a sua conta usa 2FA
-            por app, este código não vai resolver — habilite <strong>“Legacy read-only authentication”</strong>{' '}
-            em iRacing → Conta → Segurança, ou use o <strong>Login pelo navegador</strong> abaixo.
+            This field is not for the authenticator app code (TOTP). If your account uses 2FA
+            through an app, this code will not work; enable <strong>Legacy read-only authentication</strong>{' '}
+            in iRacing &gt; Account &gt; Security, or use <strong>browser login</strong> below.
           </p>
           <label style={styles.label}>
-            Código enviado por e-mail pelo iRacing
+            Codigo enviado por e-mail pelo iRacing
             <input
               type="text"
               inputMode="numeric"
@@ -471,13 +471,13 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
               value={mfaCode}
               disabled={busy}
               onChange={(event) => setMfaCode(event.target.value)}
-              placeholder="Código recebido por e-mail"
+              placeholder="Codigo recebido por e-mail"
               style={styles.input}
             />
           </label>
           <div style={styles.actions}>
             <button type="submit" disabled={busy || !mfaCode.trim()} style={styles.primaryButton}>
-              {busy ? 'Verificando…' : 'Confirmar código'}
+              {busy ? 'Checking' : 'Confirm code'}
             </button>
             <button
               type="button"
@@ -488,7 +488,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
               }}
               style={styles.secondaryButton}
             >
-              Cancelar
+              Cancel
             </button>
           </div>
         </form>
@@ -496,30 +496,30 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
 
       <dl style={styles.statusGrid}>
         <div>
-          <dt style={styles.term}>Pista atual</dt>
-          <dd style={styles.value}>{status?.currentTrackName ?? 'Aguardando telemetria'}</dd>
+          <dt style={styles.term}>Current track</dt>
+          <dd style={styles.value}>{status?.currentTrackName ?? 'Waiting for telemetry'}</dd>
         </div>
         <div>
-          <dt style={styles.term}>Fonte atual</dt>
+          <dt style={styles.term}>Current source</dt>
           <dd style={styles.value}>{status?.currentSource ?? 'none'}</dd>
         </div>
         <div>
-          <dt style={styles.term}>Método de login</dt>
+          <dt style={styles.term}>Login method</dt>
           <dd style={styles.value}>{loginMethodLabel(status?.loginMethod)}</dd>
         </div>
         <div>
-          <dt style={styles.term}>Login salvo</dt>
-          <dd style={styles.value}>{status?.email ?? 'Nenhum'}</dd>
+          <dt style={styles.term}>Login saved</dt>
+          <dd style={styles.value}>{status?.email ?? 'None'}</dd>
         </div>
         <div>
-          <dt style={styles.term}>Último login</dt>
+          <dt style={styles.term}>Last login</dt>
           <dd style={styles.value}>
-            {status?.lastAuthAt ? new Date(status.lastAuthAt).toLocaleString() : 'Nunca'}
+            {status?.lastAuthAt ? new Date(status.lastAuthAt).toLocaleString() : 'Never'}
           </dd>
         </div>
         {expiresAt && (
           <div>
-            <dt style={styles.term}>Sessão expira em</dt>
+            <dt style={styles.term}>Session expires at</dt>
             <dd style={styles.value}>{expiresAt}</dd>
           </div>
         )}
@@ -527,8 +527,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
 
       {status?.encryptionAvailable === false && (
         <div style={styles.warn}>
-          O armazenamento seguro do sistema está indisponível, então o login por e-mail e senha não pode ser
-          salvo neste dispositivo. Você ainda pode usar o login pelo navegador (método alternativo abaixo).
+          System secure storage is unavailable, so email/password login cannot be saved on this device. You can still use browser login below.
         </div>
       )}
       {(error || status?.lastErrorMessage) && <div style={styles.error}>{error ?? status?.lastErrorMessage}</div>}
@@ -537,13 +536,13 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
 
       <div style={styles.actions}>
         <button type="button" disabled={busy} onClick={() => void refreshMap()} style={styles.secondaryButton}>
-          Atualizar mapa
+          Refresh map
         </button>
         <button type="button" disabled={busy} onClick={() => void testDataApi()} style={styles.secondaryButton}>
-          Testar acesso à Data API
+          Test Data API access
         </button>
         <button type="button" disabled={busy} onClick={() => void clearCredentials()} style={styles.dangerButton}>
-          Esquecer credenciais / Sair
+          Forget credentials / Sign out
         </button>
         {(error || message) && (
           <button
@@ -556,13 +555,13 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
             }}
             style={styles.secondaryButton}
           >
-            Limpar mensagem
+            Clear message
           </button>
         )}
       </div>
       {dataApiDiagnostic && (
         <pre style={styles.rawDiagnostic}>
-{`HTTP ${dataApiDiagnostic.status} · auth=${dataApiDiagnostic.authMode}
+{`HTTP ${dataApiDiagnostic.status}  auth=${dataApiDiagnostic.authMode}
 ${dataApiDiagnostic.body}`}
         </pre>
       )}
@@ -570,12 +569,12 @@ ${dataApiDiagnostic.body}`}
       {/* SECOND first-class option: embedded iRacing web login. Recommended for
           accounts with app-based (TOTP) 2FA that don't use legacy auth. */}
       <div style={styles.altLogin}>
-        <p style={styles.altTitle}>Login pelo navegador</p>
-        <p style={styles.altRecommend}>Retorna sempre ao app; a Data API é testada só como diagnóstico.</p>
+        <p style={styles.altTitle}>Browser login</p>
+        <p style={styles.altRecommend}>Always returns to the app; Data API is tested only as diagnostics.</p>
         <p style={styles.hint}>
-          Abre a página real do iRacing numa janela. Você conclui e-mail, senha, CAPTCHA e 2FA ali mesmo —
-          capturamos apenas cookies de sessão (a senha não é armazenada). Se a Data API recusar o cookie, você volta
-          ao app mesmo assim e verá o aviso honesto acima.
+          Opens the real iRacing page in a window. Complete email, password, CAPTCHA, and 2FA there 
+          capturamos apenas cookies de session (a senha not e armazenada). Se a Data API recusar o cookie, voce lap
+          ao app mesmo assim e vera o aviso honesto acima.
         </p>
         <button
           type="button"
@@ -583,11 +582,11 @@ ${dataApiDiagnostic.body}`}
           onClick={() => void browserLogin()}
           style={{ ...styles.primaryButton, ...styles.primaryCta }}
         >
-          {busy ? 'Abrindo login do iRacing…' : 'Entrar no iRacing (abrir login)'}
+          {busy ? 'Opening iRacing login' : 'Sign in to iRacing (open login)'}
         </button>
         <p style={styles.hint}>
-          Para voltar ao app depois de logar: clique em “✓ Voltar ao Ultimate Sim App”. Se os botões não
-          responderem, use o menu <strong>Login → Concluí o login</strong> ou as teclas{' '}
+          To return to the app after signing in: click Return to Ultimate Sim App. If the buttons do not
+          respond, use the <strong>Login &gt; Completed login</strong> menu or the keys{' '}
           <strong>Ctrl+Enter</strong> (concluir) / <strong>Esc</strong> (cancelar).
         </p>
         {diagnostics && <div style={styles.diagnostic}>{diagnosticText(diagnostics)}</div>}

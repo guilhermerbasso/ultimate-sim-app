@@ -6,26 +6,27 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
-## 2.41.0 — Visual rebuild: widgets, overlays, dashboards, UX & i18n
+## 2.41.0 — Race‑car fidelity rebuild: hi‑fi dashboards, streaming, auto‑update, i18n
 
 ### Added
-- **Widget‑matrix factory** (`src/renderer/src/widgets2/`): a *variable × form* system rendering 57 telemetry variables in 9 visual forms (bar, vertical bar, gauge, 7‑segment, LED, **32‑bit pixel**, ring, tile, big number) — **513 NaN‑safe SVG widget combinations**, ≥ 5 forms per variable.
-- **New `Pixel32` primitive** for the retro 8/16/32‑bit pixel‑matrix readout.
-- **Overlay catalogue** (`src/renderer/src/overlays2/`): **57 overlays** across 11 categories, each renderable in all **8 design families** (≥ 5 styles per overlay).
-- **Dashboard catalogue** (`src/shared/dashboards2/` + `src/shared/car-families.ts`): **200 new dashboards** = 8 generic car families × 5 layouts × 5 resolutions, each with ≥ 5 distinct telemetry bindings; registered into `BUILTIN_PRESETS`.
-- **Collapsible sidebar** with icon‑only rail, `Ctrl/Cmd+B` shortcut, persisted state, and per‑item tooltips.
-- **App icon** wired into `electron-builder` (`build/icon.png`) and AI‑generated GT3 hero art (Azure AI Foundry `gpt-image`) for menu/README context.
-- **Japanese (`ja`)** and **Chinese (`zh`, Simplified)** locales.
+- **Hi‑fi 1024×600 dashboards** (`src/renderer/src/hifi/`): photorealistic **GT3 DDU cockpit**, **MoTeC‑style engineer analysis**, **endurance/IMSA stint**, **broadcast**, and **minimal** clusters — each built from a `gpt‑image` reference and matched pixel‑by‑pixel, driven by **live telemetry**, pure NaN‑safe SVG, **adaptive** (viewBox 1024×600 → any screen). Wired into `BUILTIN_PRESETS` via the `overlaywidget` embed path.
+- **Stream to phone/tablet**: a LAN server with **QR code + session token + optional password**, a responsive web dashboard, and Touch Controls streaming (extends `src/main/modules/streaming.ts`).
+- **Auto‑update**: `electron-updater` from GitHub Releases (automatic) plus a manual **Check for updates** button in About; `publish` config in `electron-builder.yml`.
+- **Chinese (`zh`, Simplified)** and **Japanese (`ja`)** locales; a scalable `tt()` i18n catalog.
+- **Collapsible sidebar** (icon‑only rail, `Ctrl/Cmd+B`, persisted); **new app icon** wired into `electron-builder`.
 
 ### Changed
-- **English is now the primary/default UI language** (`DEFAULT_APP_SETTINGS.language = 'en'`); Português/Deutsch/Français/Español remain switchable, plus the two new locales.
-- Sidebar collapse/expand labels moved into the i18n `ShellKey` catalogue (all 7 locales).
+- **English is now the primary/default UI language**; deep i18n migrated many screens (telemetry, fuel, tyres, strategy, settings, alerts, devices, community, controls, coach, engineer, …) and the AI Engineer prompt + TTS voice follow the app language.
+- **Overlays**: activating an overlay no longer scrolls the page; presentation options consolidated to **5 structurally‑distinct forms** (minimal, broadcast, analog, heatmap, neon) instead of colour‑only presets.
 
 ### Fixed
-- Absent telemetry channels no longer render false *critical* states for inverted variables (fuel/wear/grip).
-- Overlays can no longer overflow their declared height (fixed grid‑row layout).
-- Dashboard presets now build a fresh deep clone per call, preventing shared built‑in mutation.
+- **Settings** now apply and persist immediately (default telemetry source, etc.).
+- **AI Coach** map area grows/shrinks with the zoom level (no longer always full‑screen).
+- **Community** ships curated, editable HTTPS telemetry/setup sources per simulator.
+
+### Removed
+- The earlier generic *variable×form* build (`widgets2/`, `overlays2/`, `dashboards2/`, `car-families.ts`) — replaced by the hi‑fi, image‑driven dashboards.
 
 ### Notes
 - **AI Engineer, Live/AI Coach and analysis run 100% locally on the CPU (`node-llama-cpp`), offline, with no GPU and no cost.**
-- Validation: `typecheck` ✓ · **2,789 unit tests** ✓ · `build` ✓ · dashboard visual‑audit (0 render errors / overflow / overlap) ✓.
+- Validation: `typecheck` ✓ · **2,798 unit tests** ✓ · dashboard visual‑audit (**0 render errors / overflow / overlap**) ✓.

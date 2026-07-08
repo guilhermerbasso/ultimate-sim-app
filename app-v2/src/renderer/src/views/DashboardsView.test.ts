@@ -30,13 +30,13 @@ describe('resolvePlaylistRowLabel', () => {
     const label = resolvePlaylistRowLabel(buttonPanelPlaylistItem('ghost'), dashboards, panels)
     expect(label.kind).toBe('touch-panel')
     expect(label.name).toBe('ghost')
-    expect(label.subtitle).toBe('Touch panel não encontrado')
+    expect(label.subtitle).toBe('Touch panel not found')
     expect(label.found).toBe(false)
   })
 
   it('flags a missing dashboard', () => {
     const label = resolvePlaylistRowLabel({ dashboardId: 'nope' }, dashboards, panels)
-    expect(label.subtitle).toBe('Dashboard não encontrado')
+    expect(label.subtitle).toBe('Dashboard not found')
     expect(label.found).toBe(false)
   })
 })

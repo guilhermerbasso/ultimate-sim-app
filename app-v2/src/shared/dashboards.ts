@@ -2850,6 +2850,22 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     description:
       'MoTeC-style engineer screen: live multi-channel speed/throttle/brake traces, gear-step trace, G-G diagram, sector and lap-time tables, min/max/avg and a per-corner tyre-temperature strip. 1024×600, adaptive.',
     tags: ['engineer', 'motec', 'analysis', 'dashboard', 'fullscreen', 'hifi', '1024x600']
+  },
+  {
+    id: 'hifi_minimal',
+    name: 'GT3 — Minimal (hi-fi)',
+    widgetId: 'hifiMinimal',
+    description:
+      'Minimal, elegant GT3 dash: slim shift-LED line, one huge gear digit, speed, a thin live delta bar and three quiet tiles (fuel laps, lap, position). Lots of negative space. 1024×600, adaptive.',
+    tags: ['gt3', 'minimal', 'dashboard', 'fullscreen', 'hifi', '1024x600']
+  },
+  {
+    id: 'hifi_broadcast',
+    name: 'Broadcast — Standings (hi-fi)',
+    widgetId: 'hifiBroadcast',
+    description:
+      'TV broadcast/stream overlay: top timing bug (current/last lap + delta), leader/gap chip, purple fastest-lap banner and an 8-row standings strip with car numbers, class colours and gaps. 1024×600, adaptive.',
+    tags: ['broadcast', 'stream', 'standings', 'dashboard', 'fullscreen', 'hifi', '1024x600']
   }
 ]
 

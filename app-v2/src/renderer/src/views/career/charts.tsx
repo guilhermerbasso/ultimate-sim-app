@@ -1,7 +1,7 @@
 // Dependency-free SVG charts for the Career & Ratings Hub.
 //
 // Pure presentational components — no external charting library, no data
-// fetching, no business logic. They take already-normalized series (human units
+// fetching, no business logic. They take already-normalized seriess (human units
 // from the main process) and draw clean, hairline motorsport-style line/bar
 // charts that inherit the app's theme tokens via CSS-variable colours.
 
@@ -26,7 +26,7 @@ const emptyBox: CSSProperties = {
   textTransform: 'uppercase'
 }
 
-// Even-stride downsample that always keeps the final point, so very long series
+// Even-stride downsample that always keeps the final point, so very long seriess
 // (hundreds of races) stay light without dropping the latest rating.
 function downsample<T>(items: T[], max: number): T[] {
   if (items.length <= max) return items
@@ -54,14 +54,14 @@ interface HistoryChartProps {
   height?: number
 }
 
-// Single time-series line chart with a subtle area fill, min/max Y labels, a
+// Single time-seriess line chart with a subtle area fill, min/max Y labels, a
 // few date ticks and a highlighted latest point.
 export function HistoryChart({ points, color, valueDigits, ariaLabel, height = 184 }: HistoryChartProps): ReactElement {
   // useId can contain ':' which is awkward inside url(#…) refs — strip to keep a
   // clean, unique gradient id.
   const gradientId = `career-grad-${useId().replace(/[^a-zA-Z0-9]/g, '')}`
   if (points.length === 0) {
-    return <div style={emptyBox}>sem dados</div>
+    return <div style={emptyBox}>sem data</div>
   }
 
   const width = 720
@@ -69,8 +69,8 @@ export function HistoryChart({ points, color, valueDigits, ariaLabel, height = 1
   const innerW = width - pad.left - pad.right
   const innerH = height - pad.top - pad.bottom
 
-  const series = downsample(points, 320)
-  const values = series.map((point) => point.value)
+  const seriess = downsample(points, 320)
+  const values = seriess.map((point) => point.value)
   const rawMin = Math.min(...values)
   const rawMax = Math.max(...values)
   const margin = Math.max((rawMax - rawMin) * 0.08, valueDigits === 0 ? 20 : 0.1)
@@ -80,26 +80,26 @@ export function HistoryChart({ points, color, valueDigits, ariaLabel, height = 1
 
   // Position points by time when every timestamp parses and spans a range;
   // otherwise fall back to even index spacing.
-  const times = series.map((point) => Date.parse(point.when))
+  const times = seriess.map((point) => Date.parse(point.when))
   const timesOk = times.every((time) => Number.isFinite(time))
   const tMin = timesOk ? Math.min(...times) : 0
   const tMax = timesOk ? Math.max(...times) : 0
   const tSpan = tMax - tMin
   const xAt = (index: number): number => {
     if (timesOk && tSpan > 0) return ((times[index] - tMin) / tSpan) * innerW
-    return series.length > 1 ? (index / (series.length - 1)) * innerW : innerW / 2
+    return seriess.length > 1 ? (index / (seriess.length - 1)) * innerW : innerW / 2
   }
   const yAt = (value: number): number => innerH - ((value - min) / span) * innerH
 
-  const linePoints = series.map((point, index) => `${xAt(index).toFixed(1)},${yAt(point.value).toFixed(1)}`).join(' ')
-  const areaPath = `M${xAt(0).toFixed(1)},${innerH.toFixed(1)} L${series
+  const linePoints = seriess.map((point, index) => `${xAt(index).toFixed(1)},${yAt(point.value).toFixed(1)}`).join(' ')
+  const areaPath = `M${xAt(0).toFixed(1)},${innerH.toFixed(1)} L${seriess
     .map((point, index) => `${xAt(index).toFixed(1)},${yAt(point.value).toFixed(1)}`)
-    .join(' L')} L${xAt(series.length - 1).toFixed(1)},${innerH.toFixed(1)} Z`
+    .join(' L')} L${xAt(seriess.length - 1).toFixed(1)},${innerH.toFixed(1)} Z`
 
-  const last = series[series.length - 1]
-  const lastX = xAt(series.length - 1)
+  const last = seriess[seriess.length - 1]
+  const lastX = xAt(seriess.length - 1)
   const lastY = yAt(last.value)
-  const dateTicks = series.length > 1 ? [0, Math.floor((series.length - 1) / 2), series.length - 1] : [0]
+  const dateTicks = seriess.length > 1 ? [0, Math.floor((seriess.length - 1) / 2), seriess.length - 1] : [0]
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} width="100%" role="img" aria-label={ariaLabel} style={{ display: 'block' }}>
@@ -132,9 +132,9 @@ export function HistoryChart({ points, color, valueDigits, ariaLabel, height = 1
             y={innerH + 18}
             fill={AXIS_TEXT}
             fontSize={10}
-            textAnchor={index === 0 ? 'start' : index === series.length - 1 ? 'end' : 'middle'}
+            textAnchor={index === 0 ? 'start' : index === seriess.length - 1 ? 'end' : 'middle'}
           >
-            {fmtAxisDate(series[index].when)}
+            {fmtAxisDate(seriess[index].when)}
           </text>
         ))}
       </g>
@@ -159,7 +159,7 @@ interface IncidentTrendChartProps {
 // Per-race incident bars (oldest → newest) with a dashed average line.
 export function IncidentTrendChart({ points, height = 168 }: IncidentTrendChartProps): ReactElement {
   if (points.length === 0) {
-    return <div style={emptyBox}>sem corridas recentes</div>
+    return <div style={emptyBox}>sem corridas recent</div>
   }
 
   const width = 720
@@ -167,16 +167,16 @@ export function IncidentTrendChart({ points, height = 168 }: IncidentTrendChartP
   const innerW = width - pad.left - pad.right
   const innerH = height - pad.top - pad.bottom
 
-  const series = downsample(points, 80)
-  const maxIncidents = Math.max(...series.map((point) => point.incidents), 1)
-  const avg = series.reduce((sum, point) => sum + point.incidents, 0) / series.length
-  const slot = innerW / series.length
+  const seriess = downsample(points, 80)
+  const maxIncidents = Math.max(...seriess.map((point) => point.incidents), 1)
+  const avg = seriess.reduce((sum, point) => sum + point.incidents, 0) / seriess.length
+  const slot = innerW / seriess.length
   const barW = Math.max(2, Math.min(16, slot * 0.62))
   const yAt = (value: number): number => innerH - (value / maxIncidents) * innerH
   const avgY = yAt(avg)
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" role="img" aria-label="Tendência de incidentes por corrida" style={{ display: 'block' }}>
+    <svg viewBox={`0 0 ${width} ${height}`} width="100%" role="img" aria-label="Tendencia de incidents por corrida" style={{ display: 'block' }}>
       <g transform={`translate(${pad.left} ${pad.top})`}>
         {[0, 0.5, 1].map((tick) => {
           const y = tick * innerH
@@ -189,7 +189,7 @@ export function IncidentTrendChart({ points, height = 168 }: IncidentTrendChartP
             </g>
           )
         })}
-        {series.map((point, index) => {
+        {seriess.map((point, index) => {
           const x = index * slot + (slot - barW) / 2
           const y = yAt(point.incidents)
           return (
@@ -207,7 +207,7 @@ export function IncidentTrendChart({ points, height = 168 }: IncidentTrendChartP
         })}
         <line x1={0} y1={avgY} x2={innerW} y2={avgY} strokeWidth={1} strokeDasharray="4 3" style={{ stroke: 'var(--accent-primary)' }} />
         <text x={innerW} y={Math.max(10, avgY - 4)} fontSize={10} textAnchor="end" style={{ fill: 'var(--accent-primary)', fontVariantNumeric: 'tabular-nums' }}>
-          méd {avg.toFixed(1)}
+          med {avg.toFixed(1)}
         </text>
       </g>
     </svg>

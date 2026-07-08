@@ -3,7 +3,7 @@
 // the wiring, shows the exact avrdude command, and gives targeted
 // troubleshooting when a flash fails.
 //
-// Steps: módulo → placa → porta → gravar (log ao vivo) → pronto.
+// Steps: modulo → placa → porta → gravar (log ao vivo) → pronto.
 // The heavy lifting (avrdude, the 1200bps touch, the capability handshake and
 // the auto-created Hardware Hub profile) all happen in main; this component
 // only drives the SETUP_CHANNELS IPC contract and renders progress.
@@ -78,7 +78,7 @@ interface SetupWizardProps {
 }
 
 const STEP_LABELS: Array<{ id: WizardStep; label: string }> = [
-  { id: 'module', label: 'Módulo' },
+  { id: 'module', label: 'Modulo' },
   { id: 'board', label: 'Placa' },
   { id: 'port', label: 'Porta' },
   { id: 'flash', label: 'Gravar' }
@@ -197,7 +197,7 @@ export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast }: 
     if (guessedBoard && guessedBoard.id !== boardId) {
       setBoardId(guessedBoard.id)
       setBaudId(preselectBaudId(selectedModule, guessedBoard))
-      showToast(`Placa ajustada para ${guessedBoard.name} via detecção USB. ${guess.reason}`, 'info')
+      showToast(`Placa ajustada para ${guessedBoard.name} via deteccao USB. ${guess.reason}`, 'info')
     }
   }
 
@@ -212,7 +212,7 @@ export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast }: 
     if (!selectedModule || !selectedBoard || !port) return
     setFlashing(true)
     setResult(null)
-    setLog([{ message: `Iniciando gravação de ${selectedModule.name}…`, tone: 'info' }])
+    setLog([{ message: `Iniciando gravacao de ${selectedModule.name}…`, tone: 'info' }])
     setPercent(2)
     const request: FlashRequest = {
       moduleId: selectedModule.id,
@@ -227,7 +227,7 @@ export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast }: 
       if (res.ok && res.verified) {
         showToast(res.message, 'success')
       } else {
-        showToast(res.message || 'Não foi possível concluir a gravação.', 'error')
+        showToast(res.message || 'Nao foi possivel concluir a gravacao.', 'error')
       }
     } catch (error) {
       if (!mountedRef.current) return
@@ -257,7 +257,7 @@ export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast }: 
     setLog([
       {
         message:
-          'Iniciando backup .hex. Isto salva o firmware compilado da placa; não reverse-engineera nem identifica funções automaticamente.',
+          'Iniciando backup .hex. Isto saved o firmware compilado da placa; not reverse-engineera nem identifica funcoes automaticamente.',
         tone: 'info'
       }
     ])
@@ -314,9 +314,9 @@ export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast }: 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
           <div>
             <span style={label}>Setup / Gravar firmware</span>
-            <h2 style={{ margin: '6px 0 0', fontSize: 22 }}>Assistente de gravação</h2>
+            <h2 style={{ margin: '6px 0 0', fontSize: 22 }}>Assistente de gravacao</h2>
             <p style={{ ...helper, marginTop: 4 }}>
-              Escolha um módulo, conecte a placa e grave o firmware pronto. Sem Arduino IDE, sem código.
+              Escolha um modulo, conecte a placa e grave o firmware pronto. Sem Arduino IDE, sem codigo.
             </p>
           </div>
           <button style={buttonStyle('ghost')} onClick={closeWizard} type="button" aria-label="Fechar">
@@ -448,7 +448,7 @@ function ModuleStep({
 }): ReactElement {
   return (
     <div>
-      <p style={helper}>O que você quer montar? Comece pela matriz iFlag — é o módulo mais fácil.</p>
+      <p style={helper}>O que voce quer montar? Comece pela matriz iFlag — e o modulo mais facil.</p>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
         {SETUP_MODULES.map((module) => {
           const available = module.status === 'available'
@@ -512,7 +512,7 @@ function BoardStep({
   return (
     <div>
       <p style={helper}>
-        Qual placa você vai usar para o <strong>{module.name}</strong>? A recomendada é a mais barata e simples.
+        Qual placa voce vai usar para o <strong>{module.name}</strong>? A recomendada e a mais barata e simples.
       </p>
       {detectedGuess && (
         <div style={guessBanner}>
@@ -520,7 +520,7 @@ function BoardStep({
           <p style={{ ...helper, marginTop: 4 }}>{detectedGuess.reason}</p>
           {detectedGuess.needsAvr109 && (
             <p style={{ ...helper, marginTop: 4, color: '#ffd37a' }}>
-              Bootloader Caterina (avr109 + reset 1200 bps) — não use o programmer “arduino”/stk500.
+              Bootloader Caterina (avr109 + reset 1200 bps) — not use o programmer “arduino”/stk500.
             </p>
           )}
         </div>
@@ -574,14 +574,14 @@ function BoardStep({
             })}
           </div>
           <p style={{ ...helper, marginTop: 6 }}>
-            Clones com chip CH340 (Nano/Uno) normalmente precisam do <strong>bootloader antigo (57600)</strong> se a gravação falhar logo no início.
+            Clones com chip CH340 (Nano/Uno) normalmente precisam do <strong>bootloader antigo (57600)</strong> se a gravacao falhar logo no inicio.
           </p>
         </div>
       )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
         <button style={buttonStyle('ghost')} onClick={onBack} type="button">
-          ← Voltar
+          ← Back
         </button>
       </div>
     </div>
@@ -618,7 +618,7 @@ function PortStep({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16 }}>
         <span style={label}>Porta serial (COM)</span>
         <button style={buttonStyle('ghost')} onClick={onRefresh} type="button" disabled={loading}>
-          {loading ? 'Procurando…' : 'Atualizar'}
+          {loading ? 'Procurando…' : 'Refresh'}
         </button>
       </div>
 
@@ -627,7 +627,7 @@ function PortStep({
           <p style={helper}>
             {loading
               ? 'Procurando portas…'
-              : 'Nenhuma porta encontrada. Conecte a placa via USB (cabo de dados) e clique em Atualizar.'}
+              : 'No porta encontrada. Connect a placa via USB (cabo de data) e clique em Refresh.'}
           </p>
         )}
         {ports.map((info) => {
@@ -649,7 +649,7 @@ function PortStep({
                 <strong style={{ fontSize: 14 }}>{info.path}</strong>
                 <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
                   {info.identify?.speaksMatrix && <span style={matrixBadge}>iFlag / RGB Matrix</span>}
-                  {info.isSimX && <span style={{ ...difficultyBadge, background: 'rgba(209,52,56,0.16)', color: '#ff9a9c', borderColor: 'rgba(209,52,56,0.5)' }}>SIM-X — não use</span>}
+                  {info.isSimX && <span style={{ ...difficultyBadge, background: 'rgba(209,52,56,0.16)', color: '#ff9a9c', borderColor: 'rgba(209,52,56,0.5)' }}>SIM-X — not use</span>}
                 </span>
               </div>
               {(info.friendlyName || info.manufacturer) && (
@@ -683,7 +683,7 @@ function PortStep({
                 info.identify.speaksCompanion !== true &&
                 info.identify.boardGuess && (
                   <p style={companionPrompt}>
-                    ⚠️ Firmware não‑companion (ex.: SimHub/WLED) — grave o firmware companion do módulo para a placa acender e ser reconhecida.
+                    ⚠ Firmware not‑companion (ex.: SimHub/WLED) — grave o firmware companion do modulo para a placa acender e ser reconhecida.
                   </p>
                 )}
             </button>
@@ -693,13 +693,13 @@ function PortStep({
 
       {selectedPort && ports.find((p) => p.path === selectedPort)?.isSimX && (
         <p style={{ ...helper, color: '#ff9a9c', marginTop: 8 }}>
-          ⚠️ Essa porta parece ser o SIM-X principal. Não grave firmware nele por aqui — escolha um Arduino secundário.
+          ⚠ Essa porta parece ser o SIM-X principal. Nao grave firmware nele por aqui — escolha um Arduino secondary.
         </p>
       )}
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18 }}>
         <button style={buttonStyle('ghost')} onClick={onBack} type="button">
-          ← Voltar
+          ← Back
         </button>
         <button style={buttonStyle('primary')} onClick={onNext} type="button" disabled={!selectedPort}>
           Continuar →
@@ -774,10 +774,10 @@ function FlashStep({
       <WiringPanel module={module} board={board} compact />
 
       <div style={{ ...card, marginTop: 12, background: 'rgba(255,255,255,0.04)' }}>
-        <strong>Backup do firmware atual</strong>
+        <strong>Backup do firmware current</strong>
         <p style={{ ...helper, marginTop: 6 }}>
-          “Dump hex firmware from Arduino” salva uma cópia .hex da flash atual. Ele não reverse-engineera o binário
-          nem descobre automaticamente quais funções o firmware implementa.
+          “Dump hex firmware from Arduino” saved uma copia .hex da flash current. Ele not reverse-engineera o binario
+          nem descobre automaticamente quais funcoes o firmware implementa.
         </p>
         <button style={{ ...buttonStyle('soft'), marginTop: 8 }} onClick={onDumpHex} type="button" disabled={!port || busy}>
           {dumping ? 'Lendo .hex…' : 'Dump hex firmware from Arduino'}
@@ -785,7 +785,7 @@ function FlashStep({
       </div>
 
       <button style={{ ...buttonStyle('ghost'), marginTop: 12 }} onClick={onToggleCommand} type="button">
-        {showCommand ? 'Esconder comando avrdude' : 'Ver comando avrdude (avançado)'}
+        {showCommand ? 'Esconder comando avrdude' : 'Ver comando avrdude (avancado)'}
       </button>
       {showCommand && (
         <pre style={commandBox}>
@@ -825,18 +825,18 @@ function FlashStep({
           <strong style={{ color: '#7ee2b8' }}>✓ Pronto! Componente criado.</strong>
           <p style={{ ...helper, marginTop: 6 }}>
             Capacidades confirmadas: {result.capabilities.map((c) => `K:${c.key}=${c.detail}`).join(', ') || '—'}.
-            O dispositivo já foi criado no Hardware Hub e vinculado à porta {result.port}.
+            O dispositivo ja foi criado no Hardware Hub e vinculado a porta {result.port}.
           </p>
         </div>
       )}
 
       {failed && result && (
         <div style={{ ...card, marginTop: 14, borderColor: 'rgba(209,52,56,0.5)', background: 'rgba(209,52,56,0.12)' }}>
-          <strong style={{ color: '#ff9a9c' }}>Não deu certo</strong>
+          <strong style={{ color: '#ff9a9c' }}>Nao deu certo</strong>
           <p style={{ ...helper, marginTop: 6 }}>{result.message}</p>
           <ul style={{ ...helper, marginTop: 8, paddingLeft: 18 }}>
-            <li>Confirme a fiação: DIN no pino certo, 5V e GND comuns.</li>
-            <li>Use um cabo USB de <strong>dados</strong> (alguns cabos só carregam).</li>
+            <li>Confirme a fiacao: DIN no pino certo, 5V e GND comuns.</li>
+            <li>Use um cabo USB de <strong>data</strong> (alguns cabos so carregam).</li>
             <li>Feche o SimHub/Arduino IDE (eles podem estar segurando a porta).</li>
             <li>Nano clone? Volte e troque para o bootloader antigo (57600).</li>
           </ul>
@@ -845,7 +845,7 @@ function FlashStep({
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18, gap: 8 }}>
         <button style={buttonStyle('ghost')} onClick={busy ? onCancel : onBack} type="button">
-          {busy ? 'Cancelar operação' : '← Voltar'}
+          {busy ? 'Cancel operation' : '← Back'}
         </button>
         <div style={{ display: 'flex', gap: 8 }}>
           {busy && (
@@ -888,7 +888,7 @@ function WiringPanel({
 }): ReactElement {
   return (
     <div style={{ ...card, marginTop: compact ? 12 : 0 }}>
-      <span style={label}>Como ligar ({board.name})</span>
+      <span style={label}>Como leaguer ({board.name})</span>
       <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
         {module.wiring.map((step) => (
           <div key={step.signal} style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -906,7 +906,7 @@ function WiringPanel({
       )}
       {!compact && module.parts.length > 0 && (
         <p style={{ ...helper, marginTop: 8 }}>
-          <strong>Peças:</strong> {module.parts.join(' · ')}
+          <strong>Pecas:</strong> {module.parts.join(' · ')}
         </p>
       )}
     </div>

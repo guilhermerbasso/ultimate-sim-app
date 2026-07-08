@@ -81,7 +81,7 @@ function bulletColor(text: string): string {
 }
 
 function reasonLabel(reason: DebriefReason): string {
-  if (reason === 'session-end') return 'Fim de sessão'
+  if (reason === 'session-end') return 'Fim de sessao'
   if (reason === 'stint-end') return 'Fim de stint'
   return 'Sob demanda'
 }
@@ -153,7 +153,7 @@ export default function StintDebrief(): ReactElement {
       {debrief ? (
         <div style={card}>
           <span style={eyebrow}>
-            {reasonLabel(debrief.reason)} · {debrief.source === 'llm' ? 'IA' : 'determinístico'}
+            {reasonLabel(debrief.reason)} · {debrief.source === 'llm' ? 'IA' : 'deterministico'}
           </span>
           <p style={bodyText}>{debrief.text}</p>
           {debrief.bullets.length > 0 ? (
@@ -168,7 +168,7 @@ export default function StintDebrief(): ReactElement {
         </div>
       ) : (
         <p style={mutedText}>
-          O resumo do stint/sessão aparece aqui ao final de cada stint, ou clique em “Gerar debrief”.
+          O resumo do stint/sessao aparece aqui ao final de cada stint, ou clique em “Gerar debrief”.
         </p>
       )}
     </div>

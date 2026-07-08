@@ -10,8 +10,8 @@
 //
 // Two modes:
 //   • `interactive` (Coach IA) — corners are CLICKABLE; selecting one expands a
-//     detail panel: RED → o que MELHORAR, BLUE → o que VOCÊ FEZ DE CERTO,
-//     GREEN → no padrão. Full legend.
+//     detail panel: RED → o que MELHORAR, BLUE → o que VOCE FEZ DE CERTO,
+//     GREEN → no padrao. Full legend.
 //   • `readonly` (overlay / dashboard widget) — same coloured mini-map, no click
 //     or expand, glanceable, with a compact legend strip.
 //
@@ -157,8 +157,8 @@ export function TrackCoachingHeatmap({
         <div style={emptyStyles.box}>
           <span style={emptyStyles.text}>
             {data?.recording?.active
-              ? `Aprendendo o mapa da pista… ${Math.round((data.recording.progress ?? 0) * 100)}%`
-              : 'Mapa da pista ainda não disponível — dirija uma volta limpa ou conecte o iRacing.'}
+              ? `Learning the track map… ${Math.round((data.recording.progress ?? 0) * 100)}%`
+              : 'Track map not available yet — drive a clean lap or connect iRacing.'}
           </span>
         </div>
         {legendOn && <Legend palette={palette} compact={!interactive} />}
@@ -440,7 +440,7 @@ function ZoomControls({
     <div style={zoomStyles.bar}>
       {button('+', 'Aproximar', canZoomIn, onZoomIn)}
       {button('−', 'Afastar', canZoomOut, onZoomOut)}
-      {button('⤢', 'Ajustar à pista', canReset, onReset)}
+      {button('⤢', 'Ajustar a pista', canReset, onReset)}
     </div>
   )
 }
@@ -493,7 +493,7 @@ function CornerDetail({ corner }: { corner: CornerHeat | null }): ReactElement {
   if (!corner) {
     return (
       <div style={detailStyles.panel}>
-        <span style={detailStyles.hint}>Clique numa curva no mapa para ver o detalhe (o que melhorar, o que você fez de certo, ou no padrão).</span>
+        <span style={detailStyles.hint}>Clique numa curva no mapa para ver o detalhe (o que melhorar, o que voce fez de certo, ou no padrao).</span>
       </div>
     )
   }
@@ -501,12 +501,12 @@ function CornerDetail({ corner }: { corner: CornerHeat | null }): ReactElement {
   const kind = detailKindForBucket(corner.bucket)
   const heading =
     kind === 'improve'
-      ? 'O que MELHORAR'
+      ? 'What to IMPROVE'
       : kind === 'replicate'
-        ? 'O que você fez de CERTO'
+        ? 'O que voce fez de CERTO'
         : kind === 'unknown'
-          ? 'Sem referência'
-          : 'No padrão'
+          ? 'Sem referencia'
+          : 'No padrao'
 
   return (
     <div style={{ ...detailStyles.panel, borderColor: corner.color }}>
@@ -517,11 +517,11 @@ function CornerDetail({ corner }: { corner: CornerHeat | null }): ReactElement {
       </div>
 
       {kind === 'onpar' && (
-        <p style={detailStyles.body}>Curva limpa — você está no padrão da referência aqui. Mantenha a execução.</p>
+        <p style={detailStyles.body}>Curva limpa — voce esta no padrao da referencia aqui. Mantenha a execucao.</p>
       )}
 
       {kind === 'unknown' && (
-        <p style={detailStyles.body}>Sem volta de referência ainda — esta curva não foi avaliada. Complete uma volta limpa para gerar a referência.</p>
+        <p style={detailStyles.body}>Sem lap de referencia ainda — esta curva not foi avaliada. Complete uma lap limpa para gerar a referencia.</p>
       )}
 
       {corner.dominant && kind !== 'onpar' && <FindingBlock finding={corner.dominant} primary />}

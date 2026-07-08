@@ -10,6 +10,8 @@ import type { TelemetrySnapshot } from '../../../../shared/telemetry'
 import { DduCluster } from '../../hifi/DduCluster'
 import { EnduranceCluster } from '../../hifi/EnduranceCluster'
 import { EngineerDash } from '../../hifi/EngineerDash'
+import { MinimalDash } from '../../hifi/MinimalDash'
+import { BroadcastDash } from '../../hifi/BroadcastDash'
 
 // A "no telemetry" snapshot: required numeric fields NaN → the hi-fi components
 // render em-dashes rather than fake data, matching their absent-channel behaviour.
@@ -40,4 +42,12 @@ export function HifiEngineerWidget({ snapshot }: WidgetProps): ReactElement {
     history.current = [...history.current, snapshot].slice(-240)
   }
   return <EngineerDash snapshot={snapshot ?? EMPTY_SNAPSHOT} history={history.current} />
+}
+
+export function HifiMinimalWidget({ snapshot }: WidgetProps): ReactElement {
+  return <MinimalDash snapshot={snapshot ?? EMPTY_SNAPSHOT} />
+}
+
+export function HifiBroadcastWidget({ snapshot }: WidgetProps): ReactElement {
+  return <BroadcastDash snapshot={snapshot ?? EMPTY_SNAPSHOT} />
 }

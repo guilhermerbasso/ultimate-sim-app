@@ -60,7 +60,7 @@ export const EXTRA_STRATEGY_VARIANTS: WidgetVariant[] = [
   nx('x4-session-time-big', 'Session · big', 'bigtext', 260, 130, 'Timing/Delta', 'clean', 'sessionTimeLeftFmt', { label: 'SESSION', background: PANEL, border: STROKE, accentColor: CHROME }, ['session', 'time', 'big']),
 
   // ── Fuel / stint strategy ──────────────────────────────────────────────────
-  nx('x4-fuelstint-tile', 'Fuel stint · tile', 'fuelstint', 300, 92, 'Fuel', 'clean', undefined, { reserveLaps: 1, warnAtLaps: 2, title: 'Combustível' }, ['fuel', 'stint', 'strategy']),
+  nx('x4-fuelstint-tile', 'Fuel stint · tile', 'fuelstint', 300, 92, 'Fuel', 'clean', undefined, { reserveLaps: 1, warnAtLaps: 2, title: 'Fuel' }, ['fuel', 'stint', 'strategy']),
   nx('x4-fuelstint-wide', 'Fuel stint · wide', 'fuelstint', 340, 110, 'Fuel', 'clean', undefined, { reserveLaps: 2, warnAtLaps: 3, title: 'Fuel / Stint', radius: 14 }, ['fuel', 'stint', 'wide']),
   nx('x4-fuelstint-endurance', 'Fuel stint · endurance', 'fuelstint', 320, 120, 'Fuel', 'clean', undefined, { reserveLaps: 3, warnAtLaps: 4, title: 'Stint', radius: 16 }, ['fuel', 'stint', 'endurance']),
   nx('x4-fuel-perlap-tile', 'Fuel per lap · tile', 'value', 200, 96, 'Fuel', 'clean', 'fuelPerLapStr', { label: 'FUEL/LAP', suffix: ' L', accentColor: GOLD }, ['fuel', 'perlap', 'stint']),

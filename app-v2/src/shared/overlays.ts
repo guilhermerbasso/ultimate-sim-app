@@ -38,6 +38,8 @@ export type OverlayWidgetId =
   | 'hifiDdu'
   | 'hifiEndurance'
   | 'hifiEngineer'
+  | 'hifiMinimal'
+  | 'hifiBroadcast'
   | 'perCornerTyrePressure'
   | 'brakeTempCorners'
   | 'fuelDeltaTile'

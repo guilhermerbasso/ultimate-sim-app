@@ -125,8 +125,8 @@ const MATRIX_CHIPS: ReadonlyArray<SelectOption<RgbMatrixComponent['chip']>> = [
   { value: 'max7219', label: 'MAX7219' }
 ]
 const MATRIX_MODES: ReadonlyArray<SelectOption<RgbMatrixComponent['mode']>> = [
-  { value: 'iflag', label: 'iFlag (bandeiras)' },
-  { value: 'gear', label: 'Marcha' },
+  { value: 'iflag', label: 'iFlag (flags)' },
+  { value: 'gear', label: 'Gear' },
   { value: 'custom', label: 'Custom' }
 ]
 const ORIENTATIONS: ReadonlyArray<SelectOption<'0' | '90' | '180' | '270'>> = [
@@ -411,15 +411,15 @@ function RgbMatrixEditor({
         </Field>
       </div>
       <div style={matrixTwoCol}>
-        <Field caption="Largura">
+        <Field caption="Width">
           <NumberField value={component.width} min={1} max={32} onChange={(width) => onChange({ ...component, width })} />
         </Field>
-        <Field caption="Altura">
+        <Field caption="Height">
           <NumberField value={component.height} min={1} max={32} onChange={(height) => onChange({ ...component, height })} />
         </Field>
       </div>
       <div style={matrixTwoCol}>
-        <Field caption="Orientação">
+        <Field caption="Orientacao">
           <SelectField
             value={String(component.orientation) as '0' | '90' | '180' | '270'}
             options={ORIENTATIONS}

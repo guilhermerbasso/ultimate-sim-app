@@ -30,17 +30,17 @@ The **AI Engineer**, **Live/AI Coach**, and **lap analysis** run **entirely on y
 
 ## ✨ What's new in this release
 
-A ground‑up rebuild of the visual layer and UX:
+A ground‑up rebuild for **real race‑car visual fidelity**:
 
-- **250+ telemetry widgets** from a *variable × form* factory — every channel can be shown as a **bar, vertical bar, gauge, 7‑segment, LED, 32‑bit pixel, ring, tile, or big number** (≥ 5 forms per variable, 500+ combinations).
-- **50+ overlays**, each rendering in **≥ 5 visual styles/design families** (minimal, neon, glass, broadcast, terminal, bauhaus, analog, heatmap).
-- **200+ new dashboards** across **8 generic car families** × 5 layouts (DDU cockpit, engineer wall, endurance, strategy, broadcast) × 5 resolutions (800×480 → 1920×1080 + portrait).
-- **Car‑context theming** with original, trademark‑free codename liveries: *Woking, Maranello, Gaydon, Stuttgart, Bowtie, Affalterbach, Ingolstadt, and a Le Mans/IMSA‑style Prototype*.
-- **Collapsible sidebar** (icon‑only rail, `Ctrl/Cmd+B`, persisted) and a refreshed, image‑driven menu.
-- **New app icon** and AI‑generated hero art (Azure AI Foundry `gpt-image`), used for reference and menu context only — no readable logos or sponsor marks.
-- **English is now the primary language**, with switchable **Português, Deutsch, Français, 中文, Español, 日本語**.
+- **Hi‑fi 1024×600 dashboards** — photorealistic **GT3 DDU cockpit**, **MoTeC‑style engineer analysis**, and **endurance/IMSA** clusters, each built from a `gpt‑image` reference and matched pixel‑by‑pixel, driven by **live telemetry**, and **adaptive** to any screen (desktop, phone, tablet).
+- **Overlays** — activating an overlay no longer scrolls the page, and the presentation options are now **5 structurally‑distinct forms** (not just colour tints): minimal, broadcast, analog, heatmap, neon.
+- **Stream to your phone/tablet** — a built‑in LAN server with **QR code + token + optional password** opens the dashboard (and the Touch Controls Dash) in any mobile browser, responsive to the device screen.
+- **Auto‑update** — automatic updates from GitHub Releases plus a manual **Check for updates** button.
+- **English‑first, deep i18n** — English is the base and switching language localizes screens, descriptions, and the AI engineer/voice. Switchable **Português, Deutsch, Français, 中文, Español, 日本語**.
+- **Fixes** — Settings now apply and persist immediately (telemetry source, etc.); the AI Coach map grows/shrinks with zoom; Community ships curated, editable telemetry/setup sources per simulator.
+- **Collapsible sidebar** (icon‑only rail, `Ctrl/Cmd+B`, persisted) and a **new app icon**.
 
-All widgets/overlays/dashboards are **NaN‑safe** and verified by the visual‑audit harness (0 render errors, 0 overflow, 0 overlap) and the unit suite (**2,789 tests green**).
+All hi‑fi dashboards are **NaN‑safe** SVG (they show em‑dashes for absent telemetry — never fake data) and verified by the visual‑audit harness (**0 render errors / overflow / overlap**) and the unit suite (**2,798 tests green**).
 
 ---
 
@@ -91,17 +91,15 @@ All widgets/overlays/dashboards are **NaN‑safe** and verified by the visual‑
 
 ## 📸 Screenshots
 
-| App icon | GT3 dashboard (Maranello · DDU cockpit) |
-|---|---|
-| <img src="app-v2/concepts/rebuild/app-icon.png" width="160" /> | ![Maranello cockpit](app-v2/concepts/rebuild/d2-maranello-cockpit-1280x720.png) |
+**Hi‑fi dashboards (built from a gpt‑image reference, then matched pixel‑by‑pixel; live telemetry; 1024×600, adaptive):**
 
-| Engineer wall (Stuttgart) | Broadcast (Gaydon) |
+| GT3 DDU Cockpit | Engineer — MoTeC analysis |
 |---|---|
-| ![Engineer wall](app-v2/concepts/rebuild/d2-stuttgart-engineer-1280x720.png) | ![Broadcast](app-v2/concepts/rebuild/d2-gaydon-broadcast-1280x720.png) |
+| ![GT3 DDU cockpit](app-v2/concepts/rebuild/hifi-ddu-cockpit.png) | ![Engineer MoTeC](app-v2/concepts/rebuild/hifi-engineer.png) |
 
-| Endurance stint (Prototype) | Strategy desk (Bowtie) |
+| Endurance / IMSA stint | App icon |
 |---|---|
-| ![Endurance](app-v2/concepts/rebuild/d2-prototype-endurance-1280x720.png) | ![Strategy](app-v2/concepts/rebuild/d2-bowtie-strategy-1280x720.png) |
+| ![Endurance stint](app-v2/concepts/rebuild/hifi-endurance.png) | <img src="app-v2/concepts/rebuild/app-icon.png" width="160" /> |
 
 | Telemetry workspace | Overlay manager |
 |---|---|

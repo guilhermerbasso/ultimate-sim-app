@@ -63,13 +63,13 @@ const CYCLE_ACTION_NAME: Record<CycleDirection, AppActionName> = {
 }
 
 const CYCLE_BINDING_LABEL: Record<CycleDirection, string> = {
-  next: 'Dashboard · próximo (playlist)',
+  next: 'Dashboard · next (playlist)',
   prev: 'Dashboard · anterior (playlist)'
 }
 
 const CYCLE_FIELD_LABEL: Record<CycleDirection, string> = {
-  next: 'Avançar (próximo)',
-  prev: 'Voltar (anterior)'
+  next: 'Advance (next)',
+  prev: 'Back (previous)'
 }
 
 function createBindingId(): string {
@@ -86,7 +86,7 @@ function sameButton(a: HidButtonControl, b: HidButtonControl): boolean {
 
 const ELEMENT_TYPES: Array<{ value: DashboardElementType; label: string }> = [
   { value: 'text', label: 'Texto' },
-  { value: 'rect', label: 'Retângulo' },
+  { value: 'rect', label: 'Rectangle' },
   { value: 'bar', label: 'Barra' },
   { value: 'barv', label: 'Barra vertical' },
   { value: 'dualbar', label: 'Dualbar (throttle/brake)' },
@@ -96,38 +96,38 @@ const ELEMENT_TYPES: Array<{ value: DashboardElementType; label: string }> = [
   { value: 'map', label: 'Mapa da pista' },
   { value: 'radar', label: 'Radar' },
   { value: 'image', label: 'Imagem' },
-  { value: 'flag', label: 'Bandeira' },
+  { value: 'flag', label: 'Flag' },
   { value: 'trace', label: 'Trace (sparkline)' },
   { value: 'table', label: 'Tabela' },
   { value: 'standings', label: 'Standings' },
   // GT3 widgets
   { value: 'shiftbar', label: 'Shift Bar v2 (GT3)' },
-  { value: 'gearcluster', label: 'Marcha + Velocidade (GT3)' },
-  { value: 'tyregrid', label: 'Grid de Pneus (GT3)' },
-  { value: 'brakegrid', label: 'Grid de Freios (GT3)' },
-  { value: 'cornerstack', label: 'Saúde por Canto (GT3)' },
-  { value: 'fuelstint', label: 'Combustível / Stint (GT3)' },
-  { value: 'deltatile', label: 'Delta Preditivo (GT3)' },
-  { value: 'laptiming', label: 'Tempos de Volta (GT3)' },
-  { value: 'positiongaps', label: 'Posição + Gaps (GT3)' },
-  { value: 'flagoverlay', label: 'Bandeira / Aviso v2 (GT3)' },
-  { value: 'inputbars', label: 'Barras de Input (GT3)' },
-  { value: 'inputtrace', label: 'Trace de Input (GT3)' },
-  { value: 'steering', label: 'Volante (GT3)' },
+  { value: 'gearcluster', label: 'Gear + Speed (GT3)' },
+  { value: 'tyregrid', label: 'Grid de Tyres (GT3)' },
+  { value: 'brakegrid', label: 'Grid de Brakes (GT3)' },
+  { value: 'cornerstack', label: 'Health por Canto (GT3)' },
+  { value: 'fuelstint', label: 'Fuel / Stint (GT3)' },
+  { value: 'deltatile', label: 'Predictive Delta (GT3)' },
+  { value: 'laptiming', label: 'Lap Times (GT3)' },
+  { value: 'positiongaps', label: 'Position + Gaps (GT3)' },
+  { value: 'flagoverlay', label: 'Flag / Alert v2 (GT3)' },
+  { value: 'inputbars', label: 'Input Bars (GT3)' },
+  { value: 'inputtrace', label: 'Input Trace (GT3)' },
+  { value: 'steering', label: 'Steering (GT3)' },
   { value: 'setupstrip', label: 'Strip ABS/TC/MAP/BB (GT3)' },
-  { value: 'enginetemps', label: 'Temps do Motor (GT3)' },
-  { value: 'weather', label: 'Clima / Pista (GT3)' },
-  { value: 'trackmini', label: 'Mini Mapa (GT3)' },
-  // Clean value widgets (qualquer canal via ir:<id>)
+  { value: 'enginetemps', label: 'Engine Temps (GT3)' },
+  { value: 'weather', label: 'Weather / Track (GT3)' },
+  { value: 'trackmini', label: 'Mini Map (GT3)' },
+  // Clean value widgets (qualquer channel via ir:<id>)
   { value: 'value', label: 'Valor limpo' },
   { value: 'valuebar', label: 'Valor + barra' },
   { value: 'valuegauge', label: 'Valor + mostrador' }
 ]
 
 const SCALE_MODES: Array<{ value: DashboardScaleMode; label: string; hint: string }> = [
-  { value: 'fit', label: 'Fit (letterbox)', hint: 'Preserva proporção. Pode deixar bordas vazias.' },
+  { value: 'fit', label: 'Fit (letterbox)', hint: 'Preserva proportion. Pode deixar bordas vazias.' },
   { value: 'fill', label: 'Fill (cover)', hint: 'Cobre a tela. Pode cortar nas bordas.' },
-  { value: 'stretch', label: 'Stretch', hint: 'Distorce X/Y p/ preencher exatamente. Sem espaços, sem cortes.' }
+  { value: 'stretch', label: 'Stretch', hint: 'Distorce X/Y p/ preencher exatamente. Sem espacos, sem cortes.' }
 ]
 
 const DEFAULT_TABLE_COLS = ['pos', 'number', 'name', 'gap', 'class']
@@ -411,7 +411,7 @@ function defaultElement(type: DashboardElementType, base: Dashboard): DashboardE
 // A playlist can interleave dashboards with editable RGB button-box ("touch")
 // panels. Touch-panel rows carry a panel id (not a dashboard id) and must be
 // resolved against the touch-panel summaries — otherwise the UI shows a bogus
-// "Dashboard não encontrado" + raw id (the reported blocker).
+// "Dashboard not found" + raw id (the reported blocker).
 export interface PlaylistRowLabel {
   kind: 'dashboard' | 'touch-panel'
   name: string
@@ -430,7 +430,7 @@ export function resolvePlaylistRowLabel(
     return {
       kind: 'touch-panel',
       name: panel?.name ?? id,
-      subtitle: panel ? `Touch panel · ${panel.columns}×${panel.rows}` : 'Touch panel não encontrado',
+      subtitle: panel ? `Touch panel · ${panel.columns}×${panel.rows}` : 'Touch panel not found',
       found: Boolean(panel)
     }
   }
@@ -438,7 +438,7 @@ export function resolvePlaylistRowLabel(
   return {
     kind: 'dashboard',
     name: dash?.name ?? item.dashboardId,
-    subtitle: dash ? `${dash.width}×${dash.height}` : 'Dashboard não encontrado',
+    subtitle: dash ? `${dash.width}×${dash.height}` : 'Dashboard not found',
     found: Boolean(dash)
   }
 }
@@ -508,9 +508,9 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
   const [cycleControls, setCycleControls] = useState<DashboardCycleControls>({ next: null, prev: null })
   const [captureCycle, setCaptureCycle] = useState<CycleDirection | null>(null)
   const dirtyRef = useRef(false)
-  // Espelho em estado do `dirtyRef` (que é só uma ref e não dispara render) para a
-  // UI poder mostrar o indicador "não salvo" e habilitar o botão Salvar só quando há
-  // mudanças pendentes. `markDirty`/`markClean` mantêm ref e estado em sincronia.
+  // Espelho em estado do `dirtyRef` (que e so uma ref e not dispara render) para a
+  // UI poder mostrar o indicador "not saved" e habilitar o button Save so quando ha
+  // mudancas pendentes. `markDirty`/`markClean` mantem ref e estado em sincronia.
   const [dirty, setDirty] = useState(false)
   const markDirty = useCallback((): void => {
     dirtyRef.current = true
@@ -610,8 +610,8 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
     }
   }, [selectedId])
 
-  // Avisa o usuário (nativo do browser/Electron) ao fechar/recarregar a janela com
-  // alterações de dashboard ainda não salvas, evitando perda de edição acidental.
+  // Avisa o usuario (nativo do browser/Electron) ao fechar/recarregar a janela com
+  // changes de dashboard ainda not saved, evitando perda de edicao acidental.
   useEffect(() => {
     if (!dirty) return
     const handler = (event: BeforeUnloadEvent): void => {
@@ -628,7 +628,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
     try {
       await fn()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao executar ação')
+      setError(err instanceof Error ? err.message : 'Falha ao executar acao')
     } finally {
       setBusy(false)
     }
@@ -674,11 +674,11 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
 
       if (conflict) {
         showToast(
-          `Botão ${control.buttonIndex + 1} já está vinculado a "${conflict.label}" em Controls & Keyboard. As duas ações vão disparar juntas.`,
+          `Button ${control.buttonIndex + 1} ja esta vinculado a "${conflict.label}" em Controls & Keyboard. As duas acoes vao disparar juntas.`,
           'info'
         )
       } else {
-        showToast(`Botão ${control.buttonIndex + 1} vinculado para ${CYCLE_FIELD_LABEL[direction].toLowerCase()}.`, 'success')
+        showToast(`Button ${control.buttonIndex + 1} vinculado para ${CYCLE_FIELD_LABEL[direction].toLowerCase()}.`, 'success')
       }
     },
     [showToast]
@@ -717,7 +717,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           gamepadId: pressed.gamepadId,
           gamepadIndex: pressed.gamepadIndex,
           buttonIndex: pressed.buttonIndex
-        }).catch((err) => setError(err instanceof Error ? err.message : 'Falha ao vincular botão'))
+        }).catch((err) => setError(err instanceof Error ? err.message : 'Falha ao vincular button'))
         return
       }
       frame = window.requestAnimationFrame(tick)
@@ -888,15 +888,15 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
     setSelectedId(summary.id)
     setSelectedDash(next)
     markClean()
-    showToast(`Dashboard "${summary.name}" salvo.`, 'success')
+    showToast(`Dashboard "${summary.name}" saved.`, 'success')
     return next
   }
 
-  // Troca de dashboard selecionado na lista, confirmando o descarte quando há
-  // alterações pendentes (clicar em outro item recarrega e sobrescreve o atual).
+  // Troca de dashboard selecionado na lista, confirmando o descarte quando ha
+  // changes pendentes (clicar em outro item recarrega e sobrescreve o current).
   function selectDashboard(id: string): void {
     if (id === selectedId) return
-    if (dirtyRef.current && !window.confirm('Há alterações não salvas neste dashboard. Descartá-las e abrir outro?')) return
+    if (dirtyRef.current && !window.confirm('Ha changes not saved neste dashboard. Descarta-las e abrir outro?')) return
     setSelectedId(id)
   }
 
@@ -934,12 +934,12 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
 
   async function deleteCurrent(): Promise<void> {
     if (!selectedDash) return
-    const confirmed = window.confirm(`Excluir o dashboard "${selectedDash.name}"?`)
+    const confirmed = window.confirm(`Delete o dashboard "${selectedDash.name}"?`)
     if (!confirmed) return
     await window.ipc.invoke('app:dash:delete', selectedDash.id)
     setSelectedId(null)
     setSelectedDash(null)
-    showToast('Dashboard excluído.', 'info')
+    showToast('Dashboard deleted.', 'info')
   }
 
   function toggleDashboardSelection(id: string): void {
@@ -966,7 +966,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
   async function deleteSelectedDashboards(): Promise<void> {
     const ids = Array.from(selectedDashboardIds)
     if (ids.length === 0) return
-    const confirmed = window.confirm(`Excluir ${ids.length} dashboard${ids.length === 1 ? '' : 's'} selecionado${ids.length === 1 ? '' : 's'}?`)
+    const confirmed = window.confirm(`Delete ${ids.length} dashboard${ids.length === 1 ? '' : 's'} selecionado${ids.length === 1 ? '' : 's'}?`)
     if (!confirmed) return
     const results = await Promise.allSettled(ids.map((id) => window.ipc.invoke('app:dash:delete', id)))
     const failed = results.filter((r) => r.status === 'rejected').length
@@ -981,9 +981,9 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
     }
     const deleted = ids.length - failed
     if (failed > 0) {
-      showToast(`${deleted} excluído${deleted === 1 ? '' : 's'}, ${failed} falhou.`, 'error')
+      showToast(`${deleted} deleted${deleted === 1 ? '' : 's'}, ${failed} falhou.`, 'error')
     } else {
-      showToast(`${deleted} dashboard${deleted === 1 ? '' : 's'} excluído${deleted === 1 ? '' : 's'}.`, 'info')
+      showToast(`${deleted} dashboard${deleted === 1 ? '' : 's'} deleted${deleted === 1 ? '' : 's'}.`, 'info')
     }
   }
 
@@ -1025,7 +1025,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
       }
       finishImport(result)
     } catch {
-      // Importação cancelada ou falhou — sem ação.
+      // Importacao cancelada ou falhou — sem acao.
     }
   }
 
@@ -1057,7 +1057,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
     showToast(`Preset "${summary.name}" criado.`, 'success')
   }
 
-  function newEmpty(width = 1280, height = 720, suggestedName = 'Novo dashboard'): void {
+  function newEmpty(width = 1280, height = 720, suggestedName = 'New dashboard'): void {
     const blank = newBlankDashboard(suggestedName, width, height)
     // Default to letterbox 'fit' so the canvas always scales to the target panel
     // without cropping, regardless of aspect ratio.
@@ -1089,7 +1089,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
     const displayId = selectedDisplayId ?? displays.find((display) => display.isPrimary)?.id ?? displays[0]?.id
     void run(async () => {
       await savePlaylist([...playlist.items, { dashboardId, displayId, fullscreen }])
-      showToast('Dashboard adicionado à playlist.', 'success')
+      showToast('Dashboard added a playlist.', 'success')
     })
   }
 
@@ -1130,7 +1130,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
         <div>
           <h3 style={{ margin: 0 }}>Dashboards</h3>
           <p style={{ margin: '6px 0 0', color: TEXT_DIM }}>
-            Janelas próprias no monitor 1/2 com telemetria ao vivo. Importa/exporta <code>.simhubdash</code> (SimHub Dash Studio) e tem construtor básico.
+            Janelas own no monitor 1/2 com telemetria ao vivo. Importa/exporta <code>.simhubdash</code> (SimHub Dash Studio) e tem construtor basico.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1141,15 +1141,15 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           <button style={btn()} disabled={busy || !selectedDash} onClick={() => run(exportSimhub)}>
             Exportar .simhubdash…
           </button>
-          <button style={btn()} disabled={busy} onClick={() => newEmpty(1280, 720, 'Novo dashboard')}>
-            Novo (vazio)
+          <button style={btn()} disabled={busy} onClick={() => newEmpty(1280, 720, 'New dashboard')}>
+            New (vazio)
           </button>
           {NEW_RESOLUTION_PRESETS.map((p) => (
             <button
               key={p.id}
               style={btn()}
               disabled={busy}
-              onClick={() => newEmpty(p.width, p.height, `Novo ${p.label}`)}
+              onClick={() => newEmpty(p.width, p.height, `New ${p.label}`)}
               title={`Cria um dashboard vazio em ${p.width}×${p.height}`}
             >
               + {p.label}
@@ -1166,10 +1166,10 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
             <div>
               <h4 style={{ margin: '0 0 4px' }}>Escolha a tela do .simhubdash</h4>
               <p style={{ margin: 0, color: TEXT_DIM, fontSize: 13 }}>
-                O arquivo tem múltiplas telas. A tela sugerida já está selecionada; você também pode importar todas como dashboards separados.
+                O arquivo tem multiple telas. A tela sugerida ja esta selected; voce tambem pode importar todas como dashboards separados.
               </p>
             </div>
-            <button style={btn()} disabled={busy} onClick={() => setImportPicker(null)}>Cancelar</button>
+            <button style={btn()} disabled={busy} onClick={() => setImportPicker(null)}>Cancel</button>
           </div>
           <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
             {importPicker.screens.map((screen) => (
@@ -1182,7 +1182,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                 <div style={{ flex: 1 }}>
                   <strong style={{ color: screen.selected ? ACCENT : TEXT_FG }}>{screen.name}</strong>
                   <div style={{ color: TEXT_DIM, fontSize: 12 }}>
-                    {screen.elementCount} elementos · score {screen.score}
+                    {screen.elementCount} elements · score {screen.score}
                     {screen.inGame ? ' · corrida' : ''}{screen.pit ? ' · pit' : ''}{screen.idle ? ' · idle' : ''}
                   </div>
                 </div>
@@ -1191,7 +1191,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
             <button style={btn('primary')} disabled={busy} onClick={() => run(() => completeSimhubImport(false))}>
-              Importar tela selecionada
+              Importar tela selected
             </button>
             <button style={btn()} disabled={busy} onClick={() => run(() => completeSimhubImport(true))}>
               Importar todas as telas
@@ -1202,7 +1202,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
 
       {importDiagnostics.length > 0 && (
         <section style={panel({ borderColor: '#ffb84d' })}>
-          <h4 style={{ margin: '0 0 8px' }}>Diagnóstico da importação</h4>
+          <h4 style={{ margin: '0 0 8px' }}>Diagnostics da import</h4>
           <ul style={{ margin: 0, paddingLeft: 18, color: TEXT_DIM, fontSize: 13 }}>
             {importDiagnostics.map((note, index) => (
               <li key={`${index}-${note.slice(0, 24)}`}>{note}</li>
@@ -1214,7 +1214,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
       <section style={panel()}>
         <h4 style={{ margin: '0 0 4px' }}>Galeria de presets</h4>
         <p style={{ margin: '0 0 12px', color: TEXT_DIM, fontSize: 13 }}>
-          Layouts prontos com preview real do modelo. Filtre por tag e clique em <strong>Duplicar e editar</strong> para criar uma cópia editável (os presets originais nunca são alterados). Procure o <strong>Dashboard Adaptativo</strong> (badge “Adaptativo”, filtro <code>adaptive</code>): ele se reorganiza sozinho ao vivo conforme a fase da sessão e o momento da volta.
+          Layouts ready com preview real do modelo. Filtre por tag e clique em <strong>Duplicate and edit</strong> para criar uma copia editavel (os presets originais never sao alterados). Procure o <strong>Dashboard Adaptive</strong> (badge “Adaptive”, filtro <code>adaptive</code>): ele se reorganiza sozinho ao vivo conforme a fase da sessao e o momento da lap.
         </p>
         <PresetGallery presets={BUILTIN_PRESETS} busy={busy} onPick={(id) => (id === ADAPTIVE_DASHBOARD_ID ? newBlankAdaptive() : run(() => newFromPreset(id)))} />
       </section>
@@ -1225,17 +1225,17 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           <div>
             <h4 style={{ margin: '0 0 4px' }}>Playlist de corrida</h4>
             <p style={{ margin: 0, color: TEXT_DIM, fontSize: 13 }}>
-              Monte a ordem dos dashboards e capture um botão do buttonbox abaixo para alternar durante a corrida. O atalho é salvo junto com <strong>Controls &amp; Keyboard</strong> e aparece lá automaticamente.
+              Monte a ordem dos dashboards e capture um button do buttonbox abaixo para alternar durante a corrida. O atalho e saved junto com <strong>Controls &amp; Keyboard</strong> e aparece la automaticamente.
             </p>
           </div>
           <button style={btn('primary')} disabled={busy || !selectedId} onClick={addSelectedToPlaylist}>
-            Adicionar selecionado
+            Add selecionado
           </button>
         </div>
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${PANEL_BORDER}` }}>
-          <div style={{ color: TEXT_FG, fontWeight: 700, fontSize: 14, marginBottom: 2 }}>Botão para alternar dashboards</div>
+          <div style={{ color: TEXT_FG, fontWeight: 700, fontSize: 14, marginBottom: 2 }}>Button para alternar dashboards</div>
           <p style={{ margin: '0 0 10px', color: TEXT_DIM, fontSize: 13 }}>
-            Arme a captura e pressione o botão do buttonbox. O vínculo é gravado no mesmo lugar de <strong>Controls &amp; Keyboard</strong> e fica sincronizado nos dois menus.
+            Arme a captura e pressione o button do buttonbox. O vinculo e gravado no mesmo lugar de <strong>Controls &amp; Keyboard</strong> e fica sincronizado nos dois menus.
           </p>
           <div style={{ display: 'grid', gap: 8 }}>
             {(['next', 'prev'] as CycleDirection[]).map((direction) => {
@@ -1258,20 +1258,20 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                 >
                   <div style={{ minWidth: 150 }}>
                     <div style={{ color: TEXT_FG, fontWeight: 700, fontSize: 13 }}>{CYCLE_FIELD_LABEL[direction]}</div>
-                    <div style={{ color: TEXT_DIM, fontSize: 12 }}>{direction === 'next' ? 'Próximo dashboard da playlist' : 'Dashboard anterior da playlist'}</div>
+                    <div style={{ color: TEXT_DIM, fontSize: 12 }}>{direction === 'next' ? 'Next dashboard da playlist' : 'Dashboard anterior da playlist'}</div>
                   </div>
                   <div style={{ flex: 1, minWidth: 130, color: arming ? ACCENT : control ? TEXT_FG : TEXT_DIM, fontWeight: 700, fontSize: 14 }}>
-                    {arming ? 'Pressione um botão…' : control ? `Botão ${control.buttonIndex + 1}` : 'Nenhum botão'}
+                    {arming ? 'Pressione um button…' : control ? `Button ${control.buttonIndex + 1}` : 'None button'}
                   </div>
                   {arming ? (
-                    <button style={btn('danger')} onClick={() => setCaptureCycle(null)}>Cancelar</button>
+                    <button style={btn('danger')} onClick={() => setCaptureCycle(null)}>Cancel</button>
                   ) : (
                     <button style={btn('primary')} disabled={busy || otherArming} onClick={() => setCaptureCycle(direction)}>
-                      {control ? 'Recapturar' : 'Capturar botão'}
+                      {control ? 'Recapturar' : 'Capturar button'}
                     </button>
                   )}
                   {control && !arming && (
-                    <button style={btn()} disabled={busy} onClick={() => run(() => clearCycleButton(direction))}>Limpar</button>
+                    <button style={btn()} disabled={busy} onClick={() => run(() => clearCycleButton(direction))}>Clear</button>
                   )}
                 </div>
               )
@@ -1279,7 +1279,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           </div>
         </div>
         <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {playlist.items.length === 0 && <div style={{ color: TEXT_DIM, fontSize: 13 }}>Playlist vazia. Selecione um dashboard e adicione à sequência.</div>}
+          {playlist.items.length === 0 && <div style={{ color: TEXT_DIM, fontSize: 13 }}>Playlist vazia. Selecione um dashboard e adicione a sequence.</div>}
           {playlist.items.map((item, index) => {
             const label = resolvePlaylistRowLabel(item, summaries, touchSummaries)
             const open = openStates.find((state) => state.id === item.dashboardId)
@@ -1305,10 +1305,10 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                   onChange={(event) => patchPlaylistItem(index, { displayId: event.target.value ? Number(event.target.value) : undefined })}
                   style={input()}
                 >
-                  <option value="">Monitor primário</option>
+                  <option value="">Monitor primary</option>
                   {displays.map((display) => (
                     <option key={display.id} value={display.id}>
-                      {display.label} · {display.bounds.width}×{display.bounds.height}{display.isPrimary ? ' · primário' : ''}
+                      {display.label} · {display.bounds.width}×{display.bounds.height}{display.isPrimary ? ' · primary' : ''}
                     </option>
                   ))}
                 </select>
@@ -1323,14 +1323,14 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                   <button style={btn()} disabled={busy || index === 0} onClick={() => movePlaylistItem(index, -1)}>↑</button>
                   <button style={btn()} disabled={busy || index === playlist.items.length - 1} onClick={() => movePlaylistItem(index, 1)}>↓</button>
-                  <button style={btn('danger')} disabled={busy} onClick={() => removePlaylistItem(index)}>Remover</button>
+                  <button style={btn('danger')} disabled={busy} onClick={() => removePlaylistItem(index)}>Remove</button>
                 </div>
               </div>
             )
           })}
         </div>
         <p style={{ margin: '10px 0 0', color: TEXT_DIM, fontSize: 12 }}>
-          Estado atual: {openStates.length === 0 ? 'nenhum dashboard aberto' : openStates.map((state) => `${summaries.find((dash) => dash.id === state.id)?.name ?? touchSummaries.find((p) => p.id === state.id)?.name ?? state.id} no monitor ${state.displayId}`).join(' · ')}.
+          Estado current: {openStates.length === 0 ? 'no dashboard aberto' : openStates.map((state) => `${summaries.find((dash) => dash.id === state.id)?.name ?? touchSummaries.find((p) => p.id === state.id)?.name ?? state.id} no monitor ${state.displayId}`).join(' · ')}.
         </p>
       </section>
 
@@ -1342,20 +1342,20 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
               <span style={{ color: TEXT_DIM, fontSize: 12, marginLeft: 8 }}>{selectionMode ? `${selectedDashboardIds.size} selecionado${selectedDashboardIds.size === 1 ? '' : 's'}` : summaries.length}</span>
             </div>
             <button type="button" style={btn(selectionMode ? 'primary' : 'default')} disabled={busy || summaries.length === 0} onClick={toggleSelectionMode}>
-              {selectionMode ? 'Cancelar' : 'Selecionar'}
+              {selectionMode ? 'Cancel' : 'Select'}
             </button>
           </div>
           {selectionMode && (
             <div style={{ padding: 10, borderBottom: `1px solid ${PANEL_BORDER}`, display: 'flex', gap: 6, flexWrap: 'wrap', background: 'var(--surface-sunken)' }}>
-              <button type="button" style={btn()} disabled={busy || summaries.length === 0} onClick={selectAllDashboards}>Selecionar tudo</button>
-              <button type="button" style={btn()} disabled={busy || selectedDashboardIds.size === 0} onClick={() => setSelectedDashboardIds(new Set())}>Limpar</button>
-              <button type="button" style={btn('danger')} disabled={busy || selectedDashboardIds.size === 0} onClick={() => run(deleteSelectedDashboards)}>Excluir selecionados</button>
+              <button type="button" style={btn()} disabled={busy || summaries.length === 0} onClick={selectAllDashboards}>Select tudo</button>
+              <button type="button" style={btn()} disabled={busy || selectedDashboardIds.size === 0} onClick={() => setSelectedDashboardIds(new Set())}>Clear</button>
+              <button type="button" style={btn('danger')} disabled={busy || selectedDashboardIds.size === 0} onClick={() => run(deleteSelectedDashboards)}>Delete selecionados</button>
             </div>
           )}
           <div style={{ maxHeight: 460, overflowY: 'auto' }}>
             {summaries.length === 0 && (
               <div style={{ padding: 16, color: TEXT_DIM }}>
-                Nenhum dashboard. Use um preset ou importe um <code>.simhubdash</code>.
+                None dashboard. Use um preset ou importe um <code>.simhubdash</code>.
               </div>
             )}
             {summaries.map((s) => {
@@ -1393,7 +1393,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                     {open && <span style={{ color: ACCENT, fontSize: 11, fontWeight: 700, flex: '0 0 auto' }}>ABERTO</span>}
                   </div>
                   <div style={{ color: TEXT_DIM, fontSize: 12, paddingLeft: selectionMode ? 24 : 0 }}>
-                    {s.width}×{s.height} · {s.elementCount} elementos
+                    {s.width}×{s.height} · {s.elementCount} elements
                   </div>
                 </button>
               )
@@ -1403,12 +1403,12 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
 
         <section style={panel()}>
           {!selectedDash ? (
-            <div style={{ color: TEXT_DIM, padding: 16 }}>Selecione um dashboard à esquerda ou crie um novo.</div>
+            <div style={{ color: TEXT_DIM, padding: 16 }}>Selecione um dashboard a esquerda ou crie um novo.</div>
           ) : (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 200 }}>
-                  <label style={fieldLabel()}>Nome</label>
+                  <label style={fieldLabel()}>Name</label>
                   <input
                     type="text"
                     value={selectedDash.name}
@@ -1417,7 +1417,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                   />
                 </div>
                 <div style={{ width: 110 }}>
-                  <label style={fieldLabel()}>Largura</label>
+                  <label style={fieldLabel()}>Width</label>
                   <input
                     type="number"
                     value={selectedDash.width}
@@ -1426,7 +1426,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                   />
                 </div>
                 <div style={{ width: 110 }}>
-                  <label style={fieldLabel()}>Altura</label>
+                  <label style={fieldLabel()}>Height</label>
                   <input
                     type="number"
                     value={selectedDash.height}
@@ -1477,7 +1477,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                 >
                   {displays.map((d) => (
                     <option key={d.id} value={d.id}>
-                      {d.label} · {d.bounds.width}×{d.bounds.height}{d.isPrimary ? ' · primário' : ''}
+                      {d.label} · {d.bounds.width}×{d.bounds.height}{d.isPrimary ? ' · primary' : ''}
                     </option>
                   ))}
                 </select>
@@ -1486,7 +1486,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                   Tela cheia
                 </label>
                 <button style={btn('primary')} disabled={busy || !selectedDash} onClick={() => run(openSelected)}>
-                  {isOpen ? 'Reabrir aqui' : 'Abrir no monitor'}
+                  {isOpen ? 'Reabrir aqui' : 'Open no monitor'}
                 </button>
                 {isOpen && (
                   <button style={btn('danger')} disabled={busy} onClick={() => run(() => closeOpen(selectedDash.id))}>
@@ -1497,18 +1497,18 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                   style={btn(dirty ? 'primary' : 'default')}
                   disabled={busy || !dirty}
                   onClick={() => run(async () => { await saveCurrent() })}
-                  title={dirty ? 'Salvar as alterações deste dashboard' : 'Nenhuma alteração pendente'}
+                  title={dirty ? 'Save as changes deste dashboard' : 'No alteracao pendente'}
                 >
-                  Salvar dashboard
+                  Save dashboard
                 </button>
                 <span
                   style={{ fontSize: 12, fontWeight: 700, color: dirty ? '#ffb84d' : TEXT_DIM, whiteSpace: 'nowrap' }}
-                  title={dirty ? 'Há alterações não salvas neste dashboard' : 'Todas as alterações foram salvas'}
+                  title={dirty ? 'Ha changes not saved neste dashboard' : 'All as changes foram saved'}
                 >
-                  {dirty ? '● não salvo' : '✓ salvo'}
+                  {dirty ? '● not saved' : '✓ saved'}
                 </span>
                 <button style={btn('danger')} disabled={busy || !selectedId} onClick={() => run(deleteCurrent)}>
-                  Excluir
+                  Delete
                 </button>
               </div>
 
@@ -1538,7 +1538,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                       onClick={() => run(openKiosk)}
                       title="Abre o dashboard selecionado em tela cheia, com gestos de toque (deslizar/tocar nas bordas troca de preset)."
                     >
-                      <span aria-hidden>🖐️</span> Abrir como Kiosk
+                      <span aria-hidden>🖐</span> Open como Kiosk
                     </button>
                     <span style={{ color: TEXT_DIM, fontSize: 12 }}>
                       Abre o dashboard selecionado em tela cheia no monitor escolhido acima, com
@@ -1546,7 +1546,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                     </span>
                   </div>
                   <p style={{ margin: 0, color: TEXT_DIM, fontSize: 12 }}>
-                    ℹ️ Painel de Pit foi movido para Touch Controls Dash.
+                    ℹ Painel de Pit foi movido para Touch Controls Dash.
                   </p>
                 </div>
               </div>
@@ -1565,7 +1565,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                       {galleryOpen ? '▾' : '▸'} Galeria de widgets
                     </button>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <label style={{ color: TEXT_DIM, fontSize: 12 }}>Adicionar avançado</label>
+                      <label style={{ color: TEXT_DIM, fontSize: 12 }}>Add avancado</label>
                       <select
                         value=""
                         onChange={(e) => {
@@ -1616,7 +1616,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                         checked={snapEnabled}
                         onChange={(e) => setSnapEnabled(e.target.checked)}
                       />
-                      Snap à grade
+                      Snap a grade
                     </label>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: TEXT_DIM, fontSize: 12 }}>
                       Passo
@@ -1638,11 +1638,11 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                         style={{ ...input({ width: 'auto' }), padding: '2px 6px', fontSize: 12 }}
                       >
                         <option value="sim">Telemetria simulada</option>
-                        <option value="static">Estático</option>
+                        <option value="static">Estatico</option>
                       </select>
                     </label>
                     <span style={{ color: TEXT_DIM, fontSize: 11 }}>
-                      {selectedDash.elements.length} elementos · canvas {selectedDash.width}×{selectedDash.height}
+                      {selectedDash.elements.length} elements · canvas {selectedDash.width}×{selectedDash.height}
                     </span>
                   </div>
                   <DashboardPreview
@@ -1658,8 +1658,8 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                   <p style={{ color: TEXT_DIM, fontSize: 12, margin: '8px 0 0' }}>
                     {previewMode === 'sim'
                       ? 'Preview com telemetria simulada (estado "em corrida"). Clique, arraste ou redimensione pelos handles para editar.'
-                      : 'Preview estático (sem telemetria). Clique, arraste ou redimensione pelos handles para editar.'}
-                    {snapEnabled ? ` Grade ${snapStep}px ativa: ajustes de posição/tamanho são arredondados.` : ''}
+                      : 'Preview static (sem telemetria). Clique, arraste ou redimensione pelos handles para editar.'}
+                    {snapEnabled ? ` Grade ${snapStep}px active: ajustes de posicao/tamanho sao arredondata.` : ''}
                   </p>
                 </div>
                 <div>
@@ -1984,7 +1984,7 @@ function DashboardPreview({
   )
 }
 
-// Wrapper de seleção para um widget GT3 renderizado ao vivo no editor. O widget
+// Wrapper de selecao para um widget GT3 renderizado ao vivo no editor. O widget
 // posiciona a si mesmo (classe .dash-element, absoluto) dentro deste wrapper.
 function Gt3PreviewElement({
   element,
@@ -2291,7 +2291,7 @@ function ElementInspector({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div>
-        <label style={fieldLabel()}>Nome</label>
+        <label style={fieldLabel()}>Name</label>
         <input type="text" value={element.name ?? ''} onChange={(e) => onChange({ name: e.target.value })} style={input()} />
       </div>
       <div>
@@ -2301,8 +2301,8 @@ function ElementInspector({
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <NumberField label="X" value={element.x} onChange={(v) => onChangeGeometry({ x: v })} max={dashboard.width} />
         <NumberField label="Y" value={element.y} onChange={(v) => onChangeGeometry({ y: v })} max={dashboard.height} />
-        <NumberField label="Largura" value={element.w} onChange={(v) => onChangeGeometry({ w: v })} max={dashboard.width} />
-        <NumberField label="Altura" value={element.h} onChange={(v) => onChangeGeometry({ h: v })} max={dashboard.height} />
+        <NumberField label="Width" value={element.w} onChange={(v) => onChangeGeometry({ w: v })} max={dashboard.width} />
+        <NumberField label="Height" value={element.h} onChange={(v) => onChangeGeometry({ h: v })} max={dashboard.height} />
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -2326,8 +2326,8 @@ function ElementInspector({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <label style={fieldLabel()}>Ordem de empilhamento (Z)</label>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
-          <button style={btn()} title="Para trás (1 nível)" onClick={() => onReorder('backward')}>↓ trás</button>
-          <button style={btn()} title="Para frente (1 nível)" onClick={() => onReorder('forward')}>↑ frente</button>
+          <button style={btn()} title="Para tras (1 level)" onClick={() => onReorder('backward')}>↓ tras</button>
+          <button style={btn()} title="Para front (1 level)" onClick={() => onReorder('forward')}>↑ front</button>
           <button style={btn()} title="Para o fundo" onClick={() => onReorder('back')}>⤓ fundo</button>
           <button style={btn()} title="Para o topo" onClick={() => onReorder('front')}>⤒ topo</button>
         </div>
@@ -2362,9 +2362,9 @@ function ElementInspector({
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <div style={{ gridColumn: 'span 2' }}>
-              <FontFamilyField label="Fonte (família)" value={String(element.style.fontFamily ?? '')} onChange={(v) => onChangeStyle({ fontFamily: v || undefined })} />
+              <FontFamilyField label="Font (familia)" value={String(element.style.fontFamily ?? '')} onChange={(v) => onChangeStyle({ fontFamily: v || undefined })} />
             </div>
-            <NumberField label="Fonte (px)" value={Number(element.style.fontSize ?? 18)} onChange={(v) => onChangeStyle({ fontSize: v })} min={8} max={400} />
+            <NumberField label="Font (px)" value={Number(element.style.fontSize ?? 18)} onChange={(v) => onChangeStyle({ fontSize: v })} min={8} max={400} />
             <div>
               <label style={fieldLabel()}>Peso</label>
               <select
@@ -2388,7 +2388,7 @@ function ElementInspector({
                 <option value="right">Direita</option>
               </select>
             </div>
-            <ColorField label="Cor do texto" value={element.style.color ?? TEXT_FG} onChange={(v) => onChangeStyle({ color: v })} />
+            <ColorField label="Text color" value={element.style.color ?? TEXT_FG} onChange={(v) => onChangeStyle({ color: v })} />
             <div>
               <label style={fieldLabel()}>Prefixo</label>
               <input type="text" value={element.style.prefix ?? ''} onChange={(e) => onChangeStyle({ prefix: e.target.value })} style={input()} />
@@ -2398,7 +2398,7 @@ function ElementInspector({
               <input type="text" value={element.style.suffix ?? ''} onChange={(e) => onChangeStyle({ suffix: e.target.value })} style={input()} />
             </div>
             <NumberField label="Casas decimais" value={element.style.decimals ?? 0} onChange={(v) => onChangeStyle({ decimals: Math.max(0, Math.min(4, Math.round(v))) })} min={0} max={4} />
-            <NumberField label="Espaçamento (px)" value={Number(element.style.slots?.value?.letterSpacing ?? 0)} onChange={(v) => onChangeStyle({ slots: applySlotField(element.style, 'value', 'letterSpacing', Number.isFinite(v) && v !== 0 ? v : undefined) })} min={-5} max={30} step={0.5} />
+            <NumberField label="Spacing (px)" value={Number(element.style.slots?.value?.letterSpacing ?? 0)} onChange={(v) => onChangeStyle({ slots: applySlotField(element.style, 'value', 'letterSpacing', Number.isFinite(v) && v !== 0 ? v : undefined) })} min={-5} max={30} step={0.5} />
             <SelectField label="Transformar" value={String(element.style.slots?.value?.textTransform ?? 'none')} options={TRANSFORM_OPTIONS} onChange={(v) => onChangeStyle({ slots: applySlotField(element.style, 'value', 'textTransform', v === 'none' ? undefined : v) })} />
             <ToggleField label="Sombra/glow" value={Boolean(element.style.slots?.value?.shadow)} onChange={(on) => onChangeStyle({ slots: applySlotField(element.style, 'value', 'shadow', on ? '0 2px 6px rgba(0,0,0,0.65)' : undefined) })} />
           </div>
@@ -2437,7 +2437,7 @@ function ElementInspector({
           )}
           {element.type === 'barv' && (
             <div>
-              <label style={fieldLabel()}>Direção</label>
+              <label style={fieldLabel()}>Direction</label>
               <select
                 value={element.style.reverse ? 'down' : 'up'}
                 onChange={(e) => onChangeStyle({ reverse: e.target.value === 'down' })}
@@ -2451,13 +2451,13 @@ function ElementInspector({
           {element.type === 'dualbar' && (
             <>
               <div>
-                <label style={fieldLabel()}>Binding secundário</label>
+                <label style={fieldLabel()}>Binding secondary</label>
                 <select
                   value={element.style.secondaryBinding ?? 'brake'}
                   onChange={(e) => onChangeStyle({ secondaryBinding: e.target.value || undefined })}
                   style={input()}
                 >
-                  <option value="">(nenhum)</option>
+                  <option value="">(no)</option>
                   {Object.entries(groups).map(([groupName, items]) => (
                     <optgroup key={groupName} label={groupName}>
                       {items.map((b) => (
@@ -2467,7 +2467,7 @@ function ElementInspector({
                   ))}
                 </select>
               </div>
-              <ColorField label="Cor secundária" value={element.style.secondaryColor ?? '#ff5468'} onChange={(v) => onChangeStyle({ secondaryColor: v })} />
+              <ColorField label="Cor secondary" value={element.style.secondaryColor ?? '#ff5468'} onChange={(v) => onChangeStyle({ secondaryColor: v })} />
             </>
           )}
           {element.type === 'deltabar' && (
@@ -2478,13 +2478,13 @@ function ElementInspector({
               <NumberField label="Amostras" value={element.style.traceLength ?? 120} onChange={(v) => onChangeStyle({ traceLength: Math.max(8, Math.min(2048, Math.round(v))) })} min={8} max={2048} step={1} />
               <NumberField label="Espessura" value={element.style.traceWidth ?? 1.6} onChange={(v) => onChangeStyle({ traceWidth: Math.max(0.5, Math.min(8, v)) })} min={0.5} max={8} step={0.1} />
               <div>
-                <label style={fieldLabel()}>Binding secundário</label>
+                <label style={fieldLabel()}>Binding secondary</label>
                 <select
                   value={element.style.secondaryBinding ?? ''}
                   onChange={(e) => onChangeStyle({ secondaryBinding: e.target.value || undefined })}
                   style={input()}
                 >
-                  <option value="">(nenhum)</option>
+                  <option value="">(no)</option>
                   {Object.entries(groups).map(([groupName, items]) => (
                     <optgroup key={groupName} label={groupName}>
                       {items.map((b) => (
@@ -2494,7 +2494,7 @@ function ElementInspector({
                   ))}
                 </select>
               </div>
-              <ColorField label="Cor série 2" value={element.style.traceColor2 ?? '#ff5468'} onChange={(v) => onChangeStyle({ traceColor2: v })} />
+              <ColorField label="Cor series 2" value={element.style.traceColor2 ?? '#ff5468'} onChange={(v) => onChangeStyle({ traceColor2: v })} />
             </>
           )}
         </div>
@@ -2520,7 +2520,7 @@ function ElementInspector({
                 }}
               />
             </label>
-            <p style={{ margin: '4px 0 0', color: TEXT_DIM, fontSize: 11 }}>Imagens grandes ({'>'}3MB) são reduzidas automaticamente.</p>
+            <p style={{ margin: '4px 0 0', color: TEXT_DIM, fontSize: 11 }}>Imagens grandes ({'>'}3MB) sao reduzidas automaticamente.</p>
           </div>
           <div>
             <label style={fieldLabel()}>URL ou data: URL</label>
@@ -2533,7 +2533,7 @@ function ElementInspector({
             />
           </div>
           {element.style.src && (
-            <button style={btn('danger')} onClick={() => onChangeStyle({ src: undefined })}>Remover imagem</button>
+            <button style={btn('danger')} onClick={() => onChangeStyle({ src: undefined })}>Remove imagem</button>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <div>
@@ -2554,14 +2554,14 @@ function ElementInspector({
           <div>
             <label style={fieldLabel()}>Ordem (z)</label>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
-              <button style={btn()} title="Para trás" onClick={() => onReorder('backward')}>↓ trás</button>
-              <button style={btn()} title="Para frente" onClick={() => onReorder('forward')}>↑ frente</button>
+              <button style={btn()} title="Para tras" onClick={() => onReorder('backward')}>↓ tras</button>
+              <button style={btn()} title="Para front" onClick={() => onReorder('forward')}>↑ front</button>
               <button style={btn()} title="Para o fundo" onClick={() => onReorder('back')}>⤓ fundo</button>
               <button style={btn()} title="Para o topo" onClick={() => onReorder('front')}>⤒ topo</button>
             </div>
           </div>
           <div>
-            <label style={fieldLabel()}>Filtros — predefinições</label>
+            <label style={fieldLabel()}>Filtros — predefinicoes</label>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {IMAGE_FILTER_PRESETS.map((p) => (
                 <button key={p.id} style={btn()} onClick={() => onChangeStyle(p.patch)}>{p.label}</button>
@@ -2571,11 +2571,11 @@ function ElementInspector({
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <SliderField label="Preto&branco" value={element.style.filterGrayscale ?? 0} onChange={(v) => onChangeStyle({ filterGrayscale: v || undefined })} min={0} max={1} step={0.05} />
             <SliderField label="Vermelho" value={element.style.redTint ?? 0} onChange={(v) => onChangeStyle({ redTint: v || undefined })} min={0} max={1} step={0.05} />
-            <SliderField label="Sépia" value={element.style.filterSepia ?? 0} onChange={(v) => onChangeStyle({ filterSepia: v || undefined })} min={0} max={1} step={0.05} />
+            <SliderField label="Sepia" value={element.style.filterSepia ?? 0} onChange={(v) => onChangeStyle({ filterSepia: v || undefined })} min={0} max={1} step={0.05} />
             <SliderField label="Inverter" value={element.style.invert ?? 0} onChange={(v) => onChangeStyle({ invert: v || undefined })} min={0} max={1} step={0.05} />
             <SliderField label="Brilho" value={element.style.brightness ?? 1} onChange={(v) => onChangeStyle({ brightness: v === 1 ? undefined : v })} min={0} max={2} step={0.05} />
             <SliderField label="Contraste" value={element.style.contrast ?? 1} onChange={(v) => onChangeStyle({ contrast: v === 1 ? undefined : v })} min={0} max={2} step={0.05} />
-            <SliderField label="Saturação" value={element.style.saturate ?? 1} onChange={(v) => onChangeStyle({ saturate: v === 1 ? undefined : v })} min={0} max={3} step={0.05} />
+            <SliderField label="Saturation" value={element.style.saturate ?? 1} onChange={(v) => onChangeStyle({ saturate: v === 1 ? undefined : v })} min={0} max={3} step={0.05} />
             <SliderField label="Matiz (°)" value={element.style.hueRotate ?? 0} onChange={(v) => onChangeStyle({ hueRotate: v || undefined })} min={-180} max={180} step={1} />
             <SliderField label="Desfoque (px)" value={element.style.blur ?? 0} onChange={(v) => onChangeStyle({ blur: v || undefined })} min={0} max={10} step={0.5} />
           </div>
@@ -2585,13 +2585,13 @@ function ElementInspector({
       {element.type === 'flag' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <div>
-            <label style={fieldLabel()}>Bandeira observada</label>
+            <label style={fieldLabel()}>Flag observada</label>
             <select
               value={element.style.flagKey ?? ''}
               onChange={(e) => onChangeStyle({ flagKey: e.target.value || undefined })}
               style={input()}
             >
-              <option value="">(qualquer ativa)</option>
+              <option value="">(qualquer active)</option>
               <option value="green">green</option>
               <option value="yellow">yellow</option>
               <option value="blue">blue</option>
@@ -2609,7 +2609,7 @@ function ElementInspector({
               type="text"
               value={element.style.text ?? ''}
               onChange={(e) => onChangeStyle({ text: e.target.value })}
-              placeholder="(usa label automático)"
+              placeholder="(usa label automatic)"
               style={input()}
             />
           </div>
@@ -2619,7 +2619,7 @@ function ElementInspector({
       {(element.type === 'table' || element.type === 'standings') && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <div style={{ gridColumn: 'span 2' }}>
-            <label style={fieldLabel()}>Colunas (vírgula)</label>
+            <label style={fieldLabel()}>Columns (comma)</label>
             <input
               type="text"
               value={(element.style.tableColumns ?? DEFAULT_TABLE_COLS).join(',')}
@@ -2635,10 +2635,10 @@ function ElementInspector({
               style={input()}
             />
             <p style={{ margin: '4px 0 0', color: TEXT_DIM, fontSize: 11 }}>
-              Disponíveis: pos, classPos, number, name, gap, class, license, iRating, laps
+              Available: pos, classPos, number, name, gap, class, license, iRating, laps
             </p>
           </div>
-          <NumberField label="Linhas máx." value={element.style.tableMaxRows ?? 8} onChange={(v) => onChangeStyle({ tableMaxRows: Math.max(1, Math.min(64, Math.round(v))) })} min={1} max={64} />
+          <NumberField label="Rows max." value={element.style.tableMaxRows ?? 8} onChange={(v) => onChangeStyle({ tableMaxRows: Math.max(1, Math.min(64, Math.round(v))) })} min={1} max={64} />
           <NumberField label="Tamanho fonte" value={Number(element.style.fontSize ?? 14)} onChange={(v) => onChangeStyle({ fontSize: Math.max(8, Math.min(64, v)) })} min={8} max={64} />
           <div>
             <label style={fieldLabel()}>Mostrar header</label>
@@ -2648,7 +2648,7 @@ function ElementInspector({
               style={input()}
             >
               <option value="yes">Sim</option>
-              <option value="no">Não</option>
+              <option value="no">Nao</option>
             </select>
           </div>
           <div>
@@ -2659,7 +2659,7 @@ function ElementInspector({
               style={input()}
             >
               <option value="yes">Sim</option>
-              <option value="no">Não</option>
+              <option value="no">Nao</option>
             </select>
           </div>
         </div>
@@ -2677,7 +2677,7 @@ function ElementInspector({
 
       <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
         <button style={btn()} onClick={onDuplicate}>Duplicar</button>
-        <button style={btn('danger')} onClick={onRemove}>Remover</button>
+        <button style={btn('danger')} onClick={onRemove}>Remove</button>
       </div>
     </div>
   )
@@ -2726,7 +2726,7 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
   )
 }
 
-// ─── Controles reutilizáveis do inspetor GT3 ──────────────────────────────────
+// ─── Controles reutilizaveis do inspetor GT3 ──────────────────────────────────
 function SectionLabel({ children }: { children: ReactNode }): ReactElement {
   return (
     <div style={{ gridColumn: 'span 2', color: ACCENT, fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.6, margin: '8px 0 -2px' }}>
@@ -2741,7 +2741,7 @@ function ToggleField({ label, value, onChange }: { label: string; value: boolean
       <label style={fieldLabel()}>{label}</label>
       <select value={value ? 'yes' : 'no'} onChange={(e) => onChange(e.target.value === 'yes')} style={input()}>
         <option value="yes">Sim</option>
-        <option value="no">Não</option>
+        <option value="no">Nao</option>
       </select>
     </div>
   )
@@ -2775,7 +2775,7 @@ function FontFamilyField({ label, value, onChange }: { label: string; value: str
   return <SelectField label={label} value={value} options={options} onChange={onChange} />
 }
 
-// `applySlotField` (escrita do slot, simétrica a `resolveSlotStyle`) vive em
+// `applySlotField` (escrita do slot, simetrica a `resolveSlotStyle`) vive em
 // shared/dashboards.ts para ser reusada pelo renderer/testes.
 
 const WEIGHT_OPTIONS = [
@@ -2791,14 +2791,14 @@ const ALIGN_OPTIONS = [
 ]
 
 const TRANSFORM_OPTIONS = [
-  { value: 'none', label: 'Nenhum' },
-  { value: 'uppercase', label: 'MAIÚSCULAS' },
-  { value: 'lowercase', label: 'minúsculas' },
+  { value: 'none', label: 'None' },
+  { value: 'uppercase', label: 'UPPERCASE' },
+  { value: 'lowercase', label: 'lowercase' },
   { value: 'capitalize', label: 'Capitalizar' }
 ]
 
 // Editor de estilo por slot de texto (granular). Mostra um seletor de slot e, para
-// o slot ativo, os controles de fonte/cor/peso/alinhamento/espaçamento/transform/
+// o slot ativo, os controles de fonte/cor/peso/alinhamento/espacamento/transform/
 // sombra. Cada campo grava em style.slots[slot].
 function SlotStyleEditor({ element, slots, onChangeStyle }: {
   element: DashboardElement
@@ -2812,7 +2812,7 @@ function SlotStyleEditor({ element, slots, onChangeStyle }: {
     onChangeStyle({ slots: applySlotField(element.style, slot, field, value) })
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-      <SectionLabel>Estilo por texto (granular)</SectionLabel>
+      <SectionLabel>Style por texto (granular)</SectionLabel>
       <div style={{ gridColumn: 'span 2', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {slots.map((sd) => {
           const touched = Boolean(element.style.slots?.[sd.slot] && Object.keys(element.style.slots[sd.slot]).length > 0)
@@ -2820,7 +2820,7 @@ function SlotStyleEditor({ element, slots, onChangeStyle }: {
             <button
               key={sd.slot}
               style={btn(sd.slot === slot ? 'primary' : 'default')}
-              title={touched ? 'Personalizado' : 'Padrão'}
+              title={touched ? 'Custom' : 'Default'}
               onClick={() => setActive(sd.slot)}
             >
               {sd.label}{touched ? ' •' : ''}
@@ -2828,12 +2828,12 @@ function SlotStyleEditor({ element, slots, onChangeStyle }: {
           )
         })}
       </div>
-      <FontFamilyField label="Fonte" value={String(cur.fontFamily ?? '')} onChange={(v) => set('fontFamily', v || undefined)} />
+      <FontFamilyField label="Font" value={String(cur.fontFamily ?? '')} onChange={(v) => set('fontFamily', v || undefined)} />
       <NumberField label="Tamanho (0=auto)" value={Number(cur.fontSize ?? 0)} onChange={(v) => set('fontSize', v > 0 ? Math.round(v) : undefined)} min={0} max={400} />
       <ColorField label="Cor" value={String(cur.fontColor ?? '')} onChange={(v) => set('fontColor', v || undefined)} />
       <SelectField label="Peso" value={String(cur.fontWeight ?? '')} options={WEIGHT_OPTIONS} onChange={(v) => set('fontWeight', v ? Number(v) : undefined)} />
       <SelectField label="Alinhamento" value={String(cur.align ?? '')} options={ALIGN_OPTIONS} onChange={(v) => set('align', v || undefined)} />
-      <NumberField label="Espaçamento (px)" value={Number(cur.letterSpacing ?? 0)} onChange={(v) => set('letterSpacing', Number.isFinite(v) && v !== 0 ? v : undefined)} min={-5} max={30} step={0.5} />
+      <NumberField label="Spacing (px)" value={Number(cur.letterSpacing ?? 0)} onChange={(v) => set('letterSpacing', Number.isFinite(v) && v !== 0 ? v : undefined)} min={-5} max={30} step={0.5} />
       <SelectField label="Transformar" value={String(cur.textTransform ?? 'none')} options={TRANSFORM_OPTIONS} onChange={(v) => set('textTransform', v === 'none' ? undefined : v)} />
       <ToggleField label="Sombra/glow" value={Boolean(cur.shadow)} onChange={(on) => set('shadow', on ? '0 2px 6px rgba(0,0,0,0.65)' : undefined)} />
       {cur.shadow !== undefined && (
@@ -2847,26 +2847,26 @@ function SlotStyleEditor({ element, slots, onChangeStyle }: {
 }
 
 const INSTRUMENT_TEMPLATE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '', label: '(padrão — sem instrumento)' },
+  { value: '', label: '(padrao — sem instrumento)' },
   { value: 'revled', label: 'Rev LEDs' },
-  { value: 'dial', label: 'Mostrador analógico (dial)' },
+  { value: 'dial', label: 'Mostrador analog (dial)' },
   { value: 'segment', label: 'Display de segmentos' },
-  { value: 'tile', label: 'Tile de dados' },
+  { value: 'tile', label: 'Tile de data' },
   { value: 'telltale', label: 'Telltale (alerta)' },
   { value: 'alarm', label: 'Faixa de alarme' },
   { value: 'bezelring', label: 'Anel com moldura' }
 ]
 
 const INSTRUMENT_BEZEL_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '', label: '(padrão)' },
-  { value: 'none', label: 'Nenhuma' },
+  { value: '', label: '(padrao)' },
+  { value: 'none', label: 'No' },
   { value: 'thin', label: 'Fina' },
   { value: 'chrome', label: 'Cromada' },
   { value: 'double', label: 'Dupla' }
 ]
 
 const INSTRUMENT_MATERIAL_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '', label: '(padrão)' },
+  { value: '', label: '(padrao)' },
   { value: 'matte', label: 'Fosco (matte)' },
   { value: 'carbon', label: 'Fibra de carbono' },
   { value: 'brushed', label: 'Metal escovado' }
@@ -2875,7 +2875,7 @@ const INSTRUMENT_MATERIAL_OPTIONS: Array<{ value: string; label: string }> = [
 const INSTRUMENT_LED_SHAPE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'led', label: 'LED (redondo)' },
   { value: 'bar', label: 'Barra' },
-  { value: 'trapezoid', label: 'Trapézio' }
+  { value: 'trapezoid', label: 'Trapezio' }
 ]
 
 const INSTRUMENT_SEGMENT_MODE_OPTIONS: Array<{ value: string; label: string }> = [
@@ -2885,12 +2885,12 @@ const INSTRUMENT_SEGMENT_MODE_OPTIONS: Array<{ value: string; label: string }> =
 
 // ── Skin (v2.39 two-skin system) picker options ──────────────────────────────
 const SKIN_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '', label: 'Padrão (GT3)' },
+  { value: '', label: 'Default (GT3)' },
   { value: 'gt3', label: 'GT3 — display real' },
   { value: 'hud', label: 'HUD moderno' }
 ]
 const BRAND_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '', label: 'Genérico' },
+  { value: '', label: 'Generic' },
   { value: 'stuttgart', label: 'Stuttgart' },
   { value: 'bavaria', label: 'Bavaria' },
   { value: 'maranello', label: 'Maranello' }
@@ -2929,7 +2929,7 @@ function InstrumentConfig({
         type="button"
         onClick={() => setOpen((v) => !v)}
         style={{ ...btn(), width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-        title="Ativa os primitivos de instrumento de alta fidelidade (SVG)"
+        title="Active os primitivos de instrumento de alta fidelidade (SVG)"
       >
         <span style={{ fontWeight: 800, letterSpacing: 0.5 }}>Instrumento / Fidelidade{template ? ` · ${template}` : ''}</span>
         <span aria-hidden>{open ? '▾' : '▸'}</span>
@@ -2965,7 +2965,7 @@ function InstrumentConfig({
             <>
               <SectionLabel>LEDs</SectionLabel>
               <NumberField label="Segmentos" value={Number(led.segments ?? 15)} onChange={(v) => setPart('led', 'segments', v > 0 ? Math.round(v) : undefined)} min={1} max={40} />
-              <SelectField label="Formato" value={String(led.shape ?? 'led')} options={INSTRUMENT_LED_SHAPE_OPTIONS} onChange={(v) => setPart('led', 'shape', v === 'led' ? undefined : v)} />
+              <SelectField label="Format" value={String(led.shape ?? 'led')} options={INSTRUMENT_LED_SHAPE_OPTIONS} onChange={(v) => setPart('led', 'shape', v === 'led' ? undefined : v)} />
               <SliderField label="Bloom" value={Number(led.bloom ?? 0)} onChange={(v) => setPart('led', 'bloom', v > 0 ? v : undefined)} min={0} max={2} step={0.05} />
               <SliderField label="Aviso a partir de" value={Number(led.warnAt ?? 0)} onChange={(v) => setPart('led', 'warnAt', v > 0 ? v : undefined)} min={0} max={1} step={0.01} />
               <SliderField label="Perigo a partir de" value={Number(led.dangerAt ?? 0)} onChange={(v) => setPart('led', 'dangerAt', v > 0 ? v : undefined)} min={0} max={1} step={0.01} />
@@ -2988,20 +2988,20 @@ function InstrumentConfig({
             <>
               <SectionLabel>Segmentos</SectionLabel>
               <SelectField label="Modo" value={String(segment.mode ?? '7')} options={INSTRUMENT_SEGMENT_MODE_OPTIONS} onChange={(v) => setPart('segment', 'mode', v === '7' ? undefined : v)} />
-              <NumberField label="Dígitos" value={Number(segment.digits ?? 0)} onChange={(v) => setPart('segment', 'digits', v > 0 ? Math.round(v) : undefined)} min={0} max={8} />
-              <ToggleField label="Dígitos fantasma" value={Boolean(segment.ghost)} onChange={(on) => setPart('segment', 'ghost', on ? true : undefined)} />
+              <NumberField label="Digits" value={Number(segment.digits ?? 0)} onChange={(v) => setPart('segment', 'digits', v > 0 ? Math.round(v) : undefined)} min={0} max={8} />
+              <ToggleField label="Digits fantasma" value={Boolean(segment.ghost)} onChange={(on) => setPart('segment', 'ghost', on ? true : undefined)} />
             </>
           )}
 
           {template === 'tile' && (
             <>
               <SectionLabel>Tile</SectionLabel>
-              <ToggleField label="Numérico (tabular)" value={Boolean(tile.numeric)} onChange={(on) => setPart('tile', 'numeric', on ? true : undefined)} />
+              <ToggleField label="Numeric (tabular)" value={Boolean(tile.numeric)} onChange={(on) => setPart('tile', 'numeric', on ? true : undefined)} />
             </>
           )}
 
           <p style={{ gridColumn: 'span 2', margin: '2px 0 0', color: TEXT_DIM, fontSize: 11 }}>
-            Deixe o template em “(padrão)” para renderizar o widget no estilo plano de sempre.
+            Deixe o template em “(padrao)” para renderizar o widget no estilo plano de sempre.
           </p>
         </div>
       )}
@@ -3013,7 +3013,7 @@ const IMAGE_FILTER_PRESETS: Array<{ id: string; label: string; patch: Partial<Da
   { id: 'original', label: 'Original', patch: { filterGrayscale: undefined, filterSepia: undefined, redTint: undefined, brightness: undefined, contrast: undefined, saturate: undefined, hueRotate: undefined, invert: undefined, blur: undefined } },
   { id: 'bw', label: 'Preto & Branco', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: undefined, brightness: undefined, contrast: 1.05, saturate: undefined, hueRotate: undefined, invert: undefined } },
   { id: 'red', label: 'Vermelho', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: 1, brightness: 0.95, contrast: 1.1, saturate: undefined, hueRotate: undefined, invert: undefined } },
-  { id: 'sepia', label: 'Sépia', patch: { filterGrayscale: undefined, filterSepia: 1, redTint: undefined, brightness: 1.02, contrast: undefined, saturate: undefined, hueRotate: undefined, invert: undefined } }
+  { id: 'sepia', label: 'Sepia', patch: { filterGrayscale: undefined, filterSepia: 1, redTint: undefined, brightness: 1.02, contrast: undefined, saturate: undefined, hueRotate: undefined, invert: undefined } }
 ]
 
 function loadImageEl(src: string): Promise<HTMLImageElement> {
@@ -3025,8 +3025,8 @@ function loadImageEl(src: string): Promise<HTMLImageElement> {
   })
 }
 
-// Lê um File como data-URL. Acima de ~3MB, redimensiona via canvas (máx. 1600px no
-// maior lado) e recodifica em JPEG com qualidade decrescente até caber no limite.
+// Le um File como data-URL. Acima de ~3MB, redimensiona via canvas (max. 1600px no
+// maior lado) e recodifica em JPEG com qualidade decrescente ate caber no limite.
 async function fileToDataUrl(file: File): Promise<string> {
   const LIMIT = 3_000_000
   const raw = await new Promise<string>((resolve, reject) => {
@@ -3064,7 +3064,7 @@ const CHANNEL_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'throttle', label: 'Acelerador' },
   { value: 'brake', label: 'Freio' },
   { value: 'clutch', label: 'Embreagem' },
-  { value: 'steering', label: 'Volante' }
+  { value: 'steering', label: 'Steering' }
 ]
 
 function ChannelsField({ value, onChange }: { value: string[]; onChange(v: string[]): void }): ReactElement {
@@ -3094,7 +3094,7 @@ const SETUP_FIELD_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'map', label: 'MAP' },
   { value: 'bb', label: 'BB%' },
   { value: 'limiter', label: 'Limitador' },
-  { value: 'inc', label: 'Incidentes' }
+  { value: 'inc', label: 'Incidents' }
 ]
 
 function FieldsToggle({ value, onChange }: { value: string[]; onChange(v: string[]): void }): ReactElement {
@@ -3139,7 +3139,7 @@ function BindingSelect({ label, value, groups, onChange, placeholder }: { label:
   )
 }
 
-// Config agrupada (Dados / Visual / Limiares / Comportamento) por widget GT3.
+// Config agrupada (Data / Visual / Limiares / Comportamento) por widget GT3.
 function Gt3Config({
   element,
   onChangeStyle,
@@ -3158,7 +3158,7 @@ function Gt3Config({
       <div style={grid}>
         <SectionLabel>Visual</SectionLabel>
         <NumberField label="Segmentos" value={s.segments ?? 18} onChange={(v) => onChangeStyle({ segments: Math.max(4, Math.min(30, Math.round(v))) })} min={4} max={30} />
-        <SelectField label="Formato" value={s.segmentShape ?? 'led'} options={[{ value: 'led', label: 'LED' }, { value: 'bar', label: 'Barra fina' }, { value: 'trapezoid', label: 'Trapézio' }]} onChange={(v) => onChangeStyle({ segmentShape: v as 'led' | 'bar' | 'trapezoid' })} />
+        <SelectField label="Format" value={s.segmentShape ?? 'led'} options={[{ value: 'led', label: 'LED' }, { value: 'bar', label: 'Barra fina' }, { value: 'trapezoid', label: 'Trapezio' }]} onChange={(v) => onChangeStyle({ segmentShape: v as 'led' | 'bar' | 'trapezoid' })} />
         <ToggleField label="Glow (brilho)" value={s.glow !== false} onChange={(v) => onChangeStyle({ glow: v })} />
         <ToggleField label="Override limitador" value={s.pitLimiterOverride !== false} onChange={(v) => onChangeStyle({ pitLimiterOverride: v })} />
         <SectionLabel>Limiares</SectionLabel>
@@ -3172,11 +3172,11 @@ function Gt3Config({
   if (t === 'gearcluster') {
     return (
       <div style={grid}>
-        <SectionLabel>Dados</SectionLabel>
-        <SelectField label="Unidade veloc." value={s.unit === 'mph' ? 'mph' : 'kmh'} options={[{ value: 'kmh', label: 'km/h' }, { value: 'mph', label: 'mph' }]} onChange={(v) => onChangeStyle({ unit: v === 'mph' ? 'mph' : undefined })} />
+        <SectionLabel>Data</SectionLabel>
+        <SelectField label="Unit veloc." value={s.unit === 'mph' ? 'mph' : 'kmh'} options={[{ value: 'kmh', label: 'km/h' }, { value: 'mph', label: 'mph' }]} onChange={(v) => onChangeStyle({ unit: v === 'mph' ? 'mph' : undefined })} />
         <ToggleField label="Mostrar RPM" value={s.showRpm !== false} onChange={(v) => onChangeStyle({ showRpm: v })} />
         <SectionLabel>Visual</SectionLabel>
-        <ColorField label="Cor de destaque" value={s.accentColor ?? 'var(--accent-primary)'} onChange={(v) => onChangeStyle({ accentColor: v })} />
+        <ColorField label="Accent color" value={s.accentColor ?? 'var(--accent-primary)'} onChange={(v) => onChangeStyle({ accentColor: v })} />
         <NumberField label="Flash (0–1)" value={s.flashAt ?? 0.97} onChange={(v) => onChangeStyle({ flashAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.01} />
       </div>
     )
@@ -3185,26 +3185,26 @@ function Gt3Config({
     const mode = s.gridMode ?? 'temp'
     return (
       <div style={grid}>
-        <SectionLabel>Dados</SectionLabel>
-        <SelectField label="Modo" value={mode} options={[{ value: 'temp', label: 'Temperatura' }, { value: 'pressure', label: 'Pressão' }, { value: 'wear', label: 'Desgaste' }]} onChange={(v) => onChangeStyle({ gridMode: v as 'temp' | 'pressure' | 'wear' })} />
-        {mode === 'temp' && <SelectField label="Unidade" value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />}
-        {mode === 'pressure' && <SelectField label="Unidade" value={s.unit ?? 'kPa'} options={[{ value: 'kPa', label: 'kPa' }, { value: 'psi', label: 'psi' }, { value: 'bar', label: 'bar' }]} onChange={(v) => onChangeStyle({ unit: v })} />}
-        <ToggleField label="Mostrar rótulos" value={s.showLabels !== false} onChange={(v) => onChangeStyle({ showLabels: v })} />
-        <ToggleField label="Mostrar média" value={s.showAverage === true} onChange={(v) => onChangeStyle({ showAverage: v })} />
+        <SectionLabel>Data</SectionLabel>
+        <SelectField label="Modo" value={mode} options={[{ value: 'temp', label: 'Temperature' }, { value: 'pressure', label: 'Pressure' }, { value: 'wear', label: 'Wear' }]} onChange={(v) => onChangeStyle({ gridMode: v as 'temp' | 'pressure' | 'wear' })} />
+        {mode === 'temp' && <SelectField label="Unit" value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />}
+        {mode === 'pressure' && <SelectField label="Unit" value={s.unit ?? 'kPa'} options={[{ value: 'kPa', label: 'kPa' }, { value: 'psi', label: 'psi' }, { value: 'bar', label: 'bar' }]} onChange={(v) => onChangeStyle({ unit: v })} />}
+        <ToggleField label="Mostrar labels" value={s.showLabels !== false} onChange={(v) => onChangeStyle({ showLabels: v })} />
+        <ToggleField label="Mostrar average" value={s.showAverage === true} onChange={(v) => onChangeStyle({ showAverage: v })} />
         {mode === 'temp' && (
           <>
             <SectionLabel>Limiares °C</SectionLabel>
             <NumberField label="Frio <" value={s.coldAt ?? 70} onChange={(v) => onChangeStyle({ coldAt: v })} />
-            <NumberField label="Ótimo ≥" value={s.optimalAt ?? 85} onChange={(v) => onChangeStyle({ optimalAt: v })} />
+            <NumberField label="Optimal ≥" value={s.optimalAt ?? 85} onChange={(v) => onChangeStyle({ optimalAt: v })} />
             <NumberField label="Quente ≥" value={s.hotAt ?? 105} onChange={(v) => onChangeStyle({ hotAt: v })} />
-            <NumberField label="Crítico ≥" value={s.criticalAt ?? 115} onChange={(v) => onChangeStyle({ criticalAt: v })} />
+            <NumberField label="Critical ≥" value={s.criticalAt ?? 115} onChange={(v) => onChangeStyle({ criticalAt: v })} />
           </>
         )}
         {mode === 'pressure' && (
           <>
             <SectionLabel>Alvo</SectionLabel>
             <NumberField label="Alvo (kPa)" value={s.targetValue ?? 165} onChange={(v) => onChangeStyle({ targetValue: v })} />
-            <NumberField label="Tolerância" value={s.tolerance ?? 7} onChange={(v) => onChangeStyle({ tolerance: v })} />
+            <NumberField label="Tolerance" value={s.tolerance ?? 7} onChange={(v) => onChangeStyle({ tolerance: v })} />
           </>
         )}
       </div>
@@ -3213,9 +3213,9 @@ function Gt3Config({
   if (t === 'brakegrid') {
     return (
       <div style={grid}>
-        <SectionLabel>Dados</SectionLabel>
-        <SelectField label="Unidade" value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />
-        <ToggleField label="Mostrar média" value={s.showAverage === true} onChange={(v) => onChangeStyle({ showAverage: v })} />
+        <SectionLabel>Data</SectionLabel>
+        <SelectField label="Unit" value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />
+        <ToggleField label="Mostrar average" value={s.showAverage === true} onChange={(v) => onChangeStyle({ showAverage: v })} />
         <SectionLabel>Limiares °C</SectionLabel>
         <NumberField label="Frio <" value={s.coldAt ?? 250} onChange={(v) => onChangeStyle({ coldAt: v })} />
         <NumberField label="Trab. ≥" value={s.optimalAt ?? 650} onChange={(v) => onChangeStyle({ optimalAt: v })} />
@@ -3226,31 +3226,31 @@ function Gt3Config({
   if (t === 'cornerstack') {
     return (
       <div style={grid}>
-        <SectionLabel>Dados</SectionLabel>
-        <SelectField label="Unidade temp." value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />
-        <SectionLabel>Pressão alvo</SectionLabel>
+        <SectionLabel>Data</SectionLabel>
+        <SelectField label="Unit temp." value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />
+        <SectionLabel>Pressure alvo</SectionLabel>
         <NumberField label="Alvo (kPa)" value={s.targetValue ?? 165} onChange={(v) => onChangeStyle({ targetValue: v })} />
-        <NumberField label="Tolerância" value={s.tolerance ?? 7} onChange={(v) => onChangeStyle({ tolerance: v })} />
+        <NumberField label="Tolerance" value={s.tolerance ?? 7} onChange={(v) => onChangeStyle({ tolerance: v })} />
       </div>
     )
   }
   if (t === 'fuelstint') {
     return (
       <div style={grid}>
-        <SectionLabel>Dados</SectionLabel>
-        <SelectField label="Unidade" value={s.unit === 'gal' ? 'gal' : 'L'} options={[{ value: 'L', label: 'Litros' }, { value: 'gal', label: 'Galões' }]} onChange={(v) => onChangeStyle({ unit: v === 'gal' ? 'gal' : undefined })} />
+        <SectionLabel>Data</SectionLabel>
+        <SelectField label="Unit" value={s.unit === 'gal' ? 'gal' : 'L'} options={[{ value: 'L', label: 'Liters' }, { value: 'gal', label: 'Gallons' }]} onChange={(v) => onChangeStyle({ unit: v === 'gal' ? 'gal' : undefined })} />
         <ToggleField label="Modo enduro" value={s.enduranceMode === true} onChange={(v) => onChangeStyle({ enduranceMode: v })} />
         <SectionLabel>Comportamento</SectionLabel>
-        <NumberField label="Reserva (voltas)" value={s.reserveLaps ?? 1} onChange={(v) => onChangeStyle({ reserveLaps: Math.max(0, v) })} min={0} max={10} step={0.5} />
-        <NumberField label="Alerta < voltas" value={s.warnAtLaps ?? 2} onChange={(v) => onChangeStyle({ warnAtLaps: Math.max(0, v) })} min={0} max={20} step={0.5} />
+        <NumberField label="Reserva (laps)" value={s.reserveLaps ?? 1} onChange={(v) => onChangeStyle({ reserveLaps: Math.max(0, v) })} min={0} max={10} step={0.5} />
+        <NumberField label="Alerta < laps" value={s.warnAtLaps ?? 2} onChange={(v) => onChangeStyle({ warnAtLaps: Math.max(0, v) })} min={0} max={20} step={0.5} />
       </div>
     )
   }
   if (t === 'deltatile') {
     return (
       <div style={grid}>
-        <SectionLabel>Dados</SectionLabel>
-        <SelectField label="Referência" value={s.deltaReference ?? 'session'} options={[{ value: 'session', label: 'Melhor da sessão' }, { value: 'best', label: 'Minha melhor' }, { value: 'last', label: 'Última volta' }]} onChange={(v) => onChangeStyle({ deltaReference: v as 'session' | 'best' | 'last' })} />
+        <SectionLabel>Data</SectionLabel>
+        <SelectField label="Reference" value={s.deltaReference ?? 'session'} options={[{ value: 'session', label: 'Best of session' }, { value: 'best', label: 'My best' }, { value: 'last', label: 'Last lap' }]} onChange={(v) => onChangeStyle({ deltaReference: v as 'session' | 'best' | 'last' })} />
         <NumberField label="Range ±s" value={s.deltaRangeSec ?? 1} onChange={(v) => onChangeStyle({ deltaRangeSec: Math.max(0.05, v) })} min={0.05} max={10} step={0.05} />
       </div>
     )
@@ -3258,9 +3258,9 @@ function Gt3Config({
   if (t === 'laptiming') {
     return (
       <div style={grid}>
-        <SectionLabel>Linhas exibidas</SectionLabel>
+        <SectionLabel>Rows exibidas</SectionLabel>
         <ToggleField label="Atual" value={s.showCurrent !== false} onChange={(v) => onChangeStyle({ showCurrent: v })} />
-        <ToggleField label="Última" value={s.showLast !== false} onChange={(v) => onChangeStyle({ showLast: v })} />
+        <ToggleField label="Last" value={s.showLast !== false} onChange={(v) => onChangeStyle({ showLast: v })} />
         <ToggleField label="Melhor" value={s.showBest !== false} onChange={(v) => onChangeStyle({ showBest: v })} />
         <ToggleField label="Estimada" value={s.showEstimated === true} onChange={(v) => onChangeStyle({ showEstimated: v })} />
       </div>
@@ -3271,7 +3271,7 @@ function Gt3Config({
       <div style={grid}>
         <SectionLabel>Visual</SectionLabel>
         <ToggleField label="Mostrar total" value={s.showTotal !== false} onChange={(v) => onChangeStyle({ showTotal: v })} />
-        <ColorField label="Cor de destaque" value={s.accentColor ?? 'var(--accent-primary)'} onChange={(v) => onChangeStyle({ accentColor: v })} />
+        <ColorField label="Accent color" value={s.accentColor ?? 'var(--accent-primary)'} onChange={(v) => onChangeStyle({ accentColor: v })} />
       </div>
     )
   }
@@ -3279,7 +3279,7 @@ function Gt3Config({
     return (
       <div style={grid}>
         <SectionLabel>Comportamento</SectionLabel>
-        <ToggleField label="Incluir incidentes" value={s.includeIncidents === true} onChange={(v) => onChangeStyle({ includeIncidents: v })} />
+        <ToggleField label="Incluir incidents" value={s.includeIncidents === true} onChange={(v) => onChangeStyle({ includeIncidents: v })} />
         <ToggleField label="Compacto" value={s.compact === true} onChange={(v) => onChangeStyle({ compact: v })} />
       </div>
     )
@@ -3287,13 +3287,13 @@ function Gt3Config({
   if (t === 'inputbars' || t === 'inputtrace') {
     return (
       <div style={grid}>
-        <SectionLabel>Dados</SectionLabel>
+        <SectionLabel>Data</SectionLabel>
         <ChannelsField value={s.channels ?? []} onChange={(v) => onChangeStyle({ channels: v })} />
         {t === 'inputtrace' && (
           <>
             <NumberField label="Amostras" value={s.traceLength ?? 160} onChange={(v) => onChangeStyle({ traceLength: Math.max(16, Math.min(2048, Math.round(v))) })} min={16} max={2048} />
             <NumberField label="Espessura" value={s.traceWidth ?? 1.8} onChange={(v) => onChangeStyle({ traceWidth: Math.max(0.5, Math.min(8, v)) })} min={0.5} max={8} step={0.1} />
-            <NumberField label="Volante máx.°" value={s.maxDegrees ?? 540} onChange={(v) => onChangeStyle({ maxDegrees: Math.max(90, Math.round(v)) })} min={90} max={1440} step={10} />
+            <NumberField label="Steering max.°" value={s.maxDegrees ?? 540} onChange={(v) => onChangeStyle({ maxDegrees: Math.max(90, Math.round(v)) })} min={90} max={1440} step={10} />
           </>
         )}
       </div>
@@ -3302,9 +3302,9 @@ function Gt3Config({
   if (t === 'steering') {
     return (
       <div style={grid}>
-        <SectionLabel>Dados</SectionLabel>
-        <NumberField label="Ângulo máx.°" value={s.maxDegrees ?? 540} onChange={(v) => onChangeStyle({ maxDegrees: Math.max(90, Math.round(v)) })} min={90} max={1440} step={10} />
-        <ToggleField label="Mostrar numérico" value={s.showNumeric !== false} onChange={(v) => onChangeStyle({ showNumeric: v })} />
+        <SectionLabel>Data</SectionLabel>
+        <NumberField label="Angle max.°" value={s.maxDegrees ?? 540} onChange={(v) => onChangeStyle({ maxDegrees: Math.max(90, Math.round(v)) })} min={90} max={1440} step={10} />
+        <ToggleField label="Mostrar numerico" value={s.showNumeric !== false} onChange={(v) => onChangeStyle({ showNumeric: v })} />
       </div>
     )
   }
@@ -3316,31 +3316,31 @@ function Gt3Config({
         <SectionLabel>Bindings (MAP/BB exigem provedor)</SectionLabel>
         <BindingSelect label="MAP" value={s.bindingMap ?? ''} groups={groups} onChange={(v) => onChangeStyle({ bindingMap: v || undefined })} placeholder="var:engineMap" />
         <BindingSelect label="Brake bias" value={s.bindingBrakeBias ?? ''} groups={groups} onChange={(v) => onChangeStyle({ bindingBrakeBias: v || undefined })} placeholder="var:brakeBiasPct" />
-        <BindingSelect label="ABS (nível)" value={s.bindingAbs ?? ''} groups={groups} onChange={(v) => onChangeStyle({ bindingAbs: v || undefined })} placeholder="var:absLevel" />
-        <BindingSelect label="TC (nível)" value={s.bindingTc ?? ''} groups={groups} onChange={(v) => onChangeStyle({ bindingTc: v || undefined })} placeholder="var:tcLevel" />
+        <BindingSelect label="ABS (level)" value={s.bindingAbs ?? ''} groups={groups} onChange={(v) => onChangeStyle({ bindingAbs: v || undefined })} placeholder="var:absLevel" />
+        <BindingSelect label="TC (level)" value={s.bindingTc ?? ''} groups={groups} onChange={(v) => onChangeStyle({ bindingTc: v || undefined })} placeholder="var:tcLevel" />
       </div>
     )
   }
   if (t === 'enginetemps') {
     return (
       <div style={grid}>
-        <SectionLabel>Dados (exigem provedor)</SectionLabel>
-        <SelectField label="Unidade" value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />
+        <SectionLabel>Data (exigem provedor)</SectionLabel>
+        <SelectField label="Unit" value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />
         <div />
-        <BindingSelect label="Água" value={s.bindingWater ?? ''} groups={groups} onChange={(v) => onChangeStyle({ bindingWater: v || undefined })} placeholder="var:waterTempC" />
-        <BindingSelect label="Óleo" value={s.bindingOil ?? ''} groups={groups} onChange={(v) => onChangeStyle({ bindingOil: v || undefined })} placeholder="var:oilTempC" />
-        <BindingSelect label="Pressão óleo" value={s.bindingOilPressure ?? ''} groups={groups} onChange={(v) => onChangeStyle({ bindingOilPressure: v || undefined })} placeholder="var:oilPressureKpa" />
+        <BindingSelect label="Water" value={s.bindingWater ?? ''} groups={groups} onChange={(v) => onChangeStyle({ bindingWater: v || undefined })} placeholder="var:waterTempC" />
+        <BindingSelect label="Oil" value={s.bindingOil ?? ''} groups={groups} onChange={(v) => onChangeStyle({ bindingOil: v || undefined })} placeholder="var:oilTempC" />
+        <BindingSelect label="Pressure oleo" value={s.bindingOilPressure ?? ''} groups={groups} onChange={(v) => onChangeStyle({ bindingOilPressure: v || undefined })} placeholder="var:oilPressureKpa" />
         <SectionLabel>Limiares</SectionLabel>
         <NumberField label="Quente ≥" value={s.hotAt ?? 108} onChange={(v) => onChangeStyle({ hotAt: v })} />
-        <NumberField label="Crítico ≥" value={s.criticalAt ?? 122} onChange={(v) => onChangeStyle({ criticalAt: v })} />
+        <NumberField label="Critical ≥" value={s.criticalAt ?? 122} onChange={(v) => onChangeStyle({ criticalAt: v })} />
       </div>
     )
   }
   if (t === 'weather') {
     return (
       <div style={grid}>
-        <SectionLabel>Dados</SectionLabel>
-        <SelectField label="Unidade" value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />
+        <SectionLabel>Data</SectionLabel>
+        <SelectField label="Unit" value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />
       </div>
     )
   }
@@ -3348,7 +3348,7 @@ function Gt3Config({
     return (
       <div style={grid}>
         <SectionLabel>Visual</SectionLabel>
-        <ColorField label="Cor de destaque" value={s.accentColor ?? 'var(--accent-primary)'} onChange={(v) => onChangeStyle({ accentColor: v })} />
+        <ColorField label="Accent color" value={s.accentColor ?? 'var(--accent-primary)'} onChange={(v) => onChangeStyle({ accentColor: v })} />
       </div>
     )
   }

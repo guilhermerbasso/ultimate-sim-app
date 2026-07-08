@@ -482,7 +482,7 @@ export default function CustomCatalogModal({ defaultTab, editing, onClose, onSav
               ))}
             </div>
 
-            <Field caption="Notes" hint="Optional. Voltage, bootloader or wiring caveats.">
+            <Field caption="Notes" hint="Optional. Lapge, bootloader or wiring caveats.">
               <textarea style={textareaStyle} value={boardNotes} onChange={(event) => setBoardNotes(event.target.value)} placeholder="Anything special about this board." />
             </Field>
 
