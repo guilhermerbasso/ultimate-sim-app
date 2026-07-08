@@ -10,7 +10,6 @@ export interface Overlay2FamilyStyle {
   background: string
   border: string
   boxShadow: string
-  widgetMinHeight: number
 }
 
 export const OVERLAY2_FAMILY_STYLES: Record<OverlayDesignFamily, Overlay2FamilyStyle> = {
@@ -33,8 +32,7 @@ export const OVERLAY2_FAMILY_STYLES: Record<OverlayDesignFamily, Overlay2FamilyS
     fontFamily: "'Rajdhani', 'Barlow Condensed', sans-serif",
     background: 'rgba(4, 5, 6, 0.88)',
     border: '1px solid rgba(184, 161, 122, 0.24)',
-    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.42)',
-    widgetMinHeight: 92
+    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.42)'
   },
   neon: {
     colors: {
@@ -59,8 +57,7 @@ export const OVERLAY2_FAMILY_STYLES: Record<OverlayDesignFamily, Overlay2FamilyS
     fontFamily: "'Michroma', 'Rajdhani', sans-serif",
     background: 'linear-gradient(135deg, rgba(9, 4, 24, 0.94), rgba(18, 5, 13, 0.9))',
     border: '1px solid rgba(255, 122, 26, 0.42)',
-    boxShadow: '0 0 26px rgba(255, 90, 31, 0.24)',
-    widgetMinHeight: 98
+    boxShadow: '0 0 26px rgba(255, 90, 31, 0.24)'
   },
   glass: {
     colors: {
@@ -84,8 +81,7 @@ export const OVERLAY2_FAMILY_STYLES: Record<OverlayDesignFamily, Overlay2FamilyS
     fontFamily: "'Chakra Petch', 'Rajdhani', sans-serif",
     background: 'rgba(18, 23, 28, 0.66)',
     border: '1px solid rgba(215, 196, 167, 0.32)',
-    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 18px 42px rgba(0, 0, 0, 0.38)',
-    widgetMinHeight: 104
+    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 18px 42px rgba(0, 0, 0, 0.38)'
   },
   broadcast: {
     colors: {
@@ -109,8 +105,7 @@ export const OVERLAY2_FAMILY_STYLES: Record<OverlayDesignFamily, Overlay2FamilyS
     fontFamily: "'Barlow Condensed', 'Arial Narrow', sans-serif",
     background: 'linear-gradient(180deg, rgba(22, 22, 22, 0.96), rgba(5, 5, 5, 0.96))',
     border: '2px solid rgba(201, 164, 93, 0.38)',
-    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5)',
-    widgetMinHeight: 86
+    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.5)'
   },
   terminal: {
     colors: {
@@ -134,8 +129,7 @@ export const OVERLAY2_FAMILY_STYLES: Record<OverlayDesignFamily, Overlay2FamilyS
     fontFamily: "'Cascadia Code', 'DSEG14Classic-Regular', monospace",
     background: 'rgba(0, 8, 3, 0.94)',
     border: '1px solid rgba(52, 216, 102, 0.32)',
-    boxShadow: 'inset 0 0 24px rgba(52, 216, 102, 0.08)',
-    widgetMinHeight: 82
+    boxShadow: 'inset 0 0 24px rgba(52, 216, 102, 0.08)'
   },
   bauhaus: {
     colors: {
@@ -159,8 +153,7 @@ export const OVERLAY2_FAMILY_STYLES: Record<OverlayDesignFamily, Overlay2FamilyS
     fontFamily: "'Michroma', 'Chakra Petch', sans-serif",
     background: 'linear-gradient(135deg, rgba(241, 231, 210, 0.96), rgba(229, 207, 171, 0.95))',
     border: '3px solid rgba(27, 27, 27, 0.9)',
-    boxShadow: '8px 8px 0 rgba(217, 95, 25, 0.35)',
-    widgetMinHeight: 96
+    boxShadow: '8px 8px 0 rgba(217, 95, 25, 0.35)'
   },
   analog: {
     colors: {
@@ -187,8 +180,7 @@ export const OVERLAY2_FAMILY_STYLES: Record<OverlayDesignFamily, Overlay2FamilyS
     fontFamily: "'Rajdhani', Georgia, serif",
     background: 'radial-gradient(circle at 50% 10%, rgba(48, 39, 28, 0.94), rgba(8, 7, 6, 0.96))',
     border: '1px solid rgba(166, 138, 99, 0.52)',
-    boxShadow: 'inset 0 0 26px rgba(214, 179, 122, 0.08), 0 16px 34px rgba(0, 0, 0, 0.5)',
-    widgetMinHeight: 112
+    boxShadow: 'inset 0 0 26px rgba(214, 179, 122, 0.08), 0 16px 34px rgba(0, 0, 0, 0.5)'
   },
   heatmap: {
     colors: {
@@ -213,8 +205,7 @@ export const OVERLAY2_FAMILY_STYLES: Record<OverlayDesignFamily, Overlay2FamilyS
     fontFamily: "'Chakra Petch', 'Cascadia Code', monospace",
     background: 'linear-gradient(90deg, rgba(22, 8, 5, 0.96), rgba(50, 13, 5, 0.9))',
     border: '1px solid rgba(242, 138, 36, 0.46)',
-    boxShadow: '0 0 22px rgba(231, 53, 45, 0.14)',
-    widgetMinHeight: 88
+    boxShadow: '0 0 22px rgba(231, 53, 45, 0.14)'
   }
 }
 

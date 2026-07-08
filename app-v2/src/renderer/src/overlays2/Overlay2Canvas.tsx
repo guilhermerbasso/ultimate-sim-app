@@ -24,6 +24,32 @@ function columnsFor(count: number, width: number): number {
   return Math.min(2, count)
 }
 
+export interface Overlay2CanvasGridMetrics {
+  columns: number
+  rows: number
+  widgetWidth: number
+  widgetHeight: number
+}
+
+export function overlay2CanvasGridMetrics(
+  count: number,
+  width: number,
+  height: number,
+  padding: number,
+  gap: number
+): Overlay2CanvasGridMetrics {
+  const columns = Math.max(1, columnsFor(count, width))
+  const rows = Math.max(1, Math.ceil(count / columns))
+  const usableWidth = Math.max(1, width - padding * 2 - gap * Math.max(0, columns - 1))
+  const usableHeight = Math.max(1, height - padding * 2 - gap * Math.max(0, rows - 1))
+  return {
+    columns,
+    rows,
+    widgetWidth: Math.max(1, Math.floor(usableWidth / columns)),
+    widgetHeight: Math.max(1, Math.floor(usableHeight / rows))
+  }
+}
+
 export function Overlay2Canvas({
   overlay,
   family,
@@ -35,14 +61,13 @@ export function Overlay2Canvas({
   const safeWidth = safeSize(width, overlay.w)
   const safeHeight = safeSize(height, overlay.h)
   const count = Math.max(1, overlay.specIds.length)
-  const columns = Math.max(1, columnsFor(count, safeWidth))
-  const rows = Math.max(1, Math.ceil(count / columns))
-  const usableWidth = Math.max(1, safeWidth - style.padding * 2 - style.gap * Math.max(0, columns - 1))
-  const usableHeight = Math.max(1, safeHeight - style.padding * 2 - style.gap * Math.max(0, rows - 1))
-  const widgetWidth = Math.max(72, Math.floor(usableWidth / columns))
-  // Fit rows INSIDE the declared overlay box (never exceed overlay.h). A 44px
-  // legibility floor keeps SVG widgets readable; the grid shares height evenly.
-  const widgetHeight = Math.max(44, Math.floor(usableHeight / rows))
+  const { columns, rows, widgetWidth, widgetHeight } = overlay2CanvasGridMetrics(
+    count,
+    safeWidth,
+    safeHeight,
+    style.padding,
+    style.gap
+  )
 
   const rootStyle: CSSProperties = {
     width: safeWidth,

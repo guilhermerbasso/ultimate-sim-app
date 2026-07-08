@@ -10,7 +10,7 @@ Independent community project maintained by Guilherme Basso · Electron + React 
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-support-yellow?style=for-the-badge&logo=buymeacoffee)](https://buymeacoffee.com/bettercalllbasso)
 
-<img src="app-v2/concepts/rebuild/hero-woking-gt3.png" alt="GT3 hero" width="80%" />
+<img src="app-v2/concepts/rebuild/hero-woking-gt3.png" alt="GT3 hero" style="width: 80%; height: auto;" />
 
 </div>
 
