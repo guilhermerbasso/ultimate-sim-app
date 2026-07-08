@@ -80,20 +80,22 @@ describe('sidebar collapse persistence', () => {
 })
 
 describe('global shortcut target guard', () => {
+  const asEventTarget = (target: object): EventTarget => target as unknown as EventTarget
+
   it('treats form fields as editable targets', () => {
-    expect(isEditableTarget({ tagName: 'INPUT' } as EventTarget)).toBe(true)
-    expect(isEditableTarget({ tagName: 'textarea' } as EventTarget)).toBe(true)
-    expect(isEditableTarget({ tagName: 'select' } as EventTarget)).toBe(true)
+    expect(isEditableTarget(asEventTarget({ tagName: 'INPUT' }))).toBe(true)
+    expect(isEditableTarget(asEventTarget({ tagName: 'textarea' }))).toBe(true)
+    expect(isEditableTarget(asEventTarget({ tagName: 'select' }))).toBe(true)
   })
 
   it('treats contentEditable elements as editable targets', () => {
-    expect(isEditableTarget({ isContentEditable: true } as EventTarget)).toBe(true)
-    expect(isEditableTarget({ closest: () => ({}) } as EventTarget)).toBe(true)
+    expect(isEditableTarget(asEventTarget({ isContentEditable: true }))).toBe(true)
+    expect(isEditableTarget(asEventTarget({ closest: () => ({}) }))).toBe(true)
   })
 
   it('ignores non-editable targets', () => {
     expect(isEditableTarget(null)).toBe(false)
-    expect(isEditableTarget({ tagName: 'div', isContentEditable: false, closest: () => null } as EventTarget)).toBe(false)
-    expect(isEditableTarget({} as EventTarget)).toBe(false)
+    expect(isEditableTarget(asEventTarget({ tagName: 'div', isContentEditable: false, closest: () => null }))).toBe(false)
+    expect(isEditableTarget(asEventTarget({}))).toBe(false)
   })
 })
