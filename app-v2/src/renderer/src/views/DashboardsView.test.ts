@@ -4,6 +4,7 @@ import { buttonPanelPlaylistItem } from '../../../shared/touch-panel'
 import {
   applyInstrumentPart,
   applyInstrumentPatch,
+  partitionHiddenSummaries,
   resolvePlaylistRowLabel
 } from './DashboardsView'
 
@@ -15,6 +16,19 @@ describe('resolvePlaylistRowLabel', () => {
   it('resolves a dashboard row against dashboard summaries', () => {
     const label = resolvePlaylistRowLabel({ dashboardId: 'd1' }, dashboards, panels)
     expect(label).toEqual({ kind: 'dashboard', name: 'GT3 Race', subtitle: '1024×600', found: true })
+  })
+
+  describe('partitionHiddenSummaries', () => {
+    it('filters hidden dashboards out of the visible list and restores them when hidden=false', () => {
+      const rows = [
+        { id: 'visible', hidden: false },
+        { id: 'hidden', hidden: true },
+        { id: 'implicit-visible' }
+      ]
+      expect(partitionHiddenSummaries(rows).visible.map((row) => row.id)).toEqual(['visible', 'implicit-visible'])
+      expect(partitionHiddenSummaries(rows).hidden.map((row) => row.id)).toEqual(['hidden'])
+      expect(partitionHiddenSummaries([{ id: 'hidden', hidden: false }]).visible).toHaveLength(1)
+    })
   })
 
   it('resolves a touch-panel row against the touch-panel summaries (not "Dashboard não encontrado")', () => {

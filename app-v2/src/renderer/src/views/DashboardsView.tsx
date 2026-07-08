@@ -443,6 +443,13 @@ export function resolvePlaylistRowLabel(
   }
 }
 
+export function partitionHiddenSummaries<T extends { hidden?: boolean }>(items: readonly T[]): { visible: T[]; hidden: T[] } {
+  return {
+    visible: items.filter((item) => !item.hidden),
+    hidden: items.filter((item) => Boolean(item.hidden))
+  }
+}
+
 // ── Pure `style.instrument` writers (unit-tested; no React/DOM) ────────────────
 // The instrument fidelity spec is ADDITIVE/OPTIONAL. These helpers immutably
 // patch it, dropping keys set back to `undefined` and returning `undefined` when
@@ -521,6 +528,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
     setDirty(false)
   }, [])
   const hidCaptureStateRef = useRef(new Map<string, boolean>())
+  const { visible: visibleSummaries, hidden: hiddenSummaries } = useMemo(() => partitionHiddenSummaries(summaries), [summaries])
 
   const applyDisplays = useCallback((screens: DashboardDisplayInfo[]) => {
     setDisplays(screens)
@@ -960,7 +968,27 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
   }
 
   function selectAllDashboards(): void {
-    setSelectedDashboardIds(new Set(summaries.map((dash) => dash.id)))
+    setSelectedDashboardIds(new Set(visibleSummaries.map((dash) => dash.id)))
+  }
+
+  async function setDashboardsHidden(ids: string[], hidden: boolean): Promise<void> {
+    if (ids.length === 0) return
+    const results = await Promise.allSettled(ids.map((id) => window.ipc.invoke<DashboardSummary[]>('app:dash:setHidden', id, hidden)))
+    const failed = results.filter((r) => r.status === 'rejected').length
+    await refreshAll().catch(() => undefined)
+    setSelectedDashboardIds(new Set())
+    setSelectionMode(false)
+    if (selectedId && ids.includes(selectedId) && hidden) {
+      setSelectedId(null)
+      setSelectedDash(null)
+    }
+    const changed = ids.length - failed
+    showToast(
+      hidden
+        ? `${changed} dashboard${changed === 1 ? '' : 's'} hidden${failed ? `, ${failed} failed` : ''}.`
+        : `${changed} dashboard${changed === 1 ? '' : 's'} restored${failed ? `, ${failed} failed` : ''}.`,
+      failed ? 'error' : 'info'
+    )
   }
 
   async function deleteSelectedDashboards(): Promise<void> {
@@ -1339,26 +1367,27 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           <div style={{ padding: 12, borderBottom: `1px solid ${PANEL_BORDER}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
             <div>
               <strong>Meus dashboards</strong>
-              <span style={{ color: TEXT_DIM, fontSize: 12, marginLeft: 8 }}>{selectionMode ? `${selectedDashboardIds.size} selecionado${selectedDashboardIds.size === 1 ? '' : 's'}` : summaries.length}</span>
+              <span style={{ color: TEXT_DIM, fontSize: 12, marginLeft: 8 }}>{selectionMode ? `${selectedDashboardIds.size} selected` : visibleSummaries.length}</span>
             </div>
-            <button type="button" style={btn(selectionMode ? 'primary' : 'default')} disabled={busy || summaries.length === 0} onClick={toggleSelectionMode}>
+            <button type="button" style={btn(selectionMode ? 'primary' : 'default')} disabled={busy || visibleSummaries.length === 0} onClick={toggleSelectionMode}>
               {selectionMode ? 'Cancel' : 'Select'}
             </button>
           </div>
           {selectionMode && (
             <div style={{ padding: 10, borderBottom: `1px solid ${PANEL_BORDER}`, display: 'flex', gap: 6, flexWrap: 'wrap', background: 'var(--surface-sunken)' }}>
-              <button type="button" style={btn()} disabled={busy || summaries.length === 0} onClick={selectAllDashboards}>Select tudo</button>
+              <button type="button" style={btn()} disabled={busy || visibleSummaries.length === 0} onClick={selectAllDashboards}>Select all</button>
               <button type="button" style={btn()} disabled={busy || selectedDashboardIds.size === 0} onClick={() => setSelectedDashboardIds(new Set())}>Clear</button>
+              <button type="button" style={btn()} disabled={busy || selectedDashboardIds.size === 0} onClick={() => run(() => setDashboardsHidden(Array.from(selectedDashboardIds), true))}>Hide selected</button>
               <button type="button" style={btn('danger')} disabled={busy || selectedDashboardIds.size === 0} onClick={() => run(deleteSelectedDashboards)}>Delete selecionados</button>
             </div>
           )}
           <div style={{ maxHeight: 460, overflowY: 'auto' }}>
-            {summaries.length === 0 && (
+            {visibleSummaries.length === 0 && (
               <div style={{ padding: 16, color: TEXT_DIM }}>
                 None dashboard. Use um preset ou importe um <code>.simhubdash</code>.
               </div>
             )}
-            {summaries.map((s) => {
+            {visibleSummaries.map((s) => {
               const open = openStates.find((o) => o.id === s.id)
               const active = s.id === selectedId
               return (
@@ -1391,6 +1420,19 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                       <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</strong>
                     </span>
                     {open && <span style={{ color: ACCENT, fontSize: 11, fontWeight: 700, flex: '0 0 auto' }}>ABERTO</span>}
+                    {!selectionMode && (
+                      <button
+                        type="button"
+                        style={{ ...btn(), padding: '3px 8px', fontSize: 11 }}
+                        disabled={busy}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void run(() => setDashboardsHidden([s.id], true))
+                        }}
+                      >
+                        Hide
+                      </button>
+                    )}
                   </div>
                   <div style={{ color: TEXT_DIM, fontSize: 12, paddingLeft: selectionMode ? 24 : 0 }}>
                     {s.width}×{s.height} · {s.elementCount} elements
@@ -1398,6 +1440,24 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                 </button>
               )
             })}
+            {hiddenSummaries.length > 0 && (
+              <details style={{ borderTop: `1px solid ${PANEL_BORDER}` }}>
+                <summary style={{ padding: 12, color: TEXT_FG, cursor: 'pointer', fontWeight: 800 }}>Hidden ({hiddenSummaries.length})</summary>
+                {hiddenSummaries.map((s) => (
+                  <div key={s.id} style={{ padding: '10px 12px', borderTop: `1px solid ${PANEL_BORDER}`, background: 'var(--surface-sunken)' }}>
+                    <label style={{ display: 'flex', gap: 8, alignItems: 'center', color: TEXT_FG }}>
+                      <input type="checkbox" checked={selectedDashboardIds.has(s.id)} onChange={() => toggleDashboardSelection(s.id)} />
+                      <strong style={{ flex: 1 }}>{s.name}</strong>
+                      <button type="button" style={btn()} disabled={busy} onClick={() => run(() => setDashboardsHidden([s.id], false))}>Restore</button>
+                    </label>
+                    <div style={{ color: TEXT_DIM, fontSize: 12, paddingLeft: 24 }}>{s.width}×{s.height} · {s.elementCount} elements</div>
+                  </div>
+                ))}
+                <div style={{ padding: 10 }}>
+                  <button type="button" style={btn()} disabled={busy || selectedDashboardIds.size === 0} onClick={() => run(() => setDashboardsHidden(Array.from(selectedDashboardIds), false))}>Restore selected</button>
+                </div>
+              </details>
+            )}
           </div>
         </section>
 

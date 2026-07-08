@@ -9,7 +9,8 @@ import type {
   OverlaysConfig
 } from '../../../shared/overlays'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
-import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, mergeHifiOverlayConfigs } from './hifi-overlays'
+import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, HIFI_DEFAULT_TRIGGERS, mergeHifiOverlayConfigs } from './hifi-overlays'
+import { evaluateOverlayTrigger } from '../../../shared/overlays'
 import { resolveWidgetComponent } from './widgets'
 import './overlay-runtime.css'
 
@@ -96,11 +97,20 @@ export function CompositorRoot() {
     return ALL_OVERLAY_WIDGETS
       .map((definition) => {
         const widgetConfig = config.widgets[definition.id]
-        return widgetConfig?.enabled ? { definition, config: widgetConfig } : null
+        // Skip user-hidden overlays (moved to the "Hidden" section) entirely.
+        return widgetConfig?.enabled && !widgetConfig.hidden ? { definition, config: widgetConfig } : null
       })
       .filter((layer): layer is NonNullable<typeof layer> => Boolean(layer))
       .filter((layer) => overlapsDisplay(layer.config.position, display))
   }, [config.widgets, display])
+
+  // Spotter-style trigger-only overlays: an overlay whose trigger is set (and not
+  // 'always') is only painted while its condition fires against live telemetry.
+  // Falls back to the module's defaultTrigger when the user has not set one.
+  const isTriggered = useCallback((layerConfig: OverlayWidgetConfig): boolean => {
+    const trigger = layerConfig.trigger ?? HIFI_DEFAULT_TRIGGERS[layerConfig.id] ?? null
+    return evaluateOverlayTrigger(trigger, snapshot)
+  }, [snapshot])
 
   const reportHit = useCallback((interactive: boolean): void => {
     const sendHit = (): void => {
@@ -226,6 +236,9 @@ export function CompositorRoot() {
       {enabledLayers.map(({ definition, config: widgetConfig }) => {
         const Widget = resolveWidgetComponent(definition.id)
         if (!Widget) return null
+        // Trigger-only overlays are condition-gated ONLY once locked (racing). While
+        // unlocked (editing) they always show so the user can position/style them.
+        if (widgetConfig.locked && !isTriggered(widgetConfig)) return null
         const layerStyle: CSSProperties = {
           position: 'absolute',
           left: widgetConfig.position.x - display.x,
@@ -247,7 +260,7 @@ export function CompositorRoot() {
             >
               {!widgetConfig.locked && (
                 <div className="overlay-drag-handle">
-                  {definition.title} · compositor · arraste para mover
+                  {definition.title} · compositor · drag to move
                 </div>
               )}
               <Widget snapshot={snapshot} config={widgetConfig} />
@@ -266,7 +279,7 @@ export function CompositorRoot() {
           </section>
         )
       })}
-      {!snapshot?.connected && <div className="connection-badge">telemetria aguardando</div>}
+      {!snapshot?.connected && <div className="connection-badge">waiting for telemetry</div>}
     </main>
   )
 }

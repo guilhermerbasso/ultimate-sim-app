@@ -1,4 +1,4 @@
-import type { OverlayListItem, OverlayPosition, OverlayWidgetConfig, OverlayWidgetDefinition, OverlayWidgetId, OverlaysConfig } from '../../../shared/overlays'
+import type { OverlayListItem, OverlayPosition, OverlayTrigger, OverlayWidgetConfig, OverlayWidgetDefinition, OverlayWidgetId, OverlaysConfig } from '../../../shared/overlays'
 import {
   createDefaultOverlayStyle,
   createDefaultOverlaysConfig,
@@ -10,6 +10,16 @@ import { HIFI_WIDGETS, hifiWidgetTags } from '../hifi/widgets/registry'
 function hifiOverlayId(moduleId: string): OverlayWidgetId {
   return `hifi:${moduleId}`
 }
+
+/** Default triggers by overlay id, for spotter-style trigger-only overlays
+ *  (car left/right, radar-on-proximity, shift flash, pit limiter, flag, low fuel).
+ *  The compositor falls back to this when the user has not set an explicit trigger. */
+export const HIFI_DEFAULT_TRIGGERS: Record<string, OverlayTrigger> = Object.fromEntries(
+  HIFI_WIDGETS.filter((module) => module.defaultTrigger != null).map((module) => [
+    hifiOverlayId(module.id),
+    module.defaultTrigger as OverlayTrigger
+  ])
+)
 
 function defaultPosition(index: number, size: { w: number; h: number }): OverlayPosition {
   const width = Math.max(160, Math.round(size.w))
@@ -50,7 +60,8 @@ export function hifiOverlayConfigs(): Record<string, OverlayWidgetConfig> {
           stylePreset: DEFAULT_OVERLAY_STYLE_PRESET,
           style: createDefaultOverlayStyle(),
           display: null,
-          hifiModuleId: moduleId
+          hifiModuleId: moduleId,
+          ...(HIFI_DEFAULT_TRIGGERS[definition.id] ? { trigger: HIFI_DEFAULT_TRIGGERS[definition.id] } : {})
         } satisfies OverlayWidgetConfig
       ]
     })

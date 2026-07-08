@@ -82,6 +82,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
   const [busy, setBusy] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [presetTagFilters, setPresetTagFilters] = useState<string[]>([])
+  const [selectedPanelIds, setSelectedPanelIds] = useState<Set<string>>(() => new Set())
 
   const refreshDisplays = useCallback(async () => {
     const list = await window.ipc.invoke<DisplayInfo[]>('app:touchpanel:listDisplays')
@@ -262,6 +263,32 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
     () => filterByTags(TOUCH_PANEL_PRESETS, presetTagFilters, touchPresetTags),
     [presetTagFilters]
   )
+  const visibleSummaries = useMemo(() => summaries.filter((summary) => !summary.hidden), [summaries])
+  const hiddenSummaries = useMemo(() => summaries.filter((summary) => summary.hidden), [summaries])
+
+  function togglePanelSelection(id: string): void {
+    setSelectedPanelIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function setPanelsHidden(ids: string[], hidden: boolean): Promise<void> {
+    if (ids.length === 0) return
+    for (const id of ids) {
+      await window.ipc.invoke('app:touchpanel:setHidden', id, hidden)
+    }
+    setSelectedPanelIds(new Set())
+    if (selectedId && ids.includes(selectedId) && hidden) {
+      setPanelDraft(null)
+      setSelectedId(null)
+      setDirty(false)
+    }
+    await refreshPanels()
+    showToast(hidden ? 'Button box hidden.' : 'Button box restored.', 'info')
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -330,19 +357,43 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
         </details>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-          {summaries.length === 0 && <span style={{ color: TEXT_DIM, fontSize: 13 }}>Nenhum painel ainda. Crie um para começar.</span>}
-          {summaries.map((s) => (
-            <button
-              key={s.id}
-              style={{ ...btn(s.id === selectedId ? 'primary' : 'default'), display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}
-              disabled={busy}
-              onClick={() => requestLoadPanel(s.id)}
-            >
-              <span>{s.name}</span>
-              <span style={{ fontSize: 11, opacity: 0.8 }}>{s.columns}×{s.rows} · {s.buttonCount} teclas</span>
-            </button>
+          {visibleSummaries.length === 0 && <span style={{ color: TEXT_DIM, fontSize: 13 }}>No visible button boxes. Create one or restore a hidden item.</span>}
+          {visibleSummaries.map((s) => (
+            <div key={s.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+              <label style={{ color: TEXT_DIM, fontSize: 12, display: 'flex', gap: 6 }}>
+                <input type="checkbox" checked={selectedPanelIds.has(s.id)} disabled={busy} onChange={() => togglePanelSelection(s.id)} />
+                Select
+              </label>
+              <button
+                style={{ ...btn(s.id === selectedId ? 'primary' : 'default'), display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}
+                disabled={busy}
+                onClick={() => requestLoadPanel(s.id)}
+              >
+                <span>{s.name}</span>
+                <span style={{ fontSize: 11, opacity: 0.8 }}>{s.columns}×{s.rows} · {s.buttonCount} keys</span>
+              </button>
+              <button style={btn()} disabled={busy} onClick={() => run(() => setPanelsHidden([s.id], true))}>Hide</button>
+            </div>
           ))}
         </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          <button style={btn()} disabled={busy || selectedPanelIds.size === 0} onClick={() => run(() => setPanelsHidden(Array.from(selectedPanelIds), true))}>Hide selected</button>
+        </div>
+        {hiddenSummaries.length > 0 && (
+          <details style={{ marginBottom: 12 }}>
+            <summary style={{ color: TEXT_FG, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Hidden ({hiddenSummaries.length})</summary>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+              {hiddenSummaries.map((s) => (
+                <label key={s.id} style={{ ...btn('default'), display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input type="checkbox" checked={selectedPanelIds.has(s.id)} onChange={() => togglePanelSelection(s.id)} />
+                  <span>{s.name}</span>
+                  <button style={btn()} disabled={busy} onClick={() => run(() => setPanelsHidden([s.id], false))}>Restore</button>
+                </label>
+              ))}
+            </div>
+            <button style={{ ...btn(), marginTop: 10 }} disabled={busy || selectedPanelIds.size === 0} onClick={() => run(() => setPanelsHidden(Array.from(selectedPanelIds), false))}>Restore selected</button>
+          </details>
+        )}
 
         {panelDraft ? (
           <>

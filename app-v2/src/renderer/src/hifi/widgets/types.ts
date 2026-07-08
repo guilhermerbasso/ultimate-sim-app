@@ -7,6 +7,7 @@
 // can be built fully in parallel with zero registration conflicts.
 import type { ReactElement } from 'react'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
+import type { OverlayTrigger } from '../../../../shared/overlays'
 
 export type TelemetryField = keyof TelemetrySnapshot
 
@@ -60,6 +61,10 @@ export interface HifiWidgetModule {
   requires: TelemetryField[]
   /** Logical aspect (used for default overlay/widget size). */
   defaultSize: { w: number; h: number }
+  /** v4: default visibility trigger for spotter-style trigger-only overlays. When
+   *  set (and not 'always'), the overlay is shown ONLY while the trigger fires,
+   *  unless the user overrides it in the overlay config. */
+  defaultTrigger?: OverlayTrigger
   /** Pure, SSR-safe SVG render (renderToStaticMarkup-compatible, NaN-safe). */
   render: (props: HifiWidgetProps) => ReactElement
 }

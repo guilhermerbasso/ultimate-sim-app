@@ -84,6 +84,7 @@ export class TouchPanelManager {
     ipc.handle('app:touchpanel:get', (_event, id: string) => this.panels.get(id) ?? null)
     ipc.handle('app:touchpanel:save', (_event, panel: unknown) => this.save(panel))
     ipc.handle('app:touchpanel:delete', (_event, id: string) => this.delete(id))
+    ipc.handle('app:touchpanel:setHidden', (_event, id: string, hidden: boolean) => this.setHidden(id, hidden))
     ipc.handle('app:touchpanel:open', (_event, options?: { panelId?: string } & TouchPanelOpenOptions) =>
       this.openWindow(options ?? {})
     )
@@ -153,6 +154,18 @@ export class TouchPanelManager {
     }
     this.ctx.broadcast('app:touchpanel:list', this.list())
     return { deleted: true }
+  }
+
+  async setHidden(id: string, hidden: boolean): Promise<ButtonBoxSummary[]> {
+    const panel = this.panels.get(id)
+    if (!panel) throw new Error(`Touch panel not found: ${id}`)
+    panel.hidden = Boolean(hidden)
+    panel.updatedAt = Date.now()
+    this.panels.set(id, panel)
+    await writeFile(this.panelFilePath(panel.id), JSON.stringify(panel, null, 2), 'utf8')
+    const list = this.list()
+    this.ctx.broadcast('app:touchpanel:list', list)
+    return list
   }
 
   listDisplays(): TouchPanelDisplayInfo[] {

@@ -353,6 +353,7 @@ function normalizeCustomOverlay(value: unknown, fallbackId: string): CustomOverl
     opacity: clampOpacity(raw.opacity),
     stylePreset,
     style: sanitizeStyle(isPlainObject(raw.style) ? (raw.style as Partial<OverlayWidgetStyle>) : undefined, stylePreset),
+    hidden: Boolean(raw.hidden),
     display: sanitizeDisplayRef(raw.display),
     elements
   }
@@ -487,10 +488,10 @@ export class OverlayManager {
     }
 
     for (const [id, widget] of Object.entries(this.config.widgets)) {
-      if (widget.enabled) this.createWindow(id)
+      if (widget.enabled && !widget.hidden) this.createWindow(id)
     }
     for (const overlay of this.config.customOverlays) {
-      if (overlay.enabled) this.createWindow(overlay.id)
+      if (overlay.enabled && !overlay.hidden) this.createWindow(overlay.id)
     }
   }
 
@@ -528,6 +529,9 @@ export class OverlayManager {
     )
     this.ctx.ipcMain.handle('overlays:setFavorite', async (_event, id: OverlayWidgetId, favorite: boolean) =>
       this.setFavorite(id, favorite)
+    )
+    this.ctx.ipcMain.handle('overlays:setHidden', async (_event, id: OverlayWidgetId, hidden: boolean) =>
+      this.setHidden(id, hidden)
     )
     this.ctx.ipcMain.handle('overlays:setOpacity', async (_event, id: OverlayWidgetId, opacity: number) =>
       this.setOpacity(id, opacity)
@@ -642,7 +646,7 @@ export class OverlayManager {
     widget.enabled = enabled ?? !widget.enabled
     logger.info('overlays', `overlay toggled ${widget.enabled ? 'on' : 'off'}`, { id, enabled: widget.enabled })
 
-    if (widget.enabled) this.createWindow(id)
+    if (widget.enabled && !widget.hidden) this.createWindow(id)
     else this.destroyWindow(id)
 
     await this.save()
@@ -754,6 +758,18 @@ export class OverlayManager {
     return this.list()
   }
 
+  async setHidden(id: OverlayWidgetId, hidden: boolean): Promise<OverlayListItem[]> {
+    if (!isWidgetId(id) || !this.config.widgets[id]) throw new Error(`Unknown overlay widget: ${String(id)}`)
+    this.resetPending = false
+    const widget = this.config.widgets[id]
+    widget.hidden = Boolean(hidden)
+    if (widget.hidden) this.destroyWindow(id)
+    else this.syncWindow(id, widget)
+    await this.save()
+    this.broadcastState()
+    return this.list()
+  }
+
   async setOpacity(id: OverlayWidgetId, opacity: number): Promise<OverlayListItem[]> {
     if (!isWidgetId(id) || !this.config.widgets[id]) throw new Error(`Unknown overlay widget: ${String(id)}`)
     this.resetPending = false
@@ -822,8 +838,8 @@ export class OverlayManager {
     for (const id of [...this.windows.keys()]) this.destroyWindow(id)
   }
 
-  private syncWindow(id: string, current: { enabled: boolean; position: OverlayPosition; display?: OverlayDisplayRef | null }): void {
-    if (current.enabled) {
+  private syncWindow(id: string, current: { enabled: boolean; hidden?: boolean; position: OverlayPosition; display?: OverlayDisplayRef | null }): void {
+    if (current.enabled && !current.hidden) {
       const win = this.windows.get(id)
       if (win && !win.isDestroyed()) {
         win.setBounds(clampPositionToDisplays(current.position, current.display))
@@ -848,7 +864,7 @@ export class OverlayManager {
 
   private createWindow(id: string): void {
     const widget = this.controllable(id)
-    if (!widget) return
+    if (!widget || widget.hidden) return
     const existing = this.windows.get(id)
     if (existing && !existing.isDestroyed()) {
       existing.show()

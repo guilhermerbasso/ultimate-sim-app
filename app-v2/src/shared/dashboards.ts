@@ -514,6 +514,7 @@ export interface Dashboard {
   previewPng?: string // base64 (sem prefixo data:)
   createdAt?: number
   updatedAt?: number
+  hidden?: boolean
 }
 
 export interface DashboardSummary {
@@ -526,6 +527,7 @@ export interface DashboardSummary {
   description?: string
   author?: string
   updatedAt?: number
+  hidden?: boolean
 }
 
 export interface DashboardDisplayInfo {
@@ -2983,7 +2985,8 @@ export function summarizeDashboard(dash: Dashboard): DashboardSummary {
     hasPreview: Boolean(dash.previewPng),
     description: dash.description,
     author: dash.author,
-    updatedAt: dash.updatedAt
+    updatedAt: dash.updatedAt,
+    hidden: Boolean(dash.hidden)
   }
 }
 

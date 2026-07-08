@@ -108,6 +108,10 @@ export type NormalizedVariant = WidgetVariant & {
   supportedSims: CoverageSimId[]
 }
 
+export function filterHiddenVariants<T extends { id: string }>(variants: readonly T[], hiddenIds: ReadonlySet<string>): T[] {
+  return variants.filter((variant) => !hiddenIds.has(variant.id))
+}
+
 // ─── Per-sim coverage ────────────────────────────────────────────────────────
 // Each variant binds telemetry via `binding`. We derive the single TelemetrySnapshot
 // ROOT field it needs so the gallery can label / filter by which live sims drive it:

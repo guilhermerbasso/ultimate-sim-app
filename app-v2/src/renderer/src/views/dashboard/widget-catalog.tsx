@@ -20,6 +20,7 @@ import {
   TEXT_FG,
   WIDGET_CATALOG,
   filterVariants,
+  filterHiddenVariants,
   groupVariantsByCategory,
   partitionByAdvanced,
   variantToElement,
@@ -42,7 +43,29 @@ import {
 import { PLAYABLE_SIMS, simLabel, type CoverageSimId } from '../../../../shared/sim-coverage'
 
 export type { WidgetVariant, WidgetCategory, NormalizedVariant }
-export { variantToElement, WIDGET_CATALOG, ALL_VARIANTS, NEW_VARIANTS, NEW_WIDGET_KINDS, filterVariants, groupVariantsByCategory }
+export { variantToElement, WIDGET_CATALOG, ALL_VARIANTS, NEW_VARIANTS, NEW_WIDGET_KINDS, filterVariants, groupVariantsByCategory, filterHiddenVariants }
+
+const WIDGET_HIDDEN_STORAGE_KEY = 'usa.dashboardWidgetCatalog.hidden'
+
+function readHiddenWidgetIds(): Set<string> {
+  try {
+    if (typeof window === 'undefined') return new Set()
+    const raw = window.localStorage.getItem(WIDGET_HIDDEN_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : []
+    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function persistHiddenWidgetIds(ids: ReadonlySet<string>): void {
+  try {
+    if (typeof window === 'undefined') return
+    window.localStorage.setItem(WIDGET_HIDDEN_STORAGE_KEY, JSON.stringify(Array.from(ids)))
+  } catch {
+    // localStorage can be unavailable in tests or restricted environments.
+  }
+}
 
 // ─── Miniatura ──────────────────────────────────────────────────────────────
 const PREVIEW_W = 168
@@ -127,11 +150,14 @@ export function WidgetGallery({
   const [cluster, setCluster] = useState<WidgetClusterTag | null>(null)
   const [styleFamily, setStyleFamily] = useState<WidgetStyleFamily | null>(null)
   const [sim, setSim] = useState<CoverageSimId | null>(null)
+  const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => readHiddenWidgetIds())
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
 
   const filtered = useMemo(
-    () => filterVariants(ALL_VARIANTS, { search, category, cluster, styleFamily, sim }),
-    [search, category, cluster, styleFamily, sim]
+    () => filterHiddenVariants(filterVariants(ALL_VARIANTS, { search, category, cluster, styleFamily, sim }), hiddenIds),
+    [search, category, cluster, styleFamily, sim, hiddenIds]
   )
+  const hiddenVariants = useMemo(() => ALL_VARIANTS.filter((variant) => hiddenIds.has(variant.id)), [hiddenIds])
   // Curated GT3 widgets/templates lead; the ~201 generated raw iRacing channels
   // are demoted behind a collapsed "advanced" accordion (still fully reachable
   // via search/expand). The curated axis is now sectioned by HARDWARE CLUSTER
@@ -151,6 +177,33 @@ export function WidgetGallery({
     search.trim() !== '' || category !== null || cluster !== null || styleFamily !== null || sim !== null
   // Any active filter auto-reveals the advanced channels so matches are never hidden.
   const showAdvanced = advancedOpen || hasFilter
+  const updateHiddenIds = (updater: (current: Set<string>) => Set<string>): void => {
+    setHiddenIds((current) => {
+      const next = updater(current)
+      persistHiddenWidgetIds(next)
+      return next
+    })
+  }
+  const toggleSelected = (id: string): void => {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  const hideIds = (ids: string[]): void => {
+    updateHiddenIds((current) => new Set([...current, ...ids]))
+    setSelectedIds(new Set())
+  }
+  const restoreIds = (ids: string[]): void => {
+    updateHiddenIds((current) => {
+      const next = new Set(current)
+      ids.forEach((id) => next.delete(id))
+      return next
+    })
+    setSelectedIds(new Set())
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -164,6 +217,9 @@ export function WidgetGallery({
           style={searchStyle}
         />
         <span style={{ color: TEXT_DIM, fontSize: 12, whiteSpace: 'nowrap' }}>{filtered.length} widget{filtered.length === 1 ? '' : 's'}</span>
+        <button type="button" onClick={() => hideIds(Array.from(selectedIds))} disabled={selectedIds.size === 0} style={clearBtnStyle}>
+          Hide selected
+        </button>
         {hasFilter && (
           <button type="button" onClick={() => { setSearch(''); setCategory(null); setCluster(null); setStyleFamily(null); setSim(null) }} style={clearBtnStyle} title="Clear filters">
             Clear ✕
@@ -232,10 +288,10 @@ export function WidgetGallery({
                 </span>
               </div>
               {curatedClusterSections.map((sec) => (
-                <SectionGrid key={`cluster-${sec.cluster}`} label={sec.label} variants={sec.variants} busy={busy} onAdd={onAdd} />
+                <SectionGrid key={`cluster-${sec.cluster}`} label={sec.label} variants={sec.variants} busy={busy} selectedIds={selectedIds} onToggleSelected={toggleSelected} onHide={(id) => hideIds([id])} onAdd={onAdd} />
               ))}
               {curatedFallbackSections.map((sec) => (
-                <SectionGrid key={`cat-${sec.category}`} label={sec.label} variants={sec.variants} busy={busy} onAdd={onAdd} />
+                <SectionGrid key={`cat-${sec.category}`} label={sec.label} variants={sec.variants} busy={busy} selectedIds={selectedIds} onToggleSelected={toggleSelected} onHide={(id) => hideIds([id])} onAdd={onAdd} />
               ))}
             </>
           )}
@@ -259,9 +315,24 @@ export function WidgetGallery({
               </button>
               {showAdvanced &&
                 advancedSections.map((sec) => (
-                  <SectionGrid key={sec.category} label={sec.label} variants={sec.variants} busy={busy} onAdd={onAdd} />
+                  <SectionGrid key={sec.category} label={sec.label} variants={sec.variants} busy={busy} selectedIds={selectedIds} onToggleSelected={toggleSelected} onHide={(id) => hideIds([id])} onAdd={onAdd} />
                 ))}
             </div>
+          )}
+          {hiddenVariants.length > 0 && (
+            <details>
+              <summary style={{ color: TEXT_FG, cursor: 'pointer', fontWeight: 800 }}>Hidden widgets ({hiddenVariants.length})</summary>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+                {hiddenVariants.map((variant) => (
+                  <label key={variant.id} style={{ ...clearBtnStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="checkbox" checked={selectedIds.has(variant.id)} onChange={() => toggleSelected(variant.id)} />
+                    <span>{variant.label}</span>
+                    <button type="button" style={clearBtnStyle} onClick={() => restoreIds([variant.id])}>Restore</button>
+                  </label>
+                ))}
+              </div>
+              <button type="button" style={{ ...clearBtnStyle, marginTop: 10 }} disabled={selectedIds.size === 0} onClick={() => restoreIds(Array.from(selectedIds))}>Restore selected</button>
+            </details>
           )}
         </>
       )}
@@ -275,11 +346,17 @@ function SectionGrid({
   label,
   variants,
   busy,
+  selectedIds,
+  onToggleSelected,
+  onHide,
   onAdd
 }: {
   label: string
   variants: NormalizedVariant[]
   busy?: boolean
+  selectedIds: ReadonlySet<string>
+  onToggleSelected(id: string): void
+  onHide(id: string): void
   onAdd(variant: WidgetVariant): void
 }): ReactElement {
   return (
@@ -287,14 +364,15 @@ function SectionGrid({
       <div style={catTitle}>{label} <span style={{ color: TEXT_DIM, fontWeight: 600 }}>· {variants.length}</span></div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(168px, 1fr))', gap: 10 }}>
         {variants.map((v) => (
-          <button
+          <div
             key={v.id}
-            type="button"
-            disabled={busy}
-            onClick={() => onAdd(v)}
             title={v.hint ?? `Add ${v.label}`}
             style={cardStyle}
           >
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: TEXT_DIM, fontSize: 11, marginBottom: 6 }}>
+              <input type="checkbox" checked={selectedIds.has(v.id)} disabled={busy} onChange={() => onToggleSelected(v.id)} />
+              Select
+            </label>
             <WidgetMini variant={v} />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginTop: 6 }}>
               <span style={{ color: TEXT_FG, fontSize: 12, fontWeight: 700, textAlign: 'left', lineHeight: 1.15 }}>{v.label}</span>
@@ -308,7 +386,11 @@ function SectionGrid({
             {v.missing && (
               <div style={missingBadge} title={v.missing}>⚠ {v.missing}</div>
             )}
-          </button>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              <button type="button" disabled={busy} onClick={() => onAdd(v)} style={miniActionBtn}>Add</button>
+              <button type="button" disabled={busy} onClick={() => onHide(v.id)} style={miniActionBtn}>Hide</button>
+            </div>
+          </div>
         ))}
       </div>
     </div>
@@ -384,6 +466,12 @@ const clearBtnStyle: CSSProperties = {
   padding: '6px 10px',
   cursor: 'pointer',
   whiteSpace: 'nowrap'
+}
+
+const miniActionBtn: CSSProperties = {
+  ...clearBtnStyle,
+  flex: 1,
+  textAlign: 'center'
 }
 
 const chipRowLabel: CSSProperties = {

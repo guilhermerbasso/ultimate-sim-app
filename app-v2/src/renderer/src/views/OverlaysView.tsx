@@ -74,6 +74,7 @@ function configModeFrom(items: OverlayListItem[], fallback: OverlaysConfig): Ove
         opacity: item.opacity,
         stylePreset: item.stylePreset,
         style: item.style,
+        hidden: item.hidden,
         hifiModuleId: item.hifiModuleId
       }]))
     } as OverlaysConfig['widgets']
@@ -134,6 +135,8 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   const [copiedStreamUrl, setCopiedStreamUrl] = useState(false)
   const enabledCount = useMemo(() => items.filter((item) => item.enabled).length, [items])
   const sortedItems = useMemo(() => sortOverlayEntries(items), [items])
+  const [selectedWidgetIds, setSelectedWidgetIds] = useState<Set<string>>(() => new Set())
+  const [selectedCustomIds, setSelectedCustomIds] = useState<Set<string>>(() => new Set())
   // Per-sim availability: a widget is shown for the chosen sim only when that sim's
   // live telemetry provides every field the widget requires (sim-coverage). 'all'
   // shows everything. The title is prefixed "(IR/ACC/LMU)" with its supported sims.
@@ -149,20 +152,24 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   )
   const simFilteredItems = useMemo(() => {
     return sortedItems.filter((item) => {
+      if (item.hidden) return false
       const def = defById.get(item.id as OverlayWidgetId)
       return simFilter === 'all' || !def || widgetSupportedSims(def.requires).includes(simFilter)
     })
   }, [sortedItems, simFilter, defById])
+  const hiddenItems = useMemo(() => sortedItems.filter((item) => item.hidden), [sortedItems])
   const visibleItems = useMemo(() => {
     return filterByTags(simFilteredItems, tagFilters, (item) => definitionTags(defById.get(item.id as OverlayWidgetId)))
   }, [simFilteredItems, tagFilters, defById])
   const sortedCustomOverlays = useMemo(() => sortOverlayEntries(customOverlays), [customOverlays])
+  const visibleCustomOverlays = useMemo(() => sortedCustomOverlays.filter((overlay) => !overlay.hidden), [sortedCustomOverlays])
+  const hiddenCustomOverlays = useMemo(() => sortedCustomOverlays.filter((overlay) => overlay.hidden), [sortedCustomOverlays])
   const activeOverlays = useMemo<ActiveOverlayEntry[]>(() => [
     ...items
-      .filter((item) => item.enabled)
+      .filter((item) => item.enabled && !item.hidden)
       .map((item) => ({ id: item.id, title: item.title, favorite: Boolean(item.favorite), kind: 'widget' as const })),
     ...customOverlays
-      .filter((overlay) => overlay.enabled)
+      .filter((overlay) => overlay.enabled && !overlay.hidden)
       .map((overlay) => ({ id: overlay.id, title: overlay.title, favorite: Boolean(overlay.favorite), kind: 'custom' as const }))
   ], [items, customOverlays])
   const displayOptions = useMemo(() => displays.map((display) => ({
@@ -399,6 +406,44 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
     void run(async () => {
       const next = await window.ipc.invoke<CustomOverlayListItem[]>('overlays:updateCustom', id, patch)
       if (Array.isArray(next)) setCustomOverlays(next)
+    })
+  }
+
+  function toggleWidgetSelected(id: string): void {
+    setSelectedWidgetIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleCustomSelected(id: string): void {
+    setSelectedCustomIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function setWidgetHidden(ids: string[], hidden: boolean): void {
+    if (ids.length === 0) return
+    void run(async () => {
+      for (const id of ids) {
+        await window.ipc.invoke<OverlayListItem[]>('overlays:setHidden', id as OverlayWidgetId, hidden)
+      }
+      setSelectedWidgetIds(new Set())
+    })
+  }
+
+  function setCustomHidden(ids: string[], hidden: boolean): void {
+    if (ids.length === 0) return
+    void run(async () => {
+      for (const id of ids) {
+        await window.ipc.invoke<CustomOverlayListItem[]>('overlays:updateCustom', id, { hidden })
+      }
+      setSelectedCustomIds(new Set())
     })
   }
 
@@ -817,16 +862,25 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
           </div>
         </div>
 
-        {customOverlays.length === 0 ? (
+        {visibleCustomOverlays.length === 0 ? (
           <p className="overlay-help">
             Nenhum overlay customizado ainda. Clique em <strong style={{ color: "var(--accent-primary)" }}>Criar novo overlay</strong> para montar com os widgets do dashboard.
           </p>
         ) : (
           <div className="overlay-grid">
-            {sortedCustomOverlays.map((overlay) => (
+            {visibleCustomOverlays.map((overlay) => (
               <article key={overlay.id} className={overlay.enabled ? 'overlay-config-card is-enabled' : 'overlay-config-card'}>
                 <div className="overlay-card-top">
                   <div>
+                    <label className="designer-check" style={{ margin: '0 0 6px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedCustomIds.has(overlay.id)}
+                        disabled={busy}
+                        onChange={() => toggleCustomSelected(overlay.id)}
+                      />
+                      Select
+                    </label>
                     <h4>{overlay.title}</h4>
                     <p>
                       {isRichCustomOverlay(overlay)
@@ -870,6 +924,9 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                   <button className="ghost-action danger" disabled={busy} onClick={() => removeCustomOverlay(overlay.id)}>
                     Remover
                   </button>
+                  <button className="ghost-action" disabled={busy} onClick={() => setCustomHidden([overlay.id], true)}>
+                    Hide
+                  </button>
                 </div>
 
                 <div className="opacity-control">
@@ -907,6 +964,30 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             ))}
           </div>
         )}
+        {(visibleCustomOverlays.length > 0 || hiddenCustomOverlays.length > 0) && (
+          <div className="overlay-actions" style={{ marginTop: 12 }}>
+            <button className="ghost-action" disabled={busy || selectedCustomIds.size === 0} onClick={() => setCustomHidden(Array.from(selectedCustomIds), true)}>
+              Hide selected
+            </button>
+          </div>
+        )}
+        {hiddenCustomOverlays.length > 0 && (
+          <details style={{ marginTop: 14 }}>
+            <summary style={{ color: '#f6fbff', cursor: 'pointer', fontWeight: 700 }}>Hidden custom overlays ({hiddenCustomOverlays.length})</summary>
+            <div className="overlays-active-chips" style={{ marginTop: 10 }}>
+              {hiddenCustomOverlays.map((overlay) => (
+                <div key={overlay.id} className="overlay-active-chip">
+                  <label className="designer-check" style={{ margin: 0 }}>
+                    <input type="checkbox" checked={selectedCustomIds.has(overlay.id)} onChange={() => toggleCustomSelected(overlay.id)} />
+                    <span className="overlay-active-chip-title">{overlay.title}</span>
+                  </label>
+                  <button className="overlay-active-chip-off" disabled={busy} onClick={() => setCustomHidden([overlay.id], false)}>Restore</button>
+                </div>
+              ))}
+            </div>
+            <button className="ghost-action" style={{ marginTop: 10 }} disabled={busy || selectedCustomIds.size === 0} onClick={() => setCustomHidden(Array.from(selectedCustomIds), false)}>Restore selected</button>
+          </details>
+        )}
       </section>
 
       {error && <section className="panel overlay-help">{error}</section>}
@@ -935,11 +1016,23 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             onSelectedTagsChange={setTagFilters}
             getTags={(item) => definitionTags(defById.get(item.id as OverlayWidgetId))}
           />
+          <button className="ghost-action" disabled={busy || selectedWidgetIds.size === 0} onClick={() => setWidgetHidden(Array.from(selectedWidgetIds), true)}>
+            Hide selected
+          </button>
         </div>
         {visibleItems.map((item) => (
           <article key={item.id} className={item.enabled ? 'overlay-config-card is-enabled' : 'overlay-config-card'}>
             <div className="overlay-card-top">
               <div>
+                <label className="designer-check" style={{ margin: '0 0 6px' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedWidgetIds.has(item.id)}
+                    disabled={busy}
+                    onChange={() => toggleWidgetSelected(item.id)}
+                  />
+                  Select
+                </label>
                 <h4>{displayTitleFor(item.id, item.title)}</h4>
                 <p>{item.description}</p>
               </div>
@@ -988,6 +1081,9 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 })}
               >
                 Aplicar posição
+              </button>
+              <button className="ghost-action" disabled={busy} onClick={() => setWidgetHidden([item.id], true)}>
+                Hide
               </button>
             </div>
 
@@ -1134,6 +1230,25 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             </label>
           </article>
         ))}
+        {hiddenItems.length > 0 && (
+          <div style={{ gridColumn: '1 / -1' }}>
+            <details>
+              <summary style={{ color: '#f6fbff', cursor: 'pointer', fontWeight: 800 }}>Hidden widgets ({hiddenItems.length})</summary>
+              <div className="overlays-active-chips" style={{ marginTop: 10 }}>
+                {hiddenItems.map((item) => (
+                  <div key={item.id} className="overlay-active-chip">
+                    <label className="designer-check" style={{ margin: 0 }}>
+                      <input type="checkbox" checked={selectedWidgetIds.has(item.id)} onChange={() => toggleWidgetSelected(item.id)} />
+                      <span className="overlay-active-chip-title">{displayTitleFor(item.id, item.title)}</span>
+                    </label>
+                    <button className="overlay-active-chip-off" disabled={busy} onClick={() => setWidgetHidden([item.id], false)}>Restore</button>
+                  </div>
+                ))}
+              </div>
+              <button className="ghost-action" style={{ marginTop: 10 }} disabled={busy || selectedWidgetIds.size === 0} onClick={() => setWidgetHidden(Array.from(selectedWidgetIds), false)}>Restore selected</button>
+            </details>
+          </div>
+        )}
       </section>
 
 

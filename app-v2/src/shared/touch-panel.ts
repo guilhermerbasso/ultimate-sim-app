@@ -115,6 +115,7 @@ export interface ButtonBoxPanel {
   buttons: ButtonBoxButton[]
   createdAt?: number
   updatedAt?: number
+  hidden?: boolean
 }
 
 export interface ButtonBoxSummary {
@@ -124,6 +125,7 @@ export interface ButtonBoxSummary {
   rows: number
   buttonCount: number
   updatedAt?: number
+  hidden?: boolean
 }
 
 // ── Bounds ────────────────────────────────────────────────────────────────────
@@ -325,7 +327,8 @@ export function createButtonBoxPanel(partial: ButtonBoxPanelInit = {}): ButtonBo
     background: str(partial.background, DEFAULT_PANEL_BG),
     buttons,
     createdAt: partial.createdAt ?? now,
-    updatedAt: partial.updatedAt ?? now
+    updatedAt: partial.updatedAt ?? now,
+    hidden: Boolean(partial.hidden)
   }
 }
 
@@ -447,7 +450,8 @@ export function parseButtonBoxPanel(raw: unknown): ButtonBoxPanel | null {
     background: str(p.background, DEFAULT_PANEL_BG),
     buttons,
     createdAt: typeof p.createdAt === 'number' ? p.createdAt : undefined,
-    updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : undefined
+    updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : undefined,
+    hidden: Boolean(p.hidden)
   }
 }
 
@@ -462,7 +466,8 @@ export function summarizeButtonBoxPanel(panel: ButtonBoxPanel): ButtonBoxSummary
     columns: panel.columns,
     rows: panel.rows,
     buttonCount: panel.buttons.length,
-    updatedAt: panel.updatedAt
+    updatedAt: panel.updatedAt,
+    hidden: Boolean(panel.hidden)
   }
 }
 

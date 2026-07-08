@@ -9,6 +9,7 @@ import {
   NEW_VARIANTS,
   NEW_WIDGET_KINDS,
   WIDGET_CATALOG,
+  filterHiddenVariants,
   partitionByAdvanced,
   variantToElement,
   type NormalizedVariant
@@ -27,6 +28,16 @@ import {
   matchesQuery,
   type WidgetTaxon
 } from '../../../../shared/widget-taxonomy'
+
+describe('filterHiddenVariants', () => {
+  it('removes hidden catalog entries and restores them when the id leaves the set', () => {
+    const sample = ALL_VARIANTS.slice(0, 3)
+    const hidden = new Set([sample[1].id])
+    expect(filterHiddenVariants(sample, hidden).map((variant) => variant.id)).toEqual([sample[0].id, sample[2].id])
+    hidden.delete(sample[1].id)
+    expect(filterHiddenVariants(sample, hidden)).toHaveLength(3)
+  })
+})
 
 describe('round-7 new widget variants', () => {
   it('adds at least 50 brand-new variants', () => {

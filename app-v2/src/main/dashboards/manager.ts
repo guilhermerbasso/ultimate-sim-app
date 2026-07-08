@@ -213,7 +213,8 @@ function normalizeDashboard(raw: unknown): Dashboard | null {
     height: normalizedHeight,
     bg: typeof source.bg === 'string' ? source.bg : '#05070a',
     elements,
-    scaleMode: source.scaleMode === 'fill' || source.scaleMode === 'stretch' ? source.scaleMode : 'fit'
+    scaleMode: source.scaleMode === 'fill' || source.scaleMode === 'stretch' ? source.scaleMode : 'fit',
+    hidden: Boolean(source.hidden)
   }
 }
 
@@ -303,6 +304,7 @@ export class DashboardManager {
     ipc.handle('app:dash:get', (_event, id: string) => this.dashboards.get(id) ?? null)
     ipc.handle('app:dash:save', (_event, dash: Dashboard) => this.save(dash))
     ipc.handle('app:dash:delete', (_event, id: string) => this.delete(id))
+    ipc.handle('app:dash:setHidden', (_event, id: string, hidden: boolean) => this.setHidden(id, hidden))
     ipc.handle('app:dash:open', (_event, id: string, options?: DashboardOpenOptions) =>
       this.openWindow(id, options)
     )
@@ -544,6 +546,19 @@ export class DashboardManager {
     }
     const list = this.list()
     this.ctx.broadcast('app:dash:list', list)
+    return list
+  }
+
+  async setHidden(id: string, hidden: boolean): Promise<DashboardSummary[]> {
+    const dash = this.dashboards.get(id)
+    if (!dash) throw new Error(`Dashboard não encontrado: ${id}`)
+    dash.hidden = Boolean(hidden)
+    dash.updatedAt = Date.now()
+    this.dashboards.set(id, dash)
+    await this.persist(dash)
+    const list = this.list()
+    this.ctx.broadcast('app:dash:list', list)
+    this.ctx.broadcast('app:dash:updated', dash)
     return list
   }
 
