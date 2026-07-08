@@ -146,6 +146,11 @@ function barForm(
   // `invert` variables (fuel/wear/grip) only flip the WARN/CRIT colour via state —
   // the bar still fills to the real fraction (never fuller as the value drops).
   const frac = clamp01(fraction)
+  const horizontalTrackWidth = Math.max(0, w - 16)
+  const horizontalTrackY = Math.max(0, h - 30)
+  const verticalTrackX = Math.max(0, w - 26)
+  const verticalTrackY = Math.max(0, Math.min(22, h))
+  const verticalTrackHeight = Math.max(0, h - 34)
   return (
     <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} role="img" aria-label={label}>
       <rect x={0.5} y={0.5} width={w - 1} height={h - 1} rx={6} fill={c.surface} stroke={c.stroke} />
@@ -154,8 +159,8 @@ function barForm(
       </text>
       {orientation === 'h' ? (
         <>
-          <rect x={8} y={h - 30} width={w - 16} height={12} rx={4} fill={c.recess} stroke={c.stroke} strokeWidth={0.5} />
-          <rect x={8} y={h - 30} width={Math.max(0, (w - 16) * frac)} height={12} rx={4} fill={valueColor} />
+          <rect x={8} y={horizontalTrackY} width={horizontalTrackWidth} height={12} rx={4} fill={c.recess} stroke={c.stroke} strokeWidth={0.5} />
+          <rect x={8} y={horizontalTrackY} width={horizontalTrackWidth * frac} height={12} rx={4} fill={valueColor} />
           <text x={8} y={h * 0.5} fill={valueColor} fontFamily="'Chakra Petch',monospace" fontWeight={700} fontSize={Math.min(24, h * 0.32)}>
             {text}
             {unit ? <tspan fill={c.textDim} fontSize={11}> {unit}</tspan> : null}
@@ -163,8 +168,8 @@ function barForm(
         </>
       ) : (
         <>
-          <rect x={w - 26} y={22} width={14} height={h - 34} rx={4} fill={c.recess} stroke={c.stroke} strokeWidth={0.5} />
-          <rect x={w - 26} y={22 + (h - 34) * (1 - frac)} width={14} height={Math.max(0, (h - 34) * frac)} rx={4} fill={valueColor} />
+          <rect x={verticalTrackX} y={verticalTrackY} width={14} height={verticalTrackHeight} rx={4} fill={c.recess} stroke={c.stroke} strokeWidth={0.5} />
+          <rect x={verticalTrackX} y={verticalTrackY + verticalTrackHeight * (1 - frac)} width={14} height={verticalTrackHeight * frac} rx={4} fill={valueColor} />
           <text x={8} y={h * 0.55} fill={valueColor} fontFamily="'Chakra Petch',monospace" fontWeight={700} fontSize={Math.min(22, h * 0.26)}>
             {text}
           </text>

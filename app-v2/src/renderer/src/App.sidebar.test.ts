@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   SIDEBAR_COLLAPSED_STORAGE_KEY,
+  isEditableTarget,
   readSidebarCollapsed,
   writeSidebarCollapsed
 } from './App'
@@ -75,5 +76,24 @@ describe('sidebar collapse persistence', () => {
     }
     expect(readSidebarCollapsed()).toBe(false)
     expect(() => writeSidebarCollapsed(true)).not.toThrow()
+  })
+})
+
+describe('global shortcut target guard', () => {
+  it('treats form fields as editable targets', () => {
+    expect(isEditableTarget({ tagName: 'INPUT' } as EventTarget)).toBe(true)
+    expect(isEditableTarget({ tagName: 'textarea' } as EventTarget)).toBe(true)
+    expect(isEditableTarget({ tagName: 'select' } as EventTarget)).toBe(true)
+  })
+
+  it('treats contentEditable elements as editable targets', () => {
+    expect(isEditableTarget({ isContentEditable: true } as EventTarget)).toBe(true)
+    expect(isEditableTarget({ closest: () => ({}) } as EventTarget)).toBe(true)
+  })
+
+  it('ignores non-editable targets', () => {
+    expect(isEditableTarget(null)).toBe(false)
+    expect(isEditableTarget({ tagName: 'div', isContentEditable: false, closest: () => null } as EventTarget)).toBe(false)
+    expect(isEditableTarget({} as EventTarget)).toBe(false)
   })
 })
