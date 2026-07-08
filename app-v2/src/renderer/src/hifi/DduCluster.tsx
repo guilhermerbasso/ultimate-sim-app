@@ -243,21 +243,21 @@ export function DduCluster({ snapshot: s, width, height }: DduClusterProps): Rea
       </Panel>
 
       <Panel x={262} y={70} w={478} h={400}>
-        <text x={300} y={210} fill={COL.cyan} fontSize={22} fontWeight={700} fontFamily="'Rajdhani',sans-serif" letterSpacing={2}>SPEED</text>
-        <text x={296} y={300} fill={COL.text} fontSize={92} fontWeight={800} fontFamily="'Chakra Petch','Michroma',sans-serif">{fixed(speed)}</text>
-        <text x={300} y={336} fill={COL.cyan} fontSize={20} fontFamily="'Rajdhani',sans-serif">km/h</text>
+        <text x={286} y={178} fill={COL.cyan} fontSize={20} fontWeight={700} fontFamily="'Rajdhani',sans-serif" letterSpacing={2}>SPEED</text>
+        <text x={286} y={258} fill={COL.text} fontSize={72} fontWeight={800} fontFamily="'Chakra Petch','Michroma',sans-serif">{fixed(speed)}</text>
+        <text x={286} y={296} fill={COL.cyan} fontSize={18} fontFamily="'Rajdhani',sans-serif">km/h</text>
 
-        <text x={520} y={330} textAnchor="middle" fill={COL.text} fontSize={230} fontWeight={800} fontFamily="'Michroma','Chakra Petch',sans-serif">{gearLabel(s.gear)}</text>
+        <text x={501} y={352} textAnchor="middle" fill={COL.text} fontSize={184} fontWeight={800} fontFamily="'Michroma','Chakra Petch',sans-serif">{gearLabel(s.gear)}</text>
 
-        <text x={715} y={200} textAnchor="end" fill={COL.cyan} fontSize={20} fontWeight={700} fontFamily="'Rajdhani',sans-serif">RPM</text>
-        <text x={715} y={252} textAnchor="end" fill={COL.text} fontSize={54} fontWeight={800} fontFamily="'Chakra Petch',monospace">{rpm != null ? String(Math.round(rpm)) : '—'}</text>
-        <RpmStepBar frac={rpmFrac} x={632} y={268} w={70} h={150} />
+        <text x={724} y={168} textAnchor="end" fill={COL.cyan} fontSize={18} fontWeight={700} fontFamily="'Rajdhani',sans-serif">RPM</text>
+        <text x={724} y={214} textAnchor="end" fill={COL.text} fontSize={44} fontWeight={800} fontFamily="'Chakra Petch',monospace">{rpm != null ? String(Math.round(rpm)) : '—'}</text>
+        <RpmStepBar frac={rpmFrac} x={648} y={236} w={52} h={140} />
 
-        <rect x={286} y={410} width={430} height={40} rx={8} fill="#0a0c0e" stroke={COL.panelStroke} />
-        <rect x={286} y={410} width={215} height={40} rx={8} fill="rgba(34,224,106,0.14)" />
-        <rect x={501} y={410} width={215} height={40} rx={8} fill="rgba(255,59,48,0.14)" />
-        <rect x={delta == null ? 499 : 286 + 430 * deltaFrac - 3} y={410} width={6} height={40} fill={deltaColor} />
-        <text x={501} y={438} textAnchor="middle" fill={deltaColor} fontSize={26} fontWeight={800} fontFamily="'Chakra Petch',monospace">{delta == null ? '—' : `${delta >= 0 ? '+' : ''}${delta.toFixed(2)}`}</text>
+        <rect x={286} y={412} width={430} height={38} rx={8} fill="#0a0c0e" stroke={COL.panelStroke} />
+        <rect x={286} y={412} width={215} height={38} rx={8} fill="rgba(34,224,106,0.14)" />
+        <rect x={501} y={412} width={215} height={38} rx={8} fill="rgba(255,59,48,0.14)" />
+        <rect x={delta == null ? 499 : 286 + 430 * deltaFrac - 2} y={412} width={4} height={38} fill={deltaColor} />
+        <text x={501} y={439} textAnchor="middle" fill={deltaColor} fontSize={24} fontWeight={800} fontFamily="'Chakra Petch',monospace">{delta == null ? '—' : `${delta >= 0 ? '+' : ''}${delta.toFixed(2)}`}</text>
       </Panel>
 
       <Panel x={754} y={70} w={254} h={210}>
