@@ -89,12 +89,13 @@ export function readVariable(v: WidgetVariable, s: TelemetrySnapshot): Reading {
   if (present && (v.redlineFrom != null || v.warnFrom != null)) {
     const warn = v.warnFrom ?? v.redlineFrom ?? 1
     const crit = v.redlineFrom ?? 1
+    const hasCrit = v.redlineFrom != null
     if (v.invert) {
-      if (fraction <= crit) state = 'crit'
+      if (hasCrit && fraction <= crit) state = 'crit'
       else if (fraction <= warn) state = 'warn'
       else state = 'ok'
     } else {
-      if (fraction >= crit) state = 'crit'
+      if (hasCrit && fraction >= crit) state = 'crit'
       else if (fraction >= warn) state = 'warn'
       else state = 'normal'
     }
