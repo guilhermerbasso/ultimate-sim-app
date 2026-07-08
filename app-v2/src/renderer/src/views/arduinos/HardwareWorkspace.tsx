@@ -788,7 +788,7 @@ export function HardwareWorkspace({
                             Testar
                           </button>
                           <button style={buttonStyle('soft', isExpanded)} onClick={() => setExpandedComponentId(isExpanded ? null : component.id)} type="button" aria-expanded={isExpanded}>
-                            {isExpanded ? 'Fechar' : 'Editar'}
+                            {isExpanded ? 'Close' : 'Editar'}
                           </button>
                           <button style={buttonStyle('danger')} disabled={disabled} onClick={() => removeComponent(component.id)} type="button">
                             Remove

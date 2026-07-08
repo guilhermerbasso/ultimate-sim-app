@@ -458,7 +458,7 @@ function BoardStep({ current, onPick, onAddCustom }: { current: PinoutBoardId; o
       const pwm = board.pins.filter((pin) => pin.pwm).length
       const i2c = board.pins.filter((pin) => pin.i2c).map((pin) => `${pin.pin} ${pin.i2c?.toUpperCase()}`).join(' · ')
       return <button key={board.id} type="button" onClick={() => onPick(board.id)} style={{ ...cardButton, borderColor: current === board.id ? 'var(--accent-primary)' : 'rgba(148,163,184,.24)' }}>
-        <b>{board.name}</b><small>{board.mcu} · {board.voltage} logic · {board.usbHid ? 'USB HID capable' : 'serial/USB companion'}</small>
+        <b>{board.name}</b><small>{board.mcu} · {board.lapge} logic · {board.usbHid ? 'USB HID capable' : 'serial/USB companion'}</small>
         <div style={badgeRow}><Badge color="#60a5fa" label={`${digital} digital`} /><Badge color="#34d399" label={`${analog} analog`} /><Badge color="#f59e0b" label={`${pwm} PWM`} /><Badge color="#a78bfa" label={i2c || 'no fixed I2C'} /></div>
         <p style={hintStyle}>{board.notes}</p>
       </button>

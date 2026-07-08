@@ -112,17 +112,17 @@ export interface Classification {
 // the first hit wins, so put the most specific archetypes first.
 const ARCHETYPE_KEYWORDS: Array<{ id: DashboardArchetype; words: string[] }> = [
   { id: 'endurance', words: ['endurance', 'enduro', 'stint', '24h', '12h', '6h', 'resistencia', 'le mans', 'lemans', 'longa duracao', 'longa'] },
-  { id: 'qualifying', words: ['quali', 'qualy', 'qualify', 'classificatoria', 'hotlap', 'hot lap', 'volta rapida', 'volta lancada', 'tomada de tempo', 'time attack', 'flying lap'] },
-  { id: 'practice', words: ['practice', 'treino', 'pratica', 'setup', 'engenharia de setup', 'shakedown', 'testes', 'teste de pista'] },
+  { id: 'qualifying', words: ['quali', 'qualy', 'qualify', 'classificatoria', 'hotlap', 'hot lap', 'fast lap', 'flying lap', 'tomada de tempo', 'time attack', 'flying lap'] },
+  { id: 'practice', words: ['practice', 'practice', 'pratica', 'setup', 'engenharia de setup', 'shakedown', 'testes', 'teste de pista'] },
   { id: 'oval', words: ['oval', 'nascar', 'superspeedway', 'speedway', 'indy 500', 'indycar oval'] },
   { id: 'dirt', words: ['dirt', 'rally', 'rallycross', 'rallye', 'terra', 'offroad', 'off-road', 'cascalho', 'lama'] },
   { id: 'formula', words: ['formula', 'f1', 'f2', 'f3', 'f4', 'open wheel', 'open-wheel', 'monoposto'] },
   { id: 'gt3', words: ['gt3', 'gt4', 'gte', 'sportscar', 'sports car', 'imsa', 'wec', 'gt '] },
   { id: 'streaming', words: ['stream', 'streaming', 'live', 'transmissao', 'broadcast', 'espectador', 'spectator', 'lower third'] },
-  { id: 'dataheavy', words: ['dados', 'data', 'telemetria', 'telemetry', 'engenheiro', 'engineer', 'denso', 'completo', 'overview', 'tudo'] },
+  { id: 'dataheavy', words: ['dados', 'data', 'telemetria', 'telemetry', 'engineer', 'engineer', 'denso', 'completo', 'overview', 'tudo'] },
   { id: 'futuristic', words: ['futurista', 'futuristic', 'sci-fi', 'scifi', 'cyber', 'cyberpunk', 'holografico', 'espacial'] },
   { id: 'minimal', words: ['minimal', 'minimalista', 'limpo', 'clean', 'simples', 'enxuto'] },
-  { id: 'sprint', words: ['sprint', 'corrida', 'race', 'rapida', 'curta'] }
+  { id: 'sprint', words: ['sprint', 'race', 'race', 'rapida', 'curta'] }
 ]
 
 // Family keywords (normalized). Scanned in priority order; first hit wins.
@@ -132,7 +132,7 @@ const FAMILY_KEYWORDS: Array<{ id: OverlayDesignFamily; words: string[] }> = [
   { id: 'terminal', words: ['terminal', 'crt', 'retro', 'monospace', 'mono', 'console', 'ascii', 'phosphor'] },
   { id: 'bauhaus', words: ['bauhaus', 'geometric', 'geometrico', 'poster', 'brutalist', 'brutalista', 'blocos'] },
   { id: 'analog', words: ['analog', 'analogico', 'dial', 'dials', 'ponteiro', 'relogio', 'mostrador', 'classico', 'heritage', 'vintage'] },
-  { id: 'heatmap', words: ['heatmap', 'mapa de calor', 'calor', 'thermal', 'termico', 'celulas', 'grade densa'] },
+  { id: 'heatmap', words: ['heatmap', 'heat map', 'calor', 'thermal', 'termico', 'celulas', 'grade densa'] },
   { id: 'broadcast', words: ['broadcast', 'tv', 'transmissao', 'lower third', 'placar'] },
   { id: 'minimal', words: ['minimal', 'minimalista', 'limpo', 'clean', 'simples', 'enxuto', 'restraint'] }
 ]
@@ -187,7 +187,7 @@ export function buildClassifyPrompt(phrase: string): { system: string; prompt: s
     'Use ONLY values from these lists. You do NOT design layout — only classify.'
   const prompt =
     'EXAMPLES:\n' +
-    'Request: "corrida de gt3 com pneus e combustivel, visual de vidro" -> {"archetype":"gt3","family":"glass","emphasis":["tyres","fuel"]}\n' +
+    'Request: "race de gt3 with tires e fuel, visual de vidro" -> {"archetype":"gt3","family":"glass","emphasis":["tyres","fuel"]}\n' +
     'Request: "quali minimalista, foco no delta" -> {"archetype":"qualifying","family":"minimal","emphasis":["delta","minimal"]}\n\n' +
     `Request: "${phrase.trim().replace(/"/g, "'")}" -> `
   return { system, prompt }

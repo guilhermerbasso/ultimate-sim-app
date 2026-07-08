@@ -77,7 +77,7 @@ export function DeltaLapWidget({ snapshot, config }: WidgetProps): ReactElement 
       <line x1={midX} y1={barY - 3} x2={midX} y2={barY + barH + 3} stroke={skin.palette.text} strokeWidth={2} />
 
       <DataField x={16} y={tileY} width={tileW} height={tileH} label="ATUAL" value={cur} skin={skin} state="normal" />
-      <DataField x={16 + tileW + 12} y={tileY} width={tileW} height={tileH} label="ÚLTIMO" value={lst} skin={skin} state="normal" />
+      <DataField x={16 + tileW + 12} y={tileY} width={tileW} height={tileH} label="LAST" value={lst} skin={skin} state="normal" />
       <DataField x={16 + (tileW + 12) * 2} y={tileY} width={tileW} height={tileH} label="MELHOR" value={bst} skin={skin} state="accent" />
     </svg>
   )

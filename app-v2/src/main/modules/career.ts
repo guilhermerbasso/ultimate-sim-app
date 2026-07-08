@@ -205,7 +205,7 @@ class CareerModule {
       throw new IRacingApiError(
         'unauthorized',
         this.auth.getLastErrorMessage() ??
-          'Sessão da iRacing ausente. Faça login uma vez pelo Track Map ou pelo Hub de Carreira.',
+          'iRacing session missing. Sign in once through Track Map or Career Hub.',
         401
       )
     }
@@ -812,7 +812,7 @@ function normalizeRecentRace(race: IRacingRecentRace, cars: Map<number, string>)
     sessionStartTime: str(race.session_start_time),
     seriesName: str(race.series_name) || '—',
     carId,
-    carName: cars.get(carId) || (carId ? `Carro #${carId}` : '—'),
+    carName: cars.get(carId) || (carId ? `Car #${carId}` : '—'),
     trackId: num(race.track?.track_id),
     trackName: str(race.track?.track_name) || '—',
     startPosition,
@@ -968,7 +968,7 @@ function normalizeSeasonSeries(raw: IRacingSeasonSeries): CareerActiveSeason {
     seasonId: num(raw.season_id),
     seriesId: num(raw.series_id),
     seasonName: str(raw.season_name) || `Temporada #${raw.season_id}`,
-    seriesName: str(raw.series_name) || `Série #${raw.series_id}`,
+    seriesName: str(raw.series_name) || `Series #${raw.series_id}`,
     categoryId,
     categoryLabel: careerCategoryLabel(categoryId),
     official: raw.official !== false,

@@ -82,14 +82,14 @@ const ITEM_COUNT_MAX_BYTES = 64 * 1024
 export function createFileStorage(baseDir: string): ConfigStorage {
   const root = resolve(baseDir)
   const resolveSafe = (rel: string): string => {
-    if (isForbiddenConfigPath(rel)) throw new Error(`Caminho de configuração protegido recusado: ${rel}`)
+    if (isForbiddenConfigPath(rel)) throw new Error(`Protected configuration path refused: ${rel}`)
     const full = resolve(root, rel)
     // Boundary lock (defense-in-depth): the resolved path MUST stay inside baseDir.
     // isForbiddenConfigPath already blocks '..' traversal and secret names, but this
     // additionally rejects any absolute/escaping path a future caller might pass that
     // slips past the name-based allowlist.
     if (full !== root && !full.startsWith(root + sep)) {
-      throw new Error(`Caminho de configuração fora do diretório base recusado: ${rel}`)
+      throw new Error(`Configuration path outside the base directory refused: ${rel}`)
     }
     return full
   }
@@ -343,7 +343,7 @@ export function createConfigEngine(storage: ConfigStorage): ConfigEngine {
 
   async function importAll(bundle: unknown, opts?: { sections?: string[] }): Promise<ConfigImportSummary> {
     if (!isConfigBundle(bundle)) {
-      throw new Error('Arquivo inválido: não é um perfil do Ultimate Sim App.')
+      throw new Error('Invalid file: not an Ultimate Sim App profile.')
     }
     const filter = opts?.sections ? new Set(opts.sections) : null
     const applied: string[] = []
@@ -372,7 +372,7 @@ export function createConfigEngine(storage: ConfigStorage): ConfigEngine {
   async function exportSection(sectionId: string): Promise<ConfigSectionExport> {
     const section = getConfigSection(sectionId)
     const accessor = registry[sectionId]
-    if (!section || !accessor) throw new Error(`Seção de configuração desconhecida: ${sectionId}`)
+    if (!section || !accessor) throw new Error(`Unknown configuration section: ${sectionId}`)
     const data = (await accessor.read()) ?? null
     return {
       app: CONFIG_BUNDLE_APP_ID,
@@ -387,7 +387,7 @@ export function createConfigEngine(storage: ConfigStorage): ConfigEngine {
     const section = getConfigSection(sectionId)
     const accessor = registry[sectionId]
     if (!section || !accessor || isForbiddenConfigPath(section.path)) {
-      throw new Error(`Seção de configuração desconhecida ou protegida: ${sectionId}`)
+      throw new Error(`Unknown or protected configuration section: ${sectionId}`)
     }
 
     // Accept a section-export file, a full bundle (extract the matching section),
@@ -395,12 +395,12 @@ export function createConfigEngine(storage: ConfigStorage): ConfigEngine {
     let data: unknown = payload
     if (isConfigSectionExport(payload)) {
       if (payload.sectionId !== sectionId) {
-        throw new Error(`O arquivo é da seção "${payload.sectionId}", não "${sectionId}".`)
+        throw new Error(`The file is from section "${payload.sectionId}", not "${sectionId}".`)
       }
       data = payload.data
     } else if (isConfigBundle(payload)) {
       if (!(sectionId in payload.sections)) {
-        throw new Error(`O perfil não contém a seção "${sectionId}".`)
+        throw new Error(`The profile does not contain section "${sectionId}".`)
       }
       data = payload.sections[sectionId]
     }
@@ -481,9 +481,9 @@ export function createConfigEngine(storage: ConfigStorage): ConfigEngine {
   // + isForbiddenConfigPath; the storage layer re-checks the path again.
   async function removeSection(sectionId: string): Promise<ConfigDeleteResult> {
     const section = getConfigSection(sectionId)
-    if (!section) throw new Error(`Seção de configuração desconhecida: ${sectionId}`)
+    if (!section) throw new Error(`Unknown configuration section: ${sectionId}`)
     if (isForbiddenConfigPath(section.path)) {
-      throw new Error(`Seção de configuração protegida: ${sectionId}`)
+      throw new Error(`Protected configuration section: ${sectionId}`)
     }
     const removed =
       section.kind === 'dir'
@@ -514,7 +514,7 @@ const JSON_FILTER = [{ name: 'Ultimate Sim App config', extensions: ['json'] }]
 
 function exportAllDialogOpts(): SaveDialogOptions {
   return {
-    title: 'Exportar perfil completo',
+    title: 'Exportar profile completo',
     defaultPath: `ultimate-sim-app-profile-${dateStamp()}.json`,
     filters: JSON_FILTER
   }
@@ -522,14 +522,14 @@ function exportAllDialogOpts(): SaveDialogOptions {
 
 function exportSectionDialogOpts(sectionId: string): SaveDialogOptions {
   return {
-    title: `Exportar configuração — ${sectionId}`,
+    title: `Export configuration — ${sectionId}`,
     defaultPath: `${sectionId}-config-${dateStamp()}.json`,
     filters: JSON_FILTER
   }
 }
 
 function importDialogOpts(): OpenDialogOptions {
-  return { title: 'Importar configuração', properties: ['openFile'], filters: JSON_FILTER }
+  return { title: 'Import configuration', properties: ['openFile'], filters: JSON_FILTER }
 }
 
 // ─── Module registration (IPC + native dialogs) ─────────────────────────────────

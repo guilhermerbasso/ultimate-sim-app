@@ -210,7 +210,7 @@ export function DduCluster({ snapshot: s, width, height }: DduClusterProps): Rea
   const oil = n(s.oilTempC)
   const water = n(s.waterTempC)
   const oilPress = n(s.oilPressureKpa)
-  const battery = n((s as { batteryVoltage?: number }).batteryVoltage)
+  const battery = n((s as { batteryLapge?: number }).batteryLapge)
   const deltaColor = delta == null ? COL.dim : delta <= 0 ? COL.green : COL.red
   const deltaFrac = delta == null ? 0.5 : clamp01(0.5 + delta / 2)
 

@@ -127,7 +127,7 @@ export const FLASH_BOARDS: FlashBoardSpec[] = [
     baudOptions: [{ id: 'usb', label: 'USB serial (arduino-cli)', baud: 921600 }],
     defaultBaudId: 'usb',
     profileBoard: 'esp32',
-    hint: 'Usa arduino-cli + core esp32. Instale com: arduino-cli core install esp32:esp32.'
+    hint: 'Usa arduino-cli + core esp32. Install with: arduino-cli core install esp32:esp32.'
   },
   {
     id: 'esp32s3',
@@ -452,9 +452,9 @@ export const SETUP_MODULES: SetupModule[] = [
   {
     id: 'iflag-matrix-8x8',
     name: 'iFlag · Matriz RGB 8x8',
-    tagline: 'Bandeiras, marcha, spotter e ícones numa matriz WS2812B de 64 LEDs',
+    tagline: 'Bandeiras, gear, spotter e icons numa matrix WS2812B de 64 LEDs',
     description:
-      'Matriz de LED endereçável WS2812B 8x8 montada na frente do volante. Mostra bandeiras de corrida, marcha atual, alerta de spotter e animações de largada. É o módulo mais fácil para começar.',
+      'Matriz de Addressable LED WS2812B 8x8 montada na frente do steering. Mostra flags de race, current gear, alerta de spotter e animações de largada. É o módulo mais fácil para começar.',
     componentType: 'rgbMatrix',
     capabilityKey: 'rgbMatrix',
     capabilityDetail: '8x8',
@@ -466,9 +466,9 @@ export const SETUP_MODULES: SetupModule[] = [
       '(brilho alto) fonte 5V externa + GND comum'
     ],
     wiring: [
-      { signal: 'DIN', pin: 'D6', detail: 'Entrada de dados da matriz (data in)' },
+      { signal: 'DIN', pin: 'D6', detail: 'Entrada de dados da matrix (data in)' },
       { signal: '5V', pin: '5V', detail: 'Alimentação +5V (use VIN/5V)' },
-      { signal: 'GND', pin: 'GND', detail: 'Terra comum entre Arduino e matriz' }
+      { signal: 'GND', pin: 'GND', detail: 'Terra comum entre Arduino e matrix' }
     ],
     powerNote:
       '64 LEDs no brilho máximo podem puxar ~3,8 A. Pelo USB mantenha o brilho ≤ ~120; para brilho alto use uma fonte 5V externa e aterre o GND junto com o Arduino.',
@@ -489,7 +489,7 @@ export const SETUP_MODULES: SetupModule[] = [
   {
     id: 'ws2812-revlights',
     name: 'Rev Lights (fita WS2812)',
-    tagline: 'Barra de RPM + flash de troca de marcha numa fita endereçável',
+    tagline: 'Barra de RPM + flash de troca de gear numa addressable strip',
     description:
       'Fita WS2812/SK6812 para rev lights estilo F1: gradiente verde→amarelo→vermelho conforme o RPM e flash azul no shift point. Usa o mesmo protocolo P/Y do companion.',
     componentType: 'rgbStrip',
@@ -514,7 +514,7 @@ export const SETUP_MODULES: SetupModule[] = [
   {
     id: 'ssd1306-oled',
     name: 'Tela OLED SSD1306',
-    tagline: 'Páginas de telemetria (marcha, delta, combustível) num OLED 0.96"',
+    tagline: 'Páginas de telemetria (gear, delta, fuel) num OLED 0.96"',
     description:
       'OLED I2C SSD1306 128x64 com páginas de telemetria. Reaproveita o motor de páginas OLED já existente no app.',
     componentType: 'screen',
@@ -541,12 +541,12 @@ export const SETUP_MODULES: SetupModule[] = [
     name: 'Botões + Encoders (HID)',
     tagline: 'Button box reconhecido como joystick pelo jogo (Pro Micro/Leonardo)',
     description:
-      'Firmware HID para botões e encoders: o jogo enxerga a placa como um joystick. Disponível só em placas 32U4 (Pro Micro/Leonardo).',
+      'Firmware HID para buttons e encoders: o jogo enxerga a placa como um joystick. Dispolevel só em placas 32U4 (Pro Micro/Leonardo).',
     componentType: 'control',
     capabilityKey: 'control',
     difficulty: 'avançado',
     parts: ['Botões momentâneos / encoders EC11', 'Arduino Pro Micro ou Leonardo (32U4)'],
-    wiring: [{ signal: 'BTN', pin: 'D2…', detail: 'Botão entre o pino e GND (pull-up interno)' }],
+    wiring: [{ signal: 'BTN', pin: 'D2…', detail: 'Button entre o pino e GND (pull-up interno)' }],
     firmwares: [{ board: 'pro-micro', hex: 'controls-micro.hex', recommended: true }],
     recommendedBoard: 'pro-micro',
     defaultPins: {},
@@ -580,9 +580,9 @@ export const SETUP_MODULES: SetupModule[] = [
   {
     id: 'tm1638-7seg',
     name: 'Display 7-seg (TM1638)',
-    tagline: 'Marcha, velocidade, RPM ou volta num módulo TM1638 (8 dígitos)',
+    tagline: 'Gear, speed, RPM ou lap num módulo TM1638 (8 dígitos)',
     description:
-      'Módulo TM1638 com 8 dígitos de 7 segmentos (+ 8 botões e 8 LEDs). Mostra marcha/velocidade/RPM/volta conforme a métrica escolhida no componente.',
+      'Módulo TM1638 com 8 dígitos de 7 segmentos (+ 8 buttons e 8 LEDs). Mostra gear/speed/RPM/lap conforme a métrica escolhida no componente.',
     componentType: 'segDisplay',
     capabilityKey: 'segDisplay',
     capabilityDetail: 'tm1638',
@@ -606,10 +606,10 @@ export const SETUP_MODULES: SetupModule[] = [
   },
   {
     id: 'servo-gauge',
-    name: 'Ponteiro analógico (servo)',
-    tagline: 'Mostrador físico de velocidade/RPM/combustível com servo SG90',
+    name: 'Ponteiro analog (servo)',
+    tagline: 'Mostrador físico de speed/RPM/fuel com servo SG90',
     description:
-      'Até 4 servos como ponteiros analógicos. O app mapeia a métrica escolhida (velocidade, RPM, combustível…) para o ângulo do servo.',
+      'Até 4 servos como ponteiros analogs. O app mapeia a métrica escolhida (speed, RPM, fuel…) para o ângulo do servo.',
     componentType: 'gauge',
     capabilityKey: 'gauge',
     difficulty: 'médio',
@@ -633,9 +633,9 @@ export const SETUP_MODULES: SetupModule[] = [
   {
     id: 'piezo-buzzer',
     name: 'Buzzer (alertas sonoros)',
-    tagline: 'Bipes de alerta (pit, bandeira, shift) por um piezo',
+    tagline: 'Bipes de alerta (pit, flag, shift) por um piezo',
     description:
-      'Buzzer piezo para alertas sonoros disparados pelo motor de Alertas (pit limiter, bandeira, shift, combustível baixo…).',
+      'Buzzer piezo para alertas sonoros disparados pelo motor de Alertas (pit limiter, flag, shift, low fuel…).',
     componentType: 'buzzer',
     capabilityKey: 'buzzer',
     difficulty: 'fácil',
@@ -674,7 +674,7 @@ export const SETUP_MODULES: SetupModule[] = [
       { signal: 'GND', pin: 'GND', detail: 'Terra comum com módulos externos' }
     ],
     powerNote:
-      'Wi‑Fi aumenta o consumo. Para fitas/matrizes de LED, use fonte externa adequada e GND comum.',
+      'Wi‑Fi aumenta o consumo. Para fitas/matrixes de LED, use fonte externa adequada e GND comum.',
     firmwares: [
       { board: 'esp32s3', hex: 'companion-esp32', sketch: 'firmware/companion-esp32', recommended: true },
       { board: 'esp32', hex: 'companion-esp32', sketch: 'firmware/companion-esp32' }

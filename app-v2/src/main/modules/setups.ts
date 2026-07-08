@@ -84,7 +84,7 @@ export function register(ctx: ModuleContext): void {
     const owner = ctx.getMainWindow()
     const options: OpenDialogOptions = {
       properties: ['openDirectory'],
-      title: 'Selecionar pasta de setups'
+      title: 'Select setups folder'
     }
     const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
     return result.canceled ? undefined : result.filePaths[0]
@@ -292,18 +292,18 @@ function openValidatedHttpsStream(rawUrl: string): Promise<IncomingMessage> {
       const status = res.statusCode ?? 0
       if (status >= 300 && status < 400) {
         res.resume()
-        reject(new Error('Redirecionamento não é permitido em URLs de setups.'))
+        reject(new Error('Redirects are not allowed for setup URLs.'))
         return
       }
       if (status < 200 || status >= 300) {
         res.resume()
-        reject(new Error(`Recurso indisponível (${status}).`))
+        reject(new Error(`Resource unavailable (${status}).`))
         return
       }
       resolve(res)
     })
     req.on('error', reject)
-    req.setTimeout(20000, () => req.destroy(new Error('Tempo de conexão esgotado.')))
+    req.setTimeout(20000, () => req.destroy(new Error('Connection timed out.')))
     req.end()
   })
 }
@@ -327,11 +327,11 @@ function validatingLookup(
     }
     const list = Array.isArray(addresses) ? addresses : []
     if (list.length === 0) {
-      callback(new Error('Host sem endereços.'), '', 0)
+      callback(new Error('Host has no addresses.'), '', 0)
       return
     }
     if (list.some((record) => isBlockedAddress(record.address))) {
-      callback(new Error('URL resolve para endereço interno/privado.'), '', 0)
+      callback(new Error('URL resolves to an internal/private address.'), '', 0)
       return
     }
     if (wantAll) {
@@ -370,10 +370,10 @@ async function detectCar(ctx: ModuleContext): Promise<DetectCarResult> {
 }
 
 async function installSetup(ctx: ModuleContext, configPath: string, args: InstallArgs): Promise<InstallResult> {
-  if (process.platform !== 'win32') return { ok: false, message: 'Disponível apenas no Windows' }
+  if (process.platform !== 'win32') return { ok: false, message: 'Available only on Windows' }
   const file = args?.file
-  if (!file) return { ok: false, message: 'Setup inválido.' }
-  if (!isSafeFolderName(args.carFolder)) return { ok: false, message: 'Pasta do carro inválida.' }
+  if (!file) return { ok: false, message: 'Invalid setup.' }
+  if (!isSafeFolderName(args.carFolder)) return { ok: false, message: 'Invalid car folder.' }
   if (!hasStoExtension(file.fileName)) return { ok: false, message: 'Apenas arquivos .sto podem ser instalados.' }
 
   const fileName = sanitizeStoFileName(file.fileName)
@@ -386,13 +386,13 @@ async function installSetup(ctx: ModuleContext, configPath: string, args: Instal
   if (file.localPath) {
     if (!hasStoExtension(file.localPath)) return { ok: false, message: 'A origem local precisa ser .sto.' }
     const info = await stat(file.localPath)
-    if (!info.isFile()) return { ok: false, message: 'Origem local inválida.' }
-    if (info.size > MAX_STO_BYTES) return { ok: false, message: 'Arquivo .sto muito grande.' }
+    if (!info.isFile()) return { ok: false, message: 'Invalid local source.' }
+    if (info.size > MAX_STO_BYTES) return { ok: false, message: '.sto file is too large.' }
     await copyFile(file.localPath, targetPath)
   } else if (file.url) {
     await downloadSto(file.url, targetPath)
   } else {
-    return { ok: false, message: 'Origem do setup não encontrada.' }
+    return { ok: false, message: 'Setup source not found.' }
   }
 
   const rememberFor = args.rememberFor?.trim()
@@ -407,13 +407,13 @@ async function installSetup(ctx: ModuleContext, configPath: string, args: Instal
 
 async function downloadSto(url: string, targetPath: string): Promise<void> {
   if (!hasStoExtension(new URL(url).pathname)) {
-    throw new Error('A URL precisa apontar para um arquivo .sto.')
+    throw new Error('The URL must point to a .sto file.')
   }
   const stream = await openValidatedHttpsStream(url)
   const declared = Number(stream.headers['content-length'] ?? '')
   if (Number.isFinite(declared) && declared > MAX_STO_BYTES) {
     stream.destroy()
-    throw new Error('Arquivo .sto muito grande.')
+    throw new Error('.sto file is too large.')
   }
   try {
     await pipeline(stream, sizeCapStream(MAX_STO_BYTES), createWriteStream(targetPath))
@@ -431,7 +431,7 @@ function sizeCapStream(maxBytes: number): Transform {
     transform(chunk: Buffer, _enc, callback): void {
       total += chunk.length
       if (total > maxBytes) {
-        callback(new Error('Arquivo .sto muito grande.'))
+        callback(new Error('.sto file is too large.'))
         return
       }
       callback(null, chunk)
@@ -482,9 +482,9 @@ function normalizeToken(value: string): string {
 async function validateHttpsUrl(rawUrl: string): Promise<void> {
   const url = validateHttpsUrlSync(rawUrl)
   const records = await lookup(url.hostname, { all: true }).catch(() => {
-    throw new Error('Não foi possível validar o host da URL.')
+    throw new Error('Could not validate the URL host.')
   })
-  if (records.some((record) => isBlockedAddress(record.address))) throw new Error('URL resolve para endereço interno/privado.')
+  if (records.some((record) => isBlockedAddress(record.address))) throw new Error('URL resolves to an internal/private address.')
 }
 
 function validateHttpsUrlSync(rawUrl: string): URL {
@@ -492,12 +492,12 @@ function validateHttpsUrlSync(rawUrl: string): URL {
   try {
     url = new URL(rawUrl)
   } catch {
-    throw new Error('URL inválida.')
+    throw new Error('Invalid URL.')
   }
   if (url.protocol !== 'https:') throw new Error('Use apenas URLs HTTPS.')
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
   if (host === 'localhost' || host.endsWith('.localhost') || isBlockedAddress(host)) {
-    throw new Error('URLs locais ou privadas não são permitidas.')
+    throw new Error('Local or private URLs are not allowed.')
   }
   return url
 }

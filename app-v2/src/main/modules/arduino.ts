@@ -102,7 +102,7 @@ class ArduinoManager {
 
   async setEncoderThreshold(value: EncoderDetentThreshold): Promise<ArduinoRuntimeState> {
     if (!isEncoderDetentThreshold(value)) {
-      throw new Error(`Threshold de encoder inválido: ${value}. Use 1, 2, 4 ou 8.`)
+      throw new Error(`Invalid encoder threshold: ${value}. Use 1, 2, 4, or 8.`)
     }
     // Optimistic update; the device echo ("ET=<n>") confirms it shortly after.
     this.runtime = { ...this.runtime, encoderDetentThreshold: value, updatedAt: new Date().toISOString() }
@@ -295,7 +295,7 @@ class FleetManager {
     const primaryId = this.ctx.serialHub.getPrimaryId()
     const existingSummary = this.ctx.serialHub.listDevices().find((entry) => entry.path === path)
     if (existingSummary && (existingSummary.kind === 'sim-x' || existingSummary.id === primaryId)) {
-      throw new Error('O SIM-X é gerenciado em Dispositivos — não o adicione como Arduino genérico.')
+      throw new Error('SIM-X is managed under Devices — do not add it as a generic Arduino.')
     }
     // Capture the port's stable USB identity so the entry can be re-matched even
     // after Windows moves it to a different COM port (BUG: don't pin the path).
@@ -339,7 +339,7 @@ class FleetManager {
   async removeDevice(id: string): Promise<void> {
     if (!id) return
     if (id === this.ctx.serialHub.getPrimaryId()) {
-      throw new Error('Use Dispositivos → Desconectar para remover o SIM-X principal.')
+      throw new Error('Use Devices → Desconectar para remover o SIM-X principal.')
     }
     const summary = this.ctx.serialHub.listDevices().find((entry) => entry.id === id)
     // Mirror disconnectDevice: a user-initiated removal is deliberate, so suppress the
@@ -357,7 +357,7 @@ class FleetManager {
   async reconnectDevice(id: string): Promise<SerialDeviceSummary> {
     await this.store.ensureLoaded()
     const config = this.store.list().find((entry) => entry.id === id)
-    if (!config) throw new Error('Dispositivo não encontrado no armazenamento.')
+    if (!config) throw new Error('Device not found in storage.')
     // Tear down any stale open instance with the same id first.
     if (this.ctx.serialHub.getDevice(id)) {
       await this.ctx.serialHub.disconnectDevice(id).catch(() => undefined)
@@ -377,7 +377,7 @@ class FleetManager {
   async disconnectDevice(id: string): Promise<void> {
     if (!id) return
     if (id === this.ctx.serialHub.getPrimaryId()) {
-      throw new Error('Use Dispositivos → Desconectar para desligar o SIM-X principal.')
+      throw new Error('Use Devices → Desconectar para desligar o SIM-X principal.')
     }
     // The user deliberately disconnected this device — tell the generic auto-start
     // so it does NOT fight them by reconnecting ~3s later (e.g. unplugging the iFlag
@@ -404,7 +404,7 @@ class FleetManager {
 
   async sendDeviceRaw(id: string, command: string): Promise<void> {
     const device = this.ctx.serialHub.getDevice(id)
-    if (!device) throw new Error(`Dispositivo "${id}" não está conectado.`)
+    if (!device) throw new Error(`Device "${id}" is not connected.`)
     // User-typed command from the device console → tag as a genuine MANUAL tx so the
     // log distinguishes it from the engine's live telemetry frames (which now
     // default to 'engine').

@@ -9,9 +9,9 @@ import type { TelemetrySnapshot } from '../../shared/telemetry'
 // `coach:speak` broadcasts. The corner map is INJECTED (so corner numbering is
 // deterministic) and the clock is injected (so the speak cooldown never blocks).
 // Telemetry is crafted so the PURE shared analyzer produces the findings we want
-// (brake-late + steering-late + throttle-early in Curva 2), proving they reach the
+// (brake-late + steering-late + throttle-early in Turn 2), proving they reach the
 // spoken line. A second scenario injects an EMPTY corner map to exercise the
-// 3-sector fallback ("Setor N: …").
+// 3-sector fallback ("Sector N: …").
 
 const STEP = 0.0025 // lap-distance per sample → 400 samples/lap (well over the 30 min).
 const SAMPLE_MS = 50
@@ -90,17 +90,17 @@ const CORNER2_APEX = 0.55
 const CORNER2_END = 0.62
 
 const loadedProfile: Profile = (pct) => {
-  // Curva 1 [0.18,0.28] — a CLEAN fast corner: full throttle, turn-in exactly at the
+  // Turn 1 [0.18,0.28] — a CLEAN fast corner: full throttle, turn-in exactly at the
   // entry (no timing error), a speed dip at the apex. Produces NO findings.
   if (pct >= 0.18 && pct < 0.28) {
     return { speedKmh: pct < 0.22 ? 220 : 210, throttle: 0.95, brake: 0, steerDeg: 12, latG: 0.5, abs: false }
   }
-  // Curva 2 braking [0.46,0.49) — heavy + long ABS, NO steering (so it reads as a
+  // Turn 2 braking [0.46,0.49) — heavy + long ABS, NO steering (so it reads as a
   // straight-line late brake, not a trail-brake lock).
   if (pct >= 0.46 && pct < 0.49) {
     return { speedKmh: 160, throttle: 0, brake: 1, steerDeg: 0, latG: 0, abs: true }
   }
-  // Curva 2 turn-in + early throttle [0.49,0.62) — wheel cranks AFTER entry (late)
+  // Turn 2 turn-in + early throttle [0.49,0.62) — wheel cranks AFTER entry (late)
   // and the gas comes back BEFORE the apex (early).
   if (pct >= 0.49 && pct < CORNER2_END) {
     return { speedKmh: 150, throttle: 0.85, brake: 0, steerDeg: 30, latG: 1.2, abs: false }
@@ -161,7 +161,7 @@ function emptyCornerMap(): CornerMapData {
   }
 }
 
-// SPARSE map: only Curva 1 (the clean corner) is numbered. Curva 2's mistakes fall
+// SPARSE map: only Turn 1 (the clean corner) is numbered. Turn 2's mistakes fall
 // in an UNMAPPED region → they must be coached by SECTOR, not mislabeled.
 function oneCornerMap(): CornerMapData {
   return {
@@ -207,7 +207,7 @@ function makeHarness(buildCornerMap: () => CornerMapData): Harness {
 }
 
 describe('LiveCoachEngine — corner-aware spoken coaching', () => {
-  it('names the corner ("Curva N") and surfaces brake + steering + throttle in ONE composite line', () => {
+  it('names the corner ("Turn N") and surfaces brake + steering + throttle in ONE composite line', () => {
     const h = makeHarness(twoCornerMap)
     h.engine.start()
     // Lap 1 learns the corner map + findings; lap 2 the car EXITS the corners and speaks.
@@ -215,37 +215,37 @@ describe('LiveCoachEngine — corner-aware spoken coaching', () => {
     h.feed(buildLap(loadedProfile, 2, 1_000_000, 95.0))
 
     expect(h.speaks.length).toBeGreaterThan(0)
-    const curva2 = h.speaks.find((s) => s.text.startsWith('Curva 2:'))
-    expect(curva2, `expected a "Curva 2:" call-out, got ${JSON.stringify(h.speaks.map((s) => s.text))}`).toBeTruthy()
+    const curva2 = h.speaks.find((s) => s.text.startsWith('Turn 2:'))
+    expect(curva2, `expected a "Turn 2:" call-out, got ${JSON.stringify(h.speaks.map((s) => s.text))}`).toBeTruthy()
     // All three driving dimensions reached the spoken line.
-    expect(curva2!.text).toContain('freie antes') // brake point (brake-late)
-    expect(curva2!.text).toContain('vire antes') // turn-in TIMING (steering-late)
-    expect(curva2!.text).toContain('acelere depois') // throttle application (throttle-early)
+    expect(curva2!.text).toContain('brake earlier') // brake point (brake-late)
+    expect(curva2!.text).toContain('turn in earlier') // turn-in TIMING (steering-late)
+    expect(curva2!.text).toContain('throttle later') // throttle application (throttle-early)
     expect(curva2!.tipId).toBe('live:corner:2')
     expect(curva2!.lang).toBe('pt-BR')
   })
 
-  it('surfaces the turn-in TIMING dimension (steering-late → "vire antes") in the spoken line', () => {
+  it('surfaces the turn-in TIMING dimension (steering-late → "turn in earlier") in the spoken line', () => {
     const h = makeHarness(twoCornerMap)
     h.engine.start()
     h.feed(buildLap(loadedProfile, 1, 0, undefined))
     h.feed(buildLap(loadedProfile, 2, 1_000_000, 95.0))
 
     const text = h.speaks.map((s) => s.text).join(' | ')
-    expect(text).toMatch(/Curva 2:.*vire antes/)
+    expect(text).toMatch(/Turn 2:.*turn in earlier/)
   })
 
-  it('only calls out the corner that actually lost time — the clean Curva 1 stays silent', () => {
+  it('only calls out the corner that actually lost time — the clean Turn 1 stays silent', () => {
     const h = makeHarness(twoCornerMap)
     h.engine.start()
     h.feed(buildLap(loadedProfile, 1, 0, undefined))
     h.feed(buildLap(loadedProfile, 2, 1_000_000, 95.0))
 
-    expect(h.speaks.some((s) => s.text.startsWith('Curva 1:'))).toBe(false)
-    expect(h.speaks.some((s) => s.text.startsWith('Curva 2:'))).toBe(true)
+    expect(h.speaks.some((s) => s.text.startsWith('Turn 1:'))).toBe(false)
+    expect(h.speaks.some((s) => s.text.startsWith('Turn 2:'))).toBe(true)
   })
 
-  it('falls back to the 3-sector model ("Setor N: …") when no corner map can be learned', () => {
+  it('falls back to the 3-sector model ("Sector N: …") when no corner map can be learned', () => {
     const h = makeHarness(emptyCornerMap)
     h.engine.start()
     h.feed(buildLap(loadedProfile, 1, 0, undefined))
@@ -256,12 +256,12 @@ describe('LiveCoachEngine — corner-aware spoken coaching', () => {
     // (The one-shot warm-up cue is not a segment call-out, so exclude it.)
     const calls = h.speaks.filter((s) => s.tipId !== 'live:warmup')
     expect(calls.length).toBeGreaterThan(0)
-    expect(calls.every((s) => s.text.startsWith('Setor '))).toBe(true)
-    expect(calls.some((s) => s.text.startsWith('Curva '))).toBe(false)
+    expect(calls.every((s) => s.text.startsWith('Sector '))).toBe(true)
+    expect(calls.some((s) => s.text.startsWith('Turn '))).toBe(false)
     // The braking mistake lives in sector 2 (lapDistPct ≈ 0.47).
-    const setor2 = calls.find((s) => s.text.startsWith('Setor 2:'))
-    expect(setor2).toBeTruthy()
-    expect(setor2!.text).toContain('freie antes')
+    const sector2 = calls.find((s) => s.text.startsWith('Sector 2:'))
+    expect(sector2).toBeTruthy()
+    expect(sector2!.text).toContain('brake earlier')
   })
 
   it('stays SILENT in a race (the proactive engineer owns the audio there)', () => {
@@ -296,7 +296,7 @@ describe('LiveCoachEngine — corner-aware spoken coaching', () => {
     // Every utterance is attributed to the coach (so it never looks "dead" in logs).
     expect(h.speaks.length).toBeGreaterThan(0)
     expect(h.speaks.every((s) => s.source === 'coach')).toBe(true)
-    const curva2 = h.speaks.find((s) => s.text.startsWith('Curva 2:'))
+    const curva2 = h.speaks.find((s) => s.text.startsWith('Turn 2:'))
     expect(curva2!.corner).toBe(2)
     // The warm-up cue is corner-less.
     const warmup = h.speaks.find((s) => s.tipId === 'live:warmup')
@@ -311,17 +311,17 @@ describe('LiveCoachEngine — corner-aware spoken coaching', () => {
 
     const calls = h.speaks.filter((s) => s.tipId !== 'live:warmup')
     expect(calls.length).toBeGreaterThan(0)
-    // Curva 2 is NOT in the map → it must NEVER be mislabeled as a corner…
-    expect(calls.some((s) => s.text.startsWith('Curva 2'))).toBe(false)
+    // Turn 2 is NOT in the map → it must NEVER be mislabeled as a corner…
+    expect(calls.some((s) => s.text.startsWith('Turn 2'))).toBe(false)
     // …its mistakes are coached by sector instead.
-    const setor2 = calls.find((s) => s.tipId === 'live:sector:2')
-    expect(setor2, `expected a Setor 2 fallback, got ${JSON.stringify(calls.map((s) => s.text))}`).toBeTruthy()
-    expect(setor2!.text.startsWith('Setor 2:')).toBe(true)
-    expect(setor2!.text).toContain('freie antes')
-    expect(setor2!.source).toBe('coach')
+    const sector2 = calls.find((s) => s.tipId === 'live:sector:2')
+    expect(sector2, `expected a Sector 2 fallback, got ${JSON.stringify(calls.map((s) => s.text))}`).toBeTruthy()
+    expect(sector2!.text.startsWith('Sector 2:')).toBe(true)
+    expect(sector2!.text).toContain('brake earlier')
+    expect(sector2!.source).toBe('coach')
   })
 
-  it('speaks the generic time-loss cue ("Curva N: busque mais tempo aqui") for a min-speed-only corner', () => {
+  it('speaks the generic time-loss cue ("Turn N: find more time here") for a min-speed-only corner', () => {
     // Regression guard (v2.36.0): a corner whose ONLY loss is carrying less apex speed
     // than the reference (a dimension-less `time-loss`) must still be coached.
     const h = makeHarness(twoCornerMap)
@@ -334,9 +334,9 @@ describe('LiveCoachEngine — corner-aware spoken coaching', () => {
     // Lap 3: the car exits corner 1 again → it now speaks lap-2's time-loss finding.
     h.feed(buildLap(cleanProfile(185), 3, 2_000_000, 96.0))
 
-    const curva1 = h.speaks.find((s) => s.text.startsWith('Curva 1:'))
-    expect(curva1, `expected a Curva 1 time-loss cue, got ${JSON.stringify(h.speaks.map((s) => s.text))}`).toBeTruthy()
-    expect(curva1!.text).toContain('busque mais tempo aqui')
+    const curva1 = h.speaks.find((s) => s.text.startsWith('Turn 1:'))
+    expect(curva1, `expected a Turn 1 time-loss cue, got ${JSON.stringify(h.speaks.map((s) => s.text))}`).toBeTruthy()
+    expect(curva1!.text).toContain('find more time here')
     expect(curva1!.corner).toBe(1)
     expect(curva1!.source).toBe('coach')
   })

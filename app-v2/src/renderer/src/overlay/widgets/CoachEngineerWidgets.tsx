@@ -114,7 +114,7 @@ export function CoachTipsWidget({ config }: WidgetProps): ReactElement {
       <Head accent={accent}>Dicas do coach</Head>
       <StatusRail label="TIPS" value={tips.length} active={tips.length > 0} color={tips.length > 0 ? WARM_AMBER : MUTED} />
       {tips.length === 0 ? (
-        <Empty>Sem dicas ainda</Empty>
+        <Empty>No tips yet</Empty>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5, minHeight: 0, flex: 1 }}>
           {tips.map((tip) => (
@@ -156,7 +156,7 @@ export function CoachFindingsWidget({ config }: WidgetProps): ReactElement {
       <Head accent={accent}>Achados do coach</Head>
       <StatusRail label="FIND" value={findings.length} active={findings.length > 0} color={findings.length > 0 ? WARM_ORANGE : MUTED} />
       {findings.length === 0 ? (
-        <Empty>Sem análise ainda</Empty>
+        <Empty>No analysis yet</Empty>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3, overflowY: 'auto', minHeight: 0, flex: 1 }}>
           {findings.map((f) => (
@@ -191,10 +191,10 @@ export function CoachSectorGraphWidget({ config }: WidgetProps): ReactElement {
 
   return (
     <div className="overlay-card" style={cardStyle(config)}>
-      <Head accent={accent}>Setores · perda</Head>
+      <Head accent={accent}>Sectors ? loss</Head>
       <StatusRail label="SECT" value={bars.length} active={bars.length > 0} color={bars.length > 0 ? WARM_AMBER : MUTED} />
       {bars.length === 0 ? (
-        <Empty>Sem setores ainda</Empty>
+        <Empty>No sectors yet</Empty>
       ) : (
         <div style={{ flex: 1, minHeight: 0 }}>
           <OverlaySectorBars bars={bars} />
@@ -240,10 +240,10 @@ export function EngineerFeedWidget({ config }: WidgetProps): ReactElement {
 
   return (
     <div className="overlay-card" style={cardStyle(config)}>
-      <Head accent={accent}>Engenheiro · rádio</Head>
+      <Head accent={accent}>Engineer ? radio</Head>
       <StatusRail label="RADIO" value={feed.length} active={feed.length > 0} color={feed.length > 0 ? accent : MUTED} />
       {feed.length === 0 ? (
-        <Empty>Sem mensagens ainda</Empty>
+        <Empty>No messages yet</Empty>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto', minHeight: 0, flex: 1 }}>
           {feed.map((item) => (
@@ -262,7 +262,7 @@ function OverlayFeedRow({ item, accent }: { item: EngineerFeedItem; accent: stri
     <div style={{ display: 'flex', flexDirection: 'column', gap: 1, paddingLeft: 7, borderLeft: `3px solid ${tone}` }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
         <span style={{ fontSize: 9, letterSpacing: '0.07em', color: tone, textTransform: 'uppercase' }}>
-          {item.source === 'proactive' ? `Setor ${item.sector ?? '—'}` : 'Resposta'}
+          {item.source === 'proactive' ? `Sector ${item.sector ?? '—'}` : 'Resposta'}
         </span>
         {clock ? <SegmentReadout value={clock} height={10} color={MUTED} idPrefix="engineer-clock" /> : null}
       </div>

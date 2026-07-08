@@ -115,7 +115,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   const [posDrafts, setPosDrafts] = useState<Record<string, string>>({})
   const [iracingGfx, setIracingGfx] = useState<IracingGraphicsStatus | null>(null)
   // Monitors/displays come from the shared device registry so Overlays and
-  // Dashboards target the same screens detected in the Dispositivos hub.
+  // Dashboards target the same screens detected in the Devices hub.
   const { displays, refreshDisplays } = useDevices()
   const [gfxNote, setGfxNote] = useState<string | null>(null)
   const [customOverlays, setCustomOverlays] = useState<CustomOverlayListItem[]>([])
@@ -123,7 +123,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   const [designerOpen, setDesignerOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<CustomOverlayDef | null>(null)
-  // Rich widget builder ("Criar novo overlay") — separate from the legacy
+  // Rich widget builder ("Create new overlay") — separate from the legacy
   // expression/channel designer above.
   const [builderOpen, setBuilderOpen] = useState(false)
   const [builderEditingId, setBuilderEditingId] = useState<string | null>(null)
@@ -137,7 +137,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   const sortedItems = useMemo(() => sortOverlayEntries(items), [items])
   const [selectedWidgetIds, setSelectedWidgetIds] = useState<Set<string>>(() => new Set())
   const [selectedCustomIds, setSelectedCustomIds] = useState<Set<string>>(() => new Set())
-  // Per-sim availability: a widget is shown for the chosen sim only when that sim's
+  // Per-yes availability: a widget is shown for the chosen yes only when that yes's
   // live telemetry provides every field the widget requires (sim-coverage). 'all'
   // shows everything. The title is prefixed "(IR/ACC/LMU)" with its supported sims.
   const [simFilter, setSimFilter] = useState<SimId | 'all'>('all')
@@ -203,7 +203,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       setStreamPassword('')
       await refreshStreamingStatus()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao iniciar streaming OBS')
+      setError(err instanceof Error ? err.message : 'Failed to start OBS streaming')
     } finally {
       setBusy(false)
     }
@@ -217,7 +217,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       const status = await window.ipc.invoke<StreamingStatus>(STREAMING_CHANNELS.stop)
       setStreamingStatus(status)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao parar streaming OBS')
+      setError(err instanceof Error ? err.message : 'Failed to stop OBS streaming')
     } finally {
       setBusy(false)
     }
@@ -229,7 +229,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       await navigator.clipboard.writeText(streamingStatus.url)
       setCopiedStreamUrl(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao copiar URL do OBS')
+      setError(err instanceof Error ? err.message : 'Failed to copy OBS URL')
     }
   }
 
@@ -239,7 +239,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       await navigator.clipboard.writeText(streamingStatus.touchUrl)
       setCopiedStreamUrl(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao copiar URL do Touch Controls')
+      setError(err instanceof Error ? err.message : 'Failed to copy Touch Controls URL')
     }
   }
 
@@ -257,7 +257,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       setGfxNote(result.message)
       await refreshIracingGfx()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao ajustar o iRacing')
+      setError(err instanceof Error ? err.message : 'Failed to adjust iRacing')
     } finally {
       setBusy(false)
     }
@@ -471,7 +471,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   }
 
   function removeCustomOverlay(id: string): void {
-    if (!window.confirm('Remover este overlay customizado? Esta ação não pode ser desfeita.')) return
+    if (!window.confirm('Remover este overlay customizado? Esta ação no pode ser desfeita.')) return
     void run(async () => {
       const next = await window.ipc.invoke<CustomOverlayListItem[]>('overlays:removeCustom', id)
       if (Array.isArray(next)) setCustomOverlays(next)
@@ -576,7 +576,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
     closeDesigner()
   }
 
-  // ── Rich widget builder ("Criar novo overlay") ──────────────────────────────
+  // ── Rich widget builder ("Create new overlay") ──────────────────────────────
   function openBuilderForNew(): void {
     setBuilderEditingId(null)
     setBuilderDraft(createRichCustomOverlayDef({ enabled: true, title: 'Novo overlay' }))
@@ -623,7 +623,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
           <p className="overlay-help">
             {config.configMode
               ? 'Edição ligada: overlays soltos recebem o mouse; arraste para posicionar e use bordas/cantos para redimensionar.'
-              : 'Modo corrida: overlays fixados ficam click-through (o mouse passa para o sim); solte um overlay para movê-lo sem ligar a edição.'}
+              : 'Modo corrida: overlays fixados ficam click-through (o mouse passa para o yes); solte um overlay para movê-lo sem ligar a edição.'}
           </p>
         </div>
         <div className="overlay-actions">
@@ -712,7 +712,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
 
       <section className="panel">
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>Tela cheia do iRacing</h4>
+          <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>Fullscreen do iRacing</h4>
           {iracingGfx && (
             <span className={iracingGfx.mode === 'exclusive' ? 'status-pill' : 'status-pill on'}>
               {iracingGfx.mode === 'exclusive' ? 'fullscreen exclusivo'
@@ -735,7 +735,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             onClick={() => void fixIracingFullscreen()}
             title={iracingGfx?.supported ? 'Edita o app.ini do iRacing (com backup) para borderless' : 'Disponível apenas no Windows'}
           >
-            Corrigir: mudar iRacing para borderless
+            Colorrigir: mudar iRacing para borderless
           </button>
           <button className="ghost-action" disabled={busy} onClick={() => void refreshIracingGfx()}>
             Verificar de novo
@@ -766,7 +766,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             disabled={busy || Boolean(streamingStatus?.running)}
             onChange={(event) => setStreamSafe(event.target.checked)}
           />
-          Stream-safe: ocultar nomes, iRating/SR e tags privadas antes de enviar ao OBS
+          Stream-safe: hide nomes, iRating/SR e tags privadas antes de enviar ao OBS
         </label>
         <label className="designer-check" style={{ margin: '12px 0' }}>
           <input
@@ -778,7 +778,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
           Habilitar acesso pela LAN (gera URL/QR para celular e tablet)
         </label>
         <label className="designer-field" style={{ margin: '12px 0' }}>
-          Senha opcional (alternativa ao token; não é exibida depois de iniciar)
+          Senha opcional (alternativa ao token; no é exibida depois de iniciar)
           <input
             type="password"
             value={streamPassword}
@@ -795,7 +795,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             Parar
           </button>
           <button className="ghost-action" disabled={busy} onClick={() => void refreshStreamingStatus()}>
-            Atualizar status
+            Refresh status
           </button>
         </div>
         {streamingStatus?.url ? (
@@ -854,7 +854,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <button className="primary-action" disabled={busy} onClick={openBuilderForNew}>
-              + Criar novo overlay
+              + Create new overlay
             </button>
             <button className="ghost-action" disabled={busy} onClick={openDesignerForNew}>
               + Overlay de expressões
@@ -864,7 +864,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
 
         {visibleCustomOverlays.length === 0 ? (
           <p className="overlay-help">
-            Nenhum overlay customizado ainda. Clique em <strong style={{ color: "var(--accent-primary)" }}>Criar novo overlay</strong> para montar com os widgets do dashboard.
+            Nenhum overlay customizado ainda. Clique em <strong style={{ color: "var(--accent-primary)" }}>Create new overlay</strong> para montar com os widgets do dashboard.
           </p>
         ) : (
           <div className="overlay-grid">
@@ -993,21 +993,21 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       {error && <section className="panel overlay-help">{error}</section>}
 
       <section className="overlay-grid">
-        <div className="overlay-sim-filter" style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+        <div className="overlay-yes-filter" style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
           <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Filter by Sim</span>
-          {(['all', ...PLAYABLE_SIMS] as const).map((sim) => (
+          {(['all', ...PLAYABLE_SIMS] as const).map((yes) => (
             <button
-              key={sim}
+              key={yes}
               type="button"
-              className={simFilter === sim ? 'overlay-fav is-fav' : 'overlay-fav'}
-              onClick={() => setSimFilter(sim)}
+              className={simFilter === yes ? 'overlay-fav is-fav' : 'overlay-fav'}
+              onClick={() => setSimFilter(yes)}
               style={{ padding: '2px 10px', fontSize: 12 }}
             >
-              {sim === 'all' ? 'All' : simLabel(sim)}
+              {yes === 'all' ? 'All' : simLabel(yes)}
             </button>
           ))}
           {simFilter !== 'all' && (
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{visibleItems.length} widget(s) with live telemetry in this sim</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{visibleItems.length} widget(s) with live telemetry in this yes</span>
           )}
           <span style={{ width: 1, height: 18, background: 'var(--border-default)', margin: '0 2px' }} />
           <TagFilter
@@ -1257,7 +1257,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
           <div className="overlay-designer">
             <div className="overlay-designer-head">
               <h4>{editingId ? 'Editar overlay customizado' : 'Novo overlay customizado'}</h4>
-              <button className="ghost-action" disabled={busy} onClick={closeDesigner}>Fechar</button>
+              <button className="ghost-action" disabled={busy} onClick={closeDesigner}>Close</button>
             </div>
 
             <div className="overlay-designer-body">
@@ -1282,7 +1282,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                   Fixado (click-through)
                 </label>
                 <label className="designer-field">
-                  Estilo
+                  Style
                   <select
                     value={draft.stylePreset}
                     disabled={busy}
@@ -1303,7 +1303,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
               )}
               {expressions.length === 0 && BINDABLE_TELEMETRY_COUNT > 0 && (
                 <p className="overlay-help">
-                  Sem expressões salvas ainda — ligue um canal de telemetria direto no seletor (grupo <strong style={{ color: "var(--accent-primary)" }}>Telemetria</strong>), ou crie expressões no menu <strong style={{ color: "var(--accent-primary)" }}>Expressões</strong>.
+                  Sem expressões salvas ainda — ligue um canal de telemetria direto no seletor (grupo <strong style={{ color: "var(--accent-primary)" }}>Telemetry</strong>), ou crie expressões no menu <strong style={{ color: "var(--accent-primary)" }}>Expressões</strong>.
                 </p>
               )}
 
@@ -1335,7 +1335,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                           </optgroup>
                         )}
                         {BINDABLE_TELEMETRY_GROUPS.map((group) => (
-                          <optgroup key={group.category} label={`Telemetria · ${group.label}`}>
+                          <optgroup key={group.category} label={`Telemetry · ${group.label}`}>
                             {group.variables.map((variable) => (
                               <option key={variable.id} value={`${CHANNEL_BINDING_PREFIX}${variable.id}`}>
                                 {variable.label}{variable.unit ? ` (${variable.unit})` : ''} · {variable.id}
@@ -1379,7 +1379,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                         </select>
                       </label>
                       <label className="designer-field">
-                        Cor
+                        Color
                         <input
                           type="color"
                           value={element.color && element.color.startsWith('#') ? element.color : 'var(--accent-primary)'}
@@ -1420,9 +1420,9 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             </div>
 
             <div className="overlay-designer-foot">
-              <button className="ghost-action" disabled={busy} onClick={closeDesigner}>Cancelar</button>
+              <button className="ghost-action" disabled={busy} onClick={closeDesigner}>Cancel</button>
               <button className="primary-action" disabled={busy || !draft.title.trim()} onClick={saveDesigner}>
-                {editingId ? 'Salvar alterações' : 'Criar overlay'}
+                {editingId ? 'Save alterações' : 'Criar overlay'}
               </button>
             </div>
           </div>

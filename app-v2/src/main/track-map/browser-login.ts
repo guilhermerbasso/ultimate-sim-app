@@ -345,7 +345,7 @@ export async function openIRacingLoginWindow(opts?: {
   const ses = iracingSession()
   const TOOLBAR_HEIGHT = 56
   // The window is split: a trusted top TOOLBAR (our own data: page, rendered by the
-  // BrowserWindow's own webContents) carrying a prominent "Voltar ao Ultimate Sim
+  // BrowserWindow's own webContents) carrying a prominent "Return to Ultimate Sim
   // App" button, and BELOW it a WebContentsView hosting iRacing's GENUINE login page
   // (sandboxed, preload-free, sharing the persistent jar). Separating them lets us
   // give the user an explicit, always-visible way back into the app that force-
@@ -397,7 +397,7 @@ export async function openIRacingLoginWindow(opts?: {
   layoutPageView()
   win.on('resize', layoutPageView)
 
-  // PRIMARY "Voltar ao app" path is now a real preload+IPC button (window.simLogin
+  // PRIMARY "Return to app" path is now a real preload+IPC button (window.simLogin
   // → 'iracing-login:done'). We ALSO keep sentinel navigation as a FALLBACK so a
   // missing/blocked preload still has a working way back. A native window menu +
   // keyboard accelerators (set up below, in the Promise) are the GUARANTEED path,
@@ -688,10 +688,10 @@ export async function openIRacingLoginWindow(opts?: {
     }
     const onUserDone = async (): Promise<void> => {
       if (settled) return
-      setToolbarStatus('Voltando ao app…')
+      setToolbarStatus('Lapndo ao app…')
       // Return to the app IMMEDIATELY. finishOk() persists whatever session
       // exists and runs its own time-bounded diagnostics; we must NOT first await
-      // a (discarded) ~2.5s probe here, or "Voltar" feels stuck on a dead network.
+      // a (discarded) ~2.5s probe here, or "Lapr" feels stuck on a dead network.
       void finishOk()
     }
 
@@ -718,7 +718,7 @@ export async function openIRacingLoginWindow(opts?: {
         label: 'Login',
         submenu: [
           {
-            label: '✓ Concluí o login — Voltar ao app',
+            label: '✓ Login complete — Return to app',
             accelerator: 'CmdOrCtrl+Return',
             click: () => void onUserDone()
           },
@@ -876,7 +876,7 @@ export async function openIRacingLoginWindow(opts?: {
 // "Login" menu + accelerators remain the guaranteed way back regardless.
 // `window.__setStatus(text)` lets main update the hint line.
 function buildLoginToolbarDataUrl(doneSentinel: string, cancelSentinel: string): string {
-  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"/>
+  const html = `<!doctype html><html lang="en-US"><head><meta charset="utf-8"/>
 <style>
 :root{color-scheme:dark}
 *{box-sizing:border-box}
@@ -895,9 +895,9 @@ button.ghost:hover{background:rgba(255,255,255,.08)}
 <div class="bar">
 <span class="brand">Login do <b>iRacing</b> · Ultimate Sim App</span>
 <span class="spacer"></span>
-<span class="status" id="s">Se os botões não responderem: use o menu <b>Login</b> acima, ou aperte <b>Ctrl+Enter</b> para concluir.</span>
+<span class="status" id="s">Se os buttons não responderem: use o menu <b>Login</b> acima, ou aperte <b>Ctrl+Enter</b> para concluir.</span>
 <button id="cancel" class="ghost" type="button">Cancelar</button>
-<button id="done" type="button">✓ Voltar ao Ultimate Sim App</button>
+<button id="done" type="button">✓ Return to Ultimate Sim App</button>
 </div>
 <script>
 (function(){

@@ -320,10 +320,10 @@ describe('WidgetGallery — curated-first, advanced collapsed', () => {
     return renderToStaticMarkup(createElement(WidgetGallery, { onAdd: () => {} }))
   }
 
-  it('leads with the featured "Curated GT3" section and a sim filter row', () => {
+  it('leads with the featured "Curated GT3" section and a yes filter row', () => {
     const html = render()
     expect(html).toContain('Curated GT3')
-    expect(html).toContain('Sim') // per-sim coverage filter preserved
+    expect(html).toContain('Sim') // per-yes coverage filter preserved
   })
 
   it('demotes the raw channels behind a collapsed "Canais iRacing avancados" accordion', () => {
@@ -369,7 +369,7 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
     for (const v of fullFrame) {
       expect(v.type).toBe('overlaywidget')
       expect(v.widgetId, `${v.id} missing widgetId`).toBeTruthy()
-      // Full-frame dashboards are telemetry-driven → reachable on every playable sim.
+      // Full-frame dashboards are telemetry-driven → reachable on every playable yes.
       expect((v as NormalizedVariant).supportedSims.length).toBeGreaterThan(0)
     }
     const section = groupVariantsByCluster(curated).find((s) => s.cluster === 'Full-Frame Dashboards')

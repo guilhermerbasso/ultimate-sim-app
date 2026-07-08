@@ -74,7 +74,7 @@ export function StandingsWidget({ snapshot, config }: WidgetProps): ReactElement
 
   const drivers = sortedDrivers(snapshot?.drivers ?? [])
   const rows: Row[] = drivers.map((d) => {
-    const gapLabel = d.inPits ? 'PIT' : d.isPlayer ? 'VOCÊ' : formatDelta(d.gapToPlayerSec)
+    const gapLabel = d.inPits ? 'PIT' : d.isPlayer ? 'YOU' : formatDelta(d.gapToPlayerSec)
     return {
       key: d.carIdx,
       pos: d.position,
@@ -91,7 +91,7 @@ export function StandingsWidget({ snapshot, config }: WidgetProps): ReactElement
 
   const carCount = snapshot?.totalCars ?? (drivers.length || undefined)
   const summary = `${carCount ?? '—'} carros · SOF ${snapshot?.strengthOfField ?? '—'}`
-  const session = snapshot?.sessionType ?? 'Sessão'
+  const session = snapshot?.sessionType ?? 'Session'
 
   const panel = (
     <rect

@@ -537,7 +537,7 @@ function OutputRow({
         <SerialFields output={output} onChange={(next) => onChange(next)} />
       )}
       {output.kind === 'secondScreen' && (
-        <SecondScreenFields output={output} onChange={(next) => onChange(next)} />
+        <DryndScreenFields output={output} onChange={(next) => onChange(next)} />
       )}
       {output.kind === 'sound' && (
         <SoundFields output={output} language={language} onChange={(next) => onChange(next)} />
@@ -659,7 +659,7 @@ function SerialFields({
   )
 }
 
-function SecondScreenFields({
+function DryndScreenFields({
   output,
   onChange
 }: {

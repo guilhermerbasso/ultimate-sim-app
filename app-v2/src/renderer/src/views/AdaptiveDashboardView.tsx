@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+﻿import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppViewProps } from '../App'
 import type { CoachSeverity } from '../../../shared/coach'
 import type {
@@ -43,11 +43,11 @@ const DANGER = 'var(--accent-danger)'
 
 // Warm-accent swatches (green reserved for positive states only).
 const BLINK_SWATCHES: Array<{ color: string; label: string }> = [
-  { color: '#FF7A00', label: 'Laranja' },
-  { color: '#FFB800', label: 'Âmbar' },
-  { color: '#FF2200', label: 'Vermelho' },
-  { color: '#F4F4F4', label: 'Branco' },
-  { color: '#1AFF6E', label: 'Verde (bom)' }
+  { color: '#FF7A00', label: 'Orange' },
+  { color: '#FFB800', label: 'Amber' },
+  { color: '#FF2200', label: 'Red' },
+  { color: '#F4F4F4', label: 'White' },
+  { color: '#1AFF6E', label: 'Green (good)' }
 ]
 
 const DEFAULT_BLINK_HZ = 1.5
@@ -55,7 +55,7 @@ const MOMENT_RECOMPUTE_MS = 140
 const AI_LIVE_SLOT_COUNT = 6
 
 // A moment whose catalog entry is `detectable:false` can be authored but will not
-// fire at runtime yet — surface that clearly so the user isn't surprised.
+// fire at runtime yet â€” surface that clearly so the user isn't surprised.
 function momentIsDetectable(id: string): boolean {
   return momentCatalogEntry(id)?.detectable !== false
 }
@@ -63,7 +63,7 @@ function momentIsDetectable(id: string): boolean {
 function NotDetectableBadge(): ReactElement {
   return (
     <span
-      title="A detecção deste momento ainda não está disponível — a regra fica salva, mas não dispara por enquanto."
+      title="Detection for this moment is not available yet â€” the rule is saved, but it will not fire for now."
       style={{
         flex: '0 0 auto',
         fontSize: 10,
@@ -77,7 +77,7 @@ function NotDetectableBadge(): ReactElement {
         whiteSpace: 'nowrap'
       }}
     >
-      em breve
+      coming soon
     </span>
   )
 }
@@ -85,7 +85,7 @@ function NotDetectableBadge(): ReactElement {
 function FrameBadge(): ReactElement {
   return (
     <span
-      title="Este momento tem um frame (layout completo) personalizado."
+      title="This moment has a custom full-layout frame."
       style={{
         flex: '0 0 auto',
         fontSize: 10,
@@ -172,7 +172,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
   const latestSnapshotRef = useRef<TelemetrySnapshot | null>(null)
   const [liveMoment, setLiveMoment] = useState<RaceMomentState | null>(null)
 
-  // ── Load + subscribe to the dashboards list ──
+  // â”€â”€ Load + subscribe to the dashboards list â”€â”€
   useEffect(() => {
     let cancelled = false
     void window.ipc
@@ -194,7 +194,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
     }
   }, [])
 
-  // ── Load the full dashboard when the selection changes ──
+  // â”€â”€ Load the full dashboard when the selection changes â”€â”€
   useEffect(() => {
     if (!selectedId) {
       setDash(null)
@@ -320,16 +320,16 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
     [rules, patchRules]
   )
 
-  // ── Create / open / save ──
+  // â”€â”€ Create / open / save â”€â”€
   const createPreset = useCallback(async () => {
     if (busy) return
     setBusy(true)
     try {
       const summary = await window.ipc.invoke<DashboardSummary>('app:dash:createPreset', ADAPTIVE_DASHBOARD_ID)
       setSelectedId(summary.id)
-      showToast('Dashboard Adaptativo criado.', 'success')
+      showToast('Adaptive dashboard created.', 'success')
     } catch (error) {
-      showToast(`Falha ao criar o preset: ${getErrorMessage(error)}`, 'error')
+      showToast(`Failed to create preset: ${getErrorMessage(error)}`, 'error')
     } finally {
       setBusy(false)
     }
@@ -340,9 +340,9 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
     setBusy(true)
     try {
       await window.ipc.invoke('app:dash:open', selectedId, { fullscreen: false })
-      showToast('Dashboard aberto.', 'success')
+      showToast('Dashboard opened.', 'success')
     } catch (error) {
-      showToast(`Falha ao abrir: ${getErrorMessage(error)}`, 'error')
+      showToast(`Failed to open: ${getErrorMessage(error)}`, 'error')
     } finally {
       setBusy(false)
     }
@@ -356,9 +356,9 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
       await window.ipc.invoke<DashboardSummary>('app:dash:save', next)
       setDash(next)
       setDirty(false)
-      showToast('Regras adaptativas salvas.', 'success')
+      showToast('Adaptive rules saved.', 'success')
     } catch (error) {
-      showToast(`Falha ao salvar: ${getErrorMessage(error)}`, 'error')
+      showToast(`Failed to save: ${getErrorMessage(error)}`, 'error')
     } finally {
       setBusy(false)
     }
@@ -370,15 +370,15 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
       <header style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ ...eyebrow, color: CHROME }}>Adaptativo · editor</span>
-        <h1 style={{ margin: 0, fontSize: 22, color: 'var(--text-primary)' }}>Dashboard Adaptativo</h1>
+        <span style={{ ...eyebrow, color: CHROME }}>Adaptativo Â· editor</span>
+        <h1 style={{ margin: 0, fontSize: 22, color: 'var(--text-primary)' }}>Adaptive Dashboard</h1>
         <p style={{ margin: 0, color: 'var(--text-secondary)', maxWidth: 820 }}>
-          Edite, por <strong>momento da corrida</strong>, quais widgets <strong>aparecem</strong> ou{' '}
-          <strong>somem</strong>, o destaque e o <strong>blink</strong> (piscar) — sem mexer nas posições.
+          Edit which widgets <strong>appear</strong> or{' '}
+          <strong>hide</strong>, the highlight, and <strong>blink</strong> â€” without changing positions.
         </p>
         <p style={{ margin: '2px 0 0', color: 'var(--text-muted)', fontSize: 12, maxWidth: 820 }}>
-          Ex.: <em>ao cruzar a linha de chegada</em>, mostrar os pontos de melhoria do Coach + o mapa por setor e
-          esconder o radar; <em>sob pressão</em>, piscar o painel inteiro em vermelho.
+          Example: <em>when crossing the finish line</em>, show Coach improvement points plus the sector map and
+          hide the radar; <em>under pressure</em>, blink the whole panel red.
         </p>
       </header>
 
@@ -387,23 +387,23 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <label style={{ color: 'var(--text-secondary)', fontSize: 12, fontWeight: 700 }}>Dashboard</label>
           <select value={selectedId ?? ''} onChange={(e) => setSelectedId(e.target.value || null)} style={select}>
-            {summaries.length === 0 && <option value="">(nenhum dashboard salvo)</option>}
+            {summaries.length === 0 && <option value="">(no saved dashboard)</option>}
             {summaries.map((s) => (
               <option key={s.id} value={s.id}>
-                {isAdaptiveDashboard(s) ? '★ ' : ''}
+                {isAdaptiveDashboard(s) ? 'â˜… ' : ''}
                 {s.name}
               </option>
             ))}
           </select>
           <button type="button" disabled={busy} onClick={() => void createPreset()} style={secondaryBtn}>
-            Criar preset adaptativo
+            Create adaptive preset
           </button>
           <button type="button" disabled={busy || !selectedId} onClick={() => void openDash()} style={secondaryBtn}>
-            Abrir
+            Open
           </button>
           <div style={{ flex: 1 }} />
           <button type="button" disabled={busy || !dash || !dirty} onClick={() => void save()} style={primaryBtn}>
-            {dirty ? 'Salvar alterações' : 'Salvo'}
+            {dirty ? 'Save changes' : 'Saved'}
           </button>
         </div>
 
@@ -415,7 +415,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
                 checked={adaptiveEnabled}
                 onChange={(e) => patchConfig({ ...config, enabled: e.target.checked })}
               />
-              <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>Modo adaptativo ligado</span>
+              <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>Adaptive mode on</span>
             </label>
             <label
               title="Local heuristic widget selection. No network, no GPU, no paid API."
@@ -437,15 +437,15 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
             </label>
             {aiLiveActive && (
               <span style={{ color: GOOD, fontSize: 12, fontWeight: 700 }}>
-                {liveWidgetIds.length} live widget(s) · {liveMoment ? momentLabel(liveMoment.moment) : 'Detecting'}
+                {liveWidgetIds.length} live widget(s) Â· {liveMoment ? momentLabel(liveMoment.moment) : 'Detecting'}
               </span>
             )}
             <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-              {dash.elements.length} widgets · {rules.length} regra(s)
+              {dash.elements.length} widgets Â· {rules.length} rule(s)
             </span>
             {!isAdaptiveTarget && !(config.enabled ?? false) && (
               <span style={{ color: AMBER, fontSize: 12 }}>
-                Este dashboard só fica adaptativo com o modo ligado acima.
+                Este dashboard sÃ³ fica adaptativo com o modo ligado acima.
               </span>
             )}
           </div>
@@ -459,8 +459,8 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
       {!dash && (
         <section style={card}>
           <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
-            Nenhum dashboard carregado. Clique em <strong>Criar preset adaptativo</strong> para começar com o painel
-            padrão <em>{ADAPTIVE_DASHBOARD_PRESET.name}</em>, ou selecione um dashboard existente.
+            No dashboard loaded. Click <strong>Create adaptive preset</strong> to start with the
+            default <em>{ADAPTIVE_DASHBOARD_PRESET.name}</em> panel, or select an existing dashboard.
           </p>
         </section>
       )}
@@ -469,12 +469,12 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
         <section style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 320px) 1fr', gap: 'var(--space-4)' }}>
           {/* Left: moment list */}
           <div style={card}>
-            <h2 style={subTitle}>Momentos</h2>
+            <h2 style={subTitle}>Moments</h2>
             <MomentPicker used={usedMoments} onAdd={addRule} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
               {rules.length === 0 && (
                 <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                  Adicione um momento acima para criar a primeira regra.
+                  Add a moment above to create the first rule.
                 </span>
               )}
               {rules.map((rule) => (
@@ -494,7 +494,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
           <div style={card}>
             {!selectedRule ? (
               <p style={{ margin: 0, color: 'var(--text-muted)' }}>
-                Selecione um momento à esquerda para configurar os widgets.
+                Selecione um momento Ã  esquerda para configurar os widgets.
               </p>
             ) : (
               <RuleEditor
@@ -525,7 +525,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
   )
 }
 
-// ─── Moment picker (grouped) ──────────────────────────────────────────────────
+// â”€â”€â”€ Moment picker (grouped) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function HifiLiveSelectionPreview({
   snapshot,
@@ -577,7 +577,7 @@ function MomentPicker({ used, onAdd }: { used: ReadonlySet<string>; onAdd: (id: 
   return (
     <div style={{ display: 'flex', gap: 6 }}>
       <select value={pick} onChange={(e) => setPick(e.target.value)} style={{ ...select, flex: 1 }}>
-        <option value="">+ Adicionar momento…</option>
+        <option value="">+ Add moment?</option>
         {GROUP_ORDER.map((group) => {
           const items = MOMENT_CATALOG.filter((m) => m.group === group)
           if (items.length === 0) return null
@@ -586,8 +586,8 @@ function MomentPicker({ used, onAdd }: { used: ReadonlySet<string>; onAdd: (id: 
               {items.map((m) => (
                 <option key={m.id} value={m.id} disabled={used.has(m.id)}>
                   {m.label}
-                  {m.detectable === false ? ' · em breve' : ''}
-                  {used.has(m.id) ? ' ✓' : ''}
+                  {m.detectable === false ? ' Â· coming soon' : ''}
+                  {used.has(m.id) ? ' âœ“' : ''}
                 </option>
               ))}
             </optgroup>
@@ -638,7 +638,7 @@ function RuleRow({
         opacity: enabled ? 1 : 0.55
       }}
     >
-      <input type="checkbox" checked={enabled} onChange={(e) => onToggle(e.target.checked)} title="Ativar/desativar regra" />
+      <input type="checkbox" checked={enabled} onChange={(e) => onToggle(e.target.checked)} title="Enable/disable rule" />
       <button
         type="button"
         onClick={onSelect}
@@ -650,18 +650,18 @@ function RuleRow({
           {!momentIsDetectable(rule.moment) && <NotDetectableBadge />}
         </span>
         <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: 11 }}>
-          {hasFrame ? `frame: ${rule.frame?.elements.length} widget(s)` : `${count} ajuste(s)`}
-          {rule.blinkDashboard ? ' · pisca painel' : ''}
+          {hasFrame ? `frame: ${rule.frame?.elements.length} widget(s)` : `${count} adjustment(s)`}
+          {rule.blinkDashboard ? ' ? blinks panel' : ''}
         </span>
       </button>
-      <button type="button" onClick={onRemove} title="Remover" style={iconBtn}>
-        ✕
+      <button type="button" onClick={onRemove} title="Remove" style={iconBtn}>
+        âœ•
       </button>
     </div>
   )
 }
 
-// ─── Per-moment rule editor ───────────────────────────────────────────────────
+// â”€â”€â”€ Per-moment rule editor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function RuleEditor({
   rule,
@@ -684,7 +684,7 @@ function RuleEditor({
       <div>
         <h2 style={{ ...subTitle, marginBottom: 2 }}>{momentLabel(rule.moment)}</h2>
         <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-          Configure por widget: mostrar/esconder, destaque e blink. As regras se aplicam sobre o plano automático.
+          Configure por widget: show/esconder, destaque e blink. As regras se aplicam sobre o plano automÃ¡tico.
         </span>
         {!momentIsDetectable(rule.moment) && (
           <div
@@ -703,7 +703,7 @@ function RuleEditor({
           >
             <NotDetectableBadge />
             <span>
-              A detecção deste momento ainda não está disponível. A regra fica salva, mas não dispara em pista por
+              A detecÃ§Ã£o deste momento ainda no estÃ¡ disponÃ­vel. A regra fica salva, mas no dispara em pista por
               enquanto.
             </span>
           </div>
@@ -713,21 +713,20 @@ function RuleEditor({
       {/* Full per-moment FRAME (complete layout) */}
       <div style={{ ...hintTile, gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <strong style={{ color: 'var(--text-primary)', fontSize: 13 }}>Frame deste momento (layout completo)</strong>
+          <strong style={{ color: 'var(--text-primary)', fontSize: 13 }}>Frame for this moment (full layout)</strong>
           {hasFrame && <FrameBadge />}
         </div>
         <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-          Abra o editor completo para <strong>adicionar</strong>, <strong>remover</strong>, <strong>mover</strong> e{' '}
-          <strong>redimensionar</strong> widgets só para este momento. Quando ativo em pista, o painel troca para este
-          layout.
+          Open the full editor to <strong>add</strong>, <strong>remove</strong>, <strong>move</strong>, and{' '}
+          <strong>resize</strong> widgets only for this moment. When active on track, the panel switches to this layout.
         </span>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button type="button" onClick={onEditFrame} style={primaryBtn}>
-            {hasFrame ? 'Editar frame deste momento' : 'Criar frame deste momento'}
+            {hasFrame ? 'Edit frame for this moment' : 'Create frame for this moment'}
           </button>
           {hasFrame && (
             <button type="button" onClick={onResetFrame} style={secondaryBtn}>
-              Remover frame (voltar ao base)
+              Remove frame (return to base)
             </button>
           )}
         </div>
@@ -735,14 +734,14 @@ function RuleEditor({
 
       {/* Whole-dashboard blink */}
       <div style={{ ...hintTile, gap: 8 }}>
-        <strong style={{ color: 'var(--text-primary)', fontSize: 13 }}>Piscar o painel inteiro</strong>
+        <strong style={{ color: 'var(--text-primary)', fontSize: 13 }}>Blink the whole panel</strong>
         <BlinkEditor blink={rule.blinkDashboard} onChange={onDashboardBlink} />
       </div>
 
       {/* Element list */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {elements.length === 0 && (
-          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Este dashboard não tem widgets.</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>This dashboard has no widgets.</span>
         )}
         {elements.map((el) => (
           <ElementRow key={el.id} element={el} rule={rule.elements?.[el.id]} onChange={(patch) => onElementRule(el.id, patch)} />
@@ -752,7 +751,7 @@ function RuleEditor({
   )
 }
 
-// ─── Full per-moment FRAME editor (modal) ─────────────────────────────────────
+// â”€â”€â”€ Full per-moment FRAME editor (modal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function cloneElements(elements: DashboardElement[]): DashboardElement[] {
   const sc = (globalThis as { structuredClone?: <T>(v: T) => T }).structuredClone
@@ -799,40 +798,40 @@ function FrameEditorModal({
       <div style={modalCard}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ flex: 1 }}>
-            <span style={{ ...eyebrow, color: CHROME }}>Frame · editor completo</span>
+            <span style={{ ...eyebrow, color: CHROME }}>Frame Â· full editor</span>
             <h2 style={{ margin: '2px 0 0', fontSize: 18, color: 'var(--text-primary)' }}>
               {momentLabel(rule?.moment ?? '')}
             </h2>
             <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-              {seededFromBase ? 'Novo frame a partir do layout base.' : 'Editando o frame salvo deste momento.'} Adicione,
-              mova, redimensione e configure widgets só para este momento.
+              {seededFromBase ? 'New frame from the base layout.' : 'Editing the saved frame for this moment.'} Add,
+              move, resize, and configure widgets only for this moment.
             </span>
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
-            Fundo
+            Background
             <input
               type="color"
               value={board.bg || '#000000'}
               onChange={(e) => setBoard((b) => ({ ...b, bg: e.target.value }))}
               style={{ width: 30, height: 26, padding: 0, border: '1px solid var(--border-default)', borderRadius: 6, background: 'transparent', cursor: 'pointer' }}
-              aria-label="Cor de fundo do frame"
+              aria-label="Frame background color"
             />
           </label>
           <button type="button" onClick={reseedFromBase} style={secondaryBtn}>
-            Resetar para o base
+            Reset to base
           </button>
           <button type="button" onClick={onCancel} style={secondaryBtn}>
-            Cancelar
+            Cancel
           </button>
           <button type="button" onClick={save} style={primaryBtn}>
-            Salvar frame
+            Save frame
           </button>
         </div>
 
         <DashboardCanvasEditor board={board} onChange={setBoard} />
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Preview do frame</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Frame preview</span>
           <DashboardCanvasSurface board={board} />
         </div>
       </div>
@@ -872,7 +871,7 @@ function ElementRow({
       </div>
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        <SegBtn active={visMode === 'default'} onClick={() => merge({ visible: undefined })} label="Padrão" />
+        <SegBtn active={visMode === 'default'} onClick={() => merge({ visible: undefined })} label="PadrÃ£o" />
         <SegBtn active={visMode === 'show'} onClick={() => merge({ visible: true })} label="Mostrar" color={GOOD} />
         <SegBtn active={visMode === 'hide'} onClick={() => merge({ visible: false })} label="Esconder" color={DANGER} />
 
@@ -882,7 +881,7 @@ function ElementRow({
             checked={emphasisOn}
             onChange={(e) => merge({ emphasis: e.target.checked ? 1.2 : undefined })}
           />
-          Destaque
+          Highlight
         </label>
         {emphasisOn && (
           <>
@@ -929,7 +928,7 @@ function BlinkEditor({
             value={color}
             onChange={(e) => onChange({ color: e.target.value, hz })}
             style={{ width: 28, height: 24, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
-            aria-label="Cor do blink"
+            aria-label="Color do blink"
           />
           <div style={{ display: 'flex', gap: 3 }}>
             {BLINK_SWATCHES.map((s) => (
@@ -1000,7 +999,7 @@ function SegBtn({
   )
 }
 
-// ─── styles ───────────────────────────────────────────────────────────────────
+// â”€â”€â”€ styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const eyebrow: CSSProperties = {
   fontSize: 11,
@@ -1139,3 +1138,4 @@ const modalCard: CSSProperties = {
   gap: 'var(--space-4)',
   margin: 'auto'
 }
+

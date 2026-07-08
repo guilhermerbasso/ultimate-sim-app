@@ -502,7 +502,7 @@ function safeJsonParse<T>(data: Buffer, label: string, notes: string[]): T | und
   try {
     return JSON.parse(data.toString('utf8')) as T
   } catch (err) {
-    notes.push(`${label} inválido ignorado: ${err instanceof Error ? err.message : 'JSON malformado'}.`)
+    notes.push(`${label} invalid ignored: ${err instanceof Error ? err.message : 'malformed JSON'}.`)
     return undefined
   }
 }
@@ -559,12 +559,12 @@ async function resolveImageSource(item: SimhubElement, ctx?: ImageLookupContext)
   if (!entry) return undefined
   const size = typeof entry.uncompressedSize === 'number' ? entry.uncompressedSize : undefined
   if (size !== undefined && size > MAX_EMBEDDED_IMAGE_BYTES) {
-    ctx.notes.push(`Imagem "${entry.path}" excede ${Math.round(MAX_EMBEDDED_IMAGE_BYTES / 1024 / 1024)} MB e foi substituída por retângulo.`)
+    ctx.notes.push(`Imagem "${entry.path}" exceeds ${Math.round(MAX_EMBEDDED_IMAGE_BYTES / 1024 / 1024)} MB e was replaced with a rectangle.`)
     return undefined
   }
   const buffer = await entry.buffer()
   if (buffer.length > MAX_EMBEDDED_IMAGE_BYTES) {
-    ctx.notes.push(`Imagem "${entry.path}" excede ${Math.round(MAX_EMBEDDED_IMAGE_BYTES / 1024 / 1024)} MB e foi substituída por retângulo.`)
+    ctx.notes.push(`Imagem "${entry.path}" exceeds ${Math.round(MAX_EMBEDDED_IMAGE_BYTES / 1024 / 1024)} MB e was replaced with a rectangle.`)
     return undefined
   }
   const mime = mimeFromName(entry.path) ?? 'image/png'
@@ -903,22 +903,22 @@ async function buildDashboardFromScreen(args: {
 
   if (imageItems.length > 0) {
     if (importedImages > 0) notes.push(`${importedImages}/${imageItems.length} ImageItem(s) importado(s) como imagem embutida.`)
-    if (importedImages < imageItems.length) notes.push(`${imageItems.length - importedImages} ImageItem(s) sem imagem embutida/localizável foram substituídos por retângulo.`)
+    if (importedImages < imageItems.length) notes.push(`${imageItems.length - importedImages} ImageItem(s) without an embedded/local image were replaced with rectangles.`)
   }
-  if (ellipseItems.length > 0) notes.push(`${ellipseItems.length} EllipseItem(s)/OvalItem(s) aproximado(s) com retângulo de borda arredondada.`)
+  if (ellipseItems.length > 0) notes.push(`${ellipseItems.length} EllipseItem(s)/OvalItem(s) approximated with rounded rectangles.`)
   if (unknownItems.length > 0) {
     const kinds = Array.from(new Set(unknownItems.map((it) => shortType(it.$type) || '(sem tipo)')))
-    notes.push(`Elementos desconhecidos convertidos em retângulo: ${kinds.join(', ')} (${unknownItems.length} no total).`)
+    notes.push(`Unknown elements converted to rectangles: ${kinds.join(', ')} (${unknownItems.length} total).`)
   }
   if (unknownExpressions.size > 0) {
     const examples = Array.from(unknownExpressions).slice(0, 5)
     notes.push(`Bindings JS/NCalc sem mapeamento (${unknownExpressions.size}): ${examples.join(' | ')}${unknownExpressions.size > examples.length ? '…' : ''}`)
   }
   if (args.screens.length > 1) {
-    notes.push(`Tela importada: "${args.screen?.Name ?? `Tela ${args.screenIndex + 1}`}" (${flat.length} elemento(s)). Você pode importar outra tela pela seleção multi-screen.`)
+    notes.push(`Imported screen: "${args.screen?.Name ?? `Screen ${args.screenIndex + 1}`}" (${flat.length} elemento(s)). Você pode importar outra tela pela seleção multi-screen.`)
   }
 
-  const suffix = args.screens.length > 1 ? ` - ${args.screen?.Name ?? `Tela ${args.screenIndex + 1}`}` : ''
+  const suffix = args.screens.length > 1 ? ` - ${args.screen?.Name ?? `Screen ${args.screenIndex + 1}`}` : ''
   const dashboard: Dashboard = {
     id: createDashboardId(),
     name: `${args.metadata.Title ?? args.djsonName}${suffix}`,
@@ -941,7 +941,7 @@ export async function importSimhubDash(filePath: string, options: ImportOptions 
   try {
     directory = await unzipper.Open.file(filePath)
   } catch (err) {
-    throw new Error(`Falha ao abrir .simhubdash: ${err instanceof Error ? err.message : 'arquivo inválido'}`)
+    throw new Error(`Failed to open .simhubdash: ${err instanceof Error ? err.message : 'invalid file'}`)
   }
   const djsonEntry = directory.files.find(
     (f) =>
@@ -951,16 +951,16 @@ export async function importSimhubDash(filePath: string, options: ImportOptions 
       !f.path.toLowerCase().endsWith('.djson.carclasses') &&
       !f.path.toLowerCase().endsWith('.djson.png')
   )
-  if (!djsonEntry) throw new Error('Arquivo .djson não encontrado no .simhubdash.')
+  if (!djsonEntry) throw new Error('.djson file not found in .simhubdash.')
   if (typeof djsonEntry.uncompressedSize === 'number' && djsonEntry.uncompressedSize > MAX_DJSON_BYTES) {
-    throw new Error('Arquivo .djson grande demais para importação segura.')
+    throw new Error('.djson file is too large for safe import.')
   }
 
   const notes: string[] = []
   const djsonBuf = await djsonEntry.buffer()
-  if (djsonBuf.length > MAX_DJSON_BYTES) throw new Error('Arquivo .djson grande demais para importação segura.')
+  if (djsonBuf.length > MAX_DJSON_BYTES) throw new Error('.djson file is too large for safe import.')
   const root = safeJsonParse<SimhubDashRoot>(djsonBuf, '.djson', notes)
-  if (!root) throw new Error('Arquivo .djson inválido.')
+  if (!root) throw new Error('Invalid .djson file.')
 
   let metadata: SimhubMetadata = {}
   const metaEntry = directory.files.find((f) => f.path.toLowerCase().endsWith('.djson.metadata'))
@@ -969,7 +969,7 @@ export async function importSimhubDash(filePath: string, options: ImportOptions 
       const metaBuf = await metaEntry.buffer()
       metadata = safeJsonParse<SimhubMetadata>(metaBuf, 'metadata', notes) ?? {}
     } catch {
-      notes.push('Metadata não pôde ser lida e foi ignorada.')
+      notes.push('Metadata could not be read and was ignored.')
     }
   }
 
@@ -979,9 +979,9 @@ export async function importSimhubDash(filePath: string, options: ImportOptions 
     try {
       const pngBuf = await pngEntry.buffer()
       if (pngBuf.length <= MAX_EMBEDDED_IMAGE_BYTES) previewPng = pngBuf.toString('base64')
-      else notes.push('Preview PNG ignorado por exceder o limite de tamanho.')
+      else notes.push('Preview PNG ignorado por exceedsr o limite de tamanho.')
     } catch {
-      notes.push('Preview PNG inválido ignorado.')
+      notes.push('Preview PNG invalid ignored.')
     }
   }
 
@@ -1268,7 +1268,7 @@ export async function exportSimhubDash(dashboard: Dashboard, outPath: string): P
     try {
       entries.push({ name: `${djsonName}.png`, data: Buffer.from(dashboard.previewPng, 'base64') })
     } catch {
-      // ignora preview inválido
+      // ignora preview invalid
     }
   }
 

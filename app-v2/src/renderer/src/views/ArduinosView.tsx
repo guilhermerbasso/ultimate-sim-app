@@ -67,8 +67,8 @@ const TABS: Array<{ id: TabId; label: string; eyebrow: string; description: stri
   {
     id: 'myHardware',
     label: 'Hardware',
-    eyebrow: 'Dispositivos',
-    description: 'Gerencie perfis de hardware, componentes (LEDs, telas, encoders), firmware e monitor serial.',
+    eyebrow: 'Devices',
+    description: 'Manage hardware profiles, components (LEDs, screens, encoders), firmware, and serial monitor.',
     emptyText: 'Nenhum componente ainda. Adicione qualquer módulo estilo SimHub a este Arduino.'
   },
   {
@@ -142,12 +142,12 @@ const TAB_COMPONENTS: Partial<Record<TabId, ComponentType[]>> = {
 const TAB_GROUPS: Array<{ title: string; description: string; ids: TabId[] }> = [
   {
     title: 'Hardware',
-    description: 'Perfis, firmware, conexões, monitor serial e Wi-Fi.',
+    description: 'Profiles, firmware, conexões, monitor serial e Wi-Fi.',
     ids: ['myHardware', 'esp32']
   },
   {
     title: 'Saídas visuais',
-    description: 'LEDs, matriz iFlag, telas e alertas.',
+    description: 'LEDs, iFlag matrix, screens, and alerts.',
     ids: ['rgbLeds', 'rgbMatrix', 'screens', 'tm1638', 'displayAlerts']
   },
   {
@@ -187,8 +187,8 @@ function findActiveDevice(devices: SerialDeviceSummary[], id: string | null): Se
 
 function defaultActiveDeviceId(devices: SerialDeviceSummary[]): string | null {
   if (devices.length === 0) return null
-  const simx = devices.find((device) => device.kind === 'sim-x')
-  return (simx ?? devices[0]).id
+  const yesx = devices.find((device) => device.kind === 'sim-x')
+  return (yesx ?? devices[0]).id
 }
 
 export default function ArduinosView({
@@ -704,7 +704,7 @@ export default function ArduinosView({
           </div>
         ))}
         <span className={connected ? 'conn-pill online' : 'conn-pill offline'}>
-          {connected ? `● ${connectedDevice?.path}` : '○ Desconectado'}
+          {connected ? `● ${connectedDevice?.path}` : '○ Disconnected'}
         </span>
       </nav>
 
@@ -719,7 +719,7 @@ export default function ArduinosView({
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {(
                   [
-                    ['devices', 'Dispositivos & Perfis', 'Gerencie perfis, componentes e firmware dos seus Arduinos'],
+                    ['devices', 'Devices & Profiles', 'Gerencie perfis, componentes e firmware dos seus Arduinos'],
                     ['monitor', 'Monitor Serial', 'Acompanhe o tráfego serial RX/TX em tempo real'],
                     ['info', 'Conexões & Firmware', 'Conecte/desconecte portas seriais e veja referências de firmware']
                   ] as [HwSection, string, string][]
@@ -737,11 +737,11 @@ export default function ArduinosView({
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-              <SectionExportImport sectionId="serial-devices" label="Dispositivos seriais" onImported={() => void reloadFleet()} />
+              <SectionExportImport sectionId="serial-devices" label="Devices seriais" onImported={() => void reloadFleet()} />
             </div>
           </article>
 
-          {/* ── Dispositivos & Perfis ─────────────────────────────────────────── */}
+          {/* ── Devices & Profiles ─────────────────────────────────────────── */}
           {hwSection === 'devices' && (
             <HardwareWorkspace
               showToast={showToast}
@@ -905,7 +905,7 @@ export default function ArduinosView({
   )
 }
 
-// ─── Dispositivos ──────────────────────────────────────────────────────────────
+// ─── Devices ──────────────────────────────────────────────────────────────
 interface DevicesPanelProps {
   ports: PortInfo[]
   selectedPath: string
@@ -995,7 +995,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
                     </em>
                   )}
                 </strong>
-                <small>{port.friendlyName || port.manufacturer || 'Fabricante não identificado'}</small>
+                <small>{port.friendlyName || port.manufacturer || 'Fabricante no identificado'}</small>
                 {(port.vendorId || port.productId) && (
                   <small>
                     VID:{port.vendorId || '????'} · PID:{port.productId || '????'}
@@ -1024,7 +1024,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
         <div className="panel-heading-row">
           <div>
             <span className="panel-label">Frota de Arduinos · multi-device</span>
-            <h3>Dispositivos seriais ativos</h3>
+            <h3>Devices seriais ativos</h3>
           </div>
         </div>
         <p className="helper-text">
@@ -1408,8 +1408,8 @@ function ConfigPanel(props: ConfigPanelProps): ReactElement {
       <h3>Configuração do firmware</h3>
       {!connected && (
         <div className="notice-card warning">
-          <strong>Desconectado</strong>
-          <p>Conecte o ButtonBox na aba Dispositivos para aplicar ajustes. Eles são enviados ao firmware na hora.</p>
+          <strong>Disconnected</strong>
+          <p>Conecte o ButtonBox na aba Devices para aplicar ajustes. Eles são enviados ao firmware na hora.</p>
         </div>
       )}
 
@@ -1683,7 +1683,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
                   className={state.sourceKind === kind ? 'segment active' : 'segment'}
                   onClick={() => setState({ ...state, sourceKind: kind })}
                 >
-                  {kind === 'telemetry' ? 'Telemetria' : kind === 'expression' ? 'Expressão' : 'Literal'}
+                  {kind === 'telemetry' ? 'Telemetry' : kind === 'expression' ? 'Expressão' : 'Literal'}
                 </button>
               ))}
             </div>
@@ -1779,7 +1779,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
               className="primary-action"
               disabled={busy || !state.deviceId || !activePreset || !buildSource(state)}
             >
-              Salvar output
+              Save output
             </button>
           </div>
         </form>
@@ -1838,7 +1838,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
                     disabled={busy}
                     onClick={() => onDelete(route.id)}
                   >
-                    Excluir
+                    Delete
                   </button>
                 </div>
               </li>
@@ -1867,7 +1867,7 @@ function InputsPanel(props: InputsPanelProps): ReactElement {
       <p className="helper-text">
         Lê as linhas RX dos dispositivos genéricos no formato <code>B&lt;idx&gt;:&lt;0|1&gt;</code>,{' '}
         <code>E&lt;idx&gt;:±1</code> e <code>A&lt;idx&gt;:&lt;0-1023&gt;</code>. O SIM-X principal usa seu próprio caminho
-        HID e não aparece aqui.
+        HID e no aparece aqui.
       </p>
       {trackable.length === 0 && (
         <p className="empty-state">Adicione um Arduino genérico para começar a receber inputs companion.</p>
@@ -1975,7 +1975,7 @@ function FirmwarePanel({ firmware }: { firmware: ArduinoFirmwareInfo | null }): 
     )
   return (
     <article className="panel-card">
-      <span className="panel-label">Referência · não regravar pelo app</span>
+      <span className="panel-label">Referência · no regravar pelo app</span>
       <h3>{firmware.reference}</h3>
       <div className="notice-card warning">
         <strong>Detecção de versão indisponível</strong>

@@ -116,7 +116,7 @@ export interface FamilyMeterProps {
   // When true the fill itself represents a GOOD state (full charge, dry, …) and
   // the heatmap ramp may key cool; otherwise warm chrome leads.
   good?: boolean
-  // Optional status word under / beside the value (e.g. "deploy", "sem ERS").
+  // Optional status word under / beside the value (e.g. "deploy", "no ERS").
   sub?: string
   // Not-available: render a calm placeholder instead of an active meter.
   na?: boolean

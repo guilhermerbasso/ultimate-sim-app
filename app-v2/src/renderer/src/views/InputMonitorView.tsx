@@ -125,7 +125,7 @@ function InputMonitorView(_props: AppViewProps): ReactElement {
         </select>
         <p className="helper-text">
           {selectedGamepad
-            ? `${selectedGamepad.id}. Pressione um botão se o navegador ainda não detectou o HID.`
+            ? `${selectedGamepad.id}. Pressione um botão se o navegador ainda no detectou o HID.`
             : 'Conecte o SIM-X e pressione qualquer botão para o Chromium reconhecer o HID.'}
         </p>
       </div>
@@ -151,8 +151,8 @@ function InputMonitorView(_props: AppViewProps): ReactElement {
       <div className="divider" />
       <span className="panel-label">Encoders (via serial)</span>
       <p className="helper-text">
-        Encoders chegam pela serial como <code>E&lt;idx&gt;:+1</code> ou <code>E&lt;idx&gt;:-1</code> e não aparecem no HID.
-        Conecte o ButtonBox em Dispositivos para receber os eventos abaixo.
+        Encoders chegam pela serial como <code>E&lt;idx&gt;:+1</code> ou <code>E&lt;idx&gt;:-1</code> e no aparecem no HID.
+        Conecte o ButtonBox em Devices para receber os eventos abaixo.
       </p>
       <div className="status-list" aria-label="Últimos eventos de encoder">
         {encoderTraces.length === 0 ? (

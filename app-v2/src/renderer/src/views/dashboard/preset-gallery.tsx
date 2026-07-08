@@ -23,7 +23,7 @@ export interface PresetEntry {
 const THUMB_W = 248
 const THUMB_H = 140
 
-// Cor do wireframe por "familia" de elemento.
+// Color do wireframe por "familia" de elemento.
 function elementColor(type: DashboardElementType): string {
   if (type === 'shiftbar' || type === 'shiftlights') return '#FFB000'
   if (type === 'gearcluster') return ACCENT

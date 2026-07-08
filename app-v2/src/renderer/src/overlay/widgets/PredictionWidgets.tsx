@@ -251,22 +251,22 @@ function PredictionMeter({ config, label, view }: { config: WidgetProps['config'
 
 export function CatchAheadWidget({ config }: WidgetProps): ReactElement {
   const snapshot = usePredictionsSnapshot()
-  return <PredictionMeter config={config} label="Alcançar" view={catchAheadView(snapshot?.catchAhead)} />
+  return <PredictionMeter config={config} label="Catch" view={catchAheadView(snapshot?.catchAhead)} />
 }
 
 export function CaughtBehindWidget({ config }: WidgetProps): ReactElement {
   const snapshot = usePredictionsSnapshot()
-  return <PredictionMeter config={config} label="Ameaça atrás" view={caughtBehindView(snapshot?.caughtBehind)} />
+  return <PredictionMeter config={config} label="Threat behind" view={caughtBehindView(snapshot?.caughtBehind)} />
 }
 
 export function FuelMarginWidget({ config }: WidgetProps): ReactElement {
   const snapshot = usePredictionsSnapshot()
-  return <PredictionMeter config={config} label="Fuel até o fim" view={fuelView(snapshot)} />
+  return <PredictionMeter config={config} label="Fuel to finish" view={fuelView(snapshot)} />
 }
 
 export function TireWearPredWidget({ config }: WidgetProps): ReactElement {
   const snapshot = usePredictionsSnapshot()
-  return <PredictionMeter config={config} label="Pneu desgaste" view={tireView(snapshot)} />
+  return <PredictionMeter config={config} label="Tire wear" view={tireView(snapshot)} />
 }
 
 export function PaceProjectedWidget({ config }: WidgetProps): ReactElement {

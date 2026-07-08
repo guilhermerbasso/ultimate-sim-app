@@ -16,7 +16,7 @@ import { WidgetGallery, variantToElement } from '../dashboard/widget-catalog'
 import type { WidgetVariant } from '../dashboard/widget-catalog'
 import '../../dashboard/dashboard-runtime.css'
 
-// "Criar novo overlay" builder — assembles a RICH custom overlay (a free-form
+// "Create new overlay" builder — assembles a RICH custom overlay (a free-form
 // canvas of dashboard widgets + images) reusing the SAME widget palette
 // (WidgetGallery) and the SAME element renderer (renderDashboardElement) the
 // dashboards use, plus an equivalent granular styling inspector (per-slot fonts,
@@ -61,7 +61,7 @@ const UNIT_OPTIONS = [
 const IMAGE_FILTER_PRESETS: Array<{ id: string; label: string; patch: Partial<DashboardElementStyle> }> = [
   { id: 'original', label: 'Original', patch: { filterGrayscale: undefined, filterSepia: undefined, redTint: undefined, brightness: undefined, contrast: undefined, saturate: undefined, hueRotate: undefined, invert: undefined, blur: undefined } },
   { id: 'bw', label: 'P&B', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: undefined, brightness: undefined, contrast: 1.05, saturate: undefined, hueRotate: undefined, invert: undefined } },
-  { id: 'red', label: 'Vermelho', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: 1, brightness: 0.95, contrast: 1.1, saturate: undefined, hueRotate: undefined, invert: undefined } },
+  { id: 'red', label: 'Red', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: 1, brightness: 0.95, contrast: 1.1, saturate: undefined, hueRotate: undefined, invert: undefined } },
   { id: 'sepia', label: 'Sepia', patch: { filterGrayscale: undefined, filterSepia: 1, redTint: undefined, brightness: 1.02, contrast: undefined, saturate: undefined, hueRotate: undefined, invert: undefined } }
 ]
 
@@ -445,7 +445,7 @@ function SlotEditor({ element, slots, onChangeStyle }: { element: DashboardEleme
       <div className="designer-grid-2">
         <SelectField label="Font" value={String(cur.fontFamily ?? '')} options={FONT_OPTIONS} onChange={(v) => set('fontFamily', v || undefined)} />
         <NumberField label="Tamanho (0=auto)" value={Number(cur.fontSize ?? 0)} onChange={(v) => set('fontSize', v > 0 ? Math.round(v) : undefined)} min={0} max={400} />
-        <ColorField label="Cor" value={String(cur.fontColor ?? '')} onChange={(v) => set('fontColor', v || undefined)} />
+        <ColorField label="Color" value={String(cur.fontColor ?? '')} onChange={(v) => set('fontColor', v || undefined)} />
         <SelectField label="Peso" value={String(cur.fontWeight ?? '')} options={WEIGHT_OPTIONS} onChange={(v) => set('fontWeight', v ? Number(v) : undefined)} />
         <SelectField label="Alinhamento" value={String(cur.align ?? '')} options={ALIGN_OPTIONS} onChange={(v) => set('align', v || undefined)} />
         <NumberField label="Spacing (px)" value={Number(cur.letterSpacing ?? 0)} onChange={(v) => set('letterSpacing', Number.isFinite(v) && v !== 0 ? v : undefined)} min={-5} max={30} step={0.5} />
@@ -504,8 +504,8 @@ function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle
 
       {(isText || slots.length === 0) && !isImage && !isFlag && (
         <div className="overlay-builder-section">
-          <div className="overlay-builder-section-title">Texto</div>
-          {isText && <TextField label="Texto (sem binding)" value={s.text ?? ''} onChange={(v) => onChangeStyle({ text: v })} />}
+          <div className="overlay-builder-section-title">Text</div>
+          {isText && <TextField label="Text (sem binding)" value={s.text ?? ''} onChange={(v) => onChangeStyle({ text: v })} />}
           <div className="designer-grid-2">
             <SelectField label="Font" value={String(s.fontFamily ?? '')} options={FONT_OPTIONS} onChange={(v) => onChangeStyle({ fontFamily: v || undefined })} />
             <NumberField label="Font (px)" value={Number(s.fontSize ?? 18)} onChange={(v) => onChangeStyle({ fontSize: v })} min={8} max={400} />
@@ -521,7 +521,7 @@ function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle
 
       {isBarLike && (
         <div className="overlay-builder-section">
-          <div className="overlay-builder-section-title">Barras / medidores</div>
+          <div className="overlay-builder-section-title">Bars / medidores</div>
           <div className="designer-grid-2">
             <ColorField label="Preenchimento" value={s.fillColor ?? 'var(--accent-primary)'} onChange={(v) => onChangeStyle({ fillColor: v })} />
             <ColorField label="Aviso" value={s.warnColor ?? '#ffb84d'} onChange={(v) => onChangeStyle({ warnColor: v })} />
@@ -575,7 +575,7 @@ function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle
 
       {isImage && (
         <div className="overlay-builder-section">
-          <div className="overlay-builder-section-title">Imagem</div>
+          <div className="overlay-builder-section-title">Image</div>
           <button className="primary-action" onClick={() => fileInputRef.current?.click()}>Escolher imagem…</button>
           <input
             ref={fileInputRef}
@@ -603,7 +603,7 @@ function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle
           </div>
           <div className="designer-grid-2">
             <SliderField label="P&B" value={s.filterGrayscale ?? 0} onChange={(v) => onChangeStyle({ filterGrayscale: v || undefined })} min={0} max={1} step={0.05} />
-            <SliderField label="Vermelho" value={s.redTint ?? 0} onChange={(v) => onChangeStyle({ redTint: v || undefined })} min={0} max={1} step={0.05} />
+            <SliderField label="Red" value={s.redTint ?? 0} onChange={(v) => onChangeStyle({ redTint: v || undefined })} min={0} max={1} step={0.05} />
             <SliderField label="Sepia" value={s.filterSepia ?? 0} onChange={(v) => onChangeStyle({ filterSepia: v || undefined })} min={0} max={1} step={0.05} />
             <SliderField label="Inverter" value={s.invert ?? 0} onChange={(v) => onChangeStyle({ invert: v || undefined })} min={0} max={1} step={0.05} />
             <SliderField label="Brilho" value={s.brightness ?? 1} onChange={(v) => onChangeStyle({ brightness: v === 1 ? undefined : v })} min={0} max={2} step={0.05} />
@@ -685,7 +685,7 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
         y: Math.min(40 + (n % 6) * 24, Math.max(0, ch - 135)),
         w: 240,
         h: 135,
-        name: 'Imagem',
+        name: 'Image',
         style: { fit: 'contain', opacity: 1 }
       }
       setSelectedId(el.id)
@@ -755,8 +755,8 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
     <div className="overlay-designer-backdrop" role="dialog" aria-modal="true">
       <div className="overlay-designer overlay-builder">
         <div className="overlay-designer-head">
-          <h4>{editing ? 'Editar overlay de widgets' : 'Criar novo overlay (widgets do dashboard)'}</h4>
-          <button className="ghost-action" disabled={busy} onClick={onCancel}>Fechar</button>
+          <h4>{editing ? 'Editar overlay de widgets' : 'Create new overlay (widgets do dashboard)'}</h4>
+          <button className="ghost-action" disabled={busy} onClick={onCancel}>Close</button>
         </div>
 
         <div className="overlay-builder-grid">
@@ -789,7 +789,7 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
               Opacidade · {def.opacity}%
               <input type="range" min={0} max={100} value={def.opacity} onChange={(e) => patchDef({ opacity: Number(e.target.value) })} />
             </label>
-            <button className="ghost-action" onClick={addImage}>+ Imagem</button>
+            <button className="ghost-action" onClick={addImage}>+ Image</button>
             <div className="overlay-builder-gallery">
               <WidgetGallery onAdd={addVariant} busy={busy} />
             </div>
@@ -807,7 +807,7 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
               />
             </div>
             <p className="overlay-help">
-              {widgets.length} widget(s) · arraste para mover, puxe os cantos para redimensionar. Pre-visualizacao com telemetria simulada.
+              {widgets.length} widget(s) · arraste para mover, puxe os cantos para redimensionar. Pre-visualizacao com telemetria yesulada.
             </p>
           </section>
 

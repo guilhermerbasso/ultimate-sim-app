@@ -48,7 +48,7 @@ describe('RelativeWidget instruments', () => {
     expect(markup).toContain('DSEG7')
     expect(markup).toContain('VERSTAPPEN')
     expect(markup).toContain('+1.200')
-    expect(markup).toContain('VOCÊ')
+    expect(markup).toContain('YOU')
   })
 
   it('renders empty/null/extreme inputs as clean dash states for every family', () => {

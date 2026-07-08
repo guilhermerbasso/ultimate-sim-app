@@ -72,7 +72,7 @@ export function FuelWidget({ snapshot, config }: WidgetProps): ReactElement {
         opacity={glass ? skin.material.panelAlpha ?? 1 : 1}
       />
 
-      <FitText x={pad} y={19} boxW={W * 0.6} boxH={16} text="COMBUSTÍVEL" anchor="start" fontFamily={skin.typography.label} fill={skin.palette.textDim} minFontPx={11} maxFontPx={16} letterSpacing={1} />
+      <FitText x={pad} y={19} boxW={W * 0.6} boxH={16} text="FUEL" anchor="start" fontFamily={skin.typography.label} fill={skin.palette.textDim} minFontPx={11} maxFontPx={16} letterSpacing={1} />
       <FitText x={W - pad} y={19} boxW={W * 0.3} boxH={16} text={pctTok} anchor="end" fontFamily={skin.segment.numeric} fill={toneHex} minFontPx={11} maxFontPx={16} />
 
       <DataField x={pad} y={heroY} width={W - pad * 2} height={heroH} label="FUEL" value={fuelStr} unit="L" state={toneState} skin={skin} />
@@ -83,7 +83,7 @@ export function FuelWidget({ snapshot, config }: WidgetProps): ReactElement {
         width={W - pad * 2}
         height={barH}
         fraction={level}
-        label="NÍVEL"
+        label="LEVEL"
         valueText={pctTok}
         orientation="h"
         invert

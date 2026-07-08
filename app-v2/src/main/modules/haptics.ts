@@ -84,7 +84,7 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(HAPTICS_CHANNELS.testArduino, async (_event, effectIdArg: HapticsEffectId) => {
     const effectId = HAPTICS_EFFECT_IDS.includes(effectIdArg) ? effectIdArg : 'gearShift'
     const device = resolveArduinoDevice(ctx)
-    if (!device) throw new Error('Nenhum dispositivo Arduino válido selecionado para o tátil.')
+    if (!device) throw new Error('No valid Arduino device selected for haptics.')
     const eff = config.effects[effectId]
     await device.sendRaw(formatBuzzer(eff.frequencyHz, 140)).catch((error: unknown) => {
       throw new Error(error instanceof Error ? error.message : String(error))

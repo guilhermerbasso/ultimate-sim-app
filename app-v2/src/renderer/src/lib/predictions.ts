@@ -91,7 +91,7 @@ export function clamp01(v: number): number {
 }
 
 /** A short seconds readout: 8.4 / 12.7 / 99+ (never a raw NaN). */
-export function fmtSeconds(sec: number | null | undefined): string {
+export function fmtDrynds(sec: number | null | undefined): string {
   if (!isNum(sec)) return DASH
   const v = Math.abs(sec)
   if (v >= 100) return '99+'
@@ -175,9 +175,9 @@ export function catchAheadView(catch_?: CatchEstimate): PredView {
   const closing = isNum(catch_.closingSecPerLap) ? `${catch_.closingSecPerLap.toFixed(2)}s/v` : DASH
   return {
     has: true,
-    value: fmtSeconds(catch_.etaSec),
+    value: fmtDrynds(catch_.etaSec),
     unit: 's',
-    sub: `${fmtLaps(catch_.etaLaps)} voltas · fecha ${closing}`,
+    sub: `${fmtLaps(catch_.etaLaps)} laps · fecha ${closing}`,
     fill,
     tone: 'good',
     good: true
@@ -197,20 +197,20 @@ export function caughtBehindView(catch_?: CatchEstimate): PredView {
   const closing = isNum(catch_.closingSecPerLap) ? `${catch_.closingSecPerLap.toFixed(2)}s/v` : DASH
   return {
     has: true,
-    value: fmtSeconds(catch_.etaSec),
+    value: fmtDrynds(catch_.etaSec),
     unit: 's',
-    sub: `${fmtLaps(catch_.etaLaps)} voltas · fecha ${closing}`,
+    sub: `${fmtLaps(catch_.etaLaps)} laps · fecha ${closing}`,
     fill,
     tone,
     good: false
   }
 }
 
-/** "Combustível até o fim" — finish margin in laps/L. Red when negative. */
+/** "Fuel até o fim" — finish margin in laps/L. Red when negative. */
 export function fuelView(snapshot: PredictionsSnapshot | null): PredView {
   const fuel = snapshot?.fuel
   if (!fuel) {
-    return { has: false, value: DASH, unit: 'v', sub: 'sem dados de consumo', fill: 0, tone: 'neutral', good: false }
+    return { has: false, value: DASH, unit: 'v', sub: 'no consumption data', fill: 0, tone: 'neutral', good: false }
   }
   const left = isNum(fuel.lapsLeftAtPace) ? `${fuel.lapsLeftAtPace.toFixed(1)}v no tanque` : ''
   // Unknown race distance ⇒ margin is undefined. Show the tank laps (when known)
@@ -221,7 +221,7 @@ export function fuelView(snapshot: PredictionsSnapshot | null): PredView {
       has: isNum(fuel.lapsLeftAtPace),
       value: DASH,
       unit: 'v',
-      sub: left || 'sem dados de consumo',
+      sub: left || 'no consumption data',
       fill: 0,
       tone: 'neutral',
       good: false
@@ -243,11 +243,11 @@ export function fuelView(snapshot: PredictionsSnapshot | null): PredView {
   }
 }
 
-/** "Pneu: desgaste/penhasco" — deg s/lap + laps-to-cliff + pressure/temp state. */
+/** "Tire: desgaste/penhasco" — deg s/lap + laps-to-cliff + pressure/temp state. */
 export function tireView(snapshot: PredictionsSnapshot | null): PredView {
   const tire = snapshot?.tire
   if (!tire || !isNum(tire.degSecPerLap)) {
-    return { has: false, value: DASH, unit: 's/v', sub: 'sem dados de pneu', fill: 0, tone: 'neutral', good: false }
+    return { has: false, value: DASH, unit: 's/v', sub: 'no tire data', fill: 0, tone: 'neutral', good: false }
   }
   const cliff = tire.lapsToCliff
   const pressOff = tire.pressureState !== 'ok'
@@ -274,7 +274,7 @@ export function tireView(snapshot: PredictionsSnapshot | null): PredView {
 export function paceView(snapshot: PredictionsSnapshot | null): PredView {
   const pace = snapshot?.pace
   if (!pace || !isNum(pace.projectedLapSec)) {
-    return { has: false, value: DASH, sub: 'sem pace projetado', fill: 0, tone: 'neutral', good: false }
+    return { has: false, value: DASH, sub: 'no projected pace', fill: 0, tone: 'neutral', good: false }
   }
   const conf = isNum(pace.confidence) ? clamp01(pace.confidence) : 0
   // Confidence drives the bar; only a high-confidence projection keys cool/green.

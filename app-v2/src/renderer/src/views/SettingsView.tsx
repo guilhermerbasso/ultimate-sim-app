@@ -30,8 +30,8 @@ const SOURCE_LABELS: Record<AppTelemetrySource, string> = {
   auto: 'Auto-detect',
   mock: 'Demo (mock)',
   iracing: 'iRacing',
-  acc: 'Assetto Corsa Competizione',
-  ac: 'Assetto Corsa',
+  acc: 'Assetto Colorsa Competizione',
+  ac: 'Assetto Colorsa',
   ams2: 'Automobilista 2',
   lmu: 'Le Mans Ultimate'
 }

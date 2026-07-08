@@ -24,7 +24,7 @@ export const CONFIG_IO_CHANNELS = {
   importSection: 'config:importSection',
   /**
    * Renderer → Main: list every allowlisted section's saved-state metadata
-   * (exists, size, last-modified, item count). Used by the "Configurações
+   * (exists, size, last-modified, item count). Used by the "Settings
    * salvas" panel so the user can SEE what survived a reinstall.
    */
   listSaved: 'config:listSaved',
@@ -41,7 +41,7 @@ export const CONFIG_IO_CHANNELS = {
   imported: 'config:imported',
   /**
    * Main → Renderer: broadcast emitted after a section is deleted/reset, so any
-   * open "Configurações salvas" panel re-reads the on-disk metadata.
+   * open "Settings salvas" panel re-reads the on-disk metadata.
    */
   changed: 'config:changed',
   /**
@@ -102,29 +102,29 @@ export interface ConfigSectionDescriptor {
 // The complete set of EXPORTABLE config stores discovered under userData. Auth
 // stores are intentionally absent (see SECURITY MODEL above).
 export const CONFIG_SECTIONS: readonly ConfigSectionDescriptor[] = [
-  { id: 'settings', label: 'Configurações do app & tema', kind: 'file', path: 'settings.json' },
+  { id: 'settings', label: 'Settings do app & tema', kind: 'file', path: 'settings.json' },
   { id: 'dashboards', label: 'Dashboards', kind: 'dir', path: 'dashboards' },
   { id: 'overlays', label: 'Overlays (inclui customizados)', kind: 'file', path: 'overlays.json' },
-  { id: 'overlay-layout', label: 'Layout/composição de overlays', kind: 'file', path: 'compositor.json' },
+  { id: 'overlay-layout', label: 'Layout/composition de overlays', kind: 'file', path: 'compositor.json' },
   { id: 'oled', label: 'OLED dashboard', kind: 'file', path: 'oled-dashboard.json' },
   { id: 'revlights', label: 'Rev lights', kind: 'file', path: 'revlights.json' },
   { id: 'rgb-matrix', label: 'RGB matrix (iFlag)', kind: 'file', path: 'rgb-matrix-profiles.json' },
   { id: 'devices', label: 'Perfis de dispositivos (ButtonBox/controles)', kind: 'file', path: 'arduino-devices.json' },
-  { id: 'serial-devices', label: 'Dispositivos seriais', kind: 'file', path: 'serial-devices.json' },
+  { id: 'serial-devices', label: 'Devices seriais', kind: 'file', path: 'serial-devices.json' },
   { id: 'pinout-designs', label: 'Pinouts de firmware', kind: 'file', path: 'pinout-designs.json' },
-  { id: 'custom-catalog', label: 'Catálogo de placas custom', kind: 'file', path: 'custom-catalog.json' },
-  { id: 'simx-identity', label: 'Identidade do SIM-X primário', kind: 'file', path: 'simx-primary-identity.json' },
-  { id: 'actions', label: 'Ações & mapeamentos de teclado', kind: 'file', path: 'actions-bindings.json' },
-  { id: 'expressions', label: 'Expressões', kind: 'file', path: 'expressions.json' },
-  { id: 'output-routes', label: 'Roteamento de saídas', kind: 'file', path: 'output-routes.json' },
+  { id: 'custom-catalog', label: 'Custom board catalog', kind: 'file', path: 'custom-catalog.json' },
+  { id: 'simx-identity', label: 'Primary SIM-X identity', kind: 'file', path: 'simx-primary-identity.json' },
+  { id: 'actions', label: 'Actions & keyboard mappings', kind: 'file', path: 'actions-bindings.json' },
+  { id: 'expressions', label: 'Expressions', kind: 'file', path: 'expressions.json' },
+  { id: 'output-routes', label: 'Output routing', kind: 'file', path: 'output-routes.json' },
   { id: 'alerts', label: 'Alertas', kind: 'file', path: 'alerts-config.json' },
   { id: 'setups', label: 'Setups (biblioteca)', kind: 'file', path: 'setups.json' },
   { id: 'setup-manager', label: 'Gerenciador de setups', kind: 'file', path: 'setup-manager.json' },
-  { id: 'race-profiles', label: 'Perfis de corrida', kind: 'file', path: 'race-profiles.json' },
+  { id: 'race-profiles', label: 'Race profiles', kind: 'file', path: 'race-profiles.json' },
   { id: 'soundshift', label: 'SoundShift', kind: 'file', path: 'soundshift.json' },
   { id: 'spotter', label: 'Spotter / vozes / TTS', kind: 'file', path: 'spotter.json' },
   { id: 'haptics', label: 'Haptics', kind: 'file', path: 'haptics.json' },
-  { id: 'driver-notes', label: 'Anotações do piloto', kind: 'file', path: 'driver-notes.json' },
+  { id: 'driver-notes', label: 'Driver notes', kind: 'file', path: 'driver-notes.json' },
   { id: 'legacy-profiles', label: 'Perfis de mapeamento (legado)', kind: 'dir', path: 'profiles' }
 ] as const
 
@@ -211,7 +211,7 @@ export interface ConfigImportResult {
 // ─── Saved-state inspection / deletion shapes ──────────────────────────────────
 
 // Per-section snapshot of what is persisted under userData. Surfaced by the
-// "Configurações salvas" panel so the user can see exactly what survived a
+// "Settings salvas" panel so the user can see exactly what survived a
 // reinstall and delete it. Only allowlisted (non-secret) sections are ever
 // reported — auth/credential stores are never listed.
 export interface SavedSectionInfo {
@@ -233,7 +233,7 @@ export interface SavedSectionInfo {
   /**
    * true when this section's metadata could NOT be read (permission denied, file
    * lock, etc.). The section is still listed (exists:false) so ONE unreadable
-   * store never blanks the whole "Configurações salvas" panel.
+   * store never blanks the whole "Settings salvas" panel.
    */
   error?: boolean
 }

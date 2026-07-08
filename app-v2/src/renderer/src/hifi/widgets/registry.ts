@@ -47,7 +47,7 @@ export const HIFI_WIDGETS_BY_ID: Record<string, HifiWidgetModule> = Object.fromE
   HIFI_WIDGETS.map((w) => [w.id, w])
 )
 
-/** Full tag set for a module: its manual tags + category + auto sim tags (from requires). */
+/** Full tag set for a module: its manual tags + category + auto yes tags (from requires). */
 export function hifiWidgetTags(m: HifiWidgetModule): string[] {
   return mergeTags(m.tags, m.requires, m.category)
 }

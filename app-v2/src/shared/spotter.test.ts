@@ -86,10 +86,10 @@ describe('decideProximity (authoritative side + edge detection)', () => {
 
 describe('buildPhrase Portuguese default', () => {
   it('defaults to pt-BR when no language is passed', () => {
-    expect(buildPhrase('proximity.spotter', undefined, { side: 'left' })).toBe('Carro à esquerda')
-    expect(buildPhrase('proximity.spotter', undefined, { side: 'right' })).toBe('Carro à direita')
-    expect(buildPhrase('proximity.spotter', undefined, { side: 'three-wide' })).toBe('Três largos, cuidado')
-    expect(buildPhrase('flag.green')).toBe('Verde, verde, bandeira verde')
+    expect(buildPhrase('proximity.spotter', undefined, { side: 'left' })).toBe('Car on your left')
+    expect(buildPhrase('proximity.spotter', undefined, { side: 'right' })).toBe('Car on your right')
+    expect(buildPhrase('proximity.spotter', undefined, { side: 'three-wide' })).toBe('Three wide, careful')
+    expect(buildPhrase('flag.green')).toBe('Green, green, green flag')
   })
 
   it('still produces English when explicitly requested', () => {

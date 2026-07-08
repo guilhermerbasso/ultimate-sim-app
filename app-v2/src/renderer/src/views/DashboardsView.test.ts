@@ -31,7 +31,7 @@ describe('resolvePlaylistRowLabel', () => {
     })
   })
 
-  it('resolves a touch-panel row against the touch-panel summaries (not "Dashboard não encontrado")', () => {
+  it('resolves a touch-panel row against the touch-panel summaries (not "Dashboard no encontrado")', () => {
     const item = buttonPanelPlaylistItem('p1')
     const label = resolvePlaylistRowLabel(item, dashboards, panels)
     expect(label.kind).toBe('touch-panel')

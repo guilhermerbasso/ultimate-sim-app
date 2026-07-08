@@ -277,7 +277,7 @@ class CommunitySourceStore {
   }
 
   async remove(id: unknown): Promise<CommunitySource[]> {
-    if (typeof id !== 'string') throw new Error('id inválido')
+    if (typeof id !== 'string') throw new Error('invalid id')
     const sources = await this.list()
     const next = sources.filter((source) => source.id !== id)
     await this.save(next)
@@ -315,7 +315,7 @@ function safeSourceUrl(value: unknown): string {
     url.hash = ''
     return url.toString()
   } catch {
-    throw new Error('URL de fonte inválida ou sem HTTPS.')
+    throw new Error('Invalid source URL or missing HTTPS.')
   }
 }
 
@@ -335,7 +335,7 @@ function sanitizeSource(input: unknown, allowGeneratedId = false): CommunitySour
   const url = safeSourceUrl(value.url)
   if (!sim || !kind || !name) throw new Error('Fonte de comunidade incompleta.')
   const id = sourceIdFrom(safeText(value.id, 90)) || (allowGeneratedId ? sourceIdFrom(`${sim}-${kind}-${name}`) : '')
-  if (!id) throw new Error('id de fonte inválido.')
+  if (!id) throw new Error('Invalid source id.')
   return {
     id,
     sim,
@@ -602,7 +602,7 @@ export function register(ctx: ModuleContext): void {
   }
 
   const writePack = async (pack: SharePack, defaultName: string): Promise<CommunityExportResult> => {
-    const result = await showSave({ title: 'Exportar para arquivo .simshare', defaultPath: defaultName, filters: SIMSHARE_FILTER })
+    const result = await showSave({ title: 'Export to .simshare file', defaultPath: defaultName, filters: SIMSHARE_FILTER })
     if (result.canceled || !result.filePath) return { canceled: true }
     await writeFile(result.filePath, `${serializeSharePack(pack)}\n`, 'utf8')
     return { canceled: false, filePath: result.filePath, id: pack.id, kind: pack.kind }
@@ -617,7 +617,7 @@ export function register(ctx: ModuleContext): void {
     COMMUNITY_CHANNELS.exportGhost,
     async (_event, opts?: CommunityExportOptions): Promise<CommunityExportResult> => {
       const lap = capture.getLastGhost()
-      if (!lap) throw new Error('Nenhuma volta completa capturada ainda. Complete uma volta limpa e tente de novo.')
+      if (!lap) throw new Error('No complete lap captured yet. Complete a clean lap and try again.')
       const pack = ghostPackFrom(lap, appVersion, opts)
       return writePack(pack, defaultExportName('ghost', lap))
     }
@@ -651,11 +651,11 @@ export function register(ctx: ModuleContext): void {
   )
 
   ctx.ipcMain.handle(COMMUNITY_CHANNELS.import, async (): Promise<CommunityImportResult> => {
-    const picked = await showOpen({ title: 'Importar arquivo .simshare', properties: ['openFile'], filters: SIMSHARE_FILTER })
+    const picked = await showOpen({ title: 'Import .simshare file', properties: ['openFile'], filters: SIMSHARE_FILTER })
     if (picked.canceled || picked.filePaths.length === 0) return { canceled: true }
     // Reject an absurdly large (untrusted) file before reading it into memory.
     const info = await stat(picked.filePaths[0])
-    if (info.size > MAX_IMPORT_BYTES) throw new Error('Arquivo .simshare muito grande (máx. 32 MB).')
+    if (info.size > MAX_IMPORT_BYTES) throw new Error('.simshare file is too large (max 32 MB).')
     const raw = await readFile(picked.filePaths[0], 'utf8')
     const pack = parseSharePack(raw) // throws on wrong magic/version/structure
     const summary = await backend.save(pack)
@@ -670,12 +670,12 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(COMMUNITY_SOURCE_CHANNELS.reset, (): Promise<CommunitySource[]> => sourceStore.reset())
 
   ctx.ipcMain.handle(COMMUNITY_CHANNELS.get, (_event, id: string): Promise<SharePack | null> => {
-    if (typeof id !== 'string') throw new Error('id inválido')
+    if (typeof id !== 'string') throw new Error('invalid id')
     return backend.get(id)
   })
 
   ctx.ipcMain.handle(COMMUNITY_CHANNELS.delete, async (_event, id: string): Promise<boolean> => {
-    if (typeof id !== 'string') throw new Error('id inválido')
+    if (typeof id !== 'string') throw new Error('invalid id')
     const removed = await backend.remove(id)
     if (removed) ctx.broadcast(COMMUNITY_CHANNELS.changed, { action: 'delete', id })
     return removed
@@ -686,9 +686,9 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(
     COMMUNITY_CHANNELS.compareTo,
     async (_event, targetId: string, baselineId?: string): Promise<GhostCompareReport> => {
-      if (typeof targetId !== 'string') throw new Error('id do ghost inválido')
+      if (typeof targetId !== 'string') throw new Error('invalid ghost id')
       const target = await backend.get(targetId)
-      if (!target?.ghost) throw new Error('Ghost importado não encontrado (ou não é um ghost).')
+      if (!target?.ghost) throw new Error('Imported ghost not found (or it is not a ghost).')
 
       let baselineGhost = target.ghost // placeholder, replaced below
       let baselineSource: 'live' | 'imported'
@@ -696,16 +696,16 @@ export function register(ctx: ModuleContext): void {
 
       if (typeof baselineId === 'string' && baselineId.length > 0) {
         const baseline = await backend.get(baselineId)
-        if (!baseline?.ghost) throw new Error('Ghost de comparação não encontrado.')
+        if (!baseline?.ghost) throw new Error('Comparison ghost not found.')
         baselineGhost = baseline.ghost
         baselineSource = 'imported'
         baselineLabel = ghostLabel(summarizeSharePack(baseline))
       } else {
         const lap = capture.getLastGhost()
-        if (!lap) throw new Error('Nenhuma volta sua capturada ainda. Complete uma volta para comparar.')
+        if (!lap) throw new Error('No lap of yours captured yet. Complete a lap to compare.')
         baselineGhost = buildGhostLap(lap.samples, { lapTimeSec: lap.lapTimeSec })
         baselineSource = 'live'
-        baselineLabel = `Sua volta${lap.lapTimeSec ? ` · ${formatLapTime(lap.lapTimeSec)}` : ''}`
+        baselineLabel = `Your lap${lap.lapTimeSec ? ` · ${formatLapTime(lap.lapTimeSec)}` : ''}`
       }
 
       return {

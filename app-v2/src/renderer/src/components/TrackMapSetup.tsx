@@ -13,40 +13,40 @@ import { useTrackMapStatus } from '../lib/track-map'
 import type { ResolvedLanguage } from '../i18n'
 
 const statusLabels: Record<TrackMapStatus['auth'], string> = {
-  unconfigured: 'Nao configured',
-  ready: 'Conectado',
+  unconfigured: 'Not configured',
+  ready: 'Connected',
   authenticating: 'Connecting',
-  'mfa-required': 'Codigo de check necessario',
-  'needs-login': 'Necessario entrar novamente',
-  'rate-limited': 'Limite de tentactive atingido',
-  error: 'Erro',
+  'mfa-required': 'Verification code required',
+  'needs-login': 'Sign-in required',
+  'rate-limited': 'Retry limit reached',
+  error: 'Error',
   disabled: 'Secure storage unavailable'
 }
 
 const LOGIN_OK_MESSAGE = 'iRacing connected. Track maps will update for the current track.'
 const BROWSER_LOGIN_OK_MESSAGE =
-  'Voce voltou ao app. A telemetria continua funcionando; a Data API foi testada em segundo plano.'
+  'You returned to the app. Telemetry keeps working; the Data API was tested in the background.'
 const BROWSER_LOGIN_OPENING_MESSAGE =
   'Opening the iRacing login window. Complete email, password, CAPTCHA, and 2FA in that window. ' +
-  'O mapa offline continua funcionando sem login.'
+  'The offline map keeps working without signing in.'
 
 function loginMethodLabel(method: TrackMapStatus['loginMethod']): string {
   if (method === 'oauth') return 'OAuth2 + PKCE'
-  if (method === 'browser') return 'Navegador (session capturada)'
-  if (method === 'password') return 'E-mail e senha (legado)'
+  if (method === 'browser') return 'Browser (captured session)'
+  if (method === 'password') return 'Email and password (legacy)'
   return ''
 }
 
 // Human-readable, PT-BR summary of the embedded-login capture diagnostics so a
 // failed capture is never a silent "nada acontece".
 function diagnosticText(d: TrackMapLoginDiagnostics): string {
-  const cookie = d.authCookieSeen ? 'cookie de session detectado' : 'no cookie de session detectado'
+  const cookie = d.authCookieSeen ? 'session cookie detected' : 'no session cookie detected'
   const verdictLabel =
     d.probeVerdict === 'authed'
-      ? 'check: autenticado'
+      ? 'check: authenticated'
       : d.probeVerdict === 'unauthed'
-        ? 'check: not autenticado'
-        : 'check: inconclusiva'
+        ? 'check: not authenticated'
+        : 'check: inconclusive'
   return `Diagnostics: ${cookie}  ${verdictLabel}  ${d.cookieCount} cookie(s) in the session.`
 }
 
@@ -70,7 +70,7 @@ function learnStatusDisplay(learn: TrackMapStatus['learn']): { text: string; ton
     return { text: learn.reasonLabel || 'Drive to the start/finish line to start recording', tone: 'recording' }
   }
   // Idle: a learned map already exists, or we show the reason it's stalled.
-  if (learn.hasMap) return { text: 'Mapa aprendido para esta pista', tone: 'ok' }
+  if (learn.hasMap) return { text: 'Map learned for this track', tone: 'ok' }
   return { text: learn.reasonLabel || 'Waiting for telemetry', tone: 'warn' }
 }
 
@@ -142,7 +142,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
     try {
       const result = await window.ipc.invoke<TrackMapBrowserLoginResult>(TRACK_MAP_CHANNELS.oauthLogin)
       if (result.status === 'ok') {
-        setMessage('OAuth conectado. A Data API usara Bearer token e refresh-token rotativo.')
+        setMessage('OAuth connected. The Data API will use ****** and rotating refresh tokens.')
       } else {
         setError(result.message ?? 'OAuth canceled.')
         setMessage(null)
@@ -163,7 +163,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
     try {
       const result = await window.ipc.invoke<TrackMapDataApiDiagnostic>(TRACK_MAP_CHANNELS.testDataApi)
       setDataApiDiagnostic(result)
-      setMessage(`Teste Data API: HTTP ${result.status} usando ${result.authMode}.`)
+      setMessage(`Data API test: HTTP ${result.status} using ${result.authMode}.`)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -280,7 +280,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
       setPassword('')
       setMfaPending(false)
       setMfaCode('')
-      setMessage('Login do iRacing removido. Os mapas offline (telemetria) continuam disponiveis.')
+      setMessage('iRacing login removed. Offline maps (telemetry) remain available.')
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -306,7 +306,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
     setError(null)
     try {
       await window.ipc.invoke<TrackMapStatus>(TRACK_MAP_CHANNELS.cancelLearning)
-      setMessage('Gravacao do mapa cancelada.')
+      setMessage('Map recording canceled.')
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -317,8 +317,8 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
     <section style={styles.card} aria-label="iRacing track map setup">
       <div style={styles.header}>
         <div>
-          <p style={styles.eyebrow}>Font do mapa de pista</p>
-          <h3 style={styles.title}>Telemetria funciona sem login</h3>
+          <p style={styles.eyebrow}>Track map source</p>
+          <h3 style={styles.title}>Telemetry works without signing in</h3>
         </div>
         <span style={{ ...styles.badge, ...(connected ? styles.badgeReady : styles.badgeWarn) }}>
           {statusLabels[auth]}
@@ -326,8 +326,8 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
       </div>
 
       <p style={styles.copy}>
-        Mapa, radar, relatives, dashboards e overlays vem do iRacing SDK local e funcionam sem login web.
-        Login e somente para extras da <strong>Data API</strong> (estatisticas, resultados, seriess e metadata).
+        Map, radar, relatives, dashboards, and overlays come from the local iRacing SDK and work without web sign-in.
+        Sign-in is only for <strong>Data API</strong> extras (statistics, results, series, and metadata).
       </p>
 
       {(() => {
@@ -342,14 +342,14 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
               ? styles.learnBadgeRec
               : styles.learnBadgeWarn
         return (
-          <div style={styles.learnPanel} aria-label="Aprendizado do mapa por telemetria">
+          <div style={styles.learnPanel} aria-label="Telemetry map learning">
             <div style={styles.learnHeader}>
-              <p style={styles.altTitle}>Aprendizado do mapa (telemetria)</p>
+              <p style={styles.altTitle}>Map learning (telemetry)</p>
               <span style={{ ...styles.learnBadge, ...toneStyle }}>{display.text}</span>
             </div>
             <p style={styles.hint}>
               The map is drawn by recording car position over a clean lap, like SimHub, with no login.
-              Se not estiver aprendendo, o motivo aparece acima.
+              If it is not learning, the reason appears above.
             </p>
             {learn?.phase === 'recording' && (
               <div style={styles.progressTrack} aria-hidden>
@@ -367,7 +367,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
               </button>
               {recordingActive && (
                 <button type="button" disabled={busy} onClick={() => void cancelLearning()} style={styles.secondaryButton}>
-                  Cancel gravacao
+                  Cancel recording
                 </button>
               )}
             </div>
@@ -376,10 +376,10 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
       })()}
 
       <div style={styles.callout}>
-        <p style={styles.calloutTitle}>Situacao oficial da Data API</p>
+        <p style={styles.calloutTitle}>Official Data API status</p>
         <p style={styles.calloutBody}>
-          O iRacing desativou o login legado <strong>/auth</strong> e pausou novos client IDs OAuth para apps
-          de terceiros. Quando a iRacing liberar seu <strong>client_id</strong>, cole abaixo para activer OAuth2.
+          iRacing disabled legacy <strong>/auth</strong> sign-in and paused new OAuth client IDs for third-party
+          apps. When iRacing issues your <strong>client_id</strong>, paste it below to enable OAuth2.
           References:{' '}
           <a href="https://forums.iracing.com/discussion/93956/oauth-client-id-creation" target="_blank" rel="noreferrer" style={styles.calloutLink}>
             forum OAuth client ID
@@ -392,15 +392,15 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
       </div>
 
       <div style={styles.altLogin}>
-        <p style={styles.altTitle}>OAuth2 + PKCE (primary quando houver client_id)</p>
+        <p style={styles.altTitle}>OAuth2 + PKCE (primary when a client_id is available)</p>
         <p style={styles.hint}>OAuth registration is paused by iRacing; paste a client_id when available.</p>
         <label style={styles.label}>
           OAuth client_id
-          <input value={oauthClientId} disabled={busy} onChange={(event) => setOauthClientId(event.target.value)} placeholder="Cole o client_id da iRacing" style={styles.input} />
+          <input value={oauthClientId} disabled={busy} onChange={(event) => setOauthClientId(event.target.value)} placeholder="Paste the iRacing client_id" style={styles.input} />
         </label>
         <label style={styles.label}>
-          client_secret (opcional; normalmente vazio em app desktop)
-          <input value={oauthClientSecret} disabled={busy} onChange={(event) => setOauthClientSecret(event.target.value)} placeholder="Opcional" style={styles.input} />
+          client_secret (optional; usually empty in desktop apps)
+          <input value={oauthClientSecret} disabled={busy} onChange={(event) => setOauthClientSecret(event.target.value)} placeholder="Optional" style={styles.input} />
         </label>
         <div style={styles.actions}>
           <button type="button" disabled={busy} onClick={() => void saveOAuthConfig()} style={styles.secondaryButton}>Save OAuth</button>
@@ -413,26 +413,26 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
       {/* Legacy fallback: kept for diagnostics/MFA paths, no longer the primary iRacing auth path. */}
       <form onSubmit={(event) => void submit(event)} style={styles.form}>
         <label style={styles.label}>
-          E-mail do iRacing
+          iRacing email
           <input
             type="email"
             autoComplete="username"
             value={email}
             disabled={disabled}
             onChange={(event) => setEmail(event.target.value)}
-            placeholder="voce@exemplo.com"
+            placeholder="you@example.com"
             style={styles.input}
           />
         </label>
         <label style={styles.label}>
-          Senha do iRacing
+          iRacing password
           <input
             type="password"
             autoComplete="current-password"
             value={password}
             disabled={disabled}
             onChange={(event) => setPassword(event.target.value)}
-            placeholder="Senha"
+            placeholder="Password"
             style={styles.input}
           />
         </label>
@@ -447,15 +447,15 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
         </div>
       </form>
       <p style={styles.hint}>
-        Caminho legado mantido apenas como fallback. A iRacing desativou <strong>/auth</strong> para usuarios em geral.
+        Legacy path kept only as a fallback. iRacing disabled <strong>/auth</strong> for most users.
       </p>
 
       {showMfa && (
         <form onSubmit={(event) => void submitMfa(event)} style={styles.mfaBox}>
-          <p style={styles.mfaTitle}>Codigo de check por e-mail</p>
+          <p style={styles.mfaTitle}>Email verification code</p>
           <p style={styles.copy}>
-            O iRacing enviou um <strong>codigo de check de dispositivo por e-mail</strong>. Insira-o
-            abaixo para concluir o login.
+            iRacing sent a <strong>device verification code by email</strong>. Enter it
+            below to finish signing in.
           </p>
           <p style={styles.mfaWarn}>
             This field is not for the authenticator app code (TOTP). If your account uses 2FA
@@ -463,7 +463,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
             in iRacing &gt; Account &gt; Security, or use <strong>browser login</strong> below.
           </p>
           <label style={styles.label}>
-            Codigo enviado por e-mail pelo iRacing
+            Code emailed by iRacing
             <input
               type="text"
               inputMode="numeric"
@@ -471,7 +471,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
               value={mfaCode}
               disabled={busy}
               onChange={(event) => setMfaCode(event.target.value)}
-              placeholder="Codigo recebido por e-mail"
+              placeholder="Code received by email"
               style={styles.input}
             />
           </label>
@@ -572,9 +572,9 @@ ${dataApiDiagnostic.body}`}
         <p style={styles.altTitle}>Browser login</p>
         <p style={styles.altRecommend}>Always returns to the app; Data API is tested only as diagnostics.</p>
         <p style={styles.hint}>
-          Opens the real iRacing page in a window. Complete email, password, CAPTCHA, and 2FA there 
-          capturamos apenas cookies de session (a senha not e armazenada). Se a Data API recusar o cookie, voce lap
-          ao app mesmo assim e vera o aviso honesto acima.
+          Opens the real iRacing page in a window. Complete email, password, CAPTCHA, and 2FA there.
+          We capture only session cookies (the password is not stored). If the Data API rejects the cookie, you still
+          return to the app and see the honest warning above.
         </p>
         <button
           type="button"
@@ -587,7 +587,7 @@ ${dataApiDiagnostic.body}`}
         <p style={styles.hint}>
           To return to the app after signing in: click Return to Ultimate Sim App. If the buttons do not
           respond, use the <strong>Login &gt; Completed login</strong> menu or the keys{' '}
-          <strong>Ctrl+Enter</strong> (concluir) / <strong>Esc</strong> (cancelar).
+          <strong>Ctrl+Enter</strong> (finish) / <strong>Esc</strong> (cancel).
         </p>
         {diagnostics && <div style={styles.diagnostic}>{diagnosticText(diagnostics)}</div>}
       </div>

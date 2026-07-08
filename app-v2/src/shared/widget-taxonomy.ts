@@ -63,7 +63,7 @@ export const WIDGET_CLUSTER_LABELS: Record<WidgetClusterTag, string> = {
   'Race Control / Flags': 'Race Control / Bandeiras',
   'Stint / Endurance': 'Stint / Endurance',
   'Driver Aids': 'Auxílios ao piloto',
-  'Tyre / Brake': 'Pneus / Freios',
+  'Tyre / Brake': 'Tires / Brakes',
   'Radar / Relative': 'Radar / Relativo',
   'Timing / Delta': 'Tempos / Delta',
   'Engine Vitals': 'Vitais do motor',
@@ -128,9 +128,9 @@ export const WIDGET_CATEGORY_ORDER: WidgetCategoryTag[] = [
 export const WIDGET_CATEGORY_LABELS: Record<WidgetCategoryTag, string> = {
   'Speed/Engine': 'Velocidade & Motor',
   'Timing/Delta': 'Tempos & Delta',
-  Fuel: 'Combustível',
-  'Tyres/Brakes': 'Pneus & Freios',
-  'Position/Standings': 'Posição & Classificação',
+  Fuel: 'Fuel',
+  'Tyres/Brakes': 'Tires & Brakes',
+  'Position/Standings': 'Position & Qualifying',
   Inputs: 'Inputs do piloto',
   'Flags/Status': 'Bandeiras & Status',
   'Track/Radar': 'Pista & Radar',
@@ -202,6 +202,7 @@ export interface WidgetFilterQuery {
   styleFamily?: WidgetStyleFamily | null
   /** Exact hardware/use-case cluster match when set (null/undefined = all). */
   cluster?: WidgetClusterTag | null
+  sim?: string | null
 }
 
 function haystack(v: WidgetTaxon): string {

@@ -304,7 +304,7 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
       {/* ── Live HR + AR preview ───────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 0.8fr) minmax(320px, 1.2fr)', gap: 18, alignItems: 'start' }}>
         <div style={{ ...panel, display: 'grid', gap: 14 }}>
-          <span style={label}>Heart rate {status?.sourceKind === 'mock' ? '(simulated)' : '(BLE)'}</span>
+          <span style={label}>Heart rate {status?.sourceKind === 'mock' ? '(yesulated)' : '(BLE)'}</span>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
             <span style={{ fontSize: 72, fontWeight: 700, lineHeight: 1, color: stressColor(state), fontVariantNumeric: 'tabular-nums' }}>
               {bpm ?? '—'}
@@ -341,7 +341,7 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
         </div>
       </div>
 
-      {/* ── Correlation / analysis ─────────────────────────────────────────── */}
+      {/* ── Colorrelation / analysis ─────────────────────────────────────────── */}
       <div style={{ ...panel, display: 'grid', gap: 16 }}>
         <span style={label}>Stress × pace correlation</span>
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>

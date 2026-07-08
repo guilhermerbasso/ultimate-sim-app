@@ -130,7 +130,7 @@ async function tryLlmNarrate(system: string, prompt: string): Promise<string | n
 function narratePrompt(plan: StrategyPlan, lang: 'pt' | 'en'): { system: string; prompt: string } {
   const system =
     lang === 'pt'
-      ? 'Você é um engenheiro de corrida no rádio. Reescreva o plano em UMA frase curta, calma e direta, em português do Brasil. Não invente números.'
+      ? 'You are a race engineer on the radio. Rewrite the plan in ONE short, calm, direct American English sentence. Do not invent numbers.'
       : 'You are a race engineer on the radio. Rephrase the plan as ONE short, calm, direct sentence in English. Do not invent numbers.'
   const facts = [
     `action=${plan.action}`,

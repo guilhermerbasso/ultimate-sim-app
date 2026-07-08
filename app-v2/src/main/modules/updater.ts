@@ -61,7 +61,7 @@ export function register(ctx: ModuleContext): void {
   const disabledResult = (): UpdaterIpcResult => ({
     ok: false,
     status,
-    message: 'Atualizações são verificadas apenas no app empacotado.'
+    message: 'Updates are checked only in the packaged app.'
   })
 
   const emitError = (error: unknown, fallback?: string): UpdaterStatus => {
@@ -184,7 +184,7 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(UPDATE_CHANNELS.installNow, (): UpdaterIpcResult => {
     if (!enabled) return disabledResult()
     if (!status.downloaded) {
-      const next = emitError(new Error('Nenhuma atualização baixada para instalar.'))
+      const next = emitError(new Error('No downloaded update to install.'))
       return { ok: false, status: next }
     }
     try {

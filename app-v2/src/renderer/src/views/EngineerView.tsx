@@ -276,7 +276,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
       setStatus(next)
       applyServerConfig(next?.config)
     } catch {
-      // ignore — the panel simply shows the last known state
+      // ignore — the panel yesply shows the last known state
     }
   }, [applyServerConfig])
 

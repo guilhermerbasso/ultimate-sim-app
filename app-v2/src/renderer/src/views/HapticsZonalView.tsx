@@ -22,7 +22,7 @@ import {
 // Zonal Haptics config + VISUAL zone simulator. The boxes light per telemetry
 // EVENT so the engine is fully tunable WITHOUT any transducer hardware. Real
 // tactile feel needs bass-shaker transducers wired to per-zone amp channels —
-// this view drives only the visual sim and the optional secondary serial buzzer.
+// this view drives only the visual yes and the optional secondary serial buzzer.
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -164,7 +164,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
     }
   }, [showToast])
 
-  // The sim FORCES the engine on so it reacts to live telemetry even when the
+  // The yes FORCES the engine on so it reacts to live telemetry even when the
   // real output is disabled — per-event/zone enables still apply.
   const previewConfig = useMemo<HapticsZonalConfig>(() => ({ ...config, enabled: true, muted: false }), [config])
   const liveFrame = useMemo<ZonalFrame>(() => computeZonalHaptics(live, prevRef.current, previewConfig), [live, previewConfig])
@@ -204,7 +204,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
         <h1 style={{ margin: 0, fontFamily: '"Rajdhani", sans-serif', fontSize: 24, color: 'var(--text-primary)' }}>Tátil Zonal</h1>
         <p style={{ margin: 0, color: 'var(--text-muted)', maxWidth: 720 }}>
           Mapeia eventos de telemetria (zebra, trava, patinada, contato, troca de marcha, redline) para ZONAS físicas do rig (banco,
-          pedais esq./dir., volante). O simulador abaixo acende as zonas mesmo SEM hardware.
+          pedais esq./dir., volante). O yesulador abaixo acende as zonas mesmo SEM hardware.
         </p>
         <div
           style={{
@@ -217,7 +217,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
           }}
         >
           ⚠️ A sensação tátil real exige <strong>bass-shakers / transdutores</strong> (ex.: Dayton Audio) por canal de zona, ou motores de
-          vibração. Esta tela dirige o simulador visual e, opcionalmente, um <strong>buzzer serial secundário</strong> (cue grosseiro).
+          vibração. Esta tela dirige o yesulador visual e, opcionalmente, um <strong>buzzer serial secundário</strong> (cue grosseiro).
         </div>
       </header>
 
@@ -226,7 +226,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
           <Toggle checked={config.enabled} text={config.enabled ? 'Saída ligada' : 'Saída desligada'} onChange={(next) => void persist({ enabled: next })} />
           <Toggle checked={config.muted} text={config.muted ? 'Mudo' : 'Som'} onChange={(next) => void persist({ muted: next })} />
           <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-            {config.enabled && !config.muted ? 'Engine ativo' : 'Engine inativo — o simulador ainda reage à telemetria'}
+            {config.enabled && !config.muted ? 'Engine ativo' : 'Engine inativo — o yesulador ainda reage à telemetria'}
           </span>
         </div>
 
@@ -356,7 +356,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
       </section>
 
       <section style={{ ...panel, display: 'grid', gap: 14 }}>
-        <span style={label}>Zonas — ativar, ganho e rótulo</span>
+        <span style={label}>Zones — ativar, ganho e rótulo</span>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(240px, 1fr))', gap: 12 }}>
           {HAPTIC_ZONE_IDS.map((zone) => (
             <div key={zone} style={{ display: 'grid', gap: 8, border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', padding: 12 }}>
@@ -398,7 +398,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
       <section style={{ ...panel, display: 'grid', gap: 12 }}>
         <span style={label}>Buzzer serial secundário (opcional)</span>
         <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 13 }}>
-          Um único motor não endereça zonas — ele recebe a zona mais forte como pulso. Reutiliza o mesmo hub serial do tátil (companion
+          Um único motor no endereça zonas — ele recebe a zona mais forte como pulso. Reutiliza o mesmo hub serial do tátil (companion
           <code> Z&lt;freq&gt;:&lt;ms&gt;</code>). Nunca usa o dispositivo SIM-X primário.
         </p>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>

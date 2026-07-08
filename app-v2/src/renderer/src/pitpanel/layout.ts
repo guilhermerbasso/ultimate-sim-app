@@ -22,11 +22,11 @@ export interface PitSectionMeta {
 // Render/order metadata. The order here is the DOM order; placement is decided by
 // the grid rectangles below.
 export const PIT_SECTIONS: PitSectionMeta[] = [
-  { id: 'fuel', title: 'Combustível' },
-  { id: 'tyres', title: 'Pneus' },
-  { id: 'service', title: 'Serviço' },
+  { id: 'fuel', title: 'Fuel' },
+  { id: 'tyres', title: 'Tires' },
+  { id: 'service', title: 'Service' },
   { id: 'chat', title: 'Chat macros' },
-  { id: 'camera', title: 'Câmera' },
+  { id: 'camera', title: 'Camera' },
   { id: 'replay', title: 'Replay' }
 ]
 

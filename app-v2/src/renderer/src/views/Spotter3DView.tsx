@@ -183,16 +183,16 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
   return (
     <div style={{ display: 'grid', gap: 18 }}>
       <header style={{ display: 'grid', gap: 6 }}>
-        <h1 style={{ margin: 0, fontFamily: '"Rajdhani", sans-serif', fontSize: 24, color: 'var(--text-primary)' }}>Spotter 3D</h1>
+        <h1 style={{ margin: 0, fontFamily: '"Rajdhani", sans-serif', fontSize: 24, color: 'var(--text-primary)' }}>3D Spotter</h1>
         <p style={{ margin: 0, color: 'var(--text-muted)', maxWidth: 760 }}>
           Áudio espacial (Web Audio HRTF) que toca durante toda a sessão: você <strong>ouve</strong> os carros próximos posicionados ao seu
           redor — esquerda/direita pelo lado, perto/longe pelo volume, frente/trás pelo tom. Use <strong>fones de ouvido</strong> para a
-          melhor imagem 3D. Complementa (não substitui) os avisos falados do Voice Spotter.
+          melhor imagem 3D. Complementa (no substitui) os avisos falados do Voice Spotter.
         </p>
       </header>
 
       <section style={{ ...panel, display: 'grid', gap: 16 }}>
-        <ExplainerBlock title="O que é o Spotter 3D">
+        <ExplainerBlock title="O que é o 3D Spotter">
           Um spotter de <strong>áudio puro</strong>: em vez de falar, ele coloca um som suave na posição de cada carro perto de você, como se
           o carro estivesse mesmo ali no espaço. É a sua "visão periférica" sonora em curvas, ultrapassagens e brigas lado a lado.
         </ExplainerBlock>
@@ -254,7 +254,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
               }}
               type="button"
             >
-              {config.enabled ? 'Spotter 3D ligado' : 'Spotter 3D desligado'}
+              {config.enabled ? '3D Spotter ligado' : '3D Spotter desligado'}
             </button>
             <span
               style={{
@@ -341,7 +341,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
               onCommit={(panWidthM) => void persist({ panWidthM })}
             />
             <Slider
-              text="Vozes simultâneas"
+              text="Vozes yesultâneas"
               min={1}
               max={6}
               step={1}

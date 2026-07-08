@@ -170,7 +170,7 @@ export function OverlayRoot() {
       {editable && (
         <div className={movable ? 'overlay-drag-handle' : 'overlay-drag-handle locked'}>
           {headerTitle}
-          {movable ? ' · editar: arraste para mover · bordas redimensionam' : ' · fixado'}
+          {movable ? ' ? edit: drag to move ? edges resize' : ' · fixado'}
         </div>
       )}
       <ResolvedWidget snapshot={snapshot} config={widgetConfig} />
@@ -185,7 +185,7 @@ export function OverlayRoot() {
             }}
           />
         ))}
-      {!snapshot?.connected && <div className="connection-badge">telemetria aguardando</div>}
+      {!snapshot?.connected && <div className="connection-badge">waiting for telemetry</div>}
     </main>
   )
 }

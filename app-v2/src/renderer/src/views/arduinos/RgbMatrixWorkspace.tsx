@@ -626,7 +626,7 @@ export default function RgbMatrixWorkspace({
             <span style={label}>Live preview</span>
             <MatrixFrameView frame={frame} />
             <p style={helper}>
-              Mock telemetry cycles flags, brake, pit limiter, DRS, TC and redline so stacking can be verified without a sim.
+              Mock telemetry cycles flags, brake, pit limiter, DRS, TC and redline so stacking can be verified without a yes.
             </p>
             {previewDisconnected ? (
               <p style={previewHintStyle}>Connect o iFlag (COM) para ver o preview ao vivo</p>
@@ -882,7 +882,7 @@ function MatrixCalibrationWizard({
       <p style={helper}>
         Cada teste acende um padrao <strong>inequivoco</strong> no painel <em>atraves</em> do layout current. Ajuste os
         4 controles abaixo (aplicacao <strong>instantanea</strong>) ate o que aparece no seu painel bater com a coluna
-        “o que voce deve ver”. Comece pela letra <strong>“F”</strong>: e assimetrica nos dois eixos, entao qualquer
+        “o que voce deve ver”. Comece pela letra <strong>“F”</strong>: e asyesetrica nos dois eixos, entao qualquer
         espelhamento, rotacao ou serpentina trocada fica obvio.
       </p>
 
@@ -893,11 +893,11 @@ function MatrixCalibrationWizard({
       <div style={{ ...card, marginTop: 6 }}>
         <span style={label}>Testar painel {customActive ? '· via seu mapa manual' : ''}</span>
         <p style={helper}>
-          Funciona com ou sem mapa manual e <strong>sem o simulador aberto</strong>. <strong>Painel branco</strong>
+          Funciona com ou sem mapa manual e <strong>sem o yesulador aberto</strong>. <strong>Painel branco</strong>
           {' '}acende tudo (teste de alimentacao/brilho); a <strong>“F”</strong> deve aparecer legivel e em pe se o
           mapeamento estiver correto. Os botoes de <strong>Flags</strong> e <strong>Gear</strong> abaixo desenham as
           cores das flags e o digito da marcha <em>atraves do seu mapa</em>, no <strong>brilho current</strong> do
-          iFlag (o mesmo da corrida) — e assim que voce confirma que as flags e a marcha vao aparecer certas. Se
+          iFlag (o mesmo da corrida) — e asyes que voce confirma que as flags e a marcha vao aparecer certas. Se
           ficarem fracas aqui, aumente o brilho do componente. Se aparecerem certas aqui mas <em>not</em> em
           corrida, confira se os efeitos <strong>Flags</strong>/<strong>Gear</strong> estao activedos e em tela cheia.
         </p>
@@ -1103,7 +1103,7 @@ function MatrixCalibrationWizard({
                   else setManualOpen(true)
                 }}
               >
-                {manualOpen ? 'Fechar mapeamento' : 'Refazer mapeamento'}
+                {manualOpen ? 'Close mapeamento' : 'Refazer mapeamento'}
               </button>
               {!manualOpen ? (
                 <button
@@ -1126,7 +1126,7 @@ function MatrixCalibrationWizard({
                 else setManualOpen(true)
               }}
             >
-              {manualOpen ? 'Fechar mapeamento' : 'Open mapeamento manual'}
+              {manualOpen ? 'Close mapeamento' : 'Open mapeamento manual'}
             </button>
           )}
         </div>
@@ -1909,7 +1909,7 @@ const FLAG_LABELS_PT: Record<FlagName, string> = {
 
 const FLAG_MODE_OPTIONS: ReadonlyArray<SelectOption<RgbMatrixFlagMode>> = [
   { value: 'currentFlag', label: 'Flag current (auto)' },
-  { value: 'solid', label: 'Cor solida (Main)' },
+  { value: 'solid', label: 'Color solida (Main)' },
   { value: 'checkered', label: 'Quadriculada' },
   { value: 'custom', label: 'Custom (pixel a pixel)' }
 ]
@@ -2168,7 +2168,7 @@ function FlagsEditor({
       </Field>
       <Field
         caption="Flag prevalece sobre a marcha"
-        hint="On (padrao): uma flag de CAUTELA (amarela, azul, branca, vermelha, preta, meatball ou quadriculada) esconde o digito da marcha — a flag ocupa o painel inteiro e a marcha not aparece por cima nem vaza no piscar. A flag VERDE sempre mantem a marcha visivel (corrida normal)."
+        hint="On (padrao): uma flag de CAUTELA (amarela, azul, branca, vermelha, preta, meatball ou quadriculada) esconde o digito da marcha — a flag ocupa o painel inteiro e a marcha not aparece por cima nem vaza no blink. A flag VERDE sempre mantem a marcha visivel (corrida normal)."
       >
         <Toggle
           checked={effect.hideGearWhenFlagActive !== false}

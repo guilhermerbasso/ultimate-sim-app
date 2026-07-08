@@ -147,9 +147,9 @@ export function PitPanelRoot() {
         <div className="pp-title">Pit &amp; Command</div>
         <div className={enabled ? 'pp-conn is-on' : 'pp-conn is-off'}>
           <span className="pp-dot" />
-          {enabled ? (onPitRoad ? 'Nos boxes' : 'Na pista') : status?.connected ? 'Aguardando carro' : 'Desconectado'}
+          {enabled ? (onPitRoad ? 'In pits' : 'On track') : status?.connected ? 'Waiting for car' : 'Disconnected'}
         </div>
-        <button type="button" className="pp-close" onClick={() => void invoke('app:pitpanel:close')} aria-label="Fechar">
+        <button type="button" className="pp-close" onClick={() => void invoke('app:pitpanel:close')} aria-label="Close">
           ✕
         </button>
       </header>
@@ -161,7 +161,7 @@ export function PitPanelRoot() {
       )}
 
       <div className="pp-grid" style={gridStyle}>
-        <Section title="Combustível" className="pp-fuel" style={placementStyle(placementById.get('fuel'))}>
+        <Section title="Fuel" className="pp-fuel" style={placementStyle(placementById.get('fuel'))}>
           <div className="pp-fuel-readout">
             <span className="pp-fuel-value">{fuel}</span>
             <span className="pp-fuel-unit">L</span>
@@ -179,7 +179,7 @@ export function PitPanelRoot() {
           </div>
           <div className="pp-row pp-fuel-cta">
             <TouchButton
-              label={fuel === 0 ? 'Manter combustível' : `Abastecer ${fuel}L`}
+              label={fuel === 0 ? 'Keep fuel' : `Add ${fuel}L`}
               variant="primary"
               wide
               active={isServiceFlagged(snapshot, 'fuel')}
@@ -189,7 +189,7 @@ export function PitPanelRoot() {
           </div>
         </Section>
 
-        <Section title="Pneus" className="pp-tyres" style={placementStyle(placementById.get('tyres'))}>
+        <Section title="Tires" className="pp-tyres" style={placementStyle(placementById.get('tyres'))}>
           <div className="pp-tyre-grid">
             {CORNERS.map((corner) => (
               <div key={corner} className={corners[corner] ? 'pp-tyre is-queued' : 'pp-tyre'}>
@@ -200,7 +200,7 @@ export function PitPanelRoot() {
                   <TouchButton label="+" onPress={() => setPressure(corner, 1)} disabled={!enabled} />
                 </div>
                 <TouchButton
-                  label="Trocar"
+                  label="Change"
                   variant="primary"
                   active={corners[corner]}
                   onPress={() => sendTyres([corner])}
@@ -209,13 +209,13 @@ export function PitPanelRoot() {
               </div>
             ))}
           </div>
-          <div className="pp-hint">Pressão {PRESSURE_MIN_KPA}–{PRESSURE_MAX_KPA} kPa</div>
+          <div className="pp-hint">Pressure {PRESSURE_MIN_KPA}–{PRESSURE_MAX_KPA} kPa</div>
           <div className="pp-row pp-wrap">
-            <TouchButton label="Trocar 4" variant="primary" onPress={() => sendTyres([...CORNERS])} disabled={!enabled} />
-            <TouchButton label="Limpar pneus" variant="danger" onPress={() => command('pit:clearTires')} disabled={!enabled} />
+            <TouchButton label="Change 4" variant="primary" onPress={() => sendTyres([...CORNERS])} disabled={!enabled} />
+            <TouchButton label="Clear tires" variant="danger" onPress={() => command('pit:clearTires')} disabled={!enabled} />
           </div>
           <div className="pp-row pp-wrap pp-compound">
-            <span className="pp-compound-label">Composto</span>
+            <span className="pp-compound-label">Compound</span>
             {COMPOUNDS.map((name, index) => (
               <TouchButton
                 key={name}
@@ -232,7 +232,7 @@ export function PitPanelRoot() {
           </div>
         </Section>
 
-        <Section title="Serviço" className="pp-service" style={placementStyle(placementById.get('service'))}>
+        <Section title="Service" className="pp-service" style={placementStyle(placementById.get('service'))}>
           <div className="pp-row pp-wrap">
             <TouchButton
               label="Fast Repair"
@@ -242,17 +242,17 @@ export function PitPanelRoot() {
               disabled={!enabled}
             />
             <TouchButton
-              label="Parabrisa"
+              label="Windshield"
               active={isServiceFlagged(snapshot, 'windshield')}
               onPress={() => command('pit:windshield')}
               disabled={!enabled}
             />
           </div>
           <div className="pp-row pp-wrap">
-            <TouchButton label="Limpar tudo" variant="danger" onPress={() => command('pit:clear')} disabled={!enabled} />
-            <TouchButton label="Cancelar comb." onPress={() => command('pit:clearFuel')} disabled={!enabled} />
-            <TouchButton label="Cancelar FR" onPress={() => command('pit:clearFR')} disabled={!enabled} />
-            <TouchButton label="Cancelar WS" onPress={() => command('pit:clearWS')} disabled={!enabled} />
+            <TouchButton label="Clear all" variant="danger" onPress={() => command('pit:clear')} disabled={!enabled} />
+            <TouchButton label="Cancel fuel" onPress={() => command('pit:clearFuel')} disabled={!enabled} />
+            <TouchButton label="Cancel FR" onPress={() => command('pit:clearFR')} disabled={!enabled} />
+            <TouchButton label="Cancel WS" onPress={() => command('pit:clearWS')} disabled={!enabled} />
           </div>
         </Section>
 
@@ -270,25 +270,25 @@ export function PitPanelRoot() {
           </div>
         </Section>
 
-        <Section title="Câmera" className="pp-camera" style={placementStyle(placementById.get('camera'))}>
+        <Section title="Camera" className="pp-camera" style={placementStyle(placementById.get('camera'))}>
           <div className="pp-row pp-wrap">
-            <TouchButton label="Líder" onPress={() => command('camera:switch', { focus: 'leader', group: camGroup })} disabled={!status?.connected} />
-            <TouchButton label="Incidente" onPress={() => command('camera:switch', { focus: 'incident', group: camGroup })} disabled={!status?.connected} />
-            <TouchButton label="Saindo box" onPress={() => command('camera:switch', { focus: 'exiting', group: camGroup })} disabled={!status?.connected} />
+            <TouchButton label="Leader" onPress={() => command('camera:switch', { focus: 'leader', group: camGroup })} disabled={!status?.connected} />
+            <TouchButton label="Incident" onPress={() => command('camera:switch', { focus: 'incident', group: camGroup })} disabled={!status?.connected} />
+            <TouchButton label="Exiting pits" onPress={() => command('camera:switch', { focus: 'exiting', group: camGroup })} disabled={!status?.connected} />
           </div>
           <div className="pp-row pp-wrap pp-camgroup">
-            <span className="pp-compound-label">Grupo</span>
+            <span className="pp-compound-label">Group</span>
             <TouchButton label="−" onPress={() => setCamGroup((g) => Math.max(1, g - 1))} disabled={!status?.connected} />
             <span className="pp-camgroup-value">{camGroup}</span>
             <TouchButton label="+" onPress={() => setCamGroup((g) => g + 1)} disabled={!status?.connected} />
-            <TouchButton label="Aplicar" variant="ghost" onPress={() => command('camera:switch', { focus: 'driver', group: camGroup })} disabled={!status?.connected} />
+            <TouchButton label="Apply" variant="ghost" onPress={() => command('camera:switch', { focus: 'driver', group: camGroup })} disabled={!status?.connected} />
           </div>
         </Section>
 
         <Section title="Replay" className="pp-replay" style={placementStyle(placementById.get('replay'))}>
           <div className="pp-row pp-wrap">
             <TouchButton label="⏮ Inc" onPress={() => command('replay:prevIncident')} disabled={!status?.connected} />
-            <TouchButton label="⏪ Volta" onPress={() => command('replay:prevLap')} disabled={!status?.connected} />
+            <TouchButton label="⏪ Lap" onPress={() => command('replay:prevLap')} disabled={!status?.connected} />
             <TouchButton label="◀◀" onPress={() => command('replay:rewind', { speed: 4 })} disabled={!status?.connected} />
           </div>
           <div className="pp-row pp-wrap">
@@ -297,7 +297,7 @@ export function PitPanelRoot() {
             <TouchButton label="▶▶" onPress={() => command('replay:ff', { speed: 4 })} disabled={!status?.connected} />
           </div>
           <div className="pp-row pp-wrap">
-            <TouchButton label="Volta ⏩" onPress={() => command('replay:nextLap')} disabled={!status?.connected} />
+            <TouchButton label="Lap ⏩" onPress={() => command('replay:nextLap')} disabled={!status?.connected} />
             <TouchButton label="Inc ⏭" onPress={() => command('replay:nextIncident')} disabled={!status?.connected} />
           </div>
         </Section>

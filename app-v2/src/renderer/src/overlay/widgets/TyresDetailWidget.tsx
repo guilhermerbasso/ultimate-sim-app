@@ -119,7 +119,7 @@ export function TyresDetailWidget({ snapshot, config }: WidgetProps): ReactEleme
     const chans: Chan[] = [
       { label: 'TEMP', value: temp, norm: temp === undefined ? 0 : clamp01((temp - 40) / 100), color: temp === undefined ? DIM_CHROME : heat((temp - 40) / 100), unit: '°' },
       { label: 'PRES', value: pres, norm: pres === undefined ? 0 : clamp01(pres / 240), color: pres === undefined ? DIM_CHROME : heat(clamp01((pres - 130) / 130)), unit: '' },
-      { label: 'FREIO', value: brake, norm: brake === undefined ? 0 : clamp01(brake / 900), color: brake === undefined ? DIM_CHROME : heat(brake / 900), unit: '°' },
+      { label: 'BRAKE', value: brake, norm: brake === undefined ? 0 : clamp01(brake / 900), color: brake === undefined ? DIM_CHROME : heat(brake / 900), unit: '°' },
       { label: 'VIDA', value: wear, norm: wear === undefined ? 0 : clamp01(wear / 100), color: lifeColor(wear), unit: '%' }
     ]
     return { key: String(key), label, pres, chans }

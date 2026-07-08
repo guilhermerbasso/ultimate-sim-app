@@ -393,7 +393,7 @@ function StatCell({
 }
 
 // Converte um slot resolvido em CSSProperties (sem fontSize — usado como maxSize
-// pelo auto-fit). Vazio quando o slot não tem overrides relevantes.
+// pelo auto-fit). Vazio quando o slot no tem overrides relevantes.
 function slotCss(ov: ResolvedTextSlot): CSSProperties {
   const out: CSSProperties = {}
   if (ov.fontFamily !== undefined) out.fontFamily = ov.fontFamily

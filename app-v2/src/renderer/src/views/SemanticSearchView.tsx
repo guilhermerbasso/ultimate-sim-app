@@ -203,7 +203,7 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
               padding: '5px 9px',
               borderRadius: 'var(--radius-sm)'
             }}
-            title={mode === 'semantic' ? 'Resultados por similaridade de significado' : 'Resultados por palavra-chave (modelo ausente ou sem correspondência semântica)'}
+            title={mode === 'semantic' ? 'Resultados por yesilaridade de significado' : 'Resultados por palavra-chave (modelo ausente ou sem correspondência semântica)'}
           >
             {modeBadge.text}
           </span>
@@ -244,9 +244,9 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
               ) : downloading ? (
                 <span style={{ color: 'var(--accent-primary)' }}>● Baixando/carregando modelo… {ratioPct}%</span>
               ) : status && !status.modelAvailable ? (
-                <span style={{ opacity: 0.8 }}>○ Pacote de IA não instalado — usando busca por palavra-chave</span>
+                <span style={{ opacity: 0.8 }}>○ Pacote de IA no instalado — using busca por palavra-chave</span>
               ) : (
-                <span style={{ opacity: 0.8 }}>○ Modelo não baixado — usando busca por palavra-chave</span>
+                <span style={{ opacity: 0.8 }}>○ Modelo no baixado — using busca por palavra-chave</span>
               )}
             </div>
           </div>

@@ -129,7 +129,7 @@ function activeFlags(live: TelemetrySnapshot | null, language: AppViewProps['lan
   return names.length ? names.join(', ') : tt(language, 'common.none')
 }
 
-// Voice Spotter / Avisos falados — absorbed into Engenheiro IA (the single VOICE
+// Voice Spotter / Warnings falados — absorbed into AI Engineer (the single VOICE
 // hub). This renders the spotter's config + controls (voice selection, callout
 // toggles, telemetry-driven spoken-callout settings). The spotter RUNTIME stays
 // globally mounted in App.tsx; the hook below is ref-counted so co-mounting here
@@ -304,7 +304,7 @@ export function VoiceSpotterSection({ showToast, language }: Pick<AppViewProps, 
           <LiveTile labelText={tt(language, 'spotter.incidents')} value={live?.incidentCount == null ? '—' : `${live.incidentCount}${live.incidentLimit ? ` / ${live.incidentLimit}` : ''}`} />
           <LiveTile labelText={tt(language, 'spotter.gapAhead')} value={formatSec(live?.relatives?.ahead?.gapSec)} />
           <LiveTile labelText={tt(language, 'spotter.gapBehind')} value={formatSec(live?.relatives?.behind?.gapSec)} />
-          <LiveTile labelText={tt(language, 'spotter.onPitRoad')} value={live?.onPitRoad == null ? '—' : live.onPitRoad ? tt(language, 'common.yes') : tt(language, 'common.no')} />
+          <LiveTile labelText={tt(language, 'spotter.onPitRoad')} value={live?.onPitRoad == null ? '—' : live.onPitRoad ? tt(language, 'common.sim') : tt(language, 'common.no')} />
           <LiveTile labelText={tt(language, 'spotter.speed')} value={live?.speedKmh == null ? '—' : `${Math.round(live.speedKmh)} km/h`} />
         </div>
 

@@ -187,22 +187,22 @@ const PHASE_RULES: Record<AdaptivePhase, PhaseRule> = {
 
 const PHASE_LABEL: Record<AdaptivePhase, string> = {
   practice: 'Treino livre',
-  qualifying: 'Classificação',
-  race: 'Corrida',
+  qualifying: 'Qualifying',
+  race: 'Race',
   pit: 'Pit / box',
-  formation: 'Volta de formação',
+  formation: 'Formation lap',
   warmup: 'Warmup',
-  unknown: 'Sessão desconhecida'
+  unknown: 'Unknown session'
 }
 
 const PHASE_FOCUS: Record<AdaptivePhase, string> = {
-  practice: 'pneus, temperaturas e delta para acertar o carro',
-  qualifying: 'delta e tempo de volta para a volta rápida',
-  race: 'posição, gaps e combustível',
-  pit: 'status de pit, pneus e combustível',
-  formation: 'posição, bandeiras e aquecimento de pneus',
-  warmup: 'pneus, combustível e delta',
-  unknown: 'visão geral (todos os widgets)'
+  practice: 'tires, temperaturas e delta para acertar o carro',
+  qualifying: 'delta e lap time para a lap rápida',
+  race: 'position, gaps e fuel',
+  pit: 'status de pit, tires e fuel',
+  formation: 'position, flags e aquecimento de tires',
+  warmup: 'tires, fuel e delta',
+  unknown: 'overview (all widgets)'
 }
 
 // ─── Snapshot-driven overrides ───────────────────────────────────────────────
@@ -248,7 +248,7 @@ export function planAdaptiveDashboard(snapshot: TelemetrySnapshot | null | undef
     if (anyFlagActive(snapshot)) {
       emphasize.add('flags')
       hide.delete('flags')
-      extras.push('bandeira ativa')
+      extras.push('active flag')
     }
     if (isWet(snapshot)) {
       emphasize.add('weather')
@@ -258,7 +258,7 @@ export function planAdaptiveDashboard(snapshot: TelemetrySnapshot | null | undef
     if (fuelIsLow(snapshot)) {
       emphasize.add('fuel')
       hide.delete('fuel')
-      extras.push('combustível baixo')
+      extras.push('low fuel')
     }
   }
 

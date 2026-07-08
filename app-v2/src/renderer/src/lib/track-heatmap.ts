@@ -38,7 +38,7 @@ export const HEAT_COLORS: HeatPalette = {
   neutral: '#3a4d63'
 }
 
-// Seconds: a corner whose dominant |delta| is within this band reads as ON-PAR
+// Drynds: a corner whose dominant |delta| is within this band reads as ON-PAR
 // (green). Mirrors the coach analyzer's `goodLossSec` so the heatmap and the
 // findings list agree on what counts as "clean".
 export const HEAT_ONPAR_BAND = 0.03

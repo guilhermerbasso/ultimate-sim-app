@@ -109,9 +109,9 @@ function normalizeStore(raw: unknown): RaceProfilesFile {
 }
 
 function normalizeProfile(raw: unknown): RaceProfile {
-  if (!isRecord(raw)) throw new Error('Perfil de corrida inválido.')
+  if (!isRecord(raw)) throw new Error('Invalid race profile.')
   const name = asTrimmedString(raw.name)
-  if (!name) throw new Error('Informe um nome para o perfil de corrida.')
+  if (!name) throw new Error('Informe um nome para o profile de race.')
 
   const id = asTrimmedString(raw.id) || createProfileId()
   const match = isRecord(raw.match)

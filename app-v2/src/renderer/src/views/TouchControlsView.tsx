@@ -125,7 +125,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
   const requestLoadPanel = useCallback(
     (id: string) => {
       if (id === selectedId) return
-      if (dirty && !window.confirm('Há alterações não salvas neste button box. Descartar e trocar de painel?')) return
+      if (dirty && !window.confirm('Há alterações no salvas neste button box. Descartar e trocar de painel?')) return
       void run(() => loadPanel(id))
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -156,11 +156,11 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
     setSelectedId(next.id)
     setSelectedButtonId(null)
     setDirty(false)
-    showToast('Button box criado.', 'success')
+    showToast('Button box created.', 'success')
   }, [refreshPanels, showToast, summaries.length])
 
   const requestCreatePanel = useCallback(() => {
-    if (dirty && !window.confirm('Há alterações não salvas neste button box. Descartar e criar um novo?')) return
+    if (dirty && !window.confirm('Há alterações no salvas neste button box. Descartar e criar um novo?')) return
     void run(createPanel)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createPanel, dirty])
@@ -183,14 +183,14 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
       setSelectedId(next.id)
       setSelectedButtonId(null)
       setDirty(false)
-      showToast(`Modelo "${preset.name}" criado.`, 'success')
+      showToast(`Preset "${preset.name}" created.`, 'success')
     },
     [refreshPanels, showToast]
   )
 
   const requestCreateFromPreset = useCallback(
     (id: string) => {
-      if (dirty && !window.confirm('Há alterações não salvas neste button box. Descartar e criar do modelo?')) return
+      if (dirty && !window.confirm('Há alterações no salvas neste button box. Descartar e criar do modelo?')) return
       void run(() => createFromPreset(id))
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -202,12 +202,12 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
     await window.ipc.invoke('app:touchpanel:save', panelDraft)
     await refreshPanels()
     setDirty(false)
-    showToast('Button box salvo.', 'success')
+    showToast('Button box saved.', 'success')
   }, [panelDraft, refreshPanels, showToast])
 
   const deletePanel = useCallback(async () => {
     if (!selectedId) return
-    if (!window.confirm('Excluir este button box?')) return
+    if (!window.confirm('Delete this button box?')) return
     await window.ipc.invoke('app:touchpanel:delete', selectedId)
     setPanelDraft(null)
     setSelectedId(null)
@@ -222,7 +222,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
     setDirty(false)
     const opened = await window.ipc.invoke('app:touchpanel:open', { panelId: panelDraft.id, displayId: panelDisplayId ?? undefined, fullscreen })
     if (!opened) throw new Error('Não foi possível abrir o painel (sem monitor?).')
-    showToast('Button box aberto em tela cheia.', 'success')
+    showToast('Button box opened fullscreen.', 'success')
   }, [fullscreen, panelDisplayId, panelDraft, showToast])
 
   const addToPlaylist = useCallback(async () => {
@@ -241,7 +241,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
   const openPitPanel = useCallback(async () => {
     await window.ipc.invoke('app:pitpanel:open', { displayId: pitDisplayId ?? undefined })
     setPitPanelOpen(true)
-    showToast('Painel de Pit aberto.', 'success')
+    showToast('Pit Panel opened.', 'success')
   }, [pitDisplayId, showToast])
 
   const closePitPanel = useCallback(async () => {
@@ -296,26 +296,26 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
       <section style={panel()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <span style={{ fontSize: 18 }} aria-hidden>🏁</span>
-          <strong style={{ color: TEXT_FG, fontSize: 14, letterSpacing: '0.04em' }}>Painel de Pit (touch)</strong>
+          <strong style={{ color: TEXT_FG, fontSize: 14, letterSpacing: '0.04em' }}>Pit Panel (touch)</strong>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           <span style={{ color: TEXT_DIM, fontSize: 12 }}>Monitor</span>
           <select value={pitDisplayId ?? ''} onChange={(e) => setPitDisplayId(e.target.value ? Number(e.target.value) : null)} style={input()}>
-            {displays.length === 0 && <option value="">Nenhum monitor</option>}
+            {displays.length === 0 && <option value="">No monitor</option>}
             {displayOptions}
           </select>
           <button style={btn('primary')} disabled={busy || displays.length === 0} onClick={() => run(openPitPanel)}>
-            {pitPanelOpen ? 'Reabrir Painel de Pit' : 'Abrir Painel de Pit'}
+            {pitPanelOpen ? 'Reopen Pit Panel' : 'Open Pit Panel'}
           </button>
           {pitPanelOpen && (
             <button style={btn('danger')} disabled={busy} onClick={() => run(closePitPanel)}>
-              Fechar painel
+              Close panel
             </button>
           )}
         </div>
         <p style={{ color: TEXT_DIM, fontSize: 12, margin: '8px 0 0' }}>
           Painel de toque para pit stop e comandos rápidos — combustível, pneus, serviço, chat macros, câmera e replay.
-          O Kiosk de dashboards continua em <strong>Dashboards</strong>.
+          The dashboard kiosk remains in <strong>Dashboards</strong>.
         </p>
       </section>
 
@@ -398,19 +398,19 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
         {panelDraft ? (
           <>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
-              <button style={btn('primary')} disabled={busy} onClick={() => run(savePanel)}>Salvar</button>
-              <button style={btn()} disabled={busy} onClick={() => run(openFullscreen)}>Abrir em tela cheia</button>
+              <button style={btn('primary')} disabled={busy} onClick={() => run(savePanel)}>Save</button>
+              <button style={btn()} disabled={busy} onClick={() => run(openFullscreen)}>Open fullscreen</button>
               <button style={btn()} disabled={busy} onClick={() => run(addToPlaylist)}>Adicionar à playlist</button>
-              <button style={btn('danger')} disabled={busy} onClick={() => run(deletePanel)}>Excluir</button>
+              <button style={btn('danger')} disabled={busy} onClick={() => run(deletePanel)}>Delete</button>
               <span style={{ width: 1, height: 24, background: PANEL_BORDER }} />
               <span style={{ color: TEXT_DIM, fontSize: 12 }}>Monitor</span>
               <select value={panelDisplayId ?? ''} onChange={(e) => setPanelDisplayId(e.target.value ? Number(e.target.value) : null)} style={input()}>
-                {displays.length === 0 && <option value="">Nenhum monitor</option>}
+                {displays.length === 0 && <option value="">No monitor</option>}
                 {displayOptions}
               </select>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: TEXT_DIM, fontSize: 13 }}>
                 <input type="checkbox" checked={fullscreen} onChange={(e) => setFullscreen(e.target.checked)} />
-                Tela cheia
+                Fullscreen
               </label>
             </div>
 
@@ -422,7 +422,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
             />
           </>
         ) : (
-          <p style={{ color: TEXT_DIM, fontSize: 13 }}>Selecione um button box acima ou crie um novo para editar.</p>
+          <p style={{ color: TEXT_DIM, fontSize: 13 }}>Select a button box above or create a new one to edit.</p>
         )}
       </section>
     </div>

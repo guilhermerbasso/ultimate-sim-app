@@ -165,7 +165,7 @@ export class RevlightsEngine {
 
   async applyPreset(presetId: RevlightsPresetId): Promise<RevlightsConfig> {
     if (!isRevlightsPresetId(presetId)) {
-      throw new Error(`Preset desconhecido: ${presetId}`)
+      throw new Error(`Preset unknown: ${presetId}`)
     }
     const next = applyPreset(presetId, this.config)
     return this.setConfig(next)

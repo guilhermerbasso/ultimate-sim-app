@@ -191,7 +191,7 @@ export class EmulationEngine {
         await this.setPadButton(command.button, nextPressed ? pressValue : 0)
         if (nextPressed) this.toggledButtons.add(buttonKey)
         else this.toggledButtons.delete(buttonKey)
-        return { ok: true, message: `Botão virtual ${command.button} ${nextPressed ? 'ativado' : 'desativado'}.` }
+        return { ok: true, message: `Virtual button ${command.button} ${nextPressed ? 'enabled' : 'desenabled'}.` }
       }
 
       await this.setPadButton(command.button, pressValue)
@@ -202,7 +202,7 @@ export class EmulationEngine {
         await this.setPadButton(command.button, 0)
       }
 
-      return { ok: true, message: `Gamepad virtual: botão ${command.button} enviado (${command.mode}).` }
+      return { ok: true, message: `Virtual gamepad: button ${command.button} sent (${command.mode}).` }
     } catch (error) {
       return { ok: false, message: `Falha ao emular gamepad: ${errorMessage(error)}` }
     }
@@ -228,7 +228,7 @@ export class EmulationEngine {
 
   private probeKeyboard(): EmulationCapability {
     const result = this.ensureNut()
-    return result.ok ? ok('Teclado disponível via @nut-tree/nut-js.') : unavailable(result.message)
+    return result.ok ? ok('Keyboard available through @nut-tree/nut-js.') : unavailable(result.message)
   }
 
   private probeGamepad(): EmulationCapability {
@@ -237,28 +237,28 @@ export class EmulationEngine {
     }
     try {
       nativeRequire('vigemclient') as VigemModule
-      return ok('Gamepad virtual disponível via vigemclient/ViGEmBus.')
+      return ok('Virtual gamepad available through vigemclient/ViGEmBus.')
     } catch (error) {
       this.vigemError = errorMessage(error)
-      return unavailable(`Dependência vigemclient/ViGEmBus indisponível: ${this.vigemError}`)
+      return unavailable(`vigemclient/ViGEmBus dependency unavailable: ${this.vigemError}`)
     }
   }
 
   private ensureNut(): EmulationResult {
     if (process.platform !== 'win32') {
-      return { ok: false, message: 'Emulação de teclado requer Windows nesta versão.' }
+      return { ok: false, message: 'Keyboard emulation requires Windows in this version.' }
     }
-    if (this.nut) return { ok: true, message: 'Teclado disponível.' }
-    if (this.nutError) return { ok: false, message: `Dependência @nut-tree/nut-js indisponível: ${this.nutError}` }
+    if (this.nut) return { ok: true, message: 'Keyboard available.' }
+    if (this.nutError) return { ok: false, message: `@nut-tree/nut-js dependency unavailable: ${this.nutError}` }
 
     try {
       const loaded = nativeRequire('@nut-tree/nut-js') as Partial<NutModule>
-      if (!loaded.keyboard || !loaded.Key) throw new Error('API keyboard/Key não encontrada em @nut-tree/nut-js.')
+      if (!loaded.keyboard || !loaded.Key) throw new Error('keyboard/Key API not found in @nut-tree/nut-js.')
       this.nut = { keyboard: loaded.keyboard, Key: loaded.Key }
-      return { ok: true, message: 'Teclado disponível.' }
+      return { ok: true, message: 'Keyboard available.' }
     } catch (error) {
       this.nutError = errorMessage(error)
-      return { ok: false, message: `Dependência @nut-tree/nut-js indisponível: ${this.nutError}` }
+      return { ok: false, message: `@nut-tree/nut-js dependency unavailable: ${this.nutError}` }
     }
   }
 
@@ -266,10 +266,10 @@ export class EmulationEngine {
 
   private async ensureGamepad(): Promise<EmulationResult> {
     if (process.platform !== 'win32') {
-      return { ok: false, message: 'Emulação de gamepad virtual requer Windows + driver ViGEmBus.' }
+      return { ok: false, message: 'Virtual gamepad emulation requires Windows + ViGEmBus driver.' }
     }
     if (this.virtualPad) return { ok: true, message: 'Gamepad virtual conectado.' }
-    if (this.vigemError) return { ok: false, message: `Dependência vigemclient/ViGEmBus indisponível: ${this.vigemError}` }
+    if (this.vigemError) return { ok: false, message: `vigemclient/ViGEmBus dependency unavailable: ${this.vigemError}` }
     // Memoize the in-flight init so concurrent first-use callers don't each create
     // (and leak) a second ViGEm client/virtual pad.
     if (this.gamepadInit) return this.gamepadInit
@@ -285,7 +285,7 @@ export class EmulationEngine {
     try {
       const module = nativeRequire('vigemclient') as VigemModule
       const ClientCtor = pickConstructor<VigemClient>(module, ['ViGEmClient', 'VigemClient', 'Client'])
-      if (!ClientCtor) throw new Error('Cliente ViGEm não encontrado no pacote vigemclient.')
+      if (!ClientCtor) throw new Error('ViGEm client not found in the vigemclient package.')
 
       const client = new ClientCtor()
       if (client.connect) await Promise.resolve(client.connect())
@@ -302,7 +302,7 @@ export class EmulationEngine {
         client.createDS4Controller?.() ??
         (ControllerCtor ? new ControllerCtor(client) : null)
 
-      if (!pad) throw new Error('Controle virtual Xbox360/DS4 não pôde ser criado.')
+      if (!pad) throw new Error('Virtual Xbox 360/DS4 controller could not be created.')
       if (pad.connect) await Promise.resolve(pad.connect())
 
       this.vigemClient = client
@@ -310,7 +310,7 @@ export class EmulationEngine {
       return { ok: true, message: 'Gamepad virtual conectado.' }
     } catch (error) {
       this.vigemError = errorMessage(error)
-      return { ok: false, message: `Dependência vigemclient/ViGEmBus indisponível: ${this.vigemError}` }
+      return { ok: false, message: `vigemclient/ViGEmBus dependency unavailable: ${this.vigemError}` }
     }
   }
 
@@ -330,7 +330,7 @@ export class EmulationEngine {
       const key = nut.Key[candidate]
       if (key !== undefined) return key
     }
-    throw new Error(`Tecla não reconhecida pelo nut-js: ${rawKey}`)
+    throw new Error(`Key not recognized by nut-js: ${rawKey}`)
   }
 
   private async tapKeyboardKeys(keys: NutKey[], macro: KeyboardMacroCommand): Promise<void> {
@@ -352,7 +352,7 @@ export class EmulationEngine {
     else if (pad.button) await Promise.resolve(pad.button(button, value))
     else if (value > 0 && pad.pressButton) await Promise.resolve(pad.pressButton(button))
     else if (pad.releaseButton) await Promise.resolve(pad.releaseButton(button))
-    else throw new Error('API de botão não encontrada no controle virtual.')
+    else throw new Error('Button API not found on the virtual controller.')
 
     if (pad.update) await Promise.resolve(pad.update())
   }

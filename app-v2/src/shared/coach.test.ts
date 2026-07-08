@@ -290,7 +290,7 @@ describe('analyzeLap — symptom detection', () => {
   it('flags under-rotation (loaded corner, too little lock)', () => {
     // A clearly loaded corner held in ONE sector: high lateral demand (latAbsG ~1.0
     // ⇒ expected ~12° of wheel) but the driver barely turns in (1°). That is
-    // "virando pouco" — needs MORE volante, the inverse of busy steering.
+    // "virando pouco" — needs MORE steering, the inverse of busy steering.
     const lap = analyzeLap(buildLap([
       { n: 6, fields: frame({ throttle: 1 }) },
       { n: 40, fields: frame({ throttle: 1, brake: 0, steerAbsDeg: 1, latAbsG: 1.0, speedKmh: 120 }) },
@@ -621,7 +621,7 @@ function tip(over: Partial<CoachTip>): CoachTip {
     id: 'live:braking:s1',
     kind: 'braking',
     severity: 'high',
-    message: 'Freada tarde/forte: antecipe um pouco e solte o freio progressivamente.',
+    message: 'Late/hard braking: brake a little earlier and release the brake progressively.',
     estTimeLossSec: 0.3,
     createdAt: 0,
     ...over
@@ -630,19 +630,19 @@ function tip(over: Partial<CoachTip>): CoachTip {
 
 describe('coachActionForFindingKind — directional imperatives', () => {
   const cases: Array<[CoachFindingKind, string]> = [
-    ['brake-late', 'freie antes'],
+    ['brake-late', 'brake earlier'],
     ['brake-early', 'freie mais tarde'],
     ['throttle-late', 'acelere antes'],
     ['throttle-early', 'acelere mais tarde'],
-    ['steering-late', 'vire antes'],
+    ['steering-late', 'turn in earlier'],
     ['steering-early', 'vire mais tarde'],
-    ['trail-brake-lock', 'alivie o freio ao virar'],
-    ['coast', 'não role sem pedal — freie ou acelere'],
-    ['throttle-hesitation', 'acelere com mais decisão'],
-    ['abs-overuse', 'alivie o freio'],
-    ['tc-overuse', 'suavize o gás na saída'],
-    ['steering-busy', 'suavize a entrada, um arco só'],
-    ['steering-insufficient', 'mais volante'],
+    ['trail-brake-lock', 'release the brake as you turn'],
+    ['coast', 'do not coast — brake or accelerate'],
+    ['throttle-hesitation', 'commit to throttle'],
+    ['abs-overuse', 'release the brake'],
+    ['tc-overuse', 'smooth the throttle on exit'],
+    ['steering-busy', 'smooth the entry, one arc'],
+    ['steering-insufficient', 'more steering'],
     ['inconsistency', 'repita os mesmos pontos de freada']
   ]
 
@@ -667,23 +667,23 @@ describe('coachActionForFindingKind — directional imperatives', () => {
 })
 
 describe('coachActionForCoarseKind — fallback imperatives', () => {
-  it('maps braking → freie antes', () => {
-    expect(coachActionForCoarseKind('braking')).toBe('freie antes')
+  it('maps braking → brake earlier', () => {
+    expect(coachActionForCoarseKind('braking')).toBe('brake earlier')
   })
   it('maps throttle → acelere antes', () => {
     expect(coachActionForCoarseKind('throttle')).toBe('acelere antes')
   })
-  it('maps coast → não role sem pedal — freie ou acelere', () => {
-    expect(coachActionForCoarseKind('coast')).toBe('não role sem pedal — freie ou acelere')
+  it('maps coast → do not coast — brake or accelerate', () => {
+    expect(coachActionForCoarseKind('coast')).toBe('do not coast — brake or accelerate')
   })
-  it('maps steering → suavize a entrada, um arco só', () => {
-    expect(coachActionForCoarseKind('steering')).toBe('suavize a entrada, um arco só')
+  it('maps steering → smooth the entry, one arc', () => {
+    expect(coachActionForCoarseKind('steering')).toBe('smooth the entry, one arc')
   })
-  it('maps abs → alivie o freio', () => {
-    expect(coachActionForCoarseKind('abs')).toBe('alivie o freio')
+  it('maps abs → release the brake', () => {
+    expect(coachActionForCoarseKind('abs')).toBe('release the brake')
   })
-  it('maps tc → suavize o gás na saída', () => {
-    expect(coachActionForCoarseKind('tc')).toBe('suavize o gás na saída')
+  it('maps tc → smooth the throttle on exit', () => {
+    expect(coachActionForCoarseKind('tc')).toBe('smooth the throttle on exit')
   })
 })
 
@@ -692,16 +692,16 @@ describe('coachActionPhrase — prefers stored directional action', () => {
     expect(coachActionPhrase(tip({ action: 'freie mais tarde' }))).toBe('freie mais tarde')
   })
   it('falls back to coarse kind when action is missing', () => {
-    expect(coachActionPhrase(tip({ kind: 'braking', action: undefined }))).toBe('freie antes')
+    expect(coachActionPhrase(tip({ kind: 'braking', action: undefined }))).toBe('brake earlier')
   })
   it('falls back to coarse kind when action is blank', () => {
-    expect(coachActionPhrase(tip({ kind: 'tc', action: '   ' }))).toBe('suavize o gás na saída')
+    expect(coachActionPhrase(tip({ kind: 'tc', action: '   ' }))).toBe('smooth the throttle on exit')
   })
 })
 
 describe('coachSpeakText — terse spoken call-out', () => {
-  it('speaks "Setor N, <imperative>." when the tip has a sector', () => {
-    expect(coachSpeakText(tip({ sector: 3, action: 'freie antes' }))).toBe('Setor 3, freie antes.')
+  it('speaks "Sector N, <imperative>." when the tip has a sector', () => {
+    expect(coachSpeakText(tip({ sector: 3, action: 'brake earlier' }))).toBe('Sector 3, brake earlier.')
   })
 
   it('speaks a capitalized standalone imperative when there is no sector', () => {
@@ -718,14 +718,14 @@ describe('coachSpeakText — terse spoken call-out', () => {
   })
 
   it('does not describe the mistake or the time loss — only the correction', () => {
-    const spoken = coachSpeakText(tip({ sector: 1, action: 'freie antes', message: 'Freada tarde/forte', estTimeLossSec: 0.9 }))
-    expect(spoken).toBe('Setor 1, freie antes.')
+    const spoken = coachSpeakText(tip({ sector: 1, action: 'brake earlier', message: 'Late/hard braking', estTimeLossSec: 0.9 }))
+    expect(spoken).toBe('Sector 1, brake earlier.')
     expect(spoken).not.toContain('Freada')
     expect(spoken).not.toContain('0.9')
   })
 })
 
-// ─── Composite per-corner advice (the spoken "Curva N: a, b, c." line) ────────
+// ─── Composite per-corner advice (the spoken "Turn N: a, b, c." line) ────────
 
 function mkFinding(over: Partial<CoachFinding>): CoachFinding {
   return {
@@ -770,22 +770,22 @@ describe('coachDimensionForKind — driving-dimension grouping', () => {
 
 describe('coachComposeAction — terse antes/depois corrections', () => {
   it('uses the directional antes/depois wording the driver asked for', () => {
-    expect(coachComposeAction('brake-late')).toBe('freie antes')
-    expect(coachComposeAction('brake-early')).toBe('freie depois')
-    expect(coachComposeAction('steering-late')).toBe('vire antes')
+    expect(coachComposeAction('brake-late')).toBe('brake earlier')
+    expect(coachComposeAction('brake-early')).toBe('brake later')
+    expect(coachComposeAction('steering-late')).toBe('turn in earlier')
     expect(coachComposeAction('steering-early')).toBe('vire depois')
     expect(coachComposeAction('throttle-late')).toBe('acelere antes')
-    expect(coachComposeAction('throttle-early')).toBe('acelere depois')
+    expect(coachComposeAction('throttle-early')).toBe('throttle later')
   })
 
   it('phrases the steering ANGLE dimension distinctly from timing', () => {
-    expect(coachComposeAction('steering-insufficient')).toBe('mais volante')
-    expect(coachComposeAction('steering-busy')).toBe('volante mais suave')
+    expect(coachComposeAction('steering-insufficient')).toBe('more steering')
+    expect(coachComposeAction('steering-busy')).toBe('steering mais suave')
   })
 })
 
 describe('composeCornerAdvice — multi-dimension per-corner line', () => {
-  it('combines brake + turn-in + throttle into ONE "Curva N: …" line, worst-first', () => {
+  it('combines brake + turn-in + throttle into ONE "Turn N: …" line, worst-first', () => {
     const advice = composeCornerAdvice(
       [
         mkFinding({ kind: 'steering-late', estTimeLossSec: 0.18 }),
@@ -795,7 +795,7 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       { corner: 3 }
     )
     expect(advice).not.toBeNull()
-    expect(advice!.text).toBe('Curva 3: freie antes, vire antes, acelere depois.')
+    expect(advice!.text).toBe('Turn 3: brake earlier, turn in earlier, throttle later.')
     expect(advice!.kinds).toEqual(['brake-late', 'steering-late', 'throttle-early'])
     expect(advice!.worstLossSec).toBeCloseTo(0.30, 5)
     expect(advice!.totalLossSec).toBeCloseTo(0.58, 5)
@@ -809,8 +809,8 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       ],
       { corner: 5 }
     )
-    expect(advice!.actions).toEqual(['freie depois'])
-    expect(advice!.text).toBe('Curva 5: freie depois.')
+    expect(advice!.actions).toEqual(['brake later'])
+    expect(advice!.text).toBe('Turn 5: brake later.')
   })
 
   it('surfaces BOTH steering dimensions — turn-in timing AND angle — together', () => {
@@ -821,12 +821,12 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       ],
       { corner: 7 }
     )
-    expect(advice!.text).toBe('Curva 7: vire antes, mais volante.')
+    expect(advice!.text).toBe('Turn 7: turn in earlier, more steering.')
   })
 
-  it('falls back to "Setor N:" when no corner is given', () => {
+  it('falls back to "Sector N:" when no corner is given', () => {
     const advice = composeCornerAdvice([mkFinding({ kind: 'brake-late' })], { sector: 2 })
-    expect(advice!.text).toBe('Setor 2: freie antes.')
+    expect(advice!.text).toBe('Sector 2: brake earlier.')
   })
 
   it('caps the line at maxDims dimensions (no firehose)', () => {
@@ -840,7 +840,7 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       { corner: 1 },
       { maxDims: 2 }
     )
-    expect(advice!.actions).toEqual(['freie antes', 'vire antes'])
+    expect(advice!.actions).toEqual(['brake earlier', 'turn in earlier'])
   })
 
   it('ignores gains / good / zero-loss findings and returns null when nothing actionable', () => {
@@ -859,11 +859,11 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
     // Regression guard (v2.36.0): a corner whose ONLY loss is dimension-less
     // `time-loss` (e.g. low apex min-speed) must still speak, not go silent.
     const advice = composeCornerAdvice(
-      [mkFinding({ kind: 'time-loss', estTimeLossSec: 0.22, title: 'Menos velocidade na curva' })],
+      [mkFinding({ kind: 'time-loss', estTimeLossSec: 0.22, title: 'Less speed in the turn' })],
       { corner: 4 }
     )
     expect(advice).not.toBeNull()
-    expect(advice!.text).toBe('Curva 4: busque mais tempo aqui.')
+    expect(advice!.text).toBe('Turn 4: find more time here.')
     expect(advice!.kinds).toEqual(['time-loss'])
     expect(advice!.worstLossSec).toBeCloseTo(0.22, 5)
   })
@@ -878,23 +878,23 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       ],
       { corner: 6 }
     )
-    expect(advice!.text).toBe('Curva 6: freie antes.')
+    expect(advice!.text).toBe('Turn 6: brake earlier.')
     expect(advice!.kinds).toEqual(['brake-late'])
-    expect(advice!.text).not.toContain('busque mais tempo aqui')
+    expect(advice!.text).not.toContain('find more time here')
   })
 
-  it('speaks the SECTOR time-loss zone ("Setor N: busque mais tempo aqui") fallback', () => {
+  it('speaks the SECTOR time-loss zone ("Sector N: find more time here") fallback', () => {
     const advice = composeCornerAdvice([mkFinding({ kind: 'time-loss', estTimeLossSec: 0.3 })], { sector: 2 })
-    expect(advice!.text).toBe('Setor 2: busque mais tempo aqui.')
+    expect(advice!.text).toBe('Sector 2: find more time here.')
   })
 })
 
 describe('coachSpeakText — prefers the corner locator over the sector', () => {
-  it('says "Curva N, …" when the tip carries a corner number', () => {
-    expect(coachSpeakText(tip({ corner: 4, sector: 2, action: 'vire antes' }))).toBe('Curva 4, vire antes.')
+  it('says "Turn N, …" when the tip carries a corner number', () => {
+    expect(coachSpeakText(tip({ corner: 4, sector: 2, action: 'turn in earlier' }))).toBe('Turn 4, turn in earlier.')
   })
 
-  it('still says "Setor N, …" when only a sector is present', () => {
-    expect(coachSpeakText(tip({ corner: undefined, sector: 2, action: 'vire antes' }))).toBe('Setor 2, vire antes.')
+  it('still says "Sector N, …" when only a sector is present', () => {
+    expect(coachSpeakText(tip({ corner: undefined, sector: 2, action: 'turn in earlier' }))).toBe('Sector 2, turn in earlier.')
   })
 })

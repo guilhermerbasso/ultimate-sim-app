@@ -1,7 +1,7 @@
 import type { DriverEntry, TelemetrySnapshot } from '../../shared/telemetry'
 import type { TelemetryProvider } from './provider'
 
-// Provider sintético: gera uma volta plausível para desenvolver/visualizar
+// Provider sintético: gera uma lap plausível para desenvolver/visualizar
 // dashboards, overlays e OLED SEM estar numa sessão real (essencial no Mac).
 export class MockProvider implements TelemetryProvider {
   readonly id = 'mock' as const
@@ -51,7 +51,7 @@ export class MockProvider implements TelemetryProvider {
     const theta = lapPct * Math.PI * 2
     const xMeters = 1000 * Math.cos(theta) + 80 * Math.sin(3 * theta)
     const yMeters = 600 * Math.sin(theta) + 50 * Math.sin(5 * theta)
-    // Derivadas analíticas → velocidade no mundo (eixo x=leste, y=norte).
+    // Derivadas analíticas → speed no mundo (eixo x=leste, y=norte).
     const dxDtheta = -1000 * Math.sin(theta) + 240 * Math.cos(3 * theta)
     const dyDtheta = 600 * Math.cos(theta) + 250 * Math.cos(5 * theta)
     const dThetaDt = (Math.PI * 2) / lapSeconds

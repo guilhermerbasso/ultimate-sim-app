@@ -319,7 +319,7 @@ export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast }: 
               Escolha um modulo, conecte a placa e grave o firmware pronto. Sem Arduino IDE, sem codigo.
             </p>
           </div>
-          <button style={buttonStyle('ghost')} onClick={closeWizard} type="button" aria-label="Fechar">
+          <button style={buttonStyle('ghost')} onClick={closeWizard} type="button" aria-label="Close">
             ✕
           </button>
         </div>
@@ -474,7 +474,7 @@ function ModuleStep({
                   <span style={difficultyBadge}>{module.difficulty}</span>
                 ) : (
                   <span style={{ ...difficultyBadge, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.6)', borderColor: 'transparent' }}>
-                    em breve
+                    coming soon
                   </span>
                 )}
               </div>
@@ -850,7 +850,7 @@ function FlashStep({
         <div style={{ display: 'flex', gap: 8 }}>
           {busy && (
             <button style={buttonStyle('ghost')} onClick={onClose} type="button">
-              Fechar agora
+              Close agora
             </button>
           )}
           {!busy && !done && (
@@ -865,7 +865,7 @@ function FlashStep({
           ) : (
             !busy && (
               <button style={buttonStyle('ghost')} onClick={onClose} type="button">
-                Fechar
+                Close
               </button>
             )
           )}

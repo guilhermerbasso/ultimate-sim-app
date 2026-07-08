@@ -111,8 +111,8 @@ export function formatLapTime(seconds: number | undefined): string {
 /** Where a finding happened — prefer the WS-E corner, fall back to the sector. */
 export function findingLocation(finding: CoachFinding): string {
   const corner = (finding as EnrichedFinding).corner
-  if (finite(corner) && corner > 0) return `Curva ${Math.round(corner)}`
-  if (finite(finding.sector) && finding.sector > 0) return `Setor ${finding.sector}`
+  if (finite(corner) && corner > 0) return `Turn ${Math.round(corner)}`
+  if (finite(finding.sector) && finding.sector > 0) return `Sector ${finding.sector}`
   return 'Pista'
 }
 
@@ -163,7 +163,7 @@ function bulletForGain(finding: CoachFinding): string {
   return `${loc}: ${headlineFor(finding)}${suffix}`
 }
 
-const PRESSURE_LABEL: Record<string, string> = { low: 'baixa', ok: 'ok', high: 'alta' }
+const PRESSURE_LABEL: Record<string, string> = { low: 'baixa', ok: 'ok', high: 'high' }
 const TEMP_LABEL: Record<string, string> = { cold: 'fria', optimal: 'ideal', hot: 'quente' }
 
 /** One short pt-BR strategy line from the predictions, or null when no signal. */
@@ -176,21 +176,21 @@ export function strategyNote(predictions: PredictionsSnapshot | null | undefined
     const m = fuel.finishMarginLaps
     if (m >= 0) {
       const litres = finite(fuel.finishMarginL) ? `, sobra ~${num(fuel.finishMarginL, 1)} L` : ''
-      parts.push(`combustível: margem de ${num(m, 1)} voltas no fim${litres}`)
+      parts.push(`fuel: margem de ${num(m, 1)} laps no end${litres}`)
     } else {
-      const litres = finite(fuel.finishMarginL) ? `, faltam ~${num(Math.abs(fuel.finishMarginL), 1)} L` : ''
-      parts.push(`combustível: déficit de ${num(Math.abs(m), 1)} voltas${litres} — precisa economizar/parar`)
+      const litres = finite(fuel.finishMarginL) ? `, fhighm ~${num(Math.abs(fuel.finishMarginL), 1)} L` : ''
+      parts.push(`fuel: déficit de ${num(Math.abs(m), 1)} laps${litres} — precisa economizar/parar`)
     }
   }
 
   const tire = predictions.tire
   if (tire) {
     const tParts: string[] = []
-    if (finite(tire.degSecPerLap) && tire.degSecPerLap > 0) tParts.push(`perda ~${num(tire.degSecPerLap)} s/volta`)
-    if (finite(tire.lapsToCliff) && tire.lapsToCliff > 0) tParts.push(`~${Math.round(tire.lapsToCliff)} voltas até cair`)
+    if (finite(tire.degSecPerLap) && tire.degSecPerLap > 0) tParts.push(`perda ~${num(tire.degSecPerLap)} s/lap`)
+    if (finite(tire.lapsToCliff) && tire.lapsToCliff > 0) tParts.push(`~${Math.round(tire.lapsToCliff)} laps até cair`)
     if (tire.pressureState && tire.pressureState !== 'ok') tParts.push(`pressão ${PRESSURE_LABEL[tire.pressureState] ?? tire.pressureState}`)
     if (tire.tempState && tire.tempState !== 'optimal') tParts.push(`temp ${TEMP_LABEL[tire.tempState] ?? tire.tempState}`)
-    if (tParts.length > 0) parts.push(`pneu: ${tParts.join(', ')}`)
+    if (tParts.length > 0) parts.push(`tire: ${tParts.join(', ')}`)
   }
 
   const pace = predictions.pace
@@ -215,7 +215,7 @@ function sessionHeader(info: DebriefSessionInfo | undefined): string | null {
   if (info.carName) bits.push(info.carName)
   if (info.sessionType) bits.push(info.sessionType)
   const meta: string[] = []
-  if (finite(info.lapsCompleted) && info.lapsCompleted > 0) meta.push(`${Math.round(info.lapsCompleted)} voltas`)
+  if (finite(info.lapsCompleted) && info.lapsCompleted > 0) meta.push(`${Math.round(info.lapsCompleted)} laps`)
   if (finite(info.bestLapTimeSec) && info.bestLapTimeSec > 0) meta.push(`melhor ${formatLapTime(info.bestLapTimeSec)}`)
   const left = bits.join(' · ')
   const right = meta.length > 0 ? ` (${meta.join(', ')})` : ''
@@ -260,7 +260,7 @@ export function composeDebrief(
   if (losses.length === 0 && gains.length === 0 && !strategy) {
     const head = header ? `${header}. ` : ''
     return {
-      text: `${head}Sem dados suficientes para um debrief detalhado deste stint. Rode algumas voltas limpas para o Coach analisar.`.trim(),
+      text: `${head}Sem dados suficientes para um debrief detalhado deste stint. Rode algumas laps limpas para o Coach analisar.`.trim(),
       bullets: []
     }
   }

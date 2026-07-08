@@ -180,7 +180,7 @@ function sprintBlueprint(): DashboardBlueprint {
     defaultFamily: 'broadcast',
     width: CANVAS_W,
     height: CANVAS_H,
-    description: 'Corrida curta: marcha central, delta/tempos à esquerda, combustível e relativos à direita.',
+    description: 'Race curta: central gear, delta/times on the left, fuel e relatives on the right.',
     slots
   }
 }
@@ -212,7 +212,7 @@ function enduranceBlueprint(): DashboardBlueprint {
     defaultFamily: 'minimal',
     width: CANVAS_W,
     height: CANVAS_H,
-    description: 'Stint longo: combustível e pneus em destaque, tempos, delta e relativos calmos.',
+    description: 'Stint longo: fuel e tires em destaque, tempos, delta e relativos calmos.',
     slots
   }
 }
@@ -239,7 +239,7 @@ function qualifyingBlueprint(): DashboardBlueprint {
     defaultFamily: 'bauhaus',
     width: CANVAS_W,
     height: CANVAS_H,
-    description: 'Volta de classificação: delta gigante, marcha, tempos e inputs para a hot lap.',
+    description: 'Qualifying lap: delta gigante, gear, tempos e inputs para a hot lap.',
     slots
   }
 }
@@ -265,7 +265,7 @@ function practiceBlueprint(): DashboardBlueprint {
     defaultFamily: 'heatmap',
     width: CANVAS_W,
     height: CANVAS_H,
-    description: 'Treino de engenharia: pneus e freios em grade, temperaturas, inputs e delta.',
+    description: 'Treino de engenharia: tires e brakes em grade, temperaturas, inputs e delta.',
     slots
   }
 }
@@ -295,7 +295,7 @@ function ovalBlueprint(): DashboardBlueprint {
     defaultFamily: 'broadcast',
     width: CANVAS_W,
     height: CANVAS_H,
-    description: 'Oval: velocidade e relativos no centro, posição/combustível e radar de tráfego.',
+    description: 'Oval: speed e relativos no centro, position/fuel e radar de traffic.',
     slots
   }
 }
@@ -323,7 +323,7 @@ function dirtBlueprint(): DashboardBlueprint {
     defaultFamily: 'analog',
     width: CANVAS_W,
     height: CANVAS_H,
-    description: 'Terra/rally: g-force e inputs em destaque, velocidade e marcha analógicas.',
+    description: 'Terra/rally: g-force e inputs em destaque, speed e gear analog.',
     slots
   }
 }
@@ -355,7 +355,7 @@ function formulaBlueprint(): DashboardBlueprint {
     defaultFamily: 'neon',
     width: CANVAS_W,
     height: CANVAS_H,
-    description: 'Fórmula: cluster central neon, delta e tempos, posição, combustível e assistências.',
+    description: 'Formula: cluster central neon, delta e tempos, position, fuel e assistências.',
     slots
   }
 }
@@ -387,7 +387,7 @@ function gt3Blueprint(): DashboardBlueprint {
     defaultFamily: 'glass',
     width: CANVAS_W,
     height: CANVAS_H,
-    description: 'GT3 equilibrado: marcha e pneus centrais, delta/combustível, tempos e relativos.',
+    description: 'GT3 equilibrado: gear e tires centrais, delta/fuel, tempos e relativos.',
     slots
   }
 }
@@ -410,7 +410,7 @@ function minimalBlueprint(): DashboardBlueprint {
     defaultFamily: 'minimal',
     width: CANVAS_W,
     height: CANVAS_H,
-    description: 'Mínimo: marcha dominante centralizada, velocidade e delta — nada mais.',
+    description: 'Minimal: gear dominante centralizada, speed e delta — nothing else.',
     slots
   }
 }
@@ -439,7 +439,7 @@ function futuristicBlueprint(): DashboardBlueprint {
     defaultFamily: 'neon',
     width: CANVAS_W,
     height: CANVAS_H,
-    description: 'Futurista: trio velocidade/marcha/RPM em arco, delta, combustível, posição e mapa.',
+    description: 'Futurista: trio speed/gear/RPM em arco, delta, fuel, position e mapa.',
     slots
   }
 }
@@ -470,7 +470,7 @@ function dataHeavyBlueprint(): DashboardBlueprint {
     defaultFamily: 'heatmap',
     width: CANVAS_W,
     height: CANVAS_H,
-    description: 'Denso para engenheiro: pneus, freios, temperaturas e uma faixa cheia de canais.',
+    description: 'Denso para engineer: tires, brakes, temperaturas e uma faixa cheia de canais.',
     slots
   }
 }
@@ -497,7 +497,7 @@ function streamingBlueprint(): DashboardBlueprint {
     defaultFamily: 'broadcast',
     width: CANVAS_W,
     height: CANVAS_H,
-    description: 'Transmissão: torre de classificação grande, relativos, gaps e tempos para a tela.',
+    description: 'Broadcast: large standings tower, relativos, gaps e times for the screen.',
     slots
   }
 }

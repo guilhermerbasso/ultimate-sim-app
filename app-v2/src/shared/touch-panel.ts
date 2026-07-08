@@ -292,7 +292,7 @@ export function createButtonBoxButton(partial: Partial<ButtonBoxButton> = {}, pa
   const swatch = NEON_PALETTE[((paletteIndex % NEON_PALETTE.length) + NEON_PALETTE.length) % NEON_PALETTE.length]
   return {
     id: partial.id ?? rid('btn'),
-    label: partial.label ?? `Botão ${paletteIndex + 1}`,
+    label: partial.label ?? `Button ${paletteIndex + 1}`,
     material: clampMaterial(partial.material),
     icon: safeIcon(partial.icon),
     bodyColor: partial.bodyColor ?? swatch.body,

@@ -69,7 +69,7 @@ const COMMUNITY_SOURCE_CHANNELS = {
 const SIM_LABEL: Record<CommunitySourceSim, string> = {
   iracing: 'iRacing',
   acc: 'ACC',
-  ac: 'Assetto Corsa',
+  ac: 'Assetto Colorsa',
   ams2: 'Automobilista 2',
   lmu: 'Le Mans Ultimate'
 }
@@ -335,11 +335,11 @@ export default function CommunityView({ showToast, language }: AppViewProps): Re
         </div>
 
         <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
-          {SIMS.map((sim) => {
-            const sources = communitySources.filter((source) => source.sim === sim)
+          {SIMS.map((yes) => {
+            const sources = communitySources.filter((source) => source.sim === yes)
             return (
-              <div key={sim} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 'var(--radius-sm)', padding: 10 }}>
-                <div style={{ ...label, opacity: 0.85 }}>{SIM_LABEL[sim]}</div>
+              <div key={yes} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 'var(--radius-sm)', padding: 10 }}>
+                <div style={{ ...label, opacity: 0.85 }}>{SIM_LABEL[yes]}</div>
                 <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
                   {sources.map((source) => (
                     <div key={source.id} style={{ ...row, justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -370,8 +370,8 @@ export default function CommunityView({ showToast, language }: AppViewProps): Re
             value={sourceForm.sim}
             onChange={(e) => setSourceForm((current) => ({ ...current, sim: e.currentTarget.value as CommunitySourceSim }))}
           >
-            {SIMS.map((sim) => (
-              <option key={sim} value={sim}>{SIM_LABEL[sim]}</option>
+            {SIMS.map((yes) => (
+              <option key={yes} value={yes}>{SIM_LABEL[yes]}</option>
             ))}
           </select>
           <select
@@ -418,7 +418,7 @@ export default function CommunityView({ showToast, language }: AppViewProps): Re
           <button style={primaryButton} type="button" disabled={busy || !liveReady} onClick={() => void runExport(COMMUNITY_CHANNELS.exportGhost, 'Ghost')}>
             {tt(language, 'community.exportMyLap')}
           </button>
-          <button style={button} type="button" disabled={busy || !status?.telemetryReady} onClick={() => void runExport(COMMUNITY_CHANNELS.exportTelemetry, 'Telemetria')}>
+          <button style={button} type="button" disabled={busy || !status?.telemetryReady} onClick={() => void runExport(COMMUNITY_CHANNELS.exportTelemetry, 'Telemetry')}>
             {tt(language, 'community.exportTelemetry')}
           </button>
           <button style={button} type="button" disabled={busy} onClick={() => void runExport(COMMUNITY_CHANNELS.exportSetup, 'Setup')}>

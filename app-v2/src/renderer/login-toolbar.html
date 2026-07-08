@@ -78,13 +78,13 @@
   </head>
   <body>
     <div class="bar">
-      <span class="brand">Login do <b>iRacing</b> · Ultimate Sim App</span>
+      <span class="brand"><b>iRacing</b> Login · Ultimate Sim App</span>
       <span class="spacer"></span>
       <span class="status" id="s">
-        Faça login no iRacing abaixo. Ao terminar, clique aqui →
+        Sign in to iRacing below. When you are done, click here →
       </span>
-      <button id="cancel" class="ghost" type="button">Cancelar</button>
-      <button id="done" type="button">✓ Voltar ao Ultimate Sim App</button>
+      <button id="cancel" class="ghost" type="button">Cancel</button>
+      <button id="done" type="button">✓ Return to Ultimate Sim App</button>
     </div>
     <script>
       ;(function () {
@@ -95,7 +95,7 @@
         var doneSentinel = params.get('done') || ''
         var cancelSentinel = params.get('cancel') || ''
         var HINT =
-          'Se os botões não responderem: use o menu Login acima, ou aperte Ctrl+Enter para concluir.'
+          'If the buttons do not respond: use the Login menu above, or press Ctrl+Enter to finish.'
 
         function done() {
           if (window.simLogin && typeof window.simLogin.done === 'function') {

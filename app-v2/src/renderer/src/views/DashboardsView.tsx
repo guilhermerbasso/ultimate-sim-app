@@ -64,7 +64,7 @@ const CYCLE_ACTION_NAME: Record<CycleDirection, AppActionName> = {
 
 const CYCLE_BINDING_LABEL: Record<CycleDirection, string> = {
   next: 'Dashboard · next (playlist)',
-  prev: 'Dashboard · anterior (playlist)'
+  prev: 'Dashboard ? previous (playlist)'
 }
 
 const CYCLE_FIELD_LABEL: Record<CycleDirection, string> = {
@@ -85,27 +85,27 @@ function sameButton(a: HidButtonControl, b: HidButtonControl): boolean {
 }
 
 const ELEMENT_TYPES: Array<{ value: DashboardElementType; label: string }> = [
-  { value: 'text', label: 'Texto' },
+  { value: 'text', label: 'Text' },
   { value: 'rect', label: 'Rectangle' },
-  { value: 'bar', label: 'Barra' },
-  { value: 'barv', label: 'Barra vertical' },
+  { value: 'bar', label: 'Bar' },
+  { value: 'barv', label: 'Vertical bar' },
   { value: 'dualbar', label: 'Dualbar (throttle/brake)' },
   { value: 'deltabar', label: 'Delta bar (±s)' },
-  { value: 'gauge', label: 'Mostrador (gauge)' },
+  { value: 'gauge', label: 'Gauge' },
   { value: 'shiftlights', label: 'Shift LEDs' },
-  { value: 'map', label: 'Mapa da pista' },
+  { value: 'map', label: 'Track map' },
   { value: 'radar', label: 'Radar' },
-  { value: 'image', label: 'Imagem' },
+  { value: 'image', label: 'Image' },
   { value: 'flag', label: 'Flag' },
   { value: 'trace', label: 'Trace (sparkline)' },
-  { value: 'table', label: 'Tabela' },
+  { value: 'table', label: 'Table' },
   { value: 'standings', label: 'Standings' },
   // GT3 widgets
   { value: 'shiftbar', label: 'Shift Bar v2 (GT3)' },
   { value: 'gearcluster', label: 'Gear + Speed (GT3)' },
-  { value: 'tyregrid', label: 'Grid de Tyres (GT3)' },
-  { value: 'brakegrid', label: 'Grid de Brakes (GT3)' },
-  { value: 'cornerstack', label: 'Health por Canto (GT3)' },
+  { value: 'tyregrid', label: 'Tire Grid (GT3)' },
+  { value: 'brakegrid', label: 'Brake Grid (GT3)' },
+  { value: 'cornerstack', label: 'Corner Health (GT3)' },
   { value: 'fuelstint', label: 'Fuel / Stint (GT3)' },
   { value: 'deltatile', label: 'Predictive Delta (GT3)' },
   { value: 'laptiming', label: 'Lap Times (GT3)' },
@@ -119,15 +119,15 @@ const ELEMENT_TYPES: Array<{ value: DashboardElementType; label: string }> = [
   { value: 'weather', label: 'Weather / Track (GT3)' },
   { value: 'trackmini', label: 'Mini Map (GT3)' },
   // Clean value widgets (qualquer channel via ir:<id>)
-  { value: 'value', label: 'Valor limpo' },
-  { value: 'valuebar', label: 'Valor + barra' },
-  { value: 'valuegauge', label: 'Valor + mostrador' }
+  { value: 'value', label: 'Clean value' },
+  { value: 'valuebar', label: 'Value + bar' },
+  { value: 'valuegauge', label: 'Value + gauge' }
 ]
 
 const SCALE_MODES: Array<{ value: DashboardScaleMode; label: string; hint: string }> = [
-  { value: 'fit', label: 'Fit (letterbox)', hint: 'Preserva proportion. Pode deixar bordas vazias.' },
-  { value: 'fill', label: 'Fill (cover)', hint: 'Cobre a tela. Pode cortar nas bordas.' },
-  { value: 'stretch', label: 'Stretch', hint: 'Distorce X/Y p/ preencher exatamente. Sem espacos, sem cortes.' }
+  { value: 'fit', label: 'Fit (letterbox)', hint: 'Preserves proportion. May leave empty borders.' },
+  { value: 'fill', label: 'Fill (cover)', hint: 'Covers the screen. May crop at the edges.' },
+  { value: 'stretch', label: 'Stretch', hint: 'Distorts X/Y to fill exactly. No gaps, no cropping.' }
 ]
 
 const DEFAULT_TABLE_COLS = ['pos', 'number', 'name', 'gap', 'class']
@@ -219,7 +219,7 @@ function ensureId(dash: Dashboard): Dashboard {
 function defaultStyleFor(type: DashboardElementType): DashboardElement['style'] {
   switch (type) {
     case 'text':
-      return { color: TEXT_FG, fontFamily: 'Segoe UI, sans-serif', fontSize: 24, fontWeight: 700, align: 'left', text: 'Texto' }
+      return { color: TEXT_FG, fontFamily: 'Segoe UI, sans-serif', fontSize: 24, fontWeight: 700, align: 'left', text: 'Text' }
     case 'rect':
       return { background: PANEL_BG, border: PANEL_BORDER, borderWidth: 1, radius: 12 }
     case 'bar':
@@ -509,14 +509,14 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
   const [snapEnabled, setSnapEnabled] = useState<boolean>(true)
   const [snapStep, setSnapStep] = useState<SnapStep>(8)
   const [galleryOpen, setGalleryOpen] = useState<boolean>(true)
-  const [previewMode, setPreviewMode] = useState<'static' | 'sim'>('sim')
+  const [previewMode, setPreviewMode] = useState<'static' | 'yes'>('yes')
   const [importDiagnostics, setImportDiagnostics] = useState<string[]>([])
   const [importPicker, setImportPicker] = useState<SimhubImportPicker | null>(null)
   const [cycleControls, setCycleControls] = useState<DashboardCycleControls>({ next: null, prev: null })
   const [captureCycle, setCaptureCycle] = useState<CycleDirection | null>(null)
   const dirtyRef = useRef(false)
   // Espelho em estado do `dirtyRef` (que e so uma ref e not dispara render) para a
-  // UI poder mostrar o indicador "not saved" e habilitar o button Save so quando ha
+  // UI poder show o indicador "not saved" e habilitar o button Save so quando ha
   // mudancas pendentes. `markDirty`/`markClean` mantem ref e estado em sincronia.
   const [dirty, setDirty] = useState(false)
   const markDirty = useCallback((): void => {
@@ -563,7 +563,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
 
   useEffect(() => {
     void refreshAll().catch((err) =>
-      setError(err instanceof Error ? err.message : 'Falha ao carregar dashboards')
+      setError(err instanceof Error ? err.message : 'Failed to load dashboards')
     )
     const offList = window.ipc.subscribe<DashboardSummary[]>('app:dash:list', setSummaries)
     const offOpen = window.ipc.subscribe<DashboardOpenState[]>('app:dash:openState', setOpenStates)
@@ -611,7 +611,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
       })
       .catch((err: unknown) => {
         if (canceled) return
-        setError(err instanceof Error ? err.message : 'Falha ao carregar dashboard')
+        setError(err instanceof Error ? err.message : 'Failed to load dashboard')
       })
     return () => {
       canceled = true
@@ -1021,7 +1021,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
     const picked = result.summary ?? result.summaries?.[0]
     if (picked) setSelectedId(picked.id)
     if (result.summaries && result.summaries.length > 1) {
-      showToast(`${result.summaries.length} telas importadas como dashboards separados.`, 'success')
+      showToast(`${result.summaries.length} screens importadas como dashboards separados.`, 'success')
       return
     }
     if (result.summary) {
@@ -1082,7 +1082,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
   async function newFromPreset(presetId: string): Promise<void> {
     const summary = await window.ipc.invoke<DashboardSummary>('app:dash:createPreset', presetId)
     setSelectedId(summary.id)
-    showToast(`Preset "${summary.name}" criado.`, 'success')
+    showToast(`Preset "${summary.name}" created.`, 'success')
   }
 
   function newEmpty(width = 1280, height = 720, suggestedName = 'New dashboard'): void {
@@ -1194,7 +1194,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
             <div>
               <h4 style={{ margin: '0 0 4px' }}>Escolha a tela do .simhubdash</h4>
               <p style={{ margin: 0, color: TEXT_DIM, fontSize: 13 }}>
-                O arquivo tem multiple telas. A tela sugerida ja esta selected; voce tambem pode importar todas como dashboards separados.
+                O arquivo tem multiple screens. A tela sugerida ja esta selected; voce tambem pode importar todas como dashboards separados.
               </p>
             </div>
             <button style={btn()} disabled={busy} onClick={() => setImportPicker(null)}>Cancel</button>
@@ -1222,7 +1222,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
               Importar tela selected
             </button>
             <button style={btn()} disabled={busy} onClick={() => run(() => completeSimhubImport(true))}>
-              Importar todas as telas
+              Importar todas as screens
             </button>
           </div>
         </section>
@@ -1346,7 +1346,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                     checked={item.fullscreen ?? true}
                     onChange={(event) => patchPlaylistItem(index, { fullscreen: event.target.checked })}
                   />
-                  Tela cheia
+                  Fullscreen
                 </label>
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                   <button style={btn()} disabled={busy || index === 0} onClick={() => movePlaylistItem(index, -1)}>↑</button>
@@ -1495,7 +1495,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                   />
                 </div>
                 <div style={{ width: 140 }}>
-                  <label style={fieldLabel()}>Cor de fundo</label>
+                  <label style={fieldLabel()}>Color de fundo</label>
                   <input
                     type="color"
                     value={hexFromCss(selectedDash.bg)}
@@ -1543,14 +1543,14 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                 </select>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: TEXT_DIM, fontSize: 13 }}>
                   <input type="checkbox" checked={fullscreen} onChange={(e) => setFullscreen(e.target.checked)} />
-                  Tela cheia
+                  Fullscreen
                 </label>
                 <button style={btn('primary')} disabled={busy || !selectedDash} onClick={() => run(openSelected)}>
                   {isOpen ? 'Reabrir aqui' : 'Open no monitor'}
                 </button>
                 {isOpen && (
                   <button style={btn('danger')} disabled={busy} onClick={() => run(() => closeOpen(selectedDash.id))}>
-                    Fechar janela
+                    Close janela
                   </button>
                 )}
                 <button
@@ -1586,7 +1586,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontSize: 18 }} aria-hidden>📟</span>
                   <strong style={{ color: TEXT_FG, fontSize: 14, letterSpacing: '0.04em' }}>
-                    Tela 7&quot; / Kiosk
+                    Screen 7&quot; / Kiosk
                   </strong>
                 </div>
 
@@ -1620,7 +1620,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                       type="button"
                       style={{ ...btn(galleryOpen ? 'primary' : 'default'), display: 'flex', alignItems: 'center', gap: 6 }}
                       onClick={() => setGalleryOpen((v) => !v)}
-                      title="Mostrar/ocultar a galeria de widgets"
+                      title="Mostrar/hide a galeria de widgets"
                     >
                       {galleryOpen ? '▾' : '▸'} Galeria de widgets
                     </button>
@@ -1694,10 +1694,10 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                       Preview
                       <select
                         value={previewMode}
-                        onChange={(e) => setPreviewMode(e.target.value as 'static' | 'sim')}
+                        onChange={(e) => setPreviewMode(e.target.value as 'static' | 'yes')}
                         style={{ ...input({ width: 'auto' }), padding: '2px 6px', fontSize: 12 }}
                       >
-                        <option value="sim">Telemetria simulada</option>
+                        <option value="yes">Telemetry yesulada</option>
                         <option value="static">Estatico</option>
                       </select>
                     </label>
@@ -1713,11 +1713,11 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                     snapEnabled={snapEnabled}
                     showGrid={snapEnabled}
                     gridStep={snapStep}
-                    simulate={previewMode === 'sim'}
+                    yesulate={previewMode === 'yes'}
                   />
                   <p style={{ color: TEXT_DIM, fontSize: 12, margin: '8px 0 0' }}>
-                    {previewMode === 'sim'
-                      ? 'Preview com telemetria simulada (estado "em corrida"). Clique, arraste ou redimensione pelos handles para editar.'
+                    {previewMode === 'yes'
+                      ? 'Preview com telemetria yesulada (estado "em corrida"). Clique, arraste ou redimensione pelos handles para editar.'
                       : 'Preview static (sem telemetria). Clique, arraste ou redimensione pelos handles para editar.'}
                     {snapEnabled ? ` Grade ${snapStep}px active: ajustes de posicao/tamanho sao arredondata.` : ''}
                   </p>
@@ -1764,7 +1764,7 @@ interface PreviewProps {
   snapEnabled?: boolean
   showGrid?: boolean
   gridStep?: number
-  simulate?: boolean
+  yesulate?: boolean
 }
 
 interface PointerEditState {
@@ -1876,7 +1876,7 @@ function DashboardPreview({
   snapEnabled,
   showGrid,
   gridStep,
-  simulate
+  yesulate
 }: PreviewProps): ReactElement {
   const maxW = 640
   const maxH = 360
@@ -2036,7 +2036,7 @@ function DashboardPreview({
             onPointerUp={endPointerEdit}
             onPointerCancel={endPointerEdit}
             onResizePointerDown={(event, handle) => beginPointerEdit(event, el, 'resize', handle)}
-            simulate={simulate}
+            yesulate={yesulate}
           />
         ))}
       </div>
@@ -2110,7 +2110,7 @@ function PreviewElement({
   onPointerUp,
   onPointerCancel,
   onResizePointerDown,
-  simulate
+  yesulate
 }: {
   element: DashboardElement
   selected: boolean
@@ -2121,9 +2121,9 @@ function PreviewElement({
   onPointerUp(event: PointerEvent<HTMLElement>): void
   onPointerCancel(event: PointerEvent<HTMLElement>): void
   onResizePointerDown(event: PointerEvent<HTMLElement>, handle: ResizeHandle): void
-  simulate?: boolean
+  yesulate?: boolean
 }): ReactElement {
-  if (simulate && (GT3_WIDGET_TYPES as readonly string[]).includes(element.type)) {
+  if (yesulate && (GT3_WIDGET_TYPES as readonly string[]).includes(element.type)) {
     return (
       <Gt3PreviewElement
         element={element}
@@ -2412,7 +2412,7 @@ function ElementInspector({
       {element.type === 'text' && (
         <>
           <div>
-            <label style={fieldLabel()}>Texto (sem binding)</label>
+            <label style={fieldLabel()}>Text (sem binding)</label>
             <input
               type="text"
               value={element.style.text ?? ''}
@@ -2527,7 +2527,7 @@ function ElementInspector({
                   ))}
                 </select>
               </div>
-              <ColorField label="Cor secondary" value={element.style.secondaryColor ?? '#ff5468'} onChange={(v) => onChangeStyle({ secondaryColor: v })} />
+              <ColorField label="Color secondary" value={element.style.secondaryColor ?? '#ff5468'} onChange={(v) => onChangeStyle({ secondaryColor: v })} />
             </>
           )}
           {element.type === 'deltabar' && (
@@ -2554,7 +2554,7 @@ function ElementInspector({
                   ))}
                 </select>
               </div>
-              <ColorField label="Cor series 2" value={element.style.traceColor2 ?? '#ff5468'} onChange={(v) => onChangeStyle({ traceColor2: v })} />
+              <ColorField label="Color series 2" value={element.style.traceColor2 ?? '#ff5468'} onChange={(v) => onChangeStyle({ traceColor2: v })} />
             </>
           )}
         </div>
@@ -2630,7 +2630,7 @@ function ElementInspector({
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <SliderField label="Preto&branco" value={element.style.filterGrayscale ?? 0} onChange={(v) => onChangeStyle({ filterGrayscale: v || undefined })} min={0} max={1} step={0.05} />
-            <SliderField label="Vermelho" value={element.style.redTint ?? 0} onChange={(v) => onChangeStyle({ redTint: v || undefined })} min={0} max={1} step={0.05} />
+            <SliderField label="Red" value={element.style.redTint ?? 0} onChange={(v) => onChangeStyle({ redTint: v || undefined })} min={0} max={1} step={0.05} />
             <SliderField label="Sepia" value={element.style.filterSepia ?? 0} onChange={(v) => onChangeStyle({ filterSepia: v || undefined })} min={0} max={1} step={0.05} />
             <SliderField label="Inverter" value={element.style.invert ?? 0} onChange={(v) => onChangeStyle({ invert: v || undefined })} min={0} max={1} step={0.05} />
             <SliderField label="Brilho" value={element.style.brightness ?? 1} onChange={(v) => onChangeStyle({ brightness: v === 1 ? undefined : v })} min={0} max={2} step={0.05} />
@@ -2664,7 +2664,7 @@ function ElementInspector({
             </select>
           </div>
           <div>
-            <label style={fieldLabel()}>Texto (override)</label>
+            <label style={fieldLabel()}>Text (override)</label>
             <input
               type="text"
               value={element.style.text ?? ''}
@@ -2835,7 +2835,7 @@ function FontFamilyField({ label, value, onChange }: { label: string; value: str
   return <SelectField label={label} value={value} options={options} onChange={onChange} />
 }
 
-// `applySlotField` (escrita do slot, simetrica a `resolveSlotStyle`) vive em
+// `applySlotField` (escrita do slot, yesetrica a `resolveSlotStyle`) vive em
 // shared/dashboards.ts para ser reusada pelo renderer/testes.
 
 const WEIGHT_OPTIONS = [
@@ -2890,7 +2890,7 @@ function SlotStyleEditor({ element, slots, onChangeStyle }: {
       </div>
       <FontFamilyField label="Font" value={String(cur.fontFamily ?? '')} onChange={(v) => set('fontFamily', v || undefined)} />
       <NumberField label="Tamanho (0=auto)" value={Number(cur.fontSize ?? 0)} onChange={(v) => set('fontSize', v > 0 ? Math.round(v) : undefined)} min={0} max={400} />
-      <ColorField label="Cor" value={String(cur.fontColor ?? '')} onChange={(v) => set('fontColor', v || undefined)} />
+      <ColorField label="Color" value={String(cur.fontColor ?? '')} onChange={(v) => set('fontColor', v || undefined)} />
       <SelectField label="Peso" value={String(cur.fontWeight ?? '')} options={WEIGHT_OPTIONS} onChange={(v) => set('fontWeight', v ? Number(v) : undefined)} />
       <SelectField label="Alinhamento" value={String(cur.align ?? '')} options={ALIGN_OPTIONS} onChange={(v) => set('align', v || undefined)} />
       <NumberField label="Spacing (px)" value={Number(cur.letterSpacing ?? 0)} onChange={(v) => set('letterSpacing', Number.isFinite(v) && v !== 0 ? v : undefined)} min={-5} max={30} step={0.5} />
@@ -2934,7 +2934,7 @@ const INSTRUMENT_MATERIAL_OPTIONS: Array<{ value: string; label: string }> = [
 
 const INSTRUMENT_LED_SHAPE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'led', label: 'LED (redondo)' },
-  { value: 'bar', label: 'Barra' },
+  { value: 'bar', label: 'Bar' },
   { value: 'trapezoid', label: 'Trapezio' }
 ]
 
@@ -3039,7 +3039,7 @@ function InstrumentConfig({
               <NumberField label="Menores por maior" value={Number(dial.minorPerMajor ?? 0)} onChange={(v) => setPart('dial', 'minorPerMajor', v > 0 ? Math.round(v) : undefined)} min={0} max={10} />
               <SliderField label="Amortecimento (damp)" value={Number(dial.damp ?? 0)} onChange={(v) => setPart('dial', 'damp', v > 0 ? v : undefined)} min={0} max={1} step={0.01} />
               <SectionLabel>Ponteiro (needle)</SectionLabel>
-              <ColorField label="Cor do ponteiro" value={String(needle.color ?? '')} onChange={(v) => setPart('needle', 'color', v || undefined)} />
+              <ColorField label="Color do ponteiro" value={String(needle.color ?? '')} onChange={(v) => setPart('needle', 'color', v || undefined)} />
               <NumberField label="Espessura" value={Number(needle.width ?? 0)} onChange={(v) => setPart('needle', 'width', v > 0 ? v : undefined)} min={0} max={20} step={0.5} />
             </>
           )}
@@ -3071,8 +3071,8 @@ function InstrumentConfig({
 
 const IMAGE_FILTER_PRESETS: Array<{ id: string; label: string; patch: Partial<DashboardElement['style']> }> = [
   { id: 'original', label: 'Original', patch: { filterGrayscale: undefined, filterSepia: undefined, redTint: undefined, brightness: undefined, contrast: undefined, saturate: undefined, hueRotate: undefined, invert: undefined, blur: undefined } },
-  { id: 'bw', label: 'Preto & Branco', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: undefined, brightness: undefined, contrast: 1.05, saturate: undefined, hueRotate: undefined, invert: undefined } },
-  { id: 'red', label: 'Vermelho', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: 1, brightness: 0.95, contrast: 1.1, saturate: undefined, hueRotate: undefined, invert: undefined } },
+  { id: 'bw', label: 'Preto & White', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: undefined, brightness: undefined, contrast: 1.05, saturate: undefined, hueRotate: undefined, invert: undefined } },
+  { id: 'red', label: 'Red', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: 1, brightness: 0.95, contrast: 1.1, saturate: undefined, hueRotate: undefined, invert: undefined } },
   { id: 'sepia', label: 'Sepia', patch: { filterGrayscale: undefined, filterSepia: 1, redTint: undefined, brightness: 1.02, contrast: undefined, saturate: undefined, hueRotate: undefined, invert: undefined } }
 ]
 
@@ -3218,14 +3218,14 @@ function Gt3Config({
       <div style={grid}>
         <SectionLabel>Visual</SectionLabel>
         <NumberField label="Segmentos" value={s.segments ?? 18} onChange={(v) => onChangeStyle({ segments: Math.max(4, Math.min(30, Math.round(v))) })} min={4} max={30} />
-        <SelectField label="Format" value={s.segmentShape ?? 'led'} options={[{ value: 'led', label: 'LED' }, { value: 'bar', label: 'Barra fina' }, { value: 'trapezoid', label: 'Trapezio' }]} onChange={(v) => onChangeStyle({ segmentShape: v as 'led' | 'bar' | 'trapezoid' })} />
+        <SelectField label="Format" value={s.segmentShape ?? 'led'} options={[{ value: 'led', label: 'LED' }, { value: 'bar', label: 'Bar fina' }, { value: 'trapezoid', label: 'Trapezio' }]} onChange={(v) => onChangeStyle({ segmentShape: v as 'led' | 'bar' | 'trapezoid' })} />
         <ToggleField label="Glow (brilho)" value={s.glow !== false} onChange={(v) => onChangeStyle({ glow: v })} />
         <ToggleField label="Override limitador" value={s.pitLimiterOverride !== false} onChange={(v) => onChangeStyle({ pitLimiterOverride: v })} />
         <SectionLabel>Limiares</SectionLabel>
         <NumberField label="Aviso (0–1)" value={s.warnAt ?? 0.75} onChange={(v) => onChangeStyle({ warnAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.01} />
         <NumberField label="Perigo (0–1)" value={s.dangerAt ?? 0.9} onChange={(v) => onChangeStyle({ dangerAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.01} />
         <NumberField label="Flash (0–1)" value={s.flashAt ?? 0.97} onChange={(v) => onChangeStyle({ flashAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.01} />
-        <ColorField label="Cor flash" value={s.flashColor ?? '#F6FBFF'} onChange={(v) => onChangeStyle({ flashColor: v })} />
+        <ColorField label="Color flash" value={s.flashColor ?? '#F6FBFF'} onChange={(v) => onChangeStyle({ flashColor: v })} />
       </div>
     )
   }

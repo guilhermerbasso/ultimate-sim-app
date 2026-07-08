@@ -21,7 +21,7 @@ import { useDevices } from '../lib/devices/DeviceRegistry'
 import { SectionExportImport } from '../components/SectionExportImport'
 
 const BLINK_PATTERNS: Array<{ id: RevlightsBlinkPattern; label: string }> = [
-  { id: 'solid', label: 'Constante (sem piscar)' },
+  { id: 'solid', label: 'Constante (sem blink)' },
   { id: 'slow', label: 'Lento (2 Hz)' },
   { id: 'fast', label: 'Rápido (4 Hz)' },
   { id: 'strobe', label: 'Estrobo (8 Hz)' }
@@ -199,7 +199,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
             <span style={label}>Rev lights · WS2812B 4 LEDs</span>
             <h3 style={{ margin: '8px 0 4px', fontSize: 26 }}>Configuração rica</h3>
             <p style={{ margin: 0, color: 'rgba(255,255,255,0.62)' }}>
-              Cores, faixas e shift point. O app calcula o nível a partir da telemetria e envia
+              Colores, faixas e shift point. O app calcula o nível a partir da telemetria e envia
               <code> R&lt;lvl&gt; </code> + <code> B&lt;0|1&gt; </code> para o SIM-X.
             </p>
           </div>
@@ -336,7 +336,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
             </small>
           </label>
           <label style={{ display: 'grid', gap: 6 }}>
-            <span>Ponto de troca / piscar (% maxRpm)</span>
+            <span>Ponto de troca / blink (% maxRpm)</span>
             <input
               max={1}
               min={0}
@@ -406,7 +406,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
               </dd>
             </div>
             <div>
-              <dt>Erro</dt>
+              <dt>Error</dt>
               <dd style={{ color: status?.lastError ? 'var(--accent-warning)' : 'inherit' }}>{status?.lastError ?? '—'}</dd>
             </div>
           </dl>
@@ -431,7 +431,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
                 }}
               >
                 <input
-                  aria-label={`Cor do segmento ${index + 1}`}
+                  aria-label={`Color do segmento ${index + 1}`}
                   onBlur={() => void persist({ segments: config.segments, preset: 'custom' })}
                   onChange={(event) => updateSegment(index, { color: event.target.value })}
                   style={{ height: 36, width: '100%', border: 'none', background: 'transparent' }}
@@ -503,7 +503,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
             />
             <span>Ativar shift blink</span>
           </label>
-          <label className="field-label" htmlFor="blink-pattern">Padrão de piscar</label>
+          <label className="field-label" htmlFor="blink-pattern">Padrão de blink</label>
           <select
             className="select-field wide"
             disabled={!config.shiftBlink}
@@ -524,7 +524,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
         </article>
 
         <article style={panel}>
-          <span style={label}>Cores de bandeira</span>
+          <span style={label}>Colores de bandeira</span>
           <h3 style={{ margin: '8px 0' }}>Paleta (preview-only)</h3>
           <div style={{ display: 'grid', gap: 8 }}>
             {(Object.keys(config.flagColors) as Array<keyof RevlightsConfig['flagColors']>).map((key) => (
@@ -538,7 +538,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
                 }}
               >
                 <input
-                  aria-label={`Cor da bandeira ${FLAG_LABELS[key]}`}
+                  aria-label={`Color da bandeira ${FLAG_LABELS[key]}`}
                   onBlur={() => void persist({ flagColors: config.flagColors })}
                   onChange={(event) => updateFlagColor(key, event.target.value)}
                   style={{ height: 36, width: '100%', border: 'none', background: 'transparent' }}

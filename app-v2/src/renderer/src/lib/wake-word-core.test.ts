@@ -64,7 +64,7 @@ describe('fuzzyWakeWordMatch', () => {
   })
 
   it('rejects unrelated speech', () => {
-    expect(fuzzyWakeWordMatch('vamos abrir o setup do carro', WAKE_WORDS).matched).toBe(false)
+    expect(fuzzyWakeWordMatch('let us open the car setup', WAKE_WORDS).matched).toBe(false)
     expect(fuzzyWakeWordMatch('', WAKE_WORDS).matched).toBe(false)
   })
 

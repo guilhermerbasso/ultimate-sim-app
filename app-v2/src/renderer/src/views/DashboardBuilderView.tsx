@@ -43,11 +43,11 @@ const BOARD_W = 1024
 const BOARD_H = 600
 
 const EXAMPLE_PHRASES = [
-  'Combustível, posição e delta',
-  'Pneus, temperaturas e freios',
-  'Quali: delta e tempo de volta',
-  'Marcha, velocidade, RPM e g-force',
-  'Radar, relativos e mapa da pista'
+  'Fuel, posição e delta',
+  'Tires, temperatures, and brakes',
+  'Qualifying: delta and lap time',
+  'Gear, speed, RPM, and g-force',
+  'Radar, relative, and track map'
 ]
 
 // Archetype + family pickers (manual selection drives the same deterministic
@@ -214,7 +214,7 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
         setFamily(res.family)
         if (res.usedDefault) showToast('Nada reconhecido na frase — usei um layout padrão.', 'info')
       } catch (error) {
-        showToast(`Falha ao gerar dashboard: ${getErrorMessage(error)}`, 'error')
+        showToast(`Failed to generate dashboard: ${getErrorMessage(error)}`, 'error')
       } finally {
         setBuilding(false)
       }
@@ -290,9 +290,9 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
       try {
         await window.ipc.invoke<DashboardSummary>('app:dash:save', dashboard)
         if (open) await window.ipc.invoke('app:dash:open', dashboard.id, { fullscreen: false })
-        showToast(open ? 'Dashboard criado e aberto.' : 'Dashboard criado e salvo.', 'success')
+        showToast(open ? 'Dashboard created and opened.' : 'Dashboard created and saved.', 'success')
       } catch (error) {
-        showToast(`Falha ao criar dashboard: ${getErrorMessage(error)}`, 'error')
+        showToast(`Failed to create dashboard: ${getErrorMessage(error)}`, 'error')
       }
     },
     [dashboard, showToast]
@@ -316,7 +316,7 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
       <header style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <span style={{ ...labelStyle, color: CHROME }}>IA local · opcional</span>
-        <h1 style={{ margin: 0, fontSize: 22, color: 'var(--text-primary)' }}>Dashboard IA</h1>
+        <h1 style={{ margin: 0, fontSize: 22, color: 'var(--text-primary)' }}>AI Dashboard</h1>
         <p style={{ margin: 0, color: 'var(--text-secondary)', maxWidth: 720 }}>
           Descreva o dashboard que você quer e a IA monta para você. Sem modelo de IA disponível? O construtor cai
           automaticamente em correspondência por palavras-chave (PT-BR e inglês) — sempre funciona offline.
@@ -326,7 +326,7 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
       {/* ── Builder ─────────────────────────────────────────────────────── */}
       <section style={card}>
         <label style={labelStyle} htmlFor="dashai-phrase">
-          Descreva seu dashboard
+          Describe your dashboard
         </label>
         <textarea
           id="dashai-phrase"
@@ -393,11 +393,11 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-4)', alignItems: 'center' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)' }}>
-            <span style={labelStyle}>Estilo</span>
+            <span style={labelStyle}>Style</span>
             <select style={selectStyle} value={detail} onChange={(e) => setDetail(e.target.value as DetailLevel)}>
               <option value="auto">Automático</option>
-              <option value="clean">Limpo / minimal</option>
-              <option value="elaborate">Detalhado</option>
+              <option value="clean">Clean / minimal</option>
+              <option value="elaborate">Detailed</option>
             </select>
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)' }}>
@@ -411,7 +411,7 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
             disabled={building || (!phrase.trim() && !archetype)}
             onClick={build}
           >
-            {building ? 'Gerando…' : 'Gerar preview'}
+            {building ? 'Gerando…' : 'Generate preview'}
           </button>
         </div>
       </section>
@@ -439,7 +439,7 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
               Criar
             </button>
             <button type="button" style={primaryBtn} onClick={() => void createDashboard(true)}>
-              Criar e abrir
+              Create and open
             </button>
           </div>
 
@@ -452,11 +452,11 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-primary)', fontWeight: 600 }}>
                 <input type="checkbox" checked={adaptiveOn} onChange={(e) => setAdaptiveOn(e.target.checked)} />
-                Modo adaptativo
+                Adaptive mode
               </label>
               {adaptiveOn && (
                 <button type="button" style={{ ...ghostBtn, height: 28 }} onClick={() => void refreshPlan()}>
-                  Atualizar
+                  Refresh
                 </button>
               )}
             </div>
@@ -467,7 +467,7 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
             {adaptiveOn && plan && <AdaptiveExplainer plan={plan} />}
             {adaptiveOn && momentState && momentState.moment !== 'clear-running' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={labelStyle}>Momento</span>
+                <span style={labelStyle}>Moment</span>
                 <span style={chip(MOMENT_COLOR_CSS[momentState.color])}>{raceMomentPreset(momentState.moment).label}</span>
               </div>
             )}
@@ -544,7 +544,7 @@ function AdaptiveExplainer({ plan }: { plan: AdaptivePlan }): ReactElement {
         <span style={chip(CHROME)}>{plan.phase}</span>
         <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{plan.reason}</span>
       </div>
-      <ConceptRow label="Destaque" color={CHROME} concepts={plan.emphasize} />
+      <ConceptRow label="Highlight" color={CHROME} concepts={plan.emphasize} />
       <ConceptRow label="Mostrar" color="var(--border-strong)" concepts={plan.show} />
       <ConceptRow label="Ocultar" color="var(--text-muted)" concepts={plan.hide} />
     </div>

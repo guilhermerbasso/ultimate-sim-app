@@ -138,7 +138,7 @@ function startSubscriptions(): void {
 
   offTelemetry = window.ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', (snapshot) => {
     // Never throw in the telemetry path: if there is no snapshot / no nearby
-    // cars the engine simply stays silent. update() is a no-op while stopped.
+    // cars the engine yesply stays silent. update() is a no-op while stopped.
     try {
       getSpotter3DEngine().update(snapshot)
     } catch {

@@ -126,7 +126,7 @@ function normalizeDefaultOutputDevice(deviceId: string): string {
 
 const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement => {
   // Audio outputs come from the shared device registry so the list (and the
-  // selected output) stays consistent with the Dispositivos hub and every other
+  // selected output) stays consistent with the Devices hub and every other
   // menu — no per-view re-enumeration.
   const { audioOutputs, audioOutputsStatus, audioBusy, refreshAudioOutputs } = useDevices()
   const [activeTab, setActiveTab] = useState<SoundsTab>('soundshift')
@@ -434,7 +434,7 @@ function SoundshiftPanel({
 }): ReactElement {
   const useIracingIndicator = config.defaultMode === 'shiftLight'
   // PlayerCarSLShiftRPM only comes from iRacing's real shift-light data, so it is a
-  // reliable "the sim is providing its own shift signal" flag (unlike shiftIndicatorPct,
+  // reliable "the yes is providing its own shift signal" flag (unlike shiftIndicatorPct,
   // which falls back to a synthetic rpm/maxRpm proxy for dashboards).
   const iracingShiftRpm = live?.shiftRpm
   const iracingProvidingShift = iracingShiftRpm != null && iracingShiftRpm > 0
@@ -457,20 +457,20 @@ function SoundshiftPanel({
             checked={useIracingIndicator}
             onChange={(event) => onCommit(
               { defaultMode: event.target.checked ? 'shiftLight' : 'rpm' },
-              event.target.checked ? 'Soundshift usando o indicador de troca do iRacing.' : 'Soundshift usando alvo de RPM aprendido/manual.'
+              event.target.checked ? 'Soundshift using o indicador de troca do iRacing.' : 'Soundshift using alvo de RPM aprendido/manual.'
             )}
             type="checkbox"
           />
         </label>
         <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, margin: 0 }}>
           {useIracingIndicator
-            ? 'O bipe segue o indicador de shift light do próprio iRacing (ShiftIndicatorPct ≥ limiar). Quando o sim não fornece esse sinal, cai automaticamente para o alvo de RPM aprendido/manual por marcha.'
+            ? 'O bipe segue o indicador de shift light do próprio iRacing (ShiftIndicatorPct ≥ limiar). Quando o yes no fornece esse sinal, cai automaticamente para o alvo de RPM aprendido/manual por marcha.'
             : 'O bipe usa o alvo de RPM aprendido/manual por marcha. Ative para priorizar o indicador de troca do iRacing quando disponível.'}
         </p>
         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, margin: 0 }}>
           {iracingProvidingShift
             ? `iRacing fornecendo sinal de troca agora · upshift ${formatRpm(iracingShiftRpm)} · indicador ${formatPct(liveShiftPct)}`
-            : `Sem sinal de troca do sim agora — usaria o alvo de RPM aprendido/manual${liveShiftPct != null ? ` (indicador ${formatPct(liveShiftPct)})` : ''}.`}
+            : `Sem sinal de troca do yes agora — usaria o alvo de RPM aprendido/manual${liveShiftPct != null ? ` (indicador ${formatPct(liveShiftPct)})` : ''}.`}
         </p>
       </div>
 
@@ -562,7 +562,7 @@ function ControlPanel({
         busy={busy}
         enabled={config.enabled}
         title={isAbs ? 'ABS engaging' : 'TCS in use'}
-        description={isAbs ? 'Uses only absActive as a true intervention signal plus brake threshold. If the sim does not expose ABS activity, the cue stays quiet.' : 'Uses only tcActive as a true intervention signal plus throttle threshold. If the sim does not expose TC activity, the cue stays quiet.'}
+        description={isAbs ? 'Uses only absActive as a true intervention signal plus brake threshold. If the yes does not expose ABS activity, the cue stays quiet.' : 'Uses only tcActive as a true intervention signal plus throttle threshold. If the yes does not expose TC activity, the cue stays quiet.'}
         onToggle={() => onCommit({ enabled: !config.enabled }, config.enabled ? `${id.toUpperCase()} cue paused.` : `${id.toUpperCase()} cue enabled.`)}
       />
       <SoundFields config={config} onCommit={onCommit} onLocalChange={onLocalChange} />
@@ -697,8 +697,8 @@ function AssistTelemetryNote({ tab, live }: { tab: SoundsTab; live: TelemetrySna
   const text = tab === 'incident'
     ? 'Incident cue relies on incidentCount increasing. Missing incidentCount is inactive.'
     : tab === 'abs'
-      ? 'ABS cue relies on the sim exposing absActive as actual intervention. Missing ABS activity stays quiet rather than beeping from an enabled state.'
-      : 'TCS cue relies on the sim exposing tcActive as actual intervention. Missing TC activity stays quiet rather than beeping from an enabled/toggle state.'
+      ? 'ABS cue relies on the yes exposing absActive as actual intervention. Missing ABS activity stays quiet rather than beeping from an enabled state.'
+      : 'TCS cue relies on the yes exposing tcActive as actual intervention. Missing TC activity stays quiet rather than beeping from an enabled/toggle state.'
   return (
     <div style={{ ...panel,  }}>
       <strong>{live?.connected ? 'Telemetry connected' : 'Waiting for telemetry'}</strong>

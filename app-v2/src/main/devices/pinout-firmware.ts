@@ -120,11 +120,11 @@ export async function compilePinoutSketch(app: App, request: PinoutCompileReques
   if (!validation.ok) {
     return { ok: false, message: `Corrija o pinout antes de compilar: ${validation.issues.filter((issue) => issue.severity === 'error').map((issue) => issue.message).join(' ')}`, fqbn: board.fqbn, log: [] }
   }
-  if (!board.fqbn) return { ok: false, message: `A placa ${board.name} não tem FQBN configurado para arduino-cli.`, log: [] }
+  if (!board.fqbn) return { ok: false, message: `A placa ${board.name} does not have an FQBN configured for arduino-cli.`, log: [] }
 
   const cli = await resolveArduinoCli()
   if (!cli) {
-    return { ok: false, message: 'arduino-cli não encontrado no PATH. Instale/configure o Arduino CLI e os cores da placa para compilar.', fqbn: board.fqbn, log: [] }
+    return { ok: false, message: 'arduino-cli not found on PATH. Install/configure Arduino CLI and the board cores to compile.', fqbn: board.fqbn, log: [] }
   }
 
   const safeName = sanitizeSketchName(request.sketchName || design.name || design.id)
@@ -134,7 +134,7 @@ export async function compilePinoutSketch(app: App, request: PinoutCompileReques
   // Defense in depth: a crafted design.id must never escape the builds folder —
   // a recursive rm/write outside userData would be destructive.
   if (buildRoot !== buildsBase && !buildRoot.startsWith(buildsBase + sep)) {
-    return { ok: false, message: 'Design inválido (id).', fqbn: board.fqbn, log: [] }
+    return { ok: false, message: 'Invalid design (id).', fqbn: board.fqbn, log: [] }
   }
   const sketchDir = join(buildRoot, safeName)
   const sketchPath = join(sketchDir, `${safeName}.ino`)
@@ -149,7 +149,7 @@ export async function compilePinoutSketch(app: App, request: PinoutCompileReques
   try {
     await runArduinoCli(cli, args, log)
     const hexPath = await findFirstHex(outputDir)
-    return { ok: true, message: hexPath ? 'Firmware compilado. Grave o .hex na bancada/Windows após validar as libs necessárias.' : 'Compile concluiu, mas nenhum .hex foi encontrado no output-dir.', sketchPath, buildDir: outputDir, hexPath, fqbn: board.fqbn, log }
+    return { ok: true, message: hexPath ? 'Firmware compiled. Flash the .hex on the bench/Windows after validating the required libraries.' : 'Compile concluiu, mas nenhum .hex foi found no output-dir.', sketchPath, buildDir: outputDir, hexPath, fqbn: board.fqbn, log }
   } catch (error) {
     return { ok: false, message: `arduino-cli compile falhou: ${error instanceof Error ? error.message : String(error)}`, sketchPath, buildDir: outputDir, fqbn: board.fqbn, log }
   }
@@ -165,7 +165,7 @@ export async function flashPinoutFirmware(ctx: ModuleContext, request: PinoutFla
 
   const spec = resolvePinoutFlashBoard(board)
   if (!spec) {
-    return { ok: false, message: 'Gravação automática ainda não suportada para esta placa — exporte o firmware e grave pelo Arduino IDE.', log }
+    return { ok: false, message: 'Automatic flashing is not supported for this board yet — export the firmware and flash it with Arduino IDE.', log }
   }
 
   const emit = (progress: FlashProgress): void => {
@@ -186,13 +186,13 @@ export async function flashPinoutFirmware(ctx: ModuleContext, request: PinoutFla
     const flashPath = spec.programmer === 'arduino-cli' ? compiled.sketchPath : compiled.hexPath
     if (!flashPath) {
       const artifact = spec.programmer === 'arduino-cli' ? 'sketch gerado' : '.hex compilado'
-      const message = `Compile concluído, mas o ${artifact} não foi encontrado para gravação.`
+      const message = `Compile finished, but ${artifact} was not found for flashing.`
       emit({ phase: 'error', message, percent: 100, tone: 'error' })
       return { ok: false, message, log }
     }
 
     const baud = findFlashBaud(spec, request.baudId)
-    emit({ phase: 'prepare', message: `Preparando gravação em ${port} (${spec.name}, ${baud.label})…`, percent: 8 })
+    emit({ phase: 'prepare', message: `Preparing flash em ${port} (${spec.name}, ${baud.label})…`, percent: 8 })
     await freePort(ctx, port)
     await flashFirmware({
       board: spec,
@@ -218,18 +218,18 @@ async function assertSafePinoutFlashTarget(ctx: ModuleContext, port: string): Pr
     await saveSimXPrimaryIdentity(ctx.app, portInfo).catch((error) =>
       console.warn('[pinout-firmware] failed to save SIM-X primary identity:', error instanceof Error ? error.message : String(error))
     )
-    throw new Error('Essa é a porta do SIM-X. Não grave firmware gerado pelo Pinout Designer nela — use um Arduino secundário.')
+    throw new Error('This is the SIM-X port. Do not flash Pinout Designer firmware to it — use a secondary Arduino.')
   }
 
   const storedSimX = await readSimXPrimaryIdentity(ctx.app)
   if (storedSimX && matchesSimXPrimaryIdentity(storedSimX, port, portInfo)) {
-    throw new Error('Essa porta corresponde ao SIM-X principal salvo. Não grave firmware gerado pelo Pinout Designer nela.')
+    throw new Error('This port matches the saved main SIM-X. Do not flash Pinout Designer firmware to it.')
   }
 
   const existing = ctx.serialHub.listDevices().find((device) => device.path === port)
   const primaryId = ctx.serialHub.getPrimaryId()
   if (existing && (existing.kind === 'sim-x' || existing.id === primaryId)) {
-    throw new Error('Essa porta é o SIM-X principal — não grave firmware gerado nela. Escolha a porta de um Arduino secundário.')
+    throw new Error('This port is the main SIM-X — do not flash generated firmware to it. Choose a secondary Arduino port.')
   }
   return portInfo
 }
@@ -239,7 +239,7 @@ async function freePort(ctx: ModuleContext, port: string): Promise<void> {
   if (!existing) return
   const primaryId = ctx.serialHub.getPrimaryId()
   if (existing.kind === 'sim-x' || existing.id === primaryId) {
-    throw new Error('Essa porta é o SIM-X principal — não grave firmware nela por aqui. Escolha a porta de um Arduino secundário.')
+    throw new Error('This port is the main SIM-X — do not flash firmware to it here. Choose a secondary Arduino port.')
   }
   await ctx.serialHub.disconnectDevice(existing.id).catch(() => undefined)
   await delay(PORT_RELEASE_MS)
@@ -345,7 +345,7 @@ function runArduinoCli(command: string, args: string[], log: string[]): Promise<
     child.on('close', (code) => {
       clearTimeout(timer)
       if (code === 0) resolve()
-      else reject(new Error(`exit code ${code ?? 'desconhecido'}`))
+      else reject(new Error(`exit code ${code ?? 'unknown'}`))
     })
   })
 }

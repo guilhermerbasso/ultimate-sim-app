@@ -793,7 +793,7 @@ export class OverlayManager {
   }
 
   // Called when the user DELETES/RESETS the persisted `overlays` store via the
-  // "Configurações salvas" panel (signalled from config-export over ipcMain).
+  // "Settings salvas" panel (signalled from config-export over ipcMain).
   // Without this, the still-live manager keeps the OLD overlays in memory and a
   // pending debounced save — or the before-quit dispose() flush — would WRITE
   // them back, RESURRECTING the file the user deleted. We cancel any pending

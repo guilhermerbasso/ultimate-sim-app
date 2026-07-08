@@ -136,7 +136,7 @@ export function useEngineerActionRuntime(showToast?: ActionRuntimeToast): void {
       }
       const Ctor = getSpeechRecognitionCtor()
       if (!Ctor) {
-        showToastRef.current?.('Push-to-talk: ditado por voz indisponível neste sistema — digite a pergunta no Engenheiro IA.', 'info')
+        showToastRef.current?.('Push-to-talk: ditado por voz indisponível neste sistema — digite a pergunta no AI Engineer.', 'info')
         return
       }
       let rec: SpeechRecognitionLike

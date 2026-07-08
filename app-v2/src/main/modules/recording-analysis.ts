@@ -169,15 +169,15 @@ function isAllowedFolder(folder: string): boolean {
 }
 
 function ensureIbtPath(path: string): string {
-  if (typeof path !== 'string' || path.length === 0) throw new Error('Caminho .ibt inválido')
+  if (typeof path !== 'string' || path.length === 0) throw new Error('Invalid .ibt path')
   const resolved = resolve(path)
-  if (!resolved.toLowerCase().endsWith('.ibt')) throw new Error('Arquivo precisa ter extensão .ibt')
+  if (!resolved.toLowerCase().endsWith('.ibt')) throw new Error('File must have the .ibt extension')
   return resolved
 }
 
 async function listIbtFiles(folder: string): Promise<IbtFileInfo[]> {
   const dir = folder?.trim() || DEFAULT_IBT_FOLDER
-  if (!isAllowedFolder(dir)) throw new Error('Pasta inválida')
+  if (!isAllowedFolder(dir)) throw new Error('Invalid folder')
   let entries: string[]
   try {
     entries = (await readdir(dir, { withFileTypes: true }))
@@ -188,7 +188,7 @@ async function listIbtFiles(folder: string): Promise<IbtFileInfo[]> {
     throw error
   }
   // Ordena por nome desc (iRacing usa timestamp no nome) para ter os mais
-  // recentes primeiro — o usuário quase sempre quer a última sessão.
+  // recentes primeiro — o usuário quase sempre quer a last sessão.
   entries.sort((a, b) => b.localeCompare(a))
   const limited = entries.slice(0, MAX_IBT_LIST)
   const infos: IbtFileInfo[] = []
@@ -319,7 +319,7 @@ async function saveReference(userData: string, ref: ReferenceLap): Promise<Refer
 async function getReference(userData: string, id: string): Promise<ReferenceLap> {
   const refs = await readReferences(userData)
   const ref = refs.find((item) => item.id === id)
-  if (!ref) throw new Error('Referência não encontrada.')
+  if (!ref) throw new Error('Reference not found.')
   return ref
 }
 
@@ -328,7 +328,7 @@ function referenceToAnalysisLap(ref: ReferenceLap, index: number): AnalysisLap {
   return {
     id: `ref:${ref.id}`,
     ref: ref.ref ?? fallbackRef,
-    label: `Referência · ${ref.label}`,
+    label: `Reference · ${ref.label}`,
     source: ref.source === 'ibt' ? 'ibt' : 'recording',
     trackName: ref.trackKey,
     carName: ref.carName,
@@ -345,10 +345,10 @@ async function resolveAnalysisLaps(
   recorder: TelemetryRecorder
 ): Promise<AnalysisLap[]> {
   if (!request || !Array.isArray(request.laps) || request.laps.length === 0) {
-    throw new Error('Pelo menos uma volta deve ser selecionada para análise.')
+    throw new Error('At least one lap must be selected for analysis.')
   }
   if (request.laps.length > MAX_LAPS_PER_ANALYSIS) {
-    throw new Error(`Limite de ${MAX_LAPS_PER_ANALYSIS} voltas por análise excedido.`)
+    throw new Error(`Limit of ${MAX_LAPS_PER_ANALYSIS} laps per analysis exceeded.`)
   }
   const resolvedLaps: AnalysisLap[] = []
   for (let i = 0; i < request.laps.length; i += 1) {
@@ -357,11 +357,11 @@ async function resolveAnalysisLaps(
       const lap = await buildAnalysisLap(ref, i, userData, recorder)
       if (lap) resolvedLaps.push(lap)
     } catch (error) {
-      console.warn('[recording-analysis] falha ao carregar volta:', error)
+      console.warn('[recording-analysis] failed to load lap:', error)
     }
   }
   if (resolvedLaps.length === 0) {
-    throw new Error('Nenhuma volta válida pôde ser carregada para análise.')
+    throw new Error('No valid lap could be loaded for analysis.')
   }
   return resolvedLaps
 }
@@ -394,7 +394,7 @@ async function buildAnalysisLap(
     return {
       id: `rec:${ref.sessionId}:${ref.lapIndex}`,
       ref,
-      label: `Gravação · ${when} · Volta ${lapNumber}`,
+      label: `Recording · ${when} · Lap ${lapNumber}`,
       source: 'recording',
       trackName,
       carName,
@@ -412,7 +412,7 @@ async function buildAnalysisLap(
   return {
     id: `ibt:${resolved}:${ref.lapIndex}`,
     ref: { ...ref, path: resolved },
-    label: `${basename(resolved)} · Volta ${data.lap.lapNumber ?? data.lap.lapIndex + 1}`,
+    label: `${basename(resolved)} · Lap ${data.lap.lapNumber ?? data.lap.lapIndex + 1}`,
     source: 'ibt',
     trackName: data.trackName,
     carName: data.carName,
@@ -617,11 +617,11 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(
     'recording:references:saveFromLap',
     async (_event, input: AnalysisLapRef | { ref: AnalysisLapRef; label?: string }, labelArg?: string): Promise<ReferenceLapSummary> => {
-      if (!input || typeof input !== 'object') throw new Error('Referência de volta inválida.')
+      if (!input || typeof input !== 'object') throw new Error('Invalid lap reference.')
       const ref = 'ref' in input ? input.ref : input
       const label = 'ref' in input ? input.label : labelArg
       const lap = await buildAnalysisLap(ref, 0, userData, recorder)
-      if (!lap) throw new Error('Volta inválida para referência.')
+      if (!lap) throw new Error('Invalid lap for reference.')
       const reference: ReferenceLap = {
         id: randomUUID(),
         label: label?.trim() || `${lap.trackName ?? 'Pista'} · ${lap.label}`,
@@ -640,9 +640,9 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(
     'recording:importCsv',
     async (_event, path: string): Promise<{ summary: ReferenceLapSummary; samples: AnalysisLapSample[] }> => {
-      if (typeof path !== 'string' || path.trim().length === 0) throw new Error('Caminho CSV inválido.')
+      if (typeof path !== 'string' || path.trim().length === 0) throw new Error('Invalid CSV path.')
       const resolved = resolve(path)
-      if (!resolved.toLowerCase().endsWith('.csv')) throw new Error('Arquivo precisa ter extensão .csv')
+      if (!resolved.toLowerCase().endsWith('.csv')) throw new Error('File must have the .csv extension')
       const samples = parseAnalysisCsv(await readFile(resolved, 'utf8'))
       const reference: ReferenceLap = {
         id: randomUUID(),

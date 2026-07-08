@@ -54,27 +54,27 @@ const ICON_GROUPS = ICON_OPTIONS.reduce<Array<{ group: string; items: Array<{ id
 )
 
 const IRACING_COMMANDS: Array<{ value: IracingCommandName; group: IracingCommandGroup; label: string }> = [
-  { value: 'pit:addFuel', group: 'pit', label: 'Pit · Adicionar combustível' },
-  { value: 'pit:clearFuel', group: 'pit', label: 'Pit · Cancelar combustível' },
-  { value: 'pit:toggleTyreLf', group: 'pit', label: `Pit · Pneu ${TYRE_CORNER_LABELS['pit:toggleTyreLf']}` },
-  { value: 'pit:toggleTyreRf', group: 'pit', label: `Pit · Pneu ${TYRE_CORNER_LABELS['pit:toggleTyreRf']}` },
-  { value: 'pit:toggleTyreLr', group: 'pit', label: `Pit · Pneu ${TYRE_CORNER_LABELS['pit:toggleTyreLr']}` },
-  { value: 'pit:toggleTyreRr', group: 'pit', label: `Pit · Pneu ${TYRE_CORNER_LABELS['pit:toggleTyreRr']}` },
+  { value: 'pit:addFuel', group: 'pit', label: 'Pit ? Add fuel' },
+  { value: 'pit:clearFuel', group: 'pit', label: 'Pit ? Cancel fuel' },
+  { value: 'pit:toggleTyreLf', group: 'pit', label: `Pit · Tire ${TYRE_CORNER_LABELS['pit:toggleTyreLf']}` },
+  { value: 'pit:toggleTyreRf', group: 'pit', label: `Pit · Tire ${TYRE_CORNER_LABELS['pit:toggleTyreRf']}` },
+  { value: 'pit:toggleTyreLr', group: 'pit', label: `Pit · Tire ${TYRE_CORNER_LABELS['pit:toggleTyreLr']}` },
+  { value: 'pit:toggleTyreRr', group: 'pit', label: `Pit · Tire ${TYRE_CORNER_LABELS['pit:toggleTyreRr']}` },
   { value: 'pit:fastRepair', group: 'pit', label: 'Pit · Fast Repair' },
   { value: 'pit:clearAll', group: 'pit', label: 'Pit · Limpar tudo' },
-  { value: 'camera:next', group: 'camera', label: 'Câmera · Próxima' },
-  { value: 'camera:previous', group: 'camera', label: 'Câmera · Anterior' },
-  { value: 'blackBox:next', group: 'blackBox', label: 'Black Box · Próximo' },
-  { value: 'blackBox:previous', group: 'blackBox', label: 'Black Box · Anterior' }
+  { value: 'camera:next', group: 'camera', label: 'Camera ? Next' },
+  { value: 'camera:previous', group: 'camera', label: 'Camera ? Previous' },
+  { value: 'blackBox:next', group: 'blackBox', label: 'Black Box ? Next' },
+  { value: 'blackBox:previous', group: 'blackBox', label: 'Black Box ? Previous' }
 ]
 
 const KEYBOARD_MODE_HINTS: Record<KeyboardMacroCommand['mode'], string> = {
-  press: 'Uma tecla ou combinação, disparada uma vez. Ex.: p',
-  chord: 'Todas as teclas juntas (atalho). Ex.: ctrl, shift, r',
-  sequence: 'Teclas em ordem, uma após a outra. Ex.: g, g, 1',
-  hold: 'Mantém a(s) tecla(s) pressionada(s) enquanto ativo. Ex.: shift',
-  toggle: 'Alterna liga/desliga a cada toque. Ex.: h',
-  repeat: 'Repete a(s) tecla(s) enquanto pressionado. Ex.: seta acima'
+  press: 'One key or combination, fired once. Example: p',
+  chord: 'All keys together (shortcut). Example: ctrl, shift, r',
+  sequence: 'Keys in order, one after another. Example: g, g, 1',
+  hold: 'Keeps key(s) pressed while active. Example: shift',
+  toggle: 'Toggles on/off on each tap. Example: h',
+  repeat: 'Repeats key(s) while pressed. Example: arrow up'
 }
 
 // Longest edge (px) an uploaded key face is downscaled to before encoding. Keeps a
@@ -140,10 +140,10 @@ async function prepareButtonImage(file: File): Promise<string> {
 }
 
 const APP_ACTIONS: Array<{ value: AppActionName; label: string }> = [
-  { value: 'dash:cycleNext', label: 'Dashboard · próximo (playlist)' },
-  { value: 'dash:cyclePrev', label: 'Dashboard · anterior (playlist)' },
+  { value: 'dash:cycleNext', label: 'Dashboard ? next (playlist)' },
+  { value: 'dash:cyclePrev', label: 'Dashboard ? previous (playlist)' },
   { value: 'overlays:toggle', label: 'Overlays · alternar' },
-  { value: 'oled:setActivePage', label: 'OLED · página ativa' }
+  { value: 'oled:setActivePage', label: 'OLED ? active page' }
 ]
 
 function field(): CSSProperties {
@@ -250,8 +250,8 @@ export function ButtonBoxEditor({ panel, selectedId, onChange, onSelect }: Butto
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16, alignItems: 'start' }}>
       <div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
-          <span style={{ color: TEXT_DIM, fontSize: 12 }}>Toque numa tecla para editar.</span>
-          <button type="button" style={field()} onClick={addButton} title="Adicionar uma nova tecla">
+          <span style={{ color: TEXT_DIM, fontSize: 12 }}>Tap a key to edit.</span>
+          <button type="button" style={field()} onClick={addButton} title="Add a new key">
             ＋ Adicionar tecla
           </button>
         </div>
@@ -269,11 +269,11 @@ export function ButtonBoxEditor({ panel, selectedId, onChange, onSelect }: Butto
 
         <div style={{ ...row(), gridTemplateColumns: 'repeat(2, 1fr)', marginTop: 14 }}>
           <div>
-            <label style={label()}>Nome do painel</label>
+            <label style={label()}>Panel name</label>
             <input style={field()} value={panel.name} onChange={(e) => patchPanel({ name: e.target.value })} />
           </div>
           <div>
-            <label style={label()}>Cor de fundo</label>
+            <label style={label()}>Background color</label>
             <input
               type="color"
               style={{ ...field(), height: 36, padding: 2 }}
@@ -282,7 +282,7 @@ export function ButtonBoxEditor({ panel, selectedId, onChange, onSelect }: Butto
             />
           </div>
           <div>
-            <label style={label()}>Colunas ({PANEL_MIN_COLUMNS}–{PANEL_MAX_COLUMNS})</label>
+            <label style={label()}>Columns ({PANEL_MIN_COLUMNS}–{PANEL_MAX_COLUMNS})</label>
             <input
               type="number"
               min={PANEL_MIN_COLUMNS}
@@ -293,7 +293,7 @@ export function ButtonBoxEditor({ panel, selectedId, onChange, onSelect }: Butto
             />
           </div>
           <div>
-            <label style={label()}>Linhas ({PANEL_MIN_ROWS}–{PANEL_MAX_ROWS})</label>
+            <label style={label()}>Rows ({PANEL_MIN_ROWS}–{PANEL_MAX_ROWS})</label>
             <input
               type="number"
               min={PANEL_MIN_ROWS}
@@ -304,7 +304,7 @@ export function ButtonBoxEditor({ panel, selectedId, onChange, onSelect }: Butto
             />
           </div>
           <div>
-            <label style={label()}>Espaçamento ({PANEL_MIN_GAP}–{PANEL_MAX_GAP}px)</label>
+            <label style={label()}>Spacing ({PANEL_MIN_GAP}–{PANEL_MAX_GAP}px)</label>
             <input
               type="number"
               min={PANEL_MIN_GAP}
@@ -318,14 +318,14 @@ export function ButtonBoxEditor({ panel, selectedId, onChange, onSelect }: Butto
       </div>
 
       <div style={{ border: `1px solid ${PANEL_BORDER}`, borderRadius: 14, padding: 14, background: '#0e1116' }}>
-        <strong style={{ color: TEXT_FG, fontSize: 14 }}>Inspetor da tecla</strong>
+        <strong style={{ color: TEXT_FG, fontSize: 14 }}>Key inspector</strong>
         {!selected ? (
-          <p style={{ color: TEXT_DIM, fontSize: 13, marginTop: 12 }}>Selecione uma tecla na grade para editar cor, texto, imagem e ação.</p>
+          <p style={{ color: TEXT_DIM, fontSize: 13, marginTop: 12 }}>Select a key in the grid to edit color, text, image, and action.</p>
         ) : (
           <div style={{ marginTop: 12 }}>
             <div style={row()}>
               <div>
-                <label style={label()}>Texto</label>
+                <label style={label()}>Text</label>
                 <input style={field()} value={selected.label} onChange={(e) => patchButton(selected.id, { label: e.target.value })} />
               </div>
             </div>
@@ -343,13 +343,13 @@ export function ButtonBoxEditor({ panel, selectedId, onChange, onSelect }: Butto
                 </select>
               </div>
               <div>
-                <label style={label()}>Ícone</label>
+                <label style={label()}>Icon</label>
                 <select
                   style={field()}
                   value={selected.icon ?? ''}
                   onChange={(e) => patchButton(selected.id, { icon: e.target.value || undefined })}
                 >
-                  <option value="">Sem ícone</option>
+                  <option value="">No icon</option>
                   {ICON_GROUPS.map((g) => (
                     <optgroup key={g.group} label={g.group}>
                       {g.items.map((it) => (
@@ -362,43 +362,43 @@ export function ButtonBoxEditor({ panel, selectedId, onChange, onSelect }: Butto
             </div>
             <div style={{ ...row(), gridTemplateColumns: 'repeat(2, 1fr)' }}>
               <div>
-                <label style={label()}>Cor do corpo</label>
+                <label style={label()}>Body color</label>
                 <input type="color" style={{ ...field(), height: 36, padding: 2 }} value={selected.bodyColor} onChange={(e) => patchButton(selected.id, { bodyColor: e.target.value })} />
               </div>
               <div>
-                <label style={label()}>Cor do texto</label>
+                <label style={label()}>Text color</label>
                 <input type="color" style={{ ...field(), height: 36, padding: 2 }} value={selected.textColor} onChange={(e) => patchButton(selected.id, { textColor: e.target.value })} />
               </div>
               <div>
-                <label style={label()}>Cor da borda</label>
+                <label style={label()}>Border color</label>
                 <input type="color" style={{ ...field(), height: 36, padding: 2 }} value={selected.borderColor} onChange={(e) => patchButton(selected.id, { borderColor: e.target.value })} />
               </div>
               <div>
-                <label style={label()}>Borda ({BUTTON_MIN_BORDER}–{BUTTON_MAX_BORDER}px)</label>
+                <label style={label()}>Border ({BUTTON_MIN_BORDER}–{BUTTON_MAX_BORDER}px)</label>
                 <input type="number" min={BUTTON_MIN_BORDER} max={BUTTON_MAX_BORDER} style={field()} value={selected.borderWidth} onChange={(e) => patchButton(selected.id, { borderWidth: clampBorderWidth(Number(e.target.value)) })} />
               </div>
               <div>
-                <label style={label()}>Fonte ({BUTTON_MIN_FONT}–{BUTTON_MAX_FONT}px)</label>
+                <label style={label()}>Font ({BUTTON_MIN_FONT}–{BUTTON_MAX_FONT}px)</label>
                 <input type="number" min={BUTTON_MIN_FONT} max={BUTTON_MAX_FONT} style={field()} value={selected.fontSize} onChange={(e) => patchButton(selected.id, { fontSize: clampFontSize(Number(e.target.value)) })} />
               </div>
               <div>
-                <label style={label()}>Cor ao pressionar</label>
+                <label style={label()}>Press color</label>
                 <input type="color" style={{ ...field(), height: 36, padding: 2 }} value={selected.activeColor ?? selected.bodyColor} onChange={(e) => patchButton(selected.id, { activeColor: e.target.value })} />
               </div>
               <div>
-                <label style={label()}>Texto ao pressionar</label>
+                <label style={label()}>Press text</label>
                 <input type="color" style={{ ...field(), height: 36, padding: 2 }} value={selected.activeTextColor ?? selected.textColor} onChange={(e) => patchButton(selected.id, { activeTextColor: e.target.value })} />
               </div>
             </div>
 
             <div style={row()}>
-              <label style={label()}>Imagem da tecla</label>
+              <label style={label()}>Key image</label>
               <input type="file" accept="image/*" style={{ ...field(), padding: 6 }} onChange={onImage} />
               <span style={{ color: TEXT_DIM, fontSize: 11 }}>
                 Imagens grandes são reduzidas automaticamente (máx. ~{Math.round(IMAGE_MAX_BYTES / 1000)} KB).
               </span>
               {selected.image ? (
-                <button type="button" style={field()} onClick={() => patchButton(selected.id, { image: undefined })}>Remover imagem</button>
+                <button type="button" style={field()} onClick={() => patchButton(selected.id, { image: undefined })}>Remove image</button>
               ) : null}
             </div>
 
@@ -409,7 +409,7 @@ export function ButtonBoxEditor({ panel, selectedId, onChange, onSelect }: Butto
               style={{ ...field(), marginTop: 8, borderColor: '#7f1d1d', color: '#fca5a5' }}
               onClick={removeSelected}
             >
-              Excluir tecla
+              Delete key
             </button>
           </div>
         )}
@@ -438,12 +438,12 @@ function ActionEditor({ action, onChange }: { action: ButtonAction; onChange: (a
 
   return (
     <div style={{ ...row(), borderTop: `1px solid ${PANEL_BORDER}`, paddingTop: 12 }}>
-      <label style={label()}>Ação ao pressionar</label>
+      <label style={label()}>Action on press</label>
       <select style={field()} value={action.kind} onChange={(e) => setKind(e.target.value as ButtonAction['kind'])}>
-        <option value="none">Sem ação</option>
-        <option value="iracing">Comando iRacing</option>
-        <option value="keyboard">Atalho de teclado</option>
-        <option value="app">Ação do app</option>
+        <option value="none">No action</option>
+        <option value="iracing">iRacing command</option>
+        <option value="keyboard">Keyboard shortcut</option>
+        <option value="app">App action</option>
       </select>
 
       {action.kind === 'iracing' ? (
@@ -465,7 +465,7 @@ function ActionEditor({ action, onChange }: { action: ButtonAction; onChange: (a
               type="number"
               min={0}
               style={field()}
-              placeholder="Litros"
+              placeholder="Liters"
               value={action.command.fuelLiters ?? 0}
               onChange={(e) => onChange({ kind: 'iracing', command: { ...action.command, fuelLiters: Math.max(0, Number(e.target.value) || 0) } })}
             />
@@ -493,7 +493,7 @@ function ActionEditor({ action, onChange }: { action: ButtonAction; onChange: (a
               type="number"
               min={0}
               style={field()}
-              placeholder="Índice da página (0 = primeira)"
+              placeholder="Page index (0 = first)"
               value={action.command.pageIndex ?? 0}
               onChange={(e) =>
                 onChange({
@@ -526,12 +526,12 @@ function KeyboardEditor({ command, onChange }: { command: KeyboardMacroCommand; 
   return (
     <>
       <select style={field()} value={command.mode} onChange={(e) => onChange({ ...command, mode: e.target.value as KeyboardMacroCommand['mode'] })}>
-        <option value="press">Pressionar</option>
-        <option value="chord">Combinação (chord)</option>
-        <option value="sequence">Sequência</option>
-        <option value="hold">Segurar</option>
-        <option value="toggle">Alternar</option>
-        <option value="repeat">Repetir</option>
+        <option value="press">Press</option>
+        <option value="chord">Combination (chord)</option>
+        <option value="sequence">Sequence</option>
+        <option value="hold">Hold</option>
+        <option value="toggle">Toggle</option>
+        <option value="repeat">Repeat</option>
       </select>
       <input
         style={field()}

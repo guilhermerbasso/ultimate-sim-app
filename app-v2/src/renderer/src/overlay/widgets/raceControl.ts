@@ -80,17 +80,17 @@ export interface PitHeadline {
 }
 
 export function pitHeadline(pit: PitStatus | undefined): PitHeadline {
-  if (!pit) return { text: 'sem dados', tone: 'idle' }
-  if (pit.repairNeeded) return { text: 'reparo obrigatório', tone: 'alert' }
+  if (!pit) return { text: 'no data', tone: 'idle' }
+  if (pit.repairNeeded) return { text: 'repair required', tone: 'alert' }
   if (pit.inPitStall) {
     const sv = pitServiceInfo(pit.svStatus)
-    if (sv.tone === 'good') return { text: 'serviço concluído', tone: 'good' }
-    if (sv.tone === 'error') return { text: 'erro no serviço', tone: 'alert' }
+    if (sv.tone === 'good') return { text: 'service complete', tone: 'good' }
+    if (sv.tone === 'error') return { text: 'service error', tone: 'alert' }
     return { text: 'no box', tone: 'info' }
   }
-  if (pit.optRepairNeeded) return { text: 'reparo opcional', tone: 'warn' }
-  if (!pit.pitsOpen) return { text: 'pits fechados', tone: 'warn' }
-  return { text: 'pits abertos', tone: 'good' }
+  if (pit.optRepairNeeded) return { text: 'optional repair', tone: 'warn' }
+  if (!pit.pitsOpen) return { text: 'pits closed', tone: 'warn' }
+  return { text: 'pits open', tone: 'good' }
 }
 
 // ─── Track surface ───────────────────────────────────────────────────────────

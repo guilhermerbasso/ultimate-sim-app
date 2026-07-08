@@ -46,7 +46,7 @@ function formatValue(value: ExpressionValue, decimals: number | null, suffix: st
     if (!Number.isFinite(value)) return '—'
     text = decimals === null ? trimNumber(value) : value.toFixed(decimals)
   } else if (typeof value === 'boolean') {
-    text = value ? 'sim' : 'não'
+    text = value ? 'yes' : 'no'
   } else {
     text = value
   }
@@ -137,7 +137,7 @@ export function CustomOverlayWidget({ snapshot }: WidgetProps) {
   }, [def, expressions, scope])
 
   if (!overlayId) {
-    return <div className="overlay-card custom-overlay custom-overlay-empty">overlay inválido</div>
+    return <div className="overlay-card custom-overlay custom-overlay-empty">invalid overlay</div>
   }
 
   // RICH overlays render the dashboard widget set with the shared dashboard
@@ -160,7 +160,7 @@ export function CustomOverlayWidget({ snapshot }: WidgetProps) {
     <div className="overlay-card custom-overlay">
       {(!def || def.elements.length === 0) && (
         <div className="custom-overlay-placeholder">
-          {def ? 'Sem elementos — edite no menu Overlays' : 'carregando…'}
+          {def ? 'No elements ? edit in the Overlays menu' : 'loading?'}
         </div>
       )}
       {rendered.map(({ element, text, hasExpr }) => {

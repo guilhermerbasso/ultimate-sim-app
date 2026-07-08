@@ -136,7 +136,7 @@ export const TOUCH_PRESETS_B: ButtonBoxPanel[] = [
   }),
   createButtonBoxPanel({
     id: 'tp-b-minimal-2x2',
-    name: 'Mínimo 2×2',
+    name: 'Minimal 2×2',
     columns: 2,
     rows: 2,
     gap: 12,
@@ -150,7 +150,7 @@ export const TOUCH_PRESETS_B: ButtonBoxPanel[] = [
   }),
   createButtonBoxPanel({
     id: 'tp-b-minimal-3x2',
-    name: 'Mínimo 3×2',
+    name: 'Minimal 3×2',
     columns: 3,
     rows: 2,
     gap: 12,

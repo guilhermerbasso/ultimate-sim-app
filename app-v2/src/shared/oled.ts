@@ -71,28 +71,28 @@ export const OLED_BIGNUM_ALPHABET = /^[0-9+\-. ]*$/
 export const OLED_PRESETS: OledPreset[] = [
   {
     id: 'race',
-    name: 'Corrida',
-    description: 'Posição, volta atual e delta para o líder.',
+    name: 'Race',
+    description: 'Position, lap atual e delta para o líder.',
     kind: 'text',
-    fields: ['posição', 'volta', 'última volta', 'delta']
+    fields: ['position', 'lap', 'last lap', 'delta']
   },
   {
     id: 'fuel',
-    name: 'Combustível',
-    description: 'Litros restantes, consumo/volta e voltas restantes.',
+    name: 'Fuel',
+    description: 'Litros restantes, consumo/lap e laps remaining.',
     kind: 'text',
-    fields: ['litros', 'L/volta', 'voltas restantes']
+    fields: ['litros', 'L/lap', 'laps remaining']
   },
   {
     id: 'timing',
     name: 'Tempos / Delta',
-    description: 'Volta atual, melhor volta e delta para a melhor.',
+    description: 'Lap atual, melhor lap e delta para a melhor.',
     kind: 'text',
     fields: ['atual', 'melhor', 'delta']
   },
   {
     id: 'tyres',
-    name: 'Pneus',
+    name: 'Tires',
     description: 'Temperatura LF/RF, LR/RR e média.',
     kind: 'text',
     fields: ['LF', 'RF', 'LR', 'RR']
@@ -100,7 +100,7 @@ export const OLED_PRESETS: OledPreset[] = [
   {
     id: 'inputs',
     name: 'Inputs',
-    description: 'Acelerador, freio, marcha e velocidade.',
+    description: 'Acelerador, brake, gear e speed.',
     kind: 'text',
     fields: ['throttle', 'brake', 'gear', 'speed']
   },
@@ -114,7 +114,7 @@ export const OLED_PRESETS: OledPreset[] = [
   {
     id: 'delta-bignum',
     name: 'Delta (BIG)',
-    description: 'Delta contra a melhor volta em fonte gigante (38 px).',
+    description: 'Delta contra a melhor lap em fonte gigante (38 px).',
     kind: 'bignum',
     fields: ['delta']
   },

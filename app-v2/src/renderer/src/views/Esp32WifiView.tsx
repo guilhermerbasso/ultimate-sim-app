@@ -169,7 +169,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
         </div>
         <p className="helper-text">
           Grave/provisione via USB e depois conecte pela rede local. Flash e Wi‑Fi precisam ser validados na bancada;
-          no macOS o app fica protegido quando arduino-cli/core ESP32 ou mDNS não estiverem instalados.
+          no macOS o app fica protegido quando arduino-cli/core ESP32 ou mDNS no estiverem instalados.
         </p>
       </article>
 
@@ -198,7 +198,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
                 <option value="">Selecione…</option>
                 {ports.map((port) => (
                   <option key={port.path} value={port.path}>
-                    {port.path} {port.isSimX ? '(SIM-X — não usar)' : ''}
+                    {port.path} {port.isSimX ? '(SIM-X — no usar)' : ''}
                   </option>
                 ))}
               </select>
@@ -244,7 +244,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
       <article className="panel-card">
         <div className="panel-heading-row">
           <div>
-            <span className="panel-label">Dispositivos encontrados</span>
+            <span className="panel-label">Devices encontrados</span>
             <h3>ESP32 via mDNS (_ubbcompanion._tcp)</h3>
           </div>
         </div>

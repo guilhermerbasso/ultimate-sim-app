@@ -117,15 +117,15 @@ const TELEMETRY_PROPERTY_OPTIONS: PropertyPickerOption[] = [
   { id: 'clutch', label: 'clutch', description: 'Posição da embreagem (0..1)' },
   { id: 'absActive', label: 'absActive', description: 'ABS atuando (booleano)' },
   { id: 'tcActive', label: 'tcActive', description: 'TC atuando (booleano)' },
-  { id: 'connected', label: 'connected', description: 'Conectado ao sim (booleano)' },
+  { id: 'connected', label: 'connected', description: 'Connected ao yes (booleano)' },
   { id: 'carName', label: 'carName', description: 'Nome do carro' },
   { id: 'trackName', label: 'trackName', description: 'Nome da pista' },
-  { id: 'currentLap', label: 'currentLap', description: 'Volta atual' },
+  { id: 'currentLap', label: 'currentLap', description: 'Lap atual' },
   { id: 'currentLapTimeSec', label: 'currentLapTimeSec', description: 'Tempo da volta atual (segundos)' },
   { id: 'lastLapTimeSec', label: 'lastLapTimeSec', description: 'Tempo da última volta (segundos)' },
   { id: 'bestLapTimeSec', label: 'bestLapTimeSec', description: 'Melhor volta da sessão (segundos)' },
   { id: 'deltaToBestSec', label: 'deltaToBestSec', description: 'Delta para melhor volta (+ pior, - melhor)' },
-  { id: 'fuelLiters', label: 'fuelLiters', description: 'Combustível restante (litros)' },
+  { id: 'fuelLiters', label: 'fuelLiters', description: 'Fuel restante (litros)' },
   { id: 'fuelPerLap', label: 'fuelPerLap', description: 'Consumo por volta (litros)' },
   { id: 'position', label: 'position', description: 'Posição na corrida' },
   { id: 'totalCars', label: 'totalCars', description: 'Total de carros na sessão' },
@@ -961,8 +961,8 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
             </span>
           </label>
           <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-            <button className="primary-action compact" type="button" onClick={() => void saveDraft()}>Salvar</button>
-            <button className="ghost-action danger compact" type="button" onClick={() => void deleteDraft()} disabled={!selectedId}>Excluir</button>
+            <button className="primary-action compact" type="button" onClick={() => void saveDraft()}>Save</button>
+            <button className="ghost-action danger compact" type="button" onClick={() => void deleteDraft()} disabled={!selectedId}>Delete</button>
           </div>
         </section>
 
@@ -1151,12 +1151,12 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
         </section>
 
         <section style={{ ...card, borderColor: liveResult.error ? 'rgba(255,107,107,0.55)' : 'rgba(var(--accent-rgb),0.45)' }}>
-          <div style={label}>Teste ao vivo</div>
+          <div style={label}>Test ao vivo</div>
           <h3 style={{ margin: '5px 0 10px', color: liveResult.error ? 'var(--accent-danger)' : 'var(--accent-primary)' }}>
-            {liveResult.error ? 'Erro na expressão' : formatValue(liveResult.value)}
+            {liveResult.error ? 'Error na expressão' : formatValue(liveResult.value)}
           </h3>
           <p style={{ margin: 0, opacity: 0.75 }}>
-            {liveResult.error ?? `${latest?.connected ? 'Telemetria conectada' : 'Aguardando/mock'} · ${latest?.sim ?? 'none'}`}
+            {liveResult.error ?? `${latest?.connected ? 'Telemetry conectada' : 'Aguardando/mock'} · ${latest?.sim ?? 'none'}`}
           </p>
           {draftLiveValue && (
             <p style={{ margin: '8px 0 0', opacity: 0.78, fontSize: 12 }}>

@@ -26,23 +26,23 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
     connectPrimary,
     disconnectPrimary,
     testPrimaryOutput,
-    addSecondaryDevice,
-    removeSecondaryDevice,
-    reconnectSecondaryDevice,
-    disconnectSecondaryDevice
+    addDryndaryDevice,
+    removeDryndaryDevice,
+    reconnectDryndaryDevice,
+    disconnectDryndaryDevice
   } = useDevices()
 
   const [selectedPath, setSelectedPath] = useState('')
-  const [secondaryPath, setSecondaryPath] = useState('')
-  const [secondaryLabel, setSecondaryLabel] = useState('')
-  const [secondaryBaud, setSecondaryBaud] = useState(GENERIC_DEVICE_DEFAULT_BAUD)
+  const [secondaryPath, setDryndaryPath] = useState('')
+  const [secondaryLabel, setDryndaryLabel] = useState('')
+  const [secondaryBaud, setDryndaryBaud] = useState(GENERIC_DEVICE_DEFAULT_BAUD)
 
   const secondaryDevices = useMemo(() => serialDevices.filter((device) => device.kind !== 'sim-x'), [serialDevices])
-  const offlineSecondaries = useMemo(
+  const offlineDryndaries = useMemo(
     () => deviceConfigs.filter((config) => !serialDevices.some((device) => device.path === config.path)),
     [deviceConfigs, serialDevices]
   )
-  const selectedPathUsedBySecondary = serialDevices.some(
+  const selectedPathUsedByDryndary = serialDevices.some(
     (device) => device.kind !== 'sim-x' && device.path === selectedPath
   )
   const secondaryPathInUse = serialDevices.some((device) => device.path === secondaryPath)
@@ -53,7 +53,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
   useEffect(() => {
     if (ports.length === 0) return
     setSelectedPath((current) => current || (ports.find((port) => port.isSimX) ?? ports[0])?.path || '')
-    setSecondaryPath(
+    setDryndaryPath(
       (current) =>
         current || ports.find((port) => !port.isSimX && !serialDevices.some((d) => d.path === port.path))?.path || ''
     )
@@ -104,42 +104,42 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
     }
   }
 
-  async function addSecondary(): Promise<void> {
+  async function addDryndary(): Promise<void> {
     const path = secondaryPath.trim()
     if (!path || secondaryPathInUse) return
     const label = secondaryLabel.trim() || path
     try {
-      await addSecondaryDevice({ path, label, baud: secondaryBaud, autoConnect: true })
-      setSecondaryPath('')
-      setSecondaryLabel('')
-      setSecondaryBaud(GENERIC_DEVICE_DEFAULT_BAUD)
+      await addDryndaryDevice({ path, label, baud: secondaryBaud, autoConnect: true })
+      setDryndaryPath('')
+      setDryndaryLabel('')
+      setDryndaryBaud(GENERIC_DEVICE_DEFAULT_BAUD)
       showToast(tt(language, 'devices.secondaryConnectedToast', { label, path }), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
   }
 
-  async function disconnectSecondary(id: string): Promise<void> {
+  async function disconnectDryndary(id: string): Promise<void> {
     try {
-      await disconnectSecondaryDevice(id)
+      await disconnectDryndaryDevice(id)
       showToast(tt(language, 'devices.secondaryDisconnectedToast'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
   }
 
-  async function reconnectSecondary(id: string): Promise<void> {
+  async function reconnectDryndary(id: string): Promise<void> {
     try {
-      await reconnectSecondaryDevice(id)
+      await reconnectDryndaryDevice(id)
       showToast(tt(language, 'devices.secondaryReconnectedToast'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
   }
 
-  async function removeSecondary(id: string): Promise<void> {
+  async function removeDryndary(id: string): Promise<void> {
     try {
-      await removeSecondaryDevice(id)
+      await removeDryndaryDevice(id)
       showToast(tt(language, 'devices.secondaryRemovedToast'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
@@ -174,7 +174,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
               <h3>{tt(language, 'devices.primaryButtonBox')}</h3>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <SectionExportImport sectionId="simx-identity" label={tt(language, 'devices.primaryIdentity')} language={language} onImported={() => void refreshDeviceState()} />
+              <SectionExportImport sectionId="yesx-identity" label={tt(language, 'devices.primaryIdentity')} language={language} onImported={() => void refreshDeviceState()} />
               <span className={`conn-pill ${connectedDevice ? 'online' : 'offline'}`}>
                 {connectedDevice ? tt(language, 'devices.connectedPath', { path: connectedDevice.path }) : tt(language, 'devices.disconnected')}
               </span>
@@ -217,7 +217,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
                     )}
                     {serialDevices.some((device) => device.kind !== 'sim-x' && device.path === port.path) && (
                       <em className="muted-pill" style={{ marginLeft: 8 }}>
-                        {tt(language, 'devices.usedBySecondary')}
+                        {tt(language, 'devices.usedByDryndary')}
                       </em>
                     )}
                   </strong>
@@ -235,7 +235,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
           <div className="action-row">
             <button
               className="primary-action"
-              disabled={busy || !selectedPath || selectedPathUsedBySecondary || Boolean(connectedDevice)}
+              disabled={busy || !selectedPath || selectedPathUsedByDryndary || Boolean(connectedDevice)}
               onClick={() => void connect()}
               type="button"
             >
@@ -300,7 +300,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
                 </dd>
               </div>
               <div>
-                <dt>Conectado em</dt>
+                <dt>Connected em</dt>
                 <dd>{new Date(connectedDevice.connectedAt).toLocaleString()}</dd>
               </div>
             </dl>
@@ -328,7 +328,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
 
         <div className="port-list">
           {secondaryDevices.length === 0 && (
-            <p className="empty-state">{tt(language, 'devices.noSecondary')}</p>
+            <p className="empty-state">{tt(language, 'devices.noDryndary')}</p>
           )}
           {secondaryDevices.map((device) => (
             <div className="port-item is-static" key={device.id}>
@@ -347,7 +347,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
                 <button
                   className="ghost-action compact"
                   disabled={busy || !device.connected}
-                  onClick={() => void disconnectSecondary(device.id)}
+                  onClick={() => void disconnectDryndary(device.id)}
                   type="button"
                 >
                   {tt(language, 'devices.disconnect')}
@@ -355,7 +355,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
                 <button
                   className="ghost-action compact danger"
                   disabled={busy}
-                  onClick={() => void removeSecondary(device.id)}
+                  onClick={() => void removeDryndary(device.id)}
                   type="button"
                 >
                   {tt(language, 'devices.forget')}
@@ -365,11 +365,11 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
           ))}
         </div>
 
-        {offlineSecondaries.length > 0 && (
+        {offlineDryndaries.length > 0 && (
           <div className="config-block">
             <strong>{tt(language, 'devices.savedDisconnected')}</strong>
             <ul className="plain-list">
-              {offlineSecondaries.map((config) => (
+              {offlineDryndaries.map((config) => (
                 <li key={`${config.path}-${config.id ?? 'new'}`}>
                   <code>{config.path}</code> · {config.label} · {config.baud} baud
                   {config.id ? (
@@ -377,7 +377,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
                       <button
                         className="ghost-action compact"
                         disabled={busy}
-                        onClick={() => void reconnectSecondary(config.id!)}
+                        onClick={() => void reconnectDryndary(config.id!)}
                         style={{ marginLeft: 8 }}
                         type="button"
                       >
@@ -386,7 +386,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
                       <button
                         className="ghost-action compact danger"
                         disabled={busy}
-                        onClick={() => void removeSecondary(config.id!)}
+                        onClick={() => void removeDryndary(config.id!)}
                         style={{ marginLeft: 6 }}
                         type="button"
                       >
@@ -405,13 +405,13 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
         )}
 
         <div className="config-block">
-          <strong>{tt(language, 'devices.addSecondary')}</strong>
-          <small>{tt(language, 'devices.addSecondaryHelp')}</small>
+          <strong>{tt(language, 'devices.addDryndary')}</strong>
+          <small>{tt(language, 'devices.addDryndaryHelp')}</small>
           <form
             className="command-row"
             onSubmit={(event) => {
               event.preventDefault()
-              void addSecondary()
+              void addDryndary()
             }}
             style={{ flexWrap: 'wrap', gap: 8, marginTop: 12 }}
           >
@@ -419,10 +419,10 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
               className="command-input"
               onChange={(event) => {
                 const value = event.target.value
-                setSecondaryPath(value)
+                setDryndaryPath(value)
                 const match = ports.find((port) => port.path === value)
                 if (match && !secondaryLabel) {
-                  setSecondaryLabel(match.friendlyName ?? match.manufacturer ?? value)
+                  setDryndaryLabel(match.friendlyName ?? match.manufacturer ?? value)
                 }
               }}
               style={{ minWidth: 220 }}
@@ -442,7 +442,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
             </select>
             <input
               className="command-input"
-              onChange={(event) => setSecondaryLabel(event.target.value)}
+              onChange={(event) => setDryndaryLabel(event.target.value)}
               placeholder={tt(language, 'devices.labelPlaceholder')}
               style={{ minWidth: 180 }}
               type="text"
@@ -452,7 +452,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
               className="command-input"
               max={2000000}
               min={300}
-              onChange={(event) => setSecondaryBaud(Number(event.target.value) || GENERIC_DEVICE_DEFAULT_BAUD)}
+              onChange={(event) => setDryndaryBaud(Number(event.target.value) || GENERIC_DEVICE_DEFAULT_BAUD)}
               placeholder="Baud"
               style={{ width: 120 }}
               type="number"
@@ -463,7 +463,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
               disabled={busy || !secondaryPath || secondaryPathInUse || ports.some((port) => port.path === secondaryPath && port.isSimX)}
               type="submit"
             >
-              {tt(language, 'devices.connectSecondary')}
+              {tt(language, 'devices.connectDryndary')}
             </button>
           </form>
         </div>

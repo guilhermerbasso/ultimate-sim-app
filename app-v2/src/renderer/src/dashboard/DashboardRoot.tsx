@@ -87,7 +87,7 @@ function KioskGestureLayer({ dashId }: { dashId: string | null }) {
       <button
         type="button"
         className="dash-kiosk-edge dash-kiosk-edge-prev"
-        aria-label="Preset anterior"
+        aria-label="Previous preset"
         onPointerUp={(e) => e.stopPropagation()}
         onClick={() => onCycle('prev')}
       >
@@ -96,7 +96,7 @@ function KioskGestureLayer({ dashId }: { dashId: string | null }) {
       <button
         type="button"
         className="dash-kiosk-edge dash-kiosk-edge-next"
-        aria-label="Próximo preset"
+        aria-label="Next preset"
         onPointerUp={(e) => e.stopPropagation()}
         onClick={() => onCycle('next')}
       >
@@ -514,7 +514,7 @@ function ElementMap({ element, snapshot }: ElementProps) {
             <animate attributeName="opacity" values="1;0.6;1" dur="1.4s" repeatCount="indefinite" />
           </circle>
           <text x={cx} y={cy + ry + 9} textAnchor="middle" fontSize="5" fill={trackColor} opacity={0.8}>
-            mapa indisponível
+            map unavailable
           </text>
         </svg>
       </div>
@@ -1510,7 +1510,7 @@ export function DashboardRoot() {
 
   useEffect(() => {
     if (!dashId) {
-      setError('Sem dashboard selecionado (?dash=<id> ausente).')
+      setError('No dashboard selected (?dash=<id> missing).')
       return
     }
     let canceled = false
@@ -1519,14 +1519,14 @@ export function DashboardRoot() {
       .then((dash) => {
         if (canceled) return
         if (!dash) {
-          setError(`Dashboard não encontrado: ${dashId}`)
+          setError(`Dashboard no encontrado: ${dashId}`)
           return
         }
         setDashboard(dash)
       })
       .catch((err: unknown) => {
         if (canceled) return
-        setError(err instanceof Error ? err.message : 'Falha ao carregar dashboard')
+        setError(err instanceof Error ? err.message : 'Failed to load dashboard')
       })
     return () => {
       canceled = true
@@ -1619,7 +1619,7 @@ export function DashboardRoot() {
       <div className="dashboard-shell">
         <div className="dash-missing">
           <div>⚠ {error}</div>
-          <div style={{ fontSize: 14 }}>Feche esta janela e abra novamente pelo painel principal.</div>
+          <div style={{ fontSize: 14 }}>Close this window and reopen it from the main panel.</div>
         </div>
       </div>
     )
@@ -1683,7 +1683,7 @@ export function DashboardRoot() {
       )}
       {!snapshot?.connected && (
         <div className="dash-status">
-          Telemetria desconectada — defina uma fonte (ex.: Mock) em Configurações.
+          Telemetry desconectada — defina uma fonte (ex.: Mock) em Settings.
         </div>
       )}
       {kiosk && <KioskGestureLayer dashId={dashId} />}

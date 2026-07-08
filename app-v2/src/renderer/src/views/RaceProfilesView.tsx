@@ -73,7 +73,7 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
     try {
       const snapshot = await getLatestTelemetry()
       if (!snapshot?.carName && !snapshot?.trackName) {
-        showToast('Telemetria sem carro/pista no momento.', 'error')
+        showToast('Telemetry no car/pista no momento.', 'error')
         return
       }
       setDraft((current) => ({
@@ -243,11 +243,11 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
         <div style={styles.headerRow}>
           <div>
             <span style={styles.kicker}>Profiles v2</span>
-            <h3 style={styles.title}>Perfis por carro/pista</h3>
+            <h3 style={styles.title}>Profiles por carro/pista</h3>
             <p style={styles.text}>Agrupe ButtonBox, OLED, overlays, alertas e bindings para cada combinação de corrida.</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-            <SectionExportImport sectionId="race-profiles" label="Perfis de corrida" onImported={() => void refreshAll()} />
+            <SectionExportImport sectionId="race-profiles" label="Profiles de corrida" onImported={() => void refreshAll()} />
             <label style={styles.switchLabel}>
               <input checked={autoSwitch} onChange={(event) => void toggleAutoSwitch(event.target.checked)} type="checkbox" />
               Auto-troca
@@ -300,7 +300,7 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
 
         <div style={styles.row}>
           <button style={styles.secondaryButton} disabled={busy} onClick={() => void fillMatchFromTelemetry()} type="button">Usar telemetria</button>
-          <button style={styles.primaryButton} disabled={busy || !draft.name.trim()} onClick={() => void saveCurrent()} type="button">Salvar atual</button>
+          <button style={styles.primaryButton} disabled={busy || !draft.name.trim()} onClick={() => void saveCurrent()} type="button">Save atual</button>
           <button style={styles.ghostButton} disabled={busy} onClick={resetDraft} type="button">Novo</button>
         </div>
       </article>
@@ -309,9 +309,9 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
         <div style={styles.headerRow}>
           <div>
             <span style={styles.kicker}>Biblioteca local</span>
-            <h3 style={styles.title}>Perfis de corrida salvos</h3>
+            <h3 style={styles.title}>Profiles de corrida salvos</h3>
           </div>
-          <button style={styles.ghostButton} disabled={busy} onClick={() => void refreshAll()} type="button">Atualizar</button>
+          <button style={styles.ghostButton} disabled={busy} onClick={() => void refreshAll()} type="button">Refresh</button>
         </div>
 
         <div style={styles.list}>
@@ -328,7 +328,7 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
               <div style={styles.row}>
                 <button style={styles.secondaryButton} disabled={busy} onClick={() => editProfile(profile)} type="button">Editar</button>
                 <button style={styles.primaryButton} disabled={busy} onClick={() => void applyRaceProfile(profile)} type="button">Aplicar</button>
-                <button style={styles.dangerButton} disabled={busy} onClick={() => void deleteProfile(profile.id)} type="button">Excluir</button>
+                <button style={styles.dangerButton} disabled={busy} onClick={() => void deleteProfile(profile.id)} type="button">Delete</button>
               </div>
             </div>
           ))}

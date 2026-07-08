@@ -182,12 +182,12 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
     <section style={shell}>
       <article style={{ ...panel, minHeight: 560 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
-          <span style={label}>Tátil · Bass shaker</span>
+          <span style={label}>Haptics · Bass shaker</span>
           <SectionExportImport sectionId="haptics" label="Haptics" onImported={() => void reloadConfig()} />
         </div>
         <h3 style={{ margin: '8px 0 4px', fontSize: 26 }}>Bass shaker &amp; haptics</h3>
         <p style={{ color: 'rgba(255,255,255,0.62)', marginTop: 0 }}>
-          Efeitos táteis estilo SimHub &quot;ShakeIt&quot;: a telemetria sintetiza ondas de baixa frequência (Web Audio) enviadas a uma saída de áudio que alimenta o amplificador do bass shaker. Não altera o áudio do jogo.
+          SimHub ShakeIt-style haptic effects: telemetry synthesizes low-frequency waves (Web Audio) sent to an audio output that feeds the bass-shaker amplifier. It does not alter game audio.
         </p>
 
         <MasterBar
@@ -228,15 +228,15 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
 
       <div style={{ display: 'grid', gap: 18 }}>
         <article style={panel}>
-          <span style={label}>Telemetria ao vivo</span>
+          <span style={label}>Telemetry ao vivo</span>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, margin: '10px 0 4px' }}>
             <Tile labelText="RPM" value={live?.rpm == null ? '—' : `${Math.round(live.rpm)}`} />
             <Tile labelText="Gear" value={live?.gear == null ? '—' : String(live.gear)} />
             <Tile labelText="Speed" value={live?.speedKmh == null ? '—' : `${Math.round(live.speedKmh)} km/h`} />
             <Tile labelText="Throttle" value={pct(live?.throttle)} />
             <Tile labelText="Brake" value={pct(live?.brake)} />
-            <Tile labelText="ABS" value={live?.absActive == null ? 'n/d' : live.absActive ? 'sim' : 'não'} />
-            <Tile labelText="TC" value={live?.tcActive == null ? 'n/d' : live.tcActive ? 'sim' : 'não'} />
+            <Tile labelText="ABS" value={live?.absActive == null ? 'n/d' : live.absActive ? 'yes' : 'no'} />
+            <Tile labelText="TC" value={live?.tcActive == null ? 'n/d' : live.tcActive ? 'yes' : 'no'} />
             <Tile labelText="Accel long." value={`${num(frame.longAccelMs2)} m/s²`} />
             <Tile labelText="Accel lat." value={`${num(frame.latAccelMs2)} m/s²`} />
           </div>
@@ -279,7 +279,7 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
             <li><strong>longAccel / latAccel</strong> nativos (hoje derivados de speed/yaw) — impactos e zebras.</li>
             <li><strong>vertAccel</strong> (aceleração vertical) — zebras/rumble de verdade.</li>
             <li><strong>wheelSlip / velocidade por roda</strong> — trava e derrapagem precisas.</li>
-            <li><strong>sinal de zebra/rumble</strong> dedicado, quando o sim oferecer.</li>
+            <li><strong>sinal de zebra/rumble</strong> dedicado, quando o yes oferecer.</li>
           </ul>
         </article>
       </div>
@@ -352,7 +352,7 @@ function OutputSelector({
           <span style={label}>Dispositivo de saída</span>
           <p style={{ color: 'rgba(255,255,255,0.58)', fontSize: 12, margin: '4px 0 0' }}>Use a saída de áudio ligada ao amplificador do shaker (ex.: HDMI/USB DAC dedicado).</p>
         </div>
-        <button disabled={busy} onClick={onRefresh} style={ghostButton} type="button">Atualizar</button>
+        <button disabled={busy} onClick={onRefresh} style={ghostButton} type="button">Refresh</button>
       </div>
       <select disabled={busy} onChange={(event) => onChange(event.target.value)} style={inputStyle} value={outputDeviceId}>
         <option value="">Padrão do sistema</option>
@@ -475,7 +475,7 @@ function ArduinoPanel({
             ))}
           </select>
         </label>
-        <button disabled={busy} onClick={onRefresh} style={ghostButton} type="button">Atualizar</button>
+        <button disabled={busy} onClick={onRefresh} style={ghostButton} type="button">Refresh</button>
       </div>
 
       <div style={{ marginTop: 10 }}>

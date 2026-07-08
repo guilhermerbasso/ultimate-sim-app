@@ -14,7 +14,7 @@ describe('hi-fi overlay bridge', () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
-  it('copies registry tags including auto sim tags', () => {
+  it('copies registry tags including auto yes tags', () => {
     for (const module of HIFI_WIDGETS) {
       const def = HIFI_OVERLAY_DEFS.find((item) => item.id === `hifi:${module.id}`)
       expect(def?.tags).toEqual(expect.arrayContaining(hifiWidgetTags(module)))

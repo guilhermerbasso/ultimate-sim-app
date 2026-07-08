@@ -7,7 +7,7 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-const UNSUPPORTED_SIM_X_PROFILE_WRITE = 'Ação não suportada no firmware SIM-X atual.'
+const UNSUPPORTED_SIM_X_PROFILE_WRITE = 'Ação no suportada no firmware SIM-X atual.'
 
 function ProfilesView({ connectedDevice, mapping, config, showToast }: AppViewProps): ReactElement {
   const [profiles, setProfiles] = useState<ProfileSummary[]>([])
@@ -67,23 +67,23 @@ function ProfilesView({ connectedDevice, mapping, config, showToast }: AppViewPr
   return (
     <section className="view-grid two-columns">
       <article className="panel-card">
-        <span className="panel-label">Salvar perfil</span>
+        <span className="panel-label">Save perfil</span>
         <h3>Snapshot atual</h3>
         <p>Salve o mapa e a configuração avançada atuais como um preset local em disco.</p>
         <label className="field-label" htmlFor="profile-name">Nome do perfil</label>
         <input className="text-field" id="profile-name" placeholder="Ex.: GT Sprint" value={profileName} onChange={(event) => setProfileName(event.target.value)} />
-        <button className="primary-action" disabled={busy || Boolean(connectedDevice) || !profileName.trim() || !mapping || !config} onClick={() => void saveProfile()} type="button">Salvar perfil</button>
+        <button className="primary-action" disabled={busy || Boolean(connectedDevice) || !profileName.trim() || !mapping || !config} onClick={() => void saveProfile()} type="button">Save perfil</button>
         {connectedDevice
-          ? <p className="helper-text">Salvar direto do SIM-X não é suportado no firmware atual.</p>
-          : <p className="helper-text">Salva apenas o snapshot local já carregado; captura direta do dispositivo SIM-X não é suportada no firmware atual.</p>}
+          ? <p className="helper-text">Save direto do SIM-X no é suportado no firmware atual.</p>
+          : <p className="helper-text">Salva apenas o snapshot local já carregado; captura direta do dispositivo SIM-X no é suportada no firmware atual.</p>}
       </article>
 
       <article className="panel-card scroll-card">
         <div className="panel-heading-row">
-          <div><span className="panel-label">Biblioteca local</span><h3>Perfis salvos</h3></div>
+          <div><span className="panel-label">Biblioteca local</span><h3>Profiles salvos</h3></div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <SectionExportImport sectionId="legacy-profiles" label="Perfis de mapeamento (legado)" onImported={() => void refreshProfiles()} />
-            <button className="ghost-action compact" disabled={busy} onClick={() => void refreshProfiles()} type="button">Atualizar</button>
+            <SectionExportImport sectionId="legacy-profiles" label="Profiles de mapeamento (legado)" onImported={() => void refreshProfiles()} />
+            <button className="ghost-action compact" disabled={busy} onClick={() => void refreshProfiles()} type="button">Refresh</button>
           </div>
         </div>
 
@@ -96,8 +96,8 @@ function ProfilesView({ connectedDevice, mapping, config, showToast }: AppViewPr
                 <small>Salvo em {new Date(profile.savedAt).toLocaleString('pt-BR')}</small>
               </span>
               <span className="profile-actions">
-                <button className="ghost-action compact" disabled title={UNSUPPORTED_SIM_X_PROFILE_WRITE} onClick={() => applyProfile()} type="button">Aplicar (não suportado)</button>
-                <button className="ghost-action compact danger" disabled={busy} onClick={() => void deleteProfile(profile.name)} type="button">Excluir</button>
+                <button className="ghost-action compact" disabled title={UNSUPPORTED_SIM_X_PROFILE_WRITE} onClick={() => applyProfile()} type="button">Aplicar (no suportado)</button>
+                <button className="ghost-action compact danger" disabled={busy} onClick={() => void deleteProfile(profile.name)} type="button">Delete</button>
               </span>
             </div>
           ))}

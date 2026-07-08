@@ -366,7 +366,7 @@ describe('TrackMapLearner — robust capture', () => {
   })
 })
 
-// ─── Corner map (Curva 1..N) persistence + getters ────────────────────────────
+// ─── Corner map (Turn 1..N) persistence + getters ────────────────────────────
 
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { DEFAULT_CORNER_MAP_CONFIG, cornerConfigKey, type CornerMapData } from './corner-map'

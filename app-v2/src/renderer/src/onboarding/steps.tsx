@@ -63,9 +63,9 @@ export function WelcomeStep({ onConfigure, onDemo, onSkip }: WelcomeStepProps): 
 export function TelemetryStep({ selected, busy, error, onSelect }: TelemetryStepProps): ReactElement {
   return (
     <div className="onboarding-step-body">
-      <span className="onboarding-kicker">Telemetria</span>
+      <span className="onboarding-kicker">Telemetry</span>
       <h2>Escolha a fonte inicial</h2>
-      <p>Auto-detect procura simuladores suportados. Demo(mock) liga dados simulados para testar telas sem entrar no cockpit.</p>
+      <p>Auto-detect procura yesuladores suportados. Demo(mock) liga dados yesulados para testar screens sem entrar no cockpit.</p>
       <div className="onboarding-choice-grid">
         <button
           className={`onboarding-choice ${selected === 'auto' ? 'is-selected' : ''}`}
@@ -95,13 +95,13 @@ export function TelemetryStep({ selected, busy, error, onSelect }: TelemetryStep
 export function DevicesStep({ onJump }: DevicesStepProps): ReactElement {
   return (
     <div className="onboarding-step-body">
-      <span className="onboarding-kicker">Dispositivos</span>
+      <span className="onboarding-kicker">Devices</span>
       <h2>Conecte o SIM-X quando estiver pronto</h2>
       <p>
-        Plugue o controle via USB e use Dispositivos para detectar porta, firmware e status. Você pode concluir o tour agora e conectar depois.
+        Plugue o controle via USB e use Devices para detectar porta, firmware e status. Você pode concluir o tour agora e conectar depois.
       </p>
       <button className="onboarding-link-card" type="button" onClick={onJump}>
-        <strong>Abrir Dispositivos</strong>
+        <strong>Abrir Devices</strong>
         <span>Ir para a tela de conexão do ButtonBox.</span>
       </button>
     </div>
@@ -138,13 +138,13 @@ export function FinishStep({ selectedPreset }: FinishStepProps): ReactElement {
       <span className="onboarding-kicker">Pronto</span>
       <h2>Seu grid inicial está montado</h2>
       <p>
-        Vamos fixar Telemetria, Overlays, Combustível e Dispositivos nos favoritos. Preset escolhido: {presetLabels[selectedPreset]}.
+        Vamos fixar Telemetry, Overlays, Fuel e Devices nos favoritos. Preset escolhido: {presetLabels[selectedPreset]}.
       </p>
       <div className="onboarding-summary">
-        <span>★ Telemetria</span>
+        <span>★ Telemetry</span>
         <span>★ Overlays</span>
-        <span>★ Combustível</span>
-        <span>★ Dispositivos</span>
+        <span>★ Fuel</span>
+        <span>★ Devices</span>
       </div>
     </div>
   )

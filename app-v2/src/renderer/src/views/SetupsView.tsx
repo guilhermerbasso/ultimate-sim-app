@@ -427,7 +427,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
               <div style={label}>Arquivos disponíveis</div>
               <h3 style={{ margin: '4px 0 0' }}>{selectedSource ? selectedSource.label : 'Selecione uma fonte'}</h3>
             </div>
-            <button disabled={!selectedSourceId || busy} style={button} type="button" onClick={() => void loadSource(selectedSourceId)}>Atualizar</button>
+            <button disabled={!selectedSourceId || busy} style={button} type="button" onClick={() => void loadSource(selectedSourceId)}>Refresh</button>
           </div>
           <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
             {files.map((file) => (
@@ -459,9 +459,9 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
             <div>
               <div style={label}>Biblioteca local</div>
               <h3 style={{ margin: '4px 0 0' }}>{libraryItems.length} setups indexados</h3>
-              <small style={{ opacity: 0.62 }}>{libraryRoot || 'Pasta ainda não carregada'}</small>
+              <small style={{ opacity: 0.62 }}>{libraryRoot || 'Pasta ainda no carregada'}</small>
             </div>
-            <button disabled={libraryBusy} style={button} type="button" onClick={() => void loadLibrary()}>Atualizar</button>
+            <button disabled={libraryBusy} style={button} type="button" onClick={() => void loadLibrary()}>Refresh</button>
           </div>
           <div style={{ display: 'grid', gap: 8, marginTop: 12, maxHeight: 520, overflow: 'auto' }}>
             {libraryItems.map((item) => <LibraryItemButton key={item.id} active={item.path === selectedLibraryPath} item={item} onClick={() => setSelectedLibraryPath(item.path)} />)}
@@ -474,7 +474,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
           <h3 style={{ margin: '4px 0 12px' }}>{selectedLibraryItem?.fileName ?? 'Selecione um setup'}</h3>
           <MetadataEditor metadata={metadataDraft} disabled={!selectedLibraryItem} onChange={setMetadataDraft} />
           <div style={{ ...row, justifyContent: 'flex-end', marginTop: 12 }}>
-            <button disabled={!selectedLibraryItem} style={primaryButton} type="button" onClick={() => void saveMetadata()}>Salvar metadados</button>
+            <button disabled={!selectedLibraryItem} style={primaryButton} type="button" onClick={() => void saveMetadata()}>Save metadados</button>
           </div>
         </section>
       </div>
@@ -490,7 +490,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
               <div style={label}>Comparar setups</div>
               <h3 style={{ margin: '4px 0 0' }}>Delta-App style diff</h3>
             </div>
-            <button disabled={libraryBusy} style={button} type="button" onClick={() => void loadLibrary()}>Atualizar biblioteca</button>
+            <button disabled={libraryBusy} style={button} type="button" onClick={() => void loadLibrary()}>Refresh biblioteca</button>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, marginTop: 12, alignItems: 'end' }}>
             <SetupSelect label="Setup A" items={libraryItems} value={compareLeftPath} onChange={setCompareLeftPath} />
@@ -519,7 +519,7 @@ function LibraryItemButton({ active, item, onClick }: { active: boolean; item: S
     <button type="button" onClick={onClick} style={{ ...button, textAlign: 'left', borderColor: active ? 'var(--accent-primary)' : 'rgba(255,255,255,0.08)', background: active ? 'rgba(var(--accent-rgb),0.12)' : 'rgba(255,255,255,0.02)' }}>
       <strong>{item.fileName}</strong>
       <div style={{ opacity: 0.62, fontSize: 12 }}>{item.relativePath}</div>
-      <div style={{ opacity: 0.72, fontSize: 12 }}>{item.metadata.car || item.carFolder || 'Carro não definido'} {item.metadata.track ? `· ${item.metadata.track}` : ''}{tags}</div>
+      <div style={{ opacity: 0.72, fontSize: 12 }}>{item.metadata.car || item.carFolder || 'Carro no definido'} {item.metadata.track ? `· ${item.metadata.track}` : ''}{tags}</div>
     </button>
   )
 }

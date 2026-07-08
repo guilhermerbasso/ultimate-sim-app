@@ -248,7 +248,7 @@ class OutputRouter {
       // firmware's serial buffer) must NOT be retried at ~20Hz forever — keep it
       // deduped so it logs at most once per distinct rendered value.
       const message = error instanceof Error ? error.message : String(error)
-      if (!/excede o buffer|m[áa]x/i.test(message)) {
+      if (!/exceeds o buffer|m[áa]x/i.test(message)) {
         this.lastSerialPayload.delete(route.id)
       }
       console.warn(`[output-router] Serial send failed for route ${route.id}:`, error)
@@ -363,27 +363,27 @@ class OutputRouter {
 
 function normalizeRoutes(input: unknown): OutputRoute[] {
   if (!Array.isArray(input)) {
-    throw new Error('Lista de rotas de saída inválida.')
+    throw new Error('Invalid output route list.')
   }
   const seenIds = new Set<string>()
   return input.map((item, index) => {
     if (!item || typeof item !== 'object') {
-      throw new Error(`Rota #${index + 1} inválida: payload não é objeto.`)
+      throw new Error(`Route #${index + 1} invalid: payload is not an object.`)
     }
     const candidate = item as Partial<OutputRoute>
-    const id = ensureString(candidate.id, `Rota #${index + 1}: id ausente.`)
-    if (seenIds.has(id)) throw new Error(`Rota #${index + 1}: id duplicado "${id}".`)
+    const id = ensureString(candidate.id, `Route #${index + 1}: missing id.`)
+    if (seenIds.has(id)) throw new Error(`Route #${index + 1}: duplicate id "${id}".`)
     seenIds.add(id)
 
     const name = typeof candidate.name === 'string' && candidate.name.trim() ? candidate.name.trim() : id
     if (!isOutputSource(candidate.source)) {
-      throw new Error(`Rota #${index + 1} (${id}): source inválido.`)
+      throw new Error(`Route #${index + 1} (${id}): invalid source.`)
     }
     if (!isOutputTarget(candidate.target)) {
-      throw new Error(`Rota #${index + 1} (${id}): target inválido.`)
+      throw new Error(`Route #${index + 1} (${id}): invalid target.`)
     }
     if (candidate.format !== undefined && !isOutputFormat(candidate.format)) {
-      throw new Error(`Rota #${index + 1} (${id}): formato inválido.`)
+      throw new Error(`Route #${index + 1} (${id}): invalid format.`)
     }
     const enabled = candidate.enabled === undefined ? true : Boolean(candidate.enabled)
     const updatedAt =

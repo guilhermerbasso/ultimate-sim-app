@@ -354,8 +354,8 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
             <p style={{ color: 'rgba(255,255,255,0.56)', fontSize: 12, marginBottom: 0 }}>
               {connectedDevice
                 ? `Porta ${connectedDevice.path}. Feche o streaming antes de usar SimHub.`
-                : 'Conecte o ButtonBox em Dispositivos antes de ativar o streaming.'}
-              {status?.lastError ? ` Erro: ${status.lastError}` : ''}
+                : 'Conecte o ButtonBox em Devices antes de ativar o streaming.'}
+              {status?.lastError ? ` Error: ${status.lastError}` : ''}
             </p>
           </div>
         </article>

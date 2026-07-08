@@ -1,4 +1,4 @@
-// Corner map — auto-detect & number the corners (Curva 1..N) of a track from a
+// Corner map — auto-detect & number the corners (Turn 1..N) of a track from a
 // single clean lap of telemetry.
 //
 // This module is the deterministic, PURE, unit-testable brain behind per-corner
@@ -33,7 +33,7 @@ export interface CornerSample {
 
 /** A single auto-numbered corner. */
 export interface Corner {
-  /** 1-based corner number, sequential along `lapDistPct` (Curva 1..N). */
+  /** 1-based corner number, sequential along `lapDistPct` (Turn 1..N). */
   index: number
   /** Entry point (braking / turn-in begins), 0..1. */
   startPct: number

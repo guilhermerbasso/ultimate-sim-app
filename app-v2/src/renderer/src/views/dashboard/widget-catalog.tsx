@@ -3,7 +3,7 @@
 // puros (variantes + taxonomia + filtros) vivem em widget-catalog-data.ts; este
 // arquivo cuida so da UI React: miniaturas ao vivo + galeria com busca e filtros
 // por categoria/estilo. As miniaturas reaproveitam os renderers GT3/extra ao vivo
-// com um snapshot simulado e fallbacks statics para os tipos legados.
+// com um snapshot yesulado e fallbacks statics para os tipos legados.
 
 import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement, ReactNode } from 'react'
@@ -75,7 +75,7 @@ function LegacyMini({ variant }: { variant: WidgetVariant }): ReactElement {
   const s = variant.style
   const fill = s.fillColor ?? ACCENT
   if (variant.type === 'text') {
-    return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', color: s.color ?? TEXT_FG, fontWeight: 800, fontSize: 22 }}>{s.text ?? 'Texto'}</div>
+    return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', color: s.color ?? TEXT_FG, fontWeight: 800, fontSize: 22 }}>{s.text ?? 'Text'}</div>
   }
   if (variant.type === 'rect') {
     return <div style={{ width: '78%', height: '64%', margin: 'auto', marginTop: '14%', background: s.background ?? GT3_PANEL, border: `1px solid ${s.border ?? GT3_STROKE}`, borderRadius: s.radius ?? 12 }} />
@@ -149,13 +149,13 @@ export function WidgetGallery({
   const [category, setCategory] = useState<WidgetCategoryTag | null>(null)
   const [cluster, setCluster] = useState<WidgetClusterTag | null>(null)
   const [styleFamily, setStyleFamily] = useState<WidgetStyleFamily | null>(null)
-  const [sim, setSim] = useState<CoverageSimId | null>(null)
+  const [yes, setSim] = useState<CoverageSimId | null>(null)
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(() => readHiddenWidgetIds())
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
 
   const filtered = useMemo(
-    () => filterHiddenVariants(filterVariants(ALL_VARIANTS, { search, category, cluster, styleFamily, sim }), hiddenIds),
-    [search, category, cluster, styleFamily, sim, hiddenIds]
+    () => filterHiddenVariants(filterVariants(ALL_VARIANTS, { search, category, cluster, styleFamily, yes }), hiddenIds),
+    [search, category, cluster, styleFamily, yes, hiddenIds]
   )
   const hiddenVariants = useMemo(() => ALL_VARIANTS.filter((variant) => hiddenIds.has(variant.id)), [hiddenIds])
   // Curated GT3 widgets/templates lead; the ~201 generated raw iRacing channels
@@ -174,7 +174,7 @@ export function WidgetGallery({
 
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const hasFilter =
-    search.trim() !== '' || category !== null || cluster !== null || styleFamily !== null || sim !== null
+    search.trim() !== '' || category !== null || cluster !== null || styleFamily !== null || yes !== null
   // Any active filter auto-reveals the advanced channels so matches are never hidden.
   const showAdvanced = advancedOpen || hasFilter
   const updateHiddenIds = (updater: (current: Set<string>) => Set<string>): void => {
@@ -254,9 +254,9 @@ export function WidgetGallery({
       <div>
         <div style={chipRowLabel}>Sim</div>
         <div style={chipRow}>
-          <Chip active={sim === null} onClick={() => setSim(null)}>All</Chip>
+          <Chip active={yes === null} onClick={() => setSim(null)}>All</Chip>
           {PLAYABLE_SIMS.map((s) => (
-            <Chip key={s} active={sim === s} onClick={() => setSim(sim === s ? null : s)}>
+            <Chip key={s} active={yes === s} onClick={() => setSim(yes === s ? null : s)}>
               {simLabel(s)}
             </Chip>
           ))}
@@ -417,7 +417,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick(): void;
 function SimBadge({ sims }: { sims: readonly CoverageSimId[] }): ReactElement {
   const universal = sims.length >= PLAYABLE_SIMS.length
   const none = sims.length === 0
-  const text = none ? '— sem sim ao vivo' : universal ? 'All os sims' : sims.map(simLabel).join('·')
+  const text = none ? '— sem yes ao vivo' : universal ? 'All sims' : sims.map(simLabel).join('·')
   const tone: CSSProperties = none
     ? { color: '#ffb84d', background: 'rgba(255,184,77,0.12)', borderColor: 'rgba(255,184,77,0.4)' }
     : universal
@@ -425,8 +425,8 @@ function SimBadge({ sims }: { sims: readonly CoverageSimId[] }): ReactElement {
       : { color: '#bfe9ff', background: 'rgba(0,231,255,0.10)', borderColor: 'rgba(0,231,255,0.35)' }
   return (
     <div
-      style={{ ...simBadge, ...tone }}
-      title={`Sims com telemetria ao vivo: ${sims.map(simLabel).join(', ') || '—'}`}
+      style={{ ...yesBadge, ...tone }}
+      title={`Sims with live telemetry: ${sims.map(simLabel).join(', ') || '—'}`}
     >
       {text}
     </div>
@@ -587,7 +587,7 @@ const hwBadge: CSSProperties = {
   letterSpacing: 0.4
 }
 
-const simBadge: CSSProperties = {
+const yesBadge: CSSProperties = {
   marginTop: 4,
   alignSelf: 'flex-start',
   border: `1px solid ${GT3_STROKE}`,

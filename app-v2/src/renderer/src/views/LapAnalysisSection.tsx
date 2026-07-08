@@ -37,10 +37,10 @@ import {
 } from '../../../shared/coach'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tela "Análise de telemetria":
+// Screen "Análise de telemetria":
 // 1. Escolhe fonte: gravações do app (JSONL) OU `.ibt` do iRacing.
 // 2. Escolhe pista (derivada das gravações + .ibt indexados).
-// 3. Marca até 8 voltas e roda um perfil de análise:
+// 3. Marca até 8 laps e roda um perfil de análise:
 //    • Comparar com minha melhor (default)
 //    • Optimal lap (composição de melhores sectores)
 //    • Onde perco tempo (mapa de regiões de perda)
@@ -134,11 +134,11 @@ const TRACK_ANY = '__any__'
 const PROFILE_LABELS: Record<AnalysisProfile, { label: string; description: string }> = {
   compareBest: {
     label: 'Comparar com minha melhor',
-    description: 'Sobrepõe voltas vs a melhor e mostra delta cumulativo.'
+    description: 'Sobrepõe laps vs a melhor e mostra delta cumulativo.'
   },
   optimal: {
     label: 'Optimal lap',
-    description: 'Soma o melhor tempo de cada sector entre todas as voltas.'
+    description: 'Soma o melhor tempo de cada sector entre todas as laps.'
   },
   lossMap: {
     label: 'Onde perco tempo',
@@ -432,7 +432,7 @@ function buildRecordingCandidates(sessions: RecordingSessionSummary[]): LapCandi
 
 function describeRecordingLap(session: RecordingSessionSummary, lap: RecordingLapSummary): string {
   const parts: string[] = []
-  parts.push(`Sessão ${session.source}`)
+  parts.push(`Session ${session.source}`)
   if (typeof lap.minSpeedKmh === 'number') parts.push(`min ${Math.round(lap.minSpeedKmh)} km/h`)
   if (typeof lap.maxSpeedKmh === 'number') parts.push(`max ${Math.round(lap.maxSpeedKmh)} km/h`)
   if (typeof lap.bestDeltaToBestSec === 'number') parts.push(`δ ${fmtDelta(lap.bestDeltaToBestSec)}`)
@@ -648,7 +648,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
           return current.filter((r) => lapKey(r) !== key)
         }
         if (current.length >= MAX_LAPS) {
-          showToast(`Máximo de ${MAX_LAPS} voltas por análise.`, 'info')
+          showToast(`Máximo de ${MAX_LAPS} laps por análise.`, 'info')
           return current
         }
         return [...current, ref]
@@ -820,7 +820,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
           <h3 style={{ margin: '0 0 6px' }}>Análise de telemetria</h3>
           <p style={{ ...muted, margin: 0 }}>
             Combina gravações do app com arquivos <code>.ibt</code> do iRacing. Escolha a fonte, a pista
-            e as voltas, depois rode um perfil de análise para ver onde dá para ganhar tempo.
+            e as laps, depois rode um perfil de análise para ver onde dá para ganhar tempo.
           </p>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -846,7 +846,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
           <button onClick={() => void openRecordingsFolder()} style={ghostButton} type="button" title="Abre a pasta onde as gravações são salvas.">
             Abrir pasta das gravações
           </button>
-          <button disabled={busy} onClick={() => void refresh()} style={ghostButton} type="button">Atualizar</button>
+          <button disabled={busy} onClick={() => void refresh()} style={ghostButton} type="button">Refresh</button>
         </div>
       </div>
 
@@ -903,7 +903,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
               <option value={TRACK_ANY}>Todas as pistas</option>
               {trackOptions.map((t) => (
                 <option key={t.key} value={t.key}>
-                  {t.label} ({t.lapCount} voltas)
+                  {t.label} ({t.lapCount} laps)
                 </option>
               ))}
             </select>
@@ -919,7 +919,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
           </label>
 
           <div style={{ display: 'grid', gap: 6 }}>
-            <span style={muted}>Voltas selecionadas</span>
+            <span style={muted}>Laps selecionadas</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <strong style={{ fontSize: 18 }}>{selectedLaps.length} / {MAX_LAPS}</strong>
               <button type="button" style={subtleButton} disabled={selectedLaps.length === 0} onClick={clearSelection}>Limpar</button>
@@ -1002,7 +1002,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
       {result ? (
         <AnalysisResultView result={result} bestLap={bestLap} />
       ) : (
-        <div style={card}>Selecione voltas e clique em <strong>Rodar análise</strong> para ver gráficos, delta e pontos de perda.</div>
+        <div style={card}>Selecione laps e clique em <strong>Rodar análise</strong> para ver gráficos, delta e pontos de perda.</div>
       )}
         </>
       )}
@@ -1058,7 +1058,7 @@ function LiveCoachPanel({
           ) : (
             <button type="button" style={button} disabled={busy} onClick={onEnable}>Iniciar</button>
           )}
-          <button type="button" style={ghostButton} disabled={busy} onClick={onRefresh}>Atualizar</button>
+          <button type="button" style={ghostButton} disabled={busy} onClick={onRefresh}>Refresh</button>
         </div>
       </div>
 
@@ -1180,7 +1180,7 @@ function LapPool({
           >
             <button type="button" onClick={() => onToggle(c.ref)} style={{ all: 'unset', cursor: 'pointer', display: 'grid', gap: 4 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <strong>{c.trackLabel} · Volta {c.lapNumber}</strong>
+                <strong>{c.trackLabel} · Lap {c.lapNumber}</strong>
                 <span style={{ ...muted, color: c.badge === 'completa' ? 'var(--accent-primary)' : 'var(--accent-warning)' }}>{c.badge}</span>
               </div>
               <div style={muted}>{c.sourceLabel} · {fmtTime(c.durationSec)}</div>
@@ -1239,7 +1239,7 @@ function ReferencesPanel({
           </select>
         </label>
         <button type="button" style={dangerButton} disabled={!selectedReferenceId || busy} onClick={() => selectedReferenceId && onDelete(selectedReferenceId)}>
-          Excluir
+          Delete
         </button>
       </div>
       {hasSelectedReference && selected ? (
@@ -1285,7 +1285,7 @@ function IbtIndexSummary({
                 <code>{file.fileName}</code> · {fmtBytes(file.sizeBytes)} · {fmtDate(file.modifiedAt)}
                 {summary ? (
                   <span style={{ ...muted, marginLeft: 8 }}>
-                    {trackLabelOf(summary.trackName)} · {summary.carName ?? 'carro?'} · {summary.laps.length} voltas · {Math.round((summary.durationSec ?? 0) / 60)}min
+                    {trackLabelOf(summary.trackName)} · {summary.carName ?? 'carro?'} · {summary.laps.length} laps · {Math.round((summary.durationSec ?? 0) / 60)}min
                   </span>
                 ) : null}
               </li>
@@ -1396,7 +1396,7 @@ function OptimalSectorsView({ result }: { result: AnalysisResult }): ReactElemen
   return (
     <div style={card}>
       <strong>Composição do Optimal Lap</strong>
-      <div style={{ ...muted, marginBottom: 12 }}>Melhor tempo de cada sector entre as voltas selecionadas.</div>
+      <div style={{ ...muted, marginBottom: 12 }}>Melhor tempo de cada sector entre as laps selecionadas.</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
         {result.optimal.sectors.map((sector, idx) => {
           const lap = result.laps.find((l) => l.id === sector.bestLapId)

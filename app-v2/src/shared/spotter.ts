@@ -545,75 +545,75 @@ export function buildPhrase(id: CalloutId, lang: SpotterLang = 'pt-BR', params: 
   const pt = lang === 'pt-BR'
   switch (id) {
     case 'flag.green':
-      return pt ? 'Verde, verde, bandeira verde' : 'Green, green, green'
+      return pt ? 'Green, green, green flag' : 'Green, green, green'
     case 'flag.yellow':
-      return pt ? 'Amarela, amarela, cuidado' : 'Yellow, yellow, yellow'
+      return pt ? 'Yellow, yellow, careful' : 'Yellow, yellow, yellow'
     case 'flag.blue':
-      return pt ? 'Bandeira azul, deixe passar' : 'Blue flag, let them by'
+      return pt ? 'Blue flag, let them by' : 'Blue flag, let them by'
     case 'flag.white':
-      return pt ? 'Bandeira branca, última volta' : 'White flag, last lap'
+      return pt ? 'White flag, last lap' : 'White flag, last lap'
     case 'flag.checkered':
-      return pt ? 'Bandeira quadriculada, fim de prova' : 'Checkered flag, that is the end'
+      return pt ? 'Checkered flag, race over' : 'Checkered flag, that is the end'
     case 'flag.meatball':
-      return pt ? 'Bandeira meatball, dano no carro, vá aos boxes' : 'Meatball flag, report to the pits'
+      return pt ? 'Meatball flag, car damage, report to the pits' : 'Meatball flag, report to the pits'
     case 'flag.black':
-      return pt ? 'Bandeira preta, penalidade' : 'Black flag, penalty'
+      return pt ? 'Black flag, penalty' : 'Black flag, penalty'
     case 'fuel.low':
-      return pt ? 'Combustível baixo' : 'Fuel is low'
+      return pt ? 'Fuel is low' : 'Fuel is low'
     case 'fuel.lapsLeft': {
       const laps = Math.max(0, Math.floor(params.laps ?? 0))
-      if (pt) return laps === 1 ? 'Uma volta de combustível' : `${laps} voltas de combustível`
+      if (pt) return laps === 1 ? 'One lap of fuel' : `${laps} laps of fuel`
       return laps === 1 ? 'One lap of fuel left' : `${laps} laps of fuel left`
     }
     case 'fuel.box':
-      return pt ? 'Boxe nesta volta, boxe nesta volta, combustível' : 'Box this lap, box this lap, for fuel'
+      return pt ? 'Box this lap, box this lap, for fuel' : 'Box this lap, box this lap, for fuel'
     case 'pit.windowOpen':
-      return pt ? 'Janela de boxes aberta' : 'Pit window is open'
+      return pt ? 'Pit window open' : 'Pit window is open'
     case 'pit.onPitRoad':
-      return pt ? 'Você está no pit lane' : 'You are on pit road'
+      return pt ? 'You are on pit road' : 'You are on pit road'
     case 'pit.speeding':
       return pt ? 'Velocidade no pit, reduza' : 'Speeding in the pit lane, slow down'
     case 'proximity.spotter':
-      if (params.side === 'three-wide') return pt ? 'Três largos, cuidado' : 'Three wide, three wide'
-      if (params.side === 'right') return pt ? 'Carro à direita' : 'Car right'
-      return pt ? 'Carro à esquerda' : 'Car left'
+      if (params.side === 'three-wide') return pt ? 'Three wide, careful' : 'Three wide, three wide'
+      if (params.side === 'right') return pt ? 'Car on your right' : 'Car right'
+      return pt ? 'Car on your left' : 'Car left'
     case 'gap.ahead': {
       const gap = formatSeconds(params.gapSec ?? 0, lang)
       const unit = pt ? 'segundos' : 'seconds'
       return pt
-        ? `${gap} ${unit} para o carro à frente${trendWord(params.trend, lang)}`
+        ? `${gap} ${unit} to the car ahead${trendWord(params.trend, lang)}`
         : `${gap} ${unit} to the car ahead${trendWord(params.trend, lang)}`
     }
     case 'gap.behind': {
       const gap = formatSeconds(params.gapSec ?? 0, lang)
       const unit = pt ? 'segundos' : 'seconds'
       return pt
-        ? `${gap} ${unit} para o carro atrás${trendWord(params.trend, lang)}`
+        ? `${gap} ${unit} to the car behind${trendWord(params.trend, lang)}`
         : `${gap} ${unit} to the car behind${trendWord(params.trend, lang)}`
     }
     case 'position.change': {
       const pos = Math.max(1, Math.floor(params.positionNumber ?? 0))
-      return pt ? `Posição ${pos}` : `Position ${pos}`
+      return pt ? `Position ${pos}` : `Position ${pos}`
     }
     case 'incident.points': {
       const points = Math.max(0, Math.floor(params.points ?? 0))
       return pt ? `Incidente, ${points} pontos` : `Incident, ${points} points`
     }
     case 'incident.limit':
-      return pt ? 'Atenção, limite de incidentes próximo' : 'Careful, incident limit approaching'
+      return pt ? 'Careful, incident limit approaching' : 'Careful, incident limit approaching'
     case 'shift.point':
       return pt ? 'Troca' : 'Shift'
     case 'lap.delta': {
       const delta = params.deltaSec ?? 0
       const value = formatSeconds(delta, lang)
-      if (Math.abs(delta) < 0.05) return pt ? 'Última volta, no mesmo tempo' : 'Last lap, dead on'
-      if (pt) return delta > 0 ? `Última volta, mais lento ${value} segundos` : `Última volta, mais rápido ${value} segundos`
+      if (Math.abs(delta) < 0.05) return pt ? 'Last lap, same time' : 'Last lap, dead on'
+      if (pt) return delta > 0 ? `Last lap, slower by ${value} seconds` : `Last lap, faster by ${value} seconds`
       return delta > 0 ? `Last lap, ${value} slower` : `Last lap, ${value} faster`
     }
     case 'lap.personalBest':
-      return pt ? 'Volta mais rápida, recorde pessoal' : 'New personal best lap'
+      return pt ? 'Fastest lap, personal best' : 'New personal best lap'
     case 'session.start':
-      return pt ? 'Sessão iniciada, boa corrida' : 'Session started, good luck'
+      return pt ? 'Session started, good luck' : 'Session started, good luck'
     default:
       return ''
   }

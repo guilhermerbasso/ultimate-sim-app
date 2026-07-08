@@ -21,8 +21,8 @@ interface StepDef {
 
 const steps: StepDef[] = [
   { id: 'welcome', label: 'Boas-vindas' },
-  { id: 'telemetry', label: 'Telemetria' },
-  { id: 'devices', label: 'Dispositivos' },
+  { id: 'telemetry', label: 'Telemetry' },
+  { id: 'devices', label: 'Devices' },
   { id: 'overlays', label: 'Overlays' },
   { id: 'finish', label: 'Finalizar' }
 ]
@@ -165,7 +165,7 @@ export function OnboardingFlow({ onClose, onNavigate }: OnboardingFlowProps): Re
 
         {currentStep.id !== 'welcome' && (
           <footer className="onboarding-footer">
-            <button className="onboarding-button" type="button" onClick={back} disabled={isFirstStep}>Voltar</button>
+            <button className="onboarding-button" type="button" onClick={back} disabled={isFirstStep}>Back</button>
             <button className="onboarding-button onboarding-button--primary" type="button" onClick={next}>
               {isLastStep ? 'Concluir' : 'Continuar'}
             </button>

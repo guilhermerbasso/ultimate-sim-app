@@ -166,7 +166,7 @@ async function tryLlmAnalyze(system: string, prompt: string): Promise<string | n
 function analyzePrompt(clip: IncidentClip, lang: 'pt' | 'en'): { system: string; prompt: string } {
   const system =
     lang === 'pt'
-      ? 'Você é um engenheiro de corrida. Explique em 1-2 frases curtas, em português do Brasil, o que provavelmente aconteceu neste incidente e uma dica. Não invente números.'
+      ? 'You are a race engineer. Explain in 1-2 short American English sentences what likely happened in this incident and give one tip. Do not invent numbers.'
       : 'You are a race engineer. In 1-2 short English sentences, explain what likely happened in this incident and one tip. Do not invent numbers.'
   const m = clip.metrics
   const facts = [
@@ -261,7 +261,7 @@ export function register(ctx: ModuleContext): void {
     const lang: 'pt' | 'en' = request?.lang === 'en' ? 'en' : 'pt'
     const clip = id ? store.get(id) : null
     if (!clip) {
-      return { id, text: lang === 'pt' ? 'Clipe de incidente não encontrado.' : 'Incident clip not found.', source: 'deterministic' }
+      return { id, text: lang === 'pt' ? 'Incident clip not found.' : 'Incident clip not found.', source: 'deterministic' }
     }
     const deterministic = summarizeIncident(clip, lang)
     if (request?.useLlm === true) {

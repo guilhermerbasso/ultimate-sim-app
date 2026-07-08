@@ -54,9 +54,9 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(DEVICES_CHANNELS.test, async (_event, profileId: string, componentId: string) => {
     await store.ensureLoaded()
     const profile = store.get(profileId)
-    if (!profile) throw new Error('Perfil de dispositivo não encontrado.')
+    if (!profile) throw new Error('Device profile not found.')
     const component = profile.components.find((entry) => entry.id === componentId)
-    if (!component) throw new Error('Componente não encontrado.')
+    if (!component) throw new Error('Component not found.')
     await testComponent(ctx, profile, component)
   })
 }
@@ -90,7 +90,7 @@ async function testComponent(
   const target = resolveDevice(ctx, profile)
   if (!target) {
     throw new Error(
-      'Vincule este perfil a um Arduino secundário conectado. O SIM-X é configurado nas telas Rev Lights / OLED.'
+      'Link this profile to a connected secondary Arduino. SIM-X is configured on the Rev Lights / OLED screens.'
     )
   }
 
@@ -111,7 +111,7 @@ async function testComponent(
       // this branch must never send its own frames. Guard it so any stray caller
       // is told where the real test lives.
       throw new Error(
-        'O teste do iFlag (RGB Matrix) é feito pelo editor "iFlag RGB Matrix" (rgbmatrix:testMapped), que respeita o layout/mapa salvos.'
+        'The iFlag (RGB Matrix) test is run by the "iFlag RGB Matrix" editor (rgbmatrix:testMapped), which respects the saved layout/map.'
       )
     }
     case 'screen': {

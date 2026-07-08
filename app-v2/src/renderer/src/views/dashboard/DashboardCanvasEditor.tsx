@@ -6,7 +6,7 @@
 // agnostic: it edits a plain `{ width, height, bg, elements }` board and reports
 // changes through `onChange`. The per-moment FRAME editor (AdaptiveDashboardView)
 // uses it to author a complete layout for a single race-moment, and the read-only
-// surface (`DashboardCanvasSurface`) is shared with the Dashboard IA preview so
+// surface (`DashboardCanvasSurface`) is shared with the AI Dashboard preview so
 // both render widgets identically.
 //
 // Pure geometry math lives in shared/dashboard-layout.ts (unit-tested); this file
@@ -140,7 +140,7 @@ export function CanvasElementVisual({ element }: { element: DashboardElement }):
 
 /**
  * Read-only board surface: paints every (visible) element in z-order on a scaled
- * board. Shared by the Dashboard IA preview and the canvas editor.
+ * board. Shared by the AI Dashboard preview and the canvas editor.
  */
 export function DashboardCanvasSurface({
   board,

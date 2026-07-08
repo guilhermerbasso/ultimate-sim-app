@@ -69,7 +69,7 @@ describe('chunkText', () => {
   })
 
   it('returns a single chunk for short text', () => {
-    expect(chunkText('Boa volta.')).toEqual(['Boa volta.'])
+    expect(chunkText('Good lap.')).toEqual(['Good lap.'])
   })
 
   it('splits long text on sentence boundaries within the limit', () => {

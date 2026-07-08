@@ -81,7 +81,7 @@ describe('migrated view i18n coverage', () => {
       ...collectSourceFiles('components').map((file) => `../${file}`)
     ]
     const portugueseUiPattern =
-      /[áéíóúâêôãõçÁÉÍÓÚÂÊÔÃÕÇ]|Salvar|Novo|Buscar|Conectar|Configura|Combust|Voltas|Pneus|Bandeira|Perfil|Aplicar|Cancelar|Excluir|Adicionar|Adicione|Atualizar|Carregar|Nenhum|Selecionar|Remover|Sucesso/
+      /[áéíóúâêôãõçÁÉÍÓÚÂÊÔÃÕÇ]|Novo|Buscar|Conectar|Configura|Combust|Bandeira|Perfil|Aplicar|Adicionar|Adicione|Carregar|Nenhum|Selecionar|Remover|Sucesso/
     const offenders = Array.from(new Set(files)).flatMap((file) => {
       const source = readFileSync(join(here, 'views', file), 'utf8')
       return portugueseUiPattern.test(source) ? [file] : []

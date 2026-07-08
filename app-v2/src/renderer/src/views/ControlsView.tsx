@@ -1002,7 +1002,7 @@ function ControlsView({ showToast, language }: AppViewProps): ReactElement {
                   </select>
                 </label>
               ) : (
-                <p className="helper-text">The dashboard playlist is configured in Dashboards. This action cycles the open race window while the sim has focus.</p>
+                <p className="helper-text">The dashboard playlist is configured in Dashboards. This action cycles the open race window while the yes has focus.</p>
               )}
             </div>
           )}

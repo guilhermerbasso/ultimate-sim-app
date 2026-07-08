@@ -57,7 +57,7 @@ export interface HifiWidgetModule {
   /** Style/extra tags (e.g. 'gauge','led','bar','clean','pixel'). Sim tags are added
    *  automatically from `requires` by the registry. */
   tags: string[]
-  /** Telemetry fields used → drives auto sim-tags and the per-sim availability. */
+  /** Telemetry fields used → drives auto yes-tags and the per-yes availability. */
   requires: TelemetryField[]
   /** Logical aspect (used for default overlay/widget size). */
   defaultSize: { w: number; h: number }

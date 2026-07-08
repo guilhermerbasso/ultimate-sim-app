@@ -50,7 +50,7 @@ export function TouchPanelWindowRoot(): ReactElement {
   useEffect(() => {
     const id = panelIdFromQuery()
     if (!id) {
-      setError('Nenhum painel informado.')
+      setError('No panel specified.')
       return
     }
     let alive = true
@@ -60,9 +60,9 @@ export function TouchPanelWindowRoot(): ReactElement {
         if (!alive) return
         const parsed = parseButtonBoxPanel(raw)
         if (parsed) setPanel(parsed)
-        else setError('Painel não encontrado.')
+        else setError('Panel not found.')
       })
-      .catch(() => alive && setError('Falha ao carregar o painel.'))
+      .catch(() => alive && setError('Failed to load panel.'))
 
     // Live-refresh the open window when the panel is edited in the app.
     const off = isBrowserStreamRuntime() ? () => {} : window.ipc.subscribe('app:touchpanel:updated', (raw) => {
@@ -102,7 +102,7 @@ export function TouchPanelWindowRoot(): ReactElement {
       {showCloseButton ? (
         <button
           type="button"
-          aria-label="Fechar"
+          aria-label="Close"
           onClick={() => void window.ipc.invoke('app:touchpanel:close')}
           style={{
             position: 'fixed',

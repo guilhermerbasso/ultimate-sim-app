@@ -260,7 +260,7 @@ function Board({ board, pinRows, powerRows }: { board: BoardCatalogEntry; pinRow
   return <g filter="url(#pinout-shadow)">
     <rect x={boardBox.x} y={boardBox.y} width={boardBox.width} height={boardBox.height} rx="24" fill={colors.body} stroke="var(--accent-primary)" strokeOpacity="0.78" strokeWidth="2" />
     <text x={boardBox.x + boardBox.width / 2} y={boardBox.y + 36} textAnchor="middle" fill={colors.text} fontSize="19" fontWeight="800">{board.name}</text>
-    <text x={boardBox.x + boardBox.width / 2} y={boardBox.y + 60} textAnchor="middle" fill={colors.muted} fontSize="12">{board.mcu} · logic {board.voltage}</text>
+    <text x={boardBox.x + boardBox.width / 2} y={boardBox.y + 60} textAnchor="middle" fill={colors.muted} fontSize="12">{board.mcu} · logic {board.lapge}</text>
     <text x={boardBox.x + boardBox.width / 2} y={boardBox.y + boardBox.height - 20} textAnchor="middle" fill={colors.muted} fontSize="11">Board signal pins are drop targets; used pins turn unavailable.</text>
     {pinRows.map((row) => <PinRow key={row.pin.pin} pin={row.pin} point={row.point} side={row.side} />)}
     {powerRows.map((row) => <PowerPill key={row.pin.pin} pin={row.pin} point={row.point} />)}

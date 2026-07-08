@@ -83,7 +83,7 @@ async function connect(ctx: ModuleContext, request: ConnectRequest): Promise<Wif
   if (!host) throw new Error('Informe o host/IP do ESP32.')
   const port = Number(request?.port ?? 47650)
   if (!isAllowedEsp32Target(host, port)) {
-    throw new Error('Host/porta inválido. Use o IP da rede local (LAN) ou o nome .local do ESP32, com porta 1–65535.')
+    throw new Error('Invalid host/port. Use the local network (LAN) IP or the ESP32 .local name, with port 1–65535.')
   }
   const id = request?.id || `${host}:${port}`
   const existing = transports.get(id)
@@ -100,7 +100,7 @@ async function connect(ctx: ModuleContext, request: ConnectRequest): Promise<Wif
     return status
   } catch (error) {
     transports.delete(id)
-    throw new Error(`Não consegui conectar no ESP32 via Wi‑Fi: ${errMessage(error)}`)
+    throw new Error(`Could not connect to the ESP32 over Wi‑Fi: ${errMessage(error)}`)
   }
 }
 
@@ -119,7 +119,7 @@ async function disconnect(ctx: ModuleContext, id?: string): Promise<WifiTranspor
 
 function send(id: string, line: string): WifiTransportStatus {
   const transport = transports.get(id)
-  if (!transport) throw new Error('ESP32 Wi‑Fi não conectado.')
+  if (!transport) throw new Error('ESP32 Wi‑Fi not connected.')
   transport.send(line)
   return transport.status()
 }
@@ -191,7 +191,7 @@ function pushWifiCredentials(path: string, ssid: string, password: string): Prom
 
     port.open((openError) => {
       if (openError) {
-        done(new Error(`Não consegui abrir ${path}: ${openError.message}`))
+        done(new Error(`Could not open ${path}: ${openError.message}`))
         return
       }
       const payload = `WIFI:${encodeField(ssid)}:${encodeField(password)}\n`

@@ -23,7 +23,7 @@ function loss(partial: Partial<CoachFinding>): CoachFinding {
     zonePctEnd: 0.2,
     severity: partial.severity ?? 'high',
     estTimeLossSec: partial.estTimeLossSec ?? 0.2,
-    title: partial.title ?? 'Freou tarde',
+    title: partial.title ?? 'Braked tarde',
     detail: partial.detail ?? '',
     evidence: partial.evidence ?? '',
     metrics: partial.metrics ?? {},
@@ -76,17 +76,17 @@ describe('finding classification', () => {
   })
 
   it('locates by corner (WS-E) then sector', () => {
-    expect(findingLocation(loss({ sector: 2, corner: 5 } as Partial<CoachFinding>))).toBe('Curva 5')
-    expect(findingLocation(loss({ sector: 3 }))).toBe('Setor 3')
+    expect(findingLocation(loss({ sector: 2, corner: 5 } as Partial<CoachFinding>))).toBe('Turn 5')
+    expect(findingLocation(loss({ sector: 3 }))).toBe('Sector 3')
   })
 })
 
 describe('strategyNote', () => {
   it('summarizes fuel/tyre/pace', () => {
     const note = strategyNote(fullPredictions)
-    expect(note).toContain('combustível')
-    expect(note).toContain('margem de 2,4 voltas')
-    expect(note).toContain('pneu')
+    expect(note).toContain('fuel')
+    expect(note).toContain('margem de 2,4 laps')
+    expect(note).toContain('tire')
     expect(note).toContain('até cair')
     expect(note).toContain('pace projetado 1:23,456')
   })
@@ -112,9 +112,9 @@ describe('strategyNote', () => {
 describe('composeDebrief', () => {
   it('summarizes BOTH losses (onde perdeu) and gains (onde foi bem)', () => {
     const findings: CoachFinding[] = [
-      loss({ id: 'a', sector: 1, estTimeLossSec: 0.4, title: 'Freou tarde' }),
+      loss({ id: 'a', sector: 1, estTimeLossSec: 0.4, title: 'Braked tarde' }),
       loss({ id: 'b', sector: 2, estTimeLossSec: 0.1, title: 'Acelerou cedo', kind: 'throttle-hesitation' }),
-      good({ id: 'c', sector: 3, title: 'Mais velocidade de entrada', sign: 'gain', estTimeGainSec: 0.2 } as Partial<CoachFinding>)
+      good({ id: 'c', sector: 3, title: 'Mais speed de entrada', sign: 'gain', estTimeGainSec: 0.2 } as Partial<CoachFinding>)
     ]
     const out = composeDebrief(findings, fullPredictions, { trackName: 'Interlagos', lapsCompleted: 14 })
 
@@ -122,7 +122,7 @@ describe('composeDebrief', () => {
     expect(out.text).toContain('Onde foi bem')
     expect(out.text).toContain('Interlagos')
     // Biggest loss ranked first.
-    expect(out.text.indexOf('Freou tarde')).toBeLessThan(out.text.indexOf('Acelerou cedo'))
+    expect(out.text.indexOf('Braked tarde')).toBeLessThan(out.text.indexOf('Acelerou cedo'))
 
     const lossBullets = out.bullets.filter((b) => b.startsWith('⚠'))
     const gainBullets = out.bullets.filter((b) => b.startsWith('✅'))
@@ -150,8 +150,8 @@ describe('composeDebrief', () => {
   it('includes fuel + tyre notes in the strategy line', () => {
     const out = composeDebrief([loss({ estTimeLossSec: 0.3 })], fullPredictions)
     const strat = out.bullets.find((b) => b.startsWith('📊')) ?? ''
-    expect(strat).toContain('combustível')
-    expect(strat).toContain('pneu')
+    expect(strat).toContain('fuel')
+    expect(strat).toContain('tire')
     expect(strat).toContain('pressão baixa')
     expect(strat).toContain('temp quente')
   })

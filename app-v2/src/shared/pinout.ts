@@ -236,7 +236,7 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
     for (const role of definition?.roles ?? []) {
       const connection = design.connections.find((item) => item.componentId === mux.id && item.role === role.role)
       if (!connection) {
-        add({ severity: role.optional ? 'warning' : 'error', code: 'missing-role', message: `Falta ligar ${mux.label} → ${role.label}.`, muxId: mux.id, role: role.role })
+        add({ severity: role.optional ? 'warning' : 'error', code: 'missing-role', message: `Fhigh ligar ${mux.label} → ${role.label}.`, muxId: mux.id, role: role.role })
       }
     }
   }
@@ -251,7 +251,7 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
       const key = getConnectionKey(component.id, role.role)
       const connection = design.connections.find((item) => getConnectionKey(item.componentId, item.role) === key)
       if (!connection) {
-        add({ severity: role.optional ? 'warning' : 'error', code: 'missing-role', message: `Falta ligar ${component.label} → ${role.label}.`, componentId: component.id, role: role.role })
+        add({ severity: role.optional ? 'warning' : 'error', code: 'missing-role', message: `Fhigh ligar ${component.label} → ${role.label}.`, componentId: component.id, role: role.role })
       }
     }
   }
@@ -287,7 +287,7 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
         // Enforce the SIG mode: analog common needs an ADC pin, digital needs a digital pin.
         const sigMux = muxMap.get(connection.componentId)
         if (sigMux?.sigMode === 'analog' && !pin.analogIn) {
-          add({ severity: 'error', code: 'mux-sig-need-analog', message: `${owner.label} → ${role.label} está em modo analógico, mas ${pin.pin} não tem entrada analógica.`, componentId: connection.componentId, role: connection.role, pin: pin.pin })
+          add({ severity: 'error', code: 'mux-sig-need-analog', message: `${owner.label} → ${role.label} está em modo analog, mas ${pin.pin} não tem entrada analógica.`, componentId: connection.componentId, role: connection.role, pin: pin.pin })
         } else if (sigMux?.sigMode === 'digital' && !pin.digital) {
           add({ severity: 'error', code: 'mux-sig-need-digital', message: `${owner.label} → ${role.label} está em modo digital, mas ${pin.pin} não é um pino digital.`, componentId: connection.componentId, role: connection.role, pin: pin.pin })
         }
@@ -333,7 +333,7 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
   //    invalid design is caught before flashing): I2C address collisions,
   //    rotary-encoder interrupt pins, addressable-LED power/level-shift/RAM
   //    budgets and AVR timer sharing between Servo/tone()/PWM. ─────────────────
-  const boardLogic3v3 = catalog.voltage === '3.3V'
+  const boardLogic3v3 = catalog.lapge === '3.3V'
   const isAvr328 = /atmega(328|168)/i.test(catalog.mcu)
   const isAvr32u4 = /atmega32u4/i.test(catalog.mcu)
   const isAvr2560 = /atmega2560/i.test(catalog.mcu)
@@ -356,7 +356,7 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
     i2cByAddress.set(address, owners)
   }
   for (const [address, owners] of i2cByAddress) {
-    if (owners.length > 1) add({ severity: 'error', code: 'i2c-address-conflict', message: `Endereço I2C ${address} repetido em: ${owners.join(', ')}. Dispositivos no mesmo barramento SDA/SCL precisam de endereços diferentes (mude o jumper/strap de endereço de um deles).` })
+    if (owners.length > 1) add({ severity: 'error', code: 'i2c-address-conflict', message: `Endereço I2C ${address} repetido em: ${owners.join(', ')}. Devices no mesmo barramento SDA/SCL precisam de endereços diferentes (mude o jumper/strap de endereço de um deles).` })
   }
 
   // (2) Rotary (quadrature) encoders want interrupt-capable pins for reliable
@@ -393,7 +393,7 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
     if (ledCount > 30) add({ severity: 'warning', code: 'led-power-budget', message: `${component.label} tem ${ledCount} LEDs endereçáveis (até ~${Math.ceil(ledCount * 0.06)} A no branco/brilho máximo). Use uma fonte 5V externa dedicada com GND comum; não alimente pelo pino 5V da placa.`, componentId: component.id })
     if (boardLogic3v3 && /ws2812|sk6812|neopixel/.test(chip)) add({ severity: 'warning', code: 'led-level-shift', message: `${component.label} é WS2812/SK6812 (lógica 5V) controlado por placa de 3,3V. Use um level shifter 3,3V→5V no sinal DIN (ou alimente a fita a ~4,3V) para o dado ser reconhecido de forma confiável.`, componentId: component.id, role: 'data' })
   }
-  if (sramBytes > 0 && ledBufferBytes > sramBytes * 0.4) add({ severity: 'warning', code: 'resource-budget', message: `O buffer de LEDs endereçáveis (~${ledBufferBytes} bytes) ocupa boa parte da RAM de ${catalog.name} (${sramBytes} bytes). Reduza a quantidade de LEDs ou use uma placa com mais memória para evitar travamentos por falta de RAM.` })
+  if (sramBytes > 0 && ledBufferBytes > sramBytes * 0.4) add({ severity: 'warning', code: 'resource-budget', message: `O buffer de LEDs endereçáveis (~${ledBufferBytes} bytes) ocupa boa parte da RAM de ${catalog.name} (${sramBytes} bytes). Reduza a quantidade de LEDs ou use uma placa com mais memória para evitar travamentos por fhigh de RAM.` })
 
   // (4) AVR timer sharing: the Servo library (Timer1) disables analogWrite() on
   // pins 9/10; tone() for a passive buzzer (Timer2) disables it on 3/11. Warn
@@ -483,12 +483,12 @@ function validatePinCapability(pin: BoardPinCapability, pinRole: PinoutComponent
 
 function recommendPin(pin: BoardPinCapability): string[] {
   const out: string[] = []
-  if (pin.analogIn) out.push('eixo analógico / potenciômetro')
+  if (pin.analogIn) out.push('eixo analog / potenciômetro')
   if (pin.i2c) out.push(pin.i2c === 'sda' ? 'SDA de OLED/I2C' : 'SCL de OLED/I2C')
   if (pin.spi) out.push(`SPI ${pin.spi.toUpperCase()}`)
   if (pin.uart) out.push(`UART ${pin.uart.toUpperCase()}`)
   if (pin.pwm) out.push('servo gauge / PWM')
-  if (pin.digital) out.push('botão / encoder / LED data')
+  if (pin.digital) out.push('button / encoder / LED data')
   return out
 }
 

@@ -13,7 +13,7 @@ describe('DEFAULT_STT_CONFIG', () => {
     expect(DEFAULT_STT_CONFIG.enabled).toBe(true)
     expect(DEFAULT_STT_CONFIG.model).toBe('tiny')
     expect(DEFAULT_STT_MODEL_ID).toBe('tiny')
-    expect(DEFAULT_STT_CONFIG.wakeWords).toEqual(['oi engenheiro', 'ok engenheiro', 'olá engenheiro'])
+    expect(DEFAULT_STT_CONFIG.wakeWords).toEqual(['oi engineer', 'ok engineer', 'olá engineer'])
     expect(DEFAULT_STT_CONFIG.language).toBe('pt')
   })
 })
@@ -49,8 +49,8 @@ describe('mergeSttConfig', () => {
   })
 
   it('trims, de-dupes (case-insensitively) and drops empty wake words', () => {
-    const merged = mergeSttConfig(base, { wakeWords: ['  Oi Engenheiro  ', 'oi engenheiro', '', '   ', 'Ei chefe'] })
-    expect(merged.wakeWords).toEqual(['Oi Engenheiro', 'Ei chefe'])
+    const merged = mergeSttConfig(base, { wakeWords: ['  Oi Engenheiro  ', 'oi engineer', '', '   ', 'Ei chefe'] })
+    expect(merged.wakeWords).toEqual(['Oi Engenheiro', 'oi engineer', 'Ei chefe'])
   })
 
   it('never persists an empty wake-word list (keeps the base)', () => {

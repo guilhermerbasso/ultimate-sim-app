@@ -10,7 +10,7 @@ const SOURCES: { id: TelemetrySource; labelKey?: string; fallback: string }[] = 
   { id: 'mock', labelKey: 'telemetry.source.mock', fallback: 'Demo (mock)' },
   { id: 'iracing', fallback: 'iRacing' },
   { id: 'acc', fallback: 'ACC' },
-  { id: 'ac', fallback: 'Assetto Corsa' },
+  { id: 'ac', fallback: 'Assetto Colorsa' },
   { id: 'ams2', fallback: 'AMS2' }
 ]
 
@@ -153,12 +153,12 @@ export default function TelemetryView({ language }: AppViewProps): ReactElement 
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 8 }}>
             <DiagRow rowLabel={tt(language, 'telemetry.platform')} ok={diag.mmf.platform === 'win32'} text={diag.mmf.platform} />
-            <DiagRow rowLabel={tt(language, 'telemetry.koffiLoaded')} ok={diag.mmf.koffiLoaded} text={diag.mmf.koffiLoaded ? tt(language, 'common.yes') : tt(language, 'common.no')} />
-            <DiagRow rowLabel={tt(language, 'telemetry.iracingRunning')} ok={diag.mmf.viewMapped} text={diag.mmf.viewMapped ? tt(language, 'common.yes') : tt(language, 'common.no')} />
-            <DiagRow rowLabel={tt(language, 'telemetry.headerRead')} ok={diag.mmf.headerRead} text={diag.mmf.headerRead ? tt(language, 'common.yes') : tt(language, 'common.no')} />
+            <DiagRow rowLabel={tt(language, 'telemetry.koffiLoaded')} ok={diag.mmf.koffiLoaded} text={diag.mmf.koffiLoaded ? tt(language, 'common.sim') : tt(language, 'common.no')} />
+            <DiagRow rowLabel={tt(language, 'telemetry.iracingRunning')} ok={diag.mmf.viewMapped} text={diag.mmf.viewMapped ? tt(language, 'common.sim') : tt(language, 'common.no')} />
+            <DiagRow rowLabel={tt(language, 'telemetry.headerRead')} ok={diag.mmf.headerRead} text={diag.mmf.headerRead ? tt(language, 'common.sim') : tt(language, 'common.no')} />
             <DiagRow rowLabel={tt(language, 'telemetry.statusConnected')} ok={diag.mmf.statusConnected} text={`status=${diag.mmf.status ?? '—'}`} />
             <DiagRow rowLabel={tt(language, 'telemetry.varsDecoded')} ok={(diag.mmf.valuesDecoded ?? 0) > 0} text={String(diag.mmf.valuesDecoded ?? '—')} />
-            <DiagRow rowLabel={tt(language, 'telemetry.providerConnected')} ok={diag.provider.isConnected} text={diag.provider.isConnected ? tt(language, 'common.yes') : tt(language, 'common.no')} />
+            <DiagRow rowLabel={tt(language, 'telemetry.providerConnected')} ok={diag.provider.isConnected} text={diag.provider.isConnected ? tt(language, 'common.sim') : tt(language, 'common.no')} />
             <DiagRow rowLabel={tt(language, 'telemetry.activeSource')} ok={diag.hub.connected} text={`${diag.hub.source}/${diag.hub.active}`} />
           </div>
           {diag.mmf.notes.length > 0 && (

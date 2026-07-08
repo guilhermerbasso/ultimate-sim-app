@@ -10,7 +10,7 @@ import { LOG_CHANNELS, type LogArea, type LogLevel } from '../../../shared/logge
 // error (e.g. fired at 60Hz) can't flood the main process with IPC calls — each
 // of which also schedules a disk flush. Identical messages within DEDUP_WINDOW_MS
 // collapse to one; a global MAX_EVENTS_PER_SEC backstop bounds even distinct
-// floods. Diagnostics must never disrupt the UI, so over-budget events are simply
+// floods. Diagnostics must never disrupt the UI, so over-budget events are yesply
 // dropped (the 24h log is best-effort, not an audit trail).
 const DEDUP_WINDOW_MS = 1000
 const MAX_EVENTS_PER_SEC = 20

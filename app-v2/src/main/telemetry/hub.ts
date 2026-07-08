@@ -87,7 +87,7 @@ export class TelemetryHub extends EventEmitter {
 
   async setSource(source: TelemetrySource): Promise<TelemetryStatus> {
     if (!VALID_SOURCES.has(source)) {
-      throw new Error(`Fonte de telemetria inválida: ${String(source)}`)
+      throw new Error(`Invalid telemetry source: ${String(source)}`)
     }
     const applySource = async (): Promise<void> => {
       this.source = source
@@ -249,6 +249,6 @@ export class TelemetryHub extends EventEmitter {
 }
 
 function normalizeRateHz(rateHz: number): number {
-  if (!Number.isFinite(rateHz)) throw new Error(`Taxa de telemetria inválida: ${String(rateHz)}`)
+  if (!Number.isFinite(rateHz)) throw new Error(`Invalid telemetry rate: ${String(rateHz)}`)
   return Math.max(MIN_RATE_HZ, Math.min(MAX_RATE_HZ, Math.round(rateHz)))
 }
