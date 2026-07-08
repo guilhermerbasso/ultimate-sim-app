@@ -15,7 +15,7 @@ A ground‑up rebuild of the visual layer (widgets, overlays, dashboards) and th
 
 ### 🧠 Local AI — no GPU, no cost
 
-The **AI Engineer**, **Live/AI Coach**, and **lap analysis** run **entirely on your CPU** via the CPU‑only `node‑llama‑cpp` backend — **no GPU required, no cloud, no API keys, and no per‑use cost**, fully offline.
+The **AI Engineer**, **Live/AI Coach**, and **lap analysis** run **entirely on your CPU** via the CPU‑only `node-llama-cpp` backend — **no GPU required, no cloud, no API keys, and no per‑use cost**, fully offline.
 
 ### Fixes
 

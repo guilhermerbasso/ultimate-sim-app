@@ -23,7 +23,6 @@ export interface Pixel32Props {
   /** Low value = bad (e.g. fuel): inverts the green→red ramp. */
   invert?: boolean
   colors?: Partial<InstrumentColors>
-  idPrefix?: string
 }
 
 /**
