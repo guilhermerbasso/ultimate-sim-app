@@ -1,5 +1,6 @@
-import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppViewProps } from '../App'
+import type { CoachSeverity } from '../../../shared/coach'
 import type {
   AdaptiveBlink,
   AdaptiveElementRule,
@@ -10,6 +11,7 @@ import type {
   DashboardElement,
   DashboardSummary
 } from '../../../shared/dashboards'
+import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import {
   ADAPTIVE_DASHBOARD_ID,
   ADAPTIVE_DASHBOARD_PRESET,
@@ -18,11 +20,21 @@ import {
 import {
   MOMENT_CATALOG,
   MOMENT_GROUP_LABELS,
+  initialRaceMomentState,
   momentCatalogEntry,
   momentLabel,
+  resolveRaceMoment,
+  type RaceMomentState,
   type MomentGroup
 } from '../../../shared/race-moment'
 import { DashboardCanvasEditor, DashboardCanvasSurface, type EditableBoard } from './dashboard/DashboardCanvasEditor'
+import { HIFI_WIDGETS_BY_ID } from '../hifi/widgets/registry'
+import type { HifiAiContext, HifiAiSeverity } from '../hifi/widgets/types'
+import { selectAdaptiveWidgets } from '../lib/adaptive-widget-ai'
+import { useCoachReport } from '../lib/coach-heatmap'
+import { coachFindings, topCoachTips } from '../lib/coach-insights'
+import { useEngineerFeed } from '../lib/engineer-feed'
+import { useTelemetrySelector } from '../lib/telemetry'
 
 const CHROME = 'var(--accent-primary)'
 const AMBER = 'var(--accent-warning)'
@@ -39,6 +51,8 @@ const BLINK_SWATCHES: Array<{ color: string; label: string }> = [
 ]
 
 const DEFAULT_BLINK_HZ = 1.5
+const MOMENT_RECOMPUTE_MS = 140
+const AI_LIVE_SLOT_COUNT = 6
 
 // A moment whose catalog entry is `detectable:false` can be authored but will not
 // fire at runtime yet — surface that clearly so the user isn't surprised.
@@ -100,15 +114,63 @@ function elementLabel(el: DashboardElement): string {
 
 const GROUP_ORDER: MomentGroup[] = ['session', 'lap', 'situational', 'micro']
 
+function severityToHifi(severity: CoachSeverity): HifiAiSeverity {
+  if (severity === 'high') return 'high'
+  if (severity === 'med') return 'med'
+  return 'low'
+}
+
+function proactiveLevel(severity: CoachSeverity | undefined): 'info' | 'warn' | 'crit' {
+  if (severity === 'high') return 'crit'
+  if (severity === 'med') return 'warn'
+  return 'info'
+}
+
+function buildAiContext(report: ReturnType<typeof useCoachReport>, engineerFeed: ReturnType<typeof useEngineerFeed>): HifiAiContext {
+  const topTip = topCoachTips(report, 1)[0]
+  const findings = coachFindings(report, 8)
+  const latestEngineer = engineerFeed[0]
+  const latestProactive = engineerFeed.find((item) => item.source === 'proactive')
+  const confidence = report && report.sampleCount > 0 ? Math.min(1, Math.max(0.35, report.sampleCount / 120)) : null
+
+  return {
+    coachTip: topTip
+      ? {
+          text: topTip.detail || topTip.title || report?.summary || '',
+          corner: topTip.corner ? `T${topTip.corner}` : undefined,
+          confidence: confidence ?? undefined
+        }
+      : null,
+    coachFindings: findings.length > 0
+      ? findings.map((finding) => ({
+          label: finding.title || finding.detail || finding.kind,
+          severity: severityToHifi(finding.severity)
+        }))
+      : null,
+    engineerRadio: latestEngineer ? { text: latestEngineer.text, at: latestEngineer.at } : null,
+    proactiveAlert: latestProactive ? { text: latestProactive.text, level: proactiveLevel(latestProactive.severity) } : null,
+    strategy: null,
+    confidence
+  }
+}
+
 export default function AdaptiveDashboardView({ showToast }: AppViewProps): ReactElement {
   const [summaries, setSummaries] = useState<DashboardSummary[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [dash, setDash] = useState<Dashboard | null>(null)
   const [config, setConfig] = useState<DashboardAdaptiveConfig>({ enabled: false, rules: [] })
+  const [aiLiveSelection, setAiLiveSelection] = useState(true)
   const [activeMoment, setActiveMoment] = useState<string | null>(null)
   const [editingFrameMoment, setEditingFrameMoment] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   const [busy, setBusy] = useState(false)
+  const snapshot = useTelemetrySelector((snap) => snap)
+  const coachReport = useCoachReport()
+  const engineerFeed = useEngineerFeed(6)
+  const ai = useMemo(() => buildAiContext(coachReport, engineerFeed), [coachReport, engineerFeed])
+  const momentRef = useRef<RaceMomentState | null>(null)
+  const latestSnapshotRef = useRef<TelemetrySnapshot | null>(null)
+  const [liveMoment, setLiveMoment] = useState<RaceMomentState | null>(null)
 
   // ── Load + subscribe to the dashboards list ──
   useEffect(() => {
@@ -159,6 +221,32 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
   const usedMoments = useMemo(() => new Set(rules.map((r) => r.moment)), [rules])
   const selectedRule = rules.find((r) => r.moment === activeMoment) ?? null
   const elements = dash?.elements ?? []
+  const adaptiveEnabled = config.enabled ?? false
+  const aiLiveActive = adaptiveEnabled && aiLiveSelection && Boolean(dash)
+
+  useEffect(() => {
+    latestSnapshotRef.current = snapshot
+  }, [snapshot])
+
+  useEffect(() => {
+    if (!aiLiveActive) {
+      momentRef.current = null
+      setLiveMoment(null)
+      return
+    }
+    momentRef.current = initialRaceMomentState()
+    const id = window.setInterval(() => {
+      const next = resolveRaceMoment(latestSnapshotRef.current, null, momentRef.current)
+      momentRef.current = next
+      setLiveMoment((cur) => (cur && cur.moment === next.moment && cur.color === next.color ? cur : next))
+    }, MOMENT_RECOMPUTE_MS)
+    return () => window.clearInterval(id)
+  }, [aiLiveActive])
+
+  const liveWidgetIds = useMemo(
+    () => selectAdaptiveWidgets({ snapshot, ai, moment: liveMoment, maxSlots: AI_LIVE_SLOT_COUNT }),
+    [snapshot, ai, liveMoment]
+  )
 
   const patchConfig = useCallback((next: DashboardAdaptiveConfig) => {
     setConfig(next)
@@ -324,11 +412,34 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
               <input
                 type="checkbox"
-                checked={config.enabled ?? false}
+                checked={adaptiveEnabled}
                 onChange={(e) => patchConfig({ ...config, enabled: e.target.checked })}
               />
               <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>Modo adaptativo ligado</span>
             </label>
+            <label
+              title="Local heuristic widget selection. No network, no GPU, no paid API."
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                cursor: adaptiveEnabled ? 'pointer' : 'not-allowed',
+                opacity: adaptiveEnabled ? 1 : 0.55
+              }}
+            >
+              <input
+                type="checkbox"
+                disabled={!adaptiveEnabled}
+                checked={aiLiveActive}
+                onChange={(e) => setAiLiveSelection(e.target.checked)}
+              />
+              <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>AI live selection</span>
+            </label>
+            {aiLiveActive && (
+              <span style={{ color: GOOD, fontSize: 12, fontWeight: 700 }}>
+                {liveWidgetIds.length} live widget(s) · {liveMoment ? momentLabel(liveMoment.moment) : 'Detecting'}
+              </span>
+            )}
             <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
               {dash.elements.length} widgets · {rules.length} regra(s)
             </span>
@@ -340,6 +451,10 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
           </div>
         )}
       </section>
+
+      {dash && aiLiveActive && (
+        <HifiLiveSelectionPreview snapshot={snapshot} ai={ai} widgetIds={liveWidgetIds} moment={liveMoment} />
+      )}
 
       {!dash && (
         <section style={card}>
@@ -411,6 +526,51 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
 }
 
 // ─── Moment picker (grouped) ──────────────────────────────────────────────────
+
+function HifiLiveSelectionPreview({
+  snapshot,
+  ai,
+  widgetIds,
+  moment
+}: {
+  snapshot: TelemetrySnapshot | null
+  ai: HifiAiContext
+  widgetIds: string[]
+  moment: RaceMomentState | null
+}): ReactElement {
+  return (
+    <section style={card}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <h2 style={{ ...subTitle, margin: 0 }}>AI live selection</h2>
+        <span style={{ ...liveBadge, color: CHROME, borderColor: CHROME }}>Local heuristic</span>
+        <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
+          Moment: <strong style={{ color: 'var(--text-primary)' }}>{moment ? momentLabel(moment.moment) : 'Detecting'}</strong>
+        </span>
+      </div>
+      <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 12 }}>
+        When the adaptive dashboard is on, this preview shows the ordered hi-fi widgets selected from live telemetry,
+        coach/engineer state, and the detected race moment. It is fully local and deterministic.
+      </p>
+      <div style={liveGrid}>
+        {widgetIds.map((id) => {
+          const mod = HIFI_WIDGETS_BY_ID[id]
+          if (!mod) return null
+          const width = Math.max(180, Math.min(360, mod.defaultSize.w))
+          const height = Math.max(120, Math.min(220, mod.defaultSize.h))
+          return (
+            <div key={id} style={liveTile}>
+              <div style={liveTileHeader}>
+                <strong>{mod.title}</strong>
+                <span>{mod.category}</span>
+              </div>
+              <div style={liveWidgetSurface}>{mod.render({ snapshot, ai, width, height })}</div>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
 
 function MomentPicker({ used, onAdd }: { used: ReadonlySet<string>; onAdd: (id: string) => void }): ReactElement {
   const [pick, setPick] = useState('')
@@ -866,6 +1026,54 @@ const hintTile: CSSProperties = {
   border: '1px solid var(--border-default)',
   borderRadius: 'var(--radius-sm)',
   padding: '8px 10px'
+}
+
+const liveBadge: CSSProperties = {
+  flex: '0 0 auto',
+  fontSize: 10,
+  fontWeight: 800,
+  lineHeight: 1,
+  padding: '3px 7px',
+  borderRadius: 999,
+  border: '1px solid currentColor',
+  textTransform: 'uppercase',
+  letterSpacing: 0.6
+}
+
+const liveGrid: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+  gap: 10,
+  marginTop: 12
+}
+
+const liveTile: CSSProperties = {
+  minWidth: 0,
+  minHeight: 190,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  padding: 10,
+  borderRadius: 'var(--radius-sm)',
+  border: '1px solid var(--border-default)',
+  background: 'var(--surface-sunken)'
+}
+
+const liveTileHeader: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 8,
+  color: 'var(--text-primary)',
+  fontSize: 12
+}
+
+const liveWidgetSurface: CSSProperties = {
+  flex: 1,
+  minHeight: 150,
+  display: 'grid',
+  placeItems: 'center',
+  overflow: 'hidden'
 }
 
 const select: CSSProperties = {
