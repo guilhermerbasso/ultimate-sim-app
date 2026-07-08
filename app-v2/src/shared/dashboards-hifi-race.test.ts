@@ -14,13 +14,31 @@ function overlaps(a: Box, b: Box): boolean {
 }
 
 describe('HIFI_RACE_PRESETS', () => {
-  it('declares thirteen unique race composition presets', () => {
-    expect(HIFI_RACE_PRESETS).toHaveLength(13)
+  it('declares fourteen unique race composition presets including themed car pages', () => {
+    expect(HIFI_RACE_PRESETS).toHaveLength(14)
     expect(new Set(HIFI_RACE_PRESETS.map((preset) => preset.id)).size).toBe(HIFI_RACE_PRESETS.length)
+    expect(HIFI_RACE_PRESETS.map((preset) => preset.id)).toEqual([
+      'hifi_race_sprint_core',
+      'hifi_race_qualifying_hotlap',
+      'hifi_race_wet_race',
+      'hifi_race_fuel_save',
+      'hifi_race_tyre_management',
+      'hifi_race_attack_delta',
+      'hifi_race_defend_gaps',
+      'hifi_race_final_laps',
+      'hifi_race_restart_sprint',
+      'hifi_race_safety_car',
+      'hifi_race_ferrari',
+      'hifi_race_porsche',
+      'hifi_race_amg',
+      'hifi_race_mclaren'
+    ])
   })
 
-  it('builds valid in-bounds dashboards from registered hi-fi widgets', () => {
+  it('builds valid clean v4 dashboards from registered hi-fi widgets', () => {
     const ids = new Set<string>()
+    const themedRevIds = new Set(['revThemedFerrari', 'revThemedPorsche', 'revThemedAmg', 'revThemedMclaren'])
+    const themedClusterIds = new Set(['clusterFerrari', 'clusterPorsche', 'clusterAmg', 'clusterMclaren'])
 
     for (const preset of HIFI_RACE_PRESETS) {
       expect(preset.id.startsWith('hifi_race_')).toBe(true)
@@ -31,9 +49,31 @@ describe('HIFI_RACE_PRESETS', () => {
       const built = preset.build()
       expect(built.width).toBe(1024)
       expect(built.height).toBe(600)
+      expect(built.scaleMode).toBe('fit')
       expect(built.elements.length).toBeGreaterThan(1)
+      expect(built.elements[0].type).toBe('rect')
+      expect(built.elements[0].x).toBe(0)
+      expect(built.elements[0].y).toBe(0)
+      expect(built.elements[0].w).toBe(1024)
+      expect(built.elements[0].h).toBe(600)
 
       const overlayWidgets = built.elements.filter((element) => element.type === 'overlaywidget')
+      const rects = built.elements.filter((element) => element.type === 'rect')
+      expect(rects).toHaveLength(1)
+      expect(built.elements.some((element) => element.type === 'text')).toBe(false)
+
+      const revTop = overlayWidgets[0]
+      expect(revTop.x).toBe(0)
+      expect(revTop.y).toBe(0)
+      expect(revTop.w).toBe(1024)
+      expect(revTop.h).toBe(96)
+      expect(revTop.hifiModuleId?.startsWith('rev')).toBe(true)
+
+      if (preset.id === 'hifi_race_ferrari' || preset.id === 'hifi_race_porsche' || preset.id === 'hifi_race_amg' || preset.id === 'hifi_race_mclaren') {
+        expect(themedRevIds.has(revTop.hifiModuleId ?? '')).toBe(true)
+        expect(overlayWidgets.some((element) => themedClusterIds.has(element.hifiModuleId ?? ''))).toBe(true)
+        expect(preset.tags).toContain('themed')
+      }
 
       for (const element of built.elements) {
         expect(element.x).toBeGreaterThanOrEqual(0)

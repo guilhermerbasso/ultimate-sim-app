@@ -18,6 +18,8 @@ export const MATERIAL_LABELS: Record<KeyMaterial, string> = {
   rotary: 'Rotary (knob/encoder)',
   selector: 'Selector (multi-position)',
   rgb: 'RGB halo (round button)',
+  rocker: 'Rocker (+ / −)',
+  led_ring: 'LED-ring button',
   led_status: 'LED status',
   guarded: 'Guarded (emergency)'
 }
@@ -32,11 +34,13 @@ export const MATERIAL_HINTS: Record<KeyMaterial, string> = {
   rotary: 'Rotary knob with indicator.',
   selector: 'Multi-position rotary/selector with track and arrows.',
   rgb: 'Round button with RGB/color halo.',
+  rocker: 'Horizontal plus/minus rocker with a lit pressed side.',
+  led_ring: 'Illuminated push button with a bright LED ring.',
   led_status: 'On/off LED indicator with small label.',
   guarded: 'Red safety cover (start/kill).'
 }
 
 /** Ordered list for the editor picker. */
 export const MATERIAL_OPTIONS: ReadonlyArray<{ value: KeyMaterial; label: string; hint: string }> = (
-  ['backlit', 'solid', 'glass', 'carbon', 'toggle', 'rotary', 'selector', 'rgb', 'led_status', 'guarded'] as KeyMaterial[]
+  ['backlit', 'solid', 'glass', 'carbon', 'toggle', 'rocker', 'rotary', 'selector', 'rgb', 'led_ring', 'led_status', 'guarded'] as KeyMaterial[]
 ).map((m) => ({ value: m, label: MATERIAL_LABELS[m], hint: MATERIAL_HINTS[m] }))

@@ -56,11 +56,16 @@ function touchPresetTags(preset: ButtonBoxPanel): string[] {
     `${preset.buttons.length} buttons`,
     preset.buttons.length <= 9 ? 'compact' : preset.buttons.length >= 20 ? 'large' : 'standard'
   ])
+  for (const tag of preset.tags ?? []) tags.add(tag)
   const name = preset.name.toLocaleLowerCase()
   if (name.includes('pit')) tags.add('pit')
   if (name.includes('race')) tags.add('race')
   if (name.includes('stream')) tags.add('stream')
+  for (const car of ['ferrari', 'porsche', 'mercedes-amg', 'mclaren', 'corvette', 'lamborghini']) {
+    if (name.includes(car) || preset.tags?.includes(car)) tags.add(car)
+  }
   for (const button of preset.buttons) {
+    tags.add(button.material.replace('_', '-'))
     if (button.action.kind === 'iracing') tags.add('iRacing')
     if (button.action.kind === 'keyboard') tags.add('keyboard')
     if (button.action.kind === 'app') tags.add('app')
@@ -175,6 +180,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
         rows: preset.rows,
         gap: preset.gap,
         background: preset.background,
+        tags: preset.tags,
         buttons: preset.buttons.map((b) => ({ ...b, id: undefined }))
       })
       await window.ipc.invoke('app:touchpanel:save', next)
@@ -314,7 +320,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
           )}
         </div>
         <p style={{ color: TEXT_DIM, fontSize: 12, margin: '8px 0 0' }}>
-          Touch panel for pit stops and quick commands ? fuel, tires, service, chat macros, camera, and replay.
+          Touch panel for pit stops and quick commands: fuel, tires, service, chat macros, camera, and replay.
           The dashboard kiosk remains in <strong>Dashboards</strong>.
         </p>
       </section>
@@ -400,7 +406,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
               <button style={btn('primary')} disabled={busy} onClick={() => run(savePanel)}>Save</button>
               <button style={btn()} disabled={busy} onClick={() => run(openFullscreen)}>Open fullscreen</button>
-              <button style={btn()} disabled={busy} onClick={() => run(addToPlaylist)}>Add à playlist</button>
+              <button style={btn()} disabled={busy} onClick={() => run(addToPlaylist)}>Add to playlist</button>
               <button style={btn('danger')} disabled={busy} onClick={() => run(deletePanel)}>Delete</button>
               <span style={{ width: 1, height: 24, background: PANEL_BORDER }} />
               <span style={{ color: TEXT_DIM, fontSize: 12 }}>Monitor</span>

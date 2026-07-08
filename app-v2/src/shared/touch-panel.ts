@@ -38,6 +38,8 @@ export type ButtonAction =
  *   rotary     — encoder / rotary knob
  *   selector   — multi-position rotary / value selector
  *   rgb        — round RGB halo button
+ *   rocker     — horizontal plus/minus rocker
+ *   led_ring   — illuminated button with LED halo
  *   led_status — small on/off status indicator
  *   guarded    — red safety-cover / emergency key (engine start · kill)
  */
@@ -50,6 +52,8 @@ export type KeyMaterial =
   | 'rotary'
   | 'selector'
   | 'rgb'
+  | 'rocker'
+  | 'led_ring'
   | 'led_status'
   | 'guarded'
 
@@ -62,6 +66,8 @@ export const KEY_MATERIALS: ReadonlyArray<KeyMaterial> = [
   'rotary',
   'selector',
   'rgb',
+  'rocker',
+  'led_ring',
   'led_status',
   'guarded'
 ]
@@ -113,6 +119,8 @@ export interface ButtonBoxPanel {
   /** Panel backdrop colour. */
   background: string
   buttons: ButtonBoxButton[]
+  /** Optional picker tags for built-in presets and user panels. */
+  tags?: string[]
   createdAt?: number
   updatedAt?: number
   hidden?: boolean
@@ -204,6 +212,15 @@ export function safeIcon(value: unknown): string | undefined {
 
 function str(value: unknown, fallback: string): string {
   return typeof value === 'string' ? value : fallback
+}
+
+function safeTags(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const tags = value
+    .filter((tag): tag is string => typeof tag === 'string')
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0 && tag.length <= 32)
+  return tags.length > 0 ? Array.from(new Set(tags)) : undefined
 }
 
 /** Valid keyboard-macro modes, used to sanitise hand-edited/corrupt panel JSON. */
@@ -326,6 +343,7 @@ export function createButtonBoxPanel(partial: ButtonBoxPanelInit = {}): ButtonBo
     gap: clampGap(partial.gap ?? 14),
     background: str(partial.background, DEFAULT_PANEL_BG),
     buttons,
+    tags: safeTags(partial.tags),
     createdAt: partial.createdAt ?? now,
     updatedAt: partial.updatedAt ?? now,
     hidden: Boolean(partial.hidden)
@@ -449,6 +467,7 @@ export function parseButtonBoxPanel(raw: unknown): ButtonBoxPanel | null {
     gap: clampGap(p.gap),
     background: str(p.background, DEFAULT_PANEL_BG),
     buttons,
+    tags: safeTags(p.tags),
     createdAt: typeof p.createdAt === 'number' ? p.createdAt : undefined,
     updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : undefined,
     hidden: Boolean(p.hidden)

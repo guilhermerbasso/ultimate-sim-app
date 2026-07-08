@@ -110,6 +110,17 @@ export function hifiEl(moduleId: string, x: number, y: number, width: number, he
   }
 }
 
+/**
+ * Full-width rev-lights strip pinned CORNER-TO-CORNER across the TOP edge. Height
+ * 96 matches the rev-lights widget aspect (960×90) so it fills edge-to-edge with no
+ * letterbox margins. Pass any rev-lights module id ('revlightsLedStrip',
+ * 'revlightsGradient', 'revlightsLedBar', or a themed one like 'revThemedFerrari').
+ * NOT for the centered Mustang-style cluster (which is not edge-to-edge by design).
+ */
+export function revTop(moduleId = 'revlightsLedStrip'): DashboardElement {
+  return hifiEl(moduleId, 0, 0, TARGET_W, 96)
+}
+
 /** Assemble a 1024×600 composition Dashboard. Elements are authored in native px. */
 export function dashboard(name: string, description: string, elements: DashboardElement[]): Dashboard {
   const now = Date.now()

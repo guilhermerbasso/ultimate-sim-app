@@ -59,6 +59,21 @@ describe('key material + icon model', () => {
     expect(parsed?.buttons[0].icon).toBe('fuel')
   })
 
+  it('round-trips preset tags and new touch-control materials', () => {
+    const panel = createButtonBoxPanel({
+      columns: 2,
+      rows: 1,
+      tags: ['touch', 'Ferrari', 'touch'],
+      buttons: [
+        { label: 'TC-', material: 'rocker', icon: 'settings' },
+        { label: 'RADIO', material: 'led_ring', icon: 'radio' }
+      ]
+    })
+    const parsed = parseButtonBoxPanel(serializeButtonBoxPanel(panel))
+    expect(parsed?.tags).toEqual(['touch', 'Ferrari'])
+    expect(parsed?.buttons.map((button) => button.material)).toEqual(['rocker', 'led_ring'])
+  })
+
   it('drops an over-long icon id on parse', () => {
     const panel = createButtonBoxPanel({ columns: 1, rows: 1, buttons: [{ label: 'X', icon: 'y'.repeat(80) }] })
     const parsed = parseButtonBoxPanel(serializeButtonBoxPanel(panel))

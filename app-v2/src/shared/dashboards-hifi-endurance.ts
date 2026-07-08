@@ -1,215 +1,251 @@
-// ─── Hi-fi ENDURANCE composition dashboards ───────────────────────────────────
-// Stint / fuel-strategy / tyre-life / traffic / multiclass / night scenarios,
-// composed from the hi-fi per-telemetry widgets. Self-contained (kit imports only
-// TYPES from ./dashboards). Spread into BUILTIN_PRESETS.
-//
-// Add presets by pushing `comp(id, name, description, tags, build)` onto
-// HIFI_ENDURANCE_PRESETS. Valid widget ids come from `HIFI_WIDGETS_BY_ID`.
-import { bg, comp, dashboard, hifiEl, type HifiCompPreset } from './dashboards-hifi-kit'
+﻿// ─── Hi-fi ENDURANCE composition dashboards ───────────────────────────────────
+// Clean v4 endurance pages: black stage, corner-to-corner rev strip where useful,
+// and title-less self-explanatory hi-fi widgets only.
+import { bg, comp, dashboard, hifiEl, revTop, type HifiCompPreset } from './dashboards-hifi-kit'
 
 export const HIFI_ENDURANCE_PRESETS: HifiCompPreset[] = [
   comp(
     'hifi_endur_stint_core',
     'Endurance — Stint Core',
-    'Endurance stint core: time and laps remaining, fuel state, laps-to-empty, tyre wear, race position and the immediate relative traffic list.',
-    ['endurance', 'stint', 'fuel', 'fuel-laps', 'tyre-wear', 'position', 'relative', 'race'],
+    'Core endurance stint page with fuel range, stint countdown, position and immediate traffic under a full-width rev strip.',
+    ['endurance', 'stint', 'fuel', 'fuel-laps', 'time-remaining', 'position', 'relative', 'revlights'],
     () =>
-      dashboard('Endurance — Stint Core', 'Endurance stint core cluster.', [
+      dashboard('Endurance — Stint Core', 'Clean endurance stint core page.', [
         bg(),
-        hifiEl('timeRemaining', 16, 24, 232, 172),
-        hifiEl('lapsRemaining', 16, 214, 232, 172),
-        hifiEl('position', 16, 404, 232, 172),
-        hifiEl('fuel', 260, 24, 370, 260),
-        hifiEl('fuelLaps', 260, 304, 370, 260),
-        hifiEl('tyreWear', 642, 24, 370, 276),
-        hifiEl('relative', 642, 320, 370, 206)
-      ])
-  ),
-  comp(
-    'hifi_endur_double_stint',
-    'Endurance — Double Stint',
-    'Double-stint planning page with time, laps, fuel reserve, laps-to-empty, tyre wear and track position in six large balanced tiles.',
-    ['endurance', 'double-stint', 'strategy', 'fuel', 'fuel-laps', 'tyre-wear', 'position'],
-    () =>
-      dashboard('Endurance — Double Stint', 'Double-stint endurance strategy page.', [
-        bg(),
-        hifiEl('timeRemaining', 16, 24, 232, 172),
-        hifiEl('lapsRemaining', 16, 214, 232, 172),
-        hifiEl('position', 16, 404, 232, 172),
-        hifiEl('fuel', 260, 24, 370, 260),
-        hifiEl('fuelLaps', 260, 304, 370, 260),
-        hifiEl('tyreWear', 642, 24, 370, 276)
-      ])
-  ),
-  comp(
-    'hifi_endur_fuel_strategy',
-    'Endurance — Fuel Strategy',
-    'Fuel strategy page for endurance calls: fuel quantity, laps-to-empty, consumption per lap, fuel delta, time remaining and laps remaining.',
-    ['endurance', 'fuel', 'fuel-strategy', 'fuel-delta', 'consumption', 'time-remaining', 'laps-remaining'],
-    () =>
-      dashboard('Endurance — Fuel Strategy', 'Fuel strategy endurance page.', [
-        bg(),
-        hifiEl('timeRemaining', 16, 24, 232, 172),
-        hifiEl('lapsRemaining', 16, 214, 232, 172),
-        hifiEl('fuel', 260, 24, 370, 260),
-        hifiEl('fuelLaps', 642, 24, 370, 260),
-        hifiEl('fuelPerLap', 260, 304, 370, 260),
-        hifiEl('fuelDelta', 642, 304, 370, 260)
-      ])
-  ),
-  comp(
-    'hifi_endur_tyre_life',
-    'Endurance — Tyre Life',
-    'Tyre-life engineer page with detailed tyre state, temperature grid, wear grid, pressure grid and fuel laps for stint extension decisions.',
-    ['endurance', 'tyres', 'tyre-life', 'tyre-temp', 'tyre-wear', 'tyre-pressure', 'tyre-detail', 'fuel-laps'],
-    () =>
-      dashboard('Endurance — Tyre Life', 'Tyre-life endurance engineering page.', [
-        bg(),
-        hifiEl('tyreDetail', 8, 16, 626, 260),
-        hifiEl('fuelLaps', 646, 16, 370, 260),
-        hifiEl('tyreTemp', 8, 304, 324, 276),
-        hifiEl('tyreWear', 350, 304, 324, 276),
-        hifiEl('tyrePressure', 692, 304, 324, 276)
-      ])
-  ),
-  comp(
-    'hifi_endur_traffic_multiclass',
-    'Endurance — Traffic Multiclass',
-    'Multiclass traffic page with standings, relative list, class position, direct gaps and radar for approaching mixed-class packs.',
-    ['endurance', 'traffic', 'multiclass', 'standings', 'relative', 'class-position', 'gaps', 'radar'],
-    () =>
-      dashboard('Endurance — Traffic Multiclass', 'Multiclass traffic endurance page.', [
-        bg(),
-        hifiEl('standings', 24, 24, 360, 300),
-        hifiEl('relative', 24, 348, 360, 220),
-        hifiEl('radar', 408, 24, 260, 260),
-        hifiEl('classPosition', 692, 24, 308, 172),
-        hifiEl('gapAhead', 408, 308, 276, 196),
-        hifiEl('gapBehind', 708, 308, 276, 196)
-      ])
-  ),
-  comp(
-    'hifi_endur_night_stint',
-    'Endurance — Night Stint',
-    'Night-stint cockpit page with shift lights, combined speed and gear, tyre temperature, water temperature, oil temperature and fuel laps.',
-    ['endurance', 'night', 'stint', 'revlights', 'speed-gear', 'tyre-temp', 'engine-temps', 'fuel-laps'],
-    () =>
-      dashboard('Endurance — Night Stint', 'Night stint endurance cockpit page.', [
-        bg(),
-        hifiEl('revlights', 16, 24, 320, 260),
-        hifiEl('speedGear', 352, 24, 320, 260),
-        hifiEl('fuelLaps', 688, 24, 320, 260),
-        hifiEl('tyreTemp', 16, 304, 320, 260),
-        hifiEl('waterTemp', 352, 304, 320, 260),
-        hifiEl('oilTemp', 688, 304, 320, 260)
-      ])
-  ),
-  comp(
-    'hifi_endur_driver_swap',
-    'Endurance — Driver Swap',
-    'Driver-swap control page with remaining time, remaining laps, fuel, position, tyre wear and session state in a calm two-row grid.',
-    ['endurance', 'driver-swap', 'stint', 'session', 'fuel', 'position', 'tyre-wear', 'time-remaining'],
-    () =>
-      dashboard('Endurance — Driver Swap', 'Driver swap endurance control page.', [
-        bg(),
-        hifiEl('timeRemaining', 16, 24, 232, 172),
-        hifiEl('lapsRemaining', 16, 214, 232, 172),
-        hifiEl('position', 16, 404, 232, 172),
-        hifiEl('fuel', 260, 24, 370, 260),
-        hifiEl('tyreWear', 642, 24, 370, 276),
-        hifiEl('session', 260, 304, 264, 260)
-      ])
-  ),
-  comp(
-    'hifi_endur_pit_window',
-    'Endurance — Pit Window',
-    'Pit-window page for endurance race calls: fuel, fuel laps, pit limiter, tyre wear, time remaining and current position.',
-    ['endurance', 'pit-window', 'pit-limiter', 'fuel', 'fuel-laps', 'tyre-wear', 'time-remaining', 'position'],
-    () =>
-      dashboard('Endurance — Pit Window', 'Pit window endurance strategy page.', [
-        bg(),
-        hifiEl('fuel', 150, 24, 420, 260),
-        hifiEl('fuelLaps', 590, 24, 420, 260),
-        hifiEl('timeRemaining', 16, 304, 232, 130),
-        hifiEl('position', 16, 446, 232, 130),
-        hifiEl('pitLimiter', 260, 304, 264, 252),
-        hifiEl('tyreWear', 544, 304, 420, 276)
-      ])
-  ),
-  comp(
-    'hifi_endur_energy_hybrid',
-    'Endurance — Energy Hybrid',
-    'Hybrid energy page with ERS, engine map, TC, ABS, best delta and speed for long-run energy and drivability management.',
-    ['endurance', 'hybrid', 'energy', 'ers', 'engine-map', 'tc', 'abs', 'delta', 'speed'],
-    () =>
-      dashboard('Endurance — Energy Hybrid', 'Hybrid energy endurance page.', [
-        bg(),
-        hifiEl('ers', 16, 24, 320, 260),
-        hifiEl('engineMap', 352, 24, 320, 260),
-        hifiEl('tc', 688, 24, 320, 260),
-        hifiEl('abs', 16, 304, 320, 260),
-        hifiEl('deltaBest', 352, 304, 320, 260),
-        hifiEl('speed', 688, 304, 320, 260)
-      ])
-  ),
-  comp(
-    'hifi_endur_temps_watch',
-    'Endurance — Temps Watch',
-    'Temperature watch page with water temperature, oil temperature, oil pressure, brake temperature and tyre temperature for reliability management.',
-    ['endurance', 'temperatures', 'engine', 'water-temp', 'oil-temp', 'oil-pressure', 'brake-temp', 'tyre-temp', 'reliability'],
-    () =>
-      dashboard('Endurance — Temps Watch', 'Endurance temperature watch page.', [
-        bg(),
-        hifiEl('waterTemp', 16, 24, 320, 260),
-        hifiEl('oilTemp', 352, 24, 320, 260),
-        hifiEl('oilPressure', 688, 24, 320, 260),
-        hifiEl('brakeTemp', 16, 300, 420, 260),
-        hifiEl('tyreTemp', 456, 300, 420, 260)
-      ])
-  ),
-  comp(
-    'hifi_endur_endurance_broadcast',
-    'Endurance — Broadcast',
-    'Broadcast-style endurance page with standings, overall and class position, gap ahead, best lap and a large race clock.',
-    ['endurance', 'broadcast', 'standings', 'position', 'class-position', 'gap-ahead', 'lap-best', 'clock'],
-    () =>
-      dashboard('Endurance — Broadcast', 'Endurance broadcast composition page.', [
-        bg(),
-        hifiEl('standings', 24, 24, 380, 300),
-        hifiEl('clock', 24, 336, 380, 252),
-        hifiEl('position', 428, 24, 276, 172),
-        hifiEl('classPosition', 728, 24, 272, 172),
-        hifiEl('gapAhead', 428, 220, 276, 172),
-        hifiEl('lapBest', 728, 220, 272, 172)
-      ])
-  ),
-  comp(
-    'hifi_endur_relative_traffic',
-    'Endurance — Relative Traffic',
-    'Relative traffic page with a wide relative list, radar, gap ahead, gap behind and position for clean multiclass racecraft.',
-    ['endurance', 'relative', 'traffic', 'radar', 'gap-ahead', 'gap-behind', 'position', 'multiclass'],
-    () =>
-      dashboard('Endurance — Relative Traffic', 'Endurance relative traffic page.', [
-        bg(),
-        hifiEl('relative', 24, 24, 360, 236),
-        hifiEl('position', 24, 284, 360, 172),
-        hifiEl('radar', 408, 24, 260, 260),
-        hifiEl('gapAhead', 692, 24, 308, 200),
-        hifiEl('gapBehind', 692, 248, 308, 200)
+        revTop('revlightsLedStrip'),
+        hifiEl('fuel', 72, 112, 420, 286),
+        hifiEl('fuelLaps', 532, 112, 420, 286),
+        hifiEl('relative', 16, 416, 338, 172),
+        hifiEl('timeRemaining', 378, 416, 256, 172),
+        hifiEl('position', 660, 416, 292, 172)
       ])
   ),
   comp(
     'hifi_endur_stint_minimal',
     'Endurance — Stint Minimal',
-    'Minimal endurance stint page with four large tiles: time remaining, fuel laps, position and tyre wear, leaving deliberate black negative space.',
-    ['endurance', 'minimal', 'stint', 'time-remaining', 'fuel-laps', 'position', 'tyre-wear', 'clean'],
+    'Minimal endurance page with only the essentials: remaining time, fuel range, position and tyre wear.',
+    ['endurance', 'minimal', 'stint', 'time-remaining', 'fuel-laps', 'position', 'tyre-wear', 'clean', 'revlights'],
     () =>
-      dashboard('Endurance — Stint Minimal', 'Minimal endurance stint page.', [
+      dashboard('Endurance — Stint Minimal', 'Clean minimal endurance stint page.', [
         bg(),
-        hifiEl('timeRemaining', 24, 40, 448, 210),
-        hifiEl('fuelLaps', 552, 24, 420, 260),
-        hifiEl('position', 24, 330, 448, 210),
-        hifiEl('tyreWear', 552, 304, 420, 276)
+        revTop('revlightsLedStrip'),
+        hifiEl('fuelLaps', 72, 112, 420, 286),
+        hifiEl('tyreWear', 532, 112, 420, 286),
+        hifiEl('timeRemaining', 176, 416, 292, 172),
+        hifiEl('position', 556, 416, 292, 172)
+      ])
+  ),
+  comp(
+    'hifi_endur_fuel_strategy',
+    'Endurance — Fuel Strategy',
+    'Fuel strategy page with full-size fuel quantity, laps-to-empty, consumption and a widened fuel-delta tile with generous right margin.',
+    ['endurance', 'fuel', 'fuel-strategy', 'fuel-delta', 'consumption', 'no-overflow'],
+    () =>
+      dashboard('Endurance — Fuel Strategy', 'Clean endurance fuel strategy page.', [
+        bg(),
+        hifiEl('fuel', 80, 16, 420, 270),
+        hifiEl('fuelLaps', 524, 16, 420, 270),
+        hifiEl('fuelPerLap', 80, 314, 420, 270),
+        hifiEl('fuelDelta', 524, 314, 420, 270)
+      ])
+  ),
+  comp(
+    'hifi_endur_double_stint',
+    'Endurance — Double Stint',
+    'Double-stint planning page focused on tyre wear, fuel range, remaining stint time and track position.',
+    ['endurance', 'double-stint', 'strategy', 'fuel-laps', 'tyre-wear', 'position', 'revlights'],
+    () =>
+      dashboard('Endurance — Double Stint', 'Clean double-stint endurance page.', [
+        bg(),
+        revTop('revlightsLedBar'),
+        hifiEl('fuelLaps', 72, 112, 420, 286),
+        hifiEl('tyreWear', 532, 112, 420, 286),
+        hifiEl('timeRemaining', 32, 416, 256, 172),
+        hifiEl('lapsRemaining', 312, 416, 232, 172),
+        hifiEl('position', 568, 416, 292, 172)
+      ])
+  ),
+  comp(
+    'hifi_endur_night_stint',
+    'Endurance — Night Stint',
+    'Night stint cockpit page with high-contrast revs, speed/gear, fuel range, deltas and radar.',
+    ['endurance', 'night', 'stint', 'speed-gear', 'fuel-laps', 'delta', 'radar', 'revlights'],
+    () =>
+      dashboard('Endurance — Night Stint', 'Clean night-stint endurance cockpit page.', [
+        bg(),
+        revTop('revlightsGradient'),
+        hifiEl('speedGear', 72, 112, 420, 286),
+        hifiEl('fuelLaps', 532, 112, 420, 286),
+        hifiEl('deltaBest', 206, 416, 256, 172),
+        hifiEl('deltaSession', 562, 416, 256, 172)
+      ])
+  ),
+  comp(
+    'hifi_endur_driver_swap',
+    'Endurance — Driver Swap',
+    'Driver-swap control page with fuel, session state, remaining time, laps and position.',
+    ['endurance', 'driver-swap', 'stint', 'session', 'fuel', 'position', 'time-remaining', 'revlights'],
+    () =>
+      dashboard('Endurance — Driver Swap', 'Clean driver-swap endurance control page.', [
+        bg(),
+        revTop('revlightsLedStrip'),
+        hifiEl('fuel', 72, 112, 420, 286),
+        hifiEl('session', 596, 112, 264, 336),
+        hifiEl('timeRemaining', 32, 416, 256, 172),
+        hifiEl('lapsRemaining', 312, 416, 232, 172)
+      ])
+  ),
+  comp(
+    'hifi_endur_pit_window',
+    'Endurance — Pit Window',
+    'Pit-window page for call timing with fuel range, tyre wear, limiter state, time remaining and position.',
+    ['endurance', 'pit-window', 'pit-limiter', 'fuel-laps', 'tyre-wear', 'time-remaining', 'position'],
+    () =>
+      dashboard('Endurance — Pit Window', 'Clean pit-window endurance strategy page.', [
+        bg(),
+        hifiEl('fuelLaps', 72, 16, 420, 276),
+        hifiEl('tyreWear', 532, 16, 420, 276),
+        hifiEl('pitLimiter', 80, 308, 264, 276),
+        hifiEl('timeRemaining', 380, 360, 256, 172),
+        hifiEl('position', 700, 360, 292, 172)
+      ])
+  ),
+  comp(
+    'hifi_endur_energy_hybrid',
+    'Endurance — Energy Hybrid',
+    'Hybrid endurance page for ERS, engine map, traction settings and lap delta.',
+    ['endurance', 'hybrid', 'energy', 'ers', 'engine-map', 'tc', 'abs'],
+    () =>
+      dashboard('Endurance — Energy Hybrid', 'Clean hybrid endurance energy page.', [
+        bg(),
+        hifiEl('ers', 72, 16, 420, 276),
+        hifiEl('engineMap', 532, 16, 420, 276),
+        hifiEl('tc', 72, 308, 420, 276),
+        hifiEl('abs', 532, 308, 420, 276)
+      ])
+  ),
+  comp(
+    'hifi_endur_temps_watch',
+    'Endurance — Temps Watch',
+    'Reliability watch page for engine, brake and tyre temperatures in a clean two-by-two grid.',
+    ['endurance', 'temperatures', 'engine', 'water-temp', 'oil-temp', 'brake-temp', 'tyre-temp', 'reliability'],
+    () =>
+      dashboard('Endurance — Temps Watch', 'Clean endurance temperature watch page.', [
+        bg(),
+        hifiEl('waterTemp', 72, 16, 420, 276),
+        hifiEl('oilTemp', 532, 16, 420, 276),
+        hifiEl('brakeTemp', 72, 308, 420, 276),
+        hifiEl('tyreTemp', 532, 308, 420, 276)
+      ])
+  ),
+  comp(
+    'hifi_endur_relative_traffic',
+    'Endurance — Relative Traffic',
+    'Relative traffic page with a large relative list, radar, gap ahead, gap behind and race position.',
+    ['endurance', 'relative', 'traffic', 'radar', 'gap-ahead', 'gap-behind', 'position', 'revlights'],
+    () =>
+      dashboard('Endurance — Relative Traffic', 'Clean endurance relative traffic page.', [
+        bg(),
+        revTop('revlightsLedStrip'),
+        hifiEl('relative', 48, 116, 420, 250),
+        hifiEl('radar', 548, 112, 300, 300),
+        hifiEl('gapAhead', 48, 430, 276, 158),
+        hifiEl('position', 374, 430, 292, 158),
+        hifiEl('gapBehind', 716, 430, 276, 158)
+      ])
+  ),
+  comp(
+    'hifi_endur_multiclass_traffic',
+    'Endurance — Multiclass Traffic',
+    'Multiclass traffic page with standings, class position, radar and direct gaps for mixed-class packs.',
+    ['endurance', 'traffic', 'multiclass', 'standings', 'class-position', 'gaps', 'radar', 'revlights'],
+    () =>
+      dashboard('Endurance — Multiclass Traffic', 'Clean multiclass traffic endurance page.', [
+        bg(),
+        revTop('revlightsLedStrip'),
+        hifiEl('standings', 48, 112, 420, 286),
+        hifiEl('radar', 548, 112, 300, 300),
+        hifiEl('gapAhead', 48, 430, 276, 158),
+        hifiEl('classPosition', 374, 430, 232, 158),
+        hifiEl('gapBehind', 716, 430, 276, 158)
+      ])
+  ),
+  comp(
+    'hifi_endur_broadcast',
+    'Endurance — Broadcast',
+    'Broadcast-style endurance page with standings, clock, overall and class position plus race gaps.',
+    ['endurance', 'broadcast', 'standings', 'clock', 'position', 'class-position', 'gap-ahead', 'gap-behind', 'revlights'],
+    () =>
+      dashboard('Endurance — Broadcast', 'Clean endurance broadcast composition page.', [
+        bg(),
+        revTop('revlightsLedBar'),
+        hifiEl('standings', 48, 112, 420, 286),
+        hifiEl('clock', 556, 112, 312, 286),
+        hifiEl('position', 48, 416, 292, 172),
+        hifiEl('classPosition', 390, 416, 232, 172),
+        hifiEl('gapAhead', 712, 416, 276, 172)
+      ])
+  ),
+  comp(
+    'hifi_endur_ferrari_stint',
+    'Endurance — Ferrari Stint',
+    'Ferrari-themed endurance page pairing the Ferrari rev strip and signature cluster with fuel range and stint traffic.',
+    ['endurance', 'themed', 'ferrari', 'gt3', 'fuel-laps', 'relative', 'stint'],
+    () =>
+      dashboard('Endurance — Ferrari Stint', 'Ferrari-themed endurance stint page.', [
+        bg(),
+        revTop('revThemedFerrari'),
+        hifiEl('clusterFerrari', 48, 120, 460, 300),
+        hifiEl('fuelLaps', 556, 112, 420, 286),
+        hifiEl('relative', 48, 432, 338, 156),
+        hifiEl('timeRemaining', 420, 432, 256, 156),
+        hifiEl('position', 700, 416, 292, 172)
+      ])
+  ),
+  comp(
+    'hifi_endur_porsche_traffic',
+    'Endurance — Porsche Traffic',
+    'Porsche-themed endurance traffic page with branded revs and cluster plus fuel, relatives and gap control.',
+    ['endurance', 'themed', 'porsche', 'gt3', 'fuel', 'relative', 'traffic'],
+    () =>
+      dashboard('Endurance — Porsche Traffic', 'Porsche-themed endurance traffic page.', [
+        bg(),
+        revTop('revThemedPorsche'),
+        hifiEl('clusterPorsche', 48, 120, 460, 300),
+        hifiEl('fuel', 556, 112, 420, 286),
+        hifiEl('relative', 48, 432, 338, 156),
+        hifiEl('gapAhead', 420, 432, 276, 156),
+        hifiEl('gapBehind', 716, 432, 276, 156)
+      ])
+  ),
+  comp(
+    'hifi_endur_amg_strategy',
+    'Endurance — AMG Strategy',
+    'AMG-themed endurance strategy page with branded cluster, fuel delta, fuel laps and stint countdown.',
+    ['endurance', 'themed', 'amg', 'gt3', 'fuel-delta', 'fuel-laps', 'strategy'],
+    () =>
+      dashboard('Endurance — AMG Strategy', 'AMG-themed endurance strategy page.', [
+        bg(),
+        revTop('revThemedAmg'),
+        hifiEl('clusterAmg', 48, 120, 460, 300),
+        hifiEl('fuelDelta', 556, 112, 420, 286),
+        hifiEl('timeRemaining', 556, 416, 256, 172),
+        hifiEl('lapsRemaining', 836, 416, 174, 172)
+      ])
+  ),
+  comp(
+    'hifi_endur_mclaren_relative',
+    'Endurance — McLaren Relative',
+    'McLaren-themed endurance page with papaya rev strip, signature cluster, fuel range and relative traffic.',
+    ['endurance', 'themed', 'mclaren', 'gt3', 'fuel-laps', 'relative', 'traffic'],
+    () =>
+      dashboard('Endurance — McLaren Relative', 'McLaren-themed endurance relative page.', [
+        bg(),
+        revTop('revThemedMclaren'),
+        hifiEl('clusterMclaren', 48, 120, 460, 300),
+        hifiEl('fuelLaps', 556, 112, 420, 286),
+        hifiEl('relative', 48, 432, 338, 156),
+        hifiEl('position', 700, 416, 292, 172)
       ])
   )
 ]

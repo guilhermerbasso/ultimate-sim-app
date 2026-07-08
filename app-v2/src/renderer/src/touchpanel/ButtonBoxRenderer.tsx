@@ -21,7 +21,14 @@ export interface ButtonBoxRendererProps {
 }
 
 function buttonStyle(button: ButtonBoxButton): CSSProperties {
-  const special = button.material === 'rgb' ? rgbButtonStyle(button) : button.material === 'selector' ? selectorButtonStyle(button) : {}
+  const special =
+    button.material === 'rgb'
+      ? rgbButtonStyle(button)
+      : button.material === 'selector'
+        ? selectorButtonStyle(button)
+        : button.material === 'led_ring'
+          ? ledRingButtonStyle(button)
+          : {}
   return {
     color: button.textColor,
     borderColor: button.borderColor,
@@ -60,6 +67,21 @@ function selectorButtonStyle(button: ButtonBoxButton): CSSProperties {
       `0 0 22px -3px ${button.borderColor}`,
       `inset 0 0 0 1px ${button.borderColor}`,
       'inset 0 -16px 22px rgba(0,0,0,0.62)'
+    ].join(', ')
+  }
+}
+
+function ledRingButtonStyle(button: ButtonBoxButton): CSSProperties {
+  return {
+    borderRadius: '999px',
+    background:
+      `radial-gradient(circle at 50% 45%, ${button.activeColor ?? button.borderColor} 0 22%, ${button.bodyColor} 38%, #090c11 64%, #030407 100%)`,
+    boxShadow: [
+      `0 0 0 2px ${button.borderColor}`,
+      `0 0 24px -2px ${button.borderColor}`,
+      `inset 0 0 0 6px color-mix(in srgb, ${button.borderColor} 72%, transparent)`,
+      'inset 0 3px 8px rgba(255,255,255,0.28)',
+      'inset 0 -18px 28px rgba(0,0,0,0.62)'
     ].join(', ')
   }
 }
@@ -137,6 +159,24 @@ function RgbHalo(): ReactElement {
   )
 }
 
+function RockerChrome({ color }: { color: string }): ReactElement {
+  return (
+    <>
+      <span className="bb-rocker-split" aria-hidden="true" />
+      <span className="bb-rocker-minus" aria-hidden="true" style={{ color }}>
+        −
+      </span>
+      <span className="bb-rocker-plus" aria-hidden="true" style={{ color }}>
+        +
+      </span>
+    </>
+  )
+}
+
+function LedRingChrome({ color }: { color: string }): ReactElement {
+  return <span className="bb-led-ring" aria-hidden="true" style={{ borderColor: color }} />
+}
+
 export function ButtonBoxKey({
   button,
   index,
@@ -171,6 +211,8 @@ export function ButtonBoxKey({
     >
       {button.material === 'selector' ? <SelectorChrome color={button.borderColor} /> : null}
       {button.material === 'rgb' ? <RgbHalo /> : null}
+      {button.material === 'rocker' ? <RockerChrome color={button.borderColor} /> : null}
+      {button.material === 'led_ring' ? <LedRingChrome color={button.borderColor} /> : null}
       {button.image ? <img className="bb-btn-image" src={button.image} alt="" /> : null}
       {button.image ? (
         button.label ? (

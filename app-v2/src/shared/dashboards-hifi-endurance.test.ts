@@ -20,25 +20,39 @@ function expanded(el: { x: number; y: number; w: number; h: number }) {
 }
 
 describe('HIFI_ENDURANCE_PRESETS', () => {
-  it('defines thirteen unique endurance composition presets', () => {
+  it('defines sixteen unique endurance composition presets', () => {
     const ids = HIFI_ENDURANCE_PRESETS.map((preset) => preset.id)
 
-    expect(HIFI_ENDURANCE_PRESETS).toHaveLength(13)
+    expect(HIFI_ENDURANCE_PRESETS).toHaveLength(16)
     expect(new Set(ids).size).toBe(ids.length)
     for (const preset of HIFI_ENDURANCE_PRESETS) {
       expect(preset.id.startsWith('hifi_endur_')).toBe(true)
       expect(preset.tags.length).toBeGreaterThan(0)
     }
+
+    expect(ids).toEqual(
+      expect.arrayContaining(['hifi_endur_ferrari_stint', 'hifi_endur_porsche_traffic', 'hifi_endur_amg_strategy', 'hifi_endur_mclaren_relative'])
+    )
   })
 
-  it('builds valid, in-bounds, non-overlapping overlay widget layouts', () => {
+  it('builds clean v4, valid, in-bounds, non-overlapping overlay widget layouts', () => {
+    let revTopCount = 0
+
     for (const preset of HIFI_ENDURANCE_PRESETS) {
       const dash = preset.build()
       const widgets = dash.elements.filter((el) => el.type === 'overlaywidget')
+      const revTop = widgets.find((el) => el.y === 0 && el.x === 0 && el.w === DASH_W && el.h === 96)
 
       expect(dash.width, preset.id).toBe(DASH_W)
       expect(dash.height, preset.id).toBe(DASH_H)
+      expect(dash.scaleMode, preset.id).toBe('fit')
+      expect(dash.elements[0], preset.id).toMatchObject({ type: 'rect', x: 0, y: 0, w: DASH_W, h: DASH_H })
+      expect(dash.elements.every((el) => el.type === 'rect' || el.type === 'overlaywidget'), preset.id).toBe(true)
       expect(widgets.length, preset.id).toBeGreaterThan(0)
+      if (revTop) {
+        revTopCount += 1
+        expect(revTop.hifiModuleId, `${preset.id}:revTop`).toMatch(/^rev(lights|Themed)/)
+      }
 
       for (const widget of widgets) {
         expect(widget.hifiModuleId, `${preset.id}:${widget.name ?? widget.id}`).toBeTruthy()
@@ -58,5 +72,16 @@ describe('HIFI_ENDURANCE_PRESETS', () => {
         }
       }
     }
+
+    expect(revTopCount).toBeGreaterThanOrEqual(12)
+  })
+
+  it('keeps the fuel delta hero wide and away from the right edge', () => {
+    const fuelStrategy = HIFI_ENDURANCE_PRESETS.find((preset) => preset.id === 'hifi_endur_fuel_strategy')?.build()
+    const fuelDelta = fuelStrategy?.elements.find((el) => el.type === 'overlaywidget' && el.hifiModuleId === 'fuelDelta')
+
+    expect(fuelDelta).toBeTruthy()
+    expect(fuelDelta?.w).toBeGreaterThanOrEqual(420)
+    expect(fuelDelta ? DASH_W - (fuelDelta.x + fuelDelta.w) : 0).toBeGreaterThanOrEqual(80)
   })
 })
