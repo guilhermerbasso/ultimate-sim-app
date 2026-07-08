@@ -224,6 +224,107 @@ export function overlayWidgetDisplayTitle(def: OverlayWidgetDefinition): string 
   return `${simSupportPrefix(def.requires)}${def.title}`
 }
 
+// ─── Overlay visibility triggers (v4) ─────────────────────────────────────────
+// An overlay whose `trigger` is set (and not 'always') stays HIDDEN until its
+// condition fires against the live telemetry — spotter-style overlays that only
+// appear when relevant (car left/right arrow, radar-on-proximity, shift-LED
+// flash, pit-limiter, flag, low-fuel). `evaluateOverlayTrigger` is pure + tested.
+export type OverlayTriggerKind =
+  | 'always'
+  | 'carLeft'
+  | 'carRight'
+  | 'carLeftOrRight'
+  | 'proximity'
+  | 'shiftPoint'
+  | 'pitLimiter'
+  | 'flag'
+  | 'lowFuel'
+
+export interface OverlayTrigger {
+  kind: OverlayTriggerKind
+  /** proximity: fire when the nearest car (ahead/behind/radar) is within this many seconds. Default 0.5. */
+  thresholdSec?: number
+  /** shiftPoint: fire when shiftIndicatorPct >= this 0..1 fraction. Default 0.97. */
+  shiftPct?: number
+  /** lowFuel: fire when estimated laps-to-empty <= this. Default 2. */
+  lapsToEmpty?: number
+}
+
+/** Pure, testable trigger evaluation. `always`/null => always visible. */
+export function evaluateOverlayTrigger(
+  trigger: OverlayTrigger | null | undefined,
+  snapshot: TelemetrySnapshot | null | undefined
+): boolean {
+  if (!trigger || trigger.kind === 'always') return true
+  if (!snapshot) return false
+  switch (trigger.kind) {
+    case 'carLeft':
+      return snapshot.carLeftRight === 'left' || snapshot.carLeftRight === 'both'
+    case 'carRight':
+      return snapshot.carLeftRight === 'right' || snapshot.carLeftRight === 'both'
+    case 'carLeftOrRight':
+      return snapshot.carLeftRight === 'left' || snapshot.carLeftRight === 'right' || snapshot.carLeftRight === 'both'
+    case 'proximity': {
+      const t = trigger.thresholdSec ?? 0.5
+      const gaps: number[] = []
+      const ahead = snapshot.relatives?.ahead?.gapSec
+      const behind = snapshot.relatives?.behind?.gapSec
+      if (typeof ahead === 'number' && Number.isFinite(ahead)) gaps.push(Math.abs(ahead))
+      if (typeof behind === 'number' && Number.isFinite(behind)) gaps.push(Math.abs(behind))
+      for (const car of snapshot.radarCars ?? []) {
+        if (typeof car.gapSec === 'number' && Number.isFinite(car.gapSec)) gaps.push(Math.abs(car.gapSec))
+      }
+      return gaps.some((g) => g <= t)
+    }
+    case 'shiftPoint': {
+      const p = trigger.shiftPct ?? 0.97
+      return typeof snapshot.shiftIndicatorPct === 'number' && snapshot.shiftIndicatorPct >= p
+    }
+    case 'pitLimiter':
+      return snapshot.pitLimiter === true
+    case 'flag': {
+      const f = snapshot.flags
+      if (!f) return false
+      return Boolean(
+        f.yellow || f.blue || f.red || f.black || f.meatball || f.white || f.checkered || f.disqualify || f.greenWhiteCheckered
+      )
+    }
+    case 'lowFuel': {
+      const laps = trigger.lapsToEmpty ?? 2
+      const fuel = snapshot.fuelLiters
+      const per = snapshot.fuelPerLap
+      if (typeof fuel !== 'number' || typeof per !== 'number' || !Number.isFinite(fuel) || !Number.isFinite(per) || per <= 0) return false
+      return fuel / per <= laps
+    }
+    default:
+      return true
+  }
+}
+
+const OVERLAY_TRIGGER_KINDS: OverlayTriggerKind[] = [
+  'always',
+  'carLeft',
+  'carRight',
+  'carLeftOrRight',
+  'proximity',
+  'shiftPoint',
+  'pitLimiter',
+  'flag',
+  'lowFuel'
+]
+
+/** Structural sanitize for a persisted trigger; returns null when invalid/absent. */
+export function sanitizeOverlayTrigger(value: unknown): OverlayTrigger | null {
+  if (!value || typeof value !== 'object') return null
+  const v = value as Record<string, unknown>
+  if (typeof v.kind !== 'string' || !OVERLAY_TRIGGER_KINDS.includes(v.kind as OverlayTriggerKind)) return null
+  const out: OverlayTrigger = { kind: v.kind as OverlayTriggerKind }
+  if (typeof v.thresholdSec === 'number' && Number.isFinite(v.thresholdSec)) out.thresholdSec = v.thresholdSec
+  if (typeof v.shiftPct === 'number' && Number.isFinite(v.shiftPct)) out.shiftPct = v.shiftPct
+  if (typeof v.lapsToEmpty === 'number' && Number.isFinite(v.lapsToEmpty)) out.lapsToEmpty = v.lapsToEmpty
+  return out
+}
+
 export interface OverlayWidgetConfig {
   id: OverlayWidgetId
   enabled: boolean
@@ -235,6 +336,11 @@ export interface OverlayWidgetConfig {
   opacity: number
   stylePreset: OverlayStylePresetId
   style: OverlayWidgetStyle
+  // v4: user-hidden (moved to the "Hidden" section). Does NOT delete the config.
+  hidden?: boolean
+  // v4: visibility trigger — when set (and not 'always'), the overlay is shown
+  // ONLY while evaluateOverlayTrigger(trigger, snapshot) is true (spotter-style).
+  trigger?: OverlayTrigger | null
   display?: OverlayDisplayRef | null
   hifiModuleId?: string
 }
@@ -295,6 +401,8 @@ export interface CustomOverlayDef {
   opacity: number
   stylePreset: OverlayStylePresetId
   style: OverlayWidgetStyle
+  hidden?: boolean
+  trigger?: OverlayTrigger | null
   display?: OverlayDisplayRef | null
   // LEGACY content (expression/channel text cards). Kept for back-compat.
   elements: CustomOverlayElement[]
@@ -431,6 +539,8 @@ export function createCustomOverlayDef(partial: Partial<CustomOverlayDef> = {}):
     opacity: partial.opacity ?? 100,
     stylePreset,
     style: partial.style ? { ...partial.style } : createDefaultOverlayStyle(stylePreset),
+    hidden: partial.hidden ?? false,
+    trigger: partial.trigger ?? null,
     display: partial.display ?? null,
     elements: (partial.elements ?? []).map((element) => createCustomOverlayElement(element))
   }

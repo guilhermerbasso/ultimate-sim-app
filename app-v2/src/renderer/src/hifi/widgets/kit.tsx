@@ -24,6 +24,50 @@ export const FONT_NUM = "'Chakra Petch','Michroma',monospace"
 export const FONT_BIG = "'Michroma','Chakra Petch',sans-serif"
 export const FONT_LABEL = "'Rajdhani','Barlow Condensed',sans-serif"
 
+// ── Clean convention (v4) ─────────────────────────────────────────────────────
+// Widgets/overlays are CLEAN by default: NO title, NO panel background, NO border.
+// Values must be self-explanatory. Use `CleanTile` as the SVG root (transparent),
+// spread `LEGIBLE`/`legibleStroke(size)` onto important text so it stays readable
+// over ANY game background, and use `Hairline`/`Recess` only where a faint
+// separator/backing genuinely aids reading. Never draw a title label.
+
+/** Subtle dark outline behind text (paint-order stroke) so values read on any bg. */
+export const LEGIBLE = {
+  stroke: 'rgba(0,0,0,0.55)',
+  strokeWidth: 3,
+  paintOrder: 'stroke' as const,
+  strokeLinejoin: 'round' as const
+}
+/** Legibility outline scaled to a font size (for big numerals). */
+export function legibleStroke(size: number): {
+  stroke: string
+  strokeWidth: number
+  paintOrder: 'stroke'
+  strokeLinejoin: 'round'
+} {
+  return {
+    stroke: 'rgba(0,0,0,0.55)',
+    strokeWidth: Math.max(1.5, size * 0.05),
+    paintOrder: 'stroke',
+    strokeLinejoin: 'round'
+  }
+}
+
+/**
+ * Conditional value color. Returns green/red based on sign relative to whether a
+ * positive value is "good"; neutral within a deadzone; dim when absent. The single
+ * source of truth for gain/lose coloring (e.g. gap ahead/behind, delta, fuel delta).
+ */
+export function condColor(
+  v: number | undefined,
+  opts: { positiveIsGood?: boolean; deadzone?: number; good?: string; bad?: string; neutral?: string } = {}
+): string {
+  const { positiveIsGood = true, deadzone = 0, good = C.green, bad = C.red, neutral = C.text } = opts
+  if (v == null || !Number.isFinite(v)) return C.dim
+  if (Math.abs(v) <= deadzone) return neutral
+  return v > 0 === positiveIsGood ? good : bad
+}
+
 export function num(v: unknown): number | undefined {
   if (typeof v === 'number' && Number.isFinite(v)) return v
   if (typeof v === 'string') {
@@ -95,6 +139,41 @@ export function Frame({
   )
 }
 
+/**
+ * CLEAN widget root (v4 default): a transparent SVG canvas with NO background,
+ * NO border and NO title. Content scales/letterboxes to any box via the viewBox.
+ * This is the standard root for every clean widget/overlay.
+ */
+export function CleanTile({
+  width = 420,
+  height = 286,
+  children
+}: {
+  width?: number
+  height?: number
+  children: ReactNode
+}): ReactElement {
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} preserveAspectRatio="xMidYMid meet" role="img">
+      {children}
+    </svg>
+  )
+}
+
+/** Faint hairline separator — use ONLY where it genuinely aids reading. */
+export function Hairline({ x, y, len, vertical = false, opacity = 0.12 }: { x: number; y: number; len: number; vertical?: boolean; opacity?: number }): ReactElement {
+  return vertical ? (
+    <rect x={x} y={y} width={1} height={len} fill={`rgba(255,255,255,${opacity})`} />
+  ) : (
+    <rect x={x} y={y} width={len} height={1} fill={`rgba(255,255,255,${opacity})`} />
+  )
+}
+
+/** Faint recessed backing for dense clusters (still mostly transparent). */
+export function Recess({ x, y, w, h, r = 10, opacity = 0.04 }: { x: number; y: number; w: number; h: number; r?: number; opacity?: number }): ReactElement {
+  return <rect x={x} y={y} width={w} height={h} rx={r} fill={`rgba(255,255,255,${opacity})`} />
+}
+
 /** Horizontal fill bar (0..1) with colour. */
 export function Bar({ x, y, w, h, f, color }: { x: number; y: number; w: number; h: number; f: number; color: string }): ReactElement {
   return (
@@ -148,7 +227,7 @@ export function LedRow({ x, y, w, h, f, count = 12 }: { x: number; y: number; w:
 /** Big centred numeric value + optional unit. */
 export function BigNum({ x, y, value, unit, color, size }: { x: number; y: number; value: string; unit?: string; color: string; size: number }): ReactElement {
   return (
-    <text x={x} y={y} textAnchor="middle" fill={color} fontFamily={FONT_BIG} fontWeight={800} fontSize={size}>
+    <text x={x} y={y} textAnchor="middle" fill={color} fontFamily={FONT_BIG} fontWeight={800} fontSize={size} {...legibleStroke(size)}>
       {value}
       {unit ? <tspan fill={C.dim} fontFamily={FONT_LABEL} fontSize={size * 0.32}> {unit}</tspan> : null}
     </text>

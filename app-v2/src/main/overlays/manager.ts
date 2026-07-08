@@ -27,7 +27,8 @@ import {
   getOverlayStylePreset,
   isCustomOverlayId,
   OVERLAY_WIDGETS,
-  sanitizeCustomOverlayWidgets
+  sanitizeCustomOverlayWidgets,
+  sanitizeOverlayTrigger
 } from '../../shared/overlays'
 import type { ModuleContext } from '../module-context'
 import { fixIracingFullscreen, readIracingGraphicsStatus } from './iracing-graphics'
@@ -399,6 +400,8 @@ function mergeConfig(config: Partial<OverlaysConfig> | null): OverlaysConfig {
         opacity: clampOpacity(current?.opacity ?? base.opacity),
         stylePreset,
         style: sanitizeStyle(current?.style, stylePreset),
+        hidden: Boolean(current?.hidden ?? base.hidden),
+        trigger: sanitizeOverlayTrigger(current?.trigger),
         display: sanitizeDisplayRef(current?.display)
       }
     ] as const
@@ -419,6 +422,8 @@ function mergeConfig(config: Partial<OverlaysConfig> | null): OverlaysConfig {
           opacity: clampOpacity(current.opacity ?? 100),
           stylePreset,
           style: sanitizeStyle(current.style, stylePreset),
+          hidden: Boolean(current.hidden),
+          trigger: sanitizeOverlayTrigger(current.trigger),
           display: sanitizeDisplayRef(current.display),
           hifiModuleId: typeof current.hifiModuleId === 'string' && current.hifiModuleId.trim()
             ? current.hifiModuleId
