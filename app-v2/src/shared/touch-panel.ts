@@ -36,6 +36,8 @@ export type ButtonAction =
  *   carbon     — carbon-fibre weave + colour accent
  *   toggle     — physical toggle-switch
  *   rotary     — encoder / rotary knob
+ *   selector   — multi-position rotary / value selector
+ *   rgb        — round RGB halo button
  *   led_status — small on/off status indicator
  *   guarded    — red safety-cover / emergency key (engine start · kill)
  */
@@ -46,6 +48,8 @@ export type KeyMaterial =
   | 'carbon'
   | 'toggle'
   | 'rotary'
+  | 'selector'
+  | 'rgb'
   | 'led_status'
   | 'guarded'
 
@@ -56,6 +60,8 @@ export const KEY_MATERIALS: ReadonlyArray<KeyMaterial> = [
   'carbon',
   'toggle',
   'rotary',
+  'selector',
+  'rgb',
   'led_status',
   'guarded'
 ]
