@@ -2,7 +2,7 @@ import type { TelemetrySource } from './telemetry'
 import type { TcSensitivity } from './telemetry'
 
 export const APP_TELEMETRY_SOURCES = ['off', 'auto', 'mock', 'iracing', 'acc', 'ac', 'ams2', 'lmu'] as const
-export const APP_LANGUAGES = ['auto', 'pt-BR', 'en', 'es', 'fr', 'de'] as const
+export const APP_LANGUAGES = ['auto', 'pt-BR', 'en', 'es', 'fr', 'de', 'zh', 'ja'] as const
 export const APP_THEMES = [
   'raceRed',
   'amberGt',
@@ -569,7 +569,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   autoStartSimX: true,
   autoConnectDevices: true,
   closeToTray: true,
-  language: 'auto',
+  // UI language. English is the primary language; "auto" follows the OS/browser
+  // language exposed by Electron, otherwise falls back to English.
+  language: 'en',
   theme: 'midnight',
   accentColor: APP_THEME_PRESETS.midnight.accent,
   defaultTelemetrySource: 'off',

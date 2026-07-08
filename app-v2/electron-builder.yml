@@ -79,6 +79,7 @@ asarUnpack:
   - "**/node_modules/@img/**"
 
 win:
+  icon: build/icon.png
   target:
     - target: nsis
       arch:
