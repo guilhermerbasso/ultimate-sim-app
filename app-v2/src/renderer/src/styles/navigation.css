@@ -134,3 +134,142 @@
 @keyframes nav-spin {
   to { transform: rotate(360deg); }
 }
+
+/* ── Collapsible sidebar rail ─────────────────────────────────────────────────
+ * The sidebar collapses to an icon-only rail. Width animates via the existing
+ * `.sidebar { transition: width … }` rule in theme.css; everything below is the
+ * collapsed-state presentation, keyed off `data-collapsed="true"` set in App.tsx.
+ * Labels and section titles are hidden, but every nav item keeps an accessible
+ * name (aria-label) plus a native `title` tooltip, so the rail stays usable.
+ */
+
+/* Header toggle button (chevron flips to point the way it will move). */
+.sidebar-toggle {
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color 120ms, background 120ms, border-color 120ms;
+}
+
+.sidebar-toggle:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.sidebar-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.sidebar-toggle-icon {
+  transition: transform 200ms cubic-bezier(0.25, 0, 0.5, 1);
+}
+
+/* Optional image icon (view.iconImage) rendered by <NavIcon>. */
+.nav-icon-img {
+  display: block;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Collapsed state ── */
+.sidebar[data-collapsed='true'] {
+  width: 64px;
+}
+
+.sidebar[data-collapsed='true'] .brand-block {
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-left: var(--space-2);
+  padding-right: var(--space-2);
+}
+
+.sidebar[data-collapsed='true'] .brand-text {
+  display: none;
+}
+
+.sidebar[data-collapsed='true'] .sidebar-toggle {
+  margin-left: 0;
+}
+
+.sidebar[data-collapsed='true'] .sidebar-toggle-icon {
+  transform: rotate(180deg);
+}
+
+/* Search collapses to an icon-only launcher for the command palette. */
+.sidebar[data-collapsed='true'] .nav-search {
+  margin-left: var(--space-3);
+  margin-right: var(--space-3);
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.sidebar[data-collapsed='true'] .nav-search > span:nth-child(2),
+.sidebar[data-collapsed='true'] .nav-search kbd {
+  display: none;
+}
+
+/* Section + quick-group titles hide; the existing dividers keep groups apart. */
+.sidebar[data-collapsed='true'] .nav-group-label,
+.sidebar[data-collapsed='true'] .nav-quick-title,
+.sidebar[data-collapsed='true'] .nav-empty-state {
+  display: none;
+}
+
+.sidebar[data-collapsed='true'] .nav-list {
+  overflow-x: hidden;
+}
+
+.sidebar[data-collapsed='true'] .nav-quick-group {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Nav rows shrink to a single centered icon; the pin star leaves the rail. */
+.sidebar[data-collapsed='true'] .nav-row {
+  grid-template-columns: 1fr;
+}
+
+.sidebar[data-collapsed='true'] .nav-pin {
+  display: none;
+}
+
+.sidebar[data-collapsed='true'] .nav-row .nav-item {
+  padding-right: 0;
+}
+
+.sidebar[data-collapsed='true'] .nav-item {
+  justify-content: center;
+  gap: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.sidebar[data-collapsed='true'] .nav-item > span:not(.nav-icon) {
+  display: none;
+}
+
+/* Status card shows only the connection dot when collapsed. */
+.sidebar[data-collapsed='true'] .sidebar-card {
+  justify-content: center;
+  margin-left: var(--space-3);
+  margin-right: var(--space-3);
+  padding: var(--space-3);
+}
+
+.sidebar[data-collapsed='true'] .sidebar-card > div {
+  display: none;
+}

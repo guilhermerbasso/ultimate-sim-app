@@ -59,10 +59,10 @@ describe('SettingsStore.language', () => {
     }
   })
 
-  it('defaults to auto and falls back to it for an unknown language', () => {
+  it('defaults to en and falls back to it for an unknown language', () => {
     const dir = tempDir()
-    expect(new SettingsStore(dir).load().language).toBe('auto')
+    expect(new SettingsStore(dir).load().language).toBe('en')
     new SettingsStore(dir).setSettings({ language: 'it' as never })
-    expect(new SettingsStore(dir).load().language).toBe('auto')
+    expect(new SettingsStore(dir).load().language).toBe('en')
   })
 })
