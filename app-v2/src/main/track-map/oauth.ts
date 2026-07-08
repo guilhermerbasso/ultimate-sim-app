@@ -200,7 +200,7 @@ export class IRacingOAuthService {
 
   async authorize(parent?: BrowserWindow | null): Promise<IRacingOAuthTokenSet> {
     if (!this.config?.clientId) {
-      throw new Error('Cole um client_id OAuth da iRacing antes de conectar.')
+      throw new Error('Paste an iRacing OAuth client_id before connecting.')
     }
     const state = base64Url(randomBytes(24))
     const pkce = createPkcePair()
@@ -286,7 +286,7 @@ export class IRacingOAuthService {
     if (response.status < 200 || response.status >= 300) {
       throw new OAuthHttpError(
         response.status,
-        `OAuth token endpoint retornou HTTP ${response.status}: ${response.body.slice(0, 500)}`
+        `OAuth token endpoint returned HTTP ${response.status}: ${response.body.slice(0, 500)}`
       )
     }
     return parseTokenResponse(JSON.parse(response.body) as TokenResponseJson, Date.now(), previous)
@@ -350,10 +350,10 @@ async function startLoopback(expectedState: string): Promise<{
       const code = url.searchParams.get('code') ?? ''
       const error = url.searchParams.get('error') ?? ''
       if (state !== expectedState) throw new Error('Invalid OAuth state.')
-      if (error) throw new Error(`OAuth retornou erro: ${error}`)
-      if (!code) throw new Error('OAuth callback sem code.')
+      if (error) throw new Error(`OAuth returned an error: ${error}`)
+      if (!code) throw new Error('OAuth callback did not include a code.')
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-      res.end('<!doctype html><title>iRacing conectado</title><body>iRacing connected. You can return to Ultimate Sim App.</body>')
+      res.end('<!doctype html><title>iRacing connected</title><body>iRacing connected. You can return to Ultimate Sim App.</body>')
       resolveCode(code)
     } catch (error) {
       res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' })

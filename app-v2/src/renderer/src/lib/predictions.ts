@@ -187,7 +187,7 @@ export function catchAheadView(catch_?: CatchEstimate): PredView {
 /** "Tempo p/ ser alcançado" — time for the car BEHIND to reach you. A threat. */
 export function caughtBehindView(catch_?: CatchEstimate): PredView {
   if (!catch_ || !isNum(catch_.etaSec) || catch_.lowConfidence) {
-    return { has: false, value: DASH, unit: 's', sub: 'sem ameaça atrás', fill: 0, tone: 'neutral', good: false }
+    return { has: false, value: DASH, unit: 's', sub: 'no threat behind', fill: 0, tone: 'neutral', good: false }
   }
   const laps = isNum(catch_.etaLaps) ? catch_.etaLaps : 99
   // Sooner they reach you → fuller (and hotter) bar.
@@ -282,7 +282,7 @@ export function paceView(snapshot: PredictionsSnapshot | null): PredView {
   return {
     has: true,
     value: fmtLapTime(pace.projectedLapSec),
-    sub: `confiança ${fmtPct(conf)}`,
+    sub: `confidence ${fmtPct(conf)}`,
     fill: conf,
     tone,
     good: conf >= 0.66

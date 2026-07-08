@@ -357,7 +357,7 @@ export async function openIRacingLoginWindow(opts?: {
     minHeight: 700,
     title: 'Login do iRacing — Ultimate Sim App',
     backgroundColor: '#0b0f14',
-    // Keep the menu bar VISIBLE so the "Login → Concluir / Cancelar" items (the
+    // Keep the menu bar VISIBLE so the "Login → Concluir / Cancel" items (the
     // guaranteed return path the on-page hint points to) are actually discoverable.
     autoHideMenuBar: false,
     parent: opts?.parent ?? undefined,
@@ -695,7 +695,7 @@ export async function openIRacingLoginWindow(opts?: {
       void finishOk()
     }
 
-    // Explicit Cancelar (toolbar IPC): always closes the window as 'cancelled',
+    // Explicit Cancel (toolbar IPC): always closes the window as 'cancelled',
     // attaching diagnostics so the renderer can explain the state.
     const onUserCancel = async (): Promise<void> => {
       if (settled) return
@@ -723,7 +723,7 @@ export async function openIRacingLoginWindow(opts?: {
             click: () => void onUserDone()
           },
           { type: 'separator' },
-          { label: 'Cancelar', accelerator: 'CmdOrCtrl+W', click: () => void onUserCancel() }
+          { label: 'Cancel', accelerator: 'CmdOrCtrl+W', click: () => void onUserCancel() }
         ]
       }
     ])
@@ -893,10 +893,10 @@ button.ghost{background:transparent;color:#f4f6f8;border:1px solid rgba(255,255,
 button.ghost:hover{background:rgba(255,255,255,.08)}
 </style></head><body>
 <div class="bar">
-<span class="brand">Login do <b>iRacing</b> · Ultimate Sim App</span>
+<span class="brand"><b>iRacing</b> Login ? Ultimate Sim App</span>
 <span class="spacer"></span>
-<span class="status" id="s">Se os buttons não responderem: use o menu <b>Login</b> acima, ou aperte <b>Ctrl+Enter</b> para concluir.</span>
-<button id="cancel" class="ghost" type="button">Cancelar</button>
+<span class="status" id="s">If the buttons do not respond: use the <b>Login</b> menu above, or press <b>Ctrl+Enter</b> to finish.</span>
+<button id="cancel" class="ghost" type="button">Cancel</button>
 <button id="done" type="button">✓ Return to Ultimate Sim App</button>
 </div>
 <script>

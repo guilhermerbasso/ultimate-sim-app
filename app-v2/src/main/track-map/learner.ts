@@ -1087,17 +1087,17 @@ function round3(value: number): number {
 function reasonLabel(reason: LearnReason): string {
   switch (reason) {
     case 'idle':
-      return 'Aguardando telemetria'
+      return 'Waiting for telemetry'
     case 'not-connected':
       return 'Sim not connected'
     case 'no-track-name':
-      return 'Aguardando nome da pista'
+      return 'Waiting for track name'
     case 'no-lap-dist-pct':
-      return 'Sem progresso de lap (LapDistPct) do sim'
+      return 'No lap progress (LapDistPct) from the sim'
     case 'too-slow':
       return 'Car too slow — speed up to record the map'
     case 'no-acquisition-mode':
-      return 'Sem dados de position do sim (speed/yaw ou lat/lon)'
+      return 'No position data from the sim (speed/yaw or lat/lon)'
     case 'time-gap':
       return 'Telemetry paused — resuming recording'
     case 'teleport-reset':

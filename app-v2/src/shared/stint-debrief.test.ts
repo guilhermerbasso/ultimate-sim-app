@@ -23,7 +23,7 @@ function loss(partial: Partial<CoachFinding>): CoachFinding {
     zonePctEnd: 0.2,
     severity: partial.severity ?? 'high',
     estTimeLossSec: partial.estTimeLossSec ?? 0.2,
-    title: partial.title ?? 'Braked tarde',
+    title: partial.title ?? 'Braked late',
     detail: partial.detail ?? '',
     evidence: partial.evidence ?? '',
     metrics: partial.metrics ?? {},
@@ -32,7 +32,7 @@ function loss(partial: Partial<CoachFinding>): CoachFinding {
 }
 
 function good(partial: Partial<CoachFinding>): CoachFinding {
-  return loss({ kind: 'good', severity: 'good', estTimeLossSec: 0, title: 'No padrão', ...partial })
+  return loss({ kind: 'good', severity: 'good', estTimeLossSec: 0, title: 'On baseline', ...partial })
 }
 
 const fullPredictions: PredictionsSnapshot = {
@@ -85,16 +85,16 @@ describe('strategyNote', () => {
   it('summarizes fuel/tyre/pace', () => {
     const note = strategyNote(fullPredictions)
     expect(note).toContain('fuel')
-    expect(note).toContain('margem de 2,4 laps')
+    expect(note).toContain('margin of 2,4 laps')
     expect(note).toContain('tire')
-    expect(note).toContain('até cair')
-    expect(note).toContain('pace projetado 1:23,456')
+    expect(note).toContain('until drop-off')
+    expect(note).toContain('projected pace 1:23,456')
   })
 
   it('flags a fuel deficit', () => {
     const note = strategyNote({ ...fullPredictions, fuel: { lapsLeftAtPace: 8, finishMarginLaps: -1.5, finishMarginL: -2 } })
-    expect(note).toContain('déficit')
-    expect(note).toContain('economizar')
+    expect(note).toContain('deficit')
+    expect(note).toContain('saving')
   })
 
   it('returns null with no signal', () => {
@@ -110,19 +110,19 @@ describe('strategyNote', () => {
 })
 
 describe('composeDebrief', () => {
-  it('summarizes BOTH losses (onde perdeu) and gains (onde foi bem)', () => {
+  it('summarizes BOTH losses and gains', () => {
     const findings: CoachFinding[] = [
-      loss({ id: 'a', sector: 1, estTimeLossSec: 0.4, title: 'Braked tarde' }),
-      loss({ id: 'b', sector: 2, estTimeLossSec: 0.1, title: 'Acelerou cedo', kind: 'throttle-hesitation' }),
-      good({ id: 'c', sector: 3, title: 'Mais speed de entrada', sign: 'gain', estTimeGainSec: 0.2 } as Partial<CoachFinding>)
+      loss({ id: 'a', sector: 1, estTimeLossSec: 0.4, title: 'Braked late' }),
+      loss({ id: 'b', sector: 2, estTimeLossSec: 0.1, title: 'Got on throttle early', kind: 'throttle-hesitation' }),
+      good({ id: 'c', sector: 3, title: 'More entry speed', sign: 'gain', estTimeGainSec: 0.2 } as Partial<CoachFinding>)
     ]
     const out = composeDebrief(findings, fullPredictions, { trackName: 'Interlagos', lapsCompleted: 14 })
 
-    expect(out.text).toContain('Onde perdeu')
-    expect(out.text).toContain('Onde foi bem')
+    expect(out.text).toContain('Where you lost time')
+    expect(out.text).toContain('Where you did well')
     expect(out.text).toContain('Interlagos')
     // Biggest loss ranked first.
-    expect(out.text.indexOf('Braked tarde')).toBeLessThan(out.text.indexOf('Acelerou cedo'))
+    expect(out.text.indexOf('Braked late')).toBeLessThan(out.text.indexOf('Got on throttle early'))
 
     const lossBullets = out.bullets.filter((b) => b.startsWith('⚠'))
     const gainBullets = out.bullets.filter((b) => b.startsWith('✅'))
@@ -136,15 +136,15 @@ describe('composeDebrief', () => {
   it('handles empty findings + no predictions gracefully', () => {
     const out = composeDebrief([], null)
     expect(out.bullets).toEqual([])
-    expect(out.text).toContain('Sem dados suficientes')
+    expect(out.text).toContain('Not enough data')
   })
 
   it('still composes with only predictions (no findings)', () => {
     const out = composeDebrief([], fullPredictions)
-    expect(out.text).toContain('Estratégia')
+    expect(out.text).toContain('Strategy')
     expect(out.bullets.some((b) => b.startsWith('📊'))).toBe(true)
     // Clean stint message when there are no losses.
-    expect(out.text).toContain('stint limpo')
+    expect(out.text).toContain('clean stint')
   })
 
   it('includes fuel + tyre notes in the strategy line', () => {
@@ -152,13 +152,13 @@ describe('composeDebrief', () => {
     const strat = out.bullets.find((b) => b.startsWith('📊')) ?? ''
     expect(strat).toContain('fuel')
     expect(strat).toContain('tire')
-    expect(strat).toContain('pressão baixa')
-    expect(strat).toContain('temp quente')
+    expect(strat).toContain('low pressure')
+    expect(strat).toContain('hot temp')
   })
 
   it('tolerates null/garbage findings input', () => {
     const out = composeDebrief(null, null)
-    expect(out.text).toContain('Sem dados suficientes')
+    expect(out.text).toContain('Not enough data')
     expect(out.bullets).toEqual([])
   })
 

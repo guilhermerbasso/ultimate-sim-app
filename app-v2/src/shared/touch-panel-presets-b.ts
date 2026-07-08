@@ -3,7 +3,7 @@ import { createButtonBoxPanel, type ButtonBoxPanel } from './touch-panel'
 export const TOUCH_PRESETS_B: ButtonBoxPanel[] = [
   createButtonBoxPanel({
     id: 'tp-b-camera-replay',
-    name: 'Câmera & Replay',
+    name: 'Camera & Replay',
     columns: 4,
     rows: 3,
     gap: 12,
@@ -166,7 +166,7 @@ export const TOUCH_PRESETS_B: ButtonBoxPanel[] = [
   }),
   createButtonBoxPanel({
     id: 'tp-b-camera-pro',
-    name: 'Câmera Pro',
+    name: 'Pro Camera',
     columns: 3,
     rows: 3,
     gap: 12,

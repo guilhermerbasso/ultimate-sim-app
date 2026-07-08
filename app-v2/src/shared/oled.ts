@@ -72,7 +72,7 @@ export const OLED_PRESETS: OledPreset[] = [
   {
     id: 'race',
     name: 'Race',
-    description: 'Position, lap atual e delta para o líder.',
+    description: 'Position, current lap, and delta to the leader.',
     kind: 'text',
     fields: ['position', 'lap', 'last lap', 'delta']
   },
@@ -93,7 +93,7 @@ export const OLED_PRESETS: OledPreset[] = [
   {
     id: 'tyres',
     name: 'Tires',
-    description: 'Temperatura LF/RF, LR/RR e média.',
+    description: 'LF/RF, LR/RR, and average temperature.',
     kind: 'text',
     fields: ['LF', 'RF', 'LR', 'RR']
   },

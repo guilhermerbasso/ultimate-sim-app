@@ -405,15 +405,15 @@ export function buttonActionToIpc(action: ButtonAction): ButtonActionIpc | null 
 export function describeButtonAction(action: ButtonAction): string {
   switch (action.kind) {
     case 'none':
-      return 'Sem ação'
+      return 'No action'
     case 'iracing':
       return `iRacing · ${action.command.name}`
     case 'keyboard':
-      return `Teclado · ${action.command.keys.join(' + ') || '(vazio)'}`
+      return `Keyboard - ${action.command.keys.join(' + ') || '(empty)'}`
     case 'app':
       return `App · ${action.command.name}`
     default:
-      return 'Sem ação'
+      return 'No action'
   }
 }
 

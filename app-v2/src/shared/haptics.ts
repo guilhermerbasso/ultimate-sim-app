@@ -144,16 +144,16 @@ export interface HapticsEffectMeta {
 }
 
 export const HAPTICS_EFFECT_META: Record<HapticsEffectId, HapticsEffectMeta> = {
-  engine: { id: 'engine', label: 'Motor / RPM', blurb: 'Vibração contínua que acompanha o giro do motor.', signal: 'rpm / maxRpm (com peso do acelerador)', freqMin: 30, freqMax: 90, transient: false, sweep: true, heuristic: false },
-  gearShift: { id: 'gearShift', label: 'Troca de gear', blurb: 'Pulso curto a cada mudança de gear.', signal: 'mudança de gear', freqMin: 40, freqMax: 90, transient: true, sweep: false, heuristic: false },
-  abs: { id: 'abs', label: 'ABS', blurb: 'Pulsação rápida liga/desliga enquanto o ABS atua.', signal: 'absActive + brake', freqMin: 40, freqMax: 80, transient: false, sweep: false, heuristic: false },
-  wheelLock: { id: 'wheelLock', label: 'Trava / derrapagem', blurb: 'Vibração irregular ao travar a roda no brake ou perder tração.', signal: 'brake + desaceleração / tcActive (heurística)', freqMin: 60, freqMax: 110, transient: false, sweep: false, heuristic: true },
-  kerb: { id: 'kerb', label: 'Zebras / rumble', blurb: 'Pulsos drys ao pisar nas zebras.', signal: 'aceleração lateral (heurística — ideal: accel vertical)', freqMin: 45, freqMax: 80, transient: true, sweep: false, heuristic: true },
-  roadTexture: { id: 'roadTexture', label: 'Textura da pista', blurb: 'Ronco contínuo de baixa amplitude conforme a speed.', signal: 'speedKmh', freqMin: 35, freqMax: 70, transient: false, sweep: false, heuristic: false },
-  impact: { id: 'impact', label: 'Impactos / colisão', blurb: 'Estouro forte em batidas e quedas bruscas de speed.', signal: 'pico de aceleração long./lat. (derivada)', freqMin: 45, freqMax: 90, transient: true, sweep: false, heuristic: true },
-  tcCut: { id: 'tcCut', label: 'TC Cut', blurb: 'Pulso rápido quando o controle de tração corta a potência.', signal: 'tcActive + throttle > 25%', freqMin: 40, freqMax: 80, transient: true, sweep: false, heuristic: false },
-  suspension: { id: 'suspension', label: 'Suspensão / G-Force', blurb: 'Ronco proporcional à força lateral e longitudinal.', signal: '|latAccel| + |longAccel|*0.5 normalizado por speed', freqMin: 30, freqMax: 70, transient: false, sweep: false, heuristic: true },
-  gearGrind: { id: 'gearGrind', label: 'Rangido de gear', blurb: 'Pulso curto em downshifts bruscos (simulação de rangido de caixa).', signal: 'downshift + brake > 30% + RPM baixo', freqMin: 55, freqMax: 90, transient: true, sweep: false, heuristic: true }
+  engine: { id: 'engine', label: 'Engine / RPM', blurb: 'Continuous vibration that follows engine RPM.', signal: 'rpm / maxRpm (weighted by throttle)', freqMin: 30, freqMax: 90, transient: false, sweep: true, heuristic: false },
+  gearShift: { id: 'gearShift', label: 'Gear shift', blurb: 'Short pulse on every gear change.', signal: 'gear change', freqMin: 40, freqMax: 90, transient: true, sweep: false, heuristic: false },
+  abs: { id: 'abs', label: 'ABS', blurb: 'Fast on/off pulse while ABS is active.', signal: 'absActive + brake', freqMin: 40, freqMax: 80, transient: false, sweep: false, heuristic: false },
+  wheelLock: { id: 'wheelLock', label: 'Lockup / slide', blurb: 'Irregular vibration when locking a wheel under braking or losing traction.', signal: 'brake + deceleration / tcActive (heuristic)', freqMin: 60, freqMax: 110, transient: false, sweep: false, heuristic: true },
+  kerb: { id: 'kerb', label: 'Kerbs / rumble', blurb: 'Dry pulses when riding kerbs.', signal: 'lateral acceleration (heuristic ? ideal: vertical accel)', freqMin: 45, freqMax: 80, transient: true, sweep: false, heuristic: true },
+  roadTexture: { id: 'roadTexture', label: 'Road texture', blurb: 'Continuous low-amplitude rumble based on speed.', signal: 'speedKmh', freqMin: 35, freqMax: 70, transient: false, sweep: false, heuristic: false },
+  impact: { id: 'impact', label: 'Impacts / collision', blurb: 'Strong burst on crashes and sudden speed drops.', signal: 'long./lat. acceleration peak (derived)', freqMin: 45, freqMax: 90, transient: true, sweep: false, heuristic: true },
+  tcCut: { id: 'tcCut', label: 'TC Cut', blurb: 'Fast pulse when traction control cuts power.', signal: 'tcActive + throttle > 25%', freqMin: 40, freqMax: 80, transient: true, sweep: false, heuristic: false },
+  suspension: { id: 'suspension', label: 'Suspension / G-Force', blurb: 'Rumble proportional to lateral and longitudinal force.', signal: '|latAccel| + |longAccel|*0.5 normalized by speed', freqMin: 30, freqMax: 70, transient: false, sweep: false, heuristic: true },
+  gearGrind: { id: 'gearGrind', label: 'Gear grind', blurb: 'Short pulse on harsh downshifts (gearbox grind simulation).', signal: 'downshift + brake > 30% + low RPM', freqMin: 55, freqMax: 90, transient: true, sweep: false, heuristic: true }
 }
 
 // ─── Derived telemetry signals (pure, stateless over a 2-sample window) ───────

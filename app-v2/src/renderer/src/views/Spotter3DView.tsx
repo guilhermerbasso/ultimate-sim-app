@@ -178,32 +178,32 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
 
   const active = status.enabled && status.unlocked
   const pillColor = active ? READY : status.enabled ? WARM_SOFT : 'var(--text-muted)'
-  const pillText = active ? 'Ativo · áudio liberado' : status.enabled ? 'Ligado · aguardando 1º clique' : 'Desligado'
+  const pillText = active ? 'Active · audio unlocked' : status.enabled ? 'On · waiting for first click' : 'Off'
 
   return (
     <div style={{ display: 'grid', gap: 18 }}>
       <header style={{ display: 'grid', gap: 6 }}>
         <h1 style={{ margin: 0, fontFamily: '"Rajdhani", sans-serif', fontSize: 24, color: 'var(--text-primary)' }}>3D Spotter</h1>
         <p style={{ margin: 0, color: 'var(--text-muted)', maxWidth: 760 }}>
-          Áudio espacial (Web Audio HRTF) que toca durante toda a sessão: você <strong>ouve</strong> os carros próximos posicionados ao seu
-          redor — esquerda/direita pelo lado, perto/longe pelo volume, frente/trás pelo tom. Use <strong>fones de ouvido</strong> para a
+          Spatial audio (Web Audio HRTF) que toca durante toda a sessão: você <strong>hear</strong> nearby cars positioned around you
+          — left/right by side, near/far by volume, front/rear by tone. Use <strong>headphones</strong> para a
           melhor imagem 3D. Complementa (no substitui) os avisos falados do Voice Spotter.
         </p>
       </header>
 
       <section style={{ ...panel, display: 'grid', gap: 16 }}>
-        <ExplainerBlock title="O que é o 3D Spotter">
-          Um spotter de <strong>áudio puro</strong>: em vez de falar, ele coloca um som suave na posição de cada carro perto de você, como se
+        <ExplainerBlock title="What is 3D Spotter">
+          Um spotter de <strong>pure-audio</strong>: instead of talking, ele coloca um som suave na posição de cada carro nearer de você, como se
           o carro estivesse mesmo ali no espaço. É a sua "visão periférica" sonora em curvas, ultrapassagens e brigas lado a lado.
         </ExplainerBlock>
         <ExplainerBlock title="Como funciona">
-          A telemetria do iRacing informa onde estão os carros vizinhos. O app converte isso em sons posicionados (HRTF): carro à
-          <strong> esquerda</strong> soa à esquerda, à <strong>direita</strong> soa à direita, <strong>atrás</strong> soa mais grave, e quanto
-          mais <strong>perto</strong>, mais alto. Sem nenhum carro por perto, fica <strong>em silêncio</strong>.
+          iRacing telemetry reports where nearby cars are. The app converts this into positioned sounds (HRTF): a car to the
+          <strong> left</strong> soa à left, à <strong>right</strong> soa à right, <strong>behind</strong> sounds lower-pitched, and the
+          mais <strong>nearer</strong>, mais alto. Sem nenhum carro por nearer, fica <strong>silent</strong>.
         </ExplainerBlock>
         <ExplainerBlock title="Como usar">
-          Já vem <strong>ligado</strong> por padrão e roda sozinho em qualquer tela. Por uma regra do navegador, o áudio só libera após o seu
-          <strong> primeiro clique</strong> em qualquer lugar do app — depois disso funciona o resto da sessão. Coloque os fones, ajuste o
+          It comes <strong>on</strong> by default and runs on its own on any screen. Because of a browser rule, audio unlocks only after your
+          <strong> first click</strong> em qualquer lugar do app — depois disso funciona o resto da sessão. Coloque os fones, ajuste o
           volume abaixo e teste a posição nos botões.
         </ExplainerBlock>
       </section>
@@ -233,10 +233,10 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
                 borderRadius: '50%',
                 background: 'var(--text-primary)'
               }}
-              title="Você"
+              title="You"
             />
             <span style={{ position: 'absolute', top: 6, left: '50%', transform: 'translateX(-50%)', ...label }}>frente</span>
-            <span style={{ position: 'absolute', bottom: 6, left: '50%', transform: 'translateX(-50%)', ...label }}>trás</span>
+            <span style={{ position: 'absolute', bottom: 6, left: '50%', transform: 'translateX(-50%)', ...label }}>rear</span>
             {cues.map((cue) => radarDot(cue, config))}
           </div>
           <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{cues.length} carro(s) com cue ativo</span>
@@ -254,7 +254,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
               }}
               type="button"
             >
-              {config.enabled ? '3D Spotter ligado' : '3D Spotter desligado'}
+              {config.enabled ? '3D Spotter on' : '3D Spotter deson'}
             </button>
             <span
               style={{
@@ -285,17 +285,17 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
                 fontSize: 13
               }}
             >
-              🔊 Clique em qualquer lugar do app para ativar o áudio (política de autoplay do navegador).
+              🔊 Click anywhere in the app to enable audio (browser autoplay policy).
             </div>
           )}
 
           <div>
-            <span style={label}>Testar posição</span>
+            <span style={label}>Test position</span>
             <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
               {([
                 ['left', 'Esquerda'],
                 ['right', 'Direita'],
-                ['behind', 'Atrás']
+                ['behind', 'Arear']
               ] as Array<[Spotter3DTestPosition, string]>).map(([position, text]) => (
                 <button
                   key={position}
@@ -321,7 +321,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
               onCommit={(masterVolume) => void persist({ masterVolume })}
             />
             <Slider
-              text="Distância máx. (m)"
+              text="Max distance (m)"
               min={5}
               max={80}
               step={1}
@@ -341,7 +341,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
               onCommit={(panWidthM) => void persist({ panWidthM })}
             />
             <Slider
-              text="Vozes yesultâneas"
+              text="Simultaneous voices"
               min={1}
               max={6}
               step={1}

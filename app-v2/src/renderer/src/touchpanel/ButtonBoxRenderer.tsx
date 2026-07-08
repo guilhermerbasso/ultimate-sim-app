@@ -163,7 +163,7 @@ export function ButtonBoxKey({
       className={className}
       style={buttonStyle(button)}
       disabled={!interactive}
-      aria-label={button.label || `Botão ${index + 1}`}
+      aria-label={button.label || `Button ${index + 1}`}
       onClick={() => {
         if (onSelect) onSelect(button, index)
         else if (onPress) onPress(button, index)

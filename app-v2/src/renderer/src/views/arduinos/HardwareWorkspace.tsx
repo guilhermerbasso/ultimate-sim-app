@@ -572,13 +572,13 @@ export function HardwareWorkspace({
           <article style={panel}>
             <span style={label}>Workspace</span>
             <h3 style={{ margin: '8px 0 4px', fontSize: 18 }}>None dispositivo selecionado</h3>
-            <p style={{ ...helper, marginTop: 4 }}>Selecione um perfil na lista a esquerda ou crie um novo.</p>
+            <p style={{ ...helper, marginTop: 4 }}>Select a profile in the list on the left or create a new one.</p>
             <div style={{ ...card, marginTop: 14 }}>
               <span style={label}>Primeiros passos</span>
               <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
                 {([
                   ['⚡ Setup / Flash', 'Grava firmware e cria o perfil automaticamente — caminho recomendado.'],
-                  ['+ Add Arduino', 'Cria um perfil vazio para configure manualmente.'],
+                  ['+ Add Arduino', 'Creates an empty profile to configure manually.'],
                   ['↓ Importar do SimHub', 'Importa placa e componentes ja configureds no SimHub.']
                 ] as [string, string][]).map(([action, desc]) => (
                   <div key={action} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -641,7 +641,7 @@ export function HardwareWorkspace({
                 type="button"
                 className={rightSection === 'identity' ? 'chip-toggle active' : 'chip-toggle'}
                 onClick={() => setRightSection('identity')}
-                title="Editar nome, placa, baud rate e porta serial vinculada"
+                title="Edit name, board, baud rate, and linked serial port"
               >
                 Identidade
               </button>
@@ -788,7 +788,7 @@ export function HardwareWorkspace({
                             Testar
                           </button>
                           <button style={buttonStyle('soft', isExpanded)} onClick={() => setExpandedComponentId(isExpanded ? null : component.id)} type="button" aria-expanded={isExpanded}>
-                            {isExpanded ? 'Close' : 'Editar'}
+                            {isExpanded ? 'Close' : 'Edit'}
                           </button>
                           <button style={buttonStyle('danger')} disabled={disabled} onClick={() => removeComponent(component.id)} type="button">
                             Remove
@@ -906,7 +906,7 @@ export function HardwareWorkspace({
             </div>
 
             <p style={{ ...helper, marginBottom: 14 }}>
-              Um novo perfil de hardware sera criado com a placa e o componente iFlag configureds conforme o SimHub.
+              A new hardware profile will be created with the board and iFlag component configured to match SimHub.
               Voce podera ajustar pinos e componentes adicionais depois.
             </p>
 

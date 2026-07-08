@@ -84,7 +84,7 @@ export const FLASH_BOARDS: FlashBoardSpec[] = [
     ],
     defaultBaudId: 'new',
     profileBoard: 'nano',
-    hint: 'Se a gravação falhar logo no começo, troque para o bootloader antigo (57600) — comum em clones com CH340.'
+    hint: 'If flashing fails right at the start, switch to the old bootloader (57600) ? common on CH340 clones.'
   },
   {
     id: 'uno',
@@ -99,7 +99,7 @@ export const FLASH_BOARDS: FlashBoardSpec[] = [
     ],
     defaultBaudId: 'uno',
     profileBoard: 'uno',
-    hint: 'Uno R3 genuíno usa 115200. Clones com CH340 e bootloader antigo podem precisar de 57600.'
+    hint: 'Genuine Uno R3 uses 115200. CH340 clones with the old bootloader may need 57600.'
   },
   {
     id: 'pro-micro',
@@ -111,7 +111,7 @@ export const FLASH_BOARDS: FlashBoardSpec[] = [
     baudOptions: [{ id: 'caterina', label: 'Caterina avr109 (57600)', baud: 57600 }],
     defaultBaudId: 'caterina',
     profileBoard: 'pro-micro',
-    hint: 'A placa reinicia em modo bootloader e a porta COM troca por ~2s durante a gravação — isso é normal. Se falhar, toque RESET 2× rápido e grave logo em seguida.'
+    hint: 'The board restarts into bootloader mode and the COM port changes for ~2s during flashing ? this is normal. If it fails, tap RESET twice quickly and flash right away.'
   },
   {
     id: 'esp32',
@@ -143,7 +143,7 @@ export const FLASH_BOARDS: FlashBoardSpec[] = [
     baudOptions: [{ id: 'usb-cdc', label: 'USB CDC nativo (arduino-cli)', baud: 921600 }],
     defaultBaudId: 'usb-cdc',
     profileBoard: 'esp32s3',
-    hint: 'Ideal para ESP32-S3-WROOM-1 44 pinos Type‑C. Pode operar por USB serial ou Wi‑Fi após provisionar.'
+    hint: 'Ideal for ESP32-S3-WROOM-1 44-pin Type?C. Can run over USB serial or Wi?Fi after provisioning.'
   }
 ]
 
@@ -225,7 +225,7 @@ export const BOARD_USB_SIGNATURES: UsbSignature[] = [
     family: 'avr32u4',
     confidence: 'high',
     label: 'Arduino Leonardo/Micro (ATmega32U4)',
-    reason: 'PID 32U4 da Arduino — bootloader Caterina: grave com avr109 + reset 1200bps (stk500 não sincroniza).'
+    reason: 'Arduino 32U4 PID ? Caterina bootloader: flash with avr109 + 1200bps reset (stk500 does not sync).'
   },
   {
     vendorId: '2a03',
@@ -242,7 +242,7 @@ export const BOARD_USB_SIGNATURES: UsbSignature[] = [
     boardId: 'uno',
     family: 'avr328',
     confidence: 'high',
-    label: 'Arduino genuíno (ATmega328P/Optiboot)',
+    label: 'Genuine Arduino (ATmega328P/Optiboot)',
     reason: 'VID 2341 (Arduino) — bootloader Optiboot: programmer arduino (stk500) a 115200.'
   },
   {
@@ -250,7 +250,7 @@ export const BOARD_USB_SIGNATURES: UsbSignature[] = [
     boardId: 'uno',
     family: 'avr328',
     confidence: 'high',
-    label: 'Arduino.org genuíno (ATmega328P)',
+    label: 'Genuine Arduino.org (ATmega328P)',
     reason: 'VID 2a03 (Arduino.org) — bootloader Optiboot: programmer arduino (stk500).'
   },
   // SparkFun Pro Micro / Qwiic family (ATmega32U4, Caterina/avr109).
@@ -269,7 +269,7 @@ export const BOARD_USB_SIGNATURES: UsbSignature[] = [
     family: 'avr32u4',
     confidence: 'low',
     label: 'Adafruit USB nativo (talvez 32U4)',
-    reason: 'VID 239a (Adafruit). Se for 32U4 use avr109 + 1200bps; pode também ser SAMD/ESP — confirme o modelo.'
+    reason: 'VID 239a (Adafruit). If it is 32U4 use avr109 + 1200bps; it may also be SAMD/ESP ? confirm the model.'
   },
   // Espressif native USB (ESP32-S3 / C3) — flashed via arduino-cli/esptool.
   {
@@ -278,7 +278,7 @@ export const BOARD_USB_SIGNATURES: UsbSignature[] = [
     family: 'esp',
     confidence: 'high',
     label: 'Espressif USB nativo (ESP32-S3/C3)',
-    reason: 'VID 303a (Espressif) — grave por arduino-cli/esptool, não avrdude.'
+    reason: 'VID 303a (Espressif) ? flash with arduino-cli/esptool, not avrdude.'
   },
   // CH340/CH341 (WCH) — overwhelmingly Nano clones (328P), but also many ESP32
   // dev boards. Default to the 328P Nano path and let baud auto-retry handle the
@@ -288,8 +288,8 @@ export const BOARD_USB_SIGNATURES: UsbSignature[] = [
     boardId: 'nano',
     family: 'avr328',
     confidence: 'medium',
-    label: 'Clone CH340 (provável Nano 328P)',
-    reason: 'VID 1a86 (CH340) — típico de Nano clone (328P, stk500). Pode também ser um ESP32 com CH340.'
+    label: 'CH340 clone (likely Nano 328P)',
+    reason: 'VID 1a86 (CH340) ? typical Nano clone (328P, stk500). It may also be an ESP32 with CH340.'
   },
   // FTDI FT232 — older Nano/Uno (328P) and Pro Micro breakouts.
   {
@@ -297,7 +297,7 @@ export const BOARD_USB_SIGNATURES: UsbSignature[] = [
     boardId: 'nano',
     family: 'avr328',
     confidence: 'medium',
-    label: 'Adaptador FTDI (provável Nano/Uno 328P)',
+    label: 'FTDI adapter (likely Nano/Uno 328P)',
     reason: 'VID 0403 (FTDI) — comum em Nano/Uno antigos (328P, stk500).'
   },
   // Silicon Labs CP210x — common on ESP32 dev boards (and some 328 clones).
@@ -306,8 +306,8 @@ export const BOARD_USB_SIGNATURES: UsbSignature[] = [
     boardId: 'esp32',
     family: 'esp',
     confidence: 'low',
-    label: 'Silicon Labs CP210x (provável ESP32)',
-    reason: 'VID 10c4 (CP210x) — frequente em ESP32 DevKit. Alguns clones 328P também usam; confirme o modelo.'
+    label: 'Silicon Labs CP210x (likely ESP32)',
+    reason: 'VID 10c4 (CP210x) ? common on ESP32 DevKit. Some 328P clones also use it; confirm the model.'
   }
 ]
 
@@ -416,7 +416,7 @@ export interface SetupModuleFirmware {
   recommended?: boolean
 }
 
-export type SetupDifficulty = 'fácil' | 'médio' | 'avançado'
+export type SetupDifficulty = 'easy' | 'medium' | 'advanced'
 
 export interface SetupModule {
   id: string
@@ -454,11 +454,11 @@ export const SETUP_MODULES: SetupModule[] = [
     name: 'iFlag · Matriz RGB 8x8',
     tagline: 'Bandeiras, gear, spotter e icons numa matrix WS2812B de 64 LEDs',
     description:
-      'Matriz de Addressable LED WS2812B 8x8 montada na frente do steering. Mostra flags de race, current gear, alerta de spotter e animações de largada. É o módulo mais fácil para começar.',
+      'WS2812B 8x8 addressable LED matrix mounted on the front of the steering wheel. Shows race flags, current gear, spotter alerts, and start animations. It is the easiest module to begin with.',
     componentType: 'rgbMatrix',
     capabilityKey: 'rgbMatrix',
     capabilityDetail: '8x8',
-    difficulty: 'fácil',
+    difficulty: 'easy',
     parts: [
       'Matriz WS2812B 8x8 (64 LEDs)',
       'Arduino Nano, Uno ou Pro Micro',
@@ -466,12 +466,12 @@ export const SETUP_MODULES: SetupModule[] = [
       '(brilho alto) fonte 5V externa + GND comum'
     ],
     wiring: [
-      { signal: 'DIN', pin: 'D6', detail: 'Entrada de dados da matrix (data in)' },
-      { signal: '5V', pin: '5V', detail: 'Alimentação +5V (use VIN/5V)' },
+      { signal: 'DIN', pin: 'D6', detail: 'Matrix data input' },
+      { signal: '5V', pin: '5V', detail: '5V power (use VIN/5V)' },
       { signal: 'GND', pin: 'GND', detail: 'Terra comum entre Arduino e matrix' }
     ],
     powerNote:
-      '64 LEDs no brilho máximo podem puxar ~3,8 A. Pelo USB mantenha o brilho ≤ ~120; para brilho alto use uma fonte 5V externa e aterre o GND junto com o Arduino.',
+      '64 LEDs at maximum brightness can draw ~3.8 A. On USB keep brightness ? ~120; for high brightness use an external 5V supply and tie GND to the Arduino.',
     firmwares: [
       { board: 'nano', hex: 'iflag-nano.hex', recommended: true },
       { board: 'uno', hex: 'iflag-uno.hex' },
@@ -494,7 +494,7 @@ export const SETUP_MODULES: SetupModule[] = [
       'Fita WS2812/SK6812 para rev lights estilo F1: gradiente verde→amarelo→vermelho conforme o RPM e flash azul no shift point. Usa o mesmo protocolo P/Y do companion.',
     componentType: 'rgbStrip',
     capabilityKey: 'rgbStrip',
-    difficulty: 'fácil',
+    difficulty: 'easy',
     parts: ['Fita WS2812B (8–16 LEDs)', 'Arduino Nano/Uno/Pro Micro', 'Resistor 470 Ω na linha de dados (opcional)'],
     wiring: [
       { signal: 'DIN', pin: 'D6', detail: 'Data in da fita' },
@@ -513,14 +513,14 @@ export const SETUP_MODULES: SetupModule[] = [
   },
   {
     id: 'ssd1306-oled',
-    name: 'Tela OLED SSD1306',
-    tagline: 'Páginas de telemetria (gear, delta, fuel) num OLED 0.96"',
+    name: 'SSD1306 OLED Display',
+    tagline: 'Telemetry pages (gear, delta, fuel) on a 0.96" OLED',
     description:
-      'OLED I2C SSD1306 128x64 com páginas de telemetria. Reaproveita o motor de páginas OLED já existente no app.',
+      "SSD1306 128x64 I2C OLED with telemetry pages. Reuses the app's existing OLED page engine.",
     componentType: 'screen',
     capabilityKey: 'screen',
     capabilityDetail: 'oled',
-    difficulty: 'médio',
+    difficulty: 'medium',
     parts: ['OLED SSD1306 I2C 128x64', 'Arduino Uno/Nano/Mega'],
     wiring: [
       { signal: 'SDA', pin: 'A4', detail: 'Uno/Nano: A4' },
@@ -538,14 +538,14 @@ export const SETUP_MODULES: SetupModule[] = [
   },
   {
     id: 'controls-hid',
-    name: 'Botões + Encoders (HID)',
+    name: 'Buttons + Encoders (HID)',
     tagline: 'Button box reconhecido como joystick pelo jogo (Pro Micro/Leonardo)',
     description:
-      'Firmware HID para buttons e encoders: o jogo enxerga a placa como um joystick. Dispolevel só em placas 32U4 (Pro Micro/Leonardo).',
+      'HID firmware for buttons and encoders: the game sees the board as a joystick. Available only on 32U4 boards (Pro Micro/Leonardo).',
     componentType: 'control',
     capabilityKey: 'control',
-    difficulty: 'avançado',
-    parts: ['Botões momentâneos / encoders EC11', 'Arduino Pro Micro ou Leonardo (32U4)'],
+    difficulty: 'advanced',
+    parts: ['Momentary buttons / EC11 encoders', 'Arduino Pro Micro or Leonardo (32U4)'],
     wiring: [{ signal: 'BTN', pin: 'D2…', detail: 'Button entre o pino e GND (pull-up interno)' }],
     firmwares: [{ board: 'pro-micro', hex: 'controls-micro.hex', recommended: true }],
     recommendedBoard: 'pro-micro',
@@ -555,13 +555,13 @@ export const SETUP_MODULES: SetupModule[] = [
   {
     id: 'hd44780-lcd',
     name: 'LCD de caracteres (HD44780 I2C)',
-    tagline: 'Telas de texto 16x2 / 20x4 com páginas de telemetria',
+    tagline: '16x2 / 20x4 text displays with telemetry pages',
     description:
-      'Display LCD de caracteres com backpack I2C (PCF8574). Mostra páginas de texto de telemetria. Endereço I2C 0x27 por padrão (alguns módulos usam 0x3F).',
+      'Character LCD with I2C backpack (PCF8574). Shows text telemetry pages. Default I2C address 0x27 (some modules use 0x3F).',
     componentType: 'screen',
     capabilityKey: 'screen',
     capabilityDetail: 'lcd',
-    difficulty: 'fácil',
+    difficulty: 'easy',
     parts: ['LCD 16x2 ou 20x4 com backpack I2C', 'Arduino Nano/Uno'],
     wiring: [
       { signal: 'SDA', pin: 'A4', detail: 'Uno/Nano: A4' },
@@ -580,14 +580,14 @@ export const SETUP_MODULES: SetupModule[] = [
   {
     id: 'tm1638-7seg',
     name: 'Display 7-seg (TM1638)',
-    tagline: 'Gear, speed, RPM ou lap num módulo TM1638 (8 dígitos)',
+    tagline: 'Gear, speed, RPM, or lap on a TM1638 module (8 digits)',
     description:
-      'Módulo TM1638 com 8 dígitos de 7 segmentos (+ 8 buttons e 8 LEDs). Mostra gear/speed/RPM/lap conforme a métrica escolhida no componente.',
+      'TM1638 module with 8 seven-segment digits (+ 8 buttons and 8 LEDs). Shows gear/speed/RPM/lap based on the selected component metric.',
     componentType: 'segDisplay',
     capabilityKey: 'segDisplay',
     capabilityDetail: 'tm1638',
-    difficulty: 'fácil',
-    parts: ['Módulo TM1638 (LED&KEY)', 'Arduino Nano/Uno/Pro Micro'],
+    difficulty: 'easy',
+    parts: ['TM1638 module (LED&KEY)', 'Arduino Nano/Uno/Pro Micro'],
     wiring: [
       { signal: 'STB', pin: 'D7' },
       { signal: 'CLK', pin: 'D9' },
@@ -607,17 +607,17 @@ export const SETUP_MODULES: SetupModule[] = [
   {
     id: 'servo-gauge',
     name: 'Ponteiro analog (servo)',
-    tagline: 'Mostrador físico de speed/RPM/fuel com servo SG90',
+    tagline: 'Physical speed/RPM/fuel gauge with SG90 servo',
     description:
-      'Até 4 servos como ponteiros analogs. O app mapeia a métrica escolhida (speed, RPM, fuel…) para o ângulo do servo.',
+      'Up to 4 servos as analog needles. The app maps the selected metric (speed, RPM, fuel?) to the servo angle.',
     componentType: 'gauge',
     capabilityKey: 'gauge',
-    difficulty: 'médio',
-    parts: ['Servo(s) SG90 (até 4)', 'Arduino Nano/Uno/Pro Micro', 'Fonte 5V para os servos'],
+    difficulty: 'medium',
+    parts: ['SG90 servo(s) (up to 4)', 'Arduino Nano/Uno/Pro Micro', '5V supply for the servos'],
     wiring: [
       { signal: 'SIG0', pin: 'D3', detail: 'Sinal do servo 0' },
       { signal: 'SIG1', pin: 'D5', detail: 'Servo 1 (opcional)' },
-      { signal: 'V+', pin: '5V', detail: 'Use fonte 5V externa para vários servos' },
+      { signal: 'V+', pin: '5V', detail: 'Use an external 5V supply for multiple servos' },
       { signal: 'GND', pin: 'GND' }
     ],
     powerNote: 'Servos puxam corrente; com mais de 1, alimente por fonte 5V externa com GND comum.',
@@ -638,7 +638,7 @@ export const SETUP_MODULES: SetupModule[] = [
       'Buzzer piezo para alertas sonoros disparados pelo motor de Alertas (pit limiter, flag, shift, low fuel…).',
     componentType: 'buzzer',
     capabilityKey: 'buzzer',
-    difficulty: 'fácil',
+    difficulty: 'easy',
     parts: ['Buzzer piezo', 'Arduino Nano/Uno/Pro Micro'],
     wiring: [
       { signal: '+', pin: 'D8', detail: 'Sinal (tone)' },
@@ -662,16 +662,16 @@ export const SETUP_MODULES: SetupModule[] = [
     componentType: 'control',
     capabilityKey: 'wifi',
     capabilityDetail: 'esp32',
-    difficulty: 'médio',
+    difficulty: 'medium',
     parts: [
       'ESP32 DevKit ou ESP32‑S3 WROOM‑1 Type‑C',
       'Cabo USB de dados para provisionamento',
       'Rede Wi‑Fi 2.4 GHz no mesmo LAN do PC'
     ],
     wiring: [
-      { signal: 'USB', pin: 'Type‑C/Micro‑USB', detail: 'Gravação, serial e provisionamento de Wi‑Fi' },
-      { signal: 'GPIO', pin: 'GPIO configuráveis', detail: 'Botões/LEDs conforme o sketch companion' },
-      { signal: 'GND', pin: 'GND', detail: 'Terra comum com módulos externos' }
+      { signal: 'USB', pin: 'Type?C/Micro?USB', detail: 'Flashing, serial, and Wi?Fi provisioning' },
+      { signal: 'GPIO', pin: 'Configurable GPIO', detail: 'Buttons/LEDs based on the companion sketch' },
+      { signal: 'GND', pin: 'GND', detail: 'Common ground with external modules' }
     ],
     powerNote:
       'Wi‑Fi aumenta o consumo. Para fitas/matrixes de LED, use fonte externa adequada e GND comum.',

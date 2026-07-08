@@ -73,7 +73,7 @@ describe('chunkText', () => {
   })
 
   it('splits long text on sentence boundaries within the limit', () => {
-    const sentence = 'Curva três à direita.'
+    const sentence = 'Curva três à right.'
     const text = Array.from({ length: 30 }, () => sentence).join(' ')
     const chunks = chunkText(text)
     expect(chunks.length).toBeGreaterThan(1)

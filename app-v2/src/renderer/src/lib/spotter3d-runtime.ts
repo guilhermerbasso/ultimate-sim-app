@@ -7,7 +7,7 @@
 // the live telemetry stream, and respects the (default-enabled) config live.
 //
 // AUTOPLAY UNLOCK: Chromium starts every AudioContext suspended until a user
-// gesture. Instead of a dedicated "Ativar áudio" button, we install ONE app-wide
+// gesture. Instead of a dedicated "Enable áudio" button, we install ONE app-wide
 // pointerdown/keydown listener that resumes the context on the user's first
 // interaction anywhere. Until then the engine is armed but silent (it never
 // throws). A status store lets the view show a gentle "click to unlock" hint.

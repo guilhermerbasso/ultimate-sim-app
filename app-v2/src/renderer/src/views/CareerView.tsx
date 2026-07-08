@@ -1346,7 +1346,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 16 }}>
         <div style={card}>
           <h3 style={sectionTitle}>Tendencia de incidents</h3>
-          <p style={{ ...muted, margin: '4px 0 12px', fontSize: 11 }}>Incidents por corrida nas corridas recent (mais antigas → recent).</p>
+          <p style={{ ...muted, margin: '4px 0 12px', fontSize: 11 }}>Incidents per race in recent races (oldest → newest).</p>
           <IncidentTrendChart points={overview?.incidentTrend ?? []} />
         </div>
         <div style={card}>

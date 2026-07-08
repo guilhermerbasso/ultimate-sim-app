@@ -103,7 +103,7 @@ export const BOARDS: BoardInfo[] = [
     nativeUsbHid: false,
     defaultBaud: 115200,
     fqbn: 'arduino:avr:nano',
-    notes: 'Good budget option para iFlag (matrix 8x8) num device secundário.'
+    notes: 'Good budget option for iFlag (8x8 matrix) on a secondary device.'
   },
   {
     id: 'mega2560',
@@ -215,7 +215,7 @@ export const COMPONENT_TYPES: ComponentTypeInfo[] = [
   {
     type: 'rgbStrip',
     name: 'RGB LEDs (fita)',
-    description: 'Fita endereçável WS2812/SK6812 para rev lights, flags ou efeitos.',
+    description: 'WS2812/SK6812 addressable strip for rev lights, flags, or effects.',
     simhubEquivalent: 'RGB Leds',
     requiredPins: [{ role: 'data', label: 'Data (DIN)', kind: 'digital' }],
     capabilityKey: 'rgbStrip'
@@ -231,7 +231,7 @@ export const COMPONENT_TYPES: ComponentTypeInfo[] = [
   {
     type: 'screen',
     name: 'Tela (OLED / LCD)',
-    description: 'OLED SSD1306 ou LCD de caracteres HD44780 com páginas de telemetria.',
+    description: 'SSD1306 OLED or HD44780 character LCD with telemetry pages.',
     simhubEquivalent: 'Screens',
     requiredPins: [
       { role: 'sda', label: 'SDA', kind: 'i2c' },
@@ -262,7 +262,7 @@ export const COMPONENT_TYPES: ComponentTypeInfo[] = [
   {
     type: 'control',
     name: 'Controls (buttons/encoders)',
-    description: 'Botões, encoders e eixos analogs mapeados para HID/ações.',
+    description: 'Buttons, encoders, and analog axes mapped to HID/actions.',
     simhubEquivalent: 'Controls',
     requiredPins: [{ role: 'first', label: 'Primeiro pino', kind: 'any', optional: true }],
     capabilityKey: 'control'
@@ -278,7 +278,7 @@ export const COMPONENT_TYPES: ComponentTypeInfo[] = [
   {
     type: 'startLed',
     name: 'LED de status',
-    description: 'LED único dirigido por telemetria (pit limiter, DRS, etc.).',
+    description: 'Single LED driven by telemetry (pit limiter, DRS, etc.).',
     simhubEquivalent: 'Display & Alerts',
     requiredPins: [{ role: 'signal', label: 'Sinal', kind: 'digital' }],
     capabilityKey: 'startLed'

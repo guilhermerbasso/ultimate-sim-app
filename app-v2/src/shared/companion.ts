@@ -216,7 +216,7 @@ export const COMPANION_PRESETS: CompanionPreset[] = [
     description: 'Texto na primeira linha do display OLED (≤21 chars).',
     template: 'T0:${value}',
     defaultFormat: { decimals: 0 },
-    hint: 'Use para mostrar gear, lap atual, position, etc.'
+    hint: 'Use it to show gear, current lap, position, etc.'
   },
   {
     id: 'oled-row-mid',

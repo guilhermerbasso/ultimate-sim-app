@@ -764,7 +764,7 @@ h3 {
   color: var(--accent-success);
 }
 
-/* Connected banner in the ButtonBox primário card: title green, body readable. */
+/* Connected banner in the ButtonBox primary card: title green, body readable. */
 .device-status-banner strong {
   display: block;
   font-family: 'Instrument Sans', sans-serif;

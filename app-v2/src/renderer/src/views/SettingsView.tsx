@@ -529,7 +529,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
           className="ghost-action compact"
           type="button"
         >
-          Abrir userData
+          Open userData
         </button>
         <button
           disabled={loading || saving}

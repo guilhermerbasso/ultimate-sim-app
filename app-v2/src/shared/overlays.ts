@@ -941,7 +941,7 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'gearSpeed',
     title: 'Gear + speed',
-    description: 'Gear atual, speed e assistências ativas.',
+    description: 'Current gear, speed, and active assists.',
     defaultPosition: { x: 820, y: 130, width: 260, height: 150 },
     requires: ['gear', 'speedKmh']
   },
@@ -955,15 +955,15 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'inputs',
     title: 'Inputs',
-    description: 'Acelerador, brake, embreagem e esterço.',
+    description: 'Throttle, brake, clutch, and steering.',
     defaultPosition: { x: 1450, y: 560, width: 330, height: 230 },
     requires: ['throttle', 'brake']
   },
 
   {
     id: 'gforce',
-    title: 'Forças G',
-    description: 'G-ball com aceleração lateral, longitudinal e trilha ao vivo.',
+    title: 'G Forces',
+    description: 'G-ball with live lateral and longitudinal acceleration trail.',
     defaultPosition: { x: 1180, y: 500, width: 320, height: 320 },
     requires: ['latAccelG', 'longAccelG']
   },
@@ -991,21 +991,21 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'relative',
     title: 'Relativo / standings',
-    description: 'Cars próximos com cores por classe e gap.',
+    description: 'Nearby cars with class colors and gap.',
     defaultPosition: { x: 1420, y: 120, width: 420, height: 390 },
     requires: ['relatives']
   },
   {
     id: 'flags',
     title: 'Bandeiras',
-    description: 'Estado de pista e alertas de direção.',
+    description: 'Track state and driving alerts.',
     defaultPosition: { x: 760, y: 820, width: 420, height: 92 },
     requires: ['flags']
   },
   {
     id: 'tyresBrakes',
     title: 'Tires / brakes',
-    description: 'Temperaturas, pressões, wear e brakes por canto.',
+    description: 'Temperatures, pressures, wear, and brakes by corner.',
     defaultPosition: { x: 50, y: 120, width: 360, height: 300 },
     requires: ['tyres']
   },
@@ -1019,56 +1019,56 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'standings',
     title: 'Standings completo',
-    description: 'Lista expandida com posições, classe, pits e gaps.',
+    description: 'Expanded list with positions, class, pits, and gaps.',
     defaultPosition: { x: 1390, y: 70, width: 500, height: 620 },
     requires: ['drivers']
   },
   {
     id: 'inputsTrace',
     title: 'Trace de inputs',
-    description: 'Histórico ao vivo de throttle, brake, clutch e esterço.',
+    description: 'Live history of throttle, brake, clutch, and steering.',
     defaultPosition: { x: 1360, y: 560, width: 420, height: 260 },
     requires: ['throttle', 'brake']
   },
   {
     id: 'tyresDetail',
     title: 'Tires detalhado',
-    description: 'Pressão, temperatura, wear e brake com barras por canto.',
+    description: 'Pressure, temperature, wear, and brake with bars by corner.',
     defaultPosition: { x: 40, y: 90, width: 430, height: 420 },
     requires: ['tyres']
   },
   {
     id: 'trackMap',
     title: 'Mapa da pista',
-    description: 'Mini mapa por distância de lap com carros próximos.',
+    description: 'Mini map by lap distance with nearby cars.',
     defaultPosition: { x: 690, y: 720, width: 500, height: 210 },
     requires: ['lapDistPct']
   },
   {
     id: 'proximityRadar',
     title: 'Radar de proximidade',
-    description: 'Alerta lateral/frontal/traseiro para carros muito próximos.',
+    description: 'Side/front/rear alert for cars very close by.',
     defaultPosition: { x: 780, y: 300, width: 300, height: 300 },
     requires: ['radarCars']
   },
   {
     id: 'carSilhouetteRadar',
     title: 'Silhueta radar (spotter)',
-    description: 'Vista superior do seu carro com bordas que acendem em vermelho quando há carros ao lado — spotter estilo Crew Chief.',
+    description: 'Top-down view of your car with red edges when cars are alongside ? Crew Chief-style spotter.',
     defaultPosition: { x: 870, y: 290, width: 220, height: 310 },
     requires: ['carLeftRight']
   },
   {
     id: 'sessionWeather',
     title: 'Session + weather',
-    description: 'Tempo restante, lap, incidentes, pista e condições.',
+    description: 'Time remaining, lap, incidents, track, and conditions.',
     defaultPosition: { x: 1180, y: 760, width: 430, height: 210 },
     requires: ['sessionTimeRemainingSec', 'trackTempC']
   },
   {
     id: 'customValue',
     title: 'Valor customizado',
-    description: 'Mostra o resultado de uma expression ou variável de saída roteada.',
+    description: 'Shows the result of an expression or routed output variable.',
     defaultPosition: { x: 60, y: 820, width: 280, height: 110 }
   },
   {
@@ -1081,14 +1081,14 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'gt3Alarm',
     title: 'GT3 Alarm',
-    description: 'Alarme prioritário no estilo Cosworth ICD para flags, pit limiter e vitais.',
+    description: 'Priority alarm in Cosworth ICD style for flags, pit limiter, and vitals.',
     defaultPosition: { x: 720, y: 330, width: 480, height: 190 },
     requires: ['flags']
   },
   {
     id: 'engineVitalsStrip',
     title: 'Engine vitals strip',
-    description: 'Barra compacta com água, óleo, pressão de óleo e fuel.',
+    description: 'Compact bar with water, oil, oil pressure, and fuel.',
     defaultPosition: { x: 640, y: 40, width: 640, height: 92 },
     requires: ['waterTempC', 'oilTempC', 'oilPressureKpa']
   },
@@ -1109,7 +1109,7 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'symbolStatus',
     title: 'Symbol status',
-    description: 'Painel de icons: TC, ABS, pit limiter, fuel, motor, óleo, temperatura e flags.',
+    description: 'Icon panel: TC, ABS, pit limiter, fuel, engine, oil, temperature, and flags.',
     defaultPosition: { x: 20, y: 250, width: 470, height: 120 },
     requires: ['absActive', 'tcActive']
   }
@@ -1117,7 +1117,7 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'revHalo',
     title: 'Rev Halo',
-    description: 'Anel de RPM com central gear, segmentos gráficos e shift flash azul.',
+    description: 'RPM ring with central gear, graphic segments, and blue shift flash.',
     defaultPosition: { x: 760, y: 32, width: 400, height: 150 },
     requires: ['rpm', 'gear']
   },
@@ -1145,21 +1145,21 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'relativeBeacons',
     title: 'Relative Beacons',
-    description: 'Marcadores de carros próximos ao longo de um eixo de lap, sem linhas de texto.',
+    description: 'Nearby car markers along a lap axis, without text rows.',
     defaultPosition: { x: 560, y: 930, width: 800, height: 86 },
     requires: ['relatives']
   },
   {
     id: 'relativeLadder',
     title: 'Relative Ladder',
-    description: 'Escada vertical de gap ahead/behind com dois beacons gráficos.',
+    description: 'Vertical gap ladder ahead/behind with two graphic beacons.',
     defaultPosition: { x: 1740, y: 330, width: 110, height: 360 },
     requires: ['relatives']
   },
   {
     id: 'deltaNeedle',
     title: 'Delta Needle',
-    description: 'Arco de delta com agulha: verde somente quando mais rápido.',
+    description: 'Delta arc with needle: green only when faster.',
     defaultPosition: { x: 680, y: 775, width: 360, height: 180 },
     requires: ['deltaToBestSec']
   },
@@ -1173,14 +1173,14 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'gearRing',
     title: 'Gear Ring',
-    description: 'Gear gigante em anel de RPM, minimalista e simbólico.',
+    description: 'Giant gear inside an RPM ring, minimal and symbolic.',
     defaultPosition: { x: 850, y: 130, width: 230, height: 230 },
     requires: ['gear', 'rpm']
   },
   {
     id: 'speedGlyph',
     title: 'Speed Glyph',
-    description: 'Velocidade como glifo numérico com barra segmentada gráfica.',
+    description: 'Speed as a numeric glyph with a graphic segmented bar.',
     defaultPosition: { x: 780, y: 720, width: 360, height: 130 },
     requires: ['speedKmh']
   },
@@ -1201,14 +1201,14 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'inputsVector',
     title: 'Inputs Vector',
-    description: 'Pedais como colunas vetoriais e ponto de esterço.',
+    description: 'Pedals as vector columns and a steering point.',
     defaultPosition: { x: 1470, y: 610, width: 260, height: 220 },
     requires: ['throttle', 'brake']
   },
   {
     id: 'inputsScope',
     title: 'Inputs Scope',
-    description: 'Osciloscópio gráfico de throttle/brake/clutch.',
+    description: 'Graphic oscilloscope for throttle/brake/clutch.',
     defaultPosition: { x: 1380, y: 610, width: 390, height: 180 },
     requires: ['throttle', 'brake']
   },
@@ -1222,28 +1222,28 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'brakeHeatTiles',
     title: 'Brake Heat Tiles',
-    description: 'Grid de brakes em tiles térmicos para detectar superaquecimento.',
+    description: 'Brake grid in thermal tiles for detecting overheating.',
     defaultPosition: { x: 325, y: 125, width: 220, height: 220 },
     requires: ['brakeTempC']
   },
   {
     id: 'trackRibbonFuture',
     title: 'Track Ribbon Future',
-    description: 'Mapa orbital simplificado com carros como partículas na trajetória.',
+    description: 'Simplified orbital map with cars as particles on the trajectory.',
     defaultPosition: { x: 690, y: 815, width: 540, height: 190 },
     requires: ['lapDistPct']
   },
   {
     id: 'trackSectorPulse',
     title: 'Track Sector Pulse',
-    description: 'Progressão de lap por sectores/pulsos segmentados.',
+    description: 'Lap progression by sectors/segmented pulses.',
     defaultPosition: { x: 610, y: 965, width: 700, height: 70 },
     requires: ['lapDistPct']
   },
   {
     id: 'weatherGripGlyph',
     title: 'Weather Grip Glyph',
-    description: 'Glifo de grip e wetness com verde só para pista saudável.',
+    description: 'Grip and wetness glyph with green only for a healthy track.',
     defaultPosition: { x: 1280, y: 820, width: 220, height: 160 },
     requires: ['gripPct']
   },
@@ -1257,14 +1257,14 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'gapAhead',
     title: 'Gap à frente',
-    description: 'Gap grande e legível para o carro logo à frente — verde quando você está fechando.',
+    description: 'Large, readable gap to the car immediately ahead ? green when you are closing.',
     defaultPosition: { x: 1560, y: 40, width: 240, height: 150 },
     requires: ['relatives']
   },
   {
     id: 'gapBehind',
     title: 'Gap behind',
-    description: 'Gap grande e legível para o carro logo behind — verde quando você está abrindo vantagem.',
+    description: 'Large, readable gap to the car immediately behind ? green when you are pulling away.',
     defaultPosition: { x: 1560, y: 210, width: 240, height: 150 },
     requires: ['relatives']
   },
@@ -1272,7 +1272,7 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'ersBattery',
     title: 'ERS Battery',
-    description: 'Bateria híbrida/ERS em células neon com anel de carga — verde só com pack cheio.',
+    description: 'Hybrid battery/ERS in neon cells with charge ring ? green only with a full pack.',
     defaultPosition: { x: 60, y: 430, width: 240, height: 150 },
     requires: ['ersBatteryPct']
   },
@@ -1293,21 +1293,21 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'pitStatusHud',
     title: 'Pit Status HUD',
-    description: 'HUD de pit lane com headline e lâmpadas de reparo, box e serviço — verde quando pits abertos.',
+    description: 'Pit lane HUD with headline and lamps for repair, box, and service ? green when pits are open.',
     defaultPosition: { x: 700, y: 540, width: 380, height: 140 },
     requires: ['pit']
   },
   {
     id: 'coldPressureGrid',
     title: 'Cold Pressure Grid',
-    description: 'Pressões frias dos 4 tires em colunas LF/RF/LR/RR; canto fora de balanço acende em laranja.',
+    description: 'Cold pressures for all 4 tires in LF/RF/LR/RR columns; out-of-balance corner lights orange.',
     defaultPosition: { x: 50, y: 120, width: 250, height: 230 },
     requires: ['tireColdPressuresKpa']
   },
   {
     id: 'trackClock',
     title: 'Track Clock',
-    description: 'Hora da sessão com sol/lua em arco — âmbar de dia, azul à noite (SessionTimeOfDay).',
+    description: 'Session time with sun/moon arc ? amber by day, blue at night (SessionTimeOfDay).',
     defaultPosition: { x: 1620, y: 760, width: 230, height: 170 },
     requires: ['sessionTimeOfDay']
   },
@@ -1321,7 +1321,7 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'surfaceScope',
     title: 'Surface Scope',
-    description: 'Material da superfície sob o carro; pulsa em vermelho ao sair da pista (grama/terra/brita).',
+    description: 'Surface material under the car; pulses red when leaving the track (grass/dirt/gravel).',
     defaultPosition: { x: 870, y: 470, width: 200, height: 170 },
     requires: ['trackSurfaceMaterial']
   },
@@ -1335,7 +1335,7 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'apexRadar',
     title: 'Apex Radar',
-    description: 'Radar de proximidade sci-fi com linha de varredura e blips por classe; ameaças em vermelho.',
+    description: 'Sci-fi proximity radar with sweep line and class blips; threats in red.',
     defaultPosition: { x: 800, y: 280, width: 300, height: 300 },
     requires: ['radarCars']
   },
@@ -1343,63 +1343,63 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'ersBar',
     title: 'ERS Bar',
-    description: 'Barra fina de carga do ERS com leitura percentual — limpa, monocromática com 1 acento.',
+    description: 'Thin ERS charge bar with percentage readout ? clean, monochrome with 1 accent.',
     defaultPosition: { x: 60, y: 760, width: 240, height: 84 },
     requires: ['ersBatteryPct']
   },
   {
     id: 'pushToPassPips',
     title: 'Push-to-Pass Pips',
-    description: 'Usos de P2P restantes como pips minimalistas — verde enquanto há boost dispolevel.',
+    description: 'Remaining P2P uses as minimalist pips ? green while boost is available.',
     defaultPosition: { x: 840, y: 480, width: 220, height: 84 },
     requires: ['pushToPassCount']
   },
   {
     id: 'pitTicket',
     title: 'Pit Ticket',
-    description: 'Cartão de pit minimalista com headline de status e ponto de acento — verde quando pits abertos.',
+    description: 'Minimal pit card with status headline and accent dot ? green when pits are open.',
     defaultPosition: { x: 700, y: 700, width: 260, height: 96 },
     requires: ['pit']
   },
   {
     id: 'coldPressureCard',
     title: 'Cold Pressure Card',
-    description: 'Pressões frias dos tires em cartão 2×2 (psi); destaca o canto mais frio.',
+    description: 'Cold tire pressures in a 2?2 card (psi); highlights the coldest corner.',
     defaultPosition: { x: 60, y: 360, width: 250, height: 130 },
     requires: ['tireColdPressuresKpa']
   },
   {
     id: 'sessionClock',
     title: 'Session Clock',
-    description: 'Relógio da sessão HH:MM com glifo de sol/lua e fase do dia — azul só à noite.',
+    description: 'Session clock HH:MM with sun/moon glyph and day phase ? blue only at night.',
     defaultPosition: { x: 1640, y: 40, width: 200, height: 120 },
     requires: ['sessionTimeOfDay']
   },
   {
     id: 'wetTag',
     title: 'Wet Tag',
-    description: 'Chip DRY/WET com percentual de wetness — verde quando seca, âmbar/vermelho quando molhada.',
+    description: 'DRY/WET chip with wetness percentage ? green when dry, amber/red when wet.',
     defaultPosition: { x: 1280, y: 960, width: 220, height: 100 },
     requires: ['trackWetnessPct']
   },
   {
     id: 'surfaceTag',
     title: 'Surface Tag',
-    description: 'Tag minimalista do material da superfície com ponto de status verde/âmbar/vermelho.',
+    description: 'Minimal surface-material tag with green/amber/red status dot.',
     defaultPosition: { x: 880, y: 660, width: 220, height: 96 },
     requires: ['trackSurfaceMaterial']
   },
   {
     id: 'bopBadge',
     title: 'BoP Badge',
-    description: 'Lastro (kg) e ajuste de potência (%) do BoP — âmbar quando há handicap, verde quando limpo.',
+    description: 'BoP ballast (kg) and power adjustment (%) ? amber with handicap, green when clean.',
     defaultPosition: { x: 60, y: 870, width: 250, height: 120 },
     requires: ['weightPenaltyKg', 'powerAdjustPct']
   },
   {
     id: 'deltaBar',
     title: 'Delta Bar',
-    description: 'Barra de delta centrada no zero — verde à esquerda quando mais rápido, laranja à direita quando mais lento.',
+    description: 'Delta bar centered on zero ? green to the left when faster, orange to the right when slower.',
     defaultPosition: { x: 700, y: 690, width: 360, height: 90 },
     requires: ['deltaToBestSec']
   },
@@ -1413,32 +1413,32 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   // ─── WS-H: predictor overlays ────────────────────────────────────────────────
   {
     id: 'predCatchAhead',
-    title: 'Preditor · Tempo p/ alcançar',
-    description: 'Estimativa de tempo e laps para alcançar o carro à frente.',
+    title: 'Predictor ? Time to catch',
+    description: 'Estimated time and laps to catch the car ahead.',
     defaultPosition: { x: 60, y: 300, width: 300, height: 120 }
   },
   {
     id: 'predCaughtBehind',
-    title: 'Preditor · Ameaça behind',
-    description: 'Estimativa de tempo e laps até ser alcançado pelo carro behind.',
+    title: 'Predictor ? Threat behind',
+    description: 'Estimated time and laps until the car behind catches you.',
     defaultPosition: { x: 60, y: 430, width: 300, height: 120 }
   },
   {
     id: 'predFuelMargin',
-    title: 'Preditor · Fuel até o end',
-    description: 'Margem de fuel projetada até o end da race.',
+    title: 'Predictor ? Fuel to the end',
+    description: 'Projected fuel margin to the end of the race.',
     defaultPosition: { x: 60, y: 560, width: 300, height: 120 }
   },
   {
     id: 'predTireWear',
-    title: 'Preditor · Pneu wear/penhasco',
-    description: 'Desgaste por lap e laps estimadas até o penhasco de aderência.',
+    title: 'Predictor ? Tire wear/cliff',
+    description: 'Wear per lap and estimated laps until the grip cliff.',
     defaultPosition: { x: 60, y: 690, width: 320, height: 130 }
   },
   {
     id: 'predPaceProjected',
     title: 'Preditor · Pace projetado',
-    description: 'Pace projetado para as próximas laps com level de confiança.',
+    description: 'Projected pace for the next laps with confidence level.',
     defaultPosition: { x: 60, y: 830, width: 300, height: 120 }
   },
   // ─── WS-M: coaching heatmap overlay ──────────────────────────────────────────
@@ -1446,32 +1446,32 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
     id: 'coachHeatmap',
     title: 'Coaching heatmap',
     description:
-      'Mapa da pista colorido por curva (vermelho=perde, verde=padrão, azul=melhor) — leitura rápida.',
+      'Track map colored by corner (red=losing, green=baseline, blue=best) ? quick read.',
     defaultPosition: { x: 1560, y: 380, width: 260, height: 260 }
   },
   // ─── R19: Live Coach / AI Engineer text + graph overlays ─────────────────────
   {
     id: 'coachTips',
     title: 'Coach — dicas',
-    description: 'As principais dicas acionáveis do Live Coach em texto (mais recentes primeiro).',
+    description: 'The top actionable Live Coach tips as text (newest first).',
     defaultPosition: { x: 1560, y: 60, width: 280, height: 150 }
   },
   {
     id: 'coachFindings',
     title: 'Coach — lista de pontos',
-    description: 'Lista compacta dos pontos de melhoria/ganho do Live Coach por curva/sector.',
+    description: 'Compact list of Live Coach improvement/gain points by corner/sector.',
     defaultPosition: { x: 1560, y: 220, width: 280, height: 200 }
   },
   {
     id: 'coachSectorGraph',
-    title: 'Coach — gráfico por sector',
-    description: 'Barras por sector: verde = no padrão, laranja = tempo perdido.',
+    title: 'Coach ? chart by sector',
+    description: 'Bars by sector: green = on baseline, orange = time lost.',
     defaultPosition: { x: 1560, y: 430, width: 280, height: 150 }
   },
   {
     id: 'engineerFeed',
     title: 'Engenheiro — mensagens',
-    description: 'Últimas mensagens do Engenheiro de IA em estilo rádio (mais recentes primeiro).',
+    description: 'Latest AI Engineer messages in radio style (newest first).',
     defaultPosition: { x: 60, y: 60, width: 300, height: 150 }
   }
   // ── WS-DASH: full-frame dashboards moved OUT of the floating-overlay picker ──
@@ -1483,32 +1483,32 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   // members AND WIDGET_COMPONENTS entries (overlay/widgets/index.ts) intentionally
   // STAY so the dashboard embed can still resolve each component by id.
   ,
-  { id: 'perCornerTyrePressure', title: 'Pressão de tire (cantos)', description: 'Pressão por canto (2×2) com banda-alvo. Ao vivo (ACC/LMU) ou fria (iRacing).', defaultPosition: { x: 1500, y: 60, width: 300, height: 200 }, requires: ['tyres'] },
+  { id: 'perCornerTyrePressure', title: 'Tire pressure (corners)', description: 'Pressure by corner (2?2) with target band. Live (ACC/LMU) or cold (iRacing).', defaultPosition: { x: 1500, y: 60, width: 300, height: 200 }, requires: ['tyres'] },
   { id: 'brakeTempCorners', title: 'Temperatura de brake (cantos)', description: 'Temperatura de disco por canto (2×2) com bandas frio/optimal/quente + pico.', defaultPosition: { x: 1500, y: 280, width: 300, height: 200 }, requires: ['brakeTempC'] },
-  { id: 'fuelDeltaTile', title: 'Fuel delta', description: 'Margem de laps, L/lap, laps até esvaziar e delta de litros para o alvo.', defaultPosition: { x: 1500, y: 500, width: 300, height: 180 }, requires: ['fuelLiters', 'fuelPerLap'] },
+  { id: 'fuelDeltaTile', title: 'Fuel delta', description: 'Lap margin, L/lap, laps to empty, and liters delta to target.', defaultPosition: { x: 1500, y: 500, width: 300, height: 180 }, requires: ['fuelLiters', 'fuelPerLap'] },
   { id: 'shiftPointBar', title: 'Shift point', description: 'Barra de shift LED grande + RPM/gear, com flash no redline.', defaultPosition: { x: 560, y: 40, width: 800, height: 90 }, requires: ['shiftIndicatorPct'] },
-  { id: 'engineVitalsDial', title: 'Vitais do motor (dials)', description: 'Mostradores de água/óleo (°C) e pressão de óleo (bar).', defaultPosition: { x: 60, y: 500, width: 360, height: 180 }, requires: ['waterTempC'] },
-  { id: 'sessionInfoTile', title: 'Info da sessão', description: 'Tipo de sessão, tempo restante, laps, position e incidentes.', defaultPosition: { x: 60, y: 60, width: 360, height: 150 }, requires: ['sessionType'] }
+  { id: 'engineVitalsDial', title: 'Engine vitals (dials)', description: 'Water/oil gauges (?C) and oil pressure (bar).', defaultPosition: { x: 60, y: 500, width: 360, height: 180 }, requires: ['waterTempC'] },
+  { id: 'sessionInfoTile', title: 'Session info', description: 'Session type, time remaining, laps, position, and incidents.', defaultPosition: { x: 60, y: 60, width: 360, height: 150 }, requires: ['sessionType'] }
   ,
   // ─── B-widgets: overlays for the new iRacing telemetry signals ───────────────
   {
     id: 'engineTellTales',
     title: 'Engine warnings',
-    description: 'Painel de lâmpadas FIA: pressão/temperatura de óleo e água, fuel, rev/pit limiter, motor parado e reparo obrigatório/opcional.',
+    description: 'FIA lamp panel: oil pressure/temperature and water, fuel, rev/pit limiter, engine stopped, and required/optional repair.',
     defaultPosition: { x: 60, y: 240, width: 360, height: 200 },
     requires: ['engineWarnings']
   },
   {
     id: 'absCut',
     title: 'ABS cut',
-    description: 'Barra do corte de pressão de brake do ABS (BrakeABSCutPct, 0–100%). Complementa a lâmpada de ABS.',
+    description: 'ABS brake pressure cut bar (BrakeABSCutPct, 0?100%). Complements the ABS lamp.',
     defaultPosition: { x: 60, y: 460, width: 300, height: 96 },
     requires: ['absCutPct']
   },
   {
     id: 'sessionBanner',
     title: 'Session state',
-    description: 'Faixa com a fase da sessão: GET IN / WARMUP / PARADE / RACING / CHECKERED / COOLDOWN.',
+    description: 'Strip with session phase: GET IN / WARMUP / PARADE / RACING / CHECKERED / COOLDOWN.',
     defaultPosition: { x: 700, y: 40, width: 320, height: 110 },
     requires: ['sessionState']
   },
@@ -1540,14 +1540,14 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'cupCluster',
     title: 'Cup cluster',
-    description: 'Cluster estilo Porsche-Cup: barra de LEDs de rotação no topo, gear gigante e speed + delta abaixo.',
+    description: 'Porsche-Cup-style cluster: rev LED bar on top, giant gear, and speed + delta below.',
     defaultPosition: { x: 800, y: 120, width: 300, height: 300 },
     requires: ['rpm', 'maxRpm', 'gear', 'speedKmh']
   },
   {
     id: 'enduranceMulti',
     title: 'Endurance multifunction',
-    description: 'Painel multifunção de enduro: cronômetro de stint, fuel até o end, laps remaining, temperaturas/pressões dos tires e água/óleo.',
+    description: 'Endurance multifunction panel: stint timer, fuel to the end, laps remaining, tire temperatures/pressures, and water/oil.',
     defaultPosition: { x: 60, y: 120, width: 380, height: 320 },
     requires: ['fuelLiters', 'tyres']
   },
@@ -1568,7 +1568,7 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'gt3Wheel',
     title: 'GT3 wheel face',
-    description: 'Face de steering GT3: lâmpadas telltale (flags/TC/ABS/pit/rain) sobre os buttons rotativos TC / ABS / MAP / BB com seus níveis atuais.',
+    description: 'GT3 steering wheel face: telltale lamps (flags/TC/ABS/pit/rain) above TC / ABS / MAP / BB rotary buttons with their current levels.',
     defaultPosition: { x: 700, y: 480, width: 360, height: 240 },
     requires: ['absLevel', 'tcLevel']
   }

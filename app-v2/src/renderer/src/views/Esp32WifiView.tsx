@@ -74,7 +74,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
       const list = await window.ipc.invoke<WifiCompanionDevice[]>('esp32:discover')
       setDevices(list)
       showToast(
-        list.length ? `${list.length} ESP32 encontrado(s) via mDNS.` : 'Nenhum ESP32 encontrado. Confira se está na mesma rede.',
+        list.length ? `${list.length} ESP32 device(s) found via mDNS.` : 'No ESP32 found. Make sure it is on the same network.',
         'info'
       )
     } catch (error) {
@@ -102,7 +102,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
     try {
       await window.ipc.invoke('esp32:connect', device)
       await refreshStatus()
-      showToast(`ESP32 conectado em ${device.host}:${device.port}.`, 'success')
+      showToast(`ESP32 connected at ${device.host}:${device.port}.`, 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -120,7 +120,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
     try {
       await window.ipc.invoke('esp32:disconnect', id)
       await refreshStatus()
-      showToast('ESP32 desconectado.', 'success')
+      showToast('ESP32 disconnected.', 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -195,7 +195,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
             <label>
               Porta USB
               <select value={selectedPort} onChange={(event) => setSelectedPort(event.target.value)}>
-                <option value="">Selecione…</option>
+                <option value="">Select…</option>
                 {ports.map((port) => (
                   <option key={port.path} value={port.path}>
                     {port.path} {port.isSimX ? '(SIM-X — no usar)' : ''}
@@ -221,7 +221,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
         <article className="panel-card">
           <div className="panel-heading-row">
             <div>
-              <span className="panel-label">Conexão manual</span>
+              <span className="panel-label">Manual connection</span>
               <h3>IP/host do ESP32</h3>
             </div>
           </div>

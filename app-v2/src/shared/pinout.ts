@@ -232,7 +232,7 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
 
   for (const mux of design.muxes) {
     const definition = findDefinition(mux.definitionId, library)
-    if (!definition) add({ severity: 'error', code: 'unknown-mux', message: `Multiplexer “${mux.label}” não existe no catálogo.`, muxId: mux.id })
+    if (!definition) add({ severity: 'error', code: 'unknown-mux', message: `Multiplexer ?${mux.label}? does not exist in the catalog.`, muxId: mux.id })
     for (const role of definition?.roles ?? []) {
       const connection = design.connections.find((item) => item.componentId === mux.id && item.role === role.role)
       if (!connection) {
@@ -244,7 +244,7 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
   for (const component of design.components) {
     const definition = findDefinition(component.definitionId, library)
     if (!definition) {
-      add({ severity: 'error', code: 'unknown-component', message: `Componente “${component.label}” não existe no catálogo.`, componentId: component.id })
+      add({ severity: 'error', code: 'unknown-component', message: `Component ?${component.label}? does not exist in the catalog.`, componentId: component.id })
       continue
     }
     for (const role of definition.roles) {
@@ -259,13 +259,13 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
   for (const connection of design.connections) {
     const owner = componentMap.get(connection.componentId) ?? muxMap.get(connection.componentId)
     if (!owner) {
-      add({ severity: 'error', code: 'dangling-connection', message: 'Conexão aponta para um componente removido.', componentId: connection.componentId, role: connection.role })
+      add({ severity: 'error', code: 'dangling-connection', message: 'Connection points to a removed component.', componentId: connection.componentId, role: connection.role })
       continue
     }
     const definition = findDefinition(owner.definitionId, library)
     const role = definition?.roles.find((entry) => entry.role === connection.role)
     if (!definition || !role) {
-      add({ severity: 'error', code: 'unknown-role', message: `Papel “${connection.role}” não existe em ${owner.label}.`, componentId: connection.componentId, role: connection.role })
+      add({ severity: 'error', code: 'unknown-role', message: `Role ?${connection.role}? does not exist on ${owner.label}.`, componentId: connection.componentId, role: connection.role })
       continue
     }
     const key = getConnectionKey(connection.componentId, connection.role)
@@ -277,7 +277,7 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
     if (connection.target.kind === 'board') {
       const pin = pinMap.get(connection.target.pin)
       if (!pin) {
-        add({ severity: 'error', code: 'unknown-pin', message: `Pino “${connection.target.pin}” não existe em ${catalog.name}.`, componentId: connection.componentId, role: connection.role, pin: connection.target.pin })
+        add({ severity: 'error', code: 'unknown-pin', message: `Pin ?${connection.target.pin}? does not exist on ${catalog.name}.`, componentId: connection.componentId, role: connection.role, pin: connection.target.pin })
         continue
       }
       rememberPin(pin.pin, `${owner.label} / ${role.label}`, role.kind)
@@ -287,9 +287,9 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
         // Enforce the SIG mode: analog common needs an ADC pin, digital needs a digital pin.
         const sigMux = muxMap.get(connection.componentId)
         if (sigMux?.sigMode === 'analog' && !pin.analogIn) {
-          add({ severity: 'error', code: 'mux-sig-need-analog', message: `${owner.label} → ${role.label} está em modo analog, mas ${pin.pin} não tem entrada analógica.`, componentId: connection.componentId, role: connection.role, pin: pin.pin })
+          add({ severity: 'error', code: 'mux-sig-need-analog', message: `${owner.label} ? ${role.label} is in analog mode, but ${pin.pin} has no analog input.`, componentId: connection.componentId, role: connection.role, pin: pin.pin })
         } else if (sigMux?.sigMode === 'digital' && !pin.digital) {
-          add({ severity: 'error', code: 'mux-sig-need-digital', message: `${owner.label} → ${role.label} está em modo digital, mas ${pin.pin} não é um pino digital.`, componentId: connection.componentId, role: connection.role, pin: pin.pin })
+          add({ severity: 'error', code: 'mux-sig-need-digital', message: `${owner.label} ? ${role.label} is in digital mode, but ${pin.pin} is not a digital pin.`, componentId: connection.componentId, role: connection.role, pin: pin.pin })
         }
       }
     } else {
@@ -299,14 +299,14 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
         continue
       }
       if (definition.type === 'multiplexer' || !role.muxCapable) {
-        add({ severity: 'error', code: 'role-not-muxable', message: `${owner.label} → ${role.label} precisa ir direto na placa, não em canal de MUX.`, componentId: connection.componentId, role: connection.role })
+        add({ severity: 'error', code: 'role-not-muxable', message: `${owner.label} ? ${role.label} must go directly to the board, not through a MUX channel.`, componentId: connection.componentId, role: connection.role })
       }
       if (connection.target.channel < 0 || connection.target.channel > 15 || !Number.isInteger(connection.target.channel)) {
         add({ severity: 'error', code: 'mux-channel-range', message: `Canal do ${mux.label} precisa estar entre C0 e C15.`, muxId: mux.id, componentId: connection.componentId })
       } else {
         const set = usedMuxChannels.get(mux.id) ?? new Set<number>()
         if (set.has(connection.target.channel)) {
-          add({ severity: 'error', code: 'mux-channel-conflict', message: `${mux.label} C${connection.target.channel} já está em uso.`, muxId: mux.id, componentId: connection.componentId })
+          add({ severity: 'error', code: 'mux-channel-conflict', message: `${mux.label} C${connection.target.channel} is already in use.`, muxId: mux.id, componentId: connection.componentId })
         }
         set.add(connection.target.channel)
         usedMuxChannels.set(mux.id, set)
@@ -323,7 +323,7 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
       add({
         severity: sharedI2cBus || sharedPowerRail ? 'warning' : 'error',
         code: sharedI2cBus ? 'i2c-shared-bus' : sharedPowerRail ? 'power-shared-rail' : 'pin-conflict',
-        message: sharedI2cBus ? `${pin} está compartilhado no barramento I2C por: ${owners.join(', ')}. Confirme endereços I2C diferentes.` : sharedPowerRail ? `${pin} está compartilhado como barramento de alimentação por: ${owners.join(', ')}.` : `${pin} está em uso por: ${owners.join(', ')}.`,
+        message: sharedI2cBus ? `${pin} is shared on the I2C bus by: ${owners.join(', ')}. Confirm different I2C addresses.` : sharedPowerRail ? `${pin} is shared as a power bus by: ${owners.join(', ')}.` : `${pin} is in use by: ${owners.join(', ')}.`,
         pin
       })
     }
@@ -356,7 +356,7 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
     i2cByAddress.set(address, owners)
   }
   for (const [address, owners] of i2cByAddress) {
-    if (owners.length > 1) add({ severity: 'error', code: 'i2c-address-conflict', message: `Endereço I2C ${address} repetido em: ${owners.join(', ')}. Devices no mesmo barramento SDA/SCL precisam de endereços diferentes (mude o jumper/strap de endereço de um deles).` })
+    if (owners.length > 1) add({ severity: 'error', code: 'i2c-address-conflict', message: `I2C address ${address} is repeated on: ${owners.join(', ')}. Devices on the same SDA/SCL bus need different addresses (change one device address jumper/strap).` })
   }
 
   // (2) Rotary (quadrature) encoders want interrupt-capable pins for reliable
@@ -370,7 +370,7 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
       const connection = roleConnections.get(getConnectionKey(component.id, roleName))
       if (!connection || connection.target.kind !== 'board') continue
       const pin = pinMap.get(connection.target.pin)
-      if (pin && !pin.interrupt) add({ severity: 'warning', code: 'encoder-no-interrupt', message: `${component.label} → ${roleName.toUpperCase()} está em ${pin.pin}, que não tem interrupção. Em giros rápidos pode perder passos; prefira um pino com interrupção ou aceite a leitura por varredura (polling).`, componentId: component.id, role: roleName, pin: pin.pin })
+      if (pin && !pin.interrupt) add({ severity: 'warning', code: 'encoder-no-interrupt', message: `${component.label} ? ${roleName.toUpperCase()} is on ${pin.pin}, which has no interrupt. Fast turns may miss steps; prefer an interrupt pin or accept polling reads.`, componentId: component.id, role: roleName, pin: pin.pin })
     }
   }
 
@@ -390,10 +390,10 @@ export function validatePinout(design: PinoutDesign, catalog: BoardCatalogEntry 
     const ledCount = Number(component.settings?.ledCount ?? definition.defaults?.ledCount ?? 0) || width * height
     if (ledCount <= 0) continue
     ledBufferBytes += ledCount * (/sk6812|rgbw/.test(chip) ? 4 : 3)
-    if (ledCount > 30) add({ severity: 'warning', code: 'led-power-budget', message: `${component.label} tem ${ledCount} LEDs endereçáveis (até ~${Math.ceil(ledCount * 0.06)} A no branco/brilho máximo). Use uma fonte 5V externa dedicada com GND comum; não alimente pelo pino 5V da placa.`, componentId: component.id })
-    if (boardLogic3v3 && /ws2812|sk6812|neopixel/.test(chip)) add({ severity: 'warning', code: 'led-level-shift', message: `${component.label} é WS2812/SK6812 (lógica 5V) controlado por placa de 3,3V. Use um level shifter 3,3V→5V no sinal DIN (ou alimente a fita a ~4,3V) para o dado ser reconhecido de forma confiável.`, componentId: component.id, role: 'data' })
+    if (ledCount > 30) add({ severity: 'warning', code: 'led-power-budget', message: `${component.label} has ${ledCount} addressable LEDs (up to ~${Math.ceil(ledCount * 0.06)} A at full white/brightness). Use a dedicated external 5V supply with common GND; do not power it from the board 5V pin.`, componentId: component.id })
+    if (boardLogic3v3 && /ws2812|sk6812|neopixel/.test(chip)) add({ severity: 'warning', code: 'led-level-shift', message: `${component.label} is WS2812/SK6812 (5V logic) controlled by a 3.3V board. Use a 3.3V?5V level shifter on DIN (or power the strip at ~4.3V) so data is recognized reliably.`, componentId: component.id, role: 'data' })
   }
-  if (sramBytes > 0 && ledBufferBytes > sramBytes * 0.4) add({ severity: 'warning', code: 'resource-budget', message: `O buffer de LEDs endereçáveis (~${ledBufferBytes} bytes) ocupa boa parte da RAM de ${catalog.name} (${sramBytes} bytes). Reduza a quantidade de LEDs ou use uma placa com mais memória para evitar travamentos por fhigh de RAM.` })
+  if (sramBytes > 0 && ledBufferBytes > sramBytes * 0.4) add({ severity: 'warning', code: 'resource-budget', message: `The addressable LED buffer (~${ledBufferBytes} bytes) uses much of ${catalog.name} RAM (${sramBytes} bytes). Reduce the LED count or use a board with more memory to avoid RAM-related crashes.` })
 
   // (4) AVR timer sharing: the Servo library (Timer1) disables analogWrite() on
   // pins 9/10; tone() for a passive buzzer (Timer2) disables it on 3/11. Warn
@@ -465,20 +465,20 @@ export function buildPinoutConfigPayload(design: PinoutDesign, library: PinoutCo
 function validatePinCapability(pin: BoardPinCapability, pinRole: PinoutComponentRole, component: string, role: string, issues: PinoutValidationIssue[], componentId: string, roleId: string): void {
   const kind = pinRole.kind
   if (kind === 'power') {
-    if (!pinSupportsRole(pin, pinRole)) issues.push({ severity: 'error', code: 'need-power-rail', message: `${component} → ${role} precisa de alimentação compatível; ${pin.pin} não é o barramento correto.`, componentId, role: roleId, pin: pin.pin })
+    if (!pinSupportsRole(pin, pinRole)) issues.push({ severity: 'error', code: 'need-power-rail', message: `${component} ? ${role} needs compatible power; ${pin.pin} is not the correct bus.`, componentId, role: roleId, pin: pin.pin })
     return
   }
   if (pin.power) {
-    issues.push({ severity: 'error', code: 'power-pin-signal', message: `${component} → ${role} precisa de sinal, mas ${pin.pin} é alimentação/GND.`, componentId, role: roleId, pin: pin.pin })
+    issues.push({ severity: 'error', code: 'power-pin-signal', message: `${component} ? ${role} needs a signal, but ${pin.pin} is power/GND.`, componentId, role: roleId, pin: pin.pin })
     return
   }
-  if (kind === 'digital' && !pin.digital) issues.push({ severity: 'error', code: 'need-digital', message: `${component} → ${role} precisa de pino digital; ${pin.pin} não é digital.`, componentId, role: roleId, pin: pin.pin })
-  if (kind === 'analog' && !pin.analogIn) issues.push({ severity: 'error', code: 'need-analog', message: `${component} → ${role} precisa de entrada analógica; ${pin.pin} é digital-only.`, componentId, role: roleId, pin: pin.pin })
-  if (kind === 'pwm' && !pin.pwm) issues.push({ severity: 'error', code: 'need-pwm', message: `${component} → ${role} precisa de PWM; ${pin.pin} não tem PWM.`, componentId, role: roleId, pin: pin.pin })
-  if (kind === 'i2c' && !pin.i2c) issues.push({ severity: 'error', code: 'need-i2c', message: `${component} → ${role} precisa de SDA/SCL; ${pin.pin} não é pino I2C.`, componentId, role: roleId, pin: pin.pin })
-  if ((roleId === 'sda' && pin.i2c !== 'sda') || (roleId === 'scl' && pin.i2c !== 'scl')) issues.push({ severity: 'error', code: 'wrong-i2c-role', message: `${component} → ${role} deve ir no pino ${roleId.toUpperCase()}, não em ${pin.pin}.`, componentId, role: roleId, pin: pin.pin })
-  if (kind === 'spi' && !pinSupportsRole(pin, pinRole)) issues.push({ severity: 'error', code: 'need-spi', message: `${component} → ${role} precisa de pino SPI compatível; ${pin.pin} não atende esse papel.`, componentId, role: roleId, pin: pin.pin })
-  if (kind === 'uart' && !pinSupportsRole(pin, pinRole)) issues.push({ severity: 'error', code: 'need-uart', message: `${component} → ${role} precisa de pino UART compatível; ${pin.pin} não atende esse papel.`, componentId, role: roleId, pin: pin.pin })
+  if (kind === 'digital' && !pin.digital) issues.push({ severity: 'error', code: 'need-digital', message: `${component} ? ${role} needs a digital pin; ${pin.pin} is not digital.`, componentId, role: roleId, pin: pin.pin })
+  if (kind === 'analog' && !pin.analogIn) issues.push({ severity: 'error', code: 'need-analog', message: `${component} ? ${role} needs an analog input; ${pin.pin} is digital-only.`, componentId, role: roleId, pin: pin.pin })
+  if (kind === 'pwm' && !pin.pwm) issues.push({ severity: 'error', code: 'need-pwm', message: `${component} ? ${role} needs PWM; ${pin.pin} has no PWM.`, componentId, role: roleId, pin: pin.pin })
+  if (kind === 'i2c' && !pin.i2c) issues.push({ severity: 'error', code: 'need-i2c', message: `${component} ? ${role} needs SDA/SCL; ${pin.pin} is not an I2C pin.`, componentId, role: roleId, pin: pin.pin })
+  if ((roleId === 'sda' && pin.i2c !== 'sda') || (roleId === 'scl' && pin.i2c !== 'scl')) issues.push({ severity: 'error', code: 'wrong-i2c-role', message: `${component} ? ${role} must go to the ${roleId.toUpperCase()} pin, not ${pin.pin}.`, componentId, role: roleId, pin: pin.pin })
+  if (kind === 'spi' && !pinSupportsRole(pin, pinRole)) issues.push({ severity: 'error', code: 'need-spi', message: `${component} ? ${role} needs a compatible SPI pin; ${pin.pin} does not support that role.`, componentId, role: roleId, pin: pin.pin })
+  if (kind === 'uart' && !pinSupportsRole(pin, pinRole)) issues.push({ severity: 'error', code: 'need-uart', message: `${component} ? ${role} needs a compatible UART pin; ${pin.pin} does not support that role.`, componentId, role: roleId, pin: pin.pin })
 }
 
 function recommendPin(pin: BoardPinCapability): string[] {

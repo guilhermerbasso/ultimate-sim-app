@@ -240,7 +240,7 @@ export const SIMX_FIRMWARE_INFO: ArduinoFirmwareInfo = {
   ],
   reflashSteps: [
     'Open button_box.ino in Arduino IDE (the app keeps an unchanged reference copy in firmware/sim-x-reference/).',
-    'Placa: "Arduino Leonardo" (ou SparkFun Pro Micro 5V/16MHz). Selecione a porta COM correta.',
+    'Board: "Arduino Leonardo" (or SparkFun Pro Micro 5V/16MHz). Select the correct COM port.',
     'Instale as 4 bibliotecas listadas pelo Library Manager.',
     'Close this app and SimHub (the serial port is exclusive) before flashing.',
     'Compile and flash. Do NOT change the firmware — it works in the app AND SimHub without changes.'

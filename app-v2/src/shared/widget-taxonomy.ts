@@ -62,7 +62,7 @@ export const WIDGET_CLUSTER_LABELS: Record<WidgetClusterTag, string> = {
   'Tell-tales / Warning lamps': 'Tell-tales / Luzes de aviso',
   'Race Control / Flags': 'Race Control / Bandeiras',
   'Stint / Endurance': 'Stint / Endurance',
-  'Driver Aids': 'Auxílios ao piloto',
+  'Driver Aids': 'Driver Aids',
   'Tyre / Brake': 'Tires / Brakes',
   'Radar / Relative': 'Radar / Relativo',
   'Timing / Delta': 'Tempos / Delta',
@@ -134,8 +134,8 @@ export const WIDGET_CATEGORY_LABELS: Record<WidgetCategoryTag, string> = {
   Inputs: 'Inputs do piloto',
   'Flags/Status': 'Bandeiras & Status',
   'Track/Radar': 'Pista & Radar',
-  'Charts/Graphs': 'Gráficos & Charts',
-  Analog: 'Analógicos',
+  'Charts/Graphs': 'Graphs & Charts',
+  Analog: 'Analog',
   Digital: 'Digitais (7-seg)',
   'Text/Image': 'Texto & Imagem'
 }
@@ -158,16 +158,16 @@ export const WIDGET_STYLE_ORDER: WidgetStyleFamily[] = [
 ]
 
 export const WIDGET_STYLE_LABELS: Record<WidgetStyleFamily, string> = {
-  analog: 'Analógico',
+  analog: 'Analog',
   digital: 'Digital 7-seg',
   clean: 'Digital limpo',
-  graph: 'Gráfico (linha)',
+  graph: 'Graph (line)',
   chart: 'Chart (barras)',
   bar: 'Barra segmentada',
   ring: 'Anel / Arco',
   led: 'LED bar',
   heatmap: 'Heatmap',
-  status: 'Status / Ícone',
+  status: 'Status / Icon',
   text: 'Texto grande',
   image: 'Imagem',
   gauge: 'Mostrador',

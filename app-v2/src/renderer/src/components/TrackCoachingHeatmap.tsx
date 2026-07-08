@@ -9,7 +9,7 @@
 //   • BLUE  gain   — much better; replicate it (estTimeDeltaSec > 0)
 //
 // Two modes:
-//   • `interactive` (Coach IA) — corners are CLICKABLE; selecting one expands a
+//   • `interactive` (AI Coach) — corners are CLICKABLE; selecting one expands a
 //     detail panel: RED → o que MELHORAR, BLUE → o que VOCE FEZ DE CERTO,
 //     GREEN → no padrao. Full legend.
 //   • `readonly` (overlay / dashboard widget) — same coloured mini-map, no click

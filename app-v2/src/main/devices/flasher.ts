@@ -235,9 +235,9 @@ export async function flashEsp32Firmware(opts: Esp32FlasherOptions): Promise<voi
   uploadArgs.push(opts.sketchPath)
   throwIfAborted(opts.signal)
 
-  if (!opts.port.trim()) throw new FlashError('Selecione a porta USB/serial do ESP32.')
+  if (!opts.port.trim()) throw new FlashError('Select the ESP32 USB/serial port.')
   if (!existsSync(opts.sketchPath)) {
-    throw new FlashError(`ESP32 sketch not found em ${opts.sketchPath}.`)
+    throw new FlashError(`ESP32 sketch not found at ${opts.sketchPath}.`)
   }
 
   await ensureArduinoCliReady(fqbn, opts.signal)

@@ -43,7 +43,7 @@ export function WelcomeStep({ onConfigure, onDemo, onSkip }: WelcomeStepProps): 
       <span className="onboarding-kicker">Primeira volta</span>
       <h2>Ultimate Sim App</h2>
       <p>
-        Configure telemetria, SIM-X e overlays em menos de 90 segundos para sair do box com o básico pronto.
+        Configure telemetry, SIM-X, and overlays in under 90 seconds so you can leave the pit box with the basics ready.
       </p>
       <div className="onboarding-actions onboarding-actions--hero">
         <button className="onboarding-button onboarding-button--primary" type="button" onClick={onConfigure}>
@@ -83,7 +83,7 @@ export function TelemetryStep({ selected, busy, error, onSelect }: TelemetryStep
           onClick={() => onSelect('mock')}
         >
           <strong>Demo(mock)</strong>
-          <span>Dados sintéticos para aprender o app sem hardware.</span>
+          <span>Synthetic data to learn the app without hardware.</span>
         </button>
       </div>
       {busy && <p className="onboarding-note">Aplicando fonte de telemetria…</p>}
@@ -98,11 +98,11 @@ export function DevicesStep({ onJump }: DevicesStepProps): ReactElement {
       <span className="onboarding-kicker">Devices</span>
       <h2>Conecte o SIM-X quando estiver pronto</h2>
       <p>
-        Plugue o controle via USB e use Devices para detectar porta, firmware e status. Você pode concluir o tour agora e conectar depois.
+        Plug in the controller over USB and use Devices to detect the port, firmware, and status. You can finish the tour now and connect later.
       </p>
       <button className="onboarding-link-card" type="button" onClick={onJump}>
-        <strong>Abrir Devices</strong>
-        <span>Ir para a tela de conexão do ButtonBox.</span>
+        <strong>Open Devices</strong>
+        <span>Go to the ButtonBox connection screen.</span>
       </button>
     </div>
   )
@@ -112,8 +112,8 @@ export function OverlaysStep({ selected, onSelect, onJump }: OverlaysStepProps):
   return (
     <div className="onboarding-step-body">
       <span className="onboarding-kicker">Overlays</span>
-      <h2>Escolha um preset para começar</h2>
-      <p>Vamos salvar sua preferência agora. Uma próxima atualização poderá aplicar o preset automaticamente.</p>
+      <h2>Choose a preset to get started</h2>
+      <p>We will save your preference now. A future update may apply the preset automatically.</p>
       <div className="onboarding-preset-grid">
         {(Object.keys(presetLabels) as OverlayPreset[]).map((preset) => (
           <button
@@ -127,7 +127,7 @@ export function OverlaysStep({ selected, onSelect, onJump }: OverlaysStepProps):
           </button>
         ))}
       </div>
-      <button className="onboarding-inline-link" type="button" onClick={onJump}>Abrir Overlays</button>
+      <button className="onboarding-inline-link" type="button" onClick={onJump}>Open Overlays</button>
     </div>
   )
 }
@@ -136,7 +136,7 @@ export function FinishStep({ selectedPreset }: FinishStepProps): ReactElement {
   return (
     <div className="onboarding-step-body onboarding-finish">
       <span className="onboarding-kicker">Pronto</span>
-      <h2>Seu grid inicial está montado</h2>
+      <h2>Your starter grid is ready</h2>
       <p>
         Vamos fixar Telemetry, Overlays, Fuel e Devices nos favoritos. Preset escolhido: {presetLabels[selectedPreset]}.
       </p>
@@ -153,13 +153,13 @@ export function FinishStep({ selectedPreset }: FinishStepProps): ReactElement {
 function getPresetDescription(preset: OverlayPreset): string {
   switch (preset) {
     case 'minimal':
-      return 'Pouca informação, máximo foco na pista.'
+      return 'Less information, maximum focus on track.'
     case 'endurance':
-      return 'Fuel, stint e consistência para provas longas.'
+      return 'Fuel, stint, and consistency for endurance races.'
     case 'streaming':
-      return 'Legibilidade alta para transmissão.'
+      return 'High readability for broadcasts.'
     case 'engineer':
-      return 'Dados densos para ajuste e análise.'
+      return 'Dense data for tuning and analysis.'
   }
 }
 

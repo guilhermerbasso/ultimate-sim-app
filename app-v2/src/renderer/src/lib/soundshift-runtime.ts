@@ -178,7 +178,7 @@ class SoundshiftAudioEngine {
     this.applyRoute()
     await this.waitForSinkSwitch()
     if (ctx.state !== 'running') {
-      throw new Error('O áudio está bloqueado até você interagir com o app (política de autoplay).')
+      throw new Error('Audio is blocked until you interact with the app (autoplay policy).')
     }
 
     const now = ctx.currentTime

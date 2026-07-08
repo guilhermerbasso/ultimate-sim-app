@@ -90,7 +90,7 @@ export class WifiTransport extends EventEmitter {
       socket.setKeepAlive(true, 10_000)
 
       const timer = setTimeout(() => {
-        socket.destroy(new Error('Tempo esgotado ao conectar no ESP32 via Wi‑Fi.'))
+        socket.destroy(new Error('Timed out connecting to the ESP32 over Wi?Fi.'))
       }, timeoutMs)
 
       const settle = (fn: () => void): void => {

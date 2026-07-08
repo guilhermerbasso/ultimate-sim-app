@@ -268,7 +268,7 @@ export class EmulationEngine {
     if (process.platform !== 'win32') {
       return { ok: false, message: 'Virtual gamepad emulation requires Windows + ViGEmBus driver.' }
     }
-    if (this.virtualPad) return { ok: true, message: 'Gamepad virtual conectado.' }
+    if (this.virtualPad) return { ok: true, message: 'Virtual gamepad connected.' }
     if (this.vigemError) return { ok: false, message: `vigemclient/ViGEmBus dependency unavailable: ${this.vigemError}` }
     // Memoize the in-flight init so concurrent first-use callers don't each create
     // (and leak) a second ViGEm client/virtual pad.
@@ -307,7 +307,7 @@ export class EmulationEngine {
 
       this.vigemClient = client
       this.virtualPad = pad
-      return { ok: true, message: 'Gamepad virtual conectado.' }
+      return { ok: true, message: 'Virtual gamepad connected.' }
     } catch (error) {
       this.vigemError = errorMessage(error)
       return { ok: false, message: `vigemclient/ViGEmBus dependency unavailable: ${this.vigemError}` }

@@ -156,7 +156,7 @@ export function PitPanelRoot() {
 
       {!enabled && (
         <div className="pp-gate-banner">
-          Comandos de pit ficam ativos apenas com o iRacing conectado e você no carro/pista.
+          Pit commands are active only when iRacing is connected and you are in the car/on track.
         </div>
       )}
 

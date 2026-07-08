@@ -413,7 +413,7 @@ describe('buildCoachReport', () => {
     expect(report.deltaToBestSec).toBeCloseTo(0.8)
     expect(report.findings.length).toBeGreaterThan(0)
     expect(report.consistency).toBeDefined()
-    expect(report.summary).toMatch(/vs melhor/i)
+    expect(report.summary).toMatch(/vs best/i)
   })
 
   it('produces a clean-lap summary when there are no issues', () => {

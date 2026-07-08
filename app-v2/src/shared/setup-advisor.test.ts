@@ -139,12 +139,12 @@ describe('buildSetupReport', () => {
     expect(report.suggestions.length).toBeGreaterThanOrEqual(3)
     // Highest-confidence suggestion is first.
     expect(report.suggestions[0].confidence).toBe('high')
-    expect(report.summary).toMatch(/ajuste/i)
+    expect(report.summary).toMatch(/adjustment/i)
   })
 
   it('produces a balanced-car summary when there is nothing to flag', () => {
     const report = buildSetupReport({ balance: [], tyres: {} })
     expect(report.suggestions).toHaveLength(0)
-    expect(report.summary).toMatch(/equilibrado/i)
+    expect(report.summary).toMatch(/balanced/i)
   })
 })

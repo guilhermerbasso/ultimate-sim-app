@@ -54,7 +54,7 @@ const input: CSSProperties = {
 }
 
 function blankExpression(): ExpressionDef {
-  return { id: `expr-${Date.now()}`, name: 'Nova expressão', expr: 'speedKmh > 100 ? "rápido" : "lento"' }
+  return { id: `expr-${Date.now()}`, name: 'New expression', expr: 'speedKmh > 100 ? "fast" : "slow"' }
 }
 
 // ─── Targets / OutputRoute helpers ──────────────────────────────────────────
@@ -64,7 +64,7 @@ const TARGET_KIND_LABELS: Record<OutputTargetKind, string> = {
   dashboard: 'Trocar dashboard',
   overlay: 'Overlay',
   serial: 'Serial (ButtonBox / dispositivo)',
-  secondScreen: 'Segunda tela'
+  secondScreen: 'Second screen'
 }
 
 const TARGET_KIND_ORDER: OutputTargetKind[] = ['dashboardVar', 'dashboard', 'overlay', 'serial', 'secondScreen']
@@ -109,12 +109,12 @@ interface PropertyPickerOption {
 // Flat list of well-known telemetry properties for the expression picklist.
 const TELEMETRY_PROPERTY_OPTIONS: PropertyPickerOption[] = [
   { id: 'speedKmh', label: 'speedKmh', description: 'Velocidade em km/h' },
-  { id: 'rpm', label: 'rpm', description: 'Rotação do motor' },
-  { id: 'maxRpm', label: 'maxRpm', description: 'RPM máximo do motor' },
-  { id: 'gear', label: 'gear', description: 'Marcha atual (-1 ré, 0 neutro, 1..n)' },
-  { id: 'throttle', label: 'throttle', description: 'Posição do acelerador (0..1)' },
-  { id: 'brake', label: 'brake', description: 'Posição do freio (0..1)' },
-  { id: 'clutch', label: 'clutch', description: 'Posição da embreagem (0..1)' },
+  { id: 'rpm', label: 'rpm', description: 'Engine RPM' },
+  { id: 'maxRpm', label: 'maxRpm', description: 'Max engine RPM' },
+  { id: 'gear', label: 'gear', description: 'Current gear (-1 reverse, 0 neutral, 1..n)' },
+  { id: 'throttle', label: 'throttle', description: 'Throttle position (0..1)' },
+  { id: 'brake', label: 'brake', description: 'Brake position (0..1)' },
+  { id: 'clutch', label: 'clutch', description: 'Clutch position (0..1)' },
   { id: 'absActive', label: 'absActive', description: 'ABS atuando (booleano)' },
   { id: 'tcActive', label: 'tcActive', description: 'TC atuando (booleano)' },
   { id: 'connected', label: 'connected', description: 'Connected ao yes (booleano)' },
@@ -122,21 +122,21 @@ const TELEMETRY_PROPERTY_OPTIONS: PropertyPickerOption[] = [
   { id: 'trackName', label: 'trackName', description: 'Nome da pista' },
   { id: 'currentLap', label: 'currentLap', description: 'Lap atual' },
   { id: 'currentLapTimeSec', label: 'currentLapTimeSec', description: 'Tempo da volta atual (segundos)' },
-  { id: 'lastLapTimeSec', label: 'lastLapTimeSec', description: 'Tempo da última volta (segundos)' },
-  { id: 'bestLapTimeSec', label: 'bestLapTimeSec', description: 'Melhor volta da sessão (segundos)' },
+  { id: 'lastLapTimeSec', label: 'lastLapTimeSec', description: 'Last lap time (seconds)' },
+  { id: 'bestLapTimeSec', label: 'bestLapTimeSec', description: 'Best lap of the session (seconds)' },
   { id: 'deltaToBestSec', label: 'deltaToBestSec', description: 'Delta para melhor volta (+ pior, - melhor)' },
   { id: 'fuelLiters', label: 'fuelLiters', description: 'Fuel restante (litros)' },
   { id: 'fuelPerLap', label: 'fuelPerLap', description: 'Consumo por volta (litros)' },
-  { id: 'position', label: 'position', description: 'Posição na corrida' },
-  { id: 'totalCars', label: 'totalCars', description: 'Total de carros na sessão' },
+  { id: 'position', label: 'position', description: 'Race position' },
+  { id: 'totalCars', label: 'totalCars', description: 'Total cars in session' },
   { id: 'shiftIndicatorPct', label: 'shiftIndicatorPct', description: 'Indicador de troca de marcha (0..1)' },
-  { id: 'waterTempC', label: 'waterTempC', description: 'Temperatura da água do motor (°C)' },
-  { id: 'oilTempC', label: 'oilTempC', description: 'Temperatura do óleo do motor (°C)' },
+  { id: 'waterTempC', label: 'waterTempC', description: 'Engine water temperature (°C)' },
+  { id: 'oilTempC', label: 'oilTempC', description: 'Engine oil temperature (°C)' },
   { id: 'pitLimiter', label: 'pitLimiter', description: 'Pit limiter ativo (booleano)' },
   { id: 'onPitRoad', label: 'onPitRoad', description: 'Na pit lane (booleano)' },
   { id: 'incidentCount', label: 'incidentCount', description: 'Contagem de incidentes' },
   { id: 'trackTempC', label: 'trackTempC', description: 'Temperatura da pista (°C)' },
-  { id: 'lapDistPct', label: 'lapDistPct', description: 'Distância percorrida na volta (0..1)' },
+  { id: 'lapDistPct', label: 'lapDistPct', description: 'Lap distance completed (0..1)' },
   { id: 'drs', label: 'drs', description: 'DRS aberto (booleano)' }
 ]
 
@@ -341,7 +341,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
     ...buildIracingExpressionScope(latest, enabledVarIds)
   }), [enabledVarIds, latest])
   const liveResult = useMemo(() => {
-    if (!draft.expr.trim()) return { value: null as ExpressionValue, error: 'Informe uma expressão.' }
+    if (!draft.expr.trim()) return { value: null as ExpressionValue, error: 'Enter an expression.' }
     try {
       return { value: evaluateExpression(draft.expr, scope), error: null }
     } catch (error) {
@@ -512,7 +512,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
 
   const saveDraft = useCallback(async (): Promise<void> => {
     if (!draft.name.trim() || !draft.expr.trim()) {
-      showToast('Informe nome e expressão.', 'error')
+      showToast('Enter a name and expression.', 'error')
       return
     }
     if (liveResult.error) {
@@ -537,11 +537,11 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
       try {
         await mutateRoutes((current) => syncRoutesForExpression(current, normalized))
       } catch (routeError) {
-        showToast(`Expressão salva, mas falhou ao sincronizar saídas: ${getErrorMessage(routeError)}`, 'error')
+        showToast(`Expression saved, but output sync failed: ${getErrorMessage(routeError)}`, 'error')
       }
       setSelectedId(normalized.id)
       setDraft(normalized)
-      showToast('Expressão salva.', 'success')
+      showToast('Expression saved.', 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -555,11 +555,11 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
       try {
         await mutateRoutes((current) => pruneRoutesForExpression(current, selectedId))
       } catch (routeError) {
-        showToast(`Expressão removida, mas falhou ao limpar saídas: ${getErrorMessage(routeError)}`, 'error')
+        showToast(`Expression removed, but output cleanup failed: ${getErrorMessage(routeError)}`, 'error')
       }
       setSelectedId(next[0]?.id ?? null)
       setDraft(next[0] ?? blankExpression())
-      showToast('Expressão removida.', 'success')
+      showToast('Expression removed.', 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -706,10 +706,10 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
           <div>
             <div style={label}>Biblioteca</div>
-            <h3 style={{ margin: '4px 0 0' }}>Expressões</h3>
+            <h3 style={{ margin: '4px 0 0' }}>Expressions</h3>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <SectionExportImport sectionId="expressions" label="Expressões" onImported={() => void reloadExpressions()} />
+            <SectionExportImport sectionId="expressions" label="Expressions" onImported={() => void reloadExpressions()} />
             <button className="primary-action compact" type="button" onClick={() => { setSelectedId(null); setDraft(blankExpression()) }}>
               Nova
             </button>
@@ -717,7 +717,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
         </div>
         {loadError && <p style={{ color: 'var(--accent-danger)' }}>{loadError}</p>}
         <div style={{ display: 'grid', gap: 8, marginTop: 14 }}>
-          {expressions.length === 0 && <p style={{ opacity: 0.7 }}>Nenhuma expressão salva ainda.</p>}
+          {expressions.length === 0 && <p style={{ opacity: 0.7 }}>No expressions saved yet.</p>}
           {expressions.map((item) => (
             <button
               key={item.id}
@@ -763,7 +763,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
             <input style={input} value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
           </label>
           <label style={{ display: 'block', marginTop: 12 }}>
-            Expressão
+            Expression
             <div style={{ position: 'relative' }}>
               <textarea
                 ref={expressionInputRef}
@@ -832,7 +832,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
                 <div
                   id="dashboard-expression-picklist"
                   role="listbox"
-                  aria-label="Dashboards disponíveis"
+                  aria-label="Available dashboards"
                   style={{
                     position: 'absolute',
                     left: 0,
@@ -849,7 +849,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
                   }}
                 >
                   {dashboardPickerOptions.length === 0 && (
-                    <div style={{ padding: 10, opacity: 0.7 }}>Nenhum dashboard encontrado.</div>
+                    <div style={{ padding: 10, opacity: 0.7 }}>No dashboard found.</div>
                   )}
                   {dashboardPickerOptions.map((dash, index) => (
                     <button
@@ -886,7 +886,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
                         setDashboardPicker({ open: false, match: null, activeIndex: 0 })
                       }}
                     >
-                      Usar como ação de troca de dashboard
+                      Use as dashboard switch action
                     </button>
                   )}
                 </div>
@@ -944,10 +944,10 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
             </div>
           </label>
           <p style={{ opacity: 0.72, margin: '10px 0 0' }}>
-            Suporte: operadores + - * / % && || ! ?:, funções min/max/abs/round/floor/ceil/clamp, if/iif, format/formattime, str/len, contains/startswith/endswith, coalesce, switch, between, pow/sqrt/sign/log, not, dashboard. Digite um identificador para autocomplete de propriedades de telemetria (↑↓ Enter Esc).
+            Suporte: operadores + - * / % && || ! ?:, functions min/max/abs/round/floor/ceil/clamp, if/iif, format/formattime, str/len, contains/startswith/endswith, coalesce, switch, between, pow/sqrt/sign/log, not, dashboard. Type an identifier to autocomplete telemetry properties (↑↓ Enter Esc).
           </p>
           <label style={{ display: 'block', marginTop: 12 }}>
-            Nome de publicação (opcional)
+            Publish name (optional)
             <input
               style={input}
               placeholder={slugifyName(draft.name, draft.id || 'expr')}
@@ -957,7 +957,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
               }
             />
             <span style={{ display: 'block', opacity: 0.6, marginTop: 4, fontSize: 12 }}>
-              Usado como variável de dashboard/overlay e slot quando o target é criado. Padrão: slug do nome.
+              Used as the dashboard/overlay variable and slot when the target is created. Default: name slug.
             </span>
           </label>
           <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
@@ -968,7 +968,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
 
         <section style={card}>
           <div style={label}>Destinos (output targets)</div>
-          <h3 style={{ margin: '5px 0 8px' }}>Onde publicar esta expressão</h3>
+          <h3 style={{ margin: '5px 0 8px' }}>Where to publish this expression</h3>
           <p style={{ margin: 0, opacity: 0.72 }}>
             Marque um ou mais destinos. Ao salvar, criamos um OutputRoute por destino (id <code>expr:&lt;exprId&gt;:&lt;kind&gt;</code>) lendo a fonte
             <code> {`{kind:'expression', exprId:'${draft.id || '…'}'}`}</code>.
@@ -1000,7 +1000,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
                     <div style={{ display: 'grid', gap: 8 }}>
                       {target.kind === 'dashboardVar' && (
                         <label style={{ display: 'block' }}>
-                          Nome da variável
+                          Variable name
                           <input
                             style={input}
                             value={target.name}
@@ -1018,7 +1018,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
                         )
                         return (
                           <label style={{ display: 'block' }}>
-                            Dashboard para ativar quando a expressão for verdadeira
+                            Dashboard to activate when the expression is true
                             <select
                               style={input}
                               value={target.dashboardId}
@@ -1031,7 +1031,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
                                 } as Partial<OutputTarget>)
                               }}
                             >
-                              {options.length === 0 && <option value="">Nenhum dashboard disponível</option>}
+                              {options.length === 0 && <option value="">No dashboard available</option>}
                               {options.map((option) => (
                                 <option key={option.id} value={option.id}>
                                   {option.label}{option.hint ? ` · ${option.hint}` : ''}
@@ -1092,7 +1092,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
                                   }
                                 >
                                   {options.length === 0 && (
-                                    <option value="">Nenhum dispositivo serial conectado</option>
+                                    <option value="">No serial device connected</option>
                                   )}
                                   {options.map((option) => (
                                     <option key={option.id} value={option.id}>
@@ -1124,7 +1124,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
                           )
                           return (
                             <label style={{ display: 'block' }}>
-                              Slot da segunda tela
+                              Second-screen slot
                               <select
                                 style={input}
                                 value={target.slot}
@@ -1153,22 +1153,22 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
         <section style={{ ...card, borderColor: liveResult.error ? 'rgba(255,107,107,0.55)' : 'rgba(var(--accent-rgb),0.45)' }}>
           <div style={label}>Test ao vivo</div>
           <h3 style={{ margin: '5px 0 10px', color: liveResult.error ? 'var(--accent-danger)' : 'var(--accent-primary)' }}>
-            {liveResult.error ? 'Error na expressão' : formatValue(liveResult.value)}
+            {liveResult.error ? 'Expression error' : formatValue(liveResult.value)}
           </h3>
           <p style={{ margin: 0, opacity: 0.75 }}>
-            {liveResult.error ?? `${latest?.connected ? 'Telemetry conectada' : 'Aguardando/mock'} · ${latest?.sim ?? 'none'}`}
+            {liveResult.error ?? `${latest?.connected ? 'Telemetry connected' : 'Waiting/mock'} · ${latest?.sim ?? 'none'}`}
           </p>
           {draftLiveValue && (
             <p style={{ margin: '8px 0 0', opacity: 0.78, fontSize: 12 }}>
-              Última transmissão (<code>expr:results</code>): <strong>{formatValue(draftLiveValue.value)}</strong> ·{' '}
+              Last transmission (<code>expr:results</code>): <strong>{formatValue(draftLiveValue.value)}</strong> ·{' '}
               <code>{draftLiveValue.name}</code>
             </p>
           )}
         </section>
 
         <section style={card}>
-          <div style={label}>Variáveis do iRacing</div>
-          <h3 style={{ margin: '5px 0 8px' }}>Catálogo de campos</h3>
+          <div style={label}>iRacing variables</div>
+          <h3 style={{ margin: '5px 0 8px' }}>Field catalog</h3>
           <p style={{ margin: 0, opacity: 0.72 }}>
             Clique para habilitar/desabilitar. Campos habilitados com mapeamento aparecem no escopo da expressão pelo nome do SDK (ex.: <code>Speed</code>).
           </p>
@@ -1225,7 +1225,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
         <section style={card}>
           <div style={label}>Campos habilitados</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginTop: 12, maxHeight: 260, overflow: 'auto' }}>
-            {variableRows.length === 0 && <p style={{ opacity: 0.7 }}>Nenhuma variável do iRacing habilitada.</p>}
+            {variableRows.length === 0 && <p style={{ opacity: 0.7 }}>No iRacing variables enabled.</p>}
             {variableRows.map((item) => (
               <div key={item.id} style={{ border: '1px solid rgba(255,255,255,0.09)', borderRadius: 'var(--radius-sm)', padding: 9, background: 'rgba(0,0,0,0.16)' }}>
                 <code>{item.name}</code>

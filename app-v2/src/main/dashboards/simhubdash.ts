@@ -915,7 +915,7 @@ async function buildDashboardFromScreen(args: {
     notes.push(`Bindings JS/NCalc sem mapeamento (${unknownExpressions.size}): ${examples.join(' | ')}${unknownExpressions.size > examples.length ? '…' : ''}`)
   }
   if (args.screens.length > 1) {
-    notes.push(`Imported screen: "${args.screen?.Name ?? `Screen ${args.screenIndex + 1}`}" (${flat.length} elemento(s)). Você pode importar outra tela pela seleção multi-screen.`)
+    notes.push(`Imported screen: "${args.screen?.Name ?? `Screen ${args.screenIndex + 1}`}" (${flat.length} element(s)). You can import another screen from the multi-screen selection.`)
   }
 
   const suffix = args.screens.length > 1 ? ` - ${args.screen?.Name ?? `Screen ${args.screenIndex + 1}`}` : ''

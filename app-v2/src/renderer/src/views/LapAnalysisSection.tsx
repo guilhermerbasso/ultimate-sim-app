@@ -37,7 +37,7 @@ import {
 } from '../../../shared/coach'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Screen "Análise de telemetria":
+// Screen "Telemetry analysis":
 // 1. Escolhe fonte: gravações do app (JSONL) OU `.ibt` do iRacing.
 // 2. Escolhe pista (derivada das gravações + .ibt indexados).
 // 3. Marca até 8 laps e roda um perfil de análise:
@@ -385,7 +385,7 @@ function LossPointList({ losses, laps }: { losses: AnalysisResult['losses']; lap
                     <div style={{ ...muted, display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                       <span>Vel pico {fmtNumber(point.primaryMaxSpeedKmh, 0)} km/h (best {fmtNumber(point.bestMaxSpeedKmh, 0)})</span>
                       <span>Vel mín {fmtNumber(point.primaryMinSpeedKmh, 0)} (best {fmtNumber(point.bestMinSpeedKmh, 0)})</span>
-                      <span>Throttle médio {Math.round(point.primaryAvgThrottle * 100)}% (best {Math.round(point.bestAvgThrottle * 100)}%)</span>
+                      <span>Avg throttle {Math.round(point.primaryAvgThrottle * 100)}% (best {Math.round(point.bestAvgThrottle * 100)}%)</span>
                       <span>Freio pico {Math.round(point.primaryMaxBrake * 100)}% (best {Math.round(point.bestMaxBrake * 100)}%)</span>
                     </div>
                     <ul style={{ margin: 0, paddingLeft: 18 }}>
@@ -420,7 +420,7 @@ function buildRecordingCandidates(sessions: RecordingSessionSummary[]): LapCandi
         durationSec: lap.durationSec,
         lapNumber: lap.lapNumber ?? lap.lapIndex + 1,
         source: SOURCE_RECORDING,
-        sourceLabel: `Gravação · ${fmtDate(session.startedAt)}`,
+        sourceLabel: `Recording · ${fmtDate(session.startedAt)}`,
         badge: lap.complete ? 'completa' : 'parcial',
         detail: describeRecordingLap(session, lap),
         fileDate: session.startedAt
@@ -471,7 +471,7 @@ function describeIbtLap(file: IbtFileSummary, lap: IbtLapSummary): string {
   return parts.join(' · ')
 }
 
-// Análise de telemetria — absorbed into Coach IA (the single ANALYSIS hub).
+// Telemetry analysis — absorbed into AI Coach (the single ANALYSIS hub).
 // Self-contained section: offline lap analysis (recordings + .ibt) and the
 // deterministic Live Coach. Rendered by CoachView; no longer a standalone view.
 export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'>): ReactElement {
@@ -648,7 +648,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
           return current.filter((r) => lapKey(r) !== key)
         }
         if (current.length >= MAX_LAPS) {
-          showToast(`Máximo de ${MAX_LAPS} laps por análise.`, 'info')
+          showToast(`Maximum of ${MAX_LAPS} laps per analysis.`, 'info')
           return current
         }
         return [...current, ref]
@@ -665,7 +665,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
       const saved = await invoke<ReferenceLapSummary>('recording:references:saveFromLap', { ref })
       await loadReferences()
       setSelectedReferenceId(saved.id)
-      showToast('Referência salva.', 'success')
+      showToast('Reference saved.', 'success')
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
     } finally {
@@ -679,7 +679,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
       const next = await invoke<ReferenceLapSummary[]>('recording:references:delete', id)
       setReferences(next)
       setSelectedReferenceId((current) => current === id ? '' : current)
-      showToast('Referência removida.', 'success')
+      showToast('Reference removed.', 'success')
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
     } finally {
@@ -697,7 +697,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
       const imported = await invoke<{ summary: ReferenceLapSummary; samples: AnalysisLapSample[] }>('recording:importCsv', csvPath.trim())
       await loadReferences()
       setSelectedReferenceId(imported.summary.id)
-      showToast('CSV importado como referência.', 'success')
+      showToast('CSV imported as reference.', 'success')
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
     } finally {
@@ -710,7 +710,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
     try {
       const next = await invoke<RecordingStatus>('recording:start', { sampleRateHz: 15 })
       setStatus(next)
-      showToast('Gravação iniciada.', 'success')
+      showToast('Recording started.', 'success')
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
     } finally {
@@ -723,7 +723,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
     try {
       const saved = await invoke<RecordingConfig>(RECORDING_CHANNELS.setConfig, { autoRecord: next })
       setRecordingConfig(saved)
-      showToast(next ? 'Gravação automática ativada.' : 'Gravação automática desativada.', 'success')
+      showToast(next ? 'Automatic recording enabled.' : 'Automatic recording disabled.', 'success')
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
     }
@@ -732,7 +732,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
   const openRecordingsFolder = useCallback(async () => {
     try {
       const result = await invoke<string>(RECORDING_CHANNELS.openFolder)
-      if (result) showToast(`Não foi possível abrir a pasta: ${result}`, 'error')
+      if (result) showToast(`Could not open folder: ${result}`, 'error')
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
     }
@@ -744,7 +744,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
       const next = await invoke<RecordingStatus>('recording:stop')
       setStatus(next)
       await loadSessions()
-      showToast('Gravação finalizada.', 'success')
+      showToast('Recording finished.', 'success')
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
     } finally {
@@ -788,7 +788,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
 
   const runAnalysis = useCallback(async () => {
     if (selectedLaps.length === 0) {
-      showToast('Selecione ao menos uma volta.', 'info')
+      showToast('Select at least one lap.', 'info')
       return
     }
     setAnalyzing(true)
@@ -803,7 +803,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
         withInsights: Boolean(selectedReferenceId)
       })
       setResult(next)
-      showToast(`Análise concluída: ${next.laps.length} volta(s).`, 'success')
+      showToast(`Analysis complete: ${next.laps.length} lap(s).`, 'success')
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
     } finally {
@@ -817,10 +817,10 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ ...card, display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 16 }}>
         <div>
-          <h3 style={{ margin: '0 0 6px' }}>Análise de telemetria</h3>
+          <h3 style={{ margin: '0 0 6px' }}>Telemetry analysis</h3>
           <p style={{ ...muted, margin: 0 }}>
-            Combina gravações do app com arquivos <code>.ibt</code> do iRacing. Escolha a fonte, a pista
-            e as laps, depois rode um perfil de análise para ver onde dá para ganhar tempo.
+            Combines app recordings com arquivos <code>.ibt</code> do iRacing. Choose the source, track
+            and laps, then run an analysis profile to see where you can gain time.
           </p>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -829,7 +829,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
           </span>
           <label
             style={{ ...muted, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
-            title="Inicia a gravação automaticamente quando a telemetria conecta."
+            title="Starts recording automatically when telemetry connects."
           >
             <input
               type="checkbox"
@@ -839,12 +839,12 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
             Auto-gravar
           </label>
           {status?.recording ? (
-            <button disabled={busy} onClick={() => void stopRecording()} style={dangerButton} type="button">Parar gravação</button>
+            <button disabled={busy} onClick={() => void stopRecording()} style={dangerButton} type="button">Stop recording</button>
           ) : (
-            <button disabled={busy} onClick={() => void startRecording()} style={button} type="button">Iniciar gravação</button>
+            <button disabled={busy} onClick={() => void startRecording()} style={button} type="button">Start recording</button>
           )}
-          <button onClick={() => void openRecordingsFolder()} style={ghostButton} type="button" title="Abre a pasta onde as gravações são salvas.">
-            Abrir pasta das gravações
+          <button onClick={() => void openRecordingsFolder()} style={ghostButton} type="button" title="Opens the folder where recordings are saved.">
+            Open recordings folder
           </button>
           <button disabled={busy} onClick={() => void refresh()} style={ghostButton} type="button">Refresh</button>
         </div>
@@ -859,7 +859,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
           }}
           onClick={() => setActiveTab('analysis')}
         >
-          Análise offline
+          Offline analysis
         </button>
         <button
           type="button"
@@ -892,7 +892,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
           <label style={{ display: 'grid', gap: 6 }}>
             <span style={muted}>Fonte</span>
             <select value={sourceKind} onChange={(e) => setSourceKind(e.target.value as SourceKind)} style={selectStyle}>
-              <option value={SOURCE_RECORDING}>Gravações do app</option>
+              <option value={SOURCE_RECORDING}>App recordings</option>
               <option value={SOURCE_IBT}>.ibt do iRacing</option>
             </select>
           </label>
@@ -910,7 +910,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
           </label>
 
           <label style={{ display: 'grid', gap: 6 }}>
-            <span style={muted}>Perfil de análise</span>
+            <span style={muted}>Analysis profile</span>
             <select value={profile} onChange={(e) => setProfile(e.target.value as AnalysisProfile)} style={selectStyle}>
               {(Object.keys(PROFILE_LABELS) as AnalysisProfile[]).map((p) => (
                 <option key={p} value={p}>{PROFILE_LABELS[p].label}</option>
@@ -942,7 +942,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
             <input type="date" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} style={{ ...inputStyle, colorScheme: 'dark' }} />
           </label>
           <label style={{ display: 'grid', gap: 6 }}>
-            <span style={muted}>Até</span>
+            <span style={muted}>Up to</span>
             <input type="date" value={filterTo} onChange={(e) => setFilterTo(e.target.value)} style={{ ...inputStyle, colorScheme: 'dark' }} />
           </label>
         </div>
@@ -950,7 +950,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
         {sourceKind === SOURCE_IBT && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 10, alignItems: 'end' }}>
             <label style={{ display: 'grid', gap: 6 }}>
-              <span style={muted}>Pasta .ibt do iRacing (padrão: {ibtFolderDefault || 'Documents/iRacing/telemetry'})</span>
+              <span style={muted}>iRacing .ibt folder (default: {ibtFolderDefault || 'Documents/iRacing/telemetry'})</span>
               <input
                 value={ibtFolder}
                 onChange={(e) => setIbtFolder(e.target.value)}
@@ -962,14 +962,14 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
               {scanningIbt ? 'Lendo…' : 'Reescanear'}
             </button>
             <button type="button" style={subtleButton} onClick={() => { setIbtFolder(ibtFolderDefault); void scanIbt(ibtFolderDefault) }} disabled={!ibtFolderDefault}>
-              Pasta padrão
+              Default folder
             </button>
           </div>
         )}
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={muted}>
-            {filteredCandidates.length} volta(s) disponível(eis) — clique para incluir na análise.
+            {filteredCandidates.length} lap(s) available — click to include in the analysis.
           </span>
           <button
             type="button"
@@ -977,7 +977,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
             disabled={selectedLaps.length === 0 || analyzing}
             onClick={() => void runAnalysis()}
           >
-            {analyzing ? 'Analisando…' : `Rodar análise (${selectedLaps.length})`}
+            {analyzing ? 'Analyzing…' : `Run analysis (${selectedLaps.length})`}
           </button>
         </div>
 
@@ -1002,7 +1002,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
       {result ? (
         <AnalysisResultView result={result} bestLap={bestLap} />
       ) : (
-        <div style={card}>Selecione laps e clique em <strong>Rodar análise</strong> para ver gráficos, delta e pontos de perda.</div>
+        <div style={card}>Select laps and click <strong>Run analysis</strong> to see charts, delta, and loss points.</div>
       )}
         </>
       )}
@@ -1038,15 +1038,15 @@ function LiveCoachPanel({
   const statusLabel = running
     ? `ON · ${status?.sampleCount ?? 0} amostras`
     : enabled
-      ? 'Ativo · aguardando telemetria'
-      : 'Desligado'
+      ? 'Active · waiting for telemetry'
+      : 'Off'
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <div style={{ ...card, display: 'grid', gridTemplateColumns: '1.2fr auto', gap: 16, alignItems: 'center' }}>
         <div>
           <h3 style={{ margin: '0 0 6px' }}>Live Coach</h3>
           <p style={{ ...muted, margin: 0 }}>
-            Coach determinístico/offline: usa delta ao best, inputs e telemetria ao vivo para priorizar dicas por perda estimada.
+            Deterministic/offline coach: uses delta to best, inputs, and live telemetry to prioritize tips by estimated loss.
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
@@ -1072,8 +1072,8 @@ function LiveCoachPanel({
           <span>Falar top tip via Voice Spotter</span>
         </label>
         <div style={muted}>
-          Ligado por padrão: o Live Coach inicia sozinho com a telemetria e fala a dica
-          mais crítica (respeitando severidade e intervalo entre falas) na voz selecionada.
+          On by default: Live Coach starts automatically with telemetry and speaks the tip
+          with the highest priority (respecting severity and speech interval) in the selected voice.
         </div>
       </div>
 
@@ -1084,10 +1084,10 @@ function LiveCoachPanel({
 
 function CoachTipsList({ tips, running }: { tips: CoachTip[]; running: boolean }): ReactElement {
   if (!running) {
-    return <div style={card}>Conecte a telemetria (em pista, fora dos boxes) para o Live Coach começar a priorizar dicas automaticamente.</div>
+    return <div style={card}>Connect telemetry (on track, out of the pits) so Live Coach can start prioritizing tips automatically.</div>
   }
   if (tips.length === 0) {
-    return <div style={card}>Aguardando dados suficientes para detectar padrões de perda.</div>
+    return <div style={card}>Waiting for enough data to detect loss patterns.</div>
   }
   return (
     <div style={{ display: 'grid', gap: 10 }}>
@@ -1121,9 +1121,9 @@ function CoachTipsList({ tips, running }: { tips: CoachTip[]; running: boolean }
 
 function coachSeverityLabel(severity: CoachTip['severity']): string {
   switch (severity) {
-    case 'high': return 'Alta'
-    case 'med': return 'Média'
-    case 'low': return 'Baixa'
+    case 'high': return 'High'
+    case 'med': return 'Medium'
+    case 'low': return 'Low'
     case 'good': return 'Bom'
   }
 }
@@ -1187,7 +1187,7 @@ function LapPool({
               {c.detail ? <div style={muted}>{c.detail}</div> : null}
             </button>
             {isSelected ? (
-              <button type="button" style={subtleButton} onClick={() => onSaveReference(c.ref)}>Definir como referência</button>
+              <button type="button" style={subtleButton} onClick={() => onSaveReference(c.ref)}>Set as reference</button>
             ) : null}
           </div>
         )
@@ -1221,16 +1221,16 @@ function ReferencesPanel({
     <div style={{ ...card, display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
         <div>
-          <strong>Referências</strong>
-          <div style={muted}>Use sua melhor volta gravada, uma volta .ibt importada ou CSV próprio.</div>
+          <strong>References</strong>
+          <div style={muted}>Use your best recorded lap, an imported .ibt lap, or your own CSV.</div>
         </div>
         <span style={muted}>{references.length} salva(s)</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'end' }}>
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={muted}>Referência para overlay/coaching</span>
+          <span style={muted}>Reference for overlay/coaching</span>
           <select value={selectedReferenceId} onChange={(event) => onSelect(event.target.value)} style={selectStyle}>
-            <option value="">Sem referência salva (comparar com melhor selecionada)</option>
+            <option value="">No saved reference (compare with selected best)</option>
             {references.map((ref) => (
               <option key={ref.id} value={ref.id}>
                 {ref.label} · {ref.source.toUpperCase()} · {fmtTime(ref.durationSec)}
@@ -1249,7 +1249,7 @@ function ReferencesPanel({
       ) : null}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'end' }}>
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={muted}>Importar CSV como referência</span>
+          <span style={muted}>Import CSV as reference</span>
           <input value={csvPath} onChange={(event) => onCsvPathChange(event.target.value)} placeholder="/caminho/volta.csv" style={inputStyle} />
         </label>
         <button type="button" style={ghostButton} disabled={busy} onClick={onImportCsv}>Importar CSV</button>
@@ -1273,7 +1273,7 @@ function IbtIndexSummary({
       </div>
       {files.length === 0 ? (
         <p style={{ ...muted, margin: 0 }}>
-          Nenhum arquivo encontrado na pasta. Em Windows com iRacing, a pasta padrão costuma ser
+          No files found in the folder. On Windows with iRacing, the default folder is usually
           <code> Documents/iRacing/telemetry </code>. Em outros sistemas, aponte para uma pasta com .ibt copiados.
         </p>
       ) : (
@@ -1325,7 +1325,7 @@ function AnalysisResultView({
                   <strong>{fmtTime(result.optimal.totalSec)}</strong>
                 </div>
                 <div>
-                  <div style={muted}>Ganho possível</div>
+                  <div style={muted}>Possible gain</div>
                   <strong style={{ color: 'var(--accent-primary)' }}>{fmtDelta(-result.optimal.gainSec)}</strong>
                 </div>
               </>
@@ -1361,7 +1361,7 @@ function AnalysisResultView({
 }
 
 function InsightsPanel({ insights, summary }: { insights: CoachingInsight[]; summary: string[] }): ReactElement {
-  const severityLabel: Record<CoachingInsight['severity'], string> = { high: 'Alta', med: 'Média', low: 'Baixa' }
+  const severityLabel: Record<CoachingInsight['severity'], string> = { high: 'High', med: 'Medium', low: 'Low' }
   const severityColor: Record<CoachingInsight['severity'], string> = { high: 'var(--accent-danger)', med: 'var(--accent-warning)', low: 'var(--accent-primary)' }
   return (
     <div style={card}>
@@ -1370,7 +1370,7 @@ function InsightsPanel({ insights, summary }: { insights: CoachingInsight[]; sum
         {summary.map((line, index) => <li key={index}>{line}</li>)}
       </ul>
       {insights.length === 0 ? (
-        <p style={{ ...muted, marginBottom: 0 }}>Nenhum insight acionável acima do limiar.</p>
+        <p style={{ ...muted, marginBottom: 0 }}>No actionable insight above the threshold.</p>
       ) : (
         <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
           {insights.map((insight) => (
@@ -1395,7 +1395,7 @@ function OptimalSectorsView({ result }: { result: AnalysisResult }): ReactElemen
   if (!result.optimal) return null
   return (
     <div style={card}>
-      <strong>Composição do Optimal Lap</strong>
+      <strong>Optimal Lap composition</strong>
       <div style={{ ...muted, marginBottom: 12 }}>Melhor tempo de cada sector entre as laps selecionadas.</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
         {result.optimal.sectors.map((sector, idx) => {

@@ -98,7 +98,7 @@ export const TOUCH_PRESETS_A: ButtonBoxPanel[] = [
   }),
   createButtonBoxPanel({
     id: 'tp-a-tyre-strategy',
-    name: 'Estratégia de Tires',
+    name: 'Tire Strategy',
     columns: 4,
     rows: 4,
     gap: 12,
@@ -124,7 +124,7 @@ export const TOUCH_PRESETS_A: ButtonBoxPanel[] = [
   }),
   createButtonBoxPanel({
     id: 'tp-a-tyre-strategy-wet',
-    name: 'Tires — Chuva',
+    name: 'Tires ? Rain',
     columns: 4,
     rows: 3,
     gap: 12,
@@ -193,7 +193,7 @@ export const TOUCH_PRESETS_A: ButtonBoxPanel[] = [
   }),
   createButtonBoxPanel({
     id: 'tp-a-endurance-radio-lights',
-    name: 'Endurance — Rádio & Luzes',
+    name: 'Endurance ? Radio & Lights',
     columns: 4,
     rows: 4,
     gap: 12,

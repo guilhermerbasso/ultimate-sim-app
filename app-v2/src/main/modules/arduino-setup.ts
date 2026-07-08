@@ -156,24 +156,24 @@ class ArduinoSetup {
     const port = String(request?.port ?? '').trim()
     const board = findFlashBoard(request?.board ?? '')
     if (!board) return { ok: false, message: 'Board not supported for .hex backup.' }
-    if (!port) return { ok: false, message: 'Selecione a porta serial (COM) da placa.' }
+    if (!port) return { ok: false, message: 'Select the board serial (COM) port.' }
     if (this.activeOperation) return { ok: false, message: `${this.activeOperation.label} is already in progress.` }
 
     const suggested = safeHexBackupName(board.id, port)
     const owner = this.ctx.getMainWindow()
     const save = owner
       ? await dialog.showSaveDialog(owner, {
-          title: 'Salvar backup .hex do Arduino',
+          title: 'Save Arduino .hex backup',
           defaultPath: join(this.ctx.app.getPath('documents'), suggested),
           filters: [{ name: 'Intel HEX firmware', extensions: ['hex'] }]
         })
       : await dialog.showSaveDialog({
-          title: 'Salvar backup .hex do Arduino',
+          title: 'Save Arduino .hex backup',
           defaultPath: join(this.ctx.app.getPath('documents'), suggested),
           filters: [{ name: 'Intel HEX firmware', extensions: ['hex'] }]
         })
     if (save.canceled || !save.filePath) {
-      return { ok: false, message: 'Backup cancelado antes de iniciar.' }
+      return { ok: false, message: 'Backup canceled before starting.' }
     }
 
     const controller = new AbortController()
@@ -196,9 +196,9 @@ class ArduinoSetup {
         onProgress: emit,
         signal: controller.signal
       })
-      return { ok: true, message: `Backup .hex salvo em ${save.filePath}.`, path: save.filePath }
+      return { ok: true, message: `Backup .hex saved to ${save.filePath}.`, path: save.filePath }
     } catch (error) {
-      const message = isFlashAbortError(error) ? 'Backup .hex cancelado.' : errMessage(error)
+      const message = isFlashAbortError(error) ? 'Backup .hex canceled.' : errMessage(error)
       emit({ phase: 'error', message, percent: 100, tone: 'error' })
       return { ok: false, message }
     } finally {
@@ -239,7 +239,7 @@ class ArduinoSetup {
       if (!firmware) {
         throw new SetupError(`“${module.name}” has no firmware for ${board.name}.`)
       }
-      if (!port) throw new SetupError('Selecione a porta serial (COM) da placa.')
+      if (!port) throw new SetupError('Select the board serial (COM) port.')
       // Hard guard (not just UI): never flash the SIM-X box, even if it's not
       // currently opened by the app.
       const portInfo = (await this.listFlashablePorts()).find((entry) => entry.path === port)

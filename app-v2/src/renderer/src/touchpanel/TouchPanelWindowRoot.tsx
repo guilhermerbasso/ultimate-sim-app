@@ -88,7 +88,7 @@ export function TouchPanelWindowRoot(): ReactElement {
     )
   }
   if (!panel) {
-    return <div style={{ color: '#9aa6b2', padding: 24, fontFamily: 'Segoe UI, system-ui, sans-serif' }}>Carregando…</div>
+    return <div style={{ color: '#9aa6b2', padding: 24, fontFamily: 'Segoe UI, system-ui, sans-serif' }}>Loading…</div>
   }
 
   // Reserve top padding so the floating ✕ (top-right) can never cover the corner

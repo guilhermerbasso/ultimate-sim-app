@@ -173,7 +173,7 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
   function changeOutputDevice(outputDeviceId: string): void {
     setHapticsOutputDevice(outputDeviceId)
     setConfig((current) => ({ ...current, outputDeviceId }))
-    void persist({ outputDeviceId }, outputDeviceId ? 'Saída tátil roteada para o dispositivo escolhido.' : 'Saída tátil no dispositivo padrão do sistema.')
+    void persist({ outputDeviceId }, outputDeviceId ? 'Haptic output routed to the selected device.' : 'Haptic output on the system default device.')
   }
 
   const arduinoDevices = serialDevices.filter((device) => device.kind !== 'sim-x')
@@ -247,7 +247,7 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
             <SignalBar labelText="Trava/spin" value={frame.wheelLock} />
             <SignalBar labelText="Zebra" value={frame.kerb} />
             <SignalBar labelText="Impacto" value={frame.impact} />
-            <SignalBar labelText="Suspensão" value={frame.suspension} />
+            <SignalBar labelText="Suspension" value={frame.suspension} />
             <SignalBar labelText="TC Cut" value={frame.tcCut ? 1 : 0} />
             <SignalBar labelText="Rangido" value={frame.gearGrind ? 1 : 0} />
           </div>
@@ -277,7 +277,7 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
           </p>
           <ul style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, margin: '8px 0 0', paddingLeft: 18, lineHeight: 1.6 }}>
             <li><strong>longAccel / latAccel</strong> nativos (hoje derivados de speed/yaw) — impactos e zebras.</li>
-            <li><strong>vertAccel</strong> (aceleração vertical) — zebras/rumble de verdade.</li>
+            <li><strong>vertAccel</strong> (vertical acceleration) — zebras/rumble de verdade.</li>
             <li><strong>wheelSlip / velocidade por roda</strong> — trava e derrapagem precisas.</li>
             <li><strong>sinal de zebra/rumble</strong> dedicado, quando o yes oferecer.</li>
           </ul>
@@ -308,7 +308,7 @@ function MasterBar({
     <div style={{ border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 'var(--space-5)', background: 'var(--surface-sunken)', display: 'grid', gap: 12, marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
         <div>
-          <strong style={{ fontSize: 16 }}>Saída global</strong>
+          <strong style={{ fontSize: 16 }}>Global output</strong>
           <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, margin: '2px 0 0' }}>Liga o engine e roteia ao amplificador.</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
@@ -322,7 +322,7 @@ function MasterBar({
       </div>
       <Slider labelText="Master gain" min={0} max={1} step={0.01} value={config.masterGain} display={pct(config.masterGain)} onChange={onMaster} onCommit={() => onMasterCommit(config.masterGain)} />
       <div>
-        <span style={label}>Saída (meter)</span>
+        <span style={label}>Output (meter)</span>
         <Meter value={config.enabled && !config.muted ? meter : 0} />
       </div>
     </div>
@@ -349,14 +349,14 @@ function OutputSelector({
     <div style={{ border: '1px solid var(--border-accent)', borderRadius: 'var(--radius-md)', padding: 'var(--space-4)', background: 'var(--surface-selected)', display: 'grid', gap: 'var(--space-2)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
         <div>
-          <span style={label}>Dispositivo de saída</span>
-          <p style={{ color: 'rgba(255,255,255,0.58)', fontSize: 12, margin: '4px 0 0' }}>Use a saída de áudio ligada ao amplificador do shaker (ex.: HDMI/USB DAC dedicado).</p>
+          <span style={label}>Output device</span>
+          <p style={{ color: 'rgba(255,255,255,0.58)', fontSize: 12, margin: '4px 0 0' }}>Use the audio output connected to the shaker amplifier (e.g., dedicated HDMI/USB DAC).</p>
         </div>
         <button disabled={busy} onClick={onRefresh} style={ghostButton} type="button">Refresh</button>
       </div>
       <select disabled={busy} onChange={(event) => onChange(event.target.value)} style={inputStyle} value={outputDeviceId}>
-        <option value="">Padrão do sistema</option>
-        {missing ? <option value={outputDeviceId}>Dispositivo selecionado indisponível</option> : null}
+        <option value="">System default</option>
+        {missing ? <option value={outputDeviceId}>Selected device unavailable</option> : null}
         {devices.map((device) => (
           <option key={device.deviceId} value={device.deviceId}>{device.label}</option>
         ))}
@@ -393,7 +393,7 @@ function EffectCard({
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <strong style={{ fontSize: 15 }}>{meta.label}</strong>
-            {meta.heuristic ? <span style={{ ...label, color: 'var(--accent-warning)' }}>heurística</span> : null}
+            {meta.heuristic ? <span style={{ ...label, color: 'var(--accent-warning)' }}>heuristic</span> : null}
             {meta.transient ? <span style={{ ...label, color: 'var(--text-secondary)' }}>pulso</span> : null}
           </div>
           <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, margin: '3px 0 0' }}>{meta.blurb}</p>
@@ -412,22 +412,22 @@ function EffectCard({
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: meta.sweep ? '1fr 1fr' : '1fr', gap: 12, marginTop: 12 }}>
-        <Slider labelText={meta.sweep ? 'Freq. mín (Hz)' : 'Frequência (Hz)'} min={meta.freqMin} max={meta.freqMax} step={1} value={effect.frequencyHz} display={`${Math.round(effect.frequencyHz)} Hz`} onChange={(frequencyHz) => onChange({ frequencyHz })} onCommit={() => onCommit({ frequencyHz: effect.frequencyHz })} />
+        <Slider labelText={meta.sweep ? 'Min freq. (Hz)' : 'Frequency (Hz)'} min={meta.freqMin} max={meta.freqMax} step={1} value={effect.frequencyHz} display={`${Math.round(effect.frequencyHz)} Hz`} onChange={(frequencyHz) => onChange({ frequencyHz })} onCommit={() => onCommit({ frequencyHz: effect.frequencyHz })} />
         {meta.sweep ? (
-          <Slider labelText="Freq. máx (Hz)" min={meta.freqMin} max={meta.freqMax} step={1} value={effect.frequencyToHz ?? meta.freqMax} display={`${Math.round(effect.frequencyToHz ?? meta.freqMax)} Hz`} onChange={(frequencyToHz) => onChange({ frequencyToHz })} onCommit={() => onCommit({ frequencyToHz: effect.frequencyToHz ?? meta.freqMax })} />
+          <Slider labelText="Max freq. (Hz)" min={meta.freqMin} max={meta.freqMax} step={1} value={effect.frequencyToHz ?? meta.freqMax} display={`${Math.round(effect.frequencyToHz ?? meta.freqMax)} Hz`} onChange={(frequencyToHz) => onChange({ frequencyToHz })} onCommit={() => onCommit({ frequencyToHz: effect.frequencyToHz ?? meta.freqMax })} />
         ) : null}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 10 }}>
         <Slider labelText="Intensidade" min={0} max={1} step={0.01} value={effect.intensity} display={pct(effect.intensity)} onChange={(intensity) => onChange({ intensity })} onCommit={() => onCommit({ intensity: effect.intensity })} />
-        <Slider labelText="Suavização" min={0} max={1} step={0.01} value={effect.smoothing} display={pct(effect.smoothing)} onChange={(smoothing) => onChange({ smoothing })} onCommit={() => onCommit({ smoothing: effect.smoothing })} />
-        <Slider labelText="Limiar mín" min={0} max={1} step={0.01} value={effect.minThreshold} display={pct(effect.minThreshold)} onChange={(minThreshold) => onChange({ minThreshold })} onCommit={() => onCommit({ minThreshold: effect.minThreshold })} />
-        <Slider labelText="Limiar máx" min={0} max={1} step={0.01} value={effect.maxThreshold} display={pct(effect.maxThreshold)} onChange={(maxThreshold) => onChange({ maxThreshold })} onCommit={() => onCommit({ maxThreshold: effect.maxThreshold })} />
+        <Slider labelText="Smoothing" min={0} max={1} step={0.01} value={effect.smoothing} display={pct(effect.smoothing)} onChange={(smoothing) => onChange({ smoothing })} onCommit={() => onCommit({ smoothing: effect.smoothing })} />
+        <Slider labelText="Min threshold" min={0} max={1} step={0.01} value={effect.minThreshold} display={pct(effect.minThreshold)} onChange={(minThreshold) => onChange({ minThreshold })} onCommit={() => onCommit({ minThreshold: effect.minThreshold })} />
+        <Slider labelText="Max threshold" min={0} max={1} step={0.01} value={effect.maxThreshold} display={pct(effect.maxThreshold)} onChange={(maxThreshold) => onChange({ maxThreshold })} onCommit={() => onCommit({ maxThreshold: effect.maxThreshold })} />
       </div>
 
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, cursor: 'pointer' }}>
         <input checked={effect.arduino} onChange={(event) => onCommit({ arduino: event.target.checked })} style={{ accentColor: 'var(--accent-primary)' }} type="checkbox" />
-        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>Também enviar buzz ao Arduino (motor de vibração)</span>
+        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>Also send buzz to Arduino (vibration motor)</span>
       </label>
     </div>
   )
@@ -456,8 +456,8 @@ function ArduinoPanel({
     <article style={panel}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
         <div>
-          <span style={label}>Arduino · secundário</span>
-          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, margin: '4px 0 0' }}>Buzzes discretos (motor de vibração) no buttonbox/volante. Opcional — o bass shaker por áudio é o principal.</p>
+          <span style={label}>Arduino · secondary</span>
+          <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, margin: '4px 0 0' }}>Discrete buzzes (vibration motor) in the button box/wheel. Optional — audio bass shaker is the main output.</p>
         </div>
         <button disabled={busy} onClick={() => onCommit({ enabled: !config.arduino.enabled })} style={{ ...primaryButton, background: config.arduino.enabled ? 'var(--accent-primary)' : 'transparent', color: config.arduino.enabled ? 'var(--text-on-accent)' : 'var(--text-primary)', border: config.arduino.enabled ? 'none' : '1px solid var(--border-strong)' }} type="button">
           {config.arduino.enabled ? 'Ativo' : 'Ligar'}
@@ -468,7 +468,7 @@ function ArduinoPanel({
         <label style={{ display: 'grid', gap: 6, flex: 1 }}>
           <span style={label}>Dispositivo serial</span>
           <select disabled={busy} onChange={(event) => onCommit({ deviceId: event.target.value })} style={inputStyle} value={config.arduino.deviceId}>
-            <option value="">Selecione…</option>
+            <option value="">Select…</option>
             {missing ? <option value={config.arduino.deviceId}>Dispositivo indisponível</option> : null}
             {devices.map((device) => (
               <option key={device.id} value={device.id}>{device.label}{device.connected ? '' : ' (offline)'}</option>
@@ -479,14 +479,14 @@ function ArduinoPanel({
       </div>
 
       <div style={{ marginTop: 10 }}>
-        <Slider labelText="Intervalo mín. entre buzzes (ms)" min={40} max={1000} step={10} value={config.arduino.minIntervalMs} display={`${config.arduino.minIntervalMs} ms`} onChange={(minIntervalMs) => onChange({ minIntervalMs })} onCommit={() => onCommit({ minIntervalMs: config.arduino.minIntervalMs })} />
+        <Slider labelText="Min interval between buzzes (ms)" min={40} max={1000} step={10} value={config.arduino.minIntervalMs} display={`${config.arduino.minIntervalMs} ms`} onChange={(minIntervalMs) => onChange({ minIntervalMs })} onCommit={() => onCommit({ minIntervalMs: config.arduino.minIntervalMs })} />
       </div>
 
       <div style={{ marginTop: 12 }}>
         <span style={label}>Efeitos roteados</span>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
           {routed.length === 0 ? (
-            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Marque &quot;enviar buzz ao Arduino&quot; nos efeitos. Motor/road são só bass shaker.</span>
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Check &quot;send buzz to Arduino&quot; in effects. Motor/road are bass shaker only.</span>
           ) : (
             routed.map((id) => (
               <button key={id} onClick={() => onTest(id)} style={ghostButton} type="button">Testar {HAPTICS_EFFECT_META[id].label}</button>

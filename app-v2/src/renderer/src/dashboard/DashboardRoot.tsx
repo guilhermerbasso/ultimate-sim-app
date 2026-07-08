@@ -1628,7 +1628,7 @@ export function DashboardRoot() {
   if (!dashboard) {
     return (
       <div className="dashboard-shell">
-        <div className="dash-missing">Carregando dashboard…</div>
+        <div className="dash-missing">Loading dashboard…</div>
       </div>
     )
   }

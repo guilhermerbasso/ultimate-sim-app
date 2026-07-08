@@ -1,4 +1,4 @@
-﻿import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppViewProps } from '../App'
 import type { CoachSeverity } from '../../../shared/coach'
 import type {
@@ -370,7 +370,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
       <header style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ ...eyebrow, color: CHROME }}>Adaptativo Â· editor</span>
+        <span style={{ ...eyebrow, color: CHROME }}>Adaptive · editor</span>
         <h1 style={{ margin: 0, fontSize: 22, color: 'var(--text-primary)' }}>Adaptive Dashboard</h1>
         <p style={{ margin: 0, color: 'var(--text-secondary)', maxWidth: 820 }}>
           Edit which widgets <strong>appear</strong> or{' '}
@@ -445,7 +445,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
             </span>
             {!isAdaptiveTarget && !(config.enabled ?? false) && (
               <span style={{ color: AMBER, fontSize: 12 }}>
-                Este dashboard sÃ³ fica adaptativo com o modo ligado acima.
+                This dashboard only becomes adaptive when the mode above is enabled.
               </span>
             )}
           </div>
@@ -494,7 +494,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
           <div style={card}>
             {!selectedRule ? (
               <p style={{ margin: 0, color: 'var(--text-muted)' }}>
-                Selecione um momento Ã  esquerda para configurar os widgets.
+                Select a moment on the left to configure widgets.
               </p>
             ) : (
               <RuleEditor
@@ -684,7 +684,7 @@ function RuleEditor({
       <div>
         <h2 style={{ ...subTitle, marginBottom: 2 }}>{momentLabel(rule.moment)}</h2>
         <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-          Configure por widget: show/esconder, destaque e blink. As regras se aplicam sobre o plano automÃ¡tico.
+          Configure each widget: show/hide, highlight, and blink. Rules apply on top of the automatic plan.
         </span>
         {!momentIsDetectable(rule.moment) && (
           <div
@@ -703,7 +703,7 @@ function RuleEditor({
           >
             <NotDetectableBadge />
             <span>
-              A detecÃ§Ã£o deste momento ainda no estÃ¡ disponÃ­vel. A regra fica salva, mas no dispara em pista por
+              Detection for this moment is not available yet. The rule is saved, but it will not trigger on track for
               enquanto.
             </span>
           </div>
@@ -871,8 +871,8 @@ function ElementRow({
       </div>
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        <SegBtn active={visMode === 'default'} onClick={() => merge({ visible: undefined })} label="PadrÃ£o" />
-        <SegBtn active={visMode === 'show'} onClick={() => merge({ visible: true })} label="Mostrar" color={GOOD} />
+        <SegBtn active={visMode === 'default'} onClick={() => merge({ visible: undefined })} label="Default" />
+        <SegBtn active={visMode === 'show'} onClick={() => merge({ visible: true })} label="Show" color={GOOD} />
         <SegBtn active={visMode === 'hide'} onClick={() => merge({ visible: false })} label="Esconder" color={DANGER} />
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8, fontSize: 12, color: 'var(--text-secondary)' }}>

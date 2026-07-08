@@ -355,7 +355,7 @@ function formulaBlueprint(): DashboardBlueprint {
     defaultFamily: 'neon',
     width: CANVAS_W,
     height: CANVAS_H,
-    description: 'Formula: cluster central neon, delta e tempos, position, fuel e assistências.',
+    description: 'Formula: central neon cluster, delta and times, position, fuel, and assists.',
     slots
   }
 }

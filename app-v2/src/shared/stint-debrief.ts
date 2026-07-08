@@ -163,8 +163,8 @@ function bulletForGain(finding: CoachFinding): string {
   return `${loc}: ${headlineFor(finding)}${suffix}`
 }
 
-const PRESSURE_LABEL: Record<string, string> = { low: 'baixa', ok: 'ok', high: 'high' }
-const TEMP_LABEL: Record<string, string> = { cold: 'fria', optimal: 'ideal', hot: 'quente' }
+const PRESSURE_LABEL: Record<string, string> = { low: 'low', ok: 'ok', high: 'high' }
+const TEMP_LABEL: Record<string, string> = { cold: 'cold', optimal: 'ideal', hot: 'hot' }
 
 /** One short pt-BR strategy line from the predictions, or null when no signal. */
 export function strategyNote(predictions: PredictionsSnapshot | null | undefined): string | null {
@@ -175,27 +175,27 @@ export function strategyNote(predictions: PredictionsSnapshot | null | undefined
   if (fuel && finite(fuel.finishMarginLaps)) {
     const m = fuel.finishMarginLaps
     if (m >= 0) {
-      const litres = finite(fuel.finishMarginL) ? `, sobra ~${num(fuel.finishMarginL, 1)} L` : ''
-      parts.push(`fuel: margem de ${num(m, 1)} laps no end${litres}`)
+      const litres = finite(fuel.finishMarginL) ? `, ~${num(fuel.finishMarginL, 1)} L left` : ''
+      parts.push(`fuel: margin of ${num(m, 1)} laps to the end${litres}`)
     } else {
-      const litres = finite(fuel.finishMarginL) ? `, fhighm ~${num(Math.abs(fuel.finishMarginL), 1)} L` : ''
-      parts.push(`fuel: déficit de ${num(Math.abs(m), 1)} laps${litres} — precisa economizar/parar`)
+      const litres = finite(fuel.finishMarginL) ? `, short ~${num(Math.abs(fuel.finishMarginL), 1)} L` : ''
+      parts.push(`fuel: deficit of ${num(Math.abs(m), 1)} laps${litres} - needs saving/stopping`)
     }
   }
 
   const tire = predictions.tire
   if (tire) {
     const tParts: string[] = []
-    if (finite(tire.degSecPerLap) && tire.degSecPerLap > 0) tParts.push(`perda ~${num(tire.degSecPerLap)} s/lap`)
-    if (finite(tire.lapsToCliff) && tire.lapsToCliff > 0) tParts.push(`~${Math.round(tire.lapsToCliff)} laps até cair`)
-    if (tire.pressureState && tire.pressureState !== 'ok') tParts.push(`pressão ${PRESSURE_LABEL[tire.pressureState] ?? tire.pressureState}`)
-    if (tire.tempState && tire.tempState !== 'optimal') tParts.push(`temp ${TEMP_LABEL[tire.tempState] ?? tire.tempState}`)
+    if (finite(tire.degSecPerLap) && tire.degSecPerLap > 0) tParts.push(`loss ~${num(tire.degSecPerLap)} s/lap`)
+    if (finite(tire.lapsToCliff) && tire.lapsToCliff > 0) tParts.push(`~${Math.round(tire.lapsToCliff)} laps until drop-off`)
+    if (tire.pressureState && tire.pressureState !== 'ok') tParts.push(`${PRESSURE_LABEL[tire.pressureState] ?? tire.pressureState} pressure`)
+    if (tire.tempState && tire.tempState !== 'optimal') tParts.push(`${TEMP_LABEL[tire.tempState] ?? tire.tempState} temp`)
     if (tParts.length > 0) parts.push(`tire: ${tParts.join(', ')}`)
   }
 
   const pace = predictions.pace
   if (pace && finite(pace.projectedLapSec) && pace.projectedLapSec > 0) {
-    parts.push(`pace projetado ${formatLapTime(pace.projectedLapSec)}`)
+    parts.push(`projected pace ${formatLapTime(pace.projectedLapSec)}`)
   }
 
   if (parts.length === 0) return null
@@ -254,13 +254,13 @@ export function composeDebrief(
   const bullets: string[] = []
   for (const f of losses) bullets.push(`⚠ ${bulletForLoss(f)}`)
   for (const f of gains) bullets.push(`✅ ${bulletForGain(f)}`)
-  if (strategy) bullets.push(`📊 Estratégia — ${strategy}`)
+  if (strategy) bullets.push(`📊 Strategy - ${strategy}`)
 
   // Graceful empty state: nothing measured at all.
   if (losses.length === 0 && gains.length === 0 && !strategy) {
     const head = header ? `${header}. ` : ''
     return {
-      text: `${head}Sem dados suficientes para um debrief detalhado deste stint. Rode algumas laps limpas para o Coach analisar.`.trim(),
+      text: `${head}Not enough data for a detailed debrief of this stint. Run a few clean laps so the Coach can analyze them.`.trim(),
       bullets: []
     }
   }
@@ -269,16 +269,16 @@ export function composeDebrief(
   if (header) lines.push(`Debrief — ${header}.`)
 
   if (losses.length > 0) {
-    lines.push(`Onde perdeu: ${losses.map((f) => `${findingLocation(f)} (${headlineFor(f)})`).join('; ')}.`)
+    lines.push(`Where you lost time: ${losses.map((f) => `${findingLocation(f)} (${headlineFor(f)})`).join('; ')}.`)
   } else {
-    lines.push('Onde perdeu: nada relevante — stint limpo.')
+    lines.push('Where you lost time: nothing significant - clean stint.')
   }
 
   if (gains.length > 0) {
-    lines.push(`Onde foi bem: ${gains.map((f) => `${findingLocation(f)} (${headlineFor(f)})`).join('; ')}.`)
+    lines.push(`Where you did well: ${gains.map((f) => `${findingLocation(f)} (${headlineFor(f)})`).join('; ')}.`)
   }
 
-  if (strategy) lines.push(`Estratégia: ${strategy}.`)
+  if (strategy) lines.push(`Strategy: ${strategy}.`)
 
   return { text: lines.join(' '), bullets }
 }

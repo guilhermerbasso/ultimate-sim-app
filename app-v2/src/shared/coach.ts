@@ -1242,7 +1242,7 @@ export function analyzeLap(
       findings.push(makeFinding('good', s.sector, span, 0, undefined,
         `Sector ${s.sector} no pace`,
         'No relevant loss and clean inputs here. Keep the references and smoothness.',
-        s.timeLossSec > 0 ? `+${s.timeLossSec.toFixed(2)}s vs melhor` : 'At best-lap level', {}, true))
+        s.timeLossSec > 0 ? `+${s.timeLossSec.toFixed(2)}s vs best` : 'At best-lap level', {}, true))
     }
   }
 
@@ -1606,8 +1606,8 @@ export function buildCoachReport(
           ...findings,
           makeFinding('inconsistency', 0, { start: 0, end: 1 }, Math.min(0.5, consistency.stdevSec), undefined,
             'Lap-to-lap inconsistency',
-            'Suas laps variam bastante. Antes de buscar mais pace, repita os mesmos pontos de freada e referências para baixar o desvio.',
-            `Desvio padrão ${consistency.stdevSec.toFixed(2)}s nas lasts ${consistency.laps} laps`,
+            'Your laps vary quite a bit. Before chasing more pace, repeat the same braking points and references to lower the deviation.',
+            `Standard deviation ${consistency.stdevSec.toFixed(2)}s over the last ${consistency.laps} laps`,
             { stdevSec: Number(consistency.stdevSec.toFixed(3)), laps: consistency.laps })
         ])
       : findings
@@ -1638,12 +1638,12 @@ export function buildCoachReport(
 function summarizeReport(findings: CoachFinding[], deltaToBestSec: number | undefined, consistency?: CoachConsistency): string {
   const issues = findings.filter((f) => f.severity !== 'good')
   const totalLoss = issues.reduce((sum, f) => sum + f.estTimeLossSec, 0)
-  const deltaTxt = deltaToBestSec !== undefined ? `${deltaToBestSec >= 0 ? '+' : ''}${deltaToBestSec.toFixed(2)}s vs melhor` : 'sem delta de referência'
+  const deltaTxt = deltaToBestSec !== undefined ? `${deltaToBestSec >= 0 ? '+' : ''}${deltaToBestSec.toFixed(2)}s vs best` : 'no reference delta'
   if (issues.length === 0) {
     return `Lap limpa — ${deltaTxt}. Nenhuma perda relevante detectada.`
   }
   const top = issues[0]
-  const consistencyTxt = consistency ? `, consistência ${consistency.rating}` : ''
+  const consistencyTxt = consistency ? `, consistency ${consistency.rating}` : ''
   return `${deltaTxt}${consistencyTxt}. Maior ganho: ${top.title.toLowerCase()} (~${top.estTimeLossSec.toFixed(2)}s); ${issues.length} pontos somam ~${totalLoss.toFixed(2)}s.`
 }
 

@@ -252,7 +252,7 @@ export function ButtonBoxEditor({ panel, selectedId, onChange, onSelect }: Butto
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
           <span style={{ color: TEXT_DIM, fontSize: 12 }}>Tap a key to edit.</span>
           <button type="button" style={field()} onClick={addButton} title="Add a new key">
-            ＋ Adicionar tecla
+            ＋ Add tecla
           </button>
         </div>
         <div
@@ -395,7 +395,7 @@ export function ButtonBoxEditor({ panel, selectedId, onChange, onSelect }: Butto
               <label style={label()}>Key image</label>
               <input type="file" accept="image/*" style={{ ...field(), padding: 6 }} onChange={onImage} />
               <span style={{ color: TEXT_DIM, fontSize: 11 }}>
-                Imagens grandes são reduzidas automaticamente (máx. ~{Math.round(IMAGE_MAX_BYTES / 1000)} KB).
+                Large images are reduced automatically (máx. ~{Math.round(IMAGE_MAX_BYTES / 1000)} KB).
               </span>
               {selected.image ? (
                 <button type="button" style={field()} onClick={() => patchButton(selected.id, { image: undefined })}>Remove image</button>

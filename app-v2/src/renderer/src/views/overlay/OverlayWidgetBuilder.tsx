@@ -459,7 +459,7 @@ function SlotEditor({ element, slots, onChangeStyle }: { element: DashboardEleme
 function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle, onReorder, onDuplicate, onRemove }: InspectorProps): ReactElement {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   if (!element) {
-    return <p className="overlay-help">Selecione um widget no canvas para editar posicao, tamanho, fontes, bordas, filtros e ordem.</p>
+    return <p className="overlay-help">Select a widget on the canvas to edit position, size, fonts, borders, filters, and order.</p>
   }
   const s = element.style
   const isBarLike = ['bar', 'gauge', 'shiftlights', 'barv', 'dualbar', 'deltabar', 'trace'].includes(element.type)
@@ -545,8 +545,8 @@ function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle
             <NumberField label="Casas decimais" value={s.decimals ?? 0} onChange={(v) => onChangeStyle({ decimals: Number.isFinite(v) && v > 0 ? Math.min(6, Math.round(v)) : undefined })} min={0} max={6} />
             <TextField label="Prefixo" value={s.prefix ?? ''} onChange={(v) => onChangeStyle({ prefix: v || undefined })} />
             <TextField label="Sufixo / unidade" value={s.suffix ?? ''} onChange={(v) => onChangeStyle({ suffix: v || undefined })} />
-            <ToggleField label="Mostrar labels" value={s.showLabels !== false} onChange={(on) => onChangeStyle({ showLabels: on ? undefined : false })} />
-            <ToggleField label="Mostrar icone" value={s.showIcon !== false} onChange={(on) => onChangeStyle({ showIcon: on ? undefined : false })} />
+            <ToggleField label="Show labels" value={s.showLabels !== false} onChange={(on) => onChangeStyle({ showLabels: on ? undefined : false })} />
+            <ToggleField label="Show icone" value={s.showIcon !== false} onChange={(on) => onChangeStyle({ showIcon: on ? undefined : false })} />
           </div>
           <div className="overlay-builder-section-title">Limiares de cor</div>
           <div className="designer-grid-2">
@@ -755,7 +755,7 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
     <div className="overlay-designer-backdrop" role="dialog" aria-modal="true">
       <div className="overlay-designer overlay-builder">
         <div className="overlay-designer-head">
-          <h4>{editing ? 'Editar overlay de widgets' : 'Create new overlay (widgets do dashboard)'}</h4>
+          <h4>{editing ? 'Edit overlay de widgets' : 'Create new overlay (widgets do dashboard)'}</h4>
           <button className="ghost-action" disabled={busy} onClick={onCancel}>Close</button>
         </div>
 
@@ -778,11 +778,11 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
             <div className="designer-settings">
               <label className="designer-check">
                 <input type="checkbox" checked={def.enabled} onChange={(e) => patchDef({ enabled: e.target.checked })} />
-                Mostrar
+                Show
               </label>
               <label className="designer-check">
                 <input type="checkbox" checked={def.locked} onChange={(e) => patchDef({ locked: e.target.checked })} />
-                Fixado (click-through)
+                Pinned (click-through)
               </label>
             </div>
             <label className="designer-field">
@@ -807,7 +807,7 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
               />
             </div>
             <p className="overlay-help">
-              {widgets.length} widget(s) · arraste para mover, puxe os cantos para redimensionar. Pre-visualizacao com telemetria yesulada.
+              {widgets.length} widget(s) · drag to move, pull the corners to resize. Preview with simulated telemetry.
             </p>
           </section>
 
@@ -828,7 +828,7 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
         <div className="overlay-designer-foot">
           <button className="ghost-action" disabled={busy} onClick={onCancel}>Cancel</button>
           <button className="primary-action" disabled={busy || !def.title.trim()} onClick={handleSave}>
-            {editing ? 'Save changes' : 'Criar overlay'}
+            {editing ? 'Save changes' : 'Create overlay'}
           </button>
         </div>
       </div>

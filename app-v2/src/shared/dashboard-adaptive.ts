@@ -197,7 +197,7 @@ const PHASE_LABEL: Record<AdaptivePhase, string> = {
 
 const PHASE_FOCUS: Record<AdaptivePhase, string> = {
   practice: 'tires, temperaturas e delta para acertar o carro',
-  qualifying: 'delta e lap time para a lap rápida',
+  qualifying: 'delta and lap time for the hot lap',
   race: 'position, gaps e fuel',
   pit: 'status de pit, tires e fuel',
   formation: 'position, flags e aquecimento de tires',

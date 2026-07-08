@@ -176,7 +176,7 @@ export function IncidentTrendChart({ points, height = 168 }: IncidentTrendChartP
   const avgY = yAt(avg)
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} width="100%" role="img" aria-label="Tendencia de incidents por corrida" style={{ display: 'block' }}>
+    <svg viewBox={`0 0 ${width} ${height}`} width="100%" role="img" aria-label="Incident trend by race" style={{ display: 'block' }}>
       <g transform={`translate(${pad.left} ${pad.top})`}>
         {[0, 0.5, 1].map((tick) => {
           const y = tick * innerH

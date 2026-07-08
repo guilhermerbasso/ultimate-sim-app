@@ -149,9 +149,9 @@ export async function compilePinoutSketch(app: App, request: PinoutCompileReques
   try {
     await runArduinoCli(cli, args, log)
     const hexPath = await findFirstHex(outputDir)
-    return { ok: true, message: hexPath ? 'Firmware compiled. Flash the .hex on the bench/Windows after validating the required libraries.' : 'Compile concluiu, mas nenhum .hex foi found no output-dir.', sketchPath, buildDir: outputDir, hexPath, fqbn: board.fqbn, log }
+    return { ok: true, message: hexPath ? 'Firmware compiled. Flash the .hex on the bench/Windows after validating the required libraries.' : 'Compile completed, but no .hex was found in the output directory.', sketchPath, buildDir: outputDir, hexPath, fqbn: board.fqbn, log }
   } catch (error) {
-    return { ok: false, message: `arduino-cli compile falhou: ${error instanceof Error ? error.message : String(error)}`, sketchPath, buildDir: outputDir, fqbn: board.fqbn, log }
+    return { ok: false, message: `arduino-cli compile failed: ${error instanceof Error ? error.message : String(error)}`, sketchPath, buildDir: outputDir, fqbn: board.fqbn, log }
   }
 }
 
@@ -161,7 +161,7 @@ export async function flashPinoutFirmware(ctx: ModuleContext, request: PinoutFla
   const board = resolveBoard(merged, design.boardId)
   const log: string[] = []
   const port = String(request.port ?? '').trim()
-  if (!port) return { ok: false, message: 'Selecione uma porta serial antes de gravar.', log }
+  if (!port) return { ok: false, message: 'Select a serial port before flashing.', log }
 
   const spec = resolvePinoutFlashBoard(board)
   if (!spec) {

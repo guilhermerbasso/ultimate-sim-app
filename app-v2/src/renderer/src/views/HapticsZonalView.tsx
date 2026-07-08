@@ -201,7 +201,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
   return (
     <div style={{ display: 'grid', gap: 18 }}>
       <header style={{ display: 'grid', gap: 6 }}>
-        <h1 style={{ margin: 0, fontFamily: '"Rajdhani", sans-serif', fontSize: 24, color: 'var(--text-primary)' }}>Tátil Zonal</h1>
+        <h1 style={{ margin: 0, fontFamily: '"Rajdhani", sans-serif', fontSize: 24, color: 'var(--text-primary)' }}>Haptics Zonal</h1>
         <p style={{ margin: 0, color: 'var(--text-muted)', maxWidth: 720 }}>
           Mapeia eventos de telemetria (zebra, trava, patinada, contato, troca de marcha, redline) para ZONAS físicas do rig (banco,
           pedais esq./dir., volante). O yesulador abaixo acende as zonas mesmo SEM hardware.
@@ -301,7 +301,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
               <span style={{ color: 'var(--text-primary)', fontFamily: '"Rajdhani", sans-serif', fontWeight: 600 }}>
                 {HAPTIC_EVENT_META[id].label}
-                {HAPTIC_EVENT_META[id].heuristic ? <span style={{ color: 'var(--text-muted)', fontSize: 11 }}> · heurística</span> : null}
+                {HAPTIC_EVENT_META[id].heuristic ? <span style={{ color: 'var(--text-muted)', fontSize: 11 }}> · heuristic</span> : null}
               </span>
               <Toggle
                 checked={config.events[id].enabled}
@@ -399,7 +399,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
         <span style={label}>Buzzer serial secundário (opcional)</span>
         <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 13 }}>
           Um único motor no endereça zonas — ele recebe a zona mais forte como pulso. Reutiliza o mesmo hub serial do tátil (companion
-          <code> Z&lt;freq&gt;:&lt;ms&gt;</code>). Nunca usa o dispositivo SIM-X primário.
+          <code> Z&lt;freq&gt;:&lt;ms&gt;</code>). Nunca usa o dispositivo SIM-X primary.
         </p>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <Toggle
@@ -431,7 +431,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
           </select>
           <div style={{ width: 200 }}>
             <Slider
-              text="Frequência (Hz)"
+              text="Frequency (Hz)"
               min={20}
               max={200}
               step={5}

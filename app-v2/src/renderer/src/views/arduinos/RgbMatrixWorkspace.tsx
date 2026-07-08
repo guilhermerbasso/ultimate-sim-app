@@ -897,9 +897,9 @@ function MatrixCalibrationWizard({
           {' '}acende tudo (teste de alimentacao/brilho); a <strong>“F”</strong> deve aparecer legivel e em pe se o
           mapeamento estiver correto. Os botoes de <strong>Flags</strong> e <strong>Gear</strong> abaixo desenham as
           cores das flags e o digito da marcha <em>atraves do seu mapa</em>, no <strong>brilho current</strong> do
-          iFlag (o mesmo da corrida) — e asyes que voce confirma que as flags e a marcha vao aparecer certas. Se
+          iFlag (the same one used in the race) — this is where you confirm the flags and gear will appear correctly. If
           ficarem fracas aqui, aumente o brilho do componente. Se aparecerem certas aqui mas <em>not</em> em
-          corrida, confira se os efeitos <strong>Flags</strong>/<strong>Gear</strong> estao activedos e em tela cheia.
+          race, check that the effects <strong>Flags</strong>/<strong>Gear</strong> are enabled and fullscreen.
         </p>
         <div style={{ ...rowStyle, flexWrap: 'wrap', gap: 8 }}>
           {MAPPED_TESTS.map((t) => (
@@ -2168,7 +2168,7 @@ function FlagsEditor({
       </Field>
       <Field
         caption="Flag prevalece sobre a marcha"
-        hint="On (padrao): uma flag de CAUTELA (amarela, azul, branca, vermelha, preta, meatball ou quadriculada) esconde o digito da marcha — a flag ocupa o painel inteiro e a marcha not aparece por cima nem vaza no blink. A flag VERDE sempre mantem a marcha visivel (corrida normal)."
+        hint="On (default): a CAUTION flag (yellow, blue, white, red, black, meatball, or checkered) hides the gear digit — the flag fills the whole panel and the gear does not appear on top or leak through during blink. The GREEN flag always keeps the gear visible (normal race)."
       >
         <Toggle
           checked={effect.hideGearWhenFlagActive !== false}
@@ -2189,7 +2189,7 @@ function FlagsEditor({
         />
       ) : (
         <p style={helper}>
-          Selecione <strong>Custom</strong> para desenhar e animar, frame a frame, o que acende em cada flag
+          Select <strong>Custom</strong> to draw and animate, frame by frame, what lights up for each flag
           (verde, amarela, azul, branca, vermelha, preta, meatball e quadriculada).
         </p>
       )}
@@ -2252,8 +2252,8 @@ function GearEditor({
         />
       ) : (
         <p style={helper}>
-          Selecione <strong>Custom</strong> para desenhar e animar, frame a frame, o digito de cada marcha (R, N e 0–9).
-          Celulas pretas ficam transparentes: a marcha aparece por cima da flag <strong>verde</strong> (corrida normal). Sob uma
+          Select <strong>Custom</strong> to draw and animate, frame by frame, the digit for each gear (R, N, and 0–9).
+          Black cells stay transparent: the gear appears over the <strong>green</strong> flag (normal race). Under a
           flag de cautela, a flag prevalece e esconde a marcha (ajuste isso no efeito <strong>Flags</strong>).
         </p>
       )}

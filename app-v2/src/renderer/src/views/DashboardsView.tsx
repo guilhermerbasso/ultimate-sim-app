@@ -915,12 +915,12 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
       const saved = await saveCurrent()
       if (saved) dash = saved
     }
-    if (selectedDisplayId === null) throw new Error('Selecione um monitor primeiro.')
+    if (selectedDisplayId === null) throw new Error('Select a display first.')
     await window.ipc.invoke('app:dash:open', dash.id, {
       displayId: selectedDisplayId,
       fullscreen
     })
-    showToast('Dashboard aberto no monitor selecionado.', 'success')
+    showToast('Dashboard opened on the selected display.', 'success')
   }
 
   async function closeOpen(id: string): Promise<void> {
@@ -935,7 +935,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
       const saved = await saveCurrent()
       if (saved) dash = saved
     }
-    if (selectedDisplayId === null) throw new Error('Selecione um monitor primeiro.')
+    if (selectedDisplayId === null) throw new Error('Select a display first.')
     await window.ipc.invoke('app:dash:open', dash.id, buildKioskOpenOptions(selectedDisplayId))
     showToast('Dashboard aberto em modo Kiosk (deslize para trocar de preset).', 'success')
   }
@@ -1048,7 +1048,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           notes: result.notes
         })
         setImportDiagnostics(result.notes ?? [])
-        showToast('Selecione qual tela do .simhubdash importar.', 'info')
+        showToast('Select which .simhubdash screen to import.', 'info')
         return
       }
       finishImport(result)
@@ -1158,7 +1158,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
         <div>
           <h3 style={{ margin: 0 }}>Dashboards</h3>
           <p style={{ margin: '6px 0 0', color: TEXT_DIM }}>
-            Janelas own no monitor 1/2 com telemetria ao vivo. Importa/exporta <code>.simhubdash</code> (SimHub Dash Studio) e tem construtor basico.
+            Own windows on display 1/2 with live telemetry. Imports/exports <code>.simhubdash</code> (SimHub Dash Studio) e tem construtor basico.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1170,7 +1170,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
             Exportar .simhubdash…
           </button>
           <button style={btn()} disabled={busy} onClick={() => newEmpty(1280, 720, 'New dashboard')}>
-            New (vazio)
+            New (empty)
           </button>
           {NEW_RESOLUTION_PRESETS.map((p) => (
             <button
@@ -1178,7 +1178,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
               style={btn()}
               disabled={busy}
               onClick={() => newEmpty(p.width, p.height, `New ${p.label}`)}
-              title={`Cria um dashboard vazio em ${p.width}×${p.height}`}
+              title={`Creates an empty dashboard at ${p.width}×${p.height}`}
             >
               + {p.label}
             </button>
@@ -1192,9 +1192,9 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
         <section style={panel({ borderColor: ACCENT })}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div>
-              <h4 style={{ margin: '0 0 4px' }}>Escolha a tela do .simhubdash</h4>
+              <h4 style={{ margin: '0 0 4px' }}>Choose the .simhubdash screen</h4>
               <p style={{ margin: 0, color: TEXT_DIM, fontSize: 13 }}>
-                O arquivo tem multiple screens. A tela sugerida ja esta selected; voce tambem pode importar todas como dashboards separados.
+                The file has multiple screens. The suggested screen is already selected; you can also import all of them as separate dashboards.
               </p>
             </div>
             <button style={btn()} disabled={busy} onClick={() => setImportPicker(null)}>Cancel</button>
@@ -1211,7 +1211,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                   <strong style={{ color: screen.selected ? ACCENT : TEXT_FG }}>{screen.name}</strong>
                   <div style={{ color: TEXT_DIM, fontSize: 12 }}>
                     {screen.elementCount} elements · score {screen.score}
-                    {screen.inGame ? ' · corrida' : ''}{screen.pit ? ' · pit' : ''}{screen.idle ? ' · idle' : ''}
+                    {screen.inGame ? ' · race' : ''}{screen.pit ? ' · pit' : ''}{screen.idle ? ' · idle' : ''}
                   </div>
                 </div>
               </label>
@@ -1219,7 +1219,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
             <button style={btn('primary')} disabled={busy} onClick={() => run(() => completeSimhubImport(false))}>
-              Importar tela selected
+              Import selected screen
             </button>
             <button style={btn()} disabled={busy} onClick={() => run(() => completeSimhubImport(true))}>
               Importar todas as screens
@@ -1251,9 +1251,9 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
       <section style={panel()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
-            <h4 style={{ margin: '0 0 4px' }}>Playlist de corrida</h4>
+            <h4 style={{ margin: '0 0 4px' }}>Race playlist</h4>
             <p style={{ margin: 0, color: TEXT_DIM, fontSize: 13 }}>
-              Monte a ordem dos dashboards e capture um button do buttonbox abaixo para alternar durante a corrida. O atalho e saved junto com <strong>Controls &amp; Keyboard</strong> e aparece la automaticamente.
+              Build the dashboard order and capture a button from the button box below to switch during the race. The shortcut is saved with <strong>Controls &amp; Keyboard</strong> e aparece la automaticamente.
             </p>
           </div>
           <button style={btn('primary')} disabled={busy || !selectedId} onClick={addSelectedToPlaylist}>
@@ -1307,7 +1307,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           </div>
         </div>
         <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {playlist.items.length === 0 && <div style={{ color: TEXT_DIM, fontSize: 13 }}>Playlist vazia. Selecione um dashboard e adicione a sequence.</div>}
+          {playlist.items.length === 0 && <div style={{ color: TEXT_DIM, fontSize: 13 }}>Empty playlist. Select a dashboard and add it to the sequence.</div>}
           {playlist.items.map((item, index) => {
             const label = resolvePlaylistRowLabel(item, summaries, touchSummaries)
             const open = openStates.find((state) => state.id === item.dashboardId)
@@ -1325,7 +1325,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                     {label.name}
                   </div>
                   <div style={{ color: label.found ? TEXT_DIM : 'var(--accent-danger)', fontSize: 12 }}>
-                    {label.subtitle}{open ? ` · aberto no monitor ${open.displayId}` : ''}
+                    {label.subtitle}{open ? ` · open on display ${open.displayId}` : ''}
                   </div>
                 </div>
                 <select
@@ -1358,7 +1358,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           })}
         </div>
         <p style={{ margin: '10px 0 0', color: TEXT_DIM, fontSize: 12 }}>
-          Estado current: {openStates.length === 0 ? 'no dashboard aberto' : openStates.map((state) => `${summaries.find((dash) => dash.id === state.id)?.name ?? touchSummaries.find((p) => p.id === state.id)?.name ?? state.id} no monitor ${state.displayId}`).join(' · ')}.
+          Current state: {openStates.length === 0 ? 'no dashboard open' : openStates.map((state) => `${summaries.find((dash) => dash.id === state.id)?.name ?? touchSummaries.find((p) => p.id === state.id)?.name ?? state.id} on display ${state.displayId}`).join(' · ')}.
         </p>
       </section>
 
@@ -1463,7 +1463,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
 
         <section style={panel()}>
           {!selectedDash ? (
-            <div style={{ color: TEXT_DIM, padding: 16 }}>Selecione um dashboard a esquerda ou crie um novo.</div>
+            <div style={{ color: TEXT_DIM, padding: 16 }}>Select a dashboard on the left or create a new one.</div>
           ) : (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
@@ -1546,7 +1546,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                   Fullscreen
                 </label>
                 <button style={btn('primary')} disabled={busy || !selectedDash} onClick={() => run(openSelected)}>
-                  {isOpen ? 'Reabrir aqui' : 'Open no monitor'}
+                  {isOpen ? 'Reopen here' : 'Open on display'}
                 </button>
                 {isOpen && (
                   <button style={btn('danger')} disabled={busy} onClick={() => run(() => closeOpen(selectedDash.id))}>
@@ -1596,13 +1596,13 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                       style={{ ...btn('primary'), display: 'flex', alignItems: 'center', gap: 6 }}
                       disabled={busy || !selectedDash}
                       onClick={() => run(openKiosk)}
-                      title="Abre o dashboard selecionado em tela cheia, com gestos de toque (deslizar/tocar nas bordas troca de preset)."
+                      title="Opens the selected dashboard fullscreen with touch gestures (swipe/tap edges to switch presets)."
                     >
                       <span aria-hidden>🖐</span> Open como Kiosk
                     </button>
                     <span style={{ color: TEXT_DIM, fontSize: 12 }}>
-                      Abre o dashboard selecionado em tela cheia no monitor escolhido acima, com
-                      deslize/toque para trocar de preset (ideal para a tela de 7&quot; no cockpit).
+                      Abre o dashboard selecionado em tela cheia on display escolhido acima, com
+                      swipe/tap to switch presets (ideal for the 7&quot; cockpit screen).
                     </span>
                   </div>
                   <p style={{ margin: 0, color: TEXT_DIM, fontSize: 12 }}>
@@ -1620,7 +1620,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                       type="button"
                       style={{ ...btn(galleryOpen ? 'primary' : 'default'), display: 'flex', alignItems: 'center', gap: 6 }}
                       onClick={() => setGalleryOpen((v) => !v)}
-                      title="Mostrar/hide a galeria de widgets"
+                      title="Show/hide a galeria de widgets"
                     >
                       {galleryOpen ? '▾' : '▸'} Galeria de widgets
                     </button>
@@ -1717,8 +1717,8 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                   />
                   <p style={{ color: TEXT_DIM, fontSize: 12, margin: '8px 0 0' }}>
                     {previewMode === 'yes'
-                      ? 'Preview com telemetria yesulada (estado "em corrida"). Clique, arraste ou redimensione pelos handles para editar.'
-                      : 'Preview static (sem telemetria). Clique, arraste ou redimensione pelos handles para editar.'}
+                      ? 'Preview with simulated telemetry ("in race" state). Click, drag, or resize with the handles to edit.'
+                      : 'Static preview (no telemetry). Click, drag, or resize with the handles to edit.'}
                     {snapEnabled ? ` Grade ${snapStep}px active: ajustes de posicao/tamanho sao arredondata.` : ''}
                   </p>
                 </div>
@@ -2342,7 +2342,7 @@ function ElementInspector({
 }: InspectorProps): ReactElement {
   const groups = useMemo(() => groupBindings(), [])
   if (!element) {
-    return <div style={{ color: TEXT_DIM }}>Selecione um elemento no preview.</div>
+    return <div style={{ color: TEXT_DIM }}>Select an element in the preview.</div>
   }
 
   const nudgeStep = snapStep > 1 ? snapStep : 1
@@ -2701,7 +2701,7 @@ function ElementInspector({
           <NumberField label="Rows max." value={element.style.tableMaxRows ?? 8} onChange={(v) => onChangeStyle({ tableMaxRows: Math.max(1, Math.min(64, Math.round(v))) })} min={1} max={64} />
           <NumberField label="Tamanho fonte" value={Number(element.style.fontSize ?? 14)} onChange={(v) => onChangeStyle({ fontSize: Math.max(8, Math.min(64, v)) })} min={8} max={64} />
           <div>
-            <label style={fieldLabel()}>Mostrar header</label>
+            <label style={fieldLabel()}>Show header</label>
             <select
               value={element.style.showHeader === false ? 'no' : 'yes'}
               onChange={(e) => onChangeStyle({ showHeader: e.target.value === 'yes' })}
@@ -3234,7 +3234,7 @@ function Gt3Config({
       <div style={grid}>
         <SectionLabel>Data</SectionLabel>
         <SelectField label="Unit veloc." value={s.unit === 'mph' ? 'mph' : 'kmh'} options={[{ value: 'kmh', label: 'km/h' }, { value: 'mph', label: 'mph' }]} onChange={(v) => onChangeStyle({ unit: v === 'mph' ? 'mph' : undefined })} />
-        <ToggleField label="Mostrar RPM" value={s.showRpm !== false} onChange={(v) => onChangeStyle({ showRpm: v })} />
+        <ToggleField label="Show RPM" value={s.showRpm !== false} onChange={(v) => onChangeStyle({ showRpm: v })} />
         <SectionLabel>Visual</SectionLabel>
         <ColorField label="Accent color" value={s.accentColor ?? 'var(--accent-primary)'} onChange={(v) => onChangeStyle({ accentColor: v })} />
         <NumberField label="Flash (0–1)" value={s.flashAt ?? 0.97} onChange={(v) => onChangeStyle({ flashAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.01} />
@@ -3249,8 +3249,8 @@ function Gt3Config({
         <SelectField label="Modo" value={mode} options={[{ value: 'temp', label: 'Temperature' }, { value: 'pressure', label: 'Pressure' }, { value: 'wear', label: 'Wear' }]} onChange={(v) => onChangeStyle({ gridMode: v as 'temp' | 'pressure' | 'wear' })} />
         {mode === 'temp' && <SelectField label="Unit" value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />}
         {mode === 'pressure' && <SelectField label="Unit" value={s.unit ?? 'kPa'} options={[{ value: 'kPa', label: 'kPa' }, { value: 'psi', label: 'psi' }, { value: 'bar', label: 'bar' }]} onChange={(v) => onChangeStyle({ unit: v })} />}
-        <ToggleField label="Mostrar labels" value={s.showLabels !== false} onChange={(v) => onChangeStyle({ showLabels: v })} />
-        <ToggleField label="Mostrar average" value={s.showAverage === true} onChange={(v) => onChangeStyle({ showAverage: v })} />
+        <ToggleField label="Show labels" value={s.showLabels !== false} onChange={(v) => onChangeStyle({ showLabels: v })} />
+        <ToggleField label="Show average" value={s.showAverage === true} onChange={(v) => onChangeStyle({ showAverage: v })} />
         {mode === 'temp' && (
           <>
             <SectionLabel>Limiares °C</SectionLabel>
@@ -3275,7 +3275,7 @@ function Gt3Config({
       <div style={grid}>
         <SectionLabel>Data</SectionLabel>
         <SelectField label="Unit" value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />
-        <ToggleField label="Mostrar average" value={s.showAverage === true} onChange={(v) => onChangeStyle({ showAverage: v })} />
+        <ToggleField label="Show average" value={s.showAverage === true} onChange={(v) => onChangeStyle({ showAverage: v })} />
         <SectionLabel>Limiares °C</SectionLabel>
         <NumberField label="Frio <" value={s.coldAt ?? 250} onChange={(v) => onChangeStyle({ coldAt: v })} />
         <NumberField label="Trab. ≥" value={s.optimalAt ?? 650} onChange={(v) => onChangeStyle({ optimalAt: v })} />
@@ -3330,7 +3330,7 @@ function Gt3Config({
     return (
       <div style={grid}>
         <SectionLabel>Visual</SectionLabel>
-        <ToggleField label="Mostrar total" value={s.showTotal !== false} onChange={(v) => onChangeStyle({ showTotal: v })} />
+        <ToggleField label="Show total" value={s.showTotal !== false} onChange={(v) => onChangeStyle({ showTotal: v })} />
         <ColorField label="Accent color" value={s.accentColor ?? 'var(--accent-primary)'} onChange={(v) => onChangeStyle({ accentColor: v })} />
       </div>
     )
@@ -3364,7 +3364,7 @@ function Gt3Config({
       <div style={grid}>
         <SectionLabel>Data</SectionLabel>
         <NumberField label="Angle max.°" value={s.maxDegrees ?? 540} onChange={(v) => onChangeStyle({ maxDegrees: Math.max(90, Math.round(v)) })} min={90} max={1440} step={10} />
-        <ToggleField label="Mostrar numerico" value={s.showNumeric !== false} onChange={(v) => onChangeStyle({ showNumeric: v })} />
+        <ToggleField label="Show numerico" value={s.showNumeric !== false} onChange={(v) => onChangeStyle({ showNumeric: v })} />
       </div>
     )
   }

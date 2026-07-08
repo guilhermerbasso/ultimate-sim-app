@@ -141,7 +141,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 // Map raw MediaDeviceInfo entries to the audio outputs we expose. We KEEP the
-// synthetic 'default' sink (relabeled "Padrão do sistema") instead of dropping it
+// synthetic 'default' sink (relabeled "System default") instead of dropping it
 // — on Chromium it is frequently the only entry with a stable, usable id, so
 // filtering it left the picker empty/unusable. We still drop empty ids (those
 // only appear before the media-permission grant unlocks labels) and de-dupe by
@@ -159,7 +159,7 @@ function mapAudioOutputs(list: MediaDeviceInfo[]): AudioOutputDeviceInfo[] {
     index += 1
     outputs.push({
       deviceId,
-      label: deviceId === 'default' ? 'Padrão do sistema' : device.label || `Output ${index}`
+      label: deviceId === 'default' ? 'System default' : device.label || `Output ${index}`
     })
   }
   outputs.sort((a, b) => (a.deviceId === 'default' ? -1 : b.deviceId === 'default' ? 1 : 0))
@@ -408,7 +408,7 @@ export function DeviceRegistryProvider({ children }: { children: ReactNode }): R
       label: primaryDevice?.name ?? 'SIM-X ButtonBox',
       detail: primaryDevice
         ? `${primaryDevice.path} · FW ${primaryDevice.firmwareVersion ?? 'SIM-X'}`
-        : 'Não conectado',
+        : 'Not connected',
       connected: primaryDevice !== null,
       path: primaryDevice?.path ?? null,
       info: primaryDevice
@@ -433,7 +433,7 @@ export function DeviceRegistryProvider({ children }: { children: ReactNode }): R
         id: `audio-output:${output.deviceId}`,
         transport: 'audio-output',
         label: output.label,
-        detail: 'Saída de áudio · Windows',
+        detail: 'Audio output · Windows',
         connected: true,
         deviceId: output.deviceId
       })

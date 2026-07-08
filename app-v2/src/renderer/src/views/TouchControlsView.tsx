@@ -125,7 +125,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
   const requestLoadPanel = useCallback(
     (id: string) => {
       if (id === selectedId) return
-      if (dirty && !window.confirm('Há alterações no salvas neste button box. Descartar e trocar de painel?')) return
+      if (dirty && !window.confirm('There are unsaved changes in this button box. Discard and switch panels?')) return
       void run(() => loadPanel(id))
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -142,7 +142,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
     try {
       await task()
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Falha na operação.', 'error')
+      showToast(error instanceof Error ? error.message : 'Operation failed.', 'error')
     } finally {
       setBusy(false)
     }
@@ -160,7 +160,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
   }, [refreshPanels, showToast, summaries.length])
 
   const requestCreatePanel = useCallback(() => {
-    if (dirty && !window.confirm('Há alterações no salvas neste button box. Descartar e criar um novo?')) return
+    if (dirty && !window.confirm('There are unsaved changes in this button box. Discard and create a new one?')) return
     void run(createPanel)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createPanel, dirty])
@@ -253,7 +253,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
     () =>
       displays.map((d) => (
         <option key={d.id} value={d.id}>
-          {d.label} · {d.width}×{d.height}{d.primary ? ' · primário' : ''}
+          {d.label} · {d.width}×{d.height}{d.primary ? ' · primary' : ''}
         </option>
       )),
     [displays]
@@ -314,7 +314,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
           )}
         </div>
         <p style={{ color: TEXT_DIM, fontSize: 12, margin: '8px 0 0' }}>
-          Painel de toque para pit stop e comandos rápidos — combustível, pneus, serviço, chat macros, câmera e replay.
+          Painel de toque para pit stop e comandos fasts — combustível, pneus, serviço, chat macros, câmera e replay.
           The dashboard kiosk remains in <strong>Dashboards</strong>.
         </p>
       </section>
@@ -400,7 +400,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
               <button style={btn('primary')} disabled={busy} onClick={() => run(savePanel)}>Save</button>
               <button style={btn()} disabled={busy} onClick={() => run(openFullscreen)}>Open fullscreen</button>
-              <button style={btn()} disabled={busy} onClick={() => run(addToPlaylist)}>Adicionar à playlist</button>
+              <button style={btn()} disabled={busy} onClick={() => run(addToPlaylist)}>Add à playlist</button>
               <button style={btn('danger')} disabled={busy} onClick={() => run(deletePanel)}>Delete</button>
               <span style={{ width: 1, height: 24, background: PANEL_BORDER }} />
               <span style={{ color: TEXT_DIM, fontSize: 12 }}>Monitor</span>

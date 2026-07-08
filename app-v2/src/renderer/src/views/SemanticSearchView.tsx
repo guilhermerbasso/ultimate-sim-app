@@ -141,7 +141,7 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
       const next = await ensureSearchModel()
       setStatus(next)
       if (next.modelReady) {
-        showToast('Modelo de busca semântica pronto.', 'success')
+        showToast('Semantic search model ready.', 'success')
         void doSearch(query, filters)
       }
     } catch (e) {
@@ -152,10 +152,10 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
   const onReindex = useCallback(async () => {
     try {
       setStatus(await reindexSearch())
-      showToast('Índice de busca atualizado.', 'success')
+      showToast('Search index updated.', 'success')
       void doSearch(query, filters)
     } catch (e) {
-      showToast(`Reindexação falhou: ${errorMessage(e)}`, 'error')
+      showToast(`Reindexing failed: ${errorMessage(e)}`, 'error')
     }
   }, [doSearch, filters, query, showToast])
 
@@ -174,7 +174,7 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
 
   const modeBadge = useMemo(() => {
     if (mode === 'semantic') {
-      return { text: 'Semântica', tone: 'var(--accent-success)', bg: 'rgba(var(--accent-success-rgb,73,197,177),0.14)' }
+      return { text: 'Semantic', tone: 'var(--accent-success)', bg: 'rgba(var(--accent-success-rgb,73,197,177),0.14)' }
     }
     return { text: 'Palavra-chave', tone: 'var(--accent-primary)', bg: 'rgba(var(--accent-rgb),0.14)' }
   }, [mode])
@@ -182,7 +182,7 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <section style={card}>
-        <div style={label}>Busca semântica</div>
+        <div style={label}>Semantic search</div>
         <h2 style={{ margin: '4px 0 10px' }}>Encontre setups, ghosts, notas e achados</h2>
 
         <div style={row}>
@@ -203,7 +203,7 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
               padding: '5px 9px',
               borderRadius: 'var(--radius-sm)'
             }}
-            title={mode === 'semantic' ? 'Resultados por yesilaridade de significado' : 'Resultados por palavra-chave (modelo ausente ou sem correspondência semântica)'}
+            title={mode === 'semantic' ? 'Results by meaning similarity' : 'Keyword results (model missing or no semantic match)'}
           >
             {modeBadge.text}
           </span>
@@ -242,7 +242,7 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
               {status?.modelReady ? (
                 <span style={{ color: 'var(--accent-success)' }}>● Modelo ativo — busca por significado habilitada</span>
               ) : downloading ? (
-                <span style={{ color: 'var(--accent-primary)' }}>● Baixando/carregando modelo… {ratioPct}%</span>
+                <span style={{ color: 'var(--accent-primary)' }}>● Lowndo/carregando modelo… {ratioPct}%</span>
               ) : status && !status.modelAvailable ? (
                 <span style={{ opacity: 0.8 }}>○ Pacote de IA no instalado — using busca por palavra-chave</span>
               ) : (
@@ -253,7 +253,7 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
           <div style={row}>
             {!status?.modelReady && status?.modelAvailable !== false ? (
               <button style={primaryButton} type="button" disabled={!!downloading} onClick={() => void onDownloadModel()}>
-                {downloading ? `Baixando ${ratioPct}%` : `Baixar modelo (${status?.modelSizeLabel ?? '~470 MB'})`}
+                {downloading ? `Lowndo ${ratioPct}%` : `Lowr modelo (${status?.modelSizeLabel ?? '~470 MB'})`}
               </button>
             ) : null}
             <button style={button} type="button" onClick={() => void onReindex()}>
@@ -282,7 +282,7 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
         ) : null}
 
         <p style={{ opacity: 0.6, margin: '10px 0 0', fontSize: 12 }}>
-          100% offline e open-source (Transformers.js, CPU). O download é sob demanda e fica em cache. Sem o modelo, a busca
+          100% offline e open-source (Transformers.js, CPU). O download é sob demanda e fica em cache. Without the model, search
           continua funcionando por palavra-chave/fuzzy.
         </p>
       </section>
@@ -294,7 +294,7 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
         ) : results.length === 0 ? (
           <p style={{ opacity: 0.7, margin: 0 }}>
             {query.trim()
-              ? 'Nenhum resultado. Tente outros termos, reindexe, ou baixe o modelo para busca por significado.'
+              ? 'No results. Try other terms, reindex, or download the model for meaning-based search.'
               : 'Digite algo para buscar nos seus setups, ghosts, notas de pilotos e achados do Coach/Engenheiro.'}
           </p>
         ) : (

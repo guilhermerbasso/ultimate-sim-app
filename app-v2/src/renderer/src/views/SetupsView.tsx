@@ -188,7 +188,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
   async function addUrlSource(): Promise<void> {
     const url = urlDraft.trim()
     if (!isHttpsUrl(url)) {
-      showToast('Informe uma URL HTTPS válida.', 'error')
+      showToast('Enter a valid HTTPS URL.', 'error')
       return
     }
     const source: SetupSource = { id: createId('url'), kind: 'url', label: new URL(url).hostname, url }
@@ -239,7 +239,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
   async function install(file: SetupFileInfo): Promise<void> {
     const carFolder = selectedFolders[file.id]?.trim()
     if (!carFolder) {
-      showToast('Selecione a pasta do carro.', 'error')
+      showToast('Select the car folder.', 'error')
       return
     }
     setBusy(true)
@@ -305,7 +305,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
 
   async function compareSelected(): Promise<void> {
     if (!compareLeftPath || !compareRightPath || compareLeftPath === compareRightPath) {
-      showToast('Selecione dois setups diferentes.', 'error')
+      showToast('Select two different setups.', 'error')
       return
     }
     setLibraryBusy(true)
@@ -327,14 +327,14 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
           <div style={label}>Setups iRacing</div>
           <h3 style={{ margin: '4px 0 0' }}>Setup Manager</h3>
           <p style={{ margin: '6px 0 0', opacity: 0.72 }}>
-            Instale, catalogue e compare arquivos .sto com diff por seção.
+            Install, catalog, and compare .sto files with section diffs.
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <SectionExportImport sectionId="setups" label="Setups (biblioteca)" onImported={() => void refreshAll()} />
           <SectionExportImport sectionId="setup-manager" label="Gerenciador de setups" onImported={() => void refreshAll()} />
           <button style={button} type="button" onClick={() => void window.ipc.invoke(SETUPS_CHANNELS.openSetupsDir)}>
-            Abrir pasta de setups
+            Open setups folder
           </button>
         </div>
       </div>
@@ -358,8 +358,8 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
       <div style={{ display: 'grid', gap: 16 }}>
         {env && !env.supported && (
           <div style={{ ...card, borderColor: 'rgba(255,185,0,0.35)' }}>
-            <strong>Instalação disponível apenas no Windows.</strong>
-            <p style={{ margin: '6px 0 0', opacity: 0.78 }}>Você ainda pode configurar fontes. Pasta esperada: {env.setupsDir}</p>
+            <strong>Installation available only on Windows.</strong>
+            <p style={{ margin: '6px 0 0', opacity: 0.78 }}>You can still configure sources. Expected folder: {env.setupsDir}</p>
           </div>
         )}
 
@@ -383,11 +383,11 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
               <div style={label}>Fontes</div>
               <h3 style={{ margin: '4px 0 0' }}>Biblioteca de setups</h3>
             </div>
-            <button style={primaryButton} type="button" onClick={() => void addFolderSource()}>Adicionar pasta</button>
+            <button style={primaryButton} type="button" onClick={() => void addFolderSource()}>Add pasta</button>
           </div>
           <div style={{ ...row, marginTop: 12 }}>
             <input style={{ ...input, flex: 1, minWidth: 260 }} value={urlDraft} onChange={(event) => setUrlDraft(event.target.value)} placeholder="https://exemplo.com/setups.json ou setup.sto" />
-            <button style={button} type="button" onClick={() => void addUrlSource()}>Adicionar URL</button>
+            <button style={button} type="button" onClick={() => void addUrlSource()}>Add URL</button>
           </div>
           <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
             {config.sources.map((source) => (
@@ -396,7 +396,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
                   {source.kind === 'folder' ? 'Pasta' : 'URL'} · {source.label}
                 </button>
                 <small style={{ opacity: 0.62, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{source.path ?? source.url}</small>
-                <button style={button} type="button" onClick={() => void removeSource(source.id)}>Remover</button>
+                <button style={button} type="button" onClick={() => void removeSource(source.id)}>Remove</button>
               </div>
             ))}
             {config.sources.length === 0 && <p style={{ opacity: 0.7 }}>Nenhuma fonte cadastrada ainda.</p>}
@@ -415,7 +415,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
               disabled={!config.autoInstall || folderSources.length === 0}
               onChange={(event) => void patchConfig({ autoInstallSourceId: event.target.value || undefined })}
             >
-              <option value="">Selecionar pasta</option>
+              <option value="">Select folder</option>
               {folderSources.map((source) => <option key={source.id} value={source.id}>{source.label}</option>)}
             </select>
           </div>
@@ -424,8 +424,8 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
         <section style={card}>
           <div style={{ ...row, justifyContent: 'space-between' }}>
             <div>
-              <div style={label}>Arquivos disponíveis</div>
-              <h3 style={{ margin: '4px 0 0' }}>{selectedSource ? selectedSource.label : 'Selecione uma fonte'}</h3>
+              <div style={label}>Available files</div>
+              <h3 style={{ margin: '4px 0 0' }}>{selectedSource ? selectedSource.label : 'Select a source'}</h3>
             </div>
             <button disabled={!selectedSourceId || busy} style={button} type="button" onClick={() => void loadSource(selectedSourceId)}>Refresh</button>
           </div>
@@ -434,7 +434,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
               <div key={file.id} style={{ display: 'grid', gridTemplateColumns: '1fr minmax(180px, 260px) auto', gap: 10, alignItems: 'center', padding: 10, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 'var(--radius-sm)' }}>
                 <div>
                   <strong>{file.fileName}</strong>
-                  <div style={{ opacity: 0.6, fontSize: 12 }}>{file.sizeBytes ? `${Math.round(file.sizeBytes / 1024)} KB` : 'Remoto'} {file.suggestedCarFolder ? `· sugestão: ${file.suggestedCarFolder}` : ''}</div>
+                  <div style={{ opacity: 0.6, fontSize: 12 }}>{file.sizeBytes ? `${Math.round(file.sizeBytes / 1024)} KB` : 'Remote'} {file.suggestedCarFolder ? `· suggestion: ${file.suggestedCarFolder}` : ''}</div>
                 </div>
                 <CarFolderInput
                   folders={carFolders}
@@ -444,7 +444,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
                 <button disabled={busy} style={primaryButton} type="button" onClick={() => void install(file)}>Instalar</button>
               </div>
             ))}
-            {files.length === 0 && <p style={{ opacity: 0.7 }}>{busy ? 'Carregando setups…' : 'Nenhum .sto encontrado nesta fonte.'}</p>}
+            {files.length === 0 && <p style={{ opacity: 0.7 }}>{busy ? 'Loading setups…' : 'No .sto found in this source.'}</p>}
           </div>
         </section>
       </div>
@@ -465,13 +465,13 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
           </div>
           <div style={{ display: 'grid', gap: 8, marginTop: 12, maxHeight: 520, overflow: 'auto' }}>
             {libraryItems.map((item) => <LibraryItemButton key={item.id} active={item.path === selectedLibraryPath} item={item} onClick={() => setSelectedLibraryPath(item.path)} />)}
-            {libraryItems.length === 0 && <p style={{ opacity: 0.7 }}>{libraryBusy ? 'Indexando setups…' : 'Nenhum .sto encontrado na pasta local.'}</p>}
+            {libraryItems.length === 0 && <p style={{ opacity: 0.7 }}>{libraryBusy ? 'Indexing setups…' : 'No .sto found in the local folder.'}</p>}
           </div>
         </section>
 
         <section style={card}>
           <div style={label}>Metadados</div>
-          <h3 style={{ margin: '4px 0 12px' }}>{selectedLibraryItem?.fileName ?? 'Selecione um setup'}</h3>
+          <h3 style={{ margin: '4px 0 12px' }}>{selectedLibraryItem?.fileName ?? 'Select a setup'}</h3>
           <MetadataEditor metadata={metadataDraft} disabled={!selectedLibraryItem} onChange={setMetadataDraft} />
           <div style={{ ...row, justifyContent: 'flex-end', marginTop: 12 }}>
             <button disabled={!selectedLibraryItem} style={primaryButton} type="button" onClick={() => void saveMetadata()}>Save metadados</button>
@@ -499,7 +499,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
           </div>
         </section>
 
-        {compareResult ? <DiffView result={compareResult} /> : <section style={card}><p style={{ opacity: 0.7, margin: 0 }}>Selecione dois setups para ver as diferenças por seção.</p></section>}
+        {compareResult ? <DiffView result={compareResult} /> : <section style={card}><p style={{ opacity: 0.7, margin: 0 }}>Select two setups to see differences by section.</p></section>}
       </div>
     )
   }
@@ -538,7 +538,7 @@ function MetadataEditor({ disabled, metadata, onChange }: { disabled: boolean; m
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={label}>Notas</span>
-        <textarea disabled={disabled} style={{ ...input, minHeight: 140, resize: 'vertical' }} value={metadata.notes} onChange={(event) => onChange({ ...metadata, notes: event.target.value })} placeholder="Ex.: estável em stint longo, ajustar brake bias…" />
+        <textarea disabled={disabled} style={{ ...input, minHeight: 140, resize: 'vertical' }} value={metadata.notes} onChange={(event) => onChange({ ...metadata, notes: event.target.value })} placeholder="Ex.: stable over a long stint, adjust brake bias…" />
       </label>
     </div>
   )
@@ -572,7 +572,7 @@ function DiffView({ result }: { result: SetupCompareResult }): ReactElement {
         <strong>{result.left.fileName}</strong>
         <span style={{ opacity: 0.58 }}>vs</span>
         <strong>{result.right.fileName}</strong>
-        <span style={{ ...warningText, marginLeft: 'auto' }}>{result.diff.totalChanges} diferenças</span>
+        <span style={{ ...warningText, marginLeft: 'auto' }}>{result.diff.totalChanges} differences</span>
       </div>
       <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
         {result.diff.sections.map((section) => (
@@ -585,7 +585,7 @@ function DiffView({ result }: { result: SetupCompareResult }): ReactElement {
             <DiffEntries title="Removidos" entries={section.removed} kind="removed" />
           </div>
         ))}
-        {result.diff.sections.length === 0 && <p style={{ opacity: 0.7, margin: 0 }}>Nenhuma diferença encontrada.</p>}
+        {result.diff.sections.length === 0 && <p style={{ opacity: 0.7, margin: 0 }}>No differences found.</p>}
       </div>
     </section>
   )
@@ -615,7 +615,7 @@ function CarFolderInput({ folders, value, onChange }: { folders: string[]; value
   return (
     <div style={{ display: 'grid', gap: 6 }}>
       <select style={input} value={folders.includes(value) ? value : ''} onChange={(event) => onChange(event.target.value)}>
-        <option value="">Selecionar pasta</option>
+        <option value="">Select folder</option>
         {folders.map((folder) => <option key={folder} value={folder}>{folder}</option>)}
       </select>
       <input style={input} value={value} onChange={(event) => onChange(event.target.value)} placeholder="ou nova pasta do carro" />

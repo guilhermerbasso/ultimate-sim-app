@@ -130,7 +130,7 @@ function InputMonitorView(_props: AppViewProps): ReactElement {
         </p>
       </div>
 
-      <div className="input-grid" aria-label="Estado dos 32 botões HID">
+      <div className="input-grid" aria-label="Estado dos 32 HID buttons">
         {buttons.map((pressed, index) => (
           <div className={`input-cell ${pressed ? 'is-pressed' : ''}`} key={index + 1}>
             <span>{String(index + 1).padStart(2, '0')}</span>
@@ -154,7 +154,7 @@ function InputMonitorView(_props: AppViewProps): ReactElement {
         Encoders chegam pela serial como <code>E&lt;idx&gt;:+1</code> ou <code>E&lt;idx&gt;:-1</code> e no aparecem no HID.
         Conecte o ButtonBox em Devices para receber os eventos abaixo.
       </p>
-      <div className="status-list" aria-label="Últimos eventos de encoder">
+      <div className="status-list" aria-label="Last eventos de encoder">
         {encoderTraces.length === 0 ? (
           <p className="helper-text">Aguardando eventos de encoder…</p>
         ) : (

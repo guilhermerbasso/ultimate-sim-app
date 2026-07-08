@@ -326,7 +326,7 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
                 </p>
               </div>
               <div style={styles.row}>
-                <button style={styles.secondaryButton} disabled={busy} onClick={() => editProfile(profile)} type="button">Editar</button>
+                <button style={styles.secondaryButton} disabled={busy} onClick={() => editProfile(profile)} type="button">Edit</button>
                 <button style={styles.primaryButton} disabled={busy} onClick={() => void applyRaceProfile(profile)} type="button">Aplicar</button>
                 <button style={styles.dangerButton} disabled={busy} onClick={() => void deleteProfile(profile.id)} type="button">Delete</button>
               </div>

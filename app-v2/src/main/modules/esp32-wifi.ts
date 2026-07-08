@@ -133,7 +133,7 @@ async function provisionOverUsb(ctx: ModuleContext, request: ProvisionRequest): 
   const ssid = String(request?.ssid ?? '').trim()
   const password = String(request?.password ?? '')
   const board = request?.board === 'esp32' ? 'esp32' : 'esp32s3'
-  if (!port) return { ok: false, message: 'Selecione a porta USB/serial do ESP32.' }
+  if (!port) return { ok: false, message: 'Select the ESP32 USB/serial port.' }
   if (!ssid) return { ok: false, message: 'Informe o SSID da rede Wi‑Fi 2.4 GHz.' }
 
   try {
@@ -149,7 +149,7 @@ async function provisionOverUsb(ctx: ModuleContext, request: ProvisionRequest): 
     await pushWifiCredentials(port, ssid, password)
     return {
       ok: true,
-      message: 'Credenciais Wi‑Fi enviadas. Reinicie o ESP32 e use Descobrir para conectar pela rede.'
+      message: 'Wi?Fi credentials sent. Restart the ESP32 and use Discover to connect over the network.'
     }
   } catch (error) {
     return { ok: false, message: errMessage(error) }

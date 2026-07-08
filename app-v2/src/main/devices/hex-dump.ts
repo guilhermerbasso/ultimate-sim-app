@@ -28,7 +28,7 @@ export async function dumpHexFirmware(opts: DumpHexOptions): Promise<void> {
   if (process.platform !== 'win32') {
     throw new FlashError('.hex backup through avrdude is only available on Windows.')
   }
-  if (!opts.port.trim()) throw new FlashError('Selecione a porta serial (COM) da placa.')
+  if (!opts.port.trim()) throw new FlashError('Select the board serial (COM) port.')
   if (!existsSync(opts.tools.avrdudeExe)) {
     throw new FlashError(`avrdude.exe was not found em ${opts.tools.avrdudeExe}.`)
   }

@@ -666,22 +666,22 @@ export function narrateStrategyPlan(plan: StrategyPlan, lang: 'pt' | 'en' = 'pt'
     case 'box-soon':
       parts.push(
         pt
-          ? `Prepara o pit — janela aberta${plan.pitWindow.optimalLap ? `, até a lap ${plan.pitWindow.optimalLap}` : ''}.`
+          ? `Prepare to pit ? window open${plan.pitWindow.optimalLap ? `, until lap ${plan.pitWindow.optimalLap}` : ''}.`
           : `Get ready to pit — window open${plan.pitWindow.optimalLap ? `, by lap ${plan.pitWindow.optimalLap}` : ''}.`
       )
       break
     case 'short-fill':
       parts.push(
         pt
-          ? `Splash de ${fmt1(plan.fuel.shortFillLiters)} litros e segue até a flag.`
+          ? `Splash ${fmt1(plan.fuel.shortFillLiters)} liters and run to the flag.`
           : `Short-fill ${fmt1(plan.fuel.shortFillLiters)} litres and run to the flag.`
       )
       break
     case 'extend':
-      parts.push(pt ? 'Segue na pista, ainda não é hora do pit.' : 'Stay out, not time to pit yet.')
+      parts.push(pt ? 'Stay out, not time to pit yet.' : 'Stay out, not time to pit yet.')
       break
     default:
-      parts.push(pt ? 'Mantém o pace.' : 'Hold your pace.')
+      parts.push(pt ? 'Hold your pace.' : 'Hold your pace.')
   }
 
   if (finite(plan.fuel.marginLaps)) {
@@ -694,20 +694,20 @@ export function narrateStrategyPlan(plan: StrategyPlan, lang: 'pt' | 'en' = 'pt'
   if (finite(plan.tyres.lapsToThreshold)) {
     parts.push(
       pt
-        ? `Tires: ${fmt1(plan.tyres.lapsToThreshold)} laps até o limite.`
+        ? `Tires: ${fmt1(plan.tyres.lapsToThreshold)} laps to the limit.`
         : `Tyres: ${fmt1(plan.tyres.lapsToThreshold)} laps to the limit.`
     )
   }
   if (plan.undercut.available && plan.undercut.recommendation === 'undercut') {
     parts.push(
       pt
-        ? `Dá o undercut no ${plan.undercut.rivalName ?? 'rival'}.`
+        ? `Undercut ${plan.undercut.rivalName ?? 'rival'}.`
         : `Undercut ${plan.undercut.rivalName ?? 'the rival'} is on.`
     )
   } else if (plan.undercut.available && plan.undercut.recommendation === 'defend') {
     parts.push(
       pt
-        ? `Cuidado: ${plan.undercut.rivalName ?? 'rival'} pode te dar undercut.`
+        ? `Careful: ${plan.undercut.rivalName ?? 'rival'} can undercut you.`
         : `Watch out: ${plan.undercut.rivalName ?? 'rival'} may undercut you.`
     )
   }

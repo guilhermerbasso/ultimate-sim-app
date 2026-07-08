@@ -8,7 +8,7 @@ import {
 import { speakViaTts } from '../../lib/tts-runtime'
 import type { DebriefReason, StintDebrief } from '../../../../shared/stint-debrief'
 
-// Stint/session DEBRIEF panel (WS-I). Mounted in the Coach IA at the
+// Stint/session DEBRIEF panel (WS-I). Mounted in the AI Coach at the
 // `StintDebriefSeam` left by WS-D. Shows the deterministic pt-BR debrief (text +
 // bullets) folded from the Coach findings + Predictions, with a "Gerar debrief"
 // button (optionally LLM-phrased) and an "Ouvir" button that speaks it through

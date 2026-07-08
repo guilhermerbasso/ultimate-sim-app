@@ -111,7 +111,7 @@ function ctx(snap: TelemetrySnapshot | null = snapshot()): EngineerContext {
   }
 }
 
-describe('routeIntent â€” PT-BR questions', () => {
+describe('routeIntent -- PT-BR questions', () => {
   it('answers fuel level (how much fuel?)', () => {
     const r = routeIntent('How much fuel?', ctx())
     expect(r.type).toBe('answer')
@@ -155,7 +155,7 @@ describe('routeIntent â€” PT-BR questions', () => {
     expect(r.text).toContain('0.8')
   })
 
-  it('answers laps remaining deterministically â€” no LLM (quantas laps fhighm?)', () => {
+  it('answers laps remaining deterministically -- no LLM (quantas laps fhighm?)', () => {
     const r = routeIntent('Quantas laps fhighm?', ctx())
     expect(r.type).toBe('answer')
     if (r.type !== 'answer') return
@@ -205,7 +205,7 @@ describe('routeIntent â€” PT-BR questions', () => {
   })
 })
 
-describe('routeIntent â€” English questions', () => {
+describe('routeIntent -- English questions', () => {
   it('answers fuel?', () => {
     const r = routeIntent('fuel?', ctx())
     expect(r.type).toBe('answer')
@@ -224,7 +224,7 @@ describe('routeIntent â€” English questions', () => {
   })
 })
 
-describe('routeIntent â€” voice commands', () => {
+describe('routeIntent -- voice commands', () => {
   const cases: Array<[string, string, string | undefined]> = [
     ['next dashboard', 'dashboard.next', 'dash:cycleNext'],
     ['dashboard anterior', 'dashboard.prev', 'dash:cyclePrev'],
@@ -236,7 +236,7 @@ describe('routeIntent â€” voice commands', () => {
   ]
 
   for (const [phrase, kind, actionHint] of cases) {
-    it(`maps "${phrase}" â†’ ${kind}`, () => {
+    it(`maps "${phrase}" -> ${kind}`, () => {
       const r = routeIntent(phrase, ctx())
       expect(r.type).toBe('command')
       if (r.type !== 'command') return
@@ -254,7 +254,7 @@ describe('routeIntent â€” voice commands', () => {
   })
 })
 
-describe('routeIntent â€” passthrough', () => {
+describe('routeIntent -- passthrough', () => {
   it('returns passthrough for an unknown question', () => {
     expect(routeIntent('What color is the sky?', ctx()).type).toBe('passthrough')
   })

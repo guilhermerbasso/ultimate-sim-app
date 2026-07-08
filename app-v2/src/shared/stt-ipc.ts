@@ -79,7 +79,7 @@ export interface SttConfig {
 
 export type SttConfigPatch = Partial<SttConfig>
 
-export const DEFAULT_STT_WAKE_WORDS: readonly string[] = ['oi engineer', 'ok engineer', 'olá engineer'] as const
+export const DEFAULT_STT_WAKE_WORDS: readonly string[] = ['hey engineer', 'ok engineer', 'hello engineer'] as const
 
 export const DEFAULT_STT_CONFIG: SttConfig = {
   enabled: true,

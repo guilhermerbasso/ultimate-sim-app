@@ -146,7 +146,7 @@ export class SerialManager extends EventEmitter {
     const device = this.requirePrimary()
     try {
       await device.sendStartLed(true)
-      await device.sendOled('SIM-X CONECTADO', 'Serial output OK', `Porta ${device.path}`)
+      await device.sendOled('SIM-X CONNECTED', 'Serial output OK', `Port ${device.path}`)
       for (let level = 0; level <= REV_LEVEL_MAX; level += 1) {
         await device.sendRevLevel(level)
         await delay(SELF_TEST_STEP_MS)
@@ -174,7 +174,7 @@ export class SerialManager extends EventEmitter {
   // are no-ops that succeed when a session exists.
   async startOledStreaming(): Promise<void> {
     if (!this.hub.getPrimary()?.isOpen()) {
-      throw new Error('ButtonBox not connected. Use Devices > Conectar antes de iniciar o OLED.')
+      throw new Error('ButtonBox not connected. Use Devices > Connect before starting the OLED.')
     }
   }
 
@@ -250,7 +250,7 @@ export class SerialManager extends EventEmitter {
   private requirePrimary(): SerialDevice {
     const device = this.hub.getPrimary()
     if (!device || !device.isOpen()) {
-      throw new Error('ButtonBox not connected. Use Devices > Conectar antes de enviar comandos.')
+      throw new Error('ButtonBox not connected. Use Devices > Connect before sending commands.')
     }
     return device
   }

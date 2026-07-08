@@ -1,4 +1,4 @@
-// Tátil / Bass Shaker & Haptics — renderer runtime (the PRIMARY engine).
+// Haptics / Bass Shaker & Haptics — renderer runtime (the PRIMARY engine).
 //
 // Bass shakers are AUDIO transducers driven by an amplifier, so — exactly like
 // SimHub "ShakeIt" — we SYNTHESIZE low-frequency effect waveforms with the Web

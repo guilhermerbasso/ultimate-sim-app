@@ -400,8 +400,8 @@ function AudioOutputSelector({
         </button>
       </div>
       <select disabled={busy} onChange={(event) => onChange(event.target.value)} style={inputStyle} value={selectValue}>
-        <option value="">Padrão do sistema</option>
-        {selectedDeviceMissing ? <option value={selectValue}>Dispositivo selecionado indisponível</option> : null}
+        <option value="">System default</option>
+        {selectedDeviceMissing ? <option value={selectValue}>Selected device unavailable</option> : null}
         {dedicatedDevices.map((device) => (
           <option key={device.deviceId} value={device.deviceId}>
             {device.label}
@@ -452,7 +452,7 @@ function SoundshiftPanel({
 
       <div style={{ border: '1px solid var(--border-accent)', borderRadius: 'var(--radius-md)', padding: 'var(--space-4)', background: 'var(--surface-selected)', display: 'grid', gap: 8 }}>
         <label style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', cursor: 'pointer' }}>
-          <span style={{ fontWeight: 600 }}>Usar shiftIndicatorPct do iRacing quando disponível</span>
+          <span style={{ fontWeight: 600 }}>Use iRacing shiftIndicatorPct when available</span>
           <input
             checked={useIracingIndicator}
             onChange={(event) => onCommit(
@@ -735,7 +735,7 @@ function CarTuningCard({
             style={inputStyle}
             value={car.mode ?? ''}
           >
-            <option value="">Seguir padrão global</option>
+            <option value="">Follow global default</option>
             <option value="exact">Exato no shift point</option>
             <option value="redlineOffset">Antes do redline</option>
             <option value="shiftLight">Shift light</option>

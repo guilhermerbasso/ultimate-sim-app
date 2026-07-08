@@ -420,7 +420,7 @@ export class IRacingMemoryMap {
           notes.push('OK: iRacing connected and variables decoded successfully.')
         }
       } else {
-        notes.push('read() retornou null apesar do status conectado.')
+        notes.push('read() returned null despite the connected status.')
       }
     }
 
