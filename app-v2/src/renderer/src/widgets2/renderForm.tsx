@@ -75,7 +75,7 @@ export function renderForm(
           <text x={8} y={16} fill={c.textMuted} fontFamily="'Rajdhani',sans-serif" fontSize={10} letterSpacing={1.5}>
             {label.toUpperCase()}
           </text>
-          <RevLedBar pct={variable.invert ? 1 - r.fraction : r.fraction} x={8} y={24} width={w - 16} height={Math.max(14, h * 0.3)} colors={opts.colors} />
+          <RevLedBar pct={r.fraction} x={8} y={24} width={w - 16} height={Math.max(14, h * 0.3)} colors={opts.colors} />
           <text x={w / 2} y={h - 12} fill={valueColor} textAnchor="middle" fontFamily="'Chakra Petch',monospace" fontSize={Math.min(26, h * 0.28)} fontWeight={700}>
             {r.text}
             {r.unit ? <tspan fill={c.textDim} fontSize={11}> {r.unit}</tspan> : null}
@@ -103,10 +103,10 @@ export function renderForm(
       return <Pixel32 fraction={r.fraction} valueText={r.text} label={label} unit={r.unit} width={w} height={h} invert={variable.invert} colors={opts.colors} />
 
     case 'bar':
-      return barForm(variable, r.text, r.fraction, r.unit, valueColor, c, w, h, label, 'h')
+      return barForm(r.text, r.fraction, r.unit, valueColor, c, w, h, label, 'h')
 
     case 'barv':
-      return barForm(variable, r.text, r.fraction, r.unit, valueColor, c, w, h, label, 'v')
+      return barForm(r.text, r.fraction, r.unit, valueColor, c, w, h, label, 'v')
 
     case 'ring':
       return ringForm(r.text, r.fraction, r.unit, valueColor, c, w, h, label)
@@ -133,7 +133,6 @@ export function renderForm(
 }
 
 function barForm(
-  variable: WidgetVariable,
   text: string,
   fraction: number,
   unit: string,
@@ -144,7 +143,9 @@ function barForm(
   label: string,
   orientation: 'h' | 'v'
 ): ReactElement {
-  const frac = clamp01(variable.invert ? 1 - fraction : fraction)
+  // `invert` variables (fuel/wear/grip) only flip the WARN/CRIT colour via state —
+  // the bar still fills to the real fraction (never fuller as the value drops).
+  const frac = clamp01(fraction)
   return (
     <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} role="img" aria-label={label}>
       <rect x={0.5} y={0.5} width={w - 1} height={h - 1} rx={6} fill={c.surface} stroke={c.stroke} />

@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { DASHBOARDS2 } from './catalog'
 import type { DashboardElementType } from '../dashboards'
 

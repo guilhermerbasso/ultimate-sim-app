@@ -1,4 +1,4 @@
-﻿import type { CarFamily } from '../car-families'
+import type { CarFamily } from '../car-families'
 import type { Dashboard, DashboardElement, DashboardElementStyle, DashboardElementType } from '../dashboards'
 
 export type Dashboard2LayoutClass = 'cockpit' | 'engineer' | 'endurance' | 'strategy' | 'broadcast'

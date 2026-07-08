@@ -1,4 +1,4 @@
-﻿export interface CarFamily {
+export interface CarFamily {
   id: 'woking' | 'maranello' | 'gaydon' | 'stuttgart' | 'bowtie' | 'affalterbach' | 'ingolstadt' | 'prototype'
   codename: string
   displayName: string

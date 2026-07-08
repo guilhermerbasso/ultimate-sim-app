@@ -1,4 +1,4 @@
-﻿import { CAR_FAMILIES } from '../car-families'
+import { CAR_FAMILIES } from '../car-families'
 import type { Dashboard } from '../dashboards'
 import { buildDashboard2, DASHBOARD2_LAYOUT_CLASSES, type Dashboard2Target } from './builders'
 
