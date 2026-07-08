@@ -101,6 +101,18 @@ export function writeSidebarCollapsed(collapsed: boolean): void {
   }
 }
 
+export function isEditableTarget(target: EventTarget | null): boolean {
+  const element = target as Partial<HTMLElement> | null
+  if (!element || typeof element !== 'object') return false
+  const tagName = typeof element.tagName === 'string' ? element.tagName.toLowerCase() : ''
+  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') return true
+  if (element.isContentEditable === true) return true
+  if (typeof element.closest === 'function') {
+    return Boolean(element.closest('input, textarea, select'))
+  }
+  return false
+}
+
 // Optional image-icon hook. A view MAY expose an `iconImage` URL; when present we
 // render it as an <img> and gracefully fall back to the built-in SVG icon if the
 // image fails to load. The field is read defensively so we do NOT have to edit
@@ -353,11 +365,12 @@ function App(): ReactElement {
   // collapses/expands the sidebar rail. The two keys do not clash with each other.
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if ((event.ctrlKey || event.metaKey) && (event.key === 'k' || event.key === 'K')) {
+      if (!(event.ctrlKey || event.metaKey) || isEditableTarget(event.target)) return
+      if (event.key === 'k' || event.key === 'K') {
         event.preventDefault()
         setPaletteOpen((open) => !open)
       }
-      if ((event.ctrlKey || event.metaKey) && (event.key === 'b' || event.key === 'B')) {
+      if (event.key === 'b' || event.key === 'B') {
         event.preventDefault()
         setSidebarCollapsed((collapsed) => !collapsed)
       }
