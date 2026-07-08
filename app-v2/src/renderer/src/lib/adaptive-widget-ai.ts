@@ -182,7 +182,7 @@ function addAiWeight(scores: Map<string, number>, module: HifiWidgetModule, ai: 
 }
 
 export function selectAdaptiveWidgets(input: AdaptiveWidgetAiInput): string[] {
-  const maxSlots = Math.max(0, Math.floor(input.maxSlots))
+  const maxSlots = Number.isFinite(input.maxSlots) ? Math.max(0, Math.floor(input.maxSlots)) : 0
   if (maxSlots === 0) return []
 
   const scored = HIFI_WIDGETS.map((module, index): ScoredWidget => {

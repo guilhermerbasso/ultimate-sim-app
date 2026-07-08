@@ -31,6 +31,11 @@ function buildAiContext(
   const findings = coachFindings(report, 8)
   const latestEngineer = engineerFeed[0]
   const latestProactive = engineerFeed.find((item) => item.source === 'proactive')
+  // Surface a strategy call ONLY from a real engineer/proactive message that is
+  // clearly strategic (pit/stint/fuel/tyre/under-overcut). Never fabricate one.
+  const strategyMsg = engineerFeed.find((item) =>
+    /\b(pit|box|stint|under-?cut|over-?cut|strateg|fuel save|save fuel|lift and coast)\b/i.test(item.text)
+  )
   const confidence = report && report.sampleCount > 0
     ? Math.min(1, Math.max(0.35, report.sampleCount / 120))
     : null
@@ -53,7 +58,7 @@ function buildAiContext(
     proactiveAlert: latestProactive
       ? { text: latestProactive.text, level: proactiveLevel(latestProactive.severity) }
       : null,
-    strategy: null,
+    strategy: strategyMsg ? { text: strategyMsg.text } : null,
     confidence
   }
 }

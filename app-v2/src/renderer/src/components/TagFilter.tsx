@@ -18,7 +18,7 @@ export function filterByTags<T>(
   const selected = normalizeSelected(selectedTags)
   if (selected.length === 0) return [...items]
   return items.filter((item) => {
-    const itemTags = new Set((getTags(item) ?? []).filter(Boolean))
+    const itemTags = new Set((getTags(item) ?? []).map((tag) => tag.trim()).filter(Boolean))
     return selected.every((tag) => itemTags.has(tag))
   })
 }

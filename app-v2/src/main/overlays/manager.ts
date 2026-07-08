@@ -383,9 +383,9 @@ function normalizeCustomOverlays(value: unknown): CustomOverlayDef[] {
 function mergeConfig(config: Partial<OverlaysConfig> | null): OverlaysConfig {
   const defaults = createDefaultOverlaysConfig()
   if (!config) return defaults
-  const rawWidgets = isPlainObject(config.widgets) ? config.widgets : {}
+  const rawWidgets = (isPlainObject(config.widgets) ? config.widgets : {}) as Record<string, Partial<OverlayWidgetConfig> | undefined>
   const legacyWidgets = OVERLAY_WIDGETS.map((definition) => {
-    const current = rawWidgets[definition.id] as Partial<OverlayWidgetConfig> | undefined
+    const current = rawWidgets[definition.id]
     const base = defaults.widgets[definition.id]
     const stylePreset = getOverlayStylePreset(current?.stylePreset).id
     return [
