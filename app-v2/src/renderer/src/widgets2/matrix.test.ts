@@ -3,8 +3,11 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { baseSnapshot } from '../../../shared/telemetry-scenarios'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
+import { INSTRUMENT_COLORS } from '../instruments/tokens'
 import { ALL_WIDGET_SPECS, WIDGET_COUNT, formsForVariable } from './matrix'
 import { WIDGET_FORMS } from './forms'
+import { Pixel32 } from './Pixel32'
+import { renderForm } from './renderForm'
 import { WIDGET_VARIABLES } from './variables'
 import { MatrixWidget } from './MatrixWidget'
 
@@ -63,5 +66,31 @@ describe('widget-matrix factory', () => {
       expect(html.includes('undefined'), spec.id).toBe(false)
       expect(html.includes('Infinity'), spec.id).toBe(false)
     }
+  })
+
+  it('keeps Pixel32 cell geometry non-negative in tiny layouts', () => {
+    const html = renderToStaticMarkup(createElement(Pixel32, { fraction: 0.5, width: 8, height: 10, label: 'Fuel' }))
+    expect(html).not.toContain('width="-')
+    expect(html).not.toContain('height="-')
+    expect(html).not.toContain('NaN')
+  })
+
+  it('uses state-derived colors for inverted gauge variables', () => {
+    const fuelPct = WIDGET_VARIABLES.find((variable) => variable.id === 'fuelPct')
+    expect(fuelPct).toBeDefined()
+    const html = renderToStaticMarkup(
+      renderForm(
+        fuelPct!,
+        'gauge',
+        {
+          sim: 'none',
+          connected: true,
+          timestamp: 0,
+          fuelLiters: 6,
+          fuelCapacityLiters: 120
+        } as TelemetrySnapshot
+      )
+    )
+    expect(html).toContain(INSTRUMENT_COLORS.danger)
   })
 })

@@ -64,6 +64,7 @@ export function renderForm(
           decimals={variable.decimals}
           warnFrom={variable.invert ? undefined : warnValue}
           redlineFrom={variable.invert ? undefined : redlineValue}
+          needleColor={variable.invert ? valueColor : undefined}
           colors={opts.colors}
         />
       )
