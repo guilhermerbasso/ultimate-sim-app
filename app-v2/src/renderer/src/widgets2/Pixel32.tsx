@@ -53,8 +53,10 @@ export function Pixel32({
   const padTop = label ? 16 : 6
   const barH = Math.max(8, Math.round(height * 0.42))
   const gutter = 2
-  const cellW = (width - padX * 2 - gutter * (nCols - 1)) / nCols
-  const cellH = (barH - gutter * (nRows - 1)) / nRows
+  const barAvailW = Math.max(0, width - padX * 2 - gutter * (nCols - 1))
+  const barAvailH = Math.max(0, barH - gutter * (nRows - 1))
+  const cellW = barAvailW / nCols
+  const cellH = barAvailH / nRows
 
   const cells: ReactElement[] = []
   for (let ci = 0; ci < nCols; ci++) {
