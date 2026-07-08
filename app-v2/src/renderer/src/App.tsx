@@ -379,6 +379,11 @@ function App(): ReactElement {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  const connectionStatusLabel = connectedDevice ? t(language, 'simXConnected') : t(language, 'simXDisconnected')
+  const connectionStatusDescription = connectedDevice
+    ? `${connectedDevice.path} · FW ${connectedDevice.firmwareVersion}`
+    : t(language, 'connectInDevices')
+
   return (
     <div className="app-root">
       <WakeWordIndicator />
@@ -466,11 +471,15 @@ function App(): ReactElement {
           <div
             className={`sidebar-card ${connectedDevice ? 'is-online' : ''}`}
             title={sidebarCollapsed ? (connectedDevice ? t(language, 'simXConnected') : t(language, 'simXDisconnected')) : undefined}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            aria-label={`${connectionStatusLabel}. ${connectionStatusDescription}`}
           >
             <span className="status-dot" />
             <div>
-              <strong>{connectedDevice ? t(language, 'simXConnected') : t(language, 'simXDisconnected')}</strong>
-              <p>{connectedDevice ? `${connectedDevice.path} · FW ${connectedDevice.firmwareVersion}` : t(language, 'connectInDevices')}</p>
+              <strong>{connectionStatusLabel}</strong>
+              <p>{connectionStatusDescription}</p>
             </div>
           </div>
         </aside>
