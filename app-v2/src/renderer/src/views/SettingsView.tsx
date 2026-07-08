@@ -404,7 +404,7 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
             ))}
           </select>
           <p style={{ margin: '8px 0 0', color: 'var(--muted)', fontSize: 13 }}>
-            Aplicada automaticamente no boot do app. Para trocar agora, use a tela Telemetria.
+            Aplicada ao salvar e novamente no boot do app.
           </p>
         </div>
 

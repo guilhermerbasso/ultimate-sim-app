@@ -116,6 +116,8 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   const [builderEditingId, setBuilderEditingId] = useState<string | null>(null)
   const [builderDraft, setBuilderDraft] = useState<CustomOverlayDef | null>(null)
   const [streamSafe, setStreamSafe] = useState(true)
+  const [streamLanEnabled, setStreamLanEnabled] = useState(false)
+  const [streamPassword, setStreamPassword] = useState('')
   const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null)
   const [copiedStreamUrl, setCopiedStreamUrl] = useState(false)
   const enabledCount = useMemo(() => items.filter((item) => item.enabled).length, [items])
@@ -162,6 +164,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
     const status = await window.ipc.invoke<StreamingStatus>(STREAMING_CHANNELS.status)
     setStreamingStatus(status)
     setStreamSafe(status.streamSafe)
+    setStreamLanEnabled(status.lanEnabled)
   }
 
   async function startStreaming(): Promise<void> {
@@ -169,7 +172,13 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
     setError(null)
     setCopiedStreamUrl(false)
     try {
-      await window.ipc.invoke<StreamingStartResult>(STREAMING_CHANNELS.start, { streamSafe, layoutId: 'default' })
+      await window.ipc.invoke<StreamingStartResult>(STREAMING_CHANNELS.start, {
+        streamSafe,
+        layoutId: 'default',
+        lanEnabled: streamLanEnabled,
+        password: streamPassword.trim() || undefined
+      })
+      setStreamPassword('')
       await refreshStreamingStatus()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao iniciar streaming OBS')
@@ -199,6 +208,16 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       setCopiedStreamUrl(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao copiar URL do OBS')
+    }
+  }
+
+  async function copyTouchStreamUrl(): Promise<void> {
+    if (!streamingStatus?.touchUrl) return
+    try {
+      await navigator.clipboard.writeText(streamingStatus.touchUrl)
+      setCopiedStreamUrl(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao copiar URL do Touch Controls')
     }
   }
 
@@ -667,8 +686,13 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
           </span>
         </div>
         <p className="overlay-help">
-          Inicia um servidor local em <strong style={{ color: "var(--accent-primary)" }}>127.0.0.1</strong> para usar como Browser Source no OBS. A telemetria chega por SSE e a máscara stream-safe é aplicada no servidor.
+          Inicia um servidor local para OBS ou, opcionalmente, na LAN para celular/tablet. A telemetria chega por SSE e a máscara stream-safe é aplicada no servidor.
         </p>
+        {streamingStatus?.warning ? (
+          <p className="overlay-help" style={{ color: 'var(--accent-warning, #fbbf24)' }}>
+            ⚠ {streamingStatus.warning}
+          </p>
+        ) : null}
         <label className="designer-check" style={{ margin: '12px 0' }}>
           <input
             type="checkbox"
@@ -678,9 +702,28 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
           />
           Stream-safe: ocultar nomes, iRating/SR e tags privadas antes de enviar ao OBS
         </label>
+        <label className="designer-check" style={{ margin: '12px 0' }}>
+          <input
+            type="checkbox"
+            checked={streamLanEnabled}
+            disabled={busy || Boolean(streamingStatus?.running)}
+            onChange={(event) => setStreamLanEnabled(event.target.checked)}
+          />
+          Habilitar acesso pela LAN (gera URL/QR para celular e tablet)
+        </label>
+        <label className="designer-field" style={{ margin: '12px 0' }}>
+          Senha opcional (alternativa ao token; não é exibida depois de iniciar)
+          <input
+            type="password"
+            value={streamPassword}
+            disabled={busy || Boolean(streamingStatus?.running)}
+            placeholder="Opcional"
+            onChange={(event) => setStreamPassword(event.target.value)}
+          />
+        </label>
         <div className="overlay-actions">
           <button className="primary-action" disabled={busy || Boolean(streamingStatus?.running)} onClick={() => void startStreaming()}>
-            Iniciar OBS overlay
+            Iniciar streaming
           </button>
           <button className="ghost-action danger" disabled={busy || !streamingStatus?.running} onClick={() => void stopStreaming()}>
             Parar
@@ -692,12 +735,39 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
         {streamingStatus?.url ? (
           <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
             <label className="designer-field">
-              URL para colar no OBS Browser Source
+              URL do dashboard (OBS/browser)
               <input readOnly value={streamingStatus.url} onFocus={(event) => event.currentTarget.select()} />
             </label>
+            {streamingStatus.touchUrl ? (
+              <label className="designer-field">
+                URL Touch Controls Dash (celular/tablet)
+                <input readOnly value={streamingStatus.touchUrl} onFocus={(event) => event.currentTarget.select()} />
+              </label>
+            ) : (
+              <p className="overlay-help">Crie um Touch Controls Dash para exibir o segundo QR/URL.</p>
+            )}
+            {(streamingStatus.qrDataUrl || streamingStatus.touchQrDataUrl) ? (
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                {streamingStatus.qrDataUrl ? (
+                  <div>
+                    <div className="overlay-help" style={{ marginBottom: 6 }}>QR dashboard</div>
+                    <img src={streamingStatus.qrDataUrl} alt="QR do dashboard" style={{ width: 152, height: 152, borderRadius: 12 }} />
+                  </div>
+                ) : null}
+                {streamingStatus.touchQrDataUrl ? (
+                  <div>
+                    <div className="overlay-help" style={{ marginBottom: 6 }}>QR Touch Controls</div>
+                    <img src={streamingStatus.touchQrDataUrl} alt="QR do Touch Controls" style={{ width: 152, height: 152, borderRadius: 12 }} />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div className="overlay-actions">
               <button className="ghost-action" onClick={() => void copyStreamUrl()}>
-                {copiedStreamUrl ? 'Copiado ✓' : 'Copiar URL'}
+                {copiedStreamUrl ? 'Copiado ✓' : 'Copiar dashboard'}
+              </button>
+              <button className="ghost-action" disabled={!streamingStatus.touchUrl} onClick={() => void copyTouchStreamUrl()}>
+                Copiar Touch Controls
               </button>
             </div>
           </div>

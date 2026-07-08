@@ -46,6 +46,47 @@ const fasterText: CSSProperties = { color: 'var(--accent-success)' }
 const slowerText: CSSProperties = { color: 'var(--accent-primary)' }
 
 const KIND_LABEL: Record<string, string> = { ghost: 'Ghost lap', telemetry: 'Telemetria', setup: 'Setup' }
+type CommunitySourceSim = 'iracing' | 'acc' | 'ac' | 'ams2' | 'lmu'
+type CommunitySourceKind = 'telemetry' | 'setup' | 'community'
+
+interface CommunitySource {
+  id: string
+  sim: CommunitySourceSim
+  kind: CommunitySourceKind
+  name: string
+  url: string
+  description: string
+}
+
+const COMMUNITY_SOURCE_CHANNELS = {
+  list: 'community:sources:list',
+  add: 'community:sources:add',
+  remove: 'community:sources:remove',
+  reset: 'community:sources:reset'
+} as const
+
+const SIM_LABEL: Record<CommunitySourceSim, string> = {
+  iracing: 'iRacing',
+  acc: 'ACC',
+  ac: 'Assetto Corsa',
+  ams2: 'Automobilista 2',
+  lmu: 'Le Mans Ultimate'
+}
+
+const SOURCE_KIND_LABEL: Record<CommunitySourceKind, string> = {
+  telemetry: 'Telemetria',
+  setup: 'Setup',
+  community: 'Comunidade'
+}
+
+const SIMS = Object.keys(SIM_LABEL) as CommunitySourceSim[]
+const EMPTY_SOURCE_FORM: Omit<CommunitySource, 'id'> = {
+  sim: 'iracing',
+  kind: 'telemetry',
+  name: '',
+  url: 'https://',
+  description: ''
+}
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -135,6 +176,8 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
   const [busy, setBusy] = useState(false)
   const [report, setReport] = useState<GhostCompareReport | null>(null)
   const [baselineId, setBaselineId] = useState('')
+  const [communitySources, setCommunitySources] = useState<CommunitySource[]>([])
+  const [sourceForm, setSourceForm] = useState<Omit<CommunitySource, 'id'>>({ ...EMPTY_SOURCE_FORM })
 
   const exportOpts = useCallback((): CommunityExportOptions => ({ note: note.trim() || undefined, author: author.trim() || undefined }), [note, author])
 
@@ -154,9 +197,18 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
     }
   }, [showToast])
 
+  const refreshSources = useCallback(async (): Promise<void> => {
+    try {
+      setCommunitySources(await window.ipc.invoke<CommunitySource[]>(COMMUNITY_SOURCE_CHANNELS.list))
+    } catch (error) {
+      showToast(getErrorMessage(error), 'error')
+    }
+  }, [showToast])
+
   useEffect(() => {
     void refreshStatus()
     void refreshList()
+    void refreshSources()
     const offChanged = window.ipc.subscribe(COMMUNITY_CHANNELS.changed, () => {
       void refreshList()
       void refreshStatus()
@@ -166,7 +218,7 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
       offChanged()
       window.clearInterval(timer)
     }
-  }, [refreshList, refreshStatus])
+  }, [refreshList, refreshSources, refreshStatus])
 
   const ghostImports = useMemo(() => imported.filter((pack) => pack.kind === 'ghost'), [imported])
 
@@ -221,6 +273,38 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
     }
   }
 
+  async function addSource(): Promise<void> {
+    setBusy(true)
+    try {
+      const saved = await window.ipc.invoke<CommunitySource[]>(COMMUNITY_SOURCE_CHANNELS.add, sourceForm)
+      setCommunitySources(saved)
+      setSourceForm({ ...EMPTY_SOURCE_FORM })
+      showToast('Fonte adicionada.', 'success')
+    } catch (error) {
+      showToast(getErrorMessage(error), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function removeSource(id: string): Promise<void> {
+    try {
+      setCommunitySources(await window.ipc.invoke<CommunitySource[]>(COMMUNITY_SOURCE_CHANNELS.remove, id))
+      showToast('Fonte removida.', 'success')
+    } catch (error) {
+      showToast(getErrorMessage(error), 'error')
+    }
+  }
+
+  async function resetSources(): Promise<void> {
+    try {
+      setCommunitySources(await window.ipc.invoke<CommunitySource[]>(COMMUNITY_SOURCE_CHANNELS.reset))
+      showToast('Fontes confiáveis restauradas.', 'success')
+    } catch (error) {
+      showToast(getErrorMessage(error), 'error')
+    }
+  }
+
   const liveReady = status?.liveGhostReady ?? false
 
   return (
@@ -236,6 +320,78 @@ export default function CommunityView({ showToast }: AppViewProps): ReactElement
           </p>
         </div>
       </div>
+
+      <section style={card}>
+        <div style={{ ...row, justifyContent: 'space-between' }}>
+          <div>
+            <div style={label}>Fontes confiáveis por simulador</div>
+            <h3 style={{ margin: '4px 0 0' }}>Hubs editáveis de telemetria, setups e comunidade</h3>
+            <p style={{ margin: '6px 0 0', opacity: 0.72, maxWidth: 760 }}>
+              Lista inicial curada com fontes HTTPS conhecidas. Remova o que não usa ou adicione seus próprios links confiáveis.
+            </p>
+          </div>
+          <button style={button} type="button" disabled={busy} onClick={() => void resetSources()}>
+            Restaurar padrões
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gap: 12, marginTop: 12 }}>
+          {SIMS.map((sim) => {
+            const sources = communitySources.filter((source) => source.sim === sim)
+            return (
+              <div key={sim} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 'var(--radius-sm)', padding: 10 }}>
+                <div style={{ ...label, opacity: 0.85 }}>{SIM_LABEL[sim]}</div>
+                <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+                  {sources.map((source) => (
+                    <div key={source.id} style={{ ...row, justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ ...row, gap: 8 }}>
+                          <span style={{ ...label, opacity: 0.8 }}>{SOURCE_KIND_LABEL[source.kind]}</span>
+                          <a href={source.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)', fontWeight: 600 }}>
+                            {source.name}
+                          </a>
+                        </div>
+                        <small style={{ opacity: 0.66 }}>{source.description || source.url}</small>
+                      </div>
+                      <button style={button} type="button" onClick={() => void removeSource(source.id)}>
+                        Remover
+                      </button>
+                    </div>
+                  ))}
+                  {sources.length === 0 && <small style={{ opacity: 0.62 }}>Nenhuma fonte cadastrada para este simulador.</small>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div style={{ ...row, marginTop: 12, alignItems: 'stretch' }}>
+          <select
+            style={input}
+            value={sourceForm.sim}
+            onChange={(e) => setSourceForm((current) => ({ ...current, sim: e.currentTarget.value as CommunitySourceSim }))}
+          >
+            {SIMS.map((sim) => (
+              <option key={sim} value={sim}>{SIM_LABEL[sim]}</option>
+            ))}
+          </select>
+          <select
+            style={input}
+            value={sourceForm.kind}
+            onChange={(e) => setSourceForm((current) => ({ ...current, kind: e.currentTarget.value as CommunitySourceKind }))}
+          >
+            {(Object.keys(SOURCE_KIND_LABEL) as CommunitySourceKind[]).map((kind) => (
+              <option key={kind} value={kind}>{SOURCE_KIND_LABEL[kind]}</option>
+            ))}
+          </select>
+          <input style={{ ...input, flex: 1, minWidth: 160 }} value={sourceForm.name} onChange={(e) => setSourceForm((current) => ({ ...current, name: e.currentTarget.value }))} placeholder="Nome da fonte" />
+          <input style={{ ...input, flex: 2, minWidth: 240 }} value={sourceForm.url} onChange={(e) => setSourceForm((current) => ({ ...current, url: e.currentTarget.value }))} placeholder="https://…" />
+          <input style={{ ...input, flex: 2, minWidth: 220 }} value={sourceForm.description} onChange={(e) => setSourceForm((current) => ({ ...current, description: e.currentTarget.value }))} placeholder="Descrição (opcional)" />
+          <button style={primaryButton} type="button" disabled={busy} onClick={() => void addSource()}>
+            Adicionar fonte
+          </button>
+        </div>
+      </section>
 
       <section style={card}>
         <div style={label}>Captura ao vivo</div>

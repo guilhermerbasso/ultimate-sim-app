@@ -12,16 +12,28 @@ body,
   height: 100%;
   margin: 0;
   overflow: hidden;
-  background: transparent;
+  background: #05070d;
+}
+
+.stream-viewport {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #05070d;
 }
 
 .stream-root {
+  --stream-scale: 1;
   box-sizing: border-box;
-  width: 100vw;
-  height: 100vh;
+  width: 1024px;
+  height: 600px;
   padding: 24px;
   background: transparent;
   color: #fdf7f0;
+  transform: scale(var(--stream-scale));
+  transform-origin: center;
 }
 
 .stream-stage {
@@ -63,17 +75,4 @@ body,
 .stream-status.is-live {
   border-color: rgba(19, 194, 123, 0.42);
   color: #76f7bd;
-}
-
-@media (max-width: 900px) {
-  .stream-stage {
-    grid-template-columns: 180px 1fr;
-    grid-template-rows: 150px 150px 150px 1fr;
-  }
-
-  .stream-gear { grid-column: 1; grid-row: 4; }
-  .stream-gt3-cluster { grid-column: 1 / span 2; grid-row: 2; }
-  .stream-delta { grid-column: 2; grid-row: 4; }
-  .stream-fuel { grid-column: 1 / span 2; grid-row: 3; }
-  .stream-relative { grid-column: 1 / span 2; grid-row: 1; }
 }

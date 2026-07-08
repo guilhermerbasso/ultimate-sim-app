@@ -6,6 +6,11 @@ directories:
   output: dist-win
   buildResources: build
 
+publish:
+  provider: github
+  owner: guilhermerbasso
+  repo: ultimate-sim-app
+
 files:
   - out/**
   - package.json

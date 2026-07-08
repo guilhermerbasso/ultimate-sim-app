@@ -116,6 +116,11 @@ export class TouchPanelManager {
     return panel ? summarizeButtonBoxPanel(panel) : null
   }
 
+  /** Full panel data for local-network browser streaming. */
+  getPanel(id: string): ButtonBoxPanel | null {
+    return this.panels.get(id) ?? null
+  }
+
   /** The panel id currently shown in the fullscreen cockpit window, or null. */
   currentOpenPanelId(): string | null {
     return this.isOpen() ? this.currentPanelId : null

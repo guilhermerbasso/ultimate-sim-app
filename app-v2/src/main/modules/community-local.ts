@@ -1,7 +1,7 @@
 import { dialog, type OpenDialogOptions, type SaveDialogOptions } from 'electron'
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { ModuleContext } from '../module-context'
 import type { SimId, TelemetrySnapshot } from '../../shared/telemetry'
 import { parseSto } from '../../shared/sto-parser'
@@ -29,6 +29,117 @@ import {
 
 // Reject an untrusted imported .simshare larger than this before reading it.
 const MAX_IMPORT_BYTES = 32 * 1024 * 1024
+const SOURCES_FILE = 'community-sources.json'
+
+type CommunitySourceSim = Extract<SimId, 'iracing' | 'acc' | 'ac' | 'ams2' | 'lmu'>
+type CommunitySourceKind = 'telemetry' | 'setup' | 'community'
+
+interface CommunitySource {
+  id: string
+  sim: CommunitySourceSim
+  kind: CommunitySourceKind
+  name: string
+  url: string
+  description: string
+}
+
+const COMMUNITY_SOURCE_CHANNELS = {
+  list: 'community:sources:list',
+  add: 'community:sources:add',
+  remove: 'community:sources:remove',
+  reset: 'community:sources:reset'
+} as const
+
+const CURATED_COMMUNITY_SOURCES: CommunitySource[] = [
+  {
+    id: 'iracing-garage-61',
+    sim: 'iracing',
+    kind: 'telemetry',
+    name: 'Garage 61',
+    url: 'https://garage61.net/',
+    description: 'iRacing telemetry, setup comparison and shared laps.'
+  },
+  {
+    id: 'iracing-majors-garage',
+    sim: 'iracing',
+    kind: 'setup',
+    name: 'Majors Garage',
+    url: 'https://majorsgarage.com/',
+    description: 'Widely used iRacing setup shop/community resource.'
+  },
+  {
+    id: 'iracing-virtual-racing-school',
+    sim: 'iracing',
+    kind: 'telemetry',
+    name: 'Virtual Racing School',
+    url: 'https://virtualracingschool.com/',
+    description: 'iRacing telemetry analysis, data packs and coaching resources.'
+  },
+  {
+    id: 'acc-coach-dave-academy',
+    sim: 'acc',
+    kind: 'setup',
+    name: 'Coach Dave Academy',
+    url: 'https://coachdaveacademy.com/',
+    description: 'ACC setup packs, telemetry-oriented coaching and guides.'
+  },
+  {
+    id: 'acc-low-fuel-motorsport',
+    sim: 'acc',
+    kind: 'community',
+    name: 'Low Fuel Motorsport',
+    url: 'https://lowfuelmotorsport.com/',
+    description: 'ACC leagues, rankings and community knowledge base.'
+  },
+  {
+    id: 'ac-overtake',
+    sim: 'ac',
+    kind: 'community',
+    name: 'OverTake Assetto Corsa',
+    url: 'https://www.overtake.gg/',
+    description: 'Long-running Assetto Corsa community with setups, tracks and guides.'
+  },
+  {
+    id: 'ac-racedepartment',
+    sim: 'ac',
+    kind: 'setup',
+    name: 'RaceDepartment / OverTake forums',
+    url: 'https://www.overtake.gg/forums/assetto-corsa.130/',
+    description: 'Assetto Corsa forum area for setup discussion and shared resources.'
+  },
+  {
+    id: 'ams2-reiza-forum',
+    sim: 'ams2',
+    kind: 'community',
+    name: 'Reiza Studios Forum',
+    url: 'https://forum.reizastudios.com/',
+    description: 'Official AMS2 community hub with car, setup and telemetry discussions.'
+  },
+  {
+    id: 'ams2-overtake',
+    sim: 'ams2',
+    kind: 'setup',
+    name: 'OverTake Automobilista 2',
+    url: 'https://www.overtake.gg/forums/automobilista-2.541/',
+    description: 'AMS2 community forum with setup and racing resources.'
+  },
+  {
+    id: 'lmu-studio-397-forum',
+    sim: 'lmu',
+    kind: 'community',
+    name: 'Studio 397 Forum',
+    url: 'https://forum.studio-397.com/',
+    description: 'Official Le Mans Ultimate / rFactor ecosystem community forum.'
+  },
+  {
+    id: 'lmu-overtake',
+    sim: 'lmu',
+    kind: 'setup',
+    name: 'OverTake Le Mans Ultimate',
+    url: 'https://www.overtake.gg/forums/le-mans-ultimate.777/',
+    description: 'LMU community forum for setups, guides and shared resources.'
+  }
+]
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Community — LOCAL-FIRST sharing.
@@ -137,6 +248,119 @@ class LocalBackend implements CommunityBackend {
       return false
     }
   }
+}
+
+class CommunitySourceStore {
+  private readonly filePath: string
+
+  constructor(userData: string) {
+    this.filePath = join(userData, SOURCES_FILE)
+  }
+
+  async list(): Promise<CommunitySource[]> {
+    try {
+      const raw = await readFile(this.filePath, 'utf8')
+      return sanitizeSourceList(JSON.parse(raw))
+    } catch {
+      // Missing or corrupt source config: fall back to the curated safe defaults.
+    }
+    await this.save(CURATED_COMMUNITY_SOURCES)
+    return [...CURATED_COMMUNITY_SOURCES]
+  }
+
+  async add(input: unknown): Promise<CommunitySource[]> {
+    const source = sanitizeSource(input, true)
+    const sources = await this.list()
+    const next = [...sources.filter((item) => item.id !== source.id), source]
+    await this.save(next)
+    return next
+  }
+
+  async remove(id: unknown): Promise<CommunitySource[]> {
+    if (typeof id !== 'string') throw new Error('id inválido')
+    const sources = await this.list()
+    const next = sources.filter((source) => source.id !== id)
+    await this.save(next)
+    return next
+  }
+
+  async reset(): Promise<CommunitySource[]> {
+    await this.save(CURATED_COMMUNITY_SOURCES)
+    return [...CURATED_COMMUNITY_SOURCES]
+  }
+
+  private async save(sources: CommunitySource[]): Promise<void> {
+    await mkdir(dirname(this.filePath), { recursive: true })
+    await writeFile(this.filePath, `${JSON.stringify(sources, null, 2)}\n`, 'utf8')
+  }
+}
+
+function isCommunitySourceSim(value: unknown): value is CommunitySourceSim {
+  return value === 'iracing' || value === 'acc' || value === 'ac' || value === 'ams2' || value === 'lmu'
+}
+
+function isCommunitySourceKind(value: unknown): value is CommunitySourceKind {
+  return value === 'telemetry' || value === 'setup' || value === 'community'
+}
+
+function safeText(value: unknown, max = 180): string {
+  return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ').slice(0, max) : ''
+}
+
+function safeSourceUrl(value: unknown): string {
+  const raw = safeText(value, 500)
+  try {
+    const url = new URL(raw)
+    if (url.protocol !== 'https:') throw new Error('Fonte precisa usar HTTPS.')
+    url.hash = ''
+    return url.toString()
+  } catch {
+    throw new Error('URL de fonte inválida ou sem HTTPS.')
+  }
+}
+
+function sourceIdFrom(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 72)
+}
+
+function sanitizeSource(input: unknown, allowGeneratedId = false): CommunitySource {
+  const value = (input ?? {}) as Partial<CommunitySource>
+  const sim = isCommunitySourceSim(value.sim) ? value.sim : null
+  const kind = isCommunitySourceKind(value.kind) ? value.kind : null
+  const name = safeText(value.name, 80)
+  const url = safeSourceUrl(value.url)
+  if (!sim || !kind || !name) throw new Error('Fonte de comunidade incompleta.')
+  const id = sourceIdFrom(safeText(value.id, 90)) || (allowGeneratedId ? sourceIdFrom(`${sim}-${kind}-${name}`) : '')
+  if (!id) throw new Error('id de fonte inválido.')
+  return {
+    id,
+    sim,
+    kind,
+    name,
+    url,
+    description: safeText(value.description, 220)
+  }
+}
+
+function sanitizeSourceList(input: unknown): CommunitySource[] {
+  if (!Array.isArray(input)) return []
+  const seen = new Set<string>()
+  const sources: CommunitySource[] = []
+  for (const item of input) {
+    try {
+      const source = sanitizeSource(item)
+      if (seen.has(source.id)) continue
+      seen.add(source.id)
+      sources.push(source)
+    } catch {
+      // Drop one bad saved/custom source without losing the rest.
+    }
+  }
+  return sources
 }
 
 // ─── Live telemetry capture ─────────────────────────────────────────────────
@@ -360,7 +584,9 @@ function defaultExportName(kind: SharePack['kind'], ctx: { car?: string; track?:
 // ─── Module registration ────────────────────────────────────────────────────
 
 export function register(ctx: ModuleContext): void {
-  const backend: CommunityBackend = new LocalBackend(ctx.app.getPath('userData'))
+  const userData = ctx.app.getPath('userData')
+  const backend: CommunityBackend = new LocalBackend(userData)
+  const sourceStore = new CommunitySourceStore(userData)
   const capture = new LiveCapture()
   const appVersion = ctx.app.getVersion()
 
@@ -438,6 +664,10 @@ export function register(ctx: ModuleContext): void {
   })
 
   ctx.ipcMain.handle(COMMUNITY_CHANNELS.listLocal, (): Promise<SharePackSummary[]> => backend.list())
+  ctx.ipcMain.handle(COMMUNITY_SOURCE_CHANNELS.list, (): Promise<CommunitySource[]> => sourceStore.list())
+  ctx.ipcMain.handle(COMMUNITY_SOURCE_CHANNELS.add, (_event, source: unknown): Promise<CommunitySource[]> => sourceStore.add(source))
+  ctx.ipcMain.handle(COMMUNITY_SOURCE_CHANNELS.remove, (_event, id: unknown): Promise<CommunitySource[]> => sourceStore.remove(id))
+  ctx.ipcMain.handle(COMMUNITY_SOURCE_CHANNELS.reset, (): Promise<CommunitySource[]> => sourceStore.reset())
 
   ctx.ipcMain.handle(COMMUNITY_CHANNELS.get, (_event, id: string): Promise<SharePack | null> => {
     if (typeof id !== 'string') throw new Error('id inválido')

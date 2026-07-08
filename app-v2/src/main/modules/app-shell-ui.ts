@@ -48,9 +48,10 @@ export function register(ctx: ModuleContext): SettingsStore {
   settingsEvents.emitChanged(settings)
 
   ctx.ipcMain.handle('app:getSettings', () => store.getSettings())
-  ctx.ipcMain.handle('app:setSettings', (_event, settings: Partial<AppSettings>) => {
+  ctx.ipcMain.handle('app:setSettings', async (_event, settings: Partial<AppSettings>) => {
     const saved = store.setSettings(settings)
     applyLoginItemSettings(ctx, saved)
+    await ctx.telemetryHub.setSource(toTelemetrySource(saved.defaultTelemetrySource))
     logger.info('settings', 'defaultTelemetrySource saved', { value: saved.defaultTelemetrySource })
     // Notify in-process listeners (e.g. the SIM-X auto-start coordinator) so a live
     // toggle of autoStartSimX takes effect without an app restart.

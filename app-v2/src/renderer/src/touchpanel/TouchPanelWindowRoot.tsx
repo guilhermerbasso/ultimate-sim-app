@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import { parseButtonBoxPanel, type ButtonBoxPanel } from '../../../shared/touch-panel'
 import { ButtonBoxRenderer } from './ButtonBoxRenderer'
-import { executeButtonAction } from './runtime'
+import { executeButtonAction, fetchStreamPanel, isBrowserStreamRuntime } from './runtime'
 import './buttonbox.css'
 
 // Fullscreen renderer for an editable RGB button-box panel. Mirrors the pit-panel
@@ -10,7 +10,11 @@ import './buttonbox.css'
 
 function panelIdFromQuery(): string | null {
   try {
-    return new URLSearchParams(window.location.search).get('panel')
+    const params = new URLSearchParams(window.location.search)
+    const panel = params.get('panel')
+    if (panel) return panel
+    const match = window.location.pathname.match(/^\/touch\/([^/]+)$/)
+    return match ? decodeURIComponent(match[1]) : null
   } catch {
     return null
   }
@@ -50,8 +54,8 @@ export function TouchPanelWindowRoot(): ReactElement {
       return
     }
     let alive = true
-    void window.ipc
-      .invoke('app:touchpanel:get', id)
+    const loadPanel = isBrowserStreamRuntime() ? fetchStreamPanel(id) : window.ipc.invoke('app:touchpanel:get', id)
+    void loadPanel
       .then((raw) => {
         if (!alive) return
         const parsed = parseButtonBoxPanel(raw)
@@ -61,7 +65,7 @@ export function TouchPanelWindowRoot(): ReactElement {
       .catch(() => alive && setError('Falha ao carregar o painel.'))
 
     // Live-refresh the open window when the panel is edited in the app.
-    const off = window.ipc.subscribe('app:touchpanel:updated', (raw) => {
+    const off = isBrowserStreamRuntime() ? () => {} : window.ipc.subscribe('app:touchpanel:updated', (raw) => {
       const parsed = parseButtonBoxPanel(raw)
       if (parsed && parsed.id === id) setPanel(parsed)
     })
@@ -90,11 +94,12 @@ export function TouchPanelWindowRoot(): ReactElement {
   // Reserve top padding so the floating ✕ (top-right) can never cover the corner
   // button cell when it is shown.
   const closeButtonSize = { width: 56, height: 48 }
-  const safeTopPad = fullscreen ? closeButtonSize.height + 20 : 0
+  const showCloseButton = fullscreen && !isBrowserStreamRuntime()
+  const safeTopPad = showCloseButton ? closeButtonSize.height + 20 : 0
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: panel.background, boxSizing: 'border-box', paddingTop: safeTopPad }}>
-      {fullscreen ? (
+      {showCloseButton ? (
         <button
           type="button"
           aria-label="Fechar"

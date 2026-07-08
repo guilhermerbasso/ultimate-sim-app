@@ -68,6 +68,9 @@ const DEFAULT_OUTLINE = '#3a4d63'
 const MIN_ZOOM = 0.5
 const MAX_ZOOM = 6
 const ZOOM_STEP = 1.35
+const MAP_BASE_HEIGHT = 360
+const MAP_MIN_HEIGHT = 220
+const MAP_MAX_HEIGHT = 760
 
 function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value
@@ -252,33 +255,39 @@ export function TrackCoachingHeatmap({
     cursor: svgCursor,
     touchAction: zoomable ? 'none' : undefined
   }
+  const mapFrameStyle: CSSProperties = {
+    ...mapFrameBaseStyle,
+    height: zoomable ? clamp(MAP_BASE_HEIGHT * effZoom, MAP_MIN_HEIGHT, MAP_MAX_HEIGHT) : '100%',
+    minHeight: zoomable ? MAP_MIN_HEIGHT : undefined
+  }
 
   return (
     <div className={className} style={rootStyle}>
-      {zoomable && (
-        <ZoomControls
-          accent={accent}
-          canZoomIn={effZoom < MAX_ZOOM}
-          canZoomOut={effZoom > MIN_ZOOM}
-          canReset={effZoom !== 1 || panX !== 0 || panY !== 0}
-          onZoomIn={() => zoomAtCenter(ZOOM_STEP)}
-          onZoomOut={() => zoomAtCenter(1 / ZOOM_STEP)}
-          onReset={resetView}
-        />
-      )}
-      <svg
-        ref={svgRef}
-        viewBox={`${viewX} ${viewY} ${viewW} ${viewH}`}
-        preserveAspectRatio="xMidYMid meet"
-        style={dynamicSvgStyle}
-        role={interactive ? 'group' : 'img'}
-        aria-label="Mapa de coaching colorido por curva"
-        onWheel={zoomable ? handleWheel : undefined}
-        onPointerDown={zoomable ? handlePointerDown : undefined}
-        onPointerMove={zoomable ? handlePointerMove : undefined}
-        onPointerUp={zoomable ? endDrag : undefined}
-        onPointerLeave={zoomable ? endDrag : undefined}
-      >
+      <div style={mapFrameStyle}>
+        {zoomable && (
+          <ZoomControls
+            accent={accent}
+            canZoomIn={effZoom < MAX_ZOOM}
+            canZoomOut={effZoom > MIN_ZOOM}
+            canReset={effZoom !== 1 || panX !== 0 || panY !== 0}
+            onZoomIn={() => zoomAtCenter(ZOOM_STEP)}
+            onZoomOut={() => zoomAtCenter(1 / ZOOM_STEP)}
+            onReset={resetView}
+          />
+        )}
+        <svg
+          ref={svgRef}
+          viewBox={`${viewX} ${viewY} ${viewW} ${viewH}`}
+          preserveAspectRatio="xMidYMid meet"
+          style={dynamicSvgStyle}
+          role={interactive ? 'group' : 'img'}
+          aria-label="Mapa de coaching colorido por curva"
+          onWheel={zoomable ? handleWheel : undefined}
+          onPointerDown={zoomable ? handlePointerDown : undefined}
+          onPointerMove={zoomable ? handlePointerMove : undefined}
+          onPointerUp={zoomable ? endDrag : undefined}
+          onPointerLeave={zoomable ? endDrag : undefined}
+        >
         {/* Base outline (uncoloured track). */}
         <path
           d={renderable.outlinePathD ?? undefined}
@@ -366,7 +375,8 @@ export function TrackCoachingHeatmap({
             <animate attributeName="opacity" values="1;0.7;1" dur="1.4s" repeatCount="indefinite" />
           </circle>
         )}
-      </svg>
+        </svg>
+      </div>
 
       {legendOn && <Legend palette={palette} compact={!interactive} />}
 
@@ -376,6 +386,13 @@ export function TrackCoachingHeatmap({
 }
 
 const svgStyle: CSSProperties = { width: '100%', height: '100%', display: 'block', overflow: 'visible' }
+const mapFrameBaseStyle: CSSProperties = {
+  position: 'relative',
+  width: '100%',
+  minHeight: MAP_MIN_HEIGHT,
+  transition: 'height 140ms ease',
+  overflow: 'hidden'
+}
 
 interface ZoomControlsProps {
   accent: string
