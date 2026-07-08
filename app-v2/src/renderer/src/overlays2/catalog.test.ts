@@ -5,6 +5,7 @@ import { baseSnapshot } from '../../../shared/telemetry-scenarios'
 import { WIDGET_SPECS_BY_ID } from '../widgets2'
 import { Overlay2Canvas, overlay2CanvasGridMetrics } from './Overlay2Canvas'
 import { OVERLAYS2 } from './catalog'
+import { overlay2FamilyStyle } from './familyStyle'
 
 describe('overlays2 catalogue', () => {
   it('contains at least 50 overlays', () => {
@@ -52,18 +53,21 @@ describe('overlays2 catalogue', () => {
   })
 
   it('sizes widgets to the computed grid cells when the canvas shrinks', () => {
-    const overlay = OVERLAYS2[0]
+    const overlay = OVERLAYS2.find((o) => o.id === 'cockpit-core')
+    if (!overlay) throw new Error(`Overlay 'cockpit-core' not found in OVERLAYS2 catalogue`)
+    const family = 'minimal' as const
+    const { padding, gap } = overlay2FamilyStyle(family)
     const html = renderToStaticMarkup(
       createElement(Overlay2Canvas, {
         overlay,
-        family: overlay.families[0],
+        family,
         snapshot: baseSnapshot(),
         width: 120,
         height: 80
       })
     )
 
-    const metrics = overlay2CanvasGridMetrics(overlay.specIds.length, 120, 80, 10, 8)
+    const metrics = overlay2CanvasGridMetrics(overlay.specIds.length, 120, 80, padding, gap)
     expect(metrics).toEqual({
       columns: 2,
       rows: 3,
