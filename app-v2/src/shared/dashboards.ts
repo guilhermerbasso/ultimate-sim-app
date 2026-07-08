@@ -24,6 +24,14 @@ import { RACE_WET_PRESETS } from './dashboards-race-wet'
 import { RACE_SUN_PRESETS } from './dashboards-race-sun'
 import { RACE_FIRST_PRESETS } from './dashboards-race-first'
 import { RACE_CHASE_PRESETS } from './dashboards-race-chase'
+// Hi-fi COMPOSITION dashboards (self-contained leaf modules; each imports only the
+// composition kit which imports TYPES from here). Authored in parallel, one file per
+// theme, and spread into BUILTIN_PRESETS below. They compose the hi-fi per-telemetry
+// widgets (`hifi:<id>`) into 1024×600 layouts.
+import { HIFI_RACE_PRESETS } from './dashboards-hifi-race'
+import { HIFI_ENDURANCE_PRESETS } from './dashboards-hifi-endurance'
+import { HIFI_COACH_PRESETS } from './dashboards-hifi-coach'
+import { HIFI_FAMILY_PRESETS } from './dashboards-hifi-family'
 // WS-5 cross-agent contract: the adaptive-dashboards agent owns this NEW module
 // and exports ADAPTIVE_DASHBOARD_PRESET (a BUILTIN_PRESETS entry). It only imports
 // the Dashboard TYPE from here, so this stays a one-way dependency with no runtime
@@ -2957,7 +2965,12 @@ export const BUILTIN_PRESETS: Array<{ id: string; name: string; build: () => Das
   ...RACE_WET_PRESETS,
   ...RACE_SUN_PRESETS,
   ...RACE_FIRST_PRESETS,
-  ...RACE_CHASE_PRESETS
+  ...RACE_CHASE_PRESETS,
+  // ── Hi-fi composition dashboards (per-theme leaf modules; authored in parallel) ──
+  ...HIFI_RACE_PRESETS,
+  ...HIFI_ENDURANCE_PRESETS,
+  ...HIFI_COACH_PRESETS,
+  ...HIFI_FAMILY_PRESETS
 ]
 
 export function summarizeDashboard(dash: Dashboard): DashboardSummary {
