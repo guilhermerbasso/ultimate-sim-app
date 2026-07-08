@@ -211,6 +211,11 @@ export interface OverlayWidgetDefinition {
   /** Telemetry fields this widget needs LIVE. Drives the per-sim availability filter
    *  + the computed "(IR/ACC/LMU)" prefix. Omitted/empty = available on every sim. */
   requires?: (keyof TelemetrySnapshot)[]
+  /** Function/category tag (e.g. 'delta', 'fuel', 'tyres', 'inputs', 'map'). */
+  category?: string
+  /** Free-form tags for filtering (style + category). Sim tags (IR/ACC/…) are
+   *  derived automatically from `requires` and merged by the tag helper. */
+  tags?: string[]
 }
 
 /** Display title with the computed multi-sim support prefix, e.g. "(IR/ACC/LMU) Tyres". */
