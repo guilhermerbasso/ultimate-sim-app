@@ -6,7 +6,7 @@ A ground‑up rebuild of the visual layer (widgets, overlays, dashboards) and th
 
 ### Highlights
 
-- 🧩 **250+ telemetry widgets** from a *variable × form* factory — every channel as a **bar, vertical bar, gauge, 7‑segment, LED, 32‑bit pixel, ring, tile, or big number** (56 variables × 9 forms = 500+ combinations, ≥ 5 forms each).
+- 🧩 **250+ telemetry widgets** from a *variable × form* factory — every channel as a **bar, vertical bar, gauge, 7‑segment, LED, 32‑bit pixel, ring, tile, or big number** (57 variables × 9 forms = 513 combinations, ≥ 5 forms each).
 - 🖼️ **57 overlays**, each in **≥ 5 visual styles** (design families: minimal, neon, glass, broadcast, terminal, bauhaus, analog, heatmap).
 - 📊 **200 new dashboards** — 8 generic car families × 5 layouts (DDU cockpit, engineer wall, endurance, strategy, broadcast) × 5 resolutions, each with ≥ 5 distinct telemetry variables.
 - 🏎️ **Car‑context theming** with original, trademark‑free codename liveries: Woking, Maranello, Gaydon, Stuttgart, Bowtie, Affalterbach, Ingolstadt, and a Le Mans/IMSA‑style Prototype.
