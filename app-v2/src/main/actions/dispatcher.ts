@@ -163,7 +163,7 @@ export class ActionDispatcher {
     const broadcastResult = this.iracingControl.execute(mapped)
     const message = broadcastResult.ok
       ? `iRacing: ${command.name} despachado.`
-      : broadcastResult.message ?? `Falha ao despachar iRacing ${command.name}.`
+      : broadcastResult.message ?? `Failed to dispatch iRacing ${command.name}.`
     return this.result(binding, broadcastResult.ok, message)
   }
 

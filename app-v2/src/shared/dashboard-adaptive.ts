@@ -186,7 +186,7 @@ const PHASE_RULES: Record<AdaptivePhase, PhaseRule> = {
 }
 
 const PHASE_LABEL: Record<AdaptivePhase, string> = {
-  practice: 'Treino livre',
+  practice: 'Practice',
   qualifying: 'Qualifying',
   race: 'Race',
   pit: 'Pit / box',
@@ -196,12 +196,12 @@ const PHASE_LABEL: Record<AdaptivePhase, string> = {
 }
 
 const PHASE_FOCUS: Record<AdaptivePhase, string> = {
-  practice: 'tires, temperaturas e delta para acertar o carro',
+  practice: 'tires, temperatures, and delta to dial in the car',
   qualifying: 'delta and lap time for the hot lap',
-  race: 'position, gaps e fuel',
-  pit: 'status de pit, tires e fuel',
-  formation: 'position, flags e aquecimento de tires',
-  warmup: 'tires, fuel e delta',
+  race: 'position, gaps, and fuel',
+  pit: 'pit status, tires, and fuel',
+  formation: 'position, flags, and tire warmup',
+  warmup: 'tires, fuel, and delta',
   unknown: 'overview (all widgets)'
 }
 
@@ -253,7 +253,7 @@ export function planAdaptiveDashboard(snapshot: TelemetrySnapshot | null | undef
     if (isWet(snapshot)) {
       emphasize.add('weather')
       hide.delete('weather')
-      extras.push('pista molhada')
+      extras.push('wet track')
     }
     if (fuelIsLow(snapshot)) {
       emphasize.add('fuel')

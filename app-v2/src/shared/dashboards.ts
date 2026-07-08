@@ -3151,8 +3151,8 @@ export interface WidgetSlotDef {
 // Shared definitions so the -futuristic/-minimal variants of a concept declare
 // the same editable text slots without hand-duplicating ~30 entries.
 const SLOT_LABEL: WidgetSlotDef = { slot: 'label', label: 'Label' }
-const SLOT_VALUE: WidgetSlotDef = { slot: 'value', label: 'Valor' }
-const SLOT_UNIT: WidgetSlotDef = { slot: 'unit', label: 'Unidade' }
+const SLOT_VALUE: WidgetSlotDef = { slot: 'value', label: 'Value' }
+const SLOT_UNIT: WidgetSlotDef = { slot: 'unit', label: 'Unit' }
 const LVU_SLOTS: WidgetSlotDef[] = [SLOT_LABEL, SLOT_VALUE, SLOT_UNIT]
 const LV_SLOTS: WidgetSlotDef[] = [SLOT_LABEL, SLOT_VALUE]
 const PRED_SLOTS: WidgetSlotDef[] = [SLOT_LABEL, SLOT_VALUE, SLOT_UNIT, { slot: 'sub', label: 'Sub-label' }]
@@ -3161,8 +3161,8 @@ const NEW_WIDGET_SLOTS: Record<string, WidgetSlotDef[]> = {
   'ers-bar-minimal': LVU_SLOTS,
   'ers-radial-futuristic': LVU_SLOTS,
   'ers-radial-minimal': LVU_SLOTS,
-  'p2p-futuristic': [SLOT_LABEL, SLOT_VALUE, { slot: 'status', label: 'Estado' }],
-  'p2p-minimal': [SLOT_LABEL, SLOT_VALUE, { slot: 'status', label: 'Estado' }],
+  'p2p-futuristic': [SLOT_LABEL, SLOT_VALUE, { slot: 'status', label: 'State' }],
+  'p2p-minimal': [SLOT_LABEL, SLOT_VALUE, { slot: 'status', label: 'State' }],
   'weather-status-futuristic': [SLOT_LABEL, SLOT_VALUE, { slot: 'sub', label: 'Sub-label' }],
   'weather-status-minimal': [SLOT_LABEL, SLOT_VALUE, { slot: 'sub', label: 'Sub-label' }],
   'track-surface-futuristic': LV_SLOTS,
@@ -3208,36 +3208,36 @@ const NEW_WIDGET_SLOTS: Record<string, WidgetSlotDef[]> = {
 export const WIDGET_SLOTS: Record<string, WidgetSlotDef[]> = {
   value: [
     { slot: 'label', label: 'Label' },
-    { slot: 'value', label: 'Valor' },
-    { slot: 'unit', label: 'Unidade' }
+    { slot: 'value', label: 'Value' },
+    { slot: 'unit', label: 'Unit' }
   ],
   valuebar: [
     { slot: 'label', label: 'Label' },
-    { slot: 'value', label: 'Valor' },
-    { slot: 'unit', label: 'Unidade' }
+    { slot: 'value', label: 'Value' },
+    { slot: 'unit', label: 'Unit' }
   ],
   valuegauge: [
     { slot: 'label', label: 'Label' },
-    { slot: 'value', label: 'Valor' },
-    { slot: 'unit', label: 'Unidade' }
+    { slot: 'value', label: 'Value' },
+    { slot: 'unit', label: 'Unit' }
   ],
   laptiming: [
     { slot: 'label', label: 'Labels (LAP/LAST/BEST)' },
-    { slot: 'current', label: 'Lap atual' },
+    { slot: 'current', label: 'Current lap' },
     { slot: 'last', label: 'Last lap' },
     { slot: 'best', label: 'Best lap' }
   ],
   gearcluster: [
     { slot: 'gear', label: 'Gear' },
     { slot: 'gearLabel', label: 'Label "GEAR"' },
-    { slot: 'speed', label: 'Velocidade' },
+    { slot: 'speed', label: 'Speed' },
     { slot: 'speedLabel', label: 'Label "KM/H"' },
-    { slot: 'value', label: 'RPM (modo tacômetro)' },
+    { slot: 'value', label: 'RPM (tachometer mode)' },
     { slot: 'label', label: 'Label "RPM"' }
   ],
   fuelstint: [
     { slot: 'header', label: 'Header' },
-    { slot: 'value', label: 'Valor (laps)' },
+    { slot: 'value', label: 'Value (laps)' },
     { slot: 'label', label: 'Labels (LAP/ADD)' }
   ],
   deltatile: [
@@ -3246,32 +3246,32 @@ export const WIDGET_SLOTS: Record<string, WidgetSlotDef[]> = {
   ],
   positiongaps: [
     { slot: 'value', label: 'Position' },
-    { slot: 'label', label: 'Classe' },
+    { slot: 'label', label: 'Class' },
     { slot: 'gap', label: 'Gaps ahead/behind' }
   ],
-  flagoverlay: [{ slot: 'value', label: 'Texto da flag' }],
+  flagoverlay: [{ slot: 'value', label: 'Flag text' }],
   tyregrid: [
     { slot: 'header', label: 'Header' },
     { slot: 'label', label: 'Corner labels' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'value', label: 'Values' }
   ],
   brakegrid: [
     { slot: 'header', label: 'Header' },
     { slot: 'label', label: 'Corner labels' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'value', label: 'Values' }
   ],
   cornerstack: [
     { slot: 'label', label: 'Labels' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'value', label: 'Values' }
   ],
   weather: [
     { slot: 'header', label: 'Header' },
     { slot: 'label', label: 'Labels' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'value', label: 'Values' }
   ],
   inputbars: [
     { slot: 'label', label: 'Channel labels' },
-    { slot: 'value', label: 'Valores (%)' }
+    { slot: 'value', label: 'Values (%)' }
   ],
   steering: [
     { slot: 'label', label: 'Label (STEERING)' },
@@ -3279,45 +3279,45 @@ export const WIDGET_SLOTS: Record<string, WidgetSlotDef[]> = {
   ],
   setupstrip: [
     { slot: 'label', label: 'Labels (ABS/TC/?)' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'value', label: 'Values' }
   ],
   enginetemps: [
     { slot: 'label', label: 'Labels (WATER/OIL)' },
-    { slot: 'value', label: 'Valores' },
-    { slot: 'unit', label: 'Unidade' }
+    { slot: 'value', label: 'Values' },
+    { slot: 'unit', label: 'Unit' }
   ],
-  trackmini: [{ slot: 'value', label: 'Progresso (%)' }],
+  trackmini: [{ slot: 'value', label: 'Progress (%)' }],
   // ── Round-7 extra widgets ───────────────────────────────────────────────────
   analoggauge: [
     { slot: 'label', label: 'Label' },
-    { slot: 'value', label: 'Valor' },
-    { slot: 'unit', label: 'Unidade' }
+    { slot: 'value', label: 'Value' },
+    { slot: 'unit', label: 'Unit' }
   ],
   linearmeter: [
     { slot: 'label', label: 'Label' },
-    { slot: 'value', label: 'Valor' },
-    { slot: 'unit', label: 'Unidade' }
+    { slot: 'value', label: 'Value' },
+    { slot: 'unit', label: 'Unit' }
   ],
   ringgauge: [
     { slot: 'label', label: 'Label' },
-    { slot: 'value', label: 'Valor' },
-    { slot: 'unit', label: 'Unidade' }
+    { slot: 'value', label: 'Value' },
+    { slot: 'unit', label: 'Unit' }
   ],
   donut: [
     { slot: 'label', label: 'Label' },
-    { slot: 'value', label: 'Valor' }
+    { slot: 'value', label: 'Value' }
   ],
   segment7: [
     { slot: 'label', label: 'Label' },
-    { slot: 'value', label: 'Valor' }
+    { slot: 'value', label: 'Value' }
   ],
   digitalclock: [
     { slot: 'label', label: 'Label' },
-    { slot: 'value', label: 'Tempo' }
+    { slot: 'value', label: 'Time' }
   ],
   bigtext: [
-    { slot: 'label', label: 'Legenda' },
-    { slot: 'value', label: 'Valor' }
+    { slot: 'label', label: 'Caption' },
+    { slot: 'value', label: 'Value' }
   ],
   gforcemeter: [
     { slot: 'label', label: 'Label' },
@@ -3325,26 +3325,26 @@ export const WIDGET_SLOTS: Record<string, WidgetSlotDef[]> = {
   ],
   historygraph: [
     { slot: 'label', label: 'Label' },
-    { slot: 'value', label: 'Valor atual' }
+    { slot: 'value', label: 'Current value' }
   ],
   barchart: [
     { slot: 'label', label: 'Labels' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'value', label: 'Values' }
   ],
   segmentbars: [
     { slot: 'label', label: 'Label' },
-    { slot: 'value', label: 'Valor' }
+    { slot: 'value', label: 'Value' }
   ],
   ledbar: [{ slot: 'label', label: 'Label' }],
   radialbars: [{ slot: 'label', label: 'Center label' }],
   heatmap: [
     { slot: 'label', label: 'Title' },
     { slot: 'corner', label: 'Corner labels' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'value', label: 'Values' }
   ],
   statuslamp: [
     { slot: 'label', label: 'Label' },
-    { slot: 'value', label: 'Estado' }
+    { slot: 'value', label: 'State' }
   ],
   // ── Wave-16 widgets (futuristic + minimalist) ───────────────────────────────
   // Both -futuristic and -minimal variants of a concept share the same text slots.
@@ -3359,8 +3359,8 @@ export const WIDGET_SLOTS: Record<string, WidgetSlotDef[]> = {
 // `slots` continuam renderizando idênticos.
 const METRIC_SLOTS: WidgetSlotDef[] = [
   { slot: 'header', label: 'Header/ref' },
-  { slot: 'value', label: 'Valor' },
-  { slot: 'unit', label: 'Unidade' }
+  { slot: 'value', label: 'Value' },
+  { slot: 'unit', label: 'Unit' }
 ]
 const CURATED_SLOTS: Record<string, WidgetSlotDef[]> = {
   speed: METRIC_SLOTS,
@@ -3382,25 +3382,25 @@ const CURATED_SLOTS: Record<string, WidgetSlotDef[]> = {
   tyres: [
     { slot: 'header', label: 'Header' },
     { slot: 'label', label: 'Corner labels' },
-    { slot: 'value', label: 'Temperaturas' },
+    { slot: 'value', label: 'Temperatures' },
     { slot: 'sub', label: 'Pressure ? wear' }
   ],
   relatives: [
     { slot: 'header', label: 'Header' },
-    { slot: 'value', label: 'Nome do piloto' },
+    { slot: 'value', label: 'Driver name' },
     { slot: 'gap', label: 'Gap' },
     { slot: 'label', label: 'Last lap' }
   ],
-  radar: [{ slot: 'label', label: 'Avisos (L/R/ref)' }],
-  trackmap: [{ slot: 'label', label: 'Nome da pista' }],
+  radar: [{ slot: 'label', label: 'Alerts (L/R/ref)' }],
+  trackmap: [{ slot: 'label', label: 'Track name' }],
   inputs: [
     { slot: 'label', label: 'Channel labels' },
-    { slot: 'value', label: 'Valores (%)' }
+    { slot: 'value', label: 'Values (%)' }
   ],
   temps: [
     { slot: 'header', label: 'Header' },
     { slot: 'label', label: 'Labels (WATER/OIL)' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'value', label: 'Values' }
   ]
 }
 for (const [concept, defs] of Object.entries(CURATED_SLOTS)) {

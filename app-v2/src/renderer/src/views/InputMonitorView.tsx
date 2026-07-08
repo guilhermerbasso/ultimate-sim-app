@@ -130,7 +130,7 @@ function InputMonitorView(_props: AppViewProps): ReactElement {
         </p>
       </div>
 
-      <div className="input-grid" aria-label="Estado dos 32 HID buttons">
+      <div className="input-grid" aria-label="32 HID button state">
         {buttons.map((pressed, index) => (
           <div className={`input-cell ${pressed ? 'is-pressed' : ''}`} key={index + 1}>
             <span>{String(index + 1).padStart(2, '0')}</span>

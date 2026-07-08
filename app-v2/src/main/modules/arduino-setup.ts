@@ -282,7 +282,7 @@ class ArduinoSetup {
       result.ok = true
 
       throwIfAborted(controller.signal)
-      emit({ phase: 'verify', message: 'Reabrindo a porta e perguntando as capacidades (?)…', percent: 76 })
+      emit({ phase: 'verify', message: 'Reopening the port and requesting capabilities (?)…', percent: 76 })
       const verify = await this.verifyCapabilities(port, module, controller.signal)
       result.capabilities = verify.caps
 
@@ -290,7 +290,7 @@ class ArduinoSetup {
         // Flash itself worked, but the handshake didn't confirm the module.
         if (verify.deviceId) await this.disconnectQuietly(verify.deviceId)
         const detail = verify.caps.length
-          ? `Recebi: ${formatCaps(verify.caps)}.`
+          ? `Received: ${formatCaps(verify.caps)}.`
           : 'No response to “?” (KEND did not arrive).'
         result.message =
           `Firmware flashed, but the handshake did not confirm ${module.capabilityKey}. ${detail} ` +
@@ -301,18 +301,18 @@ class ArduinoSetup {
 
       emit({
         phase: 'capabilities',
-        message: `Capacidades confirmadas: ${formatCaps(verify.caps)}`,
+        message: `Capabilities confirmed: ${formatCaps(verify.caps)}`,
         percent: 88,
         tone: 'success'
       })
 
-      emit({ phase: 'profile', message: 'Criando o dispositivo no Hardware Hub…', percent: 94 })
+      emit({ phase: 'profile', message: 'Creating the device in Hardware Hub…', percent: 94 })
       const profile = await this.createProfile(module, board.profileBoard, port, verify.deviceId, verify.caps)
       await this.persistSerialDevice(module, port, verify.deviceId)
       result.profileId = profile.id
       result.deviceId = verify.deviceId
       result.verified = true
-      result.message = `${module.name} pronto! Componente criado e verificado (${formatCaps(verify.caps)}).`
+      result.message = `${module.name} is ready! Component created and verified (${formatCaps(verify.caps)}).`
       emit({ phase: 'done', message: result.message, percent: 100, tone: 'success' })
       return result
     } catch (error) {

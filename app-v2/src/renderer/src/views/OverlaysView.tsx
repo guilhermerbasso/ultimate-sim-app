@@ -99,7 +99,7 @@ function sortOverlayEntries<T extends { enabled: boolean; favorite?: boolean }>(
     .map((item) => item.entry)
 }
 
-// Flattened quick-access entry for the "Overlays ativos" panel — unifies built-in
+// Flattened quick-access entry for the "Active overlays" panel — unifies built-in
 // widgets and custom overlays so each can be toggled/favorited from one place.
 type ActiveOverlayEntry = { id: string; title: string; favorite: boolean; kind: 'widget' | 'custom' }
 
@@ -288,14 +288,14 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       await action()
       await refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao atualizar overlays')
+      setError(err instanceof Error ? err.message : 'Failed to update overlays')
     } finally {
       setBusy(false)
     }
   }
 
   useEffect(() => {
-    void refresh().catch((err) => setError(err instanceof Error ? err.message : 'Falha ao carregar overlays'))
+    void refresh().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load overlays'))
     void refreshIracingGfx().catch(() => { /* status card stays in loading state */ })
     void refreshStreamingStatus().catch(() => { /* streaming module may be pending preload allowlist wiring */ })
     const off = window.ipc.subscribe<OverlayListItem[]>('overlays:state', (nextItems) => {
@@ -619,7 +619,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       <section className="panel overlays-header">
         <div>
           <h3>On-screen overlays</h3>
-          <p>Janelas transparentes always-on-top no estilo SimHub, alimentadas pela telemetria ativa.</p>
+          <p>Always-on-top transparent windows in SimHub style, powered by active telemetry.</p>
           <p className="overlay-help">
             {config.configMode
               ? 'Edit mode on: floating overlays receive mouse input; drag to position and use edges/corners to resize.'
@@ -627,7 +627,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
           </p>
         </div>
         <div className="overlay-actions">
-          <SectionExportImport sectionId="overlays" label="Overlays (inclui customizados)" onImported={() => void refresh()} />
+          <SectionExportImport sectionId="overlays" label="Overlays (including custom)" onImported={() => void refresh()} />
           <SectionExportImport sectionId="overlay-layout" label="Overlay layout/composition" onImported={() => void refresh()} />
           <button
             className={config.configMode ? 'overlay-button danger' : 'primary-action'}
@@ -643,7 +643,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
               for (const item of items) await window.ipc.invoke('overlays:toggle', item.id, true)
             })}
           >
-            Ligar todos
+            Turn all on
           </button>
           <button
             className="ghost-action"
@@ -652,7 +652,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
               for (const item of items) await window.ipc.invoke('overlays:toggle', item.id, false)
             })}
           >
-            Desligar todos
+            Turn all off
           </button>
         </div>
       </section>
@@ -660,7 +660,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       {activeOverlays.length > 0 && (
         <section className="panel overlays-active">
           <div className="overlays-active-head">
-            <h3>Overlays ativos <span className="overlays-active-count">{activeOverlays.length}</span></h3>
+            <h3>Active overlays <span className="overlays-active-count">{activeOverlays.length}</span></h3>
             <p className="overlay-help">Quick shortcut for what is on screen now — favorite ⭐ or turn off without scrolling the list.</p>
           </div>
           <div className="overlays-active-chips">
@@ -669,8 +669,8 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 <button
                   className={entry.favorite ? 'overlay-fav is-fav' : 'overlay-fav'}
                   disabled={busy}
-                  title={entry.favorite ? 'Remove dos favoritos' : 'Favoritar'}
-                  aria-label={entry.favorite ? 'Remove dos favoritos' : 'Favoritar'}
+                  title={entry.favorite ? 'Remove from favorites' : 'Favorite'}
+                  aria-label={entry.favorite ? 'Remove from favorites' : 'Favorite'}
                   aria-pressed={entry.favorite}
                   onClick={() => toggleActiveFavorite(entry)}
                 >
@@ -680,10 +680,10 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 <button
                   className="overlay-active-chip-off"
                   disabled={busy}
-                  title="Desligar overlay"
+                  title="Turn overlay off"
                   onClick={() => deactivateOverlay(entry)}
                 >
-                  Desligar
+                  Turn off
                 </button>
               </div>
             ))}
@@ -783,16 +783,16 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             type="password"
             value={streamPassword}
             disabled={busy || Boolean(streamingStatus?.running)}
-            placeholder="Opcional"
+            placeholder="Optional"
             onChange={(event) => setStreamPassword(event.target.value)}
           />
         </label>
         <div className="overlay-actions">
           <button className="primary-action" disabled={busy || Boolean(streamingStatus?.running)} onClick={() => void startStreaming()}>
-            Iniciar streaming
+            Start streaming
           </button>
           <button className="ghost-action danger" disabled={busy || !streamingStatus?.running} onClick={() => void stopStreaming()}>
-            Parar
+            Stop
           </button>
           <button className="ghost-action" disabled={busy} onClick={() => void refreshStreamingStatus()}>
             Refresh status
@@ -830,10 +830,10 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             ) : null}
             <div className="overlay-actions">
               <button className="ghost-action" onClick={() => void copyStreamUrl()}>
-                {copiedStreamUrl ? 'Copiado ✓' : 'Copiar dashboard'}
+                {copiedStreamUrl ? 'Copied ✓' : 'Copy dashboard'}
               </button>
               <button className="ghost-action" disabled={!streamingStatus.touchUrl} onClick={() => void copyTouchStreamUrl()}>
-                Copiar Touch Controls
+                Copy Touch Controls
               </button>
             </div>
           </div>
@@ -847,9 +847,9 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       <section className="panel custom-overlays-panel">
         <div className="custom-overlays-head">
           <div>
-            <h4 style={{ margin: '0 0 6px', color: '#f6fbff' }}>Overlays customizados</h4>
+            <h4 style={{ margin: '0 0 6px', color: '#f6fbff' }}>Custom overlays</h4>
             <p className="overlay-help">
-              Build your own overlays with the full set of <strong style={{ color: 'var(--accent-primary)' }}>dashboard widgets</strong> (medidores, marcha, pneus, radar, imagens…) or with simple cards from <strong style={{ color: 'var(--accent-primary)' }}>Expressions</strong>. Each one becomes an independent transparent window.
+              Build your own overlays with the full set of <strong style={{ color: 'var(--accent-primary)' }}>dashboard widgets</strong> (gauges, gear, tyres, radar, images…) or with simple cards from <strong style={{ color: 'var(--accent-primary)' }}>Expressions</strong>. Each one becomes an independent transparent window.
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -892,8 +892,8 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                     <button
                       className={overlay.favorite ? 'overlay-fav is-fav' : 'overlay-fav'}
                       disabled={busy}
-                      title={overlay.favorite ? 'Remove dos favoritos' : 'Favoritar'}
-                      aria-label={overlay.favorite ? 'Remove dos favoritos' : 'Favoritar'}
+                      title={overlay.favorite ? 'Remove from favorites' : 'Favorite'}
+                      aria-label={overlay.favorite ? 'Remove from favorites' : 'Favorite'}
                       aria-pressed={overlay.favorite}
                       onClick={() => applyCustomPatch(overlay.id, { favorite: !overlay.favorite })}
                     >
@@ -909,7 +909,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                     disabled={busy}
                     onClick={() => applyCustomPatch(overlay.id, { enabled: !overlay.enabled })}
                   >
-                    {overlay.enabled ? 'Desligar' : 'Ligar'}
+                    {overlay.enabled ? 'Turn off' : 'Ligar'}
                   </button>
                   <button
                     className="ghost-action"
@@ -1040,8 +1040,8 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 <button
                   className={item.favorite ? 'overlay-fav is-fav' : 'overlay-fav'}
                   disabled={busy}
-                  title={item.favorite ? 'Remove dos favoritos' : 'Favoritar'}
-                  aria-label={item.favorite ? 'Remove dos favoritos' : 'Favoritar'}
+                  title={item.favorite ? 'Remove from favorites' : 'Favorite'}
+                  aria-label={item.favorite ? 'Remove from favorites' : 'Favorite'}
                   aria-pressed={item.favorite}
                   onClick={() => toggleWidgetFavorite(item.id, !item.favorite)}
                 >
@@ -1060,7 +1060,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                   setItems(nextItems)
                 })}
               >
-                {item.enabled ? 'Desligar' : 'Ligar'}
+                {item.enabled ? 'Turn off' : 'Ligar'}
               </button>
               <button
                 className="ghost-action"

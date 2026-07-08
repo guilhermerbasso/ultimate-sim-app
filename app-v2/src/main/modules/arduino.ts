@@ -290,7 +290,7 @@ class FleetManager {
     const path = String(input.path ?? '').trim()
     const label = String(input.label ?? '').trim() || path
     const baud = Number.isFinite(input.baud) && input.baud > 0 ? Math.trunc(input.baud) : 115200
-    if (!path) throw new Error('Informe a porta serial do dispositivo.')
+    if (!path) throw new Error('Enter the device serial port.')
 
     const primaryId = this.ctx.serialHub.getPrimaryId()
     const existingSummary = this.ctx.serialHub.listDevices().find((entry) => entry.path === path)
@@ -377,7 +377,7 @@ class FleetManager {
   async disconnectDevice(id: string): Promise<void> {
     if (!id) return
     if (id === this.ctx.serialHub.getPrimaryId()) {
-      throw new Error('Use Devices → Desconectar para desligar o SIM-X principal.')
+      throw new Error('Use Devices → Disconnect to turn off the main SIM-X.')
     }
     // The user deliberately disconnected this device — tell the generic auto-start
     // so it does NOT fight them by reconnecting ~3s later (e.g. unplugging the iFlag

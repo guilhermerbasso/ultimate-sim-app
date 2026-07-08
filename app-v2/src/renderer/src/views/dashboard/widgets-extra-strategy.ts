@@ -83,7 +83,7 @@ export const EXTRA_STRATEGY_VARIANTS: WidgetVariant[] = [
   nx('x4-trackmini-map', 'Mini map · progress', 'trackmini', 200, 200, 'Track/Radar', 'chart', 'lapDistPct', { radius: 12, accentColor: ACCENT }, ['trackmap', 'mini', 'progress']),
 
   // ── Track condition + weather tiles ────────────────────────────────────────
-  nx('x4-weather-panel', 'Weather · panel', 'weather', 300, 92, 'Track/Radar', 'status', undefined, { radius: 12, title: 'Clima' }, ['weather', 'track', 'condition']),
+  nx('x4-weather-panel', 'Weather · panel', 'weather', 300, 92, 'Track/Radar', 'status', undefined, { radius: 12, title: 'Weather' }, ['weather', 'track', 'condition']),
   nx('x4-weather-wide', 'Weather · wide', 'weather', 360, 110, 'Track/Radar', 'status', undefined, { radius: 14, title: 'Weather / Track' }, ['weather', 'track', 'wide']),
   nx('x4-track-temp-tile', 'Track temp · tile', 'value', 200, 96, 'Track/Radar', 'clean', 'trackTempC', { label: 'TRACK', suffix: '°C', accentColor: ORANGE }, ['track', 'temp', 'weather']),
   nx('x4-air-temp-tile', 'Air temp · tile', 'value', 200, 96, 'Track/Radar', 'clean', 'airTempC', { label: 'AIR', suffix: '°C', accentColor: CYAN }, ['air', 'temp', 'weather']),

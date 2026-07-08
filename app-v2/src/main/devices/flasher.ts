@@ -307,7 +307,7 @@ export function runAvrdude(
     try {
       child = spawn(exe, args, { windowsHide: true })
     } catch (error) {
-      reject(new FlashError(`Falha ao iniciar o avrdude: ${errMessage(error)}`))
+      reject(new FlashError(`Failed to start avrdude: ${errMessage(error)}`))
       return
     }
 
@@ -411,7 +411,7 @@ function runCommand(
     try {
       child = spawn(exe, args, { windowsHide: true })
     } catch (error) {
-      reject(new FlashError(`Falha ao iniciar ${label}: ${errMessage(error)}`))
+      reject(new FlashError(`Failed to start ${label}: ${errMessage(error)}`))
       return
     }
 
@@ -538,11 +538,11 @@ function runCommandQuiet(
 export function avrdudeFailureHint(code: number | null): string {
   return (
     `avrdude finished with an error (code ${code ?? 'unknown'}). ` +
-    'Se aparecer stk500_recv()/stk500_getsync() ou "not in sync", tente: ' +
-    '(1) confirme a porta COM correta; ' +
+    'If stk500_recv()/stk500_getsync() or "not in sync" appears, try: ' +
+    '(1) confirm the correct COM port; ' +
     '(2) change the bootloader/baud option (Nano clones usually use 57600; genuine boards usually use 115200); ' +
-    '(3) toque/segure RESET ao iniciar para entrar no bootloader; ' +
-    '(4) feche SimHub/Arduino IDE/serial monitor que possam estar usando a porta; ' +
+    '(3) tap/hold RESET at startup to enter the bootloader; ' +
+    '(4) close SimHub/Arduino IDE/serial monitors that may be using the port; ' +
     '(5) on 32U4/Pro Micro/Leonardo boards, wait for the port to re-enumerate after reset; ' +
     '(6) use a USB data cable and CH340/FTDI driver when needed.'
   )
@@ -626,7 +626,7 @@ function touch1200bps(path: string): Promise<void> {
         setTimeout(() => {
           sp.close((closeError) => {
             if (setError) {
-              settle(new FlashError(`Falha ao solicitar reset 1200bps em ${path}: ${setError.message}`))
+              settle(new FlashError(`Failed to request 1200bps reset on ${path}: ${setError.message}`))
               return
             }
             if (closeError) {

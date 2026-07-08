@@ -1054,9 +1054,9 @@ function LiveCoachPanel({
             {statusLabel}
           </span>
           {enabled ? (
-            <button type="button" style={dangerButton} disabled={busy} onClick={onDisable}>Parar</button>
+            <button type="button" style={dangerButton} disabled={busy} onClick={onDisable}>Stop</button>
           ) : (
-            <button type="button" style={button} disabled={busy} onClick={onEnable}>Iniciar</button>
+            <button type="button" style={button} disabled={busy} onClick={onEnable}>Start</button>
           )}
           <button type="button" style={ghostButton} disabled={busy} onClick={onRefresh}>Refresh</button>
         </div>

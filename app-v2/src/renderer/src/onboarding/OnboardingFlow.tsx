@@ -129,7 +129,7 @@ export function OnboardingFlow({ onClose, onNavigate }: OnboardingFlowProps): Re
           <button className="onboarding-skip" type="button" onClick={markCompleteAndClose}>Skip</button>
         </header>
 
-        <div className="onboarding-progress" aria-label={`Progresso ${progress}%`}>
+        <div className="onboarding-progress" aria-label={`Progress ${progress}%`}>
           {steps.map((step, index) => (
             <span
               aria-current={step.id === currentStep.id ? 'step' : undefined}

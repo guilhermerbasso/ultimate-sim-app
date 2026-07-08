@@ -341,7 +341,7 @@ function normalizeCustomOverlay(value: unknown, fallbackId: string): CustomOverl
   const id = isCustomOverlayId(raw.id) ? (raw.id as string) : fallbackId
   const stylePreset = getOverlayStylePreset(typeof raw.stylePreset === 'string' ? raw.stylePreset : undefined).id
   const elements = Array.isArray(raw.elements) ? raw.elements.map((element, index) => sanitizeCustomElement(element, index)) : []
-  const title = typeof raw.title === 'string' && raw.title.trim() ? sanitizeShortText(raw.title, 60) : 'Overlay customizado'
+  const title = typeof raw.title === 'string' && raw.title.trim() ? sanitizeShortText(raw.title, 60) : 'Custom overlay'
   const position = sanitizePosition(isPlainObject(raw.position) ? raw.position : DEFAULT_CUSTOM_OVERLAY_POSITION)
   const overlay: CustomOverlayDef = {
     id,
@@ -354,6 +354,7 @@ function normalizeCustomOverlay(value: unknown, fallbackId: string): CustomOverl
     stylePreset,
     style: sanitizeStyle(isPlainObject(raw.style) ? (raw.style as Partial<OverlayWidgetStyle>) : undefined, stylePreset),
     hidden: Boolean(raw.hidden),
+    trigger: sanitizeOverlayTrigger(raw.trigger),
     display: sanitizeDisplayRef(raw.display),
     elements
   }

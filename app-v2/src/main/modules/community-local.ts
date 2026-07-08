@@ -333,7 +333,7 @@ function sanitizeSource(input: unknown, allowGeneratedId = false): CommunitySour
   const kind = isCommunitySourceKind(value.kind) ? value.kind : null
   const name = safeText(value.name, 80)
   const url = safeSourceUrl(value.url)
-  if (!sim || !kind || !name) throw new Error('Fonte de comunidade incompleta.')
+  if (!sim || !kind || !name) throw new Error('Incomplete community source.')
   const id = sourceIdFrom(safeText(value.id, 90)) || (allowGeneratedId ? sourceIdFrom(`${sim}-${kind}-${name}`) : '')
   if (!id) throw new Error('Invalid source id.')
   return {
@@ -627,7 +627,7 @@ export function register(ctx: ModuleContext): void {
     COMMUNITY_CHANNELS.exportTelemetry,
     async (_event, opts?: CommunityExportOptions): Promise<CommunityExportResult> => {
       const series = capture.getTelemetrySeries()
-      if (!series) throw new Error('Sem telemetria capturada ainda. Entre na pista e tente de novo.')
+      if (!series) throw new Error('No telemetry captured yet. Get on track and try again.')
       const context = capture.getContext()
       const pack = telemetryPackFrom(series, appVersion, context, opts)
       return writePack(pack, defaultExportName('telemetry', context))

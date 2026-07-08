@@ -221,7 +221,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
         setMfaCode('')
         setMessage(
           result.message ??
-            'O iRacing enviou um codigo de check. Insira o codigo abaixo para concluir o login.'
+            'iRacing sent a verification code. Enter the code below to complete login.'
         )
       } else {
         setPassword('')
@@ -263,7 +263,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
     try {
       await window.ipc.invoke(TRACK_MAP_CHANNELS.refresh)
       await refresh()
-      setMessage('Atualizacao do mapa de pista solicitada.')
+      setMessage('Track map update requested.')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -295,7 +295,7 @@ export function TrackMapSetup({ language: _language }: { language?: ResolvedLang
     setError(null)
     try {
       await window.ipc.invoke<TrackMapStatus>(TRACK_MAP_CHANNELS.startLearning)
-      setMessage('Gravando o mapa a partir da posicao current. De uma lap completa para concluir.')
+      setMessage('Recording the map from the current position. Complete a full lap to finish.')
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

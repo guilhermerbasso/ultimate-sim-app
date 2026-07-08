@@ -340,9 +340,9 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
       </div>
 
       <div className="view-tabs" style={{ display: 'flex', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-        <TabButton active={activeTab === 'install'} label="Instalar" onClick={() => setActiveTab('install')} />
+        <TabButton active={activeTab === 'install'} label="Install" onClick={() => setActiveTab('install')} />
         <TabButton active={activeTab === 'library'} label="Library" onClick={() => setActiveTab('library')} />
-        <TabButton active={activeTab === 'compare'} label="Comparar" onClick={() => setActiveTab('compare')} />
+        <TabButton active={activeTab === 'compare'} label="Compare" onClick={() => setActiveTab('compare')} />
       </div>
 
       {activeTab === 'install' && renderInstallTab()}
@@ -441,7 +441,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
                   value={selectedFolders[file.id] ?? ''}
                   onChange={(value) => setSelectedFolders((current) => ({ ...current, [file.id]: value }))}
                 />
-                <button disabled={busy} style={primaryButton} type="button" onClick={() => void install(file)}>Instalar</button>
+                <button disabled={busy} style={primaryButton} type="button" onClick={() => void install(file)}>Install</button>
               </div>
             ))}
             {files.length === 0 && <p style={{ opacity: 0.7 }}>{busy ? 'Loading setups…' : 'No .sto found in this source.'}</p>}
@@ -487,7 +487,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
         <section style={card}>
           <div style={{ ...row, justifyContent: 'space-between' }}>
             <div>
-              <div style={label}>Comparar setups</div>
+              <div style={label}>Compare setups</div>
               <h3 style={{ margin: '4px 0 0' }}>Delta-App style diff</h3>
             </div>
             <button disabled={libraryBusy} style={button} type="button" onClick={() => void loadLibrary()}>Refresh library</button>
@@ -495,7 +495,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, marginTop: 12, alignItems: 'end' }}>
             <SetupSelect label="Setup A" items={libraryItems} value={compareLeftPath} onChange={setCompareLeftPath} />
             <SetupSelect label="Setup B" items={libraryItems} value={compareRightPath} onChange={setCompareRightPath} />
-            <button disabled={libraryBusy || libraryItems.length < 2} style={primaryButton} type="button" onClick={() => void compareSelected()}>Comparar</button>
+            <button disabled={libraryBusy || libraryItems.length < 2} style={primaryButton} type="button" onClick={() => void compareSelected()}>Compare</button>
           </div>
         </section>
 

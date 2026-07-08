@@ -79,16 +79,16 @@ export const OLED_PRESETS: OledPreset[] = [
   {
     id: 'fuel',
     name: 'Fuel',
-    description: 'Litros restantes, consumo/lap e laps remaining.',
+    description: 'Liters remaining, consumption/lap, and laps remaining.',
     kind: 'text',
-    fields: ['litros', 'L/lap', 'laps remaining']
+    fields: ['liters', 'L/lap', 'laps remaining']
   },
   {
     id: 'timing',
-    name: 'Tempos / Delta',
-    description: 'Lap atual, melhor lap e delta para a melhor.',
+    name: 'Times / Delta',
+    description: 'Current lap, best lap, and delta to best.',
     kind: 'text',
-    fields: ['atual', 'melhor', 'delta']
+    fields: ['current', 'best', 'delta']
   },
   {
     id: 'tyres',
@@ -100,28 +100,28 @@ export const OLED_PRESETS: OledPreset[] = [
   {
     id: 'inputs',
     name: 'Inputs',
-    description: 'Acelerador, brake, gear e speed.',
+    description: 'Throttle, brake, gear, and speed.',
     kind: 'text',
     fields: ['throttle', 'brake', 'gear', 'speed']
   },
   {
     id: 'weather',
-    name: 'Clima',
-    description: 'Temperatura da pista/ar e wetness.',
+    name: 'Weather',
+    description: 'Track/air temperature and wetness.',
     kind: 'text',
     fields: ['track temp', 'air temp', 'wetness']
   },
   {
     id: 'delta-bignum',
     name: 'Delta (BIG)',
-    description: 'Delta contra a melhor lap em fonte gigante (38 px).',
+    description: 'Delta against the best lap in a giant font (38 px).',
     kind: 'bignum',
     fields: ['delta']
   },
   {
     id: 'gap-bignum',
     name: 'Gap (BIG)',
-    description: 'Gap em segundos para o carro à frente em fonte gigante.',
+    description: 'Gap in seconds to the car ahead in a giant font.',
     kind: 'bignum',
     fields: ['gap']
   }
@@ -241,7 +241,7 @@ function renderBigNumPage(preset: OledPreset, snapshot: TelemetrySnapshot | null
 }
 
 function renderLines(snapshot: TelemetrySnapshot | null, presetId: OledPresetId): [string, string, string] {
-  if (!snapshot?.connected) return ['OLED DASHBOARD', 'SEM TELEMETRIA', '']
+  if (!snapshot?.connected) return ['OLED DASHBOARD', 'NO TELEMETRY', '']
 
   switch (presetId) {
     case 'race':

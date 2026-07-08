@@ -5,11 +5,12 @@ import {
   createDefaultOverlayStyle,
   DEFAULT_CUSTOM_OVERLAY_POSITION,
   DEFAULT_OVERLAY_STYLE_PRESET,
+  evaluateOverlayTrigger,
   isCustomOverlayId,
   isRichCustomOverlay
 } from '../../../shared/overlays'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
-import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, mergeHifiOverlayConfigs } from './hifi-overlays'
+import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, HIFI_DEFAULT_TRIGGERS, mergeHifiOverlayConfigs } from './hifi-overlays'
 import { resolveWidgetComponent } from './widgets'
 import { CustomOverlayWidget } from './widgets/CustomOverlayWidget'
 import './overlay-runtime.css'
@@ -58,8 +59,12 @@ export function OverlayRoot() {
   // overlay is unlocked — this mirrors manager.updateMouseMode, so a single
   // unlocked overlay becomes editable without toggling the global edit mode.
   const editable = configMode || !widgetConfig.locked
-  // A LOCKED overlay never moves/resizes, even inside global config mode ("fixado").
+  // A LOCKED overlay never moves/resizes, even inside global config mode ("pinned").
   const movable = !widgetConfig.locked
+  // Trigger-only overlays (spotter-style) are condition-gated ONLY while locked
+  // (racing); when unlocked (editing) they always render so they can be placed.
+  const overlayTrigger = widgetConfig.trigger ?? HIFI_DEFAULT_TRIGGERS[widgetId] ?? null
+  const triggerHidden = !movable && !evaluateOverlayTrigger(overlayTrigger, snapshot)
   const positionRef = useRef<OverlayPosition>(widgetConfig.position)
   useEffect(() => {
     positionRef.current = widgetConfig.position
@@ -170,10 +175,10 @@ export function OverlayRoot() {
       {editable && (
         <div className={movable ? 'overlay-drag-handle' : 'overlay-drag-handle locked'}>
           {headerTitle}
-          {movable ? ' ? edit: drag to move ? edges resize' : ' · fixado'}
+          {movable ? ' — edit: drag to move — edges resize' : ' · pinned'}
         </div>
       )}
-      <ResolvedWidget snapshot={snapshot} config={widgetConfig} />
+      {!triggerHidden && <ResolvedWidget snapshot={snapshot} config={widgetConfig} />}
       {movable &&
         RESIZE_DIRS.map((dir) => (
           <div

@@ -1266,9 +1266,9 @@ function decodeBody(body: Buffer, contentEncoding: string | undefined): Buffer {
 // show exactly what to do. The telemetry-learned map keeps working regardless.
 function authErrorMessage(status: number, detail?: string): string {
   const trimmed = detail?.trim()
-  const suffix = trimmed ? `\n\nResposta exata do iRacing:\n${trimmed}` : ''
+  const suffix = trimmed ? `\n\nExact iRacing response:\n${trimmed}` : ''
   const guide =
-    'Para usar e-mail+senha, habilite “Legacy read-only authentication” em iRacing → Account → Security. ' +
+    'To use email+password, enable “Legacy read-only authentication” in iRacing → Account → Security. ' +
     'This is required even for accounts without MFA/2FA. Alternatively, use Browser Login.'
   if (status === 405) {
     return (
@@ -1279,7 +1279,7 @@ function authErrorMessage(status: number, detail?: string): string {
     )
   }
   return (
-    `Falha no login do iRacing (HTTP ${status}). Verifique seu e-mail e senha. ${guide} ` +
+    `iRacing login failed (HTTP ${status}). Check your email and password. ${guide} ` +
     `The offline map (telemetry) keeps working without login.${suffix}`
   )
 }
@@ -1302,7 +1302,7 @@ function mfaMessage(serverMessage?: string): string {
 function mfaRejectedMessage(): string {
   return (
     'Verification code is invalid or expired. If iRacing requires verification by ' +
-    'navegador (CAPTCHA), conclua o login uma vez no site do iRacing e tente novamente.'
+    'browser (CAPTCHA), complete login once on the iRacing website and try again.'
   )
 }
 

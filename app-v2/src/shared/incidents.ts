@@ -391,7 +391,7 @@ export function summarizeIncident(clip: IncidentClip, lang: 'pt' | 'en' = 'pt'):
   const lap = finite(clip.lap) ? clip.lap : undefined
   const pct = finite(clip.lapDistPct) ? Math.round((clip.lapDistPct as number) * 100) : undefined
   const where = pt
-    ? `${lap ? `lap ${lap}` : 'lap ?'}${finite(pct) ? `, ${pct}% da pista` : ''}`
+    ? `${lap ? `lap ${lap}` : 'lap ?'}${finite(pct) ? `, ${pct}% of track` : ''}`
     : `${lap ? `lap ${lap}` : 'lap ?'}${finite(pct) ? `, ${pct}% of the lap` : ''}`
 
   const detailBits: string[] = []

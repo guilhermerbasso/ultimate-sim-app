@@ -448,7 +448,7 @@ function ModuleStep({
 }): ReactElement {
   return (
     <div>
-      <p style={helper}>O que voce quer montar? Comece pela matriz iFlag — e o modulo mais facil.</p>
+      <p style={helper}>What do you want to build? Start with the iFlag matrix — it is the easiest module.</p>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
         {SETUP_MODULES.map((module) => {
           const available = module.status === 'available'
@@ -557,7 +557,7 @@ function BoardStep({
 
       {selected && selected.baudOptions.length > 1 && (
         <div style={{ marginTop: 14 }}>
-          <span style={label}>Bootloader / velocidade</span>
+          <span style={label}>Bootloader / speed</span>
           <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
             {selected.baudOptions.map((option) => {
               const active = (baudId ?? selected.defaultBaudId) === option.id
@@ -824,7 +824,7 @@ function FlashStep({
         <div style={{ ...card, marginTop: 14, borderColor: 'rgba(var(--accent-rgb),0.5)', background: 'rgba(var(--accent-rgb),0.12)' }}>
           <strong style={{ color: '#7ee2b8' }}>✓ Ready! Componente criado.</strong>
           <p style={{ ...helper, marginTop: 6 }}>
-            Capacidades confirmadas: {result.capabilities.map((c) => `K:${c.key}=${c.detail}`).join(', ') || '—'}.
+            Capabilities confirmed: {result.capabilities.map((c) => `K:${c.key}=${c.detail}`).join(', ') || '—'}.
             The device has been created in Hardware Hub and linked to port {result.port}.
           </p>
         </div>

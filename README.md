@@ -30,6 +30,20 @@ The **AI Engineer**, **Live/AI Coach**, and **lap analysis** run **entirely on y
 
 ## ✨ What's new
 
+### 2.43.0 — clean v4: title‑less widgets, trigger overlays, 3D nav map, themed cars
+
+- **Clean visual language** — every widget/overlay is now **transparent, title‑less and chrome‑light**: the value speaks for itself (just `P4`, no "Position" label), no panel fills, hairline‑only separators, still fully editable (color/size/font/position + conditional color). A dark text‑outline keeps values legible over any background.
+- **Trigger‑only spotter overlays** — 7 overlays that stay hidden until their condition fires: **car‑left / car‑right arrows**, **radar‑on‑proximity** (< 0.5 s), **shift‑LED flash**, **pit‑limiter**, **flag alert** and **low‑fuel**.
+- **Hide + "Hidden" menu** — multi‑select hide/restore for widgets, overlays, dashboards and touch dashes; hidden items leave the main lists (and the compositor) but are never deleted.
+- **Interactive 3D nav map** — a **Waze / Google‑Maps‑style** track map (Three.js): follow‑camera track‑up, live zoom, drag‑rotate/pan and a recenter button, with a 2D SVG fallback where WebGL is unavailable.
+- **Per‑car themed widgets & dashboards** — 6 authentic shift‑light signatures + 6 cluster signatures (**Ferrari, Porsche, Mercedes‑AMG, McLaren, Corvette, Lamborghini**), plus rebuilt themed dashboards in every category.
+- **58 recreated clean dashboards** — race / endurance / coach / family rebuilt to the clean premise with a **rev‑lights strip corner‑to‑corner across the top**, authored at 1024×600 and adaptive to any display; broadcast/endurance hero fixes.
+- **Touch Controls** — new **rocker** and **LED‑ring** button styles, preset tags, and per‑car themed button‑boxes.
+- **More rev‑lights** — gradient bar, dense LED strip, LED bar with a blue over‑rev, and a centered **Mustang‑style** cluster.
+- **100% American‑English UI** — a deep i18n sweep translates every screen, description, widget/overlay/dashboard and the **AI engineer / coach / spotter voice**; switching language changes everything.
+
+Every new visual asset was built with the mandated flow: a validated American‑English `gpt‑image` prompt → reference image → image QA → build → visual QA against the reference until clean.
+
 ### 2.42.0 — per‑telemetry widgets, +50 dashboards, tags & adaptive AI
 
 - **71 per‑telemetry hi‑fi widgets** — one clean, NaN‑safe SVG per channel (inputs, speed/RPM/gear/rev‑lights, delta/lap/position/time, gaps/relative/standings/radar, fuel, tyres, brakes/engine/electronics, flags/weather/track‑map/G‑force, and **AI coach/engineer** cues). Each doubles as a **floating overlay** and a **dashboard widget**.
@@ -48,7 +62,7 @@ The **AI Engineer**, **Live/AI Coach**, and **lap analysis** run **entirely on y
 - **Fixes** — Settings now apply and persist immediately (telemetry source, etc.); the AI Coach map grows/shrinks with zoom; Community ships curated, editable telemetry/setup sources per simulator.
 - **Collapsible sidebar** (icon‑only rail, `Ctrl/Cmd+B`, persisted) and a **new app icon**.
 
-All hi‑fi dashboards are **NaN‑safe** SVG (they show em‑dashes for absent telemetry — never fake data) and verified by the visual‑audit harness (**0 render errors / overflow / overlap**) and the unit suite (**2,854 tests green**).
+All hi‑fi dashboards are **NaN‑safe** SVG (they show em‑dashes for absent telemetry — never fake data) and verified by the visual‑audit harness (**0 render errors / overflow / overlap** across 268 presets) and the unit suite (**2,890 tests green**).
 
 ---
 

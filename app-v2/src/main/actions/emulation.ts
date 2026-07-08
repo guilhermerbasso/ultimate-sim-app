@@ -134,7 +134,7 @@ export class EmulationEngine {
 
     try {
       const keys = macro.keys.map((key) => this.resolveKey(key, this.nut as NutModule))
-      if (keys.length === 0) return { ok: false, message: 'Informe pelo menos uma tecla para a macro.' }
+      if (keys.length === 0) return { ok: false, message: 'Enter at least one key for the macro.' }
 
       if (macro.pressDelayMs && macro.pressDelayMs > 0) await delay(macro.pressDelayMs)
 
@@ -170,7 +170,7 @@ export class EmulationEngine {
 
       return { ok: true, message: `Macro de teclado enviada: ${macro.keys.join(' + ')}` }
     } catch (error) {
-      return { ok: false, message: `Falha ao emular teclado: ${errorMessage(error)}` }
+      return { ok: false, message: `Failed to emulate keyboard: ${errorMessage(error)}` }
     }
   }
 
@@ -204,7 +204,7 @@ export class EmulationEngine {
 
       return { ok: true, message: `Virtual gamepad: button ${command.button} sent (${command.mode}).` }
     } catch (error) {
-      return { ok: false, message: `Falha ao emular gamepad: ${errorMessage(error)}` }
+      return { ok: false, message: `Failed to emulate gamepad: ${errorMessage(error)}` }
     }
   }
 

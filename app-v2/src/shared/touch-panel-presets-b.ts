@@ -25,7 +25,7 @@ export const TOUCH_PRESETS_B: ButtonBoxPanel[] = [
   }),
   createButtonBoxPanel({
     id: 'tp-b-flags-marshal',
-    name: 'Bandeiras / Marshal',
+    name: 'Flags / Marshal',
     columns: 4,
     rows: 3,
     gap: 12,

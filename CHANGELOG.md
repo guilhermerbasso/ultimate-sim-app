@@ -6,6 +6,26 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
+## 2.43.0 — Clean v4: title‑less widgets, trigger overlays, 3D nav map, themed cars
+
+### Added
+- **Trigger‑only spotter overlays** (`src/renderer/src/hifi/widgets/alerts/`) — 7 condition‑gated overlays (car‑left, car‑right, radar‑on‑proximity, shift‑LED flash, pit‑limiter, flag, low‑fuel) driven by a pure, tested `evaluateOverlayTrigger(trigger, snapshot)`; the compositor paints them only while their condition fires.
+- **Hide + "Hidden" feature** — multi‑select hide/restore for overlays, dashboards, touch dashes and the widget catalog, persisted; hidden overlays are skipped by the compositor.
+- **Interactive 3D nav map** (`TrackMapNav3DWidget`, Three.js / @react‑three/fiber) — Waze‑style follow‑cam, track‑up rotation, zoom, drag‑rotate/pan and recenter, with a 2D SVG fallback for SSR / no‑WebGL.
+- **12 per‑car themed widgets** (`src/renderer/src/hifi/widgets/themed/`) — 6 shift‑light signatures + 6 cluster signatures for Ferrari / Porsche / Mercedes‑AMG / McLaren / Corvette / Lamborghini.
+- **Generic rev‑lights variants** — gradient bar, dense LED strip, LED bar with blue over‑rev, and a centered Mustang‑style cluster.
+- **New touch button styles** — rocker + LED‑ring — plus per‑car themed touch button‑boxes; presets are now tag‑filterable.
+
+### Changed
+- **Clean visual language everywhere** — widgets/overlays render transparent, title‑less and borderless (values are self‑explanatory), with a dark text‑outline for legibility and centralized conditional (gain/lose) coloring; still fully editable in color/size/font/position.
+- **All 58 hi‑fi dashboards recreated** — race / endurance / coach / family rebuilt to the clean premise with a rev‑lights strip corner‑to‑corner across the top, authored at 1024×600 and adaptive; each category gains per‑car themed dashboards. 268/268 presets render with **0 build/render errors**.
+- **Deep i18n to American English** — every screen, description, widget/overlay/dashboard and the AI engineer / coach / spotter voice translated; switching language changes everything.
+
+### Fixed
+- Settings now **persist immediately** (default telemetry/sim and all settings stick across restarts).
+- The **AI Coach map grows/shrinks with the zoom level** instead of always taking the whole screen.
+- Broadcast hero no longer has an empty middle; endurance delta no longer overflows; gap ahead/behind uses green = gaining / red = losing (no title/arrow); tyre‑temp °C no longer overlaps the value; gear is no longer clipped.
+
 ## 2.42.0 — Per‑telemetry hi‑fi widgets, +50 composition dashboards, tag filtering, adaptive AI
 
 ### Added

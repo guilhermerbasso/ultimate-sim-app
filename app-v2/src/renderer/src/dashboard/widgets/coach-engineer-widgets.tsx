@@ -154,7 +154,7 @@ function CoachTips({ element }: NewWidgetProps): ReactElement {
   const plan = rowPlan(layout, tips.length, layout.bodyH * 0.32)
   const scopeW = clampNum(layout.bodyW * 0.24, 40, 96)
   return (
-    <CoachShell element={element} layout={layout} header="Dicas do coach">
+    <CoachShell element={element} layout={layout} header="Coach tips">
       {tips.length === 0 ? (
         <EmptyNote layout={layout} text="No tips yet" />
       ) : (

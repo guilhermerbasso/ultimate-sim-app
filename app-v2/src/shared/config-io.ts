@@ -102,30 +102,30 @@ export interface ConfigSectionDescriptor {
 // The complete set of EXPORTABLE config stores discovered under userData. Auth
 // stores are intentionally absent (see SECURITY MODEL above).
 export const CONFIG_SECTIONS: readonly ConfigSectionDescriptor[] = [
-  { id: 'settings', label: 'Settings do app & tema', kind: 'file', path: 'settings.json' },
+  { id: 'settings', label: 'App settings & theme', kind: 'file', path: 'settings.json' },
   { id: 'dashboards', label: 'Dashboards', kind: 'dir', path: 'dashboards' },
-  { id: 'overlays', label: 'Overlays (inclui customizados)', kind: 'file', path: 'overlays.json' },
-  { id: 'overlay-layout', label: 'Layout/composition de overlays', kind: 'file', path: 'compositor.json' },
+  { id: 'overlays', label: 'Overlays (including custom)', kind: 'file', path: 'overlays.json' },
+  { id: 'overlay-layout', label: 'Overlay layout/composition', kind: 'file', path: 'compositor.json' },
   { id: 'oled', label: 'OLED dashboard', kind: 'file', path: 'oled-dashboard.json' },
   { id: 'revlights', label: 'Rev lights', kind: 'file', path: 'revlights.json' },
   { id: 'rgb-matrix', label: 'RGB matrix (iFlag)', kind: 'file', path: 'rgb-matrix-profiles.json' },
-  { id: 'devices', label: 'Perfis de dispositivos (ButtonBox/controles)', kind: 'file', path: 'arduino-devices.json' },
-  { id: 'serial-devices', label: 'Devices seriais', kind: 'file', path: 'serial-devices.json' },
-  { id: 'pinout-designs', label: 'Pinouts de firmware', kind: 'file', path: 'pinout-designs.json' },
+  { id: 'devices', label: 'Device profiles (ButtonBox/controls)', kind: 'file', path: 'arduino-devices.json' },
+  { id: 'serial-devices', label: 'Serial devices', kind: 'file', path: 'serial-devices.json' },
+  { id: 'pinout-designs', label: 'Firmware pinouts', kind: 'file', path: 'pinout-designs.json' },
   { id: 'custom-catalog', label: 'Custom board catalog', kind: 'file', path: 'custom-catalog.json' },
   { id: 'simx-identity', label: 'Primary SIM-X identity', kind: 'file', path: 'simx-primary-identity.json' },
   { id: 'actions', label: 'Actions & keyboard mappings', kind: 'file', path: 'actions-bindings.json' },
   { id: 'expressions', label: 'Expressions', kind: 'file', path: 'expressions.json' },
   { id: 'output-routes', label: 'Output routing', kind: 'file', path: 'output-routes.json' },
-  { id: 'alerts', label: 'Alertas', kind: 'file', path: 'alerts-config.json' },
-  { id: 'setups', label: 'Setups (biblioteca)', kind: 'file', path: 'setups.json' },
-  { id: 'setup-manager', label: 'Gerenciador de setups', kind: 'file', path: 'setup-manager.json' },
+  { id: 'alerts', label: 'Alerts', kind: 'file', path: 'alerts-config.json' },
+  { id: 'setups', label: 'Setups (library)', kind: 'file', path: 'setups.json' },
+  { id: 'setup-manager', label: 'Setup manager', kind: 'file', path: 'setup-manager.json' },
   { id: 'race-profiles', label: 'Race profiles', kind: 'file', path: 'race-profiles.json' },
   { id: 'soundshift', label: 'SoundShift', kind: 'file', path: 'soundshift.json' },
-  { id: 'spotter', label: 'Spotter / vozes / TTS', kind: 'file', path: 'spotter.json' },
+  { id: 'spotter', label: 'Spotter / voices / TTS', kind: 'file', path: 'spotter.json' },
   { id: 'haptics', label: 'Haptics', kind: 'file', path: 'haptics.json' },
   { id: 'driver-notes', label: 'Driver notes', kind: 'file', path: 'driver-notes.json' },
-  { id: 'legacy-profiles', label: 'Perfis de mapeamento (legado)', kind: 'dir', path: 'profiles' }
+  { id: 'legacy-profiles', label: 'Mapping profiles (legacy)', kind: 'dir', path: 'profiles' }
 ] as const
 
 export function getConfigSection(id: string): ConfigSectionDescriptor | undefined {

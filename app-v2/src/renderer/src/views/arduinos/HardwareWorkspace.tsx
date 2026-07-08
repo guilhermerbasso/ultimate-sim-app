@@ -417,7 +417,7 @@ export function HardwareWorkspace({
           showToast(message, 'error')
           return
         }
-        showToast('iFlag testado via layout saved (RGB Matrix).', 'success')
+        showToast('iFlag tested through the saved layout (RGB Matrix).', 'success')
         return
       }
       await window.ipc.invoke<void>(DEVICES_CHANNELS.test, targetId, componentId)
@@ -907,7 +907,7 @@ export function HardwareWorkspace({
 
             <p style={{ ...helper, marginBottom: 14 }}>
               A new hardware profile will be created with the board and iFlag component configured to match SimHub.
-              Voce podera ajustar pinos e componentes adicionais depois.
+              You can adjust pins and additional components later.
             </p>
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

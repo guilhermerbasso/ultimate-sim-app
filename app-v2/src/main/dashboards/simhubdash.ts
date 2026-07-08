@@ -912,7 +912,7 @@ async function buildDashboardFromScreen(args: {
   }
   if (unknownExpressions.size > 0) {
     const examples = Array.from(unknownExpressions).slice(0, 5)
-    notes.push(`Bindings JS/NCalc sem mapeamento (${unknownExpressions.size}): ${examples.join(' | ')}${unknownExpressions.size > examples.length ? '…' : ''}`)
+    notes.push(`JS/NCalc bindings without a mapping (${unknownExpressions.size}): ${examples.join(' | ')}${unknownExpressions.size > examples.length ? '…' : ''}`)
   }
   if (args.screens.length > 1) {
     notes.push(`Imported screen: "${args.screen?.Name ?? `Screen ${args.screenIndex + 1}`}" (${flat.length} element(s)). You can import another screen from the multi-screen selection.`)

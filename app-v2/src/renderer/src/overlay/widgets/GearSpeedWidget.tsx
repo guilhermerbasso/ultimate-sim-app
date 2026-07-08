@@ -32,7 +32,7 @@ export function GearSpeedWidget({ snapshot, config }: WidgetProps) {
             <SegmentReadout value={gear} ghost={false} height={56} align="left" idPrefix="gsw-min-gear" />
           </div>
           <div className="rc-min-row" style={{ width: '100%', borderTop: 'none' }}>
-            <span className="rc-min-label">Velocidade</span>
+            <span className="rc-min-label">Speed</span>
             <span className="rc-min-val">
               <SegmentReadout value={speedStr} mode={speedStr === '—' ? undefined : '7'} unit="km/h" ghost={false} height={20} idPrefix="gsw-min-spd" />
             </span>

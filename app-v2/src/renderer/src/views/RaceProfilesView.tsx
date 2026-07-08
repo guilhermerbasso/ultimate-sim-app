@@ -73,7 +73,7 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
     try {
       const snapshot = await getLatestTelemetry()
       if (!snapshot?.carName && !snapshot?.trackName) {
-        showToast('Telemetry no car/pista no momento.', 'error')
+        showToast('No telemetry / not on track right now.', 'error')
         return
       }
       setDraft((current) => ({

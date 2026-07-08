@@ -47,7 +47,7 @@ const ALIGN_OPTIONS = [
 // volume). '' = deixar o widget escolher seu default. Espelha o enum `unit` em
 // DashboardElementStyle.
 const UNIT_OPTIONS = [
-  { value: '', label: '(padrao)' },
+  { value: '', label: '(default)' },
   { value: 'kmh', label: 'km/h' },
   { value: 'mph', label: 'mph' },
   { value: 'C', label: '°C' },
@@ -521,7 +521,7 @@ function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle
 
       {isBarLike && (
         <div className="overlay-builder-section">
-          <div className="overlay-builder-section-title">Bars / medidores</div>
+          <div className="overlay-builder-section-title">Bars / gauges</div>
           <div className="designer-grid-2">
             <ColorField label="Fill" value={s.fillColor ?? 'var(--accent-primary)'} onChange={(v) => onChangeStyle({ fillColor: v })} />
             <ColorField label="Warning" value={s.warnColor ?? '#ffb84d'} onChange={(v) => onChangeStyle({ warnColor: v })} />

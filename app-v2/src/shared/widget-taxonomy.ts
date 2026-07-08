@@ -60,14 +60,14 @@ export const WIDGET_CLUSTER_LABELS: Record<WidgetClusterTag, string> = {
   'Full-Frame Dashboards': 'Dashboards full-frame',
   'DDU / Cluster': 'DDU / Cluster',
   'Tell-tales / Warning lamps': 'Tell-tales / Luzes de aviso',
-  'Race Control / Flags': 'Race Control / Bandeiras',
+  'Race Control / Flags': 'Race Control / Flags',
   'Stint / Endurance': 'Stint / Endurance',
   'Driver Aids': 'Driver Aids',
   'Tyre / Brake': 'Tires / Brakes',
   'Radar / Relative': 'Radar / Relativo',
   'Timing / Delta': 'Tempos / Delta',
   'Engine Vitals': 'Vitais do motor',
-  'Weather / Track': 'Clima / Pista'
+  'Weather / Track': 'Weather / Track'
 }
 
 // Manufacturer-inspired style family (OPTIONAL cosmetic axis). Lets curated
@@ -126,13 +126,13 @@ export const WIDGET_CATEGORY_ORDER: WidgetCategoryTag[] = [
 ]
 
 export const WIDGET_CATEGORY_LABELS: Record<WidgetCategoryTag, string> = {
-  'Speed/Engine': 'Velocidade & Motor',
+  'Speed/Engine': 'Speed & Engine',
   'Timing/Delta': 'Tempos & Delta',
   Fuel: 'Fuel',
   'Tyres/Brakes': 'Tires & Brakes',
   'Position/Standings': 'Position & Qualifying',
   Inputs: 'Inputs do piloto',
-  'Flags/Status': 'Bandeiras & Status',
+  'Flags/Status': 'Flags & Status',
   'Track/Radar': 'Pista & Radar',
   'Charts/Graphs': 'Graphs & Charts',
   Analog: 'Analog',

@@ -111,7 +111,7 @@ export function CoachTipsWidget({ config }: WidgetProps): ReactElement {
 
   return (
     <div className="overlay-card" style={cardStyle(config)}>
-      <Head accent={accent}>Dicas do coach</Head>
+      <Head accent={accent}>Coach tips</Head>
       <StatusRail label="TIPS" value={tips.length} active={tips.length > 0} color={tips.length > 0 ? WARM_AMBER : MUTED} />
       {tips.length === 0 ? (
         <Empty>No tips yet</Empty>

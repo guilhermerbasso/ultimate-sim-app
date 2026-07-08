@@ -28,14 +28,14 @@ export const IRACING_VAR_CATEGORY_LABELS: Record<IracingVarCategory, string> = {
   session: 'Session',
   timing: 'Timing',
   fuel: 'Fuel',
-  tyres: 'Tires e brakes',
+  tyres: 'Tires and brakes',
   inputs: 'Inputs',
-  weather: 'Clima e pista',
-  flags: 'Bandeiras',
+  weather: 'Weather and track',
+  flags: 'Flags',
   standings: 'Qualifying',
   pit: 'Pit stop',
-  controls: 'Controls e eletrônica',
-  damage: 'Danos e incidentes'
+  controls: 'Controls and electronics',
+  damage: 'Damage and incidents'
 }
 
 export const IRACING_VAR_CATEGORY_ORDER: IracingVarCategory[] = [
@@ -54,7 +54,7 @@ export const IRACING_VAR_CATEGORY_ORDER: IracingVarCategory[] = [
 ]
 
 export const IRACING_VARIABLES: IracingVarDef[] = [
-  { id: 'Speed', label: 'Velocidade', unit: 'km/h', category: 'car', telemetryField: 'speedKmh' },
+  { id: 'Speed', label: 'Speed', unit: 'km/h', category: 'car', telemetryField: 'speedKmh' },
   { id: 'RPM', label: 'Engine RPM', unit: 'rpm', category: 'car', telemetryField: 'rpm' },
   { id: 'Gear', label: 'Gear', category: 'car', telemetryField: 'gear' },
   { id: 'DriverCarSLShiftRPM', label: 'Shift light RPM', unit: 'rpm', category: 'car', telemetryField: 'maxRpm' },

@@ -282,7 +282,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
         <div className="panel-heading-row">
           <div>
             <span className="panel-label">Status / RX</span>
-            <h3>Linhas recebidas</h3>
+            <h3>Received lines</h3>
           </div>
         </div>
         {statuses.map((status) => (

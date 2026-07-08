@@ -980,8 +980,8 @@ function MatrixCalibrationWizard({
             })}
           </div>
           <div style={rowStyle}>
-            <Toggle checked={autoCycle} caption={autoCycle ? 'Auto-ciclo ON' : 'Auto-ciclo'} onChange={setAutoCycle} />
-            <span style={helper}>Percorre os 4 testes a cada ~2,2 s.</span>
+            <Toggle checked={autoCycle} caption={autoCycle ? 'Auto-cycle ON' : 'Auto-cycle'} onChange={setAutoCycle} />
+            <span style={helper}>Cycles through the 4 tests every ~2.2 s.</span>
           </div>
           {/* ONE-TAP orientation fix, right beside the live test pattern. Each tap
               of "Rotacionar 90°" cycles 0→90→180→270 and applyLayout persists the
@@ -1001,7 +1001,7 @@ function MatrixCalibrationWizard({
                 disabled={actionsDisabled || customActive}
                 onClick={() => void applyLayout({ ...layout, rotation: nextRotation(layout.rotation) })}
               >
-                Rotacionar 90° · current {layout.rotation}°
+                Rotate 90° · current {layout.rotation}°
               </button>
               <button
                 type="button"
@@ -1069,7 +1069,7 @@ function MatrixCalibrationWizard({
             disabled={busy || customActive}
             onClick={() => void applyLayout({ serpentine: true, rotation: 0, flipX: false, flipY: false })}
           >
-            Restaurar padrao
+            Restore default
           </button>
           <span style={helper}>
             Each adjustment writes the <code>M</code> byte to iFlag EEPROM and reruns the current test.
@@ -1087,7 +1087,7 @@ function MatrixCalibrationWizard({
       {/* Advanced: per-pixel manual remap fallback. */}
       <div style={{ ...card, marginTop: 14 }}>
         <div style={{ ...rowStyle, justifyContent: 'space-between' }}>
-          <span style={label}>Avancado: mapeamento manual (pixel a pixel)</span>
+          <span style={label}>Advanced: manual mapping (pixel by pixel)</span>
           {customActive ? (
             <div style={{ ...rowStyle, gap: 8 }}>
               <button
@@ -1099,7 +1099,7 @@ function MatrixCalibrationWizard({
                   else setManualOpen(true)
                 }}
               >
-                {manualOpen ? 'Close mapeamento' : 'Refazer mapeamento'}
+                {manualOpen ? 'Close mapping' : 'Redo mapping'}
               </button>
               {!manualOpen ? (
                 <button
@@ -1108,7 +1108,7 @@ function MatrixCalibrationWizard({
                   disabled={busy}
                   onClick={() => void applyLayout({ serpentine: layout.serpentine, rotation: layout.rotation, flipX: layout.flipX, flipY: layout.flipY })}
                 >
-                  Remove mapa manual
+                  Remove manual map
                 </button>
               ) : null}
             </div>
@@ -1122,7 +1122,7 @@ function MatrixCalibrationWizard({
                 else setManualOpen(true)
               }}
             >
-              {manualOpen ? 'Close mapeamento' : 'Open mapeamento manual'}
+              {manualOpen ? 'Close mapping' : 'Open manual mapping'}
             </button>
           )}
         </div>
@@ -1294,11 +1294,11 @@ function ManualRemap({
         <div style={{ display: 'grid', gap: 10 }}>
           <p style={helper}>
             {complete ? (
-              <>All os 64 pixels mapeados. Confira e clique <strong>Save mapa</strong>.</>
+              <>All 64 pixels are mapped. Check them and click <strong>Save map</strong>.</>
             ) : (
               <>
                 The panel is lighting <strong>physical LED #{probeIndex}</strong> (white). Tap the matching cell in the grid beside it.
-                celula onde ele aparece. Em seguida acendemos o next automaticamente.
+                cell where it appears. Then the next one lights automatically.
               </>
             )}
           </p>
@@ -1313,20 +1313,20 @@ function ManualRemap({
                 border: `1px solid ${ACCENT_BORDER}`
               }}
             >
-              {assignedCount}/{total} mapeados
+              {assignedCount}/{total} mapped
             </span>
             {!complete ? (
               <button type="button" style={buttonStyle('ghost')} disabled={disabled || probeIndex >= total} onClick={() => void onLightPhysical(probeIndex)}>
-                Reacender LED #{probeIndex}
+                Relight LED #{probeIndex}
               </button>
             ) : null}
           </div>
           <div style={rowStyle}>
             <button type="button" style={buttonStyle('primary')} disabled={disabled || !complete} onClick={save}>
-              Save mapa
+              Save map
             </button>
             <button type="button" style={buttonStyle('ghost')} disabled={disabled} onClick={reset}>
-              Recomecar
+              Restart
             </button>
             <button type="button" style={buttonStyle('ghost')} disabled={disabled || probeIndex <= 0} onClick={stepBack}>
               Back one
@@ -1441,15 +1441,15 @@ function EffectStackItem({
             {effect.kind === 'group' ? 'Conditional group' : effect.kind}
             {' · '}
             <span style={{ color: priority === 0 ? '#49C5B1' : 'rgba(255,255,255,0.7)' }}>
-              Prioridade {priority}{priority === 0 ? ' (por cima)' : ''}
+              Priority {priority}{priority === 0 ? ' (on top)' : ''}
             </span>
           </small>
         </button>
         <div style={rowStyle}>
-          <button type="button" title="Subir prioridade (mais por cima)" style={buttonStyle('ghost')} disabled={!canMoveUp} onClick={() => onChangePriority(effect.id, -1)}>
+          <button type="button" title="Move priority up (more on top)" style={buttonStyle('ghost')} disabled={!canMoveUp} onClick={() => onChangePriority(effect.id, -1)}>
             ↑
           </button>
-          <button type="button" title="Descer prioridade (mais por baixo)" style={buttonStyle('ghost')} disabled={!canMoveDown} onClick={() => onChangePriority(effect.id, 1)}>
+          <button type="button" title="Move priority down (lower)" style={buttonStyle('ghost')} disabled={!canMoveDown} onClick={() => onChangePriority(effect.id, 1)}>
             ↓
           </button>
           <button type="button" style={buttonStyle('danger')} onClick={() => onRemove(effect.id)}>
@@ -2086,7 +2086,7 @@ function PerLabelAnimationEditor<L extends string>({
         <button type="button" style={buttonStyle('ghost')} disabled={frames.length <= 1} onClick={() => moveFrame(-1)}>←</button>
         <button type="button" style={buttonStyle('ghost')} disabled={frames.length <= 1} onClick={() => moveFrame(1)}>→</button>
         <button type="button" style={buttonStyle('ghost')} onClick={() => updateFrame(withFrameGrid(activeFrame, emptyMatrixHexGrid()))}>Clear</button>
-        <button type="button" style={buttonStyle('ghost')} onClick={() => updateFrame(withFrameGrid(activeFrame, seed(activeLabel)))}>Restaurar padrao</button>
+        <button type="button" style={buttonStyle('ghost')} onClick={() => updateFrame(withFrameGrid(activeFrame, seed(activeLabel)))}>Restore default</button>
         <button
           type="button"
           style={buttonStyle('danger')}
@@ -2162,12 +2162,12 @@ function FlagsEditor({
         <SelectField value={effect.mode} options={FLAG_MODE_OPTIONS} onChange={setMode} />
       </Field>
       <Field
-        caption="Flag prevalece sobre a marcha"
+        caption="Flag takes priority over gear"
         hint="On (default): a CAUTION flag (yellow, blue, white, red, black, meatball, or checkered) hides the gear digit — the flag fills the whole panel and the gear does not appear on top or leak through during blink. The GREEN flag always keeps the gear visible (normal race)."
       >
         <Toggle
           checked={effect.hideGearWhenFlagActive !== false}
-          caption={effect.hideGearWhenFlagActive !== false ? 'Cautela esconde a marcha' : 'Gear sempre por cima'}
+          caption={effect.hideGearWhenFlagActive !== false ? 'Caution hides gear' : 'Gear always on top'}
           onChange={(value) => onChange({ ...effect, hideGearWhenFlagActive: value })}
         />
       </Field>
@@ -2185,7 +2185,7 @@ function FlagsEditor({
       ) : (
         <p style={helper}>
           Select <strong>Custom</strong> to draw and animate, frame by frame, what lights up for each flag
-          (verde, amarela, azul, branca, vermelha, preta, meatball e quadriculada).
+          (green, yellow, blue, white, red, black, meatball, and checkered).
         </p>
       )}
     </div>
@@ -2221,7 +2221,7 @@ function GearEditor({
   return (
     <div style={card}>
       <span style={label}>Gear digit</span>
-      <Field caption="Glyph source" hint="“Font padrao” usa o desenho embutido; “Custom” deixa voce animar cada marcha.">
+      <Field caption="Glyph source" hint="“Default font” uses the built-in drawing; “Custom” lets you animate each gear.">
         <SelectField value={mode} options={GEAR_MODE_OPTIONS} onChange={setMode} />
       </Field>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 10 }}>

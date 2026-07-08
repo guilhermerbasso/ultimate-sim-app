@@ -315,7 +315,7 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
       <header style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ ...labelStyle, color: CHROME }}>Local AI · opcional</span>
+        <span style={{ ...labelStyle, color: CHROME }}>Local AI · optional</span>
         <h1 style={{ margin: 0, fontSize: 22, color: 'var(--text-primary)' }}>AI Dashboard</h1>
         <p style={{ margin: 0, color: 'var(--text-secondary)', maxWidth: 720 }}>
           Describe the dashboard you want and AI builds it for you. No AI model available? The builder falls back

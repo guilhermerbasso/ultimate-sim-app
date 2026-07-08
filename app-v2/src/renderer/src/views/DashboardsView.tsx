@@ -682,7 +682,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
 
       if (conflict) {
         showToast(
-          `Button ${control.buttonIndex + 1} ja esta vinculado a "${conflict.label}" em Controls & Keyboard. As duas acoes vao disparar juntas.`,
+          `Button ${control.buttonIndex + 1} is already bound to "${conflict.label}" in Controls & Keyboard. Both actions will fire together.`,
           'info'
         )
       } else {

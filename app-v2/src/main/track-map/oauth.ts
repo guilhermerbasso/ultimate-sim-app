@@ -366,7 +366,7 @@ async function startLoopback(expectedState: string): Promise<{
     server!.listen(0, '127.0.0.1', () => resolve())
   })
   const address = server.address()
-  if (!address || typeof address === 'string') throw new Error('Falha ao abrir loopback OAuth.')
+  if (!address || typeof address === 'string') throw new Error('Failed to open OAuth loopback.')
   return {
     redirectUri: `http://127.0.0.1:${address.port}/callback`,
     codePromise,

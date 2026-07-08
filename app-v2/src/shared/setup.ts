@@ -452,7 +452,7 @@ export const SETUP_MODULES: SetupModule[] = [
   {
     id: 'iflag-matrix-8x8',
     name: 'iFlag · Matriz RGB 8x8',
-    tagline: 'Bandeiras, gear, spotter e icons numa matrix WS2812B de 64 LEDs',
+    tagline: 'Flags, gear, spotter, and icons on a 64-LED WS2812B matrix',
     description:
       'WS2812B 8x8 addressable LED matrix mounted on the front of the steering wheel. Shows race flags, current gear, spotter alerts, and start animations. It is the easiest module to begin with.',
     componentType: 'rgbMatrix',
@@ -489,15 +489,15 @@ export const SETUP_MODULES: SetupModule[] = [
   {
     id: 'ws2812-revlights',
     name: 'Rev Lights (fita WS2812)',
-    tagline: 'Barra de RPM + flash de troca de gear numa addressable strip',
+    tagline: 'RPM bar + gear shift flash on an addressable strip',
     description:
-      'Fita WS2812/SK6812 para rev lights estilo F1: gradiente verde→amarelo→vermelho conforme o RPM e flash azul no shift point. Usa o mesmo protocolo P/Y do companion.',
+      'WS2812/SK6812 strip for F1-style rev lights: green→yellow→red gradient by RPM and blue flash at the shift point. Uses the same P/Y companion protocol.',
     componentType: 'rgbStrip',
     capabilityKey: 'rgbStrip',
     difficulty: 'easy',
-    parts: ['Fita WS2812B (8–16 LEDs)', 'Arduino Nano/Uno/Pro Micro', 'Resistor 470 Ω na linha de dados (opcional)'],
+    parts: ['WS2812B strip (8–16 LEDs)', 'Arduino Nano/Uno/Pro Micro', '470 Ω resistor on the data line (optional)'],
     wiring: [
-      { signal: 'DIN', pin: 'D6', detail: 'Data in da fita' },
+      { signal: 'DIN', pin: 'D6', detail: 'Strip data in' },
       { signal: '5V', pin: '5V' },
       { signal: 'GND', pin: 'GND' }
     ],
@@ -615,8 +615,8 @@ export const SETUP_MODULES: SetupModule[] = [
     difficulty: 'medium',
     parts: ['SG90 servo(s) (up to 4)', 'Arduino Nano/Uno/Pro Micro', '5V supply for the servos'],
     wiring: [
-      { signal: 'SIG0', pin: 'D3', detail: 'Sinal do servo 0' },
-      { signal: 'SIG1', pin: 'D5', detail: 'Servo 1 (opcional)' },
+      { signal: 'SIG0', pin: 'D3', detail: 'Servo 0 signal' },
+      { signal: 'SIG1', pin: 'D5', detail: 'Servo 1 (optional)' },
       { signal: 'V+', pin: '5V', detail: 'Use an external 5V supply for multiple servos' },
       { signal: 'GND', pin: 'GND' }
     ],

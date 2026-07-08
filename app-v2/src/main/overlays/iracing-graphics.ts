@@ -206,7 +206,7 @@ export async function fixIracingFullscreen(): Promise<FixFullscreenResult> {
       ok: false,
       changed: false,
       backupPath,
-      message: `Falha ao gravar o app.ini: ${errorMessage(error)}`
+      message: `Failed to write app.ini: ${errorMessage(error)}`
     }
   }
 
