@@ -34,7 +34,8 @@ jobs:
     # Só reage a reviews do revisor Copilot, em PRs do próprio repositório.
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
-      contains(github.event.review.user.login, 'copilot-pull-request-reviewer')
+      github.event.review.user.login == 'copilot-pull-request-reviewer[bot]' &&
+      github.event.review.user.type == 'Bot'
     runs-on: ubuntu-latest
     steps:
       - name: Processar review do Copilot
@@ -60,12 +61,14 @@ jobs:
 
           # Quantos comentários (inline) o Copilot deixou NESTE review?
           COMMENTS=$(gh api "repos/$REPO/pulls/$PR/reviews/$REVIEW_ID/comments" --jq 'length' 2>/dev/null || echo "0")
-          echo "Comentários neste review do Copilot: $COMMENTS"
+          REVIEW_STATE=$(gh api "repos/$REPO/pulls/$PR/reviews/$REVIEW_ID" --jq '(.state // "") | ascii_downcase' 2>/dev/null || echo "")
+          REVIEW_BODY_LEN=$(gh api "repos/$REPO/pulls/$PR/reviews/$REVIEW_ID" --jq '(.body // "") | length' 2>/dev/null || echo "0")
+          echo "Comentários neste review do Copilot: $COMMENTS | state: ${REVIEW_STATE:-unknown} | body_len: ${REVIEW_BODY_LEN:-0}"
 
           # =====================================================================
           # CASO 1 — Review COM comentários: pedir correção ao Copilot
           # =====================================================================
-          if [ "${COMMENTS:-0}" -gt 0 ]; then
+          if [ "${COMMENTS:-0}" -gt 0 ] || [ "${REVIEW_STATE:-}" != "commented" ] || [ "${REVIEW_BODY_LEN:-0}" -gt 0 ]; then
             # Reinicia a confirmação de "limpo" (voltou a ter pendências).
             gh api -X DELETE "repos/$REPO/issues/$PR/labels/$CLEAN_LABEL" >/dev/null 2>&1 || true
 
@@ -106,7 +109,17 @@ jobs:
 
           if [ "$HAS_LABEL" != "true" ]; then
             echo "1º review limpo — rodando mais uma vez para confirmar."
-            gh api -X POST "repos/$REPO/issues/$PR/labels" -f "labels[]=$CLEAN_LABEL" >/dev/null 2>&1 || true
+            gh api -X POST "repos/$REPO/labels" \
+              -f "name=$CLEAN_LABEL" \
+              -f "color=0e8a16" \
+              -f "description=Marca 1º review limpo confirmado do loop de QA do Copilot" \
+              >/dev/null 2>&1 || true
+            if gh api -X POST "repos/$REPO/issues/$PR/labels" -f "labels[]=$CLEAN_LABEL" >/dev/null 2>&1; then
+              echo "Label de confirmação aplicada ao PR."
+            else
+              echo "::warning::Não foi possível aplicar a label de confirmação; pulando auto-merge por segurança."
+              exit 0
+            fi
             echo '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' \
               | gh api -X POST "repos/$REPO/pulls/$PR/requested_reviewers" --input - \
               && echo "Review de confirmação solicitado." \
@@ -130,7 +143,7 @@ jobs:
               }
             }' --jq '.data.repository.pullRequest.reviewThreads.nodes[]
               | select(.isResolved == false)
-              | select(.comments.nodes[0].author.login | test("copilot-pull-request-reviewer"))
+              | select((.comments.nodes[0].author.login // "") == "copilot-pull-request-reviewer[bot]")
               | .id' 2>/dev/null || echo "")
           for TID in $THREADS; do
             gh api graphql -f threadId="$TID" -f query='
