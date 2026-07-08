@@ -1,0 +1,151 @@
+# QA automático com Copilot — passo 2 de 2
+# Reage a cada review enviado pelo Copilot:
+#   - Se o review tem comentários  -> pede ao @copilot para corrigir (na mesma
+#     branch). Ao corrigir, o Copilot faz push, o passo 1 pede novo review e o
+#     ciclo se repete (com limite de MAX_ROUNDS para evitar loop infinito).
+#   - Se o review vem limpo (0 comentários) -> roda mais UMA vez para confirmar.
+#     Dois reviews limpos seguidos -> resolve as conversas do Copilot e habilita
+#     o auto-merge (que ainda respeita a proteção do branch: check "App checks"
+#     verde + a aprovação exigida).
+#
+# Requisito: secret COPILOT_AGENT_PAT. Sem ele, faz no-op seguro.
+name: Copilot QA - Loop de correcao e merge
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+concurrency:
+  group: copilot-qa-loop-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  MAX_ROUNDS: "5"            # máximo de rodadas automáticas de correção
+  MERGE_METHOD: "squash"     # squash | merge | rebase
+  CLEAN_LABEL: "qa-clean-confirmed"
+  ROUND_MARKER: "<!-- copilot-qa-auto-fix -->"
+
+jobs:
+  qa-loop:
+    # Só reage a reviews do revisor Copilot, em PRs do próprio repositório.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.review.user.login, 'copilot-pull-request-reviewer')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Processar review do Copilot
+        env:
+          GH_TOKEN: ${{ secrets.COPILOT_AGENT_PAT }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          REVIEW_ID: ${{ github.event.review.id }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -uo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::Secret COPILOT_AGENT_PAT ausente — pulando."
+            exit 0
+          fi
+
+          # PR ainda está aberto?
+          STATE=$(gh api "repos/$REPO/pulls/$PR" --jq '.state' 2>/dev/null || echo "unknown")
+          if [ "$STATE" != "open" ]; then
+            echo "PR #$PR não está aberto (estado: $STATE). Nada a fazer."
+            exit 0
+          fi
+
+          # Quantos comentários (inline) o Copilot deixou NESTE review?
+          COMMENTS=$(gh api "repos/$REPO/pulls/$PR/reviews/$REVIEW_ID/comments" --jq 'length' 2>/dev/null || echo "0")
+          echo "Comentários neste review do Copilot: $COMMENTS"
+
+          # =====================================================================
+          # CASO 1 — Review COM comentários: pedir correção ao Copilot
+          # =====================================================================
+          if [ "${COMMENTS:-0}" -gt 0 ]; then
+            # Reinicia a confirmação de "limpo" (voltou a ter pendências).
+            gh api -X DELETE "repos/$REPO/issues/$PR/labels/$CLEAN_LABEL" >/dev/null 2>&1 || true
+
+            # Conta quantas rodadas de auto-fix já foram disparadas.
+            ROUNDS=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+              --jq "[.[] | select(.body | contains(\"$ROUND_MARKER\"))] | length" 2>/dev/null || echo "0")
+            echo "Rodadas de auto-fix já feitas: $ROUNDS (máx.: $MAX_ROUNDS)"
+
+            if [ "${ROUNDS:-0}" -ge "${MAX_ROUNDS}" ]; then
+              MSG=$(printf '%s\n' \
+                "$ROUND_MARKER" \
+                "🚦 Atingi o limite de $MAX_ROUNDS rodadas automáticas de correção e o review do Copilot ainda tem comentários. Preciso de um humano para revisar este PR. cc @$OWNER")
+              gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$MSG" >/dev/null 2>&1 || true
+              echo "Limite de rodadas atingido — pedindo revisão humana."
+              exit 0
+            fi
+
+            NEXT=$((ROUNDS + 1))
+            echo "Pedindo correção ao Copilot (rodada $NEXT de $MAX_ROUNDS)..."
+            MSG=$(printf '%s\n' \
+              "$ROUND_MARKER" \
+              "@copilot o code review acima deixou comentários. Por favor:" \
+              "1. Resolva todos os comentários da revisão do Copilot neste PR." \
+              "2. Faça commit das correções nesta mesma branch." \
+              "3. Explique brevemente o que mudou." \
+              "(rodada automática $NEXT de $MAX_ROUNDS)")
+            gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$MSG" >/dev/null \
+              && echo "Comentário @copilot publicado — aguardando correções." \
+              || echo "::warning::Falha ao publicar o comentário para o Copilot."
+            exit 0
+          fi
+
+          # =====================================================================
+          # CASO 2 — Review LIMPO (0 comentários)
+          # =====================================================================
+          HAS_LABEL=$(gh api "repos/$REPO/issues/$PR/labels" \
+            --jq "any(.name == \"$CLEAN_LABEL\")" 2>/dev/null || echo "false")
+
+          if [ "$HAS_LABEL" != "true" ]; then
+            echo "1º review limpo — rodando mais uma vez para confirmar."
+            gh api -X POST "repos/$REPO/issues/$PR/labels" -f "labels[]=$CLEAN_LABEL" >/dev/null 2>&1 || true
+            echo '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' \
+              | gh api -X POST "repos/$REPO/pulls/$PR/requested_reviewers" --input - \
+              && echo "Review de confirmação solicitado." \
+              || echo "::warning::Não foi possível solicitar o review de confirmação."
+            exit 0
+          fi
+
+          echo "2º review limpo consecutivo — QA confirmado ✅"
+
+          # Resolve as conversas abertas pelo Copilot (para satisfazer a regra
+          # 'required conversation resolution' do branch protegido).
+          echo "Resolvendo threads de revisão do Copilot..."
+          THREADS=$(gh api graphql -f owner="$OWNER" -f name="${REPO#*/}" -F number="$PR" -f query='
+            query($owner:String!,$name:String!,$number:Int!){
+              repository(owner:$owner,name:$name){
+                pullRequest(number:$number){
+                  reviewThreads(first:100){
+                    nodes{ id isResolved comments(first:1){ nodes{ author{ login } } } }
+                  }
+                }
+              }
+            }' --jq '.data.repository.pullRequest.reviewThreads.nodes[]
+              | select(.isResolved == false)
+              | select(.comments.nodes[0].author.login | test("copilot-pull-request-reviewer"))
+              | .id' 2>/dev/null || echo "")
+          for TID in $THREADS; do
+            gh api graphql -f threadId="$TID" -f query='
+              mutation($threadId:ID!){ resolveReviewThread(input:{threadId:$threadId}){ thread{ id } } }' \
+              >/dev/null 2>&1 && echo "  thread resolvida: $TID" || echo "  ::warning::falha ao resolver $TID"
+          done
+
+          # Habilita o auto-merge. Ele NÃO burla a proteção: só mescla quando o
+          # check "App checks" passar e houver a aprovação exigida pelo branch.
+          echo "Habilitando auto-merge ($MERGE_METHOD)..."
+          gh pr merge "$PR" --repo "$REPO" --auto --"$MERGE_METHOD" \
+            && echo "Auto-merge habilitado." \
+            || echo "::warning::Não foi possível habilitar o auto-merge (verifique allow_auto_merge e a proteção do branch)."
+
+          MSG=$(printf '%s\n' \
+            "✅ QA do Copilot concluído — 2 revisões limpas consecutivas." \
+            "As conversas do Copilot foram resolvidas e o auto-merge foi habilitado: o merge acontece automaticamente assim que o check 'App checks' ficar verde e a aprovação necessária for concedida.")
+          gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$MSG" >/dev/null 2>&1 || true
