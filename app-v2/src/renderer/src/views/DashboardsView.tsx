@@ -64,7 +64,7 @@ const CYCLE_ACTION_NAME: Record<CycleDirection, AppActionName> = {
 
 const CYCLE_BINDING_LABEL: Record<CycleDirection, string> = {
   next: 'Dashboard · next (playlist)',
-  prev: 'Dashboard ? previous (playlist)'
+  prev: 'Dashboard ?? previous (playlist)'
 }
 
 const CYCLE_FIELD_LABEL: Record<CycleDirection, string> = {
@@ -636,7 +636,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
     try {
       await fn()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao executar acao')
+      setError(err instanceof Error ? err.message : 'Failed to run action')
     } finally {
       setBusy(false)
     }
@@ -686,7 +686,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           'info'
         )
       } else {
-        showToast(`Button ${control.buttonIndex + 1} vinculado para ${CYCLE_FIELD_LABEL[direction].toLowerCase()}.`, 'success')
+        showToast(`Button ${control.buttonIndex + 1} bound to ${CYCLE_FIELD_LABEL[direction].toLowerCase()}.`, 'success')
       }
     },
     [showToast]
@@ -699,7 +699,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
       if (nextBindings.length !== allBindings.length) {
         await window.ipc.invoke<ActionBinding[]>('actions:setBindings', nextBindings)
         setCycleControls((current) => ({ ...current, [direction]: null }))
-        showToast(`Atalho de ${CYCLE_FIELD_LABEL[direction].toLowerCase()} removido.`, 'info')
+        showToast(`${CYCLE_FIELD_LABEL[direction]} shortcut removed.`, 'info')
       }
       setCaptureCycle((current) => (current === direction ? null : current))
     },
@@ -725,7 +725,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           gamepadId: pressed.gamepadId,
           gamepadIndex: pressed.gamepadIndex,
           buttonIndex: pressed.buttonIndex
-        }).catch((err) => setError(err instanceof Error ? err.message : 'Falha ao vincular button'))
+        }).catch((err) => setError(err instanceof Error ? err.message : 'Failed to bind button'))
         return
       }
       frame = window.requestAnimationFrame(tick)
@@ -937,7 +937,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
     }
     if (selectedDisplayId === null) throw new Error('Select a display first.')
     await window.ipc.invoke('app:dash:open', dash.id, buildKioskOpenOptions(selectedDisplayId))
-    showToast('Dashboard aberto em modo Kiosk (deslize para trocar de preset).', 'success')
+    showToast('Dashboard opened in Kiosk mode (swipe to change presets).', 'success')
   }
 
   async function deleteCurrent(): Promise<void> {
@@ -1021,12 +1021,12 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
     const picked = result.summary ?? result.summaries?.[0]
     if (picked) setSelectedId(picked.id)
     if (result.summaries && result.summaries.length > 1) {
-      showToast(`${result.summaries.length} screens importadas como dashboards separados.`, 'success')
+      showToast(`${result.summaries.length} screens imported as separate dashboards.`, 'success')
       return
     }
     if (result.summary) {
       showToast(
-        result.notes.length > 0 ? `Importado com avisos: ${result.notes[0]}` : `Importado: ${result.summary.name}`,
+        result.notes.length > 0 ? `Imported with warnings: ${result.notes[0]}` : `Imported: ${result.summary.name}`,
         result.notes.length > 0 ? 'info' : 'success'
       )
     }
@@ -1130,7 +1130,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
   function removePlaylistItem(index: number): void {
     void run(async () => {
       await savePlaylist(playlist.items.filter((_, itemIndex) => itemIndex !== index))
-      showToast('Item removido da playlist.', 'info')
+      showToast('Item removed from playlist.', 'info')
     })
   }
 
@@ -1158,16 +1158,16 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
         <div>
           <h3 style={{ margin: 0 }}>Dashboards</h3>
           <p style={{ margin: '6px 0 0', color: TEXT_DIM }}>
-            Own windows on display 1/2 with live telemetry. Imports/exports <code>.simhubdash</code> (SimHub Dash Studio) e tem construtor basico.
+            Own windows on display 1/2 with live telemetry. Imports/exports <code>.simhubdash</code> (SimHub Dash Studio) and includes a basic builder.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <SectionExportImport sectionId="dashboards" label="Dashboards" onImported={() => void refreshAll()} />
           <button style={btn('primary')} disabled={busy} onClick={() => run(importSimhub)}>
-            Importar .simhubdash…
+            Import .simhubdash…
           </button>
           <button style={btn()} disabled={busy || !selectedDash} onClick={() => run(exportSimhub)}>
-            Exportar .simhubdash…
+            Export .simhubdash…
           </button>
           <button style={btn()} disabled={busy} onClick={() => newEmpty(1280, 720, 'New dashboard')}>
             New (empty)
@@ -1222,7 +1222,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
               Import selected screen
             </button>
             <button style={btn()} disabled={busy} onClick={() => run(() => completeSimhubImport(true))}>
-              Importar todas as screens
+              Import all screens
             </button>
           </div>
         </section>
@@ -1230,7 +1230,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
 
       {importDiagnostics.length > 0 && (
         <section style={panel({ borderColor: '#ffb84d' })}>
-          <h4 style={{ margin: '0 0 8px' }}>Diagnostics da import</h4>
+          <h4 style={{ margin: '0 0 8px' }}>Import diagnostics</h4>
           <ul style={{ margin: 0, paddingLeft: 18, color: TEXT_DIM, fontSize: 13 }}>
             {importDiagnostics.map((note, index) => (
               <li key={`${index}-${note.slice(0, 24)}`}>{note}</li>
@@ -1261,9 +1261,9 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           </button>
         </div>
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${PANEL_BORDER}` }}>
-          <div style={{ color: TEXT_FG, fontWeight: 700, fontSize: 14, marginBottom: 2 }}>Button para alternar dashboards</div>
+          <div style={{ color: TEXT_FG, fontWeight: 700, fontSize: 14, marginBottom: 2 }}>Button to cycle dashboards</div>
           <p style={{ margin: '0 0 10px', color: TEXT_DIM, fontSize: 13 }}>
-            Arme a captura e pressione o button do buttonbox. O vinculo e gravado no mesmo lugar de <strong>Controls &amp; Keyboard</strong> e fica sincronizado nos dois menus.
+            Arm capture and press the button-box button. The binding is saved in the same place as <strong>Controls &amp; Keyboard</strong> and stays synced in both menus.
           </p>
           <div style={{ display: 'grid', gap: 8 }}>
             {(['next', 'prev'] as CycleDirection[]).map((direction) => {
@@ -1286,7 +1286,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                 >
                   <div style={{ minWidth: 150 }}>
                     <div style={{ color: TEXT_FG, fontWeight: 700, fontSize: 13 }}>{CYCLE_FIELD_LABEL[direction]}</div>
-                    <div style={{ color: TEXT_DIM, fontSize: 12 }}>{direction === 'next' ? 'Next dashboard da playlist' : 'Dashboard anterior da playlist'}</div>
+                    <div style={{ color: TEXT_DIM, fontSize: 12 }}>{direction === 'next' ? 'Next playlist dashboard' : 'Previous playlist dashboard'}</div>
                   </div>
                   <div style={{ flex: 1, minWidth: 130, color: arming ? ACCENT : control ? TEXT_FG : TEXT_DIM, fontWeight: 700, fontSize: 14 }}>
                     {arming ? 'Pressione um button…' : control ? `Button ${control.buttonIndex + 1}` : 'None button'}
@@ -1384,7 +1384,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           <div style={{ maxHeight: 460, overflowY: 'auto' }}>
             {visibleSummaries.length === 0 && (
               <div style={{ padding: 16, color: TEXT_DIM }}>
-                None dashboard. Use um preset ou importe um <code>.simhubdash</code>.
+                No dashboard. Use a preset or import a <code>.simhubdash</code>.
               </div>
             )}
             {visibleSummaries.map((s) => {
@@ -1495,7 +1495,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                   />
                 </div>
                 <div style={{ width: 140 }}>
-                  <label style={fieldLabel()}>Color de fundo</label>
+                  <label style={fieldLabel()}>Background color</label>
                   <input
                     type="color"
                     value={hexFromCss(selectedDash.bg)}
@@ -1504,7 +1504,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                   />
                 </div>
                 <div style={{ width: 220 }}>
-                  <label style={fieldLabel()}>Escala na janela</label>
+                  <label style={fieldLabel()}>Window scale</label>
                   <select
                     value={selectedDash.scaleMode ?? 'fit'}
                     onChange={(e) =>
@@ -1550,7 +1550,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                 </button>
                 {isOpen && (
                   <button style={btn('danger')} disabled={busy} onClick={() => run(() => closeOpen(selectedDash.id))}>
-                    Close janela
+                    Close window
                   </button>
                 )}
                 <button
@@ -1598,15 +1598,15 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                       onClick={() => run(openKiosk)}
                       title="Opens the selected dashboard fullscreen with touch gestures (swipe/tap edges to switch presets)."
                     >
-                      <span aria-hidden>🖐</span> Open como Kiosk
+                      <span aria-hidden>?</span> Open as Kiosk
                     </button>
                     <span style={{ color: TEXT_DIM, fontSize: 12 }}>
-                      Abre o dashboard selecionado em tela cheia on display escolhido acima, com
+                      Opens the selected dashboard full-screen on the display chosen above, with
                       swipe/tap to switch presets (ideal for the 7&quot; cockpit screen).
                     </span>
                   </div>
                   <p style={{ margin: 0, color: TEXT_DIM, fontSize: 12 }}>
-                    ℹ Painel de Pit foi movido para Touch Controls Dash.
+                    ?? Pit Panel moved to Touch Controls Dash.
                   </p>
                 </div>
               </div>
@@ -1620,9 +1620,9 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                       type="button"
                       style={{ ...btn(galleryOpen ? 'primary' : 'default'), display: 'flex', alignItems: 'center', gap: 6 }}
                       onClick={() => setGalleryOpen((v) => !v)}
-                      title="Show/hide a galeria de widgets"
+                      title="Show/hide widget gallery"
                     >
-                      {galleryOpen ? '▾' : '▸'} Galeria de widgets
+                      {galleryOpen ? '?' : '?'} Widget gallery
                     </button>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <label style={{ color: TEXT_DIM, fontSize: 12 }}>Add avancado</label>
@@ -1719,7 +1719,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                     {previewMode === 'yes'
                       ? 'Preview with simulated telemetry ("in race" state). Click, drag, or resize with the handles to edit.'
                       : 'Static preview (no telemetry). Click, drag, or resize with the handles to edit.'}
-                    {snapEnabled ? ` Grade ${snapStep}px active: ajustes de posicao/tamanho sao arredondata.` : ''}
+                    {snapEnabled ? ` ${snapStep}px grid active: position/size adjustments are rounded.` : ''}
                   </p>
                 </div>
                 <div>
@@ -2225,7 +2225,7 @@ function PreviewElement({
         draggable={false}
       />
     ) : (
-      <div style={{ color: TEXT_DIM, fontSize: 12 }}>[image: sem src]</div>
+      <div style={{ color: TEXT_DIM, fontSize: 12 }}>[image: no src]</div>
     )
   } else if (element.type === 'flag') {
     content = (
@@ -2384,19 +2384,19 @@ function ElementInspector({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <label style={fieldLabel()}>Ordem de empilhamento (Z)</label>
+        <label style={fieldLabel()}>Stacking order (Z)</label>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
-          <button style={btn()} title="Para tras (1 level)" onClick={() => onReorder('backward')}>↓ tras</button>
-          <button style={btn()} title="Para front (1 level)" onClick={() => onReorder('forward')}>↑ front</button>
-          <button style={btn()} title="Para o fundo" onClick={() => onReorder('back')}>⤓ fundo</button>
-          <button style={btn()} title="Para o topo" onClick={() => onReorder('front')}>⤒ topo</button>
+          <button style={btn()} title="Send backward (1 level)" onClick={() => onReorder('backward')}>? back</button>
+          <button style={btn()} title="Bring forward (1 level)" onClick={() => onReorder('forward')}>? forward</button>
+          <button style={btn()} title="Send to back" onClick={() => onReorder('back')}>? back</button>
+          <button style={btn()} title="Bring to front" onClick={() => onReorder('front')}>? front</button>
         </div>
       </div>
 
       <div>
         <label style={fieldLabel()}>Binding</label>
         <select value={element.binding ?? ''} onChange={(e) => onChange({ binding: e.target.value || undefined })} style={input()}>
-          <option value="">(sem binding — usa texto literal)</option>
+          <option value="">(no binding ?? uses literal text)</option>
           {Object.entries(groups).map(([groupName, items]) => (
             <optgroup key={groupName} label={groupName}>
               {items.map((b) => (
@@ -2412,7 +2412,7 @@ function ElementInspector({
       {element.type === 'text' && (
         <>
           <div>
-            <label style={fieldLabel()}>Text (sem binding)</label>
+            <label style={fieldLabel()}>Text (no binding)</label>
             <input
               type="text"
               value={element.style.text ?? ''}
@@ -2454,13 +2454,13 @@ function ElementInspector({
               <input type="text" value={element.style.prefix ?? ''} onChange={(e) => onChangeStyle({ prefix: e.target.value })} style={input()} />
             </div>
             <div>
-              <label style={fieldLabel()}>Sufixo</label>
+              <label style={fieldLabel()}>Suffix</label>
               <input type="text" value={element.style.suffix ?? ''} onChange={(e) => onChangeStyle({ suffix: e.target.value })} style={input()} />
             </div>
-            <NumberField label="Casas decimais" value={element.style.decimals ?? 0} onChange={(v) => onChangeStyle({ decimals: Math.max(0, Math.min(4, Math.round(v))) })} min={0} max={4} />
+            <NumberField label="Decimal places" value={element.style.decimals ?? 0} onChange={(v) => onChangeStyle({ decimals: Math.max(0, Math.min(4, Math.round(v))) })} min={0} max={4} />
             <NumberField label="Spacing (px)" value={Number(element.style.slots?.value?.letterSpacing ?? 0)} onChange={(v) => onChangeStyle({ slots: applySlotField(element.style, 'value', 'letterSpacing', Number.isFinite(v) && v !== 0 ? v : undefined) })} min={-5} max={30} step={0.5} />
-            <SelectField label="Transformar" value={String(element.style.slots?.value?.textTransform ?? 'none')} options={TRANSFORM_OPTIONS} onChange={(v) => onChangeStyle({ slots: applySlotField(element.style, 'value', 'textTransform', v === 'none' ? undefined : v) })} />
-            <ToggleField label="Sombra/glow" value={Boolean(element.style.slots?.value?.shadow)} onChange={(on) => onChangeStyle({ slots: applySlotField(element.style, 'value', 'shadow', on ? '0 2px 6px rgba(0,0,0,0.65)' : undefined) })} />
+            <SelectField label="Transform" value={String(element.style.slots?.value?.textTransform ?? 'none')} options={TRANSFORM_OPTIONS} onChange={(v) => onChangeStyle({ slots: applySlotField(element.style, 'value', 'textTransform', v === 'none' ? undefined : v) })} />
+            <ToggleField label="Shadow/glow" value={Boolean(element.style.slots?.value?.shadow)} onChange={(on) => onChangeStyle({ slots: applySlotField(element.style, 'value', 'shadow', on ? '0 2px 6px rgba(0,0,0,0.65)' : undefined) })} />
           </div>
         </>
       )}
@@ -2480,20 +2480,20 @@ function ElementInspector({
         element.type === 'deltabar' ||
         element.type === 'trace') && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-          <ColorField label="Preenchimento" value={element.style.fillColor ?? ACCENT} onChange={(v) => onChangeStyle({ fillColor: v })} />
-          <ColorField label="Aviso" value={element.style.warnColor ?? '#ffb84d'} onChange={(v) => onChangeStyle({ warnColor: v })} />
-          <ColorField label="Perigo" value={element.style.dangerColor ?? '#ff5468'} onChange={(v) => onChangeStyle({ dangerColor: v })} />
+          <ColorField label="Fill" value={element.style.fillColor ?? ACCENT} onChange={(v) => onChangeStyle({ fillColor: v })} />
+          <ColorField label="Warning" value={element.style.warnColor ?? '#ffb84d'} onChange={(v) => onChangeStyle({ warnColor: v })} />
+          <ColorField label="Danger" value={element.style.dangerColor ?? '#ff5468'} onChange={(v) => onChangeStyle({ dangerColor: v })} />
           {(element.type === 'bar' ||
             element.type === 'barv' ||
             element.type === 'gauge' ||
             element.type === 'shiftlights') && (
             <>
-              <NumberField label="Aviso a partir de (0–1)" value={element.style.warnAt ?? 0.7} onChange={(v) => onChangeStyle({ warnAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
-              <NumberField label="Perigo a partir de (0–1)" value={element.style.dangerAt ?? 0.9} onChange={(v) => onChangeStyle({ dangerAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
+              <NumberField label="Warn from (0?1)" value={element.style.warnAt ?? 0.7} onChange={(v) => onChangeStyle({ warnAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
+              <NumberField label="Danger from (0?1)" value={element.style.dangerAt ?? 0.9} onChange={(v) => onChangeStyle({ dangerAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
             </>
           )}
           {element.type === 'shiftlights' && (
-            <NumberField label="Segmentos" value={element.style.segments ?? 12} onChange={(v) => onChangeStyle({ segments: Math.max(4, Math.min(24, Math.round(v))) })} min={4} max={24} />
+            <NumberField label="Segments" value={element.style.segments ?? 12} onChange={(v) => onChangeStyle({ segments: Math.max(4, Math.min(24, Math.round(v))) })} min={4} max={24} />
           )}
           {element.type === 'barv' && (
             <div>
@@ -2563,7 +2563,7 @@ function ElementInspector({
       {element.type === 'image' && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
           <div>
-            <label style={fieldLabel()}>Arquivo de imagem</label>
+            <label style={fieldLabel()}>Image file</label>
             <label style={{ ...btn('primary'), display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
               Escolher imagem…
               <input
@@ -2583,12 +2583,12 @@ function ElementInspector({
             <p style={{ margin: '4px 0 0', color: TEXT_DIM, fontSize: 11 }}>Imagens grandes ({'>'}3MB) sao reduzidas automaticamente.</p>
           </div>
           <div>
-            <label style={fieldLabel()}>URL ou data: URL</label>
+            <label style={fieldLabel()}>URL or data: URL</label>
             <input
               type="text"
               value={element.style.src ?? ''}
               onChange={(e) => onChangeStyle({ src: e.target.value })}
-              placeholder="data:image/png;base64,…  ou  file:///…"
+              placeholder="data:image/png;base64,?  or  file:///?"
               style={input()}
             />
           </div>
@@ -2614,10 +2614,10 @@ function ElementInspector({
           <div>
             <label style={fieldLabel()}>Ordem (z)</label>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 4 }}>
-              <button style={btn()} title="Para tras" onClick={() => onReorder('backward')}>↓ tras</button>
-              <button style={btn()} title="Para front" onClick={() => onReorder('forward')}>↑ front</button>
-              <button style={btn()} title="Para o fundo" onClick={() => onReorder('back')}>⤓ fundo</button>
-              <button style={btn()} title="Para o topo" onClick={() => onReorder('front')}>⤒ topo</button>
+              <button style={btn()} title="Send backward" onClick={() => onReorder('backward')}>? back</button>
+              <button style={btn()} title="Bring forward" onClick={() => onReorder('forward')}>? forward</button>
+              <button style={btn()} title="Send to back" onClick={() => onReorder('back')}>? back</button>
+              <button style={btn()} title="Bring to front" onClick={() => onReorder('front')}>? front</button>
             </div>
           </div>
           <div>
@@ -2629,15 +2629,15 @@ function ElementInspector({
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <SliderField label="Preto&branco" value={element.style.filterGrayscale ?? 0} onChange={(v) => onChangeStyle({ filterGrayscale: v || undefined })} min={0} max={1} step={0.05} />
+            <SliderField label="Black & white" value={element.style.filterGrayscale ?? 0} onChange={(v) => onChangeStyle({ filterGrayscale: v || undefined })} min={0} max={1} step={0.05} />
             <SliderField label="Red" value={element.style.redTint ?? 0} onChange={(v) => onChangeStyle({ redTint: v || undefined })} min={0} max={1} step={0.05} />
             <SliderField label="Sepia" value={element.style.filterSepia ?? 0} onChange={(v) => onChangeStyle({ filterSepia: v || undefined })} min={0} max={1} step={0.05} />
-            <SliderField label="Inverter" value={element.style.invert ?? 0} onChange={(v) => onChangeStyle({ invert: v || undefined })} min={0} max={1} step={0.05} />
-            <SliderField label="Brilho" value={element.style.brightness ?? 1} onChange={(v) => onChangeStyle({ brightness: v === 1 ? undefined : v })} min={0} max={2} step={0.05} />
-            <SliderField label="Contraste" value={element.style.contrast ?? 1} onChange={(v) => onChangeStyle({ contrast: v === 1 ? undefined : v })} min={0} max={2} step={0.05} />
+            <SliderField label="Invert" value={element.style.invert ?? 0} onChange={(v) => onChangeStyle({ invert: v || undefined })} min={0} max={1} step={0.05} />
+            <SliderField label="Brightness" value={element.style.brightness ?? 1} onChange={(v) => onChangeStyle({ brightness: v === 1 ? undefined : v })} min={0} max={2} step={0.05} />
+            <SliderField label="Contrast" value={element.style.contrast ?? 1} onChange={(v) => onChangeStyle({ contrast: v === 1 ? undefined : v })} min={0} max={2} step={0.05} />
             <SliderField label="Saturation" value={element.style.saturate ?? 1} onChange={(v) => onChangeStyle({ saturate: v === 1 ? undefined : v })} min={0} max={3} step={0.05} />
-            <SliderField label="Matiz (°)" value={element.style.hueRotate ?? 0} onChange={(v) => onChangeStyle({ hueRotate: v || undefined })} min={-180} max={180} step={1} />
-            <SliderField label="Desfoque (px)" value={element.style.blur ?? 0} onChange={(v) => onChangeStyle({ blur: v || undefined })} min={0} max={10} step={0.5} />
+            <SliderField label="Hue (°)" value={element.style.hueRotate ?? 0} onChange={(v) => onChangeStyle({ hueRotate: v || undefined })} min={-180} max={180} step={1} />
+            <SliderField label="Blur (px)" value={element.style.blur ?? 0} onChange={(v) => onChangeStyle({ blur: v || undefined })} min={0} max={10} step={0.5} />
           </div>
         </div>
       )}
@@ -2699,7 +2699,7 @@ function ElementInspector({
             </p>
           </div>
           <NumberField label="Rows max." value={element.style.tableMaxRows ?? 8} onChange={(v) => onChangeStyle({ tableMaxRows: Math.max(1, Math.min(64, Math.round(v))) })} min={1} max={64} />
-          <NumberField label="Tamanho fonte" value={Number(element.style.fontSize ?? 14)} onChange={(v) => onChangeStyle({ fontSize: Math.max(8, Math.min(64, v)) })} min={8} max={64} />
+          <NumberField label="Font size" value={Number(element.style.fontSize ?? 14)} onChange={(v) => onChangeStyle({ fontSize: Math.max(8, Math.min(64, v)) })} min={8} max={64} />
           <div>
             <label style={fieldLabel()}>Show header</label>
             <select
@@ -2889,13 +2889,13 @@ function SlotStyleEditor({ element, slots, onChangeStyle }: {
         })}
       </div>
       <FontFamilyField label="Font" value={String(cur.fontFamily ?? '')} onChange={(v) => set('fontFamily', v || undefined)} />
-      <NumberField label="Tamanho (0=auto)" value={Number(cur.fontSize ?? 0)} onChange={(v) => set('fontSize', v > 0 ? Math.round(v) : undefined)} min={0} max={400} />
+      <NumberField label="Size (0=auto)" value={Number(cur.fontSize ?? 0)} onChange={(v) => set('fontSize', v > 0 ? Math.round(v) : undefined)} min={0} max={400} />
       <ColorField label="Color" value={String(cur.fontColor ?? '')} onChange={(v) => set('fontColor', v || undefined)} />
-      <SelectField label="Peso" value={String(cur.fontWeight ?? '')} options={WEIGHT_OPTIONS} onChange={(v) => set('fontWeight', v ? Number(v) : undefined)} />
-      <SelectField label="Alinhamento" value={String(cur.align ?? '')} options={ALIGN_OPTIONS} onChange={(v) => set('align', v || undefined)} />
+      <SelectField label="Weight" value={String(cur.fontWeight ?? '')} options={WEIGHT_OPTIONS} onChange={(v) => set('fontWeight', v ? Number(v) : undefined)} />
+      <SelectField label="Alignment" value={String(cur.align ?? '')} options={ALIGN_OPTIONS} onChange={(v) => set('align', v || undefined)} />
       <NumberField label="Spacing (px)" value={Number(cur.letterSpacing ?? 0)} onChange={(v) => set('letterSpacing', Number.isFinite(v) && v !== 0 ? v : undefined)} min={-5} max={30} step={0.5} />
-      <SelectField label="Transformar" value={String(cur.textTransform ?? 'none')} options={TRANSFORM_OPTIONS} onChange={(v) => set('textTransform', v === 'none' ? undefined : v)} />
-      <ToggleField label="Sombra/glow" value={Boolean(cur.shadow)} onChange={(on) => set('shadow', on ? '0 2px 6px rgba(0,0,0,0.65)' : undefined)} />
+      <SelectField label="Transform" value={String(cur.textTransform ?? 'none')} options={TRANSFORM_OPTIONS} onChange={(v) => set('textTransform', v === 'none' ? undefined : v)} />
+      <ToggleField label="Shadow/glow" value={Boolean(cur.shadow)} onChange={(on) => set('shadow', on ? '0 2px 6px rgba(0,0,0,0.65)' : undefined)} />
       {cur.shadow !== undefined && (
         <div style={{ gridColumn: 'span 2' }}>
           <label style={fieldLabel()}>Sombra (CSS text-shadow)</label>
@@ -2907,40 +2907,40 @@ function SlotStyleEditor({ element, slots, onChangeStyle }: {
 }
 
 const INSTRUMENT_TEMPLATE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '', label: '(padrao — sem instrumento)' },
+  { value: '', label: '(default — no instrument)' },
   { value: 'revled', label: 'Rev LEDs' },
-  { value: 'dial', label: 'Mostrador analog (dial)' },
-  { value: 'segment', label: 'Display de segmentos' },
-  { value: 'tile', label: 'Tile de data' },
-  { value: 'telltale', label: 'Telltale (alerta)' },
-  { value: 'alarm', label: 'Faixa de alarme' },
-  { value: 'bezelring', label: 'Anel com moldura' }
+  { value: 'dial', label: 'Analog dial' },
+  { value: 'segment', label: 'Segment display' },
+  { value: 'tile', label: 'Data tile' },
+  { value: 'telltale', label: 'Telltale (alert)' },
+  { value: 'alarm', label: 'Alarm band' },
+  { value: 'bezelring', label: 'Bezel ring' }
 ]
 
 const INSTRUMENT_BEZEL_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '', label: '(padrao)' },
+  { value: '', label: '(default)' },
   { value: 'none', label: 'No' },
-  { value: 'thin', label: 'Fina' },
-  { value: 'chrome', label: 'Cromada' },
-  { value: 'double', label: 'Dupla' }
+  { value: 'thin', label: 'Thin' },
+  { value: 'chrome', label: 'Chrome' },
+  { value: 'double', label: 'Double' }
 ]
 
 const INSTRUMENT_MATERIAL_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '', label: '(padrao)' },
-  { value: 'matte', label: 'Fosco (matte)' },
-  { value: 'carbon', label: 'Fibra de carbono' },
-  { value: 'brushed', label: 'Metal escovado' }
+  { value: '', label: '(default)' },
+  { value: 'matte', label: 'Matte' },
+  { value: 'carbon', label: 'Carbon fiber' },
+  { value: 'brushed', label: 'Brushed metal' }
 ]
 
 const INSTRUMENT_LED_SHAPE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'led', label: 'LED (redondo)' },
+  { value: 'led', label: 'LED (round)' },
   { value: 'bar', label: 'Bar' },
-  { value: 'trapezoid', label: 'Trapezio' }
+  { value: 'trapezoid', label: 'Trapezoid' }
 ]
 
 const INSTRUMENT_SEGMENT_MODE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '7', label: '7 segmentos' },
-  { value: '14', label: '14 segmentos' }
+  { value: '7', label: '7 segments' },
+  { value: '14', label: '14 segments' }
 ]
 
 // ── Skin (v2.39 two-skin system) picker options ──────────────────────────────
@@ -2989,7 +2989,7 @@ function InstrumentConfig({
         type="button"
         onClick={() => setOpen((v) => !v)}
         style={{ ...btn(), width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-        title="Active os primitivos de instrumento de alta fidelidade (SVG)"
+        title="Enable high-fidelity instrument primitives (SVG)"
       >
         <span style={{ fontWeight: 800, letterSpacing: 0.5 }}>Instrumento / Fidelidade{template ? ` · ${template}` : ''}</span>
         <span aria-hidden>{open ? '▾' : '▸'}</span>
@@ -3010,46 +3010,46 @@ function InstrumentConfig({
           />
           <div style={{ gridColumn: 'span 2' }}>
             <SelectField
-              label="Template do instrumento"
+              label="Instrument template"
               value={String(template ?? '')}
               options={INSTRUMENT_TEMPLATE_OPTIONS}
               onChange={(v) => setTop('template', v ? (v as InstrumentTemplate) : undefined)}
             />
           </div>
 
-          <SelectField label="Moldura (bezel)" value={String(inst.bezel ?? '')} options={INSTRUMENT_BEZEL_OPTIONS} onChange={(v) => setTop('bezel', v ? (v as InstrumentBezelKind) : undefined)} />
+          <SelectField label="Bezel" value={String(inst.bezel ?? '')} options={INSTRUMENT_BEZEL_OPTIONS} onChange={(v) => setTop('bezel', v ? (v as InstrumentBezelKind) : undefined)} />
           <SelectField label="Material" value={String(inst.material ?? '')} options={INSTRUMENT_MATERIAL_OPTIONS} onChange={(v) => setTop('material', v ? (v as InstrumentMaterialKind) : undefined)} />
           <ToggleField label="Glow" value={Boolean(inst.glow)} onChange={(on) => setTop('glow', on ? true : undefined)} />
 
           {(template === 'revled' || template === 'alarm') && (
             <>
               <SectionLabel>LEDs</SectionLabel>
-              <NumberField label="Segmentos" value={Number(led.segments ?? 15)} onChange={(v) => setPart('led', 'segments', v > 0 ? Math.round(v) : undefined)} min={1} max={40} />
+              <NumberField label="Segments" value={Number(led.segments ?? 15)} onChange={(v) => setPart('led', 'segments', v > 0 ? Math.round(v) : undefined)} min={1} max={40} />
               <SelectField label="Format" value={String(led.shape ?? 'led')} options={INSTRUMENT_LED_SHAPE_OPTIONS} onChange={(v) => setPart('led', 'shape', v === 'led' ? undefined : v)} />
               <SliderField label="Bloom" value={Number(led.bloom ?? 0)} onChange={(v) => setPart('led', 'bloom', v > 0 ? v : undefined)} min={0} max={2} step={0.05} />
-              <SliderField label="Aviso a partir de" value={Number(led.warnAt ?? 0)} onChange={(v) => setPart('led', 'warnAt', v > 0 ? v : undefined)} min={0} max={1} step={0.01} />
-              <SliderField label="Perigo a partir de" value={Number(led.dangerAt ?? 0)} onChange={(v) => setPart('led', 'dangerAt', v > 0 ? v : undefined)} min={0} max={1} step={0.01} />
+              <SliderField label="Warn from" value={Number(led.warnAt ?? 0)} onChange={(v) => setPart('led', 'warnAt', v > 0 ? v : undefined)} min={0} max={1} step={0.01} />
+              <SliderField label="Danger from" value={Number(led.dangerAt ?? 0)} onChange={(v) => setPart('led', 'dangerAt', v > 0 ? v : undefined)} min={0} max={1} step={0.01} />
             </>
           )}
 
           {(template === 'dial' || template === 'bezelring') && (
             <>
-              <SectionLabel>Mostrador (dial)</SectionLabel>
-              <NumberField label="Marcas maiores" value={Number(dial.majorTicks ?? 0)} onChange={(v) => setPart('dial', 'majorTicks', v > 0 ? Math.round(v) : undefined)} min={0} max={24} />
-              <NumberField label="Menores por maior" value={Number(dial.minorPerMajor ?? 0)} onChange={(v) => setPart('dial', 'minorPerMajor', v > 0 ? Math.round(v) : undefined)} min={0} max={10} />
-              <SliderField label="Amortecimento (damp)" value={Number(dial.damp ?? 0)} onChange={(v) => setPart('dial', 'damp', v > 0 ? v : undefined)} min={0} max={1} step={0.01} />
-              <SectionLabel>Ponteiro (needle)</SectionLabel>
-              <ColorField label="Color do ponteiro" value={String(needle.color ?? '')} onChange={(v) => setPart('needle', 'color', v || undefined)} />
-              <NumberField label="Espessura" value={Number(needle.width ?? 0)} onChange={(v) => setPart('needle', 'width', v > 0 ? v : undefined)} min={0} max={20} step={0.5} />
+              <SectionLabel>Dial</SectionLabel>
+              <NumberField label="Major ticks" value={Number(dial.majorTicks ?? 0)} onChange={(v) => setPart('dial', 'majorTicks', v > 0 ? Math.round(v) : undefined)} min={0} max={24} />
+              <NumberField label="Minor per major" value={Number(dial.minorPerMajor ?? 0)} onChange={(v) => setPart('dial', 'minorPerMajor', v > 0 ? Math.round(v) : undefined)} min={0} max={10} />
+              <SliderField label="Damping" value={Number(dial.damp ?? 0)} onChange={(v) => setPart('dial', 'damp', v > 0 ? v : undefined)} min={0} max={1} step={0.01} />
+              <SectionLabel>Needle</SectionLabel>
+              <ColorField label="Needle color" value={String(needle.color ?? '')} onChange={(v) => setPart('needle', 'color', v || undefined)} />
+              <NumberField label="Thickness" value={Number(needle.width ?? 0)} onChange={(v) => setPart('needle', 'width', v > 0 ? v : undefined)} min={0} max={20} step={0.5} />
             </>
           )}
 
           {template === 'segment' && (
             <>
-              <SectionLabel>Segmentos</SectionLabel>
-              <SelectField label="Modo" value={String(segment.mode ?? '7')} options={INSTRUMENT_SEGMENT_MODE_OPTIONS} onChange={(v) => setPart('segment', 'mode', v === '7' ? undefined : v)} />
+              <SectionLabel>Segments</SectionLabel>
+              <SelectField label="Mode" value={String(segment.mode ?? '7')} options={INSTRUMENT_SEGMENT_MODE_OPTIONS} onChange={(v) => setPart('segment', 'mode', v === '7' ? undefined : v)} />
               <NumberField label="Digits" value={Number(segment.digits ?? 0)} onChange={(v) => setPart('segment', 'digits', v > 0 ? Math.round(v) : undefined)} min={0} max={8} />
-              <ToggleField label="Digits fantasma" value={Boolean(segment.ghost)} onChange={(on) => setPart('segment', 'ghost', on ? true : undefined)} />
+              <ToggleField label="Ghost digits" value={Boolean(segment.ghost)} onChange={(on) => setPart('segment', 'ghost', on ? true : undefined)} />
             </>
           )}
 
@@ -3061,7 +3061,7 @@ function InstrumentConfig({
           )}
 
           <p style={{ gridColumn: 'span 2', margin: '2px 0 0', color: TEXT_DIM, fontSize: 11 }}>
-            Deixe o template em “(padrao)” para renderizar o widget no estilo plano de sempre.
+            Leave the template on ?(default)? to render the widget in the usual flat style.
           </p>
         </div>
       )}
@@ -3080,7 +3080,7 @@ function loadImageEl(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('falha ao carregar imagem'))
+    img.onerror = () => reject(new Error('Failed to load image'))
     img.src = src
   })
 }
@@ -3092,7 +3092,7 @@ async function fileToDataUrl(file: File): Promise<string> {
   const raw = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result))
-    reader.onerror = () => reject(reader.error ?? new Error('falha ao ler arquivo'))
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read file'))
     reader.readAsDataURL(file)
   })
   if (raw.length <= LIMIT) return raw
@@ -3121,9 +3121,9 @@ async function fileToDataUrl(file: File): Promise<string> {
 }
 
 const CHANNEL_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'throttle', label: 'Acelerador' },
-  { value: 'brake', label: 'Freio' },
-  { value: 'clutch', label: 'Embreagem' },
+  { value: 'throttle', label: 'Throttle' },
+  { value: 'brake', label: 'Brake' },
+  { value: 'clutch', label: 'Clutch' },
   { value: 'steering', label: 'Steering' }
 ]
 
@@ -3217,13 +3217,13 @@ function Gt3Config({
     return (
       <div style={grid}>
         <SectionLabel>Visual</SectionLabel>
-        <NumberField label="Segmentos" value={s.segments ?? 18} onChange={(v) => onChangeStyle({ segments: Math.max(4, Math.min(30, Math.round(v))) })} min={4} max={30} />
-        <SelectField label="Format" value={s.segmentShape ?? 'led'} options={[{ value: 'led', label: 'LED' }, { value: 'bar', label: 'Bar fina' }, { value: 'trapezoid', label: 'Trapezio' }]} onChange={(v) => onChangeStyle({ segmentShape: v as 'led' | 'bar' | 'trapezoid' })} />
-        <ToggleField label="Glow (brilho)" value={s.glow !== false} onChange={(v) => onChangeStyle({ glow: v })} />
-        <ToggleField label="Override limitador" value={s.pitLimiterOverride !== false} onChange={(v) => onChangeStyle({ pitLimiterOverride: v })} />
-        <SectionLabel>Limiares</SectionLabel>
-        <NumberField label="Aviso (0–1)" value={s.warnAt ?? 0.75} onChange={(v) => onChangeStyle({ warnAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.01} />
-        <NumberField label="Perigo (0–1)" value={s.dangerAt ?? 0.9} onChange={(v) => onChangeStyle({ dangerAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.01} />
+        <NumberField label="Segments" value={s.segments ?? 18} onChange={(v) => onChangeStyle({ segments: Math.max(4, Math.min(30, Math.round(v))) })} min={4} max={30} />
+        <SelectField label="Format" value={s.segmentShape ?? 'led'} options={[{ value: 'led', label: 'LED' }, { value: 'bar', label: 'Thin bar' }, { value: 'trapezoid', label: 'Trapezoid' }]} onChange={(v) => onChangeStyle({ segmentShape: v as 'led' | 'bar' | 'trapezoid' })} />
+        <ToggleField label="Glow" value={s.glow !== false} onChange={(v) => onChangeStyle({ glow: v })} />
+        <ToggleField label="Limiter override" value={s.pitLimiterOverride !== false} onChange={(v) => onChangeStyle({ pitLimiterOverride: v })} />
+        <SectionLabel>Thresholds</SectionLabel>
+        <NumberField label="Warning (0–1)" value={s.warnAt ?? 0.75} onChange={(v) => onChangeStyle({ warnAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.01} />
+        <NumberField label="Danger (0–1)" value={s.dangerAt ?? 0.9} onChange={(v) => onChangeStyle({ dangerAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.01} />
         <NumberField label="Flash (0–1)" value={s.flashAt ?? 0.97} onChange={(v) => onChangeStyle({ flashAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.01} />
         <ColorField label="Color flash" value={s.flashColor ?? '#F6FBFF'} onChange={(v) => onChangeStyle({ flashColor: v })} />
       </div>
@@ -3246,7 +3246,7 @@ function Gt3Config({
     return (
       <div style={grid}>
         <SectionLabel>Data</SectionLabel>
-        <SelectField label="Modo" value={mode} options={[{ value: 'temp', label: 'Temperature' }, { value: 'pressure', label: 'Pressure' }, { value: 'wear', label: 'Wear' }]} onChange={(v) => onChangeStyle({ gridMode: v as 'temp' | 'pressure' | 'wear' })} />
+        <SelectField label="Mode" value={mode} options={[{ value: 'temp', label: 'Temperature' }, { value: 'pressure', label: 'Pressure' }, { value: 'wear', label: 'Wear' }]} onChange={(v) => onChangeStyle({ gridMode: v as 'temp' | 'pressure' | 'wear' })} />
         {mode === 'temp' && <SelectField label="Unit" value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />}
         {mode === 'pressure' && <SelectField label="Unit" value={s.unit ?? 'kPa'} options={[{ value: 'kPa', label: 'kPa' }, { value: 'psi', label: 'psi' }, { value: 'bar', label: 'bar' }]} onChange={(v) => onChangeStyle({ unit: v })} />}
         <ToggleField label="Show labels" value={s.showLabels !== false} onChange={(v) => onChangeStyle({ showLabels: v })} />
@@ -3299,9 +3299,9 @@ function Gt3Config({
       <div style={grid}>
         <SectionLabel>Data</SectionLabel>
         <SelectField label="Unit" value={s.unit === 'gal' ? 'gal' : 'L'} options={[{ value: 'L', label: 'Liters' }, { value: 'gal', label: 'Gallons' }]} onChange={(v) => onChangeStyle({ unit: v === 'gal' ? 'gal' : undefined })} />
-        <ToggleField label="Modo enduro" value={s.enduranceMode === true} onChange={(v) => onChangeStyle({ enduranceMode: v })} />
-        <SectionLabel>Comportamento</SectionLabel>
-        <NumberField label="Reserva (laps)" value={s.reserveLaps ?? 1} onChange={(v) => onChangeStyle({ reserveLaps: Math.max(0, v) })} min={0} max={10} step={0.5} />
+        <ToggleField label="Endurance mode" value={s.enduranceMode === true} onChange={(v) => onChangeStyle({ enduranceMode: v })} />
+        <SectionLabel>Behavior</SectionLabel>
+        <NumberField label="Reserve (laps)" value={s.reserveLaps ?? 1} onChange={(v) => onChangeStyle({ reserveLaps: Math.max(0, v) })} min={0} max={10} step={0.5} />
         <NumberField label="Alerta < laps" value={s.warnAtLaps ?? 2} onChange={(v) => onChangeStyle({ warnAtLaps: Math.max(0, v) })} min={0} max={20} step={0.5} />
       </div>
     )
@@ -3318,11 +3318,11 @@ function Gt3Config({
   if (t === 'laptiming') {
     return (
       <div style={grid}>
-        <SectionLabel>Rows exibidas</SectionLabel>
-        <ToggleField label="Atual" value={s.showCurrent !== false} onChange={(v) => onChangeStyle({ showCurrent: v })} />
+        <SectionLabel>Displayed rows</SectionLabel>
+        <ToggleField label="Current" value={s.showCurrent !== false} onChange={(v) => onChangeStyle({ showCurrent: v })} />
         <ToggleField label="Last" value={s.showLast !== false} onChange={(v) => onChangeStyle({ showLast: v })} />
-        <ToggleField label="Melhor" value={s.showBest !== false} onChange={(v) => onChangeStyle({ showBest: v })} />
-        <ToggleField label="Estimada" value={s.showEstimated === true} onChange={(v) => onChangeStyle({ showEstimated: v })} />
+        <ToggleField label="Best" value={s.showBest !== false} onChange={(v) => onChangeStyle({ showBest: v })} />
+        <ToggleField label="Estimated" value={s.showEstimated === true} onChange={(v) => onChangeStyle({ showEstimated: v })} />
       </div>
     )
   }

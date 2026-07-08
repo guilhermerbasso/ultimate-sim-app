@@ -279,7 +279,7 @@ export default function StrategyView({ language }: AppViewProps): ReactElement {
           <div style={label}>{tt(language, 'strategy.time')}</div>
           <input style={input} type="number" min="1" placeholder="Auto" value={raceMinutes} onChange={(event) => setRaceMinutes(event.target.value)} />
         </div>
-        <div style={{ fontSize: 13, opacity: 0.78 }}>{connected ? '● telemetria ao vivo' : '○ sem telemetria'}</div>
+        <div style={{ fontSize: 13, opacity: 0.78 }}>{connected ? '? live telemetry' : '? no telemetry'}</div>
       </div>
 
       {!connected || !available ? (
@@ -346,7 +346,7 @@ export default function StrategyView({ language }: AppViewProps): ReactElement {
                   <div>{tt(language, 'strategy.shortFill')} <strong style={{ color: WARN }}>{fmt(fuel?.shortFillLiters, 1)} L</strong></div>
                 )}
                 {(fuel?.savePerLapLiters ?? 0) > 0 && (
-                  <div>{tt(language, 'strategy.saveToExtend')} <strong style={{ color: WARN }}>{fmt(fuel?.savePerLapLiters, 2)} L/volta</strong></div>
+                  <div>{tt(language, 'strategy.saveToExtend')} <strong style={{ color: WARN }}>{fmt(fuel?.savePerLapLiters, 2)} L/lap</strong></div>
                 )}
               </div>
             </section>

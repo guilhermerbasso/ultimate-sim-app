@@ -243,7 +243,7 @@ export default function FuelStrategyView({ language }: AppViewProps): ReactEleme
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
                 <Metric title="Predicted lap" main={fmtTime(lap?.predicted)} />
-                <Metric title="Delta melhor" main={fmtDelta(lap?.deltaBest)} accent={deltaColor(lap?.deltaBest)} />
+                <Metric title="Best delta" main={fmtDelta(lap?.deltaBest)} accent={deltaColor(lap?.deltaBest)} />
                 <Metric title="Delta optimal" main={fmtDelta(lap?.deltaOptimal)} accent={deltaColor(lap?.deltaOptimal)} />
                 <Metric title="Delta session-best" main={fmtDelta(lap?.deltaSessionBest)} accent={deltaColor(lap?.deltaSessionBest)} />
               </div>
@@ -316,7 +316,7 @@ export default function FuelStrategyView({ language }: AppViewProps): ReactEleme
                   <td style={{ textAlign: 'right', padding: '9px 6px' }}>{fmtNumber(peer.fuelPerLap, 2)}</td>
                   <td style={{ textAlign: 'right', padding: '9px 6px' }}>{fmtNumber(peer.lapsRemaining, 1)}</td>
                   <td style={{ textAlign: 'right', padding: '9px 6px' }}>{peer.stintTargetLaps ?? '—'}</td>
-                  <td style={{ padding: '9px 6px' }}>{peer.pitWindow?.latestLap ? tt(language, 'fuel.untilLap', { lap: peer.pitWindow.latestLap }) : peer.pitWindow?.status ?? '—'}</td>
+                  <td style={{ padding: '9px 6px' }}>{peer.pitWindow?.latestLap ? tt(language, 'fuel.untilLap', { lap: peer.pitWindow.latestLap }) : (peer.pitWindow?.status ?? '—')}</td>
                   <td style={{ textAlign: 'right', padding: '9px 6px', opacity: 0.7 }}>{fmtAge(peer.ts, language)}</td>
                 </tr>
               ))}

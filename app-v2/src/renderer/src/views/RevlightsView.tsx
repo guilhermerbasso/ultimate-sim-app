@@ -21,7 +21,7 @@ import { useDevices } from '../lib/devices/DeviceRegistry'
 import { SectionExportImport } from '../components/SectionExportImport'
 
 const BLINK_PATTERNS: Array<{ id: RevlightsBlinkPattern; label: string }> = [
-  { id: 'solid', label: 'Constante (sem blink)' },
+  { id: 'solid', label: 'Solid (no blink)' },
   { id: 'slow', label: 'Lento (2 Hz)' },
   { id: 'fast', label: 'Fast (4 Hz)' },
   { id: 'strobe', label: 'Estrobo (8 Hz)' }
@@ -33,7 +33,7 @@ const FLAG_LABELS: Record<keyof RevlightsConfig['flagColors'], string> = {
   white: 'Branca (slow)',
   red: 'Vermelha',
   meatball: 'Meatball (laranja)',
-  greenWhiteCheckered: 'Verde / quadriculada'
+  greenWhiteCheckered: 'Green / checkered'
 }
 
 function getErrorMessage(error: unknown): string {
@@ -127,14 +127,14 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
 
   async function toggleEnabled(): Promise<void> {
     if (!config.enabled && !connectedDevice) {
-      showToast('Conecte o ButtonBox antes de ativar as rev lights.', 'error')
+      showToast('Connect the ButtonBox before enabling rev lights.', 'error')
       return
     }
     setBusy(true)
     try {
       const saved = await window.ipc.invoke<RevlightsConfig>('revlights:setEnabled', !config.enabled)
       setConfig(saved)
-      showToast(saved.enabled ? 'Rev lights ativadas.' : 'Rev lights pausadas.', 'success')
+      showToast(saved.enabled ? 'Rev lights enabled.' : 'Rev lights paused.', 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -200,7 +200,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
             <h3 style={{ margin: '8px 0 4px', fontSize: 26 }}>Rich configuration</h3>
             <p style={{ margin: 0, color: 'rgba(255,255,255,0.62)' }}>
               Colors, bands, and shift point. The app calculates the level from telemetry and sends
-              <code> R&lt;lvl&gt; </code> + <code> B&lt;0|1&gt; </code> para o SIM-X.
+              <code> R&lt;lvl&gt; </code> + <code> B&lt;0|1&gt; </code> to SIM-X.
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -219,7 +219,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
               }}
               type="button"
             >
-              {config.enabled ? 'Parar' : 'Enable'}
+              {config.enabled ? 'Stop' : 'Enable'}
             </button>
           </div>
         </div>
@@ -279,23 +279,23 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
               type="checkbox"
             />
             <span>
-              <strong style={{ display: 'block' }}>Modo F1</strong>
+              <strong style={{ display: 'block' }}>F1 mode</strong>
               <small style={{ color: 'rgba(255,255,255,0.66)' }}>
                 Lights only in the last {rpmWindowPct}% of RPM, sweeps green → amber → red in the preview
-                e pisca no ponto de troca.
+                and blinks at the shift point.
               </small>
             </span>
           </label>
           <p className="helper-text" style={{ marginBottom: 0 }}>
             Note: exact hardware colors depend on the current SIM-X firmware, which renders colors by level.
             The app already delivers F1 behavior today via <code>R&lt;lvl&gt;</code> + <code>B&lt;0|1&gt;</code>;
-            RGB por LED fica para firmware futuro.
+            Per-LED RGB remains for future firmware.
           </p>
         </div>
 
         <div className="divider" style={{ margin: '16px 0' }} />
 
-        <span style={label}>Quantidade de LEDs</span>
+        <span style={label}>LED count</span>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 8 }}>
           <input
             max={REVLIGHTS_MAX_LED_COUNT}
@@ -310,12 +310,12 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
         </div>
         <p className="helper-text">
           The current firmware drives {REVLIGHTS_DEVICE_LED_COUNT} physical LEDs; larger values are scaled
-          para usar todo o strip futuro (sem perder a UX de preview).
+          to use the full future strip (without losing the preview UX).
         </p>
 
         <div className="divider" style={{ margin: '16px 0' }} />
 
-        <span style={label}>Pontos de RPM</span>
+        <span style={label}>RPM points</span>
         <div style={{ display: 'grid', gap: 12, marginTop: 8 }}>
           <label style={{ display: 'grid', gap: 6 }}>
             <span>Lights in the last N% of RPM</span>
@@ -336,7 +336,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
             </small>
           </label>
           <label style={{ display: 'grid', gap: 6 }}>
-            <span>Ponto de troca / blink (% maxRpm)</span>
+            <span>Shift point / blink (% max RPM)</span>
             <input
               max={1}
               min={0}
@@ -397,7 +397,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
             </div>
             <div>
               <dt>Shift</dt>
-              <dd>{status?.shiftActive ? 'PISCANDO' : '—'}</dd>
+              <dd>{status?.shiftActive ? 'BLINKING' : '—'}</dd>
             </div>
             <div>
               <dt>RPM</dt>
@@ -413,7 +413,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
         </article>
 
         <article style={panel}>
-          <span style={label}>Segmentos por cor</span>
+          <span style={label}>Segments por cor</span>
           <h3 style={{ margin: '8px 0' }}>Faixas (% maxRpm)</h3>
           <div style={{ display: 'grid', gap: 8 }}>
             {config.segments.map((segment, index) => (
@@ -431,7 +431,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
                 }}
               >
                 <input
-                  aria-label={`Color do segmento ${index + 1}`}
+                  aria-label={`Segment color ${index + 1}`}
                   onBlur={() => void persist({ segments: config.segments, preset: 'custom' })}
                   onChange={(event) => updateSegment(index, { color: event.target.value })}
                   style={{ height: 36, width: '100%', border: 'none', background: 'transparent' }}
@@ -439,7 +439,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
                   value={segment.color}
                 />
                 <input
-                  aria-label={`Label do segmento ${index + 1}`}
+                  aria-label={`Segment label ${index + 1}`}
                   className="text-field"
                   onBlur={() => void persist({ segments: config.segments, preset: 'custom' })}
                   onChange={(event) => updateSegment(index, { label: event.target.value })}
@@ -524,7 +524,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
         </article>
 
         <article style={panel}>
-          <span style={label}>Colores de bandeira</span>
+          <span style={label}>Flag colors</span>
           <h3 style={{ margin: '8px 0' }}>Paleta (preview-only)</h3>
           <div style={{ display: 'grid', gap: 8 }}>
             {(Object.keys(config.flagColors) as Array<keyof RevlightsConfig['flagColors']>).map((key) => (
@@ -538,7 +538,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
                 }}
               >
                 <input
-                  aria-label={`Color da bandeira ${FLAG_LABELS[key]}`}
+                  aria-label={`Flag color ${FLAG_LABELS[key]}`}
                   onBlur={() => void persist({ flagColors: config.flagColors })}
                   onChange={(event) => updateFlagColor(key, event.target.value)}
                   style={{ height: 36, width: '100%', border: 'none', background: 'transparent' }}
@@ -555,7 +555,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
               onChange={(event) => void persist({ flagBlink: event.target.checked })}
               type="checkbox"
             />
-            <span>Pulsar quando uma bandeira estiver ativa</span>
+            <span>Pulse when a flag is active</span>
           </label>
         </article>
       </div>

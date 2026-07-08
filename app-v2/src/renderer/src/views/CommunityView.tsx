@@ -528,7 +528,7 @@ function ComparePanel({ language, report, onClose }: { language: ResolvedLanguag
           <div style={{ ...card, padding: '10px 12px', flex: 1 }}>
             <div style={{ ...label, color: 'var(--accent-success)' }}>{tt(language, 'community.bestGain')}</div>
             <div style={{ marginTop: 4 }}>
-              {Math.round(result.bestGain.fromPct * 100)}%–{Math.round(result.bestGain.toPct * 100)}% da volta ·{' '}
+              {Math.round(result.bestGain.fromPct * 100)}%–{Math.round(result.bestGain.toPct * 100)}% of the lap ·{' '}
               <span style={fasterText}>{formatDelta(result.bestGain.deltaSec)}</span>
             </div>
           </div>
@@ -537,7 +537,7 @@ function ComparePanel({ language, report, onClose }: { language: ResolvedLanguag
           <div style={{ ...card, padding: '10px 12px', flex: 1 }}>
             <div style={{ ...label, color: 'var(--accent-primary)' }}>{tt(language, 'community.worstLoss')}</div>
             <div style={{ marginTop: 4 }}>
-              {Math.round(result.worstLoss.fromPct * 100)}%–{Math.round(result.worstLoss.toPct * 100)}% da volta ·{' '}
+              {Math.round(result.worstLoss.fromPct * 100)}%–{Math.round(result.worstLoss.toPct * 100)}% of the lap ·{' '}
               <span style={slowerText}>{formatDelta(result.worstLoss.deltaSec)}</span>
             </div>
           </div>

@@ -61,7 +61,7 @@ export function HistoryChart({ points, color, valueDigits, ariaLabel, height = 1
   // clean, unique gradient id.
   const gradientId = `career-grad-${useId().replace(/[^a-zA-Z0-9]/g, '')}`
   if (points.length === 0) {
-    return <div style={emptyBox}>sem data</div>
+    return <div style={emptyBox}>no data</div>
   }
 
   const width = 720
@@ -159,7 +159,7 @@ interface IncidentTrendChartProps {
 // Per-race incident bars (oldest → newest) with a dashed average line.
 export function IncidentTrendChart({ points, height = 168 }: IncidentTrendChartProps): ReactElement {
   if (points.length === 0) {
-    return <div style={emptyBox}>sem corridas recent</div>
+    return <div style={emptyBox}>no recent races</div>
   }
 
   const width = 720

@@ -245,7 +245,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
 
   async function fixIracingFullscreen(): Promise<void> {
     const ok = window.confirm(
-      'Isto vai mudar o iRacing para modo borderless (edita o app.ini, com backup .ubbak).\n\n' +
+      'This will switch iRacing to borderless mode (edits app.ini with a .ubbak backup).\n\n' +
       'CLOSE iRacing before continuing — the change only applies after reopening the game.\n\nContinue?'
     )
     if (!ok) return
@@ -692,9 +692,9 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       )}
 
       <section className="panel">
-        <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>Como posicionar</h4>
+        <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>How to position</h4>
         <p className="overlay-help">
-          Turn on <strong style={{ color: "var(--accent-primary)" }}>Edit/position overlays</strong> to adjust all overlays at once. Ou, com a edição desligada, clique <strong style={{ color: "var(--accent-primary)" }}>Floating</strong> no overlay que quer ajustar — ele fica arrastável/redimensionável na hora. Clique <strong style={{ color: "var(--accent-primary)" }}>Pinned</strong> para voltar ao click-through na corrida.
+          Turn on <strong style={{ color: "var(--accent-primary)" }}>Edit/position overlays</strong> to adjust all overlays at once. Or, with editing off, click <strong style={{ color: "var(--accent-primary)" }}>Floating</strong> on the overlay you want to adjust - it becomes draggable/resizable immediately. Click <strong style={{ color: "var(--accent-primary)" }}>Pinned</strong> to return to click-through in the race.
         </p>
         <label className="designer-check" style={{ margin: '12px 0 0' }}>
           <input
@@ -712,13 +712,13 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
 
       <section className="panel">
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>Fullscreen do iRacing</h4>
+          <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>iRacing Fullscreen</h4>
           {iracingGfx && (
             <span className={iracingGfx.mode === 'exclusive' ? 'status-pill' : 'status-pill on'}>
-              {iracingGfx.mode === 'exclusive' ? 'fullscreen exclusivo'
+              {iracingGfx.mode === 'exclusive' ? 'exclusive fullscreen'
                 : iracingGfx.mode === 'borderless' ? 'borderless ✓'
-                : iracingGfx.mode === 'windowed' ? 'janela ✓'
-                : 'modo desconhecido'}
+                : iracingGfx.mode === 'windowed' ? 'windowed'
+                : 'unknown mode'}
             </span>
           )}
         </div>
@@ -726,7 +726,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
           {iracingGfx ? iracingGfx.message : 'Checking iRacing video mode...'}
         </p>
         <p className="overlay-help">
-          Overlays de janela <strong style={{ color: "var(--accent-primary)" }}>nunca</strong> aparecem sobre fullscreen <strong style={{ color: "var(--accent-primary)" }}>exclusivo</strong> do DirectX — isso vale para SimHub/RaceLab também. A solução é rodar o iRacing em <strong style={{ color: "var(--accent-primary)" }}>Borderless</strong>. Renderizar sobre o exclusivo exigiria injeção de DirectX (projeto à parte, com risco de anti-cheat).
+          Window overlays <strong style={{ color: "var(--accent-primary)" }}>never</strong> appear over <strong style={{ color: "var(--accent-primary)" }}>exclusive</strong> DirectX fullscreen - this also applies to SimHub/RaceLab. The solution is to run iRacing in <strong style={{ color: "var(--accent-primary)" }}>Borderless</strong>. Rendering over exclusive fullscreen would require DirectX injection (a separate project with anti-cheat risk).
         </p>
         <div className="overlay-actions">
           <button
@@ -735,7 +735,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             onClick={() => void fixIracingFullscreen()}
             title={iracingGfx?.supported ? 'Edits iRacing app.ini (with backup) for borderless mode' : 'Available only on Windows'}
           >
-            Colorrigir: mudar iRacing para borderless
+            Fix: switch iRacing to borderless
           </button>
           <button className="ghost-action" disabled={busy} onClick={() => void refreshIracingGfx()}>
             Check again
@@ -752,7 +752,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
           </span>
         </div>
         <p className="overlay-help">
-          Inicia um servidor local para OBS ou, opcionalmente, na LAN para celular/tablet. A telemetria chega por SSE e a máscara stream-safe é aplicada no servidor.
+          Starts a local server for OBS or, optionally, on the LAN for phones/tablets. Telemetry arrives through SSE and the stream-safe mask is applied on the server.
         </p>
         {streamingStatus?.warning ? (
           <p className="overlay-help" style={{ color: 'var(--accent-warning, #fbbf24)' }}>
@@ -766,7 +766,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             disabled={busy || Boolean(streamingStatus?.running)}
             onChange={(event) => setStreamSafe(event.target.checked)}
           />
-          Stream-safe: hide nomes, iRating/SR e tags privadas antes de enviar ao OBS
+          Stream-safe: hide names, iRating/SR, and private tags before sending to OBS
         </label>
         <label className="designer-check" style={{ margin: '12px 0' }}>
           <input
@@ -775,7 +775,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             disabled={busy || Boolean(streamingStatus?.running)}
             onChange={(event) => setStreamLanEnabled(event.target.checked)}
           />
-          Habilitar acesso pela LAN (gera URL/QR para celular e tablet)
+          Enable LAN access (generates URL/QR for phones and tablets)
         </label>
         <label className="designer-field" style={{ margin: '12px 0' }}>
           Optional password (alternative to token; not shown after starting)
@@ -801,7 +801,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
         {streamingStatus?.url ? (
           <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
             <label className="designer-field">
-              URL do dashboard (OBS/browser)
+              Dashboard URL (OBS/browser)
               <input readOnly value={streamingStatus.url} onFocus={(event) => event.currentTarget.select()} />
             </label>
             {streamingStatus.touchUrl ? (
@@ -810,20 +810,20 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 <input readOnly value={streamingStatus.touchUrl} onFocus={(event) => event.currentTarget.select()} />
               </label>
             ) : (
-              <p className="overlay-help">Crie um Touch Controls Dash para exibir o segundo QR/URL.</p>
+              <p className="overlay-help">Create a Touch Controls Dash to show the second QR/URL.</p>
             )}
             {(streamingStatus.qrDataUrl || streamingStatus.touchQrDataUrl) ? (
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
                 {streamingStatus.qrDataUrl ? (
                   <div>
                     <div className="overlay-help" style={{ marginBottom: 6 }}>QR dashboard</div>
-                    <img src={streamingStatus.qrDataUrl} alt="QR do dashboard" style={{ width: 152, height: 152, borderRadius: 12 }} />
+                    <img src={streamingStatus.qrDataUrl} alt="Dashboard QR" style={{ width: 152, height: 152, borderRadius: 12 }} />
                   </div>
                 ) : null}
                 {streamingStatus.touchQrDataUrl ? (
                   <div>
                     <div className="overlay-help" style={{ marginBottom: 6 }}>QR Touch Controls</div>
-                    <img src={streamingStatus.touchQrDataUrl} alt="QR do Touch Controls" style={{ width: 152, height: 152, borderRadius: 12 }} />
+                    <img src={streamingStatus.touchQrDataUrl} alt="Touch Controls QR" style={{ width: 152, height: 152, borderRadius: 12 }} />
                   </div>
                 ) : null}
               </div>
@@ -849,7 +849,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
           <div>
             <h4 style={{ margin: '0 0 6px', color: '#f6fbff' }}>Overlays customizados</h4>
             <p className="overlay-help">
-              Build your own overlays com o conjunto completo de <strong style={{ color: 'var(--accent-primary)' }}>widgets do dashboard</strong> (medidores, marcha, pneus, radar, imagens…) ou com cards simples de <strong style={{ color: 'var(--accent-primary)' }}>Expressions</strong>. Cada um vira uma janela transparente independente.
+              Build your own overlays with the full set of <strong style={{ color: 'var(--accent-primary)' }}>dashboard widgets</strong> (medidores, marcha, pneus, radar, imagens…) or with simple cards from <strong style={{ color: 'var(--accent-primary)' }}>Expressions</strong>. Each one becomes an independent transparent window.
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -1215,7 +1215,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             </div>
 
             <label className="font-control">
-              Fonte
+              Font
               <select
                 value={item.style.fontFamily}
                 disabled={busy}
@@ -1303,7 +1303,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
               )}
               {expressions.length === 0 && BINDABLE_TELEMETRY_COUNT > 0 && (
                 <p className="overlay-help">
-                  No saved expressions yet — link a telemetry channel directly in the selector (grupo <strong style={{ color: "var(--accent-primary)" }}>Telemetry</strong>), ou crie expressões no menu <strong style={{ color: "var(--accent-primary)" }}>Expressions</strong>.
+                  No saved expressions yet ? link a telemetry channel directly in the selector (group <strong style={{ color: "var(--accent-primary)" }}>Telemetry</strong>), or create expressions in the <strong style={{ color: "var(--accent-primary)" }}>Expressions</strong> menu.
                 </p>
               )}
 
@@ -1316,13 +1316,13 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                     </div>
 
                     <label className="designer-field">
-                      Expression ou canal
+                      Expression or channel
                       <select value={element.expressionId} disabled={busy} onChange={(event) => bindElementExpression(element.id, event.target.value)}>
                         <option value="">— choose expression or channel —</option>
                         {element.expressionId !== '' &&
                           channelVarIdFromBinding(element.expressionId) === null &&
                           !expressions.some((item) => item.id === element.expressionId) && (
-                            <option value={element.expressionId}>{element.expressionName || 'removed expression'} (indisponível)</option>
+                            <option value={element.expressionId}>{element.expressionName || 'removed expression'} (unavailable)</option>
                           )}
                         {element.expressionId !== '' &&
                           channelVarIdFromBinding(element.expressionId) !== null &&
@@ -1369,7 +1369,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                         </select>
                       </label>
                       <label className="designer-field">
-                        Fonte (px)
+                        Font (px)
                         <input type="number" min={8} max={240} value={element.fontSize} disabled={busy} onChange={(event) => updateDraftElement(element.id, { fontSize: Number(event.target.value) })} />
                       </label>
                       <label className="designer-field">
@@ -1396,7 +1396,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                         disabled={busy}
                         onChange={(event) => updateDraftElement(element.id, { color: event.target.checked ? '' : 'var(--accent-primary)' })}
                       />
-                      Usar cor do tema (accent)
+                      Use theme color (accent)
                     </label>
 
                     <div className="designer-grid-4">

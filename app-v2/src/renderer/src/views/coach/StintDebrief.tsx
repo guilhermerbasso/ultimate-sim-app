@@ -81,8 +81,8 @@ function bulletColor(text: string): string {
 }
 
 function reasonLabel(reason: DebriefReason): string {
-  if (reason === 'session-end') return 'Fim de sessao'
-  if (reason === 'stint-end') return 'Fim de stint'
+  if (reason === 'session-end') return 'Session end'
+  if (reason === 'stint-end') return 'Stint end'
   return 'Sob demanda'
 }
 
@@ -146,7 +146,7 @@ export default function StintDebrief(): ReactElement {
         </button>
         <label style={toggle}>
           <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />
-          Frasear com IA
+          Phrase with AI
         </label>
       </div>
 
@@ -168,7 +168,7 @@ export default function StintDebrief(): ReactElement {
         </div>
       ) : (
         <p style={mutedText}>
-          O resumo do stint/sessao aparece aqui ao final de cada stint, ou clique em “Gerar debrief”.
+          The stint/session summary appears here at the end of each stint, or click ?Generate debrief?.
         </p>
       )}
     </div>

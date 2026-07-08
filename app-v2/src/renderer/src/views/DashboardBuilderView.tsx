@@ -504,7 +504,7 @@ function DashboardPreview({ elements, bg }: { elements: Array<{ element: Dashboa
           const promoted = moment?.action === 'promote'
           const demoted = moment?.action === 'demote'
           const momentColor = moment ? MOMENT_COLOR_CSS[moment.color] : undefined
-          const outlineColor = promoted ? momentColor ?? CHROME : emphasis === 'emphasize' ? CHROME : undefined
+          const outlineColor = promoted ? (momentColor ?? CHROME) : emphasis === 'emphasize' ? CHROME : undefined
           return (
             <div
               key={element.id}

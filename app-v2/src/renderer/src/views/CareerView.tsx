@@ -80,7 +80,7 @@ const eyebrow: CSSProperties = {
 const heading: CSSProperties = { margin: '4px 0 0', fontSize: 20, color: 'var(--text-primary)', letterSpacing: '0.01em' }
 const muted: CSSProperties = { color: 'var(--text-secondary)', fontSize: 13 }
 const sectionTitle: CSSProperties = { margin: 0, fontSize: 13, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-secondary)' }
-const guidedEmptyCopy = 'Connect ao iRacing ou escolha Demo (mock) para ver data.'
+const guidedEmptyCopy = 'Connect to iRacing or choose Demo (mock) to see data.'
 const guidedEmptyState: CSSProperties = {
   margin: 0,
   padding: 14,
@@ -222,7 +222,7 @@ function statusHint(status: CareerStatus): { text: string; tone: string } | null
     case 'loading':
       return { text: 'Updating iRacing data…', tone: 'var(--text-secondary)' }
     case 'rate-limited':
-      return { text: 'Limite de requisicoes da iRacing atingido. Mostrando data em cache.', tone: 'var(--accent-warning)' }
+      return { text: 'iRacing request limit reached. Showing cached data.', tone: 'var(--accent-warning)' }
     case 'error':
       return { text: status.message ? `Error updating: ${status.message}. Showing cache.` : 'Error updating. Showing cache.', tone: 'var(--accent-warning)' }
     case 'needs-login':
@@ -291,7 +291,8 @@ function StatTile({ label, value, sub, accent }: { label: string; value: string;
 }
 
 function GuidedEmptyState({ style }: { style?: CSSProperties }): ReactElement {
-  return <p style={{ ...guidedEmptyState, ...style }}>{guidedEmptyCopy}</p>
+  const guidedEmptyCopy = 'Connect to iRacing or choose Demo (mock) to see data.'
+  return <div style={{ border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', padding: 14, color: 'var(--text-secondary)', ...style }}>{guidedEmptyCopy}</div>
 }
 
 function LicenseCard({ license }: { license: CareerLicense }): ReactElement {
@@ -342,7 +343,7 @@ function StrengthTable({ title, scope, rows }: { title: string; scope: string; r
                 <th style={thLeft}>Name</th>
                 <th style={th}>Races</th>
                 <th style={th}>Wins</th>
-                <th style={th}>Melhor</th>
+                <th style={th}>Best</th>
                 <th style={th}>Finish med.</th>
                 <th style={th}>Inc. med.</th>
                 <th style={th}>Δ iR med.</th>
@@ -376,7 +377,7 @@ function TabSwitcher({ activeTab, onChange }: { activeTab: CareerTab; onChange: 
     { id: 'paints', label: 'Paints' }
   ]
   return (
-    <nav style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} aria-label="Abas da career">
+    <nav style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} aria-label="Career tabs">
       {tabs.map((tab) => {
         const active = tab.id === activeTab
         return (
@@ -607,7 +608,7 @@ function PaintsTab({ showToast }: { showToast: AppViewProps['showToast'] }): Rea
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'baseline' }}>
           <div>
             <h3 style={sectionTitle}>Paints dos adversarios</h3>
-            <p style={{ ...muted, margin: '6px 0 0' }}>Checa Documents/iRacing/paint/&lt;carPath&gt; para cada Cust ID da sessao current.</p>
+            <p style={{ ...muted, margin: '6px 0 0' }}>Checks Documents/iRacing/paint/&lt;carPath&gt; for each Cust ID in the current session.</p>
           </div>
           <span style={muted}>{snapshot?.connected ? `${drivers.length} adversarios` : 'Telemetry disconnected'}</span>
         </div>
@@ -620,9 +621,9 @@ function PaintsTab({ showToast }: { showToast: AppViewProps['showToast'] }): Rea
         </div>
 
         {drivers.length === 0 ? (
-          <p style={{ ...muted, margin: '14px 0 0' }}>None adversario com Cust ID e carPath na sessao current.</p>
+          <p style={{ ...muted, margin: '14px 0 0' }}>No opponent with Cust ID and carPath in the current session.</p>
         ) : result?.supported === false ? (
-          <p style={{ ...muted, margin: '14px 0 0' }}>No Mac, esta aba so valida tipos. A checagem real das pastas do iRacing precisa de Windows.</p>
+          <p style={{ ...muted, margin: '14px 0 0' }}>On Mac, this tab only validates types. Real iRacing folder checks require Windows.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
             {drivers.map((driver) => {
@@ -706,13 +707,13 @@ function DriversTab({ showToast }: { showToast: AppViewProps['showToast'] }): Re
       <section style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'baseline' }}>
           <div>
-            <h3 style={sectionTitle}>Drivers da sessao current</h3>
-            <p style={{ ...muted, margin: '6px 0 0' }}>Saved tags por Cust ID estavel da iRacing.</p>
+            <h3 style={sectionTitle}>Current session drivers</h3>
+            <p style={{ ...muted, margin: '6px 0 0' }}>Saved tags by stable iRacing Cust ID.</p>
           </div>
           <span style={muted}>{snapshot?.connected ? `${drivers.length} adversarios` : 'Telemetry disconnected'}</span>
         </div>
         {drivers.length === 0 ? (
-          <p style={{ ...muted, margin: '14px 0 0' }}>None piloto com Cust ID na sessao current.</p>
+          <p style={{ ...muted, margin: '14px 0 0' }}>No driver with Cust ID in the current session.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
             {drivers.map((driver) => {
@@ -734,7 +735,7 @@ function DriversTab({ showToast }: { showToast: AppViewProps['showToast'] }): Re
       <section style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <h3 style={sectionTitle}>Saved notes</h3>
-          <SectionExportImport sectionId="driver-notes" label="Anotacoes do piloto" onImported={() => void loadNotes().catch((error) => showToast(error instanceof Error ? error.message : String(error), 'error'))} />
+          <SectionExportImport sectionId="driver-notes" label="Driver notes" onImported={() => void loadNotes().catch((error) => showToast(error instanceof Error ? error.message : String(error), 'error'))} />
         </div>
         {notes.length === 0 ? (
           <p style={{ ...muted, margin: '10px 0 0' }}>No noted driver yet.</p>
@@ -1000,7 +1001,7 @@ function ProfileTab({
       {/* Active seasons */}
       <section style={card}>
         <h3 style={sectionTitle}>Active seasons (main discipline)</h3>
-        <p style={{ ...muted, margin: '4px 0 0', fontSize: 11 }}>Series disponiveis para correr agora na sua disciplina.</p>
+        <p style={{ ...muted, margin: '4px 0 0', fontSize: 11 }}>Series available to race now in your discipline.</p>
         <SeasonsList seasons={activeSeasonsForPrimary} />
       </section>
     </>
@@ -1117,7 +1118,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
     }
   }, [refresh, showToast])
 
-  const selectedCharts = selectedCategoryId !== null ? chartsByCat[selectedCategoryId] ?? null : null
+  const selectedCharts = selectedCategoryId !== null ? (chartsByCat[selectedCategoryId] ?? null) : null
 
   const careerRows = useMemo<CareerCategoryStat[]>(
     () => (overview ? [...overview.career].sort((a, b) => b.starts - a.starts) : []),
@@ -1134,7 +1135,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
         <header style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <span style={eyebrow}>iRacing · Drivers</span>
-            <h2 style={heading}>Tags de adversarios</h2>
+            <h2 style={heading}>Opponent tags</h2>
             <p style={{ ...muted, margin: '6px 0 0' }}>Anote pilotos por Cust ID estavel e reencontre essas notas em sessoes futuras.</p>
           </div>
         </header>
@@ -1150,7 +1151,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
         <header style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <span style={eyebrow}>iRacing · Trading Paints</span>
-            <h2 style={heading}>Paints da sessao</h2>
+            <h2 style={heading}>Session paints</h2>
             <p style={{ ...muted, margin: '6px 0 0' }}>Observes the official client and local files without downloading or querying CDN.</p>
           </div>
         </header>
@@ -1170,7 +1171,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
             <span style={eyebrow}>iRacing · Profile & Series</span>
             <h2 style={heading}>{overview?.identity?.displayName ?? 'Driver'}</h2>
             <p style={{ ...muted, margin: '6px 0 0' }}>
-              Profile, divisao, estatisticas yearly, leagues e temporadas active na disciplina principal
+              Profile, division, yearly stats, leagues, and active seasons in the primary discipline
               {primaryCatId !== undefined && primaryCatId !== null ? ` (${careerCategoryLabel(primaryCatId)})` : ''}.
             </p>
           </div>
@@ -1183,7 +1184,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
           <section style={{ ...card, padding: 24 }}>
             <p style={muted}>Connect your iRacing account to see the enriched profile.</p>
             <button type="button" style={{ ...primaryButton, marginTop: 12 }} disabled={loggingIn} onClick={() => void connect()}>
-              {loggingIn ? 'Opening login…' : 'Connect a iRacing'}
+              {loggingIn ? 'Opening login…' : 'Connect iRacing'}
             </button>
           </section>
         ) : (
@@ -1208,19 +1209,19 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
           <span style={eyebrow}>iRacing</span>
           <h2 style={heading}>Career & Ratings</h2>
           <p style={{ ...muted, margin: '8px 0 0', maxWidth: 620 }}>
-            Acompanhe sua progressao de iRating, Safety Rating, licencas, incidents e resultados recent —
+            Track your iRating, Safety Rating, licenses, incidents, and recent results —
             all directly from the iRacing API, with offline cache.
           </p>
         </header>
         <TabSwitcher activeTab={activeTab} onChange={setActiveTab} />
         <section style={{ ...card, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 14, padding: 24 }}>
-          <span style={eyebrow}>{needsLogin ? 'Sessao necessaria' : 'Connect your account'}</span>
+          <span style={eyebrow}>{needsLogin ? 'Login required' : 'Connect your account'}</span>
           <h3 style={{ margin: 0, fontSize: 17, color: 'var(--text-primary)' }}>
             {initialized ? 'Connect your iRacing account to load your career' : 'Loading…'}
           </h3>
           <p style={{ ...muted, margin: 0, maxWidth: 560 }}>
-            O Hub usa a mesma sessao do navegador embutido dos mapas de pista. Faca login na iRacing
-            (resolvendo CAPTCHA/2FA na janela) e os data aparecem aqui — depois ficam disponiveis offline.
+            The Hub uses the same embedded-browser session as track maps. Log in to iRacing
+            (complete CAPTCHA/2FA in the window) and data appears here — then it is available offline.
           </p>
           <button type="button" style={primaryButton} disabled={loggingIn} onClick={() => void connect()}>
             {loggingIn ? 'Opening iRacing login…' : 'Connect a iRacing'}
@@ -1295,7 +1296,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       {/* History charts */}
       <section style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-          <h3 style={sectionTitle}>Historico de progressao</h3>
+          <h3 style={sectionTitle}>Progression history</h3>
           {availableCategoryIds.length > 0 ? (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {availableCategoryIds.map((categoryId) => {
@@ -1328,7 +1329,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
                 {fmtInt(selectedCharts?.iRating.at(-1)?.value)}
               </span>
             </div>
-            <HistoryChart points={selectedCharts?.iRating ?? []} color={IRATING_COLOR} valueDigits={0} ariaLabel="Historico de iRating" />
+            <HistoryChart points={selectedCharts?.iRating ?? []} color={IRATING_COLOR} valueDigits={0} ariaLabel="iRating history" />
           </div>
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
@@ -1337,7 +1338,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
                 {fmtSR(selectedCharts?.safetyRating.at(-1)?.value)}
               </span>
             </div>
-            <HistoryChart points={selectedCharts?.safetyRating ?? []} color={SR_COLOR} valueDigits={2} ariaLabel="Historico de Safety Rating" />
+            <HistoryChart points={selectedCharts?.safetyRating ?? []} color={SR_COLOR} valueDigits={2} ariaLabel="Safety Rating history" />
           </div>
         </div>
       </section>
@@ -1345,7 +1346,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       {/* Incident trend + this-year */}
       <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 16 }}>
         <div style={card}>
-          <h3 style={sectionTitle}>Tendencia de incidents</h3>
+          <h3 style={sectionTitle}>Incident trend</h3>
           <p style={{ ...muted, margin: '4px 0 12px', fontSize: 11 }}>Incidents per race in recent races (oldest → newest).</p>
           <IncidentTrendChart points={overview?.incidentTrend ?? []} />
         </div>
@@ -1363,7 +1364,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       {/* Career stats per discipline */}
       <section style={{ ...card, padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '14px 16px 0' }}>
-          <h3 style={sectionTitle}>Estatisticas de career por disciplina</h3>
+          <h3 style={sectionTitle}>Career stats by discipline</h3>
         </div>
         {careerRows.length === 0 ? (
           <GuidedEmptyState style={{ margin: '16px' }} />
@@ -1419,10 +1420,10 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
             <table style={tableStyle}>
               <thead>
                 <tr>
-                  <th style={thLeft}>Data</th>
-                  <th style={thLeft}>Serie</th>
-                  <th style={thLeft}>Carro</th>
-                  <th style={thLeft}>Pista</th>
+                  <th style={thLeft}>Date</th>
+                  <th style={thLeft}>Series</th>
+                  <th style={thLeft}>Car</th>
+                  <th style={thLeft}>Track</th>
                   <th style={th}>Start</th>
                   <th style={th}>Finish</th>
                   <th style={th}>Inc.</th>

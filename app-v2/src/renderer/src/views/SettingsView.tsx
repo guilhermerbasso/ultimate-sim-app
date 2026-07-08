@@ -30,8 +30,8 @@ const SOURCE_LABELS: Record<AppTelemetrySource, string> = {
   auto: 'Auto-detect',
   mock: 'Demo (mock)',
   iracing: 'iRacing',
-  acc: 'Assetto Colorsa Competizione',
-  ac: 'Assetto Colorsa',
+  acc: 'Assetto Corsa Competizione',
+  ac: 'Assetto Corsa',
   ams2: 'Automobilista 2',
   lmu: 'Le Mans Ultimate'
 }
@@ -50,7 +50,7 @@ const THEME_LABELS: Record<AppTheme, string> = {
   carbon: 'Carbon',
   championship: 'Championship',
   martini: 'Martini',
-  verde: 'Verde',
+  verde: 'Green',
   ice: 'Ice',
   auroraGlass: 'Aurora Glass ✦',
   neonNoir: 'Neon Noir',
@@ -61,7 +61,7 @@ const THEME_LABELS: Record<AppTheme, string> = {
 
 const PRESET_THEMES = APP_THEMES.filter((theme): theme is Exclude<AppTheme, 'custom'> => theme !== 'custom')
 
-const TC_SENSITIVITY_LABEL_KEYS: Record<TcSensitivity, string> = {
+const TC_SENSITILITY_LABEL_KEYS: Record<TcSensitivity, string> = {
   off: 'settings.tc.off',
   low: 'settings.tc.low',
   medium: 'settings.tc.medium',
@@ -286,7 +286,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
       const applied = result.summary?.applied.length ?? 0
       if (applied > 0) {
         // Imported files are on disk, but every store is cached in memory until
-        // the next launch — do NOT refetch (it would show stale data and invite
+        // the next launch — must not refetch (it would show stale data and invite
         // an overwrite). Surface a restart prompt + persistent badge instead.
         setNeedsRestart(true)
         showToast(
@@ -426,7 +426,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
           >
             {TC_SENSITIVITIES.map((level) => (
               <option key={level} value={level}>
-                {tt(language, TC_SENSITIVITY_LABEL_KEYS[level])}
+                {tt(language, TC_SENSITILITY_LABEL_KEYS[level])}
               </option>
             ))}
           </select>
@@ -494,7 +494,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
 
         <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: 12, alignItems: 'end' }}>
           <label style={{ display: 'grid', gap: 8 }} htmlFor="accentColor">
-            <span className="field-label" style={{ margin: 0 }}>Accent custom</span>
+            <span className="field-label" style={{ margin: 0 }}>Custom accent</span>
             <input
               disabled={loading || saving}
               id="accentColor"

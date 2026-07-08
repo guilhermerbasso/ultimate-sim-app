@@ -115,7 +115,7 @@ export function isEditableTarget(target: EventTarget | null): boolean {
 
 // Optional image-icon hook. A view MAY expose an `iconImage` URL; when present we
 // render it as an <img> and gracefully fall back to the built-in SVG icon if the
-// image fails to load. The field is read defensively so we do NOT have to edit
+// image fails to load. The field is read defensively so we must not edit
 // ViewDef in views/registry.tsx (owned by another track). Real images are added
 // later. TODO(icons): add an optional `iconImage?: string` to ViewDef in
 // views/registry.tsx to actually populate these — this renderer already supports
@@ -362,7 +362,7 @@ function App(): ReactElement {
   }, [language])
 
   // Global keyboard shortcuts: Ctrl/Cmd+K opens the command palette, Ctrl/Cmd+B
-  // collapses/expands the sidebar rail. The two keys do not clash with each other.
+  // collapses/expands the sidebar rail. The two keys never clash with each other.
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (!(event.ctrlKey || event.metaKey) || isEditableTarget(event.target)) return

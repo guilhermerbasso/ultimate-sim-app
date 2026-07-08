@@ -190,7 +190,7 @@ const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =>
     try {
       const saved = await window.ipc.invoke<SoundsConfig>(SOUNDSHIFT_CHANNELS.clearLearned)
       setConfig(saved)
-      showToast('Aprendizado de RPM por marcha resetado.', 'success')
+      showToast('Learned RPM by gear reset.', 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -457,20 +457,20 @@ function SoundshiftPanel({
             checked={useIracingIndicator}
             onChange={(event) => onCommit(
               { defaultMode: event.target.checked ? 'shiftLight' : 'rpm' },
-              event.target.checked ? 'Soundshift using o indicador de troca do iRacing.' : 'Soundshift using alvo de RPM aprendido/manual.'
+              event.target.checked ? 'Soundshift using the iRacing shift indicator.' : 'Soundshift using learned/manual target RPM.'
             )}
             type="checkbox"
           />
         </label>
         <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, margin: 0 }}>
           {useIracingIndicator
-            ? 'O bipe segue o indicador de shift light do próprio iRacing (ShiftIndicatorPct ≥ limiar). Quando o yes no fornece esse sinal, cai automaticamente para o alvo de RPM aprendido/manual por marcha.'
-            : 'O bipe usa o alvo de RPM aprendido/manual por marcha. Ative para priorizar o indicador de troca do iRacing quando disponível.'}
+            ? 'The beep follows iRacing?s own shift light indicator (ShiftIndicatorPct ? threshold). When the sim does not provide that signal, it automatically falls back to the learned/manual target RPM by gear.'
+            : 'The beep uses the learned/manual target RPM by gear. Enable this to prioritize the iRacing shift indicator when available.'}
         </p>
         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, margin: 0 }}>
           {iracingProvidingShift
-            ? `iRacing fornecendo sinal de troca agora · upshift ${formatRpm(iracingShiftRpm)} · indicador ${formatPct(liveShiftPct)}`
-            : `Sem sinal de troca do yes agora — usaria o alvo de RPM aprendido/manual${liveShiftPct != null ? ` (indicador ${formatPct(liveShiftPct)})` : ''}.`}
+            ? `iRacing is providing a shift signal now · upshift ${formatRpm(iracingShiftRpm)} · indicator ${formatPct(liveShiftPct)}`
+            : `No sim shift signal now ? would use the learned/manual target RPM${liveShiftPct != null ? ` (indicator ${formatPct(liveShiftPct)})` : ''}.`}
         </p>
       </div>
 
@@ -480,20 +480,20 @@ function SoundshiftPanel({
           <input checked={config.autoLearn} onChange={(event) => onCommit({ autoLearn: event.target.checked })} type="checkbox" />
         </label>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>Apaga o RPM de troca aprendido por marcha de todos os carros.</span>
-          <button disabled={busy} onClick={onResetLearned} style={ghostButton} type="button">Resetar aprendizado</button>
+          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>Clears the learned shift RPM by gear for all cars.</span>
+          <button disabled={busy} onClick={onResetLearned} style={ghostButton} type="button">Reset learning</button>
         </div>
         <label style={{ display: 'grid', gap: 6 }}>
           <span style={label}>Default mode</span>
           <select onChange={(event) => onCommit({ defaultMode: event.target.value as SoundshiftMode })} style={inputStyle} value={config.defaultMode}>
             <option value="exact">Exato no shift point</option>
-            <option value="redlineOffset">Antes do redline (offset RPM)</option>
+            <option value="redlineOffset">Before redline (RPM offset)</option>
             <option value="shiftLight">iRacing shift indicator (shiftIndicatorPct)</option>
             <option value="rpm">Target / learned RPM</option>
           </select>
         </label>
         <NumberField labelText="Default threshold" min={0.5} max={1} step={0.01} value={config.defaultThresholdPct} onChange={(defaultThresholdPct) => onLocalChange({ defaultThresholdPct })} onCommit={() => onCommit({ defaultThresholdPct: config.defaultThresholdPct })} />
-        <NumberField labelText="RPM antes do redline (offset)" min={0} max={2000} step={10} value={config.defaultShiftOffsetRpm} onChange={(defaultShiftOffsetRpm) => onLocalChange({ defaultShiftOffsetRpm })} onCommit={() => onCommit({ defaultShiftOffsetRpm: config.defaultShiftOffsetRpm })} />
+        <NumberField labelText="RPM before redline (offset)" min={0} max={2000} step={10} value={config.defaultShiftOffsetRpm} onChange={(defaultShiftOffsetRpm) => onLocalChange({ defaultShiftOffsetRpm })} onCommit={() => onCommit({ defaultShiftOffsetRpm: config.defaultShiftOffsetRpm })} />
       </div>
       <PanelButtons busy={busy} onSave={() => onCommit(config, 'Soundshift settings saved.')} onTest={onTest} />
     </div>
@@ -562,7 +562,7 @@ function ControlPanel({
         busy={busy}
         enabled={config.enabled}
         title={isAbs ? 'ABS engaging' : 'TCS in use'}
-        description={isAbs ? 'Uses only absActive as a true intervention signal plus brake threshold. If the yes does not expose ABS activity, the cue stays quiet.' : 'Uses only tcActive as a true intervention signal plus throttle threshold. If the yes does not expose TC activity, the cue stays quiet.'}
+        description={isAbs ? 'Uses only absActive as a true intervention signal plus brake threshold. If the sim does not expose ABS activity, the cue stays quiet.' : 'Uses only tcActive as a true intervention signal plus throttle threshold. If the sim does not expose TC activity, the cue stays quiet.'}
         onToggle={() => onCommit({ enabled: !config.enabled }, config.enabled ? `${id.toUpperCase()} cue paused.` : `${id.toUpperCase()} cue enabled.`)}
       />
       <SoundFields config={config} onCommit={onCommit} onLocalChange={onLocalChange} />
@@ -697,8 +697,8 @@ function AssistTelemetryNote({ tab, live }: { tab: SoundsTab; live: TelemetrySna
   const text = tab === 'incident'
     ? 'Incident cue relies on incidentCount increasing. Missing incidentCount is inactive.'
     : tab === 'abs'
-      ? 'ABS cue relies on the yes exposing absActive as actual intervention. Missing ABS activity stays quiet rather than beeping from an enabled state.'
-      : 'TCS cue relies on the yes exposing tcActive as actual intervention. Missing TC activity stays quiet rather than beeping from an enabled/toggle state.'
+      ? 'ABS cue relies on the sim exposing absActive as actual intervention. Missing ABS activity stays quiet rather than beeping from an enabled state.'
+      : 'TCS cue relies on the sim exposing tcActive as actual intervention. Missing TC activity stays quiet rather than beeping from an enabled/toggle state.'
   return (
     <div style={{ ...panel,  }}>
       <strong>{live?.connected ? 'Telemetry connected' : 'Waiting for telemetry'}</strong>
@@ -737,7 +737,7 @@ function CarTuningCard({
           >
             <option value="">Follow global default</option>
             <option value="exact">Exato no shift point</option>
-            <option value="redlineOffset">Antes do redline</option>
+            <option value="redlineOffset">Before redline</option>
             <option value="shiftLight">Shift light</option>
             <option value="rpm">RPM</option>
           </select>
@@ -751,7 +751,7 @@ function CarTuningCard({
           <input max={1} min={0.5} onChange={(event) => onChange({ thresholdPct: Number(event.target.value) })} step={0.01} style={inputStyle} type="number" value={car.thresholdPct ?? ''} />
         </label>
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={label}>RPM antes do redline</span>
+          <span style={label}>RPM before redline</span>
           <input max={2000} min={0} onChange={(event) => onChange({ shiftOffsetRpm: event.target.value === '' ? undefined : Number(event.target.value) })} placeholder="auto" step={10} style={inputStyle} type="number" value={car.shiftOffsetRpm ?? ''} />
         </label>
       </div>

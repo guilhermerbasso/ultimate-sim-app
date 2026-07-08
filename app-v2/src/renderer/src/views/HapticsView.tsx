@@ -237,7 +237,7 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
             <Tile labelText="Brake" value={pct(live?.brake)} />
             <Tile labelText="ABS" value={live?.absActive == null ? 'n/d' : live.absActive ? 'yes' : 'no'} />
             <Tile labelText="TC" value={live?.tcActive == null ? 'n/d' : live.tcActive ? 'yes' : 'no'} />
-            <Tile labelText="Accel long." value={`${num(frame.longAccelMs2)} m/s²`} />
+            <li>Native <strong>longAccel / latAccel</strong> (currently derived from speed/yaw) ?? impacts and curbs.</li>
             <Tile labelText="Accel lat." value={`${num(frame.latAccelMs2)} m/s²`} />
           </div>
           <span style={label}>Sinais derivados</span>
@@ -263,7 +263,7 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
           onTest={async (effectId) => {
             try {
               await window.ipc.invoke<boolean>(HAPTICS_CHANNELS.testArduino, effectId)
-              showToast('Buzz de teste enviado ao Arduino.', 'success')
+              showToast('Test buzz sent to Arduino.', 'success')
             } catch (error) {
               showToast(getErrorMessage(error), 'error')
             }
@@ -271,15 +271,15 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
         />
 
         <article style={panel}>
-          <span style={label}>Fidelidade da telemetria</span>
+          <span style={label}>Telemetry fidelity</span>
           <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, margin: '8px 0 0' }}>
-            Estes efeitos melhoram muito se o provider expuser, no <code>TelemetrySnapshot</code>:
+            These effects improve significantly when the provider exposes these fields in <code>TelemetrySnapshot</code>:
           </p>
           <ul style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, margin: '8px 0 0', paddingLeft: 18, lineHeight: 1.6 }}>
-            <li><strong>longAccel / latAccel</strong> nativos (hoje derivados de speed/yaw) — impactos e zebras.</li>
-            <li><strong>vertAccel</strong> (vertical acceleration) — zebras/rumble de verdade.</li>
-            <li><strong>wheelSlip / velocidade por roda</strong> — trava e derrapagem precisas.</li>
-            <li><strong>sinal de zebra/rumble</strong> dedicado, quando o yes oferecer.</li>
+            <li>Native <strong>longAccel / latAccel</strong> (currently derived from speed/yaw) — impacts and curbs.</li>
+            <li><strong>vertAccel</strong> (vertical acceleration) — real curbs/rumble.</li>
+            <li><strong>wheelSlip / per-wheel speed</strong> — precise lockup and sliding.</li>
+            <li>Dedicated <strong>curb/rumble signal</strong>, when the sim provides it.</li>
           </ul>
         </article>
       </div>
@@ -309,14 +309,14 @@ function MasterBar({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
         <div>
           <strong style={{ fontSize: 16 }}>Global output</strong>
-          <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, margin: '2px 0 0' }}>Liga o engine e roteia ao amplificador.</p>
+          <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, margin: '2px 0 0' }}>Turns on the engine and routes it to the amplifier.</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button disabled={busy} onClick={onToggleEnabled} style={{ ...primaryButton, background: config.enabled ? 'var(--accent-primary)' : 'transparent', color: config.enabled ? 'var(--text-on-accent)' : 'var(--text-primary)', border: config.enabled ? 'none' : '1px solid var(--border-strong)' }} type="button">
-            {config.enabled ? 'Ativo' : 'Ligar'}
+            {config.enabled ? 'Active' : 'Turn on'}
           </button>
           <button disabled={busy} onClick={onToggleMute} style={{ ...primaryButton, background: config.muted ? 'var(--accent-danger)' : 'transparent', color: config.muted ? 'var(--text-on-accent)' : 'var(--text-primary)', border: config.muted ? 'none' : '1px solid var(--border-strong)' }} type="button">
-            {config.muted ? 'Mudo' : 'Mute'}
+            {config.muted ? 'Muted' : 'Mute'}
           </button>
         </div>
       </div>
@@ -460,16 +460,16 @@ function ArduinoPanel({
           <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, margin: '4px 0 0' }}>Discrete buzzes (vibration motor) in the button box/wheel. Optional — audio bass shaker is the main output.</p>
         </div>
         <button disabled={busy} onClick={() => onCommit({ enabled: !config.arduino.enabled })} style={{ ...primaryButton, background: config.arduino.enabled ? 'var(--accent-primary)' : 'transparent', color: config.arduino.enabled ? 'var(--text-on-accent)' : 'var(--text-primary)', border: config.arduino.enabled ? 'none' : '1px solid var(--border-strong)' }} type="button">
-          {config.arduino.enabled ? 'Ativo' : 'Ligar'}
+          {config.arduino.enabled ? 'Active' : 'Turn on'}
         </button>
       </div>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 12 }}>
         <label style={{ display: 'grid', gap: 6, flex: 1 }}>
-          <span style={label}>Dispositivo serial</span>
+          <span style={label}>Serial device</span>
           <select disabled={busy} onChange={(event) => onCommit({ deviceId: event.target.value })} style={inputStyle} value={config.arduino.deviceId}>
             <option value="">Select…</option>
-            {missing ? <option value={config.arduino.deviceId}>Dispositivo indisponível</option> : null}
+            {missing ? <option value={config.arduino.deviceId}>Device unavailable</option> : null}
             {devices.map((device) => (
               <option key={device.id} value={device.id}>{device.label}{device.connected ? '' : ' (offline)'}</option>
             ))}

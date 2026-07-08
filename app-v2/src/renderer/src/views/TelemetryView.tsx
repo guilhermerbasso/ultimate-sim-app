@@ -10,7 +10,7 @@ const SOURCES: { id: TelemetrySource; labelKey?: string; fallback: string }[] = 
   { id: 'mock', labelKey: 'telemetry.source.mock', fallback: 'Demo (mock)' },
   { id: 'iracing', fallback: 'iRacing' },
   { id: 'acc', fallback: 'ACC' },
-  { id: 'ac', fallback: 'Assetto Colorsa' },
+  { id: 'ac', fallback: 'Assetto Corsa' },
   { id: 'ams2', fallback: 'AMS2' }
 ]
 

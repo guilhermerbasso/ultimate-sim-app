@@ -17,6 +17,7 @@ export type OverlayWidgetId =
   | 'inputsTrace'
   | 'tyresDetail'
   | 'trackMap'
+  | 'trackMapNav3D'
   | 'proximityRadar'
   | 'carSilhouetteRadar'
   | 'sessionWeather'
@@ -1043,6 +1044,15 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
     description: 'Mini map by lap distance with nearby cars.',
     defaultPosition: { x: 690, y: 720, width: 500, height: 210 },
     requires: ['lapDistPct']
+  },
+  {
+    id: 'trackMapNav3D',
+    title: '3D navigation map',
+    description: 'Track-up Waze-style 3D ribbon map with follow camera, zoom, and rival markers.',
+    defaultPosition: { x: 620, y: 520, width: 680, height: 400 },
+    requires: ['lapDistPct', 'drivers'],
+    category: 'map',
+    tags: ['3d', 'nav', 'neon', 'track-up']
   },
   {
     id: 'proximityRadar',

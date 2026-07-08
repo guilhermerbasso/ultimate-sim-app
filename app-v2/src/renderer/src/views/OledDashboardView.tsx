@@ -162,7 +162,7 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
     try {
       const saved = await window.ipc.invoke<OledDashboardConfig>('oled:setStreaming', enabled)
       setConfig(saved)
-      showToast(enabled ? 'Streaming OLED ativo.' : 'Streaming OLED parado. Porta liberada.', 'success')
+      showToast(enabled ? 'OLED streaming active.' : 'OLED streaming stopped. Port released.', 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -199,7 +199,7 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
               }}
               type="button"
             >
-              {config.enabled ? 'Parar' : 'Enable'} streaming
+              {config.enabled ? 'Stop' : 'Enable'} streaming
             </button>
           </div>
         </div>
@@ -275,7 +275,7 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
                 <span>{preset.name}</span>
                 <button disabled={busy} onClick={() => void movePreset(preset.id, -1)} style={miniButton} type="button">↑</button>
                 <button disabled={busy} onClick={() => void movePreset(preset.id, 1)} style={miniButton} type="button">↓</button>
-                <button disabled={busy} onClick={() => void setActivePage(index)} style={miniButton} type="button">Ver</button>
+                <button disabled={busy} onClick={() => void setActivePage(index)} style={miniButton} type="button">View</button>
               </div>
             ))}
           </div>
@@ -353,8 +353,8 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
 
             <p style={{ color: 'rgba(255,255,255,0.56)', fontSize: 12, marginBottom: 0 }}>
               {connectedDevice
-                ? `Porta ${connectedDevice.path}. Feche o streaming antes de usar SimHub.`
-                : 'Conecte o ButtonBox em Devices antes de ativar o streaming.'}
+                ? `Port ${connectedDevice.path}. Close streaming before using SimHub.`
+                : 'Connect the ButtonBox in Devices before enabling streaming.'}
               {status?.lastError ? ` Error: ${status.lastError}` : ''}
             </p>
           </div>

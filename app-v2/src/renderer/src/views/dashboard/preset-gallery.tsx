@@ -1,6 +1,6 @@
-// Galeria de presets: thumbnails reais gerados a partir do modelo do dashboard
+// Preset gallery: real thumbnails generated from the dashboard model
 // (wireframe escalado), filtros por tag e "duplicar e editar". Mantida leve —
-// desenha um retangulo por elemento (sem montar os widgets completos).
+// draws one rectangle per element (without mounting full widgets).
 
 import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
@@ -23,7 +23,7 @@ export interface PresetEntry {
 const THUMB_W = 248
 const THUMB_H = 140
 
-// Color do wireframe por "familia" de elemento.
+// Wireframe color by element family.
 function elementColor(type: DashboardElementType): string {
   if (type === 'shiftbar' || type === 'shiftlights') return '#FFB000'
   if (type === 'gearcluster') return ACCENT
@@ -37,10 +37,10 @@ function elementColor(type: DashboardElementType): string {
   return '#2b6f66'
 }
 
-// Thumbnail real do preset. Elementos `overlaywidget` (os dashboards full-frame
-// GT3/LMU) sao montados de verdade — escala via `transform` sobre o board em
-// tamanho natural — para que a galeria not mostre um retangulo achatado "vazio".
-// Os demais elements seguem como wireframe leve (um retangulo por elemento).
+// Real preset thumbnail. Elements `overlaywidget` (os dashboards full-frame
+// GT3/LMU) are actually mounted ? scaled via `transform` over the board at
+// natural size ? so the gallery does not show a flattened empty rectangle.
+// The other elements remain lightweight wireframes (one rectangle per element).
 function PresetThumb({ dash }: { dash: Dashboard }): ReactElement {
   const scale = Math.min(THUMB_W / dash.width, THUMB_H / dash.height)
   const w = dash.width * scale

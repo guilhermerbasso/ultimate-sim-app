@@ -170,7 +170,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
         <article className="panel-card hero-card">
           <div className="panel-heading-row">
             <div>
-              <span className="panel-label">SIM-X principal · 115200 8N1</span>
+              <span className="panel-label">Primary SIM-X · 115200 8N1</span>
               <h3>{tt(language, 'devices.primaryButtonBox')}</h3>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -224,7 +224,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
                   <small>{port.friendlyName || port.manufacturer || tt(language, 'devices.unknownManufacturer')}</small>
                   {(port.vendorId || port.productId) && (
                     <small>
-                      VID:{port.vendorId || '????'} · PID:{port.productId || '????'}
+                      VID:{port.vendorId || '?'} · PID:{port.productId || '?'}
                     </small>
                   )}
                 </span>
@@ -262,19 +262,19 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
         </article>
 
         <article className="panel-card stats-card">
-          <span className="panel-label">Status do SIM-X</span>
+          <span className="panel-label">SIM-X status</span>
           {connectedDevice ? (
             <dl className="status-list">
               <div>
-                <dt>Nome</dt>
+                <dt>Name</dt>
                 <dd>{connectedDevice.name}</dd>
               </div>
               <div>
-                <dt>Porta</dt>
+                <dt>Port</dt>
                 <dd>{connectedDevice.path}</dd>
               </div>
               <div>
-                <dt>Fabricante</dt>
+                <dt>Manufacturer</dt>
                 <dd>{connectedDevice.manufacturer ?? '—'}</dd>
               </div>
               <div>
@@ -286,7 +286,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
                 <dd>{connectedDevice.firmwareVersion ?? 'SIM-X (SimHub protocol)'}</dd>
               </div>
               <div>
-                <dt>Protocolo</dt>
+                <dt>Protocol</dt>
                 <dd>{connectedDevice.protocolVersion ? `v${connectedDevice.protocolVersion}` : 'SimHub one-letter'}</dd>
               </div>
               <div>
@@ -300,7 +300,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
                 </dd>
               </div>
               <div>
-                <dt>Connected em</dt>
+                <dt>Connected at</dt>
                 <dd>{new Date(connectedDevice.connectedAt).toLocaleString()}</dd>
               </div>
             </dl>

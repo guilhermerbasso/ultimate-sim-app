@@ -185,26 +185,26 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
       <header style={{ display: 'grid', gap: 6 }}>
         <h1 style={{ margin: 0, fontFamily: '"Rajdhani", sans-serif', fontSize: 24, color: 'var(--text-primary)' }}>3D Spotter</h1>
         <p style={{ margin: 0, color: 'var(--text-muted)', maxWidth: 760 }}>
-          Spatial audio (Web Audio HRTF) que toca durante toda a sessão: você <strong>hear</strong> nearby cars positioned around you
-          — left/right by side, near/far by volume, front/rear by tone. Use <strong>headphones</strong> para a
-          melhor imagem 3D. Complementa (no substitui) os avisos falados do Voice Spotter.
+          Spatial audio (Web Audio HRTF) that runs throughout the session: you <strong>hear</strong> nearby cars positioned around you
+          — left/right by side, near/far by volume, front/rear by tone. Use <strong>headphones</strong> for the
+          best 3D image. Complements (does not replace) Voice Spotter spoken alerts.
         </p>
       </header>
 
       <section style={{ ...panel, display: 'grid', gap: 16 }}>
         <ExplainerBlock title="What is 3D Spotter">
-          Um spotter de <strong>pure-audio</strong>: instead of talking, ele coloca um som suave na posição de cada carro nearer de você, como se
-          o carro estivesse mesmo ali no espaço. É a sua "visão periférica" sonora em curvas, ultrapassagens e brigas lado a lado.
+          A <strong>pure-audio</strong> spotter: instead of talking, it places a soft sound at the position of each car near you, as if
+          the car were really there in space. It's your audible "peripheral vision" in corners, overtakes, and side-by-side battles.
         </ExplainerBlock>
-        <ExplainerBlock title="Como funciona">
+        <ExplainerBlock title="How it works">
           iRacing telemetry reports where nearby cars are. The app converts this into positioned sounds (HRTF): a car to the
-          <strong> left</strong> soa à left, à <strong>right</strong> soa à right, <strong>behind</strong> sounds lower-pitched, and the
-          mais <strong>nearer</strong>, mais alto. Sem nenhum carro por nearer, fica <strong>silent</strong>.
+          <strong> left</strong> sounds on the left, one on the <strong>right</strong> sounds on the right, <strong>behind</strong> sounds lower-pitched, and
+          the <strong>nearer</strong> it is, the louder it gets. With no nearby cars, it stays <strong>silent</strong>.
         </ExplainerBlock>
-        <ExplainerBlock title="Como usar">
+        <ExplainerBlock title="How to use">
           It comes <strong>on</strong> by default and runs on its own on any screen. Because of a browser rule, audio unlocks only after your
-          <strong> first click</strong> em qualquer lugar do app — depois disso funciona o resto da sessão. Coloque os fones, ajuste o
-          volume abaixo e teste a posição nos botões.
+          <strong> first click</strong> anywhere in the app — after that it works for the rest of the session. Put on headphones, adjust the
+          volume below, and test the positioning with the buttons.
         </ExplainerBlock>
       </section>
 
@@ -239,7 +239,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
             <span style={{ position: 'absolute', bottom: 6, left: '50%', transform: 'translateX(-50%)', ...label }}>rear</span>
             {cues.map((cue) => radarDot(cue, config))}
           </div>
-          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{cues.length} carro(s) com cue ativo</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{cues.length} car(s) with active cues</span>
         </div>
 
         <div style={{ display: 'grid', gap: 16 }}>
@@ -254,7 +254,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
               }}
               type="button"
             >
-              {config.enabled ? '3D Spotter on' : '3D Spotter deson'}
+              {config.enabled ? '3D Spotter on' : '3D Spotter off'}
             </button>
             <span
               style={{
@@ -331,7 +331,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
               onCommit={(maxDistanceM) => void persist({ maxDistanceM })}
             />
             <Slider
-              text="Largura do pan (m)"
+              text="Pan width (m)"
               min={2}
               max={20}
               step={0.5}

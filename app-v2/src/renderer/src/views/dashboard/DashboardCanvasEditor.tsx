@@ -1,7 +1,7 @@
 // Reusable FULL dashboard editing canvas.
 //
 // A self-contained editor surface that lets the user ADD widgets (from the shared
-// catalog gallery), REMOVE, MOVE, RESIZE and CONFIGURE them on a scaled board —
+// catalog gallery), REMOLE, MOLE, RESIZE and CONFIGURE them on a scaled board —
 // exactly the operations the normal builder offers. It is intentionally view-
 // agnostic: it edits a plain `{ width, height, bg, elements }` board and reports
 // changes through `onChange`. The per-moment FRAME editor (AdaptiveDashboardView)
@@ -93,7 +93,7 @@ function FallbackTile({ element }: { element: DashboardElement }): ReactElement 
 // editor/IA-preview canvas, exactly like DashboardRoot's live `ElementOverlayWidget`.
 // The six "GT3 — …"/"LMU — …" preset dashboards embed a single `overlaywidget`
 // element carrying a `widgetId`; without this the editor canvas fell back to a gray
-// FallbackTile ("dashboards sem nada dentro"). Resolve the overlay widget by id
+// FallbackTile ("dashboards with nothing inside"). Resolve the overlay widget by id
 // and feed it the live/preview snapshot with a locked config stub. Unknown id →
 // labelled tile (never crash a board).
 function OverlayWidgetEmbed({ element }: { element: DashboardElement }): ReactElement {
@@ -655,7 +655,7 @@ function Inspector({
           checked={element.visible !== false}
           onChange={(e) => onPatch({ visible: e.target.checked ? undefined : false })}
         />
-        Visivel
+        Lisivel
       </label>
 
       <button type="button" onClick={onRemove} style={dangerBtn}>

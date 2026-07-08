@@ -175,11 +175,11 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
     try {
       const folder = await window.ipc.invoke<string | undefined>(SETUPS_CHANNELS.pickFolder)
       if (!folder) return
-      const labelText = folder.split(/[\\/]/).pop() || 'Pasta local'
+      const labelText = folder.split(/[\\/]/).pop() || 'Local folder'
       const source: SetupSource = { id: createId('folder'), kind: 'folder', label: labelText, path: folder }
       await patchConfig({ sources: [...config.sources, source] })
       setSelectedSourceId(source.id)
-      showToast('Fonte local adicionada.', 'success')
+      showToast('Local source added.', 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -196,7 +196,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
       await patchConfig({ sources: [...config.sources, source] })
       setUrlDraft('')
       setSelectedSourceId(source.id)
-      showToast('Fonte por URL adicionada.', 'success')
+      showToast('URL source added.', 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -212,7 +212,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
       }
       await patchConfig(patch)
       if (selectedSourceId === sourceId) setSelectedSourceId(nextSources[0]?.id ?? '')
-      showToast('Fonte removida.', 'success')
+      showToast('Source removed.', 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -264,7 +264,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
   async function toggleAutoInstall(enabled: boolean): Promise<void> {
     try {
       await patchConfig({ autoInstall: enabled, autoInstallSourceId: enabled ? config.autoInstallSourceId || folderSources[0]?.id : config.autoInstallSourceId })
-      showToast(enabled ? 'Auto-install ativado.' : 'Auto-install desativado.', 'success')
+      showToast(enabled ? 'Auto-install enabled.' : 'Auto-install disabled.', 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -276,7 +276,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
       const result = await window.ipc.invoke<SetupLibraryResult>(SETUP_MANAGER_CHANNELS.libraryList)
       setLibraryRoot(result.root)
       setLibraryItems(result.items)
-      if (showSuccess) showToast('Biblioteca atualizada.', 'success')
+      if (showSuccess) showToast('Library updated.', 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
       setLibraryItems([])
@@ -331,8 +331,8 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <SectionExportImport sectionId="setups" label="Setups (biblioteca)" onImported={() => void refreshAll()} />
-          <SectionExportImport sectionId="setup-manager" label="Gerenciador de setups" onImported={() => void refreshAll()} />
+          <SectionExportImport sectionId="setups" label="Setups (library)" onImported={() => void refreshAll()} />
+          <SectionExportImport sectionId="setup-manager" label="Setup manager" onImported={() => void refreshAll()} />
           <button style={button} type="button" onClick={() => void window.ipc.invoke(SETUPS_CHANNELS.openSetupsDir)}>
             Open setups folder
           </button>
@@ -341,7 +341,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
 
       <div className="view-tabs" style={{ display: 'flex', gap: 8, borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
         <TabButton active={activeTab === 'install'} label="Instalar" onClick={() => setActiveTab('install')} />
-        <TabButton active={activeTab === 'library'} label="Biblioteca" onClick={() => setActiveTab('library')} />
+        <TabButton active={activeTab === 'library'} label="Library" onClick={() => setActiveTab('library')} />
         <TabButton active={activeTab === 'compare'} label="Comparar" onClick={() => setActiveTab('compare')} />
       </div>
 
@@ -366,8 +366,8 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
         <section style={card}>
           <div style={row}>
             <div style={{ flex: 1 }}>
-              <div style={label}>Carro detectado</div>
-              <strong>{detected.carName || 'Sem telemetria no momento'}</strong>
+              <div style={label}>Detected car</div>
+              <strong>{detected.carName || 'No telemetry right now'}</strong>
               {suggestedFolder ? <span style={{ opacity: 0.72 }}> → {suggestedFolder}</span> : null}
             </div>
             <label style={row}>
@@ -380,26 +380,26 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
         <section style={card}>
           <div style={{ ...row, justifyContent: 'space-between' }}>
             <div>
-              <div style={label}>Fontes</div>
-              <h3 style={{ margin: '4px 0 0' }}>Biblioteca de setups</h3>
+              <div style={label}>Fonts</div>
+              <h3 style={{ margin: '4px 0 0' }}>Setup library</h3>
             </div>
-            <button style={primaryButton} type="button" onClick={() => void addFolderSource()}>Add pasta</button>
+            <button style={primaryButton} type="button" onClick={() => void addFolderSource()}>Add folder</button>
           </div>
           <div style={{ ...row, marginTop: 12 }}>
-            <input style={{ ...input, flex: 1, minWidth: 260 }} value={urlDraft} onChange={(event) => setUrlDraft(event.target.value)} placeholder="https://exemplo.com/setups.json ou setup.sto" />
+            <input style={{ ...input, flex: 1, minWidth: 260 }} value={urlDraft} onChange={(event) => setUrlDraft(event.target.value)} placeholder="https://example.org/setups.json or setup.sto" />
             <button style={button} type="button" onClick={() => void addUrlSource()}>Add URL</button>
           </div>
           <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
             {config.sources.map((source) => (
               <div key={source.id} style={{ ...row, justifyContent: 'space-between', padding: 10, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 'var(--radius-sm)' }}>
                 <button style={{ ...button, borderColor: selectedSourceId === source.id ? 'var(--accent-primary)' : 'rgba(255,255,255,0.14)' }} type="button" onClick={() => setSelectedSourceId(source.id)}>
-                  {source.kind === 'folder' ? 'Pasta' : 'URL'} · {source.label}
+                  {source.kind === 'folder' ? 'Folder' : 'URL'} · {source.label}
                 </button>
                 <small style={{ opacity: 0.62, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{source.path ?? source.url}</small>
                 <button style={button} type="button" onClick={() => void removeSource(source.id)}>Remove</button>
               </div>
             ))}
-            {config.sources.length === 0 && <p style={{ opacity: 0.7 }}>Nenhuma fonte cadastrada ainda.</p>}
+            {config.sources.length === 0 && <p style={{ opacity: 0.7 }}>No sources added yet.</p>}
           </div>
         </section>
 
@@ -407,7 +407,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
           <div style={row}>
             <label style={row}>
               <input checked={config.autoInstall} disabled={folderSources.length === 0} onChange={(event) => void toggleAutoInstall(event.target.checked)} type="checkbox" />
-              auto-install de novos .sto
+              auto-install new .sto files
             </label>
             <select
               style={input}
@@ -457,9 +457,9 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
         <section style={card}>
           <div style={{ ...row, justifyContent: 'space-between' }}>
             <div>
-              <div style={label}>Biblioteca local</div>
+              <div style={label}>Local library</div>
               <h3 style={{ margin: '4px 0 0' }}>{libraryItems.length} setups indexados</h3>
-              <small style={{ opacity: 0.62 }}>{libraryRoot || 'Pasta ainda no carregada'}</small>
+              <small style={{ opacity: 0.62 }}>{libraryRoot || 'Folder not loaded yet'}</small>
             </div>
             <button disabled={libraryBusy} style={button} type="button" onClick={() => void loadLibrary()}>Refresh</button>
           </div>
@@ -490,7 +490,7 @@ export default function SetupsView({ showToast }: AppViewProps): ReactElement {
               <div style={label}>Comparar setups</div>
               <h3 style={{ margin: '4px 0 0' }}>Delta-App style diff</h3>
             </div>
-            <button disabled={libraryBusy} style={button} type="button" onClick={() => void loadLibrary()}>Refresh biblioteca</button>
+            <button disabled={libraryBusy} style={button} type="button" onClick={() => void loadLibrary()}>Refresh library</button>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, marginTop: 12, alignItems: 'end' }}>
             <SetupSelect label="Setup A" items={libraryItems} value={compareLeftPath} onChange={setCompareLeftPath} />
@@ -519,7 +519,7 @@ function LibraryItemButton({ active, item, onClick }: { active: boolean; item: S
     <button type="button" onClick={onClick} style={{ ...button, textAlign: 'left', borderColor: active ? 'var(--accent-primary)' : 'rgba(255,255,255,0.08)', background: active ? 'rgba(var(--accent-rgb),0.12)' : 'rgba(255,255,255,0.02)' }}>
       <strong>{item.fileName}</strong>
       <div style={{ opacity: 0.62, fontSize: 12 }}>{item.relativePath}</div>
-      <div style={{ opacity: 0.72, fontSize: 12 }}>{item.metadata.car || item.carFolder || 'Carro no definido'} {item.metadata.track ? `· ${item.metadata.track}` : ''}{tags}</div>
+      <div style={{ opacity: 0.72, fontSize: 12 }}>{item.metadata.car || item.carFolder || 'Car not defined'} {item.metadata.track ? `· ${item.metadata.track}` : ''}{tags}</div>
     </button>
   )
 }
@@ -527,13 +527,13 @@ function LibraryItemButton({ active, item, onClick }: { active: boolean; item: S
 function MetadataEditor({ disabled, metadata, onChange }: { disabled: boolean; metadata: SetupMetadata; onChange(metadata: SetupMetadata): void }): ReactElement {
   return (
     <div style={{ display: 'grid', gap: 10 }}>
-      <Field label="Carro" disabled={disabled} value={metadata.car} onChange={(value) => onChange({ ...metadata, car: value })} />
-      <Field label="Pista" disabled={disabled} value={metadata.track} onChange={(value) => onChange({ ...metadata, track: value })} />
+      <Field label="Car" disabled={disabled} value={metadata.car} onChange={(value) => onChange({ ...metadata, car: value })} />
+      <Field label="Track" disabled={disabled} value={metadata.track} onChange={(value) => onChange({ ...metadata, track: value })} />
       <Field label="Tags" disabled={disabled} value={metadata.tags.join(', ')} placeholder="qualy, race, baseline" onChange={(value) => onChange({ ...metadata, tags: value.split(',').map((tag) => tag.trim()).filter(Boolean) })} />
       <label style={{ display: 'grid', gap: 6 }}>
         <span style={label}>Rating</span>
         <select disabled={disabled} style={input} value={metadata.rating} onChange={(event) => onChange({ ...metadata, rating: Number(event.target.value) })}>
-          {[0, 1, 2, 3, 4, 5].map((rating) => <option key={rating} value={rating}>{rating === 0 ? 'Sem rating' : `${rating}/5`}</option>)}
+          {[0, 1, 2, 3, 4, 5].map((rating) => <option key={rating} value={rating}>{rating === 0 ? 'No rating' : `${rating}/5`}</option>)}
         </select>
       </label>
       <label style={{ display: 'grid', gap: 6 }}>
@@ -618,7 +618,7 @@ function CarFolderInput({ folders, value, onChange }: { folders: string[]; value
         <option value="">Select folder</option>
         {folders.map((folder) => <option key={folder} value={folder}>{folder}</option>)}
       </select>
-      <input style={input} value={value} onChange={(event) => onChange(event.target.value)} placeholder="ou nova pasta do carro" />
+      <input style={input} value={value} onChange={(event) => onChange(event.target.value)} placeholder="or new car folder" />
     </div>
   )
 }

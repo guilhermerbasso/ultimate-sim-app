@@ -133,23 +133,23 @@ const TRACK_ANY = '__any__'
 
 const PROFILE_LABELS: Record<AnalysisProfile, { label: string; description: string }> = {
   compareBest: {
-    label: 'Comparar com minha melhor',
-    description: 'Sobrepõe laps vs a melhor e mostra delta cumulativo.'
+    label: 'Compare with my best',
+    description: 'Overlays laps against your best and shows cumulative delta.'
   },
   optimal: {
     label: 'Optimal lap',
-    description: 'Soma o melhor tempo de cada sector entre todas as laps.'
+    description: 'Sums the best sector time across all laps.'
   },
   lossMap: {
-    label: 'Onde perco tempo',
-    description: 'Identifica regiões da pista onde cada volta perde tempo, com dicas.'
+    label: 'Where I lose time',
+    description: 'Identifies track regions where each lap loses time, with tips.'
   }
 }
 
 const metricConfig: Record<MetricKey, { label: string; unit: string; min?: number; max?: number; toValue: (s: AnalysisLapSample) => number }> = {
-  speedKmh: { label: 'Velocidade', unit: 'km/h', toValue: (s) => s.speedKmh },
+  speedKmh: { label: 'Speed', unit: 'km/h', toValue: (s) => s.speedKmh },
   throttle: { label: 'Throttle', unit: '%', min: 0, max: 100, toValue: (s) => s.throttle * 100 },
-  brake: { label: 'Freio', unit: '%', min: 0, max: 100, toValue: (s) => s.brake * 100 }
+  brake: { label: 'Brake', unit: '%', min: 0, max: 100, toValue: (s) => s.brake * 100 }
 }
 
 function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
@@ -201,7 +201,7 @@ function trackKeyOf(name: string | undefined): string {
 }
 
 function trackLabelOf(name: string | undefined): string {
-  return name?.trim() || 'Pista desconhecida'
+  return name?.trim() || 'Unknown track'
 }
 
 function lapKey(ref: AnalysisLapRef): string {
@@ -244,7 +244,7 @@ function MetricChart({ metric, laps }: { metric: MetricKey; laps: AnalysisLap[] 
         <strong>{config.label}</strong>
         <span style={muted}>{fmtNumber(min)} – {fmtNumber(max)} {config.unit}</span>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} width="100%" role="img" aria-label={`${config.label} por distância da volta`}>
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" role="img" aria-label={`${config.label} by lap distance`}>
         <g transform={`translate(${padding.left} ${padding.top})`}>
           {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
             <g key={tick}>
@@ -297,10 +297,10 @@ function DeltaChart({ deltas, laps }: { deltas: AnalysisLapDelta[]; laps: Analys
   return (
     <div style={{ ...card, padding: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-        <strong>Delta cumulativo vs melhor</strong>
-        <span style={muted}>+{maxAbs.toFixed(2)}s acima | −{maxAbs.toFixed(2)}s abaixo</span>
+        <strong>Cumulative delta vs best</strong>
+        <span style={muted}>+{maxAbs.toFixed(2)}s above | −{maxAbs.toFixed(2)}s below</span>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} width="100%" role="img" aria-label="Delta cumulativo por distância">
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" role="img" aria-label="Cumulative delta by distance">
         <line x1={padding.left} x2={width - padding.right} y1={yZero} y2={yZero} stroke="rgba(255,255,255,0.32)" strokeDasharray="3 3" />
         <g transform={`translate(${padding.left} ${padding.top})`}>
           {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
@@ -349,7 +349,7 @@ function LapBadge({ lap }: { lap: AnalysisLap }): ReactElement {
     >
       <span style={{ width: 8, height: 8, borderRadius: 'var(--radius-sm)', background: lap.color }} />
       {lap.label}
-      {lap.isBest ? ' · melhor' : ''}
+      {lap.isBest ? ' · best' : ''}
       {lap.durationSec !== undefined ? ` · ${fmtTime(lap.durationSec)}` : ''}
     </span>
   )
@@ -357,7 +357,7 @@ function LapBadge({ lap }: { lap: AnalysisLap }): ReactElement {
 
 function LossPointList({ losses, laps }: { losses: AnalysisResult['losses']; laps: AnalysisLap[] }): ReactElement {
   if (losses.length === 0) {
-    return <div style={card}>Sem perdas calculadas (apenas a melhor volta selecionada?).</div>
+    return <div style={card}>No losses calculated (only the best lap selected?).</div>
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -368,7 +368,7 @@ function LossPointList({ losses, laps }: { losses: AnalysisResult['losses']; lap
           <div key={lap.id} style={{ ...card, borderColor: `${lap.color}66` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <LapBadge lap={lap} />
-              <span style={muted}>Total perdido: <strong style={{ color: 'var(--accent-warning)' }}>{fmtDelta(lapLoss.totalLossSec)}</strong></span>
+              <span style={muted}>Total lost: <strong style={{ color: 'var(--accent-warning)' }}>{fmtDelta(lapLoss.totalLossSec)}</strong></span>
             </div>
             {lapLoss.points.length === 0 ? (
               <p style={{ ...muted, margin: 0 }}>{lapLoss.summary.join(' ')}</p>
@@ -383,10 +383,10 @@ function LossPointList({ losses, laps }: { losses: AnalysisResult['losses']; lap
                       <span style={{ color: 'var(--accent-warning)', fontWeight: 700 }}>{fmtDelta(point.lossSec)}</span>
                     </div>
                     <div style={{ ...muted, display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                      <span>Vel pico {fmtNumber(point.primaryMaxSpeedKmh, 0)} km/h (best {fmtNumber(point.bestMaxSpeedKmh, 0)})</span>
-                      <span>Vel mín {fmtNumber(point.primaryMinSpeedKmh, 0)} (best {fmtNumber(point.bestMinSpeedKmh, 0)})</span>
+                      <span>Peak speed {fmtNumber(point.primaryMaxSpeedKmh, 0)} km/h (best {fmtNumber(point.bestMaxSpeedKmh, 0)})</span>
+                      <span>Min speed {fmtNumber(point.primaryMinSpeedKmh, 0)} (best {fmtNumber(point.bestMinSpeedKmh, 0)})</span>
                       <span>Avg throttle {Math.round(point.primaryAvgThrottle * 100)}% (best {Math.round(point.bestAvgThrottle * 100)}%)</span>
-                      <span>Freio pico {Math.round(point.primaryMaxBrake * 100)}% (best {Math.round(point.bestMaxBrake * 100)}%)</span>
+                      <span>Peak brake {Math.round(point.primaryMaxBrake * 100)}% (best {Math.round(point.bestMaxBrake * 100)}%)</span>
                     </div>
                     <ul style={{ margin: 0, paddingLeft: 18 }}>
                       {point.tips.map((tip, i) => (
@@ -604,7 +604,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
           const summary = await invoke<IbtFileSummary>('recording:loadIbt', file.path)
           summaries[file.path] = summary
         } catch (error) {
-          showToast(`Falha lendo ${file.fileName}: ${error instanceof Error ? error.message : String(error)}`, 'error')
+          showToast(`Failed to read ${file.fileName}: ${error instanceof Error ? error.message : String(error)}`, 'error')
         }
       }
       setIbtSummaries(summaries)
@@ -689,7 +689,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
 
   const importCsvReference = useCallback(async () => {
     if (!csvPath.trim()) {
-      showToast('Informe o caminho do CSV.', 'info')
+      showToast('Enter the CSV path.', 'info')
       return
     }
     setBusy(true)
@@ -772,7 +772,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
   // on live telemetry when enabled (no click needed on a fresh install) and the
   // button disables it to make "Parar" stick.
   const enableCoach = useCallback(
-    () => setCoachConfigPatch({ enabled: true }, 'Live Coach ativado (inicia automaticamente com telemetria).'),
+    () => setCoachConfigPatch({ enabled: true }, 'Live Coach enabled (starts automatically with telemetry).'),
     [setCoachConfigPatch]
   )
 
@@ -819,13 +819,13 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
         <div>
           <h3 style={{ margin: '0 0 6px' }}>Telemetry analysis</h3>
           <p style={{ ...muted, margin: 0 }}>
-            Combines app recordings com arquivos <code>.ibt</code> do iRacing. Choose the source, track
+            Combines app recordings with iRacing <code>.ibt</code> files. Choose the source, track
             and laps, then run an analysis profile to see where you can gain time.
           </p>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ ...muted, color: status?.recording ? 'var(--accent-primary)' : undefined }}>
-            {status?.recording ? `REC · ${status.activeSession?.sampleCount ?? 0} amostras` : 'Pronto para gravar'}
+            {status?.recording ? `REC · ${status.activeSession?.sampleCount ?? 0} samples` : 'Ready to record'}
           </span>
           <label
             style={{ ...muted, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
@@ -890,17 +890,17 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
       <div style={{ ...card, display: 'grid', gap: 16 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
           <label style={{ display: 'grid', gap: 6 }}>
-            <span style={muted}>Fonte</span>
+            <span style={muted}>Source</span>
             <select value={sourceKind} onChange={(e) => setSourceKind(e.target.value as SourceKind)} style={selectStyle}>
               <option value={SOURCE_RECORDING}>App recordings</option>
-              <option value={SOURCE_IBT}>.ibt do iRacing</option>
+              <option value={SOURCE_IBT}>iRacing .ibt</option>
             </select>
           </label>
 
           <label style={{ display: 'grid', gap: 6 }}>
-            <span style={muted}>Pista</span>
+            <span style={muted}>Track</span>
             <select value={trackKey} onChange={(e) => setTrackKey(e.target.value)} style={selectStyle}>
-              <option value={TRACK_ANY}>Todas as pistas</option>
+              <option value={TRACK_ANY}>All tracks</option>
               {trackOptions.map((t) => (
                 <option key={t.key} value={t.key}>
                   {t.label} ({t.lapCount} laps)
@@ -938,7 +938,7 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
             </select>
           </label>
           <label style={{ display: 'grid', gap: 6 }}>
-            <span style={muted}>A partir de</span>
+            <span style={muted}>From</span>
             <input type="date" value={filterFrom} onChange={(e) => setFilterFrom(e.target.value)} style={{ ...inputStyle, colorScheme: 'dark' }} />
           </label>
           <label style={{ display: 'grid', gap: 6 }}>
@@ -1036,7 +1036,7 @@ function LiveCoachPanel({
   // sample count when active; "armed, waiting for telemetry" when enabled but idle;
   // "off" when the user disabled it.
   const statusLabel = running
-    ? `ON · ${status?.sampleCount ?? 0} amostras`
+    ? `ON · ${status?.sampleCount ?? 0} samples`
     : enabled
       ? 'Active · waiting for telemetry'
       : 'Off'
@@ -1149,7 +1149,7 @@ function LapPool({
   onSaveReference: (ref: AnalysisLapRef) => void
 }): ReactElement {
   if (candidates.length === 0) {
-    return <div style={{ ...card, padding: 12, color: 'rgba(255,255,255,0.7)' }}>Nenhuma volta encontrada para a fonte/pista selecionada.</div>
+    return <div style={{ ...card, padding: 12, color: 'rgba(255,255,255,0.7)' }}>No laps found for the selected source/track.</div>
   }
   return (
     <div
@@ -1250,9 +1250,9 @@ function ReferencesPanel({
       <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 10, alignItems: 'end' }}>
         <label style={{ display: 'grid', gap: 6 }}>
           <span style={muted}>Import CSV as reference</span>
-          <input value={csvPath} onChange={(event) => onCsvPathChange(event.target.value)} placeholder="/caminho/volta.csv" style={inputStyle} />
+          <input value={csvPath} onChange={(event) => onCsvPathChange(event.target.value)} placeholder="/path/lap.csv" style={inputStyle} />
         </label>
-        <button type="button" style={ghostButton} disabled={busy} onClick={onImportCsv}>Importar CSV</button>
+        <button type="button" style={ghostButton} disabled={busy} onClick={onImportCsv}>Import CSV</button>
       </div>
     </div>
   )
@@ -1268,13 +1268,13 @@ function IbtIndexSummary({
   return (
     <div style={card}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <strong>Arquivos .ibt indexados</strong>
-        <span style={muted}>{files.length} arquivo(s)</span>
+        <strong>Indexed .ibt files</strong>
+        <span style={muted}>{files.length} file(s)</span>
       </div>
       {files.length === 0 ? (
         <p style={{ ...muted, margin: 0 }}>
           No files found in the folder. On Windows with iRacing, the default folder is usually
-          <code> Documents/iRacing/telemetry </code>. Em outros sistemas, aponte para uma pasta com .ibt copiados.
+          <code> Documents/iRacing/telemetry </code>. On other systems, point to a folder with copied .ibt files.
         </p>
       ) : (
         <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 4 }}>
@@ -1285,13 +1285,13 @@ function IbtIndexSummary({
                 <code>{file.fileName}</code> · {fmtBytes(file.sizeBytes)} · {fmtDate(file.modifiedAt)}
                 {summary ? (
                   <span style={{ ...muted, marginLeft: 8 }}>
-                    {trackLabelOf(summary.trackName)} · {summary.carName ?? 'carro?'} · {summary.laps.length} laps · {Math.round((summary.durationSec ?? 0) / 60)}min
+                    {trackLabelOf(summary.trackName)} · {summary.carName ?? 'unknown car'} · {summary.laps.length} laps · {Math.round((summary.durationSec ?? 0) / 60)}min
                   </span>
                 ) : null}
               </li>
             )
           })}
-          {files.length > 12 ? <li style={muted}>… e mais {files.length - 12}.</li> : null}
+          {files.length > 12 ? <li style={muted}>… and {files.length - 12} more.</li> : null}
         </ul>
       )}
     </div>
@@ -1310,12 +1310,12 @@ function AnalysisResultView({
       <div style={card}>
         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
           <div>
-            <strong style={{ fontSize: 16 }}>{result.trackLabel ?? 'Pista desconhecida'}</strong>
-            <div style={muted}>{PROFILE_LABELS[result.profile].label} · {result.laps.length} volta(s)</div>
+            <strong style={{ fontSize: 16 }}>{result.trackLabel ?? 'Unknown track'}</strong>
+            <div style={muted}>{PROFILE_LABELS[result.profile].label} · {result.laps.length} lap(s)</div>
           </div>
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
             <div>
-              <div style={muted}>Melhor volta</div>
+              <div style={muted}>Best lap</div>
               <strong>{bestLap ? fmtTime(bestLap.durationSec) : '—'}</strong>
             </div>
             {result.optimal ? (
@@ -1396,7 +1396,7 @@ function OptimalSectorsView({ result }: { result: AnalysisResult }): ReactElemen
   return (
     <div style={card}>
       <strong>Optimal Lap composition</strong>
-      <div style={{ ...muted, marginBottom: 12 }}>Melhor tempo de cada sector entre as laps selecionadas.</div>
+      <div style={{ ...muted, marginBottom: 12 }}>Best time in each sector across the selected laps.</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8 }}>
         {result.optimal.sectors.map((sector, idx) => {
           const lap = result.laps.find((l) => l.id === sector.bestLapId)

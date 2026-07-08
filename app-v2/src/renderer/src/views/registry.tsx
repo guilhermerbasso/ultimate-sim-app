@@ -47,23 +47,23 @@ export interface ViewDef {
   Component: ViewComponent
 }
 
-// Registro plugável de screens. Cada módulo preenche seu próprio arquivo de view;
-// adicionar/alterar uma tela é só mexer aqui + no arquivo da view (sem tocar no App).
+// Pluggable screen registry. Each module fills its own view file;
+// to add/change a screen, edit only this file plus the view file (without touching App).
 export const viewRegistry: ViewDef[] = [
-  { id: 'telemetry', group: 'Sim Racing', label: 'Telemetry', eyebrow: 'Sim', description: 'Fonte de telemetria ao vivo e visão geral.', shortcut: 'T1', Component: TelemetryView },
-  { id: 'dashboards', group: 'Sim Racing', label: 'Dashboards', eyebrow: 'Monitor', description: 'Janelas on display 1/2, importação .simhubdash e construtor básico.', shortcut: 'T0', Component: DashboardsView },
-  { id: 'touch-controls', group: 'Sim Racing', label: 'Touch Controls Dash', eyebrow: 'Cockpit', description: 'Painel de Pit por toque e button boxes RGB editáveis para a tela do cockpit.', shortcut: 'TT', Component: TouchControlsView },
-  { id: 'oled-dash', group: 'Sim Racing', label: 'OLED Dashboard', eyebrow: 'Display', description: 'Presets de informações do iRacing no OLED.', shortcut: 'T2', Component: OledDashboardView },
+  { id: 'telemetry', group: 'Sim Racing', label: 'Telemetry', eyebrow: 'Sim', description: 'Live telemetry source and overview.', shortcut: 'T1', Component: TelemetryView },
+  { id: 'dashboards', group: 'Sim Racing', label: 'Dashboards', eyebrow: 'Monitor', description: 'Windows on displays 1/2, .simhubdash import, and basic builder.', shortcut: 'T0', Component: DashboardsView },
+  { id: 'touch-controls', group: 'Sim Racing', label: 'Touch Controls Dash', eyebrow: 'Cockpit', description: 'Touch pit panel and editable RGB button boxes for the cockpit screen.', shortcut: 'TT', Component: TouchControlsView },
+  { id: 'oled-dash', group: 'Sim Racing', label: 'OLED Dashboard', eyebrow: 'Display', description: 'iRacing information presets on the OLED.', shortcut: 'T2', Component: OledDashboardView },
   { id: 'overlays', group: 'Sim Racing', label: 'Overlays', eyebrow: 'Screen', description: 'Transparent overlays over the game.', shortcut: 'T3', Component: OverlaysView },
-  { id: 'fuel', group: 'Sim Racing', label: 'Fuel', eyebrow: 'Strategy', description: 'Cálculo de combustível e estratégia.', shortcut: 'T4', Component: FuelStrategyView },
+  { id: 'fuel', group: 'Sim Racing', label: 'Fuel', eyebrow: 'Strategy', description: 'Fuel calculation and strategy.', shortcut: 'T4', Component: FuelStrategyView },
   { id: 'tire', group: 'Sim Racing', label: 'Tires', eyebrow: 'Strategy', description: 'Tire wear, per-lap rate, and pit window.', shortcut: 'TC', Component: TireStrategyView },
-  { id: 'search', group: 'Sim Racing', label: 'Busca Semantic', eyebrow: 'Local AI', description: 'Meaning-based search across setups, ghosts, notes, and findings; keyword fallback.', shortcut: 'TS', Component: SemanticSearchView },
-  { id: 'alerts', group: 'Sim Racing', label: 'Alerts', eyebrow: 'Warnings', description: 'Pit limiter, bandeiras, combustível, troca.', shortcut: 'T7', Component: AlertsView },
-  { id: 'expr', group: 'Sim Racing', label: 'Expressions', eyebrow: 'Custom', description: 'Campos e condições customizadas.', shortcut: 'T8', Component: ExpressionsView },
+  { id: 'search', group: 'Sim Racing', label: 'Semantic Search', eyebrow: 'Local AI', description: 'Meaning-based search across setups, ghosts, notes, and findings; keyword fallback.', shortcut: 'TS', Component: SemanticSearchView },
+  { id: 'alerts', group: 'Sim Racing', label: 'Alerts', eyebrow: 'Warnings', description: 'Pit limiter, flags, fuel, shifting.', shortcut: 'T7', Component: AlertsView },
+  { id: 'expr', group: 'Sim Racing', label: 'Expressions', eyebrow: 'Custom', description: 'Custom fields and conditions.', shortcut: 'T8', Component: ExpressionsView },
   { id: 'race-profiles', group: 'Sim Racing', label: 'Race Profiles', eyebrow: 'Car/Track', description: 'Profiles by car/track with auto-switching.', shortcut: 'T9', Component: RaceProfilesView },
-  { id: 'sounds', group: 'Sim Racing', label: 'Sounds', eyebrow: 'Áudio', description: 'Soundshift (beep de troca), Incident, ABS e TCS.', shortcut: 'TA', Component: SoundsView },
-  { id: 'setups', group: 'Sim Racing', label: 'Setups', eyebrow: 'iRacing', description: 'Auto-instalação de setups (.sto) de pasta ou URL.', shortcut: 'TB', Component: SetupsView },
-  { id: 'career', group: 'Sim Racing', label: 'Career & Ratings', eyebrow: 'iRacing', description: 'iRating, Safety Rating, licenças, incidentes e resultados.', shortcut: 'TD', Component: CareerView },
+  { id: 'sounds', group: 'Sim Racing', label: 'Sounds', eyebrow: 'Audio', description: 'Soundshift (shift beep), Incident, ABS, and TCS.', shortcut: 'TA', Component: SoundsView },
+  { id: 'setups', group: 'Sim Racing', label: 'Setups', eyebrow: 'iRacing', description: 'Auto-install setups (.sto) from folder or URL.', shortcut: 'TB', Component: SetupsView },
+  { id: 'career', group: 'Sim Racing', label: 'Career & Ratings', eyebrow: 'iRacing', description: 'iRating, Safety Rating, licenses, incidents, and results.', shortcut: 'TD', Component: CareerView },
   { id: 'engineer', group: 'Sim Racing', label: 'AI Engineer', eyebrow: 'LLM local', description: 'Race engineer with local AI (text): ask about fuel, tires, gaps, and strategy. Includes Voice Spotter (spoken alerts).', shortcut: 'TG', Component: EngineerView },
   { id: 'haptics', group: 'Sim Racing', label: 'Haptics', eyebrow: 'Bass shaker', description: 'ShakeIt-style haptic feedback: bass shaker (audio) + haptics.', shortcut: 'TF', Component: HapticsView },
   { id: 'coach', group: 'Sim Racing', label: 'AI Coach', eyebrow: 'Local AI', description: 'Driving coach + lap analysis: corner findings, track map, and suggested setup adjustments.', shortcut: 'T6', Component: CoachView },
@@ -75,7 +75,7 @@ export const viewRegistry: ViewDef[] = [
   { id: 'haptics-zonal', group: 'Sim Racing', label: 'Haptics Zonal', eyebrow: 'Zones', description: 'Events→zones (seat/pedals/wheel) + visual simulator.', shortcut: 'TL', Component: HapticsZonalView },
   { id: 'spotter-3d', group: 'Sim Racing', label: '3D Spotter', eyebrow: 'Spatial audio', description: 'Positional HRTF cues for nearby cars.', shortcut: 'TM', Component: Spotter3DView },
   { id: 'devices', group: 'ButtonBox', label: 'Devices', eyebrow: 'Connection', description: 'USB/serial detection and ButtonBox selection.', shortcut: '01', Component: DevicesView },
-  { id: 'arduinos', group: 'ButtonBox', label: 'Arduinos', eyebrow: 'Hardware', description: 'Hub estilo SimHub: RGB, matriz, screens, gauges, controls, pinout e firmware.', shortcut: '00', Component: ArduinosView },
+  { id: 'arduinos', group: 'ButtonBox', label: 'Arduinos', eyebrow: 'Hardware', description: 'SimHub-style hub: RGB, matrix, screens, gauges, controls, pinout, and firmware.', shortcut: '00', Component: ArduinosView },
   { id: 'revlights', group: 'ButtonBox', label: 'Rev Lights', eyebrow: 'LEDs', description: 'Rev lights configuration and presets.', shortcut: '06', Component: RevlightsView },
   { id: 'inputs', group: 'ButtonBox', label: 'Input Monitor', eyebrow: 'Test', description: 'Live validation via Web Gamepad API.', shortcut: '04', Component: InputMonitorView },
   { id: 'profiles', group: 'ButtonBox', label: 'Profiles', eyebrow: 'Presets', description: 'Save and load race configurations.', shortcut: '05', Component: ProfilesView },
@@ -83,5 +83,5 @@ export const viewRegistry: ViewDef[] = [
   { id: 'pinout', group: 'ButtonBox', label: 'Pinout Designer', eyebrow: 'Low-code', description: 'Drag-and-drop pin map (LEDs, mux, encoders) + firmware generation.', shortcut: '0P', Component: PinoutDesignerView },
   { id: 'settings', group: 'App', label: 'Settings', eyebrow: 'App', description: 'Auto-start, telemetry source, theme.', shortcut: '09', Component: SettingsView },
   { id: 'about', group: 'App', label: 'About / Credits', eyebrow: 'Open source', description: 'Licenses, sources, and third-party components.', shortcut: '0A', Component: AboutView },
-  { id: 'voice', group: 'Sim Racing', label: 'Voice / TTS', eyebrow: 'TTS local', description: 'Offline neural voices for Engineer/Spotter, on-demand download; system voice fallback; wake word "Hey, Engineer".', shortcut: 'TV', Component: VoiceSettingsView }
+  { id: 'voice', group: 'Sim Racing', label: 'Voice / TTS', eyebrow: 'TTS local', description: 'Offline neural voices for Engineer/Spotter, on-demand download; system voice fallback; wake word "Hey, Engineer".', shortcut: 'TL', Component: VoiceSettingsView }
 ]

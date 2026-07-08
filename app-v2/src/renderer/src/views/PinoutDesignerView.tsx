@@ -417,8 +417,8 @@ export default function PinoutDesignerView({ showToast }: AppViewProps): ReactEl
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <strong>Saved designs</strong>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <SectionExportImport sectionId="pinout-designs" label="Pinouts de firmware" onImported={() => void reloadDesigns()} />
-            <SectionExportImport sectionId="custom-catalog" label="Catálogo de placas custom" onImported={() => void reloadCatalog()} />
+            <SectionExportImport sectionId="pinout-designs" label="Firmware pinouts" onImported={() => void reloadDesigns()} />
+            <SectionExportImport sectionId="custom-catalog" label="Custom board catalog" onImported={() => void reloadCatalog()} />
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
@@ -648,11 +648,11 @@ function GenerateStep(props: {
       <button type="button" style={primaryButton} disabled={hasErrors} onClick={props.onExportDiagram}>Export wiring diagram SVG</button>
       <button type="button" style={secondaryButton} onClick={props.onExportDesign}>Export editable design JSON</button>
       <button type="button" style={secondaryButton} disabled={hasErrors || props.busy} onClick={props.onExportConfig}>Export firmware config</button>
-      <button type="button" style={secondaryButton} disabled={hasErrors || props.busy} onClick={props.onExportIno}>Exportar .ino</button>
+      <button type="button" style={secondaryButton} disabled={hasErrors || props.busy} onClick={props.onExportIno}>Export .ino</button>
       <button type="button" style={secondaryButton} disabled={hasErrors || props.busy} onClick={props.onCompile}>Generate .ino + compile</button>
       <div style={{ marginTop: 12, borderTop: '1px solid rgba(148,163,184,.18)', paddingTop: 12 }}>
         <h4 style={{ margin: '0 0 8px' }}>Flash generated firmware</h4>
-        <p style={hintStyle}>Bench step: AVR flashing uses the bundled Windows avrdude; ESP32/ESP32-S3 uses arduino-cli plus the esp32 core. Validate wiring before powering external loads.</p>
+        <p style={hintStyle}>Bench step: ALR flashing uses the bundled Windows avrdude; ESP32/ESP32-S3 uses arduino-cli plus the esp32 core. Validate wiring before powering external loads.</p>
         <p style={{ ...hintStyle, color: '#fde68a' }}>⚠ {generatedSketchSafetyNote}</p>
         <label style={fieldLabel}>Serial port<select value={props.selectedPort} onChange={(event) => props.onPortChange(event.target.value)} style={inputStyle}>
           <option value="">Select port…</option>

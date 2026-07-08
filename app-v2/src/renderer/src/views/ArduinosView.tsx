@@ -489,14 +489,14 @@ export default function ArduinosView({
       })
       await reloadConfigs()
       setActiveDeviceId(summary.id)
-    }, `Dispositivo "${input.label || input.path}" adicionado.`)
+    }, `Device "${input.label || input.path}" added.`)
   }
 
   async function removeGenericDevice(id: string): Promise<void> {
     await run(async () => {
       await window.ipc.invoke(ARDUINO_CHANNELS.removeDevice, id)
       await reloadConfigs()
-    }, 'Dispositivo removido da lista.')
+    }, 'Device removed from the list.')
   }
 
   async function reconnectGenericDevice(id: string): Promise<void> {
@@ -602,7 +602,7 @@ export default function ArduinosView({
   function setThreshold(value: EncoderDetentThreshold): void {
     void run(async () => {
       await window.ipc.invoke('arduino:setEncoderThreshold', value)
-    }, `Threshold de detente do encoder = ${value}.`)
+    }, `Encoder detent threshold = ${value}.`)
   }
 
   async function saveRoute(route: OutputRoute): Promise<void> {
@@ -818,9 +818,9 @@ export default function ArduinosView({
           <article className="panel-card" style={{ padding: '10px 18px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
               <p style={{ margin: 0, fontSize: 12.5, color: 'rgba(255,255,255,0.65)' }}>
-                <strong style={{ color: 'var(--accent-primary)' }}>Editor do iFlag Matrix</strong>
-                {' '}— configure o layout, mapa de pixels e a pilha de efeitos do painel 8×8.{' '}
-                Para vincular a porta serial e ativar o componente, use a aba{' '}
+                <strong style={{ color: 'var(--accent-primary)' }}>iFlag Matrix editor</strong>
+                {' '}? configure the 8?8 panel layout, pixel map, and effect stack.{' '}
+                To bind the serial port and enable the component, use the{' '}
                 <button
                   type="button"
                   style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: 'inherit', padding: 0, textDecoration: 'underline' }}
@@ -965,11 +965,11 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
       <article className="panel-card">
         <div className="panel-heading-row">
           <div>
-            <span className="panel-label">SIM-X principal · 115200 8N1</span>
+            <span className="panel-label">Primary SIM-X · 115200 8N1</span>
             <h3>Primary Button Box</h3>
           </div>
           <button className="ghost-action compact" disabled={busy} onClick={onSearch} type="button">
-            Procurar
+            Scan
           </button>
         </div>
         <p className="helper-text">
@@ -977,7 +977,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
           Leonardo”; the SIM-X tag is only a suggestion — choose the correct COM port if none is preselected.
         </p>
         <div className="port-list">
-          {ports.length === 0 && <p className="empty-state">Clique em “Procurar” para listar as portas seriais.</p>}
+          {ports.length === 0 && <p className="empty-state">Click “Scan” to list serial ports.</p>}
           {ports.map((port) => (
             <label className={`port-item ${selectedPath === port.path ? 'is-selected' : ''}`} key={port.path}>
               <input
@@ -995,10 +995,10 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
                     </em>
                   )}
                 </strong>
-                <small>{port.friendlyName || port.manufacturer || 'Fabricante no identificado'}</small>
+                <small>{port.friendlyName || port.manufacturer || 'Unknown manufacturer'}</small>
                 {(port.vendorId || port.productId) && (
                   <small>
-                    VID:{port.vendorId || '????'} · PID:{port.productId || '????'}
+                    VID:{port.vendorId || '?'} · PID:{port.productId || '?'}
                   </small>
                 )}
               </span>
@@ -1012,7 +1012,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
             onClick={onConnect}
             type="button"
           >
-            Conectar SIM-X
+            Connect SIM-X
           </button>
           <button className="ghost-action" disabled={busy || !connected} onClick={onDisconnect} type="button">
             Desconectar
@@ -1023,7 +1023,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
       <article className="panel-card">
         <div className="panel-heading-row">
           <div>
-            <span className="panel-label">Frota de Arduinos · multi-device</span>
+            <span className="panel-label">Arduino fleet ?? multi-device</span>
             <h3>Devices seriais ativos</h3>
           </div>
         </div>
@@ -1149,7 +1149,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
         {canAddDevices && (
         <div className="config-block">
           <strong>Add generic device</strong>
-          <small>Use o protocolo companion (T/N/R/B/M/L/C → device; B/E/A → app).</small>
+          <small>Use the companion protocol (T/N/R/B/M/L/C → device; B/E/A → app).</small>
           <form
             className="command-row"
             style={{ flexWrap: 'wrap', gap: 8, position: 'relative', zIndex: 1 }}
@@ -1267,7 +1267,7 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
       <div className="panel-heading-row">
         <div>
           <span className="panel-label">Serial traffic · RX/TX</span>
-          <h3>Serial Console · {activeDevice?.label ?? 'sem dispositivo'}</h3>
+          {devices.length === 0 && <option value="">— no connected devices —</option>}
         </div>
         <div className="action-row compact-row" style={{ position: 'relative', zIndex: 1 }}>
           <select
@@ -1276,7 +1276,7 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
             onChange={(event) => setActiveDeviceId(event.target.value)}
             style={{ minWidth: 180, position: 'relative', zIndex: 1 }}
           >
-            {devices.length === 0 && <option value="">— sem dispositivos —</option>}
+            {devices.length === 0 && <option value="">— no connected devices —</option>}
             {devices.map((device) => (
               <option key={device.id} value={device.id}>
                 {device.label} ({device.kind})
@@ -1303,7 +1303,7 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
         {showHideEngine && (
           <label className="inline-check">
             <input type="checkbox" checked={hideEngine} onChange={(e) => setHideEngine(e.target.checked)} /> Hide
-            stream do engine (R/B/O/D)
+            engine stream (R/B/O/D)
           </label>
         )}
       </div>
@@ -1355,9 +1355,9 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
           placeholder={
             connected
               ? isPrimary
-                ? 'Comando bruto, ex.: R3, OSIM-X|linha2|linha3, ET4'
-                : 'Comando bruto, ex.: T0:HELLO, R75, L0:ff0000, C'
-              : 'Conecte para enviar comandos'
+                ? 'Raw command, e.g.: R3, OSIM-X|line2|line3, ET4'
+                : 'Raw command, e.g.: T0:HELLO, R75, L0:ff0000, C'
+              : 'Connect to send commands'
           }
           value={command}
           disabled={!connected || busy}
@@ -1370,8 +1370,8 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
       <p className="helper-text">
         {isPrimary ? (
           <>
-            Comandos seguem o protocolo SimHub de uma letra (≤63 chars). RX mostra encoders (
-            <code>E&lt;idx&gt;:±1</code>) e ecos de debug do firmware.
+            Commands follow the one-letter SimHub protocol (?63 chars). RX shows encoders (
+            <code>E&lt;idx&gt;:?1</code>) and firmware debug echoes.
           </>
         ) : (
           <>
@@ -1396,7 +1396,7 @@ interface ConfigPanelProps {
 }
 
 function triState(value: boolean | null): string {
-  if (value === null) return '— (desconhecido)'
+  if (value === null) return '? (unknown)'
   return value ? 'On' : 'Off'
 }
 
@@ -1404,7 +1404,7 @@ function ConfigPanel(props: ConfigPanelProps): ReactElement {
   const { runtime, connected, busy, onThreshold, onToggleMux, onToggleFlip, onRecalibrate } = props
   return (
     <article className="panel-card">
-      <span className="panel-label">Ajustes em runtime · sem regravar</span>
+      <span className="panel-label">Runtime adjustments ?? no reflash</span>
       <h3>Firmware configuration</h3>
       {!connected && (
         <div className="notice-card warning">
@@ -1415,7 +1415,7 @@ function ConfigPanel(props: ConfigPanelProps): ReactElement {
 
       <div className="config-block">
         <div className="config-head">
-          <strong>Detente do encoder</strong>
+          <strong>Encoder detent</strong>
           <small>KY-040 (20 PPR) = 2 · EC11 (24 detentes) = 4. Se duplicar passos, suba o valor.</small>
         </div>
         <div className="segmented">
@@ -1450,7 +1450,7 @@ function ConfigPanel(props: ConfigPanelProps): ReactElement {
 
       <div className="config-block">
         <div className="config-head">
-          <strong>Debug do MUX</strong>
+          <strong>MUX debug</strong>
           <small>
             Prints MUX1 C13/C14/C15 to the console to check ENC4 wiring. State: {triState(runtime?.muxDebug ?? null)}.
           </small>
@@ -1461,7 +1461,7 @@ function ConfigPanel(props: ConfigPanelProps): ReactElement {
           onClick={onToggleMux}
           type="button"
         >
-          Alternar debug do MUX (EM)
+          Toggle MUX debug (EM)
         </button>
       </div>
     </article>
@@ -1628,8 +1628,8 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
         <span className="panel-label">Custom Serial Device · presets + roteamento</span>
         <h3>Novo output</h3>
         <p className="helper-text">
-          Cada output é uma <code>OutputRoute</code> serial: o output-router lê a fonte, formata e envia o template do
-          preset (com <code>${'${value}'}</code> substituído) para o dispositivo escolhido a ≤20Hz.
+          Each output is a serial <code>OutputRoute</code>: the output router reads the source, formats it, and sends the preset
+          template (with <code>${'${value}'}</code> substituted) to the selected device at ?20Hz.
         </p>
 
         <form onSubmit={handleSubmit} className="config-block" style={{ display: 'grid', gap: 12 }}>
@@ -1658,13 +1658,13 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
           </div>
 
           <label>
-            <strong>Dispositivo de destino</strong>
+            <strong>Target device</strong>
             <select
               className="command-input"
               value={state.deviceId}
               onChange={(event) => setState({ ...state, deviceId: event.target.value })}
             >
-              {devices.length === 0 && <option value="">— sem dispositivos conectados —</option>}
+              {devices.length === 0 && <option value="">— no connected devices —</option>}
               {devices.map((device) => (
                 <option key={device.id} value={device.id}>
                   {device.label} ({device.id}) {device.connected ? '· ●' : '· ○'}
@@ -1674,7 +1674,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
           </label>
 
           <div style={{ display: 'grid', gap: 8 }}>
-            <strong>Fonte</strong>
+            <strong>Source</strong>
             <div className="segmented">
               {(['telemetry', 'expression', 'literal'] as const).map((kind) => (
                 <button
@@ -1752,7 +1752,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
               />
             </label>
             <label>
-              <strong>Sufixo</strong>
+              <strong>Suffix</strong>
               <input
                 className="command-input"
                 type="text"
@@ -1763,11 +1763,11 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
           </div>
 
           <label>
-            <strong>Nome (opcional)</strong>
+            <strong>Name (optional)</strong>
             <input
               className="command-input"
               type="text"
-              placeholder="Auto: <preset> → <dispositivo>"
+              placeholder="Auto: <preset> → <device>"
               value={state.name}
               onChange={(event) => setState({ ...state, name: event.target.value })}
             />
@@ -1820,7 +1820,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
                     )}
                   </strong>
                   <small>
-                    fonte: {sourceSummary(route.source)} · template <code>{target.template}</code>
+                    source: {sourceSummary(route.source)} ?? template <code>{target.template}</code>
                   </small>
                 </span>
                 <div className="action-row compact-row" style={{ marginTop: 0 }}>
@@ -1866,7 +1866,7 @@ function InputsPanel(props: InputsPanelProps): ReactElement {
       <h3>Inputs ativos</h3>
       <p className="helper-text">
         Reads RX lines from generic devices in the format <code>B&lt;idx&gt;:&lt;0|1&gt;</code>,{' '}
-        <code>E&lt;idx&gt;:±1</code> e <code>A&lt;idx&gt;:&lt;0-1023&gt;</code>. O SIM-X principal usa seu próprio caminho
+        <code>E&lt;idx&gt;:?1</code> and <code>A&lt;idx&gt;:&lt;0-1023&gt;</code>. The main SIM-X uses its own path
         HID e no aparece aqui.
       </p>
       {trackable.length === 0 && (
@@ -1904,7 +1904,7 @@ function InputsPanel(props: InputsPanelProps): ReactElement {
                   <strong>Encoders (delta)</strong>
                   <em className="muted-pill">{encoders.length}</em>
                 </div>
-                {encoders.length === 0 && <small>Sem encoders reportados.</small>}
+                {encoders.length === 0 && <small>No encoders reported.</small>}
                 {encoders.map(([index, delta]) => (
                   <code className="hw-conn" key={`enc-${index}`}>
                     E{index}: {(delta as number) > 0 ? `+${delta}` : delta}
@@ -1916,7 +1916,7 @@ function InputsPanel(props: InputsPanelProps): ReactElement {
                   <strong>Analog inputs</strong>
                   <em className="muted-pill">{analogs.length}</em>
                 </div>
-                {analogs.length === 0 && <small>Sem eixos reportados.</small>}
+                {analogs.length === 0 && <small>No axes reported.</small>}
                 {analogs.map(([index, value]) => (
                   <code className="hw-conn" key={`a-${index}`}>
                     A{index}: {value as number} ({Math.round(((value as number) / 1023) * 100)}%)
@@ -1944,7 +1944,7 @@ function HardwarePanel({ profile }: { profile: ArduinoHardwareProfile | null }):
       <span className="panel-label">
         {profile.board} · {profile.mcu}
       </span>
-      <h3>Mapa de hardware</h3>
+      <h3>Hardware map</h3>
       <p className="helper-text">
         {profile.usb}. {profile.hidButtons} HID buttons, {profile.encoders} encoders{profile.povHat ? ' + POV hat' : ''}.
         Pinagem fixa no firmware (somente leitura).
@@ -1975,7 +1975,7 @@ function FirmwarePanel({ firmware }: { firmware: ArduinoFirmwareInfo | null }): 
     )
   return (
     <article className="panel-card">
-      <span className="panel-label">Reference · do not flash through the app</span>
+      <span className="panel-label">Reference · app flashing disabled</span>
       <h3>{firmware.reference}</h3>
       <div className="notice-card warning">
         <strong>Version detection unavailable</strong>
@@ -1992,7 +1992,7 @@ function FirmwarePanel({ firmware }: { firmware: ArduinoFirmwareInfo | null }): 
       </div>
 
       <div className="config-block">
-        <strong>Como regravar (Arduino IDE)</strong>
+        <strong>How to reflash (Arduino IDE)</strong>
         <ol className="step-list">
           {firmware.reflashSteps.map((step, index) => (
             <li key={index}>{step}</li>

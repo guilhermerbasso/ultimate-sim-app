@@ -55,7 +55,7 @@ const MOMENT_RECOMPUTE_MS = 140
 const AI_LIVE_SLOT_COUNT = 6
 
 // A moment whose catalog entry is `detectable:false` can be authored but will not
-// fire at runtime yet â€” surface that clearly so the user isn't surprised.
+// fire at runtime yet ?? surface that clearly so the user isn't surprised.
 function momentIsDetectable(id: string): boolean {
   return momentCatalogEntry(id)?.detectable !== false
 }
@@ -63,7 +63,7 @@ function momentIsDetectable(id: string): boolean {
 function NotDetectableBadge(): ReactElement {
   return (
     <span
-      title="Detection for this moment is not available yet â€” the rule is saved, but it will not fire for now."
+      title="Detection for this moment is not available yet ?? the rule is saved, but it will not fire for now."
       style={{
         flex: '0 0 auto',
         fontSize: 10,
@@ -172,7 +172,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
   const latestSnapshotRef = useRef<TelemetrySnapshot | null>(null)
   const [liveMoment, setLiveMoment] = useState<RaceMomentState | null>(null)
 
-  // â”€â”€ Load + subscribe to the dashboards list â”€â”€
+  // ?? Load + subscribe to the dashboards list ??
   useEffect(() => {
     let cancelled = false
     void window.ipc
@@ -194,7 +194,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
     }
   }, [])
 
-  // â”€â”€ Load the full dashboard when the selection changes â”€â”€
+  // ?? Load the full dashboard when the selection changes ??
   useEffect(() => {
     if (!selectedId) {
       setDash(null)
@@ -320,7 +320,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
     [rules, patchRules]
   )
 
-  // â”€â”€ Create / open / save â”€â”€
+  // ?? Create / open / save ??
   const createPreset = useCallback(async () => {
     if (busy) return
     setBusy(true)
@@ -374,7 +374,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
         <h1 style={{ margin: 0, fontSize: 22, color: 'var(--text-primary)' }}>Adaptive Dashboard</h1>
         <p style={{ margin: 0, color: 'var(--text-secondary)', maxWidth: 820 }}>
           Edit which widgets <strong>appear</strong> or{' '}
-          <strong>hide</strong>, the highlight, and <strong>blink</strong> â€” without changing positions.
+          <strong>hide</strong>, the highlight, and <strong>blink</strong> ?? without changing positions.
         </p>
         <p style={{ margin: '2px 0 0', color: 'var(--text-muted)', fontSize: 12, maxWidth: 820 }}>
           Example: <em>when crossing the finish line</em>, show Coach improvement points plus the sector map and
@@ -390,7 +390,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
             {summaries.length === 0 && <option value="">(no saved dashboard)</option>}
             {summaries.map((s) => (
               <option key={s.id} value={s.id}>
-                {isAdaptiveDashboard(s) ? 'â˜… ' : ''}
+                {isAdaptiveDashboard(s) ? '? ' : ''}
                 {s.name}
               </option>
             ))}
@@ -437,11 +437,11 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
             </label>
             {aiLiveActive && (
               <span style={{ color: GOOD, fontSize: 12, fontWeight: 700 }}>
-                {liveWidgetIds.length} live widget(s) Â· {liveMoment ? momentLabel(liveMoment.moment) : 'Detecting'}
+                {liveWidgetIds.length} live widget(s) ? {liveMoment ? momentLabel(liveMoment.moment) : 'Detecting'}
               </span>
             )}
             <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-              {dash.elements.length} widgets Â· {rules.length} rule(s)
+              {dash.elements.length} widgets ?? {rules.length} rule(s)
             </span>
             {!isAdaptiveTarget && !(config.enabled ?? false) && (
               <span style={{ color: AMBER, fontSize: 12 }}>
@@ -525,7 +525,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
   )
 }
 
-// â”€â”€â”€ Moment picker (grouped) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ??? Moment picker (grouped) ??????????????????????????????????????????????????
 
 function HifiLiveSelectionPreview({
   snapshot,
@@ -586,8 +586,8 @@ function MomentPicker({ used, onAdd }: { used: ReadonlySet<string>; onAdd: (id: 
               {items.map((m) => (
                 <option key={m.id} value={m.id} disabled={used.has(m.id)}>
                   {m.label}
-                  {m.detectable === false ? ' Â· coming soon' : ''}
-                  {used.has(m.id) ? ' âœ“' : ''}
+                  {m.detectable === false ? ' ? coming soon' : ''}
+                  {used.has(m.id) ? ' ?' : ''}
                 </option>
               ))}
             </optgroup>
@@ -655,13 +655,13 @@ function RuleRow({
         </span>
       </button>
       <button type="button" onClick={onRemove} title="Remove" style={iconBtn}>
-        âœ•
+        ?
       </button>
     </div>
   )
 }
 
-// â”€â”€â”€ Per-moment rule editor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ??? Per-moment rule editor ???????????????????????????????????????????????????
 
 function RuleEditor({
   rule,
@@ -751,7 +751,7 @@ function RuleEditor({
   )
 }
 
-// â”€â”€â”€ Full per-moment FRAME editor (modal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ??? Full per-moment FRAME editor (modal) ?????????????????????????????????????
 
 function cloneElements(elements: DashboardElement[]): DashboardElement[] {
   const sc = (globalThis as { structuredClone?: <T>(v: T) => T }).structuredClone
@@ -798,7 +798,7 @@ function FrameEditorModal({
       <div style={modalCard}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ flex: 1 }}>
-            <span style={{ ...eyebrow, color: CHROME }}>Frame Â· full editor</span>
+            <span style={{ ...eyebrow, color: CHROME }}>Frame ?? full editor</span>
             <h2 style={{ margin: '2px 0 0', fontSize: 18, color: 'var(--text-primary)' }}>
               {momentLabel(rule?.moment ?? '')}
             </h2>
@@ -928,7 +928,7 @@ function BlinkEditor({
             value={color}
             onChange={(e) => onChange({ color: e.target.value, hz })}
             style={{ width: 28, height: 24, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
-            aria-label="Color do blink"
+            aria-label="Blink color"
           />
           <div style={{ display: 'flex', gap: 3 }}>
             {BLINK_SWATCHES.map((s) => (
@@ -959,7 +959,7 @@ function BlinkEditor({
             step={1}
             value={Math.round(hz * 10)}
             onChange={(e) => onChange({ color, hz: Number(e.target.value) / 10 })}
-            aria-label="Velocidade do blink"
+            aria-label="Blink speed"
           />
           <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 44 }}>{hz.toFixed(1)} Hz</span>
         </>
@@ -989,8 +989,8 @@ function SegBtn({
         fontSize: 12,
         fontWeight: 700,
         cursor: 'pointer',
-        border: `1px solid ${active ? color ?? CHROME : 'var(--border-default)'}`,
-        background: active ? color ?? CHROME : 'transparent',
+        border: `1px solid ${active ? (color ?? CHROME) : 'var(--border-default)'}`,
+        background: active ? (color ?? CHROME) : 'transparent',
         color: active ? '#05070a' : 'var(--text-secondary)'
       }}
     >
@@ -999,7 +999,7 @@ function SegBtn({
   )
 }
 
-// â”€â”€â”€ styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ??? styles ???????????????????????????????????????????????????????????????????
 
 const eyebrow: CSSProperties = {
   fontSize: 11,
@@ -1138,4 +1138,3 @@ const modalCard: CSSProperties = {
   gap: 'var(--space-4)',
   margin: 'auto'
 }
-

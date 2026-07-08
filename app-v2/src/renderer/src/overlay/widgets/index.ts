@@ -86,6 +86,7 @@ import { StandingsWidget } from './StandingsWidget'
 import { SymbolStatusWidget } from './SymbolStatusWidget'
 import { TeamFuelWidget } from './TeamFuelWidget'
 import { TireWearWidget } from './TireWearWidget'
+import { TrackMapNav3DWidget } from './TrackMapNav3DWidget'
 import { TrackMapWidget } from './TrackMapWidget'
 import { TyresBrakesWidget } from './TyresBrakesWidget'
 import { TyresDetailWidget } from './TyresDetailWidget'
@@ -134,6 +135,7 @@ export const WIDGET_COMPONENTS: Record<string, (props: WidgetProps) => ReactElem
   inputsTrace: InputsTraceWidget,
   tyresDetail: TyresDetailWidget,
   trackMap: TrackMapWidget,
+  trackMapNav3D: TrackMapNav3DWidget,
   proximityRadar: ProximityRadarWidget,
   carSilhouetteRadar: CarSilhouetteRadarWidget,
   sessionWeather: SessionWeatherWidget,

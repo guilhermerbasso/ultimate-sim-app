@@ -61,9 +61,9 @@ function blankExpression(): ExpressionDef {
 
 const TARGET_KIND_LABELS: Record<OutputTargetKind, string> = {
   dashboardVar: 'Dashboard',
-  dashboard: 'Trocar dashboard',
+  dashboard: 'Switch dashboard',
   overlay: 'Overlay',
-  serial: 'Serial (ButtonBox / dispositivo)',
+  serial: 'Serial (ButtonBox / device)',
   secondScreen: 'Second screen'
 }
 
@@ -108,36 +108,36 @@ interface PropertyPickerOption {
 
 // Flat list of well-known telemetry properties for the expression picklist.
 const TELEMETRY_PROPERTY_OPTIONS: PropertyPickerOption[] = [
-  { id: 'speedKmh', label: 'speedKmh', description: 'Velocidade em km/h' },
+  { id: 'speedKmh', label: 'speedKmh', description: 'Speed in km/h' },
   { id: 'rpm', label: 'rpm', description: 'Engine RPM' },
   { id: 'maxRpm', label: 'maxRpm', description: 'Max engine RPM' },
   { id: 'gear', label: 'gear', description: 'Current gear (-1 reverse, 0 neutral, 1..n)' },
   { id: 'throttle', label: 'throttle', description: 'Throttle position (0..1)' },
   { id: 'brake', label: 'brake', description: 'Brake position (0..1)' },
   { id: 'clutch', label: 'clutch', description: 'Clutch position (0..1)' },
-  { id: 'absActive', label: 'absActive', description: 'ABS atuando (booleano)' },
-  { id: 'tcActive', label: 'tcActive', description: 'TC atuando (booleano)' },
-  { id: 'connected', label: 'connected', description: 'Connected ao yes (booleano)' },
-  { id: 'carName', label: 'carName', description: 'Nome do carro' },
-  { id: 'trackName', label: 'trackName', description: 'Nome da pista' },
-  { id: 'currentLap', label: 'currentLap', description: 'Lap atual' },
-  { id: 'currentLapTimeSec', label: 'currentLapTimeSec', description: 'Tempo da volta atual (segundos)' },
+  { id: 'absActive', label: 'absActive', description: 'ABS active (boolean)' },
+  { id: 'tcActive', label: 'tcActive', description: 'TC active (boolean)' },
+  { id: 'connected', label: 'connected', description: 'Connected to the sim (boolean)' },
+  { id: 'carName', label: 'carName', description: 'Car name' },
+  { id: 'trackName', label: 'trackName', description: 'Track name' },
+  { id: 'currentLap', label: 'currentLap', description: 'Current lap' },
+  { id: 'currentLapTimeSec', label: 'currentLapTimeSec', description: 'Current lap time (seconds)' },
   { id: 'lastLapTimeSec', label: 'lastLapTimeSec', description: 'Last lap time (seconds)' },
   { id: 'bestLapTimeSec', label: 'bestLapTimeSec', description: 'Best lap of the session (seconds)' },
-  { id: 'deltaToBestSec', label: 'deltaToBestSec', description: 'Delta para melhor volta (+ pior, - melhor)' },
-  { id: 'fuelLiters', label: 'fuelLiters', description: 'Fuel restante (litros)' },
-  { id: 'fuelPerLap', label: 'fuelPerLap', description: 'Consumo por volta (litros)' },
+  { id: 'deltaToBestSec', label: 'deltaToBestSec', description: 'Delta to best lap (+ worse, - better)' },
+  { id: 'fuelLiters', label: 'fuelLiters', description: 'Fuel remaining (liters)' },
+  { id: 'fuelPerLap', label: 'fuelPerLap', description: 'Fuel consumption per lap (liters)' },
   { id: 'position', label: 'position', description: 'Race position' },
   { id: 'totalCars', label: 'totalCars', description: 'Total cars in session' },
-  { id: 'shiftIndicatorPct', label: 'shiftIndicatorPct', description: 'Indicador de troca de marcha (0..1)' },
+  { id: 'shiftIndicatorPct', label: 'shiftIndicatorPct', description: 'Shift indicator (0..1)' },
   { id: 'waterTempC', label: 'waterTempC', description: 'Engine water temperature (°C)' },
   { id: 'oilTempC', label: 'oilTempC', description: 'Engine oil temperature (°C)' },
-  { id: 'pitLimiter', label: 'pitLimiter', description: 'Pit limiter ativo (booleano)' },
-  { id: 'onPitRoad', label: 'onPitRoad', description: 'Na pit lane (booleano)' },
-  { id: 'incidentCount', label: 'incidentCount', description: 'Contagem de incidentes' },
-  { id: 'trackTempC', label: 'trackTempC', description: 'Temperatura da pista (°C)' },
+  { id: 'pitLimiter', label: 'pitLimiter', description: 'Pit limiter active (boolean)' },
+  { id: 'onPitRoad', label: 'onPitRoad', description: 'On pit lane (boolean)' },
+  { id: 'incidentCount', label: 'incidentCount', description: 'Incident count' },
+  { id: 'trackTempC', label: 'trackTempC', description: 'Track temperature (°C)' },
   { id: 'lapDistPct', label: 'lapDistPct', description: 'Lap distance completed (0..1)' },
-  { id: 'drs', label: 'drs', description: 'DRS aberto (booleano)' }
+  { id: 'drs', label: 'drs', description: 'DRS open (boolean)' }
 ]
 
 // Detects a bare identifier token at the cursor — not preceded by `.` (member
@@ -747,7 +747,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
                   fontVariantNumeric: 'tabular-nums'
                 }}
               >
-                <span>{item.targets?.length ? `→ ${item.targets.length} destino(s)` : 'sem destinos'}</span>
+                <span>{item.targets?.length ? `→ ${item.targets.length} target(s)` : 'no targets'}</span>
                 <span>{formatValue(liveResults[item.id]?.value)}</span>
               </div>
             </button>
@@ -759,7 +759,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
         <section style={card}>
           <div style={label}>Editor</div>
           <label style={{ display: 'block', marginTop: 10 }}>
-            Nome
+            Name
             <input style={input} value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
           </label>
           <label style={{ display: 'block', marginTop: 12 }}>
@@ -895,7 +895,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
                 <div
                   id="property-expression-picklist"
                   role="listbox"
-                  aria-label="Propriedades de telemetria"
+                  aria-label="Telemetry properties"
                   style={{
                     position: 'absolute',
                     top: '100%',
@@ -914,7 +914,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
                   }}
                 >
                   {propPickerOptions.length === 0 && (
-                    <div style={{ padding: 10, opacity: 0.7 }}>Nenhuma propriedade encontrada.</div>
+                    <div style={{ padding: 10, opacity: 0.7 }}>No properties found.</div>
                   )}
                   {propPickerOptions.map((prop, index) => (
                     <button
@@ -970,7 +970,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
           <div style={label}>Destinos (output targets)</div>
           <h3 style={{ margin: '5px 0 8px' }}>Where to publish this expression</h3>
           <p style={{ margin: 0, opacity: 0.72 }}>
-            Marque um ou mais destinos. Ao salvar, criamos um OutputRoute por destino (id <code>expr:&lt;exprId&gt;:&lt;kind&gt;</code>) lendo a fonte
+            Select one or more targets. On save, we create one OutputRoute per target (id <code>expr:&lt;exprId&gt;:&lt;kind&gt;</code>) reading the source
             <code> {`{kind:'expression', exprId:'${draft.id || '…'}'}`}</code>.
           </p>
           <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
@@ -1039,7 +1039,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
                               ))}
                             </select>
                             <span style={{ display: 'block', opacity: 0.65, marginTop: 4, fontSize: 12 }}>
-                              Reutiliza <code>app:dash:activate</code>: abre este dashboard e fecha o dashboard anterior quando o valor sair de falso para verdadeiro.
+                              Reuses <code>app:dash:activate</code>: opens this dashboard and closes the previous dashboard when the value changes from false to true.
                             </span>
                           </label>
                         )
@@ -1052,7 +1052,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
                         )
                         return (
                           <label style={{ display: 'block' }}>
-                            Widget de overlay
+                            Overlay widget
                             <select
                               style={input}
                               value={target.name}
@@ -1075,12 +1075,12 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
                             const options = targetOptionsWithSavedValue(
                               serialTargetOptions,
                               target.deviceId,
-                              'Device salvo'
+                              'Saved device'
                             )
                             const value = target.deviceId ?? defaultSerialDeviceId ?? ''
                             return (
                               <label style={{ display: 'block' }}>
-                                Dispositivo serial
+                                Serial device
                                 <select
                                   style={input}
                                   value={value}
@@ -1151,12 +1151,12 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
         </section>
 
         <section style={{ ...card, borderColor: liveResult.error ? 'rgba(255,107,107,0.55)' : 'rgba(var(--accent-rgb),0.45)' }}>
-          <div style={label}>Test ao vivo</div>
+          <div style={label}>Live test</div>
           <h3 style={{ margin: '5px 0 10px', color: liveResult.error ? 'var(--accent-danger)' : 'var(--accent-primary)' }}>
             {liveResult.error ? 'Expression error' : formatValue(liveResult.value)}
           </h3>
           <p style={{ margin: 0, opacity: 0.75 }}>
-            {liveResult.error ?? `${latest?.connected ? 'Telemetry connected' : 'Waiting/mock'} · ${latest?.sim ?? 'none'}`}
+            {liveResult.error ? `${latest?.connected ? 'Telemetry connected' : 'Waiting/mock'} · ${latest?.sim ?? 'none'}` : ''}
           </p>
           {draftLiveValue && (
             <p style={{ margin: '8px 0 0', opacity: 0.78, fontSize: 12 }}>
@@ -1170,7 +1170,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
           <div style={label}>iRacing variables</div>
           <h3 style={{ margin: '5px 0 8px' }}>Field catalog</h3>
           <p style={{ margin: 0, opacity: 0.72 }}>
-            Clique para habilitar/desabilitar. Campos habilitados com mapeamento aparecem no escopo da expressão pelo nome do SDK (ex.: <code>Speed</code>).
+            Click to enable/disable. Enabled mapped fields appear in the expression scope under the SDK name (e.g. <code>Speed</code>).
           </p>
           <div style={{ display: 'grid', gap: 12, marginTop: 14, maxHeight: 420, overflow: 'auto', paddingRight: 4 }}>
             {iracingGroups.map((group) => {
@@ -1209,7 +1209,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
                             <code>{item.id}</code>
                             <span style={{ display: 'block', opacity: 0.82, marginTop: 3 }}>{item.label}{item.unit ? ` · ${item.unit}` : ''}</span>
                             <span style={{ display: 'block', opacity: 0.62, marginTop: 3, fontVariantNumeric: 'tabular-nums' }}>
-                              {item.telemetryField ? `${item.telemetryField}: ${formatValue(value)}${item.unit && value !== undefined ? ` ${item.unit}` : ''}` : 'Sem mapeamento no TelemetrySnapshot'}
+                              {item.telemetryField ? `${item.telemetryField}: ${formatValue(value)}${item.unit && value !== undefined ? ` ${item.unit}` : ''}` : 'No mapping in TelemetrySnapshot'}
                             </span>
                           </span>
                         </label>

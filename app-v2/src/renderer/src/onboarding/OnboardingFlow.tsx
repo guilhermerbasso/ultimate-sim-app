@@ -126,7 +126,7 @@ export function OnboardingFlow({ onClose, onNavigate }: OnboardingFlowProps): Re
             <span className="onboarding-kicker">Setup guiado · {progress}%</span>
             <h1 id="onboarding-title">Onboarding</h1>
           </div>
-          <button className="onboarding-skip" type="button" onClick={markCompleteAndClose}>Pular</button>
+          <button className="onboarding-skip" type="button" onClick={markCompleteAndClose}>Skip</button>
         </header>
 
         <div className="onboarding-progress" aria-label={`Progresso ${progress}%`}>
@@ -167,7 +167,7 @@ export function OnboardingFlow({ onClose, onNavigate }: OnboardingFlowProps): Re
           <footer className="onboarding-footer">
             <button className="onboarding-button" type="button" onClick={back} disabled={isFirstStep}>Back</button>
             <button className="onboarding-button onboarding-button--primary" type="button" onClick={next}>
-              {isLastStep ? 'Concluir' : 'Continuar'}
+              {isLastStep ? 'Finish' : 'Continue'}
             </button>
           </footer>
         )}

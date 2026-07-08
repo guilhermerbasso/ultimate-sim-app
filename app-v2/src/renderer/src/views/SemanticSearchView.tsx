@@ -118,7 +118,7 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
         setResults(res.results)
         setMode(res.mode)
       } catch (e) {
-        showToast(`Busca falhou: ${errorMessage(e)}`, 'error')
+        showToast(`Search failed: ${errorMessage(e)}`, 'error')
       } finally {
         setSearching(false)
       }
@@ -189,10 +189,10 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
           <input
             style={input}
             type="search"
-            placeholder="Ex.: setup macio para chuva em Interlagos, freada tardia na curva 1…"
+            placeholder="E.g., soft setup for rain at Interlagos, late braking into turn 1?"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            aria-label="Termo de busca"
+            aria-label="Search term"
           />
           <span
             style={{
@@ -237,14 +237,14 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
       <section style={card}>
         <div style={{ ...row, justifyContent: 'space-between' }}>
           <div>
-            <div style={label}>Modelo de embeddings</div>
+            <div style={label}>Embedding model</div>
             <div style={{ marginTop: 4, fontSize: 13 }}>
               {status?.modelReady ? (
-                <span style={{ color: 'var(--accent-success)' }}>● Modelo ativo — busca por significado habilitada</span>
+                <span style={{ color: 'var(--accent-success)' }}>● Modelo active — busca por significado habilitada</span>
               ) : downloading ? (
                 <span style={{ color: 'var(--accent-primary)' }}>● Lowndo/carregando modelo… {ratioPct}%</span>
               ) : status && !status.modelAvailable ? (
-                <span style={{ opacity: 0.8 }}>○ Pacote de IA no instalado — using busca por palavra-chave</span>
+                <span style={{ opacity: 0.8 }}>? AI package not installed ? using keyword search</span>
               ) : (
                 <span style={{ opacity: 0.8 }}>○ Modelo no baixado — using busca por palavra-chave</span>
               )}
@@ -253,7 +253,7 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
           <div style={row}>
             {!status?.modelReady && status?.modelAvailable !== false ? (
               <button style={primaryButton} type="button" disabled={!!downloading} onClick={() => void onDownloadModel()}>
-                {downloading ? `Lowndo ${ratioPct}%` : `Lowr modelo (${status?.modelSizeLabel ?? '~470 MB'})`}
+                {downloading ? `Downloading ${ratioPct}%` : `Download model (${status?.modelSizeLabel ?? '~470 MB'})`}
               </button>
             ) : null}
             <button style={button} type="button" onClick={() => void onReindex()}>
@@ -282,8 +282,8 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
         ) : null}
 
         <p style={{ opacity: 0.6, margin: '10px 0 0', fontSize: 12 }}>
-          100% offline e open-source (Transformers.js, CPU). O download é sob demanda e fica em cache. Without the model, search
-          continua funcionando por palavra-chave/fuzzy.
+          100% offline and open-source (Transformers.js, CPU). The download is on-demand and cached. Without the model, search
+          still works by keyword/fuzzy matching.
         </p>
       </section>
 
@@ -295,7 +295,7 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
           <p style={{ opacity: 0.7, margin: 0 }}>
             {query.trim()
               ? 'No results. Try other terms, reindex, or download the model for meaning-based search.'
-              : 'Digite algo para buscar nos seus setups, ghosts, notas de pilotos e achados do Coach/Engenheiro.'}
+              : 'Type something to search your setups, ghosts, driver notes, and Coach/Engineer findings.'}
           </p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>

@@ -40,20 +40,20 @@ const presetLabels: Record<OverlayPreset, string> = {
 export function WelcomeStep({ onConfigure, onDemo, onSkip }: WelcomeStepProps): ReactElement {
   return (
     <div className="onboarding-hero">
-      <span className="onboarding-kicker">Primeira volta</span>
+      <span className="onboarding-kicker">First lap</span>
       <h2>Ultimate Sim App</h2>
       <p>
         Configure telemetry, SIM-X, and overlays in under 90 seconds so you can leave the pit box with the basics ready.
       </p>
       <div className="onboarding-actions onboarding-actions--hero">
         <button className="onboarding-button onboarding-button--primary" type="button" onClick={onConfigure}>
-          Configurar
+          Configure
         </button>
         <button className="onboarding-button" type="button" onClick={onDemo}>
-          Usar modo Demo
+          Use Demo mode
         </button>
         <button className="onboarding-button onboarding-button--ghost" type="button" onClick={onSkip}>
-          Pular
+          Skip
         </button>
       </div>
     </div>
@@ -64,8 +64,8 @@ export function TelemetryStep({ selected, busy, error, onSelect }: TelemetryStep
   return (
     <div className="onboarding-step-body">
       <span className="onboarding-kicker">Telemetry</span>
-      <h2>Escolha a fonte inicial</h2>
-      <p>Auto-detect procura yesuladores suportados. Demo(mock) liga dados yesulados para testar screens sem entrar no cockpit.</p>
+      <h2>Choose the initial source</h2>
+      <p>Auto-detect looks for supported sims. Demo (mock) enables simulated data so you can test screens without entering the cockpit.</p>
       <div className="onboarding-choice-grid">
         <button
           className={`onboarding-choice ${selected === 'auto' ? 'is-selected' : ''}`}
@@ -74,7 +74,7 @@ export function TelemetryStep({ selected, busy, error, onSelect }: TelemetryStep
           onClick={() => onSelect('auto')}
         >
           <strong>Auto-detect</strong>
-          <span>iRacing, ACC, AC ou AMS2 quando disponíveis.</span>
+          <span>iRacing, ACC, AC, or AMS2 when available.</span>
         </button>
         <button
           className={`onboarding-choice ${selected === 'mock' ? 'is-selected' : ''}`}
@@ -86,7 +86,7 @@ export function TelemetryStep({ selected, busy, error, onSelect }: TelemetryStep
           <span>Synthetic data to learn the app without hardware.</span>
         </button>
       </div>
-      {busy && <p className="onboarding-note">Aplicando fonte de telemetria…</p>}
+      {busy && <p className="onboarding-note">Applying telemetry source?</p>}
       {error && <p className="onboarding-error" role="alert">{error}</p>}
     </div>
   )
@@ -96,7 +96,7 @@ export function DevicesStep({ onJump }: DevicesStepProps): ReactElement {
   return (
     <div className="onboarding-step-body">
       <span className="onboarding-kicker">Devices</span>
-      <h2>Conecte o SIM-X quando estiver pronto</h2>
+      <h2>Connect SIM-X when ready</h2>
       <p>
         Plug in the controller over USB and use Devices to detect the port, firmware, and status. You can finish the tour now and connect later.
       </p>
@@ -135,10 +135,10 @@ export function OverlaysStep({ selected, onSelect, onJump }: OverlaysStepProps):
 export function FinishStep({ selectedPreset }: FinishStepProps): ReactElement {
   return (
     <div className="onboarding-step-body onboarding-finish">
-      <span className="onboarding-kicker">Pronto</span>
+      <span className="onboarding-kicker">Ready</span>
       <h2>Your starter grid is ready</h2>
       <p>
-        Vamos fixar Telemetry, Overlays, Fuel e Devices nos favoritos. Preset escolhido: {presetLabels[selectedPreset]}.
+        We will pin Telemetry, Overlays, Fuel, and Devices to favorites. Chosen preset: {presetLabels[selectedPreset]}.
       </p>
       <div className="onboarding-summary">
         <span>★ Telemetry</span>

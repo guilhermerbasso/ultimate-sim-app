@@ -118,7 +118,7 @@ function cycleControlKey(direction: 'next' | 'prev', control: HidButtonControl):
 interface ScaleInfo {
   scaleX: number
   scaleY: number
-  // Posição final do canvas (canto sup. esquerdo) na janela em pixels.
+  // Final canvas position (upper-left corner) in the window, in pixels.
   left: number
   top: number
 }
@@ -151,7 +151,7 @@ function useScale(baseW: number, baseH: number, mode: DashboardScaleMode): Scale
         scaleX = s
         scaleY = s
       }
-      // Centraliza o canvas dentro do shell:
+      // Centers the canvas inside the shell:
       const renderedW = baseW * scaleX
       const renderedH = baseH * scaleY
       const left = Math.floor((winW - renderedW) / 2)
@@ -629,7 +629,7 @@ function ElementRadar({ element, snapshot }: ElementProps) {
   const leftThreat = radarSideThreat(cars.filter((car) => car.relativeX < 0).map((car) => car.relativeY))
   const rightThreat = radarSideThreat(cars.filter((car) => car.relativeX > 0).map((car) => car.relativeY))
 
-  // Posiciona oponentes ao redor do player com base no gap (em ±5s mapeado para ±radius)
+  // Positions opponents around the player based on gap (?5s mapped to ?radius)
   const dots = cars.map((car) => {
     const gap = car.gapSec
     const y = gap === undefined
@@ -784,7 +784,7 @@ function ElementImage({ element }: { element: DashboardElement }) {
     return (
       <div className="dash-element" style={style}>
         <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5a6a7a', fontSize: 12 }}>
-          (sem imagem)
+          (no image)
         </div>
       </div>
     )
@@ -802,7 +802,7 @@ function ElementImage({ element }: { element: DashboardElement }) {
   )
 }
 
-function ElementBarV({ element, snapshot }: ElementProps) {
+function ElementBarL({ element, snapshot }: ElementProps) {
   const result = resolveBinding(element.binding, snapshot)
   const pct = Math.min(1, Math.max(0, result.pct ?? 0))
   const color = pickFillColor(pct, element)
@@ -818,7 +818,7 @@ function ElementBarV({ element, snapshot }: ElementProps) {
       : undefined
   }
   if (wantsRevLed(element)) {
-    // Vertical modelled LED bar: render a horizontal RevLedBar sized to the bar's
+    // Viewtical modelled LED bar: render a horizontal RevLedBar sized to the bar's
     // HEIGHT and rotate it into the column (reverse flips the fill direction).
     const ledProps = revLedPropsFor(element.style, pct, {
       width: Math.max(8, element.h - 4),
@@ -907,12 +907,12 @@ function ElementDeltaBar({ element, snapshot }: ElementProps) {
   const delta = result.numeric ?? 0
   const range = Math.max(0.05, element.style.deltaRangeSec ?? 1)
   const clamped = Math.max(-range, Math.min(range, delta))
-  // Normaliza para -1..+1 e converte em porcentagem 0..100 partindo do centro (50%).
+  // Normalizes to -1..+1 and converts to percentage 0..100 from the center (50%).
   const norm = clamped / range
   const halfPct = Math.abs(norm) * 50
   const left = norm < 0 ? 50 - halfPct : 50
   const width = halfPct
-  // verde = melhor (delta negativo), vermelho = pior (positivo)
+  // verde = melhor (delta negactive), vermelho = pior (positivo)
   const goodColor = element.style.fillColor ?? '#2dd96a'
   const badColor = element.style.dangerColor ?? '#ff5468'
   const color = norm < 0 ? goodColor : badColor
@@ -1012,7 +1012,7 @@ function useTraceBuffer(
         ref.current.secondary.splice(0, ref.current.secondary.length - len)
     }
   }
-  // Ajusta tamanho do buffer se length mudou.
+  // Adjusts buffer size if length changed.
   if (ref.current.primary.length > len) ref.current.primary.splice(0, ref.current.primary.length - len)
   if (ref.current.secondary.length > len) ref.current.secondary.splice(0, ref.current.secondary.length - len)
   return ref.current
@@ -1133,7 +1133,7 @@ function ElementTable({ element, snapshot }: ElementProps) {
   const cols = s.tableColumns && s.tableColumns.length > 0 ? s.tableColumns : DEFAULT_TABLE_COLUMNS
   const maxRows = Math.max(1, Math.min(64, s.tableMaxRows ?? 8))
   const drivers = (snapshot?.drivers ?? []).slice().sort((a, b) => (a.position ?? 999) - (b.position ?? 999))
-  // Foca em uma janela ao redor do jogador, ou top N se highlightPlayer = false.
+  // Focuses on a window around the driver, or top N if highlightPlayer = false.
   let visible: DriverEntry[]
   const playerIdx = drivers.findIndex((d) => d.isPlayer)
   if (s.highlightPlayer !== false && playerIdx >= 0 && drivers.length > maxRows) {
@@ -1224,7 +1224,7 @@ function ElementTable({ element, snapshot }: ElementProps) {
         })}
         {visible.length === 0 && (
           <div style={{ color: '#5a6a7a', fontSize: fontSize * 0.9, padding: '8px 6px' }}>
-            (sem standings na telemetria)
+            (no standings in telemetry)
           </div>
         )}
       </div>
@@ -1287,7 +1287,7 @@ function ElementSwitcher(props: ElementProps) {
     case 'bar':
       return <ElementBar {...props} />
     case 'barv':
-      return <ElementBarV {...props} />
+      return <ElementBarL {...props} />
     case 'dualbar':
       return <ElementDualBar {...props} />
     case 'deltabar':
@@ -1344,18 +1344,18 @@ interface RaceMomentRuntime {
   active: ReadonlySet<string>
 }
 
-const EMPTY_ACTIVE: ReadonlySet<string> = new Set<string>()
+const EMPTY_ACTILE: ReadonlySet<string> = new Set<string>()
 
 function useRaceMoment(enabled: boolean): RaceMomentRuntime {
   const momentRef = useRef<RaceMomentState | null>(null)
   const liveSnapshotRef = useRef<TelemetrySnapshot | null>(null)
   const predictionsRef = useRef<PredictionsSnapshot | null>(null)
-  const [runtime, setRuntime] = useState<RaceMomentRuntime>({ moment: null, active: EMPTY_ACTIVE })
+  const [runtime, setRuntime] = useState<RaceMomentRuntime>({ moment: null, active: EMPTY_ACTILE })
 
   useEffect(() => {
     if (!enabled) {
       momentRef.current = null
-      setRuntime({ moment: null, active: EMPTY_ACTIVE })
+      setRuntime({ moment: null, active: EMPTY_ACTILE })
       return
     }
     momentRef.current = initialRaceMomentState()
@@ -1519,7 +1519,7 @@ export function DashboardRoot() {
       .then((dash) => {
         if (canceled) return
         if (!dash) {
-          setError(`Dashboard no encontrado: ${dashId}`)
+          setError(`Dashboard not found: ${dashId}`)
           return
         }
         setDashboard(dash)
@@ -1588,7 +1588,7 @@ export function DashboardRoot() {
       .invoke<TelemetrySnapshot | null>('telemetry:getLatest')
       .then(setSnapshot)
       .catch(() => undefined)
-    // Atualização de definição ao salvar no main (broadcast app:dash:updated)
+    // Definition update when saving in main (broadcast app:dash:updated)
     const offUpdate = window.ipc.subscribe<Dashboard>('app:dash:updated', (next) => {
       if (next?.id === dashId) setDashboard(next)
     })
@@ -1683,7 +1683,7 @@ export function DashboardRoot() {
       )}
       {!snapshot?.connected && (
         <div className="dash-status">
-          Telemetry desconectada — defina uma fonte (ex.: Mock) em Settings.
+          Telemetry disconnected ? set a source (e.g., Mock) in Settings.
         </div>
       )}
       {kiosk && <KioskGestureLayer dashId={dashId} />}

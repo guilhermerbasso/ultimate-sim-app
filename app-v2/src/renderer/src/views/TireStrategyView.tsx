@@ -4,7 +4,7 @@ import { TIRE_CHANNELS } from '../../../shared/tire-strategy'
 import type { AppViewProps } from '../App'
 import { tt } from '../i18n'
 
-const CORNERS: Array<[TireCornerId, string]> = [['lf', 'DE'], ['rf', 'DD'], ['lr', 'TE'], ['rr', 'TD']]
+const CORNERS: Array<[TireCornerId, string]> = [['lf', 'LF'], ['rf', 'RF'], ['lr', 'LR'], ['rr', 'RR']]
 
 const card: CSSProperties = {
   background: 'var(--surface-raised)',
@@ -123,7 +123,7 @@ export default function TireStrategyView({ language }: AppViewProps): ReactEleme
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
         <Metric title={tt(language, 'tire.worst')} main={cornerName(tire?.worstCorner)} accent={(tire?.lapsRemainingOnTyres ?? 99) <= 3 ? 'var(--accent-danger)' : 'var(--accent-primary)'} />
         <Metric title={tt(language, 'tire.lifeToLimit')} main={fmtNumber(tire?.lapsRemainingOnTyres, 1)} unit={tt(language, 'fuel.lapUnit')} accent={canFinish === false ? 'var(--accent-warning)' : 'var(--accent-primary)'} />
-        <Metric title={tt(language, 'tire.pitRecommended')} main={tire?.recommendedPitLap ? `V${tire.recommendedPitLap}` : '—'} />
+        <Metric title={tt(language, 'tire.pitRecommended')} main={tire?.recommendedPitLap ? `L${tire.recommendedPitLap}` : '—'} />
         <Metric title={tt(language, 'tire.avgWear')} main={fmtPercentPoints(tire?.avgWearPerLap)} unit="p.p./lap" />
       </div>
 
@@ -139,7 +139,7 @@ export default function TireStrategyView({ language }: AppViewProps): ReactEleme
                 <div style={{ ...label, display: 'flex', justifyContent: 'space-between' }}><span>{cornerLabel}</span>{data?.estimated && <span>{tt(language, 'tire.estimated')}</span>}</div>
                 <div style={{ ...value, color: accent }}>{fmtNumber(life, 1)} <small style={{ fontSize: 13, opacity: 0.66 }}>% {tt(language, 'tire.life')}</small></div>
                 <div style={{ display: 'grid', gap: 6, marginTop: 10, fontVariantNumeric: 'tabular-nums' }}>
-                  <span>{tt(language, 'tire.wear')} <strong>{fmtPercentPoints(data?.wearPerLap)} p.p./volta</strong></span>
+                  <span>{tt(language, 'tire.wear')} <strong>{fmtPercentPoints(data?.wearPerLap)} p.p./lap</strong></span>
                   <span>{tt(language, 'tire.untilLimit')} <strong>{fmtNumber(data?.lapsToThreshold, 1)} {tt(language, 'fuel.lapUnit')}</strong></span>
                 </div>
               </div>

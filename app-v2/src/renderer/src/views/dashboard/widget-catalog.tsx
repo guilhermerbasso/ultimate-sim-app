@@ -1,9 +1,9 @@
-// Catalogo de widgets (galeria visual) compartilhado pelo editor de dashboards
-// (DashboardsView) e pelo construtor de overlays (OverlayWidgetBuilder). Os data
+// Widget catalog (visual gallery) shared by the dashboard editor
+// (DashboardsView) and by the overlay builder (OverlayWidgetBuilder). Os data
 // puros (variantes + taxonomia + filtros) vivem em widget-catalog-data.ts; este
-// arquivo cuida so da UI React: miniaturas ao vivo + galeria com busca e filtros
+// file handles only the React UI: live thumbnails + gallery with search and filters
 // por categoria/estilo. As miniaturas reaproveitam os renderers GT3/extra ao vivo
-// com um snapshot yesulado e fallbacks statics para os tipos legados.
+// with a simulated snapshot and static fallbacks for legacy types.
 
 import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement, ReactNode } from 'react'
@@ -133,7 +133,7 @@ export function WidgetMini({ variant }: { variant: WidgetVariant }): ReactElemen
   )
 }
 
-// ─── Galeria com busca + filtros ──────────────────────────────────────────────
+// ─── Gallery with search + filters ──────────────────────────────────────────────
 const ALL_CATEGORIES = availableCategories(ALL_VARIANTS)
 const ALL_STYLES = availableStyles(ALL_VARIANTS)
 const ALL_CLUSTERS = availableClusters(ALL_VARIANTS)
@@ -303,12 +303,12 @@ export function WidgetGallery({
                 onClick={() => setAdvancedOpen((v) => !v)}
                 style={advancedToggle}
                 aria-expanded={showAdvanced}
-                title="Canais brutos de telemetria iRacing (secondary)"
+                title="Raw iRacing telemetry channels (secondary)"
               >
                 <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
                   <span style={{ color: TEXT_FG, fontSize: 13, fontWeight: 800 }}>Canais iRacing avancados</span>
                   <span style={{ color: TEXT_DIM, fontSize: 11, fontWeight: 600 }}>
-                    {advanced.length} channel{advanced.length === 1 ? '' : 'is'} brutos · use a busca para filtrar
+                    {advanced.length} raw channel{advanced.length === 1 ? '' : 's'} ? use search to filter
                   </span>
                 </span>
                 <span style={{ color: ACCENT, fontSize: 16, fontWeight: 900 }}>{showAdvanced ? '▾' : '▸'}</span>
@@ -417,7 +417,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick(): void;
 function SimBadge({ sims }: { sims: readonly CoverageSimId[] }): ReactElement {
   const universal = sims.length >= PLAYABLE_SIMS.length
   const none = sims.length === 0
-  const text = none ? '— sem yes ao vivo' : universal ? 'All sims' : sims.map(simLabel).join('·')
+  const text = none ? '? no live sim' : universal ? 'All sims' : sims.map(simLabel).join('?')
   const tone: CSSProperties = none
     ? { color: '#ffb84d', background: 'rgba(255,184,77,0.12)', borderColor: 'rgba(255,184,77,0.4)' }
     : universal

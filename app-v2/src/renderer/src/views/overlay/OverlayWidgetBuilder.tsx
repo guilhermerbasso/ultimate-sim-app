@@ -60,7 +60,7 @@ const UNIT_OPTIONS = [
 ]
 const IMAGE_FILTER_PRESETS: Array<{ id: string; label: string; patch: Partial<DashboardElementStyle> }> = [
   { id: 'original', label: 'Original', patch: { filterGrayscale: undefined, filterSepia: undefined, redTint: undefined, brightness: undefined, contrast: undefined, saturate: undefined, hueRotate: undefined, invert: undefined, blur: undefined } },
-  { id: 'bw', label: 'P&B', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: undefined, brightness: undefined, contrast: 1.05, saturate: undefined, hueRotate: undefined, invert: undefined } },
+  { id: 'bw', label: 'B&W', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: undefined, brightness: undefined, contrast: 1.05, saturate: undefined, hueRotate: undefined, invert: undefined } },
   { id: 'red', label: 'Red', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: 1, brightness: 0.95, contrast: 1.1, saturate: undefined, hueRotate: undefined, invert: undefined } },
   { id: 'sepia', label: 'Sepia', patch: { filterGrayscale: undefined, filterSepia: 1, redTint: undefined, brightness: 1.02, contrast: undefined, saturate: undefined, hueRotate: undefined, invert: undefined } }
 ]
@@ -101,7 +101,7 @@ function loadImageEl(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('falha ao carregar imagem'))
+    img.onerror = () => reject(new Error('failed to load image'))
     img.src = src
   })
 }
@@ -111,7 +111,7 @@ async function fileToDataUrl(file: File): Promise<string> {
   const raw = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result))
-    reader.onerror = () => reject(reader.error ?? new Error('falha ao ler arquivo'))
+    reader.onerror = () => reject(reader.error ?? new Error('failed to read file'))
     reader.readAsDataURL(file)
   })
   if (raw.length <= LIMIT) return raw
@@ -444,13 +444,13 @@ function SlotEditor({ element, slots, onChangeStyle }: { element: DashboardEleme
       </div>
       <div className="designer-grid-2">
         <SelectField label="Font" value={String(cur.fontFamily ?? '')} options={FONT_OPTIONS} onChange={(v) => set('fontFamily', v || undefined)} />
-        <NumberField label="Tamanho (0=auto)" value={Number(cur.fontSize ?? 0)} onChange={(v) => set('fontSize', v > 0 ? Math.round(v) : undefined)} min={0} max={400} />
+        <NumberField label="Size (0=auto)" value={Number(cur.fontSize ?? 0)} onChange={(v) => set('fontSize', v > 0 ? Math.round(v) : undefined)} min={0} max={400} />
         <ColorField label="Color" value={String(cur.fontColor ?? '')} onChange={(v) => set('fontColor', v || undefined)} />
-        <SelectField label="Peso" value={String(cur.fontWeight ?? '')} options={WEIGHT_OPTIONS} onChange={(v) => set('fontWeight', v ? Number(v) : undefined)} />
-        <SelectField label="Alinhamento" value={String(cur.align ?? '')} options={ALIGN_OPTIONS} onChange={(v) => set('align', v || undefined)} />
+        <SelectField label="Weight" value={String(cur.fontWeight ?? '')} options={WEIGHT_OPTIONS} onChange={(v) => set('fontWeight', v ? Number(v) : undefined)} />
+        <SelectField label="Alignment" value={String(cur.align ?? '')} options={ALIGN_OPTIONS} onChange={(v) => set('align', v || undefined)} />
         <NumberField label="Spacing (px)" value={Number(cur.letterSpacing ?? 0)} onChange={(v) => set('letterSpacing', Number.isFinite(v) && v !== 0 ? v : undefined)} min={-5} max={30} step={0.5} />
-        <SelectField label="Transformar" value={String(cur.textTransform ?? 'none')} options={TRANSFORM_OPTIONS} onChange={(v) => set('textTransform', v === 'none' ? undefined : v)} />
-        <ToggleField label="Sombra/glow" value={Boolean(cur.shadow)} onChange={(on) => set('shadow', on ? '0 2px 6px rgba(0,0,0,0.65)' : undefined)} />
+        <SelectField label="Transform" value={String(cur.textTransform ?? 'none')} options={TRANSFORM_OPTIONS} onChange={(v) => set('textTransform', v === 'none' ? undefined : v)} />
+        <ToggleField label="Shadow/glow" value={Boolean(cur.shadow)} onChange={(on) => set('shadow', on ? '0 2px 6px rgba(0,0,0,0.65)' : undefined)} />
       </div>
     </div>
   )
@@ -493,11 +493,11 @@ function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle
       </div>
 
       <div className="overlay-builder-section">
-        <div className="overlay-builder-section-title">Fundo e borda</div>
+        <div className="overlay-builder-section-title">Background and border</div>
         <div className="designer-grid-2">
-          <ColorField label="Fundo" value={s.background ?? 'transparent'} onChange={(v) => onChangeStyle({ background: v })} />
-          <ColorField label="Borda" value={s.border ?? 'transparent'} onChange={(v) => onChangeStyle({ border: v })} />
-          <NumberField label="Borda (px)" value={s.borderWidth ?? 0} onChange={(v) => onChangeStyle({ borderWidth: Math.max(0, Math.round(v)) })} min={0} max={20} />
+          <ColorField label="Background" value={s.background ?? 'transparent'} onChange={(v) => onChangeStyle({ background: v })} />
+          <ColorField label="Border" value={s.border ?? 'transparent'} onChange={(v) => onChangeStyle({ border: v })} />
+          <NumberField label="Border (px)" value={s.borderWidth ?? 0} onChange={(v) => onChangeStyle({ borderWidth: Math.max(0, Math.round(v)) })} min={0} max={20} />
           <NumberField label="Radius (px)" value={s.radius ?? 0} onChange={(v) => onChangeStyle({ radius: Math.max(0, Math.round(v)) })} min={0} max={120} />
         </div>
       </div>
@@ -505,16 +505,16 @@ function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle
       {(isText || slots.length === 0) && !isImage && !isFlag && (
         <div className="overlay-builder-section">
           <div className="overlay-builder-section-title">Text</div>
-          {isText && <TextField label="Text (sem binding)" value={s.text ?? ''} onChange={(v) => onChangeStyle({ text: v })} />}
+          {isText && <TextField label="Text (no binding)" value={s.text ?? ''} onChange={(v) => onChangeStyle({ text: v })} />}
           <div className="designer-grid-2">
             <SelectField label="Font" value={String(s.fontFamily ?? '')} options={FONT_OPTIONS} onChange={(v) => onChangeStyle({ fontFamily: v || undefined })} />
             <NumberField label="Font (px)" value={Number(s.fontSize ?? 18)} onChange={(v) => onChangeStyle({ fontSize: v })} min={8} max={400} />
             <ColorField label="Text color" value={s.color ?? '#f6fbff'} onChange={(v) => onChangeStyle({ color: v })} />
-            <SelectField label="Peso" value={String(s.fontWeight ?? 700)} options={WEIGHT_OPTIONS.filter((o) => o.value !== '')} onChange={(v) => onChangeStyle({ fontWeight: Number(v) })} />
-            <SelectField label="Alinhamento" value={String(s.align ?? 'left')} options={ALIGN_OPTIONS.filter((o) => o.value !== '')} onChange={(v) => onChangeStyle({ align: v as 'left' | 'center' | 'right' })} />
-            <TextField label="Prefixo" value={s.prefix ?? ''} onChange={(v) => onChangeStyle({ prefix: v || undefined })} />
-            <TextField label="Sufixo" value={s.suffix ?? ''} onChange={(v) => onChangeStyle({ suffix: v || undefined })} />
-            <NumberField label="Casas decimais" value={s.decimals ?? 0} onChange={(v) => onChangeStyle({ decimals: Math.max(0, Math.min(4, Math.round(v))) })} min={0} max={4} />
+            <SelectField label="Weight" value={String(s.fontWeight ?? 700)} options={WEIGHT_OPTIONS.filter((o) => o.value !== '')} onChange={(v) => onChangeStyle({ fontWeight: Number(v) })} />
+            <SelectField label="Alignment" value={String(s.align ?? 'left')} options={ALIGN_OPTIONS.filter((o) => o.value !== '')} onChange={(v) => onChangeStyle({ align: v as 'left' | 'center' | 'right' })} />
+            <TextField label="Prefix" value={s.prefix ?? ''} onChange={(v) => onChangeStyle({ prefix: v || undefined })} />
+            <TextField label="Suffix" value={s.suffix ?? ''} onChange={(v) => onChangeStyle({ suffix: v || undefined })} />
+            <NumberField label="Decimal places" value={s.decimals ?? 0} onChange={(v) => onChangeStyle({ decimals: Math.max(0, Math.min(4, Math.round(v))) })} min={0} max={4} />
           </div>
         </div>
       )}
@@ -523,13 +523,13 @@ function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle
         <div className="overlay-builder-section">
           <div className="overlay-builder-section-title">Bars / medidores</div>
           <div className="designer-grid-2">
-            <ColorField label="Preenchimento" value={s.fillColor ?? 'var(--accent-primary)'} onChange={(v) => onChangeStyle({ fillColor: v })} />
-            <ColorField label="Aviso" value={s.warnColor ?? '#ffb84d'} onChange={(v) => onChangeStyle({ warnColor: v })} />
-            <ColorField label="Perigo" value={s.dangerColor ?? '#ff5468'} onChange={(v) => onChangeStyle({ dangerColor: v })} />
-            <NumberField label="Aviso (0–1)" value={s.warnAt ?? 0.7} onChange={(v) => onChangeStyle({ warnAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
-            <NumberField label="Perigo (0–1)" value={s.dangerAt ?? 0.9} onChange={(v) => onChangeStyle({ dangerAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
+            <ColorField label="Fill" value={s.fillColor ?? 'var(--accent-primary)'} onChange={(v) => onChangeStyle({ fillColor: v })} />
+            <ColorField label="Warning" value={s.warnColor ?? '#ffb84d'} onChange={(v) => onChangeStyle({ warnColor: v })} />
+            <ColorField label="Danger" value={s.dangerColor ?? '#ff5468'} onChange={(v) => onChangeStyle({ dangerColor: v })} />
+            <NumberField label="Warning (0–1)" value={s.warnAt ?? 0.7} onChange={(v) => onChangeStyle({ warnAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
+            <NumberField label="Danger (0–1)" value={s.dangerAt ?? 0.9} onChange={(v) => onChangeStyle({ dangerAt: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
             {element.type === 'shiftlights' && (
-              <NumberField label="Segmentos" value={s.segments ?? 12} onChange={(v) => onChangeStyle({ segments: Math.max(4, Math.min(24, Math.round(v))) })} min={4} max={24} />
+              <NumberField label="Segments" value={s.segments ?? 12} onChange={(v) => onChangeStyle({ segments: Math.max(4, Math.min(24, Math.round(v))) })} min={4} max={24} />
             )}
           </div>
         </div>
@@ -540,20 +540,20 @@ function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle
           <div className="overlay-builder-section-title">Data, cores e formatacao</div>
           <div className="designer-grid-2">
             <ColorField label="Accent color" value={s.accentColor ?? ''} onChange={(v) => onChangeStyle({ accentColor: v || undefined })} />
-            <SliderField label="Opacidade" value={s.opacity ?? 1} onChange={(v) => onChangeStyle({ opacity: v >= 1 ? undefined : Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
+            <SliderField label="Opacity" value={s.opacity ?? 1} onChange={(v) => onChangeStyle({ opacity: v >= 1 ? undefined : Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
             <SelectField label="Unit" value={s.unit ?? ''} options={UNIT_OPTIONS} onChange={(v) => onChangeStyle({ unit: v || undefined })} />
-            <NumberField label="Casas decimais" value={s.decimals ?? 0} onChange={(v) => onChangeStyle({ decimals: Number.isFinite(v) && v > 0 ? Math.min(6, Math.round(v)) : undefined })} min={0} max={6} />
-            <TextField label="Prefixo" value={s.prefix ?? ''} onChange={(v) => onChangeStyle({ prefix: v || undefined })} />
-            <TextField label="Sufixo / unidade" value={s.suffix ?? ''} onChange={(v) => onChangeStyle({ suffix: v || undefined })} />
+            <NumberField label="Decimal places" value={s.decimals ?? 0} onChange={(v) => onChangeStyle({ decimals: Number.isFinite(v) && v > 0 ? Math.min(6, Math.round(v)) : undefined })} min={0} max={6} />
+            <TextField label="Prefix" value={s.prefix ?? ''} onChange={(v) => onChangeStyle({ prefix: v || undefined })} />
+            <TextField label="Suffix / unit" value={s.suffix ?? ''} onChange={(v) => onChangeStyle({ suffix: v || undefined })} />
             <ToggleField label="Show labels" value={s.showLabels !== false} onChange={(on) => onChangeStyle({ showLabels: on ? undefined : false })} />
-            <ToggleField label="Show icone" value={s.showIcon !== false} onChange={(on) => onChangeStyle({ showIcon: on ? undefined : false })} />
+            <ToggleField label="Show icon" value={s.showIcon !== false} onChange={(on) => onChangeStyle({ showIcon: on ? undefined : false })} />
           </div>
-          <div className="overlay-builder-section-title">Limiares de cor</div>
+          <div className="overlay-builder-section-title">Color thresholds</div>
           <div className="designer-grid-2">
-            <ColorField label="Aviso" value={s.warnColor ?? '#ffb84d'} onChange={(v) => onChangeStyle({ warnColor: v || undefined })} />
-            <ColorField label="Perigo" value={s.dangerColor ?? '#ff5468'} onChange={(v) => onChangeStyle({ dangerColor: v || undefined })} />
-            <NumberField label="Aviso (0–1)" value={s.warnAt ?? 0} onChange={(v) => onChangeStyle({ warnAt: v > 0 ? Math.max(0, Math.min(1, v)) : undefined })} min={0} max={1} step={0.05} />
-            <NumberField label="Perigo (0–1)" value={s.dangerAt ?? 0} onChange={(v) => onChangeStyle({ dangerAt: v > 0 ? Math.max(0, Math.min(1, v)) : undefined })} min={0} max={1} step={0.05} />
+            <ColorField label="Warning" value={s.warnColor ?? '#ffb84d'} onChange={(v) => onChangeStyle({ warnColor: v || undefined })} />
+            <ColorField label="Danger" value={s.dangerColor ?? '#ff5468'} onChange={(v) => onChangeStyle({ dangerColor: v || undefined })} />
+            <NumberField label="Warning (0–1)" value={s.warnAt ?? 0} onChange={(v) => onChangeStyle({ warnAt: v > 0 ? Math.max(0, Math.min(1, v)) : undefined })} min={0} max={1} step={0.05} />
+            <NumberField label="Danger (0–1)" value={s.dangerAt ?? 0} onChange={(v) => onChangeStyle({ dangerAt: v > 0 ? Math.max(0, Math.min(1, v)) : undefined })} min={0} max={1} step={0.05} />
           </div>
         </div>
       )}
@@ -589,11 +589,11 @@ function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle
               void fileToDataUrl(file).then((url) => onChangeStyle({ src: url })).catch(() => undefined)
             }}
           />
-          <TextField label="URL ou data: URL" value={s.src ?? ''} onChange={(v) => onChangeStyle({ src: v || undefined })} placeholder="data:image/png;base64,…" />
-          {s.src && <button className="ghost-action danger" onClick={() => onChangeStyle({ src: undefined })}>Remove imagem</button>}
+          <TextField label="URL or data: URL" value={s.src ?? ''} onChange={(v) => onChangeStyle({ src: v || undefined })} placeholder="data:image/png;base64,…" />
+          {s.src && <button className="ghost-action danger" onClick={() => onChangeStyle({ src: undefined })}>Remove image</button>}
           <div className="designer-grid-2">
-            <SelectField label="Ajuste" value={s.fit ?? 'contain'} options={[{ value: 'contain', label: 'contain' }, { value: 'cover', label: 'cover' }, { value: 'fill', label: 'fill' }, { value: 'none', label: 'none' }]} onChange={(v) => onChangeStyle({ fit: v as 'contain' | 'cover' | 'fill' | 'none' })} />
-            <NumberField label="Opacidade" value={s.opacity ?? 1} onChange={(v) => onChangeStyle({ opacity: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
+            <SelectField label="Fit" value={s.fit ?? 'contain'} options={[{ value: 'contain', label: 'contain' }, { value: 'cover', label: 'cover' }, { value: 'fill', label: 'fill' }, { value: 'none', label: 'none' }]} onChange={(v) => onChangeStyle({ fit: v as 'contain' | 'cover' | 'fill' | 'none' })} />
+            <NumberField label="Opacity" value={s.opacity ?? 1} onChange={(v) => onChangeStyle({ opacity: Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
           </div>
           <div className="overlay-builder-section-title">Filtros</div>
           <div className="overlay-builder-slot-tabs">
@@ -602,15 +602,15 @@ function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle
             ))}
           </div>
           <div className="designer-grid-2">
-            <SliderField label="P&B" value={s.filterGrayscale ?? 0} onChange={(v) => onChangeStyle({ filterGrayscale: v || undefined })} min={0} max={1} step={0.05} />
+            <SliderField label="B&W" value={s.filterGrayscale ?? 0} onChange={(v) => onChangeStyle({ filterGrayscale: v || undefined })} min={0} max={1} step={0.05} />
             <SliderField label="Red" value={s.redTint ?? 0} onChange={(v) => onChangeStyle({ redTint: v || undefined })} min={0} max={1} step={0.05} />
             <SliderField label="Sepia" value={s.filterSepia ?? 0} onChange={(v) => onChangeStyle({ filterSepia: v || undefined })} min={0} max={1} step={0.05} />
-            <SliderField label="Inverter" value={s.invert ?? 0} onChange={(v) => onChangeStyle({ invert: v || undefined })} min={0} max={1} step={0.05} />
-            <SliderField label="Brilho" value={s.brightness ?? 1} onChange={(v) => onChangeStyle({ brightness: v === 1 ? undefined : v })} min={0} max={2} step={0.05} />
-            <SliderField label="Contraste" value={s.contrast ?? 1} onChange={(v) => onChangeStyle({ contrast: v === 1 ? undefined : v })} min={0} max={2} step={0.05} />
+            <SliderField label="Invert" value={s.invert ?? 0} onChange={(v) => onChangeStyle({ invert: v || undefined })} min={0} max={1} step={0.05} />
+            <SliderField label="Brightness" value={s.brightness ?? 1} onChange={(v) => onChangeStyle({ brightness: v === 1 ? undefined : v })} min={0} max={2} step={0.05} />
+            <SliderField label="Contrast" value={s.contrast ?? 1} onChange={(v) => onChangeStyle({ contrast: v === 1 ? undefined : v })} min={0} max={2} step={0.05} />
             <SliderField label="Saturation" value={s.saturate ?? 1} onChange={(v) => onChangeStyle({ saturate: v === 1 ? undefined : v })} min={0} max={3} step={0.05} />
             <SliderField label="Matiz (°)" value={s.hueRotate ?? 0} onChange={(v) => onChangeStyle({ hueRotate: v || undefined })} min={-180} max={180} step={1} />
-            <SliderField label="Desfoque (px)" value={s.blur ?? 0} onChange={(v) => onChangeStyle({ blur: v || undefined })} min={0} max={10} step={0.5} />
+            <SliderField label="Blur (px)" value={s.blur ?? 0} onChange={(v) => onChangeStyle({ blur: v || undefined })} min={0} max={10} step={0.5} />
           </div>
         </div>
       )}
@@ -755,7 +755,7 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
     <div className="overlay-designer-backdrop" role="dialog" aria-modal="true">
       <div className="overlay-designer overlay-builder">
         <div className="overlay-designer-head">
-          <h4>{editing ? 'Edit overlay de widgets' : 'Create new overlay (widgets do dashboard)'}</h4>
+          <h4>{editing ? 'Edit widget overlay' : 'Create new overlay (dashboard widgets)'}</h4>
           <button className="ghost-action" disabled={busy} onClick={onCancel}>Close</button>
         </div>
 
@@ -786,7 +786,7 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
               </label>
             </div>
             <label className="designer-field">
-              Opacidade · {def.opacity}%
+              Opacity · {def.opacity}%
               <input type="range" min={0} max={100} value={def.opacity} onChange={(e) => patchDef({ opacity: Number(e.target.value) })} />
             </label>
             <button className="ghost-action" onClick={addImage}>+ Image</button>

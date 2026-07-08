@@ -161,15 +161,15 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
         <div className="panel-heading-row">
           <div>
             <span className="panel-label">ESP32 Wi‑Fi · Phase 3</span>
-            <h3>Companion ESP32 por USB ou Wi‑Fi</h3>
+            <h3>Companion ESP32 over USB or Wi?Fi</h3>
           </div>
           <button className="ghost-action compact" disabled={busy} onClick={() => void discover()} type="button">
             Descobrir mDNS
           </button>
         </div>
         <p className="helper-text">
-          Grave/provisione via USB e depois conecte pela rede local. Flash e Wi‑Fi precisam ser validados na bancada;
-          no macOS o app fica protegido quando arduino-cli/core ESP32 ou mDNS no estiverem instalados.
+          Flash/provision over USB, then connect over the local network. Flash and Wi?Fi must be bench-validated;
+          on macOS the app stays guarded when arduino-cli/ESP32 core or mDNS are not installed.
         </p>
       </article>
 
@@ -177,52 +177,52 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
         <article className="panel-card">
           <div className="panel-heading-row">
             <div>
-              <span className="panel-label">Provisionamento USB</span>
-              <h3>Enviar SSID e senha</h3>
+              <span className="panel-label">USB provisioning</span>
+              <h3>Send SSID and password</h3>
             </div>
             <button className="ghost-action compact" disabled={busy} onClick={() => void loadPorts()} type="button">
-              Listar portas
+              List ports
             </button>
           </div>
           <div className="form-grid">
             <label>
-              Placa
+              Board
               <select value={board} onChange={(event) => setBoard(event.target.value as 'esp32' | 'esp32s3')}>
                 <option value="esp32s3">ESP32‑S3 WROOM‑1 Type‑C</option>
                 <option value="esp32">ESP32 DevKit</option>
               </select>
             </label>
             <label>
-              Porta USB
+              USB port
               <select value={selectedPort} onChange={(event) => setSelectedPort(event.target.value)}>
                 <option value="">Select…</option>
                 {ports.map((port) => (
                   <option key={port.path} value={port.path}>
-                    {port.path} {port.isSimX ? '(SIM-X — no usar)' : ''}
+                    {port.path} {port.isSimX ? '(SIM-X — do not use)' : ''}
                   </option>
                 ))}
               </select>
             </label>
             <label>
               SSID Wi‑Fi 2.4 GHz
-              <input value={ssid} onChange={(event) => setSsid(event.target.value)} placeholder="MinhaRede" />
+              <input value={ssid} onChange={(event) => setSsid(event.target.value)} placeholder="MyNetwork" />
             </label>
             <label>
-              Senha
+              Password
               <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" type="password" />
             </label>
           </div>
           <button className="primary-action" disabled={busy || !selectedPort || !ssid.trim()} onClick={() => void provision()} type="button">
-            Gravar firmware + provisionar Wi‑Fi
+            Flash firmware + provision Wi‑Fi
           </button>
-          <p className="helper-text">O app compila/envia o sketch com arduino-cli e manda WIFI:&lt;ssid&gt;:&lt;senha&gt; por serial.</p>
+          <p className="helper-text">The app compiles/uploads the sketch with arduino-cli and sends WIFI:&lt;ssid&gt;:&lt;password&gt; over serial.</p>
         </article>
 
         <article className="panel-card">
           <div className="panel-heading-row">
             <div>
               <span className="panel-label">Manual connection</span>
-              <h3>IP/host do ESP32</h3>
+              <h3>ESP32 IP/host</h3>
             </div>
           </div>
           <div className="form-grid">
@@ -231,12 +231,12 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
               <input value={manualHost} onChange={(event) => setManualHost(event.target.value)} placeholder="192.168.1.50" />
             </label>
             <label>
-              Porta TCP
+              TCP port
               <input value={manualPort} onChange={(event) => setManualPort(Number(event.target.value) || 47650)} type="number" />
             </label>
           </div>
           <button className="primary-action" disabled={busy || !manualHost.trim()} onClick={() => void connectManual()} type="button">
-            Conectar manualmente
+            Connect manually
           </button>
         </article>
       </section>
@@ -249,7 +249,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
           </div>
         </div>
         <div className="port-list">
-          {devices.length === 0 && <p className="empty-state">Clique em “Descobrir mDNS” ou conecte manualmente pelo IP.</p>}
+          {devices.length === 0 && <p className="empty-state">Click ?Discover mDNS? or connect manually by IP.</p>}
           {devices.map((device) => {
             const connected = connectedIds.has(device.id)
             return (
@@ -268,7 +268,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
                     </button>
                   ) : (
                     <button className="primary-action compact" disabled={busy} onClick={() => void connect(device)} type="button">
-                      Conectar
+                      Connect
                     </button>
                   )}
                 </div>
@@ -290,7 +290,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
             {status.connected ? '🟢' : '⚪'} {status.id} · {status.host}:{status.port} {status.error ? `· ${status.error}` : ''}
           </p>
         ))}
-        <pre className="serial-log">{lines.join('\n') || 'Sem dados ainda.'}</pre>
+        <pre className="serial-log">{lines.join('\n') || 'No data yet.'}</pre>
       </article>
     </section>
   )

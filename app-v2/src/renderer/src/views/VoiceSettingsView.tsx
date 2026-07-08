@@ -121,7 +121,7 @@ function phaseLabel(progress: PiperVoiceProgress | undefined): string {
     case 'downloading':
       return `Downloading… ${Math.round(progress.ratio * 100)}%`
     case 'verifying':
-      return 'Verifying…'
+      return 'Viewifying…'
     case 'done':
       return 'Done'
     case 'error':
@@ -235,7 +235,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
   const handleDownload = useCallback(
     async (voiceId: string) => {
       const outcome = await ensureVoiceReady(voiceId)
-      if (outcome === 'failed') showToast(`Falha ao baixar ${voiceId}.`, 'error')
+      if (outcome === 'failed') showToast(`Failed to download ${voiceId}.`, 'error')
       else if (outcome === 'system') showToast(`Voice downloaded: ${voiceId} (Piper engine unavailable on this host — system voice will be used).`, 'info')
       else showToast(`Voice downloaded: ${voiceId}`, 'success')
     },
@@ -284,7 +284,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
       try {
         await window.ipc.invoke(STT_CHANNELS.setConfig, { enabled })
         await refreshSttStatus()
-        showToast(enabled ? 'Wake-word ativado ("Oi, Engenheiro").' : 'Wake-word desativado.', 'info')
+        showToast(enabled ? 'Wake word enabled ("Oi, Engineer").' : 'Wake word disabled.', 'info')
       } catch {
         showToast('Could not change voice input.', 'error')
       }
