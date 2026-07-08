@@ -14,7 +14,7 @@
 - **Overlay catalogue** (`src/renderer/src/overlays2/`): **57 overlays** across 11 categories, each renderable in all **8 design families** (≥ 5 styles per overlay).
 - **Dashboard catalogue** (`src/shared/dashboards2/` + `src/shared/car-families.ts`): **200 new dashboards** = 8 generic car families × 5 layouts × 5 resolutions, each with ≥ 5 distinct telemetry bindings; registered into `BUILTIN_PRESETS`.
 - **Collapsible sidebar** with icon‑only rail, `Ctrl/Cmd+B` shortcut, persisted state, and per‑item tooltips.
-- **App icon** wired into `electron-builder` (`build/icon.png`) and AI‑generated GT3 hero art (Azure AI Foundry `gpt‑image`) for menu/README context.
+- **App icon** wired into `electron-builder` (`build/icon.png`) and AI‑generated GT3 hero art (Azure AI Foundry `gpt-image`) for menu/README context.
 - **Japanese (`ja`)** and **Chinese (`zh`, Simplified)** locales.
 
 ### Changed
@@ -27,5 +27,5 @@
 - Dashboard presets now build a fresh deep clone per call, preventing shared built‑in mutation.
 
 ### Notes
-- **AI Engineer, Live/AI Coach and analysis run 100% locally on the CPU (`node‑llama‑cpp`), offline, with no GPU and no cost.**
+- **AI Engineer, Live/AI Coach and analysis run 100% locally on the CPU (`node-llama-cpp`), offline, with no GPU and no cost.**
 - Validation: `typecheck` ✓ · **2,789 unit tests** ✓ · `build` ✓ · dashboard visual‑audit (0 render errors / overflow / overlap) ✓.

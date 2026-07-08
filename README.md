@@ -37,7 +37,7 @@ A ground‑up rebuild of the visual layer and UX:
 - **200+ new dashboards** across **8 generic car families** × 5 layouts (DDU cockpit, engineer wall, endurance, strategy, broadcast) × 5 resolutions (800×480 → 1920×1080 + portrait).
 - **Car‑context theming** with original, trademark‑free codename liveries: *Woking, Maranello, Gaydon, Stuttgart, Bowtie, Affalterbach, Ingolstadt, and a Le Mans/IMSA‑style Prototype*.
 - **Collapsible sidebar** (icon‑only rail, `Ctrl/Cmd+B`, persisted) and a refreshed, image‑driven menu.
-- **New app icon** and AI‑generated hero art (Azure AI Foundry `gpt‑image`), used for reference and menu context only — no readable logos or sponsor marks.
+- **New app icon** and AI‑generated hero art (Azure AI Foundry `gpt-image`), used for reference and menu context only — no readable logos or sponsor marks.
 - **English is now the primary language**, with switchable **Português, Deutsch, Français, 中文, Español, 日本語**.
 
 All widgets/overlays/dashboards are **NaN‑safe** and verified by the visual‑audit harness (0 render errors, 0 overflow, 0 overlap) and the unit suite (**2,789 tests green**).
