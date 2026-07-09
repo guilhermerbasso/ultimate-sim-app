@@ -7075,3 +7075,20 @@ export function translateView(view: ViewDef, language: ResolvedLanguage): ViewDe
     ...(VIEW_TEXT[language][view.id] ?? {})
   }
 }
+
+// ── Per-zone i18n key modules (i18n-extra/*.ts) ───────────────────────────────
+// Merge every per-zone translation module into UI_TEXT at load, so multiple i18n
+// workstreams can add keys in their own files in parallel without touching this
+// file. Each module default-exports Partial<Record<ResolvedLanguage, Record<string,string>>>.
+const I18N_EXTRA_MODULES = import.meta.glob<{
+  default?: Partial<Record<ResolvedLanguage, Record<string, string>>>
+}>('./i18n-extra/*.ts', { eager: true })
+
+for (const extraModule of Object.values(I18N_EXTRA_MODULES)) {
+  const catalog = extraModule.default
+  if (!catalog) continue
+  for (const language of Object.keys(UI_TEXT) as ResolvedLanguage[]) {
+    const entries = catalog[language]
+    if (entries) Object.assign(UI_TEXT[language], entries)
+  }
+}
