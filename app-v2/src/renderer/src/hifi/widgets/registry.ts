@@ -16,6 +16,7 @@ import { SESSION_ENV_WIDGETS } from './sessionEnv'
 import { AI_WIDGETS } from './ai'
 import { ALERTS_WIDGETS } from './alerts'
 import { THEMED_WIDGETS } from './themed'
+import { CARS_REAL_WIDGETS } from './carsReal'
 
 export const HIFI_WIDGET_GROUPS = {
   inputs: INPUTS_WIDGETS,
@@ -28,7 +29,8 @@ export const HIFI_WIDGET_GROUPS = {
   sessionEnv: SESSION_ENV_WIDGETS,
   ai: AI_WIDGETS,
   alerts: ALERTS_WIDGETS,
-  themed: THEMED_WIDGETS
+  themed: THEMED_WIDGETS,
+  carsReal: CARS_REAL_WIDGETS
 } as const
 
 /** Every hi-fi per-telemetry widget/overlay. */
@@ -43,7 +45,8 @@ export const HIFI_WIDGETS: HifiWidgetModule[] = [
   ...SESSION_ENV_WIDGETS,
   ...AI_WIDGETS,
   ...ALERTS_WIDGETS,
-  ...THEMED_WIDGETS
+  ...THEMED_WIDGETS,
+  ...CARS_REAL_WIDGETS
 ]
 
 export const HIFI_WIDGETS_BY_ID: Record<string, HifiWidgetModule> = Object.fromEntries(

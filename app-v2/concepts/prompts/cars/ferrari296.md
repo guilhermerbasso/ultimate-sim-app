@@ -36,5 +36,6 @@ US English only. Aspect ~16:9 (fits a 1024x600 cluster).
 - AVOID: NO brand logos/marks; single-info app widgets will be title-less/transparent/borderless (the dashboard uses a dark cluster backplate).
 
 ## QA outcome
-- Image QA: pending (main agent).
+- Image QA: pass — top round shift LEDs green→red + blue over-rev; dominant center gear 4 (red outline); speed 213;
+  RPM bar with scale; FUEL 48 L + TC 4 left; LAST LAP 1:52.8 + ABS 2 + MAP 3 right; Ferrari red/yellow on black. Faithful.
 - Build QA vs real dash + reference: pending (car build agent).

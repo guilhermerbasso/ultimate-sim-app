@@ -1,0 +1,4 @@
+### CI / CodeQL status
+
+- ✅ **App checks** and **Analyze JavaScript and TypeScript** pass on **Node 24**. This PR moves the workflows to Node 24 and repairs a pre-existing `npm ci` break: `@nut-tree/nut-js` is 404 on npm (the `@nut-tree` scope was pulled), so it was missing from `package-lock.json` and `npm ci` failed (which also blocked the Windows installer build). Fixed by switching that optional keyboard-emulation dependency to the maintained drop-in fork `@nut-tree-fork/nut-js` and resyncing the lockfile.
+- ⚠️ The **CodeQL** check reports "2 new high" alerts, but all open code-scanning alerts are on `refs/heads/main` (pre-existing). CodeQL re-attributed them to this PR because the large `package-lock.json` regeneration made the diff "too large". They are **not introduced by this PR** and touch auth/login and dev-only harness files, so they belong in a dedicated security pass rather than being changed blindly inside this feature PR.
