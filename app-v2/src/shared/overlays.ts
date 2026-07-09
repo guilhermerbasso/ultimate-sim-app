@@ -193,8 +193,17 @@ export interface OverlayWidgetStyle {
   background: string
   accent: string
   border: string
+  borderColor?: string
+  borderWidth?: number
   radius: number
   fontFamily: string
+  opacity?: number
+  showDivider?: boolean
+  lines?: OverlayWidgetLine[]
+}
+
+export interface OverlayWidgetLine {
+  color: string
 }
 
 export interface OverlayStylePreset {

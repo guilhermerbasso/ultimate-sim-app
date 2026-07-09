@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react'
-import type { CustomOverlayDef } from '../../../../shared/overlays'
-import { DEFAULT_RICH_OVERLAY_CANVAS } from '../../../../shared/overlays'
+import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react'
+import type { CustomOverlayDef, OverlayWidgetConfig, OverlayWidgetId, OverlayWidgetLine } from '../../../../shared/overlays'
+import { DEFAULT_OVERLAY_STYLE_PRESET, DEFAULT_RICH_OVERLAY_CANVAS, createDefaultOverlayStyle } from '../../../../shared/overlays'
 import type { DashboardElement, DashboardElementStyle, TextSlotStyle } from '../../../../shared/dashboards'
 import {
   DASHBOARD_FONT_OPTIONS,
@@ -12,6 +12,7 @@ import {
 } from '../../../../shared/dashboards'
 import { renderDashboardElement } from '../../dashboard/DashboardRoot'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
+import { resolveWidgetComponent } from '../../overlay/widgets'
 import { WidgetGallery, variantToElement } from '../dashboard/widget-catalog'
 import type { WidgetVariant } from '../dashboard/widget-catalog'
 import '../../dashboard/dashboard-runtime.css'
@@ -64,6 +65,76 @@ const IMAGE_FILTER_PRESETS: Array<{ id: string; label: string; patch: Partial<Da
   { id: 'red', label: 'Red', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: 1, brightness: 0.95, contrast: 1.1, saturate: undefined, hueRotate: undefined, invert: undefined } },
   { id: 'sepia', label: 'Sepia', patch: { filterGrayscale: undefined, filterSepia: 1, redTint: undefined, brightness: 1.02, contrast: undefined, saturate: undefined, hueRotate: undefined, invert: undefined } }
 ]
+
+type BuilderElementStyle = DashboardElementStyle & {
+  borderColor?: string
+  showDivider?: boolean
+  lines?: OverlayWidgetLine[]
+}
+type BuilderStylePatch = Partial<DashboardElementStyle> & {
+  borderColor?: string
+  showDivider?: boolean
+  lines?: OverlayWidgetLine[]
+}
+
+const BUILDER_PREVIEW_SNAPSHOT = {
+  ...PREVIEW_SNAPSHOT,
+  timestamp: Date.now(),
+  rpm: 7860,
+  speedKmh: 248,
+  gear: 5,
+  maxRpm: 8300,
+  shiftIndicatorPct: 0.92,
+  revLights: { firstRpm: 6400, shiftRpm: 8050, lastRpm: 8350, blinkRpm: 8250, pct: 0.92, blink: false },
+  throttle: 0.94,
+  brake: 0.08,
+  clutch: 0,
+  steerAngleDeg: -11,
+  steeringTorquePct: 0.34,
+  steeringAngleMaxDeg: 540,
+  latAccelG: 1.18,
+  longAccelG: -0.22,
+  waterTempC: 91,
+  oilTempC: 104,
+  oilPressureKpa: 420,
+  manifoldPressBar: 1.72,
+  fuelPressBar: 4.2,
+  voltage: 13.8,
+  absCutPct: 0.18,
+  deltaToBestSec: -0.173,
+  deltaToSessionBestSec: 0.082,
+  deltaToOptimalSec: 0.318,
+  fuelLiters: 39.4,
+  fuelLevelPct: 0.42,
+  brakeLinePressBar: { lf: 34, rf: 36, lr: 18, rr: 19 },
+  tireColdPressuresKpa: { lf: 159, rf: 160, lr: 158, rr: 159 },
+  carLeftRight: 'right',
+  carLeftRightRaw: 3,
+  carLeftRightCount: 1
+} satisfies typeof PREVIEW_SNAPSHOT
+
+class PreviewErrorBoundary extends Component<{ children: ReactNode; boundaryKey: string }, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true }
+  }
+
+  componentDidUpdate(prevProps: { boundaryKey: string }): void {
+    if (prevProps.boundaryKey !== this.props.boundaryKey && this.state.failed) this.setState({ failed: false })
+  }
+
+  render(): ReactNode {
+    if (this.state.failed) {
+      return (
+        <div className="overlay-builder-preview-error">
+          preview error
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 // ── Pure style helpers (mirrors the dashboard editor; kept local + stateless) ──
 function hexFromCss(value: string | undefined): string {
@@ -300,6 +371,21 @@ const OVERLAY_BUILDER_LAYOUT_CSS = `
   width: 100%;
 }
 
+.overlay-builder-preview-error {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 84, 104, 0.55);
+  border-radius: 8px;
+  background: rgba(36, 6, 10, 0.68);
+  color: #ffb3be;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 @media (max-width: 1100px) {
   .overlay-builder-grid {
     grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
@@ -342,6 +428,63 @@ interface ActiveEdit {
   startX: number
   startY: number
   start: { x: number; y: number; w: number; h: number }
+}
+
+function overlayConfigFromElement(element: DashboardElement, widgetId: OverlayWidgetId): OverlayWidgetConfig {
+  const style = element.style as BuilderElementStyle
+  const base = createDefaultOverlayStyle()
+  const borderColor = style.borderColor ?? style.border ?? base.border
+  return {
+    id: widgetId,
+    enabled: true,
+    locked: true,
+    favorite: false,
+    position: { x: element.x, y: element.y, width: element.w, height: element.h },
+    opacity: 100,
+    stylePreset: DEFAULT_OVERLAY_STYLE_PRESET,
+    style: {
+      ...base,
+      background: style.background ?? base.background,
+      accent: style.accentColor ?? style.fillColor ?? base.accent,
+      border: style.border ?? borderColor,
+      borderColor,
+      borderWidth: Number.isFinite(style.borderWidth) ? Math.max(0, Math.round(style.borderWidth ?? 0)) : undefined,
+      radius: Math.max(0, Math.round(style.radius ?? base.radius)),
+      fontFamily: style.fontFamily ?? base.fontFamily,
+      opacity: Number.isFinite(style.opacity) ? Math.max(0, Math.min(1, style.opacity ?? 1)) : undefined,
+      showDivider: style.showDivider,
+      lines: style.lines
+    },
+    display: null,
+    hifiModuleId: element.hifiModuleId
+  }
+}
+
+function RuntimeWidgetPreview({ element }: { element: DashboardElement }): ReactElement {
+  const widgetId = element.widgetId
+  const Widget = widgetId ? resolveWidgetComponent(widgetId) : undefined
+  if (!widgetId || !Widget) return renderDashboardElement({ element, snapshot: BUILDER_PREVIEW_SNAPSHOT })
+  const style = element.style as BuilderElementStyle
+  const borderColor = style.borderColor ?? style.border
+  const isHifi = widgetId.startsWith('hifi:')
+
+  const containerStyle: CSSProperties = {
+    position: 'absolute',
+    left: element.x,
+    top: element.y,
+    width: element.w,
+    height: element.h,
+    display: 'block',
+    pointerEvents: 'none',
+    background: isHifi ? 'transparent' : (style.background ?? 'transparent'),
+    borderRadius: isHifi ? 0 : (style.radius ?? 0),
+    border: !isHifi && style.borderWidth ? `${Math.max(0, Math.round(style.borderWidth))}px solid ${borderColor ?? 'transparent'}` : undefined
+  }
+  return (
+    <div className="dash-element dash-overlaywidget" style={containerStyle}>
+      <Widget snapshot={BUILDER_PREVIEW_SNAPSHOT} config={overlayConfigFromElement(element, widgetId)} />
+    </div>
+  )
 }
 
 function BuilderCanvas({ widgets, canvasWidth, canvasHeight, selectedId, onSelect, onGeometry }: CanvasProps): ReactElement {
@@ -432,7 +575,9 @@ function BuilderCanvas({ widgets, canvasWidth, canvasHeight, selectedId, onSelec
         >
           {sorted.map((el) => (
             <div key={el.id} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-              {renderDashboardElement({ element: el, snapshot: PREVIEW_SNAPSHOT })}
+              <PreviewErrorBoundary boundaryKey={`${el.id}:${el.widgetId ?? el.type}`}>
+                <RuntimeWidgetPreview element={el} />
+              </PreviewErrorBoundary>
             </div>
           ))}
           {sorted.map((el) => {
@@ -504,13 +649,13 @@ interface InspectorProps {
   canvasWidth: number
   canvasHeight: number
   onChange(patch: Partial<DashboardElement>): void
-  onChangeStyle(patch: Partial<DashboardElementStyle>): void
+  onChangeStyle(patch: BuilderStylePatch): void
   onReorder(direction: 'front' | 'back' | 'forward' | 'backward'): void
   onDuplicate(): void
   onRemove(): void
 }
 
-function SlotEditor({ element, slots, onChangeStyle }: { element: DashboardElement; slots: Array<{ slot: string; label: string }>; onChangeStyle(p: Partial<DashboardElementStyle>): void }): ReactElement {
+function SlotEditor({ element, slots, onChangeStyle }: { element: DashboardElement; slots: Array<{ slot: string; label: string }>; onChangeStyle(p: BuilderStylePatch): void }): ReactElement {
   const [active, setActive] = useState<string>(slots[0]?.slot ?? 'value')
   const slot = slots.some((s) => s.slot === active) ? active : (slots[0]?.slot ?? 'value')
   const cur: Partial<TextSlotStyle> = element.style.slots?.[slot] ?? {}
@@ -542,12 +687,45 @@ function SlotEditor({ element, slots, onChangeStyle }: { element: DashboardEleme
   )
 }
 
+function DividerLinesEditor({ style, onChangeStyle }: { style: BuilderElementStyle; onChangeStyle(p: BuilderStylePatch): void }): ReactElement {
+  const lines = style.lines ?? []
+  const updateLine = (index: number, color: string): void => {
+    const next = lines.map((line, i) => (i === index ? { ...line, color } : line))
+    onChangeStyle({ lines: next })
+  }
+  const removeLine = (index: number): void => {
+    const next = lines.filter((_, i) => i !== index)
+    onChangeStyle({ lines: next.length > 0 ? next : undefined, showDivider: next.length > 0 ? style.showDivider : false })
+  }
+  return (
+    <div className="overlay-builder-section">
+      <div className="overlay-builder-section-title">Divider lines</div>
+      <ToggleField label="Show divider lines" value={Boolean(style.showDivider)} onChange={(on) => onChangeStyle({ showDivider: on, lines: on && lines.length === 0 ? [{ color: style.borderColor ?? style.border ?? '#ff7a1a' }] : lines })} />
+      {style.showDivider && (
+        <>
+          <div className="overlay-builder-slot-tabs">
+            <button className="ghost-action" onClick={() => onChangeStyle({ lines: [...lines, { color: style.borderColor ?? style.border ?? '#ff7a1a' }], showDivider: true })}>+ line</button>
+          </div>
+          {lines.map((line, index) => (
+            <div key={index} className="designer-grid-2">
+              <ColorField label={`Line ${index + 1}`} value={line.color} onChange={(v) => updateLine(index, v)} />
+              <Field label="Action">
+                <button className="ghost-action danger" onClick={() => removeLine(index)}>Remove</button>
+              </Field>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
+
 function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle, onReorder, onDuplicate, onRemove }: InspectorProps): ReactElement {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   if (!element) {
     return <p className="overlay-help">Select a widget on the canvas to edit position, size, fonts, borders, filters, and order.</p>
   }
-  const s = element.style
+  const s = element.style as BuilderElementStyle
   const isBarLike = ['bar', 'gauge', 'shiftlights', 'barv', 'dualbar', 'deltabar', 'trace'].includes(element.type)
   const isImage = element.type === 'image'
   const isFlag = element.type === 'flag'
@@ -582,11 +760,13 @@ function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle
         <div className="overlay-builder-section-title">Background and border</div>
         <div className="designer-grid-2">
           <ColorField label="Background" value={s.background ?? 'transparent'} onChange={(v) => onChangeStyle({ background: v })} />
-          <ColorField label="Border" value={s.border ?? 'transparent'} onChange={(v) => onChangeStyle({ border: v })} />
+          <ColorField label="Border" value={s.border ?? 'transparent'} onChange={(v) => onChangeStyle({ border: v, borderColor: v })} />
+          <ColorField label="Border color" value={s.borderColor ?? s.border ?? 'transparent'} onChange={(v) => onChangeStyle({ borderColor: v, border: v })} />
           <NumberField label="Border (px)" value={s.borderWidth ?? 0} onChange={(v) => onChangeStyle({ borderWidth: Math.max(0, Math.round(v)) })} min={0} max={20} />
           <NumberField label="Radius (px)" value={s.radius ?? 0} onChange={(v) => onChangeStyle({ radius: Math.max(0, Math.round(v)) })} min={0} max={120} />
         </div>
       </div>
+      <DividerLinesEditor style={s} onChangeStyle={onChangeStyle} />
 
       {(isText || slots.length === 0) && !isImage && !isFlag && (
         <div className="overlay-builder-section">
@@ -788,7 +968,7 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
   )
 
   const patchSelectedStyle = useCallback(
-    (patch: Partial<DashboardElementStyle>): void => {
+    (patch: BuilderStylePatch): void => {
       if (!selectedId) return
       setWidgets(widgets.map((w) => (w.id === selectedId ? { ...w, style: { ...w.style, ...patch } } : w)))
     },
