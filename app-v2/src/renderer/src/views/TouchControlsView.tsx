@@ -243,13 +243,13 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
     })
     await window.ipc.invoke('app:dash:playlist:set', next)
     showToast(tt(language, 'touchControls.addedPlaylistToast'), 'success')
-  }, [fullscreen, panelDisplayId, panelDraft, showToast])
+  }, [fullscreen, language, panelDisplayId, panelDraft, showToast])
 
   const openPitPanel = useCallback(async () => {
     await window.ipc.invoke('app:pitpanel:open', { displayId: pitDisplayId ?? undefined })
     setPitPanelOpen(true)
     showToast(tt(language, 'touchControls.pitOpenedToast'), 'success')
-  }, [pitDisplayId, showToast])
+  }, [language, pitDisplayId, showToast])
 
   const closePitPanel = useCallback(async () => {
     await window.ipc.invoke('app:pitpanel:close')
