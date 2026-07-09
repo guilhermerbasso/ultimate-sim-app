@@ -308,7 +308,7 @@ English (primary) · Português · Deutsch · Français · 中文 (Simplified) �
 
 ## 🚀 Quick start for users
 
-1. Download a trusted release build when available (see [Releases](../../releases)).
+1. Download the Windows installer (`.exe`) from the latest [Release](../../releases) — every release ships a built installer attached as an asset.
 2. Install or unzip the Windows package.
 3. Connect the ButtonBox by USB.
 4. Open Ultimate Sim App and select the device/COM port.
@@ -322,7 +322,7 @@ See the full user guide in [`MANUAL.md`](MANUAL.md).
 
 ## 🛠️ Development setup
 
-Requirements: Node.js 20+, npm, Git, and Windows 10/11 for final installer validation.
+Requirements: Node.js 24+, npm, Git, and Windows 10/11 for final installer validation.
 
 ```bash
 cd app-v2
