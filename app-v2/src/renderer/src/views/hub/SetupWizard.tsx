@@ -28,6 +28,23 @@ import {
   type SetupModule
 } from '../../../../shared/setup'
 import type { PortInfo } from '../../../../shared/ipc'
+import type { SerialDeviceSummary } from '../../../../shared/arduino'
+import {
+  BOARDS,
+  COMPONENT_TYPES,
+  DEVICES_CHANNELS,
+  type BoardId,
+  type ComponentType,
+  type DeviceComponent,
+  type DeviceProfile,
+  createComponent,
+  findBoard
+} from '../../../../shared/devices'
+import { ComponentEditor } from './ComponentEditor'
+import { Field, NumberField, SelectField, TextField } from './controls'
+import type { SelectOption } from './controls'
+import type { ResolvedLanguage } from '../../i18n'
+import { tt } from '../../i18n'
 import {
   ACCENT,
   ACCENT_BORDER,
@@ -72,9 +89,11 @@ interface LogLine {
 
 interface SetupWizardProps {
   onClose: () => void
-  onComplete: (profileId: string) => void | Promise<void>
+  onComplete: (profileId: string, navigateType?: ComponentType) => void | Promise<void>
   onFlashSettled?: () => void | Promise<void>
   showToast: (message: string, tone?: 'success' | 'error' | 'info') => void
+  onboardingDevice?: SerialDeviceSummary
+  language?: ResolvedLanguage
 }
 
 const STEP_LABELS: Array<{ id: WizardStep; label: string }> = [
@@ -101,7 +120,7 @@ function preselectBaudId(module: SetupModule | null, board: FlashBoardSpec | nul
   return board.defaultBaudId
 }
 
-export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast }: SetupWizardProps): ReactElement {
+export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast, onboardingDevice, language }: SetupWizardProps): ReactElement {
   const [step, setStep] = useState<WizardStep>('module')
   const [moduleId, setModuleId] = useState<string | null>(null)
   const [boardId, setBoardId] = useState<FlashBoardId | null>(null)
@@ -307,6 +326,10 @@ export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast }: 
 
   const canFlash = Boolean(selectedModule && selectedBoard && port && !flashing && !dumping)
 
+  if (onboardingDevice) {
+    return <OnboardingWizard device={onboardingDevice} onClose={onClose} onComplete={onComplete} showToast={showToast} language={language} />
+  }
+
   return (
     <div style={overlay} role="dialog" aria-modal="true" aria-label="Arduino setup">
       <div style={modal}>
@@ -392,6 +415,54 @@ export function SetupWizard({ onClose, onComplete, onFlashSettled, showToast }: 
 }
 
 // ─── Stepper ──────────────────────────────────────────────────────────────────
+
+
+type OnboardingStep = 'connected' | 'identity' | 'components' | 'route'
+const ONBOARDING_STEPS: Array<{ id: OnboardingStep; label: string }> = [
+  { id: 'connected', label: 'Connected' }, { id: 'identity', label: 'Identity' }, { id: 'components', label: 'Components' }, { id: 'route', label: 'Open editor' }
+]
+const BOARD_OPTIONS: ReadonlyArray<SelectOption<BoardId>> = BOARDS.map((board) => ({ value: board.id, label: board.name }))
+const COMPONENT_OPTIONS: ReadonlyArray<SelectOption<ComponentType>> = COMPONENT_TYPES.map((info) => ({ value: info.type, label: info.name }))
+
+function OnboardingWizard({ device, onClose, onComplete, showToast, language }: { device: SerialDeviceSummary; onClose: () => void; onComplete: (profileId: string, navigateType?: ComponentType) => void | Promise<void>; showToast: (message: string, tone?: 'success' | 'error' | 'info') => void; language?: ResolvedLanguage }): ReactElement {
+  const [step, setStep] = useState<OnboardingStep>('connected')
+  const [name, setName] = useState(device.label || device.path || 'Arduino')
+  const [board, setBoard] = useState<BoardId>('generic')
+  const [baud, setBaud] = useState(device.baud || findBoard('generic').defaultBaud)
+  const [componentType, setComponentType] = useState<ComponentType>('rgbMatrix')
+  const [component, setComponent] = useState<DeviceComponent>(() => createComponent('rgbMatrix'))
+  const [savedProfile, setSavedProfile] = useState<DeviceProfile | null>(null)
+  const [saving, setSaving] = useState(false)
+  const conflicts = useMemo(() => new Set<string>(), [])
+  function pickComponentType(type: ComponentType): void { setComponentType(type); setComponent(createComponent(type)) }
+  async function saveProfile(): Promise<void> {
+    setSaving(true)
+    try {
+      const saved = await window.ipc.invoke<DeviceProfile>(DEVICES_CHANNELS.save, { label: name.trim() || device.label || device.path || 'Arduino', board, baud: Number.isFinite(baud) && baud > 0 ? baud : findBoard(board).defaultBaud, deviceId: device.id, port: device.path, components: [component] })
+      setSavedProfile(saved); showToast(tt(language, 'arduinos.onboarding.savedToast', { name: saved.label }), 'success'); setStep('route')
+    } catch (error) { showToast(getErrorMessage(error), 'error') } finally { setSaving(false) }
+  }
+  async function finish(navigate = true): Promise<void> { if (!savedProfile) return; await onComplete(savedProfile.id, navigate ? componentType : undefined); onClose() }
+  return (
+    <div style={overlay} role="dialog" aria-modal="true" aria-label={tt(language, 'arduinos.onboarding.title')}>
+      <div style={modal}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}><div><span style={label}>{tt(language, 'arduinos.onboarding.eyebrow')}</span><h2 style={{ margin: '6px 0 0', fontSize: 22 }}>{tt(language, 'arduinos.onboarding.title')}</h2><p style={{ ...helper, marginTop: 4 }}>{tt(language, 'arduinos.onboarding.subtitle')}</p></div><button style={buttonStyle('ghost')} onClick={onClose} type="button" aria-label="Close">x</button></div>
+        <OnboardingStepper current={step} />
+        <div style={{ marginTop: 16, display: 'grid', gap: 14 }}>
+          {step === 'connected' && <><div style={card}><span style={label}>{tt(language, 'arduinos.onboarding.connected')}</span><h3 style={{ margin: '6px 0 4px' }}>{device.label}</h3><p style={helper}>{device.path} - {device.kind} - {device.baud} baud - {device.connected ? tt(language, 'arduinos.status.online') : tt(language, 'arduinos.status.offline')}</p></div><div style={{ display: 'flex', justifyContent: 'flex-end' }}><button style={buttonStyle('primary')} type="button" onClick={() => setStep('identity')}>{tt(language, 'arduinos.onboarding.setupIdentity')}</button></div></>}
+          {step === 'identity' && <><div style={{ display: 'grid', gap: 12 }}><Field caption="Name"><TextField value={name} onChange={setName} /></Field><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}><Field caption="Board"><SelectField value={board} options={BOARD_OPTIONS} onChange={(next) => { setBoard(next); setBaud(findBoard(next).defaultBaud) }} /></Field><Field caption="Baud"><NumberField value={baud} min={300} max={2000000} onChange={setBaud} /></Field></div><Field caption="Linked serial port"><code style={{ ...card, display: 'block' }}>{device.label} - {device.path}</code></Field></div><div style={{ display: 'flex', justifyContent: 'space-between' }}><button style={buttonStyle('ghost')} type="button" onClick={() => setStep('connected')}>Back</button><button style={buttonStyle('primary')} type="button" onClick={() => setStep('components')}>{tt(language, 'arduinos.onboarding.setupComponents')}</button></div></>}
+          {step === 'components' && <><Field caption={tt(language, 'arduinos.onboarding.componentType')}><SelectField value={componentType} options={COMPONENT_OPTIONS} onChange={pickComponentType} /></Field><div style={card}><Field caption="Component name"><TextField value={component.label} onChange={(labelText) => setComponent({ ...component, label: labelText })} /></Field></div><ComponentEditor component={component} board={findBoard(board)} conflicts={conflicts} onChange={setComponent} language={language} /><div style={{ display: 'flex', justifyContent: 'space-between' }}><button style={buttonStyle('ghost')} type="button" onClick={() => setStep('identity')}>Back</button><button style={buttonStyle('primary')} type="button" disabled={saving} onClick={() => void saveProfile()}>{saving ? 'Saving...' : tt(language, 'arduinos.onboarding.saveAndContinue')}</button></div></>}
+          {step === 'route' && savedProfile && <><div style={{ ...card, borderColor: ACCENT_BORDER }}><span style={label}>{tt(language, 'arduinos.onboarding.ready')}</span><h3 style={{ margin: '6px 0 4px' }}>{savedProfile.label}</h3><p style={helper}>{tt(language, 'arduinos.onboarding.routeHelp')}</p></div><div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><button style={buttonStyle('ghost')} type="button" onClick={() => void finish(false)}>{tt(language, 'arduinos.onboarding.stayHere')}</button><button style={buttonStyle('primary')} type="button" onClick={() => void finish(true)}>{tt(language, 'arduinos.onboarding.openEditor')}</button></div></>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function OnboardingStepper({ current }: { current: OnboardingStep }): ReactElement {
+  const currentIndex = ONBOARDING_STEPS.findIndex((s) => s.id === current)
+  return <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>{ONBOARDING_STEPS.map((entry, index) => { const done = index < currentIndex; const active = index === currentIndex; return <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}><div style={{ width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 800, background: active || done ? ACCENT : 'rgba(255,255,255,0.08)', color: active || done ? '#06121f' : 'rgba(255,255,255,0.6)', flexShrink: 0 }}>{done ? 'ok' : index + 1}</div><span style={{ fontSize: 12.5, fontWeight: active ? 800 : 600, color: active ? '#fff' : 'rgba(255,255,255,0.55)' }}>{entry.label}</span>{index < ONBOARDING_STEPS.length - 1 && <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.12)' }} />}</div> })}</div>
+}
 
 function Stepper({ current }: { current: WizardStep }): ReactElement {
   const currentIndex = STEP_LABELS.findIndex((s) => s.id === current)
