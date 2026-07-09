@@ -376,7 +376,7 @@ function SpotterRaw({ width, height, snapshot }: HifiWidgetProps): ReactElement 
   const left = e === 2 || e === 4 || e === 5
   const right = e === 3 || e === 4 || e === 6
   const active = left || right
-  const label = e == null ? '—' : e <= 1 ? 'CLEAR' : e === 5 ? '2 CARS L' : e === 6 ? '2 CARS R' : e === 4 ? 'BOTH' : e === 2 ? 'CAR LEFT' : 'CAR RIGHT'
+  const label = e == null ? '—' : e === 2 ? 'CAR LEFT' : e === 3 ? 'CAR RIGHT' : e === 4 ? 'BOTH' : e === 5 ? '2 CARS L' : e === 6 ? '2 CARS R' : 'CLEAR'
   const leftColor = e === 5 ? C.red : left ? C.amber : C.recess
   const rightColor = e === 6 ? C.red : right ? C.amber : C.recess
   const cx = W / 2
