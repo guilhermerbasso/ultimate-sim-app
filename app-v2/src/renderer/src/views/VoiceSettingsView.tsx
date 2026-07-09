@@ -240,7 +240,7 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
       else if (outcome === 'system') showToast(`Voice downloaded: ${voiceId} (Piper engine unavailable on this host — system voice will be used).`, 'info')
       else showToast(tt(language, 'voice.downloadedToast', { voice: voiceId }), 'success')
     },
-    [ensureVoiceReady, showToast]
+    [ensureVoiceReady, showToast, language]
   )
 
   const handleTest = useCallback(
