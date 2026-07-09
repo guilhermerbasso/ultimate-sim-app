@@ -53,7 +53,7 @@ function input(): CSSProperties {
 
 function touchPresetTags(preset: ButtonBoxPanel): string[] {
   const tags = new Set<string>([
-    `${preset.columns}Ã—${preset.rows}`,
+    `${preset.columns}×${preset.rows}`,
     `${preset.buttons.length} buttons`,
     preset.buttons.length <= 9 ? 'compact' : preset.buttons.length >= 20 ? 'large' : 'standard'
   ])
