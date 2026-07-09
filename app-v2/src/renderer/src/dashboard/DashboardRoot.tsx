@@ -1500,6 +1500,87 @@ function AdaptiveElement({
   )
 }
 
+export function DashboardCanvas({
+ dashboard,
+ snapshot,
+ kiosk = false,
+ dashId = null
+}: {
+ dashboard: Dashboard
+ snapshot: TelemetrySnapshot | null
+ kiosk?: boolean
+ dashId?: string | null
+}) {
+ const baseW = dashboard.width ?? 1920
+ const baseH = dashboard.height ?? 1080
+ const scaleMode: DashboardScaleMode = dashboard.scaleMode ?? 'fit'
+ const scale = useScale(baseW, baseH, scaleMode)
+ const adaptive = useMemo(
+   () => isAdaptiveDashboard(dashboard) || dashboard.adaptive?.enabled === true,
+   [dashboard]
+ )
+ const { moment: momentState, active: activeMoments } = useRaceMoment(adaptive)
+ const [dashBlink, setDashBlink] = useState<AdaptiveBlink | undefined>(undefined)
+ const onDashboardBlink = useCallback((b: AdaptiveBlink | undefined) => setDashBlink(b), [])
+ const [frameBg, setFrameBg] = useState<string | undefined>(undefined)
+ const onFrameBg = useCallback((bg: string | undefined) => setFrameBg(bg), [])
+ const activeBg = (adaptive && frameBg) || dashboard.bg
+
+ const shellStyle: CSSProperties = {
+   background: activeBg
+ }
+
+ const canvasStyle: CSSProperties = {
+   width: baseW,
+   height: baseH,
+   left: scale.left,
+   top: scale.top,
+   transform:
+     scale.scaleX === scale.scaleY
+       ? `scale(${scale.scaleX})`
+       : `scale(${scale.scaleX}, ${scale.scaleY})`,
+   background: activeBg
+ }
+
+ return (
+   <div className={kiosk ? 'dashboard-shell is-kiosk' : 'dashboard-shell'} style={shellStyle}>
+     <div className="dashboard-canvas" style={canvasStyle}>
+       {adaptive ? (
+         <AdaptiveCanvas
+           dashboard={dashboard}
+           snapshot={snapshot}
+           momentState={momentState}
+           activeMoments={activeMoments}
+           onDashboardBlink={onDashboardBlink}
+           onFrameBg={onFrameBg}
+         />
+       ) : (
+         sortElementsByZ(dashboard.elements).map((el) => (
+           <ElementSwitcher key={el.id} element={el} snapshot={snapshot} />
+         ))
+       )}
+     </div>
+     {adaptive && dashBlink && (
+       <div
+         className="adp-dash-blink-overlay"
+         style={
+           {
+             '--adp-blink-color': dashBlink.color,
+             '--adp-blink-duration': `${dashBlink.hz && dashBlink.hz > 0 ? 1 / dashBlink.hz : 1 / 1.5}s`
+           } as CSSProperties
+         }
+       />
+     )}
+     {!snapshot?.connected && (
+       <div className="dash-status">
+         Telemetry disconnected ? set a source (e.g., Mock) in Settings.
+       </div>
+     )}
+     {kiosk && <KioskGestureLayer dashId={dashId} />}
+   </div>
+ )
+}
+
 export function DashboardRoot() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
@@ -1598,22 +1679,6 @@ export function DashboardRoot() {
     }
   }, [dashId])
 
-  const baseW = dashboard?.width ?? 1920
-  const baseH = dashboard?.height ?? 1080
-  const scaleMode: DashboardScaleMode = dashboard?.scaleMode ?? 'fit'
-  const scale = useScale(baseW, baseH, scaleMode)
-  // Feature gate: the adaptive engine runs for the shipped adaptive board OR any
-  // dashboard the user explicitly opted in via `adaptive.enabled` (editor).
-  const adaptive = useMemo(
-    () => isAdaptiveDashboard(dashboard) || dashboard?.adaptive?.enabled === true,
-    [dashboard]
-  )
-  const { moment: momentState, active: activeMoments } = useRaceMoment(adaptive)
-  const [dashBlink, setDashBlink] = useState<AdaptiveBlink | undefined>(undefined)
-  const onDashboardBlink = useCallback((b: AdaptiveBlink | undefined) => setDashBlink(b), [])
-  const [frameBg, setFrameBg] = useState<string | undefined>(undefined)
-  const onFrameBg = useCallback((bg: string | undefined) => setFrameBg(bg), [])
-
   if (error) {
     return (
       <div className="dashboard-shell">
@@ -1633,60 +1698,5 @@ export function DashboardRoot() {
     )
   }
 
-  // While a per-moment FRAME is active it may override the board background.
-  const activeBg = (adaptive && frameBg) || dashboard.bg
-
-  const shellStyle: CSSProperties = {
-    background: activeBg
-  }
-
-  const canvasStyle: CSSProperties = {
-    width: baseW,
-    height: baseH,
-    left: scale.left,
-    top: scale.top,
-    transform:
-      scale.scaleX === scale.scaleY
-        ? `scale(${scale.scaleX})`
-        : `scale(${scale.scaleX}, ${scale.scaleY})`,
-    background: activeBg
-  }
-
-  return (
-    <div className={kiosk ? 'dashboard-shell is-kiosk' : 'dashboard-shell'} style={shellStyle}>
-      <div className="dashboard-canvas" style={canvasStyle}>
-        {adaptive ? (
-          <AdaptiveCanvas
-            dashboard={dashboard}
-            snapshot={snapshot}
-            momentState={momentState}
-            activeMoments={activeMoments}
-            onDashboardBlink={onDashboardBlink}
-            onFrameBg={onFrameBg}
-          />
-        ) : (
-          sortElementsByZ(dashboard.elements).map((el) => (
-            <ElementSwitcher key={el.id} element={el} snapshot={snapshot} />
-          ))
-        )}
-      </div>
-      {adaptive && dashBlink && (
-        <div
-          className="adp-dash-blink-overlay"
-          style={
-            {
-              '--adp-blink-color': dashBlink.color,
-              '--adp-blink-duration': `${dashBlink.hz && dashBlink.hz > 0 ? 1 / dashBlink.hz : 1 / 1.5}s`
-            } as CSSProperties
-          }
-        />
-      )}
-      {!snapshot?.connected && (
-        <div className="dash-status">
-          Telemetry disconnected ? set a source (e.g., Mock) in Settings.
-        </div>
-      )}
-      {kiosk && <KioskGestureLayer dashId={dashId} />}
-    </div>
-  )
+  return <DashboardCanvas dashboard={dashboard} snapshot={snapshot} kiosk={kiosk} dashId={dashId} />
 }

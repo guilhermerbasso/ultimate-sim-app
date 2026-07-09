@@ -1,15 +1,18 @@
 import { execFile } from 'node:child_process'
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { extname, join, normalize, relative, resolve, sep } from 'node:path'
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import QRCode from 'qrcode'
 import type { DriverEntry, RadarCarEntry, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
-import type { StreamingAccessMode, StreamingStartArgs, StreamingStartResult, StreamingStatus, StreamingTelemetryFrame } from '../../shared/streaming'
+import type { StreamingAccessMode, StreamingLayoutKind, StreamingSelfTestResult, StreamingStartArgs, StreamingStartResult, StreamingStatus, StreamingTelemetryFrame } from '../../shared/streaming'
 import { STREAMING_CHANNELS } from '../../shared/streaming'
 import type { ModuleContext } from '../module-context'
+import { getDashboardManager } from './dashboards'
+import { logger } from './logger'
+import { getTouchPanelManager } from '../touchpanel/manager'
 
 const HOST = '127.0.0.1'
 const LAN_HOST = '0.0.0.0'
@@ -36,6 +39,7 @@ interface StreamingState {
   passwordHash: string | null
   passwordPlaintext: string | null
   layoutId: string
+  layoutKind: StreamingLayoutKind
   touchPanelId: string | null
   firewallMessage: string | null
   streamSafe: boolean
@@ -58,6 +62,7 @@ const state: StreamingState = {
   passwordHash: null,
   passwordPlaintext: null,
   layoutId: DEFAULT_LAYOUT,
+  layoutKind: 'dashboard',
   touchPanelId: null,
   firewallMessage: null,
   streamSafe: true,
@@ -75,6 +80,34 @@ const state: StreamingState = {
 
 function isValidLayoutId(value: unknown): value is string {
   return typeof value === 'string' && /^[a-zA-Z0-9_-]{1,48}$/.test(value)
+}
+
+function normalizeLayoutKind(value: unknown): StreamingLayoutKind {
+  return value === 'touch' ? 'touch' : 'dashboard'
+}
+
+function firstDashboardId(): string | null {
+  const manager = getDashboardManager()
+  const open = manager?.listOpen().find((item) => isValidLayoutId(item.id))?.id
+  if (open) return open
+  return manager?.list().find((item) => !item.hidden && isValidLayoutId(item.id))?.id ?? null
+}
+
+function resolveStreamTarget(args: StreamingStartArgs): { kind: StreamingLayoutKind; id: string; touchPanelId: string | null } {
+  const kind = normalizeLayoutKind(args.layoutKind)
+  if (kind === 'touch') {
+    const requested = isValidLayoutId(args.layoutId) ? args.layoutId : isValidLayoutId(args.touchPanelId) ? args.touchPanelId : null
+    if (!requested) throw new Error('Select a valid touch controls panel to stream.')
+    const manager = getTouchPanelManager()
+    if (!manager?.has(requested)) throw new Error(`Touch controls panel not found: ${requested}`)
+    return { kind, id: requested, touchPanelId: requested }
+  }
+  const requested = isValidLayoutId(args.layoutId) ? args.layoutId : firstDashboardId()
+  if (!getDashboardManager()) return { kind, id: requested ?? DEFAULT_LAYOUT, touchPanelId: null }
+  if (!requested) throw new Error('Select a valid dashboard to stream.')
+  const manager = getDashboardManager()
+  if (!manager?.getDashboard(requested)) throw new Error(`Dashboard not found: ${requested}`)
+  return { kind, id: requested, touchPanelId: null }
 }
 
 function requestedPort(value: unknown): number {
@@ -308,6 +341,15 @@ function addAuthToAssetUrls(html: string): string {
     })
 }
 
+function addAuthToCssUrls(css: string): string {
+  const auth = authSearchParams()
+  if (!auth) return css
+  return css.replace(/url\((['"]?)(?!data:|https?:|#)([^'")]+)(['"]?)\)/gi, (_match, open: string, assetPath: string, close: string) => {
+    const joiner = assetPath.includes('?') ? '&' : '?'
+    return `url(${open}${assetPath}${joiner}${auth}${close})`
+  })
+}
+
 function devFallbackHtml(): string {
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (!devUrl) {
@@ -340,7 +382,47 @@ function serveStatic(pathname: string, request: IncomingMessage, response: Serve
     response.end()
     return
   }
+  if (contentType(target).startsWith('text/css')) {
+    response.end(addAuthToCssUrls(readFileSync(target, 'utf8')))
+    return
+  }
   createReadStream(target).pipe(response)
+}
+
+function sendJson(response: ServerResponse, body: unknown, method: string | undefined): void {
+  applyCors(response)
+  response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+  response.end(method === 'HEAD' ? undefined : JSON.stringify(body))
+}
+
+function serveSelectedDashboard(id: string, request: IncomingMessage, response: ServerResponse): void {
+  if (state.layoutKind !== 'dashboard' || id !== state.layoutId) {
+    logger.error('streaming', 'dashboard api rejected non-selected id', { requestedId: id, selectedId: state.layoutId, layoutKind: state.layoutKind })
+    send(response, 404, 'Not found')
+    return
+  }
+  const dashboard = getDashboardManager()?.getDashboard(id)
+  if (!dashboard) {
+    logger.error('streaming', 'dashboard api selected id missing', { id })
+    send(response, 404, 'Not found')
+    return
+  }
+  sendJson(response, dashboard, request.method)
+}
+
+function serveSelectedTouchPanel(id: string, request: IncomingMessage, response: ServerResponse): void {
+  if (state.layoutKind !== 'touch' || id !== state.layoutId) {
+    logger.error('streaming', 'touch api rejected non-selected id', { requestedId: id, selectedId: state.layoutId, layoutKind: state.layoutKind })
+    send(response, 404, 'Not found')
+    return
+  }
+  const panel = getTouchPanelManager()?.getPanel(id)
+  if (!panel) {
+    logger.error('streaming', 'touch api selected id missing', { id })
+    send(response, 404, 'Not found')
+    return
+  }
+  sendJson(response, panel, request.method)
 }
 
 function maskName(name: string | undefined, index: number): string {
@@ -429,6 +511,12 @@ function openSse(ctx: ModuleContext, request: IncomingMessage, response: ServerR
     connectedAt: Date.now()
   }
   state.clients.set(id, client)
+  logger.info('streaming', 'client connected', {
+    id,
+    address: client.address,
+    userAgent: client.userAgent,
+    count: state.clients.size
+  })
   writeSse(response, currentFrame(ctx))
   request.on('close', () => closeClient(id))
 }
@@ -439,6 +527,11 @@ function closeClient(id: number): void {
   clearInterval(client.timer)
   if (!client.response.destroyed) client.response.end()
   state.clients.delete(id)
+  logger.info('streaming', 'client disconnected', {
+    id,
+    address: client.address,
+    count: state.clients.size
+  })
 }
 
 function closeAllClients(): void {
@@ -459,6 +552,9 @@ function dashboardUrl(origin = baseOrigin()): string | null {
   if (!state.port || !state.token) return null
   const url = new URL(`/obs/${state.layoutId}`, origin)
   url.searchParams.set('token', state.token)
+  url.searchParams.set('kind', state.layoutKind)
+  if (state.layoutKind === 'touch') url.searchParams.set('panel', state.layoutId)
+  else url.searchParams.set('dash', state.layoutId)
   // Password is intentionally NOT embedded in the shareable URL/QR.
   // The stream page will prompt the user to enter it separately.
   return url.toString()
@@ -505,6 +601,7 @@ async function status(): Promise<StreamingStatus> {
     port: state.port,
     token: state.token,
     layoutId: state.layoutId,
+    layoutKind: state.layoutKind,
     touchPanelId: state.touchPanelId,
     streamSafe: state.streamSafe,
     clients: state.clients.size,
@@ -524,6 +621,30 @@ async function status(): Promise<StreamingStatus> {
     passwordEnabled: state.passwordHash !== null,
     warning: warning()
   }
+}
+
+async function selfTest(): Promise<StreamingSelfTestResult> {
+  const url = state.port ? dashboardUrl(`http://127.0.0.1:${state.port}`) : null
+  if (!url) return { reachable: false, statusCode: null, url, message: 'Streaming server is not running.' }
+  return new Promise((resolveResult) => {
+    const startedAt = Date.now()
+    const req = httpRequest(url, { method: 'HEAD', timeout: 4_000 }, (res) => {
+      res.resume()
+      const statusCode = res.statusCode ?? null
+      const reachable = statusCode !== null && statusCode >= 200 && statusCode < 400
+      const message = reachable
+        ? `Reachable from this PC (HTTP ${statusCode}) in ${Date.now() - startedAt} ms.`
+        : `Reached server but got HTTP ${statusCode ?? 'unknown'}.`
+      logger.info('streaming', 'self-test completed', { reachable, statusCode, url })
+      resolveResult({ reachable, statusCode, url, message })
+    })
+    req.on('timeout', () => req.destroy(new Error('Self-test timed out')))
+    req.on('error', (error) => {
+      logger.error('streaming', 'self-test failed', { message: error.message, url })
+      resolveResult({ reachable: false, statusCode: null, url, message: `Self-test failed: ${error.message}` })
+    })
+    req.end()
+  })
 }
 
 async function handleRequest(ctx: ModuleContext, request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -556,20 +677,42 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
       response.end(request.method === 'HEAD' ? undefined : JSON.stringify({ passwordRequired: state.passwordHash !== null }))
       return
     }
-    if (url.pathname.startsWith('/obs/') || url.pathname.startsWith('/assets/')) {
+    if (url.pathname.startsWith('/obs/') || url.pathname.startsWith('/assets/') || url.pathname.startsWith('/api/dashboard/') || url.pathname.startsWith('/api/touch/panel/')) {
       if (!hasValidToken(url, request)) {
         recordAuthFailure(request)
+        logger.error('streaming', 'request auth failed', { path: url.pathname, remoteAddress: normalizeRemoteAddress(request.socket.remoteAddress) })
         send(response, 403, 'Forbidden')
         return
       }
       clearAuthFailure(request)
       if (url.pathname.startsWith('/obs/')) {
         const layoutId = url.pathname.slice('/obs/'.length)
-        if (!isValidLayoutId(layoutId)) {
+        if (!isValidLayoutId(layoutId) || layoutId !== state.layoutId) {
+          logger.error('streaming', 'obs route rejected layout id', { requestedId: layoutId, selectedId: state.layoutId })
           send(response, 404, 'Not found')
           return
         }
         serveHtml(request, response)
+        return
+      }
+      if (url.pathname.startsWith('/api/dashboard/')) {
+        const id = decodeURIComponent(url.pathname.slice('/api/dashboard/'.length))
+        if (!isValidLayoutId(id)) {
+          logger.error('streaming', 'dashboard api invalid id', { id })
+          send(response, 404, 'Not found')
+          return
+        }
+        serveSelectedDashboard(id, request, response)
+        return
+      }
+      if (url.pathname.startsWith('/api/touch/panel/')) {
+        const id = decodeURIComponent(url.pathname.slice('/api/touch/panel/'.length))
+        if (!isValidLayoutId(id)) {
+          logger.error('streaming', 'touch api invalid id', { id })
+          send(response, 404, 'Not found')
+          return
+        }
+        serveSelectedTouchPanel(id, request, response)
         return
       }
       serveStatic(url.pathname, request, response)
@@ -588,7 +731,11 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
     }
     send(response, 404, 'Not found')
   } catch (error) {
-    console.warn('[streaming] request failed', error)
+    logger.error('streaming', 'request failed', {
+      message: error instanceof Error ? error.message : String(error),
+      url: request.url,
+      remoteAddress: normalizeRemoteAddress(request.socket.remoteAddress)
+    })
     send(response, 400, 'Bad request')
   }
 }
@@ -601,6 +748,8 @@ async function stop(): Promise<StreamingStatus> {
   state.token = null
   state.passwordHash = null
   state.passwordPlaintext = null
+  state.layoutKind = 'dashboard'
+  state.layoutId = DEFAULT_LAYOUT
   state.lanEnabled = false
   state.accessMode = 'local'
   state.lanAddress = null
@@ -612,6 +761,7 @@ async function stop(): Promise<StreamingStatus> {
   state.authFailures.clear()
   if (server) {
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()))
+    logger.info('streaming', 'server stopped', {})
   }
   return status()
 }
@@ -640,18 +790,24 @@ async function allowWindowsFirewallPort(port: number): Promise<string | null> {
   return new Promise((resolveMessage) => {
     execFile('netsh', args, { windowsHide: true, timeout: 7_500 }, (error) => {
       if (error) {
-        resolveMessage(`Windows Firewall rule was not added automatically. Run as Administrator or allow TCP port ${port} for phone access.`)
+        const message = `Windows Firewall rule was not added automatically. Run as Administrator or allow TCP port ${port} for phone access.`
+        logger.error('streaming', 'firewall rule add failed', { port, message: error.message })
+        resolveMessage(message)
         return
       }
-      resolveMessage(`Windows Firewall allow rule added for TCP port ${port}.`)
+      const message = `Windows Firewall allow rule added for TCP port ${port}.`
+      logger.info('streaming', 'firewall rule add succeeded', { port })
+      resolveMessage(message)
     })
   })
 }
 
 async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise<StreamingStartResult> {
   if (state.server) await stop()
-  state.layoutId = isValidLayoutId(args.layoutId) ? args.layoutId : DEFAULT_LAYOUT
-  state.touchPanelId = null
+  const target = resolveStreamTarget(args)
+  state.layoutId = target.id
+  state.layoutKind = target.kind
+  state.touchPanelId = target.touchPanelId
   state.streamSafe = args.streamSafe ?? true
   state.token = generateToken()
   state.accessMode = args.accessMode === 'internet' || args.accessMode === 'lan'
@@ -680,14 +836,39 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
     void handleRequest(ctx, request, response)
   })
   state.server = server
+  const listenHost = state.accessMode !== 'local' ? LAN_HOST : HOST
+  const listenPort = requestedPort(args.port)
+  logger.info('streaming', 'server starting', {
+    host: listenHost,
+    requestedPort: listenPort,
+    mode: state.accessMode,
+    layoutId: state.layoutId,
+    layoutKind: state.layoutKind
+  })
   await new Promise<void>((resolveListen, rejectListen) => {
-    server.once('error', rejectListen)
-    server.listen(requestedPort(args.port), state.accessMode !== 'local' ? LAN_HOST : HOST, () => {
-      server.off('error', rejectListen)
+    const onError = (error: Error): void => {
+      logger.error('streaming', 'server listen failed', {
+        host: listenHost,
+        requestedPort: listenPort,
+        message: error instanceof Error ? error.message : String(error)
+      })
+      state.server = null
+      rejectListen(error)
+    }
+    server.once('error', onError)
+    server.listen(listenPort, listenHost, () => {
+      server.off('error', onError)
       resolveListen()
     })
   })
   state.port = (server.address() as AddressInfo).port
+  logger.info('streaming', 'server listening', {
+    host: listenHost,
+    port: state.port,
+    mode: state.accessMode,
+    layoutId: state.layoutId,
+    layoutKind: state.layoutKind
+  })
   if (state.accessMode !== 'local') {
     state.firewallMessage = await allowWindowsFirewallPort(state.port)
   }
@@ -715,6 +896,7 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(STREAMING_CHANNELS.start, (_event, args?: StreamingStartArgs) => start(ctx, args))
   ctx.ipcMain.handle(STREAMING_CHANNELS.stop, () => stop())
   ctx.ipcMain.handle(STREAMING_CHANNELS.status, () => status())
+  ctx.ipcMain.handle(STREAMING_CHANNELS.selfTest, () => selfTest())
   ctx.app.once('before-quit', () => {
     void stop()
   })

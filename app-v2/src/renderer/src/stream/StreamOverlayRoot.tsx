@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
+import type { Dashboard } from '../../../shared/dashboards'
 import type { OverlayWidgetConfig, OverlayWidgetId } from '../../../shared/overlays'
 import { createDefaultOverlaysConfig, createDefaultOverlayStyle, DEFAULT_OVERLAY_STYLE_PRESET } from '../../../shared/overlays'
-import type { StreamingTelemetryFrame } from '../../../shared/streaming'
+import type { StreamingLayoutKind, StreamingTelemetryFrame } from '../../../shared/streaming'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
+import { DashboardCanvas } from '../dashboard/DashboardRoot'
 import { CompactHudWidget, COMPACT_HUD_STREAM_SAFE } from '../overlay/widgets/CompactHudWidget'
 import { DeltaLapWidget } from '../overlay/widgets/DeltaLapWidget'
 import { FuelWidget } from '../overlay/widgets/FuelWidget'
@@ -11,6 +13,9 @@ import { GearSpeedWidget } from '../overlay/widgets/GearSpeedWidget'
 import { GT3ClusterWidget, GT3_CLUSTER_STREAM_SAFE } from '../overlay/widgets/GT3ClusterWidget'
 import { RelativeWidget } from '../overlay/widgets/RelativeWidget'
 import type { WidgetProps } from '../overlay/widgets/types'
+import { TouchPanelWindowRoot } from '../touchpanel/TouchPanelWindowRoot'
+import '../dashboard/dashboard-runtime.css'
+import '../touchpanel/buttonbox.css'
 
 const WIDGETS: Array<{ id: OverlayWidgetId; title: string; className: string; streamSafe: boolean; Component: (props: WidgetProps) => ReactElement }> = [
   { id: 'gt3Cluster', title: 'GT3 Cluster', className: 'stream-gt3-cluster', streamSafe: GT3_CLUSTER_STREAM_SAFE, Component: GT3ClusterWidget },
@@ -41,6 +46,24 @@ function pingUrl(): string {
   return ping.toString()
 }
 
+function streamTarget(): { kind: StreamingLayoutKind; id: string | null } {
+  try {
+    const url = new URL(window.location.href)
+    const kind = url.searchParams.get('kind') === 'touch' ? 'touch' : 'dashboard'
+    const queryId = kind === 'touch' ? url.searchParams.get('panel') : url.searchParams.get('dash')
+    const pathId = url.pathname.match(/^\/obs\/([^/]+)$/)?.[1]
+    return { kind, id: queryId || (pathId ? decodeURIComponent(pathId) : null) }
+  } catch {
+    return { kind: 'dashboard', id: null }
+  }
+}
+
+function dashboardApiUrl(id: string): string {
+  const url = new URL(`/api/dashboard/${encodeURIComponent(id)}`, window.location.origin)
+  url.searchParams.set('token', new URLSearchParams(window.location.search).get('token') ?? '')
+  return url.toString()
+}
+
 function widgetConfig(id: OverlayWidgetId): OverlayWidgetConfig {
   return createDefaultOverlaysConfig().widgets[id] ?? {
     id,
@@ -64,6 +87,9 @@ export function StreamOverlayRoot() {
   const [password, setPassword] = useState('')
   const [passwordInput, setPasswordInput] = useState('')
   const [passwordError, setPasswordError] = useState(false)
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null)
+  const [targetError, setTargetError] = useState<string | null>(null)
+  const target = useMemo(streamTarget, [])
   const configs = useMemo(() => Object.fromEntries(WIDGETS.map((item) => [item.id, widgetConfig(item.id)])) as Record<OverlayWidgetId, OverlayWidgetConfig>, [])
   const shellStyle = {
     '--overlay-bg': 'rgba(5, 10, 18, 0.60)',
@@ -122,6 +148,30 @@ export function StreamOverlayRoot() {
   }, [password, passwordRequired])
 
   useEffect(() => {
+    if (target.kind !== 'dashboard') return
+    if (!target.id) {
+      setTargetError('No dashboard selected.')
+      return
+    }
+    let alive = true
+    fetch(dashboardApiUrl(target.id), { cache: 'no-store' })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json() as Promise<Dashboard>
+      })
+      .then((dash) => {
+        if (!alive) return
+        setDashboard(dash)
+      })
+      .catch((err) => {
+        if (alive) setTargetError(err instanceof Error ? err.message : 'Failed to load dashboard.')
+      })
+    return () => {
+      alive = false
+    }
+  }, [target])
+
+  useEffect(() => {
     const updateScale = (): void => {
       const next = Math.min(window.innerWidth / DESIGN_WIDTH, window.innerHeight / DESIGN_HEIGHT)
       setScale(Number.isFinite(next) && next > 0 ? next : 1)
@@ -137,6 +187,20 @@ export function StreamOverlayRoot() {
 
   // Show password prompt if required and not yet entered
   if (passwordRequired === true) {
+    if (targetError) {
+      return (
+        <div className="stream-viewport">
+          <div style={{ color: '#fca5a5', fontFamily: 'Segoe UI, system-ui, sans-serif', padding: 24 }}>{targetError}</div>
+        </div>
+      )
+    }
+
+    if (target.kind === 'touch') return <TouchPanelWindowRoot />
+
+    if (dashboard) {
+      return <DashboardCanvas dashboard={dashboard} snapshot={snapshot} />
+    }
+
     return (
       <div className="stream-viewport" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <form
