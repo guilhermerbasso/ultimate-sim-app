@@ -19,6 +19,8 @@ import { ViewIcon } from './views/icons'
 import { viewRegistry, type ViewDef } from './views/registry'
 import { CommandPalette } from './components/CommandPalette'
 import { BrandLogo } from './components/BrandLogo'
+import { UpdateBanner } from './components/UpdateBanner'
+import { ReportBugButton } from './components/ReportBugButton'
 import { OnboardingFlow } from './onboarding/OnboardingFlow'
 import { navSections } from './navigation/navModel'
 import {
@@ -485,22 +487,26 @@ function App(): ReactElement {
         </aside>
 
         <section className="content-panel">
+          <UpdateBanner language={language} />
           <header className="content-header">
             <div>
               <span className="section-eyebrow">{current.eyebrow}</span>
               <h2>{current.label}</h2>
               <p>{current.description}</p>
             </div>
-            <a
-              aria-label={t(language, 'supportAria')}
-              className="support-button"
-              href={SUPPORT_URL}
-              rel="noreferrer"
-              target="_blank"
-              title={t(language, 'supportTitle')}
-            >
-              {t(language, 'supportButton')}
-            </a>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+              <ReportBugButton language={language} showToast={showToast} />
+              <a
+                aria-label={t(language, 'supportAria')}
+                className="support-button"
+                href={SUPPORT_URL}
+                rel="noreferrer"
+                target="_blank"
+                title={t(language, 'supportTitle')}
+              >
+                {t(language, 'supportButton')}
+              </a>
+            </div>
           </header>
 
           <div className="view-stage">

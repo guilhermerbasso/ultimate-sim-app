@@ -17,6 +17,8 @@ import { applyAppTheme } from '../lib/theme'
 import { TrackMapSetup } from '../components/TrackMapSetup'
 import { SectionExportImport } from '../components/SectionExportImport'
 import { SavedConfigsPanel } from '../components/SavedConfigsPanel'
+import { UpdatePanel } from '../components/UpdatePanel'
+import packageJson from '../../../../package.json'
 import {
   CONFIG_IO_CHANNELS,
   type ConfigExportResult,
@@ -291,6 +293,17 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
     await window.ipc.invoke(CONFIG_IO_CHANNELS.relaunch).catch(() => {})
   }
 
+  // Language changes apply live to migrated views, but a restart guarantees EVERY
+  // string (including any mount-time text) is re-rendered in the new language.
+  const changeLanguage = (nextLanguage: AppLanguage): void => {
+    if (nextLanguage === settingsRef.current.language) return
+    patch({ language: nextLanguage })
+    setNeedsRestart(true)
+    if (window.confirm(tt(language, 'settings.languageRestartConfirm'))) {
+      void restartNow()
+    }
+  }
+
   const importProfile = async (): Promise<void> => {
     const confirmed = window.confirm(tt(language, 'settings.importProfileConfirm'))
     if (!confirmed) return
@@ -326,6 +339,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
+      <UpdatePanel language={language} currentVersion={packageJson.version} />
       <div className="panel-card">
         <div className="field-label">{tt(language, 'settings.startup')}</div>
         <Toggle
@@ -391,7 +405,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
           <select
             disabled={loading || saving}
             id="language"
-            onChange={(event) => patch({ language: event.currentTarget.value as AppLanguage })}
+            onChange={(event) => changeLanguage(event.currentTarget.value as AppLanguage)}
             className="select-field wide"
             value={settings.language}
           >
