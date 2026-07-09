@@ -6,6 +6,20 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
+## 2.44.0 — v5: real-dash car themes, more iRacing widgets, Windows .exe pipeline fixed
+
+### Added
+- **Real-dashboard car themes** — reference-matched dashboards, full-dash overlays and single-info widgets for a fleet of endurance/GT3/Cup cars (Le Mans/WEC prototype, Ferrari 488 Challenge & 296 GT3, Aston Martin Vantage & Vantage GT3, Mercedes-AMG One & GT Track Series, Porsche 911 GT3 Cup, Mustang GTD, Corvette Z06 GT3.R, Lamborghini Huracán GT3, McLaren 720S).
+- **More iRacing widgets & overlays** — additional telemetry channels and visual styles, each built from a validated gpt-image reference and visually QA'd until clean.
+- **Consolidated, English README** — full feature catalog with in-app screenshots.
+
+### Changed
+- **CI on Node 24** — `actions/checkout@v5`, `actions/setup-node@v5`, `node-version: 24` across `ci.yml`, `build-windows-installer.yml` and `codeql.yml` (PR #15).
+- **Automated Copilot QA on pull requests** — review → auto-fix loop → auto-merge (PR #12).
+
+### Fixed
+- **Windows installer release build** — `dist:win` now runs `electron-builder --win --publish never`, so tag builds no longer fail on electron-builder's implicit GitHub publishing (missing `GH_TOKEN`). The `.exe`/`.zip`/`latest.yml` are attached to the GitHub Release by the workflow, so every `v*` tag ships a working installer again.
+
 ## 2.43.0 — Clean v4: title‑less widgets, trigger overlays, 3D nav map, themed cars
 
 ### Added

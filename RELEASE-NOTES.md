@@ -1,5 +1,18 @@
 # Ultimate Sim App — Release Notes
 
+## v2.44.0 — v5: real-dash car themes + more iRacing widgets (Windows .exe restored) 🏎️
+
+Consolidates the v5 work from PR #15 and **fixes the Windows installer pipeline** so every release ships a working `.exe` again.
+
+### Highlights
+- 🏎️ **Real-dashboard car themes** — reference-matched dashboards, full-dash overlays and single-info widgets for a fleet of endurance/GT3/Cup cars (Ferrari 488 Challenge & 296 GT3, Aston Martin Vantage & GT3, Mercedes-AMG One & GT Track Series, Porsche 911 GT3 Cup, Mustang GTD, Corvette Z06 GT3.R, Lamborghini Huracán GT3, McLaren 720S, Le Mans/WEC prototype).
+- 🧩 **More iRacing widgets & overlays** — new telemetry channels and visual styles, each validated against a `gpt-image` reference and QA'd until clean.
+- 🖥️ **Windows `.exe` restored** — the v2.43.0 release build failed because electron-builder tried to implicitly publish on the tag without a `GH_TOKEN`; fixed with `--publish never` so the workflow attaches the installer.
+- 📖 **New consolidated README** — full English feature catalog with screenshots.
+- ⚙️ **CI on Node 24** and **automated Copilot QA** on pull requests.
+
+_Installer: `Ultimate Sim App-2.44.0-x64.exe` (NSIS, x64) + portable `.zip`._
+
 ## v2.43.0 — Clean v4: title‑less widgets, trigger overlays, 3D nav map, themed cars 🏁
 
 A clean‑up pass on the whole visual language plus several new systems — every new asset built with the mandated flow (validated American‑English `gpt‑image` prompt → reference → image QA → build → visual QA until clean).
