@@ -2972,6 +2972,182 @@ Object.assign(UI_TEXT['pt-BR'], {
   'spotter.flag.black': 'preta'
 })
 
+
+Object.assign(UI_TEXT.en, {
+  'oled.savedToast': 'OLED configuration saved.',
+  'oled.keepOnePageToast': 'Keep at least one page active.',
+  'oled.streamingActiveToast': 'OLED streaming active.',
+  'oled.streamingStoppedToast': 'OLED streaming stopped. Port released.',
+  'oled.presetBuilder': 'Preset builder',
+  'oled.readyPages': 'Ready-made pages, no code',
+  'oled.builderDescription': 'Choose what goes on the OLED and order the rotation during the stint.',
+  'oled.exportLabel': 'OLED dashboard',
+  'oled.stopStreaming': 'Stop streaming',
+  'oled.enableStreaming': 'Enable streaming',
+  'oled.orderRotation': 'Order and rotation',
+  'oled.view': 'View',
+  'oled.rotationInterval': 'Rotation interval',
+  'oled.secondsPerPage': '{seconds}s per page',
+  'oled.preview': 'Preview 128×64',
+  'oled.statusSending': '● sending',
+  'oled.statusStopped': '○ stopped',
+  'oled.previousPage': 'Previous page',
+  'oled.nextPage': 'Next page',
+  'oled.portHelp': 'Port {port}. Close streaming before using SimHub.',
+  'oled.connectHelp': 'Connect the ButtonBox in Devices before enabling streaming.',
+  'oled.errorPrefix': 'Error'
+})
+
+Object.assign(UI_TEXT['pt-BR'], {
+  'oled.savedToast': 'Configuração do OLED salva.',
+  'oled.keepOnePageToast': 'Mantenha pelo menos uma página ativa.',
+  'oled.streamingActiveToast': 'Streaming do OLED ativo.',
+  'oled.streamingStoppedToast': 'Streaming do OLED parado. Porta liberada.',
+  'oled.presetBuilder': 'Construtor de presets',
+  'oled.readyPages': 'Páginas prontas, sem código',
+  'oled.builderDescription': 'Escolha o que aparece no OLED e ordene a rotação durante o stint.',
+  'oled.exportLabel': 'Dashboard OLED',
+  'oled.stopStreaming': 'Parar streaming',
+  'oled.enableStreaming': 'Ativar streaming',
+  'oled.orderRotation': 'Ordem e rotação',
+  'oled.view': 'Ver',
+  'oled.rotationInterval': 'Intervalo de rotação',
+  'oled.secondsPerPage': '{seconds}s por página',
+  'oled.preview': 'Prévia 128×64',
+  'oled.statusSending': '● enviando',
+  'oled.statusStopped': '○ parado',
+  'oled.previousPage': 'Página anterior',
+  'oled.nextPage': 'Próxima página',
+  'oled.portHelp': 'Porta {port}. Feche o streaming antes de usar o SimHub.',
+  'oled.connectHelp': 'Conecte o ButtonBox em Devices antes de ativar o streaming.',
+  'oled.errorPrefix': 'Erro'
+})
+
+Object.assign(UI_TEXT.es, {
+  'oled.savedToast': 'Configuración del OLED guardada.',
+  'oled.keepOnePageToast': 'Mantén al menos una página activa.',
+  'oled.streamingActiveToast': 'Streaming del OLED activo.',
+  'oled.streamingStoppedToast': 'Streaming del OLED detenido. Puerto liberado.',
+  'oled.presetBuilder': 'Constructor de presets',
+  'oled.readyPages': 'Páginas listas, sin código',
+  'oled.builderDescription': 'Elige qué aparece en el OLED y ordena la rotación durante el stint.',
+  'oled.exportLabel': 'Dashboard OLED',
+  'oled.stopStreaming': 'Detener streaming',
+  'oled.enableStreaming': 'Activar streaming',
+  'oled.orderRotation': 'Orden y rotación',
+  'oled.view': 'Ver',
+  'oled.rotationInterval': 'Intervalo de rotación',
+  'oled.secondsPerPage': '{seconds}s por página',
+  'oled.preview': 'Vista previa 128×64',
+  'oled.statusSending': '● enviando',
+  'oled.statusStopped': '○ detenido',
+  'oled.previousPage': 'Página anterior',
+  'oled.nextPage': 'Página siguiente',
+  'oled.portHelp': 'Puerto {port}. Cierra el streaming antes de usar SimHub.',
+  'oled.connectHelp': 'Conecta el ButtonBox en Devices antes de activar el streaming.',
+  'oled.errorPrefix': 'Error'
+})
+
+Object.assign(UI_TEXT.fr, {
+  'oled.savedToast': 'Configuration OLED enregistrée.',
+  'oled.keepOnePageToast': 'Gardez au moins une page active.',
+  'oled.streamingActiveToast': 'Streaming OLED actif.',
+  'oled.streamingStoppedToast': 'Streaming OLED arrêté. Port libéré.',
+  'oled.presetBuilder': 'Créateur de presets',
+  'oled.readyPages': 'Pages prêtes, sans code',
+  'oled.builderDescription': 'Choisissez ce qui va sur l’OLED et l’ordre de rotation pendant le relais.',
+  'oled.exportLabel': 'Dashboard OLED',
+  'oled.stopStreaming': 'Arrêter le streaming',
+  'oled.enableStreaming': 'Activer le streaming',
+  'oled.orderRotation': 'Ordre et rotation',
+  'oled.view': 'Voir',
+  'oled.rotationInterval': 'Intervalle de rotation',
+  'oled.secondsPerPage': '{seconds}s par page',
+  'oled.preview': 'Aperçu 128×64',
+  'oled.statusSending': '● envoi',
+  'oled.statusStopped': '○ arrêté',
+  'oled.previousPage': 'Page précédente',
+  'oled.nextPage': 'Page suivante',
+  'oled.portHelp': 'Port {port}. Fermez le streaming avant d’utiliser SimHub.',
+  'oled.connectHelp': 'Connectez le ButtonBox dans Devices avant d’activer le streaming.',
+  'oled.errorPrefix': 'Erreur'
+})
+
+Object.assign(UI_TEXT.de, {
+  'oled.savedToast': 'OLED-Konfiguration gespeichert.',
+  'oled.keepOnePageToast': 'Mindestens eine Seite muss aktiv bleiben.',
+  'oled.streamingActiveToast': 'OLED-Streaming aktiv.',
+  'oled.streamingStoppedToast': 'OLED-Streaming gestoppt. Port freigegeben.',
+  'oled.presetBuilder': 'Preset-Builder',
+  'oled.readyPages': 'Fertige Seiten, kein Code',
+  'oled.builderDescription': 'Wähle aus, was auf dem OLED angezeigt wird, und ordne die Rotation während des Stints.',
+  'oled.exportLabel': 'OLED-Dashboard',
+  'oled.stopStreaming': 'Streaming stoppen',
+  'oled.enableStreaming': 'Streaming aktivieren',
+  'oled.orderRotation': 'Reihenfolge und Rotation',
+  'oled.view': 'Anzeigen',
+  'oled.rotationInterval': 'Rotationsintervall',
+  'oled.secondsPerPage': '{seconds}s pro Seite',
+  'oled.preview': 'Vorschau 128×64',
+  'oled.statusSending': '● sendet',
+  'oled.statusStopped': '○ gestoppt',
+  'oled.previousPage': 'Vorherige Seite',
+  'oled.nextPage': 'Nächste Seite',
+  'oled.portHelp': 'Port {port}. Schließe das Streaming, bevor du SimHub verwendest.',
+  'oled.connectHelp': 'Verbinde den ButtonBox unter Devices, bevor du Streaming aktivierst.',
+  'oled.errorPrefix': 'Fehler'
+})
+
+Object.assign(UI_TEXT.zh, {
+  'oled.savedToast': 'OLED 配置已保存。',
+  'oled.keepOnePageToast': '请至少保留一个页面处于启用状态。',
+  'oled.streamingActiveToast': 'OLED 串流已启用。',
+  'oled.streamingStoppedToast': 'OLED 串流已停止。端口已释放。',
+  'oled.presetBuilder': '预设构建器',
+  'oled.readyPages': '现成页面，无需代码',
+  'oled.builderDescription': '选择 OLED 上显示的内容，并安排 stint 中的轮换顺序。',
+  'oled.exportLabel': 'OLED 仪表盘',
+  'oled.stopStreaming': '停止串流',
+  'oled.enableStreaming': '启用串流',
+  'oled.orderRotation': '顺序和轮换',
+  'oled.view': '查看',
+  'oled.rotationInterval': '轮换间隔',
+  'oled.secondsPerPage': '每页 {seconds}s',
+  'oled.preview': '128×64 预览',
+  'oled.statusSending': '● 正在发送',
+  'oled.statusStopped': '○ 已停止',
+  'oled.previousPage': '上一页',
+  'oled.nextPage': '下一页',
+  'oled.portHelp': '端口 {port}。使用 SimHub 前请关闭串流。',
+  'oled.connectHelp': '启用串流前，请先在 Devices 中连接 ButtonBox。',
+  'oled.errorPrefix': '错误'
+})
+
+Object.assign(UI_TEXT.ja, {
+  'oled.savedToast': 'OLED 設定を保存しました。',
+  'oled.keepOnePageToast': '少なくとも 1 ページは有効にしてください。',
+  'oled.streamingActiveToast': 'OLED ストリーミングが有効です。',
+  'oled.streamingStoppedToast': 'OLED ストリーミングを停止しました。ポートを解放しました。',
+  'oled.presetBuilder': 'プリセットビルダー',
+  'oled.readyPages': '完成済みページ、コード不要',
+  'oled.builderDescription': 'OLED に表示する内容を選び、スティント中のローテーション順を設定します。',
+  'oled.exportLabel': 'OLED ダッシュボード',
+  'oled.stopStreaming': 'ストリーミング停止',
+  'oled.enableStreaming': 'ストリーミング有効化',
+  'oled.orderRotation': '順序とローテーション',
+  'oled.view': '表示',
+  'oled.rotationInterval': 'ローテーション間隔',
+  'oled.secondsPerPage': '1ページ {seconds}s',
+  'oled.preview': 'プレビュー 128×64',
+  'oled.statusSending': '● 送信中',
+  'oled.statusStopped': '○ 停止中',
+  'oled.previousPage': '前のページ',
+  'oled.nextPage': '次のページ',
+  'oled.portHelp': 'ポート {port}。SimHub を使う前にストリーミングを閉じてください。',
+  'oled.connectHelp': 'ストリーミングを有効にする前に、Devices で ButtonBox を接続してください。',
+  'oled.errorPrefix': 'エラー'
+})
+
 export function tt(language: ResolvedLanguage | undefined, key: string, vars: Record<string, string | number> = {}): string {
   let value = UI_TEXT[language ?? 'en']?.[key] ?? UI_TEXT.en[key] ?? key
   for (const [name, replacement] of Object.entries(vars)) value = value.replaceAll(`{${name}}`, String(replacement))

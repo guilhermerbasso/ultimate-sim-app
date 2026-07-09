@@ -17,6 +17,7 @@ import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import type { AppViewProps } from '../App'
 import { useDevices } from '../lib/devices/DeviceRegistry'
 import { getLatestTelemetry, onTelemetry } from '../lib/telemetry'
+import { tt } from '../i18n'
 
 const shell: CSSProperties = {
   display: 'grid',
@@ -58,7 +59,7 @@ function includesPage(pages: OledPresetId[], id: OledPresetId): boolean {
   return pages.includes(id)
 }
 
-export default function OledDashboardView({ showToast }: AppViewProps): ReactElement {
+export default function OledDashboardView({ showToast, language }: AppViewProps): ReactElement {
   // Resolve the connected ButtonBox from the shared device registry.
   const { primaryDevice: connectedDevice } = useDevices()
   const [presets, setPresets] = useState<OledPreset[]>([])
@@ -116,7 +117,7 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
     try {
       const saved = await window.ipc.invoke<OledDashboardConfig>('oled:setConfig', next)
       setConfig(saved)
-      showToast('OLED configuration saved.', 'success')
+      showToast(tt(language, 'oled.savedToast'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -129,7 +130,7 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
       ? config.pages.filter((page) => page !== id)
       : [...config.pages, id]
     if (pages.length === 0) {
-      showToast('Keep at least one page active.', 'error')
+      showToast(tt(language, 'oled.keepOnePageToast'), 'error')
       return
     }
     await persistConfig({ pages, activeIndex: Math.min(config.activeIndex, pages.length - 1), intervalMs: config.intervalMs })
@@ -162,7 +163,7 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
     try {
       const saved = await window.ipc.invoke<OledDashboardConfig>('oled:setStreaming', enabled)
       setConfig(saved)
-      showToast(enabled ? 'OLED streaming active.' : 'OLED streaming stopped. Port released.', 'success')
+      showToast(enabled ? tt(language, 'oled.streamingActiveToast') : tt(language, 'oled.streamingStoppedToast'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -180,14 +181,14 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
       <article style={{ ...panel, minHeight: 620 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
           <div>
-            <span style={label}>Preset builder</span>
-            <h3 style={{ margin: '8px 0 4px', fontSize: 28 }}>Ready-made pages, no code</h3>
+            <span style={label}>{tt(language, 'oled.presetBuilder')}</span>
+            <h3 style={{ margin: '8px 0 4px', fontSize: 28 }}>{tt(language, 'oled.readyPages')}</h3>
             <p style={{ margin: 0, color: 'rgba(255,255,255,0.62)' }}>
-              Choose what goes on the OLED and order the rotation during the stint.
+              {tt(language, 'oled.builderDescription')}
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <SectionExportImport sectionId="oled" label="OLED dashboard" onImported={() => void reloadConfig()} />
+            <SectionExportImport sectionId="oled" label={tt(language, 'oled.exportLabel')} onImported={() => void reloadConfig()} />
             <button
               disabled={!canStream}
               onClick={() => void setStreaming(!config.enabled)}
@@ -199,7 +200,7 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
               }}
               type="button"
             >
-              {config.enabled ? 'Stop' : 'Enable'} streaming
+              {config.enabled ? tt(language, 'oled.stopStreaming') : tt(language, 'oled.enableStreaming')}
             </button>
           </div>
         </div>
@@ -255,7 +256,7 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
 
       <div style={{ display: 'grid', gap: 18 }}>
         <article style={panel}>
-          <span style={label}>Order and rotation</span>
+          <span style={label}>{tt(language, 'oled.orderRotation')}</span>
           <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
             {selectedPresets.map((preset, index) => (
               <div
@@ -275,13 +276,13 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
                 <span>{preset.name}</span>
                 <button disabled={busy} onClick={() => void movePreset(preset.id, -1)} style={miniButton} type="button">↑</button>
                 <button disabled={busy} onClick={() => void movePreset(preset.id, 1)} style={miniButton} type="button">↓</button>
-                <button disabled={busy} onClick={() => void setActivePage(index)} style={miniButton} type="button">View</button>
+                <button disabled={busy} onClick={() => void setActivePage(index)} style={miniButton} type="button">{tt(language, 'oled.view')}</button>
               </div>
             ))}
           </div>
 
           <label style={{ display: 'grid', gap: 8, marginTop: 16 }}>
-            <span style={label}>Rotation interval</span>
+            <span style={label}>{tt(language, 'oled.rotationInterval')}</span>
             <input
               max={OLED_MAX_INTERVAL_MS}
               min={OLED_MIN_INTERVAL_MS}
@@ -292,7 +293,7 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
               type="range"
               value={config.intervalMs}
             />
-            <strong>{(config.intervalMs / 1000).toFixed(2)}s per page</strong>
+            <strong>{tt(language, 'oled.secondsPerPage', { seconds: (config.intervalMs / 1000).toFixed(2) })}</strong>
           </label>
         </article>
 
@@ -306,11 +307,11 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
             }}
           />
           <div style={{ position: 'relative' }}>
-            <span style={label}>Preview 128×64</span>
+            <span style={label}>{tt(language, 'oled.preview')}</span>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', marginTop: 6 }}>
               <h3 style={{ margin: 0 }}>{activeName}</h3>
               <span style={{ color: status?.lastError ? 'var(--accent-warning)' : 'var(--accent-primary)', fontSize: 12, fontWeight: 800 }}>
-                {config.enabled ? '● enviando' : '○ parado'}
+                {config.enabled ? tt(language, 'oled.statusSending') : tt(language, 'oled.statusStopped')}
               </span>
             </div>
 
@@ -344,18 +345,18 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
 
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
               <button disabled={busy} onClick={() => void setActivePage(previousIndex)} style={{ ...buttonBase, background: 'rgba(255,255,255,0.06)' }} type="button">
-                Previous page
+                {tt(language, 'oled.previousPage')}
               </button>
               <button disabled={busy} onClick={() => void setActivePage(nextIndex)} style={{ ...buttonBase, background: 'rgba(255,255,255,0.06)' }} type="button">
-                Next page
+                {tt(language, 'oled.nextPage')}
               </button>
             </div>
 
             <p style={{ color: 'rgba(255,255,255,0.56)', fontSize: 12, marginBottom: 0 }}>
               {connectedDevice
-                ? `Port ${connectedDevice.path}. Close streaming before using SimHub.`
-                : 'Connect the ButtonBox in Devices before enabling streaming.'}
-              {status?.lastError ? ` Error: ${status.lastError}` : ''}
+                ? tt(language, 'oled.portHelp', { port: connectedDevice.path })
+                : tt(language, 'oled.connectHelp')}
+              {status?.lastError ? ` ${tt(language, 'oled.errorPrefix')}: ${status.lastError}` : ''}
             </p>
           </div>
         </article>
