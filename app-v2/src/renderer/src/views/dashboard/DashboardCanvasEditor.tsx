@@ -41,6 +41,7 @@ import {
   DEFAULT_OVERLAY_STYLE_PRESET,
   type OverlayWidgetConfig
 } from '../../../../shared/overlays'
+import '../../dashboard/dashboard-runtime.css'
 
 const CHROME = 'var(--accent-primary)'
 const DANGER = 'var(--accent-danger)'
@@ -97,7 +98,7 @@ function FallbackTile({ element }: { element: DashboardElement }): ReactElement 
 // and feed it the live/preview snapshot with a locked config stub. Unknown id →
 // labelled tile (never crash a board).
 function OverlayWidgetEmbed({ element }: { element: DashboardElement }): ReactElement {
-  const widgetId = element.widgetId
+  const widgetId = element.widgetId ?? (element.hifiModuleId ? (`hifi:${element.hifiModuleId}` as DashboardElement['widgetId']) : undefined)
   const Widget = widgetId ? resolveWidgetComponent(widgetId) : undefined
   if (!widgetId || !Widget) return <FallbackTile element={element} />
   const config: OverlayWidgetConfig = {
@@ -113,7 +114,7 @@ function OverlayWidgetEmbed({ element }: { element: DashboardElement }): ReactEl
     hifiModuleId: element.hifiModuleId
   }
   return (
-    <div style={{ width: '100%', height: '100%', display: 'block' }}>
+    <div className="dash-overlaywidget" style={{ width: '100%', height: '100%', display: 'block' }}>
       <Widget snapshot={PREVIEW_SNAPSHOT} config={config} />
     </div>
   )
