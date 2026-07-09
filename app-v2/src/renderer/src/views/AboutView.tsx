@@ -6,46 +6,48 @@ import {
   type UpdaterIpcResult,
   type UpdaterStatus
 } from '../../../shared/updater'
+import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 
 type CreditItem = {
   name: string
   license: string
-  note: string
+  noteKey: string
 }
 
 const LIBRARIES: CreditItem[] = [
-  { name: 'bonjour-service', license: 'MIT', note: 'Local network service discovery.' },
-  { name: 'koffi', license: 'MIT', note: 'FFI for native integrations.' },
-  { name: 'React', license: 'MIT', note: 'UI renderer.' },
-  { name: 'React DOM', license: 'MIT', note: 'DOM rendering.' },
-  { name: 'serialport', license: 'MIT', note: 'Serial communication with hardware.' },
-  { name: 'unzipper', license: 'MIT', note: 'ZIP package reading.' },
-  { name: 'yaml', license: 'ISC', note: 'YAML parsing and writing.' },
-  { name: 'ws', license: 'MIT', note: 'WebSocket client/server.' }
+  { name: 'bonjour-service', license: 'MIT', noteKey: 'about.credit.bonjour' },
+  { name: 'koffi', license: 'MIT', noteKey: 'about.credit.koffi' },
+  { name: 'React', license: 'MIT', noteKey: 'about.credit.react' },
+  { name: 'React DOM', license: 'MIT', noteKey: 'about.credit.reactDom' },
+  { name: 'serialport', license: 'MIT', noteKey: 'about.credit.serialport' },
+  { name: 'unzipper', license: 'MIT', noteKey: 'about.credit.unzipper' },
+  { name: 'yaml', license: 'ISC', noteKey: 'about.credit.yaml' },
+  { name: 'ws', license: 'MIT', noteKey: 'about.credit.ws' }
 ]
 
 const FONTS: CreditItem[] = [
-  { name: 'Rajdhani', license: 'SIL OFL 1.1', note: 'Interface typography and headings.' },
-  { name: 'Instrument Sans', license: 'SIL OFL 1.1', note: 'Interface body text.' },
-  { name: 'Barlow Condensed', license: 'SIL OFL 1.1', note: 'Compact headlines.' },
-  { name: 'IBM Plex Mono', license: 'SIL OFL 1.1', note: 'Technical data and code.' },
-  { name: 'Michroma', license: 'SIL OFL 1.1', note: 'Futuristic display type.' },
-  { name: 'Chakra Petch', license: 'SIL OFL 1.1', note: 'Racing labels.' },
-  { name: 'DSEG', license: 'SIL OFL 1.1', note: 'DSEG7 and DSEG14 digital displays.' }
+  { name: 'Rajdhani', license: 'SIL OFL 1.1', noteKey: 'about.credit.rajdhani' },
+  { name: 'Instrument Sans', license: 'SIL OFL 1.1', noteKey: 'about.credit.instrumentSans' },
+  { name: 'Barlow Condensed', license: 'SIL OFL 1.1', noteKey: 'about.credit.barlowCondensed' },
+  { name: 'IBM Plex Mono', license: 'SIL OFL 1.1', noteKey: 'about.credit.ibmPlexMono' },
+  { name: 'Michroma', license: 'SIL OFL 1.1', noteKey: 'about.credit.michroma' },
+  { name: 'Chakra Petch', license: 'SIL OFL 1.1', noteKey: 'about.credit.chakraPetch' },
+  { name: 'DSEG', license: 'SIL OFL 1.1', noteKey: 'about.credit.dseg' }
 ]
 
 const TOOLS: CreditItem[] = [
-  { name: 'avrdude', license: 'GNU GPL v2', note: 'Firmware uploads for AVR boards.' }
+  { name: 'avrdude', license: 'GNU GPL v2', noteKey: 'about.credit.avrdude' }
 ]
 
-function CreditSection({ items, title }: { items: CreditItem[]; title: string }): ReactElement {
+function CreditSection({ items, language, title }: { items: CreditItem[]; language: AppViewProps['language']; title: string }): ReactElement {
   return (
     <section className="panel-card" style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline' }}>
         <h2 style={{ margin: 0, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: '0.08em', textTransform: 'uppercase' }}>
           {title}
         </h2>
-        <span className="field-label" style={{ margin: 0 }}>{items.length} items</span>
+        <span className="field-label" style={{ margin: 0 }}>{tt(language, 'about.itemsCount', { count: items.length })}</span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
         {items.map((item) => (
@@ -76,7 +78,7 @@ function CreditSection({ items, title }: { items: CreditItem[]; title: string })
                 {item.license}
               </span>
             </div>
-            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.45 }}>{item.note}</p>
+            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.45 }}>{tt(language, item.noteKey)}</p>
           </article>
         ))}
       </div>
@@ -84,22 +86,22 @@ function CreditSection({ items, title }: { items: CreditItem[]; title: string })
   )
 }
 
-function updateStatusText(status: UpdaterStatus): string {
-  if (!status.enabled) return 'Automatic updates are active only in the installed app build.'
-  if (status.state === 'checking') return 'Checking GitHub Releases for updates...'
-  if (status.state === 'available') return `Update ${status.updateVersion ?? ''} available. Preparing download...`
-  if (status.state === 'downloading') return 'Downloading update...'
-  if (status.state === 'downloaded') return `Update ${status.updateVersion ?? ''} ready to install.`
-  if (status.state === 'not-available') return 'You are already using the latest version.'
-  if (status.state === 'error') return status.error ?? 'Could not check for updates.'
-  return 'Click to check for updates now.'
+function updateStatusText(status: UpdaterStatus, language: AppViewProps['language']): string {
+  if (!status.enabled) return tt(language, 'about.update.installedOnly')
+  if (status.state === 'checking') return tt(language, 'about.update.checking')
+  if (status.state === 'available') return tt(language, 'about.update.available', { version: status.updateVersion ?? '' })
+  if (status.state === 'downloading') return tt(language, 'about.update.downloading')
+  if (status.state === 'downloaded') return tt(language, 'about.update.downloaded', { version: status.updateVersion ?? '' })
+  if (status.state === 'not-available') return tt(language, 'about.update.notAvailable')
+  if (status.state === 'error') return status.error ?? tt(language, 'about.update.checkFailed')
+  return tt(language, 'about.update.idle')
 }
 
 function isUpdaterEvent(value: unknown): value is UpdaterEvent {
   return Boolean(value && typeof value === 'object' && 'event' in value && 'status' in value)
 }
 
-export default function AboutView(): ReactElement {
+export default function AboutView({ language }: AppViewProps): ReactElement {
   const appName = packageJson.name
   const appVersion = packageJson.version
   const [status, setStatus] = useState<UpdaterStatus>({
@@ -111,7 +113,7 @@ export default function AboutView(): ReactElement {
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const progress = Math.round(status.progressPercent ?? 0)
-  const statusText = useMemo(() => updateStatusText(status), [status])
+  const statusText = useMemo(() => updateStatusText(status, language), [language, status])
 
   useEffect(() => {
     return window.ipc.subscribe<UpdaterEvent>(UPDATE_CHANNELS.status, (payload) => {
@@ -131,16 +133,16 @@ export default function AboutView(): ReactElement {
       if (checked.ok && checked.status.state === 'available') {
         const downloaded = await window.ipc.invoke<UpdaterIpcResult>(UPDATE_CHANNELS.download)
         setStatus(downloaded.status)
-        if (!downloaded.ok) setActionError(downloaded.message ?? downloaded.status.error ?? 'Failed to download update.')
+        if (!downloaded.ok) setActionError(downloaded.message ?? downloaded.status.error ?? tt(language, 'about.update.downloadFailed'))
       } else if (!checked.ok) {
-        setActionError(checked.message ?? checked.status.error ?? 'Failed to check for updates.')
+        setActionError(checked.message ?? checked.status.error ?? tt(language, 'about.update.checkFailed'))
       }
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error))
     } finally {
       setBusy(false)
     }
-  }, [])
+  }, [language])
 
   const installNow = useCallback(async (): Promise<void> => {
     setBusy(true)
@@ -148,13 +150,13 @@ export default function AboutView(): ReactElement {
     try {
       const result = await window.ipc.invoke<UpdaterIpcResult>(UPDATE_CHANNELS.installNow)
       setStatus(result.status)
-      if (!result.ok) setActionError(result.message ?? result.status.error ?? 'Failed to start installation.')
+      if (!result.ok) setActionError(result.message ?? result.status.error ?? tt(language, 'about.update.installFailed'))
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error))
     } finally {
       setBusy(false)
     }
-  }, [])
+  }, [language])
 
   return (
     <div style={{ display: 'grid', gap: 16, minHeight: 0 }}>
@@ -184,13 +186,14 @@ export default function AboutView(): ReactElement {
           }}
         />
         <div style={{ position: 'relative', display: 'grid', gap: 8 }}>
-          <span className="field-label" style={{ margin: 0 }}>About / Credits</span>
+          <span className="field-label" style={{ margin: 0 }}>{tt(language, 'about.eyebrow')}</span>
           <h1 style={{ margin: 0, fontFamily: "'Barlow Condensed', sans-serif", fontSize: 42, letterSpacing: '0.04em' }}>
             {appName}
           </h1>
           <p style={{ margin: 0, color: 'var(--text-secondary)', maxWidth: 760, lineHeight: 1.6 }}>
-            Version {appVersion}. This app uses open-source components, redistributable fonts, and firmware tools.
-            Full license texts are in <code>THIRD-PARTY-LICENSES.md</code> and <code>src/renderer/src/assets/fonts/LICENSES/</code>.
+            {tt(language, 'about.summary', { version: appVersion })}
+            {' '}
+            {tt(language, 'about.licensePrefix')} <code>THIRD-PARTY-LICENSES.md</code> {tt(language, 'about.licenseMiddle')} <code>src/renderer/src/assets/fonts/LICENSES/</code>{tt(language, 'about.licenseSuffix')}
           </p>
         </div>
       </section>
@@ -198,12 +201,12 @@ export default function AboutView(): ReactElement {
       <section className="panel-card" style={{ display: 'grid', gap: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
           <div style={{ display: 'grid', gap: 4 }}>
-            <span className="field-label" style={{ margin: 0 }}>Updates</span>
+            <span className="field-label" style={{ margin: 0 }}>{tt(language, 'about.updates.eyebrow')}</span>
             <h2 style={{ margin: 0, fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              Updates
+              {tt(language, 'about.updates.title')}
             </h2>
           </div>
-          <span className="field-label" style={{ margin: 0 }}>Current version {status.currentVersion}</span>
+          <span className="field-label" style={{ margin: 0 }}>{tt(language, 'about.currentVersion', { version: status.currentVersion })}</span>
         </div>
         <p style={{ margin: 0, color: status.state === 'error' ? 'var(--danger)' : 'var(--text-secondary)', lineHeight: 1.55 }}>
           {statusText}
@@ -211,7 +214,7 @@ export default function AboutView(): ReactElement {
         {(status.state === 'downloading' || status.state === 'downloaded') && (
           <div style={{ display: 'grid', gap: 6 }}>
             <div
-              aria-label="Update download progress"
+              aria-label={tt(language, 'about.update.progressAria')}
               aria-valuemax={100}
               aria-valuemin={0}
               aria-valuenow={progress}
@@ -226,26 +229,24 @@ export default function AboutView(): ReactElement {
         {actionError && <p style={{ margin: 0, color: 'var(--danger)', lineHeight: 1.45 }}>{actionError}</p>}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button className="primary-button" type="button" onClick={() => void checkForUpdates()} disabled={busy || status.state === 'checking' || status.state === 'downloading'}>
-            Check for updates
+            {tt(language, 'about.update.checkButton')}
           </button>
           {status.downloaded && (
             <button className="primary-button" type="button" onClick={() => void installNow()} disabled={busy}>
-              Install and restart
+              {tt(language, 'about.update.installButton')}
             </button>
           )}
         </div>
       </section>
 
-      <CreditSection title="Production libraries" items={LIBRARIES} />
-      <CreditSection title="Bundled fonts" items={FONTS} />
-      <CreditSection title="Bundled tools" items={TOOLS} />
+      <CreditSection title={tt(language, 'about.libraries.title')} items={LIBRARIES} language={language} />
+      <CreditSection title={tt(language, 'about.fonts.title')} items={FONTS} language={language} />
+      <CreditSection title={tt(language, 'about.tools.title')} items={TOOLS} language={language} />
 
       <section className="panel-card" style={{ display: 'grid', gap: 8 }}>
-        <span className="field-label" style={{ margin: 0 }}>Compliance</span>
+        <span className="field-label" style={{ margin: 0 }}>{tt(language, 'about.compliance.title')}</span>
         <p style={{ margin: 0, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-          DSEG7Classic-Regular.ttf and DSEG14Classic-Regular.ttf were obtained from the official keshikan/DSEG release
-          and distributed under SIL OFL 1.1. avrdude is redistributed under GPL v2 with source-code links/offers
-          documented in the third-party license file.
+          {tt(language, 'about.compliance.body')}
         </p>
       </section>
     </div>
