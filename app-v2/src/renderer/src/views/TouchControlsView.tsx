@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactElement } from 'react'
 import type { DashboardPlaylist } from '../../../shared/dashboards'
 import {
   addButtonPanelToPlaylist,
