@@ -210,7 +210,7 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
     await refreshPanels()
     setDirty(false)
     showToast(tt(language, 'touchControls.savedToast'), 'success')
-  }, [panelDraft, refreshPanels, showToast])
+  }, [language, panelDraft, refreshPanels, showToast])
 
   const deletePanel = useCallback(async () => {
     if (!selectedId) return
@@ -221,7 +221,7 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
     setDirty(false)
     await refreshPanels()
     showToast(tt(language, 'touchControls.deletedToast'), 'info')
-  }, [refreshPanels, selectedId, showToast])
+  }, [language, refreshPanels, selectedId, showToast])
 
   const openFullscreen = useCallback(async () => {
     if (!panelDraft) return
@@ -230,7 +230,7 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
     const opened = await window.ipc.invoke('app:touchpanel:open', { panelId: panelDraft.id, displayId: panelDisplayId ?? undefined, fullscreen })
     if (!opened) throw new Error(tt(language, 'touchControls.openFailed'))
     showToast(tt(language, 'touchControls.openedToast'), 'success')
-  }, [fullscreen, panelDisplayId, panelDraft, showToast])
+  }, [fullscreen, language, panelDisplayId, panelDraft, showToast])
 
   const addToPlaylist = useCallback(async () => {
     if (!panelDraft) return
