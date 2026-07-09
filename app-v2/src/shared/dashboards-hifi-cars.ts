@@ -39,5 +39,27 @@ export const HIFI_CARS_PRESETS: HifiCompPreset[] = [
         bg(),
         hifiEl('gtdDash', 0, 0, 1024, 600)
       ])
+  ),
+  comp(
+    'hifi_car_corvettegt3r',
+    'Corvette Z06 GT3.R Cluster',
+    'Faithful Chevrolet Corvette Z06 GT3.R Bosch DDU cluster: top shift LEDs + horizontal RPM bar, dominant gear, and a data band with speed/fuel, tire pressures and lap/delta.',
+    ['chevrolet', 'corvette', 'corvette-z06-gt3r', 'gt3', 'car', 'cluster', 'real-dash', 'bosch-ddu', 'ir'],
+    () =>
+      dashboard('Corvette Z06 GT3.R Cluster', 'Corvette Z06 GT3.R real-dash cluster.', [
+        bg(),
+        hifiEl('cvDash', 0, 0, 1024, 600)
+      ])
+  ),
+  comp(
+    'hifi_car_lambohuracan',
+    'Lamborghini Huracan GT3 Cluster',
+    'Faithful Lamborghini Huracan GT3 angular cluster: hexagonal shift segments, bold gear in a lime hex frame, speed/fuel, brake bias/TC and lap/delta.',
+    ['lamborghini', 'huracan', 'huracan-gt3', 'gt3', 'car', 'cluster', 'real-dash', 'ir'],
+    () =>
+      dashboard('Lamborghini Huracan GT3 Cluster', 'Lamborghini Huracan GT3 real-dash cluster.', [
+        bg(),
+        hifiEl('lhDash', 0, 0, 1024, 600)
+      ])
   )
 ]

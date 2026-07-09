@@ -14,11 +14,11 @@ function renderAll(snapshot: TelemetrySnapshot | null): string[] {
 describe('CARS_REAL_WIDGETS', () => {
   it('exports unique car modules (Ferrari 296, Porsche Cup, Mustang GTD, ...)', () => {
     const ids = CARS_REAL_WIDGETS.map((widget) => widget.id)
-    expect(ids.length).toBeGreaterThanOrEqual(33)
+    expect(ids.length).toBeGreaterThanOrEqual(55)
     expect(new Set(ids).size).toBe(ids.length)
     expect(CARS_REAL_WIDGETS.every((widget) => widget.category === 'cars')).toBe(true)
     expect(CARS_REAL_WIDGETS.every((widget) => widget.tags.includes('car') && widget.tags.includes('ir'))).toBe(true)
-    for (const dashId of ['f296Dash', 'pcupDash', 'gtdDash']) {
+    for (const dashId of ['f296Dash', 'pcupDash', 'gtdDash', 'cvDash', 'lhDash']) {
       expect(ids).toContain(dashId)
     }
   })

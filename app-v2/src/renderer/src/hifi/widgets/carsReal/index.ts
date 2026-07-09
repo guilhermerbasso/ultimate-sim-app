@@ -14,6 +14,8 @@ import {
 } from './ferrari296'
 import { PORSCHECUP_WIDGETS } from './porschecup'
 import { MUSTANGGTD_WIDGETS } from './mustanggtd'
+import { CORVETTEGT3R_WIDGETS } from './corvettegt3r'
+import { LAMBOHURACAN_WIDGETS } from './lambohuracan'
 
 export const CARS_REAL_WIDGETS: HifiWidgetModule[] = [
   f296Dash,
@@ -28,5 +30,7 @@ export const CARS_REAL_WIDGETS: HifiWidgetModule[] = [
   f296LastLap,
   f296Delta,
   ...PORSCHECUP_WIDGETS,
-  ...MUSTANGGTD_WIDGETS
+  ...MUSTANGGTD_WIDGETS,
+  ...CORVETTEGT3R_WIDGETS,
+  ...LAMBOHURACAN_WIDGETS
 ]
