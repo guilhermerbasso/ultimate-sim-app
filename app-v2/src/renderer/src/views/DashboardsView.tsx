@@ -812,8 +812,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedElementId])
+  }, [selectedElementId, removeElement])
 
   function duplicateElement(elementId: string): void {
     setSelectedDash((current) => {
