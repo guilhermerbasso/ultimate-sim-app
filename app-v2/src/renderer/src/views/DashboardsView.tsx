@@ -1373,16 +1373,6 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
         </section>
       )}
 
-      <section style={panel()}>
-        <h4 style={{ margin: '0 0 4px' }}>{tt(language, 'dashboards.presetGallery')}</h4>
-        <p style={{ margin: '0 0 12px', color: TEXT_DIM, fontSize: 13 }}>
-          {tt(language, 'dashboards.presetGalleryHelpPrefix')} <strong>{tt(language, 'dashboards.duplicateAndEdit')}</strong> {tt(language, 'dashboards.presetGalleryHelpMiddle')} <strong>Dashboard Adaptive</strong> {tt(language, 'dashboards.presetGalleryHelpSuffix')} <code>adaptive</code>{tt(language, 'dashboards.presetGalleryHelpEnd')}
-        </p>
-        <PresetGallery presets={BUILTIN_PRESETS} busy={busy} onPick={(id) => (id === ADAPTIVE_DASHBOARD_ID ? newBlankAdaptive() : run(() => newFromPreset(id)))} />
-      </section>
-
-
-
       <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 16 }}>
         <section style={panel({ padding: 0 })}>
           <div style={{ padding: 12, borderBottom: `1px solid ${PANEL_BORDER}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -1769,6 +1759,14 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
           )}
         </section>
       </div>
+
+      <section style={panel()}>
+        <h4 style={{ margin: '0 0 4px' }}>{tt(language, 'dashboards.presetGallery')}</h4>
+        <p style={{ margin: '0 0 12px', color: TEXT_DIM, fontSize: 13 }}>
+          {tt(language, 'dashboards.presetGalleryHelpPrefix')} <strong>{tt(language, 'dashboards.duplicateAndEdit')}</strong> {tt(language, 'dashboards.presetGalleryHelpMiddle')} <strong>Dashboard Adaptive</strong> {tt(language, 'dashboards.presetGalleryHelpSuffix')} <code>adaptive</code>{tt(language, 'dashboards.presetGalleryHelpEnd')}
+        </p>
+        <PresetGallery presets={BUILTIN_PRESETS} busy={busy} onPick={(id) => (id === ADAPTIVE_DASHBOARD_ID ? newBlankAdaptive() : run(() => newFromPreset(id)))} />
+      </section>
     </div>
   )
 }
