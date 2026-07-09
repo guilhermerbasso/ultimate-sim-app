@@ -17,5 +17,27 @@ export const HIFI_CARS_PRESETS: HifiCompPreset[] = [
         bg(),
         hifiEl('f296Dash', 0, 0, 1024, 600)
       ])
+  ),
+  comp(
+    'hifi_car_porschecup',
+    'Porsche 911 GT3 Cup Cluster',
+    'Faithful Porsche 911 GT3 Cup (992) Cosworth ICD cluster: straight segmented rev bar, minimalist center gear, speed, fuel/oil and lap/delta.',
+    ['porsche', 'porsche-911-gt3-cup', 'gt3-cup', 'car', 'cluster', 'real-dash', 'cosworth', 'ir'],
+    () =>
+      dashboard('Porsche 911 GT3 Cup Cluster', 'Porsche 911 GT3 Cup real-dash cluster.', [
+        bg(),
+        hifiEl('pcupDash', 0, 0, 1024, 600)
+      ])
+  ),
+  comp(
+    'hifi_car_mustanggtd',
+    'Mustang GTD Cluster',
+    'Faithful Ford Mustang GTD Track cluster: sweeping arc tach, center gear + speed, oil/water, tire pressures and TRACK mode.',
+    ['ford', 'mustang', 'mustang-gtd', 'car', 'cluster', 'real-dash', 'ir'],
+    () =>
+      dashboard('Mustang GTD Cluster', 'Ford Mustang GTD real-dash cluster.', [
+        bg(),
+        hifiEl('gtdDash', 0, 0, 1024, 600)
+      ])
   )
 ]

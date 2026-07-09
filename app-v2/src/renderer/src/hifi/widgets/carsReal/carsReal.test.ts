@@ -12,12 +12,15 @@ function renderAll(snapshot: TelemetrySnapshot | null): string[] {
 }
 
 describe('CARS_REAL_WIDGETS', () => {
-  it('exports 11 unique Ferrari 296 GT3 car modules', () => {
-    expect(CARS_REAL_WIDGETS).toHaveLength(11)
+  it('exports unique car modules (Ferrari 296, Porsche Cup, Mustang GTD, ...)', () => {
     const ids = CARS_REAL_WIDGETS.map((widget) => widget.id)
+    expect(ids.length).toBeGreaterThanOrEqual(33)
     expect(new Set(ids).size).toBe(ids.length)
     expect(CARS_REAL_WIDGETS.every((widget) => widget.category === 'cars')).toBe(true)
-    expect(CARS_REAL_WIDGETS.every((widget) => ['ferrari', 'ferrari-296-gt3', 'gt3', 'car', 'ir'].every((tag) => widget.tags.includes(tag)))).toBe(true)
+    expect(CARS_REAL_WIDGETS.every((widget) => widget.tags.includes('car') && widget.tags.includes('ir'))).toBe(true)
+    for (const dashId of ['f296Dash', 'pcupDash', 'gtdDash']) {
+      expect(ids).toContain(dashId)
+    }
   })
 
   it('renders null and populated snapshots without unsafe tokens', () => {
