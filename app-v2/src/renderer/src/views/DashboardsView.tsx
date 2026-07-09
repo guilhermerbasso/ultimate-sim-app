@@ -43,6 +43,7 @@ import { WidgetGallery, variantToElement } from './dashboard/widget-catalog'
 import type { WidgetVariant } from './dashboard/widget-catalog'
 import { PresetGallery } from './dashboard/preset-gallery'
 import StreamingPanel from '../components/StreamingPanel'
+import { tt } from '../i18n'
 import '../dashboard/dashboard-runtime.css'
 
 const ACCENT = 'var(--accent-primary)'
@@ -492,7 +493,7 @@ export function applyInstrumentPart(
   return next as InstrumentStyleSpec
 }
 
-export default function DashboardsView({ showToast }: AppViewProps): ReactElement {
+export default function DashboardsView({ showToast, language }: AppViewProps): ReactElement {
   const [summaries, setSummaries] = useState<DashboardSummary[]>([])
   const [openStates, setOpenStates] = useState<DashboardOpenState[]>([])
   const [displays, setDisplays] = useState<DashboardDisplayInfo[]>([])
@@ -1173,21 +1174,21 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 0 }}>
       <section style={panelHeader()}>
         <div>
-          <h3 style={{ margin: 0 }}>Dashboards</h3>
+          <h3 style={{ margin: 0 }}>{tt(language, 'dashboards.title')}</h3>
           <p style={{ margin: '6px 0 0', color: TEXT_DIM }}>
-            Own windows on display 1/2 with live telemetry. Imports/exports <code>.simhubdash</code> (SimHub Dash Studio) and includes a basic builder.
+            {tt(language, 'dashboards.subtitlePrefix')} <code>.simhubdash</code> {tt(language, 'dashboards.subtitleSuffix')}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <SectionExportImport sectionId="dashboards" label="Dashboards" onImported={() => void refreshAll()} />
+          <SectionExportImport sectionId="dashboards" label={tt(language, 'dashboards.exportImportLabel')} onImported={() => void refreshAll()} />
           <button style={btn('primary')} disabled={busy} onClick={() => run(importSimhub)}>
-            Import .simhubdash…
+            {tt(language, 'dashboards.importSimhub')}
           </button>
           <button style={btn()} disabled={busy || !selectedDash} onClick={() => run(exportSimhub)}>
-            Export .simhubdash…
+            {tt(language, 'dashboards.exportSimhub')}
           </button>
           <button style={btn()} disabled={busy} onClick={() => newEmpty(1280, 720, 'New dashboard')}>
-            New (empty)
+            {tt(language, 'dashboards.newEmpty')}
           </button>
           {NEW_RESOLUTION_PRESETS.map((p) => (
             <button
@@ -1195,7 +1196,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
               style={btn()}
               disabled={busy}
               onClick={() => newEmpty(p.width, p.height, `New ${p.label}`)}
-              title={`Creates an empty dashboard at ${p.width}×${p.height}`}
+              title={tt(language, 'dashboards.newPresetTitle', { width: p.width, height: p.height })}
             >
               + {p.label}
             </button>
@@ -1205,84 +1206,22 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
 
       <StreamingPanel />
 
-      {error && <section style={panel({ borderColor: '#ff5468' })}>{error}</section>}
-
-      {importPicker && (
-        <section style={panel({ borderColor: ACCENT })}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <div>
-              <h4 style={{ margin: '0 0 4px' }}>Choose the .simhubdash screen</h4>
-              <p style={{ margin: 0, color: TEXT_DIM, fontSize: 13 }}>
-                The file has multiple screens. The suggested screen is already selected; you can also import all of them as separate dashboards.
-              </p>
-            </div>
-            <button style={btn()} disabled={busy} onClick={() => setImportPicker(null)}>Cancel</button>
-          </div>
-          <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-            {importPicker.screens.map((screen) => (
-              <label key={screen.index} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: 10, border: `1px solid ${PANEL_BORDER}`, borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  checked={importPicker.selectedScreenIndex === screen.index}
-                  onChange={() => setImportPicker((current) => current ? { ...current, selectedScreenIndex: screen.index } : current)}
-                />
-                <div style={{ flex: 1 }}>
-                  <strong style={{ color: screen.selected ? ACCENT : TEXT_FG }}>{screen.name}</strong>
-                  <div style={{ color: TEXT_DIM, fontSize: 12 }}>
-                    {screen.elementCount} elements · score {screen.score}
-                    {screen.inGame ? ' · race' : ''}{screen.pit ? ' · pit' : ''}{screen.idle ? ' · idle' : ''}
-                  </div>
-                </div>
-              </label>
-            ))}
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-            <button style={btn('primary')} disabled={busy} onClick={() => run(() => completeSimhubImport(false))}>
-              Import selected screen
-            </button>
-            <button style={btn()} disabled={busy} onClick={() => run(() => completeSimhubImport(true))}>
-              Import all screens
-            </button>
-          </div>
-        </section>
-      )}
-
-      {importDiagnostics.length > 0 && (
-        <section style={panel({ borderColor: '#ffb84d' })}>
-          <h4 style={{ margin: '0 0 8px' }}>Import diagnostics</h4>
-          <ul style={{ margin: 0, paddingLeft: 18, color: TEXT_DIM, fontSize: 13 }}>
-            {importDiagnostics.map((note, index) => (
-              <li key={`${index}-${note.slice(0, 24)}`}>{note}</li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <section style={panel()}>
-        <h4 style={{ margin: '0 0 4px' }}>Preset gallery</h4>
-        <p style={{ margin: '0 0 12px', color: TEXT_DIM, fontSize: 13 }}>
-          Ready layouts with a real model preview. Filter by multiple tags and click <strong>Duplicate and edit</strong> to create an editable copy (original presets are never changed). Look for <strong>Dashboard Adaptive</strong> (the “Adaptive” badge, tag <code>adaptive</code>): it reorganizes itself live based on the session phase and lap moment.
-        </p>
-        <PresetGallery presets={BUILTIN_PRESETS} busy={busy} onPick={(id) => (id === ADAPTIVE_DASHBOARD_ID ? newBlankAdaptive() : run(() => newFromPreset(id)))} />
-      </section>
-
-
       <section style={panel()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
-            <h4 style={{ margin: '0 0 4px' }}>Race playlist</h4>
+            <h4 style={{ margin: '0 0 4px' }}>{tt(language, 'dashboards.racePlaylist')}</h4>
             <p style={{ margin: 0, color: TEXT_DIM, fontSize: 13 }}>
-              Build the dashboard order and capture a button from the button box below to switch during the race. The shortcut is saved with <strong>Controls &amp; Keyboard</strong> e aparece la automaticamente.
+              {tt(language, 'dashboards.racePlaylistHelpPrefix')} <strong>{tt(language, 'dashboards.controlsKeyboard')}</strong> {tt(language, 'dashboards.racePlaylistHelpSuffix')}
             </p>
           </div>
           <button style={btn('primary')} disabled={busy || !selectedId} onClick={addSelectedToPlaylist}>
-            Add selecionado
+            {tt(language, 'dashboards.addSelected')}
           </button>
         </div>
         <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${PANEL_BORDER}` }}>
-          <div style={{ color: TEXT_FG, fontWeight: 700, fontSize: 14, marginBottom: 2 }}>Button to cycle dashboards</div>
+          <div style={{ color: TEXT_FG, fontWeight: 700, fontSize: 14, marginBottom: 2 }}>{tt(language, 'dashboards.cycleButtonTitle')}</div>
           <p style={{ margin: '0 0 10px', color: TEXT_DIM, fontSize: 13 }}>
-            Arm capture and press the button-box button. The binding is saved in the same place as <strong>Controls &amp; Keyboard</strong> and stays synced in both menus.
+            {tt(language, 'dashboards.cycleButtonHelpPrefix')} <strong>{tt(language, 'dashboards.controlsKeyboard')}</strong> {tt(language, 'dashboards.cycleButtonHelpSuffix')}
           </p>
           <div style={{ display: 'grid', gap: 8 }}>
             {(['next', 'prev'] as CycleDirection[]).map((direction) => {
@@ -1305,20 +1244,20 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                 >
                   <div style={{ minWidth: 150 }}>
                     <div style={{ color: TEXT_FG, fontWeight: 700, fontSize: 13 }}>{CYCLE_FIELD_LABEL[direction]}</div>
-                    <div style={{ color: TEXT_DIM, fontSize: 12 }}>{direction === 'next' ? 'Next playlist dashboard' : 'Previous playlist dashboard'}</div>
+                    <div style={{ color: TEXT_DIM, fontSize: 12 }}>{direction === 'next' ? tt(language, 'dashboards.nextPlaylistDashboard') : tt(language, 'dashboards.previousPlaylistDashboard')}</div>
                   </div>
                   <div style={{ flex: 1, minWidth: 130, color: arming ? ACCENT : control ? TEXT_FG : TEXT_DIM, fontWeight: 700, fontSize: 14 }}>
-                    {arming ? 'Pressione um button…' : control ? `Button ${control.buttonIndex + 1}` : 'None button'}
+                    {arming ? tt(language, 'dashboards.pressButton') : control ? tt(language, 'dashboards.buttonNumber', { index: control.buttonIndex + 1 }) : tt(language, 'dashboards.noButton')}
                   </div>
                   {arming ? (
-                    <button style={btn('danger')} onClick={() => setCaptureCycle(null)}>Cancel</button>
+                    <button style={btn('danger')} onClick={() => setCaptureCycle(null)}>{tt(language, 'dashboards.cancel')}</button>
                   ) : (
                     <button style={btn('primary')} disabled={busy || otherArming} onClick={() => setCaptureCycle(direction)}>
-                      {control ? 'Recapturar' : 'Capturar button'}
+                      {control ? tt(language, 'dashboards.recapture') : tt(language, 'dashboards.captureButton')}
                     </button>
                   )}
                   {control && !arming && (
-                    <button style={btn()} disabled={busy} onClick={() => run(() => clearCycleButton(direction))}>Clear</button>
+                    <button style={btn()} disabled={busy} onClick={() => run(() => clearCycleButton(direction))}>{tt(language, 'dashboards.clear')}</button>
                   )}
                 </div>
               )
@@ -1326,7 +1265,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           </div>
         </div>
         <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {playlist.items.length === 0 && <div style={{ color: TEXT_DIM, fontSize: 13 }}>Empty playlist. Select a dashboard and add it to the sequence.</div>}
+          {playlist.items.length === 0 && <div style={{ color: TEXT_DIM, fontSize: 13 }}>{tt(language, 'dashboards.emptyPlaylist')}</div>}
           {playlist.items.map((item, index) => {
             const label = resolvePlaylistRowLabel(item, summaries, touchSummaries)
             const open = openStates.find((state) => state.id === item.dashboardId)
@@ -1337,14 +1276,14 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                 <div>
                   <div style={{ color: TEXT_FG, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
                     {isTouch && (
-                      <span aria-hidden title="Touch panel" style={{ fontSize: 11, fontWeight: 800, color: '#0a0c10', background: ACCENT, borderRadius: 4, padding: '1px 5px' }}>
+                      <span aria-hidden title={tt(language, 'dashboards.touchPanelTitle')} style={{ fontSize: 11, fontWeight: 800, color: '#0a0c10', background: ACCENT, borderRadius: 4, padding: '1px 5px' }}>
                         TOUCH
                       </span>
                     )}
                     {label.name}
                   </div>
                   <div style={{ color: label.found ? TEXT_DIM : 'var(--accent-danger)', fontSize: 12 }}>
-                    {label.subtitle}{open ? ` · open on display ${open.displayId}` : ''}
+                    {label.subtitle}{open ? ` · ${tt(language, 'dashboards.openOnDisplay', { displayId: open.displayId })}` : ''}
                   </div>
                 </div>
                 <select
@@ -1352,10 +1291,10 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                   onChange={(event) => patchPlaylistItem(index, { displayId: event.target.value ? Number(event.target.value) : undefined })}
                   style={input()}
                 >
-                  <option value="">Monitor primary</option>
+                  <option value="">{tt(language, 'dashboards.monitorPrimary')}</option>
                   {displays.map((display) => (
                     <option key={display.id} value={display.id}>
-                      {display.label} · {display.bounds.width}×{display.bounds.height}{display.isPrimary ? ' · primary' : ''}
+                      {display.label} · {display.bounds.width}×{display.bounds.height}{display.isPrimary ? ` · ${tt(language, 'dashboards.primary')}` : ''}
                     </option>
                   ))}
                 </select>
@@ -1365,21 +1304,84 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                     checked={item.fullscreen ?? true}
                     onChange={(event) => patchPlaylistItem(index, { fullscreen: event.target.checked })}
                   />
-                  Fullscreen
+                  {tt(language, 'dashboards.fullscreen')}
                 </label>
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                   <button style={btn()} disabled={busy || index === 0} onClick={() => movePlaylistItem(index, -1)}>↑</button>
                   <button style={btn()} disabled={busy || index === playlist.items.length - 1} onClick={() => movePlaylistItem(index, 1)}>↓</button>
-                  <button style={btn('danger')} disabled={busy} onClick={() => removePlaylistItem(index)}>Remove</button>
+                  <button style={btn('danger')} disabled={busy} onClick={() => removePlaylistItem(index)}>{tt(language, 'dashboards.remove')}</button>
                 </div>
               </div>
             )
           })}
         </div>
         <p style={{ margin: '10px 0 0', color: TEXT_DIM, fontSize: 12 }}>
-          Current state: {openStates.length === 0 ? 'no dashboard open' : openStates.map((state) => `${summaries.find((dash) => dash.id === state.id)?.name ?? touchSummaries.find((p) => p.id === state.id)?.name ?? state.id} on display ${state.displayId}`).join(' · ')}.
+          {tt(language, 'dashboards.currentState')}: {openStates.length === 0 ? tt(language, 'dashboards.noDashboardOpen') : openStates.map((state) => `${summaries.find((dash) => dash.id === state.id)?.name ?? touchSummaries.find((p) => p.id === state.id)?.name ?? state.id} ${tt(language, 'dashboards.onDisplay')} ${state.displayId}`).join(' · ')}.
         </p>
       </section>
+
+      {error && <section style={panel({ borderColor: '#ff5468' })}>{error}</section>}
+
+      {importPicker && (
+        <section style={panel({ borderColor: ACCENT })}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div>
+              <h4 style={{ margin: '0 0 4px' }}>{tt(language, 'dashboards.chooseScreen')}</h4>
+              <p style={{ margin: 0, color: TEXT_DIM, fontSize: 13 }}>
+                {tt(language, 'dashboards.chooseScreenHelp')}
+              </p>
+            </div>
+            <button style={btn()} disabled={busy} onClick={() => setImportPicker(null)}>{tt(language, 'dashboards.cancel')}</button>
+          </div>
+          <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+            {importPicker.screens.map((screen) => (
+              <label key={screen.index} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: 10, border: `1px solid ${PANEL_BORDER}`, borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  checked={importPicker.selectedScreenIndex === screen.index}
+                  onChange={() => setImportPicker((current) => current ? { ...current, selectedScreenIndex: screen.index } : current)}
+                />
+                <div style={{ flex: 1 }}>
+                  <strong style={{ color: screen.selected ? ACCENT : TEXT_FG }}>{screen.name}</strong>
+                  <div style={{ color: TEXT_DIM, fontSize: 12 }}>
+                    {screen.elementCount} {tt(language, 'dashboards.elementsScore')} {screen.score}
+                    {screen.inGame ? ` · ${tt(language, 'dashboards.race')}` : ''}{screen.pit ? ` · ${tt(language, 'dashboards.pit')}` : ''}{screen.idle ? ` · ${tt(language, 'dashboards.idle')}` : ''}
+                  </div>
+                </div>
+              </label>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            <button style={btn('primary')} disabled={busy} onClick={() => run(() => completeSimhubImport(false))}>
+              {tt(language, 'dashboards.importSelectedScreen')}
+            </button>
+            <button style={btn()} disabled={busy} onClick={() => run(() => completeSimhubImport(true))}>
+              {tt(language, 'dashboards.importAllScreens')}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {importDiagnostics.length > 0 && (
+        <section style={panel({ borderColor: '#ffb84d' })}>
+          <h4 style={{ margin: '0 0 8px' }}>{tt(language, 'dashboards.importDiagnostics')}</h4>
+          <ul style={{ margin: 0, paddingLeft: 18, color: TEXT_DIM, fontSize: 13 }}>
+            {importDiagnostics.map((note, index) => (
+              <li key={`${index}-${note.slice(0, 24)}`}>{note}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <section style={panel()}>
+        <h4 style={{ margin: '0 0 4px' }}>{tt(language, 'dashboards.presetGallery')}</h4>
+        <p style={{ margin: '0 0 12px', color: TEXT_DIM, fontSize: 13 }}>
+          {tt(language, 'dashboards.presetGalleryHelpPrefix')} <strong>{tt(language, 'dashboards.duplicateAndEdit')}</strong> {tt(language, 'dashboards.presetGalleryHelpMiddle')} <strong>Dashboard Adaptive</strong> {tt(language, 'dashboards.presetGalleryHelpSuffix')} <code>adaptive</code>{tt(language, 'dashboards.presetGalleryHelpEnd')}
+        </p>
+        <PresetGallery presets={BUILTIN_PRESETS} busy={busy} onPick={(id) => (id === ADAPTIVE_DASHBOARD_ID ? newBlankAdaptive() : run(() => newFromPreset(id)))} />
+      </section>
+
+
 
       <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 16 }}>
         <section style={panel({ padding: 0 })}>
@@ -1562,7 +1564,7 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                 </select>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: TEXT_DIM, fontSize: 13 }}>
                   <input type="checkbox" checked={fullscreen} onChange={(e) => setFullscreen(e.target.checked)} />
-                  Fullscreen
+                  {tt(language, 'dashboards.fullscreen')}
                 </label>
                 <button style={btn('primary')} disabled={busy || !selectedDash} onClick={() => run(openSelected)}>
                   {isOpen ? 'Reopen here' : 'Open on display'}
