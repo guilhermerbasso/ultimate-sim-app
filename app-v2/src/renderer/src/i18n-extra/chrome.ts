@@ -5,7 +5,7 @@ import type { ResolvedLanguage } from '../i18n'
 
 const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
   en: {
-    'chrome.reportBug': 'Report bug',
+    'chrome.reportBug': 'REPORT A BUG, IMPROVEMENTS OR FEATURES REQUEST',
     'chrome.reportBugTitle': 'Collect the last 2h of logs and open a GitHub issue',
     'chrome.reportBugAria': 'Report a bug',
     'chrome.reportBugDone': 'Bug report opened. Please attach the log bundle from the logs folder that just opened.',
@@ -20,7 +20,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'settings.languageRestartConfirm': 'Restart the app now to apply the new language everywhere?'
   },
   'pt-BR': {
-    'chrome.reportBug': 'Reportar bug',
+    'chrome.reportBug': 'REPORTAR BUG, MELHORIAS OU SOLICITAR RECURSOS',
     'chrome.reportBugTitle': 'Coleta as últimas 2h de logs e abre uma issue no GitHub',
     'chrome.reportBugAria': 'Reportar um bug',
     'chrome.reportBugDone': 'Relatório de bug aberto. Anexe o pacote de logs da pasta de logs que acabou de abrir.',
@@ -35,7 +35,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'settings.languageRestartConfirm': 'Reiniciar o app agora para aplicar o novo idioma em todo lugar?'
   },
   es: {
-    'chrome.reportBug': 'Reportar error',
+    'chrome.reportBug': 'REPORTAR ERROR, MEJORAS O SOLICITAR FUNCIONES',
     'chrome.reportBugTitle': 'Recopila las últimas 2 h de registros y abre una incidencia en GitHub',
     'chrome.reportBugAria': 'Reportar un error',
     'chrome.reportBugDone': 'Informe de error abierto. Adjunta el paquete de registros de la carpeta que se acaba de abrir.',
@@ -50,7 +50,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'settings.languageRestartConfirm': '¿Reiniciar la app ahora para aplicar el nuevo idioma en todas partes?'
   },
   fr: {
-    'chrome.reportBug': 'Signaler un bug',
+    'chrome.reportBug': 'SIGNALER UN BUG, DES AMÉLIORATIONS OU DEMANDER DES FONCTIONNALITÉS',
     'chrome.reportBugTitle': 'Collecte les 2 dernières heures de journaux et ouvre une issue GitHub',
     'chrome.reportBugAria': 'Signaler un bug',
     'chrome.reportBugDone': 'Rapport de bug ouvert. Joignez le paquet de journaux du dossier qui vient de s’ouvrir.',
@@ -65,7 +65,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'settings.languageRestartConfirm': 'Redémarrer l’app maintenant pour appliquer la nouvelle langue partout ?'
   },
   de: {
-    'chrome.reportBug': 'Fehler melden',
+    'chrome.reportBug': 'FEHLER, VERBESSERUNGEN ODER FUNKTIONSWÜNSCHE MELDEN',
     'chrome.reportBugTitle': 'Sammelt die letzten 2 Std. Protokolle und öffnet ein GitHub-Issue',
     'chrome.reportBugAria': 'Einen Fehler melden',
     'chrome.reportBugDone': 'Fehlerbericht geöffnet. Bitte hänge das Protokollpaket aus dem soeben geöffneten Ordner an.',
@@ -80,7 +80,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'settings.languageRestartConfirm': 'Die App jetzt neu starten, um die neue Sprache überall anzuwenden?'
   },
   zh: {
-    'chrome.reportBug': '报告错误',
+    'chrome.reportBug': '报告错误、改进或功能请求',
     'chrome.reportBugTitle': '收集最近 2 小时的日志并打开 GitHub 问题',
     'chrome.reportBugAria': '报告错误',
     'chrome.reportBugDone': '已打开错误报告。请附上刚打开的日志文件夹中的日志包。',
@@ -95,7 +95,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'settings.languageRestartConfirm': '立即重启应用以在各处应用新语言？'
   },
   ja: {
-    'chrome.reportBug': 'バグを報告',
+    'chrome.reportBug': 'バグ・改善・機能リクエストを報告',
     'chrome.reportBugTitle': '直近2時間のログを収集し、GitHub の Issue を開きます',
     'chrome.reportBugAria': 'バグを報告',
     'chrome.reportBugDone': 'バグ報告を開きました。開いたログフォルダーのログバンドルを添付してください。',

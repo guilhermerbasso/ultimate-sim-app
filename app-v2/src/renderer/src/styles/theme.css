@@ -449,17 +449,21 @@ h3 {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  flex-shrink: 0;
-  min-height: 28px;
-  padding: var(--space-2) var(--space-5);
-  border: 1px solid var(--border-strong);
+  flex: 0 1 auto;
+  max-inline-size: min(100%, 360px);
+  min-height: 36px;
+  padding: var(--space-3) var(--space-6);
+  border: 1px solid var(--accent-primary-bright);
   border-radius: var(--radius-pill);
-  background: var(--surface-raised);
-  color: var(--text-secondary);
+  background: var(--accent-primary);
+  color: #04111f;
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.08em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+  text-align: center;
   text-transform: uppercase;
   text-decoration: none;
   cursor: pointer;
@@ -468,8 +472,9 @@ h3 {
 
 .report-bug-button:hover,
 .report-bug-button:focus-visible {
-  border-color: var(--danger);
-  color: var(--danger);
+  background: var(--accent-primary-bright);
+  border-color: var(--accent-primary-bright);
+  color: #04111f;
   outline: none;
 }
 

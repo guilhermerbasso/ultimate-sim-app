@@ -51,6 +51,48 @@ function input(): CSSProperties {
   return { background: '#0b0e13', color: TEXT_FG, border: `1px solid ${PANEL_BORDER}`, borderRadius: 8, padding: '8px 10px', fontSize: 13 }
 }
 
+function SectionIcon({ children }: { children: ReactElement | ReactElement[] }): ReactElement {
+  return (
+    <span style={{ color: ACCENT, display: 'inline-flex', flexShrink: 0 }} aria-hidden>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        {children}
+      </svg>
+    </span>
+  )
+}
+
+function PitIcon(): ReactElement {
+  return (
+    <SectionIcon>
+      <path d="M5 20V5" />
+      <path d="M5 5h11l-2 4 2 4H5" />
+    </SectionIcon>
+  )
+}
+
+function ButtonBoxIcon(): ReactElement {
+  return (
+    <SectionIcon>
+      <rect x="4" y="5" width="16" height="14" rx="2" />
+      <path d="M8 9h8" />
+      <path d="M8 13h2" />
+      <path d="M14 13h2" />
+    </SectionIcon>
+  )
+}
+
+function PresetIcon(): ReactElement {
+  return (
+    <SectionIcon>
+      <path d="M8 5h8" />
+      <path d="M7 9h10" />
+      <rect x="5" y="13" width="4" height="4" rx="1" />
+      <rect x="10" y="13" width="4" height="4" rx="1" />
+      <rect x="15" y="13" width="4" height="4" rx="1" />
+    </SectionIcon>
+  )
+}
+
 function touchPresetTags(preset: ButtonBoxPanel): string[] {
   const tags = new Set<string>([
     `${preset.columns}×${preset.rows}`,
@@ -299,10 +341,10 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* â”€â”€ Pit panel launcher (moved out of Dashboards) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* Pit panel launcher (moved out of Dashboards) */}
       <section style={panel()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <span style={{ fontSize: 18 }} aria-hidden>🏁</span>
+          <PitIcon />
           <strong style={{ color: TEXT_FG, fontSize: 14, letterSpacing: '0.04em' }}>{tt(language, 'touchControls.pitPanelTitle')}</strong>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
@@ -326,19 +368,20 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
         </p>
       </section>
 
-      {/* â”€â”€ Button-box panels â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* Button-box panels */}
       <section style={panel()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 18 }} aria-hidden>🎛️</span>
+            <ButtonBoxIcon />
             <strong style={{ color: TEXT_FG, fontSize: 14, letterSpacing: '0.04em' }}>{tt(language, 'touchControls.editableBoxes')}</strong>
           </div>
-          <button style={btn('primary')} disabled={busy} onClick={requestCreatePanel}>＋ New button box</button>
+          <button style={btn('primary')} disabled={busy} onClick={requestCreatePanel}>+ New button box</button>
         </div>
 
         <details style={{ marginBottom: 12 }}>
-          <summary style={{ color: TEXT_FG, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            📋 Start from a built-in preset ({TOUCH_PANEL_PRESETS.length})
+          <summary style={{ color: TEXT_FG, fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <PresetIcon />
+            <span>Start from a built-in preset ({TOUCH_PANEL_PRESETS.length})</span>
           </summary>
           <TagFilter
             items={TOUCH_PANEL_PRESETS}
@@ -435,4 +478,3 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
     </div>
   )
 }
-
