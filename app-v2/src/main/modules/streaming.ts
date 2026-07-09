@@ -90,15 +90,16 @@ function passwordHash(value: string | undefined): string | null {
 }
 
 function primaryLanAddress(): string | null {
-  let firstExternal: string | null = null
+  // Only return a real RFC1918 private LAN IPv4 (10/8, 172.16/12, 192.168/16). A public or
+  // VPN/adapter address labelled as "LAN" would produce an unreachable QR for a phone on the
+  // same Wi-Fi; when there is no private LAN IPv4 we return null so the UI can warn instead.
   for (const entries of Object.values(networkInterfaces())) {
     for (const entry of entries ?? []) {
       if (entry.family !== 'IPv4' || entry.internal) continue
       if (isPrivateIpv4(entry.address)) return entry.address
-      firstExternal ??= entry.address
     }
   }
-  return firstExternal
+  return null
 }
 
 function isPrivateIpv4(address: string): boolean {

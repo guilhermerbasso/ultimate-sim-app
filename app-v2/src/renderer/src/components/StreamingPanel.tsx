@@ -82,7 +82,9 @@ export default function StreamingPanel(): ReactElement {
     try {
       const nextStatus = await window.ipc.invoke<StreamingStatus>(STREAMING_CHANNELS.stop)
       setStatus(nextStatus)
-      setAccessMode('lan')
+      // Reset to the safe local-only default after stopping so the next Start doesn't
+      // silently re-expose the server on the LAN (0.0.0.0) without the user opting in.
+      setAccessMode('local')
       setPublicBaseUrl('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to stop dashboard streaming')
