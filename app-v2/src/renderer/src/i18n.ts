@@ -6788,6 +6788,34 @@ Object.assign(UI_TEXT.ja, {
   'fuel.age': 'Age',
 })
 
+Object.assign(UI_TEXT.en, {
+  'tire.pointsPerLap': 'p.p./lap'
+})
+
+Object.assign(UI_TEXT['pt-BR'], {
+  'tire.pointsPerLap': 'p.p./lap'
+})
+
+Object.assign(UI_TEXT.es, {
+  'tire.pointsPerLap': 'p.p./lap'
+})
+
+Object.assign(UI_TEXT.fr, {
+  'tire.pointsPerLap': 'p.p./lap'
+})
+
+Object.assign(UI_TEXT.de, {
+  'tire.pointsPerLap': 'p.p./lap'
+})
+
+Object.assign(UI_TEXT.zh, {
+  'tire.pointsPerLap': 'p.p./lap'
+})
+
+Object.assign(UI_TEXT.ja, {
+  'tire.pointsPerLap': 'p.p./lap'
+})
+
 export function tt(language: ResolvedLanguage | undefined, key: string, vars: Record<string, string | number> = {}): string {
   let value = UI_TEXT[language ?? 'en']?.[key] ?? UI_TEXT.en[key] ?? key
   for (const [name, replacement] of Object.entries(vars)) value = value.replaceAll(`{${name}}`, String(replacement))

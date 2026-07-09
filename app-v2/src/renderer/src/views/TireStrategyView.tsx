@@ -108,11 +108,11 @@ export default function TireStrategyView({ language }: AppViewProps): ReactEleme
         </div>
         <div>
           <div style={label}>{tt(language, 'fuel.targetLaps')}</div>
-          <input style={input} type="number" min="1" placeholder="Auto" value={targetLaps} onChange={(event) => setTargetLaps(event.target.value)} />
+          <input style={input} type="number" min="1" placeholder={tt(language, 'strategy.auto')} value={targetLaps} onChange={(event) => setTargetLaps(event.target.value)} />
         </div>
         <div>
           <div style={label}>{tt(language, 'fuel.raceTime')}</div>
-          <input style={input} type="number" min="1" placeholder="Auto" value={raceMinutes} onChange={(event) => setRaceMinutes(event.target.value)} />
+          <input style={input} type="number" min="1" placeholder={tt(language, 'strategy.auto')} value={raceMinutes} onChange={(event) => setRaceMinutes(event.target.value)} />
         </div>
         <button style={button} type="button" onClick={() => void reset()}>{tt(language, 'tire.reset')}</button>
         <div style={{ fontSize: 13, opacity: 0.78 }}>
@@ -124,7 +124,7 @@ export default function TireStrategyView({ language }: AppViewProps): ReactEleme
         <Metric title={tt(language, 'tire.worst')} main={cornerName(tire?.worstCorner)} accent={(tire?.lapsRemainingOnTyres ?? 99) <= 3 ? 'var(--accent-danger)' : 'var(--accent-primary)'} />
         <Metric title={tt(language, 'tire.lifeToLimit')} main={fmtNumber(tire?.lapsRemainingOnTyres, 1)} unit={tt(language, 'fuel.lapUnit')} accent={canFinish === false ? 'var(--accent-warning)' : 'var(--accent-primary)'} />
         <Metric title={tt(language, 'tire.pitRecommended')} main={tire?.recommendedPitLap ? `L${tire.recommendedPitLap}` : '—'} />
-        <Metric title={tt(language, 'tire.avgWear')} main={fmtPercentPoints(tire?.avgWearPerLap)} unit="p.p./lap" />
+        <Metric title={tt(language, 'tire.avgWear')} main={fmtPercentPoints(tire?.avgWearPerLap)} unit={tt(language, 'tire.pointsPerLap')} />
       </div>
 
       <section style={card}>
@@ -139,7 +139,7 @@ export default function TireStrategyView({ language }: AppViewProps): ReactEleme
                 <div style={{ ...label, display: 'flex', justifyContent: 'space-between' }}><span>{cornerLabel}</span>{data?.estimated && <span>{tt(language, 'tire.estimated')}</span>}</div>
                 <div style={{ ...value, color: accent }}>{fmtNumber(life, 1)} <small style={{ fontSize: 13, opacity: 0.66 }}>% {tt(language, 'tire.life')}</small></div>
                 <div style={{ display: 'grid', gap: 6, marginTop: 10, fontVariantNumeric: 'tabular-nums' }}>
-                  <span>{tt(language, 'tire.wear')} <strong>{fmtPercentPoints(data?.wearPerLap)} p.p./lap</strong></span>
+                  <span>{tt(language, 'tire.wear')} <strong>{fmtPercentPoints(data?.wearPerLap)} {tt(language, 'tire.pointsPerLap')}</strong></span>
                   <span>{tt(language, 'tire.untilLimit')} <strong>{fmtNumber(data?.lapsToThreshold, 1)} {tt(language, 'fuel.lapUnit')}</strong></span>
                 </div>
               </div>
