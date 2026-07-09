@@ -26,6 +26,9 @@ import { IR_CONDITIONS2_WIDGETS } from './irConditions2'
 import { IR_CHASSIS_WIDGETS } from './irChassis'
 import { IR_ELECTRONICS_WIDGETS } from './irElectronics'
 import { IR_PIT2_WIDGETS } from './irPit2'
+import { IR_AIDS_WIDGETS } from './irAids'
+import { IR_INCIDENTS_WIDGETS } from './irIncidents'
+import { IR_SESSIONINFO_WIDGETS } from './irSessionInfo'
 
 export const HIFI_WIDGET_GROUPS = {
   inputs: INPUTS_WIDGETS,
@@ -48,7 +51,10 @@ export const HIFI_WIDGET_GROUPS = {
   irConditions2: IR_CONDITIONS2_WIDGETS,
   irChassis: IR_CHASSIS_WIDGETS,
   irElectronics: IR_ELECTRONICS_WIDGETS,
-  irPit2: IR_PIT2_WIDGETS
+  irPit2: IR_PIT2_WIDGETS,
+  irAids: IR_AIDS_WIDGETS,
+  irIncidents: IR_INCIDENTS_WIDGETS,
+  irSessionInfo: IR_SESSIONINFO_WIDGETS
 } as const
 
 /** Every hi-fi per-telemetry widget/overlay. */
@@ -73,7 +79,10 @@ export const HIFI_WIDGETS: HifiWidgetModule[] = [
   ...IR_CONDITIONS2_WIDGETS,
   ...IR_CHASSIS_WIDGETS,
   ...IR_ELECTRONICS_WIDGETS,
-  ...IR_PIT2_WIDGETS
+  ...IR_PIT2_WIDGETS,
+  ...IR_AIDS_WIDGETS,
+  ...IR_INCIDENTS_WIDGETS,
+  ...IR_SESSIONINFO_WIDGETS
 ]
 
 export const HIFI_WIDGETS_BY_ID: Record<string, HifiWidgetModule> = Object.fromEntries(
