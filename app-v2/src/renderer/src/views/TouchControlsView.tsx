@@ -260,7 +260,7 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
     () =>
       displays.map((d) => (
         <option key={d.id} value={d.id}>
-          {d.label} Â· {d.width}Ã—{d.height}{d.primary ? ' Â· primary' : ''}
+          {d.label} · {d.width}×{d.height}{d.primary ? ' · primary' : ''}
         </option>
       )),
     [displays]
