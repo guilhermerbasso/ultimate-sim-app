@@ -222,6 +222,8 @@ function applyCors(response: ServerResponse): void {
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Stream-Token, X-Stream-Password')
   response.setHeader('X-Content-Type-Options', 'nosniff')
   response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
+  // Don't leak the token/password in the URL to any linked origin.
+  response.setHeader('Referrer-Policy', 'no-referrer')
 }
 
 function rejectMethod(response: ServerResponse): void {
