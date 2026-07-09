@@ -6662,6 +6662,132 @@ Object.assign(UI_TEXT.ja, {
   'strategy.localAi': 'Local AI'
 })
 
+Object.assign(UI_TEXT.en, {
+  'fuel.fuelSaveTarget': 'Fuel-save target',
+  'fuel.stintPlanner': 'Stint planner',
+  'fuel.enduro': 'Enduro',
+  'fuel.predictedLap': 'Predicted lap',
+  'fuel.bestDelta': 'Best delta',
+  'fuel.deltaOptimal': 'Delta optimal',
+  'fuel.deltaSessionBest': 'Delta session-best',
+  'fuel.optimal': 'Optimal',
+  'fuel.teamLan': 'Team Fuel ? LAN',
+  'fuel.enduranceRoom': 'Endurance room',
+  'fuel.driver': 'Driver',
+  'fuel.lapsLeft': 'Laps left',
+  'fuel.stint': 'Stint',
+  'fuel.pit': 'Pit',
+  'fuel.age': 'Age',
+})
+
+Object.assign(UI_TEXT['pt-BR'], {
+  'fuel.fuelSaveTarget': 'Fuel-save target',
+  'fuel.stintPlanner': 'Stint planner',
+  'fuel.enduro': 'Enduro',
+  'fuel.predictedLap': 'Predicted lap',
+  'fuel.bestDelta': 'Best delta',
+  'fuel.deltaOptimal': 'Delta optimal',
+  'fuel.deltaSessionBest': 'Delta session-best',
+  'fuel.optimal': 'Optimal',
+  'fuel.teamLan': 'Team Fuel ? LAN',
+  'fuel.enduranceRoom': 'Endurance room',
+  'fuel.driver': 'Driver',
+  'fuel.lapsLeft': 'Laps left',
+  'fuel.stint': 'Stint',
+  'fuel.pit': 'Pit',
+  'fuel.age': 'Age',
+})
+
+Object.assign(UI_TEXT.es, {
+  'fuel.fuelSaveTarget': 'Fuel-save target',
+  'fuel.stintPlanner': 'Stint planner',
+  'fuel.enduro': 'Enduro',
+  'fuel.predictedLap': 'Predicted lap',
+  'fuel.bestDelta': 'Best delta',
+  'fuel.deltaOptimal': 'Delta optimal',
+  'fuel.deltaSessionBest': 'Delta session-best',
+  'fuel.optimal': 'Optimal',
+  'fuel.teamLan': 'Team Fuel ? LAN',
+  'fuel.enduranceRoom': 'Endurance room',
+  'fuel.driver': 'Driver',
+  'fuel.lapsLeft': 'Laps left',
+  'fuel.stint': 'Stint',
+  'fuel.pit': 'Pit',
+  'fuel.age': 'Age',
+})
+
+Object.assign(UI_TEXT.fr, {
+  'fuel.fuelSaveTarget': 'Fuel-save target',
+  'fuel.stintPlanner': 'Stint planner',
+  'fuel.enduro': 'Enduro',
+  'fuel.predictedLap': 'Predicted lap',
+  'fuel.bestDelta': 'Best delta',
+  'fuel.deltaOptimal': 'Delta optimal',
+  'fuel.deltaSessionBest': 'Delta session-best',
+  'fuel.optimal': 'Optimal',
+  'fuel.teamLan': 'Team Fuel ? LAN',
+  'fuel.enduranceRoom': 'Endurance room',
+  'fuel.driver': 'Driver',
+  'fuel.lapsLeft': 'Laps left',
+  'fuel.stint': 'Stint',
+  'fuel.pit': 'Pit',
+  'fuel.age': 'Age',
+})
+
+Object.assign(UI_TEXT.de, {
+  'fuel.fuelSaveTarget': 'Fuel-save target',
+  'fuel.stintPlanner': 'Stint planner',
+  'fuel.enduro': 'Enduro',
+  'fuel.predictedLap': 'Predicted lap',
+  'fuel.bestDelta': 'Best delta',
+  'fuel.deltaOptimal': 'Delta optimal',
+  'fuel.deltaSessionBest': 'Delta session-best',
+  'fuel.optimal': 'Optimal',
+  'fuel.teamLan': 'Team Fuel ? LAN',
+  'fuel.enduranceRoom': 'Endurance room',
+  'fuel.driver': 'Driver',
+  'fuel.lapsLeft': 'Laps left',
+  'fuel.stint': 'Stint',
+  'fuel.pit': 'Pit',
+  'fuel.age': 'Age',
+})
+
+Object.assign(UI_TEXT.zh, {
+  'fuel.fuelSaveTarget': 'Fuel-save target',
+  'fuel.stintPlanner': 'Stint planner',
+  'fuel.enduro': 'Enduro',
+  'fuel.predictedLap': 'Predicted lap',
+  'fuel.bestDelta': 'Best delta',
+  'fuel.deltaOptimal': 'Delta optimal',
+  'fuel.deltaSessionBest': 'Delta session-best',
+  'fuel.optimal': 'Optimal',
+  'fuel.teamLan': 'Team Fuel ? LAN',
+  'fuel.enduranceRoom': 'Endurance room',
+  'fuel.driver': 'Driver',
+  'fuel.lapsLeft': 'Laps left',
+  'fuel.stint': 'Stint',
+  'fuel.pit': 'Pit',
+  'fuel.age': 'Age',
+})
+
+Object.assign(UI_TEXT.ja, {
+  'fuel.fuelSaveTarget': 'Fuel-save target',
+  'fuel.stintPlanner': 'Stint planner',
+  'fuel.enduro': 'Enduro',
+  'fuel.predictedLap': 'Predicted lap',
+  'fuel.bestDelta': 'Best delta',
+  'fuel.deltaOptimal': 'Delta optimal',
+  'fuel.deltaSessionBest': 'Delta session-best',
+  'fuel.optimal': 'Optimal',
+  'fuel.teamLan': 'Team Fuel ? LAN',
+  'fuel.enduranceRoom': 'Endurance room',
+  'fuel.driver': 'Driver',
+  'fuel.lapsLeft': 'Laps left',
+  'fuel.stint': 'Stint',
+  'fuel.pit': 'Pit',
+  'fuel.age': 'Age',
+})
+
 export function tt(language: ResolvedLanguage | undefined, key: string, vars: Record<string, string | number> = {}): string {
   let value = UI_TEXT[language ?? 'en']?.[key] ?? UI_TEXT.en[key] ?? key
   for (const [name, replacement] of Object.entries(vars)) value = value.replaceAll(`{${name}}`, String(replacement))
