@@ -18,6 +18,7 @@ import { ALERTS_WIDGETS } from './alerts'
 import { THEMED_WIDGETS } from './themed'
 import { CARS_REAL_WIDGETS } from './carsReal'
 import { COMPARE_WIDGETS } from './compare'
+import { IR_VITALS_WIDGETS } from './irVitals'
 
 export const HIFI_WIDGET_GROUPS = {
   inputs: INPUTS_WIDGETS,
@@ -32,7 +33,8 @@ export const HIFI_WIDGET_GROUPS = {
   alerts: ALERTS_WIDGETS,
   themed: THEMED_WIDGETS,
   carsReal: CARS_REAL_WIDGETS,
-  compare: COMPARE_WIDGETS
+  compare: COMPARE_WIDGETS,
+  irVitals: IR_VITALS_WIDGETS
 } as const
 
 /** Every hi-fi per-telemetry widget/overlay. */
@@ -49,7 +51,8 @@ export const HIFI_WIDGETS: HifiWidgetModule[] = [
   ...ALERTS_WIDGETS,
   ...THEMED_WIDGETS,
   ...CARS_REAL_WIDGETS,
-  ...COMPARE_WIDGETS
+  ...COMPARE_WIDGETS,
+  ...IR_VITALS_WIDGETS
 ]
 
 export const HIFI_WIDGETS_BY_ID: Record<string, HifiWidgetModule> = Object.fromEntries(
