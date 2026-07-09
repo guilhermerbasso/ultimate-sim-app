@@ -70,10 +70,33 @@ function persistHiddenWidgetIds(ids: ReadonlySet<string>): void {
 // ─── Miniatura ──────────────────────────────────────────────────────────────
 const PREVIEW_W = 168
 const PREVIEW_H = 92
+const LIVE_WIDGET_TYPES = new Set<string>(GT3_WIDGET_TYPES as readonly string[])
+
+function DashboardGlyph({ label, accent = ACCENT }: { label: string; accent?: string }): ReactElement {
+  return (
+    <div data-widget-preview-glyph="dashboard" style={{ position: 'relative', width: '88%', height: '72%', margin: '8% auto 0', border: `1px solid ${GT3_STROKE}`, borderRadius: 7, background: '#020304', overflow: 'hidden' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 2, padding: 5 }}>
+        {Array.from({ length: 12 }, (_, i) => (
+          <div key={i} style={{ height: 5, borderRadius: 2, background: i < 8 ? (i < 5 ? '#2FFF67' : '#FFB000') : '#1a2230' }} />
+        ))}
+      </div>
+      <div style={{ position: 'absolute', left: '34%', top: '30%', width: '32%', height: '42%', borderRadius: 5, background: `${accent}30`, border: `1px solid ${accent}`, color: TEXT_FG, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 900 }}>
+        4
+      </div>
+      <div style={{ position: 'absolute', left: 8, bottom: 8, width: '24%', height: 9, borderRadius: 4, background: '#17202c' }} />
+      <div style={{ position: 'absolute', right: 8, bottom: 8, width: '24%', height: 9, borderRadius: 4, background: '#17202c' }} />
+      <div style={{ position: 'absolute', left: 8, top: 24, color: TEXT_DIM, fontSize: 7, fontWeight: 800, maxWidth: 42, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+    </div>
+  )
+}
 
 function LegacyMini({ variant }: { variant: WidgetVariant }): ReactElement {
   const s = variant.style
   const fill = s.fillColor ?? ACCENT
+  const accent = s.accentColor ?? fill
+  if (variant.type === 'overlaywidget') {
+    return <DashboardGlyph label={variant.label} accent={accent} />
+  }
   if (variant.type === 'text') {
     return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', color: s.color ?? TEXT_FG, fontWeight: 800, fontSize: 22 }}>{s.text ?? 'Text'}</div>
   }
@@ -82,6 +105,26 @@ function LegacyMini({ variant }: { variant: WidgetVariant }): ReactElement {
   }
   if (variant.type === 'bar') {
     return <div style={{ width: '86%', height: 18, margin: 'auto', marginTop: '36%', background: '#0a0c10', borderRadius: 8, overflow: 'hidden' }}><div style={{ width: '62%', height: '100%', background: fill }} /></div>
+  }
+  if (variant.type === 'barv' || variant.type === 'dualbar') {
+    return (
+      <div style={{ display: 'flex', alignItems: 'end', justifyContent: 'center', gap: 10, width: '100%', height: '100%', padding: 18 }}>
+        {[0.72, 0.46, 0.58].map((pct, i) => (
+          <div key={i} style={{ width: 18, height: '100%', borderRadius: 7, background: '#0a0c10', border: `1px solid ${GT3_STROKE}`, display: 'flex', alignItems: 'end', overflow: 'hidden' }}>
+            <div style={{ width: '100%', height: `${pct * 100}%`, background: i === 1 ? '#FF2436' : accent }} />
+          </div>
+        ))}
+      </div>
+    )
+  }
+  if (variant.type === 'deltabar' || variant.type === 'trace') {
+    return (
+      <svg viewBox="0 0 168 92" style={{ width: '100%', height: '100%' }}>
+        <line x1="12" y1="46" x2="156" y2="46" stroke="#1a2230" strokeWidth="2" />
+        <polyline points="12,60 34,52 56,55 78,38 100,44 122,28 156,34" fill="none" stroke={accent} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="84" cy="46" r="5" fill="#fff" opacity="0.8" />
+      </svg>
+    )
   }
   if (variant.type === 'gauge') {
     return (
@@ -104,6 +147,16 @@ function LegacyMini({ variant }: { variant: WidgetVariant }): ReactElement {
   if (variant.type === 'image') {
     return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', color: TEXT_DIM, fontSize: 12 }}>🖼 imagem</div>
   }
+  if (variant.type === 'map' || variant.type === 'radar') {
+    return (
+      <svg viewBox="0 0 168 92" style={{ width: '100%', height: '100%' }}>
+        <path d="M40 70 C20 50 24 18 58 20 C88 22 92 52 116 50 C140 48 148 68 124 78 C94 90 70 66 40 70Z" fill="none" stroke={accent} strokeWidth="4" />
+        <circle cx="83" cy="48" r="5" fill={TEXT_FG} />
+        <circle cx="55" cy="30" r="4" fill="#FF2436" />
+        <circle cx="122" cy="62" r="4" fill="#2FFF67" />
+      </svg>
+    )
+  }
   if (variant.type === 'table' || variant.type === 'standings') {
     return (
       <div style={{ width: '90%', margin: 'auto', marginTop: '10%', fontSize: 12, color: TEXT_DIM }}>
@@ -115,19 +168,23 @@ function LegacyMini({ variant }: { variant: WidgetVariant }): ReactElement {
       </div>
     )
   }
-  return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', color: TEXT_DIM, fontSize: 12 }}>{variant.label}</div>
+  return <DashboardGlyph label={variant.label} accent={accent} />
 }
 
 export function WidgetMini({ variant }: { variant: WidgetVariant }): ReactElement {
-  const isLive = (GT3_WIDGET_TYPES as readonly string[]).includes(variant.type)
+  const livePreview = LIVE_WIDGET_TYPES.has(variant.type)
+    ? renderGt3Widget({ element: { ...variantToElement(variant, 0, 0), w: PREVIEW_W, h: PREVIEW_H }, snapshot: PREVIEW_SNAPSHOT })
+    : null
   return (
-    <div style={{ position: 'relative', width: '100%', height: PREVIEW_H, background: '#05070a', borderRadius: 8, overflow: 'hidden' }}>
-      {isLive ? (
-        <div style={{ position: 'absolute', inset: 0 }}>
-          {renderGt3Widget({ element: { ...variantToElement(variant, 0, 0), w: PREVIEW_W, h: PREVIEW_H }, snapshot: PREVIEW_SNAPSHOT })}
+    <div data-widget-preview="true" style={{ position: 'relative', width: '100%', height: PREVIEW_H, background: '#05070a', borderRadius: 8, overflow: 'hidden' }}>
+      {livePreview ? (
+        <div data-widget-preview-live="true" style={{ position: 'absolute', inset: 0 }}>
+          {livePreview}
         </div>
       ) : (
-        <LegacyMini variant={variant} />
+        <div data-widget-preview-fallback={variant.type} style={{ position: 'absolute', inset: 0 }}>
+          <LegacyMini variant={variant} />
+        </div>
       )}
     </div>
   )

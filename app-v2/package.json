@@ -1,6 +1,6 @@
 {
   "name": "ultimate-sim-app",
-  "version": "2.43.0",
+  "version": "2.45.0",
   "description": "Ultimate Sim App — Windows desktop companion for sim racing: telemetry, overlays, dashboards, strategy, and the SIM-X ButtonBox.",
   "main": "out/main/index.js",
   "author": "Guilherme Basso",
@@ -10,7 +10,7 @@
   "scripts": {
     "build": "electron-vite build",
     "dev": "electron-vite dev",
-    "dist:win": "bash scripts/fetch-win-llama.sh && bash scripts/fetch-win-whisper.sh && bash scripts/fetch-win-sherpa.sh && bash scripts/verify-win-tts.sh && (bash scripts/fetch-win-sharp.sh || true) && electron-vite build && electron-builder --win",
+    "dist:win": "bash scripts/fetch-win-llama.sh && bash scripts/fetch-win-whisper.sh && bash scripts/fetch-win-sherpa.sh && bash scripts/verify-win-tts.sh && (bash scripts/fetch-win-sharp.sh || true) && electron-vite build && electron-builder --win --publish never",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.json",
     "palette": "node scripts/extract-palette.mjs",

@@ -4,9 +4,8 @@
 
 import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
-import type { Dashboard, DashboardElementType } from '../../../../shared/dashboards'
+import type { Dashboard, DashboardElement, DashboardElementType } from '../../../../shared/dashboards'
 import { TagFilter, filterByTags } from '../../components/TagFilter'
-import { CanvasElementVisual } from './DashboardCanvasEditor'
 
 const ACCENT = 'var(--accent-primary)'
 const GT3_STROKE = '#1F1F1F'
@@ -37,14 +36,90 @@ function elementColor(type: DashboardElementType): string {
   return '#2b6f66'
 }
 
+function elementRadius(el: DashboardElement): number {
+  const parsed = Number(el.style.radius ?? 3)
+  const radius = Number.isFinite(parsed) ? parsed : 3
+  return Math.max(2, Math.min(8, radius))
+}
+
+function MiniOverlayGlyph({ color }: { color: string }): ReactElement {
+  return (
+    <div style={{ position: 'absolute', inset: 2, borderRadius: 4, border: `1px solid ${color}`, background: '#020304', overflow: 'hidden' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 1, padding: 3 }}>
+        {Array.from({ length: 8 }, (_, i) => (
+          <span key={i} style={{ height: 3, borderRadius: 1, background: i < 5 ? '#2FFF67' : '#26303d' }} />
+        ))}
+      </div>
+      <div style={{ position: 'absolute', left: '36%', top: '34%', width: '28%', height: '34%', borderRadius: 3, background: `${color}44` }} />
+      <div style={{ position: 'absolute', left: 4, bottom: 4, width: '24%', height: 3, borderRadius: 2, background: '#26303d' }} />
+      <div style={{ position: 'absolute', right: 4, bottom: 4, width: '24%', height: 3, borderRadius: 2, background: '#26303d' }} />
+    </div>
+  )
+}
+
+function MiniElementGlyph({ el, color }: { el: DashboardElement; color: string }): ReactElement | null {
+  if (el.type === 'overlaywidget') return <MiniOverlayGlyph color={color} />
+  if (el.type === 'shiftbar' || el.type === 'shiftlights' || el.type === 'ledbar') {
+    return (
+      <div style={{ position: 'absolute', left: 3, right: 3, top: '42%', display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 1 }}>
+        {Array.from({ length: 8 }, (_, i) => <span key={i} style={{ height: 3, borderRadius: 1, background: i < 5 ? color : '#26303d' }} />)}
+      </div>
+    )
+  }
+  if (el.type === 'gauge' || el.type === 'valuegauge' || el.type === 'ringgauge' || el.type === 'donut' || el.type === 'analoggauge') {
+    return <div style={{ position: 'absolute', inset: 3, borderRadius: 999, border: `2px solid ${color}`, opacity: 0.85 }} />
+  }
+  if (el.type === 'tyregrid' || el.type === 'brakegrid' || el.type === 'cornerstack' || el.type === 'heatmap' || el.type === 'barchart' || el.type === 'radialbars') {
+    return (
+      <div style={{ position: 'absolute', inset: 3, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+        {[0, 1, 2, 3].map((i) => <span key={i} style={{ borderRadius: 2, background: i % 2 === 0 ? `${color}88` : `${color}44` }} />)}
+      </div>
+    )
+  }
+  if (el.type === 'trace' || el.type === 'inputtrace' || el.type === 'historygraph' || el.type === 'deltabar') {
+    return (
+      <svg viewBox="0 0 100 40" preserveAspectRatio="none" style={{ position: 'absolute', inset: 3, width: 'calc(100% - 6px)', height: 'calc(100% - 6px)' }}>
+        <polyline points="0,30 18,22 35,25 55,12 72,18 100,8" fill="none" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  return null
+}
+
+function PresetElementBlock({ el }: { el: DashboardElement }): ReactElement {
+  const color = elementColor(el.type)
+  const visibleColor = color === 'transparent' ? 'rgba(255,255,255,0.30)' : color
+  const fill = color === 'transparent' ? 'rgba(255,255,255,0.05)' : `${color}33`
+  return (
+    <div
+      data-preset-thumb-element={el.type}
+      style={{
+        position: 'absolute',
+        left: el.x,
+        top: el.y,
+        width: Math.max(4, el.w),
+        height: Math.max(4, el.h),
+        background: fill,
+        border: `1px solid ${visibleColor}`,
+        borderRadius: elementRadius(el),
+        boxShadow: color === 'transparent' ? undefined : `0 0 10px ${color}22`,
+        overflow: 'hidden'
+      }}
+    >
+      <MiniElementGlyph el={el} color={visibleColor} />
+    </div>
+  )
+}
+
 // Real preset thumbnail. Elements `overlaywidget` (os dashboards full-frame
-// GT3/LMU) are actually mounted ? scaled via `transform` over the board at
-// natural size ? so the gallery does not show a flattened empty rectangle.
-// The other elements remain lightweight wireframes (one rectangle per element).
+// GT3/LMU) and any unknown widget kind now receive a visible wireframe glyph,
+// avoiding blank cards when a live renderer needs telemetry or has no mini branch.
 function PresetThumb({ dash }: { dash: Dashboard }): ReactElement {
-  const scale = Math.min(THUMB_W / dash.width, THUMB_H / dash.height)
-  const w = dash.width * scale
-  const h = dash.height * scale
+  const safeWidth = Math.max(1, dash.width)
+  const safeHeight = Math.max(1, dash.height)
+  const scale = Math.min(THUMB_W / safeWidth, THUMB_H / safeHeight)
+  const w = safeWidth * scale
+  const h = safeHeight * scale
   return (
     <div style={{ width: THUMB_W, height: THUMB_H, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#05070a', borderRadius: 8, overflow: 'hidden' }}>
       <div style={{ position: 'relative', width: w, height: h, overflow: 'hidden' }}>
@@ -53,41 +128,14 @@ function PresetThumb({ dash }: { dash: Dashboard }): ReactElement {
             position: 'absolute',
             top: 0,
             left: 0,
-            width: dash.width,
-            height: dash.height,
+            width: safeWidth,
+            height: safeHeight,
             transform: `scale(${scale})`,
             transformOrigin: 'top left',
             background: dash.bg
           }}
         >
-          {dash.elements.map((el) => {
-            if (el.type === 'overlaywidget') {
-              return (
-                <div
-                  key={el.id}
-                  style={{ position: 'absolute', left: el.x, top: el.y, width: el.w, height: el.h, overflow: 'hidden' }}
-                >
-                  <CanvasElementVisual element={el} />
-                </div>
-              )
-            }
-            const color = elementColor(el.type)
-            return (
-              <div
-                key={el.id}
-                style={{
-                  position: 'absolute',
-                  left: el.x,
-                  top: el.y,
-                  width: el.w,
-                  height: el.h,
-                  background: color === 'transparent' ? 'transparent' : `${color}33`,
-                  border: `1px solid ${color === 'transparent' ? 'rgba(255,255,255,0.18)' : color}`,
-                  borderRadius: el.style.radius ?? 3
-                }}
-              />
-            )
-          })}
+          {dash.elements.map((el) => <PresetElementBlock key={el.id} el={el} />)}
         </div>
       </div>
     </div>

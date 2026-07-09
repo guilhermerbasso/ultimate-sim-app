@@ -11,9 +11,13 @@ export interface StreamingStartArgs {
   layoutId?: string
   port?: number
   lanEnabled?: boolean
+  accessMode?: StreamingAccessMode
+  publicBaseUrl?: string
   password?: string
   touchPanelId?: string
 }
+
+export type StreamingAccessMode = 'local' | 'lan' | 'internet'
 
 export interface StreamingStartResult {
   url: string
@@ -24,7 +28,17 @@ export interface StreamingStartResult {
   port: number
   token: string
   lanEnabled: boolean
+  accessMode: StreamingAccessMode
+  lanAddress: string | null
+  publicBaseUrl: string | null
   warning: string | null
+}
+
+export interface StreamingClientInfo {
+  id: number
+  address: string
+  userAgent: string | null
+  connectedAt: number
 }
 
 export interface StreamingStatus {
@@ -40,8 +54,11 @@ export interface StreamingStatus {
   touchPanelId: string | null
   streamSafe: boolean
   clients: number
+  devices: StreamingClientInfo[]
   lanEnabled: boolean
   lanAddress: string | null
+  accessMode: StreamingAccessMode
+  publicBaseUrl: string | null
   passwordEnabled: boolean
   warning: string | null
 }

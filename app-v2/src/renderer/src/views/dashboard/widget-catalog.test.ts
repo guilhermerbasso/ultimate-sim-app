@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { WidgetGallery } from './widget-catalog'
+import { WidgetGallery, WidgetMini } from './widget-catalog'
 import {
   ALL_VARIANTS,
   GT3_PANEL,
@@ -116,6 +116,30 @@ describe('catalog categorization (new + existing)', () => {
   it('flattens exactly the WIDGET_CATALOG groups into ALL_VARIANTS', () => {
     const flat = WIDGET_CATALOG.reduce((n, g) => n + g.variants.length, 0)
     expect(ALL_VARIANTS.length).toBe(flat)
+  })
+})
+
+describe('widget preview thumbnails', () => {
+  it('renders a non-empty preview container for every catalog variant', () => {
+    for (const variant of ALL_VARIANTS) {
+      const markup = renderToStaticMarkup(createElement(WidgetMini, { variant }))
+      expect(markup, `${variant.id} did not render a preview root`).toContain('data-widget-preview="true"')
+      expect(
+        markup.includes('data-widget-preview-live="true"') || markup.includes('data-widget-preview-fallback='),
+        `${variant.id} rendered neither a live preview nor a fallback`
+      ).toBe(true)
+      expect(markup.length, `${variant.id} rendered an unexpectedly tiny preview`).toBeGreaterThan(180)
+    }
+  })
+
+  it('uses a representative dashboard glyph for overlay-widget variants instead of a blank label tile', () => {
+    const overlay = ALL_VARIANTS.find((variant) => variant.type === 'overlaywidget')
+    expect(overlay).toBeTruthy()
+    if (!overlay) return
+
+    const markup = renderToStaticMarkup(createElement(WidgetMini, { variant: overlay }))
+    expect(markup).toContain('data-widget-preview-fallback="overlaywidget"')
+    expect(markup).toContain('data-widget-preview-glyph="dashboard"')
   })
 })
 
