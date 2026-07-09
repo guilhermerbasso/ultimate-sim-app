@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import QRCode from 'qrcode'
 import type { DriverEntry, RadarCarEntry, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
-import type { StreamingStartArgs, StreamingStartResult, StreamingStatus, StreamingTelemetryFrame } from '../../shared/streaming'
+import type { StreamingAccessMode, StreamingStartArgs, StreamingStartResult, StreamingStatus, StreamingTelemetryFrame } from '../../shared/streaming'
 import { STREAMING_CHANNELS } from '../../shared/streaming'
 import { buttonActionToIpc, type ButtonAction } from '../../shared/touch-panel'
 import type { ModuleContext } from '../module-context'
@@ -24,6 +24,9 @@ interface SseClient {
   id: number
   response: ServerResponse
   timer: ReturnType<typeof setInterval>
+  address: string
+  userAgent: string | null
+  connectedAt: number
 }
 
 interface StreamingState {
@@ -35,7 +38,9 @@ interface StreamingState {
   touchPanelId: string | null
   streamSafe: boolean
   lanEnabled: boolean
+  accessMode: StreamingAccessMode
   lanAddress: string | null
+  publicBaseUrl: string | null
   qrDataUrl: string | null
   touchQrDataUrl: string | null
   clients: Map<number, SseClient>
@@ -52,7 +57,9 @@ const state: StreamingState = {
   touchPanelId: null,
   streamSafe: true,
   lanEnabled: false,
+  accessMode: 'local',
   lanAddress: null,
+  publicBaseUrl: null,
   qrDataUrl: null,
   touchQrDataUrl: null,
   clients: new Map(),
@@ -83,13 +90,15 @@ function passwordHash(value: string | undefined): string | null {
 }
 
 function primaryLanAddress(): string | null {
+  let firstExternal: string | null = null
   for (const entries of Object.values(networkInterfaces())) {
     for (const entry of entries ?? []) {
       if (entry.family !== 'IPv4' || entry.internal) continue
       if (isPrivateIpv4(entry.address)) return entry.address
+      firstExternal ??= entry.address
     }
   }
-  return null
+  return firstExternal
 }
 
 function isPrivateIpv4(address: string): boolean {
@@ -109,6 +118,19 @@ function normalizeRemoteAddress(value: string | undefined): string {
 function isLocalNetworkRequest(request: IncomingMessage): boolean {
   const address = normalizeRemoteAddress(request.socket.remoteAddress)
   return address === '127.0.0.1' || address === '::1' || isPrivateIpv4(address)
+}
+
+function normalizePublicBaseUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+    return parsed.origin
+  } catch {
+    return null
+  }
 }
 
 function isRateLimited(request: IncomingMessage): boolean {
@@ -391,7 +413,14 @@ function openSse(ctx: ModuleContext, request: IncomingMessage, response: ServerR
   response.write(': connected\n\n')
   const id = state.nextClientId++
   const timer = setInterval(() => writeSse(response, currentFrame(ctx)), SSE_INTERVAL_MS)
-  const client: SseClient = { id, response, timer }
+  const client: SseClient = {
+    id,
+    response,
+    timer,
+    address: normalizeRemoteAddress(request.socket.remoteAddress),
+    userAgent: headerValue(request, 'user-agent'),
+    connectedAt: Date.now()
+  }
   state.clients.set(id, client)
   writeSse(response, currentFrame(ctx))
   request.on('close', () => closeClient(id))
@@ -409,8 +438,14 @@ function closeAllClients(): void {
   for (const id of [...state.clients.keys()]) closeClient(id)
 }
 
-function baseHost(): string {
-  return state.lanEnabled && state.lanAddress ? state.lanAddress : HOST
+function baseOrigin(): string {
+  if (state.accessMode === 'internet' && state.publicBaseUrl) return state.publicBaseUrl
+  const host = state.accessMode !== 'local' && state.lanAddress ? state.lanAddress : HOST
+  return `http://${host}:${state.port}`
+}
+
+function lanOrigin(): string | null {
+  return state.port && state.lanAddress ? `http://${state.lanAddress}:${state.port}` : null
 }
 
 function syncTouchPanelId(): void {
@@ -423,18 +458,23 @@ function syncTouchPanelId(): void {
   state.touchPanelId = manager.list()[0]?.id ?? null
 }
 
-function dashboardUrl(host = baseHost()): string | null {
-  return state.port && state.token ? `http://${host}:${state.port}/obs/${state.layoutId}?token=${state.token}` : null
+function dashboardUrl(origin = baseOrigin()): string | null {
+  return state.port && state.token ? `${origin}/obs/${state.layoutId}?token=${state.token}` : null
 }
 
-function touchControlsUrl(host = baseHost()): string | null {
+function touchControlsUrl(origin = baseOrigin()): string | null {
   if (!state.server) return null
   syncTouchPanelId()
-  return state.port && state.token && state.touchPanelId ? `http://${host}:${state.port}/touch/${encodeURIComponent(state.touchPanelId)}?token=${state.token}` : null
+  return state.port && state.token && state.touchPanelId ? `${origin}/touch/${encodeURIComponent(state.touchPanelId)}?token=${state.token}` : null
 }
 
 function warning(): string | null {
-  return state.lanEnabled ? 'LAN streaming is enabled: anyone on your local network with the token or password can open these pages.' : null
+  if (state.accessMode === 'internet') {
+    return 'Internet mode binds to all interfaces and allows non-LAN clients with the token/password. Use a trusted tunnel or port-forwarding, and allow the port through Windows Firewall.'
+  }
+  return state.accessMode === 'lan'
+    ? 'LAN streaming is enabled: phones/tablets on your Wi-Fi can open the QR URL. If it still fails, allow this app/port through Windows Firewall.'
+    : null
 }
 
 async function refreshQrCodes(): Promise<void> {
@@ -451,7 +491,7 @@ async function status(): Promise<StreamingStatus> {
   return {
     running: state.server !== null,
     url,
-    lanUrl: state.lanEnabled ? url : null,
+    lanUrl: state.lanEnabled && lanOrigin() ? dashboardUrl(lanOrigin()!) : null,
     touchUrl,
     qrDataUrl: state.qrDataUrl,
     touchQrDataUrl: state.touchQrDataUrl,
@@ -461,8 +501,16 @@ async function status(): Promise<StreamingStatus> {
     touchPanelId: state.touchPanelId,
     streamSafe: state.streamSafe,
     clients: state.clients.size,
+    devices: [...state.clients.values()].map((client) => ({
+      id: client.id,
+      address: client.address,
+      userAgent: client.userAgent,
+      connectedAt: client.connectedAt
+    })),
     lanEnabled: state.lanEnabled,
     lanAddress: state.lanAddress,
+    accessMode: state.accessMode,
+    publicBaseUrl: state.publicBaseUrl,
     passwordEnabled: state.passwordHash !== null,
     warning: warning()
   }
@@ -470,14 +518,14 @@ async function status(): Promise<StreamingStatus> {
 
 async function handleRequest(ctx: ModuleContext, request: IncomingMessage, response: ServerResponse): Promise<void> {
   try {
-    const url = new URL(request.url ?? '/', `http://${baseHost()}`)
+    const url = new URL(request.url ?? '/', state.port ? baseOrigin() : `http://${HOST}`)
     if (request.method === 'OPTIONS') {
       applyCors(response)
       response.writeHead(204)
       response.end()
       return
     }
-    if (state.lanEnabled && !isLocalNetworkRequest(request)) {
+    if (state.accessMode === 'lan' && !isLocalNetworkRequest(request)) {
       send(response, 403, 'Forbidden')
       return
     }
@@ -568,7 +616,9 @@ async function stop(): Promise<StreamingStatus> {
   state.token = null
   state.passwordHash = null
   state.lanEnabled = false
+  state.accessMode = 'local'
   state.lanAddress = null
+  state.publicBaseUrl = null
   state.touchPanelId = null
   state.qrDataUrl = null
   state.touchQrDataUrl = null
@@ -589,15 +639,21 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
   state.streamSafe = args.streamSafe ?? true
   state.token = generateToken()
   state.passwordHash = passwordHash(args.password)
-  state.lanEnabled = args.lanEnabled ?? false
-  state.lanAddress = state.lanEnabled ? primaryLanAddress() : null
+  state.accessMode = args.accessMode === 'internet' || args.accessMode === 'lan'
+    ? args.accessMode
+    : args.lanEnabled
+      ? 'lan'
+      : 'local'
+  state.lanEnabled = state.accessMode !== 'local'
+  state.lanAddress = state.accessMode !== 'local' ? primaryLanAddress() : null
+  state.publicBaseUrl = state.accessMode === 'internet' ? normalizePublicBaseUrl(args.publicBaseUrl) : null
   const server = createServer((request, response) => {
     void handleRequest(ctx, request, response)
   })
   state.server = server
   await new Promise<void>((resolveListen, rejectListen) => {
     server.once('error', rejectListen)
-    server.listen(requestedPort(args.port), state.lanEnabled ? LAN_HOST : HOST, () => {
+    server.listen(requestedPort(args.port), state.accessMode !== 'local' ? LAN_HOST : HOST, () => {
       server.off('error', rejectListen)
       resolveListen()
     })
@@ -606,13 +662,16 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
   await refreshQrCodes()
   return {
     url: dashboardUrl() ?? '',
-    lanUrl: state.lanEnabled ? dashboardUrl() : null,
+    lanUrl: state.lanEnabled && lanOrigin() ? dashboardUrl(lanOrigin()!) : null,
     touchUrl: touchControlsUrl(),
     qrDataUrl: state.qrDataUrl,
     touchQrDataUrl: state.touchQrDataUrl,
     port: state.port,
     token: state.token,
     lanEnabled: state.lanEnabled,
+    accessMode: state.accessMode,
+    lanAddress: state.lanAddress,
+    publicBaseUrl: state.publicBaseUrl,
     warning: warning()
   }
 }
