@@ -155,15 +155,16 @@ function CarAttitude({ width, height, snapshot }: HifiWidgetProps): ReactElement
   const r = 84
   const rollDeg = roll ?? 0
   const pitchOffset = Math.max(-r, Math.min(r, (pitch ?? 0) * 2))
+  const clipId = `irDerivedAttClip-${Math.round(width ?? cx * 2)}-${Math.round(height ?? cy * 2)}`
   return (
     <Root width={width} height={height} snapshot={snapshot}>
       <defs>
-        <clipPath id="irDerivedAttClip">
+        <clipPath id={clipId}>
           <circle cx={cx} cy={cy} r={r} />
         </clipPath>
       </defs>
       <circle cx={cx} cy={cy} r={r} fill="rgba(34,195,255,0.05)" stroke={C.dim} strokeWidth={3} />
-      <g clipPath="url(#irDerivedAttClip)">
+      <g clipPath={`url(#${clipId})`}>
         <g transform={`rotate(${-rollDeg} ${cx} ${cy}) translate(0 ${pitchOffset})`}>
           <rect x={cx - r * 1.6} y={cy - r * 2} width={r * 3.2} height={r * 2} fill="rgba(34,120,255,0.16)" />
           <rect x={cx - r * 1.6} y={cy} width={r * 3.2} height={r * 2} fill="rgba(150,96,44,0.20)" />
