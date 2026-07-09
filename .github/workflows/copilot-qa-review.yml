@@ -1,0 +1,44 @@
+# QA automático com Copilot — passo 1 de 2
+# Sempre que um PR é aberto ou recebe um novo push, este workflow pede um
+# code review ao Copilot (bot "copilot-pull-request-reviewer[bot]").
+# O resultado do review é tratado pelo workflow "copilot-qa-loop.yml".
+#
+# Requisito: secret COPILOT_AGENT_PAT (token pessoal de uma conta com licença
+# Copilot). Sem o secret, o workflow apenas avisa e não faz nada (no-op seguro).
+name: Copilot QA - Solicitar review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+concurrency:
+  group: copilot-qa-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  request-review:
+    # Não roda em rascunhos nem em PRs vindos de forks (onde secrets não existem).
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pedir review ao Copilot
+        env:
+          GH_TOKEN: ${{ secrets.COPILOT_AGENT_PAT }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::Secret COPILOT_AGENT_PAT ausente — configure-o para ativar o QA automático. Pulando."
+            exit 0
+          fi
+          echo "Solicitando review do Copilot no PR #$PR..."
+          echo '{"reviewers":["copilot-pull-request-reviewer[bot]"]}' \
+            | gh api -X POST "repos/$REPO/pulls/$PR/requested_reviewers" --input - \
+            && echo "Review solicitado." \
+            || echo "::warning::Não foi possível solicitar o review (pode já estar solicitado/pendente)."
