@@ -17,23 +17,24 @@ import type {
   RevlightsStatus
 } from '../../../shared/revlights'
 import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 import { useDevices } from '../lib/devices/DeviceRegistry'
 import { SectionExportImport } from '../components/SectionExportImport'
 
-const BLINK_PATTERNS: Array<{ id: RevlightsBlinkPattern; label: string }> = [
-  { id: 'solid', label: 'Solid (no blink)' },
-  { id: 'slow', label: 'Lento (2 Hz)' },
-  { id: 'fast', label: 'Fast (4 Hz)' },
-  { id: 'strobe', label: 'Estrobo (8 Hz)' }
+const BLINK_PATTERNS: Array<{ id: RevlightsBlinkPattern; labelKey: string }> = [
+  { id: 'solid', labelKey: 'revlights.blink.solid' },
+  { id: 'slow', labelKey: 'revlights.blink.slow' },
+  { id: 'fast', labelKey: 'revlights.blink.fast' },
+  { id: 'strobe', labelKey: 'revlights.blink.strobe' }
 ]
 
-const FLAG_LABELS: Record<keyof RevlightsConfig['flagColors'], string> = {
-  yellow: 'Amarela',
-  blue: 'Azul',
-  white: 'Branca (slow)',
-  red: 'Vermelha',
-  meatball: 'Meatball (laranja)',
-  greenWhiteCheckered: 'Green / checkered'
+const FLAG_LABEL_KEYS: Record<keyof RevlightsConfig['flagColors'], string> = {
+  yellow: 'revlights.flag.yellow',
+  blue: 'revlights.flag.blue',
+  white: 'revlights.flag.white',
+  red: 'revlights.flag.red',
+  meatball: 'revlights.flag.meatball',
+  greenWhiteCheckered: 'revlights.flag.greenWhiteCheckered'
 }
 
 function getErrorMessage(error: unknown): string {
@@ -68,7 +69,7 @@ const label: CSSProperties = {
   textTransform: 'uppercase'
 }
 
-function RevlightsView({ showToast }: AppViewProps): ReactElement {
+function RevlightsView({ showToast, language }: AppViewProps): ReactElement {
   // Resolve the connected ButtonBox from the shared device registry.
   const { primaryDevice: connectedDevice } = useDevices()
   const [presets, setPresets] = useState<RevlightsPreset[]>([])
@@ -127,14 +128,14 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
 
   async function toggleEnabled(): Promise<void> {
     if (!config.enabled && !connectedDevice) {
-      showToast('Connect the ButtonBox before enabling rev lights.', 'error')
+      showToast(tt(language, 'revlights.connectBeforeEnable'), 'error')
       return
     }
     setBusy(true)
     try {
       const saved = await window.ipc.invoke<RevlightsConfig>('revlights:setEnabled', !config.enabled)
       setConfig(saved)
-      showToast(saved.enabled ? 'Rev lights enabled.' : 'Rev lights paused.', 'success')
+      showToast(saved.enabled ? tt(language, 'revlights.enabledToast') : tt(language, 'revlights.pausedToast'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -172,7 +173,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
   function addSegment(): void {
     const last = config.segments[config.segments.length - 1]
     const startPct = last ? Math.min(0.99, Number(last.startPct) + 0.05) : 0.5
-    const segments = [...config.segments, { startPct, color: '#33D17C', label: `Segmento ${config.segments.length + 1}` }]
+    const segments = [...config.segments, { startPct, color: '#33D17C', label: tt(language, 'revlights.segmentName', { index: config.segments.length + 1 }) }]
     setConfig({ ...config, segments, preset: 'custom' })
   }
 
@@ -197,14 +198,13 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
           <div>
             <span style={label}>Rev lights · WS2812B 4 LEDs</span>
-            <h3 style={{ margin: '8px 0 4px', fontSize: 26 }}>Rich configuration</h3>
+            <h3 style={{ margin: '8px 0 4px', fontSize: 26 }}>{tt(language, 'revlights.title')}</h3>
             <p style={{ margin: 0, color: 'rgba(255,255,255,0.62)' }}>
-              Colors, bands, and shift point. The app calculates the level from telemetry and sends
-              <code> R&lt;lvl&gt; </code> + <code> B&lt;0|1&gt; </code> to SIM-X.
+              {tt(language, 'revlights.summaryBeforeCode')}<code> R&lt;lvl&gt; </code> + <code> B&lt;0|1&gt; </code>{tt(language, 'revlights.summaryAfterCode')}
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <SectionExportImport sectionId="revlights" label="Rev lights" onImported={() => void reloadConfig()} />
+            <SectionExportImport sectionId="revlights" label={tt(language, 'revlights.exportLabel')} onImported={() => void reloadConfig()} />
             <button
               disabled={busy || (!connectedDevice && !config.enabled)}
               onClick={() => void toggleEnabled()}
@@ -219,14 +219,14 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
               }}
               type="button"
             >
-              {config.enabled ? 'Stop' : 'Enable'}
+              {config.enabled ? tt(language, 'common.stop') : tt(language, 'revlights.enable')}
             </button>
           </div>
         </div>
 
         <div className="divider" style={{ margin: '16px 0' }} />
 
-        <span style={label}>Presets</span>
+        <span style={label}>{tt(language, 'revlights.presets')}</span>
         <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
           {presets.map((preset) => (
             <label
@@ -279,7 +279,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
               type="checkbox"
             />
             <span>
-              <strong style={{ display: 'block' }}>F1 mode</strong>
+              <strong style={{ display: 'block' }}>{tt(language, 'revlights.f1Mode')}</strong>
               <small style={{ color: 'rgba(255,255,255,0.66)' }}>
                 Lights only in the last {rpmWindowPct}% of RPM, sweeps green → amber → red in the preview
                 and blinks at the shift point.
@@ -287,15 +287,13 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
             </span>
           </label>
           <p className="helper-text" style={{ marginBottom: 0 }}>
-            Note: exact hardware colors depend on the current SIM-X firmware, which renders colors by level.
-            The app already delivers F1 behavior today via <code>R&lt;lvl&gt;</code> + <code>B&lt;0|1&gt;</code>;
-            Per-LED RGB remains for future firmware.
+            {tt(language, 'revlights.noteBeforeCode')} <code>R&lt;lvl&gt;</code> + <code>B&lt;0|1&gt;</code>; {tt(language, 'revlights.noteAfterCode')}
           </p>
         </div>
 
         <div className="divider" style={{ margin: '16px 0' }} />
 
-        <span style={label}>LED count</span>
+        <span style={label}>{tt(language, 'revlights.ledCount')}</span>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginTop: 8 }}>
           <input
             max={REVLIGHTS_MAX_LED_COUNT}
@@ -306,19 +304,18 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
             type="range"
             value={config.ledCount}
           />
-          <strong style={{ minWidth: 64, textAlign: 'right' }}>{config.ledCount} LEDs</strong>
+          <strong style={{ minWidth: 64, textAlign: 'right' }}>{tt(language, 'revlights.ledCountValue', { count: config.ledCount })}</strong>
         </div>
         <p className="helper-text">
-          The current firmware drives {REVLIGHTS_DEVICE_LED_COUNT} physical LEDs; larger values are scaled
-          to use the full future strip (without losing the preview UX).
+          {tt(language, 'revlights.ledHelp', { count: REVLIGHTS_DEVICE_LED_COUNT })}
         </p>
 
         <div className="divider" style={{ margin: '16px 0' }} />
 
-        <span style={label}>RPM points</span>
+        <span style={label}>{tt(language, 'revlights.rpmPoints')}</span>
         <div style={{ display: 'grid', gap: 12, marginTop: 8 }}>
           <label style={{ display: 'grid', gap: 6 }}>
-            <span>Lights in the last N% of RPM</span>
+            <span>{tt(language, 'revlights.lastRpm')}</span>
             <input
               max={100}
               min={1}
@@ -332,11 +329,11 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
               Last {rpmWindowPct}% · start at {Math.round(config.startRpmPct * 100)}%
             </strong>
             <small style={{ color: 'rgba(255,255,255,0.56)' }}>
-              Ex.: 10% = LEDs off until ~90% RPM, like F1/GT.
+              {tt(language, 'revlights.lastHelp')}
             </small>
           </label>
           <label style={{ display: 'grid', gap: 6 }}>
-            <span>Shift point / blink (% max RPM)</span>
+            <span>{tt(language, 'revlights.shiftPoint')}</span>
             <input
               max={1}
               min={0}
@@ -354,15 +351,15 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
               onChange={(event) => void persist({ useShiftIndicatorPct: event.target.checked })}
               type="checkbox"
             />
-            <span>Use iRacing shiftIndicatorPct when available</span>
+            <span>{tt(language, 'revlights.useIracingShift')}</span>
           </label>
         </div>
       </article>
 
       <div style={{ display: 'grid', gap: 18 }}>
         <article style={panel}>
-          <span style={label}>Preview ao vivo</span>
-          <h3 style={{ margin: '8px 0' }}>Strip atual</h3>
+          <span style={label}>{tt(language, 'revlights.livePreview')}</span>
+          <h3 style={{ margin: '8px 0' }}>{tt(language, 'revlights.currentStrip')}</h3>
           <div style={{ display: 'flex', gap: 6, padding: '8px 0' }}>
             {previewColors.map((color, index) => (
               <div
@@ -379,7 +376,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
             ))}
           </div>
           <label style={{ display: 'grid', gap: 6, marginTop: 8 }}>
-            <span style={label}>Simulate level</span>
+            <span style={label}>{tt(language, 'revlights.simulateLevel')}</span>
             <input
               max={config.ledCount}
               min={0}
@@ -392,11 +389,11 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
           </label>
           <dl className="status-list" style={{ marginTop: 12 }}>
             <div>
-              <dt>Real level</dt>
+              <dt>{tt(language, 'revlights.realLevel')}</dt>
               <dd>{status?.level ?? 0}</dd>
             </div>
             <div>
-              <dt>Shift</dt>
+              <dt>{tt(language, 'revlights.shift')}</dt>
               <dd>{status?.shiftActive ? 'BLINKING' : '—'}</dd>
             </div>
             <div>
@@ -406,15 +403,15 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
               </dd>
             </div>
             <div>
-              <dt>Error</dt>
+              <dt>{tt(language, 'revlights.error')}</dt>
               <dd style={{ color: status?.lastError ? 'var(--accent-warning)' : 'inherit' }}>{status?.lastError ?? '—'}</dd>
             </div>
           </dl>
         </article>
 
         <article style={panel}>
-          <span style={label}>Segments por cor</span>
-          <h3 style={{ margin: '8px 0' }}>Faixas (% maxRpm)</h3>
+          <span style={label}>{tt(language, 'revlights.segmentsByColor')}</span>
+          <h3 style={{ margin: '8px 0' }}>{tt(language, 'revlights.bandsTitle')}</h3>
           <div style={{ display: 'grid', gap: 8 }}>
             {config.segments.map((segment, index) => (
               <div
@@ -431,7 +428,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
                 }}
               >
                 <input
-                  aria-label={`Segment color ${index + 1}`}
+                  aria-label={tt(language, 'revlights.segmentColorAria', { index: index + 1 })}
                   onBlur={() => void persist({ segments: config.segments, preset: 'custom' })}
                   onChange={(event) => updateSegment(index, { color: event.target.value })}
                   style={{ height: 36, width: '100%', border: 'none', background: 'transparent' }}
@@ -439,15 +436,15 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
                   value={segment.color}
                 />
                 <input
-                  aria-label={`Segment label ${index + 1}`}
+                  aria-label={tt(language, 'revlights.segmentLabelAria', { index: index + 1 })}
                   className="text-field"
                   onBlur={() => void persist({ segments: config.segments, preset: 'custom' })}
                   onChange={(event) => updateSegment(index, { label: event.target.value })}
-                  placeholder={`Segmento ${index + 1}`}
+                  placeholder={tt(language, 'revlights.segmentName', { index: index + 1 })}
                   value={segment.label ?? ''}
                 />
                 <input
-                  aria-label={`Segment start % ${index + 1}`}
+                  aria-label={tt(language, 'revlights.segmentStartAria', { index: index + 1 })}
                   className="text-field"
                   max={1}
                   min={0}
@@ -467,7 +464,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
                   }}
                   type="button"
                 >
-                  Remove
+                  {tt(language, 'common.remove')}
                 </button>
               </div>
             ))}
@@ -481,29 +478,29 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
                 const last = config.segments[config.segments.length - 1]
                 const startPct = last ? Math.min(0.99, Number(last.startPct) + 0.05) : 0.5
                 void persist({
-                  segments: [...config.segments, { startPct, color: '#33D17C', label: `Segmento ${config.segments.length + 1}` }],
+                  segments: [...config.segments, { startPct, color: '#33D17C', label: tt(language, 'revlights.segmentName', { index: config.segments.length + 1 }) }],
                   preset: 'custom'
                 })
               }}
               type="button"
             >
-              Add faixa
+              {tt(language, 'revlights.addBand')}
             </button>
           </div>
         </article>
 
         <article style={panel}>
-          <span style={label}>Shift indicator</span>
-          <h3 style={{ margin: '8px 0' }}>Pisca azul (B)</h3>
+          <span style={label}>{tt(language, 'revlights.shiftIndicator')}</span>
+          <h3 style={{ margin: '8px 0' }}>{tt(language, 'revlights.blueBlink')}</h3>
           <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <input
               checked={config.shiftBlink}
               onChange={(event) => void persist({ shiftBlink: event.target.checked })}
               type="checkbox"
             />
-            <span>Enable shift blink</span>
+            <span>{tt(language, 'revlights.enableShiftBlink')}</span>
           </label>
-          <label className="field-label" htmlFor="blink-pattern">Blink pattern</label>
+          <label className="field-label" htmlFor="blink-pattern">{tt(language, 'revlights.blinkPattern')}</label>
           <select
             className="select-field wide"
             disabled={!config.shiftBlink}
@@ -513,19 +510,18 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
           >
             {BLINK_PATTERNS.map((option) => (
               <option key={option.id} value={option.id}>
-                {option.label}
+                {tt(language, option.labelKey)}
               </option>
             ))}
           </select>
           <p className="helper-text">
-            Firmware handles blink internally; the app only sends <code>B1</code> when shift activates, and the pattern
-            is used only in the visual preview here.
+            {tt(language, 'revlights.firmwareBlinkBefore')} <code>B1</code> {tt(language, 'revlights.firmwareBlinkAfter')}
           </p>
         </article>
 
         <article style={panel}>
-          <span style={label}>Flag colors</span>
-          <h3 style={{ margin: '8px 0' }}>Paleta (preview-only)</h3>
+          <span style={label}>{tt(language, 'revlights.flagColors')}</span>
+          <h3 style={{ margin: '8px 0' }}>{tt(language, 'revlights.palettePreview')}</h3>
           <div style={{ display: 'grid', gap: 8 }}>
             {(Object.keys(config.flagColors) as Array<keyof RevlightsConfig['flagColors']>).map((key) => (
               <div
@@ -538,14 +534,14 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
                 }}
               >
                 <input
-                  aria-label={`Flag color ${FLAG_LABELS[key]}`}
+                  aria-label={tt(language, 'revlights.flagColorAria', { flag: tt(language, FLAG_LABEL_KEYS[key]) })}
                   onBlur={() => void persist({ flagColors: config.flagColors })}
                   onChange={(event) => updateFlagColor(key, event.target.value)}
                   style={{ height: 36, width: '100%', border: 'none', background: 'transparent' }}
                   type="color"
                   value={config.flagColors[key]}
                 />
-                <span>{FLAG_LABELS[key]}</span>
+                <span>{tt(language, FLAG_LABEL_KEYS[key])}</span>
               </div>
             ))}
           </div>
@@ -555,7 +551,7 @@ function RevlightsView({ showToast }: AppViewProps): ReactElement {
               onChange={(event) => void persist({ flagBlink: event.target.checked })}
               type="checkbox"
             />
-            <span>Pulse when a flag is active</span>
+            <span>{tt(language, 'revlights.pulseFlag')}</span>
           </label>
         </article>
       </div>
