@@ -17,10 +17,11 @@ import { spawn } from 'node:child_process'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import type { App } from 'electron'
+import { app as electronApp, type App } from 'electron'
 import { SerialPort } from 'serialport'
 import type { FlashBoardSpec, FlashProgress } from '../../shared/setup'
 import { isBenignSerialError, serialErrorMessage } from '../serial/errors'
+import { ensureAvrdude } from './avrdude-fetch'
 
 export class FlashError extends Error {
   constructor(message: string) {
@@ -137,9 +138,7 @@ export async function flashFirmware(opts: FlasherOptions): Promise<void> {
         'No macOS/Linux, grave o .hex pelo Arduino IDE e depois conecte a placa no app.'
     )
   }
-  if (!existsSync(tools.avrdudeExe)) {
-    throw new FlashError(`avrdude.exe was not found em ${tools.avrdudeExe}.`)
-  }
+  const resolvedTools = { ...tools, avrdudeExe: await resolveUsableAvrdudeExe(tools.avrdudeExe) }
   if (!existsSync(hexPath)) {
     throw new FlashError(`Firmware (.hex) not found em ${hexPath}.`)
   }
@@ -147,8 +146,17 @@ export async function flashFirmware(opts: FlasherOptions): Promise<void> {
   const targetPort = await prepareAvrdudePort(board, port, onProgress, opts.signal)
 
   throwIfAborted(opts.signal)
-  await runAvrdudeWithBaudRetry(board, targetPort, hexPath, opts, timeoutMs)
+  await runAvrdudeWithBaudRetry(board, targetPort, hexPath, { ...opts, tools: resolvedTools }, timeoutMs)
   onProgress({ phase: 'upload', message: 'Firmware gravado e verificado pelo avrdude.', percent: 70, tone: 'success' })
+}
+
+async function resolveUsableAvrdudeExe(bundledPath: string): Promise<string> {
+  try {
+    return await ensureAvrdude(electronApp)
+  } catch (error) {
+    if (existsSync(bundledPath)) return bundledPath
+    throw new FlashError(error instanceof Error ? error.message : String(error))
+  }
 }
 
 // Run avrdude, auto-retrying the alternate Optiboot speed on an stk500 "not in

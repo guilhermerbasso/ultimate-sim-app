@@ -1,5 +1,7 @@
 import { existsSync } from 'node:fs'
+import { app as electronApp } from 'electron'
 import type { FlashBoardSpec, FlashProgress } from '../../shared/setup'
+import { ensureAvrdude } from './avrdude-fetch'
 import {
   FlashError,
   prepareAvrdudePort,
@@ -29,9 +31,7 @@ export async function dumpHexFirmware(opts: DumpHexOptions): Promise<void> {
     throw new FlashError('.hex backup through avrdude is only available on Windows.')
   }
   if (!opts.port.trim()) throw new FlashError('Select the board serial (COM) port.')
-  if (!existsSync(opts.tools.avrdudeExe)) {
-    throw new FlashError(`avrdude.exe was not found em ${opts.tools.avrdudeExe}.`)
-  }
+  const tools = { ...opts.tools, avrdudeExe: await resolveUsableAvrdudeExe(opts.tools.avrdudeExe) }
   if (!existsSync(opts.tools.avrdudeConf)) {
     throw new FlashError(`avrdude.conf was not found em ${opts.tools.avrdudeConf}.`)
   }
@@ -40,7 +40,7 @@ export async function dumpHexFirmware(opts: DumpHexOptions): Promise<void> {
   const targetPort = await prepareAvrdudePort(opts.board, opts.port, opts.onProgress, opts.signal)
   const args = [
     '-C',
-    opts.tools.avrdudeConf,
+    tools.avrdudeConf,
     '-c',
     opts.board.programmer,
     '-p',
@@ -58,11 +58,20 @@ export async function dumpHexFirmware(opts: DumpHexOptions): Promise<void> {
     percent: 20,
     line: `> avrdude ${args.join(' ')}`
   })
-  await runAvrdude(opts.tools.avrdudeExe, args, opts.onProgress, opts.timeoutMs ?? DEFAULT_DUMP_TIMEOUT_MS, opts.signal)
+  await runAvrdude(tools.avrdudeExe, args, opts.onProgress, opts.timeoutMs ?? DEFAULT_DUMP_TIMEOUT_MS, opts.signal)
   opts.onProgress({
     phase: 'done',
     message: `Backup .hex salvo em ${opts.outputPath}.`,
     percent: 100,
     tone: 'success'
   })
+}
+
+async function resolveUsableAvrdudeExe(bundledPath: string): Promise<string> {
+  try {
+    return await ensureAvrdude(electronApp)
+  } catch (error) {
+    if (existsSync(bundledPath)) return bundledPath
+    throw new FlashError(error instanceof Error ? error.message : String(error))
+  }
 }
