@@ -4,6 +4,7 @@ import type { RaceProfile, RaceProfileSuggestion } from '../../../shared/racepro
 import { getLatestTelemetry } from '../lib/telemetry'
 import { SectionExportImport } from '../components/SectionExportImport'
 import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 
 const EMPTY_PROFILE: RaceProfile = {
   id: '',
@@ -16,7 +17,7 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-export default function RaceProfilesView({ connectedDevice, mapping, config, refreshDeviceState, showToast }: AppViewProps): ReactElement {
+export default function RaceProfilesView({ connectedDevice, mapping, config, refreshDeviceState, showToast, language }: AppViewProps): ReactElement {
   const [profiles, setProfiles] = useState<RaceProfile[]>([])
   const [buttonboxProfiles, setButtonboxProfiles] = useState<ProfileSummary[]>([])
   const [draft, setDraft] = useState<RaceProfile>(EMPTY_PROFILE)
@@ -73,7 +74,7 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
     try {
       const snapshot = await getLatestTelemetry()
       if (!snapshot?.carName && !snapshot?.trackName) {
-        showToast('No telemetry / not on track right now.', 'error')
+        showToast(tt(language, 'raceProfiles.noTelemetryToast'), 'error')
         return
       }
       setDraft((current) => ({
@@ -83,7 +84,7 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
           trackName: snapshot?.trackName ?? current.match?.trackName
         }
       }))
-      showToast('Car/track filled from telemetry.', 'success')
+      showToast(tt(language, 'raceProfiles.filledToast'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -92,7 +93,7 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
   async function saveCurrent(): Promise<void> {
     const name = draft.name.trim()
     if (!name) {
-      showToast('Enter a name for the race profile.', 'error')
+      showToast(tt(language, 'raceProfiles.enterNameToast'), 'error')
       return
     }
 
@@ -134,7 +135,7 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
       const saved = await window.ipc.invoke<RaceProfile>('profilesv2:save', profile)
       setDraft({ ...saved, match: { ...saved.match }, buttonboxProfile: saved.buttonboxProfile ?? '' })
       await refreshAll()
-      showToast(`Race profile "${saved.name}" saved.`, 'success')
+      showToast(tt(language, 'raceProfiles.savedToast', { name: saved.name }), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -179,7 +180,7 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
 
       if (profile.buttonboxProfile) {
         if (!connectedDevice) {
-          showToast('App settings applied. Connect the ButtonBox to apply the HID profile.', 'info')
+          showToast(tt(language, 'raceProfiles.appSettingsAppliedToast'), 'info')
         } else {
           const buttonboxProfile = await window.api.loadProfile(profile.buttonboxProfile)
           await window.api.applyProfileToDevice({ mapping: buttonboxProfile.mapping, config: buttonboxProfile.config })
@@ -188,7 +189,7 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
       }
 
       setSuggestion(null)
-      showToast(`Race profile "${profile.name}" applied.`, 'success')
+      showToast(tt(language, 'raceProfiles.appliedToast', { name: profile.name }), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -202,7 +203,7 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
       await window.ipc.invoke('profilesv2:delete', id)
       if (draft.id === id) resetDraft()
       await refreshAll()
-      showToast('Race profile deleted.', 'success')
+      showToast(tt(language, 'raceProfiles.deletedToast'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -215,7 +216,7 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
     try {
       const saved = await window.ipc.invoke<boolean>('profilesv2:setAutoSwitch', enabled)
       setAutoSwitch(saved)
-      showToast(saved ? 'Auto-switch enabled.' : 'Auto-switch disabled.', 'success')
+      showToast(saved ? tt(language, 'raceProfiles.autoSwitchEnabledToast') : tt(language, 'raceProfiles.autoSwitchDisabledToast'), 'success')
     } catch (error) {
       setAutoSwitch(!enabled)
       showToast(getErrorMessage(error), 'error')
@@ -227,14 +228,14 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
       {suggestion && suggestedProfile && !autoSwitch && (
         <div style={styles.banner}>
           <div>
-            <strong>Suggested profile: {suggestedProfile.name}</strong>
+            <strong>{tt(language, 'raceProfiles.suggestedProfile', { name: suggestedProfile.name })}</strong>
             <p style={styles.bannerText}>
-              Detected {suggestion.carName || 'current car'} on {suggestion.trackName || 'current track'}.
+              {tt(language, 'raceProfiles.detectedOnTrack', { car: suggestion.carName || tt(language, 'raceProfiles.currentCar'), track: suggestion.trackName || tt(language, 'raceProfiles.currentTrack') })}
             </p>
           </div>
           <div style={styles.row}>
-            <button style={styles.primaryButton} disabled={busy} onClick={() => void applyRaceProfile(suggestedProfile)} type="button">Apply</button>
-            <button style={styles.ghostButton} disabled={busy} onClick={() => setSuggestion(null)} type="button">Ignore</button>
+            <button style={styles.primaryButton} disabled={busy} onClick={() => void applyRaceProfile(suggestedProfile)} type="button">{tt(language, 'raceProfiles.apply')}</button>
+            <button style={styles.ghostButton} disabled={busy} onClick={() => setSuggestion(null)} type="button">{tt(language, 'raceProfiles.ignore')}</button>
           </div>
         </div>
       )}
@@ -242,80 +243,80 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
       <article style={styles.card}>
         <div style={styles.headerRow}>
           <div>
-            <span style={styles.kicker}>Profiles v2</span>
-            <h3 style={styles.title}>Profiles by car/track</h3>
-            <p style={styles.text}>Group ButtonBox, OLED, overlays, alerts, and bindings for each race combination.</p>
+            <span style={styles.kicker}>{tt(language, 'raceProfiles.eyebrow')}</span>
+            <h3 style={styles.title}>{tt(language, 'raceProfiles.title')}</h3>
+            <p style={styles.text}>{tt(language, 'raceProfiles.description')}</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-            <SectionExportImport sectionId="race-profiles" label="Race profiles" onImported={() => void refreshAll()} />
+            <SectionExportImport sectionId="race-profiles" label={tt(language, 'raceProfiles.exportLabel')} onImported={() => void refreshAll()} />
             <label style={styles.switchLabel}>
               <input checked={autoSwitch} onChange={(event) => void toggleAutoSwitch(event.target.checked)} type="checkbox" />
-              Auto-switch
+              {tt(language, 'raceProfiles.autoSwitch')}
             </label>
           </div>
         </div>
 
         <div style={styles.formGrid}>
           <label style={styles.field}>
-            Profile name
+            {tt(language, 'raceProfiles.profileName')}
             <input
               style={styles.input}
               value={draft.name}
               onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
-              placeholder="Ex.: Porsche GT3 at Interlagos"
+              placeholder={tt(language, 'raceProfiles.namePlaceholder')}
             />
           </label>
           <label style={styles.field}>
-            ButtonBox profile (HID)
+            {tt(language, 'raceProfiles.buttonBoxProfile')}
             <select
               style={styles.input}
               value={draft.buttonboxProfile ?? ''}
               onChange={(event) => setDraft((current) => ({ ...current, buttonboxProfile: event.target.value }))}
             >
-              <option value="">Keep ButtonBox unchanged</option>
+              <option value="">{tt(language, 'raceProfiles.keepButtonBox')}</option>
               {buttonboxProfiles.map((profile) => (
                 <option key={profile.name} value={profile.name}>{profile.name}</option>
               ))}
             </select>
           </label>
           <label style={styles.field}>
-            Car
+            {tt(language, 'raceProfiles.car')}
             <input
               style={styles.input}
               value={draft.match?.carName ?? ''}
               onChange={(event) => setDraft((current) => ({ ...current, match: { ...current.match, carName: event.target.value } }))}
-              placeholder="Ex.: Porsche 911 GT3 R"
+              placeholder={tt(language, 'raceProfiles.carPlaceholder')}
             />
           </label>
           <label style={styles.field}>
-            Track
+            {tt(language, 'raceProfiles.track')}
             <input
               style={styles.input}
               value={draft.match?.trackName ?? ''}
               onChange={(event) => setDraft((current) => ({ ...current, match: { ...current.match, trackName: event.target.value } }))}
-              placeholder="e.g., Interlagos"
+              placeholder={tt(language, 'raceProfiles.trackPlaceholder')}
             />
           </label>
         </div>
 
         <div style={styles.row}>
-          <button style={styles.secondaryButton} disabled={busy} onClick={() => void fillMatchFromTelemetry()} type="button">Use telemetry</button>
-          <button style={styles.primaryButton} disabled={busy || !draft.name.trim()} onClick={() => void saveCurrent()} type="button">Save current</button>
-          <button style={styles.ghostButton} disabled={busy} onClick={resetDraft} type="button">New</button>
+          <button style={styles.secondaryButton} disabled={busy} onClick={() => void fillMatchFromTelemetry()} type="button">{tt(language, 'raceProfiles.useTelemetry')}</button>
+          <button style={styles.primaryButton} disabled={busy || !draft.name.trim()} onClick={() => void saveCurrent()} type="button">{tt(language, 'raceProfiles.saveCurrent')}</button>
+          <button style={styles.ghostButton} disabled={busy} onClick={resetDraft} type="button">{tt(language, 'raceProfiles.new')}</button>
         </div>
       </article>
 
       <article style={styles.card}>
         <div style={styles.headerRow}>
           <div>
-            <span style={styles.kicker}>Local library</span>
-            <h3 style={styles.title}>Saved race profiles</h3>
+            <span style={styles.kicker}>{tt(language, 'raceProfiles.localLibrary')}</span>
+            <h3 style={styles.title}>{tt(language, 'raceProfiles.savedProfiles')}</h3>
           </div>
-          <button style={styles.ghostButton} disabled={busy} onClick={() => void refreshAll()} type="button">Refresh</button>
+          <button style={styles.ghostButton} disabled={busy} onClick={() => void refreshAll()} type="button">{tt(language, 'raceProfiles.refresh')}</button>
         </div>
 
         <div style={styles.list}>
-          {profiles.length === 0 && <p style={styles.empty}>No saved race profiles yet.</p>}
+          {profiles.length === 0 && <p style={styles.empty}>{tt(language, 'raceProfiles.empty')}</p>}
           {profiles.map((profile) => (
             <div key={profile.id} style={styles.profileItem}>
               <div>
@@ -326,9 +327,9 @@ export default function RaceProfilesView({ connectedDevice, mapping, config, ref
                 </p>
               </div>
               <div style={styles.row}>
-                <button style={styles.secondaryButton} disabled={busy} onClick={() => editProfile(profile)} type="button">Edit</button>
-                <button style={styles.primaryButton} disabled={busy} onClick={() => void applyRaceProfile(profile)} type="button">Apply</button>
-                <button style={styles.dangerButton} disabled={busy} onClick={() => void deleteProfile(profile.id)} type="button">Delete</button>
+                <button style={styles.secondaryButton} disabled={busy} onClick={() => editProfile(profile)} type="button">{tt(language, 'raceProfiles.edit')}</button>
+                <button style={styles.primaryButton} disabled={busy} onClick={() => void applyRaceProfile(profile)} type="button">{tt(language, 'raceProfiles.apply')}</button>
+                <button style={styles.dangerButton} disabled={busy} onClick={() => void deleteProfile(profile.id)} type="button">{tt(language, 'raceProfiles.delete')}</button>
               </div>
             </div>
           ))}
