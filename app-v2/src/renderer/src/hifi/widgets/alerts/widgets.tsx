@@ -1,7 +1,7 @@
 import { type ReactElement } from 'react'
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, fixed, frac, legibleStroke, num } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, fixed, frac, legibleStroke, num, revFill } from '../kit'
 
 const AMBER = '#ffb000'
 const CYAN = '#00d8ff'
@@ -136,11 +136,12 @@ function AlertShiftFlash({ snapshot, width, height }: HifiWidgetProps): ReactEle
         </filter>
       </defs>
       <g filter="url(#alerts-shift-glow)">
+        <ShiftStrobe active />
         {Array.from({ length: count }, (_, i) => {
           const dist = Math.abs(i - center) / center
           const color = dist < 0.32 ? WHITE : BLUE
           const on = i >= Math.floor((count - lit) / 2) && i <= Math.ceil((count + lit) / 2)
-          return <rect key={i} x={i * (cellW + gap)} y={y} width={cellW} height={16} rx={8} fill={color} opacity={on ? 1 : 0.16} />
+          return <rect key={i} x={i * (cellW + gap)} y={y} width={cellW} height={16} rx={8} fill={on ? revFill(color, true) : C.recess} opacity={on ? 1 : 0.16} />
         })}
       </g>
     </CleanTile>

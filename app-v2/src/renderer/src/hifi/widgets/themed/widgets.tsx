@@ -1,6 +1,6 @@
 ﻿import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, fixed, frac, gearLabel, legibleStroke, num } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, ShiftStrobe, atShiftPoint, fixed, frac, gearLabel, legibleStroke, num, revFill } from '../kit'
 
 const REV_W = 960
 const REV_H = 90
@@ -61,20 +61,25 @@ function GlowDefs({ id, color }: { id: string; color: string }): ReactElement {
 
 function FerrariRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = safeShift(snapshot)
-  const lit = activeCount(f, 29, missing)
+  const shift = atShiftPoint(f)
+  const lit = shift ? 29 : activeCount(f, 29, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
   return (
     <CleanTile width={w} height={h}>
       <GlowDefs id="themed-ferrari-rev" color={PAL.ferrari.accent} />
-      {Array.from({ length: 29 }, (_, i) => {
-        const pct = i / 28
-        const x = 84 + pct * (w - 168)
-        const y = 62 - Math.sin(pct * Math.PI) * 42
-        const on = i < lit
-        const blue = pct > 0.44 && pct < 0.56 && f > 0.92 && !missing
-        return <circle key={i} cx={x} cy={y} r={blue ? 13 : 10.5} fill={on || blue ? (blue ? PAL.ferrari.aux : pickRamp('ferrari', pct)) : C.recess} opacity={on || blue ? 1 : 0.42} filter={on || blue ? 'url(#themed-ferrari-rev-glow)' : undefined} />
-      })}
+      <g>
+        <ShiftStrobe active={shift} />
+        {Array.from({ length: 29 }, (_, i) => {
+          const pct = i / 28
+          const x = 84 + pct * (w - 168)
+          const y = 62 - Math.sin(pct * Math.PI) * 42
+          const on = i < lit
+          const blue = pct > 0.44 && pct < 0.56 && f > 0.92 && !missing
+          const ramp = blue ? PAL.ferrari.aux : pickRamp('ferrari', pct)
+          return <circle key={i} cx={x} cy={y} r={blue ? 13 : 10.5} fill={on || blue ? revFill(ramp, shift) : C.recess} opacity={on || blue ? 1 : 0.42} filter={on || blue ? 'url(#themed-ferrari-rev-glow)' : undefined} />
+        })}
+      </g>
     </CleanTile>
   )
 }
@@ -82,7 +87,8 @@ function FerrariRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
 function PorscheRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = safeShift(snapshot)
   const count = 22
-  const lit = activeCount(f, count, missing)
+  const shift = atShiftPoint(f)
+  const lit = shift ? count : activeCount(f, count, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
   const x = 72
@@ -91,12 +97,16 @@ function PorscheRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
   return (
     <CleanTile width={w} height={h}>
       <GlowDefs id="themed-porsche-rev" color={PAL.porsche.main} />
-      {[0, 1].map((side) => <rect key={side} x={side === 0 ? 18 : w - 52} y={21} width={34} height={48} rx={7} fill={!missing && f > 0.9 ? PAL.porsche.aux : C.recess} opacity={!missing && f > 0.9 ? 1 : 0.38} filter={!missing && f > 0.9 ? 'url(#themed-porsche-rev-glow)' : undefined} />)}
-      {Array.from({ length: count }, (_, i) => {
-        const pct = i / (count - 1)
-        const on = i < lit
-        return <rect key={i} x={x + i * (cell + gap)} y={25} width={cell} height={40} rx={3} fill={on ? (pct < 0.72 ? PAL.porsche.main : PAL.porsche.accent) : C.recess} opacity={on ? 1 : 0.44} />
-      })}
+      <g>
+        <ShiftStrobe active={shift} />
+        {[0, 1].map((side) => <rect key={side} x={side === 0 ? 18 : w - 52} y={21} width={34} height={48} rx={7} fill={!missing && f > 0.9 ? revFill(PAL.porsche.aux, shift) : C.recess} opacity={!missing && f > 0.9 ? 1 : 0.38} filter={!missing && f > 0.9 ? 'url(#themed-porsche-rev-glow)' : undefined} />)}
+        {Array.from({ length: count }, (_, i) => {
+          const pct = i / (count - 1)
+          const on = i < lit
+          const ramp = pct < 0.72 ? PAL.porsche.main : PAL.porsche.accent
+          return <rect key={i} x={x + i * (cell + gap)} y={25} width={cell} height={40} rx={3} fill={on ? revFill(ramp, shift) : C.recess} opacity={on ? 1 : 0.44} />
+        })}
+      </g>
     </CleanTile>
   )
 }
@@ -104,7 +114,8 @@ function PorscheRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
 function AmgRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = safeShift(snapshot)
   const count = 24
-  const lit = activeCount(f, count, missing)
+  const shift = atShiftPoint(f)
+  const lit = shift ? count : activeCount(f, count, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
   const gap = 8
@@ -114,14 +125,17 @@ function AmgRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   return (
     <CleanTile width={w} height={h}>
       <GlowDefs id="themed-amg-rev" color={PAL.amg.main} />
-      {Array.from({ length: count }, (_, i) => {
-        const cluster = Math.floor(i / 8)
-        const local = i % 8
-        const x = x0 + i * (cell + gap) + cluster * clusterGap
-        const on = i < lit
-        const color = cluster === 0 ? PAL.amg.main : cluster === 1 ? '#ffd42a' : PAL.amg.aux
-        return <rect key={i} x={x} y={18 + (local % 2) * 9} width={cell} height={45} rx={6} fill={on ? color : C.recess} opacity={on ? 1 : 0.42} filter={on ? 'url(#themed-amg-rev-glow)' : undefined} />
-      })}
+      <g>
+        <ShiftStrobe active={shift} />
+        {Array.from({ length: count }, (_, i) => {
+          const cluster = Math.floor(i / 8)
+          const local = i % 8
+          const x = x0 + i * (cell + gap) + cluster * clusterGap
+          const on = i < lit
+          const color = cluster === 0 ? PAL.amg.main : cluster === 1 ? '#ffd42a' : PAL.amg.aux
+          return <rect key={i} x={x} y={18 + (local % 2) * 9} width={cell} height={45} rx={6} fill={on ? revFill(color, shift) : C.recess} opacity={on ? 1 : 0.42} filter={on ? 'url(#themed-amg-rev-glow)' : undefined} />
+        })}
+      </g>
       <rect x={w / 2 - 5} y={15} width={10} height={60} rx={5} fill="rgba(255,255,255,0.16)" />
     </CleanTile>
   )
@@ -129,18 +143,22 @@ function AmgRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
 
 function MclarenRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = safeShift(snapshot)
+  const shift = atShiftPoint(f)
   const w = width ?? REV_W
   const h = height ?? REV_H
   const x = 46
   const y = 39
   const bw = w - x * 2
-  const litW = missing ? 0 : bw * f
+  const litW = shift ? bw : missing ? 0 : bw * f
   return (
     <CleanTile width={w} height={h}>
       <GlowDefs id="themed-mclaren-rev" color={PAL.mclaren.main} />
-      <rect x={x} y={y} width={bw} height={13} rx={6.5} fill={C.recess} opacity={0.55} />
-      <rect x={x} y={y} width={litW} height={13} rx={6.5} fill="url(#themed-mclaren-rev-grad)" filter={litW > 0 ? 'url(#themed-mclaren-rev-glow)' : undefined} />
-      {Array.from({ length: 54 }, (_, i) => <rect key={i} x={x + i * (bw / 54)} y={32} width={2} height={27} fill="rgba(0,0,0,0.44)" />)}
+      <g>
+        <ShiftStrobe active={shift} />
+        <rect x={x} y={y} width={bw} height={13} rx={6.5} fill={C.recess} opacity={0.55} />
+        <rect x={x} y={y} width={litW} height={13} rx={6.5} fill={revFill('url(#themed-mclaren-rev-grad)', shift)} filter={litW > 0 ? 'url(#themed-mclaren-rev-glow)' : undefined} />
+        {Array.from({ length: 54 }, (_, i) => <rect key={i} x={x + i * (bw / 54)} y={32} width={2} height={27} fill="rgba(0,0,0,0.44)" />)}
+      </g>
     </CleanTile>
   )
 }
@@ -148,7 +166,8 @@ function MclarenRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
 function CorvetteRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = safeShift(snapshot)
   const perRow = 16
-  const lit = activeCount(f, perRow * 2, missing)
+  const shift = atShiftPoint(f)
+  const lit = shift ? perRow * 2 : activeCount(f, perRow * 2, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
   const gap = 8
@@ -157,15 +176,18 @@ function CorvetteRev({ snapshot, width, height }: HifiWidgetProps): ReactElement
   return (
     <CleanTile width={w} height={h}>
       <GlowDefs id="themed-corvette-rev" color={PAL.corvette.main} />
-      {[0, 1].map((row) => Array.from({ length: perRow }, (_, i) => {
-        const rightHalf = i >= perRow / 2
-        const x = 46 + i * (cell + gap) + (rightHalf ? centerGap : 0)
-        const y = row === 0 ? 19 : 50
-        const idx = row * perRow + i
-        const pct = idx / (perRow * 2 - 1)
-        const on = idx < lit
-        return <rect key={`${row}-${i}`} x={x} y={y} width={cell} height={20} rx={4} fill={on ? pickRamp('corvette', pct) : C.recess} opacity={on ? 1 : 0.42} filter={on ? 'url(#themed-corvette-rev-glow)' : undefined} />
-      }))}
+      <g>
+        <ShiftStrobe active={shift} />
+        {[0, 1].map((row) => Array.from({ length: perRow }, (_, i) => {
+          const rightHalf = i >= perRow / 2
+          const x = 46 + i * (cell + gap) + (rightHalf ? centerGap : 0)
+          const y = row === 0 ? 19 : 50
+          const idx = row * perRow + i
+          const pct = idx / (perRow * 2 - 1)
+          const on = idx < lit
+          return <rect key={`${row}-${i}`} x={x} y={y} width={cell} height={20} rx={4} fill={on ? revFill(pickRamp('corvette', pct), shift) : C.recess} opacity={on ? 1 : 0.42} filter={on ? 'url(#themed-corvette-rev-glow)' : undefined} />
+        }))}
+      </g>
       <rect x={w / 2 - 7} y={14} width={14} height={62} rx={4} fill="rgba(255,255,255,0.13)" />
     </CleanTile>
   )
@@ -174,7 +196,8 @@ function CorvetteRev({ snapshot, width, height }: HifiWidgetProps): ReactElement
 function LamboRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = safeShift(snapshot)
   const count = 20
-  const lit = activeCount(f, count, missing)
+  const shift = atShiftPoint(f)
+  const lit = shift ? count : activeCount(f, count, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
   const cellW = 34
@@ -183,15 +206,18 @@ function LamboRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   return (
     <CleanTile width={w} height={h}>
       <GlowDefs id="themed-lambo-rev" color={PAL.lambo.main} />
-      {Array.from({ length: count }, (_, i) => {
-        const pct = i / (count - 1)
-        const x = x0 + i * (cellW + gap)
-        const y = 18 + (i % 2) * 7
-        const on = i < lit
-        const color = pct < 0.5 ? PAL.lambo.main : pct < 0.78 ? PAL.lambo.accent : PAL.lambo.aux
-        const points = `${x + 8},${y} ${x + cellW - 6},${y} ${x + cellW},${y + 18} ${x + cellW - 8},${y + 38} ${x + 6},${y + 38} ${x},${y + 18}`
-        return <polygon key={i} points={points} fill={on ? color : C.recess} stroke={on ? color : 'rgba(255,255,255,0.12)'} strokeWidth={2} opacity={on ? 1 : 0.48} filter={on ? 'url(#themed-lambo-rev-glow)' : undefined} />
-      })}
+      <g>
+        <ShiftStrobe active={shift} />
+        {Array.from({ length: count }, (_, i) => {
+          const pct = i / (count - 1)
+          const x = x0 + i * (cellW + gap)
+          const y = 18 + (i % 2) * 7
+          const on = i < lit
+          const color = pct < 0.5 ? PAL.lambo.main : pct < 0.78 ? PAL.lambo.accent : PAL.lambo.aux
+          const points = `${x + 8},${y} ${x + cellW - 6},${y} ${x + cellW},${y + 18} ${x + cellW - 8},${y + 38} ${x + 6},${y + 38} ${x},${y + 18}`
+          return <polygon key={i} points={points} fill={on ? revFill(color, shift) : C.recess} stroke={on ? revFill(color, shift) : 'rgba(255,255,255,0.12)'} strokeWidth={2} opacity={on ? 1 : 0.48} filter={on ? 'url(#themed-lambo-rev-glow)' : undefined} />
+        })}
+      </g>
     </CleanTile>
   )
 }
@@ -200,8 +226,14 @@ function MiniStrip({ family, f, missing, x, y, w }: { family: Family; f: number;
   const count = 18
   const gap = 4
   const cell = (w - gap * (count - 1)) / count
-  const lit = activeCount(f, count, missing)
-  return <g>{Array.from({ length: count }, (_, i) => <rect key={i} x={x + i * (cell + gap)} y={y} width={cell} height={10} rx={2} fill={i < lit ? pickRamp(family, i / (count - 1)) : C.recess} opacity={i < lit ? 1 : 0.46} />)}</g>
+  const shift = atShiftPoint(f)
+  const lit = shift ? count : activeCount(f, count, missing)
+  return (
+    <g>
+      <ShiftStrobe active={shift} />
+      {Array.from({ length: count }, (_, i) => <rect key={i} x={x + i * (cell + gap)} y={y} width={cell} height={10} rx={2} fill={i < lit ? revFill(pickRamp(family, i / (count - 1)), shift) : C.recess} opacity={i < lit ? 1 : 0.46} />)}
+    </g>
+  )
 }
 
 function TempBox({ x, label, value, color }: { x: number; label: string; value: number | undefined; color: string }): ReactElement {

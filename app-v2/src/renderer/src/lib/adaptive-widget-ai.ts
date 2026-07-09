@@ -185,7 +185,12 @@ export function selectAdaptiveWidgets(input: AdaptiveWidgetAiInput): string[] {
   const maxSlots = Number.isFinite(input.maxSlots) ? Math.max(0, Math.floor(input.maxSlots)) : 0
   if (maxSlots === 0) return []
 
-  const scored = HIFI_WIDGETS.map((module, index): ScoredWidget => {
+  // The adaptive dashboard curates the CORE per-telemetry widgets. Car-branded
+  // clusters (category 'cars') and per-car themed widgets (category 'themed') are
+  // for building themed dashboards, not for live auto-selection — exclude them.
+  const adaptivePool = HIFI_WIDGETS.filter((module) => module.category !== 'cars' && module.category !== 'themed')
+
+  const scored = adaptivePool.map((module, index): ScoredWidget => {
     const scores = new Map<string, number>([[module.id, 10]])
     const presence = requiredPresence(module, input.snapshot)
     scores.set(module.id, (scores.get(module.id) ?? 0) + presence * 16 - (presence === 0 && module.requires.length > 0 ? 18 : 0))

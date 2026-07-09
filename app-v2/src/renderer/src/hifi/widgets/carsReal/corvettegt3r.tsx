@@ -1,6 +1,6 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, signed, tempColor } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, revFill, signed, tempColor } from '../kit'
 
 const DASH_W = 1024
 const DASH_H = 600
@@ -67,17 +67,19 @@ function ledColor(i: number, count: number): string {
 function ShiftLedRow({ snapshot, x, y, w, h, count = 18, id = 'cv-leds' }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; h: number; count?: number; id?: string }): ReactElement {
   const f = rpmFraction(snapshot)
   const missing = rpmMissing(snapshot)
-  const lit = missing ? 0 : Math.round(f * count)
+  const shift = atShiftPoint(f)
+  const lit = shift ? count : missing ? 0 : Math.round(f * count)
   const blink = snapshot?.revLights?.blink === true || f >= 0.96
   const gap = w / Math.max(1, count - 1)
   const r = h / 2
   return (
     <g>
+      <ShiftStrobe active={shift} />
       <BoschDefs id={id} />
       {Array.from({ length: count }, (_, i) => {
         const redline = i >= count - 2 && blink
         const on = !missing && (i < lit || redline)
-        const color = ledColor(i, count)
+        const color = revFill(ledColor(i, count), shift)
         const cx = x + i * gap
         return (
           <g key={i}>
@@ -94,12 +96,14 @@ function ShiftLedRow({ snapshot, x, y, w, h, count = 18, id = 'cv-leds' }: { sna
 function RpmSegmentBar({ snapshot, x, y, w, h, id = 'cv-rpm', labels = true }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; h: number; id?: string; labels?: boolean }): ReactElement {
   const f = rpmFraction(snapshot)
   const missing = rpmMissing(snapshot)
+  const shift = atShiftPoint(f)
   const cells = 42
   const gap = 4
   const cellW = (w - gap * (cells - 1)) / cells
-  const lit = missing ? 0 : Math.round(f * cells)
+  const lit = shift ? cells : missing ? 0 : Math.round(f * cells)
   return (
     <g>
+      <ShiftStrobe active={shift} />
       <BoschDefs id={id} />
       {labels ? (
         <g>
@@ -118,7 +122,7 @@ function RpmSegmentBar({ snapshot, x, y, w, h, id = 'cv-rpm', labels = true }: {
       ) : null}
       {Array.from({ length: cells }, (_, i) => {
         const p = i / (cells - 1)
-        const color = p > 0.87 ? RED : p > 0.58 ? CORVETTE_YELLOW : GREEN
+        const color = revFill(p > 0.87 ? RED : p > 0.58 ? CORVETTE_YELLOW : GREEN, shift)
         return <rect key={i} x={x + i * (cellW + gap)} y={y} width={cellW} height={h} fill={i < lit ? color : '#101010'} stroke={i < lit ? 'none' : 'rgba(255,255,255,0.22)'} strokeWidth={1} opacity={i < lit ? 1 : 0.82} />
       })}
     </g>

@@ -61,5 +61,16 @@ export const HIFI_CARS_PRESETS: HifiCompPreset[] = [
         bg(),
         hifiEl('lhDash', 0, 0, 1024, 600)
       ])
+  ),
+  comp(
+    'hifi_car_ferrari488',
+    'Ferrari 488 Challenge Cluster',
+    'Faithful Ferrari 488 Challenge cluster: top shift LEDs, center gear with a curved RPM bar, speed, last-lap/delta and a fuel/oil/water band.',
+    ['ferrari', 'ferrari-488-challenge', 'challenge', 'car', 'cluster', 'real-dash', 'ir'],
+    () =>
+      dashboard('Ferrari 488 Challenge Cluster', 'Ferrari 488 Challenge real-dash cluster.', [
+        bg(),
+        hifiEl('f488Dash', 0, 0, 1024, 600)
+      ])
   )
 ]

@@ -1,6 +1,6 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, condColor, fixed, frac, gearLabel, legibleStroke, num, signed } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, legibleStroke, num, revFill, signed } from '../kit'
 
 const DASH_W = 1024
 const DASH_H = 600
@@ -80,15 +80,17 @@ function GlowDefs({ id }: { id: string }): ReactElement {
 
 function HexShiftRow({ snapshot, x, y, w, h, count = 20, id = 'lh-shift' }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; h: number; count?: number; id?: string }): ReactElement {
   const { f, missing, flash } = shiftState(snapshot)
-  const lit = missing ? 0 : Math.round(f * count)
+  const shift = atShiftPoint(f)
+  const lit = shift ? count : missing ? 0 : Math.round(f * count)
   const gap = Math.max(3, w * 0.006)
   const cell = (w - gap * (count - 1)) / count
   return (
     <g>
+      <ShiftStrobe active={shift} />
       <GlowDefs id={id} />
       {Array.from({ length: count }, (_, i) => {
         const on = !missing && (i < lit || (flash && i >= count - 2))
-        const color = shiftColor(i, count)
+        const color = revFill(shiftColor(i, count), shift)
         const cx = x + cell / 2 + i * (cell + gap)
         return (
           <path

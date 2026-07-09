@@ -1,6 +1,6 @@
 ﻿import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, signed } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, revFill, signed } from '../kit'
 
 const DASH_W = 1024
 const DASH_H = 600
@@ -66,15 +66,17 @@ function GlowDefs({ id }: { id: string }): ReactElement {
 
 function RoundLedStrip({ snapshot, x, y, w, count = 17, id = 'f296-leds', r = 15 }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; count?: number; id?: string; r?: number }): ReactElement {
   const { f, missing, flash } = shiftFrac(snapshot)
-  const lit = missing ? 0 : Math.round(f * count)
+  const shift = atShiftPoint(f)
+  const lit = shift ? count : missing ? 0 : Math.round(f * count)
   const gap = count === 1 ? 0 : w / (count - 1)
   return (
     <g>
+      <ShiftStrobe active={shift} />
       <GlowDefs id={id} />
       {Array.from({ length: count }, (_, i) => {
         const overRev = i >= count - 2 && flash
         const on = !missing && (i < lit || overRev)
-        const color = ledColor(i, count)
+        const color = revFill(ledColor(i, count), shift)
         return (
           <g key={i}>
             <circle cx={x + i * gap} cy={y} r={r + 8} fill={on ? color : 'transparent'} opacity={on ? 0.17 : 0} filter={`url(#${id}-soft)`} />

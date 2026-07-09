@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { baseSnapshot } from '../../../../../shared/telemetry-scenarios'
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
+import { SHIFT_STROBE_BLUE } from '../kit'
 import { THEMED_WIDGETS } from './index'
 
 const badTokens = /NaN|undefined|Infinity/
@@ -34,6 +35,30 @@ describe('THEMED_WIDGETS', () => {
     for (const markup of [...renderAll(null), ...renderAll(populated)]) {
       expect(markup.length).toBeGreaterThan(100)
       expect(markup).not.toMatch(badTokens)
+    }
+  })
+
+  it('strobes every themed rev display strong blue only at the shift point', () => {
+    const highShift = {
+      ...baseSnapshot(),
+      rpm: 8400,
+      maxRpm: 8500,
+      shiftIndicatorPct: 0.99,
+      gear: 4,
+      speedKmh: 184,
+      waterTempC: 92,
+      oilTempC: 104
+    }
+    const midShift = { ...highShift, rpm: 5100, shiftIndicatorPct: 0.6 }
+
+    for (const markup of renderAll(highShift)) {
+      expect(markup).toContain(SHIFT_STROBE_BLUE)
+      expect(markup).toContain('repeatCount="indefinite"')
+    }
+
+    for (const markup of renderAll(midShift)) {
+      expect(markup).not.toContain(SHIFT_STROBE_BLUE)
+      expect(markup).not.toContain('repeatCount="indefinite"')
     }
   })
 })

@@ -1,6 +1,6 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, signed, tempColor } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, revFill, signed, tempColor } from '../kit'
 
 const DASH_W = 1024
 const DASH_H = 600
@@ -76,10 +76,10 @@ function GtdDefs({ id }: { id: string }): ReactElement {
   )
 }
 
-function ShiftNeedle({ cx, cy, r1, r2, f, id }: { cx: number; cy: number; r1: number; r2: number; f: number; id: string }): ReactElement {
+function ShiftNeedle({ cx, cy, r1, r2, f, id, shift }: { cx: number; cy: number; r1: number; r2: number; f: number; id: string; shift: boolean }): ReactElement {
   const deg = 180 + 180 * Math.max(0, Math.min(1, f || 0))
   const t = tickLine(cx, cy, r1, r2, deg)
-  return <line {...t} stroke={WHITE} strokeWidth={13} strokeLinecap="round" filter={`url(#${id}-glow)`} />
+  return <line {...t} stroke={revFill(WHITE, shift)} strokeWidth={13} strokeLinecap="round" filter={`url(#${id}-glow)`} />
 }
 
 function SweepingArcTach({
@@ -99,29 +99,31 @@ function SweepingArcTach({
 }): ReactElement {
   const f = rpmFraction(snapshot)
   const missing = rpmMissing(snapshot)
+  const shift = atShiftPoint(f)
   const cx = width / 2
   const cy = height * 0.82
   const r = Math.min(width * 0.47, height * 1.35)
   const start = 180
   const end = 360
-  const litEnd = start + (end - start) * (missing ? 0 : f)
+  const litEnd = shift ? end : start + (end - start) * (missing ? 0 : f)
   const major = Array.from({ length: 10 }, (_, i) => i)
   const minor = Array.from({ length: 46 }, (_, i) => i)
   return (
     <g>
+      <ShiftStrobe active={shift} />
       <GtdDefs id={id} />
       {glow ? <path d={arcPath(cx, cy, r - 22, start, end)} stroke={`url(#${id}-halo)`} strokeWidth={52} fill="none" /> : null}
-      <path d={arcPath(cx, cy, r, start, end)} stroke="rgba(255,255,255,0.14)" strokeWidth={24} fill="none" strokeLinecap="butt" />
-      <path d={arcPath(cx, cy, r, start, 318)} stroke={BLUE} strokeWidth={8} fill="none" />
-      <path d={arcPath(cx, cy, r, 318, 340)} stroke={WHITE} strokeWidth={8} fill="none" />
-      <path d={arcPath(cx, cy, r, 340, end)} stroke={RED} strokeWidth={8} fill="none" />
-      <path d={arcPath(cx, cy, r - 54, start + 8, end - 8)} stroke={BLUE} strokeWidth={3} fill="none" opacity={0.95} />
-      {!missing && litEnd > start ? <path d={arcPath(cx, cy, r - 12, start, litEnd)} stroke={`url(#${id}-sweep)`} strokeWidth={18} fill="none" strokeLinecap="butt" opacity={0.92} /> : null}
+      <path d={arcPath(cx, cy, r, start, end)} stroke={shift ? revFill(WHITE, shift) : 'rgba(255,255,255,0.14)'} strokeWidth={24} fill="none" strokeLinecap="butt" />
+      <path d={arcPath(cx, cy, r, start, 318)} stroke={revFill(BLUE, shift)} strokeWidth={8} fill="none" />
+      <path d={arcPath(cx, cy, r, 318, 340)} stroke={revFill(WHITE, shift)} strokeWidth={8} fill="none" />
+      <path d={arcPath(cx, cy, r, 340, end)} stroke={revFill(RED, shift)} strokeWidth={8} fill="none" />
+      <path d={arcPath(cx, cy, r - 54, start + 8, end - 8)} stroke={revFill(BLUE, shift)} strokeWidth={3} fill="none" opacity={0.95} />
+      {(!missing || shift) && litEnd > start ? <path d={arcPath(cx, cy, r - 12, start, litEnd)} stroke={shift ? revFill(BLUE, shift) : `url(#${id}-sweep)`} strokeWidth={18} fill="none" strokeLinecap="butt" opacity={0.92} /> : null}
       {minor.map((i) => {
         const deg = start + (i / 45) * 180
         const red = deg > 338
         const t = tickLine(cx, cy, r - 8, r - 23, deg)
-        return <line key={i} {...t} stroke={red ? RED : deg > 305 ? WHITE : BLUE_2} strokeWidth={1.7} opacity={0.85} />
+        return <line key={i} {...t} stroke={revFill(red ? RED : deg > 305 ? WHITE : BLUE_2, shift)} strokeWidth={1.7} opacity={0.85} />
       })}
       {major.map((n) => {
         const deg = start + (n / 9) * 180
@@ -130,12 +132,12 @@ function SweepingArcTach({
         const p = polar(cx, cy, r - 72, deg)
         return (
           <g key={n}>
-            <line {...t} stroke={red ? RED : n >= 5 ? WHITE : BLUE_2} strokeWidth={n === 0 || n === 9 ? 5 : 4} />
-            {labels ? <text x={p.x} y={p.y + 9} textAnchor="middle" fill={red ? RED : n >= 5 ? WHITE : BLUE_2} fontFamily={FONT_NUM} fontWeight={900} fontSize={Math.max(20, height * 0.12)} {...legibleStroke(Math.max(20, height * 0.12))}>{n}</text> : null}
+            <line {...t} stroke={revFill(red ? RED : n >= 5 ? WHITE : BLUE_2, shift)} strokeWidth={n === 0 || n === 9 ? 5 : 4} />
+            {labels ? <text x={p.x} y={p.y + 9} textAnchor="middle" fill={revFill(red ? RED : n >= 5 ? WHITE : BLUE_2, shift)} fontFamily={FONT_NUM} fontWeight={900} fontSize={Math.max(20, height * 0.12)} {...legibleStroke(Math.max(20, height * 0.12))}>{n}</text> : null}
           </g>
         )
       })}
-      <ShiftNeedle cx={cx} cy={cy} r1={r - 5} r2={r - 62} f={missing ? 0.76 : Math.max(0.76, f)} id={id} />
+      <ShiftNeedle cx={cx} cy={cy} r1={r - 5} r2={r - 62} f={missing ? 0.76 : Math.max(0.76, f)} id={id} shift={shift} />
     </g>
   )
 }

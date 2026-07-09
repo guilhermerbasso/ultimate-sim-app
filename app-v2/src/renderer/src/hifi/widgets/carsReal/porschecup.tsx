@@ -1,6 +1,6 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, signed } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, revFill, signed } from '../kit'
 
 const DASH_W = 1024
 const DASH_H = 600
@@ -46,15 +46,17 @@ function SegmentRevBar({
   dim?: string
 }): ReactElement {
   const { f, missing, flash } = shiftFrac(snapshot)
-  const lit = missing ? 0 : Math.round(f * count)
+  const shift = atShiftPoint(f)
+  const lit = shift ? count : missing ? 0 : Math.round(f * count)
   const gap = Math.max(3, w * 0.004)
   const cell = (w - gap * (count - 1)) / count
   return (
     <g>
+      <ShiftStrobe active={shift} />
       {Array.from({ length: count }, (_, i) => {
         const limiter = flash && i >= count - 3
         const on = !missing && (i < lit || limiter)
-        const color = segmentColor(i, count)
+        const color = revFill(segmentColor(i, count), shift)
         return (
           <rect
             key={i}
