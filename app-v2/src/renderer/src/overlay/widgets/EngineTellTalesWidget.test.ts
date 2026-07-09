@@ -96,11 +96,10 @@ describe('EngineTellTalesWidget', () => {
     }
   })
 
-  it('degrades a null snapshot to a dim "—" sheet with the title and registry glyphs', () => {
+  it('degrades a null snapshot to dim labelled registry glyphs', () => {
     const out = render(null)
-    expect(out).toContain('Engine Warnings')
-    expect(out).toContain('—')
-    expect(out).toContain('aria-label="WARN —"')
+    expect(out).toContain('OIL P')
+    expect(out).toContain('PIT')
     expect(out).toContain('<svg')
   })
 
@@ -108,13 +107,11 @@ describe('EngineTellTalesWidget', () => {
     const out = render(withWarning('oilPressure'))
     expect(out).toContain('aria-label="OIL P"')
     expect(out).toContain('aria-pressed="true"')
-    expect(out).toContain('aria-label="WARN 1"')
   })
 
-  it('shows CLEAR in neutral chrome (not decorative green) when present with no active bit', () => {
+  it('keeps all-clear lamps neutral chrome (not decorative green)', () => {
     const out = render(clear)
-    expect(out).toContain('CLEAR')
-    expect(out, 'clear sheet is neutral chrome, not decorative green').toContain(DASH.textDim)
+    expect(out, 'clear sheet is dimmed neutral chrome, not decorative green').toContain('rgba(150,162,178,0.42)')
     expect(out, 'no decorative green on the all-clear panel').not.toContain(DASH.green)
   })
 
@@ -134,7 +131,7 @@ describe('EngineTellTalesWidget', () => {
 
   it('counts active warnings and flags red as worst when any hard fault is set', () => {
     const out = render(allOn)
-    expect(out).toContain('9')
+    expect(out).toContain('REPAIR')
     expect(out).toContain(DASH.red)
   })
 

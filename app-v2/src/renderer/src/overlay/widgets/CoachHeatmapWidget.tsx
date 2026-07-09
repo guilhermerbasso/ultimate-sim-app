@@ -5,7 +5,7 @@ import { useTrackMapData } from '../../lib/track-map'
 import { useCoachReport } from '../../lib/coach-heatmap'
 import type { WidgetProps } from './types'
 import { pct } from './format'
-import { DataTile, TelltaleIcon } from '../../instruments'
+import { TelltaleIcon } from '../../instruments'
 import './redesign-radar.css'
 
 // WS-M — read-only coaching HEATMAP overlay. Same coloured corner map as the
@@ -21,15 +21,26 @@ export function CoachHeatmapWidget({ snapshot, config }: WidgetProps): ReactElem
   const playerPct = pct(snapshot?.lapDistPct)
   const accent = config?.style?.accent ?? '#ff6a00'
   const outline = config?.style?.border ?? '#24445d'
-  const trackName = trackData?.trackName ?? trackStatus?.currentTrackName ?? snapshot?.trackName ?? 'Track'
 
   return (
-    <div className={`overlay-card rd3-root rd3-map rd3-fam-${family}`}>
-      <div className="rd3-map-head">
-        {family === 'neon' ? 'COACH HEATMAP' : 'Coaching · curvas'}
-      </div>
+    <div
+      className={`overlay-card rd3-root rd3-map rd3-fam-${family}`}
+      style={{ background: 'transparent', border: 'none', boxShadow: 'none', backdropFilter: 'none' }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <DataTile label="LAP" value={Math.round(playerPct * 100)} unit="%" width={104} height={44} color={accent} accent={accent} material="carbon" idPrefix="coach-heatmap-lap" />
+        <div
+          aria-label={`LAP ${Math.round(playerPct * 100)}%`}
+          style={{
+            color: accent,
+            fontFamily: "'DSEG7Classic-Regular', 'DSEG14Classic-Regular', monospace",
+            fontSize: 24,
+            fontWeight: 700,
+            lineHeight: 1,
+            textShadow: '0 1px 3px rgba(0,0,0,0.85)'
+          }}
+        >
+          {Math.round(playerPct * 100)}%
+        </div>
         <TelltaleIcon icon="temp" active={!!report} activeColor={accent} label={report ? 'vs reference' : 'waiting for lap'} size={22} idPrefix="coach-heatmap-state" />
       </div>
       <div className="rd3-map-stage">
@@ -44,7 +55,6 @@ export function CoachHeatmapWidget({ snapshot, config }: WidgetProps): ReactElem
         />
       </div>
       <div className="rd3-map-meta">
-        <span>{trackName}</span>
         <span>{report ? 'vs reference' : 'waiting for lap'}</span>
       </div>
     </div>

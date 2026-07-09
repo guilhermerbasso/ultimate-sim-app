@@ -50,35 +50,18 @@ function sevColor(sev: Sev): string {
 
 export function EngineTellTalesWidget({ snapshot, config }: WidgetProps): ReactElement {
   const skin = resolveSkin('gt3', 'generic')
-  const hud = skin.id === 'hud'
   const W = Math.max(160, config.position?.width || 360)
   const H = Math.max(120, config.position?.height || 200)
 
   const warnings = snapshot?.engineWarnings
   const present = !!warnings
-  const activeCount = warnings ? LAMPS.filter((l) => warnings[l.key]).length : 0
-  const worst: Sev | null = warnings
-    ? LAMPS.some((l) => warnings[l.key] && l.sev === 'red')
-      ? 'red'
-      : activeCount > 0
-        ? 'amber'
-        : null
-    : null
-
-  // No warnings is the normal state — neutral chrome, not decorative green (this panel
-  // only signals trouble; green is reserved for genuine "good" telemetry states).
-  const statusText = !present ? '—' : activeCount === 0 ? 'CLEAR' : `${activeCount}`
-  const statusColor = worst ? sevColor(worst) : DASH.textDim
 
   const pad = Math.max(6, Math.round(W * 0.03))
-  const headerH = Math.max(22, Math.round(H * 0.17))
-  const statusW = Math.max(78, Math.round(W * 0.26))
-  const headerY = pad
-  const titleW = W - pad * 2 - statusW - pad
 
-  // Lamp region: a 3×3 grid below the header, snapped to fixed cells.
+  // Lamp region: a 3×3 transparent grid. Each cell reserves separate symbol and
+  // label bands so glyph artwork and text never collide.
   const gx = pad
-  const gy = headerY + headerH + Math.max(4, Math.round(H * 0.03))
+  const gy = pad
   const gw = W - pad * 2
   const gh = H - gy - pad
   const grid = makeGrid(3, 3, gw, gh, Math.max(6, Math.round(W * 0.02)))
@@ -93,80 +76,7 @@ export function EngineTellTalesWidget({ snapshot, config }: WidgetProps): ReactE
       aria-label="Engine warning lamps"
       data-widget="engineTellTales"
     >
-      <rect
-        x={0.75}
-        y={0.75}
-        width={W - 1.5}
-        height={H - 1.5}
-        rx={skin.material.radius}
-        fill={hud ? skin.palette.surface : skin.palette.bg}
-        stroke={skin.material.border}
-        strokeWidth={skin.material.borderWidth}
-        fillOpacity={hud ? 0.72 : 1}
-      />
-
-      {/* Title */}
-      <FitText
-        x={pad + 2}
-        y={headerY + headerH / 2}
-        boxW={titleW}
-        boxH={headerH}
-        text="Engine Warnings"
-        anchor="start"
-        baseline="middle"
-        fontFamily={FONT_COND}
-        fill={worst ? statusColor : skin.palette.textDim}
-        weight={800}
-        minFontPx={11}
-        maxFontPx={Math.min(20, headerH)}
-        letterSpacing={0.8}
-      />
-
-      {/* WARN status — a labelled panel with an accessible "WARN <n>" name. */}
-      <g role="img" aria-label={`WARN ${statusText}`}>
-        <rect
-          x={W - pad - statusW}
-          y={headerY}
-          width={statusW}
-          height={headerH}
-          rx={Math.min(8, skin.material.radius)}
-          fill={skin.palette.surface}
-          stroke={worst ? statusColor : skin.material.border}
-          strokeWidth={worst ? 1.5 : skin.material.borderWidth}
-        />
-        <FitText
-          x={W - pad - statusW + 8}
-          y={headerY + headerH / 2}
-          boxW={statusW * 0.42}
-          boxH={headerH * 0.7}
-          text="WARN"
-          anchor="start"
-          baseline="middle"
-          fontFamily={FONT_COND}
-          fill={skin.palette.textDim}
-          weight={700}
-          minFontPx={11}
-          maxFontPx={Math.min(15, headerH * 0.7)}
-          letterSpacing={0.6}
-        />
-        <FitText
-          x={W - pad - 10}
-          y={headerY + headerH / 2}
-          boxW={statusW * 0.4}
-          boxH={headerH * 0.82}
-          text={statusText}
-          anchor="end"
-          baseline="middle"
-          fontFamily={FONT_COND}
-          fill={statusColor}
-          weight={800}
-          minFontPx={12}
-          maxFontPx={Math.min(24, headerH * 0.82)}
-        />
-      </g>
-
-      {/* Lamp grid — fixed cells; icons drawn in a fixed inner box (never sized to
-          content), so a symbol can never overflow. */}
+      {/* Lamp grid — fixed cells with separate icon and label bands. */}
       <g transform={`translate(${gx},${gy})`}>
         {LAMPS.map((lamp, i) => {
           const col = i % 3
@@ -174,22 +84,13 @@ export function EngineTellTalesWidget({ snapshot, config }: WidgetProps): ReactE
           const cell = grid.cell(col, row)
           const lit = present && !!warnings?.[lamp.key]
           const color = sevColor(lamp.sev)
-          const iconSize = Math.max(12, Math.min(cell.w, cell.h) * 0.7)
+          const labelH = Math.max(10, Math.min(15, cell.h * 0.22))
+          const iconBandH = Math.max(12, cell.h - labelH - 4)
+          const iconSize = Math.max(12, Math.min(cell.w * 0.72, iconBandH * 0.86))
           const ix = cell.x + (cell.w - iconSize) / 2
-          const iy = cell.y + (cell.h - iconSize) / 2
+          const iy = cell.y + (iconBandH - iconSize) / 2
           return (
             <g key={lamp.key}>
-              <rect
-                x={cell.x}
-                y={cell.y}
-                width={cell.w}
-                height={cell.h}
-                rx={8}
-                fill={lit ? color : skin.palette.surface}
-                fillOpacity={lit ? 0.16 : 1}
-                stroke={lit ? color : skin.material.border}
-                strokeWidth={lit ? 1.5 : 1}
-              />
               <g transform={`translate(${ix},${iy})`}>
                 {lamp.key === 'pitLimiter' ? (
                   // The registry pit-limiter glyph embeds a 7px "PIT" caption whose CSS
@@ -224,6 +125,21 @@ export function EngineTellTalesWidget({ snapshot, config }: WidgetProps): ReactE
                   />
                 )}
               </g>
+              <FitText
+                x={cell.x + cell.w / 2}
+                y={cell.y + iconBandH + labelH / 2}
+                boxW={cell.w - 4}
+                boxH={labelH}
+                text={lamp.label}
+                anchor="middle"
+                baseline="middle"
+                fontFamily={FONT_COND}
+                fill={lit ? color : DIM}
+                weight={800}
+                minFontPx={8}
+                maxFontPx={labelH}
+                letterSpacing={0.5}
+              />
             </g>
           )
         })}

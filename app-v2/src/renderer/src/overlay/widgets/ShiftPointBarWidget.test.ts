@@ -62,7 +62,6 @@ describe('ShiftPointBarWidget', () => {
 
   it('degrades a null snapshot to em-dashes (condensed face, never garbled DSEG) with the shared LED ladder', () => {
     const out = render(null)
-    expect(out).toContain('Shift Point')
     expect(out).toContain('RPM')
     expect(out).toContain('GEAR')
     expect(out).toContain('—')
@@ -85,7 +84,6 @@ describe('ShiftPointBarWidget', () => {
   it('flashes the redline (blink + red chrome) past the shift point', () => {
     const out = render(redline)
     expect(out).toContain('8950')
-    expect(out).toContain('SHIFT')
     expect(out).toContain('is-blink')
     expect(out, 'redline → red').toContain(DASH.red)
   })

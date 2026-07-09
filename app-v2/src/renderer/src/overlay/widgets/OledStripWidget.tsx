@@ -32,7 +32,6 @@ interface Col {
 
 export function OledStripWidget({ snapshot, config }: WidgetProps): ReactElement {
   const skin = resolveSkin('gt3', 'generic')
-  const hud = skin.id === 'hud'
   const W = Math.max(120, config.position?.width || 720)
   const H = Math.max(36, config.position?.height || 72)
 
@@ -110,7 +109,7 @@ export function OledStripWidget({ snapshot, config }: WidgetProps): ReactElement
       fontFamily={FONT_SEG7}
       fill={fill}
       minFontPx={12}
-      maxFontPx={valueH}
+      maxFontPx={Math.max(12, valueH * 0.78)}
     />
   )
 
@@ -124,18 +123,6 @@ export function OledStripWidget({ snapshot, config }: WidgetProps): ReactElement
       aria-label="OLED cluster strip"
       data-widget="oledStrip"
     >
-      <rect
-        x={0.75}
-        y={0.75}
-        width={W - 1.5}
-        height={H - 1.5}
-        rx={skin.material.radius}
-        fill={hud ? skin.palette.surface : skin.palette.bg}
-        stroke={skin.material.border}
-        strokeWidth={skin.material.borderWidth}
-        fillOpacity={hud ? 0.72 : 1}
-      />
-
       {/* GEAR */}
       {label(gearCol, 'GEAR')}
       {numeral(gearCol, gearStr, redline ? DASH.red : skin.palette.text, 'gear')}
@@ -143,10 +130,9 @@ export function OledStripWidget({ snapshot, config }: WidgetProps): ReactElement
       {/* SPEED */}
       {label(speedCol, 'KM/H')}
       {numeral(speedCol, speedStr, skin.palette.text, 'spd')}
-
       {/* REV — shared LED rig, clipped to its column so bloom never escapes. */}
-      {label(revCol, 'REV')}
-      <svg x={revCol.x} y={barY} width={revCol.w} height={barH}>
+      {/* REV — shared LED rig, clipped to its column so bloom never escapes. */}
+      <svg x={revCol.x} y={barY} width={revCol.w} height={barH} preserveAspectRatio="none">
         <LedShiftBar pct={shiftPct} blink={redline} segments={skin.led.count} height={barH} />
       </svg>
 

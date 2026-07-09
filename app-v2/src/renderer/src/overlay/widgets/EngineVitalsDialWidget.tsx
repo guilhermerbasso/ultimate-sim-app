@@ -54,14 +54,14 @@ function offset(area: Rect, cell: Rect): Rect {
 
 function DialCell({ rect, d, skin }: { rect: Rect; d: DialModel; skin: SkinToken }): ReactElement {
   const { typography } = skin
-  const size = Math.max(24, Math.min(rect.w - 6, rect.h - 30))
+  const size = Math.max(24, Math.min(rect.w - 6, rect.h - 18))
   const dialX = rect.x + (rect.w - size) / 2
   const dialY = rect.y
-  const valW = size * 0.66
-  const valH = Math.max(12, size * 0.22)
+  const valW = size * 0.82
+  const valH = Math.max(12, Math.min(size * 0.2, valW / (Math.max(1, d.value.length) * 0.66)))
   const valX = dialX + (size - valW) / 2
   const valY = dialY + size * 0.46
-  const labelY = dialY + size + 10
+  const labelY = Math.min(rect.y + rect.h - 7, dialY + size + 8)
   return (
     <g>
       <svg x={dialX} y={dialY} width={size} height={size} overflow="visible">
@@ -104,7 +104,6 @@ export function EngineVitalsDialWidget({ snapshot, config }: WidgetProps): React
   const skin = widgetSkin(config)
   const W = Math.max(1, Math.round(config?.position?.width ?? DEFAULT_W))
   const H = Math.max(1, Math.round(config?.position?.height ?? DEFAULT_H))
-  const { palette, material, typography } = skin
 
   const s = snapshot
   const water = s?.waterTempC
@@ -116,13 +115,6 @@ export function EngineVitalsDialWidget({ snapshot, config }: WidgetProps): React
   const oilTSev: Sev = oilT === undefined ? 'ok' : oilT >= 140 ? 'red' : oilT >= 125 ? 'amber' : 'ok'
   const oilPSev: Sev = oilBar === undefined || !spinning ? 'ok' : oilBar < 2.5 ? 'red' : oilBar < 3.5 ? 'amber' : 'ok'
 
-  const worst: Sev = [waterSev, oilTSev, oilPSev].includes('red')
-    ? 'red'
-    : [waterSev, oilTSev, oilPSev].includes('amber')
-      ? 'amber'
-      : 'ok'
-  const statusText = worst === 'red' ? 'ALARM' : worst === 'amber' ? 'WATCH' : 'OK'
-
   const dials: DialModel[] = [
     { label: 'Water', value: numberOrDash(water, 0), unit: '°C', numericValue: water, min: 60, max: 130, sev: waterSev },
     { label: 'Oil T', value: numberOrDash(oilT, 0), unit: '°C', numericValue: oilT, min: 70, max: 150, sev: oilTSev },
@@ -130,8 +122,7 @@ export function EngineVitalsDialWidget({ snapshot, config }: WidgetProps): React
   ]
 
   const pad = 10
-  const headerH = 24
-  const area: Rect = { x: pad, y: headerH + 4, w: W - pad * 2, h: H - headerH - pad - 4 }
+  const area: Rect = { x: pad, y: pad, w: W - pad * 2, h: H - pad * 2 }
   const grid = makeGrid(3, 1, area.w, area.h, 8)
 
   return (
@@ -143,9 +134,6 @@ export function EngineVitalsDialWidget({ snapshot, config }: WidgetProps): React
       style={{ display: 'block' }}
       data-widget="engineVitalsDial"
     >
-      <rect x={1} y={1} width={W - 2} height={H - 2} rx={material.radius} fill={material.base} stroke={material.border} strokeWidth={material.borderWidth} />
-      <FitText x={pad} y={pad + 5} boxW={W * 0.6} boxH={headerH * 0.8} text="Engine Vitals" anchor="start" fontFamily={typography.label} fill={palette.textDim} weight={800} letterSpacing={1.2} minFontPx={11} maxFontPx={16} />
-      <FitText x={W - pad} y={pad + 5} boxW={W * 0.28} boxH={headerH * 0.8} text={statusText} anchor="end" fontFamily={typography.label} fill={worst === 'ok' ? palette.textDim : sevColor(worst, skin)} weight={800} letterSpacing={1} minFontPx={11} maxFontPx={15} />
       {dials.map((d, i) => (
         <DialCell key={d.label} rect={offset(area, grid.cell(i, 0))} d={d} skin={skin} />
       ))}

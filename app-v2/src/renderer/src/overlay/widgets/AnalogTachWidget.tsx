@@ -60,12 +60,9 @@ export function AnalogTachWidget({ snapshot, config }: WidgetProps): ReactElemen
   const rpmColor = redlining ? palette.crit : palette.text
 
   return (
-    <div className="overlay-card dr-root rd-analog-tach" data-overlay-id={config?.id} data-widget="analogTach" style={{ width: '100%', height: '100%', overflow: 'hidden', background: palette.bg }}>
+    <div className="overlay-card dr-root rd-analog-tach" data-overlay-id={config?.id} data-widget="analogTach" style={{ width: '100%', height: '100%', overflow: 'hidden', background: 'transparent', border: 'none', boxShadow: 'none', backdropFilter: 'none' }}>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" width="100%" height="100%" style={{ display: 'block' }}>
-        <rect x={0} y={0} width={W} height={H} rx={skin.material.radius} fill={palette.bg} />
-
-        {/* Header: label + RPM ×1000 */}
-        <FitText x={P} y={headY + headH / 2} boxW={W * 0.42} boxH={headH * 0.7} text="TACHO" anchor="start" baseline="middle" fontFamily={skin.typography.label} fill={palette.textDim} minFontPx={11} maxFontPx={Math.max(12, headH * 0.5)} weight={800} letterSpacing={2} />
+        {/* RPM ×1000 */}
         <FitText x={W - P} y={headY + headH / 2} boxW={W * 0.4} boxH={headH * 0.82} text={rpmStr} anchor="end" baseline="middle" fontFamily={skin.segment.numeric} fill={rpmColor} minFontPx={12} maxFontPx={Math.max(14, headH * 0.72)} />
         <FitText x={W - P} y={headY + headH * 0.94} boxW={W * 0.4} boxH={headH * 0.24} text="×1000 RPM" anchor="end" baseline="middle" fontFamily={skin.typography.label} fill={palette.textDim} minFontPx={11} maxFontPx={13} weight={700} letterSpacing={1} />
 
