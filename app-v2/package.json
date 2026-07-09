@@ -67,7 +67,7 @@
     "vitest": "^4.1.9"
   },
   "optionalDependencies": {
-    "@nut-tree/nut-js": "^4.2.0",
+    "@nut-tree-fork/nut-js": "^4.2.6",
     "vigemclient": "^1.0.0"
   }
 }

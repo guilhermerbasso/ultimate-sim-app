@@ -228,12 +228,12 @@ export class EmulationEngine {
 
   private probeKeyboard(): EmulationCapability {
     const result = this.ensureNut()
-    return result.ok ? ok('Keyboard available through @nut-tree/nut-js.') : unavailable(result.message)
+    return result.ok ? ok('Keyboard available through nut-js.') : unavailable(result.message)
   }
 
   private probeGamepad(): EmulationCapability {
     if (process.platform !== 'win32') {
-      return unavailable('Gamepad virtual requer Windows + driver ViGEmBus.')
+      return unavailable('Virtual gamepad requires Windows + the ViGEmBus driver.')
     }
     try {
       nativeRequire('vigemclient') as VigemModule
@@ -249,16 +249,16 @@ export class EmulationEngine {
       return { ok: false, message: 'Keyboard emulation requires Windows in this version.' }
     }
     if (this.nut) return { ok: true, message: 'Keyboard available.' }
-    if (this.nutError) return { ok: false, message: `@nut-tree/nut-js dependency unavailable: ${this.nutError}` }
+    if (this.nutError) return { ok: false, message: `nut-js dependency unavailable: ${this.nutError}` }
 
     try {
-      const loaded = nativeRequire('@nut-tree/nut-js') as Partial<NutModule>
-      if (!loaded.keyboard || !loaded.Key) throw new Error('keyboard/Key API not found in @nut-tree/nut-js.')
+      const loaded = nativeRequire('@nut-tree-fork/nut-js') as Partial<NutModule>
+      if (!loaded.keyboard || !loaded.Key) throw new Error('keyboard/Key API not found in nut-js.')
       this.nut = { keyboard: loaded.keyboard, Key: loaded.Key }
       return { ok: true, message: 'Keyboard available.' }
     } catch (error) {
       this.nutError = errorMessage(error)
-      return { ok: false, message: `@nut-tree/nut-js dependency unavailable: ${this.nutError}` }
+      return { ok: false, message: `nut-js dependency unavailable: ${this.nutError}` }
     }
   }
 
