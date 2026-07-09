@@ -26,6 +26,7 @@ import {
 } from '../../../shared/outputs'
 import type { ExpressionDef } from '../../../shared/expr'
 import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 import { HardwareWorkspace } from './arduinos/HardwareWorkspace'
 import Esp32WifiView from './Esp32WifiView'
 import RgbMatrixWorkspace from './arduinos/RgbMatrixWorkspace'
@@ -197,7 +198,8 @@ export default function ArduinosView({
   config,
   setConnectedDevice,
   refreshDeviceState,
-  showToast
+  showToast,
+  language
 }: AppViewProps): ReactElement {
   const [tab, setTab] = useState<TabId>('myHardware')
   // Hydrate the persisted Arduino mode so it survives reloads.
@@ -460,14 +462,14 @@ export default function ArduinosView({
       const device = await window.api.connect(selectedPath)
       setConnectedDevice(device)
       await refreshDeviceState()
-    }, `SIM-X connected on ${selectedPath}.`)
+    }, tt(language, 'arduinos.toast.simXConnected', { path: selectedPath }))
   }
 
   async function disconnect(): Promise<void> {
     await run(async () => {
       await window.api.disconnect()
       setConnectedDevice(null)
-    }, 'Serial port released. SimHub can use it again.')
+    }, tt(language, 'arduinos.toast.serialReleased'))
   }
 
   async function reloadConfigs(): Promise<void> {
@@ -489,14 +491,14 @@ export default function ArduinosView({
       })
       await reloadConfigs()
       setActiveDeviceId(summary.id)
-    }, `Device "${input.label || input.path}" added.`)
+    }, tt(language, 'arduinos.toast.deviceAdded', { name: input.label || input.path }))
   }
 
   async function removeGenericDevice(id: string): Promise<void> {
     await run(async () => {
       await window.ipc.invoke(ARDUINO_CHANNELS.removeDevice, id)
       await reloadConfigs()
-    }, 'Device removed from the list.')
+    }, tt(language, 'arduinos.toast.deviceRemoved'))
   }
 
   async function reconnectGenericDevice(id: string): Promise<void> {
@@ -602,7 +604,7 @@ export default function ArduinosView({
   function setThreshold(value: EncoderDetentThreshold): void {
     void run(async () => {
       await window.ipc.invoke('arduino:setEncoderThreshold', value)
-    }, `Encoder detent threshold = ${value}.`)
+    }, tt(language, 'arduinos.toast.encoderThreshold', { value }))
   }
 
   async function saveRoute(route: OutputRoute): Promise<void> {
@@ -611,7 +613,7 @@ export default function ArduinosView({
       const next = [...others, route]
       const persisted = await window.ipc.invoke<OutputRoute[]>(OUTPUTS_CHANNELS.setRoutes, next)
       setRoutes(persisted)
-    }, 'Output salvo.')
+    }, tt(language, 'arduinos.toast.outputSaved'))
   }
 
   async function deleteRoute(routeId: string): Promise<void> {
@@ -619,7 +621,7 @@ export default function ArduinosView({
       const next = routes.filter((r) => r.id !== routeId)
       const persisted = await window.ipc.invoke<OutputRoute[]>(OUTPUTS_CHANNELS.setRoutes, next)
       setRoutes(persisted)
-    }, 'Output removido.')
+    }, tt(language, 'arduinos.toast.outputRemoved'))
   }
 
   async function toggleRoute(routeId: string, enabled: boolean): Promise<void> {
@@ -633,23 +635,34 @@ export default function ArduinosView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
 
-  const tabInfo = TABS.find((entry) => entry.id === tab) ?? TABS[0]
+  const tabInfoBase = TABS.find((entry) => entry.id === tab) ?? TABS[0]
+  const tabInfo = {
+    ...tabInfoBase,
+    label: tt(language, `arduinos.tabs.${tabInfoBase.id}.label`),
+    eyebrow: tt(language, `arduinos.tabs.${tabInfoBase.id}.eyebrow`),
+    description: tt(language, `arduinos.tabs.${tabInfoBase.id}.description`),
+    emptyText: tt(language, `arduinos.tabs.${tabInfoBase.id}.emptyText`)
+  }
+  const tabGroups = TAB_GROUPS.map((group, index) => ({
+    ...group,
+    title: tt(language, `arduinos.groups.${index}.title`),
+    description: tt(language, `arduinos.groups.${index}.description`)
+  }))
   const focusTypes = TAB_COMPONENTS[tab]
 
   return (
     <section className="view-grid">
       <article className="panel-card">
-        <span className="panel-label">Arduino mode</span>
-        <h3>SimHub-style hardware</h3>
+        <span className="panel-label">{tt(language, 'arduinos.mode.label')}</span>
+        <h3>{tt(language, 'arduinos.mode.title')}</h3>
         <p className="helper-text">
-          Choose how the app should present Arduino management. Multiple arduinos uses the existing SerialHub/FleetManager:
-          the SIM-X primary plus any number of secondary companion Arduinos, each on its own port.
+          {tt(language, 'arduinos.mode.description')}
         </p>
         <div className="segmented" style={{ flexWrap: 'wrap' }}>
           {([
-            ['disabled', 'Arduino disabled'],
-            ['single', 'Single arduino'],
-            ['multiple', 'Multiple arduinos']
+            ['disabled', tt(language, 'arduinos.mode.disabled')],
+            ['single', tt(language, 'arduinos.mode.single')],
+            ['multiple', tt(language, 'arduinos.mode.multiple')]
           ] as Array<[ArduinoMode, string]>).map(([value, labelText]) => (
             <button
               key={value}
@@ -664,8 +677,8 @@ export default function ArduinosView({
         </div>
       </article>
 
-      <nav className="tab-bar" role="tablist" aria-label="Arduinos" style={{ alignItems: 'stretch', gap: 12 }}>
-        {TAB_GROUPS.map((group) => (
+      <nav className="tab-bar" role="tablist" aria-label={tt(language, 'arduinos.nav.aria')} style={{ alignItems: 'stretch', gap: 12 }}>
+        {tabGroups.map((group) => (
           <div
             key={group.title}
             style={{
@@ -685,7 +698,12 @@ export default function ArduinosView({
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {group.ids.map((id) => {
-                const entry = TABS.find((item) => item.id === id) ?? TABS[0]
+                const entryBase = TABS.find((item) => item.id === id) ?? TABS[0]
+                const entry = {
+                  ...entryBase,
+                  label: tt(language, `arduinos.tabs.${entryBase.id}.label`),
+                  eyebrow: tt(language, `arduinos.tabs.${entryBase.id}.eyebrow`)
+                }
                 return (
                   <button
                     key={entry.id}
@@ -710,18 +728,18 @@ export default function ArduinosView({
 
       {tab === 'myHardware' && (
         <>
-          {/* ── Hardware Hub sub-navigation ────────────────────────────────────── */}
+          {/* ── {tt(language, 'arduinos.hardwareHub.title')} sub-navigation ────────────────────────────────────── */}
           <article className="panel-card" style={{ padding: '10px 18px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.5, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)' }}>
-                Hardware Hub
+                {tt(language, 'arduinos.hardwareHub.title')}
               </span>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {(
                   [
-                    ['devices', 'Devices & Profiles', 'Gerencie perfis, componentes e firmware dos seus Arduinos'],
-                    ['monitor', 'Serial Console', 'Track RX/TX serial traffic in real time'],
-                    ['info', 'Connections & Firmware', 'Connect/disconnect serial ports and view firmware references']
+                    ['devices', tt(language, 'arduinos.hardwareHub.devices'), tt(language, 'arduinos.hardwareHub.devicesHint')],
+                    ['monitor', tt(language, 'arduinos.hardwareHub.monitor'), tt(language, 'arduinos.hardwareHub.monitorHint')],
+                    ['info', tt(language, 'arduinos.hardwareHub.info'), tt(language, 'arduinos.hardwareHub.infoHint')]
                   ] as [HwSection, string, string][]
                 ).map(([id, lbl, hint]) => (
                   <button
@@ -737,7 +755,7 @@ export default function ArduinosView({
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-              <SectionExportImport sectionId="serial-devices" label="Devices seriais" onImported={() => void reloadFleet()} />
+              <SectionExportImport sectionId="serial-devices" label={tt(language, 'arduinos.hardwareHub.serialDevices')} onImported={() => void reloadFleet()} />
             </div>
           </article>
 
@@ -758,6 +776,7 @@ export default function ArduinosView({
           {/* ── Serial Console ────────────────────────────────────────────────── */}
           {hwSection === 'monitor' && (
             <MonitorPanel
+              language={language}
               entries={visibleLog}
               connected={Boolean(activeDevice?.connected)}
               busy={busy || mode === 'disabled'}
@@ -787,6 +806,7 @@ export default function ArduinosView({
           {hwSection === 'info' && (
             <>
               <DevicesPanel
+                language={language}
                 ports={ports}
                 selectedPath={selectedPath}
                 setSelectedPath={setSelectedPath}
@@ -806,8 +826,8 @@ export default function ArduinosView({
                 onDisconnectDevice={(id) => void disconnectGenericDevice(id)}
                 onSelectActive={(id) => setActiveDeviceId(id)}
               />
-              <HardwarePanel profile={profile} />
-              <FirmwarePanel firmware={firmware} />
+              <HardwarePanel profile={profile} language={language} />
+              <FirmwarePanel firmware={firmware} language={language} />
             </>
           )}
         </>
@@ -818,9 +838,8 @@ export default function ArduinosView({
           <article className="panel-card" style={{ padding: '10px 18px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
               <p style={{ margin: 0, fontSize: 12.5, color: 'rgba(255,255,255,0.65)' }}>
-                <strong style={{ color: 'var(--accent-primary)' }}>iFlag Matrix editor</strong>
-                {' '}? configure the 8?8 panel layout, pixel map, and effect stack.{' '}
-                To bind the serial port and enable the component, use the{' '}
+                <strong style={{ color: 'var(--accent-primary)' }}>{tt(language, 'arduinos.rgbMatrix.title')}</strong>
+                {' '}{tt(language, 'arduinos.rgbMatrix.description')} {' '}
                 <button
                   type="button"
                   style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: 'inherit', padding: 0, textDecoration: 'underline' }}
@@ -864,12 +883,13 @@ export default function ArduinosView({
               <article className="panel-card" style={{ padding: '10px 18px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                   <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.5, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)' }}>
-                    Output routing
+                    {tt(language, 'arduinos.outputRouting.title')}
                   </span>
-                  <SectionExportImport sectionId="output-routes" label="Output routing" onImported={() => void reloadRoutes()} />
+                  <SectionExportImport sectionId="output-routes" label={tt(language, 'arduinos.outputRouting.title')} onImported={() => void reloadRoutes()} />
                 </div>
               </article>
               <OutputsPanel
+                  language={language}
                 routes={routes}
                 devices={devices}
                 expressions={expressions}
@@ -882,8 +902,9 @@ export default function ArduinosView({
           )}
           {tab === 'controls' && (
             <>
-              <InputsPanel devices={devices} inputs={inputs} />
+              <InputsPanel devices={devices} inputs={inputs} language={language} />
               <ConfigPanel
+                  language={language}
                 runtime={runtime}
                 connected={connected}
                 busy={busy || mode === 'disabled'}
@@ -907,6 +928,7 @@ export default function ArduinosView({
 
 // ─── Devices ──────────────────────────────────────────────────────────────
 interface DevicesPanelProps {
+  language?: AppViewProps['language']
   ports: PortInfo[]
   selectedPath: string
   setSelectedPath(path: string): void
@@ -946,7 +968,8 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
     onRemoveDevice,
     onReconnectDevice,
     onDisconnectDevice,
-    onSelectActive
+    onSelectActive,
+    language
   } = props
 
   const [addPath, setAddPath] = useState('')
@@ -966,10 +989,10 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
         <div className="panel-heading-row">
           <div>
             <span className="panel-label">Primary SIM-X · 115200 8N1</span>
-            <h3>Primary Button Box</h3>
+            <h3>{tt(language, 'arduinos.devices.primaryTitle')}</h3>
           </div>
           <button className="ghost-action compact" disabled={busy} onClick={onSearch} type="button">
-            Scan
+            {tt(language, 'arduinos.devices.scan')}
           </button>
         </div>
         <p className="helper-text">
@@ -995,7 +1018,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
                     </em>
                   )}
                 </strong>
-                <small>{port.friendlyName || port.manufacturer || 'Unknown manufacturer'}</small>
+                <small>{port.friendlyName || port.manufacturer || tt(language, 'arduinos.devices.unknownManufacturer')}</small>
                 {(port.vendorId || port.productId) && (
                   <small>
                     VID:{port.vendorId || '?'} · PID:{port.productId || '?'}
@@ -1012,10 +1035,10 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
             onClick={onConnect}
             type="button"
           >
-            Connect SIM-X
+            {tt(language, 'arduinos.devices.connectSimX')}
           </button>
           <button className="ghost-action" disabled={busy || !connected} onClick={onDisconnect} type="button">
-            Desconectar
+            {tt(language, 'arduinos.common.disconnect')}
           </button>
         </div>
       </article>
@@ -1023,17 +1046,17 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
       <article className="panel-card">
         <div className="panel-heading-row">
           <div>
-            <span className="panel-label">Arduino fleet ?? multi-device</span>
-            <h3>Devices seriais ativos</h3>
+            <span className="panel-label">{tt(language, 'arduinos.devices.fleetLabel')}</span>
+            <h3>{tt(language, 'arduinos.devices.activeTitle')}</h3>
           </div>
         </div>
         <p className="helper-text">
-          Add other Arduinos/CDC devices for use with the <strong>Custom Serial</strong> tab (outputs) and the tab{' '}
-          <strong>Inputs</strong> (buttons/encoders/analog inputs via companion protocol).
+          {tt(language, 'arduinos.devices.fleetHelpBefore')} <strong>{tt(language, 'arduinos.devices.customSerial')}</strong> {tt(language, 'arduinos.devices.fleetHelpMiddle')}{' '}
+          <strong>{tt(language, 'arduinos.devices.inputs')}</strong> {tt(language, 'arduinos.devices.fleetHelpAfter')}
         </p>
         <div className="port-list">
           {devices.length === 0 && (
-            <p className="empty-state">No device open. Connect SIM-X above or add a generic device below.</p>
+            <p className="empty-state">{tt(language, 'arduinos.devices.noDeviceOpen')}</p>
           )}
           {devices.map((device) => {
             const isActive = device.id === activeDeviceId
@@ -1081,7 +1104,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
                           onClick={() => onDisconnectDevice(device.id)}
                           type="button"
                         >
-                          Desconectar
+                          {tt(language, 'arduinos.common.disconnect')}
                         </button>
                       ) : (
                         <button
@@ -1090,7 +1113,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
                           onClick={() => onReconnectDevice(device.id)}
                           type="button"
                         >
-                          Reconectar
+                          {tt(language, 'arduinos.common.reconnect')}
                         </button>
                       )}
                       <button
@@ -1099,7 +1122,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
                         onClick={() => onRemoveDevice(device.id)}
                         type="button"
                       >
-                        Remove
+                        {tt(language, 'arduinos.common.remove')}
                       </button>
                     </>
                   )}
@@ -1112,7 +1135,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
         {offlinePersisted.length > 0 && (
           <>
             <div className="config-block">
-              <strong>Persisted (auto-connect on startup)</strong>
+              <strong>{tt(language, 'arduinos.devices.persisted')}</strong>
               <ul className="plain-list">
                 {offlinePersisted.map((config) => (
                   <li key={`${config.path}-${config.id ?? ''}`}>
@@ -1125,7 +1148,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
                         onClick={() => onReconnectDevice(config.id!)}
                         type="button"
                       >
-                        Reconectar
+                        {tt(language, 'arduinos.common.reconnect')}
                       </button>
                     )}
                     {config.id && (
@@ -1136,7 +1159,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
                         onClick={() => onRemoveDevice(config.id!)}
                         type="button"
                       >
-                        Esquecer
+                        {tt(language, 'arduinos.common.forget')}
                       </button>
                     )}
                   </li>
@@ -1148,7 +1171,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
 
         {canAddDevices && (
         <div className="config-block">
-          <strong>Add generic device</strong>
+          <strong>{tt(language, 'arduinos.devices.addGeneric')}</strong>
           <small>Use the companion protocol (T/N/R/B/M/L/C → device; B/E/A → app).</small>
           <form
             className="command-row"
@@ -1190,7 +1213,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
             <input
               className="command-input"
               type="text"
-              placeholder="Label (e.g., external OLED)"
+              placeholder={tt(language, 'arduinos.devices.labelPlaceholder')}
               value={addLabel}
               onChange={(event) => setAddLabel(event.target.value)}
               style={{ minWidth: 180 }}
@@ -1198,7 +1221,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
             <input
               className="command-input"
               type="number"
-              placeholder="Baud"
+              placeholder={tt(language, 'arduinos.devices.baudPlaceholder')}
               min={300}
               max={2000000}
               value={addBaud}
@@ -1218,6 +1241,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
 
 // ─── Serial Console ─────────────────────────────────────────────────────────────
 interface MonitorPanelProps {
+  language?: AppViewProps['language']
   entries: SerialLogEntry[]
   connected: boolean
   busy: boolean
@@ -1259,7 +1283,8 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
     setCommand,
     onSend,
     onQuick,
-    onClear
+    onClear,
+    language
   } = props
   const isPrimary = activeDevice?.kind === 'sim-x'
   return (
@@ -1288,22 +1313,21 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
             onClick={() => setPaused(!paused)}
             type="button"
           >
-            {paused ? 'Retomar' : 'Pausar'}
+            {paused ? tt(language, 'arduinos.monitor.resume') : tt(language, 'arduinos.monitor.pause')}
           </button>
           <button className="ghost-action compact" onClick={onClear} type="button">
-            Limpar
+            {tt(language, 'arduinos.monitor.clear')}
           </button>
         </div>
       </div>
 
       <div className="monitor-filters">
         <label className="inline-check">
-          <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} /> Auto-scroll
+          <input type="checkbox" checked={autoScroll} onChange={(e) => setAutoScroll(e.target.checked)} /> {tt(language, 'arduinos.monitor.autoScroll')}
         </label>
         {showHideEngine && (
           <label className="inline-check">
-            <input type="checkbox" checked={hideEngine} onChange={(e) => setHideEngine(e.target.checked)} /> Hide
-            engine stream (R/B/O/D)
+            <input type="checkbox" checked={hideEngine} onChange={(e) => setHideEngine(e.target.checked)} /> {tt(language, 'arduinos.monitor.hideEngine')}
           </label>
         )}
       </div>
@@ -1312,8 +1336,8 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
         {entries.length === 0 && (
           <p className="empty-state">
             {connected
-              ? 'No traffic yet. Turn an encoder or send a command.'
-              : 'Connect the device to see serial traffic.'}
+              ? tt(language, 'arduinos.monitor.noTraffic')
+              : tt(language, 'arduinos.monitor.connectTraffic')}
           </p>
         )}
         {entries.map((entry) => (
@@ -1355,27 +1379,27 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
           placeholder={
             connected
               ? isPrimary
-                ? 'Raw command, e.g.: R3, OSIM-X|line2|line3, ET4'
-                : 'Raw command, e.g.: T0:HELLO, R75, L0:ff0000, C'
-              : 'Connect to send commands'
+                ? tt(language, 'arduinos.monitor.primaryPlaceholder')
+                : tt(language, 'arduinos.monitor.genericPlaceholder')
+              : tt(language, 'arduinos.monitor.connectPlaceholder')
           }
           value={command}
           disabled={!connected || busy}
           onChange={(event) => setCommand(event.target.value)}
         />
         <button className="primary-action" type="submit" disabled={!connected || busy || !command.trim()}>
-          Enviar
+          {tt(language, 'arduinos.monitor.send')}
         </button>
       </form>
       <p className="helper-text">
         {isPrimary ? (
           <>
-            Commands follow the one-letter SimHub protocol (?63 chars). RX shows encoders (
-            <code>E&lt;idx&gt;:?1</code>) and firmware debug echoes.
+            {tt(language, 'arduinos.monitor.primaryHelpBefore')} (
+            <code>E&lt;idx&gt;:?1</code>) {tt(language, 'arduinos.monitor.primaryHelpAfter')}
           </>
         ) : (
           <>
-            Generic device speaks the companion protocol. Output: <code>T/N/R/B/M/L/C</code>. Entrada (RX):{' '}
+            {tt(language, 'arduinos.monitor.genericHelpBefore')} <code>T/N/R/B/M/L/C</code>. {tt(language, 'arduinos.monitor.genericHelpRx')}: {' '}
             <code>B&lt;idx&gt;:&lt;0|1&gt;</code>, <code>E&lt;idx&gt;:±1</code>, <code>A&lt;idx&gt;:&lt;0-1023&gt;</code>.
           </>
         )}
@@ -1386,6 +1410,7 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
 
 // ─── Configuração (runtime) ──────────────────────────────────────────────────────
 interface ConfigPanelProps {
+  language?: AppViewProps['language']
   runtime: ArduinoRuntimeState | null
   connected: boolean
   busy: boolean
@@ -1395,27 +1420,27 @@ interface ConfigPanelProps {
   onRecalibrate(): void
 }
 
-function triState(value: boolean | null): string {
-  if (value === null) return '? (unknown)'
-  return value ? 'On' : 'Off'
+function triState(value: boolean | null, language?: AppViewProps['language']): string {
+  if (value === null) return tt(language, 'arduinos.common.unknownState')
+  return value ? tt(language, 'arduinos.common.on') : tt(language, 'arduinos.common.off')
 }
 
 function ConfigPanel(props: ConfigPanelProps): ReactElement {
-  const { runtime, connected, busy, onThreshold, onToggleMux, onToggleFlip, onRecalibrate } = props
+  const { language, runtime, connected, busy, onThreshold, onToggleMux, onToggleFlip, onRecalibrate } = props
   return (
     <article className="panel-card">
-      <span className="panel-label">Runtime adjustments ?? no reflash</span>
-      <h3>Firmware configuration</h3>
+      <span className="panel-label">{tt(language, 'arduinos.config.label')}</span>
+      <h3>{tt(language, 'arduinos.config.title')}</h3>
       {!connected && (
         <div className="notice-card warning">
-          <strong>Disconnected</strong>
-          <p>Connect the ButtonBox on the Devices tab to apply adjustments. They are sent to firmware immediately.</p>
+          <strong>{tt(language, 'arduinos.common.disconnected')}</strong>
+          <p>{tt(language, 'arduinos.config.disconnectedHelp')}</p>
         </div>
       )}
 
       <div className="config-block">
         <div className="config-head">
-          <strong>Encoder detent</strong>
+          <strong>{tt(language, 'arduinos.config.encoderDetent')}</strong>
           <small>KY-040 (20 PPR) = 2 · EC11 (24 detentes) = 4. Se duplicar passos, suba o valor.</small>
         </div>
         <div className="segmented">
@@ -1435,24 +1460,24 @@ function ConfigPanel(props: ConfigPanelProps): ReactElement {
 
       <div className="config-block">
         <div className="config-head">
-          <strong>Flip cover</strong>
-          <small>Firmware-confirmed state: inversion {triState(runtime?.flipCoverInverted ?? null)}.</small>
+          <strong>{tt(language, 'arduinos.config.flipCover')}</strong>
+          <small>{tt(language, 'arduinos.config.flipState', { state: triState(runtime?.flipCoverInverted ?? null, language) })}</small>
         </div>
         <div className="action-row">
           <button className="ghost-action" disabled={!connected || busy} onClick={onToggleFlip} type="button">
-            Inverter (FI)
+            {tt(language, 'arduinos.config.invert')}
           </button>
           <button className="ghost-action" disabled={!connected || busy} onClick={onRecalibrate} type="button">
-            Recalibrar (FC)
+            {tt(language, 'arduinos.config.recalibrate')}
           </button>
         </div>
       </div>
 
       <div className="config-block">
         <div className="config-head">
-          <strong>MUX debug</strong>
+          <strong>{tt(language, 'arduinos.config.muxDebug')}</strong>
           <small>
-            Prints MUX1 C13/C14/C15 to the console to check ENC4 wiring. State: {triState(runtime?.muxDebug ?? null)}.
+            {tt(language, 'arduinos.config.muxHelp', { state: triState(runtime?.muxDebug ?? null, language) })}
           </small>
         </div>
         <button
@@ -1461,7 +1486,7 @@ function ConfigPanel(props: ConfigPanelProps): ReactElement {
           onClick={onToggleMux}
           type="button"
         >
-          Toggle MUX debug (EM)
+          {tt(language, 'arduinos.config.toggleMux')}
         </button>
       </div>
     </article>
@@ -1470,6 +1495,7 @@ function ConfigPanel(props: ConfigPanelProps): ReactElement {
 
 // ─── Custom Serial Outputs ──────────────────────────────────────────────────────
 interface OutputsPanelProps {
+  language?: AppViewProps['language']
   routes: OutputRoute[]
   devices: SerialDeviceSummary[]
   expressions: ExpressionDef[]
@@ -1561,7 +1587,7 @@ function nextCustomRouteId(routes: OutputRoute[]): string {
   return `${CUSTOM_ROUTE_PREFIX}${n}`
 }
 
-function sourceSummary(source: OutputSource): string {
+function sourceSummary(source: OutputSource, language?: AppViewProps['language']): string {
   switch (source.kind) {
     case 'telemetry':
       return `telemetria · ${source.field}`
@@ -1575,7 +1601,7 @@ function sourceSummary(source: OutputSource): string {
 }
 
 function OutputsPanel(props: OutputsPanelProps): ReactElement {
-  const { routes, devices, expressions, busy, onSave, onDelete, onToggle } = props
+  const { language, routes, devices, expressions, busy, onSave, onDelete, onToggle } = props
   const [state, setState] = useState<ComposerState>(() => defaultComposerState(devices, expressions))
   const customRoutes = useMemo(() => routes.filter(isOurRoute), [routes])
 
@@ -1626,16 +1652,16 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
     <>
       <article className="panel-card">
         <span className="panel-label">Custom Serial Device · presets + roteamento</span>
-        <h3>Novo output</h3>
+        <h3>{tt(language, 'arduinos.outputs.newOutput')}</h3>
         <p className="helper-text">
-          Each output is a serial <code>OutputRoute</code>: the output router reads the source, formats it, and sends the preset
-          template (with <code>${'${value}'}</code> substituted) to the selected device at ?20Hz.
+          {tt(language, 'arduinos.outputs.helpBefore')} <code>OutputRoute</code>: {tt(language, 'arduinos.outputs.helpAfter')}
+          {tt(language, 'arduinos.outputs.helpTemplate')} <code>${'${value}'}</code> {tt(language, 'arduinos.outputs.helpFrequency')}
         </p>
 
         <form onSubmit={handleSubmit} className="config-block" style={{ display: 'grid', gap: 12 }}>
           <div style={{ display: 'grid', gap: 8 }}>
             <label>
-              <strong>Preset</strong>
+              <strong>{tt(language, 'arduinos.outputs.preset')}</strong>
               <select
                 className="command-input"
                 value={state.presetId}
@@ -1652,13 +1678,13 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
               <small className="helper-text" style={{ marginTop: 0 }}>
                 {activePreset.description}
                 {activePreset.hint ? ` — ${activePreset.hint}` : ''} <br />
-                Template: <code>{activePreset.template}</code>
+                {tt(language, 'arduinos.outputs.template')}: <code>{activePreset.template}</code>
               </small>
             )}
           </div>
 
           <label>
-            <strong>Target device</strong>
+            <strong>{tt(language, 'arduinos.outputs.targetDevice')}</strong>
             <select
               className="command-input"
               value={state.deviceId}
@@ -1674,7 +1700,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
           </label>
 
           <div style={{ display: 'grid', gap: 8 }}>
-            <strong>Source</strong>
+            <strong>{tt(language, 'arduinos.outputs.source')}</strong>
             <div className="segmented">
               {(['telemetry', 'expression', 'literal'] as const).map((kind) => (
                 <button
@@ -1683,7 +1709,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
                   className={state.sourceKind === kind ? 'segment active' : 'segment'}
                   onClick={() => setState({ ...state, sourceKind: kind })}
                 >
-                  {kind === 'telemetry' ? 'Telemetry' : kind === 'expression' ? 'Expression' : 'Literal'}
+                  {kind === 'telemetry' ? tt(language, 'arduinos.outputs.telemetry') : kind === 'expression' ? tt(language, 'arduinos.outputs.expression') : tt(language, 'arduinos.outputs.literal')}
                 </button>
               ))}
             </div>
@@ -1691,7 +1717,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
               <input
                 className="command-input"
                 type="text"
-                placeholder="campo dotted (ex.: speedKmh, fuel.remainLiters, tyres.lf.tempC)"
+                placeholder={tt(language, 'arduinos.outputs.telemetryPlaceholder')}
                 value={state.telemetryField}
                 onChange={(event) => setState({ ...state, telemetryField: event.target.value })}
               />
@@ -1714,7 +1740,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
               <input
                 className="command-input"
                 type="text"
-                placeholder="Literal value (number or string)"
+                placeholder={tt(language, 'arduinos.outputs.literalPlaceholder')}
                 value={state.literalValue}
                 onChange={(event) => setState({ ...state, literalValue: event.target.value })}
               />
@@ -1723,7 +1749,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
 
           <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(4, 1fr)' }}>
             <label>
-              <strong>Decimais</strong>
+              <strong>{tt(language, 'arduinos.outputs.decimals')}</strong>
               <input
                 className="command-input"
                 type="number"
@@ -1733,7 +1759,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
               />
             </label>
             <label>
-              <strong>Escala</strong>
+              <strong>{tt(language, 'arduinos.outputs.scale')}</strong>
               <input
                 className="command-input"
                 type="number"
@@ -1743,7 +1769,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
               />
             </label>
             <label>
-              <strong>Prefixo</strong>
+              <strong>{tt(language, 'arduinos.outputs.prefix')}</strong>
               <input
                 className="command-input"
                 type="text"
@@ -1752,7 +1778,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
               />
             </label>
             <label>
-              <strong>Suffix</strong>
+              <strong>{tt(language, 'arduinos.outputs.suffix')}</strong>
               <input
                 className="command-input"
                 type="text"
@@ -1763,7 +1789,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
           </div>
 
           <label>
-            <strong>Name (optional)</strong>
+            <strong>{tt(language, 'arduinos.outputs.nameOptional')}</strong>
             <input
               className="command-input"
               type="text"
@@ -1779,17 +1805,17 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
               className="primary-action"
               disabled={busy || !state.deviceId || !activePreset || !buildSource(state)}
             >
-              Save output
+              {tt(language, 'arduinos.outputs.save')}
             </button>
           </div>
         </form>
       </article>
 
       <article className="panel-card">
-        <span className="panel-label">Outputs serial ativos</span>
-        <h3>Output router (custom)</h3>
+        <span className="panel-label">{tt(language, 'arduinos.outputs.activeLabel')}</span>
+        <h3>{tt(language, 'arduinos.outputs.routerTitle')}</h3>
         {customRoutes.length === 0 && (
-          <p className="empty-state">No custom serial output configured yet.</p>
+          <p className="empty-state">{tt(language, 'arduinos.outputs.empty')}</p>
         )}
         <ul className="plain-list">
           {customRoutes.map((route) => {
@@ -1815,12 +1841,12 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
                     </em>
                     {!route.enabled && (
                       <em className="muted-pill" style={{ marginLeft: 6, color: 'var(--muted)' }}>
-                        desativado
+                        {tt(language, 'arduinos.common.disabled')}
                       </em>
                     )}
                   </strong>
                   <small>
-                    source: {sourceSummary(route.source)} ?? template <code>{target.template}</code>
+                    {tt(language, 'arduinos.outputs.source')}: {sourceSummary(route.source, language)} ? {tt(language, 'arduinos.outputs.template')} <code>{target.template}</code>
                   </small>
                 </span>
                 <div className="action-row compact-row" style={{ marginTop: 0 }}>
@@ -1830,7 +1856,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
                     disabled={busy}
                     onClick={() => onToggle(route.id, !route.enabled)}
                   >
-                    {route.enabled ? 'Disable' : 'Enable'}
+                    {route.enabled ? tt(language, 'arduinos.common.disable') : tt(language, 'arduinos.common.enable')}
                   </button>
                   <button
                     className="ghost-action compact danger"
@@ -1838,7 +1864,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
                     disabled={busy}
                     onClick={() => onDelete(route.id)}
                   >
-                    Delete
+                    {tt(language, 'arduinos.common.delete')}
                   </button>
                 </div>
               </li>
@@ -1852,25 +1878,25 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
 
 // ─── Inputs (companion protocol) ────────────────────────────────────────────────
 interface InputsPanelProps {
+  language?: AppViewProps['language']
   devices: SerialDeviceSummary[]
   inputs: Record<string, CompanionInputSnapshot>
 }
 
 function InputsPanel(props: InputsPanelProps): ReactElement {
-  const { devices, inputs } = props
+  const { language, devices, inputs } = props
   const trackable = devices.filter((device) => device.kind !== 'sim-x')
 
   return (
     <article className="panel-card">
       <span className="panel-label">Companion protocol · buttons/encoders/analog inputs</span>
-      <h3>Inputs ativos</h3>
+      <h3>{tt(language, 'arduinos.inputs.title')}</h3>
       <p className="helper-text">
-        Reads RX lines from generic devices in the format <code>B&lt;idx&gt;:&lt;0|1&gt;</code>,{' '}
-        <code>E&lt;idx&gt;:?1</code> and <code>A&lt;idx&gt;:&lt;0-1023&gt;</code>. The main SIM-X uses its own path
-        HID e no aparece aqui.
+        {tt(language, 'arduinos.inputs.helpBefore')} <code>B&lt;idx&gt;:&lt;0|1&gt;</code>,{' '}
+        <code>E&lt;idx&gt;:?1</code> {tt(language, 'arduinos.inputs.helpAnd')} <code>A&lt;idx&gt;:&lt;0-1023&gt;</code>. {tt(language, 'arduinos.inputs.helpAfter')}
       </p>
       {trackable.length === 0 && (
-        <p className="empty-state">Add a generic Arduino to start receiving companion inputs.</p>
+        <p className="empty-state">{tt(language, 'arduinos.inputs.empty')}</p>
       )}
       {trackable.map((device) => {
         const snapshot = inputs[device.id]
@@ -1883,16 +1909,16 @@ function InputsPanel(props: InputsPanelProps): ReactElement {
               <strong>{device.label}</strong>
               <small>
                 {device.path} · id <code>{device.id}</code> ·{' '}
-                {snapshot?.updatedAt ? `last input ${new Date(snapshot.updatedAt).toLocaleTimeString()}` : 'no activity'}
+                {snapshot?.updatedAt ? tt(language, 'arduinos.inputs.lastInput', { time: new Date(snapshot.updatedAt).toLocaleTimeString() }) : tt(language, 'arduinos.inputs.noActivity')}
               </small>
             </div>
             <div className="hw-grid">
               <div className="hw-card">
                 <div className="hw-card-top">
-                  <strong>Buttons</strong>
+                  <strong>{tt(language, 'arduinos.inputs.buttons')}</strong>
                   <em className="muted-pill">{buttons.length}</em>
                 </div>
-                {buttons.length === 0 && <small>No buttons reported.</small>}
+                {buttons.length === 0 && <small>{tt(language, 'arduinos.inputs.noButtons')}</small>}
                 {buttons.map(([index, pressed]) => (
                   <code className="hw-conn" key={`btn-${index}`}>
                     B{index}: {pressed ? '● PRESS' : '○ release'}
@@ -1901,10 +1927,10 @@ function InputsPanel(props: InputsPanelProps): ReactElement {
               </div>
               <div className="hw-card">
                 <div className="hw-card-top">
-                  <strong>Encoders (delta)</strong>
+                  <strong>{tt(language, 'arduinos.inputs.encoders')}</strong>
                   <em className="muted-pill">{encoders.length}</em>
                 </div>
-                {encoders.length === 0 && <small>No encoders reported.</small>}
+                {encoders.length === 0 && <small>{tt(language, 'arduinos.inputs.noEncoders')}</small>}
                 {encoders.map(([index, delta]) => (
                   <code className="hw-conn" key={`enc-${index}`}>
                     E{index}: {(delta as number) > 0 ? `+${delta}` : delta}
@@ -1913,10 +1939,10 @@ function InputsPanel(props: InputsPanelProps): ReactElement {
               </div>
               <div className="hw-card">
                 <div className="hw-card-top">
-                  <strong>Analog inputs</strong>
+                  <strong>{tt(language, 'arduinos.inputs.analog')}</strong>
                   <em className="muted-pill">{analogs.length}</em>
                 </div>
-                {analogs.length === 0 && <small>No axes reported.</small>}
+                {analogs.length === 0 && <small>{tt(language, 'arduinos.inputs.noAxes')}</small>}
                 {analogs.map(([index, value]) => (
                   <code className="hw-conn" key={`a-${index}`}>
                     A{index}: {value as number} ({Math.round(((value as number) / 1023) * 100)}%)
@@ -1932,7 +1958,7 @@ function InputsPanel(props: InputsPanelProps): ReactElement {
 }
 
 // ─── Hardware ──────────────────────────────────────────────────────────────────
-function HardwarePanel({ profile }: { profile: ArduinoHardwareProfile | null }): ReactElement {
+function HardwarePanel({ profile, language }: { profile: ArduinoHardwareProfile | null; language?: AppViewProps['language'] }): ReactElement {
   if (!profile)
     return (
       <article className="panel-card">
@@ -1944,10 +1970,10 @@ function HardwarePanel({ profile }: { profile: ArduinoHardwareProfile | null }):
       <span className="panel-label">
         {profile.board} · {profile.mcu}
       </span>
-      <h3>Hardware map</h3>
+      <h3>{tt(language, 'arduinos.hardware.title')}</h3>
       <p className="helper-text">
-        {profile.usb}. {profile.hidButtons} HID buttons, {profile.encoders} encoders{profile.povHat ? ' + POV hat' : ''}.
-        Pinagem fixa no firmware (somente leitura).
+        {tt(language, 'arduinos.hardware.summary', { usb: profile.usb, buttons: profile.hidButtons, encoders: profile.encoders, pov: profile.povHat ? tt(language, 'arduinos.hardware.povHat') : '' })}
+        {tt(language, 'arduinos.hardware.readOnly')}
       </p>
       <div className="hw-grid">
         {profile.components.map((component) => (
@@ -1966,7 +1992,7 @@ function HardwarePanel({ profile }: { profile: ArduinoHardwareProfile | null }):
 }
 
 // ─── Firmware ──────────────────────────────────────────────────────────────────
-function FirmwarePanel({ firmware }: { firmware: ArduinoFirmwareInfo | null }): ReactElement {
+function FirmwarePanel({ firmware, language }: { firmware: ArduinoFirmwareInfo | null; language?: AppViewProps['language'] }): ReactElement {
   if (!firmware)
     return (
       <article className="panel-card">
@@ -1978,12 +2004,12 @@ function FirmwarePanel({ firmware }: { firmware: ArduinoFirmwareInfo | null }): 
       <span className="panel-label">Reference · app flashing disabled</span>
       <h3>{firmware.reference}</h3>
       <div className="notice-card warning">
-        <strong>Version detection unavailable</strong>
+        <strong>{tt(language, 'arduinos.firmware.versionUnavailable')}</strong>
         <p>{firmware.notes[0]}</p>
       </div>
 
       <div className="config-block">
-        <strong>Required libraries</strong>
+        <strong>{tt(language, 'arduinos.firmware.requiredLibraries')}</strong>
         <ul className="plain-list">
           {firmware.libraries.map((lib) => (
             <li key={lib}>{lib}</li>
@@ -1992,7 +2018,7 @@ function FirmwarePanel({ firmware }: { firmware: ArduinoFirmwareInfo | null }): 
       </div>
 
       <div className="config-block">
-        <strong>How to reflash (Arduino IDE)</strong>
+        <strong>{tt(language, 'arduinos.firmware.reflash')}</strong>
         <ol className="step-list">
           {firmware.reflashSteps.map((step, index) => (
             <li key={index}>{step}</li>
@@ -2001,7 +2027,7 @@ function FirmwarePanel({ firmware }: { firmware: ArduinoFirmwareInfo | null }): 
       </div>
 
       <div className="config-block">
-        <strong>Notas</strong>
+        <strong>{tt(language, 'arduinos.firmware.notes')}</strong>
         <ul className="plain-list">
           {firmware.notes.slice(1).map((note) => (
             <li key={note}>{note}</li>
