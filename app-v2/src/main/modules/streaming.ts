@@ -473,14 +473,20 @@ function warning(): string | null {
   if (state.accessMode === 'internet') {
     return 'Internet mode binds to all interfaces and allows non-LAN clients with the token/password. Use a trusted tunnel or port-forwarding, and allow the port through Windows Firewall.'
   }
-  return state.accessMode === 'lan'
-    ? 'LAN streaming is enabled: phones/tablets on your Wi-Fi can open the QR URL. If it still fails, allow this app/port through Windows Firewall.'
-    : null
+  if (state.accessMode === 'lan') {
+    if (!state.lanAddress) {
+      return 'No private LAN IPv4 address found. QR codes will not work for phones/tablets. Check your network adapter settings or use local mode instead.'
+    }
+    return 'LAN streaming is enabled: phones/tablets on your Wi-Fi can open the QR URL. If it still fails, allow this app/port through Windows Firewall.'
+  }
+  return null
 }
 
 async function refreshQrCodes(): Promise<void> {
-  const url = dashboardUrl()
-  const touchUrl = touchControlsUrl()
+  // Suppress QR codes when there's no usable LAN/public origin; localhost QRs won't work for phones/tablets.
+  const shouldGenerateQr = state.accessMode === 'local' || (state.accessMode === 'lan' && state.lanAddress) || (state.accessMode === 'internet' && state.publicBaseUrl)
+  const url = shouldGenerateQr ? dashboardUrl() : null
+  const touchUrl = shouldGenerateQr ? touchControlsUrl() : null
   state.qrDataUrl = url ? await QRCode.toDataURL(url) : null
   state.touchQrDataUrl = touchUrl ? await QRCode.toDataURL(touchUrl) : null
 }
