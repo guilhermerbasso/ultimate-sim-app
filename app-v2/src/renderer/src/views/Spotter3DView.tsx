@@ -1,5 +1,6 @@
 import { type ComponentType, type CSSProperties, type ReactElement, type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import {
   DEFAULT_SPOTTER_3D_CONFIG,
@@ -112,7 +113,7 @@ function ExplainerBlock({ title, children }: { title: string; children: ReactNod
   )
 }
 
-function radarDot(cue: SpatialCue, config: Spotter3DConfig): ReactElement {
+function radarDot(cue: SpatialCue, config: Spotter3DConfig, language: AppViewProps['language']): ReactElement {
   const half = RADAR / 2
   const scaleX = (half - 16) / Math.max(0.5, config.panWidthM)
   const scaleZ = (half - 16) / Math.max(0.5, config.maxDistanceM)
@@ -139,7 +140,7 @@ function radarDot(cue: SpatialCue, config: Spotter3DConfig): ReactElement {
   )
 }
 
-const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement => {
+const Spotter3DView: ComponentType<AppViewProps> = ({ showToast, language }): ReactElement => {
   const [config, setConfig] = useState<Spotter3DConfig>(DEFAULT_SPOTTER_3D_CONFIG)
   const [live, setLive] = useState<TelemetrySnapshot | null>(null)
   const [status, setStatus] = useState<Spotter3DStatus>({ unlocked: false, enabled: DEFAULT_SPOTTER_3D_CONFIG.enabled, running: false })
@@ -183,7 +184,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
   return (
     <div style={{ display: 'grid', gap: 18 }}>
       <header style={{ display: 'grid', gap: 6 }}>
-        <h1 style={{ margin: 0, fontFamily: '"Rajdhani", sans-serif', fontSize: 24, color: 'var(--text-primary)' }}>3D Spotter</h1>
+        <h1 style={{ margin: 0, fontFamily: '"Rajdhani", sans-serif', fontSize: 24, color: 'var(--text-primary)' }}>{tt(language, 'spotter3d.title')}</h1>
         <p style={{ margin: 0, color: 'var(--text-muted)', maxWidth: 760 }}>
           Spatial audio (Web Audio HRTF) that runs throughout the session: you <strong>hear</strong> nearby cars positioned around you
           — left/right by side, near/far by volume, front/rear by tone. Use <strong>headphones</strong> for the
@@ -192,16 +193,13 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
       </header>
 
       <section style={{ ...panel, display: 'grid', gap: 16 }}>
-        <ExplainerBlock title="What is 3D Spotter">
-          A <strong>pure-audio</strong> spotter: instead of talking, it places a soft sound at the position of each car near you, as if
-          the car were really there in space. It's your audible "peripheral vision" in corners, overtakes, and side-by-side battles.
+        <ExplainerBlock title={tt(language, 'spotter3d.whatTitle')}>
+          {tt(language, 'spotter3d.whatBeforePure')} <strong>{tt(language, 'spotter3d.pureAudio')}</strong> {tt(language, 'spotter3d.whatAfterPure')}
         </ExplainerBlock>
-        <ExplainerBlock title="How it works">
-          iRacing telemetry reports where nearby cars are. The app converts this into positioned sounds (HRTF): a car to the
-          <strong> left</strong> sounds on the left, one on the <strong>right</strong> sounds on the right, <strong>behind</strong> sounds lower-pitched, and
-          the <strong>nearer</strong> it is, the louder it gets. With no nearby cars, it stays <strong>silent</strong>.
+        <ExplainerBlock title={tt(language, 'spotter3d.howTitle')}>
+          {tt(language, 'spotter3d.howText')}
         </ExplainerBlock>
-        <ExplainerBlock title="How to use">
+        <ExplainerBlock title={tt(language, 'spotter3d.useTitle')}>
           It comes <strong>on</strong> by default and runs on its own on any screen. Because of a browser rule, audio unlocks only after your
           <strong> first click</strong> anywhere in the app — after that it works for the rest of the session. Put on headphones, adjust the
           volume below, and test the positioning with the buttons.
@@ -233,13 +231,13 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
                 borderRadius: '50%',
                 background: 'var(--text-primary)'
               }}
-              title="You"
+              title={tt(language, 'spotter3d.you')}
             />
-            <span style={{ position: 'absolute', top: 6, left: '50%', transform: 'translateX(-50%)', ...label }}>frente</span>
-            <span style={{ position: 'absolute', bottom: 6, left: '50%', transform: 'translateX(-50%)', ...label }}>rear</span>
-            {cues.map((cue) => radarDot(cue, config))}
+            <span style={{ position: 'absolute', top: 6, left: '50%', transform: 'translateX(-50%)', ...label }}>{tt(language, 'spotter3d.front')}</span>
+            <span style={{ position: 'absolute', bottom: 6, left: '50%', transform: 'translateX(-50%)', ...label }}>{tt(language, 'spotter3d.rear')}</span>
+            {cues.map((cue) => radarDot(cue, config, language))}
           </div>
-          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{cues.length} car(s) with active cues</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{tt(language, 'spotter3d.activeCues', { count: cues.length })}</span>
         </div>
 
         <div style={{ display: 'grid', gap: 16 }}>
@@ -254,7 +252,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
               }}
               type="button"
             >
-              {config.enabled ? '3D Spotter on' : '3D Spotter off'}
+              {config.enabled ? tt(language, 'spotter3d.toggleOn') : tt(language, 'spotter3d.toggleOff')}
             </button>
             <span
               style={{
@@ -290,12 +288,12 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
           )}
 
           <div>
-            <span style={label}>Test position</span>
+            <span style={label}>{tt(language, 'spotter3d.testPosition')}</span>
             <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
               {([
-                ['left', 'Esquerda'],
-                ['right', 'Direita'],
-                ['behind', 'Arear']
+                ['left', tt(language, 'spotter3d.left')],
+                ['right', tt(language, 'spotter3d.right')],
+                ['behind', tt(language, 'spotter3d.behind')]
               ] as Array<[Spotter3DTestPosition, string]>).map(([position, text]) => (
                 <button
                   key={position}
@@ -311,7 +309,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(180px, 1fr))', gap: 14 }}>
             <Slider
-              text="Volume"
+              text={tt(language, 'spotter3d.volume')}
               min={0}
               max={1}
               step={0.05}
@@ -321,7 +319,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
               onCommit={(masterVolume) => void persist({ masterVolume })}
             />
             <Slider
-              text="Max distance (m)"
+              text={tt(language, 'spotter3d.maxDistance')}
               min={5}
               max={80}
               step={1}
@@ -331,7 +329,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
               onCommit={(maxDistanceM) => void persist({ maxDistanceM })}
             />
             <Slider
-              text="Pan width (m)"
+              text={tt(language, 'spotter3d.panWidth')}
               min={2}
               max={20}
               step={0.5}
@@ -341,7 +339,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast }): ReactElement
               onCommit={(panWidthM) => void persist({ panWidthM })}
             />
             <Slider
-              text="Simultaneous voices"
+              text={tt(language, 'spotter3d.simultaneousVoices')}
               min={1}
               max={6}
               step={1}
