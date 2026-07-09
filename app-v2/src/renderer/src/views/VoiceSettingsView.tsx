@@ -276,6 +276,7 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
       } else {
         showToast(tt(language, 'voice.defaultVoiceToast', { voice: voiceId }), 'success')
       }
+    },
     [updatePref, pref.engine, ensureVoiceReady, showToast, language]
   )
 
@@ -288,6 +289,7 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
       } catch {
         showToast(tt(language, 'voice.inputChangeFailedToast'), 'error')
       }
+    },
     [language, refreshSttStatus, showToast]
   )
 
