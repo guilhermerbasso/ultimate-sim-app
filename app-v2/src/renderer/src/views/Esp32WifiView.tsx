@@ -1,6 +1,7 @@
 import { type ReactElement, useEffect, useMemo, useState } from 'react'
 import type { PortInfo } from '../../../shared/ipc'
 import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 
 interface WifiCompanionDevice {
   id: string
@@ -30,7 +31,7 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement {
+export default function Esp32WifiView({ showToast, language }: AppViewProps): ReactElement {
   const [devices, setDevices] = useState<WifiCompanionDevice[]>([])
   const [statuses, setStatuses] = useState<WifiTransportStatus[]>([])
   const [ports, setPorts] = useState<PortInfo[]>([])
@@ -74,7 +75,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
       const list = await window.ipc.invoke<WifiCompanionDevice[]>('esp32:discover')
       setDevices(list)
       showToast(
-        list.length ? `${list.length} ESP32 device(s) found via mDNS.` : 'No ESP32 found. Make sure it is on the same network.',
+        list.length ? tt(language, 'esp32Wifi.discoveredToast', { count: list.length }) : tt(language, 'esp32Wifi.noneFoundToast'),
         'info'
       )
     } catch (error) {
@@ -102,7 +103,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
     try {
       await window.ipc.invoke('esp32:connect', device)
       await refreshStatus()
-      showToast(`ESP32 connected at ${device.host}:${device.port}.`, 'success')
+      showToast(tt(language, 'esp32Wifi.connectedToast', { host: device.host, port: device.port }), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -112,7 +113,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
 
   async function connectManual(): Promise<void> {
     if (!manualHost.trim()) return
-    await connect({ id: `${manualHost}:${manualPort}`, name: 'ESP32 manual', host: manualHost.trim(), port: manualPort, addresses: [] })
+    await connect({ id: `${manualHost}:${manualPort}`, name: tt(language, 'esp32Wifi.manualDeviceName'), host: manualHost.trim(), port: manualPort, addresses: [] })
   }
 
   async function disconnect(id: string): Promise<void> {
@@ -120,7 +121,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
     try {
       await window.ipc.invoke('esp32:disconnect', id)
       await refreshStatus()
-      showToast('ESP32 disconnected.', 'success')
+      showToast(tt(language, 'esp32Wifi.disconnectedToast'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -149,7 +150,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
   async function sendQuery(id: string): Promise<void> {
     try {
       await window.ipc.invoke('esp32:send', id, '?')
-      showToast('Handshake enviado (?).', 'info')
+      showToast(tt(language, 'esp32Wifi.handshakeToast'), 'info')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -160,16 +161,15 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
       <article className="panel-card hero-card">
         <div className="panel-heading-row">
           <div>
-            <span className="panel-label">ESP32 Wi‑Fi · Phase 3</span>
-            <h3>Companion ESP32 over USB or Wi?Fi</h3>
+            <span className="panel-label">{tt(language, 'esp32Wifi.eyebrow')}</span>
+            <h3>{tt(language, 'esp32Wifi.title')}</h3>
           </div>
           <button className="ghost-action compact" disabled={busy} onClick={() => void discover()} type="button">
-            Descobrir mDNS
+            {tt(language, 'esp32Wifi.discover')}
           </button>
         </div>
         <p className="helper-text">
-          Flash/provision over USB, then connect over the local network. Flash and Wi?Fi must be bench-validated;
-          on macOS the app stays guarded when arduino-cli/ESP32 core or mDNS are not installed.
+          {tt(language, 'esp32Wifi.heroHelp')}
         </p>
       </article>
 
@@ -177,66 +177,66 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
         <article className="panel-card">
           <div className="panel-heading-row">
             <div>
-              <span className="panel-label">USB provisioning</span>
-              <h3>Send SSID and password</h3>
+              <span className="panel-label">{tt(language, 'esp32Wifi.usbProvisioning')}</span>
+              <h3>{tt(language, 'esp32Wifi.sendCredentials')}</h3>
             </div>
             <button className="ghost-action compact" disabled={busy} onClick={() => void loadPorts()} type="button">
-              List ports
+              {tt(language, 'esp32Wifi.listPorts')}
             </button>
           </div>
           <div className="form-grid">
             <label>
-              Board
+              {tt(language, 'esp32Wifi.board')}
               <select value={board} onChange={(event) => setBoard(event.target.value as 'esp32' | 'esp32s3')}>
                 <option value="esp32s3">ESP32‑S3 WROOM‑1 Type‑C</option>
                 <option value="esp32">ESP32 DevKit</option>
               </select>
             </label>
             <label>
-              USB port
+              {tt(language, 'esp32Wifi.usbPort')}
               <select value={selectedPort} onChange={(event) => setSelectedPort(event.target.value)}>
-                <option value="">Select…</option>
+                <option value="">{tt(language, 'esp32Wifi.selectPort')}</option>
                 {ports.map((port) => (
                   <option key={port.path} value={port.path}>
-                    {port.path} {port.isSimX ? '(SIM-X — do not use)' : ''}
+                    {port.path} {port.isSimX ? tt(language, 'esp32Wifi.doNotUseSimx') : ''}
                   </option>
                 ))}
               </select>
             </label>
             <label>
-              SSID Wi‑Fi 2.4 GHz
-              <input value={ssid} onChange={(event) => setSsid(event.target.value)} placeholder="MyNetwork" />
+              {tt(language, 'esp32Wifi.ssid')}
+              <input value={ssid} onChange={(event) => setSsid(event.target.value)} placeholder={tt(language, 'esp32Wifi.ssidPlaceholder')} />
             </label>
             <label>
-              Password
+              {tt(language, 'esp32Wifi.password')}
               <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="••••••••" type="password" />
             </label>
           </div>
           <button className="primary-action" disabled={busy || !selectedPort || !ssid.trim()} onClick={() => void provision()} type="button">
-            Flash firmware + provision Wi‑Fi
+            {tt(language, 'esp32Wifi.flashProvision')}
           </button>
-          <p className="helper-text">The app compiles/uploads the sketch with arduino-cli and sends WIFI:&lt;ssid&gt;:&lt;password&gt; over serial.</p>
+          <p className="helper-text">{tt(language, 'esp32Wifi.provisionHelp')}</p>
         </article>
 
         <article className="panel-card">
           <div className="panel-heading-row">
             <div>
-              <span className="panel-label">Manual connection</span>
-              <h3>ESP32 IP/host</h3>
+              <span className="panel-label">{tt(language, 'esp32Wifi.manualConnection')}</span>
+              <h3>{tt(language, 'esp32Wifi.manualTitle')}</h3>
             </div>
           </div>
           <div className="form-grid">
             <label>
-              Host/IP
+              {tt(language, 'esp32Wifi.hostIp')}
               <input value={manualHost} onChange={(event) => setManualHost(event.target.value)} placeholder="192.168.1.50" />
             </label>
             <label>
-              TCP port
+              {tt(language, 'esp32Wifi.tcpPort')}
               <input value={manualPort} onChange={(event) => setManualPort(Number(event.target.value) || 47650)} type="number" />
             </label>
           </div>
           <button className="primary-action" disabled={busy || !manualHost.trim()} onClick={() => void connectManual()} type="button">
-            Connect manually
+            {tt(language, 'esp32Wifi.connectManual')}
           </button>
         </article>
       </section>
@@ -244,12 +244,12 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
       <article className="panel-card">
         <div className="panel-heading-row">
           <div>
-            <span className="panel-label">Devices encontrados</span>
-            <h3>ESP32 via mDNS (_ubbcompanion._tcp)</h3>
+            <span className="panel-label">{tt(language, 'esp32Wifi.devicesFound')}</span>
+            <h3>{tt(language, 'esp32Wifi.mdnsTitle')}</h3>
           </div>
         </div>
         <div className="port-list">
-          {devices.length === 0 && <p className="empty-state">Click ?Discover mDNS? or connect manually by IP.</p>}
+          {devices.length === 0 && <p className="empty-state">{tt(language, 'esp32Wifi.emptyDevices')}</p>}
           {devices.map((device) => {
             const connected = connectedIds.has(device.id)
             return (
@@ -260,15 +260,15 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
                 </div>
                 <div className="inline-actions">
                   <button className="ghost-action compact" disabled={busy} onClick={() => void sendQuery(device.id)} type="button">
-                    Handshake
+                    {tt(language, 'esp32Wifi.handshake')}
                   </button>
                   {connected ? (
                     <button className="ghost-action compact" disabled={busy} onClick={() => void disconnect(device.id)} type="button">
-                      Desconectar
+                      {tt(language, 'esp32Wifi.disconnect')}
                     </button>
                   ) : (
                     <button className="primary-action compact" disabled={busy} onClick={() => void connect(device)} type="button">
-                      Connect
+                      {tt(language, 'esp32Wifi.connect')}
                     </button>
                   )}
                 </div>
@@ -281,8 +281,8 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
       <article className="panel-card scroll-card">
         <div className="panel-heading-row">
           <div>
-            <span className="panel-label">Status / RX</span>
-            <h3>Received lines</h3>
+            <span className="panel-label">{tt(language, 'esp32Wifi.statusRx')}</span>
+            <h3>{tt(language, 'esp32Wifi.receivedLines')}</h3>
           </div>
         </div>
         {statuses.map((status) => (
@@ -290,7 +290,7 @@ export default function Esp32WifiView({ showToast }: AppViewProps): ReactElement
             {status.connected ? '🟢' : '⚪'} {status.id} · {status.host}:{status.port} {status.error ? `· ${status.error}` : ''}
           </p>
         ))}
-        <pre className="serial-log">{lines.join('\n') || 'No data yet.'}</pre>
+        <pre className="serial-log">{lines.join('\n') || tt(language, 'esp32Wifi.noData')}</pre>
       </article>
     </section>
   )
