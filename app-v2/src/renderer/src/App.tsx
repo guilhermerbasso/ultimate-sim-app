@@ -22,6 +22,15 @@ import { BrandLogo } from './components/BrandLogo'
 import { UpdateBanner } from './components/UpdateBanner'
 import { ReportBugButton } from './components/ReportBugButton'
 import { OnboardingFlow } from './onboarding/OnboardingFlow'
+import { TutorialLauncherButton } from './onboarding/TutorialLauncherButton'
+import { TutorialOverlay } from './onboarding/TutorialOverlay'
+import { getTutorial } from './onboarding/tutorialRegistry'
+import {
+  isTutorialSeen,
+  markTutorialSeen,
+  readTutorialAutoDisabled,
+  writeTutorialAutoDisabled
+} from './onboarding/tutorialStorage'
 import { navSections } from './navigation/navModel'
 import {
   APP_SETTINGS_CHANGED_EVENT,
@@ -153,6 +162,8 @@ function App(): ReactElement {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => readSidebarCollapsed())
   const [showOnboarding, setShowOnboarding] = useState(() => !readOnboardingCompleted())
+  const [activeTutorialId, setActiveTutorialId] = useState<string | null>(null)
+  const [tutorialAutoDisabled, setTutorialAutoDisabled] = useState(() => readTutorialAutoDisabled())
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS)
 
   const language = useMemo(() => resolveAppLanguage(appSettings.language), [appSettings.language])
@@ -274,6 +285,18 @@ function App(): ReactElement {
     setShowOnboarding(false)
   }, [])
 
+  const startCurrentTutorial = useCallback(() => {
+    setActiveTutorialId(activeId)
+  }, [activeId])
+
+  const closeTutorial = useCallback((disableAutomatic: boolean) => {
+    if (disableAutomatic) {
+      writeTutorialAutoDisabled(true)
+      setTutorialAutoDisabled(true)
+    }
+    setActiveTutorialId(null)
+  }, [])
+
   const renderNavRow = useCallback((view: ViewDef, context: string) => {
     const isPinned = favorites.includes(view.id)
 
@@ -336,7 +359,15 @@ function App(): ReactElement {
     ].slice(0, MAX_RECENTS))
   }, [activeId, viewById])
 
+  useEffect(() => {
+    if (showOnboarding || tutorialAutoDisabled || activeTutorialId || !getTutorial(activeId) || isTutorialSeen(activeId)) return
+    markTutorialSeen(activeId)
+    setActiveTutorialId(activeId)
+  }, [activeId, activeTutorialId, showOnboarding, tutorialAutoDisabled])
+
   const Active = current.Component
+  const activeTutorial = activeTutorialId ? getTutorial(activeTutorialId) : null
+  const activeTutorialView = activeTutorialId ? viewById.get(activeTutorialId) : null
 
   useEffect(() => {
     window.ipc
@@ -495,6 +526,7 @@ function App(): ReactElement {
               <p>{current.description}</p>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+              <TutorialLauncherButton viewId={activeId} language={language} onStart={startCurrentTutorial} />
               <ReportBugButton language={language} showToast={showToast} />
               <a
                 aria-label={t(language, 'supportAria')}
@@ -542,6 +574,15 @@ function App(): ReactElement {
         <OnboardingFlow
           onClose={closeOnboarding}
           onNavigate={(id) => setActiveId(id)}
+        />
+      )}
+
+      {activeTutorial && activeTutorialView && (
+        <TutorialOverlay
+          tutorial={activeTutorial}
+          viewLabel={activeTutorialView.label}
+          language={language}
+          onClose={closeTutorial}
         />
       )}
     </div>
