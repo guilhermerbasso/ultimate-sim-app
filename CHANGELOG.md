@@ -6,6 +6,28 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
+## 2.47.0 — per-car themed telemetry widgets, car-fidelity images, more i18n
+
+### Added
+- **`themedDerived` widgets (72)** — the 12 combined-channel derived widgets (slip angle,
+  steering lock, rotation rates, attitude, fuel laps-left, sun position, GPS heading,
+  race-control flags, shift point, engine telltale, spotter, session id) rendered in each
+  of the 6 car families' signature palettes (Ferrari, Porsche, Mercedes-AMG, McLaren,
+  Corvette, Lamborghini). Brings the 16 newly-surfaced telemetries into the themed set.
+- **`themedChannels` widgets (102)** — 17 core scalar channels (speed, rpm, gear, throttle,
+  brake, clutch, steering, water/oil temp, fuel, delta, position, lap, track/air temp) × 6 cars.
+  Both sets are generated from single-source, palette-parametrized, NaN-safe renderers.
+- **6 per-car themed dashboards** — one 1024×600 dashboard per car composing its themed
+  rev-lights signature with its themed channel + derived widgets (`dashboards-hifi-themed-cars2.ts`).
+- **Photorealistic per-car reference images** — six GT3 reference images generated via
+  Azure AI Foundry gpt-image with prompt-QA (Ferrari 296 GT3, Porsche 911 GT3 R,
+  Mercedes-AMG GT3, McLaren 720S GT3, Corvette Z06 GT3.R, Lamborghini Huracán GT3),
+  branding-safe, each visually QA'd. Stored under `concepts/refs/`.
+- **Localization** — continued the view-by-view `tt()` rollout across all 7 languages.
+  Views migrated: OLED, RaceProfiles, TouchControls, Spotter3D, Haptics, HapticsZonal,
+  Biometrics, Revlights, Sounds, VoiceSettings, Setups, Pinout, Devices, Community,
+  Strategy, FuelStrategy, TireStrategy, Expressions.
+
 ## 2.46.0 — auto-update fix, complete telemetry coverage, diagnostics dashboards
 
 ### Fixed

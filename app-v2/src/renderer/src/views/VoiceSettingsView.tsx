@@ -122,7 +122,7 @@ function phaseLabel(progress: PiperVoiceProgress | undefined, language: AppViewP
     case 'downloading':
       return `Downloading… ${Math.round(progress.ratio * 100)}%`
     case 'verifying':
-      return 'Viewifying…'
+      return 'Verifying…'
     case 'done':
       return tt(language, 'voice.phase.done')
     case 'error':
@@ -240,7 +240,7 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
       else if (outcome === 'system') showToast(`Voice downloaded: ${voiceId} (Piper engine unavailable on this host — system voice will be used).`, 'info')
       else showToast(tt(language, 'voice.downloadedToast', { voice: voiceId }), 'success')
     },
-    [ensureVoiceReady, showToast]
+    [ensureVoiceReady, showToast, language]
   )
 
   const handleTest = useCallback(
@@ -277,7 +277,7 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
         showToast(tt(language, 'voice.defaultVoiceToast', { voice: voiceId }), 'success')
       }
     },
-    [updatePref, pref.engine, ensureVoiceReady, showToast]
+    [updatePref, pref.engine, ensureVoiceReady, showToast, language]
   )
 
   const handleSttToggle = useCallback(
@@ -290,7 +290,7 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
         showToast(tt(language, 'voice.inputChangeFailedToast'), 'error')
       }
     },
-    [refreshSttStatus, showToast]
+    [language, refreshSttStatus, showToast]
   )
 
   const handleSttDownload = useCallback(async () => {
@@ -444,7 +444,7 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
                       )}
                     </div>
                     <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 2 }}>
-                      {LANG_LABEL[voice.lang]} · quality {voice.quality}
+                      {tt(language, LANG_LABEL[voice.lang])} · quality {voice.quality}
                       {voice.onnxBytes ? ` · ~${Math.round(voice.onnxBytes / 1_000_000)} MB` : ''}
                     </div>
                   </div>
