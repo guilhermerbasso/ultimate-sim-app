@@ -1,5 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
+import type { AppSettings } from '../../../shared/settings'
+import { APP_SETTINGS_CHANGED_EVENT, resolveAppLanguage, tt, type ResolvedLanguage } from '../i18n'
 
 export interface TagCount {
   tag: string
@@ -42,6 +44,7 @@ export interface TagFilterProps<T> {
   onSelectedTagsChange: (tags: string[]) => void
   getTags: (item: T) => readonly string[] | undefined
   label?: string
+  language?: ResolvedLanguage
   className?: string
   style?: CSSProperties
 }
@@ -51,11 +54,14 @@ export function TagFilter<T>({
   selectedTags,
   onSelectedTagsChange,
   getTags,
-  label = 'Tags',
+  label,
+  language,
   className,
   style
 }: TagFilterProps<T>): ReactElement {
   const [query, setQuery] = useState('')
+  const [fallbackLanguage, setFallbackLanguage] = useState<ResolvedLanguage>('en')
+  const effectiveLanguage = language ?? fallbackLanguage
   const tagCounts = useMemo(() => collectTags(items, getTags), [items, getTags])
   const filteredItems = useMemo(() => filterByTags(items, selectedTags, getTags), [items, selectedTags, getTags])
   const selectedSet = useMemo(() => new Set(selectedTags), [selectedTags])
@@ -63,6 +69,20 @@ export function TagFilter<T>({
   const visibleTags = normalizedQuery
     ? tagCounts.filter(({ tag }) => tag.toLocaleLowerCase().includes(normalizedQuery))
     : tagCounts
+
+  useEffect(() => {
+    if (language) return
+    window.ipc
+      .invoke<AppSettings>('app:getSettings')
+      .then((settings) => setFallbackLanguage(resolveAppLanguage(settings.language)))
+      .catch(() => {})
+    const onSettingsChanged = (event: Event): void => {
+      const detail = (event as CustomEvent<AppSettings>).detail
+      if (detail) setFallbackLanguage(resolveAppLanguage(detail.language))
+    }
+    window.addEventListener(APP_SETTINGS_CHANGED_EVENT, onSettingsChanged)
+    return () => window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, onSettingsChanged)
+  }, [language])
 
   function toggleTag(tag: string): void {
     if (selectedSet.has(tag)) {
@@ -74,16 +94,16 @@ export function TagFilter<T>({
 
   return (
     <div className={className} style={{ ...containerStyle, ...style }}>
-      <span style={labelStyle}>{label}</span>
+      <span style={labelStyle}>{label ?? tt(effectiveLanguage, 'shared.tagFilter.tags')}</span>
       <input
         type="search"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search tags"
-        aria-label="Search tags"
+        placeholder={tt(effectiveLanguage, 'shared.tagFilter.search')}
+        aria-label={tt(effectiveLanguage, 'shared.tagFilter.search')}
         style={searchStyle}
       />
-      <span style={countStyle}>{filteredItems.length} of {items.length}</span>
+      <span style={countStyle}>{tt(effectiveLanguage, 'shared.tagFilter.count', { shown: filteredItems.length, total: items.length })}</span>
       <button
         type="button"
         className={selectedTags.length === 0 ? 'overlay-fav is-fav' : 'overlay-fav'}
@@ -91,7 +111,7 @@ export function TagFilter<T>({
         disabled={selectedTags.length === 0}
         style={{ ...chipStyle, opacity: selectedTags.length === 0 ? 0.7 : 1 }}
       >
-        Clear
+        {tt(effectiveLanguage, 'common.clear')}
       </button>
       {visibleTags.map(({ tag, count }) => {
         const selected = selectedSet.has(tag)
@@ -103,13 +123,13 @@ export function TagFilter<T>({
             aria-pressed={selected}
             onClick={() => toggleTag(tag)}
             style={chipStyle}
-            title={`${count} item${count === 1 ? '' : 's'}`}
+            title={tt(effectiveLanguage, count === 1 ? 'shared.tagFilter.itemSingular' : 'shared.tagFilter.itemPlural', { count })}
           >
             {tag} <span style={countBubbleStyle}>{count}</span>
           </button>
         )
       })}
-      {visibleTags.length === 0 && <span style={countStyle}>No tags found</span>}
+      {visibleTags.length === 0 && <span style={countStyle}>{tt(effectiveLanguage, 'shared.tagFilter.noTags')}</span>}
     </div>
   )
 }
