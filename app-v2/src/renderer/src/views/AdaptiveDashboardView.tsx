@@ -36,6 +36,7 @@ import { useCoachReport } from '../lib/coach-heatmap'
 import { coachFindings, topCoachTips } from '../lib/coach-insights'
 import { useEngineerFeed } from '../lib/engineer-feed'
 import { useTelemetrySelector } from '../lib/telemetry'
+import { tt } from '../i18n'
 
 const CHROME = 'var(--accent-primary)'
 const AMBER = 'var(--accent-warning)'
@@ -43,17 +44,18 @@ const GOOD = 'var(--accent-success)'
 const DANGER = 'var(--accent-danger)'
 
 // Warm-accent swatches (green reserved for positive states only).
-const BLINK_SWATCHES: Array<{ color: string; label: string }> = [
-  { color: '#FF7A00', label: 'Orange' },
-  { color: '#FFB800', label: 'Amber' },
-  { color: '#FF2200', label: 'Red' },
-  { color: '#F4F4F4', label: 'White' },
-  { color: '#1AFF6E', label: 'Green (good)' }
+const BLINK_SWATCHES: Array<{ color: string; labelKey: string }> = [
+  { color: '#FF7A00', labelKey: 'adaptive.swatch.orange' },
+  { color: '#FFB800', labelKey: 'adaptive.swatch.amber' },
+  { color: '#FF2200', labelKey: 'adaptive.swatch.red' },
+  { color: '#F4F4F4', labelKey: 'adaptive.swatch.white' },
+  { color: '#1AFF6E', labelKey: 'adaptive.swatch.greenGood' }
 ]
 
 const DEFAULT_BLINK_HZ = 1.5
 const MOMENT_RECOMPUTE_MS = 140
 const AI_LIVE_SLOT_COUNT = 6
+type TFunc = (key: string, vars?: Record<string, string | number>) => string
 
 // A moment whose catalog entry is `detectable:false` can be authored but will not
 // fire at runtime yet ?? surface that clearly so the user isn't surprised.
@@ -61,10 +63,10 @@ function momentIsDetectable(id: string): boolean {
   return momentCatalogEntry(id)?.detectable !== false
 }
 
-function NotDetectableBadge(): ReactElement {
+function NotDetectableBadge({ t }: { t: TFunc }): ReactElement {
   return (
     <span
-      title="Detection for this moment is not available yet ?? the rule is saved, but it will not fire for now."
+      title={t('adaptive.notDetectableTitle')}
       style={{
         flex: '0 0 auto',
         fontSize: 10,
@@ -78,15 +80,15 @@ function NotDetectableBadge(): ReactElement {
         whiteSpace: 'nowrap'
       }}
     >
-      coming soon
+      {t('adaptive.comingSoon')}
     </span>
   )
 }
 
-function FrameBadge(): ReactElement {
+function FrameBadge({ t }: { t: TFunc }): ReactElement {
   return (
     <span
-      title="This moment has a custom full-layout frame."
+      title={t('adaptive.frameBadgeTitle')}
       style={{
         flex: '0 0 auto',
         fontSize: 10,
@@ -100,7 +102,7 @@ function FrameBadge(): ReactElement {
         whiteSpace: 'nowrap'
       }}
     >
-      frame
+      {t('adaptive.frameBadge')}
     </span>
   )
 }
@@ -155,7 +157,7 @@ function buildAiContext(report: ReturnType<typeof useCoachReport>, engineerFeed:
   }
 }
 
-export default function AdaptiveDashboardView({ showToast }: AppViewProps): ReactElement {
+export default function AdaptiveDashboardView({ showToast, language }: AppViewProps): ReactElement {
   const [summaries, setSummaries] = useState<DashboardSummary[]>([])
   const [displays, setDisplays] = useState<DashboardDisplayInfo[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -175,6 +177,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
   const momentRef = useRef<RaceMomentState | null>(null)
   const latestSnapshotRef = useRef<TelemetrySnapshot | null>(null)
   const [liveMoment, setLiveMoment] = useState<RaceMomentState | null>(null)
+  const t = useCallback<TFunc>((key, vars) => tt(language, key, vars), [language])
 
   const applyDisplays = useCallback((screens: DashboardDisplayInfo[]) => {
     setDisplays(screens)
@@ -354,26 +357,26 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
     try {
       const summary = await window.ipc.invoke<DashboardSummary>('app:dash:createPreset', ADAPTIVE_DASHBOARD_ID)
       setSelectedId(summary.id)
-      showToast('Adaptive dashboard created.', 'success')
+      showToast(t('adaptive.toast.created'), 'success')
     } catch (error) {
-      showToast(`Failed to create preset: ${getErrorMessage(error)}`, 'error')
+      showToast(t('adaptive.toast.createFailed', { error: getErrorMessage(error) }), 'error')
     } finally {
       setBusy(false)
     }
-  }, [busy, showToast])
+  }, [busy, showToast, t])
 
   const openDash = useCallback(async () => {
     if (busy || !selectedId) return
     setBusy(true)
     try {
       await window.ipc.invoke('app:dash:open', selectedId, { displayId: selectedDisplayId ?? undefined, fullscreen })
-      showToast('Dashboard opened on the selected display.', 'success')
+      showToast(t('adaptive.toast.opened'), 'success')
     } catch (error) {
-      showToast(`Failed to open: ${getErrorMessage(error)}`, 'error')
+      showToast(t('adaptive.toast.openFailed', { error: getErrorMessage(error) }), 'error')
     } finally {
       setBusy(false)
     }
-  }, [busy, fullscreen, selectedDisplayId, selectedId, showToast])
+  }, [busy, fullscreen, selectedDisplayId, selectedId, showToast, t])
 
   const save = useCallback(async () => {
     if (busy || !dash) return
@@ -383,13 +386,13 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
       await window.ipc.invoke<DashboardSummary>('app:dash:save', next)
       setDash(next)
       setDirty(false)
-      showToast('Adaptive rules saved.', 'success')
+      showToast(t('adaptive.toast.saved'), 'success')
     } catch (error) {
-      showToast(`Failed to save: ${getErrorMessage(error)}`, 'error')
+      showToast(t('adaptive.toast.saveFailed', { error: getErrorMessage(error) }), 'error')
     } finally {
       setBusy(false)
     }
-  }, [busy, dash, config, showToast])
+  }, [busy, dash, config, showToast, t])
 
   const selectedSummary = summaries.find((s) => s.id === selectedId) ?? null
   const isAdaptiveTarget = selectedSummary ? isAdaptiveDashboard(selectedSummary) : false
@@ -397,24 +400,25 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
       <header style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ ...eyebrow, color: CHROME }}>Adaptive · editor</span>
-        <h1 style={{ margin: 0, fontSize: 22, color: 'var(--text-primary)' }}>Adaptive Dashboard</h1>
+        <span style={{ ...eyebrow, color: CHROME }}>{t('adaptive.eyebrow')}</span>
+        <h1 style={{ margin: 0, fontSize: 22, color: 'var(--text-primary)' }}>{t('adaptive.title')}</h1>
         <p style={{ margin: 0, color: 'var(--text-secondary)', maxWidth: 820 }}>
-          Edit which widgets <strong>appear</strong> or{' '}
-          <strong>hide</strong>, the highlight, and <strong>blink</strong> ?? without changing positions.
+          {t('adaptive.description.prefix')} <strong>{t('adaptive.description.appear')}</strong> {t('adaptive.description.or')}{' '}
+          <strong>{t('adaptive.description.hide')}</strong>, {t('adaptive.description.suffix')}{' '}
+          <strong>{t('adaptive.description.blink')}</strong> {t('adaptive.description.tail')}
         </p>
         <p style={{ margin: '2px 0 0', color: 'var(--text-muted)', fontSize: 12, maxWidth: 820 }}>
-          Example: <em>when crossing the finish line</em>, show Coach improvement points plus the sector map and
-          hide the radar; <em>under pressure</em>, blink the whole panel red.
+          {t('adaptive.example.prefix')} <em>{t('adaptive.example.finishLine')}</em>, {t('adaptive.example.middle')}{' '}
+          <em>{t('adaptive.example.pressure')}</em>, {t('adaptive.example.tail')}
         </p>
       </header>
 
       {/* Dashboard picker + actions */}
       <section style={card}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <label style={{ color: 'var(--text-secondary)', fontSize: 12, fontWeight: 700 }}>Dashboard</label>
+          <label style={{ color: 'var(--text-secondary)', fontSize: 12, fontWeight: 700 }}>{t('adaptive.dashboardLabel')}</label>
           <select value={selectedId ?? ''} onChange={(e) => setSelectedId(e.target.value || null)} style={select}>
-            {summaries.length === 0 && <option value="">(no saved dashboard)</option>}
+            {summaries.length === 0 && <option value="">{t('adaptive.noSavedDashboard')}</option>}
             {summaries.map((s) => (
               <option key={s.id} value={s.id}>
                 {isAdaptiveDashboard(s) ? '? ' : ''}
@@ -423,31 +427,31 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
             ))}
           </select>
           <button type="button" disabled={busy} onClick={() => void createPreset()} style={secondaryBtn}>
-            Create adaptive preset
+            {t('adaptive.createPreset')}
           </button>
-          <label style={{ color: 'var(--text-secondary)', fontSize: 12, fontWeight: 700 }}>Monitor</label>
+          <label style={{ color: 'var(--text-secondary)', fontSize: 12, fontWeight: 700 }}>{t('adaptive.monitorLabel')}</label>
           <select
             value={selectedDisplayId ?? ''}
             onChange={(e) => setSelectedDisplayId(e.target.value ? Number(e.target.value) : null)}
             style={{ ...select, width: 'auto' }}
           >
-            <option value="">Monitor primary / auto</option>
+            <option value="">{t('adaptive.monitorPrimaryAuto')}</option>
             {displays.map((display) => (
               <option key={display.id} value={display.id}>
-                {display.label} ? {display.bounds.width}?{display.bounds.height}{display.isPrimary ? ' ? primary' : ''}
+                {display.label} · {display.bounds.width}×{display.bounds.height}{display.isPrimary ? ` · ${t('adaptive.primary')}` : ''}
               </option>
             ))}
           </select>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', fontSize: 13 }}>
             <input type="checkbox" checked={fullscreen} onChange={(e) => setFullscreen(e.target.checked)} />
-            Fullscreen
+            {t('adaptive.fullscreen')}
           </label>
           <button type="button" disabled={busy || !selectedId} onClick={() => void openDash()} style={secondaryBtn}>
-            Open on display
+            {t('adaptive.openOnDisplay')}
           </button>
           <div style={{ flex: 1 }} />
           <button type="button" disabled={busy || !dash || !dirty} onClick={() => void save()} style={primaryBtn}>
-            {dirty ? 'Save changes' : 'Saved'}
+            {dirty ? t('adaptive.saveChanges') : t('adaptive.saved')}
           </button>
         </div>
 
@@ -459,10 +463,10 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
                 checked={adaptiveEnabled}
                 onChange={(e) => patchConfig({ ...config, enabled: e.target.checked })}
               />
-              <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>Adaptive mode on</span>
+              <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{t('adaptive.modeOn')}</span>
             </label>
             <label
-              title="Local heuristic widget selection. No network, no GPU, no paid API."
+              title={t('adaptive.aiLiveTitle')}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -477,19 +481,22 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
                 checked={aiLiveActive}
                 onChange={(e) => setAiLiveSelection(e.target.checked)}
               />
-              <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>AI live selection</span>
+              <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{t('adaptive.aiLiveSelection')}</span>
             </label>
             {aiLiveActive && (
               <span style={{ color: GOOD, fontSize: 12, fontWeight: 700 }}>
-                {liveWidgetIds.length} live widget(s) ? {liveMoment ? momentLabel(liveMoment.moment) : 'Detecting'}
+                {t('adaptive.liveWidgets', {
+                  count: liveWidgetIds.length,
+                  moment: liveMoment ? momentLabel(liveMoment.moment) : t('adaptive.detecting')
+                })}
               </span>
             )}
             <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-              {dash.elements.length} widgets ?? {rules.length} rule(s)
+              {t('adaptive.widgetRuleCounts', { widgets: dash.elements.length, rules: rules.length })}
             </span>
             {!isAdaptiveTarget && !(config.enabled ?? false) && (
               <span style={{ color: AMBER, fontSize: 12 }}>
-                This dashboard only becomes adaptive when the mode above is enabled.
+                {t('adaptive.enableModeHint')}
               </span>
             )}
           </div>
@@ -497,14 +504,14 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
       </section>
 
       {dash && aiLiveActive && (
-        <HifiLiveSelectionPreview snapshot={snapshot} ai={ai} widgetIds={liveWidgetIds} moment={liveMoment} />
+        <HifiLiveSelectionPreview t={t} snapshot={snapshot} ai={ai} widgetIds={liveWidgetIds} moment={liveMoment} />
       )}
 
       {!dash && (
         <section style={card}>
           <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
-            No dashboard loaded. Click <strong>Create adaptive preset</strong> to start with the
-            default <em>{ADAPTIVE_DASHBOARD_PRESET.name}</em> panel, or select an existing dashboard.
+            {t('adaptive.noDashboard.prefix')} <strong>{t('adaptive.createPreset')}</strong> {t('adaptive.noDashboard.middle')}{' '}
+            <em>{ADAPTIVE_DASHBOARD_PRESET.name}</em> {t('adaptive.noDashboard.tail')}
           </p>
         </section>
       )}
@@ -513,12 +520,12 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
         <section style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 320px) 1fr', gap: 'var(--space-4)' }}>
           {/* Left: moment list */}
           <div style={card}>
-            <h2 style={subTitle}>Moments</h2>
-            <MomentPicker used={usedMoments} onAdd={addRule} />
+            <h2 style={subTitle}>{t('adaptive.moments')}</h2>
+            <MomentPicker t={t} used={usedMoments} onAdd={addRule} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
               {rules.length === 0 && (
                 <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                  Add a moment above to create the first rule.
+                  {t('adaptive.addMomentHint')}
                 </span>
               )}
               {rules.map((rule) => (
@@ -529,6 +536,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
                   onSelect={() => setActiveMoment(rule.moment)}
                   onToggle={(enabled) => updateRule(rule.moment, { enabled })}
                   onRemove={() => removeRule(rule.moment)}
+                  t={t}
                 />
               ))}
             </div>
@@ -538,7 +546,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
           <div style={card}>
             {!selectedRule ? (
               <p style={{ margin: 0, color: 'var(--text-muted)' }}>
-                Select a moment on the left to configure widgets.
+                {t('adaptive.selectMomentHint')}
               </p>
             ) : (
               <RuleEditor
@@ -548,6 +556,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
                 onElementRule={(elementId, patch) => setElementRule(selectedRule.moment, elementId, patch)}
                 onEditFrame={() => setEditingFrameMoment(selectedRule.moment)}
                 onResetFrame={() => setFrame(selectedRule.moment, null)}
+                t={t}
               />
             )}
           </div>
@@ -563,6 +572,7 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
             setFrame(editingFrameMoment, frame)
             setEditingFrameMoment(null)
           }}
+          t={t}
         />
       )}
     </div>
@@ -572,11 +582,13 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
 // ??? Moment picker (grouped) ??????????????????????????????????????????????????
 
 function HifiLiveSelectionPreview({
+  t,
   snapshot,
   ai,
   widgetIds,
   moment
 }: {
+  t: TFunc
   snapshot: TelemetrySnapshot | null
   ai: HifiAiContext
   widgetIds: string[]
@@ -585,15 +597,15 @@ function HifiLiveSelectionPreview({
   return (
     <section style={card}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <h2 style={{ ...subTitle, margin: 0 }}>AI live selection</h2>
-        <span style={{ ...liveBadge, color: CHROME, borderColor: CHROME }}>Local heuristic</span>
+        <h2 style={{ ...subTitle, margin: 0 }}>{t('adaptive.aiLiveSelection')}</h2>
+        <span style={{ ...liveBadge, color: CHROME, borderColor: CHROME }}>{t('adaptive.localHeuristic')}</span>
         <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-          Moment: <strong style={{ color: 'var(--text-primary)' }}>{moment ? momentLabel(moment.moment) : 'Detecting'}</strong>
+          {t('adaptive.momentLabel')}:{' '}
+          <strong style={{ color: 'var(--text-primary)' }}>{moment ? momentLabel(moment.moment) : t('adaptive.detecting')}</strong>
         </span>
       </div>
       <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 12 }}>
-        When the adaptive dashboard is on, this preview shows the ordered hi-fi widgets selected from live telemetry,
-        coach/engineer state, and the detected race moment. It is fully local and deterministic.
+        {t('adaptive.livePreviewDescription')}
       </p>
       <div style={liveGrid}>
         {widgetIds.map((id) => {
@@ -616,12 +628,12 @@ function HifiLiveSelectionPreview({
   )
 }
 
-function MomentPicker({ used, onAdd }: { used: ReadonlySet<string>; onAdd: (id: string) => void }): ReactElement {
+function MomentPicker({ t, used, onAdd }: { t: TFunc; used: ReadonlySet<string>; onAdd: (id: string) => void }): ReactElement {
   const [pick, setPick] = useState('')
   return (
     <div style={{ display: 'flex', gap: 6 }}>
       <select value={pick} onChange={(e) => setPick(e.target.value)} style={{ ...select, flex: 1 }}>
-        <option value="">+ Add moment?</option>
+        <option value="">{t('adaptive.addMomentOption')}</option>
         {GROUP_ORDER.map((group) => {
           const items = MOMENT_CATALOG.filter((m) => m.group === group)
           if (items.length === 0) return null
@@ -630,8 +642,8 @@ function MomentPicker({ used, onAdd }: { used: ReadonlySet<string>; onAdd: (id: 
               {items.map((m) => (
                 <option key={m.id} value={m.id} disabled={used.has(m.id)}>
                   {m.label}
-                  {m.detectable === false ? ' ? coming soon' : ''}
-                  {used.has(m.id) ? ' ?' : ''}
+                  {m.detectable === false ? ` · ${t('adaptive.comingSoon')}` : ''}
+                  {used.has(m.id) ? ` · ${t('adaptive.used')}` : ''}
                 </option>
               ))}
             </optgroup>
@@ -647,7 +659,7 @@ function MomentPicker({ used, onAdd }: { used: ReadonlySet<string>; onAdd: (id: 
         }}
         style={secondaryBtn}
       >
-        Add
+        {t('adaptive.add')}
       </button>
     </div>
   )
@@ -658,13 +670,15 @@ function RuleRow({
   active,
   onSelect,
   onToggle,
-  onRemove
+  onRemove,
+  t
 }: {
   rule: AdaptiveMomentRule
   active: boolean
   onSelect: () => void
   onToggle: (enabled: boolean) => void
   onRemove: () => void
+  t: TFunc
 }): ReactElement {
   const count = Object.keys(rule.elements ?? {}).length
   const enabled = rule.enabled !== false
@@ -682,7 +696,7 @@ function RuleRow({
         opacity: enabled ? 1 : 0.55
       }}
     >
-      <input type="checkbox" checked={enabled} onChange={(e) => onToggle(e.target.checked)} title="Enable/disable rule" />
+      <input type="checkbox" checked={enabled} onChange={(e) => onToggle(e.target.checked)} title={t('adaptive.enableDisableRule')} />
       <button
         type="button"
         onClick={onSelect}
@@ -690,15 +704,17 @@ function RuleRow({
       >
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <strong style={{ fontSize: 13 }}>{momentLabel(rule.moment)}</strong>
-          {hasFrame && <FrameBadge />}
-          {!momentIsDetectable(rule.moment) && <NotDetectableBadge />}
+          {hasFrame && <FrameBadge t={t} />}
+          {!momentIsDetectable(rule.moment) && <NotDetectableBadge t={t} />}
         </span>
         <span style={{ display: 'block', color: 'var(--text-muted)', fontSize: 11 }}>
-          {hasFrame ? `frame: ${rule.frame?.elements.length} widget(s)` : `${count} adjustment(s)`}
-          {rule.blinkDashboard ? ' ? blinks panel' : ''}
+          {hasFrame
+            ? t('adaptive.frameWidgetCount', { count: rule.frame?.elements.length ?? 0 })
+            : t('adaptive.adjustmentCount', { count })}
+          {rule.blinkDashboard ? ` · ${t('adaptive.blinksPanel')}` : ''}
         </span>
       </button>
-      <button type="button" onClick={onRemove} title="Remove" style={iconBtn}>
+      <button type="button" onClick={onRemove} title={t('adaptive.remove')} style={iconBtn}>
         ?
       </button>
     </div>
@@ -713,7 +729,8 @@ function RuleEditor({
   onDashboardBlink,
   onElementRule,
   onEditFrame,
-  onResetFrame
+  onResetFrame,
+  t
 }: {
   rule: AdaptiveMomentRule
   elements: DashboardElement[]
@@ -721,6 +738,7 @@ function RuleEditor({
   onElementRule: (elementId: string, patch: AdaptiveElementRule | null) => void
   onEditFrame: () => void
   onResetFrame: () => void
+  t: TFunc
 }): ReactElement {
   const hasFrame = (rule.frame?.elements?.length ?? 0) > 0
   return (
@@ -728,7 +746,7 @@ function RuleEditor({
       <div>
         <h2 style={{ ...subTitle, marginBottom: 2 }}>{momentLabel(rule.moment)}</h2>
         <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-          Configure each widget: show/hide, highlight, and blink. Rules apply on top of the automatic plan.
+          {t('adaptive.ruleEditorHint')}
         </span>
         {!momentIsDetectable(rule.moment) && (
           <div
@@ -745,11 +763,8 @@ function RuleEditor({
               fontSize: 12
             }}
           >
-            <NotDetectableBadge />
-            <span>
-              Detection for this moment is not available yet. The rule is saved, but it will not trigger on track for
-              enquanto.
-            </span>
+            <NotDetectableBadge t={t} />
+            <span>{t('adaptive.notDetectableBody')}</span>
           </div>
         )}
       </div>
@@ -757,20 +772,21 @@ function RuleEditor({
       {/* Full per-moment FRAME (complete layout) */}
       <div style={{ ...hintTile, gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <strong style={{ color: 'var(--text-primary)', fontSize: 13 }}>Frame for this moment (full layout)</strong>
-          {hasFrame && <FrameBadge />}
+          <strong style={{ color: 'var(--text-primary)', fontSize: 13 }}>{t('adaptive.frameSectionTitle')}</strong>
+          {hasFrame && <FrameBadge t={t} />}
         </div>
         <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-          Open the full editor to <strong>add</strong>, <strong>remove</strong>, <strong>move</strong>, and{' '}
-          <strong>resize</strong> widgets only for this moment. When active on track, the panel switches to this layout.
+          {t('adaptive.frameSectionHintPrefix')} <strong>{t('adaptive.add')}</strong>, <strong>{t('adaptive.removeLower')}</strong>,{' '}
+          <strong>{t('adaptive.move')}</strong>, {t('adaptive.and')} <strong>{t('adaptive.resize')}</strong>{' '}
+          {t('adaptive.frameSectionHintSuffix')}
         </span>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button type="button" onClick={onEditFrame} style={primaryBtn}>
-            {hasFrame ? 'Edit frame for this moment' : 'Create frame for this moment'}
+            {hasFrame ? t('adaptive.editMomentFrame') : t('adaptive.createMomentFrame')}
           </button>
           {hasFrame && (
             <button type="button" onClick={onResetFrame} style={secondaryBtn}>
-              Remove frame (return to base)
+              {t('adaptive.removeFrame')}
             </button>
           )}
         </div>
@@ -778,17 +794,17 @@ function RuleEditor({
 
       {/* Whole-dashboard blink */}
       <div style={{ ...hintTile, gap: 8 }}>
-        <strong style={{ color: 'var(--text-primary)', fontSize: 13 }}>Blink the whole panel</strong>
-        <BlinkEditor blink={rule.blinkDashboard} onChange={onDashboardBlink} />
+        <strong style={{ color: 'var(--text-primary)', fontSize: 13 }}>{t('adaptive.blinkWholePanel')}</strong>
+        <BlinkEditor t={t} blink={rule.blinkDashboard} onChange={onDashboardBlink} />
       </div>
 
       {/* Element list */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {elements.length === 0 && (
-          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>This dashboard has no widgets.</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{t('adaptive.noWidgets')}</span>
         )}
         {elements.map((el) => (
-          <ElementRow key={el.id} element={el} rule={rule.elements?.[el.id]} onChange={(patch) => onElementRule(el.id, patch)} />
+          <ElementRow key={el.id} t={t} element={el} rule={rule.elements?.[el.id]} onChange={(patch) => onElementRule(el.id, patch)} />
         ))}
       </div>
     </div>
@@ -807,12 +823,14 @@ function FrameEditorModal({
   dash,
   rule,
   onCancel,
-  onSave
+  onSave,
+  t
 }: {
   dash: Dashboard
   rule: AdaptiveMomentRule | null
   onCancel: () => void
   onSave: (frame: AdaptiveMomentFrame) => void
+  t: TFunc
 }): ReactElement {
   // Seed from an existing frame, else from the BASE dashboard layout (clone), so
   // the user starts from the current dashboard and tweaks per moment.
@@ -842,40 +860,39 @@ function FrameEditorModal({
       <div style={modalCard}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ flex: 1 }}>
-            <span style={{ ...eyebrow, color: CHROME }}>Frame ?? full editor</span>
+            <span style={{ ...eyebrow, color: CHROME }}>{t('adaptive.frameEditorEyebrow')}</span>
             <h2 style={{ margin: '2px 0 0', fontSize: 18, color: 'var(--text-primary)' }}>
               {momentLabel(rule?.moment ?? '')}
             </h2>
             <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-              {seededFromBase ? 'New frame from the base layout.' : 'Editing the saved frame for this moment.'} Add,
-              move, resize, and configure widgets only for this moment.
+              {seededFromBase ? t('adaptive.newFrameFromBase') : t('adaptive.editingSavedFrame')} {t('adaptive.frameEditorHint')}
             </span>
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
-            Background
+            {t('adaptive.background')}
             <input
               type="color"
               value={board.bg || '#000000'}
               onChange={(e) => setBoard((b) => ({ ...b, bg: e.target.value }))}
               style={{ width: 30, height: 26, padding: 0, border: '1px solid var(--border-default)', borderRadius: 6, background: 'transparent', cursor: 'pointer' }}
-              aria-label="Frame background color"
+              aria-label={t('adaptive.frameBackgroundColor')}
             />
           </label>
           <button type="button" onClick={reseedFromBase} style={secondaryBtn}>
-            Reset to base
+            {t('adaptive.resetToBase')}
           </button>
           <button type="button" onClick={onCancel} style={secondaryBtn}>
-            Cancel
+            {t('adaptive.cancel')}
           </button>
           <button type="button" onClick={save} style={primaryBtn}>
-            Save frame
+            {t('adaptive.saveFrame')}
           </button>
         </div>
 
         <DashboardCanvasEditor board={board} onChange={setBoard} />
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Frame preview</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{t('adaptive.framePreview')}</span>
           <DashboardCanvasSurface board={board} />
         </div>
       </div>
@@ -884,10 +901,12 @@ function FrameEditorModal({
 }
 
 function ElementRow({
+  t,
   element,
   rule,
   onChange
 }: {
+  t: TFunc
   element: DashboardElement
   rule: AdaptiveElementRule | undefined
   onChange: (patch: AdaptiveElementRule | null) => void
@@ -915,9 +934,9 @@ function ElementRow({
       </div>
 
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        <SegBtn active={visMode === 'default'} onClick={() => merge({ visible: undefined })} label="Default" />
-        <SegBtn active={visMode === 'show'} onClick={() => merge({ visible: true })} label="Show" color={GOOD} />
-        <SegBtn active={visMode === 'hide'} onClick={() => merge({ visible: false })} label="Esconder" color={DANGER} />
+        <SegBtn active={visMode === 'default'} onClick={() => merge({ visible: undefined })} label={t('adaptive.default')} />
+        <SegBtn active={visMode === 'show'} onClick={() => merge({ visible: true })} label={t('adaptive.show')} color={GOOD} />
+        <SegBtn active={visMode === 'hide'} onClick={() => merge({ visible: false })} label={t('adaptive.hide')} color={DANGER} />
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
           <input
@@ -925,7 +944,7 @@ function ElementRow({
             checked={emphasisOn}
             onChange={(e) => merge({ emphasis: e.target.checked ? 1.2 : undefined })}
           />
-          Highlight
+          {t('adaptive.highlight')}
         </label>
         {emphasisOn && (
           <>
@@ -944,15 +963,17 @@ function ElementRow({
         )}
       </div>
 
-      <BlinkEditor blink={r.blink} onChange={(blink) => merge({ blink: blink ?? undefined })} />
+      <BlinkEditor t={t} blink={r.blink} onChange={(blink) => merge({ blink: blink ?? undefined })} />
     </div>
   )
 }
 
 function BlinkEditor({
+  t,
   blink,
   onChange
 }: {
+  t: TFunc
   blink: AdaptiveBlink | undefined
   onChange: (blink: AdaptiveBlink | null) => void
 }): ReactElement {
@@ -963,7 +984,7 @@ function BlinkEditor({
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
       <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
         <input type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked ? { color, hz } : null)} />
-        Blink
+        {t('adaptive.blink')}
       </label>
       {on && (
         <>
@@ -972,14 +993,14 @@ function BlinkEditor({
             value={color}
             onChange={(e) => onChange({ color: e.target.value, hz })}
             style={{ width: 28, height: 24, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
-            aria-label="Blink color"
+            aria-label={t('adaptive.blinkColor')}
           />
           <div style={{ display: 'flex', gap: 3 }}>
             {BLINK_SWATCHES.map((s) => (
               <button
                 key={s.color}
                 type="button"
-                title={s.label}
+                title={t(s.labelKey)}
                 onClick={() => onChange({ color: s.color, hz })}
                 style={{
                   width: 16,
@@ -1003,7 +1024,7 @@ function BlinkEditor({
             step={1}
             value={Math.round(hz * 10)}
             onChange={(e) => onChange({ color, hz: Number(e.target.value) / 10 })}
-            aria-label="Blink speed"
+            aria-label={t('adaptive.blinkSpeed')}
           />
           <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 44 }}>{hz.toFixed(1)} Hz</span>
         </>
