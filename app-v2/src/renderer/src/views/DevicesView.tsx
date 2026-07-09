@@ -262,45 +262,45 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
         </article>
 
         <article className="panel-card stats-card">
-          <span className="panel-label">SIM-X status</span>
+          <span className="panel-label">{tt(language, 'devices.simxStatus')}</span>
           {connectedDevice ? (
             <dl className="status-list">
               <div>
-                <dt>Name</dt>
+                <dt>{tt(language, 'devices.statusName')}</dt>
                 <dd>{connectedDevice.name}</dd>
               </div>
               <div>
-                <dt>Port</dt>
+                <dt>{tt(language, 'devices.statusPort')}</dt>
                 <dd>{connectedDevice.path}</dd>
               </div>
               <div>
-                <dt>Manufacturer</dt>
+                <dt>{tt(language, 'devices.statusManufacturer')}</dt>
                 <dd>{connectedDevice.manufacturer ?? '—'}</dd>
               </div>
               <div>
-                <dt>Friendly name</dt>
+                <dt>{tt(language, 'devices.statusFriendlyName')}</dt>
                 <dd>{connectedDevice.friendlyName ?? '—'}</dd>
               </div>
               <div>
-                <dt>Firmware</dt>
-                <dd>{connectedDevice.firmwareVersion ?? 'SIM-X (SimHub protocol)'}</dd>
+                <dt>{tt(language, 'devices.statusFirmware')}</dt>
+                <dd>{connectedDevice.firmwareVersion ?? tt(language, 'devices.simhubProtocol')}</dd>
               </div>
               <div>
-                <dt>Protocol</dt>
-                <dd>{connectedDevice.protocolVersion ? `v${connectedDevice.protocolVersion}` : 'SimHub one-letter'}</dd>
+                <dt>{tt(language, 'devices.statusProtocol')}</dt>
+                <dd>{connectedDevice.protocolVersion ? `v${connectedDevice.protocolVersion}` : tt(language, 'devices.simhubOneLetter')}</dd>
               </div>
               <div>
                 <dt>{tt(language, 'devices.hidButtons')}</dt>
                 <dd>{connectedDevice.hidButtons ?? 32}</dd>
               </div>
               <div>
-                <dt>Encoders / switches</dt>
+                <dt>{tt(language, 'devices.encodersSwitches')}</dt>
                 <dd>
                   {connectedDevice.encoders ?? 4} / {connectedDevice.switches ?? '—'}
                 </dd>
               </div>
               <div>
-                <dt>Connected at</dt>
+                <dt>{tt(language, 'devices.connectedAt')}</dt>
                 <dd>{new Date(connectedDevice.connectedAt).toLocaleString()}</dd>
               </div>
             </dl>
@@ -453,7 +453,7 @@ function DevicesView({ refreshDeviceState, showToast, language }: AppViewProps):
               max={2000000}
               min={300}
               onChange={(event) => setDryndaryBaud(Number(event.target.value) || GENERIC_DEVICE_DEFAULT_BAUD)}
-              placeholder="Baud"
+              placeholder={tt(language, 'devices.baudPlaceholder')}
               style={{ width: 120 }}
               type="number"
               value={secondaryBaud}

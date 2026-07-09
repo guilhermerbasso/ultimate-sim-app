@@ -6375,6 +6375,118 @@ Object.assign(UI_TEXT.ja, {
   'setups.newCarFolder': 'or new car folder'
 })
 
+Object.assign(UI_TEXT.en, {
+  'devices.primarySimxPanel': 'Primary SIM-X ? 115200 8N1',
+  'devices.simxStatus': 'SIM-X status',
+  'devices.statusName': 'Name',
+  'devices.statusPort': 'Port',
+  'devices.statusManufacturer': 'Manufacturer',
+  'devices.statusFriendlyName': 'Friendly name',
+  'devices.statusFirmware': 'Firmware',
+  'devices.simhubProtocol': 'SIM-X (SimHub protocol)',
+  'devices.statusProtocol': 'Protocol',
+  'devices.simhubOneLetter': 'SimHub one-letter',
+  'devices.encodersSwitches': 'Encoders / switches',
+  'devices.connectedAt': 'Connected at',
+  'devices.baudPlaceholder': 'Baud'
+})
+
+Object.assign(UI_TEXT['pt-BR'], {
+  'devices.primarySimxPanel': 'Primary SIM-X ? 115200 8N1',
+  'devices.simxStatus': 'SIM-X status',
+  'devices.statusName': 'Name',
+  'devices.statusPort': 'Port',
+  'devices.statusManufacturer': 'Manufacturer',
+  'devices.statusFriendlyName': 'Friendly name',
+  'devices.statusFirmware': 'Firmware',
+  'devices.simhubProtocol': 'SIM-X (SimHub protocol)',
+  'devices.statusProtocol': 'Protocol',
+  'devices.simhubOneLetter': 'SimHub one-letter',
+  'devices.encodersSwitches': 'Encoders / switches',
+  'devices.connectedAt': 'Connected at',
+  'devices.baudPlaceholder': 'Baud'
+})
+
+Object.assign(UI_TEXT.es, {
+  'devices.primarySimxPanel': 'Primary SIM-X ? 115200 8N1',
+  'devices.simxStatus': 'SIM-X status',
+  'devices.statusName': 'Name',
+  'devices.statusPort': 'Port',
+  'devices.statusManufacturer': 'Manufacturer',
+  'devices.statusFriendlyName': 'Friendly name',
+  'devices.statusFirmware': 'Firmware',
+  'devices.simhubProtocol': 'SIM-X (SimHub protocol)',
+  'devices.statusProtocol': 'Protocol',
+  'devices.simhubOneLetter': 'SimHub one-letter',
+  'devices.encodersSwitches': 'Encoders / switches',
+  'devices.connectedAt': 'Connected at',
+  'devices.baudPlaceholder': 'Baud'
+})
+
+Object.assign(UI_TEXT.fr, {
+  'devices.primarySimxPanel': 'Primary SIM-X ? 115200 8N1',
+  'devices.simxStatus': 'SIM-X status',
+  'devices.statusName': 'Name',
+  'devices.statusPort': 'Port',
+  'devices.statusManufacturer': 'Manufacturer',
+  'devices.statusFriendlyName': 'Friendly name',
+  'devices.statusFirmware': 'Firmware',
+  'devices.simhubProtocol': 'SIM-X (SimHub protocol)',
+  'devices.statusProtocol': 'Protocol',
+  'devices.simhubOneLetter': 'SimHub one-letter',
+  'devices.encodersSwitches': 'Encoders / switches',
+  'devices.connectedAt': 'Connected at',
+  'devices.baudPlaceholder': 'Baud'
+})
+
+Object.assign(UI_TEXT.de, {
+  'devices.primarySimxPanel': 'Primary SIM-X ? 115200 8N1',
+  'devices.simxStatus': 'SIM-X status',
+  'devices.statusName': 'Name',
+  'devices.statusPort': 'Port',
+  'devices.statusManufacturer': 'Manufacturer',
+  'devices.statusFriendlyName': 'Friendly name',
+  'devices.statusFirmware': 'Firmware',
+  'devices.simhubProtocol': 'SIM-X (SimHub protocol)',
+  'devices.statusProtocol': 'Protocol',
+  'devices.simhubOneLetter': 'SimHub one-letter',
+  'devices.encodersSwitches': 'Encoders / switches',
+  'devices.connectedAt': 'Connected at',
+  'devices.baudPlaceholder': 'Baud'
+})
+
+Object.assign(UI_TEXT.zh, {
+  'devices.primarySimxPanel': 'Primary SIM-X ? 115200 8N1',
+  'devices.simxStatus': 'SIM-X status',
+  'devices.statusName': 'Name',
+  'devices.statusPort': 'Port',
+  'devices.statusManufacturer': 'Manufacturer',
+  'devices.statusFriendlyName': 'Friendly name',
+  'devices.statusFirmware': 'Firmware',
+  'devices.simhubProtocol': 'SIM-X (SimHub protocol)',
+  'devices.statusProtocol': 'Protocol',
+  'devices.simhubOneLetter': 'SimHub one-letter',
+  'devices.encodersSwitches': 'Encoders / switches',
+  'devices.connectedAt': 'Connected at',
+  'devices.baudPlaceholder': 'Baud'
+})
+
+Object.assign(UI_TEXT.ja, {
+  'devices.primarySimxPanel': 'Primary SIM-X ? 115200 8N1',
+  'devices.simxStatus': 'SIM-X status',
+  'devices.statusName': 'Name',
+  'devices.statusPort': 'Port',
+  'devices.statusManufacturer': 'Manufacturer',
+  'devices.statusFriendlyName': 'Friendly name',
+  'devices.statusFirmware': 'Firmware',
+  'devices.simhubProtocol': 'SIM-X (SimHub protocol)',
+  'devices.statusProtocol': 'Protocol',
+  'devices.simhubOneLetter': 'SimHub one-letter',
+  'devices.encodersSwitches': 'Encoders / switches',
+  'devices.connectedAt': 'Connected at',
+  'devices.baudPlaceholder': 'Baud'
+})
+
 export function tt(language: ResolvedLanguage | undefined, key: string, vars: Record<string, string | number> = {}): string {
   let value = UI_TEXT[language ?? 'en']?.[key] ?? UI_TEXT.en[key] ?? key
   for (const [name, replacement] of Object.entries(vars)) value = value.replaceAll(`{${name}}`, String(replacement))
