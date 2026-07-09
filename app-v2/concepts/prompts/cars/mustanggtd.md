@@ -31,5 +31,6 @@ Ferrari or a segment-bar Porsche). US English only. Aspect ~16:9 (fits 1024x600)
 - AVOID: NO logos/marks; single-info app widgets title-less/transparent/borderless (dashboard uses a dark backplate).
 
 ## QA outcome
-- Image QA: pending (main agent).
+- Image QA: pass — sweeping arc tach (blue→white→red redline + shift mark); center gear 4 + speed 213 mph inside arc;
+  OIL 110 C + WATER 96 C lower-left; 4 tire pressures lower-right; TRACK mode tag bottom. Distinct Ford-blue arc look.
 - Build QA vs real dash + reference: pending.
