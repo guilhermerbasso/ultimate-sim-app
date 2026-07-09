@@ -155,7 +155,7 @@ function RevlightsView({ showToast, language }: AppViewProps): ReactElement {
       setConfig(localPreview)
       const saved = await window.ipc.invoke<RevlightsConfig>('revlights:applyPreset', presetId)
       setConfig(saved)
-      showToast(`Preset “${presetId}” aplicado.`, 'success')
+      showToast(tt(language, 'revlights.presetAppliedToast', { preset: tt(language, `revlights.preset.${presetId}.name`) }), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -197,14 +197,14 @@ function RevlightsView({ showToast, language }: AppViewProps): ReactElement {
       <article style={{ ...panel, minHeight: 620 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
           <div>
-            <span style={label}>Rev lights · WS2812B 4 LEDs</span>
+            <span style={label}>{tt(language, 'revlights.eyebrow')}</span>
             <h3 style={{ margin: '8px 0 4px', fontSize: 26 }}>{tt(language, 'revlights.title')}</h3>
             <p style={{ margin: 0, color: 'rgba(255,255,255,0.62)' }}>
               {tt(language, 'revlights.summaryBeforeCode')}<code> R&lt;lvl&gt; </code> + <code> B&lt;0|1&gt; </code>{tt(language, 'revlights.summaryAfterCode')}
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <SectionExportImport sectionId="revlights" label={tt(language, 'revlights.exportLabel')} onImported={() => void reloadConfig()} />
+            <SectionExportImport sectionId="revlights" label={tt(language, 'revlights.exportLabel')} language={language} onImported={() => void reloadConfig()} />
             <button
               disabled={busy || (!connectedDevice && !config.enabled)}
               onClick={() => void toggleEnabled()}
@@ -251,8 +251,8 @@ function RevlightsView({ showToast, language }: AppViewProps): ReactElement {
                 type="radio"
               />
               <span style={{ flex: 1 }}>
-                <strong style={{ display: 'block' }}>{preset.name}</strong>
-                <small style={{ color: 'rgba(255,255,255,0.62)' }}>{preset.description}</small>
+                <strong style={{ display: 'block' }}>{tt(language, `revlights.preset.${preset.id}.name`)}</strong>
+                <small style={{ color: 'rgba(255,255,255,0.62)' }}>{tt(language, `revlights.preset.${preset.id}.description`)}</small>
               </span>
             </label>
           ))}
@@ -281,8 +281,7 @@ function RevlightsView({ showToast, language }: AppViewProps): ReactElement {
             <span>
               <strong style={{ display: 'block' }}>{tt(language, 'revlights.f1Mode')}</strong>
               <small style={{ color: 'rgba(255,255,255,0.66)' }}>
-                Lights only in the last {rpmWindowPct}% of RPM, sweeps green → amber → red in the preview
-                and blinks at the shift point.
+                {tt(language, 'revlights.f1Help', { pct: rpmWindowPct })}
               </small>
             </span>
           </label>
@@ -326,7 +325,7 @@ function RevlightsView({ showToast, language }: AppViewProps): ReactElement {
               value={rpmWindowPct}
             />
             <strong>
-              Last {rpmWindowPct}% · start at {Math.round(config.startRpmPct * 100)}%
+              {tt(language, 'revlights.lastStart', { window: rpmWindowPct, start: Math.round(config.startRpmPct * 100) })}
             </strong>
             <small style={{ color: 'rgba(255,255,255,0.56)' }}>
               {tt(language, 'revlights.lastHelp')}
@@ -394,7 +393,7 @@ function RevlightsView({ showToast, language }: AppViewProps): ReactElement {
             </div>
             <div>
               <dt>{tt(language, 'revlights.shift')}</dt>
-              <dd>{status?.shiftActive ? 'BLINKING' : '—'}</dd>
+              <dd>{status?.shiftActive ? tt(language, 'revlights.blinking') : '—'}</dd>
             </div>
             <div>
               <dt>RPM</dt>
