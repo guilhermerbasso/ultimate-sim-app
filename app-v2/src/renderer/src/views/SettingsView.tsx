@@ -299,11 +299,16 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
   // string (including any mount-time text) is re-rendered in the new language.
   const changeLanguage = async (nextLanguage: AppLanguage): Promise<void> => {
     if (nextLanguage === settingsRef.current.language) return
-    const next = { ...settingsRef.current, language: nextLanguage }
+    const prev = settingsRef.current
+    const next = { ...prev, language: nextLanguage }
     settingsRef.current = next
     setSettings(next)
     const ok = await persistSettings(next)
-    if (!ok) return
+    if (!ok) {
+      settingsRef.current = prev
+      setSettings(prev)
+      return
+    }
     setNeedsRestart(true)
     if (window.confirm(tt(language, 'settings.languageRestartConfirm'))) {
       void restartNow()

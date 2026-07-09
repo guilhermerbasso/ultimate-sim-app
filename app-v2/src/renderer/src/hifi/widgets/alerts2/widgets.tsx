@@ -1,4 +1,4 @@
-﻿import { type ReactElement } from 'react'
+import { type ReactElement } from 'react'
 import { trackSurfaceMaterialLabel, type TelemetrySnapshot, type TyreInfo } from '../../../../../shared/telemetry'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { Bar, C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, fixed, frac, legibleStroke, num } from '../kit'
@@ -108,7 +108,7 @@ function Alert2OilPressureLow({ snapshot, width, height }: HifiWidgetProps): Rea
   const pressure = num(snapshot?.oilPressureKpa)
   const active = snapshot?.engineWarnings?.oilPressure === true || (pressure != null && pressure <= 140)
   if (!active) return empty(w, h)
-  return warningLamp({ width: w, height: h, color: RED, label: 'OIL PSI', value: fixed(pressure, 0), unit: 'KPA', icon: '!' })
+  return warningLamp({ width: w, height: h, color: RED, label: 'OIL KPA', value: fixed(pressure, 0), unit: 'KPA', icon: '!' })
 }
 
 function Alert2BadSurface({ snapshot, width, height }: HifiWidgetProps): ReactElement {
@@ -179,7 +179,7 @@ function Alert2BrakePressureLow({ snapshot, width, height }: HifiWidgetProps): R
   const maxPressure = values.length > 0 ? Math.max(...values) : undefined
   const active = brake != null && brake >= 0.35 && maxPressure != null && maxPressure < 25
   if (!active) return empty(w, h)
-  return warningLamp({ width: w, height: h, color: AMBER, label: 'BRAKE PSI', value: fixed(maxPressure, 0), unit: 'BAR', icon: '!' })
+  return warningLamp({ width: w, height: h, color: AMBER, label: 'BRAKE BAR', value: fixed(maxPressure, 0), unit: 'BAR', icon: '!' })
 }
 
 export const alert2EngineWarningWidget: HifiWidgetModule = {

@@ -24,14 +24,21 @@ const WIDGETS: Array<{ id: OverlayWidgetId; title: string; className: string; st
 const DESIGN_WIDTH = 1024
 const DESIGN_HEIGHT = 600
 
-function sseUrl(): string {
+function sseUrl(password: string): string {
   const url = new URL(window.location.href)
   const token = url.searchParams.get('token') ?? ''
-  const password = url.searchParams.get('password') ?? ''
   const sse = new URL('/sse', url.origin)
   sse.searchParams.set('token', token)
   if (password) sse.searchParams.set('password', password)
   return sse.toString()
+}
+
+function pingUrl(): string {
+  const url = new URL(window.location.href)
+  const token = url.searchParams.get('token') ?? ''
+  const ping = new URL('/ping', url.origin)
+  ping.searchParams.set('token', token)
+  return ping.toString()
 }
 
 function widgetConfig(id: OverlayWidgetId): OverlayWidgetConfig {
@@ -52,6 +59,11 @@ export function StreamOverlayRoot() {
   const [connected, setConnected] = useState(false)
   const [streamSafe, setStreamSafe] = useState(true)
   const [scale, setScale] = useState(1)
+  // Password gate: null = checking, false = not required, string = password entered or not required
+  const [passwordRequired, setPasswordRequired] = useState<boolean | null>(null)
+  const [password, setPassword] = useState('')
+  const [passwordInput, setPasswordInput] = useState('')
+  const [passwordError, setPasswordError] = useState(false)
   const configs = useMemo(() => Object.fromEntries(WIDGETS.map((item) => [item.id, widgetConfig(item.id)])) as Record<OverlayWidgetId, OverlayWidgetConfig>, [])
   const shellStyle = {
     '--overlay-bg': 'rgba(5, 10, 18, 0.60)',
@@ -62,22 +74,52 @@ export function StreamOverlayRoot() {
     '--overlay-content-opacity': '1'
   } as CSSProperties
 
+  // On mount, check if a password is required (token-only /ping call).
   useEffect(() => {
-    const source = new EventSource(sseUrl())
-    source.onopen = () => setConnected(true)
-    source.onerror = () => setConnected(false)
+    fetch(pingUrl(), { method: 'GET', cache: 'no-store' })
+      .then((res) => {
+        if (!res.ok) {
+          setPasswordRequired(false) // can't reach server — proceed without password gate
+          return
+        }
+        return res.json() as Promise<{ passwordRequired: boolean }>
+      })
+      .then((data) => {
+        if (data?.passwordRequired) {
+          setPasswordRequired(true)
+        } else {
+          setPasswordRequired(false)
+          setPassword('') // no password needed
+        }
+      })
+      .catch(() => setPasswordRequired(false))
+  }, [])
+
+  useEffect(() => {
+    if (passwordRequired === null || passwordRequired === true) return // wait for password
+    const source = new EventSource(sseUrl(password))
+    source.onopen = () => {
+      setConnected(true)
+      setPasswordError(false)
+    }
+    source.onerror = () => {
+      setConnected(false)
+      // If we had a password and it still fails, mark as error
+      if (password) setPasswordError(true)
+    }
     source.addEventListener('telemetry', (event) => {
       try {
         const frame = JSON.parse((event as MessageEvent).data) as StreamingTelemetryFrame
         setSnapshot(frame.snapshot)
         setStreamSafe(frame.streamSafe)
         setConnected(true)
+        setPasswordError(false)
       } catch {
         setConnected(false)
       }
     })
     return () => source.close()
-  }, [])
+  }, [password, passwordRequired])
 
   useEffect(() => {
     const updateScale = (): void => {
@@ -92,6 +134,34 @@ export function StreamOverlayRoot() {
       window.removeEventListener('orientationchange', updateScale)
     }
   }, [])
+
+  // Show password prompt if required and not yet entered
+  if (passwordRequired === true) {
+    return (
+      <div className="stream-viewport" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <form
+          style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 24, background: 'rgba(5,10,18,0.9)', borderRadius: 16, minWidth: 280 }}
+          onSubmit={(e) => {
+            e.preventDefault()
+            setPassword(passwordInput)
+            setPasswordRequired(false)
+          }}
+        >
+          <div style={{ color: '#fdf7f0', fontWeight: 700, fontSize: 16 }}>Password required</div>
+          <input
+            autoFocus
+            type="password"
+            value={passwordInput}
+            onChange={(e) => setPasswordInput(e.target.value)}
+            placeholder="Enter password"
+            style={{ padding: '8px 12px', borderRadius: 8, border: passwordError ? '1px solid #fb7185' : '1px solid rgba(138,164,200,0.4)', background: '#0a0f1a', color: '#fdf7f0', fontSize: 14 }}
+          />
+          {passwordError ? <div style={{ color: '#fb7185', fontSize: 12 }}>Incorrect password</div> : null}
+          <button type="submit" style={{ padding: '8px 16px', borderRadius: 8, background: '#ff6a00', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}>Connect</button>
+        </form>
+      </div>
+    )
+  }
 
   return (
     <div className="stream-viewport">

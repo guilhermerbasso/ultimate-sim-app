@@ -1204,7 +1204,7 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
         </div>
       </section>
 
-      <StreamingPanel />
+      <StreamingPanel language={language} />
 
       <section style={panel()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>

@@ -245,6 +245,13 @@ function hasValidAuth(url: URL, request: IncomingMessage): boolean {
   return tokenOk && verifyPassword(authValue(url, request, 'password'), state.passwordHash)
 }
 
+/** Token-only auth: used for the stream page HTML/assets and /ping so that a
+ *  shareable URL that contains only the token can load the page, which then
+ *  prompts the user to enter the password before connecting to the SSE stream. */
+function hasValidToken(url: URL, request: IncomingMessage): boolean {
+  return safeTokenEqual(authValue(url, request, 'token'), state.token)
+}
+
 function authValue(url: URL, request: IncomingMessage, key: 'token' | 'password'): string | null {
   return url.searchParams.get(key) ?? headerValue(request, `x-stream-${key}`)
 }
@@ -285,8 +292,9 @@ function safeStaticPath(pathname: string): string | null {
 
 function authSearchParams(): string {
   const params = new URLSearchParams()
+  // Only embed the token in asset sub-request URLs; the password is entered by the
+  // user in the stream page and is only used for the /sse connection.
   if (state.token) params.set('token', state.token)
-  if (state.accessMode !== 'local' && state.passwordPlaintext) params.set('password', state.passwordPlaintext)
   return params.toString()
 }
 
@@ -451,7 +459,8 @@ function dashboardUrl(origin = baseOrigin()): string | null {
   if (!state.port || !state.token) return null
   const url = new URL(`/obs/${state.layoutId}`, origin)
   url.searchParams.set('token', state.token)
-  if (state.accessMode !== 'local' && state.passwordPlaintext) url.searchParams.set('password', state.passwordPlaintext)
+  // Password is intentionally NOT embedded in the shareable URL/QR.
+  // The stream page will prompt the user to enter it separately.
   return url.toString()
 }
 
@@ -532,27 +541,49 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
       send(response, 429, 'Too many failed auth attempts')
       return
     }
+    // /ping and the page/assets use token-only auth so the shareable URL (which
+    // contains only the token) can load the stream page. The page then prompts for
+    // the password, which is used only for the /sse data stream.
+    if (url.pathname === '/ping') {
+      if (!hasValidToken(url, request)) {
+        recordAuthFailure(request)
+        send(response, 403, 'Forbidden')
+        return
+      }
+      clearAuthFailure(request)
+      applyCors(response)
+      response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+      response.end(request.method === 'HEAD' ? undefined : JSON.stringify({ passwordRequired: state.passwordHash !== null }))
+      return
+    }
+    if (url.pathname.startsWith('/obs/') || url.pathname.startsWith('/assets/')) {
+      if (!hasValidToken(url, request)) {
+        recordAuthFailure(request)
+        send(response, 403, 'Forbidden')
+        return
+      }
+      clearAuthFailure(request)
+      if (url.pathname.startsWith('/obs/')) {
+        const layoutId = url.pathname.slice('/obs/'.length)
+        if (!isValidLayoutId(layoutId)) {
+          send(response, 404, 'Not found')
+          return
+        }
+        serveHtml(request, response)
+        return
+      }
+      serveStatic(url.pathname, request, response)
+      return
+    }
+    // /sse requires full auth (token + password) to protect the live telemetry stream.
     if (!hasValidAuth(url, request)) {
       recordAuthFailure(request)
       send(response, 403, 'Forbidden')
       return
     }
     clearAuthFailure(request)
-    if (url.pathname.startsWith('/obs/')) {
-      const layoutId = url.pathname.slice('/obs/'.length)
-      if (!isValidLayoutId(layoutId)) {
-        send(response, 404, 'Not found')
-        return
-      }
-      serveHtml(request, response)
-      return
-    }
     if (url.pathname === '/sse') {
       openSse(ctx, request, response)
-      return
-    }
-    if (url.pathname.startsWith('/assets/')) {
-      serveStatic(url.pathname, request, response)
       return
     }
     send(response, 404, 'Not found')
@@ -585,17 +616,22 @@ async function stop(): Promise<StreamingStatus> {
   return status()
 }
 
+const STABLE_FIREWALL_RULE_NAME = 'Ultimate Sim App Streaming'
+
 async function allowWindowsFirewallPort(port: number): Promise<string | null> {
   if (process.platform !== 'win32') return null
   if (state.firewallAttemptedPorts.has(port)) return state.firewallMessage
   state.firewallAttemptedPorts.add(port)
-  const ruleName = `Ultimate Sim App Streaming ${port}`
+  // Delete any existing rule with the stable name first to avoid accumulating stale rules.
+  await new Promise<void>((resolve) => {
+    execFile('netsh', ['advfirewall', 'firewall', 'delete', 'rule', `name=${STABLE_FIREWALL_RULE_NAME}`], { windowsHide: true, timeout: 5_000 }, () => resolve())
+  })
   const args = [
     'advfirewall',
     'firewall',
     'add',
     'rule',
-    `name=${ruleName}`,
+    `name=${STABLE_FIREWALL_RULE_NAME}`,
     'dir=in',
     'action=allow',
     'protocol=TCP',

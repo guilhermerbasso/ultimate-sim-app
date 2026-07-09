@@ -1,4 +1,4 @@
-﻿import {
+import {
   alert2BadSurfaceWidget,
   alert2BlueFlagWidget,
   alert2BrakePressureLowWidget,
