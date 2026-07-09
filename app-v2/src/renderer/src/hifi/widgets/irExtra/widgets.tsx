@@ -146,15 +146,17 @@ function Skies({ width, height, snapshot }: HifiWidgetProps): ReactElement {
 function RevLightsBar({ width, height, snapshot }: HifiWidgetProps): ReactElement {
   const f = clamp01(num(snapshot?.revLights?.pct) ?? 0)
   const shift = atShiftPoint(f)
+  const w = width ?? WIDE_W
+  const viewH = height ?? WIDE_H
   const count = 18
-  const gap = 6
-  const x = 18
-  const y = 24
-  const h = 72
-  const cw = (WIDE_W - x * 2 - gap * (count - 1)) / count
+  const gap = Math.max(3, Math.round(w / count / 10))
+  const x = Math.max(10, Math.min(24, w * 0.03))
+  const h = Math.max(8, viewH * 0.62)
+  const y = (viewH - h) / 2
+  const cw = (w - x * 2 - gap * (count - 1)) / count
   const lit = shift ? count : Math.round(f * count)
   return (
-    <Root width={width} height={height} snapshot={snapshot} w={WIDE_W} h={WIDE_H}>
+    <Root width={width} height={height} snapshot={snapshot} w={w} h={viewH}>
       <defs>
         <filter id="irExtraRevGlow" x="-20%" y="-80%" width="140%" height="260%">
           <feGaussianBlur stdDeviation="9" result="blur" />
@@ -167,9 +169,9 @@ function RevLightsBar({ width, height, snapshot }: HifiWidgetProps): ReactElemen
           const z = i / (count - 1)
           const base = z < 0.52 ? C.green : z < 0.78 ? C.amber : C.red
           const on = i < lit
-          return <rect key={i} x={x + i * (cw + gap)} y={y} width={cw} height={h} rx={8} fill={on ? revFill(base, shift) : C.recess} stroke={on ? revFill(base, shift) : C.stroke} strokeWidth={1.5} opacity={on ? 1 : 0.46} />
+          return <rect key={i} x={x + i * (cw + gap)} y={y} width={cw} height={h} rx={Math.min(8, h / 4)} fill={on ? revFill(base, shift) : C.recess} stroke={on ? revFill(base, shift) : C.stroke} strokeWidth={1.5} opacity={on ? 1 : 0.46} />
         })}
-        {shift ? <rect x={10} y={16} width={WIDE_W - 20} height={88} rx={12} fill="none" stroke={SHIFT_STROBE_BLUE} strokeWidth={3} opacity={0.78} /> : null}
+        {shift ? <rect x={x / 2} y={Math.max(2, y - 8)} width={w - x} height={Math.min(viewH - 4, h + 16)} rx={12} fill="none" stroke={SHIFT_STROBE_BLUE} strokeWidth={3} opacity={0.78} /> : null}
       </g>
     </Root>
   )
@@ -273,4 +275,3 @@ export const carsAlongsideWidget: HifiWidgetModule = {
   defaultSize: { w: W, h: H },
   render: (props) => <CarsAlongside {...props} />
 }
-

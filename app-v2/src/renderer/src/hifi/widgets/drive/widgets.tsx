@@ -113,9 +113,13 @@ function SegmentedRpmBar({ f, x, y, w, h, missing, shift }: { f: number; x: numb
 function RpmBarWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = shiftFraction(snapshot)
   const shift = atShiftPoint(f)
+  const w = width ?? REV_WIDE_W
+  const h = height ?? REV_WIDE_H
+  const x = Math.max(8, Math.min(24, w * 0.03))
+  const barH = Math.max(6, h * 0.62)
   return (
-    <CleanTile width={width ?? W} height={height ?? H}>
-      <SegmentedRpmBar f={f} x={18} y={108} w={384} h={70} missing={missing} shift={shift} />
+    <CleanTile width={w} height={h}>
+      <SegmentedRpmBar f={f} x={x} y={(h - barH) / 2} w={w - x * 2} h={barH} missing={missing} shift={shift} />
     </CleanTile>
   )
 }
@@ -133,13 +137,13 @@ function GearWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement 
   )
 }
 
-function RevLedStrip({ f, missing, shift }: { f: number; missing: boolean; shift: boolean }): ReactElement {
+function RevLedStrip({ f, missing, shift, width, height }: { f: number; missing: boolean; shift: boolean; width: number; height: number }): ReactElement {
   const count = 16
-  const gap = 4
+  const gap = Math.max(2, Math.round(width / count / 12))
   const x = 0
-  const y = 0
-  const w = 420
-  const h = 46
+  const h = Math.max(6, height * 0.72)
+  const y = (height - h) / 2
+  const w = width
   const cellW = (w - gap * (count - 1)) / count
   const lit = shift ? count : Math.round(frac(f, 0, 1) * count)
   return (
@@ -163,9 +167,11 @@ function RevLedStrip({ f, missing, shift }: { f: number; missing: boolean; shift
 function RevLightsWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = shiftFraction(snapshot)
   const shift = atShiftPoint(f)
+  const w = width ?? REV_WIDE_W
+  const h = height ?? REV_WIDE_H
   return (
-    <CleanTile width={width ?? W} height={height ?? H}>
-      <RevLedStrip f={f} missing={missing} shift={shift} />
+    <CleanTile width={w} height={h}>
+      <RevLedStrip f={f} missing={missing} shift={shift} width={w} height={h} />
     </CleanTile>
   )
 }
@@ -250,7 +256,8 @@ function RevlightsLedStripWidget({ snapshot, width, height }: HifiWidgetProps): 
   const count = 42
   const gap = 7
   const x = 20
-  const y = 16
+  const stripH = Math.max(6, h * 0.64)
+  const y = (h - stripH) / 2
   const stripW = w - x * 2
   const ledW = (stripW - gap * (count - 1)) / count
   const lit = shift ? count : missing ? 0 : Math.round(f * count)
@@ -261,7 +268,7 @@ function RevlightsLedStripWidget({ snapshot, width, height }: HifiWidgetProps): 
         {Array.from({ length: count }, (_, i) => {
           const pct = i / (count - 1)
           const on = shift || i < lit
-          return <rect key={i} x={x + i * (ledW + gap)} y={y} width={ledW} height={58} rx={2} fill={on ? revFill(revRampColor(pct), shift) : C.recess} opacity={on ? 1 : 0.48} />
+          return <rect key={i} x={x + i * (ledW + gap)} y={y} width={ledW} height={stripH} rx={Math.min(4, stripH / 4)} fill={on ? revFill(revRampColor(pct), shift) : C.recess} opacity={on ? 1 : 0.48} />
         })}
       </g>
     </CleanTile>
@@ -276,7 +283,8 @@ function RevlightsLedBarWidget({ snapshot, width, height }: HifiWidgetProps): Re
   const count = 16
   const gap = 12
   const x = 22
-  const y = 15
+  const ledH = Math.max(8, h * 0.66)
+  const y = (h - ledH) / 2
   const barW = w - x * 2
   const ledW = (barW - gap * (count - 1)) / count
   const lit = shift ? count : missing ? 0 : Math.round(f * count)
@@ -290,8 +298,8 @@ function RevlightsLedBarWidget({ snapshot, width, height }: HifiWidgetProps): Re
           const color = revFill(revRampColor(pct), shift)
           return (
             <g key={i}>
-              <rect x={x + i * (ledW + gap)} y={y} width={ledW} height={60} rx={7} fill={on ? color : C.recess} opacity={on ? 1 : 0.45} />
-              {on ? <rect x={x + i * (ledW + gap) + 6} y={y + 5} width={Math.max(0, ledW - 12)} height={10} rx={3} fill="rgba(255,255,255,0.28)" /> : null}
+              <rect x={x + i * (ledW + gap)} y={y} width={ledW} height={ledH} rx={Math.min(7, ledH / 4)} fill={on ? color : C.recess} opacity={on ? 1 : 0.45} />
+              {on ? <rect x={x + i * (ledW + gap) + 6} y={y + Math.max(3, ledH * 0.08)} width={Math.max(0, ledW - 12)} height={Math.max(2, ledH * 0.16)} rx={3} fill="rgba(255,255,255,0.28)" /> : null}
             </g>
           )
         })}
@@ -312,23 +320,26 @@ function RevlightsMustangWidget({ snapshot, width, height }: HifiWidgetProps): R
   const w = width ?? REV_MUSTANG_W
   const h = height ?? REV_MUSTANG_H
   const countPerSide = 8
-  const gap = 26
   const centerX = w / 2
   const cy = h / 2
+  const r = Math.max(4, Math.min(14, h * 0.18))
+  const margin = Math.max(r + 4, w * 0.03)
+  const centerGap = Math.max(r * 2 + 8, w * 0.05)
+  const gap = (centerX - centerGap / 2 - margin) / Math.max(1, countPerSide - 1)
   const litPairs = shift ? countPerSide : missing ? 0 : Math.round(f * countPerSide)
   return (
     <CleanTile width={w} height={h}>
-      <Hairline x={centerX - 0.5} y={18} len={54} vertical opacity={0.45} />
+      <Hairline x={centerX - 0.5} y={h * 0.2} len={h * 0.6} vertical opacity={0.45} />
       <g>
         <ShiftStrobe active={shift} />
         {Array.from({ length: countPerSide }, (_, i) => {
           const pairLit = shift || i < litPairs
-          const leftX = centerX - 24 - i * gap
-          const rightX = centerX + 24 + i * gap
+          const leftX = centerX - centerGap / 2 - i * gap
+          const rightX = centerX + centerGap / 2 + i * gap
           return (
             <g key={i}>
-              <circle cx={leftX} cy={cy} r={10} fill={pairLit ? revFill(mustangDotColor(i, 'left', countPerSide), shift) : C.recess} opacity={pairLit ? 1 : 0.45} />
-              <circle cx={rightX} cy={cy} r={10} fill={pairLit ? revFill(mustangDotColor(i, 'right', countPerSide), shift) : C.recess} opacity={pairLit ? 1 : 0.45} />
+              <circle cx={leftX} cy={cy} r={r} fill={pairLit ? revFill(mustangDotColor(i, 'left', countPerSide), shift) : C.recess} opacity={pairLit ? 1 : 0.45} />
+              <circle cx={rightX} cy={cy} r={r} fill={pairLit ? revFill(mustangDotColor(i, 'right', countPerSide), shift) : C.recess} opacity={pairLit ? 1 : 0.45} />
             </g>
           )
         })}
@@ -355,7 +366,7 @@ export const rpmWidget: HifiWidgetModule = {
   category: 'drive',
   tags: ['rpm', 'gauge'],
   requires: ['rpm', 'maxRpm'],
-  defaultSize: { w: W, h: H },
+  defaultSize: { w: REV_WIDE_W, h: REV_WIDE_H },
   render: (props) => <RpmWidget {...props} />
 }
 
@@ -388,7 +399,7 @@ export const revlightsWidget: HifiWidgetModule = {
   category: 'drive',
   tags: ['revlights', 'led', 'shift'],
   requires: ['shiftIndicatorPct'],
-  defaultSize: { w: W, h: H },
+  defaultSize: { w: REV_WIDE_W, h: REV_WIDE_H },
   render: (props) => <RevLightsWidget {...props} />
 }
 

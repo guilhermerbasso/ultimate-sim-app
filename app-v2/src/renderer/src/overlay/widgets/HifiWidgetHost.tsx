@@ -7,6 +7,23 @@ import { coachFindings, topCoachTips } from '../../lib/coach-insights'
 import { useEngineerFeed } from '../../lib/engineer-feed'
 import type { WidgetProps } from './types'
 
+const BOX_FILL_STRIP_IDS = new Set([
+  'rpmBar',
+  'revlights',
+  'revlightsGradient',
+  'revlightsLedStrip',
+  'revlightsLedBar',
+  'revlightsMustang',
+  'revLightsBar',
+  'alertShiftFlash',
+  'revThemedFerrari',
+  'revThemedPorsche',
+  'revThemedAmg',
+  'revThemedMclaren',
+  'revThemedCorvette',
+  'revThemedLambo'
+])
+
 function moduleIdFromConfig(config: WidgetProps['config']): string {
   return config.hifiModuleId ?? (config.id.startsWith('hifi:') ? config.id.slice(5) : config.id)
 }
@@ -78,14 +95,12 @@ export function HifiWidgetHost(props: WidgetProps): ReactElement {
     )
   }
 
-  // Render every hi-fi widget in its intrinsic design coordinate space
-  // (defaultSize) and letterbox it into whatever box it is placed in. The
-  // widgets are authored with fixed SVG coordinates sized for their defaultSize,
-  // so rendering at that size and scaling with preserveAspectRatio="xMidYMid meet"
-  // guarantees they never clip or overflow at ANY dashboard/overlay box size or
-  // aspect ratio (they scale down/up uniformly and centre instead).
-  const dw = Math.max(1, Math.round(mod.defaultSize.w))
-  const dh = Math.max(1, Math.round(mod.defaultSize.h))
+  // Most hi-fi widgets keep their authored aspect ratio. Horizontal rev/RPM strips
+  // are the exception: render them in the placed box so wide-short layouts fill
+  // the full width instead of letterboxing to the default aspect ratio.
+  const fillBox = BOX_FILL_STRIP_IDS.has(mod.id)
+  const dw = Math.max(1, Math.round(fillBox ? props.config.position.width : mod.defaultSize.w))
+  const dh = Math.max(1, Math.round(fillBox ? props.config.position.height : mod.defaultSize.h))
   const content = mod.render({ snapshot: props.snapshot, ai, width: dw, height: dh })
 
   return (
