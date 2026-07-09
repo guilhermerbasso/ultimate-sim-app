@@ -6,6 +6,27 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
+## 2.46.0 — auto-update fix, complete telemetry coverage, diagnostics dashboards
+
+### Fixed
+- **Auto-update 404** — the installer `artifactName` no longer derives from the
+  space-containing product name. It is pinned to
+  `Ultimate-Sim-App-${version}-${arch}.${ext}`, so `latest.yml`, the uploaded GitHub
+  asset name and the `electron-updater` download URL all agree. Previously GitHub
+  rewrote the spaces to dots on upload (`Ultimate.Sim.App-…`) and the updater 404'd.
+
+### Added
+- **`irDerived` widgets (12)** — clean, NaN-safe widgets that combine already-surfaced
+  iRacing channels into derived information (slip angle, steering-lock %, 3-axis
+  rotation rates, attitude horizon, fuel laps-left, sun position, GPS+heading, decoded
+  race-control flags, shift point, engine telltale, raw spotter, session id). Every
+  widget-able snapshot field now has a widget (**telemetry gap = 0**; 119 → 131 widgets).
+- **5 diagnostics/dynamics dashboards** — 1024×600 compositions of the derived widgets
+  (Chassis Dynamics, Engineer Diagnostics, Endurance Strategy, Environment & Race
+  Control, Navigation & Spotter), registered in `BUILTIN_PRESETS`.
+- **Localization** — 5 more views migrated to the `tt()` system across all 7 languages
+  (About, Profiles, Input Monitor, ESP32 Wi-Fi, Semantic Search; 146 new keys).
+
 ## 2.44.0 — v5: real-dash car themes, more iRacing widgets, Windows .exe pipeline fixed
 
 ### Added
