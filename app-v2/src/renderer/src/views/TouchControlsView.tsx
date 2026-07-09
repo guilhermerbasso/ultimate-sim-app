@@ -330,15 +330,15 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
       <section style={panel()}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 18 }} aria-hidden>ðŸŽ›ï¸</span>
+            <span style={{ fontSize: 18 }} aria-hidden>🎛️</span>
             <strong style={{ color: TEXT_FG, fontSize: 14, letterSpacing: '0.04em' }}>{tt(language, 'touchControls.editableBoxes')}</strong>
           </div>
-          <button style={btn('primary')} disabled={busy} onClick={requestCreatePanel}>ï¼‹ New button box</button>
+          <button style={btn('primary')} disabled={busy} onClick={requestCreatePanel}>＋ New button box</button>
         </div>
 
         <details style={{ marginBottom: 12 }}>
           <summary style={{ color: TEXT_FG, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            ðŸ“‹ Start from a built-in preset ({TOUCH_PANEL_PRESETS.length})
+            📋 Start from a built-in preset ({TOUCH_PANEL_PRESETS.length})
           </summary>
           <TagFilter
             items={TOUCH_PANEL_PRESETS}
@@ -357,7 +357,7 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
                 title={tt(language, 'touchControls.keysCount', { count: p.buttons.length })}
               >
                 <span>{p.name}</span>
-                <span style={{ fontSize: 11, opacity: 0.7 }}>{p.columns}Ã—{p.rows} Â· {p.buttons.length} keys</span>
+                <span style={{ fontSize: 11, opacity: 0.7 }}>{p.columns}×{p.rows} · {p.buttons.length} keys</span>
               </button>
             ))}
           </div>
@@ -377,7 +377,7 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
                 onClick={() => requestLoadPanel(s.id)}
               >
                 <span>{s.name}</span>
-                <span style={{ fontSize: 11, opacity: 0.8 }}>{s.columns}Ã—{s.rows} Â· {s.buttonCount} keys</span>
+                <span style={{ fontSize: 11, opacity: 0.8 }}>{s.columns}×{s.rows} · {s.buttonCount} keys</span>
               </button>
               <button style={btn()} disabled={busy} onClick={() => run(() => setPanelsHidden([s.id], true))}>{tt(language, 'touchControls.hide')}</button>
             </div>

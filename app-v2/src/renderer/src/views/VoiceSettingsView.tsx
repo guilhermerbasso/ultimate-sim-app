@@ -442,7 +442,7 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
                       )}
                     </div>
                     <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 2 }}>
-                      {LANG_LABEL[voice.lang]} · quality {voice.quality}
+                      {tt(language, LANG_LABEL[voice.lang])} · quality {voice.quality}
                       {voice.onnxBytes ? ` · ~${Math.round(voice.onnxBytes / 1_000_000)} MB` : ''}
                     </div>
                   </div>
