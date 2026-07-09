@@ -25,38 +25,38 @@ import {
 import { LOG_CHANNELS, type LogExportResult, type LogInfo } from '../../../shared/logger'
 import { APP_SETTINGS_CHANGED_EVENT, LANGUAGE_LABELS, resolveAppLanguage, t, tt } from '../i18n'
 
-const SOURCE_LABELS: Record<AppTelemetrySource, string> = {
-  off: 'Off',
-  auto: 'Auto-detect',
-  mock: 'Demo (mock)',
-  iracing: 'iRacing',
-  acc: 'Assetto Corsa Competizione',
-  ac: 'Assetto Corsa',
-  ams2: 'Automobilista 2',
-  lmu: 'Le Mans Ultimate'
+const SOURCE_LABEL_KEYS: Record<AppTelemetrySource, string> = {
+  off: 'settings.source.off',
+  auto: 'settings.source.auto',
+  mock: 'settings.source.mock',
+  iracing: 'settings.source.iracing',
+  acc: 'settings.source.acc',
+  ac: 'settings.source.ac',
+  ams2: 'settings.source.ams2',
+  lmu: 'settings.source.lmu'
 }
 
-const THEME_LABELS: Record<AppTheme, string> = {
-  raceRed: 'Race Red',
-  amberGt: 'Amber GT',
-  mono: 'Mono White-on-Black',
-  midnight: 'Carbon Orange',
-  graphite: 'Graphite pro',
-  azure: 'Azure racing',
-  ember: 'Ember night',
-  lemans: 'Le Mans',
-  gulf: 'Gulf',
-  synthwave: 'Synthwave',
-  carbon: 'Carbon',
-  championship: 'Championship',
-  martini: 'Martini',
-  verde: 'Green',
-  ice: 'Ice',
-  auroraGlass: 'Aurora Glass ✦',
-  neonNoir: 'Neon Noir',
-  carbonGlow: 'Carbon Glow',
-  royalGlass: 'Royal Glass',
-  custom: 'Custom'
+const THEME_LABEL_KEYS: Record<AppTheme, string> = {
+  raceRed: 'settings.theme.raceRed',
+  amberGt: 'settings.theme.amberGt',
+  mono: 'settings.theme.mono',
+  midnight: 'settings.theme.midnight',
+  graphite: 'settings.theme.graphite',
+  azure: 'settings.theme.azure',
+  ember: 'settings.theme.ember',
+  lemans: 'settings.theme.lemans',
+  gulf: 'settings.theme.gulf',
+  synthwave: 'settings.theme.synthwave',
+  carbon: 'settings.theme.carbon',
+  championship: 'settings.theme.championship',
+  martini: 'settings.theme.martini',
+  verde: 'settings.theme.verde',
+  ice: 'settings.theme.ice',
+  auroraGlass: 'settings.theme.auroraGlass',
+  neonNoir: 'settings.theme.neonNoir',
+  carbonGlow: 'settings.theme.carbonGlow',
+  royalGlass: 'settings.theme.royalGlass',
+  custom: 'settings.theme.custom'
 }
 
 const PRESET_THEMES = APP_THEMES.filter((theme): theme is Exclude<AppTheme, 'custom'> => theme !== 'custom')
@@ -378,7 +378,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
             {tt(language, 'settings.quitHelp')}
           </span>
           <button disabled={loading || saving} onClick={quitApp} className="ghost-action" type="button">
-            Exit app (close everything)
+            {tt(language, 'settings.quitButton')}
           </button>
         </div>
       </div>
@@ -419,7 +419,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
           >
             {APP_TELEMETRY_SOURCES.map((source) => (
               <option key={source} value={source}>
-                {SOURCE_LABELS[source]}
+                {tt(language, SOURCE_LABEL_KEYS[source])}
               </option>
             ))}
           </select>
@@ -471,7 +471,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
           >
             {APP_THEMES.map((theme) => (
               <option key={theme} value={theme}>
-                {THEME_LABELS[theme]}
+                {tt(language, THEME_LABEL_KEYS[theme])}
               </option>
             ))}
           </select>
@@ -492,7 +492,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
               }}
               type="button"
             >
-              <span>{THEME_LABELS[theme]}</span>
+              <span>{tt(language, THEME_LABEL_KEYS[theme])}</span>
               <span
                 aria-hidden="true"
                 style={{
@@ -509,7 +509,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
 
         <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: 12, alignItems: 'end' }}>
           <label style={{ display: 'grid', gap: 8 }} htmlFor="accentColor">
-            <span className="field-label" style={{ margin: 0 }}>Custom accent</span>
+            <span className="field-label" style={{ margin: 0 }}>{tt(language, 'settings.customAccent')}</span>
             <input
               disabled={loading || saving}
               id="accentColor"
@@ -520,7 +520,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
             />
           </label>
           <label style={{ display: 'grid', gap: 8 }} htmlFor="accentHex">
-            <span className="field-label" style={{ margin: 0 }}>Hex</span>
+            <span className="field-label" style={{ margin: 0 }}>{tt(language, 'settings.hex')}</span>
             <input
               disabled={loading || saving}
               id="accentHex"
@@ -544,7 +544,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
           className="ghost-action compact"
           type="button"
         >
-          Open userData
+          {tt(language, 'settings.openUserData')}
         </button>
         <button
           disabled={loading || saving}
