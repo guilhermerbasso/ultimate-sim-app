@@ -302,7 +302,7 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
       {/* â”€â”€ Pit panel launcher (moved out of Dashboards) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <section style={panel()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <span style={{ fontSize: 18 }} aria-hidden>ðŸ</span>
+          <span style={{ fontSize: 18 }} aria-hidden>🏁</span>
           <strong style={{ color: TEXT_FG, fontSize: 14, letterSpacing: '0.04em' }}>{tt(language, 'touchControls.pitPanelTitle')}</strong>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
