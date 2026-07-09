@@ -1,4 +1,4 @@
-import { autoUpdater, type ProgressInfo, type UpdateInfo } from 'electron-updater'
+import electronUpdater, { type ProgressInfo, type UpdateInfo } from 'electron-updater'
 import type { ModuleContext } from '../module-context'
 import { logger } from './logger'
 import {
@@ -8,6 +8,13 @@ import {
   type UpdaterStatus,
   type UpdateState
 } from '../../shared/updater'
+
+// `electron-updater` is a CommonJS module. In the ESM main-process bundle a NAMED import
+// (`import { autoUpdater } from 'electron-updater'`) throws at runtime:
+//   SyntaxError: Named export 'autoUpdater' not found. The requested module ... is a CommonJS module
+// (the crash reported in release 2.44). Import the DEFAULT (the CJS module.exports object)
+// and destructure the value from it; the type-only named imports above are erased at build.
+const { autoUpdater } = electronUpdater
 
 const GITHUB_OWNER = 'guilhermerbasso'
 const GITHUB_REPO = 'ultimate-sim-app'
