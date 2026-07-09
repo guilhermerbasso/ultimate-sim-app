@@ -114,7 +114,7 @@ function formatDate(ms: number): string {
   }
 }
 
-function summaryLabel(summary: SharePackSummary): string {
+function summaryLabel(summary: SharePackSummary, language?: ResolvedLanguage): string {
   const bits = [summary.track, summary.car].filter(Boolean)
   return bits.join(' · ') || summary.author || summary.kind || 'Pack'
 }
@@ -122,7 +122,7 @@ function summaryLabel(summary: SharePackSummary): string {
 // Cumulative delta ribbon. Bars BELOW the centre line + green = you are faster
 // than the ghost here; bars ABOVE + warm orange = you are slower. Everything else
 // stays warm chrome on purpose.
-function DeltaTrace({ bins }: { bins: GhostCompareBin[] }): ReactElement {
+function DeltaTrace({ bins, language }: { bins: GhostCompareBin[]; language?: ResolvedLanguage }): ReactElement {
   const points = useMemo(() => {
     if (bins.length === 0) return [] as GhostCompareBin[]
     const target = 160
@@ -136,7 +136,7 @@ function DeltaTrace({ bins }: { bins: GhostCompareBin[] }): ReactElement {
   )
 
   if (points.length === 0) {
-    return <div style={{ opacity: 0.6, padding: 12 }}>No comparison data.</div>
+    return <div style={{ opacity: 0.6, padding: 12 }}>{tt(language, 'community.noComparisonData')}</div>
   }
 
   const width = 100 / points.length
@@ -145,7 +145,7 @@ function DeltaTrace({ bins }: { bins: GhostCompareBin[] }): ReactElement {
       viewBox="0 0 100 40"
       preserveAspectRatio="none"
       role="img"
-      aria-label="Cumulative delta by lap distance"
+      aria-label={tt(language, 'community.deltaAria')}
       style={{ width: '100%', height: 120, background: 'var(--surface-sunken)', borderRadius: 'var(--radius-sm)' }}
     >
       <line x1={0} y1={20} x2={100} y2={20} stroke="rgba(255,255,255,0.2)" strokeWidth={0.25} />
@@ -241,7 +241,7 @@ export default function CommunityView({ showToast, language }: AppViewProps): Re
     try {
       const result = await window.ipc.invoke<CommunityImportResult>(COMMUNITY_CHANNELS.import)
       if (result.canceled) return
-      showToast(tt(language, 'community.imported', { summary: result.summary ? summaryLabel(result.summary) : 'pack' }), 'success')
+      showToast(tt(language, 'community.imported', { summary: result.summary ? summaryLabel(result.summary, language) : tt(language, 'community.kind.pack') }), 'success')
       await refreshList()
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
@@ -415,13 +415,13 @@ export default function CommunityView({ showToast, language }: AppViewProps): Re
         </div>
 
         <div style={{ ...row, marginTop: 12 }}>
-          <button style={primaryButton} type="button" disabled={busy || !liveReady} onClick={() => void runExport(COMMUNITY_CHANNELS.exportGhost, 'Ghost')}>
+          <button style={primaryButton} type="button" disabled={busy || !liveReady} onClick={() => void runExport(COMMUNITY_CHANNELS.exportGhost, tt(language, 'community.kind.ghost'))}>
             {tt(language, 'community.exportMyLap')}
           </button>
-          <button style={button} type="button" disabled={busy || !status?.telemetryReady} onClick={() => void runExport(COMMUNITY_CHANNELS.exportTelemetry, 'Telemetry')}>
+          <button style={button} type="button" disabled={busy || !status?.telemetryReady} onClick={() => void runExport(COMMUNITY_CHANNELS.exportTelemetry, tt(language, 'community.kind.telemetry'))}>
             {tt(language, 'community.exportTelemetry')}
           </button>
-          <button style={button} type="button" disabled={busy} onClick={() => void runExport(COMMUNITY_CHANNELS.exportSetup, 'Setup')}>
+          <button style={button} type="button" disabled={busy} onClick={() => void runExport(COMMUNITY_CHANNELS.exportSetup, tt(language, 'community.kind.setup'))}>
             {tt(language, 'community.exportSetup')}
           </button>
           <span style={{ flex: 1 }} />
@@ -454,7 +454,7 @@ export default function CommunityView({ showToast, language }: AppViewProps): Re
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ ...row, gap: 8 }}>
                   <span style={{ ...label, opacity: 0.8 }}>{tt(language, KIND_LABEL_KEY[pack.kind] ?? 'community.kind.pack')}</span>
-                  <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{summaryLabel(pack)}</strong>
+                  <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{summaryLabel(pack, language)}</strong>
                   {pack.kind === 'ghost' ? <span style={{ opacity: 0.8 }}>· {formatLapTime(pack.lapTimeSec)}</span> : null}
                 </div>
                 <small style={{ opacity: 0.6 }}>
@@ -500,7 +500,7 @@ function ComparePanel({ language, report, onClose }: { language: ResolvedLanguag
         <div>
           <div style={label}>{tt(language, 'community.ghostComparison')}</div>
           <h3 style={{ margin: '4px 0 0' }}>
-            {report.baselineLabel} <span style={{ opacity: 0.6 }}>vs</span> {report.targetLabel}
+            {report.baselineLabel} <span style={{ opacity: 0.6 }}>{tt(language, 'community.vs')}</span> {report.targetLabel}
           </h3>
         </div>
         <button style={button} type="button" onClick={onClose}>{tt(language, 'common.close')}</button>
@@ -511,11 +511,11 @@ function ComparePanel({ language, report, onClose }: { language: ResolvedLanguag
         <Metric title={tt(language, 'community.timeGained')} value={`-${result.gainSec.toFixed(3)}s`} tone="faster" />
         <Metric title={tt(language, 'community.timeLost')} value={`+${result.lossSec.toFixed(3)}s`} tone="slower" />
         <Metric title={tt(language, 'community.yourLap')} value={formatLapTime(result.lapTimeASec)} tone="neutral" />
-        <Metric title="Ghost" value={formatLapTime(result.lapTimeBSec)} tone="neutral" />
+        <Metric title={tt(language, 'community.ghost')} value={formatLapTime(result.lapTimeBSec)} tone="neutral" />
       </div>
 
       <div style={{ marginTop: 14 }}>
-        <DeltaTrace bins={result.bins} />
+        <DeltaTrace bins={result.bins} language={language} />
         <div style={{ ...row, justifyContent: 'space-between', marginTop: 6, fontSize: 11, opacity: 0.7 }}>
           <span>{tt(language, 'community.lapStart')}</span>
           <span><span style={fasterText}>■</span> {tt(language, 'community.faster')} &nbsp; <span style={slowerText}>■</span> {tt(language, 'community.slower')}</span>

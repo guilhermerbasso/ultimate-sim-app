@@ -1,5 +1,6 @@
 import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import {
   BIO_CHANNELS,
@@ -77,17 +78,17 @@ function stressColor(state?: StressState): string {
   return 'var(--text-secondary)'
 }
 
-function stressLabel(state?: StressState): string {
-  if (state === 'calm') return 'Calm'
-  if (state === 'elevated') return 'Elevated'
-  if (state === 'stressed') return 'Stressed'
+function stressLabel(state: StressState | undefined, language: AppViewProps['language']): string {
+  if (state === 'calm') return tt(language, 'biometrics.stateCalm')
+  if (state === 'elevated') return tt(language, 'biometrics.stateElevated')
+  if (state === 'stressed') return tt(language, 'biometrics.stateStressed')
   return '—'
 }
 
-function interpretation(value?: PaceHrInterpretation): { text: string; color: string } {
-  if (value === 'calmer-is-faster') return { text: 'Calmer = faster', color: COOL }
-  if (value === 'harder-is-faster') return { text: 'Harder = faster', color: WARN }
-  return { text: 'Not enough data', color: 'var(--text-muted)' }
+function interpretation(value: PaceHrInterpretation | undefined, language: AppViewProps['language']): { text: string; color: string } {
+  if (value === 'calmer-is-faster') return { text: tt(language, 'biometrics.calmerFaster'), color: COOL }
+  if (value === 'harder-is-faster') return { text: tt(language, 'biometrics.harderFaster'), color: WARN }
+  return { text: tt(language, 'biometrics.notEnoughData'), color: 'var(--text-muted)' }
 }
 
 function calmColor(score: number): string {
@@ -128,7 +129,7 @@ function ArHudPreview({ bpm, state }: { bpm?: number; state?: StressState }): Re
   return <ArHudView snapshot={snapshot} hr={{ bpm, state }} preview style={{ height: 280 }} />
 }
 
-export default function BiometricsView(_props: AppViewProps): ReactElement {
+export default function BiometricsView({ language }: AppViewProps): ReactElement {
   const [status, setStatus] = useState<BioStatus | null>(null)
   const [live, setLive] = useState<BioLiveSample | null>(null)
   const [series, setSeries] = useState<BioSeriesResult | null>(null)
@@ -199,7 +200,7 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
     setBleError(null)
     const bluetooth = getBluetooth()
     if (!bluetooth) {
-      setBleError('Web Bluetooth is not available on this device/OS.')
+      setBleError(tt(language, 'biometrics.bluetoothUnavailable'))
       return
     }
     try {
@@ -232,7 +233,7 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
   const calm = series?.calm
   const laps = series?.laps ?? []
   const spikes = series?.spikes ?? []
-  const interp = interpretation(corr?.interpretation)
+  const interp = interpretation(corr?.interpretation, language)
 
   return (
     <div style={{ display: 'grid', gap: 18 }}>
@@ -251,31 +252,31 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
                   : {})
               }}
             >
-              {kind === 'mock' ? 'Mock (no hardware)' : 'BLE (real monitor)'}
+              {kind === 'mock' ? tt(language, 'biometrics.mockSource') : tt(language, 'biometrics.bleSource')}
             </button>
           ))}
         </div>
 
         {running ? (
           <button type="button" style={{ ...primaryButton, background: BAD }} onClick={() => void stop()}>
-            Stop
+            {tt(language, 'common.stop')}
           </button>
         ) : (
           <button type="button" style={primaryButton} onClick={() => void start(sourceKind)}>
-            Start {sourceKind === 'mock' ? 'mock' : 'BLE'}
+            {tt(language, 'biometrics.startSource', { source: sourceKind === 'mock' ? tt(language, 'biometrics.mockShort') : 'BLE' })}
           </button>
         )}
 
         {sourceKind === 'ble' ? (
           <button type="button" style={ghostButton} onClick={() => void pairBle()} disabled={!bleSupported}>
-            Pair BLE monitor
+            {tt(language, 'biometrics.pairBle')}
           </button>
         ) : null}
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 16, alignItems: 'center' }}>
-          <span style={label}>Source</span>
+          <span style={label}>{tt(language, 'biometrics.source')}</span>
           <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
-            {status?.sourceKind === 'ble' ? 'BLE 0x180D' : 'Mock'}
+            {status?.sourceKind === 'ble' ? 'BLE 0x180D' : tt(language, 'biometrics.mockShort')}
           </span>
           <span
             style={{
@@ -304,7 +305,7 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
       {/* ── Live HR + AR preview ───────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 0.8fr) minmax(320px, 1.2fr)', gap: 18, alignItems: 'start' }}>
         <div style={{ ...panel, display: 'grid', gap: 14 }}>
-          <span style={label}>Heart rate {status?.sourceKind === 'mock' ? '(yesulated)' : '(BLE)'}</span>
+          <span style={label}>{tt(language, 'biometrics.heartRate', { source: status?.sourceKind === 'mock' ? tt(language, 'biometrics.simulated') : 'BLE' })}</span>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
             <span style={{ fontSize: 72, fontWeight: 700, lineHeight: 1, color: stressColor(state), fontVariantNumeric: 'tabular-nums' }}>
               {bpm ?? '—'}
@@ -312,13 +313,13 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
             <span style={{ ...label, fontSize: 16 }}>BPM</span>
           </div>
           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-            <Stat title="State" value={stressLabel(state)} color={stressColor(state)} />
-            <Stat title="Baseline" value={status?.baselineBpm ? `${status.baselineBpm} BPM` : '—'} />
-            <Stat title="Samples" value={String(status?.sampleCount ?? 0)} />
+            <Stat title={tt(language, 'biometrics.state')} value={stressLabel(state, language)} color={stressColor(state)} />
+            <Stat title={tt(language, 'biometrics.baseline')} value={status?.baselineBpm ? `${status.baselineBpm} BPM` : '—'} />
+            <Stat title={tt(language, 'biometrics.samples')} value={String(status?.sampleCount ?? 0)} />
           </div>
           {intensity !== undefined && (
             <div style={{ display: 'grid', gap: 6 }}>
-              <span style={label}>Driving intensity</span>
+              <span style={label}>{tt(language, 'biometrics.drivingIntensity')}</span>
               <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-sunken)', overflow: 'hidden' }}>
                 <div style={{ width: `${Math.round(intensity * 100)}%`, height: '100%', background: COOL }} />
               </div>
@@ -328,15 +329,14 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
 
         <div style={{ ...panel, display: 'grid', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={label}>AR HUD preview</span>
+            <span style={label}>{tt(language, 'biometrics.arHudPreview')}</span>
             <button type="button" style={ghostButton} onClick={() => setArFullscreen(true)}>
-              Full screen
+              {tt(language, 'biometrics.fullScreen')}
             </button>
           </div>
           <ArHudPreview bpm={bpm} state={state} />
           <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-            High-contrast layout optimized for AR glasses / passthrough (black = transparent on optical
-            displays). Requires AR hardware for real use.
+            {tt(language, 'biometrics.arHelp')}
           </span>
         </div>
       </div>
@@ -345,15 +345,15 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
       <div style={{ ...panel, display: 'grid', gap: 16 }}>
         <span style={label}>Stress × pace correlation</span>
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-          <Stat title="Reading" value={interp.text} color={interp.color} />
+          <Stat title={tt(language, 'biometrics.reading')} value={interp.text} color={interp.color} />
           <Stat title="Pearson (HR × tempo)" value={corr ? corr.pearson.toFixed(2) : '—'} />
           <Stat
-            title="Calm under pressure"
+            title={tt(language, 'biometrics.calmUnderPressure')}
             value={calm ? `${calm.score}/100` : '—'}
             color={calm ? calmColor(calm.score) : undefined}
           />
-          <Stat title="Laps analyzed" value={String(laps.length)} />
-          <Stat title="Stress spikes" value={String(spikes.length)} />
+          <Stat title={tt(language, 'biometrics.lapsAnalyzed')} value={String(laps.length)} />
+          <Stat title={tt(language, 'biometrics.stressSpikes')} value={String(spikes.length)} />
         </div>
 
         {laps.length > 0 && (
@@ -392,13 +392,13 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
 
         {spikes.length > 0 && (
           <div style={{ display: 'grid', gap: 6 }}>
-            <span style={label}>Stress spikes aligned with events</span>
+            <span style={label}>{tt(language, 'biometrics.spikesEvents')}</span>
             {spikes.slice(-6).map((spike, index) => (
               <div key={`${spike.t}-${index}`} style={{ display: 'flex', gap: 12, color: 'var(--text-secondary)', fontSize: 13 }}>
                 <span style={{ color: BAD, fontWeight: 600 }}>+{spike.deltaBpm} BPM</span>
                 <span>{spike.peakBpm} BPM (base {spike.baselineBpm})</span>
                 <span style={{ color: 'var(--text-muted)' }}>
-                  {spike.event ? `↔ ${spike.event.label ?? spike.event.kind}` : 'no nearby event'}
+                  {spike.event ? `↔ ${spike.event.label ?? spike.event.kind}` : tt(language, 'biometrics.noNearbyEvent')}
                 </span>
               </div>
             ))}
@@ -407,7 +407,7 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
 
         {!running && (
           <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-            Start a session (mock works without hardware) to collect HR and correlate it with lap pace.
+            {tt(language, 'biometrics.startSessionHelp')}
           </span>
         )}
       </div>
@@ -421,7 +421,7 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
             onClick={() => setArFullscreen(false)}
             style={{ ...ghostButton, position: 'fixed', top: 16, right: 16, zIndex: 1001, background: 'rgba(0,0,0,0.6)' }}
           >
-            Close AR
+            {tt(language, 'biometrics.closeAr')}
           </button>
         </div>
       )}

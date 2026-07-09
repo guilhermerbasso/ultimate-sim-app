@@ -1,5 +1,6 @@
 import { type ComponentType, type CSSProperties, type ReactElement, useEffect, useRef, useState } from 'react'
 import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 import { SectionExportImport } from '../components/SectionExportImport'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import {
@@ -104,7 +105,7 @@ function num(value: number | undefined, digits = 1): string {
   return value == null || !Number.isFinite(value) ? '—' : value.toFixed(digits)
 }
 
-const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement => {
+const HapticsView: ComponentType<AppViewProps> = ({ showToast, language }): ReactElement => {
   const { audioOutputs, audioOutputsStatus, audioBusy, refreshAudioOutputs, serialDevices, refreshFleet } = useDevices()
   const [config, setConfig] = useState<HapticsConfig>(DEFAULT_HAPTICS_CONFIG)
   const [live, setLive] = useState<TelemetrySnapshot | null>(null)
@@ -173,7 +174,7 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
   function changeOutputDevice(outputDeviceId: string): void {
     setHapticsOutputDevice(outputDeviceId)
     setConfig((current) => ({ ...current, outputDeviceId }))
-    void persist({ outputDeviceId }, outputDeviceId ? 'Haptic output routed to the selected device.' : 'Haptic output on the system default device.')
+    void persist({ outputDeviceId }, outputDeviceId ? tt(language, 'haptics.outputSelectedToast') : tt(language, 'haptics.outputDefaultToast'))
   }
 
   const arduinoDevices = serialDevices.filter((device) => device.kind !== 'sim-x')
@@ -183,14 +184,15 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
       <article style={{ ...panel, minHeight: 560 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
           <span style={label}>Haptics · Bass shaker</span>
-          <SectionExportImport sectionId="haptics" label="Haptics" onImported={() => void reloadConfig()} />
+          <SectionExportImport sectionId="haptics" label={tt(language, 'haptics.exportLabel')} onImported={() => void reloadConfig()} />
         </div>
-        <h3 style={{ margin: '8px 0 4px', fontSize: 26 }}>Bass shaker &amp; haptics</h3>
+        <h3 style={{ margin: '8px 0 4px', fontSize: 26 }}>{tt(language, 'haptics.title')}</h3>
         <p style={{ color: 'rgba(255,255,255,0.62)', marginTop: 0 }}>
-          SimHub ShakeIt-style haptic effects: telemetry synthesizes low-frequency waves (Web Audio) sent to an audio output that feeds the bass-shaker amplifier. It does not alter game audio.
+          {tt(language, 'haptics.summary')}
         </p>
 
         <MasterBar
+          language={language}
           busy={busy}
           config={config}
           meter={meter}
@@ -201,6 +203,7 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
         />
 
         <OutputSelector
+          language={language}
           busy={busy || audioBusy}
           devices={audioOutputs}
           outputDeviceId={config.outputDeviceId}
@@ -212,6 +215,7 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
         <div style={{ display: 'grid', gap: 12, marginTop: 16 }}>
           {HAPTICS_EFFECT_IDS.map((id) => (
             <EffectCard
+              language={language}
               key={id}
               busy={busy}
               effect={config.effects[id]}
@@ -228,32 +232,33 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
 
       <div style={{ display: 'grid', gap: 18 }}>
         <article style={panel}>
-          <span style={label}>Telemetry ao vivo</span>
+          <span style={label}>{tt(language, 'haptics.liveTelemetry')}</span>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, margin: '10px 0 4px' }}>
             <Tile labelText="RPM" value={live?.rpm == null ? '—' : `${Math.round(live.rpm)}`} />
-            <Tile labelText="Gear" value={live?.gear == null ? '—' : String(live.gear)} />
-            <Tile labelText="Speed" value={live?.speedKmh == null ? '—' : `${Math.round(live.speedKmh)} km/h`} />
-            <Tile labelText="Throttle" value={pct(live?.throttle)} />
-            <Tile labelText="Brake" value={pct(live?.brake)} />
-            <Tile labelText="ABS" value={live?.absActive == null ? 'n/d' : live.absActive ? 'yes' : 'no'} />
-            <Tile labelText="TC" value={live?.tcActive == null ? 'n/d' : live.tcActive ? 'yes' : 'no'} />
-            <li>Native <strong>longAccel / latAccel</strong> (currently derived from speed/yaw) ?? impacts and curbs.</li>
-            <Tile labelText="Accel lat." value={`${num(frame.latAccelMs2)} m/s²`} />
+            <Tile labelText={tt(language, 'haptics.gear')} value={live?.gear == null ? '—' : String(live.gear)} />
+            <Tile labelText={tt(language, 'haptics.speed')} value={live?.speedKmh == null ? '—' : `${Math.round(live.speedKmh)} km/h`} />
+            <Tile labelText={tt(language, 'haptics.throttle')} value={pct(live?.throttle)} />
+            <Tile labelText={tt(language, 'haptics.brake')} value={pct(live?.brake)} />
+            <Tile labelText="ABS" value={live?.absActive == null ? tt(language, 'haptics.noDataShort') : live.absActive ? tt(language, 'common.sim') : tt(language, 'common.no')} />
+            <Tile labelText="TC" value={live?.tcActive == null ? tt(language, 'haptics.noDataShort') : live.tcActive ? tt(language, 'common.sim') : tt(language, 'common.no')} />
+            
+            <Tile labelText={tt(language, 'haptics.latAccel')} value={`${num(frame.latAccelMs2)} m/s²`} />
           </div>
-          <span style={label}>Sinais derivados</span>
+          <span style={label}>{tt(language, 'haptics.derivedSignals')}</span>
           <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
-            <SignalBar labelText="Motor" value={frame.engine} />
-            <SignalBar labelText="Textura" value={frame.roadTexture} />
-            <SignalBar labelText="Trava/spin" value={frame.wheelLock} />
-            <SignalBar labelText="Zebra" value={frame.kerb} />
-            <SignalBar labelText="Impacto" value={frame.impact} />
-            <SignalBar labelText="Suspension" value={frame.suspension} />
+            <SignalBar labelText={tt(language, 'haptics.engine')} value={frame.engine} />
+            <SignalBar labelText={tt(language, 'haptics.texture')} value={frame.roadTexture} />
+            <SignalBar labelText={tt(language, 'haptics.lockSpin')} value={frame.wheelLock} />
+            <SignalBar labelText={tt(language, 'haptics.kerb')} value={frame.kerb} />
+            <SignalBar labelText={tt(language, 'haptics.impact')} value={frame.impact} />
+            <SignalBar labelText={tt(language, 'haptics.suspension')} value={frame.suspension} />
             <SignalBar labelText="TC Cut" value={frame.tcCut ? 1 : 0} />
-            <SignalBar labelText="Rangido" value={frame.gearGrind ? 1 : 0} />
+            <SignalBar labelText={tt(language, 'haptics.grind')} value={frame.gearGrind ? 1 : 0} />
           </div>
         </article>
 
         <ArduinoPanel
+          language={language}
           busy={busy}
           config={config}
           devices={arduinoDevices.map((d) => ({ id: d.id, label: d.label, connected: d.connected }))}
@@ -263,7 +268,7 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
           onTest={async (effectId) => {
             try {
               await window.ipc.invoke<boolean>(HAPTICS_CHANNELS.testArduino, effectId)
-              showToast('Test buzz sent to Arduino.', 'success')
+              showToast(tt(language, 'haptics.testBuzzToast'), 'success')
             } catch (error) {
               showToast(getErrorMessage(error), 'error')
             }
@@ -271,15 +276,15 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
         />
 
         <article style={panel}>
-          <span style={label}>Telemetry fidelity</span>
+          <span style={label}>{tt(language, 'haptics.telemetryFidelity')}</span>
           <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, margin: '8px 0 0' }}>
-            These effects improve significantly when the provider exposes these fields in <code>TelemetrySnapshot</code>:
+            {tt(language, 'haptics.fidelityHelp')} <code>TelemetrySnapshot</code>:
           </p>
           <ul style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, margin: '8px 0 0', paddingLeft: 18, lineHeight: 1.6 }}>
             <li>Native <strong>longAccel / latAccel</strong> (currently derived from speed/yaw) — impacts and curbs.</li>
             <li><strong>vertAccel</strong> (vertical acceleration) — real curbs/rumble.</li>
             <li><strong>wheelSlip / per-wheel speed</strong> — precise lockup and sliding.</li>
-            <li>Dedicated <strong>curb/rumble signal</strong>, when the sim provides it.</li>
+            <li>{tt(language, 'haptics.fidelityCurbBefore')} <strong>curb/rumble signal</strong>{tt(language, 'haptics.fidelityCurbAfter')}</li>
           </ul>
         </article>
       </div>
@@ -288,6 +293,7 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =
 }
 
 function MasterBar({
+  language,
   busy,
   config,
   meter,
@@ -296,6 +302,7 @@ function MasterBar({
   onMaster,
   onMasterCommit
 }: {
+  language: AppViewProps['language']
   busy: boolean
   config: HapticsConfig
   meter: number
@@ -308,21 +315,21 @@ function MasterBar({
     <div style={{ border: '1px solid var(--border-default)', borderRadius: 'var(--radius-md)', padding: 'var(--space-5)', background: 'var(--surface-sunken)', display: 'grid', gap: 12, marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
         <div>
-          <strong style={{ fontSize: 16 }}>Global output</strong>
-          <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, margin: '2px 0 0' }}>Turns on the engine and routes it to the amplifier.</p>
+          <strong style={{ fontSize: 16 }}>{tt(language, 'haptics.globalOutput')}</strong>
+          <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, margin: '2px 0 0' }}>{tt(language, 'haptics.globalOutputDesc')}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button disabled={busy} onClick={onToggleEnabled} style={{ ...primaryButton, background: config.enabled ? 'var(--accent-primary)' : 'transparent', color: config.enabled ? 'var(--text-on-accent)' : 'var(--text-primary)', border: config.enabled ? 'none' : '1px solid var(--border-strong)' }} type="button">
-            {config.enabled ? 'Active' : 'Turn on'}
+            {config.enabled ? tt(language, 'haptics.active') : tt(language, 'haptics.turnOn')}
           </button>
           <button disabled={busy} onClick={onToggleMute} style={{ ...primaryButton, background: config.muted ? 'var(--accent-danger)' : 'transparent', color: config.muted ? 'var(--text-on-accent)' : 'var(--text-primary)', border: config.muted ? 'none' : '1px solid var(--border-strong)' }} type="button">
-            {config.muted ? 'Muted' : 'Mute'}
+            {config.muted ? tt(language, 'haptics.muted') : tt(language, 'haptics.mute')}
           </button>
         </div>
       </div>
-      <Slider labelText="Master gain" min={0} max={1} step={0.01} value={config.masterGain} display={pct(config.masterGain)} onChange={onMaster} onCommit={() => onMasterCommit(config.masterGain)} />
+      <Slider labelText={tt(language, 'haptics.masterGain')} min={0} max={1} step={0.01} value={config.masterGain} display={pct(config.masterGain)} onChange={onMaster} onCommit={() => onMasterCommit(config.masterGain)} />
       <div>
-        <span style={label}>Output (meter)</span>
+        <span style={label}>{tt(language, 'haptics.outputMeter')}</span>
         <Meter value={config.enabled && !config.muted ? meter : 0} />
       </div>
     </div>
@@ -330,6 +337,7 @@ function MasterBar({
 }
 
 function OutputSelector({
+  language,
   busy,
   devices,
   outputDeviceId,
@@ -337,6 +345,7 @@ function OutputSelector({
   onChange,
   onRefresh
 }: {
+  language: AppViewProps['language']
   busy: boolean
   devices: { deviceId: string; label: string }[]
   outputDeviceId: string
@@ -349,14 +358,14 @@ function OutputSelector({
     <div style={{ border: '1px solid var(--border-accent)', borderRadius: 'var(--radius-md)', padding: 'var(--space-4)', background: 'var(--surface-selected)', display: 'grid', gap: 'var(--space-2)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
         <div>
-          <span style={label}>Output device</span>
-          <p style={{ color: 'rgba(255,255,255,0.58)', fontSize: 12, margin: '4px 0 0' }}>Use the audio output connected to the shaker amplifier (e.g., dedicated HDMI/USB DAC).</p>
+          <span style={label}>{tt(language, 'haptics.outputDevice')}</span>
+          <p style={{ color: 'rgba(255,255,255,0.58)', fontSize: 12, margin: '4px 0 0' }}>{tt(language, 'haptics.outputDeviceHelp')}</p>
         </div>
-        <button disabled={busy} onClick={onRefresh} style={ghostButton} type="button">Refresh</button>
+        <button disabled={busy} onClick={onRefresh} style={ghostButton} type="button">{tt(language, 'haptics.refresh')}</button>
       </div>
       <select disabled={busy} onChange={(event) => onChange(event.target.value)} style={inputStyle} value={outputDeviceId}>
-        <option value="">System default</option>
-        {missing ? <option value={outputDeviceId}>Selected device unavailable</option> : null}
+        <option value="">{tt(language, 'haptics.systemDefault')}</option>
+        {missing ? <option value={outputDeviceId}>{tt(language, 'haptics.deviceUnavailable')}</option> : null}
         {devices.map((device) => (
           <option key={device.deviceId} value={device.deviceId}>{device.label}</option>
         ))}
@@ -367,6 +376,7 @@ function OutputSelector({
 }
 
 function EffectCard({
+  language,
   busy,
   effect,
   id,
@@ -376,6 +386,7 @@ function EffectCard({
   onTest,
   onToggle
 }: {
+  language: AppViewProps['language']
   busy: boolean
   effect: HapticsEffectConfig
   id: HapticsEffectId
@@ -393,16 +404,16 @@ function EffectCard({
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <strong style={{ fontSize: 15 }}>{meta.label}</strong>
-            {meta.heuristic ? <span style={{ ...label, color: 'var(--accent-warning)' }}>heuristic</span> : null}
-            {meta.transient ? <span style={{ ...label, color: 'var(--text-secondary)' }}>pulso</span> : null}
+            {meta.heuristic ? <span style={{ ...label, color: 'var(--accent-warning)' }}>{tt(language, 'haptics.heuristic')}</span> : null}
+            {meta.transient ? <span style={{ ...label, color: 'var(--text-secondary)' }}>{tt(language, 'haptics.pulse')}</span> : null}
           </div>
           <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, margin: '3px 0 0' }}>{meta.blurb}</p>
-          <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, margin: '2px 0 0' }}>Sinal: {meta.signal}</p>
+          <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, margin: '2px 0 0' }}>{tt(language, 'haptics.signalLabel', { signal: meta.signal })}</p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-          <button onClick={onTest} style={ghostButton} type="button">Testar</button>
+          <button onClick={onTest} style={ghostButton} type="button">{tt(language, 'haptics.test')}</button>
           <button disabled={busy} onClick={onToggle} style={{ ...ghostButton, borderColor: accent, color: effect.enabled ? 'var(--accent-primary)' : 'var(--text-primary)' }} type="button">
-            {effect.enabled ? 'On' : 'Off'}
+            {effect.enabled ? tt(language, 'haptics.on') : tt(language, 'haptics.off')}
           </button>
         </div>
       </div>
@@ -412,28 +423,29 @@ function EffectCard({
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: meta.sweep ? '1fr 1fr' : '1fr', gap: 12, marginTop: 12 }}>
-        <Slider labelText={meta.sweep ? 'Min freq. (Hz)' : 'Frequency (Hz)'} min={meta.freqMin} max={meta.freqMax} step={1} value={effect.frequencyHz} display={`${Math.round(effect.frequencyHz)} Hz`} onChange={(frequencyHz) => onChange({ frequencyHz })} onCommit={() => onCommit({ frequencyHz: effect.frequencyHz })} />
+        <Slider labelText={meta.sweep ? tt(language, 'haptics.minFreq') : tt(language, 'haptics.frequency')} min={meta.freqMin} max={meta.freqMax} step={1} value={effect.frequencyHz} display={`${Math.round(effect.frequencyHz)} Hz`} onChange={(frequencyHz) => onChange({ frequencyHz })} onCommit={() => onCommit({ frequencyHz: effect.frequencyHz })} />
         {meta.sweep ? (
-          <Slider labelText="Max freq. (Hz)" min={meta.freqMin} max={meta.freqMax} step={1} value={effect.frequencyToHz ?? meta.freqMax} display={`${Math.round(effect.frequencyToHz ?? meta.freqMax)} Hz`} onChange={(frequencyToHz) => onChange({ frequencyToHz })} onCommit={() => onCommit({ frequencyToHz: effect.frequencyToHz ?? meta.freqMax })} />
+          <Slider labelText={tt(language, 'haptics.maxFreq')} min={meta.freqMin} max={meta.freqMax} step={1} value={effect.frequencyToHz ?? meta.freqMax} display={`${Math.round(effect.frequencyToHz ?? meta.freqMax)} Hz`} onChange={(frequencyToHz) => onChange({ frequencyToHz })} onCommit={() => onCommit({ frequencyToHz: effect.frequencyToHz ?? meta.freqMax })} />
         ) : null}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 10 }}>
-        <Slider labelText="Intensidade" min={0} max={1} step={0.01} value={effect.intensity} display={pct(effect.intensity)} onChange={(intensity) => onChange({ intensity })} onCommit={() => onCommit({ intensity: effect.intensity })} />
-        <Slider labelText="Smoothing" min={0} max={1} step={0.01} value={effect.smoothing} display={pct(effect.smoothing)} onChange={(smoothing) => onChange({ smoothing })} onCommit={() => onCommit({ smoothing: effect.smoothing })} />
-        <Slider labelText="Min threshold" min={0} max={1} step={0.01} value={effect.minThreshold} display={pct(effect.minThreshold)} onChange={(minThreshold) => onChange({ minThreshold })} onCommit={() => onCommit({ minThreshold: effect.minThreshold })} />
-        <Slider labelText="Max threshold" min={0} max={1} step={0.01} value={effect.maxThreshold} display={pct(effect.maxThreshold)} onChange={(maxThreshold) => onChange({ maxThreshold })} onCommit={() => onCommit({ maxThreshold: effect.maxThreshold })} />
+        <Slider labelText={tt(language, 'haptics.intensity')} min={0} max={1} step={0.01} value={effect.intensity} display={pct(effect.intensity)} onChange={(intensity) => onChange({ intensity })} onCommit={() => onCommit({ intensity: effect.intensity })} />
+        <Slider labelText={tt(language, 'haptics.smoothing')} min={0} max={1} step={0.01} value={effect.smoothing} display={pct(effect.smoothing)} onChange={(smoothing) => onChange({ smoothing })} onCommit={() => onCommit({ smoothing: effect.smoothing })} />
+        <Slider labelText={tt(language, 'haptics.minThreshold')} min={0} max={1} step={0.01} value={effect.minThreshold} display={pct(effect.minThreshold)} onChange={(minThreshold) => onChange({ minThreshold })} onCommit={() => onCommit({ minThreshold: effect.minThreshold })} />
+        <Slider labelText={tt(language, 'haptics.maxThreshold')} min={0} max={1} step={0.01} value={effect.maxThreshold} display={pct(effect.maxThreshold)} onChange={(maxThreshold) => onChange({ maxThreshold })} onCommit={() => onCommit({ maxThreshold: effect.maxThreshold })} />
       </div>
 
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, cursor: 'pointer' }}>
         <input checked={effect.arduino} onChange={(event) => onCommit({ arduino: event.target.checked })} style={{ accentColor: 'var(--accent-primary)' }} type="checkbox" />
-        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>Also send buzz to Arduino (vibration motor)</span>
+        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)' }}>{tt(language, 'haptics.sendArduino')}</span>
       </label>
     </div>
   )
 }
 
 function ArduinoPanel({
+  language,
   busy,
   config,
   devices,
@@ -442,6 +454,7 @@ function ArduinoPanel({
   onRefresh,
   onTest
 }: {
+  language: AppViewProps['language']
   busy: boolean
   config: HapticsConfig
   devices: { id: string; label: string; connected: boolean }[]
@@ -460,36 +473,36 @@ function ArduinoPanel({
           <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, margin: '4px 0 0' }}>Discrete buzzes (vibration motor) in the button box/wheel. Optional — audio bass shaker is the main output.</p>
         </div>
         <button disabled={busy} onClick={() => onCommit({ enabled: !config.arduino.enabled })} style={{ ...primaryButton, background: config.arduino.enabled ? 'var(--accent-primary)' : 'transparent', color: config.arduino.enabled ? 'var(--text-on-accent)' : 'var(--text-primary)', border: config.arduino.enabled ? 'none' : '1px solid var(--border-strong)' }} type="button">
-          {config.arduino.enabled ? 'Active' : 'Turn on'}
+          {config.arduino.enabled ? tt(language, 'haptics.active') : tt(language, 'haptics.turnOn')}
         </button>
       </div>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginTop: 12 }}>
         <label style={{ display: 'grid', gap: 6, flex: 1 }}>
-          <span style={label}>Serial device</span>
+          <span style={label}>{tt(language, 'haptics.serialDevice')}</span>
           <select disabled={busy} onChange={(event) => onCommit({ deviceId: event.target.value })} style={inputStyle} value={config.arduino.deviceId}>
             <option value="">Select…</option>
-            {missing ? <option value={config.arduino.deviceId}>Device unavailable</option> : null}
+            {missing ? <option value={config.arduino.deviceId}>{tt(language, 'haptics.deviceUnavailable')}</option> : null}
             {devices.map((device) => (
-              <option key={device.id} value={device.id}>{device.label}{device.connected ? '' : ' (offline)'}</option>
+              <option key={device.id} value={device.id}>{device.label}{device.connected ? '' : ` (${tt(language, 'haptics.offline')})`}</option>
             ))}
           </select>
         </label>
-        <button disabled={busy} onClick={onRefresh} style={ghostButton} type="button">Refresh</button>
+        <button disabled={busy} onClick={onRefresh} style={ghostButton} type="button">{tt(language, 'haptics.refresh')}</button>
       </div>
 
       <div style={{ marginTop: 10 }}>
-        <Slider labelText="Min interval between buzzes (ms)" min={40} max={1000} step={10} value={config.arduino.minIntervalMs} display={`${config.arduino.minIntervalMs} ms`} onChange={(minIntervalMs) => onChange({ minIntervalMs })} onCommit={() => onCommit({ minIntervalMs: config.arduino.minIntervalMs })} />
+        <Slider labelText={tt(language, 'haptics.minBuzzInterval')} min={40} max={1000} step={10} value={config.arduino.minIntervalMs} display={`${config.arduino.minIntervalMs} ms`} onChange={(minIntervalMs) => onChange({ minIntervalMs })} onCommit={() => onCommit({ minIntervalMs: config.arduino.minIntervalMs })} />
       </div>
 
       <div style={{ marginTop: 12 }}>
-        <span style={label}>Efeitos roteados</span>
+        <span style={label}>{tt(language, 'haptics.routedEffects')}</span>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
           {routed.length === 0 ? (
-            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Check &quot;send buzz to Arduino&quot; in effects. Motor/road are bass shaker only.</span>
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>{tt(language, 'haptics.noRoutedEffects')}</span>
           ) : (
             routed.map((id) => (
-              <button key={id} onClick={() => onTest(id)} style={ghostButton} type="button">Testar {HAPTICS_EFFECT_META[id].label}</button>
+              <button key={id} onClick={() => onTest(id)} style={ghostButton} type="button">{tt(language, 'haptics.testEffect', { name: HAPTICS_EFFECT_META[id].label })}</button>
             ))
           )}
         </div>

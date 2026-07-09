@@ -181,11 +181,11 @@ export default function FuelStrategyView({ language }: AppViewProps): ReactEleme
       <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: 12, alignItems: 'end' }}>
         <div>
           <div style={label}>{tt(language, 'fuel.targetLaps')}</div>
-          <input style={input} type="number" min="1" placeholder="Auto" value={targetLaps} onChange={(event) => setTargetLaps(event.target.value)} />
+          <input style={input} type="number" min="1" placeholder={tt(language, 'strategy.auto')} value={targetLaps} onChange={(event) => setTargetLaps(event.target.value)} />
         </div>
         <div>
           <div style={label}>{tt(language, 'fuel.raceTime')}</div>
-          <input style={input} type="number" min="1" placeholder="Auto" value={raceMinutes} onChange={(event) => setRaceMinutes(event.target.value)} />
+          <input style={input} type="number" min="1" placeholder={tt(language, 'strategy.auto')} value={raceMinutes} onChange={(event) => setRaceMinutes(event.target.value)} />
         </div>
         <div>
           <div style={label}>{tt(language, 'fuel.margin')}</div>
@@ -206,7 +206,7 @@ export default function FuelStrategyView({ language }: AppViewProps): ReactEleme
                 <Metric title={tt(language, 'fuel.fuel')} main={fmtNumber(fuel?.fuelLiters, 1)} unit="L" />
                 <Metric title={tt(language, 'fuel.avgUse')} main={fmtNumber(fuel?.usedPerLap, 2)} unit={tt(language, 'fuel.literLapUnit')} />
                 <Metric title={tt(language, 'fuel.lapsInTank')} main={fmtNumber(fuel?.lapsLeftWithFuel, 1)} unit={tt(language, 'fuel.lapUnit')} accent={canFinish ? 'var(--accent-success)' : 'var(--accent-warning)'} />
-                <Metric title="Fuel-save target" main={fmtNumber(fuel?.saveTarget, 2)} unit={tt(language, 'fuel.literLapUnit')} accent={(fuel?.saveNeededPerLap ?? 0) > 0 ? 'var(--accent-warning)' : 'var(--accent-success)'} />
+                <Metric title={tt(language, 'fuel.fuelSaveTarget')} main={fmtNumber(fuel?.saveTarget, 2)} unit={tt(language, 'fuel.literLapUnit')} accent={(fuel?.saveNeededPerLap ?? 0) > 0 ? 'var(--accent-warning)' : 'var(--accent-success)'} />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
@@ -223,8 +223,8 @@ export default function FuelStrategyView({ language }: AppViewProps): ReactEleme
                 </section>
 
                 <section style={card}>
-                  <div style={label}>Stint planner</div>
-                  <h3 style={{ margin: '6px 0 12px' }}>Enduro</h3>
+                  <div style={label}>{tt(language, 'fuel.stintPlanner')}</div>
+                  <h3 style={{ margin: '6px 0 12px' }}>{tt(language, 'fuel.enduro')}</h3>
                   <div style={{ display: 'grid', gap: 8, fontVariantNumeric: 'tabular-nums' }}>
                     <div>{tt(language, 'fuel.estimatedPace')} <strong>{fmtTime(fuel?.stint.estimatedLapTimeSec)}</strong></div>
                     <div>{tt(language, 'fuel.lapsPerStint')} <strong>{fuel?.stint.stintLaps ?? '—'}</strong></div>
@@ -242,10 +242,10 @@ export default function FuelStrategyView({ language }: AppViewProps): ReactEleme
           {hasLapData ? (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
-                <Metric title="Predicted lap" main={fmtTime(lap?.predicted)} />
-                <Metric title="Best delta" main={fmtDelta(lap?.deltaBest)} accent={deltaColor(lap?.deltaBest)} />
-                <Metric title="Delta optimal" main={fmtDelta(lap?.deltaOptimal)} accent={deltaColor(lap?.deltaOptimal)} />
-                <Metric title="Delta session-best" main={fmtDelta(lap?.deltaSessionBest)} accent={deltaColor(lap?.deltaSessionBest)} />
+                <Metric title={tt(language, 'fuel.predictedLap')} main={fmtTime(lap?.predicted)} />
+                <Metric title={tt(language, 'fuel.bestDelta')} main={fmtDelta(lap?.deltaBest)} accent={deltaColor(lap?.deltaBest)} />
+                <Metric title={tt(language, 'fuel.deltaOptimal')} main={fmtDelta(lap?.deltaOptimal)} accent={deltaColor(lap?.deltaOptimal)} />
+                <Metric title={tt(language, 'fuel.deltaSessionBest')} main={fmtDelta(lap?.deltaSessionBest)} accent={deltaColor(lap?.deltaSessionBest)} />
               </div>
 
               <section style={card}>
@@ -254,7 +254,7 @@ export default function FuelStrategyView({ language }: AppViewProps): ReactEleme
                   <div>{tt(language, 'telemetry.current')} <strong>{fmtTime(lap?.currentLapTime)}</strong></div>
                   <div>{tt(language, 'telemetry.last')} <strong>{fmtTime(lap?.lastLap)}</strong></div>
                   <div>{tt(language, 'telemetry.best')} <strong>{fmtTime(lap?.bestLap)}</strong></div>
-                  <div>Optimal <strong>{fmtTime(lap?.optimalLap)}</strong></div>
+                  <div>{tt(language, 'fuel.optimal')} <strong>{fmtTime(lap?.optimalLap)}</strong></div>
                 </div>
                 <div style={{ display: 'grid', gap: 8, marginTop: 14 }}>
                   {(lap?.sectors ?? []).map((sector) => (
@@ -275,7 +275,7 @@ export default function FuelStrategyView({ language }: AppViewProps): ReactEleme
 
       <section style={card}>
         <div style={label}>Team Fuel · LAN</div>
-        <h3 style={{ margin: '6px 0 12px' }}>Endurance room</h3>
+        <h3 style={{ margin: '6px 0 12px' }}>{tt(language, 'fuel.enduranceRoom')}</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, alignItems: 'end' }}>
           <div>
             <div style={label}>{tt(language, 'fuel.roomKey')}</div>

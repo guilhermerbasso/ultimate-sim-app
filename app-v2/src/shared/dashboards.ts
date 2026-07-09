@@ -35,6 +35,7 @@ import { HIFI_FAMILY_PRESETS } from './dashboards-hifi-family'
 import { HIFI_CARS_PRESETS } from './dashboards-hifi-cars'
 import { HIFI_COMPARE_PRESETS } from './dashboards-hifi-compare'
 import { HIFI_DIAG_PRESETS } from './dashboards-hifi-diagnostics'
+import { HIFI_THEMED_CAR_PRESETS } from './dashboards-hifi-themed-cars2'
 // WS-5 cross-agent contract: the adaptive-dashboards agent owns this NEW module
 // and exports ADAPTIVE_DASHBOARD_PRESET (a BUILTIN_PRESETS entry). It only imports
 // the Dashboard TYPE from here, so this stays a one-way dependency with no runtime
@@ -2980,7 +2981,8 @@ export const BUILTIN_PRESETS: Array<{ id: string; name: string; build: () => Das
   ...HIFI_FAMILY_PRESETS,
   ...HIFI_CARS_PRESETS,
   ...HIFI_COMPARE_PRESETS,
-  ...HIFI_DIAG_PRESETS
+  ...HIFI_DIAG_PRESETS,
+  ...HIFI_THEMED_CAR_PRESETS
 ]
 
 export function summarizeDashboard(dash: Dashboard): DashboardSummary {

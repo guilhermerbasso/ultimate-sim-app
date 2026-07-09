@@ -1,5 +1,6 @@
 import { type ComponentType, type CSSProperties, type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import { useDevices } from '../lib/devices/DeviceRegistry'
 import {
@@ -141,7 +142,7 @@ function ZoneBox({ id, label: name, intensity }: { id: HapticZoneId; label: stri
   )
 }
 
-const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElement => {
+const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast, language }): ReactElement => {
   const { serialDevices } = useDevices()
   const [config, setConfig] = useState<HapticsZonalConfig>(DEFAULT_HAPTICS_ZONAL_CONFIG)
   const [live, setLive] = useState<TelemetrySnapshot | null>(null)
@@ -201,10 +202,9 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
   return (
     <div style={{ display: 'grid', gap: 18 }}>
       <header style={{ display: 'grid', gap: 6 }}>
-        <h1 style={{ margin: 0, fontFamily: '"Rajdhani", sans-serif', fontSize: 24, color: 'var(--text-primary)' }}>Haptics Zonal</h1>
+        <h1 style={{ margin: 0, fontFamily: '"Rajdhani", sans-serif', fontSize: 24, color: 'var(--text-primary)' }}>{tt(language, 'hapticsZonal.title')}</h1>
         <p style={{ margin: 0, color: 'var(--text-muted)', maxWidth: 720 }}>
-          Maps telemetry events (curb, lockup, wheelspin, contact, shift, redline) to physical rig ZONES (seat,
-          left/right pedals, wheel). The simulator below lights zones even WITHOUT hardware.
+          {tt(language, 'hapticsZonal.summary')}
         </p>
         <div
           style={{
@@ -216,15 +216,14 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
             fontSize: 13
           }}
         >
-          ?? Real tactile feel requires <strong>bass shakers / transducers</strong> (e.g. Dayton Audio) per zone channel, or
-          vibration motors. This screen drives the visual simulator and, optionally, a <strong>secondary serial buzzer</strong> (rough cue).
+          {tt(language, 'hapticsZonal.hardwareBefore')} <strong>{tt(language, 'hapticsZonal.transducers')}</strong> {tt(language, 'hapticsZonal.hardwareMiddle')} <strong>{tt(language, 'hapticsZonal.serialBuzzer')}</strong> {tt(language, 'hapticsZonal.hardwareAfter')}
         </div>
       </header>
 
       <section style={{ ...panel, display: 'grid', gap: 16 }}>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-          <Toggle checked={config.enabled} text={config.enabled ? 'Output on' : 'Output off'} onChange={(next) => void persist({ enabled: next })} />
-          <Toggle checked={config.muted} text={config.muted ? 'Muted' : 'Sound'} onChange={(next) => void persist({ muted: next })} />
+          <Toggle checked={config.enabled} text={config.enabled ? tt(language, 'hapticsZonal.outputOn') : tt(language, 'hapticsZonal.outputOff')} onChange={(next) => void persist({ enabled: next })} />
+          <Toggle checked={config.muted} text={config.muted ? tt(language, 'hapticsZonal.muted') : tt(language, 'hapticsZonal.sound')} onChange={(next) => void persist({ muted: next })} />
           <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
             {config.enabled && !config.muted ? 'Engine active' : 'Engine inactive — the simulator still reacts to telemetry'}
           </span>
@@ -232,7 +231,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(220px, 1fr))', gap: 16 }}>
           <Slider
-            text="Master gain"
+            text={tt(language, 'hapticsZonal.masterGain')}
             min={0}
             max={1}
             step={0.05}
@@ -242,7 +241,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
             onCommit={(masterGain) => void persist({ masterGain })}
           />
           <Slider
-            text="Min. buzzer interval (ms)"
+            text={tt(language, 'hapticsZonal.minBuzzerInterval')}
             min={30}
             max={500}
             step={10}
@@ -255,7 +254,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
       </section>
 
       <section style={{ ...panel, display: 'grid', gap: 14 }}>
-        <span style={label}>Zone simulator</span>
+        <span style={label}>{tt(language, 'hapticsZonal.zoneSimulator')}</span>
         <div style={{ display: 'grid', gap: 8, maxWidth: 360 }}>
           <ZoneBox id="wheel" label={config.zones.wheel.label} intensity={displayFrame.zones.wheel} />
           <ZoneBox id="seat" label={config.zones.seat.label} intensity={displayFrame.zones.seat} />
@@ -265,7 +264,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
           </div>
         </div>
 
-        <span style={label}>Events (click to test)</span>
+        <span style={label}>{tt(language, 'hapticsZonal.eventsClickTest')}</span>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {HAPTIC_EVENT_IDS.map((id) => {
             const lit = displayFrame.events[id]
@@ -305,13 +304,13 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
               </span>
               <Toggle
                 checked={config.events[id].enabled}
-                text={config.events[id].enabled ? 'On' : 'Off'}
+                text={config.events[id].enabled ? tt(language, 'hapticsZonal.on') : tt(language, 'hapticsZonal.off')}
                 onChange={(next) => void persist({ events: { [id]: { enabled: next } } })}
               />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(180px, 1fr))', gap: 12 }}>
               <Slider
-                text="Gain"
+                text={tt(language, 'hapticsZonal.gain')}
                 min={0}
                 max={1}
                 step={0.05}
@@ -321,7 +320,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
                 onCommit={(gain) => void persist({ events: { [id]: { gain } } })}
               />
               <Slider
-                text="Threshold"
+                text={tt(language, 'hapticsZonal.threshold')}
                 min={0}
                 max={1}
                 step={0.05}
@@ -376,12 +375,12 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
                 />
                 <Toggle
                   checked={config.zones[zone].enabled}
-                  text={config.zones[zone].enabled ? 'On' : 'Off'}
+                  text={config.zones[zone].enabled ? tt(language, 'hapticsZonal.on') : tt(language, 'hapticsZonal.off')}
                   onChange={(next) => void persist({ zones: { [zone]: { enabled: next } } })}
                 />
               </div>
               <Slider
-                text="Zone gain"
+                text={tt(language, 'hapticsZonal.zoneGain')}
                 min={0}
                 max={1}
                 step={0.05}
@@ -396,7 +395,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
       </section>
 
       <section style={{ ...panel, display: 'grid', gap: 12 }}>
-        <span style={label}>Secondary serial buzzer (optional)</span>
+        <span style={label}>{tt(language, 'hapticsZonal.secondaryBuzzer')}</span>
         <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 13 }}>
           A single motor does not address zones — it receives the strongest zone as a pulse. Reuses the same tactile serial hub (companion
           <code> Z&lt;freq&gt;:&lt;ms&gt;</code>). It never uses the primary SIM-X device.
@@ -404,7 +403,7 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <Toggle
             checked={config.arduino.enabled}
-            text={config.arduino.enabled ? 'Active' : 'Turn on'}
+            text={config.arduino.enabled ? tt(language, 'hapticsZonal.active') : tt(language, 'hapticsZonal.turnOn')}
             onChange={(next) => void persist({ arduino: { enabled: next } })}
           />
           <select
@@ -421,17 +420,17 @@ const HapticsZonalView: ComponentType<AppViewProps> = ({ showToast }): ReactElem
             value={config.arduino.deviceId}
           >
             <option value="">Select a device…</option>
-            {missingDevice ? <option value={config.arduino.deviceId}>Device unavailable</option> : null}
+            {missingDevice ? <option value={config.arduino.deviceId}>{tt(language, 'hapticsZonal.deviceUnavailable')}</option> : null}
             {buzzerDevices.map((device) => (
               <option key={device.id} value={device.id}>
                 {device.label}
-                {device.connected ? '' : ' (offline)'}
+                {device.connected ? '' : ` (${tt(language, 'hapticsZonal.offline')})`}
               </option>
             ))}
           </select>
           <div style={{ width: 200 }}>
             <Slider
-              text="Frequency (Hz)"
+              text={tt(language, 'hapticsZonal.frequency')}
               min={20}
               max={200}
               step={5}

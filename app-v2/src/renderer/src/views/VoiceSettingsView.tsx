@@ -1,5 +1,6 @@
 import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
 import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 import { PIPER_VOICE_CATALOG, piperVoiceLang, TTS_CHANNELS, type PiperVoiceInfo, type PiperVoiceProgress, type TtsEngineStatus } from '../../../shared/spotter'
 import { STT_CHANNELS, type SttStatus, type SttModelProgress } from '../../../shared/stt-ipc'
 import { ensureSttModel, subscribeSttModelProgress } from '../lib/wake-word'
@@ -99,8 +100,8 @@ const rangeStyle: CSSProperties = {
 }
 
 const LANG_LABEL: Record<PiperVoiceInfo['lang'], string> = {
-  'pt-BR': 'Portuguese (BR)',
-  'en-US': 'English (US)'
+  'pt-BR': 'voice.language.ptBR',
+  'en-US': 'voice.language.enUS'
 }
 
 const PREVIEW_TEXT: Record<string, string> = {
@@ -113,7 +114,7 @@ function previewFor(voiceId: string): string {
   return PREVIEW_TEXT[lang] ?? PREVIEW_TEXT['pt-BR']
 }
 
-function phaseLabel(progress: PiperVoiceProgress | undefined): string {
+function phaseLabel(progress: PiperVoiceProgress | undefined, language: AppViewProps['language']): string {
   if (!progress) return ''
   switch (progress.phase) {
     case 'resolving':
@@ -121,17 +122,17 @@ function phaseLabel(progress: PiperVoiceProgress | undefined): string {
     case 'downloading':
       return `Downloading… ${Math.round(progress.ratio * 100)}%`
     case 'verifying':
-      return 'Viewifying…'
+      return 'Verifying…'
     case 'done':
-      return 'Done'
+      return tt(language, 'voice.phase.done')
     case 'error':
-      return `Error: ${progress.error ?? 'failed'}`
+      return tt(language, 'voice.phase.error', { error: progress.error ?? tt(language, 'common.errorUnknown') })
     default:
       return ''
   }
 }
 
-function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
+function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement {
   const [pref, setPref] = useState<TtsPref>(() => getTtsPref())
   const [voices, setVoices] = useState<PiperVoiceInfo[]>(() =>
     PIPER_VOICE_CATALOG.map((v) => ({ ...v, installed: false }))
@@ -235,11 +236,11 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
   const handleDownload = useCallback(
     async (voiceId: string) => {
       const outcome = await ensureVoiceReady(voiceId)
-      if (outcome === 'failed') showToast(`Failed to download ${voiceId}.`, 'error')
+      if (outcome === 'failed') showToast(tt(language, 'voice.downloadFailedToast', { voice: voiceId }), 'error')
       else if (outcome === 'system') showToast(`Voice downloaded: ${voiceId} (Piper engine unavailable on this host — system voice will be used).`, 'info')
-      else showToast(`Voice downloaded: ${voiceId}`, 'success')
+      else showToast(tt(language, 'voice.downloadedToast', { voice: voiceId }), 'success')
     },
-    [ensureVoiceReady, showToast]
+    [ensureVoiceReady, showToast, language]
   )
 
   const handleTest = useCallback(
@@ -270,13 +271,13 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
       if (pref.engine === 'piper') {
         const outcome = await ensureVoiceReady(voiceId)
         if (outcome === 'system') showToast(`Default voice: ${voiceId} (engine unavailable — system voice).`, 'info')
-        else if (outcome === 'failed') showToast(`Default voice: ${voiceId}, but the download failed.`, 'info')
-        else showToast(`Engineer default voice: ${voiceId}`, 'success')
+        else if (outcome === 'failed') showToast(tt(language, 'voice.defaultDownloadFailedToast', { voice: voiceId }), 'info')
+        else showToast(tt(language, 'voice.defaultVoiceToast', { voice: voiceId }), 'success')
       } else {
-        showToast(`Engineer default voice: ${voiceId}`, 'success')
+        showToast(tt(language, 'voice.defaultVoiceToast', { voice: voiceId }), 'success')
       }
     },
-    [updatePref, pref.engine, ensureVoiceReady, showToast]
+    [updatePref, pref.engine, ensureVoiceReady, showToast, language]
   )
 
   const handleSttToggle = useCallback(
@@ -284,12 +285,12 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
       try {
         await window.ipc.invoke(STT_CHANNELS.setConfig, { enabled })
         await refreshSttStatus()
-        showToast(enabled ? 'Wake word enabled ("Oi, Engineer").' : 'Wake word disabled.', 'info')
+        showToast(enabled ? tt(language, 'voice.wakeEnabledToast') : tt(language, 'voice.wakeDisabledToast'), 'info')
       } catch {
-        showToast('Could not change voice input.', 'error')
+        showToast(tt(language, 'voice.inputChangeFailedToast'), 'error')
       }
     },
-    [refreshSttStatus, showToast]
+    [language, refreshSttStatus, showToast]
   )
 
   const handleSttDownload = useCallback(async () => {
@@ -297,9 +298,9 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
     try {
       await ensureSttModel()
       await refreshSttStatus()
-      showToast('Voice recognition ready. Say "Hey, Engineer".', 'success')
+      showToast(tt(language, 'voice.recognitionReadyToast'), 'success')
     } catch {
-      showToast('Failed to download voice recognition.', 'error')
+      showToast(tt(language, 'voice.recognitionDownloadFailedToast'), 'error')
     } finally {
       setSttBusy(false)
     }
@@ -329,7 +330,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
     <div style={shell}>
       <header>
         <div style={eyebrow}>Voice · offline neural TTS</div>
-        <h1 style={title}>Engineer Voice</h1>
+        <h1 style={title}>{tt(language, 'voice.title')}</h1>
         <p style={{ color: 'var(--text-secondary)', maxWidth: 620, marginTop: 'var(--space-2)' }}>
           Piper synthesizes neural speech locally (no cloud). Voices are downloaded on demand — the installer ships
           only the engine. If no voice is installed, the app automatically uses the system voice. The voice chosen here is used
@@ -397,7 +398,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
 
       {/* Voice catalog */}
       <section style={panel}>
-        <div style={sectionLabel}>Voices ({voices.filter((v) => v.installed).length} installed)</div>
+        <div style={sectionLabel}>{tt(language, 'voice.voicesInstalled', { count: voices.filter((v) => v.installed).length })}</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           {voices.map((voice) => {
             const isDefault = pref.voiceId === voice.id
@@ -428,7 +429,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
                       </span>
                       {voice.installed && (
                         <span
-                          title="Installed"
+                          title={tt(language, 'voice.installedTitle')}
                           style={{
                             color: 'var(--accent-success)',
                             fontWeight: 700,
@@ -443,7 +444,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
                       )}
                     </div>
                     <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 2 }}>
-                      {LANG_LABEL[voice.lang]} · quality {voice.quality}
+                      {tt(language, LANG_LABEL[voice.lang])} · quality {voice.quality}
                       {voice.onnxBytes ? ` · ~${Math.round(voice.onnxBytes / 1_000_000)} MB` : ''}
                     </div>
                   </div>
@@ -473,7 +474,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
                           cursor: isDefault ? 'default' : 'pointer'
                         }}
                       >
-                        {isDefault ? 'Default' : 'Set default'}
+                        {isDefault ? tt(language, 'voice.default') : tt(language, 'voice.setDefault')}
                       </button>
                     )}
                   </div>
@@ -506,7 +507,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
                         marginTop: 4
                       }}
                     >
-                      {phaseLabel(prog)}
+                      {phaseLabel(prog, language)}
                     </div>
                   </div>
                 )}
@@ -519,8 +520,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
       <section style={panel}>
         <div style={sectionLabel}>Voice input — "Hey, Engineer"</div>
         <div style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 'var(--space-4)' }}>
-          Talk to the engineer during the race: say <strong>"Hey, Engineer"</strong> and ask your question.
-          100% offline recognition (whisper.cpp). Requires a microphone.
+          {tt(language, 'voice.inputHelpBefore')} <strong>"Hey, Engineer"</strong> {tt(language, 'voice.inputHelpAfter')}
         </div>
 
         <label
@@ -532,7 +532,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
             marginBottom: 'var(--space-4)'
           }}
         >
-          <span>Enable wake word</span>
+          <span>{tt(language, 'voice.enableWakeWord')}</span>
           <input
             type="checkbox"
             checked={sttStatus?.enabled ?? true}
@@ -550,10 +550,10 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
         >
           <div style={{ fontSize: 12, color: sttStatus?.available ? 'var(--accent-success)' : 'var(--text-muted)' }}>
             {sttStatus?.available
-              ? 'Recognition ready (model installed).'
+              ? tt(language, 'voice.recognitionReady')
               : sttStatus?.binaryPresent === false
-                ? 'Available only in the packaged Windows app.'
-                : 'Download the recognition model (~75MB) to enable it.'}
+                ? tt(language, 'voice.packagedOnly')
+                : tt(language, 'voice.downloadRecognitionHelp')}
           </div>
           {!sttStatus?.modelPresent && sttStatus?.binaryPresent !== false && (
             <button type="button" style={primaryButton} disabled={sttBusy} onClick={() => void handleSttDownload()}>
@@ -584,7 +584,7 @@ function VoiceSettingsView({ showToast }: AppViewProps): ReactElement {
               {sttProgress.phase === 'downloading'
                 ? `Downloading recognition… ${Math.round((sttProgress.ratio || 0) * 100)}%`
                 : sttProgress.phase === 'error'
-                  ? `Error: ${sttProgress.error ?? 'failed'}`
+                  ? tt(language, 'voice.phase.error', { error: sttProgress.error ?? tt(language, 'common.errorUnknown') })
                   : sttProgress.phase}
             </div>
           </div>
