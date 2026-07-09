@@ -196,19 +196,19 @@ export function adviseFromTyres(
       if (mid - edges >= cfg.pressureDeltaC) {
         out.push(
           suggestion('pressure-high', 'high',
-            `${label}: o centro do pneu está bem mais quente que as bordas — pressão alta demais, reduzindo a área de contato. Baixar a pressão fria assenta o pneu.`,
-            `Centro ${Math.round(mid)}°C vs bordas ${Math.round(edges)}°C (Δ ${Math.round(mid - edges)}°C)`,
-            { area: 'tyres', direction: 'decrease', magnitude: 'small', change: `Reduza a pressão fria do pneu ${label} ~0.5–1.0 psi` },
-            [{ area: 'tyres', direction: 'decrease', magnitude: 'medium', change: 'Repita até o perfil de temperatura ficar plano (centro ≈ bordas)' }],
+            `${label}: center of the tire is much hotter than the edges - pressure is too high, reducing the contact patch. Lowering cold pressure will settle the tire.`,
+            `Center ${Math.round(mid)} deg C vs edges ${Math.round(edges)} deg C (delta ${Math.round(mid - edges)} deg C)`,
+            { area: 'tyres', direction: 'decrease', magnitude: 'small', change: `Lower ${label} cold tire pressure ~0.5-1.0 psi` },
+            [{ area: 'tyres', direction: 'decrease', magnitude: 'medium', change: 'Repeat until the temperature profile is flat (center matches edges)' }],
             { middleC: Math.round(mid), edgesC: Math.round(edges), deltaC: Math.round(mid - edges) }, { corner: c })
         )
       } else if (edges - mid >= cfg.pressureDeltaC) {
         out.push(
           suggestion('pressure-low', 'high',
-            `${label}: as bordas estão mais quentes que o centro — pressão baixa demais, o pneu "enruga" e flexiona. Subir a pressão fria estabiliza a carcaça.`,
-            `Bordas ${Math.round(edges)}°C vs centro ${Math.round(mid)}°C (Δ ${Math.round(edges - mid)}°C)`,
-            { area: 'tyres', direction: 'increase', magnitude: 'small', change: `Aumente a pressão fria do pneu ${label} ~0.5–1.0 psi` },
-            [{ area: 'tyres', direction: 'increase', magnitude: 'medium', change: 'Repita até o centro acompanhar as bordas' }],
+            `${label}: edges are hotter than the center - pressure is too low, so the tire rolls over and flexes. Raising cold pressure stabilizes the carcass.`,
+            `Edges ${Math.round(edges)} deg C vs center ${Math.round(mid)} deg C (delta ${Math.round(edges - mid)} deg C)`,
+            { area: 'tyres', direction: 'increase', magnitude: 'small', change: `Increase ${label} cold tire pressure ~0.5-1.0 psi` },
+            [{ area: 'tyres', direction: 'increase', magnitude: 'medium', change: 'Repeat until the center matches the edges' }],
             { middleC: Math.round(mid), edgesC: Math.round(edges), deltaC: Math.round(edges - mid) }, { corner: c })
         )
       }
@@ -217,18 +217,18 @@ export function adviseFromTyres(
       if (t.innerC - t.outerC >= cfg.camberDeltaC) {
         out.push(
           suggestion('camber-excess', 'med',
-            `${label}: a borda interna está bem mais quente — camber negativo em excesso para este traçado. Reduzir o camber distribui melhor a temperatura.`,
-            `Interna ${Math.round(t.innerC)}°C vs externa ${Math.round(t.outerC)}°C (Δ ${Math.round(t.innerC - t.outerC)}°C)`,
-            { area: 'alignment', direction: 'decrease', magnitude: 'small', change: `Reduza o camber negativo do ${label} ~0.2–0.4°` },
-            [{ area: 'tyres', direction: 'increase', magnitude: 'small', change: 'Como paliativo, suba ligeiramente a pressão para aquecer o centro' }],
+            `${label}: inner edge is much hotter - too much negative camber for this track. Reducing camber spreads the temperature better.`,
+            `Inner ${Math.round(t.innerC)} deg C vs outer ${Math.round(t.outerC)} deg C (delta ${Math.round(t.innerC - t.outerC)} deg C)`,
+            { area: 'alignment', direction: 'decrease', magnitude: 'small', change: `Reduce negative camber on ${label} ~0.2-0.4 deg` },
+            [{ area: 'tyres', direction: 'increase', magnitude: 'small', change: 'As a fallback, raise pressure slightly to heat the center' }],
             { innerC: Math.round(t.innerC), outerC: Math.round(t.outerC), deltaC: Math.round(t.innerC - t.outerC) }, { corner: c })
         )
       } else if (t.outerC - t.innerC >= cfg.camberDeltaC) {
         out.push(
           suggestion('camber-lack', 'med',
-            `${label}: a borda externa está bem mais quente — falta camber negativo, o pneu apoia na borda de fora ao curvar. Mais camber alarga a pegada em curva.`,
-            `Externa ${Math.round(t.outerC)}°C vs interna ${Math.round(t.innerC)}°C (Δ ${Math.round(t.outerC - t.innerC)}°C)`,
-            { area: 'alignment', direction: 'increase', magnitude: 'small', change: `Aumente o camber negativo do ${label} ~0.2–0.4°` },
+            `${label}: outer edge is much hotter - not enough negative camber, so the tire loads the outside edge in the corner. More camber widens the cornering footprint.`,
+            `Outer ${Math.round(t.outerC)} deg C vs inner ${Math.round(t.innerC)} deg C (delta ${Math.round(t.outerC - t.innerC)} deg C)`,
+            { area: 'alignment', direction: 'increase', magnitude: 'small', change: `Increase negative camber on ${label} ~0.2-0.4 deg` },
             [],
             { innerC: Math.round(t.innerC), outerC: Math.round(t.outerC), deltaC: Math.round(t.outerC - t.innerC) }, { corner: c })
         )
@@ -240,19 +240,19 @@ export function adviseFromTyres(
       if (avg >= cfg.tempHighC + 8) {
         out.push(
           suggestion('tyre-overheat', 'med',
-            `${label}: pneu superaquecendo (${Math.round(avg)}°C), acima da janela ideal. Baixe a pressão, reduza carga aerodinâmica nesse eixo ou suavize os inputs para a borracha não degradar.`,
-            `Média ${Math.round(avg)}°C (alvo ${cfg.tempLowC}–${cfg.tempHighC}°C)`,
-            { area: 'tyres', direction: 'decrease', magnitude: 'small', change: `Reduza a pressão fria do ${label} e/ou alivie a carga desse eixo` },
-            [{ area: 'aero', direction: 'decrease', magnitude: 'small', change: 'Reduza levemente a asa/splitter do eixo afetado' }],
+            `${label}: tire overheating (${Math.round(avg)} deg C), above the ideal window. Lower pressure, reduce aero load on that axle, or smooth your inputs so the rubber does not degrade.`,
+            `Average ${Math.round(avg)} deg C (target ${cfg.tempLowC}-${cfg.tempHighC} deg C)`,
+            { area: 'tyres', direction: 'decrease', magnitude: 'small', change: `Lower ${label} cold pressure and/or reduce load on that axle` },
+            [{ area: 'aero', direction: 'decrease', magnitude: 'small', change: 'Slightly reduce wing/splitter on the affected axle' }],
             { avgC: Math.round(avg) }, { corner: c })
         )
       } else if (avg <= cfg.tempLowC - 8) {
         out.push(
           suggestion('tyre-cold', 'med',
-            `${label}: pneu frio (${Math.round(avg)}°C), abaixo da janela ideal — pouca aderência e aquecimento lento. Suba a pressão, aumente a carga nesse eixo ou avalie composto mais macio.`,
-            `Média ${Math.round(avg)}°C (alvo ${cfg.tempLowC}–${cfg.tempHighC}°C)`,
-            { area: 'tyres', direction: 'increase', magnitude: 'small', change: `Aumente a pressão fria do ${label} para gerar mais calor` },
-            [{ area: 'arb', direction: 'stiffen', magnitude: 'small', change: 'Transfira mais carga para esse eixo (barra/mola)' }],
+            `${label}: tire is cold (${Math.round(avg)} deg C), below the ideal window - low grip and slow warmup. Raise pressure, add load to that axle, or consider a softer compound.`,
+            `Average ${Math.round(avg)} deg C (target ${cfg.tempLowC}-${cfg.tempHighC} deg C)`,
+            { area: 'tyres', direction: 'increase', magnitude: 'small', change: `Increase ${label} cold pressure to generate more heat` },
+            [{ area: 'arb', direction: 'stiffen', magnitude: 'small', change: 'Move more load to that axle (bar/spring)' }],
             { avgC: Math.round(avg) }, { corner: c })
         )
       }
@@ -278,14 +278,14 @@ function axleImbalance(
   if (la === undefined || ra === undefined) return []
   const delta = la - ra
   if (Math.abs(delta) < cfg.lrDeltaC) return []
-  const hotter = delta > 0 ? 'esquerdo' : 'direito'
-  const axleTxt = axle === 'front' ? 'dianteiro' : 'traseiro'
+  const hotter = delta > 0 ? 'left' : 'right'
+  const axleTxt = axle === 'front' ? 'front' : 'rear'
   return [
     suggestion('tyre-temp-imbalance-lr', 'low',
-      `Eixo ${axleTxt}: o lado ${hotter} está bem mais quente — desequilíbrio L/R típico de pista com mais curvas para um lado ou de cross-weight/altura. Cheque corner weights e pressões frias por lado.`,
-      `Δ ${Math.round(Math.abs(delta))}°C entre os pneus ${axleTxt}s (esq ${Math.round(la)}°C / dir ${Math.round(ra)}°C)`,
-      { area: 'ride-height', direction: 'adjust', magnitude: 'small', change: `Ajuste cross-weight/altura para equilibrar o eixo ${axleTxt}` },
-      [{ area: 'tyres', direction: 'adjust', magnitude: 'small', change: `Iguale as pressões frias do eixo ${axleTxt} compensando o lado quente` }],
+      `Axle ${axleTxt}: the ${hotter} side is much hotter - a typical L/R imbalance from tracks with more corners in one direction or from cross-weight/ride height. Check corner weights and cold pressures by side.`,
+      `Delta ${Math.round(Math.abs(delta))} deg C between ${axleTxt} axle tires (L ${Math.round(la)} deg C / R ${Math.round(ra)} deg C)`,
+      { area: 'ride-height', direction: 'adjust', magnitude: 'small', change: `Adjust cross-weight/ride height to balance the ${axleTxt} axle` },
+      [{ area: 'tyres', direction: 'adjust', magnitude: 'small', change: `Equalize cold pressures on the ${axleTxt} axle to compensate for the hot side` }],
       { leftC: Math.round(la), rightC: Math.round(ra), deltaC: Math.round(Math.abs(delta)) }, { corner: axle })
   ]
 }
@@ -296,56 +296,56 @@ const BALANCE_RULES: Record<
 > = {
   'understeer-entry': {
     symptom: 'understeer-entry',
-    rationale: 'Subesterço na ENTRADA (o carro não vira ao frear): falta apoio dianteiro na fase de freio. Amaciar a frente ou levar o freio mais para trás recupera o bico.',
-    primary: { area: 'arb', direction: 'soften', magnitude: 'small', change: 'Amacie a barra estabilizadora dianteira 1 clique' },
+    rationale: 'Entry understeer (the car will not turn while braking): not enough front support in the braking phase. Softening the front or moving brake bias rearward brings the nose back.',
+    primary: { area: 'arb', direction: 'soften', magnitude: 'small', change: 'Soften the front anti-roll bar 1 click' },
     alternatives: [
-      { area: 'brakes', direction: 'rearward', magnitude: 'small', change: 'Mova o brake bias ~1% para trás' },
-      { area: 'springs', direction: 'soften', magnitude: 'small', change: 'Amacie levemente as molas dianteiras' }
+      { area: 'brakes', direction: 'rearward', magnitude: 'small', change: 'Move brake bias ~1% rearward' },
+      { area: 'springs', direction: 'soften', magnitude: 'small', change: 'Slightly soften the front springs' }
     ]
   },
   'understeer-mid': {
     symptom: 'understeer-mid',
-    rationale: 'Subesterço no MEIO da curva (lava reto no ápice): falta aderência dianteira em regime. Mais asa dianteira ou frente mais macia aumenta a mordida.',
-    primary: { area: 'aero', direction: 'increase', magnitude: 'small', change: 'Aumente a asa/splitter dianteira 1 ponto' },
+    rationale: 'Mid-corner understeer (washing wide at the apex): not enough steady-state front grip. More front aero or a softer front increases bite.',
+    primary: { area: 'aero', direction: 'increase', magnitude: 'small', change: 'Increase front wing/splitter 1 point' },
     alternatives: [
-      { area: 'arb', direction: 'stiffen', magnitude: 'small', change: 'Enrijeça a barra traseira 1 clique' },
-      { area: 'alignment', direction: 'increase', magnitude: 'small', change: 'Adicione um pouco de camber negativo dianteiro' }
+      { area: 'arb', direction: 'stiffen', magnitude: 'small', change: 'Stiffen the rear anti-roll bar 1 click' },
+      { area: 'alignment', direction: 'increase', magnitude: 'small', change: 'Add a little front negative camber' }
     ]
   },
   'understeer-exit': {
     symptom: 'understeer-exit',
-    rationale: 'Subesterço na SAÍDA (empurra ao acelerar): o diferencial trava demais sob potência e arrasta a frente. Abrir o diff na potência ou amaciar a traseira solta o bico.',
-    primary: { area: 'differential', direction: 'decrease', magnitude: 'small', change: 'Reduza o bloqueio do diferencial na aceleração (power ramp)' },
+    rationale: 'Exit understeer (pushes on throttle): the differential locks too much under power and drags the front. Opening the power diff or softening the rear frees the nose.',
+    primary: { area: 'differential', direction: 'decrease', magnitude: 'small', change: 'Reduce differential lock on acceleration (power ramp)' },
     alternatives: [
-      { area: 'arb', direction: 'soften', magnitude: 'small', change: 'Amacie a barra traseira 1 clique' },
-      { area: 'aero', direction: 'decrease', magnitude: 'small', change: 'Reduza levemente a asa traseira para liberar rotação' }
+      { area: 'arb', direction: 'soften', magnitude: 'small', change: 'Soften the rear anti-roll bar 1 click' },
+      { area: 'aero', direction: 'decrease', magnitude: 'small', change: 'Slightly reduce rear wing to free rotation' }
     ]
   },
   'oversteer-entry': {
     symptom: 'oversteer-entry',
-    rationale: 'Sobresterço na ENTRADA (traseira solta ao frear/aliviar): falta estabilidade traseira na desaceleração. Mais asa traseira, traseira mais macia ou freio à frente seguram a cauda.',
-    primary: { area: 'arb', direction: 'soften', magnitude: 'small', change: 'Amacie a barra estabilizadora traseira 1 clique' },
+    rationale: 'Entry oversteer (rear steps out on braking/lift): not enough rear stability on decel. More rear wing, a softer rear, or forward brake bias holds the rear.',
+    primary: { area: 'arb', direction: 'soften', magnitude: 'small', change: 'Soften the rear anti-roll bar 1 click' },
     alternatives: [
-      { area: 'aero', direction: 'increase', magnitude: 'small', change: 'Aumente a asa traseira 1 ponto' },
-      { area: 'brakes', direction: 'forward', magnitude: 'small', change: 'Mova o brake bias ~1% para frente' }
+      { area: 'aero', direction: 'increase', magnitude: 'small', change: 'Increase rear wing 1 point' },
+      { area: 'brakes', direction: 'forward', magnitude: 'small', change: 'Move brake bias ~1% forward' }
     ]
   },
   'oversteer-mid': {
     symptom: 'oversteer-mid',
-    rationale: 'Sobresterço no MEIO da curva (traseira escorrega em regime): falta aderência traseira em apoio. Mais asa traseira ou traseira mais macia estabiliza.',
-    primary: { area: 'aero', direction: 'increase', magnitude: 'small', change: 'Aumente a asa traseira 1 ponto' },
+    rationale: 'Mid-corner oversteer (rear slides in steady-state): not enough rear grip under load. More rear wing or a softer rear stabilizes it.',
+    primary: { area: 'aero', direction: 'increase', magnitude: 'small', change: 'Increase rear wing 1 point' },
     alternatives: [
-      { area: 'arb', direction: 'soften', magnitude: 'small', change: 'Amacie a barra traseira 1 clique' },
-      { area: 'arb', direction: 'stiffen', magnitude: 'small', change: 'Como alternativa, enrijeça a barra dianteira 1 clique' }
+      { area: 'arb', direction: 'soften', magnitude: 'small', change: 'Soften the rear anti-roll bar 1 click' },
+      { area: 'arb', direction: 'stiffen', magnitude: 'small', change: 'Alternatively, stiffen the front anti-roll bar 1 click' }
     ]
   },
   'oversteer-exit': {
     symptom: 'oversteer-exit',
-    rationale: 'Sobresterço na SAÍDA (traseira sai de roda livre ao acelerar): tração traseira insuficiente. Mais aderência traseira (asa/mola macia) e diff menos agressivo controlam a saída.',
-    primary: { area: 'aero', direction: 'increase', magnitude: 'small', change: 'Aumente a asa traseira 1 ponto para tração' },
+    rationale: 'Exit oversteer (rear steps out on throttle): not enough rear traction. More rear grip (wing/softer spring) and a less aggressive diff control the exit.',
+    primary: { area: 'aero', direction: 'increase', magnitude: 'small', change: 'Increase rear wing 1 point for traction' },
     alternatives: [
-      { area: 'arb', direction: 'soften', magnitude: 'small', change: 'Amacie a barra traseira 1 clique' },
-      { area: 'differential', direction: 'decrease', magnitude: 'small', change: 'Reduza o bloqueio do diff na aceleração' }
+      { area: 'arb', direction: 'soften', magnitude: 'small', change: 'Soften the rear anti-roll bar 1 click' },
+      { area: 'differential', direction: 'decrease', magnitude: 'small', change: 'Reduce differential lock on acceleration' }
     ]
   }
 }
@@ -365,7 +365,7 @@ export function adviseFromHandling(
     const confidence: SetupConfidence = Math.abs(sig.bias) >= cfg.balanceStrong ? 'high' : 'med'
     out.push(
       suggestion(rule.symptom, confidence, rule.rationale,
-        sig.evidence ?? `Tendência ${sig.bias > 0 ? 'sobresterçante' : 'subesterçante'} na fase de ${phaseLabel(sig.phase)} (bias ${sig.bias.toFixed(2)})`,
+        sig.evidence ?? `Trend is ${sig.bias > 0 ? 'oversteer' : 'understeer'} in the ${phaseLabel(sig.phase)} phase (bias ${sig.bias.toFixed(2)})`,
         rule.primary, rule.alternatives, { bias: Number(sig.bias.toFixed(2)) }, { phase: sig.phase })
     )
   }
@@ -373,7 +373,7 @@ export function adviseFromHandling(
 }
 
 function phaseLabel(phase: CoachPhase): string {
-  return phase === 'entry' ? 'entrada' : phase === 'mid' ? 'meio de curva' : 'saída'
+  return phase === 'entry' ? 'entry' : phase === 'mid' ? 'mid-corner' : 'exit'
 }
 
 /** PURE: optional brake-bias nudge from explicit lock symptoms. */
@@ -382,24 +382,24 @@ export function adviseFromBrakeBias(
   _cfg: SetupAdvisorConfig = DEFAULT_SETUP_ADVISOR
 ): SetupSuggestion[] {
   const out: SetupSuggestion[] = []
-  const biasTxt = input.brakeBiasPct !== undefined ? ` (bias atual ${input.brakeBiasPct.toFixed(0)}% frente)` : ''
+  const biasTxt = input.brakeBiasPct !== undefined ? ` (current bias ${input.brakeBiasPct.toFixed(0)}% front)` : ''
   if (input.frontLock) {
     out.push(
       suggestion('brake-lock-front', 'med',
-        `Travamento DIANTEIRO na freada: peso demais no freio da frente. Levar o brake bias para trás equilibra a frenagem${biasTxt}.`,
-        `Trava dianteira detectada${biasTxt}`,
-        { area: 'brakes', direction: 'rearward', magnitude: 'small', change: 'Mova o brake bias ~1–2% para trás' },
-        [{ area: 'brakes', direction: 'decrease', magnitude: 'small', change: 'Reduza levemente a pressão máxima de freio' }],
+        `FRONT lockup under braking: too much front brake. Moving brake bias rearward balances braking${biasTxt}.`,
+        `Front lock detected${biasTxt}`,
+        { area: 'brakes', direction: 'rearward', magnitude: 'small', change: 'Move brake bias ~1-2% rearward' },
+        [{ area: 'brakes', direction: 'decrease', magnitude: 'small', change: 'Slightly reduce maximum brake pressure' }],
         { brakeBiasPct: input.brakeBiasPct ?? 0 }, { corner: 'front' })
     )
   }
   if (input.rearLock) {
     out.push(
       suggestion('brake-lock-rear', 'med',
-        `Travamento TRASEIRO na freada (traseira instável ao frear): freio traseiro demais. Levar o brake bias para frente estabiliza${biasTxt}.`,
-        `Trava traseira detectada${biasTxt}`,
-        { area: 'brakes', direction: 'forward', magnitude: 'small', change: 'Mova o brake bias ~1–2% para frente' },
-        [{ area: 'aero', direction: 'increase', magnitude: 'small', change: 'Mais asa traseira ajuda a estabilizar a freada' }],
+        `REAR lockup under braking (rear unstable on the brakes): too much rear brake. Moving brake bias forward stabilizes it${biasTxt}.`,
+        `Rear lock detected${biasTxt}`,
+        { area: 'brakes', direction: 'forward', magnitude: 'small', change: 'Move brake bias ~1-2% forward' },
+        [{ area: 'aero', direction: 'increase', magnitude: 'small', change: 'More rear wing helps stabilize braking' }],
         { brakeBiasPct: input.brakeBiasPct ?? 0 }, { corner: 'rear' })
     )
   }
@@ -429,28 +429,28 @@ export function buildSetupReport(
 }
 
 function summarizeSetup(suggestions: SetupSuggestion[]): string {
-  if (suggestions.length === 0) return 'Nenhum ajuste de setup recomendado com os dados atuais — carro equilibrado e pneus na janela.'
+  if (suggestions.length === 0) return 'No setup adjustments recommended with the current data - car is balanced and tires are in the window.'
   const top = suggestions[0]
-  return `${suggestions.length} ajuste(s) sugerido(s). Prioridade: ${top.primary.change.toLowerCase()} — ${shortSymptom(top.symptom)}.`
+  return `${suggestions.length} setup adjustment(s) suggested. Priority: ${top.primary.change.toLowerCase()} - ${shortSymptom(top.symptom)}.`
 }
 
 function shortSymptom(symptom: SetupSymptomKind): string {
   const map: Record<SetupSymptomKind, string> = {
-    'understeer-entry': 'subesterço de entrada',
-    'understeer-mid': 'subesterço de meio',
-    'understeer-exit': 'subesterço de saída',
-    'oversteer-entry': 'sobresterço de entrada',
-    'oversteer-mid': 'sobresterço de meio',
-    'oversteer-exit': 'sobresterço de saída',
-    'tyre-overheat': 'pneu superaquecendo',
-    'tyre-cold': 'pneu frio',
-    'tyre-temp-imbalance-lr': 'desequilíbrio L/R',
-    'camber-excess': 'camber em excesso',
-    'camber-lack': 'falta de camber',
-    'pressure-high': 'pressão alta',
-    'pressure-low': 'pressão baixa',
-    'brake-lock-front': 'trava dianteira',
-    'brake-lock-rear': 'trava traseira'
+    'understeer-entry': 'entry understeer',
+    'understeer-mid': 'mid-corner understeer',
+    'understeer-exit': 'exit understeer',
+    'oversteer-entry': 'entry oversteer',
+    'oversteer-mid': 'mid-corner oversteer',
+    'oversteer-exit': 'exit oversteer',
+    'tyre-overheat': 'overheating tire',
+    'tyre-cold': 'cold tire',
+    'tyre-temp-imbalance-lr': 'L/R imbalance',
+    'camber-excess': 'too much camber',
+    'camber-lack': 'not enough camber',
+    'pressure-high': 'pressure high',
+    'pressure-low': 'pressure low',
+    'brake-lock-front': 'front lockup',
+    'brake-lock-rear': 'rear lockup'
   }
   return map[symptom]
 }

@@ -260,7 +260,7 @@ export function WetRadarWidget({ snapshot, config }: WidgetProps): ReactElement 
   const isWet = declared || (wet !== undefined && wet > 0.2)
   const color = wetColor(wet, declared, skin)
   const pctTxt = wet === undefined ? '—' : String(Math.round(wet * 100))
-  const status = declared ? 'WET DECLARED' : isWet ? 'pista molhada' : wet === undefined ? 'sem sinal' : 'pista seca'
+  const status = declared ? 'WET DECLARED' : isWet ? 'wet track' : wet === undefined ? 'no signal' : 'dry track'
 
   const grid = makeGrid(2, 2, W, H, 8)
   const labCell = grid.cell(0, 0)

@@ -73,7 +73,7 @@ describe('OledStripWidget', () => {
     expect(out, 'fuel numeral DSEG').toMatch(/DSEG7Classic-Regular[^>]*>33\.6/)
   })
 
-  it('is registered per-sim with requires=[gear,speedKmh] → available on every sim', () => {
+  it('is registered per-yes with requires=[gear,speedKmh] → available on every yes', () => {
     const def = OVERLAY_WIDGETS.find((w) => w.id === 'oledStrip')
     expect(def?.requires).toEqual(['gear', 'speedKmh'])
     expect(widgetSupportedSims(def?.requires)).toEqual(['iracing', 'acc', 'ac', 'ams2', 'lmu'])

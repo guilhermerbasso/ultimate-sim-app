@@ -500,9 +500,9 @@ export class IRacingApi {
 
   private async loadOAuthAccessToken(forceRefresh: boolean): Promise<void> {
     const provider = this.oauthTokenProvider
-    if (!provider) throw new IRacingApiError('unauthorized', 'OAuth não configurado.', 401)
+    if (!provider) throw new IRacingApiError('unauthorized', 'OAuth is not configured.', 401)
     const token = await provider(forceRefresh)
-    if (!token) throw new IRacingApiError('unauthorized', 'Token OAuth ausente ou expirado.', 401)
+    if (!token) throw new IRacingApiError('unauthorized', 'Token OAuth missing ou expirado.', 401)
     this.authedAt = Date.now()
   }
 
@@ -569,7 +569,7 @@ export class IRacingApi {
   async completeMfa(verificationCode: string): Promise<void> {
     const code = verificationCode.trim()
     if (!code) {
-      throw new IRacingApiError('unauthorized', 'Código de verificação é obrigatório.', 401)
+      throw new IRacingApiError('unauthorized', 'Verification code is required.', 401)
     }
     const outcome = await this.postAuth(code)
     if (outcome.status === 'mfa_required') {
@@ -647,7 +647,7 @@ export class IRacingApi {
     if (this.cookies.size === 0) {
       throw new IRacingApiError(
         'unauthorized',
-        'O iRacing autenticou mas não retornou cookie de sessão.',
+        'iRacing authenticated but did not return a session cookie.',
         response.status
       )
     }
@@ -1266,21 +1266,21 @@ function decodeBody(body: Buffer, contentEncoding: string | undefined): Buffer {
 // show exactly what to do. The telemetry-learned map keeps working regardless.
 function authErrorMessage(status: number, detail?: string): string {
   const trimmed = detail?.trim()
-  const suffix = trimmed ? `\n\nResposta exata do iRacing:\n${trimmed}` : ''
+  const suffix = trimmed ? `\n\nExact iRacing response:\n${trimmed}` : ''
   const guide =
-    'Para usar e-mail+senha, habilite “Legacy read-only authentication” em iRacing → Account → Security. ' +
-    'Isso é obrigatório mesmo para contas sem MFA/2FA. Como alternativa, use o Login pelo navegador.'
+    'To use email+password, enable “Legacy read-only authentication” in iRacing → Account → Security. ' +
+    'This is required even for accounts without MFA/2FA. Alternatively, use Browser Login.'
   if (status === 405) {
     return (
-      `Falha no login do iRacing (HTTP 405). O endpoint de login recusou a requisição — ` +
-      'normalmente porque o iRacing exige verificação no navegador (CAPTCHA/2FA) para esta rede, ou ' +
-      `porque a autenticação legada/somente-leitura está desativada. ${guide} ` +
-      `O mapa offline (telemetria) continua funcionando sem login.${suffix}`
+      `iRacing login failed (HTTP 405). The login endpoint rejected the request — ` +
+      'usually because iRacing requires browser verification (CAPTCHA/2FA) for this network, or ' +
+      `because legacy/read-only authentication is disabled. ${guide} ` +
+      `The offline map (telemetry) keeps working without login.${suffix}`
     )
   }
   return (
-    `Falha no login do iRacing (HTTP ${status}). Verifique seu e-mail e senha. ${guide} ` +
-    `O mapa offline (telemetria) continua funcionando sem login.${suffix}`
+    `iRacing login failed (HTTP ${status}). Check your email and password. ${guide} ` +
+    `The offline map (telemetry) keeps working without login.${suffix}`
   )
 }
 
@@ -1296,13 +1296,13 @@ function isAuthSuccess(body: AuthResponseBody): boolean {
 function mfaMessage(serverMessage?: string): string {
   const trimmed = serverMessage?.trim()
   if (trimmed) return trimmed
-  return 'O iRacing solicitou um código de verificação (MFA). Informe o código enviado para concluir o login.'
+  return 'iRacing requested a verification code (MFA). Enter the sent code to complete login.'
 }
 
 function mfaRejectedMessage(): string {
   return (
-    'Código de verificação inválido ou expirado. Se o iRacing estiver exigindo verificação por ' +
-    'navegador (CAPTCHA), conclua o login uma vez no site do iRacing e tente novamente.'
+    'Verification code is invalid or expired. If iRacing requires verification by ' +
+    'browser (CAPTCHA), complete login once on the iRacing website and try again.'
   )
 }
 
@@ -1310,16 +1310,16 @@ function mfaRejectedMessage(): string {
 // no provider is wired (should not happen in practice — defensive only).
 function browserSessionMissingMessage(): string {
   return (
-    'Sessão do navegador do iRacing indisponível. Clique em "Entrar no iRacing (abrir login)" para ' +
-    'fazer o login e capturar a sessão.'
+    'iRacing browser session unavailable. Click "Sign in to iRacing (open login)" to ' +
+    'sign in and capture the session.'
   )
 }
 
 // Shown when the captured browser session has no valid auth cookie anymore.
 function browserSessionExpiredMessage(): string {
   return (
-    'A sessão do iRacing expirou. Clique em "Entrar no iRacing (abrir login)" para fazer o login ' +
-    'novamente. O mapa offline (telemetria) continua funcionando sem login.'
+    'The iRacing session expired. Click "Sign in to iRacing (open login)" to sign in ' +
+    'again. The offline map (telemetry) keeps working without login.'
   )
 }
 

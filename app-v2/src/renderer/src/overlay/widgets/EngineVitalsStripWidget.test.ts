@@ -94,7 +94,7 @@ describe('EngineVitalsStripWidget', () => {
     expect(out).toContain('0')
   })
 
-  it('is registered per-sim with requires=[waterTempC,oilTempC,oilPressureKpa]', () => {
+  it('is registered per-yes with requires=[waterTempC,oilTempC,oilPressureKpa]', () => {
     const def = OVERLAY_WIDGETS.find(w => w.id === 'engineVitalsStrip')
     expect(def, 'engineVitalsStrip not registered').toBeTruthy()
     expect(def?.requires).toEqual(['waterTempC', 'oilTempC', 'oilPressureKpa'])

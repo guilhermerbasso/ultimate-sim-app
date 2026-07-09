@@ -41,7 +41,7 @@ function makeFinding(partial: Partial<CoachFinding> & { sector: number; kind: Co
     estTimeLossSec: partial.estTimeLossSec ?? 0.2,
     title: partial.title ?? 'Freada tarde',
     detail: partial.detail ?? 'detalhe',
-    evidence: partial.evidence ?? 'evidência',
+    evidence: partial.evidence ?? 'evidence',
     metrics: partial.metrics ?? {}
   }
 }
@@ -181,13 +181,13 @@ describe('composeBrutalSectorLine', () => {
 
   it('brutal PT is blunt, names the sector, the loss and demands a fix', () => {
     const line = composeBrutalSectorLine(finding, { language: 'pt-BR', assertiveness: 'brutal' })
-    expect(line).toBe('Setor 2: você jogou 0.4s fora freando tarde demais. Conserta isso.')
+    expect(line).toBe('Sector 2: you threw away 0.4s braking too late. Fix it.')
   })
 
   it('assertive and balanced PT are progressively softer', () => {
-    expect(composeBrutalSectorLine(finding, { language: 'pt-BR', assertiveness: 'assertive' })).toContain('Setor 2')
-    expect(composeBrutalSectorLine(finding, { language: 'pt-BR', assertiveness: 'assertive' })).toContain('foco')
-    expect(composeBrutalSectorLine(finding, { language: 'pt-BR', assertiveness: 'balanced' })).toContain('Ajusta na próxima')
+    expect(composeBrutalSectorLine(finding, { language: 'pt-BR', assertiveness: 'assertive' })).toContain('Sector 2')
+    expect(composeBrutalSectorLine(finding, { language: 'pt-BR', assertiveness: 'assertive' })).toContain('focus')
+    expect(composeBrutalSectorLine(finding, { language: 'pt-BR', assertiveness: 'balanced' })).toContain('Adjust next lap')
   })
 
   it('brutal EN mirrors the blunt cadence', () => {
@@ -198,7 +198,7 @@ describe('composeBrutalSectorLine', () => {
   it('omits the number when the finding has no measured loss', () => {
     const noLoss = makeFinding({ sector: 1, kind: 'steering-busy', estTimeLossSec: 0 })
     expect(composeBrutalSectorLine(noLoss, { language: 'pt-BR', assertiveness: 'brutal' })).toBe(
-      'Setor 1: serrando o volante. Conserta isso.'
+      'Sector 1: sawing at the wheel. Fix it.'
     )
   })
 })
@@ -267,7 +267,7 @@ describe('createProactiveEngine', () => {
     engine.onSnapshot(makeSnapshot(0.4)) // completes sector 1
     expect(harness.events).toHaveLength(1)
     expect(harness.events[0].sector).toBe(1)
-    expect(harness.events[0].text).toContain('Setor 1')
+    expect(harness.events[0].text).toContain('Sector 1')
     expect(harness.events[0].speak).toBe(true)
   })
 
@@ -459,7 +459,7 @@ describe('getLatestCoachFindings — car/track scoping', () => {
   })
 })
 
-// ─── Per-corner cadence (Curva N) ─────────────────────────────────────────────
+// ─── Per-corner cadence (Turn N) ─────────────────────────────────────────────
 
 const CORNERS = [
   { index: 1, startPct: 0.2, apexPct: 0.25, endPct: 0.3 },
@@ -516,10 +516,10 @@ describe('worstFindingForCorner', () => {
 })
 
 describe('composeBrutalCornerLine', () => {
-  it('speaks "Curva N: <erro>" in PT-BR brutal mode', () => {
+  it('speaks "Turn N: <erro>" in PT-BR brutal mode', () => {
     const f = makeFinding({ sector: 2, kind: 'brake-late', corner: 2, estTimeLossSec: 0.4 })
     const line = composeBrutalCornerLine(f, { language: 'pt-BR', assertiveness: 'brutal' })
-    expect(line).toContain('Curva 2')
+    expect(line).toContain('Turn 2')
     expect(line).toMatch(/0\.4s/)
   })
 
@@ -539,19 +539,19 @@ describe('composeBrutalCornerLine', () => {
   // Terse, improvement-only cues: each kind maps to a short "what to fix" fragment.
   const PT = { language: 'pt-BR', assertiveness: 'brutal' } as const
   const cueCases: Array<[CoachFindingKind, string]> = [
-    ['steering-late', 'vire antes'],
+    ['steering-late', 'turn in earlier'],
     ['steering-early', 'vire mais tarde'],
     ['throttle-late', 'acelere antes'],
     ['throttle-early', 'acelere mais tarde'],
-    ['steering-busy', 'menos volante'],
-    ['steering-insufficient', 'mais volante'],
-    ['brake-late', 'freie antes'],
+    ['steering-busy', 'menos steering'],
+    ['steering-insufficient', 'more steering'],
+    ['brake-late', 'brake earlier'],
     ['brake-early', 'freie mais tarde']
   ]
-  it.each(cueCases)('Curva cue for %s says "%s"', (kind, cue) => {
+  it.each(cueCases)('Turn cue for %s says "%s"', (kind, cue) => {
     const f = makeFinding({ sector: 1, kind, corner: 3, estTimeLossSec: 0.2 })
     const line = composeBrutalCornerLine(f, PT)
-    expect(line).toContain('Curva 3')
+    expect(line).toContain('Turn 3')
     expect(line).toContain(cue)
   })
 
@@ -582,12 +582,12 @@ describe('composeBrutalCornerComposite', () => {
       makeFinding({ id: 't', sector: 2, kind: 'throttle-early', corner: 3, estTimeLossSec: 0.15 })
     ]
     const line = composeBrutalCornerComposite(findings, 3, PT)
-    expect(line).toContain('Curva 3')
-    expect(line).toContain('freie antes') // brake
-    expect(line).toContain('vire antes') // turn-in timing
+    expect(line).toContain('Turn 3')
+    expect(line).toContain('brake earlier') // brake
+    expect(line).toContain('turn in earlier') // turn-in timing
     expect(line).toContain('acelere mais tarde') // throttle
     // Ordered by time lost (brake worst first).
-    expect(line.indexOf('freie antes')).toBeLessThan(line.indexOf('vire antes'))
+    expect(line.indexOf('brake earlier')).toBeLessThan(line.indexOf('turn in earlier'))
   })
 
   it('collapses to the single-finding phrasing when only one dimension is off', () => {
@@ -629,8 +629,8 @@ describe('composeBrutalCornerComposite', () => {
       3,
       PT
     )
-    expect(line).toContain('Curva 3')
-    expect(line).toContain('busque mais tempo aqui')
+    expect(line).toContain('Turn 3')
+    expect(line).toContain('find more time here')
   })
 
   it('does NOT let time-loss crowd out or duplicate a SPECIFIC cue when both exist', () => {
@@ -642,13 +642,13 @@ describe('composeBrutalCornerComposite', () => {
       3,
       PT
     )
-    expect(line).toContain('freie antes')
-    expect(line).not.toContain('busque mais tempo aqui')
+    expect(line).toContain('brake earlier')
+    expect(line).not.toContain('find more time here')
   })
 })
 
 describe('cadenceForSession', () => {
-  it('auto → CORNER cadence in a race (Curva N)', () => {
+  it('auto → CORNER cadence in a race (Turn N)', () => {
     expect(cadenceForSession('auto', 'Race')).toBe('corner')
     expect(cadenceForSession('auto', 'Offline Race')).toBe('corner')
   })
@@ -668,7 +668,7 @@ describe('cadenceForSession', () => {
 describe('createProactiveEngine — corner cadence in a race', () => {
   const FAKE_MAP = { corners: CORNERS } as unknown as CornerMapData
 
-  it('calls out by CORNER ("Curva N") once a map is learned in a race', () => {
+  it('calls out by CORNER ("Turn N") once a map is learned in a race', () => {
     const { harness, engine } = makeEngine({}, { buildCornerMap: () => FAKE_MAP })
 
     // Lap 1 (Race): fill the buffer past MIN_LAP_SAMPLES so the map can be learned.
@@ -688,16 +688,16 @@ describe('createProactiveEngine — corner cadence in a race', () => {
     engine.onSnapshot(makeSnapshot(0.25, { currentLap: 2, trackName: 'Interlagos' })) // in C1
     engine.onSnapshot(makeSnapshot(0.35, { currentLap: 2, trackName: 'Interlagos' })) // exit C1
 
-    const cornerEvents = harness.events.filter((e) => e.text.includes('Curva'))
+    const cornerEvents = harness.events.filter((e) => e.text.includes('Turn'))
     expect(cornerEvents.length).toBeGreaterThan(0)
-    expect(cornerEvents[0].text).toContain('Curva 1')
-    expect(cornerEvents[0].text).toContain('vire antes')
+    expect(cornerEvents[0].text).toContain('Turn 1')
+    expect(cornerEvents[0].text).toContain('turn in earlier')
     // Observability: the race call-out is attributed to the engineer + tagged with the corner.
     expect(cornerEvents[0].source).toBe('engineer')
     expect(cornerEvents[0].corner).toBe(1)
   })
 
-  it('chains MULTIPLE dimensions into one race corner call-out ("Curva N, freie antes, vire antes, …")', () => {
+  it('chains MULTIPLE dimensions into one race corner call-out ("Turn N, brake earlier, turn in earlier, …")', () => {
     const { harness, engine } = makeEngine({}, { buildCornerMap: () => FAKE_MAP })
 
     for (let i = 0; i < 34; i += 1) {
@@ -718,12 +718,12 @@ describe('createProactiveEngine — corner cadence in a race', () => {
     engine.onSnapshot(makeSnapshot(0.25, { currentLap: 2, trackName: 'Interlagos' })) // in C1
     engine.onSnapshot(makeSnapshot(0.35, { currentLap: 2, trackName: 'Interlagos' })) // exit C1
 
-    const cornerEvents = harness.events.filter((e) => e.text.includes('Curva'))
+    const cornerEvents = harness.events.filter((e) => e.text.includes('Turn'))
     expect(cornerEvents.length).toBeGreaterThan(0)
     const line = cornerEvents[0].text
-    expect(line).toContain('Curva 1')
-    expect(line).toContain('freie antes')
-    expect(line).toContain('vire antes')
+    expect(line).toContain('Turn 1')
+    expect(line).toContain('brake earlier')
+    expect(line).toContain('turn in earlier')
     expect(line).toContain('acelere mais tarde')
     expect(cornerEvents[0].corner).toBe(1)
   })
@@ -746,10 +746,10 @@ describe('createProactiveEngine — corner cadence in a race', () => {
     engine.onSnapshot(makeSnapshot(0.25, { currentLap: 2, trackName: 'Interlagos' })) // in C1
     engine.onSnapshot(makeSnapshot(0.35, { currentLap: 2, trackName: 'Interlagos' })) // exit C1
 
-    const cornerEvents = harness.events.filter((e) => e.text.includes('Curva'))
+    const cornerEvents = harness.events.filter((e) => e.text.includes('Turn'))
     expect(cornerEvents.length).toBeGreaterThan(0)
-    expect(cornerEvents[0].text).toContain('Curva 1')
-    expect(cornerEvents[0].text).toContain('busque mais tempo aqui')
+    expect(cornerEvents[0].text).toContain('Turn 1')
+    expect(cornerEvents[0].text).toContain('find more time here')
     expect(cornerEvents[0].corner).toBe(1)
   })
 
@@ -761,7 +761,7 @@ describe('createProactiveEngine — corner cadence in a race', () => {
     engine.onSnapshot(makeSnapshot(0.1, { currentLap: 1 }))
     engine.onSnapshot(makeSnapshot(0.4, { currentLap: 1 })) // completes sector 1
     expect(harness.events).toHaveLength(1)
-    expect(harness.events[0].text).toContain('Setor 1')
+    expect(harness.events[0].text).toContain('Sector 1')
   })
 })
 

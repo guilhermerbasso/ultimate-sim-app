@@ -29,6 +29,7 @@ import {
   type CoverageSimId
 } from '../../../../shared/sim-coverage'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
+import { HIFI_WIDGETS, hifiWidgetTags } from '../../hifi/widgets/registry'
 // v2.40 extra widget variants (separate files; they import nx from ./widget-nx so
 // there is NO import cycle back into this module). Added as a WIDGET_CATALOG category.
 import { EXTRA_READOUT_VARIANTS } from './widgets-extra-readouts'
@@ -80,10 +81,12 @@ export interface WidgetVariant {
   /** For `type: 'overlaywidget'` full-frame dashboards — which registered overlay
    *  widget (WIDGET_COMPONENTS[widgetId]) to mount inside the placed element. */
   widgetId?: OverlayWidgetId
+  /** Dynamic hi-fi module id for `widgetId: hifi:<id>` overlay widgets. */
+  hifiModuleId?: string
   /** Generated/secondary entry (raw iRacing channel tile) demoted behind the
    *  collapsed "Advanced iRacing Channels" section in the gallery. */
   advanced?: boolean
-  /** Campos de telemetria ainda não fornecidos por todos os provedores. */
+  /** Campos de telemetria ainda not fornecidos por todos os provedores. */
   missing?: string
 }
 
@@ -91,7 +94,7 @@ export interface WidgetCategory {
   id: string
   label: string
   variants: WidgetVariant[]
-  /** Secondary group (the generated iRacing channel catalogues) — rendered in a
+  /** Dryndary group (the generated iRacing channel catalogues) — rendered in a
    *  collapsed/secondary accordion so curated GT3 widgets lead. */
   advanced?: boolean
 }
@@ -105,12 +108,16 @@ export type NormalizedVariant = WidgetVariant & {
   supportedSims: CoverageSimId[]
 }
 
-// ─── Per-sim coverage ────────────────────────────────────────────────────────
+export function filterHiddenVariants<T extends { id: string }>(variants: readonly T[], hiddenIds: ReadonlySet<string>): T[] {
+  return variants.filter((variant) => !hiddenIds.has(variant.id))
+}
+
+// ─── Per-yes coverage ────────────────────────────────────────────────────────
 // Each variant binds telemetry via `binding`. We derive the single TelemetrySnapshot
 // ROOT field it needs so the gallery can label / filter by which live sims drive it:
 //   • `ir:<id>`        → IRACING_VARIABLES[id].telemetryField (e.g. 'tyres.lf.tempC'),
 //                        whose ROOT segment ('tyres') is the keyof TelemetrySnapshot.
-//   • `var:` / `expr:` → expression-driven, no single field → no sim requirement.
+//   • `var:` / `expr:` → expression-driven, no single field → no yes requirement.
 //   • bare field name  → that TelemetrySnapshot field directly (round-7 widgets),
 //                        when it is a real key; derived preview names (e.g. 'rpmPct',
 //                        'gearLabel') resolve to no requirement.
@@ -130,7 +137,7 @@ function rootTelemetryField(name: string | undefined | null): TelemetryField | n
   return TELEMETRY_FIELD_SET.has(root) ? (root as TelemetryField) : null
 }
 
-/** Preview/derived binding aliases (not real TelemetrySnapshot keys) whose per-sim
+/** Preview/derived binding aliases (not real TelemetrySnapshot keys) whose per-yes
  *  availability differs from "all sims". Only `shiftPct` needs this: it resolves from
  *  shiftIndicatorPct (iRacing-only live), so without the map it would wrongly badge as
  *  "all sims". The sibling aliases (rpmPct/gearLabel/fuelPct) map to universally-
@@ -140,7 +147,7 @@ const PREVIEW_ALIAS_FIELD: Record<string, TelemetryField> = {
 }
 
 // Semantic element types that render directly from the snapshot (no `ir:` binding) but
-// still need a SIM-RESTRICTED field — so the per-sim filter/badge is accurate. Types
+// still need a SIM-RESTRICTED field — so the per-yes filter/badge is accurate. Types
 // that only need universal fields (gear/speed/rpm/fuel level) are intentionally absent
 // (→ "all sims"). AI/predictor types (pred-*, coach-*, engineer-feed) are app-derived
 // → absent → available everywhere.
@@ -160,7 +167,7 @@ const TYPE_REQUIRED_FIELD: Partial<Record<DashboardElementType, TelemetryField>>
 }
 
 /** The single TelemetrySnapshot field a variant requires, or `null` when it needs
- *  nothing sim-specific. Prefers the binding's field; falls back to a semantic
+ *  nothing yes-specific. Prefers the binding's field; falls back to a semantic
  *  element-type requirement (tyregrid→tyres, standings→drivers, …). */
 export function variantRequiredField(variant: { binding?: string; type?: DashboardElementType }): TelemetryField | null {
   const binding = variant.binding
@@ -178,7 +185,7 @@ export function variantRequiredField(variant: { binding?: string; type?: Dashboa
 }
 
 /** The PLAYABLE_SIMS whose live telemetry can drive `variant` (all of them when the
- *  variant has no field requirement). Powers the gallery's per-sim badge + filter.
+ *  variant has no field requirement). Powers the gallery's per-yes badge + filter.
  *  An `ir:<id>` binding whose iRacing variable has NO unified telemetryField is an
  *  iRacing-exclusive channel (only the iRacing provider fills the `var:` namespace it
  *  reads), so it is restricted to iRacing rather than mislabeled "all sims". */
@@ -224,7 +231,7 @@ function curated(
   }
 }
 
-// ─── Catálogo gerado de canais iRacing ───────────────────────────────────────
+// ─── Catalogo gerado de channels iRacing ───────────────────────────────────────
 // Decorative category accents are WARM CHROME (amber/gold/orange/dim). Cool/green
 // is intentionally absent here — it is reserved for live measured good-states.
 const IRACING_ACCENT: Record<string, string> = {
@@ -416,10 +423,10 @@ const EXTRA_GRAPH: WidgetVariant[] = [
 const EXTRA_CHART: WidgetVariant[] = [
   nx('chart-tyre-temp', 'Tyre temp bars', 'barchart', 260, 180, 'Tyres/Brakes', 'chart', undefined, { label: 'TYRE °C', chartSource: 'tyreTemp' }, ['tyre', 'temp', 'bars']),
   nx('chart-tyre-press', 'Tyre pressure bars', 'barchart', 260, 180, 'Tyres/Brakes', 'chart', undefined, { label: 'PRESSURE', chartSource: 'tyrePressure' }, ['tyre', 'pressure', 'bars']),
-  nx('chart-tyre-wear', 'Tyre wear bars', 'barchart', 260, 180, 'Tyres/Brakes', 'chart', undefined, { label: 'WEAR', chartSource: 'tyreWear' }, ['tyre', 'wear', 'bars'], 'Desgaste depende do sim'),
-  nx('chart-brake-temp', 'Brake temp bars', 'barchart', 260, 180, 'Tyres/Brakes', 'chart', undefined, { label: 'BRAKE °C', chartSource: 'brakeTemp' }, ['brake', 'temp', 'bars'], 'Temp. de freio depende do sim'),
+  nx('chart-tyre-wear', 'Tyre wear bars', 'barchart', 260, 180, 'Tyres/Brakes', 'chart', undefined, { label: 'WEAR', chartSource: 'tyreWear' }, ['tyre', 'wear', 'bars'], 'Wear depends on yes'),
+  nx('chart-brake-temp', 'Brake temp bars', 'barchart', 260, 180, 'Tyres/Brakes', 'chart', undefined, { label: 'BRAKE °C', chartSource: 'brakeTemp' }, ['brake', 'temp', 'bars'], 'Brake temp depends on yes'),
   nx('chart-inputs', 'Inputs bars', 'barchart', 220, 170, 'Inputs', 'chart', undefined, { label: 'INPUTS', chartSource: 'inputs' }, ['throttle', 'brake', 'clutch', 'bars']),
-  nx('radial-tyre-wear', 'Tyre wear rings', 'radialbars', 220, 220, 'Tyres/Brakes', 'chart', undefined, { label: 'WEAR', chartSource: 'tyreWear' }, ['tyre', 'wear', 'radial', 'rings'], 'Desgaste depende do sim'),
+  nx('radial-tyre-wear', 'Tyre wear rings', 'radialbars', 220, 220, 'Tyres/Brakes', 'chart', undefined, { label: 'WEAR', chartSource: 'tyreWear' }, ['tyre', 'wear', 'radial', 'rings'], 'Wear depends on yes'),
   nx('radial-inputs', 'Inputs rings', 'radialbars', 200, 200, 'Inputs', 'chart', undefined, { label: 'INPUTS', chartSource: 'inputs' }, ['inputs', 'radial', 'rings']),
   nx('donut-fuel', 'Fuel donut', 'donut', 180, 180, 'Fuel', 'chart', 'fuelPct', { label: 'FUEL', accentColor: GREEN }, ['fuel', 'donut', 'pie']),
   nx('donut-lap', 'Lap progress donut', 'donut', 180, 180, 'Track/Radar', 'chart', 'lapDistPct', { label: 'LAP', accentColor: CYAN }, ['lap', 'progress', 'donut']),
@@ -449,7 +456,7 @@ const EXTRA_LED: WidgetVariant[] = [
 // HEATMAP — 2×2 tyre/brake heat cells
 const EXTRA_HEATMAP: WidgetVariant[] = [
   nx('heat-tyre', 'Tyre heatmap', 'heatmap', 220, 220, 'Tyres/Brakes', 'heatmap', undefined, { label: 'TYRE °C', heatSource: 'tyre' }, ['tyre', 'temp', 'heatmap']),
-  nx('heat-brake', 'Brake heatmap', 'heatmap', 220, 220, 'Tyres/Brakes', 'heatmap', undefined, { label: 'BRAKE °C', heatSource: 'brake' }, ['brake', 'temp', 'heatmap'], 'Temp. de freio depende do sim')
+  nx('heat-brake', 'Brake heatmap', 'heatmap', 220, 220, 'Tyres/Brakes', 'heatmap', undefined, { label: 'BRAKE °C', heatSource: 'brake' }, ['brake', 'temp', 'heatmap'], 'Brake temp depends on yes')
 ]
 
 // STATUS — icon/status lamps
@@ -488,7 +495,7 @@ export const NEW_WIDGET_KINDS: DashboardElementType[] = [
 // from the gallery, leaving the 'Full-Frame Dashboards' cluster empty. We surface
 // them here as curated catalog variants tagged to that cluster: adding one drops a
 // single full-canvas `overlaywidget` element bound to the right widget id. They are
-// telemetry-driven (no single binding field) → available on every playable sim.
+// telemetry-driven (no single binding field) → available on every playable yes.
 function fullFrameVariant(preset: (typeof OVERLAY_DASHBOARD_PRESETS)[number]): WidgetVariant {
   return {
     id: `dash-${preset.id}`,
@@ -513,7 +520,7 @@ const FULL_FRAME_VARIANTS: WidgetVariant[] = OVERLAY_DASHBOARD_PRESETS.map(fullF
 // it here as an `overlaywidget` catalog variant so a single click drops the live overlay
 // onto a dashboard. The variant's `binding` is the snapshot field the overlay reads — it
 // is ignored by the overlaywidget renderer (which mounts by `widgetId`) but drives the
-// per-sim coverage helper (variantRequiredField → widgetSupportedSims), so the gallery
+// per-yes coverage helper (variantRequiredField → widgetSupportedSims), so the gallery
 // badges/filters it to the sims that actually publish the field (iRacing here). The label
 // reuses overlayWidgetDisplayTitle so it carries the same "(IR)" support prefix as the
 // floating-overlay picker.
@@ -598,8 +605,54 @@ const GT3_INSTRUMENT_VARIANTS: WidgetVariant[] = [
   gt3InstrumentVariant('gt3Wheel', 'tcLevel', 'Driver Aids', 'Flags/Status', 360, 240, ['wheel', 'steering', 'telltale', 'tc', 'abs', 'map', 'bb', 'knob'])
 ]
 
-// ─── Catálogo ────────────────────────────────────────────────────────────────
+const HIFI_CATEGORY_MAP: Record<string, WidgetCategoryTag> = {
+  inputs: 'Inputs',
+  drive: 'Speed/Engine',
+  timing: 'Timing/Delta',
+  gaps: 'Position/Standings',
+  fuel: 'Fuel',
+  tyres: 'Tyres/Brakes',
+  brakesEngine: 'Speed/Engine',
+  sessionEnv: 'Flags/Status',
+  ai: 'Text/Image'
+}
+
+const HIFI_CLUSTER_MAP: Record<string, WidgetClusterTag> = {
+  inputs: 'DDU / Cluster',
+  drive: 'DDU / Cluster',
+  timing: 'Timing / Delta',
+  gaps: 'Radar / Relative',
+  fuel: 'Stint / Endurance',
+  tyres: 'Tyre / Brake',
+  brakesEngine: 'Engine Vitals',
+  sessionEnv: 'Race Control / Flags',
+  ai: 'Race Control / Flags'
+}
+
+const HIFI_WIDGET_VARIANTS: WidgetVariant[] = HIFI_WIDGETS.map((module) => ({
+  id: `hifi-${module.id}`,
+  label: module.title,
+  hint: module.description,
+  type: 'overlaywidget',
+  widgetId: `hifi:${module.id}`,
+  hifiModuleId: module.id,
+  binding: module.requires[0],
+  w: Math.max(160, Math.round(module.defaultSize.w)),
+  h: Math.max(70, Math.round(module.defaultSize.h)),
+  category: HIFI_CATEGORY_MAP[module.category] ?? 'Digital',
+  styleFamily: 'clean',
+  cluster: HIFI_CLUSTER_MAP[module.category] ?? 'DDU / Cluster',
+  tags: ['hifi', 'overlay', module.category, ...hifiWidgetTags(module)],
+  style: gt3({ background: '#000000', border: '#1F1F1F', borderWidth: 0, radius: 0, label: module.title })
+}))
+
+// ─── Catalogo ────────────────────────────────────────────────────────────────
 export const WIDGET_CATALOG: WidgetCategory[] = [
+  {
+    id: 'hifi-per-telemetry',
+    label: 'Hi-Fi · per telemetry',
+    variants: HIFI_WIDGET_VARIANTS
+  },
   {
     id: 'full-frame',
     label: 'Dashboards full-frame',
@@ -607,17 +660,17 @@ export const WIDGET_CATALOG: WidgetCategory[] = [
   },
   {
     id: 'signal-overlays',
-    label: 'Overlays de sinais (novos canais iRacing)',
+    label: 'Signal overlays (new iRacing channels)',
     variants: SIGNAL_OVERLAY_VARIANTS
   },
   {
     id: 'gt3-instruments',
-    label: 'Instrumentos GT3 (clusters)',
+    label: 'GT3 instruments (clusters)',
     variants: GT3_INSTRUMENT_VARIANTS
   },
   {
     id: 'clean-value',
-    label: 'Valores limpos (qualquer canal)',
+    label: 'Clean values (any channel)',
     variants: [
       { id: 'value-speed', label: 'Value · Speed', type: 'value', w: 200, h: 96, binding: 'ir:Speed', category: 'Speed/Engine', styleFamily: 'clean', style: { background: '#000000', border: '#1F1F1F', borderWidth: 1, radius: 2, color: '#F4F4F4', label: 'SPEED', suffix: 'km/h', accentColor: '#00E7FF', minFontSize: 10 } },
       { id: 'value-gear', label: 'Value · Gear', type: 'value', w: 140, h: 140, binding: 'gearLabel', category: 'Speed/Engine', styleFamily: 'clean', style: { background: '#000000', border: '#1F1F1F', borderWidth: 1, radius: 2, color: '#F4F4F4', label: 'GEAR', accentColor: 'var(--accent-warning)', minFontSize: 12, maxFontSize: 120 } },
@@ -629,71 +682,71 @@ export const WIDGET_CATALOG: WidgetCategory[] = [
   },
   {
     id: 'gt3',
-    label: 'GT3 Principais',
+    label: 'GT3 Main',
     variants: [
       { id: 'shiftbar-18', label: 'Shift Bar · 18 LED', type: 'shiftbar', w: 760, h: 44, binding: 'shiftPct', category: 'Speed/Engine', styleFamily: 'led', cluster: 'DDU / Cluster', hardwareFamily: 'MoTeC C127', style: gt3({ segments: 18, flashAt: 0.98, glow: true, segmentShape: 'led', radius: 8 }) },
       { id: 'shiftbar-12', label: 'Shift Bar · 12 LED', type: 'shiftbar', w: 600, h: 48, binding: 'shiftPct', category: 'Speed/Engine', styleFamily: 'led', cluster: 'DDU / Cluster', hardwareFamily: 'Bosch DDU 296', style: gt3({ segments: 12, flashAt: 0.97, glow: true, segmentShape: 'led', radius: 8 }) },
-      { id: 'shiftbar-24', label: 'Shift Bar · 24 finos', type: 'shiftbar', w: 900, h: 40, binding: 'shiftPct', category: 'Speed/Engine', styleFamily: 'led', cluster: 'DDU / Cluster', hardwareFamily: 'Cosworth ICD', style: gt3({ segments: 24, flashAt: 0.98, glow: true, segmentShape: 'bar', radius: 6 }) },
-      { id: 'gearcluster', label: 'Marcha + Velocidade', type: 'gearcluster', w: 320, h: 240, category: 'Speed/Engine', styleFamily: 'digital', cluster: 'DDU / Cluster', hardwareFamily: 'MoTeC C127', style: gt3({ radius: 18, accentColor: ACCENT, showRpm: true }) },
-      { id: 'gearcluster-tile', label: 'Marcha (tile)', type: 'gearcluster', w: 200, h: 180, category: 'Speed/Engine', styleFamily: 'digital', cluster: 'DDU / Cluster', hardwareFamily: 'Porsche Cup', style: gt3({ radius: 14, accentColor: ACCENT, showRpm: false }) },
-      { id: 'deltatile', label: 'Delta Preditivo (tile)', type: 'deltatile', w: 320, h: 96, category: 'Timing/Delta', styleFamily: 'clean', cluster: 'Timing / Delta', style: gt3({ radius: 14, deltaReference: 'session', deltaRangeSec: 1, title: 'Delta' }) },
-      { id: 'fuelstint', label: 'Combustível / Stint', type: 'fuelstint', w: 300, h: 92, category: 'Fuel', styleFamily: 'clean', cluster: 'Stint / Endurance', style: gt3({ reserveLaps: 1, warnAtLaps: 2, title: 'Combustível' }) },
-      { id: 'flagoverlay', label: 'Bandeira / Aviso v2', type: 'flagoverlay', w: 760, h: 48, category: 'Flags/Status', styleFamily: 'status', cluster: 'Race Control / Flags', style: gt3({ radius: 8, includeIncidents: true }) }
+      { id: 'shiftbar-24', label: 'Shift Bar · 24 thin', type: 'shiftbar', w: 900, h: 40, binding: 'shiftPct', category: 'Speed/Engine', styleFamily: 'led', cluster: 'DDU / Cluster', hardwareFamily: 'Cosworth ICD', style: gt3({ segments: 24, flashAt: 0.98, glow: true, segmentShape: 'bar', radius: 6 }) },
+      { id: 'gearcluster', label: 'Gear + Speed', type: 'gearcluster', w: 320, h: 240, category: 'Speed/Engine', styleFamily: 'digital', cluster: 'DDU / Cluster', hardwareFamily: 'MoTeC C127', style: gt3({ radius: 18, accentColor: ACCENT, showRpm: true }) },
+      { id: 'gearcluster-tile', label: 'Gear (tile)', type: 'gearcluster', w: 200, h: 180, category: 'Speed/Engine', styleFamily: 'digital', cluster: 'DDU / Cluster', hardwareFamily: 'Porsche Cup', style: gt3({ radius: 14, accentColor: ACCENT, showRpm: false }) },
+      { id: 'deltatile', label: 'Predictive Delta (tile)', type: 'deltatile', w: 320, h: 96, category: 'Timing/Delta', styleFamily: 'clean', cluster: 'Timing / Delta', style: gt3({ radius: 14, deltaReference: 'session', deltaRangeSec: 1, title: 'Delta' }) },
+      { id: 'fuelstint', label: 'Fuel / Stint', type: 'fuelstint', w: 300, h: 92, category: 'Fuel', styleFamily: 'clean', cluster: 'Stint / Endurance', style: gt3({ reserveLaps: 1, warnAtLaps: 2, title: 'Fuel' }) },
+      { id: 'flagoverlay', label: 'Flag / Alert v2', type: 'flagoverlay', w: 760, h: 48, category: 'Flags/Status', styleFamily: 'status', cluster: 'Race Control / Flags', style: gt3({ radius: 8, includeIncidents: true }) }
     ]
   },
   {
     id: 'tyres',
-    label: 'Pneus & Freios',
+    label: 'Tyres & Brakes',
     variants: [
-      { id: 'tyregrid-temp', label: 'Pneus · Temperatura', type: 'tyregrid', w: 240, h: 220, category: 'Tyres/Brakes', styleFamily: 'chart', cluster: 'Tyre / Brake', style: gt3({ gridMode: 'temp', showAverage: true, title: 'Pneus °C' }) },
-      { id: 'tyregrid-press', label: 'Pneus · Pressão', type: 'tyregrid', w: 240, h: 220, category: 'Tyres/Brakes', styleFamily: 'chart', cluster: 'Tyre / Brake', style: gt3({ gridMode: 'pressure', targetValue: 165, tolerance: 7, title: 'Pressão' }) },
-      { id: 'tyregrid-wear', label: 'Pneus · Desgaste', type: 'tyregrid', w: 240, h: 220, category: 'Tyres/Brakes', styleFamily: 'chart', cluster: 'Tyre / Brake', style: gt3({ gridMode: 'wear', title: 'Desgaste' }), missing: 'Desgaste depende do sim' },
-      { id: 'brakegrid', label: 'Freios · Temperatura', type: 'brakegrid', w: 240, h: 220, category: 'Tyres/Brakes', styleFamily: 'chart', cluster: 'Tyre / Brake', style: gt3({ showAverage: true, title: 'Freios °C' }), missing: 'Temp. de freio depende do sim' },
-      { id: 'cornerstack', label: 'Saúde por canto', type: 'cornerstack', w: 300, h: 300, category: 'Tyres/Brakes', styleFamily: 'chart', cluster: 'Tyre / Brake', style: gt3({ radius: 12, targetValue: 165, tolerance: 7 }) }
+      { id: 'tyregrid-temp', label: 'Tyres · Temperature', type: 'tyregrid', w: 240, h: 220, category: 'Tyres/Brakes', styleFamily: 'chart', cluster: 'Tyre / Brake', style: gt3({ gridMode: 'temp', showAverage: true, title: 'Tyres °C' }) },
+      { id: 'tyregrid-press', label: 'Tyres · Pressure', type: 'tyregrid', w: 240, h: 220, category: 'Tyres/Brakes', styleFamily: 'chart', cluster: 'Tyre / Brake', style: gt3({ gridMode: 'pressure', targetValue: 165, tolerance: 7, title: 'Pressure' }) },
+      { id: 'tyregrid-wear', label: 'Tyres · Wear', type: 'tyregrid', w: 240, h: 220, category: 'Tyres/Brakes', styleFamily: 'chart', cluster: 'Tyre / Brake', style: gt3({ gridMode: 'wear', title: 'Wear' }), missing: 'Wear depends on yes' },
+      { id: 'brakegrid', label: 'Brakes · Temperature', type: 'brakegrid', w: 240, h: 220, category: 'Tyres/Brakes', styleFamily: 'chart', cluster: 'Tyre / Brake', style: gt3({ showAverage: true, title: 'Brakes °C' }), missing: 'Brake temp depends on yes' },
+      { id: 'cornerstack', label: 'Health por canto', type: 'cornerstack', w: 300, h: 300, category: 'Tyres/Brakes', styleFamily: 'chart', cluster: 'Tyre / Brake', style: gt3({ radius: 12, targetValue: 165, tolerance: 7 }) }
     ]
   },
   {
     id: 'context',
-    label: 'Contexto de Corrida',
+    label: 'Race Context',
     variants: [
-      { id: 'positiongaps', label: 'Posição + Gaps', type: 'positiongaps', w: 300, h: 92, category: 'Position/Standings', styleFamily: 'clean', cluster: 'Radar / Relative', style: gt3({ showTotal: true }) },
-      { id: 'laptiming', label: 'Tempos de Volta', type: 'laptiming', w: 300, h: 96, category: 'Timing/Delta', styleFamily: 'clean', cluster: 'Timing / Delta', style: gt3({ showCurrent: true, showLast: true, showBest: true, title: 'Tempos' }) },
-      { id: 'standings-relative', label: 'Relativo (3 linhas)', type: 'standings', w: 560, h: 92, category: 'Position/Standings', styleFamily: 'table', cluster: 'Radar / Relative', style: gt3({ radius: 10, fontSize: 13, tableColumns: ['pos', 'number', 'name', 'gap'], tableMaxRows: 3, showHeader: false, highlightPlayer: true }) },
-      { id: 'standings-tower', label: 'Torre (9 linhas)', type: 'standings', w: 360, h: 480, category: 'Position/Standings', styleFamily: 'table', cluster: 'Radar / Relative', style: gt3({ radius: 12, fontSize: 14, tableColumns: ['pos', 'number', 'name', 'gap', 'class'], tableMaxRows: 9, showHeader: true, highlightPlayer: true }) },
-      { id: 'trackmini', label: 'Mini Mapa', type: 'trackmini', w: 200, h: 200, binding: 'lapDistPct', category: 'Track/Radar', styleFamily: 'chart', cluster: 'Radar / Relative', style: gt3({ radius: 12, accentColor: ACCENT }) },
-      { id: 'weather', label: 'Clima / Pista', type: 'weather', w: 300, h: 92, category: 'Track/Radar', styleFamily: 'status', cluster: 'Weather / Track', style: gt3({ radius: 12, title: 'Clima' }) },
+      { id: 'positiongaps', label: 'Position + Gaps', type: 'positiongaps', w: 300, h: 92, category: 'Position/Standings', styleFamily: 'clean', cluster: 'Radar / Relative', style: gt3({ showTotal: true }) },
+      { id: 'laptiming', label: 'Lap Times', type: 'laptiming', w: 300, h: 96, category: 'Timing/Delta', styleFamily: 'clean', cluster: 'Timing / Delta', style: gt3({ showCurrent: true, showLast: true, showBest: true, title: 'Tempos' }) },
+      { id: 'standings-relative', label: 'Relative (3 linhas)', type: 'standings', w: 560, h: 92, category: 'Position/Standings', styleFamily: 'table', cluster: 'Radar / Relative', style: gt3({ radius: 10, fontSize: 13, tableColumns: ['pos', 'number', 'name', 'gap'], tableMaxRows: 3, showHeader: false, highlightPlayer: true }) },
+      { id: 'standings-tower', label: 'Tower (9 linhas)', type: 'standings', w: 360, h: 480, category: 'Position/Standings', styleFamily: 'table', cluster: 'Radar / Relative', style: gt3({ radius: 12, fontSize: 14, tableColumns: ['pos', 'number', 'name', 'gap', 'class'], tableMaxRows: 9, showHeader: true, highlightPlayer: true }) },
+      { id: 'trackmini', label: 'Mini Map', type: 'trackmini', w: 200, h: 200, binding: 'lapDistPct', category: 'Track/Radar', styleFamily: 'chart', cluster: 'Radar / Relative', style: gt3({ radius: 12, accentColor: ACCENT }) },
+      { id: 'weather', label: 'Weather / Track', type: 'weather', w: 300, h: 92, category: 'Track/Radar', styleFamily: 'status', cluster: 'Weather / Track', style: gt3({ radius: 12, title: 'Weather' }) },
       { id: 'coach-heatmap', label: 'Coaching · curvas (heatmap)', type: 'coach-heatmap', w: 240, h: 240, category: 'Track/Radar', styleFamily: 'heatmap', cluster: 'Driver Aids', style: gt3({ radius: 12, accentColor: ACCENT, label: 'Coaching · curvas' }) },
-      { id: 'coach-tips', label: 'Coach · dicas (texto)', type: 'coach-tips', w: 300, h: 150, category: 'Track/Radar', styleFamily: 'status', cluster: 'Driver Aids', style: gt3({ radius: 12, accentColor: ACCENT, label: 'Dicas do coach' }) },
+      { id: 'coach-tips', label: 'Coach · tips (text)', type: 'coach-tips', w: 300, h: 150, category: 'Track/Radar', styleFamily: 'status', cluster: 'Driver Aids', style: gt3({ radius: 12, accentColor: ACCENT, label: 'Coach tips' }) },
       { id: 'coach-findings', label: 'Coach · achados (lista)', type: 'coach-findings', w: 300, h: 220, category: 'Track/Radar', styleFamily: 'status', cluster: 'Driver Aids', style: gt3({ radius: 12, accentColor: ACCENT, label: 'Achados do coach' }) },
-      { id: 'coach-sector-graph', label: 'Coach · setores (gráfico)', type: 'coach-sector-graph', w: 260, h: 160, category: 'Track/Radar', styleFamily: 'chart', cluster: 'Timing / Delta', style: gt3({ radius: 12, accentColor: ACCENT, label: 'Setores · perda' }) },
-      { id: 'engineer-feed', label: 'Engenheiro · rádio (texto)', type: 'engineer-feed', w: 320, h: 200, category: 'Track/Radar', styleFamily: 'status', cluster: 'Driver Aids', style: gt3({ radius: 12, accentColor: ACCENT, label: 'Engenheiro · rádio' }) }
+      { id: 'coach-sector-graph', label: 'Coach · setores (grafico)', type: 'coach-sector-graph', w: 260, h: 160, category: 'Track/Radar', styleFamily: 'chart', cluster: 'Timing / Delta', style: gt3({ radius: 12, accentColor: ACCENT, label: 'Sectors ? loss' }) },
+      { id: 'engineer-feed', label: 'Engenheiro · radio (texto)', type: 'engineer-feed', w: 320, h: 200, category: 'Track/Radar', styleFamily: 'status', cluster: 'Driver Aids', style: gt3({ radius: 12, accentColor: ACCENT, label: 'Engenheiro · radio' }) }
     ]
   },
   {
     id: 'inputs',
-    label: 'Inputs do Piloto',
+    label: 'Driver Inputs',
     variants: [
-      { id: 'inputbars', label: 'Barras de Input', type: 'inputbars', w: 160, h: 150, category: 'Inputs', styleFamily: 'bar', cluster: 'Driver Aids', style: gt3({ radius: 12, channels: ['throttle', 'brake'] }) },
-      { id: 'inputtrace', label: 'Trace de Input', type: 'inputtrace', w: 320, h: 130, category: 'Inputs', styleFamily: 'graph', cluster: 'Driver Aids', style: gt3({ radius: 10, channels: ['throttle', 'brake'], traceLength: 160, traceWidth: 1.8 }) },
-      { id: 'steering', label: 'Volante (gauge)', type: 'steering', w: 260, h: 90, category: 'Inputs', styleFamily: 'bar', cluster: 'Driver Aids', style: gt3({ radius: 12, maxDegrees: 540, showNumeric: true, title: 'Volante' }) }
+      { id: 'inputbars', label: 'Input Bars', type: 'inputbars', w: 160, h: 150, category: 'Inputs', styleFamily: 'bar', cluster: 'Driver Aids', style: gt3({ radius: 12, channels: ['throttle', 'brake'] }) },
+      { id: 'inputtrace', label: 'Input Trace', type: 'inputtrace', w: 320, h: 130, category: 'Inputs', styleFamily: 'graph', cluster: 'Driver Aids', style: gt3({ radius: 10, channels: ['throttle', 'brake'], traceLength: 160, traceWidth: 1.8 }) },
+      { id: 'steering', label: 'Steering (gauge)', type: 'steering', w: 260, h: 90, category: 'Inputs', styleFamily: 'bar', cluster: 'Driver Aids', style: gt3({ radius: 12, maxDegrees: 540, showNumeric: true, title: 'Steering' }) }
     ]
   },
   {
     id: 'setup',
-    label: 'Setup do Carro',
+    label: 'Car Setup',
     variants: [
-      { id: 'setupstrip', label: 'ABS / TC / MAP / BB', type: 'setupstrip', w: 760, h: 56, category: 'Flags/Status', styleFamily: 'status', cluster: 'Tell-tales / Warning lamps', style: gt3({ fields: ['abs', 'tc', 'map', 'bb', 'limiter', 'inc'] }), missing: 'MAP/BB exigem suporte do provedor' },
-      { id: 'enginetemps', label: 'Temps do Motor', type: 'enginetemps', w: 300, h: 110, category: 'Speed/Engine', styleFamily: 'clean', cluster: 'Engine Vitals', style: gt3({ radius: 12, title: 'Motor' }), missing: 'Água/óleo exigem suporte do provedor' }
+      { id: 'setupstrip', label: 'ABS / TC / MAP / BB', type: 'setupstrip', w: 760, h: 56, category: 'Flags/Status', styleFamily: 'status', cluster: 'Tell-tales / Warning lamps', style: gt3({ fields: ['abs', 'tc', 'map', 'bb', 'limiter', 'inc'] }), missing: 'MAP/BB require provider support' },
+      { id: 'enginetemps', label: 'Engine Temps', type: 'enginetemps', w: 300, h: 110, category: 'Speed/Engine', styleFamily: 'clean', cluster: 'Engine Vitals', style: gt3({ radius: 12, title: 'Motor' }), missing: 'Water/oleo exigem suporte do provedor' }
     ]
   },
   {
     id: 'extra-analog',
-    label: 'Round-7 · Analógicos',
+    label: 'Round-7 · Analogicos',
     variants: EXTRA_ANALOG
   },
   {
     id: 'extra-digital',
-    label: 'Round-7 · Digitais (7-seg)',
+    label: 'Round-7 · Digital (7-seg)',
     variants: EXTRA_DIGITAL
   },
   {
@@ -703,7 +756,7 @@ export const WIDGET_CATALOG: WidgetCategory[] = [
   },
   {
     id: 'extra-graph',
-    label: 'Round-7 · Gráficos',
+    label: 'Round-7 · Graficos',
     variants: EXTRA_GRAPH
   },
   {
@@ -713,7 +766,7 @@ export const WIDGET_CATALOG: WidgetCategory[] = [
   },
   {
     id: 'extra-ring',
-    label: 'Round-7 · Anéis & Arcos',
+    label: 'Round-7 · Aneis & Arcos',
     variants: EXTRA_RING
   },
   {
@@ -728,7 +781,7 @@ export const WIDGET_CATALOG: WidgetCategory[] = [
   },
   {
     id: 'extra-status',
-    label: 'Round-7 · Status & Ícones',
+    label: 'Round-7 · Status & Icones',
     variants: EXTRA_STATUS
   },
   {
@@ -795,30 +848,30 @@ export const WIDGET_CATALOG: WidgetCategory[] = [
   },
   {
     id: 'utility',
-    label: 'Utilitários',
+    label: 'Utilitarios',
     variants: [
-      { id: 'text', label: 'Texto', type: 'text', w: 240, h: 64, category: 'Text/Image', styleFamily: 'text', style: gt3({ background: 'transparent', border: 'transparent', borderWidth: 0, color: TEXT_FG, fontSize: 28, fontWeight: 800, align: 'left', text: 'Texto' }) },
-      { id: 'rect', label: 'Retângulo / Painel', type: 'rect', w: 240, h: 120, category: 'Text/Image', styleFamily: 'image', style: gt3({ radius: 12 }) },
-      { id: 'bar', label: 'Barra genérica', type: 'bar', w: 240, h: 24, binding: 'throttle', category: 'Charts/Graphs', styleFamily: 'bar', style: gt3({ background: '#0a0c10', radius: 8, fillColor: ACCENT, warnColor: '#ffb84d', dangerColor: '#ff5468', warnAt: 0.7, dangerAt: 0.9 }) },
-      { id: 'gauge', label: 'Mostrador genérico', type: 'gauge', w: 200, h: 120, binding: 'rpmPct', category: 'Charts/Graphs', styleFamily: 'gauge', style: gt3({ background: 'transparent', border: 'transparent', borderWidth: 0, fillColor: ACCENT, warnColor: '#ffb84d', dangerColor: '#ff5468', warnAt: 0.7, dangerAt: 0.9 }) },
+      { id: 'text', label: 'Text', type: 'text', w: 240, h: 64, category: 'Text/Image', styleFamily: 'text', style: gt3({ background: 'transparent', border: 'transparent', borderWidth: 0, color: TEXT_FG, fontSize: 28, fontWeight: 800, align: 'left', text: 'Text' }) },
+      { id: 'rect', label: 'Rectangle / Painel', type: 'rect', w: 240, h: 120, category: 'Text/Image', styleFamily: 'image', style: gt3({ radius: 12 }) },
+      { id: 'bar', label: 'Bar generica', type: 'bar', w: 240, h: 24, binding: 'throttle', category: 'Charts/Graphs', styleFamily: 'bar', style: gt3({ background: '#0a0c10', radius: 8, fillColor: ACCENT, warnColor: '#ffb84d', dangerColor: '#ff5468', warnAt: 0.7, dangerAt: 0.9 }) },
+      { id: 'gauge', label: 'Mostrador generico', type: 'gauge', w: 200, h: 120, binding: 'rpmPct', category: 'Charts/Graphs', styleFamily: 'gauge', style: gt3({ background: 'transparent', border: 'transparent', borderWidth: 0, fillColor: ACCENT, warnColor: '#ffb84d', dangerColor: '#ff5468', warnAt: 0.7, dangerAt: 0.9 }) },
       { id: 'shiftbar-led', label: 'Shift Bar · LED zonas', type: 'shiftbar', w: 600, h: 48, binding: 'shiftPct', category: 'Speed/Engine', styleFamily: 'led', cluster: 'DDU / Cluster', style: gt3({ segments: 15, flashAt: 0.97, glow: true, segmentShape: 'led', radius: 8 }) },
       { id: 'shiftlights', label: 'Shift LEDs (legado)', type: 'shiftlights', w: 600, h: 48, binding: 'shiftPct', category: 'Speed/Engine', styleFamily: 'led', style: gt3({ background: '#0a0c10', radius: 10, segments: 12, fillColor: GREEN, warnColor: AMBER, dangerColor: RED, warnAt: 0.6, dangerAt: 0.85 }) },
-      { id: 'image', label: 'Imagem / Logo', type: 'image', w: 200, h: 120, category: 'Text/Image', styleFamily: 'image', style: gt3({ background: 'transparent', border: 'transparent', borderWidth: 0, radius: 8, fit: 'contain', opacity: 1 }) },
-      { id: 'table', label: 'Tabela', type: 'table', w: 520, h: 280, category: 'Position/Standings', styleFamily: 'table', style: gt3({ radius: 10, fontSize: 14, tableColumns: ['pos', 'number', 'name', 'gap', 'class'], tableMaxRows: 8, showHeader: true, highlightPlayer: true }) }
+      { id: 'image', label: 'Image / Logo', type: 'image', w: 200, h: 120, category: 'Text/Image', styleFamily: 'image', style: gt3({ background: 'transparent', border: 'transparent', borderWidth: 0, radius: 8, fit: 'contain', opacity: 1 }) },
+      { id: 'table', label: 'Table', type: 'table', w: 520, h: 280, category: 'Position/Standings', styleFamily: 'table', style: gt3({ radius: 10, fontSize: 14, tableColumns: ['pos', 'number', 'name', 'gap', 'class'], tableMaxRows: 8, showHeader: true, highlightPlayer: true }) }
     ]
   },
   {
     id: 'predictors',
     label: 'Preditores',
     variants: [
-      { id: 'pred-catch-ahead-fut', label: 'Preditor · Alcançar (futurista)', type: 'pred-catch-ahead-futuristic', w: 300, h: 120, category: 'Position/Standings', styleFamily: 'led', style: gt3({ radius: 12, accentColor: AMBER, label: 'Alcançar à frente' }) },
-      { id: 'pred-catch-ahead-min', label: 'Preditor · Alcançar (minimal)', type: 'pred-catch-ahead-minimal', w: 300, h: 120, category: 'Position/Standings', styleFamily: 'clean', style: gt3({ radius: 12, accentColor: AMBER, label: 'Alcançar à frente' }) },
-      { id: 'pred-caught-behind-fut', label: 'Preditor · Ameaça atrás (futurista)', type: 'pred-caught-behind-futuristic', w: 300, h: 120, category: 'Position/Standings', styleFamily: 'led', style: gt3({ radius: 12, accentColor: AMBER, label: 'Ameaça atrás' }) },
-      { id: 'pred-caught-behind-min', label: 'Preditor · Ameaça atrás (minimal)', type: 'pred-caught-behind-minimal', w: 300, h: 120, category: 'Position/Standings', styleFamily: 'clean', style: gt3({ radius: 12, accentColor: AMBER, label: 'Ameaça atrás' }) },
-      { id: 'pred-fuel-margin-fut', label: 'Preditor · Combustível (futurista)', type: 'pred-fuel-margin-futuristic', w: 300, h: 120, category: 'Fuel', styleFamily: 'led', style: gt3({ radius: 12, accentColor: GOLD, label: 'Combustível até o fim' }) },
-      { id: 'pred-fuel-margin-min', label: 'Preditor · Combustível (minimal)', type: 'pred-fuel-margin-minimal', w: 300, h: 120, category: 'Fuel', styleFamily: 'clean', style: gt3({ radius: 12, accentColor: GOLD, label: 'Combustível até o fim' }) },
-      { id: 'pred-tire-wear-fut', label: 'Preditor · Pneu (futurista)', type: 'pred-tire-wear-futuristic', w: 320, h: 130, category: 'Tyres/Brakes', styleFamily: 'led', style: gt3({ radius: 12, accentColor: AMBER, label: 'Pneu desgaste/penhasco' }) },
-      { id: 'pred-tire-wear-min', label: 'Preditor · Pneu (minimal)', type: 'pred-tire-wear-minimal', w: 320, h: 130, category: 'Tyres/Brakes', styleFamily: 'clean', style: gt3({ radius: 12, accentColor: AMBER, label: 'Pneu desgaste/penhasco' }) },
+      { id: 'pred-catch-ahead-fut', label: 'Preditor · Alcancar (futurista)', type: 'pred-catch-ahead-futuristic', w: 300, h: 120, category: 'Position/Standings', styleFamily: 'led', style: gt3({ radius: 12, accentColor: AMBER, label: 'Alcancar a front' }) },
+      { id: 'pred-catch-ahead-min', label: 'Preditor · Alcancar (minimal)', type: 'pred-catch-ahead-minimal', w: 300, h: 120, category: 'Position/Standings', styleFamily: 'clean', style: gt3({ radius: 12, accentColor: AMBER, label: 'Alcancar a front' }) },
+      { id: 'pred-caught-behind-fut', label: 'Preditor · Ameaca back (futurista)', type: 'pred-caught-behind-futuristic', w: 300, h: 120, category: 'Position/Standings', styleFamily: 'led', style: gt3({ radius: 12, accentColor: AMBER, label: 'Ameaca back' }) },
+      { id: 'pred-caught-behind-min', label: 'Preditor · Ameaca back (minimal)', type: 'pred-caught-behind-minimal', w: 300, h: 120, category: 'Position/Standings', styleFamily: 'clean', style: gt3({ radius: 12, accentColor: AMBER, label: 'Ameaca back' }) },
+      { id: 'pred-fuel-margin-fut', label: 'Preditor · Fuel (futurista)', type: 'pred-fuel-margin-futuristic', w: 300, h: 120, category: 'Fuel', styleFamily: 'led', style: gt3({ radius: 12, accentColor: GOLD, label: 'Fuel ate o fim' }) },
+      { id: 'pred-fuel-margin-min', label: 'Preditor · Fuel (minimal)', type: 'pred-fuel-margin-minimal', w: 300, h: 120, category: 'Fuel', styleFamily: 'clean', style: gt3({ radius: 12, accentColor: GOLD, label: 'Fuel ate o fim' }) },
+      { id: 'pred-tire-wear-fut', label: 'Preditor · Tire (futurista)', type: 'pred-tire-wear-futuristic', w: 320, h: 130, category: 'Tyres/Brakes', styleFamily: 'led', style: gt3({ radius: 12, accentColor: AMBER, label: 'Tire wear/penhasco' }) },
+      { id: 'pred-tire-wear-min', label: 'Preditor · Tire (minimal)', type: 'pred-tire-wear-minimal', w: 320, h: 130, category: 'Tyres/Brakes', styleFamily: 'clean', style: gt3({ radius: 12, accentColor: AMBER, label: 'Tire wear/penhasco' }) },
       { id: 'pred-pace-fut', label: 'Preditor · Pace (futurista)', type: 'pred-pace-futuristic', w: 300, h: 120, category: 'Timing/Delta', styleFamily: 'led', style: gt3({ radius: 12, accentColor: CHROME, label: 'Pace projetado' }) },
       { id: 'pred-pace-min', label: 'Preditor · Pace (minimal)', type: 'pred-pace-minimal', w: 300, h: 120, category: 'Timing/Delta', styleFamily: 'clean', style: gt3({ radius: 12, accentColor: CHROME, label: 'Pace projetado' }) }
     ]
@@ -836,7 +889,7 @@ export const WIDGET_CATALOG: WidgetCategory[] = [
   ...IRACING_CHANNEL_CATEGORIES
 ]
 
-// ─── Categorização (fallback) ─────────────────────────────────────────────────
+// ─── Categorizacao (fallback) ─────────────────────────────────────────────────
 // Curated/legacy variants that don't declare category/styleFamily inline are
 // classified here by concept so EVERY variant ends up fully categorised.
 const CONCEPT_CATEGORY: Record<string, WidgetCategoryTag> = {
@@ -887,34 +940,35 @@ export function variantToElement(v: WidgetVariant, x: number, y: number): Dashbo
     binding: v.binding,
     name: v.label,
     ...(v.widgetId ? { widgetId: v.widgetId } : {}),
+    ...(v.hifiModuleId ? { hifiModuleId: v.hifiModuleId } : {}),
     style: { ...v.style }
   }
 }
 
 // ─── Sim-aware filtering ─────────────────────────────────────────────────────
-/** Catalog filter query: the shared taxonomy facets plus an optional per-sim filter. */
+/** Catalog filter query: the shared taxonomy facets plus an optional per-yes filter. */
 export interface WidgetCatalogFilterQuery extends WidgetFilterQuery {
-  /** Keep only variants whose live telemetry coverage includes this sim. `null`/absent = all sims. */
-  sim?: CoverageSimId | null
+  /** Keep only variants whose live telemetry coverage includes this yes. `null`/absent = all sims. */
+  yes?: CoverageSimId | null
 }
 
-/** A taxon that also carries precomputed per-sim coverage (every NormalizedVariant does). */
+/** A taxon that also carries precomputed per-yes coverage (every NormalizedVariant does). */
 type SimFilterable = WidgetTaxon & { supportedSims: readonly CoverageSimId[] }
 
 /**
  * Sim-aware superset of the shared taxonomy filter: applies the existing search /
- * category / styleFamily facets, then narrows to variants supported on `sim` (when set).
- * A `null`/absent `sim` leaves the result unfiltered by sim, so existing callers keep
- * their behaviour and the new chip row opts in by passing a sim.
+ * category / styleFamily facets, then narrows to variants supported on `yes` (when set).
+ * A `null`/absent `yes` leaves the result unfiltered by yes, so existing callers keep
+ * their behaviour and the new chip row opts in by passing a yes.
  */
 export function filterVariants<T extends SimFilterable>(
   variants: readonly T[],
   query: WidgetCatalogFilterQuery
 ): T[] {
   const byQuery = filterVariantsByQuery(variants, query)
-  const sim = query.sim
-  if (!sim) return byQuery
-  return byQuery.filter((v) => v.supportedSims.includes(sim))
+  const yes = query.yes
+  if (!yes) return byQuery
+  return byQuery.filter((v) => v.supportedSims.includes(yes))
 }
 
 export {

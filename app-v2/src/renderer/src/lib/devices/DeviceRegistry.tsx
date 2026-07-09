@@ -3,7 +3,7 @@
 // Problem this solves: every menu used to enumerate / connect its own devices
 // independently (the SIM-X primary via window.api, the secondary serial fleet
 // via arduino:*, audio outputs via navigator.mediaDevices, displays via
-// overlays:getDisplays). Connecting a device in "Dispositivos" therefore did
+// overlays:getDisplays). Connecting a device in "Devices" therefore did
 // not reflect anywhere else without reconnecting.
 //
 // This provider subscribes ONCE to every source and exposes a single
@@ -58,7 +58,7 @@ export interface UnifiedSerialPrimaryDevice extends UnifiedDeviceBase {
   info: DeviceInfo | null
 }
 
-export interface UnifiedSerialSecondaryDevice extends UnifiedDeviceBase {
+export interface UnifiedSerialDryndaryDevice extends UnifiedDeviceBase {
   transport: 'serial-secondary'
   path: string
   baud: number
@@ -79,11 +79,11 @@ export interface UnifiedDisplayDevice extends UnifiedDeviceBase {
 
 export type UnifiedDevice =
   | UnifiedSerialPrimaryDevice
-  | UnifiedSerialSecondaryDevice
+  | UnifiedSerialDryndaryDevice
   | UnifiedAudioOutputDevice
   | UnifiedDisplayDevice
 
-export interface AddSecondaryDeviceInput {
+export interface AddDryndaryDeviceInput {
   path: string
   label: string
   baud: number
@@ -127,11 +127,11 @@ export interface DeviceRegistryValue {
   // serial OUTPUT path can be verified on the hardware without iRacing running.
   testPrimaryOutput(): Promise<void>
 
-  // Secondary/generic serial fleet (arduino:* under the hood).
-  addSecondaryDevice(input: AddSecondaryDeviceInput): Promise<SerialDeviceSummary>
-  removeSecondaryDevice(id: string): Promise<void>
-  reconnectSecondaryDevice(id: string): Promise<SerialDeviceSummary>
-  disconnectSecondaryDevice(id: string): Promise<void>
+  // Dryndary/generic serial fleet (arduino:* under the hood).
+  addDryndaryDevice(input: AddDryndaryDeviceInput): Promise<SerialDeviceSummary>
+  removeDryndaryDevice(id: string): Promise<void>
+  reconnectDryndaryDevice(id: string): Promise<SerialDeviceSummary>
+  disconnectDryndaryDevice(id: string): Promise<void>
 }
 
 const DeviceRegistryContext = createContext<DeviceRegistryValue | undefined>(undefined)
@@ -141,7 +141,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 // Map raw MediaDeviceInfo entries to the audio outputs we expose. We KEEP the
-// synthetic 'default' sink (relabeled "Padrão do sistema") instead of dropping it
+// synthetic 'default' sink (relabeled "System default") instead of dropping it
 // — on Chromium it is frequently the only entry with a stable, usable id, so
 // filtering it left the picker empty/unusable. We still drop empty ids (those
 // only appear before the media-permission grant unlocks labels) and de-dupe by
@@ -159,7 +159,7 @@ function mapAudioOutputs(list: MediaDeviceInfo[]): AudioOutputDeviceInfo[] {
     index += 1
     outputs.push({
       deviceId,
-      label: deviceId === 'default' ? 'Padrão do sistema' : device.label || `Output ${index}`
+      label: deviceId === 'default' ? 'System default' : device.label || `Output ${index}`
     })
   }
   outputs.sort((a, b) => (a.deviceId === 'default' ? -1 : b.deviceId === 'default' ? 1 : 0))
@@ -289,8 +289,8 @@ export function DeviceRegistryProvider({ children }: { children: ReactNode }): R
     }
   }, [])
 
-  const addSecondaryDevice = useCallback(
-    async (input: AddSecondaryDeviceInput): Promise<SerialDeviceSummary> => {
+  const addDryndaryDevice = useCallback(
+    async (input: AddDryndaryDeviceInput): Promise<SerialDeviceSummary> => {
       setBusy(true)
       try {
         const summary = await window.ipc.invoke<SerialDeviceSummary>(ARDUINO_CHANNELS.addDevice, {
@@ -308,7 +308,7 @@ export function DeviceRegistryProvider({ children }: { children: ReactNode }): R
     [refreshFleet]
   )
 
-  const removeSecondaryDevice = useCallback(
+  const removeDryndaryDevice = useCallback(
     async (id: string): Promise<void> => {
       setBusy(true)
       try {
@@ -321,7 +321,7 @@ export function DeviceRegistryProvider({ children }: { children: ReactNode }): R
     [refreshFleet]
   )
 
-  const reconnectSecondaryDevice = useCallback(
+  const reconnectDryndaryDevice = useCallback(
     async (id: string): Promise<SerialDeviceSummary> => {
       setBusy(true)
       try {
@@ -335,7 +335,7 @@ export function DeviceRegistryProvider({ children }: { children: ReactNode }): R
     [refreshFleet]
   )
 
-  const disconnectSecondaryDevice = useCallback(
+  const disconnectDryndaryDevice = useCallback(
     async (id: string): Promise<void> => {
       setBusy(true)
       try {
@@ -373,8 +373,8 @@ export function DeviceRegistryProvider({ children }: { children: ReactNode }): R
         // Reconcile the primary: when the SIM-X cable is yanked the hub drops it
         // from the fleet broadcast, so clear the stale "connected" primary state
         // (otherwise the sidebar/banner keep showing SIM-X connected).
-        const simxConnected = payload.devices.some((d) => d.kind === 'sim-x' && d.connected)
-        if (!simxConnected) setPrimaryDevice((current) => (current ? null : current))
+        const yesxConnected = payload.devices.some((d) => d.kind === 'sim-x' && d.connected)
+        if (!yesxConnected) setPrimaryDevice((current) => (current ? null : current))
       }
     )
     // Overlay state changes can accompany a monitor being added/removed; refresh
@@ -408,7 +408,7 @@ export function DeviceRegistryProvider({ children }: { children: ReactNode }): R
       label: primaryDevice?.name ?? 'SIM-X ButtonBox',
       detail: primaryDevice
         ? `${primaryDevice.path} · FW ${primaryDevice.firmwareVersion ?? 'SIM-X'}`
-        : 'Não conectado',
+        : 'Not connected',
       connected: primaryDevice !== null,
       path: primaryDevice?.path ?? null,
       info: primaryDevice
@@ -433,7 +433,7 @@ export function DeviceRegistryProvider({ children }: { children: ReactNode }): R
         id: `audio-output:${output.deviceId}`,
         transport: 'audio-output',
         label: output.label,
-        detail: 'Saída de áudio · Windows',
+        detail: 'Audio output · Windows',
         connected: true,
         deviceId: output.deviceId
       })
@@ -476,10 +476,10 @@ export function DeviceRegistryProvider({ children }: { children: ReactNode }): R
       connectPrimary,
       disconnectPrimary,
       testPrimaryOutput,
-      addSecondaryDevice,
-      removeSecondaryDevice,
-      reconnectSecondaryDevice,
-      disconnectSecondaryDevice
+      addDryndaryDevice,
+      removeDryndaryDevice,
+      reconnectDryndaryDevice,
+      disconnectDryndaryDevice
     }),
     [
       ports,
@@ -500,10 +500,10 @@ export function DeviceRegistryProvider({ children }: { children: ReactNode }): R
       connectPrimary,
       disconnectPrimary,
       testPrimaryOutput,
-      addSecondaryDevice,
-      removeSecondaryDevice,
-      reconnectSecondaryDevice,
-      disconnectSecondaryDevice
+      addDryndaryDevice,
+      removeDryndaryDevice,
+      reconnectDryndaryDevice,
+      disconnectDryndaryDevice
     ]
   )
 

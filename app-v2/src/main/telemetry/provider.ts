@@ -10,6 +10,6 @@ export interface TelemetryProvider {
   stop(): Promise<void> | void
   // O sim correspondente está rodando e enviando dados?
   isConnected(): boolean
-  // Snapshot mais recente já normalizado, ou null se indisponível.
+  // Snapshot mais recente já normalizado, ou null se indispolevel.
   poll(): TelemetrySnapshot | null
 }

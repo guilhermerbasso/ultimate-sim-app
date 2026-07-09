@@ -325,7 +325,7 @@ export function HardwareWorkspace({
     try {
       const detection = await window.ipc.invoke<{ found: boolean; reason?: string; configPath?: string; parsed?: SimHubDetectResult['parsed'] }>(SIMHUB_CHANNELS.detect)
       if (!detection.found) {
-        setError(`SimHub não encontrado: ${detection.reason ?? 'motivo desconhecido'}`)
+        setError(`SimHub not found: ${detection.reason ?? 'unknown reason'}`)
         return
       }
       setSimhubDialog(detection as SimHubDetectResult)
@@ -357,7 +357,7 @@ export function HardwareWorkspace({
       }
       setExpandedComponentId(result.profile.components.find((item) => componentMatches(item, focusTypes))?.id ?? null)
       setDirty(false)
-      showToast(`"${result.profile.label}" importado do SimHub.`, 'success')
+      showToast(`"${result.profile.label}" imported from SimHub.`, 'success')
     } catch (importError) {
       const message = getErrorMessage(importError)
       setError(message)
@@ -412,12 +412,12 @@ export function HardwareWorkspace({
       if (component?.type === 'rgbMatrix') {
         const sent = await window.ipc.invoke<boolean>('rgbmatrix:testMapped', `${targetId}:${componentId}`, 'all')
         if (!sent) {
-          const message = 'Conecte o Arduino do iFlag e habilite o componente (modo iFlag) para testar.'
+          const message = 'Connect the iFlag Arduino and enable the component (iFlag mode) to test.'
           setError(message)
           showToast(message, 'error')
           return
         }
-        showToast('iFlag testado via layout salvo (RGB Matrix).', 'success')
+        showToast('iFlag tested through the saved layout (RGB Matrix).', 'success')
         return
       }
       await window.ipc.invoke<void>(DEVICES_CHANNELS.test, targetId, componentId)
@@ -487,9 +487,9 @@ export function HardwareWorkspace({
               disabled={busy || disabled || simhubDetectBusy}
               onClick={() => void handleSimHubDetect()}
               type="button"
-              title="Detectar SimHub instalado e importar as configurações de hardware (placa, matriz, pinos)."
+              title="Detect installed SimHub and import hardware settings (board, matrix, pins)."
             >
-              {simhubDetectBusy ? '⏳ Detectando…' : '↓ Importar do SimHub'}
+              {simhubDetectBusy ? '⏳ Detecting…' : '↓ Import from SimHub'}
             </button>
           </div>
         </div>
@@ -571,15 +571,15 @@ export function HardwareWorkspace({
         {!draft ? (
           <article style={panel}>
             <span style={label}>Workspace</span>
-            <h3 style={{ margin: '8px 0 4px', fontSize: 18 }}>Nenhum dispositivo selecionado</h3>
-            <p style={{ ...helper, marginTop: 4 }}>Selecione um perfil na lista à esquerda ou crie um novo.</p>
+            <h3 style={{ margin: '8px 0 4px', fontSize: 18 }}>No device selected</h3>
+            <p style={{ ...helper, marginTop: 4 }}>Select a profile in the list on the left or create a new one.</p>
             <div style={{ ...card, marginTop: 14 }}>
-              <span style={label}>Primeiros passos</span>
+              <span style={label}>First steps</span>
               <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
                 {([
-                  ['⚡ Setup / Flash', 'Grava firmware e cria o perfil automaticamente — caminho recomendado.'],
-                  ['+ Add Arduino', 'Cria um perfil vazio para configurar manualmente.'],
-                  ['↓ Importar do SimHub', 'Importa placa e componentes já configurados no SimHub.']
+                  ['⚡ Setup / Flash', 'Flashes firmware and creates the profile automatically — recommended path.'],
+                  ['+ Add Arduino', 'Creates an empty profile to configure manually.'],
+                  ['↓ Import from SimHub', 'Imports the board and components already configured in SimHub.']
                 ] as [string, string][]).map(([action, desc]) => (
                   <div key={action} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                     <strong style={{ color: ACCENT, minWidth: 150, fontSize: 12 }}>{action}</strong>
@@ -594,7 +594,7 @@ export function HardwareWorkspace({
             {/* ── Device header: name + status badges + save/delete ── */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
               <div>
-                <span style={label}>Perfil de hardware</span>
+                <span style={label}>Hardware profile</span>
                 <h3 style={{ margin: '6px 0 0', fontSize: 20 }}>{draft.label || 'Arduino'}</h3>
                 <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                   <span style={badge}>{board.name}</span>
@@ -609,20 +609,20 @@ export function HardwareWorkspace({
                       ? `● ${linkedSummary.path}`
                       : linkedSummary
                         ? `○ ${linkedSummary.path} (offline)`
-                        : '○ Sem link serial'}
+                        : '○ No serial link'}
                   </span>
                   <span style={{ ...badge, borderColor: 'rgba(255,255,255,0.14)', color: 'rgba(255,255,255,0.55)' }}>
-                    {allComponentCount} componente{allComponentCount !== 1 ? 's' : ''} · {enabledComponentCount} ativo{enabledComponentCount !== 1 ? 's' : ''}
+                    {allComponentCount} component{allComponentCount !== 1 ? 's' : ''} · {enabledComponentCount} active
                   </span>
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-                {dirty && <Badge>não salvo</Badge>}
+                {dirty && <Badge>not saved</Badge>}
                 <button style={buttonStyle('primary')} disabled={busy || disabled || !dirty} onClick={() => void handleSave()} type="button">
-                  Salvar
+                  Save
                 </button>
                 <button style={buttonStyle('danger')} disabled={busy || disabled} onClick={() => void handleDeleteDevice()} type="button">
-                  Excluir
+                  Delete
                 </button>
               </div>
             </div>
@@ -633,28 +633,28 @@ export function HardwareWorkspace({
                 type="button"
                 className={rightSection === 'components' ? 'chip-toggle active' : 'chip-toggle'}
                 onClick={() => setRightSection('components')}
-                title="Adicionar, configurar e testar componentes deste Arduino"
+                title="Add, configure, and test this Arduino’s components"
               >
-                Componentes ({visibleComponents.length})
+                Components ({visibleComponents.length})
               </button>
               <button
                 type="button"
                 className={rightSection === 'identity' ? 'chip-toggle active' : 'chip-toggle'}
                 onClick={() => setRightSection('identity')}
-                title="Editar nome, placa, baud rate e porta serial vinculada"
+                title="Edit name, board, baud rate, and linked serial port"
               >
-                Identidade
+                Identity
               </button>
             </div>
 
             {/* ── Identity section ── */}
             {rightSection === 'identity' && (
               <div style={{ display: 'grid', gap: 12, opacity: disabled ? 0.65 : 1, pointerEvents: disabled ? 'none' : 'auto' }}>
-                <Field caption="Nome">
+                <Field caption="Name">
                   <TextField value={draft.label} onChange={(value) => updateDraft({ label: value })} placeholder="Ex.: iFlag Arduino" />
                 </Field>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                  <Field caption="Placa (board)">
+                  <Field caption="Board">
                     <SelectField value={draft.board} options={BOARD_OPTIONS} onChange={(value) => updateDraft({ board: value })} />
                   </Field>
                   <Field caption="Baud rate">
@@ -662,8 +662,8 @@ export function HardwareWorkspace({
                   </Field>
                 </div>
                 <Field
-                  caption="Porta serial vinculada"
-                  hint={linkedSummary ? `${linkedSummary.path} · ${linkedSummary.connected ? 'conectado' : 'offline'}` : 'Opcional — escolha a porta aberta em Conexões & Firmware.'}
+                  caption="Linked serial port"
+                  hint={linkedSummary ? `${linkedSummary.path} · ${linkedSummary.connected ? 'connected' : 'offline'}` : 'Optional — choose the open port in Connections & Firmware.'}
                 >
                   <div style={{ display: 'flex', gap: 8 }}>
                     <select
@@ -679,7 +679,7 @@ export function HardwareWorkspace({
                         padding: '8px 10px'
                       }}
                     >
-                      <option value="">(não vinculado)</option>
+                      <option value="">(not vinculado)</option>
                       {serialDevices.map((device) => (
                         <option key={device.id} value={device.id}>
                           {device.label} · {device.kind} {device.connected ? '●' : '○'}
@@ -687,7 +687,7 @@ export function HardwareWorkspace({
                       ))}
                     </select>
                     <button style={buttonStyle('ghost')} disabled={busy} onClick={() => void refreshSerialDevices()} type="button">
-                      Atualizar
+                      Refresh
                     </button>
                   </div>
                 </Field>
@@ -700,8 +700,8 @@ export function HardwareWorkspace({
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 12 }}>
                   <p style={{ ...helper, margin: 0 }}>
                     {visibleComponents.length === 0
-                      ? 'Nenhum componente neste perfil. Adicione um.'
-                      : `${enabledComponentCount}/${allComponentCount} habilitado${allComponentCount !== 1 ? 's' : ''}`}
+                      ? 'No components in this profile. Add one.'
+                      : `${enabledComponentCount}/${allComponentCount} enabled`}
                   </p>
                   <div ref={addMenuRef} style={{ position: 'relative' }}>
                     <button
@@ -711,9 +711,9 @@ export function HardwareWorkspace({
                       type="button"
                       aria-expanded={addMenuOpen}
                       aria-haspopup="menu"
-                      title="Adicionar componente (LED strip, screen, encoder, etc.)"
+                      title="Add component (LED strip, screen, encoder, etc.)"
                     >
-                      + Adicionar componente
+                      + Add component
                     </button>
                     {addMenuOpen && !disabled && (
                       <div
@@ -784,14 +784,14 @@ export function HardwareWorkspace({
                           />
                           <Badge>{TYPE_BADGE[component.type]}</Badge>
                           <Badge>{typeInfo.simhubEquivalent}</Badge>
-                          <button style={buttonStyle('ghost')} disabled={busy || disabled} onClick={() => void handleTest(component.id)} type="button" title="Envia frame de teste ao hardware">
+                          <button style={buttonStyle('ghost')} disabled={busy || disabled} onClick={() => void handleTest(component.id)} type="button" title="Sends test frame to hardware">
                             Testar
                           </button>
                           <button style={buttonStyle('soft', isExpanded)} onClick={() => setExpandedComponentId(isExpanded ? null : component.id)} type="button" aria-expanded={isExpanded}>
-                            {isExpanded ? 'Fechar' : 'Editar'}
+                            {isExpanded ? 'Close' : 'Edit'}
                           </button>
                           <button style={buttonStyle('danger')} disabled={disabled} onClick={() => removeComponent(component.id)} type="button">
-                            Remover
+                            Remove
                           </button>
                         </div>
                         {isExpanded && (
@@ -811,10 +811,10 @@ export function HardwareWorkspace({
                                 }}
                               >
                                 <div>
-                                  <strong style={{ display: 'block', fontSize: 13 }}>Editor do iFlag (RGB Matrix)</strong>
+                                  <strong style={{ display: 'block', fontSize: 13 }}>iFlag editor (RGB Matrix)</strong>
                                   <small style={{ color: 'rgba(255,255,255,0.65)' }}>
-                                    Layout, mapa de pixels e pilha de efeitos — fonte única de configuração do iFlag.
-                                    O botão Testar usa exatamente este layout salvo.
+                                    Layout, pixel map, and effect stack — the single source of truth for iFlag configuration.
+                                    O button Testar usa exatamente este layout saved.
                                   </small>
                                 </div>
                                 <button
@@ -823,7 +823,7 @@ export function HardwareWorkspace({
                                   disabled={disabled}
                                   onClick={() => onOpenRgbMatrix()}
                                 >
-                                  Abrir editor do iFlag →
+                                  Open iFlag editor →
                                 </button>
                               </div>
                             ) : null}
@@ -853,7 +853,7 @@ export function HardwareWorkspace({
         <div
           role="dialog"
           aria-modal="true"
-          aria-label="Importar do SimHub"
+          aria-label="Import from SimHub"
           style={{
             position: 'fixed',
             inset: 0,
@@ -865,24 +865,24 @@ export function HardwareWorkspace({
           }}
         >
           <article style={{ ...panel, width: 460, maxWidth: '90vw' }}>
-            <span style={label}>Importar do SimHub</span>
-            <h3 style={{ margin: '8px 0 14px', fontSize: 18 }}>Configuração detectada</h3>
+            <span style={label}>Import from SimHub</span>
+            <h3 style={{ margin: '8px 0 14px', fontSize: 18 }}>Detected configuration</h3>
 
             <div style={{ display: 'grid', gap: 8, marginBottom: 16 }}>
               <div style={card}>
-                <span style={label}>Arquivo</span>
+                <span style={label}>File</span>
                 <small style={{ display: 'block', marginTop: 4, color: 'rgba(255,255,255,0.65)', wordBreak: 'break-all' }}>
                   {simhubDialog.configPath}
                 </small>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <div style={card}>
-                  <span style={label}>Placa (SimHub)</span>
+                  <span style={label}>Board (SimHub)</span>
                   <strong style={{ display: 'block', marginTop: 4 }}>{simhubDialog.parsed.simhubBoardId}</strong>
                   <small style={{ color: 'rgba(255,255,255,0.55)' }}>→ {simhubDialog.parsed.board}</small>
                 </div>
                 <div style={card}>
-                  <span style={label}>Porta serial</span>
+                  <span style={label}>Serial port</span>
                   <strong style={{ display: 'block', marginTop: 4 }}>{simhubDialog.parsed.serialPort || '—'}</strong>
                 </div>
               </div>
@@ -890,11 +890,11 @@ export function HardwareWorkspace({
                 <span style={label}>Matriz WS2812B (iFlag)</span>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
                   {[
-                    ['Habilitada', simhubDialog.parsed.matrix.enabled ? 'Sim ✓' : 'Não'],
+                    ['Habilitada', simhubDialog.parsed.matrix.enabled ? 'Sim ✓' : 'Nao'],
                     ['Data pin', `D${simhubDialog.parsed.matrix.dataPin}`],
-                    ['Serpentine', simhubDialog.parsed.matrix.serpentine ? 'Sim' : 'Não'],
-                    ['Serpentine rev', simhubDialog.parsed.matrix.serpentineRev ? 'Sim' : 'Não'],
-                    ['Mirror H', simhubDialog.parsed.matrix.leftRightMirror ? 'Sim' : 'Não']
+                    ['Serpentine', simhubDialog.parsed.matrix.serpentine ? 'Sim' : 'Nao'],
+                    ['Serpentine rev', simhubDialog.parsed.matrix.serpentineRev ? 'Sim' : 'Nao'],
+                    ['Mirror H', simhubDialog.parsed.matrix.leftRightMirror ? 'Sim' : 'Nao']
                   ].map(([k, v]) => (
                     <div key={k as string}>
                       <small style={{ color: 'rgba(255,255,255,0.5)' }}>{k}</small>
@@ -906,16 +906,16 @@ export function HardwareWorkspace({
             </div>
 
             <p style={{ ...helper, marginBottom: 14 }}>
-              Um novo perfil de hardware será criado com a placa e o componente iFlag configurados conforme o SimHub.
-              Você poderá ajustar pinos e componentes adicionais depois.
+              A new hardware profile will be created with the board and iFlag component configured to match SimHub.
+              You can adjust pins and additional components later.
             </p>
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button style={buttonStyle('ghost')} onClick={() => setSimhubDialog(null)} type="button">
-                Cancelar
+                Cancel
               </button>
               <button style={buttonStyle('primary')} disabled={busy} onClick={() => void handleSimHubImport()} type="button">
-                Importar
+                Import
               </button>
             </div>
           </article>

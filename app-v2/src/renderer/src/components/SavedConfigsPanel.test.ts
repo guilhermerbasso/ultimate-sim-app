@@ -59,8 +59,8 @@ describe('summarizeSaved', () => {
 })
 
 describe('describeSaved', () => {
-  it('says "vazio" when nothing is saved', () => {
-    expect(describeSaved(info({ id: 'spotter' }))).toBe('vazio')
+  it('says "empty" when nothing is saved', () => {
+    expect(describeSaved(info({ id: 'spotter' }))).toBe('empty')
   })
 
   it('combines size, item count, and date for a saved file', () => {
@@ -68,18 +68,18 @@ describe('describeSaved', () => {
       info({ id: 'settings', exists: true, sizeBytes: 2048, itemCount: 2, modifiedAt: Date.UTC(2024, 0, 15, 12) })
     )
     expect(text).toContain('2 KB')
-    expect(text).toContain('2 entradas')
+    expect(text).toContain('2 entries')
     expect(text).toContain('2024')
   })
 
-  it('uses "arquivo(s)" wording for a dir section', () => {
+  it('uses "file(s)" wording for a dir section', () => {
     const text = describeSaved(info({ id: 'dashboards', kind: 'dir', exists: true, sizeBytes: 30, itemCount: 1 }))
-    expect(text).toContain('1 arquivo')
-    expect(text).not.toContain('arquivos')
+    expect(text).toContain('1 file')
+    expect(text).not.toContain('files')
   })
 
-  it('reports an unreadable section instead of "vazio" (MINOR-2 error flag)', () => {
-    expect(describeSaved(info({ id: 'settings', exists: false, error: true }))).toContain('erro ao ler')
+  it('reports an unreadable section instead of "empty" (MINOR-2 error flag)', () => {
+    expect(describeSaved(info({ id: 'settings', exists: false, error: true }))).toContain('read error')
   })
 })
 
@@ -139,9 +139,9 @@ describe('runDeleteAll (deleteAll sequencing — MINOR-3)', () => {
 describe('SavedConfigsPanel render', () => {
   it('renders the heading + userData warning without touching window.ipc on first paint', () => {
     const markup = renderToStaticMarkup(createElement(SavedConfigsPanel))
-    expect(markup).toContain('Configurações salvas')
+    expect(markup).toContain('Saved settings')
     expect(markup).toContain('userData')
-    expect(markup).toContain('Carregando')
+    expect(markup).toContain('Loading')
     // Defensive: the static markup must never leak a secret store label.
     expect(markup).not.toContain('credentials')
     expect(markup).not.toContain('oauth')

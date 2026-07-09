@@ -54,7 +54,7 @@ async function openClient(): Promise<TradingPaintsOpenClientResult> {
   }
 
   await shell.openExternal(INSTALL_URL)
-  return { ok: true, message: info.installed ? 'Trading Paints encontrado, mas não foi possível abrir o app. Abrindo site oficial.' : 'Trading Paints não encontrado. Abrindo site oficial.' }
+  return { ok: true, message: info.installed ? 'Trading Paints was found, but the app could not be opened. Opening the official website.' : 'Trading Paints not found. Opening the official website.' }
 }
 
 async function getPaintStatus(ctx: ModuleContext, request: TradingPaintsStatusRequest): Promise<TradingPaintsStatusResult> {

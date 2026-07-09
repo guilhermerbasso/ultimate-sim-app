@@ -704,11 +704,11 @@ class TrackMapModule {
 
   private async handleSetCredentials(input: TrackMapCredentialsInput): Promise<TrackMapAuthResult> {
     if (!input || typeof input.email !== 'string' || typeof input.password !== 'string') {
-      throw new Error('E-mail e senha são obrigatórios.')
+      throw new Error('Email and password are required.')
     }
     const email = input.email.trim()
-    if (!email) throw new Error('O e-mail é obrigatório.')
-    if (!input.password) throw new Error('A senha é obrigatória.')
+    if (!email) throw new Error('Email is required.')
+    if (!input.password) throw new Error('Password is required.')
 
     const hashedPassword = hashIRacingPassword(email, input.password)
     const creds: StoredCredentials = { email, hashedPassword, savedAt: Date.now() }
@@ -742,9 +742,9 @@ class TrackMapModule {
   // Complete the MFA / verification-code challenge started by setCredentials.
   private async handleSubmitMfa(input: TrackMapMfaInput): Promise<TrackMapAuthResult> {
     const code = typeof input?.code === 'string' ? input.code.trim() : ''
-    if (!code) throw new Error('Informe o código de verificação enviado pelo iRacing.')
+    if (!code) throw new Error('Enter the verification code sent by iRacing.')
     if (!this.pendingMfa) {
-      throw new Error('Nenhuma verificação pendente. Faça o login novamente para receber um novo código.')
+      throw new Error('No pending verification. Sign in again to receive a new code.')
     }
     const { api, credentials } = this.pendingMfa
     this.authStatus = 'authenticating'
@@ -927,7 +927,7 @@ class TrackMapModule {
   // What the renderer shows under "Saved login". For the browser path there is
   // no stored e-mail (we only hold a cookie), so we show a clear, honest label.
   private statusIdentity(): string | undefined {
-    if (this.loginMethod === 'browser') return 'Sessão do navegador (iRacing)'
+    if (this.loginMethod === 'browser') return 'Browser session (iRacing)'
     return this.credentials?.email
   }
 
@@ -972,17 +972,17 @@ function getTelemetryTrackId(snapshot: TelemetrySnapshot): number | undefined {
 function browserLoginCancelledMessage(reason: BrowserLoginResult['reason']): string {
   if (reason === 'timeout') {
     return (
-      'O login do iRacing expirou por inatividade. Você pode tentar novamente quando quiser — o mapa ' +
+      'The iRacing login expired due to inactivity. You can try again whenever you want — the map ' +
       'offline (telemetria) continua funcionando sem login.'
     )
   }
   if (reason === 'failed') {
     return (
-      'Não foi possível abrir a página de login do iRacing. Verifique sua conexão e tente novamente. ' +
-      'O mapa offline (telemetria) continua funcionando sem login.'
+      'Could not open the iRacing login page. Check your connection and try again. ' +
+      'The offline map (telemetry) keeps working without login.'
     )
   }
-  return 'Login cancelado. O mapa offline (telemetria) continua funcionando sem login.'
+  return 'Login cancelado. The offline map (telemetry) keeps working without login.'
 }
 
 function hasRenderableSvg(asset: CachedAssetWithSvg): boolean {

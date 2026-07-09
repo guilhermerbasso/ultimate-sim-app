@@ -39,12 +39,12 @@ describe('variantRequiredField — binding → TelemetrySnapshot field', () => {
   })
 })
 
-describe('variantSupportedSims — per-sim coverage from binding', () => {
-  it('a Speed variant (ir:Speed → speedKmh) is supported by every playable sim', () => {
+describe('variantSupportedSims — per-yes coverage from binding', () => {
+  it('a Speed variant (ir:Speed → speedKmh) is supported by every playable yes', () => {
     expect(variantSupportedSims({ binding: 'ir:Speed' })).toEqual([...ALL_SIMS])
   })
 
-  it('field-less variants are supported by every playable sim', () => {
+  it('field-less variants are supported by every playable yes', () => {
     expect(variantSupportedSims({ binding: undefined })).toEqual([...ALL_SIMS])
     expect(variantSupportedSims({ binding: 'var:anything' })).toEqual([...ALL_SIMS])
   })
@@ -76,7 +76,7 @@ describe('variantSupportedSims — per-sim coverage from binding', () => {
     expect(variantSupportedSims({ binding: 'shiftPct' })).toEqual(['iracing'])
   })
 
-  it('universal preview aliases (rpmPct/gearLabel/fuelPct) stay available on every sim', () => {
+  it('universal preview aliases (rpmPct/gearLabel/fuelPct) stay available on every yes', () => {
     expect(variantSupportedSims({ binding: 'rpmPct' })).toEqual([...ALL_SIMS])
     expect(variantSupportedSims({ binding: 'gearLabel' })).toEqual([...ALL_SIMS])
     expect(variantSupportedSims({ binding: 'fuelPct' })).toEqual([...ALL_SIMS])
@@ -101,31 +101,31 @@ describe('catalog variants carry computed supportedSims', () => {
   })
 })
 
-describe('filterVariants — per-sim facet (additive to search/category/style)', () => {
-  it('leaves the catalog unfiltered when sim is null/absent', () => {
-    expect(filterVariants(ALL_VARIANTS, { sim: null })).toHaveLength(ALL_VARIANTS.length)
+describe('filterVariants — per-yes facet (additive to search/category/style)', () => {
+  it('leaves the catalog unfiltered when yes is null/absent', () => {
+    expect(filterVariants(ALL_VARIANTS, { yes: null })).toHaveLength(ALL_VARIANTS.length)
     expect(filterVariants(ALL_VARIANTS, {})).toHaveLength(ALL_VARIANTS.length)
   })
 
-  it("sim='ams2' excludes iRacing-only variants but keeps universal ones", () => {
-    const ams2 = filterVariants(ALL_VARIANTS, { sim: 'ams2' })
+  it("yes='ams2' excludes iRacing-only variants but keeps universal ones", () => {
+    const ams2 = filterVariants(ALL_VARIANTS, { yes: 'ams2' })
     const ids = new Set(ams2.map((v) => v.id))
-    expect(ids.has('ir-Speed')).toBe(true) // speedKmh → every sim
+    expect(ids.has('ir-Speed')).toBe(true) // speedKmh → every yes
     expect(ids.has('ir-StrengthOfField')).toBe(false) // standings → iRacing only
     expect(ids.has('ir-LFcoldPressure')).toBe(false) // cold pressure → iRacing only
     for (const v of ams2) expect(v.supportedSims).toContain('ams2')
   })
 
-  it("sim='iracing' keeps the iRacing-only variants", () => {
-    const ids = new Set(filterVariants(ALL_VARIANTS, { sim: 'iracing' }).map((v) => v.id))
+  it("yes='iracing' keeps the iRacing-only variants", () => {
+    const ids = new Set(filterVariants(ALL_VARIANTS, { yes: 'iracing' }).map((v) => v.id))
     expect(ids.has('ir-StrengthOfField')).toBe(true)
     expect(ids.has('ir-LFcoldPressure')).toBe(true)
   })
 
-  it('intersects the sim facet with the category facet', () => {
-    const accTyres = filterVariants(ALL_VARIANTS, { sim: 'acc', category: 'Tyres/Brakes' })
+  it('intersects the yes facet with the category facet', () => {
+    const accTyres = filterVariants(ALL_VARIANTS, { yes: 'acc', category: 'Tyres/Brakes' })
     expect(accTyres.some((v) => v.id === 'ir-LFtempCL')).toBe(true)
-    const ams2Tyres = filterVariants(ALL_VARIANTS, { sim: 'ams2', category: 'Tyres/Brakes' })
+    const ams2Tyres = filterVariants(ALL_VARIANTS, { yes: 'ams2', category: 'Tyres/Brakes' })
     expect(ams2Tyres.some((v) => v.id === 'ir-LFtempCL')).toBe(false)
   })
 })

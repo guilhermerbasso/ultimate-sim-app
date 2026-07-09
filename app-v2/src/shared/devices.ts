@@ -103,7 +103,7 @@ export const BOARDS: BoardInfo[] = [
     nativeUsbHid: false,
     defaultBaud: 115200,
     fqbn: 'arduino:avr:nano',
-    notes: 'Boa opção barata para iFlag (matriz 8x8) num device secundário.'
+    notes: 'Good budget option for iFlag (8x8 matrix) on a secondary device.'
   },
   {
     id: 'mega2560',
@@ -167,8 +167,8 @@ export const BOARDS: BoardInfo[] = [
   },
   {
     id: 'generic',
-    name: 'Outro / genérico',
-    mcu: 'desconhecido',
+    name: 'Other / generic',
+    mcu: 'unknown',
     digitalPins: 14,
     analogPins: 6,
     pwmPins: [],
@@ -215,7 +215,7 @@ export const COMPONENT_TYPES: ComponentTypeInfo[] = [
   {
     type: 'rgbStrip',
     name: 'RGB LEDs (fita)',
-    description: 'Fita endereçável WS2812/SK6812 para rev lights, bandeiras ou efeitos.',
+    description: 'WS2812/SK6812 addressable strip for rev lights, flags, or effects.',
     simhubEquivalent: 'RGB Leds',
     requiredPins: [{ role: 'data', label: 'Data (DIN)', kind: 'digital' }],
     capabilityKey: 'rgbStrip'
@@ -223,7 +223,7 @@ export const COMPONENT_TYPES: ComponentTypeInfo[] = [
   {
     type: 'rgbMatrix',
     name: 'RGB Matrix (iFlag)',
-    description: 'Matriz RGB (ex.: 8x8 WS2812) para bandeiras, ícones, marcha e texto rolante.',
+    description: 'Matriz RGB (ex.: 8x8 WS2812) para flags, icons, gear e scrolling text.',
     simhubEquivalent: 'RGB Matrix',
     requiredPins: [{ role: 'data', label: 'Data (DIN)', kind: 'digital' }],
     capabilityKey: 'rgbMatrix'
@@ -231,7 +231,7 @@ export const COMPONENT_TYPES: ComponentTypeInfo[] = [
   {
     type: 'screen',
     name: 'Tela (OLED / LCD)',
-    description: 'OLED SSD1306 ou LCD de caracteres HD44780 com páginas de telemetria.',
+    description: 'SSD1306 OLED or HD44780 character LCD with telemetry pages.',
     simhubEquivalent: 'Screens',
     requiredPins: [
       { role: 'sda', label: 'SDA', kind: 'i2c' },
@@ -242,7 +242,7 @@ export const COMPONENT_TYPES: ComponentTypeInfo[] = [
   {
     type: 'segDisplay',
     name: 'Display 7-seg (TM1638/MAX7219)',
-    description: 'Display de 7 segmentos para marcha, velocidade, RPM ou volta.',
+    description: 'Display de 7 segmentos para gear, speed, RPM ou lap.',
     simhubEquivalent: 'TM1638 / Gauges',
     requiredPins: [
       { role: 'clk', label: 'CLK', kind: 'digital' },
@@ -254,15 +254,15 @@ export const COMPONENT_TYPES: ComponentTypeInfo[] = [
   {
     type: 'gauge',
     name: 'Ponteiro (servo/stepper)',
-    description: 'Mostrador analógico com servo SG90 ou stepper X27.168.',
+    description: 'Mostrador analog com servo SG90 ou stepper X27.168.',
     simhubEquivalent: 'Gauges',
     requiredPins: [{ role: 'signal', label: 'Sinal/PWM', kind: 'pwm' }],
     capabilityKey: 'gauge'
   },
   {
     type: 'control',
-    name: 'Controles (botões/encoders)',
-    description: 'Botões, encoders e eixos analógicos mapeados para HID/ações.',
+    name: 'Controls (buttons/encoders)',
+    description: 'Buttons, encoders, and analog axes mapped to HID/actions.',
     simhubEquivalent: 'Controls',
     requiredPins: [{ role: 'first', label: 'Primeiro pino', kind: 'any', optional: true }],
     capabilityKey: 'control'
@@ -270,7 +270,7 @@ export const COMPONENT_TYPES: ComponentTypeInfo[] = [
   {
     type: 'buzzer',
     name: 'Buzzer (piezo)',
-    description: 'Alerta sonoro por piezo, integrado aos Alertas.',
+    description: 'Sound alert por piezo, integrated with Alerts.',
     simhubEquivalent: 'Display & Alerts',
     requiredPins: [{ role: 'signal', label: 'Sinal', kind: 'digital' }],
     capabilityKey: 'buzzer'
@@ -278,7 +278,7 @@ export const COMPONENT_TYPES: ComponentTypeInfo[] = [
   {
     type: 'startLed',
     name: 'LED de status',
-    description: 'LED único dirigido por telemetria (pit limiter, DRS, etc.).',
+    description: 'Single LED driven by telemetry (pit limiter, DRS, etc.).',
     simhubEquivalent: 'Display & Alerts',
     requiredPins: [{ role: 'signal', label: 'Sinal', kind: 'digital' }],
     capabilityKey: 'startLed'
@@ -696,7 +696,7 @@ export function createComponent(type: ComponentType): DeviceComponent {
       return {
         ...base,
         type,
-        label: 'Controles',
+        label: 'Controls',
         buttons: 0,
         encoders: 0,
         analogs: 0,

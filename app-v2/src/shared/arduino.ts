@@ -166,7 +166,7 @@ export const SIMX_HARDWARE_PROFILE: ArduinoHardwareProfile = {
       name: 'Rev Lights WS2812B (4 LEDs)',
       kind: 'leds',
       connection: 'D10 (REV_LED_PIN)',
-      detail: 'Nível 0..4 via "R". Cores fixas no firmware: 1 verde, 2 amarelos, 1 vermelho. Pisca azul de shift via "B".'
+      detail: 'Level 0..4 via "R". Fixed firmware colors: 1 green, 2 yellow, 1 red. Blue shift flash via "B".'
     },
     {
       id: 'mux1',
@@ -180,42 +180,42 @@ export const SIMX_HARDWARE_PROFILE: ArduinoHardwareProfile = {
       name: 'MUX2 CD74HC4067',
       kind: 'mux',
       connection: 'Sinal D9/A9 · seletores D4-D7',
-      detail: '3 botões laranja, 3 verdes, 3 azuis, e o joystick analógico KY-023 (VRX/VRY via analogRead(A9), SW digital).'
+      detail: '3 buttons laranja, 3 green, 3 blue, e o joystick analog KY-023 (VRX/VRY via analogRead(A9), SW digital).'
     },
     {
       id: 'mux3',
       name: 'MUX3 CD74HC4067',
       kind: 'mux',
       connection: 'Sinal A0 · seletores D4-D7',
-      detail: '8 botões Cherry MX (RAD, DRS, WIP, INFO, TEMP, LAP, PIT, OK). C8-C15 livres (hot-swap futuro).'
+      detail: '8 buttons Cherry MX (RAD, DRS, WIP, INFO, TEMP, LAP, PIT, OK). C8-C15 livres (hot-swap futuro).'
     },
     {
       id: 'encoders',
       name: '4× Encoder KY-040 (EC11)',
       kind: 'encoder',
       connection: 'ENC1 D14/D15 · ENC2 D16/A3 · ENC3 A2/A1 · ENC4 via MUX1 C14/C15',
-      detail: 'TC, ABS, BIAS, MAP. CW/CCW enviados ao app/SimHub via serial "E<idx>:±1"; push dos encoders são HID.'
+      detail: 'TC, ABS, BIAS, MAP. CW/CCW sent to the app/SimHub through serial "E<idx>:±1"; encoder pushes are HID.'
     },
     {
       id: 'joystick',
-      name: 'Joystick analógico KY-023',
+      name: 'Joystick analog KY-023',
       kind: 'analog',
       connection: 'MUX2 — VRX C14, VRY C15, SW C13',
-      detail: 'Eixos X/Y → POV hat HID. Botão de clique → HID 31.'
+      detail: 'Axes X/Y → POV hat HID. Button de click → HID 31.'
     },
     {
       id: 'startled',
       name: 'LED START',
       kind: 'status',
       connection: 'TXLED interno do Pro Micro',
-      detail: 'Aceso/apagado via "S1"/"S0". TXLED também pisca com tráfego serial (não é status 100% estável).'
+      detail: 'On/off via "S1"/"S0". TXLED also blinks with serial traffic (not a 100% stable status).'
     },
     {
       id: 'hid',
       name: 'USB HID Joystick',
       kind: 'output',
       connection: 'USB nativo (ATmega32U4)',
-      detail: '32 botões + POV hat. Remapeamento é feito no próprio iRacing (HID fixo no firmware).'
+      detail: '32 buttons + POV hat. Remapping is done in iRacing itself (HID fixo no firmware).'
     }
   ]
 }
@@ -239,16 +239,16 @@ export const SIMX_FIRMWARE_INFO: ArduinoFirmwareInfo = {
     'U8g2 (olikraus)'
   ],
   reflashSteps: [
-    'Abra o button_box.ino no Arduino IDE (o app guarda uma cópia de referência inalterada em firmware/sim-x-reference/).',
-    'Placa: "Arduino Leonardo" (ou SparkFun Pro Micro 5V/16MHz). Selecione a porta COM correta.',
+    'Open button_box.ino in Arduino IDE (the app keeps an unchanged reference copy in firmware/sim-x-reference/).',
+    'Board: "Arduino Leonardo" (or SparkFun Pro Micro 5V/16MHz). Select the correct COM port.',
     'Instale as 4 bibliotecas listadas pelo Library Manager.',
-    'Feche este app e o SimHub (a porta serial é exclusiva) antes de gravar.',
-    'Compile e grave. NÃO altere o firmware — ele funciona no app E no SimHub sem mudanças.'
+    'Close this app and SimHub (the serial port is exclusive) before flashing.',
+    'Compile and flash. Do NOT change the firmware — it works in the app AND SimHub without changes.'
   ],
   notes: [
-    'O firmware NÃO reporta a versão pela serial, então a detecção automática não está disponível — use esta referência (rev38).',
-    'Tudo no painel "Configuração" é ajuste de runtime: aplica na hora, sem regravar.',
-    'A serial 115200 é exclusiva: o app e o SimHub não podem abrir a mesma porta ao mesmo tempo.'
+    'The firmware does NOT report its version over serial, so automatic detection is unavailable — use this reference (rev38).',
+    'Everything in the "Configuration" panel is a runtime setting: it applies immediately, without reflashing.',
+    'The 115200 serial port is exclusive: the app and SimHub cannot open the same port at the same time.'
   ]
 }
 

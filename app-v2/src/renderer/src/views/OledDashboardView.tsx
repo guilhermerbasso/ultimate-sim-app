@@ -116,7 +116,7 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
     try {
       const saved = await window.ipc.invoke<OledDashboardConfig>('oled:setConfig', next)
       setConfig(saved)
-      showToast('Configuração do OLED salva.', 'success')
+      showToast('OLED configuration saved.', 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -129,7 +129,7 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
       ? config.pages.filter((page) => page !== id)
       : [...config.pages, id]
     if (pages.length === 0) {
-      showToast('Mantenha pelo menos uma página ativa.', 'error')
+      showToast('Keep at least one page active.', 'error')
       return
     }
     await persistConfig({ pages, activeIndex: Math.min(config.activeIndex, pages.length - 1), intervalMs: config.intervalMs })
@@ -162,7 +162,7 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
     try {
       const saved = await window.ipc.invoke<OledDashboardConfig>('oled:setStreaming', enabled)
       setConfig(saved)
-      showToast(enabled ? 'Streaming OLED ativo.' : 'Streaming OLED parado. Porta liberada.', 'success')
+      showToast(enabled ? 'OLED streaming active.' : 'OLED streaming stopped. Port released.', 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -181,9 +181,9 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
           <div>
             <span style={label}>Preset builder</span>
-            <h3 style={{ margin: '8px 0 4px', fontSize: 28 }}>Páginas prontas, sem código</h3>
+            <h3 style={{ margin: '8px 0 4px', fontSize: 28 }}>Ready-made pages, no code</h3>
             <p style={{ margin: 0, color: 'rgba(255,255,255,0.62)' }}>
-              Escolha o que entra no OLED e ordene a rotação durante o stint.
+              Choose what goes on the OLED and order the rotation during the stint.
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -199,7 +199,7 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
               }}
               type="button"
             >
-              {config.enabled ? 'Parar' : 'Ativar'} streaming
+              {config.enabled ? 'Stop' : 'Enable'} streaming
             </button>
           </div>
         </div>
@@ -255,7 +255,7 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
 
       <div style={{ display: 'grid', gap: 18 }}>
         <article style={panel}>
-          <span style={label}>Ordem e rotação</span>
+          <span style={label}>Order and rotation</span>
           <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
             {selectedPresets.map((preset, index) => (
               <div
@@ -275,13 +275,13 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
                 <span>{preset.name}</span>
                 <button disabled={busy} onClick={() => void movePreset(preset.id, -1)} style={miniButton} type="button">↑</button>
                 <button disabled={busy} onClick={() => void movePreset(preset.id, 1)} style={miniButton} type="button">↓</button>
-                <button disabled={busy} onClick={() => void setActivePage(index)} style={miniButton} type="button">Ver</button>
+                <button disabled={busy} onClick={() => void setActivePage(index)} style={miniButton} type="button">View</button>
               </div>
             ))}
           </div>
 
           <label style={{ display: 'grid', gap: 8, marginTop: 16 }}>
-            <span style={label}>Intervalo de rotação</span>
+            <span style={label}>Rotation interval</span>
             <input
               max={OLED_MAX_INTERVAL_MS}
               min={OLED_MIN_INTERVAL_MS}
@@ -292,7 +292,7 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
               type="range"
               value={config.intervalMs}
             />
-            <strong>{(config.intervalMs / 1000).toFixed(2)}s por página</strong>
+            <strong>{(config.intervalMs / 1000).toFixed(2)}s per page</strong>
           </label>
         </article>
 
@@ -344,18 +344,18 @@ export default function OledDashboardView({ showToast }: AppViewProps): ReactEle
 
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
               <button disabled={busy} onClick={() => void setActivePage(previousIndex)} style={{ ...buttonBase, background: 'rgba(255,255,255,0.06)' }} type="button">
-                Página anterior
+                Previous page
               </button>
               <button disabled={busy} onClick={() => void setActivePage(nextIndex)} style={{ ...buttonBase, background: 'rgba(255,255,255,0.06)' }} type="button">
-                Próxima página
+                Next page
               </button>
             </div>
 
             <p style={{ color: 'rgba(255,255,255,0.56)', fontSize: 12, marginBottom: 0 }}>
               {connectedDevice
-                ? `Porta ${connectedDevice.path}. Feche o streaming antes de usar SimHub.`
-                : 'Conecte o ButtonBox em Dispositivos antes de ativar o streaming.'}
-              {status?.lastError ? ` Erro: ${status.lastError}` : ''}
+                ? `Port ${connectedDevice.path}. Close streaming before using SimHub.`
+                : 'Connect the ButtonBox in Devices before enabling streaming.'}
+              {status?.lastError ? ` Error: ${status.lastError}` : ''}
             </p>
           </div>
         </article>

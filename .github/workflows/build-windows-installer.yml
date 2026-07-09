@@ -1,7 +1,7 @@
 name: Build Windows Installer
 
-# Gera o instalador .exe (NSIS) do "Ultimate Sim App" num runner Windows real.
-# Dispare manualmente (aba Actions -> Build Windows Installer -> Run workflow) ou via tag v*.
+# Builds the "Ultimate Sim App" NSIS .exe installer on a real Windows runner.
+# Trigger manually (Actions tab -> Build Windows Installer -> Run workflow) or via a v* tag.
 
 on:
   workflow_dispatch: {}
@@ -19,11 +19,11 @@ jobs:
       run:
         working-directory: app-v2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: app-v2/package-lock.json
 
@@ -44,7 +44,7 @@ jobs:
             app-v2/dist-win/latest.yml
           if-no-files-found: error
 
-      # Em pushes de tag v*, anexa o instalador a uma Release do GitHub.
+      # On v* tag pushes, attach the installer to a GitHub Release.
       - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2

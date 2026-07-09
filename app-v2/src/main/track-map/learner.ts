@@ -50,7 +50,7 @@ import {
 } from './corner-map'
 
 const LEARNED_DIR = 'learned'
-// Auto-numbered corner maps (Curva 1..N) live alongside the learned outlines, one
+// Auto-numbered corner maps (Turn 1..N) live alongside the learned outlines, one
 // JSON per track + detection-config. They are derived from the SAME clean lap.
 const CORNERS_DIR = 'corners'
 
@@ -361,7 +361,7 @@ export class TrackMapLearner {
     return Array.from(this.cache.values())
   }
 
-  // ── Corner map (Curva 1..N) public getters ─────────────────────────────────
+  // ── Corner map (Turn 1..N) public getters ─────────────────────────────────
   // Auto-numbered corner map for a track LAYOUT, scoped to the CURRENT detection
   // config (a config change re-learns the map on the next clean lap). Pass the
   // iRacing TrackConfigName so two layouts of one track resolve to their own map;
@@ -627,7 +627,7 @@ export class TrackMapLearner {
         error: error instanceof Error ? error.message : String(error)
       })
     })
-    // Derive & persist the auto-numbered corner map (Curva 1..N) from the SAME
+    // Derive & persist the auto-numbered corner map (Turn 1..N) from the SAME
     // clean lap. Failure here never blocks the outline — the corner map is a
     // best-effort overlay (no map → per-sector coaching still works).
     await this.learnCornerMap(captured, snapshot.timestamp)
@@ -1087,33 +1087,33 @@ function round3(value: number): number {
 function reasonLabel(reason: LearnReason): string {
   switch (reason) {
     case 'idle':
-      return 'Aguardando telemetria'
+      return 'Waiting for telemetry'
     case 'not-connected':
-      return 'Sim não conectado'
+      return 'Sim not connected'
     case 'no-track-name':
-      return 'Aguardando nome da pista'
+      return 'Waiting for track name'
     case 'no-lap-dist-pct':
-      return 'Sem progresso de volta (LapDistPct) do sim'
+      return 'No lap progress (LapDistPct) from the sim'
     case 'too-slow':
-      return 'Carro muito lento — acelere para gravar o mapa'
+      return 'Car too slow — speed up to record the map'
     case 'no-acquisition-mode':
-      return 'Sem dados de posição do sim (velocidade/yaw ou lat/lon)'
+      return 'No position data from the sim (speed/yaw or lat/lon)'
     case 'time-gap':
-      return 'Telemetria pausada — retomando gravação'
+      return 'Telemetry paused — resuming recording'
     case 'teleport-reset':
-      return 'Posição reiniciou (tow/reset) — recomeçando a gravação'
+      return 'Position reset (tow/reset) — restarting recording'
     case 'warming-up':
-      return 'Indo até a linha de chegada para iniciar a gravação…'
+      return 'Going to the start/finish line to begin recording…'
     case 'recording':
-      return 'Aprendendo mapa…'
+      return 'Learning map…'
     case 'wrap-too-early':
-      return 'Volta muito curta — recomeçando a gravação'
+      return 'Lap too short — restarting recording'
     case 'too-few-samples':
-      return 'Amostras insuficientes na volta — gravando novamente'
+      return 'Amostras insuficientes na lap — gravando novamente'
     case 'degenerate-path':
-      return 'Traçado degenerado — gravando novamente'
+      return 'Degenerate racing line — recording again'
     case 'learned':
-      return 'Mapa aprendido'
+      return 'Map learned'
     default:
       return ''
   }

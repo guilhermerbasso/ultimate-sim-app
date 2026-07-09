@@ -12,7 +12,7 @@
 //     'sessionTimeLeftFmt', 'fuelLitersStr', 'fuelPerLapStr', 'fuelLapsLeftStr'
 // Para elementos especiais ('shiftlights','bar','gauge','map','radar') o binding
 // determina a métrica de entrada (ex.: 'shiftPct' para shiftlights, 'fuelLitersPct'
-// para barras de combustível, etc.).
+// para barras de fuel, etc.).
 
 // Wave-16 dashboards (futuristic + minimalist) live in a separate owned module
 // and are spread into BUILTIN_PRESETS below. dashboards-r16.ts only imports
@@ -24,7 +24,16 @@ import { RACE_WET_PRESETS } from './dashboards-race-wet'
 import { RACE_SUN_PRESETS } from './dashboards-race-sun'
 import { RACE_FIRST_PRESETS } from './dashboards-race-first'
 import { RACE_CHASE_PRESETS } from './dashboards-race-chase'
-import { DASHBOARDS2 } from './dashboards2/catalog'
+// Hi-fi COMPOSITION dashboards (self-contained leaf modules; each imports only the
+// composition kit which imports TYPES from here). Authored in parallel, one file per
+// theme, and spread into BUILTIN_PRESETS below. They compose the hi-fi per-telemetry
+// widgets (`hifi:<id>`) into 1024×600 layouts.
+import { HIFI_RACE_PRESETS } from './dashboards-hifi-race'
+import { HIFI_ENDURANCE_PRESETS } from './dashboards-hifi-endurance'
+import { HIFI_COACH_PRESETS } from './dashboards-hifi-coach'
+import { HIFI_FAMILY_PRESETS } from './dashboards-hifi-family'
+import { HIFI_CARS_PRESETS } from './dashboards-hifi-cars'
+import { HIFI_COMPARE_PRESETS } from './dashboards-hifi-compare'
 // WS-5 cross-agent contract: the adaptive-dashboards agent owns this NEW module
 // and exports ADAPTIVE_DASHBOARD_PRESET (a BUILTIN_PRESETS entry). It only imports
 // the Dashboard TYPE from here, so this stays a one-way dependency with no runtime
@@ -65,22 +74,22 @@ export type DashboardElementType =
   // estilo GT3 (carbono escuro, barras segmentadas, rampas de cor). Aditivos:
   // os tipos primitivos acima continuam funcionando.
   | 'shiftbar' // RPM/shift segmentado v2 (gradiente + flash no ponto de troca)
-  | 'gearcluster' // marcha central gigante + velocidade + RPM
-  | 'tyregrid' // pneus 2×2 (temp/pressão/desgaste) com rampa térmica
-  | 'brakegrid' // freios 2×2 com rampa térmica
-  | 'cornerstack' // cartão por canto (pneu temp/pressão/desgaste + freio)
-  | 'fuelstint' // calculadora de combustível/stint
-  | 'deltatile' // delta preditivo (barra central + número grande)
-  | 'laptiming' // tempos de volta (atual/última/melhor + delta)
-  | 'positiongaps' // posição/classe + gaps frente/trás
-  | 'flagoverlay' // overlay de bandeiras/avisos v2 (prioridade + flash)
+  | 'gearcluster' // central gear gigante + speed + RPM
+  | 'tyregrid' // tires 2×2 (temp/pressão/wear) com rampa térmica
+  | 'brakegrid' // brakes 2×2 com rampa térmica
+  | 'cornerstack' // cartão por canto (tire temp/pressão/wear + brake)
+  | 'fuelstint' // calculadora de fuel/stint
+  | 'deltatile' // delta preditivo (barra central + number grande)
+  | 'laptiming' // tempos de lap (atual/last/melhor + delta)
+  | 'positiongaps' // position/classe + gaps frente/trás
+  | 'flagoverlay' // overlay de flags/avisos v2 (prioridade + flash)
   | 'inputbars' // barras verticais throttle/brake/clutch
   | 'inputtrace' // trace multi-canal (throttle/brake/steering)
-  | 'steering' // ângulo de volante (barra/arco)
+  | 'steering' // ângulo de steering (barra/arco)
   | 'setupstrip' // ABS/TC/MAP/BB + limitador + incidentes
   | 'enginetemps' // água/óleo/pressão de óleo (bindings configuráveis)
   | 'weather' // condição de pista/ar/molhado/grip
-  | 'trackmini' // mini mapa de progresso (loop + marcadores)
+  | 'trackmini' // mini map de progresso (loop + marcadores)
   // ── Curated iRacing widgets: every concept has clean + elaborate variants ──
   | 'tyres-clean' | 'tyres-elaborate'
   | 'abs-clean' | 'abs-elaborate'
@@ -188,8 +197,8 @@ export type DashboardScaleMode = 'fit' | 'fill' | 'stretch'
 // ── Estilo granular por "slot" de texto dentro de um widget ───────────────────
 // Widgets compostos (ex.: um valor rotulado, tabelas/standings, gauges) desenham
 // vários textos internos a partir de UM único DashboardElementStyle. Para estilizar
-// CADA texto separadamente, o estilo pode declarar overrides por slot em
-// `slots[<nome>]`. Cada campo é opcional e cai no default do renderer quando ausente
+// CADA texto sestopmente, o estilo pode declarar overrides por slot em
+// `slots[<nome>]`. Cada campo é opcional e cai no default do renderer quando missing
 // (retro-compatibilidade: presets sem `slots` renderizam idênticos).
 export interface TextSlotStyle {
   fontFamily?: string
@@ -301,6 +310,8 @@ export interface DashboardElementStyle {
   // ── Dualbar (ex.: throttle + brake): binding secundário + cor secundária ──
   secondaryBinding?: string
   secondaryColor?: string
+  dryndaryBinding?: string
+  dryndaryColor?: string
   // ── Deltabar: range em segundos para mapear o ponteiro (default 1.0) ─────
   deltaRangeSec?: number
   // ── Flag: chave da flag a observar (ex.: 'yellow','blue','red','checkered')
@@ -322,7 +333,7 @@ export interface DashboardElementStyle {
   reverse?: boolean // se true, preenche de cima p/ baixo
   // ── Widgets GT3 (config semântica) ─────────────────────────────────────────
   // Todos opcionais e aditivos. Lidos pelos renderers GT3 (gt3-widgets.tsx) e
-  // pelos previews do editor. Defaults sensatos quando ausentes.
+  // pelos previews do editor. Defaults sensatos quando missing.
   flashAt?: number // shiftbar: ponto de flash (0..1) — default 0.97
   flashColor?: string // cor do flash (default branco/azul)
   glow?: boolean // brilho/LED glow nos segmentos ativos
@@ -342,8 +353,8 @@ export interface DashboardElementStyle {
   targetValue?: number // tyregrid pressão: alvo (kPa)
   tolerance?: number // tyregrid pressão: tolerância (kPa)
   // Fuel/stint:
-  reserveLaps?: number // voltas de reserva a manter
-  warnAtLaps?: number // alerta quando voltas restantes < x
+  reserveLaps?: number // laps de reserva a manter
+  warnAtLaps?: number // alerta quando laps remaining < x
   enduranceMode?: boolean
   // Delta/lap timing:
   deltaReference?: 'best' | 'session' | 'last' // referência do delta
@@ -358,7 +369,7 @@ export interface DashboardElementStyle {
   // Inputs / steering:
   channels?: string[] // inputbars/inputtrace: ex.: ['throttle','brake','clutch']
   orientation?: 'h' | 'v'
-  maxDegrees?: number // steering: range do volante
+  maxDegrees?: number // steering: range do steering
   showNumeric?: boolean
   // Multi-binding (widgets que precisam de várias séries; podem usar var:/expr:):
   fields?: string[] // setupstrip/enginetemps: subcampos visíveis
@@ -381,7 +392,7 @@ export interface DashboardElementStyle {
   // ── Round-7 extra widgets (analog/digital/graph/chart/ring/led/heatmap/status) ─
   // Todos opcionais e aditivos; lidos por dashboard/widgets/extra-widgets.tsx.
   gaugeMin?: number // início da escala (analoggauge/linearmeter/ringgauge/segment); default 0
-  gaugeMax?: number // fim da escala; default depende do canal (ex.: 320 km/h)
+  gaugeMax?: number // end da escala; default depende do canal (ex.: 320 km/h)
   ticks?: number // nº de marcações maiores na escala analógica (default 8)
   showValue?: boolean // mostrar leitura numérica no centro/abaixo (default true)
   graphStyle?: 'line' | 'area' | 'sparkline' // historygraph (default 'line')
@@ -391,8 +402,8 @@ export interface DashboardElementStyle {
   heatSource?: 'tyre' | 'brake' // heatmap
   statusKind?: 'abs' | 'tc' | 'drs' | 'pit' | 'flag' | 'rain' | 'limiter' // statuslamp
   digits?: number // segment7: nº de dígitos do backdrop fantasma (default 3)
-  ghost?: boolean // segment7: desenhar dígitos "88:88" apagados atrás (default true)
-  needleColor?: string // cor do ponteiro analógico (default = accentColor)
+  ghost?: boolean // segment7: desenhar dígitos "88:88" apagados behind (default true)
+  needleColor?: string // cor do ponteiro analog (default = accentColor)
   ringThickness?: number // ringgauge/donut: espessura do anel em px (default auto)
   // ── Estilo granular por slot de texto (ver TextSlotStyle) ───────────────────
   // Mapa nome-do-slot → overrides. Slots bem conhecidos: 'label','value','header',
@@ -429,6 +440,8 @@ export interface DashboardElement {
   // Which registered overlay widget (WIDGET_COMPONENTS[widgetId]) to mount inside
   // this element's box. Ignored by every other element type.
   widgetId?: OverlayWidgetId
+  // Renderer-only hi-fi module metadata for dynamic `hifi:<id>` overlay widgets.
+  hifiModuleId?: string
 }
 
 // ── R19 seam: adaptive dashboard rule model (owned/extended by WS-ADAPTIVE) ────
@@ -491,7 +504,7 @@ export interface Dashboard {
   //   'fit'     → letterbox (preserva proporção; pode deixar barras vazias) — padrão.
   //   'fill'    → cobre toda a janela (preserva proporção; pode cortar nas bordas).
   //   'stretch' → distorce X/Y independentes para preencher exatamente a janela.
-  // Opcional para retro-compatibilidade: ausente equivale a 'fit'.
+  // Opcional para retro-compatibilidade: missing equivale a 'fit'.
   scaleMode?: DashboardScaleMode
   // ── R19 seam: per-race-moment adaptive rules (owned/extended by WS-ADAPTIVE) ──
   // When present + enabled, DashboardRoot applies these USER rules on top of the
@@ -505,6 +518,7 @@ export interface Dashboard {
   previewPng?: string // base64 (sem prefixo data:)
   createdAt?: number
   updatedAt?: number
+  hidden?: boolean
 }
 
 export interface DashboardSummary {
@@ -517,6 +531,7 @@ export interface DashboardSummary {
   description?: string
   author?: string
   updatedAt?: number
+  hidden?: boolean
 }
 
 export interface DashboardDisplayInfo {
@@ -570,99 +585,99 @@ export interface DashboardBindingDef {
 }
 
 export const DASHBOARD_BINDINGS: DashboardBindingDef[] = [
-  { key: 'speedKmh', label: 'Velocidade (km/h)', group: 'Carro', numeric: true },
-  { key: 'rpm', label: 'RPM', group: 'Carro', numeric: true },
-  { key: 'rpmPct', label: 'RPM (% do máximo)', group: 'Carro', numeric: true },
-  { key: 'shiftPct', label: 'Shift indicator (0–1)', group: 'Carro', numeric: true },
-  { key: 'gear', label: 'Marcha (número)', group: 'Carro', numeric: true },
-  { key: 'gearLabel', label: 'Marcha (texto: R/N/1..n)', group: 'Carro', numeric: false },
-  { key: 'throttle', label: 'Acelerador (0–1)', group: 'Inputs', numeric: true },
-  { key: 'brake', label: 'Freio (0–1)', group: 'Inputs', numeric: true },
-  { key: 'clutch', label: 'Embreagem (0–1)', group: 'Inputs', numeric: true },
-  { key: 'handbrake', label: 'Freio de mão (0–1)', group: 'Inputs', numeric: true },
-  { key: 'absActive', label: 'ABS ativo (bool)', group: 'Assists', numeric: false },
-  { key: 'absEnabled', label: 'ABS habilitado (bool)', group: 'Assists', numeric: false },
-  { key: 'absLevel', label: 'ABS nível', group: 'Assists', numeric: true },
-  { key: 'tcActive', label: 'TC ativo (bool)', group: 'Assists', numeric: false },
-  { key: 'tcEnabled', label: 'TC habilitado (bool)', group: 'Assists', numeric: false },
-  { key: 'tcLevel', label: 'TC nível', group: 'Assists', numeric: true },
+  { key: 'speedKmh', label: 'Speed (km/h)', group: 'Car', numeric: true },
+  { key: 'rpm', label: 'RPM', group: 'Car', numeric: true },
+  { key: 'rpmPct', label: 'RPM (% of max)', group: 'Car', numeric: true },
+  { key: 'shiftPct', label: 'Shift indicator (0–1)', group: 'Car', numeric: true },
+  { key: 'gear', label: 'Gear (number)', group: 'Car', numeric: true },
+  { key: 'gearLabel', label: 'Gear (text: R/N/1..n)', group: 'Car', numeric: false },
+  { key: 'throttle', label: 'Throttle (0?1)', group: 'Inputs', numeric: true },
+  { key: 'brake', label: 'Brake (0–1)', group: 'Inputs', numeric: true },
+  { key: 'clutch', label: 'Clutch (0?1)', group: 'Inputs', numeric: true },
+  { key: 'handbrake', label: 'Handbrake (0?1)', group: 'Inputs', numeric: true },
+  { key: 'absActive', label: 'ABS active (bool)', group: 'Assists', numeric: false },
+  { key: 'absEnabled', label: 'ABS enabled (bool)', group: 'Assists', numeric: false },
+  { key: 'absLevel', label: 'ABS level', group: 'Assists', numeric: true },
+  { key: 'tcActive', label: 'TC active (bool)', group: 'Assists', numeric: false },
+  { key: 'tcEnabled', label: 'TC enabled (bool)', group: 'Assists', numeric: false },
+  { key: 'tcLevel', label: 'TC level', group: 'Assists', numeric: true },
   { key: 'engineMap', label: 'Engine map', group: 'Assists', numeric: true },
   { key: 'brakeBiasPct', label: 'Brake bias (%)', group: 'Assists', numeric: true },
   { key: 'drs', label: 'DRS (bool)', group: 'Assists', numeric: false },
-  { key: 'currentLap', label: 'Volta atual (n)', group: 'Sessão', numeric: true },
-  { key: 'lapsRemaining', label: 'Voltas restantes', group: 'Sessão', numeric: true },
-  { key: 'currentLapFmt', label: 'Volta atual (mm:ss.mmm)', group: 'Sessão', numeric: false },
-  { key: 'lastLapFmt', label: 'Última volta (mm:ss.mmm)', group: 'Sessão', numeric: false },
-  { key: 'bestLapFmt', label: 'Melhor volta (mm:ss.mmm)', group: 'Sessão', numeric: false },
-  { key: 'deltaBestFmt', label: 'Delta à melhor (±s)', group: 'Sessão', numeric: false },
-  { key: 'deltaSessionBestFmt', label: 'Delta à melhor sessão (±s)', group: 'Sessão', numeric: false },
-  { key: 'sessionTimeLeftFmt', label: 'Tempo restante (mm:ss)', group: 'Sessão', numeric: false },
-  { key: 'position', label: 'Posição', group: 'Sessão', numeric: true },
-  { key: 'classPosition', label: 'Posição na classe', group: 'Sessão', numeric: true },
-  { key: 'totalCars', label: 'Total de carros', group: 'Sessão', numeric: true },
-  { key: 'incidentCount', label: 'Incidentes', group: 'Sessão', numeric: true },
-  { key: 'incidentLimit', label: 'Limite de incidentes', group: 'Sessão', numeric: true },
-  { key: 'fuelLiters', label: 'Combustível (L)', group: 'Combustível', numeric: true },
-  { key: 'fuelLitersStr', label: 'Combustível (L, 1 casa)', group: 'Combustível', numeric: false },
-  { key: 'fuelPerLap', label: 'Combustível/volta (L)', group: 'Combustível', numeric: true },
-  { key: 'fuelPerLapStr', label: 'Combustível/volta (1 casa)', group: 'Combustível', numeric: false },
-  { key: 'fuelLapsLeftStr', label: 'Voltas que dá com o tanque', group: 'Combustível', numeric: false },
-  { key: 'fuelPct', label: 'Combustível (0–1)', group: 'Combustível', numeric: true },
-  { key: 'trackTempC', label: 'Temp pista (°C)', group: 'Clima', numeric: true },
-  { key: 'airTempC', label: 'Temp ar (°C)', group: 'Clima', numeric: true },
-  { key: 'waterTempC', label: 'Temp água (°C)', group: 'Motor', numeric: true },
-  { key: 'oilTempC', label: 'Temp óleo (°C)', group: 'Motor', numeric: true },
-  { key: 'oilPressureKpa', label: 'Pressão óleo (kPa)', group: 'Motor', numeric: true },
-  { key: 'gapAhead', label: 'Gap para da frente (s)', group: 'Relativos', numeric: true },
-  { key: 'gapBehind', label: 'Gap para trás (s)', group: 'Relativos', numeric: true },
-  { key: 'gapAheadFmt', label: 'Gap p/ frente (texto)', group: 'Relativos', numeric: false },
-  { key: 'gapBehindFmt', label: 'Gap p/ trás (texto)', group: 'Relativos', numeric: false },
-  { key: 'relativeAheadName', label: 'Relativo frente (nome)', group: 'Relativos', numeric: false },
-  { key: 'relativeAheadLastLapFmt', label: 'Relativo frente última volta', group: 'Relativos', numeric: false },
-  { key: 'relativeBehindName', label: 'Relativo atrás (nome)', group: 'Relativos', numeric: false },
-  { key: 'relativeBehindLastLapFmt', label: 'Relativo atrás última volta', group: 'Relativos', numeric: false },
-  { key: 'radarCarsCount', label: 'Carros no radar', group: 'Relativos', numeric: true },
+  { key: 'currentLap', label: 'Current lap (n)', group: 'Session', numeric: true },
+  { key: 'lapsRemaining', label: 'Laps remaining', group: 'Session', numeric: true },
+  { key: 'currentLapFmt', label: 'Current lap (mm:ss.mmm)', group: 'Session', numeric: false },
+  { key: 'lastLapFmt', label: 'Last lap (mm:ss.mmm)', group: 'Session', numeric: false },
+  { key: 'bestLapFmt', label: 'Best lap (mm:ss.mmm)', group: 'Session', numeric: false },
+  { key: 'deltaBestFmt', label: 'Delta to best (±s)', group: 'Session', numeric: false },
+  { key: 'deltaSessionBestFmt', label: 'Delta to session best (?s)', group: 'Session', numeric: false },
+  { key: 'sessionTimeLeftFmt', label: 'Time remaining (mm:ss)', group: 'Session', numeric: false },
+  { key: 'position', label: 'Position', group: 'Session', numeric: true },
+  { key: 'classPosition', label: 'Class position', group: 'Session', numeric: true },
+  { key: 'totalCars', label: 'Total cars', group: 'Session', numeric: true },
+  { key: 'incidentCount', label: 'Incidents', group: 'Session', numeric: true },
+  { key: 'incidentLimit', label: 'Incident limit', group: 'Session', numeric: true },
+  { key: 'fuelLiters', label: 'Fuel (L)', group: 'Fuel', numeric: true },
+  { key: 'fuelLitersStr', label: 'Fuel (L, 1 decimal)', group: 'Fuel', numeric: false },
+  { key: 'fuelPerLap', label: 'Fuel/lap (L)', group: 'Fuel', numeric: true },
+  { key: 'fuelPerLapStr', label: 'Fuel/lap (1 decimal)', group: 'Fuel', numeric: false },
+  { key: 'fuelLapsLeftStr', label: 'Fuel range in laps', group: 'Fuel', numeric: false },
+  { key: 'fuelPct', label: 'Fuel (0–1)', group: 'Fuel', numeric: true },
+  { key: 'trackTempC', label: 'Track temp (?C)', group: 'Weather', numeric: true },
+  { key: 'airTempC', label: 'Air temp (?C)', group: 'Weather', numeric: true },
+  { key: 'waterTempC', label: 'Water temp (?C)', group: 'Engine', numeric: true },
+  { key: 'oilTempC', label: 'Oil temp (?C)', group: 'Engine', numeric: true },
+  { key: 'oilPressureKpa', label: 'Oil pressure (kPa)', group: 'Engine', numeric: true },
+  { key: 'gapAhead', label: 'Gap ahead (s)', group: 'Relatives', numeric: true },
+  { key: 'gapBehind', label: 'Gap behind (s)', group: 'Relatives', numeric: true },
+  { key: 'gapAheadFmt', label: 'Gap ahead (text)', group: 'Relatives', numeric: false },
+  { key: 'gapBehindFmt', label: 'Gap behind (text)', group: 'Relatives', numeric: false },
+  { key: 'relativeAheadName', label: 'Relative ahead (name)', group: 'Relatives', numeric: false },
+  { key: 'relativeAheadLastLapFmt', label: 'Relative ahead last lap', group: 'Relatives', numeric: false },
+  { key: 'relativeBehindName', label: 'Relative behind (name)', group: 'Relatives', numeric: false },
+  { key: 'relativeBehindLastLapFmt', label: 'Relative behind last lap', group: 'Relatives', numeric: false },
+  { key: 'radarCarsCount', label: 'Cars on radar', group: 'Relatives', numeric: true },
   // ── Derivados extras (para os novos elementos) ─────────────────────────────
   { key: 'throttleBrake', label: 'Throttle vs Brake (dualbar)', group: 'Inputs', numeric: true },
-  { key: 'deltaSec', label: 'Delta numérico (s)', group: 'Sessão', numeric: true },
-  { key: 'lastLapDeltaSec', label: 'Δ última vs melhor (s)', group: 'Sessão', numeric: true },
-  { key: 'flagAny', label: 'Bandeira ativa (qualquer)', group: 'Flags', numeric: false },
-  { key: 'flagColor', label: 'Cor da bandeira ativa', group: 'Flags', numeric: false },
-  { key: 'flagLabel', label: 'Label da bandeira', group: 'Flags', numeric: false },
-  { key: 'inPits', label: 'No pit road (bool)', group: 'Sessão', numeric: false },
-  { key: 'pitLimiter', label: 'Limitador ativo (bool)', group: 'Sessão', numeric: false },
-  { key: 'driversCount', label: 'Nº de pilotos (snap.drivers)', group: 'Relativos', numeric: true },
-  { key: 'speedMph', label: 'Velocidade (mph)', group: 'Carro', numeric: true },
-  // ── Pneus por canto (°C) ───────────────────────────────────────────────────
-  { key: 'tyreLfTempC', label: 'Pneu DE temp (°C)', group: 'Pneus', numeric: true },
-  { key: 'tyreRfTempC', label: 'Pneu DD temp (°C)', group: 'Pneus', numeric: true },
-  { key: 'tyreLrTempC', label: 'Pneu TE temp (°C)', group: 'Pneus', numeric: true },
-  { key: 'tyreRrTempC', label: 'Pneu TD temp (°C)', group: 'Pneus', numeric: true },
-  { key: 'tyreLfPressureKpa', label: 'Pneu DE pressão (kPa)', group: 'Pneus', numeric: true },
-  { key: 'tyreRfPressureKpa', label: 'Pneu DD pressão (kPa)', group: 'Pneus', numeric: true },
-  { key: 'tyreLrPressureKpa', label: 'Pneu TE pressão (kPa)', group: 'Pneus', numeric: true },
-  { key: 'tyreRrPressureKpa', label: 'Pneu TD pressão (kPa)', group: 'Pneus', numeric: true },
-  { key: 'tyreLfWearPct', label: 'Pneu DE desgaste (0–1)', group: 'Pneus', numeric: true },
-  { key: 'tyreRfWearPct', label: 'Pneu DD desgaste (0–1)', group: 'Pneus', numeric: true },
-  { key: 'tyreLrWearPct', label: 'Pneu TE desgaste (0–1)', group: 'Pneus', numeric: true },
-  { key: 'tyreRrWearPct', label: 'Pneu TD desgaste (0–1)', group: 'Pneus', numeric: true },
-  // ── Freios por canto (°C) ──────────────────────────────────────────────────
-  { key: 'brakeLfTempC', label: 'Freio DE temp (°C)', group: 'Freios', numeric: true },
-  { key: 'brakeRfTempC', label: 'Freio DD temp (°C)', group: 'Freios', numeric: true },
-  { key: 'brakeLrTempC', label: 'Freio TE temp (°C)', group: 'Freios', numeric: true },
-  { key: 'brakeRrTempC', label: 'Freio TD temp (°C)', group: 'Freios', numeric: true },
-  { key: 'brakeFrontAvgTempC', label: 'Freio diant. média (°C)', group: 'Freios', numeric: true },
-  { key: 'brakeRearAvgTempC', label: 'Freio tras. média (°C)', group: 'Freios', numeric: true },
+  { key: 'deltaSec', label: 'Numeric delta (s)', group: 'Session', numeric: true },
+  { key: 'lastLapDeltaSec', label: '? last vs best (s)', group: 'Session', numeric: true },
+  { key: 'flagAny', label: 'Active flag (any)', group: 'Flags', numeric: false },
+  { key: 'flagColor', label: 'Active flag color', group: 'Flags', numeric: false },
+  { key: 'flagLabel', label: 'Flag label', group: 'Flags', numeric: false },
+  { key: 'inPits', label: 'On pit road (bool)', group: 'Session', numeric: false },
+  { key: 'pitLimiter', label: 'Pit limiter active (bool)', group: 'Session', numeric: false },
+  { key: 'driversCount', label: 'Number of drivers (snap.drivers)', group: 'Relatives', numeric: true },
+  { key: 'speedMph', label: 'Speed (mph)', group: 'Car', numeric: true },
+  // ── Tires por canto (°C) ───────────────────────────────────────────────────
+  { key: 'tyreLfTempC', label: 'LF tire temp (?C)', group: 'Tires', numeric: true },
+  { key: 'tyreRfTempC', label: 'RF tire temp (?C)', group: 'Tires', numeric: true },
+  { key: 'tyreLrTempC', label: 'LR tire temp (?C)', group: 'Tires', numeric: true },
+  { key: 'tyreRrTempC', label: 'RR tire temp (?C)', group: 'Tires', numeric: true },
+  { key: 'tyreLfPressureKpa', label: 'LF tire pressure (kPa)', group: 'Tires', numeric: true },
+  { key: 'tyreRfPressureKpa', label: 'RF tire pressure (kPa)', group: 'Tires', numeric: true },
+  { key: 'tyreLrPressureKpa', label: 'LR tire pressure (kPa)', group: 'Tires', numeric: true },
+  { key: 'tyreRrPressureKpa', label: 'RR tire pressure (kPa)', group: 'Tires', numeric: true },
+  { key: 'tyreLfWearPct', label: 'LF tire wear (0?1)', group: 'Tires', numeric: true },
+  { key: 'tyreRfWearPct', label: 'RF tire wear (0?1)', group: 'Tires', numeric: true },
+  { key: 'tyreLrWearPct', label: 'LR tire wear (0?1)', group: 'Tires', numeric: true },
+  { key: 'tyreRrWearPct', label: 'RR tire wear (0?1)', group: 'Tires', numeric: true },
+  // ── Brakes por canto (°C) ──────────────────────────────────────────────────
+  { key: 'brakeLfTempC', label: 'LF brake temp (?C)', group: 'Brakes', numeric: true },
+  { key: 'brakeRfTempC', label: 'RF brake temp (?C)', group: 'Brakes', numeric: true },
+  { key: 'brakeLrTempC', label: 'LR brake temp (?C)', group: 'Brakes', numeric: true },
+  { key: 'brakeRrTempC', label: 'RR brake temp (?C)', group: 'Brakes', numeric: true },
+  { key: 'brakeFrontAvgTempC', label: 'Front brake avg (?C)', group: 'Brakes', numeric: true },
+  { key: 'brakeRearAvgTempC', label: 'Rear brake avg (?C)', group: 'Brakes', numeric: true },
   // ── Clima / pista ──────────────────────────────────────────────────────────
-  { key: 'trackWetnessPct', label: 'Pista molhada (0–1)', group: 'Clima', numeric: true },
-  { key: 'gripPct', label: 'Grip (0–1)', group: 'Clima', numeric: true },
-  { key: 'isRaining', label: 'Chovendo (bool)', group: 'Clima', numeric: false },
-  // ── Sessão (texto) ─────────────────────────────────────────────────────────
-  { key: 'sessionType', label: 'Tipo de sessão (texto)', group: 'Sessão', numeric: false },
-  { key: 'carName', label: 'Carro (texto)', group: 'Sessão', numeric: false },
-  { key: 'trackName', label: 'Pista (texto)', group: 'Sessão', numeric: false },
-  { key: 'estLapFmt', label: 'Volta estimada (mm:ss.mmm)', group: 'Sessão', numeric: false },
-  { key: 'strengthOfField', label: 'Strength of Field', group: 'Sessão', numeric: true }
+  { key: 'trackWetnessPct', label: 'Track wetness (0?1)', group: 'Weather', numeric: true },
+  { key: 'gripPct', label: 'Grip (0?1)', group: 'Weather', numeric: true },
+  { key: 'isRaining', label: 'Raining (bool)', group: 'Weather', numeric: false },
+  // ── Session (texto) ─────────────────────────────────────────────────────────
+  { key: 'sessionType', label: 'Session type (text)', group: 'Session', numeric: false },
+  { key: 'carName', label: 'Car (text)', group: 'Session', numeric: false },
+  { key: 'trackName', label: 'Track (text)', group: 'Session', numeric: false },
+  { key: 'estLapFmt', label: 'Estimated lap (mm:ss.mmm)', group: 'Session', numeric: false },
+  { key: 'strengthOfField', label: 'Strength of Field', group: 'Session', numeric: true }
 ]
 
 export function createDashboardId(): string {
@@ -679,7 +694,7 @@ export function createElementId(): string {
 // runtime drives it live. Use this to start an adaptive board from scratch
 // instead of cloning the full `createAdaptiveDashboardPreset()` layout.
 export function createBlankAdaptiveDashboard(
-  name = 'Dashboard Adaptativo (vazio)',
+  name = 'Adaptive Dashboard (empty)',
   width = 1024,
   height = 600
 ): Dashboard {
@@ -691,7 +706,7 @@ export function createBlankAdaptiveDashboard(
     height,
     bg: '#000000',
     scaleMode: 'fit',
-    description: `Dashboard adaptativo vazio — adicione seus widgets. ${ADAPTIVE_MARKER}`,
+    description: `Empty adaptive dashboard ? add your widgets. ${ADAPTIVE_MARKER}`,
     elements: [],
     adaptive: { enabled: true, rules: [] },
     createdAt: now,
@@ -2785,7 +2800,7 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     name: 'GT3 — Grid (SimHub)',
     widgetId: 'gridStackDash',
     description:
-      'Réplica full-screen estilo SimHub: grid de tiles com bordas coloridas, marcha + barra de shift, mapa, LL/SB/PB e grupo de combustível.',
+      'Full-screen SimHub-style replica: tile grid with colored borders, gear + shift bar, map, LL/SB/PB, and fuel group.',
     tags: ['gt3', 'dashboard', 'fullscreen']
   },
   {
@@ -2793,7 +2808,7 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     name: 'GT3 — Pro (neon)',
     widgetId: 'gridProDash',
     description:
-      'Réplica full-screen estilo GRID/Bosch: tiles neon, temps de pneu, coluna fuel/temps, RPM/marcha/SPEED central, car ahead/behind e linha de status.',
+      'Full-screen GRID/Bosch-style replica: neon tiles, tire temps, fuel/temps column, central RPM/gear/SPEED, car ahead/behind, and status line.',
     tags: ['gt3', 'dashboard', 'fullscreen']
   },
   {
@@ -2801,7 +2816,7 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     name: 'GT3 — Bosch 296',
     widgetId: 'bosch296Dash',
     description:
-      'Réplica full-screen estilo Bosch Motorsport 296: barra RPM, marcha central com tell-tales, grids 2×2 de pressão/temperatura e banner de status.',
+      'Full-screen Bosch Motorsport 296-style replica: RPM bar, central gear with tell-tales, 2?2 pressure/temperature grids, and status banner.',
     tags: ['gt3', 'dashboard', 'fullscreen']
   },
   {
@@ -2809,7 +2824,7 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     name: 'GT3 — Anel circular',
     widgetId: 'ringDash',
     description:
-      'Réplica full-screen estilo Vantage: marcha circular com anel de RPM, PIT/FCY, colunas fuel/speed/water + last/best, pneus 2×2 e fileira de moedas coloridas.',
+      'Full-screen Vantage-style replica: circular gear with RPM ring, PIT/FCY, fuel/speed/water + last/best columns, 2?2 tires, and a row of colored coins.',
     tags: ['gt3', 'dashboard', 'fullscreen']
   },
   {
@@ -2817,7 +2832,7 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     name: 'LMU — Endurance',
     widgetId: 'lmuEnduranceDash',
     description:
-      'Tela de engenheiro estilo Le Mans Ultimate (endurance/MoTeC): temps de pneu+freio, marcha/RPM/vel, last/best/delta, gap e faixa de fuel/stint. Funciona em qualquer sim que forneça os dados.',
+      'Le Mans Ultimate-style engineer screen (endurance/MoTeC): tire+brake temps, gear/RPM/speed, last/best/delta, gap, and fuel/stint strip. Works in any sim that provides the data.',
     tags: ['lmu', 'dashboard', 'fullscreen']
   },
   {
@@ -2825,8 +2840,48 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
     name: 'LMU — Stint/Fuel',
     widgetId: 'lmuStintDash',
     description:
-      'Quadro de estratégia estilo Le Mans Ultimate: fuel restante + voltas até esvaziar + fuel/volta, timer de stint, desgaste de pneu, clima e gaps. Funciona em qualquer sim que forneça os dados.',
+      'Le Mans Ultimate-style strategy board: fuel remaining + laps to empty + fuel/lap, stint timer, tire wear, weather, and gaps. Works in any sim that provides the data.',
     tags: ['lmu', 'dashboard', 'fullscreen']
+  },
+  {
+    id: 'hifi_ddu_cockpit',
+    name: 'GT3 — DDU Cockpit (hi-fi)',
+    widgetId: 'hifiDdu',
+    description:
+      'Photorealistic GT3 DDU cluster: shift-LED arc, huge gear, speed/RPM step bar, live delta, 4-corner tyre grid, TC/ABS/brake-bias and oil/water/oil-press/battery vitals. 1024×600, scales to any screen.',
+    tags: ['gt3', 'dashboard', 'fullscreen', 'hifi', '1024x600']
+  },
+  {
+    id: 'hifi_endurance',
+    name: 'Endurance — Stint (hi-fi)',
+    widgetId: 'hifiEndurance',
+    description:
+      'Endurance/IMSA prototype dash: ERS deploy, current lap + delta, fuel remaining and laps-to-empty, stint panel, 4-corner tyre + brake temperature matrix with car pictogram, position and gaps. 1024×600, adaptive.',
+    tags: ['endurance', 'prototype', 'dashboard', 'fullscreen', 'hifi', '1024x600']
+  },
+  {
+    id: 'hifi_engineer',
+    name: 'Engineer — MoTeC Analysis (hi-fi)',
+    widgetId: 'hifiEngineer',
+    description:
+      'MoTeC-style engineer screen: live multi-channel speed/throttle/brake traces, gear-step trace, G-G diagram, sector and lap-time tables, min/max/avg and a per-corner tyre-temperature strip. 1024×600, adaptive.',
+    tags: ['engineer', 'motec', 'analysis', 'dashboard', 'fullscreen', 'hifi', '1024x600']
+  },
+  {
+    id: 'hifi_minimal',
+    name: 'GT3 — Minimal (hi-fi)',
+    widgetId: 'hifiMinimal',
+    description:
+      'Minimal, elegant GT3 dash: slim shift-LED line, one huge gear digit, speed, a thin live delta bar and three quiet tiles (fuel laps, lap, position). Lots of negative space. 1024×600, adaptive.',
+    tags: ['gt3', 'minimal', 'dashboard', 'fullscreen', 'hifi', '1024x600']
+  },
+  {
+    id: 'hifi_broadcast',
+    name: 'Broadcast — Standings (hi-fi)',
+    widgetId: 'hifiBroadcast',
+    description:
+      'TV broadcast/stream overlay: top timing bug (current/last lap + delta), leader/gap chip, purple fastest-lap banner and an 8-row standings strip with car numbers, class colours and gaps. 1024×600, adaptive.',
+    tags: ['broadcast', 'stream', 'standings', 'dashboard', 'fullscreen', 'hifi', '1024x600']
   }
 ]
 
@@ -2917,14 +2972,13 @@ export const BUILTIN_PRESETS: Array<{ id: string; name: string; build: () => Das
   ...RACE_SUN_PRESETS,
   ...RACE_FIRST_PRESETS,
   ...RACE_CHASE_PRESETS,
-  ...DASHBOARDS2.map((dashboard) => ({
-    id: dashboard.id,
-    name: dashboard.name,
-    // Return a FRESH deep clone each call (like every other preset builder) so a
-    // materialized/edited dashboard never mutates the shared built-in object.
-    build: (): Dashboard => JSON.parse(JSON.stringify(dashboard)) as Dashboard,
-    tags: ['dashboards2', dashboard.width + 'x' + dashboard.height, 'generic', 'motorsport']
-  }))
+  // ── Hi-fi composition dashboards (per-theme leaf modules; authored in parallel) ──
+  ...HIFI_RACE_PRESETS,
+  ...HIFI_ENDURANCE_PRESETS,
+  ...HIFI_COACH_PRESETS,
+  ...HIFI_FAMILY_PRESETS,
+  ...HIFI_CARS_PRESETS,
+  ...HIFI_COMPARE_PRESETS
 ]
 
 export function summarizeDashboard(dash: Dashboard): DashboardSummary {
@@ -2937,7 +2991,8 @@ export function summarizeDashboard(dash: Dashboard): DashboardSummary {
     hasPreview: Boolean(dash.previewPng),
     description: dash.description,
     author: dash.author,
-    updatedAt: dash.updatedAt
+    updatedAt: dash.updatedAt,
+    hidden: Boolean(dash.hidden)
   }
 }
 
@@ -3073,7 +3128,7 @@ export function reorderElements(
   return arr
 }
 
-// Ordena (imutável e estável) por `style.zIndex` (ausente = 0). Empates preservam
+// Ordena (imutável e estável) por `style.zIndex` (missing = 0). Empates preservam
 // a ordem do array. O renderer mapeia nesta ordem, então índices maiores são
 // desenhados por último (no topo). Sem zIndex em nenhum elemento, devolve a mesma
 // ordem do array — retro-compatível.
@@ -3099,31 +3154,31 @@ export interface WidgetSlotDef {
 // ── Slot presets for the wave-16 widgets ─────────────────────────────────────
 // Shared definitions so the -futuristic/-minimal variants of a concept declare
 // the same editable text slots without hand-duplicating ~30 entries.
-const SLOT_LABEL: WidgetSlotDef = { slot: 'label', label: 'Rótulo' }
-const SLOT_VALUE: WidgetSlotDef = { slot: 'value', label: 'Valor' }
-const SLOT_UNIT: WidgetSlotDef = { slot: 'unit', label: 'Unidade' }
+const SLOT_LABEL: WidgetSlotDef = { slot: 'label', label: 'Label' }
+const SLOT_VALUE: WidgetSlotDef = { slot: 'value', label: 'Value' }
+const SLOT_UNIT: WidgetSlotDef = { slot: 'unit', label: 'Unit' }
 const LVU_SLOTS: WidgetSlotDef[] = [SLOT_LABEL, SLOT_VALUE, SLOT_UNIT]
 const LV_SLOTS: WidgetSlotDef[] = [SLOT_LABEL, SLOT_VALUE]
-const PRED_SLOTS: WidgetSlotDef[] = [SLOT_LABEL, SLOT_VALUE, SLOT_UNIT, { slot: 'sub', label: 'Sub-rótulo' }]
+const PRED_SLOTS: WidgetSlotDef[] = [SLOT_LABEL, SLOT_VALUE, SLOT_UNIT, { slot: 'sub', label: 'Sub-label' }]
 const NEW_WIDGET_SLOTS: Record<string, WidgetSlotDef[]> = {
   'ers-bar-futuristic': LVU_SLOTS,
   'ers-bar-minimal': LVU_SLOTS,
   'ers-radial-futuristic': LVU_SLOTS,
   'ers-radial-minimal': LVU_SLOTS,
-  'p2p-futuristic': [SLOT_LABEL, SLOT_VALUE, { slot: 'status', label: 'Estado' }],
-  'p2p-minimal': [SLOT_LABEL, SLOT_VALUE, { slot: 'status', label: 'Estado' }],
-  'weather-status-futuristic': [SLOT_LABEL, SLOT_VALUE, { slot: 'sub', label: 'Sub-rótulo' }],
-  'weather-status-minimal': [SLOT_LABEL, SLOT_VALUE, { slot: 'sub', label: 'Sub-rótulo' }],
+  'p2p-futuristic': [SLOT_LABEL, SLOT_VALUE, { slot: 'status', label: 'State' }],
+  'p2p-minimal': [SLOT_LABEL, SLOT_VALUE, { slot: 'status', label: 'State' }],
+  'weather-status-futuristic': [SLOT_LABEL, SLOT_VALUE, { slot: 'sub', label: 'Sub-label' }],
+  'weather-status-minimal': [SLOT_LABEL, SLOT_VALUE, { slot: 'sub', label: 'Sub-label' }],
   'track-surface-futuristic': LV_SLOTS,
   'track-surface-minimal': LV_SLOTS,
-  'bop-futuristic': [SLOT_LABEL, { slot: 'value', label: 'Peso (kg)' }, { slot: 'power', label: 'Potência (%)' }, SLOT_UNIT],
-  'bop-minimal': [SLOT_LABEL, { slot: 'value', label: 'Peso (kg)' }, { slot: 'power', label: 'Potência (%)' }, SLOT_UNIT],
-  'cold-pressures-futuristic': [{ slot: 'header', label: 'Cabeçalho' }, { slot: 'label', label: 'Rótulos dos cantos' }, SLOT_VALUE, SLOT_UNIT],
-  'cold-pressures-minimal': [{ slot: 'header', label: 'Cabeçalho' }, { slot: 'label', label: 'Rótulos dos cantos' }, SLOT_VALUE, SLOT_UNIT],
+  'bop-futuristic': [SLOT_LABEL, { slot: 'value', label: 'Weight (kg)' }, { slot: 'power', label: 'Power (%)' }, SLOT_UNIT],
+  'bop-minimal': [SLOT_LABEL, { slot: 'value', label: 'Weight (kg)' }, { slot: 'power', label: 'Power (%)' }, SLOT_UNIT],
+  'cold-pressures-futuristic': [{ slot: 'header', label: 'Header' }, { slot: 'label', label: 'Corner labels' }, SLOT_VALUE, SLOT_UNIT],
+  'cold-pressures-minimal': [{ slot: 'header', label: 'Header' }, { slot: 'label', label: 'Corner labels' }, SLOT_VALUE, SLOT_UNIT],
   'clock-futuristic': [SLOT_LABEL, { slot: 'value', label: 'Hora' }],
   'clock-minimal': [SLOT_LABEL, { slot: 'value', label: 'Hora' }],
-  'pit-status-futuristic': [SLOT_LABEL, { slot: 'tag', label: 'Rótulos dos estados' }, SLOT_VALUE],
-  'pit-status-minimal': [SLOT_LABEL, { slot: 'tag', label: 'Rótulos dos estados' }, SLOT_VALUE],
+  'pit-status-futuristic': [SLOT_LABEL, { slot: 'tag', label: 'State labels' }, SLOT_VALUE],
+  'pit-status-minimal': [SLOT_LABEL, { slot: 'tag', label: 'State labels' }, SLOT_VALUE],
   'neon-ring-futuristic': LVU_SLOTS,
   'segmented-gauge-futuristic': LVU_SLOTS,
   'sci-fi-delta-futuristic': LV_SLOTS,
@@ -3152,148 +3207,148 @@ const NEW_WIDGET_SLOTS: Record<string, WidgetSlotDef[]> = {
 }
 
 // Quais slots de texto cada tipo de widget expõe (para o editor mostrar só o que
-// é aplicável). Widgets ausentes deste mapa só expõem o estilo principal via os
+// é aplicável). Widgets missing deste mapa só expõem o estilo principal via os
 // campos top-level (fontFamily/fontSize/color/...).
 export const WIDGET_SLOTS: Record<string, WidgetSlotDef[]> = {
   value: [
-    { slot: 'label', label: 'Rótulo' },
-    { slot: 'value', label: 'Valor' },
-    { slot: 'unit', label: 'Unidade' }
+    { slot: 'label', label: 'Label' },
+    { slot: 'value', label: 'Value' },
+    { slot: 'unit', label: 'Unit' }
   ],
   valuebar: [
-    { slot: 'label', label: 'Rótulo' },
-    { slot: 'value', label: 'Valor' },
-    { slot: 'unit', label: 'Unidade' }
+    { slot: 'label', label: 'Label' },
+    { slot: 'value', label: 'Value' },
+    { slot: 'unit', label: 'Unit' }
   ],
   valuegauge: [
-    { slot: 'label', label: 'Rótulo' },
-    { slot: 'value', label: 'Valor' },
-    { slot: 'unit', label: 'Unidade' }
+    { slot: 'label', label: 'Label' },
+    { slot: 'value', label: 'Value' },
+    { slot: 'unit', label: 'Unit' }
   ],
   laptiming: [
-    { slot: 'label', label: 'Rótulos (LAP/LAST/BEST)' },
-    { slot: 'current', label: 'Volta atual' },
-    { slot: 'last', label: 'Última volta' },
-    { slot: 'best', label: 'Melhor volta' }
+    { slot: 'label', label: 'Labels (LAP/LAST/BEST)' },
+    { slot: 'current', label: 'Current lap' },
+    { slot: 'last', label: 'Last lap' },
+    { slot: 'best', label: 'Best lap' }
   ],
   gearcluster: [
-    { slot: 'gear', label: 'Marcha' },
-    { slot: 'gearLabel', label: 'Rótulo "GEAR"' },
-    { slot: 'speed', label: 'Velocidade' },
-    { slot: 'speedLabel', label: 'Rótulo "KM/H"' },
-    { slot: 'value', label: 'RPM (modo tacômetro)' },
-    { slot: 'label', label: 'Rótulo "RPM"' }
+    { slot: 'gear', label: 'Gear' },
+    { slot: 'gearLabel', label: 'Label "GEAR"' },
+    { slot: 'speed', label: 'Speed' },
+    { slot: 'speedLabel', label: 'Label "KM/H"' },
+    { slot: 'value', label: 'RPM (tachometer mode)' },
+    { slot: 'label', label: 'Label "RPM"' }
   ],
   fuelstint: [
-    { slot: 'header', label: 'Cabeçalho' },
-    { slot: 'value', label: 'Valor (voltas)' },
-    { slot: 'label', label: 'Rótulos (LAP/ADD)' }
+    { slot: 'header', label: 'Header' },
+    { slot: 'value', label: 'Value (laps)' },
+    { slot: 'label', label: 'Labels (LAP/ADD)' }
   ],
   deltatile: [
-    { slot: 'label', label: 'Rótulo "LAP Δ"' },
+    { slot: 'label', label: 'Label "LAP ?"' },
     { slot: 'value', label: 'Delta' }
   ],
   positiongaps: [
-    { slot: 'value', label: 'Posição' },
-    { slot: 'label', label: 'Classe' },
-    { slot: 'gap', label: 'Gaps frente/trás' }
+    { slot: 'value', label: 'Position' },
+    { slot: 'label', label: 'Class' },
+    { slot: 'gap', label: 'Gaps ahead/behind' }
   ],
-  flagoverlay: [{ slot: 'value', label: 'Texto da bandeira' }],
+  flagoverlay: [{ slot: 'value', label: 'Flag text' }],
   tyregrid: [
-    { slot: 'header', label: 'Cabeçalho' },
-    { slot: 'label', label: 'Rótulos dos cantos' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'header', label: 'Header' },
+    { slot: 'label', label: 'Corner labels' },
+    { slot: 'value', label: 'Values' }
   ],
   brakegrid: [
-    { slot: 'header', label: 'Cabeçalho' },
-    { slot: 'label', label: 'Rótulos dos cantos' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'header', label: 'Header' },
+    { slot: 'label', label: 'Corner labels' },
+    { slot: 'value', label: 'Values' }
   ],
   cornerstack: [
-    { slot: 'label', label: 'Rótulos' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'label', label: 'Labels' },
+    { slot: 'value', label: 'Values' }
   ],
   weather: [
-    { slot: 'header', label: 'Cabeçalho' },
-    { slot: 'label', label: 'Rótulos' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'header', label: 'Header' },
+    { slot: 'label', label: 'Labels' },
+    { slot: 'value', label: 'Values' }
   ],
   inputbars: [
-    { slot: 'label', label: 'Rótulos dos canais' },
-    { slot: 'value', label: 'Valores (%)' }
+    { slot: 'label', label: 'Channel labels' },
+    { slot: 'value', label: 'Values (%)' }
   ],
   steering: [
-    { slot: 'label', label: 'Rótulo (STEERING)' },
-    { slot: 'value', label: 'Ângulo (°)' }
+    { slot: 'label', label: 'Label (STEERING)' },
+    { slot: 'value', label: 'Angle (?)' }
   ],
   setupstrip: [
-    { slot: 'label', label: 'Rótulos (ABS/TC/…)' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'label', label: 'Labels (ABS/TC/?)' },
+    { slot: 'value', label: 'Values' }
   ],
   enginetemps: [
-    { slot: 'label', label: 'Rótulos (WATER/OIL)' },
-    { slot: 'value', label: 'Valores' },
-    { slot: 'unit', label: 'Unidade' }
+    { slot: 'label', label: 'Labels (WATER/OIL)' },
+    { slot: 'value', label: 'Values' },
+    { slot: 'unit', label: 'Unit' }
   ],
-  trackmini: [{ slot: 'value', label: 'Progresso (%)' }],
+  trackmini: [{ slot: 'value', label: 'Progress (%)' }],
   // ── Round-7 extra widgets ───────────────────────────────────────────────────
   analoggauge: [
-    { slot: 'label', label: 'Rótulo' },
-    { slot: 'value', label: 'Valor' },
-    { slot: 'unit', label: 'Unidade' }
+    { slot: 'label', label: 'Label' },
+    { slot: 'value', label: 'Value' },
+    { slot: 'unit', label: 'Unit' }
   ],
   linearmeter: [
-    { slot: 'label', label: 'Rótulo' },
-    { slot: 'value', label: 'Valor' },
-    { slot: 'unit', label: 'Unidade' }
+    { slot: 'label', label: 'Label' },
+    { slot: 'value', label: 'Value' },
+    { slot: 'unit', label: 'Unit' }
   ],
   ringgauge: [
-    { slot: 'label', label: 'Rótulo' },
-    { slot: 'value', label: 'Valor' },
-    { slot: 'unit', label: 'Unidade' }
+    { slot: 'label', label: 'Label' },
+    { slot: 'value', label: 'Value' },
+    { slot: 'unit', label: 'Unit' }
   ],
   donut: [
-    { slot: 'label', label: 'Rótulo' },
-    { slot: 'value', label: 'Valor' }
+    { slot: 'label', label: 'Label' },
+    { slot: 'value', label: 'Value' }
   ],
   segment7: [
-    { slot: 'label', label: 'Rótulo' },
-    { slot: 'value', label: 'Valor' }
+    { slot: 'label', label: 'Label' },
+    { slot: 'value', label: 'Value' }
   ],
   digitalclock: [
-    { slot: 'label', label: 'Rótulo' },
-    { slot: 'value', label: 'Tempo' }
+    { slot: 'label', label: 'Label' },
+    { slot: 'value', label: 'Time' }
   ],
   bigtext: [
-    { slot: 'label', label: 'Legenda' },
-    { slot: 'value', label: 'Valor' }
+    { slot: 'label', label: 'Caption' },
+    { slot: 'value', label: 'Value' }
   ],
   gforcemeter: [
-    { slot: 'label', label: 'Rótulo' },
+    { slot: 'label', label: 'Label' },
     { slot: 'value', label: 'Magnitude (g)' }
   ],
   historygraph: [
-    { slot: 'label', label: 'Rótulo' },
-    { slot: 'value', label: 'Valor atual' }
+    { slot: 'label', label: 'Label' },
+    { slot: 'value', label: 'Current value' }
   ],
   barchart: [
-    { slot: 'label', label: 'Rótulos' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'label', label: 'Labels' },
+    { slot: 'value', label: 'Values' }
   ],
   segmentbars: [
-    { slot: 'label', label: 'Rótulo' },
-    { slot: 'value', label: 'Valor' }
+    { slot: 'label', label: 'Label' },
+    { slot: 'value', label: 'Value' }
   ],
-  ledbar: [{ slot: 'label', label: 'Rótulo' }],
-  radialbars: [{ slot: 'label', label: 'Rótulo central' }],
+  ledbar: [{ slot: 'label', label: 'Label' }],
+  radialbars: [{ slot: 'label', label: 'Center label' }],
   heatmap: [
-    { slot: 'label', label: 'Título' },
-    { slot: 'corner', label: 'Rótulos dos cantos' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'label', label: 'Title' },
+    { slot: 'corner', label: 'Corner labels' },
+    { slot: 'value', label: 'Values' }
   ],
   statuslamp: [
-    { slot: 'label', label: 'Rótulo' },
-    { slot: 'value', label: 'Estado' }
+    { slot: 'label', label: 'Label' },
+    { slot: 'value', label: 'State' }
   ],
   // ── Wave-16 widgets (futuristic + minimalist) ───────────────────────────────
   // Both -futuristic and -minimal variants of a concept share the same text slots.
@@ -3302,14 +3357,14 @@ export const WIDGET_SLOTS: Record<string, WidgetSlotDef[]> = {
 
 // Os widgets "curated" expõem variantes -clean e -elaborate do MESMO conceito;
 // ambas compartilham os mesmos slots de texto. Geramos as 2 chaves por conceito
-// (em vez de ~60 entradas duplicadas à mão) para que o editor encontre
+// (em vez de ~60 entradas duplicadas à hand) para que o editor encontre
 // `WIDGET_SLOTS[element.type]` em qualquer variante e mostre o editor por-texto
 // (fonte/cor/tamanho) para TODOS eles. Aditivo e retro-compatível: presets sem
 // `slots` continuam renderizando idênticos.
 const METRIC_SLOTS: WidgetSlotDef[] = [
-  { slot: 'header', label: 'Cabeçalho/ref' },
-  { slot: 'value', label: 'Valor' },
-  { slot: 'unit', label: 'Unidade' }
+  { slot: 'header', label: 'Header/ref' },
+  { slot: 'value', label: 'Value' },
+  { slot: 'unit', label: 'Unit' }
 ]
 const CURATED_SLOTS: Record<string, WidgetSlotDef[]> = {
   speed: METRIC_SLOTS,
@@ -3329,27 +3384,27 @@ const CURATED_SLOTS: Record<string, WidgetSlotDef[]> = {
   clutch: METRIC_SLOTS,
   drs: METRIC_SLOTS,
   tyres: [
-    { slot: 'header', label: 'Cabeçalho' },
-    { slot: 'label', label: 'Rótulos dos cantos' },
-    { slot: 'value', label: 'Temperaturas' },
-    { slot: 'sub', label: 'Pressão · desgaste' }
+    { slot: 'header', label: 'Header' },
+    { slot: 'label', label: 'Corner labels' },
+    { slot: 'value', label: 'Temperatures' },
+    { slot: 'sub', label: 'Pressure ? wear' }
   ],
   relatives: [
-    { slot: 'header', label: 'Cabeçalho' },
-    { slot: 'value', label: 'Nome do piloto' },
+    { slot: 'header', label: 'Header' },
+    { slot: 'value', label: 'Driver name' },
     { slot: 'gap', label: 'Gap' },
-    { slot: 'label', label: 'Última volta' }
+    { slot: 'label', label: 'Last lap' }
   ],
-  radar: [{ slot: 'label', label: 'Avisos (L/R/ref)' }],
-  trackmap: [{ slot: 'label', label: 'Nome da pista' }],
+  radar: [{ slot: 'label', label: 'Alerts (L/R/ref)' }],
+  trackmap: [{ slot: 'label', label: 'Track name' }],
   inputs: [
-    { slot: 'label', label: 'Rótulos dos canais' },
-    { slot: 'value', label: 'Valores (%)' }
+    { slot: 'label', label: 'Channel labels' },
+    { slot: 'value', label: 'Values (%)' }
   ],
   temps: [
-    { slot: 'header', label: 'Cabeçalho' },
-    { slot: 'label', label: 'Rótulos (WATER/OIL)' },
-    { slot: 'value', label: 'Valores' }
+    { slot: 'header', label: 'Header' },
+    { slot: 'label', label: 'Labels (WATER/OIL)' },
+    { slot: 'value', label: 'Values' }
   ]
 }
 for (const [concept, defs] of Object.entries(CURATED_SLOTS)) {
@@ -3361,10 +3416,10 @@ for (const [concept, defs] of Object.entries(CURATED_SLOTS)) {
 // Inclui as fontes empacotadas (numérica/condensada/técnica) + fontes de sistema
 // comuns. Os valores são strings CSS font-family completas.
 export const DASHBOARD_FONT_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '', label: '(padrão do widget)' },
-  { value: FONT_NUM, label: 'Numérica 7-seg (DSEG)' },
+  { value: '', label: '(widget default)' },
+  { value: FONT_NUM, label: '7-seg numeric (DSEG)' },
   { value: FONT_COND, label: 'Condensada (DIN)' },
-  { value: FONT_TECH, label: 'Técnica (Avenir/Bahnschrift)' },
+  { value: FONT_TECH, label: 'Technical (Avenir/Bahnschrift)' },
   { value: '"Chakra Petch", monospace', label: 'Chakra Petch' },
   { value: '"Rajdhani", sans-serif', label: 'Rajdhani' },
   { value: FONT_ORBITRON, label: 'Orbitron (display)' },

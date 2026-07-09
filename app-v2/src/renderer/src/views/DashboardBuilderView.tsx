@@ -43,11 +43,11 @@ const BOARD_W = 1024
 const BOARD_H = 600
 
 const EXAMPLE_PHRASES = [
-  'Combustível, posição e delta',
-  'Pneus, temperaturas e freios',
-  'Quali: delta e tempo de volta',
-  'Marcha, velocidade, RPM e g-force',
-  'Radar, relativos e mapa da pista'
+  'Fuel, position, and delta',
+  'Tires, temperatures, and brakes',
+  'Qualifying: delta and lap time',
+  'Gear, speed, RPM, and g-force',
+  'Radar, relative, and track map'
 ]
 
 // Archetype + family pickers (manual selection drives the same deterministic
@@ -64,7 +64,7 @@ const FAMILY_LABELS: Record<OverlayDesignFamily, string> = {
   broadcast: 'Broadcast',
   terminal: 'Terminal',
   bauhaus: 'Bauhaus',
-  analog: 'Analógico',
+  analog: 'Analog',
   heatmap: 'Heatmap'
 }
 
@@ -202,7 +202,7 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
       }
       // Allow building with an empty phrase as long as an archetype is chosen.
       if (!req.phrase && !req.archetype) {
-        showToast('Descreva o dashboard ou escolha um arquétipo.', 'info')
+        showToast('Describe the dashboard or choose an archetype.', 'info')
         return
       }
       setBuilding(true)
@@ -212,9 +212,9 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
         // Keep the pickers in sync with what was actually produced.
         setArchetype(res.archetype)
         setFamily(res.family)
-        if (res.usedDefault) showToast('Nada reconhecido na frase — usei um layout padrão.', 'info')
+        if (res.usedDefault) showToast('Nothing recognized in the sentence — I used a default layout.', 'info')
       } catch (error) {
-        showToast(`Falha ao gerar dashboard: ${getErrorMessage(error)}`, 'error')
+        showToast(`Failed to generate dashboard: ${getErrorMessage(error)}`, 'error')
       } finally {
         setBuilding(false)
       }
@@ -290,9 +290,9 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
       try {
         await window.ipc.invoke<DashboardSummary>('app:dash:save', dashboard)
         if (open) await window.ipc.invoke('app:dash:open', dashboard.id, { fullscreen: false })
-        showToast(open ? 'Dashboard criado e aberto.' : 'Dashboard criado e salvo.', 'success')
+        showToast(open ? 'Dashboard created and opened.' : 'Dashboard created and saved.', 'success')
       } catch (error) {
-        showToast(`Falha ao criar dashboard: ${getErrorMessage(error)}`, 'error')
+        showToast(`Failed to create dashboard: ${getErrorMessage(error)}`, 'error')
       }
     },
     [dashboard, showToast]
@@ -315,23 +315,23 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
       <header style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <span style={{ ...labelStyle, color: CHROME }}>IA local · opcional</span>
-        <h1 style={{ margin: 0, fontSize: 22, color: 'var(--text-primary)' }}>Dashboard IA</h1>
+        <span style={{ ...labelStyle, color: CHROME }}>Local AI · optional</span>
+        <h1 style={{ margin: 0, fontSize: 22, color: 'var(--text-primary)' }}>AI Dashboard</h1>
         <p style={{ margin: 0, color: 'var(--text-secondary)', maxWidth: 720 }}>
-          Descreva o dashboard que você quer e a IA monta para você. Sem modelo de IA disponível? O construtor cai
-          automaticamente em correspondência por palavras-chave (PT-BR e inglês) — sempre funciona offline.
+          Describe the dashboard you want and AI builds it for you. No AI model available? The builder falls back
+          automatically to keyword matching (PT-BR and English) — always works offline.
         </p>
       </header>
 
       {/* ── Builder ─────────────────────────────────────────────────────── */}
       <section style={card}>
         <label style={labelStyle} htmlFor="dashai-phrase">
-          Descreva seu dashboard
+          Describe your dashboard
         </label>
         <textarea
           id="dashai-phrase"
           style={textareaStyle}
-          placeholder="ex.: combustível, posição, delta e temperatura de pneu"
+          placeholder="e.g., fuel, position, delta, and tire temperature"
           value={phrase}
           onChange={(e) => setPhrase(e.target.value)}
           onKeyDown={(e) => {
@@ -349,7 +349,7 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
 
         {/* Manual archetype chips — drive the deterministic engine (works LLM-off). */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <span style={labelStyle}>Arquétipo</span>
+          <span style={labelStyle}>Archetype</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             <button
               type="button"
@@ -373,7 +373,7 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
 
         {/* Family / theme picker — coherent visual family for the whole dash. */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <span style={labelStyle}>Tema / família visual</span>
+          <span style={labelStyle}>Theme / visual family</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             <button type="button" style={selectableChip(family === null)} onClick={() => setFamily(null)}>
               Auto
@@ -393,16 +393,16 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-4)', alignItems: 'center' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)' }}>
-            <span style={labelStyle}>Estilo</span>
+            <span style={labelStyle}>Style</span>
             <select style={selectStyle} value={detail} onChange={(e) => setDetail(e.target.value as DetailLevel)}>
-              <option value="auto">Automático</option>
-              <option value="clean">Limpo / minimal</option>
-              <option value="elaborate">Detalhado</option>
+              <option value="auto">Automatic</option>
+              <option value="clean">Clean / minimal</option>
+              <option value="elaborate">Detailed</option>
             </select>
           </label>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)' }}>
             <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />
-            Usar IA local (se disponível)
+            Use local AI (if available)
           </label>
           <div style={{ flex: 1 }} />
           <button
@@ -411,7 +411,7 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
             disabled={building || (!phrase.trim() && !archetype)}
             onClick={build}
           >
-            {building ? 'Gerando…' : 'Gerar preview'}
+            {building ? 'Gerando…' : 'Generate preview'}
           </button>
         </div>
       </section>
@@ -421,7 +421,7 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
         <section style={card}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-4)', alignItems: 'center' }}>
             <span style={chip(result?.source === 'llm' ? CHROME : AMBER)}>
-              {result?.source === 'llm' ? '✦ IA local' : '⌘ Palavras-chave'}
+              {result?.source === 'llm' ? '✦ Local AI' : '⌘ Palavras-chave'}
             </span>
             {result && <span style={chip(CHROME)}>{archetypeLabel(result.archetype)}</span>}
             {result && <span style={chip(AMBER)}>{FAMILY_LABELS[result.family]}</span>}
@@ -433,13 +433,13 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
             ))}
             <div style={{ flex: 1 }} />
             <button type="button" style={ghostBtn} onClick={regenerate}>
-              Regenerar variação
+              Regenerate variation
             </button>
             <button type="button" style={ghostBtn} onClick={() => void createDashboard(false)}>
               Criar
             </button>
             <button type="button" style={primaryBtn} onClick={() => void createDashboard(true)}>
-              Criar e abrir
+              Create and open
             </button>
           </div>
 
@@ -452,22 +452,22 @@ export default function DashboardBuilderView({ showToast }: AppViewProps): React
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-primary)', fontWeight: 600 }}>
                 <input type="checkbox" checked={adaptiveOn} onChange={(e) => setAdaptiveOn(e.target.checked)} />
-                Modo adaptativo
+                Adaptive mode
               </label>
               {adaptiveOn && (
                 <button type="button" style={{ ...ghostBtn, height: 28 }} onClick={() => void refreshPlan()}>
-                  Atualizar
+                  Refresh
                 </button>
               )}
             </div>
             <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 13, maxWidth: 760 }}>
-              O modo adaptativo lê a telemetria ao vivo e reorganiza o painel por fase da sessão — quali foca em delta e
-              tempo de volta, corrida em posição/gap/combustível, pit em pneus e box. As regras são determinísticas (sem IA).
+              Adaptive mode reads live telemetry and reorganizes the panel by session phase — qualifying focuses on delta and
+              lap time, race on position/gap/fuel, pit on tires and box. Rules are deterministic (no AI).
             </p>
             {adaptiveOn && plan && <AdaptiveExplainer plan={plan} />}
             {adaptiveOn && momentState && momentState.moment !== 'clear-running' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={labelStyle}>Momento</span>
+                <span style={labelStyle}>Moment</span>
                 <span style={chip(MOMENT_COLOR_CSS[momentState.color])}>{raceMomentPreset(momentState.moment).label}</span>
               </div>
             )}
@@ -504,7 +504,7 @@ function DashboardPreview({ elements, bg }: { elements: Array<{ element: Dashboa
           const promoted = moment?.action === 'promote'
           const demoted = moment?.action === 'demote'
           const momentColor = moment ? MOMENT_COLOR_CSS[moment.color] : undefined
-          const outlineColor = promoted ? momentColor ?? CHROME : emphasis === 'emphasize' ? CHROME : undefined
+          const outlineColor = promoted ? (momentColor ?? CHROME) : emphasis === 'emphasize' ? CHROME : undefined
           return (
             <div
               key={element.id}
@@ -544,9 +544,9 @@ function AdaptiveExplainer({ plan }: { plan: AdaptivePlan }): ReactElement {
         <span style={chip(CHROME)}>{plan.phase}</span>
         <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{plan.reason}</span>
       </div>
-      <ConceptRow label="Destaque" color={CHROME} concepts={plan.emphasize} />
-      <ConceptRow label="Mostrar" color="var(--border-strong)" concepts={plan.show} />
-      <ConceptRow label="Ocultar" color="var(--text-muted)" concepts={plan.hide} />
+      <ConceptRow label="Highlight" color={CHROME} concepts={plan.emphasize} />
+      <ConceptRow label="Show" color="var(--border-strong)" concepts={plan.show} />
+      <ConceptRow label="Hide" color="var(--text-muted)" concepts={plan.hide} />
     </div>
   )
 }

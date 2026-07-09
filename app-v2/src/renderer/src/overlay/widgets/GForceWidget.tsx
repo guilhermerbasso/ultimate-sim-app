@@ -6,7 +6,7 @@
 // v2.39 rebuild: one root <svg> (fixed viewBox) laid out with makeGrid — a header,
 // the g-g plot, and two signed readouts, every glyph a FitText so nothing overflows,
 // clips or renders sub-legible. NaN-safe: a missing / non-finite accel channel reads
-// "—" (never a fabricated "+0.00G") and the ball is simply not plotted.
+// "—" (never a fabricated "+0.00G") and the ball is yesply not plotted.
 import { type ReactElement } from 'react'
 import { resolveSkin, FitText, makeGrid } from '../../skins'
 import type { SkinId, BrandId, SkinToken, Rect } from '../../skins'

@@ -371,15 +371,15 @@ export class IRacingMemoryMap {
     const dataEventOpened = this.dataEventHandle != null
 
     if (platform !== 'win32') {
-      notes.push('Plataforma não-Windows: o bridge nativo do iRacing só funciona no Windows.')
+      notes.push('Non-Windows platform: the native iRacing bridge only works on Windows.')
     } else if (!koffiLoaded) {
-      notes.push('koffi não pôde ser carregado (módulo nativo ausente ou quebrado no pacote).')
+      notes.push('koffi could not be loaded (native module missing or broken in the package).')
     } else if (!nativeLoaded) {
-      notes.push('kernel32/user32 não puderam ser carregados via koffi.')
+      notes.push('kernel32/user32 could not be loaded through koffi.')
     } else if (!fileMappingOpened) {
-      notes.push('OpenFileMapping falhou: o iRacing não está em execução (memory map ausente).')
+      notes.push('OpenFileMapping failed: iRacing is not running (memory map missing).')
     } else if (!viewMapped) {
-      notes.push('MapViewOfFile falhou: não foi possível mapear a memória do iRacing.')
+      notes.push('MapViewOfFile failed: could not map iRacing memory.')
     }
 
     let headerRead = false
@@ -397,12 +397,12 @@ export class IRacingMemoryMap {
       numBuf = header.numBuf
       tickRate = header.tickRate
     } else if (viewMapped) {
-      notes.push('Falha ao decodificar o header do iRacing (possível erro de layout de struct).')
+      notes.push('Failed to decode the iRacing header (possible struct layout error).')
     }
 
     const statusConnected = status != null && (status & IRSDK_ST_CONNECTED) !== 0
     if (headerRead && !statusConnected) {
-      notes.push('iRacing aberto mas status não conectado: entre na sessão (no carro/pista) para os dados ficarem válidos.')
+      notes.push('iRacing is open but not connected: enter the session (in car/on track) for valid data.')
     }
 
     let valuesDecoded: number | null = null
@@ -415,12 +415,12 @@ export class IRacingMemoryMap {
           if (key in read.values) sampleVars[key] = read.values[key]
         }
         if (valuesDecoded === 0) {
-          notes.push('Nenhuma variável decodificada apesar de conectado — provável erro de layout de struct.')
+          notes.push('No variables decoded despite being connected — likely struct layout error.')
         } else {
-          notes.push('OK: iRacing conectado e variáveis decodificadas com sucesso.')
+          notes.push('OK: iRacing connected and variables decoded successfully.')
         }
       } else {
-        notes.push('read() retornou null apesar do status conectado.')
+        notes.push('read() returned null despite the connected status.')
       }
     }
 

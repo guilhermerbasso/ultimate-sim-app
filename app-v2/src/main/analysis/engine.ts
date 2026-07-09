@@ -11,30 +11,30 @@ import type {
 } from '../../shared/recording'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Engine de análise de voltas.
+// Engine de análise de laps.
 //
 // Estratégia geral:
 //   1. Cada `AnalysisLap` traz amostras já normalizadas (lapDistPct, speedKmh,
 //      throttle, brake, currentLapTimeSec opcional, …) sem importar a origem
 //      (.ibt do iRacing ou JSONL do recorder do app).
-//   2. Reamostramos cada volta numa grade comum de distância (NUM_BINS) — assim
-//      podemos sobrepor voltas mesmo com sample rates diferentes e comparar
-//      ponto-a-ponto por % da pista percorrida.
-//   3. Detectamos a "melhor volta" pela menor durationSec entre voltas válidas;
-//      caso nenhuma volta traga durationSec, usamos a integral de tempo
+//   2. Reamostramos cada lap numa grade comum de distância (NUM_BINS) — assim
+//      podemos sobrepor laps mesmo com sample rates diferentes e comparar
+//      ponto-a-ponto por % da pista perrace.
+//   3. Detectamos a "melhor lap" pela menor durationSec entre laps válidas;
+//      caso nenhuma lap traga durationSec, usamos a integral de tempo
 //      derivada de `currentLapTimeSec` (último menos primeiro) ou da integral
 //      de 1/speed nas bins (best-effort).
-//   4. Para cada volta, calculamos `cumTimeSec[i]` na grade e em seguida o
+//   4. Para cada lap, calculamos `cumTimeSec[i]` na grade e em seguida o
 //      delta cumulativo vs a melhor (`deltaCum[i]`). O delta por bin
-//      (`perBinDelta`) é o que classifica onde a volta perdeu tempo.
+//      (`perBinDelta`) é o que classifica onde a lap perdeu tempo.
 //   5. Agrupamos bins adjacentes acima do limiar em "regiões de perda" e
-//      geramos dicas comparando brake/throttle/velocidade vs a melhor.
-//   6. Para o perfil "optimal lap", dividimos a pista em sectores fixos e
-//      pegamos o menor tempo de cada sector entre todas as voltas — soma é o
+//      geramos dicas comparando brake/throttle/speed vs a melhor.
+//   6. Para o profile "optimal lap", dividimos a pista em sectores fixos e
+//      pegamos o menor tempo de cada sector entre todas as laps — soma é o
 //      "tempo optimal".
 //
 // Tudo é best-effort: alguns sims/fontes não trazem `currentLapTimeSec`; nesse
-// caso o engine cai numa estimativa por integração de velocidade — útil para
+// caso o engine cai numa estimativa por integração de speed — útil para
 // visualização, mas não substitui um delta real cronometrado.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -144,9 +144,9 @@ function buildCumTimeFromSpeed(binSpeedKmh: number[], totalSec: number): number[
 }
 
 function estimateTotalSec(samples: AnalysisLapSample[], fallback?: number): number {
-  // O `durationSec` da meta é a janela de volta autoritativa: para gravações ele
+  // O `durationSec` da meta é a janela de lap autoritativa: para gravações ele
   // cobre os cruzamentos reais de largada/chegada, e para `.ibt` é o span de
-  // SessionTime da volta. Preferimo-lo para que a escolha da melhor volta seja
+  // SessionTime da lap. Preferimo-lo para que a escolha da melhor lap seja
   // consistente e não fique enviesada pelo recorte de cabeça/cauda das amostras
   // mantidas. Só caímos no delta de LapCurrentLapTime (que subestima pela fração
   // não amostrada em cada cruzamento de S/F) quando não há duração autoritativa.
@@ -165,8 +165,8 @@ function estimateTotalSec(samples: AnalysisLapSample[], fallback?: number): numb
     }
   }
   if (samples.length === 0) return 0
-  // Fallback bem grosseiro: assume velocidade média e perímetro de pista
-  // arbitrário (3.5 km). Só serve para ordenar voltas relativamente; consumidores
+  // Fallback bem grosseiro: assume speed média e perímetro de pista
+  // arbitrário (3.5 km). Só serve para ordenar laps relativamente; consumidores
   // que dependem de tempos absolutos devem fornecer `durationSec` na lap meta.
   const avgSpeed = samples.reduce((acc, s) => acc + s.speedKmh, 0) / samples.length
   if (avgSpeed <= 0) return 0
@@ -221,10 +221,10 @@ function pickBest(laps: ResolvedLap[], resampled: Map<string, ResampledLap>): Re
   const explicitBest = laps.find((lap) => lap.isBest && resampled.has(lap.id))
   if (explicitBest) return explicitBest
 
-  // Preferimos a janela autoritativa da volta (`durationSec`) para que voltas
+  // Preferimos a janela autoritativa da lap (`durationSec`) para que laps
   // próximas sejam ranqueadas pelos limites de S/F do sim, e não pelo delta de
   // amostras recortado na cabeça/cauda. Caímos no `totalSec` calculado pelo
-  // engine quando não há duração disponível na meta.
+  // engine quando não há duração dispolevel na meta.
   let best: ResolvedLap | null = null
   let bestSec = Number.POSITIVE_INFINITY
   for (const lap of laps) {
@@ -270,22 +270,22 @@ function buildTips(point: Omit<LossPointInfo, 'tips'>): string[] {
     point.primaryBrakeOnsetPct < point.bestBrakeOnsetPct - 0.01
   ) {
     const meters = Math.round((point.bestBrakeOnsetPct - point.primaryBrakeOnsetPct) * 1000) / 10
-    tips.push(`Freando cedo (~${meters}% antes da melhor volta)`)
+    tips.push(`Braking early (~${meters}% before the best lap)`)
   } else if (
     point.primaryBrakeOnsetPct !== null &&
     point.bestBrakeOnsetPct !== null &&
     point.primaryBrakeOnsetPct > point.bestBrakeOnsetPct + 0.01
   ) {
-    tips.push(`Freando tarde — checar fim de freada e entrada de curva`)
+    tips.push(`Braking late — check brake release and corner entry`)
   }
 
   if (brakeDelta > 0.15) tips.push(`Freada mais forte (~+${Math.round(brakeDelta * 100)}%) — talvez travando rodas`)
-  if (minSpeedDelta < -3) tips.push(`Velocidade mínima de curva ${Math.round(minSpeedDelta)} km/h menor`)
-  if (speedDelta < -3) tips.push(`Velocidade de pico ${Math.round(speedDelta)} km/h menor (saída/reta)`)
-  if (throttleDelta < -0.08) tips.push(`Throttle médio ${Math.round(throttleDelta * 100)}% menor — abrindo gás tarde`)
+  if (minSpeedDelta < -3) tips.push(`Minimum corner speed ${Math.round(minSpeedDelta)} km/h lower`)
+  if (speedDelta < -3) tips.push(`Peak speed ${Math.round(speedDelta)} km/h lower (exit/straight)`)
+  if (throttleDelta < -0.08) tips.push(`Average throttle ${Math.round(throttleDelta * 100)}% lower — late to throttle`)
 
   if (tips.length === 0) {
-    tips.push(`Perdeu ~${(point.lossSec * 1000).toFixed(0)} ms aqui — comparar traçado/marcha`)
+    tips.push(`Lost ~${(point.lossSec * 1000).toFixed(0)} ms here — compare line/gear`)
   }
   return tips
 }
@@ -317,7 +317,7 @@ function buildLossPoints(
   const totalLossSec = regions.reduce((acc, r) => acc + r.loss, 0)
   regions.sort((a, b) => b.loss - a.loss)
   const top = regions.slice(0, TOP_LOSS_REGIONS)
-  // Re-ordena por distância para apresentar em ordem na volta
+  // Re-ordena por distância para apresentar em ordem na lap
   top.sort((a, b) => a.start - b.start)
 
   const points: LossPointInfo[] = []
@@ -417,7 +417,7 @@ export function analyze(
       optimal: null,
       deltas: [],
       losses: [],
-      notes: ['Nenhuma volta com amostras suficientes para análise.']
+      notes: ['No lap has enough samples for analysis.']
     }
   }
 
@@ -425,7 +425,7 @@ export function analyze(
   for (const lap of valid) {
     const r = resampleLap(lap)
     if (r) resampled.set(lap.id, r)
-    else notes.push(`Volta ${lap.label} ignorada: amostras insuficientes (mínimo 4).`)
+    else notes.push(`Lap ${lap.label} ignored: insufficient samples (minimum 4).`)
   }
 
   const bestLap = pickBest(valid, resampled)
@@ -439,7 +439,7 @@ export function analyze(
       optimal: null,
       deltas: [],
       losses: [],
-      notes: [...notes, 'Não foi possível identificar a melhor volta (sem tempos válidos).']
+      notes: [...notes, 'Could not identify the best lap (no valid times).']
     }
   }
   const bestResampled = resampled.get(bestLap.id)!
@@ -472,8 +472,8 @@ export function analyze(
       }
       const { points, totalLossSec: totalLoss } = buildLossPoints(lap.id, perBinDelta, r, bestResampled)
       const summary: string[] = []
-      if (points.length === 0) summary.push('Sem regiões claras de perda — volta consistente vs a melhor.')
-      else summary.push(`${points.length} regiões com perda. Total ≈ ${(totalLoss * 1000).toFixed(0)} ms.`)
+      if (points.length === 0) summary.push('No clear loss zones — lap is consistent against the best.')
+      else summary.push(`${points.length} loss zones. Total ≈ ${(totalLoss * 1000).toFixed(0)} ms.`)
       losses.push({ lapId: lap.id, totalLossSec: totalLoss, points, summary })
     }
   }
@@ -481,17 +481,17 @@ export function analyze(
   const optimal = profile === 'optimal' || profile === 'lossMap' ? buildOptimal(valid, resampled) : null
   if (profile === 'optimal' && optimal) {
     notes.push(
-      `Optimal: ${optimal.totalSec.toFixed(3)}s · Melhor volta: ${optimal.bestLapSec.toFixed(3)}s · Ganho possível: ${optimal.gainSec.toFixed(3)}s.`
+      `Optimal: ${optimal.totalSec.toFixed(3)}s · Best lap: ${optimal.bestLapSec.toFixed(3)}s · Possible gain: ${optimal.gainSec.toFixed(3)}s.`
     )
   }
   if (profile === 'compareBest') {
-    notes.push(`Comparando ${valid.length - 1} volta(s) contra a melhor.`)
+    notes.push(`Comparing ${valid.length - 1} lap(s) against the best.`)
   }
   if (profile === 'lossMap') {
-    notes.push('Mapa de perdas: regiões em vermelho onde a volta está mais lenta que a melhor.')
+    notes.push('Loss map: red zones show where the lap is slower than the best.')
   }
 
-  // Garante que voltas sem amostras suficientes apareçam zeradas no resultado
+  // Garante que laps sem amostras suficientes apareçam zeradas no resultado
   const lapsWithoutResample = laps.filter((l) => !resampled.has(l.id))
   for (const lap of lapsWithoutResample) {
     if (!annotatedLaps.some((a) => a.id === lap.id)) {

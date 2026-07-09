@@ -347,7 +347,7 @@ async function probeEngineStatus(ctx: ModuleContext, tempDir: string): Promise<T
     const status: TtsEngineStatus = {
       engine: 'none',
       ok: false,
-      reason: 'Motor neural (sherpa-onnx) ausente neste host.'
+      reason: 'Motor neural (sherpa-onnx) missing neste host.'
     }
     logger.info('tts', 'engine status: native engine absent', status)
     return status
@@ -358,7 +358,7 @@ async function probeEngineStatus(ctx: ModuleContext, tempDir: string): Promise<T
     const status: TtsEngineStatus = {
       engine: 'sherpa',
       ok: false,
-      reason: 'espeak-ng-data (dataDir) ausente — síntese neural indisponível.'
+      reason: 'espeak-ng-data (dataDir) missing — neural synthesis unavailable.'
     }
     logger.warn('tts', 'engine status: dataDir absent', status)
     return status

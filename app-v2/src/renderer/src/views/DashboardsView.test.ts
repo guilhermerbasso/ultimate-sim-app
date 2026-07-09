@@ -4,6 +4,7 @@ import { buttonPanelPlaylistItem } from '../../../shared/touch-panel'
 import {
   applyInstrumentPart,
   applyInstrumentPatch,
+  partitionHiddenSummaries,
   resolvePlaylistRowLabel
 } from './DashboardsView'
 
@@ -17,7 +18,20 @@ describe('resolvePlaylistRowLabel', () => {
     expect(label).toEqual({ kind: 'dashboard', name: 'GT3 Race', subtitle: '1024×600', found: true })
   })
 
-  it('resolves a touch-panel row against the touch-panel summaries (not "Dashboard não encontrado")', () => {
+  describe('partitionHiddenSummaries', () => {
+    it('filters hidden dashboards out of the visible list and restores them when hidden=false', () => {
+      const rows = [
+        { id: 'visible', hidden: false },
+        { id: 'hidden', hidden: true },
+        { id: 'implicit-visible' }
+      ]
+      expect(partitionHiddenSummaries(rows).visible.map((row) => row.id)).toEqual(['visible', 'implicit-visible'])
+      expect(partitionHiddenSummaries(rows).hidden.map((row) => row.id)).toEqual(['hidden'])
+      expect(partitionHiddenSummaries([{ id: 'hidden', hidden: false }]).visible).toHaveLength(1)
+    })
+  })
+
+  it('resolves a touch-panel row against the touch-panel summaries (not "Dashboard no encontrado")', () => {
     const item = buttonPanelPlaylistItem('p1')
     const label = resolvePlaylistRowLabel(item, dashboards, panels)
     expect(label.kind).toBe('touch-panel')
@@ -30,13 +44,13 @@ describe('resolvePlaylistRowLabel', () => {
     const label = resolvePlaylistRowLabel(buttonPanelPlaylistItem('ghost'), dashboards, panels)
     expect(label.kind).toBe('touch-panel')
     expect(label.name).toBe('ghost')
-    expect(label.subtitle).toBe('Touch panel não encontrado')
+    expect(label.subtitle).toBe('Touch panel not found')
     expect(label.found).toBe(false)
   })
 
   it('flags a missing dashboard', () => {
     const label = resolvePlaylistRowLabel({ dashboardId: 'nope' }, dashboards, panels)
-    expect(label.subtitle).toBe('Dashboard não encontrado')
+    expect(label.subtitle).toBe('Dashboard not found')
     expect(label.found).toBe(false)
   })
 })

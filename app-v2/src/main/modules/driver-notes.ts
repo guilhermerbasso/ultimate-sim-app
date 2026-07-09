@@ -70,7 +70,7 @@ class DriverNotesStore {
   async set(input: DriverNoteInput): Promise<DriverNote> {
     const custId = Number(input?.custId)
     if (!Number.isInteger(custId) || custId <= 0) {
-      throw new Error('custId inválido.')
+      throw new Error('Invalid custId.')
     }
 
     const tag = DRIVER_TAG_OPTIONS.includes(input.tag) ? input.tag : DEFAULT_TAG
@@ -93,7 +93,7 @@ class DriverNotesStore {
   async remove(custIdInput: number): Promise<void> {
     const custId = Number(custIdInput)
     if (!Number.isInteger(custId) || custId <= 0) {
-      throw new Error('custId inválido.')
+      throw new Error('Invalid custId.')
     }
     this.notes.delete(custId)
     await this.save()

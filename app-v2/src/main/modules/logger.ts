@@ -383,7 +383,7 @@ export function register(ctx: ModuleContext): void {
 
   ctx.ipcMain.handle(LOG_CHANNELS.export, async (): Promise<LogExportResult> => {
     const opts: SaveDialogOptions = {
-      title: 'Exportar logs de diagnóstico',
+      title: 'Export diagnostic logs',
       defaultPath: `ultimate-sim-app-logs-${dateStamp()}.txt`,
       filters: [{ name: 'Logs (texto)', extensions: ['txt', 'log'] }]
     }

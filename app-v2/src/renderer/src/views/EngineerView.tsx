@@ -2,7 +2,7 @@ import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo,
 import type { AppViewProps } from '../App'
 import { VoiceSpotterSection } from './VoiceSpotterSection'
 import type { ModelDownloadProgress, ModelId, ModelStatus, ModelTier } from '../../../shared/ai'
-import { MODEL_TIER_LABELS, MODEL_TIER_ORDER } from '../../../shared/ai'
+import { MODEL_TIER_ORDER } from '../../../shared/ai'
 import {
   DEFAULT_ENGINEER_CONFIG,
   ENGINEER_CHANNELS,
@@ -23,13 +23,14 @@ import {
 import { logClient } from '../lib/log-client'
 import { findFirstPressedButton } from '../lib/gamepad'
 import { setActionRuntimeSuppressed } from '../lib/action-runtime'
+import { tt } from '../i18n'
 import { seedEngineerBindingPressed, subscribeEngineerListening } from '../lib/engineer-action-runtime'
 
 // AI Race Engineer (text-first). Wraps the local-LLM orchestrator exposed over
 // `engineer:` IPC: a status/settings panel + an ask box with a scrollable Q&A log.
 // Deterministic intent answers come back instantly (no model); open-ended questions
 // lazily load the local model. Answers are spoken via the browser Web Speech API
-// (the same engine the Voice Spotter uses) when "falar respostas" is on.
+// (the same engine the Voice Spotter uses) when answer speech is enabled.
 //
 // SEAM: push-to-talk + preset-question hardware triggers live in the APP-LEVEL
 // `useEngineerActionRuntime` hook (mounted in App.tsx) so they fire on every screen.
@@ -37,11 +38,11 @@ import { seedEngineerBindingPressed, subscribeEngineerListening } from '../lib/e
 // routes its 🎙 button + bound-button capture through that hook.
 
 const EXAMPLE_CHIPS = [
-  'dá pra terminar com esse combustível?',
-  'boxes agora?',
-  'como tá meu tempo?',
-  'como estão os pneus?',
-  'qual o gap pra frente?'
+  'can we finish on this fuel?',
+  'box now?',
+  'how is my pace?',
+  'how are the tyres?',
+  'what is the gap ahead?'
 ]
 
 const shell: CSSProperties = {
@@ -157,10 +158,10 @@ function synthAvailable(): boolean {
   return typeof window !== 'undefined' && typeof window.speechSynthesis !== 'undefined' && typeof SpeechSynthesisUtterance !== 'undefined'
 }
 
-// Human label for a captured button binding (e.g. "Botão 5").
+// Human label for a captured button binding.
 function formatBinding(binding: EngineerButtonBinding | null): string {
-  if (!binding) return 'Sem botão'
-  return `Botão ${binding.buttonIndex + 1}`
+  if (!binding) return 'No button'
+  return `Button ${binding.buttonIndex + 1}`
 }
 
 // Stable-ish id for a freshly added preset question.
@@ -192,18 +193,18 @@ interface ModelView {
   ratio: number | null
 }
 
-function deriveModelView(status: EngineerStatus | null, progress: ModelDownloadProgress | null): ModelView {
+function deriveModelView(language: AppViewProps['language'], status: EngineerStatus | null, progress: ModelDownloadProgress | null): ModelView {
   const active = status?.models.find((m) => m.active) ?? null
   if (progress && progress.phase !== 'done' && progress.phase !== 'error') {
-    return { text: `Baixando ${Math.round(progress.ratio * 100)}%`, tone: 'active', ratio: progress.ratio }
+    return { text: tt(language, 'engineer.model.downloading', { pct: Math.round(progress.ratio * 100) }), tone: 'active', ratio: progress.ratio }
   }
-  if (progress?.phase === 'error') return { text: 'Falha no download', tone: 'idle', ratio: null }
+  if (progress?.phase === 'error') return { text: tt(language, 'engineer.model.downloadFailed'), tone: 'idle', ratio: null }
   const runtime = status?.runtime.status
-  if (runtime === 'generating') return { text: 'Gerando resposta…', tone: 'active', ratio: null }
-  if (!active?.present) return { text: 'Não baixado', tone: 'idle', ratio: null }
-  if (runtime === 'ready') return { text: 'Modelo carregado', tone: 'good', ratio: null }
-  if (runtime === 'loading') return { text: 'Carregando…', tone: 'active', ratio: null }
-  return { text: 'Modelo pronto', tone: 'good', ratio: null }
+  if (runtime === 'generating') return { text: tt(language, 'engineer.model.generating'), tone: 'active', ratio: null }
+  if (!active?.present) return { text: tt(language, 'engineer.model.notDownloaded'), tone: 'idle', ratio: null }
+  if (runtime === 'ready') return { text: tt(language, 'engineer.model.loaded'), tone: 'good', ratio: null }
+  if (runtime === 'loading') return { text: tt(language, 'engineer.model.loading'), tone: 'active', ratio: null }
+  return { text: tt(language, 'engineer.model.ready'), tone: 'good', ratio: null }
 }
 
 function toneColor(tone: ModelView['tone']): string {
@@ -228,7 +229,7 @@ function proactiveColor(severity: EngineerProactiveEvent['severity']): string {
 
 // ─── View ────────────────────────────────────────────────────────────────────
 
-export default function EngineerView({ showToast }: AppViewProps): ReactElement {
+export default function EngineerView({ showToast, language }: AppViewProps): ReactElement {
   const [config, setConfig] = useState<EngineerConfig>(DEFAULT_ENGINEER_CONFIG)
   const [status, setStatus] = useState<EngineerStatus | null>(null)
   const [progress, setProgress] = useState<ModelDownloadProgress | null>(null)
@@ -238,7 +239,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
   const [busy, setBusy] = useState(false)
   const [downloading, setDownloading] = useState(false)
   // Session-only pick: highlights a model in the picker without persisting it. The
-  // PERSISTED default is config.modelId; the "Definir como padrão" button promotes
+  // PERSISTED default is config.modelId; the set-default button promotes
   // this session pick to default so the choice survives nav/restart.
   const [sessionModelId, setSessionModelId] = useState<ModelId | null>(null)
 
@@ -275,7 +276,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
       setStatus(next)
       applyServerConfig(next?.config)
     } catch {
-      // ignore — the panel simply shows the last known state
+      // ignore — the panel yesply shows the last known state
     }
   }, [applyServerConfig])
 
@@ -340,7 +341,8 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
     logEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [log])
 
-  const modelView = useMemo(() => deriveModelView(status, progress), [status, progress])
+  const modelView = useMemo(() => deriveModelView(language, status, progress), [language, status, progress])
+  const exampleChips = EXAMPLE_CHIPS
   const models: ModelStatus[] = status?.models ?? []
   const activeModel = models.find((m) => m.active) ?? null
 
@@ -365,13 +367,13 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
         const answer = await window.ipc.invoke<EngineerAnswer>(ENGINEER_CHANNELS.ask, question)
         if (answer) addAnswer(answer)
       } catch (error) {
-        showToast(`Falha ao perguntar: ${getErrorMessage(error)}`, 'error')
+        showToast(tt(language, 'engineer.toast.askFailed', { error: getErrorMessage(error) }), 'error')
       } finally {
         setBusy(false)
         void refreshStatus()
       }
     },
-    [busy, addAnswer, refreshStatus, showToast]
+    [busy, addAnswer, refreshStatus, showToast, language]
   )
 
   // Fire push-to-talk through the app-level runtime (works even when this view is the
@@ -390,10 +392,10 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
         if (next) setConfig(next)
         void refreshStatus()
       } catch (error) {
-        showToast(`Falha ao salvar: ${getErrorMessage(error)}`, 'error')
+        showToast(tt(language, 'engineer.toast.saveFailed', { error: getErrorMessage(error) }), 'error')
       }
     },
-    [refreshStatus, showToast]
+    [refreshStatus, showToast, language]
   )
 
   // The model highlighted in the picker: the session pick if any, else the persisted
@@ -408,8 +410,8 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
     if (selectionIsDefault) return
     logClient.info('engineer', 'set default model', { modelId: selectedModelId })
     void patchConfig({ modelId: selectedModelId })
-    showToast('Modelo padrão definido', 'success')
-  }, [patchConfig, selectedModelId, selectionIsDefault, showToast])
+    showToast(tt(language, 'engineer.toast.defaultModelSet'), 'success')
+  }, [patchConfig, selectedModelId, selectionIsDefault, showToast, language])
 
   // ── Preset questions CRUD ───────────────────────────────────────────────────
   const addPreset = useCallback(() => {
@@ -417,7 +419,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
     if (!text) return
     const current = configRef.current.presetQuestions
     if (current.length >= ENGINEER_LIMITS.presetQuestionsMax) {
-      showToast(`Limite de ${ENGINEER_LIMITS.presetQuestionsMax} perguntas atingido.`, 'info')
+      showToast(tt(language, 'engineer.toast.presetLimit', { count: ENGINEER_LIMITS.presetQuestionsMax }), 'info')
       return
     }
     const label = draftLabel.trim() || text.slice(0, ENGINEER_LIMITS.presetLabelMax)
@@ -425,7 +427,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
     setDraftLabel('')
     setDraftText('')
     void patchConfig({ presetQuestions: next })
-  }, [draftLabel, draftText, patchConfig, showToast])
+  },   [draftLabel, draftText, patchConfig, showToast, language])
 
   const removePreset = useCallback(
     (id: string) => {
@@ -504,15 +506,15 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
     setDownloading(true)
     try {
       const result = await window.ipc.invoke<{ ok: boolean; error?: string }>(ENGINEER_CHANNELS.ensureModel)
-      if (!result?.ok) showToast(`Download falhou: ${result?.error ?? 'erro desconhecido'}`, 'error')
-      else showToast('Modelo pronto.', 'success')
+      if (!result?.ok) showToast(tt(language, 'engineer.toast.downloadFailed', { error: result?.error ?? tt(language, 'common.errorUnknown') }), 'error')
+      else showToast(tt(language, 'engineer.toast.modelReady'), 'success')
     } catch (error) {
-      showToast(`Download falhou: ${getErrorMessage(error)}`, 'error')
+      showToast(tt(language, 'engineer.toast.downloadFailed', { error: getErrorMessage(error) }), 'error')
     } finally {
       setDownloading(false)
       void refreshStatus()
     }
-  }, [refreshStatus, showToast])
+  }, [refreshStatus, showToast, language])
 
   const cancel = useCallback(() => {
     void window.ipc.invoke(ENGINEER_CHANNELS.cancel).catch(() => undefined)
@@ -566,8 +568,8 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
       {/* ── Left: ask + log ─────────────────────────────────────────────── */}
       <section style={panel}>
         <div>
-          <div style={eyebrow}>Engenheiro IA · local</div>
-          <h2 style={title}>Pergunte ao engenheiro</h2>
+          <div style={eyebrow}>{tt(language, 'engineer.ask.eyebrow')}</div>
+          <h2 style={title}>{tt(language, 'engineer.ask.title')}</h2>
         </div>
 
         {!config.enabled && (
@@ -581,7 +583,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
               padding: 'var(--space-3) var(--space-4)'
             }}
           >
-            O engenheiro está desligado. Ative em “Habilitar engenheiro” no painel ao lado.
+            {tt(language, 'engineer.disabled')}
           </div>
         )}
 
@@ -589,13 +591,13 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
           <input
             ref={inputRef}
             style={inputStyle}
-            placeholder="Ex.: dá pra terminar com esse combustível?"
+            placeholder={tt(language, 'engineer.ask.placeholder')}
             value={input}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter') void ask(input)
             }}
-            aria-label="Pergunta para o engenheiro"
+            aria-label={tt(language, 'engineer.ask.aria')}
           />
           <button
             type="button"
@@ -603,11 +605,11 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
             disabled={busy || !input.trim()}
             onClick={() => void ask(input)}
           >
-            {busy ? 'Pensando…' : 'Perguntar'}
+            {busy ? tt(language, 'engineer.ask.thinking') : tt(language, 'engineer.ask.button')}
           </button>
           {busy && (
             <button type="button" style={ghostButton} onClick={cancel}>
-              Parar
+              {tt(language, 'common.stop')}
             </button>
           )}
           {/* Push-to-talk: routes through the app-level runtime so it behaves the same
@@ -620,15 +622,15 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
               color: listening ? 'var(--accent-primary)' : 'var(--text-primary)'
             }}
             onClick={triggerPushToTalk}
-            title={pushToTalkBinding ? `Push-to-talk · ${formatBinding(pushToTalkBinding)}` : 'Push-to-talk (clique ou ligue um botão)'}
-            aria-label="Push-to-talk"
+            title={pushToTalkBinding ? tt(language, 'engineer.ptt.boundTitle', { binding: formatBinding(pushToTalkBinding) }) : tt(language, 'engineer.ptt.title')}
+            aria-label={tt(language, 'engineer.ptt.aria')}
           >
-            {listening ? '● ouvindo' : '🎙'}
+            {listening ? tt(language, 'engineer.ptt.listening') : '🎙'}
           </button>
         </div>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {EXAMPLE_CHIPS.map((chip) => (
+          {exampleChips.map((chip) => (
             <button key={chip} type="button" style={chipButton} disabled={busy} onClick={() => void ask(chip)}>
               {chip}
             </button>
@@ -638,7 +640,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
         {/* ── Proactive per-sector call-outs feed (newest first) ───────────── */}
         {proactive.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={eyebrow}>Rádio · coaching proativo</div>
+            <div style={eyebrow}>{tt(language, 'engineer.proactive.eyebrow')}</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
               {[...proactive].reverse().map((event) => (
                 <div
@@ -678,9 +680,9 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
         >
           {log.length === 0 && (
             <div style={{ color: 'var(--text-muted)', fontSize: 13, margin: 'auto', textAlign: 'center' }}>
-              Faça uma pergunta ou toque num exemplo acima.
+              {tt(language, 'engineer.empty.ask')}
               <br />
-              Respostas diretas (combustível, pneus, gaps) vêm na hora, sem carregar o modelo.
+              {tt(language, 'engineer.empty.direct')}
             </div>
           )}
           {log.map((entry) => (
@@ -715,7 +717,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
                 {entry.text}
                 {entry.command && (
                   <span style={{ ...label, display: 'block', marginTop: 4, color: 'var(--accent-success)' }}>
-                    ação · {entry.command.kind}
+                    action · {entry.command.kind}
                   </span>
                 )}
               </div>
@@ -729,11 +731,11 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
       <section style={panel}>
         <div>
           <div style={eyebrow}>Status</div>
-          <h2 style={title}>Modelo & runtime</h2>
+          <h2 style={title}>{tt(language, 'engineer.modelRuntime')}</h2>
         </div>
 
         <div style={settingRow}>
-          <span style={label}>Estado do modelo</span>
+          <span style={label}>{tt(language, 'engineer.modelStatus')}</span>
           <strong style={{ color: toneColor(modelView.tone), fontFamily: '"Rajdhani", sans-serif' }}>{modelView.text}</strong>
         </div>
         {modelView.ratio != null && (
@@ -748,11 +750,11 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
         </div>
 
         <div>
-          <span style={{ ...label, display: 'block', marginBottom: 'var(--space-3)' }}>Nível do modelo</span>
+          <span style={{ ...label, display: 'block', marginBottom: 'var(--space-3)' }}>{tt(language, 'engineer.modelLevel')}</span>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
             {tierModels.map(({ tier, model }) => {
               // Highlight the SESSION pick (falls back to the persisted default). The
-              // "Padrão" badge marks config.modelId — the default that survives restart.
+              // Default badge marks config.modelId — the default that survives restart.
               const selected = selectedModelId === model.id
               const isDefault = config.modelId === model.id
               return (
@@ -785,7 +787,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
                         fontSize: 14
                       }}
                     >
-                      {MODEL_TIER_LABELS[tier]}
+                      {tt(language, `engineer.tier.${tier}`)}
                       {isDefault && (
                         <span
                           style={{
@@ -797,14 +799,14 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
                             fontSize: 9
                           }}
                         >
-                          Padrão
+                          {tt(language, 'engineer.default')}
                         </span>
                       )}
                     </span>
                     <span style={{ color: 'var(--text-muted)', fontSize: 11.5, lineHeight: 1.35 }}>
                       {formatModelSize(model.approxBytes)}
-                      {tier === 'quality' ? ' · para PCs mais fortes' : ''}
-                      {model.present ? ' · instalado' : ' · baixar sob demanda'}
+                      {tier === 'quality' ? tt(language, 'engineer.tier.qualityHelp') : ''}
+                      {model.present ? tt(language, 'engineer.model.installed') : tt(language, 'engineer.model.downloadOnDemand')}
                     </span>
                   </span>
                   <span
@@ -814,7 +816,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
                       color: model.present ? 'var(--accent-success)' : 'var(--text-muted)'
                     }}
                   >
-                    {model.present ? '● pronto' : '○ baixar'}
+                    {model.present ? tt(language, 'engineer.model.readyBadge') : tt(language, 'engineer.model.downloadBadge')}
                   </span>
                 </button>
               )
@@ -828,7 +830,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
           disabled={selectionIsDefault}
           onClick={setSelectedAsDefault}
         >
-          {selectionIsDefault ? 'Modelo selecionado já é o padrão' : 'Definir modelo selecionado como padrão'}
+          {selectionIsDefault ? tt(language, 'engineer.defaultAlready') : tt(language, 'engineer.setDefault')}
         </button>
 
         {needsDownload && (
@@ -839,21 +841,21 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
             onClick={() => void downloadModel()}
           >
             {downloading
-              ? 'Baixando…'
-              : `Baixar ${activeModel ? formatModelSize(activeModel.approxBytes) : 'modelo'}`}
+              ? tt(language, 'engineer.model.downloadingShort')
+              : tt(language, 'engineer.model.downloadSize', { size: activeModel ? formatModelSize(activeModel.approxBytes) : tt(language, 'engineer.model.generic') })}
           </button>
         )}
 
         <div style={{ height: 1, background: 'var(--border-default)', margin: '4px 0' }} />
-        <div style={eyebrow}>Recursos & idioma</div>
+        <div style={eyebrow}>{tt(language, 'engineer.featuresLanguage')}</div>
 
         <div style={settingRow}>
-          <span style={label}>Habilitar engenheiro</span>
+          <span style={label}>{tt(language, 'engineer.enable')}</span>
           <input type="checkbox" checked={config.enabled} onChange={(event) => void patchConfig({ enabled: event.target.checked })} />
         </div>
 
         <div style={settingRow}>
-          <span style={label}>Falar respostas (TTS)</span>
+          <span style={label}>{tt(language, 'engineer.speakAnswers')}</span>
           <input
             type="checkbox"
             checked={config.speakAnswers}
@@ -862,7 +864,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
         </div>
 
         <div style={settingRow}>
-          <span style={label}>Coaching proativo por voz</span>
+          <span style={label}>{tt(language, 'engineer.proactiveVoice')}</span>
           <input
             type="checkbox"
             checked={config.proactiveCoaching}
@@ -871,26 +873,26 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
         </div>
 
         <div style={settingRow}>
-          <span style={label}>Postura do engenheiro</span>
+          <span style={label}>{tt(language, 'engineer.assertiveness')}</span>
           <select
             style={{ ...selectStyle, width: 'auto' }}
             value={config.assertiveness}
             onChange={(event) => void patchConfig({ assertiveness: event.target.value as EngineerAssertiveness })}
           >
-            <option value="balanced">Equilibrado</option>
-            <option value="assertive">Assertivo</option>
+            <option value="balanced">{tt(language, 'engineer.assertiveness.balanced')}</option>
+            <option value="assertive">{tt(language, 'engineer.assertiveness.assertive')}</option>
             <option value="brutal">Brutal</option>
           </select>
         </div>
 
         <div style={settingRow}>
-          <span style={label}>Idioma</span>
+          <span style={label}>{tt(language, 'engineer.language')}</span>
           <select
             style={{ ...selectStyle, width: 'auto' }}
             value={config.language}
             onChange={(event) => void patchConfig({ language: event.target.value as EngineerLanguage })}
           >
-            <option value="pt-BR">Português (BR)</option>
+            <option value="pt-BR">Portuguese (BR)</option>
             <option value="en-US">English (US)</option>
           </select>
         </div>
@@ -921,7 +923,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
         </div>
 
         <div style={settingRow}>
-          <span style={label}>Máx. tokens</span>
+          <span style={label}>Max tokens</span>
           <input
             type="number"
             min={32}
@@ -934,22 +936,22 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
         </div>
 
         <p style={{ color: 'var(--text-muted)', fontSize: 11, margin: 0 }}>
-          IA 100% local (CPU). O modelo só carrega quando você faz uma pergunta aberta; perguntas diretas são respondidas na hora.
+          100% local AI (CPU). The model only loads for open-ended questions; direct questions answer immediately.
         </p>
       </section>
       </div>
 
-      {/* ── Perguntas rápidas & botões (push-to-talk + presets) ─────────────────
+      {/* ── Quick questions & buttons (push-to-talk + presets) ─────────────────
           Editable canned questions, each firable by click and bindable to a HID
           button. Plus a push-to-talk button. Triggers route through the engineer
           only — they never touch serial / iFlag / revlights. */}
       <section style={{ ...panel, gap: 'var(--space-4)' }}>
         <div>
-          <div style={eyebrow}>Q&amp;A · gatilhos</div>
-          <h2 style={title}>Perguntas rápidas &amp; botões</h2>
+          <div style={eyebrow}>{tt(language, 'engineer.triggers.eyebrow')}</div>
+          <h2 style={title}>Quick questions &amp; buttons</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: '4px 0 0' }}>
-            Chame o engenheiro por botão da button box: push-to-talk (ouvir e perguntar) ou perguntas prontas,
-            cada uma ligável a um botão. Edite, adicione ou remova abaixo.
+            Call the engineer from the button box: push-to-talk or preset questions, each bindable to a button.
+            Edit, add, or remove them below.
           </p>
         </div>
 
@@ -969,7 +971,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <strong style={{ color: 'var(--text-primary)', fontFamily: '"Rajdhani", sans-serif', fontSize: 14 }}>Push-to-talk</strong>
             <span style={{ color: 'var(--text-muted)', fontSize: 11.5 }}>
-              {pushToTalkBinding ? formatBinding(pushToTalkBinding) : 'sem botão · clique no 🎙 para ditar'}
+              {pushToTalkBinding ? formatBinding(pushToTalkBinding) : 'no button · click 🎙 to dictate'}
             </span>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -981,11 +983,11 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
               }}
               onClick={() => setCaptureTarget(captureTarget?.kind === 'pushToTalk' ? null : { kind: 'pushToTalk' })}
             >
-              {captureTarget?.kind === 'pushToTalk' ? 'Pressione… (Esc)' : pushToTalkBinding ? 'Trocar botão' : 'Ligar botão'}
+              {captureTarget?.kind === 'pushToTalk' ? 'Press… (Esc)' : pushToTalkBinding ? 'Change button' : 'Bind button'}
             </button>
             {pushToTalkBinding && (
               <button type="button" style={ghostButton} onClick={() => clearBinding({ kind: 'pushToTalk' })}>
-                Limpar
+                {tt(language, 'common.clear')}
               </button>
             )}
           </div>
@@ -994,7 +996,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
         {/* Preset list */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           {config.presetQuestions.length === 0 && (
-            <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>Nenhuma pergunta pronta. Adicione uma abaixo.</span>
+            <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>No preset questions. Add one below.</span>
           )}
           {config.presetQuestions.map((preset) => {
             const binding = config.buttonBindings.presets[preset.id] ?? null
@@ -1016,7 +1018,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
                   type="button"
                   style={{ ...ghostButton, padding: '0 var(--space-3)', height: 30 }}
                   disabled={busy || !config.enabled}
-                  title="Perguntar agora"
+                  title={tt(language, 'engineer.askNow')}
                   onClick={() => void ask(preset.text)}
                 >
                   ▶
@@ -1025,7 +1027,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
                   <input
                     style={{ ...inputStyle, height: 28, fontSize: 12 }}
                     value={presetValue(preset, 'label')}
-                    aria-label="Rótulo da pergunta"
+                    aria-label="Question label"
                     onChange={(event) => editPresetDraft(preset.id, 'label', event.target.value.slice(0, ENGINEER_LIMITS.presetLabelMax))}
                     onBlur={() => commitPresetDraft(preset.id, 'label')}
                     onKeyDown={(event) => {
@@ -1035,7 +1037,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
                   <input
                     style={{ ...inputStyle, height: 28, fontSize: 12 }}
                     value={presetValue(preset, 'text')}
-                    aria-label="Texto da pergunta"
+                    aria-label={tt(language, 'engineer.questionText')}
                     onChange={(event) => editPresetDraft(preset.id, 'text', event.target.value.slice(0, ENGINEER_LIMITS.presetTextMax))}
                     onBlur={() => commitPresetDraft(preset.id, 'text')}
                     onKeyDown={(event) => {
@@ -1044,7 +1046,7 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
                   />
                 </div>
                 <span style={{ ...label, color: binding ? 'var(--accent-success)' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                  {binding ? formatBinding(binding) : 'sem botão'}
+                  {binding ? formatBinding(binding) : 'no button'}
                 </span>
                 <button
                   type="button"
@@ -1054,17 +1056,17 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
                   }}
                   onClick={() => setCaptureTarget(capturingThis ? null : { kind: 'preset', id: preset.id })}
                 >
-                  {capturingThis ? 'Pressione…' : binding ? 'Trocar' : 'Ligar botão'}
+                  {capturingThis ? 'Press…' : binding ? 'Change' : 'Bind button'}
                 </button>
                 {binding && (
                   <button type="button" style={ghostButton} onClick={() => clearBinding({ kind: 'preset', id: preset.id })}>
-                    Limpar
+                    {tt(language, 'common.clear')}
                   </button>
                 )}
                 <button
                   type="button"
                   style={{ ...ghostButton, color: 'var(--accent-danger)', borderColor: 'var(--accent-danger)' }}
-                  title="Remover pergunta"
+                  title={tt(language, 'engineer.removeQuestion')}
                   onClick={() => removePreset(preset.id)}
                 >
                   ✕
@@ -1078,16 +1080,16 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
         <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'center', flexWrap: 'wrap' }}>
           <input
             style={{ ...inputStyle, height: 32, fontSize: 12, width: 150 }}
-            placeholder="Rótulo (ex.: Pneus)"
+            placeholder="Label (e.g. Tyres)"
             value={draftLabel}
-            aria-label="Rótulo da nova pergunta"
+            aria-label="New question label"
             onChange={(event) => setDraftLabel(event.target.value.slice(0, ENGINEER_LIMITS.presetLabelMax))}
           />
           <input
             style={{ ...inputStyle, height: 32, fontSize: 12, flex: 1, minWidth: 180 }}
-            placeholder="Pergunta (ex.: como estão os pneus?)"
+            placeholder="Question (e.g. how are the tyres?)"
             value={draftText}
-            aria-label="Texto da nova pergunta"
+            aria-label={tt(language, 'engineer.newQuestionText')}
             onChange={(event) => setDraftText(event.target.value.slice(0, ENGINEER_LIMITS.presetTextMax))}
             onKeyDown={(event) => {
               if (event.key === 'Enter') addPreset()
@@ -1099,30 +1101,26 @@ export default function EngineerView({ showToast }: AppViewProps): ReactElement 
             disabled={!draftText.trim()}
             onClick={addPreset}
           >
-            Adicionar
+            {tt(language, 'common.add')}
           </button>
         </div>
         {captureTarget && (
           <span style={{ color: 'var(--accent-primary)', fontSize: 12 }}>
-            Pressione um botão da button box para ligar… (Esc para cancelar)
+            Press a button-box button to bind… (Esc to cancel)
           </span>
         )}
       </section>
 
-      {/* ── Voice Spotter / Avisos falados (absorvido do antigo Voice Spotter) ──
-          O Engenheiro IA é o hub único de VOZ. A engine fala bandeiras, combustível,
-          pit, proximidade, incidentes e voltas a partir da telemetria ao vivo.
-          As configurações de postura/proativo/falar respostas estão no painel acima. */}
+      {/* ── Voice Spotter / spoken alerts (absorbed from the old Voice Spotter) ── */}
       <section style={{ ...panel, gap: 'var(--space-5)' }}>
         <div>
-          <div style={eyebrow}>Voz · spotter</div>
-          <h2 style={title}>Voice Spotter / Avisos falados</h2>
+          <div style={eyebrow}>{tt(language, 'engineer.voice.eyebrow')}</div>
+          <h2 style={title}>{tt(language, 'engineer.voice.title')}</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: '4px 0 0' }}>
-            Avisos falados de engenheiro/spotter por telemetria. Diferente de Sounds (que só bipa),
-            aqui o app fala. Escolha vozes, ative/ajuste cada aviso e teste a saída de áudio.
+            Spoken engineer/spotter telemetry alerts. Unlike Sounds, this screen speaks. Choose voices, tune each alert, and test audio output.
           </p>
         </div>
-        <VoiceSpotterSection showToast={showToast} />
+        <VoiceSpotterSection showToast={showToast} language={language} />
       </section>
     </div>
   )

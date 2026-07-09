@@ -85,7 +85,7 @@ describe('MOMENT_CATALOG', () => {
 
   it('momentCatalogEntry / momentLabel resolve known + unknown ids', () => {
     expect(momentCatalogEntry('last-lap')?.group).toBe('session')
-    expect(momentLabel('last-lap')).toBe('Última volta')
+    expect(momentLabel('last-lap')).toBe('Last lap')
     expect(momentCatalogEntry('nope')).toBeUndefined()
     expect(momentLabel('nope')).toBe('nope')
   })

@@ -23,17 +23,17 @@ export interface DumpHexOptions {
 
 export async function dumpHexFirmware(opts: DumpHexOptions): Promise<void> {
   if (opts.board.flashTool === 'arduino-cli' || opts.board.programmer === 'arduino-cli') {
-    throw new FlashError('Backup .hex via avrdude não está disponível para placas ESP32/arduino-cli.')
+    throw new FlashError('.hex backup through avrdude is not available for ESP32/arduino-cli boards.')
   }
   if (process.platform !== 'win32') {
-    throw new FlashError('Backup .hex via avrdude está disponível apenas no Windows.')
+    throw new FlashError('.hex backup through avrdude is only available on Windows.')
   }
-  if (!opts.port.trim()) throw new FlashError('Selecione a porta serial (COM) da placa.')
+  if (!opts.port.trim()) throw new FlashError('Select the board serial (COM) port.')
   if (!existsSync(opts.tools.avrdudeExe)) {
-    throw new FlashError(`avrdude.exe não foi encontrado em ${opts.tools.avrdudeExe}.`)
+    throw new FlashError(`avrdude.exe was not found em ${opts.tools.avrdudeExe}.`)
   }
   if (!existsSync(opts.tools.avrdudeConf)) {
-    throw new FlashError(`avrdude.conf não foi encontrado em ${opts.tools.avrdudeConf}.`)
+    throw new FlashError(`avrdude.conf was not found em ${opts.tools.avrdudeConf}.`)
   }
 
   throwIfAborted(opts.signal)

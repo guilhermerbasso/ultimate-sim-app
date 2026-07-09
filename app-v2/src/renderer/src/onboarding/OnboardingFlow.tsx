@@ -21,8 +21,8 @@ interface StepDef {
 
 const steps: StepDef[] = [
   { id: 'welcome', label: 'Boas-vindas' },
-  { id: 'telemetry', label: 'Telemetria' },
-  { id: 'devices', label: 'Dispositivos' },
+  { id: 'telemetry', label: 'Telemetry' },
+  { id: 'devices', label: 'Devices' },
   { id: 'overlays', label: 'Overlays' },
   { id: 'finish', label: 'Finalizar' }
 ]
@@ -126,10 +126,10 @@ export function OnboardingFlow({ onClose, onNavigate }: OnboardingFlowProps): Re
             <span className="onboarding-kicker">Setup guiado · {progress}%</span>
             <h1 id="onboarding-title">Onboarding</h1>
           </div>
-          <button className="onboarding-skip" type="button" onClick={markCompleteAndClose}>Pular</button>
+          <button className="onboarding-skip" type="button" onClick={markCompleteAndClose}>Skip</button>
         </header>
 
-        <div className="onboarding-progress" aria-label={`Progresso ${progress}%`}>
+        <div className="onboarding-progress" aria-label={`Progress ${progress}%`}>
           {steps.map((step, index) => (
             <span
               aria-current={step.id === currentStep.id ? 'step' : undefined}
@@ -165,9 +165,9 @@ export function OnboardingFlow({ onClose, onNavigate }: OnboardingFlowProps): Re
 
         {currentStep.id !== 'welcome' && (
           <footer className="onboarding-footer">
-            <button className="onboarding-button" type="button" onClick={back} disabled={isFirstStep}>Voltar</button>
+            <button className="onboarding-button" type="button" onClick={back} disabled={isFirstStep}>Back</button>
             <button className="onboarding-button onboarding-button--primary" type="button" onClick={next}>
-              {isLastStep ? 'Concluir' : 'Continuar'}
+              {isLastStep ? 'Finish' : 'Continue'}
             </button>
           </footer>
         )}

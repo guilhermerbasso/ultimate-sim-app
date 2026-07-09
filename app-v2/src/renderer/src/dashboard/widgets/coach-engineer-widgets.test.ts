@@ -41,7 +41,7 @@ const REPORT: CoachReport = {
   findings: [
     finding({ id: 'a', severity: 'high', corner: 4, title: 'Freou tarde', estTimeLossSec: 0.3 }),
     finding({ id: 'b', severity: 'med', sector: 2, title: 'Coast no meio', estTimeLossSec: 0.12 }),
-    finding({ id: 'c', severity: 'good', kind: 'good', sector: 3, title: 'Setor limpo', estTimeLossSec: 0 })
+    finding({ id: 'c', severity: 'good', kind: 'good', sector: 3, title: 'Sector limpo', estTimeLossSec: 0 })
   ],
   corners: [],
   cornerMetrics: [],
@@ -72,7 +72,7 @@ describe('coach-insights pure helpers', () => {
 
   it('findingScope prefers Curva over Setor', () => {
     expect(findingScope(finding({ corner: 7, sector: 2 }))).toBe('Curva 7')
-    expect(findingScope(finding({ corner: undefined, sector: 2 }))).toBe('Setor 2')
+    expect(findingScope(finding({ corner: undefined, sector: 2 }))).toBe('Sector 2')
   })
 
   it('findingTone maps severities (good is the only cool tone)', () => {

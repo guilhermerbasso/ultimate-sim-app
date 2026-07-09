@@ -55,7 +55,7 @@ export function SessionWeatherWidget({ snapshot, config }: WidgetProps): ReactEl
   const raining = rainingRaw === true
   const wetFrac = pctOrUndefined(snapshot?.trackWetnessPct)
   const wetN = wetFrac === undefined ? undefined : Math.round(wetFrac * 100)
-  const condTxt = rainingRaw === undefined ? '—' : raining ? 'Chuva' : 'Seco'
+  const condTxt = rainingRaw === undefined ? '—' : raining ? 'Rain' : 'Dry'
   const cond = `${condTxt} · Wet ${wetN === undefined ? '—' : `${wetN}%`}`
   const incidents = finite(snapshot?.incidentCount)
     ? `${Math.round(snapshot.incidentCount as number)}/${finite(snapshot?.incidentLimit) && (snapshot?.incidentLimit as number) > 0 ? Math.round(snapshot.incidentLimit as number) : '—'}`
@@ -65,7 +65,7 @@ export function SessionWeatherWidget({ snapshot, config }: WidgetProps): ReactEl
   const rainLampActive = raining || snapshot?.weatherDeclaredWet === true || (wetN !== undefined && wetN > 10)
   const headlightActive = night || raining
 
-  const voltaVal = finite(snapshot?.currentLap) ? String(Math.round(snapshot?.currentLap as number)) : '—'
+  const lapVal = finite(snapshot?.currentLap) ? String(Math.round(snapshot?.currentLap as number)) : '—'
   const atualVal = formatLap(snapshot?.currentLapTimeSec)
   const pistaVal = finite(snapshot?.trackTempC) ? String(Math.round(snapshot?.trackTempC as number)) : '—'
   const pistaUnit = finite(snapshot?.trackTempC) ? '°C' : undefined
@@ -115,7 +115,7 @@ export function SessionWeatherWidget({ snapshot, config }: WidgetProps): ReactEl
       <circle cx={W - pad - 44} cy={infoY + 6} r={5} fill={headlightActive ? skin.palette.warn : skin.palette.surface} stroke={skin.material.border} strokeWidth={1} />
       <FitText x={W - pad - 34} y={infoY + 6} boxW={W * 0.32} boxH={16} text={cond} anchor="start" fontFamily={skin.typography.label} fill={condColor} minFontPx={11} maxFontPx={14} overflowStrategy="ellipsis" />
 
-      <DataField x={pad} y={gridY} width={cellW} height={cellH} label="Volta" value={voltaVal} skin={skin} />
+      <DataField x={pad} y={gridY} width={cellW} height={cellH} label="Lap" value={lapVal} skin={skin} />
       <DataField x={col1} y={gridY} width={cellW} height={cellH} label="Atual" value={atualVal} skin={skin} />
       <DataField x={pad} y={row1} width={cellW} height={cellH} label="Inc." value={incidents} state={incState} skin={skin} />
       <DataField x={col1} y={row1} width={cellW} height={cellH} label="Pista" value={pistaVal} unit={pistaUnit} state={pistaState} skin={skin} />

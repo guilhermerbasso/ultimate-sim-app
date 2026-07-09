@@ -13,7 +13,7 @@ export type Corner = 'lf' | 'rf' | 'lr' | 'rr'
 export const CORNERS: Corner[] = ['lf', 'rf', 'lr', 'rr']
 
 // Pit commands only work while the driver is in the car / on track. We treat the
-// live telemetry `connected` flag (the sim only publishes a valid header while a
+// live telemetry `connected` flag (the yes only publishes a valid header while a
 // session is active) plus the broadcast control being connected as "on track".
 export function canSendPitCommands(
   status: IRacingControlStatus | null,

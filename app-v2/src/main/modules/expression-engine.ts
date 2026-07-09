@@ -120,7 +120,7 @@ class ExpressionStore {
 
   async evaluate(input: unknown, snapshot?: TelemetrySnapshot): Promise<ExpressionValue> {
     await this.ensureLoaded()
-    if (typeof input !== 'string' || !input.trim()) throw new Error('Expressão vazia.')
+    if (typeof input !== 'string' || !input.trim()) throw new Error('Empty expression.')
     const latest = snapshot ?? ctxLatest(this.ctx)
     const scope = this.buildScope(latest)
     return evaluateExpression(input, scope)
@@ -230,15 +230,15 @@ function ctxLatest(ctx: ModuleContext): TelemetrySnapshot | null {
 }
 
 function normalizeExpressions(input: unknown): ExpressionDef[] {
-  if (!Array.isArray(input)) throw new Error('Lista de expressões inválida.')
+  if (!Array.isArray(input)) throw new Error('Invalid expression list.')
   const seenIds = new Set<string>()
   return input.map((item, index) => {
-    if (!isObject(item)) throw new Error(`Expressão #${index + 1} inválida: payload não é objeto.`)
-    const id = normalizeString(item.id, `Expressão #${index + 1}: id ausente.`)
-    if (seenIds.has(id)) throw new Error(`Expressão #${index + 1}: id duplicado "${id}".`)
+    if (!isObject(item)) throw new Error(`Expression #${index + 1} invalid: payload is not an object.`)
+    const id = normalizeString(item.id, `Expression #${index + 1}: missing id.`)
+    if (seenIds.has(id)) throw new Error(`Expression #${index + 1}: duplicate id "${id}".`)
     seenIds.add(id)
-    const name = normalizeString(item.name, `Expressão #${index + 1}: nome ausente.`)
-    const expr = normalizeString(item.expr, `Expressão #${index + 1}: fórmula ausente.`)
+    const name = normalizeString(item.name, `Expression #${index + 1}: missing name.`)
+    const expr = normalizeString(item.expr, `Expression #${index + 1}: missing formula.`)
     const definition: ExpressionDef = { id, name, expr }
     const targets = normalizeOptionalTargets(item.targets, index)
     if (targets) definition.targets = targets
@@ -251,13 +251,13 @@ function normalizeExpressions(input: unknown): ExpressionDef[] {
 function normalizeOptionalTargets(value: unknown, index: number): OutputTarget[] | undefined {
   if (value === undefined || value === null) return undefined
   if (!Array.isArray(value)) {
-    throw new Error(`Expressão #${index + 1}: lista de targets inválida.`)
+    throw new Error(`Expression #${index + 1}: invalid target list.`)
   }
   if (value.length === 0) return undefined
   const targets: OutputTarget[] = []
   value.forEach((target, targetIndex) => {
     if (!isOutputTarget(target)) {
-      throw new Error(`Expressão #${index + 1}: target #${targetIndex + 1} inválido.`)
+      throw new Error(`Expression #${index + 1}: target #${targetIndex + 1} invalid.`)
     }
     targets.push(target)
   })
@@ -272,8 +272,8 @@ function normalizeOptionalString(value: unknown): string | undefined {
 }
 
 function normalizeEnabledVars(input: unknown): EnabledIracingVars {
-  if (!Array.isArray(input)) throw new Error('Lista de variáveis inválida.')
-  return [...new Set(input.map((item) => normalizeString(item, 'Variável inválida.')))]
+  if (!Array.isArray(input)) throw new Error('Invalid variable list.')
+  return [...new Set(input.map((item) => normalizeString(item, 'Invalid variable.')))]
 }
 
 function normalizeString(value: unknown, message: string): string {

@@ -116,7 +116,7 @@ const PROGRESSIVE_SEGMENTS: RevlightsSegment[] = [
 
 const SEGMENTED_GTR: RevlightsSegment[] = [
   { startPct: 0.55, color: '#33D17C', label: 'Verde' },
-  { startPct: 0.70, color: '#FFCC00', label: 'Âmbar' },
+  { startPct: 0.70, color: '#FFCC00', label: 'Amber' },
   { startPct: 0.82, color: '#FF6A2A', label: 'Laranja' },
   { startPct: 0.92, color: '#E83A2F', label: 'Vermelho' }
 ]
@@ -133,7 +133,7 @@ const SEGMENTED_FORMULA: RevlightsSegment[] = [
 // still firmware-owned until SIM-X accepts app-driven RGB values.
 const F1_SEGMENTS: RevlightsSegment[] = [
   { startPct: 0.90, color: '#33D17C', label: 'Verde' },
-  { startPct: 0.94, color: '#FFCC00', label: 'Âmbar' },
+  { startPct: 0.94, color: '#FFCC00', label: 'Amber' },
   { startPct: 0.97, color: '#E83A2F', label: 'Vermelho' }
 ]
 
@@ -171,7 +171,7 @@ export const REVLIGHTS_PRESETS: RevlightsPreset[] = [
   {
     id: 'segmented-gtr',
     name: 'GT3 / GTR',
-    description: 'Verde, âmbar, laranja, vermelho — calibrado para GT/Touring.',
+    description: 'Green, amber, orange, red ? calibrated for GT/Touring.',
     baseConfig: {
       preset: 'segmented-gtr',
       ledCount: REVLIGHTS_DEVICE_LED_COUNT,
@@ -183,7 +183,7 @@ export const REVLIGHTS_PRESETS: RevlightsPreset[] = [
   {
     id: 'segmented-formula',
     name: 'Formula / LMP',
-    description: 'Azul, verde, amarelo e vermelho — alto rev, shift altíssimo.',
+    description: 'Blue, green, yellow, and red ? high revs, very high shift point.',
     baseConfig: {
       preset: 'segmented-formula',
       ledCount: REVLIGHTS_DEVICE_LED_COUNT,
@@ -195,7 +195,7 @@ export const REVLIGHTS_PRESETS: RevlightsPreset[] = [
   {
     id: 'f1',
     name: 'Modo F1',
-    description: 'Acende só nos últimos 10% do RPM: verde → âmbar → vermelho, com blink no shift.',
+    description: 'Lights only in the final 10% of RPM: green ? amber ? red, with shift blink.',
     baseConfig: {
       preset: 'f1',
       ledCount: REVLIGHTS_DEVICE_LED_COUNT,
@@ -221,7 +221,7 @@ export const REVLIGHTS_PRESETS: RevlightsPreset[] = [
   {
     id: 'shift-only',
     name: 'Shift only',
-    description: 'Só pisca azul no shift point — sem cores progressivas.',
+    description: 'Only flashes blue at the shift point ? no progressive colors.',
     baseConfig: {
       preset: 'shift-only',
       ledCount: REVLIGHTS_DEVICE_LED_COUNT,

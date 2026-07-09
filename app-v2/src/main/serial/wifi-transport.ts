@@ -78,7 +78,7 @@ export class WifiTransport extends EventEmitter {
 
   async connect(timeoutMs = 6000): Promise<WifiTransportStatus> {
     if (this.connected) return this.status()
-    if (this.connecting) throw new Error('Conexão Wi‑Fi já está em andamento.')
+    if (this.connecting) throw new Error('Wi‑Fi connection is already in progress.')
     this.connecting = true
     this.error = undefined
     this.emitStatus()
@@ -90,7 +90,7 @@ export class WifiTransport extends EventEmitter {
       socket.setKeepAlive(true, 10_000)
 
       const timer = setTimeout(() => {
-        socket.destroy(new Error('Tempo esgotado ao conectar no ESP32 via Wi‑Fi.'))
+        socket.destroy(new Error('Timed out connecting to the ESP32 over Wi?Fi.'))
       }, timeoutMs)
 
       const settle = (fn: () => void): void => {
@@ -129,7 +129,7 @@ export class WifiTransport extends EventEmitter {
   }
 
   send(line: string): void {
-    if (!this.socket || !this.connected) throw new Error('ESP32 Wi‑Fi não está conectado.')
+    if (!this.socket || !this.connected) throw new Error('ESP32 Wi‑Fi is not connected.')
     // Strip ALL newlines (prevent TCP command smuggling) and cap the length.
     const clean = String(line).replace(/[\r\n]/g, '').slice(0, 256)
     this.socket.write(`${clean}\n`)

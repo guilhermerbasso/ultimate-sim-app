@@ -125,8 +125,8 @@ const MATRIX_CHIPS: ReadonlyArray<SelectOption<RgbMatrixComponent['chip']>> = [
   { value: 'max7219', label: 'MAX7219' }
 ]
 const MATRIX_MODES: ReadonlyArray<SelectOption<RgbMatrixComponent['mode']>> = [
-  { value: 'iflag', label: 'iFlag (bandeiras)' },
-  { value: 'gear', label: 'Marcha' },
+  { value: 'iflag', label: 'iFlag (flags)' },
+  { value: 'gear', label: 'Gear' },
   { value: 'custom', label: 'Custom' }
 ]
 const ORIENTATIONS: ReadonlyArray<SelectOption<'0' | '90' | '180' | '270'>> = [
@@ -186,7 +186,7 @@ const GAUGE_METRICS: ReadonlyArray<SelectOption<GaugeComponent['metric']>> = [
   { value: 'oilTemp', label: 'Oil temp' },
   { value: 'custom', label: 'Custom' }
 ]
-const GAUGE_CURVES: ReadonlyArray<SelectOption<GaugeCurve>> = [
+const GAUGE_CURLES: ReadonlyArray<SelectOption<GaugeCurve>> = [
   { value: 'linear', label: 'Linear' },
   { value: 'ease-in', label: 'Ease in' },
   { value: 'ease-out', label: 'Ease out' },
@@ -406,27 +406,27 @@ function RgbMatrixEditor({
         <Field caption="Chip">
           <SelectField value={component.chip} options={MATRIX_CHIPS} onChange={(chip) => onChange({ ...component, chip })} />
         </Field>
-        <Field caption="Modo">
+        <Field caption="Mode">
           <SelectField value={component.mode} options={MATRIX_MODES} onChange={(mode) => onChange({ ...component, mode })} />
         </Field>
       </div>
       <div style={matrixTwoCol}>
-        <Field caption="Largura">
+        <Field caption="Width">
           <NumberField value={component.width} min={1} max={32} onChange={(width) => onChange({ ...component, width })} />
         </Field>
-        <Field caption="Altura">
+        <Field caption="Height">
           <NumberField value={component.height} min={1} max={32} onChange={(height) => onChange({ ...component, height })} />
         </Field>
       </div>
       <div style={matrixTwoCol}>
-        <Field caption="Orientação">
+        <Field caption="Orientacao">
           <SelectField
             value={String(component.orientation) as '0' | '90' | '180' | '270'}
             options={ORIENTATIONS}
             onChange={(value) => onChange({ ...component, orientation: Number(value) as RgbMatrixComponent['orientation'] })}
           />
         </Field>
-        <Field caption="Brilho">
+        <Field caption="Brightness">
           <Slider
             value={component.brightness}
             min={0}
@@ -441,7 +441,7 @@ function RgbMatrixEditor({
         onChange={(serpentine) => onChange({ ...component, serpentine })}
       />
       <div style={card}>
-        <span style={label}>Preview da matriz {component.width}×{component.height}</span>
+        <span style={label}>Matrix preview {component.width}×{component.height}</span>
         <MatrixPreview width={component.width} height={component.height} brightness={component.brightness} />
       </div>
     </div>
@@ -540,7 +540,7 @@ function GaugeEditor({ component, onChange }: { component: GaugeComponent; onCha
       <Section title="Calibration" description="Servo/stepper direction, curve, smoothing and startup behavior.">
         <div style={twoCol}>
           <Field caption="Sweep direction"><SelectField value={component.sweepDirection} options={GAUGE_DIRECTIONS} onChange={(sweepDirection) => onChange({ ...component, sweepDirection })} /></Field>
-          <Field caption="Curve"><SelectField value={component.curve} options={GAUGE_CURVES} onChange={(curve) => onChange({ ...component, curve })} /></Field>
+          <Field caption="Curve"><SelectField value={component.curve} options={GAUGE_CURLES} onChange={(curve) => onChange({ ...component, curve })} /></Field>
           <Field caption="Smoothing (ms)"><NumberField value={component.smoothingMs} min={0} max={2000} onChange={(smoothingMs) => onChange({ ...component, smoothingMs })} /></Field>
           <Field caption="Calibration offset (°)"><NumberField value={component.calibrationOffset} min={-180} max={180} onChange={(calibrationOffset) => onChange({ ...component, calibrationOffset })} /></Field>
           <Field caption="Warning value"><NumberField value={component.warningValue} onChange={(warningValue) => onChange({ ...component, warningValue })} /></Field>

@@ -53,7 +53,7 @@ function normalizeBindings(bindings: ActionBinding[]): ActionBinding[] {
 // broadcast vocabulary understood by IRacingControl. Returns null when the
 // requested action has no clean SDK mapping (camera next/previous,
 // black-box paging) — the dispatcher then reports an
-// "indisponível" message instead of pretending the command went through.
+// "indispolevel" message instead of pretending the command went through.
 function mapIracingCommand(command: IracingCommand): IRacingCommand | null {
   const name: IracingCommandName = command.name
   switch (name) {
@@ -117,16 +117,16 @@ export class ActionDispatcher {
   async trigger(bindingId: string): Promise<ActionTriggerResult> {
     await this.ensureLoaded()
     const binding = this.bindings.find((item) => item.id === bindingId)
-    if (!binding) throw new Error(`Binding não encontrado: ${bindingId}`)
+    if (!binding) throw new Error(`Binding not found: ${bindingId}`)
     if (!binding.enabled) {
-      return this.result(binding, false, `Binding "${binding.label}" está desativado.`)
+      return this.result(binding, false, `Binding "${binding.label}" is disabled.`)
     }
 
     if (binding.action.type === 'iracing') return this.dispatchIracing(binding, binding.action.command)
     if (binding.action.type === 'keyboard') return this.dispatchKeyboard(binding, binding.action.command)
     if (binding.action.type === 'gamepad') return this.dispatchGamepad(binding, binding.action.command)
 
-    return this.result(binding, true, 'Ação de app deve ser executada diretamente no renderer.')
+    return this.result(binding, true, 'App action must be executed directly in the renderer.')
   }
 
   private async ensureLoaded(): Promise<void> {
@@ -157,13 +157,13 @@ export class ActionDispatcher {
       return this.result(
         binding,
         false,
-        `iRacing command "${command.name}" não tem mapeamento direto no SDK broadcast — indisponível.`
+        `iRacing command "${command.name}" has no direct SDK broadcast mapping — unavailable.`
       )
     }
     const broadcastResult = this.iracingControl.execute(mapped)
     const message = broadcastResult.ok
       ? `iRacing: ${command.name} despachado.`
-      : broadcastResult.message ?? `Falha ao despachar iRacing ${command.name}.`
+      : broadcastResult.message ?? `Failed to dispatch iRacing ${command.name}.`
     return this.result(binding, broadcastResult.ok, message)
   }
 

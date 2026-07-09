@@ -9,6 +9,7 @@ import {
 } from '../../../shared/touch-panel'
 import { TOUCH_PANEL_PRESETS } from '../../../shared/touch-panel-presets'
 import type { AppViewProps } from '../App'
+import { TagFilter, filterByTags } from '../components/TagFilter'
 import { ButtonBoxEditor } from '../touchpanel/ButtonBoxEditor'
 
 interface DisplayInfo {
@@ -49,6 +50,29 @@ function input(): CSSProperties {
   return { background: '#0b0e13', color: TEXT_FG, border: `1px solid ${PANEL_BORDER}`, borderRadius: 8, padding: '8px 10px', fontSize: 13 }
 }
 
+function touchPresetTags(preset: ButtonBoxPanel): string[] {
+  const tags = new Set<string>([
+    `${preset.columns}×${preset.rows}`,
+    `${preset.buttons.length} buttons`,
+    preset.buttons.length <= 9 ? 'compact' : preset.buttons.length >= 20 ? 'large' : 'standard'
+  ])
+  for (const tag of preset.tags ?? []) tags.add(tag)
+  const name = preset.name.toLocaleLowerCase()
+  if (name.includes('pit')) tags.add('pit')
+  if (name.includes('race')) tags.add('race')
+  if (name.includes('stream')) tags.add('stream')
+  for (const car of ['ferrari', 'porsche', 'mercedes-amg', 'mclaren', 'corvette', 'lamborghini']) {
+    if (name.includes(car) || preset.tags?.includes(car)) tags.add(car)
+  }
+  for (const button of preset.buttons) {
+    tags.add(button.material.replace('_', '-'))
+    if (button.action.kind === 'iracing') tags.add('iRacing')
+    if (button.action.kind === 'keyboard') tags.add('keyboard')
+    if (button.action.kind === 'app') tags.add('app')
+  }
+  return Array.from(tags)
+}
+
 export default function TouchControlsView({ showToast }: AppViewProps): ReactElement {
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
   const [pitDisplayId, setPitDisplayId] = useState<number | null>(null)
@@ -62,6 +86,8 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
   const [fullscreen, setFullscreen] = useState(true)
   const [busy, setBusy] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [presetTagFilters, setPresetTagFilters] = useState<string[]>([])
+  const [selectedPanelIds, setSelectedPanelIds] = useState<Set<string>>(() => new Set())
 
   const refreshDisplays = useCallback(async () => {
     const list = await window.ipc.invoke<DisplayInfo[]>('app:touchpanel:listDisplays')
@@ -104,7 +130,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
   const requestLoadPanel = useCallback(
     (id: string) => {
       if (id === selectedId) return
-      if (dirty && !window.confirm('Há alterações não salvas neste button box. Descartar e trocar de painel?')) return
+      if (dirty && !window.confirm('There are unsaved changes in this button box. Discard and switch panels?')) return
       void run(() => loadPanel(id))
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -121,7 +147,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
     try {
       await task()
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Falha na operação.', 'error')
+      showToast(error instanceof Error ? error.message : 'Operation failed.', 'error')
     } finally {
       setBusy(false)
     }
@@ -135,11 +161,11 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
     setSelectedId(next.id)
     setSelectedButtonId(null)
     setDirty(false)
-    showToast('Button box criado.', 'success')
+    showToast('Button box created.', 'success')
   }, [refreshPanels, showToast, summaries.length])
 
   const requestCreatePanel = useCallback(() => {
-    if (dirty && !window.confirm('Há alterações não salvas neste button box. Descartar e criar um novo?')) return
+    if (dirty && !window.confirm('There are unsaved changes in this button box. Discard and create a new one?')) return
     void run(createPanel)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createPanel, dirty])
@@ -154,6 +180,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
         rows: preset.rows,
         gap: preset.gap,
         background: preset.background,
+        tags: preset.tags,
         buttons: preset.buttons.map((b) => ({ ...b, id: undefined }))
       })
       await window.ipc.invoke('app:touchpanel:save', next)
@@ -162,14 +189,14 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
       setSelectedId(next.id)
       setSelectedButtonId(null)
       setDirty(false)
-      showToast(`Modelo "${preset.name}" criado.`, 'success')
+      showToast(`Preset "${preset.name}" created.`, 'success')
     },
     [refreshPanels, showToast]
   )
 
   const requestCreateFromPreset = useCallback(
     (id: string) => {
-      if (dirty && !window.confirm('Há alterações não salvas neste button box. Descartar e criar do modelo?')) return
+      if (dirty && !window.confirm('There are unsaved changes in this button box. Discard and create from template?')) return
       void run(() => createFromPreset(id))
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -181,18 +208,18 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
     await window.ipc.invoke('app:touchpanel:save', panelDraft)
     await refreshPanels()
     setDirty(false)
-    showToast('Button box salvo.', 'success')
+    showToast('Button box saved.', 'success')
   }, [panelDraft, refreshPanels, showToast])
 
   const deletePanel = useCallback(async () => {
     if (!selectedId) return
-    if (!window.confirm('Excluir este button box?')) return
+    if (!window.confirm('Delete this button box?')) return
     await window.ipc.invoke('app:touchpanel:delete', selectedId)
     setPanelDraft(null)
     setSelectedId(null)
     setDirty(false)
     await refreshPanels()
-    showToast('Button box excluído.', 'info')
+    showToast('Button box deleted.', 'info')
   }, [refreshPanels, selectedId, showToast])
 
   const openFullscreen = useCallback(async () => {
@@ -200,8 +227,8 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
     await window.ipc.invoke('app:touchpanel:save', panelDraft)
     setDirty(false)
     const opened = await window.ipc.invoke('app:touchpanel:open', { panelId: panelDraft.id, displayId: panelDisplayId ?? undefined, fullscreen })
-    if (!opened) throw new Error('Não foi possível abrir o painel (sem monitor?).')
-    showToast('Button box aberto em tela cheia.', 'success')
+    if (!opened) throw new Error('Could not open the panel (no monitor?).')
+    showToast('Button box opened fullscreen.', 'success')
   }, [fullscreen, panelDisplayId, panelDraft, showToast])
 
   const addToPlaylist = useCallback(async () => {
@@ -214,13 +241,13 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
       fullscreen
     })
     await window.ipc.invoke('app:dash:playlist:set', next)
-    showToast('Button box adicionado à playlist de dashboards.', 'success')
+    showToast('Button box added to the dashboard playlist.', 'success')
   }, [fullscreen, panelDisplayId, panelDraft, showToast])
 
   const openPitPanel = useCallback(async () => {
     await window.ipc.invoke('app:pitpanel:open', { displayId: pitDisplayId ?? undefined })
     setPitPanelOpen(true)
-    showToast('Painel de Pit aberto.', 'success')
+    showToast('Pit Panel opened.', 'success')
   }, [pitDisplayId, showToast])
 
   const closePitPanel = useCallback(async () => {
@@ -232,11 +259,42 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
     () =>
       displays.map((d) => (
         <option key={d.id} value={d.id}>
-          {d.label} · {d.width}×{d.height}{d.primary ? ' · primário' : ''}
+          {d.label} · {d.width}×{d.height}{d.primary ? ' · primary' : ''}
         </option>
       )),
     [displays]
   )
+
+  const filteredTouchPresets = useMemo(
+    () => filterByTags(TOUCH_PANEL_PRESETS, presetTagFilters, touchPresetTags),
+    [presetTagFilters]
+  )
+  const visibleSummaries = useMemo(() => summaries.filter((summary) => !summary.hidden), [summaries])
+  const hiddenSummaries = useMemo(() => summaries.filter((summary) => summary.hidden), [summaries])
+
+  function togglePanelSelection(id: string): void {
+    setSelectedPanelIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function setPanelsHidden(ids: string[], hidden: boolean): Promise<void> {
+    if (ids.length === 0) return
+    for (const id of ids) {
+      await window.ipc.invoke('app:touchpanel:setHidden', id, hidden)
+    }
+    setSelectedPanelIds(new Set())
+    if (selectedId && ids.includes(selectedId) && hidden) {
+      setPanelDraft(null)
+      setSelectedId(null)
+      setDirty(false)
+    }
+    await refreshPanels()
+    showToast(hidden ? 'Button box hidden.' : 'Button box restored.', 'info')
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -244,26 +302,26 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
       <section style={panel()}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <span style={{ fontSize: 18 }} aria-hidden>🏁</span>
-          <strong style={{ color: TEXT_FG, fontSize: 14, letterSpacing: '0.04em' }}>Painel de Pit (touch)</strong>
+          <strong style={{ color: TEXT_FG, fontSize: 14, letterSpacing: '0.04em' }}>Pit Panel (touch)</strong>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           <span style={{ color: TEXT_DIM, fontSize: 12 }}>Monitor</span>
           <select value={pitDisplayId ?? ''} onChange={(e) => setPitDisplayId(e.target.value ? Number(e.target.value) : null)} style={input()}>
-            {displays.length === 0 && <option value="">Nenhum monitor</option>}
+            {displays.length === 0 && <option value="">No monitor</option>}
             {displayOptions}
           </select>
           <button style={btn('primary')} disabled={busy || displays.length === 0} onClick={() => run(openPitPanel)}>
-            {pitPanelOpen ? 'Reabrir Painel de Pit' : 'Abrir Painel de Pit'}
+            {pitPanelOpen ? 'Reopen Pit Panel' : 'Open Pit Panel'}
           </button>
           {pitPanelOpen && (
             <button style={btn('danger')} disabled={busy} onClick={() => run(closePitPanel)}>
-              Fechar painel
+              Close panel
             </button>
           )}
         </div>
         <p style={{ color: TEXT_DIM, fontSize: 12, margin: '8px 0 0' }}>
-          Painel de toque para pit stop e comandos rápidos — combustível, pneus, serviço, chat macros, câmera e replay.
-          O Kiosk de dashboards continua em <strong>Dashboards</strong>.
+          Touch panel for pit stops and quick commands: fuel, tires, service, chat macros, camera, and replay.
+          The dashboard kiosk remains in <strong>Dashboards</strong>.
         </p>
       </section>
 
@@ -272,62 +330,93 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 18 }} aria-hidden>🎛️</span>
-            <strong style={{ color: TEXT_FG, fontSize: 14, letterSpacing: '0.04em' }}>Button boxes editáveis (RGB)</strong>
+            <strong style={{ color: TEXT_FG, fontSize: 14, letterSpacing: '0.04em' }}>Editable button boxes (RGB)</strong>
           </div>
-          <button style={btn('primary')} disabled={busy} onClick={requestCreatePanel}>＋ Novo button box</button>
+          <button style={btn('primary')} disabled={busy} onClick={requestCreatePanel}>＋ New button box</button>
         </div>
 
         <details style={{ marginBottom: 12 }}>
           <summary style={{ color: TEXT_FG, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            📋 Começar de um modelo pronto ({TOUCH_PANEL_PRESETS.length})
+            📋 Start from a built-in preset ({TOUCH_PANEL_PRESETS.length})
           </summary>
+          <TagFilter
+            items={TOUCH_PANEL_PRESETS}
+            selectedTags={presetTagFilters}
+            onSelectedTagsChange={setPresetTagFilters}
+            getTags={touchPresetTags}
+            style={{ marginTop: 10, marginBottom: 10 }}
+          />
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-            {TOUCH_PANEL_PRESETS.map((p) => (
+            {filteredTouchPresets.map((p) => (
               <button
                 key={p.id}
                 style={{ ...btn('default'), display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}
                 disabled={busy}
                 onClick={() => requestCreateFromPreset(p.id)}
-                title={`${p.buttons.length} teclas`}
+                title={`${p.buttons.length} keys`}
               >
                 <span>{p.name}</span>
-                <span style={{ fontSize: 11, opacity: 0.7 }}>{p.columns}×{p.rows} · {p.buttons.length} teclas</span>
+                <span style={{ fontSize: 11, opacity: 0.7 }}>{p.columns}×{p.rows} · {p.buttons.length} keys</span>
               </button>
             ))}
           </div>
         </details>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-          {summaries.length === 0 && <span style={{ color: TEXT_DIM, fontSize: 13 }}>Nenhum painel ainda. Crie um para começar.</span>}
-          {summaries.map((s) => (
-            <button
-              key={s.id}
-              style={{ ...btn(s.id === selectedId ? 'primary' : 'default'), display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}
-              disabled={busy}
-              onClick={() => requestLoadPanel(s.id)}
-            >
-              <span>{s.name}</span>
-              <span style={{ fontSize: 11, opacity: 0.8 }}>{s.columns}×{s.rows} · {s.buttonCount} teclas</span>
-            </button>
+          {visibleSummaries.length === 0 && <span style={{ color: TEXT_DIM, fontSize: 13 }}>No visible button boxes. Create one or restore a hidden item.</span>}
+          {visibleSummaries.map((s) => (
+            <div key={s.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+              <label style={{ color: TEXT_DIM, fontSize: 12, display: 'flex', gap: 6 }}>
+                <input type="checkbox" checked={selectedPanelIds.has(s.id)} disabled={busy} onChange={() => togglePanelSelection(s.id)} />
+                Select
+              </label>
+              <button
+                style={{ ...btn(s.id === selectedId ? 'primary' : 'default'), display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}
+                disabled={busy}
+                onClick={() => requestLoadPanel(s.id)}
+              >
+                <span>{s.name}</span>
+                <span style={{ fontSize: 11, opacity: 0.8 }}>{s.columns}×{s.rows} · {s.buttonCount} keys</span>
+              </button>
+              <button style={btn()} disabled={busy} onClick={() => run(() => setPanelsHidden([s.id], true))}>Hide</button>
+            </div>
           ))}
         </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          <button style={btn()} disabled={busy || selectedPanelIds.size === 0} onClick={() => run(() => setPanelsHidden(Array.from(selectedPanelIds), true))}>Hide selected</button>
+        </div>
+        {hiddenSummaries.length > 0 && (
+          <details style={{ marginBottom: 12 }}>
+            <summary style={{ color: TEXT_FG, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Hidden ({hiddenSummaries.length})</summary>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+              {hiddenSummaries.map((s) => (
+                <label key={s.id} style={{ ...btn('default'), display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input type="checkbox" checked={selectedPanelIds.has(s.id)} onChange={() => togglePanelSelection(s.id)} />
+                  <span>{s.name}</span>
+                  <button style={btn()} disabled={busy} onClick={() => run(() => setPanelsHidden([s.id], false))}>Restore</button>
+                </label>
+              ))}
+            </div>
+            <button style={{ ...btn(), marginTop: 10 }} disabled={busy || selectedPanelIds.size === 0} onClick={() => run(() => setPanelsHidden(Array.from(selectedPanelIds), false))}>Restore selected</button>
+          </details>
+        )}
 
         {panelDraft ? (
           <>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
-              <button style={btn('primary')} disabled={busy} onClick={() => run(savePanel)}>Salvar</button>
-              <button style={btn()} disabled={busy} onClick={() => run(openFullscreen)}>Abrir em tela cheia</button>
-              <button style={btn()} disabled={busy} onClick={() => run(addToPlaylist)}>Adicionar à playlist</button>
-              <button style={btn('danger')} disabled={busy} onClick={() => run(deletePanel)}>Excluir</button>
+              <button style={btn('primary')} disabled={busy} onClick={() => run(savePanel)}>Save</button>
+              <button style={btn()} disabled={busy} onClick={() => run(openFullscreen)}>Open fullscreen</button>
+              <button style={btn()} disabled={busy} onClick={() => run(addToPlaylist)}>Add to playlist</button>
+              <button style={btn('danger')} disabled={busy} onClick={() => run(deletePanel)}>Delete</button>
               <span style={{ width: 1, height: 24, background: PANEL_BORDER }} />
               <span style={{ color: TEXT_DIM, fontSize: 12 }}>Monitor</span>
               <select value={panelDisplayId ?? ''} onChange={(e) => setPanelDisplayId(e.target.value ? Number(e.target.value) : null)} style={input()}>
-                {displays.length === 0 && <option value="">Nenhum monitor</option>}
+                {displays.length === 0 && <option value="">No monitor</option>}
                 {displayOptions}
               </select>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: TEXT_DIM, fontSize: 13 }}>
                 <input type="checkbox" checked={fullscreen} onChange={(e) => setFullscreen(e.target.checked)} />
-                Tela cheia
+                Fullscreen
               </label>
             </div>
 
@@ -339,7 +428,7 @@ export default function TouchControlsView({ showToast }: AppViewProps): ReactEle
             />
           </>
         ) : (
-          <p style={{ color: TEXT_DIM, fontSize: 13 }}>Selecione um button box acima ou crie um novo para editar.</p>
+          <p style={{ color: TEXT_DIM, fontSize: 13 }}>Select a button box above or create a new one to edit.</p>
         )}
       </section>
     </div>

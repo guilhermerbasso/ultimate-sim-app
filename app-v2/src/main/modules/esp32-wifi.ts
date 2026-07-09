@@ -80,10 +80,10 @@ async function discoverWifiCompanionsSafe(): Promise<WifiCompanionDevice[]> {
 
 async function connect(ctx: ModuleContext, request: ConnectRequest): Promise<WifiTransportStatus> {
   const host = String(request?.host ?? '').trim()
-  if (!host) throw new Error('Informe o host/IP do ESP32.')
+  if (!host) throw new Error('Enter the ESP32 host/IP.')
   const port = Number(request?.port ?? 47650)
   if (!isAllowedEsp32Target(host, port)) {
-    throw new Error('Host/porta inválido. Use o IP da rede local (LAN) ou o nome .local do ESP32, com porta 1–65535.')
+    throw new Error('Invalid host/port. Use the local network (LAN) IP or the ESP32 .local name, with port 1–65535.')
   }
   const id = request?.id || `${host}:${port}`
   const existing = transports.get(id)
@@ -100,7 +100,7 @@ async function connect(ctx: ModuleContext, request: ConnectRequest): Promise<Wif
     return status
   } catch (error) {
     transports.delete(id)
-    throw new Error(`Não consegui conectar no ESP32 via Wi‑Fi: ${errMessage(error)}`)
+    throw new Error(`Could not connect to the ESP32 over Wi‑Fi: ${errMessage(error)}`)
   }
 }
 
@@ -119,7 +119,7 @@ async function disconnect(ctx: ModuleContext, id?: string): Promise<WifiTranspor
 
 function send(id: string, line: string): WifiTransportStatus {
   const transport = transports.get(id)
-  if (!transport) throw new Error('ESP32 Wi‑Fi não conectado.')
+  if (!transport) throw new Error('ESP32 Wi‑Fi not connected.')
   transport.send(line)
   return transport.status()
 }
@@ -133,8 +133,8 @@ async function provisionOverUsb(ctx: ModuleContext, request: ProvisionRequest): 
   const ssid = String(request?.ssid ?? '').trim()
   const password = String(request?.password ?? '')
   const board = request?.board === 'esp32' ? 'esp32' : 'esp32s3'
-  if (!port) return { ok: false, message: 'Selecione a porta USB/serial do ESP32.' }
-  if (!ssid) return { ok: false, message: 'Informe o SSID da rede Wi‑Fi 2.4 GHz.' }
+  if (!port) return { ok: false, message: 'Select the ESP32 USB/serial port.' }
+  if (!ssid) return { ok: false, message: 'Enter the 2.4 GHz Wi‑Fi network SSID.' }
 
   try {
     const emit = (progress: FlashProgress): void => ctx.broadcast(CHANNELS.progress, progress)
@@ -149,7 +149,7 @@ async function provisionOverUsb(ctx: ModuleContext, request: ProvisionRequest): 
     await pushWifiCredentials(port, ssid, password)
     return {
       ok: true,
-      message: 'Credenciais Wi‑Fi enviadas. Reinicie o ESP32 e use Descobrir para conectar pela rede.'
+      message: 'Wi?Fi credentials sent. Restart the ESP32 and use Discover to connect over the network.'
     }
   } catch (error) {
     return { ok: false, message: errMessage(error) }
@@ -184,14 +184,14 @@ function pushWifiCredentials(path: string, ssid: string, password: string): Prom
         done()
         return
       }
-      done(new Error(`Erro na porta serial durante provisionamento USB: ${serialErrorMessage(error)}`))
+      done(new Error(`Serial port error during USB provisioning: ${serialErrorMessage(error)}`))
     })
 
     timer = setTimeout(() => done(new Error('Tempo esgotado ao provisionar Wi‑Fi via USB.')), 8000)
 
     port.open((openError) => {
       if (openError) {
-        done(new Error(`Não consegui abrir ${path}: ${openError.message}`))
+        done(new Error(`Could not open ${path}: ${openError.message}`))
         return
       }
       const payload = `WIFI:${encodeField(ssid)}:${encodeField(password)}\n`
@@ -199,12 +199,12 @@ function pushWifiCredentials(path: string, ssid: string, password: string): Prom
         port.write(payload, (writeError) => {
           if (writeError) {
             if (isBenignSerialError(writeError)) done()
-            else done(new Error(`Falha ao enviar credenciais Wi‑Fi: ${writeError.message}`))
+            else done(new Error(`Failed to send Wi‑Fi credentials: ${writeError.message}`))
             return
           }
           port.drain((drainError) => {
             if (drainError && !isBenignSerialError(drainError)) {
-              done(new Error(`Falha ao finalizar envio USB: ${drainError.message}`))
+              done(new Error(`Failed to finish USB send: ${drainError.message}`))
               return
             }
             done()
@@ -212,7 +212,7 @@ function pushWifiCredentials(path: string, ssid: string, password: string): Prom
         })
       } catch (error) {
         if (isBenignSerialError(error)) done()
-        else done(new Error(`Falha ao enviar credenciais Wi‑Fi: ${serialErrorMessage(error)}`))
+        else done(new Error(`Failed to send Wi‑Fi credentials: ${serialErrorMessage(error)}`))
       }
     })
   })

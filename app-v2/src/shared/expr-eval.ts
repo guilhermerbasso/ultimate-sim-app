@@ -53,7 +53,7 @@ const FUNCTIONS: Record<string, (args: ExpressionValue[], pos: number) => Expres
   ceil: (args, pos) => Math.ceil(asNumber(expectArgCount('ceil', args, pos, 1)[0], pos)),
   dashboard: (args, pos) => {
     const [name] = expectArgCount('dashboard', args, pos, 1)
-    if (typeof name !== 'string' || !name.trim()) throw new ExpressionError('Função dashboard espera o nome do dashboard', pos)
+    if (typeof name !== 'string' || !name.trim()) throw new ExpressionError('dashboard function expects the dashboard name', pos)
     return name
   },
   clamp: (args, pos) => {
@@ -74,7 +74,7 @@ const FUNCTIONS: Record<string, (args: ExpressionValue[], pos: number) => Expres
     return !toBoolean(val)
   },
   coalesce: (args, pos) => {
-    if (args.length === 0) throw new ExpressionError('coalesce requer ao menos 1 argumento', pos)
+    if (args.length === 0) throw new ExpressionError('coalesce requires at least 1 argument', pos)
     for (const arg of args) {
       if (arg !== null && arg !== undefined) return arg
     }
@@ -82,7 +82,7 @@ const FUNCTIONS: Record<string, (args: ExpressionValue[], pos: number) => Expres
   },
   // switch(value, case1, result1, case2, result2, ..., default) — even arg count ≥ 4.
   switch: (args, pos) => {
-    if (args.length < 4 || args.length % 2 !== 0) throw new ExpressionError('switch requer valor + pares case/result + default', pos)
+    if (args.length < 4 || args.length % 2 !== 0) throw new ExpressionError('switch requires value + case/result pairs + default', pos)
     const subject = args[0]
     for (let i = 1; i < args.length - 1; i += 2) {
       if (args[i] === subject) return args[i + 1]
@@ -101,7 +101,7 @@ const FUNCTIONS: Record<string, (args: ExpressionValue[], pos: number) => Expres
   sqrt: (args, pos) => {
     const [val] = expectArgCount('sqrt', args, pos, 1)
     const n = asNumber(val, pos)
-    if (n < 0) throw new ExpressionError('sqrt requer número não negativo', pos)
+    if (n < 0) throw new ExpressionError('sqrt requires a non-negative number', pos)
     return Math.sqrt(n)
   },
   sign: (args, pos) => {
@@ -110,7 +110,7 @@ const FUNCTIONS: Record<string, (args: ExpressionValue[], pos: number) => Expres
   },
   log: (args, pos) => {
     const n = asNumber(expectArgCount('log', args, pos, 1)[0], pos)
-    if (n <= 0) throw new ExpressionError('log requer número positivo', pos)
+    if (n <= 0) throw new ExpressionError('log requires a positive number', pos)
     return Math.log(n)
   },
   // ── String ───────────────────────────────────────────────────────────────────
@@ -121,22 +121,22 @@ const FUNCTIONS: Record<string, (args: ExpressionValue[], pos: number) => Expres
   },
   len: (args, pos) => {
     const [val] = expectArgCount('len', args, pos, 1)
-    if (typeof val !== 'string') throw new ExpressionError('len requer string', pos)
+    if (typeof val !== 'string') throw new ExpressionError('len requires a string', pos)
     return val.length
   },
   contains: (args, pos) => {
     const [haystack, needle] = expectArgCount('contains', args, pos, 2)
-    if (typeof haystack !== 'string' || typeof needle !== 'string') throw new ExpressionError('contains requer duas strings', pos)
+    if (typeof haystack !== 'string' || typeof needle !== 'string') throw new ExpressionError('contains requires two strings', pos)
     return haystack.includes(needle)
   },
   startswith: (args, pos) => {
     const [str, prefix] = expectArgCount('startswith', args, pos, 2)
-    if (typeof str !== 'string' || typeof prefix !== 'string') throw new ExpressionError('startswith requer duas strings', pos)
+    if (typeof str !== 'string' || typeof prefix !== 'string') throw new ExpressionError('startswith requires two strings', pos)
     return str.startsWith(prefix)
   },
   endswith: (args, pos) => {
     const [str, suffix] = expectArgCount('endswith', args, pos, 2)
-    if (typeof str !== 'string' || typeof suffix !== 'string') throw new ExpressionError('endswith requer duas strings', pos)
+    if (typeof str !== 'string' || typeof suffix !== 'string') throw new ExpressionError('endswith requires two strings', pos)
     return str.endsWith(suffix)
   },
   // ── Formatting ───────────────────────────────────────────────────────────────
@@ -145,16 +145,16 @@ const FUNCTIONS: Record<string, (args: ExpressionValue[], pos: number) => Expres
     const [val, spec] = expectArgCount('format', args, pos, 2)
     const n = asNumber(val, pos)
     if (typeof spec === 'number') return n.toFixed(Math.max(0, Math.round(spec)))
-    if (typeof spec !== 'string') throw new ExpressionError('format: especificador deve ser número ou string', pos)
+    if (typeof spec !== 'string') throw new ExpressionError('format: specifier must be a number or string', pos)
     const match = /^([FNPfnp])(\d+)$/.exec(spec)
-    if (!match) throw new ExpressionError(`format: especificador desconhecido "${spec}"`, pos)
+    if (!match) throw new ExpressionError(`format: especificador unknown "${spec}"`, pos)
     const decimals = parseInt(match[2], 10)
     if (match[1].toUpperCase() === 'P') return `${(n * 100).toFixed(decimals)}%`
     return n.toFixed(decimals)
   },
   // formattime(secs[, showMs]) → "M:SS" or "M:SS.f"
   formattime: (args, pos) => {
-    if (args.length < 1 || args.length > 2) throw new ExpressionError('formattime espera 1 ou 2 argumentos', pos)
+    if (args.length < 1 || args.length > 2) throw new ExpressionError('formattime expects 1 or 2 arguments', pos)
     const secs = asNumber(args[0], pos)
     const showMs = args.length > 1 ? toBoolean(args[1]) : false
     const sign = secs < 0 ? '-' : ''
@@ -169,7 +169,7 @@ const FUNCTIONS: Record<string, (args: ExpressionValue[], pos: number) => Expres
 
 export class ExpressionError extends Error {
   constructor(message: string, readonly pos?: number) {
-    super(pos === undefined ? message : `${message} (posição ${pos + 1})`)
+    super(pos === undefined ? message : `${message} (position ${pos + 1})`)
     this.name = 'ExpressionError'
   }
 }
@@ -242,7 +242,7 @@ function tokenize(source: string): Token[] {
     else if (char === ',') tokens.push({ type: 'comma', value: char, pos: index })
     else if (char === '?') tokens.push({ type: 'question', value: char, pos: index })
     else if (char === ':') tokens.push({ type: 'colon', value: char, pos: index })
-    else throw new ExpressionError(`Caractere inválido "${char}"`, index)
+    else throw new ExpressionError(`Invalid character "${char}"`, index)
     index += 1
   }
 
@@ -274,7 +274,7 @@ function readString(source: string, start: number): Token {
     if (char === quote) return { type: 'string', value, pos: start, end: index + 1 }
     if (char === '\\') {
       const escaped = source[index + 1]
-      if (escaped === undefined) throw new ExpressionError('String sem fechamento', start)
+      if (escaped === undefined) throw new ExpressionError('Unterminated string', start)
       value += escaped === 'n' ? '\n' : escaped === 't' ? '\t' : escaped
       index += 2
       continue
@@ -282,7 +282,7 @@ function readString(source: string, start: number): Token {
     value += char
     index += 1
   }
-  throw new ExpressionError('String sem fechamento', start)
+  throw new ExpressionError('Unterminated string', start)
 }
 
 function readIdentifier(source: string, start: number): Token {
@@ -302,7 +302,7 @@ class Parser {
 
   parse(): ExprNode {
     const expr = this.parseExpression(0)
-    if (this.peek().type !== 'eof') throw new ExpressionError(`Token inesperado "${this.peek().value}"`, this.peek().pos)
+    if (this.peek().type !== 'eof') throw new ExpressionError(`Unexpected token "${this.peek().value}"`, this.peek().pos)
     return expr
   }
 
@@ -337,7 +337,7 @@ class Parser {
 
     if (token.type === 'number') {
       const value = Number(token.value)
-      if (!Number.isFinite(value)) throw new ExpressionError(`Número inválido "${token.value}"`, token.pos)
+      if (!Number.isFinite(value)) throw new ExpressionError(`Invalid number "${token.value}"`, token.pos)
       return { type: 'literal', value }
     }
 
@@ -361,7 +361,7 @@ class Parser {
       return expr
     }
 
-    throw new ExpressionError(`Expressão esperada, encontrado "${token.value || 'fim'}"`, token.pos)
+    throw new ExpressionError(`Expression expected, found "${token.value || 'end'}"`, token.pos)
   }
 
   private parseCall(nameToken: Token): ExprNode {
@@ -383,7 +383,7 @@ class Parser {
   private expect(type: TokenType, value?: string): Token {
     const token = this.advance()
     if (token.type !== type || (value !== undefined && token.value !== value)) {
-      throw new ExpressionError(`Esperado "${value ?? type}", encontrado "${token.value || 'fim'}"`, token.pos)
+      throw new ExpressionError(`Expected "${value ?? type}", found "${token.value || 'end'}"`, token.pos)
     }
     return token
   }
@@ -402,7 +402,7 @@ function evaluate(node: ExprNode, scope: ExpressionScope): ExpressionValue {
     case 'literal':
       return node.value
     case 'variable':
-      if (!Object.prototype.hasOwnProperty.call(scope, node.name)) throw new ExpressionError(`Variável desconhecida "${node.name}"`, node.pos)
+      if (!Object.prototype.hasOwnProperty.call(scope, node.name)) throw new ExpressionError(`Unknown variable "${node.name}"`, node.pos)
       return scope[node.name] ?? null
     case 'unary':
       return evaluateUnary(node.op, evaluate(node.expr, scope), node.pos)
@@ -412,7 +412,7 @@ function evaluate(node: ExprNode, scope: ExpressionScope): ExpressionValue {
       return toBoolean(evaluate(node.condition, scope)) ? evaluate(node.whenTrue, scope) : evaluate(node.whenFalse, scope)
     case 'call': {
       const fn = FUNCTIONS[node.name]
-      if (!fn) throw new ExpressionError(`Função desconhecida "${node.name}"`, node.pos)
+      if (!fn) throw new ExpressionError(`Unknown function "${node.name}"`, node.pos)
       return fn(node.args.map((arg) => evaluate(arg, scope)), node.pos)
     }
   }
@@ -440,7 +440,7 @@ function evaluateBinary(op: BinaryOp, leftNode: ExprNode, rightNode: ExprNode, s
 
   const leftNumber = asNumber(left, pos)
   const rightNumber = asNumber(right, pos)
-  if ((op === '/' || op === '%') && rightNumber === 0) throw new ExpressionError('Divisão por zero', pos)
+  if ((op === '/' || op === '%') && rightNumber === 0) throw new ExpressionError('Division by zero', pos)
   if (op === '+') return leftNumber + rightNumber
   if (op === '-') return leftNumber - rightNumber
   if (op === '*') return leftNumber * rightNumber
@@ -451,11 +451,11 @@ function evaluateBinary(op: BinaryOp, leftNode: ExprNode, rightNode: ExprNode, s
 function compare(left: ExpressionValue, right: ExpressionValue, pos: number): number {
   if (typeof left === 'number' && typeof right === 'number') return left - right
   if (typeof left === 'string' && typeof right === 'string') return left.localeCompare(right)
-  throw new ExpressionError('Comparação requer dois números ou duas strings', pos)
+  throw new ExpressionError('Comparison requires two numbers or two strings', pos)
 }
 
 function asNumber(value: ExpressionValue, pos: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) throw new ExpressionError('Operação requer número', pos)
+  if (typeof value !== 'number' || !Number.isFinite(value)) throw new ExpressionError('Operation requires a number', pos)
   return value
 }
 
@@ -469,7 +469,7 @@ function toBoolean(value: ExpressionValue): boolean {
 function expectArgCount(name: string, args: ExpressionValue[], pos: number, min: number, max = min): ExpressionValue[] {
   if (args.length < min || args.length > max) {
     const expected = min === max ? String(min) : `${min}+`
-    throw new ExpressionError(`Função ${name} espera ${expected} argumento(s), recebeu ${args.length}`, pos)
+    throw new ExpressionError(`Function ${name} expects ${expected} argument(s), got ${args.length}`, pos)
   }
   return args
 }

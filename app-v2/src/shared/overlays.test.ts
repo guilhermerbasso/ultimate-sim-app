@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   OVERLAY_STYLE_PRESETS,
+  OVERLAY_FORMS,
   OVERLAY_WIDGETS,
   OVERLAY_DESIGN_FAMILIES,
   OVERLAY_DESIGN_FAMILY_SPECS,
   OVERLAY_PRESET_FAMILY,
   overlayDesignFamily,
+  getOverlayStylePreset,
   createCustomOverlayDef,
   createDefaultOverlaysConfig,
   createRichCustomOverlayDef,
@@ -40,35 +42,9 @@ const FUTURISTIC_OVERLAY_IDS = [
   'flagIconStack'
 ]
 
-const FUTURISTIC_STYLE_IDS = [
-  'apexIgnition',
-  'ionEmber',
-  'vectorPulse',
-  'cinderGlass',
-  'thermalGhost',
-  'emberCircuit',
-  'radarClear',
-  'orangeCore',
-  'blackGold',
-  'redlineVoid',
-  'amberVector',
-  'copperMesh',
-  'moltenCarbon',
-  'safetyGreen',
-  'laserGrid',
-  'solarFlare',
-  'obsidianRing',
-  'brakeGlow',
-  'nightStint'
-]
-
 describe('futuristic overlay registry', () => {
   it('registers exactly 20 new futuristic graphic overlays', () => {
     expect(OVERLAY_WIDGETS.filter((widget) => FUTURISTIC_OVERLAY_IDS.includes(widget.id))).toHaveLength(20)
-  })
-
-  it('registers exactly 19 selectable futuristic style presets', () => {
-    expect(OVERLAY_STYLE_PRESETS.filter((preset) => FUTURISTIC_STYLE_IDS.includes(preset.id))).toHaveLength(19)
   })
 })
 
@@ -265,19 +241,20 @@ describe('overlay design families (vis-families)', () => {
     ])
   })
 
-  it('maps every style preset to a known family (total coverage, no extras)', () => {
+  it('maps every selectable style preset to a known family', () => {
     const presetIds = OVERLAY_STYLE_PRESETS.map((preset) => preset.id).sort()
-    const mappedIds = Object.keys(OVERLAY_PRESET_FAMILY).sort()
-    expect(mappedIds).toEqual(presetIds)
+    const mappedIds = Object.keys(OVERLAY_PRESET_FAMILY)
+    expect(mappedIds).toEqual(expect.arrayContaining(presetIds))
     for (const [presetId, family] of Object.entries(OVERLAY_PRESET_FAMILY)) {
       expect(OVERLAY_DESIGN_FAMILIES, `bad family for ${presetId}`).toContain(family)
     }
   })
 
-  it('keeps each namesake preset as the archetype of its family', () => {
-    for (const family of OVERLAY_DESIGN_FAMILIES) {
-      expect(OVERLAY_PRESET_FAMILY[family]).toBe(family)
-    }
+  it('exposes exactly 5 selectable structural forms with distinct families', () => {
+    expect(OVERLAY_FORMS).toHaveLength(5)
+    expect(OVERLAY_STYLE_PRESETS).toHaveLength(5)
+    expect(OVERLAY_FORMS.map((form) => form.id)).toEqual(['minimal', 'broadcast', 'analog', 'heatmap', 'neon'])
+    expect(new Set(OVERLAY_FORMS.map((form) => overlayDesignFamily(form.id))).size).toBe(5)
   })
 
   it('provides a spec for every family (machine-readable mirror of the doc)', () => {
@@ -303,13 +280,15 @@ describe('overlay design families (vis-families)', () => {
     expect(overlayDesignFamily('')).toBe('minimal')
   })
 
-  it('back-compat: the 4 widget-branched presets keep their layout family', () => {
-    // Widgets still compare config.stylePreset to these ids today; the helper
-    // must agree so a future switch to overlayDesignFamily() is behavior-preserving.
+  it('back-compat: legacy structural presets remain accepted for persisted configs', () => {
     expect(overlayDesignFamily('terminal')).toBe('terminal')
     expect(overlayDesignFamily('bauhaus')).toBe('bauhaus')
+    expect(overlayDesignFamily('glass')).toBe('glass')
     expect(overlayDesignFamily('analog')).toBe('analog')
     expect(overlayDesignFamily('heatmap')).toBe('heatmap')
+    expect(getOverlayStylePreset('terminal').id).toBe('minimal')
+    expect(getOverlayStylePreset('bauhaus').id).toBe('broadcast')
+    expect(getOverlayStylePreset('glass').id).toBe('minimal')
   })
 })
 

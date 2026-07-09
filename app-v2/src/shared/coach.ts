@@ -17,9 +17,9 @@ export interface CoachTip {
   kind: CoachIssueKind
   sector?: number
   /**
-   * 1-based CORNER number (Curva N) from the track's corner map, when the Live
+   * 1-based CORNER number (Turn N) from the track's corner map, when the Live
    * Coach has learned one. Preferred over `sector` for the spoken locator so the
-   * driver hears "Curva 3" rather than "Setor 2". Undefined when running in the
+   * driver hears "Turn 3" rather than "Sector 2". Undefined when running in the
    * sector-only fallback (no corner map yet).
    */
   corner?: number
@@ -30,7 +30,7 @@ export interface CoachTip {
   createdAt: number
   /**
    * Terse PT-BR imperative correction — ONLY what to do better, e.g.
-   * "freie antes", "vire antes", "acelere antes". This is what the Live Coach
+   * "brake earlier", "turn in earlier", "acelere antes". This is what the Live Coach
    * SPEAKS (see `coachSpeakText`); the descriptive `message` stays on-screen.
    * Carried from the live analyzer, which knows the direction (late vs early)
    * of each mistake. When absent, `coachActionPhrase` derives a coarse fallback
@@ -235,7 +235,7 @@ export interface CoachFinding {
   /** 1-based sector. */
   sector: number
   /**
-   * 1-based CORNER number (Curva N) from the track's corner map, when one is
+   * 1-based CORNER number (Turn N) from the track's corner map, when one is
    * available. Undefined for sector-only findings (no corner map) and for the
    * lap-global `inconsistency` finding.
    */
@@ -283,12 +283,12 @@ export interface CoachFinding {
 /**
  * Terse PT-BR imperative correction for a DIRECTIONAL finding kind. The live
  * analyzer tags each tip with the matching `action` derived from one of these,
- * so "braked late" → "freie antes" rather than a vague "freada".
+ * so "braked late" → "brake earlier" rather than a vague "freada".
  */
 export function coachActionForFindingKind(kind: CoachFindingKind): string {
   switch (kind) {
     case 'brake-late':
-      return 'freie antes'
+      return 'brake earlier'
     case 'brake-early':
       return 'freie mais tarde'
     case 'throttle-late':
@@ -296,32 +296,32 @@ export function coachActionForFindingKind(kind: CoachFindingKind): string {
     case 'throttle-early':
       return 'acelere mais tarde'
     case 'steering-late':
-      return 'vire antes'
+      return 'turn in earlier'
     case 'steering-early':
       return 'vire mais tarde'
     case 'trail-brake-lock':
-      return 'alivie o freio ao virar'
+      return 'release the brake as you turn'
     case 'coast':
-      return 'não role sem pedal — freie ou acelere'
+      return 'do not coast — brake or accelerate'
     case 'throttle-hesitation':
-      return 'acelere com mais decisão'
+      return 'commit to throttle'
     case 'abs-overuse':
-      return 'alivie o freio'
+      return 'release the brake'
     case 'tc-overuse':
-      return 'suavize o gás na saída'
+      return 'smooth the throttle on exit'
     case 'steering-busy':
-      return 'suavize a entrada, um arco só'
+      return 'smooth the entry, one arc'
     case 'steering-insufficient':
-      return 'mais volante'
+      return 'more steering'
     case 'inconsistency':
       return 'repita os mesmos pontos de freada'
     case 'min-speed-gain':
     case 'brake-gain':
     case 'throttle-gain':
     case 'good':
-      return 'mantenha o ritmo'
+      return 'hold the pace'
     case 'time-loss':
-      return 'busque mais tempo aqui'
+      return 'find more time here'
   }
 }
 
@@ -332,21 +332,21 @@ export function coachActionForFindingKind(kind: CoachFindingKind): string {
 export function coachActionForCoarseKind(kind: CoachIssueKind): string {
   switch (kind) {
     case 'braking':
-      return 'freie antes'
+      return 'brake earlier'
     case 'throttle':
       return 'acelere antes'
     case 'coast':
-      return 'não role sem pedal — freie ou acelere'
+      return 'do not coast — brake or accelerate'
     case 'steering':
-      return 'suavize a entrada, um arco só'
+      return 'smooth the entry, one arc'
     case 'abs':
-      return 'alivie o freio'
+      return 'release the brake'
     case 'tc':
-      return 'suavize o gás na saída'
+      return 'smooth the throttle on exit'
     case 'consistency':
       return 'repita os mesmos pontos de freada'
     case 'optimal':
-      return 'mantenha o ritmo'
+      return 'hold the pace'
   }
 }
 
@@ -367,27 +367,27 @@ function capitalizeFirst(text: string): string {
 /**
  * Build the TERSE Live Coach spoken call-out: a locator (the numbered CORNER when
  * the tip has one, else the timing SECTOR) + the imperative correction, e.g.
- * "Curva 3, freie antes.", "Setor 3, freie antes." or "Freie antes." when there is
+ * "Turn 3, brake earlier.", "Sector 3, brake earlier." or "Freie antes." when there is
  * no locator. `tip.corner` is a 1-based corner number (from the corner map);
- * `tip.sector` is a 1-based TIMING sector (matches the "Setor"/`S{n}` label in the
+ * `tip.sector` is a 1-based TIMING sector (matches the "Sector"/`S{n}` label in the
  * UI). Deliberately OMITS any "Live coach" prefix and the "Perda estimada …" suffix
  * — the driver should hear only what to do better.
  */
 export function coachSpeakText(tip: CoachTip): string {
   const action = coachActionPhrase(tip)
   if (tip.corner !== undefined && Number.isFinite(tip.corner)) {
-    return `Curva ${tip.corner}, ${action}.`
+    return `Turn ${tip.corner}, ${action}.`
   }
   if (tip.sector !== undefined && Number.isFinite(tip.sector)) {
-    return `Setor ${tip.sector}, ${action}.`
+    return `Sector ${tip.sector}, ${action}.`
   }
   return `${capitalizeFirst(action)}.`
 }
 
 // ─── Per-corner COMPOSITE advice (multi-dimension spoken line) ────────────────
 // The Live Coach speaks one short line PER CORNER that can combine several
-// independent mistakes the driver made there, e.g. "Curva 3: freie antes, vire
-// antes, acelere depois." To do that without repeating itself we group findings
+// independent mistakes the driver made there, e.g. "Turn 3: brake earlier, vire
+// antes, throttle later." To do that without repeating itself we group findings
 // by the DRIVING DIMENSION they touch (brake point, turn-in timing, steering
 // angle, throttle application, mid-corner rotation, stability), keep only the
 // worst finding per dimension, and phrase each as a terse imperative.
@@ -430,48 +430,48 @@ export function coachDimensionForKind(kind: CoachFindingKind): CoachDimension | 
 /**
  * Terse PT-BR correction for a COMPOSITE corner line — what to do better in two or
  * three words so several can be chained. Uses the antes/depois pairing the driver
- * asked for ("freie antes", "vire depois", "acelere depois") and the steering-angle
- * wording ("mais volante", "volante mais suave"). Distinct from
+ * asked for ("brake earlier", "vire depois", "throttle later") and the steering-angle
+ * wording ("more steering", "steering mais suave"). Distinct from
  * `coachActionForFindingKind` (which the single-tip spoken path pins) so each path
  * can evolve independently.
  */
 export function coachComposeAction(kind: CoachFindingKind): string {
   switch (kind) {
     case 'brake-late':
-      return 'freie antes'
+      return 'brake earlier'
     case 'brake-early':
-      return 'freie depois'
+      return 'brake later'
     case 'trail-brake-lock':
-      return 'alivie o freio ao virar'
+      return 'release the brake as you turn'
     case 'abs-overuse':
-      return 'alivie o freio'
+      return 'release the brake'
     case 'steering-late':
-      return 'vire antes'
+      return 'turn in earlier'
     case 'steering-early':
       return 'vire depois'
     case 'steering-insufficient':
-      return 'mais volante'
+      return 'more steering'
     case 'steering-busy':
-      return 'volante mais suave'
+      return 'steering mais suave'
     case 'throttle-late':
       return 'acelere antes'
     case 'throttle-early':
-      return 'acelere depois'
+      return 'throttle later'
     case 'throttle-hesitation':
-      return 'acelere com decisão'
+      return 'commit to throttle'
     case 'tc-overuse':
-      return 'suavize o gás na saída'
+      return 'smooth the throttle on exit'
     case 'coast':
-      return 'não role sem pedal'
+      return 'do not coast'
     case 'inconsistency':
       return 'repita os pontos de freada'
     case 'time-loss':
-      return 'busque mais tempo aqui'
+      return 'find more time here'
     case 'min-speed-gain':
     case 'brake-gain':
     case 'throttle-gain':
     case 'good':
-      return 'mantenha o ritmo'
+      return 'hold the pace'
   }
 }
 
@@ -490,7 +490,7 @@ export interface ComposedCornerAdvice {
   /** Sum of the selected dimensions' estimated time loss. */
   totalLossSec: number
   severity: CoachSeverity
-  /** Full spoken line, e.g. "Curva 3: freie antes, vire antes, acelere depois." */
+  /** Full spoken line, e.g. "Turn 3: brake earlier, turn in earlier, throttle later." */
   text: string
 }
 
@@ -499,7 +499,7 @@ export interface ComposedCornerAdvice {
  * line that lists up to `maxDims` corrections — one per driving dimension, ranked by
  * the time each costs. Gains / `good` / zero-loss findings are ignored. Returns null
  * when there is nothing actionable. The `where` locator decides the prefix:
- * "Curva N: …" when a corner is given, "Setor N: …" for a sector, bare imperative
+ * "Turn N: …" when a corner is given, "Sector N: …" for a sector, bare imperative
  * otherwise.
  */
 export function composeCornerAdvice(
@@ -508,7 +508,7 @@ export function composeCornerAdvice(
   opts: { maxDims?: number } = {}
 ): ComposedCornerAdvice | null {
   const maxDims = Math.max(1, Math.floor(opts.maxDims ?? 3))
-  // Keep the worst finding per dimension (so we never say "freie antes" twice).
+  // Keep the worst finding per dimension (so we never say "brake earlier" twice).
   const worstPerDim = new Map<CoachDimension, CoachFinding>()
   for (const f of findings) {
     if (f.severity === 'good' || f.sign === 'gain') continue
@@ -521,9 +521,9 @@ export function composeCornerAdvice(
   if (worstPerDim.size === 0) {
     // FALLBACK — the corner/sector has no specific actionable dimension (brake /
     // steering / throttle), but it STILL lost real time (kind 'time-loss', e.g. a low
-    // apex min-speed). Speak the generic "busque mais tempo aqui" cue rather than going
+    // apex min-speed). Speak the generic "find more time here" cue rather than going
     // silent (a v2.36.0 regression). This branch is only reached when NO specific
-    // dimension exists, so it can never crowd out or duplicate "freie antes" etc.
+    // dimension exists, so it can never crowd out or duplicate "brake earlier" etc.
     const tl = findings
       .filter((f) => f.kind === 'time-loss' && f.sign !== 'gain' && f.estTimeLossSec > 0)
       .sort((a, b) => b.estTimeLossSec - a.estTimeLossSec)[0]
@@ -532,9 +532,9 @@ export function composeCornerAdvice(
     const worstLossSec = tl.estTimeLossSec
     let text: string
     if (where.corner !== undefined && Number.isFinite(where.corner)) {
-      text = `Curva ${where.corner}: ${action}.`
+      text = `Turn ${where.corner}: ${action}.`
     } else if (where.sector !== undefined && Number.isFinite(where.sector)) {
-      text = `Setor ${where.sector}: ${action}.`
+      text = `Sector ${where.sector}: ${action}.`
     } else {
       text = `${capitalizeFirst(action)}.`
     }
@@ -563,9 +563,9 @@ export function composeCornerAdvice(
   const body = actions.join(', ')
   let text: string
   if (where.corner !== undefined && Number.isFinite(where.corner)) {
-    text = `Curva ${where.corner}: ${body}.`
+    text = `Turn ${where.corner}: ${body}.`
   } else if (where.sector !== undefined && Number.isFinite(where.sector)) {
-    text = `Setor ${where.sector}: ${body}.`
+    text = `Sector ${where.sector}: ${body}.`
   } else {
     text = `${capitalizeFirst(body)}.`
   }
@@ -588,7 +588,7 @@ export function composeCornerAdvice(
 // main-process `Corner` type (src/main/track-map/corner-map.ts) is structurally
 // assignable to `CoachCornerRef`.
 
-/** One numbered corner (Curva N) with its lap-distance extent. */
+/** One numbered corner (Turn N) with its lap-distance extent. */
 export interface CoachCornerRef {
   /** 1-based corner number. */
   index: number
@@ -668,7 +668,7 @@ export interface CoachReport {
   /** Ranked worst-first; `good`/`gain` findings sink to the bottom. */
   findings: CoachFinding[]
   /**
-   * The numbered corners (Curva 1..N) the findings were mapped against, when a
+   * The numbered corners (Turn 1..N) the findings were mapped against, when a
    * corner map was supplied. Empty when running sector-only. Consumed by the
    * track heatmap (WS-M) and the per-corner debrief (WS-I).
    */
@@ -1145,21 +1145,21 @@ export function analyzeLap(
     if (z.maxBrake > 0.7 && (z.maxSteerDeg > merged.trailSteerDeg || z.maxLatG > merged.trailLatG) && z.absMs > merged.trailAbsMs) {
       const loss = 0.06 + z.absMs / 4000
       findings.push(makeFinding('trail-brake-lock', sector, zone, loss, 'entry',
-        `Trail-brake travando — Setor ${sector}`,
-        'Você ainda está com muito freio enquanto vira; o ABS dispara e o eixo dianteiro trava. Libere o freio progressivamente conforme aumenta o esterço.',
-        `Freio ${m.maxBrakePct}% com volante ${m.maxSteerDeg}° / ${m.maxLatG}G, ABS ${(z.absMs / 1000).toFixed(1)}s`, m))
+        `Trail-brake travando — Sector ${sector}`,
+        'You are still carrying too much brake while turning; ABS fires and the front axle locks. Release the brake progressively as you add steering.',
+        `Brake ${m.maxBrakePct}% with steering ${m.maxSteerDeg}° / ${m.maxLatG}G, ABS ${(z.absMs / 1000).toFixed(1)}s`, m))
     } else if (z.maxBrake >= merged.lateBrake && z.absMs > merged.lateAbsMs) {
       const loss = 0.07 + z.absMs / 3500
       findings.push(makeFinding('brake-late', sector, zone, loss, 'entry',
-        `Freada tarde/forte demais — Setor ${sector}`,
-        'Pico de freio muito alto com ABS prolongado indica freada tardia e travamento reto. Antecipe o ponto de freada e module a pressão para o pneu não travar.',
-        `Pico ${m.maxBrakePct}%, ABS ${(z.absMs / 1000).toFixed(1)}s, mín ${m.minSpeedKmh} km/h`, m))
+        `Late/hard braking demais — Sector ${sector}`,
+        'A very high brake peak with prolonged ABS points to late braking and straight-line lockup. Brake earlier and modulate pressure so the tire does not lock.',
+        `Pico ${m.maxBrakePct}%, ABS ${(z.absMs / 1000).toFixed(1)}s, min ${m.minSpeedKmh} km/h`, m))
     } else if (z.coastAfterMs > merged.earlyCoastMs && z.durMs > merged.earlyMinBrakeMs && z.maxBrake < merged.earlyMaxBrake) {
       const loss = z.coastAfterMs / 1000 * 0.3 + z.durMs / 1000 * 0.12
       findings.push(makeFinding('brake-early', sector, zone, loss, 'entry',
-        `Freada cedo — Setor ${sector}`,
-        'Você freou cedo e ficou rolando sem pedal até a curva. Carregue mais velocidade até o ponto de freada e encurte o tempo no pedal.',
-        `Freio ${(z.durMs / 1000).toFixed(1)}s (pico ${m.maxBrakePct}%) + ${(z.coastAfterMs / 1000).toFixed(1)}s rolando`, m))
+        `Freada cedo — Sector ${sector}`,
+        'You braked early and coasted to the turn. Carry more speed to the braking point and shorten time on the pedal.',
+        `Brake ${(z.durMs / 1000).toFixed(1)}s (pico ${m.maxBrakePct}%) + ${(z.coastAfterMs / 1000).toFixed(1)}s coasting`, m))
     }
   }
 
@@ -1170,10 +1170,10 @@ export function analyzeLap(
     const loaded = c.maxLatG >= merged.coastLatG
     const m = { coastMs: Math.round(c.durMs), maxLatG: Number(c.maxLatG.toFixed(2)) }
     findings.push(makeFinding('coast', c.sector, { start: c.startPct, end: c.endPct }, loss, loaded ? 'mid' : 'exit',
-      loaded ? `Rolando no meio da curva — Setor ${c.sector}` : `Lift-and-coast custando tempo — Setor ${c.sector}`,
+      loaded ? `Coasting mid-corner — Sector ${c.sector}` : `Lift-and-coast custando tempo — Sector ${c.sector}`,
       loaded
-        ? 'Há tempo morto com o carro carregado e sem pedal no ápice. Mantenha um filete de freio na entrada e pegue o acelerador mais cedo na saída.'
-        : 'Trecho sem freio nem acelerador. Decida: freie ou acelere — evite rolar sem pedal nesta zona.',
+        ? 'There is dead time with the car loaded and no pedal at the apex. Keep a trace of brake on entry and pick up throttle earlier on exit.'
+        : 'Section with no brake or throttle. Decide: brake or accelerate — avoid coasting in this zone.',
       `${(c.durMs / 1000).toFixed(1)}s sem pedal a ${m.maxLatG}G`, m))
   }
 
@@ -1183,8 +1183,8 @@ export function analyzeLap(
     const loss = h.durMs / 1000 * 0.3
     const m = { hesitationMs: Math.round(h.durMs), avgThrottlePct: Math.round(h.avgThrottle * 100) }
     findings.push(makeFinding('throttle-hesitation', sector, { start: h.startPct, end: h.endPct }, loss, 'exit',
-      `Saída hesitante — Setor ${sector}`,
-      'Você fica preso em meio acelerador na saída. Abra o volante e comprometa-se com a aceleração mais cedo, numa rampa decidida até 100%.',
+      `Hesitant exit — Sector ${sector}`,
+      'You are stuck at partial throttle on exit. Open the steering and commit to throttle earlier with a decisive ramp to 100%.',
       `${(h.durMs / 1000).toFixed(1)}s em ~${m.avgThrottlePct}% de acelerador`, m))
   }
 
@@ -1195,30 +1195,30 @@ export function analyzeLap(
     if (a.absMs > merged.absSectorMs) {
       const loss = a.absMs / 9000
       findings.push(makeFinding('abs-overuse', a.sector, span, loss, 'entry',
-        `ABS acionando demais — Setor ${a.sector}`,
-        'O ABS está ativo por muito tempo: alivie a pressão de freio antes do ápice para o pneu manter rotação e frear de fato.',
-        `ABS ${(a.absMs / 1000).toFixed(1)}s no setor`, { absMs: Math.round(a.absMs) }))
+        `ABS acionando demais — Sector ${a.sector}`,
+        'ABS is active too long: release brake pressure before the apex so the tire keeps rotating and actually slows the car.',
+        `ABS ${(a.absMs / 1000).toFixed(1)}s no sector`, { absMs: Math.round(a.absMs) }))
     }
     if (a.tcMs > merged.tcSectorMs) {
       const loss = a.tcMs / 10000
       findings.push(makeFinding('tc-overuse', a.sector, span, loss, 'exit',
-        `TC cortando na saída — Setor ${a.sector}`,
-        'O controle de tração corta muito na saída: endireite mais o carro antes de aplicar 100% e suavize o pé para não acionar o TC.',
-        `TC ${(a.tcMs / 1000).toFixed(1)}s no setor`, { tcMs: Math.round(a.tcMs) }))
+        `TC cutting on exit — Sector ${a.sector}`,
+        'Traction control is cutting too much on exit: straighten the car more before going 100% and be smoother with your foot to avoid triggering TC.',
+        `TC ${(a.tcMs / 1000).toFixed(1)}s no sector`, { tcMs: Math.round(a.tcMs) }))
     }
     if (a.steerBusyScore > merged.steerBusyScore) {
       const loss = Math.min(0.18, a.steerBusyScore / 1600)
       findings.push(makeFinding('steering-busy', a.sector, span, loss, 'mid',
-        `Volante muito agitado — Setor ${a.sector}`,
-        'Muitas correções de volante arrastam o pneu e matam a velocidade mínima. Suavize a entrada e busque um único arco de direção.',
-        `Score de correção ${Math.round(a.steerBusyScore)}`, { steerScore: Math.round(a.steerBusyScore) }))
+        `Volante muito agitado — Sector ${a.sector}`,
+        'Too many steering corrections scrub the tire and kill minimum speed. Smooth the entry and aim for one steering arc.',
+        `Correction score ${Math.round(a.steerBusyScore)}`, { steerScore: Math.round(a.steerBusyScore) }))
     }
     if (a.steerInsufficientScore > merged.steerInsufficientScore) {
       const loss = Math.min(0.15, a.steerInsufficientScore / 1800)
       findings.push(makeFinding('steering-insufficient', a.sector, span, loss, 'mid',
-        `Virando pouco — Setor ${a.sector}`,
-        'Falta volante para a curva: o carro está carregado mas você não coloca ângulo suficiente e abre na saída. Gire mais o volante e deixe o carro apontar para o ápice.',
-        `Sub-rotação score ${Math.round(a.steerInsufficientScore)}`, { steerInsufficientScore: Math.round(a.steerInsufficientScore) }))
+        `Virando pouco — Sector ${a.sector}`,
+        'Not enough steering for the turn: the car is loaded but you do not add enough angle and run wide on exit. Add more steering and let the car point to the apex.',
+        `Under-rotation score ${Math.round(a.steerInsufficientScore)}`, { steerInsufficientScore: Math.round(a.steerInsufficientScore) }))
     }
   }
 
@@ -1227,9 +1227,9 @@ export function analyzeLap(
   if (lossZone && lossZone.lossSec >= merged.minTimeLossSec) {
     const sector = sectorOf((lossZone.startPct + lossZone.endPct) / 2, merged.sectorCount)
     findings.push(makeFinding('time-loss', sector, { start: lossZone.startPct, end: lossZone.endPct }, lossZone.lossSec, undefined,
-      `Maior perda de tempo — Setor ${sector}`,
-      'Esta é a zona onde você mais perde para a sua melhor volta. Concentre as referências de freada e tomada de acelerador aqui primeiro.',
-      `${lossZone.lossSec.toFixed(2)}s perdidos entre ${Math.round(lossZone.startPct * 100)}% e ${Math.round(lossZone.endPct * 100)}% da volta`,
+      `Maior perda de tempo — Sector ${sector}`,
+      'This is where you lose the most against your best lap. Focus braking and throttle pickup references here first.',
+      `${lossZone.lossSec.toFixed(2)}s perdidos entre ${Math.round(lossZone.startPct * 100)}% e ${Math.round(lossZone.endPct * 100)}% da lap`,
       { lossSec: Number(lossZone.lossSec.toFixed(3)) }))
   }
 
@@ -1240,9 +1240,9 @@ export function analyzeLap(
     if (s.benchmark && (s.brakePct > 0 || s.throttlePct > 0)) {
       const span = sectorSpan(s.sector, merged.sectorCount)
       findings.push(makeFinding('good', s.sector, span, 0, undefined,
-        `Setor ${s.sector} no ritmo`,
-        'Sem perda relevante e inputs limpos aqui. Mantenha as referências e a suavidade.',
-        s.timeLossSec > 0 ? `+${s.timeLossSec.toFixed(2)}s vs melhor` : 'No nível da melhor volta', {}, true))
+        `Sector ${s.sector} no pace`,
+        'No relevant loss and clean inputs here. Keep the references and smoothness.',
+        s.timeLossSec > 0 ? `+${s.timeLossSec.toFixed(2)}s vs best` : 'At best-lap level', {}, true))
     }
   }
 
@@ -1364,17 +1364,17 @@ export function detectCornerTimingFindings(
       if (delta < -margin) {
         const loss = timingLoss(-delta)
         out.push(makeFinding('steering-early', sector, span, loss, 'entry',
-          `Volante cedo — Curva ${corner.index}`,
-          'Você girou o volante antes do ponto de entrada e fez o carro apontar cedo demais, abrindo na saída. Atrase a virada e use uma referência de tip-in mais tardia.',
-          `Virada a ${pct(steerStartPct)} (${pct(Math.abs(delta))} antes da entrada da curva)`,
-          { steerStartPct: round3(steerStartPct), deltaPct: round3(delta) }, false, { ...cornerExtra, explanation: 'Girou o volante cedo demais — atrase a entrada para não abrir na saída.' }))
+          `Volante cedo — Turn ${corner.index}`,
+          'You turned in before the entry point and pointed the car too early, running wide on exit. Delay turn-in and use a later tip-in reference.',
+          `Turn-in at ${pct(steerStartPct)} (${pct(Math.abs(delta))} before turn entry)`,
+          { steerStartPct: round3(steerStartPct), deltaPct: round3(delta) }, false, { ...cornerExtra, explanation: 'Turned in too early — delay entry so you do not run wide on exit.' }))
       } else if (delta > margin) {
         const loss = timingLoss(delta)
         out.push(makeFinding('steering-late', sector, span, loss, 'entry',
-          `Volante tarde — Curva ${corner.index}`,
-          'A virada veio tarde: o carro entrou reto e você teve de corrigir no ápice. Antecipe levemente o tip-in para um arco mais limpo.',
-          `Virada a ${pct(steerStartPct)} (${pct(delta)} depois da entrada da curva)`,
-          { steerStartPct: round3(steerStartPct), deltaPct: round3(delta) }, false, { ...cornerExtra, explanation: 'Girou o volante tarde — antecipe a entrada para um arco único.' }))
+          `Volante tarde — Turn ${corner.index}`,
+          'Turn-in came late: the car entered straight and you had to correct at the apex. Move tip-in slightly earlier for a cleaner arc.',
+          `Turn-in at ${pct(steerStartPct)} (${pct(delta)} after turn entry)`,
+          { steerStartPct: round3(steerStartPct), deltaPct: round3(delta) }, false, { ...cornerExtra, explanation: 'Turned in late — move entry earlier for one clean arc.' }))
       }
     }
 
@@ -1395,17 +1395,17 @@ export function detectCornerTimingFindings(
       if (fromApex < -margin) {
         const loss = timingLoss(-fromApex)
         out.push(makeFinding('throttle-early', sector, span, loss, 'mid',
-          `Acelerou cedo — Curva ${corner.index}`,
-          'Você abriu o gás antes do ápice e empurrou o carro para fora, lavando a frente na saída. Espere o ápice e o carro apontar antes de acelerar.',
-          `Gás a ${pct(throttleStartPct)} (${pct(Math.abs(fromApex))} antes do ápice)`,
-          { throttleStartPct: round3(throttleStartPct), deltaPct: round3(fromApex) }, false, { ...cornerExtra, explanation: 'Acelerou cedo demais — espere o ápice antes de abrir o gás.' }))
+          `Acelerou cedo — Turn ${corner.index}`,
+          'You got to throttle before the apex and pushed the car wide, washing out the front on exit. Wait for the apex and for the car to point before accelerating.',
+          `Throttle at ${pct(throttleStartPct)} (${pct(Math.abs(fromApex))} before apex)`,
+          { throttleStartPct: round3(throttleStartPct), deltaPct: round3(fromApex) }, false, { ...cornerExtra, explanation: 'Got to throttle too early — wait for the apex before opening throttle.' }))
       } else if (throttleStartPct - corner.endPct > margin) {
         const loss = timingLoss(throttleStartPct - corner.endPct)
         out.push(makeFinding('throttle-late', sector, span, loss, 'exit',
-          `Acelerou tarde — Curva ${corner.index}`,
-          'A tomada de acelerador veio tarde demais na saída. Assim que o carro apontar, comprometa-se com o gás mais cedo numa rampa decidida.',
-          `Gás a ${pct(throttleStartPct)} (${pct(throttleStartPct - corner.endPct)} depois da saída)`,
-          { throttleStartPct: round3(throttleStartPct), deltaPct: round3(throttleStartPct - corner.endPct) }, false, { ...cornerExtra, explanation: 'Acelerou tarde — antecipe a tomada de gás na saída.' }))
+          `Acelerou tarde — Turn ${corner.index}`,
+          'Throttle pickup came too late on exit. As soon as the car points, commit to throttle earlier with a decisive ramp.',
+          `Throttle at ${pct(throttleStartPct)} (${pct(throttleStartPct - corner.endPct)} after exit)`,
+          { throttleStartPct: round3(throttleStartPct), deltaPct: round3(throttleStartPct - corner.endPct) }, false, { ...cornerExtra, explanation: 'Got to throttle late — pick it up earlier on exit.' }))
       }
     }
   }
@@ -1456,19 +1456,19 @@ export function bidirectionalCornerFindings(
     if (speedDelta >= cfg.minSpeedDeltaKmh) {
       const gain = Math.min(0.4, speedDelta * cfg.secPerKmhDelta)
       out.push(makeFinding('min-speed-gain', sector, span, 0, 'mid',
-        `Mais velocidade na Curva ${cur.corner}`,
-        `Você levou ${speedDelta} km/h a mais de velocidade mínima do que a referência. Continue confiando na entrada aqui.`,
-        `Vmín ${cur.minSpeedKmh} km/h vs ${ref.minSpeedKmh} km/h (+${speedDelta})`,
+        `Mais speed na Turn ${cur.corner}`,
+        `You carried ${speedDelta} km/h more minimum speed than the reference. Keep trusting the entry here.`,
+        `Vmin ${cur.minSpeedKmh} km/h vs ${ref.minSpeedKmh} km/h (+${speedDelta})`,
         { minSpeedKmh: cur.minSpeedKmh, refMinSpeedKmh: ref.minSpeedKmh, deltaKmh: speedDelta }, false,
-        { ...cornerExtra, estTimeGainSec: gain, explanation: `Carregou ${speedDelta} km/h a mais de velocidade mínima — replique essa entrada.` }))
+        { ...cornerExtra, estTimeGainSec: gain, explanation: `Carried ${speedDelta} km/h more minimum speed — repeat that entry.` }))
     } else if (speedDelta <= -cfg.minSpeedDeltaKmh) {
       const loss = Math.min(0.4, -speedDelta * cfg.secPerKmhDelta)
       out.push(makeFinding('time-loss', sector, span, loss, 'mid',
-        `Menos velocidade na Curva ${cur.corner}`,
-        `Você levou ${-speedDelta} km/h a menos de velocidade mínima que a referência. Carregue mais velocidade de entrada e solte o freio mais cedo.`,
-        `Vmín ${cur.minSpeedKmh} km/h vs ${ref.minSpeedKmh} km/h (${speedDelta})`,
+        `Menos speed na Turn ${cur.corner}`,
+        `You carried ${-speedDelta} km/h less minimum speed than the reference. Carry more entry speed and release the brake earlier.`,
+        `Vmin ${cur.minSpeedKmh} km/h vs ${ref.minSpeedKmh} km/h (${speedDelta})`,
         { minSpeedKmh: cur.minSpeedKmh, refMinSpeedKmh: ref.minSpeedKmh, deltaKmh: speedDelta }, false,
-        { ...cornerExtra, explanation: `Perdeu ${-speedDelta} km/h de velocidade mínima — carregue mais velocidade na entrada.` }))
+        { ...cornerExtra, explanation: `Lost ${-speedDelta} km/h of minimum speed — carry more speed on entry.` }))
     }
 
     // ── Braked later AND still kept the apex speed → a clean, replicable gain ──
@@ -1480,11 +1480,11 @@ export function bidirectionalCornerFindings(
     ) {
       const d = cur.brakeStartPct - ref.brakeStartPct
       out.push(makeFinding('brake-gain', sector, span, 0, 'entry',
-        `Freada mais tarde na Curva ${cur.corner}`,
-        `Você conseguiu frear ${pct(d)} mais tarde que a referência e ainda fez a curva. Mantenha essa referência de freada.`,
-        `Freio a ${pct(cur.brakeStartPct)} vs ${pct(ref.brakeStartPct)} (+${pct(d)})`,
+        `Freada mais tarde na Turn ${cur.corner}`,
+        `You managed to brake ${pct(d)} later than the reference and still made the turn. Keep that braking reference.`,
+        `Brake at ${pct(cur.brakeStartPct)} vs ${pct(ref.brakeStartPct)} (+${pct(d)})`,
         { brakeStartPct: round3(cur.brakeStartPct), refBrakeStartPct: round3(ref.brakeStartPct), deltaPct: round3(d) }, false,
-        { ...cornerExtra, estTimeGainSec: timingLoss(d), explanation: `Freou ${pct(d)} mais tarde com sucesso — mantenha essa referência.` }))
+        { ...cornerExtra, estTimeGainSec: timingLoss(d), explanation: `Braked ${pct(d)} later successfully — keep that reference.` }))
     }
 
     // ── Got to throttle earlier on exit → replicable gain ──
@@ -1495,11 +1495,11 @@ export function bidirectionalCornerFindings(
     ) {
       const d = ref.throttleStartPct - cur.throttleStartPct
       out.push(makeFinding('throttle-gain', sector, span, 0, 'exit',
-        `Acelerou mais cedo na Curva ${cur.corner}`,
-        `Você abriu o acelerador ${pct(d)} mais cedo que a referência na saída. Ótimo — continue assim.`,
-        `Gás a ${pct(cur.throttleStartPct)} vs ${pct(ref.throttleStartPct)} (-${pct(d)})`,
+        `Acelerou mais cedo na Turn ${cur.corner}`,
+        `You opened throttle ${pct(d)} earlier than the reference on exit. Great — keep it up.`,
+        `Throttle at ${pct(cur.throttleStartPct)} vs ${pct(ref.throttleStartPct)} (-${pct(d)})`,
         { throttleStartPct: round3(cur.throttleStartPct), refThrottleStartPct: round3(ref.throttleStartPct), deltaPct: round3(d) }, false,
-        { ...cornerExtra, estTimeGainSec: timingLoss(d), explanation: `Tomou o acelerador ${pct(d)} mais cedo — replique essa saída.` }))
+        { ...cornerExtra, estTimeGainSec: timingLoss(d), explanation: `Picked up throttle ${pct(d)} earlier — repeat that exit.` }))
     }
   }
   return out
@@ -1605,9 +1605,9 @@ export function buildCoachReport(
       ? rankFindings([
           ...findings,
           makeFinding('inconsistency', 0, { start: 0, end: 1 }, Math.min(0.5, consistency.stdevSec), undefined,
-            'Inconsistência entre voltas',
-            'Suas voltas variam bastante. Antes de buscar mais ritmo, repita os mesmos pontos de freada e referências para baixar o desvio.',
-            `Desvio padrão ${consistency.stdevSec.toFixed(2)}s nas últimas ${consistency.laps} voltas`,
+            'Lap-to-lap inconsistency',
+            'Your laps vary quite a bit. Before chasing more pace, repeat the same braking points and references to lower the deviation.',
+            `Standard deviation ${consistency.stdevSec.toFixed(2)}s over the last ${consistency.laps} laps`,
             { stdevSec: Number(consistency.stdevSec.toFixed(3)), laps: consistency.laps })
         ])
       : findings
@@ -1638,18 +1638,18 @@ export function buildCoachReport(
 function summarizeReport(findings: CoachFinding[], deltaToBestSec: number | undefined, consistency?: CoachConsistency): string {
   const issues = findings.filter((f) => f.severity !== 'good')
   const totalLoss = issues.reduce((sum, f) => sum + f.estTimeLossSec, 0)
-  const deltaTxt = deltaToBestSec !== undefined ? `${deltaToBestSec >= 0 ? '+' : ''}${deltaToBestSec.toFixed(2)}s vs melhor` : 'sem delta de referência'
+  const deltaTxt = deltaToBestSec !== undefined ? `${deltaToBestSec >= 0 ? '+' : ''}${deltaToBestSec.toFixed(2)}s vs best` : 'no reference delta'
   if (issues.length === 0) {
-    return `Volta limpa — ${deltaTxt}. Nenhuma perda relevante detectada.`
+    return `Lap limpa — ${deltaTxt}. Nenhuma perda relevante detectada.`
   }
   const top = issues[0]
-  const consistencyTxt = consistency ? `, consistência ${consistency.rating}` : ''
+  const consistencyTxt = consistency ? `, consistency ${consistency.rating}` : ''
   return `${deltaTxt}${consistencyTxt}. Maior ganho: ${top.title.toLowerCase()} (~${top.estTimeLossSec.toFixed(2)}s); ${issues.length} pontos somam ~${totalLoss.toFixed(2)}s.`
 }
 
 /** Deterministic, LLM-free phrasing for a finding (used as the `coach:explain` fallback). */
 export function deterministicPhrasing(finding: CoachFinding): string {
-  const where = finding.corner ? `Curva ${finding.corner}` : finding.sector ? `Setor ${finding.sector}` : ''
+  const where = finding.corner ? `Turn ${finding.corner}` : finding.sector ? `Sector ${finding.sector}` : ''
   const impactTxt =
     finding.sign === 'gain'
       ? ` Ganho estimado ~${(finding.estTimeDeltaSec ?? 0).toFixed(2)}s.`

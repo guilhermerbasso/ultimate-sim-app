@@ -78,7 +78,7 @@ async function listLibrary(ctx: ModuleContext): Promise<SetupLibraryResult> {
 async function readSetupFile(ctx: ModuleContext, filePath: string): Promise<SetupReadFileResult> {
   const safePath = await validateSetupPath(ctx, filePath)
   const info = await stat(safePath)
-  if (info.size > MAX_STO_BYTES) throw new Error('Arquivo .sto muito grande.')
+  if (info.size > MAX_STO_BYTES) throw new Error('.sto file is too large.')
   return { path: safePath, text: await readFile(safePath, 'utf8') }
 }
 
@@ -102,7 +102,7 @@ async function getLibraryItemByPath(ctx: ModuleContext, filePath: string): Promi
 
 async function readSetupText(filePath: string): Promise<string> {
   const info = await stat(filePath)
-  if (!info.isFile() || info.size > MAX_STO_BYTES) throw new Error('Arquivo .sto inválido.')
+  if (!info.isFile() || info.size > MAX_STO_BYTES) throw new Error('Invalid .sto file.')
   return readFile(filePath, 'utf8')
 }
 
@@ -123,7 +123,7 @@ async function collectStoFiles(rootReal: string, dir: string, files: string[], d
 
 async function buildLibraryItem(rootReal: string, filePath: string): Promise<SetupLibraryItem> {
   const info = await stat(filePath)
-  if (!info.isFile()) throw new Error('Setup inválido.')
+  if (!info.isFile()) throw new Error('Invalid setup.')
   const relativePath = relative(rootReal, filePath)
   const segments = relativePath.split(sep).filter(Boolean)
   const key = normalizeKey(filePath)
@@ -142,20 +142,20 @@ async function buildLibraryItem(rootReal: string, filePath: string): Promise<Set
 
 async function validateSetupPath(ctx: ModuleContext, filePath: string | undefined): Promise<string> {
   if (typeof filePath !== 'string' || !hasStoExtension(filePath) || /[\u0000-\u001f\u007f]/.test(filePath)) {
-    throw new Error('Caminho de setup inválido.')
+    throw new Error('Invalid setup path.')
   }
   const rootReal = await getExistingRoot(ctx)
   const fileReal = await realpath(filePath).catch(() => '')
   if (!fileReal || !isInsideRoot(rootReal, fileReal)) throw new Error('Setup fora da biblioteca local.')
   const info = await stat(fileReal)
-  if (!info.isFile() || info.size > MAX_STO_BYTES) throw new Error('Arquivo .sto inválido.')
+  if (!info.isFile() || info.size > MAX_STO_BYTES) throw new Error('Invalid .sto file.')
   return fileReal
 }
 
 async function getExistingRoot(ctx: ModuleContext): Promise<string> {
   const root = getSetupsDir(ctx)
   const rootReal = await realpath(root).catch(() => '')
-  if (!rootReal) throw new Error('Pasta local de setups não encontrada.')
+  if (!rootReal) throw new Error('Local setups folder not found.')
   return rootReal
 }
 

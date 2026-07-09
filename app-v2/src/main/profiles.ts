@@ -30,7 +30,7 @@ export class ProfileStore {
   async saveProfile(name: string, data: ProfilePayload): Promise<ProfileRecord> {
     const normalizedName = this.normalizeName(name)
     await this.ensureProfilesDir()
-    validateProfilePayload(data, `perfil ${normalizedName}`)
+    validateProfilePayload(data, `profile ${normalizedName}`)
 
     const profile: ProfileRecord = {
       name: normalizedName,
@@ -72,41 +72,41 @@ export class ProfileStore {
 
   private normalizeName(name: string): string {
     const normalized = name.trim()
-    if (!normalized) throw new Error('Informe um nome para o perfil.')
-    if (normalized.length > 80) throw new Error('Nome do perfil deve ter no máximo 80 caracteres.')
+    if (!normalized) throw new Error('Enter a profile name.')
+    if (normalized.length > 80) throw new Error('Profile name must be at most 80 characters.')
     return normalized
   }
 }
 
-export function validateProfilePayload(data: unknown, context = 'perfil'): asserts data is ProfilePayload {
-  if (!isObject(data)) throw new Error(`Perfil inválido (${context}): payload não é objeto.`)
+export function validateProfilePayload(data: unknown, context = 'profile'): asserts data is ProfilePayload {
+  if (!isObject(data)) throw new Error(`Invalid profile (${context}): payload is not an object.`)
   validateMapping((data as { mapping?: unknown }).mapping, context)
   validateConfig((data as { config?: unknown }).config, context)
 }
 
 function validateProfileRecord(raw: unknown, file: string): ProfileRecord {
-  if (!isObject(raw)) throw new Error(`Perfil inválido (${file}): JSON não é objeto.`)
+  if (!isObject(raw)) throw new Error(`Invalid profile (${file}): JSON is not an object.`)
   const record = raw as Partial<ProfileRecord>
-  if (typeof record.name !== 'string' || !record.name.trim()) throw new Error(`Perfil inválido (${file}): nome ausente.`)
+  if (typeof record.name !== 'string' || !record.name.trim()) throw new Error(`Invalid profile (${file}): missing name.`)
   if (typeof record.savedAt !== 'string' || !record.savedAt.trim()) {
-    throw new Error(`Perfil inválido (${file}): data de salvamento ausente.`)
+    throw new Error(`Invalid profile (${file}): missing saved date.`)
   }
   validateProfilePayload(record, file)
   return record as ProfileRecord
 }
 
 function validateMapping(mapping: unknown, context: string): void {
-  if (!isObject(mapping)) throw new Error(`Perfil inválido (${context}): mapping ausente.`)
+  if (!isObject(mapping)) throw new Error(`Invalid profile (${context}): missing mapping.`)
   const values = (mapping as { values?: unknown }).values
-  if (!isObject(values)) throw new Error(`Perfil inválido (${context}): mapping.values ausente.`)
+  if (!isObject(values)) throw new Error(`Invalid profile (${context}): missing mapping.values.`)
 
   const keys = Object.keys(values)
   const unknownKeys = keys.filter((key) => !EVENT_SET.has(key))
   if (unknownKeys.length > 0) {
-    throw new Error(`Perfil inválido (${context}): evento(s) desconhecido(s): ${unknownKeys.join(', ')}.`)
+    throw new Error(`Invalid profile (${context}): evento(s) unknown(s): ${unknownKeys.join(', ')}.`)
   }
   if (keys.length !== EVENT_ORDER.length) {
-    throw new Error(`Perfil inválido (${context}): mapping deve conter exatamente ${EVENT_ORDER.length} eventos.`)
+    throw new Error(`Invalid profile (${context}): mapping must contain exactly ${EVENT_ORDER.length} events.`)
   }
 
   for (const eventId of EVENT_ORDER) {
@@ -116,18 +116,18 @@ function validateMapping(mapping: unknown, context: string): void {
 }
 
 function validateConfig(config: unknown, context: string): asserts config is Config {
-  if (!isObject(config)) throw new Error(`Perfil inválido (${context}): config ausente.`)
+  if (!isObject(config)) throw new Error(`Invalid profile (${context}): missing config.`)
   const candidate = config as Partial<Config>
   validateIntegerRange(candidate.pulse, 'config.pulse', 10, 250, context)
   validateIntegerRange(candidate.debounce, 'config.debounce', 5, 200, context)
   if (candidate.encmode !== 'pulse' && candidate.encmode !== 'hold') {
-    throw new Error(`Perfil inválido (${context}): config.encmode deve ser pulse ou hold.`)
+    throw new Error(`Invalid profile (${context}): config.encmode must be pulse or hold.`)
   }
 }
 
 function validateIntegerRange(value: unknown, label: string, min: number, max: number, context: string): void {
   if (!Number.isInteger(value) || typeof value !== 'number' || value < min || value > max) {
-    throw new Error(`Perfil inválido (${context}): ${label} deve ser inteiro entre ${min} e ${max}.`)
+    throw new Error(`Invalid profile (${context}): ${label} must be an integer between ${min} e ${max}.`)
   }
 }
 

@@ -102,13 +102,13 @@ function InputMonitorView(_props: AppViewProps): ReactElement {
       <div className="panel-heading-row">
         <div>
           <span className="panel-label">Web Gamepad API + serial</span>
-          <h3>Monitor de entradas SIM-X</h3>
+          <h3>SIM-X input monitor</h3>
         </div>
         <span className="muted-pill">{TOTAL_HID_BUTTONS} HID + POV + {ENCODER_COUNT} encoders</span>
       </div>
 
       <div className="gamepad-picker">
-        <label className="field-label" htmlFor="gamepad">Gamepad selecionado</label>
+        <label className="field-label" htmlFor="gamepad">Selected gamepad</label>
         <select
           className="select-field wide"
           disabled={gamepads.length === 0}
@@ -116,7 +116,7 @@ function InputMonitorView(_props: AppViewProps): ReactElement {
           onChange={(event) => setSelectedIndex(Number(event.target.value))}
           value={selectedIndex ?? ''}
         >
-          {gamepads.length === 0 && <option value="">Nenhum gamepad detectado</option>}
+          {gamepads.length === 0 && <option value="">No gamepad detected</option>}
           {gamepads.map((gamepad) => (
             <option key={gamepad.index} value={gamepad.index}>
               {gamepad.index} · {gamepad.id}
@@ -125,12 +125,12 @@ function InputMonitorView(_props: AppViewProps): ReactElement {
         </select>
         <p className="helper-text">
           {selectedGamepad
-            ? `${selectedGamepad.id}. Pressione um botão se o navegador ainda não detectou o HID.`
-            : 'Conecte o SIM-X e pressione qualquer botão para o Chromium reconhecer o HID.'}
+            ? `${selectedGamepad.id}. Press a button if the browser has not detected the HID yet.`
+            : 'Connect SIM-X and press any button so Chromium recognizes the HID.'}
         </p>
       </div>
 
-      <div className="input-grid" aria-label="Estado dos 32 botões HID">
+      <div className="input-grid" aria-label="32 HID button state">
         {buttons.map((pressed, index) => (
           <div className={`input-cell ${pressed ? 'is-pressed' : ''}`} key={index + 1}>
             <span>{String(index + 1).padStart(2, '0')}</span>
@@ -140,7 +140,7 @@ function InputMonitorView(_props: AppViewProps): ReactElement {
 
       <div className="divider" />
       <span className="panel-label">POV hat (D-pad)</span>
-      <div className="input-grid" aria-label="Estado do POV hat">
+      <div className="input-grid" aria-label="POV hat state">
         {HAT_DIRECTIONS.map((arrow, index) => (
           <div className={`input-cell ${hat[index] ? 'is-pressed' : ''}`} key={arrow}>
             <span>{arrow}</span>
@@ -151,12 +151,12 @@ function InputMonitorView(_props: AppViewProps): ReactElement {
       <div className="divider" />
       <span className="panel-label">Encoders (via serial)</span>
       <p className="helper-text">
-        Encoders chegam pela serial como <code>E&lt;idx&gt;:+1</code> ou <code>E&lt;idx&gt;:-1</code> e não aparecem no HID.
-        Conecte o ButtonBox em Dispositivos para receber os eventos abaixo.
+        Encoders arrive over serial as <code>E&lt;idx&gt;:+1</code> or <code>E&lt;idx&gt;:-1</code> and are not shown in HID.
+        Connect the ButtonBox in Devices to receive the events below.
       </p>
-      <div className="status-list" aria-label="Últimos eventos de encoder">
+      <div className="status-list" aria-label="Last encoder events">
         {encoderTraces.length === 0 ? (
-          <p className="helper-text">Aguardando eventos de encoder…</p>
+          <p className="helper-text">Waiting for encoder events?</p>
         ) : (
           encoderTraces.map((trace, index) => (
             <div className="status-dot" key={`${trace.at}-${index}`}>

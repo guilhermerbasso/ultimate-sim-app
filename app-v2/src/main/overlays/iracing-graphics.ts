@@ -82,13 +82,13 @@ function setKeyValue(lines: string[], section: string, key: string, value: strin
 function describeMode(mode: IracingDisplayMode): string {
   switch (mode) {
     case 'exclusive':
-      return 'iRacing está em TELA CHEIA EXCLUSIVA. Nenhum overlay de janela aparece nesse modo (vale para SimHub/RaceLab também). Clique em "Corrigir" para mudar o iRacing para borderless.'
+      return 'iRacing is in EXCLUSIVE FULLSCREEN. Window overlays do not appear in this mode (also true for SimHub/RaceLab). Click "Fix" to switch iRacing to borderless.'
     case 'borderless':
-      return 'iRacing está em modo borderless (janela sem bordas) — os overlays funcionam por cima.'
+      return 'iRacing is in borderless mode — overlays work on top.'
     case 'windowed':
-      return 'iRacing está em modo janela — os overlays funcionam por cima.'
+      return 'iRacing is in windowed mode — overlays work on top.'
     default:
-      return 'Não foi possível determinar o modo de vídeo do iRacing no app.ini.'
+      return 'Could not determine the iRacing video mode in app.ini.'
   }
 }
 
@@ -111,7 +111,7 @@ export async function readIracingGraphicsStatus(): Promise<IracingGraphicsStatus
       fullScreen: null,
       borderlessWindowed: null,
       overlaysWillShow: true,
-      message: 'A detecção de tela cheia do iRacing só está disponível no Windows. No macOS, ajuste o modo de vídeo manualmente dentro do jogo (use borderless).'
+      message: 'iRacing fullscreen detection is only available on Windows. On macOS, adjust the video mode manually in-game (use borderless).'
     }
   }
 
@@ -129,7 +129,7 @@ export async function readIracingGraphicsStatus(): Promise<IracingGraphicsStatus
       fullScreen: null,
       borderlessWindowed: null,
       overlaysWillShow: true,
-      message: `app.ini do iRacing não encontrado em ${path}. Abra o iRacing pelo menos uma vez para gerá-lo.`
+      message: `iRacing app.ini not found at ${path}. Open iRacing at least once to generate it.`
     }
   }
 
@@ -159,7 +159,7 @@ export async function fixIracingFullscreen(): Promise<FixFullscreenResult> {
       ok: false,
       changed: false,
       backupPath: null,
-      message: 'Só é possível ajustar o app.ini do iRacing no Windows.'
+      message: 'app.ini can only be adjusted on Windows.'
     }
   }
 
@@ -172,7 +172,7 @@ export async function fixIracingFullscreen(): Promise<FixFullscreenResult> {
       ok: false,
       changed: false,
       backupPath: null,
-      message: `app.ini não encontrado em ${path}. Abra o iRacing pelo menos uma vez.`
+      message: `app.ini not found at ${path}. Open iRacing at least once.`
     }
   }
 
@@ -187,7 +187,7 @@ export async function fixIracingFullscreen(): Promise<FixFullscreenResult> {
         ok: false,
         changed: false,
         backupPath: null,
-        message: `Não foi possível criar o backup do app.ini: ${errorMessage(error)}`
+        message: `Could not create the app.ini backup: ${errorMessage(error)}`
       }
     }
   }
@@ -206,7 +206,7 @@ export async function fixIracingFullscreen(): Promise<FixFullscreenResult> {
       ok: false,
       changed: false,
       backupPath,
-      message: `Falha ao gravar o app.ini: ${errorMessage(error)}`
+      message: `Failed to write app.ini: ${errorMessage(error)}`
     }
   }
 
@@ -216,6 +216,6 @@ export async function fixIracingFullscreen(): Promise<FixFullscreenResult> {
     backupPath,
     message: changed
       ? `iRacing ajustado para borderless. Backup salvo em ${backupPath}. Feche e reabra o iRacing para aplicar.`
-      : 'iRacing já estava em borderless — nenhuma mudança necessária.'
+      : 'iRacing was already borderless — no change needed.'
   }
 }

@@ -6,26 +6,68 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
-## 2.41.0 — Visual rebuild: widgets, overlays, dashboards, UX & i18n
+## 2.43.0 — Clean v4: title‑less widgets, trigger overlays, 3D nav map, themed cars
 
 ### Added
-- **Widget‑matrix factory** (`src/renderer/src/widgets2/`): a *variable × form* system rendering 57 telemetry variables in 9 visual forms (bar, vertical bar, gauge, 7‑segment, LED, **32‑bit pixel**, ring, tile, big number) — **513 NaN‑safe SVG widget combinations**, ≥ 5 forms per variable.
-- **New `Pixel32` primitive** for the retro 8/16/32‑bit pixel‑matrix readout.
-- **Overlay catalogue** (`src/renderer/src/overlays2/`): **57 overlays** across 11 categories, each renderable in all **8 design families** (≥ 5 styles per overlay).
-- **Dashboard catalogue** (`src/shared/dashboards2/` + `src/shared/car-families.ts`): **200 new dashboards** = 8 generic car families × 5 layouts × 5 resolutions, each with ≥ 5 distinct telemetry bindings; registered into `BUILTIN_PRESETS`.
-- **Collapsible sidebar** with icon‑only rail, `Ctrl/Cmd+B` shortcut, persisted state, and per‑item tooltips.
-- **App icon** wired into `electron-builder` (`build/icon.png`) and AI‑generated GT3 hero art (Azure AI Foundry `gpt-image`) for menu/README context.
-- **Japanese (`ja`)** and **Chinese (`zh`, Simplified)** locales.
+- **Trigger‑only spotter overlays** (`src/renderer/src/hifi/widgets/alerts/`) — 7 condition‑gated overlays (car‑left, car‑right, radar‑on‑proximity, shift‑LED flash, pit‑limiter, flag, low‑fuel) driven by a pure, tested `evaluateOverlayTrigger(trigger, snapshot)`; the compositor paints them only while their condition fires.
+- **Hide + "Hidden" feature** — multi‑select hide/restore for overlays, dashboards, touch dashes and the widget catalog, persisted; hidden overlays are skipped by the compositor.
+- **Interactive 3D nav map** (`TrackMapNav3DWidget`, Three.js / @react‑three/fiber) — Waze‑style follow‑cam, track‑up rotation, zoom, drag‑rotate/pan and recenter, with a 2D SVG fallback for SSR / no‑WebGL.
+- **12 per‑car themed widgets** (`src/renderer/src/hifi/widgets/themed/`) — 6 shift‑light signatures + 6 cluster signatures for Ferrari / Porsche / Mercedes‑AMG / McLaren / Corvette / Lamborghini.
+- **Generic rev‑lights variants** — gradient bar, dense LED strip, LED bar with blue over‑rev, and a centered Mustang‑style cluster.
+- **New touch button styles** — rocker + LED‑ring — plus per‑car themed touch button‑boxes; presets are now tag‑filterable.
 
 ### Changed
-- **English is now the primary/default UI language** (`DEFAULT_APP_SETTINGS.language = 'en'`); Português/Deutsch/Français/Español remain switchable, plus the two new locales.
-- Sidebar collapse/expand labels moved into the i18n `ShellKey` catalogue (all 7 locales).
+- **Clean visual language everywhere** — widgets/overlays render transparent, title‑less and borderless (values are self‑explanatory), with a dark text‑outline for legibility and centralized conditional (gain/lose) coloring; still fully editable in color/size/font/position.
+- **All 58 hi‑fi dashboards recreated** — race / endurance / coach / family rebuilt to the clean premise with a rev‑lights strip corner‑to‑corner across the top, authored at 1024×600 and adaptive; each category gains per‑car themed dashboards. 268/268 presets render with **0 build/render errors**.
+- **Deep i18n to American English** — every screen, description, widget/overlay/dashboard and the AI engineer / coach / spotter voice translated; switching language changes everything.
 
 ### Fixed
-- Absent telemetry channels no longer render false *critical* states for inverted variables (fuel/wear/grip).
-- Overlays can no longer overflow their declared height (fixed grid‑row layout).
-- Dashboard presets now build a fresh deep clone per call, preventing shared built‑in mutation.
+- Settings now **persist immediately** (default telemetry/sim and all settings stick across restarts).
+- The **AI Coach map grows/shrinks with the zoom level** instead of always taking the whole screen.
+- Broadcast hero no longer has an empty middle; endurance delta no longer overflows; gap ahead/behind uses green = gaining / red = losing (no title/arrow); tyre‑temp °C no longer overlaps the value; gear is no longer clipped.
+
+## 2.42.0 — Per‑telemetry hi‑fi widgets, +50 composition dashboards, tag filtering, adaptive AI
+
+### Added
+- **71 per‑telemetry hi‑fi widgets** (`src/renderer/src/hifi/widgets/`) — one clean, NaN‑safe SVG module per channel (throttle/brake/clutch/steering/inputs, speed/rpm/gear/rev‑lights, delta/lap/position/time, gap ahead/behind/relative/standings/radar, fuel/fuel‑laps/fuel‑delta, tyre temp/pressure/wear/detail + per corner, brake temps/bias, oil/water/oil‑press, TC/ABS/engine‑map/ERS, flag/pit‑limiter/incidents/weather/wetness/grip/track‑map/G‑force/session/clock, and **AI coach/engineer** cues). Each is usable **both** as a floating overlay **and** a dashboard widget, built from a `gpt‑image` reference and visual‑QA’d until clean.
+- **+50 hi‑fi 1024×600 composition dashboards** (`src/shared/dashboards-hifi-*.ts`) across four themes — **race** (sprint/quali/wet/fuel‑save/start/safety‑car…), **endurance** (stint/fuel‑strategy/tyre‑life/traffic/multiclass…), **AI coach/engineer**, and **style/broadcast/minimal/radar** — composed from the hi‑fi widgets and spread into `BUILTIN_PRESETS`.
+- **AI‑powered widgets & dashboards** — live Coach tip/findings, Engineer radio, proactive alert, strategy call and AI‑confidence tiles, plus dedicated AI‑coach dashboards. The AI is **100% local, CPU‑only, free**.
+- **Adaptive Dashboard — local AI live selection** (`src/renderer/src/lib/adaptive-widget-ai.ts`): with the toggle on, a local heuristic AI picks the most relevant widgets for the current race moment (fuel/tyre/gap/delta/pit/weather salience + moment weighting + coach/engineer signals), with category diversity.
+- **Rich tags + multi‑select tag filter** (`src/renderer/src/components/TagFilter.tsx`) on the **Overlays**, **Dashboards** and **Touch Controls** screens — chips + search + live count + clear; every overlay/dashboard is tagged (sim IR/ACC/AC/AMS2/LMU, category, and style tags) and filterable by several tags at once.
+- **Hi‑fi Touch Controls** — 6 new photoreal pit/cockpit/strategy/comms/wheel/endurance panels plus new `selector`/`rgb` button materials.
+
+### Changed
+- **Hi‑fi widgets never clip or overflow** — `HifiWidgetHost` renders each widget in its intrinsic design size and letterboxes (`preserveAspectRatio="xMidYMid meet"`) into any dashboard/overlay box, so text never spills or is cut at any size or aspect ratio.
+
+### Fixed
+- `npm run typecheck` restored to green after the widget‑catalog → hi‑fi‑registry integration (node tsconfig now parses the JSX pulled in via `main → widget‑catalog`).
+- Adaptive selection guards a non‑finite `maxSlots`; tag filtering trims tags consistently; `strategyCall` tiles surface a real strategy‑related engineer message (never fabricated).
+
+### Notes
+- **AI Engineer, Live/AI Coach and analysis run 100% locally on the CPU, offline, with no GPU and no cost.**
+- Validation: `npm run typecheck` (node + web) ✓ · **2,854 unit tests** ✓ · dashboard/widget visual‑audit (**0 render errors / overflow / overlap**) ✓.
+
+## 2.41.0 — Race‑car fidelity rebuild: hi‑fi dashboards, streaming, auto‑update, i18n
+
+### Added
+- **Hi‑fi 1024×600 dashboards** (`src/renderer/src/hifi/`): photorealistic **GT3 DDU cockpit**, **MoTeC‑style engineer analysis**, **endurance/IMSA stint**, **broadcast**, and **minimal** clusters — each built from a `gpt‑image` reference and matched pixel‑by‑pixel, driven by **live telemetry**, pure NaN‑safe SVG, **adaptive** (viewBox 1024×600 → any screen). Wired into `BUILTIN_PRESETS` via the `overlaywidget` embed path.
+- **Stream to phone/tablet**: a LAN server with **QR code + session token + optional password**, a responsive web dashboard, and Touch Controls streaming (extends `src/main/modules/streaming.ts`).
+- **Auto‑update**: `electron-updater` from GitHub Releases (automatic) plus a manual **Check for updates** button in About; `publish` config in `electron-builder.yml`.
+- **Chinese (`zh`, Simplified)** and **Japanese (`ja`)** locales; a scalable `tt()` i18n catalog.
+- **Collapsible sidebar** (icon‑only rail, `Ctrl/Cmd+B`, persisted); **new app icon** wired into `electron-builder`.
+
+### Changed
+- **English is now the primary/default UI language**; deep i18n migrated many screens (telemetry, fuel, tyres, strategy, settings, alerts, devices, community, controls, coach, engineer, …) and the AI Engineer prompt + TTS voice follow the app language.
+- **Overlays**: activating an overlay no longer scrolls the page; presentation options consolidated to **5 structurally‑distinct forms** (minimal, broadcast, analog, heatmap, neon) instead of colour‑only presets.
+
+### Fixed
+- **Settings** now apply and persist immediately (default telemetry source, etc.).
+- **AI Coach** map area grows/shrinks with the zoom level (no longer always full‑screen).
+- **Community** ships curated, editable HTTPS telemetry/setup sources per simulator.
+
+### Removed
+- The earlier generic *variable×form* build (`widgets2/`, `overlays2/`, `dashboards2/`, `car-families.ts`) — replaced by the hi‑fi, image‑driven dashboards.
 
 ### Notes
 - **AI Engineer, Live/AI Coach and analysis run 100% locally on the CPU (`node-llama-cpp`), offline, with no GPU and no cost.**
-- Validation: `typecheck` ✓ · **2,789 unit tests** ✓ · `build` ✓ · dashboard visual‑audit (0 render errors / overflow / overlap) ✓.
+- Validation: `typecheck` ✓ · **2,798 unit tests** ✓ · dashboard visual‑audit (**0 render errors / overflow / overlap**) ✓.

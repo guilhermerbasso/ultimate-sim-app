@@ -1,10 +1,11 @@
-// Galeria de presets: thumbnails reais gerados a partir do modelo do dashboard
+// Preset gallery: real thumbnails generated from the dashboard model
 // (wireframe escalado), filtros por tag e "duplicar e editar". Mantida leve —
-// desenha um retângulo por elemento (sem montar os widgets completos).
+// draws one rectangle per element (without mounting full widgets).
 
 import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { Dashboard, DashboardElementType } from '../../../../shared/dashboards'
+import { TagFilter, filterByTags } from '../../components/TagFilter'
 import { CanvasElementVisual } from './DashboardCanvasEditor'
 
 const ACCENT = 'var(--accent-primary)'
@@ -22,7 +23,7 @@ export interface PresetEntry {
 const THUMB_W = 248
 const THUMB_H = 140
 
-// Cor do wireframe por "família" de elemento.
+// Wireframe color by element family.
 function elementColor(type: DashboardElementType): string {
   if (type === 'shiftbar' || type === 'shiftlights') return '#FFB000'
   if (type === 'gearcluster') return ACCENT
@@ -36,10 +37,10 @@ function elementColor(type: DashboardElementType): string {
   return '#2b6f66'
 }
 
-// Thumbnail real do preset. Elementos `overlaywidget` (os dashboards full-frame
-// GT3/LMU) são montados de verdade — escala via `transform` sobre o board em
-// tamanho natural — para que a galeria não mostre um retângulo achatado "vazio".
-// Os demais elementos seguem como wireframe leve (um retângulo por elemento).
+// Real preset thumbnail. Elements `overlaywidget` (os dashboards full-frame
+// GT3/LMU) are actually mounted ? scaled via `transform` over the board at
+// natural size ? so the gallery does not show a flattened empty rectangle.
+// The other elements remain lightweight wireframes (one rectangle per element).
 function PresetThumb({ dash }: { dash: Dashboard }): ReactElement {
   const scale = Math.min(THUMB_W / dash.width, THUMB_H / dash.height)
   const w = dash.width * scale
@@ -101,16 +102,16 @@ function PresetCard({ entry, busy, onPick }: { entry: PresetEntry; busy?: boolea
     <div style={cardStyle}>
       <PresetThumb dash={dash} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
-        {isAdaptive && <span style={adaptiveBadge}>Adaptativo</span>}
+        {isAdaptive && <span style={adaptiveBadge}>Adaptive</span>}
         {isGt3 && <span style={gt3Badge}>GT3</span>}
         <strong style={{ color: TEXT_FG, fontSize: 13 }}>{entry.name}</strong>
       </div>
       <div style={{ color: TEXT_DIM, fontSize: 11, margin: '2px 0 8px' }}>
-        {dash.width}×{dash.height} · {dash.elements.length} elementos
+        {dash.width}×{dash.height} · {dash.elements.length} elements
       </div>
       {isAdaptive && (
         <div style={{ color: TEXT_DIM, fontSize: 11, margin: '0 0 8px' }}>
-          Reorganiza-se sozinho ao vivo conforme a fase da sessão e o momento da volta.
+          Reorganizes itself live based on the session phase and lap moment.
         </div>
       )}
       {entry.tags && entry.tags.length > 0 && (
@@ -121,7 +122,7 @@ function PresetCard({ entry, busy, onPick }: { entry: PresetEntry; busy?: boolea
         </div>
       )}
       <button type="button" disabled={busy} onClick={() => onPick(entry.id)} style={pickBtn}>
-        Duplicar e editar
+        Duplicate and edit
       </button>
     </div>
   )
@@ -136,31 +137,17 @@ export function PresetGallery({
   busy?: boolean
   onPick(id: string): void
 }): ReactElement {
-  const tags = useMemo(() => {
-    const set = new Set<string>()
-    for (const p of presets) for (const t of p.tags ?? []) set.add(t)
-    return ['Todos', ...Array.from(set)]
-  }, [presets])
-  const [filter, setFilter] = useState('Todos')
-  const filtered = filter === 'Todos' ? presets : presets.filter((p) => p.tags?.includes(filter))
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const filtered = useMemo(() => filterByTags(presets, selectedTags, (preset) => preset.tags), [presets, selectedTags])
   return (
     <div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-        {tags.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setFilter(t)}
-            style={{
-              ...filterChip,
-              background: filter === t ? ACCENT : 'var(--surface-base)',
-              color: filter === t ? '#05070a' : TEXT_DIM
-            }}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      <TagFilter
+        items={presets}
+        selectedTags={selectedTags}
+        onSelectedTagsChange={setSelectedTags}
+        getTags={(preset) => preset.tags}
+        style={{ marginBottom: 12 }}
+      />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(264px, 1fr))', gap: 12 }}>
         {filtered.map((p) => (
           <PresetCard key={p.id} entry={p} busy={busy} onPick={onPick} />
@@ -219,13 +206,4 @@ const tagChip: CSSProperties = {
   padding: '1px 6px',
   fontSize: 10,
   fontWeight: 700
-}
-
-const filterChip: CSSProperties = {
-  border: 'none',
-  borderRadius: 14,
-  padding: '5px 12px',
-  fontSize: 12,
-  fontWeight: 700,
-  cursor: 'pointer'
 }

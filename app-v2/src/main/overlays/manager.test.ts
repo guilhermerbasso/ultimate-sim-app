@@ -228,3 +228,31 @@ describe('OverlayManager favorite (config-list shortcut, persisted)', () => {
     expect(existsSync(join(root, 'overlays.json'))).toBe(true)
   })
 })
+
+describe('OverlayManager hidden widgets', () => {
+  let root: string
+
+  beforeEach(() => {
+    root = mkdtempSync(join(process.cwd(), 'overlays-hidden-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('setHidden moves a widget to the hidden list state and persists to overlays.json', async () => {
+    const id = OVERLAY_WIDGETS[0].id
+    const mgr = new OverlayManager(makeBroadcastCtx(root))
+
+    const hiddenList = await mgr.setHidden(id, true)
+    expect(hiddenList.find((item) => item.id === id)?.hidden).toBe(true)
+
+    const onDisk = JSON.parse(readFileSync(join(root, 'overlays.json'), 'utf8')) as {
+      widgets: Record<string, { hidden?: boolean }>
+    }
+    expect(onDisk.widgets[id].hidden).toBe(true)
+
+    const restoredList = await mgr.setHidden(id, false)
+    expect(restoredList.find((item) => item.id === id)?.hidden).toBe(false)
+  })
+})

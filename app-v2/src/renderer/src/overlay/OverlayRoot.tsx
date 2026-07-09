@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
-import type { CustomOverlayDef, OverlayGestureState, OverlayPosition, OverlayWidgetConfig, OverlayWidgetId } from '../../../shared/overlays'
+import type { CustomOverlayDef, OverlayGestureState, OverlayPosition, OverlayWidgetConfig, OverlayWidgetId, OverlaysConfig } from '../../../shared/overlays'
 import {
   createDefaultOverlayStyle,
-  createDefaultOverlaysConfig,
   DEFAULT_CUSTOM_OVERLAY_POSITION,
   DEFAULT_OVERLAY_STYLE_PRESET,
+  evaluateOverlayTrigger,
   isCustomOverlayId,
-  isRichCustomOverlay,
-  OVERLAY_WIDGETS
+  isRichCustomOverlay
 } from '../../../shared/overlays'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
-import { WIDGET_COMPONENTS } from './widgets'
+import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, HIFI_DEFAULT_TRIGGERS, mergeHifiOverlayConfigs } from './hifi-overlays'
+import { resolveWidgetComponent } from './widgets'
 import { CustomOverlayWidget } from './widgets/CustomOverlayWidget'
 import './overlay-runtime.css'
 
@@ -20,7 +20,7 @@ const RESIZE_DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
 function getWidgetParam(): string {
   const params = new URLSearchParams(window.location.search)
   const widget = params.get('widget') ?? ''
-  if (OVERLAY_WIDGETS.some((item) => item.id === widget)) return widget
+  if (ALL_OVERLAY_WIDGETS.some((item) => item.id === widget)) return widget
   if (isCustomOverlayId(widget)) return widget
   return 'gearSpeed'
 }
@@ -39,7 +39,7 @@ function defaultWidgetConfig(id: string): OverlayWidgetConfig {
       display: null
     }
   }
-  return createDefaultOverlaysConfig().widgets[id as OverlayWidgetId]
+  return createDefaultOverlaysConfigWithHifi().widgets[id as OverlayWidgetId]
 }
 
 export function OverlayRoot() {
@@ -47,19 +47,24 @@ export function OverlayRoot() {
   const isCustom = useMemo(() => isCustomOverlayId(widgetId), [widgetId])
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const [widgetConfig, setWidgetConfig] = useState<OverlayWidgetConfig & { configMode?: boolean; title?: string }>(() => defaultWidgetConfig(widgetId))
-  const definition = OVERLAY_WIDGETS.find((item) => item.id === widgetId)
-  const Widget = isCustom ? CustomOverlayWidget : WIDGET_COMPONENTS[widgetId as OverlayWidgetId]
+  const definition = ALL_OVERLAY_WIDGETS.find((item) => item.id === widgetId)
+  const Widget = isCustom ? CustomOverlayWidget : resolveWidgetComponent(widgetId as OverlayWidgetId)
   const headerTitle = definition?.title ?? widgetConfig.title ?? widgetId
   const configMode = Boolean(widgetConfig.configMode)
   // Rich custom overlays render a full-bleed transparent dashboard canvas (no
   // card chrome), so the shell padding is removed for them.
   const isRich = isCustom && isRichCustomOverlay(widgetConfig as { widgets?: unknown })
+  const ResolvedWidget = Widget ?? (() => null)
   // The overlay window receives the mouse when global config mode is on OR this
   // overlay is unlocked — this mirrors manager.updateMouseMode, so a single
   // unlocked overlay becomes editable without toggling the global edit mode.
   const editable = configMode || !widgetConfig.locked
-  // A LOCKED overlay never moves/resizes, even inside global config mode ("fixado").
+  // A LOCKED overlay never moves/resizes, even inside global config mode ("pinned").
   const movable = !widgetConfig.locked
+  // Trigger-only overlays (spotter-style) are condition-gated ONLY while locked
+  // (racing); when unlocked (editing) they always render so they can be placed.
+  const overlayTrigger = widgetConfig.trigger ?? HIFI_DEFAULT_TRIGGERS[widgetId] ?? null
+  const triggerHidden = !movable && !evaluateOverlayTrigger(overlayTrigger, snapshot)
   const positionRef = useRef<OverlayPosition>(widgetConfig.position)
   useEffect(() => {
     positionRef.current = widgetConfig.position
@@ -148,8 +153,11 @@ export function OverlayRoot() {
         .then((current) => { if (current) setWidgetConfig({ ...current, id: current.id as OverlayWidgetId, configMode: false }) })
         .catch(() => undefined)
     } else {
-      void window.ipc.invoke<{ widgets: Record<OverlayWidgetId, OverlayWidgetConfig>; configMode: boolean }>('overlays:getConfig')
-        .then((config) => setWidgetConfig({ ...config.widgets[widgetId as OverlayWidgetId], configMode: config.configMode }))
+      void window.ipc.invoke<OverlaysConfig>('overlays:getConfig')
+        .then((config) => {
+          const merged = mergeHifiOverlayConfigs(config)
+          setWidgetConfig({ ...merged.widgets[widgetId as OverlayWidgetId], configMode: merged.configMode })
+        })
         .catch(() => undefined)
     }
     return () => {
@@ -167,10 +175,10 @@ export function OverlayRoot() {
       {editable && (
         <div className={movable ? 'overlay-drag-handle' : 'overlay-drag-handle locked'}>
           {headerTitle}
-          {movable ? ' · editar: arraste para mover · bordas redimensionam' : ' · fixado'}
+          {movable ? ' — edit: drag to move — edges resize' : ' · pinned'}
         </div>
       )}
-      <Widget snapshot={snapshot} config={widgetConfig} />
+      {!triggerHidden && <ResolvedWidget snapshot={snapshot} config={widgetConfig} />}
       {movable &&
         RESIZE_DIRS.map((dir) => (
           <div
@@ -182,7 +190,7 @@ export function OverlayRoot() {
             }}
           />
         ))}
-      {!snapshot?.connected && <div className="connection-badge">telemetria aguardando</div>}
+      {!snapshot?.connected && <div className="connection-badge">waiting for telemetry</div>}
     </main>
   )
 }

@@ -93,7 +93,7 @@ export function FlagsWidget({ snapshot, config }: WidgetProps) {
   const label = active[0]?.[1] ?? (snapshot?.pitLimiter ? 'PIT LIMITER' : 'CLEAR')
   const key = String(active[0]?.[0] ?? (snapshot?.pitLimiter ? 'pit' : 'clear'))
   const info = flagInfo(key)
-  const session = snapshot?.onPitRoad ? 'Pit road' : snapshot?.sessionType ?? 'Sessão'
+  const session = snapshot?.onPitRoad ? 'Pit road' : snapshot?.sessionType ?? 'Session'
   const sessionUp = session.toUpperCase()
 
   // ── minimal ──

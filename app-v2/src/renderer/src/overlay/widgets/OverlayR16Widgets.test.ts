@@ -176,13 +176,13 @@ describe('R16 overlays surface the right telemetry', () => {
   })
 
   it('Pit overlays show pits-open as the good state', () => {
-    expect(renderId('pitStatusHud', fullSnapshot)).toContain('pits abertos')
-    expect(renderId('pitTicket', fullSnapshot)).toContain('pits abertos')
+    expect(renderId('pitStatusHud', fullSnapshot)).toContain('pits open')
+    expect(renderId('pitTicket', fullSnapshot)).toContain('pits open')
     const repair = renderId('pitStatusHud', {
       ...fullSnapshot,
       pit: { repairNeeded: true, optRepairNeeded: false, pitsOpen: false, inPitStall: false }
     } as TelemetrySnapshot)
-    expect(repair).toContain('reparo')
+    expect(repair).toContain('repair required')
   })
 
   it('BoP badge shows ballast and power penalties', () => {

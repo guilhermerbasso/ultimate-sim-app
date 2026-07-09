@@ -60,7 +60,7 @@ export const EXTRA_STRATEGY_VARIANTS: WidgetVariant[] = [
   nx('x4-session-time-big', 'Session · big', 'bigtext', 260, 130, 'Timing/Delta', 'clean', 'sessionTimeLeftFmt', { label: 'SESSION', background: PANEL, border: STROKE, accentColor: CHROME }, ['session', 'time', 'big']),
 
   // ── Fuel / stint strategy ──────────────────────────────────────────────────
-  nx('x4-fuelstint-tile', 'Fuel stint · tile', 'fuelstint', 300, 92, 'Fuel', 'clean', undefined, { reserveLaps: 1, warnAtLaps: 2, title: 'Combustível' }, ['fuel', 'stint', 'strategy']),
+  nx('x4-fuelstint-tile', 'Fuel stint · tile', 'fuelstint', 300, 92, 'Fuel', 'clean', undefined, { reserveLaps: 1, warnAtLaps: 2, title: 'Fuel' }, ['fuel', 'stint', 'strategy']),
   nx('x4-fuelstint-wide', 'Fuel stint · wide', 'fuelstint', 340, 110, 'Fuel', 'clean', undefined, { reserveLaps: 2, warnAtLaps: 3, title: 'Fuel / Stint', radius: 14 }, ['fuel', 'stint', 'wide']),
   nx('x4-fuelstint-endurance', 'Fuel stint · endurance', 'fuelstint', 320, 120, 'Fuel', 'clean', undefined, { reserveLaps: 3, warnAtLaps: 4, title: 'Stint', radius: 16 }, ['fuel', 'stint', 'endurance']),
   nx('x4-fuel-perlap-tile', 'Fuel per lap · tile', 'value', 200, 96, 'Fuel', 'clean', 'fuelPerLapStr', { label: 'FUEL/LAP', suffix: ' L', accentColor: GOLD }, ['fuel', 'perlap', 'stint']),
@@ -83,7 +83,7 @@ export const EXTRA_STRATEGY_VARIANTS: WidgetVariant[] = [
   nx('x4-trackmini-map', 'Mini map · progress', 'trackmini', 200, 200, 'Track/Radar', 'chart', 'lapDistPct', { radius: 12, accentColor: ACCENT }, ['trackmap', 'mini', 'progress']),
 
   // ── Track condition + weather tiles ────────────────────────────────────────
-  nx('x4-weather-panel', 'Weather · panel', 'weather', 300, 92, 'Track/Radar', 'status', undefined, { radius: 12, title: 'Clima' }, ['weather', 'track', 'condition']),
+  nx('x4-weather-panel', 'Weather · panel', 'weather', 300, 92, 'Track/Radar', 'status', undefined, { radius: 12, title: 'Weather' }, ['weather', 'track', 'condition']),
   nx('x4-weather-wide', 'Weather · wide', 'weather', 360, 110, 'Track/Radar', 'status', undefined, { radius: 14, title: 'Weather / Track' }, ['weather', 'track', 'wide']),
   nx('x4-track-temp-tile', 'Track temp · tile', 'value', 200, 96, 'Track/Radar', 'clean', 'trackTempC', { label: 'TRACK', suffix: '°C', accentColor: ORANGE }, ['track', 'temp', 'weather']),
   nx('x4-air-temp-tile', 'Air temp · tile', 'value', 200, 96, 'Track/Radar', 'clean', 'airTempC', { label: 'AIR', suffix: '°C', accentColor: CYAN }, ['air', 'temp', 'weather']),

@@ -7,7 +7,7 @@
 //
 // It rides the EXISTING `engineer:` preload prefix (no new channel) and is
 // test/SSR-safe: it no-ops when `window.ipc` is unavailable (render harness) so a
-// widget simply shows its empty state instead of throwing. De-dups by id because
+// widget yesply shows its empty state instead of throwing. De-dups by id because
 // the answer arrives both as an invoke-return and a broadcast.
 
 import { useEffect, useState } from 'react'

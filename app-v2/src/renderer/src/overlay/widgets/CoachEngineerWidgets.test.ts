@@ -37,10 +37,10 @@ describe('WS-WIDGETS coach/engineer overlays instrument conversion', () => {
   })
 
   it('shows the PT-BR empty copy when there is no coach/engineer data', () => {
-    expect(renderId('coachTips', null)).toContain('Sem dicas ainda')
-    expect(renderId('coachFindings', null)).toContain('Sem análise ainda')
-    expect(renderId('coachSectorGraph', null)).toContain('Sem setores ainda')
-    expect(renderId('engineerFeed', null)).toContain('Sem mensagens ainda')
+    expect(renderId('coachTips', null)).toContain('No tips yet')
+    expect(renderId('coachFindings', null)).toContain('No analysis yet')
+    expect(renderId('coachSectorGraph', null)).toContain('No sectors yet')
+    expect(renderId('engineerFeed', null)).toContain('No messages yet')
   })
 
   it('uses the condensed motorsport font token and avoids Segoe UI fallback', () => {

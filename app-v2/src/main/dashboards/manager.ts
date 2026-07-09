@@ -213,7 +213,8 @@ function normalizeDashboard(raw: unknown): Dashboard | null {
     height: normalizedHeight,
     bg: typeof source.bg === 'string' ? source.bg : '#05070a',
     elements,
-    scaleMode: source.scaleMode === 'fill' || source.scaleMode === 'stretch' ? source.scaleMode : 'fit'
+    scaleMode: source.scaleMode === 'fill' || source.scaleMode === 'stretch' ? source.scaleMode : 'fit',
+    hidden: Boolean(source.hidden)
   }
 }
 
@@ -303,6 +304,7 @@ export class DashboardManager {
     ipc.handle('app:dash:get', (_event, id: string) => this.dashboards.get(id) ?? null)
     ipc.handle('app:dash:save', (_event, dash: Dashboard) => this.save(dash))
     ipc.handle('app:dash:delete', (_event, id: string) => this.delete(id))
+    ipc.handle('app:dash:setHidden', (_event, id: string, hidden: boolean) => this.setHidden(id, hidden))
     ipc.handle('app:dash:open', (_event, id: string, options?: DashboardOpenOptions) =>
       this.openWindow(id, options)
     )
@@ -502,7 +504,7 @@ export class DashboardManager {
         fullscreen: playlistItem?.fullscreen ?? true
       })
       this.currentPlaylistIndex = playlistIndex
-      if (!res) throw new Error(`Touch panel não encontrado: ${id}`)
+      if (!res) throw new Error(`Touch panel not found: ${id}`)
       return { id: panelId, displayId: res.displayId, fullscreen: res.fullscreen }
     }
 
@@ -521,7 +523,7 @@ export class DashboardManager {
 
   async save(dash: Dashboard): Promise<DashboardSummary> {
     if (!dash || typeof dash.id !== 'string' || !dash.id) {
-      throw new Error('Dashboard inválido: id obrigatório.')
+      throw new Error('Invalid dashboard: id is required.')
     }
     dash.updatedAt = Date.now()
     if (!dash.createdAt) dash.createdAt = dash.updatedAt
@@ -547,16 +549,29 @@ export class DashboardManager {
     return list
   }
 
+  async setHidden(id: string, hidden: boolean): Promise<DashboardSummary[]> {
+    const dash = this.dashboards.get(id)
+    if (!dash) throw new Error(`Dashboard not found: ${id}`)
+    dash.hidden = Boolean(hidden)
+    dash.updatedAt = Date.now()
+    this.dashboards.set(id, dash)
+    await this.persist(dash)
+    const list = this.list()
+    this.ctx.broadcast('app:dash:list', list)
+    this.ctx.broadcast('app:dash:updated', dash)
+    return list
+  }
+
   async createFromPreset(presetId: string): Promise<DashboardSummary> {
     const preset = BUILTIN_PRESETS.find((p) => p.id === presetId)
-    if (!preset) throw new Error(`Preset desconhecido: ${presetId}`)
+    if (!preset) throw new Error(`Preset unknown: ${presetId}`)
     const dash = preset.build()
     return this.save(dash)
   }
 
   // Built-in presets are seeded to disk only on the very first run. On existing
   // installs, presets shipped in later versions are never materialized, so a
-  // "switch dashboard" expression targeting one fails with "não encontrado".
+  // "switch dashboard" expression targeting one fails with "não found".
   // Resolve those lazily: when a requested id matches a known preset id, build +
   // persist it on demand (under the stable preset id) so it becomes openable.
   private async materializeBuiltinPreset(id: string): Promise<Dashboard | null> {
@@ -577,7 +592,7 @@ export class DashboardManager {
 
   async importSimhub(filePath?: string, options: SimhubImportOptions = {}): Promise<SimhubImportResponse> {
     const target = filePath ?? (await this.pickOpenPath())
-    if (!target) throw new Error('Importação cancelada.')
+    if (!target) throw new Error('Import canceled.')
     const first = await importSimhubDash(target, { screenIndex: options.screenIndex })
     if (options.inspectOnly && first.screens.length > 1 && options.screenIndex === undefined) {
       return {
@@ -595,14 +610,14 @@ export class DashboardManager {
           ? first
           : await importSimhubDash(target, { screenIndex: screen.index })
         const normalized = normalizeDashboard(result.dashboard)
-        if (!normalized) throw new Error(`Dashboard importado inválido: ${screen.name}`)
+        if (!normalized) throw new Error(`Imported dashboard is invalid: ${screen.name}`)
         summaries.push(await this.save(normalized))
         for (const note of result.notes) if (!allNotes.includes(note)) allNotes.push(note)
       }
       return { summaries, notes: allNotes, screens: first.screens, selectedScreenIndex: first.selectedScreenIndex, filePath: target }
     }
     const normalized = normalizeDashboard(first.dashboard)
-    if (!normalized) throw new Error('Dashboard importado inválido.')
+    if (!normalized) throw new Error('Imported dashboard is invalid.')
     const summary = await this.save(normalized)
     return {
       summary,
@@ -615,9 +630,9 @@ export class DashboardManager {
 
   async exportSimhub(id: string, outPath?: string): Promise<{ path: string }> {
     const dash = this.dashboards.get(id)
-    if (!dash) throw new Error(`Dashboard não encontrado: ${id}`)
+    if (!dash) throw new Error(`Dashboard not found: ${id}`)
     const target = outPath ?? (await this.pickSavePath(dash.name))
-    if (!target) throw new Error('Exportação cancelada.')
+    if (!target) throw new Error('Export canceled.')
     await exportSimhubDash(dash, target)
     return { path: target }
   }
@@ -625,7 +640,7 @@ export class DashboardManager {
   async openWindow(id: string, options: DashboardOpenOptions = {}): Promise<DashboardOpenState> {
     let dash = this.dashboards.get(id)
     if (!dash) dash = (await this.materializeBuiltinPreset(id)) ?? undefined
-    if (!dash) throw new Error(`Dashboard não encontrado: ${id}`)
+    if (!dash) throw new Error(`Dashboard not found: ${id}`)
 
     // Se já está aberto e for o mesmo monitor/fullscreen, reaproveita; senão, fecha e reabre.
     const existing = this.windows.get(id)

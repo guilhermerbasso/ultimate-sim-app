@@ -45,7 +45,7 @@ export interface TtsPref {
   rate: number
 }
 
-export const DEFAULT_TTS_VOICE_ID = 'pt_BR-faber-medium'
+export const DEFAULT_TTS_VOICE_ID = 'en_US-lessac-medium'
 
 export const DEFAULT_TTS_PREF: TtsPref = {
   engine: 'piper',

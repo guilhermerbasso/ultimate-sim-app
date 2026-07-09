@@ -2,7 +2,7 @@
 // temperature, grip and track wetness. Rendered as ONE root <svg> (fixed viewBox +
 // preserveAspectRatio="meet") so nothing clips. Rain/headlight lamps expose state via
 // data-rain / data-headlight. Grip ramps green→amber→red; hot track/air use skin
-// tokens. Missing weather never fabricates a confident "Seco" / 0% wet / 100% grip.
+// tokens. Missing weather never fabricates a confident "Dry" / 0% wet / 100% grip.
 
 import type { ReactElement } from 'react'
 import type { WidgetProps } from './types'
@@ -41,7 +41,7 @@ export function WeatherWidget({ snapshot, config }: WidgetProps): ReactElement {
   const gripStr = gripN === undefined ? '—' : `${gripN}%`
   const airValue = finite(snapshot?.airTempC) ? String(Math.round(snapshot?.airTempC as number)) : '—'
   const trackValue = finite(snapshot?.trackTempC) ? String(Math.round(snapshot?.trackTempC as number)) : '—'
-  const cond = rainingRaw === undefined ? '—' : raining ? 'Chuva' : 'Seco'
+  const cond = rainingRaw === undefined ? '—' : raining ? 'Rain' : 'Dry'
   const night = isNight(snapshot?.sessionTimeOfDay)
   const rainLampActive = raining || snapshot?.weatherDeclaredWet === true || (wetN !== undefined && wetN > 10)
   const headlightActive = night || raining

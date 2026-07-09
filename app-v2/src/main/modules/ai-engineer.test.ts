@@ -45,7 +45,7 @@ const READY_STATUS: LlmRuntimeStatus = {
   queueLength: 0
 }
 
-function makeRuntime(text = 'resposta do engenheiro') {
+function makeRuntime(text = 'engineer response') {
   return {
     generateWithTools: vi.fn(
       async (_req: GenerateRequest): Promise<GenerateResult> => ({ ok: true, text, tokens: 12, ms: 7, functionCalls: 0, stopReason: 'eogToken' })
@@ -123,14 +123,14 @@ describe('createEngineerOrchestrator.ask', () => {
     expect(h.modelManager.ensureModel).not.toHaveBeenCalled()
     expect(answer.kind).toBe('answer')
     expect(answer.source).toBe('intent')
-    // No telemetry → deterministic "no data" reply (PT-BR default).
-    expect(answer.text).toBe('Sem telemetria no momento.')
+    // No telemetry → deterministic "no data" reply (English default).
+    expect(answer.text).toBe('No telemetry right now.')
     expect(h.broadcast).toHaveBeenCalledWith(ENGINEER_CHANNELS.answer, expect.objectContaining({ source: 'intent' }))
   })
 
   it('routes an open-ended question through the LLM exactly once, with tools + context', async () => {
     const orch = createEngineerOrchestrator(h.deps)
-    const answer = await orch.ask('O que você acha da minha corrida até agora?')
+    const answer = await orch.ask('What do you think of my race so far?')
 
     expect(h.modelManager.ensureModel).toHaveBeenCalledTimes(1)
     expect(h.runtime.generateWithTools).toHaveBeenCalledTimes(1)
@@ -139,27 +139,27 @@ describe('createEngineerOrchestrator.ask', () => {
     // All 12 read-only engineer tools are exposed to the model.
     expect(Object.keys(req.functions ?? {})).toHaveLength(12)
     // Context block + the user question are both in the prompt.
-    expect(req.prompt).toContain('Pergunta:')
-    expect(req.prompt).toContain('O que você acha')
-    expect(req.system).toContain('engenheiro')
+    expect(req.prompt).toContain('Question:')
+    expect(req.prompt).toContain('What do you think')
+    expect(req.system).toContain('engineer')
     // Brutal (the default) stays at a LOW temperature so tool-calls stay reliable.
     expect(req.temperature).toBeLessThanOrEqual(0.3)
 
     expect(answer.source).toBe('llm')
     expect(answer.kind).toBe('answer')
-    expect(answer.text).toBe('resposta do engenheiro')
+    expect(answer.text).toBe('engineer response')
     // The answer carries its language so the renderer can pick the right TTS voice.
-    expect(answer.lang).toBe('pt-BR')
+    expect(answer.lang).toBe('en-US')
   })
 
   it('executes a command intent by broadcasting the existing-IPC directive (no LLM)', async () => {
     const orch = createEngineerOrchestrator(h.deps)
-    const answer = await orch.ask('próximo dashboard')
+    const answer = await orch.ask('next dashboard')
 
     expect(h.runtime.generateWithTools).not.toHaveBeenCalled()
     expect(answer.kind).toBe('command')
     expect(answer.command).toMatchObject({ kind: 'dashboard.next', channel: 'app:dash:cycle', args: ['next'], executable: true })
-    expect(answer.text).toBe('Proximo dashboard.')
+    expect(answer.text).toBe('Next dashboard.')
     expect(h.broadcast).toHaveBeenCalledWith(
       ENGINEER_CHANNELS.command,
       expect.objectContaining({ kind: 'dashboard.next', channel: 'app:dash:cycle' })
@@ -181,7 +181,7 @@ describe('createEngineerOrchestrator.ask', () => {
 
     expect(answer.kind).toBe('command')
     expect(answer.command).toMatchObject({ kind: 'setup.save', channel: null, executable: false })
-    expect(answer.text).toBe('Não tenho como fazer isso por aqui ainda.')
+    expect(answer.text).toBe("I can't do that from here yet.")
     expect(h.broadcast).not.toHaveBeenCalledWith(ENGINEER_CHANNELS.command, expect.anything())
   })
 
@@ -192,14 +192,14 @@ describe('createEngineerOrchestrator.ask', () => {
 
     expect(answer.kind).toBe('disabled')
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
-    expect(answer.text).toContain('desligado')
+    expect(answer.text).toContain('turned off')
   })
 
   it('falls back gracefully when the model cannot be ensured', async () => {
     const harness = makeHarness()
     harness.modelManager.ensureModel.mockResolvedValueOnce({ ok: false, id: harness.deps.config.modelId, error: 'offline' })
     const orch = createEngineerOrchestrator(harness.deps)
-    const answer = await orch.ask('me explica a estratégia ideal pra hoje')
+    const answer = await orch.ask('me explica a strategy ideal pra hoje')
 
     expect(answer.kind).toBe('error')
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
@@ -349,7 +349,7 @@ describe('mergeEngineerConfig', () => {
     expect(mergeEngineerConfig(DEFAULT_ENGINEER_CONFIG, { maxTokens: 9999 }).maxTokens).toBe(512)
     expect(mergeEngineerConfig(DEFAULT_ENGINEER_CONFIG, { maxTokens: 1 }).maxTokens).toBe(32)
     // Invalid language ignored → keeps base.
-    expect(mergeEngineerConfig(DEFAULT_ENGINEER_CONFIG, { language: 'xx' as unknown as 'pt-BR' }).language).toBe('pt-BR')
+    expect(mergeEngineerConfig(DEFAULT_ENGINEER_CONFIG, { language: 'xx' as unknown as 'pt-BR' }).language).toBe('en-US')
   })
 })
 

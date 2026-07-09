@@ -87,7 +87,7 @@ export function CustomValueWidget({ config }: WidgetProps) {
 
   const label = wanted ?? display?.name ?? 'valor'
   const empty = !display
-  const emptyMsg = wanted ? `aguardando "${wanted}"` : '— sem métrica —'
+  const emptyMsg = wanted ? `waiting for "${wanted}"` : '? no metric ?'
   const shown = empty ? emptyMsg : (display?.value ?? '—')
   const valCls = empty ? ' rd2-cv-empty-val' : ''
   const root = `overlay-card rd2-card rd2-fam-${family} rd2-cv rd2-cv-${family}${empty ? ' rd2-cv-is-empty' : ''}`

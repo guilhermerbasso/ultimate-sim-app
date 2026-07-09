@@ -44,11 +44,13 @@ import {
   resolveCommandDirective
 } from '../../shared/engineer-ipc'
 import type { Logger } from '../../shared/logger'
+import type { AppLanguage } from '../../shared/settings'
 import { buildContextPack, renderContextText } from '../ai/context-pack'
 import { routeIntent } from '../ai/intent-router'
 import { getLlmRuntime } from '../ai/llm-runtime'
 import { getModelManager } from '../ai/model-manager'
 import { buildEngineerTools } from '../ai/tools'
+import { settingsEvents } from '../settings/events'
 import { logger } from './logger'
 import { getLatestPredictions } from './predictions'
 import { getLatestCoachFindings } from './proactive-engineer'
@@ -127,17 +129,24 @@ export function getEngineerConfigSnapshot(): EngineerConfig {
 }
 
 function isPt(config: EngineerConfig): boolean {
-  return config.language !== 'en-US'
+  return config.language === 'pt-BR'
+}
+
+function engineerLanguageFromAppLanguage(language: AppLanguage): EngineerConfig['language'] {
+  if (language === 'auto') {
+    return Intl.DateTimeFormat().resolvedOptions().locale.toLowerCase().startsWith('pt') ? 'pt-BR' : 'en-US'
+  }
+  return language === 'pt-BR' ? 'pt-BR' : 'en-US'
 }
 
 // Tone block keyed by assertiveness — the ONLY part of the persona that changes
 // between levels. Everything else (hard rules, brevity) is shared.
 const TONE_PT: Record<EngineerConfig['assertiveness'], string> = {
-  balanced: 'Você é um engenheiro de corrida experiente e calmo no rádio. Seja direto e útil, sem rodeios.',
+  balanced: 'You are an experienced, calm race engineer on the radio. Be direct and useful, no fluff.',
   assertive:
-    'Você é um engenheiro de corrida EXIGENTE no rádio. Vá direto ao ponto, aponte o erro do piloto sem enrolação e cobre melhora.',
+    'You are a DEMANDING race engineer on the radio. Get to the point, call out the driver error clearly, and demand improvement.',
   brutal:
-    'Você é um engenheiro de corrida BRUTALMENTE direto no rádio. Aponte o erro na cara do piloto, sem rodeios e SEM elogio de consolação. Cobre que ele conserte agora.'
+    'You are a BRUTALLY direct race engineer on the radio. Call the driver error straight out, no fluff and NO consolation praise. Demand they fix it now.'
 }
 
 const TONE_EN: Record<EngineerConfig['assertiveness'], string> = {
@@ -153,17 +162,17 @@ const TONE_EN: Record<EngineerConfig['assertiveness'], string> = {
 // "never invent / call the tools" rule, especially at the punchier temperatures).
 const FEWSHOT_PT: Record<EngineerConfig['assertiveness'], string> = {
   balanced: [
-    'Exemplo de tom — P: como tô indo? R: Consistente. Onde o coaching apontar dá pra ganhar — confere os dados.',
-    'Exemplo de tom — P: dá pra terminar? R: Depende do combustível; deixa eu checar antes de confirmar.'
+    'Tone example — Q: how am I doing? A: Consistent. Wherever coaching points it out, there is time to gain — check the data.',
+    'Tone example — Q: can we finish? A: Depends on fuel; let me check before confirming.'
   ].join('\n'),
   assertive: [
-    'Exemplo de tom — P: como tô indo? R: Tá deixando tempo na mesa. Olha onde o coaching aponta e corrige.',
-    'Exemplo de tom — P: e os pneus? R: Vou checar os dados antes de cobrar — sem achismo.'
+    'Tone example — Q: how am I doing? A: You are leaving time on the table. Look where coaching points it out and fix it.',
+    'Tone example — Q: what about tires? A: I will check the data before pushing you — no guessing.'
   ].join('\n'),
   brutal: [
-    'Exemplo de tom — P: como tô indo? R: Tá jogando tempo fora. Vê o coaching e conserta agora.',
-    'Exemplo de tom — P: dá pra terminar com esse combustível? R: Só depois de eu olhar os números. Sem dado, sem promessa.',
-    'Exemplo de tom — P: tá bom? R: Não enrola. Acha onde tá perdendo e ataca.'
+    'Tone example — Q: how am I doing? A: You are throwing time away. Check coaching and fix it now.',
+    'Tone example — Q: can we finish on this fuel? A: Only after I check the numbers. No data, no promise.',
+    'Tone example — Q: is it good? A: Do not coast. Find where you are losing time and attack.'
   ].join('\n')
 }
 
@@ -188,9 +197,9 @@ function personaSystem(config: EngineerConfig): string {
   if (isPt(config)) {
     return [
       TONE_PT[level],
-      'Responda SEMPRE em português do Brasil, em no máximo 2 frases curtas, como uma chamada de rádio.',
-      'Use as ferramentas disponíveis para checar dados reais (combustível, pneus, gaps, posição, tempos, estratégia, coaching) antes de afirmar números.',
-      'Nunca invente dados: se não houver telemetria, diga isso com honestidade.',
+      'Always answer in American English, in at most 2 short sentences, like a radio call.',
+      'Use the available tools to check real data (fuel, tires, gaps, position, lap times, strategy, coaching) before stating numbers.',
+      'Never make up data: if telemetry is unavailable, say so honestly.',
       FEWSHOT_PT[level]
     ].join(' ')
   }
@@ -224,13 +233,13 @@ function promptLabel(config: EngineerConfig): string {
 
 const FALLBACK = {
   empty: { pt: 'Pode repetir a pergunta?', en: 'Can you repeat the question?' },
-  disabled: { pt: 'O engenheiro de IA está desligado. Ative-o nas configurações.', en: 'The AI engineer is turned off. Enable it in settings.' },
+  disabled: { pt: 'The AI engineer is turned off. Enable it in settings.', en: 'The AI engineer is turned off. Enable it in settings.' },
   noModel: {
-    pt: 'Não consegui carregar o modelo de IA. Verifica a conexão e tenta baixar de novo.',
+    pt: 'I could not load the AI model. Check the connection and try downloading again.',
     en: "Couldn't load the AI model. Check your connection and try downloading it again."
   },
-  llmError: { pt: 'Não consegui processar agora. Tenta de novo em instantes.', en: "I couldn't process that right now. Try again shortly." },
-  noCommand: { pt: 'Não tenho como fazer isso por aqui ainda.', en: "I can't do that from here yet." }
+  llmError: { pt: 'I could not process that right now. Try again shortly.', en: "I couldn't process that right now. Try again shortly." },
+  noCommand: { pt: 'I cannot do that from here yet.', en: "I can't do that from here yet." }
 } as const
 
 function pick(config: EngineerConfig, copy: { pt: string; en: string }): string {
@@ -406,7 +415,7 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     if (!question) return finalize('', pick(config, FALLBACK.empty), 'answer', 'system')
     if (!config.enabled) return finalize(question, pick(config, FALLBACK.disabled), 'disabled', 'system')
 
-    const intent = routeIntent(question, deps.context)
+    const intent = routeIntent(question, deps.context, isPt(config) ? 'pt' : 'en')
     if (intent.type === 'answer') {
       return finalize(question, intent.text, 'answer', 'intent')
     }
@@ -536,6 +545,13 @@ export function register(ctx: ModuleContext): void {
       activeEngineerConfig = next
     },
     logger
+  })
+
+  settingsEvents.onChanged((settings) => {
+    const language = engineerLanguageFromAppLanguage(settings.language)
+    if (orchestrator.getConfig().language !== language) {
+      void orchestrator.setConfig({ language })
+    }
   })
 
   ctx.ipcMain.handle(ENGINEER_CHANNELS.ask, (_event, text: unknown) => orchestrator.ask(typeof text === 'string' ? text : String(text ?? '')))

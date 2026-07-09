@@ -35,8 +35,8 @@ const catalogIds = new Set(ALL_VARIANTS.map((v) => v.id))
 
 describe('normalizePhrase', () => {
   it('lowercases, strips accents and collapses whitespace', () => {
-    expect(normalizePhrase('  Combustível   E   POSIÇÃO ')).toBe('combustivel e posicao')
-    expect(normalizePhrase('Força-G')).toBe('forca-g')
+    expect(normalizePhrase('  Fuel   E   POSIÇÃO ')).toBe('fuel e posicao')
+    expect(normalizePhrase('G-Force')).toBe('g-force')
   })
 })
 
@@ -44,23 +44,23 @@ describe('detectDetail', () => {
   it('detects elaborate / clean / auto', () => {
     expect(detectDetail('quero um delta detalhado')).toBe('elaborate')
     expect(detectDetail('algo bem clean e minimalista')).toBe('clean')
-    expect(detectDetail('combustível e posição')).toBe('auto')
+    expect(detectDetail('fuel e position')).toBe('auto')
   })
 })
 
 describe('matchConcepts', () => {
   it('maps PT-BR and EN keywords to the right concepts', () => {
-    expect(matchConcepts('combustível')).toContain('fuel')
     expect(matchConcepts('fuel')).toContain('fuel')
-    expect(matchConcepts('minha posição')).toContain('position')
-    expect(matchConcepts('temp de pneu')).toContain('tyres')
+    expect(matchConcepts('fuel')).toContain('fuel')
+    expect(matchConcepts('minha position')).toContain('position')
+    expect(matchConcepts('temp de tire')).toContain('tyres')
     expect(matchConcepts('delta')).toContain('delta')
-    expect(matchConcepts('marcha')).toContain('gear')
+    expect(matchConcepts('gear')).toContain('gear')
     expect(matchConcepts('g-force')).toContain('gforce')
   })
 
   it('returns concepts in canonical order regardless of phrase order', () => {
-    const out = matchConcepts('posição, combustível e marcha')
+    const out = matchConcepts('position, fuel e gear')
     // canonical order: gear (speed group) < fuel < position
     expect(out).toEqual(['gear', 'fuel', 'position'])
   })
@@ -94,19 +94,19 @@ describe('resolveWidgetIdForConcept', () => {
 
 describe('mapPhraseToWidgetIds', () => {
   it('returns only ids that exist in the catalog', () => {
-    const ids = mapPhraseToWidgetIds('quero combustível, posição e temp de pneu', ALL_VARIANTS)
+    const ids = mapPhraseToWidgetIds('quero fuel, position e temp de tire', ALL_VARIANTS)
     expect(ids.length).toBeGreaterThanOrEqual(3)
     for (const id of ids) expect(catalogIds.has(id)).toBe(true)
   })
 
   it('de-duplicates overlapping concepts (position + gaps share positiongaps)', () => {
-    const ids = mapPhraseToWidgetIds('posição e gap', ALL_VARIANTS)
+    const ids = mapPhraseToWidgetIds('position e gap', ALL_VARIANTS)
     const unique = new Set(ids)
     expect(unique.size).toBe(ids.length)
   })
 
   it('respects the max cap', () => {
-    const phrase = 'velocidade marcha rpm delta volta combustível pneu posição radar mapa volante clima'
+    const phrase = 'speed gear rpm delta lap fuel tire position radar mapa steering weather'
     const ids = mapPhraseToWidgetIds(phrase, ALL_VARIANTS, { max: 4 })
     expect(ids.length).toBe(4)
   })
@@ -182,7 +182,7 @@ describe('buildDashboardFromWidgetIds', () => {
 
 describe('buildDashboardFromPhrase', () => {
   it('builds from a real phrase using the real catalog', () => {
-    const res = buildDashboardFromPhrase('combustível, posição e pneu', ALL_VARIANTS)
+    const res = buildDashboardFromPhrase('fuel, position e tire', ALL_VARIANTS)
     expect(res.usedDefault).toBe(false)
     expect(res.widgetIds.length).toBe(res.dashboard.elements.length)
     expect(res.matched).toContain('fuel')

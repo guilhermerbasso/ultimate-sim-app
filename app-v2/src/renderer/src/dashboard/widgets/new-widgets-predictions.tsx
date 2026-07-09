@@ -141,22 +141,22 @@ function PredictionCard({
 
 function CatchAhead({ element, variant }: NewWidgetProps & { variant: Variant }): ReactElement {
   const snapshot = usePredictionsSnapshot()
-  return <PredictionCard element={element} variant={variant} label="Alcançar" view={catchAheadView(snapshot?.catchAhead)} />
+  return <PredictionCard element={element} variant={variant} label="Catch" view={catchAheadView(snapshot?.catchAhead)} />
 }
 
 function CaughtBehind({ element, variant }: NewWidgetProps & { variant: Variant }): ReactElement {
   const snapshot = usePredictionsSnapshot()
-  return <PredictionCard element={element} variant={variant} label="Ameaça atrás" view={caughtBehindView(snapshot?.caughtBehind)} />
+  return <PredictionCard element={element} variant={variant} label="Threat behind" view={caughtBehindView(snapshot?.caughtBehind)} />
 }
 
 function FuelMargin({ element, variant }: NewWidgetProps & { variant: Variant }): ReactElement {
   const snapshot = usePredictionsSnapshot()
-  return <PredictionCard element={element} variant={variant} label="Fuel até o fim" view={fuelView(snapshot)} />
+  return <PredictionCard element={element} variant={variant} label="Fuel to finish" view={fuelView(snapshot)} />
 }
 
 function TireWearPred({ element, variant }: NewWidgetProps & { variant: Variant }): ReactElement {
   const snapshot = usePredictionsSnapshot()
-  return <PredictionCard element={element} variant={variant} label="Pneu desgaste" view={tireView(snapshot)} />
+  return <PredictionCard element={element} variant={variant} label="Tire wear" view={tireView(snapshot)} />
 }
 
 function PaceProjected({ element, variant }: NewWidgetProps & { variant: Variant }): ReactElement {

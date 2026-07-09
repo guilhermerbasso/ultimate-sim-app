@@ -21,6 +21,9 @@ const WIDGETS: Array<{ id: OverlayWidgetId; title: string; className: string; st
   { id: 'relative', title: 'Relative', className: 'stream-relative', streamSafe: true, Component: RelativeWidget }
 ]
 
+const DESIGN_WIDTH = 1024
+const DESIGN_HEIGHT = 600
+
 function sseUrl(): string {
   const url = new URL(window.location.href)
   const token = url.searchParams.get('token') ?? ''
@@ -46,6 +49,7 @@ export function StreamOverlayRoot() {
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const [connected, setConnected] = useState(false)
   const [streamSafe, setStreamSafe] = useState(true)
+  const [scale, setScale] = useState(1)
   const configs = useMemo(() => Object.fromEntries(WIDGETS.map((item) => [item.id, widgetConfig(item.id)])) as Record<OverlayWidgetId, OverlayWidgetConfig>, [])
   const shellStyle = {
     '--overlay-bg': 'rgba(5, 10, 18, 0.60)',
@@ -73,18 +77,34 @@ export function StreamOverlayRoot() {
     return () => source.close()
   }, [])
 
+  useEffect(() => {
+    const updateScale = (): void => {
+      const next = Math.min(window.innerWidth / DESIGN_WIDTH, window.innerHeight / DESIGN_HEIGHT)
+      setScale(Number.isFinite(next) && next > 0 ? next : 1)
+    }
+    updateScale()
+    window.addEventListener('resize', updateScale)
+    window.addEventListener('orientationchange', updateScale)
+    return () => {
+      window.removeEventListener('resize', updateScale)
+      window.removeEventListener('orientationchange', updateScale)
+    }
+  }, [])
+
   return (
-    <main className="stream-root" style={shellStyle}>
-      <div className="stream-stage">
-        {WIDGETS.map(({ id, title, className, streamSafe: widgetStreamSafe, Component }) => (
-          <section key={id} className={`stream-widget ${className}`} aria-label={`${title}${widgetStreamSafe ? ' stream safe' : ''}`}>
-            <Component snapshot={snapshot} config={configs[id]} />
-          </section>
-        ))}
-      </div>
-      <div className={connected && snapshot?.connected ? 'stream-status is-live' : 'stream-status'}>
-        {connected && snapshot?.connected ? 'LIVE' : 'WAITING'}{streamSafe ? ' · STREAM SAFE' : ''}
-      </div>
-    </main>
+    <div className="stream-viewport">
+      <main className="stream-root" style={{ ...shellStyle, '--stream-scale': String(scale) } as CSSProperties}>
+        <div className="stream-stage">
+          {WIDGETS.map(({ id, title, className, streamSafe: widgetStreamSafe, Component }) => (
+            <section key={id} className={`stream-widget ${className}`} aria-label={`${title}${widgetStreamSafe ? ' stream safe' : ''}`}>
+              <Component snapshot={snapshot} config={configs[id]} />
+            </section>
+          ))}
+        </div>
+        <div className={connected && snapshot?.connected ? 'stream-status is-live' : 'stream-status'}>
+          {connected && snapshot?.connected ? 'LIVE' : 'WAITING'}{streamSafe ? ' · STREAM SAFE' : ''}
+        </div>
+      </main>
+    </div>
   )
 }

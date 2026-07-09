@@ -7,7 +7,7 @@
 // the live telemetry stream, and respects the (default-enabled) config live.
 //
 // AUTOPLAY UNLOCK: Chromium starts every AudioContext suspended until a user
-// gesture. Instead of a dedicated "Ativar áudio" button, we install ONE app-wide
+// gesture. Instead of a dedicated "Enable áudio" button, we install ONE app-wide
 // pointerdown/keydown listener that resumes the context on the user's first
 // interaction anywhere. Until then the engine is armed but silent (it never
 // throws). A status store lets the view show a gentle "click to unlock" hint.
@@ -138,7 +138,7 @@ function startSubscriptions(): void {
 
   offTelemetry = window.ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', (snapshot) => {
     // Never throw in the telemetry path: if there is no snapshot / no nearby
-    // cars the engine simply stays silent. update() is a no-op while stopped.
+    // cars the engine yesply stays silent. update() is a no-op while stopped.
     try {
       getSpotter3DEngine().update(snapshot)
     } catch {

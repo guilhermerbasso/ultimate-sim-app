@@ -95,7 +95,7 @@ describe('planAdaptiveDashboard — phase rules', () => {
   })
 
   it('reason mentions the phase', () => {
-    expect(planAdaptiveDashboard(snap({ sessionType: 'Race', currentLap: 5 })).reason).toContain('Corrida')
+    expect(planAdaptiveDashboard(snap({ sessionType: 'Race', currentLap: 5 })).reason).toContain('Race')
   })
 })
 
@@ -132,7 +132,7 @@ describe('planAdaptiveDashboard — dynamic overrides', () => {
     expect(base.byConcept.flags).toBe('hide')
     const plan = planAdaptiveDashboard(snap({ sessionType: 'Practice', currentLap: 2, flags }))
     expect(plan.byConcept.flags).toBe('emphasize')
-    expect(plan.reason).toContain('bandeira')
+    expect(plan.reason).toContain('flag')
   })
 
   it('promotes weather when wet', () => {

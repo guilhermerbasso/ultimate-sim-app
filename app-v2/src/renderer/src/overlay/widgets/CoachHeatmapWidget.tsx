@@ -30,7 +30,7 @@ export function CoachHeatmapWidget({ snapshot, config }: WidgetProps): ReactElem
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <DataTile label="LAP" value={Math.round(playerPct * 100)} unit="%" width={104} height={44} color={accent} accent={accent} material="carbon" idPrefix="coach-heatmap-lap" />
-        <TelltaleIcon icon="temp" active={!!report} activeColor={accent} label={report ? 'vs referência' : 'aguardando volta'} size={22} idPrefix="coach-heatmap-state" />
+        <TelltaleIcon icon="temp" active={!!report} activeColor={accent} label={report ? 'vs reference' : 'waiting for lap'} size={22} idPrefix="coach-heatmap-state" />
       </div>
       <div className="rd3-map-stage">
         <TrackCoachingHeatmap
@@ -45,7 +45,7 @@ export function CoachHeatmapWidget({ snapshot, config }: WidgetProps): ReactElem
       </div>
       <div className="rd3-map-meta">
         <span>{trackName}</span>
-        <span>{report ? 'vs referência' : 'aguardando volta'}</span>
+        <span>{report ? 'vs reference' : 'waiting for lap'}</span>
       </div>
     </div>
   )

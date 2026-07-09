@@ -15,9 +15,9 @@ import {
 // node environment (no DOM): the functions under test never touch window.
 
 describe('DEFAULT_TTS_PREF', () => {
-  it('defaults to Piper + pt_BR-faber-medium + rate 1', () => {
-    expect(DEFAULT_TTS_PREF).toEqual({ engine: 'piper', voiceId: 'pt_BR-faber-medium', rate: 1 })
-    expect(DEFAULT_TTS_VOICE_ID).toBe('pt_BR-faber-medium')
+  it('defaults to Piper + en_US-lessac-medium + rate 1', () => {
+    expect(DEFAULT_TTS_PREF).toEqual({ engine: 'piper', voiceId: 'en_US-lessac-medium', rate: 1 })
+    expect(DEFAULT_TTS_VOICE_ID).toBe('en_US-lessac-medium')
   })
 })
 
@@ -69,11 +69,11 @@ describe('chunkText', () => {
   })
 
   it('returns a single chunk for short text', () => {
-    expect(chunkText('Boa volta.')).toEqual(['Boa volta.'])
+    expect(chunkText('Good lap.')).toEqual(['Good lap.'])
   })
 
   it('splits long text on sentence boundaries within the limit', () => {
-    const sentence = 'Curva três à direita.'
+    const sentence = 'Curva três à right.'
     const text = Array.from({ length: 30 }, () => sentence).join(' ')
     const chunks = chunkText(text)
     expect(chunks.length).toBeGreaterThan(1)

@@ -149,27 +149,27 @@ const MOMENT_PRESETS: Record<RaceMoment, RaceMomentPreset> = {
   },
   'safety-car': {
     color: 'caution',
-    label: 'Safety car / bandeira amarela',
+    label: 'Safety car / flag amarela',
     promote: ['flags', 'position', 'standings'],
     demote: ['delta', 'laptime', 'shift'],
     heroStyleFamily: 'led'
   },
   'fuel-critical': {
     color: 'critical',
-    label: 'Combustível crítico',
+    label: 'Critical fuel',
     promote: ['fuel', 'pit'],
     demote: ['radar', 'steering', 'gforce'],
     heroStyleFamily: 'gauge'
   },
   'pit-approach': {
     color: 'caution',
-    label: 'Entrada de pit / in-lap',
+    label: 'Pit entry / in-lap',
     promote: ['pit', 'fuel', 'tyres'],
     demote: ['delta', 'laptime', 'gaps']
   },
   'under-pressure': {
     color: 'caution',
-    label: 'Sob pressão (sendo alcançado)',
+    label: 'Under pressure (being caught)',
     promote: ['relatives', 'radar', 'gaps'],
     demote: ['enginetemps', 'weather', 'tyres']
   },
@@ -187,13 +187,13 @@ const MOMENT_PRESETS: Record<RaceMoment, RaceMomentPreset> = {
   },
   'last-lap': {
     color: 'caution',
-    label: 'Última volta',
+    label: 'Last lap',
     promote: ['position', 'gaps', 'flags'],
     demote: ['fuel', 'enginetemps', 'tyres']
   },
   'qualifying-lap': {
     color: 'normal',
-    label: 'Volta lançada (quali)',
+    label: 'Flying lap (quali)',
     promote: ['delta', 'laptime'],
     demote: ['fuel', 'position', 'gaps', 'standings', 'relatives']
   },
@@ -205,14 +205,14 @@ const MOMENT_PRESETS: Record<RaceMoment, RaceMomentPreset> = {
   },
   'tire-pressure-low': {
     color: 'caution',
-    label: 'Pressão de pneu baixa',
+    label: 'Low tire pressure',
     promote: ['tyres'],
     demote: ['gaps', 'standings'],
     heroStyleFamily: 'ring'
   },
   'tire-optimal-temp': {
     color: 'good',
-    label: 'Pneu na temperatura ideal',
+    label: 'Tire in ideal temperature window',
     promote: ['tyres', 'delta'],
     demote: [],
     heroStyleFamily: 'heatmap'
@@ -538,10 +538,10 @@ export type MomentGroup = 'session' | 'lap' | 'situational' | 'micro'
 
 /** PT-BR group headings for the editor UI. */
 export const MOMENT_GROUP_LABELS: Record<MomentGroup, string> = {
-  session: 'Fase da sessão',
-  lap: 'Momento da volta',
+  session: 'Session phase',
+  lap: 'Momento da lap',
   situational: 'Situacional',
-  micro: 'Micro-momento (herói)'
+  micro: 'Micro-moment (hero)'
 }
 
 export interface MomentCatalogEntry {
@@ -561,54 +561,54 @@ export interface MomentCatalogEntry {
  */
 export const MOMENT_CATALOG: readonly MomentCatalogEntry[] = [
   // ── Session / lifecycle phases ──────────────────────────────────────────────
-  { id: 'garage', label: 'Garagem / box parado', description: 'Sem sessão ao vivo ou parado no box antes de sair.', group: 'session', detectable: true },
-  { id: 'practice', label: 'Treino livre', description: 'Sessão de prática/treino livre.', group: 'session', detectable: true },
-  { id: 'qualifying', label: 'Classificação', description: 'Sessão de classificação (quali/hotlap).', group: 'session', detectable: true },
-  { id: 'warmup', label: 'Warmup', description: 'Sessão de aquecimento antes da corrida.', group: 'session', detectable: true },
-  { id: 'formation', label: 'Volta de formação', description: 'Corrida ainda não largou (volta de apresentação/grid).', group: 'session', detectable: true },
-  { id: 'race-start', label: 'Largada', description: 'Primeira volta da corrida — largada/relargada.', group: 'session', detectable: true },
-  { id: 'green', label: 'Bandeira verde', description: 'Pista liberada (bandeira verde ativa).', group: 'session', detectable: true },
-  { id: 'mid-race', label: 'Meio de corrida', description: 'Corrida em andamento, fora das voltas finais.', group: 'session', detectable: true },
-  { id: 'final-laps', label: 'Voltas finais', description: 'Faltam poucas voltas para o fim (≤ 3).', group: 'session', detectable: true },
-  { id: 'last-lap', label: 'Última volta', description: 'Última volta da corrida (bandeira branca).', group: 'session', detectable: true },
-  { id: 'cooldown', label: 'Volta de desaceleração', description: 'Após a bandeira quadriculada (cool-down).', group: 'session', detectable: true },
-  { id: 'out-lap', label: 'Out-lap (saindo do box)', description: 'Logo após deixar os boxes — aquecendo pneus/freios.', group: 'session', detectable: true },
-  { id: 'in-lap', label: 'In-lap (entrando no box)', description: 'Indo para os boxes (limitador/entrada de pit).', group: 'session', detectable: true },
-  { id: 'pit-window-open', label: 'Janela de pit aberta', description: 'Boxes abertos para parada na corrida.', group: 'session', detectable: true },
+  { id: 'garage', label: 'Garage / stopped in the box', description: 'No live session or stopped in the box before going out.', group: 'session', detectable: true },
+  { id: 'practice', label: 'Free practice', description: 'Free practice session.', group: 'session', detectable: true },
+  { id: 'qualifying', label: 'Qualifying', description: 'Qualifying session (quali/hotlap).', group: 'session', detectable: true },
+  { id: 'warmup', label: 'Warmup', description: 'Session de aquecimento antes da race.', group: 'session', detectable: true },
+  { id: 'formation', label: 'Formation lap', description: 'Race has not started yet (formation/grid lap).', group: 'session', detectable: true },
+  { id: 'race-start', label: 'Largada', description: 'Primeira lap da race — largada/relargada.', group: 'session', detectable: true },
+  { id: 'green', label: 'Bandeira verde', description: 'Pista liberada (flag verde ativa).', group: 'session', detectable: true },
+  { id: 'mid-race', label: 'Meio de race', description: 'Race em andamento, fora das laps finais.', group: 'session', detectable: true },
+  { id: 'final-laps', label: 'Laps finais', description: 'Fhighm poucas laps para o end (≤ 3).', group: 'session', detectable: true },
+  { id: 'last-lap', label: 'Last lap', description: 'Last lap da race (flag branca).', group: 'session', detectable: true },
+  { id: 'cooldown', label: 'Cool-down lap', description: 'After the checkered flag (cool-down).', group: 'session', detectable: true },
+  { id: 'out-lap', label: 'Out-lap (leaving the box)', description: 'Right after leaving the pits ? warming tires/brakes.', group: 'session', detectable: true },
+  { id: 'in-lap', label: 'In-lap (entering the box)', description: 'Heading to the pits (limiter/pit entry).', group: 'session', detectable: true },
+  { id: 'pit-window-open', label: 'Janela de pit aberta', description: 'Boxes abertos para stop na race.', group: 'session', detectable: true },
   { id: 'in-pit', label: 'Nos boxes', description: 'No pit lane ou no stall.', group: 'session', detectable: true },
   // ── Lap / corner moments ────────────────────────────────────────────────────
   { id: 'crossing-start-finish', label: 'Cruzando a linha', description: 'Cruzando a linha de chegada/largada.', group: 'lap', detectable: true },
-  { id: 'sector-1-entry', label: 'Entrada do setor 1', description: 'Início do setor 1 da volta.', group: 'lap', detectable: true },
-  { id: 'sector-2-entry', label: 'Entrada do setor 2', description: 'Início do setor 2 da volta.', group: 'lap', detectable: true },
-  { id: 'sector-3-entry', label: 'Entrada do setor 3', description: 'Início do setor 3 da volta.', group: 'lap', detectable: true },
+  { id: 'sector-1-entry', label: 'Sector 1 entry', description: 'Start of sector 1 on the lap.', group: 'lap', detectable: true },
+  { id: 'sector-2-entry', label: 'Sector 2 entry', description: 'Start of sector 2 on the lap.', group: 'lap', detectable: true },
+  { id: 'sector-3-entry', label: 'Sector 3 entry', description: 'Start of sector 3 on the lap.', group: 'lap', detectable: true },
   { id: 'braking-zone', label: 'Zona de frenagem', description: 'Freando forte com pouco acelerador.', group: 'lap', detectable: true },
-  { id: 'mid-corner', label: 'Meio de curva', description: 'Volante carregado, no ápice da curva.', group: 'lap', detectable: true },
-  { id: 'corner-exit', label: 'Saída de curva', description: 'Abrindo o volante e voltando ao acelerador.', group: 'lap', detectable: true },
-  { id: 'on-straight', label: 'Na reta', description: 'Volante reto, acelerador a fundo em alta.', group: 'lap', detectable: true },
+  { id: 'mid-corner', label: 'Mid-corner', description: 'Loaded steering, at the corner apex.', group: 'lap', detectable: true },
+  { id: 'corner-exit', label: 'Corner exit', description: 'Opening steering and getting back to throttle.', group: 'lap', detectable: true },
+  { id: 'on-straight', label: 'Na reta', description: 'Volante reto, acelerador a fundo em high.', group: 'lap', detectable: true },
   // ── Situational ─────────────────────────────────────────────────────────────
-  { id: 'traffic-ahead', label: 'Tráfego à frente', description: 'Carro logo à frente, dentro de ~1s.', group: 'situational', detectable: true },
-  { id: 'being-lapped', label: 'Sendo dobrado', description: 'Carro mais rápido vai te dobrar (bandeira azul).', group: 'situational', detectable: true },
-  { id: 'lapping', label: 'Dobrando retardatário', description: 'Ultrapassando um carro atrasado de voltas.', group: 'situational', detectable: false },
-  { id: 'blue-flag', label: 'Bandeira azul', description: 'Bandeira azul apresentada a você.', group: 'situational', detectable: true },
-  { id: 'yellow-sector', label: 'Setor amarelo', description: 'Bandeira amarela em vigor.', group: 'situational', detectable: true },
-  { id: 'drs', label: 'DRS disponível/ativo', description: 'DRS aberto/ativo (carros com DRS).', group: 'situational', detectable: true },
-  { id: 'overtake-window', label: 'Janela de ultrapassagem', description: 'Muito perto do carro da frente (≤1 volta para alcançar).', group: 'situational', detectable: true },
-  { id: 'defending', label: 'Defendendo posição', description: 'Carro de trás colado (< 1s) e fechando.', group: 'situational', detectable: true },
+  { id: 'traffic-ahead', label: 'Traffic ahead', description: 'Car just ahead, within ~1s.', group: 'situational', detectable: true },
+  { id: 'being-lapped', label: 'Being lapped', description: 'A faster car is about to lap you (blue flag).', group: 'situational', detectable: true },
+  { id: 'lapping', label: 'Lapping backmarker', description: 'Overtaking a car that is laps down.', group: 'situational', detectable: false },
+  { id: 'blue-flag', label: 'Blue flag', description: 'Blue flag shown to you.', group: 'situational', detectable: true },
+  { id: 'yellow-sector', label: 'Sector amarelo', description: 'Yellow flag em vigor.', group: 'situational', detectable: true },
+  { id: 'drs', label: 'DRS available/ativo', description: 'DRS aberto/ativo (carros com DRS).', group: 'situational', detectable: true },
+  { id: 'overtake-window', label: 'Overtake window', description: 'Very close to the car ahead (?1 lap to catch).', group: 'situational', detectable: true },
+  { id: 'defending', label: 'Defending position', description: 'Car behind is close (< 1s) and closing.', group: 'situational', detectable: true },
   { id: 'attacking', label: 'Atacando', description: 'Aproximando do carro da frente.', group: 'situational', detectable: true },
-  { id: 'fuel-save', label: 'Economia de combustível', description: 'Margem de combustível apertada — economizar.', group: 'situational', detectable: true },
-  { id: 'push-now', label: 'Empurrar agora', description: 'Combustível folgado nas voltas finais — atacar.', group: 'situational', detectable: true },
-  { id: 'tyre-cliff', label: 'Degradação de pneu', description: 'Pneu degradando rápido (queda de ritmo).', group: 'situational', detectable: true },
+  { id: 'fuel-save', label: 'Economia de fuel', description: 'Margem de fuel apertada — economizar.', group: 'situational', detectable: true },
+  { id: 'push-now', label: 'Empurrar agora', description: 'Fuel folgado nas laps finais — atacar.', group: 'situational', detectable: true },
+  { id: 'tyre-cliff', label: 'Tire degradation', description: 'Tire degrading quickly (pace drop).', group: 'situational', detectable: true },
   // ── Hero micro moments (anti-flicker reducer; one at a time) ─────────────────
-  { id: 'incident-recovery', label: 'Recuperando de incidente', description: 'Logo após uma batida/rodada.', group: 'micro', detectable: true },
-  { id: 'safety-car', label: 'Safety car / amarela', description: 'Safety car ou bandeira amarela total.', group: 'micro', detectable: true },
-  { id: 'fuel-critical', label: 'Combustível crítico', description: 'Combustível pode não chegar ao fim.', group: 'micro', detectable: true },
-  { id: 'pit-approach', label: 'Entrada de pit', description: 'Entrando no pit lane / limitador ligado.', group: 'micro', detectable: true },
-  { id: 'under-pressure', label: 'Sob pressão', description: 'Sendo alcançado pelo carro de trás.', group: 'micro', detectable: true },
-  { id: 'leading-p1', label: 'Liderando (P1)', description: 'Em primeiro na corrida.', group: 'micro', detectable: true },
-  { id: 'qualifying-lap', label: 'Volta lançada (quali)', description: 'Volta rápida cronometrada na classificação.', group: 'micro', detectable: true },
-  { id: 'tire-pressure-low', label: 'Pressão de pneu baixa', description: 'Pressão dos pneus abaixo da janela.', group: 'micro', detectable: true },
-  { id: 'tire-optimal-temp', label: 'Pneu na temperatura ideal', description: 'Pneus na janela ideal de temperatura.', group: 'micro', detectable: true },
-  { id: 'clear-running', label: 'Pista livre', description: 'Sem eventos — ritmo livre.', group: 'micro', detectable: true }
+  { id: 'incident-recovery', label: 'Recovering from incident', description: 'Right after a crash/spin.', group: 'micro', detectable: true },
+  { id: 'safety-car', label: 'Safety car / amarela', description: 'Safety car ou flag amarela total.', group: 'micro', detectable: true },
+  { id: 'fuel-critical', label: 'Critical fuel', description: 'Fuel may not reach the end.', group: 'micro', detectable: true },
+  { id: 'pit-approach', label: 'Pit entry', description: 'Entering pit lane / limiter on.', group: 'micro', detectable: true },
+  { id: 'under-pressure', label: 'Under pressure', description: 'Being caught by the car behind.', group: 'micro', detectable: true },
+  { id: 'leading-p1', label: 'Liderando (P1)', description: 'Em primeiro na race.', group: 'micro', detectable: true },
+  { id: 'qualifying-lap', label: 'Flying lap (quali)', description: 'Timed fast lap in qualifying.', group: 'micro', detectable: true },
+  { id: 'tire-pressure-low', label: 'Low tire pressure', description: 'Tire pressures below the window.', group: 'micro', detectable: true },
+  { id: 'tire-optimal-temp', label: 'Tire in ideal temperature window', description: 'Tires in the ideal temperature window.', group: 'micro', detectable: true },
+  { id: 'clear-running', label: 'Pista livre', description: 'Sem events — pace livre.', group: 'micro', detectable: true }
 ] as const
 
 /** Fast membership set of every catalog id. */

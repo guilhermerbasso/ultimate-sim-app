@@ -42,7 +42,7 @@ export class NotInSyncError extends FlashError {
 }
 
 export class FlashAbortError extends FlashError {
-  constructor(message = 'Operação cancelada pelo usuário.') {
+  constructor(message = 'Operation canceled by user.') {
     super(message)
     this.name = 'FlashAbortError'
   }
@@ -133,15 +133,15 @@ export async function flashFirmware(opts: FlasherOptions): Promise<void> {
 
   if (process.platform !== 'win32') {
     throw new FlashError(
-      'A gravação de firmware só está disponível no Windows por enquanto (avrdude.exe). ' +
+      'Firmware flashing is only available on Windows for now (avrdude.exe). ' +
         'No macOS/Linux, grave o .hex pelo Arduino IDE e depois conecte a placa no app.'
     )
   }
   if (!existsSync(tools.avrdudeExe)) {
-    throw new FlashError(`avrdude.exe não foi encontrado em ${tools.avrdudeExe}.`)
+    throw new FlashError(`avrdude.exe was not found em ${tools.avrdudeExe}.`)
   }
   if (!existsSync(hexPath)) {
-    throw new FlashError(`Firmware (.hex) não encontrado em ${hexPath}.`)
+    throw new FlashError(`Firmware (.hex) not found em ${hexPath}.`)
   }
 
   const targetPort = await prepareAvrdudePort(board, port, onProgress, opts.signal)
@@ -192,7 +192,7 @@ async function runAvrdudeWithBaudRetry(
       if (next !== undefined) {
         onProgress({
           phase: 'reset',
-          message: `avrdude não sincronizou a ${baud} baud. Tentando ${next} baud…`,
+          message: `avrdude did not sync a ${baud} baud. Trying ${next} baud…`,
           percent: 30,
           tone: 'info'
         })
@@ -235,9 +235,9 @@ export async function flashEsp32Firmware(opts: Esp32FlasherOptions): Promise<voi
   uploadArgs.push(opts.sketchPath)
   throwIfAborted(opts.signal)
 
-  if (!opts.port.trim()) throw new FlashError('Selecione a porta USB/serial do ESP32.')
+  if (!opts.port.trim()) throw new FlashError('Select the ESP32 USB/serial port.')
   if (!existsSync(opts.sketchPath)) {
-    throw new FlashError(`Sketch ESP32 não encontrado em ${opts.sketchPath}.`)
+    throw new FlashError(`ESP32 sketch not found at ${opts.sketchPath}.`)
   }
 
   await ensureArduinoCliReady(fqbn, opts.signal)
@@ -307,7 +307,7 @@ export function runAvrdude(
     try {
       child = spawn(exe, args, { windowsHide: true })
     } catch (error) {
-      reject(new FlashError(`Falha ao iniciar o avrdude: ${errMessage(error)}`))
+      reject(new FlashError(`Failed to start avrdude: ${errMessage(error)}`))
       return
     }
 
@@ -340,7 +340,7 @@ export function runAvrdude(
     timer = setTimeout(() => {
       if (settled) return
       killChild(child)
-      finish(() => reject(new FlashError('Tempo esgotado na gravação (avrdude não respondeu a tempo).')))
+      finish(() => reject(new FlashError('Flash timed out (avrdude did not respond in time).')))
     }, timeoutMs)
     signal?.addEventListener('abort', onAbort, { once: true })
 
@@ -379,7 +379,7 @@ async function ensureArduinoCliReady(fqbn: string, signal?: AbortSignal): Promis
   } catch (error) {
     if (isFlashAbortError(error)) throw error
     throw new FlashError(
-      'arduino-cli não está instalado ou não está no PATH. Instale o Arduino CLI e tente novamente.'
+      'arduino-cli is not installed or not on PATH. Install Arduino CLI and try again.'
     )
   }
 
@@ -388,7 +388,7 @@ async function ensureArduinoCliReady(fqbn: string, signal?: AbortSignal): Promis
   } catch (error) {
     if (isFlashAbortError(error)) throw error
     throw new FlashError(
-      `Core ESP32 do Arduino não encontrado para ${fqbn}. Instale com: arduino-cli core install esp32:esp32`
+      `Arduino ESP32 core not found para ${fqbn}. Install with: arduino-cli core install esp32:esp32`
     )
   }
 }
@@ -411,7 +411,7 @@ function runCommand(
     try {
       child = spawn(exe, args, { windowsHide: true })
     } catch (error) {
-      reject(new FlashError(`Falha ao iniciar ${label}: ${errMessage(error)}`))
+      reject(new FlashError(`Failed to start ${label}: ${errMessage(error)}`))
       return
     }
 
@@ -461,8 +461,8 @@ function runCommand(
         else {
           reject(
             new FlashError(
-              `${label} terminou com erro (código ${code ?? 'desconhecido'}). ` +
-                'Verifique a porta USB, cabo de dados, permissões e se o core ESP32 está instalado: ' +
+              `${label} finished with an error (code ${code ?? 'unknown'}). ` +
+                'Check the USB port, data cable, permissions, and that the ESP32 core is installed: ' +
                 'arduino-cli core install esp32:esp32'
             )
           )
@@ -537,14 +537,14 @@ function runCommandQuiet(
 
 export function avrdudeFailureHint(code: number | null): string {
   return (
-    `avrdude terminou com erro (código ${code ?? 'desconhecido'}). ` +
-    'Se aparecer stk500_recv()/stk500_getsync() ou "not in sync", tente: ' +
-    '(1) confirme a porta COM correta; ' +
-    '(2) troque a opção de bootloader/baud (Nano clone costuma usar 57600; genuíno costuma usar 115200); ' +
-    '(3) toque/segure RESET ao iniciar para entrar no bootloader; ' +
-    '(4) feche SimHub/Arduino IDE/serial monitor que possam estar usando a porta; ' +
-    '(5) em placas 32U4/Pro Micro/Leonardo, aguarde a porta re-enumerar após o reset; ' +
-    '(6) use cabo USB de dados e driver CH340/FTDI quando necessário.'
+    `avrdude finished with an error (code ${code ?? 'unknown'}). ` +
+    'If stk500_recv()/stk500_getsync() or "not in sync" appears, try: ' +
+    '(1) confirm the correct COM port; ' +
+    '(2) change the bootloader/baud option (Nano clones usually use 57600; genuine boards usually use 115200); ' +
+    '(3) tap/hold RESET at startup to enter the bootloader; ' +
+    '(4) close SimHub/Arduino IDE/serial monitors that may be using the port; ' +
+    '(5) on 32U4/Pro Micro/Leonardo boards, wait for the port to re-enumerate after reset; ' +
+    '(6) use a USB data cable and CH340/FTDI driver when needed.'
   )
 }
 
@@ -570,21 +570,21 @@ export function notInSyncGuidance(
 ): string {
   const baudList = triedBauds.join(' e ')
   const lines: string[] = [
-    `avrdude não sincronizou com o bootloader (not in sync / resp=0x03/0xef) testando ${baudList} baud.`
+    `avrdude did not sync with the bootloader (not in sync / resp=0x03/0xef) testing ${baudList} baud.`
   ]
   if (board.mcuFamily === 'avr328') {
     lines.push(
-      'Verifique se a placa é mesmo um ATmega328P (Nano/Uno). ' +
+      'Verify the board really is an ATmega328P (Nano/Uno). ' +
         'Se for um Pro Micro/Leonardo (ATmega32U4), troque a placa para “Pro Micro (32U4)” — ela usa avr109 + reset 1200bps, e o programador stk500 (arduino) nunca vai sincronizar. ' +
         'Se for um ESP32, escolha o board ESP correspondente.'
     )
   } else if (board.mcuFamily === 'avr32u4') {
     lines.push(
-      'Confirme que a placa é 32U4 (Pro Micro/Leonardo). Toque RESET 2× rápido para entrar no bootloader Caterina e clique em Gravar logo em seguida; a porta COM troca por ~2s durante o processo.'
+      'Confirm the board is 32U4 (Pro Micro/Leonardo). Tap RESET twice quickly to enter the Caterina bootloader and click Flash right away; the COM port changes for about 2s during the process.'
     )
   }
   lines.push(
-    'Confira também: COM correta; nenhum SimHub/Arduino IDE/Serial Monitor usando a porta; cabo USB de dados (não só carga); driver CH340/CP210x/FTDI instalado.'
+    'Also check: correct COM port; no SimHub/Arduino IDE/Serial Monitor using the port; USB data cable (not charge-only); CH340/CP210x/FTDI driver installed.'
   )
   if (source?.message) lines.push(source.message)
   return lines.join(' ')
@@ -618,7 +618,7 @@ function touch1200bps(path: string): Promise<void> {
     })
     sp.open((openError) => {
       if (openError) {
-        settle(new FlashError(`Não consegui abrir ${path} para o reset 1200bps: ${openError.message}`))
+        settle(new FlashError(`Could not open ${path} for the 1200 bps reset: ${openError.message}`))
         return
       }
       // Dropping DTR while open at 1200 baud triggers the Caterina reset.
@@ -626,7 +626,7 @@ function touch1200bps(path: string): Promise<void> {
         setTimeout(() => {
           sp.close((closeError) => {
             if (setError) {
-              settle(new FlashError(`Falha ao solicitar reset 1200bps em ${path}: ${setError.message}`))
+              settle(new FlashError(`Failed to request 1200bps reset on ${path}: ${setError.message}`))
               return
             }
             if (closeError) {
@@ -677,8 +677,8 @@ async function waitForBootloaderPort(
   if (now.some((port) => port.path === originalPort)) return originalPort
   if (fallback) return fallback.path
   throw new FlashError(
-    'Não encontrei a porta do bootloader após o reset. Tente de novo; se persistir, ' +
-      'toque RESET 2× rápido na placa e clique em Gravar logo em seguida.'
+    'Could not find the bootloader port after reset. Try again; if it persists, ' +
+      'tap RESET twice quickly on the board and click Flash right away.'
   )
 }
 

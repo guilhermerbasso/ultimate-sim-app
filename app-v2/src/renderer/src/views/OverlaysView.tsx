@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ReactElement } from 'react'
 import type { CustomOverlayDef, CustomOverlayElement, CustomOverlayElementAlign, CustomOverlayListItem, IracingGraphicsStatus, FixIracingFullscreenResult, OverlayListItem, OverlayPosition, OverlayWidgetId, OverlayWidgetStyle, OverlaysConfig } from '../../../shared/overlays'
-import { createCustomOverlayDef, createCustomOverlayElement, createDefaultOverlaysConfig, createRichCustomOverlayDef, isRichCustomOverlay, OVERLAY_STYLE_PRESETS, OVERLAY_WIDGETS, overlayWidgetDisplayTitle } from '../../../shared/overlays'
+import { createCustomOverlayDef, createCustomOverlayElement, createRichCustomOverlayDef, isRichCustomOverlay, OVERLAY_FORMS, overlayDesignFamily, overlayWidgetDisplayTitle } from '../../../shared/overlays'
 import type { SimId } from '../../../shared/telemetry'
 import { PLAYABLE_SIMS, simLabel, widgetSupportedSims } from '../../../shared/sim-coverage'
 import { OverlayWidgetBuilder } from './overlay/OverlayWidgetBuilder'
@@ -12,6 +12,8 @@ import { STREAMING_CHANNELS } from '../../../shared/streaming'
 import type { AppViewProps } from '../App'
 import { useDevices } from '../lib/devices/DeviceRegistry'
 import { SectionExportImport } from '../components/SectionExportImport'
+import { TagFilter, filterByTags } from '../components/TagFilter'
+import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, hasAllHifiOverlayConfigs, mergeHifiOverlayConfigs, mergeHifiOverlayItems } from '../overlay/hifi-overlays'
 import '../overlay/overlay-view.css'
 
 const POSITION_KEYS: Array<keyof OverlayPosition> = ['x', 'y', 'width', 'height']
@@ -45,7 +47,7 @@ function channelVarIdFromBinding(expressionId: string): string | null {
 
 // Directly-bindable telemetry channels = catalog vars that map to a
 // TelemetrySnapshot field (telemetryField). Grouped by category to mirror the
-// Expressões menu so the picker is always populated even with zero saved expressions.
+// Expressions menu so the picker is always populated even with zero saved expressions.
 const BINDABLE_TELEMETRY_GROUPS = IRACING_VAR_CATEGORY_ORDER
   .map((category) => ({
     category,
@@ -60,29 +62,36 @@ function configModeFrom(items: OverlayListItem[], fallback: OverlaysConfig): Ove
   return {
     ...fallback,
     overlayCompositorEnabled: fallback.overlayCompositorEnabled ?? false,
-    widgets: Object.fromEntries(items.map((item) => [item.id, {
-      id: item.id,
-      enabled: item.enabled,
-      locked: item.locked,
-      favorite: item.favorite,
-      position: item.position,
-      display: item.display,
-      opacity: item.opacity,
-      stylePreset: item.stylePreset,
-      style: item.style
-    }])) as OverlaysConfig['widgets']
+    widgets: {
+      ...fallback.widgets,
+      ...Object.fromEntries(items.map((item) => [item.id, {
+        id: item.id,
+        enabled: item.enabled,
+        locked: item.locked,
+        favorite: item.favorite,
+        position: item.position,
+        display: item.display,
+        opacity: item.opacity,
+        stylePreset: item.stylePreset,
+        style: item.style,
+        hidden: item.hidden,
+        hifiModuleId: item.hifiModuleId
+      }]))
+    } as OverlaysConfig['widgets']
   }
 }
 
-// Configuration-list ordering: currently-active overlays float to the top, then
-// user favorites, then the original catalog order (stable). Mirrors the feedback
-// "overlays ativos devem ir para o topo" + the new favorite shortcut.
+function definitionTags(def: { category?: string; tags?: string[] } | undefined): string[] {
+  if (!def) return []
+  return [...new Set([def.category, ...(def.tags ?? [])].filter((tag): tag is string => Boolean(tag)))]
+}
+
+// Configuration-list ordering is intentionally independent from enabled state:
+// toggling an overlay must not move its card and make the page jump.
 function sortOverlayEntries<T extends { enabled: boolean; favorite?: boolean }>(entries: T[]): T[] {
   return entries
     .map((entry, index) => ({ entry, index }))
     .sort((a, b) => {
-      const activeRank = (a.entry.enabled ? 0 : 1) - (b.entry.enabled ? 0 : 1)
-      if (activeRank !== 0) return activeRank
       const favoriteRank = (a.entry.favorite ? 0 : 1) - (b.entry.favorite ? 0 : 1)
       if (favoriteRank !== 0) return favoriteRank
       return a.index - b.index
@@ -90,19 +99,23 @@ function sortOverlayEntries<T extends { enabled: boolean; favorite?: boolean }>(
     .map((item) => item.entry)
 }
 
-// Flattened quick-access entry for the "Overlays ativos" panel — unifies built-in
+// Flattened quick-access entry for the "Active overlays" panel — unifies built-in
 // widgets and custom overlays so each can be toggled/favorited from one place.
 type ActiveOverlayEntry = { id: string; title: string; favorite: boolean; kind: 'widget' | 'custom' }
 
+function isSelectedOverlayForm(currentPreset: string | undefined, formPreset: string): boolean {
+  return overlayDesignFamily(currentPreset) === overlayDesignFamily(formPreset)
+}
+
 export default function OverlaysView(_props: AppViewProps): ReactElement {
   const [items, setItems] = useState<OverlayListItem[]>([])
-  const [config, setConfig] = useState<OverlaysConfig>(createDefaultOverlaysConfig())
+  const [config, setConfig] = useState<OverlaysConfig>(createDefaultOverlaysConfigWithHifi())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [posDrafts, setPosDrafts] = useState<Record<string, string>>({})
   const [iracingGfx, setIracingGfx] = useState<IracingGraphicsStatus | null>(null)
   // Monitors/displays come from the shared device registry so Overlays and
-  // Dashboards target the same screens detected in the Dispositivos hub.
+  // Dashboards target the same screens detected in the Devices hub.
   const { displays, refreshDisplays } = useDevices()
   const [gfxNote, setGfxNote] = useState<string | null>(null)
   const [customOverlays, setCustomOverlays] = useState<CustomOverlayListItem[]>([])
@@ -110,21 +123,26 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   const [designerOpen, setDesignerOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<CustomOverlayDef | null>(null)
-  // Rich widget builder ("Criar novo overlay") — separate from the legacy
+  // Rich widget builder ("Create new overlay") — separate from the legacy
   // expression/channel designer above.
   const [builderOpen, setBuilderOpen] = useState(false)
   const [builderEditingId, setBuilderEditingId] = useState<string | null>(null)
   const [builderDraft, setBuilderDraft] = useState<CustomOverlayDef | null>(null)
   const [streamSafe, setStreamSafe] = useState(true)
+  const [streamLanEnabled, setStreamLanEnabled] = useState(false)
+  const [streamPassword, setStreamPassword] = useState('')
   const [streamingStatus, setStreamingStatus] = useState<StreamingStatus | null>(null)
   const [copiedStreamUrl, setCopiedStreamUrl] = useState(false)
   const enabledCount = useMemo(() => items.filter((item) => item.enabled).length, [items])
   const sortedItems = useMemo(() => sortOverlayEntries(items), [items])
-  // Per-sim availability: a widget is shown for the chosen sim only when that sim's
+  const [selectedWidgetIds, setSelectedWidgetIds] = useState<Set<string>>(() => new Set())
+  const [selectedCustomIds, setSelectedCustomIds] = useState<Set<string>>(() => new Set())
+  // Per-yes availability: a widget is shown for the chosen yes only when that yes's
   // live telemetry provides every field the widget requires (sim-coverage). 'all'
   // shows everything. The title is prefixed "(IR/ACC/LMU)" with its supported sims.
   const [simFilter, setSimFilter] = useState<SimId | 'all'>('all')
-  const defById = useMemo(() => new Map(OVERLAY_WIDGETS.map((def) => [def.id, def])), [])
+  const [tagFilters, setTagFilters] = useState<string[]>([])
+  const defById = useMemo(() => new Map(ALL_OVERLAY_WIDGETS.map((def) => [def.id, def])), [])
   const displayTitleFor = useCallback(
     (id: string, fallback: string): string => {
       const def = defById.get(id as OverlayWidgetId)
@@ -132,20 +150,26 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
     },
     [defById]
   )
-  const visibleItems = useMemo(() => {
-    if (simFilter === 'all') return sortedItems
+  const simFilteredItems = useMemo(() => {
     return sortedItems.filter((item) => {
+      if (item.hidden) return false
       const def = defById.get(item.id as OverlayWidgetId)
-      return !def || widgetSupportedSims(def.requires).includes(simFilter)
+      return simFilter === 'all' || !def || widgetSupportedSims(def.requires).includes(simFilter)
     })
   }, [sortedItems, simFilter, defById])
+  const hiddenItems = useMemo(() => sortedItems.filter((item) => item.hidden), [sortedItems])
+  const visibleItems = useMemo(() => {
+    return filterByTags(simFilteredItems, tagFilters, (item) => definitionTags(defById.get(item.id as OverlayWidgetId)))
+  }, [simFilteredItems, tagFilters, defById])
   const sortedCustomOverlays = useMemo(() => sortOverlayEntries(customOverlays), [customOverlays])
+  const visibleCustomOverlays = useMemo(() => sortedCustomOverlays.filter((overlay) => !overlay.hidden), [sortedCustomOverlays])
+  const hiddenCustomOverlays = useMemo(() => sortedCustomOverlays.filter((overlay) => overlay.hidden), [sortedCustomOverlays])
   const activeOverlays = useMemo<ActiveOverlayEntry[]>(() => [
     ...items
-      .filter((item) => item.enabled)
+      .filter((item) => item.enabled && !item.hidden)
       .map((item) => ({ id: item.id, title: item.title, favorite: Boolean(item.favorite), kind: 'widget' as const })),
     ...customOverlays
-      .filter((overlay) => overlay.enabled)
+      .filter((overlay) => overlay.enabled && !overlay.hidden)
       .map((overlay) => ({ id: overlay.id, title: overlay.title, favorite: Boolean(overlay.favorite), kind: 'custom' as const }))
   ], [items, customOverlays])
   const displayOptions = useMemo(() => displays.map((display) => ({
@@ -162,6 +186,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
     const status = await window.ipc.invoke<StreamingStatus>(STREAMING_CHANNELS.status)
     setStreamingStatus(status)
     setStreamSafe(status.streamSafe)
+    setStreamLanEnabled(status.lanEnabled)
   }
 
   async function startStreaming(): Promise<void> {
@@ -169,10 +194,16 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
     setError(null)
     setCopiedStreamUrl(false)
     try {
-      await window.ipc.invoke<StreamingStartResult>(STREAMING_CHANNELS.start, { streamSafe, layoutId: 'default' })
+      await window.ipc.invoke<StreamingStartResult>(STREAMING_CHANNELS.start, {
+        streamSafe,
+        layoutId: 'default',
+        lanEnabled: streamLanEnabled,
+        password: streamPassword.trim() || undefined
+      })
+      setStreamPassword('')
       await refreshStreamingStatus()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao iniciar streaming OBS')
+      setError(err instanceof Error ? err.message : 'Failed to start OBS streaming')
     } finally {
       setBusy(false)
     }
@@ -186,7 +217,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       const status = await window.ipc.invoke<StreamingStatus>(STREAMING_CHANNELS.stop)
       setStreamingStatus(status)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao parar streaming OBS')
+      setError(err instanceof Error ? err.message : 'Failed to stop OBS streaming')
     } finally {
       setBusy(false)
     }
@@ -198,14 +229,24 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       await navigator.clipboard.writeText(streamingStatus.url)
       setCopiedStreamUrl(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao copiar URL do OBS')
+      setError(err instanceof Error ? err.message : 'Failed to copy OBS URL')
+    }
+  }
+
+  async function copyTouchStreamUrl(): Promise<void> {
+    if (!streamingStatus?.touchUrl) return
+    try {
+      await navigator.clipboard.writeText(streamingStatus.touchUrl)
+      setCopiedStreamUrl(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to copy Touch Controls URL')
     }
   }
 
   async function fixIracingFullscreen(): Promise<void> {
     const ok = window.confirm(
-      'Isto vai mudar o iRacing para modo borderless (edita o app.ini, com backup .ubbak).\n\n' +
-      'FECHE o iRacing antes de continuar — a mudança só vale ao reabrir o jogo.\n\nContinuar?'
+      'This will switch iRacing to borderless mode (edits app.ini with a .ubbak backup).\n\n' +
+      'CLOSE iRacing before continuing — the change only applies after reopening the game.\n\nContinue?'
     )
     if (!ok) return
     setBusy(true)
@@ -216,21 +257,24 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       setGfxNote(result.message)
       await refreshIracingGfx()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao ajustar o iRacing')
+      setError(err instanceof Error ? err.message : 'Failed to adjust iRacing')
     } finally {
       setBusy(false)
     }
   }
 
   async function refresh(): Promise<void> {
-    const [nextItems, nextConfig, nextCustom, nextExpressions, compositorEnabled] = await Promise.all([
+    const [nextItems, loadedConfig, nextCustom, nextExpressions, compositorEnabled] = await Promise.all([
       window.ipc.invoke<OverlayListItem[]>('overlays:list'),
       window.ipc.invoke<OverlaysConfig>('overlays:getConfig'),
       window.ipc.invoke<CustomOverlayListItem[]>('overlays:listCustom'),
       window.ipc.invoke<ExpressionDef[]>(EXPR_CHANNELS.getExpressions),
       window.ipc.invoke<boolean>('overlays:getCompositorEnabled')
     ])
-    setItems(nextItems)
+    const nextConfig = hasAllHifiOverlayConfigs(loadedConfig)
+      ? mergeHifiOverlayConfigs(loadedConfig)
+      : mergeHifiOverlayConfigs(await window.ipc.invoke<OverlaysConfig>('overlays:setConfig', mergeHifiOverlayConfigs(loadedConfig)))
+    setItems(mergeHifiOverlayItems(nextItems, nextConfig))
     setConfig({ ...nextConfig, overlayCompositorEnabled: Boolean(compositorEnabled) })
     setCustomOverlays(Array.isArray(nextCustom) ? nextCustom : [])
     setExpressions(Array.isArray(nextExpressions) ? nextExpressions : [])
@@ -244,19 +288,22 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       await action()
       await refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Falha ao atualizar overlays')
+      setError(err instanceof Error ? err.message : 'Failed to update overlays')
     } finally {
       setBusy(false)
     }
   }
 
   useEffect(() => {
-    void refresh().catch((err) => setError(err instanceof Error ? err.message : 'Falha ao carregar overlays'))
+    void refresh().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load overlays'))
     void refreshIracingGfx().catch(() => { /* status card stays in loading state */ })
     void refreshStreamingStatus().catch(() => { /* streaming module may be pending preload allowlist wiring */ })
     const off = window.ipc.subscribe<OverlayListItem[]>('overlays:state', (nextItems) => {
-      setItems(nextItems)
-      setConfig((current) => configModeFrom(nextItems, current))
+      setConfig((current) => {
+        const nextConfig = mergeHifiOverlayConfigs(configModeFrom(nextItems, current))
+        setItems(mergeHifiOverlayItems(nextItems, nextConfig))
+        return nextConfig
+      })
     })
     const offCustom = window.ipc.subscribe<CustomOverlayListItem[]>('overlays:customState', (nextCustom) => {
       setCustomOverlays(Array.isArray(nextCustom) ? nextCustom : [])
@@ -318,8 +365,8 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   }
 
   function selectedDisplayLabel(item: OverlayListItem): string {
-    if (!item.display) return 'Auto — monitor atual/primário'
-    return displays.find((display) => display.id === item.display?.id)?.label ?? `Monitor salvo indisponível (${item.display.bounds.width}×${item.display.bounds.height})`
+    if (!item.display) return 'Auto — current/primary display'
+    return displays.find((display) => display.id === item.display?.id)?.label ?? `Saved display unavailable (${item.display.bounds.width}×${item.display.bounds.height})`
   }
 
   function changeDisplay(id: OverlayWidgetId, value: string): void {
@@ -362,6 +409,44 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
     })
   }
 
+  function toggleWidgetSelected(id: string): void {
+    setSelectedWidgetIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleCustomSelected(id: string): void {
+    setSelectedCustomIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function setWidgetHidden(ids: string[], hidden: boolean): void {
+    if (ids.length === 0) return
+    void run(async () => {
+      for (const id of ids) {
+        await window.ipc.invoke<OverlayListItem[]>('overlays:setHidden', id as OverlayWidgetId, hidden)
+      }
+      setSelectedWidgetIds(new Set())
+    })
+  }
+
+  function setCustomHidden(ids: string[], hidden: boolean): void {
+    if (ids.length === 0) return
+    void run(async () => {
+      for (const id of ids) {
+        await window.ipc.invoke<CustomOverlayListItem[]>('overlays:updateCustom', id, { hidden })
+      }
+      setSelectedCustomIds(new Set())
+    })
+  }
+
   function toggleWidgetFavorite(id: OverlayWidgetId, favorite: boolean): void {
     void run(async () => {
       const nextItems = await window.ipc.invoke<OverlayListItem[]>('overlays:setFavorite', id, favorite)
@@ -386,7 +471,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   }
 
   function removeCustomOverlay(id: string): void {
-    if (!window.confirm('Remover este overlay customizado? Esta ação não pode ser desfeita.')) return
+    if (!window.confirm('Remove this custom overlay? This action cannot be undone.')) return
     void run(async () => {
       const next = await window.ipc.invoke<CustomOverlayListItem[]>('overlays:removeCustom', id)
       if (Array.isArray(next)) setCustomOverlays(next)
@@ -491,7 +576,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
     closeDesigner()
   }
 
-  // ── Rich widget builder ("Criar novo overlay") ──────────────────────────────
+  // ── Rich widget builder ("Create new overlay") ──────────────────────────────
   function openBuilderForNew(): void {
     setBuilderEditingId(null)
     setBuilderDraft(createRichCustomOverlayDef({ enabled: true, title: 'Novo overlay' }))
@@ -522,7 +607,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
     closeBuilder()
   }
 
-  // Route the "Editar" action by overlay flavour: rich overlays open the widget
+  // Route the "Edit" action by overlay flavour: rich overlays open the widget
   // builder, legacy (expression/channel) overlays open the original designer.
   function editCustomOverlay(overlay: CustomOverlayListItem): void {
     if (isRichCustomOverlay(overlay)) openBuilderForEdit(overlay)
@@ -533,23 +618,23 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
     <div className="overlays-view">
       <section className="panel overlays-header">
         <div>
-          <h3>Overlays na tela</h3>
-          <p>Janelas transparentes always-on-top no estilo SimHub, alimentadas pela telemetria ativa.</p>
+          <h3>On-screen overlays</h3>
+          <p>Always-on-top transparent windows in SimHub style, powered by active telemetry.</p>
           <p className="overlay-help">
             {config.configMode
-              ? 'Edição ligada: overlays soltos recebem o mouse; arraste para posicionar e use bordas/cantos para redimensionar.'
-              : 'Modo corrida: overlays fixados ficam click-through (o mouse passa para o sim); solte um overlay para movê-lo sem ligar a edição.'}
+              ? 'Edit mode on: floating overlays receive mouse input; drag to position and use edges/corners to resize.'
+              : 'Race mode: pinned overlays are click-through (mouse passes to the sim); unpin an overlay to move it without turning on edit mode.'}
           </p>
         </div>
         <div className="overlay-actions">
-          <SectionExportImport sectionId="overlays" label="Overlays (inclui customizados)" onImported={() => void refresh()} />
-          <SectionExportImport sectionId="overlay-layout" label="Layout/composição de overlays" onImported={() => void refresh()} />
+          <SectionExportImport sectionId="overlays" label="Overlays (including custom)" onImported={() => void refresh()} />
+          <SectionExportImport sectionId="overlay-layout" label="Overlay layout/composition" onImported={() => void refresh()} />
           <button
             className={config.configMode ? 'overlay-button danger' : 'primary-action'}
             disabled={busy}
             onClick={toggleEditMode}
           >
-            {config.configMode ? 'Desligar edição e correr' : 'Editar/posicionar overlays'}
+            {config.configMode ? 'Turn off editing and race' : 'Edit/position overlays'}
           </button>
           <button
             className="ghost-action"
@@ -558,7 +643,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
               for (const item of items) await window.ipc.invoke('overlays:toggle', item.id, true)
             })}
           >
-            Ligar todos
+            Turn all on
           </button>
           <button
             className="ghost-action"
@@ -567,7 +652,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
               for (const item of items) await window.ipc.invoke('overlays:toggle', item.id, false)
             })}
           >
-            Desligar todos
+            Turn all off
           </button>
         </div>
       </section>
@@ -575,8 +660,8 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       {activeOverlays.length > 0 && (
         <section className="panel overlays-active">
           <div className="overlays-active-head">
-            <h3>Overlays ativos <span className="overlays-active-count">{activeOverlays.length}</span></h3>
-            <p className="overlay-help">Atalho rápido para o que está na tela agora — favorite ⭐ ou desligue sem rolar a lista.</p>
+            <h3>Active overlays <span className="overlays-active-count">{activeOverlays.length}</span></h3>
+            <p className="overlay-help">Quick shortcut for what is on screen now — favorite ⭐ or turn off without scrolling the list.</p>
           </div>
           <div className="overlays-active-chips">
             {activeOverlays.map((entry) => (
@@ -584,8 +669,8 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 <button
                   className={entry.favorite ? 'overlay-fav is-fav' : 'overlay-fav'}
                   disabled={busy}
-                  title={entry.favorite ? 'Remover dos favoritos' : 'Favoritar'}
-                  aria-label={entry.favorite ? 'Remover dos favoritos' : 'Favoritar'}
+                  title={entry.favorite ? 'Remove from favorites' : 'Favorite'}
+                  aria-label={entry.favorite ? 'Remove from favorites' : 'Favorite'}
                   aria-pressed={entry.favorite}
                   onClick={() => toggleActiveFavorite(entry)}
                 >
@@ -595,10 +680,10 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 <button
                   className="overlay-active-chip-off"
                   disabled={busy}
-                  title="Desligar overlay"
+                  title="Turn overlay off"
                   onClick={() => deactivateOverlay(entry)}
                 >
-                  Desligar
+                  Turn off
                 </button>
               </div>
             ))}
@@ -607,9 +692,9 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       )}
 
       <section className="panel">
-        <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>Como posicionar</h4>
+        <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>How to position</h4>
         <p className="overlay-help">
-          Ligue <strong style={{ color: "var(--accent-primary)" }}>Editar/posicionar overlays</strong> para mexer em todos de uma vez. Ou, com a edição desligada, clique <strong style={{ color: "var(--accent-primary)" }}>Solto</strong> no overlay que quer ajustar — ele fica arrastável/redimensionável na hora. Clique <strong style={{ color: "var(--accent-primary)" }}>Fixado</strong> para voltar ao click-through na corrida.
+          Turn on <strong style={{ color: "var(--accent-primary)" }}>Edit/position overlays</strong> to adjust all overlays at once. Or, with editing off, click <strong style={{ color: "var(--accent-primary)" }}>Floating</strong> on the overlay you want to adjust - it becomes draggable/resizable immediately. Click <strong style={{ color: "var(--accent-primary)" }}>Pinned</strong> to return to click-through in the race.
         </p>
         <label className="designer-check" style={{ margin: '12px 0 0' }}>
           <input
@@ -618,42 +703,42 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             disabled={busy}
             onChange={toggleCompositorMode}
           />
-          Modo compositor (experimental): uma janela transparente por monitor renderizando todos os widgets ativos
+          Compositor mode (experimental): one transparent window per display rendering all active widgets
         </label>
         <p className="overlay-help" style={{ marginTop: 8 }}>
-          Padrão desligado: mantém o modo atual de uma janela por widget. Ligue só para testar o compositor.
+          Off by default: keeps the current one-window-per-widget mode. Turn it on only to test the compositor.
         </p>
       </section>
 
       <section className="panel">
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>Tela cheia do iRacing</h4>
+          <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>iRacing Fullscreen</h4>
           {iracingGfx && (
             <span className={iracingGfx.mode === 'exclusive' ? 'status-pill' : 'status-pill on'}>
-              {iracingGfx.mode === 'exclusive' ? 'fullscreen exclusivo'
+              {iracingGfx.mode === 'exclusive' ? 'exclusive fullscreen'
                 : iracingGfx.mode === 'borderless' ? 'borderless ✓'
-                : iracingGfx.mode === 'windowed' ? 'janela ✓'
-                : 'modo desconhecido'}
+                : iracingGfx.mode === 'windowed' ? 'windowed'
+                : 'unknown mode'}
             </span>
           )}
         </div>
         <p className="overlay-help">
-          {iracingGfx ? iracingGfx.message : 'Verificando o modo de vídeo do iRacing...'}
+          {iracingGfx ? iracingGfx.message : 'Checking iRacing video mode...'}
         </p>
         <p className="overlay-help">
-          Overlays de janela <strong style={{ color: "var(--accent-primary)" }}>nunca</strong> aparecem sobre fullscreen <strong style={{ color: "var(--accent-primary)" }}>exclusivo</strong> do DirectX — isso vale para SimHub/RaceLab também. A solução é rodar o iRacing em <strong style={{ color: "var(--accent-primary)" }}>Borderless</strong>. Renderizar sobre o exclusivo exigiria injeção de DirectX (projeto à parte, com risco de anti-cheat).
+          Window overlays <strong style={{ color: "var(--accent-primary)" }}>never</strong> appear over <strong style={{ color: "var(--accent-primary)" }}>exclusive</strong> DirectX fullscreen - this also applies to SimHub/RaceLab. The solution is to run iRacing in <strong style={{ color: "var(--accent-primary)" }}>Borderless</strong>. Rendering over exclusive fullscreen would require DirectX injection (a separate project with anti-cheat risk).
         </p>
         <div className="overlay-actions">
           <button
             className="primary-action"
             disabled={busy || !iracingGfx?.supported || iracingGfx?.mode === 'borderless' || iracingGfx?.mode === 'windowed'}
             onClick={() => void fixIracingFullscreen()}
-            title={iracingGfx?.supported ? 'Edita o app.ini do iRacing (com backup) para borderless' : 'Disponível apenas no Windows'}
+            title={iracingGfx?.supported ? 'Edits iRacing app.ini (with backup) for borderless mode' : 'Available only on Windows'}
           >
-            Corrigir: mudar iRacing para borderless
+            Fix: switch iRacing to borderless
           </button>
           <button className="ghost-action" disabled={busy} onClick={() => void refreshIracingGfx()}>
-            Verificar de novo
+            Check again
           </button>
         </div>
         {gfxNote && <p className="overlay-help" style={{ color: 'var(--accent-success)' }}>{gfxNote}</p>}
@@ -663,12 +748,17 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>OBS / Streaming</h4>
           <span className={streamingStatus?.running ? 'status-pill on' : 'status-pill'}>
-            {streamingStatus?.running ? `online · ${streamingStatus.clients} cliente(s)` : 'offline'}
+            {streamingStatus?.running ? `online · ${streamingStatus.clients} client(s)` : 'offline'}
           </span>
         </div>
         <p className="overlay-help">
-          Inicia um servidor local em <strong style={{ color: "var(--accent-primary)" }}>127.0.0.1</strong> para usar como Browser Source no OBS. A telemetria chega por SSE e a máscara stream-safe é aplicada no servidor.
+          Starts a local server for OBS or, optionally, on the LAN for phones/tablets. Telemetry arrives through SSE and the stream-safe mask is applied on the server.
         </p>
+        {streamingStatus?.warning ? (
+          <p className="overlay-help" style={{ color: 'var(--accent-warning, #fbbf24)' }}>
+            ⚠ {streamingStatus.warning}
+          </p>
+        ) : null}
         <label className="designer-check" style={{ margin: '12px 0' }}>
           <input
             type="checkbox"
@@ -676,34 +766,80 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             disabled={busy || Boolean(streamingStatus?.running)}
             onChange={(event) => setStreamSafe(event.target.checked)}
           />
-          Stream-safe: ocultar nomes, iRating/SR e tags privadas antes de enviar ao OBS
+          Stream-safe: hide names, iRating/SR, and private tags before sending to OBS
+        </label>
+        <label className="designer-check" style={{ margin: '12px 0' }}>
+          <input
+            type="checkbox"
+            checked={streamLanEnabled}
+            disabled={busy || Boolean(streamingStatus?.running)}
+            onChange={(event) => setStreamLanEnabled(event.target.checked)}
+          />
+          Enable LAN access (generates URL/QR for phones and tablets)
+        </label>
+        <label className="designer-field" style={{ margin: '12px 0' }}>
+          Optional password (alternative to token; not shown after starting)
+          <input
+            type="password"
+            value={streamPassword}
+            disabled={busy || Boolean(streamingStatus?.running)}
+            placeholder="Optional"
+            onChange={(event) => setStreamPassword(event.target.value)}
+          />
         </label>
         <div className="overlay-actions">
           <button className="primary-action" disabled={busy || Boolean(streamingStatus?.running)} onClick={() => void startStreaming()}>
-            Iniciar OBS overlay
+            Start streaming
           </button>
           <button className="ghost-action danger" disabled={busy || !streamingStatus?.running} onClick={() => void stopStreaming()}>
-            Parar
+            Stop
           </button>
           <button className="ghost-action" disabled={busy} onClick={() => void refreshStreamingStatus()}>
-            Atualizar status
+            Refresh status
           </button>
         </div>
         {streamingStatus?.url ? (
           <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
             <label className="designer-field">
-              URL para colar no OBS Browser Source
+              Dashboard URL (OBS/browser)
               <input readOnly value={streamingStatus.url} onFocus={(event) => event.currentTarget.select()} />
             </label>
+            {streamingStatus.touchUrl ? (
+              <label className="designer-field">
+                Touch Controls Dash URL (phone/tablet)
+                <input readOnly value={streamingStatus.touchUrl} onFocus={(event) => event.currentTarget.select()} />
+              </label>
+            ) : (
+              <p className="overlay-help">Create a Touch Controls Dash to show the second QR/URL.</p>
+            )}
+            {(streamingStatus.qrDataUrl || streamingStatus.touchQrDataUrl) ? (
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                {streamingStatus.qrDataUrl ? (
+                  <div>
+                    <div className="overlay-help" style={{ marginBottom: 6 }}>QR dashboard</div>
+                    <img src={streamingStatus.qrDataUrl} alt="Dashboard QR" style={{ width: 152, height: 152, borderRadius: 12 }} />
+                  </div>
+                ) : null}
+                {streamingStatus.touchQrDataUrl ? (
+                  <div>
+                    <div className="overlay-help" style={{ marginBottom: 6 }}>QR Touch Controls</div>
+                    <img src={streamingStatus.touchQrDataUrl} alt="Touch Controls QR" style={{ width: 152, height: 152, borderRadius: 12 }} />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div className="overlay-actions">
               <button className="ghost-action" onClick={() => void copyStreamUrl()}>
-                {copiedStreamUrl ? 'Copiado ✓' : 'Copiar URL'}
+                {copiedStreamUrl ? 'Copied ✓' : 'Copy dashboard'}
+              </button>
+              <button className="ghost-action" disabled={!streamingStatus.touchUrl} onClick={() => void copyTouchStreamUrl()}>
+                Copy Touch Controls
               </button>
             </div>
           </div>
         ) : (
           <p className="overlay-help" style={{ marginTop: 10 }}>
-            Após iniciar, a URL tokenizada aparecerá aqui.
+            After starting, the tokenized URL will appear here.
           </p>
         )}
       </section>
@@ -711,44 +847,53 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       <section className="panel custom-overlays-panel">
         <div className="custom-overlays-head">
           <div>
-            <h4 style={{ margin: '0 0 6px', color: '#f6fbff' }}>Overlays customizados</h4>
+            <h4 style={{ margin: '0 0 6px', color: '#f6fbff' }}>Custom overlays</h4>
             <p className="overlay-help">
-              Monte overlays próprios com o conjunto completo de <strong style={{ color: 'var(--accent-primary)' }}>widgets do dashboard</strong> (medidores, marcha, pneus, radar, imagens…) ou com cards simples de <strong style={{ color: 'var(--accent-primary)' }}>Expressões</strong>. Cada um vira uma janela transparente independente.
+              Build your own overlays with the full set of <strong style={{ color: 'var(--accent-primary)' }}>dashboard widgets</strong> (gauges, gear, tyres, radar, images…) or with simple cards from <strong style={{ color: 'var(--accent-primary)' }}>Expressions</strong>. Each one becomes an independent transparent window.
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <button className="primary-action" disabled={busy} onClick={openBuilderForNew}>
-              + Criar novo overlay
+              + Create new overlay
             </button>
             <button className="ghost-action" disabled={busy} onClick={openDesignerForNew}>
-              + Overlay de expressões
+              + Expression overlay
             </button>
           </div>
         </div>
 
-        {customOverlays.length === 0 ? (
+        {visibleCustomOverlays.length === 0 ? (
           <p className="overlay-help">
-            Nenhum overlay customizado ainda. Clique em <strong style={{ color: "var(--accent-primary)" }}>Criar novo overlay</strong> para montar com os widgets do dashboard.
+            No custom overlays yet. Click <strong style={{ color: "var(--accent-primary)" }}>Create new overlay</strong> to build with dashboard widgets.
           </p>
         ) : (
           <div className="overlay-grid">
-            {sortedCustomOverlays.map((overlay) => (
+            {visibleCustomOverlays.map((overlay) => (
               <article key={overlay.id} className={overlay.enabled ? 'overlay-config-card is-enabled' : 'overlay-config-card'}>
                 <div className="overlay-card-top">
                   <div>
+                    <label className="designer-check" style={{ margin: '0 0 6px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedCustomIds.has(overlay.id)}
+                        disabled={busy}
+                        onChange={() => toggleCustomSelected(overlay.id)}
+                      />
+                      Select
+                    </label>
                     <h4>{overlay.title}</h4>
                     <p>
                       {isRichCustomOverlay(overlay)
                         ? `${overlay.widgets?.length ?? 0} widget(s) · dashboard ao vivo`
-                        : `${overlay.elements.length} elemento(s) · expressões ao vivo`}
+                        : `${overlay.elements.length} element(s) · live expressions`}
                     </p>
                   </div>
                   <div className="overlay-card-badges">
                     <button
                       className={overlay.favorite ? 'overlay-fav is-fav' : 'overlay-fav'}
                       disabled={busy}
-                      title={overlay.favorite ? 'Remover dos favoritos' : 'Favoritar'}
-                      aria-label={overlay.favorite ? 'Remover dos favoritos' : 'Favoritar'}
+                      title={overlay.favorite ? 'Remove from favorites' : 'Favorite'}
+                      aria-label={overlay.favorite ? 'Remove from favorites' : 'Favorite'}
                       aria-pressed={overlay.favorite}
                       onClick={() => applyCustomPatch(overlay.id, { favorite: !overlay.favorite })}
                     >
@@ -764,20 +909,23 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                     disabled={busy}
                     onClick={() => applyCustomPatch(overlay.id, { enabled: !overlay.enabled })}
                   >
-                    {overlay.enabled ? 'Desligar' : 'Ligar'}
+                    {overlay.enabled ? 'Turn off' : 'Ligar'}
                   </button>
                   <button
                     className="ghost-action"
                     disabled={busy || !overlay.enabled}
                     onClick={() => applyCustomPatch(overlay.id, { locked: !overlay.locked })}
                   >
-                    {overlay.locked ? 'Fixado' : 'Solto'}
+                    {overlay.locked ? 'Pinned' : 'Floating'}
                   </button>
                   <button className="ghost-action" disabled={busy} onClick={() => editCustomOverlay(overlay)}>
-                    Editar
+                    Edit
                   </button>
                   <button className="ghost-action danger" disabled={busy} onClick={() => removeCustomOverlay(overlay.id)}>
-                    Remover
+                    Remove
+                  </button>
+                  <button className="ghost-action" disabled={busy} onClick={() => setCustomHidden([overlay.id], true)}>
+                    Hide
                   </button>
                 </div>
 
@@ -799,10 +947,10 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
 
                 {!isRichCustomOverlay(overlay) && (
                   <div className="preset-row">
-                    {OVERLAY_STYLE_PRESETS.map((preset) => (
+                    {OVERLAY_FORMS.map((preset) => (
                       <button
                         key={preset.id}
-                        className={overlay.stylePreset === preset.id ? 'preset-button active' : 'preset-button'}
+                        className={isSelectedOverlayForm(overlay.stylePreset, preset.id) ? 'preset-button active' : 'preset-button'}
                         disabled={busy}
                         title={preset.description}
                         onClick={() => applyCustomPatch(overlay.id, { stylePreset: preset.id, style: preset.style })}
@@ -816,32 +964,75 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             ))}
           </div>
         )}
+        {(visibleCustomOverlays.length > 0 || hiddenCustomOverlays.length > 0) && (
+          <div className="overlay-actions" style={{ marginTop: 12 }}>
+            <button className="ghost-action" disabled={busy || selectedCustomIds.size === 0} onClick={() => setCustomHidden(Array.from(selectedCustomIds), true)}>
+              Hide selected
+            </button>
+          </div>
+        )}
+        {hiddenCustomOverlays.length > 0 && (
+          <details style={{ marginTop: 14 }}>
+            <summary style={{ color: '#f6fbff', cursor: 'pointer', fontWeight: 700 }}>Hidden custom overlays ({hiddenCustomOverlays.length})</summary>
+            <div className="overlays-active-chips" style={{ marginTop: 10 }}>
+              {hiddenCustomOverlays.map((overlay) => (
+                <div key={overlay.id} className="overlay-active-chip">
+                  <label className="designer-check" style={{ margin: 0 }}>
+                    <input type="checkbox" checked={selectedCustomIds.has(overlay.id)} onChange={() => toggleCustomSelected(overlay.id)} />
+                    <span className="overlay-active-chip-title">{overlay.title}</span>
+                  </label>
+                  <button className="overlay-active-chip-off" disabled={busy} onClick={() => setCustomHidden([overlay.id], false)}>Restore</button>
+                </div>
+              ))}
+            </div>
+            <button className="ghost-action" style={{ marginTop: 10 }} disabled={busy || selectedCustomIds.size === 0} onClick={() => setCustomHidden(Array.from(selectedCustomIds), false)}>Restore selected</button>
+          </details>
+        )}
       </section>
 
       {error && <section className="panel overlay-help">{error}</section>}
 
       <section className="overlay-grid">
-        <div className="overlay-sim-filter" style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-          <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Filtrar por Sim</span>
-          {(['all', ...PLAYABLE_SIMS] as const).map((sim) => (
+        <div className="overlay-yes-filter" style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Filter by Sim</span>
+          {(['all', ...PLAYABLE_SIMS] as const).map((yes) => (
             <button
-              key={sim}
+              key={yes}
               type="button"
-              className={simFilter === sim ? 'overlay-fav is-fav' : 'overlay-fav'}
-              onClick={() => setSimFilter(sim)}
+              className={simFilter === yes ? 'overlay-fav is-fav' : 'overlay-fav'}
+              onClick={() => setSimFilter(yes)}
               style={{ padding: '2px 10px', fontSize: 12 }}
             >
-              {sim === 'all' ? 'Todos' : simLabel(sim)}
+              {yes === 'all' ? 'All' : simLabel(yes)}
             </button>
           ))}
           {simFilter !== 'all' && (
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{visibleItems.length} widget(s) com telemetria ao vivo neste sim</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{visibleItems.length} widget(s) with live telemetry in this yes</span>
           )}
+          <span style={{ width: 1, height: 18, background: 'var(--border-default)', margin: '0 2px' }} />
+          <TagFilter
+            items={simFilteredItems}
+            selectedTags={tagFilters}
+            onSelectedTagsChange={setTagFilters}
+            getTags={(item) => definitionTags(defById.get(item.id as OverlayWidgetId))}
+          />
+          <button className="ghost-action" disabled={busy || selectedWidgetIds.size === 0} onClick={() => setWidgetHidden(Array.from(selectedWidgetIds), true)}>
+            Hide selected
+          </button>
         </div>
         {visibleItems.map((item) => (
           <article key={item.id} className={item.enabled ? 'overlay-config-card is-enabled' : 'overlay-config-card'}>
             <div className="overlay-card-top">
               <div>
+                <label className="designer-check" style={{ margin: '0 0 6px' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedWidgetIds.has(item.id)}
+                    disabled={busy}
+                    onChange={() => toggleWidgetSelected(item.id)}
+                  />
+                  Select
+                </label>
                 <h4>{displayTitleFor(item.id, item.title)}</h4>
                 <p>{item.description}</p>
               </div>
@@ -849,8 +1040,8 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 <button
                   className={item.favorite ? 'overlay-fav is-fav' : 'overlay-fav'}
                   disabled={busy}
-                  title={item.favorite ? 'Remover dos favoritos' : 'Favoritar'}
-                  aria-label={item.favorite ? 'Remover dos favoritos' : 'Favoritar'}
+                  title={item.favorite ? 'Remove from favorites' : 'Favorite'}
+                  aria-label={item.favorite ? 'Remove from favorites' : 'Favorite'}
                   aria-pressed={item.favorite}
                   onClick={() => toggleWidgetFavorite(item.id, !item.favorite)}
                 >
@@ -869,7 +1060,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                   setItems(nextItems)
                 })}
               >
-                {item.enabled ? 'Desligar' : 'Ligar'}
+                {item.enabled ? 'Turn off' : 'Ligar'}
               </button>
               <button
                 className="ghost-action"
@@ -879,7 +1070,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                   setItems(nextItems)
                 })}
               >
-                {item.locked ? 'Fixado' : 'Solto'}
+                {item.locked ? 'Pinned' : 'Floating'}
               </button>
               <button
                 className="ghost-action"
@@ -889,7 +1080,10 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                   setItems(nextItems)
                 })}
               >
-                Aplicar posição
+                Apply position
+              </button>
+              <button className="ghost-action" disabled={busy} onClick={() => setWidgetHidden([item.id], true)}>
+                Hide
               </button>
             </div>
 
@@ -901,7 +1095,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 onChange={(event) => changeDisplay(item.id, event.target.value)}
                 title={selectedDisplayLabel(item)}
               >
-                <option value="auto">Auto — monitor atual/primário</option>
+                <option value="auto">Auto — current/primary display</option>
                 {item.display && !displays.some((display) => display.id === item.display?.id) && (
                   <option value={`missing:${item.display.id}`}>{selectedDisplayLabel(item)}</option>
                 )}
@@ -947,10 +1141,10 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             </div>
 
             <div className="preset-row">
-              {OVERLAY_STYLE_PRESETS.map((preset) => (
+              {OVERLAY_FORMS.map((preset) => (
                 <button
                   key={preset.id}
-                  className={item.stylePreset === preset.id ? 'preset-button active' : 'preset-button'}
+                  className={isSelectedOverlayForm(item.stylePreset, preset.id) ? 'preset-button active' : 'preset-button'}
                   disabled={busy}
                   title={preset.description}
                   onClick={() => run(async () => {
@@ -1021,7 +1215,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             </div>
 
             <label className="font-control">
-              Fonte
+              Font
               <select
                 value={item.style.fontFamily}
                 disabled={busy}
@@ -1036,6 +1230,25 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             </label>
           </article>
         ))}
+        {hiddenItems.length > 0 && (
+          <div style={{ gridColumn: '1 / -1' }}>
+            <details>
+              <summary style={{ color: '#f6fbff', cursor: 'pointer', fontWeight: 800 }}>Hidden widgets ({hiddenItems.length})</summary>
+              <div className="overlays-active-chips" style={{ marginTop: 10 }}>
+                {hiddenItems.map((item) => (
+                  <div key={item.id} className="overlay-active-chip">
+                    <label className="designer-check" style={{ margin: 0 }}>
+                      <input type="checkbox" checked={selectedWidgetIds.has(item.id)} onChange={() => toggleWidgetSelected(item.id)} />
+                      <span className="overlay-active-chip-title">{displayTitleFor(item.id, item.title)}</span>
+                    </label>
+                    <button className="overlay-active-chip-off" disabled={busy} onClick={() => setWidgetHidden([item.id], false)}>Restore</button>
+                  </div>
+                ))}
+              </div>
+              <button className="ghost-action" style={{ marginTop: 10 }} disabled={busy || selectedWidgetIds.size === 0} onClick={() => setWidgetHidden(Array.from(selectedWidgetIds), false)}>Restore selected</button>
+            </details>
+          </div>
+        )}
       </section>
 
 
@@ -1043,13 +1256,13 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
         <div className="overlay-designer-backdrop" role="dialog" aria-modal="true">
           <div className="overlay-designer">
             <div className="overlay-designer-head">
-              <h4>{editingId ? 'Editar overlay customizado' : 'Novo overlay customizado'}</h4>
-              <button className="ghost-action" disabled={busy} onClick={closeDesigner}>Fechar</button>
+              <h4>{editingId ? 'Edit overlay customizado' : 'Novo overlay customizado'}</h4>
+              <button className="ghost-action" disabled={busy} onClick={closeDesigner}>Close</button>
             </div>
 
             <div className="overlay-designer-body">
               <label className="designer-field">
-                Título
+                Title
                 <input
                   type="text"
                   value={draft.title}
@@ -1062,35 +1275,35 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
               <div className="designer-settings">
                 <label className="designer-check">
                   <input type="checkbox" checked={draft.enabled} disabled={busy} onChange={(event) => updateDraft({ enabled: event.target.checked })} />
-                  Mostrar overlay
+                  Show overlay
                 </label>
                 <label className="designer-check">
                   <input type="checkbox" checked={draft.locked} disabled={busy} onChange={(event) => updateDraft({ locked: event.target.checked })} />
-                  Fixado (click-through)
+                  Pinned (click-through)
                 </label>
                 <label className="designer-field">
-                  Estilo
+                  Style
                   <select
                     value={draft.stylePreset}
                     disabled={busy}
                     onChange={(event) => {
-                      const preset = OVERLAY_STYLE_PRESETS.find((item) => item.id === event.target.value)
+                      const preset = OVERLAY_FORMS.find((item) => item.id === event.target.value)
                       if (preset) updateDraft({ stylePreset: preset.id, style: { ...preset.style } })
                     }}
                   >
-                    {OVERLAY_STYLE_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.title}</option>)}
+                    {OVERLAY_FORMS.map((preset) => <option key={preset.id} value={preset.id}>{preset.title}</option>)}
                   </select>
                 </label>
               </div>
 
               {expressions.length === 0 && BINDABLE_TELEMETRY_COUNT === 0 && (
                 <p className="overlay-help">
-                  Nenhuma expressão salva e nenhum canal de telemetria disponível. Crie expressões no menu <strong style={{ color: "var(--accent-primary)" }}>Expressões</strong> para ligá-las aos elementos.
+                  No saved expressions and no telemetry channel available. Create expressions in <strong style={{ color: "var(--accent-primary)" }}>Expressions</strong> to link them to elements.
                 </p>
               )}
               {expressions.length === 0 && BINDABLE_TELEMETRY_COUNT > 0 && (
                 <p className="overlay-help">
-                  Sem expressões salvas ainda — ligue um canal de telemetria direto no seletor (grupo <strong style={{ color: "var(--accent-primary)" }}>Telemetria</strong>), ou crie expressões no menu <strong style={{ color: "var(--accent-primary)" }}>Expressões</strong>.
+                  No saved expressions yet ? link a telemetry channel directly in the selector (group <strong style={{ color: "var(--accent-primary)" }}>Telemetry</strong>), or create expressions in the <strong style={{ color: "var(--accent-primary)" }}>Expressions</strong> menu.
                 </p>
               )}
 
@@ -1099,30 +1312,30 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                   <div key={element.id} className="designer-element">
                     <div className="designer-element-head">
                       <strong style={{ color: "var(--accent-primary)" }}>Elemento {index + 1}</strong>
-                      <button className="ghost-action danger" disabled={busy} onClick={() => removeDraftElement(element.id)}>Remover</button>
+                      <button className="ghost-action danger" disabled={busy} onClick={() => removeDraftElement(element.id)}>Remove</button>
                     </div>
 
                     <label className="designer-field">
-                      Expressão ou canal
+                      Expression or channel
                       <select value={element.expressionId} disabled={busy} onChange={(event) => bindElementExpression(element.id, event.target.value)}>
-                        <option value="">— escolha expressão ou canal —</option>
+                        <option value="">— choose expression or channel —</option>
                         {element.expressionId !== '' &&
                           channelVarIdFromBinding(element.expressionId) === null &&
                           !expressions.some((item) => item.id === element.expressionId) && (
-                            <option value={element.expressionId}>{element.expressionName || 'expressão removida'} (indisponível)</option>
+                            <option value={element.expressionId}>{element.expressionName || 'removed expression'} (unavailable)</option>
                           )}
                         {element.expressionId !== '' &&
                           channelVarIdFromBinding(element.expressionId) !== null &&
                           !IRACING_VARIABLES.some((item) => `${CHANNEL_BINDING_PREFIX}${item.id}` === element.expressionId && item.telemetryField) && (
-                            <option value={element.expressionId}>{element.expressionName || channelVarIdFromBinding(element.expressionId)} (canal indisponível)</option>
+                            <option value={element.expressionId}>{element.expressionName || channelVarIdFromBinding(element.expressionId)} (channel unavailable)</option>
                           )}
                         {expressions.length > 0 && (
-                          <optgroup label="Minhas expressões">
+                          <optgroup label="My expressions">
                             {expressions.map((expression) => <option key={expression.id} value={expression.id}>{expression.name}</option>)}
                           </optgroup>
                         )}
                         {BINDABLE_TELEMETRY_GROUPS.map((group) => (
-                          <optgroup key={group.category} label={`Telemetria · ${group.label}`}>
+                          <optgroup key={group.category} label={`Telemetry · ${group.label}`}>
                             {group.variables.map((variable) => (
                               <option key={variable.id} value={`${CHANNEL_BINDING_PREFIX}${variable.id}`}>
                                 {variable.label}{variable.unit ? ` (${variable.unit})` : ''} · {variable.id}
@@ -1135,7 +1348,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
 
                     <div className="designer-grid-2">
                       <label className="designer-field">
-                        Rótulo
+                        Label
                         <input type="text" value={element.label} disabled={busy} maxLength={80} onChange={(event) => updateDraftElement(element.id, { label: event.target.value })} />
                       </label>
                       <label className="designer-field">
@@ -1156,7 +1369,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                         </select>
                       </label>
                       <label className="designer-field">
-                        Fonte (px)
+                        Font (px)
                         <input type="number" min={8} max={240} value={element.fontSize} disabled={busy} onChange={(event) => updateDraftElement(element.id, { fontSize: Number(event.target.value) })} />
                       </label>
                       <label className="designer-field">
@@ -1166,7 +1379,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                         </select>
                       </label>
                       <label className="designer-field">
-                        Cor
+                        Color
                         <input
                           type="color"
                           value={element.color && element.color.startsWith('#') ? element.color : 'var(--accent-primary)'}
@@ -1183,7 +1396,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                         disabled={busy}
                         onChange={(event) => updateDraftElement(element.id, { color: event.target.checked ? '' : 'var(--accent-primary)' })}
                       />
-                      Usar cor do tema (accent)
+                      Use theme color (accent)
                     </label>
 
                     <div className="designer-grid-4">
@@ -1203,13 +1416,13 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 ))}
               </div>
 
-              <button className="ghost-action" disabled={busy} onClick={addDraftElement}>+ Adicionar elemento</button>
+              <button className="ghost-action" disabled={busy} onClick={addDraftElement}>+ Add elemento</button>
             </div>
 
             <div className="overlay-designer-foot">
-              <button className="ghost-action" disabled={busy} onClick={closeDesigner}>Cancelar</button>
+              <button className="ghost-action" disabled={busy} onClick={closeDesigner}>Cancel</button>
               <button className="primary-action" disabled={busy || !draft.title.trim()} onClick={saveDesigner}>
-                {editingId ? 'Salvar alterações' : 'Criar overlay'}
+                {editingId ? 'Save changes' : 'Create overlay'}
               </button>
             </div>
           </div>

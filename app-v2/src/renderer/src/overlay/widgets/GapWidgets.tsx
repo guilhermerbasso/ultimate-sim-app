@@ -95,7 +95,7 @@ function GapOverlay({ kind, entry, config }: { kind: GapKind; entry: RelativeCar
   const name = shortName(entry?.name)
 
   const numColor = state === 'good' ? skin.palette.ok : state === 'bad' ? skin.palette.warn : skin.palette.text
-  const rivalText = hasRival ? `${carNumber ? `#${carNumber} ` : ''}${name}`.trim() || 'sem carro' : 'sem carro'
+  const rivalText = hasRival ? `${carNumber ? `#${carNumber} ` : ''}${name}`.trim() || 'no car' : 'no car'
 
   return (
     <svg

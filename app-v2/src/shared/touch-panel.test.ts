@@ -106,7 +106,7 @@ describe('ButtonBox model — action normalisation + IPC mapping', () => {
     const action = parsed!.buttons[0].action
     expect(action).toMatchObject({ kind: 'keyboard', command: { mode: 'press', keys: [] } })
     expect(() => describeButtonAction(action)).not.toThrow()
-    expect(describeButtonAction(action)).toContain('Teclado')
+    expect(describeButtonAction(action)).toContain('Keyboard')
   })
 
   it('maps an iRacing action onto iracing:command', () => {
