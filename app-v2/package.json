@@ -1,6 +1,6 @@
 {
   "name": "ultimate-sim-app",
-  "version": "2.44.0",
+  "version": "2.44.1",
   "description": "Ultimate Sim App — Windows desktop companion for sim racing: telemetry, overlays, dashboards, strategy, and the SIM-X ButtonBox.",
   "main": "out/main/index.js",
   "author": "Guilherme Basso",
