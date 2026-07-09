@@ -37,7 +37,9 @@ function elementColor(type: DashboardElementType): string {
 }
 
 function elementRadius(el: DashboardElement): number {
-  return Math.max(2, Math.min(8, Number(el.style.radius ?? 3)))
+  const parsed = Number(el.style.radius ?? 3)
+  const radius = Number.isFinite(parsed) ? parsed : 3
+  return Math.max(2, Math.min(8, radius))
 }
 
 function MiniOverlayGlyph({ color }: { color: string }): ReactElement {
