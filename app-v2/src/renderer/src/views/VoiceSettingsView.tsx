@@ -122,7 +122,7 @@ function phaseLabel(progress: PiperVoiceProgress | undefined, language: AppViewP
     case 'downloading':
       return `Downloading… ${Math.round(progress.ratio * 100)}%`
     case 'verifying':
-      return 'Viewifying…'
+      return 'Verifying…'
     case 'done':
       return tt(language, 'voice.phase.done')
     case 'error':
