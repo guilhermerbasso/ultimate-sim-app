@@ -16,6 +16,7 @@ import {
   runSearch
 } from '../lib/semantic-search'
 import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 
 // ─── Style kit — warm chrome; cool (teal/green) accents the semantic mode ─────
 
@@ -73,7 +74,7 @@ function formatBytes(n: number): string {
   return mb >= 1 ? `${mb.toFixed(0)} MB` : `${(n / 1024).toFixed(0)} KB`
 }
 
-export default function SemanticSearchView({ showToast }: AppViewProps): ReactElement {
+export default function SemanticSearchView({ showToast, language }: AppViewProps): ReactElement {
   const [status, setStatus] = useState<SemanticIndexStatus | null>(null)
   const [progress, setProgress] = useState<SemanticModelProgress | null>(null)
   const [query, setQuery] = useState('')
@@ -118,12 +119,12 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
         setResults(res.results)
         setMode(res.mode)
       } catch (e) {
-        showToast(`Search failed: ${errorMessage(e)}`, 'error')
+        showToast(tt(language, 'semanticSearch.searchFailed', { error: errorMessage(e) }), 'error')
       } finally {
         setSearching(false)
       }
     },
-    [showToast]
+    [language, showToast]
   )
 
   // Debounced live search as the user types.
@@ -141,23 +142,23 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
       const next = await ensureSearchModel()
       setStatus(next)
       if (next.modelReady) {
-        showToast('Semantic search model ready.', 'success')
+        showToast(tt(language, 'semanticSearch.modelReadyToast'), 'success')
         void doSearch(query, filters)
       }
     } catch (e) {
-      showToast(`Download falhou: ${errorMessage(e)}`, 'error')
+      showToast(tt(language, 'semanticSearch.downloadFailed', { error: errorMessage(e) }), 'error')
     }
-  }, [doSearch, filters, query, showToast])
+  }, [doSearch, filters, language, query, showToast])
 
   const onReindex = useCallback(async () => {
     try {
       setStatus(await reindexSearch())
-      showToast('Search index updated.', 'success')
+      showToast(tt(language, 'semanticSearch.indexUpdatedToast'), 'success')
       void doSearch(query, filters)
     } catch (e) {
-      showToast(`Reindexing failed: ${errorMessage(e)}`, 'error')
+      showToast(tt(language, 'semanticSearch.reindexFailed', { error: errorMessage(e) }), 'error')
     }
-  }, [doSearch, filters, query, showToast])
+  }, [doSearch, filters, language, query, showToast])
 
   const toggleFilter = useCallback((kind: SemanticSourceKind) => {
     setFilters((prev) => {
@@ -174,25 +175,25 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
 
   const modeBadge = useMemo(() => {
     if (mode === 'semantic') {
-      return { text: 'Semantic', tone: 'var(--accent-success)', bg: 'rgba(var(--accent-success-rgb,73,197,177),0.14)' }
+      return { text: tt(language, 'semanticSearch.mode.semantic'), tone: 'var(--accent-success)', bg: 'rgba(var(--accent-success-rgb,73,197,177),0.14)' }
     }
-    return { text: 'Palavra-chave', tone: 'var(--accent-primary)', bg: 'rgba(var(--accent-rgb),0.14)' }
-  }, [mode])
+    return { text: tt(language, 'semanticSearch.mode.keyword'), tone: 'var(--accent-primary)', bg: 'rgba(var(--accent-rgb),0.14)' }
+  }, [language, mode])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <section style={card}>
-        <div style={label}>Semantic search</div>
-        <h2 style={{ margin: '4px 0 10px' }}>Encontre setups, ghosts, notas e achados</h2>
+        <div style={label}>{tt(language, 'semanticSearch.eyebrow')}</div>
+        <h2 style={{ margin: '4px 0 10px' }}>{tt(language, 'semanticSearch.title')}</h2>
 
         <div style={row}>
           <input
             style={input}
             type="search"
-            placeholder="E.g., soft setup for rain at Interlagos, late braking into turn 1?"
+            placeholder={tt(language, 'semanticSearch.placeholder')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            aria-label="Search term"
+            aria-label={tt(language, 'semanticSearch.searchAria')}
           />
           <span
             style={{
@@ -203,7 +204,7 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
               padding: '5px 9px',
               borderRadius: 'var(--radius-sm)'
             }}
-            title={mode === 'semantic' ? 'Results by meaning similarity' : 'Keyword results (model missing or no semantic match)'}
+            title={mode === 'semantic' ? tt(language, 'semanticSearch.semanticTitle') : tt(language, 'semanticSearch.keywordTitle')}
           >
             {modeBadge.text}
           </span>
@@ -237,27 +238,27 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
       <section style={card}>
         <div style={{ ...row, justifyContent: 'space-between' }}>
           <div>
-            <div style={label}>Embedding model</div>
+            <div style={label}>{tt(language, 'semanticSearch.modelSection')}</div>
             <div style={{ marginTop: 4, fontSize: 13 }}>
               {status?.modelReady ? (
-                <span style={{ color: 'var(--accent-success)' }}>● Modelo active — busca por significado habilitada</span>
+                <span style={{ color: 'var(--accent-success)' }}>{tt(language, 'semanticSearch.modelActive')}</span>
               ) : downloading ? (
-                <span style={{ color: 'var(--accent-primary)' }}>● Lowndo/carregando modelo… {ratioPct}%</span>
+                <span style={{ color: 'var(--accent-primary)' }}>{tt(language, 'semanticSearch.modelDownloading', { pct: ratioPct })}</span>
               ) : status && !status.modelAvailable ? (
-                <span style={{ opacity: 0.8 }}>? AI package not installed ? using keyword search</span>
+                <span style={{ opacity: 0.8 }}>{tt(language, 'semanticSearch.modelUnavailable')}</span>
               ) : (
-                <span style={{ opacity: 0.8 }}>○ Modelo no baixado — using busca por palavra-chave</span>
+                <span style={{ opacity: 0.8 }}>{tt(language, 'semanticSearch.modelNotDownloaded')}</span>
               )}
             </div>
           </div>
           <div style={row}>
             {!status?.modelReady && status?.modelAvailable !== false ? (
               <button style={primaryButton} type="button" disabled={!!downloading} onClick={() => void onDownloadModel()}>
-                {downloading ? `Downloading ${ratioPct}%` : `Download model (${status?.modelSizeLabel ?? '~470 MB'})`}
+                {downloading ? tt(language, 'semanticSearch.downloadingButton', { pct: ratioPct }) : tt(language, 'semanticSearch.downloadButton', { size: status?.modelSizeLabel ?? '~470 MB' })}
               </button>
             ) : null}
             <button style={button} type="button" onClick={() => void onReindex()}>
-              Reindexar
+              {tt(language, 'semanticSearch.reindex')}
             </button>
           </div>
         </div>
@@ -276,26 +277,25 @@ export default function SemanticSearchView({ showToast }: AppViewProps): ReactEl
             </div>
             <small style={{ opacity: 0.6 }}>
               {progress?.file ? `${progress.file} · ` : ''}
-              {progress?.totalBytes ? `${formatBytes(progress.loadedBytes)} / ${formatBytes(progress.totalBytes)}` : 'preparando…'}
+              {progress?.totalBytes ? `${formatBytes(progress.loadedBytes)} / ${formatBytes(progress.totalBytes)}` : tt(language, 'semanticSearch.preparing')}
             </small>
           </div>
         ) : null}
 
         <p style={{ opacity: 0.6, margin: '10px 0 0', fontSize: 12 }}>
-          100% offline and open-source (Transformers.js, CPU). The download is on-demand and cached. Without the model, search
-          still works by keyword/fuzzy matching.
+          {tt(language, 'semanticSearch.offlineHelp')}
         </p>
       </section>
 
       {/* Results ─────────────────────────────────────────────────────────── */}
       <section style={{ ...card, padding: results.length ? '8px 8px' : '14px 16px' }}>
         {searching && results.length === 0 ? (
-          <p style={{ opacity: 0.7, margin: '6px 8px' }}>Buscando…</p>
+          <p style={{ opacity: 0.7, margin: '6px 8px' }}>{tt(language, 'semanticSearch.searching')}</p>
         ) : results.length === 0 ? (
           <p style={{ opacity: 0.7, margin: 0 }}>
             {query.trim()
-              ? 'No results. Try other terms, reindex, or download the model for meaning-based search.'
-              : 'Type something to search your setups, ghosts, driver notes, and Coach/Engineer findings.'}
+              ? tt(language, 'semanticSearch.noResults')
+              : tt(language, 'semanticSearch.emptyPrompt')}
           </p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
