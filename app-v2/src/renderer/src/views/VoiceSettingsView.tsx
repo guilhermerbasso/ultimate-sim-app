@@ -276,8 +276,7 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
       } else {
         showToast(tt(language, 'voice.defaultVoiceToast', { voice: voiceId }), 'success')
       }
-    },
-    [updatePref, pref.engine, ensureVoiceReady, showToast]
+    [updatePref, pref.engine, ensureVoiceReady, showToast, language]
   )
 
   const handleSttToggle = useCallback(
