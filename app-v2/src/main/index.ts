@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, session, shell, Tray } from 'electron'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type {
@@ -19,6 +20,10 @@ import { isBenignSerialError, serialErrorMessage } from './serial/errors'
 import { logger } from './modules/logger'
 import { instrumentBroadcast, instrumentIpcMain } from './modules/diagnostics-log'
 import { claimFirstTrayHint, trayHintFlagPath } from './tray-hint'
+
+if (process.platform === 'win32') {
+  app.setAppUserModelId('io.github.ultimatesim.app')
+}
 
 // Global safety net (installed FIRST, before any other work). Serial I/O on
 // Windows can raise an async "Operation aborted" (ERROR_OPERATION_ABORTED) when a
@@ -86,6 +91,24 @@ let trayHintShownThisRun = false
 // Embedded 32x32 tray icon (PNG) so there's no packaged-asset path to resolve.
 const TRAY_ICON_BASE64 =
   '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'
+
+function resolveMainWindowIcon() {
+  const iconFile = process.platform === 'win32' ? 'icon.ico' : 'icon.png'
+  const fallbackIconFile = process.platform === 'win32' ? 'icon.png' : 'icon.ico'
+  const candidates = [iconFile, fallbackIconFile].flatMap((fileName) => [
+    join(process.resourcesPath, fileName),
+    join(process.resourcesPath, 'build', fileName),
+    join(app.getAppPath(), 'build', fileName),
+    join(__dirname, '../../build', fileName)
+  ])
+
+  for (const iconPath of candidates) {
+    if (!existsSync(iconPath)) continue
+    const icon = nativeImage.createFromPath(iconPath)
+    if (!icon.isEmpty()) return icon
+  }
+  return undefined
+}
 
 function showMainWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
@@ -388,6 +411,7 @@ function registerProductionContentSecurityPolicy(): void {
 }
 
 function createWindow(): void {
+  const icon = resolveMainWindowIcon()
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -396,6 +420,7 @@ function createWindow(): void {
     backgroundColor: '#080b10',
     title: 'Ultimate Sim App',
     autoHideMenuBar: true,
+    ...(icon ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
