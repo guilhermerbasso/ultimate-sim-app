@@ -1,7 +1,7 @@
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { extname, join, normalize, relative, resolve, sep } from 'node:path'
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import QRCode from 'qrcode'
@@ -77,7 +77,9 @@ function generateToken(): string {
 function passwordHash(value: string | undefined): string | null {
   const password = value?.trim()
   if (!password) return null
-  return createHash('sha256').update(password, 'utf8').digest('base64url')
+  const salt = randomBytes(16).toString('hex')
+  const hash = scryptSync(password, salt, 32).toString('base64url')
+  return `${salt}:${hash}`
 }
 
 function primaryLanAddress(): string | null {
@@ -186,7 +188,7 @@ function send(response: ServerResponse, statusCode: number, body: string): void 
 
 function hasValidAuth(url: URL, request: IncomingMessage): boolean {
   if (safeTokenEqual(authValue(url, request, 'token'), state.token)) return true
-  return safeTokenEqual(hashAuthValue(authValue(url, request, 'password')), state.passwordHash)
+  return verifyPassword(authValue(url, request, 'password'), state.passwordHash)
 }
 
 function authValue(url: URL, request: IncomingMessage, key: 'token' | 'password'): string | null {
@@ -199,9 +201,14 @@ function headerValue(request: IncomingMessage, name: string): string | null {
   return value ?? null
 }
 
-function hashAuthValue(value: string | null): string | null {
-  if (!value) return null
-  return createHash('sha256').update(value, 'utf8').digest('base64url')
+function verifyPassword(incoming: string | null, stored: string | null): boolean {
+  if (!incoming || !stored) return false
+  const colonIdx = stored.indexOf(':')
+  if (colonIdx < 0) return false
+  const salt = stored.slice(0, colonIdx)
+  const expectedHash = stored.slice(colonIdx + 1)
+  const incomingHash = scryptSync(incoming, salt, 32).toString('base64url')
+  return safeTokenEqual(incomingHash, expectedHash)
 }
 
 function safeTokenEqual(input: string | null, expected: string | null): boolean {
