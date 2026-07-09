@@ -85,6 +85,14 @@ function extractWidgetCoverage(files) {
         requiredFields.push({ field: fieldMatch[1], file: display })
       }
     }
+
+    // Factory pattern: some groups build modules via `requires: [field]` with a
+    // `field: '<snapshotField>'` spec (e.g. the irTiming2 delta widgets). The literal lives
+    // in the spec, not the `requires` array, so capture it too — otherwise those
+    // factory-declared requires are wrongly reported as uncovered.
+    for (const fieldMatch of source.matchAll(/\bfield:\s*'([^']+)'/g)) {
+      requiredFields.push({ field: fieldMatch[1], file: display })
+    }
   }
 
   return {
