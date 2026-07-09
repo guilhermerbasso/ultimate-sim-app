@@ -92,7 +92,7 @@ win:
     - target: zip
       arch:
         - x64
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  artifactName: Ultimate-Sim-App-${version}-${arch}.${ext}
 
 nsis:
   oneClick: false
