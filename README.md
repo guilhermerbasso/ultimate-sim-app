@@ -30,6 +30,14 @@ The **AI Engineer**, **Live/AI Coach**, and **lap analysis** run **entirely on y
 
 ## ✨ What's new
 
+### 2.44.0 — v5: real-dash car themes, more iRacing widgets & a fixed Windows installer
+
+- **Real-dashboard car themes** — dashboards, full-dash overlays and per-info widgets modelled on the **real cluster** of a fleet of endurance/GT3/Cup cars: **Le Mans / WEC prototype, Ferrari 488 Challenge, Ferrari 296 GT3, Aston Martin Vantage & Vantage GT3, Mercedes-AMG One & GT Track Series, Porsche 911 GT3 Cup, Ford Mustang GTD, Chevrolet Corvette Z06 GT3.R, Lamborghini Huracán GT3 and McLaren 720S**. Each theme ships a full-dash **dashboard**, a full-dash **overlay** and **10 single-info widgets/overlays**, reconstructed with the mandated *gpt-image reference → build → visual-QA-until-clean* flow. No copyrighted photos or logos are committed.
+- **More iRacing widgets & overlays** — extra telemetry channels and visual styles on top of the existing catalog, each validated against its own reference image.
+- **Windows `.exe` restored** — the tagged release build now runs `electron-builder --win --publish never`, so it no longer fails on electron-builder's implicit GitHub publishing; every `v*` tag again attaches a working NSIS installer (`.exe`), a portable `.zip` and `latest.yml` to the Release.
+- **CI on Node 24** — `actions/checkout@v5`, `actions/setup-node@v5` and `node-version: 24` across CI, CodeQL and the installer workflow.
+- **Automated Copilot QA on pull requests** — an opt-in review → auto-fix → auto-merge loop helps keep `main` clean.
+
 ### 2.43.0 — clean v4: title‑less widgets, trigger overlays, 3D nav map, themed cars
 
 - **Clean visual language** — every widget/overlay is now **transparent, title‑less and chrome‑light**: the value speaks for itself (just `P4`, no "Position" label), no panel fills, hairline‑only separators, still fully editable (color/size/font/position + conditional color). A dark text‑outline keeps values legible over any background.
@@ -88,6 +96,7 @@ All hi‑fi dashboards are **NaN‑safe** SVG (they show em‑dashes for absent 
 - **Haptics / Zonal Haptics** — ShakeIt‑style bass‑shaker + tactile feedback mapped to zones, with a visual simulator.
 - **3D Spotter** — HRTF spatial‑audio cues for nearby cars.
 - **Community** — local‑first ghosts, telemetry, and setups via `.simshare` files.
+- **Real‑dash car themes** — per‑car dashboards, full‑dash overlays and single‑info widgets modelled on the real clusters of GT3/Cup/endurance cars (Ferrari 488 Challenge & 296 GT3, Porsche 911 GT3 Cup, Mercedes‑AMG, Aston Martin Vantage GT3, Corvette Z06 GT3.R, Lamborghini Huracán GT3, Mustang GTD, McLaren 720S, Le Mans/WEC), each with authentic shift‑light and cluster signatures.
 
 ### AI & Coaching (local, CPU‑only, free)
 - **AI Engineer** — text race engineer for fuel, tyres, gaps and strategy, plus a **Voice Spotter** (Local LLM).
