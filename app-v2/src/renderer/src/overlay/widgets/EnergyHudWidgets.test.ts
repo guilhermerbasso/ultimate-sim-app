@@ -49,4 +49,11 @@ describe('EnergyHudWidgets instrument conversion', () => {
     expect(renderId('ersBattery', 'minimal', null)).toContain('—')
     expect(renderId('pushToPassHud', 'minimal', null)).toContain('—')
   })
+  it('renders opaque stretch panels for energy/P2P widgets', () => {
+    for (const id of IDS) {
+      const out = renderId(id, 'minimal', snap())
+      expect(out).toContain('preserveAspectRatio="none"')
+      expect(out).toContain('fill-opacity="1"')
+    }
+  })
 })
