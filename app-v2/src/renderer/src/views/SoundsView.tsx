@@ -19,6 +19,7 @@ import {
 } from '../../../shared/soundshift'
 import { ensureAudio, playBeep, setAudioOutputDevice } from '../lib/soundshift-runtime'
 import { useDevices } from '../lib/devices/DeviceRegistry'
+import { tt, type ResolvedLanguage } from '../i18n'
 
 const shell: CSSProperties = {
   display: 'grid',
@@ -96,11 +97,11 @@ interface AudioOutputOption {
   label: string
 }
 
-const tabs: Array<{ id: SoundsTab; label: string; description: string }> = [
-  { id: 'soundshift', label: 'Soundshift', description: 'Optimal shift beep' },
-  { id: 'incident', label: 'Incident', description: 'iRacing incident count increase' },
-  { id: 'abs', label: 'ABS', description: 'ABS engaging under braking' },
-  { id: 'tcs', label: 'TCS', description: 'Traction control intervention' }
+const tabs: Array<{ id: SoundsTab; labelKey: string; descriptionKey: string }> = [
+  { id: 'soundshift', labelKey: 'sounds.tab.soundshift', descriptionKey: 'sounds.tab.soundshift.description' },
+  { id: 'incident', labelKey: 'sounds.tab.incident', descriptionKey: 'sounds.tab.incident.description' },
+  { id: 'abs', labelKey: 'sounds.tab.abs', descriptionKey: 'sounds.tab.abs.description' },
+  { id: 'tcs', labelKey: 'sounds.tab.tcs', descriptionKey: 'sounds.tab.tcs.description' }
 ]
 
 function getErrorMessage(error: unknown): string {
@@ -111,20 +112,24 @@ function formatPct(value: number | undefined): string {
   return value == null ? '—' : `${Math.round(value * 100)}%`
 }
 
-function formatRpm(value: number | undefined): string {
-  return value == null || value <= 0 ? '—' : `${Math.round(value).toLocaleString('pt-BR')} rpm`
+function localeOf(language: ResolvedLanguage | undefined): string {
+  return language === 'pt-BR' ? 'pt-BR' : language ?? 'en'
 }
 
-function formatBool(value: boolean | undefined): string {
-  if (value == null) return 'missing'
-  return value ? 'yes' : 'no'
+function formatRpm(value: number | undefined, language?: ResolvedLanguage): string {
+  return value == null || value <= 0 ? '—' : `${Math.round(value).toLocaleString(localeOf(language))} rpm`
+}
+
+function formatBool(value: boolean | undefined, language?: ResolvedLanguage): string {
+  if (value == null) return tt(language, 'sounds.value.missing')
+  return value ? tt(language, 'common.yes') : tt(language, 'common.no')
 }
 
 function normalizeDefaultOutputDevice(deviceId: string): string {
   return deviceId === 'default' ? '' : deviceId
 }
 
-const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement => {
+const SoundsView: ComponentType<AppViewProps> = ({ showToast, language }): ReactElement => {
   // Audio outputs come from the shared device registry so the list (and the
   // selected output) stays consistent with the Devices hub and every other
   // menu — no per-view re-enumeration.
@@ -190,7 +195,7 @@ const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =>
     try {
       const saved = await window.ipc.invoke<SoundsConfig>(SOUNDSHIFT_CHANNELS.clearLearned)
       setConfig(saved)
-      showToast('Learned RPM by gear reset.', 'success')
+      showToast(tt(language, 'sounds.toast.learningReset'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -201,7 +206,7 @@ const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =>
   function changeOutputDevice(outputDeviceId: string): void {
     setAudioOutputDevice(outputDeviceId)
     setConfig((current) => ({ ...current, outputDeviceId }))
-    void persist({ outputDeviceId }, outputDeviceId ? 'Audio cues routed to selected output.' : 'Audio cues routed to system default.')
+    void persist({ outputDeviceId }, outputDeviceId ? tt(language, 'sounds.toast.outputSelected') : tt(language, 'sounds.toast.outputDefault'))
   }
 
   function updateSoundshift(patch: Partial<SoundshiftConfig>): void {
@@ -237,7 +242,7 @@ const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =>
 
   function saveCar(car: SoundshiftCarTuning): void {
     const cars = { ...config.soundshift.cars, [car.carKey]: config.soundshift.cars[car.carKey] ?? car }
-    void persist({ soundshift: { cars } }, `Saved tuning for ${cars[car.carKey]?.carName ?? car.carKey}.`)
+    void persist({ soundshift: { cars } }, tt(language, 'sounds.toast.carSaved', { car: cars[car.carKey]?.carName ?? car.carKey }))
   }
 
   async function testBeep(settings: SoundCueSettings): Promise<void> {
@@ -245,7 +250,7 @@ const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =>
       ensureAudio()
       setAudioOutputDevice(config.outputDeviceId)
       await playBeep(settings.toneHz, settings.beepMs, settings.volume)
-      showToast('Test beep sent to the selected output.', 'success')
+      showToast(tt(language, 'sounds.toast.testBeep'), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     }
@@ -255,12 +260,12 @@ const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =>
     <section style={shell}>
       <article style={{ ...panel, minHeight: 520 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
-          <span style={label}>Sounds · PC audio</span>
-          <SectionExportImport sectionId="soundshift" label="SoundShift" onImported={() => void reloadConfig()} />
+          <span style={label}>{tt(language, 'sounds.eyebrow')}</span>
+          <SectionExportImport sectionId="soundshift" label={tt(language, 'sounds.exportLabel')} language={language} onImported={() => void reloadConfig()} />
         </div>
-        <h3 style={{ margin: '8px 0 4px', fontSize: 26 }}>Audio cues hub</h3>
+        <h3 style={{ margin: '8px 0 4px', fontSize: 26 }}>{tt(language, 'sounds.title')}</h3>
         <p style={{ color: 'rgba(255,255,255,0.62)' }}>
-          Configure Soundshift, incident, ABS and TCS cues. These app audio cues are generated in the renderer and routed to the selected output device.
+          {tt(language, 'sounds.summary')}
         </p>
 
         <AudioOutputSelector
@@ -270,6 +275,7 @@ const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =>
           status={audioOutputsStatus}
           onChange={changeOutputDevice}
           onRefresh={() => void refreshAudioOutputs(true)}
+          language={language}
         />
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, margin: '16px 0' }}>
@@ -278,9 +284,10 @@ const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =>
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               style={{ ...ghostButton, background: activeTab === tab.id ? 'var(--accent-primary-dim)' : ghostButton.background, border: activeTab === tab.id ? '1px solid var(--accent-primary)' : ghostButton.border, color: activeTab === tab.id ? 'var(--accent-primary)' : ghostButton.color }}
+              title={tt(language, tab.descriptionKey)}
               type="button"
             >
-              {tab.label}
+              {tt(language, tab.labelKey)}
             </button>
           ))}
         </div>
@@ -294,6 +301,7 @@ const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =>
             onLocalChange={updateSoundshift}
             onResetLearned={() => void resetLearned()}
             onTest={() => void testBeep(config.soundshift)}
+            language={language}
           />
         ) : activeTab === 'incident' ? (
           <IncidentPanel
@@ -303,6 +311,7 @@ const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =>
             onCommit={(patch, success) => void persist({ incident: patch }, success)}
             onLocalChange={updateIncident}
             onTest={() => void testBeep(config.incident)}
+            language={language}
           />
         ) : activeTab === 'abs' ? (
           <ControlPanel
@@ -313,6 +322,7 @@ const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =>
             onCommit={(patch, success) => void persist({ abs: patch }, success)}
             onLocalChange={(patch) => updateControl('abs', patch)}
             onTest={() => void testBeep(config.abs)}
+            language={language}
           />
         ) : (
           <ControlPanel
@@ -323,28 +333,29 @@ const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =>
             onCommit={(patch, success) => void persist({ tcs: patch }, success)}
             onLocalChange={(patch) => updateControl('tcs', patch)}
             onTest={() => void testBeep(config.tcs)}
+            language={language}
           />
         )}
       </article>
 
       <article style={panel}>
-        <span style={label}>Live telemetry</span>
+        <span style={label}>{tt(language, 'sounds.liveTelemetry')}</span>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, margin: '10px 0 16px' }}>
-          <LiveTile labelText="Car" value={live?.carName ?? '—'} />
-          <LiveTile labelText="RPM" value={formatRpm(live?.rpm)} />
-          <LiveTile labelText="Gear" value={live?.gear == null ? '—' : String(live.gear)} />
-          <LiveTile labelText="Shift" value={formatPct(live?.shiftIndicatorPct)} />
-          <LiveTile labelText="Incidents" value={live?.incidentCount == null ? '—' : String(live.incidentCount)} />
-          <LiveTile labelText="ABS active" value={formatBool(live?.absActive)} />
-          <LiveTile labelText="TC active" value={formatBool(live?.tcActive)} />
-          <LiveTile labelText="Brake / throttle" value={`${formatPct(live?.brake)} / ${formatPct(live?.throttle)}`} />
+          <LiveTile labelText={tt(language, 'sounds.live.car')} value={live?.carName ?? '—'} />
+          <LiveTile labelText="RPM" value={formatRpm(live?.rpm, language)} />
+          <LiveTile labelText={tt(language, 'sounds.live.gear')} value={live?.gear == null ? '—' : String(live.gear)} />
+          <LiveTile labelText={tt(language, 'sounds.live.shift')} value={formatPct(live?.shiftIndicatorPct)} />
+          <LiveTile labelText={tt(language, 'sounds.live.incidents')} value={live?.incidentCount == null ? '—' : String(live.incidentCount)} />
+          <LiveTile labelText={tt(language, 'sounds.live.absActive')} value={formatBool(live?.absActive, language)} />
+          <LiveTile labelText={tt(language, 'sounds.live.tcActive')} value={formatBool(live?.tcActive, language)} />
+          <LiveTile labelText={tt(language, 'sounds.live.brakeThrottle')} value={`${formatPct(live?.brake)} / ${formatPct(live?.throttle)}`} />
         </div>
 
         {activeTab === 'soundshift' ? (
           <div style={{ display: 'grid', gap: 12 }}>
             {carRows.length === 0 ? (
               <div style={{ ...panel,  }}>
-                Connect iRacing telemetry to create the first per-car tuning.
+                {tt(language, 'sounds.car.empty')}
               </div>
             ) : (
               carRows.map((car) => (
@@ -353,12 +364,13 @@ const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =>
                   key={car.carKey}
                   onChange={(patch) => updateCar(car.carKey, patch)}
                   onSave={() => saveCar(car)}
+                  language={language}
                 />
               ))
             )}
           </div>
         ) : (
-          <AssistTelemetryNote tab={activeTab} live={live} />
+          <AssistTelemetryNote tab={activeTab} live={live} language={language} />
         )}
       </article>
     </section>
@@ -368,6 +380,7 @@ const SoundsView: ComponentType<AppViewProps> = ({ showToast }): ReactElement =>
 function AudioOutputSelector({
   busy,
   devices,
+  language,
   outputDeviceId,
   status,
   onChange,
@@ -375,6 +388,7 @@ function AudioOutputSelector({
 }: {
   busy: boolean
   devices: AudioOutputOption[]
+  language?: ResolvedLanguage
   outputDeviceId: string
   status: string
   onChange(outputDeviceId: string): void
@@ -390,18 +404,18 @@ function AudioOutputSelector({
     <div style={{ border: '1px solid var(--border-accent)', borderRadius: 'var(--radius-md)', padding: 'var(--space-4)', background: 'var(--surface-selected)', display: 'grid', gap: 'var(--space-2)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
         <div>
-          <span style={label}>Output device</span>
+          <span style={label}>{tt(language, 'sounds.outputDevice')}</span>
           <p style={{ color: 'rgba(255,255,255,0.58)', fontSize: 13, margin: '4px 0 0' }}>
-            Routes this app's cue beeps only; it does not change game audio.
+            {tt(language, 'sounds.outputHelp')}
           </p>
         </div>
         <button disabled={busy} onClick={onRefresh} style={ghostButton} type="button">
-          Refresh
+          {tt(language, 'common.refresh')}
         </button>
       </div>
       <select disabled={busy} onChange={(event) => onChange(event.target.value)} style={inputStyle} value={selectValue}>
-        <option value="">System default</option>
-        {selectedDeviceMissing ? <option value={selectValue}>Selected device unavailable</option> : null}
+        <option value="">{tt(language, 'sounds.systemDefault')}</option>
+        {selectedDeviceMissing ? <option value={selectValue}>{tt(language, 'sounds.deviceUnavailable')}</option> : null}
         {dedicatedDevices.map((device) => (
           <option key={device.deviceId} value={device.deviceId}>
             {device.label}
@@ -409,7 +423,7 @@ function AudioOutputSelector({
         ))}
       </select>
       <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, margin: 0 }}>
-        {status} If device names are hidden, Refresh may request audio permission to unlock labels.
+        {tt(language, 'sounds.outputStatusHelp', { status })}
       </p>
     </div>
   )
@@ -418,6 +432,7 @@ function AudioOutputSelector({
 function SoundshiftPanel({
   busy,
   config,
+  language,
   live,
   onCommit,
   onLocalChange,
@@ -426,6 +441,7 @@ function SoundshiftPanel({
 }: {
   busy: boolean
   config: SoundshiftConfig
+  language?: ResolvedLanguage
   live: TelemetrySnapshot | null
   onCommit(patch: Partial<SoundshiftConfig>, success?: string): void
   onLocalChange(patch: Partial<SoundshiftConfig>): void
@@ -444,58 +460,59 @@ function SoundshiftPanel({
       <HeaderToggle
         busy={busy}
         enabled={config.enabled}
-        title="Optimal shift beep"
-        description="Beeps at the optimal shift point from iRacing's own shift indicator when available, or a learned/manual RPM target otherwise — with lead time and per-gear learning."
-        onToggle={() => onCommit({ enabled: !config.enabled }, config.enabled ? 'Soundshift paused.' : 'Soundshift enabled.')}
+        title={tt(language, 'sounds.soundshift.title')}
+        description={tt(language, 'sounds.soundshift.description')}
+        onToggle={() => onCommit({ enabled: !config.enabled }, config.enabled ? tt(language, 'sounds.toast.soundshiftPaused') : tt(language, 'sounds.toast.soundshiftEnabled'))}
+        language={language}
       />
-      <SoundFields config={config} onCommit={onCommit} onLocalChange={onLocalChange} />
+      <SoundFields config={config} language={language} onCommit={onCommit} onLocalChange={onLocalChange} />
 
       <div style={{ border: '1px solid var(--border-accent)', borderRadius: 'var(--radius-md)', padding: 'var(--space-4)', background: 'var(--surface-selected)', display: 'grid', gap: 8 }}>
         <label style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', cursor: 'pointer' }}>
-          <span style={{ fontWeight: 600 }}>Use iRacing shiftIndicatorPct when available</span>
+          <span style={{ fontWeight: 600 }}>{tt(language, 'sounds.soundshift.useIracing')}</span>
           <input
             checked={useIracingIndicator}
             onChange={(event) => onCommit(
               { defaultMode: event.target.checked ? 'shiftLight' : 'rpm' },
-              event.target.checked ? 'Soundshift using the iRacing shift indicator.' : 'Soundshift using learned/manual target RPM.'
+              event.target.checked ? tt(language, 'sounds.toast.soundshiftIracing') : tt(language, 'sounds.toast.soundshiftLearned')
             )}
             type="checkbox"
           />
         </label>
         <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, margin: 0 }}>
           {useIracingIndicator
-            ? 'The beep follows iRacing?s own shift light indicator (ShiftIndicatorPct ? threshold). When the sim does not provide that signal, it automatically falls back to the learned/manual target RPM by gear.'
-            : 'The beep uses the learned/manual target RPM by gear. Enable this to prioritize the iRacing shift indicator when available.'}
+            ? tt(language, 'sounds.soundshift.iracingHelp')
+            : tt(language, 'sounds.soundshift.learnedHelp')}
         </p>
         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, margin: 0 }}>
           {iracingProvidingShift
-            ? `iRacing is providing a shift signal now · upshift ${formatRpm(iracingShiftRpm)} · indicator ${formatPct(liveShiftPct)}`
-            : `No sim shift signal now ? would use the learned/manual target RPM${liveShiftPct != null ? ` (indicator ${formatPct(liveShiftPct)})` : ''}.`}
+            ? tt(language, 'sounds.soundshift.signalNow', { rpm: formatRpm(iracingShiftRpm, language), pct: formatPct(liveShiftPct) })
+            : tt(language, liveShiftPct != null ? 'sounds.soundshift.noSignalWithIndicator' : 'sounds.soundshift.noSignal', { pct: formatPct(liveShiftPct) })}
         </p>
       </div>
 
       <div style={{ display: 'grid', gap: 12 }}>
         <label style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-          <span>Auto-learn per gear</span>
+          <span>{tt(language, 'sounds.soundshift.autoLearn')}</span>
           <input checked={config.autoLearn} onChange={(event) => onCommit({ autoLearn: event.target.checked })} type="checkbox" />
         </label>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>Clears the learned shift RPM by gear for all cars.</span>
-          <button disabled={busy} onClick={onResetLearned} style={ghostButton} type="button">Reset learning</button>
+          <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>{tt(language, 'sounds.soundshift.resetHelp')}</span>
+          <button disabled={busy} onClick={onResetLearned} style={ghostButton} type="button">{tt(language, 'sounds.soundshift.resetLearning')}</button>
         </div>
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={label}>Default mode</span>
+          <span style={label}>{tt(language, 'sounds.soundshift.defaultMode')}</span>
           <select onChange={(event) => onCommit({ defaultMode: event.target.value as SoundshiftMode })} style={inputStyle} value={config.defaultMode}>
-            <option value="exact">Exato no shift point</option>
-            <option value="redlineOffset">Before redline (RPM offset)</option>
-            <option value="shiftLight">iRacing shift indicator (shiftIndicatorPct)</option>
-            <option value="rpm">Target / learned RPM</option>
+            <option value="exact">{tt(language, 'sounds.mode.exact')}</option>
+            <option value="redlineOffset">{tt(language, 'sounds.mode.redlineOffsetLong')}</option>
+            <option value="shiftLight">{tt(language, 'sounds.mode.shiftLightLong')}</option>
+            <option value="rpm">{tt(language, 'sounds.mode.rpmLong')}</option>
           </select>
         </label>
-        <NumberField labelText="Default threshold" min={0.5} max={1} step={0.01} value={config.defaultThresholdPct} onChange={(defaultThresholdPct) => onLocalChange({ defaultThresholdPct })} onCommit={() => onCommit({ defaultThresholdPct: config.defaultThresholdPct })} />
-        <NumberField labelText="RPM before redline (offset)" min={0} max={2000} step={10} value={config.defaultShiftOffsetRpm} onChange={(defaultShiftOffsetRpm) => onLocalChange({ defaultShiftOffsetRpm })} onCommit={() => onCommit({ defaultShiftOffsetRpm: config.defaultShiftOffsetRpm })} />
+        <NumberField labelText={tt(language, 'sounds.defaultThreshold')} min={0.5} max={1} step={0.01} value={config.defaultThresholdPct} onChange={(defaultThresholdPct) => onLocalChange({ defaultThresholdPct })} onCommit={() => onCommit({ defaultThresholdPct: config.defaultThresholdPct })} />
+        <NumberField labelText={tt(language, 'sounds.rpmBeforeRedlineOffset')} min={0} max={2000} step={10} value={config.defaultShiftOffsetRpm} onChange={(defaultShiftOffsetRpm) => onLocalChange({ defaultShiftOffsetRpm })} onCommit={() => onCommit({ defaultShiftOffsetRpm: config.defaultShiftOffsetRpm })} />
       </div>
-      <PanelButtons busy={busy} onSave={() => onCommit(config, 'Soundshift settings saved.')} onTest={onTest} />
+      <PanelButtons busy={busy} language={language} onSave={() => onCommit(config, tt(language, 'sounds.toast.soundshiftSaved'))} onTest={onTest} />
     </div>
   )
 }
@@ -503,6 +520,7 @@ function SoundshiftPanel({
 function IncidentPanel({
   busy,
   config,
+  language,
   live,
   onCommit,
   onLocalChange,
@@ -510,6 +528,7 @@ function IncidentPanel({
 }: {
   busy: boolean
   config: IncidentSoundConfig
+  language?: ResolvedLanguage
   live: TelemetrySnapshot | null
   onCommit(patch: Partial<IncidentSoundConfig>, success?: string): void
   onLocalChange(patch: Partial<IncidentSoundConfig>): void
@@ -520,19 +539,20 @@ function IncidentPanel({
       <HeaderToggle
         busy={busy}
         enabled={config.enabled}
-        title="Incident count increase"
-        description="Beeps only when the iRacing incident count increases after the current count has been observed once."
-        onToggle={() => onCommit({ enabled: !config.enabled }, config.enabled ? 'Incident cue paused.' : 'Incident cue enabled.')}
+        title={tt(language, 'sounds.incident.title')}
+        description={tt(language, 'sounds.incident.description')}
+        onToggle={() => onCommit({ enabled: !config.enabled }, config.enabled ? tt(language, 'sounds.toast.incidentPaused') : tt(language, 'sounds.toast.incidentEnabled'))}
+        language={language}
       />
-      <SoundFields config={config} onCommit={onCommit} onLocalChange={onLocalChange} />
+      <SoundFields config={config} language={language} onCommit={onCommit} onLocalChange={onLocalChange} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
-        <NumberField labelText="Minimum delta" min={1} max={20} step={1} value={config.minDelta} onChange={(minDelta) => onLocalChange({ minDelta })} onCommit={() => onCommit({ minDelta: config.minDelta })} />
-        <NumberField labelText="Cooldown (ms)" min={0} max={10000} step={100} value={config.cooldownMs} onChange={(cooldownMs) => onLocalChange({ cooldownMs })} onCommit={() => onCommit({ cooldownMs: config.cooldownMs })} />
+        <NumberField labelText={tt(language, 'sounds.minimumDelta')} min={1} max={20} step={1} value={config.minDelta} onChange={(minDelta) => onLocalChange({ minDelta })} onCommit={() => onCommit({ minDelta: config.minDelta })} />
+        <NumberField labelText={tt(language, 'sounds.cooldownMs')} min={0} max={10000} step={100} value={config.cooldownMs} onChange={(cooldownMs) => onLocalChange({ cooldownMs })} onCommit={() => onCommit({ cooldownMs: config.cooldownMs })} />
       </div>
       <p style={{ color: 'rgba(255,255,255,0.58)', fontSize: 13, margin: 0 }}>
-        Live incident count: {live?.incidentCount == null ? 'missing' : live.incidentCount}. Missing telemetry is treated as inactive.
+        {tt(language, 'sounds.incident.liveCount', { count: live?.incidentCount == null ? tt(language, 'sounds.value.missing') : live.incidentCount })}
       </p>
-      <PanelButtons busy={busy} onSave={() => onCommit(config, 'Incident settings saved.')} onTest={onTest} />
+      <PanelButtons busy={busy} language={language} onSave={() => onCommit(config, tt(language, 'sounds.toast.incidentSaved'))} onTest={onTest} />
     </div>
   )
 }
@@ -541,6 +561,7 @@ function ControlPanel({
   busy,
   config,
   id,
+  language,
   live,
   onCommit,
   onLocalChange,
@@ -549,6 +570,7 @@ function ControlPanel({
   busy: boolean
   config: ControlAssistSoundConfig
   id: 'abs' | 'tcs'
+  language?: ResolvedLanguage
   live: TelemetrySnapshot | null
   onCommit(patch: Partial<ControlAssistSoundConfig>, success?: string): void
   onLocalChange(patch: Partial<ControlAssistSoundConfig>): void
@@ -561,60 +583,65 @@ function ControlPanel({
       <HeaderToggle
         busy={busy}
         enabled={config.enabled}
-        title={isAbs ? 'ABS engaging' : 'TCS in use'}
-        description={isAbs ? 'Uses only absActive as a true intervention signal plus brake threshold. If the sim does not expose ABS activity, the cue stays quiet.' : 'Uses only tcActive as a true intervention signal plus throttle threshold. If the sim does not expose TC activity, the cue stays quiet.'}
-        onToggle={() => onCommit({ enabled: !config.enabled }, config.enabled ? `${id.toUpperCase()} cue paused.` : `${id.toUpperCase()} cue enabled.`)}
+        title={tt(language, isAbs ? 'sounds.abs.title' : 'sounds.tcs.title')}
+        description={tt(language, isAbs ? 'sounds.abs.description' : 'sounds.tcs.description')}
+        onToggle={() => onCommit({ enabled: !config.enabled }, config.enabled ? tt(language, 'sounds.toast.controlPaused', { cue: id.toUpperCase() }) : tt(language, 'sounds.toast.controlEnabled', { cue: id.toUpperCase() }))}
+        language={language}
       />
-      <SoundFields config={config} onCommit={onCommit} onLocalChange={onLocalChange} />
+      <SoundFields config={config} language={language} onCommit={onCommit} onLocalChange={onLocalChange} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
-        <NumberField labelText={isAbs ? 'Brake threshold' : 'Throttle threshold'} min={0} max={1} step={0.01} value={config.inputThreshold} onChange={(inputThreshold) => onLocalChange({ inputThreshold })} onCommit={() => onCommit({ inputThreshold: config.inputThreshold })} />
-        <NumberField labelText={isAbs ? 'Repeat interval (ms)' : 'Cooldown (ms)'} min={75} max={5000} step={25} value={config.repeatMs} onChange={(repeatMs) => onLocalChange({ repeatMs })} onCommit={() => onCommit({ repeatMs: config.repeatMs })} />
+        <NumberField labelText={tt(language, isAbs ? 'sounds.brakeThreshold' : 'sounds.throttleThreshold')} min={0} max={1} step={0.01} value={config.inputThreshold} onChange={(inputThreshold) => onLocalChange({ inputThreshold })} onCommit={() => onCommit({ inputThreshold: config.inputThreshold })} />
+        <NumberField labelText={tt(language, isAbs ? 'sounds.repeatIntervalMs' : 'sounds.cooldownMs')} min={75} max={5000} step={25} value={config.repeatMs} onChange={(repeatMs) => onLocalChange({ repeatMs })} onCommit={() => onCommit({ repeatMs: config.repeatMs })} />
       </div>
       {isAbs ? (
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={label}>Trigger mode</span>
+          <span style={label}>{tt(language, 'sounds.triggerMode')}</span>
           <select onChange={(event) => onCommit({ triggerMode: event.target.value as ControlTriggerMode })} style={inputStyle} value={config.triggerMode}>
-            <option value="start">Only when engagement starts</option>
-            <option value="repeat">Repeat while engaging</option>
+            <option value="start">{tt(language, 'sounds.trigger.start')}</option>
+            <option value="repeat">{tt(language, 'sounds.trigger.repeat')}</option>
           </select>
         </label>
       ) : (
         <p style={{ color: 'rgba(255,255,255,0.58)', fontSize: 13, margin: 0 }}>
-          TCS is edge-triggered only: one beep when intervention starts, then the cooldown prevents repeat spam.
+          {tt(language, 'sounds.tcs.edgeHelp')}
         </p>
       )}
       <p style={{ color: 'rgba(255,255,255,0.58)', fontSize: 13, margin: 0 }}>
-        Current decision: {decision ? `${decision.engaging ? 'engaging' : 'inactive'} (${decision.reason})` : 'waiting for telemetry'}.
+        {decision
+          ? tt(language, 'sounds.currentDecisionWithReason', { state: tt(language, decision.engaging ? 'sounds.decision.engaging' : 'sounds.decision.inactive'), reason: decision.reason })
+          : tt(language, 'sounds.currentDecisionWaiting')}
       </p>
-      <PanelButtons busy={busy} onSave={() => onCommit(config, `${id.toUpperCase()} settings saved.`)} onTest={onTest} />
+      <PanelButtons busy={busy} language={language} onSave={() => onCommit(config, tt(language, 'sounds.toast.controlSaved', { cue: id.toUpperCase() }))} onTest={onTest} />
     </div>
   )
 }
 
 function SoundFields<T extends SoundCueSettings>({
   config,
+  language,
   onCommit,
   onLocalChange
 }: {
   config: T
+  language?: ResolvedLanguage
   onCommit(patch: Partial<T>): void
   onLocalChange(patch: Partial<T>): void
 }): ReactElement {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
       <label style={{ display: 'grid', gap: 6 }}>
-        <span style={label}>Tone choice</span>
+        <span style={label}>{tt(language, 'sounds.toneChoice')}</span>
         <select onChange={(event) => onCommit({ toneHz: Number(event.target.value) } as Partial<T>)} style={inputStyle} value={nearestTone(config.toneHz)}>
-          <option value={520}>Low beep · 520 Hz</option>
-          <option value={660}>Medium beep · 660 Hz</option>
-          <option value={880}>High beep · 880 Hz</option>
-          <option value={1320}>Shift beep · 1320 Hz</option>
+          <option value={520}>{tt(language, 'sounds.tone.low')}</option>
+          <option value={660}>{tt(language, 'sounds.tone.medium')}</option>
+          <option value={880}>{tt(language, 'sounds.tone.high')}</option>
+          <option value={1320}>{tt(language, 'sounds.tone.shift')}</option>
         </select>
       </label>
-      <NumberField labelText="Custom tone (Hz)" min={120} max={6000} step={10} value={config.toneHz} onChange={(toneHz) => onLocalChange({ toneHz } as Partial<T>)} onCommit={() => onCommit({ toneHz: config.toneHz } as Partial<T>)} />
-      <NumberField labelText="Volume" min={0} max={1} step={0.05} value={config.volume} onChange={(volume) => onLocalChange({ volume } as Partial<T>)} onCommit={() => onCommit({ volume: config.volume } as Partial<T>)} />
-      <NumberField labelText="Duration (ms)" min={20} max={500} step={5} value={config.beepMs} onChange={(beepMs) => onLocalChange({ beepMs } as Partial<T>)} onCommit={() => onCommit({ beepMs: config.beepMs } as Partial<T>)} />
-      {'leadMs' in config ? <NumberField labelText="Lead (ms)" min={0} max={1000} step={10} value={config.leadMs as number} onChange={(leadMs) => onLocalChange({ leadMs } as unknown as Partial<T>)} onCommit={() => onCommit({ leadMs: config.leadMs } as unknown as Partial<T>)} /> : null}
+      <NumberField labelText={tt(language, 'sounds.customToneHz')} min={120} max={6000} step={10} value={config.toneHz} onChange={(toneHz) => onLocalChange({ toneHz } as Partial<T>)} onCommit={() => onCommit({ toneHz: config.toneHz } as Partial<T>)} />
+      <NumberField labelText={tt(language, 'sounds.volume')} min={0} max={1} step={0.05} value={config.volume} onChange={(volume) => onLocalChange({ volume } as Partial<T>)} onCommit={() => onCommit({ volume: config.volume } as Partial<T>)} />
+      <NumberField labelText={tt(language, 'sounds.durationMs')} min={20} max={500} step={5} value={config.beepMs} onChange={(beepMs) => onLocalChange({ beepMs } as Partial<T>)} onCommit={() => onCommit({ beepMs: config.beepMs } as Partial<T>)} />
+      {'leadMs' in config ? <NumberField labelText={tt(language, 'sounds.leadMs')} min={0} max={1000} step={10} value={config.leadMs as number} onChange={(leadMs) => onLocalChange({ leadMs } as unknown as Partial<T>)} onCommit={() => onCommit({ leadMs: config.leadMs } as unknown as Partial<T>)} /> : null}
     </div>
   )
 }
@@ -623,12 +650,14 @@ function HeaderToggle({
   busy,
   description,
   enabled,
+  language,
   onToggle,
   title
 }: {
   busy: boolean
   description: string
   enabled: boolean
+  language?: ResolvedLanguage
   onToggle(): void
   title: string
 }): ReactElement {
@@ -639,17 +668,17 @@ function HeaderToggle({
         <p style={{ color: 'rgba(255,255,255,0.62)', margin: 0 }}>{description}</p>
       </div>
       <button disabled={busy} onClick={onToggle} style={{ ...primaryButton, background: enabled ? 'var(--accent-danger)' : 'var(--accent-primary)', color: 'var(--text-on-accent)' }} type="button">
-        {enabled ? 'Pause' : 'Enable'}
+        {enabled ? tt(language, 'common.pause') : tt(language, 'common.enable')}
       </button>
     </div>
   )
 }
 
-function PanelButtons({ busy, onSave, onTest }: { busy: boolean; onSave(): void; onTest(): void }): ReactElement {
+function PanelButtons({ busy, language, onSave, onTest }: { busy: boolean; language?: ResolvedLanguage; onSave(): void; onTest(): void }): ReactElement {
   return (
     <div style={{ display: 'flex', gap: 10, marginTop: 2, flexWrap: 'wrap' }}>
-      <button onClick={onTest} style={ghostButton} type="button">Test beep</button>
-      <button disabled={busy} onClick={onSave} style={ghostButton} type="button">Save all</button>
+      <button onClick={onTest} style={ghostButton} type="button">{tt(language, 'sounds.testBeep')}</button>
+      <button disabled={busy} onClick={onSave} style={ghostButton} type="button">{tt(language, 'common.saveAll')}</button>
     </div>
   )
 }
@@ -693,15 +722,15 @@ function LiveTile({ labelText, value }: { labelText: string; value: string }): R
   )
 }
 
-function AssistTelemetryNote({ tab, live }: { tab: SoundsTab; live: TelemetrySnapshot | null }): ReactElement {
+function AssistTelemetryNote({ tab, live, language }: { tab: SoundsTab; live: TelemetrySnapshot | null; language?: ResolvedLanguage }): ReactElement {
   const text = tab === 'incident'
-    ? 'Incident cue relies on incidentCount increasing. Missing incidentCount is inactive.'
+    ? tt(language, 'sounds.assist.incident')
     : tab === 'abs'
-      ? 'ABS cue relies on the sim exposing absActive as actual intervention. Missing ABS activity stays quiet rather than beeping from an enabled state.'
-      : 'TCS cue relies on the sim exposing tcActive as actual intervention. Missing TC activity stays quiet rather than beeping from an enabled/toggle state.'
+      ? tt(language, 'sounds.assist.abs')
+      : tt(language, 'sounds.assist.tcs')
   return (
     <div style={{ ...panel,  }}>
-      <strong>{live?.connected ? 'Telemetry connected' : 'Waiting for telemetry'}</strong>
+      <strong>{live?.connected ? tt(language, 'sounds.telemetryConnected') : tt(language, 'sounds.telemetryWaiting')}</strong>
       <p style={{ color: 'rgba(255,255,255,0.62)', marginBottom: 0 }}>{text}</p>
     </div>
   )
@@ -709,10 +738,12 @@ function AssistTelemetryNote({ tab, live }: { tab: SoundsTab; live: TelemetrySna
 
 function CarTuningCard({
   car,
+  language,
   onChange,
   onSave
 }: {
   car: SoundshiftCarTuning
+  language?: ResolvedLanguage
   onChange(patch: Partial<SoundshiftCarTuning>): void
   onSave(): void
 }): ReactElement {
@@ -724,46 +755,46 @@ function CarTuningCard({
           <strong>{car.carName ?? car.carKey}</strong>
           <p style={{ marginTop: 4, color: 'rgba(255,255,255,0.56)', fontSize: 12 }}>{car.carKey}</p>
         </div>
-        <button onClick={onSave} style={ghostButton} type="button">Save car</button>
+        <button onClick={onSave} style={ghostButton} type="button">{tt(language, 'sounds.car.save')}</button>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 12 }}>
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={label}>Mode</span>
+          <span style={label}>{tt(language, 'sounds.car.mode')}</span>
           <select
             onChange={(event) => onChange({ mode: event.target.value === '' ? undefined : (event.target.value as SoundshiftMode) })}
             style={inputStyle}
             value={car.mode ?? ''}
           >
-            <option value="">Follow global default</option>
-            <option value="exact">Exato no shift point</option>
-            <option value="redlineOffset">Before redline</option>
-            <option value="shiftLight">Shift light</option>
+            <option value="">{tt(language, 'sounds.mode.followGlobal')}</option>
+            <option value="exact">{tt(language, 'sounds.mode.exact')}</option>
+            <option value="redlineOffset">{tt(language, 'sounds.mode.redlineOffset')}</option>
+            <option value="shiftLight">{tt(language, 'sounds.mode.shiftLight')}</option>
             <option value="rpm">RPM</option>
           </select>
         </label>
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={label}>Target RPM</span>
-          <input onChange={(event) => onChange({ targetRpm: event.target.value === '' ? undefined : Number(event.target.value) })} placeholder="auto" style={inputStyle} type="number" value={car.targetRpm ?? ''} />
+          <span style={label}>{tt(language, 'sounds.targetRpm')}</span>
+          <input onChange={(event) => onChange({ targetRpm: event.target.value === '' ? undefined : Number(event.target.value) })} placeholder={tt(language, 'common.auto')} style={inputStyle} type="number" value={car.targetRpm ?? ''} />
         </label>
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={label}>Threshold</span>
+          <span style={label}>{tt(language, 'sounds.threshold')}</span>
           <input max={1} min={0.5} onChange={(event) => onChange({ thresholdPct: Number(event.target.value) })} step={0.01} style={inputStyle} type="number" value={car.thresholdPct ?? ''} />
         </label>
         <label style={{ display: 'grid', gap: 6 }}>
-          <span style={label}>RPM before redline</span>
-          <input max={2000} min={0} onChange={(event) => onChange({ shiftOffsetRpm: event.target.value === '' ? undefined : Number(event.target.value) })} placeholder="auto" step={10} style={inputStyle} type="number" value={car.shiftOffsetRpm ?? ''} />
+          <span style={label}>{tt(language, 'sounds.rpmBeforeRedline')}</span>
+          <input max={2000} min={0} onChange={(event) => onChange({ shiftOffsetRpm: event.target.value === '' ? undefined : Number(event.target.value) })} placeholder={tt(language, 'common.auto')} step={10} style={inputStyle} type="number" value={car.shiftOffsetRpm ?? ''} />
         </label>
       </div>
 
       <div style={{ marginTop: 12 }}>
-        <span style={label}>Learned RPM per gear</span>
+        <span style={label}>{tt(language, 'sounds.learnedRpmPerGear')}</span>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
           {learnedEntries.length === 0 ? (
-            <span style={{ color: 'rgba(255,255,255,0.56)', fontSize: 13 }}>No samples yet.</span>
+            <span style={{ color: 'rgba(255,255,255,0.56)', fontSize: 13 }}>{tt(language, 'sounds.noSamples')}</span>
           ) : (
             learnedEntries.map(([gear, rpm]) => (
-              <span className="muted-pill" key={gear}>G{gear}: {Number(rpm).toLocaleString('pt-BR')} rpm</span>
+              <span className="muted-pill" key={gear}>{tt(language, 'sounds.gearShort', { gear })}: {Number(rpm).toLocaleString(localeOf(language))} rpm</span>
             ))
           )}
         </div>
