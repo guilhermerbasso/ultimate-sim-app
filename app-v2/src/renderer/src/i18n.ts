@@ -6550,6 +6550,118 @@ Object.assign(UI_TEXT.ja, {
   'community.ofLap': 'of the lap'
 })
 
+Object.assign(UI_TEXT.en, {
+  'strategy.undercut': 'Undercut',
+  'strategy.overcut': 'Overcut',
+  'strategy.defend': 'Defend',
+  'strategy.keepPosition': 'Keep position',
+  'strategy.pitLossSeconds': 'Pit loss (s)',
+  'strategy.auto': 'Auto',
+  'strategy.liveTelemetry': '? live telemetry',
+  'strategy.noTelemetryStatus': '? no telemetry',
+  'strategy.ai': 'AI',
+  'strategy.gap': 'Gap',
+  'strategy.pitLoss': 'Pit loss',
+  'strategy.litersPerLap': 'L/lap',
+  'strategy.localAi': 'Local AI'
+})
+
+Object.assign(UI_TEXT['pt-BR'], {
+  'strategy.undercut': 'Undercut',
+  'strategy.overcut': 'Overcut',
+  'strategy.defend': 'Defend',
+  'strategy.keepPosition': 'Keep position',
+  'strategy.pitLossSeconds': 'Pit loss (s)',
+  'strategy.auto': 'Auto',
+  'strategy.liveTelemetry': '? live telemetry',
+  'strategy.noTelemetryStatus': '? no telemetry',
+  'strategy.ai': 'AI',
+  'strategy.gap': 'Gap',
+  'strategy.pitLoss': 'Pit loss',
+  'strategy.litersPerLap': 'L/lap',
+  'strategy.localAi': 'Local AI'
+})
+
+Object.assign(UI_TEXT.es, {
+  'strategy.undercut': 'Undercut',
+  'strategy.overcut': 'Overcut',
+  'strategy.defend': 'Defend',
+  'strategy.keepPosition': 'Keep position',
+  'strategy.pitLossSeconds': 'Pit loss (s)',
+  'strategy.auto': 'Auto',
+  'strategy.liveTelemetry': '? live telemetry',
+  'strategy.noTelemetryStatus': '? no telemetry',
+  'strategy.ai': 'AI',
+  'strategy.gap': 'Gap',
+  'strategy.pitLoss': 'Pit loss',
+  'strategy.litersPerLap': 'L/lap',
+  'strategy.localAi': 'Local AI'
+})
+
+Object.assign(UI_TEXT.fr, {
+  'strategy.undercut': 'Undercut',
+  'strategy.overcut': 'Overcut',
+  'strategy.defend': 'Defend',
+  'strategy.keepPosition': 'Keep position',
+  'strategy.pitLossSeconds': 'Pit loss (s)',
+  'strategy.auto': 'Auto',
+  'strategy.liveTelemetry': '? live telemetry',
+  'strategy.noTelemetryStatus': '? no telemetry',
+  'strategy.ai': 'AI',
+  'strategy.gap': 'Gap',
+  'strategy.pitLoss': 'Pit loss',
+  'strategy.litersPerLap': 'L/lap',
+  'strategy.localAi': 'Local AI'
+})
+
+Object.assign(UI_TEXT.de, {
+  'strategy.undercut': 'Undercut',
+  'strategy.overcut': 'Overcut',
+  'strategy.defend': 'Defend',
+  'strategy.keepPosition': 'Keep position',
+  'strategy.pitLossSeconds': 'Pit loss (s)',
+  'strategy.auto': 'Auto',
+  'strategy.liveTelemetry': '? live telemetry',
+  'strategy.noTelemetryStatus': '? no telemetry',
+  'strategy.ai': 'AI',
+  'strategy.gap': 'Gap',
+  'strategy.pitLoss': 'Pit loss',
+  'strategy.litersPerLap': 'L/lap',
+  'strategy.localAi': 'Local AI'
+})
+
+Object.assign(UI_TEXT.zh, {
+  'strategy.undercut': 'Undercut',
+  'strategy.overcut': 'Overcut',
+  'strategy.defend': 'Defend',
+  'strategy.keepPosition': 'Keep position',
+  'strategy.pitLossSeconds': 'Pit loss (s)',
+  'strategy.auto': 'Auto',
+  'strategy.liveTelemetry': '? live telemetry',
+  'strategy.noTelemetryStatus': '? no telemetry',
+  'strategy.ai': 'AI',
+  'strategy.gap': 'Gap',
+  'strategy.pitLoss': 'Pit loss',
+  'strategy.litersPerLap': 'L/lap',
+  'strategy.localAi': 'Local AI'
+})
+
+Object.assign(UI_TEXT.ja, {
+  'strategy.undercut': 'Undercut',
+  'strategy.overcut': 'Overcut',
+  'strategy.defend': 'Defend',
+  'strategy.keepPosition': 'Keep position',
+  'strategy.pitLossSeconds': 'Pit loss (s)',
+  'strategy.auto': 'Auto',
+  'strategy.liveTelemetry': '? live telemetry',
+  'strategy.noTelemetryStatus': '? no telemetry',
+  'strategy.ai': 'AI',
+  'strategy.gap': 'Gap',
+  'strategy.pitLoss': 'Pit loss',
+  'strategy.litersPerLap': 'L/lap',
+  'strategy.localAi': 'Local AI'
+})
+
 export function tt(language: ResolvedLanguage | undefined, key: string, vars: Record<string, string | number> = {}): string {
   let value = UI_TEXT[language ?? 'en']?.[key] ?? UI_TEXT.en[key] ?? key
   for (const [name, replacement] of Object.entries(vars)) value = value.replaceAll(`{${name}}`, String(replacement))

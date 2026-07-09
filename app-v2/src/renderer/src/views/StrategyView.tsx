@@ -76,10 +76,10 @@ const ACTION_META: Record<StrategyAction, { key: string; color: string }> = {
 }
 
 const UNDERCUT_LABEL: Record<UndercutAnalysis['recommendation'], string> = {
-  undercut: 'Undercut',
-  overcut: 'Overcut',
-  defend: 'Defend',
-  'track-position': 'Keep position',
+  undercut: 'strategy.undercut',
+  overcut: 'strategy.overcut',
+  defend: 'strategy.defend',
+  'track-position': 'strategy.keepPosition',
   none: '—'
 }
 
@@ -260,7 +260,7 @@ export default function StrategyView({ language }: AppViewProps): ReactElement {
       {/* ── Strategy settings ── */}
       <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, alignItems: 'end' }}>
         <div>
-          <div style={label}>Pit loss (s)</div>
+          <div style={label}>{tt(language, 'strategy.pitLossSeconds')}</div>
           <input style={input} type="number" min="0" step="1" value={pitLoss} onChange={(event) => setPitLoss(event.target.value)} />
         </div>
         <div>
@@ -273,13 +273,13 @@ export default function StrategyView({ language }: AppViewProps): ReactElement {
         </div>
         <div>
           <div style={label}>{tt(language, 'fuel.targetLaps')}</div>
-          <input style={input} type="number" min="1" placeholder="Auto" value={targetLaps} onChange={(event) => setTargetLaps(event.target.value)} />
+          <input style={input} type="number" min="1" placeholder={tt(language, 'strategy.auto')} value={targetLaps} onChange={(event) => setTargetLaps(event.target.value)} />
         </div>
         <div>
           <div style={label}>{tt(language, 'strategy.time')}</div>
-          <input style={input} type="number" min="1" placeholder="Auto" value={raceMinutes} onChange={(event) => setRaceMinutes(event.target.value)} />
+          <input style={input} type="number" min="1" placeholder={tt(language, 'strategy.auto')} value={raceMinutes} onChange={(event) => setRaceMinutes(event.target.value)} />
         </div>
-        <div style={{ fontSize: 13, opacity: 0.78 }}>{connected ? '? live telemetry' : '? no telemetry'}</div>
+        <div style={{ fontSize: 13, opacity: 0.78 }}>{connected ? tt(language, 'strategy.liveTelemetry') : tt(language, 'strategy.noTelemetryStatus')}</div>
       </div>
 
       {!connected || !available ? (
@@ -301,7 +301,7 @@ export default function StrategyView({ language }: AppViewProps): ReactElement {
               </label>
               {narration && (
                 <span style={{ fontSize: 13, opacity: 0.85 }}>
-                  “{narration.text}” <small style={{ opacity: 0.6 }}>({narration.source === 'llm' ? 'AI' : tt(language, 'strategy.deterministic')})</small>
+                  “{narration.text}” <small style={{ opacity: 0.6 }}>({narration.source === 'llm' ? tt(language, 'strategy.ai') : tt(language, 'strategy.deterministic')})</small>
                 </span>
               )}
             </div>
@@ -346,7 +346,7 @@ export default function StrategyView({ language }: AppViewProps): ReactElement {
                   <div>{tt(language, 'strategy.shortFill')} <strong style={{ color: WARN }}>{fmt(fuel?.shortFillLiters, 1)} L</strong></div>
                 )}
                 {(fuel?.savePerLapLiters ?? 0) > 0 && (
-                  <div>{tt(language, 'strategy.saveToExtend')} <strong style={{ color: WARN }}>{fmt(fuel?.savePerLapLiters, 2)} L/lap</strong></div>
+                  <div>{tt(language, 'strategy.saveToExtend')} <strong style={{ color: WARN }}>{fmt(fuel?.savePerLapLiters, 2)} {tt(language, 'strategy.litersPerLap')}</strong></div>
                 )}
               </div>
             </section>
@@ -354,16 +354,16 @@ export default function StrategyView({ language }: AppViewProps): ReactElement {
             <section style={card}>
               <div style={label}>Undercut / Overcut</div>
               <h3 style={{ margin: '6px 0 12px', color: undercutGood ? GOOD : '#fff' }}>
-                {undercut?.available ? UNDERCUT_LABEL[undercut.recommendation] : '—'}
+                {undercut?.available ? tt(language, UNDERCUT_LABEL[undercut.recommendation]) : '—'}
               </h3>
               {undercut?.available ? (
                 <div style={{ display: 'grid', gap: 8, fontVariantNumeric: 'tabular-nums' }}>
                   <div>{tt(language, 'strategy.rival')} <strong>{undercut.rivalName ?? '—'}</strong></div>
                   <div>
-                    Gap: <strong style={{ color: (undercut.gapSec ?? 0) >= 0 ? '#fff' : WARM }}>{fmtSigned(undercut.gapSec, 1)} s</strong>
+                    {tt(language, 'strategy.gap')}: <strong style={{ color: (undercut.gapSec ?? 0) >= 0 ? '#fff' : WARM }}>{fmtSigned(undercut.gapSec, 1)} s</strong>
                     <small style={{ opacity: 0.6 }}> {(undercut.gapSec ?? 0) >= 0 ? tt(language, 'strategy.ahead') : tt(language, 'strategy.behind')}</small>
                   </div>
-                  <div>Pit loss: <strong>{fmt(undercut.pitLossSec, 0)} s</strong></div>
+                  <div>{tt(language, 'strategy.pitLoss')}: <strong>{fmt(undercut.pitLossSec, 0)} s</strong></div>
                   <div>{tt(language, 'strategy.freshTyreGain')} <strong>{fmt(undercut.freshTyreGainSec, 1)} s</strong></div>
                   <div>
                     {tt(language, 'strategy.netGapAfterUndercut')} <strong style={{ color: (undercut.netGapAfterUndercutSec ?? 1) <= 0 ? GOOD : '#fff' }}>
@@ -433,7 +433,7 @@ export default function StrategyView({ language }: AppViewProps): ReactElement {
                   <p style={{ margin: '8px 0 0', lineHeight: 1.45, opacity: 0.9, fontSize: 13 }}>{clip.summary}</p>
                   {analysis && (
                     <p style={{ margin: '8px 0 0', lineHeight: 1.5, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                      {analysis.text} <small style={{ opacity: 0.55 }}>({analysis.source === 'llm' ? 'Local AI' : tt(language, 'strategy.deterministic')})</small>
+                      {analysis.text} <small style={{ opacity: 0.55 }}>({analysis.source === 'llm' ? tt(language, 'strategy.localAi') : tt(language, 'strategy.deterministic')})</small>
                     </p>
                   )}
                 </div>
