@@ -6487,6 +6487,69 @@ Object.assign(UI_TEXT.ja, {
   'devices.baudPlaceholder': 'Baud'
 })
 
+Object.assign(UI_TEXT.en, {
+  'community.noComparisonData': 'No comparison data.',
+  'community.deltaAria': 'Cumulative delta by lap distance',
+  'community.sourceUrlPlaceholder': 'https://?',
+  'community.vs': 'vs',
+  'community.ghost': 'Ghost',
+  'community.ofLap': 'of the lap'
+})
+
+Object.assign(UI_TEXT['pt-BR'], {
+  'community.noComparisonData': 'No comparison data.',
+  'community.deltaAria': 'Cumulative delta by lap distance',
+  'community.sourceUrlPlaceholder': 'https://?',
+  'community.vs': 'vs',
+  'community.ghost': 'Ghost',
+  'community.ofLap': 'of the lap'
+})
+
+Object.assign(UI_TEXT.es, {
+  'community.noComparisonData': 'No comparison data.',
+  'community.deltaAria': 'Cumulative delta by lap distance',
+  'community.sourceUrlPlaceholder': 'https://?',
+  'community.vs': 'vs',
+  'community.ghost': 'Ghost',
+  'community.ofLap': 'of the lap'
+})
+
+Object.assign(UI_TEXT.fr, {
+  'community.noComparisonData': 'No comparison data.',
+  'community.deltaAria': 'Cumulative delta by lap distance',
+  'community.sourceUrlPlaceholder': 'https://?',
+  'community.vs': 'vs',
+  'community.ghost': 'Ghost',
+  'community.ofLap': 'of the lap'
+})
+
+Object.assign(UI_TEXT.de, {
+  'community.noComparisonData': 'No comparison data.',
+  'community.deltaAria': 'Cumulative delta by lap distance',
+  'community.sourceUrlPlaceholder': 'https://?',
+  'community.vs': 'vs',
+  'community.ghost': 'Ghost',
+  'community.ofLap': 'of the lap'
+})
+
+Object.assign(UI_TEXT.zh, {
+  'community.noComparisonData': 'No comparison data.',
+  'community.deltaAria': 'Cumulative delta by lap distance',
+  'community.sourceUrlPlaceholder': 'https://?',
+  'community.vs': 'vs',
+  'community.ghost': 'Ghost',
+  'community.ofLap': 'of the lap'
+})
+
+Object.assign(UI_TEXT.ja, {
+  'community.noComparisonData': 'No comparison data.',
+  'community.deltaAria': 'Cumulative delta by lap distance',
+  'community.sourceUrlPlaceholder': 'https://?',
+  'community.vs': 'vs',
+  'community.ghost': 'Ghost',
+  'community.ofLap': 'of the lap'
+})
+
 export function tt(language: ResolvedLanguage | undefined, key: string, vars: Record<string, string | number> = {}): string {
   let value = UI_TEXT[language ?? 'en']?.[key] ?? UI_TEXT.en[key] ?? key
   for (const [name, replacement] of Object.entries(vars)) value = value.replaceAll(`{${name}}`, String(replacement))
