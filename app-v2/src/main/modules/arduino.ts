@@ -1,8 +1,9 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { DeviceInfo } from '../../shared/ipc'
+import type { DeviceInfo, PortInfo } from '../../shared/ipc'
 import {
   ARDUINO_CHANNELS,
+  GENERIC_DEVICE_DEFAULT_BAUD,
   SERIAL_LOG_LIMIT,
   SIMX_FIRMWARE_INFO,
   SIMX_HARDWARE_PROFILE,
@@ -274,6 +275,35 @@ class FleetManager {
 
   listDevices(): SerialDeviceSummary[] {
     return this.ctx.serialHub.listDevices()
+  }
+
+  async listLinkableDevices(): Promise<SerialDeviceSummary[]> {
+    const connected = this.ctx.serialHub.listDevices()
+    let ports: Awaited<ReturnType<ModuleContext['serialHub']['listPorts']>> = []
+    let configs: GenericSerialDeviceConfig[] = []
+    try {
+      await this.store.ensureLoaded()
+      configs = this.store.list()
+      ports = await this.ctx.serialHub.listPorts()
+    } catch (error) {
+      console.warn(
+        '[arduino] failed to enumerate serial ports:',
+        error instanceof Error ? error.message : String(error)
+      )
+      return connected
+    }
+
+    const byPath = new Map<string, SerialDeviceSummary>()
+    for (const device of connected) byPath.set(normalizeSerialPath(device.path), device)
+    for (const port of ports) {
+      const key = normalizeSerialPath(port.path)
+      if (byPath.has(key)) continue
+      const config = configs.find(
+        (entry) => serialIdentityMatches(entry, port) || normalizeSerialPath(entry.path) === key
+      )
+      byPath.set(key, serialPortToAvailableSummary(port, config))
+    }
+    return [...byPath.values()]
   }
 
   async getDeviceConfigs(): Promise<GenericSerialDeviceConfig[]> {
@@ -606,6 +636,26 @@ class FleetManager {
   }
 }
 
+function normalizeSerialPath(path: string): string {
+  return String(path ?? '').trim().toUpperCase()
+}
+
+function serialPortToAvailableSummary(port: PortInfo, config?: GenericSerialDeviceConfig): SerialDeviceSummary {
+  const label =
+    config?.label?.trim() ||
+    port.friendlyName?.trim() ||
+    port.manufacturer?.trim() ||
+    (port.isSimX ? 'SIM-X Button Box' : port.path)
+  return {
+    id: config?.id ?? `available:${port.path}`,
+    path: port.path,
+    label,
+    kind: 'generic',
+    baud: config?.baud ?? GENERIC_DEVICE_DEFAULT_BAUD,
+    connected: false
+  }
+}
+
 export function register(ctx: ModuleContext): void {
   const manager = new ArduinoManager(ctx)
   const fleet = new FleetManager(ctx)
@@ -632,7 +682,7 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle('arduino:monitorStop', () => manager.stopMonitor())
 
   // Multi-device fleet IPC.
-  ctx.ipcMain.handle(ARDUINO_CHANNELS.listDevices, () => fleet.listDevices())
+  ctx.ipcMain.handle(ARDUINO_CHANNELS.listDevices, () => fleet.listLinkableDevices())
   ctx.ipcMain.handle(ARDUINO_CHANNELS.getDeviceConfigs, () => fleet.getDeviceConfigs())
   ctx.ipcMain.handle(
     ARDUINO_CHANNELS.addDevice,

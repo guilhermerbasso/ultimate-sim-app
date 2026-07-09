@@ -69,10 +69,13 @@ export interface GenericAutostartDeps {
   // directly. Best-effort; only called when the path actually changed.
   saveDevicePath?: (config: GenericAutostartDeviceConfig, path: string) => void
   retryMs?: number
+  maxRetryMs?: number
   logger?: GenericAutostartLogger
 }
 
 const DEFAULT_RETRY_MS = 3000
+const DEFAULT_MAX_RETRY_MS = 60_000
+const STABLE_CONNECTION_MS = 10_000
 
 // Stable per-device key used to track connect/suppression state across the
 // async lifecycle. Prefer the hub id; fall back to the COM path.
@@ -84,7 +87,9 @@ export class GenericAutostartController {
   private disposed = false
   private attempting = false
   private retryTimer: ReturnType<typeof setTimeout> | null = null
+  private retryDueAt = 0
   private readonly retryMs: number
+  private readonly maxRetryMs: number
   // Devices the user deliberately disconnected (hub 'user-disconnect'); their
   // auto-reconnect is suppressed until they reconnect or settings toggle.
   private readonly suppressed = new Set<string>()
@@ -94,6 +99,9 @@ export class GenericAutostartController {
   // Last-loaded configs, refreshed at the top of every attempt(), so the
   // synchronous hub event handlers can correlate a summary back to a config.
   private knownConfigs: GenericAutostartDeviceConfig[] = []
+  private readonly retryCounts = new Map<string, number>()
+  private readonly nextAttemptAt = new Map<string, number>()
+  private readonly connectedAt = new Map<string, number>()
 
   private readonly onDeviceAdded = (summary: unknown): void => this.handleDeviceAdded(summary)
   private readonly onDeviceRemoved = (summary: unknown): void => this.handleDeviceRemoved(summary)
@@ -101,6 +109,7 @@ export class GenericAutostartController {
 
   constructor(private readonly deps: GenericAutostartDeps) {
     this.retryMs = deps.retryMs ?? DEFAULT_RETRY_MS
+    this.maxRetryMs = Math.max(this.retryMs, deps.maxRetryMs ?? DEFAULT_MAX_RETRY_MS)
   }
 
   // Subscribe to hub add/remove (covers BOTH auto and manual connects) and, when
@@ -184,11 +193,19 @@ export class GenericAutostartController {
     if (this.disposed || !this.deps.isEnabled()) return
 
     let anyPending = false
+    let retryDelayMs = this.retryMs
     for (const config of configs) {
       const key = deviceKey(config)
       // Respect a deliberate user disconnect — don't fight the user.
       if (this.suppressed.has(key)) continue
       if (this.isOpen(config)) continue
+      const remainingBackoff = this.remainingBackoffMs(config)
+      if (remainingBackoff > 0) {
+        anyPending = true
+        retryDelayMs = Math.min(retryDelayMs, remainingBackoff)
+        this.scheduleRetry(remainingBackoff)
+        continue
+      }
 
       const path = resolveGenericDevicePort(config, ports)
       if (!path) {
@@ -198,6 +215,7 @@ export class GenericAutostartController {
           path: config.path
         })
         anyPending = true
+        retryDelayMs = this.retryMs
         continue
       }
 
@@ -216,18 +234,21 @@ export class GenericAutostartController {
         })
         // Success is finalized by the 'device-added' event (log + persist path).
       } catch (error) {
+        const delayMs = this.ensureBackoff(config)
         this.deps.logger?.verbose('serial', 'generic auto-start: connect attempt failed', {
           id: config.id,
           path,
           label: config.label,
+          retryInMs: delayMs,
           message: error instanceof Error ? error.message : String(error)
         })
         anyPending = true
+        retryDelayMs = Math.min(retryDelayMs, delayMs)
       }
       if (this.disposed || !this.deps.isEnabled()) return
     }
 
-    if (anyPending) this.scheduleRetry()
+    if (anyPending) this.scheduleRetry(retryDelayMs)
     else this.clearRetry()
   }
 
@@ -251,6 +272,7 @@ export class GenericAutostartController {
     // A real (re)connect clears any pending user-disconnect suppression.
     this.suppressed.delete(key)
     this.suppressed.delete(deviceKey(config))
+    this.connectedAt.set(deviceKey(config), Date.now())
     this.deps.logger?.info('serial', 'device auto-connected', {
       id: info.id,
       path: info.path,
@@ -290,15 +312,17 @@ export class GenericAutostartController {
       return
     }
     if (this.deps.isEnabled()) {
+      const delayMs = this.backoffAfterDisconnect(config)
       this.deps.logger?.info('serial', 'generic device disconnected — will retry', {
         id: info.id,
-        label: config.label
+        label: config.label,
+        retryInMs: delayMs
       })
       // Back off via the retry timer (like the SIM-X controller) rather than an
       // immediate re-connect: the real hub emits 'device-removed' on an open
       // FAILURE too, so an immediate retry here would tight-loop a device that
       // enumerates but won't open.
-      this.scheduleRetry()
+      this.scheduleRetry(delayMs)
     }
   }
 
@@ -322,12 +346,47 @@ export class GenericAutostartController {
     return this.knownConfigs.find((c) => c.path === info.path) ?? null
   }
 
-  private scheduleRetry(): void {
-    if (this.disposed || this.retryTimer !== null || !this.deps.isEnabled()) return
+  private remainingBackoffMs(config: GenericAutostartDeviceConfig): number {
+    return Math.max(0, (this.nextAttemptAt.get(deviceKey(config)) ?? 0) - Date.now())
+  }
+
+  private ensureBackoff(config: GenericAutostartDeviceConfig): number {
+    const key = deviceKey(config)
+    const now = Date.now()
+    const existing = this.nextAttemptAt.get(key)
+    if (existing && existing > now) return existing - now
+    const count = (this.retryCounts.get(key) ?? 0) + 1
+    this.retryCounts.set(key, count)
+    const delayMs = Math.min(this.maxRetryMs, this.retryMs * 2 ** Math.max(0, count - 1))
+    this.nextAttemptAt.set(key, now + delayMs)
+    return delayMs
+  }
+
+  private backoffAfterDisconnect(config: GenericAutostartDeviceConfig): number {
+    const key = deviceKey(config)
+    const connectedAt = this.connectedAt.get(key) ?? 0
+    this.connectedAt.delete(key)
+    if (connectedAt > 0 && Date.now() - connectedAt >= STABLE_CONNECTION_MS) {
+      this.retryCounts.delete(key)
+      this.nextAttemptAt.delete(key)
+    }
+    return this.ensureBackoff(config)
+  }
+
+  private scheduleRetry(delayMs = this.retryMs): void {
+    const safeDelay = Math.max(0, Math.min(this.maxRetryMs, delayMs))
+    const dueAt = Date.now() + safeDelay
+    if (this.disposed || !this.deps.isEnabled()) return
+    if (this.retryTimer !== null) {
+      if (this.retryDueAt <= dueAt) return
+      clearTimeout(this.retryTimer)
+    }
+    this.retryDueAt = dueAt
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null
+      this.retryDueAt = 0
       void this.attempt()
-    }, this.retryMs)
+    }, safeDelay)
     // Don't keep the process alive just to retry.
     this.retryTimer.unref?.()
   }
@@ -336,6 +395,7 @@ export class GenericAutostartController {
     if (this.retryTimer !== null) {
       clearTimeout(this.retryTimer)
       this.retryTimer = null
+      this.retryDueAt = 0
     }
   }
 }

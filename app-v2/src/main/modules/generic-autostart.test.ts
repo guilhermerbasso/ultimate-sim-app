@@ -353,6 +353,26 @@ describe('GenericAutostartController', () => {
     c.dispose()
   })
 
+  it('backs off repeated connect failures instead of retrying at a fixed fast cadence', async () => {
+    hub.ports = [portInfo('COM15')]
+    hub.failConnect = true
+    devices = [iflag()]
+    const c = new GenericAutostartController(makeDeps())
+    c.start()
+    await flush()
+    expect(hub.connectCalls.length).toBe(1)
+    await vi.advanceTimersByTimeAsync(3000)
+    await flush()
+    expect(hub.connectCalls.length).toBe(2)
+    await vi.advanceTimersByTimeAsync(3000)
+    await flush()
+    expect(hub.connectCalls.length).toBe(2)
+    await vi.advanceTimersByTimeAsync(3000)
+    await flush()
+    expect(hub.connectCalls.length).toBe(3)
+    c.dispose()
+  })
+
   it('dispose() unsubscribes and cancels retries', async () => {
     hub.ports = []
     devices = [iflag()]
