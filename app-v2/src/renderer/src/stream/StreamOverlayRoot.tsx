@@ -27,8 +27,10 @@ const DESIGN_HEIGHT = 600
 function sseUrl(): string {
   const url = new URL(window.location.href)
   const token = url.searchParams.get('token') ?? ''
+  const password = url.searchParams.get('password') ?? ''
   const sse = new URL('/sse', url.origin)
   sse.searchParams.set('token', token)
+  if (password) sse.searchParams.set('password', password)
   return sse.toString()
 }
 

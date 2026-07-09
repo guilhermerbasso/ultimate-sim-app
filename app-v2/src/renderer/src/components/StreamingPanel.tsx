@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import { STREAMING_CHANNELS, type StreamingAccessMode, type StreamingStartResult, type StreamingStatus } from '../../../shared/streaming'
+import { tt } from '../i18n'
 
 const ACCESS_LABELS: Record<StreamingAccessMode, string> = {
-  local: 'This PC only (OBS/local browser)',
-  lan: 'LAN / Wi-Fi (phone or tablet QR)',
-  internet: 'Internet / tunnel or port-forward'
+  local: tt(undefined, 'streaming.access.local'),
+  lan: tt(undefined, 'streaming.access.lan'),
+  internet: tt(undefined, 'streaming.access.internet')
 }
 
 function statusAccessMode(status: StreamingStatus): StreamingAccessMode {
@@ -15,13 +16,11 @@ function statusAccessMode(status: StreamingStatus): StreamingAccessMode {
 function accessHelp(accessMode: StreamingAccessMode, publicBaseUrl: string): string {
   if (accessMode === 'internet') {
     return publicBaseUrl.trim()
-      ? 'QR codes use your public/tunnel URL. Keep the token private and use a strong password.'
-      : 'The server will listen on all interfaces, but internet access still needs a trusted tunnel or router port-forward plus Windows Firewall allow rule.'
+      ? tt(undefined, 'streaming.help.internetReady')
+      : tt(undefined, 'streaming.help.internetNeedsUrl')
   }
-  if (accessMode === 'lan') {
-    return 'Recommended for phones/tablets on the same Wi-Fi. QR codes use this PC LAN IPv4 instead of localhost.'
-  }
-  return 'Only this PC can connect. Phone/tablet QR codes will not work in this mode.'
+  if (accessMode === 'lan') return tt(undefined, 'streaming.help.lan')
+  return tt(undefined, 'streaming.help.local')
 }
 
 function formatDeviceName(userAgent: string | null): string {
@@ -44,6 +43,7 @@ export default function StreamingPanel(): ReactElement {
   const [publicBaseUrl, setPublicBaseUrl] = useState('')
   const [status, setStatus] = useState<StreamingStatus | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
+  const [testResult, setTestResult] = useState<string | null>(null)
 
   async function refreshStatus(): Promise<void> {
     const nextStatus = await window.ipc.invoke<StreamingStatus>(STREAMING_CHANNELS.status)
@@ -57,6 +57,7 @@ export default function StreamingPanel(): ReactElement {
     setBusy(true)
     setError(null)
     setCopied(null)
+    setTestResult(null)
     try {
       await window.ipc.invoke<StreamingStartResult>(STREAMING_CHANNELS.start, {
         streamSafe,
@@ -64,12 +65,12 @@ export default function StreamingPanel(): ReactElement {
         accessMode,
         lanEnabled: accessMode !== 'local',
         publicBaseUrl: accessMode === 'internet' ? publicBaseUrl.trim() || undefined : undefined,
-        password: password.trim() || undefined
+        password: accessMode !== 'local' ? password.trim() || undefined : undefined
       })
       setPassword('')
       await refreshStatus()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start dashboard streaming')
+      setError(err instanceof Error ? err.message : tt(undefined, 'streaming.error.start'))
     } finally {
       setBusy(false)
     }
@@ -79,15 +80,14 @@ export default function StreamingPanel(): ReactElement {
     setBusy(true)
     setError(null)
     setCopied(null)
+    setTestResult(null)
     try {
       const nextStatus = await window.ipc.invoke<StreamingStatus>(STREAMING_CHANNELS.stop)
       setStatus(nextStatus)
-      // Reset to the safe local-only default after stopping so the next Start doesn't
-      // silently re-expose the server on the LAN (0.0.0.0) without the user opting in.
       setAccessMode('local')
       setPublicBaseUrl('')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to stop dashboard streaming')
+      setError(err instanceof Error ? err.message : tt(undefined, 'streaming.error.stop'))
     } finally {
       setBusy(false)
     }
@@ -99,7 +99,18 @@ export default function StreamingPanel(): ReactElement {
       await navigator.clipboard.writeText(url)
       setCopied(label)
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to copy ${label} URL`)
+      setError(err instanceof Error ? err.message : tt(undefined, 'streaming.error.copy', { label }))
+    }
+  }
+
+  async function testFromThisPc(): Promise<void> {
+    if (!status?.localTestUrl) return
+    setTestResult(tt(undefined, 'streaming.test.running'))
+    try {
+      const response = await fetch(status.localTestUrl, { method: 'HEAD', cache: 'no-store' })
+      setTestResult(response.ok ? tt(undefined, 'streaming.test.ok') : tt(undefined, 'streaming.test.bad', { status: response.status }))
+    } catch (err) {
+      setTestResult(err instanceof Error ? err.message : tt(undefined, 'streaming.test.failed'))
     }
   }
 
@@ -109,152 +120,107 @@ export default function StreamingPanel(): ReactElement {
 
   const running = Boolean(status?.running)
   const accessDisabled = busy || running
+  const requiresPassword = accessMode !== 'local'
+  const missingPassword = requiresPassword && !password.trim()
+  const missingInternetUrl = accessMode === 'internet' && !publicBaseUrl.trim()
 
   return (
     <section className="panel streaming-panel">
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>Dashboard streaming</h4>
+        <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>{tt(undefined, 'streaming.title')}</h4>
         <span className={running ? 'status-pill on' : 'status-pill'}>
-          {running ? `online · ${status?.clients ?? 0} client(s)` : 'offline'}
+          {running ? tt(undefined, 'streaming.status.online', { count: status?.clients ?? 0 }) : tt(undefined, 'streaming.status.offline')}
         </span>
       </div>
-      <p className="overlay-help">
-        Starts a token-protected dashboard/touch-dash server for OBS, phones, and tablets. Use LAN mode for same-Wi-Fi devices; Internet mode requires a trusted tunnel or router port-forward.
-      </p>
-      {error ? <p className="overlay-help" style={{ color: 'var(--accent-danger, #fb7185)' }}>⚠ {error}</p> : null}
-      {status?.warning ? (
-        <p className="overlay-help" style={{ color: 'var(--accent-warning, #fbbf24)' }}>
-          ⚠ {status.warning}
-        </p>
-      ) : null}
+      <p className="overlay-help">{tt(undefined, 'streaming.summary')}</p>
+      <p className="overlay-help" style={{ color: '#76f7bd', fontWeight: 800 }}>{tt(undefined, 'streaming.readOnly')}</p>
+      {error ? <p className="overlay-help" style={{ color: 'var(--accent-danger, #fb7185)' }}>? {error}</p> : null}
+      {status?.warning ? <p className="overlay-help" style={{ color: 'var(--accent-warning, #fbbf24)' }}>? {status.warning}</p> : null}
       <label className="designer-check" style={{ margin: '12px 0' }}>
-        <input
-          type="checkbox"
-          checked={streamSafe}
-          disabled={accessDisabled}
-          onChange={(event) => setStreamSafe(event.target.checked)}
-        />
-        Stream-safe: hide names, iRating/SR, and private tags before sending to clients
+        <input type="checkbox" checked={streamSafe} disabled={accessDisabled} onChange={(event) => setStreamSafe(event.target.checked)} />
+        {tt(undefined, 'streaming.streamSafe')}
       </label>
       <label className="designer-field" style={{ margin: '12px 0' }}>
-        Network access
-        <select
-          value={accessMode}
-          disabled={accessDisabled}
-          onChange={(event) => setAccessMode(event.target.value as StreamingAccessMode)}
-        >
-          {Object.entries(ACCESS_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
-          ))}
+        {tt(undefined, 'streaming.networkAccess')}
+        <select value={accessMode} disabled={accessDisabled} onChange={(event) => setAccessMode(event.target.value as StreamingAccessMode)}>
+          {Object.entries(ACCESS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
       </label>
-      <p className="overlay-help" style={{ marginTop: -4 }}>
-        {accessHelp(accessMode, publicBaseUrl)}
-      </p>
+      <p className="overlay-help" style={{ marginTop: -4 }}>{accessHelp(accessMode, publicBaseUrl)}</p>
       {accessMode === 'internet' ? (
         <label className="designer-field" style={{ margin: '12px 0' }}>
-          Public/tunnel base URL (optional; e.g. https://your-tunnel.example)
-          <input
-            value={publicBaseUrl}
-            disabled={accessDisabled}
-            placeholder="Leave blank to show the LAN URL and port"
-            onChange={(event) => setPublicBaseUrl(event.target.value)}
-          />
+          {tt(undefined, 'streaming.publicUrl')}
+          <input value={publicBaseUrl} disabled={accessDisabled} placeholder="https://your-tunnel.example" onChange={(event) => setPublicBaseUrl(event.target.value)} />
         </label>
       ) : null}
       <label className="designer-field" style={{ margin: '12px 0' }}>
-        Optional password (alternative to token; not shown after starting)
+        {requiresPassword ? tt(undefined, 'streaming.password.required') : tt(undefined, 'streaming.password.optional')}
         <input
           type="password"
           value={password}
           disabled={accessDisabled}
-          placeholder="Optional"
+          placeholder={requiresPassword ? tt(undefined, 'streaming.password.placeholderRequired') : tt(undefined, 'streaming.password.placeholderOptional')}
           onChange={(event) => setPassword(event.target.value)}
         />
       </label>
       <div className="overlay-actions">
-        <button className="primary-action" disabled={busy || running} onClick={() => void startStreaming()}>
-          Start streaming
-        </button>
-        <button className="ghost-action danger" disabled={busy || !running} onClick={() => void stopStreaming()}>
-          Stop
-        </button>
-        <button className="ghost-action" disabled={busy} onClick={() => void refreshStatus()}>
-          Refresh status
-        </button>
+        <button className="primary-action" disabled={busy || running || missingPassword || missingInternetUrl} onClick={() => void startStreaming()}>{tt(undefined, 'streaming.start')}</button>
+        <button className="ghost-action danger" disabled={busy || !running} onClick={() => void stopStreaming()}>{tt(undefined, 'streaming.stop')}</button>
+        <button className="ghost-action" disabled={busy} onClick={() => void refreshStatus()}>{tt(undefined, 'streaming.refresh')}</button>
       </div>
       {status?.url ? (
         <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-          {status.lanAddress ? <p className="overlay-help">Detected LAN IPv4: <strong>{status.lanAddress}</strong> · Port: <strong>{status.port}</strong></p> : null}
+          <p className="overlay-help">{tt(undefined, 'streaming.mode')}: <strong>{ACCESS_LABELS[statusAccessMode(status)]}</strong></p>
+          {status.lanAddress ? <p className="overlay-help">{tt(undefined, 'streaming.lanDetected')}: <strong>{status.lanAddress}</strong> ? {tt(undefined, 'streaming.port')}: <strong>{status.port}</strong></p> : null}
+          {status.firewallMessage ? <p className="overlay-help">? {status.firewallMessage}</p> : null}
           <label className="designer-field">
-            Dashboard URL
+            {tt(undefined, 'streaming.dashboardUrl')}
             <input readOnly value={status.url} onFocus={(event) => event.currentTarget.select()} />
           </label>
           {status.lanUrl && status.lanUrl !== status.url ? (
             <label className="designer-field">
-              LAN dashboard URL
+              {tt(undefined, 'streaming.lanUrl')}
               <input readOnly value={status.lanUrl} onFocus={(event) => event.currentTarget.select()} />
             </label>
           ) : null}
-          {status.touchUrl ? (
+          {status.password ? (
             <label className="designer-field">
-              Touch Controls Dash URL
-              <input readOnly value={status.touchUrl} onFocus={(event) => event.currentTarget.select()} />
+              {tt(undefined, 'streaming.currentPassword')}
+              <input readOnly value={status.password} onFocus={(event) => event.currentTarget.select()} />
             </label>
-          ) : (
-            <p className="overlay-help">Create a Touch Controls Dash to show the second QR/URL.</p>
-          )}
-          {(status.qrDataUrl || status.touchQrDataUrl) ? (
+          ) : null}
+          {status.qrDataUrl ? (
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-              {status.qrDataUrl ? (
-                <div>
-                  <div className="overlay-help" style={{ marginBottom: 6 }}>QR dashboard</div>
-                  <img src={status.qrDataUrl} alt="Dashboard QR" style={{ width: 152, height: 152, borderRadius: 12 }} />
-                </div>
-              ) : null}
-              {status.touchQrDataUrl ? (
-                <div>
-                  <div className="overlay-help" style={{ marginBottom: 6 }}>QR Touch Controls</div>
-                  <img src={status.touchQrDataUrl} alt="Touch Controls QR" style={{ width: 152, height: 152, borderRadius: 12 }} />
-                </div>
-              ) : null}
+              <div>
+                <div className="overlay-help" style={{ marginBottom: 6 }}>{tt(undefined, 'streaming.qrDashboard')}</div>
+                <img src={status.qrDataUrl} alt={tt(undefined, 'streaming.qrAlt')} style={{ width: 152, height: 152, borderRadius: 12 }} />
+              </div>
             </div>
           ) : null}
           <div className="overlay-actions">
-            <button className="ghost-action" onClick={() => void copyUrl('dashboard', status.url)}>
-              {copied === 'dashboard' ? 'Copied ✓' : 'Copy dashboard'}
-            </button>
-            <button className="ghost-action" disabled={!status.touchUrl} onClick={() => void copyUrl('touch', status.touchUrl)}>
-              {copied === 'touch' ? 'Copied ✓' : 'Copy Touch Controls'}
-            </button>
+            <button className="ghost-action" onClick={() => void copyUrl('dashboard', status.url)}>{copied === 'dashboard' ? tt(undefined, 'streaming.copied') : tt(undefined, 'streaming.copyDashboard')}</button>
             {status.lanUrl && status.lanUrl !== status.url ? (
-              <button className="ghost-action" onClick={() => void copyUrl('lan', status.lanUrl)}>
-                {copied === 'lan' ? 'Copied ✓' : 'Copy LAN URL'}
-              </button>
+              <button className="ghost-action" onClick={() => void copyUrl('lan', status.lanUrl)}>{copied === 'lan' ? tt(undefined, 'streaming.copied') : tt(undefined, 'streaming.copyLan')}</button>
             ) : null}
+            <button className="ghost-action" disabled={!status.localTestUrl} onClick={() => void testFromThisPc()}>{tt(undefined, 'streaming.test.button')}</button>
           </div>
+          {testResult ? <p className="overlay-help" style={{ margin: 0 }}>{testResult}</p> : null}
           <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>
-            <p className="overlay-help" style={{ margin: 0 }}>
-              Auth: token in URL{status.passwordEnabled ? ' + password enabled' : ''}. Keep links private.
-            </p>
+            <p className="overlay-help" style={{ margin: 0 }}>{status.passwordEnabled ? tt(undefined, 'streaming.authTokenPassword') : tt(undefined, 'streaming.authToken')}</p>
             {status.devices.length > 0 ? (
               <div>
-                <div className="overlay-help" style={{ marginBottom: 6 }}>Connected devices</div>
+                <div className="overlay-help" style={{ marginBottom: 6 }}>{tt(undefined, 'streaming.connectedDevices')}</div>
                 <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--text-muted)' }}>
-                  {status.devices.map((device) => (
-                    <li key={device.id}>{device.address} · {formatDeviceName(device.userAgent)}</li>
-                  ))}
+                  {status.devices.map((device) => <li key={device.id}>{device.address} ? {formatDeviceName(device.userAgent)}</li>)}
                 </ul>
               </div>
             ) : (
-              <p className="overlay-help" style={{ margin: 0 }}>No devices connected yet.</p>
+              <p className="overlay-help" style={{ margin: 0 }}>{tt(undefined, 'streaming.noDevices')}</p>
             )}
           </div>
         </div>
       ) : (
-        <p className="overlay-help" style={{ marginTop: 10 }}>
-          After starting, tokenized URLs and QR codes will appear here.
-        </p>
+        <p className="overlay-help" style={{ marginTop: 10 }}>{tt(undefined, 'streaming.afterStart')}</p>
       )}
     </section>
   )

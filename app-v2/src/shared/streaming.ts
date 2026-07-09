@@ -31,6 +31,9 @@ export interface StreamingStartResult {
   accessMode: StreamingAccessMode
   lanAddress: string | null
   publicBaseUrl: string | null
+  password: string | null
+  localTestUrl: string | null
+  firewallMessage: string | null
   warning: string | null
 }
 
@@ -59,6 +62,9 @@ export interface StreamingStatus {
   lanAddress: string | null
   accessMode: StreamingAccessMode
   publicBaseUrl: string | null
+  password: string | null
+  localTestUrl: string | null
+  firewallMessage: string | null
   passwordEnabled: boolean
   warning: string | null
 }
