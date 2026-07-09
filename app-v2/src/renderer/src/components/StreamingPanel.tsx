@@ -39,7 +39,7 @@ export default function StreamingPanel(): ReactElement {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [streamSafe, setStreamSafe] = useState(true)
-  const [accessMode, setAccessMode] = useState<StreamingAccessMode>('lan')
+  const [accessMode, setAccessMode] = useState<StreamingAccessMode>('local')
   const [password, setPassword] = useState('')
   const [publicBaseUrl, setPublicBaseUrl] = useState('')
   const [status, setStatus] = useState<StreamingStatus | null>(null)
