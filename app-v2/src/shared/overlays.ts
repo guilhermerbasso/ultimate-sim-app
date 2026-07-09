@@ -47,7 +47,6 @@ export type OverlayWidgetId =
   | 'shiftPointBar'
   | 'engineVitalsDial'
   | 'sessionInfoTile'
-  | 'revHalo'
   | 'revComet'
   | 'sideRadarGlyph'
   | 'orbitRadar'
@@ -1124,13 +1123,6 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
     requires: ['absActive', 'tcActive']
   }
   ,
-  {
-    id: 'revHalo',
-    title: 'Rev Halo',
-    description: 'RPM ring with central gear, graphic segments, and blue shift flash.',
-    defaultPosition: { x: 760, y: 32, width: 400, height: 150 },
-    requires: ['rpm', 'gear']
-  },
   {
     id: 'revComet',
     title: 'Rev Comet',

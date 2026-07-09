@@ -4,19 +4,19 @@ import { describe, expect, it } from 'vitest'
 import { createDefaultOverlaysConfig } from '../../../../shared/overlays'
 import type { OverlayStylePresetId, OverlayWidgetId } from '../../../../shared/overlays'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
-import { RevHaloWidget, RevCometWidget, GearRingWidget, FlagIconStackWidget } from './FuturisticOverlayWidgets'
+import { RevCometWidget, GearRingWidget, FlagIconStackWidget } from './FuturisticOverlayWidgets'
 import { WIDGET_COMPONENTS } from './index'
 import { DASH } from './dashboard-tiles'
 
 const defaults = createDefaultOverlaysConfig()
 const FAMILIES: OverlayStylePresetId[] = ['minimal', 'neon', 'glass', 'broadcast', 'terminal', 'bauhaus', 'analog', 'heatmap']
 const FUTURE_IDS: OverlayWidgetId[] = [
-  'revHalo', 'revComet', 'sideRadarGlyph', 'orbitRadar', 'relativeBeacons', 'relativeLadder',
+  'revComet', 'sideRadarGlyph', 'orbitRadar', 'relativeBeacons', 'relativeLadder',
   'deltaNeedle', 'deltaRibbon', 'gearRing', 'speedGlyph', 'fuelOrb', 'fuelPips', 'inputsVector',
   'inputsScope', 'tyreHaloGrid', 'brakeHeatTiles', 'trackRibbonFuture', 'trackSectorPulse',
   'weatherGripGlyph', 'flagIconStack'
 ]
-const NUMERIC_IDS = new Set<OverlayWidgetId>(['revHalo', 'gearRing', 'speedGlyph', 'fuelOrb', 'fuelPips', 'trackSectorPulse', 'weatherGripGlyph'])
+const NUMERIC_IDS = new Set<OverlayWidgetId>(['gearRing', 'speedGlyph', 'fuelOrb', 'fuelPips', 'trackSectorPulse', 'weatherGripGlyph'])
 
 function sample(): TelemetrySnapshot {
   return {
@@ -48,7 +48,6 @@ function expectClean(markup: string): void {
 
 describe('Futuristic overlay widgets instrument conversion', () => {
   it('keeps key exports wired into WIDGET_COMPONENTS', () => {
-    expect(WIDGET_COMPONENTS.revHalo).toBe(RevHaloWidget)
     expect(WIDGET_COMPONENTS.revComet).toBe(RevCometWidget)
     expect(WIDGET_COMPONENTS.gearRing).toBe(GearRingWidget)
     expect(WIDGET_COMPONENTS.flagIconStack).toBe(FlagIconStackWidget)
