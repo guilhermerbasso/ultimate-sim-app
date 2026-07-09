@@ -4,10 +4,11 @@ import {
   type ConfigDeleteResult,
   type SavedSectionInfo
 } from '../../../shared/config-io'
+import type { ResolvedLanguage } from '../i18n'
 
 // ─── Pure presentation helpers (exported for unit tests) ───────────────────────
 
-// Runs the per-section deletes for "Excluir tudo". `markRestart` is invoked the
+// Runs the per-section deletes for "Delete all". `markRestart` is invoked the
 // INSTANT any delete reports a removal, so a later failure (e.g. an IPC throw on
 // section k>0) still leaves the restart banner up for the sections already
 // removed — instead of swallowing it because the loop never reached the end.
@@ -77,12 +78,13 @@ export function summarizeSaved(items: readonly SavedSectionInfo[]): { savedCount
 
 // Compact one-line summary of a section's saved state for the row meta.
 export function describeSaved(item: SavedSectionInfo): string {
-  if (item.error) return 'erro ao ler (permissão/lock)'
-  if (!item.exists) return 'vazio'
+  if (item.error) return 'read error (permission/lock)'
+  if (!item.exists) return 'empty'
   const parts = [formatBytes(item.sizeBytes)]
   if (typeof item.itemCount === 'number') {
-    const noun = item.kind === 'dir' ? 'arquivo' : 'entrada'
-    parts.push(`${item.itemCount} ${noun}${item.itemCount === 1 ? '' : 's'}`)
+    const noun = item.kind === 'dir' ? 'file' : 'entry'
+    const plural = noun === 'entry' ? 'entries' : `${noun}s`
+    parts.push(`${item.itemCount} ${item.itemCount === 1 ? noun : plural}`)
   }
   if (item.modifiedAt !== null) parts.push(formatModified(item.modifiedAt))
   return parts.join(' · ')
@@ -94,13 +96,13 @@ type Status = { text: string; tone: 'ok' | 'err' } | null
 
 const DANGER = 'var(--danger, #e5484d)'
 
-// "Configurações salvas" panel: lists every allowlisted config store persisted
+// Saved settings panel: lists every allowlisted config store persisted
 // under userData (which SURVIVES an app reinstall, hence the user's old flags
 // reappearing) and lets the user delete them individually or all at once. After
 // a deletion the affected store returns to factory default — but running stores
 // are cached in memory, so the panel surfaces a restart prompt (config:relaunch)
 // exactly like the import flow. Auth/credentials are never listed or deletable.
-export function SavedConfigsPanel(): ReactElement {
+export function SavedConfigsPanel({ language: _language }: { language?: ResolvedLanguage } = {}): ReactElement {
   const [items, setItems] = useState<SavedSectionInfo[] | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [status, setStatus] = useState<Status>(null)
@@ -117,7 +119,7 @@ export function SavedConfigsPanel(): ReactElement {
 
   useEffect(() => {
     void refresh()
-    // Debounce: a "Excluir tudo" of N sections fans out N `config:changed`
+    // Debounce: a "Delete all" of N sections fans out N `config:changed`
     // broadcasts (one per deleteSection); coalesce the bursts into a single
     // re-list instead of triggering ~N full listings back-to-back.
     let timer: ReturnType<typeof setTimeout> | null = null
@@ -137,8 +139,8 @@ export function SavedConfigsPanel(): ReactElement {
   const deleteOne = async (item: SavedSectionInfo): Promise<void> => {
     if (
       !window.confirm(
-        `Excluir a configuração salva de "${item.label}"? Ela volta ao padrão de fábrica. ` +
-          'Esta ação não pode ser desfeita.'
+        `Delete the saved settings for "${item.label}"? It will return to factory defaults. ` +
+          'This action cannot be undone.'
       )
     ) {
       return
@@ -149,9 +151,9 @@ export function SavedConfigsPanel(): ReactElement {
       const result = await window.ipc.invoke<ConfigDeleteResult>(CONFIG_IO_CHANNELS.deleteSection, item.id)
       if (result.removed) {
         setNeedsRestart(true)
-        setStatus({ text: `"${item.label}" excluído. Reinicie para aplicar.`, tone: 'ok' })
+        setStatus({ text: `"${item.label}" deleted. Restart to apply.`, tone: 'ok' })
       } else {
-        setStatus({ text: `"${item.label}" já estava vazio.`, tone: 'ok' })
+        setStatus({ text: `"${item.label}" was already empty.`, tone: 'ok' })
       }
       await refresh()
     } catch (error) {
@@ -166,8 +168,8 @@ export function SavedConfigsPanel(): ReactElement {
     if (saved.length === 0) return
     if (
       !window.confirm(
-        `Excluir TODAS as ${saved.length} configurações salvas? Tudo volta ao padrão de fábrica. ` +
-          'Esta ação não pode ser desfeita.'
+        `Delete ALL ${saved.length} saved settings sections? Everything returns to factory defaults. ` +
+          'This action cannot be undone.'
       )
     ) {
       return
@@ -186,7 +188,7 @@ export function SavedConfigsPanel(): ReactElement {
         setStatus({ text: error instanceof Error ? error.message : String(error), tone: 'err' })
       } else {
         setStatus({
-          text: `${removed} configuraç${removed === 1 ? 'ão' : 'ões'} excluída${removed === 1 ? '' : 's'}. Reinicie para aplicar.`,
+          text: `${removed} saved setting${removed === 1 ? '' : 's'} deleted. Restart to apply.`,
           tone: 'ok'
         })
       }
@@ -210,20 +212,19 @@ export function SavedConfigsPanel(): ReactElement {
     <div className="panel-card" style={{ display: 'grid', gap: 12 }}>
       <div>
         <span className="field-label" style={{ margin: 0 }}>
-          Configurações salvas
+          Saved settings
         </span>
         <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13 }}>
-          Suas configurações ficam gravadas na pasta de dados do app (<code>userData</code>) e{' '}
-          <strong>continuam lá mesmo depois de desinstalar/reinstalar</strong> — por isso flags e perfis que você desenhou
-          antes reaparecem. Aqui você vê o que está salvo e pode excluir. Após excluir, <strong>reinicie o app</strong>{' '}
-          para aplicar (a seção volta ao padrão de fábrica). Login e credenciais NUNCA aparecem nem podem ser excluídos
-          por aqui.
+          Your settings are stored in the app data folder (<code>userData</code>) and{' '}
+          <strong>stay there after uninstalling/reinstalling</strong> — that is why old flags and profiles can reappear.
+          Review what is saved here and delete it if needed. After deletion, <strong>restart the app</strong> to apply
+          factory defaults. Secret values NEVER appear here and cannot be deleted from this panel.
         </p>
         {items && (
           <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 12 }}>
             {summary.savedCount === 0
-              ? 'Nada salvo no momento.'
-              : `${summary.savedCount} de ${items.length} seções com dados salvos · ${formatBytes(summary.totalBytes)} no total.`}
+              ? 'Nothing saved right now.'
+              : `${summary.savedCount} of ${items.length} sections with saved data · ${formatBytes(summary.totalBytes)} total.`}
           </p>
         )}
       </div>
@@ -237,7 +238,7 @@ export function SavedConfigsPanel(): ReactElement {
         }}
       >
         {loading && (
-          <div style={{ padding: '12px 14px', color: 'var(--muted)', fontSize: 13 }}>Carregando…</div>
+          <div style={{ padding: '12px 14px', color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
         )}
         {items?.map((item, index) => (
           <div
@@ -262,10 +263,10 @@ export function SavedConfigsPanel(): ReactElement {
               className="ghost-action danger compact"
               disabled={!item.exists || busy !== null}
               onClick={() => void deleteOne(item)}
-              title={item.exists ? `Excluir configuração salva: ${item.label}` : 'Nada salvo nesta seção'}
+              title={item.exists ? `Delete saved settings: ${item.label}` : 'Nothing saved in this section'}
               type="button"
             >
-              {busy === item.id ? 'Excluindo…' : 'Excluir'}
+              {busy === item.id ? 'Deleting…' : 'Delete'}
             </button>
           </div>
         ))}
@@ -278,10 +279,10 @@ export function SavedConfigsPanel(): ReactElement {
           onClick={() => void deleteAll()}
           type="button"
         >
-          {busy === 'all' ? 'Excluindo…' : 'Excluir tudo'}
+          {busy === 'all' ? 'Deleting…' : 'Delete all'}
         </button>
         <button className="ghost-action compact" disabled={busy !== null} onClick={() => void refresh()} type="button">
-          Atualizar
+          Refresh
         </button>
         {status && (
           <small style={{ color: status.tone === 'ok' ? 'var(--success)' : DANGER }}>{status.text}</small>
@@ -291,7 +292,7 @@ export function SavedConfigsPanel(): ReactElement {
       {needsRestart && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span
-            title="As seções já carregadas na memória só voltam ao padrão quando o app reinicia."
+            title="Sections already loaded in memory only return to defaults after the app restarts."
             style={{
               background: DANGER,
               color: '#fff',
@@ -302,13 +303,13 @@ export function SavedConfigsPanel(): ReactElement {
               whiteSpace: 'nowrap'
             }}
           >
-            Reinicie para aplicar
+            Restart to apply
           </span>
           <span style={{ color: 'var(--muted)', fontSize: 13 }}>
-            A configuração foi removida do disco, mas só sai da memória ao reiniciar.
+            The setting was removed from disk, but it only leaves memory after restart.
           </span>
           <button className="primary-action" onClick={() => void restartNow()} type="button">
-            Reiniciar agora
+            Restart now
           </button>
         </div>
       )}

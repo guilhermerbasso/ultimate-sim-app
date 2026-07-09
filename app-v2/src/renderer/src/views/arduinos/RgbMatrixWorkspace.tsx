@@ -231,7 +231,7 @@ export default function RgbMatrixWorkspace({
   const [targets, setTargets] = useState<MatrixTarget[]>([])
   const [targetKey, setTargetKey] = useState<string | null>(null)
   const activeTarget = useMemo(
-    () => (targetKey ? targets.find((target) => target.key === targetKey) ?? null : targets[0] ?? null),
+    () => (targetKey ? (targets.find((target) => target.key === targetKey) ?? null) : (targets[0] ?? null)),
     [targetKey, targets]
   )
   const profileKey = activeTarget?.key ?? keyFor()
@@ -574,7 +574,7 @@ export default function RgbMatrixWorkspace({
           </div>
         </div>
         <p style={helper}>
-          Stack effects and conditional groups like SimHub. Cada efeito tem uma prioridade ÚNICA: a 0 fica por cima (sobrepõe todas), a 1 sobre a 2, etc. A lista é exibida em ordem de prioridade (0 no topo).
+          Stack effects and conditional groups like SimHub. Each effect has a UNIQUE priority: 0 is on top (overlays all), 1 overlays 2, etc. The list is shown in priority order (0 on top).
         </p>
         <TargetSelector
           targets={targets}
@@ -626,10 +626,10 @@ export default function RgbMatrixWorkspace({
             <span style={label}>Live preview</span>
             <MatrixFrameView frame={frame} />
             <p style={helper}>
-              Mock telemetry cycles flags, brake, pit limiter, DRS, TC and redline so stacking can be verified without a sim.
+              Mock telemetry cycles flags, brake, pit limiter, DRS, TC and redline so stacking can be verified without a yes.
             </p>
             {previewDisconnected ? (
-              <p style={previewHintStyle}>Conecte o iFlag (COM) para ver o preview ao vivo</p>
+              <p style={previewHintStyle}>Connect the iFlag (COM) to see the live preview</p>
             ) : null}
           </div>
           {selected ? (
@@ -712,33 +712,30 @@ interface CalibTest {
 }
 
 const CALIB_TESTS: ReadonlyArray<CalibTest> = [
-  { mode: 0, label: 'Canto (0,0)', expect: 'Apenas 1 pixel aceso no canto SUPERIOR-ESQUERDO do painel.' },
-  { mode: 1, label: 'Linha 0', expect: 'Uma linha horizontal vermelha no TOPO (de ponta a ponta).' },
-  { mode: 2, label: 'Coluna 0', expect: 'Uma linha vertical azul à ESQUERDA (de cima a baixo).' },
-  { mode: 3, label: 'Letra “F”', expect: 'Um “F” branco, legível e em pé (teste decisivo).' }
+  { mode: 0, label: 'Corner (0,0)', expect: 'Only 1 pixel lit in the panel TOP-LEFT corner.' },
+  { mode: 1, label: 'Row 0', expect: 'A red horizontal line at the TOP (edge to edge).' },
+  { mode: 2, label: 'Column 0', expect: 'A blue vertical line on the LEFT (top to bottom).' },
+  { mode: 3, label: 'Letter “F”', expect: 'A white, readable, upright “F” (decisive test).' }
 ]
 
 // Always-available panel tests, rendered app-side THROUGH the active mapping
 // (customMap or firmware layout) and streamed in one frame — so they confirm the
 // panel + a saved manual map even when the layout wizard is locked.
 const MAPPED_TESTS: ReadonlyArray<{ mode: MatrixTestMode; label: string }> = [
-  { mode: 'all', label: 'Painel branco' },
-  { mode: 'f', label: 'Letra “F”' },
-  { mode: 'corner', label: 'Canto (0,0)' },
-  { mode: 'row', label: 'Linha 0' },
-  { mode: 'col', label: 'Coluna 0' }
+  { mode: 'all', label: 'White panel' },
+  { mode: 'f', label: 'Letter “F”' }
 ]
 
 // Content tests that exercise the REAL telemetry visuals (race flags + the gear
 // digit) through the SAME mapping path — so the user can confirm flags and the
 // gear marker render correctly on the panel without opening the simulator.
 const MAPPED_CONTENT_TESTS: ReadonlyArray<{ mode: MatrixTestMode; label: string }> = [
-  { mode: 'flag-green', label: 'Flag verde' },
-  { mode: 'flag-yellow', label: 'Flag amarela' },
-  { mode: 'flag-blue', label: 'Flag azul' },
-  { mode: 'flag-white', label: 'Flag branca' },
-  { mode: 'flag-checkered', label: 'Quadriculada' },
-  { mode: 'gear', label: 'Marcha “3”' }
+  { mode: 'flag-green', label: 'Green flag' },
+  { mode: 'flag-yellow', label: 'Yellow flag' },
+  { mode: 'flag-blue', label: 'Blue flag' },
+  { mode: 'flag-white', label: 'White flag' },
+  { mode: 'flag-checkered', label: 'Checkered' },
+  { mode: 'gear', label: 'Gear “3”' }
 ]
 
 // The LOGICAL image each calibration pattern represents — i.e. exactly what the
@@ -766,12 +763,12 @@ function calibrationLogicalGrid(mode: CalibMode): string[][] {
 
 function layoutSummary(layout: MatrixLayout): string {
   const parts = [
-    `Serpentina ${layout.serpentine ? 'ON' : 'OFF'}`,
-    `Rotação ${layout.rotation}°`,
+    `Serpentine ${layout.serpentine ? 'ON' : 'OFF'}`,
+    `Rotation ${layout.rotation}°`,
     `FlipX ${layout.flipX ? 'ON' : 'OFF'}`,
     `FlipY ${layout.flipY ? 'ON' : 'OFF'}`
   ]
-  if (isValidCustomMap(layout.customMap)) parts.push('Mapa manual ATIVO')
+  if (isValidCustomMap(layout.customMap)) parts.push('Manual map ACTIVE')
   // The exact byte sent to the firmware (`M<hex>`) — the SINGLE source of panel
   // orientation. Surfacing it makes a 90°/mirror mismatch obvious and verifiable.
   parts.push(`M=${wireLayoutByte(layout).toString(16).padStart(2, '0')}`)
@@ -841,7 +838,7 @@ function MatrixCalibrationWizard({
   const runTest = async (mode: CalibMode): Promise<void> => {
     setActiveTest(mode)
     const reached = await onFireTest(mode)
-    if (!reached) showToast('Nenhum iFlag conectado. Conecte o dispositivo para ver os testes no painel.', 'info')
+    if (!reached) showToast('No iFlag connected. Connect the device to see tests on the panel.', 'info')
   }
 
   // Instant-apply a layout change: persist + push `M<byte>` to the device, then
@@ -853,7 +850,7 @@ function MatrixCalibrationWizard({
       // T anyway so the panel is unambiguous even if frames had resumed.
       await onFireTest(activeTest)
     }
-    if (!sent) showToast('Layout salvo no perfil. Conecte o iFlag para enviá-lo ao dispositivo.', 'info')
+    if (!sent) showToast('Layout saved to the profile. Connect the iFlag to send it to the device.', 'info')
   }
 
   // Auto-cycle helper: step through the four tests so the user can eyeball the
@@ -874,16 +871,16 @@ function MatrixCalibrationWizard({
     <article style={{ ...panel, gridColumn: '1 / -1' }}>
       <div style={{ ...rowStyle, justifyContent: 'space-between' }}>
         <div>
-          <span style={label}>Calibração da matriz · iFlag 8×8</span>
-          <h3 style={{ margin: '4px 0 0' }}>Assistente de mapeamento físico</h3>
+          <span style={label}>Matrix calibration · iFlag 8×8</span>
+          <h3 style={{ margin: '4px 0 0' }}>Physical mapping assistant</h3>
         </div>
-        <span style={{ ...helper, fontVariantNumeric: 'tabular-nums' }}>Layout ativo: {layoutSummary(layout)}</span>
+        <span style={{ ...helper, fontVariantNumeric: 'tabular-nums' }}>Active layout: {layoutSummary(layout)}</span>
       </div>
       <p style={helper}>
-        Cada teste acende um padrão <strong>inequívoco</strong> no painel <em>através</em> do layout atual. Ajuste os
-        4 controles abaixo (aplicação <strong>instantânea</strong>) até o que aparece no seu painel bater com a coluna
-        “o que você deve ver”. Comece pela letra <strong>“F”</strong>: é assimétrica nos dois eixos, então qualquer
-        espelhamento, rotação ou serpentina trocada fica óbvio.
+        Each test lights an <strong>unambiguous</strong> pattern on the panel <em>through</em> the current layout. Adjust the
+        4 controls below (<strong>instant</strong> application) until what appears on your panel matches the
+        “what you should see” column. Start with the letter <strong>“F”</strong>: it is asymmetric on both axes, so any
+        wrong mirroring, rotation, or serpentine setting becomes obvious.
       </p>
 
       {/* Always-on panel tests — rendered app-side THROUGH the active mapping
@@ -891,15 +888,14 @@ function MatrixCalibrationWizard({
           brightness, so they confirm the panel + a saved manual map even when the
           layout wizard below is locked (and on slow boards). */}
       <div style={{ ...card, marginTop: 6 }}>
-        <span style={label}>Testar painel {customActive ? '· via seu mapa manual' : ''}</span>
+        <span style={label}>Test panel {customActive ? '· via your manual map' : ''}</span>
         <p style={helper}>
-          Funciona com ou sem mapa manual e <strong>sem o simulador aberto</strong>. <strong>Painel branco</strong>
-          {' '}acende tudo (teste de alimentação/brilho); a <strong>“F”</strong> deve aparecer legível e em pé se o
-          mapeamento estiver correto. Os botões de <strong>Flags</strong> e <strong>Marcha</strong> abaixo desenham as
-          cores das bandeiras e o dígito da marcha <em>através do seu mapa</em>, no <strong>brilho atual</strong> do
-          iFlag (o mesmo da corrida) — é assim que você confirma que as flags e a marcha vão aparecer certas. Se
-          ficarem fracas aqui, aumente o brilho do componente. Se aparecerem certas aqui mas <em>não</em> em
-          corrida, confira se os efeitos <strong>Flags</strong>/<strong>Marcha</strong> estão ativados e em tela cheia.
+          White panel lights everything (power/brightness test); the <strong>“F”</strong> should appear readable and upright if the
+          mapping is correct. The <strong>Flags</strong> and <strong>Gear</strong> buttons below draw the
+          flag colors and gear digit <em>through your map</em>, at the component's <strong>current brightness</strong>
+          iFlag (the same one used in the race) — this is where you confirm the flags and gear will appear correctly. If
+          look dim here, increase the component brightness. If they look right here but <em>not</em> in
+          race, check that the effects <strong>Flags</strong>/<strong>Gear</strong> are enabled and fullscreen.
         </p>
         <div style={{ ...rowStyle, flexWrap: 'wrap', gap: 8 }}>
           {MAPPED_TESTS.map((t) => (
@@ -910,7 +906,7 @@ function MatrixCalibrationWizard({
               disabled={actionsDisabled || !hasTarget}
               onClick={() => {
                 void onTestMapped(t.mode).then((ok) => {
-                  if (!ok) showToast('Conecte o iFlag para testar o painel.', 'info')
+                  if (!ok) showToast('Connect the iFlag to test the panel.', 'info')
                 })
               }}
             >
@@ -918,7 +914,7 @@ function MatrixCalibrationWizard({
             </button>
           ))}
         </div>
-        <span style={{ ...label, marginTop: 10 }}>Conteúdo · Flags &amp; Marcha</span>
+        <span style={{ ...label, marginTop: 10 }}>Content · Flags &amp; Gear</span>
         <div style={{ ...rowStyle, flexWrap: 'wrap', gap: 8 }}>
           {MAPPED_CONTENT_TESTS.map((t) => (
             <button
@@ -928,7 +924,7 @@ function MatrixCalibrationWizard({
               disabled={actionsDisabled || !hasTarget}
               onClick={() => {
                 void onTestMapped(t.mode).then((ok) => {
-                  if (!ok) showToast('Conecte o iFlag para testar o painel.', 'info')
+                  if (!ok) showToast('Connect the iFlag to test the panel.', 'info')
                 })
               }}
             >
@@ -945,21 +941,21 @@ function MatrixCalibrationWizard({
           >
             Retomar imagem ao vivo
           </button>
-          <span style={helper}>Encerra o teste e volta a desenhar o conteúdo ao vivo (ou painel apagado).</span>
+          <span style={helper}>Stops the test and resumes drawing live content (or a blank panel).</span>
         </div>
       </div>
 
       {/* Side-by-side: what the app sends (logical) vs what to look for. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 18, alignItems: 'start', marginTop: 6 }}>
         <div>
-          <span style={label}>O app está enviando (lógico)</span>
+          <span style={label}>O app esta enviando (logico)</span>
           <StaticMatrixGrid grid={previewGrid} />
           <p style={{ ...helper, marginTop: 8, maxWidth: 220 }}>
-            Esta é a imagem correta. O painel físico deve <strong>espelhar exatamente</strong> esta grade.
+            This is the correct image. The physical panel should <strong>mirror this grid exactly</strong>.
           </p>
         </div>
         <div style={{ display: 'grid', gap: 8 }}>
-          <span style={label}>O que você deve ver no painel</span>
+          <span style={label}>What you should see on the panel</span>
           <div style={{ display: 'grid', gap: 6 }}>
             {CALIB_TESTS.map((test) => {
               const selected = test.mode === activeTest
@@ -984,19 +980,19 @@ function MatrixCalibrationWizard({
             })}
           </div>
           <div style={rowStyle}>
-            <Toggle checked={autoCycle} caption={autoCycle ? 'Auto-ciclo ON' : 'Auto-ciclo'} onChange={setAutoCycle} />
-            <span style={helper}>Percorre os 4 testes a cada ~2,2 s.</span>
+            <Toggle checked={autoCycle} caption={autoCycle ? 'Auto-cycle ON' : 'Auto-cycle'} onChange={setAutoCycle} />
+            <span style={helper}>Cycles through the 4 tests every ~2.2 s.</span>
           </div>
           {/* ONE-TAP orientation fix, right beside the live test pattern. Each tap
               of "Rotacionar 90°" cycles 0→90→180→270 and applyLayout persists the
               `M` byte AND re-fires the active test, so the glyph visibly rotates on
               the panel until it reads upright. Quick flip toggles cover mirrors. */}
           <div style={{ ...card, marginTop: 4, padding: 12 }}>
-            <span style={label}>Orientação rápida · 1 toque</span>
+            <span style={label}>Quick orientation · 1 tap</span>
             <p style={{ ...helper, marginTop: 4 }}>
-              Dispare a <strong>“F”</strong> e toque <strong>Rotacionar 90°</strong> até ela ficar <strong>em pé</strong> e
-              legível no painel. Se aparecer espelhada, use <strong>Espelhar X/Y</strong>. Cada toque grava o layout e
-              re-dispara o teste — sem stale, o quadro inteiro é reenviado.
+              Fire the <strong>“F”</strong> and tap <strong>Rotate 90°</strong> until it is <strong>upright</strong> and
+              readable on the panel. If it appears mirrored, use <strong>Mirror X/Y</strong>. Each tap saves the layout and
+              reruns the test — no stale state, the entire frame is resent.
             </p>
             <div style={{ ...rowStyle, flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
               <button
@@ -1005,7 +1001,7 @@ function MatrixCalibrationWizard({
                 disabled={actionsDisabled || customActive}
                 onClick={() => void applyLayout({ ...layout, rotation: nextRotation(layout.rotation) })}
               >
-                Rotacionar 90° · atual {layout.rotation}°
+                Rotate 90° · current {layout.rotation}°
               </button>
               <button
                 type="button"
@@ -1013,7 +1009,7 @@ function MatrixCalibrationWizard({
                 disabled={actionsDisabled || customActive}
                 onClick={() => void applyLayout({ ...layout, flipX: !layout.flipX })}
               >
-                Espelhar X · {layout.flipX ? 'ON' : 'OFF'}
+                Mirror X · {layout.flipX ? 'ON' : 'OFF'}
               </button>
               <button
                 type="button"
@@ -1021,12 +1017,12 @@ function MatrixCalibrationWizard({
                 disabled={actionsDisabled || customActive}
                 onClick={() => void applyLayout({ ...layout, flipY: !layout.flipY })}
               >
-                Espelhar Y · {layout.flipY ? 'ON' : 'OFF'}
+                Mirror Y · {layout.flipY ? 'ON' : 'OFF'}
               </button>
             </div>
             {customActive ? (
               <p style={{ ...helper, marginTop: 8 }}>
-                Mapa manual ativo — rotação/espelho ficam inativos (o mapa por pixel já decide a fiação).
+                Manual map active — the 4 wiring controls above (serpentine/rotation/mirror) are inactive because the
               </p>
             ) : null}
           </div>
@@ -1035,33 +1031,33 @@ function MatrixCalibrationWizard({
 
       {/* Four instant-apply layout controls. */}
       <div style={{ ...card, marginTop: 16, opacity: customActive ? 0.5 : 1, pointerEvents: customActive ? 'none' : 'auto' }}>
-        <span style={label}>Controles do layout (aplicação instantânea)</span>
+        <span style={label}>Layout controls (instant apply)</span>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 14, marginTop: 8 }}>
-          <Field caption="Serpentina" hint="Linhas ímpares fiadas ao contrário — padrão na maioria dos painéis.">
+          <Field caption="Serpentine" hint="Odd rows wired in reverse — default on most panels.">
             <Toggle
               checked={layout.serpentine}
-              caption={layout.serpentine ? 'Ativada' : 'Desativada'}
+              caption={layout.serpentine ? 'Enabled' : 'Disabled'}
               onChange={(serpentine) => void applyLayout({ ...layout, serpentine })}
             />
           </Field>
-          <Field caption="Rotação" hint="Gire para casar o canto lógico (0,0) com o canto físico.">
+          <Field caption="Rotation" hint="Rotate to match logical corner (0,0) to the physical corner.">
             <SelectField
               value={String(layout.rotation)}
               options={ROTATION_OPTIONS}
               onChange={(value) => void applyLayout({ ...layout, rotation: Number(value) as MatrixRotation })}
             />
           </Field>
-          <Field caption="Espelhar X" hint="Inverte as colunas (DIN entrando pelo lado oposto).">
+          <Field caption="Mirror X" hint="Inverts columns (DIN entering from the opposite side).">
             <Toggle
               checked={layout.flipX}
-              caption={layout.flipX ? 'Invertido' : 'Normal'}
+              caption={layout.flipX ? 'Inverted' : 'Normal'}
               onChange={(flipX) => void applyLayout({ ...layout, flipX })}
             />
           </Field>
-          <Field caption="Espelhar Y" hint="Inverte as linhas (origem embaixo).">
+          <Field caption="Mirror Y" hint="Inverts rows (origin at the bottom).">
             <Toggle
               checked={layout.flipY}
-              caption={layout.flipY ? 'Invertido' : 'Normal'}
+              caption={layout.flipY ? 'Inverted' : 'Normal'}
               onChange={(flipY) => void applyLayout({ ...layout, flipY })}
             />
           </Field>
@@ -1073,17 +1069,17 @@ function MatrixCalibrationWizard({
             disabled={busy || customActive}
             onClick={() => void applyLayout({ serpentine: true, rotation: 0, flipX: false, flipY: false })}
           >
-            Restaurar padrão
+            Restore default
           </button>
           <span style={helper}>
-            Cada ajuste grava o byte <code>M</code> na EEPROM do iFlag e re-dispara o teste atual.
+            Each adjustment writes the <code>M</code> byte to iFlag EEPROM and reruns the current test.
           </span>
         </div>
         {customActive ? (
           <p style={{ ...helper, marginTop: 8 }}>
-            Mapa manual ativo — os 4 controles de fiação acima (serpentina/rotação/espelho) ficam inativos porque o
-            mapeamento por pixel já decide a fiação. Use os testes <strong>“Testar painel”</strong> (inclusive Flags e
-            Marcha) acima para conferir, ou <strong>Refazer</strong>/<strong>Remover</strong> o mapa logo abaixo.
+            4 controls below (<strong>instant</strong> application) until what appears on your panel matches the
+            <span style={label}>Test panel {customActive ? '? via your manual map' : ''}</span>
+            Gear) above to verify, or <strong>Redo</strong>/<strong>Remove</strong> the map below.
           </p>
         ) : null}
       </div>
@@ -1091,7 +1087,7 @@ function MatrixCalibrationWizard({
       {/* Advanced: per-pixel manual remap fallback. */}
       <div style={{ ...card, marginTop: 14 }}>
         <div style={{ ...rowStyle, justifyContent: 'space-between' }}>
-          <span style={label}>Avançado: mapeamento manual (pixel a pixel)</span>
+          <span style={label}>Advanced: manual mapping (pixel by pixel)</span>
           {customActive ? (
             <div style={{ ...rowStyle, gap: 8 }}>
               <button
@@ -1103,7 +1099,7 @@ function MatrixCalibrationWizard({
                   else setManualOpen(true)
                 }}
               >
-                {manualOpen ? 'Fechar mapeamento' : 'Refazer mapeamento'}
+                {manualOpen ? 'Close mapping' : 'Redo mapping'}
               </button>
               {!manualOpen ? (
                 <button
@@ -1112,7 +1108,7 @@ function MatrixCalibrationWizard({
                   disabled={busy}
                   onClick={() => void applyLayout({ serpentine: layout.serpentine, rotation: layout.rotation, flipX: layout.flipX, flipY: layout.flipY })}
                 >
-                  Remover mapa manual
+                  Remove manual map
                 </button>
               ) : null}
             </div>
@@ -1126,15 +1122,15 @@ function MatrixCalibrationWizard({
                 else setManualOpen(true)
               }}
             >
-              {manualOpen ? 'Fechar mapeamento' : 'Abrir mapeamento manual'}
+              {manualOpen ? 'Close mapping' : 'Open manual mapping'}
             </button>
           )}
         </div>
         <p style={helper}>
-          Para painéis cuja fiação <strong>não casa com nenhuma</strong> combinação de serpentina/rotação/espelho (ex.:
-          módulos 4×4 emendados, zig-zag diagonal). O app acende <strong>um LED físico de cada vez</strong>; você toca a
-          célula correspondente na grade e construímos uma permutação completa (64 pixels). Depois o app passa a enviar
-          os quadros <em>já remapeados</em>, então o firmware exibe 1:1 — sem recompilar nada.
+          For panels whose wiring <strong>does not match any</strong> serpentine/rotation/mirror combination (e.g.
+          spliced 4?4 modules, diagonal zig-zag). The app lights <strong>one physical LED at a time</strong>; you tap the
+          corresponding cell in the grid and we build a complete permutation (64 pixels). Then the app sends
+          frames <em>already remapped</em>, so the firmware displays 1:1 ?? no recompiling.
         </p>
         {manualOpen ? (
           <ManualRemap
@@ -1142,7 +1138,7 @@ function MatrixCalibrationWizard({
             onSave={async (customMap) => {
               const sent = await onCommitLayout({ ...layout, customMap })
               showToast(
-                sent ? 'Mapa manual salvo e aplicado ao iFlag.' : 'Mapa manual salvo no perfil. Conecte o iFlag para aplicar.',
+                sent ? 'Manual map saved and applied to iFlag.' : 'Manual map saved to the profile. Connect iFlag to apply.',
                 sent ? 'success' : 'info'
               )
               setManualOpen(false)
@@ -1158,8 +1154,8 @@ function MatrixCalibrationWizard({
 
       {!hasTarget ? (
         <p style={{ ...helper, marginTop: 12 }}>
-          Nenhum componente iFlag/matriz cadastrado. Adicione um em “Meu Hardware” para enviar layout e testes ao
-          dispositivo físico.
+          No iFlag/matrix component registered. Add one in “My Hardware” to send layout and tests to the
+          physical device.
         </p>
       ) : null}
     </article>
@@ -1266,7 +1262,7 @@ function ManualRemap({
           <div
             style={{ ...matrixSurface, gridTemplateColumns: `repeat(${RGB_MATRIX_SIZE}, 30px)`, gap: 4 }}
             role="grid"
-            aria-label="Grade de mapeamento manual"
+            aria-label="Manual mapping grid"
           >
             {cellToPhysical.map((physical, cell) => {
               const assigned = physical !== null
@@ -1276,7 +1272,7 @@ function ManualRemap({
                   type="button"
                   disabled={disabled}
                   onClick={() => handleTap(cell)}
-                  title={assigned ? `LED físico ${physical}` : 'Toque onde o LED aceso aparece'}
+                  title={assigned ? `Physical LED ${physical}` : 'Tap where the lit LED appears'}
                   style={{
                     width: 30,
                     height: 30,
@@ -1298,11 +1294,11 @@ function ManualRemap({
         <div style={{ display: 'grid', gap: 10 }}>
           <p style={helper}>
             {complete ? (
-              <>Todos os 64 pixels mapeados. Confira e clique <strong>Salvar mapa</strong>.</>
+              <>All 64 pixels are mapped. Check them and click <strong>Save map</strong>.</>
             ) : (
               <>
-                O painel está acendendo o <strong>LED físico #{probeIndex}</strong> (branco). Toque, na grade ao lado, a
-                célula onde ele aparece. Em seguida acendemos o próximo automaticamente.
+                The panel is lighting <strong>physical LED #{probeIndex}</strong> (white). Tap the matching cell in the grid beside it.
+                cell where it appears. Then the next one lights automatically.
               </>
             )}
           </p>
@@ -1317,30 +1313,30 @@ function ManualRemap({
                 border: `1px solid ${ACCENT_BORDER}`
               }}
             >
-              {assignedCount}/{total} mapeados
+              {assignedCount}/{total} mapped
             </span>
             {!complete ? (
               <button type="button" style={buttonStyle('ghost')} disabled={disabled || probeIndex >= total} onClick={() => void onLightPhysical(probeIndex)}>
-                Reacender LED #{probeIndex}
+                Relight LED #{probeIndex}
               </button>
             ) : null}
           </div>
           <div style={rowStyle}>
             <button type="button" style={buttonStyle('primary')} disabled={disabled || !complete} onClick={save}>
-              Salvar mapa
+              Save map
             </button>
             <button type="button" style={buttonStyle('ghost')} disabled={disabled} onClick={reset}>
-              Recomeçar
+              Restart
             </button>
             <button type="button" style={buttonStyle('ghost')} disabled={disabled || probeIndex <= 0} onClick={stepBack}>
-              Voltar um
+              Back one
             </button>
             <button type="button" style={buttonStyle('ghost')} disabled={disabled} onClick={cancel}>
-              Cancelar
+              Cancel
             </button>
           </div>
           <p style={helper}>
-            Dica: se errou o LED atual, toque a célula correta. Para corrigir o LED anterior, use <strong>Voltar um</strong>.
+            Tip: if the current LED is wrong, tap the correct cell. To fix the previous LED, use <strong>Back one</strong>.
           </p>
         </div>
       </div>
@@ -1445,15 +1441,15 @@ function EffectStackItem({
             {effect.kind === 'group' ? 'Conditional group' : effect.kind}
             {' · '}
             <span style={{ color: priority === 0 ? '#49C5B1' : 'rgba(255,255,255,0.7)' }}>
-              Prioridade {priority}{priority === 0 ? ' (por cima)' : ''}
+              Priority {priority}{priority === 0 ? ' (on top)' : ''}
             </span>
           </small>
         </button>
         <div style={rowStyle}>
-          <button type="button" title="Subir prioridade (mais por cima)" style={buttonStyle('ghost')} disabled={!canMoveUp} onClick={() => onChangePriority(effect.id, -1)}>
+          <button type="button" title="Move priority up (more on top)" style={buttonStyle('ghost')} disabled={!canMoveUp} onClick={() => onChangePriority(effect.id, -1)}>
             ↑
           </button>
-          <button type="button" title="Descer prioridade (mais por baixo)" style={buttonStyle('ghost')} disabled={!canMoveDown} onClick={() => onChangePriority(effect.id, 1)}>
+          <button type="button" title="Move priority down (lower)" style={buttonStyle('ghost')} disabled={!canMoveDown} onClick={() => onChangePriority(effect.id, 1)}>
             ↓
           </button>
           <button type="button" style={buttonStyle('danger')} onClick={() => onRemove(effect.id)}>
@@ -1555,7 +1551,7 @@ function BrightnessEditor({
   const value = typeof effect.brightness === 'number' ? effect.brightness : RGB_MATRIX_FULL_BRIGHTNESS
   return (
     <div style={card}>
-      <Field caption="Brightness" hint="Brilho só deste efeito (0–255). 255 = cheio. Escala a cor antes de compor o quadro.">
+      <Field caption="Brightness" hint="Brightness for this effect only (0?255). 255 = full. Scales the color before composing the frame.">
         <Slider
           value={value}
           min={0}
@@ -1582,7 +1578,7 @@ function RotationEditor({
   const value = MATRIX_ROTATIONS.includes(effect.rotation as MatrixRotation) ? (effect.rotation as MatrixRotation) : 0
   return (
     <div style={card}>
-      <Field caption="Rotação" hint="Gira só este efeito (sentido horário) antes de compor o quadro. Não altera a fiação do painel.">
+      <Field caption="Rotation" hint="Rotates only this effect (clockwise) before composing the frame. Does not change panel wiring.">
         <SelectField
           value={String(value)}
           options={ROTATION_OPTIONS}
@@ -1682,7 +1678,7 @@ function BehaviourEditor({
   return (
     <div style={card}>
       <span style={label}>Blink animation</span>
-      <p style={helper}>A fase OFF pode apagar, trocar cor ou tocar outra animação. “Cycle colors” cria o blink trocando de cor.</p>
+      <p style={helper}>The OFF phase can turn off, change color, or play another animation. ?Cycle colors? creates blinking by changing color.</p>
       <div style={{ ...rowStyle, marginTop: 10 }}>
         <Toggle checked={blink.enabled} caption="Blink enabled" onChange={(enabled) => setBlink({ enabled })} />
         <Toggle checked={blink.animateColors === true} caption="Cycle colors" onChange={(animateColors) => setBlink({ animateColors })} />
@@ -1706,7 +1702,7 @@ function BehaviourEditor({
         <button type="button" style={buttonStyle('ghost')} onClick={() => setBlink({ altFrames: undefined })}>
           Clear alt animation
         </button>
-        <span style={helper}>{blink.altFrames?.length ? `${blink.altFrames.length} alt frame(s)` : 'Sem alt frames: OFF usa alt color/cycle ou apaga.'}</span>
+        <span style={helper}>{blink.altFrames?.length ? `${blink.altFrames.length} alt frame(s)` : 'No alt frames: OFF uses alt color/cycle or turns off.'}</span>
       </div>
     </div>
   )
@@ -1817,7 +1813,7 @@ function AnimationEditor({
       <div style={{ ...rowStyle, justifyContent: 'space-between' }}>
         <div>
           <span style={label}>Frame timeline</span>
-          <p style={helper}>Cada efeito pode ser uma animação 8×8 com duração por frame.</p>
+          <p style={helper}>Each effect can be an 8?8 animation with per-frame duration.</p>
         </div>
         <div style={rowStyle}>
           <button type="button" style={buttonStyle('soft')} onClick={() => addFrame(true)}>Duplicate</button>
@@ -1828,7 +1824,7 @@ function AnimationEditor({
         <Field caption="Loop mode">
           <SelectField value={effect.loopMode ?? 'loop'} options={LOOP_MODE_OPTIONS} onChange={(loopMode) => onChange({ ...effect, loopMode } as RgbMatrixEffect)} />
         </Field>
-        <Field caption="Speed" hint="1 = normal, 2 = dobro da velocidade.">
+        <Field caption="Speed" hint="1 = normal, 2 = double speed.">
           <NumberField value={effect.speed ?? 1} min={0.05} max={8} step={0.05} onChange={(speed) => onChange({ ...effect, speed } as RgbMatrixEffect)} />
         </Field>
         <Field caption="Frames">
@@ -1908,15 +1904,14 @@ const FLAG_LABELS_PT: Record<FlagName, string> = {
 }
 
 const FLAG_MODE_OPTIONS: ReadonlyArray<SelectOption<RgbMatrixFlagMode>> = [
-  { value: 'currentFlag', label: 'Bandeira atual (auto)' },
-  { value: 'solid', label: 'Cor sólida (Main)' },
-  { value: 'checkered', label: 'Quadriculada' },
-  { value: 'custom', label: 'Personalizado (pixel a pixel)' }
+  { value: 'solid', label: 'Solid color (Main)' },
+  { value: 'checkered', label: 'Checkered' },
+  { value: 'custom', label: 'Custom (pixel by pixel)' }
 ]
 
 const GEAR_MODE_OPTIONS: ReadonlyArray<SelectOption<'font' | 'custom'>> = [
-  { value: 'font', label: 'Fonte padrão' },
-  { value: 'custom', label: 'Personalizado (pixel a pixel)' }
+  { value: 'font', label: 'Default font' },
+  { value: 'custom', label: 'Custom (pixel by pixel)' }
 ]
 
 // The animation currently being edited for a label: an explicit per-label
@@ -2050,7 +2045,7 @@ function PerLabelAnimationEditor<L extends string>({
       <div style={{ ...rowStyle, justifyContent: 'space-between' }}>
         <div>
           <span style={label}>Frame timeline — {labelText(activeLabel)}</span>
-          <p style={helper}>Frame 1 é a imagem única; adicione frames para animar esta bandeira/marcha.</p>
+          <p style={helper}>Frame 1 is the single image; add frames to animate this flag/gear.</p>
         </div>
         <div style={rowStyle}>
           <button type="button" style={buttonStyle('soft')} onClick={() => addFrame(true)}>Duplicate</button>
@@ -2090,8 +2085,8 @@ function PerLabelAnimationEditor<L extends string>({
         <button type="button" style={buttonStyle('soft', paintMode === 'erase')} onClick={() => setPaintMode('erase')}>Erase</button>
         <button type="button" style={buttonStyle('ghost')} disabled={frames.length <= 1} onClick={() => moveFrame(-1)}>←</button>
         <button type="button" style={buttonStyle('ghost')} disabled={frames.length <= 1} onClick={() => moveFrame(1)}>→</button>
-        <button type="button" style={buttonStyle('ghost')} onClick={() => updateFrame(withFrameGrid(activeFrame, emptyMatrixHexGrid()))}>Limpar</button>
-        <button type="button" style={buttonStyle('ghost')} onClick={() => updateFrame(withFrameGrid(activeFrame, seed(activeLabel)))}>Restaurar padrão</button>
+        <button type="button" style={buttonStyle('ghost')} onClick={() => updateFrame(withFrameGrid(activeFrame, emptyMatrixHexGrid()))}>Clear</button>
+        <button type="button" style={buttonStyle('ghost')} onClick={() => updateFrame(withFrameGrid(activeFrame, seed(activeLabel)))}>Restore default</button>
         <button
           type="button"
           style={buttonStyle('danger')}
@@ -2113,7 +2108,7 @@ function PerLabelAnimationEditor<L extends string>({
 
       <div style={card}>
         <span style={label}>Blink — {labelText(activeLabel)}</span>
-        <p style={helper}>Quando ligado, a fase OFF apaga, troca de cor (alt) ou cicla cores, no clock desta bandeira/marcha.</p>
+        <p style={helper}>When enabled, the OFF phase turns off, changes color (alt), or cycles colors on this flag/gear clock.</p>
         <div style={{ ...rowStyle, marginTop: 8 }}>
           <Toggle checked={blink.enabled} caption="Blink enabled" onChange={(enabled) => setBlink({ enabled })} />
           <Toggle checked={blink.animateColors === true} caption="Cycle colors" onChange={(animateColors) => setBlink({ animateColors })} />
@@ -2163,16 +2158,16 @@ function FlagsEditor({
   return (
     <div style={card}>
       <span style={label}>Flags</span>
-      <Field caption="Flag mode" hint="“Bandeira atual” mostra a flag da telemetria; “Personalizado” deixa você animar cada bandeira.">
+      <Field caption="Flag mode" hint="?Current flag? shows the telemetry flag; ?Custom? lets you animate each flag.">
         <SelectField value={effect.mode} options={FLAG_MODE_OPTIONS} onChange={setMode} />
       </Field>
       <Field
-        caption="Bandeira prevalece sobre a marcha"
-        hint="Ligado (padrão): uma bandeira de CAUTELA (amarela, azul, branca, vermelha, preta, meatball ou quadriculada) esconde o dígito da marcha — a bandeira ocupa o painel inteiro e a marcha não aparece por cima nem vaza no piscar. A bandeira VERDE sempre mantém a marcha visível (corrida normal)."
+        caption="Flag takes priority over gear"
+        hint="On (default): a CAUTION flag (yellow, blue, white, red, black, meatball, or checkered) hides the gear digit — the flag fills the whole panel and the gear does not appear on top or leak through during blink. The GREEN flag always keeps the gear visible (normal race)."
       >
         <Toggle
           checked={effect.hideGearWhenFlagActive !== false}
-          caption={effect.hideGearWhenFlagActive !== false ? 'Cautela esconde a marcha' : 'Marcha sempre por cima'}
+          caption={effect.hideGearWhenFlagActive !== false ? 'Caution hides gear' : 'Gear always on top'}
           onChange={(value) => onChange({ ...effect, hideGearWhenFlagActive: value })}
         />
       </Field>
@@ -2189,8 +2184,8 @@ function FlagsEditor({
         />
       ) : (
         <p style={helper}>
-          Selecione <strong>Personalizado</strong> para desenhar e animar, frame a frame, o que acende em cada bandeira
-          (verde, amarela, azul, branca, vermelha, preta, meatball e quadriculada).
+          Select <strong>Custom</strong> to draw and animate, frame by frame, what lights up for each flag
+          (green, yellow, blue, white, red, black, meatball, and checkered).
         </p>
       )}
     </div>
@@ -2226,7 +2221,7 @@ function GearEditor({
   return (
     <div style={card}>
       <span style={label}>Gear digit</span>
-      <Field caption="Glyph source" hint="“Fonte padrão” usa o desenho embutido; “Personalizado” deixa você animar cada marcha.">
+      <Field caption="Glyph source" hint="“Default font” uses the built-in drawing; “Custom” lets you animate each gear.">
         <SelectField value={mode} options={GEAR_MODE_OPTIONS} onChange={setMode} />
       </Field>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 10 }}>
@@ -2252,9 +2247,9 @@ function GearEditor({
         />
       ) : (
         <p style={helper}>
-          Selecione <strong>Personalizado</strong> para desenhar e animar, frame a frame, o dígito de cada marcha (R, N e 0–9).
-          Células pretas ficam transparentes: a marcha aparece por cima da bandeira <strong>verde</strong> (corrida normal). Sob uma
-          bandeira de cautela, a bandeira prevalece e esconde a marcha (ajuste isso no efeito <strong>Flags</strong>).
+          Select <strong>Custom</strong> to draw and animate, frame by frame, the digit for each gear (R, N, and 0–9).
+          Black cells stay transparent: the gear appears over the <strong>green</strong> flag (normal race). Under a
+          caution flag, the flag takes precedence and hides the gear (adjust this in the <strong>Flags</strong> effect).
         </p>
       )}
     </div>

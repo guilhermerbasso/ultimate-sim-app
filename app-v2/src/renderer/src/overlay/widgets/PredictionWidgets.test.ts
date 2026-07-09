@@ -51,14 +51,14 @@ describe('PredictionWidgets instruments', () => {
     const markup = renderCatchAhead('minimal')
     expect(markup).toContain('<svg')
     expect(markup).toContain('DSEG7Classic')
-    expect(markup).toContain('aria-label="Alcançar 24.4"')
+    expect(markup).toContain('aria-label="Catch 24.4"')
   })
 
   it('uses DataTile status chrome for supplemental prediction text', () => {
     applyPredictionsSnapshot(predictionSnapshot)
     const markup = renderFuel('minimal')
     expect(markup).toContain('<svg')
-    expect(markup).toContain('aria-label="Fuel até o fim +1.2"')
+    expect(markup).toContain('aria-label="Fuel to finish +1.2"')
     expect(markup).toContain('aria-label="Status +3.4 L · 12.3v no tanque"')
   })
 

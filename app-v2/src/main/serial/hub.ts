@@ -109,11 +109,11 @@ export class SerialHub extends EventEmitter {
 
     for (const dev of this.devices.values()) {
       if (dev.path === opts.path) {
-        throw new Error(`Já existe um dispositivo serial conectado em ${opts.path}.`)
+        throw new Error(`A serial device is already connected on ${opts.path}.`)
       }
     }
     if (this.devices.has(id)) {
-      throw new Error(`Já existe um dispositivo serial com o id "${id}".`)
+      throw new Error(`A serial device already exists with id "${id}".`)
     }
 
     const device = new SerialDevice({

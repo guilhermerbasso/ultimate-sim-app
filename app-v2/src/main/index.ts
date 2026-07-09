@@ -114,8 +114,8 @@ function quitApp(): void {
 function showTrayHint(): void {
   const title = 'Ultimate Sim App continua rodando'
   const content =
-    'A janela foi minimizada para a bandeja (ao lado do relógio) e o app segue rodando. ' +
-    'Clique no ícone da bandeja para reabrir, ou use "Sair" para fechar TUDO (janela, overlays, dashboards e iFlag).'
+    'The window was minimized to the tray (next to the clock) and the app keeps running. ' +
+    'Click the tray icon to reopen, or use "Quit" to close EVERYTHING (window, overlays, dashboards, and iFlag).'
   if (process.platform === 'win32' && tray && !tray.isDestroyed()) {
     try {
       tray.displayBalloon({ title, content })
@@ -150,7 +150,7 @@ function createTray(): void {
   if (tray && !tray.isDestroyed()) return
   const icon = nativeImage.createFromBuffer(Buffer.from(TRAY_ICON_BASE64, 'base64'))
   tray = new Tray(icon)
-  tray.setToolTip('Ultimate Sim App — clique para abrir. "Sair" fecha tudo (overlays, dashboards, iFlag).')
+  tray.setToolTip('Ultimate Sim App — click para abrir. "Sair" fecha tudo (overlays, dashboards, iFlag).')
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Abrir Ultimate Sim App', click: () => showMainWindow() },

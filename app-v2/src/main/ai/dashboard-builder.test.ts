@@ -16,7 +16,7 @@ function fakeRuntime(text: string, ok = true, code?: string): GenerateLike {
 
 describe('classifyRequest — deterministic', () => {
   it('maps an endurance phrase to the endurance archetype', () => {
-    const c = classifyRequest('corrida de endurance 24h com stints')
+    const c = classifyRequest('24-hour endurance race with stints')
     expect(c.archetype).toBe('endurance')
     expect(c.matchedNothing).toBe(false)
   })
@@ -35,7 +35,7 @@ describe('classifyRequest — deterministic', () => {
   })
 
   it('detects the glass family and gt3 archetype together', () => {
-    const c = classifyRequest('gt3 com pneus e combustivel visual de vidro')
+    const c = classifyRequest('gt3 with tires and fuel, glass look')
     expect(c.archetype).toBe('gt3')
     expect(c.family).toBe('glass')
     expect(c.emphasis).toEqual(expect.arrayContaining(['tyres', 'fuel']))
@@ -48,7 +48,7 @@ describe('classifyRequest — deterministic', () => {
   })
 
   it('adds the dense tag for a data-heavy request', () => {
-    const c = classifyRequest('mostre tudo, telemetria completa de engenheiro')
+    const c = classifyRequest('show everything, full engineer telemetry')
     expect(c.archetype).toBe('dataheavy')
     expect(c.emphasis).toContain('dense')
   })
@@ -91,7 +91,7 @@ describe('buildClassifyPrompt', () => {
 
 describe('buildFromPhrase — deterministic path', () => {
   it('uses keyword classification when the LLM is disabled', async () => {
-    const res = await buildFromPhrase('endurance com combustível e posição', { useLlm: false })
+    const res = await buildFromPhrase('endurance with fuel and position', { useLlm: false })
     expect(res.source).toBe('deterministic')
     expect(res.archetype).toBe('endurance')
     expect(res.dashboard.elements.length).toBe(res.widgetIds.length)
@@ -99,7 +99,7 @@ describe('buildFromPhrase — deterministic path', () => {
   })
 
   it('uses the deterministic path when runtime is null', async () => {
-    const res = await buildFromPhrase('quali com delta e pneu', { runtime: null })
+    const res = await buildFromPhrase('qualifying with delta and tire', { runtime: null })
     expect(res.source).toBe('deterministic')
     expect(res.archetype).toBe('qualifying')
     expect(res.widgetIds.length).toBeGreaterThan(0)
@@ -112,7 +112,7 @@ describe('buildFromPhrase — deterministic path', () => {
   })
 
   it('produces a valid in-canvas, non-overlapping dashboard', async () => {
-    const res = await buildFromPhrase('gt3 com pneus', { runtime: null })
+    const res = await buildFromPhrase('gt3 with tires', { runtime: null })
     const els = res.dashboard.elements
     for (const e of els) {
       expect(e.x).toBeGreaterThanOrEqual(0)

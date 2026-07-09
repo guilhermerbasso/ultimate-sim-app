@@ -28,19 +28,41 @@ The **AI Engineer**, **Live/AI Coach**, and **lap analysis** run **entirely on y
 
 ---
 
-## ✨ What's new in this release
+## ✨ What's new
 
-A ground‑up rebuild of the visual layer and UX:
+### 2.43.0 — clean v4: title‑less widgets, trigger overlays, 3D nav map, themed cars
 
-- **250+ telemetry widgets** from a *variable × form* factory — every channel can be shown as a **bar, vertical bar, gauge, 7‑segment, LED, 32‑bit pixel, ring, tile, or big number** (≥ 5 forms per variable, 500+ combinations).
-- **50+ overlays**, each rendering in **≥ 5 visual styles/design families** (minimal, neon, glass, broadcast, terminal, bauhaus, analog, heatmap).
-- **200+ new dashboards** across **8 generic car families** × 5 layouts (DDU cockpit, engineer wall, endurance, strategy, broadcast) × 5 resolutions (800×480 → 1920×1080 + portrait).
-- **Car‑context theming** with original, trademark‑free codename liveries: *Woking, Maranello, Gaydon, Stuttgart, Bowtie, Affalterbach, Ingolstadt, and a Le Mans/IMSA‑style Prototype*.
-- **Collapsible sidebar** (icon‑only rail, `Ctrl/Cmd+B`, persisted) and a refreshed, image‑driven menu.
-- **New app icon** and AI‑generated hero art (Azure AI Foundry `gpt-image`), used for reference and menu context only — no readable logos or sponsor marks.
-- **English is now the primary language**, with switchable **Português, Deutsch, Français, 中文, Español, 日本語**.
+- **Clean visual language** — every widget/overlay is now **transparent, title‑less and chrome‑light**: the value speaks for itself (just `P4`, no "Position" label), no panel fills, hairline‑only separators, still fully editable (color/size/font/position + conditional color). A dark text‑outline keeps values legible over any background.
+- **Trigger‑only spotter overlays** — 7 overlays that stay hidden until their condition fires: **car‑left / car‑right arrows**, **radar‑on‑proximity** (< 0.5 s), **shift‑LED flash**, **pit‑limiter**, **flag alert** and **low‑fuel**.
+- **Hide + "Hidden" menu** — multi‑select hide/restore for widgets, overlays, dashboards and touch dashes; hidden items leave the main lists (and the compositor) but are never deleted.
+- **Interactive 3D nav map** — a **Waze / Google‑Maps‑style** track map (Three.js): follow‑camera track‑up, live zoom, drag‑rotate/pan and a recenter button, with a 2D SVG fallback where WebGL is unavailable.
+- **Per‑car themed widgets & dashboards** — 6 authentic shift‑light signatures + 6 cluster signatures (**Ferrari, Porsche, Mercedes‑AMG, McLaren, Corvette, Lamborghini**), plus rebuilt themed dashboards in every category.
+- **58 recreated clean dashboards** — race / endurance / coach / family rebuilt to the clean premise with a **rev‑lights strip corner‑to‑corner across the top**, authored at 1024×600 and adaptive to any display; broadcast/endurance hero fixes.
+- **Touch Controls** — new **rocker** and **LED‑ring** button styles, preset tags, and per‑car themed button‑boxes.
+- **More rev‑lights** — gradient bar, dense LED strip, LED bar with a blue over‑rev, and a centered **Mustang‑style** cluster.
+- **100% American‑English UI** — a deep i18n sweep translates every screen, description, widget/overlay/dashboard and the **AI engineer / coach / spotter voice**; switching language changes everything.
 
-All widgets/overlays/dashboards are **NaN‑safe** and verified by the visual‑audit harness (0 render errors, 0 overflow, 0 overlap) and the unit suite (**2,789 tests green**).
+Every new visual asset was built with the mandated flow: a validated American‑English `gpt‑image` prompt → reference image → image QA → build → visual QA against the reference until clean.
+
+### 2.42.0 — per‑telemetry widgets, +50 dashboards, tags & adaptive AI
+
+- **71 per‑telemetry hi‑fi widgets** — one clean, NaN‑safe SVG per channel (inputs, speed/RPM/gear/rev‑lights, delta/lap/position/time, gaps/relative/standings/radar, fuel, tyres, brakes/engine/electronics, flags/weather/track‑map/G‑force, and **AI coach/engineer** cues). Each doubles as a **floating overlay** and a **dashboard widget**.
+- **+50 hi‑fi 1024×600 composition dashboards** — race, endurance, AI‑coach and broadcast/minimal themes, **letterboxed so nothing ever clips, overflows or overlaps** at any size or aspect.
+- **Tags + multi‑select filtering** on Overlays, Dashboards and Touch Controls — filter by sim (IR/ACC/AC/AMS2/LMU), category and style, several tags at once.
+- **Adaptive Dashboard, now AI‑curated** — a **local** heuristic AI selects the most relevant widgets for the current race moment.
+- **AI widgets & AI‑coach dashboards** — live coach tip/findings, engineer radio, proactive alerts, strategy call and AI confidence (all **local, CPU‑only, free**).
+
+### 2.41.0 — race‑car fidelity rebuild
+
+- **Hi‑fi 1024×600 dashboards** — photorealistic **GT3 DDU cockpit**, **MoTeC‑style engineer analysis**, and **endurance/IMSA** clusters, each built from a `gpt‑image` reference and matched pixel‑by‑pixel, driven by **live telemetry**, and **adaptive** to any screen (desktop, phone, tablet).
+- **Overlays** — activating an overlay no longer scrolls the page, and the presentation options are now **5 structurally‑distinct forms** (not just colour tints): minimal, broadcast, analog, heatmap, neon.
+- **Stream to your phone/tablet** — a built‑in LAN server with **QR code + token + optional password** opens the dashboard (and the Touch Controls Dash) in any mobile browser, responsive to the device screen.
+- **Auto‑update** — automatic updates from GitHub Releases plus a manual **Check for updates** button.
+- **English‑first, deep i18n** — English is the base and switching language localizes screens, descriptions, and the AI engineer/voice. Switchable **Português, Deutsch, Français, 中文, Español, 日本語**.
+- **Fixes** — Settings now apply and persist immediately (telemetry source, etc.); the AI Coach map grows/shrinks with zoom; Community ships curated, editable telemetry/setup sources per simulator.
+- **Collapsible sidebar** (icon‑only rail, `Ctrl/Cmd+B`, persisted) and a **new app icon**.
+
+All hi‑fi dashboards are **NaN‑safe** SVG (they show em‑dashes for absent telemetry — never fake data) and verified by the visual‑audit harness (**0 render errors / overflow / overlap** across 268 presets) and the unit suite (**2,890 tests green**).
 
 ---
 
@@ -91,29 +113,177 @@ All widgets/overlays/dashboards are **NaN‑safe** and verified by the visual‑
 
 ## 📸 Screenshots
 
-| App icon | GT3 dashboard (Maranello · DDU cockpit) |
-|---|---|
-| <img src="app-v2/concepts/rebuild/app-icon.png" width="160" /> | ![Maranello cockpit](app-v2/concepts/rebuild/d2-maranello-cockpit-1280x720.png) |
+**Hi‑fi dashboards** (built from a `gpt‑image` reference, then matched pixel‑by‑pixel; live telemetry; 1024×600, adaptive):
 
-| Engineer wall (Stuttgart) | Broadcast (Gaydon) |
+| GT3 DDU Cockpit | Engineer — MoTeC analysis |
 |---|---|
-| ![Engineer wall](app-v2/concepts/rebuild/d2-stuttgart-engineer-1280x720.png) | ![Broadcast](app-v2/concepts/rebuild/d2-gaydon-broadcast-1280x720.png) |
+| ![GT3 DDU cockpit](app-v2/concepts/rebuild/hifi-ddu-cockpit.png) | ![Engineer MoTeC](app-v2/concepts/rebuild/hifi-engineer.png) |
 
-| Endurance stint (Prototype) | Strategy desk (Bowtie) |
+| Endurance / IMSA stint | App icon |
 |---|---|
-| ![Endurance](app-v2/concepts/rebuild/d2-prototype-endurance-1280x720.png) | ![Strategy](app-v2/concepts/rebuild/d2-bowtie-strategy-1280x720.png) |
+| ![Endurance stint](app-v2/concepts/rebuild/hifi-endurance.png) | <img src="app-v2/concepts/rebuild/app-icon.png" width="160" /> |
 
-| Telemetry workspace | Overlay manager |
-|---|---|
-| ![Telemetry](app-v2/concepts/ux/menus/00-telemetria.png) | ![Overlays](app-v2/concepts/ux/menus/03-overlays.png) |
+> Plus **50+ new hi‑fi composition dashboards** and **71 per‑telemetry widgets/overlays** — every one built with the same *image → build → visual‑QA‑until‑clean* flow, tagged and filterable. Preview renders of every dashboard, widget, overlay and touch panel are generated by the visual‑audit harness (`npm run visual:dash`).
 
-| AI coach / driver insights | Voice spotter |
-|---|---|
-| ![Coaching](app-v2/concepts/t1/carreira-ratings.png) | ![Voice spotter](app-v2/concepts/t1/voice-spotter.png) |
+---
 
-| Pinout designer | Controls & keyboard mapping |
-|---|---|
-| ![Pinout](app-v2/concepts/ux/menus/19-pinout-designer.png) | ![Controls](app-v2/concepts/ux/menus/18-controls-keyboard.png) |
+## 🖥️ Guided tour — every screen
+
+A screenshot and a short explanation of each screen in the app (sidebar order). The UI is **English‑first** and fully **keyboard‑navigable** (press `⌘/Ctrl‑K` for the command palette; star any screen to pin it to Favorites; `Ctrl/Cmd‑B` collapses the sidebar to an icon rail).
+
+### Race data & telemetry
+
+**Telemetry**
+![Telemetry](app-v2/docs/screenshots/telemetry.png)
+The live data hub. Pick your telemetry source — **Off / Auto‑detect / Demo (mock) / iRacing / ACC / Assetto Corsa / AMS2 / LMU** (plus an iRacing diagnostics mode) — and watch gear, speed, RPM, position, inputs, lap times, fuel and a live relative list update at 60 Hz. Use **Demo (mock)** to explore and configure everything with no sim running.
+
+**Alerts**
+![Alerts](app-v2/docs/screenshots/alerts.png)
+Configurable audible/visual warnings — pit limiter, flags, low fuel and shift points — using CSP‑safe Web Audio beeps (no external media).
+
+### Dashboards & displays
+
+**Dashboards**
+![Dashboards](app-v2/docs/screenshots/dashboards.png)
+Open GT3/endurance dashboards on your second monitor or a cockpit screen. Browse the preset gallery (now **200+ presets**, including the new hi‑fi 1024×600 clusters and 50+ composition dashboards), **filter by multiple tags** at once, import `.simhubdash` files, or duplicate‑and‑edit any preset in the drag‑and‑drop builder.
+
+**Adaptive Dashboard**
+![Adaptive Dashboard](app-v2/docs/screenshots/dashboard-adaptive.png)
+A single dashboard that **reorganizes itself live** by session phase and lap moment. With **AI live selection** on, a local heuristic AI continuously picks the most relevant widgets for the moment (low fuel, hot tyres, a car closing in, the pit window…).
+
+**AI Dashboard Builder**
+![AI Dashboard Builder](app-v2/docs/screenshots/dashboard-builder.png)
+Describe the dashboard you want in plain English and a **local** LLM assembles it from the widget catalog — then fine‑tune it in the editor.
+
+**OLED Dashboard**
+![OLED Dashboard](app-v2/docs/screenshots/oled-dash.png)
+Selectable telemetry presets for a 128×64 ButtonBox OLED, with a live on‑screen preview.
+
+**Touch Controls Dash**
+![Touch Controls Dash](app-v2/docs/screenshots/touch-controls.png)
+Photoreal, touch‑friendly pit panels and editable **RGB button boxes** for a cockpit touchscreen — tap to send key binds, iRacing commands or app actions. Streams to a phone/tablet too.
+
+**Overlays**
+![Overlays](app-v2/docs/screenshots/overlays.png)
+Transparent windows over the game: rev/shift lights, gear+speed, delta, inputs, fuel, relative/standings (multiclass), flags, tyres/brakes, weather, radar and every per‑telemetry hi‑fi widget. Filter by **sim + multiple tags**; each overlay offers **5 structurally distinct presentation styles**.
+
+### Strategy
+
+**Fuel**
+![Fuel](app-v2/docs/screenshots/fuel.png)
+Fuel used per lap, laps‑to‑empty, a fuel‑save target, the pit window and a stint planner.
+
+**Tyres**
+![Tyres](app-v2/docs/screenshots/tire.png)
+Tyre wear, per‑lap degradation rate and the tyre‑driven pit window.
+
+**Strategy**
+![Strategy](app-v2/docs/screenshots/strategy.png)
+Predictive pit window, fuel margin, undercut/overcut analysis and incident clips.
+
+**Career & Ratings**
+![Career & Ratings](app-v2/docs/screenshots/career.png)
+iRating, Safety Rating, licenses, incidents and results history.
+
+**Race Profiles**
+![Race Profiles](app-v2/docs/screenshots/race-profiles.png)
+Per car/track profiles (HID map + OLED + overlays + alerts + bindings) that auto‑switch when you change car or track.
+
+### Local AI — no GPU, no cost
+
+> The **AI Engineer**, **AI/Live Coach**, **lap analysis**, **semantic search** and the **adaptive widget selection** all run **100% locally on your CPU** (CPU‑only `node‑llama‑cpp`), **offline**, with **no GPU, no cloud, no API keys and no per‑use cost**.
+
+**AI Engineer**
+![AI Engineer](app-v2/docs/screenshots/engineer.png)
+A text race engineer for fuel, tyres, gaps and strategy. Direct questions ("can we finish on this fuel?", "how are the tyres?") answer instantly from telemetry; open‑ended questions load the local model on demand. Includes the **Voice Spotter** for spoken warnings.
+
+**AI Coach**
+![AI Coach](app-v2/docs/screenshots/coach.png)
+A driving coach and lap‑analysis workspace: per‑corner findings, a colour‑coded track map (losing / on‑par / much‑better), improvement points, a stint debrief and suggested setup changes.
+
+**Semantic Search**
+![Semantic Search](app-v2/docs/screenshots/search.png)
+Meaning‑based search across setups, ghosts, notes and coach findings using local embeddings, with a keyword fallback.
+
+**Voice / TTS**
+![Voice / TTS](app-v2/docs/screenshots/voice.png)
+Offline neural voices for the Engineer/Spotter (download on demand), a system‑voice fallback and a wake‑word to talk hands‑free.
+
+### Immersion & feedback
+
+**Haptics**
+![Haptics](app-v2/docs/screenshots/haptics.png)
+ShakeIt‑style bass‑shaker + tactile feedback driven by telemetry events.
+
+**Zonal Haptics**
+![Zonal Haptics](app-v2/docs/screenshots/haptics-zonal.png)
+Map events to body zones (seat / pedals / wheel) with a visual simulator.
+
+**3D Spotter**
+![3D Spotter](app-v2/docs/screenshots/spotter-3d.png)
+HRTF spatial‑audio cues that place nearby cars around you in 3D.
+
+**Biometrics**
+![Biometrics](app-v2/docs/screenshots/biometrics.png)
+Heart rate, stress‑vs‑pace and an AR HUD.
+
+**Sounds**
+![Sounds](app-v2/docs/screenshots/sounds.png)
+Soundshift gear‑shift beep plus incident, ABS and TCS audio cues (per‑car, self‑learning shift RPM).
+
+### Community, setups & customization
+
+**Community**
+![Community](app-v2/docs/screenshots/community.png)
+Local‑first ghosts, telemetry and setups shared via `.simshare` files, with curated, editable trusted sources per simulator — compare where you gain/lose.
+
+**Setups**
+![Setups](app-v2/docs/screenshots/setups.png)
+Auto‑install `.sto` setups from a local folder or an https URL.
+
+**Expressions**
+![Expressions](app-v2/docs/screenshots/expr.png)
+Custom fields and conditions via a safe, CSP‑compatible evaluator (no `eval`).
+
+### ButtonBox / SIM‑X hardware
+
+**Devices**
+![Devices](app-v2/docs/screenshots/devices.png)
+USB/serial detection and ButtonBox selection.
+
+**Arduinos**
+![Arduinos](app-v2/docs/screenshots/arduinos.png)
+A SimHub‑style hardware hub: RGB, matrix, displays, gauges, controls, pinout and firmware generation.
+
+**Rev Lights**
+![Rev Lights](app-v2/docs/screenshots/revlights.png)
+Rev/shift‑light configuration and presets.
+
+**Input Monitor**
+![Input Monitor](app-v2/docs/screenshots/inputs.png)
+Live button/axis validation through the Web Gamepad API.
+
+**Controls & Keyboard**
+![Controls & Keyboard](app-v2/docs/screenshots/controls.png)
+Bind each button → keystroke, virtual gamepad, iRacing command, or an app action (open a dashboard/OLED/overlay).
+
+**Pinout Designer**
+![Pinout Designer](app-v2/docs/screenshots/pinout.png)
+A low‑code, drag‑and‑drop pin map (LEDs, multiplexers, encoders) with firmware generation.
+
+**Profiles**
+![Profiles](app-v2/docs/screenshots/profiles.png)
+Save and load hardware/race configurations.
+
+### App
+
+**Settings**
+![Settings](app-v2/docs/screenshots/settings.png)
+Auto‑start with Windows, start‑minimized, SIM‑X/serial auto‑connect, close‑to‑tray, **default telemetry source**, **language (7)** and theme — applied and persisted immediately.
+
+**About / Credits**
+![About / Credits](app-v2/docs/screenshots/about.png)
+Licenses, fonts and third‑party components.
 
 ---
 
@@ -138,7 +308,7 @@ English (primary) · Português · Deutsch · Français · 中文 (Simplified) �
 
 ## 🚀 Quick start for users
 
-1. Download a trusted release build when available (see [Releases](../../releases)).
+1. Download the Windows installer (`.exe`) from the latest [Release](../../releases) — every release ships a built installer attached as an asset.
 2. Install or unzip the Windows package.
 3. Connect the ButtonBox by USB.
 4. Open Ultimate Sim App and select the device/COM port.
@@ -152,7 +322,7 @@ See the full user guide in [`MANUAL.md`](MANUAL.md).
 
 ## 🛠️ Development setup
 
-Requirements: Node.js 20+, npm, Git, and Windows 10/11 for final installer validation.
+Requirements: Node.js 24+, npm, Git, and Windows 10/11 for final installer validation.
 
 ```bash
 cd app-v2
@@ -164,7 +334,7 @@ Useful checks:
 
 ```bash
 npm run typecheck   # tsc (node + web)
-npm run test        # vitest (2,789 tests)
+npm run test        # vitest (2,854 tests)
 npm run build       # electron-vite bundle
 npm run visual:dash # render every dashboard preset and report errors
 ```

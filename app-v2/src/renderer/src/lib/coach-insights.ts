@@ -52,11 +52,11 @@ export function coachFindings(report: CoachReport | null, limit = 12): CoachFind
   return report.findings.slice(0, Math.max(0, Math.floor(limit)))
 }
 
-/** Short PT-BR scope label for a finding (Curva N when mapped, else Setor N). */
+/** Short PT-BR scope label for a finding (Curva N when mapped, else Sector N). */
 export function findingScope(finding: CoachFinding): string {
   if (typeof finding.corner === 'number' && finding.corner > 0) return `Curva ${finding.corner}`
-  if (typeof finding.sector === 'number' && finding.sector > 0) return `Setor ${finding.sector}`
-  return 'Volta'
+  if (typeof finding.sector === 'number' && finding.sector > 0) return `Sector ${finding.sector}`
+  return 'Lap'
 }
 
 /** One per-sector delta bar for the `coach-sector-graph` widget. */

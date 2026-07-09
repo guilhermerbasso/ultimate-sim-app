@@ -50,7 +50,7 @@ describe('StandingsWidget instruments', () => {
     expect(markup).toContain('Guilherme Basso')
     expect(markup).toContain('Max Verstappen')
     expect(markup).toContain('+1.234')
-    expect(markup).toContain('VOCÊ')
+    expect(markup).toContain('YOU')
   })
 
   it('renders empty/null/extreme inputs as clean dash states for every family', () => {

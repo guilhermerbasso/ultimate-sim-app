@@ -138,7 +138,7 @@ describe('EngineTellTalesWidget', () => {
     expect(out).toContain(DASH.red)
   })
 
-  it('is registered per-sim with requires=[engineWarnings] (iRacing-tagged)', () => {
+  it('is registered per-yes with requires=[engineWarnings] (iRacing-tagged)', () => {
     const def = OVERLAY_WIDGETS.find((w) => w.id === 'engineTellTales')
     expect(def, 'engineTellTales not registered in OVERLAY_WIDGETS').toBeTruthy()
     expect(def?.requires).toEqual(['engineWarnings'])

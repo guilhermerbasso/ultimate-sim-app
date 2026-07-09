@@ -89,4 +89,20 @@ describe('ButtonBoxRenderer (static markup)', () => {
     expect((html.match(/<button/g) ?? []).length).toBe(12)
     expect(html).toContain('grid-template-rows:repeat(3')
   })
+
+  it('renders rocker and LED-ring material chrome', () => {
+    const panel = createButtonBoxPanel({
+      columns: 2,
+      rows: 1,
+      buttons: [
+        { label: 'TC-', material: 'rocker', borderColor: '#22d3ee' },
+        { label: 'RADIO', material: 'led_ring', borderColor: '#f59e0b' }
+      ]
+    })
+    const html = renderToStaticMarkup(createElement(ButtonBoxRenderer, { panel, interactive: false }))
+    expect(html).toContain('bb-mat-rocker')
+    expect(html).toContain('bb-rocker-plus')
+    expect(html).toContain('bb-mat-led_ring')
+    expect(html).toContain('bb-led-ring')
+  })
 })

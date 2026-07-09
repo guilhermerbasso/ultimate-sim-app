@@ -34,6 +34,7 @@ export function register(ctx: ModuleContext): void {
     'setDisplayTarget',
     'finishGesture',
     'setLocked',
+    'setHidden',
     'setOpacity',
     'setStyle',
     'addCustom',

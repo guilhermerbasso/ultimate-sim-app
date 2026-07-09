@@ -3,6 +3,7 @@ import type { FuelStrategySettings, FuelStrategyState } from '../../../shared/fu
 import type { LapTimingState } from '../../../shared/laptiming'
 import { TEAM_FUEL_CHANNELS, type TeamFuelMode, type TeamFuelPeer } from '../../../shared/team-fuel'
 import type { AppViewProps } from '../App'
+import { tt, type ResolvedLanguage } from '../i18n'
 
 const card: CSSProperties = {
   background: 'var(--surface-raised)',
@@ -57,19 +58,19 @@ function deltaColor(seconds?: number): string {
   return seconds <= 0 ? 'var(--accent-success)' : 'var(--accent-danger)'
 }
 
-function fmtAge(ts?: number): string {
+function fmtAge(ts: number | undefined, language: ResolvedLanguage | undefined): string {
   if (typeof ts !== 'number' || !Number.isFinite(ts)) return '—'
   const seconds = Math.max(0, Math.round((Date.now() - ts) / 1000))
-  return seconds <= 1 ? 'agora' : `${seconds}s`
+  return seconds <= 1 ? tt(language, 'common.now') : `${seconds}s`
 }
 
-function statusLabel(status?: FuelStrategyState['pitWindow']['status']): string {
+function statusLabel(status: FuelStrategyState['pitWindow']['status'] | undefined, language: ResolvedLanguage | undefined): string {
   switch (status) {
-    case 'safe': return 'Seguro até o fim'
-    case 'save': return 'Economizar combustível'
-    case 'pit-required': return 'Pit necessário'
-    case 'critical': return 'Crítico'
-    default: return 'Aguardando dados'
+    case 'safe': return tt(language, 'fuel.status.safe')
+    case 'save': return tt(language, 'fuel.status.save')
+    case 'pit-required': return tt(language, 'fuel.status.pitRequired')
+    case 'critical': return tt(language, 'fuel.status.critical')
+    default: return tt(language, 'fuel.status.waiting')
   }
 }
 
@@ -82,18 +83,18 @@ function Metric({ title, main, unit, accent }: { title: string; main: string; un
   )
 }
 
-function GuidedEmptyState(): ReactElement {
+function GuidedEmptyState({ language }: { language?: ResolvedLanguage }): ReactElement {
   return (
     <section style={guidedEmptyState}>
-      <div style={label}>Aguardando telemetria</div>
+      <div style={label}>{tt(language, 'fuel.empty.title')}</div>
       <p style={{ margin: '6px 0 0', lineHeight: 1.45 }}>
-        Conecte ao iRacing ou escolha Demo (mock) para ver dados.
+        {tt(language, 'fuel.empty.body')}
       </p>
     </section>
   )
 }
 
-export default function FuelStrategyView(_props: AppViewProps): ReactElement {
+export default function FuelStrategyView({ language }: AppViewProps): ReactElement {
   const [fuel, setFuel] = useState<FuelStrategyState | null>(null)
   const [lap, setLap] = useState<LapTimingState | null>(null)
   const [targetLaps, setTargetLaps] = useState('')
@@ -103,7 +104,7 @@ export default function FuelStrategyView(_props: AppViewProps): ReactElement {
   const [teamDriverName, setTeamDriverName] = useState('')
   const [teamPeers, setTeamPeers] = useState<TeamFuelPeer[]>([])
   const [teamBusy, setTeamBusy] = useState(false)
-  const [teamStatus, setTeamStatus] = useState('Parado')
+  const [teamStatus, setTeamStatus] = useState(() => tt(language, 'fuel.team.stopped'))
 
   const settings = useMemo<FuelStrategySettings>(() => ({
     targetLaps: numberOrUndefined(targetLaps),
@@ -140,18 +141,18 @@ export default function FuelStrategyView(_props: AppViewProps): ReactElement {
   const startTeamFuel = useCallback(async (mode: TeamFuelMode): Promise<void> => {
     const roomKey = teamRoomKey.trim()
     if (!roomKey) {
-      setTeamStatus('Informe uma room key')
+      setTeamStatus(tt(language, 'fuel.team.roomKeyRequired'))
       return
     }
     setTeamBusy(true)
-    setTeamStatus(mode === 'host' ? 'Hospedando sala…' : 'Procurando host na LAN…')
+    setTeamStatus(mode === 'host' ? tt(language, 'fuel.team.hosting') : tt(language, 'fuel.team.searching'))
     try {
       await window.ipc.invoke(TEAM_FUEL_CHANNELS.start, { mode, roomKey, driverName: teamDriverName.trim() || undefined })
       const peers = await window.ipc.invoke<TeamFuelPeer[]>(TEAM_FUEL_CHANNELS.state)
       setTeamPeers(peers)
-      setTeamStatus(mode === 'host' ? 'Host ativo na LAN' : 'Join ativo na LAN')
+      setTeamStatus(mode === 'host' ? tt(language, 'fuel.team.hostActive') : tt(language, 'fuel.team.joinActive'))
     } catch (error) {
-      setTeamStatus(error instanceof Error ? error.message : 'Falha ao iniciar Team Fuel')
+      setTeamStatus(error instanceof Error ? error.message : tt(language, 'fuel.team.startFailed'))
     } finally {
       setTeamBusy(false)
     }
@@ -162,9 +163,9 @@ export default function FuelStrategyView(_props: AppViewProps): ReactElement {
     try {
       await window.ipc.invoke(TEAM_FUEL_CHANNELS.stop)
       setTeamPeers([])
-      setTeamStatus('Parado')
+      setTeamStatus(tt(language, 'fuel.team.stopped'))
     } catch (error) {
-      setTeamStatus(error instanceof Error ? error.message : 'Falha ao parar Team Fuel')
+      setTeamStatus(error instanceof Error ? error.message : tt(language, 'fuel.team.stopFailed'))
     } finally {
       setTeamBusy(false)
     }
@@ -179,45 +180,45 @@ export default function FuelStrategyView(_props: AppViewProps): ReactElement {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={{ ...card, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(155px, 1fr))', gap: 12, alignItems: 'end' }}>
         <div>
-          <div style={label}>Voltas-alvo</div>
+          <div style={label}>{tt(language, 'fuel.targetLaps')}</div>
           <input style={input} type="number" min="1" placeholder="Auto" value={targetLaps} onChange={(event) => setTargetLaps(event.target.value)} />
         </div>
         <div>
-          <div style={label}>Tempo de corrida (min)</div>
+          <div style={label}>{tt(language, 'fuel.raceTime')}</div>
           <input style={input} type="number" min="1" placeholder="Auto" value={raceMinutes} onChange={(event) => setRaceMinutes(event.target.value)} />
         </div>
         <div>
-          <div style={label}>Margem de combustível (L)</div>
+          <div style={label}>{tt(language, 'fuel.margin')}</div>
           <input style={input} type="number" min="0" step="0.5" value={marginLiters} onChange={(event) => setMarginLiters(event.target.value)} />
         </div>
         <div style={{ fontSize: 13, opacity: 0.78 }}>
-          {connected ? '● telemetria ao vivo' : '○ sem telemetria — use mock na aba Telemetria'}
+          {connected ? tt(language, 'fuel.live') : tt(language, 'fuel.noTelemetry')}
         </div>
       </div>
 
       {!connected ? (
-        <GuidedEmptyState />
+        <GuidedEmptyState language={language} />
       ) : (
         <>
           {hasFuelData ? (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
-                <Metric title="Combustível" main={fmtNumber(fuel?.fuelLiters, 1)} unit="L" />
-                <Metric title="Uso médio" main={fmtNumber(fuel?.usedPerLap, 2)} unit="L/volta" />
-                <Metric title="Voltas no tanque" main={fmtNumber(fuel?.lapsLeftWithFuel, 1)} unit="voltas" accent={canFinish ? 'var(--accent-success)' : 'var(--accent-warning)'} />
-                <Metric title="Fuel-save target" main={fmtNumber(fuel?.saveTarget, 2)} unit="L/volta" accent={(fuel?.saveNeededPerLap ?? 0) > 0 ? 'var(--accent-warning)' : 'var(--accent-success)'} />
+                <Metric title={tt(language, 'fuel.fuel')} main={fmtNumber(fuel?.fuelLiters, 1)} unit="L" />
+                <Metric title={tt(language, 'fuel.avgUse')} main={fmtNumber(fuel?.usedPerLap, 2)} unit={tt(language, 'fuel.literLapUnit')} />
+                <Metric title={tt(language, 'fuel.lapsInTank')} main={fmtNumber(fuel?.lapsLeftWithFuel, 1)} unit={tt(language, 'fuel.lapUnit')} accent={canFinish ? 'var(--accent-success)' : 'var(--accent-warning)'} />
+                <Metric title="Fuel-save target" main={fmtNumber(fuel?.saveTarget, 2)} unit={tt(language, 'fuel.literLapUnit')} accent={(fuel?.saveNeededPerLap ?? 0) > 0 ? 'var(--accent-warning)' : 'var(--accent-success)'} />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
                 <section style={card}>
-                  <div style={label}>Estratégia</div>
-                  <h3 style={{ margin: '6px 0 12px' }}>{statusLabel(fuel?.pitWindow.status)}</h3>
+                  <div style={label}>{tt(language, 'fuel.strategy')}</div>
+                  <h3 style={{ margin: '6px 0 12px' }}>{statusLabel(fuel?.pitWindow.status, language)}</h3>
                   <div style={{ display: 'grid', gap: 8, fontVariantNumeric: 'tabular-nums' }}>
-                    <div>Voltas restantes estimadas: <strong>{fmtNumber(fuel?.raceLapsRemaining, 1)}</strong></div>
-                    <div>Combustível para terminar: <strong>{fmtNumber(fuel?.fuelToFinish, 1)} L</strong></div>
-                    <div>Saldo até o fim: <strong style={{ color: (fuel?.fuelDeltaToFinish ?? 0) >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)' }}>{fmtNumber(fuel?.fuelDeltaToFinish, 1)} L</strong></div>
-                    <div>Economia necessária: <strong>{fmtNumber(fuel?.saveNeededPerLap, 2)} L/volta</strong></div>
-                    <div>Janela de pit: <strong>{fuel?.pitWindow.latestLap ? `até volta ${fuel.pitWindow.latestLap}` : '—'}</strong></div>
+                    <div>{tt(language, 'fuel.estimatedLapsRemaining')} <strong>{fmtNumber(fuel?.raceLapsRemaining, 1)}</strong></div>
+                    <div>{tt(language, 'fuel.fuelToFinish')} <strong>{fmtNumber(fuel?.fuelToFinish, 1)} L</strong></div>
+                    <div>{tt(language, 'fuel.balanceToFinish')} <strong style={{ color: (fuel?.fuelDeltaToFinish ?? 0) >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)' }}>{fmtNumber(fuel?.fuelDeltaToFinish, 1)} L</strong></div>
+                    <div>{tt(language, 'fuel.saveNeeded')} <strong>{fmtNumber(fuel?.saveNeededPerLap, 2)} {tt(language, 'fuel.literLapUnit')}</strong></div>
+                    <div>{tt(language, 'fuel.pitWindow')} <strong>{fuel?.pitWindow.latestLap ? tt(language, 'fuel.untilLap', { lap: fuel.pitWindow.latestLap }) : '—'}</strong></div>
                   </div>
                 </section>
 
@@ -225,43 +226,43 @@ export default function FuelStrategyView(_props: AppViewProps): ReactElement {
                   <div style={label}>Stint planner</div>
                   <h3 style={{ margin: '6px 0 12px' }}>Enduro</h3>
                   <div style={{ display: 'grid', gap: 8, fontVariantNumeric: 'tabular-nums' }}>
-                    <div>Ritmo estimado: <strong>{fmtTime(fuel?.stint.estimatedLapTimeSec)}</strong></div>
-                    <div>Voltas por stint: <strong>{fuel?.stint.stintLaps ?? '—'}</strong></div>
-                    <div>Stints até o fim: <strong>{fuel?.stint.stintsToFinish ?? '—'}</strong></div>
-                    <div>Combustível por stint: <strong>{fmtNumber(fuel?.stint.fuelPerStintLiters, 1)} L</strong></div>
-                    <div>Histórico: <strong>{fuel?.samples.length ?? 0}</strong> voltas na média móvel</div>
+                    <div>{tt(language, 'fuel.estimatedPace')} <strong>{fmtTime(fuel?.stint.estimatedLapTimeSec)}</strong></div>
+                    <div>{tt(language, 'fuel.lapsPerStint')} <strong>{fuel?.stint.stintLaps ?? '—'}</strong></div>
+                    <div>{tt(language, 'fuel.stintsToFinish')} <strong>{fuel?.stint.stintsToFinish ?? '—'}</strong></div>
+                    <div>{tt(language, 'fuel.fuelPerStint')} <strong>{fmtNumber(fuel?.stint.fuelPerStintLiters, 1)} L</strong></div>
+                    <div>{tt(language, 'fuel.history')} <strong>{fuel?.samples.length ?? 0}</strong> {tt(language, 'fuel.movingAverage')}</div>
                   </div>
                 </section>
               </div>
             </>
           ) : (
-            <GuidedEmptyState />
+            <GuidedEmptyState language={language} />
           )}
 
           {hasLapData ? (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
                 <Metric title="Predicted lap" main={fmtTime(lap?.predicted)} />
-                <Metric title="Delta melhor" main={fmtDelta(lap?.deltaBest)} accent={deltaColor(lap?.deltaBest)} />
+                <Metric title="Best delta" main={fmtDelta(lap?.deltaBest)} accent={deltaColor(lap?.deltaBest)} />
                 <Metric title="Delta optimal" main={fmtDelta(lap?.deltaOptimal)} accent={deltaColor(lap?.deltaOptimal)} />
                 <Metric title="Delta session-best" main={fmtDelta(lap?.deltaSessionBest)} accent={deltaColor(lap?.deltaSessionBest)} />
               </div>
 
               <section style={card}>
-                <div style={label}>Lap timing / setores</div>
+                <div style={label}>{tt(language, 'fuel.lapTiming')}</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginTop: 12 }}>
-                  <div>Atual <strong>{fmtTime(lap?.currentLapTime)}</strong></div>
-                  <div>Última <strong>{fmtTime(lap?.lastLap)}</strong></div>
-                  <div>Melhor <strong>{fmtTime(lap?.bestLap)}</strong></div>
+                  <div>{tt(language, 'telemetry.current')} <strong>{fmtTime(lap?.currentLapTime)}</strong></div>
+                  <div>{tt(language, 'telemetry.last')} <strong>{fmtTime(lap?.lastLap)}</strong></div>
+                  <div>{tt(language, 'telemetry.best')} <strong>{fmtTime(lap?.bestLap)}</strong></div>
                   <div>Optimal <strong>{fmtTime(lap?.optimalLap)}</strong></div>
                 </div>
                 <div style={{ display: 'grid', gap: 8, marginTop: 14 }}>
                   {(lap?.sectors ?? []).map((sector) => (
                     <div key={sector.index} style={{ display: 'grid', gridTemplateColumns: '70px repeat(4, 1fr)', gap: 8, alignItems: 'center', fontVariantNumeric: 'tabular-nums' }}>
-                      <strong>Setor {sector.index}</strong>
-                      <span>Atual {fmtTime(sector.current)}</span>
-                      <span>Último {fmtTime(sector.last)}</span>
-                      <span>Melhor {fmtTime(sector.best)}</span>
+                      <strong>{tt(language, 'fuel.sector', { index: sector.index })}</strong>
+                      <span>{tt(language, 'telemetry.current')} {fmtTime(sector.current)}</span>
+                      <span>{tt(language, 'telemetry.last')} {fmtTime(sector.last)}</span>
+                      <span>{tt(language, 'telemetry.best')} {fmtTime(sector.best)}</span>
                       <span style={{ color: deltaColor(sector.deltaToBest) }}>{fmtDelta(sector.deltaToBest)}</span>
                     </div>
                   ))}
@@ -277,17 +278,17 @@ export default function FuelStrategyView(_props: AppViewProps): ReactElement {
         <h3 style={{ margin: '6px 0 12px' }}>Endurance room</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, alignItems: 'end' }}>
           <div>
-            <div style={label}>Room key</div>
-            <input style={input} type="password" value={teamRoomKey} placeholder="token compartilhado" onChange={(event) => setTeamRoomKey(event.target.value)} />
+            <div style={label}>{tt(language, 'fuel.roomKey')}</div>
+            <input style={input} type="password" value={teamRoomKey} placeholder={tt(language, 'fuel.roomKeyPlaceholder')} onChange={(event) => setTeamRoomKey(event.target.value)} />
           </div>
           <div>
-            <div style={label}>Driver name</div>
-            <input style={input} value={teamDriverName} placeholder="Auto pela telemetria" onChange={(event) => setTeamDriverName(event.target.value)} />
+            <div style={label}>{tt(language, 'fuel.driverName')}</div>
+            <input style={input} value={teamDriverName} placeholder={tt(language, 'fuel.driverNamePlaceholder')} onChange={(event) => setTeamDriverName(event.target.value)} />
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button disabled={teamBusy} onClick={() => void startTeamFuel('host')}>Host</button>
-            <button disabled={teamBusy} onClick={() => void startTeamFuel('join')}>Join</button>
-            <button disabled={teamBusy} onClick={() => void stopTeamFuel()}>Stop</button>
+            <button disabled={teamBusy} onClick={() => void startTeamFuel('host')}>{tt(language, 'common.host')}</button>
+            <button disabled={teamBusy} onClick={() => void startTeamFuel('join')}>{tt(language, 'common.join')}</button>
+            <button disabled={teamBusy} onClick={() => void stopTeamFuel()}>{tt(language, 'common.stop')}</button>
           </div>
           <div style={{ fontSize: 13, opacity: 0.78 }}>{teamStatus}</div>
         </div>
@@ -307,16 +308,16 @@ export default function FuelStrategyView(_props: AppViewProps): ReactElement {
             </thead>
             <tbody>
               {teamPeers.length === 0 ? (
-                <tr><td colSpan={7} style={{ padding: '12px 6px', color: 'rgba(255,255,255,0.58)' }}>Sem peers — faça host ou join com a mesma room key.</td></tr>
+                <tr><td colSpan={7} style={{ padding: '12px 6px', color: 'rgba(255,255,255,0.58)' }}>{tt(language, 'fuel.noPeers')}</td></tr>
               ) : teamPeers.map((peer) => (
                 <tr key={peer.peerId} style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                  <td style={{ padding: '9px 6px' }}><strong>{peer.driverName}</strong>{peer.local ? <span style={{ opacity: 0.58 }}> · você</span> : null}</td>
+                  <td style={{ padding: '9px 6px' }}><strong>{peer.driverName}</strong>{peer.local ? <span style={{ opacity: 0.58 }}> · {tt(language, 'fuel.you')}</span> : null}</td>
                   <td style={{ textAlign: 'right', padding: '9px 6px' }}>{fmtNumber(peer.fuelLiters, 1)} L</td>
                   <td style={{ textAlign: 'right', padding: '9px 6px' }}>{fmtNumber(peer.fuelPerLap, 2)}</td>
                   <td style={{ textAlign: 'right', padding: '9px 6px' }}>{fmtNumber(peer.lapsRemaining, 1)}</td>
                   <td style={{ textAlign: 'right', padding: '9px 6px' }}>{peer.stintTargetLaps ?? '—'}</td>
-                  <td style={{ padding: '9px 6px' }}>{peer.pitWindow?.latestLap ? `até volta ${peer.pitWindow.latestLap}` : peer.pitWindow?.status ?? '—'}</td>
-                  <td style={{ textAlign: 'right', padding: '9px 6px', opacity: 0.7 }}>{fmtAge(peer.ts)}</td>
+                  <td style={{ padding: '9px 6px' }}>{peer.pitWindow?.latestLap ? tt(language, 'fuel.untilLap', { lap: peer.pitWindow.latestLap }) : (peer.pitWindow?.status ?? '—')}</td>
+                  <td style={{ textAlign: 'right', padding: '9px 6px', opacity: 0.7 }}>{fmtAge(peer.ts, language)}</td>
                 </tr>
               ))}
             </tbody>

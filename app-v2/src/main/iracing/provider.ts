@@ -942,7 +942,7 @@ export class IRacingProvider implements TelemetryProvider {
       carLeftRight: carLeftRightStateFromEnum(num(values.CarLeftRight, 0)),
       carLeftRightRaw: Math.trunc(num(values.CarLeftRight, 0)),
       carLeftRightCount,
-      // Posição/orientação do carro do jogador para construção do track map.
+      // Position/orientação do carro do jogador para construção do track map.
       // irsdk vars: Lat/Lon (graus), VelocityX/Y (m/s, frame do carro),
       // YawNorth (rad, yaw relativo ao Norte). Quando o iRacing não publica
       // VelocityX/Y mas expõe YawNorth + Speed, velocityX/Y são derivados de

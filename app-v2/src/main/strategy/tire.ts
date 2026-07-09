@@ -163,8 +163,8 @@ export class TireStrategyCalculator {
       }
     }
 
-    if (!primaryAvailable) notes.push('Desgaste real indisponível; usando estimativa relativa por carga de freio, aceleração e velocidade.')
-    if (!finite(shortestLaps)) notes.push('Aguardando voltas completas para calcular janela de troca.')
+    if (!primaryAvailable) notes.push('Real wear unavailable; using a relative estimate from brake load, acceleration, and speed.')
+    if (!finite(shortestLaps)) notes.push('Waiting for complete laps to calculate the change window.')
 
     const avgWearPerLap = average(CORNERS.map((corner) => cornerStates[corner].wearPerLap).filter(finite))
     const currentLap = snapshot?.currentLap

@@ -84,7 +84,7 @@ describe('SessionStateBannerWidget', () => {
     }
   })
 
-  it('is registered per-sim with requires=[sessionState] (iRacing-tagged)', () => {
+  it('is registered per-yes with requires=[sessionState] (iRacing-tagged)', () => {
     const def = OVERLAY_WIDGETS.find((w) => w.id === 'sessionBanner')
     expect(def, 'sessionBanner not registered in OVERLAY_WIDGETS').toBeTruthy()
     expect(def?.requires).toEqual(['sessionState'])

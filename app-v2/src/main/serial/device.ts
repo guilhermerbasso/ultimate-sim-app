@@ -222,7 +222,7 @@ export class SerialDevice extends EventEmitter {
       limit = COMPANION_V2_MAX_STREAM_LEN
     }
     if (trimmed.length > limit) {
-      throw new Error(`Comando excede o buffer serial do firmware (máx. ${limit} caracteres).`)
+      throw new Error(`Command exceeds the firmware serial buffer (max ${limit} characters).`)
     }
     await this.write(`${trimmed}\n`, origin)
   }
@@ -231,7 +231,7 @@ export class SerialDevice extends EventEmitter {
   private async write(payload: string, origin: SerialTxOrigin = 'engine'): Promise<void> {
     const port = this.port
     if (!port || !port.isOpen) {
-      throw new Error(`Dispositivo "${this.label}" não conectado.`)
+      throw new Error(`Device "${this.label}" not connected.`)
     }
     try {
       await new Promise<void>((resolve, reject) => {

@@ -116,7 +116,7 @@ export function RelativeWidget({ snapshot, config }: WidgetProps): ReactElement 
         const isPlayer = !!(d.isPlayer || d.carIdx === snapshot?.playerCarIdx)
         const ry = tableTop + i * rowH
         const rcy = ry + rowH / 2
-        const gapLabel = isPlayer ? 'VOCÊ' : formatDelta(d.gapToPlayerSec)
+        const gapLabel = isPlayer ? 'YOU' : formatDelta(d.gapToPlayerSec)
         const gapNumeric = /^[+\-−±]?\d/.test(gapLabel)
         const gc = isPlayer ? skin.palette.accent : threatColor(d.gapToPlayerSec, skin)
         return (

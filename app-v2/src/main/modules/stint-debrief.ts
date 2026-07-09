@@ -61,10 +61,10 @@ async function tryLlmPhrase(system: string, prompt: string): Promise<string | nu
 
 function phrasePrompt(facts: string): { system: string; prompt: string } {
   const system =
-    'Você é um engenheiro de corrida no rádio. Reescreva o debrief abaixo em ' +
-    'português do Brasil, em 2 a 4 frases curtas, tom calmo, executivo e ' +
-    'encorajador. Cite onde o piloto perdeu e onde foi bem, e os pontos de ' +
-    'estratégia. NÃO invente números nem curvas — use só os fatos dados.'
+    'You are a race engineer on the radio. Rewrite the debrief below in ' +
+    'American English, in 2 to 4 short sentences, with a calm, executive, ' +
+    'encouraging tone. Mention where the driver lost time, where they did well, and the ' +
+    'strategy points. Do NOT invent numbers or turns — use only the given facts.'
   return { system, prompt: `${facts}\n\nDebrief:` }
 }
 

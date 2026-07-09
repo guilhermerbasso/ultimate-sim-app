@@ -139,9 +139,9 @@ class ArduinoSetup {
 
   async cancelFlash(): Promise<{ cancelled: boolean; message: string }> {
     const active = this.activeOperation
-    if (!active) return { cancelled: false, message: 'Nenhuma gravação/backup em andamento.' }
+    if (!active) return { cancelled: false, message: 'No flash/backup operation in progress.' }
     active.controller.abort()
-    const message = `${active.label} cancelado pelo usuário.`
+    const message = `${active.label} canceled by user.`
     this.ctx.broadcast(SETUP_CHANNELS.progress, {
       phase: 'error',
       message,
@@ -155,25 +155,25 @@ class ArduinoSetup {
     const emit = (progress: FlashProgress): void => this.ctx.broadcast(SETUP_CHANNELS.progress, progress)
     const port = String(request?.port ?? '').trim()
     const board = findFlashBoard(request?.board ?? '')
-    if (!board) return { ok: false, message: 'Placa não suportada para backup .hex.' }
-    if (!port) return { ok: false, message: 'Selecione a porta serial (COM) da placa.' }
-    if (this.activeOperation) return { ok: false, message: `${this.activeOperation.label} já está em andamento.` }
+    if (!board) return { ok: false, message: 'Board not supported for .hex backup.' }
+    if (!port) return { ok: false, message: 'Select the board serial (COM) port.' }
+    if (this.activeOperation) return { ok: false, message: `${this.activeOperation.label} is already in progress.` }
 
     const suggested = safeHexBackupName(board.id, port)
     const owner = this.ctx.getMainWindow()
     const save = owner
       ? await dialog.showSaveDialog(owner, {
-          title: 'Salvar backup .hex do Arduino',
+          title: 'Save Arduino .hex backup',
           defaultPath: join(this.ctx.app.getPath('documents'), suggested),
           filters: [{ name: 'Intel HEX firmware', extensions: ['hex'] }]
         })
       : await dialog.showSaveDialog({
-          title: 'Salvar backup .hex do Arduino',
+          title: 'Save Arduino .hex backup',
           defaultPath: join(this.ctx.app.getPath('documents'), suggested),
           filters: [{ name: 'Intel HEX firmware', extensions: ['hex'] }]
         })
     if (save.canceled || !save.filePath) {
-      return { ok: false, message: 'Backup cancelado antes de iniciar.' }
+      return { ok: false, message: 'Backup canceled before starting.' }
     }
 
     const controller = new AbortController()
@@ -184,7 +184,7 @@ class ArduinoSetup {
       emit({
         phase: 'upload',
         message:
-          'Lendo a flash para um arquivo .hex. Isso faz backup do firmware compilado; não reverse-engineera nem identifica funções automaticamente.',
+          'Reading flash to a .hex file. This backs up the compiled firmware; it does not reverse-engineer or identify functions automatically.',
         percent: 6
       })
       await dumpHexFirmware({
@@ -196,9 +196,9 @@ class ArduinoSetup {
         onProgress: emit,
         signal: controller.signal
       })
-      return { ok: true, message: `Backup .hex salvo em ${save.filePath}.`, path: save.filePath }
+      return { ok: true, message: `Backup .hex saved to ${save.filePath}.`, path: save.filePath }
     } catch (error) {
-      const message = isFlashAbortError(error) ? 'Backup .hex cancelado.' : errMessage(error)
+      const message = isFlashAbortError(error) ? 'Backup .hex canceled.' : errMessage(error)
       emit({ phase: 'error', message, percent: 100, tone: 'error' })
       return { ok: false, message }
     } finally {
@@ -220,26 +220,26 @@ class ArduinoSetup {
       capabilities: []
     }
     if (this.activeOperation) {
-      result.message = `${this.activeOperation.label} já está em andamento. Cancele antes de iniciar outra operação.`
+      result.message = `${this.activeOperation.label} is already in progress. Cancel before starting another operation.`
       return result
     }
     const controller = new AbortController()
-    this.activeOperation = { controller, label: 'Gravação de firmware' }
+    this.activeOperation = { controller, label: 'Firmware flashing' }
 
     try {
       throwIfAborted(controller.signal)
       const module = findSetupModule(request?.moduleId ?? '')
-      if (!module) throw new SetupError('Módulo desconhecido.')
+      if (!module) throw new SetupError('Unknown module.')
       if (module.status !== 'available') {
-        throw new SetupError(`O módulo “${module.name}” ainda não tem firmware pronto para gravar.`)
+        throw new SetupError(`Module “${module.name}” does not have firmware ready to flash yet.`)
       }
       const board = findFlashBoard(request?.board ?? '')
-      if (!board) throw new SetupError('Placa não suportada para gravação.')
+      if (!board) throw new SetupError('Board not supported for flashing.')
       const firmware = findModuleFirmware(module, board.id)
       if (!firmware) {
-        throw new SetupError(`“${module.name}” não tem firmware para ${board.name}.`)
+        throw new SetupError(`“${module.name}” has no firmware for ${board.name}.`)
       }
-      if (!port) throw new SetupError('Selecione a porta serial (COM) da placa.')
+      if (!port) throw new SetupError('Select the board serial (COM) port.')
       // Hard guard (not just UI): never flash the SIM-X box, even if it's not
       // currently opened by the app.
       const portInfo = (await this.listFlashablePorts()).find((entry) => entry.path === port)
@@ -247,11 +247,11 @@ class ArduinoSetup {
         await saveSimXPrimaryIdentity(this.ctx.app, portInfo).catch((error) =>
           console.warn('[arduino-setup] failed to save SIM-X primary identity:', errMessage(error))
         )
-        throw new SetupError('Essa é a porta do SIM-X. Não grave firmware genérico nela — use um Arduino secundário.')
+        throw new SetupError('This is the SIM-X port. Do not flash generic firmware to it — use a secondary Arduino.')
       }
       const storedSimX = await readSimXPrimaryIdentity(this.ctx.app)
       if (storedSimX && matchesSimXPrimaryIdentity(storedSimX, port, portInfo)) {
-        throw new SetupError('Essa porta corresponde ao SIM-X principal salvo. Não grave firmware genérico nela.')
+        throw new SetupError('This port matches the saved main SIM-X. Do not flash generic firmware to it.')
       }
       const baud = findFlashBaud(board, request.baudId)
       const isKnownSimXPort = (portInfo as { isSimX?: boolean } | undefined)?.isSimX
@@ -262,9 +262,9 @@ class ArduinoSetup {
         )
       }
 
-      emit({ phase: 'prepare', message: `Preparando gravação de ${module.name} (${board.name})…`, percent: 6 })
+      emit({ phase: 'prepare', message: `Preparing flash de ${module.name} (${board.name})…`, percent: 6 })
       const hexPath = resolveFirmwarePath(this.ctx.app, firmware.hex)
-      if (!existsSync(hexPath)) throw new SetupError(`Firmware não encontrado: ${firmware.hex}.`)
+      if (!existsSync(hexPath)) throw new SetupError(`Firmware not found: ${firmware.hex}.`)
 
       throwIfAborted(controller.signal)
       await this.freePort(port)
@@ -282,7 +282,7 @@ class ArduinoSetup {
       result.ok = true
 
       throwIfAborted(controller.signal)
-      emit({ phase: 'verify', message: 'Reabrindo a porta e perguntando as capacidades (?)…', percent: 76 })
+      emit({ phase: 'verify', message: 'Reopening the port and requesting capabilities (?)…', percent: 76 })
       const verify = await this.verifyCapabilities(port, module, controller.signal)
       result.capabilities = verify.caps
 
@@ -290,34 +290,34 @@ class ArduinoSetup {
         // Flash itself worked, but the handshake didn't confirm the module.
         if (verify.deviceId) await this.disconnectQuietly(verify.deviceId)
         const detail = verify.caps.length
-          ? `Recebi: ${formatCaps(verify.caps)}.`
-          : 'Nenhuma resposta ao “?” (KEND não chegou).'
+          ? `Received: ${formatCaps(verify.caps)}.`
+          : 'No response to “?” (KEND did not arrive).'
         result.message =
-          `Firmware gravado, mas o handshake não confirmou ${module.capabilityKey}. ${detail} ` +
-          'Confira a fiação (DIN→D6, 5V, GND) e tente gravar de novo.'
+          `Firmware flashed, but the handshake did not confirm ${module.capabilityKey}. ${detail} ` +
+          'Check wiring (DIN→D6, 5V, GND) and try flashing again.'
         emit({ phase: 'error', message: result.message, percent: 100, tone: 'error' })
         return result
       }
 
       emit({
         phase: 'capabilities',
-        message: `Capacidades confirmadas: ${formatCaps(verify.caps)}`,
+        message: `Capabilities confirmed: ${formatCaps(verify.caps)}`,
         percent: 88,
         tone: 'success'
       })
 
-      emit({ phase: 'profile', message: 'Criando o dispositivo no Hardware Hub…', percent: 94 })
+      emit({ phase: 'profile', message: 'Creating the device in Hardware Hub…', percent: 94 })
       const profile = await this.createProfile(module, board.profileBoard, port, verify.deviceId, verify.caps)
       await this.persistSerialDevice(module, port, verify.deviceId)
       result.profileId = profile.id
       result.deviceId = verify.deviceId
       result.verified = true
-      result.message = `${module.name} pronto! Componente criado e verificado (${formatCaps(verify.caps)}).`
+      result.message = `${module.name} is ready! Component created and verified (${formatCaps(verify.caps)}).`
       emit({ phase: 'done', message: result.message, percent: 100, tone: 'success' })
       return result
     } catch (error) {
       const aborted = isFlashAbortError(error)
-      const message = aborted ? 'Gravação cancelada. O processo avrdude/arduino-cli foi interrompido.' : errMessage(error)
+      const message = aborted ? 'Flash canceled. The avrdude/arduino-cli process was stopped.' : errMessage(error)
       result.message = message
       emit({ phase: 'error', message, percent: 100, tone: 'error' })
       return result
@@ -361,7 +361,7 @@ class ArduinoSetup {
     const primaryId = this.ctx.serialHub.getPrimaryId()
     if (existing.kind === 'sim-x' || existing.id === primaryId) {
       throw new SetupError(
-        'Essa porta é o SIM-X principal — não grave firmware nele por aqui. Escolha a porta de um Arduino secundário.'
+        'This port is the main SIM-X — do not flash firmware to it here. Choose a secondary Arduino port.'
       )
     }
     await this.ctx.serialHub.disconnectDevice(existing.id).catch(() => undefined)
@@ -390,7 +390,7 @@ class ArduinoSetup {
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      throw new SetupError(`Gravei o firmware, mas não consegui reabrir ${port} para verificar: ${message}`)
+      throw new SetupError(`Firmware flashed, but I could not reopen ${port} para verificar: ${message}`)
     }
 
     const caps: DetectedCapability[] = []
@@ -601,8 +601,8 @@ function identifyResultFromCaps(caps: DetectedCapability[], usbGuess?: FlashBoar
         status: 'unknown',
         label: boardGuess.label,
         detail:
-          `${boardGuess.reason} Não respondeu ao “?” (firmware desconhecido ou não-companion). ` +
-          'Para usar no app, grave o firmware do módulo (ex.: iFlag) nesta placa.',
+          `${boardGuess.reason} Did not respond to “?” (unknown or non-companion firmware). ` +
+          'To use it in the app, flash the module firmware (for example, iFlag) to this board.',
         boardGuess,
         speaksCompanion: false,
         speaksMatrix: false
@@ -620,7 +620,7 @@ function identifyResultFromCaps(caps: DetectedCapability[], usbGuess?: FlashBoar
   const speaksMatrix = caps.some((cap) => cap.key === 'rgbMatrix')
   const label = speaksMatrix
     ? 'iFlag / RGB Matrix (firmware companion)'
-    : 'Firmware companion (SIM-X/SimHub-compatível)'
+    : 'Firmware companion (SIM-X/SimHub-compatible)'
   const usbSuffix = boardGuess ? ` · USB: ${boardGuess.label}` : ''
   return {
     status: 'identified',

@@ -54,7 +54,7 @@ function syntheticLap(corners: CornerSpec[], n = 400, straightSpeed = 250): Corn
 }
 
 describe('detectCorners', () => {
-  it('numbers corners sequentially along lapDistPct (Curva 1..N)', () => {
+  it('numbers corners sequentially along lapDistPct (Turn 1..N)', () => {
     const lap = syntheticLap([
       { apex: 0.2, minSpeed: 80, width: 0.06 },
       { apex: 0.5, minSpeed: 60, width: 0.06 },

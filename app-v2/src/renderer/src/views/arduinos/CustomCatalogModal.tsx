@@ -29,7 +29,7 @@ import { ACCENT, buttonStyle, card, getErrorMessage, helper, input, label as lab
 type ModalTab = 'component' | 'board'
 type RoleKind = Exclude<PinoutPinKind, 'channel'>
 type RoleDirection = NonNullable<PinoutComponentRole['direction']>
-type BoardVoltage = BoardCatalogEntry['voltage']
+type BoardLapge = BoardCatalogEntry['lapge']
 type PinPower = 'none' | NonNullable<BoardPinCapability['power']>
 type PinI2c = 'none' | 'sda' | 'scl'
 type PinSpi = 'none' | 'mosi' | 'miso' | 'sck' | 'ss'
@@ -85,7 +85,7 @@ function toOptions<T extends string>(values: ReadonlyArray<T>, format: (value: T
 const ROLE_KIND_OPTIONS = toOptions<RoleKind>(CUSTOM_ROLE_KINDS, (kind) => (kind === 'i2c' || kind === 'spi' || kind === 'uart' || kind === 'pwm' ? kind.toUpperCase() : titleCase(kind)))
 const ROLE_DIRECTION_OPTIONS = toOptions<RoleDirection>(CUSTOM_ROLE_DIRECTIONS, (direction) => (direction === 'bidir' ? 'Bidirectional' : titleCase(direction)))
 const CATEGORY_OPTIONS = toOptions<PinoutComponentCategory>(CUSTOM_COMPONENT_CATEGORIES, (category) => category)
-const VOLTAGE_OPTIONS = toOptions<BoardVoltage>(CUSTOM_BOARD_VOLTAGES, (voltage) => voltage)
+const VOLTAGE_OPTIONS = toOptions<BoardLapge>(CUSTOM_BOARD_VOLTAGES, (voltage) => voltage)
 const PIN_POWER_OPTIONS = toOptions<PinPower>(['none', ...CUSTOM_PIN_POWER_CODES], (code) => (code === 'none' ? 'Signal pin' : code.toUpperCase()))
 const PIN_I2C_OPTIONS = toOptions<PinI2c>(['none', 'sda', 'scl'], (value) => (value === 'none' ? '—' : value.toUpperCase()))
 const PIN_SPI_OPTIONS = toOptions<PinSpi>(['none', 'mosi', 'miso', 'sck', 'ss'], (value) => (value === 'none' ? '—' : value.toUpperCase()))
@@ -197,7 +197,7 @@ export default function CustomCatalogModal({ defaultTab, editing, onClose, onSav
   const [boardName, setBoardName] = useState(editingBoard?.name ?? '')
   const [boardMcu, setBoardMcu] = useState(editingBoard?.mcu ?? '')
   const [boardFqbn, setBoardFqbn] = useState(editingBoard?.fqbn ?? '')
-  const [boardVoltage, setBoardVoltage] = useState<BoardVoltage>(editingBoard?.voltage ?? '5V')
+  const [boardLapge, setBoardLapge] = useState<BoardLapge>(editingBoard?.lapge ?? '5V')
   const [boardUsbHid, setBoardUsbHid] = useState(Boolean(editingBoard?.usbHid))
   const [boardNotes, setBoardNotes] = useState(editingBoard?.notes ?? '')
   const [pinRows, setPinRows] = useState<PinRow[]>(editingBoard ? pinsFromBoard(editingBoard) : [newPinRow()])
@@ -286,7 +286,7 @@ export default function CustomCatalogModal({ defaultTab, editing, onClose, onSav
       name,
       mcu: boardMcu.trim(),
       fqbn: boardFqbn.trim() || undefined,
-      voltage: boardVoltage,
+      lapge: boardLapge,
       usbHid: boardUsbHid,
       notes: boardNotes.trim(),
       pins
@@ -429,7 +429,7 @@ export default function CustomCatalogModal({ defaultTab, editing, onClose, onSav
                 <TextField value={boardFqbn} onChange={setBoardFqbn} placeholder="e.g. rp2040:rp2040:rpipico" />
               </Field>
               <Field caption="Logic voltage">
-                <SelectField value={boardVoltage} options={VOLTAGE_OPTIONS} onChange={setBoardVoltage} />
+                <SelectField value={boardLapge} options={VOLTAGE_OPTIONS} onChange={setBoardLapge} />
               </Field>
             </div>
             <Toggle caption="Native USB HID (board can act as a USB game controller)" checked={boardUsbHid} onChange={setBoardUsbHid} />
@@ -482,7 +482,7 @@ export default function CustomCatalogModal({ defaultTab, editing, onClose, onSav
               ))}
             </div>
 
-            <Field caption="Notes" hint="Optional. Voltage, bootloader or wiring caveats.">
+            <Field caption="Notes" hint="Optional. Lapge, bootloader or wiring caveats.">
               <textarea style={textareaStyle} value={boardNotes} onChange={(event) => setBoardNotes(event.target.value)} placeholder="Anything special about this board." />
             </Field>
 

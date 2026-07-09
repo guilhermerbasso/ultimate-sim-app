@@ -150,16 +150,16 @@ export const ENGINEER_LIMITS = {
 
 /** Seed presets (mirror the example chips) so the feature is useful out of the box. */
 export const DEFAULT_PRESET_QUESTIONS: readonly EngineerPresetQuestion[] = [
-  { id: 'fuel', label: 'Combustível', text: 'dá pra terminar com esse combustível?' },
-  { id: 'box', label: 'Box agora?', text: 'boxes agora?' },
-  { id: 'pace', label: 'Meu ritmo', text: 'como tá meu tempo?' },
-  { id: 'tires', label: 'Pneus', text: 'como estão os pneus?' },
-  { id: 'gap', label: 'Gap pra frente', text: 'qual o gap pra frente?' }
+  { id: 'fuel', label: 'Fuel', text: 'can we finish on this fuel?' },
+  { id: 'box', label: 'Box now?', text: 'box now?' },
+  { id: 'pace', label: 'My pace', text: 'how is my pace?' },
+  { id: 'tires', label: 'Tyres', text: 'how are the tyres?' },
+  { id: 'gap', label: 'Gap ahead', text: 'what is the gap ahead?' }
 ]
 
 export const DEFAULT_ENGINEER_CONFIG: EngineerConfig = {
   enabled: true,
-  language: 'pt-BR',
+  language: 'en-US',
   assertiveness: 'brutal',
   // Proactive coaching ON by default, but it SPEAKS only in a RACE (corner-numbered
   // + directional call-outs). In practice/qualy the Live Coach owns the audio (per
@@ -443,7 +443,7 @@ export interface EngineerProactiveEvent {
   lang: EngineerLanguage
   /** Which subsystem produced this call-out (for the TTS/observability log). */
   source?: 'engineer'
-  /** 1-based corner number this call-out is about, when corner-scoped (Curva N). */
+  /** 1-based corner number this call-out is about, when corner-scoped (Turn N). */
   corner?: number
 }
 

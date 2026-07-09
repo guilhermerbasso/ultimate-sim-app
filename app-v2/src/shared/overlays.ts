@@ -17,6 +17,7 @@ export type OverlayWidgetId =
   | 'inputsTrace'
   | 'tyresDetail'
   | 'trackMap'
+  | 'trackMapNav3D'
   | 'proximityRadar'
   | 'carSilhouetteRadar'
   | 'sessionWeather'
@@ -35,6 +36,11 @@ export type OverlayWidgetId =
   | 'ringDash'
   | 'lmuEnduranceDash'
   | 'lmuStintDash'
+  | 'hifiDdu'
+  | 'hifiEndurance'
+  | 'hifiEngineer'
+  | 'hifiMinimal'
+  | 'hifiBroadcast'
   | 'perCornerTyrePressure'
   | 'brakeTempCorners'
   | 'fuelDeltaTile'
@@ -114,6 +120,7 @@ export type OverlayWidgetId =
   | 'oledStrip' // thin minimalist horizontal cluster strip
   | 'motecDense' // dense MoTeC/AiM-like multi-field data panel
   | 'gt3Wheel' // GT3 steering-wheel face: telltales + TC/ABS/MAP/BB knobs
+  | `hifi:${string}`
 
 export type OverlayStylePresetId =
   | 'minimal'
@@ -206,11 +213,117 @@ export interface OverlayWidgetDefinition {
   /** Telemetry fields this widget needs LIVE. Drives the per-sim availability filter
    *  + the computed "(IR/ACC/LMU)" prefix. Omitted/empty = available on every sim. */
   requires?: (keyof TelemetrySnapshot)[]
+  /** Function/category tag (e.g. 'delta', 'fuel', 'tyres', 'inputs', 'map'). */
+  category?: string
+  /** Free-form tags for filtering (style + category). Sim tags (IR/ACC/…) are
+   *  derived automatically from `requires` and merged by the tag helper. */
+  tags?: string[]
 }
 
 /** Display title with the computed multi-sim support prefix, e.g. "(IR/ACC/LMU) Tyres". */
 export function overlayWidgetDisplayTitle(def: OverlayWidgetDefinition): string {
   return `${simSupportPrefix(def.requires)}${def.title}`
+}
+
+// ─── Overlay visibility triggers (v4) ─────────────────────────────────────────
+// An overlay whose `trigger` is set (and not 'always') stays HIDDEN until its
+// condition fires against the live telemetry — spotter-style overlays that only
+// appear when relevant (car left/right arrow, radar-on-proximity, shift-LED
+// flash, pit-limiter, flag, low-fuel). `evaluateOverlayTrigger` is pure + tested.
+export type OverlayTriggerKind =
+  | 'always'
+  | 'carLeft'
+  | 'carRight'
+  | 'carLeftOrRight'
+  | 'proximity'
+  | 'shiftPoint'
+  | 'pitLimiter'
+  | 'flag'
+  | 'lowFuel'
+
+export interface OverlayTrigger {
+  kind: OverlayTriggerKind
+  /** proximity: fire when the nearest car (ahead/behind/radar) is within this many seconds. Default 0.5. */
+  thresholdSec?: number
+  /** shiftPoint: fire when shiftIndicatorPct >= this 0..1 fraction. Default 0.97. */
+  shiftPct?: number
+  /** lowFuel: fire when estimated laps-to-empty <= this. Default 2. */
+  lapsToEmpty?: number
+}
+
+/** Pure, testable trigger evaluation. `always`/null => always visible. */
+export function evaluateOverlayTrigger(
+  trigger: OverlayTrigger | null | undefined,
+  snapshot: TelemetrySnapshot | null | undefined
+): boolean {
+  if (!trigger || trigger.kind === 'always') return true
+  if (!snapshot) return false
+  switch (trigger.kind) {
+    case 'carLeft':
+      return snapshot.carLeftRight === 'left' || snapshot.carLeftRight === 'both'
+    case 'carRight':
+      return snapshot.carLeftRight === 'right' || snapshot.carLeftRight === 'both'
+    case 'carLeftOrRight':
+      return snapshot.carLeftRight === 'left' || snapshot.carLeftRight === 'right' || snapshot.carLeftRight === 'both'
+    case 'proximity': {
+      const t = trigger.thresholdSec ?? 0.5
+      const gaps: number[] = []
+      const ahead = snapshot.relatives?.ahead?.gapSec
+      const behind = snapshot.relatives?.behind?.gapSec
+      if (typeof ahead === 'number' && Number.isFinite(ahead)) gaps.push(Math.abs(ahead))
+      if (typeof behind === 'number' && Number.isFinite(behind)) gaps.push(Math.abs(behind))
+      for (const car of snapshot.radarCars ?? []) {
+        if (typeof car.gapSec === 'number' && Number.isFinite(car.gapSec)) gaps.push(Math.abs(car.gapSec))
+      }
+      return gaps.some((g) => g <= t)
+    }
+    case 'shiftPoint': {
+      const p = trigger.shiftPct ?? 0.97
+      return Number.isFinite(snapshot.shiftIndicatorPct) && (snapshot.shiftIndicatorPct as number) >= p
+    }
+    case 'pitLimiter':
+      return snapshot.pitLimiter === true
+    case 'flag': {
+      const f = snapshot.flags
+      if (!f) return false
+      return Boolean(
+        f.yellow || f.blue || f.red || f.black || f.meatball || f.white || f.checkered || f.disqualify || f.greenWhiteCheckered
+      )
+    }
+    case 'lowFuel': {
+      const laps = trigger.lapsToEmpty ?? 2
+      const fuel = snapshot.fuelLiters
+      const per = snapshot.fuelPerLap
+      if (typeof fuel !== 'number' || typeof per !== 'number' || !Number.isFinite(fuel) || !Number.isFinite(per) || per <= 0) return false
+      return fuel / per <= laps
+    }
+    default:
+      return true
+  }
+}
+
+const OVERLAY_TRIGGER_KINDS: OverlayTriggerKind[] = [
+  'always',
+  'carLeft',
+  'carRight',
+  'carLeftOrRight',
+  'proximity',
+  'shiftPoint',
+  'pitLimiter',
+  'flag',
+  'lowFuel'
+]
+
+/** Structural sanitize for a persisted trigger; returns null when invalid/absent. */
+export function sanitizeOverlayTrigger(value: unknown): OverlayTrigger | null {
+  if (!value || typeof value !== 'object') return null
+  const v = value as Record<string, unknown>
+  if (typeof v.kind !== 'string' || !OVERLAY_TRIGGER_KINDS.includes(v.kind as OverlayTriggerKind)) return null
+  const out: OverlayTrigger = { kind: v.kind as OverlayTriggerKind }
+  if (typeof v.thresholdSec === 'number' && Number.isFinite(v.thresholdSec)) out.thresholdSec = v.thresholdSec
+  if (typeof v.shiftPct === 'number' && Number.isFinite(v.shiftPct)) out.shiftPct = v.shiftPct
+  if (typeof v.lapsToEmpty === 'number' && Number.isFinite(v.lapsToEmpty)) out.lapsToEmpty = v.lapsToEmpty
+  return out
 }
 
 export interface OverlayWidgetConfig {
@@ -224,7 +337,13 @@ export interface OverlayWidgetConfig {
   opacity: number
   stylePreset: OverlayStylePresetId
   style: OverlayWidgetStyle
+  // v4: user-hidden (moved to the "Hidden" section). Does NOT delete the config.
+  hidden?: boolean
+  // v4: visibility trigger — when set (and not 'always'), the overlay is shown
+  // ONLY while evaluateOverlayTrigger(trigger, snapshot) is true (spotter-style).
+  trigger?: OverlayTrigger | null
   display?: OverlayDisplayRef | null
+  hifiModuleId?: string
 }
 
 // ─── Custom overlays (user-built designer) ──────────────────────────────────
@@ -283,6 +402,8 @@ export interface CustomOverlayDef {
   opacity: number
   stylePreset: OverlayStylePresetId
   style: OverlayWidgetStyle
+  hidden?: boolean
+  trigger?: OverlayTrigger | null
   display?: OverlayDisplayRef | null
   // LEGACY content (expression/channel text cards). Kept for back-compat.
   elements: CustomOverlayElement[]
@@ -411,7 +532,7 @@ export function createCustomOverlayDef(partial: Partial<CustomOverlayDef> = {}):
   const stylePreset = getOverlayStylePreset(partial.stylePreset).id
   const def: CustomOverlayDef = {
     id: partial.id ?? `${CUSTOM_OVERLAY_ID_PREFIX}${Date.now().toString(36)}`,
-    title: partial.title ?? 'Overlay customizado',
+    title: partial.title ?? 'Custom overlay',
     enabled: partial.enabled ?? false,
     locked: partial.locked ?? false,
     favorite: partial.favorite ?? false,
@@ -419,6 +540,8 @@ export function createCustomOverlayDef(partial: Partial<CustomOverlayDef> = {}):
     opacity: partial.opacity ?? 100,
     stylePreset,
     style: partial.style ? { ...partial.style } : createDefaultOverlayStyle(stylePreset),
+    hidden: partial.hidden ?? false,
+    trigger: partial.trigger ?? null,
     display: partial.display ?? null,
     elements: (partial.elements ?? []).map((element) => createCustomOverlayElement(element))
   }
@@ -451,7 +574,7 @@ export const OVERLAY_STYLE_PRESETS: OverlayStylePreset[] = [
   {
     id: 'minimal',
     title: 'Minimal',
-    description: 'Preto limpo, linhas discretas e foco em leitura.',
+    description: 'Clean shape: subtle lines, minimal chrome, and distraction-free readability.',
     style: {
       background: 'rgba(5, 10, 18, 0.72)',
       accent: '#ff6a00',
@@ -461,81 +584,9 @@ export const OVERLAY_STYLE_PRESETS: OverlayStylePreset[] = [
     }
   },
   {
-    id: 'neon',
-    title: 'Neon',
-    description: 'Ember orange, glow forte e visual night race.',
-    style: {
-      background: 'rgba(18, 8, 2, 0.82)',
-      accent: '#ff6a00',
-      border: 'rgba(255, 106, 0, 0.62)',
-      radius: 18,
-      fontFamily: 'Bahnschrift, Segoe UI, sans-serif'
-    }
-  },
-  {
-    id: 'glass',
-    title: 'Glass',
-    description: 'Vidro fumê com borda clara e blur premium.',
-    style: {
-      background: 'rgba(28, 22, 18, 0.46)',
-      accent: '#E86920',
-      border: 'rgba(200, 183, 168, 0.32)',
-      radius: 22,
-      fontFamily: 'Segoe UI, sans-serif'
-    }
-  },
-  {
-    id: 'race',
-    title: 'Race',
-    description: 'Asfalto escuro, vermelho de alerta e cantos compactos.',
-    style: {
-      background: 'rgba(18, 10, 10, 0.78)',
-      accent: '#ff3b30',
-      border: 'rgba(255, 209, 102, 0.42)',
-      radius: 10,
-      fontFamily: 'DIN Condensed, Bahnschrift, Segoe UI, sans-serif'
-    }
-  },
-  {
-    id: 'carbon',
-    title: 'Carbon',
-    description: 'Fibra de carbono, aço escovado e contraste limpo.',
-    style: {
-      background: 'rgba(7, 8, 9, 0.84)',
-      accent: '#b6c2cf',
-      border: 'rgba(182, 194, 207, 0.34)',
-      radius: 12,
-      fontFamily: 'Bahnschrift, Segoe UI, sans-serif'
-    }
-  },
-  {
-    id: 'gulf',
-    title: 'Gulf',
-    description: 'Azul petróleo escuro com laranja endurance.',
-    style: {
-      background: 'rgba(4, 18, 24, 0.82)',
-      accent: '#ff7a1a',
-      border: 'rgba(95, 188, 214, 0.36)',
-      radius: 18,
-      fontFamily: 'Segoe UI, sans-serif'
-    }
-  },
-  {
-    id: 'lemans',
-    title: 'Le Mans',
-    description: 'British racing green profundo com detalhe bronze.',
-    style: {
-      background: 'rgba(3, 15, 10, 0.84)',
-      accent: '#c88a2c',
-      border: 'rgba(200, 138, 44, 0.38)',
-      radius: 14,
-      fontFamily: 'Bahnschrift, Segoe UI, sans-serif'
-    }
-  },
-  {
     id: 'broadcast',
     title: 'Broadcast',
-    description: 'Lower-third esportivo, legível e pronto para stream.',
+    description: 'TV/lower-third shape: bold blocks, tabs, and cells for streaming.',
     style: {
       background: 'rgba(8, 10, 14, 0.88)',
       accent: '#f5a623',
@@ -545,57 +596,9 @@ export const OVERLAY_STYLE_PRESETS: OverlayStylePreset[] = [
     }
   },
   {
-    id: 'stealth',
-    title: 'Stealth',
-    description: 'Preto tático, borda mínima e leitura sem distração.',
-    style: {
-      background: 'rgba(2, 3, 4, 0.78)',
-      accent: '#8f9aa6',
-      border: 'rgba(143, 154, 166, 0.24)',
-      radius: 6,
-      fontFamily: 'Segoe UI, sans-serif'
-    }
-  },
-  {
-    id: 'amber',
-    title: 'Amber',
-    description: 'Cockpit GT noturno com âmbar quente e painel denso.',
-    style: {
-      background: 'rgba(18, 11, 3, 0.84)',
-      accent: '#ffb000',
-      border: 'rgba(255, 176, 0, 0.42)',
-      radius: 16,
-      fontFamily: 'Bahnschrift, Segoe UI, sans-serif'
-    }
-  },
-  {
-    id: 'terminal',
-    title: 'Terminal',
-    description: 'CRT monoespaçado, bordas ASCII e âmbar quente — hacker cockpit.',
-    style: {
-      background: 'rgba(4, 8, 6, 0.92)',
-      accent: '#ffb000',
-      border: 'rgba(255, 176, 0, 0.38)',
-      radius: 4,
-      fontFamily: 'Cascadia Code, Consolas, Courier New, monospace'
-    }
-  },
-  {
-    id: 'bauhaus',
-    title: 'Bauhaus',
-    description: 'Blocos geométricos ousados, tipografia bold e contraste máximo.',
-    style: {
-      background: 'rgba(2, 2, 4, 0.94)',
-      accent: '#ff3b1f',
-      border: 'rgba(255, 59, 31, 0.5)',
-      radius: 0,
-      fontFamily: 'Impact, Arial Narrow, Haettenschweiler, sans-serif'
-    }
-  },
-  {
     id: 'analog',
     title: 'Analog',
-    description: 'Gauges analógicos com agulhas SVG e mostradores circulares.',
+    description: 'Classic cockpit shape: circular dials, needles, arcs, and bezels.',
     style: {
       background: 'rgba(10, 8, 5, 0.88)',
       accent: '#ff8c00',
@@ -607,7 +610,7 @@ export const OVERLAY_STYLE_PRESETS: OverlayStylePreset[] = [
   {
     id: 'heatmap',
     title: 'Heatmap',
-    description: 'Intensidade codificada em cor — frio a quente por valor.',
+    description: 'Engineering shape: dense grids, cells, and bars encoded by intensity.',
     style: {
       background: 'rgba(5, 5, 12, 0.86)',
       accent: '#ff6a00',
@@ -615,127 +618,35 @@ export const OVERLAY_STYLE_PRESETS: OverlayStylePreset[] = [
       radius: 14,
       fontFamily: 'Bahnschrift, Segoe UI, sans-serif'
     }
-  }
-,  {
-    id: 'apexIgnition',
-    title: 'Apex Ignition',
-    description: 'HUD gráfico com anéis de ignição laranja e alerta redline.',
-    style: { background: 'rgba(9, 6, 4, 0.68)', accent: '#ff6a00', border: 'rgba(255, 106, 0, 0.44)', radius: 24, fontFamily: 'Bahnschrift, Segoe UI, sans-serif' }
   },
   {
-    id: 'ionEmber',
-    title: 'Ion Ember',
-    description: 'Vidro escuro, amber quente e flash azul apenas no shift.',
-    style: { background: 'rgba(6, 8, 12, 0.58)', accent: '#ffb000', border: 'rgba(255, 176, 0, 0.38)', radius: 28, fontFamily: 'Segoe UI, sans-serif' }
-  },
-  {
-    id: 'vectorPulse',
-    title: 'Vector Pulse',
-    description: 'Linhas vetoriais vermelhas/laranja para gauges sem texto.',
-    style: { background: 'rgba(10, 4, 3, 0.72)', accent: '#ff3b1f', border: 'rgba(255, 59, 31, 0.46)', radius: 8, fontFamily: 'DIN Condensed, Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'cinderGlass',
-    title: 'Cinder Glass',
-    description: 'Fumaça translúcida com cinder orange e borda sutil.',
-    style: { background: 'rgba(18, 14, 12, 0.42)', accent: '#ff7a1a', border: 'rgba(255, 122, 26, 0.30)', radius: 30, fontFamily: 'Segoe UI, sans-serif' }
-  },
-  {
-    id: 'thermalGhost',
-    title: 'Thermal Ghost',
-    description: 'Superfície quase invisível e telemetria em glow térmico.',
-    style: { background: 'rgba(3, 3, 5, 0.34)', accent: '#ff8a00', border: 'rgba(255, 138, 0, 0.24)', radius: 18, fontFamily: 'Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'emberCircuit',
-    title: 'Ember Circuit',
-    description: 'Grade eletrônica âmbar para barras segmentadas e chips.',
-    style: { background: 'rgba(12, 7, 2, 0.82)', accent: '#ffb000', border: 'rgba(255, 176, 0, 0.48)', radius: 12, fontFamily: 'Cascadia Code, Consolas, monospace' }
-  },
-  {
-    id: 'radarClear',
-    title: 'Radar Clear',
-    description: 'Radar limpo: verde somente para clear/no-car, vermelho para alongside.',
-    style: { background: 'rgba(3, 8, 7, 0.62)', accent: '#ff6a00', border: 'rgba(19, 194, 123, 0.36)', radius: 22, fontFamily: 'Segoe UI, sans-serif' }
-  },
-  {
-    id: 'orangeCore',
-    title: 'Orange Core',
-    description: 'Núcleo quente, anéis grossos e brilho endurance.',
-    style: { background: 'rgba(18, 8, 0, 0.78)', accent: '#ff6a00', border: 'rgba(255, 106, 0, 0.54)', radius: 20, fontFamily: 'Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'blackGold',
-    title: 'Black Gold',
-    description: 'Preto premium com highlight dourado quente.',
-    style: { background: 'rgba(2, 2, 2, 0.86)', accent: '#d9962a', border: 'rgba(217, 150, 42, 0.42)', radius: 14, fontFamily: 'Segoe UI, sans-serif' }
-  },
-  {
-    id: 'redlineVoid',
-    title: 'Redline Void',
-    description: 'Vazio escuro com vermelho de limite e recortes agressivos.',
-    style: { background: 'rgba(4, 2, 3, 0.88)', accent: '#ff3b1f', border: 'rgba(255, 59, 31, 0.58)', radius: 4, fontFamily: 'DIN Condensed, Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'amberVector',
-    title: 'Amber Vector',
-    description: 'Vetores geométricos âmbar para delta, fuel e inputs.',
-    style: { background: 'rgba(13, 9, 3, 0.74)', accent: '#ffb000', border: 'rgba(255, 176, 0, 0.44)', radius: 6, fontFamily: 'Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'copperMesh',
-    title: 'Copper Mesh',
-    description: 'Malha cobre translúcida para grids de pneus e freios.',
-    style: { background: 'rgba(16, 9, 5, 0.68)', accent: '#c7772d', border: 'rgba(199, 119, 45, 0.40)', radius: 18, fontFamily: 'Segoe UI, sans-serif' }
-  },
-  {
-    id: 'moltenCarbon',
-    title: 'Molten Carbon',
-    description: 'Carbono derretido com laranja quente e bordas profundas.',
-    style: { background: 'rgba(3, 3, 3, 0.82)', accent: '#ff5a14', border: 'rgba(255, 90, 20, 0.48)', radius: 10, fontFamily: 'Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'safetyGreen',
-    title: 'Safety Green',
-    description: 'Tema radar: verde reservado a estado saudável/clear.',
-    style: { background: 'rgba(2, 9, 5, 0.70)', accent: '#ff6a00', border: 'rgba(19, 194, 123, 0.42)', radius: 26, fontFamily: 'Segoe UI, sans-serif' }
-  },
-  {
-    id: 'laserGrid',
-    title: 'Laser Grid',
-    description: 'Grade laser âmbar com contraste e marcas segmentadas.',
-    style: { background: 'rgba(5, 5, 9, 0.78)', accent: '#ffb000', border: 'rgba(255, 176, 0, 0.34)', radius: 2, fontFamily: 'Cascadia Code, Consolas, monospace' }
-  },
-  {
-    id: 'solarFlare',
-    title: 'Solar Flare',
-    description: 'Flare laranja de alta energia para gauges circulares.',
-    style: { background: 'rgba(20, 7, 0, 0.68)', accent: '#ff7a00', border: 'rgba(255, 122, 0, 0.52)', radius: 34, fontFamily: 'Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'obsidianRing',
-    title: 'Obsidian Ring',
-    description: 'Anéis finos em obsidiana com glow quente minimalista.',
-    style: { background: 'rgba(0, 0, 0, 0.72)', accent: '#ff8c1a', border: 'rgba(255, 140, 26, 0.28)', radius: 36, fontFamily: 'Segoe UI, sans-serif' }
-  },
-  {
-    id: 'brakeGlow',
-    title: 'Brake Glow',
-    description: 'Glow de freio quente para heat tiles e alertas.',
-    style: { background: 'rgba(12, 3, 2, 0.78)', accent: '#ff3b1f', border: 'rgba(255, 59, 31, 0.44)', radius: 16, fontFamily: 'Bahnschrift, Segoe UI, sans-serif' }
-  },
-  {
-    id: 'nightStint',
-    title: 'Night Stint',
-    description: 'Stint noturno translúcido, amber suave e baixa intrusão.',
-    style: { background: 'rgba(3, 5, 8, 0.50)', accent: '#f59e0b', border: 'rgba(245, 158, 11, 0.26)', radius: 24, fontFamily: 'Segoe UI, sans-serif' }
+    id: 'neon',
+    title: 'Neon',
+    description: 'Futuristic HUD shape: floating segments, rings/bars, and vector glow.',
+    style: {
+      background: 'rgba(18, 8, 2, 0.82)',
+      accent: '#ff6a00',
+      border: 'rgba(255, 106, 0, 0.62)',
+      radius: 18,
+      fontFamily: 'Bahnschrift, Segoe UI, sans-serif'
+    }
   }
 ]
+
+export const OVERLAY_FORMS = OVERLAY_STYLE_PRESETS
 
 export const DEFAULT_OVERLAY_STYLE_PRESET: OverlayStylePresetId = 'minimal'
 
 export function getOverlayStylePreset(id?: string): OverlayStylePreset {
-  return OVERLAY_STYLE_PRESETS.find((preset) => preset.id === id) ?? OVERLAY_STYLE_PRESETS[0]
+  const exact = OVERLAY_STYLE_PRESETS.find((preset) => preset.id === id)
+  if (exact) return exact
+  const family = overlayDesignFamily(id)
+  const formId: OverlayStylePresetId = family === 'analog' || family === 'broadcast' || family === 'heatmap' || family === 'neon'
+    ? family
+    : family === 'bauhaus'
+      ? 'broadcast'
+      : 'minimal'
+  return OVERLAY_STYLE_PRESETS.find((preset) => preset.id === formId) ?? OVERLAY_STYLE_PRESETS[0]
 }
 
 export function createDefaultOverlayStyle(preset: OverlayStylePresetId = DEFAULT_OVERLAY_STYLE_PRESET): OverlayWidgetStyle {
@@ -964,52 +875,49 @@ export const OVERLAY_DESIGN_FAMILY_SPECS: Record<OverlayDesignFamily, OverlayDes
 }
 
 /**
- * Canonical mapping of every style preset to its design family. Typed as a total
- * `Record<OverlayStylePresetId, OverlayDesignFamily>` so adding a preset without a
- * family (or removing one) is a compile error. The 8 namesake presets
- * (minimal/neon/glass/broadcast/terminal/bauhaus/analog/heatmap) are the archetype
- * of each family; the remaining color variants are grouped by their closest design
- * language. See `visual-audit/DESIGN-FAMILIES.md` for the rationale per preset.
+ * Canonical mapping of every current or legacy style preset to a structural
+ * family. Only five forms are selectable now; legacy structural ids stay accepted
+ * so persisted configs and old tests render with their previous layout.
  */
 export const OVERLAY_PRESET_FAMILY: Record<OverlayStylePresetId, OverlayDesignFamily> = {
-  // ── Archetype presets (namesake of their family) ──
+  // Five user-facing structural forms.
   minimal: 'minimal',
-  neon: 'neon',
-  glass: 'glass',
   broadcast: 'broadcast',
-  terminal: 'terminal',
-  bauhaus: 'bauhaus',
   analog: 'analog',
   heatmap: 'heatmap',
-  // ── Original color variants ──
-  race: 'broadcast', // DIN-condensed race TV, compact alert-red bars
-  carbon: 'broadcast', // brushed-steel structural panels, boxy + solid
-  gulf: 'broadcast', // endurance livery, lower-third spectating vibe
-  lemans: 'analog', // heritage endurance, bronze, classic instrument feel
-  stealth: 'minimal', // tactical restraint, minimal border, no distraction
-  amber: 'analog', // GT cockpit instrument cluster, dense dial panel
-  // ── R16 batch: futuristic + minimalist color/style variants ──
-  apexIgnition: 'neon', // glowing ignition HUD rings + redline alert
-  ionEmber: 'glass', // dark glass surface, blue shift-flash
-  vectorPulse: 'neon', // glowing vector pulse lines for textless gauges
-  cinderGlass: 'glass', // translucent smoke / frosted glass
-  thermalGhost: 'heatmap', // near-invisible surface, thermal telemetry glow
-  emberCircuit: 'neon', // electronic circuit grid, segmented bars + chips
-  radarClear: 'analog', // circular radar sweep, green reserved for clear
-  orangeCore: 'neon', // glowing hot core with thick emissive rings
-  blackGold: 'minimal', // premium restraint, warm gold accent
-  redlineVoid: 'bauhaus', // aggressive geometric cutouts, limit-red blocks
-  amberVector: 'neon', // amber geometric vector linework
-  copperMesh: 'heatmap', // copper mesh grids for tyre/brake cells
-  moltenCarbon: 'broadcast', // structural carbon, deep boxy borders
-  safetyGreen: 'analog', // radar instrument, green = healthy/clear state
-  laserGrid: 'neon', // laser cyber grid, segmented mono marks
-  solarFlare: 'analog', // circular gauges with high-energy flare
-  obsidianRing: 'analog', // thin circular rings / minimal gauge dial
-  brakeGlow: 'heatmap', // brake heat tiles, hot-cell alerts
-  nightStint: 'minimal' // low-intrusion soft restraint, night stint
+  neon: 'neon',
+  // Legacy archetypes preserved for persisted configs.
+  glass: 'glass',
+  terminal: 'terminal',
+  bauhaus: 'bauhaus',
+  // Original color variants.
+  race: 'broadcast',
+  carbon: 'broadcast',
+  gulf: 'broadcast',
+  lemans: 'analog',
+  stealth: 'minimal',
+  amber: 'analog',
+  // R16 batch: futuristic + minimalist color/style variants.
+  apexIgnition: 'neon',
+  ionEmber: 'minimal',
+  vectorPulse: 'neon',
+  cinderGlass: 'minimal',
+  thermalGhost: 'heatmap',
+  emberCircuit: 'neon',
+  radarClear: 'analog',
+  orangeCore: 'neon',
+  blackGold: 'minimal',
+  redlineVoid: 'broadcast',
+  amberVector: 'neon',
+  copperMesh: 'heatmap',
+  moltenCarbon: 'broadcast',
+  safetyGreen: 'analog',
+  laserGrid: 'neon',
+  solarFlare: 'analog',
+  obsidianRing: 'analog',
+  brakeGlow: 'heatmap',
+  nightStint: 'minimal'
 }
-
 /**
  * Resolve a style preset id to its design family. Unknown or missing ids fall
  * back to the family of the default preset (`minimal`). Widgets should switch
@@ -1027,182 +935,191 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'revlights',
     title: 'Rev / shift lights',
-    description: 'Faixa de RPM com ponto de troca e alerta de limitador.',
+    description: 'RPM band with shift point and limiter alert.',
     defaultPosition: { x: 640, y: 34, width: 560, height: 88 },
     requires: ['rpm', 'maxRpm']
   },
   {
     id: 'gearSpeed',
-    title: 'Marcha + velocidade',
-    description: 'Marcha atual, velocidade e assistências ativas.',
+    title: 'Gear + speed',
+    description: 'Current gear, speed, and active assists.',
     defaultPosition: { x: 820, y: 130, width: 260, height: 150 },
     requires: ['gear', 'speedKmh']
   },
   {
     id: 'deltaLap',
     title: 'Delta / laptime',
-    description: 'Delta para melhor volta, volta atual e última volta.',
+    description: 'Delta to best lap, current lap, and last lap.',
     defaultPosition: { x: 50, y: 650, width: 380, height: 150 },
     requires: ['deltaToBestSec']
   },
   {
     id: 'inputs',
     title: 'Inputs',
-    description: 'Acelerador, freio, embreagem e esterço.',
+    description: 'Throttle, brake, clutch, and steering.',
     defaultPosition: { x: 1450, y: 560, width: 330, height: 230 },
     requires: ['throttle', 'brake']
   },
 
   {
     id: 'gforce',
-    title: 'Forças G',
-    description: 'G-ball com aceleração lateral, longitudinal e trilha ao vivo.',
+    title: 'G Forces',
+    description: 'G-ball with live lateral and longitudinal acceleration trail.',
     defaultPosition: { x: 1180, y: 500, width: 320, height: 320 },
     requires: ['latAccelG', 'longAccelG']
   },
   {
     id: 'fuel',
-    title: 'Combustível',
-    description: 'Litros, consumo por volta e voltas estimadas.',
+    title: 'Fuel',
+    description: 'Litros, consumo por lap e laps estimadas.',
     defaultPosition: { x: 50, y: 460, width: 300, height: 160 },
     requires: ['fuelLiters']
   },
   {
     id: 'teamFuel',
     title: 'Team Fuel',
-    description: 'Combustível e stint dos peers da sala LAN.',
+    description: 'Fuel e stint dos peers da sala LAN.',
     defaultPosition: { x: 50, y: 620, width: 420, height: 190 },
     requires: ['fuelLiters', 'sessionUniqueId']
   },
   {
     id: 'tireWear',
-    title: 'Desgaste de pneus',
-    description: 'Vida dos 4 pneus, taxa por volta e voltas restantes.',
+    title: 'Desgaste de tires',
+    description: 'Vida dos 4 tires, taxa por lap e laps remaining.',
     defaultPosition: { x: 370, y: 460, width: 300, height: 220 },
     requires: ['tyres']
   },
   {
     id: 'relative',
     title: 'Relativo / standings',
-    description: 'Carros próximos com cores por classe e gap.',
+    description: 'Nearby cars with class colors and gap.',
     defaultPosition: { x: 1420, y: 120, width: 420, height: 390 },
     requires: ['relatives']
   },
   {
     id: 'flags',
-    title: 'Bandeiras',
-    description: 'Estado de pista e alertas de direção.',
+    title: 'Flags',
+    description: 'Track state and driving alerts.',
     defaultPosition: { x: 760, y: 820, width: 420, height: 92 },
     requires: ['flags']
   },
   {
     id: 'tyresBrakes',
-    title: 'Pneus / freios',
-    description: 'Temperaturas, pressões, desgaste e freios por canto.',
+    title: 'Tires / brakes',
+    description: 'Temperatures, pressures, wear, and brakes by corner.',
     defaultPosition: { x: 50, y: 120, width: 360, height: 300 },
     requires: ['tyres']
   },
   {
     id: 'weather',
-    title: 'Clima / pista',
-    description: 'Temperatura, chuva, wetness e grip.',
+    title: 'Weather / track',
+    description: 'Temperature, rain, wetness, and grip.',
     defaultPosition: { x: 1220, y: 820, width: 360, height: 115 },
     requires: ['trackTempC']
   },
   {
     id: 'standings',
-    title: 'Standings completo',
-    description: 'Lista expandida com posições, classe, pits e gaps.',
+    title: 'Full standings',
+    description: 'Expanded list with positions, class, pits, and gaps.',
     defaultPosition: { x: 1390, y: 70, width: 500, height: 620 },
     requires: ['drivers']
   },
   {
     id: 'inputsTrace',
-    title: 'Trace de inputs',
-    description: 'Histórico ao vivo de throttle, brake, clutch e esterço.',
+    title: 'Input trace',
+    description: 'Live history of throttle, brake, clutch, and steering.',
     defaultPosition: { x: 1360, y: 560, width: 420, height: 260 },
     requires: ['throttle', 'brake']
   },
   {
     id: 'tyresDetail',
-    title: 'Pneus detalhado',
-    description: 'Pressão, temperatura, desgaste e freio com barras por canto.',
+    title: 'Detailed tires',
+    description: 'Pressure, temperature, wear, and brake with bars by corner.',
     defaultPosition: { x: 40, y: 90, width: 430, height: 420 },
     requires: ['tyres']
   },
   {
     id: 'trackMap',
-    title: 'Mapa da pista',
-    description: 'Mini mapa por distância de volta com carros próximos.',
+    title: 'Track map',
+    description: 'Mini map by lap distance with nearby cars.',
     defaultPosition: { x: 690, y: 720, width: 500, height: 210 },
     requires: ['lapDistPct']
   },
   {
+    id: 'trackMapNav3D',
+    title: '3D navigation map',
+    description: 'Track-up Waze-style 3D ribbon map with follow camera, zoom, and rival markers.',
+    defaultPosition: { x: 620, y: 520, width: 680, height: 400 },
+    requires: ['lapDistPct', 'drivers'],
+    category: 'map',
+    tags: ['3d', 'nav', 'neon', 'track-up']
+  },
+  {
     id: 'proximityRadar',
-    title: 'Radar de proximidade',
-    description: 'Alerta lateral/frontal/traseiro para carros muito próximos.',
+    title: 'Proximity radar',
+    description: 'Side/front/rear alert for cars very close by.',
     defaultPosition: { x: 780, y: 300, width: 300, height: 300 },
     requires: ['radarCars']
   },
   {
     id: 'carSilhouetteRadar',
-    title: 'Silhueta radar (spotter)',
-    description: 'Vista superior do seu carro com bordas que acendem em vermelho quando há carros ao lado — spotter estilo Crew Chief.',
+    title: 'Silhouette radar (spotter)',
+    description: 'Top-down view of your car with red edges when cars are alongside ? Crew Chief-style spotter.',
     defaultPosition: { x: 870, y: 290, width: 220, height: 310 },
     requires: ['carLeftRight']
   },
   {
     id: 'sessionWeather',
-    title: 'Sessão + clima',
-    description: 'Tempo restante, volta, incidentes, pista e condições.',
+    title: 'Session + weather',
+    description: 'Time remaining, lap, incidents, track, and conditions.',
     defaultPosition: { x: 1180, y: 760, width: 430, height: 210 },
     requires: ['sessionTimeRemainingSec', 'trackTempC']
   },
   {
     id: 'customValue',
-    title: 'Valor customizado',
-    description: 'Mostra o resultado de uma expressão ou variável de saída roteada.',
+    title: 'Custom value',
+    description: 'Shows the result of an expression or routed output variable.',
     defaultPosition: { x: 60, y: 820, width: 280, height: 110 }
   },
   {
     id: 'gt3Cluster',
     title: 'GT3 Cluster',
-    description: 'Cluster compacto inspirado na Race page do Porsche GT3 Cup ICD.',
+    description: 'Compact cluster inspired by the Porsche GT3 Cup ICD Race page.',
     defaultPosition: { x: 690, y: 92, width: 540, height: 220 },
     requires: ['rpm', 'gear', 'speedKmh']
   },
   {
     id: 'gt3Alarm',
     title: 'GT3 Alarm',
-    description: 'Alarme prioritário no estilo Cosworth ICD para flags, pit limiter e vitais.',
+    description: 'Priority alarm in Cosworth ICD style for flags, pit limiter, and vitals.',
     defaultPosition: { x: 720, y: 330, width: 480, height: 190 },
     requires: ['flags']
   },
   {
     id: 'engineVitalsStrip',
     title: 'Engine vitals strip',
-    description: 'Barra compacta com água, óleo, pressão de óleo e combustível.',
+    description: 'Compact bar with water, oil, oil pressure, and fuel.',
     defaultPosition: { x: 640, y: 40, width: 640, height: 92 },
     requires: ['waterTempC', 'oilTempC', 'oilPressureKpa']
   },
   {
     id: 'relativesStrip',
     title: 'Relatives strip',
-    description: 'Faixa horizontal com bolhas coloridas por classe e posição de pista — estilo broadcast.',
+    description: 'Horizontal strip with class-colored bubbles and track position — broadcast style.',
     defaultPosition: { x: 30, y: 956, width: 1860, height: 72 },
     requires: ['relatives']
   },
   {
     id: 'compactHud',
     title: 'Compact HUD',
-    description: 'HUD arredondado: marcha + anel RPM, KPH, RPM, posição e strip de clima.',
+    description: 'Rounded HUD: gear + RPM ring, KPH, RPM, position, and weather strip.',
     defaultPosition: { x: 700, y: 810, width: 520, height: 110 },
     requires: ['rpm', 'gear', 'speedKmh']
   },
   {
     id: 'symbolStatus',
     title: 'Symbol status',
-    description: 'Painel de ícones: TC, ABS, pit limiter, combustível, motor, óleo, temperatura e bandeiras.',
+    description: 'Icon panel: TC, ABS, pit limiter, fuel, engine, oil, temperature, and flags.',
     defaultPosition: { x: 20, y: 250, width: 470, height: 120 },
     requires: ['absActive', 'tcActive']
   }
@@ -1210,154 +1127,154 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'revHalo',
     title: 'Rev Halo',
-    description: 'Anel de RPM com marcha central, segmentos gráficos e shift flash azul.',
+    description: 'RPM ring with central gear, graphic segments, and blue shift flash.',
     defaultPosition: { x: 760, y: 32, width: 400, height: 150 },
     requires: ['rpm', 'gear']
   },
   {
     id: 'revComet',
     title: 'Rev Comet',
-    description: 'Fita de LEDs em forma de cometa para ponto de troca futurista.',
+    description: 'Comet-shaped LED ribbon for a futuristic shift point.',
     defaultPosition: { x: 660, y: 32, width: 600, height: 112 },
     requires: ['rpm', 'maxRpm']
   },
   {
     id: 'sideRadarGlyph',
     title: 'Side Radar Glyph',
-    description: 'Silhueta superior com laterais verdes quando clear e vermelhas quando alongside.',
+    description: 'Top silhouette with green sides when clear and red sides when alongside.',
     defaultPosition: { x: 830, y: 310, width: 260, height: 260 },
     requires: ['carLeftRight']
   },
   {
     id: 'orbitRadar',
     title: 'Orbit Radar',
-    description: 'Radar orbital sem texto com blips por proximidade e classe.',
+    description: 'Textless orbital radar with blips by proximity and class.',
     defaultPosition: { x: 800, y: 280, width: 320, height: 320 },
     requires: ['radarCars']
   },
   {
     id: 'relativeBeacons',
     title: 'Relative Beacons',
-    description: 'Marcadores de carros próximos ao longo de um eixo de volta, sem linhas de texto.',
+    description: 'Nearby car markers along a lap axis, without text rows.',
     defaultPosition: { x: 560, y: 930, width: 800, height: 86 },
     requires: ['relatives']
   },
   {
     id: 'relativeLadder',
     title: 'Relative Ladder',
-    description: 'Escada vertical de gap ahead/behind com dois beacons gráficos.',
+    description: 'Vertical gap ladder ahead/behind with two graphic beacons.',
     defaultPosition: { x: 1740, y: 330, width: 110, height: 360 },
     requires: ['relatives']
   },
   {
     id: 'deltaNeedle',
     title: 'Delta Needle',
-    description: 'Arco de delta com agulha: verde somente quando mais rápido.',
+    description: 'Delta arc with needle: green only when faster.',
     defaultPosition: { x: 680, y: 775, width: 360, height: 180 },
     requires: ['deltaToBestSec']
   },
   {
     id: 'deltaRibbon',
     title: 'Delta Ribbon',
-    description: 'Linha central de delta com marcador quente/frio de performance.',
+    description: 'Central delta line with hot/cold performance marker.',
     defaultPosition: { x: 650, y: 690, width: 520, height: 90 },
     requires: ['deltaToBestSec']
   },
   {
     id: 'gearRing',
     title: 'Gear Ring',
-    description: 'Marcha gigante em anel de RPM, minimalista e simbólico.',
+    description: 'Giant gear inside an RPM ring, minimal and symbolic.',
     defaultPosition: { x: 850, y: 130, width: 230, height: 230 },
     requires: ['gear', 'rpm']
   },
   {
     id: 'speedGlyph',
     title: 'Speed Glyph',
-    description: 'Velocidade como glifo numérico com barra segmentada gráfica.',
+    description: 'Speed as a numeric glyph with a graphic segmented bar.',
     defaultPosition: { x: 780, y: 720, width: 360, height: 130 },
     requires: ['speedKmh']
   },
   {
     id: 'fuelOrb',
     title: 'Fuel Orb',
-    description: 'Orbe de combustível com gauge circular e estado por cor.',
+    description: 'Fuel orb with circular gauge and color-coded state.',
     defaultPosition: { x: 52, y: 500, width: 180, height: 180 },
     requires: ['fuelLiters']
   },
   {
     id: 'fuelPips',
     title: 'Fuel Pips',
-    description: 'Pips segmentados de autonomia por voltas, quase sem texto.',
+    description: 'Segmented range pips by laps, nearly text-free.',
     defaultPosition: { x: 50, y: 690, width: 390, height: 92 },
     requires: ['fuelLiters']
   },
   {
     id: 'inputsVector',
     title: 'Inputs Vector',
-    description: 'Pedais como colunas vetoriais e ponto de esterço.',
+    description: 'Pedals as vector columns and a steering point.',
     defaultPosition: { x: 1470, y: 610, width: 260, height: 220 },
     requires: ['throttle', 'brake']
   },
   {
     id: 'inputsScope',
     title: 'Inputs Scope',
-    description: 'Osciloscópio gráfico de throttle/brake/clutch.',
+    description: 'Graphic oscilloscope for throttle/brake/clutch.',
     defaultPosition: { x: 1380, y: 610, width: 390, height: 180 },
     requires: ['throttle', 'brake']
   },
   {
     id: 'tyreHaloGrid',
     title: 'Tyre Halo Grid',
-    description: 'Quatro halos de pneus com wear e temperatura por cor.',
+    description: 'Four tire halos with wear and temperature by color.',
     defaultPosition: { x: 50, y: 125, width: 260, height: 260 },
     requires: ['tyres']
   },
   {
     id: 'brakeHeatTiles',
     title: 'Brake Heat Tiles',
-    description: 'Grid de freios em tiles térmicos para detectar superaquecimento.',
+    description: 'Brake grid in thermal tiles for detecting overheating.',
     defaultPosition: { x: 325, y: 125, width: 220, height: 220 },
     requires: ['brakeTempC']
   },
   {
     id: 'trackRibbonFuture',
     title: 'Track Ribbon Future',
-    description: 'Mapa orbital simplificado com carros como partículas na trajetória.',
+    description: 'Simplified orbital map with cars as particles on the trajectory.',
     defaultPosition: { x: 690, y: 815, width: 540, height: 190 },
     requires: ['lapDistPct']
   },
   {
     id: 'trackSectorPulse',
     title: 'Track Sector Pulse',
-    description: 'Progressão de volta por setores/pulsos segmentados.',
+    description: 'Lap progression by sectors/segmented pulses.',
     defaultPosition: { x: 610, y: 965, width: 700, height: 70 },
     requires: ['lapDistPct']
   },
   {
     id: 'weatherGripGlyph',
     title: 'Weather Grip Glyph',
-    description: 'Glifo de grip e wetness com verde só para pista saudável.',
+    description: 'Grip and wetness glyph with green only for a healthy track.',
     defaultPosition: { x: 1280, y: 820, width: 220, height: 160 },
     requires: ['gripPct']
   },
   {
     id: 'flagIconStack',
     title: 'Flag Icon Stack',
-    description: 'Stack de ícones luminosos para flags, pit limiter e alertas.',
+    description: 'Stack of glowing icons for flags, pit limiter, and alerts.',
     defaultPosition: { x: 720, y: 850, width: 480, height: 88 },
     requires: ['flags']
   },
   {
     id: 'gapAhead',
-    title: 'Gap à frente',
-    description: 'Gap grande e legível para o carro logo à frente — verde quando você está fechando.',
+    title: 'Gap ahead',
+    description: 'Large, readable gap to the car immediately ahead ? green when you are closing.',
     defaultPosition: { x: 1560, y: 40, width: 240, height: 150 },
     requires: ['relatives']
   },
   {
     id: 'gapBehind',
-    title: 'Gap atrás',
-    description: 'Gap grande e legível para o carro logo atrás — verde quando você está abrindo vantagem.',
+    title: 'Gap behind',
+    description: 'Large, readable gap to the car immediately behind ? green when you are pulling away.',
     defaultPosition: { x: 1560, y: 210, width: 240, height: 150 },
     requires: ['relatives']
   },
@@ -1365,70 +1282,70 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'ersBattery',
     title: 'ERS Battery',
-    description: 'Bateria híbrida/ERS em células neon com anel de carga — verde só com pack cheio.',
+    description: 'Hybrid battery/ERS in neon cells with charge ring ? green only with a full pack.',
     defaultPosition: { x: 60, y: 430, width: 240, height: 150 },
     requires: ['ersBatteryPct']
   },
   {
     id: 'ersFlow',
     title: 'ERS Flow',
-    description: 'Faixa de deploy/harvest do ERS com scan de energia; flare laranja ao acionar push-to-pass.',
+    description: 'ERS deploy/harvest band with energy scan; orange flare when push-to-pass triggers.',
     defaultPosition: { x: 60, y: 600, width: 380, height: 84 },
     requires: ['ersBatteryPct']
   },
   {
     id: 'pushToPassHud',
     title: 'Push-to-Pass HUD',
-    description: 'Boost P2P em destaque — verde quando pronto, laranja pulsante quando ativo, com usos restantes.',
+    description: 'Highlighted P2P boost — green when ready, pulsing orange when active, with remaining uses.',
     defaultPosition: { x: 840, y: 300, width: 220, height: 160 },
     requires: ['pushToPass', 'pushToPassCount']
   },
   {
     id: 'pitStatusHud',
     title: 'Pit Status HUD',
-    description: 'HUD de pit lane com headline e lâmpadas de reparo, box e serviço — verde quando pits abertos.',
+    description: 'Pit lane HUD with headline and lamps for repair, box, and service ? green when pits are open.',
     defaultPosition: { x: 700, y: 540, width: 380, height: 140 },
     requires: ['pit']
   },
   {
     id: 'coldPressureGrid',
     title: 'Cold Pressure Grid',
-    description: 'Pressões frias dos 4 pneus em colunas LF/RF/LR/RR; canto fora de balanço acende em laranja.',
+    description: 'Cold pressures for all 4 tires in LF/RF/LR/RR columns; out-of-balance corner lights orange.',
     defaultPosition: { x: 50, y: 120, width: 250, height: 230 },
     requires: ['tireColdPressuresKpa']
   },
   {
     id: 'trackClock',
     title: 'Track Clock',
-    description: 'Hora da sessão com sol/lua em arco — âmbar de dia, azul à noite (SessionTimeOfDay).',
+    description: 'Session time with sun/moon arc ? amber by day, blue at night (SessionTimeOfDay).',
     defaultPosition: { x: 1620, y: 760, width: 230, height: 170 },
     requires: ['sessionTimeOfDay']
   },
   {
     id: 'wetRadar',
     title: 'Wet Radar',
-    description: 'Alerta de pista molhada com scanlines de chuva e banner WET DECLARED — verde quando seca.',
+    description: 'Wet track alert with rain scanlines and WET DECLARED banner — green when dry.',
     defaultPosition: { x: 1200, y: 800, width: 300, height: 130 },
     requires: ['isRaining', 'trackWetnessPct']
   },
   {
     id: 'surfaceScope',
     title: 'Surface Scope',
-    description: 'Material da superfície sob o carro; pulsa em vermelho ao sair da pista (grama/terra/brita).',
+    description: 'Surface material under the car; pulses red when leaving the track (grass/dirt/gravel).',
     defaultPosition: { x: 870, y: 470, width: 200, height: 170 },
     requires: ['trackSurfaceMaterial']
   },
   {
     id: 'neonGearBar',
     title: 'Neon Gear Bar',
-    description: 'Faixa de RPM neon com marcha gigante e velocidade; flash azul no ponto de troca ótimo.',
+    description: 'Neon RPM band with giant gear and speed; blue flash at the optimal shift point.',
     defaultPosition: { x: 660, y: 40, width: 600, height: 120 },
     requires: ['rpm', 'gear', 'speedKmh']
   },
   {
     id: 'apexRadar',
     title: 'Apex Radar',
-    description: 'Radar de proximidade sci-fi com linha de varredura e blips por classe; ameaças em vermelho.',
+    description: 'Sci-fi proximity radar with sweep line and class blips; threats in red.',
     defaultPosition: { x: 800, y: 280, width: 300, height: 300 },
     requires: ['radarCars']
   },
@@ -1436,102 +1353,102 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'ersBar',
     title: 'ERS Bar',
-    description: 'Barra fina de carga do ERS com leitura percentual — limpa, monocromática com 1 acento.',
+    description: 'Thin ERS charge bar with percentage readout ? clean, monochrome with 1 accent.',
     defaultPosition: { x: 60, y: 760, width: 240, height: 84 },
     requires: ['ersBatteryPct']
   },
   {
     id: 'pushToPassPips',
     title: 'Push-to-Pass Pips',
-    description: 'Usos de P2P restantes como pips minimalistas — verde enquanto há boost disponível.',
+    description: 'Remaining P2P uses as minimalist pips ? green while boost is available.',
     defaultPosition: { x: 840, y: 480, width: 220, height: 84 },
     requires: ['pushToPassCount']
   },
   {
     id: 'pitTicket',
     title: 'Pit Ticket',
-    description: 'Cartão de pit minimalista com headline de status e ponto de acento — verde quando pits abertos.',
+    description: 'Minimal pit card with status headline and accent dot ? green when pits are open.',
     defaultPosition: { x: 700, y: 700, width: 260, height: 96 },
     requires: ['pit']
   },
   {
     id: 'coldPressureCard',
     title: 'Cold Pressure Card',
-    description: 'Pressões frias dos pneus em cartão 2×2 (psi); destaca o canto mais frio.',
+    description: 'Cold tire pressures in a 2?2 card (psi); highlights the coldest corner.',
     defaultPosition: { x: 60, y: 360, width: 250, height: 130 },
     requires: ['tireColdPressuresKpa']
   },
   {
     id: 'sessionClock',
     title: 'Session Clock',
-    description: 'Relógio da sessão HH:MM com glifo de sol/lua e fase do dia — azul só à noite.',
+    description: 'Session clock HH:MM with sun/moon glyph and day phase ? blue only at night.',
     defaultPosition: { x: 1640, y: 40, width: 200, height: 120 },
     requires: ['sessionTimeOfDay']
   },
   {
     id: 'wetTag',
     title: 'Wet Tag',
-    description: 'Chip DRY/WET com percentual de wetness — verde quando seca, âmbar/vermelho quando molhada.',
+    description: 'DRY/WET chip with wetness percentage ? green when dry, amber/red when wet.',
     defaultPosition: { x: 1280, y: 960, width: 220, height: 100 },
     requires: ['trackWetnessPct']
   },
   {
     id: 'surfaceTag',
     title: 'Surface Tag',
-    description: 'Tag minimalista do material da superfície com ponto de status verde/âmbar/vermelho.',
+    description: 'Minimal surface-material tag with green/amber/red status dot.',
     defaultPosition: { x: 880, y: 660, width: 220, height: 96 },
     requires: ['trackSurfaceMaterial']
   },
   {
     id: 'bopBadge',
     title: 'BoP Badge',
-    description: 'Lastro (kg) e ajuste de potência (%) do BoP — âmbar quando há handicap, verde quando limpo.',
+    description: 'BoP ballast (kg) and power adjustment (%) ? amber with handicap, green when clean.',
     defaultPosition: { x: 60, y: 870, width: 250, height: 120 },
     requires: ['weightPenaltyKg', 'powerAdjustPct']
   },
   {
     id: 'deltaBar',
     title: 'Delta Bar',
-    description: 'Barra de delta centrada no zero — verde à esquerda quando mais rápido, laranja à direita quando mais lento.',
+    description: 'Delta bar centered on zero ? green to the left when faster, orange to the right when slower.',
     defaultPosition: { x: 700, y: 690, width: 360, height: 90 },
     requires: ['deltaToBestSec']
   },
   {
     id: 'lapReadout',
     title: 'Lap Readout',
-    description: 'Leitura limpa de última volta, melhor volta e delta — acento na melhor volta.',
+    description: 'Leitura limpa de last lap, melhor lap e delta — acento na melhor lap.',
     defaultPosition: { x: 60, y: 690, width: 300, height: 150 },
     requires: ['lastLapTimeSec', 'bestLapTimeSec']
   },
   // ─── WS-H: predictor overlays ────────────────────────────────────────────────
   {
     id: 'predCatchAhead',
-    title: 'Preditor · Tempo p/ alcançar',
-    description: 'Estimativa de tempo e voltas para alcançar o carro à frente.',
+    title: 'Predictor ? Time to catch',
+    description: 'Estimated time and laps to catch the car ahead.',
     defaultPosition: { x: 60, y: 300, width: 300, height: 120 }
   },
   {
     id: 'predCaughtBehind',
-    title: 'Preditor · Ameaça atrás',
-    description: 'Estimativa de tempo e voltas até ser alcançado pelo carro atrás.',
+    title: 'Predictor ? Threat behind',
+    description: 'Estimated time and laps until the car behind catches you.',
     defaultPosition: { x: 60, y: 430, width: 300, height: 120 }
   },
   {
     id: 'predFuelMargin',
-    title: 'Preditor · Combustível até o fim',
-    description: 'Margem de combustível projetada até o fim da corrida.',
+    title: 'Predictor ? Fuel to the end',
+    description: 'Projected fuel margin to the end of the race.',
     defaultPosition: { x: 60, y: 560, width: 300, height: 120 }
   },
   {
     id: 'predTireWear',
-    title: 'Preditor · Pneu desgaste/penhasco',
-    description: 'Desgaste por volta e voltas estimadas até o penhasco de aderência.',
+    title: 'Predictor ? Tire wear/cliff',
+    description: 'Wear per lap and estimated laps until the grip cliff.',
     defaultPosition: { x: 60, y: 690, width: 320, height: 130 }
   },
   {
     id: 'predPaceProjected',
     title: 'Preditor · Pace projetado',
-    description: 'Pace projetado para as próximas voltas com nível de confiança.',
+    description: 'Projected pace for the next laps with confidence level.',
     defaultPosition: { x: 60, y: 830, width: 300, height: 120 }
   },
   // ─── WS-M: coaching heatmap overlay ──────────────────────────────────────────
@@ -1539,32 +1456,32 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
     id: 'coachHeatmap',
     title: 'Coaching heatmap',
     description:
-      'Mapa da pista colorido por curva (vermelho=perde, verde=padrão, azul=melhor) — leitura rápida.',
+      'Track map colored by corner (red=losing, green=baseline, blue=best) ? quick read.',
     defaultPosition: { x: 1560, y: 380, width: 260, height: 260 }
   },
   // ─── R19: Live Coach / AI Engineer text + graph overlays ─────────────────────
   {
     id: 'coachTips',
-    title: 'Coach — dicas',
-    description: 'As principais dicas acionáveis do Live Coach em texto (mais recentes primeiro).',
+    title: 'Coach — tips',
+    description: 'The top actionable Live Coach tips as text (newest first).',
     defaultPosition: { x: 1560, y: 60, width: 280, height: 150 }
   },
   {
     id: 'coachFindings',
     title: 'Coach — lista de pontos',
-    description: 'Lista compacta dos pontos de melhoria/ganho do Live Coach por curva/setor.',
+    description: 'Compact list of Live Coach improvement/gain points by corner/sector.',
     defaultPosition: { x: 1560, y: 220, width: 280, height: 200 }
   },
   {
     id: 'coachSectorGraph',
-    title: 'Coach — gráfico por setor',
-    description: 'Barras por setor: verde = no padrão, laranja = tempo perdido.',
+    title: 'Coach ? chart by sector',
+    description: 'Bars by sector: green = on baseline, orange = time lost.',
     defaultPosition: { x: 1560, y: 430, width: 280, height: 150 }
   },
   {
     id: 'engineerFeed',
-    title: 'Engenheiro — mensagens',
-    description: 'Últimas mensagens do Engenheiro de IA em estilo rádio (mais recentes primeiro).',
+    title: 'Engineer — messages',
+    description: 'Latest AI Engineer messages in radio style (newest first).',
     defaultPosition: { x: 60, y: 60, width: 300, height: 150 }
   }
   // ── WS-DASH: full-frame dashboards moved OUT of the floating-overlay picker ──
@@ -1576,46 +1493,46 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   // members AND WIDGET_COMPONENTS entries (overlay/widgets/index.ts) intentionally
   // STAY so the dashboard embed can still resolve each component by id.
   ,
-  { id: 'perCornerTyrePressure', title: 'Pressão de pneu (cantos)', description: 'Pressão por canto (2×2) com banda-alvo. Ao vivo (ACC/LMU) ou fria (iRacing).', defaultPosition: { x: 1500, y: 60, width: 300, height: 200 }, requires: ['tyres'] },
-  { id: 'brakeTempCorners', title: 'Temperatura de freio (cantos)', description: 'Temperatura de disco por canto (2×2) com bandas frio/ótimo/quente + pico.', defaultPosition: { x: 1500, y: 280, width: 300, height: 200 }, requires: ['brakeTempC'] },
-  { id: 'fuelDeltaTile', title: 'Fuel delta', description: 'Margem de voltas, L/volta, voltas até esvaziar e delta de litros para o alvo.', defaultPosition: { x: 1500, y: 500, width: 300, height: 180 }, requires: ['fuelLiters', 'fuelPerLap'] },
-  { id: 'shiftPointBar', title: 'Shift point', description: 'Barra de shift LED grande + RPM/marcha, com flash no redline.', defaultPosition: { x: 560, y: 40, width: 800, height: 90 }, requires: ['shiftIndicatorPct'] },
-  { id: 'engineVitalsDial', title: 'Vitais do motor (dials)', description: 'Mostradores de água/óleo (°C) e pressão de óleo (bar).', defaultPosition: { x: 60, y: 500, width: 360, height: 180 }, requires: ['waterTempC'] },
-  { id: 'sessionInfoTile', title: 'Info da sessão', description: 'Tipo de sessão, tempo restante, voltas, posição e incidentes.', defaultPosition: { x: 60, y: 60, width: 360, height: 150 }, requires: ['sessionType'] }
+  { id: 'perCornerTyrePressure', title: 'Tire pressure (corners)', description: 'Pressure by corner (2?2) with target band. Live (ACC/LMU) or cold (iRacing).', defaultPosition: { x: 1500, y: 60, width: 300, height: 200 }, requires: ['tyres'] },
+  { id: 'brakeTempCorners', title: 'Brake temperature (corners)', description: 'Disc temperature by corner (2×2) with cold/optimal/hot bands + peak.', defaultPosition: { x: 1500, y: 280, width: 300, height: 200 }, requires: ['brakeTempC'] },
+  { id: 'fuelDeltaTile', title: 'Fuel delta', description: 'Lap margin, L/lap, laps to empty, and liters delta to target.', defaultPosition: { x: 1500, y: 500, width: 300, height: 180 }, requires: ['fuelLiters', 'fuelPerLap'] },
+  { id: 'shiftPointBar', title: 'Shift point', description: 'Large LED shift bar + RPM/gear, with redline flash.', defaultPosition: { x: 560, y: 40, width: 800, height: 90 }, requires: ['shiftIndicatorPct'] },
+  { id: 'engineVitalsDial', title: 'Engine vitals (dials)', description: 'Water/oil gauges (?C) and oil pressure (bar).', defaultPosition: { x: 60, y: 500, width: 360, height: 180 }, requires: ['waterTempC'] },
+  { id: 'sessionInfoTile', title: 'Session info', description: 'Session type, time remaining, laps, position, and incidents.', defaultPosition: { x: 60, y: 60, width: 360, height: 150 }, requires: ['sessionType'] }
   ,
   // ─── B-widgets: overlays for the new iRacing telemetry signals ───────────────
   {
     id: 'engineTellTales',
     title: 'Engine warnings',
-    description: 'Painel de lâmpadas FIA: pressão/temperatura de óleo e água, combustível, rev/pit limiter, motor parado e reparo obrigatório/opcional.',
+    description: 'FIA lamp panel: oil pressure/temperature and water, fuel, rev/pit limiter, engine stopped, and required/optional repair.',
     defaultPosition: { x: 60, y: 240, width: 360, height: 200 },
     requires: ['engineWarnings']
   },
   {
     id: 'absCut',
     title: 'ABS cut',
-    description: 'Barra do corte de pressão de freio do ABS (BrakeABSCutPct, 0–100%). Complementa a lâmpada de ABS.',
+    description: 'ABS brake pressure cut bar (BrakeABSCutPct, 0?100%). Complements the ABS lamp.',
     defaultPosition: { x: 60, y: 460, width: 300, height: 96 },
     requires: ['absCutPct']
   },
   {
     id: 'sessionBanner',
     title: 'Session state',
-    description: 'Faixa com a fase da sessão: GET IN / WARMUP / PARADE / RACING / CHECKERED / COOLDOWN.',
+    description: 'Strip with session phase: GET IN / WARMUP / PARADE / RACING / CHECKERED / COOLDOWN.',
     defaultPosition: { x: 700, y: 40, width: 320, height: 110 },
     requires: ['sessionState']
   },
   {
     id: 'paceRestart',
     title: 'Pace / restart',
-    description: 'Modo de pace (single/double-file start/restart, not pacing) + flags ativas (end of line / free pass / waved around).',
+    description: 'Pace mode (single/double-file start/restart, not pacing) + active flags (end of line / free pass / waved around).',
     defaultPosition: { x: 700, y: 170, width: 360, height: 150 },
     requires: ['paceMode']
   },
   {
     id: 'sideProximity',
     title: 'Side proximity (2-car)',
-    description: 'Blind-spot lateral: distingue um carro ao lado de DOIS (CAR LEFT vs 2 LEFT / 3-wide) usando carLeftRightCount.',
+    description: 'Side blind spot: distinguishes one car alongside from TWO (CAR LEFT vs 2 LEFT / 3-wide) using carLeftRightCount.',
     defaultPosition: { x: 800, y: 600, width: 320, height: 140 },
     requires: ['carLeftRightCount']
   },
@@ -1626,42 +1543,42 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   {
     id: 'analogTach',
     title: 'Analog tachometer',
-    description: 'Tacômetro analógico redondo com ponteiro varrendo um arco, zona de redline e marcha + velocidade digitais no centro.',
+    description: 'Round analog tachometer with needle sweeping an arc, redline zone, and digital gear + speed in the center.',
     defaultPosition: { x: 820, y: 120, width: 240, height: 260 },
     requires: ['rpm', 'maxRpm', 'gear', 'speedKmh']
   },
   {
     id: 'cupCluster',
     title: 'Cup cluster',
-    description: 'Cluster estilo Porsche-Cup: barra de LEDs de rotação no topo, marcha gigante e velocidade + delta abaixo.',
+    description: 'Porsche-Cup-style cluster: rev LED bar on top, giant gear, and speed + delta below.',
     defaultPosition: { x: 800, y: 120, width: 300, height: 300 },
     requires: ['rpm', 'maxRpm', 'gear', 'speedKmh']
   },
   {
     id: 'enduranceMulti',
     title: 'Endurance multifunction',
-    description: 'Painel multifunção de enduro: cronômetro de stint, combustível até o fim, voltas restantes, temperaturas/pressões dos pneus e água/óleo.',
+    description: 'Endurance multifunction panel: stint timer, fuel to the end, laps remaining, tire temperatures/pressures, and water/oil.',
     defaultPosition: { x: 60, y: 120, width: 380, height: 320 },
     requires: ['fuelLiters', 'tyres']
   },
   {
     id: 'oledStrip',
     title: 'OLED strip',
-    description: 'Faixa horizontal minimalista: marcha | velocidade | mini barra de LEDs | delta | combustível, para um overlay estreito.',
+    description: 'Minimalist horizontal strip: gear | speed | mini LED bar | delta | fuel, for a narrow overlay.',
     defaultPosition: { x: 560, y: 40, width: 720, height: 72 },
     requires: ['gear', 'speedKmh']
   },
   {
     id: 'motecDense',
     title: 'MoTeC data panel',
-    description: 'Painel denso estilo MoTeC/AiM: marcha/velocidade/rpm/delta/volta/combustível/temperaturas + TC/ABS/MAP/BB em uma grade com hairlines.',
+    description: 'Dense MoTeC/AiM-style panel: gear/speed/rpm/delta/lap/fuel/temperatures + TC/ABS/MAP/BB in a hairline grid.',
     defaultPosition: { x: 60, y: 120, width: 420, height: 260 },
     requires: ['rpm', 'gear', 'speedKmh']
   },
   {
     id: 'gt3Wheel',
     title: 'GT3 wheel face',
-    description: 'Face de volante GT3: lâmpadas telltale (bandeiras/TC/ABS/pit/chuva) sobre os botões rotativos TC / ABS / MAP / BB com seus níveis atuais.',
+    description: 'GT3 steering wheel face: telltale lamps (flags/TC/ABS/pit/rain) above TC / ABS / MAP / BB rotary buttons with their current levels.',
     defaultPosition: { x: 700, y: 480, width: 360, height: 240 },
     requires: ['absLevel', 'tcLevel']
   }

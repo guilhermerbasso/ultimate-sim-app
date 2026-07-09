@@ -291,7 +291,7 @@ async function collectDriverNotes(userData: string): Promise<SemanticDocument[]>
     out.push({
       id: `driver:${custId}`,
       source: 'driver-note',
-      title: `Piloto #${custId}`,
+      title: `Driver #${custId}`,
       snippet: joinText([note, tag ? `(${tag})` : '']),
       text,
       updatedAt: typeof n?.updatedAt === 'number' ? n.updatedAt : 0,
@@ -350,7 +350,7 @@ async function collectEngineerNotes(userData: string): Promise<SemanticDocument[
     out.push({
       id: `engineer:${id}`,
       source: 'engineer-note',
-      title: role ? `Engenheiro · ${role}` : 'Engenheiro IA',
+      title: role ? `Engineer · ${role}` : 'AI Engineer',
       snippet: text,
       text,
       updatedAt: typeof e?.at === 'number' ? e.at : 0

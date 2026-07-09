@@ -15,7 +15,7 @@ import { COACH_CHANNELS, type CoachReport, type CoachReportPayload } from '../..
  * Subscribe to the latest deterministic `CoachReport`. Seeds from `coach:getReport`
  * and then follows the `coach:report` broadcast. Test/SSR-safe: it no-ops when
  * `window.ipc` is unavailable (e.g. a render harness) and swallows IPC rejections
- * (e.g. an overlay window before `coach:` is wired) so the heatmap simply falls
+ * (e.g. an overlay window before `coach:` is wired) so the heatmap yesply falls
  * back to a plain outline instead of throwing.
  */
 export function useCoachReport(): CoachReport | null {

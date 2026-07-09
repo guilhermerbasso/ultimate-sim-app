@@ -106,45 +106,45 @@ export interface CalloutMeta {
 // Catalog drives both the default config and the UI. Order = display order.
 export const CALLOUT_CATALOG: CalloutMeta[] = [
   // ── Flags ──────────────────────────────────────────────────────────────────
-  { id: 'flag.green', category: 'flags', label: 'Verde', description: 'Largada / relargada — pista liberada.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 8000 },
-  { id: 'flag.yellow', category: 'flags', label: 'Amarela', description: 'Bandeira amarela (local/total) — atenção, reduza.', defaultEnabled: true, defaultPriority: 9, defaultCooldownMs: 6000 },
-  { id: 'flag.blue', category: 'flags', label: 'Azul', description: 'Deixe o carro mais rápido passar.', defaultEnabled: true, defaultPriority: 7, defaultCooldownMs: 6000 },
-  { id: 'flag.white', category: 'flags', label: 'Branca', description: 'Última volta.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 8000 },
-  { id: 'flag.checkered', category: 'flags', label: 'Quadriculada', description: 'Fim de prova.', defaultEnabled: true, defaultPriority: 6, defaultCooldownMs: 30000 },
-  { id: 'flag.meatball', category: 'flags', label: 'Meatball', description: 'Bandeira preta-laranja — dano, vá aos boxes.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 10000 },
-  { id: 'flag.black', category: 'flags', label: 'Preta', description: 'Penalidade.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 10000 },
+  { id: 'flag.green', category: 'flags', label: 'Green', description: 'Start / restart — track clear.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 8000 },
+  { id: 'flag.yellow', category: 'flags', label: 'Yellow', description: 'Yellow flag (local/full-course) — caution, slow down.', defaultEnabled: true, defaultPriority: 9, defaultCooldownMs: 6000 },
+  { id: 'flag.blue', category: 'flags', label: 'Blue', description: 'Let the faster car through.', defaultEnabled: true, defaultPriority: 7, defaultCooldownMs: 6000 },
+  { id: 'flag.white', category: 'flags', label: 'White', description: 'Final lap.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 8000 },
+  { id: 'flag.checkered', category: 'flags', label: 'Checkered', description: 'Race finish.', defaultEnabled: true, defaultPriority: 6, defaultCooldownMs: 30000 },
+  { id: 'flag.meatball', category: 'flags', label: 'Meatball', description: 'Black/orange flag — damage, go to the pits.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 10000 },
+  { id: 'flag.black', category: 'flags', label: 'Black', description: 'Penalty.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 10000 },
   // ── Fuel ───────────────────────────────────────────────────────────────────
-  { id: 'fuel.low', category: 'fuel', label: 'Combustível baixo', description: 'Combustível abaixo do limite de voltas.', defaultEnabled: true, defaultPriority: 7, defaultCooldownMs: 30000 },
-  { id: 'fuel.lapsLeft', category: 'fuel', label: 'Voltas de combustível', description: 'Anuncia, a cada volta, quantas voltas de combustível restam.', defaultEnabled: false, defaultPriority: 4, defaultCooldownMs: 25000 },
-  { id: 'fuel.box', category: 'fuel', label: 'Boxe nesta volta', description: 'Combustível insuficiente para terminar — pare nos boxes.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 20000 },
+  { id: 'fuel.low', category: 'fuel', label: 'Low fuel', description: 'Fuel below the configured lap limit.', defaultEnabled: true, defaultPriority: 7, defaultCooldownMs: 30000 },
+  { id: 'fuel.lapsLeft', category: 'fuel', label: 'Fuel laps left', description: 'Announces remaining fuel laps once per lap.', defaultEnabled: false, defaultPriority: 4, defaultCooldownMs: 25000 },
+  { id: 'fuel.box', category: 'fuel', label: 'Box this lap', description: 'Not enough fuel to finish — stop in the pits.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 20000 },
   // ── Pit ────────────────────────────────────────────────────────────────────
-  { id: 'pit.windowOpen', category: 'pit', label: 'Janela de boxes aberta', description: 'Voltas restantes dentro da janela de parada.', defaultEnabled: false, defaultPriority: 5, defaultCooldownMs: 60000 },
-  { id: 'pit.onPitRoad', category: 'pit', label: 'No pit lane', description: 'Você entrou no pit road.', defaultEnabled: true, defaultPriority: 4, defaultCooldownMs: 8000 },
-  { id: 'pit.speeding', category: 'pit', label: 'Velocidade no pit', description: 'Acima do limite no pit lane com o limitador desligado.', defaultEnabled: true, defaultPriority: 9, defaultCooldownMs: 1500 },
+  { id: 'pit.windowOpen', category: 'pit', label: 'Pit window open', description: 'Remaining laps inside the pit window.', defaultEnabled: false, defaultPriority: 5, defaultCooldownMs: 60000 },
+  { id: 'pit.onPitRoad', category: 'pit', label: 'On pit road', description: 'You entered pit road.', defaultEnabled: true, defaultPriority: 4, defaultCooldownMs: 8000 },
+  { id: 'pit.speeding', category: 'pit', label: 'Pit speeding', description: 'Above the pit-lane limit with the limiter off.', defaultEnabled: true, defaultPriority: 9, defaultCooldownMs: 1500 },
   // ── Proximity & gaps ────────────────────────────────────────────────────────
-  { id: 'proximity.spotter', category: 'proximity', label: 'Carro ao lado', description: 'Carro à esquerda, à direita ou três largos (radar/relativos).', defaultEnabled: true, defaultPriority: 10, defaultCooldownMs: 1200 },
-  { id: 'gap.ahead', category: 'proximity', label: 'Gap à frente', description: 'Diferença para o carro à frente + se aproximando/abrindo.', defaultEnabled: false, defaultPriority: 3, defaultCooldownMs: 12000 },
-  { id: 'gap.behind', category: 'proximity', label: 'Gap atrás', description: 'Diferença para o carro atrás + se aproximando/abrindo.', defaultEnabled: false, defaultPriority: 3, defaultCooldownMs: 12000 },
-  { id: 'position.change', category: 'proximity', label: 'Mudança de posição', description: 'Anuncia a nova posição quando ela muda.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 4000 },
+  { id: 'proximity.spotter', category: 'proximity', label: 'Car alongside', description: 'Car left, car right, or three-wide (radar/relatives).', defaultEnabled: true, defaultPriority: 10, defaultCooldownMs: 1200 },
+  { id: 'gap.ahead', category: 'proximity', label: 'Gap ahead', description: 'Gap to the car ahead plus closing/opening trend.', defaultEnabled: false, defaultPriority: 3, defaultCooldownMs: 12000 },
+  { id: 'gap.behind', category: 'proximity', label: 'Gap behind', description: 'Gap to the car behind plus closing/opening trend.', defaultEnabled: false, defaultPriority: 3, defaultCooldownMs: 12000 },
+  { id: 'position.change', category: 'proximity', label: 'Position change', description: 'Announces the new position when it changes.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 4000 },
   // ── Incidents ───────────────────────────────────────────────────────────────
-  { id: 'incident.points', category: 'incidents', label: 'Pontos de incidente', description: 'Quando os pontos de incidente aumentam (track limits/contato).', defaultEnabled: false, defaultPriority: 4, defaultCooldownMs: 4000 },
-  { id: 'incident.limit', category: 'incidents', label: 'Limite de incidentes', description: 'Aviso quando o limite de incidentes se aproxima.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 15000 },
+  { id: 'incident.points', category: 'incidents', label: 'Incident points', description: 'When incident points increase (track limits/contact).', defaultEnabled: false, defaultPriority: 4, defaultCooldownMs: 4000 },
+  { id: 'incident.limit', category: 'incidents', label: 'Incident limit', description: 'Warning when the incident limit is getting close.', defaultEnabled: true, defaultPriority: 8, defaultCooldownMs: 15000 },
   // ── Shift ───────────────────────────────────────────────────────────────────
-  { id: 'shift.point', category: 'shift', label: 'Troca de marcha', description: 'Fala "troca" no ponto ótimo. Leve — o menu Sounds já bipa.', defaultEnabled: false, defaultPriority: 2, defaultCooldownMs: 400 },
+  { id: 'shift.point', category: 'shift', label: 'Shift point', description: 'Says "shift" at the optimal point. Light — the Sounds menu already beeps.', defaultEnabled: false, defaultPriority: 2, defaultCooldownMs: 400 },
   // ── Lap ─────────────────────────────────────────────────────────────────────
-  { id: 'lap.delta', category: 'lap', label: 'Delta da última volta', description: 'Diferença da última volta para a melhor (+/- s).', defaultEnabled: false, defaultPriority: 3, defaultCooldownMs: 8000 },
-  { id: 'lap.personalBest', category: 'lap', label: 'Recorde pessoal', description: 'Quando você crava uma nova melhor volta.', defaultEnabled: true, defaultPriority: 4, defaultCooldownMs: 8000 },
-  { id: 'session.start', category: 'lap', label: 'Início de sessão', description: 'Quando a telemetria fica ao vivo / a sessão começa.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 30000 }
+  { id: 'lap.delta', category: 'lap', label: 'Last-lap delta', description: 'Difference from the last lap to the best (+/- s).', defaultEnabled: false, defaultPriority: 3, defaultCooldownMs: 8000 },
+  { id: 'lap.personalBest', category: 'lap', label: 'Personal best', description: 'When you set a new best lap.', defaultEnabled: true, defaultPriority: 4, defaultCooldownMs: 8000 },
+  { id: 'session.start', category: 'lap', label: 'Session start', description: 'When telemetry goes live / the session starts.', defaultEnabled: true, defaultPriority: 5, defaultCooldownMs: 30000 }
 ]
 
 export const CATEGORY_LABELS: Record<CalloutCategory, string> = {
-  flags: 'Bandeiras',
-  fuel: 'Combustível',
+  flags: 'Flags',
+  fuel: 'Fuel',
   pit: 'Pit',
-  proximity: 'Proximidade & Gaps',
-  incidents: 'Incidentes',
-  shift: 'Troca',
-  lap: 'Voltas'
+  proximity: 'Proximity & gaps',
+  incidents: 'Incidents',
+  shift: 'Shift',
+  lap: 'Laps'
 }
 
 export const DEFAULT_SPOTTER_THRESHOLDS: SpotterThresholds = {
@@ -181,8 +181,8 @@ export const DEFAULT_SPOTTER_CONFIG: SpotterConfig = {
   enabled: true,
   muted: false,
   masterVolume: 1,
-  language: 'pt-BR',
-  defaultVoiceURI: 'piper:pt_BR-faber-medium',
+  language: 'en-US',
+  defaultVoiceURI: 'piper:en_US-lessac-medium',
   outputDeviceId: '',
   thresholds: DEFAULT_SPOTTER_THRESHOLDS,
   callouts: buildDefaultCallouts(),
@@ -545,75 +545,75 @@ export function buildPhrase(id: CalloutId, lang: SpotterLang = 'pt-BR', params: 
   const pt = lang === 'pt-BR'
   switch (id) {
     case 'flag.green':
-      return pt ? 'Verde, verde, bandeira verde' : 'Green, green, green'
+      return pt ? 'Green, green, green flag' : 'Green, green, green'
     case 'flag.yellow':
-      return pt ? 'Amarela, amarela, cuidado' : 'Yellow, yellow, yellow'
+      return pt ? 'Yellow, yellow, careful' : 'Yellow, yellow, yellow'
     case 'flag.blue':
-      return pt ? 'Bandeira azul, deixe passar' : 'Blue flag, let them by'
+      return pt ? 'Blue flag, let them by' : 'Blue flag, let them by'
     case 'flag.white':
-      return pt ? 'Bandeira branca, última volta' : 'White flag, last lap'
+      return pt ? 'White flag, last lap' : 'White flag, last lap'
     case 'flag.checkered':
-      return pt ? 'Bandeira quadriculada, fim de prova' : 'Checkered flag, that is the end'
+      return pt ? 'Checkered flag, race over' : 'Checkered flag, that is the end'
     case 'flag.meatball':
-      return pt ? 'Bandeira meatball, dano no carro, vá aos boxes' : 'Meatball flag, report to the pits'
+      return pt ? 'Meatball flag, car damage, report to the pits' : 'Meatball flag, report to the pits'
     case 'flag.black':
-      return pt ? 'Bandeira preta, penalidade' : 'Black flag, penalty'
+      return pt ? 'Black flag, penalty' : 'Black flag, penalty'
     case 'fuel.low':
-      return pt ? 'Combustível baixo' : 'Fuel is low'
+      return pt ? 'Fuel is low' : 'Fuel is low'
     case 'fuel.lapsLeft': {
       const laps = Math.max(0, Math.floor(params.laps ?? 0))
-      if (pt) return laps === 1 ? 'Uma volta de combustível' : `${laps} voltas de combustível`
+      if (pt) return laps === 1 ? 'One lap of fuel' : `${laps} laps of fuel`
       return laps === 1 ? 'One lap of fuel left' : `${laps} laps of fuel left`
     }
     case 'fuel.box':
-      return pt ? 'Boxe nesta volta, boxe nesta volta, combustível' : 'Box this lap, box this lap, for fuel'
+      return pt ? 'Box this lap, box this lap, for fuel' : 'Box this lap, box this lap, for fuel'
     case 'pit.windowOpen':
-      return pt ? 'Janela de boxes aberta' : 'Pit window is open'
+      return pt ? 'Pit window open' : 'Pit window is open'
     case 'pit.onPitRoad':
-      return pt ? 'Você está no pit lane' : 'You are on pit road'
+      return pt ? 'You are on pit road' : 'You are on pit road'
     case 'pit.speeding':
       return pt ? 'Velocidade no pit, reduza' : 'Speeding in the pit lane, slow down'
     case 'proximity.spotter':
-      if (params.side === 'three-wide') return pt ? 'Três largos, cuidado' : 'Three wide, three wide'
-      if (params.side === 'right') return pt ? 'Carro à direita' : 'Car right'
-      return pt ? 'Carro à esquerda' : 'Car left'
+      if (params.side === 'three-wide') return pt ? 'Three wide, careful' : 'Three wide, three wide'
+      if (params.side === 'right') return pt ? 'Car on your right' : 'Car right'
+      return pt ? 'Car on your left' : 'Car left'
     case 'gap.ahead': {
       const gap = formatSeconds(params.gapSec ?? 0, lang)
       const unit = pt ? 'segundos' : 'seconds'
       return pt
-        ? `${gap} ${unit} para o carro à frente${trendWord(params.trend, lang)}`
+        ? `${gap} ${unit} to the car ahead${trendWord(params.trend, lang)}`
         : `${gap} ${unit} to the car ahead${trendWord(params.trend, lang)}`
     }
     case 'gap.behind': {
       const gap = formatSeconds(params.gapSec ?? 0, lang)
       const unit = pt ? 'segundos' : 'seconds'
       return pt
-        ? `${gap} ${unit} para o carro atrás${trendWord(params.trend, lang)}`
+        ? `${gap} ${unit} to the car behind${trendWord(params.trend, lang)}`
         : `${gap} ${unit} to the car behind${trendWord(params.trend, lang)}`
     }
     case 'position.change': {
       const pos = Math.max(1, Math.floor(params.positionNumber ?? 0))
-      return pt ? `Posição ${pos}` : `Position ${pos}`
+      return pt ? `Position ${pos}` : `Position ${pos}`
     }
     case 'incident.points': {
       const points = Math.max(0, Math.floor(params.points ?? 0))
       return pt ? `Incidente, ${points} pontos` : `Incident, ${points} points`
     }
     case 'incident.limit':
-      return pt ? 'Atenção, limite de incidentes próximo' : 'Careful, incident limit approaching'
+      return pt ? 'Careful, incident limit approaching' : 'Careful, incident limit approaching'
     case 'shift.point':
       return pt ? 'Troca' : 'Shift'
     case 'lap.delta': {
       const delta = params.deltaSec ?? 0
       const value = formatSeconds(delta, lang)
-      if (Math.abs(delta) < 0.05) return pt ? 'Última volta, no mesmo tempo' : 'Last lap, dead on'
-      if (pt) return delta > 0 ? `Última volta, mais lento ${value} segundos` : `Última volta, mais rápido ${value} segundos`
+      if (Math.abs(delta) < 0.05) return pt ? 'Last lap, same time' : 'Last lap, dead on'
+      if (pt) return delta > 0 ? `Last lap, slower by ${value} seconds` : `Last lap, faster by ${value} seconds`
       return delta > 0 ? `Last lap, ${value} slower` : `Last lap, ${value} faster`
     }
     case 'lap.personalBest':
-      return pt ? 'Volta mais rápida, recorde pessoal' : 'New personal best lap'
+      return pt ? 'Fastest lap, personal best' : 'New personal best lap'
     case 'session.start':
-      return pt ? 'Sessão iniciada, boa corrida' : 'Session started, good luck'
+      return pt ? 'Session started, good luck' : 'Session started, good luck'
     default:
       return ''
   }

@@ -30,39 +30,39 @@ function buildPointText(point: LossPointInfo): { title: string; detail: string }
   if (point.primaryBrakeOnsetPct !== null && point.bestBrakeOnsetPct !== null) {
     const delta = point.primaryBrakeOnsetPct - point.bestBrakeOnsetPct
     if (delta < -BRAKE_ONSET_MARGIN_PCT) {
-      details.push(`Freando cedo na curva ~${pctLabel(point.fromPct)} — tente atrasar o ponto de freada.`)
+      details.push(`Braking early in turn ~${pctLabel(point.fromPct)} — try braking later.`)
     } else if (delta > BRAKE_ONSET_MARGIN_PCT) {
-      details.push(`Freando tarde na curva ~${pctLabel(point.fromPct)} — antecipe um pouco para estabilizar a entrada.`)
+      details.push(`Braking late in turn ~${pctLabel(point.fromPct)} — brake a little earlier to stabilize entry.`)
     }
   }
 
   const minSpeedDelta = point.primaryMinSpeedKmh - point.bestMinSpeedKmh
   if (minSpeedDelta < -MIN_SPEED_MARGIN_KMH) {
     details.push(
-      `Velocidade mínima baixa (${Math.round(point.primaryMinSpeedKmh)} vs ${Math.round(point.bestMinSpeedKmh)} km/h) — carregue mais velocidade na curva.`
+      `Low minimum speed (${Math.round(point.primaryMinSpeedKmh)} vs ${Math.round(point.bestMinSpeedKmh)} km/h) — carry more speed through the turn.`
     )
   }
 
   const throttleDelta = point.primaryAvgThrottle - point.bestAvgThrottle
   if (throttleDelta < -THROTTLE_MARGIN) {
     details.push(
-      `Acelere mais cedo na saída (throttle médio ${Math.round(point.primaryAvgThrottle * 100)}% vs ${Math.round(point.bestAvgThrottle * 100)}%).`
+      `Get to throttle earlier on exit (average throttle ${Math.round(point.primaryAvgThrottle * 100)}% vs ${Math.round(point.bestAvgThrottle * 100)}%).`
     )
   }
 
   const brakeDelta = point.primaryMaxBrake - point.bestMaxBrake
   if (brakeDelta > BRAKE_MARGIN) {
     details.push(
-      `Freio muito forte (${Math.round(point.primaryMaxBrake * 100)}% vs ${Math.round(point.bestMaxBrake * 100)}%) — experimente modular melhor para não matar velocidade.`
+      `Braking too hard (${Math.round(point.primaryMaxBrake * 100)}% vs ${Math.round(point.bestMaxBrake * 100)}%) — try modulating better so you do not kill speed.`
     )
   } else if (brakeDelta < -BRAKE_MARGIN) {
     details.push(
-      `Freio abaixo da referência (${Math.round(point.primaryMaxBrake * 100)}% vs ${Math.round(point.bestMaxBrake * 100)}%) — pode estar faltando pressão inicial.`
+      `Brake below reference (${Math.round(point.primaryMaxBrake * 100)}% vs ${Math.round(point.bestMaxBrake * 100)}%) — you may be missing initial pressure.`
     )
   }
 
   if (details.length === 0) {
-    details.push(point.tips[0] ?? 'Perda concentrada aqui — compare traçado, marcha e uso dos pedais.')
+    details.push(point.tips[0] ?? 'Loss is concentrated here — compare line, gear, and pedal use.')
   }
 
   const title = `Perda de ${(point.lossSec * 1000).toFixed(0)} ms no sector ${sectorFor(point.fromPct)}`
@@ -76,8 +76,8 @@ export function buildInsights(
 ): InsightsResult {
   const reference = referenceLapId ?? result.bestLapId
   const emptySummary = reference
-    ? ['Sem regiões de perda relevantes vs referência — boa consistência nesta volta.']
-    : ['Selecione uma referência ou uma melhor volta válida para gerar coaching offline.']
+    ? ['No relevant loss zones against reference — good consistency this lap.']
+    : ['Select a reference or a valid best lap to generate offline coaching.']
 
   if (!reference || reference === primaryLapId) {
     return { primaryLapId, referenceLapId: reference, totalLossSec: 0, insights: [], summary: emptySummary }
@@ -113,13 +113,13 @@ export function buildInsights(
   }
   const topSectors = Array.from(sectorLosses.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3)
   const summary = [
-    `Perda total estimada vs referência: ${lapLoss.totalLossSec.toFixed(3)}s.`,
+    `Estimated total loss against reference: ${lapLoss.totalLossSec.toFixed(3)}s.`,
     topSectors.length > 0
       ? `Maiores perdas por sector: ${topSectors.map(([sector, loss]) => `S${sector} ${loss.toFixed(3)}s`).join(' · ')}.`
-      : 'Sem perdas setoriais relevantes acima do limiar.',
+      : 'Sem perdas sectoriais relevantes acima do limiar.',
     insights.length > 0
       ? `Prioridade: ${insights[0].title.toLowerCase()} em ~${pctLabel(insights[0].atPct)}.`
-      : 'Nenhum insight acionável acima do limiar de 30 ms.'
+      : 'No actionable insight above the 30 ms threshold.'
   ]
 
   return { primaryLapId, referenceLapId: reference, totalLossSec: lapLoss.totalLossSec, insights, summary }

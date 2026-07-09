@@ -329,7 +329,7 @@ class DeviceOutputEngine {
       // re-sends next tick. A permanent buffer-overflow error is kept deduped so
       // we don't retry an impossible frame at the throttle rate forever.
       const message = error instanceof Error ? error.message : String(error)
-      if (!/excede o buffer|m[áa]x/i.test(message)) this.lastPayload.delete(key)
+      if (!/exceeds o buffer|m[áa]x/i.test(message)) this.lastPayload.delete(key)
     })
   }
 

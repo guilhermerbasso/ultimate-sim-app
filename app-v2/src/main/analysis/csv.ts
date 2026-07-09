@@ -55,7 +55,7 @@ export function parseAnalysisCsv(text: string): AnalysisLapSample[] {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-  if (lines.length < 2) throw new Error('CSV precisa conter cabeçalho e ao menos uma linha de dados.')
+  if (lines.length < 2) throw new Error('CSV must include a header and at least one data row.')
 
   const headers = parseCsvLine(lines[0]).map(normalizeHeader)
   const distIdx = findColumn(headers, DIST_COLUMNS)
@@ -67,7 +67,7 @@ export function parseAnalysisCsv(text: string): AnalysisLapSample[] {
   const gearIdx = findColumn(headers, ['gear'])
 
   if (distIdx < 0 || speedIdx < 0 || throttleIdx < 0 || brakeIdx < 0) {
-    throw new Error('CSV precisa ter colunas de distância, velocidade, throttle e freio.')
+    throw new Error('CSV must include distance, speed, throttle, and brake columns.')
   }
 
   const samples: AnalysisLapSample[] = []
@@ -90,6 +90,6 @@ export function parseAnalysisCsv(text: string): AnalysisLapSample[] {
   }
 
   samples.sort((a, b) => a.lapDistPct - b.lapDistPct)
-  if (samples.length === 0) throw new Error('CSV não contém linhas de telemetria utilizáveis.')
+  if (samples.length === 0) throw new Error('CSV contains no usable telemetry rows.')
   return samples
 }

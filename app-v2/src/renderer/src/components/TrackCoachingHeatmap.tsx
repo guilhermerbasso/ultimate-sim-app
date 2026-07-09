@@ -9,9 +9,9 @@
 //   • BLUE  gain   — much better; replicate it (estTimeDeltaSec > 0)
 //
 // Two modes:
-//   • `interactive` (Coach IA) — corners are CLICKABLE; selecting one expands a
-//     detail panel: RED → o que MELHORAR, BLUE → o que VOCÊ FEZ DE CERTO,
-//     GREEN → no padrão. Full legend.
+//   • `interactive` (AI Coach) — corners are CLICKABLE; selecting one expands a
+//     detail panel: RED → o que MELHORAR, BLUE → o que VOCE FEZ DE CERTO,
+//     GREEN → no padrao. Full legend.
 //   • `readonly` (overlay / dashboard widget) — same coloured mini-map, no click
 //     or expand, glanceable, with a compact legend strip.
 //
@@ -68,9 +68,29 @@ const DEFAULT_OUTLINE = '#3a4d63'
 const MIN_ZOOM = 0.5
 const MAX_ZOOM = 6
 const ZOOM_STEP = 1.35
+const MAP_BASE_HEIGHT = 360
+const MAP_BASE_WIDTH = 720
+const MAP_MIN_HEIGHT = 220
+const MAP_MIN_WIDTH = 320
+const MAP_MAX_HEIGHT = 760
+const MAP_MAX_WIDTH = 1180
+
+export interface TrackMapFrameSize {
+  widthPx: number
+  heightPx: number
+}
 
 function clamp(value: number, min: number, max: number): number {
   return value < min ? min : value > max ? max : value
+}
+
+export function getInteractiveTrackMapFrameSize(zoom: number): TrackMapFrameSize {
+  const safeZoom = Number.isFinite(zoom) ? zoom : 1
+  const scale = clamp(safeZoom, MIN_ZOOM, MAX_ZOOM)
+  return {
+    widthPx: Math.round(clamp(MAP_BASE_WIDTH * scale, MAP_MIN_WIDTH, MAP_MAX_WIDTH)),
+    heightPx: Math.round(clamp(MAP_BASE_HEIGHT * scale, MAP_MIN_HEIGHT, MAP_MAX_HEIGHT))
+  }
 }
 
 function fmtDelta(seconds: number): string {
@@ -154,8 +174,8 @@ export function TrackCoachingHeatmap({
         <div style={emptyStyles.box}>
           <span style={emptyStyles.text}>
             {data?.recording?.active
-              ? `Aprendendo o mapa da pista… ${Math.round((data.recording.progress ?? 0) * 100)}%`
-              : 'Mapa da pista ainda não disponível — dirija uma volta limpa ou conecte o iRacing.'}
+              ? `Learning the track map… ${Math.round((data.recording.progress ?? 0) * 100)}%`
+              : 'Track map not available yet — drive a clean lap or connect iRacing.'}
           </span>
         </div>
         {legendOn && <Legend palette={palette} compact={!interactive} />}
@@ -252,33 +272,42 @@ export function TrackCoachingHeatmap({
     cursor: svgCursor,
     touchAction: zoomable ? 'none' : undefined
   }
+  const frameSize = getInteractiveTrackMapFrameSize(effZoom)
+  const mapFrameStyle: CSSProperties = {
+    ...mapFrameBaseStyle,
+    width: zoomable ? `min(100%, ${frameSize.widthPx}px)` : '100%',
+    height: zoomable ? `min(${frameSize.heightPx}px, 70vh)` : '100%',
+    minHeight: zoomable ? MAP_MIN_HEIGHT : undefined,
+    alignSelf: zoomable ? 'center' : undefined
+  }
 
   return (
     <div className={className} style={rootStyle}>
-      {zoomable && (
-        <ZoomControls
-          accent={accent}
-          canZoomIn={effZoom < MAX_ZOOM}
-          canZoomOut={effZoom > MIN_ZOOM}
-          canReset={effZoom !== 1 || panX !== 0 || panY !== 0}
-          onZoomIn={() => zoomAtCenter(ZOOM_STEP)}
-          onZoomOut={() => zoomAtCenter(1 / ZOOM_STEP)}
-          onReset={resetView}
-        />
-      )}
-      <svg
-        ref={svgRef}
-        viewBox={`${viewX} ${viewY} ${viewW} ${viewH}`}
-        preserveAspectRatio="xMidYMid meet"
-        style={dynamicSvgStyle}
-        role={interactive ? 'group' : 'img'}
-        aria-label="Mapa de coaching colorido por curva"
-        onWheel={zoomable ? handleWheel : undefined}
-        onPointerDown={zoomable ? handlePointerDown : undefined}
-        onPointerMove={zoomable ? handlePointerMove : undefined}
-        onPointerUp={zoomable ? endDrag : undefined}
-        onPointerLeave={zoomable ? endDrag : undefined}
-      >
+      <div style={mapFrameStyle}>
+        {zoomable && (
+          <ZoomControls
+            accent={accent}
+            canZoomIn={effZoom < MAX_ZOOM}
+            canZoomOut={effZoom > MIN_ZOOM}
+            canReset={effZoom !== 1 || panX !== 0 || panY !== 0}
+            onZoomIn={() => zoomAtCenter(ZOOM_STEP)}
+            onZoomOut={() => zoomAtCenter(1 / ZOOM_STEP)}
+            onReset={resetView}
+          />
+        )}
+        <svg
+          ref={svgRef}
+          viewBox={`${viewX} ${viewY} ${viewW} ${viewH}`}
+          preserveAspectRatio="xMidYMid meet"
+          style={dynamicSvgStyle}
+          role={interactive ? 'group' : 'img'}
+          aria-label="Coaching map colored by corner"
+          onWheel={zoomable ? handleWheel : undefined}
+          onPointerDown={zoomable ? handlePointerDown : undefined}
+          onPointerMove={zoomable ? handlePointerMove : undefined}
+          onPointerUp={zoomable ? endDrag : undefined}
+          onPointerLeave={zoomable ? endDrag : undefined}
+        >
         {/* Base outline (uncoloured track). */}
         <path
           d={renderable.outlinePathD ?? undefined}
@@ -312,7 +341,7 @@ export function TrackCoachingHeatmap({
                 strokeLinejoin="round"
                 opacity={isSelected ? 1 : 0.92}
               >
-                {!interactive && <title>{`Curva ${corner.index} · ${fmtDelta(corner.deltaSec)}`}</title>}
+                {!interactive && <title>{`Corner ${corner.index} · ${fmtDelta(corner.deltaSec)}`}</title>}
               </path>
               {/* Wide transparent hit target (interactive only). */}
               {interactive && (
@@ -324,7 +353,7 @@ export function TrackCoachingHeatmap({
                   strokeLinecap="round"
                   style={{ pointerEvents: 'stroke' }}
                 >
-                  <title>{`Curva ${corner.index} · ${fmtDelta(corner.deltaSec)} — clique para detalhes`}</title>
+                  <title>{`Corner ${corner.index} · ${fmtDelta(corner.deltaSec)} — click for details`}</title>
                 </path>
               )}
               {/* Apex marker + number (interactive map only, to stay glanceable). */}
@@ -366,7 +395,8 @@ export function TrackCoachingHeatmap({
             <animate attributeName="opacity" values="1;0.7;1" dur="1.4s" repeatCount="indefinite" />
           </circle>
         )}
-      </svg>
+        </svg>
+      </div>
 
       {legendOn && <Legend palette={palette} compact={!interactive} />}
 
@@ -376,6 +406,12 @@ export function TrackCoachingHeatmap({
 }
 
 const svgStyle: CSSProperties = { width: '100%', height: '100%', display: 'block', overflow: 'visible' }
+const mapFrameBaseStyle: CSSProperties = {
+  position: 'relative',
+  minHeight: MAP_MIN_HEIGHT,
+  transition: 'width 140ms ease, height 140ms ease',
+  overflow: 'hidden'
+}
 
 interface ZoomControlsProps {
   accent: string
@@ -421,9 +457,9 @@ function ZoomControls({
   )
   return (
     <div style={zoomStyles.bar}>
-      {button('+', 'Aproximar', canZoomIn, onZoomIn)}
-      {button('−', 'Afastar', canZoomOut, onZoomOut)}
-      {button('⤢', 'Ajustar à pista', canReset, onReset)}
+      {button('+', 'Zoom in', canZoomIn, onZoomIn)}
+      {button('−', 'Zoom out', canZoomOut, onZoomOut)}
+      {button('⤢', 'Fit track', canReset, onReset)}
     </div>
   )
 }
@@ -476,7 +512,7 @@ function CornerDetail({ corner }: { corner: CornerHeat | null }): ReactElement {
   if (!corner) {
     return (
       <div style={detailStyles.panel}>
-        <span style={detailStyles.hint}>Clique numa curva no mapa para ver o detalhe (o que melhorar, o que você fez de certo, ou no padrão).</span>
+        <span style={detailStyles.hint}>Click a corner on the map to see details (what to improve, what you did right, or on pace).</span>
       </div>
     )
   }
@@ -484,27 +520,27 @@ function CornerDetail({ corner }: { corner: CornerHeat | null }): ReactElement {
   const kind = detailKindForBucket(corner.bucket)
   const heading =
     kind === 'improve'
-      ? 'O que MELHORAR'
+      ? 'What to IMPROVE'
       : kind === 'replicate'
-        ? 'O que você fez de CERTO'
+        ? 'What you did RIGHT'
         : kind === 'unknown'
-          ? 'Sem referência'
-          : 'No padrão'
+          ? 'No reference'
+          : 'On pace'
 
   return (
     <div style={{ ...detailStyles.panel, borderColor: corner.color }}>
       <div style={detailStyles.header}>
-        <span style={{ ...detailStyles.badge, background: corner.color }}>Curva {corner.index}</span>
+        <span style={{ ...detailStyles.badge, background: corner.color }}>Corner {corner.index}</span>
         <span style={{ ...detailStyles.heading, color: corner.color }}>{heading}</span>
         {corner.dominant && <span style={detailStyles.delta}>{fmtDelta(corner.deltaSec)}</span>}
       </div>
 
       {kind === 'onpar' && (
-        <p style={detailStyles.body}>Curva limpa — você está no padrão da referência aqui. Mantenha a execução.</p>
+        <p style={detailStyles.body}>Clean corner — you are on the reference pace here. Keep the execution.</p>
       )}
 
       {kind === 'unknown' && (
-        <p style={detailStyles.body}>Sem volta de referência ainda — esta curva não foi avaliada. Complete uma volta limpa para gerar a referência.</p>
+        <p style={detailStyles.body}>No reference lap yet — this corner was not evaluated. Complete a clean lap to generate the reference.</p>
       )}
 
       {corner.dominant && kind !== 'onpar' && <FindingBlock finding={corner.dominant} primary />}

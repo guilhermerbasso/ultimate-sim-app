@@ -77,7 +77,7 @@ describe('AbsCutGaugeWidget', () => {
     expect(out, 'ABS cut is never a good (green) state').not.toContain(skin.palette.ok)
   })
 
-  it('is registered per-sim with requires=[absCutPct] (iRacing-tagged)', () => {
+  it('is registered per-yes with requires=[absCutPct] (iRacing-tagged)', () => {
     const def = OVERLAY_WIDGETS.find((w) => w.id === 'absCut')
     expect(def, 'absCut not registered in OVERLAY_WIDGETS').toBeTruthy()
     expect(def?.requires).toEqual(['absCutPct'])

@@ -47,7 +47,7 @@ export interface DriverEntry {
   classId: number
   className?: string
   classColor?: string // hex
-  gapToPlayerSec?: number // + à frente, - atrás
+  gapToPlayerSec?: number // + à frente, - behind
   lapDistPct?: number
   lastLapTimeSec?: number
   lapsBehind?: number
@@ -503,7 +503,7 @@ export interface TelemetrySnapshot {
   connected: boolean
   timestamp: number
 
-  // Carro
+  // Car
   speedKmh: number
   rpm: number
   gear: number // -1 ré, 0 neutro, 1..n
@@ -514,7 +514,7 @@ export interface TelemetrySnapshot {
   // ignição/motor — quando presente, tem prioridade sobre o proxy de rpm.
   engineRunning?: boolean
   shiftIndicatorPct?: number // 0..1 ao longo da BANDA de shift-lights do carro (DriverCarSLFirstRPM→SLLastRPM); ShiftIndicatorPct do iRacing como fallback, nunca rpm/maxRpm
-  shiftRpm?: number // RPM de upshift ótimo do sim (iRacing PlayerCarSLShiftRPM), quando disponível
+  shiftRpm?: number // RPM de upshift optimal do sim (iRacing PlayerCarSLShiftRPM), quando dispolevel
   revLights?: {
     firstRpm?: number
     shiftRpm?: number
@@ -552,10 +552,10 @@ export interface TelemetrySnapshot {
 
   // Powertrain híbrido / ERS / push-to-pass (iRacing — carros híbridos GTP/LMDh, IndyCar)
   ersBatteryPct?: number // EnergyERSBatteryPct (0..1) — carga da bateria do ERS/híbrido
-  pushToPass?: boolean // PushToPass (botão) / P2P_Status (ativo) — undefined se o carro não tem P2P
-  pushToPassCount?: number // P2P_Count — usos restantes/contagem na corrida
+  pushToPass?: boolean // PushToPass (button) / P2P_Status (ativo) — undefined se o carro não tem P2P
+  pushToPassCount?: number // P2P_Count — usos restantes/contagem na race
 
-  // Sessão / tempo
+  // Session / tempo
   sessionType?: string
   // Overall session phase from irsdk_SessionState (use sessionStateLabel to decode).
   sessionState?: SessionState
@@ -596,18 +596,18 @@ export interface TelemetrySnapshot {
   weightPenaltyKg?: number // PlayerCarWeightPenalty — lastro de BoP em kg
   powerAdjustPct?: number // PlayerCarPowerAdjust — ajuste de potência de BoP em %
 
-  // Combustível
+  // Fuel
   fuelLiters?: number
   fuelPerLap?: number
   fuelUsePerHourKg?: number
   fuelPerLapKg?: number
   fuelCapacityLiters?: number
 
-  // Pneus / freios
+  // Tires / brakes
   tyres?: Corners<TyreInfo>
   brakeTempC?: Corners<number>
-  // Pressão FRIA dos pneus (definida na garagem), kPa. IMPORTANTE: o iRacing NÃO expõe
-  // pressão de pneu AO VIVO como telemetria — apenas as pressões frias
+  // Pressão FRIA dos tires (definida na garagem), kPa. IMPORTANTE: o iRacing NÃO expõe
+  // pressão de tire AO VIVO como telemetria — apenas as pressões frias
   // (LFcoldPressure/RFcoldPressure/LRcoldPressure/RRcoldPressure). Nomeado explicitamente
   // como "cold" para não ser confundido com pressão dinâmica em tempo real.
   tireColdPressuresKpa?: Corners<number>
@@ -634,7 +634,7 @@ export interface TelemetrySnapshot {
   trackWetnessPct?: number // 0..1
   isRaining?: boolean
   gripPct?: number // 0..1
-  weatherDeclaredWet?: boolean // WeatherDeclaredWet — o comissário liberou pneus de chuva
+  weatherDeclaredWet?: boolean // WeatherDeclaredWet — o comissário liberou tires de rain
   trackSurfaceMaterial?: number // PlayerTrackSurfaceMaterial (enum irsdk_TrkSurf) — use trackSurfaceMaterialLabel
 
   // Standings / relativo
@@ -653,7 +653,7 @@ export interface TelemetrySnapshot {
   // (2 for LR2CarsLeft/LR2CarsRight). Undefined when no car is alongside.
   carLeftRightCount?: number
 
-  // Posição/orientação do carro do jogador (para construção de track map).
+  // Position/orientação do carro do jogador (para construção de track map).
   // Todos opcionais — providers podem omitir se o sim/replay não expuser.
   lat?: number // graus (latitude geográfica fornecida pelo sim, quando houver)
   lon?: number // graus (longitude geográfica)

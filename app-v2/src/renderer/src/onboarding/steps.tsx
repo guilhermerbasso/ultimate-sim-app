@@ -40,20 +40,20 @@ const presetLabels: Record<OverlayPreset, string> = {
 export function WelcomeStep({ onConfigure, onDemo, onSkip }: WelcomeStepProps): ReactElement {
   return (
     <div className="onboarding-hero">
-      <span className="onboarding-kicker">Primeira volta</span>
+      <span className="onboarding-kicker">First lap</span>
       <h2>Ultimate Sim App</h2>
       <p>
-        Configure telemetria, SIM-X e overlays em menos de 90 segundos para sair do box com o básico pronto.
+        Configure telemetry, SIM-X, and overlays in under 90 seconds so you can leave the pit box with the basics ready.
       </p>
       <div className="onboarding-actions onboarding-actions--hero">
         <button className="onboarding-button onboarding-button--primary" type="button" onClick={onConfigure}>
-          Configurar
+          Configure
         </button>
         <button className="onboarding-button" type="button" onClick={onDemo}>
-          Usar modo Demo
+          Use Demo mode
         </button>
         <button className="onboarding-button onboarding-button--ghost" type="button" onClick={onSkip}>
-          Pular
+          Skip
         </button>
       </div>
     </div>
@@ -63,9 +63,9 @@ export function WelcomeStep({ onConfigure, onDemo, onSkip }: WelcomeStepProps): 
 export function TelemetryStep({ selected, busy, error, onSelect }: TelemetryStepProps): ReactElement {
   return (
     <div className="onboarding-step-body">
-      <span className="onboarding-kicker">Telemetria</span>
-      <h2>Escolha a fonte inicial</h2>
-      <p>Auto-detect procura simuladores suportados. Demo(mock) liga dados simulados para testar telas sem entrar no cockpit.</p>
+      <span className="onboarding-kicker">Telemetry</span>
+      <h2>Choose the initial source</h2>
+      <p>Auto-detect looks for supported sims. Demo (mock) enables simulated data so you can test screens without entering the cockpit.</p>
       <div className="onboarding-choice-grid">
         <button
           className={`onboarding-choice ${selected === 'auto' ? 'is-selected' : ''}`}
@@ -74,7 +74,7 @@ export function TelemetryStep({ selected, busy, error, onSelect }: TelemetryStep
           onClick={() => onSelect('auto')}
         >
           <strong>Auto-detect</strong>
-          <span>iRacing, ACC, AC ou AMS2 quando disponíveis.</span>
+          <span>iRacing, ACC, AC, or AMS2 when available.</span>
         </button>
         <button
           className={`onboarding-choice ${selected === 'mock' ? 'is-selected' : ''}`}
@@ -83,10 +83,10 @@ export function TelemetryStep({ selected, busy, error, onSelect }: TelemetryStep
           onClick={() => onSelect('mock')}
         >
           <strong>Demo(mock)</strong>
-          <span>Dados sintéticos para aprender o app sem hardware.</span>
+          <span>Synthetic data to learn the app without hardware.</span>
         </button>
       </div>
-      {busy && <p className="onboarding-note">Aplicando fonte de telemetria…</p>}
+      {busy && <p className="onboarding-note">Applying telemetry source?</p>}
       {error && <p className="onboarding-error" role="alert">{error}</p>}
     </div>
   )
@@ -95,14 +95,14 @@ export function TelemetryStep({ selected, busy, error, onSelect }: TelemetryStep
 export function DevicesStep({ onJump }: DevicesStepProps): ReactElement {
   return (
     <div className="onboarding-step-body">
-      <span className="onboarding-kicker">Dispositivos</span>
-      <h2>Conecte o SIM-X quando estiver pronto</h2>
+      <span className="onboarding-kicker">Devices</span>
+      <h2>Connect SIM-X when ready</h2>
       <p>
-        Plugue o controle via USB e use Dispositivos para detectar porta, firmware e status. Você pode concluir o tour agora e conectar depois.
+        Plug in the controller over USB and use Devices to detect the port, firmware, and status. You can finish the tour now and connect later.
       </p>
       <button className="onboarding-link-card" type="button" onClick={onJump}>
-        <strong>Abrir Dispositivos</strong>
-        <span>Ir para a tela de conexão do ButtonBox.</span>
+        <strong>Open Devices</strong>
+        <span>Go to the ButtonBox connection screen.</span>
       </button>
     </div>
   )
@@ -112,8 +112,8 @@ export function OverlaysStep({ selected, onSelect, onJump }: OverlaysStepProps):
   return (
     <div className="onboarding-step-body">
       <span className="onboarding-kicker">Overlays</span>
-      <h2>Escolha um preset para começar</h2>
-      <p>Vamos salvar sua preferência agora. Uma próxima atualização poderá aplicar o preset automaticamente.</p>
+      <h2>Choose a preset to get started</h2>
+      <p>We will save your preference now. A future update may apply the preset automatically.</p>
       <div className="onboarding-preset-grid">
         {(Object.keys(presetLabels) as OverlayPreset[]).map((preset) => (
           <button
@@ -127,7 +127,7 @@ export function OverlaysStep({ selected, onSelect, onJump }: OverlaysStepProps):
           </button>
         ))}
       </div>
-      <button className="onboarding-inline-link" type="button" onClick={onJump}>Abrir Overlays</button>
+      <button className="onboarding-inline-link" type="button" onClick={onJump}>Open Overlays</button>
     </div>
   )
 }
@@ -135,16 +135,16 @@ export function OverlaysStep({ selected, onSelect, onJump }: OverlaysStepProps):
 export function FinishStep({ selectedPreset }: FinishStepProps): ReactElement {
   return (
     <div className="onboarding-step-body onboarding-finish">
-      <span className="onboarding-kicker">Pronto</span>
-      <h2>Seu grid inicial está montado</h2>
+      <span className="onboarding-kicker">Ready</span>
+      <h2>Your starter grid is ready</h2>
       <p>
-        Vamos fixar Telemetria, Overlays, Combustível e Dispositivos nos favoritos. Preset escolhido: {presetLabels[selectedPreset]}.
+        We will pin Telemetry, Overlays, Fuel, and Devices to favorites. Chosen preset: {presetLabels[selectedPreset]}.
       </p>
       <div className="onboarding-summary">
-        <span>★ Telemetria</span>
+        <span>★ Telemetry</span>
         <span>★ Overlays</span>
-        <span>★ Combustível</span>
-        <span>★ Dispositivos</span>
+        <span>★ Fuel</span>
+        <span>★ Devices</span>
       </div>
     </div>
   )
@@ -153,13 +153,13 @@ export function FinishStep({ selectedPreset }: FinishStepProps): ReactElement {
 function getPresetDescription(preset: OverlayPreset): string {
   switch (preset) {
     case 'minimal':
-      return 'Pouca informação, máximo foco na pista.'
+      return 'Less information, maximum focus on track.'
     case 'endurance':
-      return 'Fuel, stint e consistência para provas longas.'
+      return 'Fuel, stint, and consistency for endurance races.'
     case 'streaming':
-      return 'Legibilidade alta para transmissão.'
+      return 'High readability for broadcasts.'
     case 'engineer':
-      return 'Dados densos para ajuste e análise.'
+      return 'Dense data for tuning and analysis.'
   }
 }
 

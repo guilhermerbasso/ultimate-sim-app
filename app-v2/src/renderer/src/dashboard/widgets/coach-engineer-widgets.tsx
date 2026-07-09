@@ -154,9 +154,9 @@ function CoachTips({ element }: NewWidgetProps): ReactElement {
   const plan = rowPlan(layout, tips.length, layout.bodyH * 0.32)
   const scopeW = clampNum(layout.bodyW * 0.24, 40, 96)
   return (
-    <CoachShell element={element} layout={layout} header="Dicas do coach">
+    <CoachShell element={element} layout={layout} header="Coach tips">
       {tips.length === 0 ? (
-        <EmptyNote layout={layout} text="Sem dicas ainda" />
+        <EmptyNote layout={layout} text="No tips yet" />
       ) : (
         tips.slice(0, plan.rows).map((tip, i) => {
           const color = toneColor(findingTone(tip.severity))
@@ -190,7 +190,7 @@ function CoachFindingsList({ element }: NewWidgetProps): ReactElement {
   return (
     <CoachShell element={element} layout={layout} header="Achados do coach">
       {findings.length === 0 ? (
-        <EmptyNote layout={layout} text="Sem análise ainda" />
+        <EmptyNote layout={layout} text="No analysis yet" />
       ) : (
         findings.slice(0, plan.rows).map((f: CoachFinding, i) => {
           const color = toneColor(findingTone(f.severity))
@@ -223,8 +223,8 @@ function CoachSectorGraph({ element }: NewWidgetProps): ReactElement {
   const bars = sectorDeltaBars(report)
   const layout = layoutOf(element)
   return (
-    <CoachShell element={element} layout={layout} header="Setores · perda">
-      {bars.length === 0 ? <EmptyNote layout={layout} text="Sem setores ainda" /> : <SectorBars bars={bars} layout={layout} />}
+    <CoachShell element={element} layout={layout} header="Sectors ? loss">
+      {bars.length === 0 ? <EmptyNote layout={layout} text="No sectors yet" /> : <SectorBars bars={bars} layout={layout} />}
     </CoachShell>
   )
 }
@@ -266,14 +266,14 @@ function EngineerFeed({ element }: NewWidgetProps): ReactElement {
   const scopeW = clampNum(layout.bodyW * 0.24, 44, 96)
   const clockW = clampNum(layout.bodyW * 0.16, 30, 60)
   return (
-    <CoachShell element={element} layout={layout} header="Engenheiro · rádio">
+    <CoachShell element={element} layout={layout} header="Engineer ? radio">
       {feed.length === 0 ? (
-        <EmptyNote layout={layout} text="Sem mensagens ainda" />
+        <EmptyNote layout={layout} text="No messages yet" />
       ) : (
         feed.slice(0, plan.rows).map((item: EngineerFeedItem, i) => {
           const tone = item.source === 'proactive' && item.severity ? toneColor(findingTone(item.severity)) : accent
           const clock = feedClock(item.at)
-          const scopeText = item.source === 'proactive' ? `Setor ${item.sector ?? '—'}` : 'Resposta'
+          const scopeText = item.source === 'proactive' ? `Sector ${item.sector ?? '—'}` : 'Resposta'
           const y = plan.y(i)
           const cy = y + plan.rowH / 2
           const textX = layout.bodyX + 7 + scopeW + 6

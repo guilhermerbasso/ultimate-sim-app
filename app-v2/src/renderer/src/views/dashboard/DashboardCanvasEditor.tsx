@@ -1,12 +1,12 @@
 // Reusable FULL dashboard editing canvas.
 //
 // A self-contained editor surface that lets the user ADD widgets (from the shared
-// catalog gallery), REMOVE, MOVE, RESIZE and CONFIGURE them on a scaled board —
+// catalog gallery), REMOLE, MOLE, RESIZE and CONFIGURE them on a scaled board —
 // exactly the operations the normal builder offers. It is intentionally view-
 // agnostic: it edits a plain `{ width, height, bg, elements }` board and reports
 // changes through `onChange`. The per-moment FRAME editor (AdaptiveDashboardView)
 // uses it to author a complete layout for a single race-moment, and the read-only
-// surface (`DashboardCanvasSurface`) is shared with the Dashboard IA preview so
+// surface (`DashboardCanvasSurface`) is shared with the AI Dashboard preview so
 // both render widgets identically.
 //
 // Pure geometry math lives in shared/dashboard-layout.ts (unit-tested); this file
@@ -35,7 +35,7 @@ import {
 import { renderGt3Widget } from '../../dashboard/widgets/gt3-widgets'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
 import { WidgetGallery, variantToElement, type WidgetVariant } from './widget-catalog'
-import { WIDGET_COMPONENTS } from '../../overlay/widgets'
+import { resolveWidgetComponent } from '../../overlay/widgets'
 import {
   createDefaultOverlayStyle,
   DEFAULT_OVERLAY_STYLE_PRESET,
@@ -93,12 +93,12 @@ function FallbackTile({ element }: { element: DashboardElement }): ReactElement 
 // editor/IA-preview canvas, exactly like DashboardRoot's live `ElementOverlayWidget`.
 // The six "GT3 — …"/"LMU — …" preset dashboards embed a single `overlaywidget`
 // element carrying a `widgetId`; without this the editor canvas fell back to a gray
-// FallbackTile ("dashboards sem nada dentro"). Resolve WIDGET_COMPONENTS[widgetId]
+// FallbackTile ("dashboards with nothing inside"). Resolve the overlay widget by id
 // and feed it the live/preview snapshot with a locked config stub. Unknown id →
 // labelled tile (never crash a board).
 function OverlayWidgetEmbed({ element }: { element: DashboardElement }): ReactElement {
   const widgetId = element.widgetId
-  const Widget = widgetId ? WIDGET_COMPONENTS[widgetId] : undefined
+  const Widget = widgetId ? resolveWidgetComponent(widgetId) : undefined
   if (!widgetId || !Widget) return <FallbackTile element={element} />
   const config: OverlayWidgetConfig = {
     id: widgetId,
@@ -109,7 +109,8 @@ function OverlayWidgetEmbed({ element }: { element: DashboardElement }): ReactEl
     opacity: 100,
     stylePreset: DEFAULT_OVERLAY_STYLE_PRESET,
     style: createDefaultOverlayStyle(),
-    display: null
+    display: null,
+    hifiModuleId: element.hifiModuleId
   }
   return (
     <div style={{ width: '100%', height: '100%', display: 'block' }}>
@@ -139,7 +140,7 @@ export function CanvasElementVisual({ element }: { element: DashboardElement }):
 
 /**
  * Read-only board surface: paints every (visible) element in z-order on a scaled
- * board. Shared by the Dashboard IA preview and the canvas editor.
+ * board. Shared by the AI Dashboard preview and the canvas editor.
  */
 export function DashboardCanvasSurface({
   board,
@@ -368,7 +369,7 @@ export function DashboardCanvasEditor({
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 280px) 1fr minmax(220px, 280px)', gap: 12 }}>
       {/* Left: widget gallery */}
       <div style={panel}>
-        <h3 style={panelTitle}>Adicionar widget</h3>
+        <h3 style={panelTitle}>Add widget</h3>
         <WidgetGallery onAdd={addVariant} />
       </div>
 
@@ -387,7 +388,7 @@ export function DashboardCanvasEditor({
               ))}
             </select>
           )}
-          <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Alt = movimento livre · {board.elements.length} widget(s)</span>
+          <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>Alt = free movement · {board.elements.length} widget(s)</span>
         </div>
 
         <div
@@ -440,7 +441,7 @@ export function DashboardCanvasEditor({
         <h3 style={panelTitle}>Propriedades</h3>
         {!selected ? (
           <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 12 }}>
-            Selecione um widget no canvas para configurar, ou adicione um pela galeria.
+            Select a widget on the canvas to configure, or add one from the gallery.
           </p>
         ) : (
           <Inspector
@@ -577,7 +578,7 @@ function Inspector({
         <span style={{ color: 'var(--text-muted)', fontSize: 10, fontFamily: 'monospace' }}>{element.type}</span>
       </div>
 
-      <Field label="Nome">
+      <Field label="Name">
         <input
           type="text"
           value={element.name ?? ''}
@@ -593,15 +594,15 @@ function Inspector({
         <Field label="Y">
           <input type="number" value={num(element.y)} onChange={(e) => setGeom({ y: Number(e.target.value) })} style={inputStyle} />
         </Field>
-        <Field label="Largura">
+        <Field label="Width">
           <input type="number" value={num(element.w)} onChange={(e) => setGeom({ w: Number(e.target.value) })} style={inputStyle} />
         </Field>
-        <Field label="Altura">
+        <Field label="Height">
           <input type="number" value={num(element.h)} onChange={(e) => setGeom({ h: Number(e.target.value) })} style={inputStyle} />
         </Field>
       </div>
 
-      <Field label="Binding (canal)">
+      <Field label="Binding (channel)">
         <input
           type="text"
           value={element.binding ?? ''}
@@ -611,7 +612,7 @@ function Inspector({
         />
       </Field>
 
-      <Field label="Rótulo / título">
+      <Field label="Rotulo / titulo">
         <input
           type="text"
           value={element.style.title ?? element.style.label ?? ''}
@@ -621,7 +622,7 @@ function Inspector({
       </Field>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-        <Field label="Cor de destaque">
+        <Field label="Accent color">
           <input
             type="color"
             value={element.style.accentColor ?? '#FF7A00'}
@@ -629,7 +630,7 @@ function Inspector({
             style={colorStyle}
           />
         </Field>
-        <Field label="Cor do texto">
+        <Field label="Text color">
           <input
             type="color"
             value={element.style.color ?? '#F4F4F4'}
@@ -654,11 +655,11 @@ function Inspector({
           checked={element.visible !== false}
           onChange={(e) => onPatch({ visible: e.target.checked ? undefined : false })}
         />
-        Visível
+        Lisivel
       </label>
 
       <button type="button" onClick={onRemove} style={dangerBtn}>
-        Remover widget
+        Remove widget
       </button>
     </div>
   )

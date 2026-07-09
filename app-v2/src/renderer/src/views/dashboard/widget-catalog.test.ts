@@ -9,6 +9,7 @@ import {
   NEW_VARIANTS,
   NEW_WIDGET_KINDS,
   WIDGET_CATALOG,
+  filterHiddenVariants,
   partitionByAdvanced,
   variantToElement,
   type NormalizedVariant
@@ -27,6 +28,16 @@ import {
   matchesQuery,
   type WidgetTaxon
 } from '../../../../shared/widget-taxonomy'
+
+describe('filterHiddenVariants', () => {
+  it('removes hidden catalog entries and restores them when the id leaves the set', () => {
+    const sample = ALL_VARIANTS.slice(0, 3)
+    const hidden = new Set([sample[1].id])
+    expect(filterHiddenVariants(sample, hidden).map((variant) => variant.id)).toEqual([sample[0].id, sample[2].id])
+    hidden.delete(sample[1].id)
+    expect(filterHiddenVariants(sample, hidden)).toHaveLength(3)
+  })
+})
 
 describe('round-7 new widget variants', () => {
   it('adds at least 50 brand-new variants', () => {
@@ -309,15 +320,15 @@ describe('WidgetGallery — curated-first, advanced collapsed', () => {
     return renderToStaticMarkup(createElement(WidgetGallery, { onAdd: () => {} }))
   }
 
-  it('leads with the featured "Curados GT3" section and a sim filter row', () => {
+  it('leads with the featured "Curated GT3" section and a yes filter row', () => {
     const html = render()
-    expect(html).toContain('Curados GT3')
-    expect(html).toContain('Sim') // per-sim coverage filter preserved
+    expect(html).toContain('Curated GT3')
+    expect(html).toContain('Sim') // per-yes coverage filter preserved
   })
 
-  it('demotes the raw channels behind a collapsed "Canais iRacing avançados" accordion', () => {
+  it('demotes the raw channels behind a collapsed "Canais iRacing avancados" accordion', () => {
     const html = render()
-    expect(html).toContain('Canais iRacing avançados')
+    expect(html).toContain('Canais iRacing avancados')
     // Collapsed by default: an iRacing-only raw channel (StrengthOfField) is not
     // rendered until the accordion is expanded — so the wall of tiles is hidden.
     expect(html).not.toContain('StrengthOfField')
@@ -354,15 +365,15 @@ describe('catalog — curated widgets sectioned by hardware cluster', () => {
 
   it("the 'Full-Frame Dashboards' cluster is non-empty (the 6 overlay presets)", () => {
     const fullFrame = curated.filter((v) => v.cluster === 'Full-Frame Dashboards')
-    expect(fullFrame.length).toBe(6)
+    expect(fullFrame.length).toBe(11)
     for (const v of fullFrame) {
       expect(v.type).toBe('overlaywidget')
       expect(v.widgetId, `${v.id} missing widgetId`).toBeTruthy()
-      // Full-frame dashboards are telemetry-driven → reachable on every playable sim.
+      // Full-frame dashboards are telemetry-driven → reachable on every playable yes.
       expect((v as NormalizedVariant).supportedSims.length).toBeGreaterThan(0)
     }
     const section = groupVariantsByCluster(curated).find((s) => s.cluster === 'Full-Frame Dashboards')
-    expect(section?.variants.length).toBe(6)
+    expect(section?.variants.length).toBe(11)
   })
 
   it('full-frame variants carry their widgetId through variantToElement', () => {

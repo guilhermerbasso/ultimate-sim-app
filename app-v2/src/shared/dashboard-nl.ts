@@ -1,7 +1,7 @@
 // Natural-language → dashboard mapper (PURE, dependency-free).
 //
 // This is the deterministic core of the F6 "Dashboard AI" builder. It turns a
-// free-text phrase ("quero combustível, posição e temp de pneu") into a list of
+// free-text phrase ("quero fuel, position e temp de tire") into a list of
 // widget ids drawn from the shared widget catalog, and packs the chosen widgets
 // into a clean DashboardElement[] grid.
 //
@@ -89,13 +89,13 @@ export const DASHBOARD_CONCEPTS: ConceptDef[] = [
     concept: 'speed',
     category: 'Speed/Engine',
     preferredIds: ['speed-clean', 'value-speed', 'ana-speed', 'seg-speed', 'speed-elaborate'],
-    synonyms: ['speed', 'velocidade', 'velocimetro', 'kmh', 'km/h', 'mph', 'andamento']
+    synonyms: ['speed', 'speed', 'velocimetro', 'kmh', 'km/h', 'mph', 'andamento']
   },
   {
     concept: 'gear',
     category: 'Speed/Engine',
     preferredIds: ['gearcluster', 'gear-clean', 'value-gear', 'seg-gear', 'gear-elaborate'],
-    synonyms: ['gear', 'marcha', 'marchas', 'cambio', 'gearbox', 'engrenagem']
+    synonyms: ['gear', 'gear', 'gears', 'cambio', 'gearbox', 'engrenagem']
   },
   {
     concept: 'rpm',
@@ -119,25 +119,25 @@ export const DASHBOARD_CONCEPTS: ConceptDef[] = [
     concept: 'laptime',
     category: 'Timing/Delta',
     preferredIds: ['laptiming', 'lap-clean', 'clk-current', 'seg-laps', 'lap-elaborate'],
-    synonyms: ['lap time', 'laptime', 'tempo de volta', 'tempos de volta', 'volta', 'voltas', 'best lap', 'melhor volta', 'ultima volta', 'last lap', 'current lap']
+    synonyms: ['lap time', 'laptime', 'lap time', 'tempos de lap', 'lap', 'laps', 'best lap', 'melhor lap', 'ultima lap', 'last lap', 'current lap']
   },
   {
     concept: 'fuel',
     category: 'Fuel',
     preferredIds: ['fuelstint', 'fuel-clean', 'valuegauge-fuel', 'ana-fuel', 'lin-fuel', 'fuel-elaborate'],
-    synonyms: ['fuel', 'combustivel', 'gasolina', 'tanque', 'stint', 'consumo']
+    synonyms: ['fuel', 'fuel', 'gasolina', 'tanque', 'stint', 'consumo']
   },
   {
     concept: 'tyres',
     category: 'Tyres/Brakes',
     preferredIds: ['tyregrid-temp', 'tyres-clean', 'tyres-elaborate', 'tyregrid-press', 'tyregrid-wear', 'cornerstack'],
-    synonyms: ['tyre', 'tire', 'tyres', 'tires', 'pneu', 'pneus', 'temp de pneu', 'tyre temp', 'borracha', 'pressao de pneu', 'tire pressure', 'desgaste']
+    synonyms: ['tyre', 'tire', 'tyres', 'tires', 'tire', 'tires', 'temp de tire', 'tyre temp', 'borracha', 'tire pressure', 'tire pressure', 'wear']
   },
   {
     concept: 'brakes',
     category: 'Tyres/Brakes',
     preferredIds: ['brakegrid'],
-    synonyms: ['brake temp', 'temperatura de freio', 'freio', 'freios', 'brakes', 'disco de freio']
+    synonyms: ['brake temp', 'brake temperature', 'brake', 'brakes', 'brakes', 'brake disc']
   },
   {
     concept: 'position',
@@ -173,7 +173,7 @@ export const DASHBOARD_CONCEPTS: ConceptDef[] = [
     concept: 'trackmap',
     category: 'Track/Radar',
     preferredIds: ['trackmap-clean', 'trackmini', 'trackmap-elaborate'],
-    synonyms: ['track map', 'trackmap', 'mapa da pista', 'mapa', 'circuito', 'mini mapa', 'minimapa', 'progresso da volta']
+    synonyms: ['track map', 'trackmap', 'track map', 'mapa', 'circuito', 'mini map', 'minimapa', 'progresso da lap']
   },
   {
     concept: 'inputs',
@@ -185,37 +185,37 @@ export const DASHBOARD_CONCEPTS: ConceptDef[] = [
     concept: 'steering',
     category: 'Inputs',
     preferredIds: ['steering'],
-    synonyms: ['volante', 'steering', 'angulo do volante', 'direcao']
+    synonyms: ['steering', 'steering', 'angulo do steering', 'direcao']
   },
   {
     concept: 'weather',
     category: 'Track/Radar',
     preferredIds: ['weather'],
-    synonyms: ['clima', 'weather', 'chuva', 'rain', 'pista molhada', 'temperatura da pista', 'track temp', 'grip']
+    synonyms: ['weather', 'weather', 'rain', 'rain', 'pista molhada', 'temperatura da pista', 'track temp', 'grip']
   },
   {
     concept: 'enginetemps',
     category: 'Speed/Engine',
     preferredIds: ['enginetemps', 'temps-clean', 'ana-water', 'ana-oil', 'temps-elaborate'],
-    synonyms: ['temperatura do motor', 'engine temp', 'agua', 'water temp', 'oleo', 'oil temp', 'pressao de oleo', 'temperatura de agua']
+    synonyms: ['temperatura do motor', 'engine temp', 'agua', 'water temp', 'oleo', 'oil temp', 'oil pressure', 'temperatura de agua']
   },
   {
     concept: 'flags',
     category: 'Flags/Status',
     preferredIds: ['flagoverlay', 'flags-clean', 'flags-elaborate'],
-    synonyms: ['bandeira', 'bandeiras', 'flag', 'flags', 'aviso de bandeira']
+    synonyms: ['flag', 'flags', 'flag', 'flags', 'flag warning']
   },
   {
     concept: 'pit',
     category: 'Flags/Status',
     preferredIds: ['pitlimiter-clean', 'pitlimiter-elaborate'],
-    synonyms: ['pit', 'pit limiter', 'limitador', 'pit stop', 'pitstop', 'pitlane', 'pit road', 'parada no box']
+    synonyms: ['pit', 'pit limiter', 'limitador', 'pit stop', 'pitstop', 'pitlane', 'pit road', 'stop no box']
   },
   {
     concept: 'assists',
     category: 'Flags/Status',
     preferredIds: ['setupstrip', 'abs-clean', 'tc-clean', 'bb-clean', 'map-clean'],
-    synonyms: ['abs', 'tc', 'traction', 'controle de tracao', 'engine map', 'mapa de motor', 'brake bias', 'bias de freio', 'assist', 'assists']
+    synonyms: ['abs', 'tc', 'traction', 'controle de tracao', 'engine map', 'engine map', 'brake bias', 'brake bias', 'assist', 'assists']
   },
   {
     concept: 'incidents',

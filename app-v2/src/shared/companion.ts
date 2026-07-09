@@ -216,7 +216,7 @@ export const COMPANION_PRESETS: CompanionPreset[] = [
     description: 'Texto na primeira linha do display OLED (≤21 chars).',
     template: 'T0:${value}',
     defaultFormat: { decimals: 0 },
-    hint: 'Use para mostrar marcha, lap atual, posição, etc.'
+    hint: 'Use it to show gear, current lap, position, etc.'
   },
   {
     id: 'oled-row-mid',
@@ -230,27 +230,27 @@ export const COMPANION_PRESETS: CompanionPreset[] = [
     id: 'oled-row-bottom',
     kind: 'oled-row',
     label: 'OLED — linha 3 (base)',
-    description: 'Texto na última linha (3) do display OLED.',
+    description: 'Texto na last linha (3) do display OLED.',
     template: 'T3:${value}',
     defaultFormat: { decimals: 0 }
   },
   {
     id: 'bignum-delta',
     kind: 'bignum',
-    label: 'OLED BIGNUM (delta/marcha)',
-    description: 'Número grande (≤9 chars). Ótimo para delta de volta ou marcha atual.',
+    label: 'OLED BIGNUM (delta/gear)',
+    description: 'Large number (≤9 chars). Great for delta de lap ou current gear.',
     template: 'N${value}',
     defaultFormat: { decimals: 2 },
-    hint: 'Valor é truncado para 9 chars no firmware.'
+    hint: 'Value is truncated para 9 chars no firmware.'
   },
   {
     id: 'rev-lights-ws2812',
     kind: 'rev',
     label: 'Rev Lights (WS2812 0–100%)',
-    description: 'Percentual de rev (0–100) para uma fita endereçável.',
+    description: 'Rev percentage (0–100) para uma addressable strip.',
     template: 'R${value}',
     defaultFormat: { decimals: 0, scale: 100 },
-    hint: 'Use uma expressão que retorne 0..1 com scale=100, ou já em %.'
+    hint: 'Use an expression that returns 0..1 com scale=100, or already in %.'
   },
   {
     id: 'matrix-8x8',
@@ -258,21 +258,21 @@ export const COMPANION_PRESETS: CompanionPreset[] = [
     label: '8x8 LED Matrix (MAX7219)',
     description: 'Bitmap 8x8 — value deve ser 16 hex chars (linhas top→bottom).',
     template: 'M${value}',
-    hint: 'Use com uma expressão que devolva 16 hex chars (ex.: pictogramas).'
+    hint: 'Use com uma expression que devolva 16 hex chars (ex.: pictogramas).'
   },
   {
     id: 'led-status',
     kind: 'led-rgb',
-    label: 'LED endereçável #0 (status)',
-    description: 'Cor do primeiro LED endereçável (hex rrggbb).',
+    label: 'Addressable LED #0 (status)',
+    description: 'Color of the first Addressable LED (hex rrggbb).',
     template: 'L0:${value}',
-    hint: 'Valor esperado: 6 hex chars sem # (ex.: ff0000 para vermelho).'
+    hint: 'Valor expectsdo: 6 hex chars sem # (ex.: ff0000 para vermelho).'
   },
   {
     id: 'led-flag',
     kind: 'led-rgb',
-    label: 'LED endereçável #1 (flag)',
-    description: 'Cor do LED #1 — bom para indicar bandeira.',
+    label: 'Addressable LED #1 (flag)',
+    description: 'Cor do LED #1 — good for flag indication.',
     template: 'L1:${value}'
   }
 ]

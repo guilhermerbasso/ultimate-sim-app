@@ -605,7 +605,7 @@ export function resolveBinding(
       const n = snap.radarCars?.length ?? 0
       return { text: String(n), numeric: n }
     }
-    // ── Pneus por canto ────────────────────────────────────────────────────
+    // ── Tires por canto ────────────────────────────────────────────────────
     case 'tyreLfTempC': case 'tyreRfTempC': case 'tyreLrTempC': case 'tyreRrTempC': {
       const corner = binding.slice(4, 6).toLowerCase() as Corner
       const v = tyreField(snap, corner, 'tempC')
@@ -647,7 +647,7 @@ export function resolveBinding(
       const pct = Math.min(1, Math.max(0, snap.gripPct ?? 0))
       return { text: (pct * 100).toFixed(0), numeric: pct, pct }
     }
-    // ── Sessão (texto) ─────────────────────────────────────────────────────
+    // ── Session (texto) ─────────────────────────────────────────────────────
     case 'sessionType':
       return { text: snap.sessionType ?? '—' }
     case 'carName':

@@ -372,9 +372,9 @@ export interface IncidentAnalysis {
 
 const TYPE_LABEL: Record<IncidentType, { pt: string; en: string }> = {
   spin: { pt: 'Rodada/escorregada', en: 'Spin / slide' },
-  'off-track': { pt: 'Saída de pista', en: 'Off track' },
+  'off-track': { pt: 'Off track', en: 'Off track' },
   contact: { pt: 'Contato/impacto', en: 'Contact / impact' },
-  lockup: { pt: 'Travamento de freio', en: 'Brake lockup' }
+  lockup: { pt: 'Brake lockup', en: 'Brake lockup' }
 }
 
 const SEVERITY_LABEL: Record<IncidentSeverity, { pt: string; en: string }> = {
@@ -391,7 +391,7 @@ export function summarizeIncident(clip: IncidentClip, lang: 'pt' | 'en' = 'pt'):
   const lap = finite(clip.lap) ? clip.lap : undefined
   const pct = finite(clip.lapDistPct) ? Math.round((clip.lapDistPct as number) * 100) : undefined
   const where = pt
-    ? `${lap ? `volta ${lap}` : 'volta ?'}${finite(pct) ? `, ${pct}% da pista` : ''}`
+    ? `${lap ? `lap ${lap}` : 'lap ?'}${finite(pct) ? `, ${pct}% of track` : ''}`
     : `${lap ? `lap ${lap}` : 'lap ?'}${finite(pct) ? `, ${pct}% of the lap` : ''}`
 
   const detailBits: string[] = []
@@ -400,7 +400,7 @@ export function summarizeIncident(clip: IncidentClip, lang: 'pt' | 'en' = 'pt'):
   if (finite(m.yawRateRadSec)) detailBits.push(`yaw ${(m.yawRateRadSec as number).toFixed(1)} rad/s`)
   if (finite(m.gSpike)) detailBits.push(`${(m.gSpike as number).toFixed(1)}g`)
   if (finite(m.speedDropKmh) && (m.speedDropKmh as number) > 0) detailBits.push(pt ? `−${Math.round(m.speedDropKmh as number)} km/h` : `−${Math.round(m.speedDropKmh as number)} km/h`)
-  if (finite(m.brake)) detailBits.push(pt ? `freio ${Math.round((m.brake as number) * 100)}%` : `brake ${Math.round((m.brake as number) * 100)}%`)
+  if (finite(m.brake)) detailBits.push(pt ? `brake ${Math.round((m.brake as number) * 100)}%` : `brake ${Math.round((m.brake as number) * 100)}%`)
   if (m.surface) detailBits.push(m.surface)
 
   const detail = detailBits.length > 0 ? ` (${detailBits.join(', ')})` : ''

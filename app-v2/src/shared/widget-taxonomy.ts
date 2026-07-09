@@ -60,14 +60,14 @@ export const WIDGET_CLUSTER_LABELS: Record<WidgetClusterTag, string> = {
   'Full-Frame Dashboards': 'Dashboards full-frame',
   'DDU / Cluster': 'DDU / Cluster',
   'Tell-tales / Warning lamps': 'Tell-tales / Luzes de aviso',
-  'Race Control / Flags': 'Race Control / Bandeiras',
+  'Race Control / Flags': 'Race Control / Flags',
   'Stint / Endurance': 'Stint / Endurance',
-  'Driver Aids': 'Auxílios ao piloto',
-  'Tyre / Brake': 'Pneus / Freios',
+  'Driver Aids': 'Driver Aids',
+  'Tyre / Brake': 'Tires / Brakes',
   'Radar / Relative': 'Radar / Relativo',
   'Timing / Delta': 'Tempos / Delta',
   'Engine Vitals': 'Vitais do motor',
-  'Weather / Track': 'Clima / Pista'
+  'Weather / Track': 'Weather / Track'
 }
 
 // Manufacturer-inspired style family (OPTIONAL cosmetic axis). Lets curated
@@ -126,16 +126,16 @@ export const WIDGET_CATEGORY_ORDER: WidgetCategoryTag[] = [
 ]
 
 export const WIDGET_CATEGORY_LABELS: Record<WidgetCategoryTag, string> = {
-  'Speed/Engine': 'Velocidade & Motor',
+  'Speed/Engine': 'Speed & Engine',
   'Timing/Delta': 'Tempos & Delta',
-  Fuel: 'Combustível',
-  'Tyres/Brakes': 'Pneus & Freios',
-  'Position/Standings': 'Posição & Classificação',
+  Fuel: 'Fuel',
+  'Tyres/Brakes': 'Tires & Brakes',
+  'Position/Standings': 'Position & Qualifying',
   Inputs: 'Inputs do piloto',
-  'Flags/Status': 'Bandeiras & Status',
+  'Flags/Status': 'Flags & Status',
   'Track/Radar': 'Pista & Radar',
-  'Charts/Graphs': 'Gráficos & Charts',
-  Analog: 'Analógicos',
+  'Charts/Graphs': 'Graphs & Charts',
+  Analog: 'Analog',
   Digital: 'Digitais (7-seg)',
   'Text/Image': 'Texto & Imagem'
 }
@@ -158,16 +158,16 @@ export const WIDGET_STYLE_ORDER: WidgetStyleFamily[] = [
 ]
 
 export const WIDGET_STYLE_LABELS: Record<WidgetStyleFamily, string> = {
-  analog: 'Analógico',
+  analog: 'Analog',
   digital: 'Digital 7-seg',
   clean: 'Digital limpo',
-  graph: 'Gráfico (linha)',
+  graph: 'Graph (line)',
   chart: 'Chart (barras)',
   bar: 'Barra segmentada',
   ring: 'Anel / Arco',
   led: 'LED bar',
   heatmap: 'Heatmap',
-  status: 'Status / Ícone',
+  status: 'Status / Icon',
   text: 'Texto grande',
   image: 'Imagem',
   gauge: 'Mostrador',
@@ -202,6 +202,7 @@ export interface WidgetFilterQuery {
   styleFamily?: WidgetStyleFamily | null
   /** Exact hardware/use-case cluster match when set (null/undefined = all). */
   cluster?: WidgetClusterTag | null
+  sim?: string | null
 }
 
 function haystack(v: WidgetTaxon): string {

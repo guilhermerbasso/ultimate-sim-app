@@ -141,8 +141,8 @@ const SPECS: Spec[] = [
 
 const DESCRIPTION = [
   'Dashboard adaptativo: re-ordena e destaca os widgets mais relevantes ao vivo,',
-  'conforme a fase da sessão (treino, quali, corrida, pit) e o "momento" da volta',
-  '(out-lap, sob pressão, atacando, combustível crítico, última volta).',
+  'according to the session phase (practice, quali, race, pit) e o "momento" da lap',
+  '(out-lap, under pressure, attacking, critical fuel, last lap).',
   ADAPTIVE_MARKER
 ].join(' ')
 

@@ -266,7 +266,7 @@ class BiometricsService {
     this.session = { id: randomUUID(), startedAt: Date.now(), source: this.source.kind }
     this.baselineBpm = DEFAULT_HR_MODEL.restingBpm
     this.lastBpm = undefined
-    this.events.push({ t: this.session.startedAt, kind: 'session', label: 'Sessão iniciada' })
+    this.events.push({ t: this.session.startedAt, kind: 'session', label: 'Session started' })
 
     this.unsubscribeSource = this.source.onReading((reading) => this.onReading(reading))
     this.source.start()
@@ -344,7 +344,7 @@ class BiometricsService {
 
     if (typeof snapshot.currentLap === 'number') {
       if (this.lastLap !== undefined && snapshot.currentLap > this.lastLap) {
-        this.events.push({ t: now, kind: 'lap', lap: snapshot.currentLap, label: `Volta ${snapshot.currentLap}` })
+        this.events.push({ t: now, kind: 'lap', lap: snapshot.currentLap, label: `Lap ${snapshot.currentLap}` })
         const lapTimeSec = snapshot.lastLapTimeSec
         if (typeof lapTimeSec === 'number' && lapTimeSec > 0) {
           this.boundaries.push({ lap: this.lastLap, startT: now - lapTimeSec * 1000, endT: now, lapTimeSec })
@@ -362,7 +362,7 @@ class BiometricsService {
     }
 
     const yellow = Boolean(snapshot.flags?.yellow)
-    if (yellow && !this.lastYellow) this.events.push({ t: now, kind: 'flag', label: 'Bandeira amarela' })
+    if (yellow && !this.lastYellow) this.events.push({ t: now, kind: 'flag', label: 'Yellow flag' })
     this.lastYellow = yellow
 
     if (this.events.length > 400) this.events.splice(0, this.events.length - 400)
@@ -373,7 +373,7 @@ class BiometricsService {
   status(): BioStatus {
     const hardwareConnected = this.source.isHardwareConnected()
     const note = this.running && this.source.kind === 'ble' && !hardwareConnected
-      ? 'Aguardando monitor cardíaco BLE (parear via Web Bluetooth na tela de Biometria).'
+      ? 'Waiting for BLE heart-rate monitor (pair through Web Bluetooth on the Biometrics screen).'
       : undefined
     return {
       running: this.running,

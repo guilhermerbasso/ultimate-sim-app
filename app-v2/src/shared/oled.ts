@@ -71,57 +71,57 @@ export const OLED_BIGNUM_ALPHABET = /^[0-9+\-. ]*$/
 export const OLED_PRESETS: OledPreset[] = [
   {
     id: 'race',
-    name: 'Corrida',
-    description: 'Posição, volta atual e delta para o líder.',
+    name: 'Race',
+    description: 'Position, current lap, and delta to the leader.',
     kind: 'text',
-    fields: ['posição', 'volta', 'última volta', 'delta']
+    fields: ['position', 'lap', 'last lap', 'delta']
   },
   {
     id: 'fuel',
-    name: 'Combustível',
-    description: 'Litros restantes, consumo/volta e voltas restantes.',
+    name: 'Fuel',
+    description: 'Liters remaining, consumption/lap, and laps remaining.',
     kind: 'text',
-    fields: ['litros', 'L/volta', 'voltas restantes']
+    fields: ['liters', 'L/lap', 'laps remaining']
   },
   {
     id: 'timing',
-    name: 'Tempos / Delta',
-    description: 'Volta atual, melhor volta e delta para a melhor.',
+    name: 'Times / Delta',
+    description: 'Current lap, best lap, and delta to best.',
     kind: 'text',
-    fields: ['atual', 'melhor', 'delta']
+    fields: ['current', 'best', 'delta']
   },
   {
     id: 'tyres',
-    name: 'Pneus',
-    description: 'Temperatura LF/RF, LR/RR e média.',
+    name: 'Tires',
+    description: 'LF/RF, LR/RR, and average temperature.',
     kind: 'text',
     fields: ['LF', 'RF', 'LR', 'RR']
   },
   {
     id: 'inputs',
     name: 'Inputs',
-    description: 'Acelerador, freio, marcha e velocidade.',
+    description: 'Throttle, brake, gear, and speed.',
     kind: 'text',
     fields: ['throttle', 'brake', 'gear', 'speed']
   },
   {
     id: 'weather',
-    name: 'Clima',
-    description: 'Temperatura da pista/ar e wetness.',
+    name: 'Weather',
+    description: 'Track/air temperature and wetness.',
     kind: 'text',
     fields: ['track temp', 'air temp', 'wetness']
   },
   {
     id: 'delta-bignum',
     name: 'Delta (BIG)',
-    description: 'Delta contra a melhor volta em fonte gigante (38 px).',
+    description: 'Delta against the best lap in a giant font (38 px).',
     kind: 'bignum',
     fields: ['delta']
   },
   {
     id: 'gap-bignum',
     name: 'Gap (BIG)',
-    description: 'Gap em segundos para o carro à frente em fonte gigante.',
+    description: 'Gap in seconds to the car ahead in a giant font.',
     kind: 'bignum',
     fields: ['gap']
   }
@@ -241,7 +241,7 @@ function renderBigNumPage(preset: OledPreset, snapshot: TelemetrySnapshot | null
 }
 
 function renderLines(snapshot: TelemetrySnapshot | null, presetId: OledPresetId): [string, string, string] {
-  if (!snapshot?.connected) return ['OLED DASHBOARD', 'SEM TELEMETRIA', '']
+  if (!snapshot?.connected) return ['OLED DASHBOARD', 'NO TELEMETRY', '']
 
   switch (presetId) {
     case 'race':

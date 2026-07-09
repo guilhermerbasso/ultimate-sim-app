@@ -42,6 +42,7 @@ function collectViolations() {
       out.push({ wid, wtype, wlabel, kind, detail, text: (text || '').slice(0, 40) })
 
     const nodes = Array.from(box.querySelectorAll('*'))
+    const textRects = []
     for (const el of nodes) {
       const tag = el.tagName.toLowerCase()
       const txt = (el.textContent || '').trim()
@@ -64,6 +65,7 @@ function collectViolations() {
         if ((el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1) && getComputedStyle(el).overflow !== 'visible') {
           push('clipped', `${el.scrollWidth}>${el.clientWidth}`, txt)
         }
+        textRects.push({ r, txt })
       }
       // (c) FitText reported no-fit
       if (el.getAttribute && el.getAttribute('data-didfit') === '0') {
@@ -71,6 +73,32 @@ function collectViolations() {
       }
       // (e) broken image
       if (tag === 'img' && el.naturalWidth === 0) push('broken_img', el.getAttribute('src') || '', '')
+    }
+
+    // (f) two TEXT values overlapping each other (e.g. "°C" drawn over a number).
+    // Skips identical-text near-coincident duplicates (legibility stroke/shadow copies).
+    for (let i = 0; i < textRects.length; i++) {
+      for (let j = i + 1; j < textRects.length; j++) {
+        const a = textRects[i]
+        const b = textRects[j]
+        const ix = Math.max(0, Math.min(a.r.right, b.r.right) - Math.max(a.r.left, b.r.left))
+        const iy = Math.max(0, Math.min(a.r.bottom, b.r.bottom) - Math.max(a.r.top, b.r.top))
+        const inter = ix * iy
+        if (inter <= 0) continue
+        const minArea = Math.min(a.r.width * a.r.height, b.r.width * b.r.height)
+        if (minArea <= 0) continue
+        const frac = inter / minArea
+        // identical text + near-coincident position => intentional shadow/outline copy
+        const coincident =
+          a.txt === b.txt &&
+          Math.abs(a.r.left - b.r.left) < 2 &&
+          Math.abs(a.r.top - b.r.top) < 2 &&
+          Math.abs(a.r.right - b.r.right) < 2 &&
+          Math.abs(a.r.bottom - b.r.bottom) < 2
+        if (frac > 0.35 && !coincident) {
+          push('overlap', `${frac.toFixed(2)} "${a.txt.slice(0, 12)}"×"${b.txt.slice(0, 12)}"`, a.txt)
+        }
+      }
     }
   }
   return out
@@ -112,7 +140,7 @@ async function main() {
   const page = await context.newPage()
 
   const byWidget = {}
-  const totals = { overflow: 0, tiny_text: 0, clipped: 0, didnt_fit: 0, broken_img: 0 }
+  const totals = { overflow: 0, overlap: 0, tiny_text: 0, clipped: 0, didnt_fit: 0, broken_img: 0 }
   let widgetCount = 0
 
   try {
@@ -182,12 +210,12 @@ async function main() {
   console.log(`\n  report → ${REPORT}`)
   console.log('────────────────────────────────────────\n')
 
-  const hardFails = totals.overflow + totals.broken_img
+  const hardFails = totals.overflow + totals.overlap + totals.broken_img
   if (hardFails > 0) {
-    console.log(`  ❌ ${hardFails} hard failure(s) (overflow/broken_img).`)
+    console.log(`  ❌ ${hardFails} hard failure(s) (overflow/overlap/broken_img).`)
     process.exit(1)
   }
-  console.log('  ✅ no hard overflow/broken-image failures.')
+  console.log('  ✅ no hard overflow/overlap/broken-image failures.')
 }
 
 main().catch((err) => {

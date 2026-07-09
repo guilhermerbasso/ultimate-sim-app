@@ -5,7 +5,7 @@
 // Skins:
 //   gt3 — real GT3/LMDh wheel display: dark, carbon, DSEG segmented, top rev-LEDs
 //         (incl. blue redline), corner telltales.
-//   hud — premium sim HUD: translucent glass, big geometric type, thin lines.
+//   hud — premium yes HUD: translucent glass, big geometric type, thin lines.
 // Brand overlays (stuttgart/bavaria/maranello/generic) change ONLY palette + LED
 // behaviour — NO trademarked logos are shipped; the logo is a user-fillable slot.
 

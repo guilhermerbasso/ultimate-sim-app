@@ -1,0 +1,240 @@
+{
+  "telemetry": {
+    "label": "Telemetry",
+    "group": "Sim Racing",
+    "description": "Live telemetry source and overview.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "dashboards": {
+    "label": "Dashboards",
+    "group": "Sim Racing",
+    "description": "Monitor windows, .simhubdash import, and dashboard builder.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "touch-controls": {
+    "label": "Touch Controls Dash",
+    "group": "Sim Racing",
+    "description": "Touch pit panel and editable RGB button boxes for the cockpit screen.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "oled-dash": {
+    "label": "OLED Dashboard",
+    "group": "Sim Racing",
+    "description": "iRacing information presets for the OLED.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "overlays": {
+    "label": "Overlays",
+    "group": "Sim Racing",
+    "description": "Transparent overlays on top of the simulator.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "fuel": {
+    "label": "Fuel",
+    "group": "Sim Racing",
+    "description": "Fuel calculation and strategy.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "tire": {
+    "label": "Tyres",
+    "group": "Sim Racing",
+    "description": "Tyre wear, per-lap rate, and pit window.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "search": {
+    "label": "Semantic Search",
+    "group": "Sim Racing",
+    "description": "Meaning-based search for setups, ghosts, notes, and findings.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "alerts": {
+    "label": "Alerts",
+    "group": "Sim Racing",
+    "description": "Pit limiter, flags, fuel, and shift warnings.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "expr": {
+    "label": "Expressions",
+    "group": "Sim Racing",
+    "description": "Custom fields and conditions.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "race-profiles": {
+    "label": "Race Profiles",
+    "group": "Sim Racing",
+    "description": "Car/track profiles with automatic switching.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "sounds": {
+    "label": "Sounds",
+    "group": "Sim Racing",
+    "description": "Soundshift, incident, ABS, and TCS audio cues.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "setups": {
+    "label": "Setups",
+    "group": "Sim Racing",
+    "description": "Auto-install .sto setups from a folder or URL.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "career": {
+    "label": "Career & Ratings",
+    "group": "Sim Racing",
+    "description": "iRating, Safety Rating, licenses, incidents, and results.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "engineer": {
+    "label": "AI Engineer",
+    "group": "Sim Racing",
+    "description": "Text race engineer for fuel, tyres, gaps, and strategy. Includes Voice Spotter.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "haptics": {
+    "label": "Haptics",
+    "group": "Sim Racing",
+    "description": "ShakeIt-style tactile feedback: bass shaker audio plus haptics.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "coach": {
+    "label": "AI Coach",
+    "group": "Sim Racing",
+    "description": "Driving coach and lap analysis with corner findings, track map, and setup suggestions.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "strategy": {
+    "label": "Strategy",
+    "group": "Sim Racing",
+    "description": "Pit window, fuel margin, undercut, and incident clips.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "dashboard-builder": {
+    "label": "AI Dashboard",
+    "group": "Sim Racing",
+    "description": "Build dashboards by describing them in text.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "dashboard-adaptive": {
+    "label": "Adaptive Dashboard",
+    "group": "Sim Racing",
+    "description": "A single dashboard that reorganizes by session phase and lap moment.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "biometrics": {
+    "label": "Biometrics",
+    "group": "Sim Racing",
+    "description": "Heart rate, stress vs pace, and AR HUD.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "community": {
+    "label": "Community",
+    "group": "Sim Racing",
+    "description": "Ghosts, telemetry, and setups via .simshare files.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "haptics-zonal": {
+    "label": "Zonal Haptics",
+    "group": "Sim Racing",
+    "description": "Events to zones plus visual simulator.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "spotter-3d": {
+    "label": "3D Spotter",
+    "group": "Sim Racing",
+    "description": "HRTF positional cues for nearby cars.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "devices": {
+    "label": "Devices",
+    "group": "ButtonBox",
+    "description": "USB/serial detection and ButtonBox selection.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "arduinos": {
+    "label": "Arduinos",
+    "group": "ButtonBox",
+    "description": "SimHub-style hardware hub for RGB, matrix, displays, gauges, controls, pinout, and firmware.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "revlights": {
+    "label": "Rev Lights",
+    "group": "ButtonBox",
+    "description": "Rev light configuration and presets.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "inputs": {
+    "label": "Input Monitor",
+    "group": "ButtonBox",
+    "description": "Live validation through the Web Gamepad API.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "profiles": {
+    "label": "Profiles",
+    "group": "ButtonBox",
+    "description": "Save and load race configurations.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "controls": {
+    "label": "Controls & Keyboard",
+    "group": "ButtonBox",
+    "description": "Button to key, virtual gamepad, iRacing command, or app action.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "pinout": {
+    "label": "Pinout Designer",
+    "group": "ButtonBox",
+    "description": "Drag-and-drop pin map plus firmware generation.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "settings": {
+    "label": "Settings",
+    "group": "App",
+    "description": "Auto-start, telemetry source, language, and theme.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "about": {
+    "label": "About / Credits",
+    "group": "App",
+    "description": "Licenses, fonts, and third-party components.",
+    "captured": true,
+    "note": "Captured."
+  },
+  "voice": {
+    "label": "Voice / TTS",
+    "group": "Sim Racing",
+    "description": "Offline neural voices, system fallback, and wake-word.",
+    "captured": true,
+    "note": "Captured."
+  }
+}

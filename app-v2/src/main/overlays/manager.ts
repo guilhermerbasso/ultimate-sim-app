@@ -27,7 +27,8 @@ import {
   getOverlayStylePreset,
   isCustomOverlayId,
   OVERLAY_WIDGETS,
-  sanitizeCustomOverlayWidgets
+  sanitizeCustomOverlayWidgets,
+  sanitizeOverlayTrigger
 } from '../../shared/overlays'
 import type { ModuleContext } from '../module-context'
 import { fixIracingFullscreen, readIracingGraphicsStatus } from './iracing-graphics'
@@ -58,8 +59,12 @@ function isAllowedAppNavigation(url: string): boolean {
 
 const CONFIG_FILE = 'overlays.json'
 
+function isHifiWidgetId(value: unknown): value is `hifi:${string}` {
+  return typeof value === 'string' && value.startsWith('hifi:') && value.length > 5
+}
+
 function isWidgetId(value: unknown): value is OverlayWidgetId {
-  return typeof value === 'string' && OVERLAY_WIDGETS.some((widget) => widget.id === value)
+  return typeof value === 'string' && (OVERLAY_WIDGETS.some((widget) => widget.id === value) || isHifiWidgetId(value))
 }
 
 function sanitizePosition(position: unknown): OverlayPosition {
@@ -336,7 +341,7 @@ function normalizeCustomOverlay(value: unknown, fallbackId: string): CustomOverl
   const id = isCustomOverlayId(raw.id) ? (raw.id as string) : fallbackId
   const stylePreset = getOverlayStylePreset(typeof raw.stylePreset === 'string' ? raw.stylePreset : undefined).id
   const elements = Array.isArray(raw.elements) ? raw.elements.map((element, index) => sanitizeCustomElement(element, index)) : []
-  const title = typeof raw.title === 'string' && raw.title.trim() ? sanitizeShortText(raw.title, 60) : 'Overlay customizado'
+  const title = typeof raw.title === 'string' && raw.title.trim() ? sanitizeShortText(raw.title, 60) : 'Custom overlay'
   const position = sanitizePosition(isPlainObject(raw.position) ? raw.position : DEFAULT_CUSTOM_OVERLAY_POSITION)
   const overlay: CustomOverlayDef = {
     id,
@@ -348,6 +353,8 @@ function normalizeCustomOverlay(value: unknown, fallbackId: string): CustomOverl
     opacity: clampOpacity(raw.opacity),
     stylePreset,
     style: sanitizeStyle(isPlainObject(raw.style) ? (raw.style as Partial<OverlayWidgetStyle>) : undefined, stylePreset),
+    hidden: Boolean(raw.hidden),
+    trigger: sanitizeOverlayTrigger(raw.trigger),
     display: sanitizeDisplayRef(raw.display),
     elements
   }
@@ -379,30 +386,57 @@ function normalizeCustomOverlays(value: unknown): CustomOverlayDef[] {
 function mergeConfig(config: Partial<OverlaysConfig> | null): OverlaysConfig {
   const defaults = createDefaultOverlaysConfig()
   if (!config) return defaults
+  const rawWidgets = (isPlainObject(config.widgets) ? config.widgets : {}) as Record<string, Partial<OverlayWidgetConfig> | undefined>
+  const legacyWidgets = OVERLAY_WIDGETS.map((definition) => {
+    const current = rawWidgets[definition.id]
+    const base = defaults.widgets[definition.id]
+    const stylePreset = getOverlayStylePreset(current?.stylePreset).id
+    return [
+      definition.id,
+      {
+        id: definition.id,
+        enabled: Boolean(current?.enabled ?? base.enabled),
+        locked: Boolean(current?.locked ?? base.locked),
+        favorite: Boolean(current?.favorite ?? base.favorite),
+        position: sanitizePosition(current?.position ?? base.position),
+        opacity: clampOpacity(current?.opacity ?? base.opacity),
+        stylePreset,
+        style: sanitizeStyle(current?.style, stylePreset),
+        hidden: Boolean(current?.hidden ?? base.hidden),
+        trigger: sanitizeOverlayTrigger(current?.trigger),
+        display: sanitizeDisplayRef(current?.display)
+      }
+    ] as const
+  })
+  const hifiWidgets = Object.entries(rawWidgets)
+    .filter(([id]) => isHifiWidgetId(id))
+    .map(([id, value]) => {
+      const current = (isPlainObject(value) ? value : {}) as Partial<OverlayWidgetConfig>
+      const stylePreset = getOverlayStylePreset(current.stylePreset).id
+      return [
+        id,
+        {
+          id: id as OverlayWidgetId,
+          enabled: Boolean(current.enabled),
+          locked: Boolean(current.locked),
+          favorite: Boolean(current.favorite),
+          position: sanitizePosition(current.position),
+          opacity: clampOpacity(current.opacity ?? 100),
+          stylePreset,
+          style: sanitizeStyle(current.style, stylePreset),
+          hidden: Boolean(current.hidden),
+          trigger: sanitizeOverlayTrigger(current.trigger),
+          display: sanitizeDisplayRef(current.display),
+          hifiModuleId: typeof current.hifiModuleId === 'string' && current.hifiModuleId.trim()
+            ? current.hifiModuleId
+            : id.slice(5)
+        }
+      ] as const
+    })
 
   const merged: OverlaysConfig = {
     configMode: Boolean(config.configMode),
-    widgets: Object.fromEntries(
-      OVERLAY_WIDGETS.map((definition) => {
-        const current = config.widgets?.[definition.id] as Partial<OverlayWidgetConfig> | undefined
-        const base = defaults.widgets[definition.id]
-        const stylePreset = getOverlayStylePreset(current?.stylePreset).id
-        return [
-          definition.id,
-          {
-            id: definition.id,
-            enabled: Boolean(current?.enabled ?? base.enabled),
-            locked: Boolean(current?.locked ?? base.locked),
-            favorite: Boolean(current?.favorite ?? base.favorite),
-            position: sanitizePosition(current?.position ?? base.position),
-            opacity: clampOpacity(current?.opacity ?? base.opacity),
-            stylePreset,
-            style: sanitizeStyle(current?.style, stylePreset),
-            display: sanitizeDisplayRef(current?.display)
-          }
-        ]
-      })
-    ) as OverlaysConfig['widgets'],
+    widgets: Object.fromEntries([...legacyWidgets, ...hifiWidgets]) as OverlaysConfig['widgets'],
     customOverlays: normalizeCustomOverlays(config.customOverlays)
   }
 
@@ -439,7 +473,7 @@ export class OverlayManager {
   // so window management can stay polymorphic over both.
   private controllable(id: string): OverlayWidgetConfig | CustomOverlayDef | null {
     if (isCustomOverlayId(id)) return this.config.customOverlays.find((overlay) => overlay.id === id) ?? null
-    if (isWidgetId(id)) return this.config.widgets[id]
+    if (isWidgetId(id)) return this.config.widgets[id] ?? null
     return null
   }
 
@@ -454,11 +488,11 @@ export class OverlayManager {
       await this.save()
     }
 
-    for (const widget of OVERLAY_WIDGETS) {
-      if (this.config.widgets[widget.id].enabled) this.createWindow(widget.id)
+    for (const [id, widget] of Object.entries(this.config.widgets)) {
+      if (widget.enabled && !widget.hidden) this.createWindow(id)
     }
     for (const overlay of this.config.customOverlays) {
-      if (overlay.enabled) this.createWindow(overlay.id)
+      if (overlay.enabled && !overlay.hidden) this.createWindow(overlay.id)
     }
   }
 
@@ -496,6 +530,9 @@ export class OverlayManager {
     )
     this.ctx.ipcMain.handle('overlays:setFavorite', async (_event, id: OverlayWidgetId, favorite: boolean) =>
       this.setFavorite(id, favorite)
+    )
+    this.ctx.ipcMain.handle('overlays:setHidden', async (_event, id: OverlayWidgetId, hidden: boolean) =>
+      this.setHidden(id, hidden)
     )
     this.ctx.ipcMain.handle('overlays:setOpacity', async (_event, id: OverlayWidgetId, opacity: number) =>
       this.setOpacity(id, opacity)
@@ -604,13 +641,13 @@ export class OverlayManager {
   }
 
   async toggle(id: OverlayWidgetId, enabled?: boolean): Promise<OverlayListItem[]> {
-    if (!isWidgetId(id)) throw new Error(`Unknown overlay widget: ${String(id)}`)
+    if (!isWidgetId(id) || !this.config.widgets[id]) throw new Error(`Unknown overlay widget: ${String(id)}`)
     this.resetPending = false
     const widget = this.config.widgets[id]
     widget.enabled = enabled ?? !widget.enabled
     logger.info('overlays', `overlay toggled ${widget.enabled ? 'on' : 'off'}`, { id, enabled: widget.enabled })
 
-    if (widget.enabled) this.createWindow(id)
+    if (widget.enabled && !widget.hidden) this.createWindow(id)
     else this.destroyWindow(id)
 
     await this.save()
@@ -633,7 +670,7 @@ export class OverlayManager {
   }
 
   async setDisplayTarget(id: OverlayWidgetId, displayId: number | null): Promise<OverlayListItem[]> {
-    if (!isWidgetId(id)) throw new Error(`Unknown overlay widget: ${String(id)}`)
+    if (!isWidgetId(id) || !this.config.widgets[id]) throw new Error(`Unknown overlay widget: ${String(id)}`)
     const displays = screen.getAllDisplays()
     const targetIndex = displays.findIndex((display) => display.id === displayId)
     if (displayId !== null && targetIndex < 0) throw new Error(`Unknown display: ${String(displayId)}`)
@@ -702,7 +739,7 @@ export class OverlayManager {
   }
 
   async setLocked(id: OverlayWidgetId, locked: boolean): Promise<OverlayListItem[]> {
-    if (!isWidgetId(id)) throw new Error(`Unknown overlay widget: ${String(id)}`)
+    if (!isWidgetId(id) || !this.config.widgets[id]) throw new Error(`Unknown overlay widget: ${String(id)}`)
     this.resetPending = false
     this.config.widgets[id].locked = locked
     this.updateMouseMode(id)
@@ -714,7 +751,7 @@ export class OverlayManager {
   // Favorite is purely a configuration-list sort hint — it never creates,
   // destroys or moves an overlay window, so no compositor sync is required.
   async setFavorite(id: OverlayWidgetId, favorite: boolean): Promise<OverlayListItem[]> {
-    if (!isWidgetId(id)) throw new Error(`Unknown overlay widget: ${String(id)}`)
+    if (!isWidgetId(id) || !this.config.widgets[id]) throw new Error(`Unknown overlay widget: ${String(id)}`)
     this.resetPending = false
     this.config.widgets[id].favorite = Boolean(favorite)
     await this.save()
@@ -722,8 +759,20 @@ export class OverlayManager {
     return this.list()
   }
 
+  async setHidden(id: OverlayWidgetId, hidden: boolean): Promise<OverlayListItem[]> {
+    if (!isWidgetId(id) || !this.config.widgets[id]) throw new Error(`Unknown overlay widget: ${String(id)}`)
+    this.resetPending = false
+    const widget = this.config.widgets[id]
+    widget.hidden = Boolean(hidden)
+    if (widget.hidden) this.destroyWindow(id)
+    else this.syncWindow(id, widget)
+    await this.save()
+    this.broadcastState()
+    return this.list()
+  }
+
   async setOpacity(id: OverlayWidgetId, opacity: number): Promise<OverlayListItem[]> {
-    if (!isWidgetId(id)) throw new Error(`Unknown overlay widget: ${String(id)}`)
+    if (!isWidgetId(id) || !this.config.widgets[id]) throw new Error(`Unknown overlay widget: ${String(id)}`)
     this.resetPending = false
     this.config.widgets[id].opacity = clampOpacity(opacity)
     this.applyOpacity(id)
@@ -733,7 +782,7 @@ export class OverlayManager {
   }
 
   async setStyle(id: OverlayWidgetId, patch: Partial<Pick<OverlayWidgetConfig, 'stylePreset' | 'style'>>): Promise<OverlayListItem[]> {
-    if (!isWidgetId(id)) throw new Error(`Unknown overlay widget: ${String(id)}`)
+    if (!isWidgetId(id) || !this.config.widgets[id]) throw new Error(`Unknown overlay widget: ${String(id)}`)
     this.resetPending = false
     const current = this.config.widgets[id]
     const stylePreset = getOverlayStylePreset(patch.stylePreset ?? current.stylePreset).id
@@ -745,7 +794,7 @@ export class OverlayManager {
   }
 
   // Called when the user DELETES/RESETS the persisted `overlays` store via the
-  // "Configurações salvas" panel (signalled from config-export over ipcMain).
+  // "Settings salvas" panel (signalled from config-export over ipcMain).
   // Without this, the still-live manager keeps the OLD overlays in memory and a
   // pending debounced save — or the before-quit dispose() flush — would WRITE
   // them back, RESURRECTING the file the user deleted. We cancel any pending
@@ -790,8 +839,8 @@ export class OverlayManager {
     for (const id of [...this.windows.keys()]) this.destroyWindow(id)
   }
 
-  private syncWindow(id: string, current: { enabled: boolean; position: OverlayPosition; display?: OverlayDisplayRef | null }): void {
-    if (current.enabled) {
+  private syncWindow(id: string, current: { enabled: boolean; hidden?: boolean; position: OverlayPosition; display?: OverlayDisplayRef | null }): void {
+    if (current.enabled && !current.hidden) {
       const win = this.windows.get(id)
       if (win && !win.isDestroyed()) {
         win.setBounds(clampPositionToDisplays(current.position, current.display))
@@ -806,8 +855,8 @@ export class OverlayManager {
   }
 
   private async applyConfigToWindows(): Promise<void> {
-    for (const widget of OVERLAY_WIDGETS) {
-      this.syncWindow(widget.id, this.config.widgets[widget.id])
+    for (const [id, widget] of Object.entries(this.config.widgets)) {
+      this.syncWindow(id, widget)
     }
     for (const overlay of this.config.customOverlays) {
       this.syncWindow(overlay.id, overlay)
@@ -816,7 +865,7 @@ export class OverlayManager {
 
   private createWindow(id: string): void {
     const widget = this.controllable(id)
-    if (!widget) return
+    if (!widget || widget.hidden) return
     const existing = this.windows.get(id)
     if (existing && !existing.isDestroyed()) {
       existing.show()

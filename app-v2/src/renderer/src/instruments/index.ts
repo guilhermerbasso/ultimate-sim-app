@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════════
-//  @simx/instruments — token-driven React + SVG instrument-primitive library
+//  @yesx/instruments — token-driven React + SVG instrument-primitive library
 // ───────────────────────────────────────────────────────────────────────────────
 //  Brand-neutral, high-fidelity SVG primitives for the real-race-car visual rebuild
 //  of the dashboard widgets. Every primitive is PURE, unit-testable (renders via

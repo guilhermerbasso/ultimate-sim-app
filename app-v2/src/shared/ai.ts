@@ -91,7 +91,7 @@ export const AI_MODELS: Readonly<Record<ModelId, ModelInfo>> = {
   },
   'llama-3.2-3b-instruct-q4': {
     id: 'llama-3.2-3b-instruct-q4',
-    label: 'Qualidade — Llama 3.2 3B (melhor raciocínio)',
+    label: 'Quality — Llama 3.2 3B (better reasoning)',
     uri: 'hf:bartowski/Llama-3.2-3B-Instruct-GGUF:Llama-3.2-3B-Instruct-Q4_K_M.gguf',
     fileName: 'Llama-3.2-3B-Instruct-Q4_K_M.gguf',
     approxBytes: 2_020_000_000,
@@ -99,7 +99,7 @@ export const AI_MODELS: Readonly<Record<ModelId, ModelInfo>> = {
     license: 'Llama-3.2-Community',
     contextSize: 2048,
     tier: 'quality',
-    notes: 'Tier qualidade: melhor raciocínio e PT-BR. ~2GB, download sob demanda, pede um PC mais forte (mais RAM/CPU).'
+    notes: 'Tier qualidade: better reasoning e PT-BR. ~2GB, download sob demanda, pede um PC mais forte (mais RAM/CPU).'
   }
 } as const
 
@@ -113,11 +113,11 @@ export const MODEL_TIERS: Readonly<Record<ModelTier, ModelId>> = {
   quality: QUALITY_MODEL_ID
 } as const
 
-/** PT-BR labels for the tier picker (short, intuitive). */
+/** English labels for the tier picker (short, intuitive). */
 export const MODEL_TIER_LABELS: Readonly<Record<ModelTier, string>> = {
-  light: 'Leve',
-  balanced: 'Equilibrado',
-  quality: 'Qualidade'
+  light: 'Light',
+  balanced: 'Balanced',
+  quality: 'Quality'
 } as const
 
 /** Stable ordered list of built-in models (default first). */

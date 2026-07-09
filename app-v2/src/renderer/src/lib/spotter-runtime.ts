@@ -1101,7 +1101,7 @@ export function testCallout(id: CalloutId, config: SpotterConfig): void {
 }
 
 export function testSpotterVoice(config: SpotterConfig): void {
-  const text = config.language === 'pt-BR' ? 'Engenheiro de áudio pronto. Boa corrida.' : 'Audio engineer online. Have a good race.'
+  const text = config.language === 'pt-BR' ? 'Audio engineer online. Have a good race.' : 'Audio engineer online. Have a good race.'
   speakImmediate(text, config.defaultVoiceURI, config.language, 1, 1, clamp01(config.masterVolume), config.outputDeviceId)
 }
 

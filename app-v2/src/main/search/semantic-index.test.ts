@@ -62,16 +62,16 @@ describe('pure vector math', () => {
 
 describe('keyword fallback scoring', () => {
   it('tokenize strips accents, punctuation and stopwords', () => {
-    expect(tokenize('Setup de Chuva, Interlagos!')).toEqual(['setup', 'chuva', 'interlagos'])
+    expect(tokenize('Rain Setup, Interlagos!')).toEqual(['rain', 'setup', 'interlagos'])
   })
 
   it('scores exact term overlap high and unrelated text zero', () => {
-    expect(keywordScore('chuva interlagos', 'setup de chuva para Interlagos')).toBeCloseTo(1, 6)
-    expect(keywordScore('chuva', 'setup seco para Monza')).toBe(0)
+    expect(keywordScore('rain interlagos', 'setup de rain para Interlagos')).toBeCloseTo(1, 6)
+    expect(keywordScore('rain', 'setup dry para Monza')).toBe(0)
   })
 
   it('fuzzy-matches prefixes (pt-BR inflections / typos)', () => {
-    expect(keywordScore('freada', 'freadas tardias na curva 1')).toBeGreaterThan(0)
+    expect(keywordScore('braking', 'late braking in turn 1')).toBeGreaterThan(0)
   })
 
   it('returns 0 for an empty query', () => {
@@ -80,14 +80,14 @@ describe('keyword fallback scoring', () => {
 })
 
 describe('FlatCosineIndex', () => {
-  const setup = doc({ id: 'setup:1', source: 'setup', title: 'GT3 Spa', text: 'setup macio para chuva em spa', updatedAt: 1 })
-  const ghost = doc({ id: 'ghost:1', source: 'ghost', title: 'Volta Monza', text: 'ghost rapido em monza seco', updatedAt: 2 })
+  const setup = doc({ id: 'setup:1', source: 'setup', title: 'GT3 Spa', text: 'setup macio para rain em spa', updatedAt: 1 })
+  const ghost = doc({ id: 'ghost:1', source: 'ghost', title: 'Lap Monza', text: 'ghost rapido em monza dry', updatedAt: 2 })
 
   it('keyword query works with no vectors (deterministic fallback)', () => {
     const idx = new FlatCosineIndex()
     idx.upsert(setup)
     idx.upsert(ghost)
-    const res = idx.queryByKeyword('chuva spa', 5)
+    const res = idx.queryByKeyword('rain spa', 5)
     expect(res[0].id).toBe('setup:1')
     expect(res[0].mode).toBe('keyword')
   })
@@ -129,7 +129,7 @@ describe('FlatCosineIndex', () => {
     idx.upsert(setup)
     expect(idx.pendingEmbedding()).toEqual([])
     // Changed text → needs a fresh embedding.
-    idx.upsert(doc({ id: 'setup:1', source: 'setup', text: 'setup duro para seco' }))
+    idx.upsert(doc({ id: 'setup:1', source: 'setup', text: 'setup duro para dry' }))
     expect(idx.pendingEmbedding().map((d) => d.id)).toEqual(['setup:1'])
   })
 

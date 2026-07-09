@@ -58,13 +58,13 @@ import { logger } from './logger'
 //
 // The Live Coach SPEAKS short, per-CORNER corrections while the driver laps in
 // practice/qualy (in a RACE the proactive engineer owns the audio — see
-// `speakSegment`). It learns the track's numbered corners (Curva 1..N) from the
+// `speakSegment`). It learns the track's numbered corners (Turn 1..N) from the
 // first clean lap, then on every lap completion runs the PURE shared analyzer to
 // rank findings across ALL driving dimensions — brake point, turn-in timing,
 // steering angle, throttle application, rotation — keyed to each corner. As the car
 // EXITS a corner it speaks that corner's COMPOSITE line, e.g.
-// "Curva 3: freie antes, vire antes, acelere depois." Until a corner map exists it
-// falls back to the 3-sector cadence ("Setor N: …") so a fresh install still
+// "Turn 3: brake earlier, turn in earlier, throttle later." Until a corner map exists it
+// falls back to the 3-sector cadence ("Sector N: …") so a fresh install still
 // coaches from the first lap it can analyze.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -363,7 +363,7 @@ export class LiveCoachEngine {
     this.warmupCueSent = true
     this.lastSpeakAt = this.now()
     const payload: CoachSpeakEvent = {
-      text: 'Coletando volta de referência.',
+      text: 'Collecting reference lap.',
       priority: 3,
       tipId: 'live:warmup',
       lang: 'pt-BR',
@@ -635,7 +635,7 @@ class LapCoachAnalyzer {
   async explain(req: CoachExplainRequest): Promise<CoachExplainResult> {
     const finding = this.findFinding(req)
     if (!finding) {
-      return { text: 'Sem dado de coaching para explicar ainda. Complete uma volta primeiro.', source: 'deterministic' }
+      return { text: 'No coaching data to explain yet. Complete a lap first.', source: 'deterministic' }
     }
     const deterministic = deterministicPhrasing(finding)
     if (!req.useLlm || !this.deps.generate || !this.deps.getModelPath) {
@@ -652,7 +652,7 @@ class LapCoachAnalyzer {
       const result = await this.deps
         .generate({
           system:
-            'Você é um coach de pilotagem objetivo e prático. Reescreva a observação técnica em 1 a 2 frases curtas e diretas, em português do Brasil, dizendo o que fazer. Não invente dados; use apenas os números fornecidos.',
+            'You are an objective, practical driving coach. Rewrite the technical observation in 1 to 2 short, direct American English sentences telling the driver what to do. Do not invent data; use only the provided numbers.',
           prompt: explainPrompt(finding),
           maxTokens: EXPLAIN_MAX_TOKENS,
           temperature: 0.3,
@@ -676,12 +676,12 @@ function explainPrompt(finding: CoachFinding): string {
     .join(', ')
   const phase = finding.phase ? ` (fase: ${finding.phase})` : ''
   return [
-    `Observação: ${finding.title}${phase}, setor ${finding.sector}.`,
+    `Observation: ${finding.title}${phase}, sector ${finding.sector}.`,
     `Detalhe: ${finding.detail}`,
-    `Evidência: ${finding.evidence}.`,
-    metrics ? `Métricas: ${metrics}.` : '',
+    `Evidence: ${finding.evidence}.`,
+    metrics ? `Metrics: ${metrics}.` : '',
     finding.severity !== 'good' ? `Perda estimada: ${finding.estTimeLossSec.toFixed(2)}s.` : '',
-    'Responda só com o conselho ao piloto.'
+    'Reply only with the advice to the driver.'
   ]
     .filter(Boolean)
     .join('\n')
@@ -747,7 +747,7 @@ function deriveBalanceSignals(findings: CoachFinding[]): SetupBalanceSignal[] {
         break
       case 'tc-overuse':
         score.exit += 1.5 * w
-        note.exit.push('TC cortando na saída')
+        note.exit.push('TC cutting on exit')
         break
       case 'brake-early':
         score.entry -= w
@@ -759,17 +759,17 @@ function deriveBalanceSignals(findings: CoachFinding[]): SetupBalanceSignal[] {
         break
       case 'steering-busy':
         score[phase] -= 1.5 * w
-        note[phase].push('volante agitado')
+        note[phase].push('steering agitado')
         break
       case 'coast':
         if (phase === 'mid') {
           score.mid -= w
-          note.mid.push('rolando no ápice')
+          note.mid.push('coasting at the apex')
         }
         break
       case 'throttle-hesitation':
         score.exit -= 0.5 * w
-        note.exit.push('saída hesitante')
+        note.exit.push('hesitant exit')
         break
       default:
         break

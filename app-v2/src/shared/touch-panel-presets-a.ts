@@ -51,7 +51,7 @@ export const TOUCH_PRESETS_A: ButtonBoxPanel[] = [
   }),
   createButtonBoxPanel({
     id: 'tp-a-fuel-management',
-    name: 'Combustível',
+    name: 'Fuel',
     columns: 5,
     rows: 3,
     gap: 12,
@@ -76,7 +76,7 @@ export const TOUCH_PRESETS_A: ButtonBoxPanel[] = [
   }),
   createButtonBoxPanel({
     id: 'tp-a-fuel-management-eco',
-    name: 'Combustível — Eco',
+    name: 'Fuel — Eco',
     columns: 4,
     rows: 3,
     gap: 12,
@@ -98,7 +98,7 @@ export const TOUCH_PRESETS_A: ButtonBoxPanel[] = [
   }),
   createButtonBoxPanel({
     id: 'tp-a-tyre-strategy',
-    name: 'Estratégia de Pneus',
+    name: 'Tire Strategy',
     columns: 4,
     rows: 4,
     gap: 12,
@@ -124,7 +124,7 @@ export const TOUCH_PRESETS_A: ButtonBoxPanel[] = [
   }),
   createButtonBoxPanel({
     id: 'tp-a-tyre-strategy-wet',
-    name: 'Pneus — Chuva',
+    name: 'Tires ? Rain',
     columns: 4,
     rows: 3,
     gap: 12,
@@ -146,7 +146,7 @@ export const TOUCH_PRESETS_A: ButtonBoxPanel[] = [
   }),
   createButtonBoxPanel({
     id: 'tp-a-brake-tc-abs-trims',
-    name: 'Freio / TC / ABS',
+    name: 'Brake / TC / ABS',
     columns: 4,
     rows: 3,
     gap: 12,
@@ -168,7 +168,7 @@ export const TOUCH_PRESETS_A: ButtonBoxPanel[] = [
   }),
   createButtonBoxPanel({
     id: 'tp-a-brake-tc-abs-gt3',
-    name: 'Freio / TC / ABS — GT3',
+    name: 'Brake / TC / ABS — GT3',
     columns: 5,
     rows: 3,
     gap: 12,
@@ -193,7 +193,7 @@ export const TOUCH_PRESETS_A: ButtonBoxPanel[] = [
   }),
   createButtonBoxPanel({
     id: 'tp-a-endurance-radio-lights',
-    name: 'Endurance — Rádio & Luzes',
+    name: 'Endurance ? Radio & Lights',
     columns: 4,
     rows: 4,
     gap: 12,

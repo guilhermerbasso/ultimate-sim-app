@@ -5,6 +5,7 @@ import {
   type ConfigExportResult,
   type ConfigImportResult
 } from '../../../shared/config-io'
+import { tt, type ResolvedLanguage } from '../i18n'
 
 export interface SectionExportImportProps {
   /** Stable section id from CONFIG_SECTIONS (e.g. 'rgb-matrix', 'overlays'). */
@@ -19,6 +20,7 @@ export interface SectionExportImportProps {
    * its in-memory cache until relaunch).
    */
   onImported?: () => void
+  language?: ResolvedLanguage
 }
 
 type Busy = false | 'export' | 'import'
@@ -37,7 +39,7 @@ async function relaunchApp(): Promise<void> {
 // their live windows/state (overlays, layout, OLED, …) show "Reinicie para
 // aplicar" with an OPTIONAL restart button — the import is already safe on disk
 // and protected from a before-quit clobber, so the restart is no longer forced.
-export function SectionExportImport({ sectionId, label, onImported }: SectionExportImportProps): ReactElement {
+export function SectionExportImport({ sectionId, label, onImported, language }: SectionExportImportProps): ReactElement {
   const [busy, setBusy] = useState<Busy>(false)
   const [status, setStatus] = useState<Status>(null)
   const [needsRestart, setNeedsRestart] = useState(false)
@@ -48,7 +50,7 @@ export function SectionExportImport({ sectionId, label, onImported }: SectionExp
     setStatus(null)
     try {
       const result = await window.ipc.invoke<ConfigExportResult>(CONFIG_IO_CHANNELS.exportSection, sectionId)
-      if (!result.canceled) setStatus({ text: 'Exportado.', tone: 'ok' })
+      if (!result.canceled) setStatus({ text: tt(language, 'component.sectionExport.exported'), tone: 'ok' })
     } catch (error) {
       setStatus({ text: error instanceof Error ? error.message : String(error), tone: 'err' })
     } finally {
@@ -59,7 +61,7 @@ export function SectionExportImport({ sectionId, label, onImported }: SectionExp
   const runImport = async (): Promise<void> => {
     // Single confirmation — the import overwrites this section on disk and (for
     // hot-reloadable sections) applies it live. No second mandatory dialog.
-    if (!window.confirm(`Importar "${label}" vai SOBRESCREVER esta configuração. Continuar?`)) return
+    if (!window.confirm(tt(language, 'component.sectionExport.importConfirm', { label }))) return
     setBusy('import')
     setStatus(null)
     setNeedsRestart(false)
@@ -69,16 +71,16 @@ export function SectionExportImport({ sectionId, label, onImported }: SectionExp
         const applied = result.summary?.applied.length ?? 0
         if (applied > 0) {
           if (hotReload) {
-            setStatus({ text: 'Importado e aplicado ✓', tone: 'ok' })
+            setStatus({ text: tt(language, 'component.sectionExport.importedApplied'), tone: 'ok' })
             onImported?.()
           } else {
             // Written to disk and protected from a quit-time clobber, but the live
             // module keeps its in-memory copy until relaunch — restart is optional.
             setNeedsRestart(true)
-            setStatus({ text: 'Importado. Reinicie para aplicar.', tone: 'ok' })
+            setStatus({ text: tt(language, 'component.sectionExport.importedRestart'), tone: 'ok' })
           }
         } else {
-          setStatus({ text: 'Nada foi aplicado (arquivo sem esta seção).', tone: 'err' })
+          setStatus({ text: tt(language, 'component.sectionExport.nothingApplied'), tone: 'err' })
         }
       }
     } catch (error) {
@@ -94,24 +96,24 @@ export function SectionExportImport({ sectionId, label, onImported }: SectionExp
         className="ghost-action compact"
         disabled={busy !== false}
         onClick={runExport}
-        title={`Exportar configuração: ${label}`}
+        title={tt(language, 'component.sectionExport.exportTitle', { label })}
         type="button"
       >
-        {busy === 'export' ? 'Exportando…' : 'Exportar'}
+        {busy === 'export' ? tt(language, 'common.exporting') : tt(language, 'common.export')}
       </button>
       <button
         className="ghost-action compact"
         disabled={busy !== false}
         onClick={runImport}
-        title={`Importar configuração: ${label}`}
+        title={tt(language, 'component.sectionExport.importTitle', { label })}
         type="button"
       >
-        {busy === 'import' ? 'Importando…' : 'Importar'}
+        {busy === 'import' ? tt(language, 'common.importing') : tt(language, 'common.import')}
       </button>
       {needsRestart && (
         <>
           <span
-            title="Esta seção carrega a configuração importada no próximo início do app. O arquivo já está salvo em disco."
+            title={tt(language, 'component.sectionExport.restartTitle')}
             style={{
               background: 'var(--accent, #0078d4)',
               color: '#fff',
@@ -122,10 +124,10 @@ export function SectionExportImport({ sectionId, label, onImported }: SectionExp
               whiteSpace: 'nowrap'
             }}
           >
-            Reinicie para aplicar
+            {tt(language, 'common.restartToApply')}
           </span>
           <button className="ghost-action compact" onClick={() => void relaunchApp()} type="button">
-            Reiniciar agora
+            {tt(language, 'common.restartNow')}
           </button>
         </>
       )}

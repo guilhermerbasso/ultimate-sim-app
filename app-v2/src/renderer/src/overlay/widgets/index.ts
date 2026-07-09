@@ -86,6 +86,7 @@ import { StandingsWidget } from './StandingsWidget'
 import { SymbolStatusWidget } from './SymbolStatusWidget'
 import { TeamFuelWidget } from './TeamFuelWidget'
 import { TireWearWidget } from './TireWearWidget'
+import { TrackMapNav3DWidget } from './TrackMapNav3DWidget'
 import { TrackMapWidget } from './TrackMapWidget'
 import { TyresBrakesWidget } from './TyresBrakesWidget'
 import { TyresDetailWidget } from './TyresDetailWidget'
@@ -96,6 +97,7 @@ import { Bosch296DashWidget } from './Bosch296DashWidget'
 import { RingDashWidget } from './RingDashWidget'
 import { LmuEnduranceDashWidget } from './LmuEnduranceDashWidget'
 import { LmuStintDashWidget } from './LmuStintDashWidget'
+import { HifiDduWidget, HifiEnduranceWidget, HifiEngineerWidget, HifiMinimalWidget, HifiBroadcastWidget } from './HifiDashWidgets'
 import { PerCornerTyrePressureWidget } from './PerCornerTyrePressureWidget'
 import { BrakeTempCornersWidget } from './BrakeTempCornersWidget'
 import { FuelDeltaTileWidget } from './FuelDeltaTileWidget'
@@ -113,9 +115,12 @@ import { EnduranceMultiWidget } from './EnduranceMultiWidget'
 import { OledStripWidget } from './OledStripWidget'
 import { MotecDenseWidget } from './MotecDenseWidget'
 import { Gt3WheelWidget } from './Gt3WheelWidget'
+import { HifiWidgetHost } from './HifiWidgetHost'
 import type { WidgetProps } from './types'
 
-export const WIDGET_COMPONENTS: Record<OverlayWidgetId, (props: WidgetProps) => ReactElement> = {
+type LegacyOverlayWidgetId = Exclude<OverlayWidgetId, `hifi:${string}`>
+
+export const WIDGET_COMPONENTS: Record<string, (props: WidgetProps) => ReactElement> = {
   revlights: RevLightsWidget,
   gearSpeed: GearSpeedWidget,
   deltaLap: DeltaLapWidget,
@@ -130,6 +135,7 @@ export const WIDGET_COMPONENTS: Record<OverlayWidgetId, (props: WidgetProps) => 
   inputsTrace: InputsTraceWidget,
   tyresDetail: TyresDetailWidget,
   trackMap: TrackMapWidget,
+  trackMapNav3D: TrackMapNav3DWidget,
   proximityRadar: ProximityRadarWidget,
   carSilhouetteRadar: CarSilhouetteRadarWidget,
   sessionWeather: SessionWeatherWidget,
@@ -148,6 +154,11 @@ export const WIDGET_COMPONENTS: Record<OverlayWidgetId, (props: WidgetProps) => 
   ringDash: RingDashWidget,
   lmuEnduranceDash: LmuEnduranceDashWidget,
   lmuStintDash: LmuStintDashWidget,
+  hifiDdu: HifiDduWidget,
+  hifiEndurance: HifiEnduranceWidget,
+  hifiEngineer: HifiEngineerWidget,
+  hifiMinimal: HifiMinimalWidget,
+  hifiBroadcast: HifiBroadcastWidget,
   perCornerTyrePressure: PerCornerTyrePressureWidget,
   brakeTempCorners: BrakeTempCornersWidget,
   fuelDeltaTile: FuelDeltaTileWidget,
@@ -225,3 +236,9 @@ export const WIDGET_COMPONENTS: Record<OverlayWidgetId, (props: WidgetProps) => 
   motecDense: MotecDenseWidget,
   gt3Wheel: Gt3WheelWidget
 }
+
+export function resolveWidgetComponent(id: OverlayWidgetId): ((props: WidgetProps) => ReactElement) | undefined {
+  return id.startsWith('hifi:') ? HifiWidgetHost : WIDGET_COMPONENTS[id as LegacyOverlayWidgetId]
+}
+
+export { HifiWidgetHost }

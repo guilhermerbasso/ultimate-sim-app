@@ -58,11 +58,11 @@ export function parseTokenResponse(
   previous?: Pick<IRacingOAuthTokenSet, 'refreshToken' | 'refreshTokenExpiresAt'>
 ): IRacingOAuthTokenSet {
   if (typeof json.access_token !== 'string' || typeof json.expires_in !== 'number') {
-    throw new Error('Resposta OAuth inválida: access_token ou expires_in ausentes.')
+    throw new Error('Invalid OAuth response: access_token ou expires_in missing.')
   }
   const tokenType = typeof json.token_type === 'string' ? json.token_type : 'Bearer'
   if (tokenType.toLowerCase() !== 'bearer') {
-    throw new Error(`Resposta OAuth inválida: token_type=${tokenType}`)
+    throw new Error(`Invalid OAuth response: token_type=${tokenType}`)
   }
   // RFC 6749 §5.1: a REFRESH response MAY omit a rotated `refresh_token` (the
   // existing one stays valid) and the non-standard `refresh_token_expires_in`.
@@ -72,7 +72,7 @@ export function parseTokenResponse(
   const refreshToken =
     typeof json.refresh_token === 'string' && json.refresh_token ? json.refresh_token : previous?.refreshToken
   if (!refreshToken) {
-    throw new Error('Resposta OAuth inválida: refresh_token ausente.')
+    throw new Error('Invalid OAuth response: refresh_token missing.')
   }
   const refreshTokenExpiresAt =
     typeof json.refresh_token_expires_in === 'number'
@@ -200,7 +200,7 @@ export class IRacingOAuthService {
 
   async authorize(parent?: BrowserWindow | null): Promise<IRacingOAuthTokenSet> {
     if (!this.config?.clientId) {
-      throw new Error('Cole um client_id OAuth da iRacing antes de conectar.')
+      throw new Error('Paste an iRacing OAuth client_id before connecting.')
     }
     const state = base64Url(randomBytes(24))
     const pkce = createPkcePair()
@@ -218,7 +218,7 @@ export class IRacingOAuthService {
 
       win = openOAuthWindow(authorizeUrl.toString(), parent)
       const closed = new Promise<never>((_resolve, reject) => {
-        win?.once('closed', () => reject(new Error('OAuth cancelado pelo usuário.')))
+        win?.once('closed', () => reject(new Error('OAuth canceled by user.')))
       })
       const code = await Promise.race([loopback.codePromise, closed])
       if (win && !win.isDestroyed()) win.close()
@@ -263,7 +263,7 @@ export class IRacingOAuthService {
   }
 
   private exchangeCode(code: string, redirectUri: string, verifier: string): Promise<IRacingOAuthTokenSet> {
-    if (!this.config?.clientId) throw new Error('OAuth client_id ausente.')
+    if (!this.config?.clientId) throw new Error('OAuth client_missing id.')
     return this.postToken({
       grant_type: 'authorization_code',
       client_id: this.config.clientId,
@@ -286,14 +286,14 @@ export class IRacingOAuthService {
     if (response.status < 200 || response.status >= 300) {
       throw new OAuthHttpError(
         response.status,
-        `OAuth token endpoint retornou HTTP ${response.status}: ${response.body.slice(0, 500)}`
+        `OAuth token endpoint returned HTTP ${response.status}: ${response.body.slice(0, 500)}`
       )
     }
     return parseTokenResponse(JSON.parse(response.body) as TokenResponseJson, Date.now(), previous)
   }
 
   private async persist(): Promise<void> {
-    if (!this.encryptionAvailable()) throw new Error('safeStorage indisponível para salvar OAuth.')
+    if (!this.encryptionAvailable()) throw new Error('safeStorage unavailable for saving OAuth.')
     const payload: PersistedOAuth = {
       version: 1,
       config: this.config ?? { clientId: '' },
@@ -349,11 +349,11 @@ async function startLoopback(expectedState: string): Promise<{
       const state = url.searchParams.get('state') ?? ''
       const code = url.searchParams.get('code') ?? ''
       const error = url.searchParams.get('error') ?? ''
-      if (state !== expectedState) throw new Error('OAuth state inválido.')
-      if (error) throw new Error(`OAuth retornou erro: ${error}`)
-      if (!code) throw new Error('OAuth callback sem code.')
+      if (state !== expectedState) throw new Error('Invalid OAuth state.')
+      if (error) throw new Error(`OAuth returned an error: ${error}`)
+      if (!code) throw new Error('OAuth callback did not include a code.')
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-      res.end('<!doctype html><title>iRacing conectado</title><body>iRacing conectado. Você pode voltar ao Ultimate Sim App.</body>')
+      res.end('<!doctype html><title>iRacing connected</title><body>iRacing connected. You can return to Ultimate Sim App.</body>')
       resolveCode(code)
     } catch (error) {
       res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' })
@@ -366,7 +366,7 @@ async function startLoopback(expectedState: string): Promise<{
     server!.listen(0, '127.0.0.1', () => resolve())
   })
   const address = server.address()
-  if (!address || typeof address === 'string') throw new Error('Falha ao abrir loopback OAuth.')
+  if (!address || typeof address === 'string') throw new Error('Failed to open OAuth loopback.')
   return {
     redirectUri: `http://127.0.0.1:${address.port}/callback`,
     codePromise,

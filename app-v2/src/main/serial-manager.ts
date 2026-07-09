@@ -16,7 +16,7 @@ import { REV_LEVEL_MAX } from './protocol'
 import { PRIMARY_DEVICE_ID, SerialHub } from './serial/hub'
 
 const UNSUPPORTED_FIRMWARE_MESSAGE =
-  'Operação não suportada pelo firmware SIM-X — remapeamento HID/perfis ficam só no app, e os botões físicos são reatribuídos diretamente no iRacing.'
+  'Operation not supported by SIM-X firmware — HID remapping/profiles stay in the app, and physical buttons are reassigned directly in iRacing.'
 
 // Self-test pacing. A full up+down rev sweep over REV_LEVEL_MAX LEDs at this
 // step takes ~1s — long enough for the user to see every LED light in sequence,
@@ -77,7 +77,7 @@ export class SerialManager extends EventEmitter {
     })
     this.bindPrimary(device)
     const info = device.getDeviceInfo()
-    if (!info) throw new Error('Falha ao conectar: DeviceInfo não disponível.')
+    if (!info) throw new Error('Connection failed: DeviceInfo unavailable.')
     // The device already emitted its own 'connect' INSIDE hub.connectDevice()
     // above — before bindPrimary() wired the passthrough — so facade listeners
     // registered at startup (e.g. the Arduino module re-applying the saved
@@ -146,7 +146,7 @@ export class SerialManager extends EventEmitter {
     const device = this.requirePrimary()
     try {
       await device.sendStartLed(true)
-      await device.sendOled('SIM-X CONECTADO', 'Saida serial OK', `Porta ${device.path}`)
+      await device.sendOled('SIM-X CONNECTED', 'Serial output OK', `Port ${device.path}`)
       for (let level = 0; level <= REV_LEVEL_MAX; level += 1) {
         await device.sendRevLevel(level)
         await delay(SELF_TEST_STEP_MS)
@@ -174,7 +174,7 @@ export class SerialManager extends EventEmitter {
   // are no-ops that succeed when a session exists.
   async startOledStreaming(): Promise<void> {
     if (!this.hub.getPrimary()?.isOpen()) {
-      throw new Error('ButtonBox não conectado. Use Dispositivos > Conectar antes de iniciar o OLED.')
+      throw new Error('ButtonBox not connected. Use Devices > Connect before starting the OLED.')
     }
   }
 
@@ -196,12 +196,12 @@ export class SerialManager extends EventEmitter {
   // so these return inert defaults or fail loudly so the user knows.
 
   async ping(): Promise<void> {
-    if (!this.hub.getPrimary()?.isOpen()) throw new Error('ButtonBox não conectado.')
+    if (!this.hub.getPrimary()?.isOpen()) throw new Error('ButtonBox not connected.')
   }
 
   async getMapping(): Promise<Mapping> {
     return {
-      profileName: 'Dispositivo',
+      profileName: 'Device',
       values: createEmptyMappingValues(),
       entries: [],
       updatedAt: new Date().toISOString()
@@ -250,7 +250,7 @@ export class SerialManager extends EventEmitter {
   private requirePrimary(): SerialDevice {
     const device = this.hub.getPrimary()
     if (!device || !device.isOpen()) {
-      throw new Error('ButtonBox não conectado. Use Dispositivos > Conectar antes de enviar comandos.')
+      throw new Error('ButtonBox not connected. Use Devices > Connect before sending commands.')
     }
     return device
   }

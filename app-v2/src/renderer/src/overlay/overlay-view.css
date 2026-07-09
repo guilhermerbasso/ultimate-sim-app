@@ -483,7 +483,7 @@
   gap: 8px;
 }
 
-/* ─── "Criar novo overlay" widget builder ──────────────────────────────────── */
+/* ─── "Create new overlay" widget builder ──────────────────────────────────── */
 .overlay-designer.overlay-builder {
   width: min(1320px, 100%);
 }

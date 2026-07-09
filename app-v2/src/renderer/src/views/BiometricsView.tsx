@@ -78,16 +78,16 @@ function stressColor(state?: StressState): string {
 }
 
 function stressLabel(state?: StressState): string {
-  if (state === 'calm') return 'Calmo'
-  if (state === 'elevated') return 'Elevado'
-  if (state === 'stressed') return 'Sob estresse'
+  if (state === 'calm') return 'Calm'
+  if (state === 'elevated') return 'Elevated'
+  if (state === 'stressed') return 'Stressed'
   return '—'
 }
 
 function interpretation(value?: PaceHrInterpretation): { text: string; color: string } {
-  if (value === 'calmer-is-faster') return { text: 'Mais calmo = mais rápido', color: COOL }
-  if (value === 'harder-is-faster') return { text: 'Mais intenso = mais rápido', color: WARN }
-  return { text: 'Dados insuficientes', color: 'var(--text-muted)' }
+  if (value === 'calmer-is-faster') return { text: 'Calmer = faster', color: COOL }
+  if (value === 'harder-is-faster') return { text: 'Harder = faster', color: WARN }
+  return { text: 'Not enough data', color: 'var(--text-muted)' }
 }
 
 function calmColor(score: number): string {
@@ -199,7 +199,7 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
     setBleError(null)
     const bluetooth = getBluetooth()
     if (!bluetooth) {
-      setBleError('Web Bluetooth não está disponível neste dispositivo/SO.')
+      setBleError('Web Bluetooth is not available on this device/OS.')
       return
     }
     try {
@@ -208,7 +208,7 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
         optionalServices: [BLE_HEART_RATE_SERVICE]
       })
       const server = await device.gatt?.connect()
-      if (!server) throw new Error('GATT indisponível.')
+      if (!server) throw new Error('GATT unavailable.')
       const service = await server.getPrimaryService(BLE_HEART_RATE_SERVICE)
       const characteristic = await service.getCharacteristic(BLE_HEART_RATE_MEASUREMENT)
       await characteristic.startNotifications()
@@ -251,29 +251,29 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
                   : {})
               }}
             >
-              {kind === 'mock' ? 'Mock (sem hardware)' : 'BLE (monitor real)'}
+              {kind === 'mock' ? 'Mock (no hardware)' : 'BLE (real monitor)'}
             </button>
           ))}
         </div>
 
         {running ? (
           <button type="button" style={{ ...primaryButton, background: BAD }} onClick={() => void stop()}>
-            Parar
+            Stop
           </button>
         ) : (
           <button type="button" style={primaryButton} onClick={() => void start(sourceKind)}>
-            Iniciar {sourceKind === 'mock' ? 'mock' : 'BLE'}
+            Start {sourceKind === 'mock' ? 'mock' : 'BLE'}
           </button>
         )}
 
         {sourceKind === 'ble' ? (
           <button type="button" style={ghostButton} onClick={() => void pairBle()} disabled={!bleSupported}>
-            Parear monitor BLE
+            Pair BLE monitor
           </button>
         ) : null}
 
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 16, alignItems: 'center' }}>
-          <span style={label}>Fonte</span>
+          <span style={label}>Source</span>
           <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
             {status?.sourceKind === 'ble' ? 'BLE 0x180D' : 'Mock'}
           </span>
@@ -304,7 +304,7 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
       {/* ── Live HR + AR preview ───────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 0.8fr) minmax(320px, 1.2fr)', gap: 18, alignItems: 'start' }}>
         <div style={{ ...panel, display: 'grid', gap: 14 }}>
-          <span style={label}>Frequência cardíaca {status?.sourceKind === 'mock' ? '(simulada)' : '(BLE)'}</span>
+          <span style={label}>Heart rate {status?.sourceKind === 'mock' ? '(yesulated)' : '(BLE)'}</span>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
             <span style={{ fontSize: 72, fontWeight: 700, lineHeight: 1, color: stressColor(state), fontVariantNumeric: 'tabular-nums' }}>
               {bpm ?? '—'}
@@ -312,13 +312,13 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
             <span style={{ ...label, fontSize: 16 }}>BPM</span>
           </div>
           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-            <Stat title="Estado" value={stressLabel(state)} color={stressColor(state)} />
+            <Stat title="State" value={stressLabel(state)} color={stressColor(state)} />
             <Stat title="Baseline" value={status?.baselineBpm ? `${status.baselineBpm} BPM` : '—'} />
-            <Stat title="Amostras" value={String(status?.sampleCount ?? 0)} />
+            <Stat title="Samples" value={String(status?.sampleCount ?? 0)} />
           </div>
           {intensity !== undefined && (
             <div style={{ display: 'grid', gap: 6 }}>
-              <span style={label}>Intensidade de pilotagem</span>
+              <span style={label}>Driving intensity</span>
               <div style={{ height: 8, borderRadius: 4, background: 'var(--surface-sunken)', overflow: 'hidden' }}>
                 <div style={{ width: `${Math.round(intensity * 100)}%`, height: '100%', background: COOL }} />
               </div>
@@ -328,37 +328,37 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
 
         <div style={{ ...panel, display: 'grid', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={label}>Pré-visualização do AR HUD</span>
+            <span style={label}>AR HUD preview</span>
             <button type="button" style={ghostButton} onClick={() => setArFullscreen(true)}>
-              Tela cheia
+              Full screen
             </button>
           </div>
           <ArHudPreview bpm={bpm} state={state} />
           <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-            Layout de alto contraste otimizado para óculos AR / passthrough (preto = transparente em telas
-            ópticas). Requer hardware AR para uso real.
+            High-contrast layout optimized for AR glasses / passthrough (black = transparent on optical
+            displays). Requires AR hardware for real use.
           </span>
         </div>
       </div>
 
-      {/* ── Correlation / analysis ─────────────────────────────────────────── */}
+      {/* ── Colorrelation / analysis ─────────────────────────────────────────── */}
       <div style={{ ...panel, display: 'grid', gap: 16 }}>
-        <span style={label}>Correlação estresse × ritmo</span>
+        <span style={label}>Stress × pace correlation</span>
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-          <Stat title="Leitura" value={interp.text} color={interp.color} />
+          <Stat title="Reading" value={interp.text} color={interp.color} />
           <Stat title="Pearson (HR × tempo)" value={corr ? corr.pearson.toFixed(2) : '—'} />
           <Stat
-            title="Calmo sob pressão"
+            title="Calm under pressure"
             value={calm ? `${calm.score}/100` : '—'}
             color={calm ? calmColor(calm.score) : undefined}
           />
-          <Stat title="Voltas analisadas" value={String(laps.length)} />
-          <Stat title="Picos de estresse" value={String(spikes.length)} />
+          <Stat title="Laps analyzed" value={String(laps.length)} />
+          <Stat title="Stress spikes" value={String(spikes.length)} />
         </div>
 
         {laps.length > 0 && (
           <div style={{ display: 'grid', gap: 6 }}>
-            <span style={label}>Voltas (HR média × tempo)</span>
+            <span style={label}>Laps (average HR × time)</span>
             <div style={{ display: 'grid', gap: 4 }}>
               {laps.slice(-8).map((lap) => (
                 <div
@@ -392,13 +392,13 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
 
         {spikes.length > 0 && (
           <div style={{ display: 'grid', gap: 6 }}>
-            <span style={label}>Picos de estresse alinhados a eventos</span>
+            <span style={label}>Stress spikes aligned with events</span>
             {spikes.slice(-6).map((spike, index) => (
               <div key={`${spike.t}-${index}`} style={{ display: 'flex', gap: 12, color: 'var(--text-secondary)', fontSize: 13 }}>
                 <span style={{ color: BAD, fontWeight: 600 }}>+{spike.deltaBpm} BPM</span>
                 <span>{spike.peakBpm} BPM (base {spike.baselineBpm})</span>
                 <span style={{ color: 'var(--text-muted)' }}>
-                  {spike.event ? `↔ ${spike.event.label ?? spike.event.kind}` : 'sem evento próximo'}
+                  {spike.event ? `↔ ${spike.event.label ?? spike.event.kind}` : 'no nearby event'}
                 </span>
               </div>
             ))}
@@ -407,7 +407,7 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
 
         {!running && (
           <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>
-            Inicie uma sessão (mock funciona sem hardware) para coletar HR e correlacionar com o ritmo das voltas.
+            Start a session (mock works without hardware) to collect HR and correlate it with lap pace.
           </span>
         )}
       </div>
@@ -421,7 +421,7 @@ export default function BiometricsView(_props: AppViewProps): ReactElement {
             onClick={() => setArFullscreen(false)}
             style={{ ...ghostButton, position: 'fixed', top: 16, right: 16, zIndex: 1001, background: 'rgba(0,0,0,0.6)' }}
           >
-            Fechar AR
+            Close AR
           </button>
         </div>
       )}

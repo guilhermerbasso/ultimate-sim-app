@@ -3,7 +3,6 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { CustomOverlayListItem, OverlayListItem } from '../../shared/overlays'
-import { OVERLAY_WIDGETS } from '../../shared/overlays'
 import type { ModuleContext } from '../module-context'
 
 const CONFIG_FILE = 'compositor.json'
@@ -55,7 +54,10 @@ function isCompositorHitPayload(value: unknown): value is CompositorHitPayload {
 function isLegacyOverlayWindow(win: BrowserWindow): boolean {
   if (win.isDestroyed()) return false
   const title = win.getTitle()
-  return OVERLAY_WIDGETS.some((widget) => title === `Overlay ${widget.id}`)
+  // Every managed per-widget overlay window is titled `Overlay <id>` (legacy,
+  // HIFI `hifi:*`, and custom overlays alike). Exclude the compositor windows,
+  // which are titled `Overlay compositor <displayId>`.
+  return title.startsWith('Overlay ') && !title.startsWith('Overlay compositor ')
 }
 
 export class OverlayCompositorManager {

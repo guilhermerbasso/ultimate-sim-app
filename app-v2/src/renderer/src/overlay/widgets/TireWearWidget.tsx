@@ -127,7 +127,7 @@ export function TireWearWidget({ snapshot, config }: WidgetProps): ReactElement 
     >
       <rect x={1} y={1} width={W - 2} height={H - 2} rx={material.radius} fill={material.base} stroke={material.border} strokeWidth={material.borderWidth} />
 
-      <FitText x={headerRect.x} y={headerRect.y + headerRect.h / 2} boxW={headerRect.w * 0.62} boxH={headerRect.h * 0.9} text="VIDA DOS PNEUS" anchor="start" fontFamily={typography.label} fill={palette.textDim} weight={800} letterSpacing={1.4} minFontPx={11} maxFontPx={18} />
+      <FitText x={headerRect.x} y={headerRect.y + headerRect.h / 2} boxW={headerRect.w * 0.62} boxH={headerRect.h * 0.9} text="TIRE LIFE" anchor="start" fontFamily={typography.label} fill={palette.textDim} weight={800} letterSpacing={1.4} minFontPx={11} maxFontPx={18} />
       <FitText x={headerRect.x + headerRect.w} y={headerRect.y + headerRect.h / 2} boxW={headerRect.w * 0.34} boxH={headerRect.h * 0.82} text={`PIOR ${cornerName(worst?.corner)}`} anchor="end" fontFamily={typography.label} fill={worst?.color ?? palette.text} weight={700} minFontPx={11} maxFontPx={15} />
 
       {cards.map((c, i) => (
@@ -135,7 +135,7 @@ export function TireWearWidget({ snapshot, config }: WidgetProps): ReactElement 
       ))}
 
       <line x1={footerRect.x} y1={footerRect.y} x2={footerRect.x + footerRect.w} y2={footerRect.y} stroke={material.border} strokeWidth={1} />
-      <FitText x={footerRect.x} y={footerRect.y + footerRect.h / 2 + 3} boxW={footThird - 4} boxH={footerRect.h * 0.7} text={`${numberOrDash(lapsLeft, 1)} voltas`} anchor="start" fontFamily={typography.label} fill={palette.text} weight={700} minFontPx={11} maxFontPx={15} />
+      <FitText x={footerRect.x} y={footerRect.y + footerRect.h / 2 + 3} boxW={footThird - 4} boxH={footerRect.h * 0.7} text={`${numberOrDash(lapsLeft, 1)} laps`} anchor="start" fontFamily={typography.label} fill={palette.text} weight={700} minFontPx={11} maxFontPx={15} />
       <FitText x={footerRect.x + footThird + footThird / 2} y={footerRect.y + footerRect.h / 2 + 3} boxW={footThird - 4} boxH={footerRect.h * 0.7} text={`limite ${numberOrDash(threshold, 0)}%`} anchor="middle" fontFamily={typography.label} fill={palette.textDim} weight={600} minFontPx={11} maxFontPx={14} />
       <FitText x={footerRect.x + footerRect.w} y={footerRect.y + footerRect.h / 2 + 3} boxW={footThird - 4} boxH={footerRect.h * 0.7} text={source} anchor="end" fontFamily={typography.label} fill={palette.accent} weight={700} minFontPx={11} maxFontPx={14} />
     </svg>

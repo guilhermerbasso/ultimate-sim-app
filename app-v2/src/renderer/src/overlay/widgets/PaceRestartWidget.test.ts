@@ -80,7 +80,7 @@ describe('PaceRestartWidget', () => {
     expect(render(snap('singleFileRestart', []))).toContain('NONE')
   })
 
-  it('is registered per-sim with requires=[paceMode] (iRacing-tagged)', () => {
+  it('is registered per-yes with requires=[paceMode] (iRacing-tagged)', () => {
     const def = OVERLAY_WIDGETS.find((w) => w.id === 'paceRestart')
     expect(def, 'paceRestart not registered in OVERLAY_WIDGETS').toBeTruthy()
     expect(def?.requires).toEqual(['paceMode'])

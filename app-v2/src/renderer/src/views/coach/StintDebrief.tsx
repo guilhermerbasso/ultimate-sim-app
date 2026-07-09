@@ -8,7 +8,7 @@ import {
 import { speakViaTts } from '../../lib/tts-runtime'
 import type { DebriefReason, StintDebrief } from '../../../../shared/stint-debrief'
 
-// Stint/session DEBRIEF panel (WS-I). Mounted in the Coach IA at the
+// Stint/session DEBRIEF panel (WS-I). Mounted in the AI Coach at the
 // `StintDebriefSeam` left by WS-D. Shows the deterministic pt-BR debrief (text +
 // bullets) folded from the Coach findings + Predictions, with a "Gerar debrief"
 // button (optionally LLM-phrased) and an "Ouvir" button that speaks it through
@@ -81,8 +81,8 @@ function bulletColor(text: string): string {
 }
 
 function reasonLabel(reason: DebriefReason): string {
-  if (reason === 'session-end') return 'Fim de sessão'
-  if (reason === 'stint-end') return 'Fim de stint'
+  if (reason === 'session-end') return 'Session end'
+  if (reason === 'stint-end') return 'Stint end'
   return 'Sob demanda'
 }
 
@@ -146,14 +146,14 @@ export default function StintDebrief(): ReactElement {
         </button>
         <label style={toggle}>
           <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />
-          Frasear com IA
+          Phrase with AI
         </label>
       </div>
 
       {debrief ? (
         <div style={card}>
           <span style={eyebrow}>
-            {reasonLabel(debrief.reason)} · {debrief.source === 'llm' ? 'IA' : 'determinístico'}
+            {reasonLabel(debrief.reason)} · {debrief.source === 'llm' ? 'IA' : 'deterministico'}
           </span>
           <p style={bodyText}>{debrief.text}</p>
           {debrief.bullets.length > 0 ? (
@@ -168,7 +168,7 @@ export default function StintDebrief(): ReactElement {
         </div>
       ) : (
         <p style={mutedText}>
-          O resumo do stint/sessão aparece aqui ao final de cada stint, ou clique em “Gerar debrief”.
+          The stint/session summary appears here at the end of each stint, or click ?Generate debrief?.
         </p>
       )}
     </div>

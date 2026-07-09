@@ -10,10 +10,10 @@ import {
 import type { Corners, Flags, TelemetrySnapshot, TyreInfo } from '../../shared/telemetry'
 
 const FLAG_LABELS: Partial<Record<keyof Flags, string>> = {
-  blue: 'Bandeira azul',
-  yellow: 'Bandeira amarela',
-  black: 'Bandeira preta',
-  meatball: 'Bandeira preta e laranja'
+  blue: 'Blue flag',
+  yellow: 'Yellow flag',
+  black: 'Black flag',
+  meatball: 'Black-and-orange flag'
 }
 
 const WATCHED_FLAGS = Object.keys(FLAG_LABELS) as Array<keyof Flags>
@@ -168,7 +168,7 @@ export class AlertsDetector {
       this.fire(
         rule,
         'lowFuel',
-        `Combustível baixo: ${fuelLaps.toFixed(1)} voltas restantes`,
+        `Fuel is low: ${fuelLaps.toFixed(1)} laps remaining`,
         key,
         snapshot.timestamp,
         events,
@@ -246,12 +246,12 @@ export class AlertsDetector {
       const key = `tyrePressure:${corner}`
       this.state.activeNow.set(key, rule.enabled && out)
       if (rule.enabled && out && this.state.tyrePressureOut[corner] !== true) {
-        const direction = pressure < minKpa ? 'baixa' : 'alta'
+        const direction = pressure < minKpa ? 'baixa' : 'high'
         const threshold = pressure < minKpa ? minKpa : maxKpa
         this.fire(
           rule,
           'tyrePressure',
-          `Pressão ${direction} no ${CORNER_LABELS[corner]}: ${(pressure as number).toFixed(0)} kPa`,
+          `Pressure ${direction} on ${CORNER_LABELS[corner]}: ${(pressure as number).toFixed(0)} kPa`,
           key,
           snapshot.timestamp,
           events,
@@ -282,7 +282,7 @@ export class AlertsDetector {
       maxC,
       this.state.tyreTempOver,
       (corner, value) =>
-        `Pneu quente no ${CORNER_LABELS[corner]}: ${(value as number).toFixed(0)} °C`,
+        `Hot tire on ${CORNER_LABELS[corner]}: ${(value as number).toFixed(0)} °C`,
       snapshot.timestamp,
       events
     )
@@ -307,7 +307,7 @@ export class AlertsDetector {
       maxC,
       this.state.brakeTempOver,
       (corner, value) =>
-        `Freio quente no ${CORNER_LABELS[corner]}: ${(value as number).toFixed(0)} °C`,
+        `Hot brake on ${CORNER_LABELS[corner]}: ${(value as number).toFixed(0)} °C`,
       snapshot.timestamp,
       events
     )
@@ -348,7 +348,7 @@ export class AlertsDetector {
     const key = 'drsAvailable'
     this.state.activeNow.set(key, rule.enabled && active)
     if (rule.enabled && active && this.state.drsAvailable !== true) {
-      this.fire(rule, 'drsAvailable', 'DRS disponível', key, snapshot.timestamp, events)
+      this.fire(rule, 'drsAvailable', 'DRS available', key, snapshot.timestamp, events)
     }
     this.state.drsAvailable = active
   }
@@ -363,7 +363,7 @@ export class AlertsDetector {
     // detectFlags() (run earlier in process()) already overwrote this tick, so
     // reading it here would make the guard permanently false.
     if (rule.enabled && active && this.state.blueFlagActive !== true) {
-      this.fire(rule, 'blueFlag', 'Carro mais rápido se aproximando (azul)', key, snapshot.timestamp, events)
+      this.fire(rule, 'blueFlag', 'Faster car approaching (blue flag)', key, snapshot.timestamp, events)
     }
     this.state.blueFlagActive = active
   }
@@ -384,7 +384,7 @@ export class AlertsDetector {
       this.fire(
         ruleInfo.rule,
         ruleInfo.type,
-        ruleInfo.repeatMessage ?? ruleInfo.lastMessage ?? `Alerta ${ruleInfo.type} ainda ativo`,
+        ruleInfo.repeatMessage ?? ruleInfo.lastMessage ?? `Alert ${ruleInfo.type} still active`,
         key,
         now,
         events,

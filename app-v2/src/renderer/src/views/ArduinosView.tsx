@@ -67,9 +67,9 @@ const TABS: Array<{ id: TabId; label: string; eyebrow: string; description: stri
   {
     id: 'myHardware',
     label: 'Hardware',
-    eyebrow: 'Dispositivos',
-    description: 'Gerencie perfis de hardware, componentes (LEDs, telas, encoders), firmware e monitor serial.',
-    emptyText: 'Nenhum componente ainda. Adicione qualquer módulo estilo SimHub a este Arduino.'
+    eyebrow: 'Devices',
+    description: 'Manage hardware profiles, components (LEDs, screens, encoders), firmware, and serial monitor.',
+    emptyText: 'No components yet. Add any SimHub-style module to this Arduino.'
   },
   {
     id: 'esp32',
@@ -89,7 +89,7 @@ const TABS: Array<{ id: TabId; label: string; eyebrow: string; description: stri
     id: 'rgbMatrix',
     label: 'iFlag Matrix',
     eyebrow: 'iFlag',
-    description: 'Editor da matriz iFlag 8×8 — layout, mapa de pixels e pilha de efeitos. Configuração separada dos perfis de hardware.',
+    description: 'iFlag 8×8 matrix editor — layout, pixel map, and effect stack. Configuration is separate from hardware profiles.',
     emptyText: 'No RGB matrix configured yet.'
   },
   {
@@ -142,17 +142,17 @@ const TAB_COMPONENTS: Partial<Record<TabId, ComponentType[]>> = {
 const TAB_GROUPS: Array<{ title: string; description: string; ids: TabId[] }> = [
   {
     title: 'Hardware',
-    description: 'Perfis, firmware, conexões, monitor serial e Wi-Fi.',
+    description: 'Profiles, firmware, connections, serial console, and Wi-Fi.',
     ids: ['myHardware', 'esp32']
   },
   {
-    title: 'Saídas visuais',
-    description: 'LEDs, matriz iFlag, telas e alertas.',
+    title: 'Visual outputs',
+    description: 'LEDs, iFlag matrix, screens, and alerts.',
     ids: ['rgbLeds', 'rgbMatrix', 'screens', 'tm1638', 'displayAlerts']
   },
   {
-    title: 'E/S físicas',
-    description: 'Ponteiros, botões, encoders e eixos analógicos.',
+    title: 'Physical I/O',
+    description: 'Pointers, buttons, encoders, and analog axes.',
     ids: ['gauges', 'controls']
   }
 ]
@@ -187,8 +187,8 @@ function findActiveDevice(devices: SerialDeviceSummary[], id: string | null): Se
 
 function defaultActiveDeviceId(devices: SerialDeviceSummary[]): string | null {
   if (devices.length === 0) return null
-  const simx = devices.find((device) => device.kind === 'sim-x')
-  return (simx ?? devices[0]).id
+  const yesx = devices.find((device) => device.kind === 'sim-x')
+  return (yesx ?? devices[0]).id
 }
 
 export default function ArduinosView({
@@ -460,14 +460,14 @@ export default function ArduinosView({
       const device = await window.api.connect(selectedPath)
       setConnectedDevice(device)
       await refreshDeviceState()
-    }, `SIM-X conectado em ${selectedPath}.`)
+    }, `SIM-X connected on ${selectedPath}.`)
   }
 
   async function disconnect(): Promise<void> {
     await run(async () => {
       await window.api.disconnect()
       setConnectedDevice(null)
-    }, 'Porta serial liberada. O SimHub pode usá-la novamente.')
+    }, 'Serial port released. SimHub can use it again.')
   }
 
   async function reloadConfigs(): Promise<void> {
@@ -489,14 +489,14 @@ export default function ArduinosView({
       })
       await reloadConfigs()
       setActiveDeviceId(summary.id)
-    }, `Dispositivo "${input.label || input.path}" adicionado.`)
+    }, `Device "${input.label || input.path}" added.`)
   }
 
   async function removeGenericDevice(id: string): Promise<void> {
     await run(async () => {
       await window.ipc.invoke(ARDUINO_CHANNELS.removeDevice, id)
       await reloadConfigs()
-    }, 'Dispositivo removido da lista.')
+    }, 'Device removed from the list.')
   }
 
   async function reconnectGenericDevice(id: string): Promise<void> {
@@ -602,7 +602,7 @@ export default function ArduinosView({
   function setThreshold(value: EncoderDetentThreshold): void {
     void run(async () => {
       await window.ipc.invoke('arduino:setEncoderThreshold', value)
-    }, `Threshold de detente do encoder = ${value}.`)
+    }, `Encoder detent threshold = ${value}.`)
   }
 
   async function saveRoute(route: OutputRoute): Promise<void> {
@@ -704,7 +704,7 @@ export default function ArduinosView({
           </div>
         ))}
         <span className={connected ? 'conn-pill online' : 'conn-pill offline'}>
-          {connected ? `● ${connectedDevice?.path}` : '○ Desconectado'}
+          {connected ? `● ${connectedDevice?.path}` : '○ Disconnected'}
         </span>
       </nav>
 
@@ -719,9 +719,9 @@ export default function ArduinosView({
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {(
                   [
-                    ['devices', 'Dispositivos & Perfis', 'Gerencie perfis, componentes e firmware dos seus Arduinos'],
-                    ['monitor', 'Monitor Serial', 'Acompanhe o tráfego serial RX/TX em tempo real'],
-                    ['info', 'Conexões & Firmware', 'Conecte/desconecte portas seriais e veja referências de firmware']
+                    ['devices', 'Devices & Profiles', 'Gerencie perfis, componentes e firmware dos seus Arduinos'],
+                    ['monitor', 'Serial Console', 'Track RX/TX serial traffic in real time'],
+                    ['info', 'Connections & Firmware', 'Connect/disconnect serial ports and view firmware references']
                   ] as [HwSection, string, string][]
                 ).map(([id, lbl, hint]) => (
                   <button
@@ -737,11 +737,11 @@ export default function ArduinosView({
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-              <SectionExportImport sectionId="serial-devices" label="Dispositivos seriais" onImported={() => void reloadFleet()} />
+              <SectionExportImport sectionId="serial-devices" label="Devices seriais" onImported={() => void reloadFleet()} />
             </div>
           </article>
 
-          {/* ── Dispositivos & Perfis ─────────────────────────────────────────── */}
+          {/* ── Devices & Profiles ─────────────────────────────────────────── */}
           {hwSection === 'devices' && (
             <HardwareWorkspace
               showToast={showToast}
@@ -755,7 +755,7 @@ export default function ArduinosView({
             />
           )}
 
-          {/* ── Monitor Serial ────────────────────────────────────────────────── */}
+          {/* ── Serial Console ────────────────────────────────────────────────── */}
           {hwSection === 'monitor' && (
             <MonitorPanel
               entries={visibleLog}
@@ -783,7 +783,7 @@ export default function ArduinosView({
             />
           )}
 
-          {/* ── Conexões & Firmware ───────────────────────────────────────────── */}
+          {/* ── Connections & Firmware ───────────────────────────────────────────── */}
           {hwSection === 'info' && (
             <>
               <DevicesPanel
@@ -818,9 +818,9 @@ export default function ArduinosView({
           <article className="panel-card" style={{ padding: '10px 18px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
               <p style={{ margin: 0, fontSize: 12.5, color: 'rgba(255,255,255,0.65)' }}>
-                <strong style={{ color: 'var(--accent-primary)' }}>Editor do iFlag Matrix</strong>
-                {' '}— configure o layout, mapa de pixels e a pilha de efeitos do painel 8×8.{' '}
-                Para vincular a porta serial e ativar o componente, use a aba{' '}
+                <strong style={{ color: 'var(--accent-primary)' }}>iFlag Matrix editor</strong>
+                {' '}? configure the 8?8 panel layout, pixel map, and effect stack.{' '}
+                To bind the serial port and enable the component, use the{' '}
                 <button
                   type="button"
                   style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer', fontSize: 'inherit', padding: 0, textDecoration: 'underline' }}
@@ -864,9 +864,9 @@ export default function ArduinosView({
               <article className="panel-card" style={{ padding: '10px 18px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                   <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 1.5, textTransform: 'uppercase', color: 'rgba(255,255,255,0.45)' }}>
-                    Roteamento de saídas
+                    Output routing
                   </span>
-                  <SectionExportImport sectionId="output-routes" label="Roteamento de saídas" onImported={() => void reloadRoutes()} />
+                  <SectionExportImport sectionId="output-routes" label="Output routing" onImported={() => void reloadRoutes()} />
                 </div>
               </article>
               <OutputsPanel
@@ -893,7 +893,7 @@ export default function ArduinosView({
                 onRecalibrate={() =>
                   void run(
                     () => window.ipc.invoke('arduino:flipRecalibrate') as Promise<void>,
-                    'Recalibração do flip cover enviada (FC).'
+                    'Flip cover recalibration sent (FC).'
                   )
                 }
               />
@@ -905,7 +905,7 @@ export default function ArduinosView({
   )
 }
 
-// ─── Dispositivos ──────────────────────────────────────────────────────────────
+// ─── Devices ──────────────────────────────────────────────────────────────
 interface DevicesPanelProps {
   ports: PortInfo[]
   selectedPath: string
@@ -965,19 +965,19 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
       <article className="panel-card">
         <div className="panel-heading-row">
           <div>
-            <span className="panel-label">SIM-X principal · 115200 8N1</span>
-            <h3>Button Box primário</h3>
+            <span className="panel-label">Primary SIM-X · 115200 8N1</span>
+            <h3>Primary Button Box</h3>
           </div>
           <button className="ghost-action compact" disabled={busy} onClick={onSearch} type="button">
-            Procurar
+            Scan
           </button>
         </div>
         <p className="helper-text">
-          A porta serial é exclusiva: feche o SimHub antes de conectar pelo app. O Pro Micro enumera como “Arduino
-          Leonardo”; a etiqueta SIM-X é só uma sugestão — escolha a COM correta se nenhuma vier marcada.
+          The serial port is exclusive: close SimHub before connecting through the app. The Pro Micro enumerates as “Arduino
+          Leonardo”; the SIM-X tag is only a suggestion — choose the correct COM port if none is preselected.
         </p>
         <div className="port-list">
-          {ports.length === 0 && <p className="empty-state">Clique em “Procurar” para listar as portas seriais.</p>}
+          {ports.length === 0 && <p className="empty-state">Click “Scan” to list serial ports.</p>}
           {ports.map((port) => (
             <label className={`port-item ${selectedPath === port.path ? 'is-selected' : ''}`} key={port.path}>
               <input
@@ -995,10 +995,10 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
                     </em>
                   )}
                 </strong>
-                <small>{port.friendlyName || port.manufacturer || 'Fabricante não identificado'}</small>
+                <small>{port.friendlyName || port.manufacturer || 'Unknown manufacturer'}</small>
                 {(port.vendorId || port.productId) && (
                   <small>
-                    VID:{port.vendorId || '????'} · PID:{port.productId || '????'}
+                    VID:{port.vendorId || '?'} · PID:{port.productId || '?'}
                   </small>
                 )}
               </span>
@@ -1012,7 +1012,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
             onClick={onConnect}
             type="button"
           >
-            Conectar SIM-X
+            Connect SIM-X
           </button>
           <button className="ghost-action" disabled={busy || !connected} onClick={onDisconnect} type="button">
             Desconectar
@@ -1023,17 +1023,17 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
       <article className="panel-card">
         <div className="panel-heading-row">
           <div>
-            <span className="panel-label">Frota de Arduinos · multi-device</span>
-            <h3>Dispositivos seriais ativos</h3>
+            <span className="panel-label">Arduino fleet ?? multi-device</span>
+            <h3>Devices seriais ativos</h3>
           </div>
         </div>
         <p className="helper-text">
-          Adicione outros Arduinos/CDC para uso com a aba <strong>Custom Serial</strong> (saídas) e a aba{' '}
-          <strong>Inputs</strong> (botões/encoders/analógicos via protocolo companion).
+          Add other Arduinos/CDC devices for use with the <strong>Custom Serial</strong> tab (outputs) and the tab{' '}
+          <strong>Inputs</strong> (buttons/encoders/analog inputs via companion protocol).
         </p>
         <div className="port-list">
           {devices.length === 0 && (
-            <p className="empty-state">Nenhum dispositivo aberto. Conecte o SIM-X acima ou adicione um genérico abaixo.</p>
+            <p className="empty-state">No device open. Connect SIM-X above or add a generic device below.</p>
           )}
           {devices.map((device) => {
             const isActive = device.id === activeDeviceId
@@ -1099,7 +1099,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
                         onClick={() => onRemoveDevice(device.id)}
                         type="button"
                       >
-                        Remover
+                        Remove
                       </button>
                     </>
                   )}
@@ -1112,7 +1112,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
         {offlinePersisted.length > 0 && (
           <>
             <div className="config-block">
-              <strong>Persistidos (auto-conectar na inicialização)</strong>
+              <strong>Persisted (auto-connect on startup)</strong>
               <ul className="plain-list">
                 {offlinePersisted.map((config) => (
                   <li key={`${config.path}-${config.id ?? ''}`}>
@@ -1148,8 +1148,8 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
 
         {canAddDevices && (
         <div className="config-block">
-          <strong>Adicionar dispositivo genérico</strong>
-          <small>Use o protocolo companion (T/N/R/B/M/L/C → device; B/E/A → app).</small>
+          <strong>Add generic device</strong>
+          <small>Use the companion protocol (T/N/R/B/M/L/C → device; B/E/A → app).</small>
           <form
             className="command-row"
             style={{ flexWrap: 'wrap', gap: 8, position: 'relative', zIndex: 1 }}
@@ -1180,7 +1180,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
               }}
               style={{ minWidth: 200, position: 'relative', zIndex: 1 }}
             >
-              <option value="">Selecione uma porta…</option>
+              <option value="">Select a port…</option>
               {ports.map((port) => (
                 <option key={port.path} value={port.path}>
                   {port.path} {port.friendlyName ? `· ${port.friendlyName}` : ''}
@@ -1190,7 +1190,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
             <input
               className="command-input"
               type="text"
-              placeholder="Rótulo (ex.: OLED externo)"
+              placeholder="Label (e.g., external OLED)"
               value={addLabel}
               onChange={(event) => setAddLabel(event.target.value)}
               style={{ minWidth: 180 }}
@@ -1206,7 +1206,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
               style={{ width: 120 }}
             />
             <button className="primary-action" type="submit" disabled={busy || !addPath.trim()}>
-              Adicionar
+              Add
             </button>
           </form>
         </div>
@@ -1216,7 +1216,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
   )
 }
 
-// ─── Monitor Serial ─────────────────────────────────────────────────────────────
+// ─── Serial Console ─────────────────────────────────────────────────────────────
 interface MonitorPanelProps {
   entries: SerialLogEntry[]
   connected: boolean
@@ -1266,8 +1266,8 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
     <article className="panel-card">
       <div className="panel-heading-row">
         <div>
-          <span className="panel-label">Tráfego serial · RX/TX</span>
-          <h3>Monitor Serial · {activeDevice?.label ?? 'sem dispositivo'}</h3>
+          <span className="panel-label">Serial traffic · RX/TX</span>
+          {devices.length === 0 && <option value="">— no connected devices —</option>}
         </div>
         <div className="action-row compact-row" style={{ position: 'relative', zIndex: 1 }}>
           <select
@@ -1276,7 +1276,7 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
             onChange={(event) => setActiveDeviceId(event.target.value)}
             style={{ minWidth: 180, position: 'relative', zIndex: 1 }}
           >
-            {devices.length === 0 && <option value="">— sem dispositivos —</option>}
+            {devices.length === 0 && <option value="">— no connected devices —</option>}
             {devices.map((device) => (
               <option key={device.id} value={device.id}>
                 {device.label} ({device.kind})
@@ -1302,8 +1302,8 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
         </label>
         {showHideEngine && (
           <label className="inline-check">
-            <input type="checkbox" checked={hideEngine} onChange={(e) => setHideEngine(e.target.checked)} /> Ocultar
-            stream do engine (R/B/O/D)
+            <input type="checkbox" checked={hideEngine} onChange={(e) => setHideEngine(e.target.checked)} /> Hide
+            engine stream (R/B/O/D)
           </label>
         )}
       </div>
@@ -1312,8 +1312,8 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
         {entries.length === 0 && (
           <p className="empty-state">
             {connected
-              ? 'Sem tráfego ainda. Gire um encoder ou envie um comando.'
-              : 'Conecte o dispositivo para ver o tráfego serial.'}
+              ? 'No traffic yet. Turn an encoder or send a command.'
+              : 'Connect the device to see serial traffic.'}
           </p>
         )}
         {entries.map((entry) => (
@@ -1355,9 +1355,9 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
           placeholder={
             connected
               ? isPrimary
-                ? 'Comando bruto, ex.: R3, OSIM-X|linha2|linha3, ET4'
-                : 'Comando bruto, ex.: T0:HELLO, R75, L0:ff0000, C'
-              : 'Conecte para enviar comandos'
+                ? 'Raw command, e.g.: R3, OSIM-X|line2|line3, ET4'
+                : 'Raw command, e.g.: T0:HELLO, R75, L0:ff0000, C'
+              : 'Connect to send commands'
           }
           value={command}
           disabled={!connected || busy}
@@ -1370,12 +1370,12 @@ function MonitorPanel(props: MonitorPanelProps): ReactElement {
       <p className="helper-text">
         {isPrimary ? (
           <>
-            Comandos seguem o protocolo SimHub de uma letra (≤63 chars). RX mostra encoders (
-            <code>E&lt;idx&gt;:±1</code>) e ecos de debug do firmware.
+            Commands follow the one-letter SimHub protocol (?63 chars). RX shows encoders (
+            <code>E&lt;idx&gt;:?1</code>) and firmware debug echoes.
           </>
         ) : (
           <>
-            Dispositivo genérico fala o protocolo companion. Saída: <code>T/N/R/B/M/L/C</code>. Entrada (RX):{' '}
+            Generic device speaks the companion protocol. Output: <code>T/N/R/B/M/L/C</code>. Entrada (RX):{' '}
             <code>B&lt;idx&gt;:&lt;0|1&gt;</code>, <code>E&lt;idx&gt;:±1</code>, <code>A&lt;idx&gt;:&lt;0-1023&gt;</code>.
           </>
         )}
@@ -1396,26 +1396,26 @@ interface ConfigPanelProps {
 }
 
 function triState(value: boolean | null): string {
-  if (value === null) return '— (desconhecido)'
-  return value ? 'Ligado' : 'Desligado'
+  if (value === null) return '? (unknown)'
+  return value ? 'On' : 'Off'
 }
 
 function ConfigPanel(props: ConfigPanelProps): ReactElement {
   const { runtime, connected, busy, onThreshold, onToggleMux, onToggleFlip, onRecalibrate } = props
   return (
     <article className="panel-card">
-      <span className="panel-label">Ajustes em runtime · sem regravar</span>
-      <h3>Configuração do firmware</h3>
+      <span className="panel-label">Runtime adjustments ?? no reflash</span>
+      <h3>Firmware configuration</h3>
       {!connected && (
         <div className="notice-card warning">
-          <strong>Desconectado</strong>
-          <p>Conecte o ButtonBox na aba Dispositivos para aplicar ajustes. Eles são enviados ao firmware na hora.</p>
+          <strong>Disconnected</strong>
+          <p>Connect the ButtonBox on the Devices tab to apply adjustments. They are sent to firmware immediately.</p>
         </div>
       )}
 
       <div className="config-block">
         <div className="config-head">
-          <strong>Detente do encoder</strong>
+          <strong>Encoder detent</strong>
           <small>KY-040 (20 PPR) = 2 · EC11 (24 detentes) = 4. Se duplicar passos, suba o valor.</small>
         </div>
         <div className="segmented">
@@ -1436,7 +1436,7 @@ function ConfigPanel(props: ConfigPanelProps): ReactElement {
       <div className="config-block">
         <div className="config-head">
           <strong>Flip cover</strong>
-          <small>Estado confirmado pelo firmware: inversão {triState(runtime?.flipCoverInverted ?? null)}.</small>
+          <small>Firmware-confirmed state: inversion {triState(runtime?.flipCoverInverted ?? null)}.</small>
         </div>
         <div className="action-row">
           <button className="ghost-action" disabled={!connected || busy} onClick={onToggleFlip} type="button">
@@ -1450,9 +1450,9 @@ function ConfigPanel(props: ConfigPanelProps): ReactElement {
 
       <div className="config-block">
         <div className="config-head">
-          <strong>Debug do MUX</strong>
+          <strong>MUX debug</strong>
           <small>
-            Imprime C13/C14/C15 do MUX1 no monitor para checar wiring do ENC4. Estado: {triState(runtime?.muxDebug ?? null)}.
+            Prints MUX1 C13/C14/C15 to the console to check ENC4 wiring. State: {triState(runtime?.muxDebug ?? null)}.
           </small>
         </div>
         <button
@@ -1461,7 +1461,7 @@ function ConfigPanel(props: ConfigPanelProps): ReactElement {
           onClick={onToggleMux}
           type="button"
         >
-          Alternar debug do MUX (EM)
+          Toggle MUX debug (EM)
         </button>
       </div>
     </article>
@@ -1566,7 +1566,7 @@ function sourceSummary(source: OutputSource): string {
     case 'telemetry':
       return `telemetria · ${source.field}`
     case 'expression':
-      return `expressão · ${source.exprId}`
+      return `expression · ${source.exprId}`
     case 'literal':
       return `literal · ${source.value}`
     default:
@@ -1628,8 +1628,8 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
         <span className="panel-label">Custom Serial Device · presets + roteamento</span>
         <h3>Novo output</h3>
         <p className="helper-text">
-          Cada output é uma <code>OutputRoute</code> serial: o output-router lê a fonte, formata e envia o template do
-          preset (com <code>${'${value}'}</code> substituído) para o dispositivo escolhido a ≤20Hz.
+          Each output is a serial <code>OutputRoute</code>: the output router reads the source, formats it, and sends the preset
+          template (with <code>${'${value}'}</code> substituted) to the selected device at ?20Hz.
         </p>
 
         <form onSubmit={handleSubmit} className="config-block" style={{ display: 'grid', gap: 12 }}>
@@ -1658,13 +1658,13 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
           </div>
 
           <label>
-            <strong>Dispositivo de destino</strong>
+            <strong>Target device</strong>
             <select
               className="command-input"
               value={state.deviceId}
               onChange={(event) => setState({ ...state, deviceId: event.target.value })}
             >
-              {devices.length === 0 && <option value="">— sem dispositivos conectados —</option>}
+              {devices.length === 0 && <option value="">— no connected devices —</option>}
               {devices.map((device) => (
                 <option key={device.id} value={device.id}>
                   {device.label} ({device.id}) {device.connected ? '· ●' : '· ○'}
@@ -1674,7 +1674,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
           </label>
 
           <div style={{ display: 'grid', gap: 8 }}>
-            <strong>Fonte</strong>
+            <strong>Source</strong>
             <div className="segmented">
               {(['telemetry', 'expression', 'literal'] as const).map((kind) => (
                 <button
@@ -1683,7 +1683,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
                   className={state.sourceKind === kind ? 'segment active' : 'segment'}
                   onClick={() => setState({ ...state, sourceKind: kind })}
                 >
-                  {kind === 'telemetry' ? 'Telemetria' : kind === 'expression' ? 'Expressão' : 'Literal'}
+                  {kind === 'telemetry' ? 'Telemetry' : kind === 'expression' ? 'Expression' : 'Literal'}
                 </button>
               ))}
             </div>
@@ -1702,7 +1702,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
                 value={state.exprId}
                 onChange={(event) => setState({ ...state, exprId: event.target.value })}
               >
-                {expressions.length === 0 && <option value="">— nenhuma expressão definida —</option>}
+                {expressions.length === 0 && <option value="">— no expression defined —</option>}
                 {expressions.map((expr) => (
                   <option key={expr.id} value={expr.id}>
                     {expr.name} ({expr.id})
@@ -1714,7 +1714,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
               <input
                 className="command-input"
                 type="text"
-                placeholder="Valor literal (número ou string)"
+                placeholder="Literal value (number or string)"
                 value={state.literalValue}
                 onChange={(event) => setState({ ...state, literalValue: event.target.value })}
               />
@@ -1752,7 +1752,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
               />
             </label>
             <label>
-              <strong>Sufixo</strong>
+              <strong>Suffix</strong>
               <input
                 className="command-input"
                 type="text"
@@ -1763,11 +1763,11 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
           </div>
 
           <label>
-            <strong>Nome (opcional)</strong>
+            <strong>Name (optional)</strong>
             <input
               className="command-input"
               type="text"
-              placeholder="Auto: <preset> → <dispositivo>"
+              placeholder="Auto: <preset> → <device>"
               value={state.name}
               onChange={(event) => setState({ ...state, name: event.target.value })}
             />
@@ -1779,7 +1779,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
               className="primary-action"
               disabled={busy || !state.deviceId || !activePreset || !buildSource(state)}
             >
-              Salvar output
+              Save output
             </button>
           </div>
         </form>
@@ -1787,14 +1787,14 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
 
       <article className="panel-card">
         <span className="panel-label">Outputs serial ativos</span>
-        <h3>Roteador de saídas (custom)</h3>
+        <h3>Output router (custom)</h3>
         {customRoutes.length === 0 && (
-          <p className="empty-state">Nenhum custom serial output configurado ainda.</p>
+          <p className="empty-state">No custom serial output configured yet.</p>
         )}
         <ul className="plain-list">
           {customRoutes.map((route) => {
             const target = route.target as Extract<typeof route.target, { kind: 'serial' }>
-            const deviceLabel = devices.find((d) => d.id === target.deviceId)?.label ?? target.deviceId ?? 'primário'
+            const deviceLabel = devices.find((d) => d.id === target.deviceId)?.label ?? target.deviceId ?? 'primary'
             return (
               <li
                 key={route.id}
@@ -1820,7 +1820,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
                     )}
                   </strong>
                   <small>
-                    fonte: {sourceSummary(route.source)} · template <code>{target.template}</code>
+                    source: {sourceSummary(route.source)} ?? template <code>{target.template}</code>
                   </small>
                 </span>
                 <div className="action-row compact-row" style={{ marginTop: 0 }}>
@@ -1830,7 +1830,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
                     disabled={busy}
                     onClick={() => onToggle(route.id, !route.enabled)}
                   >
-                    {route.enabled ? 'Desativar' : 'Ativar'}
+                    {route.enabled ? 'Disable' : 'Enable'}
                   </button>
                   <button
                     className="ghost-action compact danger"
@@ -1838,7 +1838,7 @@ function OutputsPanel(props: OutputsPanelProps): ReactElement {
                     disabled={busy}
                     onClick={() => onDelete(route.id)}
                   >
-                    Excluir
+                    Delete
                   </button>
                 </div>
               </li>
@@ -1862,15 +1862,15 @@ function InputsPanel(props: InputsPanelProps): ReactElement {
 
   return (
     <article className="panel-card">
-      <span className="panel-label">Companion protocol · botões/encoders/analógicos</span>
+      <span className="panel-label">Companion protocol · buttons/encoders/analog inputs</span>
       <h3>Inputs ativos</h3>
       <p className="helper-text">
-        Lê as linhas RX dos dispositivos genéricos no formato <code>B&lt;idx&gt;:&lt;0|1&gt;</code>,{' '}
-        <code>E&lt;idx&gt;:±1</code> e <code>A&lt;idx&gt;:&lt;0-1023&gt;</code>. O SIM-X principal usa seu próprio caminho
-        HID e não aparece aqui.
+        Reads RX lines from generic devices in the format <code>B&lt;idx&gt;:&lt;0|1&gt;</code>,{' '}
+        <code>E&lt;idx&gt;:?1</code> and <code>A&lt;idx&gt;:&lt;0-1023&gt;</code>. The main SIM-X uses its own path
+        HID e no aparece aqui.
       </p>
       {trackable.length === 0 && (
-        <p className="empty-state">Adicione um Arduino genérico para começar a receber inputs companion.</p>
+        <p className="empty-state">Add a generic Arduino to start receiving companion inputs.</p>
       )}
       {trackable.map((device) => {
         const snapshot = inputs[device.id]
@@ -1883,16 +1883,16 @@ function InputsPanel(props: InputsPanelProps): ReactElement {
               <strong>{device.label}</strong>
               <small>
                 {device.path} · id <code>{device.id}</code> ·{' '}
-                {snapshot?.updatedAt ? `último input ${new Date(snapshot.updatedAt).toLocaleTimeString()}` : 'sem atividade'}
+                {snapshot?.updatedAt ? `last input ${new Date(snapshot.updatedAt).toLocaleTimeString()}` : 'no activity'}
               </small>
             </div>
             <div className="hw-grid">
               <div className="hw-card">
                 <div className="hw-card-top">
-                  <strong>Botões</strong>
+                  <strong>Buttons</strong>
                   <em className="muted-pill">{buttons.length}</em>
                 </div>
-                {buttons.length === 0 && <small>Sem botões reportados.</small>}
+                {buttons.length === 0 && <small>No buttons reported.</small>}
                 {buttons.map(([index, pressed]) => (
                   <code className="hw-conn" key={`btn-${index}`}>
                     B{index}: {pressed ? '● PRESS' : '○ release'}
@@ -1904,7 +1904,7 @@ function InputsPanel(props: InputsPanelProps): ReactElement {
                   <strong>Encoders (delta)</strong>
                   <em className="muted-pill">{encoders.length}</em>
                 </div>
-                {encoders.length === 0 && <small>Sem encoders reportados.</small>}
+                {encoders.length === 0 && <small>No encoders reported.</small>}
                 {encoders.map(([index, delta]) => (
                   <code className="hw-conn" key={`enc-${index}`}>
                     E{index}: {(delta as number) > 0 ? `+${delta}` : delta}
@@ -1913,10 +1913,10 @@ function InputsPanel(props: InputsPanelProps): ReactElement {
               </div>
               <div className="hw-card">
                 <div className="hw-card-top">
-                  <strong>Analógicos</strong>
+                  <strong>Analog inputs</strong>
                   <em className="muted-pill">{analogs.length}</em>
                 </div>
-                {analogs.length === 0 && <small>Sem eixos reportados.</small>}
+                {analogs.length === 0 && <small>No axes reported.</small>}
                 {analogs.map(([index, value]) => (
                   <code className="hw-conn" key={`a-${index}`}>
                     A{index}: {value as number} ({Math.round(((value as number) / 1023) * 100)}%)
@@ -1936,7 +1936,7 @@ function HardwarePanel({ profile }: { profile: ArduinoHardwareProfile | null }):
   if (!profile)
     return (
       <article className="panel-card">
-        <p className="empty-state">Carregando mapa de hardware…</p>
+        <p className="empty-state">Loading hardware map…</p>
       </article>
     )
   return (
@@ -1944,9 +1944,9 @@ function HardwarePanel({ profile }: { profile: ArduinoHardwareProfile | null }):
       <span className="panel-label">
         {profile.board} · {profile.mcu}
       </span>
-      <h3>Mapa de hardware</h3>
+      <h3>Hardware map</h3>
       <p className="helper-text">
-        {profile.usb}. {profile.hidButtons} botões HID, {profile.encoders} encoders{profile.povHat ? ' + POV hat' : ''}.
+        {profile.usb}. {profile.hidButtons} HID buttons, {profile.encoders} encoders{profile.povHat ? ' + POV hat' : ''}.
         Pinagem fixa no firmware (somente leitura).
       </p>
       <div className="hw-grid">
@@ -1970,20 +1970,20 @@ function FirmwarePanel({ firmware }: { firmware: ArduinoFirmwareInfo | null }): 
   if (!firmware)
     return (
       <article className="panel-card">
-        <p className="empty-state">Carregando referência…</p>
+        <p className="empty-state">Loading reference…</p>
       </article>
     )
   return (
     <article className="panel-card">
-      <span className="panel-label">Referência · não regravar pelo app</span>
+      <span className="panel-label">Reference · app flashing disabled</span>
       <h3>{firmware.reference}</h3>
       <div className="notice-card warning">
-        <strong>Detecção de versão indisponível</strong>
+        <strong>Version detection unavailable</strong>
         <p>{firmware.notes[0]}</p>
       </div>
 
       <div className="config-block">
-        <strong>Bibliotecas necessárias</strong>
+        <strong>Required libraries</strong>
         <ul className="plain-list">
           {firmware.libraries.map((lib) => (
             <li key={lib}>{lib}</li>
@@ -1992,7 +1992,7 @@ function FirmwarePanel({ firmware }: { firmware: ArduinoFirmwareInfo | null }): 
       </div>
 
       <div className="config-block">
-        <strong>Como regravar (Arduino IDE)</strong>
+        <strong>How to reflash (Arduino IDE)</strong>
         <ol className="step-list">
           {firmware.reflashSteps.map((step, index) => (
             <li key={index}>{step}</li>

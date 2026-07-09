@@ -200,23 +200,23 @@ export const HAPTIC_EVENT_META: Record<HapticEventId, HapticEventMeta> = {
   kerb: {
     id: 'kerb',
     label: 'Zebra / rumble',
-    blurb: 'Pulsos secos ao pisar nas zebras.',
-    signal: 'aceleração lateral (heurística — ideal: accel vertical)',
+    blurb: 'Pulsos drys ao pisar nas zebras.',
+    signal: 'lateral acceleration (heuristic ? ideal: vertical accel)',
     transient: false,
     heuristic: true
   },
   lockup: {
     id: 'lockup',
     label: 'Trava de roda',
-    blurb: 'Vibração ao travar a roda no freio (ou ABS atuando).',
-    signal: 'brake + desaceleração / absActive',
+    blurb: 'Vibration when locking a wheel under braking (or ABS active).',
+    signal: 'brake + deceleration / absActive',
     transient: false,
     heuristic: true
   },
   wheelspin: {
     id: 'wheelspin',
-    label: 'Perda de tração',
-    blurb: 'Vibração quando a roda patina na aceleração (ou TC corta).',
+    label: 'Traction loss',
+    blurb: 'Vibration when the wheel spins on acceleration (or TC cuts).',
     signal: 'throttle + giro do motor / tcActive',
     transient: false,
     heuristic: true
@@ -224,16 +224,16 @@ export const HAPTIC_EVENT_META: Record<HapticEventId, HapticEventMeta> = {
   contact: {
     id: 'contact',
     label: 'Contato / impacto',
-    blurb: 'Estouro forte em batidas e quedas bruscas de velocidade.',
-    signal: 'pico de aceleração long./lat. (derivada)',
+    blurb: 'Estouro forte em batidas e quedas bruscas de speed.',
+    signal: 'long./lat. acceleration peak (derived)',
     transient: true,
     heuristic: true
   },
   gearshift: {
     id: 'gearshift',
-    label: 'Troca de marcha',
-    blurb: 'Pulso curto a cada mudança de marcha.',
-    signal: 'mudança de gear',
+    label: 'Troca de gear',
+    blurb: 'Short pulse on every gear change.',
+    signal: 'gear change',
     transient: true,
     heuristic: false
   },
@@ -257,7 +257,7 @@ export const HAPTIC_ZONE_META: Record<HapticZoneId, HapticZoneMeta> = {
   seat: { id: 'seat', label: 'Banco', blurb: 'Transdutor sob o banco — corpo inteiro.' },
   pedalLeft: { id: 'pedalLeft', label: 'Pedais (esq.)', blurb: 'Canal sob a base dos pedais, lado esquerdo.' },
   pedalRight: { id: 'pedalRight', label: 'Pedais (dir.)', blurb: 'Canal sob a base dos pedais, lado direito.' },
-  wheel: { id: 'wheel', label: 'Volante', blurb: 'Motor/transdutor no volante ou na coluna.' }
+  wheel: { id: 'wheel', label: 'Volante', blurb: 'Motor/transdutor no steering ou na coluna.' }
 }
 
 // ─── Derivation (pure) ───────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { type CSSProperties, type ReactElement, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
 import {
   APP_LANGUAGES,
   APP_TELEMETRY_SOURCES,
@@ -23,11 +23,11 @@ import {
   type ConfigImportResult
 } from '../../../shared/config-io'
 import { LOG_CHANNELS, type LogExportResult, type LogInfo } from '../../../shared/logger'
-import { APP_SETTINGS_CHANGED_EVENT, LANGUAGE_LABELS, resolveAppLanguage, t } from '../i18n'
+import { APP_SETTINGS_CHANGED_EVENT, LANGUAGE_LABELS, resolveAppLanguage, t, tt } from '../i18n'
 
 const SOURCE_LABELS: Record<AppTelemetrySource, string> = {
-  off: 'Desligado',
-  auto: 'Auto-detectar',
+  off: 'Off',
+  auto: 'Auto-detect',
   mock: 'Demo (mock)',
   iracing: 'iRacing',
   acc: 'Assetto Corsa Competizione',
@@ -50,22 +50,22 @@ const THEME_LABELS: Record<AppTheme, string> = {
   carbon: 'Carbon',
   championship: 'Championship',
   martini: 'Martini',
-  verde: 'Verde',
+  verde: 'Green',
   ice: 'Ice',
   auroraGlass: 'Aurora Glass ✦',
   neonNoir: 'Neon Noir',
   carbonGlow: 'Carbon Glow',
   royalGlass: 'Royal Glass',
-  custom: 'Personalizado'
+  custom: 'Custom'
 }
 
 const PRESET_THEMES = APP_THEMES.filter((theme): theme is Exclude<AppTheme, 'custom'> => theme !== 'custom')
 
-const TC_SENSITIVITY_LABELS: Record<TcSensitivity, string> = {
-  off: 'Desligado',
-  low: 'Baixa (só patinada forte)',
-  medium: 'Média (recomendado)',
-  high: 'Alta (mais sensível)'
+const TC_SENSITILITY_LABEL_KEYS: Record<TcSensitivity, string> = {
+  off: 'settings.tc.off',
+  low: 'settings.tc.low',
+  medium: 'settings.tc.medium',
+  high: 'settings.tc.high'
 }
 
 function Toggle({
@@ -126,7 +126,7 @@ function normalizeHex(value: string): string {
   return /^#[0-9a-f]{6}$/i.test(value) ? value : DEFAULT_APP_SETTINGS.accentColor
 }
 
-export default function SettingsView({ showToast }: AppViewProps): ReactElement {
+export default function SettingsView({ showToast, language }: AppViewProps): ReactElement {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS)
   const [savedSettings, setSavedSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS)
   const [loading, setLoading] = useState(true)
@@ -137,6 +137,8 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
   const [logInfo, setLogInfo] = useState<LogInfo | null>(null)
   const [verbose, setVerbose] = useState(false)
   const [verboseBusy, setVerboseBusy] = useState(false)
+  const settingsRef = useRef<AppSettings>(DEFAULT_APP_SETTINGS)
+  const saveRevision = useRef(0)
 
   useEffect(() => {
     window.ipc
@@ -153,6 +155,7 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
     window.ipc
       .invoke<AppSettings>('app:getSettings')
       .then((loaded) => {
+        settingsRef.current = loaded
         setSettings(loaded)
         setSavedSettings(loaded)
         applyAppTheme(loaded)
@@ -167,38 +170,47 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
 
   const dirty = useMemo(() => !sameSettings(settings, savedSettings), [settings, savedSettings])
 
-  const patch = (next: Partial<AppSettings>): void => {
-    setSettings((current) => ({ ...current, ...next }))
-  }
-
-  const selectTheme = (theme: AppTheme): void => {
-    patch({
-      theme,
-      accentColor: theme === 'custom' ? settings.accentColor : APP_THEME_PRESETS[theme].accent
-    })
-  }
-
-  const save = async (): Promise<void> => {
+  const persistSettings = async (nextSettings: AppSettings): Promise<void> => {
+    const revision = ++saveRevision.current
     setSaving(true)
     try {
-      const saved = await window.ipc.invoke<AppSettings>('app:setSettings', settings)
+      const saved = await window.ipc.invoke<AppSettings>('app:setSettings', nextSettings)
+      if (revision !== saveRevision.current) return
+      settingsRef.current = saved
       setSettings(saved)
       setSavedSettings(saved)
       applyAppTheme(saved)
       window.dispatchEvent(new CustomEvent<AppSettings>(APP_SETTINGS_CHANGED_EVENT, { detail: saved }))
       showToast(t(resolveAppLanguage(saved.language), 'settingsSaved'), 'success')
     } catch (error) {
-      showToast(error instanceof Error ? error.message : String(error), 'error')
+      if (revision === saveRevision.current) {
+        showToast(error instanceof Error ? error.message : String(error), 'error')
+      }
     } finally {
-      setSaving(false)
+      if (revision === saveRevision.current) setSaving(false)
     }
   }
 
+  const patch = (next: Partial<AppSettings>): void => {
+    const nextSettings = { ...settingsRef.current, ...next }
+    settingsRef.current = nextSettings
+    setSettings(nextSettings)
+    void persistSettings(nextSettings)
+  }
+
+  const selectTheme = (theme: AppTheme): void => {
+    patch({
+      theme,
+      accentColor: theme === 'custom' ? settingsRef.current.accentColor : APP_THEME_PRESETS[theme].accent
+    })
+  }
+
+  const save = async (): Promise<void> => {
+    await persistSettings(settingsRef.current)
+  }
+
   const quitApp = (): void => {
-    const confirmed = window.confirm(
-      'Sair do app vai FECHAR tudo: a janela, os overlays, os dashboards e desligar o iFlag. ' +
-        'O app NÃO continua na bandeja. Deseja sair agora?'
-    )
+    const confirmed = window.confirm(tt(language, 'settings.exitWarning'))
     if (!confirmed) return
     // The main process turns the hardware off and exits; this invoke never resolves.
     void window.ipc.invoke('app:quit').catch(() => {})
@@ -220,7 +232,7 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
       const result = await window.ipc.invoke<LogExportResult>(LOG_CHANNELS.export)
       if (result.canceled) return
       const files = result.files ?? 0
-      showToast(`Logs exportados (${files} arquivo${files === 1 ? '' : 's'}).`, 'success')
+      showToast(tt(language, 'settings.logsExported', { files, fileLabel: tt(language, files === 1 ? 'settings.file.singular' : 'settings.file.plural') }), 'success')
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
     } finally {
@@ -232,7 +244,7 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
     try {
       const failure = await window.ipc.invoke<string>(LOG_CHANNELS.openFolder)
       if (failure) showToast(failure, 'error')
-      else showToast('Pasta de logs aberta.', 'success')
+      else showToast(tt(language, 'settings.logsFolderOpened'), 'success')
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
     }
@@ -244,7 +256,7 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
       const applied = await window.ipc.invoke<boolean>(LOG_CHANNELS.setVerbose, next)
       setVerbose(Boolean(applied))
       showToast(
-        applied ? 'Log detalhado ativado.' : 'Log detalhado desativado.',
+        applied ? tt(language, 'settings.detailedLogOn') : tt(language, 'settings.detailedLogOff'),
         'success'
       )
     } catch (error) {
@@ -260,7 +272,13 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
       const result = await window.ipc.invoke<ConfigExportResult>(CONFIG_IO_CHANNELS.exportAll)
       if (result.canceled) return
       const count = result.sections?.length ?? 0
-      showToast(`Perfil exportado (${count} seç${count === 1 ? 'ão' : 'ões'}).`, 'success')
+      showToast(
+        tt(language, 'settings.profileExported', {
+          count,
+          sectionLabel: tt(language, count === 1 ? 'settings.section.singular' : 'settings.section.plural')
+        }),
+        'success'
+      )
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
     } finally {
@@ -274,10 +292,7 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
   }
 
   const importProfile = async (): Promise<void> => {
-    const confirmed = window.confirm(
-      'Importar um perfil vai SOBRESCREVER as configurações atuais (exceto login/credenciais). ' +
-        'O app precisa reiniciar para aplicar. Continuar?'
-    )
+    const confirmed = window.confirm(tt(language, 'settings.importProfileConfirm'))
     if (!confirmed) return
     setBackupBusy('import')
     try {
@@ -286,15 +301,21 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
       const applied = result.summary?.applied.length ?? 0
       if (applied > 0) {
         // Imported files are on disk, but every store is cached in memory until
-        // the next launch — do NOT refetch (it would show stale data and invite
+        // the next launch — must not refetch (it would show stale data and invite
         // an overwrite). Surface a restart prompt + persistent badge instead.
         setNeedsRestart(true)
-        showToast(`Perfil importado (${applied} seç${applied === 1 ? 'ão' : 'ões'}). Reinicie para aplicar.`, 'success')
-        if (window.confirm('Perfil importado. O app precisa reiniciar para aplicar. Reiniciar agora?')) {
+        showToast(
+          tt(language, 'settings.profileImported', {
+            count: applied,
+            sectionLabel: tt(language, applied === 1 ? 'settings.section.singular' : 'settings.section.plural')
+          }),
+          'success'
+        )
+        if (window.confirm(tt(language, 'settings.profileImportedRestart'))) {
           await restartNow()
         }
       } else {
-        showToast('Arquivo válido, mas nenhuma seção reconhecida foi aplicada.', 'error')
+        showToast(tt(language, 'settings.validNoSections'), 'error')
       }
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
@@ -306,40 +327,40 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
       <div className="panel-card">
-        <div className="field-label">Inicialização</div>
+        <div className="field-label">{tt(language, 'settings.startup')}</div>
         <Toggle
           checked={settings.autoStart}
-          description="Abre o app automaticamente ao entrar no Windows."
+          description={tt(language, 'settings.autoStartDesc')}
           disabled={loading || saving}
-          label="Auto-start com o Windows"
+          label={tt(language, 'settings.autoStart')}
           onChange={(autoStart) => patch({ autoStart })}
         />
         <Toggle
           checked={settings.startMinimized}
-          description="Na próxima abertura, envia a janela para a barra de tarefas."
+          description={tt(language, 'settings.startMinimizedDesc')}
           disabled={loading || saving}
-          label="Iniciar minimizado"
+          label={tt(language, 'settings.startMinimized')}
           onChange={(startMinimized) => patch({ startMinimized })}
         />
         <Toggle
           checked={settings.autoStartSimX}
-          description="Ao iniciar, conecta o SIM-X automaticamente (e reconecta se cair) e ativa os rev-lights."
+          description={tt(language, 'settings.connectSimxStartupDesc')}
           disabled={loading || saving}
-          label="Conectar SIM-X e ativar rev-lights ao iniciar"
+          label={tt(language, 'settings.connectSimxStartup')}
           onChange={(autoStartSimX) => patch({ autoStartSimX })}
         />
         <Toggle
           checked={settings.autoConnectDevices}
-          description="Ao iniciar, conecta automaticamente os dispositivos serial salvos (como o iFlag), reconectando se caírem e tentando de novo até aparecerem."
+          description={tt(language, 'settings.connectSerialStartupDesc')}
           disabled={loading || saving}
-          label="Conectar dispositivos serial (iFlag etc.) ao iniciar"
+          label={tt(language, 'settings.connectSerialStartup')}
           onChange={(autoConnectDevices) => patch({ autoConnectDevices })}
         />
         <Toggle
           checked={settings.closeToTray}
-          description="Ao clicar em fechar, o app vai para a bandeja do Windows (ao lado do relógio) e continua rodando. Use 'Sair' no menu da bandeja para fechar de verdade."
+          description={tt(language, 'settings.closeToTrayDesc')}
           disabled={loading || saving}
-          label="Fechar para a bandeja (system tray)"
+          label={tt(language, 'settings.closeToTray')}
           onChange={(closeToTray) => patch({ closeToTray })}
         />
         <div
@@ -354,11 +375,10 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
           }}
         >
           <span style={{ color: 'var(--muted)', fontSize: 13, marginRight: 'auto', maxWidth: 540 }}>
-            Fechar pela janela (X) só esconde o app na bandeja. Para fechar de verdade — a janela,
-            os overlays, os dashboards e desligar o iFlag — use este botão (ou "Sair" no menu da bandeja).
+            {tt(language, 'settings.quitHelp')}
           </span>
           <button disabled={loading || saving} onClick={quitApp} className="ghost-action" type="button">
-            Sair do app (fechar tudo)
+            Exit app (close everything)
           </button>
         </div>
       </div>
@@ -366,7 +386,7 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
       <div className="panel-card" style={{ display: 'grid', gap: 14 }}>
         <div>
           <label className="field-label" htmlFor="language">
-            Idioma / Language
+            {tt(language, 'settings.language')}
           </label>
           <select
             disabled={loading || saving}
@@ -388,7 +408,7 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
 
         <div>
           <label className="field-label" htmlFor="defaultTelemetrySource">
-            Fonte de telemetria padrão
+            {tt(language, 'settings.defaultTelemetry')}
           </label>
           <select
             disabled={loading || saving}
@@ -404,13 +424,13 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
             ))}
           </select>
           <p style={{ margin: '8px 0 0', color: 'var(--muted)', fontSize: 13 }}>
-            Aplicada automaticamente no boot do app. Para trocar agora, use a tela Telemetria.
+            {tt(language, 'settings.defaultTelemetryHelp')}
           </p>
         </div>
 
         <div>
           <label className="field-label" htmlFor="tcSensitivity">
-            Sensibilidade do TC (iRacing)
+            {tt(language, 'settings.tcSensitivity')}
           </label>
           <select
             disabled={loading || saving}
@@ -421,27 +441,26 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
           >
             {TC_SENSITIVITIES.map((level) => (
               <option key={level} value={level}>
-                {TC_SENSITIVITY_LABELS[level]}
+                {tt(language, TC_SENSITILITY_LABEL_KEYS[level])}
               </option>
             ))}
           </select>
           <p style={{ margin: '8px 0 0', color: 'var(--muted)', fontSize: 13 }}>
-            O iRacing não expõe um sinal nativo de TC atuando — ele é derivado. Se o indicador
-            acende em qualquer acelerada, reduza a sensibilidade. &quot;Desligado&quot; oculta o indicador.
+            {tt(language, 'settings.tcHelp')}
           </p>
         </div>
 
         <div>
-          <label className="field-label" htmlFor="trackmap-setup">Mapa de pista (iRacing)</label>
+          <label className="field-label" htmlFor="trackmap-setup">{tt(language, 'settings.trackMap')}</label>
           <p style={{ margin: '4px 0 8px', color: 'var(--muted)', fontSize: 13 }}>
-            Faça login no iRacing uma vez para baixar o mapa oficial da pista (overlay e widgets). Sem login, um traçado é aprendido de uma volta limpa.
+            {tt(language, 'settings.trackMapHelp')}
           </p>
-          <TrackMapSetup />
+          <TrackMapSetup language={language} />
         </div>
 
         <div>
           <label className="field-label" htmlFor="theme">
-            Tema visual
+            {tt(language, 'settings.theme')}
           </label>
           <select
             disabled={loading || saving}
@@ -490,7 +509,7 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
 
         <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: 12, alignItems: 'end' }}>
           <label style={{ display: 'grid', gap: 8 }} htmlFor="accentColor">
-            <span className="field-label" style={{ margin: 0 }}>Accent custom</span>
+            <span className="field-label" style={{ margin: 0 }}>Custom accent</span>
             <input
               disabled={loading || saving}
               id="accentColor"
@@ -518,31 +537,30 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
       </div>
 
       <div className="panel-card" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span className="field-label" style={{ margin: 0, marginRight: 'auto' }}>Pastas do app</span>
+        <span className="field-label" style={{ margin: 0, marginRight: 'auto' }}>{tt(language, 'settings.appFolders')}</span>
         <button
           disabled={loading || saving}
-          onClick={() => openFolder('app:openUserData', 'Pasta de dados aberta.')}
+          onClick={() => openFolder('app:openUserData', tt(language, 'settings.dataFolderOpened'))}
           className="ghost-action compact"
           type="button"
         >
-          Abrir userData
+          Open userData
         </button>
         <button
           disabled={loading || saving}
-          onClick={() => openFolder('app:openRecordings', 'Pasta de gravações aberta.')}
+          onClick={() => openFolder('app:openRecordings', tt(language, 'settings.recordingsFolderOpened'))}
           className="ghost-action compact"
           type="button"
         >
-          Abrir gravações
+          {tt(language, 'settings.openRecordings')}
         </button>
       </div>
 
       <div className="panel-card" style={{ display: 'grid', gap: 12 }}>
         <div>
-          <span className="field-label" style={{ margin: 0 }}>Diagnóstico — logs (24h)</span>
+          <span className="field-label" style={{ margin: 0 }}>{tt(language, 'settings.diagnosticsLogs')}</span>
           <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13 }}>
-            O app grava logs de diagnóstico e <strong>apaga automaticamente tudo com mais de 24&nbsp;horas</strong>.
-            Quando houver um problema, exporte os logs e me envie o arquivo. Tokens, senhas e cookies NUNCA são gravados.
+            {tt(language, 'settings.logsHelp')}
           </p>
           {logInfo?.dir && (
             <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 12, wordBreak: 'break-all' }}>
@@ -552,27 +570,26 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button disabled={logsBusy} onClick={exportLogs} className="primary-action" type="button">
-            {logsBusy ? 'Exportando…' : 'Exportar logs'}
+            {logsBusy ? tt(language, 'settings.exporting') : tt(language, 'settings.exportLogs')}
           </button>
           <button disabled={logsBusy} onClick={openLogsFolder} className="ghost-action" type="button">
-            Abrir pasta de logs
+            {tt(language, 'settings.openLogsFolder')}
           </button>
         </div>
         <Toggle
           checked={verbose}
-          description="Registra ABSOLUTAMENTE TUDO para debug: cada snapshot de telemetria recebido do jogo (~2x/s + toda mudança), todas as chamadas internas (IPC) e broadcasts, eventos de serial/dispositivos e o console do app. Aumenta bastante o volume (limitado pela retenção de 24h) e permanece ativo após reiniciar; desliga sozinho após 48h."
+          description={tt(language, 'settings.fullDebugDesc')}
           disabled={verboseBusy}
-          label="Log completo de debug (captura tudo, inclusive a telemetria recebida)"
+          label={tt(language, 'settings.fullDebug')}
           onChange={(next) => void toggleVerbose(next)}
         />
       </div>
 
       <div className="panel-card" style={{ display: 'grid', gap: 12 }}>
         <div>
-          <span className="field-label" style={{ margin: 0 }}>Backup do perfil</span>
+          <span className="field-label" style={{ margin: 0 }}>{tt(language, 'settings.profileBackup')}</span>
           <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13 }}>
-            Exporta TODA a sua configuração (dashboards, overlays, RGB matrix, dispositivos, ações, spotter, temas e mais) para
-            um arquivo <code>.json</code>, e importa de volta. Login e credenciais NUNCA são incluídos.
+            {tt(language, 'settings.backupHelp')}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -582,7 +599,7 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
             className="primary-action"
             type="button"
           >
-            {backupBusy === 'export' ? 'Exportando…' : 'Exportar perfil completo'}
+            {backupBusy === 'export' ? tt(language, 'settings.exporting') : tt(language, 'settings.exportProfile')}
           </button>
           <button
             disabled={loading || saving || backupBusy !== false}
@@ -590,13 +607,13 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
             className="ghost-action"
             type="button"
           >
-            {backupBusy === 'import' ? 'Importando…' : 'Importar perfil'}
+            {backupBusy === 'import' ? tt(language, 'settings.importing') : tt(language, 'settings.importProfile')}
           </button>
         </div>
         {needsRestart && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span
-              title="A configuração importada só é carregada quando o app reinicia."
+              title={tt(language, 'settings.restartBadgeTitle')}
               style={{
                 background: 'var(--danger, #e5484d)',
                 color: '#fff',
@@ -607,23 +624,23 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
                 whiteSpace: 'nowrap'
               }}
             >
-              Reinicie para aplicar
+              {tt(language, 'settings.restartToApply')}
             </span>
             <span style={{ color: 'var(--muted)', fontSize: 13 }}>
-              A configuração foi gravada no disco, mas só é carregada ao reiniciar.
+              {tt(language, 'settings.restartBadgeHelp')}
             </span>
             <button className="primary-action" onClick={() => void restartNow()} type="button">
-              Reiniciar agora
+              {tt(language, 'settings.restartNow')}
             </button>
           </div>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderTop: '1px solid var(--border-subtle)', paddingTop: 12 }}>
-          <span className="field-label" style={{ margin: 0 }}>Apenas app &amp; tema</span>
-          <SectionExportImport sectionId="settings" label="Configurações do app & tema" />
+          <span className="field-label" style={{ margin: 0 }}>{tt(language, 'settings.appThemeOnly')}</span>
+          <SectionExportImport sectionId="settings" label={tt(language, 'settings.appThemeSection')} language={language} />
         </div>
       </div>
 
-      <SavedConfigsPanel />
+      <SavedConfigsPanel language={language} />
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
         <button
@@ -632,7 +649,7 @@ export default function SettingsView({ showToast }: AppViewProps): ReactElement 
           className={dirty ? 'primary-action' : 'ghost-action'}
           type="button"
         >
-          {saving ? 'Salvando...' : 'Salvar configurações'}
+          {saving ? tt(language, 'settings.saving') : tt(language, 'settings.save')}
         </button>
       </div>
     </div>

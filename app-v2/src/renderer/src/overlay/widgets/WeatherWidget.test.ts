@@ -72,10 +72,10 @@ const extreme = {
 } as unknown as TelemetrySnapshot
 
 describe('WeatherWidget missing-data hygiene', () => {
-  it('does not claim "Seco" or fabricate 0% wet / 100% grip when weather is absent', () => {
+  it('does not claim "Dry" or fabricate 0% wet / 100% grip when weather is absent', () => {
     const out = render(null)
     assertClean(out, 'null')
-    expect(out, 'no confident dry').not.toContain('Seco')
+    expect(out, 'no confident dry').not.toContain('Dry')
     expect(out, 'no fake full grip').not.toContain('>100%')
     expect(out).toContain('—')
   })
@@ -95,14 +95,14 @@ describe('WeatherWidget missing-data hygiene', () => {
     expect(out).toContain('22')
     expect(out).toContain('TRACK')
     expect(out).toContain('30')
-    expect(out).toContain('Seco')
+    expect(out).toContain('Dry')
     expect(out).toContain('95')
   })
 
   it('renders rain/night state through active telltales only when active', () => {
     const wet = render(rainNight)
     const day = render(dry)
-    expect(wet).toContain('Chuva')
+    expect(wet).toContain('Rain')
     expect(wet).toContain('data-rain="1"')
     expect(wet).toContain('data-headlight="1"')
     expect(day).toContain('data-rain="0"')

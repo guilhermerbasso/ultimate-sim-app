@@ -189,7 +189,7 @@ export function advanceSectorTracker(tracker: SectorTracker, lapDistPct: number,
 
 // ─── Corner-boundary crossing tracker (pure) ───────────────────────────────────
 //
-// Mirrors the sector tracker but keyed on the track's NUMBERED corners (Curva N).
+// Mirrors the sector tracker but keyed on the track's NUMBERED corners (Turn N).
 // A corner "completes" when the car EXITS it (leaves the corner's [start,end]
 // extent), which is when a per-corner call-out fires.
 
@@ -298,7 +298,7 @@ export function worstFindingForSector(findings: CoachFinding[] | null | undefine
 }
 
 /**
- * The single worst REAL finding for a numbered CORNER (Curva N): highest estimated
+ * The single worst REAL finding for a numbered CORNER (Turn N): highest estimated
  * time loss with severity as the tie-break. Gains / `good` findings are ignored.
  * Returns null when the corner has no actionable finding — the caller stays silent.
  */
@@ -322,24 +322,24 @@ export function worstFindingForCorner(findings: CoachFinding[] | null | undefine
 }
 
 const REASON_PT: Record<CoachFindingKind, string> = {
-  'brake-early': 'freando cedo demais',
-  'brake-late': 'freando tarde demais',
+  'brake-early': 'braking too early',
+  'brake-late': 'braking too late',
   'throttle-early': 'acelerando cedo demais',
   'throttle-late': 'acelerando tarde demais',
-  'steering-early': 'girando o volante cedo demais',
-  'steering-late': 'girando o volante tarde demais',
-  'trail-brake-lock': 'travando o freio na entrada',
-  coast: 'de banguela no meio da curva',
-  'throttle-hesitation': 'hesitando no acelerador na saída',
-  'abs-overuse': 'afundando o freio até o ABS',
-  'tc-overuse': 'abrindo o gás cedo demais, segurando no controle de tração',
-  'steering-busy': 'serrando o volante',
-  'steering-insufficient': 'virando pouco o volante',
-  inconsistency: 'inconsistente entre as voltas',
-  'time-loss': 'perdendo tempo',
-  'min-speed-gain': 'carregando mais velocidade no ápice',
-  'brake-gain': 'freando mais tarde com confiança',
-  'throttle-gain': 'abrindo o gás mais cedo na saída',
+  'steering-early': 'girando o steering cedo demais',
+  'steering-late': 'girando o steering tarde demais',
+  'trail-brake-lock': 'locking the brake on entry',
+  coast: 'coasting mid-corner',
+  'throttle-hesitation': 'hesitating on throttle at exit',
+  'abs-overuse': 'burying the brake into ABS',
+  'tc-overuse': 'getting to throttle too early and leaning on traction control',
+  'steering-busy': 'sawing at the wheel',
+  'steering-insufficient': 'virando pouco o steering',
+  inconsistency: 'inconsistente entre as laps',
+  'time-loss': 'losing time',
+  'min-speed-gain': 'carrying more speed at the apex',
+  'brake-gain': 'braking later with confidence',
+  'throttle-gain': 'getting to throttle earlier on exit',
   good: 'limpo'
 }
 
@@ -372,30 +372,30 @@ function formatLoss(sec: number): string {
 
 /**
  * Terse, corner-cadence call-out fragments — what to IMPROVE, nothing else.
- * Used by `composeBrutalCornerLine` so a race spits short "Curva N, vire antes"
+ * Used by `composeBrutalCornerLine` so a race spits short "Turn N, turn in earlier"
  * cues instead of the verbose sector sentences. Improvement-only: gains and
- * `good` collapse to a neutral "mantenha o ritmo" (callers normally skip those).
+ * `good` collapse to a neutral "hold the pace" (callers normally skip those).
  */
 const IMPROVE_PT: Record<CoachFindingKind, string> = {
   'brake-early': 'freie mais tarde',
-  'brake-late': 'freie antes',
+  'brake-late': 'brake earlier',
   'throttle-early': 'acelere mais tarde',
   'throttle-late': 'acelere antes',
   'steering-early': 'vire mais tarde',
-  'steering-late': 'vire antes',
-  'trail-brake-lock': 'alivie o freio na entrada',
-  coast: 'sem banguela, conecte freio e gás',
-  'throttle-hesitation': 'gás firme na saída',
-  'abs-overuse': 'menos freio, sem ABS',
-  'tc-overuse': 'gás mais suave na saída',
-  'steering-busy': 'menos volante',
-  'steering-insufficient': 'mais volante',
-  inconsistency: 'repita a mesma volta',
-  'time-loss': 'aperte o ritmo',
-  'min-speed-gain': 'mantenha o ritmo',
-  'brake-gain': 'mantenha o ritmo',
-  'throttle-gain': 'mantenha o ritmo',
-  good: 'mantenha o ritmo'
+  'steering-late': 'turn in earlier',
+  'trail-brake-lock': 'release the brake on entry',
+  coast: 'no coasting, connect brake to throttle',
+  'throttle-hesitation': 'commit to throttle on exit',
+  'abs-overuse': 'less brake, stay out of ABS',
+  'tc-overuse': 'smoother throttle on exit',
+  'steering-busy': 'menos steering',
+  'steering-insufficient': 'more steering',
+  inconsistency: 'repeat the same lap',
+  'time-loss': 'push the pace',
+  'min-speed-gain': 'hold the pace',
+  'brake-gain': 'hold the pace',
+  'throttle-gain': 'hold the pace',
+  good: 'hold the pace'
 }
 
 const IMPROVE_EN: Record<CoachFindingKind, string> = {
@@ -440,17 +440,17 @@ export function composeBrutalSectorLine(finding: CoachFinding, opts: BrutalLineO
   if (pt) {
     if (opts.assertiveness === 'brutal') {
       return hasLoss
-        ? `Setor ${s}: você jogou ${loss}s fora ${reason}. Conserta isso.`
-        : `Setor ${s}: ${reason}. Conserta isso.`
+        ? `Sector ${s}: you threw away ${loss}s ${reason}. Fix it.`
+        : `Sector ${s}: ${reason}. Fix it.`
     }
     if (opts.assertiveness === 'assertive') {
       return hasLoss
-        ? `Setor ${s}: perdeu ${loss}s ${reason}. Dá pra recuperar — foco.`
-        : `Setor ${s}: ${reason}. Dá pra recuperar — foco.`
+        ? `Sector ${s}: lost ${loss}s ${reason}. You can get it back — focus.`
+        : `Sector ${s}: ${reason}. You can get it back — focus.`
     }
     return hasLoss
-      ? `Setor ${s}: ~${loss}s a ganhar ${reason}. Ajusta na próxima.`
-      : `Setor ${s}: ${reason}. Ajusta na próxima.`
+      ? `Sector ${s}: about ${loss}s to gain ${reason}. Adjust next lap.`
+      : `Sector ${s}: ${reason}. Adjust next lap.`
   }
 
   if (opts.assertiveness === 'brutal') {
@@ -465,7 +465,7 @@ export function composeBrutalSectorLine(finding: CoachFinding, opts: BrutalLineO
 }
 
 /**
- * Per-CORNER variant: terse "Curva N, <melhoria>" cues for race cadence. Unlike
+ * Per-CORNER variant: terse "Turn N, <melhoria>" cues for race cadence. Unlike
  * the verbose sector line, this surfaces only what to IMPROVE — turn in earlier,
  * more steering, throttle earlier — never praise. Falls back to the full sector
  * line when the finding carries no corner number.
@@ -480,14 +480,14 @@ export function composeBrutalCornerLine(finding: CoachFinding, opts: BrutalLineO
   if (n === undefined) return composeBrutalSectorLine(finding, opts)
 
   if (pt) {
-    const where = `Curva ${n}`
+    const where = `Turn ${n}`
     if (opts.assertiveness === 'brutal') {
       return hasLoss ? `${where}, ${improve} — ${loss}s.` : `${where}, ${improve}.`
     }
     if (opts.assertiveness === 'assertive') {
       return hasLoss ? `${where}, ${improve}. Foco — ${loss}s.` : `${where}, ${improve}. Foco.`
     }
-    return hasLoss ? `${where}, ${improve} na próxima (${loss}s).` : `${where}, ${improve} na próxima.`
+    return hasLoss ? `${where}, ${improve} next lap (${loss}s).` : `${where}, ${improve} next lap.`
   }
 
   const where = `Turn ${n}`
@@ -504,7 +504,7 @@ export function composeBrutalCornerLine(finding: CoachFinding, opts: BrutalLineO
  * The worst REAL loss finding PER driving dimension for a corner (brake point,
  * turn-in timing, steering angle, throttle, rotation, stability), ranked by time
  * lost. Lets a single corner call-out chain several independent mistakes
- * ("Curva 3, freie antes, vire antes, acelere depois") instead of only the single
+ * ("Turn 3, brake earlier, turn in earlier, throttle later") instead of only the single
  * worst one. Gains / `good` are ignored. Capped at `maxDims`.
  */
 export function findingsByDimensionForCorner(
@@ -529,7 +529,7 @@ export function findingsByDimensionForCorner(
   if (ranked.length > 0) return ranked
   // FALLBACK — no specific dimension finding, but the corner still lost real time
   // (kind 'time-loss', e.g. low min-speed). Surface that single finding so the most
-  // important corner cue ("Curva N, busque mais tempo aqui") speaks instead of going
+  // important corner cue ("Turn N, find more time here") speaks instead of going
   // silent. Only reached when NO specific dimension exists → never crowds out the
   // actionable cues.
   const timeLoss = findings
@@ -540,22 +540,22 @@ export function findingsByDimensionForCorner(
 
 /**
  * The terse improvement fragment for a finding. Specific dimensions use the
- * IMPROVE map ("freie antes", "vire antes"). The dimension-less `time-loss`
+ * IMPROVE map ("brake earlier", "turn in earlier"). The dimension-less `time-loss`
  * fallback uses the same canonical generic cue as the live coach
  * (`coachComposeAction('time-loss')`) so race and practice say the same thing.
  */
 function improveFragment(finding: CoachFinding, pt: boolean): string {
-  if (finding.kind === 'time-loss') return pt ? 'busque mais tempo aqui' : 'find more time here'
+  if (finding.kind === 'time-loss') return pt ? 'find more time here' : 'find more time here'
   return (pt ? IMPROVE_PT : IMPROVE_EN)[finding.kind] ?? finding.title
 }
 
 /**
  * COMPOSITE per-corner cue for a RACE: chains the worst improvement per driving
- * dimension into ONE terse line ("Curva N, freie antes, vire antes, acelere
+ * dimension into ONE terse line ("Turn N, brake earlier, turn in earlier, acelere
  * depois — Xs.") so the driver hears every mistake in that corner at once instead
  * of only the single worst. A single SPECIFIC-dimension corner collapses to the exact
  * `composeBrutalCornerLine` phrasing. When a corner's ONLY loss is dimension-less
- * `time-loss` it still speaks the generic "busque mais tempo aqui" cue instead of
+ * `time-loss` it still speaks the generic "find more time here" cue instead of
  * going silent. Returns '' when nothing is actionable.
  */
 export function composeBrutalCornerComposite(
@@ -575,12 +575,12 @@ export function composeBrutalCornerComposite(
   const worstLoss = ranked[0].estTimeLossSec
   const hasLoss = worstLoss > 0
   const loss = formatLoss(worstLoss)
-  const where = pt ? `Curva ${corner}` : `Turn ${corner}`
+  const where = pt ? `Turn ${corner}` : `Turn ${corner}`
 
   if (pt) {
     if (opts.assertiveness === 'brutal') return hasLoss ? `${where}, ${body} — ${loss}s.` : `${where}, ${body}.`
     if (opts.assertiveness === 'assertive') return hasLoss ? `${where}, ${body}. Foco — ${loss}s.` : `${where}, ${body}. Foco.`
-    return hasLoss ? `${where}, ${body} na próxima (${loss}s).` : `${where}, ${body} na próxima.`
+    return hasLoss ? `${where}, ${body} next lap (${loss}s).` : `${where}, ${body} next lap.`
   }
   if (opts.assertiveness === 'brutal') return hasLoss ? `${where}, ${body} — ${loss}s.` : `${where}, ${body}.`
   if (opts.assertiveness === 'assertive') return hasLoss ? `${where}, ${body}. Focus — ${loss}s.` : `${where}, ${body}. Focus.`
@@ -616,10 +616,10 @@ export interface ProactiveEngineDeps {
   sectorCount?: number
   /**
    * Cadence of self-initiated call-outs:
-   *   • `'auto'` (default) — CORNER cadence in a RACE ("Curva N"), SECTOR cadence
+   *   • `'auto'` (default) — CORNER cadence in a RACE ("Turn N"), SECTOR cadence
    *     in practice / qualify / warm-up. Resolved per-session via `cadenceForSession`.
    *   • `'sector'` — always one call-out per completed sector (legacy path).
-   *   • `'corner'` — always one call-out per completed CORNER ("Curva N: <erro>"),
+   *   • `'corner'` — always one call-out per completed CORNER ("Turn N: <erro>"),
    *     using a corner map learned from the first full lap.
    * Either way the engine falls back to the sector path until a corner map exists.
    */
@@ -652,7 +652,7 @@ function sessionAllowsProactive(snapshot: TelemetrySnapshot): boolean {
 /**
  * Resolve the effective call-out cadence for a session. `'sector'` / `'corner'`
  * are honoured verbatim; `'auto'` (the default) picks CORNER cadence in a RACE —
- * where the driver wants "Curva 1, Curva 2…" because a sector holds many corners —
+ * where the driver wants "Turn 1, Turn 2…" because a sector holds many corners —
  * and SECTOR cadence everywhere else (practice / qualify / warm-up / unknown).
  * This only expresses the PREFERENCE: the engine still needs a learned corner map
  * before corner call-outs fire, so it falls back to sectors until one exists.
@@ -730,7 +730,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       const lapSamples = buffer.slice()
       // Resolve cadence for THIS session (auto → corner in a race). In corner cadence,
       // learn the corner map once and reuse it so corner numbers are stable and the
-      // findings get tagged with `corner` (Curva N).
+      // findings get tagged with `corner` (Turn N).
       const wantCorner = cadenceForSession(cadence, snapshot.sessionType) === 'corner'
       if (wantCorner && (!cornerMap || cornerMap.corners.length === 0)) {
         const learned = buildCornerMapFn(snapshot.trackName ?? 'unknown', toCornerSamples(lapSamples))
@@ -778,10 +778,10 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     if (!Number.isFinite(myLap) || (myLap ?? 0) <= 0) return
     const behindN = lapsToCatch(snapshot.relatives?.behind?.gapSec, snapshot.relatives?.behind?.lastLapTimeSec, myLap)
     const en = config.language?.toLowerCase().startsWith('en')
-    if (behindN !== null && behindN <= 5 && behindN < lastBehindN) emitCatch(en ? `Car behind catches you in ${behindN} lap${behindN === 1 ? '' : 's'}.` : `Carro de trás te alcança em ${behindN} ${behindN === 1 ? 'volta' : 'voltas'}.`, config)
+    if (behindN !== null && behindN <= 5 && behindN < lastBehindN) emitCatch(en ? `Car behind catches you in ${behindN} lap${behindN === 1 ? '' : 's'}.` : `The car behind catches you in ${behindN} ${behindN === 1 ? 'lap' : 'laps'}.`, config)
     lastBehindN = behindN ?? 99
     const aheadN = lapsToCatch(snapshot.relatives?.ahead?.gapSec, myLap, snapshot.relatives?.ahead?.lastLapTimeSec)
-    if (aheadN !== null && aheadN <= 5 && aheadN < lastAheadN) emitCatch(en ? `You catch the car ahead in ${aheadN} lap${aheadN === 1 ? '' : 's'}.` : `Você alcança o da frente em ${aheadN} ${aheadN === 1 ? 'volta' : 'voltas'}.`, config)
+    if (aheadN !== null && aheadN <= 5 && aheadN < lastAheadN) emitCatch(en ? `You catch the car ahead in ${aheadN} lap${aheadN === 1 ? '' : 's'}.` : `You catch the car ahead in ${aheadN} ${aheadN === 1 ? 'lap' : 'laps'}.`, config)
     lastAheadN = aheadN ?? 99
   }
 
@@ -838,7 +838,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     if (finding.id === lastEmittedFindingId) return
 
     // Compose a COMPOSITE line chaining the worst mistake per dimension for this
-    // corner ("Curva N, freie antes, vire antes, acelere depois"). Collapses to the
+    // corner ("Turn N, brake earlier, turn in earlier, throttle later"). Collapses to the
     // single-finding phrasing when only one dimension is off.
     const text = composeBrutalCornerComposite(findings, completedCorner, {
       language: config.language,
