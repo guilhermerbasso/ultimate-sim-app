@@ -33,7 +33,7 @@ export function UpdateBanner({ language }: { language?: ResolvedLanguage }): Rea
   if (!relevant || !status || (key !== null && dismissed === key)) return null
 
   const version = status.updateVersion ?? ''
-  const pct = Math.round(status.progressPercent ?? 0)
+  const pct = Number.isFinite(status.progressPercent) ? Math.max(0, Math.min(100, Math.round(status.progressPercent as number))) : 0
   const detail =
     state === 'downloaded'
       ? tt(language, 'chrome.update.bannerDownloaded', { version })

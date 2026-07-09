@@ -55,6 +55,13 @@ async function gatherRecentEntries(dir: string, nowMs: number): Promise<LogEntry
   return out
 }
 
+/** Truncate by code point and strip lone surrogates so encodeURIComponent can't throw. */
+function urlSafe(text: string, maxCodePoints: number): string {
+  const points = Array.from(text)
+  const clipped = points.length > maxCodePoints ? points.slice(0, maxCodePoints).join('') : text
+  return clipped.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '\uFFFD')
+}
+
 function summarize(entries: LogEntry[], version: string): { body: string; problems: number } {
   const counts: Record<string, number> = { debug: 0, info: 0, warn: 0, error: 0 }
   for (const entry of entries) counts[entry.level] = (counts[entry.level] ?? 0) + 1
@@ -79,7 +86,7 @@ function summarize(entries: LogEntry[], version: string): { body: string; proble
     '',
     '> A full 2-hour log bundle was saved locally and the logs folder was opened — please **attach the `bug-report-*.log` file** to this issue. Logs are automatically secret-redacted.'
   ].join('\n')
-  return { body: body.slice(0, MAX_ISSUE_BODY), problems: problemEntries.length }
+  return { body: urlSafe(body, MAX_ISSUE_BODY), problems: problemEntries.length }
 }
 
 export function register(ctx: ModuleContext): void {

@@ -172,22 +172,24 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
 
   const dirty = useMemo(() => !sameSettings(settings, savedSettings), [settings, savedSettings])
 
-  const persistSettings = async (nextSettings: AppSettings): Promise<void> => {
+  const persistSettings = async (nextSettings: AppSettings): Promise<boolean> => {
     const revision = ++saveRevision.current
     setSaving(true)
     try {
       const saved = await window.ipc.invoke<AppSettings>('app:setSettings', nextSettings)
-      if (revision !== saveRevision.current) return
+      if (revision !== saveRevision.current) return false
       settingsRef.current = saved
       setSettings(saved)
       setSavedSettings(saved)
       applyAppTheme(saved)
       window.dispatchEvent(new CustomEvent<AppSettings>(APP_SETTINGS_CHANGED_EVENT, { detail: saved }))
       showToast(t(resolveAppLanguage(saved.language), 'settingsSaved'), 'success')
+      return true
     } catch (error) {
       if (revision === saveRevision.current) {
         showToast(error instanceof Error ? error.message : String(error), 'error')
       }
+      return false
     } finally {
       if (revision === saveRevision.current) setSaving(false)
     }
@@ -295,9 +297,13 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
 
   // Language changes apply live to migrated views, but a restart guarantees EVERY
   // string (including any mount-time text) is re-rendered in the new language.
-  const changeLanguage = (nextLanguage: AppLanguage): void => {
+  const changeLanguage = async (nextLanguage: AppLanguage): Promise<void> => {
     if (nextLanguage === settingsRef.current.language) return
-    patch({ language: nextLanguage })
+    const next = { ...settingsRef.current, language: nextLanguage }
+    settingsRef.current = next
+    setSettings(next)
+    const ok = await persistSettings(next)
+    if (!ok) return
     setNeedsRestart(true)
     if (window.confirm(tt(language, 'settings.languageRestartConfirm'))) {
       void restartNow()
@@ -405,7 +411,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
           <select
             disabled={loading || saving}
             id="language"
-            onChange={(event) => changeLanguage(event.currentTarget.value as AppLanguage)}
+            onChange={(event) => void changeLanguage(event.currentTarget.value as AppLanguage)}
             className="select-field wide"
             value={settings.language}
           >

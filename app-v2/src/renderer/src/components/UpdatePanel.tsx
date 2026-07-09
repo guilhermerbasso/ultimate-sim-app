@@ -35,7 +35,7 @@ export function UpdatePanel({ language, currentVersion }: { language?: ResolvedL
   })
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
-  const progress = Math.round(status.progressPercent ?? 0)
+  const progress = Number.isFinite(status.progressPercent) ? Math.max(0, Math.min(100, Math.round(status.progressPercent as number))) : 0
   const statusText = useMemo(() => updateStatusText(status, language), [language, status])
 
   useEffect(() => {
