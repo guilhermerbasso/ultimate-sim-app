@@ -11,7 +11,9 @@ export const LANGUAGE_LABELS: Record<AppLanguage, string> = {
   en: 'English',
   es: 'Español',
   fr: 'Français',
-  de: 'Deutsch'
+  de: 'Deutsch',
+  zh: '中文',
+  ja: '日本語'
 }
 
 const LANGUAGE_ALIASES: Record<string, ResolvedLanguage> = {
@@ -26,7 +28,16 @@ const LANGUAGE_ALIASES: Record<string, ResolvedLanguage> = {
   fr: 'fr',
   'fr-fr': 'fr',
   de: 'de',
-  'de-de': 'de'
+  'de-de': 'de',
+  zh: 'zh',
+  'zh-cn': 'zh',
+  'zh-hans': 'zh',
+  'zh-sg': 'zh',
+  'zh-tw': 'zh',
+  'zh-hant': 'zh',
+  'zh-hk': 'zh',
+  ja: 'ja',
+  'ja-jp': 'ja'
 }
 
 function getNavigatorLanguages(): readonly string[] {
@@ -65,6 +76,8 @@ type ShellKey =
   | 'noResults'
   | 'languageHelp'
   | 'settingsSaved'
+  | 'collapseSidebar'
+  | 'expandSidebar'
 
 const SHELL: Record<ResolvedLanguage, Record<ShellKey, string>> = {
   'pt-BR': {
@@ -84,7 +97,9 @@ const SHELL: Record<ResolvedLanguage, Record<ShellKey, string>> = {
     loadingScreen: 'Carregando tela…',
     noResults: 'Nenhum resultado',
     languageHelp: 'Auto segue o idioma do Windows/app. Este primeiro rollout traduz o shell, a navegação e os metadados das telas; traduções tela a tela continuam evoluindo.',
-    settingsSaved: 'Configurações salvas.'
+    settingsSaved: 'Configurações salvas.',
+    collapseSidebar: 'Recolher barra lateral',
+    expandSidebar: 'Expandir barra lateral'
   },
   en: {
     mainNav: 'Main navigation',
@@ -103,7 +118,9 @@ const SHELL: Record<ResolvedLanguage, Record<ShellKey, string>> = {
     loadingScreen: 'Loading screen…',
     noResults: 'No results',
     languageHelp: 'Auto follows the Windows/app language. This first rollout localizes the app shell, navigation and screen metadata; screen-by-screen translations continue to expand over time.',
-    settingsSaved: 'Settings saved.'
+    settingsSaved: 'Settings saved.',
+    collapseSidebar: 'Collapse sidebar',
+    expandSidebar: 'Expand sidebar'
   },
   es: {
     mainNav: 'Navegación principal',
@@ -122,7 +139,9 @@ const SHELL: Record<ResolvedLanguage, Record<ShellKey, string>> = {
     loadingScreen: 'Cargando pantalla…',
     noResults: 'Sin resultados',
     languageHelp: 'Auto sigue el idioma de Windows/app. Este primer rollout traduce el shell, la navegación y los metadatos de las pantallas; las traducciones de cada pantalla seguirán ampliándose.',
-    settingsSaved: 'Configuración guardada.'
+    settingsSaved: 'Configuración guardada.',
+    collapseSidebar: 'Contraer barra lateral',
+    expandSidebar: 'Expandir barra lateral'
   },
   fr: {
     mainNav: 'Navigation principale',
@@ -141,7 +160,9 @@ const SHELL: Record<ResolvedLanguage, Record<ShellKey, string>> = {
     loadingScreen: 'Chargement de l’écran…',
     noResults: 'Aucun résultat',
     languageHelp: 'Auto suit la langue de Windows/app. Cette première version traduit le shell, la navigation et les métadonnées des écrans; les traductions écran par écran continueront à s’étendre.',
-    settingsSaved: 'Paramètres enregistrés.'
+    settingsSaved: 'Paramètres enregistrés.',
+    collapseSidebar: 'Réduire la barre latérale',
+    expandSidebar: 'Développer la barre latérale'
   },
   de: {
     mainNav: 'Hauptnavigation',
@@ -160,7 +181,51 @@ const SHELL: Record<ResolvedLanguage, Record<ShellKey, string>> = {
     loadingScreen: 'Ansicht wird geladen…',
     noResults: 'Keine Ergebnisse',
     languageHelp: 'Auto folgt der Windows/App-Sprache. Dieser erste Rollout lokalisiert App-Shell, Navigation und Ansichtsmetadaten; Übersetzungen pro Ansicht werden weiter ausgebaut.',
-    settingsSaved: 'Einstellungen gespeichert.'
+    settingsSaved: 'Einstellungen gespeichert.',
+    collapseSidebar: 'Seitenleiste einklappen',
+    expandSidebar: 'Seitenleiste ausklappen'
+  },
+  zh: {
+    mainNav: '主导航',
+    searchScreens: '搜索页面…',
+    favorites: '收藏',
+    favoritesEmpty: '用星标固定页面以便快速访问。',
+    recents: '最近',
+    removeFavorite: '将 {label} 从收藏中移除',
+    addFavorite: '将 {label} 添加到收藏',
+    simXConnected: 'SIM-X 已连接',
+    simXDisconnected: 'SIM-X 未连接',
+    connectInDevices: '在“设备”中连接',
+    supportAria: '在 Buy Me a Coffee 上支持该项目',
+    supportTitle: '支持该项目',
+    supportButton: '☕ 支持',
+    loadingScreen: '正在加载页面…',
+    noResults: '无结果',
+    languageHelp: 'Auto 跟随 Windows/应用语言。此首个版本本地化了应用外壳、导航和页面元数据；各页面的翻译将持续完善。',
+    settingsSaved: '设置已保存。',
+    collapseSidebar: '收起侧边栏',
+    expandSidebar: '展开侧边栏'
+  },
+  ja: {
+    mainNav: 'メインナビゲーション',
+    searchScreens: '画面を検索…',
+    favorites: 'お気に入り',
+    favoritesEmpty: 'スターで画面を固定するとすぐにアクセスできます。',
+    recents: '最近',
+    removeFavorite: '{label} をお気に入りから削除',
+    addFavorite: '{label} をお気に入りに追加',
+    simXConnected: 'SIM-X 接続済み',
+    simXDisconnected: 'SIM-X 未接続',
+    connectInDevices: '「デバイス」で接続',
+    supportAria: 'Buy Me a Coffee でプロジェクトを支援',
+    supportTitle: 'プロジェクトを支援',
+    supportButton: '☕ 支援',
+    loadingScreen: '画面を読み込み中…',
+    noResults: '結果なし',
+    languageHelp: 'Auto は Windows/アプリの言語に従います。この最初のロールアウトではアプリシェル、ナビゲーション、画面メタデータをローカライズします。画面ごとの翻訳は順次拡大します。',
+    settingsSaved: '設定を保存しました。',
+    collapseSidebar: 'サイドバーを折りたたむ',
+    expandSidebar: 'サイドバーを展開'
   }
 }
 
@@ -212,13 +277,17 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
   },
   es: {},
   fr: {},
-  de: {}
+  de: {},
+  zh: {},
+  ja: {}
 }
 
 for (const [id, text] of Object.entries(VIEW_TEXT.en)) {
   VIEW_TEXT.es[id] = { ...text }
   VIEW_TEXT.fr[id] = { ...text }
   VIEW_TEXT.de[id] = { ...text }
+  VIEW_TEXT.zh[id] = { ...text }
+  VIEW_TEXT.ja[id] = { ...text }
 }
 
 function patchViewText(language: ResolvedLanguage, patches: Record<string, Partial<ViewText>>): void {
@@ -280,6 +349,44 @@ patchViewText('de', {
   about: { label: 'Über / Credits' }
 })
 
+patchViewText('zh', {
+  telemetry: { label: '遥测', eyebrow: '模拟器', description: '实时遥测源与总览。' },
+  dashboards: { label: '仪表盘', eyebrow: '监视', description: '监视窗口、.simhubdash 导入与仪表盘构建器。' },
+  'touch-controls': { label: '触控仪表盘', eyebrow: '座舱' },
+  'oled-dash': { label: 'OLED 仪表盘', eyebrow: '显示' },
+  overlays: { label: '叠加层', eyebrow: '屏幕', description: '模拟器之上的透明叠加层。' },
+  fuel: { label: '燃油', eyebrow: '策略' },
+  tire: { label: '轮胎', eyebrow: '策略' },
+  alerts: { label: '警报' },
+  engineer: { label: 'AI 工程师' },
+  coach: { label: 'AI 教练' },
+  strategy: { label: '策略' },
+  haptics: { label: '触觉反馈' },
+  'haptics-zonal': { label: '分区触觉' },
+  devices: { label: '设备' },
+  settings: { label: '设置', description: '自动启动、遥测源、语言与主题。' },
+  about: { label: '关于 / 致谢' }
+})
+
+patchViewText('ja', {
+  telemetry: { label: 'テレメトリー', eyebrow: 'シム', description: 'ライブのテレメトリーソースと概要。' },
+  dashboards: { label: 'ダッシュボード', eyebrow: 'モニター', description: 'モニターウィンドウ、.simhubdash インポート、ビルダー。' },
+  'touch-controls': { label: 'タッチダッシュ', eyebrow: 'コックピット' },
+  'oled-dash': { label: 'OLED ダッシュ', eyebrow: 'ディスプレイ' },
+  overlays: { label: 'オーバーレイ', eyebrow: '画面', description: 'シミュレーターの上に表示する透明オーバーレイ。' },
+  fuel: { label: '燃料', eyebrow: '戦略' },
+  tire: { label: 'タイヤ', eyebrow: '戦略' },
+  alerts: { label: 'アラート' },
+  engineer: { label: 'AI エンジニア' },
+  coach: { label: 'AI コーチ' },
+  strategy: { label: '戦略' },
+  haptics: { label: 'ハプティクス' },
+  'haptics-zonal': { label: 'ゾーンハプティクス' },
+  devices: { label: 'デバイス' },
+  settings: { label: '設定', description: '自動起動、テレメトリーソース、言語、テーマ。' },
+  about: { label: '概要 / クレジット' }
+})
+
 const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
   'pt-BR': {},
   en: {
@@ -311,6 +418,24 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     Garage: 'Garage',
     Hardware: 'Hardware',
     System: 'System'
+  },
+  zh: {
+    'Race Hub': '比赛中心',
+    Drive: '驾驶',
+    'IA & Coaching': 'AI 与教练',
+    Strategy: '策略',
+    Garage: '车库',
+    Hardware: '硬件',
+    System: '系统'
+  },
+  ja: {
+    'Race Hub': 'レースハブ',
+    Drive: 'ドライブ',
+    'IA & Coaching': 'AI とコーチング',
+    Strategy: '戦略',
+    Garage: 'ガレージ',
+    Hardware: 'ハードウェア',
+    System: 'システム'
   }
 }
 
@@ -332,6 +457,16 @@ const GROUP_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     App: 'App'
   },
   de: {
+    'Sim Racing': 'Sim Racing',
+    ButtonBox: 'ButtonBox',
+    App: 'App'
+  },
+  zh: {
+    'Sim Racing': 'Sim Racing',
+    ButtonBox: 'ButtonBox',
+    App: 'App'
+  },
+  ja: {
     'Sim Racing': 'Sim Racing',
     ButtonBox: 'ButtonBox',
     App: 'App'

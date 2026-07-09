@@ -24,6 +24,7 @@ import { RACE_WET_PRESETS } from './dashboards-race-wet'
 import { RACE_SUN_PRESETS } from './dashboards-race-sun'
 import { RACE_FIRST_PRESETS } from './dashboards-race-first'
 import { RACE_CHASE_PRESETS } from './dashboards-race-chase'
+import { DASHBOARDS2 } from './dashboards2/catalog'
 // WS-5 cross-agent contract: the adaptive-dashboards agent owns this NEW module
 // and exports ADAPTIVE_DASHBOARD_PRESET (a BUILTIN_PRESETS entry). It only imports
 // the Dashboard TYPE from here, so this stays a one-way dependency with no runtime
@@ -2915,7 +2916,15 @@ export const BUILTIN_PRESETS: Array<{ id: string; name: string; build: () => Das
   ...RACE_WET_PRESETS,
   ...RACE_SUN_PRESETS,
   ...RACE_FIRST_PRESETS,
-  ...RACE_CHASE_PRESETS
+  ...RACE_CHASE_PRESETS,
+  ...DASHBOARDS2.map((dashboard) => ({
+    id: dashboard.id,
+    name: dashboard.name,
+    // Return a FRESH deep clone each call (like every other preset builder) so a
+    // materialized/edited dashboard never mutates the shared built-in object.
+    build: (): Dashboard => JSON.parse(JSON.stringify(dashboard)) as Dashboard,
+    tags: ['dashboards2', dashboard.width + 'x' + dashboard.height, 'generic', 'motorsport']
+  }))
 ]
 
 export function summarizeDashboard(dash: Dashboard): DashboardSummary {
@@ -3372,4 +3381,3 @@ export const DASHBOARD_FONT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'Impact, "Arial Black", sans-serif', label: 'Impact' },
   { value: 'system-ui, sans-serif', label: 'System UI' }
 ]
-

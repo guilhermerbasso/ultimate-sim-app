@@ -36,6 +36,7 @@ type ToastTone = 'success' | 'error' | 'info'
 const FAVORITES_STORAGE_KEY = 'usa.favorites'
 const RECENTS_STORAGE_KEY = 'usa.recents'
 const ONBOARDING_STORAGE_KEY = 'usa.onboardingCompleted'
+export const SIDEBAR_COLLAPSED_STORAGE_KEY = 'usa:sidebar-collapsed'
 const MAX_RECENTS = 5
 const SUPPORT_URL = 'https://buymeacoffee.com/bettercalllbasso'
 
@@ -81,6 +82,61 @@ function readOnboardingCompleted(): boolean {
   }
 }
 
+// Sidebar collapse is a small, non-critical piece of UI state; we persist it with
+// the same read-on-init / write-on-change pattern used for favorites and recents.
+// Exported so the persistence contract can be unit-tested without rendering App.
+export function readSidebarCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+export function writeSidebarCollapsed(collapsed: boolean): void {
+  try {
+    window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed ? 'true' : 'false')
+  } catch {
+    // Ignore storage failures (private mode, quota, etc.) — collapse is cosmetic.
+  }
+}
+
+export function isEditableTarget(target: EventTarget | null): boolean {
+  const element = target as Partial<HTMLElement> | null
+  if (!element || typeof element !== 'object') return false
+  const tagName = typeof element.tagName === 'string' ? element.tagName.toLowerCase() : ''
+  if (tagName === 'input' || tagName === 'textarea' || tagName === 'select') return true
+  if (element.isContentEditable === true) return true
+  if (typeof element.closest === 'function') {
+    return Boolean(element.closest('input, textarea, select'))
+  }
+  return false
+}
+
+// Optional image-icon hook. A view MAY expose an `iconImage` URL; when present we
+// render it as an <img> and gracefully fall back to the built-in SVG icon if the
+// image fails to load. The field is read defensively so we do NOT have to edit
+// ViewDef in views/registry.tsx (owned by another track). Real images are added
+// later. TODO(icons): add an optional `iconImage?: string` to ViewDef in
+// views/registry.tsx to actually populate these — this renderer already supports
+// it with SVG fallback.
+function NavIcon({ view }: { view: ViewDef }): ReactElement {
+  const iconImage = (view as ViewDef & { iconImage?: string }).iconImage
+  const [imageFailed, setImageFailed] = useState(false)
+  if (iconImage && !imageFailed) {
+    return (
+      <img
+        className="nav-icon-img"
+        src={iconImage}
+        alt=""
+        aria-hidden="true"
+        onError={() => setImageFailed(true)}
+      />
+    )
+  }
+  return <ViewIcon id={view.id} />
+}
+
 function App(): ReactElement {
   // The connected SIM-X primary now lives in the shared device registry, so a
   // device connected in DevicesView is reflected here (sidebar) and in every
@@ -93,6 +149,7 @@ function App(): ReactElement {
   const [config, setConfig] = useState<Config | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => readSidebarCollapsed())
   const [showOnboarding, setShowOnboarding] = useState(() => !readOnboardingCompleted())
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS)
 
@@ -193,6 +250,10 @@ function App(): ReactElement {
     setActiveId(id)
   }, [])
 
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((collapsed) => !collapsed)
+  }, [])
+
   const toggleFavorite = useCallback((id: string) => {
     setFavorites((currentFavorites) => (
       currentFavorites.includes(id)
@@ -219,10 +280,12 @@ function App(): ReactElement {
         <button
           className={`nav-item ${view.id === activeId ? 'is-active' : ''}`}
           aria-current={view.id === activeId ? 'page' : undefined}
+          aria-label={sidebarCollapsed ? view.label : undefined}
+          title={sidebarCollapsed ? view.label : undefined}
           onClick={() => activateView(view.id)}
           type="button"
         >
-          <span className="nav-icon"><ViewIcon id={view.id} /></span>
+          <span className="nav-icon"><NavIcon view={view} /></span>
           <span>
             <strong>{view.label}</strong>
           </span>
@@ -238,7 +301,7 @@ function App(): ReactElement {
         </button>
       </div>
     )
-  }, [activeId, activateView, favorites, language, toggleFavorite])
+  }, [activeId, activateView, favorites, language, sidebarCollapsed, toggleFavorite])
 
   // Mapping/config only make sense while the SIM-X is connected. Clearing them
   // here keeps every disconnect path (registry action, DevicesView, ArduinosView)
@@ -257,6 +320,11 @@ function App(): ReactElement {
   useEffect(() => {
     writeStoredViewIds(RECENTS_STORAGE_KEY, recents.filter((id) => viewById.has(id)).slice(0, MAX_RECENTS))
   }, [recents, viewById])
+
+  // Persist the collapsed rail state, mirroring the favorites/recents pattern above.
+  useEffect(() => {
+    writeSidebarCollapsed(sidebarCollapsed)
+  }, [sidebarCollapsed])
 
   useEffect(() => {
     if (!viewById.has(activeId)) return
@@ -293,32 +361,78 @@ function App(): ReactElement {
     document.documentElement.lang = language
   }, [language])
 
-  // Global command palette shortcut (Ctrl/Cmd+K) to jump to any view.
+  // Global keyboard shortcuts: Ctrl/Cmd+K opens the command palette, Ctrl/Cmd+B
+  // collapses/expands the sidebar rail. The two keys do not clash with each other.
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
-      if ((event.ctrlKey || event.metaKey) && (event.key === 'k' || event.key === 'K')) {
+      if (!(event.ctrlKey || event.metaKey) || isEditableTarget(event.target)) return
+      if (event.key === 'k' || event.key === 'K') {
         event.preventDefault()
         setPaletteOpen((open) => !open)
+      }
+      if (event.key === 'b' || event.key === 'B') {
+        event.preventDefault()
+        setSidebarCollapsed((collapsed) => !collapsed)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  const connectionStatusLabel = connectedDevice ? t(language, 'simXConnected') : t(language, 'simXDisconnected')
+  const connectionStatusDescription = connectedDevice
+    ? `${connectedDevice.path} · FW ${connectedDevice.firmwareVersion}`
+    : t(language, 'connectInDevices')
+
   return (
     <div className="app-root">
       <WakeWordIndicator />
       <main className="app-shell">
-        <aside className="sidebar" aria-label={t(language, 'mainNav')}>
+        <aside
+          id="app-sidebar"
+          className="sidebar"
+          data-collapsed={sidebarCollapsed ? 'true' : undefined}
+          aria-label={t(language, 'mainNav')}
+        >
           <div className="brand-block">
             <div className="brand-mark" aria-hidden="true"><BrandLogo /></div>
-            <div>
+            <div className="brand-text">
               <span className="brand-kicker">Sim Racing</span>
               <h1>Ultimate Sim App</h1>
             </div>
+            <button
+              type="button"
+              className="sidebar-toggle"
+              onClick={toggleSidebar}
+              aria-label={sidebarCollapsed ? t(language, 'expandSidebar') : t(language, 'collapseSidebar')}
+              aria-expanded={!sidebarCollapsed}
+              aria-controls="app-sidebar"
+              title={sidebarCollapsed ? t(language, 'expandSidebar') : t(language, 'collapseSidebar')}
+            >
+              <svg
+                className="sidebar-toggle-icon"
+                viewBox="0 0 20 20"
+                width="18"
+                height="18"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.7}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 5l-5 5 5 5" />
+              </svg>
+            </button>
           </div>
 
-          <button className="nav-search" type="button" onClick={() => setPaletteOpen(true)}>
+          <button
+            className="nav-search"
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            aria-label={t(language, 'searchScreens')}
+            title={sidebarCollapsed ? t(language, 'searchScreens') : undefined}
+          >
             <span className="nav-search-icon" aria-hidden="true">⌕</span>
             <span>{t(language, 'searchScreens')}</span>
             <kbd>⌘K</kbd>
@@ -354,11 +468,18 @@ function App(): ReactElement {
             ))}
           </nav>
 
-          <div className={`sidebar-card ${connectedDevice ? 'is-online' : ''}`}>
+          <div
+            className={`sidebar-card ${connectedDevice ? 'is-online' : ''}`}
+            title={sidebarCollapsed ? (connectedDevice ? t(language, 'simXConnected') : t(language, 'simXDisconnected')) : undefined}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            aria-label={`${connectionStatusLabel}. ${connectionStatusDescription}`}
+          >
             <span className="status-dot" />
             <div>
-              <strong>{connectedDevice ? t(language, 'simXConnected') : t(language, 'simXDisconnected')}</strong>
-              <p>{connectedDevice ? `${connectedDevice.path} · FW ${connectedDevice.firmwareVersion}` : t(language, 'connectInDevices')}</p>
+              <strong>{connectionStatusLabel}</strong>
+              <p>{connectionStatusDescription}</p>
             </div>
           </div>
         </aside>
