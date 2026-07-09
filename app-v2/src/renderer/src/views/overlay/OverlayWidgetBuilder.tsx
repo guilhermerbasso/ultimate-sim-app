@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react'
+import type { PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react'
 import type { CustomOverlayDef } from '../../../../shared/overlays'
 import { DEFAULT_RICH_OVERLAY_CANVAS } from '../../../../shared/overlays'
 import type { DashboardElement, DashboardElementStyle, TextSlotStyle } from '../../../../shared/dashboards'
@@ -265,6 +265,65 @@ function ToggleField({ label, value, onChange }: { label: string; value: boolean
 
 const FONT_OPTIONS = DASHBOARD_FONT_OPTIONS
 
+const OVERLAY_BUILDER_LAYOUT_CSS = `
+.overlay-designer.overlay-builder {
+  width: min(1500px, calc(100vw - 48px));
+}
+
+.overlay-builder-grid {
+  flex: 1 1 auto;
+  grid-template-columns: minmax(260px, 300px) minmax(360px, 1fr) minmax(300px, 340px);
+}
+
+.overlay-builder-grid > * {
+  min-width: 0;
+}
+
+.overlay-builder-palette,
+.overlay-builder-inspector {
+  max-height: none;
+}
+
+.overlay-builder-center {
+  align-items: stretch;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.overlay-builder-stage-shell {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 260px;
+  overflow: hidden;
+  width: 100%;
+}
+
+@media (max-width: 1100px) {
+  .overlay-builder-grid {
+    grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  }
+
+  .overlay-builder-inspector {
+    grid-column: 1 / -1;
+    max-height: 260px;
+  }
+}
+
+@media (max-width: 820px) {
+  .overlay-builder-grid {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+
+  .overlay-builder-palette,
+  .overlay-builder-inspector {
+    max-height: none;
+  }
+}
+`
+
 // ── Canvas (scaled live preview with selection + drag/resize) ─────────────────
 interface CanvasProps {
   widgets: DashboardElement[]
@@ -286,14 +345,39 @@ interface ActiveEdit {
 }
 
 function BuilderCanvas({ widgets, canvasWidth, canvasHeight, selectedId, onSelect, onGeometry }: CanvasProps): ReactElement {
-  const MAX_W = 760
-  const MAX_H = 460
-  const scale = Math.min(MAX_W / canvasWidth, MAX_H / canvasHeight)
-  const previewW = Math.round(canvasWidth * scale)
-  const previewH = Math.round(canvasHeight * scale)
-  const handleSize = Math.max(8, 11 / scale)
+  const stageBoxRef = useRef<HTMLDivElement | null>(null)
   const activeRef = useRef<ActiveEdit | null>(null)
+  const [stageBox, setStageBox] = useState({ width: 760, height: 460 })
   const sorted = useMemo(() => sortElementsByZ(widgets), [widgets])
+  const safeCanvasWidth = Math.max(1, canvasWidth)
+  const safeCanvasHeight = Math.max(1, canvasHeight)
+  const scale = Math.min(stageBox.width / safeCanvasWidth, stageBox.height / safeCanvasHeight)
+  const previewW = Math.round(safeCanvasWidth * scale)
+  const previewH = Math.round(safeCanvasHeight * scale)
+  const handleSize = Math.max(8, 11 / scale)
+
+  useEffect(() => {
+    const node = stageBoxRef.current
+    if (!node) return undefined
+
+    const update = (): void => {
+      setStageBox({
+        width: Math.max(240, node.clientWidth),
+        height: Math.max(180, node.clientHeight)
+      })
+    }
+
+    update()
+    const ResizeObserverCtor = typeof ResizeObserver !== 'undefined' ? ResizeObserver : undefined
+    if (ResizeObserverCtor) {
+      const observer = new ResizeObserverCtor(update)
+      observer.observe(node)
+      return () => observer.disconnect()
+    }
+
+    window.addEventListener('resize', update)
+    return () => window.removeEventListener('resize', update)
+  }, [])
 
   const onPointerMove = useCallback(
     (event: ReactPointerEvent<HTMLElement>): void => {
@@ -336,77 +420,79 @@ function BuilderCanvas({ widgets, canvasWidth, canvasHeight, selectedId, onSelec
   }
 
   return (
-    <div
-      className="overlay-builder-stage"
-      style={{ width: previewW, height: previewH }}
-      onPointerDown={() => onSelect(null)}
-    >
+    <div className="overlay-builder-stage-shell" ref={stageBoxRef}>
       <div
-        className="overlay-builder-canvas"
-        style={{ width: canvasWidth, height: canvasHeight, transform: `scale(${scale})` }}
+        className="overlay-builder-stage"
+        style={{ width: previewW, height: previewH }}
+        onPointerDown={() => onSelect(null)}
       >
-        {sorted.map((el) => (
-          <div key={el.id} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-            {renderDashboardElement({ element: el, snapshot: PREVIEW_SNAPSHOT })}
-          </div>
-        ))}
-        {sorted.map((el) => {
-          const selected = el.id === selectedId
-          return (
-            <div
-              key={`sel-${el.id}`}
-              role="button"
-              tabIndex={-1}
-              onPointerDown={(event) => beginEdit(event, el, 'move')}
-              onPointerMove={onPointerMove}
-              onPointerUp={endEdit}
-              onPointerCancel={endEdit}
-              style={{
-                position: 'absolute',
-                left: el.x,
-                top: el.y,
-                width: el.w,
-                height: el.h,
-                cursor: 'move',
-                border: selected ? '2px solid var(--accent-primary, #ff7a1a)' : '1px dashed rgba(255,170,90,0.45)',
-                background: selected ? 'rgba(255,122,26,0.07)' : 'transparent',
-                boxSizing: 'border-box',
-                touchAction: 'none'
-              }}
-            >
-              {selected &&
-                RESIZE_HANDLES.map((handle) => {
-                  const isW = handle.includes('w')
-                  const isE = handle.includes('e')
-                  const isN = handle.includes('n')
-                  const isS = handle.includes('s')
-                  const left = isW ? -handleSize / 2 : isE ? el.w - handleSize / 2 : el.w / 2 - handleSize / 2
-                  const top = isN ? -handleSize / 2 : isS ? el.h - handleSize / 2 : el.h / 2 - handleSize / 2
-                  return (
-                    <div
-                      key={handle}
-                      onPointerDown={(event) => beginEdit(event, el, 'resize', handle)}
-                      onPointerMove={onPointerMove}
-                      onPointerUp={endEdit}
-                      onPointerCancel={endEdit}
-                      style={{
-                        position: 'absolute',
-                        left,
-                        top,
-                        width: handleSize,
-                        height: handleSize,
-                        background: 'var(--accent-primary, #ff7a1a)',
-                        border: '1px solid #1a0f06',
-                        borderRadius: 2,
-                        cursor: handleCursor(handle),
-                        touchAction: 'none'
-                      }}
-                    />
-                  )
-                })}
+        <div
+          className="overlay-builder-canvas"
+          style={{ width: safeCanvasWidth, height: safeCanvasHeight, transform: `scale(${scale})` }}
+        >
+          {sorted.map((el) => (
+            <div key={el.id} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+              {renderDashboardElement({ element: el, snapshot: PREVIEW_SNAPSHOT })}
             </div>
-          )
-        })}
+          ))}
+          {sorted.map((el) => {
+            const selected = el.id === selectedId
+            return (
+              <div
+                key={`sel-${el.id}`}
+                role="button"
+                tabIndex={-1}
+                onPointerDown={(event) => beginEdit(event, el, 'move')}
+                onPointerMove={onPointerMove}
+                onPointerUp={endEdit}
+                onPointerCancel={endEdit}
+                style={{
+                  position: 'absolute',
+                  left: el.x,
+                  top: el.y,
+                  width: el.w,
+                  height: el.h,
+                  cursor: 'move',
+                  border: selected ? '2px solid var(--accent-primary, #ff7a1a)' : '1px dashed rgba(255,170,90,0.45)',
+                  background: selected ? 'rgba(255,122,26,0.07)' : 'transparent',
+                  boxSizing: 'border-box',
+                  touchAction: 'none'
+                }}
+              >
+                {selected &&
+                  RESIZE_HANDLES.map((handle) => {
+                    const isW = handle.includes('w')
+                    const isE = handle.includes('e')
+                    const isN = handle.includes('n')
+                    const isS = handle.includes('s')
+                    const left = isW ? -handleSize / 2 : isE ? el.w - handleSize / 2 : el.w / 2 - handleSize / 2
+                    const top = isN ? -handleSize / 2 : isS ? el.h - handleSize / 2 : el.h / 2 - handleSize / 2
+                    return (
+                      <div
+                        key={handle}
+                        onPointerDown={(event) => beginEdit(event, el, 'resize', handle)}
+                        onPointerMove={onPointerMove}
+                        onPointerUp={endEdit}
+                        onPointerCancel={endEdit}
+                        style={{
+                          position: 'absolute',
+                          left,
+                          top,
+                          width: handleSize,
+                          height: handleSize,
+                          background: 'var(--accent-primary, #ff7a1a)',
+                          border: '1px solid #1a0f06',
+                          borderRadius: 2,
+                          cursor: handleCursor(handle),
+                          touchAction: 'none'
+                        }}
+                      />
+                    )
+                  })}
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
@@ -730,6 +816,20 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
     setSelectedId(null)
   }, [selectedId, widgets, setWidgets])
 
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      if (!selectedId) return
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return
+      e.preventDefault()
+      removeSelected()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [selectedId, removeSelected])
+
   const onGeometry = useCallback(
     (id: string, geo: { x: number; y: number; w: number; h: number }): void => {
       setWidgets(widgets.map((w) => (w.id === id ? { ...w, ...geo } : w)))
@@ -749,10 +849,9 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
     onSave(next)
   }
 
-  const stageStyle: CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center' }
-
   return (
     <div className="overlay-designer-backdrop" role="dialog" aria-modal="true">
+      <style>{OVERLAY_BUILDER_LAYOUT_CSS}</style>
       <div className="overlay-designer overlay-builder">
         <div className="overlay-designer-head">
           <h4>{editing ? 'Edit widget overlay' : 'Create new overlay (dashboard widgets)'}</h4>
@@ -796,16 +895,14 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
           </aside>
 
           <section className="overlay-builder-center">
-            <div style={stageStyle}>
-              <BuilderCanvas
-                widgets={widgets}
-                canvasWidth={canvasWidth}
-                canvasHeight={canvasHeight}
-                selectedId={selectedId}
-                onSelect={setSelectedId}
-                onGeometry={onGeometry}
-              />
-            </div>
+            <BuilderCanvas
+              widgets={widgets}
+              canvasWidth={canvasWidth}
+              canvasHeight={canvasHeight}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              onGeometry={onGeometry}
+            />
             <p className="overlay-help">
               {widgets.length} widget(s) · drag to move, pull the corners to resize. Preview with simulated telemetry.
             </p>

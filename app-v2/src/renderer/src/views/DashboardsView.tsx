@@ -42,6 +42,7 @@ import { PREVIEW_SNAPSHOT } from '../dashboard/widgets/gt3-theme'
 import { WidgetGallery, variantToElement } from './dashboard/widget-catalog'
 import type { WidgetVariant } from './dashboard/widget-catalog'
 import { PresetGallery } from './dashboard/preset-gallery'
+import StreamingPanel from '../components/StreamingPanel'
 import '../dashboard/dashboard-runtime.css'
 
 const ACCENT = 'var(--accent-primary)'
@@ -797,6 +798,22 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
     markDirty()
   }
 
+  // Delete / Backspace removes the currently selected canvas element (unless the user is
+  // typing in a field), so there's no need to scroll to the inspector's Remove button.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      if (!selectedElementId) return
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return
+      e.preventDefault()
+      removeElement(selectedElementId)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [selectedElementId, removeElement])
+
   function duplicateElement(elementId: string): void {
     setSelectedDash((current) => {
       if (!current) return current
@@ -1185,6 +1202,8 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
           ))}
         </div>
       </section>
+
+      <StreamingPanel />
 
       {error && <section style={panel({ borderColor: '#ff5468' })}>{error}</section>}
 
@@ -1615,48 +1634,6 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16 }}>
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
-                    <button
-                      type="button"
-                      style={{ ...btn(galleryOpen ? 'primary' : 'default'), display: 'flex', alignItems: 'center', gap: 6 }}
-                      onClick={() => setGalleryOpen((v) => !v)}
-                      title="Show/hide widget gallery"
-                    >
-                      {galleryOpen ? '?' : '?'} Widget gallery
-                    </button>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <label style={{ color: TEXT_DIM, fontSize: 12 }}>Add avancado</label>
-                      <select
-                        value=""
-                        onChange={(e) => {
-                          const v = e.target.value as DashboardElementType
-                          if (v) addElement(v)
-                          e.target.value = ''
-                        }}
-                        style={{ ...input({ width: 'auto' }), padding: '4px 8px', fontSize: 12 }}
-                      >
-                        <option value="">+ tipo…</option>
-                        {ELEMENT_TYPES.map((t) => (
-                          <option key={t.value} value={t.value}>{t.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  {galleryOpen && (
-                    <div
-                      style={{
-                        maxHeight: 320,
-                        overflowY: 'auto',
-                        padding: 12,
-                        marginBottom: 10,
-                        background: '#07090c',
-                        border: `1px solid ${PANEL_BORDER}`,
-                        borderRadius: 'var(--radius-sm)'
-                      }}
-                    >
-                      <WidgetGallery onAdd={addVariant} busy={busy} />
-                    </div>
-                  )}
                   <div
                     style={{
                       display: 'flex',
@@ -1721,6 +1698,48 @@ export default function DashboardsView({ showToast }: AppViewProps): ReactElemen
                       : 'Static preview (no telemetry). Click, drag, or resize with the handles to edit.'}
                     {snapEnabled ? ` ${snapStep}px grid active: position/size adjustments are rounded.` : ''}
                   </p>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                    <button
+                      type="button"
+                      style={{ ...btn(galleryOpen ? 'primary' : 'default'), display: 'flex', alignItems: 'center', gap: 6 }}
+                      onClick={() => setGalleryOpen((v) => !v)}
+                      title="Show/hide widget gallery"
+                    >
+                      {galleryOpen ? '?' : '?'} Widget gallery
+                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <label style={{ color: TEXT_DIM, fontSize: 12 }}>Add avancado</label>
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          const v = e.target.value as DashboardElementType
+                          if (v) addElement(v)
+                          e.target.value = ''
+                        }}
+                        style={{ ...input({ width: 'auto' }), padding: '4px 8px', fontSize: 12 }}
+                      >
+                        <option value="">+ tipo…</option>
+                        {ELEMENT_TYPES.map((t) => (
+                          <option key={t.value} value={t.value}>{t.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  {galleryOpen && (
+                    <div
+                      style={{
+                        maxHeight: 320,
+                        overflowY: 'auto',
+                        padding: 12,
+                        marginBottom: 10,
+                        background: '#07090c',
+                        border: `1px solid ${PANEL_BORDER}`,
+                        borderRadius: 'var(--radius-sm)'
+                      }}
+                    >
+                      <WidgetGallery onAdd={addVariant} busy={busy} />
+                    </div>
+                  )}
                 </div>
                 <div>
                   <ElementInspector
