@@ -1,6 +1,7 @@
 import { type ReactElement, useEffect, useMemo, useState } from 'react'
 import type { EncoderEvent } from '../../../shared/ipc'
 import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 
 const TOTAL_HID_BUTTONS = 32
 const ENCODER_COUNT = 4
@@ -57,7 +58,7 @@ function readHat(gamepad: Gamepad | null): boolean[] {
   }
 }
 
-function InputMonitorView(_props: AppViewProps): ReactElement {
+function InputMonitorView({ language }: AppViewProps): ReactElement {
   const [gamepads, setGamepads] = useState<GamepadSnapshot[]>([])
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [buttons, setButtons] = useState<boolean[]>(() => Array.from({ length: TOTAL_HID_BUTTONS }, () => false))
@@ -101,14 +102,14 @@ function InputMonitorView(_props: AppViewProps): ReactElement {
     <section className="panel-card full-height scroll-card">
       <div className="panel-heading-row">
         <div>
-          <span className="panel-label">Web Gamepad API + serial</span>
-          <h3>SIM-X input monitor</h3>
+          <span className="panel-label">{tt(language, 'inputMonitor.eyebrow')}</span>
+          <h3>{tt(language, 'inputMonitor.title')}</h3>
         </div>
-        <span className="muted-pill">{TOTAL_HID_BUTTONS} HID + POV + {ENCODER_COUNT} encoders</span>
+        <span className="muted-pill">{tt(language, 'inputMonitor.summary', { buttons: TOTAL_HID_BUTTONS, encoders: ENCODER_COUNT })}</span>
       </div>
 
       <div className="gamepad-picker">
-        <label className="field-label" htmlFor="gamepad">Selected gamepad</label>
+        <label className="field-label" htmlFor="gamepad">{tt(language, 'inputMonitor.selectedGamepad')}</label>
         <select
           className="select-field wide"
           disabled={gamepads.length === 0}
@@ -116,7 +117,7 @@ function InputMonitorView(_props: AppViewProps): ReactElement {
           onChange={(event) => setSelectedIndex(Number(event.target.value))}
           value={selectedIndex ?? ''}
         >
-          {gamepads.length === 0 && <option value="">No gamepad detected</option>}
+          {gamepads.length === 0 && <option value="">{tt(language, 'inputMonitor.noGamepad')}</option>}
           {gamepads.map((gamepad) => (
             <option key={gamepad.index} value={gamepad.index}>
               {gamepad.index} · {gamepad.id}
@@ -125,12 +126,12 @@ function InputMonitorView(_props: AppViewProps): ReactElement {
         </select>
         <p className="helper-text">
           {selectedGamepad
-            ? `${selectedGamepad.id}. Press a button if the browser has not detected the HID yet.`
-            : 'Connect SIM-X and press any button so Chromium recognizes the HID.'}
+            ? tt(language, 'inputMonitor.selectedHelp', { id: selectedGamepad.id })
+            : tt(language, 'inputMonitor.connectHelp')}
         </p>
       </div>
 
-      <div className="input-grid" aria-label="32 HID button state">
+      <div className="input-grid" aria-label={tt(language, 'inputMonitor.buttonGridAria', { count: TOTAL_HID_BUTTONS })}>
         {buttons.map((pressed, index) => (
           <div className={`input-cell ${pressed ? 'is-pressed' : ''}`} key={index + 1}>
             <span>{String(index + 1).padStart(2, '0')}</span>
@@ -139,8 +140,8 @@ function InputMonitorView(_props: AppViewProps): ReactElement {
       </div>
 
       <div className="divider" />
-      <span className="panel-label">POV hat (D-pad)</span>
-      <div className="input-grid" aria-label="POV hat state">
+      <span className="panel-label">{tt(language, 'inputMonitor.povTitle')}</span>
+      <div className="input-grid" aria-label={tt(language, 'inputMonitor.povAria')}>
         {HAT_DIRECTIONS.map((arrow, index) => (
           <div className={`input-cell ${hat[index] ? 'is-pressed' : ''}`} key={arrow}>
             <span>{arrow}</span>
@@ -149,20 +150,19 @@ function InputMonitorView(_props: AppViewProps): ReactElement {
       </div>
 
       <div className="divider" />
-      <span className="panel-label">Encoders (via serial)</span>
+      <span className="panel-label">{tt(language, 'inputMonitor.encodersTitle')}</span>
       <p className="helper-text">
-        Encoders arrive over serial as <code>E&lt;idx&gt;:+1</code> or <code>E&lt;idx&gt;:-1</code> and are not shown in HID.
-        Connect the ButtonBox in Devices to receive the events below.
+        {tt(language, 'inputMonitor.encodersHelpPrefix')} <code>E&lt;idx&gt;:+1</code> {tt(language, 'inputMonitor.encodersHelpMiddle')} <code>E&lt;idx&gt;:-1</code> {tt(language, 'inputMonitor.encodersHelpSuffix')}
       </p>
-      <div className="status-list" aria-label="Last encoder events">
+      <div className="status-list" aria-label={tt(language, 'inputMonitor.encoderEventsAria')}>
         {encoderTraces.length === 0 ? (
-          <p className="helper-text">Waiting for encoder events?</p>
+          <p className="helper-text">{tt(language, 'inputMonitor.waitingEncoders')}</p>
         ) : (
           encoderTraces.map((trace, index) => (
             <div className="status-dot" key={`${trace.at}-${index}`}>
-              <strong>Encoder {trace.index}</strong>
-              <span>{trace.direction > 0 ? '+1 (CW)' : '-1 (CCW)'}</span>
-              <small>{new Date(trace.at).toLocaleTimeString()}</small>
+              <strong>{tt(language, 'inputMonitor.encoderLabel', { index: trace.index })}</strong>
+              <span>{trace.direction > 0 ? tt(language, 'inputMonitor.encoderClockwise') : tt(language, 'inputMonitor.encoderCounterClockwise')}</span>
+              <small>{new Date(trace.at).toLocaleTimeString(language ?? 'en')}</small>
             </div>
           ))
         )}
