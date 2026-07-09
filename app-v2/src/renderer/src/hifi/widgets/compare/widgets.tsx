@@ -77,6 +77,28 @@ function profilePath(ox: number, oy: number, w: number, h: number, prof: number[
   return pts.join(' ')
 }
 
+function normalizedLapDist(dist: number | undefined): number | undefined {
+  if (dist == null || !Number.isFinite(dist)) return undefined
+  return clamp01(dist > 1 ? dist / 100 : dist)
+}
+
+function profileIndexAtDist(dist: number | undefined, prof: number[]): number | undefined {
+  const d = normalizedLapDist(dist)
+  return d == null ? undefined : d * (prof.length - 1)
+}
+
+function profileX(ox: number, w: number, idx: number): number {
+  return ox + (idx / (SPEED_PROFILE.length - 1)) * w
+}
+
+function profileYAtIndex(oy: number, h: number, prof: number[], idx: number, shift = 0): number {
+  const lo = Math.floor(idx)
+  const hi = Math.min(prof.length - 1, lo + 1)
+  const t = idx - lo
+  const v = (prof[lo] ?? 0) + ((prof[hi] ?? 0) - (prof[lo] ?? 0)) * t
+  return oy + h - clamp01(v + shift) * h
+}
+
 // ── Reference (right side) resolver — real rival ahead, else session-best ghost ───
 function reference(s: HifiWidgetProps['snapshot']): { name: string; sub: string; lapSec: number | undefined; isGhost: boolean } {
   const ahead = s?.relatives?.ahead
@@ -140,7 +162,8 @@ function ZoneMap({ ox, oy, w, h, dist }: { ox: number; oy: number; w: number; h:
     const q = TRACK[(i + 1) % TRACK.length]
     return <line key={i} x1={sx(p[0])} y1={sy(p[1])} x2={sx(q[0])} y2={sy(q[1])} stroke={ZONE_COLOR[ZONE[i] ?? 2]} strokeWidth={5} strokeLinecap="round" opacity={0.92} />
   })
-  const car = dist == null ? null : ptAt(dist)
+  const d = normalizedLapDist(dist)
+  const car = d == null ? null : ptAt(d)
   return (
     <g>
       {segs}
@@ -156,9 +179,9 @@ function ZoneMap({ ox, oy, w, h, dist }: { ox: number; oy: number; w: number; h:
 }
 
 function SpeedTrace({ ox, oy, w, h, dist, speed, idp }: { ox: number; oy: number; w: number; h: number; dist: number | undefined; speed: number | undefined; idp: string }): ReactElement {
-  const cursorX = dist == null ? null : ox + clamp01(dist) * w
-  const speedF = frac(speed, SPEED_MIN, SPEED_MAX)
-  const dotY = oy + h - speedF * h
+  const cursorIdx = profileIndexAtDist(dist, SPEED_PROFILE)
+  const cursorX = cursorIdx == null ? null : profileX(ox, w, cursorIdx)
+  const dotY = cursorIdx == null ? null : profileYAtIndex(oy, h, SPEED_PROFILE, cursorIdx)
   return (
     <g>
       <defs>
@@ -180,7 +203,7 @@ function SpeedTrace({ ox, oy, w, h, dist, speed, idp }: { ox: number; oy: number
         return <line key={n} x1={x} y1={oy} x2={x} y2={oy + h} stroke={GRID} strokeWidth={1} strokeDasharray="2 5" />
       })}
       {cursorX != null ? <line x1={cursorX} y1={oy} x2={cursorX} y2={oy + h} stroke={WHITE} strokeWidth={1.5} opacity={0.6} /> : null}
-      {cursorX != null && speed != null ? <circle cx={cursorX} cy={dotY} r={5} fill={WHITE} stroke={RED} strokeWidth={2.5} /> : null}
+      {cursorX != null && dotY != null ? <circle cx={cursorX} cy={dotY} r={5} fill={speed == null ? C.dim : WHITE} stroke={RED} strokeWidth={2.5} /> : null}
       <text x={ox + w} y={oy + 16} textAnchor="end" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={24} {...legibleStroke(24)}>{fixed(speed)}<tspan fill={GREY} fontFamily={FONT_LABEL} fontSize={14}> km/h</tspan></text>
     </g>
   )
@@ -194,7 +217,8 @@ function DeltaTrace({ ox, oy, w, h, dist, delta, idp }: { ox: number; oy: number
     const y = midY - v * scale
     return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`
   }).join(' ')
-  const cursorX = dist == null ? null : ox + clamp01(dist) * w
+  const cursorIdx = profileIndexAtDist(dist, DELTA_PROFILE)
+  const cursorX = cursorIdx == null ? null : ox + (cursorIdx / (DELTA_PROFILE.length - 1)) * w
   const dCol = condColor(delta, { positiveIsGood: false, deadzone: 0.02, good: '#2BFF66', bad: '#ff4040', neutral: WHITE })
   return (
     <g>

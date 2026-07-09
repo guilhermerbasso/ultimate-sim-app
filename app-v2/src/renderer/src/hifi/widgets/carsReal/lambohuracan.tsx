@@ -150,7 +150,7 @@ function DashInfoFrame({ x, y, w, h, side, children }: { x: number; y: number; w
     <g>
       <path d={angularFramePath(x, y, w, h, side === 'left' ? 'right' : 'left')} fill="rgba(0,0,0,0.82)" stroke={LIME} strokeWidth={3} />
       <path d={`M${x + 40} ${y + 18} H${x + w - 46} M${x + 44} ${y + h - 16} H${x + w - 44}`} stroke={LIME} strokeWidth={1.7} opacity={0.85} />
-      <line x1={x + 42} y1={y + h / 2} x2={x + w - 40} y2={y + h / 2} stroke={LIME} strokeWidth={1.7} opacity={0.78} />
+      <line x1={x + 42} y1={y + h / 2 + 12} x2={x + w - 40} y2={y + h / 2 + 12} stroke={LIME} strokeWidth={1.7} opacity={0.78} />
       {side === 'left' ? <Honeycomb x={x + 32} y={y + 35} /> : <Honeycomb x={x + w - 82} y={y + 35} />}
       {children}
     </g>
@@ -158,13 +158,13 @@ function DashInfoFrame({ x, y, w, h, side, children }: { x: number; y: number; w
 }
 
 function DashPair({ x, y, label, value, unit, valueColor = WHITE, anchor = 'start' }: { x: number; y: number; label: string; value: string; unit?: string; valueColor?: string; anchor?: 'start' | 'end' }): ReactElement {
-  const labelX = anchor === 'start' ? x : x - 160
-  const valueX = anchor === 'start' ? x + 108 : x
+  const labelX = anchor === 'start' ? x : x - 144
+  const valueX = anchor === 'start' ? x + 98 : x
   return (
     <g>
-      <text x={labelX} y={y} textAnchor="start" fill={LIME} fontFamily={FONT_LABEL} fontWeight={900} fontSize={34} letterSpacing={2} {...legibleStroke(34)}>{label}</text>
-      <text x={valueX} y={y + 4} textAnchor={anchor} fill={value === '—' || value.startsWith('--') ? C.dim : valueColor} fontFamily={FONT_BIG} fontWeight={900} fontSize={48} {...legibleStroke(48)}>{value}</text>
-      {unit ? <text x={valueX + 12} y={y + 3} fill={LIME} fontFamily={FONT_LABEL} fontWeight={900} fontSize={26} {...legibleStroke(26)}>{unit}</text> : null}
+      <text x={labelX} y={y} textAnchor="start" fill={LIME} fontFamily={FONT_LABEL} fontWeight={900} fontSize={28} letterSpacing={2} {...legibleStroke(28)}>{label}</text>
+      <text x={valueX} y={y + 3} textAnchor={anchor} fill={value === '—' || value.startsWith('--') ? C.dim : valueColor} fontFamily={FONT_BIG} fontWeight={900} fontSize={40} {...legibleStroke(40)}>{value}</text>
+      {unit ? <text x={valueX + 10} y={y + 2} fill={LIME} fontFamily={FONT_LABEL} fontWeight={900} fontSize={22} {...legibleStroke(22)}>{unit}</text> : null}
     </g>
   )
 }
@@ -176,12 +176,12 @@ function CenterBand({ snapshot }: { snapshot: HifiWidgetProps['snapshot'] }): Re
     <g>
       <path d={angularFramePath(306, 505, 412, 76, 'both')} fill="rgba(0,0,0,0.84)" stroke={LIME} strokeWidth={3} />
       <path d="M360 530 L386 557 H638 L664 530 M350 567 H674" fill="none" stroke={LIME} strokeWidth={1.7} opacity={0.88} />
-      <text x={395} y={552} textAnchor="middle" fill={LIME} fontFamily={FONT_LABEL} fontWeight={900} fontSize={32} letterSpacing={2} {...legibleStroke(32)}>BB</text>
-      <text x={486} y={556} textAnchor="middle" fill={bb == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={42} {...legibleStroke(42)}>{fixed(bb)}</text>
-      <text x={534} y={552} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={26} {...legibleStroke(26)}>%</text>
-      <line x1={564} y1={525} x2={564} y2={562} stroke={LIME} strokeWidth={2} />
-      <text x={612} y={552} textAnchor="middle" fill={LIME} fontFamily={FONT_LABEL} fontWeight={900} fontSize={32} letterSpacing={2} {...legibleStroke(32)}>TC</text>
-      <text x={690} y={556} textAnchor="middle" fill={tc === '—' ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={42} {...legibleStroke(42)}>{tc}</text>
+      <text x={390} y={552} textAnchor="middle" fill={LIME} fontFamily={FONT_LABEL} fontWeight={900} fontSize={29} letterSpacing={2} {...legibleStroke(29)}>BB</text>
+      <text x={470} y={556} textAnchor="middle" fill={bb == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={38} {...legibleStroke(38)}>{fixed(bb)}</text>
+      <text x={514} y={552} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={23} {...legibleStroke(23)}>%</text>
+      <line x1={548} y1={525} x2={548} y2={562} stroke={LIME} strokeWidth={2} />
+      <text x={596} y={552} textAnchor="middle" fill={LIME} fontFamily={FONT_LABEL} fontWeight={900} fontSize={29} letterSpacing={2} {...legibleStroke(29)}>TC</text>
+      <text x={660} y={556} textAnchor="middle" fill={tc === '—' ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={38} {...legibleStroke(38)}>{tc}</text>
     </g>
   )
 }
@@ -197,14 +197,14 @@ function LamboDash({ snapshot, width, height }: HifiWidgetProps): ReactElement {
       <TopShiftFrame snapshot={snapshot} />
       <HexGearFrame snapshot={snapshot} />
       <DashInfoFrame x={22} y={410} w={300} h={142} side="left">
-        <DashPair x={72} y={469} label="SPD" value={fixed(speed)} />
-        <DashPair x={72} y={532} label="FUEL" value={fixed(fuel)} unit="L" />
+        <DashPair x={72} y={465} label="SPD" value={fixed(speed)} />
+        <DashPair x={72} y={530} label="FUEL" value={fixed(fuel)} unit="L" />
       </DashInfoFrame>
       <CenterBand snapshot={snapshot} />
       <DashInfoFrame x={702} y={412} w={300} h={140} side="right">
-        <text x={738} y={469} textAnchor="start" fill={LIME} fontFamily={FONT_LABEL} fontWeight={900} fontSize={30} letterSpacing={2} {...legibleStroke(30)}>LAP</text>
-        <text x={946} y={473} textAnchor="end" fill={lap.startsWith('--') ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={38} {...legibleStroke(38)}>{lap}</text>
-        <text x={920} y={533} textAnchor="end" fill={condColor(delta, { positiveIsGood: false, deadzone: 0.01, good: LIME, bad: RED, neutral: WHITE })} fontFamily={FONT_BIG} fontWeight={900} fontSize={52} {...legibleStroke(52)}>{signed(delta, 2)}</text>
+        <text x={738} y={465} textAnchor="start" fill={LIME} fontFamily={FONT_LABEL} fontWeight={900} fontSize={28} letterSpacing={2} {...legibleStroke(28)}>LAP</text>
+        <text x={948} y={468} textAnchor="end" fill={lap.startsWith('--') ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={34} {...legibleStroke(34)}>{lap}</text>
+        <text x={924} y={531} textAnchor="end" fill={condColor(delta, { positiveIsGood: false, deadzone: 0.01, good: LIME, bad: RED, neutral: WHITE })} fontFamily={FONT_BIG} fontWeight={900} fontSize={46} {...legibleStroke(46)}>{signed(delta, 2)}</text>
       </DashInfoFrame>
     </CleanTile>
   )

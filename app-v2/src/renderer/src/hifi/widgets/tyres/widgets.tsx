@@ -86,10 +86,15 @@ function TempReadout({ x, y, value, color, numSize, unitSize }: { x: number; y: 
     )
   }
   const digits = fixed(value)
-  const unitX = x + digits.length * numSize * 0.32 + numSize * 0.3
+  const digitW = digits.length * numSize * 0.54
+  const gap = numSize * 0.08
+  const unitW = unitSize * 1.5
+  const groupLeft = x - (digitW + gap + unitW) / 2
+  const numberX = groupLeft + digitW / 2
+  const unitX = groupLeft + digitW + gap
   return (
     <g>
-      <text x={x} y={y} textAnchor="middle" fill={color} fontFamily={FONT_BIG} fontSize={numSize} fontWeight={900} {...legibleStroke(numSize)}>
+      <text x={numberX} y={y} textAnchor="middle" fill={color} fontFamily={FONT_BIG} fontSize={numSize} fontWeight={900} {...legibleStroke(numSize)}>
         {digits}
       </text>
       <CelsiusUnit x={unitX} y={y - numSize * 0.18} color={color} size={unitSize} />

@@ -135,13 +135,15 @@ function WaterIcon({ color = RED }: { color?: string }): ReactElement {
 }
 
 function BottomCell({ x, w, label, value, unit, icon, color = WHITE }: { x: number; w: number; label: string; value: string; unit?: string; icon: ReactElement; color?: string }): ReactElement {
+  const valueX = x + 124
+  const unitX = x + w - 46
   return (
     <g>
       <rect x={x} y={500} width={w} height={86} fill="rgba(0,0,0,0.84)" stroke={RED} strokeWidth={2} />
-      <g transform={`translate(${x + 54},514) scale(0.8)`}>{icon}</g>
-      <text x={x + 138} y={536} fill={RED} fontFamily={FONT_LABEL} fontWeight={900} fontSize={28} letterSpacing={2} {...legibleStroke(28)}>{label}</text>
-      <text x={x + 136} y={574} fill={value === '—' ? C.dim : color} fontFamily={FONT_BIG} fontWeight={900} fontSize={48} {...legibleStroke(48)}>{value}</text>
-      {unit ? <text x={x + 248} y={573} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={31} {...legibleStroke(31)}>{unit}</text> : null}
+      <g transform={`translate(${x + 38},516) scale(0.72)`}>{icon}</g>
+      <text x={valueX} y={534} fill={RED} fontFamily={FONT_LABEL} fontWeight={900} fontSize={25} letterSpacing={2} {...legibleStroke(25)}>{label}</text>
+      <text x={valueX} y={572} fill={value === '—' ? C.dim : color} fontFamily={FONT_BIG} fontWeight={900} fontSize={42} {...legibleStroke(42)}>{value}</text>
+      {unit ? <text x={unitX} y={571} textAnchor="end" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={27} {...legibleStroke(27)}>{unit}</text> : null}
     </g>
   )
 }
@@ -166,9 +168,9 @@ function F488Dash({ snapshot, width, height }: HifiWidgetProps): ReactElement {
       <text x={54} y={356} fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={98} {...legibleStroke(98)}>{fixed(speed, 0)}</text>
       <text x={61} y={407} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={31} {...legibleStroke(31)}>km/h</text>
       <text x={898} y={226} textAnchor="middle" fill={RED} fontFamily={FONT_LABEL} fontWeight={900} fontSize={39} letterSpacing={2} {...legibleStroke(39)}>LAP</text>
-      <text x={950} y={320} textAnchor="end" fill={snapshot?.lastLapTimeSec == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={68} {...legibleStroke(68)}>{lapShort(num(snapshot?.lastLapTimeSec))}</text>
+      <text x={944} y={314} textAnchor="end" fill={snapshot?.lastLapTimeSec == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={58} {...legibleStroke(58)}>{lapShort(num(snapshot?.lastLapTimeSec))}</text>
       <line x1={794} y1={352} x2={970} y2={352} stroke={RED} strokeWidth={3} />
-      <text x={952} y={430} textAnchor="end" fill={condColor(delta, { positiveIsGood: false, deadzone: 0.01, good: '#25e86a', bad: RED, neutral: YELLOW })} fontFamily={FONT_BIG} fontWeight={900} fontSize={66} {...legibleStroke(66)}>{signed(delta, 2)}</text>
+      <text x={944} y={426} textAnchor="end" fill={condColor(delta, { positiveIsGood: false, deadzone: 0.01, good: '#25e86a', bad: RED, neutral: YELLOW })} fontFamily={FONT_BIG} fontWeight={900} fontSize={56} {...legibleStroke(56)}>{signed(delta, 2)}</text>
       <BottomCell x={24} w={318} label="FUEL" value={fixed(fuel, 0)} unit="L" icon={<FuelIcon />} />
       <BottomCell x={342} w={340} label="OIL" value={fixed(oil, 0)} unit="C" icon={<OilIcon />} color={tempColor(oil, 80, 115)} />
       <BottomCell x={682} w={318} label="H2O" value={fixed(water, 0)} unit="C" icon={<WaterIcon />} color={tempColor(water, 75, 105)} />
