@@ -134,7 +134,32 @@ const ALL_FIELD_FLAGS: Record<Field, true> = {
   lon: true,
   velocityX: true,
   velocityY: true,
-  yawNorth: true
+  yawNorth: true,
+  steeringTorquePct: true,
+  steeringAngleMaxDeg: true,
+  pitchRad: true,
+  rollRad: true,
+  yawRad: true,
+  pitchRateRadSec: true,
+  rollRateRadSec: true,
+  altitudeM: true,
+  manifoldPressBar: true,
+  fuelPressBar: true,
+  voltage: true,
+  waterLevelL: true,
+  oilLevelL: true,
+  fuelLevelPct: true,
+  brakeLinePressBar: true,
+  deltaToOptimalSec: true,
+  deltaToSessionOptimalSec: true,
+  deltaToDriverBestSec: true,
+  fogPct: true,
+  humidityPct: true,
+  windSpeedMs: true,
+  windDirRad: true,
+  solarAltitudeRad: true,
+  solarAzimuthRad: true,
+  skies: true
 }
 
 export const ALL_FIELDS: readonly Field[] = Object.keys(ALL_FIELD_FLAGS) as Field[]
@@ -178,7 +203,13 @@ const IRACING_FIELDS: readonly Field[] = [
   'trackTempC', 'airTempC', 'trackWetnessPct', 'isRaining', 'gripPct',
   'weatherDeclaredWet', 'trackSurfaceMaterial',
   'playerCarIdx', 'drivers', 'relatives', 'radarCars', 'carLeftRight', 'carLeftRightRaw', 'carLeftRightCount',
-  'lat', 'lon', 'velocityX', 'velocityY', 'yawNorth'
+  'lat', 'lon', 'velocityX', 'velocityY', 'yawNorth',
+  'steeringTorquePct', 'steeringAngleMaxDeg',
+  'pitchRad', 'rollRad', 'yawRad', 'pitchRateRadSec', 'rollRateRadSec', 'altitudeM',
+  'manifoldPressBar', 'fuelPressBar', 'voltage', 'waterLevelL', 'oilLevelL',
+  'fuelLevelPct', 'brakeLinePressBar',
+  'deltaToOptimalSec', 'deltaToSessionOptimalSec', 'deltaToDriverBestSec',
+  'fogPct', 'humidityPct', 'windSpeedMs', 'windDirRad', 'solarAltitudeRad', 'solarAzimuthRad', 'skies'
 ]
 
 // ─── ACC ─────────────────────────────────────────────────────────────────────

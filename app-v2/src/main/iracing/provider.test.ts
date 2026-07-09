@@ -365,6 +365,58 @@ describe('iRacing new-channel snapshot mapping (poll)', () => {
     expect(snap?.pit).toBeUndefined()
     expect(snap?.tireColdPressuresKpa).toBeUndefined()
   })
+
+  it('maps the v6 surfaced channels (attitude, driveline, FFB, deltas, env, brake-line, fuel%) from their irSDK vars', () => {
+    const snap = pollWith({
+      Speed: 50, RPM: 7000, Gear: 3,
+      SteeringWheelPctTorque: 0.42,
+      SteeringWheelAngleMax: Math.PI, // 180°
+      Pitch: 0.05, Roll: -0.03, Yaw: 1.2, PitchRate: 0.01, RollRate: -0.02, Alt: 120,
+      ManifoldPress: 0.95, FuelPress: 4.3, Voltage: 12.6, WaterLevel: 6.5, OilLevel: 5.2,
+      FuelLevelPct: 0.5,
+      LFbrakeLinePress: 20, RFbrakeLinePress: 21, LRbrakeLinePress: 18, RRbrakeLinePress: 19,
+      LapDeltaToOptimalLap: -0.4, LapDeltaToSessionOptimalLap: 0.2, LapDeltaToDriverBestLap: -0.1,
+      FogLevel: 0.1, RelativeHumidity: 0.6, WindVel: 3.5, WindDir: 1.57,
+      SolarAltitude: 0.8, SolarAzimuth: 2.1, Skies: 2
+    })
+    expect(snap?.steeringTorquePct).toBeCloseTo(0.42, 5)
+    expect(snap?.steeringAngleMaxDeg).toBeCloseTo(180, 4)
+    expect(snap?.pitchRad).toBeCloseTo(0.05, 5)
+    expect(snap?.rollRad).toBeCloseTo(-0.03, 5)
+    expect(snap?.yawRad).toBeCloseTo(1.2, 5)
+    expect(snap?.pitchRateRadSec).toBeCloseTo(0.01, 5)
+    expect(snap?.rollRateRadSec).toBeCloseTo(-0.02, 5)
+    expect(snap?.altitudeM).toBe(120)
+    expect(snap?.manifoldPressBar).toBeCloseTo(0.95, 5)
+    expect(snap?.fuelPressBar).toBeCloseTo(4.3, 5)
+    expect(snap?.voltage).toBeCloseTo(12.6, 5)
+    expect(snap?.waterLevelL).toBeCloseTo(6.5, 5)
+    expect(snap?.oilLevelL).toBeCloseTo(5.2, 5)
+    expect(snap?.fuelLevelPct).toBeCloseTo(0.5, 5)
+    expect(snap?.brakeLinePressBar).toEqual({ lf: 20, rf: 21, lr: 18, rr: 19 })
+    expect(snap?.deltaToOptimalSec).toBeCloseTo(-0.4, 5)
+    expect(snap?.deltaToSessionOptimalSec).toBeCloseTo(0.2, 5)
+    expect(snap?.deltaToDriverBestSec).toBeCloseTo(-0.1, 5)
+    expect(snap?.fogPct).toBeCloseTo(0.1, 5)
+    expect(snap?.humidityPct).toBeCloseTo(0.6, 5)
+    expect(snap?.windSpeedMs).toBeCloseTo(3.5, 5)
+    expect(snap?.windDirRad).toBeCloseTo(1.57, 5)
+    expect(snap?.solarAltitudeRad).toBeCloseTo(0.8, 5)
+    expect(snap?.solarAzimuthRad).toBeCloseTo(2.1, 5)
+    expect(snap?.skies).toBe(2)
+  })
+
+  it('leaves the v6 surfaced channels undefined when iRacing omits the vars', () => {
+    const snap = pollWith({ Speed: 10, RPM: 3000, Gear: 1 })
+    const fields = [
+      'steeringTorquePct', 'steeringAngleMaxDeg', 'pitchRad', 'rollRad', 'yawRad',
+      'pitchRateRadSec', 'rollRateRadSec', 'altitudeM', 'manifoldPressBar', 'fuelPressBar',
+      'voltage', 'waterLevelL', 'oilLevelL', 'fuelLevelPct', 'brakeLinePressBar',
+      'deltaToOptimalSec', 'deltaToSessionOptimalSec', 'deltaToDriverBestSec',
+      'fogPct', 'humidityPct', 'windSpeedMs', 'windDirRad', 'solarAltitudeRad', 'solarAzimuthRad', 'skies'
+    ] as const
+    for (const f of fields) expect(snap?.[f]).toBeUndefined()
+  })
 })
 
 // ─── B2 iFlag fix + SDK-gap channels: ABS/TC + new fields through poll() ─────

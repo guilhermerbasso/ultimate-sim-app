@@ -147,6 +147,11 @@ function celsius(value: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined
 }
 
+function toDeg(value: unknown): number | undefined {
+  const n = optionalNum(value)
+  return n === undefined ? undefined : n * (180 / Math.PI)
+}
+
 function corners(values: AnyRecord, names: [string, string, string, string]): Corners<number> | undefined {
   const [lf, rf, lr, rr] = names.map((name) => celsius(values[name]))
   if ([lf, rf, lr, rr].every((value) => value === undefined)) return undefined
@@ -850,10 +855,18 @@ export class IRacingProvider implements TelemetryProvider {
       brake: num(values.Brake),
       clutch: num(values.Clutch),
       steerAngleDeg: num(values.SteeringWheelAngle, 0) * (180 / Math.PI),
+      steeringTorquePct: pct(values.SteeringWheelPctTorque),
+      steeringAngleMaxDeg: toDeg(values.SteeringWheelAngleMax),
       latAccelG: mss2ToG(values.LatAccel),
       longAccelG: mss2ToG(values.LongAccel),
       vertAccelG: mss2ToG(values.VertAccel),
       yawRateRadSec: optionalNum(values.YawRate),
+      pitchRad: optionalNum(values.Pitch),
+      rollRad: optionalNum(values.Roll),
+      yawRad: optionalNum(values.Yaw),
+      pitchRateRadSec: optionalNum(values.PitchRate),
+      rollRateRadSec: optionalNum(values.RollRate),
+      altitudeM: optionalNum(values.Alt),
       drs: values.DRS_Status !== undefined ? num(values.DRS_Status, 0) >= 2 : bool(values.DRS_Active),
       absActive: optionalBool(values.BrakeABSactive),
       absEnabled: bool(values.BrakeABSactive) || num(absLevel, 0) > 0,
@@ -872,6 +885,11 @@ export class IRacingProvider implements TelemetryProvider {
       waterTempC: celsius(values.WaterTemp),
       oilTempC: celsius(values.OilTemp),
       oilPressureKpa: oilPressureKpa(values.OilPressure),
+      manifoldPressBar: optionalNum(values.ManifoldPress),
+      fuelPressBar: optionalNum(values.FuelPress),
+      voltage: optionalNum(values.Voltage),
+      waterLevelL: optionalNum(values.WaterLevel),
+      oilLevelL: optionalNum(values.OilLevel),
       ersBatteryPct,
       pushToPass,
       pushToPassCount,
@@ -896,6 +914,9 @@ export class IRacingProvider implements TelemetryProvider {
       estimatedLapTimeSec: optionalNum(values.LapLastNLapTime),
       deltaToBestSec: optionalNum(values.LapDeltaToBestLap),
       deltaToSessionBestSec: optionalNum(values.LapDeltaToSessionBestLap),
+      deltaToOptimalSec: optionalNum(values.LapDeltaToOptimalLap),
+      deltaToSessionOptimalSec: optionalNum(values.LapDeltaToSessionOptimalLap),
+      deltaToDriverBestSec: optionalNum(values.LapDeltaToDriverBestLap),
       position: Math.trunc(num(values.PlayerCarPosition, 0)) || undefined,
       classPosition: Math.trunc(num(values.PlayerCarClassPosition, 0)) || undefined,
       totalCars: drivers?.length,
@@ -910,8 +931,10 @@ export class IRacingProvider implements TelemetryProvider {
       fuelUsePerHourKg,
       fuelPerLapKg,
       fuelCapacityLiters: carSetup.fuelCapacityLiters ?? (num(values.FuelLevelPct, 0) > 0 ? num(values.FuelLevel) / num(values.FuelLevelPct) : undefined),
+      fuelLevelPct: pct(values.FuelLevelPct),
       tyres: tyreTemps(values),
       brakeTempC: corners(values, ['LFbrakeTemp', 'RFbrakeTemp', 'LRbrakeTemp', 'RRbrakeTemp']),
+      brakeLinePressBar: corners(values, ['LFbrakeLinePress', 'RFbrakeLinePress', 'LRbrakeLinePress', 'RRbrakeLinePress']),
       tireColdPressuresKpa,
       flags: flags(values.SessionFlags),
       sessionFlagsRaw: Math.trunc(num(values.SessionFlags, 0)),
@@ -932,6 +955,13 @@ export class IRacingProvider implements TelemetryProvider {
       gripPct: pct(values.TrackGripStatus ?? values.TrackGrip),
       weatherDeclaredWet,
       trackSurfaceMaterial,
+      fogPct: pct(values.FogLevel),
+      humidityPct: pct(values.RelativeHumidity),
+      windSpeedMs: optionalNum(values.WindVel),
+      windDirRad: optionalNum(values.WindDir),
+      solarAltitudeRad: optionalNum(values.SolarAltitude),
+      solarAzimuthRad: optionalNum(values.SolarAzimuth),
+      skies: optionalInt(values.Skies),
       playerCarIdx: Math.trunc(num(values.PlayerCarIdx ?? sessionValue(sessionInfo, ['DriverInfo', 'DriverCarIdx']), 0)),
       drivers,
       relatives: relatives(drivers),

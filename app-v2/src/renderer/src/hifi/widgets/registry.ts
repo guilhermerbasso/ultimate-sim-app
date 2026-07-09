@@ -18,6 +18,18 @@ import { ALERTS_WIDGETS } from './alerts'
 import { THEMED_WIDGETS } from './themed'
 import { CARS_REAL_WIDGETS } from './carsReal'
 import { COMPARE_WIDGETS } from './compare'
+import { IR_VITALS_WIDGETS } from './irVitals'
+import { IR_ENV2_WIDGETS } from './irEnv2'
+import { IR_TIMING2_WIDGETS } from './irTiming2'
+import { IR_SESSION2_WIDGETS } from './irSession2'
+import { IR_CONDITIONS2_WIDGETS } from './irConditions2'
+import { IR_CHASSIS_WIDGETS } from './irChassis'
+import { IR_ELECTRONICS_WIDGETS } from './irElectronics'
+import { IR_PIT2_WIDGETS } from './irPit2'
+import { IR_AIDS_WIDGETS } from './irAids'
+import { IR_INCIDENTS_WIDGETS } from './irIncidents'
+import { IR_SESSIONINFO_WIDGETS } from './irSessionInfo'
+import { IR_EXTRA_WIDGETS } from './irExtra'
 
 export const HIFI_WIDGET_GROUPS = {
   inputs: INPUTS_WIDGETS,
@@ -32,7 +44,19 @@ export const HIFI_WIDGET_GROUPS = {
   alerts: ALERTS_WIDGETS,
   themed: THEMED_WIDGETS,
   carsReal: CARS_REAL_WIDGETS,
-  compare: COMPARE_WIDGETS
+  compare: COMPARE_WIDGETS,
+  irVitals: IR_VITALS_WIDGETS,
+  irEnv2: IR_ENV2_WIDGETS,
+  irTiming2: IR_TIMING2_WIDGETS,
+  irSession2: IR_SESSION2_WIDGETS,
+  irConditions2: IR_CONDITIONS2_WIDGETS,
+  irChassis: IR_CHASSIS_WIDGETS,
+  irElectronics: IR_ELECTRONICS_WIDGETS,
+  irPit2: IR_PIT2_WIDGETS,
+  irAids: IR_AIDS_WIDGETS,
+  irIncidents: IR_INCIDENTS_WIDGETS,
+  irSessionInfo: IR_SESSIONINFO_WIDGETS,
+  irExtra: IR_EXTRA_WIDGETS
 } as const
 
 /** Every hi-fi per-telemetry widget/overlay. */
@@ -49,7 +73,19 @@ export const HIFI_WIDGETS: HifiWidgetModule[] = [
   ...ALERTS_WIDGETS,
   ...THEMED_WIDGETS,
   ...CARS_REAL_WIDGETS,
-  ...COMPARE_WIDGETS
+  ...COMPARE_WIDGETS,
+  ...IR_VITALS_WIDGETS,
+  ...IR_ENV2_WIDGETS,
+  ...IR_TIMING2_WIDGETS,
+  ...IR_SESSION2_WIDGETS,
+  ...IR_CONDITIONS2_WIDGETS,
+  ...IR_CHASSIS_WIDGETS,
+  ...IR_ELECTRONICS_WIDGETS,
+  ...IR_PIT2_WIDGETS,
+  ...IR_AIDS_WIDGETS,
+  ...IR_INCIDENTS_WIDGETS,
+  ...IR_SESSIONINFO_WIDGETS,
+  ...IR_EXTRA_WIDGETS
 ]
 
 export const HIFI_WIDGETS_BY_ID: Record<string, HifiWidgetModule> = Object.fromEntries(
