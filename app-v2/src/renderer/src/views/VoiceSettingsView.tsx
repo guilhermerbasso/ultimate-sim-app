@@ -289,8 +289,7 @@ function VoiceSettingsView({ showToast, language }: AppViewProps): ReactElement 
       } catch {
         showToast(tt(language, 'voice.inputChangeFailedToast'), 'error')
       }
-    },
-    [refreshSttStatus, showToast]
+    [language, refreshSttStatus, showToast]
   )
 
   const handleSttDownload = useCallback(async () => {
