@@ -558,7 +558,8 @@ const SIGNAL_OVERLAY_VARIANTS: WidgetVariant[] = [
   signalOverlayVariant('absCut', 'absCutPct', 'Driver Aids', 300, 96, ['abs', 'brake', 'cut', 'gauge']),
   signalOverlayVariant('sessionBanner', 'sessionState', 'Race Control / Flags', 320, 110, ['session', 'state', 'phase', 'racing', 'banner']),
   signalOverlayVariant('paceRestart', 'paceMode', 'Race Control / Flags', 360, 150, ['pace', 'restart', 'formation', 'flag']),
-  signalOverlayVariant('sideProximity', 'carLeftRightCount', 'Radar / Relative', 320, 140, ['radar', 'proximity', 'blindspot', 'side', '3-wide'])
+  signalOverlayVariant('sideProximity', 'carLeftRightCount', 'Radar / Relative', 320, 140, ['radar', 'proximity', 'blindspot', 'side', '3-wide']),
+  signalOverlayVariant('trackMapNav3D', 'lapDistPct', 'Radar / Relative', 680, 400, ['3d', 'nav', 'map', 'track-up', 'waze', 'position'])
 ]
 
 // ─── GT3 instrument-style cluster widgets surfaced in the dashboard catalog ───
