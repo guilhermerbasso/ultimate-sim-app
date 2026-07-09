@@ -1,11 +1,13 @@
-// Preset gallery: real thumbnails generated from the dashboard model
-// (wireframe escalado), filtros por tag e "duplicar e editar". Mantida leve —
-// draws one rectangle per element (without mounting full widgets).
+// Preset gallery: real thumbnails generated from the dashboard model.
 
-import { useMemo, useState } from 'react'
-import type { CSSProperties, ReactElement } from 'react'
-import type { Dashboard, DashboardElement, DashboardElementType } from '../../../../shared/dashboards'
+import { Component, Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, ReactElement, ReactNode, RefObject } from 'react'
+import type { Dashboard } from '../../../../shared/dashboards'
+import { sortElementsByZ } from '../../../../shared/dashboards'
+import { renderDashboardElement } from '../../dashboard/DashboardRoot'
+import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
 import { TagFilter, filterByTags } from '../../components/TagFilter'
+import '../../overlay/overlay-view.css'
 
 const ACCENT = 'var(--accent-primary)'
 const GT3_STROKE = '#1F1F1F'
@@ -22,106 +24,54 @@ export interface PresetEntry {
 const THUMB_W = 248
 const THUMB_H = 140
 
-// Wireframe color by element family.
-function elementColor(type: DashboardElementType): string {
-  if (type === 'shiftbar' || type === 'shiftlights') return '#FFB000'
-  if (type === 'gearcluster') return ACCENT
-  if (type === 'tyregrid' || type === 'cornerstack') return '#20e070'
-  if (type === 'brakegrid') return '#ff7a4d'
-  if (type === 'deltatile' || type === 'deltabar') return '#b66cff'
-  if (type === 'flagoverlay' || type === 'flag') return '#ffd400'
-  if (type === 'fuelstint') return '#ffb84d'
-  if (type === 'standings' || type === 'table') return '#647386'
-  if (type === 'text') return 'transparent'
-  return '#2b6f66'
-}
+class PresetThumbBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
 
-function elementRadius(el: DashboardElement): number {
-  const parsed = Number(el.style.radius ?? 3)
-  const radius = Number.isFinite(parsed) ? parsed : 3
-  return Math.max(2, Math.min(8, radius))
-}
-
-function MiniOverlayGlyph({ color }: { color: string }): ReactElement {
-  return (
-    <div style={{ position: 'absolute', inset: 2, borderRadius: 4, border: `1px solid ${color}`, background: '#020304', overflow: 'hidden' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 1, padding: 3 }}>
-        {Array.from({ length: 8 }, (_, i) => (
-          <span key={i} style={{ height: 3, borderRadius: 1, background: i < 5 ? '#2FFF67' : '#26303d' }} />
-        ))}
-      </div>
-      <div style={{ position: 'absolute', left: '36%', top: '34%', width: '28%', height: '34%', borderRadius: 3, background: `${color}44` }} />
-      <div style={{ position: 'absolute', left: 4, bottom: 4, width: '24%', height: 3, borderRadius: 2, background: '#26303d' }} />
-      <div style={{ position: 'absolute', right: 4, bottom: 4, width: '24%', height: 3, borderRadius: 2, background: '#26303d' }} />
-    </div>
-  )
-}
-
-function MiniElementGlyph({ el, color }: { el: DashboardElement; color: string }): ReactElement | null {
-  if (el.type === 'overlaywidget') return <MiniOverlayGlyph color={color} />
-  if (el.type === 'shiftbar' || el.type === 'shiftlights' || el.type === 'ledbar') {
-    return (
-      <div style={{ position: 'absolute', left: 3, right: 3, top: '42%', display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 1 }}>
-        {Array.from({ length: 8 }, (_, i) => <span key={i} style={{ height: 3, borderRadius: 1, background: i < 5 ? color : '#26303d' }} />)}
-      </div>
-    )
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true }
   }
-  if (el.type === 'gauge' || el.type === 'valuegauge' || el.type === 'ringgauge' || el.type === 'donut' || el.type === 'analoggauge') {
-    return <div style={{ position: 'absolute', inset: 3, borderRadius: 999, border: `2px solid ${color}`, opacity: 0.85 }} />
+
+  componentDidCatch(): void {
+    // Keep a bad preset/widget from crashing the full gallery.
   }
-  if (el.type === 'tyregrid' || el.type === 'brakegrid' || el.type === 'cornerstack' || el.type === 'heatmap' || el.type === 'barchart' || el.type === 'radialbars') {
-    return (
-      <div style={{ position: 'absolute', inset: 3, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
-        {[0, 1, 2, 3].map((i) => <span key={i} style={{ borderRadius: 2, background: i % 2 === 0 ? `${color}88` : `${color}44` }} />)}
-      </div>
-    )
+
+  render(): ReactNode {
+    if (this.state.failed) {
+      return <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', color: TEXT_DIM, fontSize: 12 }}>Preview unavailable</div>
+    }
+    return this.props.children
   }
-  if (el.type === 'trace' || el.type === 'inputtrace' || el.type === 'historygraph' || el.type === 'deltabar') {
-    return (
-      <svg viewBox="0 0 100 40" preserveAspectRatio="none" style={{ position: 'absolute', inset: 3, width: 'calc(100% - 6px)', height: 'calc(100% - 6px)' }}>
-        <polyline points="0,30 18,22 35,25 55,12 72,18 100,8" fill="none" stroke={color} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    )
-  }
-  return null
 }
 
-function PresetElementBlock({ el }: { el: DashboardElement }): ReactElement {
-  const color = elementColor(el.type)
-  const visibleColor = color === 'transparent' ? 'rgba(255,255,255,0.30)' : color
-  const fill = color === 'transparent' ? 'rgba(255,255,255,0.05)' : `${color}33`
-  return (
-    <div
-      data-preset-thumb-element={el.type}
-      style={{
-        position: 'absolute',
-        left: el.x,
-        top: el.y,
-        width: Math.max(4, el.w),
-        height: Math.max(4, el.h),
-        background: fill,
-        border: `1px solid ${visibleColor}`,
-        borderRadius: elementRadius(el),
-        boxShadow: color === 'transparent' ? undefined : `0 0 10px ${color}22`,
-        overflow: 'hidden'
-      }}
-    >
-      <MiniElementGlyph el={el} color={visibleColor} />
-    </div>
-  )
+function usePreviewVisible(): [RefObject<HTMLDivElement | null>, boolean] {
+  const ref = useRef<HTMLDivElement>(null)
+  const [visible, setVisible] = useState(() => typeof IntersectionObserver === 'undefined')
+  useEffect(() => {
+    if (visible || typeof IntersectionObserver === 'undefined') return
+    const node = ref.current
+    if (!node) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setVisible(true)
+        observer.disconnect()
+      }
+    }, { rootMargin: '240px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [visible])
+  return [ref, visible]
 }
 
-// Real preset thumbnail. Elements `overlaywidget` (os dashboards full-frame
-// GT3/LMU) and any unknown widget kind now receive a visible wireframe glyph,
-// avoiding blank cards when a live renderer needs telemetry or has no mini branch.
 function PresetThumb({ dash }: { dash: Dashboard }): ReactElement {
   const safeWidth = Math.max(1, dash.width)
   const safeHeight = Math.max(1, dash.height)
   const scale = Math.min(THUMB_W / safeWidth, THUMB_H / safeHeight)
   const w = safeWidth * scale
   const h = safeHeight * scale
+  const sorted = useMemo(() => sortElementsByZ(dash.elements), [dash.elements])
+  const [ref, visible] = usePreviewVisible()
   return (
-    <div style={{ width: THUMB_W, height: THUMB_H, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#05070a', borderRadius: 8, overflow: 'hidden' }}>
+    <div ref={ref} style={{ width: THUMB_W, height: THUMB_H, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#05070a', borderRadius: 8, overflow: 'hidden' }}>
       <div style={{ position: 'relative', width: w, height: h, overflow: 'hidden' }}>
         <div
           style={{
@@ -132,10 +82,21 @@ function PresetThumb({ dash }: { dash: Dashboard }): ReactElement {
             height: safeHeight,
             transform: `scale(${scale})`,
             transformOrigin: 'top left',
-            background: dash.bg
+            background: dash.bg,
+            pointerEvents: 'none'
           }}
         >
-          {dash.elements.map((el) => <PresetElementBlock key={el.id} el={el} />)}
+          {visible && (
+            <PresetThumbBoundary>
+              {sorted
+                .filter((element) => element.visible !== false)
+                .map((element) => (
+                  <Fragment key={element.id}>
+                    {renderDashboardElement({ element, snapshot: PREVIEW_SNAPSHOT })}
+                  </Fragment>
+                ))}
+            </PresetThumbBoundary>
+          )}
         </div>
       </div>
     </div>

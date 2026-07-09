@@ -1,28 +1,31 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ReactElement } from 'react'
+import { Component, useCallback, useEffect, useMemo, useState } from 'react'
+import type { CSSProperties, ErrorInfo, ReactElement } from 'react'
 import type { CustomOverlayDef, CustomOverlayElement, CustomOverlayElementAlign, CustomOverlayListItem, IracingGraphicsStatus, FixIracingFullscreenResult, OverlayListItem, OverlayPosition, OverlayWidgetId, OverlayWidgetStyle, OverlaysConfig } from '../../../shared/overlays'
 import { createCustomOverlayDef, createCustomOverlayElement, createRichCustomOverlayDef, isRichCustomOverlay, OVERLAY_FORMS, overlayDesignFamily, overlayWidgetDisplayTitle } from '../../../shared/overlays'
-import type { SimId } from '../../../shared/telemetry'
+import type { Corners, DriverEntry, Flags, PitStatus, RadarCarEntry, RelativeCars, SimId, TelemetrySnapshot, TyreInfo } from '../../../shared/telemetry'
 import { PLAYABLE_SIMS, simLabel, widgetSupportedSims } from '../../../shared/sim-coverage'
 import { OverlayWidgetBuilder } from './overlay/OverlayWidgetBuilder'
 import { EXPR_CHANNELS, type ExpressionDef } from '../../../shared/expr'
 import { IRACING_VARIABLES, IRACING_VAR_CATEGORY_LABELS, IRACING_VAR_CATEGORY_ORDER } from '../../../shared/iracing-vars'
 import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 import { useDevices } from '../lib/devices/DeviceRegistry'
 import { SectionExportImport } from '../components/SectionExportImport'
 import { TagFilter, filterByTags } from '../components/TagFilter'
 import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, hasAllHifiOverlayConfigs, mergeHifiOverlayConfigs, mergeHifiOverlayItems } from '../overlay/hifi-overlays'
+import { resolveWidgetComponent } from '../overlay/widgets'
+import '../overlay/overlay-runtime.css'
 import '../overlay/overlay-view.css'
 
 const POSITION_KEYS: Array<keyof OverlayPosition> = ['x', 'y', 'width', 'height']
 const ELEMENT_BOX_KEYS: Array<keyof Pick<CustomOverlayElement, 'x' | 'y' | 'width' | 'height'>> = ['x', 'y', 'width', 'height']
-const DECIMALS_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'auto', label: 'Auto' },
-  { value: '0', label: '0' },
-  { value: '1', label: '1' },
-  { value: '2', label: '2' },
-  { value: '3', label: '3' },
-  { value: '4', label: '4' }
+const DECIMALS_OPTIONS: string[] = [
+  'auto',
+  '0',
+  '1',
+  '2',
+  '3',
+  '4'
 ]
 const ALIGN_OPTIONS: CustomOverlayElementAlign[] = ['left', 'center', 'right']
 const FONT_OPTIONS = [
@@ -31,6 +34,188 @@ const FONT_OPTIONS = [
   'DIN Condensed, Bahnschrift, Segoe UI, sans-serif',
   'Consolas, Cascadia Mono, monospace'
 ]
+
+const PREVIEW_MAX_W = 290
+const PREVIEW_MAX_H = 150
+
+function corners<T>(lf: T, rf: T, lr: T, rr: T): Corners<T> {
+  return { lf, rf, lr, rr }
+}
+
+function previewTyre(tempC: number, wearPct: number, pressureKpa: number): TyreInfo {
+  return {
+    tempC,
+    tempLeftC: tempC + 6,
+    tempMiddleC: tempC,
+    tempRightC: tempC - 4,
+    surfaceTempLeftC: tempC + 10,
+    surfaceTempMiddleC: tempC + 3,
+    surfaceTempRightC: tempC - 1,
+    pressureKpa,
+    wearPct
+  }
+}
+
+function previewFlags(): Flags {
+  return {
+    green: true,
+    yellow: true,
+    blue: false,
+    white: false,
+    checkered: false,
+    red: false,
+    black: false,
+    meatball: false,
+    repair: false,
+    disqualify: false,
+    greenWhiteCheckered: false
+  }
+}
+
+function previewDrivers(): DriverEntry[] {
+  const gt3 = '#E8A23D'
+  const gt4 = '#49C5B1'
+  const lmp = '#7AA2FF'
+  return [
+    { carIdx: 2, name: 'L. Hoffmann', carNumber: '11', position: 1, classPosition: 1, classId: 1, className: 'GT3', classColor: gt3, gapToPlayerSec: -18.4, lapDistPct: 0.61, lastLapTimeSec: 102.31, iRating: 5240, license: 'A 4.21', isPlayer: false },
+    { carIdx: 4, name: 'M. Rossi', carNumber: '23', position: 2, classPosition: 2, classId: 1, className: 'GT3', classColor: gt3, gapToPlayerSec: -9.8, lapDistPct: 0.55, lastLapTimeSec: 102.66, iRating: 4880, license: 'A 3.97', isPlayer: false },
+    { carIdx: 9, name: 'K. Tanaka', carNumber: '7', position: 3, classPosition: 3, classId: 1, className: 'GT3', classColor: gt3, gapToPlayerSec: -1.42, lapDistPct: 0.50, lastLapTimeSec: 102.95, iRating: 4510, license: 'A 3.55', inPits: false, isPlayer: false },
+    { carIdx: 7, name: 'G. Basso', carNumber: '42', position: 4, classPosition: 4, classId: 1, className: 'GT3', classColor: gt3, gapToPlayerSec: 0, lapDistPct: 0.485, lastLapTimeSec: 103.12, iRating: 4320, license: 'A 3.40', isPlayer: true },
+    { carIdx: 12, name: 'F. Dubois', carNumber: '88', position: 5, classPosition: 5, classId: 1, className: 'GT3', classColor: gt3, gapToPlayerSec: 0.88, lapDistPct: 0.47, lastLapTimeSec: 103.40, iRating: 4180, license: 'A 3.12', isPlayer: false },
+    { carIdx: 18, name: 'S. Novak', carNumber: '5', position: 6, classPosition: 6, classId: 1, className: 'GT3', classColor: gt3, gapToPlayerSec: 4.6, lapDistPct: 0.41, lastLapTimeSec: 103.77, iRating: 3990, license: 'B 4.05', isPlayer: false },
+    { carIdx: 21, name: 'A. Costa', carNumber: '14', position: 7, classPosition: 1, classId: 2, className: 'GT4', classColor: gt4, gapToPlayerSec: 11.9, lapDistPct: 0.33, lastLapTimeSec: 108.21, iRating: 3120, license: 'B 3.44', isPlayer: false },
+    { carIdx: 25, name: 'R. Meyer', carNumber: '57', position: 8, classPosition: 2, classId: 2, className: 'GT4', classColor: gt4, gapToPlayerSec: 16.2, lapDistPct: 0.28, lastLapTimeSec: 108.66, iRating: 2870, license: 'C 3.90', inPits: true, isPlayer: false },
+    { carIdx: 31, name: 'P. Andersen', carNumber: '3', position: 9, classPosition: 1, classId: 3, className: 'LMP3', classColor: lmp, gapToPlayerSec: 22.7, lapDistPct: 0.20, lastLapTimeSec: 99.84, iRating: 6010, license: 'A 4.80', isPlayer: false },
+    { carIdx: 33, name: 'T. Weber', carNumber: '19', position: 10, classPosition: 7, classId: 1, className: 'GT3', classColor: gt3, gapToPlayerSec: -25.1, lapsBehind: 0, lapDistPct: 0.72, lastLapTimeSec: 104.02, iRating: 3760, license: 'B 2.98', isPlayer: false }
+  ]
+}
+
+function previewRelatives(): RelativeCars {
+  return {
+    ahead: { carIdx: 9, name: 'K. Tanaka', carNumber: '7', position: 3, classPosition: 3, gapSec: -1.42, lastLapTimeSec: 102.95, classColor: '#E8A23D' },
+    behind: { carIdx: 12, name: 'F. Dubois', carNumber: '88', position: 5, classPosition: 5, gapSec: 0.88, lastLapTimeSec: 103.40, classColor: '#E8A23D' }
+  }
+}
+
+function previewRadar(): RadarCarEntry[] {
+  return [
+    { carIdx: 12, name: 'F. Dubois', relativeX: -2.1, relativeY: 1.4, gapSec: 0.31, classColor: '#E8A23D' },
+    { carIdx: 25, name: 'R. Meyer', relativeX: 3.0, relativeY: -6.2, gapSec: 0.74, classColor: '#49C5B1' }
+  ]
+}
+
+function previewPit(): PitStatus {
+  return { repairNeeded: false, optRepairNeeded: true, pitsOpen: true, inPitStall: false, svStatus: 0 }
+}
+
+function createOverlayPreviewSnapshot(): TelemetrySnapshot {
+  const maxRpm = 8200
+  const rpm = 7480
+  return {
+    sim: 'iracing',
+    connected: true,
+    timestamp: Date.now(),
+    speedKmh: 214,
+    rpm,
+    gear: 4,
+    maxRpm,
+    engineRunning: true,
+    shiftIndicatorPct: 0.86,
+    shiftRpm: 7850,
+    revLights: { firstRpm: 6200, shiftRpm: 7850, lastRpm: 8050, blinkRpm: 8100, pct: 0.86, blink: false },
+    throttle: 0.83,
+    brake: 0,
+    clutch: 0,
+    steerAngleDeg: -14,
+    latAccelG: -1.18,
+    longAccelG: 0.42,
+    vertAccelG: 0.06,
+    yawRateRadSec: 0.21,
+    drs: false,
+    absActive: false,
+    absEnabled: true,
+    absLevel: 3,
+    tcActive: true,
+    tcEnabled: true,
+    tcLevel: 4,
+    engineMap: 5,
+    brakeBiasPct: 54.5,
+    handbrake: 0,
+    waterTempC: 96,
+    oilTempC: 108,
+    oilPressureKpa: 470,
+    ersBatteryPct: 0.62,
+    pushToPass: true,
+    pushToPassCount: 6,
+    sessionType: 'Race',
+    carName: 'Mercedes-AMG GT3 Evo',
+    trackName: 'Spa-Francorchamps',
+    sessionTimeRemainingSec: 1865,
+    lapsRemaining: 18,
+    currentLap: 12,
+    lapDistPct: 0.485,
+    lastLapTimeSec: 103.12,
+    bestLapTimeSec: 102.88,
+    currentLapTimeSec: 47.36,
+    estimatedLapTimeSec: 102.74,
+    deltaToBestSec: -0.143,
+    deltaToSessionBestSec: 0.212,
+    position: 4,
+    classPosition: 4,
+    totalCars: 24,
+    strengthOfField: 4180,
+    sessionUniqueId: 990217,
+    driverName: 'G. Basso',
+    sessionTimeOfDay: 15 * 3600 + 42 * 60,
+    weightPenaltyKg: 15,
+    powerAdjustPct: -1.5,
+    fuelLiters: 38.4,
+    fuelPerLap: 2.86,
+    fuelUsePerHourKg: 71.5,
+    fuelPerLapKg: 2.12,
+    fuelCapacityLiters: 120,
+    tyres: corners(
+      previewTyre(88, 0.91, 168),
+      previewTyre(94, 0.88, 171),
+      previewTyre(85, 0.93, 165),
+      previewTyre(90, 0.90, 167)
+    ),
+    brakeTempC: corners(486, 512, 372, 398),
+    tireColdPressuresKpa: corners(165, 166, 163, 164),
+    flags: previewFlags(),
+    sessionFlagsRaw: 0,
+    pitLimiter: false,
+    onPitRoad: false,
+    pitServiceFlags: ['fuel', 'lf', 'rf'],
+    pit: previewPit(),
+    incidentCount: 6,
+    incidentCountMy: 6,
+    incidentCountTeam: 6,
+    incidentLimit: 17,
+    fastRepairsUsed: 0,
+    fastRepairsAvailable: 1,
+    trackTempC: 34,
+    airTempC: 25,
+    trackWetnessPct: 0.08,
+    isRaining: false,
+    gripPct: 0.96,
+    weatherDeclaredWet: false,
+    trackSurfaceMaterial: 1,
+    playerCarIdx: 7,
+    drivers: previewDrivers(),
+    relatives: previewRelatives(),
+    radarCars: previewRadar(),
+    carLeftRight: 'left',
+    carLeftRightRaw: 2,
+    lat: 50.4372,
+    lon: 5.9714,
+    velocityX: 59.4,
+    velocityY: 1.2,
+    yawNorth: 2.31
+  }
+}
+
+const OVERLAY_PREVIEW_SNAPSHOT = createOverlayPreviewSnapshot()
 
 // Each custom-overlay element binds to EITHER a saved expression (expressionId =
 // `expr-…`) OR a raw iRacing telemetry channel. Channels are encoded in the SAME
@@ -97,6 +282,90 @@ function sortOverlayEntries<T extends { enabled: boolean; favorite?: boolean }>(
     .map((item) => item.entry)
 }
 
+class OverlayPreviewErrorBoundary extends Component<
+  { id: string; fallback: string; children: ReactElement },
+  { failed: boolean }
+> {
+  state = { failed: false }
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error(`[overlays] preview "${this.props.id}" failed:`, error.message, info.componentStack)
+  }
+
+  render(): ReactElement {
+    if (this.state.failed) return <div style={{ color: 'rgba(255,255,255,0.56)', fontSize: 12 }}>{this.props.fallback}</div>
+    return this.props.children
+  }
+}
+
+function overlayShellVars(config: OverlayListItem): CSSProperties {
+  return {
+    '--overlay-bg': config.style.background,
+    '--overlay-accent': config.style.accent,
+    '--overlay-border': config.style.border,
+    '--overlay-radius': `${config.style.radius}px`,
+    '--overlay-font': config.style.fontFamily,
+    '--overlay-content-opacity': '1'
+  } as CSSProperties
+}
+
+function OverlayRuntimePreview({ item, fallback }: { item: OverlayListItem; fallback: string }): ReactElement {
+  const Widget = resolveWidgetComponent(item.id)
+  const natW = Math.max(1, item.position.width)
+  const natH = Math.max(1, item.position.height)
+  const scale = Math.min(1, PREVIEW_MAX_W / natW, PREVIEW_MAX_H / natH)
+  const stageStyle: CSSProperties = {
+    position: 'relative',
+    width: Math.round(natW * scale),
+    height: Math.round(natH * scale),
+    margin: '0 auto',
+    pointerEvents: 'none'
+  }
+  const shellStyle: CSSProperties = {
+    ...overlayShellVars(item),
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: natW,
+    height: natH,
+    opacity: Math.max(0, Math.min(100, item.opacity)) / 100,
+    transform: `scale(${scale})`,
+    transformOrigin: 'top left'
+  }
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        placeItems: 'center',
+        minHeight: PREVIEW_MAX_H + 18,
+        overflow: 'hidden',
+        border: '1px solid rgba(138, 164, 200, 0.16)',
+        borderRadius: 14,
+        background: 'rgba(2, 6, 12, 0.34)',
+        backgroundImage:
+          'linear-gradient(45deg, rgba(255,255,255,0.035) 25%, transparent 25%, transparent 75%, rgba(255,255,255,0.035) 75%), linear-gradient(45deg, rgba(255,255,255,0.035) 25%, transparent 25%, transparent 75%, rgba(255,255,255,0.035) 75%)',
+        backgroundSize: '18px 18px',
+        backgroundPosition: '0 0, 9px 9px',
+        padding: 9
+      }}
+      aria-hidden="true"
+    >
+      <div style={stageStyle}>
+        <main className="overlay-shell" style={shellStyle}>
+          <OverlayPreviewErrorBoundary id={item.id} fallback={fallback}>
+            {Widget ? <Widget snapshot={OVERLAY_PREVIEW_SNAPSHOT} config={item} /> : <div>{fallback}</div>}
+          </OverlayPreviewErrorBoundary>
+        </main>
+      </div>
+    </div>
+  )
+}
+
 // Flattened quick-access entry for the "Active overlays" panel — unifies built-in
 // widgets and custom overlays so each can be toggled/favorited from one place.
 type ActiveOverlayEntry = { id: string; title: string; favorite: boolean; kind: 'widget' | 'custom' }
@@ -105,7 +374,7 @@ function isSelectedOverlayForm(currentPreset: string | undefined, formPreset: st
   return overlayDesignFamily(currentPreset) === overlayDesignFamily(formPreset)
 }
 
-export default function OverlaysView(_props: AppViewProps): ReactElement {
+export default function OverlaysView({ language }: AppViewProps): ReactElement {
   const [items, setItems] = useState<OverlayListItem[]>([])
   const [config, setConfig] = useState<OverlaysConfig>(createDefaultOverlaysConfigWithHifi())
   const [busy, setBusy] = useState(false)
@@ -135,6 +404,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   // shows everything. The title is prefixed "(IR/ACC/LMU)" with its supported sims.
   const [simFilter, setSimFilter] = useState<SimId | 'all'>('all')
   const [tagFilters, setTagFilters] = useState<string[]>([])
+  const tr = useCallback((key: string, vars: Record<string, string | number> = {}) => tt(language, `overlays.${key}`, vars), [language])
   const defById = useMemo(() => new Map(ALL_OVERLAY_WIDGETS.map((def) => [def.id, def])), [])
   const displayTitleFor = useCallback(
     (id: string, fallback: string): string => {
@@ -177,8 +447,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
 
   async function fixIracingFullscreen(): Promise<void> {
     const ok = window.confirm(
-      'This will switch iRacing to borderless mode (edits app.ini with a .ubbak backup).\n\n' +
-      'CLOSE iRacing before continuing — the change only applies after reopening the game.\n\nContinue?'
+      tr('fixIracingConfirm')
     )
     if (!ok) return
     setBusy(true)
@@ -189,7 +458,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       setGfxNote(result.message)
       await refreshIracingGfx()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to adjust iRacing')
+      setError(err instanceof Error ? err.message : tr('errorAdjustIracing'))
     } finally {
       setBusy(false)
     }
@@ -220,14 +489,14 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       await action()
       await refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update overlays')
+      setError(err instanceof Error ? err.message : tr('errorUpdate'))
     } finally {
       setBusy(false)
     }
   }
 
   useEffect(() => {
-    void refresh().catch((err) => setError(err instanceof Error ? err.message : 'Failed to load overlays'))
+    void refresh().catch((err) => setError(err instanceof Error ? err.message : tr('errorLoad')))
     void refreshIracingGfx().catch(() => { /* status card stays in loading state */ })
     const off = window.ipc.subscribe<OverlayListItem[]>('overlays:state', (nextItems) => {
       setConfig((current) => {
@@ -247,7 +516,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       offCustom()
       offCompositor()
     }
-  }, [])
+  }, [tr])
 
   function patchItem(id: OverlayWidgetId, patch: Partial<OverlayListItem>): void {
     setItems((currentItems) => currentItems.map((item) => item.id === id ? { ...item, ...patch } : item))
@@ -296,8 +565,8 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   }
 
   function selectedDisplayLabel(item: OverlayListItem): string {
-    if (!item.display) return 'Auto — current/primary display'
-    return displays.find((display) => display.id === item.display?.id)?.label ?? `Saved display unavailable (${item.display.bounds.width}×${item.display.bounds.height})`
+    if (!item.display) return tr('displayAuto')
+    return displays.find((display) => display.id === item.display?.id)?.label ?? tr('displayMissing', { width: item.display.bounds.width, height: item.display.bounds.height })
   }
 
   function changeDisplay(id: OverlayWidgetId, value: string): void {
@@ -402,7 +671,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   }
 
   function removeCustomOverlay(id: string): void {
-    if (!window.confirm('Remove this custom overlay? This action cannot be undone.')) return
+    if (!window.confirm(tr('removeCustomConfirm'))) return
     void run(async () => {
       const next = await window.ipc.invoke<CustomOverlayListItem[]>('overlays:removeCustom', id)
       if (Array.isArray(next)) setCustomOverlays(next)
@@ -418,7 +687,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
 
   function openDesignerForNew(): void {
     setEditingId(null)
-    setDraft(createCustomOverlayDef({ enabled: true, title: 'Novo overlay', elements: [createCustomOverlayElement()] }))
+    setDraft(createCustomOverlayDef({ enabled: true, title: tr('newOverlayTitle'), elements: [createCustomOverlayElement()] }))
     setDesignerOpen(true)
     loadExpressionsForDesigner()
   }
@@ -510,7 +779,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
   // ── Rich widget builder ("Create new overlay") ──────────────────────────────
   function openBuilderForNew(): void {
     setBuilderEditingId(null)
-    setBuilderDraft(createRichCustomOverlayDef({ enabled: true, title: 'Novo overlay' }))
+    setBuilderDraft(createRichCustomOverlayDef({ enabled: true, title: tr('newOverlayTitle') }))
     setBuilderOpen(true)
   }
 
@@ -549,23 +818,23 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
     <div className="overlays-view">
       <section className="panel overlays-header">
         <div>
-          <h3>On-screen overlays</h3>
-          <p>Always-on-top transparent windows in SimHub style, powered by active telemetry.</p>
+          <h3>{tr('title')}</h3>
+          <p>{tr('subtitle')}</p>
           <p className="overlay-help">
             {config.configMode
-              ? 'Edit mode on: floating overlays receive mouse input; drag to position and use edges/corners to resize.'
-              : 'Race mode: pinned overlays are click-through (mouse passes to the sim); unpin an overlay to move it without turning on edit mode.'}
+              ? tr('helpEditMode')
+              : tr('helpRaceMode')}
           </p>
         </div>
         <div className="overlay-actions">
-          <SectionExportImport sectionId="overlays" label="Overlays (including custom)" onImported={() => void refresh()} />
-          <SectionExportImport sectionId="overlay-layout" label="Overlay layout/composition" onImported={() => void refresh()} />
+          <SectionExportImport sectionId="overlays" label={tr('exportAll')} onImported={() => void refresh()} />
+          <SectionExportImport sectionId="overlay-layout" label={tr('exportLayout')} onImported={() => void refresh()} />
           <button
             className={config.configMode ? 'overlay-button danger' : 'primary-action'}
             disabled={busy}
             onClick={toggleEditMode}
           >
-            {config.configMode ? 'Turn off editing and race' : 'Edit/position overlays'}
+            {config.configMode ? tr('turnOffEditing') : tr('editPosition')}
           </button>
           <button
             className="ghost-action"
@@ -574,7 +843,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
               for (const item of items) await window.ipc.invoke('overlays:toggle', item.id, true)
             })}
           >
-            Turn all on
+            {tr('turnAllOn')}
           </button>
           <button
             className="ghost-action"
@@ -583,7 +852,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
               for (const item of items) await window.ipc.invoke('overlays:toggle', item.id, false)
             })}
           >
-            Turn all off
+            {tr('turnAllOff')}
           </button>
         </div>
       </section>
@@ -591,8 +860,8 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       {activeOverlays.length > 0 && (
         <section className="panel overlays-active">
           <div className="overlays-active-head">
-            <h3>Active overlays <span className="overlays-active-count">{activeOverlays.length}</span></h3>
-            <p className="overlay-help">Quick shortcut for what is on screen now — favorite ⭐ or turn off without scrolling the list.</p>
+            <h3>{tr('activeTitle')} <span className="overlays-active-count">{activeOverlays.length}</span></h3>
+            <p className="overlay-help">{tr('activeHelp')}</p>
           </div>
           <div className="overlays-active-chips">
             {activeOverlays.map((entry) => (
@@ -600,8 +869,8 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 <button
                   className={entry.favorite ? 'overlay-fav is-fav' : 'overlay-fav'}
                   disabled={busy}
-                  title={entry.favorite ? 'Remove from favorites' : 'Favorite'}
-                  aria-label={entry.favorite ? 'Remove from favorites' : 'Favorite'}
+                  title={entry.favorite ? tr('removeFavorite') : tr('favorite')}
+                  aria-label={entry.favorite ? tr('removeFavorite') : tr('favorite')}
                   aria-pressed={entry.favorite}
                   onClick={() => toggleActiveFavorite(entry)}
                 >
@@ -611,10 +880,10 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 <button
                   className="overlay-active-chip-off"
                   disabled={busy}
-                  title="Turn overlay off"
+                  title={tr('turnOverlayOff')}
                   onClick={() => deactivateOverlay(entry)}
                 >
-                  Turn off
+                  {tr('turnOff')}
                 </button>
               </div>
             ))}
@@ -623,9 +892,9 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       )}
 
       <section className="panel">
-        <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>How to position</h4>
+        <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>{tr('positionTitle')}</h4>
         <p className="overlay-help">
-          Turn on <strong style={{ color: "var(--accent-primary)" }}>Edit/position overlays</strong> to adjust all overlays at once. Or, with editing off, click <strong style={{ color: "var(--accent-primary)" }}>Floating</strong> on the overlay you want to adjust - it becomes draggable/resizable immediately. Click <strong style={{ color: "var(--accent-primary)" }}>Pinned</strong> to return to click-through in the race.
+          {tr('positionHelp')}
         </p>
         <label className="designer-check" style={{ margin: '12px 0 0' }}>
           <input
@@ -634,42 +903,42 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             disabled={busy}
             onChange={toggleCompositorMode}
           />
-          Compositor mode (experimental): one transparent window per display rendering all active widgets
+          {tr('compositorMode')}
         </label>
         <p className="overlay-help" style={{ marginTop: 8 }}>
-          Off by default: keeps the current one-window-per-widget mode. Turn it on only to test the compositor.
+          {tr('compositorHelp')}
         </p>
       </section>
 
       <section className="panel">
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>iRacing Fullscreen</h4>
+          <h4 style={{ margin: '0 0 8px', color: '#f6fbff' }}>{tr('iracingFullscreen')}</h4>
           {iracingGfx && (
             <span className={iracingGfx.mode === 'exclusive' ? 'status-pill' : 'status-pill on'}>
-              {iracingGfx.mode === 'exclusive' ? 'exclusive fullscreen'
-                : iracingGfx.mode === 'borderless' ? 'borderless ✓'
-                : iracingGfx.mode === 'windowed' ? 'windowed'
-                : 'unknown mode'}
+              {iracingGfx.mode === 'exclusive' ? tr('modeExclusive')
+                : iracingGfx.mode === 'borderless' ? tr('modeBorderless')
+                : iracingGfx.mode === 'windowed' ? tr('modeWindowed')
+                : tr('modeUnknown')}
             </span>
           )}
         </div>
         <p className="overlay-help">
-          {iracingGfx ? iracingGfx.message : 'Checking iRacing video mode...'}
+          {iracingGfx ? iracingGfx.message : tr('checkingIracing')}
         </p>
         <p className="overlay-help">
-          Window overlays <strong style={{ color: "var(--accent-primary)" }}>never</strong> appear over <strong style={{ color: "var(--accent-primary)" }}>exclusive</strong> DirectX fullscreen - this also applies to SimHub/RaceLab. The solution is to run iRacing in <strong style={{ color: "var(--accent-primary)" }}>Borderless</strong>. Rendering over exclusive fullscreen would require DirectX injection (a separate project with anti-cheat risk).
+          {tr('iracingFullscreenHelp')}
         </p>
         <div className="overlay-actions">
           <button
             className="primary-action"
             disabled={busy || !iracingGfx?.supported || iracingGfx?.mode === 'borderless' || iracingGfx?.mode === 'windowed'}
             onClick={() => void fixIracingFullscreen()}
-            title={iracingGfx?.supported ? 'Edits iRacing app.ini (with backup) for borderless mode' : 'Available only on Windows'}
+            title={iracingGfx?.supported ? tr('fixIracingTitle') : tr('windowsOnly')}
           >
-            Fix: switch iRacing to borderless
+            {tr('fixIracing')}
           </button>
           <button className="ghost-action" disabled={busy} onClick={() => void refreshIracingGfx()}>
-            Check again
+            {tr('checkAgain')}
           </button>
         </div>
         {gfxNote && <p className="overlay-help" style={{ color: 'var(--accent-success)' }}>{gfxNote}</p>}
@@ -678,24 +947,24 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
       <section className="panel custom-overlays-panel">
         <div className="custom-overlays-head">
           <div>
-            <h4 style={{ margin: '0 0 6px', color: '#f6fbff' }}>Custom overlays</h4>
+            <h4 style={{ margin: '0 0 6px', color: '#f6fbff' }}>{tr('customTitle')}</h4>
             <p className="overlay-help">
-              Build your own overlays with the full set of <strong style={{ color: 'var(--accent-primary)' }}>dashboard widgets</strong> (gauges, gear, tyres, radar, images…) or with simple cards from <strong style={{ color: 'var(--accent-primary)' }}>Expressions</strong>. Each one becomes an independent transparent window.
+              {tr('customHelp')}
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <button className="primary-action" disabled={busy} onClick={openBuilderForNew}>
-              + Create new overlay
+              {tr('createNewOverlay')}
             </button>
             <button className="ghost-action" disabled={busy} onClick={openDesignerForNew}>
-              + Expression overlay
+              {tr('createExpressionOverlay')}
             </button>
           </div>
         </div>
 
         {visibleCustomOverlays.length === 0 ? (
           <p className="overlay-help">
-            No custom overlays yet. Click <strong style={{ color: "var(--accent-primary)" }}>Create new overlay</strong> to build with dashboard widgets.
+            {tr('customEmpty')}
           </p>
         ) : (
           <div className="overlay-grid">
@@ -710,27 +979,27 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                         disabled={busy}
                         onChange={() => toggleCustomSelected(overlay.id)}
                       />
-                      Select
+                      {tr('select')}
                     </label>
                     <h4>{overlay.title}</h4>
                     <p>
                       {isRichCustomOverlay(overlay)
-                        ? `${overlay.widgets?.length ?? 0} widget(s) · dashboard ao vivo`
-                        : `${overlay.elements.length} element(s) · live expressions`}
+                        ? tr('customWidgetCount', { count: overlay.widgets?.length ?? 0 })
+                        : tr('customElementCount', { count: overlay.elements.length })}
                     </p>
                   </div>
                   <div className="overlay-card-badges">
                     <button
                       className={overlay.favorite ? 'overlay-fav is-fav' : 'overlay-fav'}
                       disabled={busy}
-                      title={overlay.favorite ? 'Remove from favorites' : 'Favorite'}
-                      aria-label={overlay.favorite ? 'Remove from favorites' : 'Favorite'}
+                      title={overlay.favorite ? tr('removeFavorite') : tr('favorite')}
+                      aria-label={overlay.favorite ? tr('removeFavorite') : tr('favorite')}
                       aria-pressed={overlay.favorite}
                       onClick={() => applyCustomPatch(overlay.id, { favorite: !overlay.favorite })}
                     >
                       {overlay.favorite ? '★' : '☆'}
                     </button>
-                    <span className={overlay.enabled ? 'status-pill on' : 'status-pill'}>{overlay.enabled ? 'ativo' : 'off'}</span>
+                    <span className={overlay.enabled ? 'status-pill on' : 'status-pill'}>{overlay.enabled ? tr('statusOn') : tr('statusOff')}</span>
                   </div>
                 </div>
 
@@ -740,29 +1009,29 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                     disabled={busy}
                     onClick={() => applyCustomPatch(overlay.id, { enabled: !overlay.enabled })}
                   >
-                    {overlay.enabled ? 'Turn off' : 'Ligar'}
+                    {overlay.enabled ? tr('turnOff') : tr('turnOn')}
                   </button>
                   <button
                     className="ghost-action"
                     disabled={busy || !overlay.enabled}
                     onClick={() => applyCustomPatch(overlay.id, { locked: !overlay.locked })}
                   >
-                    {overlay.locked ? 'Pinned' : 'Floating'}
+                    {overlay.locked ? tr('pinned') : tr('floating')}
                   </button>
                   <button className="ghost-action" disabled={busy} onClick={() => editCustomOverlay(overlay)}>
-                    Edit
+                    {tr('edit')}
                   </button>
                   <button className="ghost-action danger" disabled={busy} onClick={() => removeCustomOverlay(overlay.id)}>
-                    Remove
+                    {tr('remove')}
                   </button>
                   <button className="ghost-action" disabled={busy} onClick={() => setCustomHidden([overlay.id], true)}>
-                    Hide
+                    {tr('hide')}
                   </button>
                 </div>
 
                 <div className="opacity-control">
                   <label>
-                    Opacidade <strong style={{ color: "var(--accent-primary)" }}>{overlay.opacity}%</strong>
+                    {tr('opacity')} <strong style={{ color: "var(--accent-primary)" }}>{overlay.opacity}%</strong>
                     <input
                       type="range"
                       min="0"
@@ -798,13 +1067,13 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
         {(visibleCustomOverlays.length > 0 || hiddenCustomOverlays.length > 0) && (
           <div className="overlay-actions" style={{ marginTop: 12 }}>
             <button className="ghost-action" disabled={busy || selectedCustomIds.size === 0} onClick={() => setCustomHidden(Array.from(selectedCustomIds), true)}>
-              Hide selected
+              {tr('hideSelected')}
             </button>
           </div>
         )}
         {hiddenCustomOverlays.length > 0 && (
           <details style={{ marginTop: 14 }}>
-            <summary style={{ color: '#f6fbff', cursor: 'pointer', fontWeight: 700 }}>Hidden custom overlays ({hiddenCustomOverlays.length})</summary>
+            <summary style={{ color: '#f6fbff', cursor: 'pointer', fontWeight: 700 }}>{tr('hiddenCustom', { count: hiddenCustomOverlays.length })}</summary>
             <div className="overlays-active-chips" style={{ marginTop: 10 }}>
               {hiddenCustomOverlays.map((overlay) => (
                 <div key={overlay.id} className="overlay-active-chip">
@@ -812,11 +1081,11 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                     <input type="checkbox" checked={selectedCustomIds.has(overlay.id)} onChange={() => toggleCustomSelected(overlay.id)} />
                     <span className="overlay-active-chip-title">{overlay.title}</span>
                   </label>
-                  <button className="overlay-active-chip-off" disabled={busy} onClick={() => setCustomHidden([overlay.id], false)}>Restore</button>
+                  <button className="overlay-active-chip-off" disabled={busy} onClick={() => setCustomHidden([overlay.id], false)}>{tr('restore')}</button>
                 </div>
               ))}
             </div>
-            <button className="ghost-action" style={{ marginTop: 10 }} disabled={busy || selectedCustomIds.size === 0} onClick={() => setCustomHidden(Array.from(selectedCustomIds), false)}>Restore selected</button>
+            <button className="ghost-action" style={{ marginTop: 10 }} disabled={busy || selectedCustomIds.size === 0} onClick={() => setCustomHidden(Array.from(selectedCustomIds), false)}>{tr('restoreSelected')}</button>
           </details>
         )}
       </section>
@@ -825,7 +1094,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
 
       <section className="overlay-grid">
         <div className="overlay-yes-filter" style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
-          <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Filter by Sim</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{tr('filterBySim')}</span>
           {(['all', ...PLAYABLE_SIMS] as const).map((yes) => (
             <button
               key={yes}
@@ -834,11 +1103,11 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
               onClick={() => setSimFilter(yes)}
               style={{ padding: '2px 10px', fontSize: 12 }}
             >
-              {yes === 'all' ? 'All' : simLabel(yes)}
+              {yes === 'all' ? tr('all') : simLabel(yes)}
             </button>
           ))}
           {simFilter !== 'all' && (
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{visibleItems.length} widget(s) with live telemetry in this yes</span>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{tr('simFilteredCount', { count: visibleItems.length })}</span>
           )}
           <span style={{ width: 1, height: 18, background: 'var(--border-default)', margin: '0 2px' }} />
           <TagFilter
@@ -848,7 +1117,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             getTags={(item) => definitionTags(defById.get(item.id as OverlayWidgetId))}
           />
           <button className="ghost-action" disabled={busy || selectedWidgetIds.size === 0} onClick={() => setWidgetHidden(Array.from(selectedWidgetIds), true)}>
-            Hide selected
+            {tr('hideSelected')}
           </button>
         </div>
         {visibleItems.map((item) => (
@@ -862,7 +1131,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                     disabled={busy}
                     onChange={() => toggleWidgetSelected(item.id)}
                   />
-                  Select
+                  {tr('select')}
                 </label>
                 <h4>{displayTitleFor(item.id, item.title)}</h4>
                 <p>{item.description}</p>
@@ -871,16 +1140,18 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 <button
                   className={item.favorite ? 'overlay-fav is-fav' : 'overlay-fav'}
                   disabled={busy}
-                  title={item.favorite ? 'Remove from favorites' : 'Favorite'}
-                  aria-label={item.favorite ? 'Remove from favorites' : 'Favorite'}
+                  title={item.favorite ? tr('removeFavorite') : tr('favorite')}
+                  aria-label={item.favorite ? tr('removeFavorite') : tr('favorite')}
                   aria-pressed={item.favorite}
                   onClick={() => toggleWidgetFavorite(item.id, !item.favorite)}
                 >
                   {item.favorite ? '★' : '☆'}
                 </button>
-                <span className={item.enabled ? 'status-pill on' : 'status-pill'}>{item.enabled ? 'ativo' : 'off'}</span>
+                <span className={item.enabled ? 'status-pill on' : 'status-pill'}>{item.enabled ? tr('statusOn') : tr('statusOff')}</span>
               </div>
             </div>
+
+            <OverlayRuntimePreview item={item} fallback={tr('previewUnavailable')} />
 
             <div className="overlay-toggles">
               <button
@@ -891,7 +1162,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                   setItems(nextItems)
                 })}
               >
-                {item.enabled ? 'Turn off' : 'Ligar'}
+                {item.enabled ? tr('turnOff') : tr('turnOn')}
               </button>
               <button
                 className="ghost-action"
@@ -901,7 +1172,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                   setItems(nextItems)
                 })}
               >
-                {item.locked ? 'Pinned' : 'Floating'}
+                {item.locked ? tr('pinned') : tr('floating')}
               </button>
               <button
                 className="ghost-action"
@@ -911,22 +1182,22 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                   setItems(nextItems)
                 })}
               >
-                Apply position
+                {tr('applyPosition')}
               </button>
               <button className="ghost-action" disabled={busy} onClick={() => setWidgetHidden([item.id], true)}>
-                Hide
+                {tr('hide')}
               </button>
             </div>
 
             <label className="monitor-control">
-              Monitor / mover overlay
+              {tr('monitorMove')}
               <select
                 value={selectedDisplayValue(item)}
                 disabled={busy}
                 onChange={(event) => changeDisplay(item.id, event.target.value)}
                 title={selectedDisplayLabel(item)}
               >
-                <option value="auto">Auto — current/primary display</option>
+                <option value="auto">{tr('displayAuto')}</option>
                 {item.display && !displays.some((display) => display.id === item.display?.id) && (
                   <option value={`missing:${item.display.id}`}>{selectedDisplayLabel(item)}</option>
                 )}
@@ -953,7 +1224,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
 
             <div className="opacity-control">
               <label>
-                Opacidade <strong style={{ color: "var(--accent-primary)" }}>{item.opacity}%</strong>
+                {tr('opacity')} <strong style={{ color: "var(--accent-primary)" }}>{item.opacity}%</strong>
                 <input
                   type="range"
                   min="0"
@@ -993,7 +1264,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
 
             <div className="style-grid">
               <label>
-                Fundo
+                {tr('background')}
                 <input
                   type="color"
                   value={item.style.background.startsWith('#') ? item.style.background : '#050a12'}
@@ -1005,7 +1276,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 />
               </label>
               <label>
-                Accent
+                {tr('accent')}
                 <input
                   type="color"
                   value={item.style.accent.startsWith('#') ? item.style.accent : 'var(--accent-primary)'}
@@ -1017,7 +1288,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 />
               </label>
               <label>
-                Borda
+                {tr('border')}
                 <input
                   type="color"
                   value={item.style.border.startsWith('#') ? item.style.border : '#8aa4c8'}
@@ -1029,7 +1300,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 />
               </label>
               <label>
-                Raio
+                {tr('radius')}
                 <input
                   className="position-input"
                   type="number"
@@ -1046,7 +1317,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
             </div>
 
             <label className="font-control">
-              Font
+              {tr('font')}
               <select
                 value={item.style.fontFamily}
                 disabled={busy}
@@ -1064,7 +1335,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
         {hiddenItems.length > 0 && (
           <div style={{ gridColumn: '1 / -1' }}>
             <details>
-              <summary style={{ color: '#f6fbff', cursor: 'pointer', fontWeight: 800 }}>Hidden widgets ({hiddenItems.length})</summary>
+              <summary style={{ color: '#f6fbff', cursor: 'pointer', fontWeight: 800 }}>{tr('hiddenWidgets', { count: hiddenItems.length })}</summary>
               <div className="overlays-active-chips" style={{ marginTop: 10 }}>
                 {hiddenItems.map((item) => (
                   <div key={item.id} className="overlay-active-chip">
@@ -1072,11 +1343,11 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                       <input type="checkbox" checked={selectedWidgetIds.has(item.id)} onChange={() => toggleWidgetSelected(item.id)} />
                       <span className="overlay-active-chip-title">{displayTitleFor(item.id, item.title)}</span>
                     </label>
-                    <button className="overlay-active-chip-off" disabled={busy} onClick={() => setWidgetHidden([item.id], false)}>Restore</button>
+                    <button className="overlay-active-chip-off" disabled={busy} onClick={() => setWidgetHidden([item.id], false)}>{tr('restore')}</button>
                   </div>
                 ))}
               </div>
-              <button className="ghost-action" style={{ marginTop: 10 }} disabled={busy || selectedWidgetIds.size === 0} onClick={() => setWidgetHidden(Array.from(selectedWidgetIds), false)}>Restore selected</button>
+              <button className="ghost-action" style={{ marginTop: 10 }} disabled={busy || selectedWidgetIds.size === 0} onClick={() => setWidgetHidden(Array.from(selectedWidgetIds), false)}>{tr('restoreSelected')}</button>
             </details>
           </div>
         )}
@@ -1087,13 +1358,13 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
         <div className="overlay-designer-backdrop" role="dialog" aria-modal="true">
           <div className="overlay-designer">
             <div className="overlay-designer-head">
-              <h4>{editingId ? 'Edit overlay customizado' : 'Novo overlay customizado'}</h4>
-              <button className="ghost-action" disabled={busy} onClick={closeDesigner}>Close</button>
+              <h4>{editingId ? tr('editCustomOverlay') : tr('newCustomOverlay')}</h4>
+              <button className="ghost-action" disabled={busy} onClick={closeDesigner}>{tr('close')}</button>
             </div>
 
             <div className="overlay-designer-body">
               <label className="designer-field">
-                Title
+                {tr('fieldTitle')}
                 <input
                   type="text"
                   value={draft.title}
@@ -1106,14 +1377,14 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
               <div className="designer-settings">
                 <label className="designer-check">
                   <input type="checkbox" checked={draft.enabled} disabled={busy} onChange={(event) => updateDraft({ enabled: event.target.checked })} />
-                  Show overlay
+                  {tr('showOverlay')}
                 </label>
                 <label className="designer-check">
                   <input type="checkbox" checked={draft.locked} disabled={busy} onChange={(event) => updateDraft({ locked: event.target.checked })} />
-                  Pinned (click-through)
+                  {tr('pinnedClickThrough')}
                 </label>
                 <label className="designer-field">
-                  Style
+                  {tr('style')}
                   <select
                     value={draft.stylePreset}
                     disabled={busy}
@@ -1129,12 +1400,12 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
 
               {expressions.length === 0 && BINDABLE_TELEMETRY_COUNT === 0 && (
                 <p className="overlay-help">
-                  No saved expressions and no telemetry channel available. Create expressions in <strong style={{ color: "var(--accent-primary)" }}>Expressions</strong> to link them to elements.
+                  {tr('noExpressionsNoTelemetry')}
                 </p>
               )}
               {expressions.length === 0 && BINDABLE_TELEMETRY_COUNT > 0 && (
                 <p className="overlay-help">
-                  No saved expressions yet ? link a telemetry channel directly in the selector (group <strong style={{ color: "var(--accent-primary)" }}>Telemetry</strong>), or create expressions in the <strong style={{ color: "var(--accent-primary)" }}>Expressions</strong> menu.
+                  {tr('noExpressionsTelemetry')}
                 </p>
               )}
 
@@ -1142,31 +1413,31 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 {draft.elements.map((element, index) => (
                   <div key={element.id} className="designer-element">
                     <div className="designer-element-head">
-                      <strong style={{ color: "var(--accent-primary)" }}>Elemento {index + 1}</strong>
-                      <button className="ghost-action danger" disabled={busy} onClick={() => removeDraftElement(element.id)}>Remove</button>
+                      <strong style={{ color: "var(--accent-primary)" }}>{tr('elementNumber', { index: index + 1 })}</strong>
+                      <button className="ghost-action danger" disabled={busy} onClick={() => removeDraftElement(element.id)}>{tr('remove')}</button>
                     </div>
 
                     <label className="designer-field">
-                      Expression or channel
+                      {tr('expressionOrChannel')}
                       <select value={element.expressionId} disabled={busy} onChange={(event) => bindElementExpression(element.id, event.target.value)}>
-                        <option value="">— choose expression or channel —</option>
+                        <option value="">{tr('chooseExpressionOrChannel')}</option>
                         {element.expressionId !== '' &&
                           channelVarIdFromBinding(element.expressionId) === null &&
                           !expressions.some((item) => item.id === element.expressionId) && (
-                            <option value={element.expressionId}>{element.expressionName || 'removed expression'} (unavailable)</option>
+                            <option value={element.expressionId}>{element.expressionName || tr('removedExpression')} {tr('unavailableParen')}</option>
                           )}
                         {element.expressionId !== '' &&
                           channelVarIdFromBinding(element.expressionId) !== null &&
                           !IRACING_VARIABLES.some((item) => `${CHANNEL_BINDING_PREFIX}${item.id}` === element.expressionId && item.telemetryField) && (
-                            <option value={element.expressionId}>{element.expressionName || channelVarIdFromBinding(element.expressionId)} (channel unavailable)</option>
+                            <option value={element.expressionId}>{element.expressionName || channelVarIdFromBinding(element.expressionId)} {tr('channelUnavailableParen')}</option>
                           )}
                         {expressions.length > 0 && (
-                          <optgroup label="My expressions">
+                          <optgroup label={tr('myExpressions')}>
                             {expressions.map((expression) => <option key={expression.id} value={expression.id}>{expression.name}</option>)}
                           </optgroup>
                         )}
                         {BINDABLE_TELEMETRY_GROUPS.map((group) => (
-                          <optgroup key={group.category} label={`Telemetry · ${group.label}`}>
+                          <optgroup key={group.category} label={tr('telemetryGroup', { label: group.label })}>
                             {group.variables.map((variable) => (
                               <option key={variable.id} value={`${CHANNEL_BINDING_PREFIX}${variable.id}`}>
                                 {variable.label}{variable.unit ? ` (${variable.unit})` : ''} · {variable.id}
@@ -1179,38 +1450,38 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
 
                     <div className="designer-grid-2">
                       <label className="designer-field">
-                        Label
+                        {tr('label')}
                         <input type="text" value={element.label} disabled={busy} maxLength={80} onChange={(event) => updateDraftElement(element.id, { label: event.target.value })} />
                       </label>
                       <label className="designer-field">
-                        Sufixo
+                        {tr('suffix')}
                         <input type="text" value={element.suffix} disabled={busy} maxLength={16} onChange={(event) => updateDraftElement(element.id, { suffix: event.target.value })} />
                       </label>
                     </div>
 
                     <div className="designer-grid-4">
                       <label className="designer-field">
-                        Casas
+                        {tr('decimals')}
                         <select
                           value={element.decimals === null ? 'auto' : String(element.decimals)}
                           disabled={busy}
                           onChange={(event) => updateDraftElement(element.id, { decimals: event.target.value === 'auto' ? null : Number(event.target.value) })}
                         >
-                          {DECIMALS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                          {DECIMALS_OPTIONS.map((option) => <option key={option} value={option}>{option === 'auto' ? tr('auto') : option}</option>)}
                         </select>
                       </label>
                       <label className="designer-field">
-                        Font (px)
+                        {tr('fontPx')}
                         <input type="number" min={8} max={240} value={element.fontSize} disabled={busy} onChange={(event) => updateDraftElement(element.id, { fontSize: Number(event.target.value) })} />
                       </label>
                       <label className="designer-field">
-                        Alinhar
+                        {tr('align')}
                         <select value={element.align} disabled={busy} onChange={(event) => updateDraftElement(element.id, { align: event.target.value as CustomOverlayElementAlign })}>
                           {ALIGN_OPTIONS.map((align) => <option key={align} value={align}>{align}</option>)}
                         </select>
                       </label>
                       <label className="designer-field">
-                        Color
+                        {tr('color')}
                         <input
                           type="color"
                           value={element.color && element.color.startsWith('#') ? element.color : 'var(--accent-primary)'}
@@ -1227,7 +1498,7 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                         disabled={busy}
                         onChange={(event) => updateDraftElement(element.id, { color: event.target.checked ? '' : 'var(--accent-primary)' })}
                       />
-                      Use theme color (accent)
+                      {tr('useThemeColor')}
                     </label>
 
                     <div className="designer-grid-4">
@@ -1247,13 +1518,13 @@ export default function OverlaysView(_props: AppViewProps): ReactElement {
                 ))}
               </div>
 
-              <button className="ghost-action" disabled={busy} onClick={addDraftElement}>+ Add elemento</button>
+              <button className="ghost-action" disabled={busy} onClick={addDraftElement}>{tr('addElement')}</button>
             </div>
 
             <div className="overlay-designer-foot">
-              <button className="ghost-action" disabled={busy} onClick={closeDesigner}>Cancel</button>
+              <button className="ghost-action" disabled={busy} onClick={closeDesigner}>{tr('cancel')}</button>
               <button className="primary-action" disabled={busy || !draft.title.trim()} onClick={saveDesigner}>
-                {editingId ? 'Save changes' : 'Create overlay'}
+                {editingId ? tr('saveChanges') : tr('createOverlay')}
               </button>
             </div>
           </div>

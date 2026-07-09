@@ -70,6 +70,7 @@ import { register as streaming } from './streaming'
 import { register as simhubImport } from './simhub-import'
 import { register as configExport } from './config-export'
 import { register as diagnosticLogger } from './logger'
+import { register as bugReport } from './bug-report'
 import { register as updater } from './updater'
 import { register as pitPanel } from '../pitpanel/window'
 import { register as touchPanel } from '../touchpanel/manager'
@@ -134,6 +135,7 @@ const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   configExport,
   updater,
   diagnosticLogger,
+  bugReport,
   pitPanel,
   touchPanel
 ]

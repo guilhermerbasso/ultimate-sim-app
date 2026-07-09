@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import type { OverlayWidgetConfig, OverlayWidgetId } from '../../../shared/overlays'
+import { createDefaultOverlayStyle, DEFAULT_OVERLAY_STYLE_PRESET, type OverlayWidgetConfig, type OverlayWidgetId } from '../../../shared/overlays'
 import { HIFI_WIDGETS, hifiWidgetTags } from '../hifi/widgets/registry'
 import { HifiWidgetHost, resolveWidgetComponent } from './widgets'
 import { createDefaultOverlaysConfigWithHifi, HIFI_OVERLAY_DEFS } from './hifi-overlays'
@@ -42,5 +42,23 @@ describe('hi-fi overlay bridge', () => {
       expect(html, module.id).not.toContain('NaN')
       expect(html, module.id).not.toContain('undefined')
     }
+  })
+
+  it('renders rev/RPM strip modules in the placed box instead of letterboxing defaults', () => {
+    const config: OverlayWidgetConfig = {
+      id: 'hifi:revlightsMustang' as OverlayWidgetId,
+      enabled: true,
+      locked: false,
+      favorite: false,
+      position: { x: 0, y: 0, width: 1000, height: 40 },
+      opacity: 100,
+      stylePreset: DEFAULT_OVERLAY_STYLE_PRESET,
+      style: createDefaultOverlayStyle(),
+      display: null,
+      hifiModuleId: 'revlightsMustang'
+    }
+
+    const html = renderToStaticMarkup(createElement(HifiWidgetHost, { snapshot: null, config }))
+    expect(html).toContain('viewBox="0 0 1000 40"')
   })
 })

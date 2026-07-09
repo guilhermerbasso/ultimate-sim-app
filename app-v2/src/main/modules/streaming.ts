@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process'
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { extname, join, normalize, relative, resolve, sep } from 'node:path'
@@ -8,9 +9,7 @@ import QRCode from 'qrcode'
 import type { DriverEntry, RadarCarEntry, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
 import type { StreamingAccessMode, StreamingStartArgs, StreamingStartResult, StreamingStatus, StreamingTelemetryFrame } from '../../shared/streaming'
 import { STREAMING_CHANNELS } from '../../shared/streaming'
-import { buttonActionToIpc, type ButtonAction } from '../../shared/touch-panel'
 import type { ModuleContext } from '../module-context'
-import { getTouchPanelManager } from '../touchpanel/manager'
 
 const HOST = '127.0.0.1'
 const LAN_HOST = '0.0.0.0'
@@ -19,6 +18,7 @@ const SSE_INTERVAL_MS = 67
 const TOKEN_BYTES = 24
 const AUTH_FAILURE_WINDOW_MS = 60_000
 const AUTH_FAILURE_LIMIT = 10
+const MAX_SSE_CLIENTS = 12
 
 interface SseClient {
   id: number
@@ -34,8 +34,10 @@ interface StreamingState {
   port: number | null
   token: string | null
   passwordHash: string | null
+  passwordPlaintext: string | null
   layoutId: string
   touchPanelId: string | null
+  firewallMessage: string | null
   streamSafe: boolean
   lanEnabled: boolean
   accessMode: StreamingAccessMode
@@ -46,6 +48,7 @@ interface StreamingState {
   clients: Map<number, SseClient>
   authFailures: Map<string, { count: number; resetAt: number }>
   nextClientId: number
+  firewallAttemptedPorts: Set<number>
 }
 
 const state: StreamingState = {
@@ -53,8 +56,10 @@ const state: StreamingState = {
   port: null,
   token: null,
   passwordHash: null,
+  passwordPlaintext: null,
   layoutId: DEFAULT_LAYOUT,
   touchPanelId: null,
+  firewallMessage: null,
   streamSafe: true,
   lanEnabled: false,
   accessMode: 'local',
@@ -64,7 +69,8 @@ const state: StreamingState = {
   touchQrDataUrl: null,
   clients: new Map(),
   authFailures: new Map(),
-  nextClientId: 1
+  nextClientId: 1,
+  firewallAttemptedPorts: new Set()
 }
 
 function isValidLayoutId(value: unknown): value is string {
@@ -89,17 +95,32 @@ function passwordHash(value: string | undefined): string | null {
   return `${salt}:${hash}`
 }
 
+function normalizePassword(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
 function primaryLanAddress(): string | null {
-  // Only return a real RFC1918 private LAN IPv4 (10/8, 172.16/12, 192.168/16). A public or
-  // VPN/adapter address labelled as "LAN" would produce an unreachable QR for a phone on the
-  // same Wi-Fi; when there is no private LAN IPv4 we return null so the UI can warn instead.
-  for (const entries of Object.values(networkInterfaces())) {
+  const candidates: Array<{ address: string; score: number }> = []
+  for (const [name, entries] of Object.entries(networkInterfaces())) {
     for (const entry of entries ?? []) {
       if (entry.family !== 'IPv4' || entry.internal) continue
-      if (isPrivateIpv4(entry.address)) return entry.address
+      if (!isPrivateIpv4(entry.address)) continue
+      const lowerName = name.toLowerCase()
+      let score = 0
+      if (entry.address.startsWith('192.168.')) score += 50
+      else if (entry.address.startsWith('10.')) score += 40
+      else if (/^172\.(1[6-9]|2\d|3[01])\./.test(entry.address)) score += 35
+      else if (entry.address.startsWith('169.254.')) score -= 50
+      if (lowerName.includes('wi-fi') || lowerName.includes('wifi') || lowerName.includes('wireless')) score += 20
+      if (lowerName.includes('ethernet')) score += 15
+      if (lowerName.includes('virtual') || lowerName.includes('vpn') || lowerName.includes('loopback') || lowerName.includes('vmware') || lowerName.includes('hyper-v')) score -= 25
+      candidates.push({ address: entry.address, score })
     }
   }
-  return null
+  candidates.sort((a, b) => b.score - a.score)
+  return candidates[0]?.address ?? null
 }
 
 function isPrivateIpv4(address: string): boolean {
@@ -127,7 +148,7 @@ function normalizePublicBaseUrl(value: unknown): string | null {
   if (!trimmed) return null
   try {
     const parsed = new URL(trimmed)
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null
+    if (parsed.protocol !== 'https:') return null
     return parsed.origin
   } catch {
     return null
@@ -197,10 +218,19 @@ function contentType(filePath: string): string {
 
 function applyCors(response: ServerResponse): void {
   response.setHeader('Access-Control-Allow-Origin', '*')
-  response.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  response.setHeader('Access-Control-Allow-Methods', 'GET, HEAD')
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Stream-Token, X-Stream-Password')
   response.setHeader('X-Content-Type-Options', 'nosniff')
   response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
+  // Don't leak the token/password in the URL to any linked origin.
+  response.setHeader('Referrer-Policy', 'no-referrer')
+}
+
+function rejectMethod(response: ServerResponse): void {
+  applyCors(response)
+  response.setHeader('Allow', 'GET, HEAD')
+  response.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' })
+  response.end('Method not allowed')
 }
 
 function send(response: ServerResponse, statusCode: number, body: string): void {
@@ -210,8 +240,16 @@ function send(response: ServerResponse, statusCode: number, body: string): void 
 }
 
 function hasValidAuth(url: URL, request: IncomingMessage): boolean {
-  if (safeTokenEqual(authValue(url, request, 'token'), state.token)) return true
-  return verifyPassword(authValue(url, request, 'password'), state.passwordHash)
+  const tokenOk = safeTokenEqual(authValue(url, request, 'token'), state.token)
+  if (state.accessMode === 'local') return tokenOk
+  return tokenOk && verifyPassword(authValue(url, request, 'password'), state.passwordHash)
+}
+
+/** Token-only auth: used for the stream page HTML/assets and /ping so that a
+ *  shareable URL that contains only the token can load the page, which then
+ *  prompts the user to enter the password before connecting to the SSE stream. */
+function hasValidToken(url: URL, request: IncomingMessage): boolean {
+  return safeTokenEqual(authValue(url, request, 'token'), state.token)
 }
 
 function authValue(url: URL, request: IncomingMessage, key: 'token' | 'password'): string | null {
@@ -242,6 +280,7 @@ function safeTokenEqual(input: string | null, expected: string | null): boolean 
 }
 
 function safeStaticPath(pathname: string): string | null {
+  if (!pathname.startsWith('/assets/')) return null
   const root = rendererDir()
   const decoded = decodeURIComponent(pathname)
   const normalizedPath = normalize(decoded).replace(/^[/\\]+/, '')
@@ -251,37 +290,45 @@ function safeStaticPath(pathname: string): string | null {
   return target
 }
 
-function addTokenToAssetUrls(html: string, token: string): string {
+function authSearchParams(): string {
+  const params = new URLSearchParams()
+  // Only embed the token in asset sub-request URLs; the password is entered by the
+  // user in the stream page and is only used for the /sse connection.
+  if (state.token) params.set('token', state.token)
+  return params.toString()
+}
+
+function addAuthToAssetUrls(html: string): string {
+  const auth = authSearchParams()
+  if (!auth) return html
   return html
-    .replace(/(\s(?:src|href)=['"])(\/(?:assets|src)\/[^'"?#]+)([^'"]*)(['"])/g, (_match, prefix: string, path: string, suffix: string, quote: string) => {
+    .replace(/(\s(?:src|href)=['"])(\/assets\/[^'"?#]+)([^'"]*)(['"])/g, (_match, prefix: string, path: string, suffix: string, quote: string) => {
       const joiner = suffix.includes('?') ? '&' : '?'
-      return `${prefix}${path}${suffix}${joiner}token=${encodeURIComponent(token)}${quote}`
+      return `${prefix}${path}${suffix}${joiner}${auth}${quote}`
     })
 }
 
-function devFallbackHtml(entry: 'stream' | 'touchpanel', token: string): string {
+function devFallbackHtml(): string {
   const devUrl = process.env.ELECTRON_RENDERER_URL
   if (!devUrl) {
     return '<!doctype html><html><body style="margin:0;background:#05070d;color:white;font-family:sans-serif">stream page not built yet</body></html>'
   }
   const origin = new URL(devUrl).origin
-  const title = entry === 'stream' ? 'Ultimate Sim App Stream' : 'Touch Controls'
-  const source = entry === 'stream' ? '/src/stream/main.tsx' : '/src/touchpanel/main.tsx'
-  return `<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><title>${title}</title></head><body><div id="root"></div><script type="module" src="${origin}${source}?token=${encodeURIComponent(token)}"></script></body></html>`
+  return `<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><title>Ultimate Sim App Stream</title></head><body><div id="root"></div><script type="module" src="${origin}/src/stream/main.tsx"></script></body></html>`
 }
 
-function serveHtml(response: ServerResponse, fileName = 'stream.html', entry: 'stream' | 'touchpanel' = 'stream'): void {
+function serveHtml(request: IncomingMessage, response: ServerResponse): void {
   // In dev (electron-vite sets ELECTRON_RENDERER_URL), serve a shim that loads the
   // transpiled stream entry from the vite origin; the raw source stream.html would
   // otherwise 404 its .tsx <script>. In production we serve the built stream.html.
-  const htmlPath = process.env.ELECTRON_RENDERER_URL ? null : findRendererHtml(fileName)
-  const html = htmlPath ? readFileSync(htmlPath, 'utf8') : devFallbackHtml(entry, state.token ?? '')
+  const htmlPath = process.env.ELECTRON_RENDERER_URL ? null : findRendererHtml('stream.html')
+  const html = htmlPath ? readFileSync(htmlPath, 'utf8') : devFallbackHtml()
   applyCors(response)
   response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
-  response.end(addTokenToAssetUrls(html, state.token ?? ''))
+  response.end(request.method === 'HEAD' ? undefined : addAuthToAssetUrls(html))
 }
 
-function serveStatic(pathname: string, response: ServerResponse): void {
+function serveStatic(pathname: string, request: IncomingMessage, response: ServerResponse): void {
   const target = safeStaticPath(pathname)
   if (!target || !existsSync(target) || !statSync(target).isFile()) {
     send(response, 404, 'Not found')
@@ -289,62 +336,11 @@ function serveStatic(pathname: string, response: ServerResponse): void {
   }
   applyCors(response)
   response.writeHead(200, { 'Content-Type': contentType(target), 'Cache-Control': 'no-store' })
+  if (request.method === 'HEAD') {
+    response.end()
+    return
+  }
   createReadStream(target).pipe(response)
-}
-
-function isValidPanelRouteId(value: string): boolean {
-  return /^[a-zA-Z0-9._-]{1,96}$/.test(value)
-}
-
-function sendJson(response: ServerResponse, statusCode: number, body: unknown): void {
-  applyCors(response)
-  response.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
-  response.end(JSON.stringify(body))
-}
-
-function serveTouchPanelData(panelId: string, response: ServerResponse): void {
-  if (!isValidPanelRouteId(panelId)) {
-    send(response, 404, 'Not found')
-    return
-  }
-  const panel = getTouchPanelManager()?.getPanel(panelId) ?? null
-  if (!panel) {
-    send(response, 404, 'Not found')
-    return
-  }
-  sendJson(response, 200, panel)
-}
-
-function readRequestBody(request: IncomingMessage): Promise<string> {
-  return new Promise((resolveBody, rejectBody) => {
-    let body = ''
-    request.setEncoding('utf8')
-    request.on('data', (chunk: string) => {
-      body += chunk
-      if (body.length > 32_768) rejectBody(new Error('Request body too large'))
-    })
-    request.on('end', () => resolveBody(body))
-    request.on('error', rejectBody)
-  })
-}
-
-async function invokeRegisteredIpc(ctx: ModuleContext, channel: string, args: unknown[]): Promise<unknown> {
-  const handlers = (ctx.ipcMain as unknown as { _invokeHandlers?: Map<string, (event: unknown, ...args: unknown[]) => unknown> })._invokeHandlers
-  const handler = handlers?.get(channel)
-  if (!handler) throw new Error(`No IPC handler registered for ${channel}`)
-  return handler({ sender: ctx.getMainWindow()?.webContents }, ...args)
-}
-
-async function handleTouchAction(ctx: ModuleContext, request: IncomingMessage, response: ServerResponse): Promise<void> {
-  const raw = await readRequestBody(request)
-  const action = JSON.parse(raw) as ButtonAction
-  const ipc = buttonActionToIpc(action)
-  if (!ipc) {
-    sendJson(response, 200, { ok: true, skipped: true })
-    return
-  }
-  await invokeRegisteredIpc(ctx, ipc.channel, ipc.args)
-  sendJson(response, 200, { ok: true })
 }
 
 function maskName(name: string | undefined, index: number): string {
@@ -405,6 +401,16 @@ function writeSse(response: ServerResponse, frame: StreamingTelemetryFrame): voi
 }
 
 function openSse(ctx: ModuleContext, request: IncomingMessage, response: ServerResponse): void {
+  if (request.method === 'HEAD') {
+    applyCors(response)
+    response.writeHead(200, { 'Cache-Control': 'no-store' })
+    response.end()
+    return
+  }
+  if (state.clients.size >= MAX_SSE_CLIENTS) {
+    send(response, 503, 'Too many streaming clients')
+    return
+  }
   applyCors(response)
   response.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
@@ -449,35 +455,29 @@ function lanOrigin(): string | null {
   return state.port && state.lanAddress ? `http://${state.lanAddress}:${state.port}` : null
 }
 
-function syncTouchPanelId(): void {
-  const manager = getTouchPanelManager()
-  if (!manager) {
-    state.touchPanelId = null
-    return
-  }
-  if (state.touchPanelId && manager.getPanel(state.touchPanelId)) return
-  state.touchPanelId = manager.list()[0]?.id ?? null
-}
-
 function dashboardUrl(origin = baseOrigin()): string | null {
-  return state.port && state.token ? `${origin}/obs/${state.layoutId}?token=${state.token}` : null
+  if (!state.port || !state.token) return null
+  const url = new URL(`/obs/${state.layoutId}`, origin)
+  url.searchParams.set('token', state.token)
+  // Password is intentionally NOT embedded in the shareable URL/QR.
+  // The stream page will prompt the user to enter it separately.
+  return url.toString()
 }
 
 function touchControlsUrl(origin = baseOrigin()): string | null {
-  if (!state.server) return null
-  syncTouchPanelId()
-  return state.port && state.token && state.touchPanelId ? `${origin}/touch/${encodeURIComponent(state.touchPanelId)}?token=${state.token}` : null
+  void origin
+  return null
 }
 
 function warning(): string | null {
   if (state.accessMode === 'internet') {
-    return 'Internet mode binds to all interfaces and allows non-LAN clients with the token/password. Use a trusted tunnel or port-forwarding, and allow the port through Windows Firewall.'
+    return state.firewallMessage ?? 'Internet mode is read-only and requires the token plus password. Use a trusted HTTPS tunnel/public URL that forwards only this stream port.'
   }
   if (state.accessMode === 'lan') {
     if (!state.lanAddress) {
       return 'No private LAN IPv4 address found. QR codes will not work for phones/tablets. Check your network adapter settings or use local mode instead.'
     }
-    return 'LAN streaming is enabled: phones/tablets on your Wi-Fi can open the QR URL. If it still fails, allow this app/port through Windows Firewall.'
+    return state.firewallMessage ?? 'LAN streaming is read-only and requires the token plus password. Phones/tablets on your Wi-Fi can open the QR URL.'
   }
   return null
 }
@@ -518,6 +518,9 @@ async function status(): Promise<StreamingStatus> {
     lanAddress: state.lanAddress,
     accessMode: state.accessMode,
     publicBaseUrl: state.publicBaseUrl,
+    password: state.passwordPlaintext,
+    localTestUrl: state.port ? dashboardUrl(`http://127.0.0.1:${state.port}`) : null,
+    firewallMessage: state.firewallMessage,
     passwordEnabled: state.passwordHash !== null,
     warning: warning()
   }
@@ -526,10 +529,8 @@ async function status(): Promise<StreamingStatus> {
 async function handleRequest(ctx: ModuleContext, request: IncomingMessage, response: ServerResponse): Promise<void> {
   try {
     const url = new URL(request.url ?? '/', state.port ? baseOrigin() : `http://${HOST}`)
-    if (request.method === 'OPTIONS') {
-      applyCors(response)
-      response.writeHead(204)
-      response.end()
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      rejectMethod(response)
       return
     }
     if (state.accessMode === 'lan' && !isLocalNetworkRequest(request)) {
@@ -540,72 +541,49 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
       send(response, 429, 'Too many failed auth attempts')
       return
     }
+    // /ping and the page/assets use token-only auth so the shareable URL (which
+    // contains only the token) can load the stream page. The page then prompts for
+    // the password, which is used only for the /sse data stream.
+    if (url.pathname === '/ping') {
+      if (!hasValidToken(url, request)) {
+        recordAuthFailure(request)
+        send(response, 403, 'Forbidden')
+        return
+      }
+      clearAuthFailure(request)
+      applyCors(response)
+      response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+      response.end(request.method === 'HEAD' ? undefined : JSON.stringify({ passwordRequired: state.passwordHash !== null }))
+      return
+    }
+    if (url.pathname.startsWith('/obs/') || url.pathname.startsWith('/assets/')) {
+      if (!hasValidToken(url, request)) {
+        recordAuthFailure(request)
+        send(response, 403, 'Forbidden')
+        return
+      }
+      clearAuthFailure(request)
+      if (url.pathname.startsWith('/obs/')) {
+        const layoutId = url.pathname.slice('/obs/'.length)
+        if (!isValidLayoutId(layoutId)) {
+          send(response, 404, 'Not found')
+          return
+        }
+        serveHtml(request, response)
+        return
+      }
+      serveStatic(url.pathname, request, response)
+      return
+    }
+    // /sse requires full auth (token + password) to protect the live telemetry stream.
     if (!hasValidAuth(url, request)) {
       recordAuthFailure(request)
       send(response, 403, 'Forbidden')
       return
     }
     clearAuthFailure(request)
-    if (request.method !== 'GET' && request.method !== 'POST') {
-      send(response, 405, 'Method not allowed')
-      return
-    }
-    if (url.pathname.startsWith('/obs/')) {
-      if (request.method !== 'GET') {
-        send(response, 405, 'Method not allowed')
-        return
-      }
-      const layoutId = url.pathname.slice('/obs/'.length)
-      if (!isValidLayoutId(layoutId)) {
-        send(response, 404, 'Not found')
-        return
-      }
-      serveHtml(response)
-      return
-    }
-    if (url.pathname.startsWith('/touch/')) {
-      if (request.method !== 'GET') {
-        send(response, 405, 'Method not allowed')
-        return
-      }
-      const panelId = decodeURIComponent(url.pathname.slice('/touch/'.length))
-      if (!isValidPanelRouteId(panelId)) {
-        send(response, 404, 'Not found')
-        return
-      }
-      serveHtml(response, 'touchpanel.html', 'touchpanel')
-      return
-    }
-    if (url.pathname.startsWith('/api/touch/panel/')) {
-      if (request.method !== 'GET') {
-        send(response, 405, 'Method not allowed')
-        return
-      }
-      serveTouchPanelData(decodeURIComponent(url.pathname.slice('/api/touch/panel/'.length)), response)
-      return
-    }
-    if (url.pathname === '/api/touch/action') {
-      if (request.method !== 'POST') {
-        send(response, 405, 'Method not allowed')
-        return
-      }
-      await handleTouchAction(ctx, request, response)
-      return
-    }
     if (url.pathname === '/sse') {
-      if (request.method !== 'GET') {
-        send(response, 405, 'Method not allowed')
-        return
-      }
       openSse(ctx, request, response)
-      return
-    }
-    if (url.pathname.startsWith('/assets/') || url.pathname.startsWith('/src/')) {
-      if (request.method !== 'GET') {
-        send(response, 405, 'Method not allowed')
-        return
-      }
-      serveStatic(url.pathname, response)
       return
     }
     send(response, 404, 'Not found')
@@ -622,11 +600,13 @@ async function stop(): Promise<StreamingStatus> {
   state.port = null
   state.token = null
   state.passwordHash = null
+  state.passwordPlaintext = null
   state.lanEnabled = false
   state.accessMode = 'local'
   state.lanAddress = null
   state.publicBaseUrl = null
   state.touchPanelId = null
+  state.firewallMessage = null
   state.qrDataUrl = null
   state.touchQrDataUrl = null
   state.authFailures.clear()
@@ -636,24 +616,66 @@ async function stop(): Promise<StreamingStatus> {
   return status()
 }
 
+const STABLE_FIREWALL_RULE_NAME = 'Ultimate Sim App Streaming'
+
+async function allowWindowsFirewallPort(port: number): Promise<string | null> {
+  if (process.platform !== 'win32') return null
+  if (state.firewallAttemptedPorts.has(port)) return state.firewallMessage
+  state.firewallAttemptedPorts.add(port)
+  // Delete any existing rule with the stable name first to avoid accumulating stale rules.
+  await new Promise<void>((resolve) => {
+    execFile('netsh', ['advfirewall', 'firewall', 'delete', 'rule', `name=${STABLE_FIREWALL_RULE_NAME}`], { windowsHide: true, timeout: 5_000 }, () => resolve())
+  })
+  const args = [
+    'advfirewall',
+    'firewall',
+    'add',
+    'rule',
+    `name=${STABLE_FIREWALL_RULE_NAME}`,
+    'dir=in',
+    'action=allow',
+    'protocol=TCP',
+    `localport=${port}`
+  ]
+  return new Promise((resolveMessage) => {
+    execFile('netsh', args, { windowsHide: true, timeout: 7_500 }, (error) => {
+      if (error) {
+        resolveMessage(`Windows Firewall rule was not added automatically. Run as Administrator or allow TCP port ${port} for phone access.`)
+        return
+      }
+      resolveMessage(`Windows Firewall allow rule added for TCP port ${port}.`)
+    })
+  })
+}
+
 async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise<StreamingStartResult> {
   if (state.server) await stop()
   state.layoutId = isValidLayoutId(args.layoutId) ? args.layoutId : DEFAULT_LAYOUT
-  const touchManager = getTouchPanelManager()
-  const requestedTouchPanelId = typeof args.touchPanelId === 'string' && isValidPanelRouteId(args.touchPanelId) ? args.touchPanelId : null
-  const firstTouchPanelId = touchManager?.list()[0]?.id ?? null
-  state.touchPanelId = requestedTouchPanelId && touchManager?.getPanel(requestedTouchPanelId) ? requestedTouchPanelId : firstTouchPanelId
+  state.touchPanelId = null
   state.streamSafe = args.streamSafe ?? true
   state.token = generateToken()
-  state.passwordHash = passwordHash(args.password)
   state.accessMode = args.accessMode === 'internet' || args.accessMode === 'lan'
     ? args.accessMode
     : args.lanEnabled
       ? 'lan'
       : 'local'
+  const password = normalizePassword(args.password)
+  if (state.accessMode !== 'local' && !password) {
+    state.token = null
+    throw new Error('LAN/Internet streaming requires a password in addition to the token.')
+  }
+  state.passwordPlaintext = password
+  state.passwordHash = passwordHash(password ?? undefined)
   state.lanEnabled = state.accessMode !== 'local'
   state.lanAddress = state.accessMode !== 'local' ? primaryLanAddress() : null
   state.publicBaseUrl = state.accessMode === 'internet' ? normalizePublicBaseUrl(args.publicBaseUrl) : null
+  if (state.accessMode === 'internet' && !state.publicBaseUrl) {
+    state.token = null
+    state.passwordPlaintext = null
+    state.passwordHash = null
+    throw new Error('Internet streaming requires a public HTTPS tunnel/base URL that forwards only this stream port.')
+  }
+  state.firewallMessage = null
   const server = createServer((request, response) => {
     void handleRequest(ctx, request, response)
   })
@@ -666,6 +688,9 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
     })
   })
   state.port = (server.address() as AddressInfo).port
+  if (state.accessMode !== 'local') {
+    state.firewallMessage = await allowWindowsFirewallPort(state.port)
+  }
   await refreshQrCodes()
   return {
     url: dashboardUrl() ?? '',
@@ -679,6 +704,9 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
     accessMode: state.accessMode,
     lanAddress: state.lanAddress,
     publicBaseUrl: state.publicBaseUrl,
+    password: state.passwordPlaintext,
+    localTestUrl: state.port ? dashboardUrl(`http://127.0.0.1:${state.port}`) : null,
+    firewallMessage: state.firewallMessage,
     warning: warning()
   }
 }

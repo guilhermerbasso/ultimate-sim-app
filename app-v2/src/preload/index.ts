@@ -124,7 +124,9 @@ const ALLOWED_PREFIXES = [
   //     seção, listSaved/deleteSection/resetSection, changed broadcast) ──────────
   'config:',
   // ─── Diagnostic LOGS (write/export/open/info) — 24h rolling logger ──────────
-  'logs:'
+  'logs:',
+  // ─── One-click bug report: collect last-2h logs + open a prefilled GH issue ──
+  'bug:'
 ]
 
 function isAllowed(channel: string): boolean {

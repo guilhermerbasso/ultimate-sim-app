@@ -4,7 +4,7 @@ import {
   type ConfigDeleteResult,
   type SavedSectionInfo
 } from '../../../shared/config-io'
-import type { ResolvedLanguage } from '../i18n'
+import { tt, type ResolvedLanguage } from '../i18n'
 
 // ─── Pure presentation helpers (exported for unit tests) ───────────────────────
 
@@ -49,10 +49,14 @@ export function formatBytes(bytes: number): string {
   return `${rounded} ${units[unit]}`
 }
 
-export function formatModified(modifiedAt: number | null): string {
+function localeOf(language: ResolvedLanguage | undefined): string {
+  return language === 'pt-BR' ? 'pt-BR' : language ?? 'en'
+}
+
+export function formatModified(modifiedAt: number | null, language?: ResolvedLanguage): string {
   if (modifiedAt === null || !Number.isFinite(modifiedAt)) return '—'
   try {
-    return new Date(modifiedAt).toLocaleString('pt-BR', {
+    return new Date(modifiedAt).toLocaleString(localeOf(language), {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
@@ -77,16 +81,17 @@ export function summarizeSaved(items: readonly SavedSectionInfo[]): { savedCount
 }
 
 // Compact one-line summary of a section's saved state for the row meta.
-export function describeSaved(item: SavedSectionInfo): string {
-  if (item.error) return 'read error (permission/lock)'
-  if (!item.exists) return 'empty'
+export function describeSaved(item: SavedSectionInfo, language?: ResolvedLanguage): string {
+  if (item.error) return tt(language, 'shared.savedConfigs.readError')
+  if (!item.exists) return tt(language, 'shared.savedConfigs.empty')
   const parts = [formatBytes(item.sizeBytes)]
   if (typeof item.itemCount === 'number') {
-    const noun = item.kind === 'dir' ? 'file' : 'entry'
-    const plural = noun === 'entry' ? 'entries' : `${noun}s`
-    parts.push(`${item.itemCount} ${item.itemCount === 1 ? noun : plural}`)
+    const key = item.kind === 'dir'
+      ? (item.itemCount === 1 ? 'shared.savedConfigs.fileSingular' : 'shared.savedConfigs.filePlural')
+      : (item.itemCount === 1 ? 'shared.savedConfigs.entrySingular' : 'shared.savedConfigs.entryPlural')
+    parts.push(tt(language, key, { count: item.itemCount }))
   }
-  if (item.modifiedAt !== null) parts.push(formatModified(item.modifiedAt))
+  if (item.modifiedAt !== null) parts.push(formatModified(item.modifiedAt, language))
   return parts.join(' · ')
 }
 
@@ -102,7 +107,7 @@ const DANGER = 'var(--danger, #e5484d)'
 // a deletion the affected store returns to factory default — but running stores
 // are cached in memory, so the panel surfaces a restart prompt (config:relaunch)
 // exactly like the import flow. Auth/credentials are never listed or deletable.
-export function SavedConfigsPanel({ language: _language }: { language?: ResolvedLanguage } = {}): ReactElement {
+export function SavedConfigsPanel({ language }: { language?: ResolvedLanguage } = {}): ReactElement {
   const [items, setItems] = useState<SavedSectionInfo[] | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [status, setStatus] = useState<Status>(null)
@@ -139,8 +144,7 @@ export function SavedConfigsPanel({ language: _language }: { language?: Resolved
   const deleteOne = async (item: SavedSectionInfo): Promise<void> => {
     if (
       !window.confirm(
-        `Delete the saved settings for "${item.label}"? It will return to factory defaults. ` +
-          'This action cannot be undone.'
+        tt(language, 'shared.savedConfigs.deleteOneConfirm', { label: item.label })
       )
     ) {
       return
@@ -151,9 +155,9 @@ export function SavedConfigsPanel({ language: _language }: { language?: Resolved
       const result = await window.ipc.invoke<ConfigDeleteResult>(CONFIG_IO_CHANNELS.deleteSection, item.id)
       if (result.removed) {
         setNeedsRestart(true)
-        setStatus({ text: `"${item.label}" deleted. Restart to apply.`, tone: 'ok' })
+        setStatus({ text: tt(language, 'shared.savedConfigs.deletedRestart', { label: item.label }), tone: 'ok' })
       } else {
-        setStatus({ text: `"${item.label}" was already empty.`, tone: 'ok' })
+        setStatus({ text: tt(language, 'shared.savedConfigs.alreadyEmpty', { label: item.label }), tone: 'ok' })
       }
       await refresh()
     } catch (error) {
@@ -168,8 +172,7 @@ export function SavedConfigsPanel({ language: _language }: { language?: Resolved
     if (saved.length === 0) return
     if (
       !window.confirm(
-        `Delete ALL ${saved.length} saved settings sections? Everything returns to factory defaults. ` +
-          'This action cannot be undone.'
+        tt(language, 'shared.savedConfigs.deleteAllConfirm', { count: saved.length })
       )
     ) {
       return
@@ -188,7 +191,7 @@ export function SavedConfigsPanel({ language: _language }: { language?: Resolved
         setStatus({ text: error instanceof Error ? error.message : String(error), tone: 'err' })
       } else {
         setStatus({
-          text: `${removed} saved setting${removed === 1 ? '' : 's'} deleted. Restart to apply.`,
+          text: tt(language, removed === 1 ? 'shared.savedConfigs.deletedOneCount' : 'shared.savedConfigs.deletedManyCount', { count: removed }),
           tone: 'ok'
         })
       }
@@ -212,19 +215,18 @@ export function SavedConfigsPanel({ language: _language }: { language?: Resolved
     <div className="panel-card" style={{ display: 'grid', gap: 12 }}>
       <div>
         <span className="field-label" style={{ margin: 0 }}>
-          Saved settings
+          {tt(language, 'shared.savedConfigs.title')}
         </span>
         <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13 }}>
-          Your settings are stored in the app data folder (<code>userData</code>) and{' '}
-          <strong>stay there after uninstalling/reinstalling</strong> — that is why old flags and profiles can reappear.
-          Review what is saved here and delete it if needed. After deletion, <strong>restart the app</strong> to apply
-          factory defaults. Secret values NEVER appear here and cannot be deleted from this panel.
+          {tt(language, 'shared.savedConfigs.helpBeforeUserData')} (<code>userData</code>) {tt(language, 'shared.savedConfigs.helpAfterUserData')}{' '}
+          <strong>{tt(language, 'shared.savedConfigs.helpStrongPersist')}</strong> — {tt(language, 'shared.savedConfigs.helpWhy')}{' '}
+          {tt(language, 'shared.savedConfigs.helpReview')} <strong>{tt(language, 'shared.savedConfigs.helpRestartStrong')}</strong> {tt(language, 'shared.savedConfigs.helpSecrets')}
         </p>
         {items && (
           <p style={{ margin: '6px 0 0', color: 'var(--muted)', fontSize: 12 }}>
             {summary.savedCount === 0
-              ? 'Nothing saved right now.'
-              : `${summary.savedCount} of ${items.length} sections with saved data · ${formatBytes(summary.totalBytes)} total.`}
+              ? tt(language, 'shared.savedConfigs.nothingSaved')
+              : tt(language, 'shared.savedConfigs.summary', { saved: summary.savedCount, total: items.length, bytes: formatBytes(summary.totalBytes) })}
           </p>
         )}
       </div>
@@ -238,7 +240,7 @@ export function SavedConfigsPanel({ language: _language }: { language?: Resolved
         }}
       >
         {loading && (
-          <div style={{ padding: '12px 14px', color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+          <div style={{ padding: '12px 14px', color: 'var(--muted)', fontSize: 13 }}>{tt(language, 'shared.savedConfigs.loading')}</div>
         )}
         {items?.map((item, index) => (
           <div
@@ -256,17 +258,17 @@ export function SavedConfigsPanel({ language: _language }: { language?: Resolved
             <span style={{ minWidth: 0 }}>
               <strong style={{ display: 'block' }}>{item.label}</strong>
               <small style={{ color: item.exists ? 'var(--muted)' : DANGER, fontSize: 12 }}>
-                {describeSaved(item)}
+                {describeSaved(item, language)}
               </small>
             </span>
             <button
               className="ghost-action danger compact"
               disabled={!item.exists || busy !== null}
               onClick={() => void deleteOne(item)}
-              title={item.exists ? `Delete saved settings: ${item.label}` : 'Nothing saved in this section'}
+              title={item.exists ? tt(language, 'shared.savedConfigs.deleteTitle', { label: item.label }) : tt(language, 'shared.savedConfigs.nothingInSection')}
               type="button"
             >
-              {busy === item.id ? 'Deleting…' : 'Delete'}
+              {busy === item.id ? tt(language, 'shared.savedConfigs.deleting') : tt(language, 'common.delete')}
             </button>
           </div>
         ))}
@@ -279,10 +281,10 @@ export function SavedConfigsPanel({ language: _language }: { language?: Resolved
           onClick={() => void deleteAll()}
           type="button"
         >
-          {busy === 'all' ? 'Deleting…' : 'Delete all'}
+          {busy === 'all' ? tt(language, 'shared.savedConfigs.deleting') : tt(language, 'shared.savedConfigs.deleteAll')}
         </button>
         <button className="ghost-action compact" disabled={busy !== null} onClick={() => void refresh()} type="button">
-          Refresh
+          {tt(language, 'common.refresh')}
         </button>
         {status && (
           <small style={{ color: status.tone === 'ok' ? 'var(--success)' : DANGER }}>{status.text}</small>
@@ -292,7 +294,7 @@ export function SavedConfigsPanel({ language: _language }: { language?: Resolved
       {needsRestart && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span
-            title="Sections already loaded in memory only return to defaults after the app restarts."
+            title={tt(language, 'shared.savedConfigs.restartTitle')}
             style={{
               background: DANGER,
               color: '#fff',
@@ -303,13 +305,13 @@ export function SavedConfigsPanel({ language: _language }: { language?: Resolved
               whiteSpace: 'nowrap'
             }}
           >
-            Restart to apply
+            {tt(language, 'common.restartToApply')}
           </span>
           <span style={{ color: 'var(--muted)', fontSize: 13 }}>
-            The setting was removed from disk, but it only leaves memory after restart.
+            {tt(language, 'shared.savedConfigs.restartHelp')}
           </span>
           <button className="primary-action" onClick={() => void restartNow()} type="button">
-            Restart now
+            {tt(language, 'common.restartNow')}
           </button>
         </div>
       )}

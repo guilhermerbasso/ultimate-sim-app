@@ -15,6 +15,7 @@ import { BRAKES_ENGINE_WIDGETS } from './brakesEngine'
 import { SESSION_ENV_WIDGETS } from './sessionEnv'
 import { AI_WIDGETS } from './ai'
 import { ALERTS_WIDGETS } from './alerts'
+import { ALERTS2_WIDGETS } from './alerts2'
 import { THEMED_WIDGETS } from './themed'
 import { CARS_REAL_WIDGETS } from './carsReal'
 import { COMPARE_WIDGETS } from './compare'
@@ -45,6 +46,7 @@ export const HIFI_WIDGET_GROUPS = {
   sessionEnv: SESSION_ENV_WIDGETS,
   ai: AI_WIDGETS,
   alerts: ALERTS_WIDGETS,
+  alerts2: ALERTS2_WIDGETS,
   themed: THEMED_WIDGETS,
   carsReal: CARS_REAL_WIDGETS,
   compare: COMPARE_WIDGETS,
@@ -77,6 +79,7 @@ export const HIFI_WIDGETS: HifiWidgetModule[] = [
   ...SESSION_ENV_WIDGETS,
   ...AI_WIDGETS,
   ...ALERTS_WIDGETS,
+  ...ALERTS2_WIDGETS,
   ...THEMED_WIDGETS,
   ...CARS_REAL_WIDGETS,
   ...COMPARE_WIDGETS,

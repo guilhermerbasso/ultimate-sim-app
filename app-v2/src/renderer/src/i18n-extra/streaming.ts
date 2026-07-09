@@ -1,0 +1,73 @@
+import type { ResolvedLanguage } from '../i18n'
+
+const en = {
+  'streaming.access.local': 'This PC only (OBS/local browser)',
+  'streaming.access.lan': 'LAN / Wi-Fi (phone or tablet QR)',
+  'streaming.access.internet': 'Internet / HTTPS tunnel',
+  'streaming.help.internetReady': 'QR codes use your public HTTPS tunnel URL. The tunnel must forward only this stream port.',
+  'streaming.help.internetNeedsUrl': 'Enter a trusted public HTTPS tunnel/base URL that forwards only the stream port. Auto-tunnel is not enabled.',
+  'streaming.help.lan': 'Same-Wi-Fi fallback. Requires token + password and may need a Windows Firewall allow rule.',
+  'streaming.help.local': 'Only this PC can connect. Phone/tablet QR codes will not work in this mode.',
+  'streaming.error.start': 'Failed to start dashboard streaming',
+  'streaming.error.stop': 'Failed to stop dashboard streaming',
+  'streaming.error.copy': 'Failed to copy {label} URL',
+  'streaming.test.running': 'Testing from this PC?',
+  'streaming.test.ok': 'Local test OK — the read-only stream page responded.',
+  'streaming.test.bad': 'Local test failed with HTTP {status}.',
+  'streaming.test.failed': 'Local test failed.',
+  'streaming.test.button': 'Test from this PC',
+  'streaming.title': 'Dashboard streaming',
+  'streaming.status.online': 'online · {count} client(s)',
+  'streaming.status.offline': 'offline',
+  'streaming.summary': 'Starts a token-protected, read-only dashboard stream for OBS, phones, and tablets.',
+  'streaming.readOnly': 'Read-only view — this cannot control your PC.',
+  'streaming.streamSafe': 'Stream-safe: hide names, iRating/SR, and private tags before sending to clients',
+  'streaming.networkAccess': 'Network access',
+  'streaming.publicUrl': 'Public HTTPS tunnel/base URL (required for Internet mode)',
+  'streaming.password.required': 'Required password (token + password are both required)',
+  'streaming.password.optional': 'Password (not needed for local)',
+  'streaming.password.placeholderRequired': 'Required for LAN/Internet',
+  'streaming.password.placeholderOptional': 'Optional',
+  'streaming.start': 'Start streaming',
+  'streaming.stop': 'Stop',
+  'streaming.refresh': 'Refresh status',
+  'streaming.mode': 'Mode',
+  'streaming.lanDetected': 'Detected LAN IPv4',
+  'streaming.port': 'Port',
+  'streaming.dashboardUrl': 'Dashboard URL',
+  'streaming.lanUrl': 'LAN dashboard URL',
+  'streaming.currentPassword': 'Password for phone/tablet',
+  'streaming.qrDashboard': 'QR dashboard',
+  'streaming.qrAlt': 'Dashboard QR',
+  'streaming.copied': 'Copied ✓',
+  'streaming.copyDashboard': 'Copy dashboard',
+  'streaming.copyLan': 'Copy LAN URL',
+  'streaming.authTokenPassword': 'Auth: token in URL + password. Keep both private.',
+  'streaming.authToken': 'Auth: token in URL. Keep links private.',
+  'streaming.connectedDevices': 'Connected devices',
+  'streaming.noDevices': 'No devices connected yet.',
+  'streaming.afterStart': 'After starting, tokenized URLs and QR codes will appear here.'
+}
+
+const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
+  en,
+  'pt-BR': {
+    ...en,
+    'streaming.access.local': 'Somente este PC (OBS/navegador local)',
+    'streaming.access.lan': 'LAN / Wi-Fi (QR no celular/tablet)',
+    'streaming.access.internet': 'Internet / túnel HTTPS',
+    'streaming.readOnly': 'Visualização somente leitura — isto não controla seu PC.',
+    'streaming.title': 'Streaming do dashboard',
+    'streaming.start': 'Iniciar streaming',
+    'streaming.stop': 'Parar',
+    'streaming.refresh': 'Atualizar status',
+    'streaming.currentPassword': 'Senha para celular/tablet'
+  },
+  es: { ...en, 'streaming.readOnly': 'Vista de solo lectura — esto no puede controlar tu PC.', 'streaming.title': 'Streaming del panel', 'streaming.start': 'Iniciar streaming', 'streaming.stop': 'Detener' },
+  fr: { ...en, 'streaming.readOnly': 'Vue en lecture seule — ceci ne peut pas contrôler votre PC.', 'streaming.title': 'Streaming du tableau de bord', 'streaming.start': 'Démarrer le streaming', 'streaming.stop': 'Arrêter' },
+  de: { ...en, 'streaming.readOnly': 'Schreibgeschützte Ansicht — dies kann deinen PC nicht steuern.', 'streaming.title': 'Dashboard-Streaming', 'streaming.start': 'Streaming starten', 'streaming.stop': 'Stopp' },
+  zh: { ...en, 'streaming.readOnly': '只读视图 — 无法通过此控制您的电脑。', 'streaming.title': '仪表盘推流', 'streaming.start': '开始推流', 'streaming.stop': '停止' },
+  ja: { ...en, 'streaming.readOnly': '読み取り専用ビュー — PCを操作することはできません。', 'streaming.title': 'ダッシュボード配信', 'streaming.start': '配信開始', 'streaming.stop': '停止' }
+}
+
+export default keys

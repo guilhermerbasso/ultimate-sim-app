@@ -65,6 +65,10 @@ function FerrariRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
   const lit = shift ? 29 : activeCount(f, 29, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
+  const margin = Math.max(18, w * 0.045)
+  const r = Math.max(4, Math.min(10.5, h * 0.16))
+  const cy = h * 0.68
+  const arc = Math.max(0, h * 0.46 - r)
   return (
     <CleanTile width={w} height={h}>
       <GlowDefs id="themed-ferrari-rev" color={PAL.ferrari.accent} />
@@ -72,12 +76,12 @@ function FerrariRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
         <ShiftStrobe active={shift} />
         {Array.from({ length: 29 }, (_, i) => {
           const pct = i / 28
-          const x = 84 + pct * (w - 168)
-          const y = 62 - Math.sin(pct * Math.PI) * 42
+          const x = margin + pct * (w - margin * 2)
+          const y = cy - Math.sin(pct * Math.PI) * arc
           const on = i < lit
           const blue = pct > 0.44 && pct < 0.56 && f > 0.92 && !missing
           const ramp = blue ? PAL.ferrari.aux : pickRamp('ferrari', pct)
-          return <circle key={i} cx={x} cy={y} r={blue ? 13 : 10.5} fill={on || blue ? revFill(ramp, shift) : C.recess} opacity={on || blue ? 1 : 0.42} filter={on || blue ? 'url(#themed-ferrari-rev-glow)' : undefined} />
+          return <circle key={i} cx={x} cy={y} r={blue ? r * 1.24 : r} fill={on || blue ? revFill(ramp, shift) : C.recess} opacity={on || blue ? 1 : 0.42} filter={on || blue ? 'url(#themed-ferrari-rev-glow)' : undefined} />
         })}
       </g>
     </CleanTile>
@@ -91,20 +95,22 @@ function PorscheRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
   const lit = shift ? count : activeCount(f, count, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
-  const x = 72
-  const gap = 9
+  const x = Math.max(24, w * 0.075)
+  const gap = Math.max(4, w * 0.009)
   const cell = (w - x * 2 - gap * (count - 1)) / count
+  const cellH = Math.max(8, h * 0.44)
+  const y = (h - cellH) / 2
   return (
     <CleanTile width={w} height={h}>
       <GlowDefs id="themed-porsche-rev" color={PAL.porsche.main} />
       <g>
         <ShiftStrobe active={shift} />
-        {[0, 1].map((side) => <rect key={side} x={side === 0 ? 18 : w - 52} y={21} width={34} height={48} rx={7} fill={!missing && f > 0.9 ? revFill(PAL.porsche.aux, shift) : C.recess} opacity={!missing && f > 0.9 ? 1 : 0.38} filter={!missing && f > 0.9 ? 'url(#themed-porsche-rev-glow)' : undefined} />)}
+        {[0, 1].map((side) => <rect key={side} x={side === 0 ? x * 0.25 : w - x * 0.25 - cellH * 0.7} y={y} width={cellH * 0.7} height={cellH} rx={Math.min(7, cellH / 5)} fill={!missing && f > 0.9 ? revFill(PAL.porsche.aux, shift) : C.recess} opacity={!missing && f > 0.9 ? 1 : 0.38} filter={!missing && f > 0.9 ? 'url(#themed-porsche-rev-glow)' : undefined} />)}
         {Array.from({ length: count }, (_, i) => {
           const pct = i / (count - 1)
           const on = i < lit
           const ramp = pct < 0.72 ? PAL.porsche.main : PAL.porsche.accent
-          return <rect key={i} x={x + i * (cell + gap)} y={25} width={cell} height={40} rx={3} fill={on ? revFill(ramp, shift) : C.recess} opacity={on ? 1 : 0.44} />
+          return <rect key={i} x={x + i * (cell + gap)} y={y + cellH * 0.08} width={cell} height={cellH * 0.84} rx={3} fill={on ? revFill(ramp, shift) : C.recess} opacity={on ? 1 : 0.44} />
         })}
       </g>
     </CleanTile>
@@ -118,10 +124,12 @@ function AmgRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const lit = shift ? count : activeCount(f, count, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
-  const gap = 8
-  const clusterGap = 42
-  const x0 = 58
-  const cell = (w - 116 - gap * (count - 3) - clusterGap * 2) / count
+  const gap = Math.max(4, w * 0.008)
+  const clusterGap = Math.max(22, w * 0.044)
+  const x0 = Math.max(20, w * 0.06)
+  const cell = (w - x0 * 2 - gap * (count - 3) - clusterGap * 2) / count
+  const cellH = Math.max(8, h * 0.5)
+  const y = (h - cellH) / 2
   return (
     <CleanTile width={w} height={h}>
       <GlowDefs id="themed-amg-rev" color={PAL.amg.main} />
@@ -133,10 +141,10 @@ function AmgRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
           const x = x0 + i * (cell + gap) + cluster * clusterGap
           const on = i < lit
           const color = cluster === 0 ? PAL.amg.main : cluster === 1 ? '#ffd42a' : PAL.amg.aux
-          return <rect key={i} x={x} y={18 + (local % 2) * 9} width={cell} height={45} rx={6} fill={on ? revFill(color, shift) : C.recess} opacity={on ? 1 : 0.42} filter={on ? 'url(#themed-amg-rev-glow)' : undefined} />
+          return <rect key={i} x={x} y={y + (local % 2) * h * 0.08} width={cell} height={cellH} rx={Math.min(6, cellH / 5)} fill={on ? revFill(color, shift) : C.recess} opacity={on ? 1 : 0.42} filter={on ? 'url(#themed-amg-rev-glow)' : undefined} />
         })}
       </g>
-      <rect x={w / 2 - 5} y={15} width={10} height={60} rx={5} fill="rgba(255,255,255,0.16)" />
+      <rect x={w / 2 - 5} y={h * 0.17} width={10} height={h * 0.66} rx={5} fill="rgba(255,255,255,0.16)" />
     </CleanTile>
   )
 }
@@ -147,7 +155,8 @@ function MclarenRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
   const w = width ?? REV_W
   const h = height ?? REV_H
   const x = 46
-  const y = 39
+  const barH = Math.max(4, h * 0.16)
+  const y = h / 2 - barH / 2
   const bw = w - x * 2
   const litW = shift ? bw : missing ? 0 : bw * f
   return (
@@ -155,9 +164,9 @@ function MclarenRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
       <GlowDefs id="themed-mclaren-rev" color={PAL.mclaren.main} />
       <g>
         <ShiftStrobe active={shift} />
-        <rect x={x} y={y} width={bw} height={13} rx={6.5} fill={C.recess} opacity={0.55} />
-        <rect x={x} y={y} width={litW} height={13} rx={6.5} fill={revFill('url(#themed-mclaren-rev-grad)', shift)} filter={litW > 0 ? 'url(#themed-mclaren-rev-glow)' : undefined} />
-        {Array.from({ length: 54 }, (_, i) => <rect key={i} x={x + i * (bw / 54)} y={32} width={2} height={27} fill="rgba(0,0,0,0.44)" />)}
+        <rect x={x} y={y} width={bw} height={barH} rx={barH / 2} fill={C.recess} opacity={0.55} />
+        <rect x={x} y={y} width={litW} height={barH} rx={barH / 2} fill={revFill('url(#themed-mclaren-rev-grad)', shift)} filter={litW > 0 ? 'url(#themed-mclaren-rev-glow)' : undefined} />
+        {Array.from({ length: 54 }, (_, i) => <rect key={i} x={x + i * (bw / 54)} y={y - barH * 0.54} width={2} height={barH * 2.08} fill="rgba(0,0,0,0.44)" />)}
       </g>
     </CleanTile>
   )
@@ -170,9 +179,13 @@ function CorvetteRev({ snapshot, width, height }: HifiWidgetProps): ReactElement
   const lit = shift ? perRow * 2 : activeCount(f, perRow * 2, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
-  const gap = 8
-  const centerGap = 46
-  const cell = (w - 92 - centerGap - gap * (perRow - 2)) / perRow
+  const gap = Math.max(4, w * 0.008)
+  const centerGap = Math.max(24, w * 0.048)
+  const margin = Math.max(18, w * 0.048)
+  const cell = (w - margin * 2 - centerGap - gap * (perRow - 2)) / perRow
+  const rowH = Math.max(6, h * 0.22)
+  const y0 = h * 0.22
+  const rowGap = h * 0.12
   return (
     <CleanTile width={w} height={h}>
       <GlowDefs id="themed-corvette-rev" color={PAL.corvette.main} />
@@ -180,15 +193,15 @@ function CorvetteRev({ snapshot, width, height }: HifiWidgetProps): ReactElement
         <ShiftStrobe active={shift} />
         {[0, 1].map((row) => Array.from({ length: perRow }, (_, i) => {
           const rightHalf = i >= perRow / 2
-          const x = 46 + i * (cell + gap) + (rightHalf ? centerGap : 0)
-          const y = row === 0 ? 19 : 50
+          const x = margin + i * (cell + gap) + (rightHalf ? centerGap : 0)
+          const y = y0 + row * (rowH + rowGap)
           const idx = row * perRow + i
           const pct = idx / (perRow * 2 - 1)
           const on = idx < lit
-          return <rect key={`${row}-${i}`} x={x} y={y} width={cell} height={20} rx={4} fill={on ? revFill(pickRamp('corvette', pct), shift) : C.recess} opacity={on ? 1 : 0.42} filter={on ? 'url(#themed-corvette-rev-glow)' : undefined} />
+          return <rect key={`${row}-${i}`} x={x} y={y} width={cell} height={rowH} rx={Math.min(4, rowH / 4)} fill={on ? revFill(pickRamp('corvette', pct), shift) : C.recess} opacity={on ? 1 : 0.42} filter={on ? 'url(#themed-corvette-rev-glow)' : undefined} />
         }))}
       </g>
-      <rect x={w / 2 - 7} y={14} width={14} height={62} rx={4} fill="rgba(255,255,255,0.13)" />
+      <rect x={w / 2 - 7} y={h * 0.16} width={14} height={h * 0.68} rx={4} fill="rgba(255,255,255,0.13)" />
     </CleanTile>
   )
 }
@@ -200,9 +213,11 @@ function LamboRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const lit = shift ? count : activeCount(f, count, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
-  const cellW = 34
-  const gap = 10
-  const x0 = (w - count * cellW - (count - 1) * gap) / 2
+  const gap = Math.max(4, w * 0.01)
+  const x0 = Math.max(18, w * 0.04)
+  const cellW = (w - x0 * 2 - (count - 1) * gap) / count
+  const cellH = Math.max(8, h * 0.46)
+  const y0 = h / 2 - cellH / 2
   return (
     <CleanTile width={w} height={h}>
       <GlowDefs id="themed-lambo-rev" color={PAL.lambo.main} />
@@ -211,10 +226,11 @@ function LamboRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
         {Array.from({ length: count }, (_, i) => {
           const pct = i / (count - 1)
           const x = x0 + i * (cellW + gap)
-          const y = 18 + (i % 2) * 7
+          const y = y0 + (i % 2) * h * 0.07
           const on = i < lit
           const color = pct < 0.5 ? PAL.lambo.main : pct < 0.78 ? PAL.lambo.accent : PAL.lambo.aux
-          const points = `${x + 8},${y} ${x + cellW - 6},${y} ${x + cellW},${y + 18} ${x + cellW - 8},${y + 38} ${x + 6},${y + 38} ${x},${y + 18}`
+          const cut = Math.min(8, cellW * 0.24)
+          const points = `${x + cut},${y} ${x + cellW - cut * 0.75},${y} ${x + cellW},${y + cellH * 0.47} ${x + cellW - cut},${y + cellH} ${x + cut * 0.75},${y + cellH} ${x},${y + cellH * 0.47}`
           return <polygon key={i} points={points} fill={on ? revFill(color, shift) : C.recess} stroke={on ? revFill(color, shift) : 'rgba(255,255,255,0.12)'} strokeWidth={2} opacity={on ? 1 : 0.48} filter={on ? 'url(#themed-lambo-rev-glow)' : undefined} />
         })}
       </g>

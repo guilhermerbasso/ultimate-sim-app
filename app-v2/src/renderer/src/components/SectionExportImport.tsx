@@ -1,11 +1,12 @@
-import { type ReactElement, useState } from 'react'
+import { type ReactElement, useEffect, useState } from 'react'
 import {
   CONFIG_IO_CHANNELS,
   isHotReloadSection,
   type ConfigExportResult,
   type ConfigImportResult
 } from '../../../shared/config-io'
-import { tt, type ResolvedLanguage } from '../i18n'
+import type { AppSettings } from '../../../shared/settings'
+import { APP_SETTINGS_CHANGED_EVENT, resolveAppLanguage, tt, type ResolvedLanguage } from '../i18n'
 
 export interface SectionExportImportProps {
   /** Stable section id from CONFIG_SECTIONS (e.g. 'rgb-matrix', 'overlays'). */
@@ -43,14 +44,30 @@ export function SectionExportImport({ sectionId, label, onImported, language }: 
   const [busy, setBusy] = useState<Busy>(false)
   const [status, setStatus] = useState<Status>(null)
   const [needsRestart, setNeedsRestart] = useState(false)
+  const [fallbackLanguage, setFallbackLanguage] = useState<ResolvedLanguage>('en')
+  const effectiveLanguage = language ?? fallbackLanguage
   const hotReload = isHotReloadSection(sectionId)
+
+  useEffect(() => {
+    if (language) return
+    window.ipc
+      .invoke<AppSettings>('app:getSettings')
+      .then((settings) => setFallbackLanguage(resolveAppLanguage(settings.language)))
+      .catch(() => {})
+    const onSettingsChanged = (event: Event): void => {
+      const detail = (event as CustomEvent<AppSettings>).detail
+      if (detail) setFallbackLanguage(resolveAppLanguage(detail.language))
+    }
+    window.addEventListener(APP_SETTINGS_CHANGED_EVENT, onSettingsChanged)
+    return () => window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, onSettingsChanged)
+  }, [language])
 
   const runExport = async (): Promise<void> => {
     setBusy('export')
     setStatus(null)
     try {
       const result = await window.ipc.invoke<ConfigExportResult>(CONFIG_IO_CHANNELS.exportSection, sectionId)
-      if (!result.canceled) setStatus({ text: tt(language, 'component.sectionExport.exported'), tone: 'ok' })
+      if (!result.canceled) setStatus({ text: tt(effectiveLanguage, 'shared.sectionExport.exported'), tone: 'ok' })
     } catch (error) {
       setStatus({ text: error instanceof Error ? error.message : String(error), tone: 'err' })
     } finally {
@@ -61,7 +78,7 @@ export function SectionExportImport({ sectionId, label, onImported, language }: 
   const runImport = async (): Promise<void> => {
     // Single confirmation — the import overwrites this section on disk and (for
     // hot-reloadable sections) applies it live. No second mandatory dialog.
-    if (!window.confirm(tt(language, 'component.sectionExport.importConfirm', { label }))) return
+    if (!window.confirm(tt(effectiveLanguage, 'shared.sectionExport.importConfirm', { label }))) return
     setBusy('import')
     setStatus(null)
     setNeedsRestart(false)
@@ -71,16 +88,16 @@ export function SectionExportImport({ sectionId, label, onImported, language }: 
         const applied = result.summary?.applied.length ?? 0
         if (applied > 0) {
           if (hotReload) {
-            setStatus({ text: tt(language, 'component.sectionExport.importedApplied'), tone: 'ok' })
+            setStatus({ text: tt(effectiveLanguage, 'shared.sectionExport.importedApplied'), tone: 'ok' })
             onImported?.()
           } else {
             // Written to disk and protected from a quit-time clobber, but the live
             // module keeps its in-memory copy until relaunch — restart is optional.
             setNeedsRestart(true)
-            setStatus({ text: tt(language, 'component.sectionExport.importedRestart'), tone: 'ok' })
+            setStatus({ text: tt(effectiveLanguage, 'shared.sectionExport.importedRestart'), tone: 'ok' })
           }
         } else {
-          setStatus({ text: tt(language, 'component.sectionExport.nothingApplied'), tone: 'err' })
+          setStatus({ text: tt(effectiveLanguage, 'shared.sectionExport.nothingApplied'), tone: 'err' })
         }
       }
     } catch (error) {
@@ -96,24 +113,24 @@ export function SectionExportImport({ sectionId, label, onImported, language }: 
         className="ghost-action compact"
         disabled={busy !== false}
         onClick={runExport}
-        title={tt(language, 'component.sectionExport.exportTitle', { label })}
+        title={tt(effectiveLanguage, 'shared.sectionExport.exportTitle', { label })}
         type="button"
       >
-        {busy === 'export' ? tt(language, 'common.exporting') : tt(language, 'common.export')}
+        {busy === 'export' ? tt(effectiveLanguage, 'common.exporting') : tt(effectiveLanguage, 'common.export')}
       </button>
       <button
         className="ghost-action compact"
         disabled={busy !== false}
         onClick={runImport}
-        title={tt(language, 'component.sectionExport.importTitle', { label })}
+        title={tt(effectiveLanguage, 'shared.sectionExport.importTitle', { label })}
         type="button"
       >
-        {busy === 'import' ? tt(language, 'common.importing') : tt(language, 'common.import')}
+        {busy === 'import' ? tt(effectiveLanguage, 'common.importing') : tt(effectiveLanguage, 'common.import')}
       </button>
       {needsRestart && (
         <>
           <span
-            title={tt(language, 'component.sectionExport.restartTitle')}
+            title={tt(effectiveLanguage, 'shared.sectionExport.restartTitle')}
             style={{
               background: 'var(--accent, #0078d4)',
               color: '#fff',
@@ -124,10 +141,10 @@ export function SectionExportImport({ sectionId, label, onImported, language }: 
               whiteSpace: 'nowrap'
             }}
           >
-            {tt(language, 'common.restartToApply')}
+            {tt(effectiveLanguage, 'common.restartToApply')}
           </span>
           <button className="ghost-action compact" onClick={() => void relaunchApp()} type="button">
-            {tt(language, 'common.restartNow')}
+            {tt(effectiveLanguage, 'common.restartNow')}
           </button>
         </>
       )}

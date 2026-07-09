@@ -14,6 +14,7 @@
 
 import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
 import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 import {
   CAREER_CHANNELS,
   careerCategoryLabel,
@@ -217,19 +218,19 @@ function positionLabel(position: number, fieldSize?: number): string {
 }
 
 // PT-BR status banner copy for each auth state.
-function statusHint(status: CareerStatus): { text: string; tone: string } | null {
+function statusHint(status: CareerStatus, language?: AppViewProps['language']): { text: string; tone: string } | null {
   switch (status.auth) {
     case 'loading':
       return { text: 'Updating iRacing data…', tone: 'var(--text-secondary)' }
     case 'rate-limited':
-      return { text: 'iRacing request limit reached. Showing cached data.', tone: 'var(--accent-warning)' }
+      return { text: tt(language, 'career.status.rateLimited'), tone: 'var(--accent-warning)' }
     case 'error':
-      return { text: status.message ? `Error updating: ${status.message}. Showing cache.` : 'Error updating. Showing cache.', tone: 'var(--accent-warning)' }
+      return { text: status.message ? tt(language, 'career.status.errorWithMessage', { message: status.message }) : tt(language, 'career.status.error'), tone: 'var(--accent-warning)' }
     case 'needs-login':
       return {
         text:
           status.message ??
-          'iRacing disabled legacy login and paused new OAuth apps; telemetry, map, radar, relatives, dashboards, and overlays work without login.',
+          tt(language, 'career.status.needsLoginDetail'),
         tone: 'var(--accent-warning)'
       }
     default:
@@ -241,20 +242,20 @@ function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   return window.ipc.invoke<T>(channel, ...args)
 }
 
-function tagLabel(tag: DriverTag): string {
+function tagLabel(tag: DriverTag, language?: AppViewProps['language']): string {
   switch (tag) {
     case 'clean':
-      return 'Clean'
+      return tt(language, 'career.tags.clean')
     case 'aggressive':
-      return 'Aggressive'
+      return tt(language, 'career.tags.aggressive')
     case 'avoid':
-      return 'Avoid'
+      return tt(language, 'career.tags.avoid')
     case 'fast':
-      return 'Rapido'
+      return tt(language, 'career.tags.fast')
     case 'friend':
-      return 'Friend'
+      return tt(language, 'career.tags.friend')
     default:
-      return 'No tag'
+      return tt(language, 'career.tags.none')
   }
 }
 
@@ -290,12 +291,11 @@ function StatTile({ label, value, sub, accent }: { label: string; value: string;
   )
 }
 
-function GuidedEmptyState({ style }: { style?: CSSProperties }): ReactElement {
-  const guidedEmptyCopy = 'Connect to iRacing or choose Demo (mock) to see data.'
-  return <div style={{ border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', padding: 14, color: 'var(--text-secondary)', ...style }}>{guidedEmptyCopy}</div>
+function GuidedEmptyState({ style, language }: { style?: CSSProperties; language?: AppViewProps['language'] }): ReactElement {
+  return <div style={{ border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', padding: 14, color: 'var(--text-secondary)', ...style }}>{tt(language, 'career.empty.guided')}</div>
 }
 
-function LicenseCard({ license }: { license: CareerLicense }): ReactElement {
+function LicenseCard({ license, language }: { license: CareerLicense; language?: AppViewProps['language'] }): ReactElement {
   const classColor = license.color ? `#${license.color}` : 'var(--accent-primary)'
   return (
     <div style={{ border: '1px solid var(--border-default)', borderRadius: 'var(--radius-sm)', background: 'var(--surface-sunken)', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -308,11 +308,11 @@ function LicenseCard({ license }: { license: CareerLicense }): ReactElement {
       </div>
       <div style={{ display: 'flex', gap: 18 }}>
         <div>
-          <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>iRating</div>
+          <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{tt(language, 'career.metrics.iRating')}</div>
           <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)', fontVariantNumeric: 'tabular-nums' }}>{fmtInt(license.iRating)}</div>
         </div>
         <div>
-          <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Safety</div>
+          <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{tt(language, 'career.metrics.safety')}</div>
           <div style={{ fontSize: 20, fontWeight: 600, color: SR_COLOR, fontVariantNumeric: 'tabular-nums' }}>{fmtSR(license.safetyRating)}</div>
         </div>
         {license.cpi !== undefined ? (
@@ -326,7 +326,7 @@ function LicenseCard({ license }: { license: CareerLicense }): ReactElement {
   )
 }
 
-function StrengthTable({ title, scope, rows }: { title: string; scope: string; rows: CareerStrength[] }): ReactElement {
+function StrengthTable({ title, scope, rows, language }: { title: string; scope: string; rows: CareerStrength[]; language?: AppViewProps['language'] }): ReactElement {
   return (
     <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
       <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -334,18 +334,18 @@ function StrengthTable({ title, scope, rows }: { title: string; scope: string; r
         <p style={{ ...muted, margin: '4px 0 0', fontSize: 11 }}>{scope}</p>
       </div>
       {rows.length === 0 ? (
-        <GuidedEmptyState style={{ margin: 14 }} />
+        <GuidedEmptyState style={{ margin: 14 }} language={language} />
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table style={tableStyle}>
             <thead>
               <tr>
-                <th style={thLeft}>Name</th>
-                <th style={th}>Races</th>
-                <th style={th}>Wins</th>
-                <th style={th}>Best</th>
-                <th style={th}>Finish med.</th>
-                <th style={th}>Inc. med.</th>
+                <th style={thLeft}>{tt(language, 'career.table.name')}</th>
+                <th style={th}>{tt(language, 'career.table.races')}</th>
+                <th style={th}>{tt(language, 'career.table.wins')}</th>
+                <th style={th}>{tt(language, 'career.table.best')}</th>
+                <th style={th}>{tt(language, 'career.table.avgFinish')}</th>
+                <th style={th}>{tt(language, 'career.table.avgInc')}</th>
                 <th style={th}>Δ iR med.</th>
               </tr>
             </thead>
@@ -369,15 +369,15 @@ function StrengthTable({ title, scope, rows }: { title: string; scope: string; r
   )
 }
 
-function TabSwitcher({ activeTab, onChange }: { activeTab: CareerTab; onChange: (tab: CareerTab) => void }): ReactElement {
+function TabSwitcher({ activeTab, onChange, language }: { activeTab: CareerTab; onChange: (tab: CareerTab) => void; language?: AppViewProps['language'] }): ReactElement {
   const tabs: Array<{ id: CareerTab; label: string }> = [
-    { id: 'career', label: 'Career' },
-    { id: 'profile', label: 'Profile & Series' },
-    { id: 'drivers', label: 'Drivers' },
-    { id: 'paints', label: 'Paints' }
+    { id: 'career', label: tt(language, 'career.tabs.career') },
+    { id: 'profile', label: tt(language, 'career.tabs.profile') },
+    { id: 'drivers', label: tt(language, 'career.tabs.drivers') },
+    { id: 'paints', label: tt(language, 'career.tabs.paints') }
   ]
   return (
-    <nav style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} aria-label="Career tabs">
+    <nav style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} aria-label={tt(language, 'career.tabs.aria')}>
       {tabs.map((tab) => {
         const active = tab.id === activeTab
         return (
@@ -401,11 +401,11 @@ function TabSwitcher({ activeTab, onChange }: { activeTab: CareerTab; onChange: 
   )
 }
 
-function DriverTagBadge({ tag }: { tag: DriverTag }): ReactElement {
+function DriverTagBadge({ tag, language }: { tag: DriverTag; language?: AppViewProps['language'] }): ReactElement {
   return (
     <span style={{ ...chip, padding: '3px 8px', fontSize: 11 }}>
       <span style={{ width: 8, height: 8, borderRadius: 999, background: tagColor(tag), display: 'inline-block' }} />
-      {tagLabel(tag)}
+      {tagLabel(tag, language)}
     </span>
   )
 }
@@ -414,12 +414,14 @@ function DriverNoteEditor({
   custId,
   note,
   onSave,
-  onRemove
+  onRemove,
+  language
 }: {
   custId: number
   note?: DriverNote
   onSave: (input: DriverNoteInput) => Promise<void>
   onRemove: (custId: number) => Promise<void>
+  language?: AppViewProps['language']
 }): ReactElement {
   const [tag, setTag] = useState<DriverTag>(note?.tag ?? 'none')
   const [noteText, setNoteText] = useState(note?.note ?? '')
@@ -456,13 +458,13 @@ function DriverNoteEditor({
         }}
       >
         {DRIVER_TAG_OPTIONS.map((option) => (
-          <option key={option} value={option}>{tagLabel(option)}</option>
+          <option key={option} value={option}>{tagLabel(option, language)}</option>
         ))}
       </select>
       <input
         style={inputStyle}
         value={noteText}
-        placeholder="Free note"
+        placeholder={tt(language, 'career.drivers.freeNote')}
         onChange={(event) => setNoteText(event.currentTarget.value)}
         onKeyDown={(event) => {
           if (event.key === 'Enter') void save()
@@ -472,25 +474,25 @@ function DriverNoteEditor({
         {saving ? 'Saving…' : 'Save'}
       </button>
       <button type="button" style={smallButton} disabled={!note || saving} onClick={() => void onRemove(custId)}>
-        Remove
+        {tt(language, 'career.common.remove')}
       </button>
     </div>
   )
 }
 
-function paintStatusCopy(status: TradingPaintsDriverPaintStatus['status']): { label: string; color: string; background: string; border: string } {
+function paintStatusCopy(status: TradingPaintsDriverPaintStatus['status'], language?: AppViewProps['language']): { label: string; color: string; background: string; border: string } {
   switch (status) {
     case 'downloaded':
-      return { label: 'Downloaded', color: 'var(--accent-success)', background: 'rgba(40, 180, 120, 0.12)', border: 'rgba(40, 180, 120, 0.35)' }
+      return { label: tt(language, 'career.paints.downloaded'), color: 'var(--accent-success)', background: 'rgba(40, 180, 120, 0.12)', border: 'rgba(40, 180, 120, 0.35)' }
     case 'stale':
-      return { label: 'Stale', color: '#D7A75C', background: 'rgba(215, 167, 92, 0.12)', border: 'rgba(215, 167, 92, 0.38)' }
+      return { label: tt(language, 'career.paints.stale'), color: '#D7A75C', background: 'rgba(215, 167, 92, 0.12)', border: 'rgba(215, 167, 92, 0.38)' }
     default:
-      return { label: 'Missing', color: '#D7A75C', background: 'rgba(215, 167, 92, 0.08)', border: 'rgba(215, 167, 92, 0.28)' }
+      return { label: tt(language, 'career.paints.missing'), color: '#D7A75C', background: 'rgba(215, 167, 92, 0.08)', border: 'rgba(215, 167, 92, 0.28)' }
   }
 }
 
-function PaintStatusBadge({ status }: { status: TradingPaintsDriverPaintStatus['status'] }): ReactElement {
-  const copy = paintStatusCopy(status)
+function PaintStatusBadge({ status, language }: { status: TradingPaintsDriverPaintStatus['status']; language?: AppViewProps['language'] }): ReactElement {
+  const copy = paintStatusCopy(status, language)
   return (
     <span
       style={{
@@ -507,7 +509,7 @@ function PaintStatusBadge({ status }: { status: TradingPaintsDriverPaintStatus['
   )
 }
 
-function PaintsTab({ showToast }: { showToast: AppViewProps['showToast'] }): ReactElement {
+function PaintsTab({ showToast, language }: { showToast: AppViewProps['showToast']; language?: AppViewProps['language'] }): ReactElement {
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const [client, setClient] = useState<TradingPaintsClientInfo | null>(null)
   const [result, setResult] = useState<TradingPaintsStatusResult | null>(null)
@@ -586,9 +588,9 @@ function PaintsTab({ showToast }: { showToast: AppViewProps['showToast'] }): Rea
       <section style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <div>
-            <h3 style={sectionTitle}>Trading Paints client</h3>
+            <h3 style={sectionTitle}>{tt(language, 'career.paints.clientTitle')}</h3>
             <p style={{ ...muted, margin: '6px 0 0' }}>
-              Status observacional: o app oficial baixa os arquivos; o Hub so detecta presenca local.
+              {tt(language, 'career.paints.clientHelp')}
             </p>
           </div>
           <button type="button" style={client?.installed ? button : primaryButton} disabled={opening} onClick={() => void openTradingPaints()}>
@@ -597,33 +599,33 @@ function PaintsTab({ showToast }: { showToast: AppViewProps['showToast'] }): Rea
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
           <span style={chip}>
-            Client: <strong style={{ color: client?.installed ? 'var(--accent-success)' : '#D7A75C' }}>{client?.installed ? 'installed' : 'not detectado'}</strong>
+            {tt(language, 'career.paints.client')}: <strong style={{ color: client?.installed ? 'var(--accent-success)' : '#D7A75C' }}>{client?.installed ? tt(language, 'career.paints.installed') : tt(language, 'career.paints.notDetected')}</strong>
           </span>
-          <span style={chip}>Platform: {client?.platform ?? '—'}</span>
-          {result?.supported === false ? <span style={{ ...chip, color: '#D7A75C' }}>Monitoring available on Windows</span> : null}
+          <span style={chip}>{tt(language, 'career.paints.platform')}: {client?.platform ?? '—'}</span>
+          {result?.supported === false ? <span style={{ ...chip, color: '#D7A75C' }}>{tt(language, 'career.paints.windowsOnly')}</span> : null}
         </div>
       </section>
 
       <section style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'baseline' }}>
           <div>
-            <h3 style={sectionTitle}>Paints dos adversarios</h3>
-            <p style={{ ...muted, margin: '6px 0 0' }}>Checks Documents/iRacing/paint/&lt;carPath&gt; for each Cust ID in the current session.</p>
+            <h3 style={sectionTitle}>{tt(language, 'career.paints.opponentsTitle')}</h3>
+            <p style={{ ...muted, margin: '6px 0 0' }}>{tt(language, 'career.paints.opponentsHelp')}</p>
           </div>
-          <span style={muted}>{snapshot?.connected ? `${drivers.length} adversarios` : 'Telemetry disconnected'}</span>
+          <span style={muted}>{snapshot?.connected ? tt(language, 'career.paints.opponentCount', { count: drivers.length }) : tt(language, 'career.common.telemetryDisconnected')}</span>
         </div>
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
-          <span style={chip}>Downloaded: {downloaded}</span>
-          <span style={chip}>Stale: {stale}</span>
-          <span style={chip}>Missing: {missing}</span>
+          <span style={chip}>{tt(language, 'career.paints.downloaded')}: {downloaded}</span>
+          <span style={chip}>{tt(language, 'career.paints.stale')}: {stale}</span>
+          <span style={chip}>{tt(language, 'career.paints.missing')}: {missing}</span>
           {loading ? <span style={chip}>Updating…</span> : null}
         </div>
 
         {drivers.length === 0 ? (
-          <p style={{ ...muted, margin: '14px 0 0' }}>No opponent with Cust ID and carPath in the current session.</p>
+          <p style={{ ...muted, margin: '14px 0 0' }}>{tt(language, 'career.paints.noOpponents')}</p>
         ) : result?.supported === false ? (
-          <p style={{ ...muted, margin: '14px 0 0' }}>On Mac, this tab only validates types. Real iRacing folder checks require Windows.</p>
+          <p style={{ ...muted, margin: '14px 0 0' }}>{tt(language, 'career.paints.macTypesOnly')}</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
             {drivers.map((driver) => {
@@ -641,7 +643,7 @@ function PaintsTab({ showToast }: { showToast: AppViewProps['showToast'] }): Rea
                         {status?.fileName ? ` · ${status.fileName} · ${fmtRelativeTime(status.mtimeMs)}` : ''}
                       </div>
                     </div>
-                    <PaintStatusBadge status={status?.status ?? 'missing'} />
+                    <PaintStatusBadge status={status?.status ?? 'missing'} language={language} />
                   </div>
                 </div>
               )
@@ -653,7 +655,7 @@ function PaintsTab({ showToast }: { showToast: AppViewProps['showToast'] }): Rea
   )
 }
 
-function DriversTab({ showToast }: { showToast: AppViewProps['showToast'] }): ReactElement {
+function DriversTab({ showToast, language }: { showToast: AppViewProps['showToast']; language?: AppViewProps['language'] }): ReactElement {
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const [notes, setNotes] = useState<DriverNote[]>([])
 
@@ -707,13 +709,13 @@ function DriversTab({ showToast }: { showToast: AppViewProps['showToast'] }): Re
       <section style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'baseline' }}>
           <div>
-            <h3 style={sectionTitle}>Current session drivers</h3>
-            <p style={{ ...muted, margin: '6px 0 0' }}>Saved tags by stable iRacing Cust ID.</p>
+            <h3 style={sectionTitle}>{tt(language, 'career.drivers.currentTitle')}</h3>
+            <p style={{ ...muted, margin: '6px 0 0' }}>{tt(language, 'career.drivers.savedTags')}</p>
           </div>
-          <span style={muted}>{snapshot?.connected ? `${drivers.length} adversarios` : 'Telemetry disconnected'}</span>
+          <span style={muted}>{snapshot?.connected ? tt(language, 'career.paints.opponentCount', { count: drivers.length }) : tt(language, 'career.common.telemetryDisconnected')}</span>
         </div>
         {drivers.length === 0 ? (
-          <p style={{ ...muted, margin: '14px 0 0' }}>No driver with Cust ID in the current session.</p>
+          <p style={{ ...muted, margin: '14px 0 0' }}>{tt(language, 'career.drivers.noDrivers')}</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
             {drivers.map((driver) => {
@@ -725,6 +727,7 @@ function DriversTab({ showToast }: { showToast: AppViewProps['showToast'] }): Re
                   note={note}
                   onSave={saveNote}
                   onRemove={removeNote}
+                  language={language}
                 />
               )
             })}
@@ -769,12 +772,14 @@ function DriverRow({
   driver,
   note,
   onSave,
-  onRemove
+  onRemove,
+  language
 }: {
   driver: DriverEntry
   note?: DriverNote
   onSave: (input: DriverNoteInput) => Promise<void>
   onRemove: (custId: number) => Promise<void>
+  language?: AppViewProps['language']
 }): ReactElement {
   const custId = driver.custId ?? 0
   return (
@@ -784,7 +789,7 @@ function DriverRow({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <strong style={{ color: 'var(--text-primary)' }}>{driver.name}</strong>
             <span style={muted}>#{driver.carNumber}</span>
-            <DriverTagBadge tag={note?.tag ?? 'none'} />
+            <DriverTagBadge tag={note?.tag ?? 'none'} language={language} />
           </div>
           <div style={{ ...muted, fontSize: 11, marginTop: 3 }}>
             Cust ID #{custId} · iRating {fmtInt(driver.iRating)}{driver.teamName ? ` · ${driver.teamName}` : ''}
@@ -792,7 +797,7 @@ function DriverRow({
         </div>
         <span style={{ ...chip, fontVariantNumeric: 'tabular-nums' }}>P{driver.position || '—'}</span>
       </div>
-      <DriverNoteEditor custId={custId} note={note} onSave={onSave} onRemove={onRemove} />
+      <DriverNoteEditor custId={custId} note={note} onSave={onSave} onRemove={onRemove} language={language} />
     </div>
   )
 }
@@ -811,25 +816,25 @@ function HelmetBadge({ color1, color2 }: { color1?: string; color2?: string }): 
   )
 }
 
-function YearlyStatsTable({ rows }: { rows: CareerYearlyStat[] }): ReactElement {
+function YearlyStatsTable({ rows, language }: { rows: CareerYearlyStat[]; language?: AppViewProps['language'] }): ReactElement {
   const sorted = useMemo(
     () => [...rows].sort((a, b) => b.year - a.year || b.starts - a.starts),
     [rows]
   )
-  if (sorted.length === 0) return <GuidedEmptyState />
+  if (sorted.length === 0) return <GuidedEmptyState language={language} />
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={tableStyle}>
         <thead>
           <tr>
-            <th style={thLeft}>Ano</th>
-            <th style={thLeft}>Discipline</th>
-            <th style={th}>Races</th>
-            <th style={th}>Vitorias</th>
-            <th style={th}>Top 5</th>
-            <th style={th}>Wins%</th>
-            <th style={th}>Finish med.</th>
-            <th style={th}>Inc. med.</th>
+            <th style={thLeft}>{tt(language, 'career.table.year')}</th>
+            <th style={thLeft}>{tt(language, 'career.table.discipline')}</th>
+            <th style={th}>{tt(language, 'career.table.races')}</th>
+            <th style={th}>{tt(language, 'career.table.wins')}</th>
+            <th style={th}>{tt(language, 'career.table.top5')}</th>
+            <th style={th}>{tt(language, 'career.table.winsPct')}</th>
+            <th style={th}>{tt(language, 'career.table.avgFinish')}</th>
+            <th style={th}>{tt(language, 'career.table.avgInc')}</th>
           </tr>
         </thead>
         <tbody>
@@ -853,9 +858,9 @@ function YearlyStatsTable({ rows }: { rows: CareerYearlyStat[] }): ReactElement 
   )
 }
 
-function LeagueList({ leagues }: { leagues: CareerLeague[] }): ReactElement {
+function LeagueList({ leagues, language }: { leagues: CareerLeague[]; language?: AppViewProps['language'] }): ReactElement {
   if (leagues.length === 0) {
-    return <p style={{ ...muted, margin: '10px 0 0' }}>No league found.</p>
+    return <p style={{ ...muted, margin: '10px 0 0' }}>{tt(language, 'career.profile.noLeague')}</p>
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
@@ -877,12 +882,12 @@ function LeagueList({ leagues }: { leagues: CareerLeague[] }): ReactElement {
             <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 13 }}>{league.leagueName}</div>
             <div style={{ ...muted, fontSize: 11, marginTop: 2 }}>
               ID #{league.leagueId}
-              {league.rosterCount !== undefined ? ` · ${league.rosterCount} members` : ''}
+              {league.rosterCount !== undefined ? ` · ${league.rosterCount} {tt(language, 'career.profile.members')}` : ''}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-            {league.owner ? <span style={{ ...chip, fontSize: 11, color: 'var(--accent-primary)' }}>Owner</span> : null}
-            {league.admin && !league.owner ? <span style={{ ...chip, fontSize: 11 }}>Admin</span> : null}
+            {league.owner ? <span style={{ ...chip, fontSize: 11, color: 'var(--accent-primary)' }}>{tt(language, 'career.profile.owner')}</span> : null}
+            {league.admin && !league.owner ? <span style={{ ...chip, fontSize: 11 }}>{tt(language, 'career.profile.admin')}</span> : null}
           </div>
         </div>
       ))}
@@ -890,9 +895,9 @@ function LeagueList({ leagues }: { leagues: CareerLeague[] }): ReactElement {
   )
 }
 
-function SeasonsList({ seasons }: { seasons: CareerActiveSeason[] }): ReactElement {
+function SeasonsList({ seasons, language }: { seasons: CareerActiveSeason[]; language?: AppViewProps['language'] }): ReactElement {
   if (seasons.length === 0) {
-    return <p style={{ ...muted, margin: '10px 0 0' }}>No active season found for the main discipline.</p>
+    return <p style={{ ...muted, margin: '10px 0 0' }}>{tt(language, 'career.profile.noActiveSeason')}</p>
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
@@ -912,8 +917,8 @@ function SeasonsList({ seasons }: { seasons: CareerActiveSeason[] }): ReactEleme
               <div style={{ ...muted, fontSize: 11, marginTop: 2 }}>{s.seasonName}</div>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', flexShrink: 0 }}>
-              {s.official ? <span style={{ ...chip, fontSize: 11 }}>Official</span> : <span style={{ ...chip, fontSize: 11, color: 'var(--text-muted)' }}>Informal</span>}
-              {s.fixedSetup ? <span style={{ ...chip, fontSize: 11, color: 'var(--text-muted)' }}>Fixed setup</span> : null}
+              {s.official ? <span style={{ ...chip, fontSize: 11 }}>{tt(language, 'career.profile.official')}</span> : <span style={{ ...chip, fontSize: 11, color: 'var(--text-muted)' }}>{tt(language, 'career.profile.informal')}</span>}
+              {s.fixedSetup ? <span style={{ ...chip, fontSize: 11, color: 'var(--text-muted)' }}>{tt(language, 'career.profile.fixedSetup')}</span> : null}
             </div>
           </div>
         </div>
@@ -922,12 +927,12 @@ function SeasonsList({ seasons }: { seasons: CareerActiveSeason[] }): ReactEleme
   )
 }
 
-function DivisionBadge({ division }: { division: CareerDivision }): ReactElement {
+function DivisionBadge({ division, language }: { division: CareerDivision; language?: AppViewProps['language'] }): ReactElement {
   return (
     <div style={{ display: 'flex', gap: 12 }}>
-      <StatTile label="Divisao" value={String(division.division)} />
-      {division.rank > 0 ? <StatTile label="Position" value={`#${division.rank}`} /> : null}
-      {division.points > 0 ? <StatTile label="Points" value={fmtInt(division.points)} /> : null}
+      <StatTile label={tt(language, 'career.profile.division')} value={String(division.division)} />
+      {division.rank > 0 ? <StatTile label={tt(language, 'career.table.position')} value={`#${division.rank}`} /> : null}
+      {division.points > 0 ? <StatTile label={tt(language, 'career.profile.points')} value={fmtInt(division.points)} /> : null}
     </div>
   )
 }
@@ -938,7 +943,8 @@ function ProfileTab({
   leagues,
   division,
   activeSeasonsForPrimary,
-  loading
+  loading,
+  language
 }: {
   profile: CareerProfile | null
   yearly: CareerYearlyStat[]
@@ -946,25 +952,26 @@ function ProfileTab({
   division: CareerDivision | null
   activeSeasonsForPrimary: CareerActiveSeason[]
   loading: boolean
+  language?: AppViewProps['language']
 }): ReactElement {
   return (
     <>
       {/* Member profile card */}
       {profile ? (
         <section style={card}>
-          <h3 style={sectionTitle}>Driver profile</h3>
+          <h3 style={sectionTitle}>{tt(language, 'career.profile.driverProfile')}</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 12, flexWrap: 'wrap' }}>
             <HelmetBadge color1={profile.helmetColor1} color2={profile.helmetColor2} />
             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
               {profile.clubName ? (
                 <div>
-                  <div style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Club</div>
+                  <div style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{tt(language, 'career.profile.club')}</div>
                   <div style={{ fontSize: 14, color: 'var(--text-primary)', marginTop: 2 }}>{profile.clubName}</div>
                 </div>
               ) : null}
               {profile.memberSince ? (
                 <div>
-                  <div style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>Member since</div>
+                  <div style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)' }}>{tt(language, 'career.profile.memberSince')}</div>
                   <div style={{ fontSize: 14, color: 'var(--text-primary)', marginTop: 2 }}>{fmtDate(profile.memberSince)}</div>
                 </div>
               ) : null}
@@ -972,8 +979,8 @@ function ProfileTab({
           </div>
           {division ? (
             <div style={{ marginTop: 14 }}>
-              <div style={{ ...sectionTitle, marginBottom: 10 }}>Divisao (temporada current)</div>
-              <DivisionBadge division={division} />
+              <div style={{ ...sectionTitle, marginBottom: 10 }}>{tt(language, 'career.profile.currentDivision')}</div>
+              <DivisionBadge division={division} language={language} />
             </div>
           ) : null}
         </section>
@@ -986,30 +993,30 @@ function ProfileTab({
       {/* Yearly stats */}
       <section style={{ ...card, padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '14px 16px 0' }}>
-          <h3 style={sectionTitle}>Estatisticas yearly</h3>
-          <p style={{ ...muted, margin: '4px 0 12px', fontSize: 11 }}>Resultados por ano e disciplina (max. 30 linhas).</p>
+          <h3 style={sectionTitle}>{tt(language, 'career.profile.yearlyStats')}</h3>
+          <p style={{ ...muted, margin: '4px 0 12px', fontSize: 11 }}>{tt(language, 'career.profile.yearlyHelp')}</p>
         </div>
-        <YearlyStatsTable rows={yearly} />
+        <YearlyStatsTable rows={yearly} language={language} />
       </section>
 
       {/* Leagues */}
       <section style={card}>
-        <h3 style={sectionTitle}>Ligas ({leagues.length})</h3>
-        <LeagueList leagues={leagues} />
+        <h3 style={sectionTitle}>{tt(language, 'career.profile.leagues', { count: leagues.length })}</h3>
+        <LeagueList leagues={leagues} language={language} />
       </section>
 
       {/* Active seasons */}
       <section style={card}>
-        <h3 style={sectionTitle}>Active seasons (main discipline)</h3>
-        <p style={{ ...muted, margin: '4px 0 0', fontSize: 11 }}>Series available to race now in your discipline.</p>
-        <SeasonsList seasons={activeSeasonsForPrimary} />
+        <h3 style={sectionTitle}>{tt(language, 'career.profile.activeSeasons')}</h3>
+        <p style={{ ...muted, margin: '4px 0 0', fontSize: 11 }}>{tt(language, 'career.profile.activeSeasonsHelp')}</p>
+        <SeasonsList seasons={activeSeasonsForPrimary} language={language} />
       </section>
     </>
   )
 }
 
 // ─── Main view ────────────────────────────────────────────────────────────────
-export default function CareerView({ showToast }: AppViewProps): ReactElement {
+export default function CareerView({ showToast, language }: AppViewProps): ReactElement {
   const [overview, setOverview] = useState<CareerOverview | null>(null)
   const [recent, setRecent] = useState<CareerRecentRace[]>([])
   const [chartsByCat, setChartsByCat] = useState<Record<number, CareerCategoryCharts | null>>({})
@@ -1092,7 +1099,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       await loadRecent()
       if (category !== null) await loadCharts(category, true)
       if (next.status.auth === 'needs-login') {
-        showToast('Data API unavailable; telemetry and overlays continue without login.', 'info')
+        showToast(tt(language, 'career.toast.apiUnavailable'), 'info')
       }
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
@@ -1109,7 +1116,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       if (result.status === 'ok') {
         await refresh()
       } else {
-        showToast(result.message ?? 'Login canceled.', 'info')
+        showToast(result.message ?? tt(language, 'career.toast.loginCanceled'), 'info')
       }
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
@@ -1125,7 +1132,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
     [overview]
   )
 
-  const hint = status ? statusHint(status) : null
+  const hint = status ? statusHint(status, language) : null
   const hasIdentity = Boolean(overview?.identity)
   const needsLogin = status?.auth === 'needs-login'
 
@@ -1135,12 +1142,12 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
         <header style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <span style={eyebrow}>iRacing · Drivers</span>
-            <h2 style={heading}>Opponent tags</h2>
-            <p style={{ ...muted, margin: '6px 0 0' }}>Anote pilotos por Cust ID estavel e reencontre essas notas em sessoes futuras.</p>
+            <h2 style={heading}>{tt(language, 'career.headers.opponentTags')}</h2>
+            <p style={{ ...muted, margin: '6px 0 0' }}>{tt(language, 'career.headers.driversDescription')}</p>
           </div>
         </header>
-        <TabSwitcher activeTab={activeTab} onChange={setActiveTab} />
-        <DriversTab showToast={showToast} />
+        <TabSwitcher activeTab={activeTab} onChange={setActiveTab} language={language} />
+        <DriversTab showToast={showToast} language={language} />
       </div>
     )
   }
@@ -1151,12 +1158,12 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
         <header style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <span style={eyebrow}>iRacing · Trading Paints</span>
-            <h2 style={heading}>Session paints</h2>
-            <p style={{ ...muted, margin: '6px 0 0' }}>Observes the official client and local files without downloading or querying CDN.</p>
+            <h2 style={heading}>{tt(language, 'career.headers.sessionPaints')}</h2>
+            <p style={{ ...muted, margin: '6px 0 0' }}>{tt(language, 'career.headers.paintsDescription')}</p>
           </div>
         </header>
-        <TabSwitcher activeTab={activeTab} onChange={setActiveTab} />
-        <PaintsTab showToast={showToast} />
+        <TabSwitcher activeTab={activeTab} onChange={setActiveTab} language={language} />
+        <PaintsTab showToast={showToast} language={language} />
       </div>
     )
   }
@@ -1169,9 +1176,9 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
         <header style={{ ...card, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
           <div>
             <span style={eyebrow}>iRacing · Profile & Series</span>
-            <h2 style={heading}>{overview?.identity?.displayName ?? 'Driver'}</h2>
+            <h2 style={heading}>{overview?.identity?.displayName ?? tt(language, 'career.common.driver')}</h2>
             <p style={{ ...muted, margin: '6px 0 0' }}>
-              Profile, division, yearly stats, leagues, and active seasons in the primary discipline
+              {tt(language, 'career.headers.profileDescription')}
               {primaryCatId !== undefined && primaryCatId !== null ? ` (${careerCategoryLabel(primaryCatId)})` : ''}.
             </p>
           </div>
@@ -1179,10 +1186,10 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
             {enrichmentLoading ? 'Loading…' : 'Refresh'}
           </button>
         </header>
-        <TabSwitcher activeTab={activeTab} onChange={setActiveTab} />
+        <TabSwitcher activeTab={activeTab} onChange={setActiveTab} language={language} />
         {!hasIdentity ? (
           <section style={{ ...card, padding: 24 }}>
-            <p style={muted}>Connect your iRacing account to see the enriched profile.</p>
+            <p style={muted}>{tt(language, 'career.profile.connectAccount')}</p>
             <button type="button" style={{ ...primaryButton, marginTop: 12 }} disabled={loggingIn} onClick={() => void connect()}>
               {loggingIn ? 'Opening login…' : 'Connect iRacing'}
             </button>
@@ -1195,6 +1202,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
             division={enrichment?.division ?? null}
             activeSeasonsForPrimary={activeSeasonsForPrimary}
             loading={enrichmentLoading}
+            language={language}
           />
         )}
       </div>
@@ -1207,15 +1215,15 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       <div style={column}>
         <header style={card}>
           <span style={eyebrow}>iRacing</span>
-          <h2 style={heading}>Career & Ratings</h2>
+          <h2 style={heading}>{tt(language, 'career.headers.careerRatings')}</h2>
           <p style={{ ...muted, margin: '8px 0 0', maxWidth: 620 }}>
             Track your iRating, Safety Rating, licenses, incidents, and recent results —
             all directly from the iRacing API, with offline cache.
           </p>
         </header>
-        <TabSwitcher activeTab={activeTab} onChange={setActiveTab} />
+        <TabSwitcher activeTab={activeTab} onChange={setActiveTab} language={language} />
         <section style={{ ...card, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 14, padding: 24 }}>
-          <span style={eyebrow}>{needsLogin ? 'Login required' : 'Connect your account'}</span>
+          <span style={eyebrow}>{needsLogin ? tt(language, 'career.login.required') : tt(language, 'career.login.connectAccount')}</span>
           <h3 style={{ margin: 0, fontSize: 17, color: 'var(--text-primary)' }}>
             {initialized ? 'Connect your iRacing account to load your career' : 'Loading…'}
           </h3>
@@ -1261,7 +1269,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
         </div>
       </header>
 
-      <TabSwitcher activeTab={activeTab} onChange={setActiveTab} />
+      <TabSwitcher activeTab={activeTab} onChange={setActiveTab} language={language} />
 
       {hint ? (
         <div style={{ ...card, padding: '10px 14px', borderColor: 'var(--border-default)', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1269,11 +1277,11 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
           <span style={{ fontSize: 12, color: hint.tone }}>
             {hint.text}{' '}
             <a href="https://forums.iracing.com/discussion/93956/oauth-client-id-creation" target="_blank" rel="noreferrer" style={{ color: hint.tone, fontWeight: 700 }}>
-              OAuth client IDs
+              {tt(language, 'career.links.oauthClientIds')}
             </a>{' '}
             ·{' '}
             <a href="https://support.iracing.com/support/solutions/articles/31000174478" target="_blank" rel="noreferrer" style={{ color: hint.tone, fontWeight: 700 }}>
-              iRacing support
+              {tt(language, 'career.links.iracingSupport')}
             </a>
           </span>
         </div>
@@ -1281,13 +1289,13 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
 
       {/* Licenses */}
       <section style={card}>
-        <h3 style={sectionTitle}>Licencas & Ratings current</h3>
+        <h3 style={sectionTitle}>{tt(language, 'career.sections.currentLicenses')}</h3>
         {licenses.length === 0 ? (
-          <GuidedEmptyState style={{ marginTop: 12 }} />
+          <GuidedEmptyState style={{ marginTop: 12 }} language={language} />
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12, marginTop: 12 }}>
             {licenses.map((license) => (
-              <LicenseCard key={license.categoryId} license={license} />
+              <LicenseCard key={license.categoryId} license={license} language={language} />
             ))}
           </div>
         )}
@@ -1296,7 +1304,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       {/* History charts */}
       <section style={card}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-          <h3 style={sectionTitle}>Progression history</h3>
+          <h3 style={sectionTitle}>{tt(language, 'career.sections.progression')}</h3>
           {availableCategoryIds.length > 0 ? (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {availableCategoryIds.map((categoryId) => {
@@ -1329,7 +1337,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
                 {fmtInt(selectedCharts?.iRating.at(-1)?.value)}
               </span>
             </div>
-            <HistoryChart points={selectedCharts?.iRating ?? []} color={IRATING_COLOR} valueDigits={0} ariaLabel="iRating history" />
+            <HistoryChart points={selectedCharts?.iRating ?? []} color={IRATING_COLOR} valueDigits={0} ariaLabel={tt(language, 'career.aria.iRatingHistory')} />
           </div>
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
@@ -1338,7 +1346,7 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
                 {fmtSR(selectedCharts?.safetyRating.at(-1)?.value)}
               </span>
             </div>
-            <HistoryChart points={selectedCharts?.safetyRating ?? []} color={SR_COLOR} valueDigits={2} ariaLabel="Safety Rating history" />
+            <HistoryChart points={selectedCharts?.safetyRating ?? []} color={SR_COLOR} valueDigits={2} ariaLabel={tt(language, 'career.aria.safetyHistory')} />
           </div>
         </div>
       </section>
@@ -1346,17 +1354,17 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       {/* Incident trend + this-year */}
       <section style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)', gap: 16 }}>
         <div style={card}>
-          <h3 style={sectionTitle}>Incident trend</h3>
+          <h3 style={sectionTitle}>{tt(language, 'career.sections.incidentTrend')}</h3>
           <p style={{ ...muted, margin: '4px 0 12px', fontSize: 11 }}>Incidents per race in recent races (oldest → newest).</p>
           <IncidentTrendChart points={overview?.incidentTrend ?? []} />
         </div>
         <div style={card}>
-          <h3 style={sectionTitle}>This year</h3>
+          <h3 style={sectionTitle}>{tt(language, 'career.sections.thisYear')}</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
-            <StatTile label="Official starts" value={fmtInt(thisYear?.officialStarts)} />
-            <StatTile label="Vitorias official" value={fmtInt(thisYear?.officialWins)} accent="var(--accent-primary)" />
-            <StatTile label="League starts" value={fmtInt(thisYear?.leagueStarts)} />
-            <StatTile label="Vitorias league" value={fmtInt(thisYear?.leagueWins)} />
+            <StatTile label={tt(language, 'career.metrics.officialStarts')} value={fmtInt(thisYear?.officialStarts)} />
+            <StatTile label={tt(language, 'career.metrics.officialWins')} value={fmtInt(thisYear?.officialWins)} accent="var(--accent-primary)" />
+            <StatTile label={tt(language, 'career.metrics.leagueStarts')} value={fmtInt(thisYear?.leagueStarts)} />
+            <StatTile label={tt(language, 'career.metrics.leagueWins')} value={fmtInt(thisYear?.leagueWins)} />
           </div>
         </div>
       </section>
@@ -1364,26 +1372,26 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       {/* Career stats per discipline */}
       <section style={{ ...card, padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '14px 16px 0' }}>
-          <h3 style={sectionTitle}>Career stats by discipline</h3>
+          <h3 style={sectionTitle}>{tt(language, 'career.sections.statsByDiscipline')}</h3>
         </div>
         {careerRows.length === 0 ? (
-          <GuidedEmptyState style={{ margin: '16px' }} />
+          <GuidedEmptyState style={{ margin: '16px' }} language={language} />
         ) : (
           <div style={{ overflowX: 'auto', marginTop: 12 }}>
             <table style={tableStyle}>
               <thead>
                 <tr>
-                  <th style={thLeft}>Discipline</th>
-                  <th style={th}>Starts</th>
-                  <th style={th}>Vitorias</th>
-                  <th style={th}>Top 5</th>
-                  <th style={th}>Poles</th>
-                  <th style={th}>Wins%</th>
-                  <th style={th}>Top5%</th>
-                  <th style={th}>Start med.</th>
-                  <th style={th}>Finish med.</th>
-                  <th style={th}>Inc. med.</th>
-                  <th style={th}>Laps lid.</th>
+                  <th style={thLeft}>{tt(language, 'career.table.discipline')}</th>
+                  <th style={th}>{tt(language, 'career.table.starts')}</th>
+                  <th style={th}>{tt(language, 'career.table.wins')}</th>
+                  <th style={th}>{tt(language, 'career.table.top5')}</th>
+                  <th style={th}>{tt(language, 'career.table.poles')}</th>
+                  <th style={th}>{tt(language, 'career.table.winsPct')}</th>
+                  <th style={th}>{tt(language, 'career.table.top5Pct')}</th>
+                  <th style={th}>{tt(language, 'career.table.avgStart')}</th>
+                  <th style={th}>{tt(language, 'career.table.avgFinish')}</th>
+                  <th style={th}>{tt(language, 'career.table.avgInc')}</th>
+                  <th style={th}>{tt(language, 'career.table.lapsLed')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1411,22 +1419,22 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
       {/* Recent races */}
       <section style={{ ...card, padding: 0, overflow: 'hidden' }}>
         <div style={{ padding: '14px 16px 0' }}>
-          <h3 style={sectionTitle}>Recent races</h3>
+          <h3 style={sectionTitle}>{tt(language, 'career.sections.recentRaces')}</h3>
         </div>
         {recent.length === 0 ? (
-          <GuidedEmptyState style={{ margin: '16px' }} />
+          <GuidedEmptyState style={{ margin: '16px' }} language={language} />
         ) : (
           <div style={{ overflowX: 'auto', marginTop: 12 }}>
             <table style={tableStyle}>
               <thead>
                 <tr>
-                  <th style={thLeft}>Date</th>
-                  <th style={thLeft}>Series</th>
-                  <th style={thLeft}>Car</th>
-                  <th style={thLeft}>Track</th>
-                  <th style={th}>Start</th>
-                  <th style={th}>Finish</th>
-                  <th style={th}>Inc.</th>
+                  <th style={thLeft}>{tt(language, 'career.table.date')}</th>
+                  <th style={thLeft}>{tt(language, 'career.table.series')}</th>
+                  <th style={thLeft}>{tt(language, 'career.table.car')}</th>
+                  <th style={thLeft}>{tt(language, 'career.table.track')}</th>
+                  <th style={th}>{tt(language, 'career.table.start')}</th>
+                  <th style={th}>{tt(language, 'career.table.finish')}</th>
+                  <th style={th}>{tt(language, 'career.table.inc')}</th>
                   <th style={th}>Δ iR</th>
                   <th style={th}>SR</th>
                   <th style={th}>SOF</th>
@@ -1457,8 +1465,8 @@ export default function CareerView({ showToast }: AppViewProps): ReactElement {
 
       {/* Strengths */}
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
-        <StrengthTable title="Strengths by car" scope="Recent form (recent races window)" rows={overview?.strengthsByCar ?? []} />
-        <StrengthTable title="Strengths by track" scope="Recent form (recent races window)" rows={overview?.strengthsByTrack ?? []} />
+        <StrengthTable title={tt(language, 'career.sections.strengthsByCar')} scope={tt(language, 'career.sections.recentForm')} rows={overview?.strengthsByCar ?? []} language={language} />
+        <StrengthTable title={tt(language, 'career.sections.strengthsByTrack')} scope={tt(language, 'career.sections.recentForm')} rows={overview?.strengthsByTrack ?? []} language={language} />
       </section>
     </div>
   )
