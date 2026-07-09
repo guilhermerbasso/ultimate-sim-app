@@ -366,7 +366,7 @@ export const rpmWidget: HifiWidgetModule = {
   category: 'drive',
   tags: ['rpm', 'gauge'],
   requires: ['rpm', 'maxRpm'],
-  defaultSize: { w: REV_WIDE_W, h: REV_WIDE_H },
+  defaultSize: { w: W, h: H },
   render: (props) => <RpmWidget {...props} />
 }
 
