@@ -120,7 +120,13 @@ function fastTier(snapshot: TelemetrySnapshot): Partial<TelemetrySnapshot> {
     tcLevel: snapshot.tcLevel,
     engineMap: snapshot.engineMap,
     brakeBiasPct: snapshot.brakeBiasPct,
-    handbrake: snapshot.handbrake
+    handbrake: snapshot.handbrake,
+    steeringTorquePct: snapshot.steeringTorquePct,
+    pitchRad: snapshot.pitchRad,
+    rollRad: snapshot.rollRad,
+    yawRad: snapshot.yawRad,
+    pitchRateRadSec: snapshot.pitchRateRadSec,
+    rollRateRadSec: snapshot.rollRateRadSec
   }
 }
 
@@ -163,7 +169,18 @@ function raceTier(snapshot: TelemetrySnapshot): Partial<TelemetrySnapshot> {
     lon: snapshot.lon,
     velocityX: snapshot.velocityX,
     velocityY: snapshot.velocityY,
-    yawNorth: snapshot.yawNorth
+    yawNorth: snapshot.yawNorth,
+    manifoldPressBar: snapshot.manifoldPressBar,
+    fuelPressBar: snapshot.fuelPressBar,
+    voltage: snapshot.voltage,
+    waterLevelL: snapshot.waterLevelL,
+    oilLevelL: snapshot.oilLevelL,
+    fuelLevelPct: snapshot.fuelLevelPct,
+    brakeLinePressBar: snapshot.brakeLinePressBar,
+    deltaToOptimalSec: snapshot.deltaToOptimalSec,
+    deltaToSessionOptimalSec: snapshot.deltaToSessionOptimalSec,
+    deltaToDriverBestSec: snapshot.deltaToDriverBestSec,
+    altitudeM: snapshot.altitudeM
   }
 }
 
@@ -193,7 +210,15 @@ function sessionTier(snapshot: TelemetrySnapshot): Partial<TelemetrySnapshot> {
     airTempC: snapshot.airTempC,
     trackWetnessPct: snapshot.trackWetnessPct,
     isRaining: snapshot.isRaining,
-    gripPct: snapshot.gripPct
+    gripPct: snapshot.gripPct,
+    steeringAngleMaxDeg: snapshot.steeringAngleMaxDeg,
+    fogPct: snapshot.fogPct,
+    humidityPct: snapshot.humidityPct,
+    windSpeedMs: snapshot.windSpeedMs,
+    windDirRad: snapshot.windDirRad,
+    solarAltitudeRad: snapshot.solarAltitudeRad,
+    solarAzimuthRad: snapshot.solarAzimuthRad,
+    skies: snapshot.skies
   }
 }
 

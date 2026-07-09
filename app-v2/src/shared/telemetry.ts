@@ -527,11 +527,23 @@ export interface TelemetrySnapshot {
   brake: number // 0..1
   clutch: number // 0..1
   steerAngleDeg?: number
+  // Steering FFB torque as a fraction of the wheel's max (iRacing SteeringWheelPctTorque,
+  // 0..1) and the car's physical max lock (SteeringWheelAngleMax, converted rad→deg).
+  steeringTorquePct?: number
+  steeringAngleMaxDeg?: number
   // Forças G — derivadas de iRacing LatAccel/LongAccel/VertAccel (m/s² → G, ÷9.80665).
   latAccelG?: number // + direita / - esquerda
   longAccelG?: number // + aceleração / - frenagem
   vertAccelG?: number
   yawRateRadSec?: number // iRacing YawRate (rad/s)
+  // Chassis attitude (iRacing Pitch/Roll/Yaw in rad; PitchRate/RollRate in rad/s; Alt in m).
+  // `yawRad` is the car heading; `yawNorth` (below) is heading relative to North.
+  pitchRad?: number
+  rollRad?: number
+  yawRad?: number
+  pitchRateRadSec?: number
+  rollRateRadSec?: number
+  altitudeM?: number
   drs?: boolean
   absActive?: boolean
   absEnabled?: boolean
@@ -545,6 +557,13 @@ export interface TelemetrySnapshot {
   waterTempC?: number
   oilTempC?: number
   oilPressureKpa?: number
+  // Extra powertrain telemetry (iRacing): manifold + fuel pressure (bar), electrical
+  // system voltage (V), and coolant + oil tank levels (L).
+  manifoldPressBar?: number
+  fuelPressBar?: number
+  voltage?: number
+  waterLevelL?: number
+  oilLevelL?: number
   // ABS brake-pressure cut while the ABS is intervening (iRacing BrakeABSCutPct, %).
   absCutPct?: number
   // Decoded iRacing EngineWarnings bitfield — per-lamp dashboard tell-tales.
@@ -584,6 +603,11 @@ export interface TelemetrySnapshot {
   estimatedLapTimeSec?: number
   deltaToBestSec?: number
   deltaToSessionBestSec?: number
+  // Delta (s) to the OPTIMAL (theoretical best-sectors) lap, the session optimal lap, and
+  // the driver's own best (iRacing LapDeltaToOptimalLap/SessionOptimalLap/DriverBestLap).
+  deltaToOptimalSec?: number
+  deltaToSessionOptimalSec?: number
+  deltaToDriverBestSec?: number
   position?: number
   classPosition?: number
   totalCars?: number
@@ -602,10 +626,13 @@ export interface TelemetrySnapshot {
   fuelUsePerHourKg?: number
   fuelPerLapKg?: number
   fuelCapacityLiters?: number
+  fuelLevelPct?: number // FuelLevelPct — fuel in tank as a 0..1 fraction of capacity
 
   // Tires / brakes
   tyres?: Corners<TyreInfo>
   brakeTempC?: Corners<number>
+  // Brake-line hydraulic pressure per corner (iRacing LF/RF/LR/RRbrakeLinePress, bar).
+  brakeLinePressBar?: Corners<number>
   // Pressão FRIA dos tires (definida na garagem), kPa. IMPORTANTE: o iRacing NÃO expõe
   // pressão de tire AO VIVO como telemetria — apenas as pressões frias
   // (LFcoldPressure/RFcoldPressure/LRcoldPressure/RRcoldPressure). Nomeado explicitamente
@@ -636,6 +663,15 @@ export interface TelemetrySnapshot {
   gripPct?: number // 0..1
   weatherDeclaredWet?: boolean // WeatherDeclaredWet — o comissário liberou tires de rain
   trackSurfaceMaterial?: number // PlayerTrackSurfaceMaterial (enum irsdk_TrkSurf) — use trackSurfaceMaterialLabel
+  // Extra environment telemetry (iRacing): fog + relative humidity (0..1), wind speed (m/s)
+  // + direction (rad), solar altitude/azimuth (rad), and the Skies enum (0=clear..3=overcast).
+  fogPct?: number
+  humidityPct?: number
+  windSpeedMs?: number
+  windDirRad?: number
+  solarAltitudeRad?: number
+  solarAzimuthRad?: number
+  skies?: number
 
   // Standings / relativo
   playerCarIdx?: number
