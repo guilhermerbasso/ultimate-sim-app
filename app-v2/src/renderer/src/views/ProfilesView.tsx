@@ -2,14 +2,13 @@ import { type ReactElement, useEffect, useState } from 'react'
 import type { ProfileSummary } from '../../../shared/ipc'
 import { SectionExportImport } from '../components/SectionExportImport'
 import type { AppViewProps } from '../App'
+import { tt } from '../i18n'
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-const UNSUPPORTED_SIM_X_PROFILE_WRITE = 'Action not supported on the current SIM-X firmware.'
-
-function ProfilesView({ connectedDevice, mapping, config, showToast }: AppViewProps): ReactElement {
+function ProfilesView({ connectedDevice, mapping, config, showToast, language }: AppViewProps): ReactElement {
   const [profiles, setProfiles] = useState<ProfileSummary[]>([])
   const [profileName, setProfileName] = useState('')
   const [busy, setBusy] = useState(false)
@@ -28,18 +27,18 @@ function ProfilesView({ connectedDevice, mapping, config, showToast }: AppViewPr
 
   async function saveProfile(): Promise<void> {
     if (connectedDevice) {
-      showToast(`${UNSUPPORTED_SIM_X_PROFILE_WRITE} Disconnect to save only the already loaded local snapshot.`, 'error')
+      showToast(tt(language, 'profiles.saveUnsupportedToast'), 'error')
       return
     }
     setBusy(true)
     try {
       const currentMapping = mapping
       const currentConfig = config
-      if (!currentMapping || !currentConfig) throw new Error('Connect the ButtonBox and load the map/config before saving a profile.')
+      if (!currentMapping || !currentConfig) throw new Error(tt(language, 'profiles.missingSnapshotError'))
       const saved = await window.api.saveProfile(profileName, { mapping: currentMapping, config: currentConfig })
       setProfileName('')
       await refreshProfiles()
-      showToast(`Profile "${saved.name}" saved.`, 'success')
+      showToast(tt(language, 'profiles.savedToast', { name: saved.name }), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -48,7 +47,7 @@ function ProfilesView({ connectedDevice, mapping, config, showToast }: AppViewPr
   }
 
   function applyProfile(): void {
-    showToast(`${UNSUPPORTED_SIM_X_PROFILE_WRITE} Applying profiles on the device is disabled.`, 'error')
+    showToast(tt(language, 'profiles.applyUnsupportedToast'), 'error')
   }
 
   async function deleteProfile(name: string): Promise<void> {
@@ -56,7 +55,7 @@ function ProfilesView({ connectedDevice, mapping, config, showToast }: AppViewPr
     try {
       await window.api.deleteProfile(name)
       await refreshProfiles()
-      showToast(`Profile "${name}" deleted.`, 'success')
+      showToast(tt(language, 'profiles.deletedToast', { name }), 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
     } finally {
@@ -67,37 +66,37 @@ function ProfilesView({ connectedDevice, mapping, config, showToast }: AppViewPr
   return (
     <section className="view-grid two-columns">
       <article className="panel-card">
-        <span className="panel-label">Save profile</span>
-        <h3>Current snapshot</h3>
-        <p>Save the current map and advanced configuration as a local preset on disk.</p>
-        <label className="field-label" htmlFor="profile-name">Profile name</label>
-        <input className="text-field" id="profile-name" placeholder="Ex.: GT Sprint" value={profileName} onChange={(event) => setProfileName(event.target.value)} />
-        <button className="primary-action" disabled={busy || Boolean(connectedDevice) || !profileName.trim() || !mapping || !config} onClick={() => void saveProfile()} type="button">Save profile</button>
+        <span className="panel-label">{tt(language, 'profiles.saveLabel')}</span>
+        <h3>{tt(language, 'profiles.currentSnapshot')}</h3>
+        <p>{tt(language, 'profiles.saveDescription')}</p>
+        <label className="field-label" htmlFor="profile-name">{tt(language, 'profiles.nameLabel')}</label>
+        <input className="text-field" id="profile-name" placeholder={tt(language, 'profiles.namePlaceholder')} value={profileName} onChange={(event) => setProfileName(event.target.value)} />
+        <button className="primary-action" disabled={busy || Boolean(connectedDevice) || !profileName.trim() || !mapping || !config} onClick={() => void saveProfile()} type="button">{tt(language, 'profiles.saveButton')}</button>
         {connectedDevice
-          ? <p className="helper-text">Direct SIM-X save is not supported on the current firmware.</p>
-          : <p className="helper-text">Saves only the already loaded local snapshot; direct capture from the SIM-X device is not supported on the current firmware.</p>}
+          ? <p className="helper-text">{tt(language, 'profiles.directSaveUnsupported')}</p>
+          : <p className="helper-text">{tt(language, 'profiles.localSnapshotOnly')}</p>}
       </article>
 
       <article className="panel-card scroll-card">
         <div className="panel-heading-row">
-          <div><span className="panel-label">Local library</span><h3>Saved profiles</h3></div>
+          <div><span className="panel-label">{tt(language, 'profiles.libraryLabel')}</span><h3>{tt(language, 'profiles.savedProfiles')}</h3></div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <SectionExportImport sectionId="legacy-profiles" label="Mapping profiles (legacy)" onImported={() => void refreshProfiles()} />
-            <button className="ghost-action compact" disabled={busy} onClick={() => void refreshProfiles()} type="button">Refresh</button>
+            <SectionExportImport sectionId="legacy-profiles" label={tt(language, 'profiles.legacyExportLabel')} onImported={() => void refreshProfiles()} />
+            <button className="ghost-action compact" disabled={busy} onClick={() => void refreshProfiles()} type="button">{tt(language, 'profiles.refresh')}</button>
           </div>
         </div>
 
         <div className="profile-list">
-          {profiles.length === 0 && <p className="empty-state">No saved profiles yet.</p>}
+          {profiles.length === 0 && <p className="empty-state">{tt(language, 'profiles.empty')}</p>}
           {profiles.map((profile) => (
             <div className="profile-item rich" key={profile.name}>
               <span>
                 <strong>{profile.name}</strong>
-                <small>Saved on {new Date(profile.savedAt).toLocaleString('pt-BR')}</small>
+                <small>{tt(language, 'profiles.savedOn', { date: new Date(profile.savedAt).toLocaleString(language ?? 'en') })}</small>
               </span>
               <span className="profile-actions">
-                <button className="ghost-action compact" disabled title={UNSUPPORTED_SIM_X_PROFILE_WRITE} onClick={() => applyProfile()} type="button">Apply (not supported)</button>
-                <button className="ghost-action compact danger" disabled={busy} onClick={() => void deleteProfile(profile.name)} type="button">Delete</button>
+                <button className="ghost-action compact" disabled title={tt(language, 'profiles.writeUnsupportedTitle')} onClick={() => applyProfile()} type="button">{tt(language, 'profiles.applyUnsupported')}</button>
+                <button className="ghost-action compact danger" disabled={busy} onClick={() => void deleteProfile(profile.name)} type="button">{tt(language, 'profiles.delete')}</button>
               </span>
             </div>
           ))}
