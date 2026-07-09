@@ -21,6 +21,7 @@ import { CommandPalette } from './components/CommandPalette'
 import { BrandLogo } from './components/BrandLogo'
 import { UpdateBanner } from './components/UpdateBanner'
 import { ReportBugButton } from './components/ReportBugButton'
+import { CheckUpdatesButton } from './components/CheckUpdatesButton'
 import { OnboardingFlow } from './onboarding/OnboardingFlow'
 import { TutorialLauncherButton } from './onboarding/TutorialLauncherButton'
 import { TutorialOverlay } from './onboarding/TutorialOverlay'
@@ -36,6 +37,7 @@ import {
   APP_SETTINGS_CHANGED_EVENT,
   resolveAppLanguage,
   t,
+  tt,
   translateNavTitle,
   translateView,
   type ResolvedLanguage
@@ -50,6 +52,7 @@ const ONBOARDING_STORAGE_KEY = 'usa.onboardingCompleted'
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = 'usa:sidebar-collapsed'
 const MAX_RECENTS = 5
 const SUPPORT_URL = 'https://buymeacoffee.com/bettercalllbasso'
+const DISCORD_URL = 'https://discord.gg/Wy7d5rTgwS'
 
 export interface ToastState {
   message: string
@@ -525,9 +528,20 @@ function App(): ReactElement {
               <h2>{current.label}</h2>
               <p>{current.description}</p>
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <TutorialLauncherButton viewId={activeId} language={language} onStart={startCurrentTutorial} />
+              <CheckUpdatesButton language={language} />
               <ReportBugButton language={language} showToast={showToast} />
+              <a
+                aria-label={tt(language, 'chrome.joinDiscordTitle')}
+                className="discord-button"
+                href={DISCORD_URL}
+                rel="noreferrer"
+                target="_blank"
+                title={tt(language, 'chrome.joinDiscordTitle')}
+              >
+                {tt(language, 'chrome.joinDiscord')}
+              </a>
               <a
                 aria-label={t(language, 'supportAria')}
                 className="support-button"

@@ -487,6 +487,79 @@ h3 {
   cursor: not-allowed;
 }
 
+/* Persistent "Join us on Discord" chrome button (Discord blurple, stands out). */
+.discord-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: var(--space-2) var(--space-5);
+  border-radius: 999px;
+  border: 1px solid #5865f2;
+  background: #5865f2;
+  color: #fff;
+  font-size: var(--font-size-sm, 13px);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+.discord-button:hover,
+.discord-button:focus-visible {
+  background: #4752c4;
+  border-color: #4752c4;
+  color: #fff;
+  outline: none;
+}
+.discord-button:active {
+  transform: translateY(1px);
+}
+
+/* Persistent "Check for updates" chrome button; highlights when an update is ready. */
+.check-updates-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: var(--space-2) var(--space-5);
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: transparent;
+  color: inherit;
+  font-size: var(--font-size-sm, 13px);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+.check-updates-button:hover,
+.check-updates-button:focus-visible {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary-bright);
+  color: var(--text-on-accent);
+  outline: none;
+}
+.check-updates-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.check-updates-button.is-available {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary-bright);
+  color: var(--text-on-accent);
+  animation: check-updates-pulse 2s ease-in-out infinite;
+}
+.check-updates-button:active {
+  transform: translateY(1px);
+}
+@keyframes check-updates-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(20, 255, 236, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(20, 255, 236, 0.18); }
+}
+
 /* Persistent update banner across the top of the app when an update is available. */
 .update-banner {
   display: flex;
