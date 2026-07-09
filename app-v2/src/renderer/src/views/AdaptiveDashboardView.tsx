@@ -8,6 +8,7 @@ import type {
   AdaptiveMomentRule,
   Dashboard,
   DashboardAdaptiveConfig,
+  DashboardDisplayInfo,
   DashboardElement,
   DashboardSummary
 } from '../../../shared/dashboards'
@@ -156,7 +157,10 @@ function buildAiContext(report: ReturnType<typeof useCoachReport>, engineerFeed:
 
 export default function AdaptiveDashboardView({ showToast }: AppViewProps): ReactElement {
   const [summaries, setSummaries] = useState<DashboardSummary[]>([])
+  const [displays, setDisplays] = useState<DashboardDisplayInfo[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedDisplayId, setSelectedDisplayId] = useState<number | null>(null)
+  const [fullscreen, setFullscreen] = useState<boolean>(true)
   const [dash, setDash] = useState<Dashboard | null>(null)
   const [config, setConfig] = useState<DashboardAdaptiveConfig>({ enabled: false, rules: [] })
   const [aiLiveSelection, setAiLiveSelection] = useState(true)
@@ -171,6 +175,16 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
   const momentRef = useRef<RaceMomentState | null>(null)
   const latestSnapshotRef = useRef<TelemetrySnapshot | null>(null)
   const [liveMoment, setLiveMoment] = useState<RaceMomentState | null>(null)
+
+  const applyDisplays = useCallback((screens: DashboardDisplayInfo[]) => {
+    setDisplays(screens)
+    setSelectedDisplayId((current) => {
+      if (current !== null && screens.some((screen) => screen.id === current)) return current
+      if (screens.length === 0) return null
+      const primary = screens.find((screen) => screen.isPrimary) ?? screens[0]
+      return primary.id
+    })
+  }, [])
 
   // ?? Load + subscribe to the dashboards list ??
   useEffect(() => {
@@ -193,6 +207,19 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
       off()
     }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void window.ipc
+      .invoke<DashboardDisplayInfo[]>('app:dash:listDisplays')
+      .then((screens) => {
+        if (!cancelled) applyDisplays(screens)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [applyDisplays])
 
   // ?? Load the full dashboard when the selection changes ??
   useEffect(() => {
@@ -339,14 +366,14 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
     if (busy || !selectedId) return
     setBusy(true)
     try {
-      await window.ipc.invoke('app:dash:open', selectedId, { fullscreen: false })
-      showToast('Dashboard opened.', 'success')
+      await window.ipc.invoke('app:dash:open', selectedId, { displayId: selectedDisplayId ?? undefined, fullscreen })
+      showToast('Dashboard opened on the selected display.', 'success')
     } catch (error) {
       showToast(`Failed to open: ${getErrorMessage(error)}`, 'error')
     } finally {
       setBusy(false)
     }
-  }, [busy, selectedId, showToast])
+  }, [busy, fullscreen, selectedDisplayId, selectedId, showToast])
 
   const save = useCallback(async () => {
     if (busy || !dash) return
@@ -398,8 +425,25 @@ export default function AdaptiveDashboardView({ showToast }: AppViewProps): Reac
           <button type="button" disabled={busy} onClick={() => void createPreset()} style={secondaryBtn}>
             Create adaptive preset
           </button>
+          <label style={{ color: 'var(--text-secondary)', fontSize: 12, fontWeight: 700 }}>Monitor</label>
+          <select
+            value={selectedDisplayId ?? ''}
+            onChange={(e) => setSelectedDisplayId(e.target.value ? Number(e.target.value) : null)}
+            style={{ ...select, width: 'auto' }}
+          >
+            <option value="">Monitor primary / auto</option>
+            {displays.map((display) => (
+              <option key={display.id} value={display.id}>
+                {display.label} ? {display.bounds.width}?{display.bounds.height}{display.isPrimary ? ' ? primary' : ''}
+              </option>
+            ))}
+          </select>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', fontSize: 13 }}>
+            <input type="checkbox" checked={fullscreen} onChange={(e) => setFullscreen(e.target.checked)} />
+            Fullscreen
+          </label>
           <button type="button" disabled={busy || !selectedId} onClick={() => void openDash()} style={secondaryBtn}>
-            Open
+            Open on display
           </button>
           <div style={{ flex: 1 }} />
           <button type="button" disabled={busy || !dash || !dirty} onClick={() => void save()} style={primaryBtn}>
