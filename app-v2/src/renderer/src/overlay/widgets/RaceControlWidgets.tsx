@@ -67,6 +67,29 @@ function panel(W: number, H: number, skin: SkinToken): ReactElement {
   )
 }
 
+function opaquePanel(W: number, H: number, skin: SkinToken): ReactElement {
+  const { material, palette } = skin
+  return (
+    <rect
+      x={0.5}
+      y={0.5}
+      width={Math.max(0, W - 1)}
+      height={Math.max(0, H - 1)}
+      rx={material.radius}
+      fill={palette.bg || '#050608'}
+      fillOpacity={1}
+      stroke={material.border}
+      strokeWidth={material.borderWidth}
+    />
+  )
+}
+
+function fitSegmentHeight(value: string, boxW: number, maxH: number, unit = ''): number {
+  const chars = Math.max(1, value.length)
+  const widthPerPx = chars * 0.66 + 0.4 + unit.length * 0.66 * 0.55
+  return Math.max(8, Math.min(maxH, Math.max(8, boxW) / widthPerPx))
+}
+
 // ── PitStatus lamps ───────────────────────────────────────────────────────────
 interface Lamp {
   key: string
@@ -267,9 +290,12 @@ export function WetRadarWidget({ snapshot, config }: WidgetProps): ReactElement 
   const valCell = grid.cell(1, 0)
   const statusCell = grid.cell(0, 1, 2, 1)
 
-  const seg = { w: Math.max(40, valCell.w), h: Math.max(20, Math.min(valCell.h, 44)) }
+  const seg = {
+    w: Math.max(40, valCell.w),
+    h: fitSegmentHeight(pctTxt, Math.max(40, valCell.w), Math.max(8, Math.min(valCell.h - 4, 44)), '%')
+  }
   const segX = valCell.x + valCell.w - seg.w
-  const segY = valCell.y + (valCell.h - (seg.h + seg.h * 0.32 + 4)) / 2
+  const segY = valCell.y + Math.max(0, (valCell.h - (seg.h + 4)) / 2)
 
   const frac = wet ?? 0
   const barH = Math.min(6, Math.max(3, statusCell.h * 0.18))
@@ -286,7 +312,7 @@ export function WetRadarWidget({ snapshot, config }: WidgetProps): ReactElement 
       style={{ display: 'block' }}
       data-widget="wetRadar"
     >
-      {panel(W, H, skin)}
+      {opaquePanel(W, H, skin)}
       <FitText
         x={labCell.x + 2}
         y={labCell.y + labCell.h / 2}
