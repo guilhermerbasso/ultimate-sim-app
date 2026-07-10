@@ -60,11 +60,11 @@ export function CheckUpdatesButton({ language }: { language?: ResolvedLanguage }
 
   return (
     <button
-      aria-label={tt(language, 'about.update.checkButton')}
+      aria-label={label}
       className={highlight ? 'check-updates-button is-available' : 'check-updates-button'}
       disabled={busy || checking || downloading}
       onClick={() => void onClick()}
-      title={tt(language, 'about.update.checkButton')}
+      title={label}
       type="button"
     >
       {label}

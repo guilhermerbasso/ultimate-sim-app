@@ -55,9 +55,9 @@ function buildFormat(state: State): OutputFormat | undefined {
 }
 
 function sourceLabel(source: OutputSource): string {
-  if (source.kind === 'telemetry') return `telemetry ? ${source.field}`
-  if (source.kind === 'expression') return `expression ? ${source.exprId}`
-  return `literal ? ${source.value}`
+  if (source.kind === 'telemetry') return `telemetry · ${source.field}`
+  if (source.kind === 'expression') return `expression · ${source.exprId}`
+  return `literal · ${source.value}`
 }
 
 export function CustomSerialEditor({ language, routes, devices, expressions, busy, onSave, onDelete, onToggle }: CustomSerialEditorProps): ReactElement {
@@ -87,7 +87,7 @@ export function CustomSerialEditor({ language, routes, devices, expressions, bus
     if (!source || !state.deviceId || !state.template.trim()) return
     const route: OutputRoute = {
       id: nextRouteId(routes),
-      name: state.name.trim() || `${tt(language, 'arduinos.tabs.customSerial.label')} ? ${devices.find((d) => d.id === state.deviceId)?.label ?? state.deviceId}`,
+      name: state.name.trim() || `${tt(language, 'arduinos.tabs.customSerial.label')} · ${devices.find((d) => d.id === state.deviceId)?.label ?? state.deviceId}`,
       enabled: true,
       source,
       target: { kind: 'serial', deviceId: state.deviceId, template: state.template.trim() },
@@ -106,7 +106,7 @@ export function CustomSerialEditor({ language, routes, devices, expressions, bus
         <p className="helper-text">{tt(language, 'arduinos.customSerial.help')}</p>
         <form className="config-block" style={{ display: 'grid', gap: 12 }} onSubmit={submit}>
           <label><strong>{tt(language, 'arduinos.outputs.nameOptional')}</strong><input className="command-input" value={state.name} onChange={(event) => setState({ ...state, name: event.target.value })} /></label>
-          <label><strong>{tt(language, 'arduinos.outputs.targetDevice')}</strong><select className="command-input" value={state.deviceId} onChange={(event) => setState({ ...state, deviceId: event.target.value })}>{devices.length === 0 && <option value="">? no connected devices ?</option>}{devices.map((device) => <option key={device.id} value={device.id}>{device.label} ({device.id})</option>)}</select></label>
+          <label><strong>{tt(language, 'arduinos.outputs.targetDevice')}</strong><select className="command-input" value={state.deviceId} onChange={(event) => setState({ ...state, deviceId: event.target.value })}>{devices.length === 0 && <option value="">{tt(language, 'arduinos.common.noConnectedDevices')}</option>}{devices.map((device) => <option key={device.id} value={device.id}>{device.label} ({device.id})</option>)}</select></label>
           <label><strong>{tt(language, 'arduinos.outputs.template')}</strong><input className="command-input" value={state.template} placeholder="T:${value}" onChange={(event) => setState({ ...state, template: event.target.value })} /></label>
           <div className="segmented">{(['telemetry', 'expression', 'literal'] as const).map((kind) => <button key={kind} type="button" className={state.sourceKind === kind ? 'segment active' : 'segment'} onClick={() => setState({ ...state, sourceKind: kind })}>{kind}</button>)}</div>
           {state.sourceKind === 'telemetry' && <input className="command-input" value={state.telemetryField} placeholder="speedKmh" onChange={(event) => setState({ ...state, telemetryField: event.target.value })} />}
@@ -123,7 +123,7 @@ export function CustomSerialEditor({ language, routes, devices, expressions, bus
         <ul className="plain-list">
           {customRoutes.map((route) => {
             const target = route.target as Extract<typeof route.target, { kind: 'serial' }>
-            return <li className="port-item" key={route.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, marginBottom: 8 }}><span><strong>{route.name}</strong><small>{sourceLabel(route.source)} ? <code>{target.template}</code></small></span><div className="action-row compact-row"><button type="button" className={route.enabled ? 'chip-toggle active' : 'chip-toggle'} disabled={busy} onClick={() => onToggle(route.id, !route.enabled)}>{route.enabled ? tt(language, 'arduinos.common.disable') : tt(language, 'arduinos.common.enable')}</button><button type="button" className="ghost-action compact danger" disabled={busy} onClick={() => onDelete(route.id)}>{tt(language, 'arduinos.common.delete')}</button></div></li>
+            return <li className="port-item" key={route.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, marginBottom: 8 }}><span><strong>{route.name}</strong><small>{sourceLabel(route.source)} · <code>{target.template}</code></small></span><div className="action-row compact-row"><button type="button" className={route.enabled ? 'chip-toggle active' : 'chip-toggle'} disabled={busy} onClick={() => onToggle(route.id, !route.enabled)}>{route.enabled ? tt(language, 'arduinos.common.disable') : tt(language, 'arduinos.common.enable')}</button><button type="button" className="ghost-action compact danger" disabled={busy} onClick={() => onDelete(route.id)}>{tt(language, 'arduinos.common.delete')}</button></div></li>
           })}
         </ul>
       </article>

@@ -540,7 +540,7 @@ export function HardwareWorkspace({
             <div>
               <strong style={{ display: 'block', fontSize: 13 }}>{tt(language, 'arduinos.onboarding.detectedTitle')}</strong>
               <small style={{ color: 'rgba(255,255,255,0.65)' }}>
-                {promptDevice.label} ? {promptDevice.path} ? {promptDevice.baud} baud
+                {promptDevice.label} · {promptDevice.path} · {promptDevice.baud} baud
               </small>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
