@@ -4,7 +4,7 @@
 
 # Ultimate Sim App
 
-**Ultimate Sim App 2.48.0** is a Windows sim-racing companion for iRacing-focused telemetry, GT3-style dashboards, transparent overlays, strategy tools, DIY hardware, and local AI coaching.
+**Ultimate Sim App 2.50.0** is a Windows sim-racing companion for iRacing-focused telemetry, GT3-style dashboards, transparent overlays, strategy tools, DIY hardware, and local AI coaching.
 
 Independent community project maintained by Guilherme Basso · Electron + React + TypeScript · Apache-2.0
 
@@ -16,9 +16,26 @@ Independent community project maintained by Guilherme Basso · Electron + React 
 
 ---
 
-## What is included in 2.48.0
+## What is included in 2.50.0
 
 Ultimate Sim App combines live race telemetry, dashboard composition, transparent overlays, phone streaming, hardware control, and local AI into one desktop app. It is designed for Windows racing rigs, second monitors, cockpit tablets/phones, and DIY Arduino/ESP32 devices.
+
+## What's new since 2.48
+
+### 2.50.0 — Intent- & racecraft-aware AI Coach
+
+- The local **AI Coach / Race Engineer** now infers **driver intent** (racecraft, stint management, track/session conditions) over a time window before calling anything a mistake — deterministic and local-first, **no cloud LLM, no black-box ML**.
+- **Golden rule**: an event is only flagged when no legitimate intent explains it, it **repeats lap-to-lap**, and there is real time loss; otherwise it stays **silent** or is kept as neutral **context**. Silence beats noise.
+- **Confidence per finding + a "Coach sensitivity" slider**; grounded tips cite **Turn + Sector together**, the driving dimension in plain words, the seconds lost and the discarded intent — e.g. *"Turn 13 (Sector 3): not enough steering — lost 1.0s"*.
+- **Local per-car + per-track baselines** (robust median/MAD/EMA + lap-to-lap repetition) tell the driver's **style** apart from an **error**; the local LLM only *verbalizes* the decided finding (PT-BR/EN). Research write-up in `app-v2/docs/coach-intent-research.md`.
+
+### 2.49.0 — Overlay/widget fixes, device flashing & guided setup
+
+- **Overlay/widget rendering fixes**: transparent, title-less, border-less overlays where reported; numbers no longer clipped; rev-lights/RPM strips fill the box width; the editor preview renders the real widget with simulated telemetry.
+- **New overlay style editor**: colors, fonts, background, borders + border color, and divider lines — including hi-fi widgets.
+- **Device flashing fixed**: `avrdude.exe` is bundled (with a download fallback); **iFlag** fixes (all serial ports listed, stable reconnect, persisted state, logging) plus a **guided setup wizard** for unknown devices and a **Custom serial devices** submenu.
+- **Streaming**: fixed "Test from this PC → Failed to fetch" and added a **stream target selector** to choose which dashboard to stream.
+- **Per-menu tutorials** (first-run walkthrough + a persistent "Start this menu's tutorial" button), a **Join us on Discord** button, a **Check for updates** button, and a fixed Windows taskbar/Start **app icon**.
 
 ### iRacing telemetry widgets, overlays, and GT3 dashboards
 
@@ -58,7 +75,7 @@ Ultimate Sim App combines live race telemetry, dashboard composition, transparen
 ### Local AI, search, and community tools
 
 - **AI Engineer** for fuel, tyres, gaps, strategy, and race questions using local telemetry context.
-- **AI Coach** for lap analysis, corner findings, improvement points, stint debriefs, and setup suggestions.
+- **AI Coach** for lap analysis, corner findings, and improvement points — now **intent- & racecraft-aware**: it infers whether a deviation is a deliberate choice (attacking/defending, fuel/tyre saving, flags/safety car, wet) before flagging it, attaches a confidence, and stays silent when unsure. Plus stint debriefs and setup suggestions.
 - **Semantic Search** across setups, ghosts, notes, and coach findings with a keyword fallback.
 - **Career and ratings** views for iRating, Safety Rating, licenses, incidents, and result history.
 - **Biometrics** for heart rate and stress-vs-pace exploration.
@@ -131,7 +148,7 @@ All screenshots below were regenerated from the app's visual-audit harness for t
 The AI Engineer, AI Coach, lap analysis, semantic search, and adaptive selections are designed to run locally on the CPU. No cloud API key is required for the built-in local flow.
 
 - **AI Engineer** — text race engineer for fuel, tyres, gaps, and strategy.
-- **AI Coach** — driving coach with lap/corner analysis and improvement suggestions.
+- **AI Coach** — intent- & racecraft-aware driving coach: infers driver intent (racecraft/management/conditions) before flagging an error, with confidence, silence when unsure, Turn+Sector grounded tips, and local per-car+track baselines.
 - **AI Dashboard Builder** — dashboard generation from text, with offline fallback behavior.
 - **Semantic Search** — meaning-based search with keyword fallback.
 - **Voice / TTS** — offline voices where available, system fallback, and voice-oriented race feedback.
