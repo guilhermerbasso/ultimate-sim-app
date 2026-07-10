@@ -18,6 +18,7 @@ import {
   deterministicPhrasing,
   detectBrakingZones,
   detectCoastZones,
+  groundedFindingText,
   mergeCoachConfig,
   phaseForSample,
   rankFindings,
@@ -704,6 +705,12 @@ describe('coachSpeakText — terse spoken call-out', () => {
     expect(coachSpeakText(tip({ sector: 3, action: 'brake earlier' }))).toBe('Sector 3, brake earlier.')
   })
 
+  it('speaks "Turn N (Sector M), <imperative>." when the tip has a corner and sector', () => {
+    expect(coachSpeakText(tip({ corner: 4, sector: 2, action: 'turn in earlier' }))).toBe(
+      'Turn 4 (Sector 2), turn in earlier.'
+    )
+  })
+
   it('speaks a capitalized standalone imperative when there is no sector', () => {
     expect(coachSpeakText(tip({ sector: undefined, action: 'acelere antes' }))).toBe('Acelere antes.')
   })
@@ -745,6 +752,42 @@ function mkFinding(over: Partial<CoachFinding>): CoachFinding {
     ...over
   }
 }
+
+describe('groundedFindingText — detailed context-grounded line', () => {
+  it('includes turn, sector, title, time lost, evidence, and discarded intent evidence', () => {
+    const text = groundedFindingText(
+      mkFinding({
+        kind: 'steering-insufficient',
+        corner: 13,
+        sector: 3,
+        estTimeLossSec: 1.0,
+        title: 'virando pouco o volante',
+        evidence: 'Under-rotation score 120',
+        intentEvidence: ['defensive line discarded', 'no car alongside']
+      })
+    )
+
+    expect(text).toBe(
+      'Turn 13 (Setor 3): virando pouco o volante — perdeu 1.0s (Under-rotation score 120) (descartado: defensive line discarded; no car alongside).'
+    )
+  })
+
+  it('omits the discarded-intent clause when no intent evidence is present', () => {
+    const text = groundedFindingText(
+      mkFinding({
+        kind: 'steering-insufficient',
+        corner: 13,
+        sector: 3,
+        estTimeLossSec: 1.0,
+        title: 'virando pouco o volante',
+        evidence: 'Under-rotation score 120',
+        intentEvidence: []
+      })
+    )
+
+    expect(text).toBe('Turn 13 (Setor 3): virando pouco o volante — perdeu 1.0s (Under-rotation score 120).')
+  })
+})
 
 describe('coachDimensionForKind — driving-dimension grouping', () => {
   it('maps brake-point findings to "brake"', () => {
@@ -795,7 +838,7 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       { corner: 3 }
     )
     expect(advice).not.toBeNull()
-    expect(advice!.text).toBe('Turn 3: brake earlier, turn in earlier, throttle later.')
+    expect(advice!.text).toBe('Turn 3 (Sector 1): brake earlier, turn in earlier, throttle later.')
     expect(advice!.kinds).toEqual(['brake-late', 'steering-late', 'throttle-early'])
     expect(advice!.worstLossSec).toBeCloseTo(0.30, 5)
     expect(advice!.totalLossSec).toBeCloseTo(0.58, 5)
@@ -810,7 +853,7 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       { corner: 5 }
     )
     expect(advice!.actions).toEqual(['brake later'])
-    expect(advice!.text).toBe('Turn 5: brake later.')
+    expect(advice!.text).toBe('Turn 5 (Sector 1): brake later.')
   })
 
   it('surfaces BOTH steering dimensions — turn-in timing AND angle — together', () => {
@@ -821,12 +864,17 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       ],
       { corner: 7 }
     )
-    expect(advice!.text).toBe('Turn 7: turn in earlier, more steering.')
+    expect(advice!.text).toBe('Turn 7 (Sector 1): turn in earlier, more steering.')
   })
 
   it('falls back to "Sector N:" when no corner is given', () => {
     const advice = composeCornerAdvice([mkFinding({ kind: 'brake-late' })], { sector: 2 })
     expect(advice!.text).toBe('Sector 2: brake earlier.')
+  })
+
+  it('derives the sector from the worst finding when callers only pass findings', () => {
+    const advice = composeCornerAdvice([mkFinding({ kind: 'brake-late', sector: 3 })])
+    expect(advice!.text).toBe('Sector 3: brake earlier.')
   })
 
   it('caps the line at maxDims dimensions (no firehose)', () => {
@@ -863,7 +911,7 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       { corner: 4 }
     )
     expect(advice).not.toBeNull()
-    expect(advice!.text).toBe('Turn 4: find more time here.')
+    expect(advice!.text).toBe('Turn 4 (Sector 1): find more time here.')
     expect(advice!.kinds).toEqual(['time-loss'])
     expect(advice!.worstLossSec).toBeCloseTo(0.22, 5)
   })
@@ -878,7 +926,7 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       ],
       { corner: 6 }
     )
-    expect(advice!.text).toBe('Turn 6: brake earlier.')
+    expect(advice!.text).toBe('Turn 6 (Sector 1): brake earlier.')
     expect(advice!.kinds).toEqual(['brake-late'])
     expect(advice!.text).not.toContain('find more time here')
   })
@@ -890,8 +938,10 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
 })
 
 describe('coachSpeakText — prefers the corner locator over the sector', () => {
-  it('says "Turn N, …" when the tip carries a corner number', () => {
-    expect(coachSpeakText(tip({ corner: 4, sector: 2, action: 'turn in earlier' }))).toBe('Turn 4, turn in earlier.')
+  it('says "Turn N (Sector M), …" when the tip carries both locator numbers', () => {
+    expect(coachSpeakText(tip({ corner: 4, sector: 2, action: 'turn in earlier' }))).toBe(
+      'Turn 4 (Sector 2), turn in earlier.'
+    )
   })
 
   it('still says "Sector N, …" when only a sector is present', () => {

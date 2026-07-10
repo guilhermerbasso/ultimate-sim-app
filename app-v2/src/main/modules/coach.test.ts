@@ -215,8 +215,8 @@ describe('LiveCoachEngine — corner-aware spoken coaching', () => {
     h.feed(buildLap(loadedProfile, 2, 1_000_000, 95.0))
 
     expect(h.speaks.length).toBeGreaterThan(0)
-    const curva2 = h.speaks.find((s) => s.text.startsWith('Turn 2:'))
-    expect(curva2, `expected a "Turn 2:" call-out, got ${JSON.stringify(h.speaks.map((s) => s.text))}`).toBeTruthy()
+    const curva2 = h.speaks.find((s) => s.text.startsWith('Turn 2 (Sector'))
+    expect(curva2, `expected a "Turn 2 (Sector M):" call-out, got ${JSON.stringify(h.speaks.map((s) => s.text))}`).toBeTruthy()
     // All three driving dimensions reached the spoken line.
     expect(curva2!.text).toContain('brake earlier') // brake point (brake-late)
     expect(curva2!.text).toContain('turn in earlier') // turn-in TIMING (steering-late)
@@ -232,7 +232,7 @@ describe('LiveCoachEngine — corner-aware spoken coaching', () => {
     h.feed(buildLap(loadedProfile, 2, 1_000_000, 95.0))
 
     const text = h.speaks.map((s) => s.text).join(' | ')
-    expect(text).toMatch(/Turn 2:.*turn in earlier/)
+    expect(text).toMatch(/Turn 2 \(Sector \d+\):.*turn in earlier/)
   })
 
   it('only calls out the corner that actually lost time — the clean Turn 1 stays silent', () => {
@@ -241,8 +241,8 @@ describe('LiveCoachEngine — corner-aware spoken coaching', () => {
     h.feed(buildLap(loadedProfile, 1, 0, undefined))
     h.feed(buildLap(loadedProfile, 2, 1_000_000, 95.0))
 
-    expect(h.speaks.some((s) => s.text.startsWith('Turn 1:'))).toBe(false)
-    expect(h.speaks.some((s) => s.text.startsWith('Turn 2:'))).toBe(true)
+    expect(h.speaks.some((s) => s.text.startsWith('Turn 1 (Sector'))).toBe(false)
+    expect(h.speaks.some((s) => s.text.startsWith('Turn 2 (Sector'))).toBe(true)
   })
 
   it('falls back to the 3-sector model ("Sector N: …") when no corner map can be learned', () => {
@@ -296,7 +296,7 @@ describe('LiveCoachEngine — corner-aware spoken coaching', () => {
     // Every utterance is attributed to the coach (so it never looks "dead" in logs).
     expect(h.speaks.length).toBeGreaterThan(0)
     expect(h.speaks.every((s) => s.source === 'coach')).toBe(true)
-    const curva2 = h.speaks.find((s) => s.text.startsWith('Turn 2:'))
+    const curva2 = h.speaks.find((s) => s.text.startsWith('Turn 2 (Sector'))
     expect(curva2!.corner).toBe(2)
     // The warm-up cue is corner-less.
     const warmup = h.speaks.find((s) => s.tipId === 'live:warmup')
@@ -334,7 +334,7 @@ describe('LiveCoachEngine — corner-aware spoken coaching', () => {
     // Lap 3: the car exits corner 1 again → it now speaks lap-2's time-loss finding.
     h.feed(buildLap(cleanProfile(185), 3, 2_000_000, 96.0))
 
-    const curva1 = h.speaks.find((s) => s.text.startsWith('Turn 1:'))
+    const curva1 = h.speaks.find((s) => s.text.startsWith('Turn 1 (Sector'))
     expect(curva1, `expected a Turn 1 time-loss cue, got ${JSON.stringify(h.speaks.map((s) => s.text))}`).toBeTruthy()
     expect(curva1!.text).toContain('find more time here')
     expect(curva1!.corner).toBe(1)

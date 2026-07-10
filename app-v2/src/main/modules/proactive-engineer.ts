@@ -47,10 +47,18 @@ import {
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { deriveSessionKind } from '../ai/context-pack'
 import { getEngineerConfigSnapshot } from './ai-engineer'
-import { buildCornerMap, type CornerMapData, type CornerSample } from '../track-map/corner-map'
+import { buildCornerMap, trackLayoutKey, type CornerMapData, type CornerSample } from '../track-map/corner-map'
+import { createDefaultIntentRegistry } from '../../shared/driver-intent-catalog'
+import { findingEventKeys, sensitivityToMinConfidence } from '../../shared/coach-intent-gate'
+import { recordLapEvents } from '../../shared/coach-baseline'
+import { CoachBaselineStore, getCoachBaselineStore } from './coach-baselines'
 import { logger } from './logger'
 
 const LOG_AREA = 'ai'
+
+// One shared, immutable driver-intent registry (racecraft + management + conditions)
+// so deliberate choices are demoted to context / silenced instead of flagged.
+const intentRegistry = createDefaultIntentRegistry()
 
 // ─── Shared findings singleton (read by the on-demand engineer) ────────────────
 //
@@ -470,6 +478,12 @@ export function composeBrutalSectorLine(finding: CoachFinding, opts: BrutalLineO
  * more steering, throttle earlier — never praise. Falls back to the full sector
  * line when the finding carries no corner number.
  */
+/** "Turn N (Sector M)" when the sector is known, else "Turn N" — one locator for
+ *  the race phrasing so the driver always hears both the corner and its sector. */
+function turnSectorLabel(corner: number, sector?: number): string {
+  return sector !== undefined && Number.isFinite(sector) ? `Turn ${corner} (Sector ${sector})` : `Turn ${corner}`
+}
+
 export function composeBrutalCornerLine(finding: CoachFinding, opts: BrutalLineOptions): string {
   const pt = opts.language !== 'en-US'
   const improve = (pt ? IMPROVE_PT : IMPROVE_EN)[finding.kind] ?? finding.title
@@ -479,8 +493,8 @@ export function composeBrutalCornerLine(finding: CoachFinding, opts: BrutalLineO
 
   if (n === undefined) return composeBrutalSectorLine(finding, opts)
 
+  const where = turnSectorLabel(n, finding.sector)
   if (pt) {
-    const where = `Turn ${n}`
     if (opts.assertiveness === 'brutal') {
       return hasLoss ? `${where}, ${improve} — ${loss}s.` : `${where}, ${improve}.`
     }
@@ -490,7 +504,6 @@ export function composeBrutalCornerLine(finding: CoachFinding, opts: BrutalLineO
     return hasLoss ? `${where}, ${improve} next lap (${loss}s).` : `${where}, ${improve} next lap.`
   }
 
-  const where = `Turn ${n}`
   if (opts.assertiveness === 'brutal') {
     return hasLoss ? `${where}, ${improve} — ${loss}s.` : `${where}, ${improve}.`
   }
@@ -575,7 +588,7 @@ export function composeBrutalCornerComposite(
   const worstLoss = ranked[0].estTimeLossSec
   const hasLoss = worstLoss > 0
   const loss = formatLoss(worstLoss)
-  const where = pt ? `Turn ${corner}` : `Turn ${corner}`
+  const where = turnSectorLabel(corner, ranked[0].sector)
 
   if (pt) {
     if (opts.assertiveness === 'brutal') return hasLoss ? `${where}, ${body} — ${loss}s.` : `${where}, ${body}.`
@@ -600,6 +613,7 @@ export interface ProactiveConfigView {
   proactiveCoaching: boolean
   language: EngineerLanguage
   assertiveness: EngineerAssertiveness
+  intentSensitivity: number
 }
 
 export interface ProactiveEngineDeps {
@@ -612,6 +626,13 @@ export interface ProactiveEngineDeps {
   now?(): number
   minEmitIntervalMs?: number
   minSpeedKmh?: number
+  /**
+   * Optional per-driver baseline store (car+track). When present, the engine loads
+   * the baseline before analysis (enabling lap-to-lap repetition gating in the
+   * intent gate) and records this lap's events after analysis. Omitted in tests →
+   * the gate runs without repetition data (unchanged behavior).
+   */
+  baselineStore?: CoachBaselineStore
   /** Number of EQUAL-width sectors (default 3, matching the Coach). 1 → per-lap. */
   sectorCount?: number
   /**
@@ -683,6 +704,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   const cadence: 'sector' | 'corner' | 'auto' =
     deps.cadence === 'corner' || deps.cadence === 'sector' ? deps.cadence : 'auto'
   const buildCornerMapFn = deps.buildCornerMap ?? buildCornerMap
+  const baselineStore = deps.baselineStore
 
   const tracker = createSectorTracker()
   const cornerTracker = createCornerTracker()
@@ -736,6 +758,9 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
         const learned = buildCornerMapFn(snapshot.trackName ?? 'unknown', toCornerSamples(lapSamples))
         if (learned.corners.length > 0) cornerMap = learned
       }
+      const layoutKey = trackLayoutKey(snapshot.trackName ?? '', snapshot.trackConfigName)
+      const baseline = baselineStore?.get(layoutKey, snapshot.carName)
+      const minConfidence = sensitivityToMinConfidence(deps.getConfig().intentSensitivity)
       const report = buildCoachReport(
         {
           sectorCount: starts.length,
@@ -744,10 +769,18 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
           lapTimeSec: Number.isFinite(snapshot.lastLapTimeSec) ? snapshot.lastLapTimeSec : undefined,
           bestLapTimeSec: Number.isFinite(snapshot.bestLapTimeSec) ? snapshot.bestLapTimeSec : undefined
         },
-        { cornerMap: wantCorner ? cornerMap : null }
+        { cornerMap: wantCorner ? cornerMap : null, registry: intentRegistry, baseline, minConfidence }
       )
       // Stamp the findings with the live car/track so a later session can't cite them.
       setFindings(report.findings, { carName: snapshot.carName, trackName: snapshot.trackName })
+      // Learn this lap's events so future laps can tell a repeated issue from noise.
+      if (baselineStore && baseline) {
+        const lapForRep = isRealLapCount(snapshot.currentLap) ? (snapshot.currentLap as number) : (lastLapCount ?? 0)
+        baselineStore.put({
+          ...baseline,
+          repetition: recordLapEvents(baseline.repetition, lapForRep, findingEventKeys(report.findings))
+        })
+      }
     } catch (error) {
       logger.warn(LOG_AREA, 'proactive lap analysis failed', { message: error instanceof Error ? error.message : String(error) })
     }
@@ -950,6 +983,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
 // ─── Module registration ───────────────────────────────────────────────────────
 
 export function register(ctx: ModuleContext): void {
+  const baselineStore = getCoachBaselineStore(ctx.app.getPath('userData'))
   const engine = createProactiveEngine({
     emit: (event) => ctx.broadcast(ENGINEER_CHANNELS.proactive, event),
     getConfig: () => {
@@ -958,10 +992,12 @@ export function register(ctx: ModuleContext): void {
         enabled: cfg.enabled,
         proactiveCoaching: cfg.proactiveCoaching,
         language: cfg.language,
-        assertiveness: cfg.assertiveness
+        assertiveness: cfg.assertiveness,
+        intentSensitivity: cfg.intentSensitivity
       }
     },
-    publishFindings: publishCoachFindings
+    publishFindings: publishCoachFindings,
+    baselineStore
   })
 
   ctx.telemetryHub.on('snapshot', (snapshot: TelemetrySnapshot | null) => {

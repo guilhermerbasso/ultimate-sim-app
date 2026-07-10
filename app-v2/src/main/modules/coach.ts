@@ -39,7 +39,11 @@ import {
   type CornerTracker,
   type SectorTracker
 } from './proactive-engineer'
-import { buildCornerMap, type CornerMapData, type CornerSample } from '../track-map/corner-map'
+import { buildCornerMap, trackLayoutKey, type CornerMapData, type CornerSample } from '../track-map/corner-map'
+import { createDefaultIntentRegistry } from '../../shared/driver-intent-catalog'
+import { recordLapEvents } from '../../shared/coach-baseline'
+import { findingEventKeys } from '../../shared/coach-intent-gate'
+import { CoachBaselineStore, getCoachBaselineStore } from './coach-baselines'
 import { deriveSessionKind } from '../ai/context-pack'
 import type { SessionKind } from '../../shared/ai-engineer'
 import {
@@ -52,6 +56,10 @@ import {
 import { getLlmRuntime } from '../ai/llm-runtime'
 import { getModelManager } from '../ai/model-manager'
 import { logger } from './logger'
+
+// One shared, immutable driver-intent registry so the Live Coach gates deliberate
+// racecraft/management/condition choices (context/silence) exactly like the proactive engine.
+const intentRegistry = createDefaultIntentRegistry()
 
 // ─────────────────────────────────────────────────────────────────────────────
 // F1 — Live Coach engine (corner-aware spoken coaching).
@@ -142,6 +150,8 @@ export interface LiveCoachDeps {
   ) => CornerMapData
   /** Clock (defaults to Date.now). Injectable so tests control cooldowns/TTL. */
   now?: () => number
+  /** Optional per-driver baseline store (car+track) for lap-to-lap repetition gating. */
+  baselineStore?: CoachBaselineStore
 }
 
 export class LiveCoachEngine {
@@ -307,6 +317,8 @@ export class LiveCoachEngine {
       )
       if (learned.corners.length > 0) this.cornerMap = { corners: learned.corners }
     }
+    const layoutKey = trackLayoutKey(snapshot.trackName ?? '', snapshot.trackConfigName)
+    const baseline = this.deps.baselineStore?.get(layoutKey, snapshot.carName)
     const report = buildCoachReport(
       {
         sectorCount: SECTORS,
@@ -315,9 +327,16 @@ export class LiveCoachEngine {
         lapTimeSec,
         bestLapTimeSec: finiteOrUndefined(snapshot.bestLapTimeSec)
       },
-      { recentLapTimesSec: this.recentLapTimes, cornerMap: this.cornerMap, reference: this.reference }
+      { recentLapTimesSec: this.recentLapTimes, cornerMap: this.cornerMap, reference: this.reference, registry: intentRegistry, baseline }
     )
     this.findings = report.findings
+    // Learn this lap's events so future laps can tell a repeated issue from noise.
+    if (this.deps.baselineStore && baseline) {
+      this.deps.baselineStore.put({
+        ...baseline,
+        repetition: recordLapEvents(baseline.repetition, this.previousLapNumber ?? 0, findingEventKeys(report.findings))
+      })
+    }
     // Update the bidirectional reference on the fastest valid lap so far.
     if (
       lapTimeSec !== undefined &&
@@ -596,7 +615,7 @@ class LapCoachAnalyzer {
         lapTimeSec,
         bestLapTimeSec: finiteOrUndefined(snapshot.bestLapTimeSec)
       },
-      { recentLapTimesSec: this.recentLapTimes, cornerMap: this.cornerMap, reference: this.reference }
+      { recentLapTimesSec: this.recentLapTimes, cornerMap: this.cornerMap, reference: this.reference, registry: intentRegistry }
     )
     // Update the bidirectional reference when this is the fastest valid lap so far.
     if (
@@ -849,7 +868,10 @@ async function saveCoachConfig(configPath: string, nextConfig: CoachConfig): Pro
 }
 
 export function register(ctx: ModuleContext): void {
-  engine = new LiveCoachEngine({ broadcast: (channel, payload) => ctx.broadcast(channel, payload) })
+  engine = new LiveCoachEngine({
+    broadcast: (channel, payload) => ctx.broadcast(channel, payload),
+    baselineStore: getCoachBaselineStore(ctx.app.getPath('userData'))
+  })
 
   // Persisted coach config (speakTopTip + phraseWithAi). Mirrors the spotter
   // module's JSON-in-userData lifecycle so the Live Coach speaks by default and

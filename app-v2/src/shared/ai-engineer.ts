@@ -130,6 +130,11 @@ export interface PackCoachFinding {
   severity: string
   estTimeLossSec: number
   title: string
+  groundedText: string
+  confidence?: number
+  intent?: string
+  intentCategory?: string
+  intentEvidence?: string[]
 }
 
 export interface ContextPack {
