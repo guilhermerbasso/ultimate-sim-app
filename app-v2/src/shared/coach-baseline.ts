@@ -20,21 +20,22 @@ export interface RobustMetric {
 
 export function updateRobustMetric(prev: RobustMetric | undefined, sample: number, alpha = DEFAULT_ALPHA): RobustMetric {
   if (!Number.isFinite(sample)) {
-    return prev ? cloneMetric(prev) : initialMetric(0)
+    return prev ? cloneMetric(prev) : emptyMetric()
   }
 
+  const baselinePrev = prev && prev.n > 0 ? prev : undefined
   const a = Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : DEFAULT_ALPHA
-  const samples = [...(prev?.samples ?? (prev && Number.isFinite(prev.median) ? [prev.median] : [])), sample]
+  const samples = [...(baselinePrev?.samples ?? (baselinePrev && Number.isFinite(baselinePrev.median) ? [baselinePrev.median] : [])), sample]
     .filter(Number.isFinite)
     .slice(-SAMPLE_WINDOW)
   const median = calcMedian(samples)
   const deviations = samples.map((v) => Math.abs(v - median))
   const mad = calcMedian(deviations)
   return {
-    n: (prev?.n ?? 0) + 1,
+    n: (baselinePrev?.n ?? 0) + 1,
     median,
     mad,
-    ema: prev ? a * sample + (1 - a) * prev.ema : sample,
+    ema: baselinePrev ? a * sample + (1 - a) * baselinePrev.ema : sample,
     lastUpdated: Date.now(),
     samples
   }
@@ -123,6 +124,10 @@ function calcMedian(values: number[]): number {
 
 function initialMetric(sample: number): RobustMetric {
   return { n: 1, median: sample, mad: 0, ema: sample, lastUpdated: Date.now(), samples: [sample] }
+}
+
+function emptyMetric(): RobustMetric {
+  return { n: 0, median: 0, mad: 0, ema: 0, lastUpdated: 0, samples: [] }
 }
 
 function cloneMetric(metric: RobustMetric): RobustMetric {

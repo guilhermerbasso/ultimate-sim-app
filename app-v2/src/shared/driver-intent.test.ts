@@ -203,4 +203,24 @@ describe('DriverIntentRegistry', () => {
     const evaln = reg.classify(mkEvent())
     expect(evaln.intent).toBe('side-by-side')
   })
+
+  it('uses locale-independent lexical tie-break ordering', () => {
+    const alpha: IntentRule = {
+      id: 'alpha',
+      category: 'racecraft',
+      label: 'alpha',
+      signalsUsed: [],
+      evaluate: (): IntentScore => ({ intent: 'alpha', category: 'racecraft', confidence: 0.5, evidence: [] })
+    }
+    const zeta: IntentRule = {
+      id: 'zeta',
+      category: 'racecraft',
+      label: 'zeta',
+      signalsUsed: [],
+      evaluate: (): IntentScore => ({ intent: 'zeta', category: 'racecraft', confidence: 0.5, evidence: [] })
+    }
+    const reg = new DriverIntentRegistry().registerAll([zeta, alpha])
+    const evaln = reg.classify(mkEvent())
+    expect(evaln.candidates.map((c) => c.intent)).toEqual(['alpha', 'zeta'])
+  })
 })

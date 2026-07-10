@@ -125,6 +125,12 @@ export function clamp01(x: number): number {
   return x
 }
 
+function lexicalCompare(a: string, b: string): number {
+  if (a < b) return -1
+  if (a > b) return 1
+  return 0
+}
+
 /** Rising ramp: 0 at/below `a`, 1 at/above `b`, linear between (a < b). */
 export function fuzzyRising(x: number, a: number, b: number): number {
   if (!Number.isFinite(x)) return 0
@@ -367,7 +373,10 @@ export class DriverIntentRegistry {
       }
     }
     candidates.sort(
-      (a, b) => b.confidence - a.confidence || b.evidence.length - a.evidence.length || String(a.intent).localeCompare(String(b.intent))
+      (a, b) =>
+        b.confidence - a.confidence ||
+        b.evidence.length - a.evidence.length ||
+        lexicalCompare(String(a.intent), String(b.intent))
     )
     const winner = candidates[0]
     if (!winner) {

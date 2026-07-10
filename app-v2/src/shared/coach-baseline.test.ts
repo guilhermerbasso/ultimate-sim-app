@@ -9,6 +9,12 @@ import {
 } from './coach-baseline'
 
 describe('coach baseline robust metrics', () => {
+  it('keeps a brand-new metric empty when sample is invalid', () => {
+    const metric = updateRobustMetric(undefined, Number.NaN)
+    expect(metric.n).toBe(0)
+    expect(metric.samples).toEqual([])
+  })
+
   it('updates median/MAD and EMA toward repeated clean samples', () => {
     let metric: RobustMetric | undefined
     for (const sample of [99, 100, 101, 100, 100, 101, 99]) {

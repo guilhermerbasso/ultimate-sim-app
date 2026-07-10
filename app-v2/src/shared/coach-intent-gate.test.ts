@@ -124,6 +124,13 @@ describe('applyIntentGate — silence', () => {
     expect(out).toHaveLength(1)
     expect(out[0].sign).toBe('loss')
   })
+
+  it('silences one-off errors when a baseline exists, even with high confidence terms', () => {
+    const reg = new DriverIntentRegistry().register(fakeRule('defend', null))
+    const baseline = emptyBaseline('Track :: GP', 'CarX')
+    const out = applyIntentGate([mkFinding({ estTimeLossSec: 0.4 })], windowSamples, reg, { baseline, minConfidence: 0.1 })
+    expect(out).toHaveLength(0)
+  })
 })
 
 describe('eventKeyForFinding / findingEventKeys', () => {

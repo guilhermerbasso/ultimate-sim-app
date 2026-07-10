@@ -111,8 +111,10 @@ export function applyIntentGate(
     // real error; a one-off is likely noise. Without a baseline we cannot confirm
     // repetition, so we neither strongly confirm nor suppress (0.7).
     let repetitionWeight = 0.7
+    let repeatedWithBaseline = true
     if (opts.baseline) {
-      repetitionWeight = isRepeated(opts.baseline.repetition, eventKeyForFinding(f)) ? 1 : 0.3
+      repeatedWithBaseline = isRepeated(opts.baseline.repetition, eventKeyForFinding(f))
+      repetitionWeight = repeatedWithBaseline ? 1 : 0.3
     }
 
     const notIntentional = 1 - evaln.confidence
@@ -138,6 +140,12 @@ export function applyIntentGate(
         sign: undefined,
         estTimeDeltaSec: 0
       })
+      continue
+    }
+
+    // Golden rule: with a baseline, keep ERROR findings only when they repeat
+    // lap-to-lap. One-offs are silenced even if other confidence terms are high.
+    if (opts.baseline && !repeatedWithBaseline) {
       continue
     }
 
