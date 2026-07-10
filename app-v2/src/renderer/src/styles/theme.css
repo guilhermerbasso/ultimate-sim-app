@@ -449,17 +449,21 @@ h3 {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  flex-shrink: 0;
-  min-height: 28px;
-  padding: var(--space-2) var(--space-5);
-  border: 1px solid var(--border-strong);
+  flex: 0 1 auto;
+  max-inline-size: min(100%, 360px);
+  min-height: 36px;
+  padding: var(--space-3) var(--space-6);
+  border: 1px solid var(--accent-primary-bright);
   border-radius: var(--radius-pill);
-  background: var(--surface-raised);
-  color: var(--text-secondary);
+  background: var(--accent-primary);
+  color: #04111f;
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.08em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+  text-align: center;
   text-transform: uppercase;
   text-decoration: none;
   cursor: pointer;
@@ -468,8 +472,9 @@ h3 {
 
 .report-bug-button:hover,
 .report-bug-button:focus-visible {
-  border-color: var(--danger);
-  color: var(--danger);
+  background: var(--accent-primary-bright);
+  border-color: var(--accent-primary-bright);
+  color: #04111f;
   outline: none;
 }
 
@@ -480,6 +485,79 @@ h3 {
 .report-bug-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Persistent "Join us on Discord" chrome button (Discord blurple, stands out). */
+.discord-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: var(--space-2) var(--space-5);
+  border-radius: 999px;
+  border: 1px solid #5865f2;
+  background: #5865f2;
+  color: #fff;
+  font-size: var(--font-size-sm, 13px);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+.discord-button:hover,
+.discord-button:focus-visible {
+  background: #4752c4;
+  border-color: #4752c4;
+  color: #fff;
+  outline: none;
+}
+.discord-button:active {
+  transform: translateY(1px);
+}
+
+/* Persistent "Check for updates" chrome button; highlights when an update is ready. */
+.check-updates-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: var(--space-2) var(--space-5);
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: transparent;
+  color: inherit;
+  font-size: var(--font-size-sm, 13px);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+.check-updates-button:hover,
+.check-updates-button:focus-visible {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary-bright);
+  color: var(--text-on-accent);
+  outline: none;
+}
+.check-updates-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.check-updates-button.is-available {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary-bright);
+  color: var(--text-on-accent);
+  animation: check-updates-pulse 2s ease-in-out infinite;
+}
+.check-updates-button:active {
+  transform: translateY(1px);
+}
+@keyframes check-updates-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(20, 255, 236, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(20, 255, 236, 0.18); }
 }
 
 /* Persistent update banner across the top of the app when an update is available. */

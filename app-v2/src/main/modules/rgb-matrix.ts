@@ -203,6 +203,7 @@ export class RgbMatrixModule {
   // becomes active. Pruned when the flag / label is no longer rendered.
   private scopeActivatedAt = new Map<string, number>()
   private gearRedlineLatched = new Map<string, boolean>()
+  private transportFailureLogged = new Set<string>()
   // Devices we have already pushed the persisted layout byte to since they last
   // connected. Cleared on any fleet change so a reconnect re-sends the layout.
   private layoutSentTo = new Set<string>()
@@ -344,7 +345,13 @@ export class RgbMatrixModule {
         try {
           await withWriteTimeout(target.device.sendRaw(formatBrightness(0)), MATRIX_OFF_WRITE_TIMEOUT_MS)
           if (black) await withWriteTimeout(target.device.sendRaw(black), MATRIX_OFF_WRITE_TIMEOUT_MS)
-        } catch {
+        } catch (error) {
+          logger.error('iflag', 'failed to turn matrix off during shutdown', {
+            deviceId: target.device.id,
+            profileId: profile.id,
+            componentId: component.id,
+            message: errorMessage(error)
+          })
           // best effort — the panel may already be gone or the port wedged
         }
       }
@@ -570,7 +577,12 @@ export class RgbMatrixModule {
       await delay(TEST_COMMAND_SETTLE_MS)
       await device.sendRaw(frame)
       return true
-    } catch {
+    } catch (error) {
+      logger.error('iflag', 'failed to send matrix test frame', {
+        deviceId: device.id,
+        sendKey,
+        message: errorMessage(error)
+      })
       this.layoutSentTo.delete(device.id)
       this.lastPayload.delete(sendKey)
       this.lastSentAt.delete(sendKey)
@@ -629,11 +641,17 @@ export class RgbMatrixModule {
     if (this.lastBrightness.get(sendKey) !== brightness) {
       const prev = this.lastBrightness.get(sendKey)
       this.lastBrightness.set(sendKey, brightness)
-      void device.sendRaw(formatBrightness(brightness)).catch(() => {
+      void device.sendRaw(formatBrightness(brightness)).catch((error) => {
         if (prev === undefined) this.lastBrightness.delete(sendKey)
         else this.lastBrightness.set(sendKey, prev)
         this.lastPayload.delete(sendKey)
         this.lastSentAt.delete(sendKey)
+        this.logTransportFailureOnce(`${sendKey}:brightness`, 'failed to send matrix brightness', {
+          deviceId: device.id,
+          sendKey,
+          brightness,
+          message: errorMessage(error)
+        })
       })
     }
     const frames: string[] = []
@@ -651,9 +669,15 @@ export class RgbMatrixModule {
     // Route the live frame through the coalescing writer: at most one write in flight
     // + one pending (latest) per device, so a slow Nano never builds a growing
     // backlog — the panel always renders the freshest frame; stale frames are dropped.
-    this.frameWriter.push(device, frames, () => {
+    this.frameWriter.push(device, frames, (error) => {
       this.lastPayload.delete(sendKey)
       this.lastSentAt.delete(sendKey)
+      this.logTransportFailureOnce(`${sendKey}:frame`, 'failed to send matrix frame', {
+        deviceId: device.id,
+        sendKey,
+        frames: frames.length,
+        message: errorMessage(error)
+      })
     })
   }
 
@@ -935,9 +959,14 @@ export class RgbMatrixModule {
   }
 
   private safeSendLayout(device: SerialDevice, frame: string): void {
-    void device.sendRaw(frame).catch(() => {
+    void device.sendRaw(frame).catch((error) => {
       // Port may not have been ready yet; allow a retry on the next tick/event.
       this.layoutSentTo.delete(device.id)
+      this.logTransportFailureOnce(`${device.id}:layout`, 'failed to send matrix layout', {
+        deviceId: device.id,
+        frame,
+        message: errorMessage(error)
+      })
     })
   }
 
@@ -1003,10 +1032,22 @@ export class RgbMatrixModule {
   }
 
   private safeSend(device: SerialDevice, key: string, frame: string): void {
-    void device.sendRaw(frame).catch(() => {
+    void device.sendRaw(frame).catch((error) => {
       this.lastPayload.delete(key)
       this.lastSentAt.delete(key)
+      this.logTransportFailureOnce(`${key}:command`, 'failed to send matrix command', {
+        deviceId: device.id,
+        key,
+        frameHead: frame.slice(0, 8),
+        message: errorMessage(error)
+      })
     })
+  }
+
+  private logTransportFailureOnce(key: string, message: string, detail: unknown): void {
+    if (this.transportFailureLogged.has(key)) return
+    this.transportFailureLogged.add(key)
+    logger.error('iflag', message, detail)
   }
 
   private clearDedup(): void {
@@ -1021,6 +1062,7 @@ export class RgbMatrixModule {
     this.scopeActivatedAt.clear()
     this.gearRedlineLatched.clear()
     this.layoutSentTo.clear()
+    this.transportFailureLogged.clear()
     this.clearAllTestHolds()
   }
 }
@@ -1033,10 +1075,14 @@ function delay(ms: number): Promise<void> {
 // hang the quit-time allOff(). The orphaned write settles/rejects later harmlessly.
 function withWriteTimeout<T>(p: Promise<T>, ms: number): Promise<T | void> {
   let timer: ReturnType<typeof setTimeout>
-  const timeout = new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, ms)
+  const timeout = new Promise<void>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`matrix shutdown write timed out after ${ms}ms`)), ms)
   })
   return Promise.race([p.finally(() => clearTimeout(timer)), timeout])
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function emptyPayload(): RgbMatrixProfilesPayload {

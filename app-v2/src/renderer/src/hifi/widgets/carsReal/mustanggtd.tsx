@@ -1,6 +1,6 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, revFill, signed, tempColor } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, signed, tempColor } from '../kit'
 
 const DASH_W = 1024
 const DASH_H = 600
@@ -79,7 +79,7 @@ function GtdDefs({ id }: { id: string }): ReactElement {
 function ShiftNeedle({ cx, cy, r1, r2, f, id, shift }: { cx: number; cy: number; r1: number; r2: number; f: number; id: string; shift: boolean }): ReactElement {
   const deg = 180 + 180 * Math.max(0, Math.min(1, f || 0))
   const t = tickLine(cx, cy, r1, r2, deg)
-  return <line {...t} stroke={revFill(WHITE, shift)} strokeWidth={13} strokeLinecap="round" filter={`url(#${id}-glow)`} />
+  return <line {...t} stroke={shift ? RED : WHITE} strokeWidth={shift ? 17 : 13} strokeLinecap="round" filter={`url(#${id}-glow)`} />
 }
 
 function SweepingArcTach({
@@ -99,7 +99,8 @@ function SweepingArcTach({
 }): ReactElement {
   const f = rpmFraction(snapshot)
   const missing = rpmMissing(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = !missing && atShiftPoint(f)
+  const tachColor = (base: string): string => shift ? RED : base
   const cx = width / 2
   const cy = height * 0.82
   const r = Math.min(width * 0.47, height * 1.35)
@@ -113,17 +114,18 @@ function SweepingArcTach({
       <ShiftStrobe active={shift} />
       <GtdDefs id={id} />
       {glow ? <path d={arcPath(cx, cy, r - 22, start, end)} stroke={`url(#${id}-halo)`} strokeWidth={52} fill="none" /> : null}
-      <path d={arcPath(cx, cy, r, start, end)} stroke={shift ? revFill(WHITE, shift) : 'rgba(255,255,255,0.14)'} strokeWidth={24} fill="none" strokeLinecap="butt" />
-      <path d={arcPath(cx, cy, r, start, 318)} stroke={revFill(BLUE, shift)} strokeWidth={8} fill="none" />
-      <path d={arcPath(cx, cy, r, 318, 340)} stroke={revFill(WHITE, shift)} strokeWidth={8} fill="none" />
-      <path d={arcPath(cx, cy, r, 340, end)} stroke={revFill(RED, shift)} strokeWidth={8} fill="none" />
-      <path d={arcPath(cx, cy, r - 54, start + 8, end - 8)} stroke={revFill(BLUE, shift)} strokeWidth={3} fill="none" opacity={0.95} />
-      {(!missing || shift) && litEnd > start ? <path d={arcPath(cx, cy, r - 12, start, litEnd)} stroke={shift ? revFill(BLUE, shift) : `url(#${id}-sweep)`} strokeWidth={18} fill="none" strokeLinecap="butt" opacity={0.92} /> : null}
+      {shift ? <path d={arcPath(cx, cy, r - 6, start, end)} stroke={RED} strokeWidth={38} fill="none" strokeLinecap="butt" opacity={0.48} filter={`url(#${id}-glow)`} /> : null}
+      <path d={arcPath(cx, cy, r, start, end)} stroke={shift ? RED : 'rgba(255,255,255,0.14)'} strokeWidth={24} fill="none" strokeLinecap="butt" />
+      <path d={arcPath(cx, cy, r, start, 318)} stroke={tachColor(BLUE)} strokeWidth={shift ? 11 : 8} fill="none" filter={shift ? `url(#${id}-glow)` : undefined} />
+      <path d={arcPath(cx, cy, r, 318, 340)} stroke={tachColor(WHITE)} strokeWidth={shift ? 11 : 8} fill="none" filter={shift ? `url(#${id}-glow)` : undefined} />
+      <path d={arcPath(cx, cy, r, 340, end)} stroke={tachColor(RED)} strokeWidth={shift ? 11 : 8} fill="none" filter={shift ? `url(#${id}-glow)` : undefined} />
+      <path d={arcPath(cx, cy, r - 54, start + 8, end - 8)} stroke={tachColor(BLUE)} strokeWidth={shift ? 5 : 3} fill="none" opacity={0.95} />
+      {(!missing || shift) && litEnd > start ? <path d={arcPath(cx, cy, r - 12, start, litEnd)} stroke={shift ? RED : `url(#${id}-sweep)`} strokeWidth={shift ? 24 : 18} fill="none" strokeLinecap="butt" opacity={0.95} filter={shift ? `url(#${id}-glow)` : undefined} /> : null}
       {minor.map((i) => {
         const deg = start + (i / 45) * 180
         const red = deg > 338
         const t = tickLine(cx, cy, r - 8, r - 23, deg)
-        return <line key={i} {...t} stroke={revFill(red ? RED : deg > 305 ? WHITE : BLUE_2, shift)} strokeWidth={1.7} opacity={0.85} />
+        return <line key={i} {...t} stroke={tachColor(red ? RED : deg > 305 ? WHITE : BLUE_2)} strokeWidth={shift ? 2.5 : 1.7} opacity={0.88} />
       })}
       {major.map((n) => {
         const deg = start + (n / 9) * 180
@@ -132,8 +134,8 @@ function SweepingArcTach({
         const p = polar(cx, cy, r - 72, deg)
         return (
           <g key={n}>
-            <line {...t} stroke={revFill(red ? RED : n >= 5 ? WHITE : BLUE_2, shift)} strokeWidth={n === 0 || n === 9 ? 5 : 4} />
-            {labels ? <text x={p.x} y={p.y + 9} textAnchor="middle" fill={revFill(red ? RED : n >= 5 ? WHITE : BLUE_2, shift)} fontFamily={FONT_NUM} fontWeight={900} fontSize={Math.max(20, height * 0.12)} {...legibleStroke(Math.max(20, height * 0.12))}>{n}</text> : null}
+            <line {...t} stroke={tachColor(red ? RED : n >= 5 ? WHITE : BLUE_2)} strokeWidth={shift ? 6 : n === 0 || n === 9 ? 5 : 4} filter={shift ? `url(#${id}-glow)` : undefined} />
+            {labels ? <text x={p.x} y={p.y + 9} textAnchor="middle" fill={tachColor(red ? RED : n >= 5 ? WHITE : BLUE_2)} fontFamily={FONT_NUM} fontWeight={900} fontSize={Math.max(20, height * 0.12)} {...legibleStroke(Math.max(20, height * 0.12))}>{n}</text> : null}
           </g>
         )
       })}
@@ -201,14 +203,14 @@ function GtdDash({ snapshot, width, height }: HifiWidgetProps): ReactElement {
     <CleanTile width={width ?? DASH_W} height={height ?? DASH_H}>
       <rect width={DASH_W} height={DASH_H} fill={DARK} />
       <rect x={0} y={0} width={DASH_W} height={DASH_H} fill="url(#gtd-dash-halo)" opacity={0.55} />
-      <g transform="translate(0,-18)">
+      <g transform="translate(0,-68)">
         <SweepingArcTach snapshot={snapshot} width={DASH_W} height={600} id="gtd-dash" />
       </g>
-      <text x={512} y={335} textAnchor="middle" fill={gear == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={175} {...legibleStroke(175)}>{gearLabel(gear)}</text>
-      <text x={512} y={462} textAnchor="middle" fill={mph == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={92} {...legibleStroke(92)}>{fixed(mph)}</text>
-      <text x={512} y={504} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={31} {...legibleStroke(31)}>mph</text>
-      <TempRows snapshot={snapshot} x={38} y={450} />
-      <TyreGrid snapshot={snapshot} x={704} y={454} />
+      <text x={512} y={318} textAnchor="middle" fill={gear == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={164} {...legibleStroke(164)}>{gearLabel(gear)}</text>
+      <text x={512} y={428} textAnchor="middle" fill={mph == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={76} {...legibleStroke(76)}>{fixed(mph)}</text>
+      <text x={512} y={463} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={27} {...legibleStroke(27)}>mph</text>
+      <TempRows snapshot={snapshot} x={38} y={438} />
+      <TyreGrid snapshot={snapshot} x={708} y={436} compact />
       <path d="M0 584 H398 l22 -26 h184 l22 26 H1024" fill="none" stroke={BLUE} strokeWidth={2.2} />
       <path d="M420 584 l22 -26 h140 l22 26 l-22 25 h-140 Z" fill="rgba(0,0,0,0.84)" stroke={BLUE} strokeWidth={2.2} />
       <text x={512} y={592} textAnchor="middle" fill={BLUE} fontFamily={FONT_BIG} fontStyle="italic" fontWeight={900} fontSize={36} {...legibleStroke(36)}>TRACK</text>

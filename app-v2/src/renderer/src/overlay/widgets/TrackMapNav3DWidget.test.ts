@@ -61,7 +61,7 @@ describe('TrackMapNav3DWidget', () => {
   it('SSR-renders the SVG track-map fallback with populated telemetry', () => {
     const markup = render(snapshot())
     expect(markup).toContain('data-widget="trackMapNav3D"')
-    expect(markup).toContain('Spa-Francorchamps')
+    expect(markup).toContain('data-widget="trackMap"')
     expect(markup).toContain('<svg')
     expect(markup).not.toContain('NaN')
     expect(markup).not.toContain('Infinity')

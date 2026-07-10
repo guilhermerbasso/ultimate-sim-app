@@ -43,7 +43,6 @@ function incidentState(count: number | undefined, limit: number | undefined): Fi
 
 export function SessionInfoTileWidget({ snapshot, config }: WidgetProps): ReactElement {
   const skin = resolveSkin('gt3', 'generic')
-  const glass = skin.id === 'hud'
   const W = Math.max(1, Math.round(config?.position?.width ?? DEFAULT_W))
   const H = Math.max(1, Math.round(config?.position?.height ?? DEFAULT_H))
 
@@ -81,26 +80,14 @@ export function SessionInfoTileWidget({ snapshot, config }: WidgetProps): ReactE
       role="img"
       style={{ display: 'block' }}
     >
-      <rect
-        x={1}
-        y={1}
-        width={W - 2}
-        height={H - 2}
-        rx={skin.material.radius}
-        fill={skin.material.base}
-        stroke={skin.material.border}
-        strokeWidth={skin.material.borderWidth}
-        opacity={glass ? skin.material.panelAlpha ?? 1 : 1}
-      />
-
       {s?.sessionState !== undefined ? <rect x={pad} y={pad + 2} width={10} height={12} rx={2} fill={skin.palette.accent} /> : null}
-      <FitText x={s?.sessionState !== undefined ? pad + 16 : pad} y={pad + 10} boxW={W * 0.55} boxH={16} text={sessionLabel} anchor="start" fontFamily={skin.typography.label} fill={skin.palette.text} minFontPx={11} maxFontPx={18} letterSpacing={1} />
-      {sof !== undefined ? <FitText x={W - pad} y={pad + 10} boxW={W * 0.35} boxH={14} text={`SOF ${sof}`} anchor="end" fontFamily={skin.typography.label} fill={skin.palette.textDim} minFontPx={11} maxFontPx={14} /> : null}
+      <FitText x={s?.sessionState !== undefined ? pad + 16 : pad} y={pad + 10} boxW={W * 0.45} boxH={16} text={sessionLabel} anchor="start" fontFamily={skin.typography.label} fill={skin.palette.text} minFontPx={11} maxFontPx={18} letterSpacing={1} />
+      {sof !== undefined ? <FitText x={W - pad} y={pad + 10} boxW={W * 0.46} boxH={16} text={`SOF ${sof}`} anchor="end" fontFamily={skin.typography.label} fill={skin.palette.textDim} minFontPx={9} maxFontPx={14} /> : null}
 
-      <DataField x={pad} y={gridY} width={cellW} height={cellH} label="TIME LEFT" value={clock} skin={skin} />
-      <DataField x={col1} y={gridY} width={cellW} height={cellH} label={lapLabel} value={lapStr} skin={skin} />
-      <DataField x={pad} y={row1} width={cellW} height={cellH} label="POS" value={posStr} unit={posUnit} skin={skin} />
-      <DataField x={col1} y={row1} width={cellW} height={cellH} label="INC" value={incStr} unit={incUnit} state={incState} skin={skin} />
+      <DataField x={pad} y={gridY} width={cellW} height={cellH} label="TIME LEFT" value={clock} panel={false} skin={skin} />
+      <DataField x={col1} y={gridY} width={cellW} height={cellH} label={lapLabel} value={lapStr} panel={false} skin={skin} />
+      <DataField x={pad} y={row1} width={cellW} height={cellH} label="POS" value={posStr} unit={posUnit} panel={false} skin={skin} />
+      <DataField x={col1} y={row1} width={cellW} height={cellH} label="INC" value={incStr} unit={incUnit} state={incState} panel={false} skin={skin} />
     </svg>
   )
 }

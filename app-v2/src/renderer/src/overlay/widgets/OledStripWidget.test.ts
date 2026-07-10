@@ -46,10 +46,9 @@ describe('OledStripWidget', () => {
     }
   })
 
-  it('degrades a null snapshot to "—" with all five segments + LED bar present', () => {
+  it('degrades a null snapshot to "—" with visible segments + LED bar present', () => {
     const out = render(null)
     expect(out).toContain('GEAR')
-    expect(out).toContain('REV')
     expect(out).toContain('DELTA')
     expect(out).toContain('FUEL')
     expect(out).toContain('—')

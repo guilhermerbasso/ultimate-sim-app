@@ -39,11 +39,11 @@ const bad = {
 } as unknown as TelemetrySnapshot
 
 describe('InputsTraceWidget instrument conversion', () => {
-  it('renders SVG trace instruments, DSEG numerals, and DataTile aria labels', () => {
+  it('renders only the SVG trace graphic with accessible channel values', () => {
     const out = render(known, 'terminal')
     expect(out).toContain('<svg')
-    expect(out).toContain('DSEG7Classic')
-    expect(out).toContain('aria-label="THR 62"')
+    expect(out).not.toContain('DSEG7Classic')
+    expect(out).toContain('aria-label="Input trace THR 62')
     expect(WIDGET_COMPONENTS.inputsTrace).toBe(InputsTraceWidget)
   })
 

@@ -192,6 +192,7 @@ export type ComponentType =
   | 'control' // buttons / encoders / analog inputs → HID/actions
   | 'buzzer' // piezo audio alert
   | 'startLed' // single status LED
+  | 'customSerial' // arbitrary SimHub-style serial output template
 
 export interface PinRole {
   role: string
@@ -282,6 +283,14 @@ export const COMPONENT_TYPES: ComponentTypeInfo[] = [
     simhubEquivalent: 'Display & Alerts',
     requiredPins: [{ role: 'signal', label: 'Sinal', kind: 'digital' }],
     capabilityKey: 'startLed'
+  },
+  {
+    type: 'customSerial',
+    name: 'Custom serial device',
+    description: 'Arbitrary serial output template driven by telemetry fields.',
+    simhubEquivalent: 'Custom Serial Device',
+    requiredPins: [],
+    capabilityKey: 'customSerial'
   }
 ]
 
@@ -544,6 +553,15 @@ export interface StartLedComponent extends ComponentBase {
   rules: AlertRule[]
 }
 
+export interface CustomSerialComponent extends ComponentBase {
+  type: 'customSerial'
+  template: string
+  telemetryFields: string[]
+  sampleValue: string
+  sendRateHz: number
+  appendNewline: boolean
+}
+
 export type DeviceComponent =
   | RgbStripComponent
   | RgbMatrixComponent
@@ -553,6 +571,7 @@ export type DeviceComponent =
   | ControlComponent
   | BuzzerComponent
   | StartLedComponent
+  | CustomSerialComponent
 
 // ─── Device profile ────────────────────────────────────────────────────────────
 
@@ -745,6 +764,17 @@ export function createComponent(type: ComponentType): DeviceComponent {
           { id: 'drs', label: 'DRS available', condition: 'drs', severity: 'info', message: 'DRS', blink: false }
         ]
       }
+    case 'customSerial':
+      return {
+        ...base,
+        type,
+        label: 'Custom serial output',
+        template: 'T:${value}',
+        telemetryFields: ['speedKmh'],
+        sampleValue: '123',
+        sendRateHz: 20,
+        appendNewline: true
+      }
     default:
       return {
         ...base,
@@ -837,6 +867,14 @@ export function normalizeComponent(input: unknown): DeviceComponent | null {
   } else if (merged.type === 'startLed') {
     merged.brightness = clampInt(merged.brightness, 0, 255, 180)
     merged.rules = Array.isArray(merged.rules) ? merged.rules : []
+  } else if (merged.type === 'customSerial') {
+    merged.template = typeof merged.template === 'string' && merged.template ? merged.template : 'T:${value}'
+    merged.telemetryFields = Array.isArray(merged.telemetryFields)
+      ? merged.telemetryFields.filter((field): field is string => typeof field === 'string' && field.trim().length > 0)
+      : ['speedKmh']
+    merged.sampleValue = typeof merged.sampleValue === 'string' ? merged.sampleValue : '123'
+    merged.sendRateHz = clampInt(merged.sendRateHz, 1, 60, 20)
+    merged.appendNewline = typeof merged.appendNewline === 'boolean' ? merged.appendNewline : true
   }
   return merged
 }

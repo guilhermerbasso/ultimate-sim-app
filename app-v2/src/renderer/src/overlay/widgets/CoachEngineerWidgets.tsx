@@ -172,13 +172,13 @@ function OverlayFinding({ finding }: { finding: CoachFinding }): ReactElement {
   const color = toneColor(findingTone(finding.severity))
   const loss = finding.estTimeLossSec > 0 ? `-${finding.estTimeLossSec.toFixed(2)}` : ''
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-      <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flex: '0 0 auto' }} />
-      <span style={{ fontSize: 10, color, letterSpacing: '0.04em', flex: '0 0 auto', minWidth: 46 }}>{findingScope(finding)}</span>
-      <span style={{ fontSize: 12, color: PRIMARY, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '6px minmax(38px, auto) minmax(0, 1fr) auto', alignItems: 'start', columnGap: 6, rowGap: 2, minWidth: 0 }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, marginTop: 5 }} />
+      <span style={{ fontSize: 10, color, letterSpacing: '0.04em', minWidth: 38, lineHeight: 1.25 }}>{findingScope(finding)}</span>
+      <span style={{ fontSize: 12, color: PRIMARY, lineHeight: 1.25, whiteSpace: 'normal', overflowWrap: 'anywhere', minWidth: 0 }}>
         {finding.title}
       </span>
-      {loss ? <SegmentReadout value={loss} unit="s" height={12} color={color} idPrefix="coach-loss" /> : null}
+      {loss ? <span style={{ justifySelf: 'end' }}><SegmentReadout value={loss} unit="s" height={12} color={color} idPrefix="coach-loss" /></span> : null}
     </div>
   )
 }

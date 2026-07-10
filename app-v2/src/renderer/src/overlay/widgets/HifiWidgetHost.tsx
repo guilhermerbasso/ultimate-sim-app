@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import type { CSSProperties, ReactElement } from 'react'
 import type { CoachSeverity } from '../../../../shared/coach'
 import type { HifiAiContext, HifiAiSeverity } from '../../hifi/widgets/types'
 import { HIFI_WIDGETS_BY_ID } from '../../hifi/widgets/registry'
@@ -102,17 +102,60 @@ export function HifiWidgetHost(props: WidgetProps): ReactElement {
   const dw = Math.max(1, Math.round(fillBox ? props.config.position.width : mod.defaultSize.w))
   const dh = Math.max(1, Math.round(fillBox ? props.config.position.height : mod.defaultSize.h))
   const content = mod.render({ snapshot: props.snapshot, ai, width: dw, height: dh })
+  const style = props.config.style
+  const borderColor = style.borderColor ?? style.border
+  const borderWidth = Math.max(0, Math.round(style.borderWidth ?? (borderColor && borderColor !== 'transparent' ? 1 : 0)))
+  const opacity = Number.isFinite(style.opacity) ? Math.max(0, Math.min(1, style.opacity ?? 1)) : 1
+  const lines = style.lines?.filter((line) => line.color.trim()) ?? []
+  const dividerLines = style.showDivider ? (lines.length === 0 ? [{ color: borderColor || style.accent }] : lines) : []
+  const hostStyle: CSSProperties = {
+    position: 'relative',
+    width: '100%',
+    height: '100%',
+    boxSizing: 'border-box',
+    overflow: 'hidden',
+    display: 'block',
+    background: style.background || 'transparent',
+    border: borderWidth > 0 ? `${borderWidth}px solid ${borderColor || style.accent}` : 'none',
+    borderRadius: Math.max(0, style.radius ?? 0),
+    fontFamily: style.fontFamily,
+    color: style.accent,
+    opacity,
+    ['--overlay-bg' as string]: style.background,
+    ['--overlay-accent' as string]: style.accent,
+    ['--overlay-border' as string]: borderColor,
+    ['--overlay-radius' as string]: `${Math.max(0, style.radius ?? 0)}px`,
+    ['--overlay-font' as string]: style.fontFamily
+  } as CSSProperties
 
   return (
-    <svg
-      viewBox={`0 0 ${dw} ${dh}`}
-      width="100%"
-      height="100%"
-      preserveAspectRatio="xMidYMid meet"
-      style={{ display: 'block' }}
-      role="img"
-    >
-      {content}
-    </svg>
+    <div style={hostStyle}>
+      <svg
+        viewBox={`0 0 ${dw} ${dh}`}
+        width="100%"
+        height="100%"
+        preserveAspectRatio="xMidYMid meet"
+        style={{ display: 'block' }}
+        role="img"
+      >
+        {content}
+      </svg>
+      {dividerLines.map((line, index) => (
+        <div
+          key={`${line.color}-${index}`}
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: `${((index + 1) / (dividerLines.length + 1)) * 100}%`,
+            height: 1,
+            background: line.color,
+            opacity: 0.85,
+            pointerEvents: 'none'
+          }}
+        />
+      ))}
+    </div>
   )
 }

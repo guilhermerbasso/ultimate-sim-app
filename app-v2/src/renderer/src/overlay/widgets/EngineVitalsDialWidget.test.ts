@@ -28,7 +28,7 @@ function assertClean(markup: string, ctx: string): void {
   expect(markup, `Infinity in ${ctx}`).not.toContain('Infinity')
 }
 
-const KEY_LABELS = ['Engine Vitals', 'Water', 'Oil T', 'Oil P']
+const KEY_LABELS = ['Water', 'Oil T', 'Oil P']
 
 const healthy = {
   sim: 'iracing',
@@ -87,13 +87,12 @@ describe('EngineVitalsDialWidget', () => {
     expect(out).toContain('<svg') // arc gauges
   })
 
-  it('shows healthy vitals (OK) with the bar-converted oil pressure', () => {
+  it('shows healthy vitals with the bar-converted oil pressure', () => {
     const out = render(healthy)
     expect(out).toContain('DSEG7Classic-Regular')
     expect(out).toContain('88') // water
     expect(out).toContain('98') // oil temp
     expect(out).toContain('4.5') // oil pressure in bar
-    expect(out).toContain('OK')
   })
 
   it('routes the vitals through AnalogDial instrument (bezel + needle + arc)', () => {
@@ -103,17 +102,15 @@ describe('EngineVitalsDialWidget', () => {
     expect(out, 'value arc').toMatch(/A[\d.]+,[\d.]+,/)
   })
 
-  it('raises an ALARM and paints red when vitals exceed their danger thresholds', () => {
+  it('paints red when vitals exceed their danger thresholds', () => {
     const out = render(alarm)
     expect(out).toContain('120')
-    expect(out).toContain('ALARM')
     expect(out, 'danger → red').toContain(skin.palette.crit)
   })
 
   it('does not alarm on zero oil pressure while the engine is not spinning', () => {
     const out = render(stationary)
     assertClean(out, 'stationary')
-    expect(out).toContain('OK')
     expect(out, 'no false red alarm').not.toContain(skin.palette.crit)
   })
 

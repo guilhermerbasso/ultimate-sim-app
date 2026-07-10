@@ -1,10 +1,6 @@
-// INPUTS TRACE overlay — throttle / brake / clutch + steering rebuilt on the v2.39 KIT
-// contract: ONE root <svg viewBox=W×H preserveAspectRatio="xMidYMid meet"> so nothing
-// overflows, a live multi-channel oscilloscope trace band on top, four clean vertical
-// channel bars below and every numeral in the embedded DSEG7 face via SegmentReadout.
-// Each channel is wrapped in an aria-labelled group ("THR 62") for screen-readers. A
-// null/invalid snapshot degrades to "—" and 0 %-height bars — never NaN / undefined /
-// Infinity.
+// INPUTS TRACE overlay — throttle / brake / clutch + steering as ONE graphic: a
+// live multi-channel oscilloscope trace. A null/invalid snapshot degrades to "—"
+// in the accessible label — never NaN / undefined / Infinity.
 //
 // The design family (config.stylePreset) is collapsed to a single skin-driven layout;
 // the legacy `rd2-fam-*` class is retained on the root purely as a styling/test hook.
@@ -12,9 +8,7 @@
 import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
 import { overlayDesignFamily } from '../../../../shared/overlays'
-import { resolveSkin, FitText } from '../../skins'
-import { SegmentReadout } from '../../instruments'
-import { FONT_COND } from './dashboard-tiles'
+import { resolveSkin } from '../../skins'
 import type { WidgetProps } from './types'
 import { pct } from './format'
 
@@ -40,10 +34,6 @@ const CHANNELS: Array<{ key: keyof TracePoint; label: string; color: string }> =
 function finitePct(value?: number): number | undefined {
   if (value === undefined || !Number.isFinite(value)) return undefined
   return pct(value)
-}
-
-function readoutValue(value: number | undefined): string | number {
-  return value === undefined ? '—' : Math.round(value * 100)
 }
 
 function ariaValue(value: number | undefined): string {
@@ -92,26 +82,10 @@ export function InputsTraceWidget({ snapshot, config }: WidgetProps): ReactEleme
   }, [live.throttle, live.brake, live.clutch, live.steer])
 
   const pad = Math.max(6, Math.round(Math.min(W, H) * 0.05))
-  const gap = Math.max(4, Math.round(H * 0.03))
   const traceY = pad
-  const traceH = Math.max(18, Math.round(H * 0.3))
+  const traceH = Math.max(18, H - pad * 2)
   const traceW = W - pad * 2
-
-  const colsY = traceY + traceH + gap
-  const colsH = Math.max(30, H - colsY - pad)
-  const labelBandH = Math.max(11, Math.round(colsH * 0.18))
-  const readoutBandH = Math.max(14, Math.round(colsH * 0.3))
-  const inset = Math.max(2, Math.round(colsH * 0.04))
-  const barTop = colsY + labelBandH + inset
-  const barBottom = colsY + colsH - readoutBandH - inset
-  const barH = Math.max(6, barBottom - barTop)
-  const readoutY = barBottom + inset
-  const segH = Math.max(12, readoutBandH - 2)
-
-  const n = CHANNELS.length
-  const colGap = gap
-  const colW = (W - pad * 2 - colGap * (n - 1)) / n
-  const barW = Math.max(6, Math.min(colW * 0.5, 28))
+  const aria = `Input trace ${CHANNELS.map((ch) => `${ch.label} ${ariaValue(known[ch.key])}`).join(' ')}`
 
   return (
     <svg
@@ -120,7 +94,7 @@ export function InputsTraceWidget({ snapshot, config }: WidgetProps): ReactEleme
       width="100%"
       height="100%"
       role="img"
-      aria-label="Input trace"
+      aria-label={aria}
       data-widget="inputsTrace"
       data-family={family}
       className={`rd2-fam-${family}`}
@@ -137,44 +111,16 @@ export function InputsTraceWidget({ snapshot, config }: WidgetProps): ReactEleme
         fillOpacity={hud ? 0.72 : 1}
       />
 
-      {/* Live multi-channel trace (empty until sampled — SSR-safe). */}
+      <title>{aria}</title>
+
+      {/* Live multi-channel trace — the only graphic in this overlay. */}
       <rect x={pad} y={traceY} width={traceW} height={traceH} rx={4} fill={skin.palette.surface} stroke={skin.material.border} strokeWidth={1} />
       <svg x={pad} y={traceY} width={traceW} height={traceH} viewBox={`0 0 100 ${TRACE_VB_H}`} preserveAspectRatio="none">
+        <line x1={0} y1={TRACE_VB_H / 2} x2={100} y2={TRACE_VB_H / 2} stroke={skin.material.border} strokeWidth={0.7} opacity={0.55} />
         {CHANNELS.map((ch) => (
           <path key={ch.key} d={toLine(points.map((p) => p[ch.key]))} fill="none" stroke={ch.color} strokeWidth={ch.key === 'clutch' ? 1.2 : 1.4} />
         ))}
       </svg>
-
-      {/* Channel bars — clean vertical fills with a DSEG readout per channel. */}
-      {CHANNELS.map((ch, i) => {
-        const colX = pad + i * (colW + colGap)
-        const barX = colX + (colW - barW) / 2
-        const fillH = Math.max(0, Math.min(1, live[ch.key])) * barH
-        return (
-          <g key={ch.key} role="img" aria-label={`${ch.label} ${ariaValue(known[ch.key])}`}>
-            <FitText
-              x={colX + colW / 2}
-              y={colsY + labelBandH / 2}
-              boxW={colW}
-              boxH={labelBandH}
-              text={ch.label}
-              anchor="middle"
-              baseline="middle"
-              fontFamily={FONT_COND}
-              fill={ch.color}
-              weight={800}
-              minFontPx={11}
-              maxFontPx={labelBandH}
-              letterSpacing={1}
-            />
-            <rect x={barX} y={barTop} width={barW} height={barH} rx={3} fill={skin.palette.bg} stroke={skin.material.border} strokeWidth={1} />
-            <rect x={barX} y={barBottom - fillH} width={barW} height={fillH} rx={3} fill={ch.color} />
-            <g transform={`translate(${colX},${readoutY})`}>
-              <SegmentReadout value={readoutValue(known[ch.key])} ghost={false} height={segH} width={colW} align="center" color={ch.color} idPrefix={`inputs-trace-${ch.label.toLowerCase()}`} />
-            </g>
-          </g>
-        )
-      })}
     </svg>
   )
 }

@@ -20,7 +20,6 @@ import {
 import type { DashboardElement } from './dashboards'
 
 const FUTURISTIC_OVERLAY_IDS = [
-  'revHalo',
   'revComet',
   'sideRadarGlyph',
   'orbitRadar',
@@ -43,8 +42,8 @@ const FUTURISTIC_OVERLAY_IDS = [
 ]
 
 describe('futuristic overlay registry', () => {
-  it('registers exactly 20 new futuristic graphic overlays', () => {
-    expect(OVERLAY_WIDGETS.filter((widget) => FUTURISTIC_OVERLAY_IDS.includes(widget.id))).toHaveLength(20)
+  it('registers exactly 19 futuristic graphic overlays', () => {
+    expect(OVERLAY_WIDGETS.filter((widget) => FUTURISTIC_OVERLAY_IDS.includes(widget.id))).toHaveLength(19)
   })
 })
 

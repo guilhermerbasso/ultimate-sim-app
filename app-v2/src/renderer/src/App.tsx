@@ -21,12 +21,23 @@ import { CommandPalette } from './components/CommandPalette'
 import { BrandLogo } from './components/BrandLogo'
 import { UpdateBanner } from './components/UpdateBanner'
 import { ReportBugButton } from './components/ReportBugButton'
+import { CheckUpdatesButton } from './components/CheckUpdatesButton'
 import { OnboardingFlow } from './onboarding/OnboardingFlow'
+import { TutorialLauncherButton } from './onboarding/TutorialLauncherButton'
+import { TutorialOverlay } from './onboarding/TutorialOverlay'
+import { getTutorial } from './onboarding/tutorialRegistry'
+import {
+  isTutorialSeen,
+  markTutorialSeen,
+  readTutorialAutoDisabled,
+  writeTutorialAutoDisabled
+} from './onboarding/tutorialStorage'
 import { navSections } from './navigation/navModel'
 import {
   APP_SETTINGS_CHANGED_EVENT,
   resolveAppLanguage,
   t,
+  tt,
   translateNavTitle,
   translateView,
   type ResolvedLanguage
@@ -41,6 +52,7 @@ const ONBOARDING_STORAGE_KEY = 'usa.onboardingCompleted'
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = 'usa:sidebar-collapsed'
 const MAX_RECENTS = 5
 const SUPPORT_URL = 'https://buymeacoffee.com/bettercalllbasso'
+const DISCORD_URL = 'https://discord.gg/Wy7d5rTgwS'
 
 export interface ToastState {
   message: string
@@ -153,6 +165,8 @@ function App(): ReactElement {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => readSidebarCollapsed())
   const [showOnboarding, setShowOnboarding] = useState(() => !readOnboardingCompleted())
+  const [activeTutorialId, setActiveTutorialId] = useState<string | null>(null)
+  const [tutorialAutoDisabled, setTutorialAutoDisabled] = useState(() => readTutorialAutoDisabled())
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS)
 
   const language = useMemo(() => resolveAppLanguage(appSettings.language), [appSettings.language])
@@ -274,6 +288,18 @@ function App(): ReactElement {
     setShowOnboarding(false)
   }, [])
 
+  const startCurrentTutorial = useCallback(() => {
+    setActiveTutorialId(activeId)
+  }, [activeId])
+
+  const closeTutorial = useCallback((disableAutomatic: boolean) => {
+    if (disableAutomatic) {
+      writeTutorialAutoDisabled(true)
+      setTutorialAutoDisabled(true)
+    }
+    setActiveTutorialId(null)
+  }, [])
+
   const renderNavRow = useCallback((view: ViewDef, context: string) => {
     const isPinned = favorites.includes(view.id)
 
@@ -336,7 +362,15 @@ function App(): ReactElement {
     ].slice(0, MAX_RECENTS))
   }, [activeId, viewById])
 
+  useEffect(() => {
+    if (showOnboarding || tutorialAutoDisabled || activeTutorialId || !getTutorial(activeId) || isTutorialSeen(activeId)) return
+    markTutorialSeen(activeId)
+    setActiveTutorialId(activeId)
+  }, [activeId, activeTutorialId, showOnboarding, tutorialAutoDisabled])
+
   const Active = current.Component
+  const activeTutorial = activeTutorialId ? getTutorial(activeTutorialId) : null
+  const activeTutorialView = activeTutorialId ? viewById.get(activeTutorialId) : null
 
   useEffect(() => {
     window.ipc
@@ -494,8 +528,20 @@ function App(): ReactElement {
               <h2>{current.label}</h2>
               <p>{current.description}</p>
             </div>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <TutorialLauncherButton viewId={activeId} language={language} onStart={startCurrentTutorial} />
+              <CheckUpdatesButton language={language} />
               <ReportBugButton language={language} showToast={showToast} />
+              <a
+                aria-label={tt(language, 'chrome.joinDiscordTitle')}
+                className="discord-button"
+                href={DISCORD_URL}
+                rel="noreferrer"
+                target="_blank"
+                title={tt(language, 'chrome.joinDiscordTitle')}
+              >
+                {tt(language, 'chrome.joinDiscord')}
+              </a>
               <a
                 aria-label={t(language, 'supportAria')}
                 className="support-button"
@@ -542,6 +588,15 @@ function App(): ReactElement {
         <OnboardingFlow
           onClose={closeOnboarding}
           onNavigate={(id) => setActiveId(id)}
+        />
+      )}
+
+      {activeTutorial && activeTutorialView && (
+        <TutorialOverlay
+          tutorial={activeTutorial}
+          viewLabel={activeTutorialView.label}
+          language={language}
+          onClose={closeTutorial}
         />
       )}
     </div>

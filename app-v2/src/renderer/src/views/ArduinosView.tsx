@@ -30,9 +30,10 @@ import { tt } from '../i18n'
 import { HardwareWorkspace } from './arduinos/HardwareWorkspace'
 import Esp32WifiView from './Esp32WifiView'
 import RgbMatrixWorkspace from './arduinos/RgbMatrixWorkspace'
+import { CustomSerialEditor } from './arduinos/CustomSerialEditor'
 import { SectionExportImport } from '../components/SectionExportImport'
 
-type TabId = 'myHardware' | 'esp32' | 'rgbLeds' | 'rgbMatrix' | 'screens' | 'tm1638' | 'displayAlerts' | 'gauges' | 'controls'
+type TabId = 'myHardware' | 'esp32' | 'rgbLeds' | 'rgbMatrix' | 'screens' | 'tm1638' | 'displayAlerts' | 'customSerial' | 'gauges' | 'controls'
 type ArduinoMode = 'disabled' | 'single' | 'multiple'
 type HwSection = 'devices' | 'monitor' | 'info'
 
@@ -115,6 +116,13 @@ const TABS: Array<{ id: TabId; label: string; eyebrow: string; description: stri
     emptyText: 'No alert components configured yet.'
   },
   {
+    id: 'customSerial',
+    label: 'Custom serial devices',
+    eyebrow: 'Custom serial',
+    description: 'Define arbitrary SimHub-style serial output templates driven by telemetry or expressions.',
+    emptyText: 'No custom serial component configured yet.'
+  },
+  {
     id: 'gauges',
     label: 'Gauges',
     eyebrow: 'Servo / X27',
@@ -135,7 +143,8 @@ const TAB_COMPONENTS: Partial<Record<TabId, ComponentType[]>> = {
   rgbMatrix: ['rgbMatrix'],
   screens: ['screen'],
   tm1638: ['segDisplay'],
-  displayAlerts: ['buzzer', 'startLed'],
+  displayAlerts: ['buzzer', 'startLed', 'customSerial'],
+  customSerial: ['customSerial'],
   gauges: ['gauge'],
   controls: ['control']
 }
@@ -149,7 +158,7 @@ const TAB_GROUPS: Array<{ title: string; description: string; ids: TabId[] }> = 
   {
     title: 'Visual outputs',
     description: 'LEDs, iFlag matrix, screens, and alerts.',
-    ids: ['rgbLeds', 'rgbMatrix', 'screens', 'tm1638', 'displayAlerts']
+    ids: ['rgbLeds', 'rgbMatrix', 'screens', 'tm1638', 'displayAlerts', 'customSerial']
   },
   {
     title: 'Physical I/O',
@@ -309,7 +318,7 @@ export default function ArduinosView({
 
   // ─── Custom-serial: load routes + expression catalogue ──────────────────────
   useEffect(() => {
-    if (tab !== 'displayAlerts') return
+    if (tab !== 'displayAlerts' && tab !== 'customSerial') return
     let active = true
     void (async () => {
       try {
@@ -649,6 +658,16 @@ export default function ArduinosView({
     description: tt(language, `arduinos.groups.${index}.description`)
   }))
   const focusTypes = TAB_COMPONENTS[tab]
+  function openComponentTab(type: ComponentType): void {
+    if (type === 'rgbMatrix') setTab('rgbMatrix')
+    else if (type === 'rgbStrip') setTab('rgbLeds')
+    else if (type === 'screen') setTab('screens')
+    else if (type === 'segDisplay') setTab('tm1638')
+    else if (type === 'gauge') setTab('gauges')
+    else if (type === 'control') setTab('controls')
+    else if (type === 'customSerial') setTab('customSerial')
+    else setTab('displayAlerts')
+  }
 
   return (
     <section className="view-grid">
@@ -770,6 +789,8 @@ export default function ArduinosView({
               description={tabInfo.description}
               emptyText={tabInfo.emptyText}
               onOpenRgbMatrix={() => setTab('rgbMatrix')}
+              onOpenComponentType={openComponentTab}
+              language={language}
             />
           )}
 
@@ -866,7 +887,8 @@ export default function ArduinosView({
         />
       )}
 
-      {tab !== 'myHardware' && tab !== 'esp32' && tab !== 'rgbMatrix' && (
+
+      {tab === 'customSerial' && (
         <>
           <HardwareWorkspace
             showToast={showToast}
@@ -877,6 +899,35 @@ export default function ArduinosView({
             eyebrow={tabInfo.eyebrow}
             description={tabInfo.description}
             emptyText={tabInfo.emptyText}
+            onOpenComponentType={openComponentTab}
+            language={language}
+          />
+          <CustomSerialEditor
+            language={language}
+            routes={routes}
+            devices={devices}
+            expressions={expressions}
+            busy={busy || mode === 'disabled'}
+            onSave={(route) => void saveRoute(route)}
+            onDelete={(routeId) => void deleteRoute(routeId)}
+            onToggle={(routeId, enabled) => void toggleRoute(routeId, enabled)}
+          />
+        </>
+      )}
+
+      {tab !== 'myHardware' && tab !== 'esp32' && tab !== 'rgbMatrix' && tab !== 'customSerial' && (
+        <>
+          <HardwareWorkspace
+            showToast={showToast}
+            mode={mode}
+            focusTypes={focusTypes}
+            layout="guided"
+            title={tabInfo.label}
+            eyebrow={tabInfo.eyebrow}
+            description={tabInfo.description}
+            emptyText={tabInfo.emptyText}
+            onOpenComponentType={openComponentTab}
+            language={language}
           />
           {tab === 'displayAlerts' && (
             <>

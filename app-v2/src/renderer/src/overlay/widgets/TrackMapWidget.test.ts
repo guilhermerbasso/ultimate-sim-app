@@ -53,23 +53,22 @@ describe('TrackMapWidget', () => {
     expect(WIDGET_COMPONENTS.trackMap).toBe(TrackMapWidget)
   })
 
-  it('keeps the map SVG while adding material framing and DSEG lap readouts', () => {
+  it('renders the clean map SVG (material framing) with no title or DSEG readouts', () => {
     const markup = render(snapshot(), 'analog')
     assertClean(markup, 'analog')
     expect(markup).toContain('<svg')
     expect(markup).toContain('track map material frame')
-    expect(markup).toContain('DSEG7')
-    expect(markup).toMatch(/carbon|lap/i)
+    // Track map is now "map only": the circuit-name title and DSEG lap readouts were removed.
+    expect(markup).not.toContain('DSEG7')
+    expect(markup).not.toContain('Okayama')
   })
 
-  it('renders null and extreme lap/map inputs without invalid numbers and shows missing as dash', () => {
+  it('renders null and extreme lap/map inputs without invalid numbers', () => {
     const empty = render(null, 'minimal')
     assertClean(empty, 'null')
-    expect(empty).toContain('—')
 
     const bad = render(snapshot({ lapDistPct: Number.POSITIVE_INFINITY, drivers: [driver(7, Number.NaN, true), driver(8, Number.NEGATIVE_INFINITY)] }), 'heatmap')
     assertClean(bad, 'bad telemetry')
-    expect(bad).toContain('—')
   })
 
   it('renders every supported family with nearby drivers and with none', () => {

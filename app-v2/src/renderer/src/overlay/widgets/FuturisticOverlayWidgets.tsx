@@ -76,6 +76,13 @@ function dims(config: WidgetProps['config'], fw = 400, fh = 200): Dims {
   return { W, H }
 }
 
+function placedDims(config: WidgetProps['config'], fw = 400, fh = 200, minH = 24): Dims {
+  const p = config?.position
+  const W = Math.max(80, Math.round(finite(p?.width, fw)))
+  const H = Math.max(minH, Math.round(finite(p?.height, fh)))
+  return { W, H }
+}
+
 function shiftPct(snapshot: TelemetrySnapshot | null): number {
   const rpm = finite(snapshot?.rpm, 0)
   const maxRpm = Math.max(1, finite(snapshot?.maxRpm, 9000))
@@ -142,6 +149,29 @@ function Panel({ W, H, skin }: { W: number; H: number; skin: SkinToken }): React
   )
 }
 
+function ReadoutPanel({ x, y, width, height, skin, rx = 6 }: { x: number; y: number; width: number; height: number; skin: SkinToken; rx?: number }): ReactElement {
+  return (
+    <rect
+      x={x}
+      y={y}
+      width={Math.max(1, width)}
+      height={Math.max(1, height)}
+      rx={rx}
+      fill={skin.palette.bg}
+      fillOpacity={1}
+      stroke={skin.material.border}
+      strokeWidth={1}
+    />
+  )
+}
+
+function segmentHeightFor(text: string, width: number, desired: number, min = 14, unit = ''): number {
+  const chars = Math.max(1, text.length)
+  const unitChars = Math.max(0, unit.length)
+  const fit = (Math.max(1, width) - 4) / (chars * 0.66 + 0.4 + unitChars * 0.66 * 0.55)
+  return Math.max(min, Math.min(desired, fit))
+}
+
 /** Wraps every widget in the canonical root <svg>. */
 function Root({
   W,
@@ -169,67 +199,27 @@ function Root({
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-//  Widgets — 20 exports, names + registry keys unchanged.
+//  Widgets — futuristic exports, names + registry keys unchanged.
 // ═════════════════════════════════════════════════════════════════════════════
-
-// ── RevHaloWidget: LED bar across the top + big gear readout centred ─────────
-export function RevHaloWidget({ snapshot, config }: WidgetProps): ReactElement {
-  const { W, H } = dims(config, 400, 150)
-  const skin = skinFor(familyOf(config))
-  const pct = shiftPct(snapshot)
-  const flash = pct > 0.985
-  const gear = safeGear(snapshot?.gear)
-  const grid = makeGrid(1, 2, W, H, 8)
-  const barCell = grid.cell(0, 0)
-  const gearCell = grid.cell(0, 1)
-  const barH = Math.min(barCell.h, 34)
-  const barW = Math.max(60, barCell.w)
-  const gearH = Math.min(gearCell.h, 96)
-  const gearBoxW = Math.max(60, gearH * 0.9)
-  return (
-    <Root W={W} H={H} ariaLabel="rev halo">
-      <Panel W={W} H={H} skin={skin} />
-      <RevLedBar
-        pct={pct}
-        profile={skin.led}
-        x={barCell.x}
-        y={barCell.y + (barCell.h - barH) / 2}
-        width={barW}
-        height={barH}
-        flashOn={flash}
-        idPrefix="rd4-revhalo"
-      />
-      <g transform={`translate(${gearCell.x + (gearCell.w - gearBoxW) / 2}, ${gearCell.y + (gearCell.h - gearH) / 2})`}>
-        <SegmentReadout
-          value={gear}
-          height={gearH}
-          width={gearBoxW}
-          align="center"
-          color={flash ? WARM_RED : skin.palette.text}
-          idPrefix="rd4-revhalo-gear"
-        />
-      </g>
-    </Root>
-  )
-}
 
 // ── RevCometWidget: full-width LED strip only (no numerics) ──────────────────
 export function RevCometWidget({ snapshot, config }: WidgetProps): ReactElement {
-  const { W, H } = dims(config, 600, 112)
+  const { W, H } = placedDims(config, 600, 112)
   const skin = skinFor(familyOf(config))
   const pct = shiftPct(snapshot)
   const flash = pct > 0.985
-  const pad = 12
-  const barH = Math.max(20, Math.min(H - pad * 2, 40))
+  const padX = 12
+  const padY = Math.min(12, Math.max(2, H * 0.12))
+  const barH = Math.max(20, Math.min(H - padY * 2, 40))
   return (
     <Root W={W} H={H} ariaLabel="rev comet">
       <Panel W={W} H={H} skin={skin} />
       <RevLedBar
         pct={pct}
         profile={skin.led}
-        x={pad}
+        x={padX}
         y={(H - barH) / 2}
-        width={Math.max(60, W - pad * 2)}
+        width={Math.max(60, W - padX * 2)}
         height={barH}
         flashOn={flash}
         idPrefix="rd4-revcomet"
@@ -481,8 +471,12 @@ export function DeltaNeedleWidget({ snapshot, config }: WidgetProps): ReactEleme
   const needleLen = arcR * 0.9
   const needleX = cx + Math.sin(rad) * needleLen
   const needleY = arcY - Math.cos(rad) * needleLen
-  const readoutW = Math.max(80, Math.min(W - 40, 140))
-  const readoutH = Math.max(18, Math.min(30, H * 0.16))
+  const readoutText = formatDelta(d)
+  const readoutW = Math.max(96, Math.min(W - 24, 190))
+  const readoutH = segmentHeightFor(readoutText, readoutW, Math.max(18, Math.min(28, H * 0.16)), 14)
+  const readoutBoxH = readoutH + 8
+  const readoutX = cx - readoutW / 2
+  const readoutY = H - readoutBoxH - 6
   return (
     <Root W={W} H={H} ariaLabel="delta needle">
       <Panel W={W} H={H} skin={skin} />
@@ -508,9 +502,10 @@ export function DeltaNeedleWidget({ snapshot, config }: WidgetProps): ReactEleme
       />
       <line x1={cx} y1={arcY} x2={needleX} y2={needleY} stroke={tint} strokeWidth={4} strokeLinecap="round" />
       <circle cx={cx} cy={arcY} r={7} fill={tint} />
-      <g transform={`translate(${cx - readoutW / 2}, ${H - readoutH - 6})`}>
+      <ReadoutPanel x={readoutX} y={readoutY} width={readoutW} height={readoutBoxH} skin={skin} />
+      <g transform={`translate(${readoutX}, ${readoutY + 2})`}>
         <SegmentReadout
-          value={formatDelta(d)}
+          value={readoutText}
           height={readoutH}
           width={readoutW}
           align="center"
@@ -535,8 +530,12 @@ export function DeltaRibbonWidget({ snapshot, config }: WidgetProps): ReactEleme
   const ribbonW = Math.max(40, W - pad * 2)
   const nx = clamp(0.5 + clamp(d / 1.5, -1, 1) * 0.46, 0, 1)
   const markerX = pad + nx * ribbonW
-  const readoutW = Math.max(80, Math.min(W - 40, 140))
-  const readoutH = Math.max(18, Math.min(26, H * 0.32))
+  const readoutText = formatDelta(d)
+  const readoutW = Math.max(96, Math.min(W - 24, 180))
+  const readoutH = segmentHeightFor(readoutText, readoutW, Math.max(18, Math.min(28, H * 0.32)), 14)
+  const readoutBoxH = readoutH + 8
+  const readoutX = W / 2 - readoutW / 2
+  const readoutY = H - readoutBoxH - 6
   return (
     <Root W={W} H={H} ariaLabel="delta ribbon">
       <Panel W={W} H={H} skin={skin} />
@@ -550,9 +549,10 @@ export function DeltaRibbonWidget({ snapshot, config }: WidgetProps): ReactEleme
         strokeWidth={2}
       />
       <rect x={markerX - 4} y={ribbonY - 5} width={8} height={ribbonH + 10} rx={2} fill={tint} />
-      <g transform={`translate(${W / 2 - readoutW / 2}, ${H - readoutH - 6})`}>
+      <ReadoutPanel x={readoutX} y={readoutY} width={readoutW} height={readoutBoxH} skin={skin} />
+      <g transform={`translate(${readoutX}, ${readoutY + 2})`}>
         <SegmentReadout
-          value={formatDelta(d)}
+          value={readoutText}
           height={readoutH}
           width={readoutW}
           align="center"
@@ -635,9 +635,12 @@ export function SpeedGlyphWidget({ snapshot, config }: WidgetProps): ReactElemen
   const grid = makeGrid(1, 2, W, H, 6)
   const numCell = grid.cell(0, 0)
   const barCell = grid.cell(0, 1)
-  const numH = Math.max(24, Math.min(numCell.h, 80))
   const numText = String(speed)
-  const numW = Math.max(numText.length * numH * 0.66, 80)
+  const numW = Math.max(80, W - pad * 2)
+  const numH = segmentHeightFor(numText, numW, Math.max(24, Math.min(numCell.h - 18, 74)), 18)
+  const numBoxH = numH + 8
+  const numX = pad
+  const numY = Math.max(numCell.y + 18, Math.min(numCell.y + numCell.h - numBoxH, numCell.y + (numCell.h - numBoxH) / 2 + 10))
   return (
     <Root W={W} H={H} ariaLabel="speed">
       <Panel W={W} H={H} skin={skin} />
@@ -655,7 +658,8 @@ export function SpeedGlyphWidget({ snapshot, config }: WidgetProps): ReactElemen
         weight={700}
         letterSpacing={2}
       />
-      <g transform={`translate(${Math.max(0, (W - numW) / 2)}, ${numCell.y + (numCell.h - numH) / 2})`}>
+      <ReadoutPanel x={numX} y={numY} width={numW} height={numBoxH} skin={skin} />
+      <g transform={`translate(${numX}, ${numY + 2})`}>
         <SegmentReadout
           value={numText}
           height={numH}
@@ -694,9 +698,12 @@ export function FuelOrbWidget({ snapshot, config }: WidgetProps): ReactElement {
   const largeArc = sweep > Math.PI ? 1 : 0
   const arcEndX = cx + Math.sin(sweep) * rOuter
   const arcEndY = cy - Math.cos(sweep) * rOuter
-  const readoutH = Math.max(18, rInner * 0.7)
   const readoutText = String(Math.round(pct * 100))
-  const readoutBoxW = Math.max(40, rInner * 1.6)
+  const readoutBoxW = Math.max(64, Math.min(W - 24, rInner * 1.8))
+  const readoutH = segmentHeightFor(readoutText, readoutBoxW, Math.max(18, Math.min(36, rInner * 0.62)), 14)
+  const readoutBoxH = readoutH + 8
+  const readoutX = cx - readoutBoxW / 2
+  const readoutY = cy - readoutBoxH / 2 + 2
   return (
     <Root W={W} H={H} ariaLabel="fuel orb">
       <Panel W={W} H={H} skin={skin} />
@@ -726,7 +733,8 @@ export function FuelOrbWidget({ snapshot, config }: WidgetProps): ReactElement {
         weight={700}
         letterSpacing={2}
       />
-      <g transform={`translate(${cx - readoutBoxW / 2}, ${cy - readoutH / 2 + 4})`}>
+      <ReadoutPanel x={readoutX} y={readoutY} width={readoutBoxW} height={readoutBoxH} skin={skin} rx={Math.min(8, rInner / 3)} />
+      <g transform={`translate(${readoutX}, ${readoutY + 2})`}>
         <SegmentReadout
           value={readoutText}
           height={readoutH}
@@ -1156,8 +1164,11 @@ export function WeatherGripGlyphWidget({ snapshot, config }: WidgetProps): React
   const numCell = grid.cell(0, 0)
   const stateCell = grid.cell(0, 1)
   const gripText = String(Math.round(grip * 100))
-  const readoutH = Math.max(24, Math.min(numCell.h - 20, 54))
-  const readoutW = Math.max(80, Math.min(W - 32, 150))
+  const readoutW = Math.max(96, Math.min(W - 24, 180))
+  const readoutH = segmentHeightFor(gripText, readoutW, Math.max(20, Math.min(numCell.h - 20, 48)), 14, '%')
+  const readoutBoxH = readoutH + 8
+  const readoutX = (W - readoutW) / 2
+  const readoutY = numCell.y + numCell.h - readoutBoxH
   return (
     <Root W={W} H={H} ariaLabel="weather grip">
       <Panel W={W} H={H} skin={skin} />
@@ -1174,12 +1185,13 @@ export function WeatherGripGlyphWidget({ snapshot, config }: WidgetProps): React
         weight={700}
         letterSpacing={2}
       />
-      <g transform={`translate(${(W - readoutW) / 2}, ${numCell.y + numCell.h - readoutH})`}>
+      <ReadoutPanel x={readoutX} y={readoutY} width={readoutW} height={readoutBoxH} skin={skin} />
+      <g transform={`translate(${readoutX}, ${readoutY + 2})`}>
         <SegmentReadout
           value={gripText}
           height={readoutH}
           width={readoutW}
-          align="center"
+          align="right"
           color={dry ? GOOD : WARM_AMBER}
           unit="%"
           idPrefix="rd4-grip"

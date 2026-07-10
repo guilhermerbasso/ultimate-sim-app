@@ -44,6 +44,16 @@ function gearFontFor(g: string, skin: SkinToken): string {
   return /^\d$/.test(g) ? skin.segment.numeric : skin.segment.alpha
 }
 
+function opaquePanelFill(skin: SkinToken): string {
+  return skin.palette.bg || '#050608'
+}
+
+function fitSegmentHeight(value: string, boxW: number, maxH: number, unit = ''): number {
+  const chars = Math.max(1, value.length)
+  const widthPerPx = chars * 0.66 + 0.4 + unit.length * 0.66 * 0.55
+  return Math.max(8, Math.min(maxH, Math.max(8, boxW) / widthPerPx))
+}
+
 // formatGear(NaN) returns the literal string 'NaN' (its guard only handles
 // undefined) — wrap it here so a broken gear value still degrades cleanly to '—'.
 function safeGear(gear: number | undefined | null): string {
@@ -347,8 +357,8 @@ export function DeltaBarWidget({ snapshot, config }: WidgetProps): ReactElement 
   const fillW = Math.max(0, mag * half)
   const fillX = faster ? midX - fillW : midX
 
-  const readoutH = Math.max(16, Math.min(valueCell.h - 4, 40))
-  const readoutW = Math.min(valueCell.w - 8, Math.max(80, txt.length * readoutH * 0.72))
+  const readoutW = Math.max(24, valueCell.w - 8)
+  const readoutH = fitSegmentHeight(txt, readoutW, Math.max(8, Math.min(valueCell.h - 8, 40)))
   const readoutY = valueCell.y + Math.max(0, (valueCell.h - (readoutH + 4)) / 2)
   const readoutX = valueCell.x + (valueCell.w - readoutW) / 2
 
@@ -369,7 +379,8 @@ export function DeltaBarWidget({ snapshot, config }: WidgetProps): ReactElement 
         width={W - 1}
         height={H - 1}
         rx={material.radius}
-        fill={palette.bg}
+        fill={opaquePanelFill(skin)}
+        fillOpacity={1}
         stroke={material.border}
         strokeWidth={material.borderWidth}
       />
@@ -451,17 +462,18 @@ export function LapReadoutWidget({ snapshot, config }: WidgetProps): ReactElemen
         width={W - 1}
         height={H - 1}
         rx={material.radius}
-        fill={palette.bg}
+        fill={opaquePanelFill(skin)}
+        fillOpacity={1}
         stroke={material.border}
         strokeWidth={material.borderWidth}
       />
 
       {rows.map((row, i) => {
         const cell = grid.cell(0, i)
-        const labelW = Math.max(48, Math.min(cell.w * 0.28, 80))
+        const labelW = Math.max(36, Math.min(cell.w * 0.22, 64))
         const valueX = cell.x + labelW + 8
-        const valueW = Math.max(24, cell.w - labelW - 16)
-        const readoutH = Math.max(16, Math.min(cell.h - 6, 32))
+        const valueW = Math.max(24, cell.w - labelW - 14)
+        const readoutH = fitSegmentHeight(row.value, valueW, Math.max(8, Math.min(cell.h - 8, 32)))
         const readoutTop = cell.y + Math.max(0, (cell.h - (readoutH + 4)) / 2)
         return (
           <g key={row.key}>
@@ -471,10 +483,10 @@ export function LapReadoutWidget({ snapshot, config }: WidgetProps): ReactElemen
               width={cell.w}
               height={cell.h}
               rx={material.radius * 0.4}
-              fill={palette.surface}
+              fill={opaquePanelFill(skin)}
+              fillOpacity={1}
               stroke={row.accent ? row.color : material.border}
               strokeWidth={row.accent ? 1.5 : 1}
-              opacity={0.9}
             />
             <FitText
               x={cell.x + 4 + labelW / 2}

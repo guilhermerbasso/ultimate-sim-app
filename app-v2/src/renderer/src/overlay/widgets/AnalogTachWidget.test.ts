@@ -48,7 +48,7 @@ describe('AnalogTachWidget — overflow-safe SVG scene', () => {
     const m = render(POP)
     expect(m).toContain('>3<')
     expect(m).toContain('212')
-    for (const label of ['TACHO', 'RPM']) {
+    for (const label of ['RPM']) {
       expect(m, 'missing ' + label).toContain(label)
     }
   })

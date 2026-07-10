@@ -3,12 +3,16 @@ import type { TelemetrySnapshot } from './telemetry'
 export const STREAMING_CHANNELS = {
   start: 'streaming:start',
   stop: 'streaming:stop',
-  status: 'streaming:status'
+  status: 'streaming:status',
+  selfTest: 'streaming:selftest'
 } as const
+
+export type StreamingLayoutKind = 'dashboard' | 'touch'
 
 export interface StreamingStartArgs {
   streamSafe?: boolean
   layoutId?: string
+  layoutKind?: StreamingLayoutKind
   port?: number
   lanEnabled?: boolean
   accessMode?: StreamingAccessMode
@@ -37,6 +41,13 @@ export interface StreamingStartResult {
   warning: string | null
 }
 
+export interface StreamingSelfTestResult {
+  reachable: boolean
+  statusCode: number | null
+  message: string
+  url: string | null
+}
+
 export interface StreamingClientInfo {
   id: number
   address: string
@@ -54,6 +65,7 @@ export interface StreamingStatus {
   port: number | null
   token: string | null
   layoutId: string
+  layoutKind: StreamingLayoutKind
   touchPanelId: string | null
   streamSafe: boolean
   clients: number

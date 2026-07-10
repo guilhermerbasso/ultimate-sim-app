@@ -18,6 +18,8 @@ import { Badge, Field, NumberField, SelectField, TextField } from '../hub/contro
 import type { SelectOption } from '../hub/controls'
 import { SetupWizard } from '../hub/SetupWizard'
 import { ACCENT, ACCENT_BORDER, badge, buttonStyle, card, getErrorMessage, helper, label, panel, shell } from '../hub/styles'
+import type { ResolvedLanguage } from '../../i18n'
+import { tt } from '../../i18n'
 
 type ArduinoMode = 'disabled' | 'single' | 'multiple'
 
@@ -35,6 +37,8 @@ interface HardwareWorkspaceProps {
   // to its single source of truth (layout + customMap + effect stack) instead of
   // duplicating those fields here.
   onOpenRgbMatrix?: () => void
+  onOpenComponentType?: (type: ComponentType) => void
+  language?: ResolvedLanguage
 }
 
 const BOARD_OPTIONS: ReadonlyArray<SelectOption<BoardId>> = BOARDS.map((board) => ({
@@ -50,7 +54,8 @@ const TYPE_BADGE: Record<ComponentType, string> = {
   gauge: 'Gauge',
   control: 'Controls',
   buzzer: 'Buzzer',
-  startLed: 'Status LED'
+  startLed: 'Status LED',
+  customSerial: 'Custom serial'
 }
 
 function cloneProfile(profile: DeviceProfile): DeviceProfile {
@@ -75,7 +80,9 @@ export function HardwareWorkspace({
   eyebrow,
   description,
   emptyText,
-  onOpenRgbMatrix
+  onOpenRgbMatrix,
+  onOpenComponentType,
+  language
 }: HardwareWorkspaceProps): ReactElement {
   const [profiles, setProfiles] = useState<DeviceProfile[]>([])
   const [serialDevices, setSerialDevices] = useState<SerialDeviceSummary[]>([])
@@ -87,6 +94,8 @@ export function HardwareWorkspace({
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [expandedComponentId, setExpandedComponentId] = useState<string | null>(null)
   const [wizardOpen, setWizardOpen] = useState(false)
+  const [wizardDevice, setWizardDevice] = useState<SerialDeviceSummary | null>(null)
+  const [dismissedUnknownDeviceIds, setDismissedUnknownDeviceIds] = useState<Set<string>>(() => new Set())
   const [simhubDialog, setSimhubDialog] = useState<SimHubDetectResult | null>(null)
   const [simhubDetectBusy, setSimhubDetectBusy] = useState(false)
   const [rightSection, setRightSection] = useState<'identity' | 'components'>('components')
@@ -194,6 +203,11 @@ export function HardwareWorkspace({
     () => serialDevices.find((device) => device.id === draft?.deviceId) ?? null,
     [serialDevices, draft?.deviceId]
   )
+  const unknownSerialDevices = useMemo(
+    () => serialDevices.filter((device) => device.connected && !profiles.some((profile) => profile.deviceId === device.id) && !dismissedUnknownDeviceIds.has(device.id)),
+    [serialDevices, profiles, dismissedUnknownDeviceIds]
+  )
+  const promptDevice = unknownSerialDevices[0] ?? null
   const isLegacyLayout = layout === 'legacy'
   const workspaceShell = isLegacyLayout
     ? shell
@@ -216,6 +230,15 @@ export function HardwareWorkspace({
     setExpandedComponentId(profile?.components.find((item) => componentMatches(item, focusTypes))?.id ?? null)
     setDirty(false)
     setError(null)
+  }
+
+  function dismissUnknownDevice(id: string): void {
+    setDismissedUnknownDeviceIds((current) => new Set([...current, id]))
+  }
+
+  function openOnboardingWizard(device: SerialDeviceSummary): void {
+    setWizardDevice(device)
+    setWizardOpen(true)
   }
 
   function updateDraft(patch: Partial<DeviceProfile>): void {
@@ -299,7 +322,7 @@ export function HardwareWorkspace({
     }
   }
 
-  async function handleWizardComplete(profileId: string): Promise<void> {
+  async function handleWizardComplete(profileId: string, navigateType?: ComponentType): Promise<void> {
     setWizardOpen(false)
     await refreshSerialDevices()
     try {
@@ -473,7 +496,7 @@ export function HardwareWorkspace({
             <button
               style={buttonStyle('primary')}
               disabled={busy || disabled}
-              onClick={() => setWizardOpen(true)}
+              onClick={() => { setWizardDevice(null); setWizardOpen(true) }}
               type="button"
               title="Flash a ready companion firmware and create the matching profile."
             >
@@ -512,6 +535,25 @@ export function HardwareWorkspace({
             </div>
           </div>
         )}
+        {promptDevice && !disabled && (
+          <div style={{ ...card, marginTop: 12, borderColor: ACCENT_BORDER, background: 'rgba(232,105,32,0.08)', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div>
+              <strong style={{ display: 'block', fontSize: 13 }}>{tt(language, 'arduinos.onboarding.detectedTitle')}</strong>
+              <small style={{ color: 'rgba(255,255,255,0.65)' }}>
+                {promptDevice.label} · {promptDevice.path} · {promptDevice.baud} baud
+              </small>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" style={buttonStyle('ghost')} onClick={() => dismissUnknownDevice(promptDevice.id)}>
+                {tt(language, 'arduinos.common.dismiss')}
+              </button>
+              <button type="button" style={buttonStyle('primary')} onClick={() => openOnboardingWizard(promptDevice)}>
+                {tt(language, 'arduinos.onboarding.setupButton')}
+              </button>
+            </div>
+          </div>
+        )}
+
         {disabled && (
           <div style={{ ...card, marginTop: 12, borderColor: 'rgba(255,187,51,0.4)', color: '#ffcf70' }}>
             Arduino management is disabled. Switch to Single or Multiple arduinos to edit profiles or send test frames.
@@ -679,7 +721,7 @@ export function HardwareWorkspace({
                         padding: '8px 10px'
                       }}
                     >
-                      <option value="">(not vinculado)</option>
+                      <option value="">{tt(language, 'arduinos.common.notLinked')}</option>
                       {serialDevices.map((device) => (
                         <option key={device.id} value={device.id}>
                           {device.label} · {device.kind} {device.connected ? '●' : '○'}
@@ -740,7 +782,7 @@ export function HardwareWorkspace({
                             type="button"
                             style={{ ...buttonStyle('ghost'), display: 'block', width: '100%', textAlign: 'left', border: 'none', padding: '9px 10px' }}
                           >
-                            <strong style={{ display: 'block', fontSize: 13 }}>{info.name}</strong>
+                            <strong style={{ display: 'block', fontSize: 13 }}>{tt(language, `arduinos.componentType.${info.type}.name`)}</strong>
                             <small style={{ color: 'rgba(255,255,255,0.55)' }}>SimHub: {info.simhubEquivalent}</small>
                           </button>
                         ))}
@@ -782,10 +824,10 @@ export function HardwareWorkspace({
                               padding: '4px 2px'
                             }}
                           />
-                          <Badge>{TYPE_BADGE[component.type]}</Badge>
+                          <Badge>{tt(language, `arduinos.componentType.${component.type}.short`)}</Badge>
                           <Badge>{typeInfo.simhubEquivalent}</Badge>
                           <button style={buttonStyle('ghost')} disabled={busy || disabled} onClick={() => void handleTest(component.id)} type="button" title="Sends test frame to hardware">
-                            Testar
+                            {tt(language, 'arduinos.common.test')}
                           </button>
                           <button style={buttonStyle('soft', isExpanded)} onClick={() => setExpandedComponentId(isExpanded ? null : component.id)} type="button" aria-expanded={isExpanded}>
                             {isExpanded ? 'Close' : 'Edit'}
@@ -814,7 +856,7 @@ export function HardwareWorkspace({
                                   <strong style={{ display: 'block', fontSize: 13 }}>iFlag editor (RGB Matrix)</strong>
                                   <small style={{ color: 'rgba(255,255,255,0.65)' }}>
                                     Layout, pixel map, and effect stack — the single source of truth for iFlag configuration.
-                                    O button Testar usa exatamente este layout saved.
+                                    {tt(language, 'arduinos.hardware.iflagTestLayout')}
                                   </small>
                                 </div>
                                 <button
@@ -827,7 +869,7 @@ export function HardwareWorkspace({
                                 </button>
                               </div>
                             ) : null}
-                            <ComponentEditor component={component} board={board} conflicts={conflicts} onChange={replaceComponent} />
+                            <ComponentEditor component={component} board={board} conflicts={conflicts} onChange={replaceComponent} language={language} />
                           </div>
                         )}
                       </div>
@@ -842,8 +884,10 @@ export function HardwareWorkspace({
 
       {wizardOpen && (
         <SetupWizard
-          onClose={() => setWizardOpen(false)}
-          onComplete={(profileId) => void handleWizardComplete(profileId)}
+          onboardingDevice={wizardDevice ?? undefined}
+          language={language}
+          onClose={() => { setWizardOpen(false); setWizardDevice(null) }}
+          onComplete={(profileId, navigateType) => void handleWizardComplete(profileId, navigateType)}
           onFlashSettled={refreshSerialDevicesAfterFlash}
           showToast={showToast}
         />

@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
-import { STREAMING_CHANNELS, type StreamingAccessMode, type StreamingStartResult, type StreamingStatus } from '../../../shared/streaming'
+import type { DashboardSummary } from '../../../shared/dashboards'
+import type { ButtonBoxSummary } from '../../../shared/touch-panel'
+import { STREAMING_CHANNELS, type StreamingAccessMode, type StreamingLayoutKind, type StreamingSelfTestResult, type StreamingStartResult, type StreamingStatus } from '../../../shared/streaming'
 import { tt, type ResolvedLanguage } from '../i18n'
+
+interface StreamTargetOption {
+  kind: StreamingLayoutKind
+  id: string
+  label: string
+}
 
 function statusAccessMode(status: StreamingStatus): StreamingAccessMode {
   return status.accessMode ?? (status.lanEnabled ? 'lan' : 'local')
@@ -38,6 +46,9 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
   const [status, setStatus] = useState<StreamingStatus | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<string | null>(null)
+  const [dashboards, setDashboards] = useState<DashboardSummary[]>([])
+  const [touchPanels, setTouchPanels] = useState<ButtonBoxSummary[]>([])
+  const [selectedTarget, setSelectedTarget] = useState<string>('')
 
   const ACCESS_LABELS: Record<StreamingAccessMode, string> = {
     local: tt(language, 'streaming.access.local'),
@@ -51,6 +62,26 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
     setStreamSafe(nextStatus.streamSafe)
     setAccessMode(statusAccessMode(nextStatus))
     setPublicBaseUrl(nextStatus.publicBaseUrl ?? '')
+    if (nextStatus.layoutId) setSelectedTarget(`${nextStatus.layoutKind ?? 'dashboard'}:${nextStatus.layoutId}`)
+  }
+
+  async function refreshTargets(): Promise<void> {
+    const [dashList, touchList, openList] = await Promise.all([
+      window.ipc.invoke<DashboardSummary[]>('app:dash:list').catch(() => [] as DashboardSummary[]),
+      window.ipc.invoke<ButtonBoxSummary[]>('app:touchpanel:list').catch(() => [] as ButtonBoxSummary[]),
+      window.ipc.invoke<Array<{ id: string }>>('app:dash:listOpen').catch(() => [] as Array<{ id: string }>)
+    ])
+    setDashboards(dashList)
+    setTouchPanels(touchList)
+    setSelectedTarget((current) => {
+      if (current) return current
+      const runningKind = status?.layoutKind ?? 'dashboard'
+      const runningId = status?.layoutId
+      if (runningId) return `${runningKind}:${runningId}`
+      const open = openList.find((item) => dashList.some((dash) => dash.id === item.id))
+      const fallback = open?.id ?? dashList.find((dash) => !dash.hidden)?.id ?? dashList[0]?.id
+      return fallback ? `dashboard:${fallback}` : ''
+    })
   }
 
   async function startStreaming(): Promise<void> {
@@ -59,9 +90,12 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
     setCopied(null)
     setTestResult(null)
     try {
+      const [layoutKind, layoutId] = selectedTarget.split(':', 2) as [StreamingLayoutKind | undefined, string | undefined]
       await window.ipc.invoke<StreamingStartResult>(STREAMING_CHANNELS.start, {
         streamSafe,
-        layoutId: 'default',
+        layoutKind: layoutKind === 'touch' ? 'touch' : 'dashboard',
+        layoutId,
+        touchPanelId: layoutKind === 'touch' ? layoutId : undefined,
         accessMode,
         lanEnabled: accessMode !== 'local',
         publicBaseUrl: accessMode === 'internet' ? publicBaseUrl.trim() || undefined : undefined,
@@ -107,8 +141,8 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
     if (!status?.localTestUrl) return
     setTestResult(tt(language, 'streaming.test.running'))
     try {
-      const response = await fetch(status.localTestUrl, { method: 'HEAD', cache: 'no-store' })
-      setTestResult(response.ok ? tt(language, 'streaming.test.ok') : tt(language, 'streaming.test.bad', { status: response.status }))
+      const result = await window.ipc.invoke<StreamingSelfTestResult>(STREAMING_CHANNELS.selfTest)
+      setTestResult(result.reachable ? `${tt(language, 'streaming.test.ok')} ${result.message}` : result.message)
     } catch (err) {
       setTestResult(err instanceof Error ? err.message : tt(language, 'streaming.test.failed'))
     }
@@ -116,6 +150,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
 
   useEffect(() => {
     void refreshStatus().catch(() => { /* streaming module may be unavailable during startup */ })
+    void refreshTargets().catch(() => undefined)
   }, [])
 
   const running = Boolean(status?.running)
@@ -123,6 +158,11 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
   const requiresPassword = accessMode !== 'local'
   const missingPassword = requiresPassword && !password.trim()
   const missingInternetUrl = accessMode === 'internet' && !publicBaseUrl.trim()
+  const targetOptions: StreamTargetOption[] = [
+    ...dashboards.map((dash) => ({ kind: 'dashboard' as const, id: dash.id, label: dash.name })),
+    ...touchPanels.map((panel) => ({ kind: 'touch' as const, id: panel.id, label: panel.name }))
+  ]
+  const missingTarget = !selectedTarget
 
   return (
     <section className="panel streaming-panel">
@@ -139,6 +179,22 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
       <label className="designer-check" style={{ margin: '12px 0' }}>
         <input type="checkbox" checked={streamSafe} disabled={accessDisabled} onChange={(event) => setStreamSafe(event.target.checked)} />
         {tt(language, 'streaming.streamSafe')}
+      </label>
+      <label className="designer-field" style={{ margin: '12px 0' }}>
+        Stream target
+        <select value={selectedTarget} disabled={accessDisabled || targetOptions.length === 0} onChange={(event) => setSelectedTarget(event.target.value)}>
+          {targetOptions.length === 0 ? <option value="">No dashboards found</option> : null}
+          {dashboards.length > 0 ? (
+            <optgroup label="Dashboards">
+              {dashboards.map((dash) => <option key={dash.id} value={`dashboard:${dash.id}`}>{dash.name}{dash.hidden ? ' (hidden)' : ''}</option>)}
+            </optgroup>
+          ) : null}
+          {touchPanels.length > 0 ? (
+            <optgroup label="Touch controls">
+              {touchPanels.map((panel) => <option key={panel.id} value={`touch:${panel.id}`}>{panel.name}{panel.hidden ? ' (hidden)' : ''}</option>)}
+            </optgroup>
+          ) : null}
+        </select>
       </label>
       <label className="designer-field" style={{ margin: '12px 0' }}>
         {tt(language, 'streaming.networkAccess')}
@@ -164,7 +220,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
         />
       </label>
       <div className="overlay-actions">
-        <button className="primary-action" disabled={busy || running || missingPassword || missingInternetUrl} onClick={() => void startStreaming()}>{tt(language, 'streaming.start')}</button>
+        <button className="primary-action" disabled={busy || running || missingPassword || missingInternetUrl || missingTarget} onClick={() => void startStreaming()}>{tt(language, 'streaming.start')}</button>
         <button className="ghost-action danger" disabled={busy || !running} onClick={() => void stopStreaming()}>{tt(language, 'streaming.stop')}</button>
         <button className="ghost-action" disabled={busy} onClick={() => void refreshStatus()}>{tt(language, 'streaming.refresh')}</button>
       </div>

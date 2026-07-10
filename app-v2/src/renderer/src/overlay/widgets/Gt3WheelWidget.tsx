@@ -104,16 +104,14 @@ export function Gt3WheelWidget({ snapshot, config }: WidgetProps): ReactElement 
   const kx = (i: number): number => P + i * (kW + G)
 
   const df = (i: number, label: string, value: string, st: FieldState): ReactElement => (
-    <DataField x={kx(i)} y={knobY} width={kW} height={knobH} label={label} value={value} state={st} ghost={false} skin={skin} />
+    <DataField x={kx(i)} y={knobY} width={kW} height={knobH} label={label} value={value} state={st} panel={false} ghost={false} skin={skin} />
   )
 
   return (
-    <div className="overlay-card dr-root rd-gt3-wheel" data-overlay-id={config?.id} data-widget="gt3Wheel" style={{ width: '100%', height: '100%', overflow: 'hidden', background: palette.bg }}>
+    <div className="overlay-card dr-root rd-gt3-wheel" data-overlay-id={config?.id} data-widget="gt3Wheel" style={{ width: '100%', height: '100%', overflow: 'hidden', background: 'transparent', border: 'none', boxShadow: 'none', backdropFilter: 'none' }}>
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" width="100%" height="100%" style={{ display: 'block' }}>
-        <rect x={0} y={0} width={W} height={H} rx={skin.material.radius} fill={palette.bg} />
         <g transform={`translate(${bankX}, ${bankY})`}>
           <TelltaleBank lamps={lamps} size={lampSize} gap={gapL} columns={cols} glow idPrefix="gt3wheel-bank" />
-          <rect x={pitX} y={pitY} width={lampSize} height={lampSize} rx={skin.material.radius} fill={palette.surface} stroke={pitColor} strokeWidth={pit ? 2 : 1} opacity={pit ? 1 : 0.5} />
           <FitText x={pitX + lampSize / 2} y={pitY + lampSize / 2} boxW={lampSize} boxH={lampSize} text="PIT" fontFamily={skin.typography.label} fill={pitColor} minFontPx={11} maxFontPx={Math.max(12, Math.floor(lampSize * 0.42))} weight={700} anchor="middle" baseline="middle" />
         </g>
         {df(0, 'TC', levelStr(s?.tcLevel), tcActive ? 'warn' : 'normal')}

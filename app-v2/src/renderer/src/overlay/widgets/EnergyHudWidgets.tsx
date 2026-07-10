@@ -1,9 +1,10 @@
 // EnergyHudWidgets — ERS and Push-to-Pass overlays rebuilt on the v2.39 KIT
 // (skins + instruments + FitText + makeGrid). Every widget renders as ONE root
-// <svg viewBox="0 0 W H" preserveAspectRatio="xMidYMid meet"> so text is always
-// auto-fit into fixed grid cells and can NEVER overflow the frame. DSEG numerics
-// go through <SegmentReadout> so the FONT_SEG7 face (DSEG7Classic-Regular) is
-// always in the markup; labels go through <FitText> with minFontPx ≥ 11.
+// <svg viewBox="0 0 W H" preserveAspectRatio="none"> so the opaque panel always
+// fills the placed widget box. Text is auto-fit into fixed grid cells and can
+// NEVER overflow the frame. DSEG numerics go through <SegmentReadout> so the
+// FONT_SEG7 face (DSEG7Classic-Regular) is always in the markup; labels go
+// through <FitText> with minFontPx ≥ 11.
 //
 // Chrome (panel/border/textDim) uses the resolved skin token; state colours
 // (good/warn/danger/deploy) use DASH tokens so severity stays consistent across
@@ -96,6 +97,20 @@ function idPrefix(id: string | undefined, key: string): string {
   return `energy-${key}-${id ?? 'default'}`
 }
 
+function opaquePanelFill(bg: string | undefined): string {
+  const token = bg?.trim()
+  if (!token) return '#050608'
+  const rgba = /^rgba\(([^,]+),([^,]+),([^,]+),[^)]+\)$/i.exec(token)
+  return rgba ? `rgb(${rgba[1].trim()}, ${rgba[2].trim()}, ${rgba[3].trim()})` : token
+}
+
+function segmentFitHeight(boxW: number, boxH: number, value: string, unit?: string): number {
+  const textLen = Math.max(1, value.length)
+  const unitLen = unit?.length ?? 0
+  const widthEm = textLen * 0.66 + (unitLen > 0 ? unitLen * 0.66 * 0.55 + 0.25 : 0) + 0.18
+  return Math.max(8, Math.min(Math.max(8, boxH - 4), Math.max(8, (boxW - 4) / widthEm)))
+}
+
 // ─── ErsBarWidget ─────────────────────────────────────────────────────────────
 // Compact label + value + LED bar (default 240×84).
 export function ErsBarWidget({ snapshot, config }: WidgetProps): ReactElement {
@@ -104,6 +119,7 @@ export function ErsBarWidget({ snapshot, config }: WidgetProps): ReactElement {
   const family = overlayDesignFamily(config?.stylePreset)
   const { W, H } = dims(config, 240, 84)
   const accent = familyAccent(family, palette.accent)
+  const panelFill = opaquePanelFill(palette.bg)
 
   const pct = snapshot?.ersBatteryPct
   const tone = energyTone(pct)
@@ -119,7 +135,7 @@ export function ErsBarWidget({ snapshot, config }: WidgetProps): ReactElement {
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
-      preserveAspectRatio="xMidYMid meet"
+      preserveAspectRatio="none"
       width="100%"
       height="100%"
       role="img"
@@ -128,7 +144,7 @@ export function ErsBarWidget({ snapshot, config }: WidgetProps): ReactElement {
       data-family={family}
       style={{ display: 'block' }}
     >
-      <rect x={0} y={0} width={W} height={H} rx={material.radius} fill={palette.bg} />
+      <rect x={0} y={0} width={W} height={H} rx={material.radius} fill={panelFill} fillOpacity={1} />
       <rect
         x={0.5}
         y={0.5}
@@ -161,7 +177,7 @@ export function ErsBarWidget({ snapshot, config }: WidgetProps): ReactElement {
         <SegmentReadout
           value={txt}
           unit="%"
-          height={valueCell.h}
+          height={segmentFitHeight(valueCell.w, valueCell.h, txt, '%')}
           width={valueCell.w}
           align="right"
           color={stateColor}
@@ -198,6 +214,7 @@ export function ErsBatteryWidget({ snapshot, config }: WidgetProps): ReactElemen
   const family = overlayDesignFamily(config?.stylePreset)
   const { W, H } = dims(config, 240, 150)
   const accent = familyAccent(family, palette.accent)
+  const panelFill = opaquePanelFill(palette.bg)
 
   const pct = snapshot?.ersBatteryPct
   const tone = energyTone(pct)
@@ -224,7 +241,7 @@ export function ErsBatteryWidget({ snapshot, config }: WidgetProps): ReactElemen
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
-      preserveAspectRatio="xMidYMid meet"
+      preserveAspectRatio="none"
       width="100%"
       height="100%"
       role="img"
@@ -233,7 +250,7 @@ export function ErsBatteryWidget({ snapshot, config }: WidgetProps): ReactElemen
       data-family={family}
       style={{ display: 'block' }}
     >
-      <rect x={0} y={0} width={W} height={H} rx={material.radius} fill={palette.bg} />
+      <rect x={0} y={0} width={W} height={H} rx={material.radius} fill={panelFill} fillOpacity={1} />
       <rect
         x={0.5}
         y={0.5}
@@ -266,7 +283,7 @@ export function ErsBatteryWidget({ snapshot, config }: WidgetProps): ReactElemen
         <SegmentReadout
           value={txt}
           unit="%"
-          height={valueCell.h}
+          height={segmentFitHeight(valueCell.w, valueCell.h, txt, '%')}
           width={valueCell.w}
           align="right"
           color={stateColor}
@@ -342,6 +359,7 @@ export function ErsFlowWidget({ snapshot, config }: WidgetProps): ReactElement {
   const family = overlayDesignFamily(config?.stylePreset)
   const { W, H } = dims(config, 380, 84)
   const accent = familyAccent(family, palette.accent)
+  const panelFill = opaquePanelFill(palette.bg)
 
   const pct = snapshot?.ersBatteryPct
   const tone = energyTone(pct)
@@ -365,7 +383,7 @@ export function ErsFlowWidget({ snapshot, config }: WidgetProps): ReactElement {
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
-      preserveAspectRatio="xMidYMid meet"
+      preserveAspectRatio="none"
       width="100%"
       height="100%"
       role="img"
@@ -374,7 +392,7 @@ export function ErsFlowWidget({ snapshot, config }: WidgetProps): ReactElement {
       data-family={family}
       style={{ display: 'block' }}
     >
-      <rect x={0} y={0} width={W} height={H} rx={material.radius} fill={palette.bg} />
+      <rect x={0} y={0} width={W} height={H} rx={material.radius} fill={panelFill} fillOpacity={1} />
       <rect
         x={0.5}
         y={0.5}
@@ -436,7 +454,7 @@ export function ErsFlowWidget({ snapshot, config }: WidgetProps): ReactElement {
         <SegmentReadout
           value={txt}
           unit="%"
-          height={valueCell.h}
+          height={segmentFitHeight(valueCell.w, valueCell.h, txt, '%')}
           width={valueCell.w}
           align="right"
           color={stateColor}
@@ -456,6 +474,7 @@ export function PushToPassHudWidget({ snapshot, config }: WidgetProps): ReactEle
   const family = overlayDesignFamily(config?.stylePreset)
   const { W, H } = dims(config, 220, 160)
   const accent = familyAccent(family, palette.accent)
+  const panelFill = opaquePanelFill(palette.bg)
 
   const state = pushToPassState(snapshot?.pushToPass, snapshot?.pushToPassCount)
   const count = snapshot?.pushToPassCount
@@ -476,7 +495,7 @@ export function PushToPassHudWidget({ snapshot, config }: WidgetProps): ReactEle
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
-      preserveAspectRatio="xMidYMid meet"
+      preserveAspectRatio="none"
       width="100%"
       height="100%"
       role="img"
@@ -485,7 +504,7 @@ export function PushToPassHudWidget({ snapshot, config }: WidgetProps): ReactEle
       data-family={family}
       style={{ display: 'block' }}
     >
-      <rect x={0} y={0} width={W} height={H} rx={material.radius} fill={palette.bg} />
+      <rect x={0} y={0} width={W} height={H} rx={material.radius} fill={panelFill} fillOpacity={1} />
       <rect
         x={0.5}
         y={0.5}
@@ -529,7 +548,7 @@ export function PushToPassHudWidget({ snapshot, config }: WidgetProps): ReactEle
       <g transform={`translate(${valueCell.x} ${valueCell.y})`}>
         <SegmentReadout
           value={countTxt}
-          height={valueCell.h}
+          height={segmentFitHeight(valueCell.w, valueCell.h, countTxt)}
           width={valueCell.w}
           align="center"
           color={stateColor}
@@ -565,6 +584,7 @@ export function PushToPassPipsWidget({ snapshot, config }: WidgetProps): ReactEl
   const family = overlayDesignFamily(config?.stylePreset)
   const { W, H } = dims(config, 220, 84)
   const accent = familyAccent(family, palette.accent)
+  const panelFill = opaquePanelFill(palette.bg)
 
   const state = pushToPassState(snapshot?.pushToPass, snapshot?.pushToPassCount)
   const count = snapshot?.pushToPassCount
@@ -585,7 +605,7 @@ export function PushToPassPipsWidget({ snapshot, config }: WidgetProps): ReactEl
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
-      preserveAspectRatio="xMidYMid meet"
+      preserveAspectRatio="none"
       width="100%"
       height="100%"
       role="img"
@@ -594,7 +614,7 @@ export function PushToPassPipsWidget({ snapshot, config }: WidgetProps): ReactEl
       data-family={family}
       style={{ display: 'block' }}
     >
-      <rect x={0} y={0} width={W} height={H} rx={material.radius} fill={palette.bg} />
+      <rect x={0} y={0} width={W} height={H} rx={material.radius} fill={panelFill} fillOpacity={1} />
       <rect
         x={0.5}
         y={0.5}
@@ -626,7 +646,7 @@ export function PushToPassPipsWidget({ snapshot, config }: WidgetProps): ReactEl
       <g transform={`translate(${valueCell.x} ${valueCell.y})`}>
         <SegmentReadout
           value={valueTxt}
-          height={valueCell.h}
+          height={segmentFitHeight(valueCell.w, valueCell.h, valueTxt)}
           width={valueCell.w}
           align="right"
           color={stateColor}

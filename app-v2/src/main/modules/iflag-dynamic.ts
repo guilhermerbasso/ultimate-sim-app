@@ -16,7 +16,7 @@
 // frame format (HexGrid / RgbFrame) already matches shared/rgb-matrix.ts, so no
 // change to the matrix frame pipeline is required.
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { ModuleContext } from '../module-context'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
@@ -59,7 +59,7 @@ export function register(ctx: ModuleContext): IflagDynamicModule {
   let config: IflagDynamicConfig = DEFAULT_IFLAG_DYNAMIC_CONFIG
   let latest: TelemetrySnapshot | null = null
 
-  void loadConfig(configPath).then((loaded) => {
+  const ready = loadConfig(configPath).then((loaded) => {
     config = loaded
     logger.info('iflag-dynamic', 'config loaded', { enabled: config.enabled })
     ctx.broadcast(IFLAG_DYNAMIC_CHANNELS.configEvent, config)
@@ -69,9 +69,13 @@ export function register(ctx: ModuleContext): IflagDynamicModule {
     latest = snapshot
   })
 
-  ctx.ipcMain.handle(IFLAG_DYNAMIC_CHANNELS.getConfig, () => config)
+  ctx.ipcMain.handle(IFLAG_DYNAMIC_CHANNELS.getConfig, async () => {
+    await ready
+    return config
+  })
 
   ctx.ipcMain.handle(IFLAG_DYNAMIC_CHANNELS.setConfig, async (_event, patch: IflagDynamicConfigPatch) => {
+    await ready
     config = mergeIflagDynamicConfig(config, patch ?? {})
     logger.info('iflag-dynamic', 'config changed', { enabled: config.enabled })
     await saveConfig(configPath, config)
@@ -108,7 +112,7 @@ function renderResult(snap: TelemetrySnapshot | null, config: IflagDynamicConfig
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
 
-async function loadConfig(configPath: string): Promise<IflagDynamicConfig> {
+export async function loadIflagDynamicConfig(configPath: string): Promise<IflagDynamicConfig> {
   try {
     const raw = await readFile(configPath, 'utf8')
     const parsed = JSON.parse(raw) as IflagDynamicConfigPatch
@@ -118,7 +122,16 @@ async function loadConfig(configPath: string): Promise<IflagDynamicConfig> {
   }
 }
 
-async function saveConfig(configPath: string, nextConfig: IflagDynamicConfig): Promise<void> {
+export async function saveIflagDynamicConfig(configPath: string, nextConfig: IflagDynamicConfig): Promise<void> {
   await mkdir(dirname(configPath), { recursive: true })
-  await writeFile(configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8')
+  const file = await open(configPath, 'w')
+  try {
+    await file.writeFile(`${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8')
+    await file.sync()
+  } finally {
+    await file.close()
+  }
 }
+
+const loadConfig = loadIflagDynamicConfig
+const saveConfig = saveIflagDynamicConfig

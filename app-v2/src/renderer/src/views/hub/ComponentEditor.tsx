@@ -10,6 +10,7 @@ import {
   type BuzzerComponent,
   type ControlButtonAction,
   type ControlComponent,
+  type CustomSerialComponent,
   type DeviceComponent,
   type EncoderMode,
   type GaugeComponent,
@@ -39,6 +40,8 @@ import {
 } from './controls'
 import type { SelectOption } from './controls'
 import { ACCENT, card, helper, label, pinSuggestions, buttonStyle } from './styles'
+import type { ResolvedLanguage } from '../../i18n'
+import { tt } from '../../i18n'
 
 const twoCol = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 } as const
 const threeCol = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 } as const
@@ -395,10 +398,12 @@ function RgbStripEditor({ component, onChange }: { component: RgbStripComponent;
 
 function RgbMatrixEditor({
   component,
-  onChange
+  onChange,
+  language
 }: {
   component: RgbMatrixComponent
   onChange: (next: RgbMatrixComponent) => void
+  language?: ResolvedLanguage
 }): ReactElement {
   return (
     <div style={{ display: 'grid', gap: 12 }}>
@@ -436,7 +441,7 @@ function RgbMatrixEditor({
         </Field>
       </div>
       <Toggle
-        caption="Cabeamento serpentina (zig-zag)"
+        caption={tt(language, 'arduinos.component.matrix.serpentine')}
         checked={component.serpentine}
         onChange={(serpentine) => onChange({ ...component, serpentine })}
       />
@@ -650,6 +655,43 @@ function StartLedEditor({ component, onChange }: { component: StartLedComponent;
   )
 }
 
+
+function CustomSerialComponentEditor({ component, onChange, language }: { component: CustomSerialComponent; onChange: (next: CustomSerialComponent) => void; language?: ResolvedLanguage }): ReactElement {
+  const fieldsText = component.telemetryFields.join(', ')
+  const previewValue = component.sampleValue || '123'
+  const preview = component.template.replace(/\$\{\s*value\s*\}/g, previewValue).replace(/\$\{\s*field\s*\}/g, component.telemetryFields[0] ?? '')
+  return (
+    <div style={{ display: 'grid', gap: 14 }}>
+      <Section title={tt(language, 'arduinos.component.customSerial.title')} description={tt(language, 'arduinos.component.customSerial.description')}>
+        <div style={twoCol}>
+          <Field caption={tt(language, 'arduinos.component.customSerial.template')} hint="Use ${value} and ${field} placeholders.">
+            <TextField value={component.template} onChange={(template) => onChange({ ...component, template })} placeholder="T:${value}" />
+          </Field>
+          <Field caption={tt(language, 'arduinos.component.customSerial.fields')} hint="Comma-separated telemetry paths.">
+            <TextField
+              value={fieldsText}
+              onChange={(value) => onChange({ ...component, telemetryFields: value.split(',').map((field) => field.trim()).filter(Boolean) })}
+              placeholder="speedKmh, rpm"
+            />
+          </Field>
+          <Field caption={tt(language, 'arduinos.component.customSerial.sample')}>
+            <TextField value={component.sampleValue} onChange={(sampleValue) => onChange({ ...component, sampleValue })} />
+          </Field>
+          <Field caption={tt(language, 'arduinos.component.customSerial.rate')}>
+            <NumberField value={component.sendRateHz} min={1} max={60} onChange={(sendRateHz) => onChange({ ...component, sendRateHz })} />
+          </Field>
+        </div>
+        <Toggle caption={tt(language, 'arduinos.component.customSerial.newline')} checked={component.appendNewline} onChange={(appendNewline) => onChange({ ...component, appendNewline })} />
+        <div style={card}>
+          <span style={label}>{tt(language, 'arduinos.component.customSerial.preview')}</span>
+          <code style={{ display: 'block', marginTop: 8, color: ACCENT }}>{preview}{component.appendNewline ? '\\n' : ''}</code>
+          <p style={{ ...helper, margin: '8px 0 0' }}>{tt(language, 'arduinos.component.customSerial.stub')}</p>
+        </div>
+      </Section>
+    </div>
+  )
+}
+
 function AlertRulesEditor({ rules, onChangeRule }: { rules: AlertRule[]; onChangeRule: (id: string, patch: Partial<AlertRule>) => void }): ReactElement {
   return (
     <Section title="Alert pages and conditions" description="Reusable alert conditions for Display & Alerts. Existing output channels drive buzzer/status LED; richer alert pages may need firmware support.">
@@ -699,14 +741,15 @@ interface ComponentEditorProps {
   board: BoardInfo
   conflicts: Set<string>
   onChange: (next: DeviceComponent) => void
+  language?: ResolvedLanguage
 }
 
-function renderTypeFields(component: DeviceComponent, onChange: (next: DeviceComponent) => void): ReactElement {
+function renderTypeFields(component: DeviceComponent, onChange: (next: DeviceComponent) => void, language?: ResolvedLanguage): ReactElement {
   switch (component.type) {
     case 'rgbStrip':
       return <RgbStripEditor component={component} onChange={onChange} />
     case 'rgbMatrix':
-      return <RgbMatrixEditor component={component} onChange={onChange} />
+      return <RgbMatrixEditor component={component} onChange={onChange} language={language} />
     case 'screen':
       return <ScreenEditor component={component} onChange={onChange} />
     case 'segDisplay':
@@ -719,15 +762,17 @@ function renderTypeFields(component: DeviceComponent, onChange: (next: DeviceCom
       return <BuzzerEditor component={component} onChange={onChange} />
     case 'startLed':
       return <StartLedEditor component={component} onChange={onChange} />
+    case 'customSerial':
+      return <CustomSerialComponentEditor component={component} onChange={onChange} language={language} />
     default:
       return <span style={{ color: ACCENT }}>Unsupported type</span>
   }
 }
 
-export function ComponentEditor({ component, board, conflicts, onChange }: ComponentEditorProps): ReactElement {
+export function ComponentEditor({ component, board, conflicts, onChange, language }: ComponentEditorProps): ReactElement {
   return (
     <div style={{ display: 'grid', gap: 14 }}>
-      {renderTypeFields(component, onChange)}
+      {renderTypeFields(component, onChange, language)}
       <PinoutEditor component={component} board={board} conflicts={conflicts} onChange={onChange} />
     </div>
   )

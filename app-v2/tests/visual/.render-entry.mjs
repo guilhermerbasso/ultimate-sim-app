@@ -28529,12 +28529,6 @@ var OVERLAY_WIDGETS = [
     defaultPosition: { x: 20, y: 250, width: 470, height: 120 }
   },
   {
-    id: "revHalo",
-    title: "Rev Halo",
-    description: "Anel de RPM com marcha central, segmentos gr\xE1ficos e shift flash azul.",
-    defaultPosition: { x: 760, y: 32, width: 400, height: 150 }
-  },
-  {
     id: "revComet",
     title: "Rev Comet",
     description: "Fita de LEDs em forma de cometa para ponto de troca futurista.",
@@ -33349,21 +33343,6 @@ function CellsGlyph({ family, corners: corners2, kind }) {
     /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("em", { className: "rd4-corner-key", children: corner.k }),
     /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: "rd4-corner-val", children: corner.value })
   ] }, corner.k)) });
-}
-function RevHaloWidget({ snapshot, config }) {
-  const family = familyOf2(config);
-  const pct2 = shiftPct2(snapshot);
-  const flash = pct2 > 0.985;
-  const color = flash ? SHIFT_BLUE2 : revTone(pct2);
-  return familyShell(
-    family,
-    "revhalo",
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(import_jsx_runtime15.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(GaugeGlyph, { family, pct: pct2, color, value: formatGear(snapshot?.gear) }),
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(BarsGlyph, { family, count: 24, active: Math.round(pct2 * 24), tone: (i, c) => revTone((i + 1) / c), kind: "rev" })
-    ] }),
-    { flash }
-  );
 }
 function RevCometWidget({ snapshot, config }) {
   const family = familyOf2(config);
@@ -38632,7 +38611,6 @@ var WIDGET_COMPONENTS = {
   relativesStrip: RelativesStripWidget,
   compactHud: CompactHudWidget,
   symbolStatus: SymbolStatusWidget,
-  revHalo: RevHaloWidget,
   revComet: RevCometWidget,
   sideRadarGlyph: SideRadarGlyphWidget,
   orbitRadar: OrbitRadarWidget,

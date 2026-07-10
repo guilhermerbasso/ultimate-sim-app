@@ -330,6 +330,10 @@ export class DashboardManager {
       .map((dash) => summarizeDashboard(dash))
   }
 
+  getDashboard(id: string): Dashboard | null {
+    return this.dashboards.get(id) ?? null
+  }
+
   listOpen(): DashboardOpenState[] {
     const out: DashboardOpenState[] = []
     for (const [id, meta] of this.windows) {
