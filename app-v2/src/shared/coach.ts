@@ -1,4 +1,7 @@
-import type { TelemetrySnapshot } from './telemetry'
+import type { CarLeftRightState, Corners, PaceMode, SessionState, TelemetrySnapshot, TyreInfo } from './telemetry'
+import type { DriverIntentRegistry, IntentCategory, IntentId } from './driver-intent'
+import type { CoachBaseline } from './coach-baseline'
+import { applyIntentGate } from './coach-intent-gate'
 
 export type CoachSeverity = 'high' | 'med' | 'low' | 'good'
 
@@ -159,6 +162,54 @@ export const COACH_CHANNELS = {
 /** Corner/lap phase a sample belongs to. */
 export type CoachPhase = 'entry' | 'mid' | 'exit'
 
+/**
+ * Per-sample CONTEXT frame — the racecraft / management / session / conditions
+ * signals the intent classifier reads to tell a DELIBERATE line change from an
+ * ERROR. Every field is optional so hand-built samples, legacy paths and providers
+ * that omit a signal simply leave it undefined (→ no suppression). Populated by
+ * `coachContextFromSnapshot`. See docs/coach-intent-research.md §5.
+ */
+export interface CoachContextSample {
+  // ── Racecraft (other cars) ──
+  /** Decided spotter side from the iRacing CarLeftRight flag. */
+  carLeftRight?: CarLeftRightState
+  /** Cars on the busy side (1 or 2), from CarLeftRight. */
+  carsAlongsideCount?: number
+  /** Absolute track-time gap to the car AHEAD (s). */
+  gapAheadSec?: number
+  /** Absolute track-time gap to the car BEHIND (s). */
+  gapBehindSec?: number
+  /** Closest radar contact distance (m) across all radar cars (iRacing approx). */
+  radarClosestMeters?: number
+  // ── Flags / session phase ──
+  flagYellow?: boolean
+  flagBlue?: boolean
+  flagWhite?: boolean
+  flagGreen?: boolean
+  flagCheckered?: boolean
+  /** Derived full-course caution / pace (yellow OR paceMode≠notPacing OR parade). */
+  caution?: boolean
+  sessionState?: SessionState
+  paceMode?: PaceMode
+  sessionType?: string
+  onPitRoad?: boolean
+  lapsRemaining?: number
+  sessionTimeRemainingSec?: number
+  // ── Management (fuel / tyres / brakes) ──
+  fuelLevelPct?: number
+  fuelPerLap?: number
+  /** Max tyre wear across the four corners (%). */
+  tyreWearMaxPct?: number
+  /** Max tyre core temp across the four corners (°C). */
+  tyreTempMaxC?: number
+  /** Max brake temp across the four corners (°C). */
+  brakeTempMaxC?: number
+  // ── Track conditions ──
+  trackWetnessPct?: number
+  gripPct?: number
+  isRaining?: boolean
+}
+
 /** A single buffered telemetry frame reduced to what the analyzer needs. */
 export interface CoachLapSample {
   /** Epoch ms (monotonic enough for dt integration). */
@@ -178,6 +229,12 @@ export interface CoachLapSample {
   tcActive: boolean
   /** Running delta to the driver's best lap, when the sim provides it. */
   deltaToBestSec?: number
+  /**
+   * Optional CONTEXT frame (racecraft / management / session / conditions). When
+   * present, the intent classifier uses it to tell a deliberate line change from
+   * an error. Undefined on hand-built samples and legacy paths (no suppression).
+   */
+  ctx?: CoachContextSample
 }
 
 /** A completed lap, ready for analysis. */
@@ -272,6 +329,27 @@ export interface CoachFinding {
   evidence: string
   /** Raw metrics so the optional LLM can phrase without re-deriving anything. */
   metrics: Record<string, number>
+  /**
+   * Intent-classifier confidence (0..1) that this finding is a REAL error. Set by
+   * the intent gate (see coach-intent-gate.ts). Below the UI sensitivity threshold
+   * → silenced. Undefined on legacy paths that never ran the gate.
+   */
+  confidence?: number
+  /**
+   * When a legitimate DRIVER intent explains this event, its id (e.g. 'attack',
+   * 'lift-and-coast', 'yellow-flag'). Present on findings demoted to CONTEXT.
+   */
+  intent?: IntentId
+  /** Category of the recognized intent (racecraft / management / conditions). */
+  intentCategory?: IntentCategory
+  /** Human-readable evidence lines the classifier used (for the tip + LLM phrasing). */
+  intentEvidence?: string[]
+  /**
+   * True when this is NOT an error but neutral CONTEXT — a deliberate choice the
+   * classifier recognized (e.g. "defensive line, car on the right"). Context items
+   * are never ranked or spoken as mistakes.
+   */
+  context?: boolean
 }
 
 // ─── Spoken corrective phrases (terse, improvement-only imperatives) ──────────
@@ -375,6 +453,9 @@ function capitalizeFirst(text: string): string {
  */
 export function coachSpeakText(tip: CoachTip): string {
   const action = coachActionPhrase(tip)
+  if (tip.corner !== undefined && Number.isFinite(tip.corner) && tip.sector !== undefined && Number.isFinite(tip.sector)) {
+    return `Turn ${tip.corner} (Sector ${tip.sector}), ${action}.`
+  }
   if (tip.corner !== undefined && Number.isFinite(tip.corner)) {
     return `Turn ${tip.corner}, ${action}.`
   }
@@ -475,11 +556,74 @@ export function coachComposeAction(kind: CoachFindingKind): string {
   }
 }
 
+function groundedDimensionPhrase(kind: CoachFindingKind): string {
+  switch (kind) {
+    case 'brake-late':
+      return 'freando tarde'
+    case 'brake-early':
+      return 'freando cedo'
+    case 'trail-brake-lock':
+    case 'abs-overuse':
+      return 'travando ou abusando do freio'
+    case 'steering-late':
+      return 'virando tarde'
+    case 'steering-early':
+      return 'virando cedo'
+    case 'steering-insufficient':
+      return 'virando pouco o volante'
+    case 'steering-busy':
+      return 'mexendo demais no volante'
+    case 'throttle-late':
+      return 'acelerando tarde'
+    case 'throttle-early':
+      return 'acelerando cedo'
+    case 'throttle-hesitation':
+      return 'hesitando no acelerador'
+    case 'tc-overuse':
+      return 'acionando muito o controle de tração'
+    case 'coast':
+      return 'ficando em coast'
+    case 'inconsistency':
+      return 'inconsistente'
+    case 'time-loss':
+      return 'perdendo tempo'
+    case 'min-speed-gain':
+    case 'brake-gain':
+    case 'throttle-gain':
+    case 'good':
+      return 'bom ganho'
+  }
+}
+
+function findingLocatorText(finding: CoachFinding): string {
+  const hasCorner = finding.corner !== undefined && Number.isFinite(finding.corner)
+  const hasSector = finding.sector !== undefined && Number.isFinite(finding.sector)
+  if (hasCorner && hasSector) return `Turn ${finding.corner} (Setor ${finding.sector})`
+  if (hasCorner) return `Turn ${finding.corner}`
+  if (hasSector) return `Setor ${finding.sector}`
+  return 'Trecho'
+}
+
+/** PURE: detailed, evidence-grounded PT-BR line for one gated finding. */
+export function groundedFindingText(finding: CoachFinding): string {
+  const locator = findingLocatorText(finding)
+  const issue = finding.title?.trim() || groundedDimensionPhrase(finding.kind)
+  const loss =
+    Number.isFinite(finding.estTimeLossSec) && finding.estTimeLossSec > 0
+      ? ` — perdeu ${finding.estTimeLossSec.toFixed(1)}s`
+      : ''
+  const evidence = finding.evidence?.trim()
+  const evidenceText = evidence ? ` (${evidence})` : ''
+  const discarded = (finding.intentEvidence ?? []).map((line) => line.trim()).filter((line) => line.length > 0)
+  const discardedText = discarded.length > 0 ? ` (descartado: ${discarded.join('; ')})` : ''
+  return `${locator}: ${issue}${loss}${evidenceText}${discardedText}.`
+}
+
 /** A composed, ready-to-speak per-corner (or per-sector) coaching line. */
 export interface ComposedCornerAdvice {
   /** 1-based corner number when the advice is corner-scoped. */
   corner?: number
-  /** 1-based sector when there is no corner map (fallback locator). */
+  /** 1-based sector for the advice when known. */
   sector?: number
   /** Ordered terse corrections, one per driving dimension, worst-first. */
   actions: string[]
@@ -530,17 +674,18 @@ export function composeCornerAdvice(
     if (!tl) return null
     const action = coachComposeAction(tl.kind)
     const worstLossSec = tl.estTimeLossSec
+    const sector = where.sector !== undefined && Number.isFinite(where.sector) ? where.sector : tl.sector
     let text: string
     if (where.corner !== undefined && Number.isFinite(where.corner)) {
-      text = `Turn ${where.corner}: ${action}.`
-    } else if (where.sector !== undefined && Number.isFinite(where.sector)) {
-      text = `Sector ${where.sector}: ${action}.`
+      text = sector !== undefined && Number.isFinite(sector) ? `Turn ${where.corner} (Sector ${sector}): ${action}.` : `Turn ${where.corner}: ${action}.`
+    } else if (sector !== undefined && Number.isFinite(sector)) {
+      text = `Sector ${sector}: ${action}.`
     } else {
       text = `${capitalizeFirst(action)}.`
     }
     return {
       corner: where.corner,
-      sector: where.sector,
+      sector,
       actions: [action],
       kinds: [tl.kind],
       worstLossSec,
@@ -559,20 +704,21 @@ export function composeCornerAdvice(
   const worstLossSec = ordered[0].estTimeLossSec
   const totalLossSec = ordered.reduce((sum, f) => sum + f.estTimeLossSec, 0)
   const severity = severityForLoss(worstLossSec)
+  const sector = where.sector !== undefined && Number.isFinite(where.sector) ? where.sector : ordered[0].sector
 
   const body = actions.join(', ')
   let text: string
   if (where.corner !== undefined && Number.isFinite(where.corner)) {
-    text = `Turn ${where.corner}: ${body}.`
-  } else if (where.sector !== undefined && Number.isFinite(where.sector)) {
-    text = `Sector ${where.sector}: ${body}.`
+    text = sector !== undefined && Number.isFinite(sector) ? `Turn ${where.corner} (Sector ${sector}): ${body}.` : `Turn ${where.corner}: ${body}.`
+  } else if (sector !== undefined && Number.isFinite(sector)) {
+    text = `Sector ${sector}: ${body}.`
   } else {
     text = `${capitalizeFirst(body)}.`
   }
 
   return {
     corner: where.corner,
-    sector: where.sector,
+    sector,
     actions,
     kinds,
     worstLossSec,
@@ -808,8 +954,91 @@ export function coachSampleFromSnapshot(snapshot: TelemetrySnapshot | null | und
     rpm: finiteOr(snapshot.rpm, 0),
     absActive: snapshot.absActive === true,
     tcActive: snapshot.tcActive === true,
-    deltaToBestSec: snapshot.deltaToBestSec !== undefined && Number.isFinite(snapshot.deltaToBestSec) ? snapshot.deltaToBestSec : undefined
+    deltaToBestSec: snapshot.deltaToBestSec !== undefined && Number.isFinite(snapshot.deltaToBestSec) ? snapshot.deltaToBestSec : undefined,
+    ctx: coachContextFromSnapshot(snapshot)
   }
+}
+
+/** Max finite value across the four corners (undefined when none present). */
+function maxOfCorners(c: Corners<number> | undefined): number | undefined {
+  if (!c) return undefined
+  const vals = [c.lf, c.rf, c.lr, c.rr].filter((v): v is number => Number.isFinite(v))
+  return vals.length ? Math.max(...vals) : undefined
+}
+
+/** Max finite value of one TyreInfo field across the four corners. */
+function maxTyreField(t: Corners<TyreInfo> | undefined, key: 'wearPct' | 'tempC'): number | undefined {
+  if (!t) return undefined
+  const vals = [t.lf, t.rf, t.lr, t.rr]
+    .map((x) => (x ? x[key] : undefined))
+    .filter((v): v is number => Number.isFinite(v))
+  return vals.length ? Math.max(...vals) : undefined
+}
+
+/** Closest radar contact distance (m) across all radar cars (iRacing approx). */
+function radarClosestMeters(cars: TelemetrySnapshot['radarCars']): number | undefined {
+  if (!Array.isArray(cars) || cars.length === 0) return undefined
+  let best: number | undefined
+  for (const car of cars) {
+    if (!Number.isFinite(car.relativeX) || !Number.isFinite(car.relativeY)) continue
+    const d = Math.hypot(car.relativeX, car.relativeY)
+    if (best === undefined || d < best) best = d
+  }
+  return best
+}
+
+/**
+ * Build the per-sample CONTEXT frame from a raw snapshot: racecraft (cars around),
+ * flags/session phase, management (fuel/tyres/brakes) and track conditions. Returns
+ * undefined when nothing is populated so legacy/hand-built paths stay identical.
+ * Pure + defensive (every read is guarded) so providers can omit any signal.
+ */
+export function coachContextFromSnapshot(snapshot: TelemetrySnapshot | null | undefined): CoachContextSample | undefined {
+  if (!snapshot) return undefined
+  const ctx: CoachContextSample = {}
+  // ── Racecraft ──
+  if (snapshot.carLeftRight !== undefined) ctx.carLeftRight = snapshot.carLeftRight
+  if (Number.isFinite(snapshot.carLeftRightCount)) ctx.carsAlongsideCount = snapshot.carLeftRightCount
+  const ahead = snapshot.relatives?.ahead?.gapSec
+  if (Number.isFinite(ahead)) ctx.gapAheadSec = Math.abs(ahead as number)
+  const behind = snapshot.relatives?.behind?.gapSec
+  if (Number.isFinite(behind)) ctx.gapBehindSec = Math.abs(behind as number)
+  const radar = radarClosestMeters(snapshot.radarCars)
+  if (radar !== undefined) ctx.radarClosestMeters = radar
+  // ── Flags / session ──
+  if (snapshot.flags) {
+    ctx.flagYellow = snapshot.flags.yellow === true
+    ctx.flagBlue = snapshot.flags.blue === true
+    ctx.flagWhite = snapshot.flags.white === true
+    ctx.flagGreen = snapshot.flags.green === true
+    ctx.flagCheckered = snapshot.flags.checkered === true
+  }
+  if (snapshot.sessionState !== undefined) ctx.sessionState = snapshot.sessionState
+  if (snapshot.paceMode !== undefined) ctx.paceMode = snapshot.paceMode
+  if (snapshot.flags !== undefined || snapshot.paceMode !== undefined || snapshot.sessionState !== undefined) {
+    ctx.caution =
+      snapshot.flags?.yellow === true ||
+      (snapshot.paceMode !== undefined && snapshot.paceMode !== 'notPacing') ||
+      snapshot.sessionState === 'paradeLaps'
+  }
+  if (snapshot.sessionType !== undefined) ctx.sessionType = snapshot.sessionType
+  if (snapshot.onPitRoad !== undefined) ctx.onPitRoad = snapshot.onPitRoad === true
+  if (Number.isFinite(snapshot.lapsRemaining)) ctx.lapsRemaining = snapshot.lapsRemaining
+  if (Number.isFinite(snapshot.sessionTimeRemainingSec)) ctx.sessionTimeRemainingSec = snapshot.sessionTimeRemainingSec
+  // ── Management ──
+  if (Number.isFinite(snapshot.fuelLevelPct)) ctx.fuelLevelPct = snapshot.fuelLevelPct
+  if (Number.isFinite(snapshot.fuelPerLap)) ctx.fuelPerLap = snapshot.fuelPerLap
+  const wear = maxTyreField(snapshot.tyres, 'wearPct')
+  if (wear !== undefined) ctx.tyreWearMaxPct = wear
+  const tyreTemp = maxTyreField(snapshot.tyres, 'tempC')
+  if (tyreTemp !== undefined) ctx.tyreTempMaxC = tyreTemp
+  const brakeTemp = maxOfCorners(snapshot.brakeTempC)
+  if (brakeTemp !== undefined) ctx.brakeTempMaxC = brakeTemp
+  // ── Conditions ──
+  if (Number.isFinite(snapshot.trackWetnessPct)) ctx.trackWetnessPct = snapshot.trackWetnessPct
+  if (Number.isFinite(snapshot.gripPct)) ctx.gripPct = snapshot.gripPct
+  if (snapshot.isRaining !== undefined) ctx.isRaining = snapshot.isRaining === true
+  return Object.keys(ctx).length > 0 ? ctx : undefined
 }
 
 /** dt (ms) between consecutive samples, clamped so a stutter never dominates. */
@@ -1114,6 +1343,18 @@ export interface AnalyzeLapOptions {
   cornerMap?: CoachCornerMap | null
   /** Reference lap (per-corner metrics) to compare against for gains/losses. */
   reference?: CoachReferenceLap | null
+  /**
+   * Driver-intent registry. When present, analyzeLap runs the INTENT GATE so
+   * deliberate racecraft / management / condition choices are demoted to neutral
+   * context (or silenced) instead of flagged as errors. Omitted → legacy behavior.
+   */
+  registry?: DriverIntentRegistry
+  /** Personal baseline (car+track) enabling lap-to-lap repetition gating. */
+  baseline?: CoachBaseline
+  /** Confidence a legitimate intent needs to suppress a finding (default 0.6). */
+  intentThreshold?: number
+  /** Min error-confidence to keep an error audible (default 0.4; UI sensitivity). */
+  minConfidence?: number
 }
 
 /** PURE: turn a buffered lap into ranked findings. */
@@ -1260,7 +1501,19 @@ export function analyzeLap(
   // Attach the corner number (+ extent) to every finding from the corner map.
   decorateCorners(findings, cornerMap)
 
-  return rankFindings(findings)
+  // ── INTENT GATE (decision core) ── demote deliberate choices to context / silence
+  // low-confidence errors. No-op when no registry is supplied or (in the gate) when
+  // there is neither a context frame nor a baseline — so legacy laps are untouched.
+  const gated = opts.registry
+    ? applyIntentGate(findings, samples, opts.registry, {
+        intentThreshold: opts.intentThreshold,
+        minConfidence: opts.minConfidence,
+        baseline: opts.baseline,
+        lap: buffer.lapNumber
+      })
+    : findings
+
+  return rankFindings(gated)
 }
 
 /** Mutates each finding, mapping its zone midpoint to a numbered corner (when known). */
@@ -1591,11 +1844,26 @@ export function buildCoachReport(
     cornerMap?: CoachCornerMap | null
     /** Reference lap (per-corner metrics) — enables bidirectional gains/losses. */
     reference?: CoachReferenceLap | null
+    /** Driver-intent registry — enables the intent gate (context/silence). */
+    registry?: DriverIntentRegistry
+    /** Personal baseline (car+track) — enables lap-to-lap repetition gating. */
+    baseline?: CoachBaseline
+    /** Confidence a legitimate intent needs to suppress a finding (default 0.6). */
+    intentThreshold?: number
+    /** Min error-confidence to keep an error audible (default 0.4; UI sensitivity). */
+    minConfidence?: number
   } = {}
 ): CoachReport {
   const cfg = opts.cfg ?? DEFAULT_COACH_ANALYSIS
   const cornerMap = opts.cornerMap ?? null
-  const findings = analyzeLap(buffer, cfg, { cornerMap, reference: opts.reference ?? null })
+  const findings = analyzeLap(buffer, cfg, {
+    cornerMap,
+    reference: opts.reference ?? null,
+    registry: opts.registry,
+    baseline: opts.baseline,
+    intentThreshold: opts.intentThreshold,
+    minConfidence: opts.minConfidence
+  })
   const sectors = summarizeSectors(buffer, cfg)
   const consistency = analyzeConsistency(opts.recentLapTimesSec ?? [])
   // Surface lap-to-lap inconsistency as a ranked finding so it competes for the

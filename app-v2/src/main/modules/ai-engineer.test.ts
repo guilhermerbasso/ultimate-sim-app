@@ -152,6 +152,29 @@ describe('createEngineerOrchestrator.ask', () => {
     expect(answer.lang).toBe('en-US')
   })
 
+  it('selects an English persona for en-US LLM answers', async () => {
+    const harness = makeHarness({ config: { language: 'en-US' } })
+    const orch = createEngineerOrchestrator(harness.deps)
+
+    await orch.ask('Give me a qualitative read on my race craft')
+
+    const req = harness.runtime.generateWithTools.mock.calls[0][0] as GenerateRequest
+    expect(req.system).toContain('Always answer in English')
+    expect(req.system).not.toContain('American English')
+  })
+
+  it('selects a PT-BR persona for pt-BR LLM answers', async () => {
+    const harness = makeHarness({ config: { language: 'pt-BR' } })
+    const orch = createEngineerOrchestrator(harness.deps)
+
+    await orch.ask('Quero uma leitura qualitativa livre da minha pilotagem')
+
+    const req = harness.runtime.generateWithTools.mock.calls[0][0] as GenerateRequest
+    expect(req.system).toContain('Responda sempre em PT-BR')
+    expect(req.system).toContain('Você é um engenheiro de corrida')
+    expect(req.system).not.toContain('Always answer in American English')
+  })
+
   it('executes a command intent by broadcasting the existing-IPC directive (no LLM)', async () => {
     const orch = createEngineerOrchestrator(h.deps)
     const answer = await orch.ask('next dashboard')

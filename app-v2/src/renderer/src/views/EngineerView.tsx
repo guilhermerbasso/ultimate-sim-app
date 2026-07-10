@@ -345,6 +345,9 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
   const exampleChips = EXAMPLE_CHIPS
   const models: ModelStatus[] = status?.models ?? []
   const activeModel = models.find((m) => m.active) ?? null
+  const intentSensitivityPercent = Math.round(
+    (Number.isFinite(config.intentSensitivity) ? config.intentSensitivity : DEFAULT_ENGINEER_CONFIG.intentSensitivity) * 100
+  )
 
   // Group the catalog into the 3 user-facing tiers (light / balanced / quality),
   // preserving the canonical low→high order for the picker.
@@ -870,6 +873,22 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
             checked={config.proactiveCoaching}
             onChange={(event) => void patchConfig({ proactiveCoaching: event.target.checked })}
           />
+        </div>
+
+        <div style={settingRow}>
+          <span style={label}>{tt(language, 'engineer.intentSensitivity')}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', minWidth: 180 }}>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={intentSensitivityPercent}
+              onChange={(event) => void patchConfig({ intentSensitivity: Number(event.target.value) / 100 })}
+              aria-label={tt(language, 'engineer.intentSensitivity')}
+            />
+            <span style={{ ...label, minWidth: 34, textAlign: 'right' }}>{intentSensitivityPercent}%</span>
+          </div>
         </div>
 
         <div style={settingRow}>

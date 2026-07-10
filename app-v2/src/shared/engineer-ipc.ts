@@ -115,6 +115,8 @@ export interface EngineerConfig {
   assertiveness: EngineerAssertiveness
   /** Proactive per-sector voice coaching: the engineer speaks on its own after each sector. */
   proactiveCoaching: boolean
+  /** Coach intent sensitivity: higher values lower the silence threshold and speak more. */
+  intentSensitivity: number
   /** Active model id (catalog default = 1.5B, light = 0.5B). */
   modelId: ModelId
   /** CPU threads for inference. 0 = auto (runtime picks min(4, cores-2)). */
@@ -166,6 +168,7 @@ export const DEFAULT_ENGINEER_CONFIG: EngineerConfig = {
   // sector) and the proactive engine stays silent — exactly one speaker per session.
   // The engineer also stays ENABLED for on-demand Q&A.
   proactiveCoaching: true,
+  intentSensitivity: 0.6,
   modelId: DEFAULT_MODEL_ID,
   threads: 0,
   idleUnloadMs: 3 * 60 * 1000,
@@ -255,6 +258,10 @@ export function mergeEngineerConfig(base: EngineerConfig, patch: EngineerConfigP
     language: isLanguage(p.language) ? p.language : base.language,
     assertiveness: isAssertiveness(p.assertiveness) ? p.assertiveness : base.assertiveness,
     proactiveCoaching: typeof p.proactiveCoaching === 'boolean' ? p.proactiveCoaching : base.proactiveCoaching,
+    intentSensitivity:
+      typeof p.intentSensitivity === 'number' && Number.isFinite(p.intentSensitivity)
+        ? Math.min(1, Math.max(0, p.intentSensitivity))
+        : base.intentSensitivity,
     modelId: typeof p.modelId === 'string' && p.modelId.length > 0 ? p.modelId : base.modelId,
     threads: clampInt(p.threads ?? base.threads, ENGINEER_LIMITS.threadsMin, ENGINEER_LIMITS.threadsMax, base.threads),
     idleUnloadMs: clampInt(

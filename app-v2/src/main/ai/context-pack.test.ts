@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { CoachTip } from '../../shared/coach'
+import type { CoachFinding, CoachTip } from '../../shared/coach'
 import type { FuelStrategyState } from '../../shared/fuel'
 import type { LapTimingState } from '../../shared/laptiming'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
@@ -121,6 +121,29 @@ const coachTips: CoachTip[] = [
   { id: 'live:braking:s1', kind: 'braking', sector: 1, severity: 'high', message: 'Trail brake later into T1', createdAt: 999_000 }
 ]
 
+const coachFinding: CoachFinding = {
+  id: 'finding:t13',
+  kind: 'brake-late',
+  phase: 'entry',
+  sector: 3,
+  corner: 13,
+  zonePctStart: 0.72,
+  zonePctEnd: 0.76,
+  severity: 'high',
+  estTimeLossSec: 1.04,
+  estTimeDeltaSec: -1.04,
+  sign: 'loss',
+  title: 'Freou tarde',
+  detail: 'Freie mais cedo e solte o freio progressivamente.',
+  explanation: 'Entrada atrasada comprometeu a velocidade mínima.',
+  evidence: 'freio 18m depois da referência',
+  metrics: { brakeDeltaM: 18 },
+  confidence: 0.87,
+  intent: 'attack',
+  intentCategory: 'racecraft',
+  intentEvidence: ['ataque descartado: sem carro à frente']
+}
+
 describe('buildContextPack', () => {
   it('digests a representative snapshot + engine states into a compact pack', () => {
     const pack = buildContextPack(snapshot(), { fuel: fuelState, tire: tireState, lap: lapState, coachTips })
@@ -194,5 +217,25 @@ describe('buildContextPack', () => {
     const trimmed = renderContextText(pack, { maxTokens: 30 })
     expect(trimmed).not.toContain('EVENTS')
     expect(trimmed).toContain('CAR/TRACK:')
+  })
+
+  it('renders deterministic grounded coach finding lines with confidence and intent context', () => {
+    const pack = buildContextPack(snapshot(), {
+      coachFindings: [
+        coachFinding,
+        {
+          ...coachFinding,
+          id: 'context:defend',
+          context: true,
+          intent: 'defend',
+          intentEvidence: ['defesa reconhecida']
+        }
+      ]
+    })
+
+    const text = renderContextText(pack)
+    expect(text).toContain('COACHING: Turn 13 (Setor 3): Freou tarde — perdeu 1.0s (freio 18m depois da referência)')
+    expect(text).toContain('(descartado: ataque descartado: sem carro à frente). [severity high, confidence 87%, intent attack/racecraft]')
+    expect(text).not.toContain('defesa reconhecida')
   })
 })

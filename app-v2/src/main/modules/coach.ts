@@ -40,6 +40,7 @@ import {
   type SectorTracker
 } from './proactive-engineer'
 import { buildCornerMap, type CornerMapData, type CornerSample } from '../track-map/corner-map'
+import { createDefaultIntentRegistry } from '../../shared/driver-intent-catalog'
 import { deriveSessionKind } from '../ai/context-pack'
 import type { SessionKind } from '../../shared/ai-engineer'
 import {
@@ -52,6 +53,10 @@ import {
 import { getLlmRuntime } from '../ai/llm-runtime'
 import { getModelManager } from '../ai/model-manager'
 import { logger } from './logger'
+
+// One shared, immutable driver-intent registry so the Live Coach gates deliberate
+// racecraft/management/condition choices (context/silence) exactly like the proactive engine.
+const intentRegistry = createDefaultIntentRegistry()
 
 // ─────────────────────────────────────────────────────────────────────────────
 // F1 — Live Coach engine (corner-aware spoken coaching).
@@ -315,7 +320,7 @@ export class LiveCoachEngine {
         lapTimeSec,
         bestLapTimeSec: finiteOrUndefined(snapshot.bestLapTimeSec)
       },
-      { recentLapTimesSec: this.recentLapTimes, cornerMap: this.cornerMap, reference: this.reference }
+      { recentLapTimesSec: this.recentLapTimes, cornerMap: this.cornerMap, reference: this.reference, registry: intentRegistry }
     )
     this.findings = report.findings
     // Update the bidirectional reference on the fastest valid lap so far.
@@ -596,7 +601,7 @@ class LapCoachAnalyzer {
         lapTimeSec,
         bestLapTimeSec: finiteOrUndefined(snapshot.bestLapTimeSec)
       },
-      { recentLapTimesSec: this.recentLapTimes, cornerMap: this.cornerMap, reference: this.reference }
+      { recentLapTimesSec: this.recentLapTimes, cornerMap: this.cornerMap, reference: this.reference, registry: intentRegistry }
     )
     // Update the bidirectional reference when this is the fastest valid lap so far.
     if (

@@ -60,7 +60,13 @@ function makeSnapshot(lapDistPct: number, overrides: Partial<TelemetrySnapshot> 
   } as unknown as TelemetrySnapshot
 }
 
-const BRUTAL_PT: ProactiveConfigView = { enabled: true, proactiveCoaching: true, language: 'pt-BR', assertiveness: 'brutal' }
+const BRUTAL_PT: ProactiveConfigView = {
+  enabled: true,
+  proactiveCoaching: true,
+  language: 'pt-BR',
+  assertiveness: 'brutal',
+  intentSensitivity: 0.6
+}
 
 // ─── Sector geometry ──────────────────────────────────────────────────────────
 

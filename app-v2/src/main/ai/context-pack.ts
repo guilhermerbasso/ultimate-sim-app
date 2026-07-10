@@ -29,6 +29,7 @@ import type {
   SessionPhase
 } from '../../shared/ai-engineer'
 import type { CoachFinding, CoachTip } from '../../shared/coach'
+import { groundedFindingText } from '../../shared/coach'
 import type { FuelStrategyState } from '../../shared/fuel'
 import type { LapTimingState } from '../../shared/laptiming'
 import type { PredictionsSnapshot } from '../../shared/predictions'
@@ -301,14 +302,19 @@ function deriveEvents(snapshot: TelemetrySnapshot | null, extras: ContextPackExt
 const DEFAULT_MAX_COACH_FINDINGS = 3
 function deriveCoachFindings(extras: ContextPackExtras | undefined): PackCoachFinding[] | undefined {
   const raw: CoachFinding[] = extras?.coachFindings ?? []
-  const actionable = raw.filter((f) => f.kind !== 'good')
+  const actionable = raw.filter((f) => f.kind !== 'good' && f.context !== true)
   if (actionable.length === 0) return undefined
   return actionable.slice(0, DEFAULT_MAX_COACH_FINDINGS).map((f) => ({
     sector: f.sector,
     kind: f.kind,
     severity: f.severity,
     estTimeLossSec: round(f.estTimeLossSec, 2),
-    title: f.title
+    title: f.title,
+    groundedText: groundedFindingText(f),
+    confidence: isFiniteNum(f.confidence) ? round(f.confidence, 2) : undefined,
+    intent: f.intent,
+    intentCategory: f.intentCategory,
+    intentEvidence: f.intentEvidence
   }))
 }
 
@@ -550,7 +556,12 @@ function renderLines(pack: ContextPack): string[] {
   if (pack.referenceLap) lines.push(`REFERENCE: ${pack.referenceLap}`)
 
   if (pack.coachFindings && pack.coachFindings.length) {
-    const parts = pack.coachFindings.map((f) => `S${f.sector} ${f.title} (~${f.estTimeLossSec.toFixed(2)}s, ${f.severity})`)
+    const parts = pack.coachFindings.map((f) => {
+      const meta: string[] = [`severity ${f.severity}`]
+      if (isFiniteNum(f.confidence)) meta.push(`confidence ${Math.round(f.confidence * 100)}%`)
+      if (f.intent) meta.push(`intent ${f.intent}${f.intentCategory ? `/${f.intentCategory}` : ''}`)
+      return `${f.groundedText} [${meta.join(', ')}]`
+    })
     lines.push(`COACHING: ${parts.join(' · ')}`)
   }
 
