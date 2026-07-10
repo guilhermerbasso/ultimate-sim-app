@@ -51,7 +51,7 @@ import { buildCornerMap, trackLayoutKey, type CornerMapData, type CornerSample }
 import { createDefaultIntentRegistry } from '../../shared/driver-intent-catalog'
 import { findingEventKeys, sensitivityToMinConfidence } from '../../shared/coach-intent-gate'
 import { recordLapEvents } from '../../shared/coach-baseline'
-import { CoachBaselineStore } from './coach-baselines'
+import { CoachBaselineStore, getCoachBaselineStore } from './coach-baselines'
 import { logger } from './logger'
 
 const LOG_AREA = 'ai'
@@ -983,7 +983,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
 // ─── Module registration ───────────────────────────────────────────────────────
 
 export function register(ctx: ModuleContext): void {
-  const baselineStore = new CoachBaselineStore(ctx.app.getPath('userData'))
+  const baselineStore = getCoachBaselineStore(ctx.app.getPath('userData'))
   const engine = createProactiveEngine({
     emit: (event) => ctx.broadcast(ENGINEER_CHANNELS.proactive, event),
     getConfig: () => {

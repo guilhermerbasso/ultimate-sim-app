@@ -87,3 +87,13 @@ function isStoreFile(value: unknown): value is CoachBaselineFile {
 function cloneBaseline(baseline: CoachBaseline): CoachBaseline {
   return JSON.parse(JSON.stringify(baseline)) as CoachBaseline
 }
+
+// One process-wide store shared by BOTH the Live Coach (practice/qualy) and the
+// proactive engine (race) so they never clobber each other's `coach-baselines.json`
+// (they run in the same main process; a second instance would hold a stale Map).
+let sharedStore: CoachBaselineStore | undefined
+
+export function getCoachBaselineStore(userDataDir: string): CoachBaselineStore {
+  if (!sharedStore) sharedStore = new CoachBaselineStore(userDataDir)
+  return sharedStore
+}
