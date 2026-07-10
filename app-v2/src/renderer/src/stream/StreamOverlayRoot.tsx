@@ -77,6 +77,14 @@ function widgetConfig(id: OverlayWidgetId): OverlayWidgetConfig {
   }
 }
 
+function LoadingState({ label }: { label: string }): ReactElement {
+  return (
+    <div className="stream-viewport" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ color: '#9aa6b2', fontFamily: 'Segoe UI, system-ui, sans-serif', padding: 24 }}>{label}</div>
+    </div>
+  )
+}
+
 export function StreamOverlayRoot() {
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const [connected, setConnected] = useState(false)
@@ -150,7 +158,6 @@ export function StreamOverlayRoot() {
   useEffect(() => {
     if (target.kind !== 'dashboard') return
     if (!target.id) {
-      setTargetError('No dashboard selected.')
       return
     }
     let alive = true
@@ -185,22 +192,14 @@ export function StreamOverlayRoot() {
     }
   }, [])
 
-  // Show password prompt if required and not yet entered
-  if (passwordRequired === true) {
-    if (targetError) {
-      return (
-        <div className="stream-viewport">
-          <div style={{ color: '#fca5a5', fontFamily: 'Segoe UI, system-ui, sans-serif', padding: 24 }}>{targetError}</div>
-        </div>
-      )
-    }
+  const showPasswordForm = passwordRequired === true || (passwordError && password.length > 0)
+  const hasSelectedTarget = target.id !== null
 
-    if (target.kind === 'touch') return <TouchPanelWindowRoot />
+  if (passwordRequired === null) {
+    return <LoadingState label="Connecting…" />
+  }
 
-    if (dashboard) {
-      return <DashboardCanvas dashboard={dashboard} snapshot={snapshot} />
-    }
-
+  if (showPasswordForm) {
     return (
       <div className="stream-viewport" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <form
@@ -208,10 +207,12 @@ export function StreamOverlayRoot() {
           onSubmit={(e) => {
             e.preventDefault()
             setPassword(passwordInput)
+            setPasswordError(false)
             setPasswordRequired(false)
           }}
         >
           <div style={{ color: '#fdf7f0', fontWeight: 700, fontSize: 16 }}>Password required</div>
+          {targetError ? <div style={{ color: '#fca5a5', fontSize: 12 }}>{targetError}</div> : null}
           <input
             autoFocus
             type="password"
@@ -225,6 +226,21 @@ export function StreamOverlayRoot() {
         </form>
       </div>
     )
+  }
+
+  if (targetError) {
+    return (
+      <div className="stream-viewport">
+        <div style={{ color: '#fca5a5', fontFamily: 'Segoe UI, system-ui, sans-serif', padding: 24 }}>{targetError}</div>
+      </div>
+    )
+  }
+
+  if (hasSelectedTarget && target.kind === 'touch') return <TouchPanelWindowRoot />
+
+  if (hasSelectedTarget && target.kind === 'dashboard') {
+    if (dashboard) return <DashboardCanvas dashboard={dashboard} snapshot={snapshot} />
+    return <LoadingState label="Loading dashboard…" />
   }
 
   return (
