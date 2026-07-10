@@ -38,4 +38,12 @@ npm run build
 
 ## Release artifacts
 
-Build outputs and installers should be generated from reviewed source and attached to GitHub Releases rather than committed directly.
+Build outputs and installers are generated from reviewed source and attached to GitHub Releases,
+never committed. **Every release must attach all electron-builder artifacts — especially
+`latest.yml`, which the in-app auto-updater reads to detect new versions.** A release with only the
+`.exe` installs by hand but silently breaks auto-update.
+
+See **[docs/RELEASING.md](docs/RELEASING.md)** for the full step-by-step process (version bump →
+`npm run dist:win` → attach `latest.yml` + `.exe` + `.blockmap` + `.zip` → keep as draft → publish).
+When a release is **published**, the `Update README on release` workflow opens a PR that refreshes
+the README's version and **What's new** highlights automatically.

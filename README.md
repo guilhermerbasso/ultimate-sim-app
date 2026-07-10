@@ -20,8 +20,9 @@ Independent community project maintained by Guilherme Basso · Electron + React 
 
 Ultimate Sim App combines live race telemetry, dashboard composition, transparent overlays, phone streaming, hardware control, and local AI into one desktop app. It is designed for Windows racing rigs, second monitors, cockpit tablets/phones, and DIY Arduino/ESP32 devices.
 
-## What's new since 2.48
+## What's new
 
+<!-- WHATS_NEW:START -->
 ### 2.50.0 — Intent- & racecraft-aware AI Coach
 
 - The local **AI Coach / Race Engineer** now infers **driver intent** (racecraft, stint management, track/session conditions) over a time window before calling anything a mistake — deterministic and local-first, **no cloud LLM, no black-box ML**.
@@ -36,6 +37,8 @@ Ultimate Sim App combines live race telemetry, dashboard composition, transparen
 - **Device flashing fixed**: `avrdude.exe` is bundled (with a download fallback); **iFlag** fixes (all serial ports listed, stable reconnect, persisted state, logging) plus a **guided setup wizard** for unknown devices and a **Custom serial devices** submenu.
 - **Streaming**: fixed "Test from this PC → Failed to fetch" and added a **stream target selector** to choose which dashboard to stream.
 - **Per-menu tutorials** (first-run walkthrough + a persistent "Start this menu's tutorial" button), a **Join us on Discord** button, a **Check for updates** button, and a fixed Windows taskbar/Start **app icon**.
+
+<!-- WHATS_NEW:END -->
 
 ### iRacing telemetry widgets, overlays, and GT3 dashboards
 
