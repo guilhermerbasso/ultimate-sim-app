@@ -12,6 +12,8 @@ import type { TelemetrySnapshot } from '../../../../shared/telemetry'
 import type { WidgetProps } from './types'
 import { resolveSkin, FitText } from '../../skins'
 import { DataField } from '../../instruments'
+import { convertMeasurement, formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 export const FUEL_DELTA_TILE_STREAM_SAFE = true
 
@@ -57,6 +59,7 @@ function signed(value: number | undefined, digits: number): string {
 }
 
 export function FuelDeltaTileWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = resolveSkin('gt3', 'generic')
   const glass = skin.id === 'hud'
   const W = Math.max(1, Math.round(config?.position?.width ?? DEFAULT_W))
@@ -68,6 +71,10 @@ export function FuelDeltaTileWidget({ snapshot, config }: WidgetProps): ReactEle
   const toneHex = t === 'good' ? skin.palette.ok : t === 'warn' ? skin.palette.warn : t === 'bad' ? skin.palette.crit : skin.palette.textDim
   const toneState = t === 'good' ? 'ok' : t === 'warn' ? 'warn' : t === 'bad' ? 'crit' : 'normal'
   const chip = t === 'good' ? 'SAFE' : t === 'warn' ? 'TIGHT' : t === 'bad' ? 'SHORT' : '—'
+  const fuel = formatMeasurement(s?.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1 })
+  const fuelPerLap = formatMeasurement(s?.fuelPerLap, 'fuel-per-lap-l', unitSystem, { decimals: 2 })
+  const delta = formatMeasurement(deltaLiters(s), 'fuel-volume-l', unitSystem, { decimals: 1 })
+  const signedDelta = signed(convertMeasurement(deltaLiters(s), 'fuel-volume-l', unitSystem), 1)
 
   const pad = 12
   const heroY = 32
@@ -106,10 +113,10 @@ export function FuelDeltaTileWidget({ snapshot, config }: WidgetProps): ReactEle
 
       <DataField x={pad} y={heroY} width={W - pad * 2} height={heroH} label="MARGIN" value={signed(margin, 1)} unit="LAP" state={toneState} skin={skin} />
 
-      <DataField x={pad} y={gridY} width={cellW} height={cellH} label="FUEL" value={numberOrDash(s?.fuelLiters, 1)} unit="L" skin={skin} />
-      <DataField x={col1} y={gridY} width={cellW} height={cellH} label="L/LAP" value={numberOrDash(s?.fuelPerLap, 2)} skin={skin} />
+      <DataField x={pad} y={gridY} width={cellW} height={cellH} label="FUEL" value={fuel.display} unit={fuel.unit} skin={skin} />
+      <DataField x={col1} y={gridY} width={cellW} height={cellH} label="FUEL/LAP" value={fuelPerLap.display} unit={fuelPerLap.unit} skin={skin} />
       <DataField x={pad} y={row1} width={cellW} height={cellH} label="TO EMPTY" value={numberOrDash(lapsToEmpty(s), 1)} unit="LAP" skin={skin} />
-      <DataField x={col1} y={row1} width={cellW} height={cellH} label="DELTA" value={signed(deltaLiters(s), 1)} unit="L" state={toneState} skin={skin} />
+      <DataField x={col1} y={row1} width={cellW} height={cellH} label="DELTA" value={signedDelta} unit={delta.unit} state={toneState} skin={skin} />
     </svg>
   )
 }

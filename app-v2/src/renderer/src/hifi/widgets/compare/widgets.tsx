@@ -11,6 +11,7 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, clamp01, condColor, fixed, frac, lapTime, legibleStroke, num, signed } from '../kit'
+import { formatMeasurement, type UnitSystem } from '../../../../../shared/units'
 
 const DASH_W = 1024
 const DASH_H = 600
@@ -178,10 +179,13 @@ function ZoneMap({ ox, oy, w, h, dist }: { ox: number; oy: number; w: number; h:
   )
 }
 
-function SpeedTrace({ ox, oy, w, h, dist, speed, idp }: { ox: number; oy: number; w: number; h: number; dist: number | undefined; speed: number | undefined; idp: string }): ReactElement {
+function SpeedTrace({ ox, oy, w, h, dist, speed, idp, unitSystem }: { ox: number; oy: number; w: number; h: number; dist: number | undefined; speed: number | undefined; idp: string; unitSystem: UnitSystem }): ReactElement {
   const cursorIdx = profileIndexAtDist(dist, SPEED_PROFILE)
   const cursorX = cursorIdx == null ? null : profileX(ox, w, cursorIdx)
   const dotY = cursorIdx == null ? null : profileYAtIndex(oy, h, SPEED_PROFILE, cursorIdx)
+  const reading = formatMeasurement(speed, 'speed-kmh', unitSystem, { decimals: 0 })
+  const maxReading = formatMeasurement(SPEED_MAX, 'speed-kmh', unitSystem, { decimals: 0 })
+  const minReading = formatMeasurement(SPEED_MIN, 'speed-kmh', unitSystem, { decimals: 0 })
   return (
     <g>
       <defs>
@@ -192,8 +196,8 @@ function SpeedTrace({ ox, oy, w, h, dist, speed, idp }: { ox: number; oy: number
       </defs>
       <line x1={ox} y1={oy} x2={ox} y2={oy + h} stroke={GRID} strokeWidth={1} />
       <line x1={ox} y1={oy + h} x2={ox + w} y2={oy + h} stroke={GRID} strokeWidth={1} />
-      <text x={ox - 8} y={oy + 12} textAnchor="end" fill={GREY} fontFamily={FONT_NUM} fontWeight={700} fontSize={14} {...legibleStroke(14)}>{SPEED_MAX}</text>
-      <text x={ox - 8} y={oy + h} textAnchor="end" fill={GREY} fontFamily={FONT_NUM} fontWeight={700} fontSize={14} {...legibleStroke(14)}>{SPEED_MIN}</text>
+      <text x={ox - 8} y={oy + 12} textAnchor="end" fill={GREY} fontFamily={FONT_NUM} fontWeight={700} fontSize={14} {...legibleStroke(14)}>{maxReading.display}</text>
+      <text x={ox - 8} y={oy + h} textAnchor="end" fill={GREY} fontFamily={FONT_NUM} fontWeight={700} fontSize={14} {...legibleStroke(14)}>{minReading.display}</text>
       {/* illustrative dual-line lap profile (context, dim) */}
       <path d={`${profilePath(ox, oy, w, h, SPEED_PROFILE)} L${ox + w} ${oy + h} L${ox} ${oy + h} Z`} fill={`url(#${idp}-fill)`} stroke="none" />
       <path d={profilePath(ox, oy, w, h, SPEED_PROFILE, 0.02)} fill="none" stroke={AMBER} strokeWidth={2} opacity={0.7} />
@@ -204,7 +208,7 @@ function SpeedTrace({ ox, oy, w, h, dist, speed, idp }: { ox: number; oy: number
       })}
       {cursorX != null ? <line x1={cursorX} y1={oy} x2={cursorX} y2={oy + h} stroke={WHITE} strokeWidth={1.5} opacity={0.6} /> : null}
       {cursorX != null && dotY != null ? <circle cx={cursorX} cy={dotY} r={5} fill={speed == null ? C.dim : WHITE} stroke={RED} strokeWidth={2.5} /> : null}
-      <text x={ox + w} y={oy + 16} textAnchor="end" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={24} {...legibleStroke(24)}>{fixed(speed)}<tspan fill={GREY} fontFamily={FONT_LABEL} fontSize={14}> km/h</tspan></text>
+      <text x={ox + w} y={oy + 16} textAnchor="end" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={24} {...legibleStroke(24)}>{reading.display}<tspan fill={GREY} fontFamily={FONT_LABEL} fontSize={14}> {reading.unit}</tspan></text>
     </g>
   )
 }
@@ -237,7 +241,7 @@ function DeltaTrace({ ox, oy, w, h, dist, delta, idp }: { ox: number; oy: number
 }
 
 // ── The full composite comparison dashboard ──────────────────────────────────────
-function CompareDash({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function CompareDash({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const s = snapshot
   const ref = reference(s)
   const delta = num(s?.deltaToBestSec)
@@ -260,7 +264,7 @@ function CompareDash({ snapshot, width, height }: HifiWidgetProps): ReactElement
       <line x1={24} y1={286} x2={1000} y2={286} stroke={GRID} strokeWidth={1} />
       {/* MIDDLE BAND — speed trace */}
       <text x={20} y={318} fill={GREY} fontFamily={FONT_LABEL} fontWeight={800} fontSize={15} letterSpacing={2} transform="rotate(-90 20 318)" {...legibleStroke(15)}>SPEED</text>
-      <SpeedTrace ox={96} oy={306} w={904} h={148} dist={num(s?.lapDistPct)} speed={num(s?.speedKmh)} idp="cmp-spd" />
+      <SpeedTrace ox={96} oy={306} w={904} h={148} dist={num(s?.lapDistPct)} speed={num(s?.speedKmh)} idp="cmp-spd" unitSystem={unitSystem} />
       {/* BOTTOM BAND — delta trace */}
       <text x={20} y={520} fill={GREY} fontFamily={FONT_LABEL} fontWeight={800} fontSize={15} letterSpacing={2} transform="rotate(-90 20 520)" {...legibleStroke(15)}>DELTA</text>
       <DeltaTrace ox={96} oy={476} w={904} h={104} dist={num(s?.lapDistPct)} delta={delta} idp="cmp-dlt" />
@@ -335,12 +339,12 @@ function ZoneMapW({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   )
 }
 
-function SpeedTraceW({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function SpeedTraceW({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const w = width ?? 640
   const h = height ?? 240
   return (
     <CleanTile width={w} height={h}>
-      <SpeedTrace ox={54} oy={26} w={w - 74} h={h - 52} dist={num(snapshot?.lapDistPct)} speed={num(snapshot?.speedKmh)} idp="cmpw-spd" />
+      <SpeedTrace ox={54} oy={26} w={w - 74} h={h - 52} dist={num(snapshot?.lapDistPct)} speed={num(snapshot?.speedKmh)} idp="cmpw-spd" unitSystem={unitSystem} />
     </CleanTile>
   )
 }

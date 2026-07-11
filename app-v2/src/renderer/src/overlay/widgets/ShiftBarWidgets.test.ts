@@ -13,7 +13,7 @@ import type {
   OverlayWidgetId
 } from '../../../../shared/overlays'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
-import { resolveSkin } from '../../skins'
+import { SHIFT_STROBE_BLUE } from '../../lib/rev-lights'
 import { WIDGET_COMPONENTS } from './index'
 
 // v2.39: GT3ClusterWidget + RevLightsWidget render the shared, skin-driven RevLedBar
@@ -26,8 +26,7 @@ const defaults = createDefaultOverlaysConfig()
 
 // The shared LED ladder instrument (RevLedBar) renders a nested <svg aria-label="rev lights">.
 const LADDER = 'aria-label="rev lights"'
-// Redline flash colour driven by the skin LED profile (blue for the gt3 profile).
-const REDLINE = resolveSkin('gt3', 'generic').led.redline.color
+const REDLINE = SHIFT_STROBE_BLUE
 const count = (s: string, sub: string): number => s.split(sub).length - 1
 // How many times the ladder paints the redline colour: a small baseline below the
 // limiter, but many (every lit LED) once the redline flash engages.
@@ -83,15 +82,14 @@ describe('GT3ClusterWidget + RevLightsWidget adopt the shared RevLedBar ladder',
     expect(revRedline).toContain(LADDER)
     expect(flashHits(revRedline), 'revlights flash lights the ladder').toBeGreaterThanOrEqual(FLASH_MIN)
     expect(flashHits(revRedline)).toBeGreaterThan(flashHits(revBelow))
-    // RevLights also swaps its header tell-tale REV → SHIFT at the limiter.
-    expect(revRedline).toContain('SHIFT')
+    expect(revRedline).toContain('repeatCount="indefinite"')
   })
 
   it('does not flash below the redline', () => {
     expect(flashHits(render('gt3Cluster', 'bauhaus', mid)), 'cluster').toBeLessThan(FLASH_MIN)
     const rev = render('revlights', 'neon', mid)
     expect(flashHits(rev), 'revlights').toBeLessThan(FLASH_MIN)
-    expect(rev).not.toContain('SHIFT')
+    expect(rev).not.toContain('repeatCount="indefinite"')
   })
 
   it('renders the ladder (no NaN/undefined/Infinity) when telemetry is missing', () => {
@@ -106,5 +104,18 @@ describe('GT3ClusterWidget + RevLightsWidget adopt the shared RevLedBar ladder',
         expect(out, `${id} Infinity`).not.toContain('Infinity')
       }
     }
+  })
+
+  it('keeps the rev overlay transparent, title-less, and independently sized', () => {
+    const config: OverlayWidgetConfig = {
+      ...defaults.widgets.revlights,
+      position: { x: 0, y: 0, width: 1000, height: 36 }
+    }
+    const out = renderToStaticMarkup(createElement(WIDGET_COMPONENTS.revlights, { snapshot: mid, config }))
+    expect(out).toContain('viewBox="0 0 1000 36"')
+    expect(out).toContain('preserveAspectRatio="none"')
+    expect(out).not.toContain('<text')
+    expect(out).not.toContain('>REV<')
+    expect(out).not.toContain('RPM')
   })
 })

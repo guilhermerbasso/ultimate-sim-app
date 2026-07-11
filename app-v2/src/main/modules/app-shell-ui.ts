@@ -56,6 +56,7 @@ export function register(ctx: ModuleContext): SettingsStore {
     // Notify in-process listeners (e.g. the SIM-X auto-start coordinator) so a live
     // toggle of autoStartSimX takes effect without an app restart.
     settingsEvents.emitChanged(saved)
+    ctx.broadcast('app:settingsChanged', saved)
     return saved
   })
   ctx.ipcMain.handle('app:openUserData', () => openPath(ctx.app.getPath('userData')))

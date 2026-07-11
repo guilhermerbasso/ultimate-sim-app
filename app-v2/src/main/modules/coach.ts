@@ -56,6 +56,12 @@ import {
 import { getLlmRuntime } from '../ai/llm-runtime'
 import { getModelManager } from '../ai/model-manager'
 import { logger } from './logger'
+import { settingsEvents } from '../settings/events'
+import type { UnitSystem } from '../../shared/units'
+import {
+  speechLanguageFromAppLanguage,
+  type SpeechLanguage
+} from '../../shared/tts-voice'
 
 // One shared, immutable driver-intent registry so the Live Coach gates deliberate
 // racecraft/management/condition choices (context/silence) exactly like the proactive engine.
@@ -152,6 +158,8 @@ export interface LiveCoachDeps {
   now?: () => number
   /** Optional per-driver baseline store (car+track) for lap-to-lap repetition gating. */
   baselineStore?: CoachBaselineStore
+  getUnitSystem?: () => UnitSystem
+  getLanguage?: () => SpeechLanguage
 }
 
 export class LiveCoachEngine {
@@ -327,7 +335,7 @@ export class LiveCoachEngine {
         lapTimeSec,
         bestLapTimeSec: finiteOrUndefined(snapshot.bestLapTimeSec)
       },
-      { recentLapTimesSec: this.recentLapTimes, cornerMap: this.cornerMap, reference: this.reference, registry: intentRegistry, baseline }
+      { recentLapTimesSec: this.recentLapTimes, cornerMap: this.cornerMap, reference: this.reference, registry: intentRegistry, baseline, unitSystem: this.deps.getUnitSystem?.() }
     )
     this.findings = report.findings
     // Learn this lap's events so future laps can tell a repeated issue from noise.
@@ -381,11 +389,12 @@ export class LiveCoachEngine {
     if (this.sampleCount < WARMUP_MIN_SAMPLES) return
     this.warmupCueSent = true
     this.lastSpeakAt = this.now()
+    const lang = this.deps.getLanguage?.() ?? 'pt-BR'
     const payload: CoachSpeakEvent = {
-      text: 'Collecting reference lap.',
+      text: lang === 'pt-BR' ? 'Coletando volta de referência.' : 'Collecting reference lap.',
       priority: 3,
       tipId: 'live:warmup',
-      lang: 'pt-BR',
+      lang,
       source: 'coach'
     }
     this.deps.broadcast(COACH_CHANNELS.speak, payload)
@@ -417,11 +426,12 @@ export class LiveCoachEngine {
     const now = this.now()
     if (now - this.lastSpeakAt < SPEAK_COOLDOWN_MS) return
     this.lastSpeakAt = now
+    const lang = this.deps.getLanguage?.() ?? 'pt-BR'
     const payload: CoachSpeakEvent = {
       text: advice.text,
       priority: advice.severity === 'high' ? 8 : 5,
       tipId: where.corner !== undefined ? `live:corner:${where.corner}` : `live:sector:${where.sector}`,
-      lang: 'pt-BR',
+      lang,
       source: 'coach',
       corner: where.corner
     }
@@ -543,6 +553,7 @@ interface LapCoachDeps {
     signal?: AbortSignal
   }) => Promise<{ ok: boolean; text?: string }>
   setModel?: (modelPath: string, modelId: string) => void
+  getUnitSystem?: () => UnitSystem
 }
 
 class LapCoachAnalyzer {
@@ -615,7 +626,7 @@ class LapCoachAnalyzer {
         lapTimeSec,
         bestLapTimeSec: finiteOrUndefined(snapshot.bestLapTimeSec)
       },
-      { recentLapTimesSec: this.recentLapTimes, cornerMap: this.cornerMap, reference: this.reference, registry: intentRegistry }
+      { recentLapTimesSec: this.recentLapTimes, cornerMap: this.cornerMap, reference: this.reference, registry: intentRegistry, unitSystem: this.deps.getUnitSystem?.() }
     )
     // Update the bidirectional reference when this is the fastest valid lap so far.
     if (
@@ -627,7 +638,7 @@ class LapCoachAnalyzer {
       this.reference = { corners: report.cornerMetrics }
       this.referenceLapTimeSec = lapTimeSec
     }
-    const setup = buildSetupReport(buildSetupInput(snapshot, report.findings))
+    const setup = buildSetupReport(buildSetupInput(snapshot, report.findings), { unitSystem: this.deps.getUnitSystem?.() })
     this.latestReport = report
     this.latestSetup = setup
     this.reports.push(report)
@@ -868,9 +879,17 @@ async function saveCoachConfig(configPath: string, nextConfig: CoachConfig): Pro
 }
 
 export function register(ctx: ModuleContext): void {
+  let unitSystem: UnitSystem = 'metric'
+  let speechLanguage: SpeechLanguage = 'en-US'
+  settingsEvents.onChanged((settings) => {
+    unitSystem = settings.unitSystem
+    speechLanguage = speechLanguageFromAppLanguage(settings.language, ctx.app.getLocale())
+  })
   engine = new LiveCoachEngine({
     broadcast: (channel, payload) => ctx.broadcast(channel, payload),
-    baselineStore: getCoachBaselineStore(ctx.app.getPath('userData'))
+    baselineStore: getCoachBaselineStore(ctx.app.getPath('userData')),
+    getUnitSystem: () => unitSystem,
+    getLanguage: () => speechLanguage
   })
 
   // Persisted coach config (speakTopTip + phraseWithAi). Mirrors the spotter
@@ -895,6 +914,7 @@ export function register(ctx: ModuleContext): void {
     getModelPath: () => tryModelManager()?.getActiveModelPath() ?? null,
     getModelId: () => tryModelManager()?.getActiveModelId() ?? '',
     setModel: (modelPath) => tryRuntime()?.setOptions({ modelPath }),
+    getUnitSystem: () => unitSystem,
     generate: async (request) => {
       const runtime = tryRuntime()
       if (!runtime) return { ok: false }
@@ -944,4 +964,3 @@ export function register(ctx: ModuleContext): void {
     analyzer?.explain(req ?? {}) ?? Promise.resolve({ text: '', source: 'deterministic' as const })
   )
 }
-

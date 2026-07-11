@@ -5,6 +5,7 @@ import type { ReactElement } from 'react'
 import { formatTimeOfDay } from '../../../../../shared/telemetry'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { Bar, BigNum, C, FONT_BIG, FONT_LABEL, FONT_NUM, Hairline, LEGIBLE, fixed, legibleStroke, num } from '../kit'
+import { formatMeasurement } from '../../../../../shared/units'
 
 const W = 420
 const H = 240
@@ -101,13 +102,14 @@ function WeightGlyph({ x, y, color }: { x: number; y: number; color: string }): 
   )
 }
 
-function WeightPenalty({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function WeightPenalty({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const penalty = num(snapshot?.weightPenaltyKg)
-  const display = signedValue(penalty, 0)
+  const reading = formatMeasurement(penalty, 'mass-kg', unitSystem, { decimals: 0 })
+  const display = signedValue(reading.value, 0)
   return (
     <Root snapshot={snapshot} width={width} height={height}>
       <WeightGlyph x={26} y={70} color={C.amber} />
-      <BigNum x={248} y={153} value={display} unit={penalty == null ? undefined : 'kg'} color={C.amber} size={105} />
+      <BigNum x={248} y={153} value={display} unit={penalty == null ? undefined : reading.unit} color={C.amber} size={105} />
       <Bar x={146} y={178} w={178} h={7} f={penalty == null ? 0 : Math.min(1, Math.abs(penalty) / 60)} color={C.amber} />
     </Root>
   )

@@ -1,9 +1,9 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { extname, join, normalize, relative, resolve, sep } from 'node:path'
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
-import type { AddressInfo } from 'node:net'
+import { isIP, type AddressInfo } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import QRCode from 'qrcode'
 import type { DriverEntry, RadarCarEntry, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
@@ -22,6 +22,9 @@ const TOKEN_BYTES = 24
 const AUTH_FAILURE_WINDOW_MS = 60_000
 const AUTH_FAILURE_LIMIT = 10
 const MAX_SSE_CLIENTS = 12
+const CLOUDFLARED_RESOURCE_DIR = 'cloudflared'
+const CLOUDFLARED_START_TIMEOUT_MS = 30_000
+const CLOUDFLARED_OUTPUT_LIMIT = 16_384
 
 interface SseClient {
   id: number
@@ -47,12 +50,17 @@ interface StreamingState {
   accessMode: StreamingAccessMode
   lanAddress: string | null
   publicBaseUrl: string | null
+  manualPublicBaseUrl: string | null
   qrDataUrl: string | null
   touchQrDataUrl: string | null
+  autoTunnelEnabled: boolean
+  autoTunnelProcess: ChildProcess | null
+  autoTunnelUrl: string | null
+  autoTunnelMessage: string | null
+  autoTunnelStopRequested: boolean
   clients: Map<number, SseClient>
   authFailures: Map<string, { count: number; resetAt: number }>
   nextClientId: number
-  firewallAttemptedPorts: Set<number>
 }
 
 const state: StreamingState = {
@@ -70,12 +78,17 @@ const state: StreamingState = {
   accessMode: 'local',
   lanAddress: null,
   publicBaseUrl: null,
+  manualPublicBaseUrl: null,
   qrDataUrl: null,
   touchQrDataUrl: null,
+  autoTunnelEnabled: false,
+  autoTunnelProcess: null,
+  autoTunnelUrl: null,
+  autoTunnelMessage: null,
+  autoTunnelStopRequested: false,
   clients: new Map(),
   authFailures: new Map(),
-  nextClientId: 1,
-  firewallAttemptedPorts: new Set()
+  nextClientId: 1
 }
 
 function isValidLayoutId(value: unknown): value is string {
@@ -138,21 +151,26 @@ function primaryLanAddress(): string | null {
   const candidates: Array<{ address: string; score: number }> = []
   for (const [name, entries] of Object.entries(networkInterfaces())) {
     for (const entry of entries ?? []) {
-      if (entry.family !== 'IPv4' || entry.internal) continue
+      if ((String(entry.family) !== 'IPv4' && String(entry.family) !== '4') || entry.internal) continue
       if (!isPrivateIpv4(entry.address)) continue
       const lowerName = name.toLowerCase()
       let score = 0
       if (entry.address.startsWith('192.168.')) score += 50
       else if (entry.address.startsWith('10.')) score += 40
       else if (/^172\.(1[6-9]|2\d|3[01])\./.test(entry.address)) score += 35
+      else if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(entry.address)) score += 10
       else if (entry.address.startsWith('169.254.')) score -= 50
       if (lowerName.includes('wi-fi') || lowerName.includes('wifi') || lowerName.includes('wireless')) score += 20
       if (lowerName.includes('ethernet')) score += 15
-      if (lowerName.includes('virtual') || lowerName.includes('vpn') || lowerName.includes('loopback') || lowerName.includes('vmware') || lowerName.includes('hyper-v')) score -= 25
+      if (/virtual|vpn|loopback|vmware|hyper-v|vethernet|docker|wsl|tailscale|zerotier/.test(lowerName)) score -= 25
       candidates.push({ address: entry.address, score })
     }
   }
   candidates.sort((a, b) => b.score - a.score)
+  logger.info('streaming', 'private LAN IPv4 candidates evaluated', {
+    candidates,
+    selected: candidates[0]?.address ?? null
+  })
   return candidates[0]?.address ?? null
 }
 
@@ -160,19 +178,64 @@ function isPrivateIpv4(address: string): boolean {
   const parts = address.split('.').map((part) => Number(part))
   if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false
   const [a, b] = parts
-  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || a === 127
+  return a === 10 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254) ||
+    a === 127
+}
+
+function stripIpv6Decorations(value: string): string {
+  let address = value.trim()
+  if (address.startsWith('[')) {
+    const closingBracket = address.indexOf(']')
+    if (closingBracket > 0) address = address.slice(1, closingBracket)
+  }
+  const zoneIndex = address.indexOf('%')
+  if (zoneIndex >= 0) address = address.slice(0, zoneIndex)
+  return address.toLowerCase()
+}
+
+function mappedIpv4Address(value: string): string | null {
+  const address = stripIpv6Decorations(value)
+  const match = /^(?:::ffff:|(?:0{1,4}:){5}ffff:)(.+)$/i.exec(address)
+  if (!match) return null
+  const mapped = match[1]
+  if (isIP(mapped) === 4) return mapped
+  const words = mapped.split(':')
+  if (words.length !== 2 || words.some((word) => !/^[0-9a-f]{1,4}$/i.test(word))) return null
+  const high = Number.parseInt(words[0], 16)
+  const low = Number.parseInt(words[1], 16)
+  return `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`
+}
+
+function isPrivateIpv6(address: string): boolean {
+  const normalized = stripIpv6Decorations(address)
+  if (normalized === '::1') return true
+  if (isIP(normalized) !== 6) return false
+  const firstWord = Number.parseInt(normalized.split(':', 1)[0] || '0', 16)
+  return (firstWord & 0xfe00) === 0xfc00 || (firstWord & 0xffc0) === 0xfe80
 }
 
 function normalizeRemoteAddress(value: string | undefined): string {
   if (!value) return 'unknown'
-  if (value.startsWith('::ffff:')) return value.slice('::ffff:'.length)
-  if (value === '::1') return '127.0.0.1'
-  return value
+  const mapped = mappedIpv4Address(value)
+  if (mapped) return mapped
+  const normalized = stripIpv6Decorations(value)
+  if (normalized === '::1') return '127.0.0.1'
+  return normalized
+}
+
+export function isLocalNetworkAddress(value: string | undefined): boolean {
+  const address = normalizeRemoteAddress(value)
+  if (isIP(address) === 4) return isPrivateIpv4(address)
+  if (isIP(address) === 6) return isPrivateIpv6(address)
+  return false
 }
 
 function isLocalNetworkRequest(request: IncomingMessage): boolean {
-  const address = normalizeRemoteAddress(request.socket.remoteAddress)
-  return address === '127.0.0.1' || address === '::1' || isPrivateIpv4(address)
+  return isLocalNetworkAddress(request.socket.remoteAddress)
 }
 
 function normalizePublicBaseUrl(value: unknown): string | null {
@@ -186,6 +249,164 @@ function normalizePublicBaseUrl(value: unknown): string | null {
   } catch {
     return null
   }
+}
+
+function cloudflaredBinaryCandidates(): string[] {
+  const binaryName = process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared'
+  const candidates: string[] = []
+  if (typeof process.resourcesPath === 'string' && process.resourcesPath) {
+    candidates.push(join(process.resourcesPath, CLOUDFLARED_RESOURCE_DIR, binaryName))
+  }
+  candidates.push(join(process.cwd(), 'resources', CLOUDFLARED_RESOURCE_DIR, binaryName))
+  return [...new Set(candidates)]
+}
+
+export function resolveCloudflaredBinary(): string | null {
+  for (const candidate of cloudflaredBinaryCandidates()) {
+    try {
+      if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
+    } catch {
+      // Try the next packaged/dev candidate.
+    }
+  }
+  return null
+}
+
+function autoTunnelUnavailableMessage(): string {
+  return 'Auto-tunnel is unavailable because cloudflared is not bundled. Run scripts/fetch-win-cloudflared.sh before packaging, or turn off Auto-tunnel and enter a public HTTPS URL manually.'
+}
+
+function parseCloudflaredUrl(output: string): string | null {
+  const match = output.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com\b/i)
+  return match ? normalizePublicBaseUrl(match[0]) : null
+}
+
+function trimTunnelOutput(output: string): string {
+  return output.length <= CLOUDFLARED_OUTPUT_LIMIT ? output : output.slice(-CLOUDFLARED_OUTPUT_LIMIT)
+}
+
+async function stopAutoTunnelProcess(): Promise<void> {
+  const child = state.autoTunnelProcess
+  const tunnelUrl = state.autoTunnelUrl
+  state.autoTunnelProcess = null
+  state.autoTunnelUrl = null
+  if (tunnelUrl && state.publicBaseUrl === tunnelUrl) state.publicBaseUrl = state.manualPublicBaseUrl
+  if (!child || child.exitCode !== null) return
+
+  state.autoTunnelStopRequested = true
+  await new Promise<void>((resolveStop) => {
+    let resolved = false
+    const finish = (): void => {
+      if (resolved) return
+      resolved = true
+      resolveStop()
+    }
+    child.once('close', finish)
+    try {
+      child.kill()
+    } catch {
+      finish()
+      return
+    }
+    const timer = setTimeout(finish, 3_000)
+    timer.unref()
+  })
+  state.autoTunnelStopRequested = false
+}
+
+async function launchAutoTunnel(): Promise<string> {
+  if (!state.server || !state.port) throw new Error('Start the streaming server before starting Auto-tunnel.')
+  if (state.accessMode !== 'internet') throw new Error('Auto-tunnel is only available in Internet mode.')
+  if (state.autoTunnelProcess) {
+    if (state.autoTunnelUrl) return state.autoTunnelUrl
+    throw new Error('Auto-tunnel is already starting.')
+  }
+
+  const binary = resolveCloudflaredBinary()
+  if (!binary) throw new Error(autoTunnelUnavailableMessage())
+
+  const localOrigin = `http://localhost:${state.port}`
+  const args = ['tunnel', '--url', localOrigin, '--no-autoupdate']
+  logger.info('streaming', 'auto-tunnel starting', { binary, localOrigin })
+
+  const child = spawn(binary, args, {
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, NO_COLOR: '1' }
+  })
+  state.autoTunnelProcess = child
+  state.autoTunnelUrl = null
+  state.autoTunnelStopRequested = false
+  state.autoTunnelMessage = 'Starting Cloudflare quick tunnel…'
+
+  return new Promise<string>((resolveUrl, rejectUrl) => {
+    let output = ''
+    let settled = false
+    let published = false
+    let timer: ReturnType<typeof setTimeout>
+
+    const rejectStart = (message: string): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      state.autoTunnelMessage = message
+      rejectUrl(new Error(message))
+    }
+
+    const consume = (source: 'stdout' | 'stderr', chunk: Buffer | string): void => {
+      const text = chunk.toString()
+      output = trimTunnelOutput(output + text)
+      for (const line of text.split(/\r?\n/).map((value) => value.trim()).filter(Boolean)) {
+        logger.info('streaming', 'cloudflared output', { source, line: line.slice(0, 500) })
+      }
+      const publicUrl = parseCloudflaredUrl(output)
+      if (!publicUrl || settled) return
+      settled = true
+      published = true
+      clearTimeout(timer)
+      state.autoTunnelUrl = publicUrl
+      state.publicBaseUrl = publicUrl
+      state.autoTunnelMessage = `Auto-tunnel is online at ${publicUrl}`
+      logger.info('streaming', 'auto-tunnel ready', { localOrigin, publicUrl })
+      resolveUrl(publicUrl)
+    }
+
+    child.stdout?.on('data', (chunk: Buffer) => consume('stdout', chunk))
+    child.stderr?.on('data', (chunk: Buffer) => consume('stderr', chunk))
+    child.once('error', (error) => {
+      rejectStart(`Auto-tunnel could not start: ${error.message}`)
+    })
+    child.once('close', (code, signal) => {
+      const expectedStop = state.autoTunnelStopRequested
+      if (state.autoTunnelProcess === child) {
+        state.autoTunnelProcess = null
+        const tunnelUrl = state.autoTunnelUrl
+        state.autoTunnelUrl = null
+        if (tunnelUrl && state.publicBaseUrl === tunnelUrl) state.publicBaseUrl = state.manualPublicBaseUrl
+      }
+      if (!settled) {
+        const detail = output.trim().split(/\r?\n/).filter(Boolean).slice(-1)[0]
+        rejectStart(`Auto-tunnel exited before publishing a URL (code ${code ?? 'unknown'}${signal ? `, signal ${signal}` : ''})${detail ? `: ${detail}` : '.'}`)
+        return
+      }
+      if (published && !expectedStop && state.server) {
+        state.autoTunnelEnabled = false
+        state.autoTunnelMessage = `Auto-tunnel stopped unexpectedly (code ${code ?? 'unknown'}). Start it again, or stop streaming and restart with a manual public HTTPS URL.`
+        logger.warn('streaming', 'auto-tunnel stopped unexpectedly', { code, signal })
+      }
+    })
+
+    timer = setTimeout(() => {
+      rejectStart('Auto-tunnel timed out before Cloudflare published a public HTTPS URL. Check internet access, then retry or use a manual URL.')
+      state.autoTunnelStopRequested = true
+      try {
+        child.kill()
+      } catch {
+        // The close/error handlers already report the actionable failure.
+      }
+    }, CLOUDFLARED_START_TIMEOUT_MS)
+    timer.unref()
+  })
 }
 
 function isRateLimited(request: IncomingMessage): boolean {
@@ -567,13 +788,16 @@ function touchControlsUrl(origin = baseOrigin()): string | null {
 
 function warning(): string | null {
   if (state.accessMode === 'internet') {
+    if (!state.publicBaseUrl) {
+      return state.autoTunnelMessage ?? 'No public HTTPS URL is active. Start Auto-tunnel or enter a manual public HTTPS URL.'
+    }
     return state.firewallMessage ?? 'Internet mode is read-only and requires the token plus password. Use a trusted HTTPS tunnel/public URL that forwards only this stream port.'
   }
   if (state.accessMode === 'lan') {
     if (!state.lanAddress) {
-      return 'No private LAN IPv4 address found. QR codes will not work for phones/tablets. Check your network adapter settings or use local mode instead.'
+      return 'No private LAN IPv4 address was found. The server is running, but phone/tablet QR access is unavailable. Connect this PC to Wi-Fi/Ethernet, then restart streaming.'
     }
-    return state.firewallMessage ?? 'LAN streaming is read-only and requires the token plus password. Phones/tablets on your Wi-Fi can open the QR URL.'
+    return state.firewallMessage ?? `LAN streaming is available over HTTP at ${state.lanAddress}:${state.port ?? 'unknown port'} and still requires the token plus password.`
   }
   return null
 }
@@ -619,7 +843,11 @@ async function status(): Promise<StreamingStatus> {
     localTestUrl: state.port ? dashboardUrl(`http://127.0.0.1:${state.port}`) : null,
     firewallMessage: state.firewallMessage,
     passwordEnabled: state.passwordHash !== null,
-    warning: warning()
+    warning: warning(),
+    autoTunnelAvailable: resolveCloudflaredBinary() !== null,
+    autoTunnelEnabled: state.autoTunnelEnabled,
+    autoTunnelRunning: state.autoTunnelProcess !== null && state.autoTunnelUrl !== null,
+    autoTunnelMessage: state.autoTunnelMessage
   }
 }
 
@@ -655,6 +883,11 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
       return
     }
     if (state.accessMode === 'lan' && !isLocalNetworkRequest(request)) {
+      logger.warn('streaming', 'LAN request rejected because the source address is not private/local', {
+        remoteAddress: request.socket.remoteAddress ?? 'unknown',
+        normalizedAddress: normalizeRemoteAddress(request.socket.remoteAddress),
+        path: url.pathname
+      })
       send(response, 403, 'Forbidden')
       return
     }
@@ -742,6 +975,7 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
 
 async function stop(): Promise<StreamingStatus> {
   closeAllClients()
+  await stopAutoTunnelProcess()
   const server = state.server
   state.server = null
   state.port = null
@@ -754,10 +988,15 @@ async function stop(): Promise<StreamingStatus> {
   state.accessMode = 'local'
   state.lanAddress = null
   state.publicBaseUrl = null
+  state.manualPublicBaseUrl = null
   state.touchPanelId = null
   state.firewallMessage = null
   state.qrDataUrl = null
   state.touchQrDataUrl = null
+  state.autoTunnelEnabled = false
+  state.autoTunnelUrl = null
+  state.autoTunnelMessage = null
+  state.autoTunnelStopRequested = false
   state.authFailures.clear()
   if (server) {
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()))
@@ -768,14 +1007,45 @@ async function stop(): Promise<StreamingStatus> {
 
 const STABLE_FIREWALL_RULE_NAME = 'Ultimate Sim App Streaming'
 
+interface NetshResult {
+  error: Error | null
+  stdout: string
+  stderr: string
+}
+
+function runNetsh(args: string[], timeout: number): Promise<NetshResult> {
+  return new Promise((resolveResult) => {
+    execFile('netsh', args, { windowsHide: true, timeout, encoding: 'utf8' }, (error, stdout, stderr) => {
+      resolveResult({
+        error,
+        stdout: String(stdout ?? '').trim(),
+        stderr: String(stderr ?? '').trim()
+      })
+    })
+  })
+}
+
+function netshOutputIndicatesFailure(output: string): boolean {
+  return /(requires?\s+elevation|access\s+is\s+denied|\bfailed\b|\bfailure\b|\berror\b|\berro\b|acesso\s+negado|\bfehler\b|\bverweigert\b|\brefus)/i.test(output)
+}
+
 async function allowWindowsFirewallPort(port: number): Promise<string | null> {
   if (process.platform !== 'win32') return null
-  if (state.firewallAttemptedPorts.has(port)) return state.firewallMessage
-  state.firewallAttemptedPorts.add(port)
+
   // Delete any existing rule with the stable name first to avoid accumulating stale rules.
-  await new Promise<void>((resolve) => {
-    execFile('netsh', ['advfirewall', 'firewall', 'delete', 'rule', `name=${STABLE_FIREWALL_RULE_NAME}`], { windowsHide: true, timeout: 5_000 }, () => resolve())
-  })
+  const deleted = await runNetsh(
+    ['advfirewall', 'firewall', 'delete', 'rule', `name=${STABLE_FIREWALL_RULE_NAME}`],
+    5_000
+  )
+  if (deleted.error) {
+    logger.warn('streaming', 'existing firewall rule could not be removed before replacement', {
+      port,
+      message: deleted.error.message,
+      stdout: deleted.stdout,
+      stderr: deleted.stderr
+    })
+  }
+
   const args = [
     'advfirewall',
     'firewall',
@@ -784,26 +1054,56 @@ async function allowWindowsFirewallPort(port: number): Promise<string | null> {
     `name=${STABLE_FIREWALL_RULE_NAME}`,
     'dir=in',
     'action=allow',
+    'enable=yes',
     'protocol=TCP',
     `localport=${port}`
   ]
-  return new Promise((resolveMessage) => {
-    execFile('netsh', args, { windowsHide: true, timeout: 7_500 }, (error) => {
-      if (error) {
-        const message = `Windows Firewall rule was not added automatically. Run as Administrator or allow TCP port ${port} for phone access.`
-        logger.error('streaming', 'firewall rule add failed', { port, message: error.message })
-        resolveMessage(message)
-        return
-      }
-      const message = `Windows Firewall allow rule added for TCP port ${port}.`
-      logger.info('streaming', 'firewall rule add succeeded', { port })
-      resolveMessage(message)
+  const added = await runNetsh(args, 7_500)
+  const addOutput = `${added.stdout}\n${added.stderr}`.trim()
+  const addFailed = Boolean(added.error) || Boolean(added.stderr) || netshOutputIndicatesFailure(addOutput)
+
+  const verified = addFailed
+    ? null
+    : await runNetsh(
+      ['advfirewall', 'firewall', 'show', 'rule', `name=${STABLE_FIREWALL_RULE_NAME}`, 'verbose'],
+      5_000
+    )
+  const verifyOutput = verified ? `${verified.stdout}\n${verified.stderr}`.trim() : ''
+  const verifyFailed = verified !== null && (
+    Boolean(verified.error) ||
+    Boolean(verified.stderr) ||
+    netshOutputIndicatesFailure(verifyOutput) ||
+    !new RegExp(`\\b${port}\\b`).test(verifyOutput)
+  )
+
+  if (addFailed || verifyFailed) {
+    const reason = added.error?.message ||
+      verified?.error?.message ||
+      added.stderr ||
+      verified?.stderr ||
+      addOutput.split(/\r?\n/).filter(Boolean).slice(-1)[0] ||
+      'the rule could not be verified'
+    const message = `Streaming started, but Windows Firewall did not allow TCP port ${port}. Allow "Ultimate Sim App" on Private networks in Windows Security, or restart the app as Administrator and allow inbound TCP port ${port}. Phones/tablets may not connect until this is fixed.`
+    logger.warn('streaming', 'firewall rule add/verification failed', {
+      port,
+      reason,
+      addStdout: added.stdout,
+      addStderr: added.stderr,
+      verifyStdout: verified?.stdout ?? '',
+      verifyStderr: verified?.stderr ?? ''
     })
+    return message
+  }
+
+  logger.info('streaming', 'firewall rule add and verification succeeded', {
+    port,
+    stdout: added.stdout
   })
+  return null
 }
 
 async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise<StreamingStartResult> {
-  if (state.server) await stop()
+  if (state.server || state.autoTunnelProcess) await stop()
   const target = resolveStreamTarget(args)
   state.layoutId = target.id
   state.layoutKind = target.kind
@@ -824,14 +1124,37 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
   state.passwordHash = passwordHash(password ?? undefined)
   state.lanEnabled = state.accessMode !== 'local'
   state.lanAddress = state.accessMode !== 'local' ? primaryLanAddress() : null
-  state.publicBaseUrl = state.accessMode === 'internet' ? normalizePublicBaseUrl(args.publicBaseUrl) : null
-  if (state.accessMode === 'internet' && !state.publicBaseUrl) {
+  state.manualPublicBaseUrl = state.accessMode === 'internet' ? normalizePublicBaseUrl(args.publicBaseUrl) : null
+  state.publicBaseUrl = state.manualPublicBaseUrl
+  state.autoTunnelEnabled = state.accessMode === 'internet' && args.autoTunnel === true
+  state.autoTunnelMessage = null
+  if (state.accessMode === 'internet' && !state.publicBaseUrl && !state.autoTunnelEnabled) {
     state.token = null
     state.passwordPlaintext = null
     state.passwordHash = null
-    throw new Error('Internet streaming requires a public HTTPS tunnel/base URL that forwards only this stream port.')
+    throw new Error('Internet streaming requires a public HTTPS tunnel/base URL or Auto-tunnel.')
+  }
+  if (state.autoTunnelEnabled && !resolveCloudflaredBinary()) {
+    state.autoTunnelMessage = autoTunnelUnavailableMessage()
+    state.autoTunnelEnabled = false
+    if (!state.publicBaseUrl) {
+      state.token = null
+      state.passwordPlaintext = null
+      state.passwordHash = null
+      throw new Error(state.autoTunnelMessage)
+    }
   }
   state.firewallMessage = null
+  if (state.accessMode !== 'local') {
+    if (state.lanAddress) {
+      logger.info('streaming', 'private LAN IPv4 selected', { address: state.lanAddress })
+    } else {
+      logger.warn('streaming', 'no private LAN IPv4 address detected', {
+        mode: state.accessMode,
+        interfaces: Object.keys(networkInterfaces())
+      })
+    }
+  }
   const server = createServer((request, response) => {
     void handleRequest(ctx, request, response)
   })
@@ -845,32 +1168,57 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
     layoutId: state.layoutId,
     layoutKind: state.layoutKind
   })
-  await new Promise<void>((resolveListen, rejectListen) => {
-    const onError = (error: Error): void => {
-      logger.error('streaming', 'server listen failed', {
-        host: listenHost,
-        requestedPort: listenPort,
-        message: error instanceof Error ? error.message : String(error)
+  try {
+    await new Promise<void>((resolveListen, rejectListen) => {
+      const onError = (error: Error): void => {
+        logger.error('streaming', 'server listen failed', {
+          host: listenHost,
+          requestedPort: listenPort,
+          message: error instanceof Error ? error.message : String(error)
+        })
+        state.server = null
+        rejectListen(error)
+      }
+      server.once('error', onError)
+      server.listen(listenPort, listenHost, () => {
+        server.off('error', onError)
+        resolveListen()
       })
-      state.server = null
-      rejectListen(error)
-    }
-    server.once('error', onError)
-    server.listen(listenPort, listenHost, () => {
-      server.off('error', onError)
-      resolveListen()
     })
-  })
+  } catch (error) {
+    await stop()
+    throw error
+  }
   state.port = (server.address() as AddressInfo).port
   logger.info('streaming', 'server listening', {
     host: listenHost,
     port: state.port,
     mode: state.accessMode,
     layoutId: state.layoutId,
-    layoutKind: state.layoutKind
+    layoutKind: state.layoutKind,
+    lanAddress: state.lanAddress,
+    lanOrigin: lanOrigin()
   })
   if (state.accessMode !== 'local') {
     state.firewallMessage = await allowWindowsFirewallPort(state.port)
+  }
+  if (state.autoTunnelEnabled && resolveCloudflaredBinary()) {
+    try {
+      await launchAutoTunnel()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      state.autoTunnelMessage = message
+      logger.warn('streaming', 'auto-tunnel start failed', {
+        message,
+        manualUrlAvailable: state.manualPublicBaseUrl !== null
+      })
+      state.autoTunnelEnabled = false
+      await stopAutoTunnelProcess()
+      if (!state.manualPublicBaseUrl) {
+        await stop()
+        throw new Error(message)
+      }
+    }
   }
   await refreshQrCodes()
   return {
@@ -888,8 +1236,40 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
     password: state.passwordPlaintext,
     localTestUrl: state.port ? dashboardUrl(`http://127.0.0.1:${state.port}`) : null,
     firewallMessage: state.firewallMessage,
-    warning: warning()
+    warning: warning(),
+    autoTunnelAvailable: resolveCloudflaredBinary() !== null,
+    autoTunnelEnabled: state.autoTunnelEnabled,
+    autoTunnelRunning: state.autoTunnelProcess !== null && state.autoTunnelUrl !== null,
+    autoTunnelMessage: state.autoTunnelMessage
   }
+}
+
+async function startAutoTunnel(): Promise<StreamingStatus> {
+  if (!state.server || !state.port) throw new Error('Start the streaming server before starting Auto-tunnel.')
+  if (state.accessMode !== 'internet') throw new Error('Auto-tunnel is only available in Internet mode.')
+  state.autoTunnelEnabled = true
+  try {
+    await launchAutoTunnel()
+    await refreshQrCodes()
+    return status()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    state.autoTunnelEnabled = false
+    state.autoTunnelMessage = message
+    logger.warn('streaming', 'auto-tunnel IPC start failed', { message })
+    await stopAutoTunnelProcess()
+    throw new Error(message)
+  }
+}
+
+async function stopAutoTunnel(): Promise<StreamingStatus> {
+  state.autoTunnelEnabled = false
+  await stopAutoTunnelProcess()
+  state.autoTunnelMessage = state.server
+    ? 'Auto-tunnel stopped. Start it again, or stop streaming and restart with a manual public HTTPS URL.'
+    : null
+  await refreshQrCodes()
+  return status()
 }
 
 export function register(ctx: ModuleContext): void {
@@ -897,6 +1277,8 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(STREAMING_CHANNELS.stop, () => stop())
   ctx.ipcMain.handle(STREAMING_CHANNELS.status, () => status())
   ctx.ipcMain.handle(STREAMING_CHANNELS.selfTest, () => selfTest())
+  ctx.ipcMain.handle(STREAMING_CHANNELS.startTunnel, () => startAutoTunnel())
+  ctx.ipcMain.handle(STREAMING_CHANNELS.stopTunnel, () => stopAutoTunnel())
   ctx.app.once('before-quit', () => {
     void stop()
   })

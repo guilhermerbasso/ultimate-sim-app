@@ -15,7 +15,8 @@ import type { ReactElement, ReactNode } from 'react'
 import type { DashboardElement } from '../../../../shared/dashboards'
 import { formatTimeOfDay, trackSurfaceMaterialLabel } from '../../../../shared/telemetry'
 import type { PitStatus, TelemetrySnapshot } from '../../../../shared/telemetry'
-import { fmtPressure, pressureColor, pressureUnitLabel } from './gt3-theme'
+import { formatMeasurement } from '../../../../shared/units'
+import { pressureColor } from './gt3-theme'
 import {
   Box,
   Cap,
@@ -337,7 +338,7 @@ function BopCell({ element, slot, capSlot, cap, value, valueText, color, big }: 
   )
 }
 
-function Bop({ element, snapshot, variant }: NewWidgetProps & { variant: 'futuristic' | 'minimal' }): ReactElement {
+function Bop({ element, snapshot, unitSystem = 'metric', variant }: NewWidgetProps & { variant: 'futuristic' | 'minimal' }): ReactElement {
   const s = element.style
   const kg = snapshot?.weightPenaltyKg
   const pw = snapshot?.powerAdjustPct
@@ -347,7 +348,8 @@ function Bop({ element, snapshot, variant }: NewWidgetProps & { variant: 'futuri
   // a cut (<0) is a warm penalty.
   const kgColor = hasKg && (kg as number) > 0 ? WARM_AMBER : GT3.textPrimary
   const pwColor = !hasPw ? GT3.textPrimary : (pw as number) > 0 ? COOL_GREEN : (pw as number) < 0 ? WARM_RED : GT3.textPrimary
-  const kgText = hasKg ? `${(kg as number) > 0 ? '+' : ''}${Math.round(kg as number)}` : '—'
+  const weight = formatMeasurement(kg, 'mass-kg', unitSystem, { decimals: 0, signed: true })
+  const kgText = weight.display
   const pwText = hasPw ? `${(pw as number) > 0 ? '+' : ''}${(pw as number).toFixed(1)}` : '—'
   const label = (s.label ?? 'BoP').toString()
 
@@ -359,7 +361,7 @@ function Bop({ element, snapshot, variant }: NewWidgetProps & { variant: 'futuri
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
             <span>
               <SlotText element={element} slot="value" family={FONT_CONDENSED} size={Math.max(16, Math.round(element.h * 0.3))} color={kgColor} weight={600}>{kgText}</SlotText>
-              <SlotText element={element} slot="unit" family={FONT_TECH} size={Math.max(11, Math.round(element.h * 0.12))} color={GT3.textMuted} base={{ marginLeft: 2 }}>kg</SlotText>
+              <SlotText element={element} slot="unit" family={FONT_TECH} size={Math.max(11, Math.round(element.h * 0.12))} color={GT3.textMuted} base={{ marginLeft: 2 }}>{weight.unit}</SlotText>
             </span>
             <span>
               <SlotText element={element} slot="power" family={FONT_CONDENSED} size={Math.max(16, Math.round(element.h * 0.3))} color={pwColor} weight={600}>{pwText}</SlotText>
@@ -377,7 +379,7 @@ function Bop({ element, snapshot, variant }: NewWidgetProps & { variant: 'futuri
       <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
         <Cap element={element} slot="label" color={accentOf(s, WARM_GOLD)}>{label}</Cap>
         <div style={{ flex: 1, display: 'flex', alignItems: 'stretch' }}>
-          <BopCell element={element} slot="value" capSlot="capWeight" cap="WEIGHT" big={big} color={kgColor} valueText={kgText} value={<>{kgText}<span style={{ fontSize: '0.45em', color: GT3.textMuted, marginLeft: 2 }}>kg</span></>} />
+          <BopCell element={element} slot="value" capSlot="capWeight" cap="WEIGHT" big={big} color={kgColor} valueText={kgText} value={<>{kgText}<span style={{ fontSize: '0.45em', color: GT3.textMuted, marginLeft: 2 }}>{weight.unit}</span></>} />
           <span style={{ width: 1, background: TRACK, margin: '6px 0' }} />
           <BopCell element={element} slot="power" capSlot="capPower" cap="POWER" big={big} color={pwColor} valueText={pwText} value={<>{pwText}<span style={{ fontSize: '0.45em', color: GT3.textMuted, marginLeft: 2 }}>%</span></>} />
         </div>
@@ -390,10 +392,10 @@ function Bop({ element, snapshot, variant }: NewWidgetProps & { variant: 'futuri
 // Tyre cold pressures (2×2)
 // ═══════════════════════════════════════════════════════════════════════════
 
-function ColdPressures({ element, snapshot, variant }: NewWidgetProps & { variant: 'futuristic' | 'minimal' }): ReactElement {
+function ColdPressures({ element, snapshot, unitSystem = 'metric', variant }: NewWidgetProps & { variant: 'futuristic' | 'minimal' }): ReactElement {
   const s = element.style
   const cp = snapshot?.tireColdPressuresKpa
-  const unit = s.unit
+  const unit = formatMeasurement(undefined, 'pressure-kpa', unitSystem).unit
   const target = s.targetValue ?? 165
   const tol = s.tolerance ?? 7
   const label = (s.label ?? 'COLD PRESSURE').toString()
@@ -406,7 +408,7 @@ function ColdPressures({ element, snapshot, variant }: NewWidgetProps & { varian
     return (
       <div key={c} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, border: minimal ? 'none' : `1px solid ${TRACK}`, borderRadius: 3, padding: '2px 0' }}>
         <Cap element={element} slot="label" size={Math.max(11, Math.round(element.h * 0.08))}>{COLD_LABEL[c]}</Cap>
-        <SlotText element={element} slot="value" family={readoutFont(has ? fmtPressure(v as number, unit) : '—')} size={Math.max(13, Math.round(element.h * 0.18))} color={color} weight={600}>{has ? fmtPressure(v as number, unit) : '—'}</SlotText>
+        <SlotText element={element} slot="value" family={readoutFont(has ? formatMeasurement(v, 'pressure-kpa', unitSystem, { decimals: 1 }).display : '—')} size={Math.max(13, Math.round(element.h * 0.18))} color={color} weight={600}>{formatMeasurement(v, 'pressure-kpa', unitSystem, { decimals: 1 }).display}</SlotText>
       </div>
     )
   }
@@ -416,7 +418,7 @@ function ColdPressures({ element, snapshot, variant }: NewWidgetProps & { varian
       <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', gap: 4 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
           <Cap element={element} slot="header" color={minimal ? GT3.textMuted : accentOf(s, WARM_GOLD)}>{label}</Cap>
-          <SlotText element={element} slot="unit" family={FONT_TECH} size={Math.max(11, Math.round(element.h * 0.1))} color={GT3.textMuted}>{pressureUnitLabel(unit)}</SlotText>
+          <SlotText element={element} slot="unit" family={FONT_TECH} size={Math.max(11, Math.round(element.h * 0.1))} color={GT3.textMuted}>{unit}</SlotText>
         </div>
         <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: 4 }}>
           {COLD_CORNERS.map(cell)}

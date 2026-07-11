@@ -33,6 +33,8 @@ import {
 import type { ModuleContext } from '../module-context'
 import type { SerialDevice } from '../serial/device'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
+import type { UnitSystem } from '../../shared/units'
+import { settingsEvents } from '../settings/events'
 
 // Re-read the persisted device profiles this often. The device-config module
 // broadcasts `DEVICES_CHANNELS.changed` to renderers, but there is no main-side
@@ -73,6 +75,8 @@ class DeviceOutputEngine {
   private lastTickAt = 0
   private refreshTimer: ReturnType<typeof setInterval> | null = null
   private disposed = false
+  private unitSystem: UnitSystem = 'metric'
+  private unsubscribeSettings: (() => void) | null = null
 
   // key → last serial send timestamp (ms) for ≤Hz throttling.
   private readonly lastSentAt = new Map<string, number>()
@@ -100,6 +104,11 @@ class DeviceOutputEngine {
     this.latest = this.ctx.telemetryHub.getLatest()
     this.ctx.serialHub.on('device-added', this.onFleetChanged)
     this.ctx.serialHub.on('device-removed', this.onFleetChanged)
+    this.unsubscribeSettings = settingsEvents.onChanged((settings) => {
+      this.unitSystem = settings.unitSystem
+      this.clearDedup()
+      this.tick(this.latest)
+    })
 
     this.ctx.app.once('before-quit', () => this.dispose())
   }
@@ -114,6 +123,8 @@ class DeviceOutputEngine {
     this.ctx.telemetryHub.off('snapshot', this.onSnapshot)
     this.ctx.serialHub.off('device-added', this.onFleetChanged)
     this.ctx.serialHub.off('device-removed', this.onFleetChanged)
+    this.unsubscribeSettings?.()
+    this.unsubscribeSettings = null
   }
 
   // ─── Profile polling ───────────────────────────────────────────────────────
@@ -256,7 +267,7 @@ class DeviceOutputEngine {
     snapshot: TelemetrySnapshot | null,
     now: number
   ): void {
-    const rows = oledRows(snapshot)
+    const rows = oledRows(snapshot, this.unitSystem)
     if (!rows) return
     for (let i = 0; i < rows.length; i += 1) {
       const frame = formatOledRow(i, rows[i])
@@ -286,7 +297,7 @@ class DeviceOutputEngine {
     snapshot: TelemetrySnapshot | null,
     now: number
   ): void {
-    const value = segValue(component, snapshot)
+    const value = segValue(component, snapshot, this.unitSystem)
     if (value === null) return
     const frame = formatSegText(value, component.digits)
     const key = `${profile.id}:${component.id}:seg`

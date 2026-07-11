@@ -34,6 +34,13 @@ import { IR_EXTRA_WIDGETS } from './irExtra'
 import { IR_DERIVED_WIDGETS } from './irDerived'
 import { THEMED_DERIVED_WIDGETS } from './themedDerived'
 import { THEMED_CHANNEL_WIDGETS } from './themedChannels'
+import { TELEMETRY_VARIANT_WIDGETS } from './variants'
+import { REMAINING_TELEMETRY_WIDGETS } from './variants/complex-widgets'
+
+const ALL_TELEMETRY_VARIANT_WIDGETS = [
+  ...TELEMETRY_VARIANT_WIDGETS,
+  ...REMAINING_TELEMETRY_WIDGETS
+]
 
 export const HIFI_WIDGET_GROUPS = {
   inputs: INPUTS_WIDGETS,
@@ -64,7 +71,8 @@ export const HIFI_WIDGET_GROUPS = {
   irExtra: IR_EXTRA_WIDGETS,
   irDerived: IR_DERIVED_WIDGETS,
   themedDerived: THEMED_DERIVED_WIDGETS,
-  themedChannels: THEMED_CHANNEL_WIDGETS
+  themedChannels: THEMED_CHANNEL_WIDGETS,
+  telemetryVariants: ALL_TELEMETRY_VARIANT_WIDGETS
 } as const
 
 /** Every hi-fi per-telemetry widget/overlay. */
@@ -97,7 +105,8 @@ export const HIFI_WIDGETS: HifiWidgetModule[] = [
   ...IR_EXTRA_WIDGETS,
   ...IR_DERIVED_WIDGETS,
   ...THEMED_DERIVED_WIDGETS,
-  ...THEMED_CHANNEL_WIDGETS
+  ...THEMED_CHANNEL_WIDGETS,
+  ...ALL_TELEMETRY_VARIANT_WIDGETS
 ]
 
 export const HIFI_WIDGETS_BY_ID: Record<string, HifiWidgetModule> = Object.fromEntries(

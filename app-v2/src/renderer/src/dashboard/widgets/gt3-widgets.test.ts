@@ -76,8 +76,10 @@ describe('previously hard-coded GT3 text now honours font colour + size', () => 
 describe('value widget picks its readout font from content (DSEG numerals only)', () => {
   it('a numeric reading renders the value in DSEG', () => {
     const out = markup('value', {}, 'speedKmh')
-    expect(out).toContain('DSEG7Classic-Regular')
-    expect(out).not.toContain('Chakra Petch')
+    expect(out).toMatch(/<text[^>]*font-family="[^"]*DSEG7Classic-Regular[^"]*"[^>]*>236<\/text>/)
+    // The converted unit is intentionally rendered separately in a legible
+    // condensed face; only the numeric value belongs on the segment font.
+    expect(out).toContain('>km/h</text>')
   })
 
   it('a textual reading renders the value in the condensed face, not DSEG', () => {

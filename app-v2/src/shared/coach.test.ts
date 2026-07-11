@@ -568,6 +568,19 @@ describe('bidirectionalCornerFindings — gains AND losses', () => {
     expect(gain!.corner).toBe(1)
   })
 
+  it('phrases speed evidence in US customary units without changing canonical metrics', () => {
+    const reference: CoachReferenceLap = {
+      corners: [{ corner: 1, minSpeedKmh: 85, entrySpeedKmh: 200, brakeStartPct: 0.42, throttleStartPct: 0.55 }]
+    }
+    const gain = bidirectionalCornerFindings(current, reference, ONE_CORNER, undefined, 'imperial')
+      .find((finding) => finding.kind === 'min-speed-gain')
+
+    expect(gain?.detail).toContain('mph')
+    expect(gain?.evidence).toContain('mph')
+    expect(gain?.detail).not.toContain('km/h')
+    expect(gain?.metrics.minSpeedKmh).toBe(95)
+  })
+
   it('emits a LOSS with a negative signed delta when slower than reference', () => {
     const slow: CoachCornerMetrics[] = [
       { corner: 1, minSpeedKmh: 70, entrySpeedKmh: 190, brakeStartPct: 0.4, throttleStartPct: 0.58 }
@@ -609,6 +622,8 @@ describe('buildCoachReport with corner map + reference', () => {
     const report = buildCoachReport(lap, { cornerMap: ONE_CORNER, reference })
     expect(report.corners.map((c) => c.index)).toEqual([1])
     expect(report.cornerMetrics.length).toBe(1)
+    expect(report.cornerMetrics[0].exitSpeedKmh).toBeTypeOf('number')
+    expect(report.cornerMetrics[0].tcActivePct).toBeTypeOf('number')
     const gain = report.findings.find((f) => f.sign === 'gain')
     expect(gain).toBeTruthy()
     expect(gain!.estTimeLossSec).toBe(0)

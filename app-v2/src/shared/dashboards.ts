@@ -24,6 +24,7 @@ import { RACE_WET_PRESETS } from './dashboards-race-wet'
 import { RACE_SUN_PRESETS } from './dashboards-race-sun'
 import { RACE_FIRST_PRESETS } from './dashboards-race-first'
 import { RACE_CHASE_PRESETS } from './dashboards-race-chase'
+import { GT3_DENSE_50_PRESETS } from './dashboards-gt3-dense-50'
 // Hi-fi COMPOSITION dashboards (self-contained leaf modules; each imports only the
 // composition kit which imports TYPES from here). Authored in parallel, one file per
 // theme, and spread into BUILTIN_PRESETS below. They compose the hi-fi per-telemetry
@@ -521,6 +522,17 @@ export interface Dashboard {
   createdAt?: number
   updatedAt?: number
   hidden?: boolean
+}
+
+export const DEFAULT_DASHBOARD_PRESET_PRIORITY = 1000
+
+export interface DashboardPreset {
+  id: string
+  name: string
+  build: () => Dashboard
+  tags?: string[]
+  /** Lower values appear earlier in the preset gallery. Missing values use 1000. */
+  priority?: number
 }
 
 export interface DashboardSummary {
@@ -2887,7 +2899,15 @@ export const OVERLAY_DASHBOARD_PRESETS: Array<{
   }
 ]
 
-export const BUILTIN_PRESETS: Array<{ id: string; name: string; build: () => Dashboard; tags?: string[] }> = [
+function withDefaultPresetPriority(presets: DashboardPreset[]): DashboardPreset[] {
+  return presets.map((preset) => ({
+    ...preset,
+    priority: preset.priority ?? DEFAULT_DASHBOARD_PRESET_PRIORITY
+  }))
+}
+
+export const BUILTIN_PRESETS: DashboardPreset[] = withDefaultPresetPriority([
+  ...GT3_DENSE_50_PRESETS,
   // ── WS-5 cross-agent: adaptive dashboard preset (owned by the adaptive agent) ──
   { id: ADAPTIVE_DASHBOARD_ID, name: ADAPTIVE_DASHBOARD_PRESET.name, build: createAdaptiveDashboardPreset, tags: [...ADAPTIVE_DASHBOARD_TAGS] },
   // ── WS-5 typographic showcase presets (offline self-hosted font families) ──
@@ -2983,7 +3003,7 @@ export const BUILTIN_PRESETS: Array<{ id: string; name: string; build: () => Das
   ...HIFI_COMPARE_PRESETS,
   ...HIFI_DIAG_PRESETS,
   ...HIFI_THEMED_CAR_PRESETS
-]
+])
 
 export function summarizeDashboard(dash: Dashboard): DashboardSummary {
   return {

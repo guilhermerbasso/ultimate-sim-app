@@ -1,5 +1,7 @@
 import { type ReactElement, type ReactNode } from 'react'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
+import { convertMeasurement, formatMeasurement, measurementUnit, type UnitSystem } from '../../../shared/units'
+import { useUnitSystem } from '../lib/units'
 
 const W = 1024
 const H = 600
@@ -133,7 +135,7 @@ function grid(x: number, y: number, w: number, h: number, cols: number, rows: nu
   )
 }
 
-function TraceChart({ snapshot, history }: { snapshot: TelemetrySnapshot; history?: TelemetrySnapshot[] }): ReactElement {
+function TraceChart({ snapshot, history, unitSystem }: { snapshot: TelemetrySnapshot; history?: TelemetrySnapshot[]; unitSystem: UnitSystem }): ReactElement {
   const { frames, synthetic } = makeFrames(snapshot, history)
   const x = 318
   const y = 140
@@ -142,7 +144,8 @@ function TraceChart({ snapshot, history }: { snapshot: TelemetrySnapshot; histor
   const step = Math.max(1, frames.length - 1)
   const pts = (pick: (s: TelemetrySnapshot) => number | undefined, lo: number, hi: number): Array<[number, number]> =>
     frames.map((f, i) => [xPct(i / step, x, w), yRange(pick(f), lo, hi, y, h)])
-  const speedPts = pts((s) => n(s.speedKmh), 0, 300)
+  const speedMax = convertMeasurement(300, 'speed-kmh', unitSystem) ?? 300
+  const speedPts = pts((s) => convertMeasurement(n(s.speedKmh), 'speed-kmh', unitSystem), 0, speedMax)
   const throttlePts = pts((s) => (n(s.throttle) ?? 0) * 100, 0, 100)
   const brakePts = pts((s) => (n(s.brake) ?? 0) * 100, 0, 100)
   const gearY = 386
@@ -154,16 +157,19 @@ function TraceChart({ snapshot, history }: { snapshot: TelemetrySnapshot; histor
       <rect x={270} y={90} width={558} height={26} fill="#020303" />
       <line x1={270} y1={116} x2={828} y2={116} stroke={COL.stroke} />
       <g fontFamily={mono()} fontSize={13} fontWeight={700}>
-        <text x={284} y={104} fill={COL.blue}>━ SPEED [km/h]</text>
+        <text x={284} y={104} fill={COL.blue}>━ SPEED [{measurementUnit('speed-kmh', unitSystem)}]</text>
         <text x={426} y={104} fill={COL.green}>━ THROTTLE [%]</text>
         <text x={580} y={104} fill={COL.red}>━ BRAKE [%]</text>
       </g>
       {grid(x, y, w, h, 9, 5)}
-      {[0, 50, 100, 150, 200, 250, 300].map((v) => (
-        <text key={v} x={312} y={yRange(v, 0, 300, y, h) + 4} textAnchor="end" fill={v === 300 ? COL.blue : COL.dim} fontFamily={mono()} fontSize={12}>
-          {v}
+      {[0, 50, 100, 150, 200, 250, 300].map((canonical) => {
+        const v = convertMeasurement(canonical, 'speed-kmh', unitSystem) ?? canonical
+        return (
+        <text key={canonical} x={312} y={yRange(v, 0, speedMax, y, h) + 4} textAnchor="end" fill={canonical === 300 ? COL.blue : COL.dim} fontFamily={mono()} fontSize={12}>
+          {Math.round(v)}
         </text>
-      ))}
+        )
+      })}
       {[0, 40, 80, 100].map((v) => (
         <text key={v} x={800} y={yRange(v, 0, 100, y, h) + 4} fill={v === 100 ? COL.text : COL.dim} fontFamily={mono()} fontSize={12}>
           {v}
@@ -180,9 +186,9 @@ function TraceChart({ snapshot, history }: { snapshot: TelemetrySnapshot; histor
       <polyline points={poly(speedPts)} fill="none" stroke={COL.blue} strokeWidth={2} opacity={synthetic ? 0.72 : 1} />
       <polyline points={poly(throttlePts)} fill="none" stroke={COL.green} strokeWidth={1.7} opacity={synthetic ? 0.62 : 0.95} />
       <polyline points={poly(brakePts)} fill="none" stroke={COL.red} strokeWidth={1.7} opacity={synthetic ? 0.62 : 0.95} />
-      <text x={280} y={235} transform="rotate(-90 280 235)" fill={COL.blue} fontFamily={mono()} fontSize={12} fontWeight={700}>SPEED [km/h]</text>
+      <text x={280} y={235} transform="rotate(-90 280 235)" fill={COL.blue} fontFamily={mono()} fontSize={12} fontWeight={700}>SPEED [{measurementUnit('speed-kmh', unitSystem)}]</text>
       <text x={822} y={270} transform="rotate(-90 822 270)" fill={COL.green} fontFamily={mono()} fontSize={9} fontWeight={700}>THR / BRK [%]</text>
-      <text x={554} y={352} textAnchor="middle" fill={COL.dim} fontFamily={mono()} fontSize={12}>DISTANCE [m]</text>
+      <text x={554} y={352} textAnchor="middle" fill={COL.dim} fontFamily={mono()} fontSize={12}>DISTANCE [{measurementUnit('distance-m', unitSystem)}]</text>
       <line x1={270} y1={356} x2={828} y2={356} stroke={COL.stroke} />
       <Label x={280} y={374} c={COL.text} size={12}>GEAR</Label>
       {grid(x, gearY, w, gearH, 9, 4)}
@@ -196,8 +202,8 @@ function TraceChart({ snapshot, history }: { snapshot: TelemetrySnapshot; histor
   )
 }
 
-function LeftReadouts({ snapshot, history }: { snapshot: TelemetrySnapshot; history?: TelemetrySnapshot[] }): ReactElement {
-  const speed = n(snapshot.speedKmh)
+function LeftReadouts({ snapshot, history, unitSystem }: { snapshot: TelemetrySnapshot; history?: TelemetrySnapshot[]; unitSystem: UnitSystem }): ReactElement {
+  const speed = formatMeasurement(n(snapshot.speedKmh), 'speed-kmh', unitSystem, { decimals: 1 })
   const rpm = n(snapshot.rpm)
   const frames = (history ?? []).slice(-80)
   const gx = 86
@@ -208,8 +214,8 @@ function LeftReadouts({ snapshot, history }: { snapshot: TelemetrySnapshot; hist
   return (
     <Panel x={8} y={84} w={250} h={388}>
       <Label x={18} y={108}>SPEED</Label>
-      <text x={36} y={154} fill={COL.blue} fontFamily={mono()} fontSize={48} fontWeight={800}>{fixed(speed, 1)}</text>
-      <text x={188} y={154} fill={COL.dim} fontFamily={tech()} fontSize={17} fontWeight={700}>km/h</text>
+      <text x={36} y={154} fill={COL.blue} fontFamily={mono()} fontSize={48} fontWeight={800}>{speed.display}</text>
+      <text x={188} y={154} fill={COL.dim} fontFamily={tech()} fontSize={17} fontWeight={700}>{speed.unit}</text>
       <line x1={8} y1={176} x2={258} y2={176} stroke={COL.stroke} />
       <Label x={18} y={202}>RPM</Label>
       <text x={36} y={266} fill={COL.text} fontFamily={mono()} fontSize={52} fontWeight={800}>{fixed(rpm)}</text>
@@ -299,7 +305,7 @@ function RightTables({ snapshot }: { snapshot: TelemetrySnapshot }): ReactElemen
   )
 }
 
-function BottomStrip({ snapshot, history }: { snapshot: TelemetrySnapshot; history?: TelemetrySnapshot[] }): ReactElement {
+function BottomStrip({ snapshot, history, unitSystem }: { snapshot: TelemetrySnapshot; history?: TelemetrySnapshot[]; unitSystem: UnitSystem }): ReactElement {
   const frames = (history ?? []).filter((f) => n(f.speedKmh) != null)
   const speeds = frames.map((f) => n(f.speedKmh)).filter((v): v is number => v != null)
   const min = speeds.length ? Math.min(...speeds) : undefined
@@ -314,11 +320,11 @@ function BottomStrip({ snapshot, history }: { snapshot: TelemetrySnapshot; histo
   return (
     <Panel x={8} y={478} w={1008} h={114}>
       <g>
-        <Label x={18} y={502} c={COL.blue}>SPEED [km/h]</Label>
+        <Label x={18} y={502} c={COL.blue}>SPEED [{measurementUnit('speed-kmh', unitSystem)}]</Label>
         {[
-          ['MIN', min],
-          ['MAX', max],
-          ['AVG', avg]
+          ['MIN', convertMeasurement(min, 'speed-kmh', unitSystem)],
+          ['MAX', convertMeasurement(max, 'speed-kmh', unitSystem)],
+          ['AVG', convertMeasurement(avg, 'speed-kmh', unitSystem)]
         ].map(([k, v], i) => (
           <g key={k as string}>
             <text x={34 + i * 76} y={542} fill={COL.dim} fontFamily={mono()} fontSize={13}>{k}</text>
@@ -328,7 +334,7 @@ function BottomStrip({ snapshot, history }: { snapshot: TelemetrySnapshot; histo
         ))}
       </g>
       <line x1={260} y1={488} x2={260} y2={582} stroke={COL.stroke} />
-      <Label x={638} y={502} anchor="middle" c={COL.text}>TYRE TEMPERATURES [°C]</Label>
+      <Label x={638} y={502} anchor="middle" c={COL.text}>TYRE TEMPERATURES [{measurementUnit('temperature-c', unitSystem)}]</Label>
       <line x1={282} y1={514} x2={1004} y2={514} stroke={COL.stroke} />
       {tyres.map(([k, t], i) => {
         const x = 320 + i * 168
@@ -339,7 +345,7 @@ function BottomStrip({ snapshot, history }: { snapshot: TelemetrySnapshot; histo
             {['IN', 'MID', 'OUT'].map((m, j) => (
               <g key={m}>
                 <text x={x - 46 + j * 46} y={562} textAnchor="middle" fill={j === 1 ? COL.amber : COL.dim} fontFamily={mono()} fontSize={12}>{m}</text>
-                <text x={x - 46 + j * 46} y={584} textAnchor="middle" fill={color} fontFamily={mono()} fontSize={21} fontWeight={800}>{fixed(t != null ? t + (j === 0 ? -2 : j === 2 ? -3 : 1) : undefined)}</text>
+                <text x={x - 46 + j * 46} y={584} textAnchor="middle" fill={color} fontFamily={mono()} fontSize={21} fontWeight={800}>{formatMeasurement(t != null ? t + (j === 0 ? -2 : j === 2 ? -3 : 1) : undefined, 'temperature-c', unitSystem, { decimals: 0 }).display}</text>
               </g>
             ))}
           </g>
@@ -357,10 +363,11 @@ export interface EngineerDashProps {
 }
 
 export function EngineerDash({ snapshot, history, width, height }: EngineerDashProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const lap = fixed(n(snapshot.currentLap))
   const track = snapshot.trackName || EM
   const layout = snapshot.trackConfigName || EM
-  const air = fixed(n(snapshot.airTempC), 1)
+  const air = formatMeasurement(n(snapshot.airTempC), 'temperature-c', unitSystem, { decimals: 1 })
   const delta = n(snapshot.deltaToBestSec)
 
   return (
@@ -379,12 +386,12 @@ export function EngineerDash({ snapshot, history, width, height }: EngineerDashP
         <line x1={760} y1={14} x2={760} y2={70} stroke={COL.stroke} />
         <text x={776} y={26}>TRACK: <tspan fill={COL.text}>{track}</tspan></text>
         <text x={776} y={48}>LAYOUT: <tspan fill={COL.text}>{layout}</tspan></text>
-        <text x={776} y={68}>CONDITIONS: <tspan fill={COL.text}>{air}°C</tspan>  DELTA <tspan fill={statColor(delta)}>{delta == null ? EM : `${delta >= 0 ? '+' : ''}${delta.toFixed(3)}`}</tspan></text>
+        <text x={776} y={68}>CONDITIONS: <tspan fill={COL.text}>{air.display}{air.unit}</tspan>  DELTA <tspan fill={statColor(delta)}>{delta == null ? EM : `${delta >= 0 ? '+' : ''}${delta.toFixed(3)}`}</tspan></text>
       </g>
-      <LeftReadouts snapshot={snapshot} history={history} />
-      <TraceChart snapshot={snapshot} history={history} />
+      <LeftReadouts snapshot={snapshot} history={history} unitSystem={unitSystem} />
+      <TraceChart snapshot={snapshot} history={history} unitSystem={unitSystem} />
       <RightTables snapshot={snapshot} />
-      <BottomStrip snapshot={snapshot} history={history} />
+      <BottomStrip snapshot={snapshot} history={history} unitSystem={unitSystem} />
     </svg>
   )
 }

@@ -10,10 +10,10 @@ import { fuelLaps } from './gt3Telemetry'
 import { formatTime } from './format'
 import { resolveSkin, FitText } from '../../skins'
 import { DataField, type FieldState } from '../../instruments'
+import { formatMeasurement, measurementUnit } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 export const ENDURANCE_MULTI_STREAM_SAFE = true
-
-const KPA_TO_PSI = 0.1450377
 
 function dims(config: WidgetProps['config']): { W: number; H: number } {
   const w = config?.position?.width
@@ -46,12 +46,13 @@ function tyreTemp(t: TyreInfo | undefined): number | undefined {
   const v = t?.tempC
   return v !== undefined && Number.isFinite(v) ? v : undefined
 }
-function tyrePsi(t: TyreInfo | undefined): number | undefined {
+function tyrePressure(t: TyreInfo | undefined): number | undefined {
   const v = t?.pressureKpa
-  return v !== undefined && Number.isFinite(v) ? v * KPA_TO_PSI : undefined
+  return v !== undefined && Number.isFinite(v) ? v : undefined
 }
 
 export function EnduranceMultiWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const s = snapshot
   const skin = resolveSkin('gt3', 'generic')
   const { palette } = skin
@@ -60,6 +61,12 @@ export function EnduranceMultiWidget({ snapshot, config }: WidgetProps): ReactEl
   const laps = fuelLaps(s)
   const fuelState: FieldState = laps === undefined ? 'normal' : laps <= 2 ? 'crit' : laps <= 3.5 ? 'warn' : 'ok'
   const ty = s?.tyres
+  const fuel = formatMeasurement(s?.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1 })
+  const fuelPerLap = formatMeasurement(s?.fuelPerLap, 'fuel-per-lap-l', unitSystem, { decimals: 2 })
+  const waterTemp = formatMeasurement(s?.waterTempC, 'temperature-c', unitSystem, { decimals: 0 })
+  const oilTemp = formatMeasurement(s?.oilTempC, 'temperature-c', unitSystem, { decimals: 0 })
+  const tempUnit = measurementUnit('temperature-c', unitSystem)
+  const pressureUnit = measurementUnit('pressure-kpa', unitSystem)
 
   const P = Math.max(8, Math.round(Math.min(W, H) * 0.028))
   const G = Math.max(5, Math.round(Math.min(W, H) * 0.02))
@@ -115,27 +122,27 @@ export function EnduranceMultiWidget({ snapshot, config }: WidgetProps): ReactEl
         <FitText x={P} y={headY + headH / 2} boxW={innerW * 0.9} boxH={headH * 0.82} text="ENDURANCE · STINT" anchor="start" baseline="middle" fontFamily={skin.typography.label} fill={palette.textDim} minFontPx={11} maxFontPx={Math.max(12, headH * 0.7)} weight={800} letterSpacing={2} />
 
         {df(x3(0), row3Y, w3, rowH, 'STINT', formatTime(s?.sessionTimeRemainingSec), 'warn')}
-        {df(x3(1), row3Y, w3, rowH, 'FUEL', n1(s?.fuelLiters), fuelState, 'L')}
+        {df(x3(1), row3Y, w3, rowH, 'FUEL', fuel.display, fuelState, fuel.unit)}
         {df(x3(2), row3Y, w3, rowH, 'LAPS FUEL', n1(laps), fuelState)}
 
-        {df(x4(0), row4Y, w4, rowH, 'L/LAP', n2(s?.fuelPerLap))}
+        {df(x4(0), row4Y, w4, rowH, 'FUEL/LAP', fuelPerLap.display, 'normal', fuelPerLap.unit)}
         {df(x4(1), row4Y, w4, rowH, 'LAPS LEFT', n0(s?.lapsRemaining), 'accent')}
-        {df(x4(2), row4Y, w4, rowH, 'WATER', n0(s?.waterTempC), tempState(s?.waterTempC, 100, 115), '°')}
-        {df(x4(3), row4Y, w4, rowH, 'OIL', n0(s?.oilTempC), tempState(s?.oilTempC, 110, 130), '°')}
+        {df(x4(2), row4Y, w4, rowH, 'WATER', waterTemp.display, tempState(s?.waterTempC, 100, 115), waterTemp.unit)}
+        {df(x4(3), row4Y, w4, rowH, 'OIL', oilTemp.display, tempState(s?.oilTempC, 110, 130), oilTemp.unit)}
 
-        {header(P, 'TYRE °C')}
+        {header(P, `TYRE ${tempUnit}`)}
         {grid(P, [
-          { label: 'LF', value: n0(tyreTemp(ty?.lf)), st: tempState(tyreTemp(ty?.lf), 95, 105, 70) },
-          { label: 'RF', value: n0(tyreTemp(ty?.rf)), st: tempState(tyreTemp(ty?.rf), 95, 105, 70) },
-          { label: 'LR', value: n0(tyreTemp(ty?.lr)), st: tempState(tyreTemp(ty?.lr), 95, 105, 70) },
-          { label: 'RR', value: n0(tyreTemp(ty?.rr)), st: tempState(tyreTemp(ty?.rr), 95, 105, 70) }
-        ], '°')}
-        {header(P + gridW + G, 'PRESS PSI')}
+          { label: 'LF', value: formatMeasurement(tyreTemp(ty?.lf), 'temperature-c', unitSystem, { decimals: 0 }).display, st: tempState(tyreTemp(ty?.lf), 95, 105, 70) },
+          { label: 'RF', value: formatMeasurement(tyreTemp(ty?.rf), 'temperature-c', unitSystem, { decimals: 0 }).display, st: tempState(tyreTemp(ty?.rf), 95, 105, 70) },
+          { label: 'LR', value: formatMeasurement(tyreTemp(ty?.lr), 'temperature-c', unitSystem, { decimals: 0 }).display, st: tempState(tyreTemp(ty?.lr), 95, 105, 70) },
+          { label: 'RR', value: formatMeasurement(tyreTemp(ty?.rr), 'temperature-c', unitSystem, { decimals: 0 }).display, st: tempState(tyreTemp(ty?.rr), 95, 105, 70) }
+        ], '')}
+        {header(P + gridW + G, `PRESS ${pressureUnit.toUpperCase()}`)}
         {grid(P + gridW + G, [
-          { label: 'LF', value: n1(tyrePsi(ty?.lf)), st: 'normal' },
-          { label: 'RF', value: n1(tyrePsi(ty?.rf)), st: 'normal' },
-          { label: 'LR', value: n1(tyrePsi(ty?.lr)), st: 'normal' },
-          { label: 'RR', value: n1(tyrePsi(ty?.rr)), st: 'normal' }
+          { label: 'LF', value: formatMeasurement(tyrePressure(ty?.lf), 'pressure-kpa', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0 }).display, st: 'normal' },
+          { label: 'RF', value: formatMeasurement(tyrePressure(ty?.rf), 'pressure-kpa', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0 }).display, st: 'normal' },
+          { label: 'LR', value: formatMeasurement(tyrePressure(ty?.lr), 'pressure-kpa', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0 }).display, st: 'normal' },
+          { label: 'RR', value: formatMeasurement(tyrePressure(ty?.rr), 'pressure-kpa', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0 }).display, st: 'normal' }
         ], '')}
       </svg>
     </div>

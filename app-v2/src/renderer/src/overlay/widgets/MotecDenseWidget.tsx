@@ -10,6 +10,8 @@ import { formatDelta, formatGear, numberOrDash } from './format'
 import { fuelLaps } from './gt3Telemetry'
 import { resolveSkin, FitText } from '../../skins'
 import { DataField, type FieldState } from '../../instruments'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 export const MOTEC_DENSE_STREAM_SAFE = true
 
@@ -25,10 +27,6 @@ function dims(config: WidgetProps['config']): { W: number; H: number } {
 function n0(v: number | undefined): string {
   return v === undefined || !Number.isFinite(v) ? '—' : String(Math.round(v))
 }
-function n1(v: number | undefined): string {
-  return v === undefined || !Number.isFinite(v) ? '—' : v.toFixed(1)
-}
-
 function levelStr(v: number | string | undefined): string {
   if (v === undefined) return '—'
   if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '—'
@@ -44,6 +42,7 @@ function tempState(c: number | undefined, warn: number, crit: number): FieldStat
 }
 
 export function MotecDenseWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const s = snapshot
   const skin = resolveSkin('gt3', 'generic')
   const { palette } = skin
@@ -54,6 +53,11 @@ export function MotecDenseWidget({ snapshot, config }: WidgetProps): ReactElemen
   const deltaState: FieldState = delta !== undefined && Number.isFinite(delta) && delta <= 0 ? 'ok' : 'warn'
   const laps = fuelLaps(s)
   const fuelState: FieldState = laps === undefined ? 'normal' : laps <= 2 ? 'crit' : laps <= 3.5 ? 'warn' : 'normal'
+  const speed = formatMeasurement(s?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
+  const fuel = formatMeasurement(s?.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1 })
+  const waterTemp = formatMeasurement(s?.waterTempC, 'temperature-c', unitSystem, { decimals: 0 })
+  const oilTemp = formatMeasurement(s?.oilTempC, 'temperature-c', unitSystem, { decimals: 0 })
+  const fuelPerLap = formatMeasurement(s?.fuelPerLap, 'fuel-per-lap-l', unitSystem, { decimals: 2 })
 
   const P = Math.max(6, Math.round(Math.min(W, H) * 0.03))
   const gap = Math.max(3, Math.round(Math.min(W, H) * 0.016))
@@ -82,16 +86,16 @@ export function MotecDenseWidget({ snapshot, config }: WidgetProps): ReactElemen
         <FitText x={P} y={P + headH / 2} boxW={W * 0.5} boxH={headH * 0.9} text="DATA" anchor="start" baseline="middle" fontFamily={skin.typography.label} fill={palette.textDim} minFontPx={11} maxFontPx={Math.max(12, headH * 0.8)} weight={800} letterSpacing={3} />
 
         {df(0, 0, 1, 'GEAR', gear, 'accent')}
-        {df(1, 0, 2, 'SPEED', n0(s?.speedKmh), 'normal', 'KMH')}
+        {df(1, 0, 2, 'SPEED', speed.display, 'normal', speed.unit.toUpperCase())}
         {df(3, 0, 1, 'RPM', n0(s?.rpm))}
 
         {df(0, 1, 2, 'DELTA', formatDelta(delta), deltaState, 's')}
         {df(2, 1, 1, 'LAP', n0(s?.currentLap))}
-        {df(3, 1, 1, 'FUEL', n1(s?.fuelLiters), fuelState, 'L')}
+        {df(3, 1, 1, 'FUEL', fuel.display, fuelState, fuel.unit)}
 
-        {df(0, 2, 1, 'WATER', n0(s?.waterTempC), tempState(s?.waterTempC, 100, 115), '°')}
-        {df(1, 2, 1, 'OIL', n0(s?.oilTempC), tempState(s?.oilTempC, 110, 130), '°')}
-        {df(2, 2, 2, 'L/LAP', numberOrDash(s?.fuelPerLap, 2), 'normal', 'L')}
+        {df(0, 2, 1, 'WATER', waterTemp.display, tempState(s?.waterTempC, 100, 115), waterTemp.unit)}
+        {df(1, 2, 1, 'OIL', oilTemp.display, tempState(s?.oilTempC, 110, 130), oilTemp.unit)}
+        {df(2, 2, 2, 'FUEL/LAP', fuelPerLap.display, 'normal', fuelPerLap.unit)}
 
         {df(0, 3, 1, 'TC', levelStr(s?.tcLevel))}
         {df(1, 3, 1, 'ABS', levelStr(s?.absLevel))}

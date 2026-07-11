@@ -28,6 +28,7 @@ import type {
   SessionKind,
   SessionPhase
 } from '../../shared/ai-engineer'
+import { formatMeasurement, type UnitSystem } from '../../shared/units'
 import type { CoachFinding, CoachTip } from '../../shared/coach'
 import { groundedFindingText } from '../../shared/coach'
 import type { FuelStrategyState } from '../../shared/fuel'
@@ -429,11 +430,12 @@ export function estimateTokens(text: string): number {
 
 interface RenderOptions {
   maxTokens?: number
+  unitSystem?: UnitSystem
 }
 
 export function renderContextText(pack: ContextPack, options?: RenderOptions): string {
   const maxTokens = isPositive(options?.maxTokens) ? (options?.maxTokens as number) : DEFAULT_MAX_TOKENS
-  const lines = renderLines(pack)
+  const lines = renderLines(pack, options?.unitSystem ?? 'metric')
   let text = lines.join('\n')
   // Token-budget guard: drop the least-critical sections (events, then weather
   // detail) until we fit. The core race-engineer lines always stay.
@@ -444,7 +446,7 @@ export function renderContextText(pack: ContextPack, options?: RenderOptions): s
   return text
 }
 
-function renderLines(pack: ContextPack): string[] {
+function renderLines(pack: ContextPack, unitSystem: UnitSystem): string[] {
   const lines: string[] = []
 
   if (!pack.connected) lines.push('STATUS: telemetry offline')
@@ -487,13 +489,13 @@ function renderLines(pack: ContextPack): string[] {
   const f = pack.fuel
   if (isFiniteNum(f.liters) || isFiniteNum(f.lapsLeft)) {
     const parts: string[] = []
-    if (isFiniteNum(f.liters)) parts.push(`${f.liters}L`)
-    if (isFiniteNum(f.perLap)) parts.push(`${f.perLap}/lap`)
+    if (isFiniteNum(f.liters)) parts.push(formatMeasurement(f.liters, 'fuel-volume-l', unitSystem, { decimals: 1, trimTrailingZeros: true, includeUnit: true }).display)
+    if (isFiniteNum(f.perLap)) parts.push(formatMeasurement(f.perLap, 'fuel-per-lap-l', unitSystem, { decimals: 2, trimTrailingZeros: true, includeUnit: true }).display)
     if (isFiniteNum(f.lapsLeft)) parts.push(`${f.lapsLeft} laps left`)
-    if (isFiniteNum(f.toFinishLiters)) parts.push(`need ${f.toFinishLiters}L`)
-    if (isFiniteNum(f.deltaToFinishLiters)) parts.push(`${f.deltaToFinishLiters >= 0 ? '+' : ''}${f.deltaToFinishLiters}L`)
+    if (isFiniteNum(f.toFinishLiters)) parts.push(`need ${formatMeasurement(f.toFinishLiters, 'fuel-volume-l', unitSystem, { decimals: 1, trimTrailingZeros: true, includeUnit: true }).display}`)
+    if (isFiniteNum(f.deltaToFinishLiters)) parts.push(formatMeasurement(f.deltaToFinishLiters, 'fuel-volume-l', unitSystem, { decimals: 1, trimTrailingZeros: true, signed: true, includeUnit: true }).display)
     if (f.status) parts.push(f.status)
-    if (isFiniteNum(f.saveTargetPerLap) && f.saveTargetPerLap > 0) parts.push(`save ${f.saveTargetPerLap}/lap`)
+    if (isFiniteNum(f.saveTargetPerLap) && f.saveTargetPerLap > 0) parts.push(`save ${formatMeasurement(f.saveTargetPerLap, 'fuel-per-lap-l', unitSystem, { decimals: 2, trimTrailingZeros: true, includeUnit: true }).display}`)
     lines.push(`FUEL: ${parts.join(' · ')}`)
   }
 
@@ -503,7 +505,7 @@ function renderLines(pack: ContextPack): string[] {
     const corner = ty[id]
     if (!corner) continue
     const bits: string[] = []
-    if (isFiniteNum(corner.tempC)) bits.push(`${corner.tempC}°`)
+    if (isFiniteNum(corner.tempC)) bits.push(formatMeasurement(corner.tempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display)
     if (isFiniteNum(corner.wearPct)) bits.push(`${corner.wearPct}%`)
     if (bits.length) tyParts.push(`${id.toUpperCase()} ${bits.join('/')}`)
   }
@@ -534,8 +536,8 @@ function renderLines(pack: ContextPack): string[] {
   const w = pack.weather
   if (isFiniteNum(w.airTempC) || isFiniteNum(w.trackTempC) || typeof w.raining === 'boolean' || isFiniteNum(w.wetnessPct)) {
     const parts: string[] = []
-    if (isFiniteNum(w.airTempC)) parts.push(`air ${w.airTempC}°`)
-    if (isFiniteNum(w.trackTempC)) parts.push(`track ${w.trackTempC}°`)
+    if (isFiniteNum(w.airTempC)) parts.push(`air ${formatMeasurement(w.airTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}`)
+    if (isFiniteNum(w.trackTempC)) parts.push(`track ${formatMeasurement(w.trackTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}`)
     const wet = w.declaredWet || w.raining === true || (isFiniteNum(w.wetnessPct) && w.wetnessPct >= 15)
     parts.push(wet ? `wet${isFiniteNum(w.wetnessPct) ? ` ${w.wetnessPct}%` : ''}` : 'dry')
     if (w.surface) parts.push(w.surface)

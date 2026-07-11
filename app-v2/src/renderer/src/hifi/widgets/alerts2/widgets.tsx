@@ -2,6 +2,7 @@ import { type ReactElement } from 'react'
 import { trackSurfaceMaterialLabel, type TelemetrySnapshot, type TyreInfo } from '../../../../../shared/telemetry'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { Bar, C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, fixed, frac, legibleStroke, num } from '../kit'
+import { formatMeasurement } from '../../../../../shared/units'
 
 const RED = '#ff2626'
 const AMBER = '#ffb000'
@@ -84,31 +85,34 @@ function Alert2EngineWarning({ snapshot, width, height }: HifiWidgetProps): Reac
   return warningLamp({ width: w, height: h, color: RED, label: 'ENGINE', value: 'WARN', icon: '!' })
 }
 
-function Alert2WaterTempCritical({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function Alert2WaterTempCritical({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const w = width ?? 360
   const h = height ?? 190
   const temp = num(snapshot?.waterTempC)
   const active = snapshot?.engineWarnings?.waterTemp === true || (temp != null && temp >= 105)
   if (!active) return empty(w, h)
-  return warningLamp({ width: w, height: h, color: RED, label: 'WATER', value: fixed(temp, 0), unit: 'C', icon: '~' })
+  const reading = formatMeasurement(temp, 'temperature-c', unitSystem, { decimals: 0 })
+  return warningLamp({ width: w, height: h, color: RED, label: 'WATER', value: reading.display, unit: reading.unit, icon: '~' })
 }
 
-function Alert2OilTempCritical({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function Alert2OilTempCritical({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const w = width ?? 360
   const h = height ?? 190
   const temp = num(snapshot?.oilTempC)
   const active = snapshot?.engineWarnings?.oilTemp === true || (temp != null && temp >= 125)
   if (!active) return empty(w, h)
-  return warningLamp({ width: w, height: h, color: RED, label: 'OIL TEMP', value: fixed(temp, 0), unit: 'C', icon: '°' })
+  const reading = formatMeasurement(temp, 'temperature-c', unitSystem, { decimals: 0 })
+  return warningLamp({ width: w, height: h, color: RED, label: 'OIL TEMP', value: reading.display, unit: reading.unit, icon: '°' })
 }
 
-function Alert2OilPressureLow({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function Alert2OilPressureLow({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const w = width ?? 380
   const h = height ?? 190
   const pressure = num(snapshot?.oilPressureKpa)
   const active = snapshot?.engineWarnings?.oilPressure === true || (pressure != null && pressure <= 140)
   if (!active) return empty(w, h)
-  return warningLamp({ width: w, height: h, color: RED, label: 'OIL KPA', value: fixed(pressure, 0), unit: 'KPA', icon: '!' })
+  const reading = formatMeasurement(pressure, 'pressure-kpa', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0 })
+  return warningLamp({ width: w, height: h, color: RED, label: `OIL ${reading.unit.toUpperCase()}`, value: reading.display, unit: reading.unit.toUpperCase(), icon: '!' })
 }
 
 function Alert2BadSurface({ snapshot, width, height }: HifiWidgetProps): ReactElement {
@@ -143,11 +147,12 @@ function Alert2BlueFlag({ snapshot, width, height }: HifiWidgetProps): ReactElem
   )
 }
 
-function Alert2TyreTempCritical({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function Alert2TyreTempCritical({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const w = width ?? 380
   const h = height ?? 200
   const hottest = hottestTyre(snapshot)
   if (!hottest || hottest.temp < 115) return empty(w, h)
+  const reading = formatMeasurement(hottest.temp, 'temperature-c', unitSystem, { decimals: 0 })
   return (
     <CleanTile width={w} height={h}>
       <defs>
@@ -163,7 +168,7 @@ function Alert2TyreTempCritical({ snapshot, width, height }: HifiWidgetProps): R
           TYRE TEMP
         </text>
         <text x="238" y="140" textAnchor="middle" fill={WHITE} fontFamily={FONT_NUM} fontSize="72" fontWeight="900" letterSpacing="-2" {...legibleStroke(72)}>
-          {hottest.corner} {fixed(hottest.temp, 0)}<tspan fill={RED} fontFamily={FONT_LABEL} fontSize="28"> C</tspan>
+          {hottest.corner} {reading.display}<tspan fill={RED} fontFamily={FONT_LABEL} fontSize="28"> {reading.unit}</tspan>
         </text>
         <Bar x={150} y={162} w={176} h={14} f={frac(hottest.temp, 90, 130)} color={RED} />
       </g>
@@ -171,7 +176,7 @@ function Alert2TyreTempCritical({ snapshot, width, height }: HifiWidgetProps): R
   )
 }
 
-function Alert2BrakePressureLow({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function Alert2BrakePressureLow({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const w = width ?? 420
   const h = height ?? 190
   const brake = num(snapshot?.brake)
@@ -179,7 +184,8 @@ function Alert2BrakePressureLow({ snapshot, width, height }: HifiWidgetProps): R
   const maxPressure = values.length > 0 ? Math.max(...values) : undefined
   const active = brake != null && brake >= 0.35 && maxPressure != null && maxPressure < 25
   if (!active) return empty(w, h)
-  return warningLamp({ width: w, height: h, color: AMBER, label: 'BRAKE BAR', value: fixed(maxPressure, 0), unit: 'BAR', icon: '!' })
+  const reading = formatMeasurement(maxPressure, 'pressure-bar', unitSystem, { decimals: unitSystem === 'imperial' ? 0 : 1 })
+  return warningLamp({ width: w, height: h, color: AMBER, label: `BRAKE ${reading.unit.toUpperCase()}`, value: reading.display, unit: reading.unit.toUpperCase(), icon: '!' })
 }
 
 export const alert2EngineWarningWidget: HifiWidgetModule = {

@@ -33,12 +33,22 @@ import { ADAPTIVE_DASHBOARD_ID } from '../../../shared/dashboard-adaptive-preset
 import { isTouchPanelPlaylistItem, type ButtonBoxSummary } from '../../../shared/touch-panel'
 import { buildKioskOpenOptions } from '../../../shared/kiosk'
 import type { ActionBinding, ActionDefinition, AppActionName, HidButtonControl } from '../../../shared/actions'
+import {
+  celsiusToFahrenheit,
+  fahrenheitToCelsius,
+  kpaToPsi,
+  measurementUnit,
+  psiToKpa
+} from '../../../shared/units'
 import type { AppViewProps } from '../App'
 import { setActionRuntimeSuppressed } from '../lib/action-runtime'
+import { useUnitSystem } from '../lib/units'
 import { SectionExportImport } from '../components/SectionExportImport'
 import { findFirstPressedButton } from '../lib/gamepad'
-import { renderGt3Widget, GT3_WIDGET_TYPES } from '../dashboard/widgets/gt3-widgets'
+import { GT3_WIDGET_TYPES } from '../dashboard/widgets/gt3-widgets'
 import { PREVIEW_SNAPSHOT } from '../dashboard/widgets/gt3-theme'
+import { displayUnitLabel } from '../dashboard/binding'
+import { renderDashboardElement } from '../dashboard/DashboardRoot'
 import { WidgetGallery, variantToElement } from './dashboard/widget-catalog'
 import type { WidgetVariant } from './dashboard/widget-catalog'
 import { PresetGallery } from './dashboard/preset-gallery'
@@ -126,10 +136,11 @@ const ELEMENT_TYPES: Array<{ value: DashboardElementType; label: string }> = [
   { value: 'valuegauge', label: 'Value + gauge' }
 ]
 
+const DEFAULT_DASHBOARD_SCALE_MODE: DashboardScaleMode = 'stretch'
 const SCALE_MODES: Array<{ value: DashboardScaleMode; label: string; hint: string }> = [
+  { value: 'stretch', label: 'Stretch (default)', hint: 'Distorts X/Y to fill exactly. No gaps, no cropping.' },
   { value: 'fit', label: 'Fit (letterbox)', hint: 'Preserves proportion. May leave empty borders.' },
-  { value: 'fill', label: 'Fill (cover)', hint: 'Covers the screen. May crop at the edges.' },
-  { value: 'stretch', label: 'Stretch', hint: 'Distorts X/Y to fill exactly. No gaps, no cropping.' }
+  { value: 'fill', label: 'Fill (cover)', hint: 'Covers the screen. May crop at the edges.' }
 ]
 
 const DEFAULT_TABLE_COLS = ['pos', 'number', 'name', 'gap', 'class']
@@ -1105,9 +1116,7 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
 
   function newEmpty(width = 1280, height = 720, suggestedName = 'New dashboard'): void {
     const blank = newBlankDashboard(suggestedName, width, height)
-    // Default to letterbox 'fit' so the canvas always scales to the target panel
-    // without cropping, regardless of aspect ratio.
-    blank.scaleMode = 'fit'
+    blank.scaleMode = DEFAULT_DASHBOARD_SCALE_MODE
     setSelectedDash(blank)
     setSelectedId(null)
     setSelectedElementId(null)
@@ -1118,6 +1127,7 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
   // instead of cloning the full adaptive preset. Mirrors `newEmpty`.
   function newBlankAdaptive(): void {
     const blank = createBlankAdaptiveDashboard()
+    blank.scaleMode = DEFAULT_DASHBOARD_SCALE_MODE
     setSelectedDash(blank)
     setSelectedId(null)
     setSelectedElementId(null)
@@ -1517,13 +1527,13 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
                 <div style={{ width: 220 }}>
                   <label style={fieldLabel()}>Window scale</label>
                   <select
-                    value={selectedDash.scaleMode ?? 'fit'}
+                    value={selectedDash.scaleMode ?? DEFAULT_DASHBOARD_SCALE_MODE}
                     onChange={(e) =>
                       patchSelected({ scaleMode: e.target.value as DashboardScaleMode })
                     }
                     style={input()}
                     title={
-                      SCALE_MODES.find((m) => m.value === (selectedDash.scaleMode ?? 'fit'))?.hint ??
+                      SCALE_MODES.find((m) => m.value === (selectedDash.scaleMode ?? DEFAULT_DASHBOARD_SCALE_MODE))?.hint ??
                       ''
                     }
                   >
@@ -1536,7 +1546,7 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
                 </div>
               </div>
               <p style={{ margin: '6px 0 0', color: TEXT_DIM, fontSize: 12 }}>
-                {SCALE_MODES.find((m) => m.value === (selectedDash.scaleMode ?? 'fit'))?.hint}
+                {SCALE_MODES.find((m) => m.value === (selectedDash.scaleMode ?? DEFAULT_DASHBOARD_SCALE_MODE))?.hint}
               </p>
 
               <div style={{ marginTop: 16, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1901,7 +1911,7 @@ function DashboardPreview({
   const maxH = 360
   const _sx = maxW / dashboard.width
   const _sy = maxH / dashboard.height
-  const scaleMode = dashboard.scaleMode ?? 'fit'
+  const scaleMode = dashboard.scaleMode ?? DEFAULT_DASHBOARD_SCALE_MODE
   let scaleX: number
   let scaleY: number
   if (scaleMode === 'stretch') {
@@ -2063,10 +2073,11 @@ function DashboardPreview({
   )
 }
 
-// Wrapper de selecao para um widget GT3 renderizado ao vivo no editor. O widget
-// posiciona a si mesmo (classe .dash-element, absoluto) dentro deste wrapper.
-function Gt3PreviewElement({
+// Selection wrapper for the production dashboard renderer. Normalizing the
+// element to the origin keeps runtime widgets inside the editor's drag box.
+function RuntimePreviewElement({
   element,
+  snapshot,
   selected,
   handleSize,
   onSelect,
@@ -2077,6 +2088,7 @@ function Gt3PreviewElement({
   onResizePointerDown
 }: {
   element: DashboardElement
+  snapshot: typeof PREVIEW_SNAPSHOT | null
   selected: boolean
   handleSize: number
   onSelect(): void
@@ -2108,7 +2120,7 @@ function Gt3PreviewElement({
         touchAction: 'none'
       }}
     >
-      {renderGt3Widget({ element: norm, snapshot: PREVIEW_SNAPSHOT })}
+      {renderDashboardElement({ element: norm, snapshot })}
       {selected && (
         <ResizeHandles
           size={handleSize}
@@ -2142,10 +2154,11 @@ function PreviewElement({
   onResizePointerDown(event: PointerEvent<HTMLElement>, handle: ResizeHandle): void
   yesulate?: boolean
 }): ReactElement {
-  if (yesulate && (GT3_WIDGET_TYPES as readonly string[]).includes(element.type)) {
+  if (element.type === 'overlaywidget' || yesulate) {
     return (
-      <Gt3PreviewElement
+      <RuntimePreviewElement
         element={element}
+        snapshot={yesulate ? PREVIEW_SNAPSHOT : null}
         selected={selected}
         handleSize={handleSize}
         onSelect={onSelect}
@@ -3198,6 +3211,7 @@ function FieldsToggle({ value, onChange }: { value: string[]; onChange(v: string
 }
 
 function BindingSelect({ label, value, groups, onChange, placeholder }: { label: string; value: string; groups: Record<string, typeof DASHBOARD_BINDINGS>; onChange(v: string): void; placeholder?: string }): ReactElement {
+  const unitSystem = useUnitSystem()
   return (
     <div style={{ gridColumn: 'span 2' }}>
       <label style={fieldLabel()}>{label}</label>
@@ -3207,7 +3221,7 @@ function BindingSelect({ label, value, groups, onChange, placeholder }: { label:
           {Object.entries(groups).map(([groupName, items]) => (
             <optgroup key={groupName} label={groupName}>
               {items.map((b) => (
-                <option key={b.key} value={b.key}>{b.label}</option>
+                <option key={b.key} value={b.key}>{displayUnitLabel(b.label, b.key, undefined, unitSystem)}</option>
               ))}
             </optgroup>
           ))}
@@ -3228,9 +3242,18 @@ function Gt3Config({
   onChangeStyle(stylePatch: Partial<DashboardElement['style']>): void
   groups: Record<string, typeof DASHBOARD_BINDINGS>
 }): ReactElement {
+  const unitSystem = useUnitSystem()
   const s = element.style
   const t = element.type
   const grid: CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }
+  const displayTemperature = (value: number): number =>
+    unitSystem === 'imperial' ? celsiusToFahrenheit(value) ?? value : value
+  const canonicalTemperature = (value: number): number =>
+    unitSystem === 'imperial' ? fahrenheitToCelsius(value) ?? value : value
+  const displayPressure = (value: number): number =>
+    unitSystem === 'imperial' ? kpaToPsi(value) ?? value : value
+  const canonicalPressure = (value: number): number =>
+    unitSystem === 'imperial' ? psiToKpa(value) ?? value : value
 
   if (t === 'shiftbar') {
     return (
@@ -3252,7 +3275,6 @@ function Gt3Config({
     return (
       <div style={grid}>
         <SectionLabel>Data</SectionLabel>
-        <SelectField label="Unit veloc." value={s.unit === 'mph' ? 'mph' : 'kmh'} options={[{ value: 'kmh', label: 'km/h' }, { value: 'mph', label: 'mph' }]} onChange={(v) => onChangeStyle({ unit: v === 'mph' ? 'mph' : undefined })} />
         <ToggleField label="Show RPM" value={s.showRpm !== false} onChange={(v) => onChangeStyle({ showRpm: v })} />
         <SectionLabel>Visual</SectionLabel>
         <ColorField label="Accent color" value={s.accentColor ?? 'var(--accent-primary)'} onChange={(v) => onChangeStyle({ accentColor: v })} />
@@ -3266,24 +3288,22 @@ function Gt3Config({
       <div style={grid}>
         <SectionLabel>Data</SectionLabel>
         <SelectField label="Mode" value={mode} options={[{ value: 'temp', label: 'Temperature' }, { value: 'pressure', label: 'Pressure' }, { value: 'wear', label: 'Wear' }]} onChange={(v) => onChangeStyle({ gridMode: v as 'temp' | 'pressure' | 'wear' })} />
-        {mode === 'temp' && <SelectField label="Unit" value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />}
-        {mode === 'pressure' && <SelectField label="Unit" value={s.unit ?? 'kPa'} options={[{ value: 'kPa', label: 'kPa' }, { value: 'psi', label: 'psi' }, { value: 'bar', label: 'bar' }]} onChange={(v) => onChangeStyle({ unit: v })} />}
         <ToggleField label="Show labels" value={s.showLabels !== false} onChange={(v) => onChangeStyle({ showLabels: v })} />
         <ToggleField label="Show average" value={s.showAverage === true} onChange={(v) => onChangeStyle({ showAverage: v })} />
         {mode === 'temp' && (
           <>
-            <SectionLabel>Limiares °C</SectionLabel>
-            <NumberField label="Frio <" value={s.coldAt ?? 70} onChange={(v) => onChangeStyle({ coldAt: v })} />
-            <NumberField label="Optimal ≥" value={s.optimalAt ?? 85} onChange={(v) => onChangeStyle({ optimalAt: v })} />
-            <NumberField label="Quente ≥" value={s.hotAt ?? 105} onChange={(v) => onChangeStyle({ hotAt: v })} />
-            <NumberField label="Critical ≥" value={s.criticalAt ?? 115} onChange={(v) => onChangeStyle({ criticalAt: v })} />
+            <SectionLabel>Limiares {measurementUnit('temperature-c', unitSystem)}</SectionLabel>
+            <NumberField label="Frio <" value={displayTemperature(s.coldAt ?? 70)} onChange={(v) => onChangeStyle({ coldAt: canonicalTemperature(v) })} />
+            <NumberField label="Optimal ≥" value={displayTemperature(s.optimalAt ?? 85)} onChange={(v) => onChangeStyle({ optimalAt: canonicalTemperature(v) })} />
+            <NumberField label="Quente ≥" value={displayTemperature(s.hotAt ?? 105)} onChange={(v) => onChangeStyle({ hotAt: canonicalTemperature(v) })} />
+            <NumberField label="Critical ≥" value={displayTemperature(s.criticalAt ?? 115)} onChange={(v) => onChangeStyle({ criticalAt: canonicalTemperature(v) })} />
           </>
         )}
         {mode === 'pressure' && (
           <>
             <SectionLabel>Alvo</SectionLabel>
-            <NumberField label="Alvo (kPa)" value={s.targetValue ?? 165} onChange={(v) => onChangeStyle({ targetValue: v })} />
-            <NumberField label="Tolerance" value={s.tolerance ?? 7} onChange={(v) => onChangeStyle({ tolerance: v })} />
+            <NumberField label={`Alvo (${measurementUnit('pressure-kpa', unitSystem)})`} value={displayPressure(s.targetValue ?? 165)} onChange={(v) => onChangeStyle({ targetValue: canonicalPressure(v) })} step={unitSystem === 'imperial' ? 0.1 : 1} />
+            <NumberField label="Tolerance" value={displayPressure(s.tolerance ?? 7)} onChange={(v) => onChangeStyle({ tolerance: canonicalPressure(v) })} step={unitSystem === 'imperial' ? 0.1 : 1} />
           </>
         )}
       </div>
@@ -3293,12 +3313,11 @@ function Gt3Config({
     return (
       <div style={grid}>
         <SectionLabel>Data</SectionLabel>
-        <SelectField label="Unit" value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />
         <ToggleField label="Show average" value={s.showAverage === true} onChange={(v) => onChangeStyle({ showAverage: v })} />
-        <SectionLabel>Limiares °C</SectionLabel>
-        <NumberField label="Frio <" value={s.coldAt ?? 250} onChange={(v) => onChangeStyle({ coldAt: v })} />
-        <NumberField label="Trab. ≥" value={s.optimalAt ?? 650} onChange={(v) => onChangeStyle({ optimalAt: v })} />
-        <NumberField label="Quente ≥" value={s.hotAt ?? 850} onChange={(v) => onChangeStyle({ hotAt: v })} />
+        <SectionLabel>Limiares {measurementUnit('temperature-c', unitSystem)}</SectionLabel>
+        <NumberField label="Frio <" value={displayTemperature(s.coldAt ?? 250)} onChange={(v) => onChangeStyle({ coldAt: canonicalTemperature(v) })} />
+        <NumberField label="Trab. ≥" value={displayTemperature(s.optimalAt ?? 650)} onChange={(v) => onChangeStyle({ optimalAt: canonicalTemperature(v) })} />
+        <NumberField label="Quente ≥" value={displayTemperature(s.hotAt ?? 850)} onChange={(v) => onChangeStyle({ hotAt: canonicalTemperature(v) })} />
       </div>
     )
   }
@@ -3306,10 +3325,9 @@ function Gt3Config({
     return (
       <div style={grid}>
         <SectionLabel>Data</SectionLabel>
-        <SelectField label="Unit temp." value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />
         <SectionLabel>Pressure alvo</SectionLabel>
-        <NumberField label="Alvo (kPa)" value={s.targetValue ?? 165} onChange={(v) => onChangeStyle({ targetValue: v })} />
-        <NumberField label="Tolerance" value={s.tolerance ?? 7} onChange={(v) => onChangeStyle({ tolerance: v })} />
+        <NumberField label={`Alvo (${measurementUnit('pressure-kpa', unitSystem)})`} value={displayPressure(s.targetValue ?? 165)} onChange={(v) => onChangeStyle({ targetValue: canonicalPressure(v) })} step={unitSystem === 'imperial' ? 0.1 : 1} />
+        <NumberField label="Tolerance" value={displayPressure(s.tolerance ?? 7)} onChange={(v) => onChangeStyle({ tolerance: canonicalPressure(v) })} step={unitSystem === 'imperial' ? 0.1 : 1} />
       </div>
     )
   }
@@ -3317,7 +3335,6 @@ function Gt3Config({
     return (
       <div style={grid}>
         <SectionLabel>Data</SectionLabel>
-        <SelectField label="Unit" value={s.unit === 'gal' ? 'gal' : 'L'} options={[{ value: 'L', label: 'Liters' }, { value: 'gal', label: 'Gallons' }]} onChange={(v) => onChangeStyle({ unit: v === 'gal' ? 'gal' : undefined })} />
         <ToggleField label="Endurance mode" value={s.enduranceMode === true} onChange={(v) => onChangeStyle({ enduranceMode: v })} />
         <SectionLabel>Behavior</SectionLabel>
         <NumberField label="Reserve (laps)" value={s.reserveLaps ?? 1} onChange={(v) => onChangeStyle({ reserveLaps: Math.max(0, v) })} min={0} max={10} step={0.5} />
@@ -3404,7 +3421,6 @@ function Gt3Config({
     return (
       <div style={grid}>
         <SectionLabel>Data (exigem provedor)</SectionLabel>
-        <SelectField label="Unit" value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />
         <div />
         <BindingSelect label="Water" value={s.bindingWater ?? ''} groups={groups} onChange={(v) => onChangeStyle({ bindingWater: v || undefined })} placeholder="var:waterTempC" />
         <BindingSelect label="Oil" value={s.bindingOil ?? ''} groups={groups} onChange={(v) => onChangeStyle({ bindingOil: v || undefined })} placeholder="var:oilTempC" />
@@ -3419,7 +3435,7 @@ function Gt3Config({
     return (
       <div style={grid}>
         <SectionLabel>Data</SectionLabel>
-        <SelectField label="Unit" value={s.unit === 'F' ? 'F' : 'C'} options={[{ value: 'C', label: '°C' }, { value: 'F', label: '°F' }]} onChange={(v) => onChangeStyle({ unit: v === 'F' ? 'F' : undefined })} />
+        <SectionLabel>Units follow Settings</SectionLabel>
       </div>
     )
   }

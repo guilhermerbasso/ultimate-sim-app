@@ -11,6 +11,8 @@ import type { WidgetProps } from './types'
 import { numberOrDash } from './format'
 import { resolveSkin, FitText } from '../../skins'
 import { DataField } from '../../instruments'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 const DEFAULT_W = 420
 const DEFAULT_H = 190
@@ -28,6 +30,7 @@ function fuelColor(laps: number | undefined, skin: ReturnType<typeof resolveSkin
 }
 
 export function TeamFuelWidget({ config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = resolveSkin('gt3', 'generic')
   const glass = skin.id === 'hud'
   const W = Math.max(1, Math.round(config?.position?.width ?? DEFAULT_W))
@@ -98,7 +101,7 @@ export function TeamFuelWidget({ config }: WidgetProps): ReactElement {
             <g key={p.peerId}>
               {i > 0 ? <line x1={listX} y1={listY + rowH * i} x2={listX + listW} y2={listY + rowH * i} stroke={skin.material.border} strokeWidth={1} opacity={0.5} /> : null}
               <FitText x={colName} y={cy} boxW={listW * 0.5} boxH={rowH * 0.7} text={name} anchor="start" fontFamily={skin.typography.label} fill={skin.palette.text} minFontPx={11} maxFontPx={18} overflowStrategy="ellipsis" />
-              <FitText x={colL} y={cy} boxW={listW * 0.24} boxH={rowH * 0.7} text={`${numberOrDash(p.fuelLiters, 1)}L`} anchor="end" fontFamily={skin.segment.numeric} fill={skin.palette.textDim} minFontPx={11} maxFontPx={16} />
+              <FitText x={colL} y={cy} boxW={listW * 0.24} boxH={rowH * 0.7} text={formatMeasurement(p.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true }).display} anchor="end" fontFamily={skin.segment.numeric} fill={skin.palette.textDim} minFontPx={11} maxFontPx={16} />
               <FitText x={colLap} y={cy} boxW={listW * 0.28} boxH={rowH * 0.7} text={`${numberOrDash(p.lapsRemaining, 1)}v`} anchor="end" fontFamily={skin.segment.numeric} fill={c} minFontPx={11} maxFontPx={16} />
             </g>
           )

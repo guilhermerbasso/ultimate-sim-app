@@ -14,6 +14,7 @@ import type { CSSProperties, ReactElement, ReactNode } from 'react'
 import type { DashboardElement, ResolvedTextSlot, TextAlign } from '../../../../shared/dashboards'
 import { resolveSlotStyle } from '../../../../shared/dashboards'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
+import type { UnitSystem } from '../../../../shared/units'
 import { resolveBinding } from '../binding'
 import { FONT_CONDENSED, FONT_MONO, FONT_TECH, GT3, panelChrome, readoutFont } from './gt3-theme'
 import {
@@ -31,6 +32,7 @@ import {
 export interface NewWidgetProps {
   element: DashboardElement
   snapshot: TelemetrySnapshot | null
+  unitSystem?: UnitSystem
 }
 
 // Re-export theme tokens so the widget files import everything from one place.

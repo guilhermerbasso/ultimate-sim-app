@@ -2,7 +2,12 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { ModuleContext } from '../module-context'
 import { logger } from './logger'
+import { settingsEvents } from '../settings/events'
 import { CONFIG_SECTION_RELOAD_SIGNAL } from '../../shared/config-io'
+import {
+  speechLanguageFromAppLanguage,
+  type SpeechLanguage
+} from '../../shared/tts-voice'
 import {
   DEFAULT_SPOTTER_CONFIG,
   SPOTTER_CHANNELS,
@@ -25,9 +30,28 @@ let config: SpotterConfig = DEFAULT_SPOTTER_CONFIG
 
 export function register(ctx: ModuleContext): void {
   const configPath = join(ctx.app.getPath('userData'), CONFIG_FILE)
+  let configReady = false
+  let activeSpeechLanguage: SpeechLanguage | null = null
+
+  const applyActiveLanguage = (language: SpeechLanguage): void => {
+    activeSpeechLanguage = language
+    if (!configReady || config.language === language) return
+    config = { ...config, language, updatedAt: Date.now() }
+    logger.info('spotter', 'language synced from app', spotterLogSummary(config))
+    ctx.broadcast(SPOTTER_CHANNELS.configEvent, config)
+  }
+
+  const offSettings = settingsEvents.onChanged((settings) => {
+    applyActiveLanguage(speechLanguageFromAppLanguage(settings.language, ctx.app.getLocale()))
+  })
 
   void loadConfig(configPath).then((loaded) => {
-    config = loaded
+    const language = activeSpeechLanguage
+    config =
+      language && loaded.language !== language
+        ? { ...loaded, language, updatedAt: Date.now() }
+        : loaded
+    configReady = true
     logger.info('spotter', 'config loaded', spotterLogSummary(config))
     ctx.broadcast(SPOTTER_CHANNELS.configEvent, config)
   })
@@ -35,7 +59,10 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(SPOTTER_CHANNELS.getConfig, () => config)
 
   ctx.ipcMain.handle(SPOTTER_CHANNELS.setConfig, async (_event, patch: SpotterConfigPatch) => {
-    config = mergeSpotterConfig(config, patch ?? {})
+    config = mergeSpotterConfig(config, {
+      ...(patch ?? {}),
+      ...(activeSpeechLanguage ? { language: activeSpeechLanguage } : {})
+    })
     logger.info('spotter', 'config changed', spotterLogSummary(config))
     await saveConfig(configPath, config)
     ctx.broadcast(SPOTTER_CHANNELS.configEvent, config)
@@ -49,13 +76,17 @@ export function register(ctx: ModuleContext): void {
   const onSectionReload = (_event: unknown, sectionId: string): void => {
     if (sectionId !== 'spotter') return
     void loadConfig(configPath).then((loaded) => {
-      config = loaded
+      config =
+        activeSpeechLanguage && loaded.language !== activeSpeechLanguage
+          ? { ...loaded, language: activeSpeechLanguage, updatedAt: Date.now() }
+          : loaded
       logger.info('spotter', 'config reloaded after import (hot-apply)', spotterLogSummary(config))
       ctx.broadcast(SPOTTER_CHANNELS.configEvent, config)
     })
   }
   ctx.ipcMain.on(CONFIG_SECTION_RELOAD_SIGNAL, onSectionReload)
   ctx.app.once('before-quit', () => {
+    offSettings()
     ctx.ipcMain.off(CONFIG_SECTION_RELOAD_SIGNAL, onSectionReload)
   })
 }

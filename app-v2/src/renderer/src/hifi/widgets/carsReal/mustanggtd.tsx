@@ -1,6 +1,7 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, signed, tempColor } from '../kit'
+import { formatMeasurement, type UnitSystem } from '../../../../../shared/units'
 
 const DASH_W = 1024
 const DASH_H = 600
@@ -23,17 +24,8 @@ function rpmMissing(snapshot: HifiWidgetProps['snapshot']): boolean {
   return snapshot == null || (num(snapshot.rpm) == null && num(snapshot.shiftIndicatorPct) == null)
 }
 
-function speedMph(snapshot: HifiWidgetProps['snapshot']): number | undefined {
-  const kmh = num(snapshot?.speedKmh)
-  return kmh == null ? undefined : kmh * 0.621371
-}
-
-function psiFromKpa(kpa: number | undefined): number | undefined {
-  return kpa == null ? undefined : kpa * 0.1450377
-}
-
-function tyrePsi(snapshot: HifiWidgetProps['snapshot'], corner: 'lf' | 'rf' | 'lr' | 'rr'): number | undefined {
-  return psiFromKpa(num(snapshot?.tyres?.[corner]?.pressureKpa) ?? num(snapshot?.tireColdPressuresKpa?.[corner]))
+function tyrePressure(snapshot: HifiWidgetProps['snapshot'], corner: 'lf' | 'rf' | 'lr' | 'rr'): number | undefined {
+  return num(snapshot?.tyres?.[corner]?.pressureKpa) ?? num(snapshot?.tireColdPressuresKpa?.[corner])
 }
 
 function polar(cx: number, cy: number, r: number, deg: number): { x: number; y: number } {
@@ -88,7 +80,11 @@ function SweepingArcTach({
   height = 300,
   id = 'gtd-arc',
   labels = true,
-  glow = true
+  glow = true,
+  labelInset = 72,
+  centerLabelInset,
+  labelFontSize,
+  hideZeroLabel = false
 }: {
   snapshot: HifiWidgetProps['snapshot']
   width?: number
@@ -96,6 +92,10 @@ function SweepingArcTach({
   id?: string
   labels?: boolean
   glow?: boolean
+  labelInset?: number
+  centerLabelInset?: number
+  labelFontSize?: number
+  hideZeroLabel?: boolean
 }): ReactElement {
   const f = rpmFraction(snapshot)
   const missing = rpmMissing(snapshot)
@@ -131,11 +131,12 @@ function SweepingArcTach({
         const deg = start + (n / 9) * 180
         const red = n >= 8
         const t = tickLine(cx, cy, r + 3, r - 32, deg)
-        const p = polar(cx, cy, r - 72, deg)
+        const p = polar(cx, cy, r - (n === 4 || n === 5 ? centerLabelInset ?? labelInset : labelInset), deg)
+        const fs = labelFontSize ?? Math.max(20, height * 0.12)
         return (
           <g key={n}>
             <line {...t} stroke={tachColor(red ? RED : n >= 5 ? WHITE : BLUE_2)} strokeWidth={shift ? 6 : n === 0 || n === 9 ? 5 : 4} filter={shift ? `url(#${id}-glow)` : undefined} />
-            {labels ? <text x={p.x} y={p.y + 9} textAnchor="middle" fill={tachColor(red ? RED : n >= 5 ? WHITE : BLUE_2)} fontFamily={FONT_NUM} fontWeight={900} fontSize={Math.max(20, height * 0.12)} {...legibleStroke(Math.max(20, height * 0.12))}>{n}</text> : null}
+            {labels && !(hideZeroLabel && n === 0) ? <text x={p.x} y={p.y + 9} textAnchor="middle" fill={tachColor(red ? RED : n >= 5 ? WHITE : BLUE_2)} fontFamily={FONT_NUM} fontWeight={900} fontSize={fs} {...legibleStroke(fs)}>{n}</text> : null}
           </g>
         )
       })}
@@ -152,29 +153,33 @@ function WaterIcon({ color = BLUE }: { color?: string }): ReactElement {
   return <g fill="none" stroke={color} strokeWidth={4} strokeLinecap="round"><path d="M26 5 v31" /><path d="M18 13 h16 M18 22 h16" /><path d="M12 41 c7 -6 14 -6 21 0 c7 6 14 6 21 0" /><path d="M8 52 c8 -6 16 -6 24 0 c8 6 16 6 24 0" /></g>
 }
 
-function TempRows({ snapshot, x, y }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number }): ReactElement {
+function TempRows({ snapshot, x, y, unitSystem }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; unitSystem: UnitSystem }): ReactElement {
   const oil = num(snapshot?.oilTempC)
   const water = num(snapshot?.waterTempC)
-  const row = (dy: number, label: string, value: number | undefined, icon: ReactElement) => (
-    <g transform={`translate(${x},${y + dy})`}>
-      <g transform="translate(0,-28)">{icon}</g>
-      <text x={96} y={0} fill={BLUE_2} fontFamily={FONT_LABEL} fontWeight={900} fontSize={27} letterSpacing={1.5} {...legibleStroke(27)}>{label}</text>
-      <text x={246} y={2} textAnchor="end" fill={value == null ? C.dim : WHITE} fontFamily={FONT_NUM} fontWeight={900} fontSize={36} {...legibleStroke(36)}>{fixed(value)}</text>
-      <text x={270} y={0} fill={tempColor(value, 85, 115)} fontFamily={FONT_LABEL} fontWeight={900} fontSize={24} {...legibleStroke(24)}>C</text>
-    </g>
-  )
+  const row = (dy: number, label: string, value: number | undefined, icon: ReactElement) => {
+    const reading = formatMeasurement(value, 'temperature-c', unitSystem, { decimals: 0 })
+    return (
+      <g transform={`translate(${x},${y + dy})`}>
+        <g transform="translate(0,-28)">{icon}</g>
+        <text x={96} y={0} fill={BLUE_2} fontFamily={FONT_LABEL} fontWeight={900} fontSize={27} letterSpacing={1.5} {...legibleStroke(27)}>{label}</text>
+        <text x={246} y={2} textAnchor="end" fill={value == null ? C.dim : WHITE} fontFamily={FONT_NUM} fontWeight={900} fontSize={36} {...legibleStroke(36)}>{reading.display}</text>
+        <text x={270} y={0} fill={tempColor(value, 85, 115)} fontFamily={FONT_LABEL} fontWeight={900} fontSize={24} {...legibleStroke(24)}>{reading.unit.replace('°', '')}</text>
+      </g>
+    )
+  }
   return <g>{row(0, 'OIL', oil, <OilIcon />)}<line x1={x} y1={y + 18} x2={x + 310} y2={y + 18} stroke={BLUE} opacity={0.85} />{row(70, 'WATER', water, <WaterIcon />)}</g>
 }
 
-function TyreGrid({ snapshot, x, y, compact = false }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; compact?: boolean }): ReactElement {
+function TyreGrid({ snapshot, x, y, unitSystem, compact = false }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; unitSystem: UnitSystem; compact?: boolean }): ReactElement {
   const fs = compact ? 30 : 36
   const ls = compact ? 27 : 31
   const data: [string, string, number | undefined][] = [
-    ['FL', 'lf', tyrePsi(snapshot, 'lf')],
-    ['FR', 'rf', tyrePsi(snapshot, 'rf')],
-    ['RL', 'lr', tyrePsi(snapshot, 'lr')],
-    ['RR', 'rr', tyrePsi(snapshot, 'rr')]
+    ['FL', 'lf', tyrePressure(snapshot, 'lf')],
+    ['FR', 'rf', tyrePressure(snapshot, 'rf')],
+    ['RL', 'lr', tyrePressure(snapshot, 'lr')],
+    ['RR', 'rr', tyrePressure(snapshot, 'rr')]
   ]
+  const pressureUnit = formatMeasurement(undefined, 'pressure-kpa', unitSystem).unit
   return (
     <g transform={`translate(${x},${y})`}>
       {data.map(([label, key, value], i) => {
@@ -185,8 +190,8 @@ function TyreGrid({ snapshot, x, y, compact = false }: { snapshot: HifiWidgetPro
         return (
           <g key={key} transform={`translate(${ox},${oy})`}>
             <text x={0} y={0} fill={BLUE_2} fontFamily={FONT_LABEL} fontWeight={900} fontSize={ls} {...legibleStroke(ls)}>{label}</text>
-            <text x={compact ? 74 : 88} y={2} textAnchor="middle" fill={value == null ? C.dim : WHITE} fontFamily={FONT_NUM} fontWeight={900} fontSize={fs} {...legibleStroke(fs)}>{fixed(value, 1)}</text>
-            {col === 1 ? <text x={compact ? 125 : 145} y={0} fill={BLUE_2} fontFamily={FONT_LABEL} fontWeight={900} fontSize={compact ? 18 : 24} {...legibleStroke(24)}>psi</text> : null}
+            <text x={compact ? 74 : 88} y={2} textAnchor="middle" fill={value == null ? C.dim : WHITE} fontFamily={FONT_NUM} fontWeight={900} fontSize={fs} {...legibleStroke(fs)}>{formatMeasurement(value, 'pressure-kpa', unitSystem, { decimals: 1 }).display}</text>
+            {col === 1 ? <text x={compact ? 125 : 145} y={0} fill={BLUE_2} fontFamily={FONT_LABEL} fontWeight={900} fontSize={compact ? 18 : 24} {...legibleStroke(24)}>{pressureUnit}</text> : null}
           </g>
         )
       })}
@@ -196,24 +201,27 @@ function TyreGrid({ snapshot, x, y, compact = false }: { snapshot: HifiWidgetPro
   )
 }
 
-function GtdDash({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function GtdDash({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const gear = num(snapshot?.gear)
-  const mph = speedMph(snapshot)
+  const speed = formatMeasurement(num(snapshot?.speedKmh), 'speed-kmh', unitSystem, { decimals: 0 })
+  const tachWidth = 852
+  const tachHeight = 512
+  const tachX = (DASH_W - tachWidth) / 2
   return (
     <CleanTile width={width ?? DASH_W} height={height ?? DASH_H}>
       <rect width={DASH_W} height={DASH_H} fill={DARK} />
       <rect x={0} y={0} width={DASH_W} height={DASH_H} fill="url(#gtd-dash-halo)" opacity={0.55} />
-      <g transform="translate(0,-68)">
-        <SweepingArcTach snapshot={snapshot} width={DASH_W} height={600} id="gtd-dash" />
+      <g transform={`translate(${tachX},0)`}>
+        <SweepingArcTach snapshot={snapshot} width={tachWidth} height={tachHeight} id="gtd-dash" labelInset={118} centerLabelInset={82} labelFontSize={56} hideZeroLabel />
       </g>
-      <text x={512} y={318} textAnchor="middle" fill={gear == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={164} {...legibleStroke(164)}>{gearLabel(gear)}</text>
-      <text x={512} y={428} textAnchor="middle" fill={mph == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={76} {...legibleStroke(76)}>{fixed(mph)}</text>
-      <text x={512} y={463} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={27} {...legibleStroke(27)}>mph</text>
-      <TempRows snapshot={snapshot} x={38} y={438} />
-      <TyreGrid snapshot={snapshot} x={708} y={436} compact />
-      <path d="M0 584 H398 l22 -26 h184 l22 26 H1024" fill="none" stroke={BLUE} strokeWidth={2.2} />
-      <path d="M420 584 l22 -26 h140 l22 26 l-22 25 h-140 Z" fill="rgba(0,0,0,0.84)" stroke={BLUE} strokeWidth={2.2} />
-      <text x={512} y={592} textAnchor="middle" fill={BLUE} fontFamily={FONT_BIG} fontStyle="italic" fontWeight={900} fontSize={36} {...legibleStroke(36)}>TRACK</text>
+      <text x={512} y={302} textAnchor="middle" fill={gear == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={150} {...legibleStroke(150)}>{gearLabel(gear)}</text>
+      <text x={512} y={403} textAnchor="middle" fill={speed.value == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={72} {...legibleStroke(72)}>{speed.display}</text>
+      <text x={512} y={438} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={26} {...legibleStroke(26)}>{speed.unit}</text>
+      <TempRows snapshot={snapshot} x={28} y={458} unitSystem={unitSystem} />
+      <TyreGrid snapshot={snapshot} x={700} y={458} unitSystem={unitSystem} compact />
+      <path d="M12 580 H398 l20 -22 h188 l20 22 H1012" fill="none" stroke={BLUE} strokeWidth={2.2} />
+      <path d="M418 580 l20 -22 h148 l20 22 l-18 16 h-152 Z" fill="rgba(0,0,0,0.84)" stroke={BLUE} strokeWidth={2.2} />
+      <text x={512} y={586} textAnchor="middle" fill={BLUE} fontFamily={FONT_BIG} fontStyle="italic" fontWeight={900} fontSize={30} {...legibleStroke(30)}>TRACK</text>
     </CleanTile>
   )
 }
@@ -231,11 +239,11 @@ function GearWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement 
   return <CleanTile width={w} height={h}><text x={w / 2} y={h * 0.78} textAnchor="middle" fill={gear == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={h * 0.84} {...legibleStroke(h * 0.84)}>{gearLabel(gear)}</text></CleanTile>
 }
 
-function SpeedWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function SpeedWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const w = width ?? 330
   const h = height ?? 170
-  const mph = speedMph(snapshot)
-  return <CleanTile width={w} height={h}><text x={w / 2} y={h * 0.6} textAnchor="middle" fill={mph == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={h * 0.5} {...legibleStroke(h * 0.5)}>{fixed(mph)}</text><text x={w / 2} y={h * 0.83} textAnchor="middle" fill={BLUE_2} fontFamily={FONT_LABEL} fontWeight={900} fontSize={h * 0.17} {...legibleStroke(h * 0.17)}>mph</text></CleanTile>
+  const speed = formatMeasurement(num(snapshot?.speedKmh), 'speed-kmh', unitSystem, { decimals: 0 })
+  return <CleanTile width={w} height={h}><text x={w / 2} y={h * 0.6} textAnchor="middle" fill={speed.value == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={h * 0.5} {...legibleStroke(h * 0.5)}>{speed.display}</text><text x={w / 2} y={h * 0.83} textAnchor="middle" fill={BLUE_2} fontFamily={FONT_LABEL} fontWeight={900} fontSize={h * 0.17} {...legibleStroke(h * 0.17)}>{speed.unit}</text></CleanTile>
 }
 
 function SingleMetric({ width = 280, height = 145, label, value, unit, color = WHITE }: { width?: number; height?: number; label: string; value: string; unit?: string; color?: string }): ReactElement {
@@ -247,20 +255,22 @@ function SingleMetric({ width = 280, height = 145, label, value, unit, color = W
   )
 }
 
-function OilWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function OilWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const v = num(snapshot?.oilTempC)
-  return <SingleMetric width={width ?? 260} height={height ?? 145} label="OIL" value={fixed(v)} unit="C" color={tempColor(v, 85, 115)} />
+  const reading = formatMeasurement(v, 'temperature-c', unitSystem, { decimals: 0 })
+  return <SingleMetric width={width ?? 260} height={height ?? 145} label="OIL" value={reading.display} unit={reading.unit} color={tempColor(v, 85, 115)} />
 }
 
-function WaterWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function WaterWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const v = num(snapshot?.waterTempC)
-  return <SingleMetric width={width ?? 280} height={height ?? 145} label="WATER" value={fixed(v)} unit="C" color={tempColor(v, 80, 105)} />
+  const reading = formatMeasurement(v, 'temperature-c', unitSystem, { decimals: 0 })
+  return <SingleMetric width={width ?? 280} height={height ?? 145} label="WATER" value={reading.display} unit={reading.unit} color={tempColor(v, 80, 105)} />
 }
 
-function TyrePressWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function TyrePressWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const w = width ?? 360
   const h = height ?? 190
-  return <CleanTile width={w} height={h}><TyreGrid snapshot={snapshot} x={34} y={68} compact /></CleanTile>
+  return <CleanTile width={w} height={h}><TyreGrid snapshot={snapshot} x={34} y={68} unitSystem={unitSystem} compact /></CleanTile>
 }
 
 function DeltaWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
@@ -276,19 +286,20 @@ function PositionWidget({ snapshot, width, height }: HifiWidgetProps): ReactElem
   return <SingleMetric width={width ?? 240} height={height ?? 140} label="POS" value={fixed(num(snapshot?.position))} />
 }
 
-function FuelWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
-  return <SingleMetric width={width ?? 250} height={height ?? 140} label="FUEL" value={fixed(num(snapshot?.fuelLiters), 1)} unit="L" />
+function FuelWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
+  const reading = formatMeasurement(num(snapshot?.fuelLiters), 'fuel-volume-l', unitSystem, { decimals: 1 })
+  return <SingleMetric width={width ?? 250} height={height ?? 140} label="FUEL" value={reading.display} unit={reading.unit} />
 }
 
 const dashRequires: HifiWidgetModule['requires'] = ['rpm', 'maxRpm', 'shiftIndicatorPct', 'gear', 'speedKmh', 'oilTempC', 'waterTempC', 'tyres', 'tireColdPressuresKpa']
 
-export const gtdDash: HifiWidgetModule = { id: 'gtdDash', title: 'Ford Mustang GTD Track dash', description: 'Full Mustang GTD Track-style cluster with sweeping arc tachometer, central gear and mph, oil/water, tire pressures and TRACK mode tag.', category: 'cars', tags: [...TAGS, 'dashboard', 'cluster', 'track', 'sweeping-arc', 'tach', 'gear', 'speed', 'mph', 'oil', 'water', 'tyre-pressure'], requires: dashRequires, defaultSize: { w: 1024, h: 600 }, render: (props) => <GtdDash {...props} /> }
+export const gtdDash: HifiWidgetModule = { id: 'gtdDash', title: 'Ford Mustang GTD Track dash', description: 'Full Mustang GTD Track-style cluster with sweeping arc tachometer, central gear and global-unit speed, oil/water, tire pressures and TRACK mode tag.', category: 'cars', tags: [...TAGS, 'dashboard', 'cluster', 'track', 'sweeping-arc', 'tach', 'gear', 'speed', 'oil', 'water', 'tyre-pressure'], requires: dashRequires, defaultSize: { w: 1024, h: 600 }, render: (props) => <GtdDash {...props} /> }
 export const gtdArcTach: HifiWidgetModule = { id: 'gtdArcTach', title: 'Ford Mustang GTD arc tach', description: 'Clean Mustang GTD sweeping blue-white-red arc tachometer.', category: 'cars', tags: [...TAGS, 'rpm', 'tach', 'sweeping-arc', 'clean'], requires: ['rpm', 'maxRpm', 'shiftIndicatorPct'], defaultSize: { w: 520, h: 300 }, render: (props) => <ArcTachWidget {...props} /> }
 export const gtdGear: HifiWidgetModule = { id: 'gtdGear', title: 'Ford Mustang GTD gear', description: 'Clean Mustang GTD central gear digit.', category: 'cars', tags: [...TAGS, 'gear', 'clean'], requires: ['gear'], defaultSize: { w: 240, h: 220 }, render: (props) => <GearWidget {...props} /> }
-export const gtdSpeed: HifiWidgetModule = { id: 'gtdSpeed', title: 'Ford Mustang GTD speed', description: 'Clean Mustang GTD speed readout converted to mph.', category: 'cars', tags: [...TAGS, 'speed', 'mph', 'clean'], requires: ['speedKmh'], defaultSize: { w: 330, h: 170 }, render: (props) => <SpeedWidget {...props} /> }
+export const gtdSpeed: HifiWidgetModule = { id: 'gtdSpeed', title: 'Ford Mustang GTD speed', description: 'Clean Mustang GTD speed readout using the global unit system.', category: 'cars', tags: [...TAGS, 'speed', 'clean'], requires: ['speedKmh'], defaultSize: { w: 330, h: 170 }, render: (props) => <SpeedWidget {...props} /> }
 export const gtdOil: HifiWidgetModule = { id: 'gtdOil', title: 'Ford Mustang GTD oil temp', description: 'Clean Mustang GTD oil temperature readout.', category: 'cars', tags: [...TAGS, 'oil', 'temperature', 'clean'], requires: ['oilTempC'], defaultSize: { w: 260, h: 145 }, render: (props) => <OilWidget {...props} /> }
 export const gtdWater: HifiWidgetModule = { id: 'gtdWater', title: 'Ford Mustang GTD water temp', description: 'Clean Mustang GTD water temperature readout.', category: 'cars', tags: [...TAGS, 'water', 'temperature', 'clean'], requires: ['waterTempC'], defaultSize: { w: 280, h: 145 }, render: (props) => <WaterWidget {...props} /> }
-export const gtdTyrePress: HifiWidgetModule = { id: 'gtdTyrePress', title: 'Ford Mustang GTD tire pressures', description: 'Clean Mustang GTD four-corner tire pressure grid in psi.', category: 'cars', tags: [...TAGS, 'tyre-pressure', 'tire-pressure', 'psi', 'clean'], requires: ['tyres', 'tireColdPressuresKpa'], defaultSize: { w: 360, h: 190 }, render: (props) => <TyrePressWidget {...props} /> }
+export const gtdTyrePress: HifiWidgetModule = { id: 'gtdTyrePress', title: 'Ford Mustang GTD tire pressures', description: 'Clean Mustang GTD four-corner tire pressure grid using the global unit system.', category: 'cars', tags: [...TAGS, 'tyre-pressure', 'tire-pressure', 'clean'], requires: ['tyres', 'tireColdPressuresKpa'], defaultSize: { w: 360, h: 190 }, render: (props) => <TyrePressWidget {...props} /> }
 export const gtdDelta: HifiWidgetModule = { id: 'gtdDelta', title: 'Ford Mustang GTD delta', description: 'Clean Mustang GTD delta-to-best readout colored by gain or loss.', category: 'cars', tags: [...TAGS, 'delta', 'delta-to-best', 'clean'], requires: ['deltaToBestSec'], defaultSize: { w: 280, h: 140 }, render: (props) => <DeltaWidget {...props} /> }
 export const gtdLastLap: HifiWidgetModule = { id: 'gtdLastLap', title: 'Ford Mustang GTD last lap', description: 'Clean Mustang GTD last-lap time readout.', category: 'cars', tags: [...TAGS, 'last-lap', 'lap-time', 'clean'], requires: ['lastLapTimeSec'], defaultSize: { w: 390, h: 140 }, render: (props) => <LastLapWidget {...props} /> }
 export const gtdPosition: HifiWidgetModule = { id: 'gtdPosition', title: 'Ford Mustang GTD position', description: 'Clean Mustang GTD race position readout.', category: 'cars', tags: [...TAGS, 'position', 'clean'], requires: ['position'], defaultSize: { w: 240, h: 140 }, render: (props) => <PositionWidget {...props} /> }

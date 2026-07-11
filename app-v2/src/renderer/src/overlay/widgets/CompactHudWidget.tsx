@@ -7,10 +7,12 @@
 // while the structure is a single overflow-proof HUD scene. A null snapshot shows "—".
 import type { ReactElement } from 'react'
 import type { WidgetProps } from './types'
-import { formatGear, numberOrDash, pct } from './format'
+import { formatGear, pct } from './format'
 import { overlayDesignFamily, type OverlayDesignFamily } from '../../../../shared/overlays'
 import { resolveSkin, FitText, zoneColor } from '../../skins'
 import { RevLedBar, DataField, type FieldState } from '../../instruments'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 export const COMPACT_HUD_STREAM_SAFE = true
 
@@ -56,6 +58,7 @@ function familyAccent(family: OverlayDesignFamily, fallback: string): string {
 }
 
 export function CompactHudWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const s = snapshot
   const skin = resolveSkin('hud', 'generic')
   const { palette } = skin
@@ -67,8 +70,8 @@ export function CompactHudWidget({ snapshot, config }: WidgetProps): ReactElemen
   const shiftPct = pct(s?.shiftIndicatorPct ?? rpm / (s?.maxRpm ?? 9000))
   const redline = shiftPct >= 0.95
   const gear = formatGear(s?.gear)
-  const hasSpeed = s?.speedKmh !== undefined && Number.isFinite(s.speedKmh)
-  const speedStr = hasSpeed ? String(Math.round(s!.speedKmh as number)) : '—'
+  const speed = formatMeasurement(s?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
+  const trackTemp = formatMeasurement(s?.trackTempC, 'temperature-c', unitSystem, { decimals: 0 })
   const pos = s?.position
   const posStr = pos !== undefined && Number.isFinite(pos) ? `P${pos}` : '—'
   const gearColor = redline ? palette.crit : zoneColor(skin.led, shiftPct)
@@ -101,9 +104,9 @@ export function CompactHudWidget({ snapshot, config }: WidgetProps): ReactElemen
         <rect x={P} y={bodyY} width={gw} height={bodyH} rx={skin.material.radius} fill={palette.bg} stroke={redline ? palette.crit : accent} strokeWidth={Math.max(1, skin.material.borderWidth)} />
         <FitText x={P + gw / 2} y={bodyY + bodyH / 2} boxW={gw * 0.8} boxH={bodyH * 0.82} text={gear} anchor="middle" baseline="middle" fontFamily={/^\d$/.test(gear) ? skin.segment.numeric : skin.segment.alpha} fill={gearColor} minFontPx={20} maxFontPx={bodyH * 0.82} weight={700} />
 
-        {df(0, 'SPEED', speedStr, 'normal', 'KMH')}
+        {df(0, 'SPEED', speed.display, 'normal', speed.unit.toUpperCase())}
         {df(1, 'POS', posStr, 'accent')}
-        {df(2, 'TRACK', numberOrDash(s?.trackTempC, 0), 'normal', '°')}
+        {df(2, 'TRACK', trackTemp.display, 'normal', trackTemp.unit)}
         {df(3, 'SOF', sofLabel(s?.strengthOfField))}
         {df(4, 'TIME', formatSession(s?.sessionTimeRemainingSec))}
       </svg>

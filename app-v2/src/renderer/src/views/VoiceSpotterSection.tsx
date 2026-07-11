@@ -28,6 +28,8 @@ import {
 } from '../lib/spotter-runtime'
 import { useDevices } from '../lib/devices/DeviceRegistry'
 import { tt } from '../i18n'
+import { useUnitSystem } from '../lib/units'
+import { feetToMeters, formatMeasurement, mphToKmh } from '../../../shared/units'
 
 const shell: CSSProperties = {
   display: 'grid',
@@ -135,6 +137,7 @@ function activeFlags(live: TelemetrySnapshot | null, language: AppViewProps['lan
 // globally mounted in App.tsx; the hook below is ref-counted so co-mounting here
 // is a no-op driver (no double-speak — see spotter-runtime.ts).
 export function VoiceSpotterSection({ showToast, language }: Pick<AppViewProps, 'showToast' | 'language'>): ReactElement {
+  const unitSystem = useUnitSystem()
   // Drive the engine while this section is open. The hook is ref-counted + backed
   // by a module singleton, so this co-exists with the App-root mount without
   // any double-speak (see spotter-runtime.ts).
@@ -241,7 +244,6 @@ export function VoiceSpotterSection({ showToast, language }: Pick<AppViewProps, 
           onToggleMuted={() => void persist({ muted: !config.muted })}
           onChangeMasterVolumeLocal={(masterVolume) => setConfig((c) => ({ ...c, masterVolume }))}
           onCommitMasterVolume={(masterVolume) => void persist({ masterVolume })}
-          onChangeLanguage={(spotterLanguage) => void persist({ language: spotterLanguage }, tt(language, 'spotter.toast.language', { language: spotterLanguage }))}
           onChangeDefaultVoice={(defaultVoiceURI) => void persist({ defaultVoiceURI })}
           onChangeOutput={(outputDeviceId) => void persist({ outputDeviceId })}
           onTestVoice={() => testSpotterVoice(config)}
@@ -305,7 +307,7 @@ export function VoiceSpotterSection({ showToast, language }: Pick<AppViewProps, 
           <LiveTile labelText={tt(language, 'spotter.gapAhead')} value={formatSec(live?.relatives?.ahead?.gapSec)} />
           <LiveTile labelText={tt(language, 'spotter.gapBehind')} value={formatSec(live?.relatives?.behind?.gapSec)} />
           <LiveTile labelText={tt(language, 'spotter.onPitRoad')} value={live?.onPitRoad == null ? '—' : live.onPitRoad ? tt(language, 'common.sim') : tt(language, 'common.no')} />
-          <LiveTile labelText={tt(language, 'spotter.speed')} value={live?.speedKmh == null ? '—' : `${Math.round(live.speedKmh)} km/h`} />
+          <LiveTile labelText={tt(language, 'spotter.speed')} value={formatMeasurement(live?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0, includeUnit: true }).display} />
         </div>
 
         <span style={label}>{tt(language, 'spotter.lastCallouts')}</span>
@@ -372,7 +374,6 @@ function MasterControls({
   onToggleMuted,
   onChangeMasterVolumeLocal,
   onCommitMasterVolume,
-  onChangeLanguage,
   onChangeDefaultVoice,
   onChangeOutput,
   onTestVoice
@@ -389,7 +390,6 @@ function MasterControls({
   onToggleMuted(): void
   onChangeMasterVolumeLocal(value: number): void
   onCommitMasterVolume(value: number): void
-  onChangeLanguage(language: SpotterLang): void
   onChangeDefaultVoice(voiceURI: string): void
   onChangeOutput(outputDeviceId: string): void
   onTestVoice(): void
@@ -453,7 +453,7 @@ function MasterControls({
       <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 10, alignItems: 'end' }}>
         <label style={{ display: 'grid', gap: 6 }}>
           <span style={label}>{tt(language, 'spotter.language')}</span>
-          <select onChange={(event) => onChangeLanguage(event.target.value as SpotterLang)} style={inputStyle} value={config.language}>
+          <select disabled style={inputStyle} value={config.language}>
             <option value="pt-BR">Portuguese (BR)</option>
             <option value="en-US">English</option>
           </select>
@@ -634,6 +634,7 @@ function AdvancedThresholds({
   onChangeLocal(patch: Partial<SpotterThresholds>): void
   onCommit(patch: Partial<SpotterThresholds>): void
 }): ReactElement | null {
+  const unitSystem = useUnitSystem()
   const fields = THRESHOLD_FIELDS[category]
   if (!fields || fields.length === 0) return null
   return (
@@ -648,18 +649,35 @@ function AdvancedThresholds({
     >
       <span style={label}>Advanced · triggers</span>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12, marginTop: 10 }}>
-        {fields.map((field) => (
-          <NumberField
-            key={field.key}
-            labelText={field.labelText}
-            min={field.min}
-            max={field.max}
-            step={field.step}
-            value={thresholds[field.key]}
-            onChange={(value) => onChangeLocal({ [field.key]: value } as Partial<SpotterThresholds>)}
-            onCommit={(value) => onCommit({ [field.key]: value } as Partial<SpotterThresholds>)}
-          />
-        ))}
+        {fields.map((field) => {
+          const speed = field.key === 'pitSpeedLimitKmh'
+          const distance = field.key === 'proximityAheadMeters' || field.key === 'proximitySideMeters'
+          const kind = speed ? 'speed-kmh' : distance ? 'distance-m' : undefined
+          const displayValue = kind ? formatMeasurement(thresholds[field.key], kind, unitSystem, { decimals: distance ? 1 : 0 }).value ?? thresholds[field.key] : thresholds[field.key]
+          const displayMin = kind ? formatMeasurement(field.min, kind, unitSystem, { decimals: distance ? 1 : 0 }).value ?? field.min : field.min
+          const displayMax = kind ? formatMeasurement(field.max, kind, unitSystem, { decimals: distance ? 1 : 0 }).value ?? field.max : field.max
+          const displayStep = kind ? formatMeasurement(field.step, kind, unitSystem, { decimals: distance ? 1 : 0 }).value ?? field.step : field.step
+          const toCanonical = (value: number): number => unitSystem === 'imperial'
+            ? speed
+              ? mphToKmh(value) ?? value
+              : distance
+                ? feetToMeters(value) ?? value
+                : value
+            : value
+          const labelText = kind ? field.labelText.replace(/\((?:km\/h|m)\)/, `(${formatMeasurement(undefined, kind, unitSystem).unit})`) : field.labelText
+          return (
+            <NumberField
+              key={field.key}
+              labelText={labelText}
+              min={displayMin}
+              max={displayMax}
+              step={displayStep}
+              value={displayValue}
+              onChange={(value) => onChangeLocal({ [field.key]: toCanonical(value) } as Partial<SpotterThresholds>)}
+              onCommit={(value) => onCommit({ [field.key]: toCanonical(value) } as Partial<SpotterThresholds>)}
+            />
+          )
+        })}
       </div>
     </div>
   )

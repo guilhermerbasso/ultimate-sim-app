@@ -37,6 +37,7 @@ import { coachFindings, topCoachTips } from '../lib/coach-insights'
 import { useEngineerFeed } from '../lib/engineer-feed'
 import { useTelemetrySelector } from '../lib/telemetry'
 import { tt } from '../i18n'
+import { useUnitSystem } from '../lib/units'
 
 const CHROME = 'var(--accent-primary)'
 const AMBER = 'var(--accent-warning)'
@@ -594,6 +595,7 @@ function HifiLiveSelectionPreview({
   widgetIds: string[]
   moment: RaceMomentState | null
 }): ReactElement {
+  const unitSystem = useUnitSystem()
   return (
     <section style={card}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -619,7 +621,7 @@ function HifiLiveSelectionPreview({
                 <strong>{mod.title}</strong>
                 <span>{mod.category}</span>
               </div>
-              <div style={liveWidgetSurface}>{mod.render({ snapshot, ai, width, height })}</div>
+              <div style={liveWidgetSurface}>{mod.render({ snapshot, ai, width, height, unitSystem })}</div>
             </div>
           )
         })}

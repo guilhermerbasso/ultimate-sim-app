@@ -22,6 +22,9 @@ export interface TyreInfo {
   surfaceTempRightC?: number
   pressureKpa?: number
   wearPct?: number
+  wearLeftPct?: number
+  wearMiddlePct?: number
+  wearRightPct?: number
 }
 
 export interface Flags {
@@ -61,6 +64,21 @@ export interface DriverEntry {
   carNumberRaw?: number
   isPlayer: boolean
   inPits?: boolean
+  lap?: number
+  completedLaps?: number
+  estimatedTimeSec?: number
+  relativeTimeSec?: number
+  gear?: number
+  rpm?: number
+  trackLocation?: number
+  trackSurfaceMaterial?: number
+  bestLapTimeSec?: number
+  bestLapNum?: number
+  pushToPassActive?: boolean
+  pushToPassCount?: number
+  paceFlags?: string[]
+  paceLine?: number
+  paceRow?: number
 }
 
 export interface RelativeCarEntry {
@@ -544,6 +562,7 @@ export interface TelemetrySnapshot {
   pitchRateRadSec?: number
   rollRateRadSec?: number
   altitudeM?: number
+  velocityZ?: number
   drs?: boolean
   absActive?: boolean
   absEnabled?: boolean
@@ -552,6 +571,11 @@ export interface TelemetrySnapshot {
   tcEnabled?: boolean
   tcLevel?: number | string
   engineMap?: number | string
+  throttleMap?: number | string
+  engineBraking?: number | string
+  antiRollFront?: number | string
+  antiRollRear?: number | string
+  weightJackerRight?: number | string
   brakeBiasPct?: number
   handbrake?: number // 0..1
   waterTempC?: number
@@ -594,11 +618,17 @@ export interface TelemetrySnapshot {
    *  track don't share a model. */
   trackConfigName?: string
   sessionTimeRemainingSec?: number
+  sessionNumber?: number
+  sessionTimeSec?: number
   lapsRemaining?: number
   currentLap?: number
+  completedLaps?: number
   lapDistPct?: number // 0..1
+  lapDistanceM?: number
   lastLapTimeSec?: number
   bestLapTimeSec?: number
+  bestNLapLap?: number
+  bestNLapTimeSec?: number
   currentLapTimeSec?: number
   estimatedLapTimeSec?: number
   deltaToBestSec?: number
@@ -615,6 +645,11 @@ export interface TelemetrySnapshot {
   sessionUniqueId?: number // p/ Team Fuel sharing — identifica a sessão única do iRacing
   driverName?: string // nome do piloto do jogador (player car)
   sessionTimeOfDay?: number // SessionTimeOfDay — segundos desde a meia-noite (use formatTimeOfDay p/ HH:MM)
+  onTrack?: boolean
+  cameraCarIdx?: number
+  replayPlaying?: boolean
+  replayFrameNum?: number
+  replayFrameEnd?: number
 
   // BoP / penalidades (iRacing)
   weightPenaltyKg?: number // PlayerCarWeightPenalty — lastro de BoP em kg
@@ -638,6 +673,7 @@ export interface TelemetrySnapshot {
   // (LFcoldPressure/RFcoldPressure/LRcoldPressure/RRcoldPressure). Nomeado explicitamente
   // como "cold" para não ser confundido com pressão dinâmica em tempo real.
   tireColdPressuresKpa?: Corners<number>
+  pitTyreTargetsKpa?: Corners<number>
 
   // Bandeiras / iRacing extras
   flags?: Flags
@@ -645,6 +681,10 @@ export interface TelemetrySnapshot {
   pitLimiter?: boolean
   onPitRoad?: boolean
   pitServiceFlags?: string[] // ex.: ['fuel','lf','rf','fastRepair']
+  pitFuelToAddL?: number
+  repairTimeSec?: number
+  optionalRepairTimeSec?: number
+  pitStopActive?: boolean
   // Status de pit (iRacing): pits abertos, carro no box, status do serviço e reparos.
   // repairNeeded/optRepairNeeded são DERIVADOS de PitRepairLeft/PitOptRepairLeft > 0.
   pit?: PitStatus
@@ -663,6 +703,13 @@ export interface TelemetrySnapshot {
   gripPct?: number // 0..1
   weatherDeclaredWet?: boolean // WeatherDeclaredWet — o comissário liberou tires de rain
   trackSurfaceMaterial?: number // PlayerTrackSurfaceMaterial (enum irsdk_TrkSurf) — use trackSurfaceMaterialLabel
+  precipitationPct?: number
+  airDensityKgM3?: number
+  airPressureKpa?: number
+  /** Legacy raw iRacing atmospheric pressure in inches of mercury. */
+  airPressureHg?: number
+  weatherType?: number
+  trackLengthKm?: number
   // Extra environment telemetry (iRacing): fog + relative humidity (0..1), wind speed (m/s)
   // + direction (rad), solar altitude/azimuth (rad), and the Skies enum (0=clear..3=overcast).
   fogPct?: number

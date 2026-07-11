@@ -4,7 +4,9 @@
 import type { ReactElement, ReactNode } from 'react'
 import type { CarLeftRightState } from '../../../../../shared/telemetry'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { Bar, BigNum, C, FONT_LABEL, LEGIBLE, SHIFT_STROBE_BLUE, ShiftStrobe, VBar, atShiftPoint, clamp01, fixed, legibleStroke, num, revFill } from '../kit'
+import { Bar, BigNum, C, FONT_LABEL, LEGIBLE, VBar, clamp01, fixed, legibleStroke, num } from '../kit'
+import { ShiftStrobe, resolveRevLightState, revFill, revLightRowLayout } from '../../../lib/rev-lights'
+import { formatMeasurement, type UnitSystem } from '../../../../../shared/units'
 
 const W = 420
 const H = 240
@@ -57,16 +59,18 @@ function fuelRateColor(v: number | undefined): string {
   return C.text
 }
 
-function FuelRate({ width, height, snapshot }: HifiWidgetProps): ReactElement {
+function FuelRate({ width, height, snapshot, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const v = num(snapshot?.fuelUsePerHourKg)
   const f = v == null ? 0 : clamp01(v / 8)
   const color = fuelRateColor(v)
+  const reading = formatMeasurement(v, 'mass-flow-kg-hour', unitSystem, { decimals: 1 })
+  const valueSize = reading.unit === 'lb/h' ? 82 : 98
   return (
     <Root width={width} height={height} snapshot={snapshot}>
-      <BigNum x={W / 2} y={132} value={fixed(v, 1)} unit="kg/h" color={color} size={98} />
+      <BigNum x={W / 2} y={132} value={reading.display} unit={reading.unit} color={color} size={valueSize} />
       <Bar x={72} y={182} w={276} h={14} f={f} color={color} />
-      <text x={72} y={218} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={18} fontWeight={800} {...LEGIBLE}>0</text>
-      <text x={348} y={218} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={18} fontWeight={800} {...LEGIBLE}>8</text>
+      <text x={72} y={218} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={18} fontWeight={800} {...LEGIBLE}>{formatMeasurement(0, 'mass-flow-kg-hour', unitSystem, { decimals: 0 }).display}</text>
+      <text x={348} y={218} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={18} fontWeight={800} {...LEGIBLE}>{formatMeasurement(8, 'mass-flow-kg-hour', unitSystem, { decimals: 0 }).display}</text>
     </Root>
   )
 }
@@ -77,27 +81,28 @@ function brakeColor(v: number | undefined): string {
   return C.cyan
 }
 
-function BrakeCell({ label, x, y, value }: { label: string; x: number; y: number; value: number | undefined }): ReactElement {
+function BrakeCell({ label, x, y, value, unitSystem }: { label: string; x: number; y: number; value: number | undefined; unitSystem: UnitSystem }): ReactElement {
   const color = brakeColor(value)
   const f = value == null ? 0 : clamp01(value / 100)
+  const reading = formatMeasurement(value, 'pressure-bar', unitSystem, { decimals: unitSystem === 'imperial' ? 0 : 1 })
   return (
     <g>
       <text x={x} y={y + 20} fill={C.dim} fontFamily={FONT_LABEL} fontSize={22} fontWeight={900} {...LEGIBLE}>{label}</text>
       <Bar x={x + 42} y={y + 6} w={112} h={16} f={f} color={color} />
-      <text x={x + 154} y={y + 68} textAnchor="end" fill={color} fontFamily={FONT_LABEL} fontSize={44} fontWeight={900} {...legibleStroke(44)}>{value == null ? '—' : fixed(value, 0)}</text>
-      <text x={x + 158} y={y + 68} fill={C.dim} fontFamily={FONT_LABEL} fontSize={18} fontWeight={800} {...LEGIBLE}>bar</text>
+      <text x={x + 154} y={y + 68} textAnchor="end" fill={color} fontFamily={FONT_LABEL} fontSize={44} fontWeight={900} {...legibleStroke(44)}>{reading.display}</text>
+      <text x={x + 158} y={y + 68} fill={C.dim} fontFamily={FONT_LABEL} fontSize={18} fontWeight={800} {...LEGIBLE}>{reading.unit}</text>
     </g>
   )
 }
 
-function BrakeLinePress({ width, height, snapshot }: HifiWidgetProps): ReactElement {
+function BrakeLinePress({ width, height, snapshot, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const p = snapshot?.brakeLinePressBar
   return (
     <Root width={width} height={height} snapshot={snapshot}>
-      <BrakeCell label="FL" x={38} y={42} value={num(p?.lf)} />
-      <BrakeCell label="FR" x={226} y={42} value={num(p?.rf)} />
-      <BrakeCell label="RL" x={38} y={142} value={num(p?.lr)} />
-      <BrakeCell label="RR" x={226} y={142} value={num(p?.rr)} />
+      <BrakeCell label="FL" x={38} y={42} value={num(p?.lf)} unitSystem={unitSystem} />
+      <BrakeCell label="FR" x={226} y={42} value={num(p?.rf)} unitSystem={unitSystem} />
+      <BrakeCell label="RL" x={38} y={142} value={num(p?.lr)} unitSystem={unitSystem} />
+      <BrakeCell label="RR" x={226} y={142} value={num(p?.rr)} unitSystem={unitSystem} />
     </Root>
   )
 }
@@ -144,36 +149,44 @@ function Skies({ width, height, snapshot }: HifiWidgetProps): ReactElement {
 }
 
 function RevLightsBar({ width, height, snapshot }: HifiWidgetProps): ReactElement {
-  const f = clamp01(num(snapshot?.revLights?.pct) ?? 0)
-  const shift = atShiftPoint(f)
+  const state = resolveRevLightState(
+    num(snapshot?.revLights?.pct),
+    snapshot?.revLights?.blink
+  )
   const w = width ?? WIDE_W
   const viewH = height ?? WIDE_H
-  const count = 18
-  const gap = Math.max(3, Math.round(w / count / 10))
-  const x = Math.max(10, Math.min(24, w * 0.03))
-  const h = Math.max(8, viewH * 0.62)
-  const y = (viewH - h) / 2
-  const cw = (w - x * 2 - gap * (count - 1)) / count
-  const lit = shift ? count : Math.round(f * count)
+  const layout = revLightRowLayout(w, viewH, 18, {
+    gap: Math.max(3, Math.round((Number.isFinite(w) ? w : WIDE_W) / 180)),
+    heightRatio: 0.62,
+    minLedHeight: Math.min(8, Math.max(1, Number.isFinite(viewH) ? viewH : WIDE_H))
+  })
+  const lit = state.atShiftPoint ? layout.count : Math.round(state.pct * layout.count)
   return (
-    <Root width={width} height={height} snapshot={snapshot} w={w} h={viewH}>
+    <svg
+      viewBox={`0 0 ${layout.width} ${layout.height}`}
+      width={layout.width}
+      height={layout.height}
+      preserveAspectRatio="none"
+      role="img"
+      aria-label="rev lights"
+      style={{ display: 'block', background: 'transparent' }}
+    >
       <defs>
         <filter id="irExtraRevGlow" x="-20%" y="-80%" width="140%" height="260%">
           <feGaussianBlur stdDeviation="9" result="blur" />
           <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
         </filter>
       </defs>
-      <g filter={shift ? 'url(#irExtraRevGlow)' : undefined}>
-        <ShiftStrobe active={shift} />
-        {Array.from({ length: count }, (_, i) => {
-          const z = i / (count - 1)
+      <g filter={state.atShiftPoint ? 'url(#irExtraRevGlow)' : undefined}>
+        <ShiftStrobe active={state.atShiftPoint} />
+        {Array.from({ length: layout.count }, (_, i) => {
+          const z = i / (layout.count - 1)
           const base = z < 0.52 ? C.green : z < 0.78 ? C.amber : C.red
           const on = i < lit
-          return <rect key={i} x={x + i * (cw + gap)} y={y} width={cw} height={h} rx={Math.min(8, h / 4)} fill={on ? revFill(base, shift) : C.recess} stroke={on ? revFill(base, shift) : C.stroke} strokeWidth={1.5} opacity={on ? 1 : 0.46} />
+          return <rect key={i} x={layout.positions[i]} y={layout.y} width={layout.ledWidth} height={layout.ledHeight} rx={Math.min(8, layout.ledHeight / 4)} fill={on ? revFill(base, state.atShiftPoint) : C.recess} stroke={on ? revFill(base, state.atShiftPoint) : C.stroke} strokeWidth={1.5} opacity={on ? 1 : 0.46} />
         })}
-        {shift ? <rect x={x / 2} y={Math.max(2, y - 8)} width={w - x} height={Math.min(viewH - 4, h + 16)} rx={12} fill="none" stroke={SHIFT_STROBE_BLUE} strokeWidth={3} opacity={0.78} /> : null}
       </g>
-    </Root>
+    </svg>
   )
 }
 

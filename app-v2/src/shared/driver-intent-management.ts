@@ -10,6 +10,7 @@ import {
   type IntentScore
 } from './driver-intent'
 import type { CoachFindingKind, CoachPhase } from './coach'
+import { formatMeasurement, type UnitSystem } from './units'
 
 const SOFT_SAVE_FINDINGS: ReadonlySet<CoachFindingKind> = new Set<CoachFindingKind>([
   'coast',
@@ -25,8 +26,8 @@ function pct(x: number): string {
   return `${Math.round(x * 100)}%`
 }
 
-function celsius(x: number): string {
-  return `${Math.round(x)}°C`
+function temperature(x: number, unitSystem: UnitSystem): string {
+  return formatMeasurement(x, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display
 }
 
 function score(intent: IntentScore['intent'], confidence: number, evidence: IntentEvidence[]): IntentScore | null {
@@ -105,10 +106,10 @@ function tyreBrakeSaveRule(): IntentRule {
           evidence.push({ signal: 'tyreWearMaxPct', detail: `tyres worn ${Math.round(wear)}%` })
         }
         if (finiteNumber(tyreTemp) && tyreTempScore === componentNeed) {
-          evidence.push({ signal: 'tyreTempMaxC', detail: `tyres hot at ${celsius(tyreTemp)}` })
+          evidence.push({ signal: 'tyreTempMaxC', detail: `tyres hot at ${temperature(tyreTemp, event.unitSystem ?? 'metric')}` })
         }
         if (finiteNumber(brakeTemp) && brakeTempScore === componentNeed) {
-          evidence.push({ signal: 'brakeTempMaxC', detail: `brakes hot at ${celsius(brakeTemp)}` })
+          evidence.push({ signal: 'brakeTempMaxC', detail: `brakes hot at ${temperature(brakeTemp, event.unitSystem ?? 'metric')}` })
         }
 
         const loss = event.finding.estTimeLossSec

@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { baseSnapshot } from '../../../../../shared/telemetry-scenarios'
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
+import { SHIFT_STROBE_BLUE } from '../../../lib/rev-lights'
 import { IR_EXTRA_WIDGETS } from './index'
 
 const badTokens = /NaN|undefined|Infinity/
@@ -73,5 +74,15 @@ describe('IR_EXTRA_WIDGETS', () => {
     const nullMarkup = renderAll(null).join('\n')
     expect(nullMarkup).toMatch(/—|CLEAR/)
   })
-})
 
+  it('uses the shared blue strobe for the rev-lights widget', () => {
+    const widget = IR_EXTRA_WIDGETS.find((candidate) => candidate.id === 'revLightsBar')!
+    const mid = renderWidget(widget, { ...dataSnapshot(), revLights: { pct: 0.6, blink: false } })
+    expect(mid).not.toContain(SHIFT_STROBE_BLUE)
+    expect(mid).not.toContain('repeatCount="indefinite"')
+
+    const shift = renderWidget(widget, { ...dataSnapshot(), revLights: { pct: 1, blink: true } })
+    expect(shift).toContain(SHIFT_STROBE_BLUE)
+    expect(shift).toContain('repeatCount="indefinite"')
+  })
+})

@@ -17,6 +17,8 @@ import {
 } from './state'
 import { computePitLayout, pitLayoutRowCount, type PitPlacement, type PitSectionId } from './layout'
 import './pitpanel.css'
+import { formatMeasurement } from '../../../shared/units'
+import { useUnitSystem } from '../lib/units'
 
 type Json = Record<string, unknown>
 
@@ -73,6 +75,7 @@ const DEFAULT_PRESSURE = 165
 const COMPOUNDS = ['Soft', 'Medium', 'Hard', 'Wet']
 
 export function PitPanelRoot() {
+  const unitSystem = useUnitSystem()
   const [status, setStatus] = useState<IRacingControlStatus | null>(null)
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const [fuel, setFuel] = useState<number>(20)
@@ -109,6 +112,9 @@ export function PitPanelRoot() {
   const enabled = useMemo(() => canSendPitCommands(status, snapshot), [status, snapshot])
   const corners = useMemo(() => activeCornerFlags(snapshot), [snapshot])
   const onPitRoad = snapshot?.onPitRoad === true
+  const fuelReading = formatMeasurement(fuel, 'fuel-volume-l', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0 })
+  const pressureMin = formatMeasurement(PRESSURE_MIN_KPA, 'pressure-kpa', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0 })
+  const pressureMax = formatMeasurement(PRESSURE_MAX_KPA, 'pressure-kpa', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0 })
 
   // Deterministic, non-overlapping grid placement (see ./layout.ts). Each card is
   // positioned by its rectangle and scrolls internally, so the fuel/chat/replay
@@ -163,8 +169,8 @@ export function PitPanelRoot() {
       <div className="pp-grid" style={gridStyle}>
         <Section title="Fuel" className="pp-fuel" style={placementStyle(placementById.get('fuel'))}>
           <div className="pp-fuel-readout">
-            <span className="pp-fuel-value">{fuel}</span>
-            <span className="pp-fuel-unit">L</span>
+            <span className="pp-fuel-value">{fuelReading.display}</span>
+            <span className="pp-fuel-unit">{fuelReading.unit}</span>
           </div>
           <div className="pp-row">
             <TouchButton label="−5" onPress={() => setFuel((f) => stepFuel(f, -5))} disabled={!enabled} />
@@ -174,12 +180,12 @@ export function PitPanelRoot() {
           </div>
           <div className="pp-row pp-wrap">
             {FUEL_PRESETS.map((preset) => (
-              <TouchButton key={preset} label={`${preset}L`} variant="ghost" onPress={() => setFuel(preset)} disabled={!enabled} />
+              <TouchButton key={preset} label={formatMeasurement(preset, 'fuel-volume-l', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0, includeUnit: true }).display} variant="ghost" onPress={() => setFuel(preset)} disabled={!enabled} />
             ))}
           </div>
           <div className="pp-row pp-fuel-cta">
             <TouchButton
-              label={fuel === 0 ? 'Keep fuel' : `Add ${fuel}L`}
+              label={fuel === 0 ? 'Keep fuel' : `Add ${formatMeasurement(fuel, 'fuel-volume-l', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0, includeUnit: true }).display}`}
               variant="primary"
               wide
               active={isServiceFlagged(snapshot, 'fuel')}
@@ -194,7 +200,7 @@ export function PitPanelRoot() {
             {CORNERS.map((corner) => (
               <div key={corner} className={corners[corner] ? 'pp-tyre is-queued' : 'pp-tyre'}>
                 <div className="pp-tyre-label">{CORNER_LABELS[corner]}</div>
-                <div className="pp-tyre-pressure">{pressures[corner]}<small>kPa</small></div>
+                <div className="pp-tyre-pressure">{formatMeasurement(pressures[corner], 'pressure-kpa', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0 }).display}<small>{pressureMin.unit}</small></div>
                 <div className="pp-tyre-steppers">
                   <TouchButton label="−" onPress={() => setPressure(corner, -1)} disabled={!enabled} />
                   <TouchButton label="+" onPress={() => setPressure(corner, 1)} disabled={!enabled} />
@@ -209,7 +215,7 @@ export function PitPanelRoot() {
               </div>
             ))}
           </div>
-          <div className="pp-hint">Pressure {PRESSURE_MIN_KPA}–{PRESSURE_MAX_KPA} kPa</div>
+          <div className="pp-hint">Pressure {pressureMin.display}–{pressureMax.display} {pressureMin.unit}</div>
           <div className="pp-row pp-wrap">
             <TouchButton label="Change 4" variant="primary" onPress={() => sendTyres([...CORNERS])} disabled={!enabled} />
             <TouchButton label="Clear tires" variant="danger" onPress={() => command('pit:clearTires')} disabled={!enabled} />

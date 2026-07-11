@@ -16,6 +16,8 @@ import type { TelemetrySnapshot } from '../../../../shared/telemetry'
 import type { WidgetProps } from './types'
 import { resolveSkin, FitText, type SkinToken } from '../../skins'
 import { RevLedBar, DataField, TelltaleBank, type FieldState, type TelltaleLamp } from '../../instruments'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 export const BOSCH296_DASH_STREAM_SAFE = true
 
@@ -113,6 +115,7 @@ function vstack(x: number, y: number, w: number, h: number, count: number, gap: 
 }
 
 export function Bosch296DashWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const s = snapshot
   const skin = resolveSkin('gt3', 'generic')
   const { palette, segment, typography, material } = skin
@@ -182,6 +185,11 @@ export function Bosch296DashWidget({ snapshot, config }: WidgetProps): ReactElem
 
   const deltaKnown = s?.deltaToBestSec !== undefined && Number.isFinite(s.deltaToBestSec)
   const deltaState: FieldState = !deltaKnown ? 'normal' : s!.deltaToBestSec! <= 0 ? 'ok' : 'warn'
+  const temp = (value: number | undefined) => formatMeasurement(value, 'temperature-c', unitSystem, { decimals: 0 })
+  const tempUnit = temp(undefined).unit
+  const oilPressure = formatMeasurement(s?.oilPressureKpa !== undefined ? s.oilPressureKpa / 100 : undefined, 'pressure-bar', unitSystem, { decimals: 1 })
+  const fuel = formatMeasurement(s?.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1 })
+  const speed = formatMeasurement(s?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
 
   // Bottom strip: aid cells + wide banner.
   const stripCells = 6
@@ -238,20 +246,20 @@ export function Bosch296DashWidget({ snapshot, config }: WidgetProps): ReactElem
         ))}
 
         {/* ── Left column: vehicle telemetry ──────────────────────────────── */}
-        {df(wRect, 'WATER', n0(s?.waterTempC), tempState(s?.waterTempC, 108, 120), '°')}
-        {df(oRect, 'OIL', n0(s?.oilTempC), tempState(s?.oilTempC, 125, 140), '°')}
-        {df(opRect, 'OIL P', s?.oilPressureKpa !== undefined ? n1(s.oilPressureKpa / 100) : '—', 'normal', 'b')}
-        {df({ x: leftX, y: leftBotY, w: tyreCellW, h: tyreCellH }, 'LF', n0(ty?.lf?.tempC), tempState(ty?.lf?.tempC, 100, 110, 70), '°')}
-        {df({ x: leftX + tyreCellW + G, y: leftBotY, w: tyreCellW, h: tyreCellH }, 'RF', n0(ty?.rf?.tempC), tempState(ty?.rf?.tempC, 100, 110, 70), '°')}
-        {df({ x: leftX, y: leftBotY + tyreCellH + G, w: tyreCellW, h: tyreCellH }, 'LR', n0(ty?.lr?.tempC), tempState(ty?.lr?.tempC, 100, 110, 70), '°')}
-        {df({ x: leftX + tyreCellW + G, y: leftBotY + tyreCellH + G, w: tyreCellW, h: tyreCellH }, 'RR', n0(ty?.rr?.tempC), tempState(ty?.rr?.tempC, 100, 110, 70), '°')}
+        {df(wRect, 'WATER', temp(s?.waterTempC).display, tempState(s?.waterTempC, 108, 120), tempUnit)}
+        {df(oRect, 'OIL', temp(s?.oilTempC).display, tempState(s?.oilTempC, 125, 140), tempUnit)}
+        {df(opRect, 'OIL P', oilPressure.display, 'normal', oilPressure.unit)}
+        {df({ x: leftX, y: leftBotY, w: tyreCellW, h: tyreCellH }, 'LF', temp(ty?.lf?.tempC).display, tempState(ty?.lf?.tempC, 100, 110, 70), tempUnit)}
+        {df({ x: leftX + tyreCellW + G, y: leftBotY, w: tyreCellW, h: tyreCellH }, 'RF', temp(ty?.rf?.tempC).display, tempState(ty?.rf?.tempC, 100, 110, 70), tempUnit)}
+        {df({ x: leftX, y: leftBotY + tyreCellH + G, w: tyreCellW, h: tyreCellH }, 'LR', temp(ty?.lr?.tempC).display, tempState(ty?.lr?.tempC, 100, 110, 70), tempUnit)}
+        {df({ x: leftX + tyreCellW + G, y: leftBotY + tyreCellH + G, w: tyreCellW, h: tyreCellH }, 'RR', temp(ty?.rr?.tempC).display, tempState(ty?.rr?.tempC, 100, 110, 70), tempUnit)}
 
         {/* ── Right column: race metrics ──────────────────────────────────── */}
         {df(lapR, 'LAP', n0(s?.currentLap), 'accent')}
         {df(lastR, 'LAST', formatTime(s?.lastLapTimeSec))}
         {df(bestR, 'BEST', formatTime(s?.bestLapTimeSec), 'info')}
         {df(deltaR, 'DELTA', formatDelta(s?.deltaToBestSec), deltaState)}
-        {df(fuelR, 'FUEL', n1(s?.fuelLiters), fuelState(s), 'L')}
+        {df(fuelR, 'FUEL', fuel.display, fuelState(s), fuel.unit)}
 
         {/* ── Centre: telltales, gear, speed ──────────────────────────────── */}
         <g transform={`translate(${bankX}, ${cTop + (ttH - ttSize) / 2})`}>
@@ -301,8 +309,8 @@ export function Bosch296DashWidget({ snapshot, config }: WidgetProps): ReactElem
           y={speedY}
           width={midW}
           height={speedH}
-          label="SPEED  KM/H"
-          value={n0(s?.speedKmh)}
+          label={`SPEED  ${speed.unit.toUpperCase()}`}
+          value={speed.display}
           state="normal"
           ghost={false}
           skin={skin}

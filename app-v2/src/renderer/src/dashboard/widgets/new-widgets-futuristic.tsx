@@ -13,6 +13,7 @@ import type { ReactElement } from 'react'
 import type { DashboardElement } from '../../../../shared/dashboards'
 import { applyDecimals } from '../../../../shared/dashboards'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
+import type { UnitSystem } from '../../../../shared/units'
 import { resolveBinding } from '../binding'
 import { resolveElementSkin } from '../../skins'
 import type { SkinToken } from '../../skins'
@@ -58,39 +59,41 @@ function defaultMax(binding: string | undefined): number {
   }
 }
 
-interface ChannelValue { text: string; frac: number; bounded: boolean }
+interface ChannelValue { text: string; frac: number; bounded: boolean; unit?: string }
 
-function channel(element: DashboardElement, snapshot: TelemetrySnapshot | null): ChannelValue {
+function channel(element: DashboardElement, snapshot: TelemetrySnapshot | null, unitSystem: UnitSystem): ChannelValue {
   const s = element.style
-  const r = resolveBinding(element.binding, snapshot)
-  const body = applyDecimals(r.text && r.text.length ? r.text : '—', r.numeric, s.decimals)
+  const r = resolveBinding(element.binding, snapshot, unitSystem)
+  const body = applyDecimals(r.text && r.text.length ? r.text : '—', r.displayNumeric ?? r.numeric, s.decimals)
   const text = body === '—' ? '—' : `${s.prefix ?? ''}${body}`
+  const unit = r.unit ?? ((s.suffix || undefined) as string | undefined)
   if (s.gaugeMin !== undefined || s.gaugeMax !== undefined) {
     const min = s.gaugeMin ?? 0
     const max = s.gaugeMax ?? defaultMax(element.binding)
     const v = numFromBinding(element.binding, snapshot)
-    return { text, frac: clamp01(((v ?? min) - min) / Math.max(1e-6, max - min)), bounded: true }
+    return { text, frac: clamp01(((v ?? min) - min) / Math.max(1e-6, max - min)), bounded: true, unit }
   }
-  if (isFiniteNum(r.pct)) return { text, frac: clamp01(r.pct), bounded: true }
-  return { text, frac: 0, bounded: false }
+  if (isFiniteNum(r.pct)) return { text, frac: clamp01(r.pct), bounded: true, unit }
+  return { text, frac: 0, bounded: false, unit }
 }
 
 function dialParams(
   element: DashboardElement,
   snapshot: TelemetrySnapshot | null,
   frac: number,
-  bounded: boolean
+  bounded: boolean,
+  unit?: string
 ): { value: number; min: number; max: number; unit?: string } {
   const s = element.style
   if (s.gaugeMin !== undefined || s.gaugeMax !== undefined) {
     const min = s.gaugeMin ?? 0
     const max = s.gaugeMax ?? defaultMax(element.binding)
     const v = numFromBinding(element.binding, snapshot)
-    return { value: v ?? NaN, min, max, unit: (s.suffix || undefined) as string | undefined }
+    return { value: v ?? NaN, min, max, unit }
   }
   if (bounded) return { value: frac * 100, min: 0, max: 100, unit: '%' }
   const v = numFromBinding(element.binding, snapshot)
-  return { value: v ?? NaN, min: 0, max: defaultMax(element.binding), unit: (s.suffix || undefined) as string | undefined }
+  return { value: v ?? NaN, min: 0, max: defaultMax(element.binding), unit }
 }
 
 function str(v: unknown): string {
@@ -105,11 +108,11 @@ function glowRef(element: DashboardElement): string {
 // Neon ring gauge
 // ═══════════════════════════════════════════════════════════════════════════
 
-function NeonRing({ element, snapshot }: NewWidgetProps): ReactElement {
+function NeonRing({ element, snapshot, unitSystem = 'metric' }: NewWidgetProps): ReactElement {
   const s = element.style
-  const { text, frac, bounded } = channel(element, snapshot)
+  const { text, frac, bounded, unit } = channel(element, snapshot, unitSystem)
   if (usesInstrument(element)) {
-    const d = dialParams(element, snapshot, frac, bounded)
+    const d = dialParams(element, snapshot, frac, bounded, unit)
     return <DialInstrument element={element} value={d.value} min={d.min} max={d.max} unit={d.unit} label={s.label ? String(s.label) : undefined} />
   }
   const skin = resolveElementSkin(s)
@@ -119,7 +122,6 @@ function NeonRing({ element, snapshot }: NewWidgetProps): ReactElement {
   const W = element.w
   const H = element.h
   const label = str(s.label)
-  const unit = str(s.suffix)
   const cx = W / 2
   const cy = H / 2 + clampNum(H * 0.03, 0, 6)
   const r = Math.max(6, Math.min(W, H) / 2 - clampNum(Math.min(W, H) * 0.12, 6, 18))
@@ -143,11 +145,11 @@ function NeonRing({ element, snapshot }: NewWidgetProps): ReactElement {
 // Segmented arc gauge
 // ═══════════════════════════════════════════════════════════════════════════
 
-function SegmentedGauge({ element, snapshot }: NewWidgetProps): ReactElement {
+function SegmentedGauge({ element, snapshot, unitSystem = 'metric' }: NewWidgetProps): ReactElement {
   const s = element.style
-  const { text, frac, bounded } = channel(element, snapshot)
+  const { text, frac, bounded, unit } = channel(element, snapshot, unitSystem)
   if (usesInstrument(element)) {
-    const d = dialParams(element, snapshot, frac, bounded)
+    const d = dialParams(element, snapshot, frac, bounded, unit)
     return <DialInstrument element={element} value={d.value} min={d.min} max={d.max} unit={d.unit} label={s.label ? String(s.label) : undefined} />
   }
   const skin = resolveElementSkin(s)
@@ -156,7 +158,6 @@ function SegmentedGauge({ element, snapshot }: NewWidgetProps): ReactElement {
   const W = element.w
   const H = element.h
   const label = str(s.label)
-  const unit = str(s.suffix)
   const cx = W / 2
   const cy = H / 2 + clampNum(H * 0.03, 0, 6)
   const r = Math.max(6, Math.min(W, H) / 2 - clampNum(Math.min(W, H) * 0.12, 6, 18))
@@ -239,9 +240,9 @@ function SciFiDelta({ element, snapshot }: NewWidgetProps): ReactElement {
 // HUD tile (corner brackets)
 // ═══════════════════════════════════════════════════════════════════════════
 
-function HudTile({ element, snapshot }: NewWidgetProps): ReactElement {
+function HudTile({ element, snapshot, unitSystem = 'metric' }: NewWidgetProps): ReactElement {
   const s = element.style
-  const { text, frac, bounded } = channel(element, snapshot)
+  const { text, frac, bounded, unit } = channel(element, snapshot, unitSystem)
   if (usesInstrument(element)) {
     return <TileInstrument element={element} value={text} label={s.label ? String(s.label) : undefined} />
   }
@@ -252,7 +253,6 @@ function HudTile({ element, snapshot }: NewWidgetProps): ReactElement {
   const W = element.w
   const H = element.h
   const label = str(s.label)
-  const unit = str(s.suffix)
   const m = clampNum(Math.min(W, H) * 0.06, 4, 12)
   const arm = clampNum(Math.min(W, H) * 0.16, 8, 26)
   const brk = (pts: string): ReactElement => <polyline points={pts} fill="none" stroke={accent} strokeWidth={1.5} strokeLinecap="round" filter={`url(#${glowId})`} />
@@ -278,9 +278,9 @@ function HudTile({ element, snapshot }: NewWidgetProps): ReactElement {
 // Neon segmented bar
 // ═══════════════════════════════════════════════════════════════════════════
 
-function NeonBar({ element, snapshot }: NewWidgetProps): ReactElement {
+function NeonBar({ element, snapshot, unitSystem = 'metric' }: NewWidgetProps): ReactElement {
   const s = element.style
-  const { text, frac } = channel(element, snapshot)
+  const { text, frac, unit } = channel(element, snapshot, unitSystem)
   if (usesInstrument(element)) {
     return <RevInstrument element={element} frac={frac} />
   }
@@ -290,7 +290,6 @@ function NeonBar({ element, snapshot }: NewWidgetProps): ReactElement {
   const W = element.w
   const H = element.h
   const label = str(s.label)
-  const unit = str(s.suffix)
   const vertical = s.orientation === 'v'
   const segs = Math.max(10, Math.min(48, s.segments ?? 24))
   const lit = Math.round(frac * segs)
@@ -323,9 +322,9 @@ function NeonBar({ element, snapshot }: NewWidgetProps): ReactElement {
 // Grid gauge (value over a sci-fi grid backdrop)
 // ═══════════════════════════════════════════════════════════════════════════
 
-function GridGauge({ element, snapshot }: NewWidgetProps): ReactElement {
+function GridGauge({ element, snapshot, unitSystem = 'metric' }: NewWidgetProps): ReactElement {
   const s = element.style
-  const { text, frac, bounded } = channel(element, snapshot)
+  const { text, frac, bounded, unit } = channel(element, snapshot, unitSystem)
   if (usesInstrument(element)) {
     return <TileInstrument element={element} value={text} label={s.label ? String(s.label) : undefined} />
   }
@@ -336,7 +335,6 @@ function GridGauge({ element, snapshot }: NewWidgetProps): ReactElement {
   const W = element.w
   const H = element.h
   const label = str(s.label)
-  const unit = str(s.suffix)
   const cols = Math.max(3, Math.round(W / 26))
   const rows = Math.max(2, Math.round(H / 26))
   const fillY = H * (1 - clamp01(frac))

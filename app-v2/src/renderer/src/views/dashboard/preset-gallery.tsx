@@ -2,8 +2,8 @@
 
 import { Component, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement, ReactNode, RefObject } from 'react'
-import type { Dashboard } from '../../../../shared/dashboards'
-import { sortElementsByZ } from '../../../../shared/dashboards'
+import type { Dashboard, DashboardPreset } from '../../../../shared/dashboards'
+import { DEFAULT_DASHBOARD_PRESET_PRIORITY, sortElementsByZ } from '../../../../shared/dashboards'
 import { renderDashboardElement } from '../../dashboard/DashboardRoot'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
 import { TagFilter, filterByTags } from '../../components/TagFilter'
@@ -14,15 +14,14 @@ const GT3_STROKE = '#1F1F1F'
 const TEXT_FG = '#f6fbff'
 const TEXT_DIM = '#9aa6b2'
 
-export interface PresetEntry {
-  id: string
-  name: string
-  build: () => Dashboard
-  tags?: string[]
-}
+export type PresetEntry = DashboardPreset
 
 const THUMB_W = 248
 const THUMB_H = 140
+
+function presetPriority(entry: PresetEntry): number {
+  return Number.isFinite(entry.priority) ? entry.priority as number : DEFAULT_DASHBOARD_PRESET_PRIORITY
+}
 
 class PresetThumbBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -147,11 +146,18 @@ export function PresetGallery({
   onPick(id: string): void
 }): ReactElement {
   const [selectedTags, setSelectedTags] = useState<string[]>([])
-  const filtered = useMemo(() => filterByTags(presets, selectedTags, (preset) => preset.tags), [presets, selectedTags])
+  const orderedPresets = useMemo(
+    () => presets
+      .map((preset, index) => ({ preset, index }))
+      .sort((a, b) => presetPriority(a.preset) - presetPriority(b.preset) || a.index - b.index)
+      .map(({ preset }) => preset),
+    [presets]
+  )
+  const filtered = useMemo(() => filterByTags(orderedPresets, selectedTags, (preset) => preset.tags), [orderedPresets, selectedTags])
   return (
     <div>
       <TagFilter
-        items={presets}
+        items={orderedPresets}
         selectedTags={selectedTags}
         onSelectedTagsChange={setSelectedTags}
         getTags={(preset) => preset.tags}

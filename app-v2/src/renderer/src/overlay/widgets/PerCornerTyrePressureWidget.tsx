@@ -12,7 +12,8 @@ import { resolveSkin, FitText, makeGrid } from '../../skins'
 import type { SkinId, BrandId, SkinToken, Rect } from '../../skins'
 import type { Corners } from '../../../../shared/telemetry'
 import type { WidgetProps } from './types'
-import { numberOrDash } from './format'
+import { convertMeasurement, formatMeasurement, measurementUnit } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 export const PER_CORNER_TYRE_PRESSURE_STREAM_SAFE = true
 
@@ -92,6 +93,7 @@ function Cell({ rect, label, value, color, skin }: { rect: Rect; label: string; 
 }
 
 export function PerCornerTyrePressureWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = widgetSkin(config)
   const W = Math.max(1, Math.round(config?.position?.width ?? DEFAULT_W))
   const H = Math.max(1, Math.round(config?.position?.height ?? DEFAULT_H))
@@ -110,6 +112,10 @@ export function PerCornerTyrePressureWidget({ snapshot, config }: WidgetProps): 
   })
   const tag = hasLive ? 'LIVE' : hasCold ? 'COLD' : '—'
   const tagColor = hasLive ? palette.textDim : hasCold ? palette.warn : palette.textDim
+  const pressureUnit = measurementUnit('pressure-kpa', unitSystem)
+  const targetLow = convertMeasurement(P_OPT_LO, 'pressure-kpa', unitSystem)
+  const targetHigh = convertMeasurement(P_OPT_HI, 'pressure-kpa', unitSystem)
+  const pressureDecimals = unitSystem === 'imperial' ? 1 : 0
 
   const pad = 8
   const headerH = 20
@@ -137,10 +143,10 @@ export function PerCornerTyrePressureWidget({ snapshot, config }: WidgetProps): 
       {CORNERS.map(([key, label], i) => {
         const kpa = cornerKpa(live, cold, key)
         const rect = offset(gridArea, g.cell(i % 2, Math.floor(i / 2)))
-        return <Cell key={String(key)} rect={rect} label={label} value={numberOrDash(kpa, 0)} color={pressColor(kpa, skin)} skin={skin} />
+        return <Cell key={String(key)} rect={rect} label={label} value={formatMeasurement(kpa, 'pressure-kpa', unitSystem, { decimals: pressureDecimals }).display} color={pressColor(kpa, skin)} skin={skin} />
       })}
 
-      <FitText x={W / 2} y={H - pad - footerH / 2 + 1} boxW={W - pad * 2} boxH={footerH} text={`Target ${P_OPT_LO}–${P_OPT_HI} kPa`} anchor="middle" fontFamily={typography.label} fill={palette.textDim} weight={600} letterSpacing={0.5} minFontPx={9} maxFontPx={12} />
+      <FitText x={W / 2} y={H - pad - footerH / 2 + 1} boxW={W - pad * 2} boxH={footerH} text={`Target ${targetLow?.toFixed(pressureDecimals)}–${targetHigh?.toFixed(pressureDecimals)} ${pressureUnit}`} anchor="middle" fontFamily={typography.label} fill={palette.textDim} weight={600} letterSpacing={0.5} minFontPx={9} maxFontPx={12} />
     </svg>
   )
 }

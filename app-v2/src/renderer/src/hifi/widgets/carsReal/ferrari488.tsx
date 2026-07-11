@@ -2,6 +2,7 @@ import { arc } from 'd3-shape'
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, revFill, signed, tempColor } from '../kit'
+import { formatMeasurement } from '../../../../../shared/units'
 
 const DASH_W = 1024
 const DASH_H = 600
@@ -136,24 +137,31 @@ function WaterIcon({ color = RED }: { color?: string }): ReactElement {
 
 function BottomCell({ x, w, label, value, unit, icon, color = WHITE }: { x: number; w: number; label: string; value: string; unit?: string; icon: ReactElement; color?: string }): ReactElement {
   const valueX = x + 124
-  const unitX = x + w - 46
+  const compactUnit = Boolean(unit && unit.length > 2)
+  const unitX = x + w - (compactUnit ? 20 : 46)
+  const valueSize = compactUnit ? 38 : 42
+  const unitSize = compactUnit ? 22 : 27
   return (
     <g>
       <rect x={x} y={500} width={w} height={86} fill="rgba(0,0,0,0.84)" stroke={RED} strokeWidth={2} />
       <g transform={`translate(${x + 38},516) scale(0.72)`}>{icon}</g>
       <text x={valueX} y={534} fill={RED} fontFamily={FONT_LABEL} fontWeight={900} fontSize={25} letterSpacing={2} {...legibleStroke(25)}>{label}</text>
-      <text x={valueX} y={572} fill={value === '—' ? C.dim : color} fontFamily={FONT_BIG} fontWeight={900} fontSize={42} {...legibleStroke(42)}>{value}</text>
-      {unit ? <text x={unitX} y={571} textAnchor="end" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={27} {...legibleStroke(27)}>{unit}</text> : null}
+      <text x={valueX} y={572} fill={value === '—' ? C.dim : color} fontFamily={FONT_BIG} fontWeight={900} fontSize={valueSize} {...legibleStroke(valueSize)}>{value}</text>
+      {unit ? <text x={unitX} y={571} textAnchor="end" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={unitSize} {...legibleStroke(unitSize)}>{unit}</text> : null}
     </g>
   )
 }
 
-function F488Dash({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function F488Dash({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const gear = num(snapshot?.gear)
   const speed = num(snapshot?.speedKmh)
   const fuel = num(snapshot?.fuelLiters)
   const oil = num(snapshot?.oilTempC)
   const water = num(snapshot?.waterTempC)
+  const speedReading = formatMeasurement(speed, 'speed-kmh', unitSystem, { decimals: 0 })
+  const fuelReading = formatMeasurement(fuel, 'fuel-volume-l', unitSystem, { decimals: 1 })
+  const oilReading = formatMeasurement(oil, 'temperature-c', unitSystem, { decimals: 0 })
+  const waterReading = formatMeasurement(water, 'temperature-c', unitSystem, { decimals: 0 })
   const delta = num(snapshot?.deltaToBestSec)
   return (
     <CleanTile width={width ?? DASH_W} height={height ?? DASH_H}>
@@ -165,15 +173,15 @@ function F488Dash({ snapshot, width, height }: HifiWidgetProps): ReactElement {
       <CurvedRpmBar snapshot={snapshot} cx={512} cy={358} id="f488-dash-rpm" />
       <text x={512} y={382} textAnchor="middle" fill={gear == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={178} {...legibleStroke(178)}>{gearLabel(gear)}</text>
       <text x={58} y={226} fill={RED} fontFamily={FONT_LABEL} fontWeight={900} fontSize={39} letterSpacing={2} {...legibleStroke(39)}>SPD</text>
-      <text x={54} y={356} fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={98} {...legibleStroke(98)}>{fixed(speed, 0)}</text>
-      <text x={61} y={407} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={31} {...legibleStroke(31)}>km/h</text>
+      <text x={54} y={356} fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={98} {...legibleStroke(98)}>{speedReading.display}</text>
+      <text x={61} y={407} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={31} {...legibleStroke(31)}>{speedReading.unit}</text>
       <text x={898} y={226} textAnchor="middle" fill={RED} fontFamily={FONT_LABEL} fontWeight={900} fontSize={39} letterSpacing={2} {...legibleStroke(39)}>LAP</text>
       <text x={944} y={314} textAnchor="end" fill={snapshot?.lastLapTimeSec == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={58} {...legibleStroke(58)}>{lapShort(num(snapshot?.lastLapTimeSec))}</text>
       <line x1={794} y1={352} x2={970} y2={352} stroke={RED} strokeWidth={3} />
       <text x={944} y={426} textAnchor="end" fill={condColor(delta, { positiveIsGood: false, deadzone: 0.01, good: '#25e86a', bad: RED, neutral: YELLOW })} fontFamily={FONT_BIG} fontWeight={900} fontSize={56} {...legibleStroke(56)}>{signed(delta, 2)}</text>
-      <BottomCell x={24} w={318} label="FUEL" value={fixed(fuel, 0)} unit="L" icon={<FuelIcon />} />
-      <BottomCell x={342} w={340} label="OIL" value={fixed(oil, 0)} unit="C" icon={<OilIcon />} color={tempColor(oil, 80, 115)} />
-      <BottomCell x={682} w={318} label="H2O" value={fixed(water, 0)} unit="C" icon={<WaterIcon />} color={tempColor(water, 75, 105)} />
+      <BottomCell x={24} w={318} label="FUEL" value={fuelReading.display} unit={fuelReading.unit} icon={<FuelIcon />} />
+      <BottomCell x={342} w={340} label="OIL" value={oilReading.display} unit={oilReading.unit} icon={<OilIcon />} color={tempColor(oil, 80, 115)} />
+      <BottomCell x={682} w={318} label="H2O" value={waterReading.display} unit={waterReading.unit} icon={<WaterIcon />} color={tempColor(water, 75, 105)} />
     </CleanTile>
   )
 }
@@ -185,11 +193,12 @@ function GearWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement 
   return <CleanTile width={w} height={h}><text x={w / 2} y={h * 0.78} textAnchor="middle" fill={gear == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={h * 0.82} {...legibleStroke(h * 0.82)}>{gearLabel(gear)}</text></CleanTile>
 }
 
-function SpeedWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function SpeedWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const w = width ?? 320
   const h = height ?? 160
   const speed = num(snapshot?.speedKmh)
-  return <CleanTile width={w} height={h}><text x={w / 2} y={h * 0.62} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={h * 0.55} {...legibleStroke(h * 0.55)}>{fixed(speed, 0)}</text><text x={w / 2} y={h * 0.85} textAnchor="middle" fill={YELLOW} fontFamily={FONT_LABEL} fontWeight={900} fontSize={h * 0.17} {...legibleStroke(h * 0.17)}>km/h</text></CleanTile>
+  const reading = formatMeasurement(speed, 'speed-kmh', unitSystem, { decimals: 0 })
+  return <CleanTile width={w} height={h}><text x={w / 2} y={h * 0.62} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={h * 0.55} {...legibleStroke(h * 0.55)}>{reading.display}</text><text x={w / 2} y={h * 0.85} textAnchor="middle" fill={YELLOW} fontFamily={FONT_LABEL} fontWeight={900} fontSize={h * 0.17} {...legibleStroke(h * 0.17)}>{reading.unit}</text></CleanTile>
 }
 
 function RevLightsWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
@@ -214,18 +223,21 @@ function SingleMetric({ width = 280, height = 140, label, value, unit, color = W
   )
 }
 
-function FuelWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
-  return <SingleMetric width={width ?? 260} height={height ?? 140} label="FUEL" value={fixed(num(snapshot?.fuelLiters), 0)} unit="L" icon={<FuelIcon />} />
+function FuelWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
+  const reading = formatMeasurement(num(snapshot?.fuelLiters), 'fuel-volume-l', unitSystem, { decimals: 1 })
+  return <SingleMetric width={width ?? 260} height={height ?? 140} label="FUEL" value={reading.display} unit={reading.unit} icon={<FuelIcon />} />
 }
 
-function OilWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function OilWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const v = num(snapshot?.oilTempC)
-  return <SingleMetric width={width ?? 260} height={height ?? 140} label="OIL" value={fixed(v, 0)} unit="C" color={tempColor(v, 80, 115)} icon={<OilIcon />} />
+  const reading = formatMeasurement(v, 'temperature-c', unitSystem, { decimals: 0 })
+  return <SingleMetric width={width ?? 260} height={height ?? 140} label="OIL" value={reading.display} unit={reading.unit} color={tempColor(v, 80, 115)} icon={<OilIcon />} />
 }
 
-function WaterWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function WaterWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const v = num(snapshot?.waterTempC)
-  return <SingleMetric width={width ?? 260} height={height ?? 140} label="H2O" value={fixed(v, 0)} unit="C" color={tempColor(v, 75, 105)} icon={<WaterIcon />} />
+  const reading = formatMeasurement(v, 'temperature-c', unitSystem, { decimals: 0 })
+  return <SingleMetric width={width ?? 260} height={height ?? 140} label="H2O" value={reading.display} unit={reading.unit} color={tempColor(v, 75, 105)} icon={<WaterIcon />} />
 }
 
 function LastLapWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { baseSnapshot } from '../../../../../shared/telemetry-scenarios'
 import type { OverlayTriggerKind } from '../../../../../shared/overlays'
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
+import { SHIFT_STROBE_BLUE } from '../../../lib/rev-lights'
 import { ALERTS_WIDGETS } from './index'
 
 const validTriggerKinds: OverlayTriggerKind[] = ['always', 'carLeft', 'carRight', 'carLeftOrRight', 'proximity', 'shiftPoint', 'pitLimiter', 'flag', 'lowFuel']
@@ -54,5 +55,16 @@ describe('ALERTS_WIDGETS', () => {
     for (const markup of [...renderAll(null), ...renderAll(populatedSnapshot())]) {
       expect(markup).not.toMatch(badTokens)
     }
+  })
+
+  it('renders the shift alert only as the shared full blue strobe', () => {
+    const widget = ALERTS_WIDGETS.find((candidate) => candidate.id === 'alertShiftFlash')!
+    const render = (snapshot: TelemetrySnapshot): string =>
+      renderToStaticMarkup(createElement(widget.render, { snapshot, width: 1000, height: 36 }))
+
+    expect(render({ ...populatedSnapshot(), shiftIndicatorPct: 0.6 })).not.toContain(SHIFT_STROBE_BLUE)
+    const shift = render(populatedSnapshot())
+    expect(shift).toContain(SHIFT_STROBE_BLUE)
+    expect(shift).toContain('repeatCount="indefinite"')
   })
 })

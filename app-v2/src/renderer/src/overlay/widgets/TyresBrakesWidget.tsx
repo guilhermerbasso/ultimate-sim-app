@@ -13,6 +13,8 @@ import { resolveSkin, FitText, makeGrid } from '../../skins'
 import type { SkinId, BrandId, SkinToken, Rect } from '../../skins'
 import type { WidgetProps } from './types'
 import { numberOrDash } from './format'
+import { formatMeasurement, type UnitSystem } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 const CORNERS: Array<[keyof Corners<unknown>, string]> = [['lf', 'LF'], ['rf', 'RF'], ['lr', 'LR'], ['rr', 'RR']]
 
@@ -111,7 +113,7 @@ function Metric({ rect, label, value, color, skin }: { rect: Rect; label: string
   )
 }
 
-function CornerTile({ rect, data, skin }: { rect: Rect; data: CornerData; skin: SkinToken }): ReactElement {
+function CornerTile({ rect, data, skin, unitSystem }: { rect: Rect; data: CornerData; skin: SkinToken; unitSystem: UnitSystem }): ReactElement {
   const { palette, material, typography } = skin
   const tabH = Math.max(14, Math.min(rect.h * 0.16, 22))
   const area: Rect = { x: rect.x + 6, y: rect.y + tabH, w: rect.w - 12, h: rect.h - tabH - 6 }
@@ -133,15 +135,16 @@ function CornerTile({ rect, data, skin }: { rect: Rect; data: CornerData; skin: 
         minFontPx={11}
         maxFontPx={18}
       />
-      <Metric rect={offset(area, inner.cell(0, 0))} label="TYRE" value={`${numberOrDash(data.tyre, 0)}°`} color={tyreHeat(data.tyre)} skin={skin} />
-      <Metric rect={offset(area, inner.cell(1, 0))} label="BRK" value={`${numberOrDash(data.brake, 0)}°`} color={brakeHeat(data.brake)} skin={skin} />
-      <Metric rect={offset(area, inner.cell(0, 1))} label="PRS" value={numberOrDash(data.pres, 0)} color={palette.text} skin={skin} />
+      <Metric rect={offset(area, inner.cell(0, 0))} label="TYRE" value={formatMeasurement(data.tyre, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display} color={tyreHeat(data.tyre)} skin={skin} />
+      <Metric rect={offset(area, inner.cell(1, 0))} label="BRK" value={formatMeasurement(data.brake, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display} color={brakeHeat(data.brake)} skin={skin} />
+      <Metric rect={offset(area, inner.cell(0, 1))} label="PRS" value={formatMeasurement(data.pres, 'pressure-kpa', unitSystem, { decimals: 1, includeUnit: true }).display} color={palette.text} skin={skin} />
       <Metric rect={offset(area, inner.cell(1, 1))} label="LIFE" value={data.wear !== undefined ? `${numberOrDash(data.wear, 0)}%` : '—'} color={lifeColor(data.wear)} skin={skin} />
     </g>
   )
 }
 
 export function TyresBrakesWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = widgetSkin(config)
   const W = Math.max(1, Math.round(config?.position?.width ?? DEFAULT_W))
   const H = Math.max(1, Math.round(config?.position?.height ?? DEFAULT_H))
@@ -175,7 +178,7 @@ export function TyresBrakesWidget({ snapshot, config }: WidgetProps): ReactEleme
     >
       <rect x={1} y={1} width={W - 2} height={H - 2} rx={material.radius} fill={material.base} stroke={material.border} strokeWidth={material.borderWidth} />
       {data.map((c, i) => (
-        <CornerTile key={c.key} rect={cells[i]} data={c} skin={skin} />
+        <CornerTile key={c.key} rect={cells[i]} data={c} skin={skin} unitSystem={unitSystem} />
       ))}
     </svg>
   )

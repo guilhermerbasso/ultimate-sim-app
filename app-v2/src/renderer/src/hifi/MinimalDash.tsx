@@ -1,5 +1,7 @@
 import { type ReactElement, type ReactNode } from 'react'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
+import { formatMeasurement } from '../../../shared/units'
+import { useUnitSystem } from '../lib/units'
 
 const W = 1024
 const H = 600
@@ -127,7 +129,8 @@ export interface MinimalDashProps {
 }
 
 export function MinimalDash({ snapshot: s, width, height }: MinimalDashProps): ReactElement {
-  const speed = n(s.speedKmh)
+  const unitSystem = useUnitSystem()
+  const speed = formatMeasurement(n(s.speedKmh), 'speed-kmh', unitSystem, { decimals: 0 })
   const delta = n(s.deltaToBestSec)
   const shiftPct = n(s.shiftIndicatorPct) ?? 0
   const fuel = n(s.fuelLiters)
@@ -170,10 +173,10 @@ export function MinimalDash({ snapshot: s, width, height }: MinimalDashProps): R
       </text>
 
       <text x={102} y={495} fill={COL.text} fontSize={124} fontWeight={300} letterSpacing={-7} fontFamily="'Inter','Segoe UI',Arial,sans-serif">
-        {fixed(speed)}
+        {speed.display}
       </text>
       <text x={178} y={545} fill={COL.text} fontSize={28} fontWeight={300} letterSpacing={4} fontFamily="'Inter','Segoe UI',Arial,sans-serif">
-        km/h
+        {speed.unit}
       </text>
 
       <Tile y={137} label="FUEL" primary={fixed(fuelLaps, 1)} secondary="LAPS" />

@@ -13,6 +13,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { CoachPhase } from './coach'
+import { formatMeasurement, psiToKpa, type UnitSystem } from './units'
 
 export type SetupArea =
   | 'aero'
@@ -174,10 +175,32 @@ function cornerLabel(c: 'lf' | 'rf' | 'lr' | 'rr'): string {
   return { lf: 'diant. esq.', rf: 'diant. dir.', lr: 'tras. esq.', rr: 'tras. dir.' }[c]
 }
 
+function tempText(valueC: number, unitSystem: UnitSystem): string {
+  return formatMeasurement(valueC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display
+}
+
+function tempDeltaText(deltaC: number, unitSystem: UnitSystem): string {
+  const value = unitSystem === 'imperial' ? deltaC * 9 / 5 : deltaC
+  return `${Math.round(value)} ${unitSystem === 'imperial' ? '°F' : '°C'}`
+}
+
+function tempRangeText(lowC: number, highC: number, unitSystem: UnitSystem): string {
+  const low = formatMeasurement(lowC, 'temperature-c', unitSystem, { decimals: 0 })
+  const high = formatMeasurement(highC, 'temperature-c', unitSystem, { decimals: 0 })
+  return `${low.display}-${high.display} ${low.unit}`
+}
+
+function pressureAdjustmentText(unitSystem: UnitSystem): string {
+  const low = formatMeasurement(psiToKpa(0.5), 'pressure-kpa', unitSystem, { decimals: 1 })
+  const high = formatMeasurement(psiToKpa(1), 'pressure-kpa', unitSystem, { decimals: 1 })
+  return `${low.display}-${high.display} ${low.unit}`
+}
+
 /** PURE: tyre-temperature + pressure + camber advice for the four corners. */
 export function adviseFromTyres(
   tyres: CornerTyres | undefined,
-  cfg: SetupAdvisorConfig = DEFAULT_SETUP_ADVISOR
+  cfg: SetupAdvisorConfig = DEFAULT_SETUP_ADVISOR,
+  unitSystem: UnitSystem = 'metric'
 ): SetupSuggestion[] {
   if (!tyres) return []
   const out: SetupSuggestion[] = []
@@ -197,8 +220,8 @@ export function adviseFromTyres(
         out.push(
           suggestion('pressure-high', 'high',
             `${label}: center of the tire is much hotter than the edges - pressure is too high, reducing the contact patch. Lowering cold pressure will settle the tire.`,
-            `Center ${Math.round(mid)} deg C vs edges ${Math.round(edges)} deg C (delta ${Math.round(mid - edges)} deg C)`,
-            { area: 'tyres', direction: 'decrease', magnitude: 'small', change: `Lower ${label} cold tire pressure ~0.5-1.0 psi` },
+            `Center ${tempText(mid, unitSystem)} vs edges ${tempText(edges, unitSystem)} (delta ${tempDeltaText(mid - edges, unitSystem)})`,
+            { area: 'tyres', direction: 'decrease', magnitude: 'small', change: `Lower ${label} cold tire pressure ~${pressureAdjustmentText(unitSystem)}` },
             [{ area: 'tyres', direction: 'decrease', magnitude: 'medium', change: 'Repeat until the temperature profile is flat (center matches edges)' }],
             { middleC: Math.round(mid), edgesC: Math.round(edges), deltaC: Math.round(mid - edges) }, { corner: c })
         )
@@ -206,8 +229,8 @@ export function adviseFromTyres(
         out.push(
           suggestion('pressure-low', 'high',
             `${label}: edges are hotter than the center - pressure is too low, so the tire rolls over and flexes. Raising cold pressure stabilizes the carcass.`,
-            `Edges ${Math.round(edges)} deg C vs center ${Math.round(mid)} deg C (delta ${Math.round(edges - mid)} deg C)`,
-            { area: 'tyres', direction: 'increase', magnitude: 'small', change: `Increase ${label} cold tire pressure ~0.5-1.0 psi` },
+            `Edges ${tempText(edges, unitSystem)} vs center ${tempText(mid, unitSystem)} (delta ${tempDeltaText(edges - mid, unitSystem)})`,
+            { area: 'tyres', direction: 'increase', magnitude: 'small', change: `Increase ${label} cold tire pressure ~${pressureAdjustmentText(unitSystem)}` },
             [{ area: 'tyres', direction: 'increase', magnitude: 'medium', change: 'Repeat until the center matches the edges' }],
             { middleC: Math.round(mid), edgesC: Math.round(edges), deltaC: Math.round(edges - mid) }, { corner: c })
         )
@@ -218,7 +241,7 @@ export function adviseFromTyres(
         out.push(
           suggestion('camber-excess', 'med',
             `${label}: inner edge is much hotter - too much negative camber for this track. Reducing camber spreads the temperature better.`,
-            `Inner ${Math.round(t.innerC)} deg C vs outer ${Math.round(t.outerC)} deg C (delta ${Math.round(t.innerC - t.outerC)} deg C)`,
+            `Inner ${tempText(t.innerC, unitSystem)} vs outer ${tempText(t.outerC, unitSystem)} (delta ${tempDeltaText(t.innerC - t.outerC, unitSystem)})`,
             { area: 'alignment', direction: 'decrease', magnitude: 'small', change: `Reduce negative camber on ${label} ~0.2-0.4 deg` },
             [{ area: 'tyres', direction: 'increase', magnitude: 'small', change: 'As a fallback, raise pressure slightly to heat the center' }],
             { innerC: Math.round(t.innerC), outerC: Math.round(t.outerC), deltaC: Math.round(t.innerC - t.outerC) }, { corner: c })
@@ -227,7 +250,7 @@ export function adviseFromTyres(
         out.push(
           suggestion('camber-lack', 'med',
             `${label}: outer edge is much hotter - not enough negative camber, so the tire loads the outside edge in the corner. More camber widens the cornering footprint.`,
-            `Outer ${Math.round(t.outerC)} deg C vs inner ${Math.round(t.innerC)} deg C (delta ${Math.round(t.outerC - t.innerC)} deg C)`,
+            `Outer ${tempText(t.outerC, unitSystem)} vs inner ${tempText(t.innerC, unitSystem)} (delta ${tempDeltaText(t.outerC - t.innerC, unitSystem)})`,
             { area: 'alignment', direction: 'increase', magnitude: 'small', change: `Increase negative camber on ${label} ~0.2-0.4 deg` },
             [],
             { innerC: Math.round(t.innerC), outerC: Math.round(t.outerC), deltaC: Math.round(t.outerC - t.innerC) }, { corner: c })
@@ -240,8 +263,8 @@ export function adviseFromTyres(
       if (avg >= cfg.tempHighC + 8) {
         out.push(
           suggestion('tyre-overheat', 'med',
-            `${label}: tire overheating (${Math.round(avg)} deg C), above the ideal window. Lower pressure, reduce aero load on that axle, or smooth your inputs so the rubber does not degrade.`,
-            `Average ${Math.round(avg)} deg C (target ${cfg.tempLowC}-${cfg.tempHighC} deg C)`,
+            `${label}: tire overheating (${tempText(avg, unitSystem)}), above the ideal window. Lower pressure, reduce aero load on that axle, or smooth your inputs so the rubber does not degrade.`,
+            `Average ${tempText(avg, unitSystem)} (target ${tempRangeText(cfg.tempLowC, cfg.tempHighC, unitSystem)})`,
             { area: 'tyres', direction: 'decrease', magnitude: 'small', change: `Lower ${label} cold pressure and/or reduce load on that axle` },
             [{ area: 'aero', direction: 'decrease', magnitude: 'small', change: 'Slightly reduce wing/splitter on the affected axle' }],
             { avgC: Math.round(avg) }, { corner: c })
@@ -249,8 +272,8 @@ export function adviseFromTyres(
       } else if (avg <= cfg.tempLowC - 8) {
         out.push(
           suggestion('tyre-cold', 'med',
-            `${label}: tire is cold (${Math.round(avg)} deg C), below the ideal window - low grip and slow warmup. Raise pressure, add load to that axle, or consider a softer compound.`,
-            `Average ${Math.round(avg)} deg C (target ${cfg.tempLowC}-${cfg.tempHighC} deg C)`,
+            `${label}: tire is cold (${tempText(avg, unitSystem)}), below the ideal window - low grip and slow warmup. Raise pressure, add load to that axle, or consider a softer compound.`,
+            `Average ${tempText(avg, unitSystem)} (target ${tempRangeText(cfg.tempLowC, cfg.tempHighC, unitSystem)})`,
             { area: 'tyres', direction: 'increase', magnitude: 'small', change: `Increase ${label} cold pressure to generate more heat` },
             [{ area: 'arb', direction: 'stiffen', magnitude: 'small', change: 'Move more load to that axle (bar/spring)' }],
             { avgC: Math.round(avg) }, { corner: c })
@@ -260,8 +283,8 @@ export function adviseFromTyres(
   }
 
   // Left-vs-right axle imbalance (per axle).
-  out.push(...axleImbalance('front', tyres.lf, tyres.rf, cfg))
-  out.push(...axleImbalance('rear', tyres.lr, tyres.rr, cfg))
+  out.push(...axleImbalance('front', tyres.lf, tyres.rf, cfg, unitSystem))
+  out.push(...axleImbalance('rear', tyres.lr, tyres.rr, cfg, unitSystem))
 
   return out
 }
@@ -270,7 +293,8 @@ function axleImbalance(
   axle: 'front' | 'rear',
   left: TyreTreadTemps | undefined,
   right: TyreTreadTemps | undefined,
-  cfg: SetupAdvisorConfig
+  cfg: SetupAdvisorConfig,
+  unitSystem: UnitSystem
 ): SetupSuggestion[] {
   if (!left || !right) return []
   const la = avgTread(left)
@@ -283,7 +307,7 @@ function axleImbalance(
   return [
     suggestion('tyre-temp-imbalance-lr', 'low',
       `Axle ${axleTxt}: the ${hotter} side is much hotter - a typical L/R imbalance from tracks with more corners in one direction or from cross-weight/ride height. Check corner weights and cold pressures by side.`,
-      `Delta ${Math.round(Math.abs(delta))} deg C between ${axleTxt} axle tires (L ${Math.round(la)} deg C / R ${Math.round(ra)} deg C)`,
+      `Delta ${tempDeltaText(Math.abs(delta), unitSystem)} between ${axleTxt} axle tires (L ${tempText(la, unitSystem)} / R ${tempText(ra, unitSystem)})`,
       { area: 'ride-height', direction: 'adjust', magnitude: 'small', change: `Adjust cross-weight/ride height to balance the ${axleTxt} axle` },
       [{ area: 'tyres', direction: 'adjust', magnitude: 'small', change: `Equalize cold pressures on the ${axleTxt} axle to compensate for the hot side` }],
       { leftC: Math.round(la), rightC: Math.round(ra), deltaC: Math.round(Math.abs(delta)) }, { corner: axle })
@@ -413,12 +437,12 @@ function confidenceRank(c: SetupConfidence): number {
 /** PURE: assemble the full setup report from all available signals. */
 export function buildSetupReport(
   input: SetupAdvisorInput & { frontLock?: boolean; rearLock?: boolean },
-  opts: { cfg?: SetupAdvisorConfig; now?: number } = {}
+  opts: { cfg?: SetupAdvisorConfig; now?: number; unitSystem?: UnitSystem } = {}
 ): SetupReport {
   const cfg = opts.cfg ?? DEFAULT_SETUP_ADVISOR
   const suggestions = [
     ...adviseFromHandling(input.balance, cfg),
-    ...adviseFromTyres(input.tyres, cfg),
+    ...adviseFromTyres(input.tyres, cfg, opts.unitSystem ?? 'metric'),
     ...adviseFromBrakeBias({ frontLock: input.frontLock, rearLock: input.rearLock, brakeBiasPct: input.brakeBiasPct }, cfg)
   ].sort((a, b) => confidenceRank(b.confidence) - confidenceRank(a.confidence))
   return {

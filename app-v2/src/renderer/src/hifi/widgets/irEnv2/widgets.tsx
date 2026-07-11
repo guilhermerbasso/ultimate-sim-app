@@ -6,6 +6,7 @@
 import type { ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { Bar, BigNum, C, FONT_LABEL, LEGIBLE, fixed, num } from '../kit'
+import { formatMeasurement } from '../../../../../shared/units'
 
 const W = 360
 const H = 300
@@ -40,9 +41,10 @@ function PercentBar({ width, height, value, color, glyph }: HifiWidgetProps & { 
   )
 }
 
-function WindCompass({ width, height, snapshot }: HifiWidgetProps): ReactElement {
+function WindCompass({ width, height, snapshot, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const dir = num(snapshot?.windDirRad)
   const speed = num(snapshot?.windSpeedMs)
+  const speedReading = formatMeasurement(speed, 'speed-ms', unitSystem, { decimals: 1 })
   const cx = W / 2
   const cy = 150
   const r = 96
@@ -80,8 +82,8 @@ function WindCompass({ width, height, snapshot }: HifiWidgetProps): ReactElement
           <polygon points={`${tipX},${tipY} ${baseX + 10 * px},${baseY + 10 * py} ${baseX - 10 * px},${baseY - 10 * py}`} fill={C.cyan} />
         </g>
       ) : null}
-      <text x={cx} y={cy + 8} textAnchor="middle" fill={speed == null ? C.dim : C.text} fontFamily={FONT_LABEL} fontSize={54} fontWeight={800} {...LEGIBLE}>{speed == null ? '—' : fixed(speed, 1)}</text>
-      <text x={cx} y={cy + 34} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={18} fontWeight={700} {...LEGIBLE}>m/s</text>
+      <text x={cx} y={cy + 8} textAnchor="middle" fill={speed == null ? C.dim : C.text} fontFamily={FONT_LABEL} fontSize={54} fontWeight={800} {...LEGIBLE}>{speedReading.display}</text>
+      <text x={cx} y={cy + 34} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={18} fontWeight={700} {...LEGIBLE}>{speedReading.unit}</text>
     </svg>
   )
 }

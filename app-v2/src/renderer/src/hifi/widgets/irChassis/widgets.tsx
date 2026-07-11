@@ -5,6 +5,7 @@
 import type { ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { Bar, BigNum, C, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, Hairline, LEGIBLE, fixed, legibleStroke, num } from '../kit'
+import { formatMeasurement } from '../../../../../shared/units'
 
 const ROUND_W = 360
 const ROUND_H = 300
@@ -184,15 +185,16 @@ function CenterZeroReadout({ width, height, value, unit, min, max, digits }: Hif
   )
 }
 
-function AltitudeReadout({ width, height, snapshot }: HifiWidgetProps): ReactElement {
+function AltitudeReadout({ width, height, snapshot, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const altitude = num(snapshot?.altitudeM)
+  const reading = formatMeasurement(altitude, 'distance-m', unitSystem, { decimals: 0 })
   const f = altitude == null ? 0 : clamp(altitude / 500, 0, 1)
   const sx = 76
   const ex = READOUT_W - 76
   const sy = 178
   return (
     <svg viewBox={`0 0 ${READOUT_W} ${READOUT_H}`} width={width ?? READOUT_W} height={height ?? READOUT_H} preserveAspectRatio="xMidYMid meet" role="img">
-      <BigNum x={READOUT_W / 2} y={126} value={altitude == null ? '—' : fixed(altitude, 0)} unit="m" color={altitude == null ? C.dim : C.text} size={94} />
+      <BigNum x={READOUT_W / 2} y={126} value={reading.display} unit={reading.unit} color={altitude == null ? C.dim : C.text} size={94} />
       <Hairline x={sx} y={sy} len={ex - sx} opacity={0.28} />
       {altitude != null ? <rect x={sx + (ex - sx) * f - 1.5} y={sy - 9} width={3} height={18} rx={1} fill={C.cyan} /> : null}
       <text x={sx} y={sy + 29} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={20} fontWeight={700} {...LEGIBLE}>0</text>

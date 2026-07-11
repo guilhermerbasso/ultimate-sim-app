@@ -1,6 +1,8 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, Hairline, ShiftStrobe, atShiftPoint, fixed, frac, gearLabel, legibleStroke, num, revFill } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, Hairline, fixed, frac, gearLabel, legibleStroke, num } from '../kit'
+import { ShiftStrobe, atShiftPoint, revFill, revLightRowLayout } from '../../../lib/rev-lights'
+import { formatMeasurement } from '../../../../../shared/units'
 
 const W = 420
 const H = 286
@@ -42,15 +44,15 @@ function shiftFraction(snapshot: HifiWidgetProps['snapshot']): { f: number; miss
   return { f: 0, missing: true }
 }
 
-function SpeedWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
-  const speed = num(snapshot?.speedKmh)
+function SpeedWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
+  const speed = formatMeasurement(num(snapshot?.speedKmh), 'speed-kmh', unitSystem, { decimals: 0 })
   return (
     <CleanTile width={width ?? W} height={height ?? H}>
-      <text x="50%" y="53%" textAnchor="middle" dominantBaseline="middle" fill={valueColor(speed)} fontFamily={FONT_BIG} fontSize={112} fontWeight={900} letterSpacing={-5} {...legibleStroke(112)}>
-        {fixed(speed)}
+      <text x="50%" y="53%" textAnchor="middle" dominantBaseline="middle" fill={valueColor(speed.value)} fontFamily={FONT_BIG} fontSize={112} fontWeight={900} letterSpacing={-5} {...legibleStroke(112)}>
+        {speed.display}
       </text>
-      <text x="50%" y={224} textAnchor="middle" fill={speed == null ? C.dim : CYAN} fontFamily={FONT_LABEL} fontSize={34} fontWeight={700} {...legibleStroke(34)}>
-        km/h
+      <text x="50%" y={224} textAnchor="middle" fill={speed.value == null ? C.dim : CYAN} fontFamily={FONT_LABEL} fontSize={34} fontWeight={700} {...legibleStroke(34)}>
+        {speed.unit}
       </text>
     </CleanTile>
   )
@@ -94,17 +96,16 @@ function RpmWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
 
 function SegmentedRpmBar({ f, x, y, w, h, missing, shift }: { f: number; x: number; y: number; w: number; h: number; missing: boolean; shift: boolean }): ReactElement {
   const count = 20
-  const gap = 5
-  const cellW = (w - gap * (count - 1)) / count
-  const lit = shift ? count : Math.round(frac(f, 0, 1) * count)
+  const layout = revLightRowLayout(w, h, count, { gap: 5 })
+  const lit = shift ? layout.count : Math.round(frac(f, 0, 1) * layout.count)
   return (
     <g>
       <ShiftStrobe active={shift} />
-      {Array.from({ length: count }, (_, i) => {
-        const pct = i / (count - 1)
+      {Array.from({ length: layout.count }, (_, i) => {
+        const pct = i / (layout.count - 1)
         const color = pct < 0.55 ? GREEN : pct < 0.78 ? YELLOW : RED
         const on = shift || (i < lit && !missing)
-        return <rect key={i} x={x + i * (cellW + gap)} y={y} width={cellW} height={h} rx={5} fill={on ? revFill(color, shift) : C.recess} opacity={on ? 1 : 0.42} />
+        return <rect key={i} x={x + layout.positions[i]} y={y + layout.y} width={layout.ledWidth} height={layout.ledHeight} rx={Math.min(5, layout.ledHeight / 2)} fill={on ? revFill(color, shift) : C.recess} opacity={on ? 1 : 0.42} />
       })}
     </g>
   )
@@ -115,11 +116,10 @@ function RpmBarWidget({ snapshot, width, height }: HifiWidgetProps): ReactElemen
   const shift = atShiftPoint(f)
   const w = width ?? REV_WIDE_W
   const h = height ?? REV_WIDE_H
-  const x = Math.max(8, Math.min(24, w * 0.03))
   const barH = Math.max(6, h * 0.62)
   return (
     <CleanTile width={w} height={h}>
-      <SegmentedRpmBar f={f} x={x} y={(h - barH) / 2} w={w - x * 2} h={barH} missing={missing} shift={shift} />
+      <SegmentedRpmBar f={f} x={0} y={(h - barH) / 2} w={w} h={barH} missing={missing} shift={shift} />
     </CleanTile>
   )
 }
@@ -139,24 +139,23 @@ function GearWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement 
 
 function RevLedStrip({ f, missing, shift, width, height }: { f: number; missing: boolean; shift: boolean; width: number; height: number }): ReactElement {
   const count = 16
-  const gap = Math.max(2, Math.round(width / count / 12))
-  const x = 0
-  const h = Math.max(6, height * 0.72)
-  const y = (height - h) / 2
-  const w = width
-  const cellW = (w - gap * (count - 1)) / count
-  const lit = shift ? count : Math.round(frac(f, 0, 1) * count)
+  const layout = revLightRowLayout(width, height, count, {
+    gap: Math.max(2, Math.round(width / count / 12)),
+    heightRatio: 0.72,
+    minLedHeight: Math.min(6, Math.max(1, height))
+  })
+  const lit = shift ? layout.count : Math.round(frac(f, 0, 1) * layout.count)
   return (
     <g>
       <ShiftStrobe active={shift} />
-      {Array.from({ length: count }, (_, i) => {
-        const pct = i / (count - 1)
+      {Array.from({ length: layout.count }, (_, i) => {
+        const pct = i / (layout.count - 1)
         const color = pct < 0.5 ? GREEN : pct < 0.75 ? YELLOW : RED
         const on = shift || (i < lit && !missing)
         return (
           <g key={i}>
-            <rect x={x + i * (cellW + gap)} y={y} width={cellW} height={h} rx={4} fill={on ? revFill(color, shift) : C.recess} opacity={on ? 1 : 0.45} />
-            {on ? <rect x={x + i * (cellW + gap) + 3} y={y + 4} width={Math.max(0, cellW - 6)} height={7} rx={2} fill="rgba(255,255,255,0.34)" /> : null}
+            <rect x={layout.positions[i]} y={layout.y} width={layout.ledWidth} height={layout.ledHeight} rx={Math.min(4, layout.ledHeight / 2)} fill={on ? revFill(color, shift) : C.recess} opacity={on ? 1 : 0.45} />
+            {on ? <rect x={layout.positions[i] + 3} y={layout.y + Math.min(4, layout.ledHeight * 0.18)} width={Math.max(0, layout.ledWidth - 6)} height={Math.max(1, layout.ledHeight * 0.18)} rx={2} fill="rgba(255,255,255,0.34)" /> : null}
           </g>
         )
       })}
@@ -176,16 +175,16 @@ function RevLightsWidget({ snapshot, width, height }: HifiWidgetProps): ReactEle
   )
 }
 
-function SpeedGearWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
-  const speed = num(snapshot?.speedKmh)
+function SpeedGearWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
+  const speed = formatMeasurement(num(snapshot?.speedKmh), 'speed-kmh', unitSystem, { decimals: 0 })
   const gear = num(snapshot?.gear)
   return (
     <CleanTile width={width ?? W} height={height ?? H}>
-      <text x={142} y={157} textAnchor="middle" fill={valueColor(speed)} fontFamily={FONT_BIG} fontSize={82} fontWeight={900} letterSpacing={-4} {...legibleStroke(82)}>
-        {fixed(speed)}
+      <text x={142} y={157} textAnchor="middle" fill={valueColor(speed.value)} fontFamily={FONT_BIG} fontSize={82} fontWeight={900} letterSpacing={-4} {...legibleStroke(82)}>
+        {speed.display}
       </text>
-      <text x={142} y={199} textAnchor="middle" fill={speed == null ? C.dim : CYAN} fontFamily={FONT_LABEL} fontSize={28} fontWeight={700} {...legibleStroke(28)}>
-        km/h
+      <text x={142} y={199} textAnchor="middle" fill={speed.value == null ? C.dim : CYAN} fontFamily={FONT_LABEL} fontSize={28} fontWeight={700} {...legibleStroke(28)}>
+        {speed.unit}
       </text>
       <Hairline x={268} y={62} len={172} vertical opacity={0.22} />
       <text x={336} y={166} textAnchor="middle" fill={gear == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontSize={96} fontWeight={900} {...legibleStroke(96)}>
@@ -214,10 +213,10 @@ function RevlightsGradientWidget({ snapshot, width, height }: HifiWidgetProps): 
   const shift = atShiftPoint(f)
   const w = width ?? REV_WIDE_W
   const h = height ?? REV_WIDE_H
-  const x = 24
-  const y = h / 2 - 15
-  const barW = w - x * 2
-  const barH = 30
+  const x = 0
+  const barW = w
+  const barH = Math.max(1, h * 0.62)
+  const y = (h - barH) / 2
   const litW = shift ? barW : missing ? 0 : barW * f
   return (
     <CleanTile width={w} height={h}>
@@ -254,21 +253,20 @@ function RevlightsLedStripWidget({ snapshot, width, height }: HifiWidgetProps): 
   const w = width ?? REV_WIDE_W
   const h = height ?? REV_WIDE_H
   const count = 42
-  const gap = 7
-  const x = 20
-  const stripH = Math.max(6, h * 0.64)
-  const y = (h - stripH) / 2
-  const stripW = w - x * 2
-  const ledW = (stripW - gap * (count - 1)) / count
-  const lit = shift ? count : missing ? 0 : Math.round(f * count)
+  const layout = revLightRowLayout(w, h, count, {
+    gap: 7,
+    heightRatio: 0.64,
+    minLedHeight: Math.min(6, Math.max(1, h))
+  })
+  const lit = shift ? layout.count : missing ? 0 : Math.round(f * layout.count)
   return (
     <CleanTile width={w} height={h}>
       <g>
         <ShiftStrobe active={shift} />
-        {Array.from({ length: count }, (_, i) => {
-          const pct = i / (count - 1)
+        {Array.from({ length: layout.count }, (_, i) => {
+          const pct = i / (layout.count - 1)
           const on = shift || i < lit
-          return <rect key={i} x={x + i * (ledW + gap)} y={y} width={ledW} height={stripH} rx={Math.min(4, stripH / 4)} fill={on ? revFill(revRampColor(pct), shift) : C.recess} opacity={on ? 1 : 0.48} />
+          return <rect key={i} x={layout.positions[i]} y={layout.y} width={layout.ledWidth} height={layout.ledHeight} rx={Math.min(4, layout.ledHeight / 4)} fill={on ? revFill(revRampColor(pct), shift) : C.recess} opacity={on ? 1 : 0.48} />
         })}
       </g>
     </CleanTile>
@@ -281,25 +279,24 @@ function RevlightsLedBarWidget({ snapshot, width, height }: HifiWidgetProps): Re
   const w = width ?? REV_WIDE_W
   const h = height ?? REV_WIDE_H
   const count = 16
-  const gap = 12
-  const x = 22
-  const ledH = Math.max(8, h * 0.66)
-  const y = (h - ledH) / 2
-  const barW = w - x * 2
-  const ledW = (barW - gap * (count - 1)) / count
-  const lit = shift ? count : missing ? 0 : Math.round(f * count)
+  const layout = revLightRowLayout(w, h, count, {
+    gap: 12,
+    heightRatio: 0.66,
+    minLedHeight: Math.min(8, Math.max(1, h))
+  })
+  const lit = shift ? layout.count : missing ? 0 : Math.round(f * layout.count)
   return (
     <CleanTile width={w} height={h}>
       <g>
         <ShiftStrobe active={shift} />
-        {Array.from({ length: count }, (_, i) => {
-          const pct = i / (count - 1)
+        {Array.from({ length: layout.count }, (_, i) => {
+          const pct = i / (layout.count - 1)
           const on = shift || i < lit
           const color = revFill(revRampColor(pct), shift)
           return (
             <g key={i}>
-              <rect x={x + i * (ledW + gap)} y={y} width={ledW} height={ledH} rx={Math.min(7, ledH / 4)} fill={on ? color : C.recess} opacity={on ? 1 : 0.45} />
-              {on ? <rect x={x + i * (ledW + gap) + 6} y={y + Math.max(3, ledH * 0.08)} width={Math.max(0, ledW - 12)} height={Math.max(2, ledH * 0.16)} rx={3} fill="rgba(255,255,255,0.28)" /> : null}
+              <rect x={layout.positions[i]} y={layout.y} width={layout.ledWidth} height={layout.ledHeight} rx={Math.min(7, layout.ledHeight / 4)} fill={on ? color : C.recess} opacity={on ? 1 : 0.45} />
+              {on ? <rect x={layout.positions[i] + 6} y={layout.y + Math.max(1, layout.ledHeight * 0.08)} width={Math.max(0, layout.ledWidth - 12)} height={Math.max(1, layout.ledHeight * 0.16)} rx={3} fill="rgba(255,255,255,0.28)" /> : null}
             </g>
           )
         })}
@@ -322,14 +319,16 @@ function RevlightsMustangWidget({ snapshot, width, height }: HifiWidgetProps): R
   const countPerSide = 8
   const centerX = w / 2
   const cy = h / 2
-  const r = Math.max(4, Math.min(14, h * 0.18))
-  const margin = Math.max(r + 4, w * 0.03)
-  const centerGap = Math.max(r * 2 + 8, w * 0.05)
-  const gap = (centerX - centerGap / 2 - margin) / Math.max(1, countPerSide - 1)
+  const r = Math.max(0.5, Math.min(14, h * 0.18, w / (countPerSide * 2)))
+  const margin = r
+  const centerGap = Math.min(
+    Math.max(r * 2 + 8, w * 0.05),
+    Math.max(0, w - margin * 2)
+  )
+  const gap = Math.max(0, centerX - centerGap / 2 - margin) / Math.max(1, countPerSide - 1)
   const litPairs = shift ? countPerSide : missing ? 0 : Math.round(f * countPerSide)
   return (
     <CleanTile width={w} height={h}>
-      <Hairline x={centerX - 0.5} y={h * 0.2} len={h * 0.6} vertical opacity={0.45} />
       <g>
         <ShiftStrobe active={shift} />
         {Array.from({ length: countPerSide }, (_, i) => {

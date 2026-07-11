@@ -36,6 +36,8 @@ import {
 import { ButtonBoxRenderer } from './ButtonBoxRenderer'
 import { MATERIAL_OPTIONS } from './keyMaterials'
 import { ICON_OPTIONS } from './icons'
+import { useUnitSystem } from '../lib/units'
+import { litersToUsGallons, usGallonsToLiters } from '../../../shared/units'
 import './buttonbox.css'
 
 const PANEL_BORDER = '#1f2733'
@@ -419,6 +421,7 @@ export function ButtonBoxEditor({ panel, selectedId, onChange, onSelect }: Butto
 }
 
 function ActionEditor({ action, onChange }: { action: ButtonAction; onChange: (action: ButtonAction) => void }): ReactElement {
+  const unitSystem = useUnitSystem()
   const setKind = (kind: ButtonAction['kind']): void => {
     switch (kind) {
       case 'none':
@@ -464,10 +467,15 @@ function ActionEditor({ action, onChange }: { action: ButtonAction; onChange: (a
             <input
               type="number"
               min={0}
+              step={unitSystem === 'imperial' ? 0.1 : 1}
               style={field()}
-              placeholder="Liters"
-              value={action.command.fuelLiters ?? 0}
-              onChange={(e) => onChange({ kind: 'iracing', command: { ...action.command, fuelLiters: Math.max(0, Number(e.target.value) || 0) } })}
+              placeholder={unitSystem === 'imperial' ? 'US gal' : 'Liters'}
+              value={unitSystem === 'imperial' ? Number((litersToUsGallons(action.command.fuelLiters ?? 0) ?? 0).toFixed(2)) : action.command.fuelLiters ?? 0}
+              onChange={(e) => {
+                const displayValue = Math.max(0, Number(e.target.value) || 0)
+                const fuelLiters = unitSystem === 'imperial' ? usGallonsToLiters(displayValue) ?? 0 : displayValue
+                onChange({ kind: 'iracing', command: { ...action.command, fuelLiters } })
+              }}
             />
           ) : null}
         </>

@@ -14,7 +14,8 @@ import { AnalogDial, SegmentReadout, INSTRUMENT_COLORS } from '../../instruments
 import { resolveSkin, FitText, makeGrid } from '../../skins'
 import type { SkinId, BrandId, SkinToken, Rect } from '../../skins'
 import type { WidgetProps } from './types'
-import { numberOrDash } from './format'
+import { convertMeasurement, formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 export const ENGINE_VITALS_DIAL_STREAM_SAFE = true
 
@@ -101,6 +102,7 @@ function DialCell({ rect, d, skin }: { rect: Rect; d: DialModel; skin: SkinToken
 }
 
 export function EngineVitalsDialWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = widgetSkin(config)
   const W = Math.max(1, Math.round(config?.position?.width ?? DEFAULT_W))
   const H = Math.max(1, Math.round(config?.position?.height ?? DEFAULT_H))
@@ -114,11 +116,14 @@ export function EngineVitalsDialWidget({ snapshot, config }: WidgetProps): React
   const waterSev: Sev = water === undefined ? 'ok' : water >= 110 ? 'red' : water >= 100 ? 'amber' : 'ok'
   const oilTSev: Sev = oilT === undefined ? 'ok' : oilT >= 140 ? 'red' : oilT >= 125 ? 'amber' : 'ok'
   const oilPSev: Sev = oilBar === undefined || !spinning ? 'ok' : oilBar < 2.5 ? 'red' : oilBar < 3.5 ? 'amber' : 'ok'
+  const waterReading = formatMeasurement(water, 'temperature-c', unitSystem, { decimals: 0 })
+  const oilReading = formatMeasurement(oilT, 'temperature-c', unitSystem, { decimals: 0 })
+  const pressureReading = formatMeasurement(oilBar, 'pressure-bar', unitSystem, { decimals: 1 })
 
   const dials: DialModel[] = [
-    { label: 'Water', value: numberOrDash(water, 0), unit: '°C', numericValue: water, min: 60, max: 130, sev: waterSev },
-    { label: 'Oil T', value: numberOrDash(oilT, 0), unit: '°C', numericValue: oilT, min: 70, max: 150, sev: oilTSev },
-    { label: 'Oil P', value: numberOrDash(oilBar, 1), unit: 'bar', numericValue: oilBar, min: 0, max: 7, sev: oilPSev }
+    { label: 'Water', value: waterReading.display, unit: waterReading.unit, numericValue: waterReading.value, min: convertMeasurement(60, 'temperature-c', unitSystem) ?? 60, max: convertMeasurement(130, 'temperature-c', unitSystem) ?? 130, sev: waterSev },
+    { label: 'Oil T', value: oilReading.display, unit: oilReading.unit, numericValue: oilReading.value, min: convertMeasurement(70, 'temperature-c', unitSystem) ?? 70, max: convertMeasurement(150, 'temperature-c', unitSystem) ?? 150, sev: oilTSev },
+    { label: 'Oil P', value: pressureReading.display, unit: pressureReading.unit, numericValue: pressureReading.value, min: 0, max: convertMeasurement(7, 'pressure-bar', unitSystem) ?? 7, sev: oilPSev }
   ]
 
   const pad = 10

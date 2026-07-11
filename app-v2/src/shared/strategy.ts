@@ -14,6 +14,7 @@
 // of its inputs so it is trivially unit-testable with synthetic telemetry.
 
 import type { TelemetrySnapshot } from './telemetry'
+import { formatMeasurement, type UnitSystem } from './units'
 
 // ─── IPC channels (module + renderer agree on these) ─────────────────────────
 
@@ -652,7 +653,7 @@ function fmt1(value: number | undefined): string {
 
 // Pure radio-style phrasing of a plan. ALWAYS works — this is the fallback that
 // makes the LLM optional. PT-BR by default (driver radio), EN on request.
-export function narrateStrategyPlan(plan: StrategyPlan, lang: 'pt' | 'en' = 'pt'): string {
+export function narrateStrategyPlan(plan: StrategyPlan, lang: 'pt' | 'en' = 'pt', unitSystem: UnitSystem = 'metric'): string {
   if (!plan.connected) {
     return lang === 'pt' ? 'Sem telemetria no momento.' : 'No telemetry right now.'
   }
@@ -670,13 +671,15 @@ export function narrateStrategyPlan(plan: StrategyPlan, lang: 'pt' | 'en' = 'pt'
           : `Get ready to pit — window open${plan.pitWindow.optimalLap ? `, by lap ${plan.pitWindow.optimalLap}` : ''}.`
       )
       break
-    case 'short-fill':
+    case 'short-fill': {
+      const shortFill = formatMeasurement(plan.fuel.shortFillLiters, 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true }).display
       parts.push(
         pt
-          ? `Splash ${fmt1(plan.fuel.shortFillLiters)} liters and run to the flag.`
-          : `Short-fill ${fmt1(plan.fuel.shortFillLiters)} litres and run to the flag.`
+          ? `Splash ${shortFill} and run to the flag.`
+          : `Short-fill ${shortFill} and run to the flag.`
       )
       break
+    }
     case 'extend':
       parts.push(pt ? 'Stay out, not time to pit yet.' : 'Stay out, not time to pit yet.')
       break

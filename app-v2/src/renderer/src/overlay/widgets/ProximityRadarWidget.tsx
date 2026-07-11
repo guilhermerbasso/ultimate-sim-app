@@ -20,6 +20,8 @@ import type { RadarCarEntry } from '../../../../shared/telemetry'
 import { resolveSkin, FitText } from '../../skins'
 import type { SkinId, BrandId, SkinToken } from '../../skins'
 import type { WidgetProps } from './types'
+import { useUnitSystem } from '../../lib/units'
+import { formatMeasurement } from '../../../../shared/units'
 
 const DEFAULT_W = 300
 const DEFAULT_H = 300
@@ -64,11 +66,8 @@ function markerColor(car: RadarCarEntry): string {
 function sideThreat(cars: RadarCarEntry[], side: Side): RadarThreat {
   return radarSideThreat(cars.filter((car) => carSide(car) === side && isInSideProximity(car)).map((car) => car.relativeY))
 }
-function numericText(value: number | undefined, decimals = 1): string {
-  return value === undefined || !Number.isFinite(value) ? '—' : value.toFixed(decimals)
-}
-
 export function ProximityRadarWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = widgetSkin(config)
   const W = Math.max(1, Math.round(config?.position?.width ?? DEFAULT_W))
   const H = Math.max(1, Math.round(config?.position?.height ?? DEFAULT_H))
@@ -77,6 +76,7 @@ export function ProximityRadarWidget({ snapshot, config }: WidgetProps): ReactEl
   const cars = sortedCars(snapshot?.radarCars)
   const nearest = cars[0]
   const nearestGap = nearest ? Math.hypot(nearest.relativeX, nearest.relativeY) : undefined
+  const nearestReading = formatMeasurement(nearestGap, 'distance-m', unitSystem, { decimals: 1, includeUnit: true })
   const leftThreat = sideThreat(cars, 'left')
   const rightThreat = sideThreat(cars, 'right')
 
@@ -128,7 +128,7 @@ export function ProximityRadarWidget({ snapshot, config }: WidgetProps): ReactEl
       })}
 
       <FitText x={pad} y={H - pad - footerH / 2} boxW={W * 0.5} boxH={footerH * 0.6} text="NEAREST" anchor="start" fontFamily={typography.label} fill={palette.textDim} weight={600} letterSpacing={0.6} minFontPx={10} maxFontPx={13} />
-      <FitText x={W - pad} y={H - pad - footerH / 2} boxW={W * 0.45} boxH={footerH * 0.72} text={nearestGap === undefined ? '—' : `${numericText(nearestGap, 1)} m`} anchor="end" fontFamily={skin.segment.numeric} fill={nearestGap === undefined ? palette.textDim : palette.text} minFontPx={12} maxFontPx={18} />
+      <FitText x={W - pad} y={H - pad - footerH / 2} boxW={W * 0.45} boxH={footerH * 0.72} text={nearestReading.display} anchor="end" fontFamily={skin.segment.numeric} fill={nearestGap === undefined ? palette.textDim : palette.text} minFontPx={12} maxFontPx={18} />
     </svg>
   )
 }

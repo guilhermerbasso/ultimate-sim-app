@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { request } from 'node:http'
 import { STREAMING_CHANNELS, type StreamingStartArgs, type StreamingStartResult, type StreamingStatus } from '../../shared/streaming'
-import { register } from './streaming'
+import { isLocalNetworkAddress, register } from './streaming'
 import type { ModuleContext } from '../module-context'
 
 interface ResponseData {
@@ -91,5 +91,39 @@ describe('streaming read-only server', () => {
 
     await expect(invoke(ctx, STREAMING_CHANNELS.start, { accessMode: 'internet', password: 'phone-pass' })).rejects.toThrow(/public HTTPS/i)
     await expect(invoke(ctx, STREAMING_CHANNELS.start, { accessMode: 'internet', password: 'phone-pass', publicBaseUrl: 'http://example.com' })).rejects.toThrow(/public HTTPS/i)
+  })
+})
+
+describe('streaming LAN address checks', () => {
+  it('accepts private IPv4, IPv4-mapped IPv6, IPv6 loopback, ULA, and link-local addresses', () => {
+    for (const address of [
+      '127.0.0.1',
+      '10.42.0.9',
+      '172.31.255.2',
+      '192.168.50.10',
+      '169.254.10.20',
+      '100.64.1.2',
+      '::1',
+      'fc00::1234',
+      'fd12:3456:789a::1',
+      'fe80::abcd%12',
+      '::ffff:192.168.1.25',
+      '::ffff:7f00:1'
+    ]) {
+      expect(isLocalNetworkAddress(address), address).toBe(true)
+    }
+
+    for (const address of [
+      '8.8.8.8',
+      '172.32.0.1',
+      '100.128.0.1',
+      '2001:4860:4860::8888',
+      'fec0::1',
+      '::ffff:8.8.8.8',
+      'unknown'
+    ]) {
+      expect(isLocalNetworkAddress(address), address).toBe(false)
+    }
+    expect(isLocalNetworkAddress(undefined)).toBe(false)
   })
 })

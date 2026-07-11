@@ -4,7 +4,9 @@ export const STREAMING_CHANNELS = {
   start: 'streaming:start',
   stop: 'streaming:stop',
   status: 'streaming:status',
-  selfTest: 'streaming:selftest'
+  selfTest: 'streaming:selftest',
+  startTunnel: 'streaming:tunnel:start',
+  stopTunnel: 'streaming:tunnel:stop'
 } as const
 
 export type StreamingLayoutKind = 'dashboard' | 'touch'
@@ -19,6 +21,7 @@ export interface StreamingStartArgs {
   publicBaseUrl?: string
   password?: string
   touchPanelId?: string
+  autoTunnel?: boolean
 }
 
 export type StreamingAccessMode = 'local' | 'lan' | 'internet'
@@ -39,6 +42,10 @@ export interface StreamingStartResult {
   localTestUrl: string | null
   firewallMessage: string | null
   warning: string | null
+  autoTunnelAvailable: boolean
+  autoTunnelEnabled: boolean
+  autoTunnelRunning: boolean
+  autoTunnelMessage: string | null
 }
 
 export interface StreamingSelfTestResult {
@@ -79,6 +86,10 @@ export interface StreamingStatus {
   firewallMessage: string | null
   passwordEnabled: boolean
   warning: string | null
+  autoTunnelAvailable: boolean
+  autoTunnelEnabled: boolean
+  autoTunnelRunning: boolean
+  autoTunnelMessage: string | null
 }
 
 export interface StreamingTelemetryFrame {

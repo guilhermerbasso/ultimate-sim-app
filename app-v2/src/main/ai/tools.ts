@@ -42,6 +42,7 @@ import {
   isFiniteNum,
   isPositive
 } from './context-pack'
+import { formatMeasurement, type UnitSystem } from '../../shared/units'
 
 const NO_OBJECT_PARAMS = { type: 'object' as const, properties: {} }
 
@@ -75,10 +76,10 @@ function connected(ctx: EngineerContext): boolean {
 
 // ─── individual tools ────────────────────────────────────────────────────────
 
-function fuelTool(ctx: EngineerContext): EngineerTool<Record<string, never>, FuelToolResult> {
+function fuelTool(ctx: EngineerContext, unitSystem: UnitSystem): EngineerTool<Record<string, never>, FuelToolResult> {
   return {
     name: 'getFuelState',
-    description: 'Current fuel: litres on board, usage per lap, laps left, fuel needed to finish, surplus/deficit, save target and pit-window status.',
+    description: 'Current fuel volume on board, usage per lap, laps left, fuel needed to finish, surplus/deficit, save target and pit-window status.',
     parameters: NO_OBJECT_PARAMS,
     run: async () => {
       const snapshot = ctx.getSnapshot()
@@ -86,8 +87,8 @@ function fuelTool(ctx: EngineerContext): EngineerTool<Record<string, never>, Fue
       const available = connected(ctx) && (isFiniteNum(f.liters) || isFiniteNum(f.lapsLeft))
       const summary = available
         ? [
-            isFiniteNum(f.liters) ? `${f.liters}L` : null,
-            isFiniteNum(f.perLap) ? `${f.perLap}L/lap` : null,
+            isFiniteNum(f.liters) ? (() => { const r = formatMeasurement(f.liters, 'fuel-volume-l', unitSystem, { decimals: 1, trimTrailingZeros: true }); return `${r.display}${r.unit}` })() : null,
+            isFiniteNum(f.perLap) ? (() => { const r = formatMeasurement(f.perLap, 'fuel-per-lap-l', unitSystem, { decimals: 2, trimTrailingZeros: true }); return `${r.display}${r.unit}` })() : null,
             isFiniteNum(f.lapsLeft) ? `~${f.lapsLeft} laps` : null,
             f.canFinish === false ? 'short to finish' : f.canFinish === true ? 'can finish' : null,
             f.status ? f.status : null
@@ -209,7 +210,7 @@ function gapsTool(ctx: EngineerContext): EngineerTool<{ side?: string }, GapsToo
   }
 }
 
-function tyresTool(ctx: EngineerContext): EngineerTool<Record<string, never>, TyresToolResult> {
+function tyresTool(ctx: EngineerContext, unitSystem: UnitSystem): EngineerTool<Record<string, never>, TyresToolResult> {
   return {
     name: 'getTyres',
     description: 'Tyre temperatures and wear per corner (LF/RF/LR/RR), the worst corner, laps left on the tyres, and whether wear is estimated.',
@@ -230,7 +231,7 @@ function tyresTool(ctx: EngineerContext): EngineerTool<Record<string, never>, Ty
       }
       const available = connected(ctx) && corners.length > 0
       const summary = available
-        ? corners.map((c) => `${c.id} ${[isFiniteNum(c.tempC) ? `${c.tempC}°` : null, isFiniteNum(c.wearPct) ? `${c.wearPct}%` : null].filter(Boolean).join('/')}`).join(', ')
+        ? corners.map((c) => `${c.id} ${[isFiniteNum(c.tempC) ? formatMeasurement(c.tempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display : null, isFiniteNum(c.wearPct) ? `${c.wearPct}%` : null].filter(Boolean).join('/')}`).join(', ')
         : 'no tyre data'
       return {
         available,
@@ -244,7 +245,7 @@ function tyresTool(ctx: EngineerContext): EngineerTool<Record<string, never>, Ty
   }
 }
 
-function weatherTool(ctx: EngineerContext): EngineerTool<Record<string, never>, WeatherToolResult> {
+function weatherTool(ctx: EngineerContext, unitSystem: UnitSystem): EngineerTool<Record<string, never>, WeatherToolResult> {
   return {
     name: 'getWeather',
     description: 'Air/track temperature, track wetness, whether it is raining, whether wet conditions are declared, and the current surface under the car.',
@@ -256,8 +257,8 @@ function weatherTool(ctx: EngineerContext): EngineerTool<Record<string, never>, 
       const summary = available
         ? [
             wet ? 'wet' : 'dry',
-            isFiniteNum(w.airTempC) ? `air ${w.airTempC}°` : null,
-            isFiniteNum(w.trackTempC) ? `track ${w.trackTempC}°` : null
+            isFiniteNum(w.airTempC) ? `air ${formatMeasurement(w.airTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}` : null,
+            isFiniteNum(w.trackTempC) ? `track ${formatMeasurement(w.trackTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}` : null
           ].filter(Boolean).join(', ')
         : 'no weather data'
       return {
@@ -403,15 +404,15 @@ function predictionsTool(ctx: EngineerContext): EngineerTool<Record<string, neve
   }
 }
 
-export function buildEngineerTools(ctx: EngineerContext): EngineerToolset {
+export function buildEngineerTools(ctx: EngineerContext, unitSystem: UnitSystem = 'metric'): EngineerToolset {
   const tools: EngineerTool[] = [
-    fuelTool(ctx),
+    fuelTool(ctx, unitSystem),
     deltaTool(ctx),
     strategyTool(ctx),
     positionTool(ctx),
     gapsTool(ctx),
-    tyresTool(ctx),
-    weatherTool(ctx),
+    tyresTool(ctx, unitSystem),
+    weatherTool(ctx, unitSystem),
     carTrackTool(ctx),
     recentEventsTool(ctx),
     coachTipsTool(ctx),

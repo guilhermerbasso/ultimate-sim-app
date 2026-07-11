@@ -38,7 +38,8 @@ import {
   trackMapStrokeWidth
 } from '../lib/track-map'
 import { readButtonPressed } from '../lib/gamepad'
-import { getActiveFlag, resolveBinding } from './binding'
+import { useUnitSystem } from '../lib/units'
+import { displayUnitLabel, getActiveFlag, resolveBinding } from './binding'
 import { useSwipeCycle, type CycleDirection } from './useSwipeCycle'
 import { renderGt3Widget, instrumentColorsFor, instrumentBezel, instrumentMaterial, revLedPropsFor } from './widgets/gt3-widgets'
 import { AnalogDial, RevLedBar } from '../instruments'
@@ -169,6 +170,7 @@ function useScale(baseW: number, baseH: number, mode: DashboardScaleMode): Scale
 interface ElementProps {
   element: DashboardElement
   snapshot: TelemetrySnapshot | null
+  unitSystem?: import('../../../shared/units').UnitSystem
 }
 
 
@@ -365,8 +367,8 @@ function ElementShiftLights({ element, snapshot }: ElementProps) {
   )
 }
 
-function ElementGauge({ element, snapshot }: ElementProps) {
-  const result = resolveBinding(element.binding, snapshot)
+function ElementGauge({ element, snapshot, unitSystem = 'metric' }: ElementProps) {
+  const result = resolveBinding(element.binding, snapshot, unitSystem)
   const pct = Math.min(1, Math.max(0, result.pct ?? 0))
   const color = pickFillColor(pct, element)
   const s = element.style
@@ -695,16 +697,19 @@ function ElementRect({ element }: { element: DashboardElement }) {
   return <div className="dash-element" style={style} />
 }
 
-function ElementText({ element, snapshot }: ElementProps) {
+function ElementText({ element, snapshot, unitSystem = 'metric' }: ElementProps) {
   const s = element.style
-  const result = resolveBinding(element.binding, snapshot)
+  const result = resolveBinding(element.binding, snapshot, unitSystem)
   let display = s.text ?? ''
   if (element.binding) {
     let value = result.text
-    if (s.decimals !== undefined && result.numeric !== undefined && Number.isFinite(result.numeric)) {
-      value = result.numeric.toFixed(s.decimals)
+    const displayNumeric = result.displayNumeric ?? result.numeric
+    if (s.decimals !== undefined && displayNumeric !== undefined && Number.isFinite(displayNumeric)) {
+      value = displayNumeric.toFixed(s.decimals)
     }
-    display = `${s.prefix ?? ''}${value}${s.suffix ?? ''}`
+    const leadingSpace = s.suffix?.startsWith(' ') ? ' ' : ''
+    const suffix = result.unit && s.suffix !== undefined ? `${leadingSpace}${result.unit}` : (s.suffix ?? '')
+    display = `${s.prefix ?? ''}${value}${suffix}`
   } else if (s.prefix || s.suffix) {
     display = `${s.prefix ?? ''}${display}${s.suffix ?? ''}`
   }
@@ -1240,23 +1245,13 @@ function ElementTable({ element, snapshot }: ElementProps) {
 // the container just supplies position/size + an optional frame and switches the
 // shared `.dash-element` flex centering to block flow. `config` is a minimal,
 // locked stub: these widgets are snapshot-driven and ignore most of it (some read
-// `config.id`). Missing/unknown widgetId → render nothing (never break a board).
+// `config.id`). Missing/unknown widgetId gets a subtle labelled fallback so a
+// broken persisted board remains editable instead of looking like a black canvas.
 function ElementOverlayWidget({ element, snapshot }: ElementProps) {
-  const widgetId = element.widgetId
+  const widgetId =
+    element.widgetId ??
+    (element.hifiModuleId ? (`hifi:${element.hifiModuleId}` as DashboardElement['widgetId']) : undefined)
   const Widget = widgetId ? resolveWidgetComponent(widgetId) : undefined
-  if (!widgetId || !Widget) return null
-  const config: OverlayWidgetConfig = {
-    id: widgetId,
-    enabled: true,
-    locked: true,
-    favorite: false,
-    position: { x: element.x, y: element.y, width: element.w, height: element.h },
-    opacity: 100,
-    stylePreset: DEFAULT_OVERLAY_STYLE_PRESET,
-    style: createDefaultOverlayStyle(),
-    display: null,
-    hifiModuleId: element.hifiModuleId
-  }
   const containerStyle: CSSProperties = {
     left: element.x,
     top: element.y,
@@ -1269,6 +1264,50 @@ function ElementOverlayWidget({ element, snapshot }: ElementProps) {
       ? `${element.style.borderWidth}px solid ${element.style.border ?? 'transparent'}`
       : undefined
   }
+  if (!widgetId || !Widget) {
+    return (
+      <div className="dash-element dash-overlaywidget" style={containerStyle}>
+        <div
+          data-dashboard-unknown-widget={widgetId ?? 'missing'}
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'grid',
+            placeItems: 'center',
+            alignContent: 'center',
+            gap: 4,
+            boxSizing: 'border-box',
+            border: '1px dashed rgba(255,255,255,0.12)',
+            background: 'rgba(255,255,255,0.025)',
+            color: 'rgba(255,255,255,0.48)',
+            fontSize: 12,
+            textAlign: 'center',
+            padding: 8,
+            overflow: 'hidden'
+          }}
+        >
+          <span>Unknown widget</span>
+          {widgetId && (
+            <span style={{ maxWidth: '100%', fontSize: 10, opacity: 0.72, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {widgetId}
+            </span>
+          )}
+        </div>
+      </div>
+    )
+  }
+  const config: OverlayWidgetConfig = {
+    id: widgetId,
+    enabled: true,
+    locked: true,
+    favorite: false,
+    position: { x: element.x, y: element.y, width: element.w, height: element.h },
+    opacity: 100,
+    stylePreset: DEFAULT_OVERLAY_STYLE_PRESET,
+    style: createDefaultOverlayStyle(),
+    display: null,
+    hifiModuleId: element.hifiModuleId
+  }
   return (
     <div className="dash-element dash-overlaywidget" style={containerStyle}>
       <Widget snapshot={snapshot} config={config} />
@@ -1277,42 +1316,49 @@ function ElementOverlayWidget({ element, snapshot }: ElementProps) {
 }
 
 function ElementSwitcher(props: ElementProps) {
-  const { element } = props
+  const unitSystem = useUnitSystem()
+  const sourceElement = props.element
+  const label = displayUnitLabel(sourceElement.style.label, sourceElement.binding, sourceElement.style.suffix, unitSystem)
+  const title = displayUnitLabel(sourceElement.style.title, sourceElement.binding, sourceElement.style.suffix, unitSystem)
+  const element = label !== sourceElement.style.label || title !== sourceElement.style.title
+    ? { ...sourceElement, style: { ...sourceElement.style, label, title } }
+    : sourceElement
+  const unitProps = { ...props, element, unitSystem }
   if (element.visible === false) return null
   switch (element.type) {
     case 'text':
-      return <ElementText {...props} />
+      return <ElementText {...unitProps} />
     case 'rect':
       return <ElementRect element={element} />
     case 'bar':
-      return <ElementBar {...props} />
+      return <ElementBar {...unitProps} />
     case 'barv':
-      return <ElementBarL {...props} />
+      return <ElementBarL {...unitProps} />
     case 'dualbar':
-      return <ElementDualBar {...props} />
+      return <ElementDualBar {...unitProps} />
     case 'deltabar':
-      return <ElementDeltaBar {...props} />
+      return <ElementDeltaBar {...unitProps} />
     case 'shiftlights':
-      return <ElementShiftLights {...props} />
+      return <ElementShiftLights {...unitProps} />
     case 'gauge':
-      return <ElementGauge {...props} />
+      return <ElementGauge {...unitProps} />
     case 'map':
-      return <ElementMap {...props} />
+      return <ElementMap {...unitProps} />
     case 'radar':
-      return <ElementRadar {...props} />
+      return <ElementRadar {...unitProps} />
     case 'image':
       return <ElementImage element={element} />
     case 'flag':
-      return <ElementFlag {...props} />
+      return <ElementFlag {...unitProps} />
     case 'trace':
-      return <ElementTrace {...props} />
+      return <ElementTrace {...unitProps} />
     case 'table':
     case 'standings':
-      return <ElementTable {...props} />
+      return <ElementTable {...unitProps} />
     case 'overlaywidget':
-      return <ElementOverlayWidget {...props} />
+      return <ElementOverlayWidget {...unitProps} />
     default:
-      return renderGt3Widget(props)
+      return renderGt3Widget(unitProps)
   }
 }
 
@@ -1513,7 +1559,7 @@ export function DashboardCanvas({
 }) {
  const baseW = dashboard.width ?? 1920
  const baseH = dashboard.height ?? 1080
- const scaleMode: DashboardScaleMode = dashboard.scaleMode ?? 'fit'
+ const scaleMode: DashboardScaleMode = dashboard.scaleMode ?? 'stretch'
  const scale = useScale(baseW, baseH, scaleMode)
  const adaptive = useMemo(
    () => isAdaptiveDashboard(dashboard) || dashboard.adaptive?.enabled === true,

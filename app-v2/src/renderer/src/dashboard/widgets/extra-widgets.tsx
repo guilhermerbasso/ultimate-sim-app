@@ -14,6 +14,14 @@ import type { ReactElement, ReactNode } from 'react'
 import type { DashboardElement } from '../../../../shared/dashboards'
 import { applyDecimals, resolveSlotStyle } from '../../../../shared/dashboards'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
+import {
+  convertMeasurement,
+  formatMeasurement,
+  measurementKindForUnit,
+  measurementUnit,
+  type MeasurementKind,
+  type UnitSystem
+} from '../../../../shared/units'
 import { getActiveFlag, resolveBinding } from '../binding'
 import {
   DialInstrument,
@@ -48,6 +56,7 @@ import {
 export interface ExtraWidgetProps {
   element: DashboardElement
   snapshot: TelemetrySnapshot | null
+  unitSystem?: UnitSystem
 }
 
 // Neutral chrome accent used by the tyre-pressure chart bars — kept as a literal
@@ -77,6 +86,36 @@ function num(binding: string | undefined, snap: TelemetrySnapshot | null): numbe
   return Number.isFinite(f) ? f : undefined
 }
 
+interface DisplayReading {
+  canonical: number | undefined
+  display: number | undefined
+  unit: string
+  kind: MeasurementKind | undefined
+}
+
+function displayReading(element: DashboardElement, snapshot: TelemetrySnapshot | null, unitSystem: UnitSystem): DisplayReading {
+  const metric = resolveBinding(element.binding, snapshot, 'metric')
+  const resolved = resolveBinding(element.binding, snapshot, unitSystem)
+  const canonical = metric.numeric
+  const kind = measurementKindForUnit(metric.unit ?? element.style.suffix)
+  if (resolved.unit) {
+    return { canonical, display: resolved.displayNumeric ?? canonical, unit: resolved.unit, kind }
+  }
+  if (kind) {
+    return {
+      canonical,
+      display: convertMeasurement(canonical, kind, unitSystem),
+      unit: measurementUnit(kind, unitSystem),
+      kind
+    }
+  }
+  return { canonical, display: canonical, unit: String(element.style.suffix ?? ''), kind: undefined }
+}
+
+function displayBound(value: number, kind: MeasurementKind | undefined, unitSystem: UnitSystem): number {
+  return kind ? convertMeasurement(value, kind, unitSystem) ?? value : value
+}
+
 // Accent = user override, else the resolved skin accent token (gt3 cyan / hud accent).
 function accentOf(style: DashboardElement['style'], skin: SkinToken): string {
   return style.accentColor ?? skin.palette.accent
@@ -100,7 +139,8 @@ function valueFont(text: string, skin: SkinToken): string {
 // A DSEG numeric readout's unit must render in a NORMAL condensed face (never the
 // 7/14-segment face, which garbles letters). Explicit `style.suffix` wins;
 // otherwise well-known speed bindings derive their unit. Empty ⇒ no unit.
-function readoutUnit(style: DashboardElement['style'], binding: string | undefined): string {
+function readoutUnit(style: DashboardElement['style'], binding: string | undefined, resolvedUnit?: string): string {
+  if (resolvedUnit) return resolvedUnit
   if (style.suffix !== undefined && style.suffix !== '') return String(style.suffix)
   if (binding === 'speedKmh') return 'km/h'
   if (binding === 'speedMph') return 'mph'
@@ -293,13 +333,14 @@ function defaultMax(binding: string | undefined): number {
 // ANALOG
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function AnalogGauge({ element, snapshot }: ExtraWidgetProps): ReactElement {
+export function AnalogGauge({ element, snapshot, unitSystem = 'metric' }: ExtraWidgetProps): ReactElement {
   const s = element.style
-  const value = num(element.binding, snapshot)
+  const reading = displayReading(element, snapshot, unitSystem)
+  const value = reading.canonical
   const min = s.gaugeMin ?? 0
   const max = s.gaugeMax ?? defaultMax(element.binding)
   if (usesInstrument(element)) {
-    return <DialInstrument element={element} value={value} min={min} max={max} unit={(s.suffix || undefined) as string | undefined} label={s.label ? String(s.label) : undefined} />
+    return <DialInstrument element={element} value={reading.display} min={displayBound(min, reading.kind, unitSystem)} max={displayBound(max, reading.kind, unitSystem)} unit={reading.unit || undefined} label={s.label ? String(s.label) : undefined} />
   }
   const skin = resolveElementSkin(s)
   const frac = clamp01(((value ?? min) - min) / Math.max(1e-6, max - min))
@@ -307,8 +348,10 @@ export function AnalogGauge({ element, snapshot }: ExtraWidgetProps): ReactEleme
   const color = rampToken(frac, s, skin, base)
   const ticks = Math.max(2, Math.min(16, s.ticks ?? 8))
   const endDeg = GAUGE_START + frac * GAUGE_SWEEP
-  const unit = (s.suffix ?? '').toString()
-  const valueText = value === undefined ? '—' : Math.abs(max) >= 100 || Math.abs(value) >= 10 ? Math.round(value).toString() : value.toFixed(1)
+  const unit = reading.unit
+  const displayValue = reading.display
+  const displayMax = displayBound(max, reading.kind, unitSystem)
+  const valueText = displayValue === undefined ? '—' : Math.abs(displayMax) >= 100 || Math.abs(displayValue) >= 10 ? Math.round(displayValue).toString() : displayValue.toFixed(1)
   return (
     <WFrame element={element} skin={skin} className="gt3-analoggauge">
       {({ W, H }) => {
@@ -349,9 +392,10 @@ export function AnalogGauge({ element, snapshot }: ExtraWidgetProps): ReactEleme
   )
 }
 
-export function LinearMeter({ element, snapshot }: ExtraWidgetProps): ReactElement {
+export function LinearMeter({ element, snapshot, unitSystem = 'metric' }: ExtraWidgetProps): ReactElement {
   const s = element.style
-  const value = num(element.binding, snapshot)
+  const reading = displayReading(element, snapshot, unitSystem)
+  const value = reading.canonical
   const min = s.gaugeMin ?? 0
   const max = s.gaugeMax ?? defaultMax(element.binding)
   const frac = clamp01(((value ?? min) - min) / Math.max(1e-6, max - min))
@@ -361,8 +405,9 @@ export function LinearMeter({ element, snapshot }: ExtraWidgetProps): ReactEleme
   const skin = resolveElementSkin(s)
   const color = rampToken(frac, s, skin, accentOf(s, skin))
   const ticks = Math.max(2, Math.min(20, s.ticks ?? 10))
-  const unit = (s.suffix ?? '').toString()
-  const valueText = value === undefined ? '—' : Math.abs(value) >= 10 ? Math.round(value).toString() : value.toFixed(1)
+  const unit = reading.unit
+  const displayValue = reading.display
+  const valueText = displayValue === undefined ? '—' : Math.abs(displayValue) >= 10 ? Math.round(displayValue).toString() : displayValue.toFixed(1)
   const readout = unit ? `${valueText} ${unit}` : valueText
   return (
     <WFrame element={element} skin={skin} className="gt3-linearmeter">
@@ -443,15 +488,20 @@ export function GForceMeter({ element, snapshot }: ExtraWidgetProps): ReactEleme
 // DIGITAL (7-segment)
 // ═══════════════════════════════════════════════════════════════════════════
 
-function SevenSeg({ element, snapshot, timeMode }: ExtraWidgetProps & { timeMode?: boolean }): ReactElement {
+function SevenSeg({ element, snapshot, unitSystem = 'metric', timeMode }: ExtraWidgetProps & { timeMode?: boolean }): ReactElement {
   const s = element.style
-  const r = resolveBinding(element.binding, snapshot)
-  const raw = r.text && r.text.length ? r.text : (timeMode ? '0:00.000' : '0')
+  const r = resolveBinding(element.binding, snapshot, unitSystem)
+  const reading = displayReading(element, snapshot, unitSystem)
+  const raw = r.unit && r.text.length
+    ? r.text
+    : reading.kind && reading.display !== undefined
+      ? String(reading.display)
+    : r.text && r.text.length ? r.text : (timeMode ? '0:00.000' : '0')
   // The numeric CORE (prefix + number) stays on the DSEG face; the unit is kept
   // SEPARATE so it never gets baked into the segment string and garbled. Clocks
   // (timeMode) never carry a unit.
-  const core = `${s.prefix ?? ''}${timeMode ? raw : applyDecimals(raw, r.numeric, s.decimals)}`
-  const unitStr = timeMode ? '' : readoutUnit(s, element.binding)
+  const core = `${s.prefix ?? ''}${timeMode ? raw : applyDecimals(raw, reading.display ?? r.displayNumeric ?? r.numeric, s.decimals)}`
+  const unitStr = timeMode ? '' : (reading.unit || readoutUnit(s, element.binding, r.unit))
   if (usesInstrument(element)) {
     const has = Boolean(r.text && r.text.length)
     return <SegmentInstrument element={element} value={has ? core : '—'} unit={has && unitStr ? unitStr : undefined} label={s.label ? String(s.label) : undefined} />
@@ -506,10 +556,16 @@ export function DigitalClock(props: ExtraWidgetProps): ReactElement {
   return <SevenSeg {...props} timeMode />
 }
 
-export function BigText({ element, snapshot }: ExtraWidgetProps): ReactElement {
+export function BigText({ element, snapshot, unitSystem = 'metric' }: ExtraWidgetProps): ReactElement {
   const s = element.style
-  const r = resolveBinding(element.binding, snapshot)
-  const value = `${s.prefix ?? ''}${applyDecimals(r.text && r.text.length ? r.text : '—', r.numeric, s.decimals)}${s.suffix ?? ''}`
+  const r = resolveBinding(element.binding, snapshot, unitSystem)
+  const reading = displayReading(element, snapshot, unitSystem)
+  const raw = r.unit && r.text.length
+    ? r.text
+    : reading.kind && reading.display !== undefined
+      ? String(reading.display)
+      : r.text && r.text.length ? r.text : '—'
+  const value = `${s.prefix ?? ''}${applyDecimals(raw, reading.display ?? r.displayNumeric ?? r.numeric, s.decimals)}${reading.unit}`
   if (usesInstrument(element)) {
     return <TileInstrument element={element} value={value} label={s.label ? String(s.label) : undefined} />
   }
@@ -549,9 +605,10 @@ export function BigText({ element, snapshot }: ExtraWidgetProps): ReactElement {
 // GRAPH
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function HistoryGraph({ element, snapshot }: ExtraWidgetProps): ReactElement {
+export function HistoryGraph({ element, snapshot, unitSystem = 'metric' }: ExtraWidgetProps): ReactElement {
   const s = element.style
-  const value = num(element.binding, snapshot)
+  const reading = displayReading(element, snapshot, unitSystem)
+  const value = reading.canonical
   const buf = useHistory(element, snapshot, value)
   const mode = s.graphStyle ?? 'line'
   const skin = resolveElementSkin(s)
@@ -575,8 +632,9 @@ export function HistoryGraph({ element, snapshot }: ExtraWidgetProps): ReactElem
   const span = Math.max(1e-6, hi - lo)
   const n = series.length
   const filled = mode === 'area' || s.graphFill
-  const unit = (s.suffix ?? '').toString()
-  const valueText = value === undefined ? '—' : Math.abs(value) >= 10 ? Math.round(value).toString() : value.toFixed(2)
+  const unit = reading.unit
+  const displayValue = reading.display
+  const valueText = displayValue === undefined ? '—' : Math.abs(displayValue) >= 10 ? Math.round(displayValue).toString() : displayValue.toFixed(2)
   const readout = unit ? `${valueText} ${unit}` : valueText
   const gid = `hg-${element.id}`
   return (
@@ -628,13 +686,13 @@ export function HistoryGraph({ element, snapshot }: ExtraWidgetProps): ReactElem
 
 interface Bar { label: string; value: number | undefined; frac: number; color: string; text: string }
 
-function chartBars(source: string | undefined, snapshot: TelemetrySnapshot | null, style: DashboardElement['style']): Bar[] {
+function chartBars(source: string | undefined, snapshot: TelemetrySnapshot | null, style: DashboardElement['style'], unitSystem: UnitSystem): Bar[] {
   const corners: CornerKey[] = CORNER_ORDER
   switch (source) {
     case 'tyrePressure':
       return corners.map((c) => {
         const v = tyreCorner(snapshot, c, 'pressureKpa')
-        return { label: CORNER_LABEL[c], value: v, frac: clamp01(((v ?? 140) - 130) / 60), color: CHROME, text: v === undefined ? '—' : v.toFixed(0) }
+        return { label: CORNER_LABEL[c], value: v, frac: clamp01(((v ?? 140) - 130) / 60), color: CHROME, text: formatMeasurement(v, 'pressure-kpa', unitSystem, { decimals: 0 }).display }
       })
     case 'tyreWear':
       return corners.map((c) => {
@@ -644,7 +702,7 @@ function chartBars(source: string | undefined, snapshot: TelemetrySnapshot | nul
     case 'brakeTemp':
       return corners.map((c) => {
         const v = brakeCorner(snapshot, c)
-        return { label: CORNER_LABEL[c], value: v, frac: clamp01((v ?? 0) / 1000), color: brakeTempColor(v, style), text: v === undefined ? '—' : v.toFixed(0) }
+        return { label: CORNER_LABEL[c], value: v, frac: clamp01((v ?? 0) / 1000), color: brakeTempColor(v, style), text: formatMeasurement(v, 'temperature-c', unitSystem, { decimals: 0 }).display }
       })
     case 'inputs': {
       const t = clamp01(snapshot?.throttle ?? 0)
@@ -660,15 +718,15 @@ function chartBars(source: string | undefined, snapshot: TelemetrySnapshot | nul
     default:
       return corners.map((c) => {
         const v = tyreCorner(snapshot, c, 'tempC')
-        return { label: CORNER_LABEL[c], value: v, frac: clamp01(((v ?? 0)) / 140), color: tyreTempColor(v, style), text: v === undefined ? '—' : v.toFixed(0) }
+        return { label: CORNER_LABEL[c], value: v, frac: clamp01(((v ?? 0)) / 140), color: tyreTempColor(v, style), text: formatMeasurement(v, 'temperature-c', unitSystem, { decimals: 0 }).display }
       })
   }
 }
 
-export function BarChart({ element, snapshot }: ExtraWidgetProps): ReactElement {
+export function BarChart({ element, snapshot, unitSystem = 'metric' }: ExtraWidgetProps): ReactElement {
   const s = element.style
   const skin = resolveElementSkin(s)
-  const bars = chartBars(s.chartSource, snapshot, s)
+  const bars = chartBars(s.chartSource, snapshot, s, unitSystem)
   return (
     <WFrame element={element} skin={skin} className="gt3-barchart">
       {({ W, H }) => {
@@ -709,10 +767,10 @@ export function BarChart({ element, snapshot }: ExtraWidgetProps): ReactElement 
   )
 }
 
-export function RadialBars({ element, snapshot }: ExtraWidgetProps): ReactElement {
+export function RadialBars({ element, snapshot, unitSystem = 'metric' }: ExtraWidgetProps): ReactElement {
   const s = element.style
   const skin = resolveElementSkin(s)
-  const bars = chartBars(s.chartSource ?? 'tyreWear', snapshot, s)
+  const bars = chartBars(s.chartSource ?? 'tyreWear', snapshot, s, unitSystem)
   return (
     <WFrame element={element} skin={skin} className="gt3-radialbars">
       {({ W, H }) => {
@@ -747,26 +805,32 @@ export function RadialBars({ element, snapshot }: ExtraWidgetProps): ReactElemen
   )
 }
 
-export function Donut({ element, snapshot }: ExtraWidgetProps): ReactElement {
+export function Donut({ element, snapshot, unitSystem = 'metric' }: ExtraWidgetProps): ReactElement {
   const s = element.style
-  const r = resolveBinding(element.binding, snapshot)
-  const frac = clamp01(r.pct ?? num(element.binding, snapshot) ?? 0)
+  const r = resolveBinding(element.binding, snapshot, unitSystem)
+  const reading = displayReading(element, snapshot, unitSystem)
+  const frac = clamp01(r.pct ?? reading.canonical ?? 0)
   if (usesInstrument(element)) {
     const pctMode = r.pct !== undefined
+    const max = s.gaugeMax ?? defaultMax(element.binding)
     return (
       <DialInstrument
         element={element}
-        value={pctMode ? frac * 100 : num(element.binding, snapshot)}
+        value={pctMode ? frac * 100 : reading.display}
         min={0}
-        max={pctMode ? 100 : s.gaugeMax ?? defaultMax(element.binding)}
-        unit={pctMode ? '%' : ((s.suffix || undefined) as string | undefined)}
+        max={pctMode ? 100 : displayBound(max, reading.kind, unitSystem)}
+        unit={pctMode ? '%' : reading.unit || undefined}
         label={s.label ? String(s.label) : undefined}
       />
     )
   }
   const skin = resolveElementSkin(s)
   const base = s.accentColor ?? skin.palette.ok
-  const valueText = r.pct !== undefined ? `${Math.round(frac * 100)}%` : (r.text || '—')
+  const valueText = r.pct !== undefined
+    ? `${Math.round(frac * 100)}%`
+    : reading.display === undefined
+      ? '—'
+      : Math.abs(reading.display) >= 10 ? Math.round(reading.display).toString() : reading.display.toFixed(1)
   return (
     <WFrame element={element} skin={skin} className="gt3-donut">
       {({ W, H }) => {
@@ -796,9 +860,9 @@ export function Donut({ element, snapshot }: ExtraWidgetProps): ReactElement {
   )
 }
 
-export function SegmentBars({ element, snapshot }: ExtraWidgetProps): ReactElement {
+export function SegmentBars({ element, snapshot, unitSystem = 'metric' }: ExtraWidgetProps): ReactElement {
   const s = element.style
-  const r = resolveBinding(element.binding, snapshot)
+  const r = resolveBinding(element.binding, snapshot, unitSystem)
   const frac = clamp01(r.pct ?? num(element.binding, snapshot) ?? 0)
   if (usesInstrument(element)) {
     return <RevInstrument element={element} frac={frac} />
@@ -846,10 +910,11 @@ export function SegmentBars({ element, snapshot }: ExtraWidgetProps): ReactEleme
 // RING
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function RingGauge({ element, snapshot }: ExtraWidgetProps): ReactElement {
+export function RingGauge({ element, snapshot, unitSystem = 'metric' }: ExtraWidgetProps): ReactElement {
   const s = element.style
-  const r = resolveBinding(element.binding, snapshot)
-  const value = num(element.binding, snapshot)
+  const r = resolveBinding(element.binding, snapshot, unitSystem)
+  const reading = displayReading(element, snapshot, unitSystem)
+  const value = reading.canonical
   const min = s.gaugeMin
   const max = s.gaugeMax
   const frac = r.pct !== undefined && min === undefined
@@ -860,10 +925,10 @@ export function RingGauge({ element, snapshot }: ExtraWidgetProps): ReactElement
     return (
       <DialInstrument
         element={element}
-        value={pctMode ? frac * 100 : value}
-        min={pctMode ? 0 : min ?? 0}
-        max={pctMode ? 100 : max ?? defaultMax(element.binding)}
-        unit={pctMode ? '%' : ((s.suffix || undefined) as string | undefined)}
+        value={pctMode ? frac * 100 : reading.display}
+        min={pctMode ? 0 : displayBound(min ?? 0, reading.kind, unitSystem)}
+        max={pctMode ? 100 : displayBound(max ?? defaultMax(element.binding), reading.kind, unitSystem)}
+        unit={pctMode ? '%' : reading.unit || undefined}
         label={s.label ? String(s.label) : undefined}
       />
     )
@@ -871,8 +936,9 @@ export function RingGauge({ element, snapshot }: ExtraWidgetProps): ReactElement
   const skin = resolveElementSkin(s)
   const base = accentOf(s, skin)
   const color = rampToken(frac, s, skin, base)
-  const unit = (s.suffix ?? '').toString()
-  const valueText = r.pct !== undefined && min === undefined ? `${Math.round(frac * 100)}` : value === undefined ? '—' : Math.abs(value) >= 10 ? Math.round(value).toString() : value.toFixed(1)
+  const unit = reading.unit
+  const displayValue = reading.display
+  const valueText = r.pct !== undefined && min === undefined ? `${Math.round(frac * 100)}` : displayValue === undefined ? '—' : Math.abs(displayValue) >= 10 ? Math.round(displayValue).toString() : displayValue.toFixed(1)
   return (
     <WFrame element={element} skin={skin} className="gt3-ringgauge">
       {({ W, H }) => {
@@ -908,9 +974,9 @@ export function RingGauge({ element, snapshot }: ExtraWidgetProps): ReactElement
 // LED bar
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function LedBar({ element, snapshot }: ExtraWidgetProps): ReactElement {
+export function LedBar({ element, snapshot, unitSystem = 'metric' }: ExtraWidgetProps): ReactElement {
   const s = element.style
-  const r = resolveBinding(element.binding, snapshot)
+  const r = resolveBinding(element.binding, snapshot, unitSystem)
   const frac = clamp01(r.pct ?? num(element.binding, snapshot) ?? 0)
   if (usesInstrument(element)) {
     return <RevInstrument element={element} frac={frac} />

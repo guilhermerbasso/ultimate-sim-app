@@ -65,7 +65,8 @@ export const CONFIG_SECTION_RESET_SIGNAL = 'config:section-reset.internal' as co
 
 // Emitted on the main `ipcMain` EventEmitter right AFTER a section's userData
 // store is overwritten by an IMPORT (importSection / importAll), carrying the
-// sectionId. The in-memory module that OWNS that section listens and RE-READS
+// sectionId plus an optional completion callback. The in-memory module that OWNS
+// that section listens and RE-READS
 // its file from disk so the freshly-imported config goes live IMMEDIATELY, with
 // no app restart. This is the hot-apply counterpart of CONFIG_SECTION_RESET_SIGNAL
 // (which drops the cache); here the module reloads it. A module that reloads has
@@ -195,7 +196,28 @@ export interface ConfigImportSummary {
   skipped: string[]
   /** sections in the file that this app version does not recognize (ignored). */
   unknown: string[]
+  /** Per-section item/application counts when the section has a meaningful collection shape. */
+  details?: Record<string, ConfigSectionImportDetail>
 }
+
+export interface ConfigSectionImportDetail {
+  /** Number of validated items read from the imported section. */
+  itemCount?: number
+  /** Number of live targets updated by a hot-reloadable owning module. */
+  hotAppliedCount?: number
+  /** Valid imported items that could not be bound to a live target. */
+  unmatchedItemCount?: number
+}
+
+/** Result returned by an owning main module after an import hot-reload. */
+export interface ConfigSectionReloadResult {
+  sectionId: string
+  itemCount: number
+  hotAppliedCount: number
+  unmatchedItemCount: number
+}
+
+export type ConfigSectionReloadCallback = (error: string | null, result?: ConfigSectionReloadResult) => void
 
 export interface ConfigExportResult {
   canceled: boolean

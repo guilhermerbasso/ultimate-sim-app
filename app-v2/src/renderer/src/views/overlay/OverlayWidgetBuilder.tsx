@@ -44,21 +44,6 @@ const ALIGN_OPTIONS = [
   { value: 'center', label: 'Centro' },
   { value: 'right', label: 'Direita' }
 ]
-// Units semanticas lidas por widgets GT3/extra (velocidade/temperatura/pressao/
-// volume). '' = deixar o widget escolher seu default. Espelha o enum `unit` em
-// DashboardElementStyle.
-const UNIT_OPTIONS = [
-  { value: '', label: '(default)' },
-  { value: 'kmh', label: 'km/h' },
-  { value: 'mph', label: 'mph' },
-  { value: 'C', label: '°C' },
-  { value: 'F', label: '°F' },
-  { value: 'kpa', label: 'kPa' },
-  { value: 'psi', label: 'psi' },
-  { value: 'bar', label: 'bar' },
-  { value: 'L', label: 'L' },
-  { value: 'gal', label: 'gal' }
-]
 const IMAGE_FILTER_PRESETS: Array<{ id: string; label: string; patch: Partial<DashboardElementStyle> }> = [
   { id: 'original', label: 'Original', patch: { filterGrayscale: undefined, filterSepia: undefined, redTint: undefined, brightness: undefined, contrast: undefined, saturate: undefined, hueRotate: undefined, invert: undefined, blur: undefined } },
   { id: 'bw', label: 'B&W', patch: { filterGrayscale: 1, filterSepia: undefined, redTint: undefined, brightness: undefined, contrast: 1.05, saturate: undefined, hueRotate: undefined, invert: undefined } },
@@ -807,7 +792,6 @@ function Inspector({ element, canvasWidth, canvasHeight, onChange, onChangeStyle
           <div className="designer-grid-2">
             <ColorField label="Accent color" value={s.accentColor ?? ''} onChange={(v) => onChangeStyle({ accentColor: v || undefined })} />
             <SliderField label="Opacity" value={s.opacity ?? 1} onChange={(v) => onChangeStyle({ opacity: v >= 1 ? undefined : Math.max(0, Math.min(1, v)) })} min={0} max={1} step={0.05} />
-            <SelectField label="Unit" value={s.unit ?? ''} options={UNIT_OPTIONS} onChange={(v) => onChangeStyle({ unit: v || undefined })} />
             <NumberField label="Decimal places" value={s.decimals ?? 0} onChange={(v) => onChangeStyle({ decimals: Number.isFinite(v) && v > 0 ? Math.min(6, Math.round(v)) : undefined })} min={0} max={6} />
             <TextField label="Prefix" value={s.prefix ?? ''} onChange={(v) => onChangeStyle({ prefix: v || undefined })} />
             <TextField label="Suffix / unit" value={s.suffix ?? ''} onChange={(v) => onChangeStyle({ suffix: v || undefined })} />

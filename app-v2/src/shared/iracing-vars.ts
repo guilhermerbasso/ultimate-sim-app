@@ -61,7 +61,7 @@ export const IRACING_VARIABLES: IracingVarDef[] = [
   { id: 'PlayerCarSLShiftRPM', label: 'Optimal upshift RPM', unit: 'rpm', category: 'car', telemetryField: 'shiftRpm' },
   { id: 'ShiftIndicatorPct', label: 'Shift indicator', unit: '%', category: 'car', telemetryField: 'shiftIndicatorPct' },
   { id: 'EngineWarnings', label: 'Engine warnings', category: 'car' },
-  { id: 'OilPressure', label: 'Oil pressure', unit: 'bar', category: 'car', telemetryField: 'oilPressureKpa' },
+  { id: 'OilPressure', label: 'Oil pressure', unit: 'kPa', category: 'car', telemetryField: 'oilPressureKpa' },
   { id: 'OilTemp', label: 'Oil temperature', unit: '°C', category: 'car' },
   { id: 'WaterTemp', label: 'Water temperature', unit: '°C', category: 'car' },
   { id: 'WaterLevel', label: 'Water level', unit: 'L', category: 'car', telemetryField: 'waterLevelL' },

@@ -9,6 +9,8 @@ import type { WidgetProps } from './types'
 import { formatTime, pctOrUndefined } from './format'
 import { resolveSkin, FitText } from '../../skins'
 import { DataField } from '../../instruments'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 const DEFAULT_W = 430
 const DEFAULT_H = 210
@@ -43,6 +45,7 @@ function isNight(seconds?: number): boolean {
 }
 
 export function SessionWeatherWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = resolveSkin('gt3', 'generic')
   const glass = skin.id === 'hud'
   const W = Math.max(1, Math.round(config?.position?.width ?? DEFAULT_W))
@@ -67,8 +70,7 @@ export function SessionWeatherWidget({ snapshot, config }: WidgetProps): ReactEl
 
   const lapVal = finite(snapshot?.currentLap) ? String(Math.round(snapshot?.currentLap as number)) : '—'
   const atualVal = formatLap(snapshot?.currentLapTimeSec)
-  const pistaVal = finite(snapshot?.trackTempC) ? String(Math.round(snapshot?.trackTempC as number)) : '—'
-  const pistaUnit = finite(snapshot?.trackTempC) ? '°C' : undefined
+  const trackTemp = formatMeasurement(snapshot?.trackTempC, 'temperature-c', unitSystem, { decimals: 0 })
   const incState: FieldState = incidents.startsWith('0/') ? 'ok' : 'normal'
   const pistaState: FieldState = trackHot ? 'crit' : 'normal'
   const condColor = rainingRaw === undefined ? skin.palette.textDim : raining ? skin.palette.warn : skin.palette.text
@@ -118,7 +120,7 @@ export function SessionWeatherWidget({ snapshot, config }: WidgetProps): ReactEl
       <DataField x={pad} y={gridY} width={cellW} height={cellH} label="Lap" value={lapVal} skin={skin} />
       <DataField x={col1} y={gridY} width={cellW} height={cellH} label="Atual" value={atualVal} skin={skin} />
       <DataField x={pad} y={row1} width={cellW} height={cellH} label="Inc." value={incidents} state={incState} skin={skin} />
-      <DataField x={col1} y={row1} width={cellW} height={cellH} label="Pista" value={pistaVal} unit={pistaUnit} state={pistaState} skin={skin} />
+      <DataField x={col1} y={row1} width={cellW} height={cellH} label="Pista" value={trackTemp.display} unit={trackTemp.value === undefined ? undefined : trackTemp.unit} state={pistaState} skin={skin} />
     </svg>
   )
 }

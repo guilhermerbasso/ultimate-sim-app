@@ -11,6 +11,8 @@ import type { WidgetProps } from './types'
 import { formatGear, formatTime, formatDelta, pct } from './format'
 import { resolveSkin, FitText, type SkinToken } from '../../skins'
 import { RevLedBar, DataField, type FieldState } from '../../instruments'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 export const LMU_ENDURANCE_DASH_STREAM_SAFE = true
 
@@ -108,6 +110,7 @@ function tC(t: TyreInfo | undefined): number | undefined {
 }
 
 export function LmuEnduranceDashWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const s = snapshot
   const skin = resolveSkin('gt3', 'generic')
   const { palette } = skin
@@ -126,6 +129,11 @@ export function LmuEnduranceDashWidget({ snapshot, config }: WidgetProps): React
   const bt = s?.brakeTempC
   const delta = s?.deltaToBestSec
   const deltaState: FieldState = delta !== undefined && Number.isFinite(delta) && delta <= 0 ? 'ok' : 'warn'
+  const temp = (value: number | undefined) => formatMeasurement(value, 'temperature-c', unitSystem, { decimals: 0 })
+  const tempUnit = temp(undefined).unit
+  const speed = formatMeasurement(s?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
+  const fuel = formatMeasurement(s?.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1 })
+  const fuelPerLap = formatMeasurement(s?.fuelPerLap, 'fuel-per-lap-l', unitSystem, { decimals: 2 })
 
   const ledH = Math.max(26, Math.round(H * 0.06))
   const topH = Math.max(48, Math.round(H * 0.1))
@@ -169,7 +177,7 @@ export function LmuEnduranceDashWidget({ snapshot, config }: WidgetProps): React
       { x: gx + cw + G, y: gy + chh + G }
     ]
     return cells.map((c, i) => (
-      <DataField key={c.label} x={pos[i].x} y={pos[i].y} width={cw} height={chh} label={c.label} value={c.value} unit="°" state={c.state} ghost={false} skin={skin} />
+      <DataField key={c.label} x={pos[i].x} y={pos[i].y} width={cw} height={chh} label={c.label} value={c.value} unit={tempUnit} state={c.state} ghost={false} skin={skin} />
     ))
   }
 
@@ -215,19 +223,19 @@ export function LmuEnduranceDashWidget({ snapshot, config }: WidgetProps): React
         {df(tsx.pos, topY, posW, topH, 'POS', positionText(s), 'accent')}
 
         {/* Left: tyre + brake temps */}
-        {sectionHeader(leftX, cTop, leftW, 'TYRE °C')}
+        {sectionHeader(leftX, cTop, leftW, `TYRE ${tempUnit}`)}
         {grid2x2(leftX, cTop + grpHeadH, [
-          { label: 'LF', value: n0(tC(ty?.lf)), state: tempState(tC(ty?.lf), 100, 110, 70) },
-          { label: 'RF', value: n0(tC(ty?.rf)), state: tempState(tC(ty?.rf), 100, 110, 70) },
-          { label: 'LR', value: n0(tC(ty?.lr)), state: tempState(tC(ty?.lr), 100, 110, 70) },
-          { label: 'RR', value: n0(tC(ty?.rr)), state: tempState(tC(ty?.rr), 100, 110, 70) }
+          { label: 'LF', value: temp(tC(ty?.lf)).display, state: tempState(tC(ty?.lf), 100, 110, 70) },
+          { label: 'RF', value: temp(tC(ty?.rf)).display, state: tempState(tC(ty?.rf), 100, 110, 70) },
+          { label: 'LR', value: temp(tC(ty?.lr)).display, state: tempState(tC(ty?.lr), 100, 110, 70) },
+          { label: 'RR', value: temp(tC(ty?.rr)).display, state: tempState(tC(ty?.rr), 100, 110, 70) }
         ])}
-        {sectionHeader(leftX, cTop + grpH + G, leftW, 'BRAKE °C')}
+        {sectionHeader(leftX, cTop + grpH + G, leftW, `BRAKE ${tempUnit}`)}
         {grid2x2(leftX, cTop + grpH + G + grpHeadH, [
-          { label: 'LF', value: n0(bt?.lf), state: tempState(bt?.lf, 550, 650, 250) },
-          { label: 'RF', value: n0(bt?.rf), state: tempState(bt?.rf, 550, 650, 250) },
-          { label: 'LR', value: n0(bt?.lr), state: tempState(bt?.lr, 550, 650, 250) },
-          { label: 'RR', value: n0(bt?.rr), state: tempState(bt?.rr, 550, 650, 250) }
+          { label: 'LF', value: temp(bt?.lf).display, state: tempState(bt?.lf, 550, 650, 250) },
+          { label: 'RF', value: temp(bt?.rf).display, state: tempState(bt?.rf, 550, 650, 250) },
+          { label: 'LR', value: temp(bt?.lr).display, state: tempState(bt?.lr, 550, 650, 250) },
+          { label: 'RR', value: temp(bt?.rr).display, state: tempState(bt?.rr, 550, 650, 250) }
         ])}
 
         {/* Centre: RPM, GEAR, SPEED */}
@@ -235,7 +243,7 @@ export function LmuEnduranceDashWidget({ snapshot, config }: WidgetProps): React
         <rect x={midX} y={midGearY} width={midW} height={midGearH} rx={skin.material.radius} fill={palette.bg} stroke={redline ? palette.crit : palette.accent} strokeWidth={skin.material.borderWidth} />
         <FitText x={midCx} y={midGearY + midGearH * 0.16} boxW={midW * 0.7} boxH={midGearH * 0.16} text="GEAR" anchor="middle" baseline="middle" fontFamily={skin.typography.label} fill={palette.textDim} minFontPx={11} maxFontPx={Math.max(12, midGearH * 0.12)} weight={700} letterSpacing={4} />
         <FitText x={midCx} y={midGearY + midGearH * 0.58} boxW={midW * 0.6} boxH={midGearH * 0.64} text={gear} anchor="middle" baseline="middle" fontFamily={/^\d$/.test(gear) ? skin.segment.numeric : skin.segment.alpha} fill={redline ? palette.crit : palette.text} minFontPx={24} maxFontPx={midGearH * 0.64} />
-        {df(midX, cBot - midSpeedH, midW, midSpeedH, 'SPEED', n0(s?.speedKmh), 'accent', 'KMH')}
+        {df(midX, cBot - midSpeedH, midW, midSpeedH, 'SPEED', speed.display, 'accent', speed.unit.toUpperCase())}
 
         {/* Right: LAST / BEST / DELTA */}
         {df(rightX, cTop, rightW, rH, 'LAST', formatTime(s?.lastLapTimeSec))}
@@ -243,8 +251,8 @@ export function LmuEnduranceDashWidget({ snapshot, config }: WidgetProps): React
         {df(rightX, cTop + 2 * (rH + rGap), rightW, rH, 'DELTA', formatDelta(delta), deltaState, 's')}
 
         {/* Bottom strip */}
-        {df(bx(0), botY, bW, botH, 'FUEL', n1(s?.fuelLiters), lowFuel ? 'crit' : 'ok', 'L')}
-        {df(bx(1), botY, bW, botH, 'FUEL/LAP', n2(s?.fuelPerLap))}
+        {df(bx(0), botY, bW, botH, 'FUEL', fuel.display, lowFuel ? 'crit' : 'ok', fuel.unit)}
+        {df(bx(1), botY, bW, botH, 'FUEL/LAP', fuelPerLap.display, 'normal', fuelPerLap.unit)}
         {df(bx(2), botY, bW, botH, 'LAPS LEFT', n0(s?.lapsRemaining), 'accent')}
         {df(bx(3), botY, bW, botH, 'STINT', formatClock(s?.sessionTimeRemainingSec))}
         {df(bx(4), botY, bW, botH, 'ABS', fmtLevel(s?.absLevel))}

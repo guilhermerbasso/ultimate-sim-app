@@ -8,6 +8,8 @@ import type {
   ModelStatus
 } from '../../shared/ai'
 import type { EngineerContext } from '../../shared/ai-engineer'
+import type { CoachFinding } from '../../shared/coach'
+import type { RacecraftAdviceContext } from '../../shared/coach-racecraft'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import {
   DEFAULT_ENGINEER_CONFIG,
@@ -88,7 +90,11 @@ interface Harness {
   saveConfig: ReturnType<typeof vi.fn>
 }
 
-function makeHarness(overrides?: { config?: Partial<EngineerConfig>; snapshot?: TelemetrySnapshot | null }): Harness {
+function makeHarness(overrides?: {
+  config?: Partial<EngineerConfig>
+  snapshot?: TelemetrySnapshot | null
+  racecraftContext?: RacecraftAdviceContext | null
+}): Harness {
   const config: EngineerConfig = { ...DEFAULT_ENGINEER_CONFIG, ...overrides?.config }
   const runtime = makeRuntime()
   const modelManager = makeModelManager(config.modelId)
@@ -99,12 +105,34 @@ function makeHarness(overrides?: { config?: Partial<EngineerConfig>; snapshot?: 
     runtime,
     modelManager,
     context,
+    racecraftContext: overrides?.racecraftContext === undefined ? undefined : () => overrides.racecraftContext,
     broadcast,
     config,
     saveConfig,
     now: () => 1000
   }
   return { deps, runtime, modelManager, broadcast, saveConfig }
+}
+
+function racecraftFinding(overrides: Partial<CoachFinding> = {}): CoachFinding {
+  return {
+    id: 'racecraft',
+    kind: 'throttle-late',
+    phase: 'exit',
+    sector: 2,
+    corner: 7,
+    zonePctStart: 0.5,
+    zonePctEnd: 0.6,
+    severity: 'med',
+    estTimeLossSec: 0.2,
+    estTimeDeltaSec: -0.2,
+    sign: 'loss',
+    title: 'Late throttle',
+    detail: 'Late throttle',
+    evidence: 'player telemetry',
+    metrics: {},
+    ...overrides
+  }
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -126,6 +154,57 @@ describe('createEngineerOrchestrator.ask', () => {
     // No telemetry → deterministic "no data" reply (English default).
     expect(answer.text).toBe('No telemetry right now.')
     expect(h.broadcast).toHaveBeenCalledWith(ENGINEER_CHANNELS.answer, expect.objectContaining({ source: 'intent' }))
+  })
+
+  it('answers how to pass the car ahead from deterministic racecraft evidence without the LLM', async () => {
+    const harness = makeHarness({
+      racecraftContext: {
+        findings: [racecraftFinding()],
+        cornerMetrics: [
+          {
+            corner: 7,
+            entrySpeedKmh: 190,
+            minSpeedKmh: 90,
+            exitSpeedKmh: 138,
+            throttleStartPct: 0.57
+          }
+        ],
+        gaps: [
+          { at: 1000, aheadSec: 1.2 },
+          { at: 4000, aheadSec: 0.8 }
+        ]
+      }
+    })
+    const orch = createEngineerOrchestrator(harness.deps)
+
+    const answer = await orch.ask('How do I pass the car ahead?')
+
+    expect(answer.source).toBe('intent')
+    expect(answer.text).toContain('OVERTAKE')
+    expect(answer.text).toContain('Turn 7')
+    expect(answer.text).toContain('gap ahead 0.8s, closing')
+    expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
+  it('answers how to pull away from the car behind as DEFEND when the gap is closing', async () => {
+    const harness = makeHarness({
+      racecraftContext: {
+        findings: [racecraftFinding({ kind: 'brake-early', phase: 'entry', corner: 2, sector: 1 })],
+        gaps: [
+          { at: 1000, behindSec: 1.0 },
+          { at: 4000, behindSec: 0.6 }
+        ]
+      }
+    })
+    const orch = createEngineerOrchestrator(harness.deps)
+
+    const answer = await orch.ask('How do I pull away from the car behind?')
+
+    expect(answer.source).toBe('intent')
+    expect(answer.text).toContain('DEFEND')
+    expect(answer.text).toContain('Turn 2')
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
   })
 
   it('routes an open-ended question through the LLM exactly once, with tools + context', async () => {

@@ -15,6 +15,8 @@ import type {
 } from '../../shared/oled'
 import type { ModuleContext } from '../module-context'
 import { logger } from '../modules/logger'
+import type { UnitSystem } from '../../shared/units'
+import { settingsEvents } from '../settings/events'
 
 const CONFIG_FILE = 'oled-dashboard.json'
 
@@ -25,6 +27,8 @@ export class OledDashboardEngine {
   private lastPayload: string | null = null
   private lastError: string | null = null
   private disposed = false
+  private unitSystem: UnitSystem = 'metric'
+  private unsubscribeSettings: (() => void) | null = null
   private readonly onSnapshot = (snapshot: TelemetrySnapshot | null): void => {
     this.latest = snapshot
   }
@@ -44,6 +48,11 @@ export class OledDashboardEngine {
   constructor(private readonly ctx: ModuleContext) {}
 
   async initialize(): Promise<void> {
+    this.unsubscribeSettings = settingsEvents.onChanged((settings) => {
+      this.unitSystem = settings.unitSystem
+      this.lastPayload = null
+      if (this.config.enabled) void this.sendCurrentPage().catch(() => undefined)
+    })
     this.config = await this.loadConfig()
     this.ctx.telemetryHub.on('snapshot', this.onSnapshot)
     this.ctx.serialManager.on('resync', this.onSerialResync)
@@ -102,6 +111,8 @@ export class OledDashboardEngine {
     this.disposed = true
     this.ctx.telemetryHub.off('snapshot', this.onSnapshot)
     this.ctx.serialManager.off('resync', this.onSerialResync)
+    this.unsubscribeSettings?.()
+    this.unsubscribeSettings = null
     await this.stop()
   }
 
@@ -147,7 +158,7 @@ export class OledDashboardEngine {
 
   private async sendCurrentPage(): Promise<void> {
     if (!this.config.enabled) return
-    const rendered = formatOledConfigPage(this.config, this.latest)
+    const rendered = formatOledConfigPage(this.config, this.latest, this.unitSystem)
     try {
       if (rendered.kind === 'bignum') {
         await this.ctx.serialManager.sendBigNum(rendered.value)

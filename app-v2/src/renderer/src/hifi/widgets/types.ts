@@ -8,6 +8,7 @@
 import type { ReactElement } from 'react'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
 import type { OverlayTrigger } from '../../../../shared/overlays'
+import type { UnitSystem } from '../../../../shared/units'
 
 export type TelemetryField = keyof TelemetrySnapshot
 
@@ -43,6 +44,8 @@ export interface HifiWidgetProps {
   /** Pixel box to fill; the module renders an SVG with its own viewBox and scales. */
   width?: number
   height?: number
+  /** Active global display units. Canonical telemetry remains metric. */
+  unitSystem?: UnitSystem
 }
 
 export interface HifiWidgetModule {

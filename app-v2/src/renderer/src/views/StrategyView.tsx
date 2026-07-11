@@ -16,6 +16,8 @@ import {
 } from '../../../shared/incidents'
 import type { AppViewProps } from '../App'
 import { tt, type ResolvedLanguage } from '../i18n'
+import { formatMeasurement, measurementUnit } from '../../../shared/units'
+import { useUnitSystem } from '../lib/units'
 
 // ─── warm-chrome styling (cool/green ONLY for "good") ─────────────────────────
 
@@ -124,6 +126,7 @@ function toNumber(text: string): number | undefined {
 }
 
 export default function StrategyView({ language }: AppViewProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const [plan, setPlan] = useState<StrategyPlan | null>(null)
   const [clips, setClips] = useState<IncidentClipMeta[]>([])
   const [analyses, setAnalyses] = useState<Record<string, IncidentAnalysis>>({})
@@ -309,7 +312,7 @@ export default function StrategyView({ language }: AppViewProps): ReactElement {
 
           {/* ── Fuel + tyres metrics ── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
-            <Metric title={tt(language, 'fuel.fuel')} main={fmt(fuel?.fuelLiters, 1)} unit="L" />
+            <Metric title={tt(language, 'fuel.fuel')} main={formatMeasurement(fuel?.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1 }).display} unit={measurementUnit('fuel-volume-l', unitSystem)} />
             <Metric title={tt(language, 'fuel.lapsInTank')} main={fmt(fuel?.lapsOfFuel, 1)} unit={tt(language, 'fuel.lapUnit')} />
             <Metric
               title={tt(language, 'strategy.fuelMarginMetric')}
@@ -341,12 +344,12 @@ export default function StrategyView({ language }: AppViewProps): ReactElement {
                     {pitWindow?.limitedBy === 'fuel' ? tt(language, 'fuel.fuel') : pitWindow?.limitedBy === 'tyres' ? tt(language, 'tire.byCorner') : pitWindow?.limitedBy === 'none' ? tt(language, 'strategy.nothing') : '—'}
                   </strong>
                 </div>
-                <div>{tt(language, 'fuel.fuelToFinish')} <strong>{fmt(fuel?.fuelToFinishLiters, 1)} L</strong></div>
+                <div>{tt(language, 'fuel.fuelToFinish')} <strong>{formatMeasurement(fuel?.fuelToFinishLiters, 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true }).display}</strong></div>
                 {fuel?.canFinish === false && (
-                  <div>{tt(language, 'strategy.shortFill')} <strong style={{ color: WARN }}>{fmt(fuel?.shortFillLiters, 1)} L</strong></div>
+                  <div>{tt(language, 'strategy.shortFill')} <strong style={{ color: WARN }}>{formatMeasurement(fuel?.shortFillLiters, 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true }).display}</strong></div>
                 )}
                 {(fuel?.savePerLapLiters ?? 0) > 0 && (
-                  <div>{tt(language, 'strategy.saveToExtend')} <strong style={{ color: WARN }}>{fmt(fuel?.savePerLapLiters, 2)} {tt(language, 'strategy.litersPerLap')}</strong></div>
+                  <div>{tt(language, 'strategy.saveToExtend')} <strong style={{ color: WARN }}>{formatMeasurement(fuel?.savePerLapLiters, 'fuel-per-lap-l', unitSystem, { decimals: 2, includeUnit: true }).display}</strong></div>
                 )}
               </div>
             </section>

@@ -9,6 +9,7 @@ import {
   isAppTheme,
   isTcSensitivity
 } from '../../shared/settings'
+import { isUnitSystem } from '../../shared/units'
 
 const STORE_FILE = 'settings.json'
 
@@ -33,6 +34,9 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
     defaultTelemetrySource: isAppTelemetrySource(value?.defaultTelemetrySource)
       ? value.defaultTelemetrySource
       : DEFAULT_APP_SETTINGS.defaultTelemetrySource,
+    unitSystem: isUnitSystem(value?.unitSystem)
+      ? value.unitSystem
+      : DEFAULT_APP_SETTINGS.unitSystem,
     tcSensitivity: isTcSensitivity(value?.tcSensitivity)
       ? value.tcSensitivity
       : DEFAULT_APP_SETTINGS.tcSensitivity

@@ -8,6 +8,7 @@ import {
   type AlertType
 } from '../../shared/alerts'
 import type { Corners, Flags, TelemetrySnapshot, TyreInfo } from '../../shared/telemetry'
+import { formatMeasurement, type UnitSystem } from '../../shared/units'
 
 const FLAG_LABELS: Partial<Record<keyof Flags, string>> = {
   blue: 'Blue flag',
@@ -73,10 +74,14 @@ function pickRule(config: AlertsConfig, key: keyof AlertsConfig): AlertRuleConfi
 export class AlertsDetector {
   private state: DetectorState = makeState()
 
-  constructor(private config: AlertsConfig) {}
+  constructor(private config: AlertsConfig, private unitSystem: UnitSystem = 'metric') {}
 
   setConfig(config: AlertsConfig): void {
     this.config = config
+  }
+
+  setUnitSystem(unitSystem: UnitSystem): void {
+    this.unitSystem = unitSystem
   }
 
   reset(): void {
@@ -251,7 +256,7 @@ export class AlertsDetector {
         this.fire(
           rule,
           'tyrePressure',
-          `Pressure ${direction} on ${CORNER_LABELS[corner]}: ${(pressure as number).toFixed(0)} kPa`,
+          `Pressure ${direction} on ${CORNER_LABELS[corner]}: ${formatMeasurement(pressure, 'pressure-kpa', this.unitSystem, { decimals: this.unitSystem === 'imperial' ? 1 : 0, includeUnit: true }).display}`,
           key,
           snapshot.timestamp,
           events,
@@ -282,7 +287,7 @@ export class AlertsDetector {
       maxC,
       this.state.tyreTempOver,
       (corner, value) =>
-        `Hot tire on ${CORNER_LABELS[corner]}: ${(value as number).toFixed(0)} °C`,
+        `Hot tire on ${CORNER_LABELS[corner]}: ${formatMeasurement(value, 'temperature-c', this.unitSystem, { decimals: 0, includeUnit: true }).display}`,
       snapshot.timestamp,
       events
     )
@@ -307,7 +312,7 @@ export class AlertsDetector {
       maxC,
       this.state.brakeTempOver,
       (corner, value) =>
-        `Hot brake on ${CORNER_LABELS[corner]}: ${(value as number).toFixed(0)} °C`,
+        `Hot brake on ${CORNER_LABELS[corner]}: ${formatMeasurement(value, 'temperature-c', this.unitSystem, { decimals: 0, includeUnit: true }).display}`,
       snapshot.timestamp,
       events
     )

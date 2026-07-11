@@ -9,6 +9,8 @@ import type { WidgetProps } from './types'
 import { pctOrUndefined } from './format'
 import { resolveSkin, FitText } from '../../skins'
 import { DataField } from '../../instruments'
+import { useUnitSystem } from '../../lib/units'
+import { formatMeasurement } from '../../../../shared/units'
 
 const DEFAULT_W = 360
 const DEFAULT_H = 115
@@ -26,6 +28,7 @@ function isNight(seconds?: number): boolean {
 }
 
 export function WeatherWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = resolveSkin('gt3', 'generic')
   const glass = skin.id === 'hud'
   const W = Math.max(1, Math.round(config?.position?.width ?? DEFAULT_W))
@@ -39,8 +42,8 @@ export function WeatherWidget({ snapshot, config }: WidgetProps): ReactElement {
   const gripN = gripFrac === undefined ? undefined : Math.round(gripFrac * 100)
   const wetStr = wetN === undefined ? '—' : `${wetN}%`
   const gripStr = gripN === undefined ? '—' : `${gripN}%`
-  const airValue = finite(snapshot?.airTempC) ? String(Math.round(snapshot?.airTempC as number)) : '—'
-  const trackValue = finite(snapshot?.trackTempC) ? String(Math.round(snapshot?.trackTempC as number)) : '—'
+  const air = formatMeasurement(snapshot?.airTempC, 'temperature-c', unitSystem, { decimals: 0 })
+  const track = formatMeasurement(snapshot?.trackTempC, 'temperature-c', unitSystem, { decimals: 0 })
   const cond = rainingRaw === undefined ? '—' : raining ? 'Rain' : 'Dry'
   const night = isNight(snapshot?.sessionTimeOfDay)
   const rainLampActive = raining || snapshot?.weatherDeclaredWet === true || (wetN !== undefined && wetN > 10)
@@ -93,8 +96,8 @@ export function WeatherWidget({ snapshot, config }: WidgetProps): ReactElement {
       <circle cx={W - pad - 18} cy={pad + 6} r={5} fill={rainLampActive ? skin.palette.info : skin.palette.surface} stroke={skin.material.border} strokeWidth={1} />
       <circle cx={W - pad - 4} cy={pad + 6} r={5} fill={headlightActive ? skin.palette.warn : skin.palette.surface} stroke={skin.material.border} strokeWidth={1} />
 
-      <DataField x={x0} y={gridY} width={cellW} height={gridH} label="AIR" value={airValue} unit={airValue === '—' ? undefined : '°'} state={airState} skin={skin} />
-      <DataField x={x1} y={gridY} width={cellW} height={gridH} label="TRACK" value={trackValue} unit={trackValue === '—' ? undefined : '°'} state={trackState} skin={skin} />
+      <DataField x={x0} y={gridY} width={cellW} height={gridH} label="AIR" value={air.display} unit={air.value === undefined ? undefined : air.unit} state={airState} skin={skin} />
+      <DataField x={x1} y={gridY} width={cellW} height={gridH} label="TRACK" value={track.display} unit={track.value === undefined ? undefined : track.unit} state={trackState} skin={skin} />
       <DataField x={x2} y={gridY} width={cellW} height={gridH} label="GRIP" value={gripStr} state={gripState} skin={skin} />
       <DataField x={x3} y={gridY} width={cellW} height={gridH} label="WET" value={wetStr} state={wetState} skin={skin} />
     </svg>

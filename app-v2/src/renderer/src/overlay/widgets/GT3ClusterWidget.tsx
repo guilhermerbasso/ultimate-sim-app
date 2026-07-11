@@ -14,6 +14,8 @@ import { fuelLaps, fuelLevelPct, GT3_STREAM_SAFE } from './gt3Telemetry'
 import { overlayDesignFamily, type OverlayDesignFamily } from '../../../../shared/overlays'
 import { resolveSkin, FitText, zoneColor } from '../../skins'
 import { RevLedBar, AnalogDial, DataField, type FieldState } from '../../instruments'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 export const GT3_CLUSTER_STREAM_SAFE = GT3_STREAM_SAFE
 
@@ -79,12 +81,15 @@ function buildModel(snapshot: TelemetrySnapshot | null): ClusterModel {
 }
 
 export function GT3ClusterWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = resolveSkin('gt3', 'generic')
   const { palette } = skin
   const { W, H } = dims(config)
   const family = overlayDesignFamily(config?.stylePreset)
   const accent = familyAccent(family, palette.accent)
   const m = buildModel(snapshot)
+  const fuel = formatMeasurement(m.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1 })
+  const speed = formatMeasurement(m.speed, 'speed-kmh', unitSystem, { decimals: 0 })
   const heroColor = m.redline ? palette.crit : zoneColor(skin.led, m.shiftPct)
 
   const P = Math.max(8, Math.round(Math.min(W, H) * 0.04))
@@ -127,7 +132,7 @@ export function GT3ClusterWidget({ snapshot, config }: WidgetProps): ReactElemen
         <RevLedBar pct={m.shiftPct} profile={skin.led} x={P} y={ledY} width={innerW} height={ledH} flashOn={m.redline} />
 
         {/* Left: fuel + laps */}
-        {df(P, bodyY, leftW, leftH, 'FUEL', numberOrDash(m.fuelLiters, 1), 'normal', 'L')}
+        {df(P, bodyY, leftW, leftH, 'FUEL', fuel.display, 'normal', fuel.unit)}
         {df(P, bodyY + leftH + G, leftW, leftH, 'LAPS', numberOrDash(m.laps, 1), 'accent')}
 
         {/* Centre hero: dial (analog) or gear box, + speed */}
@@ -139,7 +144,7 @@ export function GT3ClusterWidget({ snapshot, config }: WidgetProps): ReactElemen
           <rect x={midX} y={heroY} width={midW} height={heroH} rx={skin.material.radius} fill={palette.bg} stroke={m.redline ? palette.crit : accent} strokeWidth={skin.material.borderWidth} />
         )}
         <FitText x={heroCx} y={heroCy} boxW={(useDial ? dialSize : midW) * 0.5} boxH={heroH * 0.6} text={m.gear} anchor="middle" baseline="middle" fontFamily={/^\d$/.test(m.gear) ? skin.segment.numeric : skin.segment.alpha} fill={heroColor} minFontPx={24} maxFontPx={heroH * 0.6} />
-        {df(midX, bodyY + bodyH - speedH, midW, speedH, 'SPEED', numberOrDash(m.speed, 0), 'normal', 'KMH')}
+        {df(midX, bodyY + bodyH - speedH, midW, speedH, 'SPEED', speed.display, 'normal', speed.unit.toUpperCase())}
 
         {/* Right: delta + lap + status */}
         {df(rightX, bodyY, rightW, rightH, 'DELTA', formatDelta(m.delta), m.deltaState, 's')}

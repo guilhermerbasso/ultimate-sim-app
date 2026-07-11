@@ -21,6 +21,8 @@ import {
   testHapticsEffect
 } from '../lib/haptics-runtime'
 import { useDevices } from '../lib/devices/DeviceRegistry'
+import { useUnitSystem } from '../lib/units'
+import { formatMeasurement } from '../../../shared/units'
 
 const shell: CSSProperties = {
   display: 'grid',
@@ -106,6 +108,7 @@ function num(value: number | undefined, digits = 1): string {
 }
 
 const HapticsView: ComponentType<AppViewProps> = ({ showToast, language }): ReactElement => {
+  const unitSystem = useUnitSystem()
   const { audioOutputs, audioOutputsStatus, audioBusy, refreshAudioOutputs, serialDevices, refreshFleet } = useDevices()
   const [config, setConfig] = useState<HapticsConfig>(DEFAULT_HAPTICS_CONFIG)
   const [live, setLive] = useState<TelemetrySnapshot | null>(null)
@@ -236,13 +239,13 @@ const HapticsView: ComponentType<AppViewProps> = ({ showToast, language }): Reac
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, margin: '10px 0 4px' }}>
             <Tile labelText="RPM" value={live?.rpm == null ? '—' : `${Math.round(live.rpm)}`} />
             <Tile labelText={tt(language, 'haptics.gear')} value={live?.gear == null ? '—' : String(live.gear)} />
-            <Tile labelText={tt(language, 'haptics.speed')} value={live?.speedKmh == null ? '—' : `${Math.round(live.speedKmh)} km/h`} />
+            <Tile labelText={tt(language, 'haptics.speed')} value={formatMeasurement(live?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0, includeUnit: true }).display} />
             <Tile labelText={tt(language, 'haptics.throttle')} value={pct(live?.throttle)} />
             <Tile labelText={tt(language, 'haptics.brake')} value={pct(live?.brake)} />
             <Tile labelText="ABS" value={live?.absActive == null ? tt(language, 'haptics.noDataShort') : live.absActive ? tt(language, 'common.sim') : tt(language, 'common.no')} />
             <Tile labelText="TC" value={live?.tcActive == null ? tt(language, 'haptics.noDataShort') : live.tcActive ? tt(language, 'common.sim') : tt(language, 'common.no')} />
             
-            <Tile labelText={tt(language, 'haptics.latAccel')} value={`${num(frame.latAccelMs2)} m/s²`} />
+            <Tile labelText={tt(language, 'haptics.latAccel')} value={formatMeasurement(frame.latAccelMs2, 'acceleration-ms2', unitSystem, { decimals: 2, includeUnit: true }).display} />
           </div>
           <span style={label}>{tt(language, 'haptics.derivedSignals')}</span>
           <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>

@@ -13,9 +13,11 @@ import { DataField } from '../../instruments'
 import { resolveSkin, makeGrid } from '../../skins'
 import type { SkinId, BrandId, SkinToken, Rect } from '../../skins'
 import type { FieldState } from '../../instruments'
-import { numberOrDash, pct } from './format'
+import { pct } from './format'
 import { fuelLevelPct, GT3_STREAM_SAFE, type Gt3Severity } from './gt3Telemetry'
 import type { WidgetProps } from './types'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 export const ENGINE_VITALS_STRIP_STREAM_SAFE = GT3_STREAM_SAFE
 
@@ -68,6 +70,7 @@ function offset(area: Rect, cell: Rect): Rect {
 }
 
 export function EngineVitalsStripWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = widgetSkin(config)
   const W = Math.max(1, Math.round(config?.position?.width ?? DEFAULT_W))
   const H = Math.max(1, Math.round(config?.position?.height ?? DEFAULT_H))
@@ -75,11 +78,14 @@ export function EngineVitalsStripWidget({ snapshot, config }: WidgetProps): Reac
 
   const oilBar = snapshot?.oilPressureKpa !== undefined ? snapshot.oilPressureKpa / 100 : undefined
   const fuelPct = fuelLevelPct(snapshot)
+  const water = formatMeasurement(snapshot?.waterTempC, 'temperature-c', unitSystem, { decimals: 0 })
+  const oil = formatMeasurement(snapshot?.oilTempC, 'temperature-c', unitSystem, { decimals: 0 })
+  const oilPressure = formatMeasurement(oilBar, 'pressure-bar', unitSystem, { decimals: 1 })
 
   const vitals: Vital[] = [
-    { label: 'Water T', value: numberOrDash(snapshot?.waterTempC, 0), unit: '°C', level: vitalPct(snapshot?.waterTempC, 60, 120), sev: severity(snapshot?.waterTempC, 105, 115) },
-    { label: 'Oil T', value: numberOrDash(snapshot?.oilTempC, 0), unit: '°C', level: vitalPct(snapshot?.oilTempC, 70, 145), sev: severity(snapshot?.oilTempC, 125, 140) },
-    { label: 'Oil P', value: numberOrDash(oilBar, 1), unit: 'bar', level: vitalPct(oilBar, 0, 7), sev: pressureSeverity(oilBar, snapshot?.rpm) },
+    { label: 'Water T', value: water.display, unit: water.unit, level: vitalPct(snapshot?.waterTempC, 60, 120), sev: severity(snapshot?.waterTempC, 105, 115) },
+    { label: 'Oil T', value: oil.display, unit: oil.unit, level: vitalPct(snapshot?.oilTempC, 70, 145), sev: severity(snapshot?.oilTempC, 125, 140) },
+    { label: 'Oil P', value: oilPressure.display, unit: oilPressure.unit, level: vitalPct(oilBar, 0, 7), sev: pressureSeverity(oilBar, snapshot?.rpm) },
     { label: 'Fuel', value: fuelPct === undefined ? '—' : Math.round(fuelPct * 100).toString(), unit: '%', level: pct(fuelPct), sev: fuelPct !== undefined && fuelPct <= 0.1 ? 'red' : fuelPct !== undefined && fuelPct <= 0.18 ? 'amber' : 'ok' }
   ]
 

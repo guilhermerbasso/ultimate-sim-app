@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
+import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { renderDashboardElement } from './DashboardRoot'
+import { displayUnitLabel, resolveBinding } from './binding'
 import { PREVIEW_SNAPSHOT } from './widgets/gt3-theme'
+import { UnitSystemProvider } from '../lib/units'
+import type { UnitSystem } from '../../../shared/units'
 import type {
   DashboardElement,
   DashboardElementStyle,
@@ -24,10 +28,38 @@ function markup(
   type: DashboardElementType,
   style: DashboardElementStyle = {},
   binding?: string,
-  snap: typeof PREVIEW_SNAPSHOT | null = PREVIEW_SNAPSHOT
+  snap: typeof PREVIEW_SNAPSHOT | null = PREVIEW_SNAPSHOT,
+  unitSystem: UnitSystem = 'metric'
 ): string {
-  return renderToStaticMarkup(renderDashboardElement({ element: el(type, style, binding), snapshot: snap }))
+  return renderToStaticMarkup(
+    createElement(
+      UnitSystemProvider,
+      { initialUnitSystem: unitSystem },
+      renderDashboardElement({ element: el(type, style, binding), snapshot: snap })
+    )
+  )
 }
+
+describe('dashboard measurement units', () => {
+  it('converts a unit-only label together with its speed value', () => {
+    const out = markup('value', { label: 'KM/H', suffix: 'km/h' }, 'speedKmh', PREVIEW_SNAPSHOT, 'imperial')
+    expect(out).toContain('mph')
+    expect(out).not.toContain('KM/H')
+  })
+
+  it('treats the normalized oil-pressure snapshot field as canonical kPa', () => {
+    const result = resolveBinding('ir:OilPressure', { ...PREVIEW_SNAPSHOT, oilPressureKpa: 500 }, 'imperial')
+    expect(result.displayNumeric).toBeCloseTo(72.5189, 3)
+    expect(result.unit).toBe('psi')
+  })
+
+  it('converts units embedded in dashboard labels and titles', () => {
+    expect(displayUnitLabel('TYRE °C', undefined, undefined, 'imperial')).toBe('TYRE °F')
+    expect(displayUnitLabel('FUEL (L)', 'fuelLitersStr', undefined, 'imperial')).toBe('FUEL (gal)')
+    expect(displayUnitLabel('Fuel/lap (L)', 'fuelPerLap', undefined, 'imperial')).toBe('Fuel/lap (gal)')
+    expect(displayUnitLabel('Speed (km/h)', 'speedKmh', undefined, 'imperial')).toBe('Speed (mph)')
+  })
+})
 
 // ── v2.37.0 builtin element renderers now route through the instrument set ────
 // gauge → AnalogDial, shiftlights → RevLedBar (default-on). The continuous bar

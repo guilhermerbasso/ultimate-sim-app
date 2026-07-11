@@ -4,6 +4,23 @@
 // Gauge, LedRow, BigNum, Tile). Warm hues = decoration/alert; cool/green = good.
 import { arc } from 'd3-shape'
 import { type ReactElement, type ReactNode } from 'react'
+import {
+  ShiftStrobe,
+  atShiftPoint,
+  revFill,
+  revLightRowLayout
+} from '../../lib/rev-lights'
+
+export {
+  SHIFT_PCT,
+  SHIFT_STROBE_BLUE,
+  ShiftStrobe,
+  atShiftPoint,
+  clampRevLightPct,
+  resolveRevLightState,
+  revFill,
+  revLightRowLayout
+} from '../../lib/rev-lights'
 
 export const C = {
   bg: '#000000',
@@ -23,36 +40,6 @@ export const C = {
 export const FONT_NUM = "'Chakra Petch','Michroma',monospace"
 export const FONT_BIG = "'Michroma','Chakra Petch',sans-serif"
 export const FONT_LABEL = "'Rajdhani','Barlow Condensed',sans-serif"
-
-// ── Shift-point strobe (uniform across ALL rev-lights) ────────────────────────
-// Rule: every rev-lights widget/overlay shares one behavior — at the shift point
-// EVERY led/segment turns a strong blue and strobes (blinks). Use `atShiftPoint`
-// to detect it, `revFill(color, atShift)` to color each segment, and drop
-// `<ShiftStrobe active={atShift} />` as the FIRST child of the LED <g> to blink.
-/** Strong blue shown when a rev-lights display reaches the shift point. */
-export const SHIFT_STROBE_BLUE = '#1e63ff'
-/** Default shift-point fraction (shiftIndicatorPct, 0..1) at which the strobe fires. */
-export const SHIFT_PCT = 0.97
-
-/** True when the shift indicator (0..1) has reached the shift point. */
-export function atShiftPoint(f: number | undefined, pct = SHIFT_PCT): boolean {
-  return typeof f === 'number' && Number.isFinite(f) && f >= pct
-}
-
-/** Uniform rev-lights fill: at the shift point EVERY led/segment turns strong blue. */
-export function revFill(baseColor: string, atShift: boolean): string {
-  return atShift ? SHIFT_STROBE_BLUE : baseColor
-}
-
-/**
- * Shift-point strobe. Drop as the FIRST child of a rev-lights `<g>`: when active it
- * blinks the whole group (strong blue leds) on/off. SSR-safe — renders an inert
- * `<animate>` in static markup/tests and animates in the browser.
- */
-export function ShiftStrobe({ active }: { active: boolean }): ReactElement | null {
-  if (!active) return null
-  return <animate attributeName="opacity" values="1;0.15;1" dur="0.14s" repeatCount="indefinite" />
-}
 
 // ── Clean convention (v4) ─────────────────────────────────────────────────────
 // Widgets/overlays are CLEAN by default: NO title, NO panel background, NO border.
@@ -243,15 +230,14 @@ export function GaugeArc({ cx, cy, r, thickness, f, color }: { cx: number; cy: n
 /** LED segment row (0..1) with green→amber→red ramp; strong-blue strobe at the shift point. */
 export function LedRow({ x, y, w, h, f, count = 12 }: { x: number; y: number; w: number; h: number; f: number; count?: number }): ReactElement {
   const shift = atShiftPoint(f)
-  const lit = shift ? count : Math.round(clamp01(f) * count)
-  const gap = 3
-  const cw = (w - gap * (count - 1)) / count
+  const layout = revLightRowLayout(w, h, count, { gap: 3 })
+  const lit = shift ? layout.count : Math.round(clamp01(f) * layout.count)
   const cells: ReactElement[] = []
-  for (let i = 0; i < count; i++) {
-    const z = i / (count - 1)
+  for (let i = 0; i < layout.count; i++) {
+    const z = layout.count === 1 ? 0 : i / (layout.count - 1)
     const ramp = z < 0.5 ? C.green : z < 0.8 ? C.amber : C.red
     const on = i < lit
-    cells.push(<rect key={i} x={x + i * (cw + gap)} y={y} width={cw} height={h} rx={2} fill={on ? revFill(ramp, shift) : C.recess} opacity={on ? 1 : 0.5} />)
+    cells.push(<rect key={i} x={x + layout.positions[i]} y={y + layout.y} width={layout.ledWidth} height={layout.ledHeight} rx={2} fill={on ? revFill(ramp, shift) : C.recess} opacity={on ? 1 : 0.5} />)
   }
   return <g><ShiftStrobe active={shift} />{cells}</g>
 }
