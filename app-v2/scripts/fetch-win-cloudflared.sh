@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-':' /*
 # Fetch and verify the official Windows x64 cloudflared used by Streaming Auto-tunnel.
-# This Bash/Node polyglot also exports electron-builder's beforePack verification hook.
 # The binary is always treated as data; neither path executes it.
 set -euo pipefail
 
@@ -89,25 +87,3 @@ verify_file "$TMP"
 mv -f -- "$TMP" "$TARGET"
 verify_file "$TARGET"
 exit 0
-
-: <<'CLOUDFLARED_NODE_HOOK'
-*/
-const CLOUDFLARED_NODE_HOOK = undefined
-module.exports.beforePack = async function beforePack() {
-  const fs = require('node:fs')
-  const path = require('node:path')
-  const crypto = require('node:crypto')
-  const script = fs.readFileSync(__filename, 'utf8')
-  const expected = script.match(/^CLOUDFLARED_SHA256="([0-9a-f]{64})"$/m)?.[1]
-  const binary = path.join(__dirname, '..', 'resources', 'cloudflared', 'cloudflared.exe')
-  if (!expected) throw new Error('cloudflared SHA256 pin is missing')
-  if (!fs.existsSync(binary) || !fs.statSync(binary).size) {
-    throw new Error(`Missing cloudflared resource: ${binary}`)
-  }
-  const actual = crypto.createHash('sha256').update(fs.readFileSync(binary)).digest('hex')
-  if (actual !== expected) {
-    throw new Error(`cloudflared SHA256 mismatch: expected ${expected}, got ${actual}`)
-  }
-  console.log(`[fetch-win-cloudflared] electron-builder preflight verified sha256:${actual}`)
-}
-CLOUDFLARED_NODE_HOOK

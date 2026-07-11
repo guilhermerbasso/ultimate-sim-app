@@ -12,7 +12,7 @@ publish:
   repo: ultimate-sim-app
 
 # Direct electron-builder invocations must also fail on a missing or mismatched binary.
-beforePack: ./scripts/fetch-win-cloudflared.sh
+beforePack: ./scripts/fetch-win-cloudflared.cjs
 
 files:
   - out/**
