@@ -1,4 +1,5 @@
 import type { HifiWidgetModule } from '../types'
+import { unitTagFor } from '../../../../../shared/tags'
 import {
   createCompetitionRenderer,
   createDduRenderer,
@@ -28,18 +29,6 @@ const ARCHETYPE_TAGS: Record<TelemetryArchetype, string[]> = {
 
 function unique(tags: readonly string[]): string[] {
   return [...new Set(tags.filter(Boolean))]
-}
-
-function unitTag(unit: string | undefined): string | undefined {
-  if (!unit) return undefined
-  const normalized = unit
-    .toLowerCase()
-    .replace('°c', 'celsius')
-    .replace('%', 'percent')
-    .replace('°', 'degrees')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-  return normalized ? `unit-${normalized}` : undefined
 }
 
 function rendererFor(
@@ -97,7 +86,7 @@ export const TELEMETRY_VARIANT_WIDGETS: HifiWidgetModule[] =
         `style-${variant}`,
         ...(variant === 'ddu' ? ['ddu-inspired'] : []),
         ...ARCHETYPE_TAGS[descriptor.archetype],
-        unitTag(descriptor.unit) ?? '',
+        unitTagFor(descriptor.unit) ?? '',
         ...(descriptor.tags ?? [])
       ]),
       requires: [...descriptor.requires],
