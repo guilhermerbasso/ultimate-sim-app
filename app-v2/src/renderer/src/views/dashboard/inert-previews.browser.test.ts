@@ -51,9 +51,6 @@ const root = createRoot(host)
 const framework = HIFI_WIDGETS.filter((module) => module.tags.includes('telemetry-framework'))
 const frameworkIds = framework.map((module) => 'hifi-' + module.id)
 const catalogById = new Map(ALL_VARIANTS.map((variant) => [variant.id, variant]))
-const forbidden = (channel) => channel === 'coach:getReport' || channel === 'coach:report' ||
-  channel === 'engineer:answer' || channel === 'engineer:proactive' || channel.startsWith('telemetry:') ||
-  channel.startsWith('outputs:') || channel.startsWith('expr:')
 
 async function settle(frames = 3) {
   for (let index = 0; index < frames; index += 1) await new Promise((resolve) => setTimeout(resolve, 0))
@@ -135,7 +132,7 @@ async function run() {
     await waitFor(() => host.querySelectorAll('[data-dashboard-inert-preview]').length > 0, 'preset gallery reopen cycle ' + cycle)
   }
   root.render(null); await settle()
-  const inertActivity = activity.filter((entry) => forbidden(entry.channel))
+  const inertActivity = activity.slice()
   const inertListeners = listenerSnapshot()
 
   activity = []
@@ -158,7 +155,7 @@ async function run() {
     await waitFor(() => (listeners.get('coach:report')?.size || 0) === 1, 'cycle subscription')
     root.render(null); await settle(); restored.push(JSON.stringify(listenerSnapshot()) === baseline)
   }
-  return { frameworkCount: framework.length, catalogFrameworkCount: catalogFrameworkIds.length, oneToOne, lastCatalogId, added, importActivity: importActivity.filter((entry) => forbidden(entry.channel)), inertStable: inertStable && presetStable, inertActivity, inertListeners, imperial, semantic, liveBindingChannels, telemetryUpdated, restored }
+  return { frameworkCount: framework.length, catalogFrameworkCount: catalogFrameworkIds.length, oneToOne, lastCatalogId, added, importActivity, inertStable: inertStable && presetStable, inertActivity, inertListeners, imperial, semantic, liveBindingChannels, telemetryUpdated, restored }
 }
 window.__inertPreviewApi = { run }
 `

@@ -1394,10 +1394,6 @@ function ElementOverlayWidget({ element, snapshot, preview }: ElementProps) {
 }
 
 function ElementSwitcher(props: ElementProps) {
-  useEffect(() => {
-    if (props.preview === 'inert') return
-    return retainBindingIpc()
-  }, [props.preview])
   const unitSystem = useUnitSystem()
   const sourceElement = props.element
   const label = displayUnitLabel(sourceElement.style.label, sourceElement.binding, sourceElement.style.suffix, unitSystem)
@@ -1650,6 +1646,7 @@ export function DashboardCanvas({
    () => isAdaptiveDashboard(dashboard) || dashboard.adaptive?.enabled === true,
    [dashboard]
  )
+ useEffect(() => retainBindingIpc(), [])
  const { moment: momentState, active: activeMoments } = useRaceMoment(adaptive)
  const [dashBlink, setDashBlink] = useState<AdaptiveBlink | undefined>(undefined)
  const onDashboardBlink = useCallback((b: AdaptiveBlink | undefined) => setDashBlink(b), [])
