@@ -9,6 +9,8 @@ dist-win/
 !.env.example
 dist-zip/
 dist-dir/
+resources/cloudflared/cloudflared.exe
+resources/cloudflared/.cloudflared.exe.tmp.*
 visual-audit/shots/
 visual-audit/thumbs/
 
