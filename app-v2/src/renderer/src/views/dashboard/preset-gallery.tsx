@@ -148,8 +148,10 @@ export function PresetGallery({
   onPick(id: string): void
 }): ReactElement {
   const [selectedTags, setSelectedTags] = useState<string[]>([])
-  // Resolve language via DOM events only — no IPC — so inert previews stay silent.
-  const [language, setLanguage] = useState<ResolvedLanguage>('en')
+  // Resolve language via DOM attribute + events only — no IPC — so inert previews stay silent.
+  const [language, setLanguage] = useState<ResolvedLanguage>(
+    (document.documentElement.lang as ResolvedLanguage) || 'en'
+  )
   useEffect(() => {
     const onSettingsChanged = (event: Event): void => {
       const detail = (event as CustomEvent<AppSettings>).detail
