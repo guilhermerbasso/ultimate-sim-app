@@ -143,6 +143,14 @@ function isPeer(value: unknown): value is TeamFuelPeer {
 
 function parseWire(data: RawData, expectedRoomHash: string): WireMessage | null {
   try {
+    const byteLength = typeof data === 'string'
+      ? Buffer.byteLength(data)
+      : Buffer.isBuffer(data)
+        ? data.length
+        : Array.isArray(data)
+          ? data.reduce((acc: number, buf: Buffer) => acc + buf.length, 0)
+          : (data as ArrayBuffer).byteLength
+    if (byteLength === 0 || byteLength > MAX_MESSAGE_BYTES) return null
     const raw = typeof data === 'string'
       ? data
       : Buffer.isBuffer(data)
@@ -150,7 +158,6 @@ function parseWire(data: RawData, expectedRoomHash: string): WireMessage | null 
         : Array.isArray(data)
           ? Buffer.concat(data).toString('utf8')
           : Buffer.from(data).toString('utf8')
-    if (!raw || Buffer.byteLength(raw) > MAX_MESSAGE_BYTES) return null
     const parsed = JSON.parse(raw) as unknown
     if (!hasOnlyKeys(parsed, ['type', 'roomHash'], ['nonce', 'peerId', 'auth', 'peer'])) return null
     if (parsed.roomHash !== expectedRoomHash) return null

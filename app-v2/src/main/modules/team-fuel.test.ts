@@ -196,17 +196,20 @@ describe('team fuel V1 containment', () => {
     const junk = probe(status.port as number)
     await Promise.all([challenge(silent), challenge(junk)])
     const junkTimer = setInterval(() => send(junk.ws, '{}'), 200)
-    let joinClosed!: Promise<number>
-    const oldHost = await makeServer((socket) => {
-      joinClosed = once(socket, 'close').then(([code]) => code as number)
-      const timer = setInterval(() => send(socket, '{}'), 200)
-      socket.on('close', () => clearInterval(timer))
-    })
-    await start('join', oldHost.port)
-    await waitUntil(() => Boolean(joinClosed))
-    await within(Promise.all([silent.closed, junk.closed, joinClosed]), 6500)
-    clearInterval(junkTimer)
-    expect([silent.ws.readyState, junk.ws.readyState]).toEqual([WebSocket.CLOSED, WebSocket.CLOSED])
+    try {
+      let joinClosed!: Promise<number>
+      const oldHost = await makeServer((socket) => {
+        joinClosed = once(socket, 'close').then(([code]) => code as number)
+        const timer = setInterval(() => send(socket, '{}'), 200)
+        socket.on('close', () => clearInterval(timer))
+      })
+      await start('join', oldHost.port)
+      await waitUntil(() => Boolean(joinClosed))
+      await within(Promise.all([silent.closed, junk.closed, joinClosed]), 6500)
+      expect([silent.ws.readyState, junk.ws.readyState]).toEqual([WebSocket.CLOSED, WebSocket.CLOSED])
+    } finally {
+      clearInterval(junkTimer)
+    }
   }, 8000)
   it('rejects the 33rd raw socket and reuses a closed slot', async () => {
     const { status } = await start('host')
