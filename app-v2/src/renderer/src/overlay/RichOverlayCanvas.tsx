@@ -4,6 +4,7 @@ import type { DashboardElement } from '../../../shared/dashboards'
 import { sortElementsByZ } from '../../../shared/dashboards'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import { renderDashboardElement } from '../dashboard/DashboardRoot'
+import { retainBindingIpc } from '../dashboard/binding'
 
 // Renders a free-form canvas of dashboard widgets (DashboardElement[]) using the
 // EXACT same element renderer the dashboards use (renderDashboardElement) — but
@@ -37,6 +38,8 @@ export function RichOverlayCanvas({
 }: RichOverlayCanvasProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null)
   const [box, setBox] = useState<{ w: number; h: number }>({ w: canvasWidth, h: canvasHeight })
+
+  useEffect(() => retainBindingIpc(), [])
 
   useEffect(() => {
     const el = wrapRef.current

@@ -39,7 +39,7 @@ import {
 } from '../lib/track-map'
 import { readButtonPressed } from '../lib/gamepad'
 import { useUnitSystem } from '../lib/units'
-import { displayUnitLabel, getActiveFlag, resolveBinding } from './binding'
+import { displayUnitLabel, getActiveFlag, resolveBinding, retainBindingIpc } from './binding'
 import { useSwipeCycle, type CycleDirection } from './useSwipeCycle'
 import { renderGt3Widget, instrumentColorsFor, instrumentBezel, instrumentMaterial, revLedPropsFor } from './widgets/gt3-widgets'
 import { AnalogDial, RevLedBar } from '../instruments'
@@ -51,6 +51,7 @@ import { resolveElementSkin, FitText } from '../skins'
 // and the widgets' own `dashboard-replicas.css` (.dr-root → width/height:100%)
 // are namespaced, so importing them here adds no global styles.
 import { resolveWidgetComponent } from '../overlay/widgets'
+import { HifiWidgetHost, PREVIEW_COACH_REPORT, PREVIEW_ENGINEER_FEED } from '../overlay/widgets/HifiWidgetHost'
 import './dashboard-runtime.css'
 
 function getDashIdFromQuery(): string | null {
@@ -167,10 +168,81 @@ function useScale(baseW: number, baseH: number, mode: DashboardScaleMode): Scale
   return size
 }
 
+export type DashboardPreviewMode = 'inert'
+
 interface ElementProps {
   element: DashboardElement
   snapshot: TelemetrySnapshot | null
   unitSystem?: import('../../../shared/units').UnitSystem
+  preview?: DashboardPreviewMode
+}
+
+const INERT_OVERLAY_WIDGET_IDS = new Set<string>([
+  'coachHeatmap', 'coachTips', 'coachFindings', 'coachSectorGraph', 'engineerFeed',
+  'trackMap', 'trackMapNav3D', 'customValue', 'teamFuel', 'tireWear',
+  'predCatchAhead', 'predCaughtBehind', 'predFuelMargin', 'predTireWear', 'predPaceProjected'
+])
+
+function needsInertFixture(type: string): boolean {
+  return type === 'map' || type === 'trackmap-clean' || type === 'trackmap-elaborate' ||
+    type === 'engineer-feed' || type.startsWith('coach-') || type.startsWith('pred-')
+}
+
+interface InertPredictionFixture { kind: string; label: string; value: string }
+
+function inertPredictionFixture(source: string, snapshot: TelemetrySnapshot | null): InertPredictionFixture | null {
+  const key = source.toLowerCase()
+  if (!key.startsWith('pred')) return null
+  if (key.includes('fuel')) {
+    const tankLaps = (snapshot?.fuelLiters ?? 0) / Math.max(0.1, snapshot?.fuelPerLap ?? 1)
+    const margin = tankLaps - (snapshot?.lapsRemaining ?? tankLaps)
+    return { kind: 'fuel-margin', label: 'FUEL MARGIN', value: `${margin >= 0 ? '+' : ''}${margin.toFixed(1)} LAPS` }
+  }
+  if (key.includes('tire')) {
+    const tyres = snapshot?.tyres ? Object.values(snapshot.tyres) : []
+    const life = tyres.length ? tyres.reduce((sum, tyre) => sum + (tyre.wearPct ?? 0), 0) / tyres.length : 0
+    return { kind: 'tyre-wear', label: 'TYRE WEAR', value: `${Math.round(life * 100)}% LIFE` }
+  }
+  if (key.includes('pace')) {
+    const delta = (snapshot?.estimatedLapTimeSec ?? 0) - (snapshot?.bestLapTimeSec ?? 0)
+    return { kind: 'pace', label: 'PROJECTED PACE', value: `${delta >= 0 ? '+' : ''}${delta.toFixed(3)} s` }
+  }
+  const behind = key.includes('caught') || key.includes('behind')
+  const rival = behind ? snapshot?.relatives?.behind : snapshot?.relatives?.ahead
+  const playerLap = snapshot?.lastLapTimeSec ?? 0
+  const closingPerLap = behind ? playerLap - (rival?.lastLapTimeSec ?? playerLap) : (rival?.lastLapTimeSec ?? playerLap) - playerLap
+  const catchLaps = closingPerLap > 0 ? Math.abs(rival?.gapSec ?? 0) / closingPerLap : null
+  return { kind: behind ? 'caught-behind' : 'catch-ahead', label: behind ? 'THREAT BEHIND' : 'CATCH AHEAD', value: catchLaps === null ? 'NO CATCH' : `${catchLaps.toFixed(1)} LAPS` }
+}
+
+function InertWidgetFixture({
+  element, snapshot, source, contained = false
+}: ElementProps & { source: string; contained?: boolean }) {
+  const isEngineer = source.toLowerCase().includes('engineer')
+  const isCoach = source.toLowerCase().includes('coach')
+  const isMap = source === 'map' || source.toLowerCase().includes('trackmap')
+  const prediction = inertPredictionFixture(source, snapshot)
+  const title = isEngineer ? 'ENGINEER - STATIC' : isCoach ? 'COACH - STATIC' : isMap ? 'TRACK - STATIC' : prediction ? `${prediction.label} - STATIC` : 'TELEMETRY - STATIC'
+  const value = prediction?.value ?? (isEngineer
+    ? PREVIEW_ENGINEER_FEED[0]?.text
+    : isCoach
+      ? PREVIEW_COACH_REPORT.findings[0]?.title
+      : isMap
+        ? `${snapshot?.trackName ?? 'TRACK'} - ${Math.round((snapshot?.lapDistPct ?? 0) * 100)}%`
+        : source === 'teamFuel'
+          ? `${((snapshot?.fuelLiters ?? 0) / Math.max(0.1, snapshot?.fuelPerLap ?? 1)).toFixed(1)} LAPS`
+          : source === 'tireWear'
+            ? `${Math.round((snapshot?.tyres?.lf?.wearPct ?? 0) * 100)}% TYRES`
+            : `${snapshot?.deltaToBestSec?.toFixed(3) ?? '--'} s`)
+  const body = (
+    <div data-dashboard-inert-preview={source} data-preview-semantic={prediction?.kind} style={{ width: '100%', height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4, padding: 8, overflow: 'hidden', background: element.style.background ?? '#080a0d', border: `1px solid ${element.style.border ?? '#1F1F1F'}`, borderRadius: element.style.radius ?? 6, color: '#f6fbff' }}>
+      <span style={{ color: element.style.accentColor ?? '#FFB000', fontSize: 9, fontWeight: 800, letterSpacing: '0.08em' }}>{title}</span>
+      <strong style={{ fontSize: 12, lineHeight: 1.15, overflow: 'hidden' }}>{value}</strong>
+      {(isCoach || isEngineer) && <span style={{ color: '#9aa6b2', fontSize: 9 }}>{isCoach ? PREVIEW_COACH_REPORT.summary : 'Static engineer fixture'}</span>}
+    </div>
+  )
+  if (contained) return body
+  return <div className="dash-element" style={{ left: element.x, top: element.y, width: element.w, height: element.h }}>{body}</div>
 }
 
 
@@ -1247,7 +1319,7 @@ function ElementTable({ element, snapshot }: ElementProps) {
 // locked stub: these widgets are snapshot-driven and ignore most of it (some read
 // `config.id`). Missing/unknown widgetId gets a subtle labelled fallback so a
 // broken persisted board remains editable instead of looking like a black canvas.
-function ElementOverlayWidget({ element, snapshot }: ElementProps) {
+function ElementOverlayWidget({ element, snapshot, preview }: ElementProps) {
   const widgetId =
     element.widgetId ??
     (element.hifiModuleId ? (`hifi:${element.hifiModuleId}` as DashboardElement['widgetId']) : undefined)
@@ -1310,7 +1382,13 @@ function ElementOverlayWidget({ element, snapshot }: ElementProps) {
   }
   return (
     <div className="dash-element dash-overlaywidget" style={containerStyle}>
-      <Widget snapshot={snapshot} config={config} />
+      {preview === 'inert' && widgetId.startsWith('hifi:') ? (
+        <HifiWidgetHost snapshot={snapshot} config={config} preview="inert" />
+      ) : preview === 'inert' && INERT_OVERLAY_WIDGET_IDS.has(widgetId) ? (
+        <InertWidgetFixture element={element} snapshot={snapshot} source={widgetId} contained />
+      ) : (
+        <Widget snapshot={snapshot} config={config} />
+      )}
     </div>
   )
 }
@@ -1325,6 +1403,9 @@ function ElementSwitcher(props: ElementProps) {
     : sourceElement
   const unitProps = { ...props, element, unitSystem }
   if (element.visible === false) return null
+  if (props.preview === 'inert' && needsInertFixture(element.type)) {
+    return <InertWidgetFixture {...unitProps} source={element.type} />
+  }
   switch (element.type) {
     case 'text':
       return <ElementText {...unitProps} />
@@ -1364,7 +1445,7 @@ function ElementSwitcher(props: ElementProps) {
 
 // Faithful single-element renderer reused by tests/harnesses so previews match
 // production exactly (same primitives + GT3 widgets, same binding resolution).
-export function renderDashboardElement(props: { element: DashboardElement; snapshot: TelemetrySnapshot | null }) {
+export function renderDashboardElement(props: { element: DashboardElement; snapshot: TelemetrySnapshot | null; preview?: DashboardPreviewMode }) {
   return <ElementSwitcher {...props} />
 }
 
@@ -1565,6 +1646,7 @@ export function DashboardCanvas({
    () => isAdaptiveDashboard(dashboard) || dashboard.adaptive?.enabled === true,
    [dashboard]
  )
+ useEffect(() => retainBindingIpc(), [])
  const { moment: momentState, active: activeMoments } = useRaceMoment(adaptive)
  const [dashBlink, setDashBlink] = useState<AdaptiveBlink | undefined>(undefined)
  const onDashboardBlink = useCallback((b: AdaptiveBlink | undefined) => setDashBlink(b), [])

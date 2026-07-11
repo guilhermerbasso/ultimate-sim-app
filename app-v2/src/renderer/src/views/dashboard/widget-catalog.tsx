@@ -1,9 +1,9 @@
 // Widget catalog (visual gallery) shared by the dashboard editor
 // (DashboardsView) and by the overlay builder (OverlayWidgetBuilder). Os data
 // puros (variantes + taxonomia + filtros) vivem em widget-catalog-data.ts; este
-// file handles only the React UI: live thumbnails + gallery with search and filters
-// por categoria/estilo. Thumbnails reuse the production dashboard renderer with a
-// simulated snapshot and keep a subtle fallback only for unresolved widget types.
+// file handles only the React UI: inert thumbnails + gallery with search and filters.
+// Thumbnails reuse the production renderer with static fixtures; live dashboard and
+// overlay widgets keep their normal subscriptions outside this explicit preview path.
 
 import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement, ReactNode } from 'react'
@@ -183,19 +183,19 @@ function LegacyMini({ variant }: { variant: WidgetVariant }): ReactElement {
 
 export function WidgetMini({ variant }: { variant: WidgetVariant }): ReactElement {
   const element = { ...variantToElement(variant, 0, 0), w: PREVIEW_W, h: PREVIEW_H }
-  const livePreview = renderDashboardElement({ element, snapshot: PREVIEW_SNAPSHOT })
-  // Preserve legacy automation hooks; overlaywidget content is now the live runtime component.
+  const inertThumbnail = renderDashboardElement({ element, snapshot: PREVIEW_SNAPSHOT, preview: 'inert' })
+  // Preserve legacy automation hooks while the renderer uses its explicit inert path.
   const legacyOverlayHook = variant.type === 'overlaywidget' ? 'overlaywidget' : undefined
   return (
     <div data-widget-preview="true" style={{ position: 'relative', width: '100%', height: PREVIEW_H, background: '#05070a', borderRadius: 8, overflow: 'hidden' }}>
-      {livePreview ? (
+      {inertThumbnail ? (
         <div
           data-widget-preview-live="true"
           data-widget-preview-fallback={legacyOverlayHook}
           data-widget-preview-glyph={legacyOverlayHook ? 'dashboard' : undefined}
           style={{ position: 'absolute', inset: 0 }}
         >
-          {livePreview}
+          {inertThumbnail}
         </div>
       ) : (
         <div data-widget-preview-fallback={variant.type} style={{ position: 'absolute', inset: 0 }}>
