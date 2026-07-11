@@ -35,6 +35,8 @@ import {
   type RgbMatrixProfile
 } from '../../shared/rgb-matrix'
 import type { DeviceProfile } from '../../shared/devices'
+import { createRichCustomOverlayDef } from '../../shared/overlays'
+import { ALL_VARIANTS, variantToElement } from '../../renderer/src/views/dashboard/widget-catalog-data'
 import type { ModuleContext } from '../module-context'
 import { RgbMatrixModule } from './rgb-matrix'
 import { parseRgbMatrixProfilesPayload } from './rgb-matrix-profile-store'
@@ -125,6 +127,31 @@ describe('section registry round-trip (export -> import)', () => {
 
     expect(summary.applied).toEqual(['settings'])
     expect(destStorage.dump()['settings.json']).toEqual({ theme: 'gulf', accentColor: '#00b0f0' })
+  })
+
+  it('round-trips every rich-overlay catalog identity and JSON extension with deep equality', async () => {
+    const widgets = ALL_VARIANTS
+      .map((variant) => variantToElement(variant, 0, 0))
+      .filter((widget) => widget.widgetId || widget.hifiModuleId)
+    Object.assign(widgets[0], { future: { pages: ['race', { alerts: ['fuel', 'tyres'] }], enabled: true } })
+    const overlays = {
+      configMode: false,
+      widgets: {},
+      customOverlays: Array.from({ length: Math.ceil(widgets.length / 200) }, (_, index) =>
+        createRichCustomOverlayDef({
+          id: `custom:identity-${index}`,
+          title: `Identity ${index}`,
+          widgets: widgets.slice(index * 200, (index + 1) * 200)
+        })
+      )
+    }
+    const source = createConfigEngine(createMemoryStorage({ 'overlays.json': overlays }))
+    const exported = await source.exportSection('overlays')
+    expect(exported.data).toEqual(overlays)
+
+    const destStorage = createMemoryStorage()
+    await createConfigEngine(destStorage).importSection('overlays', exported)
+    expect(destStorage.dump()['overlays.json']).toEqual(overlays)
   })
 
   it('importSection accepts a full bundle and extracts the matching section', async () => {

@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { OverlayManager } from './manager'
 import { OVERLAY_WIDGETS } from '../../shared/overlays'
+import { ALL_VARIANTS, variantToElement } from '../../renderer/src/views/dashboard/widget-catalog-data'
 import type { ModuleContext } from '../module-context'
 
 // The manager's save/scheduleSave/dispose are private; the resurrection bug is
 // entirely about whether dispose() flushes a pending in-memory config back to
 // disk. We poke the private save scheduler + read the timer to drive it without
-// Electron windows (load()/createWindow touch BrowserWindow/screen, which we
-// deliberately never call here).
+// Electron windows (load()/createWindow touch BrowserWindow/screen); the one
+// load persistence test below replaces those hooks with no-ops.
 interface ManagerInternals {
   saveTimer: ReturnType<typeof setTimeout> | null
   resetPending: boolean
@@ -17,6 +18,8 @@ interface ManagerInternals {
   scheduleSave(): void
   broadcastState(): void
   broadcastList(): void
+  registerScreenListeners(): void
+  createWindow(id: string): void
 }
 
 function internals(mgr: OverlayManager): ManagerInternals {
@@ -37,6 +40,18 @@ function makeBroadcastCtx(userData: string): ModuleContext {
     getMainWindow: () => null
   } as unknown as ModuleContext
 }
+
+function makeHeadlessManager(userData: string): OverlayManager {
+  const manager = new OverlayManager(makeBroadcastCtx(userData))
+  internals(manager).registerScreenListeners = () => {}
+  internals(manager).createWindow = () => {}
+  return manager
+}
+
+interface IdentityWidget { widgetId?: string; hifiModuleId?: string }
+
+const identityPairs = (widgets: readonly IdentityWidget[]): Array<[string | null, string | null]> => widgets.map((widget) => [widget.widgetId ?? null, widget.hifiModuleId ?? null])
+const overlayIdentityPairs = (overlays: ReadonlyArray<{ widgets?: IdentityWidget[] }>): Array<[string | null, string | null]> => identityPairs(overlays.flatMap((overlay) => overlay.widgets ?? []))
 
 describe('OverlayManager reset (no overlays.json resurrection on quit)', () => {
   let root: string
@@ -254,5 +269,61 @@ describe('OverlayManager hidden widgets', () => {
 
     const restoredList = await mgr.setHidden(id, false)
     expect(restoredList.find((item) => item.id === id)?.hidden).toBe(false)
+  })
+})
+
+describe('OverlayManager rich overlay identity persistence', () => {
+  let root: string
+
+  beforeEach(() => {
+    root = mkdtempSync(join(process.cwd(), 'overlays-identity-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('preserves all catalog identities through add, update, save, load and resave', async () => {
+    const widgets = ALL_VARIANTS
+      .map((variant) => variantToElement(variant, 0, 0))
+      .filter((widget) => widget.widgetId || widget.hifiModuleId)
+    const expected = identityPairs(widgets)
+    const manager = makeHeadlessManager(root)
+
+    for (let offset = 0; offset < widgets.length; offset += 200) {
+      await manager.addCustom({ title: `Identity ${offset}`, enabled: false, widgets: widgets.slice(offset, offset + 200) })
+    }
+    for (const [index, overlay] of manager.listCustom().entries()) {
+      await manager.updateCustom(overlay.id, { title: `Updated ${index}` })
+    }
+    expect(overlayIdentityPairs(manager.listCustom())).toEqual(expected)
+
+    const loaded = makeHeadlessManager(root)
+    await loaded.load()
+    expect(overlayIdentityPairs(loaded.listCustom())).toEqual(expected)
+    for (const [index, overlay] of loaded.listCustom().entries()) {
+      await loaded.updateCustom(overlay.id, { title: `Resaved ${index}` })
+    }
+
+    const saved = JSON.parse(readFileSync(join(root, 'overlays.json'), 'utf8')) as {
+      customOverlays: Array<{ widgets?: IdentityWidget[] }>
+    }
+    expect(overlayIdentityPairs(saved.customOverlays)).toEqual(expected)
+  })
+
+  it('loads a valid overlay after dropping an over-depth extension without overwriting the file', async () => {
+    const path = join(root, 'overlays.json')
+    await makeHeadlessManager(root).addCustom({ title: 'Keep me', enabled: false, widgets: [{ id: 'w', type: 'gauge' }] })
+    const stored = JSON.parse(readFileSync(path, 'utf8')) as { customOverlays: Array<{ widgets: Array<Record<string, unknown>> }> }
+    let future: Record<string, unknown> = { leaf: true }
+    for (let i = 0; i < 40; i += 1) future = { next: future }
+    stored.customOverlays[0].widgets[0].future = future
+    const raw = JSON.stringify(stored)
+    writeFileSync(path, raw)
+    const loaded = makeHeadlessManager(root); await loaded.load()
+    const overlay = loaded.listCustom()[0]
+    expect(overlay).toMatchObject({ title: 'Keep me', widgets: [{ id: 'w', type: 'gauge' }] })
+    expect(overlay.widgets?.[0]).not.toHaveProperty('future')
+    expect(readFileSync(path, 'utf8')).toBe(raw)
   })
 })
