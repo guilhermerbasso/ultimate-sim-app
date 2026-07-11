@@ -24,7 +24,7 @@ const ipc = {
 Object.defineProperty(window, 'ipc', { configurable: true, value: ipc })
 Object.defineProperty(window, 'IntersectionObserver', { configurable: true, value: undefined })
 
-const [React, ReactDom, catalogUi, presetUi, catalogData, dashboardUi, theme, hifiHost, registry, units] = await Promise.all([
+const [React, ReactDom, catalogUi, presetUi, catalogData, dashboardUi, theme, hifiHost, registry, units, binding] = await Promise.all([
   import('react'), import('react-dom/client'),
   import('/src/renderer/src/views/dashboard/widget-catalog.tsx'),
   import('/src/renderer/src/views/dashboard/preset-gallery.tsx'),
@@ -33,7 +33,8 @@ const [React, ReactDom, catalogUi, presetUi, catalogData, dashboardUi, theme, hi
   import('/src/renderer/src/dashboard/widgets/gt3-theme.ts'),
   import('/src/renderer/src/overlay/widgets/HifiWidgetHost.tsx'),
   import('/src/renderer/src/hifi/widgets/registry.ts'),
-  import('/src/renderer/src/lib/units.tsx')
+  import('/src/renderer/src/lib/units.tsx'),
+  import('/src/renderer/src/dashboard/binding.ts')
 ])
 const { createElement: h, Fragment } = React
 const { createRoot } = ReactDom
@@ -45,6 +46,7 @@ const { PREVIEW_SNAPSHOT } = theme
 const { PREVIEW_COACH_REPORT } = hifiHost
 const { HIFI_WIDGETS } = registry
 const { UnitSystemProvider } = units
+const { retainBindingIpc } = binding
 const importActivity = activity.slice()
 const host = document.getElementById('root')
 const root = createRoot(host)
@@ -136,6 +138,7 @@ async function run() {
   const inertListeners = listenerSnapshot()
 
   activity = []
+  const releaseBindingIpc = retainBindingIpc()
   root.render(liveWidgets({ ...PREVIEW_SNAPSHOT, speedKmh: 111 }))
   await waitFor(() => (listeners.get('coach:report')?.size || 0) === 3, 'live subscriptions')
   const liveBindingChannels = activity.filter((entry) => entry.channel.startsWith('outputs:') || entry.channel.startsWith('expr:')).map((entry) => entry.kind + ':' + entry.channel)
@@ -147,6 +150,7 @@ async function run() {
   await waitFor(() => host.textContent.includes('222'), 'live telemetry prop update')
   const telemetryUpdated = speedBefore !== host.textContent
   root.render(null); await settle()
+  releaseBindingIpc(); await settle()
 
   const baseline = JSON.stringify(listenerSnapshot())
   const restored = []
