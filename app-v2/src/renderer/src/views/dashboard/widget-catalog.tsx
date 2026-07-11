@@ -183,19 +183,19 @@ function LegacyMini({ variant }: { variant: WidgetVariant }): ReactElement {
 
 export function WidgetMini({ variant }: { variant: WidgetVariant }): ReactElement {
   const element = { ...variantToElement(variant, 0, 0), w: PREVIEW_W, h: PREVIEW_H }
-  const livePreview = renderDashboardElement({ element, snapshot: PREVIEW_SNAPSHOT, preview: 'inert' })
+  const inertThumbnail = renderDashboardElement({ element, snapshot: PREVIEW_SNAPSHOT, preview: 'inert' })
   // Preserve legacy automation hooks while the renderer uses its explicit inert path.
   const legacyOverlayHook = variant.type === 'overlaywidget' ? 'overlaywidget' : undefined
   return (
     <div data-widget-preview="true" style={{ position: 'relative', width: '100%', height: PREVIEW_H, background: '#05070a', borderRadius: 8, overflow: 'hidden' }}>
-      {livePreview ? (
+      {inertThumbnail ? (
         <div
           data-widget-preview-live="true"
           data-widget-preview-fallback={legacyOverlayHook}
           data-widget-preview-glyph={legacyOverlayHook ? 'dashboard' : undefined}
           style={{ position: 'absolute', inset: 0 }}
         >
-          {livePreview}
+          {inertThumbnail}
         </div>
       ) : (
         <div data-widget-preview-fallback={variant.type} style={{ position: 'absolute', inset: 0 }}>

@@ -101,9 +101,11 @@ async function run() {
   emit('engineer:proactive', { id: 'mutate-proactive', at: 2, sector: 1, severity: 'high', text: 'MUTATED PROACTIVE' })
   emit('telemetry:snapshot', { ...PREVIEW_SNAPSHOT, speedKmh: 9 }); await settle()
   const inertStable = inertBefore === host.textContent
-  root.render(null); await settle()
-  root.render(h(WidgetGallery, { onAdd: () => {} }))
-  await waitFor(() => host.querySelectorAll('[data-widget-preview="true"]').length >= 423, 'gallery second open')
+  for (let cycle = 0; cycle < 10; cycle += 1) {
+    root.render(null); await settle()
+    root.render(h(WidgetGallery, { onAdd: () => {} }))
+    await waitFor(() => host.querySelectorAll('[data-widget-preview="true"]').length >= 423, 'gallery reopen cycle ' + cycle)
+  }
   root.render(null); await settle()
 
   root.render(h(UnitSystemProvider, { initialUnitSystem: 'imperial' }, renderDashboardElement({ element: elementFor('hifi-speed'), snapshot: PREVIEW_SNAPSHOT, preview: 'inert' })))
@@ -127,9 +129,11 @@ async function run() {
   emit('engineer:answer', { id: 'preset-answer', at: 3, question: 'Q', text: 'MUTATED PRESET' })
   emit('telemetry:snapshot', { ...PREVIEW_SNAPSHOT, speedKmh: 8 }); await settle()
   const presetStable = presetBefore === host.textContent
-  root.render(null); await settle()
-  root.render(h(PresetGallery, { presets, onPick: () => {} }))
-  await waitFor(() => host.querySelectorAll('[data-dashboard-inert-preview]').length > 0, 'preset gallery reopen')
+  for (let cycle = 0; cycle < 10; cycle += 1) {
+    root.render(null); await settle()
+    root.render(h(PresetGallery, { presets, onPick: () => {} }))
+    await waitFor(() => host.querySelectorAll('[data-dashboard-inert-preview]').length > 0, 'preset gallery reopen cycle ' + cycle)
+  }
   root.render(null); await settle()
   const inertActivity = activity.filter((entry) => forbidden(entry.channel))
   const inertListeners = listenerSnapshot()
