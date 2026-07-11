@@ -53,10 +53,12 @@ function headline() {
 
 /** The most user-facing bullets from the notes (skips CI/boilerplate lines). */
 function highlights() {
-  const skip = /full test suite|what'?s changed|full changelog|typecheck clean|under the hood/i
+  const stop = /^##?\s*(what'?s changed|full changelog)/i
+  const skip = /full test suite|typecheck clean|under the hood/i
   const seen = new Set()
   const out = []
   for (const raw of body.split('\n')) {
+    if (stop.test(raw.trim())) break
     const m = raw.match(/^\s*[-*]\s+(.+)$/)
     if (!m) continue
     const text = m[1].trim()
@@ -90,7 +92,8 @@ if (startIdx === -1 || endIdx === -1 || endIdx < startIdx) {
   process.exit(1)
 }
 const inner = md.slice(startIdx + START.length, endIdx)
-const sameVersion = new RegExp(`^### ${version.replace(/\./g, '\\.')}(\\D|$)`)
+const escapedVersion = version.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const sameVersion = new RegExp(`^### ${escapedVersion}(\\D|$)`)
 const existing = inner
   .split(/\n(?=### )/)
   .map((s) => s.trim())

@@ -62,7 +62,10 @@ Rename-Item node_modules\vigemclient.disabled vigemclient   # restore afterwards
 
 ## 4. Create the release (draft, all assets)
 
-Use the GitHub CLI and pass **all four files** (write the notes to a `.md` file first):
+Use the GitHub CLI and pass **all four files** (write the notes to a `.md` file first).
+
+> **Shell note**: the `\` line-continuations below are **Git Bash / POSIX** syntax.
+> In PowerShell, replace each ` \` at end-of-line with a `` ` `` backtick, or run the command as a single line.
 
 ```bash
 gh release create v<version> \
@@ -73,6 +76,20 @@ gh release create v<version> \
   app-v2/dist-win/latest.yml \
   "app-v2/dist-win/Ultimate-Sim-App-<version>-x64.exe" \
   "app-v2/dist-win/Ultimate-Sim-App-<version>-x64.exe.blockmap" \
+  "app-v2/dist-win/Ultimate-Sim-App-<version>-x64.zip"
+```
+
+PowerShell equivalent:
+
+```powershell
+gh release create v<version> `
+  --repo guilhermerbasso/ultimate-sim-app `
+  --draft `
+  --title "Ultimate Sim App v<version> — <headline>" `
+  --notes-file release-notes.md `
+  app-v2/dist-win/latest.yml `
+  "app-v2/dist-win/Ultimate-Sim-App-<version>-x64.exe" `
+  "app-v2/dist-win/Ultimate-Sim-App-<version>-x64.exe.blockmap" `
   "app-v2/dist-win/Ultimate-Sim-App-<version>-x64.zip"
 ```
 
