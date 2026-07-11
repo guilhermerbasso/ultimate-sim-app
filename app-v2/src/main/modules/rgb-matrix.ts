@@ -293,7 +293,7 @@ export class RgbMatrixModule {
       })
       .catch((error) => {
         const message = errorMessage(error)
-        logger.error('iflag', 'rgb-matrix profile reload failed after import', { message })
+        logger.error('iflag', 'rgb-matrix profile reload failed (section import)', { message })
         done?.(message)
       })
   }
