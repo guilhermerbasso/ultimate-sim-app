@@ -7,6 +7,8 @@ import { DEFAULT_DASHBOARD_PRESET_PRIORITY, sortElementsByZ } from '../../../../
 import { renderDashboardElement } from '../../dashboard/DashboardRoot'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
 import { TagFilter, filterByTags } from '../../components/TagFilter'
+import { APP_SETTINGS_CHANGED_EVENT, resolveAppLanguage, type ResolvedLanguage } from '../../i18n'
+import type { AppSettings } from '../../../../shared/settings'
 import '../../overlay/overlay-view.css'
 
 const ACCENT = 'var(--accent-primary)'
@@ -146,6 +148,16 @@ export function PresetGallery({
   onPick(id: string): void
 }): ReactElement {
   const [selectedTags, setSelectedTags] = useState<string[]>([])
+  // Resolve language via DOM events only — no IPC — so inert previews stay silent.
+  const [language, setLanguage] = useState<ResolvedLanguage>('en')
+  useEffect(() => {
+    const onSettingsChanged = (event: Event): void => {
+      const detail = (event as CustomEvent<AppSettings>).detail
+      if (detail) setLanguage(resolveAppLanguage(detail.language))
+    }
+    window.addEventListener(APP_SETTINGS_CHANGED_EVENT, onSettingsChanged)
+    return () => window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, onSettingsChanged)
+  }, [])
   const orderedPresets = useMemo(
     () => presets
       .map((preset, index) => ({ preset, index }))
@@ -161,6 +173,7 @@ export function PresetGallery({
         selectedTags={selectedTags}
         onSelectedTagsChange={setSelectedTags}
         getTags={(preset) => preset.tags}
+        language={language}
         style={{ marginBottom: 12 }}
       />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(264px, 1fr))', gap: 12 }}>
