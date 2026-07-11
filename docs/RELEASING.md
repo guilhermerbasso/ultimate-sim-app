@@ -38,6 +38,19 @@ npm run dist:win
 This fetches the local llama/whisper/sherpa/tts binaries, runs `electron-vite build`, then
 `electron-builder --win --publish never`. Output lands in `app-v2/dist-win/`.
 
+It also downloads the official Cloudflare Windows amd64 `cloudflared` asset pinned in
+`scripts/fetch-win-cloudflared.sh`. The script verifies the pinned SHA-256 before an atomic
+install and never executes the binary. An existing file is reused only when its hash matches.
+To perform a no-network verification:
+
+```bash
+bash scripts/fetch-win-cloudflared.sh --verify
+```
+
+Both Windows workflows run `npm run verify:win-package` before any upload. That gate verifies
+the unpacked `resources/cloudflared/cloudflared.exe`, all four release artifacts, and that
+`latest.yml` matches the package version.
+
 **If it fails on `vigemclient`** (`Error: Could not find any Visual Studio installation`): that
 optional gamepad/ViGEm native module needs Visual Studio to rebuild. On a machine without VS you can
 package without it (the app degrades gracefully — it's an `optionalDependencies`):

@@ -138,17 +138,16 @@ export interface BindingResult {
   unit?: string
 }
 
-// ─── Output-router and expression caches (module-level, hydrated once) ─────
+// ─── Output-router and expression caches (live lifecycle) ─────
 // `binding.ts` is imported by the main renderer's DashboardRoot which renders
 // many elements per frame. We avoid any per-element subscription by keeping
-// two module-level caches that are filled by a single subscription set up at
-// module load. The caches are read synchronously from `resolveBinding`, so
+// two module-level caches filled by one subscription set retained while live
+// dashboard elements are mounted. Reads from `resolveBinding` stay synchronous, so
 // dashboards can bind to `var:<name>` and `expr:<name>` (or `expr:#<exprId>`)
 // with zero changes to DashboardRoot.
 //
-// We guard for `window.ipc` existence so this module remains safe to import
-// in test/SSR contexts. Hydration via `outputs:getValues` + `expr:getResults`
-// happens once; live updates flow in through `outputs:value` + `expr:results`.
+// IPC wiring is lifecycle-managed, so importing this module is pure. Live mounts
+// hydrate via `outputs:getValues` + `expr:getResults`, then follow both broadcasts.
 
 interface VarCacheEntry {
   value: string | number | boolean | null
@@ -220,14 +219,14 @@ function getIpc(): IpcLike | null {
   return ipc ?? null
 }
 
-let cachesInitialized = false
-function initCaches(): void {
-  if (cachesInitialized) return
+let cacheUsers = 0
+let stopCaches: (() => void) | null = null
+function startCaches(): () => void {
   const ipc = getIpc()
-  if (!ipc) return
-  cachesInitialized = true
+  if (!ipc) return () => undefined
+  let active = true
 
-  ipc.subscribe<OutputValueBatch>(OUTPUTS_CHANNELS.value, (batch) => {
+  const offValues = ipc.subscribe<OutputValueBatch>(OUTPUTS_CHANNELS.value, (batch) => {
     if (!batch || !Array.isArray(batch.updates)) return
     for (const update of batch.updates) {
       if (!update || typeof update.name !== 'string' || update.name.length === 0) continue
@@ -235,7 +234,7 @@ function initCaches(): void {
     }
   })
 
-  ipc.subscribe<ExpressionResultsBatch>(EXPR_CHANNELS.results, (batch) => {
+  const offExpressions = ipc.subscribe<ExpressionResultsBatch>(EXPR_CHANNELS.results, (batch) => {
     if (!batch || !batch.results) return
     for (const [exprId, entry] of Object.entries(batch.results)) {
       if (!entry) continue
@@ -249,7 +248,7 @@ function initCaches(): void {
   void ipc
     .invoke<Record<string, OutputValueUpdate>>(OUTPUTS_CHANNELS.getValues)
     .then((snapshot) => {
-      if (!snapshot) return
+      if (!active || !snapshot) return
       for (const update of Object.values(snapshot)) {
         if (!update || typeof update.name !== 'string' || update.name.length === 0) continue
         varCache.set(update.name, buildVarEntry(update))
@@ -260,7 +259,7 @@ function initCaches(): void {
   void ipc
     .invoke<Record<string, ExpressionResultEntry>>(EXPR_CHANNELS.getResults)
     .then((snapshot) => {
-      if (!snapshot) return
+      if (!active || !snapshot) return
       for (const [exprId, entry] of Object.entries(snapshot)) {
         if (!entry) continue
         const cacheEntry = buildExprEntry(entry)
@@ -269,9 +268,27 @@ function initCaches(): void {
       }
     })
     .catch(() => undefined)
+  return () => {
+    active = false
+    offValues()
+    offExpressions()
+  }
 }
 
-initCaches()
+export function retainBindingIpc(): () => void {
+  cacheUsers += 1
+  if (cacheUsers === 1) stopCaches = startCaches()
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    cacheUsers -= 1
+    if (cacheUsers === 0) {
+      stopCaches?.()
+      stopCaches = null
+    }
+  }
+}
 
 // Test-only seam: lets callers prime caches without going through the live
 // IPC subscriptions (e.g. mock renderers, unit tests). Kept intentionally

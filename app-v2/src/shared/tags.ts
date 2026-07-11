@@ -80,9 +80,9 @@ export function unitTagFor(unit: string | undefined): string | undefined {
   if (!unit) return undefined
   const normalized = unit
     .toLowerCase()
-    .replace('°c', 'celsius')
-    .replace('%', 'percent')
-    .replace('°', 'degrees')
+    .replace(/°c/g, 'celsius')
+    .replace(/%/g, 'percent')
+    .replace(/°/g, 'degrees')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
   return normalized ? `unit-${normalized}` : undefined
