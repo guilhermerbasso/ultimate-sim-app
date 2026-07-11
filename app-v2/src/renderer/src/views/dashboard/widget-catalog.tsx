@@ -2,13 +2,15 @@
 // (DashboardsView) and by the overlay builder (OverlayWidgetBuilder). Os data
 // puros (variantes + taxonomia + filtros) vivem em widget-catalog-data.ts; este
 // file handles only the React UI: live thumbnails + gallery with search and filters
-// por categoria/estilo. As miniaturas reaproveitam os renderers GT3/extra ao vivo
-// with a simulated snapshot and static fallbacks for legacy types.
+// por categoria/estilo. Thumbnails reuse the production dashboard renderer with a
+// simulated snapshot and keep a subtle fallback only for unresolved widget types.
 
 import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactElement, ReactNode } from 'react'
-import { GT3_WIDGET_TYPES, renderGt3Widget } from '../../dashboard/widgets/gt3-widgets'
+import { displayUnitLabel } from '../../dashboard/binding'
+import { renderDashboardElement } from '../../dashboard/DashboardRoot'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
+import { useUnitSystem } from '../../lib/units'
 import {
   ACCENT,
   ALL_VARIANTS,
@@ -70,22 +72,30 @@ function persistHiddenWidgetIds(ids: ReadonlySet<string>): void {
 // ─── Miniatura ──────────────────────────────────────────────────────────────
 const PREVIEW_W = 168
 const PREVIEW_H = 92
-const LIVE_WIDGET_TYPES = new Set<string>(GT3_WIDGET_TYPES as readonly string[])
 
-function DashboardGlyph({ label, accent = ACCENT }: { label: string; accent?: string }): ReactElement {
+function UnknownWidgetMini({ variant }: { variant: WidgetVariant }): ReactElement {
+  const detail = variant.widgetId ?? variant.label
   return (
-    <div data-widget-preview-glyph="dashboard" style={{ position: 'relative', width: '88%', height: '72%', margin: '8% auto 0', border: `1px solid ${GT3_STROKE}`, borderRadius: 7, background: '#020304', overflow: 'hidden' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 2, padding: 5 }}>
-        {Array.from({ length: 12 }, (_, i) => (
-          <div key={i} style={{ height: 5, borderRadius: 2, background: i < 8 ? (i < 5 ? '#2FFF67' : '#FFB000') : '#1a2230' }} />
-        ))}
-      </div>
-      <div style={{ position: 'absolute', left: '34%', top: '30%', width: '32%', height: '42%', borderRadius: 5, background: `${accent}30`, border: `1px solid ${accent}`, color: TEXT_FG, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 900 }}>
-        4
-      </div>
-      <div style={{ position: 'absolute', left: 8, bottom: 8, width: '24%', height: 9, borderRadius: 4, background: '#17202c' }} />
-      <div style={{ position: 'absolute', right: 8, bottom: 8, width: '24%', height: 9, borderRadius: 4, background: '#17202c' }} />
-      <div style={{ position: 'absolute', left: 8, top: 24, color: TEXT_DIM, fontSize: 7, fontWeight: 800, maxWidth: 42, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+    <div
+      data-widget-preview-unknown={variant.widgetId ?? variant.type}
+      style={{
+        width: '100%',
+        height: '100%',
+        display: 'grid',
+        placeItems: 'center',
+        alignContent: 'center',
+        gap: 4,
+        color: 'rgba(255,255,255,0.48)',
+        fontSize: 10,
+        textAlign: 'center',
+        padding: 8,
+        boxSizing: 'border-box'
+      }}
+    >
+      <span style={{ fontWeight: 700 }}>Unknown widget</span>
+      <span style={{ maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {detail}
+      </span>
     </div>
   )
 }
@@ -95,7 +105,7 @@ function LegacyMini({ variant }: { variant: WidgetVariant }): ReactElement {
   const fill = s.fillColor ?? ACCENT
   const accent = s.accentColor ?? fill
   if (variant.type === 'overlaywidget') {
-    return <DashboardGlyph label={variant.label} accent={accent} />
+    return <UnknownWidgetMini variant={variant} />
   }
   if (variant.type === 'text') {
     return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', color: s.color ?? TEXT_FG, fontWeight: 800, fontSize: 22 }}>{s.text ?? 'Text'}</div>
@@ -168,17 +178,23 @@ function LegacyMini({ variant }: { variant: WidgetVariant }): ReactElement {
       </div>
     )
   }
-  return <DashboardGlyph label={variant.label} accent={accent} />
+  return <UnknownWidgetMini variant={variant} />
 }
 
 export function WidgetMini({ variant }: { variant: WidgetVariant }): ReactElement {
-  const livePreview = LIVE_WIDGET_TYPES.has(variant.type)
-    ? renderGt3Widget({ element: { ...variantToElement(variant, 0, 0), w: PREVIEW_W, h: PREVIEW_H }, snapshot: PREVIEW_SNAPSHOT })
-    : null
+  const element = { ...variantToElement(variant, 0, 0), w: PREVIEW_W, h: PREVIEW_H }
+  const livePreview = renderDashboardElement({ element, snapshot: PREVIEW_SNAPSHOT })
+  // Preserve legacy automation hooks; overlaywidget content is now the live runtime component.
+  const legacyOverlayHook = variant.type === 'overlaywidget' ? 'overlaywidget' : undefined
   return (
     <div data-widget-preview="true" style={{ position: 'relative', width: '100%', height: PREVIEW_H, background: '#05070a', borderRadius: 8, overflow: 'hidden' }}>
       {livePreview ? (
-        <div data-widget-preview-live="true" style={{ position: 'absolute', inset: 0 }}>
+        <div
+          data-widget-preview-live="true"
+          data-widget-preview-fallback={legacyOverlayHook}
+          data-widget-preview-glyph={legacyOverlayHook ? 'dashboard' : undefined}
+          style={{ position: 'absolute', inset: 0 }}
+        >
           {livePreview}
         </div>
       ) : (
@@ -202,6 +218,7 @@ export function WidgetGallery({
   onAdd(variant: WidgetVariant): void
   busy?: boolean
 }): ReactElement {
+  const unitSystem = useUnitSystem()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState<WidgetCategoryTag | null>(null)
   const [cluster, setCluster] = useState<WidgetClusterTag | null>(null)
@@ -383,7 +400,7 @@ export function WidgetGallery({
                 {hiddenVariants.map((variant) => (
                   <label key={variant.id} style={{ ...clearBtnStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <input type="checkbox" checked={selectedIds.has(variant.id)} onChange={() => toggleSelected(variant.id)} />
-                    <span>{variant.label}</span>
+                    <span>{displayUnitLabel(variant.label, variant.binding, variant.style.suffix, unitSystem)}</span>
                     <button type="button" style={clearBtnStyle} onClick={() => restoreIds([variant.id])}>Restore</button>
                   </label>
                 ))}
@@ -416,6 +433,7 @@ function SectionGrid({
   onHide(id: string): void
   onAdd(variant: WidgetVariant): void
 }): ReactElement {
+  const unitSystem = useUnitSystem()
   return (
     <div>
       <div style={catTitle}>{label} <span style={{ color: TEXT_DIM, fontWeight: 600 }}>· {variants.length}</span></div>
@@ -423,7 +441,7 @@ function SectionGrid({
         {variants.map((v) => (
           <div
             key={v.id}
-            title={v.hint ?? `Add ${v.label}`}
+            title={v.hint ?? `Add ${displayUnitLabel(v.label, v.binding, v.style.suffix, unitSystem)}`}
             style={cardStyle}
           >
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: TEXT_DIM, fontSize: 11, marginBottom: 6 }}>
@@ -432,7 +450,9 @@ function SectionGrid({
             </label>
             <WidgetMini variant={v} />
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, marginTop: 6 }}>
-              <span style={{ color: TEXT_FG, fontSize: 12, fontWeight: 700, textAlign: 'left', lineHeight: 1.15 }}>{v.label}</span>
+              <span style={{ color: TEXT_FG, fontSize: 12, fontWeight: 700, textAlign: 'left', lineHeight: 1.15 }}>
+                {displayUnitLabel(v.label, v.binding, v.style.suffix, unitSystem)}
+              </span>
               <span style={{ color: ACCENT, fontSize: 16, fontWeight: 900, flexShrink: 0 }}>＋</span>
             </div>
             <div style={styleBadge}>{WIDGET_STYLE_LABELS[v.styleFamily]}</div>

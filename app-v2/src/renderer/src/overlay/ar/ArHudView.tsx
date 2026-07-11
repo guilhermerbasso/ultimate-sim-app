@@ -3,6 +3,8 @@ import type { Flags, TelemetrySnapshot } from '../../../../shared/telemetry'
 import type { StressState } from '../../../../shared/biometrics'
 import { formatDelta, formatGear, numberOrDash } from '../widgets/format'
 import './ar-hud.css'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 // AR HUD VIEW — a standalone, high-contrast HUD layout for AR glasses /
 // passthrough. It is purely presentational: feed it a telemetry snapshot and an
@@ -78,9 +80,10 @@ function fuelTone(laps?: number): Tone {
 }
 
 export function ArHudView({ snapshot, hr, preview, style }: ArHudViewProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const connected = Boolean(snapshot?.connected)
   const gear = formatGear(snapshot?.gear)
-  const speed = Math.round(snapshot?.speedKmh ?? 0)
+  const speed = formatMeasurement(snapshot?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
   const position = snapshot?.position
   const totalCars = snapshot?.totalCars
   const delta = snapshot?.deltaToBestSec ?? snapshot?.deltaToSessionBestSec
@@ -119,8 +122,8 @@ export function ArHudView({ snapshot, hr, preview, style }: ArHudViewProps): Rea
       <div className="arhud-zone arhud-zone--center">
         <span className={`arhud-gear ${connected ? '' : 'arhud-dim'}`}>{gear}</span>
         <span className="arhud-value arhud-value--lg arhud-speed">
-          {speed}
-          <span className="arhud-unit">KM/H</span>
+          {speed.display}
+          <span className="arhud-unit">{speed.unit.toUpperCase()}</span>
         </span>
       </div>
 

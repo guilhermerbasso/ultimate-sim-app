@@ -21,6 +21,8 @@ export interface SectionExportImportProps {
    * its in-memory cache until relaunch).
    */
   onImported?: () => void
+  /** Flush section-local debounced edits before the main process snapshots disk. */
+  onBeforeExport?: () => void | Promise<void>
   language?: ResolvedLanguage
 }
 
@@ -40,7 +42,13 @@ async function relaunchApp(): Promise<void> {
 // their live windows/state (overlays, layout, OLED, …) show "Reinicie para
 // aplicar" with an OPTIONAL restart button — the import is already safe on disk
 // and protected from a before-quit clobber, so the restart is no longer forced.
-export function SectionExportImport({ sectionId, label, onImported, language }: SectionExportImportProps): ReactElement {
+export function SectionExportImport({
+  sectionId,
+  label,
+  onImported,
+  onBeforeExport,
+  language
+}: SectionExportImportProps): ReactElement {
   const [busy, setBusy] = useState<Busy>(false)
   const [status, setStatus] = useState<Status>(null)
   const [needsRestart, setNeedsRestart] = useState(false)
@@ -66,6 +74,7 @@ export function SectionExportImport({ sectionId, label, onImported, language }: 
     setBusy('export')
     setStatus(null)
     try {
+      await onBeforeExport?.()
       const result = await window.ipc.invoke<ConfigExportResult>(CONFIG_IO_CHANNELS.exportSection, sectionId)
       if (!result.canceled) setStatus({ text: tt(effectiveLanguage, 'shared.sectionExport.exported'), tone: 'ok' })
     } catch (error) {
@@ -88,7 +97,21 @@ export function SectionExportImport({ sectionId, label, onImported, language }: 
         const applied = result.summary?.applied.length ?? 0
         if (applied > 0) {
           if (hotReload) {
-            setStatus({ text: tt(effectiveLanguage, 'shared.sectionExport.importedApplied'), tone: 'ok' })
+            const detail = result.summary?.details?.[sectionId]
+            const count = detail?.itemCount ?? detail?.hotAppliedCount
+            setStatus({
+              text:
+                sectionId === 'rgb-matrix' && typeof count === 'number'
+                  ? tt(
+                      effectiveLanguage,
+                      count === 1
+                        ? 'shared.sectionExport.iflagImportedOne'
+                        : 'shared.sectionExport.iflagImportedMany',
+                      { count }
+                    )
+                  : tt(effectiveLanguage, 'shared.sectionExport.importedApplied'),
+              tone: 'ok'
+            })
             onImported?.()
           } else {
             // Written to disk and protected from a quit-time clobber, but the live

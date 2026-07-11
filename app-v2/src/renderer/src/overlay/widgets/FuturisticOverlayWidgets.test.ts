@@ -7,6 +7,7 @@ import type { TelemetrySnapshot } from '../../../../shared/telemetry'
 import { RevCometWidget, GearRingWidget, FlagIconStackWidget } from './FuturisticOverlayWidgets'
 import { WIDGET_COMPONENTS } from './index'
 import { DASH } from './dashboard-tiles'
+import { SHIFT_STROBE_BLUE } from '../../lib/rev-lights'
 
 const defaults = createDefaultOverlaysConfig()
 const FAMILIES: OverlayStylePresetId[] = ['minimal', 'neon', 'glass', 'broadcast', 'terminal', 'bauhaus', 'analog', 'heatmap']
@@ -76,5 +77,20 @@ describe('Futuristic overlay widgets instrument conversion', () => {
   it('uses em dash for missing readouts', () => {
     expect(renderId('fuelPips', null, 'minimal')).toContain('—')
     expect(renderId('gearRing', null, 'minimal')).toContain('—')
+  })
+
+  it('keeps RevComet transparent and applies the shared shift strobe', () => {
+    const mid = renderId('revComet', sample(), 'minimal')
+    expect(mid).not.toContain('<text')
+    expect(mid).not.toContain(SHIFT_STROBE_BLUE)
+
+    const shift = renderId('revComet', {
+      ...sample(),
+      shiftIndicatorPct: 1,
+      revLights: { pct: 1, blink: true }
+    } as TelemetrySnapshot, 'minimal')
+    expect(shift).toContain(SHIFT_STROBE_BLUE)
+    expect(shift).toContain('repeatCount="indefinite"')
+    expect(shift).toContain('preserveAspectRatio="none"')
   })
 })

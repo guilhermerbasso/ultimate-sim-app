@@ -30,8 +30,11 @@ import {
   SegmentReadout,
   TelltaleIcon
 } from '../../instruments'
+import { resolveRevLightState } from '../../lib/rev-lights'
 import { FitText, makeGrid, resolveSkin, type SkinToken } from '../../skins'
 import type { WidgetProps } from './types'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 // ── DASH-derived state colours (preserve the exact test-asserted tokens) ─────
 const WARM_RED = DASH.red
@@ -206,25 +209,28 @@ function Root({
 export function RevCometWidget({ snapshot, config }: WidgetProps): ReactElement {
   const { W, H } = placedDims(config, 600, 112)
   const skin = skinFor(familyOf(config))
-  const pct = shiftPct(snapshot)
-  const flash = pct > 0.985
-  const padX = 12
-  const padY = Math.min(12, Math.max(2, H * 0.12))
-  const barH = Math.max(20, Math.min(H - padY * 2, 40))
+  const state = resolveRevLightState(shiftPct(snapshot), snapshot?.revLights?.blink)
   return (
-    <Root W={W} H={H} ariaLabel="rev comet">
-      <Panel W={W} H={H} skin={skin} />
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      preserveAspectRatio="none"
+      width="100%"
+      height="100%"
+      role="img"
+      aria-label="rev comet"
+      style={{ display: 'block', background: 'transparent' }}
+    >
       <RevLedBar
-        pct={pct}
+        pct={state.pct}
         profile={skin.led}
-        x={padX}
-        y={(H - barH) / 2}
-        width={Math.max(60, W - padX * 2)}
-        height={barH}
-        flashOn={flash}
+        x={0}
+        y={0}
+        width={W}
+        height={H}
+        shiftActive={state.atShiftPoint}
         idPrefix="rd4-revcomet"
       />
-    </Root>
+    </svg>
   )
 }
 
@@ -627,15 +633,17 @@ export function GearRingWidget({ snapshot, config }: WidgetProps): ReactElement 
 
 // ── SpeedGlyphWidget: giant speed numerals + KM/H label + fill bar ───────────
 export function SpeedGlyphWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const { W, H } = dims(config, 360, 130)
   const skin = skinFor(familyOf(config))
-  const speed = Math.round(finite(snapshot?.speedKmh, 0))
-  const pct = clamp(speed / 340)
+  const canonicalSpeed = finite(snapshot?.speedKmh, 0)
+  const speed = formatMeasurement(snapshot?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
+  const pct = clamp(canonicalSpeed / 340)
   const pad = 12
   const grid = makeGrid(1, 2, W, H, 6)
   const numCell = grid.cell(0, 0)
   const barCell = grid.cell(0, 1)
-  const numText = String(speed)
+  const numText = speed.display
   const numW = Math.max(80, W - pad * 2)
   const numH = segmentHeightFor(numText, numW, Math.max(24, Math.min(numCell.h - 18, 74)), 18)
   const numBoxH = numH + 8
@@ -649,7 +657,7 @@ export function SpeedGlyphWidget({ snapshot, config }: WidgetProps): ReactElemen
         y={pad + 10}
         boxW={80}
         boxH={16}
-        text="KM/H"
+        text={speed.unit.toUpperCase()}
         anchor="start"
         fontFamily={skin.typography.label}
         fill={skin.palette.textDim}

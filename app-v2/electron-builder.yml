@@ -53,6 +53,10 @@ extraResources:
     to: sherpa-worker.cjs
   - from: resources/whisper
     to: whisper
+  # Optional Streaming Auto-tunnel binary, populated by
+  # scripts/fetch-win-cloudflared.sh and resolved from process.resourcesPath.
+  - from: resources/cloudflared
+    to: cloudflared
 
 asarUnpack:
   - "**/node_modules/@serialport/**"

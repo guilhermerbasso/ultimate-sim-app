@@ -249,6 +249,8 @@ export default function RgbMatrixWorkspace({
   // recent edits; the timer ref lets us coalesce/cancel pending pushes.
   const profileRef = useRef(profile)
   const autoApplyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const autoApplyQueue = useRef<Promise<void>>(Promise.resolve())
+  const autoApplyPending = useRef<Promise<RgbMatrixProfile> | null>(null)
   useEffect(() => {
     profileRef.current = profile
   }, [profile])
@@ -268,16 +270,40 @@ export default function RgbMatrixWorkspace({
     }
   }
 
+  function enqueueAutoApply(key: string, snapshot: RgbMatrixProfile): Promise<RgbMatrixProfile> {
+    const operation = autoApplyQueue.current.then(() =>
+      window.ipc.invoke<RgbMatrixProfile>(CHANNELS.setProfile, key, snapshot)
+    )
+    autoApplyQueue.current = operation.then(
+      () => undefined,
+      () => undefined
+    )
+    autoApplyPending.current = operation
+    operation.then(
+      () => {
+        if (autoApplyPending.current === operation) autoApplyPending.current = null
+      },
+      () => {
+        if (autoApplyPending.current === operation) autoApplyPending.current = null
+      }
+    )
+    return operation
+  }
+
   // If a debounced push is still pending, send it NOW for `key` (used when the
   // editor unmounts or the target switches within the debounce window, so the
   // last edits aren't dropped).
-  function flushAutoApply(key: string): void {
-    if (!autoApplyTimer.current) return
+  async function flushAutoApply(key: string): Promise<void> {
+    if (!autoApplyTimer.current) {
+      const pending = autoApplyPending.current
+      if (pending) await pending
+      return
+    }
     clearTimeout(autoApplyTimer.current)
     autoApplyTimer.current = null
-    void window.ipc.invoke<RgbMatrixProfile>(CHANNELS.setProfile, key, profileRef.current).catch(() => {
-      // Best-effort flush; the next mount reloads the persisted profile.
-    })
+    const snapshot = profileRef.current
+    await enqueueAutoApply(key, snapshot)
+    if (profileRef.current === snapshot) setDirty(false)
   }
 
   // Debounce a single live `setProfile` push for the active matrix key. This both
@@ -290,8 +316,7 @@ export default function RgbMatrixWorkspace({
     autoApplyTimer.current = setTimeout(() => {
       autoApplyTimer.current = null
       const snapshot = profileRef.current
-      void window.ipc
-        .invoke<RgbMatrixProfile>(CHANNELS.setProfile, key, snapshot)
+      void enqueueAutoApply(key, snapshot)
         .then(() => {
           // Only flip the indicator to "saved" if no further edit landed while
           // the push was in flight (each edit replaces the profile object).
@@ -397,7 +422,9 @@ export default function RgbMatrixWorkspace({
       active = false
       // Flush any pending live push for THIS key before the next target loads,
       // so edits made just before switching (or unmount) aren't lost.
-      flushAutoApply(profileKey)
+      void flushAutoApply(profileKey).catch(() => {
+        // Best-effort unmount flush; a visible export waits and surfaces failures.
+      })
     }
   }, [profileKey])
 
@@ -567,7 +594,12 @@ export default function RgbMatrixWorkspace({
             <h3 style={{ margin: '4px 0 0' }}>Effect stack</h3>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <SectionExportImport sectionId="rgb-matrix" label="RGB matrix (iFlag)" onImported={() => void reloadProfile()} />
+            <SectionExportImport
+              sectionId="rgb-matrix"
+              label="RGB matrix (iFlag)"
+              onBeforeExport={() => flushAutoApply(profileKey)}
+              onImported={() => void reloadProfile()}
+            />
             <button type="button" style={buttonStyle('primary')} disabled={mode === 'disabled'} onClick={() => setAddOpen(true)}>
               Add effect
             </button>

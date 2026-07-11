@@ -15,6 +15,8 @@ import { LedShiftBar } from './LedShiftBar'
 import { DASH, FONT_COND } from './dashboard-tiles'
 import { formatDelta, formatGear, pct } from './format'
 import type { WidgetProps } from './types'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 export const OLED_STRIP_STREAM_SAFE = true
 
@@ -31,6 +33,7 @@ interface Col {
 }
 
 export function OledStripWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = resolveSkin('gt3', 'generic')
   const W = Math.max(120, config.position?.width || 720)
   const H = Math.max(36, config.position?.height || 72)
@@ -56,10 +59,8 @@ export function OledStripWidget({ snapshot, config }: WidgetProps): ReactElement
   const [gearCol, speedCol, revCol, deltaCol, fuelCol] = cols
 
   const gearStr = formatGear(snapshot?.gear)
-  const speed = snapshot?.speedKmh
-  const speedStr = typeof speed === 'number' && Number.isFinite(speed) ? String(Math.round(speed)) : '—'
-  const fuel = snapshot?.fuelLiters
-  const fuelStr = typeof fuel === 'number' && Number.isFinite(fuel) ? fuel.toFixed(1) : '—'
+  const speed = formatMeasurement(snapshot?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
+  const fuel = formatMeasurement(snapshot?.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1 })
   const delta = snapshot?.deltaToBestSec
   const deltaStr = formatDelta(delta)
   const dColor = deltaColor(delta)
@@ -128,8 +129,8 @@ export function OledStripWidget({ snapshot, config }: WidgetProps): ReactElement
       {numeral(gearCol, gearStr, redline ? DASH.red : skin.palette.text, 'gear')}
 
       {/* SPEED */}
-      {label(speedCol, 'KM/H')}
-      {numeral(speedCol, speedStr, skin.palette.text, 'spd')}
+      {label(speedCol, speed.unit.toUpperCase())}
+      {numeral(speedCol, speed.display, skin.palette.text, 'spd')}
       {/* REV — shared LED rig, clipped to its column so bloom never escapes. */}
       {/* REV — shared LED rig, clipped to its column so bloom never escapes. */}
       <svg x={revCol.x} y={barY} width={revCol.w} height={barH} preserveAspectRatio="none">
@@ -141,8 +142,8 @@ export function OledStripWidget({ snapshot, config }: WidgetProps): ReactElement
       {numeral(deltaCol, deltaStr, dColor, 'delta')}
 
       {/* FUEL */}
-      {label(fuelCol, 'FUEL')}
-      {numeral(fuelCol, fuelStr, skin.palette.text, 'fuel')}
+      {label(fuelCol, `FUEL ${fuel.unit.toUpperCase()}`)}
+      {numeral(fuelCol, fuel.display, skin.palette.text, 'fuel')}
     </svg>
   )
 }

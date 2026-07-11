@@ -31,6 +31,11 @@ import {
 } from '../../shared/ai'
 import type { EngineerContext, EngineerToolset, IntentCommandKind } from '../../shared/ai-engineer'
 import {
+  buildRacecraftAdvice,
+  detectRacecraftQuestion,
+  type RacecraftAdviceContext
+} from '../../shared/coach-racecraft'
+import {
   DEFAULT_ENGINEER_CONFIG,
   ENGINEER_CHANNELS,
   type EngineerAnswer,
@@ -44,7 +49,7 @@ import {
   resolveCommandDirective
 } from '../../shared/engineer-ipc'
 import type { Logger } from '../../shared/logger'
-import type { AppLanguage } from '../../shared/settings'
+import { speechLanguageFromAppLanguage } from '../../shared/tts-voice'
 import { buildContextPack, renderContextText } from '../ai/context-pack'
 import { routeIntent } from '../ai/intent-router'
 import { getLlmRuntime } from '../ai/llm-runtime'
@@ -53,7 +58,8 @@ import { buildEngineerTools } from '../ai/tools'
 import { settingsEvents } from '../settings/events'
 import { logger } from './logger'
 import { getLatestPredictions } from './predictions'
-import { getLatestCoachFindings } from './proactive-engineer'
+import { getLatestCoachFindings, getLatestCoachRacecraftContext } from './proactive-engineer'
+import type { UnitSystem } from '../../shared/units'
 
 const LOG_AREA = 'ai'
 const CONFIG_FILE = 'engineer.json'
@@ -90,6 +96,8 @@ export interface EngineerOrchestratorDeps {
   runtime: EngineerRuntimeLike
   modelManager: EngineerModelManagerLike
   context: EngineerContext
+  /** Rich deterministic player/reference/gap evidence for racecraft questions. */
+  racecraftContext?(): RacecraftAdviceContext | null | undefined
   broadcast(channel: string, payload: unknown): void
   /** Starting config (register loads it from disk before constructing). */
   config: EngineerConfig
@@ -98,6 +106,7 @@ export interface EngineerOrchestratorDeps {
   onConfigChange?(config: EngineerConfig): void
   logger?: Logger
   now?(): number
+  getUnitSystem?(): UnitSystem
 }
 
 export interface EngineerOrchestrator {
@@ -130,13 +139,6 @@ export function getEngineerConfigSnapshot(): EngineerConfig {
 
 function isPt(config: EngineerConfig): boolean {
   return config.language === 'pt-BR'
-}
-
-function engineerLanguageFromAppLanguage(language: AppLanguage): EngineerConfig['language'] {
-  if (language === 'auto') {
-    return Intl.DateTimeFormat().resolvedOptions().locale.toLowerCase().startsWith('pt') ? 'pt-BR' : 'en-US'
-  }
-  return language === 'pt-BR' ? 'pt-BR' : 'en-US'
 }
 
 // Tone block keyed by assertiveness — the ONLY part of the persona that changes
@@ -192,7 +194,7 @@ const FEWSHOT_EN: Record<EngineerConfig['assertiveness'], string> = {
   ].join('\n')
 }
 
-function personaSystem(config: EngineerConfig): string {
+function personaSystem(config: EngineerConfig, unitSystem: UnitSystem = 'metric'): string {
   const level = config.assertiveness
   return [
     pick(config, { pt: TONE_PT[level], en: TONE_EN[level] }),
@@ -212,6 +214,9 @@ function personaSystem(config: EngineerConfig): string {
       pt: 'Para COACHING, não reavalie, não decida e não invente causa: apenas reformule os achados determinísticos fornecidos, podendo citar confiança e intenção descartada.',
       en: 'For COACHING, do not re-decide, judge, or invent causes: only rephrase the provided deterministic findings, and you may cite confidence and discarded intent.'
     }),
+    unitSystem === 'imperial'
+      ? pick(config, { pt: 'Use somente unidades imperiais dos EUA: mph, °F, psi, galões US, milhas e pés.', en: 'Use US customary units only: mph, °F, psi, US gallons, miles and feet.' })
+      : pick(config, { pt: 'Use somente unidades métricas: km/h, °C, bar ou kPa, litros e quilômetros.', en: 'Use metric units only: km/h, °C, bar or kPa, liters and kilometers.' }),
     pick(config, { pt: FEWSHOT_PT[level], en: FEWSHOT_EN[level] })
   ].join(' ')
 }
@@ -363,6 +368,7 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       })
 
       const snapshot = deps.context.getSnapshot()
+      const unitSystem = deps.getUnitSystem?.() ?? 'metric'
       const pack = buildContextPack(snapshot, {
         fuel: deps.context.getFuelState?.(),
         tire: deps.context.getTireState?.(),
@@ -373,13 +379,13 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         referenceLapLabel: deps.context.getReferenceLapLabel?.(),
         predictions: deps.context.getPredictions?.()
       })
-      const contextText = renderContextText(pack, { maxTokens: CONTEXT_MAX_TOKENS })
-      const functions = adaptEngineerTools(buildEngineerTools(deps.context))
+      const contextText = renderContextText(pack, { maxTokens: CONTEXT_MAX_TOKENS, unitSystem })
+      const functions = adaptEngineerTools(buildEngineerTools(deps.context, unitSystem))
       const prompt = `${contextText}\n\n${promptLabel(config)}: ${question}`
 
       const gen = generationParams(config)
       const result = await deps.runtime.generateWithTools({
-        system: personaSystem(config),
+        system: personaSystem(config, unitSystem),
         prompt,
         functions,
         maxTokens: gen.maxTokens,
@@ -419,7 +425,47 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     if (!question) return finalize('', pick(config, FALLBACK.empty), 'answer', 'system')
     if (!config.enabled) return finalize(question, pick(config, FALLBACK.disabled), 'disabled', 'system')
 
-    const intent = routeIntent(question, deps.context, isPt(config) ? 'pt' : 'en')
+    const racecraftIntent = detectRacecraftQuestion(question)
+    const unitSystem = deps.getUnitSystem?.() ?? 'metric'
+    if (racecraftIntent) {
+      const snapshot = deps.context.getSnapshot()
+      const fallbackContext: RacecraftAdviceContext = {
+        findings: deps.context.getCoachFindings?.() ?? [],
+        gaps: snapshot
+          ? [
+              {
+                at: snapshot.timestamp,
+                aheadSec: Number.isFinite(snapshot.relatives?.ahead?.gapSec)
+                  ? Math.abs(snapshot.relatives!.ahead!.gapSec as number)
+                  : undefined,
+                behindSec: Number.isFinite(snapshot.relatives?.behind?.gapSec)
+                  ? Math.abs(snapshot.relatives!.behind!.gapSec as number)
+                  : undefined,
+                aheadCarIdx: snapshot.relatives?.ahead?.carIdx,
+                behindCarIdx: snapshot.relatives?.behind?.carIdx
+              }
+            ]
+          : [],
+        currentGapAheadSec: Number.isFinite(snapshot?.relatives?.ahead?.gapSec)
+          ? Math.abs(snapshot!.relatives!.ahead!.gapSec as number)
+          : undefined,
+        currentGapBehindSec: Number.isFinite(snapshot?.relatives?.behind?.gapSec)
+          ? Math.abs(snapshot!.relatives!.behind!.gapSec as number)
+          : undefined,
+        trackName: snapshot?.trackName,
+        trackConfigName: snapshot?.trackConfigName,
+        carName: snapshot?.carName,
+        carPath: snapshot?.carPath
+      }
+      const advice = buildRacecraftAdvice(
+        racecraftIntent,
+        deps.racecraftContext?.() ?? fallbackContext,
+        { language: config.language, unitSystem }
+      )
+      return finalize(question, advice.text, 'answer', 'intent')
+    }
+
+    const intent = routeIntent(question, deps.context, isPt(config) ? 'pt' : 'en', unitSystem)
     if (intent.type === 'answer') {
       return finalize(question, intent.text, 'answer', 'intent')
     }
@@ -538,21 +584,25 @@ export function register(ctx: ModuleContext): void {
     getPredictions: () => getLatestPredictions()
   }
 
+  let unitSystem: UnitSystem = 'metric'
   const orchestrator = createEngineerOrchestrator({
     runtime,
     modelManager,
     context: engineerContext,
+    racecraftContext: () => getLatestCoachRacecraftContext(ctx.telemetryHub.getLatest()),
     broadcast: (channel, payload) => ctx.broadcast(channel, payload),
     config,
     saveConfig: (next) => saveConfigSync(configPath, next),
     onConfigChange: (next) => {
       activeEngineerConfig = next
     },
+    getUnitSystem: () => unitSystem,
     logger
   })
 
   settingsEvents.onChanged((settings) => {
-    const language = engineerLanguageFromAppLanguage(settings.language)
+    unitSystem = settings.unitSystem
+    const language = speechLanguageFromAppLanguage(settings.language, ctx.app.getLocale())
     if (orchestrator.getConfig().language !== language) {
       void orchestrator.setConfig({ language })
     }

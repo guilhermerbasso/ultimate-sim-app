@@ -1,6 +1,7 @@
 ﻿import { type ReactElement, type ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { BigNum, C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, LEGIBLE, fixed, legibleStroke, num } from '../kit'
+import { formatMeasurement } from '../../../../../shared/units'
 
 const TILE_W = 264
 const TILE_H = 336
@@ -190,17 +191,19 @@ function WeatherIcon({ x, y }: { x: number; y: number }): ReactElement {
   )
 }
 
-function WeatherWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function WeatherWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const air = num(snapshot?.airTempC)
   const track = num(snapshot?.trackTempC)
+  const airReading = formatMeasurement(air, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true })
+  const trackReading = formatMeasurement(track, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true })
   return (
     <Tile label="Weather" width={width} height={height} accent={CYAN}>
       <WeatherIcon x={55} y={82} />
       <path d="M28 222 H236 M28 278 H236" stroke="rgba(255,255,255,0.16)" />
-      <text x={54} y={263} fill={present(air) ? CYAN : C.dim} fontFamily={FONT_NUM} fontSize={38} fontWeight={800} {...legibleStroke(38)}>{fixed(air)}°C</text>
+      <text x={54} y={263} fill={present(air) ? CYAN : C.dim} fontFamily={FONT_NUM} fontSize={38} fontWeight={800} {...legibleStroke(38)}>{airReading.display}</text>
       <path d="M37 237 v30" stroke={CYAN} strokeWidth={4} strokeLinecap="round" opacity={present(air) ? 1 : 0.45} />
       <circle cx={37} cy={273} r={9} fill="none" stroke={CYAN} strokeWidth={4} opacity={present(air) ? 1 : 0.45} />
-      <text x={54} y={315} fill={present(track) ? CYAN : C.dim} fontFamily={FONT_NUM} fontSize={38} fontWeight={800} {...legibleStroke(38)}>{fixed(track)}°C</text>
+      <text x={54} y={315} fill={present(track) ? CYAN : C.dim} fontFamily={FONT_NUM} fontSize={38} fontWeight={800} {...legibleStroke(38)}>{trackReading.display}</text>
       <path d="M29 307 h22 m-18 -10 h14 m-10 -10 h6" stroke={CYAN} strokeWidth={4} strokeLinecap="round" opacity={present(track) ? 1 : 0.45} />
     </Tile>
   )

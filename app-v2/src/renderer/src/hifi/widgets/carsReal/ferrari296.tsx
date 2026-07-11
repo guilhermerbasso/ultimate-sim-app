@@ -1,6 +1,7 @@
 ﻿import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, revFill, signed } from '../kit'
+import { formatMeasurement } from '../../../../../shared/units'
 
 const DASH_W = 1024
 const DASH_H = 600
@@ -93,15 +94,45 @@ function angledBoxPath(x: number, y: number, w: number, h: number): string {
   return `M${x + 18} ${y} H${x + w - 18} L${x + w} ${y + 14} V${y + h - 8} L${x + w - 12} ${y + h} H${x + 118} L${x + 112} ${y + h + 5} H${x + 12} L${x} ${y + h - 8} V${y + 14} Z`
 }
 
-function InfoBox({ x, y, w, h, label, value, unit, iconSide = 'left', children }: { x: number; y: number; w: number; h: number; label: string; value: string; unit?: string; iconSide?: 'left' | 'right'; children?: ReactElement }): ReactElement {
+function InfoBox({
+  x,
+  y,
+  w,
+  h,
+  label,
+  value,
+  unit,
+  iconSide = 'left',
+  labelFontSize = 30,
+  valueFontSize = 54,
+  valueOffsetX = 0,
+  valueBottom = 14,
+  iconScale = 1,
+  children
+}: {
+  x: number
+  y: number
+  w: number
+  h: number
+  label: string
+  value: string
+  unit?: string
+  iconSide?: 'left' | 'right'
+  labelFontSize?: number
+  valueFontSize?: number
+  valueOffsetX?: number
+  valueBottom?: number
+  iconScale?: number
+  children?: ReactElement
+}): ReactElement {
   return (
     <g>
       <path d={angledBoxPath(x, y, w, h)} fill="rgba(0,0,0,0.86)" stroke={RED} strokeWidth={1.8} />
       <path d={`M${x + 118} ${y + h} H${x + w - 38}`} stroke={RED} strokeWidth={2.2} />
-      <text x={x + w / 2} y={y + 34} textAnchor="middle" fill={YELLOW} fontFamily={FONT_LABEL} fontWeight={900} fontSize={30} letterSpacing={3} {...legibleStroke(30)}>{label}</text>
-      {children ? <g transform={`translate(${iconSide === 'right' ? x + w - 70 : x + 34},${y + 50})`}>{children}</g> : null}
-      <text x={x + w / 2 - (unit ? 20 : 0)} y={y + h - 22} textAnchor="middle" fill={value === '—' ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={54} {...legibleStroke(54)}>{value}</text>
-      {unit ? <text x={x + w - 52} y={y + h - 22} fill={value === '—' ? C.dim : WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={28} {...legibleStroke(28)}>{unit}</text> : null}
+      <text x={x + w / 2} y={y + 28} textAnchor="middle" fill={YELLOW} fontFamily={FONT_LABEL} fontWeight={900} fontSize={labelFontSize} letterSpacing={3} {...legibleStroke(labelFontSize)}>{label}</text>
+      {children ? <g transform={`translate(${iconSide === 'right' ? x + w - 70 : x + 34},${y + 50}) scale(${iconScale})`}>{children}</g> : null}
+      <text x={x + w / 2 - (unit ? 20 : 0) + valueOffsetX} y={y + h - valueBottom} textAnchor="middle" fill={value === '—' ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={valueFontSize} {...legibleStroke(valueFontSize)}>{value}</text>
+      {unit ? <text x={x + w - 52} y={y + h - valueBottom} fill={value === '—' ? C.dim : WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={28} {...legibleStroke(28)}>{unit}</text> : null}
     </g>
   )
 }
@@ -152,29 +183,34 @@ function RpmBarGraphic({ snapshot, x, y, w, h, id = 'f296-rpm', scale = true }: 
   )
 }
 
-function F296Dash({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function F296Dash({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const gear = num(snapshot?.gear)
   const speed = num(snapshot?.speedKmh)
   const fuel = num(snapshot?.fuelLiters)
+  const speedReading = formatMeasurement(speed, 'speed-kmh', unitSystem, { decimals: 0 })
+  const fuelReading = formatMeasurement(fuel, 'fuel-volume-l', unitSystem, { decimals: 0 })
   const tc = safeText(snapshot?.tcLevel)
   const abs = safeText(snapshot?.absLevel)
   const map = safeText(snapshot?.engineMap)
   const lastLap = lapTime(num(snapshot?.lastLapTimeSec)).replace(/\.\d{3}$/, (m) => m.slice(0, 2))
+  const sideMargin = 20
+  const sideWidth = 286
+  const rightX = DASH_W - sideMargin - sideWidth
   return (
     <CleanTile width={width ?? DASH_W} height={height ?? DASH_H}>
       <rect width={DASH_W} height={DASH_H} fill={DARK} />
       <RoundLedStrip snapshot={snapshot} x={62} y={56} w={900} count={17} id="f296-dash-leds" r={15} />
-      <InfoBox x={24} y={146} w={300} h={108} label="FUEL" value={fixed(fuel)} unit="L"><FuelIcon /></InfoBox>
-      <InfoBox x={24} y={284} w={300} h={108} label="TC" value={tc}><SlipIcon /></InfoBox>
-      <InfoBox x={724} y={144} w={300} h={112} label="LAST LAP" value={lastLap} iconSide="right"><StopwatchIcon /></InfoBox>
-      <InfoBox x={724} y={284} w={300} h={112} label="ABS" value={abs} iconSide="right"><AbsIcon /></InfoBox>
-      <InfoBox x={724} y={412} w={300} h={96} label="MAP" value={map} iconSide="right"><MapIcon /></InfoBox>
-      <text x={512} y={337} textAnchor="middle" fill={gear == null ? C.dim : WHITE} stroke={RED} strokeWidth={4} paintOrder="stroke" fontFamily={FONT_BIG} fontWeight={900} fontSize={245} fontStyle="italic">{gearLabel(gear)}</text>
-      <text x={512} y={448} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={76} {...legibleStroke(76)}>{fixed(speed)}</text>
-      <text x={512} y={482} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={28} letterSpacing={1} {...legibleStroke(28)}>km/h</text>
-      <text x={512} y={530} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={22} letterSpacing={2} {...legibleStroke(22)}>RPM x1000</text>
-      <RpmBarGraphic snapshot={snapshot} x={64} y={564} w={920} h={36} id="f296-dash-rpm" />
-      <rect x={808} y={553} width={8} height={66} rx={3} fill="#f3f3f3" stroke="#ff2020" strokeWidth={3} />
+      <InfoBox x={sideMargin} y={140} w={sideWidth} h={112} label="FUEL" value={fuelReading.display} unit={fuelReading.unit} valueOffsetX={16}><FuelIcon /></InfoBox>
+      <InfoBox x={sideMargin} y={278} w={sideWidth} h={112} label="TC" value={tc}><SlipIcon /></InfoBox>
+      <InfoBox x={rightX} y={140} w={sideWidth} h={112} label="LAST LAP" value={lastLap} valueFontSize={46} valueOffsetX={-24} iconSide="right"><StopwatchIcon /></InfoBox>
+      <InfoBox x={rightX} y={272} w={sideWidth} h={112} label="ABS" value={abs} iconSide="right"><AbsIcon /></InfoBox>
+      <InfoBox x={rightX} y={400} w={sideWidth} h={96} label="MAP" value={map} labelFontSize={26} valueFontSize={48} valueBottom={10} iconScale={0.82} iconSide="right"><MapIcon /></InfoBox>
+      <text x={512} y={330} textAnchor="middle" fill={gear == null ? C.dim : WHITE} stroke={RED} strokeWidth={4} paintOrder="stroke" fontFamily={FONT_BIG} fontWeight={900} fontSize={190} fontStyle="italic">{gearLabel(gear)}</text>
+      <text x={512} y={430} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={70} {...legibleStroke(70)}>{speedReading.display}</text>
+      <text x={512} y={466} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={26} letterSpacing={1} {...legibleStroke(26)}>{speedReading.unit}</text>
+      <text x={512} y={512} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={22} letterSpacing={2} {...legibleStroke(22)}>RPM x1000</text>
+      <RpmBarGraphic snapshot={snapshot} x={56} y={550} w={912} h={30} id="f296-dash-rpm" />
+      <rect x={806} y={542} width={8} height={48} rx={3} fill="#f3f3f3" stroke="#ff2020" strokeWidth={3} />
     </CleanTile>
   )
 }
@@ -186,11 +222,12 @@ function HugeGear({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   return <CleanTile width={w} height={h}><text x={w / 2} y={h * 0.78} textAnchor="middle" fill={gear == null ? C.dim : WHITE} stroke={RED} strokeWidth={Math.max(3, h * 0.022)} paintOrder="stroke" fontFamily={FONT_BIG} fontWeight={900} fontSize={h * 0.86} fontStyle="italic">{gearLabel(gear)}</text></CleanTile>
 }
 
-function SpeedWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function SpeedWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const speed = num(snapshot?.speedKmh)
+  const reading = formatMeasurement(speed, 'speed-kmh', unitSystem, { decimals: 0 })
   const w = width ?? 360
   const h = height ?? 180
-  return <CleanTile width={w} height={h}><text x={w / 2} y={h * 0.58} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={h * 0.52} {...legibleStroke(h * 0.52)}>{fixed(speed)}</text><text x={w / 2} y={h * 0.82} textAnchor="middle" fill={YELLOW} fontFamily={FONT_LABEL} fontWeight={900} fontSize={h * 0.17} letterSpacing={1} {...legibleStroke(h * 0.17)}>km/h</text></CleanTile>
+  return <CleanTile width={w} height={h}><text x={w / 2} y={h * 0.58} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={h * 0.52} {...legibleStroke(h * 0.52)}>{reading.display}</text><text x={w / 2} y={h * 0.82} textAnchor="middle" fill={YELLOW} fontFamily={FONT_LABEL} fontWeight={900} fontSize={h * 0.17} letterSpacing={1} {...legibleStroke(h * 0.17)}>{reading.unit}</text></CleanTile>
 }
 
 function RevLightsWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
@@ -216,7 +253,10 @@ function SingleValue({ width = 280, height = 160, label, value, unit, color = WH
   )
 }
 
-function FuelWidget(props: HifiWidgetProps): ReactElement { return <SingleValue width={props.width ?? 300} height={props.height ?? 160} label="FUEL" value={fixed(num(props.snapshot?.fuelLiters))} unit="L" icon={<FuelIcon />} /> }
+function FuelWidget(props: HifiWidgetProps): ReactElement {
+  const reading = formatMeasurement(num(props.snapshot?.fuelLiters), 'fuel-volume-l', props.unitSystem ?? 'metric', { decimals: 0 })
+  return <SingleValue width={props.width ?? 300} height={props.height ?? 160} label="FUEL" value={reading.display} unit={reading.unit} icon={<FuelIcon />} />
+}
 function TcWidget(props: HifiWidgetProps): ReactElement { return <SingleValue width={props.width ?? 260} height={props.height ?? 160} label="TC" value={safeText(props.snapshot?.tcLevel)} icon={<SlipIcon />} /> }
 function AbsWidget(props: HifiWidgetProps): ReactElement { return <SingleValue width={props.width ?? 260} height={props.height ?? 160} label="ABS" value={safeText(props.snapshot?.absLevel)} icon={<AbsIcon />} /> }
 function MapWidget(props: HifiWidgetProps): ReactElement { return <SingleValue width={props.width ?? 260} height={props.height ?? 160} label="MAP" value={safeText(props.snapshot?.engineMap)} icon={<MapIcon />} /> }
@@ -242,10 +282,10 @@ const commonRequires: HifiWidgetModule['requires'] = ['gear', 'speedKmh', 'rpm',
 
 export const f296Dash: HifiWidgetModule = { id: 'f296Dash', title: 'Ferrari 296 GT3 dash', description: 'Full Ferrari 296 GT3-style cluster with shift LEDs, dominant gear, speed, RPM, fuel, TC, lap, ABS and MAP.', category: 'cars', tags: [...TAGS, 'dashboard', 'cluster', 'shift-lights', 'gear', 'speed', 'rpm', 'fuel', 'tc', 'lap', 'abs', 'map'], requires: commonRequires, defaultSize: { w: DASH_W, h: DASH_H }, render: (props) => <F296Dash {...props} /> }
 export const f296Gear: HifiWidgetModule = { id: 'f296Gear', title: 'Ferrari 296 GT3 gear', description: 'Clean Ferrari 296 GT3 huge gear digit.', category: 'cars', tags: [...TAGS, 'gear', 'clean'], requires: ['gear'], defaultSize: { w: 280, h: 240 }, render: (props) => <HugeGear {...props} /> }
-export const f296Speed: HifiWidgetModule = { id: 'f296Speed', title: 'Ferrari 296 GT3 speed', description: 'Clean Ferrari 296 GT3 speed readout in km/h.', category: 'cars', tags: [...TAGS, 'speed', 'clean'], requires: ['speedKmh'], defaultSize: { w: 360, h: 180 }, render: (props) => <SpeedWidget {...props} /> }
+export const f296Speed: HifiWidgetModule = { id: 'f296Speed', title: 'Ferrari 296 GT3 speed', description: 'Clean Ferrari 296 GT3 speed readout using the global unit system.', category: 'cars', tags: [...TAGS, 'speed', 'clean'], requires: ['speedKmh'], defaultSize: { w: 360, h: 180 }, render: (props) => <SpeedWidget {...props} /> }
 export const f296RevLights: HifiWidgetModule = { id: 'f296RevLights', title: 'Ferrari 296 GT3 rev lights', description: 'Clean Ferrari 296 GT3 round shift LED strip.', category: 'cars', tags: [...TAGS, 'rev-lights', 'shift-lights', 'clean'], requires: ['shiftIndicatorPct', 'rpm', 'maxRpm'], defaultSize: { w: 960, h: 90 }, render: (props) => <RevLightsWidget {...props} /> }
 export const f296RpmBar: HifiWidgetModule = { id: 'f296RpmBar', title: 'Ferrari 296 GT3 RPM bar', description: 'Clean Ferrari 296 GT3 horizontal RPM bar with scale.', category: 'cars', tags: [...TAGS, 'rpm', 'bar', 'clean'], requires: ['rpm', 'maxRpm', 'shiftIndicatorPct'], defaultSize: { w: 760, h: 130 }, render: (props) => <RpmBarWidget {...props} /> }
-export const f296Fuel: HifiWidgetModule = { id: 'f296Fuel', title: 'Ferrari 296 GT3 fuel', description: 'Clean Ferrari 296 GT3 fuel liters readout.', category: 'cars', tags: [...TAGS, 'fuel', 'clean'], requires: ['fuelLiters'], defaultSize: { w: 300, h: 160 }, render: (props) => <FuelWidget {...props} /> }
+export const f296Fuel: HifiWidgetModule = { id: 'f296Fuel', title: 'Ferrari 296 GT3 fuel', description: 'Clean Ferrari 296 GT3 fuel readout using the global unit system.', category: 'cars', tags: [...TAGS, 'fuel', 'clean'], requires: ['fuelLiters'], defaultSize: { w: 300, h: 160 }, render: (props) => <FuelWidget {...props} /> }
 export const f296Tc: HifiWidgetModule = { id: 'f296Tc', title: 'Ferrari 296 GT3 TC', description: 'Clean Ferrari 296 GT3 traction-control level readout.', category: 'cars', tags: [...TAGS, 'tc', 'traction-control', 'clean'], requires: ['tcLevel'], defaultSize: { w: 260, h: 160 }, render: (props) => <TcWidget {...props} /> }
 export const f296Abs: HifiWidgetModule = { id: 'f296Abs', title: 'Ferrari 296 GT3 ABS', description: 'Clean Ferrari 296 GT3 ABS level readout.', category: 'cars', tags: [...TAGS, 'abs', 'clean'], requires: ['absLevel'], defaultSize: { w: 260, h: 160 }, render: (props) => <AbsWidget {...props} /> }
 export const f296Map: HifiWidgetModule = { id: 'f296Map', title: 'Ferrari 296 GT3 engine map', description: 'Clean Ferrari 296 GT3 engine MAP value.', category: 'cars', tags: [...TAGS, 'map', 'engine-map', 'clean'], requires: ['engineMap'], defaultSize: { w: 260, h: 160 }, render: (props) => <MapWidget {...props} /> }

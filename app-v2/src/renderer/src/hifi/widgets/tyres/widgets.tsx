@@ -2,6 +2,7 @@ import { type ReactElement, type ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, LEGIBLE, VBar, fixed, frac, legibleStroke, num, tempColor } from '../kit'
 import type { TyreInfo } from '../../../../../shared/telemetry'
+import { formatMeasurement, type UnitSystem } from '../../../../../shared/units'
 
 const W = 420
 const H = 286
@@ -11,7 +12,6 @@ const BLUE = '#2f7bff'
 const GREEN = '#7ed957'
 const RED = '#ff3737'
 const WHITE = '#f4f5f7'
-const DEG_C = '\u00b0C'
 const MISSING = '\u2014'
 const PSI_PER_KPA = 0.1450377377
 const CORNERS = [
@@ -69,15 +69,15 @@ function labelForCorner(corner: CornerKey): string {
   return CORNERS.find((c) => c.key === corner)?.label ?? 'FL'
 }
 
-function CelsiusUnit({ x, y, color, size }: { x: number; y: number; color: string; size: number }): ReactElement {
+function TemperatureUnit({ x, y, color, size, unit }: { x: number; y: number; color: string; size: number; unit: string }): ReactElement {
   return (
     <text x={x} y={y} fill={color} fontFamily="Arial, Helvetica, sans-serif" fontSize={size} fontWeight={800} {...legibleStroke(size)}>
-      {DEG_C}
+      {unit}
     </text>
   )
 }
 
-function TempReadout({ x, y, value, color, numSize, unitSize }: { x: number; y: number; value: number | undefined; color: string; numSize: number; unitSize: number }): ReactElement {
+function TempReadout({ x, y, value, color, numSize, unitSize, unitSystem }: { x: number; y: number; value: number | undefined; color: string; numSize: number; unitSize: number; unitSystem: UnitSystem }): ReactElement {
   if (value == null) {
     return (
       <text x={x} y={y} textAnchor="middle" fill={C.dim} fontFamily={FONT_BIG} fontSize={numSize} fontWeight={900} {...legibleStroke(numSize)}>
@@ -85,7 +85,8 @@ function TempReadout({ x, y, value, color, numSize, unitSize }: { x: number; y: 
       </text>
     )
   }
-  const digits = fixed(value)
+  const reading = formatMeasurement(value, 'temperature-c', unitSystem, { decimals: 0 })
+  const digits = reading.display
   const digitW = digits.length * numSize * 0.54
   const gap = numSize * 0.08
   const unitW = unitSize * 1.5
@@ -97,7 +98,7 @@ function TempReadout({ x, y, value, color, numSize, unitSize }: { x: number; y: 
       <text x={numberX} y={y} textAnchor="middle" fill={color} fontFamily={FONT_BIG} fontSize={numSize} fontWeight={900} {...legibleStroke(numSize)}>
         {digits}
       </text>
-      <CelsiusUnit x={unitX} y={y - numSize * 0.18} color={color} size={unitSize} />
+      <TemperatureUnit x={unitX} y={y - numSize * 0.18} color={color} size={unitSize} unit={reading.unit} />
     </g>
   )
 }
@@ -160,7 +161,7 @@ function CornerShell({ x, y, color, children, wide = false }: { x: number; y: nu
   )
 }
 
-function TyreTempWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function TyreTempWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   return (
     <Tile width={width} height={height} label="Tyre Temp">
       <CarPlan />
@@ -173,7 +174,7 @@ function TyreTempWidget({ snapshot, width, height }: HifiWidgetProps): ReactElem
               {corner.label}
             </text>
             <CornerShell x={corner.x} y={corner.y} color={color} wide>
-              <TempReadout x={corner.x + 38} y={corner.y + 47} value={t} color={WHITE} numSize={28} unitSize={14} />
+              <TempReadout x={corner.x + 38} y={corner.y + 47} value={t} color={WHITE} numSize={28} unitSize={14} unitSystem={unitSystem} />
             </CornerShell>
           </g>
         )
@@ -182,13 +183,13 @@ function TyreTempWidget({ snapshot, width, height }: HifiWidgetProps): ReactElem
   )
 }
 
-function TyrePressureWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function TyrePressureWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   return (
     <Tile width={width} height={height} label="Tyre Pressure">
       <CarPlan />
       {CORNERS.map((corner) => {
         const kpa = pressureKpa(snapshot, corner.key)
-        const psi = pressurePsi(kpa)
+        const pressure = formatMeasurement(kpa, 'pressure-kpa', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0 })
         const color = pressureColor(kpa, corner.key)
         return (
           <g key={corner.key}>
@@ -196,15 +197,13 @@ function TyrePressureWidget({ snapshot, width, height }: HifiWidgetProps): React
               {corner.label}
             </text>
             <CornerShell x={corner.x} y={corner.y} color={color}>
-              <text x={corner.x + 36} y={corner.y + 38} textAnchor="middle" fill={psi == null ? C.dim : WHITE} fontFamily={FONT_NUM} fontSize={29} fontWeight={900} {...legibleStroke(29)}>
-                {fixed(psi, 1)}
+              <text x={corner.x + 36} y={corner.y + 38} textAnchor="middle" fill={pressure.value == null ? C.dim : WHITE} fontFamily={FONT_NUM} fontSize={29} fontWeight={900} {...legibleStroke(29)}>
+                {pressure.display}
               </text>
-              <text x={corner.x + 36} y={corner.y + 60} textAnchor="middle" fill={psi == null ? C.dim : WHITE} fontFamily={FONT_LABEL} fontSize={18} fontWeight={800} {...LEGIBLE}>
-                psi
+              <text x={corner.x + 36} y={corner.y + 60} textAnchor="middle" fill={pressure.value == null ? C.dim : WHITE} fontFamily={FONT_LABEL} fontSize={18} fontWeight={800} {...LEGIBLE}>
+                {pressure.unit}
               </text>
-              <text x={corner.x + 36} y={corner.y + 73} textAnchor="middle" fill={C.muted} fontFamily={FONT_LABEL} fontSize={10} fontWeight={700}>
-                {kpa == null ? `${MISSING} kPa` : `${fixed(kpa)} kPa`}
-              </text>
+              <text x={corner.x + 36} y={corner.y + 73} textAnchor="middle" fill={C.muted} fontFamily={FONT_LABEL} fontSize={10} fontWeight={700}>TYRE</text>
             </CornerShell>
           </g>
         )
@@ -239,7 +238,7 @@ function TyreWearWidget({ snapshot, width, height }: HifiWidgetProps): ReactElem
   )
 }
 
-function SingleTempWidget({ snapshot, width, height, corner }: HifiWidgetProps & { corner: CornerKey }): ReactElement {
+function SingleTempWidget({ snapshot, width, height, corner, unitSystem = 'metric' }: HifiWidgetProps & { corner: CornerKey }): ReactElement {
   const t = tyreTemp(snapshot, corner)
   const color = tempColor(t)
   const label = `Tyre ${labelForCorner(corner)}`
@@ -252,7 +251,7 @@ function SingleTempWidget({ snapshot, width, height, corner }: HifiWidgetProps &
         <text x={0} y={-38} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontSize={28} fontWeight={800} letterSpacing={4} {...LEGIBLE}>
           {labelForCorner(corner)}
         </text>
-        <TempReadout x={-10} y={38} value={t} color={WHITE} numSize={64} unitSize={24} />
+        <TempReadout x={-10} y={38} value={t} color={WHITE} numSize={64} unitSize={24} unitSystem={unitSystem} />
       </g>
     </Tile>
   )
@@ -307,7 +306,7 @@ function ThermalTyreImage({ id, x, y, value }: { id: string; x: number; y: numbe
   )
 }
 
-function TyreImageTempWidget({ snapshot, width, height, corner }: HifiWidgetProps & { corner: CornerKey }): ReactElement {
+function TyreImageTempWidget({ snapshot, width, height, corner, unitSystem = 'metric' }: HifiWidgetProps & { corner: CornerKey }): ReactElement {
   const w = width ?? W
   const h = height ?? H
   const label = labelForCorner(corner)
@@ -319,7 +318,7 @@ function TyreImageTempWidget({ snapshot, width, height, corner }: HifiWidgetProp
         {label}
       </text>
       <ThermalTyreImage id={id} x={116} y={30} value={t} />
-      <TempReadout x={210} y={166} value={t} color={WHITE} numSize={72} unitSize={28} />
+      <TempReadout x={210} y={166} value={t} color={WHITE} numSize={72} unitSize={28} unitSystem={unitSystem} />
     </CleanTile>
   )
 }
@@ -346,7 +345,7 @@ function TyreTread({ x, y, values, fallback }: { x: number; y: number; values: A
   )
 }
 
-function BandBox({ x, label, value }: { x: number; label: string; value: number | undefined }): ReactElement {
+function BandBox({ x, label, value, unitSystem }: { x: number; label: string; value: number | undefined; unitSystem: UnitSystem }): ReactElement {
   const color = tempColor(value)
   return (
     <g>
@@ -355,12 +354,12 @@ function BandBox({ x, label, value }: { x: number; label: string; value: number 
       </text>
       <rect x={x} y={116} width={116} height={58} rx={10} fill="rgba(5,8,13,0.36)" />
       <rect x={x + 5} y={121} width={106} height={48} rx={8} fill={color} opacity={0.12} />
-      <TempReadout x={x + 52} y={154} value={value} color={WHITE} numSize={33} unitSize={15} />
+      <TempReadout x={x + 52} y={154} value={value} color={WHITE} numSize={33} unitSize={15} unitSystem={unitSystem} />
     </g>
   )
 }
 
-function TyreDetailWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function TyreDetailWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const info = tyre(snapshot, 'lf')
   const fallback = num(info?.tempC)
   const values = [bandValue(info, 'Left'), bandValue(info, 'Middle'), bandValue(info, 'Right')]
@@ -370,9 +369,9 @@ function TyreDetailWidget({ snapshot, width, height }: HifiWidgetProps): ReactEl
       <TyreTread x={52} y={78} values={values} fallback={fallback} />
       {hasBands ? (
         <>
-          <BandBox x={292} label="INNER" value={values[0]} />
-          <BandBox x={424} label="MIDDLE" value={values[1]} />
-          <BandBox x={556} label="OUTER" value={values[2]} />
+          <BandBox x={292} label="INNER" value={values[0]} unitSystem={unitSystem} />
+          <BandBox x={424} label="MIDDLE" value={values[1]} unitSystem={unitSystem} />
+          <BandBox x={556} label="OUTER" value={values[2]} unitSystem={unitSystem} />
           <path d="M416 108 v76 M548 108 v76" stroke="rgba(255,255,255,0.18)" strokeWidth={1.5} />
         </>
       ) : (
@@ -382,7 +381,7 @@ function TyreDetailWidget({ snapshot, width, height }: HifiWidgetProps): ReactEl
           </text>
           <rect x={382} y={128} width={216} height={72} rx={14} fill="rgba(5,8,13,0.36)" />
           <rect x={390} y={136} width={200} height={56} rx={11} fill={tempColor(fallback)} opacity={0.12} />
-          <TempReadout x={480} y={175} value={fallback} color={WHITE} numSize={46} unitSize={19} />
+          <TempReadout x={480} y={175} value={fallback} color={WHITE} numSize={46} unitSize={19} unitSystem={unitSystem} />
         </g>
       )}
       <path d="M286 218 h342" stroke="rgba(255,255,255,0.18)" />

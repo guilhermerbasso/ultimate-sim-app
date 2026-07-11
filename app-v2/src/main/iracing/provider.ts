@@ -1,6 +1,6 @@
 import type { Corners, DriverEntry, Flags, IRacingDiagnostics, IRacingMmfDiagnostics, PitStatus, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
 import { carLeftRightStateFromEnum, carLeftRightCountFromEnum, engineWarningsFromBitfield, sessionStateLabel, paceModeLabel, paceFlagsList, deriveTcActive, tcOptionsForSensitivity, tcLatchTimingsForSensitivity, TcLatch, TC_ACTIVE_DERIVED, type TcSensitivity } from '../../shared/telemetry'
-import { mss2ToG } from '../../shared/units'
+import { inHgToKpa, mss2ToG } from '../../shared/units'
 import { FALLBACK_SHIFT_BLINK_PCT, redlineBandPct } from '../../shared/revlights'
 import { IRacingMemoryMap } from './irsdk-mmf'
 import { logger } from '../modules/logger'
@@ -86,6 +86,12 @@ function optionalInt(value: unknown): number | undefined {
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
+function optionalSetting(value: unknown): number | string | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  return undefined
 }
 
 function firstDefined(...values: unknown[]): unknown {
@@ -188,9 +194,14 @@ function tyreTemps(values: AnyRecord): TelemetrySnapshot['tyres'] | undefined {
   // sim provides. (Real GT3 dashes show live hot pressure; iRacing can't.)
   const cold = coldPressures(values)
   const pressures: Array<number | undefined> = [cold?.lf, cold?.rf, cold?.lr, cold?.rr]
-  const wear = [values.LFwearM, values.RFwearM, values.LRwearM, values.RRwearM].map(optionalNum)
+  const wear = [
+    [values.LFwearL, values.LFwearM, values.LFwearR],
+    [values.RFwearL, values.RFwearM, values.RFwearR],
+    [values.LRwearL, values.LRwearM, values.LRwearR],
+    [values.RRwearL, values.RRwearM, values.RRwearR]
+  ].map((corner) => corner.map(optionalNum))
   const allTemps = [...carcass.flat(), ...surface.flat()]
-  if ([...allTemps, ...pressures, ...wear].every((value) => value === undefined)) return undefined
+  if ([...allTemps, ...pressures, ...wear.flat()].every((value) => value === undefined)) return undefined
   const info = (index: number) => ({
     // Prefer the carcass temp; fall back to the surface temp so a car/session that only
     // reports one of the two still shows a tyre temperature instead of "—".
@@ -202,7 +213,10 @@ function tyreTemps(values: AnyRecord): TelemetrySnapshot['tyres'] | undefined {
     surfaceTempMiddleC: surface[index][1],
     surfaceTempRightC: surface[index][2],
     pressureKpa: pressures[index],
-    wearPct: wear[index]
+    wearPct: wear[index][1] ?? wear[index][0] ?? wear[index][2],
+    wearLeftPct: wear[index][0],
+    wearMiddlePct: wear[index][1],
+    wearRightPct: wear[index][2]
   })
   return {
     lf: info(0),
@@ -538,8 +552,21 @@ function parseDrivers(sessionInfo: any, values: AnyRecord, staticDrivers: Driver
   const classPositions = arr<number>(values.CarIdxClassPosition)
   const lapDist = arr<number>(values.CarIdxLapDistPct)
   const laps = arr<number>(values.CarIdxLap)
+  const completedLaps = arr<number>(values.CarIdxLapCompleted)
+  const estimatedTimes = arr<number>(values.CarIdxEstTime)
   const lastLapTimes = arr<number>(values.CarIdxLastLapTime)
+  const bestLapTimes = arr<number>(values.CarIdxBestLapTime)
+  const bestLapNums = arr<number>(values.CarIdxBestLapNum)
+  const gears = arr<number>(values.CarIdxGear)
+  const rpms = arr<number>(values.CarIdxRPM)
   const pitRoad = arr<boolean | number>(values.CarIdxOnPitRoad)
+  const trackLocations = arr<number>(values.CarIdxTrackSurface)
+  const trackMaterials = arr<number>(values.CarIdxTrackSurfaceMaterial)
+  const pushToPassStatus = arr<boolean | number>(values.CarIdxP2P_Status)
+  const pushToPassCounts = arr<number>(values.CarIdxP2P_Count)
+  const carPaceFlags = arr<number>(values.CarIdxPaceFlags)
+  const paceLines = arr<number>(values.CarIdxPaceLine)
+  const paceRows = arr<number>(values.CarIdxPaceRow)
   const playerLap = num(laps[playerCarIdx], 0)
 
   return staticDrivers.map((driver): DriverEntry => {
@@ -547,16 +574,32 @@ function parseDrivers(sessionInfo: any, values: AnyRecord, staticDrivers: Driver
     const carIdx = identity.carIdx
     const driverLap = num(laps[carIdx], 0)
     const relativeLaps = driverLap - playerLap
+    const relativeTimeSec = playerRelativeGapSec(carIdx, playerCarIdx, values, lapDist, laps)
     return {
       ...identity,
       position: Math.trunc(num(positions[carIdx], 0)) || fallbackPosition,
       classPosition: Math.trunc(num(classPositions[carIdx], 0)) || fallbackClassPosition,
-      gapToPlayerSec: playerRelativeGapSec(carIdx, playerCarIdx, values, lapDist, laps),
+      gapToPlayerSec: relativeTimeSec,
       lapDistPct: pct(lapDist[carIdx]),
       lastLapTimeSec: optionalNum(lastLapTimes[carIdx]),
       lapsBehind: relativeLaps < 0 ? Math.abs(relativeLaps) : undefined,
       isPlayer: carIdx === playerCarIdx,
-      inPits: bool(pitRoad[carIdx])
+      inPits: optionalBool(pitRoad[carIdx]),
+      lap: optionalInt(laps[carIdx]),
+      completedLaps: optionalInt(completedLaps[carIdx]),
+      estimatedTimeSec: optionalNum(estimatedTimes[carIdx]),
+      relativeTimeSec,
+      gear: optionalInt(gears[carIdx]),
+      rpm: optionalNum(rpms[carIdx]),
+      trackLocation: optionalInt(trackLocations[carIdx]),
+      trackSurfaceMaterial: optionalInt(trackMaterials[carIdx]),
+      bestLapTimeSec: positiveNum(bestLapTimes[carIdx]),
+      bestLapNum: optionalInt(bestLapNums[carIdx]),
+      pushToPassActive: optionalBool(pushToPassStatus[carIdx]),
+      pushToPassCount: optionalInt(pushToPassCounts[carIdx]),
+      paceFlags: paceFlagsList(optionalNum(carPaceFlags[carIdx])),
+      paceLine: optionalInt(paceLines[carIdx]),
+      paceRow: optionalInt(paceRows[carIdx])
     }
   })
 }
@@ -763,6 +806,11 @@ export class IRacingProvider implements TelemetryProvider {
     const absLevel = firstDefined(values.dcABS, values.dcABS1, values.dcAntiLockBrake)
     const tcLevel = firstDefined(values.dcTractionControl, values.dcTractionControl2)
     const engineMap = firstDefined(values.dcFuelMixture, values.dcEnginePower, values.dcThrottleShape, values.dcBoostLevel)
+    const throttleMap = optionalSetting(values.dcThrottleShape)
+    const engineBraking = optionalSetting(values.dcEngineBraking)
+    const antiRollFront = optionalSetting(values.dcAntiRollFront)
+    const antiRollRear = optionalSetting(values.dcAntiRollRear)
+    const weightJackerRight = optionalSetting(values.dcWeightJackerRight)
     const brakeBiasPct = normalizePctValue(values.dcBrakeBias)
     const fuelLapTimeSec = positiveNum(values.LapLastLapTime) ?? positiveNum(values.LapLastNLapTime)
     // Rev/shift lights anchor the per-car SL band First→Shift so the bar is FULL at the
@@ -822,6 +870,8 @@ export class IRacingProvider implements TelemetryProvider {
     const sessionTimeOfDay = optionalNum(values.SessionTimeOfDay)
     const pit = pitStatus(values)
     const tireColdPressuresKpa = coldPressures(values)
+    const pitTyreTargetsKpa = corners(values, ['PitSvLFP', 'PitSvRFP', 'PitSvLRP', 'PitSvRRP'])
+    const trackLength = trackLengthKm(sessionInfo)
 
     this.logSessionDiagnostics(sessionInfo, values, carSetup, maxRpm)
     this.logTelemetryTap(() => ({
@@ -867,6 +917,7 @@ export class IRacingProvider implements TelemetryProvider {
       pitchRateRadSec: optionalNum(values.PitchRate),
       rollRateRadSec: optionalNum(values.RollRate),
       altitudeM: optionalNum(values.Alt),
+      velocityZ: optionalNum(values.VelocityZ),
       drs: values.DRS_Status !== undefined ? num(values.DRS_Status, 0) >= 2 : bool(values.DRS_Active),
       absActive: optionalBool(values.BrakeABSactive),
       absEnabled: bool(values.BrakeABSactive) || num(absLevel, 0) > 0,
@@ -879,6 +930,11 @@ export class IRacingProvider implements TelemetryProvider {
       tcEnabled: bool(values.dcTractionControlToggle) || num(tcLevel, 0) > 0,
       tcLevel: typeof tcLevel === 'number' || typeof tcLevel === 'string' ? tcLevel : undefined,
       engineMap: typeof engineMap === 'number' || typeof engineMap === 'string' ? engineMap : undefined,
+      throttleMap,
+      engineBraking,
+      antiRollFront,
+      antiRollRear,
+      weightJackerRight,
       engineWarnings,
       brakeBiasPct,
       handbrake: pct(values.HandbrakeRaw ?? values.Handbrake),
@@ -902,11 +958,17 @@ export class IRacingProvider implements TelemetryProvider {
       trackName: optionalString(sessionValue(sessionInfo, ['WeekendInfo', 'TrackDisplayName'])) ?? optionalString(sessionValue(sessionInfo, ['WeekendInfo', 'TrackName'])),
       trackConfigName: optionalString(sessionValue(sessionInfo, ['WeekendInfo', 'TrackConfigName'])),
       sessionTimeRemainingSec: optionalNum(values.SessionTimeRemain),
+      sessionNumber: optionalInt(values.SessionNum),
+      sessionTimeSec: optionalNum(values.SessionTime),
       lapsRemaining: Number.isFinite(sessionLapsRemain) ? sessionLapsRemain : undefined,
       currentLap: Math.trunc(num(values.Lap, 0)),
+      completedLaps: optionalInt(values.LapCompleted),
       lapDistPct: pct(values.LapDistPct),
+      lapDistanceM: optionalNum(values.LapDist),
       lastLapTimeSec: optionalNum(values.LapLastLapTime),
       bestLapTimeSec: optionalNum(values.LapBestLapTime),
+      bestNLapLap: optionalInt(values.LapBestNLapLap),
+      bestNLapTimeSec: optionalNum(values.LapBestNLapTime),
       currentLapTimeSec: optionalNum(values.LapCurrentLapTime),
       // iRacing's running average of the last N laps is `LapLastNLapTime` (note: `Last`, not `Las`).
       // The old typo silently returned undefined every tick, so estimatedLapTimeSec
@@ -924,6 +986,11 @@ export class IRacingProvider implements TelemetryProvider {
       sessionUniqueId: optionalNum(values.SessionUniqueID),
       driverName: drivers?.find((d) => d.isPlayer)?.name,
       sessionTimeOfDay,
+      onTrack: optionalBool(firstDefined(values.IsOnTrackCar, values.IsOnTrack)),
+      cameraCarIdx: optionalInt(values.CamCarIdx),
+      replayPlaying: optionalBool(values.IsReplayPlaying),
+      replayFrameNum: optionalInt(values.ReplayFrameNum),
+      replayFrameEnd: optionalInt(values.ReplayFrameNumEnd),
       weightPenaltyKg,
       powerAdjustPct,
       fuelLiters: optionalNum(values.FuelLevel),
@@ -936,11 +1003,16 @@ export class IRacingProvider implements TelemetryProvider {
       brakeTempC: corners(values, ['LFbrakeTemp', 'RFbrakeTemp', 'LRbrakeTemp', 'RRbrakeTemp']),
       brakeLinePressBar: corners(values, ['LFbrakeLinePress', 'RFbrakeLinePress', 'LRbrakeLinePress', 'RRbrakeLinePress']),
       tireColdPressuresKpa,
+      pitTyreTargetsKpa,
       flags: flags(values.SessionFlags),
       sessionFlagsRaw: Math.trunc(num(values.SessionFlags, 0)),
       pitLimiter: bool(values.PitLimiter),
       onPitRoad: bool(values.OnPitRoad),
       pitServiceFlags: pitServiceFlags(values.PitSvFlags),
+      pitFuelToAddL: optionalNum(values.PitSvFuel),
+      repairTimeSec: optionalNum(values.PitRepairLeft),
+      optionalRepairTimeSec: optionalNum(values.PitOptRepairLeft),
+      pitStopActive: optionalBool(values.PitstopActive),
       pit,
       incidentCount: Math.trunc(num(incidentCountMy ?? incidentCountTeam, 0)),
       incidentCountMy: incidentCountMy !== undefined ? Math.trunc(incidentCountMy) : undefined,
@@ -952,9 +1024,15 @@ export class IRacingProvider implements TelemetryProvider {
       airTempC: celsius(values.AirTemp),
       trackWetnessPct: trackWetness,
       isRaining: num(precipitation, 0) > 0,
+      precipitationPct: precipitation,
       gripPct: pct(values.TrackGripStatus ?? values.TrackGrip),
       weatherDeclaredWet,
       trackSurfaceMaterial,
+      airDensityKgM3: optionalNum(values.AirDensity),
+      airPressureKpa: inHgToKpa(optionalNum(values.AirPressure)),
+      airPressureHg: optionalNum(values.AirPressure),
+      weatherType: optionalInt(values.WeatherType),
+      trackLengthKm: trackLength,
       fogPct: pct(values.FogLevel),
       humidityPct: pct(values.RelativeHumidity),
       windSpeedMs: optionalNum(values.WindVel),

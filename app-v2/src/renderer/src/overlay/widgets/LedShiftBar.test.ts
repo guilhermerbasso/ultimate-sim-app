@@ -65,12 +65,14 @@ describe('LedShiftBar render', () => {
     expect(markup).not.toContain('feGaussianBlur')
   })
 
-  it('flashes every LED in the redline colour when blinking', () => {
+  it('turns every LED strong blue and strobes uniformly when shifting', () => {
     const markup = renderToStaticMarkup(
       createElement(LedShiftBar, { pct: 1, segments: 8, blink: true })
     )
     expect(markup).toContain('is-blink')
     expect(markup).toContain(REDLINE_FLASH_COLOR)
+    expect(markup).toContain('repeatCount="indefinite"')
+    expect(markup).toContain('data-rev-shift="strobe"')
   })
 
   it('an empty bar lights no bloom (only dimmed off-dome cores)', () => {

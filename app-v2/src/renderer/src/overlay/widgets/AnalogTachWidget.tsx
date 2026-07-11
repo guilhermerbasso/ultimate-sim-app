@@ -9,6 +9,8 @@ import type { WidgetProps } from './types'
 import { formatGear, pctOrUndefined } from './format'
 import { resolveSkin, FitText } from '../../skins'
 import { AnalogDial } from '../../instruments'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 export const ANALOG_TACH_STREAM_SAFE = true
 
@@ -24,6 +26,7 @@ function dims(config: WidgetProps['config']): { W: number; H: number } {
 }
 
 export function AnalogTachWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const s = snapshot
   const skin = resolveSkin('gt3', 'generic')
   const { palette } = skin
@@ -40,8 +43,7 @@ export function AnalogTachWidget({ snapshot, config }: WidgetProps): ReactElemen
   const redlining = frac >= REDLINE_FRAC || inShiftBand
 
   const gear = formatGear(s?.gear)
-  const speed = s?.speedKmh
-  const speedStr = speed !== undefined && Number.isFinite(speed) ? String(Math.round(speed)) : '—'
+  const speed = formatMeasurement(s?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
   const rpmStr = hasRpm ? ((rpm as number) / 1000).toFixed(1) : '—'
 
   const P = Math.max(8, Math.round(Math.min(W, H) * 0.04))
@@ -90,8 +92,8 @@ export function AnalogTachWidget({ snapshot, config }: WidgetProps): ReactElemen
 
         {/* In-face gear + speed */}
         <FitText x={cx} y={cy + dialSize * 0.04} boxW={dialSize * 0.4} boxH={dialSize * 0.34} text={gear} anchor="middle" baseline="middle" fontFamily={/^\d$/.test(gear) ? skin.segment.numeric : skin.segment.alpha} fill={redlining ? palette.crit : palette.text} minFontPx={20} maxFontPx={dialSize * 0.34} />
-        <FitText x={cx} y={cy + dialSize * 0.3} boxW={dialSize * 0.4} boxH={dialSize * 0.14} text={speedStr} anchor="middle" baseline="middle" fontFamily={skin.segment.numeric} fill={palette.text} minFontPx={12} maxFontPx={dialSize * 0.13} />
-        <FitText x={cx} y={cy + dialSize * 0.4} boxW={dialSize * 0.4} boxH={dialSize * 0.08} text="KM/H" anchor="middle" baseline="middle" fontFamily={skin.typography.label} fill={palette.textDim} minFontPx={11} maxFontPx={12} weight={700} letterSpacing={2} />
+        <FitText x={cx} y={cy + dialSize * 0.3} boxW={dialSize * 0.4} boxH={dialSize * 0.14} text={speed.display} anchor="middle" baseline="middle" fontFamily={skin.segment.numeric} fill={palette.text} minFontPx={12} maxFontPx={dialSize * 0.13} />
+        <FitText x={cx} y={cy + dialSize * 0.4} boxW={dialSize * 0.4} boxH={dialSize * 0.08} text={speed.unit.toUpperCase()} anchor="middle" baseline="middle" fontFamily={skin.typography.label} fill={palette.textDim} minFontPx={11} maxFontPx={12} weight={700} letterSpacing={2} />
       </svg>
     </div>
   )

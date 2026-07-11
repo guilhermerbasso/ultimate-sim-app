@@ -20,6 +20,7 @@ import {
   previewLedColors
 } from '../../../shared/revlights'
 import type { Flags, TelemetrySnapshot } from '../../../shared/telemetry'
+import { formatMeasurement, type UnitSystem } from '../../../shared/units'
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -208,10 +209,10 @@ function deltaShort(sec: number | undefined): string {
 
 // Default 3-row telemetry page: gear+speed, last/best lap, delta. Returns null
 // when there is no connected telemetry (leave the screen as-is).
-export function oledRows(snapshot: TelemetrySnapshot | null): [string, string, string] | null {
+export function oledRows(snapshot: TelemetrySnapshot | null, unitSystem: UnitSystem = 'metric'): [string, string, string] | null {
   if (!snapshot?.connected) return null
-  const speed = Number.isFinite(snapshot.speedKmh) ? Math.round(snapshot.speedKmh) : 0
-  const row0 = `${gearLabel(snapshot.gear)}  ${speed} km/h`
+  const speed = formatMeasurement(snapshot.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
+  const row0 = `${gearLabel(snapshot.gear)}  ${speed.display} ${speed.unit}`
   const row1 = `L${lapTimeShort(snapshot.lastLapTimeSec)} B${lapTimeShort(snapshot.bestLapTimeSec)}`
   const row2 = `DLT ${deltaShort(snapshot.deltaToBestSec)}`
   return [row0, row1, row2]
@@ -223,14 +224,15 @@ export function oledRows(snapshot: TelemetrySnapshot | null): [string, string, s
 // has no value (skip the send and keep the last shown value).
 export function segValue(
   component: SegDisplayComponent,
-  snapshot: TelemetrySnapshot | null
+  snapshot: TelemetrySnapshot | null,
+  unitSystem: UnitSystem = 'metric'
 ): string | null {
   if (!snapshot?.connected) return null
   switch (component.metric) {
     case 'gear':
       return gearLabel(snapshot.gear)
     case 'speed':
-      return Number.isFinite(snapshot.speedKmh) ? String(Math.round(snapshot.speedKmh)) : null
+      return formatMeasurement(snapshot.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 }).value?.toFixed(0) ?? null
     case 'rpm':
       return Number.isFinite(snapshot.rpm) ? String(Math.round(snapshot.rpm)) : null
     case 'lap':

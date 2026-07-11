@@ -14,6 +14,8 @@ import { formatDelta, formatGear, formatTime, numberOrDash, pct as clampPct } fr
 import { resolveSkin, FitText, makeGrid, zoneColor, type SkinToken } from '../../skins'
 import { RevLedBar, SegmentReadout, TelltaleIcon } from '../../instruments'
 import { DASH, FONT_COND } from './dashboard-tiles'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 // ── Local NaN-safe helpers ────────────────────────────────────────────────────
 
@@ -66,6 +68,7 @@ function safeGear(gear: number | undefined | null): string {
 //  and SHIFT segment readouts below. Registry key: 'neonGearBar'.
 // ═════════════════════════════════════════════════════════════════════════════
 export function NeonGearBarWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = resolveSkin('gt3', 'generic')
   const { palette, material } = skin
   const { W, H } = dims(config, 600, 120)
@@ -73,9 +76,8 @@ export function NeonGearBarWidget({ snapshot, config }: WidgetProps): ReactEleme
   const frac = shiftFrac(snapshot)
   const redline = frac >= 0.97
   const gear = safeGear(snapshot?.gear)
-  const speedNum = safeNum(snapshot?.speedKmh, Number.NaN)
-  const hasSpeed = Number.isFinite(speedNum)
-  const speedStr = hasSpeed ? String(Math.round(speedNum)) : '—'
+  const speed = formatMeasurement(snapshot?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
+  const hasSpeed = speed.value !== undefined
   const shiftStr = numberOrDash(frac * 100, 0)
   const gearColor = redline ? DASH.red : zoneColor(skin.led, frac)
 
@@ -150,9 +152,9 @@ export function NeonGearBarWidget({ snapshot, config }: WidgetProps): ReactEleme
 
       <g transform={`translate(${spdCell.x + 4},${spdReadoutY})`}>
         <SegmentReadout
-          value={speedStr}
+          value={speed.display}
           label="SPD"
-          unit={hasSpeed ? 'KM/H' : undefined}
+          unit={hasSpeed ? speed.unit.toUpperCase() : undefined}
           height={readoutH}
           color={palette.text}
           ghostColor={palette.textDim}

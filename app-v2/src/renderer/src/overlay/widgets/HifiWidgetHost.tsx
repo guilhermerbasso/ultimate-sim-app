@@ -6,6 +6,7 @@ import { useCoachReport } from '../../lib/coach-heatmap'
 import { coachFindings, topCoachTips } from '../../lib/coach-insights'
 import { useEngineerFeed } from '../../lib/engineer-feed'
 import type { WidgetProps } from './types'
+import { useUnitSystem } from '../../lib/units'
 
 const BOX_FILL_STRIP_IDS = new Set([
   'rpmBar',
@@ -21,7 +22,12 @@ const BOX_FILL_STRIP_IDS = new Set([
   'revThemedAmg',
   'revThemedMclaren',
   'revThemedCorvette',
-  'revThemedLambo'
+  'revThemedLambo',
+  'cvRevLights',
+  'f296RevLights',
+  'f488RevLights',
+  'lhRevLights',
+  'pcupRevBar'
 ])
 
 function moduleIdFromConfig(config: WidgetProps['config']): string {
@@ -83,6 +89,7 @@ function buildAiContext(
 export function HifiWidgetHost(props: WidgetProps): ReactElement {
   const coachReport = useCoachReport()
   const engineerFeed = useEngineerFeed()
+  const unitSystem = useUnitSystem()
   const moduleId = moduleIdFromConfig(props.config)
   const mod = HIFI_WIDGETS_BY_ID[moduleId]
   const ai = buildAiContext(coachReport, engineerFeed)
@@ -96,18 +103,18 @@ export function HifiWidgetHost(props: WidgetProps): ReactElement {
   }
 
   // Most hi-fi widgets keep their authored aspect ratio. Horizontal rev/RPM strips
-  // are the exception: render them in the placed box so wide-short layouts fill
-  // the full width instead of letterboxing to the default aspect ratio.
+  // are the exception: render them in a transparent placed box so wide-short
+  // layouts fill the full width instead of inheriting panel chrome or letterboxing.
   const fillBox = BOX_FILL_STRIP_IDS.has(mod.id)
   const dw = Math.max(1, Math.round(fillBox ? props.config.position.width : mod.defaultSize.w))
   const dh = Math.max(1, Math.round(fillBox ? props.config.position.height : mod.defaultSize.h))
-  const content = mod.render({ snapshot: props.snapshot, ai, width: dw, height: dh })
+  const content = mod.render({ snapshot: props.snapshot, ai, width: dw, height: dh, unitSystem })
   const style = props.config.style
   const borderColor = style.borderColor ?? style.border
   const borderWidth = Math.max(0, Math.round(style.borderWidth ?? (borderColor && borderColor !== 'transparent' ? 1 : 0)))
   const opacity = Number.isFinite(style.opacity) ? Math.max(0, Math.min(1, style.opacity ?? 1)) : 1
   const lines = style.lines?.filter((line) => line.color.trim()) ?? []
-  const dividerLines = style.showDivider ? (lines.length === 0 ? [{ color: borderColor || style.accent }] : lines) : []
+  const dividerLines = !fillBox && style.showDivider ? (lines.length === 0 ? [{ color: borderColor || style.accent }] : lines) : []
   const hostStyle: CSSProperties = {
     position: 'relative',
     width: '100%',
@@ -115,9 +122,9 @@ export function HifiWidgetHost(props: WidgetProps): ReactElement {
     boxSizing: 'border-box',
     overflow: 'hidden',
     display: 'block',
-    background: style.background || 'transparent',
-    border: borderWidth > 0 ? `${borderWidth}px solid ${borderColor || style.accent}` : 'none',
-    borderRadius: Math.max(0, style.radius ?? 0),
+    background: fillBox ? 'transparent' : style.background || 'transparent',
+    border: !fillBox && borderWidth > 0 ? `${borderWidth}px solid ${borderColor || style.accent}` : 'none',
+    borderRadius: fillBox ? 0 : Math.max(0, style.radius ?? 0),
     fontFamily: style.fontFamily,
     color: style.accent,
     opacity,
@@ -134,7 +141,7 @@ export function HifiWidgetHost(props: WidgetProps): ReactElement {
         viewBox={`0 0 ${dw} ${dh}`}
         width="100%"
         height="100%"
-        preserveAspectRatio="xMidYMid meet"
+        preserveAspectRatio={fillBox ? 'none' : 'xMidYMid meet'}
         style={{ display: 'block' }}
         role="img"
       >

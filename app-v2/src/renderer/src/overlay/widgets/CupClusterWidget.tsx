@@ -8,6 +8,8 @@ import type { WidgetProps } from './types'
 import { formatDelta, formatGear, pct } from './format'
 import { resolveSkin, FitText } from '../../skins'
 import { RevLedBar, DataField, type FieldState } from '../../instruments'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 export const CUP_CLUSTER_STREAM_SAFE = true
 
@@ -21,6 +23,7 @@ function dims(config: WidgetProps['config']): { W: number; H: number } {
 }
 
 export function CupClusterWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const s = snapshot
   const skin = resolveSkin('gt3', 'generic')
   const { palette } = skin
@@ -29,8 +32,7 @@ export function CupClusterWidget({ snapshot, config }: WidgetProps): ReactElemen
   const shiftPct = pct(s?.shiftIndicatorPct ?? (s?.rpm ?? 0) / (s?.maxRpm ?? 9000))
   const redline = shiftPct >= 0.95
   const gear = formatGear(s?.gear)
-  const speed = s?.speedKmh
-  const speedStr = speed !== undefined && Number.isFinite(speed) ? String(Math.round(speed)) : '—'
+  const speed = formatMeasurement(s?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
   const delta = s?.deltaToBestSec
   const deltaState: FieldState = delta === undefined || !Number.isFinite(delta) ? 'normal' : delta <= 0 ? 'ok' : 'warn'
 
@@ -58,7 +60,7 @@ export function CupClusterWidget({ snapshot, config }: WidgetProps): ReactElemen
         <rect x={P} y={gearY} width={W - 2 * P} height={gearH} rx={skin.material.radius} fill={palette.bg} stroke={redline ? palette.crit : palette.accent} strokeWidth={skin.material.borderWidth} />
         <FitText x={cx} y={gearY + gearH / 2} boxW={(W - 2 * P) * 0.6} boxH={gearH * 0.82} text={gear} anchor="middle" baseline="middle" fontFamily={/^\d$/.test(gear) ? skin.segment.numeric : skin.segment.alpha} fill={redline ? palette.crit : palette.text} minFontPx={28} maxFontPx={gearH * 0.82} />
 
-        <DataField x={fx(0)} y={footY} width={fW} height={footH} label="SPEED" value={speedStr} unit="KMH" state="normal" ghost={false} skin={skin} />
+        <DataField x={fx(0)} y={footY} width={fW} height={footH} label="SPEED" value={speed.display} unit={speed.unit.toUpperCase()} state="normal" ghost={false} skin={skin} />
         <DataField x={fx(1)} y={footY} width={fW} height={footH} label="DELTA" value={formatDelta(delta)} unit="s" state={deltaState} ghost={false} skin={skin} />
       </svg>
     </div>

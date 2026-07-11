@@ -203,6 +203,19 @@ describe('routeIntent -- PT-BR questions', () => {
     expect(r.category).toBe('weather')
     expect(r.text).toContain('Track')
   })
+
+  it('phrases engineer telemetry in imperial units', () => {
+    const fuel = routeIntent('How much fuel?', ctx(), 'en', 'imperial')
+    const weather = routeIntent('Is it raining?', ctx(), 'en', 'imperial')
+
+    expect(fuel.type).toBe('answer')
+    expect(weather.type).toBe('answer')
+    if (fuel.type !== 'answer' || weather.type !== 'answer') return
+    expect(fuel.text).toContain('gal')
+    expect(fuel.text).not.toContain('L/lap')
+    expect(weather.text).toContain('°F')
+    expect(weather.text).not.toContain('°C')
+  })
 })
 
 describe('routeIntent -- English questions', () => {
@@ -268,4 +281,3 @@ describe('routeIntent -- passthrough', () => {
     expect(r.type).toBe('answer')
   })
 })
-

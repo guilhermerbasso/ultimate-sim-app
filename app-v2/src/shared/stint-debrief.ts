@@ -16,6 +16,7 @@
 
 import type { CoachFinding } from './coach'
 import type { PredictionsSnapshot } from './predictions'
+import { formatMeasurement, type UnitSystem } from './units'
 
 // ─── IPC channels (all under the `debrief:` preload allowlist prefix) ─────────
 
@@ -167,7 +168,7 @@ const PRESSURE_LABEL: Record<string, string> = { low: 'low', ok: 'ok', high: 'hi
 const TEMP_LABEL: Record<string, string> = { cold: 'cold', optimal: 'ideal', hot: 'hot' }
 
 /** One short pt-BR strategy line from the predictions, or null when no signal. */
-export function strategyNote(predictions: PredictionsSnapshot | null | undefined): string | null {
+export function strategyNote(predictions: PredictionsSnapshot | null | undefined, unitSystem: UnitSystem = 'metric'): string | null {
   if (!predictions) return null
   const parts: string[] = []
 
@@ -175,11 +176,15 @@ export function strategyNote(predictions: PredictionsSnapshot | null | undefined
   if (fuel && finite(fuel.finishMarginLaps)) {
     const m = fuel.finishMarginLaps
     if (m >= 0) {
-      const litres = finite(fuel.finishMarginL) ? `, ~${num(fuel.finishMarginL, 1)} L left` : ''
-      parts.push(`fuel: margin of ${num(m, 1)} laps to the end${litres}`)
+      const volume = finite(fuel.finishMarginL)
+        ? `, ~${formatMeasurement(fuel.finishMarginL, 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true }).display} left`
+        : ''
+      parts.push(`fuel: margin of ${num(m, 1)} laps to the end${volume}`)
     } else {
-      const litres = finite(fuel.finishMarginL) ? `, short ~${num(Math.abs(fuel.finishMarginL), 1)} L` : ''
-      parts.push(`fuel: deficit of ${num(Math.abs(m), 1)} laps${litres} - needs saving/stopping`)
+      const volume = finite(fuel.finishMarginL)
+        ? `, short ~${formatMeasurement(Math.abs(fuel.finishMarginL), 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true }).display}`
+        : ''
+      parts.push(`fuel: deficit of ${num(Math.abs(m), 1)} laps${volume} - needs saving/stopping`)
     }
   }
 
@@ -234,7 +239,8 @@ function sessionHeader(info: DebriefSessionInfo | undefined): string | null {
 export function composeDebrief(
   findings: CoachFinding[] | null | undefined,
   predictions: PredictionsSnapshot | null | undefined,
-  sessionInfo?: DebriefSessionInfo
+  sessionInfo?: DebriefSessionInfo,
+  unitSystem: UnitSystem = 'metric'
 ): DebriefComposition {
   const list = Array.isArray(findings) ? findings : []
 
@@ -248,7 +254,7 @@ export function composeDebrief(
     .sort((a, b) => gainMagnitudeSec(b) - gainMagnitudeSec(a))
     .slice(0, MAX_GAINS)
 
-  const strategy = strategyNote(predictions)
+  const strategy = strategyNote(predictions, unitSystem)
   const header = sessionHeader(sessionInfo)
 
   const bullets: string[] = []

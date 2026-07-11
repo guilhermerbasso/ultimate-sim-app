@@ -1,5 +1,6 @@
 import type { TelemetrySource } from './telemetry'
 import type { TcSensitivity } from './telemetry'
+import type { UnitSystem } from './units'
 
 export const APP_TELEMETRY_SOURCES = ['off', 'auto', 'mock', 'iracing', 'acc', 'ac', 'ams2', 'lmu'] as const
 export const APP_LANGUAGES = ['auto', 'pt-BR', 'en', 'es', 'fr', 'de', 'zh', 'ja'] as const
@@ -95,6 +96,7 @@ export interface AppSettings {
   theme: AppTheme
   accentColor: string
   defaultTelemetrySource: AppTelemetrySource
+  unitSystem: UnitSystem
   // Sensitivity of the DERIVED iRacing TC-active indicator (iRacing exposes no native
   // TC-active var). 'off' disables the derivation (tcActive stays undefined); 'low' only
   // lights on strong wheelspin, 'high' is the most eager. See tcOptionsForSensitivity.
@@ -575,6 +577,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   theme: 'midnight',
   accentColor: APP_THEME_PRESETS.midnight.accent,
   defaultTelemetrySource: 'off',
+  unitSystem: 'metric',
   tcSensitivity: 'medium'
 }
 

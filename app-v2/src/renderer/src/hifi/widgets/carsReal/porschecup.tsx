@@ -1,6 +1,7 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, revFill, signed } from '../kit'
+import { formatMeasurement } from '../../../../../shared/units'
 
 const DASH_W = 1024
 const DASH_H = 600
@@ -78,11 +79,14 @@ function compactLap(sec: number | undefined): string {
   return value.startsWith('--') ? '—' : value.replace(/\.\d{3}$/, (m) => m.slice(0, 2))
 }
 
-function PcupDash({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function PcupDash({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const gear = num(snapshot?.gear)
   const speed = num(snapshot?.speedKmh)
   const fuel = num(snapshot?.fuelLiters)
   const oil = num(snapshot?.oilTempC)
+  const speedReading = formatMeasurement(speed, 'speed-kmh', unitSystem, { decimals: 0 })
+  const fuelReading = formatMeasurement(fuel, 'fuel-volume-l', unitSystem, { decimals: 1 })
+  const oilReading = formatMeasurement(oil, 'temperature-c', unitSystem, { decimals: 0 })
   const lap = compactLap(num(snapshot?.lastLapTimeSec))
   const delta = num(snapshot?.deltaToBestSec)
   return (
@@ -90,15 +94,15 @@ function PcupDash({ snapshot, width, height }: HifiWidgetProps): ReactElement {
       <rect width={DASH_W} height={DASH_H} fill={DARK} />
       <SegmentRevBar snapshot={snapshot} x={40} y={30} w={944} h={52} count={20} dim="#080808" />
       <text x={512} y={360} textAnchor="middle" fill={gear == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={270} {...legibleStroke(270)}>{gearLabel(gear)}</text>
-      <text x={512} y={458} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={84} {...legibleStroke(84)}>{fixed(speed)}</text>
-      <text x={512} y={492} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={600} fontSize={27} letterSpacing={1} {...legibleStroke(27)}>km/h</text>
+      <text x={512} y={458} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={84} {...legibleStroke(84)}>{speedReading.display}</text>
+      <text x={512} y={492} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={600} fontSize={27} letterSpacing={1} {...legibleStroke(27)}>{speedReading.unit}</text>
       <rect x={18} y={510} width={988} height={1.8} fill={WHITE} opacity={0.95} />
       <text x={46} y={558} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={700} fontSize={38} letterSpacing={2} {...legibleStroke(38)}>FUEL</text>
-      <text x={230} y={558} textAnchor="end" fill={fuel == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={44} {...legibleStroke(44)}>{fixed(fuel)}</text>
-      <text x={256} y={558} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={600} fontSize={28} {...legibleStroke(28)}>L</text>
+      <text x={230} y={558} textAnchor="end" fill={fuel == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={44} {...legibleStroke(44)}>{fuelReading.display}</text>
+      <text x={256} y={558} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={600} fontSize={28} {...legibleStroke(28)}>{fuelReading.unit}</text>
       <text x={46} y={596} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={700} fontSize={38} letterSpacing={2} {...legibleStroke(38)}>OIL</text>
-      <text x={230} y={596} textAnchor="end" fill={oil == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={44} {...legibleStroke(44)}>{fixed(oil)}</text>
-      <text x={256} y={596} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={600} fontSize={28} {...legibleStroke(28)}>C</text>
+      <text x={230} y={596} textAnchor="end" fill={oil == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={44} {...legibleStroke(44)}>{oilReading.display}</text>
+      <text x={256} y={596} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={600} fontSize={28} {...legibleStroke(28)}>{oilReading.unit}</text>
       <text x={790} y={552} textAnchor="end" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={700} fontSize={38} letterSpacing={2} {...legibleStroke(38)}>LAP</text>
       <text x={972} y={552} textAnchor="end" fill={lap === '—' ? C.dim : WHITE} fontFamily={FONT_NUM} fontWeight={400} fontSize={38} {...legibleStroke(38)}>{lap}</text>
       <text x={973} y={599} textAnchor="end" fill={delta == null ? C.dim : RED} fontFamily={FONT_BIG} fontWeight={400} fontSize={54} {...legibleStroke(54)}>{signed(delta, 2)}</text>
@@ -113,11 +117,12 @@ function GearWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement 
   return <CleanTile width={w} height={h}><text x={w / 2} y={h * 0.8} textAnchor="middle" fill={gear == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={h * 0.88} {...legibleStroke(h * 0.88)}>{gearLabel(gear)}</text></CleanTile>
 }
 
-function SpeedWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function SpeedWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const speed = num(snapshot?.speedKmh)
+  const reading = formatMeasurement(speed, 'speed-kmh', unitSystem, { decimals: 0 })
   const w = width ?? 340
   const h = height ?? 150
-  return <CleanTile width={w} height={h}><text x={w / 2} y={h * 0.64} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={h * 0.48} {...legibleStroke(h * 0.48)}>{fixed(speed)}</text><text x={w / 2} y={h * 0.88} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={600} fontSize={h * 0.2} {...legibleStroke(h * 0.2)}>km/h</text></CleanTile>
+  return <CleanTile width={w} height={h}><text x={w / 2} y={h * 0.64} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={h * 0.48} {...legibleStroke(h * 0.48)}>{reading.display}</text><text x={w / 2} y={h * 0.88} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={600} fontSize={h * 0.2} {...legibleStroke(h * 0.2)}>{reading.unit}</text></CleanTile>
 }
 
 function RevBarWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
@@ -142,9 +147,18 @@ function LabelValue({ width = 260, height = 130, label, value, unit, color = WHI
   )
 }
 
-function FuelWidget(props: HifiWidgetProps): ReactElement { return <LabelValue width={props.width ?? 260} height={props.height ?? 130} label="FUEL" value={fixed(num(props.snapshot?.fuelLiters))} unit="L" /> }
-function OilWidget(props: HifiWidgetProps): ReactElement { return <LabelValue width={props.width ?? 260} height={props.height ?? 130} label="OIL" value={fixed(num(props.snapshot?.oilTempC))} unit="C" /> }
-function WaterWidget(props: HifiWidgetProps): ReactElement { return <LabelValue width={props.width ?? 300} height={props.height ?? 130} label="WATER" value={fixed(num(props.snapshot?.waterTempC))} unit="C" /> }
+function FuelWidget(props: HifiWidgetProps): ReactElement {
+  const reading = formatMeasurement(num(props.snapshot?.fuelLiters), 'fuel-volume-l', props.unitSystem ?? 'metric', { decimals: 1 })
+  return <LabelValue width={props.width ?? 260} height={props.height ?? 130} label="FUEL" value={reading.display} unit={reading.unit} />
+}
+function OilWidget(props: HifiWidgetProps): ReactElement {
+  const reading = formatMeasurement(num(props.snapshot?.oilTempC), 'temperature-c', props.unitSystem ?? 'metric', { decimals: 0 })
+  return <LabelValue width={props.width ?? 260} height={props.height ?? 130} label="OIL" value={reading.display} unit={reading.unit} />
+}
+function WaterWidget(props: HifiWidgetProps): ReactElement {
+  const reading = formatMeasurement(num(props.snapshot?.waterTempC), 'temperature-c', props.unitSystem ?? 'metric', { decimals: 0 })
+  return <LabelValue width={props.width ?? 300} height={props.height ?? 130} label="WATER" value={reading.display} unit={reading.unit} />
+}
 
 function LastLapWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const w = width ?? 360

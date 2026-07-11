@@ -3,6 +3,8 @@ import type { IRacingDiagnostics, TelemetrySnapshot, TelemetrySource, TelemetryS
 import type { AppViewProps } from '../App'
 import { tt } from '../i18n'
 import { getIRacingDiagnostics, getTelemetryStatus, onTelemetry, setTelemetrySource } from '../lib/telemetry'
+import { formatMeasurement } from '../../../shared/units'
+import { useUnitSystem } from '../lib/units'
 
 const SOURCES: { id: TelemetrySource; labelKey?: string; fallback: string }[] = [
   { id: 'off', labelKey: 'telemetry.source.off', fallback: 'Off' },
@@ -68,6 +70,7 @@ function Bar({ value: v, color }: { value: number; color: string }): ReactElemen
 }
 
 export default function TelemetryView({ language }: AppViewProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const [snap, setSnap] = useState<TelemetrySnapshot | null>(null)
   const [status, setStatus] = useState<TelemetryStatus | null>(null)
   const [diag, setDiag] = useState<IRacingDiagnostics | null>(null)
@@ -106,6 +109,10 @@ export default function TelemetryView({ language }: AppViewProps): ReactElement 
   }, [snap])
 
   const connected = snap?.connected ?? false
+  const speed = formatMeasurement(snap?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
+  const fuel = formatMeasurement(snap?.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1 })
+  const fuelPerLap = formatMeasurement(snap?.fuelPerLap, 'fuel-per-lap-l', unitSystem, { decimals: 2 })
+  const trackTemp = formatMeasurement(snap?.trackTempC, 'temperature-c', unitSystem, { decimals: 0 })
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -192,7 +199,7 @@ export default function TelemetryView({ language }: AppViewProps): ReactElement 
             </div>
             <div style={card}>
               <div style={label}>{tt(language, 'telemetry.speed')}</div>
-              <div style={value}>{Math.round(snap.speedKmh)} <small style={{ fontSize: 13, opacity: 0.6 }}>km/h</small></div>
+              <div style={value}>{speed.display} <small style={{ fontSize: 13, opacity: 0.6 }}>{speed.unit}</small></div>
             </div>
             <div style={card}>
               <div style={label}>RPM</div>
@@ -226,8 +233,8 @@ export default function TelemetryView({ language }: AppViewProps): ReactElement 
             <div style={card}>
               <div style={label}>{tt(language, 'telemetry.fuel')}</div>
               <div style={{ marginTop: 8, display: 'grid', gap: 4 }}>
-                <div><strong>{snap.fuelLiters?.toFixed(1) ?? '—'}</strong> L</div>
-                <div>{snap.fuelPerLap?.toFixed(2) ?? '—'} {tt(language, 'telemetry.litersPerLap')}</div>
+                <div><strong>{fuel.display}</strong> {fuel.unit}</div>
+                <div>{fuelPerLap.display} {fuelPerLap.unit}</div>
                 <div>{tt(language, 'telemetry.lapsRemaining')} <strong>{snap.lapsRemaining ?? '—'}</strong></div>
               </div>
             </div>
@@ -236,7 +243,7 @@ export default function TelemetryView({ language }: AppViewProps): ReactElement 
               <div style={{ marginTop: 8, display: 'grid', gap: 4, fontSize: 13 }}>
                 <div>{tt(language, 'telemetry.incidents')} <strong>{snap.incidentCount ?? '—'}{snap.incidentLimit ? `/${snap.incidentLimit}x` : ''}</strong></div>
                 <div>Fast repairs: <strong>{snap.fastRepairsAvailable ?? '—'}</strong></div>
-                <div>{tt(language, 'telemetry.track')} <strong>{snap.trackTempC?.toFixed(0) ?? '—'}°C</strong> · {snap.isRaining ? tt(language, 'telemetry.rain', { pct: Math.round((snap.trackWetnessPct ?? 0) * 100) }) : tt(language, 'telemetry.dry')}</div>
+                <div>{tt(language, 'telemetry.track')} <strong>{trackTemp.display}{trackTemp.unit}</strong> · {snap.isRaining ? tt(language, 'telemetry.rain', { pct: Math.round((snap.trackWetnessPct ?? 0) * 100) }) : tt(language, 'telemetry.dry')}</div>
                 <div>SoF: <strong>{snap.strengthOfField ?? '—'}</strong></div>
               </div>
             </div>

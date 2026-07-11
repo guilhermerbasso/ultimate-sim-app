@@ -34,6 +34,7 @@ import {
 } from '../../../../shared/dashboard-layout'
 import { renderGt3Widget } from '../../dashboard/widgets/gt3-widgets'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
+import { useUnitSystem } from '../../lib/units'
 import { WidgetGallery, variantToElement, type WidgetVariant } from './widget-catalog'
 import { resolveWidgetComponent } from '../../overlay/widgets'
 import {
@@ -134,9 +135,10 @@ function OverlayWidgetEmbed({ element }: { element: DashboardElement }): ReactEl
  * since `renderGt3Widget` dispatches only the semantic GT3 element types.
  */
 export function CanvasElementVisual({ element }: { element: DashboardElement }): ReactElement {
+  const unitSystem = useUnitSystem()
   if (element.type === 'overlaywidget') return <OverlayWidgetEmbed element={element} />
   const norm: DashboardElement = { ...element, x: 0, y: 0 }
-  return renderGt3Widget({ element: norm, snapshot: PREVIEW_SNAPSHOT }) ?? <FallbackTile element={element} />
+  return renderGt3Widget({ element: norm, snapshot: PREVIEW_SNAPSHOT, unitSystem }) ?? <FallbackTile element={element} />
 }
 
 /**

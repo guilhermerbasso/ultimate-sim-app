@@ -13,6 +13,7 @@
 //   • lockup   — hard braking with a sharp deceleration jerk (flat-spot risk).
 
 import type { TelemetrySnapshot } from './telemetry'
+import { formatMeasurement, type UnitSystem } from './units'
 import { trackSurfaceMaterialLabel } from './telemetry'
 
 // ─── IPC channels (module + renderer agree on these) ─────────────────────────
@@ -172,7 +173,8 @@ function severityFromRatio(ratio: number): IncidentSeverity {
 export function classifyIncident(
   prev: TelemetrySnapshot | null,
   curr: TelemetrySnapshot,
-  config: IncidentDetectionConfig = DEFAULT_INCIDENT_CONFIG
+  config: IncidentDetectionConfig = DEFAULT_INCIDENT_CONFIG,
+  unitSystem: UnitSystem = 'metric'
 ): IncidentEvent | null {
   // Never flag incidents in the pits / not on a flying lap.
   if (curr.onPitRoad === true) return null
@@ -194,7 +196,7 @@ export function classifyIncident(
         lap: curr.currentLap,
         lapDistPct: curr.lapDistPct,
         metrics: { surface, speedKmh: finite(speed) ? round(speed, 1) : undefined },
-        summary: `Off track onto ${surface} at ${Math.round(speed)} km/h.`
+        summary: `Off track onto ${surface} at ${formatMeasurement(speed, 'speed-kmh', unitSystem, { decimals: 0, includeUnit: true }).display}.`
       })
     }
   }
@@ -214,7 +216,7 @@ export function classifyIncident(
         latAccelG: finite(curr.latAccelG) ? round(curr.latAccelG as number, 2) : undefined,
         speedKmh: round(speed, 1)
       },
-      summary: `Spin / slide — yaw ${yaw.toFixed(1)} rad/s at ${Math.round(speed)} km/h.`
+      summary: `Spin / slide — yaw ${yaw.toFixed(1)} rad/s at ${formatMeasurement(speed, 'speed-kmh', unitSystem, { decimals: 0, includeUnit: true }).display}.`
     })
   }
 
@@ -247,7 +249,7 @@ export function classifyIncident(
           },
           summary: gHit
             ? `Contact / impact — ${gSpike.toFixed(1)}g spike.`
-            : `Contact — lost ${Math.round(speedDrop)} km/h instantly.`
+            : `Contact — lost ${formatMeasurement(speedDrop, 'speed-kmh', unitSystem, { decimals: 0, includeUnit: true }).display} instantly.`
         })
       }
 
@@ -310,6 +312,7 @@ export function buildIncidentWindow(
 
 export interface DetectIncidentsOptions {
   config?: IncidentDetectionConfig
+  unitSystem?: UnitSystem
   /** Window captured around each detected incident (ms). */
   preMs?: number
   postMs?: number
@@ -332,7 +335,7 @@ export function detectIncidents(samples: TelemetrySnapshot[], options: DetectInc
 
   for (let i = 0; i < samples.length; i++) {
     const prev = i > 0 ? samples[i - 1] : null
-    const event = classifyIncident(prev, samples[i], config)
+    const event = classifyIncident(prev, samples[i], config, options.unitSystem ?? 'metric')
     if (!event) continue
     const last = lastByType[event.type]
     if (finite(last) && event.at - (last as number) < config.minGapMs) continue
@@ -384,7 +387,7 @@ const SEVERITY_LABEL: Record<IncidentSeverity, { pt: string; en: string }> = {
 }
 
 // Pure, always-works summary of what happened. PT-BR by default; EN on request.
-export function summarizeIncident(clip: IncidentClip, lang: 'pt' | 'en' = 'pt'): string {
+export function summarizeIncident(clip: IncidentClip, lang: 'pt' | 'en' = 'pt', unitSystem: UnitSystem = 'metric'): string {
   const pt = lang === 'pt'
   const type = TYPE_LABEL[clip.type][lang]
   const severity = SEVERITY_LABEL[clip.severity][lang]
@@ -396,10 +399,12 @@ export function summarizeIncident(clip: IncidentClip, lang: 'pt' | 'en' = 'pt'):
 
   const detailBits: string[] = []
   const m = clip.metrics
-  if (finite(m.speedKmh)) detailBits.push(pt ? `${Math.round(m.speedKmh as number)} km/h` : `${Math.round(m.speedKmh as number)} km/h`)
+  if (finite(m.speedKmh)) detailBits.push(formatMeasurement(m.speedKmh, 'speed-kmh', unitSystem, { decimals: 0, includeUnit: true }).display)
   if (finite(m.yawRateRadSec)) detailBits.push(`yaw ${(m.yawRateRadSec as number).toFixed(1)} rad/s`)
   if (finite(m.gSpike)) detailBits.push(`${(m.gSpike as number).toFixed(1)}g`)
-  if (finite(m.speedDropKmh) && (m.speedDropKmh as number) > 0) detailBits.push(pt ? `−${Math.round(m.speedDropKmh as number)} km/h` : `−${Math.round(m.speedDropKmh as number)} km/h`)
+  if (finite(m.speedDropKmh) && (m.speedDropKmh as number) > 0) {
+    detailBits.push(`−${formatMeasurement(m.speedDropKmh, 'speed-kmh', unitSystem, { decimals: 0, includeUnit: true }).display}`)
+  }
   if (finite(m.brake)) detailBits.push(pt ? `brake ${Math.round((m.brake as number) * 100)}%` : `brake ${Math.round((m.brake as number) * 100)}%`)
   if (m.surface) detailBits.push(m.surface)
 

@@ -60,5 +60,8 @@ describe('hi-fi overlay bridge', () => {
 
     const html = renderToStaticMarkup(createElement(HifiWidgetHost, { snapshot: null, config }))
     expect(html).toContain('viewBox="0 0 1000 40"')
+    expect(html).toContain('preserveAspectRatio="none"')
+    expect(html).toContain('background:transparent')
+    expect(html).toContain('border:none')
   })
 })

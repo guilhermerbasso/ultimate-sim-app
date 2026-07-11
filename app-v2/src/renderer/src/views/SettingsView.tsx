@@ -13,6 +13,7 @@ import {
   type TcSensitivity
 } from '../../../shared/settings'
 import type { AppViewProps } from '../App'
+import { UNIT_SYSTEMS, type UnitSystem } from '../../../shared/units'
 import { applyAppTheme } from '../lib/theme'
 import { TrackMapSetup } from '../components/TrackMapSetup'
 import { SectionExportImport } from '../components/SectionExportImport'
@@ -70,6 +71,11 @@ const TC_SENSITILITY_LABEL_KEYS: Record<TcSensitivity, string> = {
   high: 'settings.tc.high'
 }
 
+const UNIT_SYSTEM_LABEL_KEYS: Record<UnitSystem, string> = {
+  metric: 'settings.units.metric',
+  imperial: 'settings.units.imperial'
+}
+
 function Toggle({
   checked,
   disabled,
@@ -120,6 +126,7 @@ function sameSettings(left: AppSettings, right: AppSettings): boolean {
     left.theme === right.theme &&
     left.accentColor === right.accentColor &&
     left.defaultTelemetrySource === right.defaultTelemetrySource &&
+    left.unitSystem === right.unitSystem &&
     left.tcSensitivity === right.tcSensitivity
   )
 }
@@ -428,6 +435,28 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
           </select>
           <p style={{ margin: '8px 0 0', color: 'var(--muted)', fontSize: 13 }}>
             {t(resolveAppLanguage(settings.language), 'languageHelp')}
+          </p>
+        </div>
+
+        <div>
+          <label className="field-label" htmlFor="unitSystem">
+            {tt(language, 'settings.units')}
+          </label>
+          <select
+            disabled={loading || saving}
+            id="unitSystem"
+            onChange={(event) => patch({ unitSystem: event.currentTarget.value as UnitSystem })}
+            className="select-field wide"
+            value={settings.unitSystem}
+          >
+            {UNIT_SYSTEMS.map((unitSystem) => (
+              <option key={unitSystem} value={unitSystem}>
+                {tt(language, UNIT_SYSTEM_LABEL_KEYS[unitSystem])}
+              </option>
+            ))}
+          </select>
+          <p style={{ margin: '8px 0 0', color: 'var(--muted)', fontSize: 13 }}>
+            {tt(language, 'settings.unitsHelp')}
           </p>
         </div>
 

@@ -10,6 +10,7 @@ import { createRoot } from 'react-dom/client'
 
 import type { TelemetrySnapshot } from '@shared/telemetry'
 import { renderDashboardElement } from '@renderer/dashboard/DashboardRoot'
+import { UnitSystemProvider } from '@renderer/lib/units'
 import { ALL_VARIANTS, variantToElement } from '@renderer/views/dashboard/widget-catalog-data'
 
 import { createMockSnapshot, flagsYellowGreen, flagsBlue } from './mock-telemetry'
@@ -102,6 +103,8 @@ function WidgetGrid(): ReactElement {
 
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>
-    <WidgetGrid />
+    <UnitSystemProvider initialUnitSystem={new URLSearchParams(window.location.search).get('unit') === 'imperial' ? 'imperial' : 'metric'}>
+      <WidgetGrid />
+    </UnitSystemProvider>
   </StrictMode>
 )

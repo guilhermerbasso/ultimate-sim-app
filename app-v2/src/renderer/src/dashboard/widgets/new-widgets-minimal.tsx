@@ -16,6 +16,7 @@ import type { ReactElement, ReactNode } from 'react'
 import type { DashboardElement } from '../../../../shared/dashboards'
 import { applyDecimals, resolveSlotStyle } from '../../../../shared/dashboards'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
+import type { UnitSystem } from '../../../../shared/units'
 import { resolveBinding } from '../binding'
 import { FitText, resolveElementSkin } from '../../skins'
 import type { OverflowStrategy, SkinToken } from '../../skins'
@@ -291,39 +292,41 @@ function defaultMax(binding: string | undefined): number {
   }
 }
 
-interface ChannelValue { text: string; frac: number; bounded: boolean }
+interface ChannelValue { text: string; frac: number; bounded: boolean; unit?: string }
 
-function channel(element: DashboardElement, snapshot: TelemetrySnapshot | null): ChannelValue {
+function channel(element: DashboardElement, snapshot: TelemetrySnapshot | null, unitSystem: UnitSystem): ChannelValue {
   const s = element.style
-  const r = resolveBinding(element.binding, snapshot)
-  const body = applyDecimals(r.text && r.text.length ? r.text : '—', r.numeric, s.decimals)
+  const r = resolveBinding(element.binding, snapshot, unitSystem)
+  const body = applyDecimals(r.text && r.text.length ? r.text : '—', r.displayNumeric ?? r.numeric, s.decimals)
   const text = body === '—' ? '—' : `${s.prefix ?? ''}${body}`
+  const unit = r.unit ?? ((s.suffix || undefined) as string | undefined)
   if (s.gaugeMin !== undefined || s.gaugeMax !== undefined) {
     const min = s.gaugeMin ?? 0
     const max = s.gaugeMax ?? defaultMax(element.binding)
     const v = numFromBinding(element.binding, snapshot)
-    return { text, frac: clamp01(((v ?? min) - min) / Math.max(1e-6, max - min)), bounded: true }
+    return { text, frac: clamp01(((v ?? min) - min) / Math.max(1e-6, max - min)), bounded: true, unit }
   }
-  if (isFiniteNum(r.pct)) return { text, frac: clamp01(r.pct), bounded: true }
-  return { text, frac: 0, bounded: false }
+  if (isFiniteNum(r.pct)) return { text, frac: clamp01(r.pct), bounded: true, unit }
+  return { text, frac: 0, bounded: false, unit }
 }
 
 function dialParams(
   element: DashboardElement,
   snapshot: TelemetrySnapshot | null,
   frac: number,
-  bounded: boolean
+  bounded: boolean,
+  unit?: string
 ): { value: number; min: number; max: number; unit?: string } {
   const s = element.style
   if (s.gaugeMin !== undefined || s.gaugeMax !== undefined) {
     const min = s.gaugeMin ?? 0
     const max = s.gaugeMax ?? defaultMax(element.binding)
     const v = numFromBinding(element.binding, snapshot)
-    return { value: v ?? NaN, min, max, unit: (s.suffix || undefined) as string | undefined }
+    return { value: v ?? NaN, min, max, unit }
   }
   if (bounded) return { value: frac * 100, min: 0, max: 100, unit: '%' }
   const v = numFromBinding(element.binding, snapshot)
-  return { value: v ?? NaN, min: 0, max: defaultMax(element.binding), unit: (s.suffix || undefined) as string | undefined }
+  return { value: v ?? NaN, min: 0, max: defaultMax(element.binding), unit }
 }
 
 function str(v: unknown): string {
@@ -334,9 +337,9 @@ function str(v: unknown): string {
 // Mono tile — hairline label, restrained value, thin foot fill
 // ═══════════════════════════════════════════════════════════════════════════
 
-function MonoTile({ element, snapshot }: NewWidgetProps): ReactElement {
+function MonoTile({ element, snapshot, unitSystem = 'metric' }: NewWidgetProps): ReactElement {
   const s = element.style
-  const { text, frac, bounded } = channel(element, snapshot)
+  const { text, frac, bounded, unit } = channel(element, snapshot, unitSystem)
   if (usesInstrument(element)) {
     return <TileInstrument element={element} value={text} label={s.label ? String(s.label) : undefined} />
   }
@@ -346,7 +349,6 @@ function MonoTile({ element, snapshot }: NewWidgetProps): ReactElement {
   const H = element.h
   const pad = clampNum(Math.min(W, H) * 0.12, 8, 16)
   const label = str(s.label)
-  const unit = str(s.suffix)
   const labelH = label ? clampNum(H * 0.2, 12, 26) : 0
   const footH = bounded ? 3 : 0
   const gap = 6
@@ -371,11 +373,11 @@ function MonoTile({ element, snapshot }: NewWidgetProps): ReactElement {
 // Typographic readout — oversized centred value, hairline rule, tiny caption
 // ═══════════════════════════════════════════════════════════════════════════
 
-function TypoReadout({ element, snapshot }: NewWidgetProps): ReactElement {
+function TypoReadout({ element, snapshot, unitSystem = 'metric' }: NewWidgetProps): ReactElement {
   const s = element.style
-  const { text } = channel(element, snapshot)
+  const { text, unit } = channel(element, snapshot, unitSystem)
   if (usesInstrument(element)) {
-    return <SegmentInstrument element={element} value={text} label={s.label ? String(s.label) : undefined} unit={s.suffix ? String(s.suffix) : undefined} />
+    return <SegmentInstrument element={element} value={text} label={s.label ? String(s.label) : undefined} unit={unit} />
   }
   const skin = resolveElementSkin(s)
   const accent = accentOf(s, skin.palette.accent)
@@ -383,7 +385,6 @@ function TypoReadout({ element, snapshot }: NewWidgetProps): ReactElement {
   const H = element.h
   const pad = clampNum(Math.min(W, H) * 0.1, 8, 16)
   const label = str(s.label)
-  const unit = str(s.suffix)
   const labelH = label ? clampNum(H * 0.16, 11, 22) : 0
   const ruleGap = 6
   const innerW = Math.max(1, W - pad * 2)
@@ -402,9 +403,9 @@ function TypoReadout({ element, snapshot }: NewWidgetProps): ReactElement {
 // Hairline bar — label + value on a row over an ultra-thin track
 // ═══════════════════════════════════════════════════════════════════════════
 
-function HairlineBar({ element, snapshot }: NewWidgetProps): ReactElement {
+function HairlineBar({ element, snapshot, unitSystem = 'metric' }: NewWidgetProps): ReactElement {
   const s = element.style
-  const { text, frac } = channel(element, snapshot)
+  const { text, frac, unit } = channel(element, snapshot, unitSystem)
   if (usesInstrument(element)) {
     return <RevInstrument element={element} frac={frac} />
   }
@@ -414,7 +415,6 @@ function HairlineBar({ element, snapshot }: NewWidgetProps): ReactElement {
   const H = element.h
   const pad = clampNum(Math.min(W, H) * 0.12, 8, 16)
   const label = str(s.label)
-  const unit = str(s.suffix)
   const innerW = Math.max(1, W - pad * 2)
   const trackH = 2
   const rowH = Math.max(12, H - pad * 2 - trackH - 10)
@@ -434,9 +434,9 @@ function HairlineBar({ element, snapshot }: NewWidgetProps): ReactElement {
 // Dot gauge — a row of hairline ticks filled to the value
 // ═══════════════════════════════════════════════════════════════════════════
 
-function DotGauge({ element, snapshot }: NewWidgetProps): ReactElement {
+function DotGauge({ element, snapshot, unitSystem = 'metric' }: NewWidgetProps): ReactElement {
   const s = element.style
-  const { text, frac } = channel(element, snapshot)
+  const { text, frac, unit } = channel(element, snapshot, unitSystem)
   if (usesInstrument(element)) {
     return <RevInstrument element={element} frac={frac} />
   }
@@ -458,7 +458,7 @@ function DotGauge({ element, snapshot }: NewWidgetProps): ReactElement {
   return (
     <WidgetFrame element={element} skin={skin} variant="minimal" accent={accent}>
       {label ? <Caption skin={skin} x={pad} y={pad + rowH * 0.12} w={halfW} h={rowH * 0.6} text={label} /> : null}
-      <ValueUnit element={element} skin={skin} x={pad + halfW} y={pad} w={halfW} h={rowH} text={text} fill={skin.palette.text} weight={600} valueAnchor="end" />
+      <ValueUnit element={element} skin={skin} x={pad + halfW} y={pad} w={halfW} h={rowH} text={text} unit={unit} fill={skin.palette.text} weight={600} valueAnchor="end" />
       {Array.from({ length: dots }, (_, i) => (
         <rect
           key={i}
@@ -478,9 +478,9 @@ function DotGauge({ element, snapshot }: NewWidgetProps): ReactElement {
 // Stacked readout — a small label over a big restrained value
 // ═══════════════════════════════════════════════════════════════════════════
 
-function StackedReadout({ element, snapshot }: NewWidgetProps): ReactElement {
+function StackedReadout({ element, snapshot, unitSystem = 'metric' }: NewWidgetProps): ReactElement {
   const s = element.style
-  const { text } = channel(element, snapshot)
+  const { text, unit } = channel(element, snapshot, unitSystem)
   if (usesInstrument(element)) {
     return <TileInstrument element={element} value={text} label={s.label ? String(s.label) : undefined} />
   }
@@ -490,7 +490,6 @@ function StackedReadout({ element, snapshot }: NewWidgetProps): ReactElement {
   const H = element.h
   const pad = clampNum(Math.min(W, H) * 0.12, 8, 16)
   const label = str(s.label)
-  const unit = str(s.suffix)
   const align = s.align ?? 'left'
   const anchor: 'start' | 'middle' | 'end' = align === 'center' ? 'middle' : align === 'right' ? 'end' : 'start'
   const innerW = Math.max(1, W - pad * 2)
@@ -510,11 +509,11 @@ function StackedReadout({ element, snapshot }: NewWidgetProps): ReactElement {
 // Minimal arc — thin 270° ring with a centred value
 // ═══════════════════════════════════════════════════════════════════════════
 
-function MinimalArc({ element, snapshot }: NewWidgetProps): ReactElement {
+function MinimalArc({ element, snapshot, unitSystem = 'metric' }: NewWidgetProps): ReactElement {
   const s = element.style
-  const { text, frac, bounded } = channel(element, snapshot)
+  const { text, frac, bounded, unit } = channel(element, snapshot, unitSystem)
   if (usesInstrument(element)) {
-    const d = dialParams(element, snapshot, frac, bounded)
+    const d = dialParams(element, snapshot, frac, bounded, unit)
     return <DialInstrument element={element} value={d.value} min={d.min} max={d.max} unit={d.unit} label={s.label ? String(s.label) : undefined} />
   }
   const skin = resolveElementSkin(s)
@@ -522,7 +521,6 @@ function MinimalArc({ element, snapshot }: NewWidgetProps): ReactElement {
   const W = element.w
   const H = element.h
   const label = str(s.label)
-  const unit = str(s.suffix)
   const cx = W / 2
   const cy = H / 2 + clampNum(H * 0.04, 0, 8)
   const r = Math.max(6, Math.min(W, H) / 2 - clampNum(Math.min(W, H) * 0.1, 6, 16))

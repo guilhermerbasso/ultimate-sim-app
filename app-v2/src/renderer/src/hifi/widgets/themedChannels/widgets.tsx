@@ -7,6 +7,7 @@
 import type { ReactElement, ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps, TelemetryField } from '../types'
 import { Bar, BigNum, C, FONT_LABEL, fixed, frac, gearLabel, num, signed } from '../kit'
+import { formatMeasurement, measurementKindForUnit } from '../../../../../shared/units'
 
 const W = 420
 const H = 240
@@ -81,7 +82,7 @@ function Label({ text, x, y }: { text: string; x: number; y: number }): ReactEle
 }
 
 function channelRenderer(pal: ChannelPal, ch: ChannelSpec) {
-  return function ThemedChannel({ width, height, snapshot }: HifiWidgetProps): ReactElement {
+  return function ThemedChannel({ width, height, snapshot, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
     const raw = num(snapshot?.[ch.field])
     const color = raw == null ? C.dim : pal.main
     let display: string
@@ -94,7 +95,14 @@ function channelRenderer(pal: ChannelPal, ch: ChannelSpec) {
       display = raw == null ? '—' : signed(raw, ch.decimals ?? 2)
     } else {
       const scaled = raw == null ? undefined : ch.scale ? ch.scale(raw) : raw
-      display = scaled == null ? '—' : fixed(scaled, ch.decimals ?? 0)
+      const kind = measurementKindForUnit(ch.unit)
+      if (kind) {
+        const reading = formatMeasurement(scaled, kind, unitSystem, { decimals: ch.decimals ?? 0 })
+        display = reading.display
+        unit = reading.unit
+      } else {
+        display = scaled == null ? '—' : fixed(scaled, ch.decimals ?? 0)
+      }
       if (ch.min != null && ch.max != null) barF = frac(scaled, ch.min, ch.max)
     }
     const isGear = ch.mode === 'gear'

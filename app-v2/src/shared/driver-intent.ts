@@ -21,6 +21,7 @@
 
 import type { CoachContextSample, CoachFinding, CoachLapSample, CoachPhase } from './coach'
 import type { CarLeftRightState, PaceMode, SessionState } from './telemetry'
+import type { UnitSystem } from './units'
 
 // ─── Categories & ids ────────────────────────────────────────────────────────
 
@@ -102,6 +103,8 @@ export interface IntentEventContext {
   window: { startIdx: number; endIdx: number }
   /** Context aggregated across the window (worst/most-relevant per signal). */
   ctx: CoachContextSample
+  /** Active display units used for human-readable evidence strings. */
+  unitSystem?: UnitSystem
 }
 
 /** A pluggable intent detector. PURE: same input → same output. */
@@ -314,11 +317,15 @@ export function windowForZone(samples: CoachLapSample[], zoneStart: number, zone
 }
 
 /** Build the full event context for a candidate finding (null when unusable). */
-export function buildIntentEvent(finding: IntentCandidateFinding, samples: CoachLapSample[]): IntentEventContext | null {
+export function buildIntentEvent(
+  finding: IntentCandidateFinding,
+  samples: CoachLapSample[],
+  unitSystem: UnitSystem = 'metric'
+): IntentEventContext | null {
   if (!Array.isArray(samples) || samples.length === 0) return null
   const window = windowForZone(samples, finding.zonePctStart, finding.zonePctEnd)
   const ctx = mergeContext(samples, window.startIdx, window.endIdx)
-  return { finding, samples, window, ctx }
+  return { finding, samples, window, ctx, unitSystem }
 }
 
 // ─── Registry ────────────────────────────────────────────────────────────────

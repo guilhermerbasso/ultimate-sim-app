@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { mkdirSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+
+import { describe, expect, it, vi } from 'vitest'
 import type { CoachFinding, CoachFindingKind, CoachSeverity } from '../../shared/coach'
+import type { CoachComparableIdentity, CoachLapHistoryEntry } from '../../shared/coach-racecraft'
 import { DEFAULT_ENGINEER_CONFIG, mergeEngineerConfig, type EngineerProactiveEvent } from '../../shared/engineer-ipc'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import {
@@ -9,6 +13,7 @@ import {
   composeBrutalCornerComposite,
   composeBrutalCornerLine,
   composeBrutalSectorLine,
+  CoachRacecraftHistoryStore,
   createCornerTracker,
   createProactiveEngine,
   createSectorTracker,
@@ -16,6 +21,7 @@ import {
   lapsToCatch,
   equalSectorStarts,
   getLatestCoachFindings,
+  getLatestCoachRacecraftContext,
   isRealLapCount,
   type ProactiveConfigView,
   sectorIndexForPct,
@@ -59,6 +65,48 @@ function makeSnapshot(lapDistPct: number, overrides: Partial<TelemetrySnapshot> 
     ...overrides
   } as unknown as TelemetrySnapshot
 }
+
+const DRY_IDENTITY: CoachComparableIdentity = {
+  trackName: 'Interlagos',
+  trackConfigName: 'Grand Prix',
+  carName: 'GT3 R',
+  carPath: 'gt3r',
+  carClassId: 7,
+  carClassName: 'GT3',
+  condition: 'dry',
+  airTempC: 24,
+  trackTempC: 35
+}
+
+function historyLap(id: string, finding: CoachFinding, sessionId = Number(id)): CoachLapHistoryEntry {
+  return {
+    id,
+    at: sessionId,
+    sessionId,
+    valid: true,
+    identity: DRY_IDENTITY,
+    findings: [finding],
+    cornerMetrics: []
+  }
+}
+
+describe('CoachRacecraftHistoryStore', () => {
+  it('persists valid-lap evidence locally across engine restarts', () => {
+    const folder = join(process.cwd(), `.coach-racecraft-history-test-${process.pid}-${Date.now()}`)
+    mkdirSync(folder, { recursive: true })
+    try {
+      const lap = historyLap(
+        '1',
+        makeFinding({ kind: 'throttle-late', sector: 2, corner: 7, phase: 'exit' })
+      )
+      new CoachRacecraftHistoryStore(folder).replace([lap])
+
+      expect(new CoachRacecraftHistoryStore(folder).all()).toEqual([lap])
+    } finally {
+      rmSync(folder, { recursive: true, force: true })
+    }
+  })
+})
 
 const BRUTAL_PT: ProactiveConfigView = {
   enabled: true,
@@ -245,6 +293,8 @@ function makeEngine(
     minEmitIntervalMs?: number
     cadence?: 'sector' | 'corner' | 'auto'
     buildCornerMap?: (trackName: string, samples: CornerSample[]) => CornerMapData
+    history?: CoachLapHistoryEntry[]
+    persistHistory?: (history: readonly CoachLapHistoryEntry[]) => void
   } = {}
 ) {
   const harness: Harness = {
@@ -256,11 +306,14 @@ function makeEngine(
     emit: (e) => harness.events.push(e),
     getConfig: () => harness.config,
     publishFindings: () => undefined,
+    publishRacecraftContext: () => undefined,
     now: () => harness.time.value,
     minEmitIntervalMs: opts.minEmitIntervalMs ?? 1000,
     sectorCount: 3,
     cadence: opts.cadence,
-    buildCornerMap: opts.buildCornerMap
+    buildCornerMap: opts.buildCornerMap,
+    history: opts.history,
+    persistHistory: opts.persistHistory
   })
   return { harness, engine }
 }
@@ -409,12 +462,97 @@ describe('createProactiveEngine', () => {
     expect(harness.events).toHaveLength(0)
   })
 
-  it('does not emit during a qualifying lap', () => {
-    const { harness, engine } = makeEngine()
+  it('emits one honest qualifying-start summary but no per-sector qualifying coaching', () => {
+    const { harness, engine } = makeEngine({ language: 'en-US' })
     engine.setFindings([makeFinding({ sector: 1, kind: 'brake-late' })])
     engine.onSnapshot(makeSnapshot(0.1, { sessionType: 'Qualify' }))
     engine.onSnapshot(makeSnapshot(0.4, { sessionType: 'Qualify' }))
-    expect(harness.events).toHaveLength(0)
+    expect(harness.events).toHaveLength(1)
+    expect(harness.events[0].text).toContain('QUALIFY')
+    expect(harness.events[0].text).toContain('insufficient comparable history')
+  })
+
+  it('uses sufficient comparable valid-lap history in the qualifying-start summary', () => {
+    const recurring = makeFinding({
+      sector: 2,
+      corner: 7,
+      kind: 'throttle-late',
+      phase: 'exit',
+      estTimeLossSec: 0.24
+    })
+    const { harness, engine } = makeEngine(
+      { language: 'en-US' },
+      {
+        history: [
+          historyLap('1', recurring, 1),
+          historyLap('2', recurring, 2),
+          historyLap('3', recurring, 3)
+        ]
+      }
+    )
+    engine.onSnapshot(
+      makeSnapshot(0.01, {
+        sessionType: 'Qualify',
+        sessionUniqueId: 99,
+        trackName: 'Interlagos',
+        trackConfigName: 'Grand Prix',
+        carName: 'GT3 R',
+        carPath: 'gt3r',
+        airTempC: 24,
+        trackTempC: 35,
+        trackWetnessPct: 0,
+        isRaining: false,
+        drivers: [
+          {
+            carIdx: 0,
+            name: 'Player',
+            carNumber: '7',
+            position: 1,
+            classPosition: 1,
+            classId: 7,
+            className: 'GT3',
+            isPlayer: true
+          }
+        ]
+      })
+    )
+
+    expect(harness.events).toHaveLength(1)
+    expect(harness.events[0].text).toContain('3 comparable valid dry laps')
+    expect(harness.events[0].text).toContain('Turn 7')
+    expect(harness.events[0].text).toContain('recurring in 3/3 valid laps')
+  })
+
+  it('does not persist an iRacing lap whose incident count increased', () => {
+    const persisted = vi.fn()
+    const { engine } = makeEngine({}, { persistHistory: persisted })
+    const base = {
+      currentLap: 1,
+      sim: 'iracing' as const,
+      incidentCountMy: 0,
+      trackName: 'Interlagos',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      carPath: 'gt3r',
+      airTempC: 24,
+      trackTempC: 35,
+      trackWetnessPct: 0
+    }
+    for (let i = 0; i < 34; i += 1) {
+      engine.onSnapshot(makeSnapshot((i / 34) * 0.99, { ...base, timestamp: 1000 + i }))
+    }
+    engine.onSnapshot(
+      makeSnapshot(0.02, {
+        ...base,
+        currentLap: 2,
+        incidentCountMy: 1,
+        lastLapTimeSec: 90,
+        timestamp: 2000
+      })
+    )
+
+    expect(engine.getHistory()).toHaveLength(0)
+    expect(persisted).not.toHaveBeenCalled()
   })
 })
 
@@ -453,6 +591,70 @@ describe('getLatestCoachFindings — car/track scoping', () => {
     const engine = singletonEngine()
     engine.setFindings([makeFinding({ sector: 1, kind: 'brake-late' })], { carName: 'A', trackName: 'X' })
     expect(getLatestCoachFindings(makeSnapshot(0.1, { carName: 'A', trackName: 'Y' }))).toHaveLength(0)
+  })
+
+  it('DROPS findings and racecraft evidence after a track-config change', () => {
+    const engine = singletonEngine()
+    engine.setFindings(
+      [makeFinding({ sector: 1, kind: 'brake-late' })],
+      {
+        carName: 'A',
+        carPath: 'a',
+        trackName: 'X',
+        trackConfigName: 'Grand Prix',
+        condition: 'dry'
+      }
+    )
+    const changed = makeSnapshot(0.1, {
+      carName: 'A',
+      carPath: 'a',
+      trackName: 'X',
+      trackConfigName: 'Moto',
+      trackWetnessPct: 0
+    })
+    expect(getLatestCoachFindings(changed)).toHaveLength(0)
+    expect(getLatestCoachRacecraftContext(changed)).toBeNull()
+  })
+
+  it('does not reuse config-scoped evidence when the live config is unknown', () => {
+    const engine = singletonEngine()
+    engine.setFindings(
+      [makeFinding({ sector: 1, kind: 'brake-late' })],
+      {
+        carName: 'A',
+        carPath: 'a',
+        trackName: 'X',
+        trackConfigName: 'Grand Prix',
+        condition: 'dry'
+      }
+    )
+    const missingConfig = makeSnapshot(0.1, {
+      carName: 'A',
+      carPath: 'a',
+      trackName: 'X',
+      trackWetnessPct: 0
+    })
+
+    expect(getLatestCoachFindings(missingConfig)).toHaveLength(0)
+    expect(getLatestCoachRacecraftContext(missingConfig)).toBeNull()
+  })
+
+  it('keeps a drying condition stable while the damp track continues to improve', () => {
+    const engine = singletonEngine()
+    const identity = {
+      carName: 'A',
+      carPath: 'a',
+      trackName: 'X',
+      trackConfigName: 'Grand Prix',
+      isRaining: false,
+      weatherDeclaredWet: false
+    }
+    engine.onSnapshot(makeSnapshot(0.1, { ...identity, timestamp: 1000, trackWetnessPct: 0.35 }))
+    engine.onSnapshot(makeSnapshot(0.2, { ...identity, timestamp: 2000, trackWetnessPct: 0.3 }))
+    const drying = makeSnapshot(0.3, { ...identity, timestamp: 3000, trackWetnessPct: 0.29 })
+    engine.onSnapshot(drying)
+
+    expect(getLatestCoachRacecraftContext(drying)?.condition).toBe('drying')
   })
 
   it('is cleared on disconnect (publishes [])', () => {

@@ -18,6 +18,7 @@ import type { AppViewProps } from '../App'
 import { useDevices } from '../lib/devices/DeviceRegistry'
 import { getLatestTelemetry, onTelemetry } from '../lib/telemetry'
 import { tt } from '../i18n'
+import { useUnitSystem } from '../lib/units'
 
 const shell: CSSProperties = {
   display: 'grid',
@@ -60,6 +61,7 @@ function includesPage(pages: OledPresetId[], id: OledPresetId): boolean {
 }
 
 export default function OledDashboardView({ showToast, language }: AppViewProps): ReactElement {
+  const unitSystem = useUnitSystem()
   // Resolve the connected ButtonBox from the shared device registry.
   const { primaryDevice: connectedDevice } = useDevices()
   const [presets, setPresets] = useState<OledPreset[]>([])
@@ -93,7 +95,7 @@ export default function OledDashboardView({ showToast, language }: AppViewProps)
     }
   }, [showToast])
 
-  const rendered = useMemo(() => formatOledConfigPage(config, snap), [config, snap])
+  const rendered = useMemo(() => formatOledConfigPage(config, snap, unitSystem), [config, snap, unitSystem])
   const selectedPresets = useMemo(
     () => config.pages.map((id) => presets.find((preset) => preset.id === id)).filter(Boolean) as OledPreset[],
     [config.pages, presets]

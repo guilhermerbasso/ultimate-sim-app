@@ -3,6 +3,8 @@
 // on a 1024x600 viewBox, SSR-safe and NaN-safe: absent telemetry renders as em-dash.
 import { type ReactElement, type ReactNode } from 'react'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
+import { formatMeasurement, type UnitSystem } from '../../../shared/units'
+import { useUnitSystem } from '../lib/units'
 
 const W = 1024
 const H = 600
@@ -152,25 +154,27 @@ function CarIcon({ x, y }: { x: number; y: number }): ReactElement {
   )
 }
 
-function CornerBox({ x, y, label, tyre, brake, side }: { x: number; y: number; label: string; tyre: number | undefined; brake: number | undefined; side: 'left' | 'right' }): ReactElement {
+function CornerBox({ x, y, label, tyre, brake, side, unitSystem }: { x: number; y: number; label: string; tyre: number | undefined; brake: number | undefined; side: 'left' | 'right'; unitSystem: UnitSystem }): ReactElement {
   const tyreX = side === 'left' ? x + 82 : x + 104
   const brakeX = side === 'left' ? x + 82 : x + 104
+  const tyreReading = formatMeasurement(tyre, 'temperature-c', unitSystem, { decimals: 0 })
+  const brakeReading = formatMeasurement(brake, 'temperature-c', unitSystem, { decimals: 0 })
   return (
     <g>
       <rect x={x} y={y} width={150} height={74} rx={7} fill="#060809" stroke={COL.line} />
       <text x={x + 10} y={y + 23} fill={COL.dim} fontSize={16} fontWeight={800} fontFamily="'Rajdhani',sans-serif">{label}</text>
-      <text x={tyreX} y={y + 38} textAnchor="middle" fill={tempColor(tyre, 'tyre')} fontSize={25} fontWeight={800} fontFamily="'Chakra Petch',monospace">{fixed(tyre)}</text>
-      <text x={tyreX + 24} y={y + 37} fill={tempColor(tyre, 'tyre')} fontSize={13} fontWeight={800} fontFamily="'Rajdhani',sans-serif">{'\u00b0C'}</text>
+      <text x={tyreX} y={y + 38} textAnchor="middle" fill={tempColor(tyre, 'tyre')} fontSize={25} fontWeight={800} fontFamily="'Chakra Petch',monospace">{tyreReading.display}</text>
+      <text x={tyreX + 24} y={y + 37} fill={tempColor(tyre, 'tyre')} fontSize={13} fontWeight={800} fontFamily="'Rajdhani',sans-serif">{tyreReading.unit}</text>
       <path d={`M${x + 10} ${y + 47} H${x + 140}`} stroke={COL.line} />
-      <text x={brakeX} y={y + 66} textAnchor="middle" fill={COL.red} fontSize={21} fontWeight={800} fontFamily="'Chakra Petch',monospace">{fixed(brake)}</text>
-      <text x={brakeX + 24} y={y + 65} fill={COL.red} fontSize={12} fontWeight={800} fontFamily="'Rajdhani',sans-serif">{'\u00b0C'}</text>
+      <text x={brakeX} y={y + 66} textAnchor="middle" fill={COL.red} fontSize={21} fontWeight={800} fontFamily="'Chakra Petch',monospace">{brakeReading.display}</text>
+      <text x={brakeX + 24} y={y + 65} fill={COL.red} fontSize={12} fontWeight={800} fontFamily="'Rajdhani',sans-serif">{brakeReading.unit}</text>
       <rect x={side === 'left' ? x + 126 : x + 38} y={y + 12} width={8} height={52} fill={COL.cyan} />
       <rect x={side === 'left' ? x + 138 : x + 52} y={y + 12} width={8} height={52} fill={COL.cyan} opacity={0.9} />
     </g>
   )
 }
 
-function TyreBrakeMatrix({ s }: { s: TelemetrySnapshot }): ReactElement {
+function TyreBrakeMatrix({ s, unitSystem }: { s: TelemetrySnapshot; unitSystem: UnitSystem }): ReactElement {
   const lf = n(s.tyres?.lf?.tempC)
   const rf = n(s.tyres?.rf?.tempC)
   const lr = n(s.tyres?.lr?.tempC)
@@ -184,10 +188,10 @@ function TyreBrakeMatrix({ s }: { s: TelemetrySnapshot }): ReactElement {
       <Label x={620} y={338} anchor="middle" size={16}>TYRE TEMP</Label>
       <Label x={906} y={338} anchor="middle" size={16}>BRAKE TEMP</Label>
       <CarIcon x={718} y={342} />
-      <CornerBox x={528} y={346} label="FL" tyre={lf} brake={blf} side="left" />
-      <CornerBox x={528} y={426} label="RL" tyre={lr} brake={blr} side="left" />
-      <CornerBox x={832} y={346} label="FR" tyre={rf} brake={brf} side="right" />
-      <CornerBox x={832} y={426} label="RR" tyre={rr} brake={brr} side="right" />
+      <CornerBox x={528} y={346} label="FL" tyre={lf} brake={blf} side="left" unitSystem={unitSystem} />
+      <CornerBox x={528} y={426} label="RL" tyre={lr} brake={blr} side="left" unitSystem={unitSystem} />
+      <CornerBox x={832} y={346} label="FR" tyre={rf} brake={brf} side="right" unitSystem={unitSystem} />
+      <CornerBox x={832} y={426} label="RR" tyre={rr} brake={brr} side="right" unitSystem={unitSystem} />
     </Panel>
   )
 }
@@ -199,13 +203,15 @@ export interface EnduranceClusterProps {
 }
 
 export function EnduranceCluster({ snapshot: s, width, height }: EnduranceClusterProps): ReactElement {
-  const speed = n(s.speedKmh)
+  const unitSystem = useUnitSystem()
+  const speed = formatMeasurement(n(s.speedKmh), 'speed-kmh', unitSystem, { decimals: 0 })
   const shiftPct = n(s.shiftIndicatorPct) ?? n(s.revLights?.pct) ?? 0
   const ersPct = n(s.ersBatteryPct)
   const ersFrac = ersPct != null ? (ersPct > 1 ? ersPct / 100 : ersPct) : 0
   const ersMj = ersPct != null ? ersFrac * ERS_MJ_MAX : undefined
   const delta = n(s.deltaToBestSec)
   const fuel = n(s.fuelLiters)
+  const fuelReading = formatMeasurement(fuel, 'fuel-volume-l', unitSystem, { decimals: 1 })
   const fuelPerLap = n(s.fuelPerLap)
   const lapsToEmpty = fuel != null && fuelPerLap != null && fuelPerLap > 0 ? fuel / fuelPerLap : undefined
   const targetLap = n(s.estimatedLapTimeSec) ?? n(s.bestLapTimeSec)
@@ -230,8 +236,8 @@ export function EnduranceCluster({ snapshot: s, width, height }: EnduranceCluste
 
       <g filter="url(#enduranceGlow)">
         <Label x={120} y={122} anchor="middle">SPEED</Label>
-        <text x={84} y={190} fill={COL.text} fontSize={74} fontWeight={800} fontFamily="'Chakra Petch','Michroma',sans-serif">{fixed(speed)}</text>
-        <text x={124} y={218} fill={COL.dim} fontSize={22} fontWeight={800} fontFamily="'Rajdhani',sans-serif">km/h</text>
+        <text x={84} y={190} fill={COL.text} fontSize={74} fontWeight={800} fontFamily="'Chakra Petch','Michroma',sans-serif">{speed.display}</text>
+        <text x={124} y={218} fill={COL.dim} fontSize={22} fontWeight={800} fontFamily="'Rajdhani',sans-serif">{speed.unit}</text>
         <path d="M42 236 H262" stroke={COL.lineStrong} />
         <Label x={128} y={260} anchor="middle" size={16}>ERS DEPLOY</Label>
         <text x={120} y={296} textAnchor="middle" fill={COL.green} fontSize={35} fontWeight={800} fontFamily="'Chakra Petch',monospace">{ersPct == null ? '—' : `${Math.round(ersFrac * 100)}%`}</text>
@@ -244,8 +250,8 @@ export function EnduranceCluster({ snapshot: s, width, height }: EnduranceCluste
         <DeltaBar delta={delta} />
 
         <Label x={770} y={122}>FUEL REMAINING</Label>
-        <text x={770} y={168} fill={COL.text} fontSize={46} fontWeight={800} fontFamily="'Chakra Petch',monospace">{fixed(fuel, 1)}</text>
-        <text x={870} y={168} fill={COL.dim} fontSize={20} fontWeight={800} fontFamily="'Rajdhani',sans-serif">L</text>
+        <text x={770} y={168} fill={COL.text} fontSize={46} fontWeight={800} fontFamily="'Chakra Petch',monospace">{fuelReading.display}</text>
+        <text x={870} y={168} fill={COL.dim} fontSize={20} fontWeight={800} fontFamily="'Rajdhani',sans-serif">{fuelReading.unit}</text>
         <path d="M748 182 H972" stroke={COL.lineStrong} />
         <Label x={770} y={206} size={15}>LAPS TO EMPTY</Label>
         <text x={770} y={246} fill={COL.text} fontSize={38} fontWeight={800} fontFamily="'Chakra Petch',monospace">{fixed(lapsToEmpty, 1)}</text>
@@ -267,7 +273,7 @@ export function EnduranceCluster({ snapshot: s, width, height }: EnduranceCluste
         <text x={414} y={488} fill={COL.dim} fontSize={22} fontWeight={800} fontFamily="'Rajdhani',sans-serif">LAPS</text>
       </Panel>
 
-      <TyreBrakeMatrix s={s} />
+      <TyreBrakeMatrix s={s} unitSystem={unitSystem} />
 
       <g>
         <path d="M28 514 H996" stroke={COL.lineStrong} />

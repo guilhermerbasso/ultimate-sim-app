@@ -1,4 +1,5 @@
 import type { TelemetrySnapshot } from './telemetry'
+import { formatMeasurement, type MeasurementKind, type UnitSystem } from './units'
 
 // SIM-X firmware: SSD1306 128×64 OLED.
 //  - Text mode  (cmd "O"): 3 lines, ≤21 ASCII chars each, joined by "|".
@@ -79,9 +80,9 @@ export const OLED_PRESETS: OledPreset[] = [
   {
     id: 'fuel',
     name: 'Fuel',
-    description: 'Liters remaining, consumption/lap, and laps remaining.',
+    description: 'Fuel remaining, consumption per lap, and laps remaining.',
     kind: 'text',
-    fields: ['liters', 'L/lap', 'laps remaining']
+    fields: ['fuel', 'usage/lap', 'laps remaining']
   },
   {
     id: 'timing',
@@ -162,15 +163,15 @@ export function normalizeOledConfig(input: Partial<OledDashboardConfig> | null |
   }
 }
 
-export function formatOledPage(snapshot: TelemetrySnapshot | null, presetId: OledPresetId): OledRenderedPage {
+export function formatOledPage(snapshot: TelemetrySnapshot | null, presetId: OledPresetId, unitSystem: UnitSystem = 'metric'): OledRenderedPage {
   const preset = getOledPreset(presetId)
   if (preset.kind === 'bignum') return renderBigNumPage(preset, snapshot)
-  return renderTextPage(preset, snapshot)
+  return renderTextPage(preset, snapshot, unitSystem)
 }
 
-export function formatOledConfigPage(config: OledDashboardConfig, snapshot: TelemetrySnapshot | null): OledRenderedPage {
+export function formatOledConfigPage(config: OledDashboardConfig, snapshot: TelemetrySnapshot | null, unitSystem: UnitSystem = 'metric'): OledRenderedPage {
   const normalized = normalizeOledConfig(config)
-  return formatOledPage(snapshot, normalized.pages[normalized.activeIndex] ?? normalized.pages[0])
+  return formatOledPage(snapshot, normalized.pages[normalized.activeIndex] ?? normalized.pages[0], unitSystem)
 }
 
 export function sanitizeOledLine(value: string): string {
@@ -216,8 +217,8 @@ export function sanitizeOledBigNum(value: string): string {
     .slice(0, OLED_BIGNUM_LENGTH)
 }
 
-function renderTextPage(preset: OledPreset, snapshot: TelemetrySnapshot | null): OledRenderedTextPage {
-  const raw = renderLines(snapshot, preset.id)
+function renderTextPage(preset: OledPreset, snapshot: TelemetrySnapshot | null, unitSystem: UnitSystem): OledRenderedTextPage {
+  const raw = renderLines(snapshot, preset.id, unitSystem)
   const lines: [string, string, string] = [sanitizeOledLine(raw[0]), sanitizeOledLine(raw[1]), sanitizeOledLine(raw[2])]
   return {
     presetId: preset.id,
@@ -240,7 +241,7 @@ function renderBigNumPage(preset: OledPreset, snapshot: TelemetrySnapshot | null
   }
 }
 
-function renderLines(snapshot: TelemetrySnapshot | null, presetId: OledPresetId): [string, string, string] {
+function renderLines(snapshot: TelemetrySnapshot | null, presetId: OledPresetId, unitSystem: UnitSystem): [string, string, string] {
   if (!snapshot?.connected) return ['OLED DASHBOARD', 'NO TELEMETRY', '']
 
   switch (presetId) {
@@ -252,8 +253,8 @@ function renderLines(snapshot: TelemetrySnapshot | null, presetId: OledPresetId)
       ]
     case 'fuel':
       return [
-        `FUEL ${fmtNumber(snapshot.fuelLiters, 1)} L`,
-        `USE  ${fmtNumber(snapshot.fuelPerLap, 2)} L/LAP`,
+        `FUEL ${fmtMeasurement(snapshot.fuelLiters, 'fuel-volume-l', unitSystem, 1)}`,
+        `USE  ${fmtMeasurement(snapshot.fuelPerLap, 'fuel-per-lap-l', unitSystem, 2)}`,
         `LEFT ${fmtNumber(fuelLapsRemaining(snapshot), 1)} LAPS`
       ]
     case 'timing':
@@ -264,20 +265,20 @@ function renderLines(snapshot: TelemetrySnapshot | null, presetId: OledPresetId)
       ]
     case 'tyres':
       return [
-        `LF ${fmtTemp(snapshot.tyres?.lf.tempC)} RF ${fmtTemp(snapshot.tyres?.rf.tempC)}`,
-        `LR ${fmtTemp(snapshot.tyres?.lr.tempC)} RR ${fmtTemp(snapshot.tyres?.rr.tempC)}`,
-        `AVG ${fmtTemp(avgTyreTemp(snapshot))}`
+        `LF ${fmtTemp(snapshot.tyres?.lf.tempC, unitSystem)} RF ${fmtTemp(snapshot.tyres?.rf.tempC, unitSystem)}`,
+        `LR ${fmtTemp(snapshot.tyres?.lr.tempC, unitSystem)} RR ${fmtTemp(snapshot.tyres?.rr.tempC, unitSystem)}`,
+        `AVG ${fmtTemp(avgTyreTemp(snapshot), unitSystem)}`
       ]
     case 'inputs':
       return [
         `THR ${fmtPct(snapshot.throttle)}`,
         `BRK ${fmtPct(snapshot.brake)}`,
-        `G ${gearLabel(snapshot.gear)}  ${Math.round(snapshot.speedKmh)} KMH`
+        `G ${gearLabel(snapshot.gear)}  ${fmtMeasurement(snapshot.speedKmh, 'speed-kmh', unitSystem, 0)}`
       ]
     case 'weather':
       return [
-        `TRK ${fmtTemp(snapshot.trackTempC)}`,
-        `AIR ${fmtTemp(snapshot.airTempC)}`,
+        `TRK ${fmtTemp(snapshot.trackTempC, unitSystem)}`,
+        `AIR ${fmtTemp(snapshot.airTempC, unitSystem)}`,
         `${snapshot.isRaining ? 'RAIN' : 'DRY '} WET ${fmtPct(snapshot.trackWetnessPct ?? 0)}`
       ]
     default:
@@ -342,9 +343,13 @@ function fmtNumber(value: number | undefined, digits: number): string {
   return value.toFixed(digits)
 }
 
-function fmtTemp(value: number | undefined): string {
-  if (value === undefined || !Number.isFinite(value)) return '--C'
-  return `${Math.round(value)}C`
+function fmtMeasurement(value: number | undefined, kind: MeasurementKind, unitSystem: UnitSystem, digits: number): string {
+  const reading = formatMeasurement(value, kind, unitSystem, { decimals: digits })
+  return reading.value === undefined ? `--${reading.unit.toUpperCase()}` : `${reading.display}${reading.unit.toUpperCase()}`
+}
+
+function fmtTemp(value: number | undefined, unitSystem: UnitSystem): string {
+  return fmtMeasurement(value, 'temperature-c', unitSystem, 0)
 }
 
 function fmtPct(value: number | undefined): string {

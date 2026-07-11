@@ -9,6 +9,7 @@ import type {
   AnalysisResult,
   LossPointInfo
 } from '../../shared/recording'
+import { formatMeasurement, type UnitSystem } from '../../shared/units'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Engine de análise de laps.
@@ -256,7 +257,7 @@ function brakeOnsetInRange(brake: number[], fromBin: number, toBin: number): num
   return onset >= 0 ? onset : null
 }
 
-function buildTips(point: Omit<LossPointInfo, 'tips'>): string[] {
+function buildTips(point: Omit<LossPointInfo, 'tips'>, unitSystem: UnitSystem): string[] {
   const tips: string[] = []
   const speedDelta = point.primaryMaxSpeedKmh - point.bestMaxSpeedKmh
   const minSpeedDelta = point.primaryMinSpeedKmh - point.bestMinSpeedKmh
@@ -280,8 +281,8 @@ function buildTips(point: Omit<LossPointInfo, 'tips'>): string[] {
   }
 
   if (brakeDelta > 0.15) tips.push(`Freada mais forte (~+${Math.round(brakeDelta * 100)}%) — talvez travando rodas`)
-  if (minSpeedDelta < -3) tips.push(`Minimum corner speed ${Math.round(minSpeedDelta)} km/h lower`)
-  if (speedDelta < -3) tips.push(`Peak speed ${Math.round(speedDelta)} km/h lower (exit/straight)`)
+  if (minSpeedDelta < -3) tips.push(`Minimum corner speed ${formatMeasurement(minSpeedDelta, 'speed-kmh', unitSystem, { decimals: 0, includeUnit: true }).display} lower`)
+  if (speedDelta < -3) tips.push(`Peak speed ${formatMeasurement(speedDelta, 'speed-kmh', unitSystem, { decimals: 0, includeUnit: true }).display} lower (exit/straight)`)
   if (throttleDelta < -0.08) tips.push(`Average throttle ${Math.round(throttleDelta * 100)}% lower — late to throttle`)
 
   if (tips.length === 0) {
@@ -294,7 +295,8 @@ function buildLossPoints(
   lapId: string,
   perBinDelta: number[],
   primary: ResampledLap,
-  best: ResampledLap
+  best: ResampledLap,
+  unitSystem: UnitSystem
 ): { points: LossPointInfo[]; totalLossSec: number } {
   type Region = { start: number; end: number; loss: number }
   const regions: Region[] = []
@@ -352,7 +354,7 @@ function buildLossPoints(
       primaryBrakeOnsetPct: primaryOnsetBin !== null ? primaryOnsetBin / NUM_BINS : null,
       bestBrakeOnsetPct: bestOnsetBin !== null ? bestOnsetBin / NUM_BINS : null
     }
-    points.push({ ...base, tips: buildTips(base) })
+    points.push({ ...base,     tips: buildTips(base, unitSystem) })
   }
   return { points, totalLossSec }
 }
@@ -403,7 +405,7 @@ function buildOptimal(laps: ResolvedLap[], resampled: Map<string, ResampledLap>)
 export function analyze(
   laps: AnalysisLap[],
   profile: AnalysisProfile,
-  options?: { trackKey?: string; trackLabel?: string }
+  options?: { trackKey?: string; trackLabel?: string; unitSystem?: UnitSystem }
 ): AnalysisResult {
   const notes: string[] = []
   const valid: ResolvedLap[] = laps.filter((l) => l.samples.length > 0)
@@ -470,7 +472,7 @@ export function analyze(
         const bestPrev = i === 0 ? 0 : bestResampled.binCumTimeSec[i - 1]
         perBinDelta.push((cur - prev) - (bestCur - bestPrev))
       }
-      const { points, totalLossSec: totalLoss } = buildLossPoints(lap.id, perBinDelta, r, bestResampled)
+      const { points, totalLossSec: totalLoss } = buildLossPoints(lap.id, perBinDelta, r, bestResampled, options?.unitSystem ?? 'metric')
       const summary: string[] = []
       if (points.length === 0) summary.push('No clear loss zones — lap is consistent against the best.')
       else summary.push(`${points.length} loss zones. Total ≈ ${(totalLoss * 1000).toFixed(0)} ms.`)

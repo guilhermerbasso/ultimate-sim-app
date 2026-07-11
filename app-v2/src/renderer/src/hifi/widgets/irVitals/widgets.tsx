@@ -7,6 +7,7 @@
 import type { ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { BigNum, C, FONT_LABEL, Hairline, LEGIBLE, fixed, num } from '../kit'
+import { formatMeasurement, type MeasurementKind } from '../../../../../shared/units'
 
 const W = 420
 const H = 240
@@ -14,6 +15,7 @@ const H = 240
 interface VitalSpec {
   value: number | undefined
   unit: string
+  kind?: MeasurementKind
   min: number
   max: number
   digits: number
@@ -30,7 +32,7 @@ function healthColor(v: number | undefined, okLow?: number, okHigh?: number): st
   return C.text
 }
 
-function DigitalReadout({ width, height, value, unit, min, max, digits, okLow, okHigh }: HifiWidgetProps & VitalSpec): ReactElement {
+function DigitalReadout({ width, height, value, unit, kind, min, max, digits, okLow, okHigh, unitSystem = 'metric' }: HifiWidgetProps & VitalSpec): ReactElement {
   const w = width ?? W
   const h = height ?? H
   const color = healthColor(value, okLow, okHigh)
@@ -39,19 +41,21 @@ function DigitalReadout({ width, height, value, unit, min, max, digits, okLow, o
   const ex = W - 70
   const sy = 188
   const tickX = sx + (ex - sx) * f
-  const display = value == null ? '—' : fixed(value, digits)
+  const reading = kind ? formatMeasurement(value, kind, unitSystem, { decimals: digits }) : { display: value == null ? '—' : fixed(value, digits), unit }
+  const minDisplay = kind ? formatMeasurement(min, kind, unitSystem, { decimals: digits }).display : fixed(min, digits)
+  const maxDisplay = kind ? formatMeasurement(max, kind, unitSystem, { decimals: digits }).display : fixed(max, digits)
   const ticks = 5
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width={w} height={h} preserveAspectRatio="xMidYMid meet" role="img">
-      <BigNum x={W / 2} y={130} value={display} unit={unit} color={color} size={104} />
+      <BigNum x={W / 2} y={130} value={reading.display} unit={reading.unit} color={color} size={104} />
       <Hairline x={sx} y={sy} len={ex - sx} opacity={0.28} />
       {Array.from({ length: ticks + 1 }, (_, i) => {
         const tx = sx + ((ex - sx) * i) / ticks
         return <rect key={i} x={tx} y={sy - 4} width={1} height={8} fill="rgba(255,255,255,0.28)" />
       })}
       {value != null ? <rect x={tickX - 1.5} y={sy - 9} width={3} height={18} rx={1} fill={color} /> : null}
-      <text x={sx} y={sy + 26} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={20} fontWeight={700} {...LEGIBLE}>{fixed(min, digits)}</text>
-      <text x={ex} y={sy + 26} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={20} fontWeight={700} {...LEGIBLE}>{fixed(max, digits)}</text>
+      <text x={sx} y={sy + 26} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={20} fontWeight={700} {...LEGIBLE}>{minDisplay}</text>
+      <text x={ex} y={sy + 26} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={20} fontWeight={700} {...LEGIBLE}>{maxDisplay}</text>
     </svg>
   )
 }
@@ -75,7 +79,7 @@ export const manifoldPressWidget: HifiWidgetModule = {
   tags: ['manifold', 'boost', 'pressure', 'digital', 'clean', 'vitals'],
   requires: ['manifoldPressBar'],
   defaultSize: { w: W, h: H },
-  render: (props) => <DigitalReadout {...props} value={num(props.snapshot?.manifoldPressBar)} unit="bar" min={0} max={2.5} digits={2} />
+  render: (props) => <DigitalReadout {...props} value={num(props.snapshot?.manifoldPressBar)} unit="bar" kind="pressure-bar" min={0} max={2.5} digits={2} />
 }
 
 export const fuelPressWidget: HifiWidgetModule = {
@@ -86,7 +90,7 @@ export const fuelPressWidget: HifiWidgetModule = {
   tags: ['fuel-press', 'pressure', 'digital', 'clean', 'vitals'],
   requires: ['fuelPressBar'],
   defaultSize: { w: W, h: H },
-  render: (props) => <DigitalReadout {...props} value={num(props.snapshot?.fuelPressBar)} unit="bar" min={0} max={7} digits={1} okLow={2.5} />
+  render: (props) => <DigitalReadout {...props} value={num(props.snapshot?.fuelPressBar)} unit="bar" kind="pressure-bar" min={0} max={7} digits={1} okLow={2.5} />
 }
 
 export const waterLevelWidget: HifiWidgetModule = {
@@ -97,7 +101,7 @@ export const waterLevelWidget: HifiWidgetModule = {
   tags: ['coolant', 'water', 'level', 'digital', 'clean', 'vitals'],
   requires: ['waterLevelL'],
   defaultSize: { w: W, h: H },
-  render: (props) => <DigitalReadout {...props} value={num(props.snapshot?.waterLevelL)} unit="L" min={0} max={8} digits={1} okLow={2} />
+  render: (props) => <DigitalReadout {...props} value={num(props.snapshot?.waterLevelL)} unit="L" kind="fuel-volume-l" min={0} max={8} digits={1} okLow={2} />
 }
 
 export const oilLevelWidget: HifiWidgetModule = {
@@ -108,5 +112,5 @@ export const oilLevelWidget: HifiWidgetModule = {
   tags: ['oil', 'level', 'digital', 'clean', 'vitals'],
   requires: ['oilLevelL'],
   defaultSize: { w: W, h: H },
-  render: (props) => <DigitalReadout {...props} value={num(props.snapshot?.oilLevelL)} unit="L" min={0} max={6} digits={1} okLow={1.5} />
+  render: (props) => <DigitalReadout {...props} value={num(props.snapshot?.oilLevelL)} unit="L" kind="fuel-volume-l" min={0} max={6} digits={1} okLow={1.5} />
 }

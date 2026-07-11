@@ -5,6 +5,13 @@ import type { OutputValueBatch, OutputValueUpdate } from '../../../shared/output
 import { OUTPUTS_CHANNELS } from '../../../shared/outputs'
 import { IRACING_VARIABLES, getIracingTelemetryValue } from '../../../shared/iracing-vars'
 import type { IracingVarDef } from '../../../shared/iracing-vars'
+import {
+  formatMeasurement,
+  measurementKindForUnit,
+  measurementUnit,
+  type MeasurementKind,
+  type UnitSystem
+} from '../../../shared/units'
 
 // Resolve uma chave de binding em (valor exibido, pct numérico 0–1 quando aplicável).
 // Bindings derivados são pré-calculados aqui para que os componentes só apliquem estilo.
@@ -126,7 +133,9 @@ export function getActiveFlag(snap: TelemetrySnapshot | null): FlagState | null 
 export interface BindingResult {
   text: string
   numeric?: number
+  displayNumeric?: number
   pct?: number
+  unit?: string
 }
 
 // ─── Output-router and expression caches (module-level, hydrated once) ─────
@@ -398,7 +407,7 @@ function formatIracingRaw(raw: ExpressionValue | undefined, def: IracingVarDef):
 }
 
 
-export function resolveBinding(
+function resolveBindingCanonical(
   binding: string | undefined,
   snap: TelemetrySnapshot | null
 ): BindingResult {
@@ -413,7 +422,7 @@ export function resolveBinding(
     const def = IRACING_VAR_BY_ID.get(id)
     const derivedKey = IRACING_ID_TO_BINDING[id]
     if (derivedKey) {
-      const derived = resolveBinding(derivedKey, snap)
+      const derived = resolveBindingCanonical(derivedKey, snap)
       if (derived.text && derived.text !== '—') return derived
     }
     if (def && snap) {
@@ -553,7 +562,7 @@ export function resolveBinding(
       return { text: String(n), numeric: n }
     }
     case 'speedMph': {
-      const v = snap.speedKmh !== undefined ? snap.speedKmh * 0.621371 : undefined
+      const v = snap.speedKmh
       return { text: v !== undefined ? v.toFixed(0) : '—', numeric: v }
     }
     case 'absActive':
@@ -677,4 +686,81 @@ export function resolveBinding(
   }
 
   return { text: '—' }
+}
+
+function measurementKindForBinding(binding: string | undefined): MeasurementKind | undefined {
+  if (!binding) return undefined
+  if (binding.startsWith('ir:')) {
+    const id = binding.slice(3)
+    const derived = IRACING_ID_TO_BINDING[id]
+    if (derived) return measurementKindForBinding(derived)
+    return measurementKindForUnit(IRACING_VAR_BY_ID.get(id)?.unit)
+  }
+
+  if (binding === 'speedKmh' || binding === 'speedMph') return 'speed-kmh'
+  if (binding === 'fuelLitersStr' || binding === 'fuelLiters' || binding === 'fuelCapacityLiters') return 'fuel-volume-l'
+  if (binding === 'fuelPerLapStr' || binding === 'fuelPerLap') return 'fuel-per-lap-l'
+  if (/TempC$/.test(binding) || /TempC:/.test(binding)) return 'temperature-c'
+  if (/PressureKpa$/.test(binding) || /PressureKpa:/.test(binding)) return 'pressure-kpa'
+  return undefined
+}
+
+export function displayUnitLabel(
+  label: string | undefined,
+  binding: string | undefined,
+  canonicalUnit: string | null | undefined,
+  unitSystem: UnitSystem
+): string | undefined {
+  if (!label || unitSystem === 'metric') return label
+
+  const kind =
+    measurementKindForBinding(binding) ??
+    measurementKindForUnit(canonicalUnit) ??
+    measurementKindForUnit(label)
+  if (measurementKindForUnit(label)) return kind ? measurementUnit(kind, unitSystem) : label
+
+  let display = label
+    .replace(/km\s*\/\s*h/gi, measurementUnit('speed-kmh', unitSystem))
+    .replace(/°\s*C/gi, measurementUnit('temperature-c', unitSystem))
+    .replace(/\bkPa\b/g, measurementUnit('pressure-kpa', unitSystem))
+    .replace(/\bbar\b/gi, measurementUnit('pressure-bar', unitSystem))
+    .replace(/\bL\s*\/\s*lap\b/gi, measurementUnit('fuel-per-lap-l', unitSystem))
+
+  if (kind === 'fuel-volume-l') display = display.replace(/\bL\b/g, measurementUnit(kind, unitSystem))
+  if (kind === 'fuel-per-lap-l') {
+    display = display
+      .replace(/\bL\s*\/\s*LAP\b/gi, measurementUnit(kind, unitSystem))
+      .replace(/\bL\b/g, measurementUnit('fuel-volume-l', unitSystem))
+  }
+  if (kind === 'distance-km') display = display.replace(/\bkm\b/gi, measurementUnit(kind, unitSystem))
+  if (kind === 'distance-m') display = display.replace(/\bm\b/g, measurementUnit(kind, unitSystem))
+  return display
+}
+
+function measurementDecimals(binding: string | undefined, kind: MeasurementKind): number {
+  if (kind === 'fuel-per-lap-l') return 2
+  if (kind === 'fuel-volume-l') return 1
+  if (kind === 'pressure-bar') return 2
+  if (kind === 'pressure-kpa') return binding?.includes('tyre') || binding?.includes('Pressure') ? 1 : 0
+  if (kind === 'distance-m' || kind === 'distance-km' || kind === 'speed-ms') return 1
+  return 0
+}
+
+export function resolveBinding(
+  binding: string | undefined,
+  snap: TelemetrySnapshot | null,
+  unitSystem: UnitSystem = 'metric'
+): BindingResult {
+  const result = resolveBindingCanonical(binding, snap)
+  const kind = measurementKindForBinding(binding)
+  if (!kind) return result
+  const formatted = formatMeasurement(result.numeric, kind, unitSystem, {
+    decimals: measurementDecimals(binding, kind)
+  })
+  return {
+    ...result,
+    text: formatted.display,
+    displayNumeric: formatted.value,
+    unit: formatted.unit
+  }
 }

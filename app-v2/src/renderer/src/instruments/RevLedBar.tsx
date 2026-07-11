@@ -3,7 +3,7 @@
 //   • dark stroke + diffuse radial "off" muscle for unlit LEDs,
 //   • radial-gradient "on" dome + an feGaussianBlur LED-bloom for lit LEDs,
 //   • green → amber → red zone ramp keyed by each LED's position,
-//   • a redline flash (all lit LEDs flash a colour — blue for skin profiles).
+//   • one shared shift state: every LED turns strong blue and strobes uniformly.
 // Pure + NaN-safe. Composes inside a parent widget <svg> via optional x/y (renders
 // a nested <svg>), or standalone. Accepts a skin `LedProfile` which drives
 // count / zones / shape / redline colour / mirrored fill / bloom in one object.
@@ -12,6 +12,12 @@
 
 import { type ReactElement } from 'react'
 import type { LedProfile } from '../skins/tokens'
+import {
+  SHIFT_STROBE_BLUE,
+  ShiftStrobe,
+  atShiftPoint,
+  revLightRowLayout
+} from '../lib/rev-lights'
 import {
   clamp01,
   resolveColors,
@@ -45,10 +51,12 @@ export interface RevLedBarProps {
   flashAt?: number
   /** enable the redline flash behaviour (default true). */
   redlineFlash?: boolean
-  /** deterministic flash phase — true = flash lit this frame (default true). */
+  /** @deprecated The shared SVG strobe owns its animation phase. */
   flashOn?: boolean
-  /** redline flash colour (default colours.flash / white; skin profiles → blue). */
+  /** @deprecated Shift-point colour is always the shared strong blue. */
   redlineColor?: string
+  /** Explicit provider shift/blink state; the shared threshold still applies. */
+  shiftActive?: boolean
   /** fill from the centre outward (Porsche/AiM) instead of left→right. */
   mirrored?: boolean
   /** Override the per-LED zone colours by ascending boundary fraction. */
@@ -93,8 +101,7 @@ export function RevLedBar({
   dangerAt = 0.8,
   flashAt = 0.97,
   redlineFlash = true,
-  flashOn = true,
-  redlineColor,
+  shiftActive = false,
   mirrored = false,
   zones,
   glow = true,
@@ -118,25 +125,25 @@ export function RevLedBar({
     : zones
   const effMirror = profile ? profile.mirrored : mirrored
   const effGlow = profile ? profile.bloom : glow
-  const flashColor = redlineColor ?? profile?.redline.color ?? colors.flash
-
+  const bloomStrength = Number.isFinite(bloom) ? Math.max(0, bloom) : 0.35
   const n = Math.max(1, Math.min(64, Math.trunc(effSegments) || 1))
   const frac = clamp01(pct)
-  const flashing = redlineFlash && frac >= clamp01(flashAt) && flashOn
+  const flashing = redlineFlash && (shiftActive || atShiftPoint(frac, flashAt))
 
-  const g = Math.max(0, gap)
-  // Clamp cell/radius so a narrow, dense bar (gap*segments > width) can never
-  // produce negative geometry (negative width/rx/r → invalid SVG).
-  const cell = Math.max(1, (width - g * (n - 1)) / n)
-  const ledR = Math.max(0.5, Math.min(cell, height) / 2)
-  const cy = height / 2
+  const g = Number.isFinite(gap) ? Math.max(0, gap) : 4
+  const layout = revLightRowLayout(width, height, n, { gap: g })
+  const safeX = Number.isFinite(x) ? x : 0
+  const safeY = Number.isFinite(y) ? y : 0
+  const cell = layout.ledWidth
+  const ledR = Math.max(0.5, Math.min(cell, layout.ledHeight) / 2)
+  const cy = layout.y + layout.ledHeight / 2
   const bloomId = `${uid}-bloom`
   const offId = `${uid}-off`
 
   // lit state + zone fraction per LED (left→right, or mirrored from centre).
   const center = (n - 1) / 2
   const maxD = center <= 0 ? 1 : center
-  const litCount = Math.round(frac * n)
+  const litCount = flashing ? n : Math.round(frac * n)
   const ledMeta = Array.from({ length: n }, (_, i) => {
     let lit: boolean
     let zf: number
@@ -147,7 +154,8 @@ export function RevLedBar({
       zf = (i + 0.5) / n
       lit = i < litCount
     }
-    const color = flashing && lit ? flashColor : zoneColorFor(zf, colors, warnAt, dangerAt, effZones)
+    if (flashing) lit = true
+    const color = flashing ? SHIFT_STROBE_BLUE : zoneColorFor(zf, colors, warnAt, dangerAt, effZones)
     return { i, lit, color }
   })
   const onColors = Array.from(new Set(ledMeta.filter((m) => m.lit).map((m) => m.color)))
@@ -157,12 +165,13 @@ export function RevLedBar({
     if (effShape === 'bar' || effShape === 'trapezoid') {
       const w = cell
       const bx = cx - w / 2
-      const h = height
+      const h = layout.ledHeight
+      const by = layout.y
       if (effShape === 'trapezoid') {
         const inset = w * 0.18
         return (
           <polygon
-            points={`${bx + inset},${0} ${bx + w - inset},${0} ${bx + w},${h} ${bx},${h}`}
+            points={`${bx + inset},${by} ${bx + w - inset},${by} ${bx + w},${by + h} ${bx},${by + h}`}
             fill={fill}
             stroke={stroke}
             strokeWidth={1}
@@ -171,7 +180,7 @@ export function RevLedBar({
         )
       }
       return (
-        <rect x={bx} y={0} width={w} height={h} rx={2} fill={fill} stroke={stroke} strokeWidth={1} filter={filter} />
+        <rect x={bx} y={by} width={w} height={h} rx={Math.min(2, h / 2)} fill={fill} stroke={stroke} strokeWidth={1} filter={filter} />
       )
     }
     return <circle cx={cx} cy={cy} r={ledR} fill={fill} stroke={stroke} strokeWidth={1.25} filter={filter} />
@@ -179,13 +188,15 @@ export function RevLedBar({
 
   return (
     <svg
-      x={x}
-      y={y}
-      width={width}
-      height={height}
-      viewBox={`0 0 ${width} ${height}`}
+      x={safeX}
+      y={safeY}
+      width={layout.width}
+      height={layout.height}
+      viewBox={`0 0 ${layout.width} ${layout.height}`}
+      preserveAspectRatio="none"
       role="img"
       aria-label="rev lights"
+      data-rev-shift={flashing ? 'strobe' : 'normal'}
       style={{ display: 'block', overflow: 'visible' }}
     >
       <defs>
@@ -193,21 +204,23 @@ export function RevLedBar({
         {onColors.map((c) => (
           <g key={c}>{ledOnGradient(onGradId(c), c)}</g>
         ))}
-        {effGlow ? bloomFilter(bloomId, Math.max(0.6, ledR * bloom), 0.7) : null}
+        {effGlow ? bloomFilter(bloomId, Math.max(0.6, ledR * bloomStrength), 0.7) : null}
       </defs>
-      {ledMeta.map(({ i, lit, color }) => {
-        const cx = cell / 2 + i * (cell + g)
-        if (!lit) {
-          return <g key={i}>{ledShape(cx, `url(#${offId})`, '#1a1a1a')}</g>
-        }
-        const stroke = flashing ? flashColor : color
-        return (
-          <g key={i}>
-            {effGlow ? ledShape(cx, color, 'none', `url(#${bloomId})`) : null}
-            {ledShape(cx, `url(#${onGradId(color)})`, stroke, undefined)}
-          </g>
-        )
-      })}
+      <g>
+        <ShiftStrobe active={flashing} />
+        {ledMeta.map(({ i, lit, color }) => {
+          const cx = layout.positions[i] + cell / 2
+          if (!lit) {
+            return <g key={i}>{ledShape(cx, `url(#${offId})`, '#1a1a1a')}</g>
+          }
+          return (
+            <g key={i}>
+              {effGlow ? ledShape(cx, color, 'none', `url(#${bloomId})`) : null}
+              {ledShape(cx, `url(#${onGradId(color)})`, color, undefined)}
+            </g>
+          )
+        })}
+      </g>
     </svg>
   )
 }

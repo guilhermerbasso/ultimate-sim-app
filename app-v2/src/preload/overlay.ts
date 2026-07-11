@@ -21,6 +21,8 @@ const ALLOWED_PREFIXES = [
 ]
 
 const ALLOWED_APP_CHANNELS = new Set([
+  'app:getSettings',
+  'app:settingsChanged',
   'app:dash:get',
   'app:dash:updated',
   'app:dash:cycle',

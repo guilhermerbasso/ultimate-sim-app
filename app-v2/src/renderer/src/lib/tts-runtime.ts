@@ -26,11 +26,14 @@ import {
   pickDistinctOsVoice,
   fallbackVoiceProsody,
   piperVoiceLang,
-  PIPER_VOICE_CATALOG,
   type EnsureVoiceResult,
   type PiperVoiceInfo,
   type PiperVoiceProgress
 } from '../../../shared/spotter'
+import {
+  defaultPiperVoiceIdForLanguage,
+  resolvePiperVoice
+} from '../../../shared/tts-voice'
 import { logClient } from './log-client'
 
 // ─── Renderer-local config (PURE helpers — unit-tested in node) ──────────────────
@@ -45,7 +48,7 @@ export interface TtsPref {
   rate: number
 }
 
-export const DEFAULT_TTS_VOICE_ID = 'en_US-lessac-medium'
+export const DEFAULT_TTS_VOICE_ID = defaultPiperVoiceIdForLanguage('en-US')
 
 export const DEFAULT_TTS_PREF: TtsPref = {
   engine: 'piper',
@@ -431,18 +434,6 @@ export interface SpeakOptions {
   corner?: number
 }
 
-// Pick the Piper voice that matches the line's language so an en-US answer isn't
-// spoken with a pt-BR phonetic model (and vice-versa). Falls back to the user's
-// configured voice when the language already matches or no catalog match exists.
-function resolveVoiceId(lang: string | undefined, prefVoiceId: string): string {
-  if (!lang) return prefVoiceId
-  const want = lang.toLowerCase().slice(0, 2)
-  const prefLang = piperVoiceLang(prefVoiceId)
-  if (prefLang && prefLang.toLowerCase().startsWith(want)) return prefVoiceId
-  const match = PIPER_VOICE_CATALOG.find((v) => v.lang.toLowerCase().startsWith(want))
-  return match ? match.id : prefVoiceId
-}
-
 /**
  * THE seam: speak `text` via the neural Piper engine, falling back to OS Web Speech.
  * Resolves once playback finishes (or is superseded by a newer call). Never throws.
@@ -454,13 +445,14 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
   if (!content) return
 
   const pref = getTtsPref()
-  const voiceId = options.voiceId ?? resolveVoiceId(options.lang, pref.voiceId)
+  const resolvedVoice = resolvePiperVoice(options.lang, options.voiceId ?? pref.voiceId)
+  const voiceId = resolvedVoice.voiceId
   const rate = pref.rate
   // NEURAL is the primary path: a preview (explicit voiceId) ALWAYS tries Piper, and
   // every other call uses Piper unless the user has explicitly forced OS Web Speech.
   // OS Web Speech remains only as a manual override or as the synth-null fallback.
   const usePiper = options.voiceId ? true : pref.engine !== 'webspeech'
-  const fallbackLang = options.lang ?? piperVoiceLang(voiceId) ?? undefined
+  const fallbackLang = resolvedVoice.language
   // Observability: tag every utterance with its SOURCE (coach / engineer / …) + the
   // originating tip so a spoken line is never an anonymous "via piper" in the log.
   const diag = {

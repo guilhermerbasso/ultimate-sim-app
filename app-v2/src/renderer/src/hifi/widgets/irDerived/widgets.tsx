@@ -35,6 +35,7 @@ import {
   legibleStroke,
   num
 } from '../kit'
+import { formatMeasurement } from '../../../../../shared/units'
 
 const W = 420
 const H = 240
@@ -184,18 +185,19 @@ function CarAttitude({ width, height, snapshot }: HifiWidgetProps): ReactElement
 }
 
 // ── Fuel laps-left (liters ÷ per-lap kg → estimated laps) ─────────────────────
-function FuelLapsLeft({ width, height, snapshot }: HifiWidgetProps): ReactElement {
+function FuelLapsLeft({ width, height, snapshot, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const liters = num(snapshot?.fuelLiters)
   const perLapKg = num(snapshot?.fuelPerLapKg)
   const perLapL = perLapKg != null && perLapKg > 0 ? perLapKg / 0.75 : undefined
   const laps = liters != null && perLapL != null && perLapL > 0 ? liters / perLapL : undefined
   const color = laps == null ? C.dim : laps < 2 ? C.red : laps < 4 ? C.amber : C.green
+  const perLapReading = formatMeasurement(perLapKg, 'mass-per-lap-kg', unitSystem, { decimals: 2 })
   return (
     <Root width={width} height={height} snapshot={snapshot}>
       <BigNum x={W / 2} y={128} value={laps == null ? '—' : fixed(laps, 1)} color={color} size={104} />
       <text x={W / 2} y={168} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={24} fontWeight={800} letterSpacing={3} {...LEGIBLE}>LAPS LEFT</text>
       <text x={W / 2} y={210} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={20} fontWeight={700} {...LEGIBLE}>
-        {perLapKg == null ? '—' : `${fixed(perLapKg, 2)} kg/lap`}
+        {perLapKg == null ? '—' : `${perLapReading.display} ${perLapReading.unit}`}
       </text>
     </Root>
   )

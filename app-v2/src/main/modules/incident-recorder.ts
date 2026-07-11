@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { join } from 'node:path'
 import type { ModuleContext } from '../module-context'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
+import { formatMeasurement, type UnitSystem } from '../../shared/units'
 import {
   DEFAULT_INCIDENT_CONFIG,
   INCIDENT_CHANNELS,
@@ -31,6 +32,7 @@ import {
 import { getLlmRuntime } from '../ai/llm-runtime'
 import { getModelManager } from '../ai/model-manager'
 import { logger } from './logger'
+import { settingsEvents } from '../settings/events'
 
 const LOG_AREA = 'incidents'
 const CLIPS_DIR = 'incident-clips'
@@ -163,7 +165,7 @@ async function tryLlmAnalyze(system: string, prompt: string): Promise<string | n
   }
 }
 
-function analyzePrompt(clip: IncidentClip, lang: 'pt' | 'en'): { system: string; prompt: string } {
+function analyzePrompt(clip: IncidentClip, lang: 'pt' | 'en', unitSystem: UnitSystem): { system: string; prompt: string } {
   const system =
     lang === 'pt'
       ? 'You are a race engineer. Explain in 1-2 short American English sentences what likely happened in this incident and give one tip. Do not invent numbers.'
@@ -174,10 +176,10 @@ function analyzePrompt(clip: IncidentClip, lang: 'pt' | 'en'): { system: string;
     `severity=${clip.severity}`,
     finite(clip.lap) ? `lap=${clip.lap}` : '',
     finite(clip.lapDistPct) ? `trackPct=${Math.round((clip.lapDistPct as number) * 100)}` : '',
-    finite(m.speedKmh) ? `speed=${Math.round(m.speedKmh as number)}kmh` : '',
+    finite(m.speedKmh) ? `speed=${formatMeasurement(m.speedKmh, 'speed-kmh', unitSystem, { decimals: 0, includeUnit: true }).display}` : '',
     finite(m.yawRateRadSec) ? `yaw=${(m.yawRateRadSec as number).toFixed(1)}` : '',
     finite(m.gSpike) ? `gSpike=${(m.gSpike as number).toFixed(1)}` : '',
-    finite(m.speedDropKmh) ? `speedDrop=${Math.round(m.speedDropKmh as number)}kmh` : '',
+    finite(m.speedDropKmh) ? `speedDrop=${formatMeasurement(m.speedDropKmh, 'speed-kmh', unitSystem, { decimals: 0, includeUnit: true }).display}` : '',
     finite(m.brake) ? `brake=${Math.round((m.brake as number) * 100)}%` : '',
     m.surface ? `surface=${m.surface}` : ''
   ]
@@ -189,6 +191,10 @@ function analyzePrompt(clip: IncidentClip, lang: 'pt' | 'en'): { system: string;
 // ─── registration ────────────────────────────────────────────────────────────────
 
 export function register(ctx: ModuleContext): void {
+  let unitSystem: UnitSystem = 'metric'
+  settingsEvents.onChanged((settings) => {
+    unitSystem = settings.unitSystem
+  })
   const store = new ClipStore(join(ctx.app.getPath('userData'), CLIPS_DIR))
   store.load()
 
@@ -238,7 +244,7 @@ export function register(ctx: ModuleContext): void {
       ring = ring.filter((s) => s.t >= cutoff).slice(-MAX_RING_SAMPLES)
     }
 
-    const event = classifyIncident(prevSnapshot, snapshot, config)
+    const event = classifyIncident(prevSnapshot, snapshot, config, unitSystem)
     prevSnapshot = snapshot
 
     if (event) {
@@ -263,9 +269,9 @@ export function register(ctx: ModuleContext): void {
     if (!clip) {
       return { id, text: lang === 'pt' ? 'Incident clip not found.' : 'Incident clip not found.', source: 'deterministic' }
     }
-    const deterministic = summarizeIncident(clip, lang)
+    const deterministic = summarizeIncident(clip, lang, unitSystem)
     if (request?.useLlm === true) {
-      const { system, prompt } = analyzePrompt(clip, lang)
+      const { system, prompt } = analyzePrompt(clip, lang, unitSystem)
       const llmText = await tryLlmAnalyze(system, prompt)
       if (llmText) return { id, text: llmText, source: 'llm', clip: toClipMeta(clip) }
     }

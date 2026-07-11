@@ -1,10 +1,11 @@
 import type { ReactElement } from 'react'
-import { numberOrDash } from './format'
 import { getGt3Warnings, gt3SeverityClass, GT3_STREAM_SAFE, type Gt3Warning } from './gt3Telemetry'
 import { overlayDesignFamily, type OverlayDesignFamily } from '../../../../shared/overlays'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
 import type { WidgetProps } from './types'
 import './redesign-radar.css'
+import { formatMeasurement, type UnitSystem } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 export const GT3_ALARM_STREAM_SAFE = GT3_STREAM_SAFE
 
@@ -13,6 +14,9 @@ interface AlarmModel {
   idle: boolean
   water?: number
   oil?: number
+  waterDisplay: string
+  oilDisplay: string
+  tempUnit: string
   waterTone: string
   oilTone: string
   severityClass: string
@@ -23,13 +27,18 @@ function tempTone(value: number | undefined, warm: number, hot: number): string 
   return value >= hot ? 'is-hot' : value >= warm ? 'is-warm' : 'is-cool'
 }
 
-function buildModel(snapshot: TelemetrySnapshot | null): AlarmModel {
+function buildModel(snapshot: TelemetrySnapshot | null, unitSystem: UnitSystem): AlarmModel {
   const [alarm] = getGt3Warnings(snapshot)
+  const water = formatMeasurement(snapshot?.waterTempC, 'temperature-c', unitSystem, { decimals: 0 })
+  const oil = formatMeasurement(snapshot?.oilTempC, 'temperature-c', unitSystem, { decimals: 0 })
   return {
     alarm,
     idle: !alarm,
     water: snapshot?.waterTempC,
     oil: snapshot?.oilTempC,
+    waterDisplay: water.display,
+    oilDisplay: oil.display,
+    tempUnit: water.unit,
     waterTone: tempTone(snapshot?.waterTempC, 105, 115),
     oilTone: tempTone(snapshot?.oilTempC, 125, 140),
     severityClass: alarm ? gt3SeverityClass(alarm.severity) : 'is-idle'
@@ -46,7 +55,7 @@ function AlarmTerminal({ model, family }: { model: AlarmModel; family: OverlayDe
   const rows = [
     `> NAME : ${(a?.label ?? 'CLEAR').toUpperCase()}`,
     `> INFO : ${a?.detail ?? 'no active alarm'}`,
-    `> TEMP : WATER ${numberOrDash(model.water, 0)}C  OIL ${numberOrDash(model.oil, 0)}C`
+    `> TEMP : WATER ${model.waterDisplay}${model.tempUnit}  OIL ${model.oilDisplay}${model.tempUnit}`
   ].join('\n')
   return (
     <div className={rootClass(family, 'rd3-alarm--ascii', model)} aria-hidden={model.idle}>
@@ -69,11 +78,11 @@ function AlarmBauhaus({ model, family }: { model: AlarmModel; family: OverlayDes
       <div className="rd3-alarm-bh-vitals">
         <div className={model.waterTone}>
           <span>H₂O</span>
-          <b>{numberOrDash(model.water, 0)}</b>
+          <b>{model.waterDisplay}</b>
         </div>
         <div className={model.oilTone}>
           <span>OIL</span>
-          <b>{numberOrDash(model.oil, 0)}</b>
+          <b>{model.oilDisplay}</b>
         </div>
       </div>
     </div>
@@ -94,8 +103,8 @@ function AlarmAnalog({ model, family }: { model: AlarmModel; family: OverlayDesi
         <strong>{a?.label ?? 'CLEAR'}</strong>
         <span>{a?.detail ?? 'No active alarm'}</span>
         <div className="rd3-alarm-lamp-vitals">
-          <span className={model.waterTone}>Water {numberOrDash(model.water, 0)}°</span>
-          <span className={model.oilTone}>Oil {numberOrDash(model.oil, 0)}°</span>
+          <span className={model.waterTone}>Water {model.waterDisplay}{model.tempUnit}</span>
+          <span className={model.oilTone}>Oil {model.oilDisplay}{model.tempUnit}</span>
         </div>
       </div>
     </div>
@@ -114,13 +123,13 @@ function AlarmHeatmap({ model, family }: { model: AlarmModel; family: OverlayDes
       </div>
       <div className={`rd3-alarm-hcell ${model.waterTone}`}>
         <span>WATER</span>
-        <b>{numberOrDash(model.water, 0)}</b>
-        <small>°C</small>
+        <b>{model.waterDisplay}</b>
+        <small>{model.tempUnit}</small>
       </div>
       <div className={`rd3-alarm-hcell ${model.oilTone}`}>
         <span>OIL</span>
-        <b>{numberOrDash(model.oil, 0)}</b>
-        <small>°C</small>
+        <b>{model.oilDisplay}</b>
+        <small>{model.tempUnit}</small>
       </div>
     </div>
   )
@@ -139,10 +148,10 @@ function AlarmBroadcast({ model, family }: { model: AlarmModel; family: OverlayD
         <span className="rd3-alarm-box-detail">{a?.detail ?? 'No active alarm'}</span>
         <div className="rd3-alarm-box-chips">
           <span className={model.waterTone}>
-            <b>WATER</b> {numberOrDash(model.water, 0)}°
+            <b>WATER</b> {model.waterDisplay}{model.tempUnit}
           </span>
           <span className={model.oilTone}>
-            <b>OIL</b> {numberOrDash(model.oil, 0)}°
+            <b>OIL</b> {model.oilDisplay}{model.tempUnit}
           </span>
         </div>
       </div>
@@ -168,11 +177,11 @@ function AlarmPanel({ model, family }: { model: AlarmModel; family: OverlayDesig
       <div className="rd3-alarm-temps">
         <div className={model.waterTone}>
           <span>Water</span>
-          <strong>{numberOrDash(model.water, 0)}°</strong>
+          <strong>{model.waterDisplay}{model.tempUnit}</strong>
         </div>
         <div className={model.oilTone}>
           <span>Oil</span>
-          <strong>{numberOrDash(model.oil, 0)}°</strong>
+          <strong>{model.oilDisplay}{model.tempUnit}</strong>
         </div>
       </div>
     </div>
@@ -180,8 +189,9 @@ function AlarmPanel({ model, family }: { model: AlarmModel; family: OverlayDesig
 }
 
 export function GT3AlarmWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const family = overlayDesignFamily(config.stylePreset)
-  const model = buildModel(snapshot)
+  const model = buildModel(snapshot, unitSystem)
 
   switch (family) {
     case 'terminal':

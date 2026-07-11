@@ -35,6 +35,8 @@ import {
   type CoachTip,
   type CoachTipsPayload
 } from '../../../shared/coach'
+import { convertMeasurement, formatMeasurement, measurementUnit, type UnitSystem } from '../../../shared/units'
+import { useUnitSystem } from '../lib/units'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen "Telemetry analysis":
@@ -146,10 +148,22 @@ const PROFILE_LABELS: Record<AnalysisProfile, { label: string; description: stri
   }
 }
 
-const metricConfig: Record<MetricKey, { label: string; unit: string; min?: number; max?: number; toValue: (s: AnalysisLapSample) => number }> = {
-  speedKmh: { label: 'Speed', unit: 'km/h', toValue: (s) => s.speedKmh },
+type MetricConfig = { label: string; unit: string; min?: number; max?: number; toValue: (s: AnalysisLapSample) => number }
+
+const metricConfig: Record<Exclude<MetricKey, 'speedKmh'>, MetricConfig> = {
   throttle: { label: 'Throttle', unit: '%', min: 0, max: 100, toValue: (s) => s.throttle * 100 },
   brake: { label: 'Brake', unit: '%', min: 0, max: 100, toValue: (s) => s.brake * 100 }
+}
+
+function configForMetric(metric: MetricKey, unitSystem: UnitSystem): MetricConfig {
+  if (metric === 'speedKmh') {
+    return {
+      label: 'Speed',
+      unit: measurementUnit('speed-kmh', unitSystem),
+      toValue: (sample) => convertMeasurement(sample.speedKmh, 'speed-kmh', unitSystem) ?? Number.NaN
+    }
+  }
+  return metricConfig[metric]
 }
 
 function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
@@ -210,9 +224,8 @@ function lapKey(ref: AnalysisLapRef): string {
     : `ibt:${ref.path}:${ref.lapIndex}`
 }
 
-function pointsFor(samples: AnalysisLapSample[], metric: MetricKey, min: number, max: number, width: number, height: number): string {
+function pointsFor(samples: AnalysisLapSample[], config: MetricConfig, min: number, max: number, width: number, height: number): string {
   const span = max - min || 1
-  const config = metricConfig[metric]
   return samples
     .map((sample) => {
       const value = config.toValue(sample)
@@ -226,12 +239,13 @@ function pointsFor(samples: AnalysisLapSample[], metric: MetricKey, min: number,
 }
 
 function MetricChart({ metric, laps }: { metric: MetricKey; laps: AnalysisLap[] }): ReactElement {
+  const unitSystem = useUnitSystem()
   const width = 920
   const height = 160
   const padding = { top: 18, right: 18, bottom: 28, left: 56 }
   const innerWidth = width - padding.left - padding.right
   const innerHeight = height - padding.top - padding.bottom
-  const config = metricConfig[metric]
+  const config = configForMetric(metric, unitSystem)
   const allValues = laps.flatMap((lap) => lap.samples.map((s) => config.toValue(s)).filter((v) => Number.isFinite(v)))
   const rawMin = allValues.length ? Math.min(...allValues) : 0
   const rawMax = allValues.length ? Math.max(...allValues) : 1
@@ -258,7 +272,7 @@ function MetricChart({ metric, laps }: { metric: MetricKey; laps: AnalysisLap[] 
             <line key={tick} x1={0} y1={tick * innerHeight} x2={innerWidth} y2={tick * innerHeight} stroke="rgba(255,255,255,0.08)" />
           ))}
           {laps.map((lap) => {
-            const points = pointsFor(lap.samples, metric, min, max, innerWidth, innerHeight)
+            const points = pointsFor(lap.samples, config, min, max, innerWidth, innerHeight)
             if (!points) return null
             const stroke = lap.isBest ? '#FFFFFF' : lap.color
             const strokeWidth = lap.isBest ? 2.8 : 2.0
@@ -356,6 +370,8 @@ function LapBadge({ lap }: { lap: AnalysisLap }): ReactElement {
 }
 
 function LossPointList({ losses, laps }: { losses: AnalysisResult['losses']; laps: AnalysisLap[] }): ReactElement {
+  const unitSystem = useUnitSystem()
+  const speedUnit = measurementUnit('speed-kmh', unitSystem)
   if (losses.length === 0) {
     return <div style={card}>No losses calculated (only the best lap selected?).</div>
   }
@@ -383,8 +399,8 @@ function LossPointList({ losses, laps }: { losses: AnalysisResult['losses']; lap
                       <span style={{ color: 'var(--accent-warning)', fontWeight: 700 }}>{fmtDelta(point.lossSec)}</span>
                     </div>
                     <div style={{ ...muted, display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-                      <span>Peak speed {fmtNumber(point.primaryMaxSpeedKmh, 0)} km/h (best {fmtNumber(point.bestMaxSpeedKmh, 0)})</span>
-                      <span>Min speed {fmtNumber(point.primaryMinSpeedKmh, 0)} (best {fmtNumber(point.bestMinSpeedKmh, 0)})</span>
+                      <span>Peak speed {formatMeasurement(point.primaryMaxSpeedKmh, 'speed-kmh', unitSystem, { decimals: 0 }).display} {speedUnit} (best {formatMeasurement(point.bestMaxSpeedKmh, 'speed-kmh', unitSystem, { decimals: 0 }).display})</span>
+                      <span>Min speed {formatMeasurement(point.primaryMinSpeedKmh, 'speed-kmh', unitSystem, { decimals: 0 }).display} {speedUnit} (best {formatMeasurement(point.bestMinSpeedKmh, 'speed-kmh', unitSystem, { decimals: 0 }).display})</span>
                       <span>Avg throttle {Math.round(point.primaryAvgThrottle * 100)}% (best {Math.round(point.bestAvgThrottle * 100)}%)</span>
                       <span>Peak brake {Math.round(point.primaryMaxBrake * 100)}% (best {Math.round(point.bestMaxBrake * 100)}%)</span>
                     </div>
@@ -404,7 +420,7 @@ function LossPointList({ losses, laps }: { losses: AnalysisResult['losses']; lap
   )
 }
 
-function buildRecordingCandidates(sessions: RecordingSessionSummary[]): LapCandidate[] {
+function buildRecordingCandidates(sessions: RecordingSessionSummary[], unitSystem: UnitSystem): LapCandidate[] {
   const out: LapCandidate[] = []
   for (const session of sessions) {
     const trackName = (session as RecordingSessionSummary & { trackName?: string }).trackName
@@ -422,7 +438,7 @@ function buildRecordingCandidates(sessions: RecordingSessionSummary[]): LapCandi
         source: SOURCE_RECORDING,
         sourceLabel: `Recording · ${fmtDate(session.startedAt)}`,
         badge: lap.complete ? 'completa' : 'parcial',
-        detail: describeRecordingLap(session, lap),
+        detail: describeRecordingLap(session, lap, unitSystem),
         fileDate: session.startedAt
       })
     }
@@ -430,11 +446,11 @@ function buildRecordingCandidates(sessions: RecordingSessionSummary[]): LapCandi
   return out
 }
 
-function describeRecordingLap(session: RecordingSessionSummary, lap: RecordingLapSummary): string {
+function describeRecordingLap(session: RecordingSessionSummary, lap: RecordingLapSummary, unitSystem: UnitSystem): string {
   const parts: string[] = []
   parts.push(`Session ${session.source}`)
-  if (typeof lap.minSpeedKmh === 'number') parts.push(`min ${Math.round(lap.minSpeedKmh)} km/h`)
-  if (typeof lap.maxSpeedKmh === 'number') parts.push(`max ${Math.round(lap.maxSpeedKmh)} km/h`)
+  if (typeof lap.minSpeedKmh === 'number') parts.push(`min ${formatMeasurement(lap.minSpeedKmh, 'speed-kmh', unitSystem, { decimals: 0, includeUnit: true }).display}`)
+  if (typeof lap.maxSpeedKmh === 'number') parts.push(`max ${formatMeasurement(lap.maxSpeedKmh, 'speed-kmh', unitSystem, { decimals: 0, includeUnit: true }).display}`)
   if (typeof lap.bestDeltaToBestSec === 'number') parts.push(`δ ${fmtDelta(lap.bestDeltaToBestSec)}`)
   return parts.join(' · ')
 }
@@ -475,6 +491,7 @@ function describeIbtLap(file: IbtFileSummary, lap: IbtLapSummary): string {
 // Self-contained section: offline lap analysis (recordings + .ibt) and the
 // deterministic Live Coach. Rendered by CoachView; no longer a standalone view.
 export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'>): ReactElement {
+  const unitSystem = useUnitSystem()
   const [activeTab, setActiveTab] = useState<AnalysisTab>('analysis')
   const [status, setStatus] = useState<RecordingStatus | null>(null)
   const [recordingConfig, setRecordingConfig] = useState<RecordingConfig>(DEFAULT_RECORDING_CONFIG)
@@ -622,9 +639,9 @@ export function LapAnalysisSection({ showToast }: Pick<AppViewProps, 'showToast'
   }, [sourceKind, scanIbt])
 
   const candidates = useMemo<LapCandidate[]>(() => {
-    if (sourceKind === SOURCE_RECORDING) return buildRecordingCandidates(sessions)
+    if (sourceKind === SOURCE_RECORDING) return buildRecordingCandidates(sessions, unitSystem)
     return buildIbtCandidates(Object.values(ibtSummaries))
-  }, [sourceKind, sessions, ibtSummaries])
+  }, [sourceKind, sessions, ibtSummaries, unitSystem])
 
   const trackOptions = useMemo<TrackOption[]>(() => {
     const fromSource = sourceKind === SOURCE_RECORDING ? 'recording' : 'ibt'

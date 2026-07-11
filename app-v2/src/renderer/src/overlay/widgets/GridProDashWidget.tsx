@@ -15,6 +15,8 @@ import type { WidgetProps } from './types'
 import { formatDelta, formatGear, formatTime, pct } from './format'
 import { resolveSkin, FitText, type SkinToken } from '../../skins'
 import { RevLedBar, DataField, type FieldState } from '../../instruments'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 function dims(config: WidgetProps['config']): { W: number; H: number } {
   const w = config?.position?.width
@@ -89,6 +91,7 @@ function tempC(t: TyreInfo | undefined): number | undefined {
 }
 
 export function GridProDashWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const s = snapshot
   const skin = resolveSkin('gt3', 'generic')
   const { palette, segment } = skin
@@ -142,6 +145,10 @@ export function GridProDashWidget({ snapshot, config }: WidgetProps): ReactEleme
 
   const fuelLow = (s?.fuelLiters !== undefined && Number.isFinite(s.fuelLiters) && s.fuelLiters < 6)
   const fuelState: FieldState = fuelLow ? 'crit' : 'normal'
+  const temp = (value: number | undefined) => formatMeasurement(value, 'temperature-c', unitSystem, { decimals: 0 })
+  const tempUnit = temp(undefined).unit
+  const fuel = formatMeasurement(s?.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1 })
+  const speed = formatMeasurement(s?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
 
   const stripThirds = (W - 2 * P - 2 * G) / 3
   const rpmR = { x: P, y: stripY0, w: stripThirds, h: stripH0 }
@@ -191,17 +198,17 @@ export function GridProDashWidget({ snapshot, config }: WidgetProps): ReactEleme
         {df(timeR, 'TIME', formatClock(s?.sessionTimeRemainingSec))}
 
         {/* Left column: water/oil + tyre temps */}
-        {df(waterR, 'WATER', n0(s?.waterTempC), tempState(s?.waterTempC, 108, 120), '°')}
-        {df(oilR, 'OIL', n0(s?.oilTempC), tempState(s?.oilTempC, 125, 140), '°')}
-        {df({ x: leftX, y: leftBotY, w: tCellW, h: tCellH }, 'LF', n0(tempC(ty?.lf)), tempState(tempC(ty?.lf), 100, 110, 70), '°')}
-        {df({ x: leftX + tCellW + G, y: leftBotY, w: tCellW, h: tCellH }, 'RF', n0(tempC(ty?.rf)), tempState(tempC(ty?.rf), 100, 110, 70), '°')}
-        {df({ x: leftX, y: leftBotY + tCellH + G, w: tCellW, h: tCellH }, 'LR', n0(tempC(ty?.lr)), tempState(tempC(ty?.lr), 100, 110, 70), '°')}
-        {df({ x: leftX + tCellW + G, y: leftBotY + tCellH + G, w: tCellW, h: tCellH }, 'RR', n0(tempC(ty?.rr)), tempState(tempC(ty?.rr), 100, 110, 70), '°')}
+        {df(waterR, 'WATER', temp(s?.waterTempC).display, tempState(s?.waterTempC, 108, 120), tempUnit)}
+        {df(oilR, 'OIL', temp(s?.oilTempC).display, tempState(s?.oilTempC, 125, 140), tempUnit)}
+        {df({ x: leftX, y: leftBotY, w: tCellW, h: tCellH }, 'LF', temp(tempC(ty?.lf)).display, tempState(tempC(ty?.lf), 100, 110, 70), tempUnit)}
+        {df({ x: leftX + tCellW + G, y: leftBotY, w: tCellW, h: tCellH }, 'RF', temp(tempC(ty?.rf)).display, tempState(tempC(ty?.rf), 100, 110, 70), tempUnit)}
+        {df({ x: leftX, y: leftBotY + tCellH + G, w: tCellW, h: tCellH }, 'LR', temp(tempC(ty?.lr)).display, tempState(tempC(ty?.lr), 100, 110, 70), tempUnit)}
+        {df({ x: leftX + tCellW + G, y: leftBotY + tCellH + G, w: tCellW, h: tCellH }, 'RR', temp(tempC(ty?.rr)).display, tempState(tempC(ty?.rr), 100, 110, 70), tempUnit)}
 
         {/* Right column: race metrics + relatives */}
         {df(lastR, 'LAST', formatTime(s?.lastLapTimeSec))}
         {df(deltaR, 'DELTA', formatDelta(delta), deltaState)}
-        {df(fuelR, 'FUEL', n1(s?.fuelLiters), fuelState, 'L')}
+        {df(fuelR, 'FUEL', fuel.display, fuelState, fuel.unit)}
         {df(lapsR, 'LAPS LEFT', n0(s?.lapsRemaining))}
         {df({ x: rightX, y: rightBotY, w: rCellW, h: rCellH }, 'AHEAD', gapStr(s?.relatives?.ahead?.gapSec))}
         {df({ x: rightX + rCellW + G, y: rightBotY, w: rCellW, h: rCellH }, 'BEHIND', gapStr(s?.relatives?.behind?.gapSec))}
@@ -236,15 +243,15 @@ export function GridProDashWidget({ snapshot, config }: WidgetProps): ReactEleme
           minFontPx={24}
           maxFontPx={gearH * 0.7}
         />
-        <DataField x={midX} y={speedY} width={midW} height={speedH} label="SPEED  KM/H" value={n0(s?.speedKmh)} state="normal" ghost={false} skin={skin} />
+        <DataField x={midX} y={speedY} width={midW} height={speedH} label={`SPEED  ${speed.unit.toUpperCase()}`} value={speed.display} state="normal" ghost={false} skin={skin} />
 
         {/* Bottom strip */}
         {df({ x: bx(0), y: bY, w: bW, h: botH }, 'TC', fmtLevel(s?.tcLevel))}
         {df({ x: bx(1), y: bY, w: bW, h: botH }, 'ABS', fmtLevel(s?.absLevel))}
         {df({ x: bx(2), y: bY, w: bW, h: botH }, 'MAP', fmtLevel(s?.engineMap), 'accent')}
         {df({ x: bx(3), y: bY, w: bW, h: botH }, 'BIAS', n1(s?.brakeBiasPct), 'normal', '%')}
-        {df({ x: bx(4), y: bY, w: bW, h: botH }, 'AIR', n0(s?.airTempC), tempState(s?.airTempC, 32, 42), '°')}
-        {df({ x: bx(5), y: bY, w: bW, h: botH }, 'TRACK', n0(s?.trackTempC), tempState(s?.trackTempC, 40, 55), '°')}
+        {df({ x: bx(4), y: bY, w: bW, h: botH }, 'AIR', temp(s?.airTempC).display, tempState(s?.airTempC, 32, 42), tempUnit)}
+        {df({ x: bx(5), y: bY, w: bW, h: botH }, 'TRACK', temp(s?.trackTempC).display, tempState(s?.trackTempC, 40, 55), tempUnit)}
       </svg>
     </div>
   )

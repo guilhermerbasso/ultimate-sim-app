@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { RevLedBar } from './RevLedBar'
 import { gt3Base } from '../skins/tokens'
+import { SHIFT_STROBE_BLUE } from '../lib/rev-lights'
 
 const render = (props: Parameters<typeof RevLedBar>[0]): string =>
   renderToStaticMarkup(createElement(RevLedBar, props))
@@ -26,15 +27,19 @@ describe('RevLedBar', () => {
     expect(markup).not.toContain('feGaussianBlur')
   })
 
-  it('flashes white at redline', () => {
+  it('turns every LED strong blue and strobes uniformly at the shift point', () => {
     const markup = render({ pct: 1, segments: 8, redlineFlash: true, flashOn: true, flashAt: 0.9 })
-    expect(markup.toLowerCase()).toContain('#ffffff')
+    expect(markup).toContain(SHIFT_STROBE_BLUE)
+    expect(markup).toContain('data-rev-shift="strobe"')
+    expect(markup).toContain('repeatCount="indefinite"')
+    expect((markup.match(new RegExp(SHIFT_STROBE_BLUE, 'g')) ?? []).length).toBeGreaterThanOrEqual(8)
   })
 
   it('does not flash when below flashAt', () => {
     const markup = render({ pct: 0.6, segments: 8, redlineFlash: true, flashAt: 0.97 })
-    // No lit LED should be pure white at 60%.
-    expect(markup).toContain('<svg')
+    expect(markup).toContain('data-rev-shift="normal"')
+    expect(markup).not.toContain('repeatCount="indefinite"')
+    expect(markup).not.toContain(SHIFT_STROBE_BLUE)
   })
 
   it('renders cleanly (no NaN/undefined) at null/extreme values', () => {

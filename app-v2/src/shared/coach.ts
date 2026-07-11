@@ -2,6 +2,7 @@ import type { CarLeftRightState, Corners, PaceMode, SessionState, TelemetrySnaps
 import type { DriverIntentRegistry, IntentCategory, IntentId } from './driver-intent'
 import type { CoachBaseline } from './coach-baseline'
 import { applyIntentGate } from './coach-intent-gate'
+import { formatMeasurement, type UnitSystem } from './units'
 
 export type CoachSeverity = 'high' | 'med' | 'low' | 'good'
 
@@ -98,8 +99,8 @@ export function mergeCoachConfig(base: CoachConfig, patch: CoachConfigPatch): Co
  * Payload of `coach:speak` (COACH_CHANNELS.speak) — a self-initiated Live Coach
  * radio call. Emitted by the main coach engine when `speakTopTip` is on; consumed
  * GLOBALLY in App.tsx → speakViaTts so it is spoken on ANY screen (mirrors the AI
- * Engineer's `engineer:proactive`). `lang` drives the TTS voice/fallback; the
- * message text is composed in Portuguese, so it carries `pt-BR`.
+ * Engineer's `engineer:proactive`). `lang` is the language used to compose the
+ * line and drives the matching TTS voice/fallback.
  */
 export interface CoachSpeakEvent {
   /** The line to speak. */
@@ -765,12 +766,16 @@ export interface CoachCornerMetrics {
   corner: number
   minSpeedKmh: number
   entrySpeedKmh: number
+  /** Speed at the end of the numbered corner extent, when sampled. */
+  exitSpeedKmh?: number
   /** lapDistPct where braking began inside the corner window (undefined if none). */
   brakeStartPct?: number
   /** lapDistPct where throttle was (re)applied on exit (undefined if none). */
   throttleStartPct?: number
   /** lapDistPct where the committed turn-in happened (undefined if none). */
   steerStartPct?: number
+  /** Fraction of samples in the corner where TC was intervening (0..1). */
+  tcActivePct?: number
 }
 
 /** A reference lap reduced to per-corner metrics (the driver's best, typically). */
@@ -1355,6 +1360,8 @@ export interface AnalyzeLapOptions {
   intentThreshold?: number
   /** Min error-confidence to keep an error audible (default 0.4; UI sensitivity). */
   minConfidence?: number
+  /** Display units for human-readable detail/evidence strings; metrics stay canonical. */
+  unitSystem?: UnitSystem
 }
 
 /** PURE: turn a buffered lap into ranked findings. */
@@ -1394,7 +1401,7 @@ export function analyzeLap(
       findings.push(makeFinding('brake-late', sector, zone, loss, 'entry',
         `Late/hard braking demais — Sector ${sector}`,
         'A very high brake peak with prolonged ABS points to late braking and straight-line lockup. Brake earlier and modulate pressure so the tire does not lock.',
-        `Pico ${m.maxBrakePct}%, ABS ${(z.absMs / 1000).toFixed(1)}s, min ${m.minSpeedKmh} km/h`, m))
+        `Pico ${m.maxBrakePct}%, ABS ${(z.absMs / 1000).toFixed(1)}s, min ${formatMeasurement(m.minSpeedKmh, 'speed-kmh', opts.unitSystem ?? 'metric', { decimals: 0, includeUnit: true }).display}`, m))
     } else if (z.coastAfterMs > merged.earlyCoastMs && z.durMs > merged.earlyMinBrakeMs && z.maxBrake < merged.earlyMaxBrake) {
       const loss = z.coastAfterMs / 1000 * 0.3 + z.durMs / 1000 * 0.12
       findings.push(makeFinding('brake-early', sector, zone, loss, 'entry',
@@ -1495,7 +1502,7 @@ export function analyzeLap(
   // ── BIDIRECTIONAL: gains/losses vs a reference lap, per corner ──
   if (cornerMap && cornerMap.corners.length > 0 && opts.reference) {
     const current = computeCornerMetrics(samples, cornerMap, merged)
-    for (const f of bidirectionalCornerFindings(current, opts.reference, cornerMap, merged)) findings.push(f)
+    for (const f of bidirectionalCornerFindings(current, opts.reference, cornerMap, merged, opts.unitSystem)) findings.push(f)
   }
 
   // Attach the corner number (+ extent) to every finding from the corner map.
@@ -1509,7 +1516,8 @@ export function analyzeLap(
         intentThreshold: opts.intentThreshold,
         minConfidence: opts.minConfidence,
         baseline: opts.baseline,
-        lap: buffer.lapNumber
+        lap: buffer.lapNumber,
+        unitSystem: opts.unitSystem
       })
     : findings
 
@@ -1568,6 +1576,8 @@ export function computeCornerMetrics(
   for (const corner of cornerMap.corners) {
     const win = samplesInCorner(samples, corner, cfg.cornerTimingMarginPct)
     if (win.length === 0) continue
+    const exact = samplesInCorner(samples, corner, 0)
+    const speedWindow = exact.length > 0 ? exact : win
     let minSpeedKmh = Number.POSITIVE_INFINITY
     let apexIdx = 0
     win.forEach((s, i) => {
@@ -1576,17 +1586,21 @@ export function computeCornerMetrics(
         apexIdx = i
       }
     })
-    const entrySpeedKmh = win[0].speedKmh
+    const entrySpeedKmh = speedWindow[0].speedKmh
+    const exitSpeedKmh = speedWindow[speedWindow.length - 1].speedKmh
     const brakeStartPct = win.find((s) => s.brake > cfg.brakeOn)?.lapDistPct
     const steerStartPct = win.find((s) => s.steerAbsDeg > cfg.steerTurnInDeg)?.lapDistPct
     const throttleStartPct = throttleReapplyPct(win, cfg, apexIdx)
+    const tcActivePct = speedWindow.filter((s) => s.tcActive).length / speedWindow.length
     out.push({
       corner: corner.index,
       minSpeedKmh: Math.round(minSpeedKmh === Number.POSITIVE_INFINITY ? 0 : minSpeedKmh),
       entrySpeedKmh: Math.round(entrySpeedKmh),
+      exitSpeedKmh: Math.round(exitSpeedKmh),
       brakeStartPct,
       throttleStartPct,
-      steerStartPct
+      steerStartPct,
+      tcActivePct
     })
   }
   return out
@@ -1688,7 +1702,8 @@ export function bidirectionalCornerFindings(
   current: CoachCornerMetrics[],
   reference: CoachReferenceLap,
   cornerMap: CoachCornerMap,
-  cfg: CoachAnalysisConfig = DEFAULT_COACH_ANALYSIS
+  cfg: CoachAnalysisConfig = DEFAULT_COACH_ANALYSIS,
+  unitSystem: UnitSystem = 'metric'
 ): CoachFinding[] {
   const out: CoachFinding[] = []
   const refByCorner = new Map<number, CoachCornerMetrics>()
@@ -1706,22 +1721,26 @@ export function bidirectionalCornerFindings(
 
     // ── Min-speed: gain (faster) or loss (slower) vs the reference apex speed ──
     const speedDelta = cur.minSpeedKmh - ref.minSpeedKmh
+    const currentSpeed = formatMeasurement(cur.minSpeedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
+    const referenceSpeed = formatMeasurement(ref.minSpeedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
+    const deltaSpeed = formatMeasurement(speedDelta, 'speed-kmh', unitSystem, { decimals: 0, signed: true })
+    const speedUnit = currentSpeed.unit
     if (speedDelta >= cfg.minSpeedDeltaKmh) {
       const gain = Math.min(0.4, speedDelta * cfg.secPerKmhDelta)
       out.push(makeFinding('min-speed-gain', sector, span, 0, 'mid',
         `Mais speed na Turn ${cur.corner}`,
-        `You carried ${speedDelta} km/h more minimum speed than the reference. Keep trusting the entry here.`,
-        `Vmin ${cur.minSpeedKmh} km/h vs ${ref.minSpeedKmh} km/h (+${speedDelta})`,
+        `You carried ${deltaSpeed.display.replace(/^\+/, '')} ${speedUnit} more minimum speed than the reference. Keep trusting the entry here.`,
+        `Vmin ${currentSpeed.display} ${speedUnit} vs ${referenceSpeed.display} ${speedUnit} (${deltaSpeed.display})`,
         { minSpeedKmh: cur.minSpeedKmh, refMinSpeedKmh: ref.minSpeedKmh, deltaKmh: speedDelta }, false,
-        { ...cornerExtra, estTimeGainSec: gain, explanation: `Carried ${speedDelta} km/h more minimum speed — repeat that entry.` }))
+        { ...cornerExtra, estTimeGainSec: gain, explanation: `Carried ${deltaSpeed.display.replace(/^\+/, '')} ${speedUnit} more minimum speed — repeat that entry.` }))
     } else if (speedDelta <= -cfg.minSpeedDeltaKmh) {
       const loss = Math.min(0.4, -speedDelta * cfg.secPerKmhDelta)
       out.push(makeFinding('time-loss', sector, span, loss, 'mid',
         `Menos speed na Turn ${cur.corner}`,
-        `You carried ${-speedDelta} km/h less minimum speed than the reference. Carry more entry speed and release the brake earlier.`,
-        `Vmin ${cur.minSpeedKmh} km/h vs ${ref.minSpeedKmh} km/h (${speedDelta})`,
+        `You carried ${deltaSpeed.display.replace(/^-/, '')} ${speedUnit} less minimum speed than the reference. Carry more entry speed and release the brake earlier.`,
+        `Vmin ${currentSpeed.display} ${speedUnit} vs ${referenceSpeed.display} ${speedUnit} (${deltaSpeed.display})`,
         { minSpeedKmh: cur.minSpeedKmh, refMinSpeedKmh: ref.minSpeedKmh, deltaKmh: speedDelta }, false,
-        { ...cornerExtra, explanation: `Lost ${-speedDelta} km/h of minimum speed — carry more speed on entry.` }))
+        { ...cornerExtra, explanation: `Lost ${deltaSpeed.display.replace(/^-/, '')} ${speedUnit} of minimum speed — carry more speed on entry.` }))
     }
 
     // ── Braked later AND still kept the apex speed → a clean, replicable gain ──
@@ -1852,6 +1871,8 @@ export function buildCoachReport(
     intentThreshold?: number
     /** Min error-confidence to keep an error audible (default 0.4; UI sensitivity). */
     minConfidence?: number
+    /** Display units for human-readable detail/evidence strings; metrics stay canonical. */
+    unitSystem?: UnitSystem
   } = {}
 ): CoachReport {
   const cfg = opts.cfg ?? DEFAULT_COACH_ANALYSIS
@@ -1862,7 +1883,8 @@ export function buildCoachReport(
     registry: opts.registry,
     baseline: opts.baseline,
     intentThreshold: opts.intentThreshold,
-    minConfidence: opts.minConfidence
+    minConfidence: opts.minConfidence,
+    unitSystem: opts.unitSystem
   })
   const sectors = summarizeSectors(buffer, cfg)
   const consistency = analyzeConsistency(opts.recentLapTimesSec ?? [])

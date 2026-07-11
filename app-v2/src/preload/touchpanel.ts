@@ -13,6 +13,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 const EXACT_CHANNELS = new Set<string>([
   'iracing:command',
   'actions:testEmulation',
+  'app:getSettings',
+  'app:settingsChanged',
   'app:dash:cycle',
   'oled:setActivePage',
   'overlays:toggle'

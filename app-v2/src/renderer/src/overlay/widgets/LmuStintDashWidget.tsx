@@ -11,6 +11,8 @@ import type { WidgetProps } from './types'
 import { formatTime, formatDelta } from './format'
 import { resolveSkin, FitText, type SkinToken } from '../../skins'
 import { BarGraph, DataField, type FieldState } from '../../instruments'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 export const LMU_STINT_DASH_STREAM_SAFE = true
 
@@ -122,6 +124,7 @@ function wearOf(t: TyreInfo | undefined): number | undefined {
 }
 
 export function LmuStintDashWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const s = snapshot
   const skin = resolveSkin('gt3', 'generic')
   const { palette } = skin
@@ -138,6 +141,10 @@ export function LmuStintDashWidget({ snapshot, config }: WidgetProps): ReactElem
   const ty = s?.tyres
   const wet = wetnessPct(s)
   const wetState: FieldState = wet !== undefined && wet > 5 ? 'warn' : 'info'
+  const fuel = formatMeasurement(s?.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1 })
+  const fuelPerLap = formatMeasurement(s?.fuelPerLap, 'fuel-per-lap-l', unitSystem, { decimals: 2 })
+  const air = formatMeasurement(s?.airTempC, 'temperature-c', unitSystem, { decimals: 0 })
+  const track = formatMeasurement(s?.trackTempC, 'temperature-c', unitSystem, { decimals: 0 })
 
   const topH = Math.max(52, Math.round(H * 0.13))
   const topY = P
@@ -207,10 +214,11 @@ export function LmuStintDashWidget({ snapshot, config }: WidgetProps): ReactElem
         {/* Left: headline FUEL block */}
         <rect x={leftX} y={mainTop} width={leftW} height={fuelBlockH} rx={skin.material.radius} fill={skin.material.base} stroke={lowFuel ? palette.crit : palette.accent} strokeWidth={skin.material.borderWidth} />
         <FitText x={leftX + fbPad} y={mainTop + fuelBlockH * 0.16} boxW={leftW * 0.6} boxH={fuelBlockH * 0.14} text="FUEL LEFT" anchor="start" baseline="middle" fontFamily={skin.typography.label} fill={lowFuel ? palette.crit : palette.accent} minFontPx={11} maxFontPx={Math.max(12, fuelBlockH * 0.12)} weight={700} letterSpacing={2} />
-        <FitText x={leftX + leftW / 2} y={mainTop + fuelBlockH * 0.46} boxW={leftW * 0.82} boxH={fuelBlockH * 0.4} text={`${n1(s?.fuelLiters)}L`} anchor="middle" baseline="middle" fontFamily={skin.segment.numeric} fill={lowFuel ? palette.crit : palette.text} minFontPx={24} maxFontPx={fuelBlockH * 0.4} />
+        <FitText x={leftX + leftW / 2} y={mainTop + fuelBlockH * 0.44} boxW={leftW * 0.82} boxH={fuelBlockH * 0.34} text={fuel.display} anchor="middle" baseline="middle" fontFamily={skin.segment.numeric} fill={lowFuel ? palette.crit : palette.text} minFontPx={24} maxFontPx={fuelBlockH * 0.34} />
+        <FitText x={leftX + leftW / 2} y={mainTop + fuelBlockH * 0.65} boxW={leftW * 0.55} boxH={fuelBlockH * 0.1} text={fuel.unit} anchor="middle" baseline="middle" fontFamily={skin.typography.label} fill={palette.textDim} minFontPx={11} maxFontPx={fuelBlockH * 0.09} />
         <BarGraph x={leftX + fbPad} y={mainTop + fuelBlockH * 0.76} width={leftW - 2 * fbPad} height={fuelBlockH * 0.16} fraction={frac ?? 0} warnAt={0.15} critAt={0.08} invert skin={skin} />
         {df(leftX, fuelRowY, (leftW - G) / 2, fuelRowH, 'LAPS EMPTY', n1(toEmpty), toEmptyState)}
-        {df(leftX + (leftW - G) / 2 + G, fuelRowY, (leftW - G) / 2, fuelRowH, 'FUEL/LAP', n2(s?.fuelPerLap), 'normal', 'L')}
+        {df(leftX + (leftW - G) / 2 + G, fuelRowY, (leftW - G) / 2, fuelRowH, 'FUEL/LAP', fuelPerLap.display, 'normal', fuelPerLap.unit)}
 
         {/* Centre: tyre wear + conditions */}
         <FitText x={midX + midW / 2} y={mainTop + wearHeadH / 2} boxW={midW * 0.9} boxH={wearHeadH * 0.8} text="TYRE WEAR %" anchor="middle" baseline="middle" fontFamily={skin.typography.label} fill={palette.textDim} minFontPx={11} maxFontPx={Math.max(12, wearHeadH * 0.7)} weight={700} letterSpacing={2} />
@@ -218,8 +226,8 @@ export function LmuStintDashWidget({ snapshot, config }: WidgetProps): ReactElem
         {df(midX + cw + G, wearGridY, cw, chh, 'RF', n0(wearOf(ty?.rf)), wearState(wearOf(ty?.rf)), '%')}
         {df(midX, wearGridY + chh + G, cw, chh, 'LR', n0(wearOf(ty?.lr)), wearState(wearOf(ty?.lr)), '%')}
         {df(midX + cw + G, wearGridY + chh + G, cw, chh, 'RR', n0(wearOf(ty?.rr)), wearState(wearOf(ty?.rr)), '%')}
-        {df(midX, condY, condW, condH, 'AIR', n0(s?.airTempC), 'info', '°')}
-        {df(midX + condW + G, condY, condW, condH, 'TRACK', n0(s?.trackTempC), 'warn', '°')}
+        {df(midX, condY, condW, condH, 'AIR', air.display, 'info', air.unit)}
+        {df(midX + condW + G, condY, condW, condH, 'TRACK', track.display, 'warn', track.unit)}
         {df(midX + 2 * (condW + G), condY, condW, condH, 'WET', n0(wet), wetState, '%')}
 
         {/* Right: running order + reference laps */}

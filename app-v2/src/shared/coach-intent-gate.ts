@@ -27,6 +27,7 @@ import {
   fuzzyRising,
   type DriverIntentRegistry
 } from './driver-intent'
+import type { UnitSystem } from './units'
 
 export interface IntentGateOptions {
   /** Confidence a legitimate intent needs to SUPPRESS a finding (default 0.6). */
@@ -38,6 +39,7 @@ export interface IntentGateOptions {
   baseline?: CoachBaseline
   /** Current lap number (diagnostic only). */
   lap?: number
+  unitSystem?: UnitSystem
 }
 
 /** Default min error-confidence to keep a finding audible. */
@@ -98,7 +100,8 @@ export function applyIntentGate(
         estTimeLossSec: f.estTimeLossSec,
         phase: f.phase
       },
-      samples
+      samples,
+      opts.unitSystem ?? 'metric'
     )
     if (!event) {
       out.push(f)

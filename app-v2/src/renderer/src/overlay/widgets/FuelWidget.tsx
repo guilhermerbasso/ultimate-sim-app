@@ -9,6 +9,8 @@ import type { WidgetProps } from './types'
 import { numberOrDash, pct } from './format'
 import { resolveSkin, FitText } from '../../skins'
 import { DataField, BarGraph } from '../../instruments'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 const DEFAULT_W = 300
 const DEFAULT_H = 160
@@ -20,6 +22,7 @@ function fuelTone(level: number): 'good' | 'warn' | 'bad' {
 }
 
 export function FuelWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = resolveSkin('gt3', 'generic')
   const glass = skin.id === 'hud'
   const W = Math.max(1, Math.round(config?.position?.width ?? DEFAULT_W))
@@ -34,8 +37,8 @@ export function FuelWidget({ snapshot, config }: WidgetProps): ReactElement {
   const level = levelOpt ?? 0
   const tone: Tone = levelOpt === undefined ? 'none' : fuelTone(levelOpt)
   const pctTok = levelOpt === undefined ? '—' : `${(levelOpt * 100).toFixed(0)}%`
-  const fuelStr = numberOrDash(fuel, 1)
-  const perLapStr = numberOrDash(perLap, 2)
+  const fuelReading = formatMeasurement(fuel, 'fuel-volume-l', unitSystem, { decimals: 1 })
+  const perLapReading = formatMeasurement(perLap, 'fuel-per-lap-l', unitSystem, { decimals: 2 })
   const lapsStr = numberOrDash(laps, 1)
 
   const toneHex = tone === 'good' ? skin.palette.ok : tone === 'warn' ? skin.palette.warn : tone === 'bad' ? skin.palette.crit : skin.palette.textDim
@@ -75,7 +78,7 @@ export function FuelWidget({ snapshot, config }: WidgetProps): ReactElement {
       <FitText x={pad} y={19} boxW={W * 0.6} boxH={16} text="FUEL" anchor="start" fontFamily={skin.typography.label} fill={skin.palette.textDim} minFontPx={11} maxFontPx={16} letterSpacing={1} />
       <FitText x={W - pad} y={19} boxW={W * 0.3} boxH={16} text={pctTok} anchor="end" fontFamily={skin.segment.numeric} fill={toneHex} minFontPx={11} maxFontPx={16} />
 
-      <DataField x={pad} y={heroY} width={W - pad * 2} height={heroH} label="FUEL" value={fuelStr} unit="L" state={toneState} skin={skin} />
+      <DataField x={pad} y={heroY} width={W - pad * 2} height={heroH} label="FUEL" value={fuelReading.display} unit={fuelReading.unit} state={toneState} skin={skin} />
 
       <BarGraph
         x={pad}
@@ -92,7 +95,7 @@ export function FuelWidget({ snapshot, config }: WidgetProps): ReactElement {
         skin={skin}
       />
 
-      <DataField x={pad} y={gridY} width={cellW} height={gridH} label="L/LAP" value={perLapStr} skin={skin} />
+      <DataField x={pad} y={gridY} width={cellW} height={gridH} label="FUEL/LAP" value={perLapReading.display} unit={perLapReading.unit} skin={skin} />
       <DataField x={pad + cellW + 8} y={gridY} width={cellW} height={gridH} label="AUTONOMIA" value={lapsStr} unit="V" state={toneState} skin={skin} />
     </svg>
   )

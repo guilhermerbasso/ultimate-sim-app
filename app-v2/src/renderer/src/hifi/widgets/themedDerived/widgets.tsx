@@ -22,6 +22,7 @@ import {
   legibleStroke,
   num
 } from '../kit'
+import { formatMeasurement } from '../../../../../shared/units'
 
 const W = 420
 const H = 240
@@ -200,19 +201,20 @@ function carAttitude(pal: ThemePal) {
 
 // ── 5. Fuel laps left ─────────────────────────────────────────────────────────
 function fuelLapsLeft(pal: ThemePal) {
-  return function ThemedFuelLapsLeft({ width, height, snapshot }: HifiWidgetProps): ReactElement {
+  return function ThemedFuelLapsLeft({ width, height, snapshot, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
     const liters = num(snapshot?.fuelLiters)
     const perLapKg = num(snapshot?.fuelPerLapKg)
     const perLapL = perLapKg != null && perLapKg > 0 ? perLapKg / 0.75 : undefined
     const laps = liters != null && perLapL != null && perLapL > 0 ? liters / perLapL : undefined
     const color = laps == null ? C.dim : laps < 2 ? pal.accent : pal.main
+    const perLapReading = formatMeasurement(perLapKg, 'mass-per-lap-kg', unitSystem, { decimals: 2 })
     return (
       <Root width={width} height={height} snapshot={snapshot}>
         <BigNum x={W / 2} y={126} value={laps == null ? '—' : fixed(laps, 1)} color={color} size={104} />
         {laps != null ? <AccentBar pal={pal} cx={W / 2} y={148} w={150} /> : null}
         <Label text="LAPS LEFT" x={W / 2} y={182} />
         <text x={W / 2} y={214} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={20} fontWeight={700} stroke="rgba(0,0,0,0.55)" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
-          {perLapKg == null ? '—' : `${fixed(perLapKg, 2)} kg/lap`}
+          {perLapKg == null ? '—' : `${perLapReading.display} ${perLapReading.unit}`}
         </text>
       </Root>
     )

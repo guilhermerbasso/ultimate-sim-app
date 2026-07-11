@@ -1,7 +1,8 @@
 import { type ReactElement } from 'react'
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, fixed, frac, legibleStroke, num, revFill } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, fixed, frac, legibleStroke, num } from '../kit'
+import { SHIFT_STROBE_BLUE, ShiftStrobe, resolveRevLightState, revLightRowLayout } from '../../../lib/rev-lights'
 
 const AMBER = '#ffb000'
 const CYAN = '#00d8ff'
@@ -116,14 +117,16 @@ function AlertProximityRadar({ snapshot, width, height }: HifiWidgetProps): Reac
 function AlertShiftFlash({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const w = width ?? 1200
   const h = height ?? 80
-  const f = frac(num(snapshot?.shiftIndicatorPct), 0, 1)
-  if (!snapshot || f <= 0) return empty(w, h)
-  const count = 72
-  const gap = 5
-  const y = h / 2 - 8
-  const cellW = (w - gap * (count - 1)) / count
-  const lit = Math.max(1, Math.round(f * count))
-  const center = (count - 1) / 2
+  const state = resolveRevLightState(
+    frac(num(snapshot?.shiftIndicatorPct), 0, 1),
+    snapshot?.revLights?.blink
+  )
+  if (!snapshot || !state.atShiftPoint) return empty(w, h)
+  const layout = revLightRowLayout(w, h, 72, {
+    gap: 5,
+    heightRatio: 0.2,
+    minLedHeight: Math.min(4, Math.max(1, Number.isFinite(h) ? h : 80))
+  })
   return (
     <CleanTile width={w} height={h}>
       <defs>
@@ -137,12 +140,17 @@ function AlertShiftFlash({ snapshot, width, height }: HifiWidgetProps): ReactEle
       </defs>
       <g filter="url(#alerts-shift-glow)">
         <ShiftStrobe active />
-        {Array.from({ length: count }, (_, i) => {
-          const dist = Math.abs(i - center) / center
-          const color = dist < 0.32 ? WHITE : BLUE
-          const on = i >= Math.floor((count - lit) / 2) && i <= Math.ceil((count + lit) / 2)
-          return <rect key={i} x={i * (cellW + gap)} y={y} width={cellW} height={16} rx={8} fill={on ? revFill(color, true) : C.recess} opacity={on ? 1 : 0.16} />
-        })}
+        {layout.positions.map((x, i) => (
+          <rect
+            key={i}
+            x={x}
+            y={layout.y}
+            width={layout.ledWidth}
+            height={layout.ledHeight}
+            rx={layout.ledHeight / 2}
+            fill={SHIFT_STROBE_BLUE}
+          />
+        ))}
       </g>
     </CleanTile>
   )

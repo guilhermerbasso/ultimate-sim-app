@@ -17,6 +17,8 @@ import {
   timeOfDayInfo
 } from './raceControl'
 import { WIDGET_COMPONENTS } from './index'
+import { UnitSystemProvider } from '../../lib/units'
+import type { UnitSystem } from '../../../../shared/units'
 
 // The 20 overlays added by the R16 batch, grouped by intended visual style.
 const FUTURISTIC_IDS: OverlayWidgetId[] = [
@@ -84,10 +86,12 @@ const fullSnapshot = {
 // Everything optional left undefined — the new-telemetry fields are all missing.
 const emptySnapshot = { sim: 'iracing', connected: false, timestamp: 0 } as unknown as TelemetrySnapshot
 
-function renderId(id: OverlayWidgetId, snapshot: TelemetrySnapshot | null): string {
+function renderId(id: OverlayWidgetId, snapshot: TelemetrySnapshot | null, unitSystem: UnitSystem = 'metric'): string {
   const Component = WIDGET_COMPONENTS[id]
   const config = defaults.widgets[id]
-  return renderToStaticMarkup(createElement(Component, { snapshot, config }))
+  return renderToStaticMarkup(
+    createElement(UnitSystemProvider, { initialUnitSystem: unitSystem }, createElement(Component, { snapshot, config }))
+  )
 }
 
 function assertClean(markup: string, ctx: string): void {
@@ -192,8 +196,8 @@ describe('R16 overlays surface the right telemetry', () => {
   })
 
   it('Cold pressure overlays convert kPa to psi', () => {
-    expect(renderId('coldPressureCard', fullSnapshot)).toContain('23.9')
-    expect(renderId('coldPressureGrid', fullSnapshot)).toContain('23.9')
+    expect(renderId('coldPressureCard', fullSnapshot, 'imperial')).toContain('23.9')
+    expect(renderId('coldPressureGrid', fullSnapshot, 'imperial')).toContain('23.9')
   })
 
   it('Session clocks render the time of day', () => {

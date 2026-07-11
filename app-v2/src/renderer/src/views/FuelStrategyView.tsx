@@ -1,9 +1,11 @@
-import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FuelStrategySettings, FuelStrategyState } from '../../../shared/fuel'
 import type { LapTimingState } from '../../../shared/laptiming'
 import { TEAM_FUEL_CHANNELS, type TeamFuelMode, type TeamFuelPeer } from '../../../shared/team-fuel'
 import type { AppViewProps } from '../App'
 import { tt, type ResolvedLanguage } from '../i18n'
+import { convertMeasurement, formatMeasurement, measurementUnit, usGallonsToLiters } from '../../../shared/units'
+import { useUnitSystem } from '../lib/units'
 
 const card: CSSProperties = {
   background: 'var(--surface-raised)',
@@ -95,6 +97,7 @@ function GuidedEmptyState({ language }: { language?: ResolvedLanguage }): ReactE
 }
 
 export default function FuelStrategyView({ language }: AppViewProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const [fuel, setFuel] = useState<FuelStrategyState | null>(null)
   const [lap, setLap] = useState<LapTimingState | null>(null)
   const [targetLaps, setTargetLaps] = useState('')
@@ -105,12 +108,26 @@ export default function FuelStrategyView({ language }: AppViewProps): ReactEleme
   const [teamPeers, setTeamPeers] = useState<TeamFuelPeer[]>([])
   const [teamBusy, setTeamBusy] = useState(false)
   const [teamStatus, setTeamStatus] = useState(() => tt(language, 'fuel.team.stopped'))
+  const previousUnitSystem = useRef(unitSystem)
+
+  useEffect(() => {
+    if (previousUnitSystem.current === unitSystem) return
+    const entered = Number(marginLiters)
+    if (Number.isFinite(entered)) {
+      const canonicalLiters = previousUnitSystem.current === 'imperial' ? usGallonsToLiters(entered) : entered
+      const converted = convertMeasurement(canonicalLiters, 'fuel-volume-l', unitSystem)
+      setMarginLiters(converted === undefined ? '' : converted.toFixed(unitSystem === 'imperial' ? 2 : 1))
+    }
+    previousUnitSystem.current = unitSystem
+  }, [marginLiters, unitSystem])
 
   const settings = useMemo<FuelStrategySettings>(() => ({
     targetLaps: numberOrUndefined(targetLaps),
     raceTimeMinutes: numberOrUndefined(raceMinutes),
-    fuelMarginLiters: numberOrUndefined(marginLiters) ?? 0
-  }), [marginLiters, raceMinutes, targetLaps])
+    fuelMarginLiters: unitSystem === 'imperial'
+      ? usGallonsToLiters(numberOrUndefined(marginLiters)) ?? 0
+      : numberOrUndefined(marginLiters) ?? 0
+  }), [marginLiters, raceMinutes, targetLaps, unitSystem])
 
   const refresh = useCallback(async (): Promise<void> => {
     const [fuelState, lapState] = await Promise.all([
@@ -188,7 +205,7 @@ export default function FuelStrategyView({ language }: AppViewProps): ReactEleme
           <input style={input} type="number" min="1" placeholder={tt(language, 'strategy.auto')} value={raceMinutes} onChange={(event) => setRaceMinutes(event.target.value)} />
         </div>
         <div>
-          <div style={label}>{tt(language, 'fuel.margin')}</div>
+          <div style={label}>{tt(language, 'fuel.margin')} ({measurementUnit('fuel-volume-l', unitSystem)})</div>
           <input style={input} type="number" min="0" step="0.5" value={marginLiters} onChange={(event) => setMarginLiters(event.target.value)} />
         </div>
         <div style={{ fontSize: 13, opacity: 0.78 }}>
@@ -203,10 +220,10 @@ export default function FuelStrategyView({ language }: AppViewProps): ReactEleme
           {hasFuelData ? (
             <>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
-                <Metric title={tt(language, 'fuel.fuel')} main={fmtNumber(fuel?.fuelLiters, 1)} unit="L" />
-                <Metric title={tt(language, 'fuel.avgUse')} main={fmtNumber(fuel?.usedPerLap, 2)} unit={tt(language, 'fuel.literLapUnit')} />
+                <Metric title={tt(language, 'fuel.fuel')} main={formatMeasurement(fuel?.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1 }).display} unit={measurementUnit('fuel-volume-l', unitSystem)} />
+                <Metric title={tt(language, 'fuel.avgUse')} main={formatMeasurement(fuel?.usedPerLap, 'fuel-per-lap-l', unitSystem, { decimals: 2 }).display} unit={measurementUnit('fuel-per-lap-l', unitSystem)} />
                 <Metric title={tt(language, 'fuel.lapsInTank')} main={fmtNumber(fuel?.lapsLeftWithFuel, 1)} unit={tt(language, 'fuel.lapUnit')} accent={canFinish ? 'var(--accent-success)' : 'var(--accent-warning)'} />
-                <Metric title={tt(language, 'fuel.fuelSaveTarget')} main={fmtNumber(fuel?.saveTarget, 2)} unit={tt(language, 'fuel.literLapUnit')} accent={(fuel?.saveNeededPerLap ?? 0) > 0 ? 'var(--accent-warning)' : 'var(--accent-success)'} />
+                <Metric title={tt(language, 'fuel.fuelSaveTarget')} main={formatMeasurement(fuel?.saveTarget, 'fuel-per-lap-l', unitSystem, { decimals: 2 }).display} unit={measurementUnit('fuel-per-lap-l', unitSystem)} accent={(fuel?.saveNeededPerLap ?? 0) > 0 ? 'var(--accent-warning)' : 'var(--accent-success)'} />
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
@@ -215,9 +232,9 @@ export default function FuelStrategyView({ language }: AppViewProps): ReactEleme
                   <h3 style={{ margin: '6px 0 12px' }}>{statusLabel(fuel?.pitWindow.status, language)}</h3>
                   <div style={{ display: 'grid', gap: 8, fontVariantNumeric: 'tabular-nums' }}>
                     <div>{tt(language, 'fuel.estimatedLapsRemaining')} <strong>{fmtNumber(fuel?.raceLapsRemaining, 1)}</strong></div>
-                    <div>{tt(language, 'fuel.fuelToFinish')} <strong>{fmtNumber(fuel?.fuelToFinish, 1)} L</strong></div>
-                    <div>{tt(language, 'fuel.balanceToFinish')} <strong style={{ color: (fuel?.fuelDeltaToFinish ?? 0) >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)' }}>{fmtNumber(fuel?.fuelDeltaToFinish, 1)} L</strong></div>
-                    <div>{tt(language, 'fuel.saveNeeded')} <strong>{fmtNumber(fuel?.saveNeededPerLap, 2)} {tt(language, 'fuel.literLapUnit')}</strong></div>
+                    <div>{tt(language, 'fuel.fuelToFinish')} <strong>{formatMeasurement(fuel?.fuelToFinish, 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true }).display}</strong></div>
+                    <div>{tt(language, 'fuel.balanceToFinish')} <strong style={{ color: (fuel?.fuelDeltaToFinish ?? 0) >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)' }}>{formatMeasurement(fuel?.fuelDeltaToFinish, 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true, signed: true }).display}</strong></div>
+                    <div>{tt(language, 'fuel.saveNeeded')} <strong>{formatMeasurement(fuel?.saveNeededPerLap, 'fuel-per-lap-l', unitSystem, { decimals: 2, includeUnit: true }).display}</strong></div>
                     <div>{tt(language, 'fuel.pitWindow')} <strong>{fuel?.pitWindow.latestLap ? tt(language, 'fuel.untilLap', { lap: fuel.pitWindow.latestLap }) : '—'}</strong></div>
                   </div>
                 </section>
@@ -229,7 +246,7 @@ export default function FuelStrategyView({ language }: AppViewProps): ReactEleme
                     <div>{tt(language, 'fuel.estimatedPace')} <strong>{fmtTime(fuel?.stint.estimatedLapTimeSec)}</strong></div>
                     <div>{tt(language, 'fuel.lapsPerStint')} <strong>{fuel?.stint.stintLaps ?? '—'}</strong></div>
                     <div>{tt(language, 'fuel.stintsToFinish')} <strong>{fuel?.stint.stintsToFinish ?? '—'}</strong></div>
-                    <div>{tt(language, 'fuel.fuelPerStint')} <strong>{fmtNumber(fuel?.stint.fuelPerStintLiters, 1)} L</strong></div>
+                    <div>{tt(language, 'fuel.fuelPerStint')} <strong>{formatMeasurement(fuel?.stint.fuelPerStintLiters, 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true }).display}</strong></div>
                     <div>{tt(language, 'fuel.history')} <strong>{fuel?.samples.length ?? 0}</strong> {tt(language, 'fuel.movingAverage')}</div>
                   </div>
                 </section>
@@ -299,7 +316,7 @@ export default function FuelStrategyView({ language }: AppViewProps): ReactEleme
               <tr style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>
                 <th style={{ textAlign: 'left', padding: '8px 6px' }}>Driver</th>
                 <th style={{ textAlign: 'right', padding: '8px 6px' }}>Fuel</th>
-                <th style={{ textAlign: 'right', padding: '8px 6px' }}>L/lap</th>
+                <th style={{ textAlign: 'right', padding: '8px 6px' }}>{measurementUnit('fuel-per-lap-l', unitSystem)}</th>
                 <th style={{ textAlign: 'right', padding: '8px 6px' }}>Laps left</th>
                 <th style={{ textAlign: 'right', padding: '8px 6px' }}>Stint</th>
                 <th style={{ textAlign: 'left', padding: '8px 6px' }}>Pit</th>
@@ -312,8 +329,8 @@ export default function FuelStrategyView({ language }: AppViewProps): ReactEleme
               ) : teamPeers.map((peer) => (
                 <tr key={peer.peerId} style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                   <td style={{ padding: '9px 6px' }}><strong>{peer.driverName}</strong>{peer.local ? <span style={{ opacity: 0.58 }}> · {tt(language, 'fuel.you')}</span> : null}</td>
-                  <td style={{ textAlign: 'right', padding: '9px 6px' }}>{fmtNumber(peer.fuelLiters, 1)} L</td>
-                  <td style={{ textAlign: 'right', padding: '9px 6px' }}>{fmtNumber(peer.fuelPerLap, 2)}</td>
+                  <td style={{ textAlign: 'right', padding: '9px 6px' }}>{formatMeasurement(peer.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true }).display}</td>
+                  <td style={{ textAlign: 'right', padding: '9px 6px' }}>{formatMeasurement(peer.fuelPerLap, 'fuel-per-lap-l', unitSystem, { decimals: 2 }).display}</td>
                   <td style={{ textAlign: 'right', padding: '9px 6px' }}>{fmtNumber(peer.lapsRemaining, 1)}</td>
                   <td style={{ textAlign: 'right', padding: '9px 6px' }}>{peer.stintTargetLaps ?? '—'}</td>
                   <td style={{ padding: '9px 6px' }}>{peer.pitWindow?.latestLap ? tt(language, 'fuel.untilLap', { lap: peer.pitWindow.latestLap }) : (peer.pitWindow?.status ?? '—')}</td>

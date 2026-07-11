@@ -10,6 +10,8 @@ import type { WidgetProps } from './types'
 import { formatGear, formatTime, pct } from './format'
 import { resolveSkin, FitText, zoneColor, type SkinToken } from '../../skins'
 import { AnalogDial, DataField, type FieldState } from '../../instruments'
+import { formatMeasurement, measurementUnit } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 function dims(config: WidgetProps['config']): { W: number; H: number } {
   const w = config?.position?.width
@@ -26,10 +28,6 @@ function n0(v: number | undefined): string {
 function n1(v: number | undefined): string {
   return v === undefined || !Number.isFinite(v) ? '—' : v.toFixed(1)
 }
-function n2(v: number | undefined): string {
-  return v === undefined || !Number.isFinite(v) ? '—' : v.toFixed(2)
-}
-
 function tempState(c: number | undefined, warn: number, crit: number, cold?: number): FieldState {
   if (c === undefined || !Number.isFinite(c)) return 'normal'
   if (c >= crit) return 'crit'
@@ -71,6 +69,7 @@ function tempC(t: TyreInfo | undefined): number | undefined {
 }
 
 export function RingDashWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const s = snapshot
   const skin = resolveSkin('gt3', 'generic')
   const { palette } = skin
@@ -87,6 +86,10 @@ export function RingDashWidget({ snapshot, config }: WidgetProps): ReactElement 
   const yellowFlag = !!s?.flags?.yellow
   const inPit = !!(s?.onPitRoad || s?.pitLimiter)
   const ty = s?.tyres
+  const fuel = formatMeasurement(s?.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1 })
+  const fuelPerLap = formatMeasurement(s?.fuelPerLap, 'fuel-per-lap-l', unitSystem, { decimals: 2 })
+  const speed = formatMeasurement(s?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
+  const waterTemp = formatMeasurement(s?.waterTempC, 'temperature-c', unitSystem, { decimals: 0 })
 
   const topH = Math.max(46, Math.min(84, Math.round(H * 0.12)))
   const botH = Math.max(52, Math.min(112, Math.round(H * 0.16)))
@@ -161,17 +164,17 @@ export function RingDashWidget({ snapshot, config }: WidgetProps): ReactElement 
         />
         {df(fcyR, 'FCY', yellowFlag ? 'YELLOW' : 'GREEN', yellowFlag ? 'warn' : 'ok')}
 
-        {df(fuelR, 'FUEL', n1(s?.fuelLiters), 'normal', 'L')}
-        {df(flapR, 'FUEL/LAP', n2(s?.fuelPerLap), 'accent')}
-        {df(spdR, 'SPEED', n0(s?.speedKmh), 'normal', 'KMH')}
-        {df(watR, 'WATER', n0(s?.waterTempC), tempState(s?.waterTempC, 108, 120), '°')}
+        {df(fuelR, 'FUEL', fuel.display, 'normal', fuel.unit)}
+        {df(flapR, 'FUEL/LAP', fuelPerLap.display, 'accent', fuelPerLap.unit)}
+        {df(spdR, 'SPEED', speed.display, 'normal', speed.unit.toUpperCase())}
+        {df(watR, 'WATER', waterTemp.display, tempState(s?.waterTempC, 108, 120), waterTemp.unit)}
 
         {df(lastR, 'LAST', formatTime(s?.lastLapTimeSec))}
         {df(bestR, 'BEST', formatTime(s?.bestLapTimeSec), 'info')}
-        {df({ x: rightX, y: rightBotY, w: tCellW, h: tCellH }, 'LF', n0(tempC(ty?.lf)), tempState(tempC(ty?.lf), 100, 110, 70), '°')}
-        {df({ x: rightX + tCellW + G, y: rightBotY, w: tCellW, h: tCellH }, 'RF', n0(tempC(ty?.rf)), tempState(tempC(ty?.rf), 100, 110, 70), '°')}
-        {df({ x: rightX, y: rightBotY + tCellH + G, w: tCellW, h: tCellH }, 'LR', n0(tempC(ty?.lr)), tempState(tempC(ty?.lr), 100, 110, 70), '°')}
-        {df({ x: rightX + tCellW + G, y: rightBotY + tCellH + G, w: tCellW, h: tCellH }, 'RR', n0(tempC(ty?.rr)), tempState(tempC(ty?.rr), 100, 110, 70), '°')}
+        {df({ x: rightX, y: rightBotY, w: tCellW, h: tCellH }, 'LF', formatMeasurement(tempC(ty?.lf), 'temperature-c', unitSystem, { decimals: 0 }).display, tempState(tempC(ty?.lf), 100, 110, 70), measurementUnit('temperature-c', unitSystem))}
+        {df({ x: rightX + tCellW + G, y: rightBotY, w: tCellW, h: tCellH }, 'RF', formatMeasurement(tempC(ty?.rf), 'temperature-c', unitSystem, { decimals: 0 }).display, tempState(tempC(ty?.rf), 100, 110, 70), measurementUnit('temperature-c', unitSystem))}
+        {df({ x: rightX, y: rightBotY + tCellH + G, w: tCellW, h: tCellH }, 'LR', formatMeasurement(tempC(ty?.lr), 'temperature-c', unitSystem, { decimals: 0 }).display, tempState(tempC(ty?.lr), 100, 110, 70), measurementUnit('temperature-c', unitSystem))}
+        {df({ x: rightX + tCellW + G, y: rightBotY + tCellH + G, w: tCellW, h: tCellH }, 'RR', formatMeasurement(tempC(ty?.rr), 'temperature-c', unitSystem, { decimals: 0 }).display, tempState(tempC(ty?.rr), 100, 110, 70), measurementUnit('temperature-c', unitSystem))}
 
         <g transform={`translate(${dialX}, ${dialY})`}>
           <AnalogDial

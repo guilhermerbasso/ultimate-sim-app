@@ -6,10 +6,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 // (`app:pitpanel:`). It never sees `window.api` (the full serial/profile surface)
 // nor the broader `app:` namespace.
 
+const EXACT_CHANNELS = new Set(['app:getSettings', 'app:settingsChanged'])
 const ALLOWED_PREFIXES = ['iracing:', 'telemetry:', 'app:pitpanel:']
 
 function isAllowed(channel: string): boolean {
-  return ALLOWED_PREFIXES.some((prefix) => channel.startsWith(prefix))
+  return EXACT_CHANNELS.has(channel) || ALLOWED_PREFIXES.some((prefix) => channel.startsWith(prefix))
 }
 
 const ipc = {

@@ -32,14 +32,28 @@ describe('iRacing telemetry provider parsing', () => {
     const drivers = __iracingTelemetryTest.parseDrivers(sessionInfo, {
       PlayerCarIdx: 1,
       CarIdxLap: [10, 10, 10],
+      CarIdxLapCompleted: [9, 9, 9],
       CarIdxLapDistPct: [0.53, 0.5, 0.48],
       CarIdxF2Time: [100, 102, 104],
-      CarIdxOnPitRoad: [false, false, true]
+      CarIdxEstTime: [84, 82, 80],
+      CarIdxLastLapTime: [90.1, 90.4, 91.2],
+      CarIdxBestLapTime: [89.8, 90.0, 90.6],
+      CarIdxBestLapNum: [7, 8, 6],
+      CarIdxGear: [5, 4, 3],
+      CarIdxRPM: [7100, 6800, 5900],
+      CarIdxOnPitRoad: [false, false, true],
+      CarIdxTrackSurface: [3, 3, 2],
+      CarIdxTrackSurfaceMaterial: [1, 2, 5],
+      CarIdxP2P_Status: [0, 1, 0],
+      CarIdxP2P_Count: [3, 2, 1],
+      CarIdxPaceFlags: [0, 2, 1],
+      CarIdxPaceLine: [0, 0, 1],
+      CarIdxPaceRow: [1, 2, 3]
     }, statics)
 
-    expect(drivers?.[0]).toMatchObject({ name: 'Ahead Driver', position: 1, classPosition: 1, gapToPlayerSec: 2, isPlayer: false })
-    expect(drivers?.[1]).toMatchObject({ name: 'Player Driver', position: 2, classPosition: 2, gapToPlayerSec: 0, isPlayer: true })
-    expect(drivers?.[2]).toMatchObject({ name: 'Behind Driver', position: 3, classPosition: 3, gapToPlayerSec: -2, inPits: true })
+    expect(drivers?.[0]).toMatchObject({ name: 'Ahead Driver', position: 1, classPosition: 1, gapToPlayerSec: 2, relativeTimeSec: 2, completedLaps: 9, estimatedTimeSec: 84, gear: 5, rpm: 7100, trackLocation: 3, trackSurfaceMaterial: 1, bestLapTimeSec: 89.8, bestLapNum: 7, pushToPassActive: false, pushToPassCount: 3, paceLine: 0, paceRow: 1, isPlayer: false })
+    expect(drivers?.[1]).toMatchObject({ name: 'Player Driver', position: 2, classPosition: 2, gapToPlayerSec: 0, relativeTimeSec: 0, pushToPassActive: true, paceFlags: ['freePass'], isPlayer: true })
+    expect(drivers?.[2]).toMatchObject({ name: 'Behind Driver', position: 3, classPosition: 3, gapToPlayerSec: -2, relativeTimeSec: -2, inPits: true, paceFlags: ['endOfLine'] })
   })
 
   it('keeps official irSDK tyre carcass L/M/R temperatures per corner', () => {
@@ -56,10 +70,12 @@ describe('iRacing telemetry provider parsing', () => {
       RRtempCL: 81,
       RRtempCM: 82,
       RRtempCR: 83,
-      LFwearM: 0.97
+      LFwearL: 0.98,
+      LFwearM: 0.97,
+      LFwearR: 0.96
     })
 
-    expect(tyres?.lf).toMatchObject({ tempC: 82, tempLeftC: 80, tempMiddleC: 82, tempRightC: 84, wearPct: 0.97 })
+    expect(tyres?.lf).toMatchObject({ tempC: 82, tempLeftC: 80, tempMiddleC: 82, tempRightC: 84, wearPct: 0.97, wearLeftPct: 0.98, wearMiddlePct: 0.97, wearRightPct: 0.96 })
     expect(tyres?.rr).toMatchObject({ tempLeftC: 81, tempMiddleC: 82, tempRightC: 83 })
   })
 
@@ -485,6 +501,91 @@ describe('iRacing B2 channels (ABS/TC fix + SDK-gap fields) snapshot mapping', (
     expect(one?.carLeftRightCount).toBe(1)
     // Clear → no count.
     expect(pollWith({ Speed: 50, RPM: 7000, Gear: 3, CarLeftRight: 1 })?.carLeftRightCount).toBeUndefined()
+  })
+})
+
+describe('iRacing remaining widget-channel snapshot mapping', () => {
+  it('maps scalar, replay, pit, weather, setup, vector, and map fields without inventing defaults', () => {
+    const snap = pollWith({
+      Speed: 50,
+      RPM: 7000,
+      Gear: 3,
+      VelocityZ: -0.4,
+      dcThrottleShape: 4,
+      dcEngineBraking: 5,
+      dcAntiRollFront: 3,
+      dcAntiRollRear: 6,
+      dcWeightJackerRight: -1,
+      SessionNum: 2,
+      SessionTime: 1234.5,
+      LapCompleted: 8,
+      LapDist: 3210,
+      LapBestNLapLap: 7,
+      LapBestNLapTime: 91.25,
+      IsOnTrackCar: true,
+      CamCarIdx: 12,
+      IsReplayPlaying: false,
+      ReplayFrameNum: 200,
+      ReplayFrameNumEnd: 1000,
+      PitSvLFP: 151,
+      PitSvRFP: 152,
+      PitSvLRP: 149,
+      PitSvRRP: 150,
+      PitSvFuel: 34.5,
+      PitRepairLeft: 18,
+      PitOptRepairLeft: 42,
+      PitstopActive: 1,
+      Precipitation: 0.35,
+      AirDensity: 1.16,
+      AirPressure: 29.8,
+      WeatherType: 2
+    }, {
+      WeekendInfo: { TrackLength: '7.004 km' }
+    })
+
+    expect(snap).toMatchObject({
+      velocityZ: -0.4,
+      throttleMap: 4,
+      engineBraking: 5,
+      antiRollFront: 3,
+      antiRollRear: 6,
+      weightJackerRight: -1,
+      sessionNumber: 2,
+      sessionTimeSec: 1234.5,
+      completedLaps: 8,
+      lapDistanceM: 3210,
+      bestNLapLap: 7,
+      bestNLapTimeSec: 91.25,
+      onTrack: true,
+      cameraCarIdx: 12,
+      replayPlaying: false,
+      replayFrameNum: 200,
+      replayFrameEnd: 1000,
+      pitTyreTargetsKpa: { lf: 151, rf: 152, lr: 149, rr: 150 },
+      pitFuelToAddL: 34.5,
+      repairTimeSec: 18,
+      optionalRepairTimeSec: 42,
+      pitStopActive: true,
+      precipitationPct: 0.35,
+      airDensityKgM3: 1.16,
+      airPressureKpa: 100.9143922,
+      airPressureHg: 29.8,
+      weatherType: 2,
+      trackLengthKm: 7.004
+    })
+  })
+
+  it('keeps every new optional channel undefined when the SDK omits it', () => {
+    const snap = pollWith({ Speed: 50, RPM: 7000, Gear: 3 })
+    const fields = [
+      'velocityZ', 'throttleMap', 'engineBraking', 'antiRollFront', 'antiRollRear',
+      'weightJackerRight', 'sessionNumber', 'sessionTimeSec', 'completedLaps',
+      'lapDistanceM', 'bestNLapLap', 'bestNLapTimeSec', 'onTrack', 'cameraCarIdx',
+      'replayPlaying', 'replayFrameNum', 'replayFrameEnd', 'pitTyreTargetsKpa',
+      'pitFuelToAddL', 'repairTimeSec', 'optionalRepairTimeSec', 'pitStopActive',
+      'precipitationPct', 'airDensityKgM3', 'airPressureKpa', 'airPressureHg', 'weatherType', 'trackLengthKm'
+    ] as const
+    for (const field of fields) expect(snap?.[field]).toBeUndefined()
   })
 })
 

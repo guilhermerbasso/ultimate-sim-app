@@ -7,6 +7,8 @@ import type { DriverEntry, TelemetrySnapshot } from '../../../shared/telemetry'
 const W = 1024
 const H = 600
 const ROWS = 8
+const FASTEST_NAME_X = 520
+const FASTEST_NAME_W = 116
 
 const COL = {
   bg: '#07090a',
@@ -64,6 +66,13 @@ function shortName(name: string | undefined): string {
   const parts = clean.split(' ')
   if (parts.length === 1) return parts[0].toUpperCase()
   return `${parts[0][0]}. ${parts[parts.length - 1]}`.toUpperCase()
+}
+
+function fastestBannerName(name: string | undefined): string {
+  const clean = (name ?? '').replace(/\s+/g, ' ').trim()
+  if (!clean) return '—'
+  const surname = clean.split(' ').pop()?.toUpperCase() ?? '—'
+  return surname.length > 8 ? `${surname.slice(0, 7)}…` : surname
 }
 
 function clsLabel(d: DriverEntry | undefined): string {
@@ -154,7 +163,9 @@ function FastestBanner({ drivers }: { drivers: DriverEntry[] }): ReactElement {
       <Label x={332} y={424} size={17} fill={COL.purpleHi}>FASTEST LAP</Label>
       <path d={skewPath(456, 400, 50, 35, 6)} fill={COL.purple} />
       <Mono x={481} y={425} anchor="middle" size={24}>{fastest?.carNumber ?? '—'}</Mono>
-      <Label x={528} y={424} size={21}>{shortName(fastest?.name)}</Label>
+      <g clipPath="url(#fastest-driver-name-clip)">
+        <Label x={FASTEST_NAME_X} y={424} size={19}>{fastestBannerName(fastest?.name)}</Label>
+      </g>
       <Mono x={746} y={425} anchor="end" size={22} fill={COL.purpleHi}>{lapTime(n(fastest?.lastLapTimeSec))}</Mono>
       <line x1={444} y1={403} x2={438} y2={432} stroke={COL.line} />
       <line x1={642} y1={403} x2={636} y2={432} stroke={COL.line} />
@@ -220,6 +231,9 @@ export function BroadcastDash({ snapshot, width, height }: BroadcastDashProps): 
           <stop offset="0.55" stopColor="#000" stopOpacity={0.38} />
           <stop offset="1" stopColor="#000" stopOpacity={0.12} />
         </linearGradient>
+        <clipPath id="fastest-driver-name-clip">
+          <rect x={FASTEST_NAME_X} y={398} width={FASTEST_NAME_W} height={38} />
+        </clipPath>
       </defs>
       <rect x={0} y={0} width={W} height={H} fill="url(#broadcast-grid)" />
       <rect x={0} y={0} width={W} height={H} fill="url(#broadcast-vignette)" />

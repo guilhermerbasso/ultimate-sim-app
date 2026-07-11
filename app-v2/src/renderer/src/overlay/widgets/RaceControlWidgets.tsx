@@ -23,6 +23,8 @@ import { resolveSkin, FitText, makeGrid } from '../../skins'
 import type { SkinToken } from '../../skins'
 import { AlarmStrip, DataTile, SegmentReadout } from '../../instruments'
 import type { MotorsportIconId } from '../../icons/motorsport'
+import { convertMeasurement, formatMeasurement, measurementUnit, type UnitSystem } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 // ── Skin resolution (gt3 default; keeps hud swap open) ───────────────────────
 function widgetSkin(): SkinToken {
@@ -722,9 +724,10 @@ export function SessionClockWidget(props: WidgetProps): ReactElement {
 }
 
 // ── BoP badge (ballast + power adjust) ────────────────────────────────────────
-function formatWeightTxt(weight: number | undefined): string {
-  if (!isNum(weight)) return '—'
-  return `${weight > 0 ? '+' : ''}${Math.round(weight)}`
+function formatWeightTxt(weight: number | undefined, unitSystem: UnitSystem): string {
+  const converted = convertMeasurement(weight, 'mass-kg', unitSystem)
+  if (converted === undefined) return '—'
+  return `${converted > 0 ? '+' : ''}${Math.round(converted)}`
 }
 
 function formatPowerTxt(power: number | undefined): string {
@@ -733,6 +736,7 @@ function formatPowerTxt(power: number | undefined): string {
 }
 
 export function BopBadgeWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = widgetSkin()
   const { W, H } = pos(config, SIZE.bopBadge)
   const { palette, typography } = skin
@@ -741,7 +745,7 @@ export function BopBadgeWidget({ snapshot, config }: WidgetProps): ReactElement 
   const penalised = hasBop(weight, power)
   const known = isNum(weight) || isNum(power)
   const accent = !known ? palette.textDim : penalised ? palette.warn : palette.ok
-  const weightTxt = formatWeightTxt(weight)
+  const weightTxt = formatWeightTxt(weight, unitSystem)
   const powerTxt = formatPowerTxt(power)
   const weightColor = isNum(weight) && Math.abs(weight) > 0 ? palette.warn : palette.text
   const powerColor = isNum(power) && power < 0 ? palette.warn : isNum(power) && power > 0 ? palette.ok : palette.text
@@ -783,7 +787,7 @@ export function BopBadgeWidget({ snapshot, config }: WidgetProps): ReactElement 
         <DataTile
           label="LASTRO"
           value={weightTxt}
-          unit="kg"
+          unit={measurementUnit('mass-kg', unitSystem)}
           width={leftCell.w}
           height={leftCell.h}
           color={weightColor}
@@ -814,11 +818,12 @@ export function BopBadgeWidget({ snapshot, config }: WidgetProps): ReactElement 
 // ── Cold tyre pressures (grid + card) ─────────────────────────────────────────
 const CORNER_LABEL: Record<string, string> = { lf: 'LF', rf: 'RF', lr: 'LR', rr: 'RR' }
 
-function psiTxt(psi: number | null): string {
-  return psi === null ? '—' : psi.toFixed(1)
+function pressureTxt(kpa: number | null, unitSystem: UnitSystem): string {
+  return formatMeasurement(kpa ?? undefined, 'pressure-kpa', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0 }).display
 }
 
 export function ColdPressureGridWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = widgetSkin()
   const { W, H } = pos(config, SIZE.coldPressureGrid)
   const { palette, typography, material } = skin
@@ -844,7 +849,7 @@ export function ColdPressureGridWidget({ snapshot, config }: WidgetProps): React
         y={headerCell.y + headerCell.h / 2}
         boxW={headerCell.w * 0.6}
         boxH={headerCell.h * 0.9}
-        text="COLD PSI"
+        text={`COLD ${measurementUnit('pressure-kpa', unitSystem).toUpperCase()}`}
         anchor="start"
         fontFamily={typography.label}
         fill={palette.textDim}
@@ -896,7 +901,7 @@ export function ColdPressureGridWidget({ snapshot, config }: WidgetProps): React
               y={valueY}
               boxW={cell.w}
               boxH={valueH}
-              text={psiTxt(c.psi)}
+              text={pressureTxt(c.kpa, unitSystem)}
               anchor="middle"
               fontFamily={typography.label}
               fill={c.outlier ? palette.crit : palette.text}
@@ -926,6 +931,7 @@ export function ColdPressureGridWidget({ snapshot, config }: WidgetProps): React
 }
 
 export function ColdPressureCardWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = widgetSkin()
   const { W, H } = pos(config, SIZE.coldPressureCard)
   const { palette, typography } = skin
@@ -969,7 +975,7 @@ export function ColdPressureCardWidget({ snapshot, config }: WidgetProps): React
         y={headerCell.y + headerCell.h / 2}
         boxW={headerCell.w * 0.35}
         boxH={headerCell.h * 0.9}
-        text={present ? 'psi' : 'garagem'}
+        text={present ? measurementUnit('pressure-kpa', unitSystem) : 'garagem'}
         anchor="end"
         fontFamily={typography.label}
         fill={palette.textDim}
@@ -982,7 +988,7 @@ export function ColdPressureCardWidget({ snapshot, config }: WidgetProps): React
         const row = Math.floor(i / 2)
         const cell = grid.cell(col, row)
         const yOffset = headerH + 4
-        const value = psiTxt(c.psi)
+        const value = pressureTxt(c.kpa, unitSystem)
         const color = c.outlier ? palette.crit : c.key === coldest ? palette.warn : palette.text
         return (
           <g key={c.key} transform={`translate(${cell.x},${cell.y + yOffset})`}>

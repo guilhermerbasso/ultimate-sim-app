@@ -609,46 +609,121 @@ const GT3_INSTRUMENT_VARIANTS: WidgetVariant[] = [
 const HIFI_CATEGORY_MAP: Record<string, WidgetCategoryTag> = {
   inputs: 'Inputs',
   drive: 'Speed/Engine',
+  engine: 'Speed/Engine',
   timing: 'Timing/Delta',
   gaps: 'Position/Standings',
+  standings: 'Position/Standings',
   fuel: 'Fuel',
   tyres: 'Tyres/Brakes',
   brakesEngine: 'Speed/Engine',
   sessionEnv: 'Flags/Status',
+  session: 'Flags/Status',
+  weather: 'Flags/Status',
+  pit: 'Flags/Status',
+  map: 'Track/Radar',
+  identity: 'Text/Image',
   ai: 'Text/Image'
 }
 
 const HIFI_CLUSTER_MAP: Record<string, WidgetClusterTag> = {
   inputs: 'DDU / Cluster',
   drive: 'DDU / Cluster',
+  engine: 'Engine Vitals',
   timing: 'Timing / Delta',
   gaps: 'Radar / Relative',
+  standings: 'Radar / Relative',
   fuel: 'Stint / Endurance',
   tyres: 'Tyre / Brake',
   brakesEngine: 'Engine Vitals',
   sessionEnv: 'Race Control / Flags',
+  session: 'Race Control / Flags',
+  weather: 'Weather / Track',
+  pit: 'Stint / Endurance',
+  map: 'Weather / Track',
+  identity: 'DDU / Cluster',
   ai: 'Race Control / Flags'
 }
 
-const HIFI_WIDGET_VARIANTS: WidgetVariant[] = HIFI_WIDGETS.map((module) => ({
-  id: `hifi-${module.id}`,
-  label: module.title,
-  hint: module.description,
-  type: 'overlaywidget',
-  widgetId: `hifi:${module.id}`,
-  hifiModuleId: module.id,
-  binding: module.requires[0],
-  w: Math.max(160, Math.round(module.defaultSize.w)),
-  h: Math.max(70, Math.round(module.defaultSize.h)),
-  category: HIFI_CATEGORY_MAP[module.category] ?? 'Digital',
-  styleFamily: 'clean',
-  cluster: HIFI_CLUSTER_MAP[module.category] ?? 'DDU / Cluster',
-  tags: ['hifi', 'overlay', module.category, ...hifiWidgetTags(module)],
-  style: gt3({ background: '#000000', border: '#1F1F1F', borderWidth: 0, radius: 0, label: module.title })
-}))
+function hifiHasTag(module: (typeof HIFI_WIDGETS)[number], tag: string): boolean {
+  return module.tags.includes(tag)
+}
+
+function hifiStyleFamily(module: (typeof HIFI_WIDGETS)[number]): WidgetStyleFamily {
+  if (hifiHasTag(module, 'table')) return 'table'
+  if (hifiHasTag(module, 'corner-grid')) return 'heatmap'
+  if (hifiHasTag(module, 'vector') || hifiHasTag(module, 'radar')) return 'graph'
+  if (hifiHasTag(module, 'track-map')) return 'chart'
+  if (hifiHasTag(module, 'status') || hifiHasTag(module, 'indicator')) return 'status'
+  if (hifiHasTag(module, 'radial')) return 'gauge'
+  if (hifiHasTag(module, 'linear')) return 'bar'
+  if (hifiHasTag(module, 'digital') || hifiHasTag(module, 'bignum')) return 'digital'
+  return 'clean'
+}
+
+function hifiCluster(module: (typeof HIFI_WIDGETS)[number]): WidgetClusterTag {
+  if (hifiHasTag(module, 'radar') || hifiHasTag(module, 'relative')) {
+    return 'Radar / Relative'
+  }
+  if (hifiHasTag(module, 'corner-grid')) return 'Tyre / Brake'
+  if (hifiHasTag(module, 'track-map')) return 'Weather / Track'
+  if (hifiHasTag(module, 'status') || hifiHasTag(module, 'indicator')) {
+    return 'Tell-tales / Warning lamps'
+  }
+  return HIFI_CLUSTER_MAP[module.category] ?? 'DDU / Cluster'
+}
+
+function hifiVariantAccent(module: (typeof HIFI_WIDGETS)[number]): string {
+  if (hifiHasTag(module, 'futuristic')) return '#35C8E8'
+  if (hifiHasTag(module, 'ddu')) return '#FFB000'
+  return '#F5F7FA'
+}
+
+function toHifiCatalogVariant(module: (typeof HIFI_WIDGETS)[number]): WidgetVariant {
+  const generatedVariant = hifiHasTag(module, 'telemetry-framework')
+  const accent = hifiVariantAccent(module)
+  return {
+    id: `hifi-${module.id}`,
+    label: module.title,
+    hint: module.description,
+    type: 'overlaywidget',
+    widgetId: `hifi:${module.id}`,
+    hifiModuleId: module.id,
+    binding: module.requires[0],
+    w: Math.max(160, Math.round(module.defaultSize.w)),
+    h: Math.max(70, Math.round(module.defaultSize.h)),
+    category: HIFI_CATEGORY_MAP[module.category] ?? 'Digital',
+    styleFamily: hifiStyleFamily(module),
+    cluster: hifiCluster(module),
+    tags: ['hifi', 'overlay', module.category, ...hifiWidgetTags(module)],
+    style: gt3({
+      background: generatedVariant ? 'transparent' : '#000000',
+      border: generatedVariant ? 'transparent' : '#1F1F1F',
+      borderWidth: 0,
+      radius: 0,
+      accentColor: accent,
+      fillColor: accent,
+      warnColor: '#FFB020',
+      dangerColor: '#FF3B30',
+      label: module.title
+    })
+  }
+}
+
+const TELEMETRY_FRAMEWORK_VARIANTS: WidgetVariant[] = HIFI_WIDGETS
+  .filter((module) => hifiHasTag(module, 'telemetry-framework'))
+  .map(toHifiCatalogVariant)
+
+const HIFI_WIDGET_VARIANTS: WidgetVariant[] = HIFI_WIDGETS
+  .filter((module) => !hifiHasTag(module, 'telemetry-framework'))
+  .map(toHifiCatalogVariant)
 
 // ─── Catalogo ────────────────────────────────────────────────────────────────
 export const WIDGET_CATALOG: WidgetCategory[] = [
+  {
+    id: 'telemetry-style-variants',
+    label: 'Telemetry · Competition / Futuristic / DDU',
+    variants: TELEMETRY_FRAMEWORK_VARIANTS
+  },
   {
     id: 'hifi-per-telemetry',
     label: 'Hi-Fi · per telemetry',

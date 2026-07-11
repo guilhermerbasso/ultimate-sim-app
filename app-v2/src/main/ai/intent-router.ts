@@ -31,6 +31,7 @@ import {
   isFiniteNum,
   isPositive
 } from './context-pack'
+import { formatMeasurement, type UnitSystem } from '../../shared/units'
 
 // ─── text normalization ──────────────────────────────────────────────────────
 
@@ -82,14 +83,14 @@ const PREV_TOKENS = ['anterior', 'previous', 'prev', 'lapr', 'lap', 'atras', 're
 
 // ─── public entry ────────────────────────────────────────────────────────────
 
-export function routeIntent(rawText: string, ctx: EngineerContext, forcedLang?: IntentLang): IntentResult {
+export function routeIntent(rawText: string, ctx: EngineerContext, forcedLang?: IntentLang, unitSystem: UnitSystem = 'metric'): IntentResult {
   const text = normalize(rawText ?? '')
   if (!text) return { type: 'passthrough', reason: 'empty' }
   const lang = forcedLang ?? detectLang(text)
 
   return (
     matchCommand(text, lang) ??
-    matchQuestion(text, lang, ctx) ?? { type: 'passthrough' }
+    matchQuestion(text, lang, ctx, unitSystem) ?? { type: 'passthrough' }
   )
 }
 
@@ -151,7 +152,7 @@ function answer(category: IntentCategory, lang: IntentLang, text: string): Inten
 const NO_DATA_PT = 'Sem telemetria no momento.'
 const NO_DATA_EN = 'No telemetry right now.'
 
-function matchQuestion(text: string, lang: IntentLang, ctx: EngineerContext): IntentAnswer | null {
+function matchQuestion(text: string, lang: IntentLang, ctx: EngineerContext, unitSystem: UnitSystem): IntentAnswer | null {
   const snapshot = ctx.getSnapshot()
   const noData = lang === 'en' ? NO_DATA_EN : NO_DATA_PT
 
@@ -159,7 +160,7 @@ function matchQuestion(text: string, lang: IntentLang, ctx: EngineerContext): In
   const isFinishQ = has(text, 'da pra terminar', 'da para terminar', 'consigo terminar', 'can we finish', 'can i finish', 'finish the race', 'make it to the end', 'make the finish', 'will i finish', 'enough fuel')
   if (isFinishQ || (hasWord(text, 'fuel', 'fuel', 'gasolina', 'tanque', 'gas') )) {
     if (!snapshot?.connected) return answer('fuel', lang, noData)
-    return answer('fuel', lang, buildFuelAnswer(ctx, lang, isFinishQ))
+    return answer('fuel', lang, buildFuelAnswer(ctx, lang, isFinishQ, unitSystem))
   }
 
   // PIT (should I box now?)
@@ -213,13 +214,13 @@ function matchQuestion(text: string, lang: IntentLang, ctx: EngineerContext): In
   // TYRES
   if (hasWord(text, 'tire', 'tires', 'tyre', 'tyres', 'tire', 'tires', 'borracha')) {
     if (!snapshot?.connected) return answer('tyres', lang, noData)
-    return answer('tyres', lang, buildTyresAnswer(ctx, lang))
+    return answer('tyres', lang, buildTyresAnswer(ctx, lang, unitSystem))
   }
 
   // WEATHER
   if (hasWord(text, 'rain', 'chovendo', 'weather', 'weather', 'rain', 'raining', 'wet', 'dry', 'molhado', 'molhada', 'dry') || has(text, 'pista molhada')) {
     if (!snapshot?.connected) return answer('weather', lang, noData)
-    return answer('weather', lang, buildWeatherAnswer(ctx, lang))
+    return answer('weather', lang, buildWeatherAnswer(ctx, lang, unitSystem))
   }
 
   return null
@@ -227,7 +228,7 @@ function matchQuestion(text: string, lang: IntentLang, ctx: EngineerContext): In
 
 // ─── answer builders ─────────────────────────────────────────────────────────
 
-function buildFuelAnswer(ctx: EngineerContext, lang: IntentLang, finishFirst: boolean): string {
+function buildFuelAnswer(ctx: EngineerContext, lang: IntentLang, finishFirst: boolean, unitSystem: UnitSystem): string {
   const fuel = deriveFuel(ctx.getSnapshot(), ctx.getFuelState?.())
   const pt = lang === 'pt'
   const parts: string[] = []
@@ -238,9 +239,9 @@ function buildFuelAnswer(ctx: EngineerContext, lang: IntentLang, finishFirst: bo
   }
 
   if (isFiniteNum(fuel.liters)) {
-    parts.push(pt ? `Fuel: ${fuel.liters}L` : `Fuel: ${fuel.liters}L`)
+    parts.push(`Fuel: ${formatMeasurement(fuel.liters, 'fuel-volume-l', unitSystem, { decimals: 1, trimTrailingZeros: true, includeUnit: true }).display}`)
   }
-  if (isFiniteNum(fuel.perLap)) parts.push(pt ? `${fuel.perLap}L per lap` : `${fuel.perLap}L per lap`)
+  if (isFiniteNum(fuel.perLap)) parts.push(formatMeasurement(fuel.perLap, 'fuel-per-lap-l', unitSystem, { decimals: 2, trimTrailingZeros: true, includeUnit: true }).display)
   if (isFiniteNum(fuel.lapsLeft)) parts.push(pt ? `good for about ${fuel.lapsLeft} laps` : `good for ~${fuel.lapsLeft} laps`)
 
   if (!finishFirst && typeof fuel.canFinish === 'boolean') {
@@ -248,7 +249,7 @@ function buildFuelAnswer(ctx: EngineerContext, lang: IntentLang, finishFirst: bo
     else parts.push(pt ? 'cannot finish' : 'not enough to finish')
   }
   if (isFiniteNum(fuel.saveTargetPerLap) && fuel.saveTargetPerLap > 0) {
-    parts.push(pt ? `save ${fuel.saveTargetPerLap}L/lap` : `save ${fuel.saveTargetPerLap}L/lap`)
+    parts.push(`save ${formatMeasurement(fuel.saveTargetPerLap, 'fuel-per-lap-l', unitSystem, { decimals: 2, trimTrailingZeros: true, includeUnit: true }).display}`)
   }
 
   if (parts.length === 0) return pt ? 'No fuel data yet.' : 'No fuel data yet.'
@@ -334,7 +335,7 @@ function buildDeltaAnswer(ctx: EngineerContext, lang: IntentLang): string {
   return `${parts.join(pt ? '. ' : ', ')}.`
 }
 
-function buildTyresAnswer(ctx: EngineerContext, lang: IntentLang): string {
+function buildTyresAnswer(ctx: EngineerContext, lang: IntentLang, unitSystem: UnitSystem): string {
   const tyres = deriveTyres(ctx.getSnapshot(), ctx.getTireState?.())
   const pt = lang === 'pt'
   const parts: string[] = []
@@ -342,7 +343,7 @@ function buildTyresAnswer(ctx: EngineerContext, lang: IntentLang): string {
     const corner = tyres[id]
     if (!corner) continue
     const bits: string[] = []
-    if (isFiniteNum(corner.tempC)) bits.push(`${corner.tempC}°`)
+    if (isFiniteNum(corner.tempC)) bits.push(formatMeasurement(corner.tempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display)
     if (isFiniteNum(corner.wearPct)) bits.push(`${corner.wearPct}%`)
     if (bits.length) parts.push(`${id.toUpperCase()} ${bits.join(' ')}`)
   }
@@ -353,15 +354,15 @@ function buildTyresAnswer(ctx: EngineerContext, lang: IntentLang): string {
   return `${[head, ...tail].join('. ')}.`
 }
 
-function buildWeatherAnswer(ctx: EngineerContext, lang: IntentLang): string {
+function buildWeatherAnswer(ctx: EngineerContext, lang: IntentLang, unitSystem: UnitSystem): string {
   const w = deriveWeather(ctx.getSnapshot())
   const pt = lang === 'pt'
   const wet = w.declaredWet === true || w.raining === true || (isFiniteNum(w.wetnessPct) && w.wetnessPct >= 15)
   const parts: string[] = []
   parts.push(wet ? (pt ? 'Pista molhada' : 'Track is wet') : (pt ? 'Pista seca' : 'Track is dry'))
   if (isFiniteNum(w.wetnessPct)) parts.push(pt ? `umidade ${w.wetnessPct}%` : `${w.wetnessPct}% wet`)
-  if (isFiniteNum(w.airTempC)) parts.push(pt ? `ar ${w.airTempC}°` : `air ${w.airTempC}°`)
-  if (isFiniteNum(w.trackTempC)) parts.push(pt ? `pista ${w.trackTempC}°` : `track ${w.trackTempC}°`)
+  if (isFiniteNum(w.airTempC)) parts.push(`${pt ? 'ar' : 'air'} ${formatMeasurement(w.airTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}`)
+  if (isFiniteNum(w.trackTempC)) parts.push(`${pt ? 'pista' : 'track'} ${formatMeasurement(w.trackTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}`)
   if (w.declaredWet) parts.push(pt ? 'rain declared — rain tires allowed' : 'wet declared — rain tyres allowed')
   return `${parts.join(pt ? ', ' : ', ')}.`
 }

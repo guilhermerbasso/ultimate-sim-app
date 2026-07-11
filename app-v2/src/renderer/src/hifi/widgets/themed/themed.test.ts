@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { baseSnapshot } from '../../../../../shared/telemetry-scenarios'
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
-import { SHIFT_STROBE_BLUE } from '../kit'
+import { SHIFT_STROBE_BLUE } from '../../../lib/rev-lights'
 import { THEMED_WIDGETS } from './index'
 
 const badTokens = /NaN|undefined|Infinity/

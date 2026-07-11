@@ -10,6 +10,7 @@ import type { DriverEntry, RadarCarEntry, RelativeCarEntry, TelemetrySnapshot, T
 import type { TrackMapData } from '../../../../shared/track-map'
 import { TRACK_MAP_CHANNELS } from '../../../../shared/track-map'
 import { RADAR_THREAT_COLORS, radarSideThreat, radarThreatColor, radarThreatLevel } from '../../../../shared/radar'
+import { formatMeasurement, type UnitSystem } from '../../../../shared/units'
 import { getActiveFlag, resolveBinding } from '../binding'
 import { MotorsportGlyph, type MotorsportIconId } from '../../icons/motorsport'
 import {
@@ -37,13 +38,9 @@ import {
   GT3_RECESSED_BACKGROUND,
   brakeCorner,
   brakeTempColor,
-  fmtPressure,
-  fmtTemp,
-  fmtVolume,
   gearFont,
   panelChrome,
   pressureColor,
-  pressureUnitLabel,
   readoutFont,
   rpmRampColor,
   tyreCorner,
@@ -68,6 +65,7 @@ import type { SkinToken, Rect } from '../../skins'
 export interface WidgetProps {
   element: DashboardElement
   snapshot: TelemetrySnapshot | null
+  unitSystem?: UnitSystem
 }
 
 // ── Instrument-primitive bridge ───────────────────────────────────────────────
@@ -340,7 +338,8 @@ function StatCell({
   const valH = Math.max(1, h - labelH)
   const cx = x + w / 2
   const hasUnit = Boolean(unit && unit.length)
-  const vBoxW = hasUnit ? w * 0.66 : w
+  const unitFrac = hasUnit && (unit as string).length >= 6 ? 0.52 : 0.34
+  const vBoxW = hasUnit ? w * (1 - unitFrac) : w
   const uBoxW = hasUnit ? w - vBoxW : 0
   const vMax = Math.max(minPx, valueMaxPx !== undefined ? Math.min(valueMaxPx, valH) : valH * 0.8)
   return (
@@ -912,21 +911,22 @@ export function ShiftBar({ element, snapshot }: WidgetProps): ReactElement {
   )
 }
 
-export function GearCluster({ element, snapshot }: WidgetProps): ReactElement {
+export function GearCluster({ element, snapshot, unitSystem = 'metric' }: WidgetProps): ReactElement {
   const s = element.style
   const skin = resolveElementSkin(s)
   const W = Math.max(1, Math.round(element.w))
   const H = Math.max(1, Math.round(element.h))
   const shift = pct('shiftPct', snapshot)
   const gear = resolveBinding('gearLabel', snapshot).text || '—'
-  const speed = resolveBinding(s.unit === 'mph' ? 'speedMph' : 'speedKmh', snapshot).text
+  const speedReading = formatMeasurement(snapshot?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
+  const speed = speedReading.display
   const rpm = resolveBinding('rpm', snapshot).text
   const rpmNumeric = resolveBinding('rpm', snapshot).numeric ?? 0
   const maxRpm = resolveBinding('maxRpm', snapshot).numeric ?? 8000
   const flash = shift >= (s.flashAt ?? 0.95)
   const gearColor = resolveSlotStyle(s, 'gear', { color: flash ? GT3.whiteFlash : skin.palette.text }).color ?? (flash ? GT3.whiteFlash : skin.palette.text)
   const speedColor = resolveSlotStyle(s, 'speed', { color: skin.palette.text }).color ?? skin.palette.text
-  const speedUnit = s.unit === 'mph' ? 'MPH' : 'KM/H'
+  const speedUnit = speedReading.unit.toUpperCase()
   const pad = Math.max(4, Math.round(Math.min(W, H) * 0.04))
   const stripW = Math.max(8, W - pad * 2)
   const stripH = Math.max(8, Math.round(H * 0.14))
@@ -1094,32 +1094,32 @@ function CornerGrid({ element, values, colorFor, fmt, unitLabel, icon, accent }:
   )
 }
 
-export function TyreGrid({ element, snapshot }: WidgetProps): ReactElement {
+export function TyreGrid({ element, snapshot, unitSystem = 'metric' }: WidgetProps): ReactElement {
   const s = element.style
   const mode = s.gridMode ?? 'temp'
   if (mode === 'pressure') {
     const values = Object.fromEntries(CORNER_ORDER.map((c) => [c, tyreCorner(snapshot, c, 'pressureKpa')])) as Record<CornerKey, number | undefined>
-    return <CornerGrid element={element} values={values} colorFor={(v) => pressureColor(v, s.targetValue ?? 165, s.tolerance ?? 7)} fmt={(v) => fmtPressure(v, s.unit)} unitLabel={pressureUnitLabel(s.unit)} icon="tyre" accent={GT3.green} />
+    return <CornerGrid element={element} values={values} colorFor={(v) => pressureColor(v, s.targetValue ?? 165, s.tolerance ?? 7)} fmt={(v) => formatMeasurement(v, 'pressure-kpa', unitSystem, { decimals: 1 }).display} unitLabel={formatMeasurement(undefined, 'pressure-kpa', unitSystem).unit} icon="tyre" accent={GT3.green} />
   }
   if (mode === 'wear') {
     const values = Object.fromEntries(CORNER_ORDER.map((c) => [c, tyreCorner(snapshot, c, 'wearPct')])) as Record<CornerKey, number | undefined>
     return <CornerGrid element={element} values={values} colorFor={wearColor} fmt={(v) => v === undefined ? '--' : Math.round(clamp01(v) * 100).toString()} unitLabel="%" icon="tyre" accent={GT3.green} />
   }
   const values = Object.fromEntries(CORNER_ORDER.map((c) => [c, tyreCorner(snapshot, c, 'tempC')])) as Record<CornerKey, number | undefined>
-  return <CornerGrid element={element} values={values} colorFor={(v) => tyreTempColor(v, s)} fmt={(v) => fmtTemp(v, s.unit)} unitLabel={`°${s.unit === 'F' ? 'F' : 'C'}`} icon="tyre" accent={GT3.green} />
+  return <CornerGrid element={element} values={values} colorFor={(v) => tyreTempColor(v, s)} fmt={(v) => formatMeasurement(v, 'temperature-c', unitSystem, { decimals: 0 }).display} unitLabel={formatMeasurement(undefined, 'temperature-c', unitSystem).unit} icon="tyre" accent={GT3.green} />
 }
 
-export function BrakeGrid({ element, snapshot }: WidgetProps): ReactElement {
+export function BrakeGrid({ element, snapshot, unitSystem = 'metric' }: WidgetProps): ReactElement {
   const s = element.style
   const values = Object.fromEntries(CORNER_ORDER.map((c) => [c, brakeCorner(snapshot, c)])) as Record<CornerKey, number | undefined>
-  return <CornerGrid element={element} values={values} colorFor={(v) => brakeTempColor(v, s)} fmt={(v) => fmtTemp(v, s.unit)} unitLabel={`°${s.unit === 'F' ? 'F' : 'C'}`} icon="brake" accent={GT3.amber} />
+  return <CornerGrid element={element} values={values} colorFor={(v) => brakeTempColor(v, s)} fmt={(v) => formatMeasurement(v, 'temperature-c', unitSystem, { decimals: 0 }).display} unitLabel={formatMeasurement(undefined, 'temperature-c', unitSystem).unit} icon="brake" accent={GT3.amber} />
 }
 
 // Per-corner health cards rewritten to the KIT single-root <svg> + StatCell
 // pattern (mirrors CornerGrid): a 2×2 grid whose DOMINANT temp value FILLS the
 // cell via FitText, with the wear mini-bar + pressure/brake kept as legible
 // (≥11px) sub-values. All text is SVG so it can never clip/overflow its box.
-export function CornerStack({ element, snapshot }: WidgetProps): ReactElement {
+export function CornerStack({ element, snapshot, unitSystem = 'metric' }: WidgetProps): ReactElement {
   const s = element.style
   const skin = resolveElementSkin(s)
   const W = Math.max(1, Math.round(element.w))
@@ -1181,7 +1181,7 @@ export function CornerStack({ element, snapshot }: WidgetProps): ReactElement {
             )}
             <StatCell
               rect={{ x: cx + 5, y: tempTop, w: cellW - 10, h: tempH }}
-              value={`${fmtTemp(temp, s.unit)}°`}
+              value={formatMeasurement(temp, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}
               valueColor={tColor}
               skin={skin}
               valueFont={FONT_MONO}
@@ -1194,7 +1194,7 @@ export function CornerStack({ element, snapshot }: WidgetProps): ReactElement {
               y={subCY}
               boxW={barW / 2 - 2}
               boxH={subH}
-              text={fmtPressure(press, s.unit)}
+              text={formatMeasurement(press, 'pressure-kpa', unitSystem, { decimals: 1, includeUnit: true }).display}
               fontFamily={FONT_CONDENSED}
               fill={pColor}
               anchor="start"
@@ -1208,7 +1208,7 @@ export function CornerStack({ element, snapshot }: WidgetProps): ReactElement {
               y={subCY}
               boxW={barW / 2 - 2}
               boxH={subH}
-              text={`B ${fmtTemp(brake, s.unit)}°`}
+              text={`B ${formatMeasurement(brake, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}`}
               fontFamily={FONT_CONDENSED}
               fill={bColor}
               anchor="end"
@@ -1224,7 +1224,7 @@ export function CornerStack({ element, snapshot }: WidgetProps): ReactElement {
   )
 }
 
-export function FuelStint({ element, snapshot }: WidgetProps): ReactElement {
+export function FuelStint({ element, snapshot, unitSystem = 'metric' }: WidgetProps): ReactElement {
   const s = element.style
   const skin = resolveElementSkin(s)
   const W = Math.max(1, Math.round(element.w))
@@ -1241,8 +1241,10 @@ export function FuelStint({ element, snapshot }: WidgetProps): ReactElement {
   const lapColor = lapsLeft === undefined ? skin.palette.textDim : lapsLeft <= warnAt ? skin.palette.crit : lapsLeft <= warnAt * 2 ? skin.palette.warn : skin.palette.ok
   const valueOv = resolveSlotStyle(s, 'value', { color: lapColor })
   const lapsText = lapsLeft !== undefined ? lapsLeft.toFixed(1) : '—'
-  const perLapText = perLap !== undefined ? fmtVolume(perLap, s.unit) : '—'
-  const addText = needed === undefined ? '—' : needed > 0 ? `+${fmtVolume(needed, s.unit)}` : 'OK'
+  const perLapReading = formatMeasurement(perLap, 'fuel-per-lap-l', unitSystem, { decimals: 2 })
+  const addReading = formatMeasurement(needed, 'fuel-volume-l', unitSystem, { decimals: 1 })
+  const perLapText = perLapReading.display
+  const addText = needed === undefined ? '—' : needed > 0 ? `+${addReading.display}` : 'OK'
   const addColor = needed !== undefined && needed > 0 ? skin.palette.warn : skin.palette.ok
   const pad = Math.max(5, Math.round(Math.min(W, H) * 0.06))
   const innerW = W - pad * 2
@@ -1272,6 +1274,7 @@ export function FuelStint({ element, snapshot }: WidgetProps): ReactElement {
         rect={{ x: sideX, y: pad, w: halfSide, h: topH }}
         label="LAP"
         value={perLapText}
+        unit={perLapReading.unit}
         valueColor={skin.palette.text}
         labelColor={skin.palette.textDim}
         skin={skin}
@@ -1281,6 +1284,7 @@ export function FuelStint({ element, snapshot }: WidgetProps): ReactElement {
         rect={{ x: sideX + halfSide + 6, y: pad, w: halfSide, h: topH }}
         label="ADD"
         value={addText}
+        unit={needed !== undefined && needed > 0 ? addReading.unit : undefined}
         valueColor={addColor}
         labelColor={skin.palette.textDim}
         valueFont={readoutFont(addText)}
@@ -1695,7 +1699,7 @@ export function SetupStrip({ element, snapshot }: WidgetProps): ReactElement {
   return <Shell element={element} chrome={panelChrome(s, { radius: s.radius ?? 12 })} padding={6} className={`gt3-setupstrip${vertical ? ' gt3-setup-vertical' : ''}`}><div className="gt3-setup-row" style={{ flexDirection: vertical ? 'column' : 'row' }}>{fields.map((f) => nodes[f] ?? null)}</div></Shell>
 }
 
-export function EngineTemps({ element, snapshot }: WidgetProps): ReactElement {
+export function EngineTemps({ element, snapshot, unitSystem = 'metric' }: WidgetProps): ReactElement {
   const s = element.style
   const skin = resolveElementSkin(s)
   const W = Math.max(1, Math.round(element.w))
@@ -1704,7 +1708,9 @@ export function EngineTemps({ element, snapshot }: WidgetProps): ReactElement {
   const oil = resolveBinding(s.bindingOil ?? 'var:oilTempC', snapshot)
   const oilP = resolveBinding(s.bindingOilPressure ?? 'var:oilPressureKpa', snapshot)
   const tColor = (v?: number, hot = 110, crit = 125): string => v === undefined ? skin.palette.textDim : v >= crit ? skin.palette.crit : v >= hot ? skin.palette.warn : skin.palette.ok
-  const unitC = `°${s.unit === 'F' ? 'F' : 'C'}`
+  const waterReading = formatMeasurement(water.numeric, 'temperature-c', unitSystem, { decimals: 0 })
+  const oilReading = formatMeasurement(oil.numeric, 'temperature-c', unitSystem, { decimals: 0 })
+  const oilPressureReading = formatMeasurement(oilP.numeric, 'pressure-kpa', unitSystem, { decimals: 1 })
   // Tall/narrow placements (e.g. 180×250) stack the three DataField-style cells
   // vertically; landscape lays them 1×3. Each cell is a labelled DSEG readout so
   // the label + value + unit each get their OWN auto-fit box and can never clip.
@@ -1712,9 +1718,9 @@ export function EngineTemps({ element, snapshot }: WidgetProps): ReactElement {
   const labelColor = resolveSlotStyle(s, 'label', { color: skin.palette.textDim }).color ?? skin.palette.textDim
   const unitColor = resolveSlotStyle(s, 'unit', { color: skin.palette.textDim }).color ?? skin.palette.textDim
   const cells = [
-    { label: 'WATER', value: water.numeric !== undefined ? fmtTemp(water.numeric, s.unit) : '—', unit: unitC, tc: tColor(water.numeric, s.hotAt ?? 108, s.criticalAt ?? 122) },
-    { label: 'OIL', value: oil.numeric !== undefined ? fmtTemp(oil.numeric, s.unit) : '—', unit: unitC, tc: tColor(oil.numeric, s.hotAt ?? 120, s.criticalAt ?? 140) },
-    { label: 'OIL P', value: oilP.numeric !== undefined ? oilP.numeric.toFixed(0) : '—', unit: 'kPa', tc: oilP.numeric !== undefined && oilP.numeric < 100 ? skin.palette.crit : skin.palette.ok }
+    { label: 'WATER', value: waterReading.display, unit: waterReading.unit, tc: tColor(water.numeric, s.hotAt ?? 108, s.criticalAt ?? 122) },
+    { label: 'OIL', value: oilReading.display, unit: oilReading.unit, tc: tColor(oil.numeric, s.hotAt ?? 120, s.criticalAt ?? 140) },
+    { label: 'OIL P', value: oilPressureReading.display, unit: oilPressureReading.unit, tc: oilP.numeric !== undefined && oilP.numeric < 100 ? skin.palette.crit : skin.palette.ok }
   ]
   const grid = portrait ? makeGrid(1, 3, W, H, 8) : makeGrid(3, 1, W, H, 8)
   return (
@@ -1746,7 +1752,7 @@ export function EngineTemps({ element, snapshot }: WidgetProps): ReactElement {
   )
 }
 
-export function Weather({ element, snapshot }: WidgetProps): ReactElement {
+export function Weather({ element, snapshot, unitSystem = 'metric' }: WidgetProps): ReactElement {
   const s = element.style
   const wet = clamp01(snapshot?.trackWetnessPct ?? 0)
   const grip = snapshot?.gripPct
@@ -1755,8 +1761,8 @@ export function Weather({ element, snapshot }: WidgetProps): ReactElement {
     <Shell element={element} chrome={panelChrome(s, { radius: s.radius ?? 12 })} padding={8} className="gt3-weather">
       <WidgetHeader kind="weather" color={s.accentColor ?? GT3.cyan} meta={raining ? 'RAIN' : wet > 0.2 ? 'DAMP' : 'DRY'} metaColor={raining ? GT3.blue : wet > 0.2 ? GT3.cyan : GT3.green} element={element} />
       <div className="gt3-data-row">
-        <span><Label element={element}>TRACK</Label><Value element={element} size={18}>{fmtTemp(snapshot?.trackTempC, s.unit)}°</Value></span>
-        <span><Label element={element}>AIR</Label><Value element={element} size={18}>{fmtTemp(snapshot?.airTempC, s.unit)}°</Value></span>
+        <span><Label element={element}>TRACK</Label><Value element={element} size={18}>{formatMeasurement(snapshot?.trackTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}</Value></span>
+        <span><Label element={element}>AIR</Label><Value element={element} size={18}>{formatMeasurement(snapshot?.airTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}</Value></span>
         <span><Label element={element}>GRIP</Label><Value element={element} color={GT3.green} size={18}>{grip !== undefined ? Math.round(grip * 100) : '--'}%</Value></span>
       </div>
       <div className="gt3-fuel-bar wet"><div style={{ width: `${wet * 100}%`, background: wet > 0.5 ? GT3.blue : GT3.cyan }} /></div>
@@ -1826,13 +1832,13 @@ interface MetricData {
   sub?: string // compact live secondary read-out (laps, class, last lap…)
 }
 
-function metricData(kind: MetricKind, snapshot: TelemetrySnapshot | null, element: DashboardElement): MetricData {
+function metricData(kind: MetricKind, snapshot: TelemetrySnapshot | null, element: DashboardElement, unitSystem: UnitSystem): MetricData {
   const s = element.style
   const accent = resolveCssColor(s.accentColor ?? s.color, GT3.cyan)
   switch (kind) {
     case 'speed': {
-      const mph = s.unit === 'mph'
-      return { value: resolveBinding(mph ? 'speedMph' : 'speedKmh', snapshot).text, unit: mph ? 'mph' : 'km/h', pct: clamp01((snapshot?.speedKmh ?? 0) / 320), color: accent, icon: 'speed' }
+      const reading = formatMeasurement(snapshot?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
+      return { value: reading.display, unit: reading.unit, pct: clamp01((snapshot?.speedKmh ?? 0) / 320), color: accent, icon: 'speed' }
     }
     case 'gear':
       return { value: resolveBinding('gearLabel', snapshot).text, pct: pct('shiftPct', snapshot), color: accent, icon: 'gear' }
@@ -1848,7 +1854,8 @@ function metricData(kind: MetricKind, snapshot: TelemetrySnapshot | null, elemen
     case 'fuel': {
       const fill = snapshot?.fuelCapacityLiters ? clamp01((snapshot.fuelLiters ?? 0) / snapshot.fuelCapacityLiters) : 0
       const laps = resolveBinding('fuelLapsLeftStr', snapshot).text
-      return { value: resolveBinding('fuelLitersStr', snapshot).text, unit: 'L', sub: laps && laps !== '—' ? `${laps} lap` : undefined, pct: fill, color: fill < 0.16 ? GT3.red : fill < 0.32 ? GT3.amber : GT3.green, icon: 'fuel' }
+      const reading = formatMeasurement(snapshot?.fuelLiters, 'fuel-volume-l', unitSystem, { decimals: 1 })
+      return { value: reading.display, unit: reading.unit, sub: laps && laps !== '—' ? `${laps} lap` : undefined, pct: fill, color: fill < 0.16 ? GT3.red : fill < 0.32 ? GT3.amber : GT3.green, icon: 'fuel' }
     }
     case 'lap': {
       const last = resolveBinding('lastLapFmt', snapshot).text
@@ -1888,10 +1895,10 @@ function metricData(kind: MetricKind, snapshot: TelemetrySnapshot | null, elemen
   }
 }
 
-function MetricWidget({ element, snapshot, kind, variant }: WidgetProps & { kind: MetricKind; variant: VariantKind }): ReactElement {
+function MetricWidget({ element, snapshot, unitSystem = 'metric', kind, variant }: WidgetProps & { kind: MetricKind; variant: VariantKind }): ReactElement {
   const s = element.style
   const skin = resolveElementSkin(s)
-  const data = metricData(kind, snapshot, element)
+  const data = metricData(kind, snapshot, element, unitSystem)
   const elaborate = variant === 'elaborate'
   const W = Math.max(1, Math.round(element.w))
   const H = Math.max(1, Math.round(element.h))
@@ -2007,7 +2014,7 @@ function MetricWidget({ element, snapshot, kind, variant }: WidgetProps & { kind
   )
 }
 
-function TyreShape({ corner, info, elaborate, cardH, style, element }: { corner: CornerKey; info: TyreInfo | undefined; elaborate: boolean; cardH: number; style: DashboardElement['style']; element?: DashboardElement }): ReactElement {
+function TyreShape({ corner, info, elaborate, cardH, style, element, unitSystem }: { corner: CornerKey; info: TyreInfo | undefined; elaborate: boolean; cardH: number; style: DashboardElement['style']; element?: DashboardElement; unitSystem: UnitSystem }): ReactElement {
   const temp = info?.tempC
   const press = info?.pressureKpa
   const wear = info?.wearPct
@@ -2029,21 +2036,21 @@ function TyreShape({ corner, info, elaborate, cardH, style, element }: { corner:
         </svg>
       )}
       <span className="gt3-tyre-corner" style={{ ...slotCss(cornerOv), color: cornerOv.color ?? color, fontSize: cornerOv.fontSize }}>{CORNER_LABEL[corner]}</span>
-      <span className="gt3-tyre-temp" style={{ height: Math.round(cardH * 0.42) }}><Value element={element} color={color} size={tempSize} fill>{fmtTemp(temp, style.unit)}°</Value></span>
-      {showSub && <span className="gt3-tyre-sub" style={{ ...slotCss(subOv), color: subOv.color, fontSize: subOv.fontSize }}>{fmtPressure(press, style.unit)}<i>·</i>{wear !== undefined ? `${Math.round(wear * 100)}%` : '—'}</span>}
+      <span className="gt3-tyre-temp" style={{ height: Math.round(cardH * 0.42) }}><Value element={element} color={color} size={tempSize} fill>{formatMeasurement(temp, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}</Value></span>
+      {showSub && <span className="gt3-tyre-sub" style={{ ...slotCss(subOv), color: subOv.color, fontSize: subOv.fontSize }}>{formatMeasurement(press, 'pressure-kpa', unitSystem, { decimals: 1 }).display}<i>·</i>{wear !== undefined ? `${Math.round(wear * 100)}%` : '—'}</span>}
     </div>
   )
 }
 
-export function TyresCurated({ element, snapshot, variant }: WidgetProps & { variant: VariantKind }): ReactElement {
+export function TyresCurated({ element, snapshot, unitSystem = 'metric', variant }: WidgetProps & { variant: VariantKind }): ReactElement {
   const s = element.style
   const elaborate = variant === 'elaborate'
   const cardH = (element.h - 26) / 2
   return (
     <Shell element={element} chrome={panelChrome(s, { radius: s.radius ?? 14 })} padding={Math.max(6, element.h * 0.045)} className={`gt3-tyres-curated gt3-curated-${variant}`}>
-      <WidgetHeader kind="tyre" color={s.accentColor ?? GT3.green} meta={s.reference ?? pressureUnitLabel(s.unit)} element={element} />
+      <WidgetHeader kind="tyre" color={s.accentColor ?? GT3.green} meta={s.reference ?? formatMeasurement(undefined, 'pressure-kpa', unitSystem).unit} element={element} />
       <div className="gt3-tyre-layout">
-        {CORNER_ORDER.map((corner) => <TyreShape key={corner} corner={corner} info={snapshot?.tyres?.[corner]} elaborate={elaborate} cardH={cardH} style={s} element={element} />)}
+        {CORNER_ORDER.map((corner) => <TyreShape key={corner} corner={corner} info={snapshot?.tyres?.[corner]} elaborate={elaborate} cardH={cardH} style={s} element={element} unitSystem={unitSystem} />)}
       </div>
     </Shell>
   )
@@ -2282,7 +2289,7 @@ export function InputsCurated({ element, snapshot, variant }: WidgetProps & { va
     : <InputTrace element={{ ...element, style: { ...element.style, channels: [...channels, 'steering'], traceLength: element.style.traceLength ?? 220 } }} snapshot={snapshot} />
 }
 
-export function TempsCurated({ element, snapshot, variant }: WidgetProps & { variant: VariantKind }): ReactElement {
+export function TempsCurated({ element, snapshot, unitSystem = 'metric', variant }: WidgetProps & { variant: VariantKind }): ReactElement {
   const s = element.style
   const values = [
     { label: 'WATER', value: snapshot?.waterTempC, hot: 108 },
@@ -2299,7 +2306,9 @@ export function TempsCurated({ element, snapshot, variant }: WidgetProps & { var
       <div className={tall ? 'gt3-temp-stack' : 'gt3-temp-row'}>
         {values.map((v) => {
           const color = v.value === undefined ? GT3.textMuted : v.hot && v.value >= v.hot ? GT3.amber : GT3.green
-          const txt = v.value === undefined ? '—' : v.label === 'OIL P' ? v.value.toFixed(0) : `${v.value.toFixed(0)}°`
+          const txt = v.label === 'OIL P'
+            ? formatMeasurement(v.value, 'pressure-kpa', unitSystem, { decimals: 1, includeUnit: true }).display
+            : formatMeasurement(v.value, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display
           return <div key={v.label} className="gt3-temp-card"><Label element={element}>{v.label}</Label><Value element={element} color={color} size={valSize}>{txt}</Value></div>
         })}
       </div>
@@ -2312,16 +2321,16 @@ export function TempsCurated({ element, snapshot, variant }: WidgetProps & { var
 // value and an optional small unit suffix on a flat-black face. `valuebar` adds
 // a hairline progress track; `valuegauge` wraps the value in a 270° arc. All
 // three obey the clean-black rule (no shadow / texture / gradient).
-function ValueWidget({ element, snapshot, mode }: WidgetProps & { mode: 'value' | 'bar' | 'gauge' }): ReactElement {
+function ValueWidget({ element, snapshot, unitSystem = 'metric', mode }: WidgetProps & { mode: 'value' | 'bar' | 'gauge' }): ReactElement {
   const s = element.style
   const skin = resolveElementSkin(s)
   const W = Math.max(1, Math.round(element.w))
   const H = Math.max(1, Math.round(element.h))
-  const r = resolveBinding(element.binding, snapshot)
-  const body = applyDecimals(r.text && r.text.length ? r.text : '—', r.numeric, s.decimals)
+  const r = resolveBinding(element.binding, snapshot, unitSystem)
+  const body = applyDecimals(r.text && r.text.length ? r.text : '—', r.displayNumeric ?? r.numeric, s.decimals)
   const value = body === '—' ? '—' : `${s.prefix ?? ''}${body}`
   const label = (s.label ?? s.title ?? '').toString()
-  const unit = (s.suffix ?? '').toString()
+  const unit = (r.unit ?? s.suffix ?? '').toString()
   const ratio = clamp01(r.pct ?? 0)
   const accent = resolveCssColor(s.accentColor, skin.palette.accent)
   const valueColor = resolveCssColor(s.color, skin.palette.text)

@@ -15,7 +15,8 @@ import {
   type ConfigStorage,
   createConfigEngine,
   createFileStorage,
-  createMemoryStorage
+  createMemoryStorage,
+  readImportPayload
 } from './config-export'
 import {
   CONFIG_BUNDLE_APP_ID,
@@ -25,15 +26,31 @@ import {
   getConfigSection,
   isConfigBundle,
   isConfigSectionExport,
-  isForbiddenConfigPath
+  isForbiddenConfigPath,
+  type ConfigSectionReloadResult
 } from '../../shared/config-io'
+import {
+  RGB_MATRIX_PROFILE_VERSION,
+  defaultRgbMatrixProfile,
+  type RgbMatrixProfile
+} from '../../shared/rgb-matrix'
+import type { DeviceProfile } from '../../shared/devices'
+import type { ModuleContext } from '../module-context'
+import { RgbMatrixModule } from './rgb-matrix'
+import { parseRgbMatrixProfilesPayload } from './rgb-matrix-profile-store'
+
+const SEEDED_RGB_PAYLOAD = parseRgbMatrixProfilesPayload({
+  version: RGB_MATRIX_PROFILE_VERSION,
+  profiles: { 'seed-device:seed-matrix': defaultRgbMatrixProfile() },
+  updatedAt: '2026-01-01T00:00:00.000Z'
+}).payload
 
 // A representative seed: a 'file' section, a 'dir' section, plus auth/cache files
 // that live in the SAME userData dir and must NEVER leak into an export.
 function seededStorage(): ReturnType<typeof createMemoryStorage> {
   return createMemoryStorage({
     'settings.json': { theme: 'gulf', accentColor: '#00b0f0' },
-    'rgb-matrix-profiles.json': { version: 3, profiles: [{ id: 'p1', name: 'iFlag' }] },
+    'rgb-matrix-profiles.json': SEEDED_RGB_PAYLOAD,
     dashboards: {
       'dashboard-playlist.json': { order: ['a', 'b'] },
       'a.json': { id: 'a', name: 'GT3 DDU' }
@@ -67,7 +84,12 @@ describe('config-io bundle shape', () => {
     expect(isConfigSectionExport(section)).toBe(true)
     expect(section.sectionId).toBe('rgb-matrix')
     expect(section.app).toBe(CONFIG_BUNDLE_APP_ID)
-    expect(section.data).toEqual({ version: 3, profiles: [{ id: 'p1', name: 'iFlag' }] })
+    expect(section.data).toEqual(SEEDED_RGB_PAYLOAD)
+  })
+
+  it('refuses to claim a successful iFlag export when no profiles are saved', async () => {
+    const engine = createConfigEngine(createMemoryStorage())
+    await expect(engine.exportSection('rgb-matrix')).rejects.toThrow(/No iFlag profiles/)
   })
 })
 
@@ -85,7 +107,7 @@ describe('section registry round-trip (export -> import)', () => {
 
     const dump = destStorage.dump()
     expect(dump['settings.json']).toEqual({ theme: 'gulf', accentColor: '#00b0f0' })
-    expect(dump['rgb-matrix-profiles.json']).toEqual({ version: 3, profiles: [{ id: 'p1', name: 'iFlag' }] })
+    expect(dump['rgb-matrix-profiles.json']).toEqual(SEEDED_RGB_PAYLOAD)
     // 'dir' section round-trips the per-file map intact.
     expect(dump['dashboards']).toEqual({
       'dashboard-playlist.json': { order: ['a', 'b'] },
@@ -113,10 +135,7 @@ describe('section registry round-trip (export -> import)', () => {
     const dest = createConfigEngine(destStorage)
     await dest.importSection('rgb-matrix', bundle)
 
-    expect(destStorage.dump()['rgb-matrix-profiles.json']).toEqual({
-      version: 3,
-      profiles: [{ id: 'p1', name: 'iFlag' }]
-    })
+    expect(destStorage.dump()['rgb-matrix-profiles.json']).toEqual(SEEDED_RGB_PAYLOAD)
     // Importing one section must not pull in the others.
     expect(destStorage.dump()['settings.json']).toBeUndefined()
   })
@@ -154,21 +173,20 @@ describe('section registry round-trip (export -> import)', () => {
 describe('import hot-apply round-trip (a fresh read returns the imported data, not stale)', () => {
   it('file section: a fresh read after importSection returns the imported FULL payload object, not the stale one', async () => {
     // Destination already holds STALE rgb-matrix data on disk.
-    const destStorage = createMemoryStorage({
-      'rgb-matrix-profiles.json': {
-        version: 3,
-        profiles: [{ id: 'old', name: 'STALE' }],
-        updatedAt: '2020-01-01T00:00:00.000Z'
-      }
-    })
+    const stalePayload = parseRgbMatrixProfilesPayload({
+      version: RGB_MATRIX_PROFILE_VERSION,
+      profiles: { 'old-device:old-matrix': defaultRgbMatrixProfile() },
+      updatedAt: '2020-01-01T00:00:00.000Z'
+    }).payload
+    const destStorage = createMemoryStorage({ 'rgb-matrix-profiles.json': stalePayload })
     const dest = createConfigEngine(destStorage)
 
     // The exported file's on-disk data is a FULL payload object (version + profiles + updatedAt).
-    const exportedPayload = {
-      version: 3,
-      profiles: [{ id: 'p1', name: 'iFlag' }],
+    const exportedPayload = parseRgbMatrixProfilesPayload({
+      version: RGB_MATRIX_PROFILE_VERSION,
+      profiles: { 'seed-device:seed-matrix': defaultRgbMatrixProfile() },
       updatedAt: '2026-01-01T00:00:00.000Z'
-    }
+    }).payload
     const source = createConfigEngine(createMemoryStorage({ 'rgb-matrix-profiles.json': exportedPayload }))
     const exported = await source.exportSection('rgb-matrix')
     expect(isConfigSectionExport(exported)).toBe(true)
@@ -222,7 +240,11 @@ describe('import hot-apply round-trip (a fresh read returns the imported data, n
     // Pre-existing stale data that the import must fully overwrite.
     const destStorage = createMemoryStorage({
       'settings.json': { theme: 'STALE' },
-      'rgb-matrix-profiles.json': { version: 1, profiles: [{ id: 'old' }] },
+      'rgb-matrix-profiles.json': parseRgbMatrixProfilesPayload({
+        version: 1,
+        profiles: { 'old-device:old-matrix': defaultRgbMatrixProfile() },
+        updatedAt: '2020-01-01T00:00:00.000Z'
+      }).payload,
       dashboards: { 'stale.json': { id: 'stale' } }
     })
     const summary = await createConfigEngine(destStorage).importAll(bundle)
@@ -230,11 +252,241 @@ describe('import hot-apply round-trip (a fresh read returns the imported data, n
 
     const fresh = createConfigEngine(destStorage)
     expect((await fresh.exportSection('settings')).data).toEqual({ theme: 'gulf', accentColor: '#00b0f0' })
-    expect((await fresh.exportSection('rgb-matrix')).data).toEqual({ version: 3, profiles: [{ id: 'p1', name: 'iFlag' }] })
+    expect((await fresh.exportSection('rgb-matrix')).data).toEqual(SEEDED_RGB_PAYLOAD)
     expect((await fresh.exportSection('dashboards')).data).toEqual({
       'dashboard-playlist.json': { order: ['a', 'b'] },
       'a.json': { id: 'a', name: 'GT3 DDU' }
     })
+  })
+})
+
+interface LoadableRgbMatrixModule {
+  loaded: boolean
+  profiles: DeviceProfile[]
+  payload: { profiles: Record<string, RgbMatrixProfile> }
+  activeProfiles: Record<string, RgbMatrixProfile>
+  ensureLoaded(): Promise<unknown>
+  onSectionReload(
+    event: unknown,
+    sectionId: string,
+    done: (error: string | null, result?: ConfigSectionReloadResult) => void
+  ): void
+}
+
+function loadable(module: RgbMatrixModule): LoadableRgbMatrixModule {
+  return module as unknown as LoadableRgbMatrixModule
+}
+
+function brotherDeviceProfile(): DeviceProfile {
+  return {
+    id: 'brother-device',
+    label: 'Brother iFlag',
+    deviceId: 'serial-brother',
+    board: 'nano',
+    baud: 115200,
+    components: [
+      {
+        id: 'brother-matrix',
+        label: 'iFlag 8x8',
+        type: 'rgbMatrix',
+        enabled: true,
+        pins: {},
+        chip: 'ws2812',
+        width: 8,
+        height: 8,
+        brightness: 120,
+        orientation: 0,
+        serpentine: true,
+        mode: 'iflag'
+      }
+    ],
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z'
+  }
+}
+
+function importedProfile(): RgbMatrixProfile {
+  const profile = defaultRgbMatrixProfile()
+  return {
+    ...profile,
+    layout: { ...profile.layout, rotation: 90, flipX: true },
+    effects: profile.effects.map((effect, index) => ({
+      ...effect,
+      name: `${effect.name} imported`,
+      priority: index
+    }))
+  }
+}
+
+async function loadBrotherStore(root: string): Promise<LoadableRgbMatrixModule> {
+  const hub = { on: () => {}, off: () => {} }
+  const ctx = {
+    app: { getPath: () => root },
+    telemetryHub: hub,
+    serialHub: { ...hub, getPrimaryId: () => null, getDevice: () => null }
+  } as unknown as ModuleContext
+  const module = new RgbMatrixModule(ctx)
+  const internal = loadable(module)
+  internal.profiles = [brotherDeviceProfile()]
+  await internal.ensureLoaded()
+  return internal
+}
+
+function hotReloadBrotherStore(module: LoadableRgbMatrixModule): Promise<ConfigSectionReloadResult> {
+  return new Promise((resolveReload, rejectReload) => {
+    module.onSectionReload(null, 'rgb-matrix', (error, result) => {
+      if (error) rejectReload(new Error(error))
+      else if (!result) rejectReload(new Error('Missing iFlag reload result'))
+      else resolveReload(result)
+    })
+  })
+}
+
+describe('rgb-matrix real export/import/loader round-trip across machines', () => {
+  let sourceRoot: string
+  let destinationRoot: string
+
+  beforeEach(() => {
+    sourceRoot = mkdtempSync(join(process.cwd(), 'iflag-source-test-'))
+    destinationRoot = mkdtempSync(join(process.cwd(), 'iflag-destination-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(sourceRoot, { recursive: true, force: true })
+    rmSync(destinationRoot, { recursive: true, force: true })
+  })
+
+  it('exportSection -> importSection preserves and surfaces a sender profile for the brother iFlag key', async () => {
+    const profile = importedProfile()
+    const senderPayload = {
+      version: RGB_MATRIX_PROFILE_VERSION,
+      profiles: { 'sender-device:sender-matrix': profile },
+      updatedAt: '2026-07-11T00:00:00.000Z'
+    }
+    await createFileStorage(sourceRoot).writeFileJson('rgb-matrix-profiles.json', senderPayload)
+    const exported = await createConfigEngine(createFileStorage(sourceRoot)).exportSection('rgb-matrix')
+    const exportedPayload = exported.data as { profiles: Record<string, RgbMatrixProfile> }
+    const transferPath = join(sourceRoot, 'rgb-matrix-export.json')
+    writeFileSync(transferPath, JSON.stringify(exported))
+
+    const brotherModule = await loadBrotherStore(destinationRoot)
+    const summary = await createConfigEngine(createFileStorage(destinationRoot)).importSection(
+      'rgb-matrix',
+      await readImportPayload(transferPath)
+    )
+
+    expect(summary.details?.['rgb-matrix']?.itemCount).toBe(1)
+    expect(await createFileStorage(destinationRoot).readFileJson('rgb-matrix-profiles.json')).toEqual(exported.data)
+    const reload = await hotReloadBrotherStore(brotherModule)
+    expect(reload).toEqual({
+      sectionId: 'rgb-matrix',
+      itemCount: 1,
+      hotAppliedCount: 1,
+      unmatchedItemCount: 0
+    })
+    expect(brotherModule.activeProfiles['brother-device:brother-matrix']).toEqual(
+      exportedPayload.profiles['sender-device:sender-matrix']
+    )
+  })
+
+  it('exportAll -> importAll preserves and surfaces non-empty iFlag profiles after reload', async () => {
+    const profile = importedProfile()
+    const senderPayload = {
+      version: RGB_MATRIX_PROFILE_VERSION,
+      profiles: { 'sender-device:sender-matrix': profile },
+      updatedAt: '2026-07-11T00:00:00.000Z'
+    }
+    const sourceStorage = createFileStorage(sourceRoot)
+    await sourceStorage.writeFileJson('settings.json', { theme: 'gulf' })
+    await sourceStorage.writeFileJson('rgb-matrix-profiles.json', senderPayload)
+    const bundle = await createConfigEngine(sourceStorage).exportAll()
+    const transferPath = join(sourceRoot, 'full-export.json')
+    writeFileSync(transferPath, JSON.stringify(bundle))
+
+    const brotherModule = await loadBrotherStore(destinationRoot)
+    const summary = await createConfigEngine(createFileStorage(destinationRoot)).importAll(
+      await readImportPayload(transferPath)
+    )
+    const exportedPayload = bundle.sections['rgb-matrix'] as { profiles: Record<string, RgbMatrixProfile> }
+
+    expect(summary.applied).toContain('rgb-matrix')
+    expect(summary.details?.['rgb-matrix']?.itemCount).toBe(1)
+    expect(await createFileStorage(destinationRoot).readFileJson('rgb-matrix-profiles.json')).toEqual(
+      bundle.sections['rgb-matrix']
+    )
+    const reload = await hotReloadBrotherStore(brotherModule)
+    expect(reload.hotAppliedCount).toBe(1)
+    expect(reload.unmatchedItemCount).toBe(0)
+    expect(brotherModule.activeProfiles['brother-device:brother-matrix']).toEqual(
+      exportedPayload.profiles['sender-device:sender-matrix']
+    )
+  })
+
+  it('rejects empty/invalid iFlag imports before overwriting the brother store', async () => {
+    const storage = createFileStorage(destinationRoot)
+    await storage.writeFileJson('rgb-matrix-profiles.json', SEEDED_RGB_PAYLOAD)
+    const engine = createConfigEngine(storage)
+
+    await expect(engine.importSection('rgb-matrix', null)).rejects.toThrow(/No iFlag profiles/)
+    await expect(
+      engine.importSection('rgb-matrix', {
+        version: RGB_MATRIX_PROFILE_VERSION,
+        profiles: {},
+        updatedAt: '2026-07-11T00:00:00.000Z'
+      })
+    ).rejects.toThrow(/No iFlag profiles/)
+    await expect(
+      engine.importSection('rgb-matrix', {
+        version: RGB_MATRIX_PROFILE_VERSION,
+        profiles: { broken: { id: 'not-a-matrix-profile' } }
+      })
+    ).rejects.toThrow(/neither a matrix layout nor an effect stack/)
+
+    expect(await storage.readFileJson('rgb-matrix-profiles.json')).toEqual(SEEDED_RGB_PAYLOAD)
+  })
+
+  it('surfaces empty and malformed JSON files with descriptive import errors', async () => {
+    const emptyPath = join(sourceRoot, 'empty.json')
+    const malformedPath = join(sourceRoot, 'malformed.json')
+    writeFileSync(emptyPath, '   ')
+    writeFileSync(malformedPath, '{"profiles":')
+
+    await expect(readImportPayload(emptyPath)).rejects.toThrow(/selected JSON file is empty/)
+    await expect(readImportPayload(malformedPath)).rejects.toThrow(/malformed JSON/)
+  })
+
+  it('validates a full bundle before writing any section and reports a newer iFlag schema', async () => {
+    const storage = createFileStorage(destinationRoot)
+    await storage.writeFileJson('settings.json', { theme: 'before' })
+    const engine = createConfigEngine(storage)
+    const invalidBundle = {
+      app: CONFIG_BUNDLE_APP_ID,
+      version: CONFIG_BUNDLE_VERSION,
+      exportedAt: '2026-07-11T00:00:00.000Z',
+      sections: {
+        settings: { theme: 'after' },
+        'rgb-matrix': {
+          version: RGB_MATRIX_PROFILE_VERSION + 1,
+          profiles: { future: defaultRgbMatrixProfile() }
+        }
+      }
+    }
+
+    await expect(engine.importAll(invalidBundle)).rejects.toThrow(/newer than the supported version/)
+    expect(await storage.readFileJson('settings.json')).toEqual({ theme: 'before' })
+    expect(await storage.readFileJson('rgb-matrix-profiles.json')).toBeUndefined()
+  })
+
+  it('migrates a legacy array of real matrix profiles and applies it to the local target', async () => {
+    const legacy = [importedProfile()]
+    const summary = await createConfigEngine(createFileStorage(destinationRoot)).importSection('rgb-matrix', {
+      version: 1,
+      profiles: legacy
+    })
+    expect(summary.details?.['rgb-matrix']?.itemCount).toBe(1)
+
+    const brotherModule = await loadBrotherStore(destinationRoot)
+    expect(brotherModule.activeProfiles['brother-device:brother-matrix']).toBeDefined()
   })
 })
 
@@ -630,4 +882,3 @@ describe('file-storage hardening (symlink + boundary — S2/S3)', () => {
     expect(info.exists).toBe(true)
   })
 })
-

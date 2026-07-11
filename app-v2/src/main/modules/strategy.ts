@@ -17,6 +17,7 @@ import type { ModuleContext } from '../module-context'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import type { Corners } from '../../shared/telemetry'
 import type { FuelStrategyState } from '../../shared/fuel'
+import type { UnitSystem } from '../../shared/units'
 import type { TireCornerId, TireCornerStrategy, TireStrategyState } from '../../shared/tire-strategy'
 import {
   DEFAULT_STRATEGY_CONFIG,
@@ -35,6 +36,7 @@ import { TireStrategyCalculator } from '../strategy/tire'
 import { getLlmRuntime } from '../ai/llm-runtime'
 import { getModelManager } from '../ai/model-manager'
 import { logger } from './logger'
+import { settingsEvents } from '../settings/events'
 
 const LOG_AREA = 'ai'
 const CONFIG_FILE = 'strategy.json'
@@ -127,11 +129,12 @@ async function tryLlmNarrate(system: string, prompt: string): Promise<string | n
   }
 }
 
-function narratePrompt(plan: StrategyPlan, lang: 'pt' | 'en'): { system: string; prompt: string } {
+function narratePrompt(plan: StrategyPlan, lang: 'pt' | 'en', unitSystem: UnitSystem): { system: string; prompt: string } {
+  const units = unitSystem === 'imperial' ? 'Use US customary units (mph, °F, psi, US gal).' : 'Use metric units (km/h, °C, bar or kPa, L).'
   const system =
     lang === 'pt'
-      ? 'You are a race engineer on the radio. Rewrite the plan in ONE short, calm, direct American English sentence. Do not invent numbers.'
-      : 'You are a race engineer on the radio. Rephrase the plan as ONE short, calm, direct sentence in English. Do not invent numbers.'
+      ? `You are a race engineer on the radio. Rewrite the plan in ONE short, calm, direct American English sentence. Do not invent numbers. ${units}`
+      : `You are a race engineer on the radio. Rephrase the plan as ONE short, calm, direct sentence in English. Do not invent numbers. ${units}`
   const facts = [
     `action=${plan.action}`,
     plan.headline,
@@ -150,6 +153,10 @@ function narratePrompt(plan: StrategyPlan, lang: 'pt' | 'en'): { system: string;
 export function register(ctx: ModuleContext): void {
   const configPath = join(ctx.app.getPath('userData'), CONFIG_FILE)
   let config = loadConfig(configPath)
+  let unitSystem: UnitSystem = 'metric'
+  settingsEvents.onChanged((settings) => {
+    unitSystem = settings.unitSystem
+  })
 
   // PRIVATE calculator copies — read-only reuse; the existing fuel-strategy and
   // tire-strategy modules keep their own independent instances.
@@ -209,10 +216,10 @@ export function register(ctx: ModuleContext): void {
       saveConfig(configPath, config)
     }
     const plan = buildPlan()
-    const deterministic = narrateStrategyPlan(plan, lang)
+    const deterministic = narrateStrategyPlan(plan, lang, unitSystem)
 
     if (request?.useLlm === true && plan.connected) {
-      const { system, prompt } = narratePrompt(plan, lang)
+      const { system, prompt } = narratePrompt(plan, lang, unitSystem)
       const llmText = await tryLlmNarrate(system, prompt)
       if (llmText) return { text: llmText, source: 'llm', plan }
     }

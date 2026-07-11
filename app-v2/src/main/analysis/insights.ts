@@ -1,4 +1,5 @@
 import type { AnalysisResult, CoachingInsight, InsightsResult, LossPointInfo } from '../../shared/recording'
+import { formatMeasurement, type UnitSystem } from '../../shared/units'
 import { ANALYSIS_NUM_SECTORS } from './engine'
 
 const MIN_LOSS_SEC = 0.03
@@ -24,7 +25,7 @@ function sectorFor(fromPct: number): number {
   return Math.max(1, Math.min(ANALYSIS_NUM_SECTORS, Math.floor(fromPct * ANALYSIS_NUM_SECTORS) + 1))
 }
 
-function buildPointText(point: LossPointInfo): { title: string; detail: string } {
+function buildPointText(point: LossPointInfo, unitSystem: UnitSystem): { title: string; detail: string } {
   const details: string[] = []
 
   if (point.primaryBrakeOnsetPct !== null && point.bestBrakeOnsetPct !== null) {
@@ -38,8 +39,10 @@ function buildPointText(point: LossPointInfo): { title: string; detail: string }
 
   const minSpeedDelta = point.primaryMinSpeedKmh - point.bestMinSpeedKmh
   if (minSpeedDelta < -MIN_SPEED_MARGIN_KMH) {
+    const primarySpeed = formatMeasurement(point.primaryMinSpeedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
+    const bestSpeed = formatMeasurement(point.bestMinSpeedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
     details.push(
-      `Low minimum speed (${Math.round(point.primaryMinSpeedKmh)} vs ${Math.round(point.bestMinSpeedKmh)} km/h) — carry more speed through the turn.`
+      `Low minimum speed (${primarySpeed.display} vs ${bestSpeed.display} ${primarySpeed.unit}) — carry more speed through the turn.`
     )
   }
 
@@ -72,7 +75,8 @@ function buildPointText(point: LossPointInfo): { title: string; detail: string }
 export function buildInsights(
   result: AnalysisResult,
   primaryLapId: string,
-  referenceLapId?: string | null
+  referenceLapId?: string | null,
+  unitSystem: UnitSystem = 'metric'
 ): InsightsResult {
   const reference = referenceLapId ?? result.bestLapId
   const emptySummary = reference
@@ -94,7 +98,7 @@ export function buildInsights(
     .slice(0, MAX_INSIGHTS)
 
   const insights = points.map((point, index): CoachingInsight => {
-    const text = buildPointText(point)
+    const text = buildPointText(point, unitSystem)
     return {
       id: `${primaryLapId}:loss:${index}:${point.fromPct.toFixed(3)}`,
       severity: severityFor(point.lossSec),

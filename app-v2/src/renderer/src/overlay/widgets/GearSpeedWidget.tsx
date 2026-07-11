@@ -2,6 +2,8 @@ import { overlayDesignFamily } from '../../../../shared/overlays'
 import type { WidgetProps } from './types'
 import { formatGear } from './format'
 import { AnalogDial, SegmentReadout } from '../../instruments'
+import { convertMeasurement, formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 import './redesign-core.css'
 
 const MAX_SPEED = 350
@@ -14,15 +16,18 @@ function speedHeat(p: number): string {
 }
 
 export function GearSpeedWidget({ snapshot, config }: WidgetProps) {
+  const unitSystem = useUnitSystem()
   const family = overlayDesignFamily(config.stylePreset)
   const gear = formatGear(snapshot?.gear)
   const hasSpeed = snapshot?.speedKmh !== undefined && Number.isFinite(snapshot.speedKmh)
-  const speed = hasSpeed ? Math.round(snapshot!.speedKmh) : undefined
-  const speedStr = hasSpeed ? String(speed) : '—'
+  const speedKmh = hasSpeed ? snapshot!.speedKmh : undefined
+  const speed = formatMeasurement(speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
+  const speedStr = speed.display
+  const speedUnit = speed.unit
   const abs = Boolean(snapshot?.absActive)
   const tc = Boolean(snapshot?.tcActive)
   const drs = Boolean(snapshot?.drs)
-  const speedPct = hasSpeed ? Math.min(1, (speed as number) / MAX_SPEED) : 0
+  const speedPct = hasSpeed ? Math.min(1, (speedKmh as number) / MAX_SPEED) : 0
 
   if (family === 'minimal') {
     return (
@@ -34,7 +39,7 @@ export function GearSpeedWidget({ snapshot, config }: WidgetProps) {
           <div className="rc-min-row" style={{ width: '100%', borderTop: 'none', padding: 'clamp(2px, 0.8vh, 5px) 0' }}>
             <span className="rc-min-label">Speed</span>
             <span className="rc-min-val">
-              <SegmentReadout value={speedStr} mode={speedStr === '—' ? undefined : '7'} unit="km/h" ghost={false} height={17} idPrefix="gsw-min-spd" />
+              <SegmentReadout value={speedStr} mode={speedStr === '—' ? undefined : '7'} unit={speedUnit} ghost={false} height={17} idPrefix="gsw-min-spd" />
             </span>
           </div>
           <div className="rc-min-dots" style={{ flexWrap: 'nowrap', lineHeight: 1 }}>
@@ -56,7 +61,7 @@ export function GearSpeedWidget({ snapshot, config }: WidgetProps) {
           </div>
           <div className="rc-neon-bar" style={{ height: 'clamp(8px, 14%, 16px)' }}><div className="rc-neon-bar-fill" style={{ width: `${speedPct * 100}%` }} /></div>
           <div className="rc-cond" style={{ color: '#fff', fontWeight: 700, fontSize: 'clamp(14px, 4vh, 22px)', lineHeight: 1 }}>
-            {speedStr} <span style={{ fontSize: '0.45em', color: 'var(--rc-muted)', letterSpacing: '0.14em' }}>KM/H</span>
+            {speedStr} <span style={{ fontSize: '0.45em', color: 'var(--rc-muted)', letterSpacing: '0.14em' }}>{speedUnit.toUpperCase()}</span>
           </div>
           <div className="rc-neon-tags" style={{ flexWrap: 'nowrap', gap: 4, lineHeight: 1 }}>
             <span className={`rc-neon-tag${abs ? ' on' : ''}`} style={{ padding: '2px 6px' }}>ABS</span>
@@ -76,7 +81,7 @@ export function GearSpeedWidget({ snapshot, config }: WidgetProps) {
             <SegmentReadout value={gear} ghost={false} height={50} align="center" idPrefix="gsw-glass-gear" />
           </div>
           <div className="rc-glass-hero">
-            <SegmentReadout value={speedStr} mode={speedStr === '—' ? undefined : '7'} unit="km/h" ghost={false} height={18} align="center" idPrefix="gsw-glass-speed" />
+            <SegmentReadout value={speedStr} mode={speedStr === '—' ? undefined : '7'} unit={speedUnit} ghost={false} height={18} align="center" idPrefix="gsw-glass-speed" />
           </div>
           <div className="rc-glass-bar" style={{ height: 'clamp(6px, 12%, 10px)' }}><i style={{ width: `${speedPct * 100}%` }} /></div>
           <div className="rc-neon-tags" style={{ flexWrap: 'nowrap', gap: 4, lineHeight: 1 }}>
@@ -101,7 +106,7 @@ export function GearSpeedWidget({ snapshot, config }: WidgetProps) {
           </div>
           <div className="rc-bc-cell grow2">
             <div className="rc-bc-tab neutral">Speed</div>
-            <div className="rc-bc-field">{speedStr}<small>km/h</small></div>
+            <div className="rc-bc-field">{speedStr}<small>{speedUnit}</small></div>
           </div>
           <div className="rc-bc-cell">
             <div className="rc-bc-tab neutral">Assist</div>
@@ -124,7 +129,7 @@ export function GearSpeedWidget({ snapshot, config }: WidgetProps) {
       <div className="overlay-card rc-card rc-fam-terminal">
         <pre className="rc-trm">
           {'> GEAR  '}<b>{gear.padStart(3)}</b>{'\n'}
-          {'> SPD   '}<b>{speedStr.padStart(3)}</b>{' KM/H\n'}
+          {'> SPD   '}<b>{speedStr.padStart(3)}</b>{` ${speedUnit.toUpperCase()}\n`}
           {'  ABS['}<span className={abs ? 'warn' : ''}>{onOff(abs)}</span>{'] TC['}<span className={tc ? 'warn' : ''}>{onOff(tc)}</span>{'] DRS['}<span className={drs ? 'ok' : ''}>{onOff(drs)}</span>{']'}
         </pre>
       </div>
@@ -139,7 +144,7 @@ export function GearSpeedWidget({ snapshot, config }: WidgetProps) {
             <span className="n"><SegmentReadout value={gear} ghost={false} height={50} align="center" idPrefix="gsw-bauhaus-gear" /></span>
           </div>
           <div className="rc-bhs-block" style={{ background: '#fff', color: '#0a0a0a', minHeight: 0, padding: 3 }}>
-            <span className="k" style={{ color: 'rgba(10,10,10,0.6)' }}>KM/H</span>
+            <span className="k" style={{ color: 'rgba(10,10,10,0.6)' }}>{speedUnit.toUpperCase()}</span>
             <span className="v"><SegmentReadout value={speedStr} mode={speedStr === '—' ? undefined : '7'} ghost={false} height={22} align="center" color="#0a0a0a" idPrefix="gsw-bauhaus-speed" /></span>
           </div>
           <div className="rc-bhs-row" style={{ minHeight: 18 }}>
@@ -158,9 +163,9 @@ export function GearSpeedWidget({ snapshot, config }: WidgetProps) {
         <div className="rc-ang" style={{ gridTemplateRows: 'minmax(0, 1fr) auto', padding: 'clamp(3px, 1.5%, 6px)' }}>
           <div style={{ position: 'relative', width: 82, height: 66 }}>
             <AnalogDial
-              value={hasSpeed ? (speed as number) : 0}
+              value={hasSpeed ? (speed.value as number) : 0}
               min={0}
-              max={MAX_SPEED}
+              max={convertMeasurement(MAX_SPEED, 'speed-kmh', unitSystem) ?? MAX_SPEED}
               size={82}
               startAngleDeg={-135}
               endAngleDeg={135}
@@ -202,7 +207,7 @@ export function GearSpeedWidget({ snapshot, config }: WidgetProps) {
           })}
         </div>
         <div className="rc-hm-head">
-          <span style={{ color: heat }}>{speedStr} km/h</span>
+          <span style={{ color: heat }}>{speedStr} {speedUnit}</span>
           <div className="rc-bc-chips" style={{ flexWrap: 'nowrap', gap: 3, lineHeight: 1 }}>
             <span className={`rc-bc-chip${abs ? ' on' : ''}`} style={{ padding: '2px 5px' }}>ABS</span>
             <span className={`rc-bc-chip${tc ? ' on' : ''}`} style={{ padding: '2px 5px' }}>TC</span>

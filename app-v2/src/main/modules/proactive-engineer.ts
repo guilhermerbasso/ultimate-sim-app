@@ -18,6 +18,7 @@
 //
 // ARCHITECTURE PRINCIPLE: the LLM is optional. If there is no telemetry or no
 // coach finding for the sector, the engineer stays SILENT (it never invents data).
+// Qualifying has one deliberate exception: a one-shot, evidence-based start summary.
 //
 // Out-laps and in-laps are deliberately NOT coached: warm-up behaviour (lift-and-
 // coast, early braking to build temperature) is not a mistake. The latest findings
@@ -26,18 +27,34 @@
 // same coaching via its `getCoachFindings` getter / tool, and never cites a
 // previous session's coaching after a car/track change or a disconnect.
 
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+
 import type { ModuleContext } from '../module-context'
 import {
+  type CoachCornerMetrics,
   type CoachCornerRef,
   type CoachDimension,
   type CoachFinding,
   type CoachFindingKind,
   type CoachLapSample,
+  type CoachReferenceLap,
   buildCoachReport,
   coachDimensionForKind,
   coachSampleFromSnapshot,
-  cornerOf
+  cornerOf,
+  severityForLoss
 } from '../../shared/coach'
+import {
+  buildQualiStartSummary,
+  coachComparableIdentityFromSnapshot,
+  coachLapHistoryEntry,
+  type CoachComparableIdentity,
+  type CoachGapSample,
+  type CoachLapHistoryEntry,
+  type CoachTrackCondition,
+  type RacecraftAdviceContext
+} from '../../shared/coach-racecraft'
 import {
   ENGINEER_CHANNELS,
   type EngineerAssertiveness,
@@ -53,6 +70,8 @@ import { findingEventKeys, sensitivityToMinConfidence } from '../../shared/coach
 import { recordLapEvents } from '../../shared/coach-baseline'
 import { CoachBaselineStore, getCoachBaselineStore } from './coach-baselines'
 import { logger } from './logger'
+import { settingsEvents } from '../settings/events'
+import type { UnitSystem } from '../../shared/units'
 
 const LOG_AREA = 'ai'
 
@@ -69,7 +88,10 @@ const intentRegistry = createDefaultIntentRegistry()
 /** A car/track identity used to scope findings to the session they were measured on. */
 export interface FindingsContext {
   carName?: string
+  carPath?: string
   trackName?: string
+  trackConfigName?: string
+  condition?: CoachTrackCondition
 }
 
 interface PublishedCoachFindings extends FindingsContext {
@@ -78,6 +100,27 @@ interface PublishedCoachFindings extends FindingsContext {
 
 let latestCoachFindings: PublishedCoachFindings = { findings: [] }
 
+function samePublishedIdentity(left: string | undefined, right: string | undefined): boolean {
+  const normalizedLeft = (left ?? '').trim().toLowerCase()
+  const normalizedRight = (right ?? '').trim().toLowerCase()
+  return normalizedLeft.length > 0 && normalizedLeft === normalizedRight
+}
+
+function publishedConditionMatches(
+  condition: CoachTrackCondition | undefined,
+  snapshot: TelemetrySnapshot
+): boolean {
+  if (condition === undefined) return true
+  const direct = coachComparableIdentityFromSnapshot(snapshot).condition
+  if (condition === direct) return true
+  return (
+    condition === 'drying' &&
+    snapshot.isRaining !== true &&
+    Number.isFinite(snapshot.trackWetnessPct) &&
+    (snapshot.trackWetnessPct as number) > 0.03
+  )
+}
+
 /**
  * Latest deterministic coach findings (worst-first), scoped to the CURRENT session.
  * When `currentSnapshot` is supplied and its car/track differs from the stamped
@@ -85,13 +128,24 @@ let latestCoachFindings: PublishedCoachFindings = { findings: [] }
  * be cited). Empty until a lap completes; cleared on disconnect.
  */
 export function getLatestCoachFindings(currentSnapshot?: TelemetrySnapshot | null): CoachFinding[] {
-  const { findings, carName, trackName } = latestCoachFindings
+  const { findings, carName, carPath, trackName, trackConfigName, condition } = latestCoachFindings
   if (findings.length === 0) return []
   if (currentSnapshot && currentSnapshot.connected !== false) {
     const liveCar = currentSnapshot.carName
+    const liveCarPath = currentSnapshot.carPath
     const liveTrack = currentSnapshot.trackName
-    if (liveCar !== undefined && carName !== undefined && liveCar !== carName) return []
-    if (liveTrack !== undefined && trackName !== undefined && liveTrack !== trackName) return []
+    const liveTrackConfig = currentSnapshot.trackConfigName
+    if (carPath !== undefined || liveCarPath !== undefined) {
+      if (!samePublishedIdentity(carPath, liveCarPath)) return []
+    } else if (!samePublishedIdentity(carName, liveCar)) {
+      return []
+    }
+    if (!samePublishedIdentity(trackName, liveTrack)) return []
+    if (
+      (trackConfigName !== undefined || liveTrackConfig !== undefined) &&
+      !samePublishedIdentity(trackConfigName, liveTrackConfig)
+    ) return []
+    if (!publishedConditionMatches(condition, currentSnapshot)) return []
   }
   return findings
 }
@@ -100,7 +154,61 @@ function publishCoachFindings(findings: CoachFinding[], context?: FindingsContex
   latestCoachFindings = {
     findings: Array.isArray(findings) ? findings : [],
     carName: context?.carName,
-    trackName: context?.trackName
+    carPath: context?.carPath,
+    trackName: context?.trackName,
+    trackConfigName: context?.trackConfigName,
+    condition: context?.condition
+  }
+}
+
+interface PublishedRacecraftContext extends RacecraftAdviceContext {
+  findings: CoachFinding[]
+  cornerMetrics: CoachCornerMetrics[]
+  gaps: CoachGapSample[]
+}
+
+let latestRacecraftContext: PublishedRacecraftContext | null = null
+
+function publishCoachRacecraftContext(context: RacecraftAdviceContext | null): void {
+  latestRacecraftContext = context
+    ? {
+        ...context,
+        findings: [...(context.findings ?? [])],
+        cornerMetrics: [...(context.cornerMetrics ?? [])],
+        gaps: [...(context.gaps ?? [])],
+        reference: context.reference
+          ? { corners: context.reference.corners.map((corner) => ({ ...corner })) }
+          : null
+      }
+    : null
+}
+
+export function getLatestCoachRacecraftContext(
+  currentSnapshot?: TelemetrySnapshot | null
+): RacecraftAdviceContext | null {
+  const context = latestRacecraftContext
+  if (!context) return null
+  if (currentSnapshot && currentSnapshot.connected !== false) {
+    if (context.carPath !== undefined || currentSnapshot.carPath !== undefined) {
+      if (!samePublishedIdentity(context.carPath, currentSnapshot.carPath)) return null
+    } else if (!samePublishedIdentity(context.carName, currentSnapshot.carName)) {
+      return null
+    }
+    if (!samePublishedIdentity(context.trackName, currentSnapshot.trackName)) return null
+    if (
+      (context.trackConfigName !== undefined || currentSnapshot.trackConfigName !== undefined) &&
+      !samePublishedIdentity(context.trackConfigName, currentSnapshot.trackConfigName)
+    ) return null
+    if (!publishedConditionMatches(context.condition, currentSnapshot)) return null
+  }
+  return {
+    ...context,
+    findings: [...context.findings],
+    cornerMetrics: [...context.cornerMetrics],
+    gaps: [...context.gaps],
+    reference: context.reference
+      ? { corners: context.reference.corners.map((corner) => ({ ...corner })) }
+      : null
   }
 }
 
@@ -606,6 +714,146 @@ const MIN_LAP_SAMPLES = 30
 const MAX_LAP_SAMPLES = 8000
 const DEFAULT_MIN_EMIT_INTERVAL_MS = 6000
 const DEFAULT_MIN_SPEED_KMH = 5
+const MAX_RACECRAFT_HISTORY_LAPS = 120
+const MAX_GAP_SAMPLES = 24
+const MIN_GAP_SAMPLE_INTERVAL_MS = 500
+const RACECRAFT_HISTORY_FILE = 'coach-racecraft-history.json'
+const RACECRAFT_HISTORY_VERSION = 1 as const
+
+interface RacecraftHistoryFile {
+  version: typeof RACECRAFT_HISTORY_VERSION
+  laps: CoachLapHistoryEntry[]
+}
+
+const COACH_FINDING_KINDS = new Set<CoachFindingKind>([
+  'brake-early',
+  'brake-late',
+  'throttle-early',
+  'throttle-late',
+  'steering-early',
+  'steering-late',
+  'trail-brake-lock',
+  'coast',
+  'throttle-hesitation',
+  'abs-overuse',
+  'tc-overuse',
+  'steering-busy',
+  'steering-insufficient',
+  'inconsistency',
+  'time-loss',
+  'min-speed-gain',
+  'brake-gain',
+  'throttle-gain',
+  'good'
+])
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isOptionalFinite(value: unknown): value is number | undefined {
+  return value === undefined || (typeof value === 'number' && Number.isFinite(value))
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === 'string'
+}
+
+function isStoredFinding(value: unknown): value is CoachFinding {
+  if (!isRecord(value) || !COACH_FINDING_KINDS.has(value.kind as CoachFindingKind)) return false
+  if (
+    typeof value.id !== 'string' ||
+    !Number.isFinite(value.sector) ||
+    !Number.isFinite(value.zonePctStart) ||
+    !Number.isFinite(value.zonePctEnd) ||
+    !Number.isFinite(value.estTimeLossSec) ||
+    typeof value.title !== 'string' ||
+    typeof value.detail !== 'string' ||
+    typeof value.evidence !== 'string' ||
+    !isRecord(value.metrics)
+  ) return false
+  return Object.values(value.metrics).every((metric) => typeof metric === 'number' && Number.isFinite(metric))
+}
+
+function isStoredCornerMetrics(value: unknown): value is CoachCornerMetrics {
+  if (!isRecord(value) || !Number.isFinite(value.corner)) return false
+  return Object.entries(value).every(
+    ([key, metric]) => key === 'corner' || metric === undefined || (typeof metric === 'number' && Number.isFinite(metric))
+  )
+}
+
+function isStoredHistoryLap(value: unknown): value is CoachLapHistoryEntry {
+  if (!isRecord(value) || !isRecord(value.identity)) return false
+  const condition = value.identity.condition
+  if (condition !== 'dry' && condition !== 'intermediate' && condition !== 'wet' && condition !== 'drying') return false
+  return (
+    typeof value.id === 'string' &&
+    Number.isFinite(value.at) &&
+    value.valid === true &&
+    isOptionalFinite(value.sessionId) &&
+    isOptionalString(value.sessionType) &&
+    isOptionalFinite(value.lapNumber) &&
+    isOptionalFinite(value.lapTimeSec) &&
+    isOptionalString(value.identity.trackName) &&
+    isOptionalString(value.identity.trackConfigName) &&
+    isOptionalString(value.identity.carName) &&
+    isOptionalString(value.identity.carPath) &&
+    isOptionalFinite(value.identity.carClassId) &&
+    isOptionalString(value.identity.carClassName) &&
+    isOptionalFinite(value.identity.airTempC) &&
+    isOptionalFinite(value.identity.trackTempC) &&
+    Array.isArray(value.findings) &&
+    value.findings.every(isStoredFinding) &&
+    Array.isArray(value.cornerMetrics) &&
+    value.cornerMetrics.every(isStoredCornerMetrics)
+  )
+}
+
+function cloneHistory(laps: readonly CoachLapHistoryEntry[]): CoachLapHistoryEntry[] {
+  return JSON.parse(JSON.stringify(laps)) as CoachLapHistoryEntry[]
+}
+
+export class CoachRacecraftHistoryStore {
+  private readonly filePath: string
+  private laps: CoachLapHistoryEntry[] = []
+
+  constructor(userDataDir: string) {
+    this.filePath = join(userDataDir, RACECRAFT_HISTORY_FILE)
+    this.load()
+  }
+
+  all(): CoachLapHistoryEntry[] {
+    return cloneHistory(this.laps)
+  }
+
+  replace(laps: readonly CoachLapHistoryEntry[]): void {
+    this.laps = cloneHistory(laps.filter(isStoredHistoryLap).slice(-MAX_RACECRAFT_HISTORY_LAPS))
+    const payload: RacecraftHistoryFile = {
+      version: RACECRAFT_HISTORY_VERSION,
+      laps: this.laps
+    }
+    mkdirSync(dirname(this.filePath), { recursive: true })
+    const tmpPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`
+    writeFileSync(tmpPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
+    renameSync(tmpPath, this.filePath)
+  }
+
+  private load(): void {
+    try {
+      const parsed = JSON.parse(readFileSync(this.filePath, 'utf8')) as unknown
+      if (
+        !isRecord(parsed) ||
+        parsed.version !== RACECRAFT_HISTORY_VERSION ||
+        !Array.isArray(parsed.laps)
+      ) return
+      this.laps = cloneHistory(
+        parsed.laps.filter(isStoredHistoryLap).slice(-MAX_RACECRAFT_HISTORY_LAPS)
+      )
+    } catch {
+      this.laps = []
+    }
+  }
+}
 
 /** Minimal live view of the engineer config the engine needs (read fresh every snapshot). */
 export interface ProactiveConfigView {
@@ -623,6 +871,12 @@ export interface ProactiveEngineDeps {
   getConfig(): ProactiveConfigView
   /** Publish fresh findings (stamped with car/track) to the shared singleton. */
   publishFindings?(findings: CoachFinding[], context?: FindingsContext): void
+  /** Publish the richer evidence used by deterministic on-demand racecraft answers. */
+  publishRacecraftContext?(context: RacecraftAdviceContext | null): void
+  /** Seed comparable valid-lap history from the local store or tests. */
+  history?: readonly CoachLapHistoryEntry[]
+  /** Persist the bounded valid-lap history after each accepted lap. */
+  persistHistory?(history: readonly CoachLapHistoryEntry[]): void
   now?(): number
   minEmitIntervalMs?: number
   minSpeedKmh?: number
@@ -650,6 +904,7 @@ export interface ProactiveEngineDeps {
    * can supply a deterministic map without the geometry pipeline.
    */
   buildCornerMap?: (trackName: string, samples: CornerSample[]) => CornerMapData
+  getUnitSystem?: () => UnitSystem
 }
 
 export interface ProactiveEngine {
@@ -657,14 +912,16 @@ export interface ProactiveEngine {
   /** Inject findings directly (e.g. from an external `coach:report`). Publishes them too. */
   setFindings(findings: CoachFinding[], context?: FindingsContext): void
   getFindings(): CoachFinding[]
+  getHistory(): CoachLapHistoryEntry[]
   reset(): void
 }
 
 function sessionAllowsProactive(snapshot: TelemetrySnapshot): boolean {
   const kind = deriveSessionKind(snapshot.sessionType)
   // RACE-ONLY by default: the proactive engineer owns the audio in a race (corner-
-  // numbered + directional call-outs) while the Live Coach owns practice/qualy
-  // (per-sector). Restricting proactive SPEECH to races guarantees exactly ONE
+  // numbered + directional call-outs) while the Live Coach owns ordinary
+  // practice/qualifying call-outs. Restricting recurring proactive speech to races
+  // guarantees exactly ONE
   // speaker per session — no double-speak (the Live Coach is muted in races,
   // coach.ts maybeSpeak). A user forcing cadence still routes through this gate.
   return kind === 'race'
@@ -698,6 +955,7 @@ export function lapsToCatch(gapSec?: number, chaserLapSec?: number, leaderLapSec
 export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngine {
   const now = deps.now ?? (() => Date.now())
   const publish = deps.publishFindings ?? publishCoachFindings
+  const publishRacecraft = deps.publishRacecraftContext ?? publishCoachRacecraftContext
   const minEmitIntervalMs = deps.minEmitIntervalMs ?? DEFAULT_MIN_EMIT_INTERVAL_MS
   const minSpeedKmh = deps.minSpeedKmh ?? DEFAULT_MIN_SPEED_KMH
   const starts = equalSectorStarts(deps.sectorCount ?? DEFAULT_PROACTIVE_SECTOR_COUNT)
@@ -709,11 +967,31 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   const tracker = createSectorTracker()
   const cornerTracker = createCornerTracker()
   // Per-track corner map, learned lazily from the first full lap and reused so
-  // corner numbering stays stable. Only used when corner cadence is active for the
-  // session (forced `'corner'`, or `'auto'` resolving to corner in a race).
+  // corner numbering stays stable for race call-outs and qualifying evidence.
   let cornerMap: CornerMapData | null = null
+  let reference: CoachReferenceLap | null = null
+  let referenceLapTimeSec: number | undefined
+  let latestCornerMetrics: CoachCornerMetrics[] = []
   let buffer: CoachLapSample[] = []
   let findings: CoachFinding[] = []
+  let racecraftFindings: CoachFinding[] = []
+  const history: CoachLapHistoryEntry[] = (deps.history ?? []).map((lap) => ({
+    ...lap,
+    identity: { ...lap.identity },
+    findings: lap.findings.map((finding) => ({ ...finding, metrics: { ...finding.metrics } })),
+    cornerMetrics: lap.cornerMetrics.map((metrics) => ({ ...metrics }))
+  }))
+  let gapSamples: CoachGapSample[] = []
+  let lastSnapshot: TelemetrySnapshot | null = null
+  let lastFindingsContext: FindingsContext | undefined
+  let activeAnalysisKey: string | null = null
+  let activeAnalysisIdentity: CoachComparableIdentity | null = null
+  let lapIncidentStart: number | undefined
+  let previousTrackWetnessPct: number | undefined
+  let conditionIdentityKey: string | null = null
+  let stableTrackCondition: CoachTrackCondition | undefined
+  let lastSessionKind = deriveSessionKind(undefined)
+  let lastQualiSessionKey: string | null = null
   let lastEmitAt = 0
   let lastEmittedFindingId: string | null = null
   let lastLapCount: number | null = null
@@ -724,9 +1002,164 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   let outLap = false
   let seq = 0
 
-  function setFindings(next: CoachFinding[], context?: FindingsContext): void {
+  function incidentCount(snapshot: TelemetrySnapshot): number | undefined {
+    if (Number.isFinite(snapshot.incidentCountMy)) return snapshot.incidentCountMy
+    if (Number.isFinite(snapshot.incidentCount)) return snapshot.incidentCount
+    return undefined
+  }
+
+  function conditionForSnapshot(snapshot: TelemetrySnapshot): CoachTrackCondition {
+    const identityKey = [
+      normalizedIdentityPart(snapshot.trackName),
+      normalizedIdentityPart(snapshot.trackConfigName),
+      normalizedIdentityPart(snapshot.carPath || snapshot.carName)
+    ].join('::')
+    if (conditionIdentityKey !== identityKey) {
+      conditionIdentityKey = identityKey
+      stableTrackCondition = coachComparableIdentityFromSnapshot(snapshot).condition
+      return stableTrackCondition
+    }
+
+    const measured = coachComparableIdentityFromSnapshot(snapshot, previousTrackWetnessPct).condition
+    const keepDrying =
+      stableTrackCondition === 'drying' &&
+      measured === 'intermediate' &&
+      snapshot.isRaining !== true &&
+      Number.isFinite(snapshot.trackWetnessPct) &&
+      (snapshot.trackWetnessPct as number) > 0.03
+    stableTrackCondition = keepDrying ? 'drying' : measured
+    return stableTrackCondition
+  }
+
+  function contextForSnapshot(snapshot: TelemetrySnapshot): FindingsContext {
+    return {
+      carName: snapshot.carName,
+      carPath: snapshot.carPath,
+      trackName: snapshot.trackName,
+      trackConfigName: snapshot.trackConfigName,
+      condition: conditionForSnapshot(snapshot)
+    }
+  }
+
+  function normalizedIdentityPart(value: string | undefined): string {
+    return (value ?? '').trim().toLowerCase()
+  }
+
+  function analysisKey(snapshot: TelemetrySnapshot): string {
+    const identity = coachComparableIdentityFromSnapshot(snapshot, previousTrackWetnessPct)
+    return [
+      normalizedIdentityPart(identity.trackName),
+      normalizedIdentityPart(identity.trackConfigName),
+      normalizedIdentityPart(identity.carPath || identity.carName),
+      Number.isFinite(identity.carClassId) ? identity.carClassId : '',
+      conditionForSnapshot(snapshot)
+    ].join('::')
+  }
+
+  function ambientIsComparable(
+    left: CoachComparableIdentity,
+    right: CoachComparableIdentity
+  ): boolean {
+    const airComparable =
+      left.airTempC === undefined && right.airTempC === undefined
+        ? true
+        : Number.isFinite(left.airTempC) &&
+          Number.isFinite(right.airTempC) &&
+          Math.abs((left.airTempC as number) - (right.airTempC as number)) <= 5
+    const trackComparable =
+      left.trackTempC === undefined && right.trackTempC === undefined
+        ? true
+        : Number.isFinite(left.trackTempC) &&
+          Number.isFinite(right.trackTempC) &&
+          Math.abs((left.trackTempC as number) - (right.trackTempC as number)) <= 8
+    return airComparable && trackComparable
+  }
+
+  function publishRacecraftState(snapshot: TelemetrySnapshot | null = lastSnapshot): void {
+    const context = snapshot ? contextForSnapshot(snapshot) : lastFindingsContext
+    publishRacecraft({
+      findings: racecraftFindings,
+      cornerMetrics: latestCornerMetrics,
+      reference,
+      gaps: gapSamples,
+      currentGapAheadSec: Number.isFinite(snapshot?.relatives?.ahead?.gapSec)
+        ? Math.abs(snapshot!.relatives!.ahead!.gapSec as number)
+        : undefined,
+      currentGapBehindSec: Number.isFinite(snapshot?.relatives?.behind?.gapSec)
+        ? Math.abs(snapshot!.relatives!.behind!.gapSec as number)
+        : undefined,
+      carName: context?.carName,
+      carPath: context?.carPath,
+      trackName: context?.trackName,
+      trackConfigName: context?.trackConfigName,
+      condition: context?.condition
+    })
+  }
+
+  function setFindings(
+    next: CoachFinding[],
+    context?: FindingsContext,
+    racecraftEvidence: CoachFinding[] = next
+  ): void {
     findings = Array.isArray(next) ? next : []
+    racecraftFindings = Array.isArray(racecraftEvidence)
+      ? racecraftEvidence.map((finding) => ({ ...finding, metrics: { ...finding.metrics } }))
+      : []
+    lastFindingsContext = context ?? (lastSnapshot ? contextForSnapshot(lastSnapshot) : lastFindingsContext)
     publish(findings, context)
+    publishRacecraftState()
+  }
+
+  function recordGapSample(snapshot: TelemetrySnapshot): void {
+    const aheadSec = Number.isFinite(snapshot.relatives?.ahead?.gapSec)
+      ? Math.abs(snapshot.relatives!.ahead!.gapSec as number)
+      : undefined
+    const behindSec = Number.isFinite(snapshot.relatives?.behind?.gapSec)
+      ? Math.abs(snapshot.relatives!.behind!.gapSec as number)
+      : undefined
+    if (aheadSec === undefined && behindSec === undefined) return
+    const at = Number.isFinite(snapshot.timestamp) ? snapshot.timestamp : now()
+    const next: CoachGapSample = {
+      at,
+      aheadSec,
+      behindSec,
+      aheadCarIdx: snapshot.relatives?.ahead?.carIdx,
+      behindCarIdx: snapshot.relatives?.behind?.carIdx
+    }
+    const previous = gapSamples[gapSamples.length - 1]
+    if (previous && at - previous.at < MIN_GAP_SAMPLE_INTERVAL_MS) {
+      gapSamples[gapSamples.length - 1] = next
+    } else {
+      gapSamples.push(next)
+      gapSamples = gapSamples.slice(-MAX_GAP_SAMPLES)
+    }
+  }
+
+  function ensureAnalysisContext(snapshot: TelemetrySnapshot): void {
+    const nextKey = analysisKey(snapshot)
+    const nextIdentity = coachComparableIdentityFromSnapshot(snapshot, previousTrackWetnessPct)
+    nextIdentity.condition = conditionForSnapshot(snapshot)
+    const ambientChanged =
+      activeAnalysisKey === nextKey &&
+      activeAnalysisIdentity !== null &&
+      !ambientIsComparable(activeAnalysisIdentity, nextIdentity)
+    const keyChanged = activeAnalysisKey !== null && activeAnalysisKey !== nextKey
+    if (keyChanged || ambientChanged) {
+      reset()
+      cornerMap = null
+      reference = null
+      referenceLapTimeSec = undefined
+      latestCornerMetrics = []
+      gapSamples = []
+      findings = []
+      racecraftFindings = []
+      lastFindingsContext = contextForSnapshot(snapshot)
+      publish([], lastFindingsContext)
+    }
+    activeAnalysisKey = nextKey
+    if (activeAnalysisIdentity === null || keyChanged || ambientChanged) {
+      activeAnalysisIdentity = nextIdentity
+    }
   }
 
   function reset(): void {
@@ -740,50 +1173,101 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     lastLapCount = null
     lastBehindN = 99
     lastAheadN = 99
+    lapIncidentStart = undefined
   }
 
   function finalizeLap(snapshot: TelemetrySnapshot): void {
     if (buffer.length < MIN_LAP_SAMPLES) {
       buffer = []
+      lapIncidentStart = incidentCount(snapshot)
       return
     }
     try {
       const lapNumber = isRealLapCount(snapshot.currentLap) ? snapshot.currentLap : undefined
       const lapSamples = buffer.slice()
-      // Resolve cadence for THIS session (auto → corner in a race). In corner cadence,
-      // learn the corner map once and reuse it so corner numbers are stable and the
-      // findings get tagged with `corner` (Turn N).
-      const wantCorner = cadenceForSession(cadence, snapshot.sessionType) === 'corner'
-      if (wantCorner && (!cornerMap || cornerMap.corners.length === 0)) {
+      if (!cornerMap || cornerMap.corners.length === 0) {
         const learned = buildCornerMapFn(snapshot.trackName ?? 'unknown', toCornerSamples(lapSamples))
         if (learned.corners.length > 0) cornerMap = learned
       }
       const layoutKey = trackLayoutKey(snapshot.trackName ?? '', snapshot.trackConfigName)
       const baseline = baselineStore?.get(layoutKey, snapshot.carName)
       const minConfidence = sensitivityToMinConfidence(deps.getConfig().intentSensitivity)
-      const report = buildCoachReport(
-        {
-          sectorCount: starts.length,
-          samples: lapSamples,
-          lapNumber,
-          lapTimeSec: Number.isFinite(snapshot.lastLapTimeSec) ? snapshot.lastLapTimeSec : undefined,
-          bestLapTimeSec: Number.isFinite(snapshot.bestLapTimeSec) ? snapshot.bestLapTimeSec : undefined
-        },
-        { cornerMap: wantCorner ? cornerMap : null, registry: intentRegistry, baseline, minConfidence }
+      const lapTimeSec = Number.isFinite(snapshot.lastLapTimeSec) ? snapshot.lastLapTimeSec : undefined
+      const reportInput = {
+        sectorCount: starts.length,
+        samples: lapSamples,
+        lapNumber,
+        lapTimeSec,
+        bestLapTimeSec: Number.isFinite(snapshot.bestLapTimeSec) ? snapshot.bestLapTimeSec : undefined
+      }
+      // Keep an ungated evidence view for racecraft/history. The repetition gate is a
+      // speech-noise filter; it must not erase the observations used to learn repetition.
+      const evidenceReport = buildCoachReport(
+        reportInput,
+        { cornerMap, reference, registry: intentRegistry, minConfidence, unitSystem: deps.getUnitSystem?.() }
       )
-      // Stamp the findings with the live car/track so a later session can't cite them.
-      setFindings(report.findings, { carName: snapshot.carName, trackName: snapshot.trackName })
+      const report = baseline
+        ? buildCoachReport(
+          reportInput,
+          { cornerMap, reference, registry: intentRegistry, baseline, minConfidence, unitSystem: deps.getUnitSystem?.() }
+        )
+        : evidenceReport
+      const incidentEnd = incidentCount(snapshot)
+      const incidentKnownClean =
+        lapIncidentStart !== undefined && incidentEnd !== undefined
+          ? incidentEnd <= lapIncidentStart
+          : snapshot.sim !== 'iracing'
+      const hadCaution = lapSamples.some(
+        (sample) => sample.ctx?.flagYellow === true || sample.ctx?.caution === true
+      )
+      const validLap =
+        lapTimeSec !== undefined &&
+        lapTimeSec > 0 &&
+        incidentKnownClean &&
+        !hadCaution
+
+      const stamp = contextForSnapshot(snapshot)
+      if (validLap) {
+        latestCornerMetrics = evidenceReport.cornerMetrics.map((metrics) => ({ ...metrics }))
+      }
+      setFindings(
+        report.findings,
+        stamp,
+        validLap ? evidenceReport.findings : racecraftFindings
+      )
+      if (validLap) {
+        const identity = coachComparableIdentityFromSnapshot(snapshot, previousTrackWetnessPct)
+        identity.condition = conditionForSnapshot(snapshot)
+        history.push(coachLapHistoryEntry(snapshot, evidenceReport, true, now(), identity))
+        history.splice(0, Math.max(0, history.length - MAX_RACECRAFT_HISTORY_LAPS))
+        try {
+          deps.persistHistory?.(history)
+        } catch (error) {
+          logger.warn(LOG_AREA, 'racecraft history persistence failed', {
+            message: error instanceof Error ? error.message : String(error)
+          })
+        }
+        if (
+          evidenceReport.cornerMetrics.length > 0 &&
+          (referenceLapTimeSec === undefined || lapTimeSec < referenceLapTimeSec)
+        ) {
+          reference = { corners: evidenceReport.cornerMetrics.map((metrics) => ({ ...metrics })) }
+          referenceLapTimeSec = lapTimeSec
+          publishRacecraftState(snapshot)
+        }
+      }
       // Learn this lap's events so future laps can tell a repeated issue from noise.
-      if (baselineStore && baseline) {
+      if (baselineStore && baseline && validLap) {
         const lapForRep = isRealLapCount(snapshot.currentLap) ? (snapshot.currentLap as number) : (lastLapCount ?? 0)
         baselineStore.put({
           ...baseline,
-          repetition: recordLapEvents(baseline.repetition, lapForRep, findingEventKeys(report.findings))
+          repetition: recordLapEvents(baseline.repetition, lapForRep, findingEventKeys(evidenceReport.findings))
         })
       }
     } catch (error) {
       logger.warn(LOG_AREA, 'proactive lap analysis failed', { message: error instanceof Error ? error.message : String(error) })
     }
+    lapIncidentStart = incidentCount(snapshot)
     buffer = []
   }
 
@@ -794,10 +1278,61 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       // flag so the next green lap is coached normally.
       outLap = false
       buffer = []
+      lapIncidentStart = incidentCount(snapshot)
       return
     }
     finalizeLap(snapshot)
     maybeEmitCatch(snapshot, deps.getConfig())
+  }
+
+  function qualiSessionKey(snapshot: TelemetrySnapshot): string {
+    return [
+      snapshot.sessionUniqueId ?? 'session',
+      normalizedIdentityPart(snapshot.trackName),
+      normalizedIdentityPart(snapshot.trackConfigName),
+      normalizedIdentityPart(snapshot.carPath || snapshot.carName)
+    ].join('::')
+  }
+
+  function maybeEmitQualiStart(snapshot: TelemetrySnapshot, config: ProactiveConfigView): void {
+    const kind = deriveSessionKind(snapshot.sessionType)
+    const key = qualiSessionKey(snapshot)
+    const enteringQuali = kind === 'qualify' && (lastSessionKind !== 'qualify' || lastQualiSessionKey !== key)
+    lastSessionKind = kind
+    if (!enteringQuali) return
+    lastQualiSessionKey = key
+    if (!config.proactiveCoaching) return
+
+    const sessionId = Number.isFinite(snapshot.sessionUniqueId) ? snapshot.sessionUniqueId : undefined
+    const currentSession =
+      sessionId === undefined ? [] : history.filter((lap) => lap.sessionId === sessionId)
+    const priorHistory =
+      sessionId === undefined ? history : history.filter((lap) => lap.sessionId !== sessionId)
+    const currentIdentity = coachComparableIdentityFromSnapshot(snapshot, previousTrackWetnessPct)
+    currentIdentity.condition = conditionForSnapshot(snapshot)
+    const summary = buildQualiStartSummary({
+      current: currentIdentity,
+      history: priorHistory,
+      currentSession,
+      language: config.language,
+      unitSystem: deps.getUnitSystem?.()
+    })
+    const top = summary.items[0]
+    const at = now()
+    seq += 1
+    deps.emit({
+      id: `eng-quali-${at}-${seq}`,
+      at,
+      text: summary.text,
+      sector: top?.sector ?? 1,
+      kind: top?.kind ?? 'time-loss',
+      severity: severityForLoss(top?.averageLossSec ?? 0),
+      estTimeLossSec: top?.averageLossSec ?? 0,
+      speak: true,
+      lang: config.language,
+      source: 'engineer',
+      corner: top?.corner
+    })
   }
 
   // Proactive "who catches whom" callout, evaluated once per completed lap: from my
@@ -909,10 +1444,32 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       // next session may be a different car/track, so stale coaching must not leak.
       // The next flying lap after reconnect is an out-lap.
       reset()
+      lastSnapshot = null
+      lastFindingsContext = undefined
+      activeAnalysisKey = null
+      activeAnalysisIdentity = null
+      cornerMap = null
+      reference = null
+      referenceLapTimeSec = undefined
+      latestCornerMetrics = []
+      gapSamples = []
+      racecraftFindings = []
+      previousTrackWetnessPct = undefined
+      conditionIdentityKey = null
+      stableTrackCondition = undefined
+      lastSessionKind = deriveSessionKind(undefined)
+      lastQualiSessionKey = null
       outLap = true
       setFindings([])
+      publishRacecraft(null)
       return
     }
+
+    lastSnapshot = snapshot
+    ensureAnalysisContext(snapshot)
+    recordGapSample(snapshot)
+    maybeEmitQualiStart(snapshot, config)
+    if (lapIncidentStart === undefined) lapIncidentStart = incidentCount(snapshot)
 
     if (snapshot.onPitRoad === true) {
       // In the pits: drop the partial lap (the in-lap slow-down is not a mistake)
@@ -920,11 +1477,21 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       // lap's advice is still valid across the stop.
       reset()
       outLap = true
+      publishRacecraftState(snapshot)
+      previousTrackWetnessPct = Number.isFinite(snapshot.trackWetnessPct)
+        ? snapshot.trackWetnessPct
+        : previousTrackWetnessPct
       return
     }
 
     const sample = coachSampleFromSnapshot(snapshot)
-    if (!sample) return
+    if (!sample) {
+      publishRacecraftState(snapshot)
+      previousTrackWetnessPct = Number.isFinite(snapshot.trackWetnessPct)
+        ? snapshot.trackWetnessPct
+        : previousTrackWetnessPct
+      return
+    }
 
     const advance = advanceSectorTracker(tracker, sample.lapDistPct, starts)
     // Corner cadence advances a parallel corner tracker (only once a map is learned).
@@ -975,15 +1542,37 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
         maybeEmit(advance.completedSector, snapshot, config)
       }
     }
+    publishRacecraftState(snapshot)
+    previousTrackWetnessPct = Number.isFinite(snapshot.trackWetnessPct)
+      ? snapshot.trackWetnessPct
+      : previousTrackWetnessPct
   }
 
-  return { onSnapshot, setFindings, getFindings: () => findings, reset }
+  return {
+    onSnapshot,
+    setFindings,
+    getFindings: () => findings,
+    getHistory: () =>
+      history.map((lap) => ({
+        ...lap,
+        identity: { ...lap.identity },
+        findings: lap.findings.map((finding) => ({ ...finding, metrics: { ...finding.metrics } })),
+        cornerMetrics: lap.cornerMetrics.map((metrics) => ({ ...metrics }))
+      })),
+    reset
+  }
 }
 
 // ─── Module registration ───────────────────────────────────────────────────────
 
 export function register(ctx: ModuleContext): void {
-  const baselineStore = getCoachBaselineStore(ctx.app.getPath('userData'))
+  let unitSystem: UnitSystem = 'metric'
+  settingsEvents.onChanged((settings) => {
+    unitSystem = settings.unitSystem
+  })
+  const userDataDir = ctx.app.getPath('userData')
+  const baselineStore = getCoachBaselineStore(userDataDir)
+  const historyStore = new CoachRacecraftHistoryStore(userDataDir)
   const engine = createProactiveEngine({
     emit: (event) => ctx.broadcast(ENGINEER_CHANNELS.proactive, event),
     getConfig: () => {
@@ -997,7 +1586,11 @@ export function register(ctx: ModuleContext): void {
       }
     },
     publishFindings: publishCoachFindings,
-    baselineStore
+    publishRacecraftContext: publishCoachRacecraftContext,
+    baselineStore,
+    history: historyStore.all(),
+    persistHistory: (history) => historyStore.replace(history),
+    getUnitSystem: () => unitSystem
   })
 
   ctx.telemetryHub.on('snapshot', (snapshot: TelemetrySnapshot | null) => {

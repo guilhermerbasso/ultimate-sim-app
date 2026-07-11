@@ -7,11 +7,11 @@
 // nothing is faked. Warm hues = decoration/alerts; cool/green = a genuinely good state.
 import { type ReactElement, type ReactNode } from 'react'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
+import { convertMeasurement, formatMeasurement, type UnitSystem } from '../../../shared/units'
+import { useUnitSystem } from '../lib/units'
 
 const W = 1024
 const H = 600
-const KPA_TO_BAR = 0.01
-
 const COL = {
   bg: '#000000',
   panel: '#0b0d10',
@@ -161,7 +161,7 @@ function RpmStepBar({ frac, x, y, w, h }: { frac: number; x: number; y: number; 
   )
 }
 
-function TyreGrid({ x, y, w, h, s }: { x: number; y: number; w: number; h: number; s: TelemetrySnapshot }): ReactElement {
+function TyreGrid({ x, y, w, h, s, unitSystem }: { x: number; y: number; w: number; h: number; s: TelemetrySnapshot; unitSystem: UnitSystem }): ReactElement {
   const corners: Array<{ k: string; t: number | undefined; cx: number; cy: number; anchor: 'start' | 'end' }> = [
     { k: 'FL', t: n(s.tyres?.lf?.tempC), cx: x + 44, cy: y + 40, anchor: 'start' },
     { k: 'FR', t: n(s.tyres?.rf?.tempC), cx: x + w - 44, cy: y + 40, anchor: 'end' },
@@ -182,8 +182,8 @@ function TyreGrid({ x, y, w, h, s }: { x: number; y: number; w: number; h: numbe
       {corners.map((c) => (
         <g key={c.k}>
           <text x={c.cx} y={c.cy - 22} textAnchor={c.anchor} fill={COL.dim} fontSize={13} fontFamily="'Rajdhani',sans-serif" fontWeight={700}>{c.k}</text>
-          <text x={c.cx} y={c.cy + 8} textAnchor={c.anchor} fill={tempColor(c.t)} fontSize={30} fontWeight={800} fontFamily="'Chakra Petch','Michroma',sans-serif">{fixed(c.t)}</text>
-          <text x={c.cx} y={c.cy + 24} textAnchor={c.anchor} fill={COL.muted} fontSize={11} fontFamily="'Rajdhani',sans-serif">°C</text>
+          <text x={c.cx} y={c.cy + 8} textAnchor={c.anchor} fill={tempColor(c.t)} fontSize={30} fontWeight={800} fontFamily="'Chakra Petch','Michroma',sans-serif">{formatMeasurement(c.t, 'temperature-c', unitSystem, { decimals: 0 }).display}</text>
+          <text x={c.cx} y={c.cy + 24} textAnchor={c.anchor} fill={COL.muted} fontSize={11} fontFamily="'Rajdhani',sans-serif">{formatMeasurement(c.t, 'temperature-c', unitSystem).unit}</text>
         </g>
       ))}
     </g>
@@ -198,13 +198,15 @@ export interface DduClusterProps {
 
 /** The full GT3 DDU cluster, rendered from live telemetry to match the reference. */
 export function DduCluster({ snapshot: s, width, height }: DduClusterProps): ReactElement {
-  const speed = n(s.speedKmh)
+  const unitSystem = useUnitSystem()
+  const speed = formatMeasurement(n(s.speedKmh), 'speed-kmh', unitSystem, { decimals: 0 })
   const rpm = n(s.rpm)
   const maxRpm = n(s.maxRpm) ?? 8500
   const shiftPct = n(s.shiftIndicatorPct) ?? (rpm != null ? rpm / maxRpm : 0)
   const rpmFrac = rpm != null ? clamp01(rpm / maxRpm) : 0
   const delta = n(s.deltaToBestSec)
   const fuel = n(s.fuelLiters)
+  const fuelReading = formatMeasurement(fuel, 'fuel-volume-l', unitSystem, { decimals: 1 })
   const fuelCap = n(s.fuelCapacityLiters)
   const fuelFrac = fuel != null && fuelCap ? clamp01(fuel / fuelCap) : 0
   const oil = n(s.oilTempC)
@@ -213,6 +215,11 @@ export function DduCluster({ snapshot: s, width, height }: DduClusterProps): Rea
   const battery = n((s as { batteryLapge?: number }).batteryLapge)
   const deltaColor = delta == null ? COL.dim : delta <= 0 ? COL.green : COL.red
   const deltaFrac = delta == null ? 0.5 : clamp01(0.5 + delta / 2)
+  const oilTemp = formatMeasurement(oil, 'temperature-c', unitSystem, { decimals: 0 })
+  const waterTemp = formatMeasurement(water, 'temperature-c', unitSystem, { decimals: 0 })
+  const oilPressure = formatMeasurement(oilPress != null ? oilPress / 100 : undefined, 'pressure-bar', unitSystem, { decimals: 1 })
+  const tempScale = [50, 100, 150].map((value) => fixed(convertMeasurement(value, 'temperature-c', unitSystem), 0))
+  const pressureScale = [0, 5, 10].map((value) => fixed(convertMeasurement(value, 'pressure-bar', unitSystem), unitSystem === 'imperial' ? 0 : 0))
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" role="img" aria-label="GT3 DDU cluster">
@@ -221,8 +228,8 @@ export function DduCluster({ snapshot: s, width, height }: DduClusterProps): Rea
 
       <Panel x={16} y={70} w={232} h={112}>
         {label('Fuel', 32, 96)}
-        <text x={32} y={140} fill={COL.text} fontSize={44} fontWeight={800} fontFamily="'Chakra Petch','Michroma',sans-serif">{fixed(fuel, 1)}</text>
-        <text x={168} y={140} fill={COL.dim} fontSize={14} fontFamily="'Rajdhani',sans-serif">LITERS</text>
+        <text x={32} y={140} fill={COL.text} fontSize={44} fontWeight={800} fontFamily="'Chakra Petch','Michroma',sans-serif">{fuelReading.display}</text>
+        <text x={168} y={140} fill={COL.dim} fontSize={14} fontFamily="'Rajdhani',sans-serif">{fuelReading.unit.toUpperCase()}</text>
         <text x={22} y={166} fill={COL.red} fontSize={13} fontWeight={800} fontFamily="'Rajdhani',sans-serif">E</text>
         <rect x={36} y={158} width={186} height={10} rx={3} fill="#15181c" />
         <rect x={36} y={158} width={Math.max(2, 186 * fuelFrac)} height={10} rx={3} fill={fuelFrac < 0.15 ? COL.red : fuelFrac < 0.3 ? COL.amber : COL.green} />
@@ -244,8 +251,8 @@ export function DduCluster({ snapshot: s, width, height }: DduClusterProps): Rea
 
       <Panel x={262} y={70} w={478} h={400}>
         <text x={286} y={178} fill={COL.cyan} fontSize={20} fontWeight={700} fontFamily="'Rajdhani',sans-serif" letterSpacing={2}>SPEED</text>
-        <text x={286} y={258} fill={COL.text} fontSize={72} fontWeight={800} fontFamily="'Chakra Petch','Michroma',sans-serif">{fixed(speed)}</text>
-        <text x={286} y={296} fill={COL.cyan} fontSize={18} fontFamily="'Rajdhani',sans-serif">km/h</text>
+        <text x={286} y={258} fill={COL.text} fontSize={72} fontWeight={800} fontFamily="'Chakra Petch','Michroma',sans-serif">{speed.display}</text>
+        <text x={286} y={296} fill={COL.cyan} fontSize={18} fontFamily="'Rajdhani',sans-serif">{speed.unit}</text>
 
         <text x={501} y={352} textAnchor="middle" fill={COL.text} fontSize={184} fontWeight={800} fontFamily="'Michroma','Chakra Petch',sans-serif">{gearLabel(s.gear)}</text>
 
@@ -261,7 +268,7 @@ export function DduCluster({ snapshot: s, width, height }: DduClusterProps): Rea
       </Panel>
 
       <Panel x={754} y={70} w={254} h={210}>
-        <TyreGrid x={764} y={92} w={234} h={178} s={s} />
+        <TyreGrid x={764} y={92} w={234} h={178} s={s} unitSystem={unitSystem} />
       </Panel>
       <Panel x={754} y={288} w={122} h={92}>
         {label('TC', 774, 314, 'start', COL.dim, 14)}
@@ -278,9 +285,9 @@ export function DduCluster({ snapshot: s, width, height }: DduClusterProps): Rea
       </Panel>
 
       {[
-        { x: 16, w: 240, icon: 'oil', name: 'Oil Temp', val: fixed(oil), unit: '°C', frac: oil != null ? (oil - 50) / 100 : 0, color: COL.green, lo: '50', mid: '100', hi: '150' },
-        { x: 268, w: 240, icon: 'water', name: 'Water Temp', val: fixed(water), unit: '°C', frac: water != null ? (water - 50) / 100 : 0, color: COL.cyan, lo: '50', mid: '100', hi: '150' },
-        { x: 520, w: 240, icon: 'oilp', name: 'Oil Press', val: fixed(oilPress != null ? oilPress * KPA_TO_BAR : undefined, 1), unit: 'bar', frac: oilPress != null ? (oilPress * KPA_TO_BAR) / 10 : 0, color: COL.amber, lo: '0', mid: '5', hi: '10' },
+        { x: 16, w: 240, icon: 'oil', name: 'Oil Temp', val: oilTemp.display, unit: oilTemp.unit, frac: oil != null ? (oil - 50) / 100 : 0, color: COL.green, lo: tempScale[0], mid: tempScale[1], hi: tempScale[2] },
+        { x: 268, w: 240, icon: 'water', name: 'Water Temp', val: waterTemp.display, unit: waterTemp.unit, frac: water != null ? (water - 50) / 100 : 0, color: COL.cyan, lo: tempScale[0], mid: tempScale[1], hi: tempScale[2] },
+        { x: 520, w: 240, icon: 'oilp', name: 'Oil Press', val: oilPressure.display, unit: oilPressure.unit, frac: oilPress != null ? (oilPress / 100) / 10 : 0, color: COL.amber, lo: pressureScale[0], mid: pressureScale[1], hi: pressureScale[2] },
         { x: 772, w: 236, icon: 'batt', name: 'Battery', val: fixed(battery, 1), unit: 'V', frac: battery != null ? (battery - 10) / 6 : 0, color: COL.red, lo: '10', mid: '12', hi: '16' }
       ].map((t) => (
         <g key={t.name}>

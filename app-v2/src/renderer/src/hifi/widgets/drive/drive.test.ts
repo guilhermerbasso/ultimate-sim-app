@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { baseSnapshot } from '../../../../../shared/telemetry-scenarios'
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
+import { SHIFT_STROBE_BLUE } from '../../../lib/rev-lights'
 import { DRIVE_WIDGETS } from './index'
 
 const badTokens = /NaN|undefined|Infinity/
@@ -50,6 +51,23 @@ describe('DRIVE_WIDGETS', () => {
       const markup = renderToStaticMarkup(createElement(widget!.render, { snapshot: baseSnapshot(), width: widget!.defaultSize.w, height: widget!.defaultSize.h }))
       expect(markup.length).toBeGreaterThan(100)
       expect(markup).not.toMatch(badTokens)
+    }
+  })
+
+  it('uses the shared strong-blue strobe across every rev/RPM light strip', () => {
+    const ids = ['rpmBar', 'revlights', 'revlightsGradient', 'revlightsLedStrip', 'revlightsLedBar', 'revlightsMustang']
+    const shift = { ...baseSnapshot(), shiftIndicatorPct: 1 }
+    const mid = { ...baseSnapshot(), shiftIndicatorPct: 0.6 }
+
+    for (const id of ids) {
+      const widget = DRIVE_WIDGETS.find((candidate) => candidate.id === id)!
+      const shifted = renderToStaticMarkup(createElement(widget.render, { snapshot: shift, width: 1000, height: 36 }))
+      const normal = renderToStaticMarkup(createElement(widget.render, { snapshot: mid, width: 1000, height: 36 }))
+      expect(shifted, id).toContain(SHIFT_STROBE_BLUE)
+      expect(shifted, id).toContain('repeatCount="indefinite"')
+      expect(shifted, id).toContain('viewBox="0 0 1000 36"')
+      expect(normal, id).not.toContain(SHIFT_STROBE_BLUE)
+      expect(normal, id).not.toContain('repeatCount="indefinite"')
     }
   })
 })

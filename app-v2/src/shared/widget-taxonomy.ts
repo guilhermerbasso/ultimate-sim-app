@@ -182,7 +182,7 @@ export interface WidgetTaxon {
   label: string
   category: WidgetCategoryTag
   styleFamily: WidgetStyleFamily
-  tags?: string[]
+  tags?: readonly string[]
   hint?: string
   /** Optional hardware/use-case cluster (real-dashboard grouping axis). */
   cluster?: WidgetClusterTag
@@ -202,6 +202,8 @@ export interface WidgetFilterQuery {
   styleFamily?: WidgetStyleFamily | null
   /** Exact hardware/use-case cluster match when set (null/undefined = all). */
   cluster?: WidgetClusterTag | null
+  /** Exact tag intersection; every selected tag must be present. */
+  tags?: readonly string[]
   sim?: string | null
 }
 
@@ -230,6 +232,11 @@ export function matchesQuery(v: WidgetTaxon, query: WidgetFilterQuery): boolean 
   if (query.category && v.category !== query.category) return false
   if (query.styleFamily && v.styleFamily !== query.styleFamily) return false
   if (query.cluster && v.cluster !== query.cluster) return false
+  const selectedTags = (query.tags ?? []).map((tag) => tag.trim()).filter(Boolean)
+  if (selectedTags.length > 0) {
+    const variantTags = new Set((v.tags ?? []).map((tag) => tag.trim()).filter(Boolean))
+    if (!selectedTags.every((tag) => variantTags.has(tag))) return false
+  }
   const search = (query.search ?? '').trim().toLowerCase()
   if (!search) return true
   const hay = haystack(v)

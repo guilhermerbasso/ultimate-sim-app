@@ -1,6 +1,7 @@
 import { type ReactElement, type ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { Bar, BigNum, C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, Hairline, LEGIBLE, LedRow, fixed, legibleStroke, num, tempColor } from '../kit'
+import { formatMeasurement, type MeasurementKind, type UnitSystem } from '../../../../../shared/units'
 
 const W = 420
 const H = 286
@@ -21,7 +22,7 @@ interface CornerSpec {
 interface GaugeSpec {
   label: string
   value: number | undefined
-  unit: string
+  kind: MeasurementKind
   min: number
   max: number
   ticks: number[]
@@ -109,8 +110,9 @@ function BrakeDisc({ cx, cy, r, temp }: { cx: number; cy: number; r: number; tem
   )
 }
 
-function BrakeCornerReadout({ x, y, corner, temp, compact = false, anchor = 'start' }: { x: number; y: number; corner: CornerSpec; temp: number | undefined; compact?: boolean; anchor?: 'start' | 'end' }): ReactElement {
+function BrakeCornerReadout({ x, y, corner, temp, unitSystem, compact = false, anchor = 'start' }: { x: number; y: number; corner: CornerSpec; temp: number | undefined; unitSystem: UnitSystem; compact?: boolean; anchor?: 'start' | 'end' }): ReactElement {
   const color = brakeColor(temp)
+  const reading = formatMeasurement(temp, 'temperature-c', unitSystem, { decimals: 0 })
   const valueSize = compact ? 42 : 28
   const unitX = anchor === 'end' ? x + 12 : x + (compact ? 108 : 66)
   return (
@@ -119,16 +121,16 @@ function BrakeCornerReadout({ x, y, corner, temp, compact = false, anchor = 'sta
         {corner.label}
       </text>
       <text x={x} y={y + (compact ? 43 : 54)} textAnchor={anchor} fill={temp == null ? C.dim : color} fontFamily={FONT_NUM} fontSize={valueSize} fontWeight={900} {...legibleStroke(valueSize)}>
-        {fixed(temp)}
+        {reading.display}
       </text>
       <text x={unitX} y={y + (compact ? 43 : 54)} fill={WHITE} fontFamily={FONT_LABEL} fontSize={compact ? 16 : 12} fontWeight={800} {...LEGIBLE}>
-        °C
+        {reading.unit}
       </text>
     </g>
   )
 }
 
-function BrakeTempWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function BrakeTempWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const temps = CORNERS.map((corner) => ({ corner, temp: brakeTemp(snapshot, corner.id) }))
   return (
     <Tile label="Brake Temp" width={width} height={height} accent={ORANGE}>
@@ -144,7 +146,7 @@ function BrakeTempWidget({ snapshot, width, height }: HifiWidgetProps): ReactEle
         return (
           <g key={corner.id}>
             <BrakeDisc cx={discX} cy={discY} r={30} temp={temp} />
-            <BrakeCornerReadout x={textX} y={textY} corner={corner} temp={temp} anchor={left ? 'start' : 'end'} />
+            <BrakeCornerReadout x={textX} y={textY} corner={corner} temp={temp} unitSystem={unitSystem} anchor={left ? 'start' : 'end'} />
           </g>
         )
       })}
@@ -152,12 +154,12 @@ function BrakeTempWidget({ snapshot, width, height }: HifiWidgetProps): ReactEle
   )
 }
 
-function BrakeTempSingleWidget({ snapshot, width, height, corner }: HifiWidgetProps & { corner: CornerSpec }): ReactElement {
+function BrakeTempSingleWidget({ snapshot, width, height, corner, unitSystem = 'metric' }: HifiWidgetProps & { corner: CornerSpec }): ReactElement {
   const temp = brakeTemp(snapshot, corner.id)
   return (
     <Tile label={`Brake ${corner.label}`} width={width} height={height} accent={brakeColor(temp)}>
       <BrakeDisc cx={146} cy={158} r={68} temp={temp} />
-      <BrakeCornerReadout x={248} y={112} corner={corner} temp={temp} compact />
+      <BrakeCornerReadout x={248} y={112} corner={corner} temp={temp} unitSystem={unitSystem} compact />
       <Bar x={250} y={190} w={112} h={12} f={fraction(temp, 250, 760)} color={brakeColor(temp)} />
     </Tile>
   )
@@ -190,7 +192,7 @@ function BiasWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement 
   )
 }
 
-function GaugeTicks({ cx, cy, r, min, max, ticks }: { cx: number; cy: number; r: number; min: number; max: number; ticks: number[] }): ReactElement {
+function GaugeTicks({ cx, cy, r, min, max, ticks, kind, unitSystem }: { cx: number; cy: number; r: number; min: number; max: number; ticks: number[]; kind: MeasurementKind; unitSystem: UnitSystem }): ReactElement {
   return (
     <g>
       {Array.from({ length: 31 }, (_, i) => {
@@ -205,7 +207,7 @@ function GaugeTicks({ cx, cy, r, min, max, ticks }: { cx: number; cy: number; r:
         const a = (-180 + pct * 180) * (Math.PI / 180)
         return (
           <text key={tick} x={cx + Math.cos(a) * (r - 34)} y={cy + Math.sin(a) * (r - 34) + 5} textAnchor="middle" fill={WHITE} fontFamily={FONT_NUM} fontSize={14} fontWeight={800} {...LEGIBLE}>
-            {tick}
+            {formatMeasurement(tick, kind, unitSystem, { decimals: kind === 'pressure-bar' && unitSystem !== 'imperial' ? 1 : 0 }).display}
           </text>
         )
       })}
@@ -213,36 +215,37 @@ function GaugeTicks({ cx, cy, r, min, max, ticks }: { cx: number; cy: number; r:
   )
 }
 
-function GaugeValue({ x, y, value, unit, missing }: { x: number; y: number; value: number | undefined; unit: string; missing: boolean }): ReactElement {
-  const size = unit === 'bar' ? 50 : 56
-  const valueLabel = fixed(value, unit === 'bar' ? 1 : 0)
-  const unitOffset = unit === 'bar' ? 108 : 92
+function GaugeValue({ x, y, value, kind, unitSystem }: { x: number; y: number; value: number | undefined; kind: MeasurementKind; unitSystem: UnitSystem }): ReactElement {
+  const reading = formatMeasurement(value, kind, unitSystem, { decimals: kind === 'pressure-bar' ? 1 : 0 })
+  const size = reading.unit === 'psi' ? 44 : reading.unit === 'bar' ? 50 : 56
+  const unitOffset = reading.unit === 'bar' ? 108 : 82
   return (
     <g>
-      <text x={x} y={y} textAnchor="middle" fill={missing ? C.dim : WHITE} fontFamily={FONT_BIG} fontSize={size} fontWeight={900} {...legibleStroke(size)}>
-        {valueLabel}
+      <text x={x} y={y} textAnchor="middle" fill={reading.value == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontSize={size} fontWeight={900} {...legibleStroke(size)}>
+        {reading.display}
       </text>
-      <text x={x + unitOffset} y={y} fill={WHITE} fontFamily={FONT_LABEL} fontSize={unit === 'bar' ? 18 : 20} fontWeight={900} {...LEGIBLE}>
-        {unit}
+      <text x={x + unitOffset} y={y} fill={WHITE} fontFamily={FONT_LABEL} fontSize={reading.unit === 'bar' ? 18 : 20} fontWeight={900} {...LEGIBLE}>
+        {reading.unit}
       </text>
     </g>
   )
 }
 
-function GaugeWidget({ width, height, label, value, unit, min, max, ticks, color }: HifiWidgetProps & GaugeSpec): ReactElement {
+function GaugeWidget({ width, height, label, value, kind, min, max, ticks, color, unitSystem = 'metric' }: HifiWidgetProps & GaugeSpec): ReactElement {
   const f = fraction(value, min, max)
   const angle = (-180 + f * 180) * (Math.PI / 180)
   const cx = 210
   const cy = 154
   const r = 104
   const needleR = 70
+  const valueY = cy + (kind === 'pressure-bar' && unitSystem === 'imperial' ? 45 : 18)
   return (
     <Tile label={label} width={width} height={height} accent={color}>
       <GaugeArc cx={cx} cy={cy} r={r} thickness={8} f={value == null ? 0 : f} color={value == null ? C.dim : color} />
-      <GaugeTicks cx={cx} cy={cy} r={r} min={min} max={max} ticks={ticks} />
+      <GaugeTicks cx={cx} cy={cy} r={r} min={min} max={max} ticks={ticks} kind={kind} unitSystem={unitSystem} />
       <path d={`M${cx} ${cy} L${cx + Math.cos(angle) * needleR} ${cy + Math.sin(angle) * needleR}`} stroke={value == null ? C.dim : WHITE} strokeWidth={9} strokeLinecap="round" />
       <circle cx={cx} cy={cy} r={17} fill="#17191d" stroke="rgba(255,255,255,0.2)" />
-      <GaugeValue x={cx} y={cy + 18} value={value} unit={unit} missing={value == null} />
+      <GaugeValue x={cx} y={valueY} value={value} kind={kind} unitSystem={unitSystem} />
     </Tile>
   )
 }
@@ -371,7 +374,7 @@ export const oilTempWidget: HifiWidgetModule = {
   tags: ['oil', 'gauge'],
   requires: ['oilTempC'],
   defaultSize: { w: W, h: H },
-  render: (props) => <GaugeWidget {...props} label="Oil Temp" value={num(props.snapshot?.oilTempC)} unit="°C" min={60} max={160} ticks={[60, 100, 140]} color={AMBER} />
+  render: (props) => <GaugeWidget {...props} label="Oil Temp" value={num(props.snapshot?.oilTempC)} kind="temperature-c" min={60} max={160} ticks={[60, 100, 140]} color={AMBER} />
 }
 
 export const waterTempWidget: HifiWidgetModule = {
@@ -382,7 +385,7 @@ export const waterTempWidget: HifiWidgetModule = {
   tags: ['water', 'gauge'],
   requires: ['waterTempC'],
   defaultSize: { w: W, h: H },
-  render: (props) => <GaugeWidget {...props} label="Water Temp" value={num(props.snapshot?.waterTempC)} unit="°C" min={40} max={140} ticks={[40, 80, 120]} color={CYAN} />
+  render: (props) => <GaugeWidget {...props} label="Water Temp" value={num(props.snapshot?.waterTempC)} kind="temperature-c" min={40} max={140} ticks={[40, 80, 120]} color={CYAN} />
 }
 
 export const oilPressureWidget: HifiWidgetModule = {
@@ -395,7 +398,7 @@ export const oilPressureWidget: HifiWidgetModule = {
   defaultSize: { w: W, h: H },
   render: (props) => {
     const kpa = num(props.snapshot?.oilPressureKpa)
-    return <GaugeWidget {...props} label="Oil Press" value={kpa == null ? undefined : kpa * KPA_TO_BAR} unit="bar" min={0} max={5} ticks={[0, 1, 2, 3, 4, 5]} color={AMBER} />
+    return <GaugeWidget {...props} label="Oil Press" value={kpa == null ? undefined : kpa * KPA_TO_BAR} kind="pressure-bar" min={0} max={5} ticks={[0, 1, 2, 3, 4, 5]} color={AMBER} />
   }
 }
 

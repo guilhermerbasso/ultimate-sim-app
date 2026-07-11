@@ -27,11 +27,13 @@ import {
   mergeRecordingConfig
 } from '../../shared/recording'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
+import type { UnitSystem } from '../../shared/units'
 import type { ModuleContext } from '../module-context'
 import { TelemetryRecorder } from '../recording/recorder'
 import { analyze, colorForIndex } from '../analysis/engine'
 import { parseAnalysisCsv } from '../analysis/csv'
 import { buildInsights } from '../analysis/insights'
+import { settingsEvents } from '../settings/events'
 import { parseIbtLap, parseIbtSummary, type IbtSummary, type IbtTickSample } from '../analysis/ibt'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -477,6 +479,10 @@ export function register(ctx: ModuleContext): void {
   const userData = ctx.app.getPath('userData')
   const recorder = new TelemetryRecorder(userData)
   const enricher = new SessionEnricher(userData)
+  let unitSystem: UnitSystem = 'metric'
+  settingsEvents.onChanged((settings) => {
+    unitSystem = settings.unitSystem
+  })
 
   // Persisted recording config (auto-record default ON). Loaded async; we gate
   // auto-start on `configLoaded` so a snapshot arriving in the tiny load window
@@ -663,7 +669,7 @@ export function register(ctx: ModuleContext): void {
     const firstWithTrack = resolvedLaps.find((l) => l.trackName)
     const trackLabel = trackLabelOf(firstWithTrack?.trackName)
     const trackKey = request.trackKey ?? trackKeyOf(firstWithTrack?.trackName)
-    return analyze(resolvedLaps, profile, { trackKey, trackLabel })
+    return analyze(resolvedLaps, profile, { trackKey, trackLabel, unitSystem })
   })
 
   ctx.ipcMain.handle('recording:insights', async (_event, request: AnalysisRequest): Promise<AnalysisResult> => {
@@ -680,8 +686,8 @@ export function register(ctx: ModuleContext): void {
     const firstWithTrack = resolvedLaps.find((l) => l.trackName)
     const trackLabel = trackLabelOf(firstWithTrack?.trackName)
     const trackKey = request.trackKey ?? trackKeyOf(firstWithTrack?.trackName)
-    const result = analyze(resolvedLaps, profile, { trackKey, trackLabel })
-    const insights = buildInsights(result, primaryLapId, referenceLapId ?? result.bestLapId)
+    const result = analyze(resolvedLaps, profile, { trackKey, trackLabel, unitSystem })
+    const insights = buildInsights(result, primaryLapId, referenceLapId ?? result.bestLapId, unitSystem)
     return { ...result, insights }
   })
 }

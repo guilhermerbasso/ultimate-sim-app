@@ -22,6 +22,8 @@ import {
   isKeyboardModifier,
   keyboardTokenFromEvent
 } from '../lib/keyboard-capture'
+import { useUnitSystem } from '../lib/units'
+import { litersToUsGallons, usGallonsToLiters } from '../../../shared/units'
 
 type OutputType = 'keyboard' | 'gamepad' | 'iracing' | 'app'
 type KeyboardMode = KeyboardMacroCommand['mode']
@@ -378,6 +380,7 @@ async function dispatchAppAction(action: Extract<ActionDefinition, { type: 'app'
 }
 
 function ControlsView({ showToast, language }: AppViewProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const [bindings, setBindings] = useState<ActionBinding[]>([])
   const [draft, setDraft] = useState<DraftState>(EMPTY_DRAFT)
   const [gamepads, setGamepads] = useState<GamepadSummary[]>([])
@@ -974,8 +977,21 @@ function ControlsView({ showToast, language }: AppViewProps): ReactElement {
               </label>
               {draft.iracingCommand === 'pit:addFuel' && (
                 <label>
-                  <span>Liters</span>
-                  <input className="text-field" min={0} step={1} type="number" value={draft.fuelLiters} onChange={(event) => setDraft((current) => ({ ...current, fuelLiters: Number(event.target.value) }))} />
+                  <span>{unitSystem === 'imperial' ? 'US gallons' : 'Liters'}</span>
+                  <input
+                    className="text-field"
+                    min={0}
+                    step={unitSystem === 'imperial' ? 0.1 : 1}
+                    type="number"
+                    value={unitSystem === 'imperial' ? Number((litersToUsGallons(draft.fuelLiters) ?? 0).toFixed(2)) : draft.fuelLiters}
+                    onChange={(event) => {
+                      const displayValue = Number(event.target.value)
+                      setDraft((current) => ({
+                        ...current,
+                        fuelLiters: unitSystem === 'imperial' ? usGallonsToLiters(displayValue) ?? 0 : displayValue
+                      }))
+                    }}
+                  />
                 </label>
               )}
             </div>

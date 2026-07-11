@@ -23,6 +23,10 @@ import {
   type SpotterLang,
   type SpotterThresholds
 } from '../../../shared/spotter'
+import {
+  resolvePiperVoice,
+  resolveSpeechVoiceURI
+} from '../../../shared/tts-voice'
 import { logClient } from './log-client'
 import { notifyExternalSpeaking } from './tts-runtime'
 
@@ -235,12 +239,20 @@ function fetchPiperVoices(): Promise<void> {
 const ensuredPiperVoiceIds = new Set<string>()
 
 function collectPiperVoiceIds(config: SpotterConfig): string[] {
-  const uris = [config.defaultVoiceURI, ...Object.values(config.callouts).map((c) => c.voiceURI)]
   const ids = new Set<string>()
-  for (const uri of uris) {
-    const id = parsePiperVoiceId(uri ?? '')
-    if (id && isValidPiperVoiceId(id)) ids.add(id)
+
+  const addResolvedPiper = (uri: string): void => {
+    const id = parsePiperVoiceId(uri)
+    if (!uri || id || isValidPiperVoiceId(uri)) {
+      ids.add(resolvePiperVoice(config.language, uri).voiceId)
+    }
   }
+
+  addResolvedPiper(config.defaultVoiceURI)
+  for (const callout of Object.values(config.callouts)) {
+    if (callout.voiceURI) addResolvedPiper(callout.voiceURI)
+  }
+
   return [...ids]
 }
 
@@ -309,6 +321,7 @@ interface QueuedLine {
   text: string
   priority: number
   voiceURI: string
+  configuredVoiceURI?: string
   // When set and `voiceURI` is empty, the OS fallback picks a DISTINCT installed
   // voice for this neural voice id so different voices never collapse to one.
   seedVoiceId?: string
@@ -485,7 +498,7 @@ function applyVoiceAndSpeak(utterance: SpeechSynthesisUtterance, line: QueuedLin
   }
   logClient.info('spotter', `callout ${line.id} spoken`, {
     engine: 'os',
-    requestedVoiceURI: line.voiceURI || '(language default)',
+    requestedVoiceURI: line.configuredVoiceURI || '(language default)',
     resolvedVoiceURI: voice?.voiceURI ?? null,
     resolvedVoiceName: voice?.name ?? null,
     lang: utterance.lang
@@ -541,7 +554,8 @@ async function speakWithPiper(line: QueuedLine): Promise<void> {
       // its own pushLog/diagnostic logging.
       const fallbackLang = piperVoiceLang(voiceId) ?? line.lang
       logClient.info('spotter', `callout ${line.id} piper-unavailable fallback`, {
-        requestedVoiceURI: line.voiceURI,
+        requestedVoiceURI: line.configuredVoiceURI || '(language default)',
+        resolvedVoiceURI: line.voiceURI,
         fallbackEngine: 'os',
         fallbackLang
       })
@@ -550,7 +564,7 @@ async function speakWithPiper(line: QueuedLine): Promise<void> {
     }
     logClient.info('spotter', `callout ${line.id} spoken`, {
       engine: 'piper',
-      requestedVoiceURI: line.voiceURI,
+      requestedVoiceURI: line.configuredVoiceURI || '(language default)',
       resolvedVoiceURI: line.voiceURI,
       lang: line.lang
     })
@@ -633,8 +647,12 @@ function speakNext(): void {
   }
   state.speaking = true
   state.currentPriority = line.priority
-  if (line.voiceURI.startsWith('piper:')) {
-    void speakWithPiper(line)
+  const spokenLine = {
+    ...line,
+    voiceURI: resolveSpeechVoiceURI(line.lang, line.voiceURI, getUnifiedVoices())
+  }
+  if (spokenLine.voiceURI.startsWith('piper:')) {
+    void speakWithPiper(spokenLine)
     return
   }
   // OS Web Speech path — bail early if unavailable rather than clearing queue
@@ -644,7 +662,7 @@ function speakNext(): void {
     setSpotterAudible(false)
     return
   }
-  speakWithOS(line)
+  speakWithOS(spokenLine)
 }
 
 function enqueue(line: QueuedLine): void {
@@ -686,6 +704,7 @@ function emit(config: SpotterConfig, id: CalloutId, params: PhraseParams = {}): 
     text,
     priority,
     voiceURI: cfg.voiceURI || config.defaultVoiceURI,
+    configuredVoiceURI: cfg.voiceURI || config.defaultVoiceURI,
     lang: config.language,
     rate: cfg.rate,
     pitch: cfg.pitch,
@@ -935,7 +954,8 @@ function speakOSImmediate(
   pitch: number,
   volume: number,
   gen: number,
-  seedVoiceId = ''
+  seedVoiceId = '',
+  configuredVoiceURI = voiceURI
 ): void {
   if (!synthAvailable()) return
   const utterance = new SpeechSynthesisUtterance(text)
@@ -960,7 +980,7 @@ function speakOSImmediate(
     }
     logClient.info('spotter', 'test voice spoken', {
       engine: 'os',
-      requestedVoiceURI: voiceURI || '(language default)',
+      requestedVoiceURI: configuredVoiceURI || '(language default)',
       resolvedVoiceURI: voice?.voiceURI ?? null,
       resolvedVoiceName: voice?.name ?? null,
       lang: utterance.lang
@@ -985,6 +1005,8 @@ function speakImmediate(
   outputDeviceId = ''
 ): void {
   if (!text) return
+  const configuredVoiceURI = voiceURI
+  voiceURI = resolveSpeechVoiceURI(lang, configuredVoiceURI, getUnifiedVoices())
   // Cancel any ongoing speech — this is an explicit user test.
   state.queue = []
   state.activeUtterance = null
@@ -1014,16 +1036,17 @@ function speakImmediate(
           state.speaking = false
           const fallbackLang = piperVoiceLang(voiceId) ?? lang
           logClient.info('spotter', 'test piper-unavailable fallback', {
-            requestedVoiceURI: voiceURI,
+            requestedVoiceURI: configuredVoiceURI || '(language default)',
+            resolvedVoiceURI: voiceURI,
             fallbackEngine: 'os',
             fallbackLang
           })
-          speakOSImmediate(text, '', fallbackLang, rate, pitch, volume, gen, voiceId)
+          speakOSImmediate(text, '', fallbackLang, rate, pitch, volume, gen, voiceId, configuredVoiceURI)
           return
         }
         logClient.info('spotter', 'test voice spoken', {
           engine: 'piper',
-          requestedVoiceURI: voiceURI,
+          requestedVoiceURI: configuredVoiceURI || '(language default)',
           resolvedVoiceURI: voiceURI,
           lang
         })
@@ -1031,7 +1054,7 @@ function speakImmediate(
         if (!ctx) {
           // No Web Audio → OS fallback so the test stays audible.
           state.speaking = false
-          speakOSImmediate(text, '', lang, rate, pitch, volume, gen, voiceId)
+          speakOSImmediate(text, '', lang, rate, pitch, volume, gen, voiceId, configuredVoiceURI)
           return
         }
         let audioBuffer: AudioBuffer
@@ -1041,7 +1064,7 @@ function speakImmediate(
         } catch {
           // Neural bytes wouldn't decode → fall back so the test never goes silent.
           state.speaking = false
-          speakOSImmediate(text, '', lang, rate, pitch, volume, gen, voiceId)
+          speakOSImmediate(text, '', lang, rate, pitch, volume, gen, voiceId, configuredVoiceURI)
           return
         }
         if (gen !== state.piperGen) return
@@ -1082,7 +1105,7 @@ function speakImmediate(
     return
   }
 
-  speakOSImmediate(text, voiceURI, lang, rate, pitch, volume, gen)
+  speakOSImmediate(text, voiceURI, lang, rate, pitch, volume, gen, '', configuredVoiceURI)
 }
 
 export function testCallout(id: CalloutId, config: SpotterConfig): void {
@@ -1138,14 +1161,15 @@ function startSubscriptions(): void {
   // Kick the async voice list so it's populated before the first callout — the
   // Web Speech voiceschanged race is the main reason a chosen voice was ignored.
   void ensureVoicesLoaded()
-  // Fetch the installed-flag list FIRST, then auto-download whatever Piper voice
-  // the loaded config selects so the spotter speaks with the DISTINCT model.
-  void fetchPiperVoices().then(() => ensureSelectedPiperVoices(currentConfig))
+  // Fetch installed flags, but do not ensure the module-level fallback config:
+  // wait for the persisted, app-language-synced config below so a PT app never
+  // starts an unnecessary English model download during renderer boot.
+  const piperVoicesReady = fetchPiperVoices()
   void window.ipc
     .invoke<SpotterConfig>(SPOTTER_CHANNELS.getConfig)
     .then((config) => {
       currentConfig = config
-      ensureSelectedPiperVoices(config)
+      void piperVoicesReady.then(() => ensureSelectedPiperVoices(config))
     })
     .catch(() => undefined)
   offConfig = window.ipc.subscribe<SpotterConfig>(SPOTTER_CHANNELS.configEvent, (config) => {

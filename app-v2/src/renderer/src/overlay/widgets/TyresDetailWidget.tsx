@@ -13,6 +13,8 @@ import { resolveSkin, FitText, makeGrid } from '../../skins'
 import type { SkinId, BrandId, SkinToken, Rect } from '../../skins'
 import type { WidgetProps } from './types'
 import { numberOrDash } from './format'
+import { formatMeasurement } from '../../../../shared/units'
+import { useUnitSystem } from '../../lib/units'
 
 const CORNERS: Array<[keyof Corners<unknown>, string]> = [['lf', 'LF'], ['rf', 'RF'], ['lr', 'LR'], ['rr', 'RR']]
 
@@ -25,6 +27,7 @@ const DIM_CHROME = '#8a8a8a'
 interface Chan {
   label: string
   value?: number
+  display: string
   norm: number
   color: string
   unit: string
@@ -81,12 +84,12 @@ function ChannelRow({ rect, ch, skin }: { rect: Rect; ch: Chan; skin: SkinToken 
       <FitText x={rect.x} y={rect.y + rect.h / 2} boxW={labelW - 2} boxH={rect.h * 0.9} text={ch.label} anchor="start" fontFamily={typography.label} fill={palette.textDim} weight={600} letterSpacing={0.4} minFontPx={10} maxFontPx={13} />
       <rect x={barX} y={barY} width={barW} height={barH} rx={barH / 2} fill={palette.bg} stroke={skin.material.border} strokeWidth={1} />
       {ch.norm > 0 && <rect x={barX} y={barY} width={Math.max(0, barW * clamp01(ch.norm))} height={barH} rx={barH / 2} fill={ch.color} />}
-      <FitText x={rect.x + rect.w} y={rect.y + rect.h / 2} boxW={valueW - 2} boxH={rect.h * 0.92} text={`${numberOrDash(ch.value, 0)}${ch.unit}`} anchor="end" fontFamily={segment.numeric} fill={ch.color} minFontPx={11} maxFontPx={16} />
+      <FitText x={rect.x + rect.w} y={rect.y + rect.h / 2} boxW={valueW - 2} boxH={rect.h * 0.92} text={`${ch.display}${ch.unit}`} anchor="end" fontFamily={segment.numeric} fill={ch.color} minFontPx={11} maxFontPx={16} />
     </g>
   )
 }
 
-function CornerTile({ rect, data, skin }: { rect: Rect; data: CornerData; skin: SkinToken }): ReactElement {
+function CornerTile({ rect, data, skin, pressureDisplay }: { rect: Rect; data: CornerData; skin: SkinToken; pressureDisplay: string }): ReactElement {
   const { palette, material, typography, segment } = skin
   const pad = 8
   const headerH = Math.max(18, Math.min(rect.h * 0.16, 26))
@@ -96,7 +99,7 @@ function CornerTile({ rect, data, skin }: { rect: Rect; data: CornerData; skin: 
     <g>
       <rect x={rect.x} y={rect.y} width={rect.w} height={rect.h} rx={material.radius} fill={palette.surface} stroke={material.border} strokeWidth={material.borderWidth} />
       <FitText x={rect.x + pad} y={rect.y + headerH / 2 + 1} boxW={rect.w * 0.4} boxH={headerH * 0.82} text={data.label} anchor="start" fontFamily={typography.label} fill={palette.textDim} weight={800} letterSpacing={1} minFontPx={11} maxFontPx={18} />
-      <FitText x={rect.x + rect.w - pad} y={rect.y + headerH / 2 + 1} boxW={rect.w * 0.5} boxH={headerH * 0.7} text={`${numberOrDash(data.pres, 0)} kPa`} anchor="end" fontFamily={segment.numeric} fill={palette.text} minFontPx={10} maxFontPx={13} />
+      <FitText x={rect.x + rect.w - pad} y={rect.y + headerH / 2 + 1} boxW={rect.w * 0.5} boxH={headerH * 0.7} text={pressureDisplay} anchor="end" fontFamily={segment.numeric} fill={palette.text} minFontPx={10} maxFontPx={13} />
       {data.chans.map((ch, i) => (
         <ChannelRow key={ch.label} rect={{ x: rowsArea.x, y: rowsArea.y + i * rowH, w: rowsArea.w, h: rowH - 2 }} ch={ch} skin={skin} />
       ))}
@@ -105,6 +108,7 @@ function CornerTile({ rect, data, skin }: { rect: Rect; data: CornerData; skin: 
 }
 
 export function TyresDetailWidget({ snapshot, config }: WidgetProps): ReactElement {
+  const unitSystem = useUnitSystem()
   const skin = widgetSkin(config)
   const W = Math.max(1, Math.round(config?.position?.width ?? DEFAULT_W))
   const H = Math.max(1, Math.round(config?.position?.height ?? DEFAULT_H))
@@ -116,11 +120,14 @@ export function TyresDetailWidget({ snapshot, config }: WidgetProps): ReactEleme
     const wear = lifePct(tyre?.wearPct)
     const temp = tyre?.tempC
     const pres = tyre?.pressureKpa
+    const tempReading = formatMeasurement(temp, 'temperature-c', unitSystem, { decimals: 0 })
+    const pressureReading = formatMeasurement(pres, 'pressure-kpa', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0 })
+    const brakeReading = formatMeasurement(brake, 'temperature-c', unitSystem, { decimals: 0 })
     const chans: Chan[] = [
-      { label: 'TEMP', value: temp, norm: temp === undefined ? 0 : clamp01((temp - 40) / 100), color: temp === undefined ? DIM_CHROME : heat((temp - 40) / 100), unit: '°' },
-      { label: 'PRES', value: pres, norm: pres === undefined ? 0 : clamp01(pres / 240), color: pres === undefined ? DIM_CHROME : heat(clamp01((pres - 130) / 130)), unit: '' },
-      { label: 'BRAKE', value: brake, norm: brake === undefined ? 0 : clamp01(brake / 900), color: brake === undefined ? DIM_CHROME : heat(brake / 900), unit: '°' },
-      { label: 'VIDA', value: wear, norm: wear === undefined ? 0 : clamp01(wear / 100), color: lifeColor(wear), unit: '%' }
+      { label: 'TEMP', value: temp, display: tempReading.display, norm: temp === undefined ? 0 : clamp01((temp - 40) / 100), color: temp === undefined ? DIM_CHROME : heat((temp - 40) / 100), unit: tempReading.unit },
+      { label: 'PRES', value: pres, display: pressureReading.display, norm: pres === undefined ? 0 : clamp01(pres / 240), color: pres === undefined ? DIM_CHROME : heat(clamp01((pres - 130) / 130)), unit: pressureReading.unit },
+      { label: 'BRAKE', value: brake, display: brakeReading.display, norm: brake === undefined ? 0 : clamp01(brake / 900), color: brake === undefined ? DIM_CHROME : heat(brake / 900), unit: brakeReading.unit },
+      { label: 'VIDA', value: wear, display: numberOrDash(wear, 0), norm: wear === undefined ? 0 : clamp01(wear / 100), color: lifeColor(wear), unit: '%' }
     ]
     return { key: String(key), label, pres, chans }
   })
@@ -139,7 +146,7 @@ export function TyresDetailWidget({ snapshot, config }: WidgetProps): ReactEleme
     >
       <rect x={1} y={1} width={W - 2} height={H - 2} rx={material.radius} fill={material.base} stroke={material.border} strokeWidth={material.borderWidth} />
       {data.map((c, i) => (
-        <CornerTile key={c.key} rect={cells[i]} data={c} skin={skin} />
+        <CornerTile key={c.key} rect={cells[i]} data={c} skin={skin} pressureDisplay={formatMeasurement(c.pres, 'pressure-kpa', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0, includeUnit: true }).display} />
       ))}
     </svg>
   )

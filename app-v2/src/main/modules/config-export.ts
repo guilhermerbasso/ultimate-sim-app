@@ -19,9 +19,13 @@ import {
   type ConfigExportResult,
   type ConfigImportResult,
   type ConfigImportSummary,
+  type ConfigSectionImportDetail,
+  type ConfigSectionReloadCallback,
+  type ConfigSectionReloadResult,
   type ConfigSectionExport,
   type SavedSectionInfo
 } from '../../shared/config-io'
+import { parseRgbMatrixProfilesPayload } from './rgb-matrix-profile-store'
 
 // ─── Storage abstraction ───────────────────────────────────────────────────────
 // The engine reads/writes config ONLY through this interface, so the whole
@@ -284,6 +288,20 @@ export interface SectionAccessor {
   write(data: unknown): Promise<void>
 }
 
+interface PreparedSectionData {
+  data: unknown
+  detail?: ConfigSectionImportDetail
+}
+
+function prepareSectionData(sectionId: string, data: unknown): PreparedSectionData {
+  if (sectionId !== 'rgb-matrix') return { data }
+  const parsed = parseRgbMatrixProfilesPayload(data)
+  return {
+    data: parsed.payload,
+    detail: { itemCount: parsed.profileCount }
+  }
+}
+
 export function buildRegistry(storage: ConfigStorage): Record<string, SectionAccessor> {
   const registry: Record<string, SectionAccessor> = {}
   for (const section of CONFIG_SECTIONS) {
@@ -331,7 +349,7 @@ export function createConfigEngine(storage: ConfigStorage): ConfigEngine {
       const accessor = registry[section.id]
       if (!accessor) continue
       const data = await accessor.read()
-      if (data !== undefined) sections[section.id] = data
+      if (data !== undefined) sections[section.id] = prepareSectionData(section.id, data).data
     }
     return {
       app: CONFIG_BUNDLE_APP_ID,
@@ -349,6 +367,8 @@ export function createConfigEngine(storage: ConfigStorage): ConfigEngine {
     const applied: string[] = []
     const skipped: string[] = []
     const unknown: string[] = []
+    const details: Record<string, ConfigSectionImportDetail> = {}
+    const pending: Array<{ id: string; accessor: SectionAccessor; prepared: PreparedSectionData }> = []
 
     for (const [id, data] of Object.entries(bundle.sections)) {
       if (filter && !filter.has(id)) {
@@ -362,18 +382,33 @@ export function createConfigEngine(storage: ConfigStorage): ConfigEngine {
         unknown.push(id)
         continue
       }
-      await accessor.write(data)
-      applied.push(id)
+      pending.push({ id, accessor, prepared: prepareSectionData(id, data) })
     }
 
-    return { app: CONFIG_BUNDLE_APP_ID, version: bundle.version, applied, skipped, unknown }
+    // Validate every selected section before writing any of them. A malformed
+    // iFlag section can therefore never leave a half-imported full bundle behind.
+    for (const { id, accessor, prepared } of pending) {
+      await accessor.write(prepared.data)
+      applied.push(id)
+      if (prepared.detail) details[id] = prepared.detail
+    }
+
+    return {
+      app: CONFIG_BUNDLE_APP_ID,
+      version: bundle.version,
+      applied,
+      skipped,
+      unknown,
+      ...(Object.keys(details).length > 0 ? { details } : {})
+    }
   }
 
   async function exportSection(sectionId: string): Promise<ConfigSectionExport> {
     const section = getConfigSection(sectionId)
     const accessor = registry[sectionId]
     if (!section || !accessor) throw new Error(`Unknown configuration section: ${sectionId}`)
-    const data = (await accessor.read()) ?? null
+    const stored = (await accessor.read()) ?? null
+    const data = prepareSectionData(sectionId, stored).data
     return {
       app: CONFIG_BUNDLE_APP_ID,
       version: CONFIG_BUNDLE_VERSION,
@@ -405,8 +440,16 @@ export function createConfigEngine(storage: ConfigStorage): ConfigEngine {
       data = payload.sections[sectionId]
     }
 
-    await accessor.write(data)
-    return { app: CONFIG_BUNDLE_APP_ID, version: CONFIG_BUNDLE_VERSION, applied: [sectionId], skipped: [], unknown: [] }
+    const prepared = prepareSectionData(sectionId, data)
+    await accessor.write(prepared.data)
+    return {
+      app: CONFIG_BUNDLE_APP_ID,
+      version: CONFIG_BUNDLE_VERSION,
+      applied: [sectionId],
+      skipped: [],
+      unknown: [],
+      ...(prepared.detail ? { details: { [sectionId]: prepared.detail } } : {})
+    }
   }
 
   // Cheap top-level count for a 'file' section: array length or object key count
@@ -532,6 +575,17 @@ function importDialogOpts(): OpenDialogOptions {
   return { title: 'Import configuration', properties: ['openFile'], filters: JSON_FILTER }
 }
 
+export async function readImportPayload(filePath: string): Promise<unknown> {
+  const text = await readFile(filePath, 'utf8')
+  if (!text.trim()) throw new Error('Invalid configuration file: the selected JSON file is empty.')
+  try {
+    return JSON.parse(text) as unknown
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`Invalid configuration file: malformed JSON (${message}).`)
+  }
+}
+
 // ─── Module registration (IPC + native dialogs) ─────────────────────────────────
 
 export function register(ctx: ModuleContext): void {
@@ -545,9 +599,67 @@ export function register(ctx: ModuleContext): void {
   // reloaded by the time any UI reacts. A module that reloads also holds FRESH
   // in-memory data, so its before-quit flush can no longer clobber the imported
   // file — the import counterpart of the reset-signal protection used by delete.
-  const emitReload = (sectionIds: readonly string[]): void => {
-    for (const sectionId of sectionIds) {
-      ctx.ipcMain.emit(CONFIG_SECTION_RELOAD_SIGNAL, { source: 'config-export' }, sectionId)
+  const reloadRgbMatrix = (): Promise<ConfigSectionReloadResult> =>
+    new Promise((resolveReload, rejectReload) => {
+      let settled = false
+      const finish: ConfigSectionReloadCallback = (error, result) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        if (error) rejectReload(new Error(error))
+        else if (result) resolveReload(result)
+        else rejectReload(new Error('The iFlag module did not return an import application result.'))
+      }
+      const timer = setTimeout(() => {
+        finish('The iFlag profiles were written, but the live module did not confirm that they were applied.')
+      }, 5000)
+      timer.unref?.()
+      let handled = false
+      try {
+        handled = ctx.ipcMain.emit(
+          CONFIG_SECTION_RELOAD_SIGNAL,
+          { source: 'config-export' },
+          'rgb-matrix',
+          finish
+        )
+      } catch (error) {
+        settled = true
+        clearTimeout(timer)
+        rejectReload(error)
+        return
+      }
+      if (!handled) {
+        settled = true
+        clearTimeout(timer)
+        rejectReload(
+          new Error('The iFlag profiles were written, but the iFlag module is not running to apply them.')
+        )
+      }
+    })
+
+  const emitReload = async (summary: ConfigImportSummary): Promise<void> => {
+    for (const sectionId of summary.applied) {
+      if (sectionId !== 'rgb-matrix') {
+        ctx.ipcMain.emit(CONFIG_SECTION_RELOAD_SIGNAL, { source: 'config-export' }, sectionId)
+        continue
+      }
+      const result = await reloadRgbMatrix()
+      summary.details ??= {}
+      summary.details[sectionId] = {
+        ...(summary.details[sectionId] ?? {}),
+        hotAppliedCount: result.hotAppliedCount,
+        unmatchedItemCount: result.unmatchedItemCount
+      }
+      if (result.unmatchedItemCount > 0) {
+        throw new Error(
+          `Imported ${result.itemCount} iFlag profile(s), but ${result.unmatchedItemCount} could not be matched to this computer's RGB matrix targets.`
+        )
+      }
+      if (result.itemCount > 0 && result.hotAppliedCount === 0) {
+        throw new Error(
+          `Imported ${result.itemCount} iFlag profile(s), but no local RGB matrix target was available to apply them.`
+        )
+      }
     }
   }
 
@@ -573,9 +685,9 @@ export function register(ctx: ModuleContext): void {
     async (_event, opts?: { sections?: string[] }): Promise<ConfigImportResult> => {
       const result = await showOpen(importDialogOpts())
       if (result.canceled || result.filePaths.length === 0) return { canceled: true }
-      const raw = JSON.parse(await readFile(result.filePaths[0], 'utf8')) as unknown
+      const raw = await readImportPayload(result.filePaths[0])
       const summary = await engine.importAll(raw, opts)
-      emitReload(summary.applied)
+      await emitReload(summary)
       ctx.broadcast(CONFIG_IO_CHANNELS.imported, summary)
       return { canceled: false, summary }
     }
@@ -597,9 +709,9 @@ export function register(ctx: ModuleContext): void {
     async (_event, sectionId: string): Promise<ConfigImportResult> => {
       const result = await showOpen(importDialogOpts())
       if (result.canceled || result.filePaths.length === 0) return { canceled: true }
-      const raw = JSON.parse(await readFile(result.filePaths[0], 'utf8')) as unknown
+      const raw = await readImportPayload(result.filePaths[0])
       const summary = await engine.importSection(sectionId, raw)
-      emitReload(summary.applied)
+      await emitReload(summary)
       ctx.broadcast(CONFIG_IO_CHANNELS.imported, summary)
       return { canceled: false, summary }
     }

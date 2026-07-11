@@ -17,6 +17,8 @@ import {
   subscribeSpotter3DStatus,
   type Spotter3DStatus
 } from '../lib/spotter3d-runtime'
+import { useUnitSystem } from '../lib/units'
+import { formatMeasurement, type UnitSystem } from '../../../shared/units'
 
 // 3D Spotter — CONFIG + EXPLANATION + TEST. The audio runtime is GLOBAL (mounted
 // once in App.tsx via useSpotter3DRuntime), so it already runs during the whole
@@ -113,7 +115,7 @@ function ExplainerBlock({ title, children }: { title: string; children: ReactNod
   )
 }
 
-function radarDot(cue: SpatialCue, config: Spotter3DConfig, language: AppViewProps['language']): ReactElement {
+function radarDot(cue: SpatialCue, config: Spotter3DConfig, language: AppViewProps['language'], unitSystem: UnitSystem): ReactElement {
   const half = RADAR / 2
   const scaleX = (half - 16) / Math.max(0.5, config.panWidthM)
   const scaleZ = (half - 16) / Math.max(0.5, config.maxDistanceM)
@@ -135,12 +137,13 @@ function radarDot(cue: SpatialCue, config: Spotter3DConfig, language: AppViewPro
         boxShadow: `0 0 ${Math.round(6 + cue.intensity * 18)}px ${SIDE_COLOR[cue.side]}`,
         transition: 'left 80ms linear, top 80ms linear'
       }}
-      title={`car ${cue.id} · ${cue.distanceM.toFixed(1)} m · ${Math.round(cue.intensity * 100)}%`}
+      title={`car ${cue.id} · ${formatMeasurement(cue.distanceM, 'distance-m', unitSystem, { decimals: 1, includeUnit: true }).display} · ${Math.round(cue.intensity * 100)}%`}
     />
   )
 }
 
 const Spotter3DView: ComponentType<AppViewProps> = ({ showToast, language }): ReactElement => {
+  const unitSystem = useUnitSystem()
   const [config, setConfig] = useState<Spotter3DConfig>(DEFAULT_SPOTTER_3D_CONFIG)
   const [live, setLive] = useState<TelemetrySnapshot | null>(null)
   const [status, setStatus] = useState<Spotter3DStatus>({ unlocked: false, enabled: DEFAULT_SPOTTER_3D_CONFIG.enabled, running: false })
@@ -235,7 +238,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast, language }): Re
             />
             <span style={{ position: 'absolute', top: 6, left: '50%', transform: 'translateX(-50%)', ...label }}>{tt(language, 'spotter3d.front')}</span>
             <span style={{ position: 'absolute', bottom: 6, left: '50%', transform: 'translateX(-50%)', ...label }}>{tt(language, 'spotter3d.rear')}</span>
-            {cues.map((cue) => radarDot(cue, config, language))}
+            {cues.map((cue) => radarDot(cue, config, language, unitSystem))}
           </div>
           <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{tt(language, 'spotter3d.activeCues', { count: cues.length })}</span>
         </div>
@@ -324,7 +327,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast, language }): Re
               max={80}
               step={1}
               value={config.maxDistanceM}
-              display={`${config.maxDistanceM} m`}
+              display={formatMeasurement(config.maxDistanceM, 'distance-m', unitSystem, { decimals: 1, includeUnit: true }).display}
               onChange={(maxDistanceM) => setConfig((c) => ({ ...c, maxDistanceM }))}
               onCommit={(maxDistanceM) => void persist({ maxDistanceM })}
             />
@@ -334,7 +337,7 @@ const Spotter3DView: ComponentType<AppViewProps> = ({ showToast, language }): Re
               max={20}
               step={0.5}
               value={config.panWidthM}
-              display={`${config.panWidthM} m`}
+              display={formatMeasurement(config.panWidthM, 'distance-m', unitSystem, { decimals: 1, includeUnit: true }).display}
               onChange={(panWidthM) => setConfig((c) => ({ ...c, panWidthM }))}
               onCommit={(panWidthM) => void persist({ panWidthM })}
             />

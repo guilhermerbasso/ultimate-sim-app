@@ -79,7 +79,7 @@ export interface SpotterConfig {
   enabled: boolean // master engine on/off
   muted: boolean // global mute — engine keeps tracking state but stays silent
   masterVolume: number // 0 .. 1 master gain applied to every callout
-  language: SpotterLang // phrase set + voice filtering hint
+  language: SpotterLang // phrase set + voice filtering hint; synced from app settings
   defaultVoiceURI: string // fallback voice for callouts with voiceURI === ''
   outputDeviceId: string // best-effort; see note below
   thresholds: SpotterThresholds
@@ -182,7 +182,8 @@ export const DEFAULT_SPOTTER_CONFIG: SpotterConfig = {
   muted: false,
   masterVolume: 1,
   language: 'en-US',
-  defaultVoiceURI: 'piper:en_US-lessac-medium',
+  // Empty means "resolve the Piper default for the active speech language".
+  defaultVoiceURI: '',
   outputDeviceId: '',
   thresholds: DEFAULT_SPOTTER_THRESHOLDS,
   callouts: buildDefaultCallouts(),

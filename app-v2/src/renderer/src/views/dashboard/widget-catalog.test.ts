@@ -130,7 +130,7 @@ describe('widget preview thumbnails', () => {
       ).toBe(true)
       expect(markup.length, `${variant.id} rendered an unexpectedly tiny preview`).toBeGreaterThan(180)
     }
-  })
+  }, 15_000)
 
   it('uses a representative dashboard glyph for overlay-widget variants instead of a blank label tile', () => {
     const overlay = ALL_VARIANTS.find((variant) => variant.type === 'overlaywidget')

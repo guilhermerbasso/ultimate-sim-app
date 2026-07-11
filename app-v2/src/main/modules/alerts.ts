@@ -22,6 +22,7 @@ import {
   interpolateTemplate
 } from '../../shared/outputs'
 import { AlertsDetector } from '../alerts/detector'
+import { settingsEvents } from '../settings/events'
 
 const CONFIG_FILE = 'alerts-config.json'
 
@@ -52,6 +53,7 @@ const lastSerialSendAt = new Map<string, number>()
 export function register(ctx: ModuleContext): void {
   const configPath = join(ctx.app.getPath('userData'), CONFIG_FILE)
   detector = new AlertsDetector(config)
+  settingsEvents.onChanged((settings) => detector?.setUnitSystem(settings.unitSystem))
 
   void loadConfig(configPath).then((loaded) => {
     config = loaded

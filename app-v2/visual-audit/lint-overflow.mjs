@@ -116,7 +116,11 @@ async function loadChromium() {
 }
 
 async function main() {
-  const states = process.argv.slice(2).length ? process.argv.slice(2) : ALL_STATES
+  const args = process.argv.slice(2)
+  const unitArg = args.find((arg) => arg.startsWith('--unit='))
+  const unitSystem = unitArg?.slice('--unit='.length) === 'imperial' ? 'imperial' : 'metric'
+  const stateArgs = args.filter((arg) => !arg.startsWith('--unit='))
+  const states = stateArgs.length ? stateArgs : ALL_STATES
   rmSync(OUT, { recursive: true, force: true })
   mkdirSync(OUT, { recursive: true })
 
@@ -125,7 +129,7 @@ async function main() {
   const server = await createServer({
     configFile: resolve(__dirname, 'vite.config.ts'),
     logLevel: 'warn',
-    server: { port: 5192, strictPort: false }
+    server: { port: 5192, strictPort: false, hmr: false }
   })
   await server.listen()
   const base = server.resolvedUrls?.local?.[0]
@@ -145,7 +149,7 @@ async function main() {
 
   try {
     for (const state of states) {
-      const url = new URL(`widget-grid.html?state=${encodeURIComponent(state)}`, base).href
+      const url = new URL(`widget-grid.html?state=${encodeURIComponent(state)}&unit=${unitSystem}`, base).href
       log(`→ state ${state}`)
       await page.goto(url, { waitUntil: 'networkidle', timeout: 60_000 })
       try {
@@ -194,6 +198,7 @@ async function main() {
 
   const report = {
     generatedAt: new Date().toISOString(),
+    unitSystem,
     states,
     widgetCount,
     totals,
@@ -203,7 +208,7 @@ async function main() {
   writeFileSync(REPORT, JSON.stringify(report, null, 2))
 
   console.log('\n──────── overflow-lint summary ────────')
-  console.log(`  widgets: ${widgetCount} · states: ${states.join(', ')}`)
+  console.log(`  widgets: ${widgetCount} · states: ${states.join(', ')} · units: ${unitSystem}`)
   for (const k of Object.keys(totals)) console.log(`  ${k.padEnd(11)}: ${totals[k]}`)
   console.log('\n  worst 15 widgets:')
   for (const w of worst.slice(0, 15)) console.log(`    ${w.wid.padEnd(28)} ${String(w.count).padStart(3)}  [${w.kinds.join(',')}]`)

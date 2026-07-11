@@ -18,6 +18,8 @@ import { TrackCoachingHeatmap } from '../components/TrackCoachingHeatmap'
 import { useTrackMapData } from '../lib/track-map'
 import { useTelemetrySelector } from '../lib/telemetry'
 import { tt } from '../i18n'
+import { formatMeasurement } from '../../../shared/units'
+import { useUnitSystem } from '../lib/units'
 
 // AI Coach + Setup Engineer (F2). Renders the DETERMINISTIC per-lap report from
 // the `coach:` module: ranked findings (worst-first by estimated time loss),
@@ -372,6 +374,7 @@ function deltaColor(delta?: number): string {
 }
 
 function SectorCard({ sector, language }: { sector: CoachSectorSummary; language: AppViewProps['language'] }): ReactElement {
+  const unitSystem = useUnitSystem()
   const good = sector.benchmark
   return (
     <div
@@ -387,7 +390,7 @@ function SectorCard({ sector, language }: { sector: CoachSectorSummary; language
           {good ? tt(language, 'coach.onPace') : `+${sector.timeLossSec.toFixed(2)}s`}
         </span>
       </div>
-      <span style={mutedText}>Min speed {Math.round(sector.minSpeedKmh)} km/h</span>
+      <span style={mutedText}>Min speed {formatMeasurement(sector.minSpeedKmh, 'speed-kmh', unitSystem, { decimals: 0, includeUnit: true }).display}</span>
       <span style={mutedText}>
         {tt(language, 'coach.inputsSummary', { brake: pct(sector.brakePct), coast: pct(sector.coastPct), throttle: pct(sector.throttlePct) })}
       </span>

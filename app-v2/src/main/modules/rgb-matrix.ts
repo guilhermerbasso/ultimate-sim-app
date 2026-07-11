@@ -36,7 +36,18 @@ import type { ModuleContext } from '../module-context'
 import type { SerialDevice } from '../serial/device'
 import { CoalescingFrameWriter } from '../serial/coalescing-writer'
 import type { SerialDeviceSummary } from '../../shared/arduino'
-import { CONFIG_SECTION_RELOAD_SIGNAL } from '../../shared/config-io'
+import {
+  CONFIG_SECTION_RELOAD_SIGNAL,
+  type ConfigSectionReloadCallback,
+  type ConfigSectionReloadResult
+} from '../../shared/config-io'
+import {
+  addCurrentRgbMatrixBindings,
+  bindRgbMatrixProfilesToTargets,
+  parseRgbMatrixProfilesPayload,
+  rgbMatrixTargetsFromDeviceProfiles,
+  type RgbMatrixProfilesPayload
+} from './rgb-matrix-profile-store'
 
 const STORE_FILE = 'rgb-matrix-profiles.json'
 const PROFILE_REFRESH_MS = 2000
@@ -146,12 +157,6 @@ export function buildPreviewFrameRows(gridInput: unknown, layout: MatrixLayout):
   return rows
 }
 
-interface RgbMatrixProfilesPayload {
-  version: number
-  profiles: Record<string, RgbMatrixProfile>
-  updatedAt: string
-}
-
 export const RGB_MATRIX_CHANNELS = {
   getProfile: 'rgbmatrix:getProfile',
   setProfile: 'rgbmatrix:setProfile',
@@ -173,6 +178,10 @@ export function register(ctx: ModuleContext): RgbMatrixModule {
 
 export class RgbMatrixModule {
   private payload: RgbMatrixProfilesPayload = emptyPayload()
+  private activeProfiles: Record<string, RgbMatrixProfile> = {}
+  private sourceKeyByTarget: Record<string, string> = {}
+  private loadError: Error | null = null
+  private loadSummary: ConfigSectionReloadResult = emptyReloadResult()
   private loaded = false
   private profiles: DeviceProfile[] = []
   private profilesSig = ''
@@ -255,13 +264,38 @@ export class RgbMatrixModule {
   // it, re-read the file, and clear every per-device dedup/keyframe cache so the
   // next steady tick PUSHES the freshly-imported layout/effects to the panel —
   // applying the import live, with no app restart.
-  private readonly onSectionReload = (_event: unknown, sectionId: string): void => {
-    if (sectionId !== 'rgb-matrix' || this.disposed) return
+  private readonly onSectionReload = (
+    _event: unknown,
+    sectionId: string,
+    done?: ConfigSectionReloadCallback
+  ): void => {
+    if (sectionId !== 'rgb-matrix') return
+    if (this.disposed) {
+      done?.('The iFlag module is not running, so the imported profiles could not be applied.')
+      return
+    }
     this.loaded = false
-    void this.ensureLoaded().then(() => {
-      this.clearDedup()
-      logger.info('iflag', 'rgb-matrix profiles reloaded after import (hot-apply)')
-    })
+    this.loadError = null
+    void this.ensureLoaded()
+      .then((result) => {
+        this.clearDedup()
+        const detail = {
+          profiles: result.itemCount,
+          hotApplied: result.hotAppliedCount,
+          unmatched: result.unmatchedItemCount
+        }
+        if (result.unmatchedItemCount > 0 || (result.itemCount > 0 && result.hotAppliedCount === 0)) {
+          logger.error('iflag', 'rgb-matrix profiles reloaded but could not be fully hot-applied', detail)
+        } else {
+          logger.info('iflag', 'rgb-matrix profiles reloaded after import (hot-apply)', detail)
+        }
+        done?.(null, result)
+      })
+      .catch((error) => {
+        const message = errorMessage(error)
+        logger.error('iflag', 'rgb-matrix profile reload failed (section import)', { message })
+        done?.(message)
+      })
   }
 
   constructor(private readonly ctx: ModuleContext) {
@@ -270,7 +304,9 @@ export class RgbMatrixModule {
 
   initialize(): void {
     this.registerIpc()
-    void this.ensureLoaded()
+    void this.ensureLoaded().catch((error) => {
+      logger.error('iflag', 'failed to load rgb-matrix profiles', { message: errorMessage(error) })
+    })
     void this.refreshDeviceProfiles()
     this.refreshTimer = setInterval(() => void this.refreshDeviceProfiles(), PROFILE_REFRESH_MS)
     // Re-drive every matrix on a steady cadence so the panel updates to the live
@@ -361,12 +397,12 @@ export class RgbMatrixModule {
   private registerIpc(): void {
     this.ctx.ipcMain.handle(RGB_MATRIX_CHANNELS.getProfile, async (_event, key: string) => {
       await this.ensureLoaded()
-      return this.payload.profiles[key] ?? defaultRgbMatrixProfile()
+      return this.profileForKey(key) ?? defaultRgbMatrixProfile()
     })
     this.ctx.ipcMain.handle(RGB_MATRIX_CHANNELS.setProfile, async (_event, key: string, input: unknown) => {
       await this.ensureLoaded()
       const profile = normalizeProfile(input)
-      this.payload.profiles[key] = profile
+      this.setProfileForKey(key, profile)
       await this.persist()
       this.lastPayload.clear()
       this.ctx.broadcast(RGB_MATRIX_CHANNELS.changed, { key, profile })
@@ -390,9 +426,9 @@ export class RgbMatrixModule {
     this.ctx.ipcMain.handle(RGB_MATRIX_CHANNELS.setLayout, async (_event, key: string, input: unknown) => {
       await this.ensureLoaded()
       const layout = normalizeMatrixLayout(input)
-      const existing = this.payload.profiles[key] ?? defaultRgbMatrixProfile()
+      const existing = this.profileForKey(key) ?? defaultRgbMatrixProfile()
       const profile: RgbMatrixProfile = { ...existing, layout }
-      this.payload.profiles[key] = profile
+      this.setProfileForKey(key, profile)
       await this.persist()
       // Invalidate the per-matrix send-gate so the next live frame re-sends and
       // the firmware re-maps the CURRENT image through the new layout, and drop
@@ -414,7 +450,7 @@ export class RgbMatrixModule {
       const value = Number(mode)
       const modes = ['corner', 'row', 'col', 'f'] as const
       const testMode = modes[Number.isFinite(value) ? Math.min(3, Math.max(0, Math.trunc(value))) : 0]
-      const matrixProfile = this.payload.profiles[key]
+      const matrixProfile = this.profileForKey(key)
       const layout = matrixProfile?.layout ?? defaultRgbMatrixProfile().layout
       let rows = buildCalibrationRows(testMode, matrixProfile)
       if (isValidCustomMap(layout.customMap)) rows = applyCustomMapToHexRows(rows, layout.customMap)
@@ -472,7 +508,7 @@ export class RgbMatrixModule {
       const sendKey = `${target.deviceProfile.id}:${target.component.id}:rgbmatrix`
       this.lastPayload.delete(sendKey)
       this.lastSentAt.delete(sendKey)
-      const profile = this.payload.profiles[key] ?? defaultRgbMatrixProfile()
+      const profile = this.profileForKey(key) ?? defaultRgbMatrixProfile()
       this.driveMatrix(target.device, target.deviceProfile, target.component, profile, this.lastSnapshot, Date.now())
       return true
     })
@@ -486,7 +522,7 @@ export class RgbMatrixModule {
       await this.ensureLoaded()
       const target = this.resolveMatrixTarget(key, this.ctx.serialHub.getPrimaryId())
       if (!target) return false
-      const profile = this.payload.profiles[key] ?? defaultRgbMatrixProfile()
+      const profile = this.profileForKey(key) ?? defaultRgbMatrixProfile()
       const rows = buildPreviewFrameRows(gridInput, profile.layout)
       if (!rows) return false
       const targetKey = `${target.deviceProfile.id}:${target.component.id}`
@@ -514,7 +550,7 @@ export class RgbMatrixModule {
       const target = this.resolveMatrixTarget(key, this.ctx.serialHub.getPrimaryId())
       if (!target) return false
       const mode = isMatrixTestMode(modeInput) ? modeInput : 'all'
-      const matrixProfile = this.payload.profiles[key]
+      const matrixProfile = this.profileForKey(key)
       const layout = matrixProfile?.layout
       // Pass the profile so the flag/gear CONTENT tests mirror any custom pixels
       // the user painted for that flag/gear.
@@ -620,7 +656,7 @@ export class RgbMatrixModule {
     const sendKey = `${target.deviceProfile.id}:${target.component.id}:rgbmatrix`
     this.lastPayload.delete(sendKey)
     this.lastSentAt.delete(sendKey)
-    const profile = this.payload.profiles[key] ?? defaultRgbMatrixProfile()
+    const profile = this.profileForKey(key) ?? defaultRgbMatrixProfile()
     this.driveMatrix(target.device, target.deviceProfile, target.component, profile, this.lastSnapshot, Date.now())
     return true
   }
@@ -681,23 +717,87 @@ export class RgbMatrixModule {
     })
   }
 
-  private async ensureLoaded(): Promise<void> {
-    if (this.loaded) return
+  private async ensureLoaded(): Promise<ConfigSectionReloadResult> {
+    if (this.loaded) {
+      if (this.loadError) throw this.loadError
+      return this.loadSummary
+    }
+    if (this.profiles.length === 0) await this.refreshDeviceProfiles()
     try {
-      const parsed = JSON.parse(await readFile(this.storePath, 'utf8')) as Partial<RgbMatrixProfilesPayload>
-      const entries = Object.entries(parsed.profiles ?? {})
-      this.payload = {
-        version: RGB_MATRIX_PROFILE_VERSION,
-        profiles: Object.fromEntries(entries.map(([key, value]) => [key, normalizeProfile(value)])),
-        updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString()
+      const raw = JSON.parse(await readFile(this.storePath, 'utf8')) as unknown
+      this.payload = parseRgbMatrixProfilesPayload(raw).payload
+      this.rebindProfiles()
+      this.loadError = null
+    } catch (error) {
+      if (isMissingFile(error)) {
+        this.payload = emptyPayload()
+        this.activeProfiles = {}
+        this.sourceKeyByTarget = {}
+        this.loadSummary = emptyReloadResult()
+        this.loadError = null
+      } else {
+        const parsedError =
+          error instanceof SyntaxError
+            ? new Error(`Invalid iFlag profile file: malformed JSON (${error.message}).`)
+            : error instanceof Error
+              ? error
+              : new Error(String(error))
+        this.payload = emptyPayload()
+        this.activeProfiles = {}
+        this.sourceKeyByTarget = {}
+        this.loadSummary = emptyReloadResult()
+        this.loadError = parsedError
       }
-    } catch {
-      this.payload = emptyPayload()
     }
     this.loaded = true
+    if (this.loadError) throw this.loadError
+    return this.loadSummary
+  }
+
+  private rebindProfiles(): void {
+    const bound = bindRgbMatrixProfilesToTargets(
+      this.payload,
+      rgbMatrixTargetsFromDeviceProfiles(this.profiles)
+    )
+    this.activeProfiles = bound.profiles
+    this.sourceKeyByTarget = bound.sourceKeyByTarget
+    this.loadSummary = {
+      sectionId: 'rgb-matrix',
+      itemCount: bound.sourceProfileCount,
+      hotAppliedCount: bound.appliedTargetCount,
+      unmatchedItemCount: bound.unmatchedSourceKeys.length
+    }
+  }
+
+  private profileForKey(key: string): RgbMatrixProfile | undefined {
+    return this.activeProfiles[key] ?? this.payload.profiles[key]
+  }
+
+  private localizeSourceProfile(sourceKey: string): void {
+    const targetKeys = Object.entries(this.sourceKeyByTarget)
+      .filter(([, mappedSourceKey]) => mappedSourceKey === sourceKey)
+      .map(([targetKey]) => targetKey)
+    if (targetKeys.length === 0 || targetKeys.every((targetKey) => targetKey === sourceKey)) return
+    for (const targetKey of targetKeys) {
+      const active = this.activeProfiles[targetKey]
+      if (!active) continue
+      this.payload.profiles[targetKey] = active
+      this.sourceKeyByTarget[targetKey] = targetKey
+    }
+    delete this.payload.profiles[sourceKey]
+    if (this.payload.bindings) delete this.payload.bindings[sourceKey]
+  }
+
+  private setProfileForKey(key: string, profile: RgbMatrixProfile): void {
+    const sourceKey = this.sourceKeyByTarget[key]
+    if (sourceKey && sourceKey !== key) this.localizeSourceProfile(sourceKey)
+    this.payload.profiles[key] = profile
+    this.activeProfiles[key] = profile
+    this.sourceKeyByTarget[key] = key
   }
 
   private async persist(): Promise<void> {
+    addCurrentRgbMatrixBindings(this.payload, rgbMatrixTargetsFromDeviceProfiles(this.profiles))
     this.payload.updatedAt = new Date().toISOString()
     await mkdir(dirname(this.storePath), { recursive: true })
     await writeFile(this.storePath, JSON.stringify(this.payload, null, 2), 'utf8')
@@ -712,7 +812,8 @@ export class RgbMatrixModule {
       if (sig !== this.profilesSig) {
         this.profilesSig = sig
         this.profiles = list
-        this.lastPayload.clear()
+        if (this.loaded && !this.loadError) this.rebindProfiles()
+        this.clearDedup()
       }
     } catch {
       // Keep last known device profiles.
@@ -722,7 +823,7 @@ export class RgbMatrixModule {
   private tick(snapshot: TelemetrySnapshot | null, now: number): void {
     if (this.disposed || this.profiles.length === 0) return
     const primaryId = this.ctx.serialHub.getPrimaryId()
-    for (const [key, matrixProfile] of Object.entries(this.payload.profiles)) {
+    for (const [key, matrixProfile] of Object.entries(this.activeProfiles)) {
       const target = this.resolveMatrixTarget(key, primaryId)
       if (!target) continue
       this.driveMatrix(target.device, target.deviceProfile, target.component, matrixProfile, snapshot, now)
@@ -949,7 +1050,7 @@ export class RgbMatrixModule {
   private async resendLayoutsForDevice(deviceId: string): Promise<void> {
     await this.ensureLoaded()
     const primaryId = this.ctx.serialHub.getPrimaryId()
-    for (const [key, profile] of Object.entries(this.payload.profiles)) {
+    for (const [key, profile] of Object.entries(this.activeProfiles)) {
       const target = this.resolveMatrixTarget(key, primaryId)
       if (target && target.device.id === deviceId) {
         this.layoutSentTo.add(target.device.id)
@@ -1083,6 +1184,14 @@ function withWriteTimeout<T>(p: Promise<T>, ms: number): Promise<T | void> {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function isMissingFile(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException)?.code === 'ENOENT'
+}
+
+function emptyReloadResult(): ConfigSectionReloadResult {
+  return { sectionId: 'rgb-matrix', itemCount: 0, hotAppliedCount: 0, unmatchedItemCount: 0 }
 }
 
 function emptyPayload(): RgbMatrixProfilesPayload {

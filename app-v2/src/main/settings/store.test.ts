@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { APP_LANGUAGES, APP_TELEMETRY_SOURCES, DEFAULT_APP_SETTINGS, TC_SENSITIVITIES } from '../../shared/settings'
+import { UNIT_SYSTEMS } from '../../shared/units'
 import { SettingsStore } from './store'
 
 const dirs: string[] = []
@@ -67,6 +68,24 @@ describe('SettingsStore.language', () => {
       new SettingsStore(dir).setSettings({ language })
       expect(new SettingsStore(dir).load().language).toBe(language)
     }
+  })
+
+  describe('SettingsStore.unitSystem', () => {
+    it('defaults to metric and persists each supported system across restarts', () => {
+      expect(new SettingsStore(tempDir()).load().unitSystem).toBe('metric')
+
+      for (const unitSystem of UNIT_SYSTEMS) {
+        const dir = tempDir()
+        new SettingsStore(dir).setSettings({ unitSystem })
+        expect(new SettingsStore(dir).load().unitSystem).toBe(unitSystem)
+      }
+    })
+
+    it('falls back to metric for an unknown system', () => {
+      const dir = tempDir()
+      new SettingsStore(dir).setSettings({ unitSystem: 'bogus' as never })
+      expect(new SettingsStore(dir).load().unitSystem).toBe('metric')
+    })
   })
 
   it('defaults to en and falls back to it for an unknown language', () => {

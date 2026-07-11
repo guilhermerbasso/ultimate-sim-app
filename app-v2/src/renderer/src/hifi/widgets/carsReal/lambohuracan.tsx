@@ -1,6 +1,7 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, legibleStroke, num, revFill, signed } from '../kit'
+import { formatMeasurement, type UnitSystem } from '../../../../../shared/units'
 
 const DASH_W = 1024
 const DASH_H = 600
@@ -119,16 +120,17 @@ function TopShiftFrame({ snapshot }: { snapshot: HifiWidgetProps['snapshot'] }):
   )
 }
 
-function HexGearFrame({ snapshot }: { snapshot: HifiWidgetProps['snapshot'] }): ReactElement {
+function HexGearFrame({ snapshot, unitSystem }: { snapshot: HifiWidgetProps['snapshot']; unitSystem: UnitSystem }): ReactElement {
   const gear = num(snapshot?.gear)
   const speed = num(snapshot?.speedKmh)
+  const speedReading = formatMeasurement(speed, 'speed-kmh', unitSystem, { decimals: 0 })
   return (
     <g>
       <GlowDefs id="lh-center" />
       <path d={hexPath(512, 307, 380, 265)} fill="rgba(0,0,0,0.72)" stroke={LIME} strokeWidth={3.2} />
       <path d="M412 180 H624 M400 285 L476 166 H548 M625 448 H412 M624 166 H642 M400 448 H382 M642 166 L714 286 M382 448 L310 328 M714 328 L642 448" fill="none" stroke={LIME} strokeWidth={2.2} opacity={0.95} />
       <text x={512} y={360} textAnchor="middle" fill={gear == null ? C.dim : `url(#lh-center-gear)`} fontFamily={FONT_BIG} fontWeight={900} fontSize={182} {...legibleStroke(182)}>{gearLabel(gear)}</text>
-      <text x={512} y={430} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={48} {...legibleStroke(48)}>{fixed(speed)}</text>
+      <text x={512} y={430} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={48} {...legibleStroke(48)}>{speedReading.display}</text>
     </g>
   )
 }
@@ -186,19 +188,21 @@ function CenterBand({ snapshot }: { snapshot: HifiWidgetProps['snapshot'] }): Re
   )
 }
 
-function LamboDash({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function LamboDash({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const speed = num(snapshot?.speedKmh)
   const fuel = num(snapshot?.fuelLiters)
+  const speedReading = formatMeasurement(speed, 'speed-kmh', unitSystem, { decimals: 0 })
+  const fuelReading = formatMeasurement(fuel, 'fuel-volume-l', unitSystem, { decimals: 1 })
   const lap = lapShort(num(snapshot?.lastLapTimeSec))
   const delta = num(snapshot?.deltaToBestSec)
   return (
     <CleanTile width={width ?? DASH_W} height={height ?? DASH_H}>
       <rect width={DASH_W} height={DASH_H} fill={DARK} />
       <TopShiftFrame snapshot={snapshot} />
-      <HexGearFrame snapshot={snapshot} />
+      <HexGearFrame snapshot={snapshot} unitSystem={unitSystem} />
       <DashInfoFrame x={22} y={410} w={300} h={142} side="left">
-        <DashPair x={72} y={465} label="SPD" value={fixed(speed)} />
-        <DashPair x={72} y={530} label="FUEL" value={fixed(fuel)} unit="L" />
+        <DashPair x={72} y={465} label="SPD" value={speedReading.display} unit={speedReading.unit} />
+        <DashPair x={72} y={530} label="FUEL" value={fuelReading.display} unit={fuelReading.unit} />
       </DashInfoFrame>
       <CenterBand snapshot={snapshot} />
       <DashInfoFrame x={702} y={412} w={300} h={140} side="right">
@@ -222,11 +226,12 @@ function GearWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement 
   )
 }
 
-function SpeedWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function SpeedWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const w = width ?? 360
   const h = height ?? 170
   const speed = num(snapshot?.speedKmh)
-  return <CleanTile width={w} height={h}><text x={w / 2} y={h * 0.67} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={h * 0.52} {...legibleStroke(h * 0.52)}>{fixed(speed)}</text></CleanTile>
+  const reading = formatMeasurement(speed, 'speed-kmh', unitSystem, { decimals: 0 })
+  return <CleanTile width={w} height={h}><text x={w / 2} y={h * 0.67} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={900} fontSize={h * 0.52} {...legibleStroke(h * 0.52)}>{reading.display}</text><text x={w / 2} y={h * 0.9} textAnchor="middle" fill={LIME} fontFamily={FONT_LABEL} fontWeight={900} fontSize={h * 0.16}>{reading.unit}</text></CleanTile>
 }
 
 function RevLightsWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
@@ -260,7 +265,10 @@ function SingleValue({ width = 300, height = 150, label, value, unit, color = WH
   )
 }
 
-function FuelWidget(props: HifiWidgetProps): ReactElement { return <SingleValue width={props.width ?? 300} height={props.height ?? 150} label="FUEL" value={fixed(num(props.snapshot?.fuelLiters))} unit="L" /> }
+function FuelWidget(props: HifiWidgetProps): ReactElement {
+  const reading = formatMeasurement(num(props.snapshot?.fuelLiters), 'fuel-volume-l', props.unitSystem ?? 'metric', { decimals: 1 })
+  return <SingleValue width={props.width ?? 300} height={props.height ?? 150} label="FUEL" value={reading.display} unit={reading.unit} />
+}
 function BrakeBiasWidget(props: HifiWidgetProps): ReactElement { return <SingleValue width={props.width ?? 300} height={props.height ?? 150} label="BB" value={fixed(num(props.snapshot?.brakeBiasPct))} unit="%" /> }
 function TcWidget(props: HifiWidgetProps): ReactElement { return <SingleValue width={props.width ?? 240} height={props.height ?? 150} label="TC" value={safeText(props.snapshot?.tcLevel)} /> }
 function LastLapWidget(props: HifiWidgetProps): ReactElement { return <SingleValue width={props.width ?? 380} height={props.height ?? 150} label="LAP" value={lapShort(num(props.snapshot?.lastLapTimeSec))} /> }

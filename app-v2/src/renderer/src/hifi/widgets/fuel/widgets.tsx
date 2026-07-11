@@ -1,6 +1,7 @@
 import { type ReactElement, type ReactNode } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { Bar, BigNum, C, CleanTile, FONT_BIG, FONT_LABEL, GaugeArc, LEGIBLE, VBar, condColor, fixed, legibleStroke, num, signed } from '../kit'
+import { formatMeasurement } from '../../../../../shared/units'
 
 const W = 420
 const H = 286
@@ -105,13 +106,14 @@ function SegmentedFuelBar({ x, y, w, h, f, color }: { x: number; y: number; w: n
   )
 }
 
-export function FuelWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+export function FuelWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const fuel = num(snapshot?.fuelLiters)
+  const reading = formatMeasurement(fuel, 'fuel-volume-l', unitSystem, { decimals: 1 })
   const f = fuelFraction(snapshot)
   const color = fuel == null ? C.dim : fuelLevelColor(f)
   return (
     <Tile width={width} height={height} label="Fuel">
-      <BigNum x={170} y={176} value={fixed(fuel, 1)} unit="L" color={fuel == null ? C.dim : WHITE} size={86} />
+      <BigNum x={170} y={176} value={reading.display} unit={reading.unit} color={fuel == null ? C.dim : WHITE} size={86} />
       <text x={342} y={88} fill={C.text} fontFamily={FONT_LABEL} fontSize={22} fontWeight={800} {...LEGIBLE}>
         F
       </text>
@@ -136,8 +138,9 @@ export function FuelLapsWidget({ snapshot, width, height }: HifiWidgetProps): Re
   )
 }
 
-export function FuelPerLapWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+export function FuelPerLapWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
   const perLap = num(snapshot?.fuelPerLap)
+  const reading = formatMeasurement(perLap, 'fuel-per-lap-l', unitSystem, { decimals: 2 })
   const f = perLap != null ? perLap / MAX_FUEL_PER_LAP_L : 0
   const cx = 210
   const cy = 126
@@ -156,9 +159,9 @@ export function FuelPerLapWidget({ snapshot, width, height }: HifiWidgetProps): 
         const y2 = cy + Math.sin(rad) * r2
         return <path key={i} d={`M${x1} ${y1} L${x2} ${y2}`} stroke={i < 6 ? CYAN : i > 12 ? AMBER : 'rgba(255,255,255,0.35)'} strokeWidth={i % 4 === 0 ? 3 : 1.8} />
       })}
-      <BigNum x={178} y={238} value={fixed(perLap, 2)} unit="" color={perLap == null ? C.dim : WHITE} size={56} />
+      <BigNum x={178} y={238} value={reading.display} unit="" color={perLap == null ? C.dim : WHITE} size={56} />
       <text x={278} y={238} fill={AMBER} fontFamily={FONT_LABEL} fontSize={24} fontWeight={800} letterSpacing={1.5} {...LEGIBLE}>
-        L/LAP
+        {reading.unit.toUpperCase()}
       </text>
     </Tile>
   )

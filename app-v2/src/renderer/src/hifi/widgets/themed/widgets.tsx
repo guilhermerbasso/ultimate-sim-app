@@ -1,6 +1,8 @@
 ﻿import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, ShiftStrobe, atShiftPoint, fixed, frac, gearLabel, legibleStroke, num, revFill } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, fixed, frac, gearLabel, legibleStroke, num } from '../kit'
+import { ShiftStrobe, atShiftPoint, revFill } from '../../../lib/rev-lights'
+import { formatMeasurement, type UnitSystem } from '../../../../../shared/units'
 
 const REV_W = 960
 const REV_H = 90
@@ -65,8 +67,8 @@ function FerrariRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
   const lit = shift ? 29 : activeCount(f, 29, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
-  const margin = Math.max(18, w * 0.045)
-  const r = Math.max(4, Math.min(10.5, h * 0.16))
+  const r = Math.max(0.5, Math.min(10.5, h * 0.16, w / 34))
+  const margin = Math.min(w / 2, r)
   const cy = h * 0.68
   const arc = Math.max(0, h * 0.46 - r)
   return (
@@ -95,8 +97,9 @@ function PorscheRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
   const lit = shift ? count : activeCount(f, count, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
-  const x = Math.max(24, w * 0.075)
-  const gap = Math.max(4, w * 0.009)
+  const x = Math.min(Math.max(1, Math.min(w * 0.03, h * 0.24)), Math.max(0, w / 4))
+  const rawGap = Math.max(4, w * 0.009)
+  const gap = Math.min(rawGap, Math.max(0, (w - x * 2) / (count - 1 + count * 0.25)))
   const cell = (w - x * 2 - gap * (count - 1)) / count
   const cellH = Math.max(8, h * 0.44)
   const y = (h - cellH) / 2
@@ -124,10 +127,12 @@ function AmgRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const lit = shift ? count : activeCount(f, count, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
-  const gap = Math.max(4, w * 0.008)
-  const clusterGap = Math.max(22, w * 0.044)
-  const x0 = Math.max(20, w * 0.06)
-  const cell = (w - x0 * 2 - gap * (count - 3) - clusterGap * 2) / count
+  const rawClusterGap = Math.max(22, w * 0.044)
+  const clusterGap = Math.min(rawClusterGap, w / 6)
+  const rawGap = Math.max(4, w * 0.008)
+  const gap = Math.min(rawGap, Math.max(0, (w - clusterGap * 2) / (count - 1 + count * 0.25)))
+  const x0 = 0
+  const cell = (w - gap * (count - 1) - clusterGap * 2) / count
   const cellH = Math.max(8, h * 0.5)
   const y = (h - cellH) / 2
   return (
@@ -144,7 +149,6 @@ function AmgRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
           return <rect key={i} x={x} y={y + (local % 2) * h * 0.08} width={cell} height={cellH} rx={Math.min(6, cellH / 5)} fill={on ? revFill(color, shift) : C.recess} opacity={on ? 1 : 0.42} filter={on ? 'url(#themed-amg-rev-glow)' : undefined} />
         })}
       </g>
-      <rect x={w / 2 - 5} y={h * 0.17} width={10} height={h * 0.66} rx={5} fill="rgba(255,255,255,0.16)" />
     </CleanTile>
   )
 }
@@ -154,7 +158,7 @@ function MclarenRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
   const shift = atShiftPoint(f)
   const w = width ?? REV_W
   const h = height ?? REV_H
-  const x = 46
+  const x = 0
   const barH = Math.max(4, h * 0.16)
   const y = h / 2 - barH / 2
   const bw = w - x * 2
@@ -166,7 +170,7 @@ function MclarenRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
         <ShiftStrobe active={shift} />
         <rect x={x} y={y} width={bw} height={barH} rx={barH / 2} fill={C.recess} opacity={0.55} />
         <rect x={x} y={y} width={litW} height={barH} rx={barH / 2} fill={revFill('url(#themed-mclaren-rev-grad)', shift)} filter={litW > 0 ? 'url(#themed-mclaren-rev-glow)' : undefined} />
-        {Array.from({ length: 54 }, (_, i) => <rect key={i} x={x + i * (bw / 54)} y={y - barH * 0.54} width={2} height={barH * 2.08} fill="rgba(0,0,0,0.44)" />)}
+        {!shift ? Array.from({ length: 54 }, (_, i) => <rect key={i} x={x + i * (bw / 54)} y={y - barH * 0.54} width={2} height={barH * 2.08} fill="rgba(0,0,0,0.44)" />) : null}
       </g>
     </CleanTile>
   )
@@ -179,10 +183,12 @@ function CorvetteRev({ snapshot, width, height }: HifiWidgetProps): ReactElement
   const lit = shift ? perRow * 2 : activeCount(f, perRow * 2, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
-  const gap = Math.max(4, w * 0.008)
-  const centerGap = Math.max(24, w * 0.048)
-  const margin = Math.max(18, w * 0.048)
-  const cell = (w - margin * 2 - centerGap - gap * (perRow - 2)) / perRow
+  const rawCenterGap = Math.max(24, w * 0.048)
+  const centerGap = Math.min(rawCenterGap, w / 4)
+  const rawGap = Math.max(4, w * 0.008)
+  const gap = Math.min(rawGap, Math.max(0, (w - centerGap) / (perRow - 1 + perRow * 0.25)))
+  const margin = 0
+  const cell = (w - centerGap - gap * (perRow - 1)) / perRow
   const rowH = Math.max(6, h * 0.22)
   const y0 = h * 0.22
   const rowGap = h * 0.12
@@ -201,7 +207,6 @@ function CorvetteRev({ snapshot, width, height }: HifiWidgetProps): ReactElement
           return <rect key={`${row}-${i}`} x={x} y={y} width={cell} height={rowH} rx={Math.min(4, rowH / 4)} fill={on ? revFill(pickRamp('corvette', pct), shift) : C.recess} opacity={on ? 1 : 0.42} filter={on ? 'url(#themed-corvette-rev-glow)' : undefined} />
         }))}
       </g>
-      <rect x={w / 2 - 7} y={h * 0.16} width={14} height={h * 0.68} rx={4} fill="rgba(255,255,255,0.13)" />
     </CleanTile>
   )
 }
@@ -213,8 +218,9 @@ function LamboRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const lit = shift ? count : activeCount(f, count, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
-  const gap = Math.max(4, w * 0.01)
-  const x0 = Math.max(18, w * 0.04)
+  const rawGap = Math.max(4, w * 0.01)
+  const gap = Math.min(rawGap, Math.max(0, w / (count - 1 + count * 0.25)))
+  const x0 = 0
   const cellW = (w - x0 * 2 - (count - 1) * gap) / count
   const cellH = Math.max(8, h * 0.46)
   const y0 = h / 2 - cellH / 2
@@ -252,17 +258,18 @@ function MiniStrip({ family, f, missing, x, y, w }: { family: Family; f: number;
   )
 }
 
-function TempBox({ x, label, value, color }: { x: number; label: string; value: number | undefined; color: string }): ReactElement {
+function TempBox({ x, label, value, color, unitSystem }: { x: number; label: string; value: number | undefined; color: string; unitSystem: UnitSystem }): ReactElement {
+  const reading = formatMeasurement(value, 'temperature-c', unitSystem, { decimals: 0 })
   return (
     <g>
       <path d={`M${x} 236 h78 l-10 16 h-58 z`} fill="rgba(0,0,0,0.28)" stroke={color} strokeWidth={1.5} opacity={0.95} />
       <text x={x + 13} y={247} fill={C.dim} fontFamily={FONT_LABEL} fontSize={13} fontWeight={700}>{label}</text>
-      <text x={x + 64} y={248} textAnchor="end" fill={value == null ? C.dim : color} fontFamily={FONT_NUM} fontSize={17} fontWeight={800} {...legibleStroke(17)}>{fixed(value)}°</text>
+      <text x={x + 70} y={248} textAnchor="end" fill={value == null ? C.dim : color} fontFamily={FONT_NUM} fontSize={17} fontWeight={800} {...legibleStroke(17)}>{reading.display}{reading.unit}</text>
     </g>
   )
 }
 
-function SignatureCluster({ snapshot, width, height, family }: HifiWidgetProps & { family: Family }): ReactElement {
+function SignatureCluster({ snapshot, width, height, family, unitSystem = 'metric' }: HifiWidgetProps & { family: Family }): ReactElement {
   const p = PAL[family]
   const speed = num(snapshot?.speedKmh)
   const gear = num(snapshot?.gear)
@@ -270,6 +277,7 @@ function SignatureCluster({ snapshot, width, height, family }: HifiWidgetProps &
   const max = num(snapshot?.maxRpm)
   const water = num(snapshot?.waterTempC)
   const oil = num(snapshot?.oilTempC)
+  const speedReading = formatMeasurement(speed, 'speed-kmh', unitSystem, { decimals: 0 })
   const { f, missing } = safeShift(snapshot)
   const rpmF = rpm != null && max != null && max > 0 ? frac(rpm, 0, max) : f
   return (
@@ -280,10 +288,10 @@ function SignatureCluster({ snapshot, width, height, family }: HifiWidgetProps &
       <GaugeArc cx={230} cy={177} r={101} thickness={8} f={rpmF} color={rpm == null && missing ? C.dim : p.main} />
       <path d="M118 180 A112 112 0 0 1 342 180" fill="none" stroke={p.accent} strokeWidth={1.5} opacity={0.45} strokeDasharray={family === 'lambo' ? '12 8' : family === 'porsche' ? '4 10' : '2 7'} />
       <text x={230} y={159} textAnchor="middle" fill={gear == null ? C.dim : p.text} fontFamily={FONT_BIG} fontSize={96} fontWeight={900} {...legibleStroke(96)}>{gear == null ? '–' : gearLabel(gear)}</text>
-      <text x={230} y={204} textAnchor="middle" fill={speed == null ? C.dim : p.main} fontFamily={FONT_BIG} fontSize={42} fontWeight={900} letterSpacing={-2} {...legibleStroke(42)}>{fixed(speed)}</text>
-      <text x={230} y={226} textAnchor="middle" fill={speed == null ? C.dim : p.accent} fontFamily={FONT_LABEL} fontSize={22} fontWeight={800} letterSpacing={1}>km/h</text>
-      <TempBox x={72} label="W" value={water} color={p.main} />
-      <TempBox x={310} label="O" value={oil} color={p.accent} />
+      <text x={230} y={204} textAnchor="middle" fill={speed == null ? C.dim : p.main} fontFamily={FONT_BIG} fontSize={42} fontWeight={900} letterSpacing={-2} {...legibleStroke(42)}>{speedReading.display}</text>
+      <text x={230} y={226} textAnchor="middle" fill={speed == null ? C.dim : p.accent} fontFamily={FONT_LABEL} fontSize={22} fontWeight={800} letterSpacing={1}>{speedReading.unit}</text>
+      <TempBox x={72} label="W" value={water} color={p.main} unitSystem={unitSystem} />
+      <TempBox x={310} label="O" value={oil} color={p.accent} unitSystem={unitSystem} />
       {family === 'ferrari' ? <path d="M96 76 C150 48 310 48 364 76" fill="none" stroke={p.accent} strokeWidth={5} opacity={0.7} /> : null}
       {family === 'porsche' ? <path d="M80 84 H380" stroke={p.accent} strokeWidth={4} strokeDasharray="34 8" /> : null}
       {family === 'amg' ? <path d="M94 82 H182 M204 82 H256 M278 82 H366" stroke={p.main} strokeWidth={5} strokeLinecap="round" /> : null}

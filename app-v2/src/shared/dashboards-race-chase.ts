@@ -17,9 +17,8 @@
 // TYPES from `./dashboards` and defines its own colour tokens + element helpers
 // locally (faithful mirrors of the `dashboards.ts` originals, identical names and
 // signatures). That keeps it a one-way, compile-time-only leaf with no runtime
-// import of the shared preset module, and immune to churn in that file. It does
-// NOT touch the preset registry (BUILTIN_PRESETS) — consumers can spread
-// RACE_CHASE_PRESETS in if desired.
+// import of the shared preset module, and immune to churn in that file.
+// `dashboards.ts` spreads RACE_CHASE_PRESETS into BUILTIN_PRESETS.
 //
 // COLOUR RULE (Gui): warm tokens (amber/red) drive chrome, position and warning
 // tells; cool/green tones are reserved for the positive "closing / good" states —
@@ -29,7 +28,8 @@ import type {
   Dashboard,
   DashboardElement,
   DashboardElementStyle,
-  DashboardElementType
+  DashboardElementType,
+  DashboardPreset
 } from './dashboards'
 
 // ── Colour + type tokens (mirror the dashboards.ts values) ────────────────────
@@ -766,23 +766,31 @@ function d19(): Dashboard {
   const elements: DashboardElement[] = [
     bg(),
     rev(16, 12, 992, 18, 20),
-    ahead(16, 44, 390, 150, { maxFontSize: 88 }),
-    pace(16, 204, 390, 96),
-    relElaborate(618, 44, 390, 140, AMBER),
-    mapClean(618, 192, 390, 108, CYAN),
-    gear(422, 190, 180, 220),
-    speed(422, 414, 180, 44),
-    delta(412, 466, 200, 118),
-    last(16, 316, 190, 120),
-    best(214, 316, 192, 120),
-    pos(16, 444, 190, 140),
-    inc(214, 444, 192, 140),
-    sbest(618, 316, 390, 110),
-    weather(618, 436, 190, 148, CYAN),
-    trackTemp(810, 436, 198, 72),
-    fuel(810, 514, 198, 70)
+    // Left chase quadrant.
+    ahead(16, 42, 292, 120, { maxFontSize: 88 }),
+    pace(16, 170, 292, 82),
+    last(16, 260, 142, 78),
+    best(166, 260, 142, 78),
+    pos(16, 346, 142, 78),
+    delta(166, 346, 142, 78),
+    w('fuelstint', 16, 432, 292, 152, { background: 'transparent', borderWidth: 0, radius: 8, color: TEXT, accentColor: AMBER, title: 'FUEL', reserveLaps: 1, warnAtLaps: 2 }, { name: 'FuelStint' }),
+
+    // Dense centre spine: primary gear first, then race status and car health.
+    gear(320, 42, 360, 204),
+    speed(320, 252, 360, 52),
+    w('incidents-clean', 320, 312, 176, 80, { background: 'transparent', borderWidth: 0, radius: 6, color: TEXT, accentColor: RED, showIcon: false }, { name: 'IncidentCount' }),
+    w('digitalclock', 504, 312, 176, 80, { background: 'transparent', borderWidth: 0, radius: 6, color: TEXT, accentColor: CYAN, fontFamily: FONT_NUM, label: 'TIME LEFT', minFontSize: 14, maxFontSize: 34, ghost: false }, { binding: 'sessionTimeLeftFmt', name: 'SessionClock' }),
+    w('abs-clean', 320, 400, 176, 80, { background: 'transparent', borderWidth: 0, radius: 6, color: TEXT, accentColor: AMBER, showIcon: false }, { name: 'AbsIndicator' }),
+    w('tc-clean', 504, 400, 176, 80, { background: 'transparent', borderWidth: 0, radius: 6, color: TEXT, accentColor: CYAN, showIcon: false }, { name: 'TcIndicator' }),
+    w('enginetemps', 320, 488, 360, 96, { background: 'transparent', borderWidth: 0, radius: 6, color: TEXT, accentColor: GREEN, title: 'VITALS' }, { name: 'CarVitals' }),
+
+    // Right traffic quadrant.
+    relElaborate(692, 42, 316, 120, AMBER),
+    mapClean(692, 170, 316, 206, CYAN),
+    sbest(692, 384, 316, 80),
+    weather(692, 472, 316, 112, CYAN)
   ]
-  return dashboard('Race Chase · Quad', 1024, 600, 'Symmetric four-quadrant chaser around a centre gear: AHEAD gap and PACE top-left, car-ahead relatives and map top-right, your last/best and position/incidents bottom-left, and session-best with weather, track and fuel bottom-right, delta beneath the gear.', elements)
+  return dashboard('Race Chase · Quad', 1024, 600, 'Dense four-quadrant chaser around a centre gear: chase timing and fuelstint on the left; incidents-clean, session digitalclock, ABS/TC indicators and enginetemps in the centre; car-ahead relatives, trackmap-clean, session-best and weather on the right.', elements)
 }
 
 // #20 HUD — top-heavy: big rev, prominent AHEAD + PACE, gear right.
@@ -809,8 +817,8 @@ function d20(): Dashboard {
   return dashboard('Race Chase · HUD', 1024, 600, 'A top-heavy race HUD: an oversized rev bar over a giant AHEAD gap and prominent PACE, gear on the right, session-best with an elaborate car-ahead relatives strip and map, then last/best, position, incidents, fuel and a weather / track / speed / delta base row.', elements)
 }
 
-// ── Registry-shaped export (NOT wired into BUILTIN_PRESETS on purpose) ─────────
-export const RACE_CHASE_PRESETS: Array<{ id: string; name: string; build: () => Dashboard; tags?: string[] }> = [
+// ── Registry-shaped export (spread into BUILTIN_PRESETS by dashboards.ts) ──────
+export const RACE_CHASE_PRESETS: DashboardPreset[] = [
   { id: 'race-chase-apex', name: 'Race Chase · Apex', build: d01, tags: ['race', 'chase', 'attack', 'ahead', 'gt3'] },
   { id: 'race-chase-aggressor', name: 'Race Chase · Aggressor', build: d02, tags: ['race', 'chase', 'attack', 'ahead', 'gear'] },
   { id: 'race-chase-predator', name: 'Race Chase · Predator', build: d03, tags: ['race', 'chase', 'attack', 'ahead', 'map'] },
