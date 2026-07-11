@@ -30,14 +30,17 @@ const UnitSystemContext = createContext<UnitSystemContextValue>({
 
 export function UnitSystemProvider({
   children,
-  initialUnitSystem = DEFAULT_APP_SETTINGS.unitSystem
+  initialUnitSystem
 }: {
   children?: ReactNode
   initialUnitSystem?: UnitSystem
 }): ReactElement {
-  const [unitSystem, setUnitSystem] = useState<UnitSystem>(initialUnitSystem)
+  const [unitSystem, setUnitSystem] = useState<UnitSystem>(initialUnitSystem ?? DEFAULT_APP_SETTINGS.unitSystem)
 
   useEffect(() => {
+    // When an explicit initialUnitSystem is provided the caller owns the value
+    // (e.g. inert previews or tests). Skip IPC so no channel traffic occurs.
+    if (initialUnitSystem !== undefined) return
     let mounted = true
     const apply = (settings: Partial<AppSettings> | null | undefined): void => {
       if (mounted && isUnitSystem(settings?.unitSystem)) setUnitSystem(settings.unitSystem)
