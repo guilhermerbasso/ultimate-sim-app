@@ -91,7 +91,7 @@ function PresetThumb({ dash }: { dash: Dashboard }): ReactElement {
                 .filter((element) => element.visible !== false)
                 .map((element) => (
                   <Fragment key={element.id}>
-                    {renderDashboardElement({ element, snapshot: PREVIEW_SNAPSHOT })}
+                    {renderDashboardElement({ element, snapshot: PREVIEW_SNAPSHOT, preview: 'inert' })}
                   </Fragment>
                 ))}
             </PresetThumbBoundary>
