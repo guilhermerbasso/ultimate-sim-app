@@ -141,16 +141,33 @@ function isPeer(value: unknown): value is TeamFuelPeer {
     (item.local === undefined || typeof item.local === 'boolean')
 }
 
-function parseWire(data: RawData, expectedRoomHash: string): WireMessage | null {
+type WireRawData = RawData | ArrayBufferView | string
+
+function rawDataByteLength(data: WireRawData): number {
+  if (typeof data === 'string') return Buffer.byteLength(data)
+  if (!Array.isArray(data)) return data.byteLength
+  let bytes = 0
+  for (const chunk of data) {
+    bytes += chunk.byteLength
+    if (bytes > MAX_MESSAGE_BYTES) break
+  }
+  return bytes
+}
+
+export function parseWire(data: WireRawData, expectedRoomHash: string): WireMessage | null {
+  const bytes = rawDataByteLength(data)
+  if (bytes === 0 || bytes > MAX_MESSAGE_BYTES) return null
   try {
     const raw = typeof data === 'string'
       ? data
       : Buffer.isBuffer(data)
         ? data.toString('utf8')
         : Array.isArray(data)
-          ? Buffer.concat(data).toString('utf8')
-          : Buffer.from(data).toString('utf8')
-    if (!raw || Buffer.byteLength(raw) > MAX_MESSAGE_BYTES) return null
+          ? Buffer.concat(data, bytes).toString('utf8')
+          : ArrayBuffer.isView(data)
+            ? Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('utf8')
+            : Buffer.from(data).toString('utf8')
+    if (!raw) return null
     const parsed = JSON.parse(raw) as unknown
     if (!hasOnlyKeys(parsed, ['type', 'roomHash'], ['nonce', 'peerId', 'auth', 'peer'])) return null
     if (parsed.roomHash !== expectedRoomHash) return null

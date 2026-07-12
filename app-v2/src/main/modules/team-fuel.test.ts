@@ -20,7 +20,7 @@ vi.mock('bonjour-service', () => ({
     destroy(callback: () => void): void { callback() }
   }
 }))
-import { register } from './team-fuel'
+import { parseWire, register } from './team-fuel'
 const KEY = 'containment-room'
 const HASH = createHash('sha256').update(KEY).digest('hex').slice(0, 16)
 const NONCE = 'ab'.repeat(24)
@@ -157,6 +157,24 @@ afterEach(async () => {
   mdns.browsers = []
 })
 describe('team fuel V1 containment', () => {
+  it('rejects oversized raw variants before concatenation or decoding', () => {
+    const concat = vi.spyOn(Buffer, 'concat')
+    const from = vi.spyOn(Buffer, 'from')
+    const decode = vi.spyOn(Buffer.prototype, 'toString')
+    try {
+      expect(parseWire(Buffer.alloc(8193), HASH)).toBeNull()
+      expect(parseWire([Buffer.alloc(4097), Buffer.alloc(4096)], HASH)).toBeNull()
+      expect(parseWire(new ArrayBuffer(8193), HASH)).toBeNull()
+      expect(parseWire(new Uint8Array(8193), HASH)).toBeNull()
+      expect(concat).not.toHaveBeenCalled()
+      expect(from).not.toHaveBeenCalled()
+      expect(decode).not.toHaveBeenCalled()
+    } finally {
+      concat.mockRestore()
+      from.mockRestore()
+      decode.mockRestore()
+    }
+  })
   it('sends no application state to an unauthenticated socket across ticks', async () => {
     const { status } = await start('host')
     const p = probe(status.port as number)
@@ -196,17 +214,20 @@ describe('team fuel V1 containment', () => {
     const junk = probe(status.port as number)
     await Promise.all([challenge(silent), challenge(junk)])
     const junkTimer = setInterval(() => send(junk.ws, '{}'), 200)
-    let joinClosed!: Promise<number>
-    const oldHost = await makeServer((socket) => {
-      joinClosed = once(socket, 'close').then(([code]) => code as number)
-      const timer = setInterval(() => send(socket, '{}'), 200)
-      socket.on('close', () => clearInterval(timer))
-    })
-    await start('join', oldHost.port)
-    await waitUntil(() => Boolean(joinClosed))
-    await within(Promise.all([silent.closed, junk.closed, joinClosed]), 6500)
-    clearInterval(junkTimer)
-    expect([silent.ws.readyState, junk.ws.readyState]).toEqual([WebSocket.CLOSED, WebSocket.CLOSED])
+    try {
+      let joinClosed!: Promise<number>
+      const oldHost = await makeServer((socket) => {
+        joinClosed = once(socket, 'close').then(([code]) => code as number)
+        const timer = setInterval(() => send(socket, '{}'), 200)
+        socket.on('close', () => clearInterval(timer))
+      })
+      await start('join', oldHost.port)
+      await waitUntil(() => Boolean(joinClosed))
+      await within(Promise.all([silent.closed, junk.closed, joinClosed]), 6500)
+      expect([silent.ws.readyState, junk.ws.readyState]).toEqual([WebSocket.CLOSED, WebSocket.CLOSED])
+    } finally {
+      clearInterval(junkTimer)
+    }
   }, 8000)
   it('rejects the 33rd raw socket and reuses a closed slot', async () => {
     const { status } = await start('host')
