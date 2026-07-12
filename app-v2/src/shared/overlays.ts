@@ -504,7 +504,9 @@ function cloneJsonSafe(value: unknown, state: WidgetCloneState, depth = 0): unkn
         if (!descriptor?.enumerable || !('value' in descriptor)) continue
         const item = cloneJsonSafe(descriptor.value, state, depth + 1)
         if (item === UNSAFE_WIDGET_GRAPH) return item
-        if (item !== UNSAFE_WIDGET_VALUE) Object.defineProperty(clone, index, { value: item, enumerable: true, writable: true, configurable: true })
+        if (item !== UNSAFE_WIDGET_VALUE) {
+          Object.defineProperty(clone, index, { value: item, enumerable: true, writable: true, configurable: true })
+        }
       }
       return clone
     }
@@ -542,9 +544,12 @@ export function sanitizeCustomOverlayWidget(value: unknown, index = 0): Dashboar
     const state: WidgetCloneState = { nodes: 0, seen: new WeakSet<object>([value]) }
     const widget = {} as DashboardElement & Record<string, unknown>
     for (const [key, descriptor] of Object.entries(descriptors)) {
-      if (++state.nodes > WIDGET_EXTENSION_NODE_BUDGET) break; if (!descriptor.enumerable || !('value' in descriptor) || CANONICAL_WIDGET_KEYS.has(key) || BLOCKED_WIDGET_KEYS.has(key)) continue
+      if (++state.nodes > WIDGET_EXTENSION_NODE_BUDGET) break
+      if (!descriptor.enumerable || !('value' in descriptor) || CANONICAL_WIDGET_KEYS.has(key) || BLOCKED_WIDGET_KEYS.has(key)) continue
       const item = cloneJsonSafe(descriptor.value, state)
-      if (item !== UNSAFE_WIDGET_VALUE && item !== UNSAFE_WIDGET_GRAPH) Object.defineProperty(widget, key, { value: item, enumerable: true, writable: true, configurable: true })
+      if (item !== UNSAFE_WIDGET_VALUE && item !== UNSAFE_WIDGET_GRAPH) {
+        Object.defineProperty(widget, key, { value: item, enumerable: true, writable: true, configurable: true })
+      }
     }
     const id = ownDataValue(descriptors, 'id')
     widget.id = typeof id === 'string' && id.trim() ? id.trim() : `w-${Date.now().toString(36)}-${index}`; widget.type = type as DashboardElement['type']
