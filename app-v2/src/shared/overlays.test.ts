@@ -169,11 +169,11 @@ describe('sanitizeCustomOverlayWidget(s)', () => {
     expect(out?.visible).toBe(false)
   })
 
-  it('shallow-clones the style object (no shared reference)', () => {
-    const style = { fillColor: '#abc', slots: { value: { fontSize: 20 } } }
-    const out = sanitizeCustomOverlayWidget({ type: 'gauge', style })
-    expect(out?.style).toEqual(style)
-    expect(out?.style).not.toBe(style)
+  it('deep-clones style independently when it is shared with an extension', () => {
+    const shared = { fillColor: '#abc', slots: { value: { fontSize: 20 } } }
+    const out = sanitizeCustomOverlayWidget({ type: 'gauge', style: shared, future: shared }) as (DashboardElement & { future: typeof shared }) | null
+    expect(out?.style).toEqual(shared); expect(out?.future).toEqual(shared)
+    expect(out?.style).not.toBe(shared); expect(out?.future).not.toBe(shared); expect(out?.style).not.toBe(out?.future)
   })
 
   it('replaces a non-object style with an empty style', () => {
@@ -181,10 +181,101 @@ describe('sanitizeCustomOverlayWidget(s)', () => {
     expect(out?.style).toEqual({})
   })
 
-  it('caps the number of widgets to a sane maximum', () => {
-    const many = Array.from({ length: 500 }, (_, i) => richWidget({ id: `w${i}` }))
-    const out = sanitizeCustomOverlayWidgets(many)
-    expect(out?.length).toBe(200)
+  it('rejects widget arrays above the 200-widget cap', () => {
+    const many = Array.from({ length: 201 }, (_, i) => richWidget({ id: `w${i}` }))
+    expect(sanitizeCustomOverlayWidgets(many)).toEqual([])
+  })
+
+  it('preserves nonblank overlaywidget identities, including future ids', () => {
+    const out = sanitizeCustomOverlayWidget({ type: 'overlaywidget', widgetId: 'future:widget-v99', hifiModuleId: 'future-module-v99' })
+    expect(out?.widgetId).toBe('future:widget-v99'); expect(out?.hifiModuleId).toBe('future-module-v99')
+    expect(sanitizeCustomOverlayWidget({ type: 'overlaywidget', widgetId: ' ', hifiModuleId: 42 })).not.toHaveProperty('widgetId'); expect(sanitizeCustomOverlayWidget({ type: 'gauge', widgetId: 'future:wrong-type' })).not.toHaveProperty('widgetId')
+  })
+
+  it('preserves and recursively deep-clones forward-compatible JSON extensions', () => {
+    const future = { mode: 'endurance', pages: [1, { alerts: ['fuel', 'tyres'] }], options: { enabled: true, empty: null } }
+    const out = sanitizeCustomOverlayWidget({ type: 'gauge', future }) as (DashboardElement & { future: typeof future }) | null
+    expect(out?.future).toEqual(future)
+    expect(out?.future).not.toBe(future); expect(out?.future.pages).not.toBe(future.pages); expect(out?.future.options).not.toBe(future.options)
+  })
+
+  it('skips throwing extension/canonical accessors without invoking them', () => {
+    let calls = 0
+    const future = { safe: true }
+    Object.defineProperty(future, 'boom', { enumerable: true, get() { calls += 1; throw new Error('getter invoked') } })
+    const input = { type: 'gauge', future }
+    Object.defineProperty(input, 'topBoom', { enumerable: true, get() { calls += 1; throw new Error('getter invoked') } })
+    expect(sanitizeCustomOverlayWidget(input)).toMatchObject({ future: { safe: true } })
+    const invalid = {}
+    Object.defineProperty(invalid, 'type', { enumerable: true, get() { calls += 1; throw new Error('getter invoked') } })
+    expect(sanitizeCustomOverlayWidget(invalid)).toBeNull(); expect(calls).toBe(0)
+  })
+
+  it('drops unsupported values, keeps safe siblings and rejects non-plain widgets', () => {
+    class UnsafeInstance {}
+    const future = {
+      keep: 'ok', fn: () => true, symbol: Symbol('x'), bigint: BigInt(1), nan: Number.NaN,
+      infinity: Number.POSITIVE_INFINITY, date: new Date(), map: new Map(), instance: new UnsafeInstance()
+    }
+    const out = sanitizeCustomOverlayWidget({ type: 'gauge', future }) as (DashboardElement & { future: unknown }) | null
+    expect(out?.future).toEqual({ keep: 'ok' })
+    for (const value of [Object.assign(new Date(), { type: 'gauge' }), Object.assign(new Map(), { type: 'gauge' }), new (class { type = 'gauge' })()]) expect(sanitizeCustomOverlayWidget(value)).toBeNull()
+  })
+
+  it('drops dangerous keys recursively without prototype pollution', () => {
+    const future = JSON.parse('{"safe":{"value":1,"__proto__":{"polluted":true},"constructor":{"polluted":true},"prototype":{"polluted":true}}}')
+    const out = sanitizeCustomOverlayWidget({ type: 'gauge', future }) as (DashboardElement & { future: unknown }) | null
+    expect(out?.future).toEqual({ safe: { value: 1 } }); expect(({} as { polluted?: boolean }).polluted).toBeUndefined()
+  })
+
+  it('drops cyclic extension values', () => {
+    const future: Record<string, unknown> = { safe: true }
+    future.self = future
+    expect(sanitizeCustomOverlayWidget({ type: 'gauge', future })).not.toHaveProperty('future')
+  })
+
+  it('drops depth/node/array-amplification extensions without erasing valid style', () => {
+    let deep: Record<string, unknown> = { leaf: true }
+    for (let i = 0; i < 40; i += 1) deep = { next: deep }
+    const wide: Record<string, unknown> = {}
+    for (let i = 0; i < 10_001; i += 1) wide[`k${i}`] = i
+    const arrays: Record<string, unknown> = {}
+    for (let i = 0; i < 4_500; i += 1) arrays[`a${i}`] = new Array(4096)
+    const style = { fillColor: '#abc' }
+    for (const future of [deep, wide, arrays]) {
+      const out = sanitizeCustomOverlayWidget({ id: 'kept', type: 'gauge', style, future })
+      expect(out).toMatchObject({ id: 'kept', type: 'gauge' })
+      expect(out?.style).toEqual(style)
+      expect(out).not.toHaveProperty('future')
+    }
+  }, 1_000)
+
+  it('rejects 500k arrays before scanning and never invokes getter indexes', () => {
+    let calls = 0
+    const getter = { enumerable: true, get() { calls += 1; throw new Error('getter invoked') } }
+    const huge: unknown[] = []; huge.length = 500_000; Object.defineProperty(huge, '0', getter)
+    expect(sanitizeCustomOverlayWidgets(huge)).toEqual([])
+    expect(sanitizeCustomOverlayWidget({ type: 'gauge', future: huge })).not.toHaveProperty('future')
+    const bounded: unknown[] = []; bounded.length = 1; Object.defineProperty(bounded, '0', getter)
+    expect(sanitizeCustomOverlayWidgets(bounded)).toEqual([])
+    const out = sanitizeCustomOverlayWidget({ type: 'gauge', future: bounded }) as (DashboardElement & { future: unknown[] }) | null
+    expect(out?.future).toHaveLength(1)
+    expect(calls).toBe(0)
+  }, 1_000)
+
+  it('rejects exponentially shared graphs in bounded time', () => {
+    let future: unknown = { leaf: true }
+    for (let i = 0; i < 40; i += 1) future = { left: future, right: future }
+    const out = sanitizeCustomOverlayWidget({ id: 'kept', type: 'gauge', future })
+    expect(out).toMatchObject({ id: 'kept', type: 'gauge' })
+    expect(out).not.toHaveProperty('future')
+  }, 1_000)
+
+  it('never throws for revoked untrusted proxies', () => {
+    const revocable = Proxy.revocable({}, {})
+    revocable.revoke()
+    expect(() => sanitizeCustomOverlayWidget(revocable.proxy)).not.toThrow()
+    expect(() => sanitizeCustomOverlayWidgets(revocable.proxy)).not.toThrow()
   })
 })
 

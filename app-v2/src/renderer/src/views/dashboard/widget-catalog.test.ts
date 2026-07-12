@@ -28,6 +28,7 @@ import {
   matchesQuery,
   type WidgetTaxon
 } from '../../../../shared/widget-taxonomy'
+import { sanitizeCustomOverlayWidget } from '../../../../shared/overlays'
 
 describe('filterHiddenVariants', () => {
   it('removes hidden catalog entries and restores them when the id leaves the set', () => {
@@ -116,6 +117,24 @@ describe('catalog categorization (new + existing)', () => {
   it('flattens exactly the WIDGET_CATALOG groups into ALL_VARIANTS', () => {
     const flat = WIDGET_CATALOG.reduce((n, g) => n + g.variants.length, 0)
     expect(ALL_VARIANTS.length).toBe(flat)
+  })
+})
+
+describe('rich-overlay catalog identity contract', () => {
+  const elements = ALL_VARIANTS.map((variant) => variantToElement(variant, 0, 0))
+  const withWidgetId = elements.filter((element) => typeof element.widgetId === 'string')
+  const withHifiModuleId = elements.filter((element) => typeof element.hifiModuleId === 'string')
+
+  it('has at least one widgetId and at least one hifiModuleId variant', () => {
+    expect(withWidgetId.length).toBeGreaterThan(0)
+    expect(withHifiModuleId.length).toBeGreaterThan(0)
+  })
+
+  it('preserves every catalog identity through variantToElement and sanitization', () => {
+    expect(withWidgetId.map((element) => sanitizeCustomOverlayWidget(element)?.widgetId))
+      .toEqual(withWidgetId.map((element) => element.widgetId))
+    expect(withHifiModuleId.map((element) => sanitizeCustomOverlayWidget(element)?.hifiModuleId))
+      .toEqual(withHifiModuleId.map((element) => element.hifiModuleId))
   })
 })
 

@@ -464,6 +464,8 @@ export const DEFAULT_RICH_OVERLAY_POSITION: OverlayPosition = {
 
 const RICH_OVERLAY_MAX_WIDGETS = 200
 const RICH_OVERLAY_COORD_LIMIT = 16000
+// Cap nested extension arrays at 4096 logical slots.
+const WIDGET_EXTENSION_MAX_DEPTH = 32, WIDGET_EXTENSION_NODE_BUDGET = 10_000, WIDGET_EXTENSION_ARRAY_LIMIT = 4096
 
 function clampRichCoord(value: unknown, fallback: number, min = -RICH_OVERLAY_COORD_LIMIT): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
@@ -471,47 +473,117 @@ function clampRichCoord(value: unknown, fallback: number, min = -RICH_OVERLAY_CO
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+  try {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+    const prototype = Object.getPrototypeOf(value)
+    return prototype === Object.prototype || prototype === null
+  } catch { return false }
 }
 
-// Light, structural sanitize for a single rich (dashboard) widget. We keep the
-// known DashboardElement fields, clamp geometry, and shallow-clone the style
-// object (all style fields are optional). We deliberately do NOT deep-validate
-// every style field — the style shape is the dashboards' own and is rendered by
-// the shared renderer; this only guards types, geometry bounds and prototype
-// pollution. Returns null for inputs that can't be made into a valid element.
+const BLOCKED_WIDGET_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
+const CANONICAL_WIDGET_KEYS = new Set(['id', 'type', 'x', 'y', 'w', 'h', 'style', 'binding', 'name', 'visible', 'sourceType', 'widgetId', 'hifiModuleId'])
+const UNSAFE_WIDGET_VALUE = Symbol('unsafe-widget-value'), UNSAFE_WIDGET_GRAPH = Symbol('unsafe-widget-graph')
+type WidgetCloneState = { nodes: number; seen: WeakSet<object> }
+
+function cloneJsonSafe(value: unknown, state: WidgetCloneState, depth = 0): unknown {
+  try {
+    if (depth > WIDGET_EXTENSION_MAX_DEPTH || ++state.nodes > WIDGET_EXTENSION_NODE_BUDGET) return UNSAFE_WIDGET_GRAPH
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return value
+    if (typeof value === 'number') return Number.isFinite(value) ? value : UNSAFE_WIDGET_VALUE
+    if (typeof value !== 'object') return UNSAFE_WIDGET_VALUE
+    if (state.seen.has(value)) return UNSAFE_WIDGET_GRAPH
+    const isArray = Array.isArray(value)
+    if (!isArray && !isPlainRecord(value)) return UNSAFE_WIDGET_VALUE
+    state.seen.add(value)
+    if (isArray) {
+      const length = boundedArrayLength(value, WIDGET_EXTENSION_ARRAY_LIMIT)
+      if (length === null || (state.nodes += length) > WIDGET_EXTENSION_NODE_BUDGET) return UNSAFE_WIDGET_GRAPH
+      const clone = new Array(length)
+      for (let index = 0; index < length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index))
+        if (!descriptor?.enumerable || !('value' in descriptor)) continue
+        const item = cloneJsonSafe(descriptor.value, state, depth + 1)
+        if (item === UNSAFE_WIDGET_GRAPH) return item
+        if (item !== UNSAFE_WIDGET_VALUE) Object.defineProperty(clone, index, { value: item, enumerable: true, writable: true, configurable: true })
+      }
+      return clone
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value) as Record<string, PropertyDescriptor>
+    const clone: Record<string, unknown> = {}
+    for (const [key, descriptor] of Object.entries(descriptors)) {
+      if (++state.nodes > WIDGET_EXTENSION_NODE_BUDGET) {
+        return UNSAFE_WIDGET_GRAPH
+      }
+      if (!descriptor.enumerable || !('value' in descriptor) || BLOCKED_WIDGET_KEYS.has(key)) continue
+      const item = cloneJsonSafe(descriptor.value, state, depth + 1)
+      if (item === UNSAFE_WIDGET_GRAPH) return item
+      if (item !== UNSAFE_WIDGET_VALUE) {
+        Object.defineProperty(clone, key, { value: item, enumerable: true, writable: true, configurable: true })
+      }
+    }
+    return clone
+  } catch { return UNSAFE_WIDGET_VALUE }
+}
+
+function ownDataValue(descriptors: Record<string, PropertyDescriptor>, key: string): unknown {
+  const descriptor = descriptors[key]; return descriptor && 'value' in descriptor ? descriptor.value : undefined
+}
+function boundedArrayLength(value: object, limit: number): number | null { const descriptor = Object.getOwnPropertyDescriptor(value, 'length'), length = descriptor && 'value' in descriptor ? descriptor.value : null; return Number.isSafeInteger(length) && (length as number) >= 0 && (length as number) <= limit ? length as number : null }
+
+// Structural sanitizer for one rich widget. Canonical fields are rebuilt after
+// safe extension cloning, so extensions can never bypass geometry/type handling.
 export function sanitizeCustomOverlayWidget(value: unknown, index = 0): DashboardElement | null {
-  if (!isPlainRecord(value)) return null
-  if (typeof value.type !== 'string' || value.type.length === 0) return null
-  const id = typeof value.id === 'string' && value.id.trim() ? value.id.trim() : `w-${Date.now().toString(36)}-${index}`
-  const style = isPlainRecord(value.style) ? { ...(value.style as Record<string, unknown>) } : {}
-  const widget: DashboardElement = {
-    id,
-    type: value.type as DashboardElement['type'],
-    x: clampRichCoord(value.x, 0),
-    y: clampRichCoord(value.y, 0),
-    w: clampRichCoord(value.w, 120, 1),
-    h: clampRichCoord(value.h, 60, 1),
-    style: style as DashboardElement['style']
-  }
-  if (typeof value.binding === 'string' && value.binding.length > 0) widget.binding = value.binding
-  if (typeof value.name === 'string') widget.name = value.name
-  if (typeof value.visible === 'boolean') widget.visible = value.visible
-  if (typeof value.sourceType === 'string') widget.sourceType = value.sourceType
-  return widget
+  try {
+    if (!isPlainRecord(value)) return null
+    const descriptors = Object.getOwnPropertyDescriptors(value)
+    const type = ownDataValue(descriptors, 'type')
+    if (typeof type !== 'string' || type.length === 0) return null
+    const style = cloneJsonSafe(ownDataValue(descriptors, 'style'), { nodes: 0, seen: new WeakSet<object>([value]) })
+    const state: WidgetCloneState = { nodes: 0, seen: new WeakSet<object>([value]) }
+    const widget = {} as DashboardElement & Record<string, unknown>
+    for (const [key, descriptor] of Object.entries(descriptors)) {
+      if (++state.nodes > WIDGET_EXTENSION_NODE_BUDGET) break; if (!descriptor.enumerable || !('value' in descriptor) || CANONICAL_WIDGET_KEYS.has(key) || BLOCKED_WIDGET_KEYS.has(key)) continue
+      const item = cloneJsonSafe(descriptor.value, state)
+      if (item !== UNSAFE_WIDGET_VALUE && item !== UNSAFE_WIDGET_GRAPH) Object.defineProperty(widget, key, { value: item, enumerable: true, writable: true, configurable: true })
+    }
+    const id = ownDataValue(descriptors, 'id')
+    widget.id = typeof id === 'string' && id.trim() ? id.trim() : `w-${Date.now().toString(36)}-${index}`; widget.type = type as DashboardElement['type']
+    widget.x = clampRichCoord(ownDataValue(descriptors, 'x'), 0); widget.y = clampRichCoord(ownDataValue(descriptors, 'y'), 0)
+    widget.w = clampRichCoord(ownDataValue(descriptors, 'w'), 120, 1); widget.h = clampRichCoord(ownDataValue(descriptors, 'h'), 60, 1)
+    widget.style = (isPlainRecord(style) ? style : {}) as DashboardElement['style']
+    const binding = ownDataValue(descriptors, 'binding'), name = ownDataValue(descriptors, 'name')
+    const visible = ownDataValue(descriptors, 'visible'), sourceType = ownDataValue(descriptors, 'sourceType')
+    if (typeof binding === 'string' && binding.length > 0) widget.binding = binding; if (typeof name === 'string') widget.name = name
+    if (typeof visible === 'boolean') widget.visible = visible; if (typeof sourceType === 'string') widget.sourceType = sourceType
+    if (type === 'overlaywidget') {
+      const widgetId = ownDataValue(descriptors, 'widgetId'), hifiModuleId = ownDataValue(descriptors, 'hifiModuleId')
+      if (typeof widgetId === 'string' && widgetId.trim()) widget.widgetId = widgetId as DashboardElement['widgetId']
+      if (typeof hifiModuleId === 'string' && hifiModuleId.trim()) widget.hifiModuleId = hifiModuleId
+    }
+    return widget
+  } catch { return null }
 }
 
 // Sanitize a `widgets` field. Returns undefined when the field is absent / not an
 // array (keeps the overlay LEGACY); returns a (possibly empty) array when present
-// (marks the overlay RICH). Caps the widget count to a sane maximum.
+// (marks the overlay RICH). Rejects arrays whose length exceeds the maximum,
+// returning an empty array instead of truncating.
 export function sanitizeCustomOverlayWidgets(value: unknown): DashboardElement[] | undefined {
-  if (!Array.isArray(value)) return undefined
-  const out: DashboardElement[] = []
-  for (let i = 0; i < value.length && out.length < RICH_OVERLAY_MAX_WIDGETS; i += 1) {
-    const widget = sanitizeCustomOverlayWidget(value[i], i)
-    if (widget) out.push(widget)
-  }
-  return out
+  let isArray = false
+  try {
+    isArray = Array.isArray(value)
+    if (!isArray) return undefined
+    const length = boundedArrayLength(value as object, RICH_OVERLAY_MAX_WIDGETS)
+    if (length === null) return []
+    const out: DashboardElement[] = []
+    for (let i = 0; i < length && out.length < RICH_OVERLAY_MAX_WIDGETS; i += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(i))
+      if (!descriptor?.enumerable || !('value' in descriptor)) continue
+      const widget = sanitizeCustomOverlayWidget(descriptor.value, i)
+      if (widget) out.push(widget)
+    }
+    return out
+  } catch { return isArray ? [] : undefined }
 }
 
 let customElementCounter = 0
