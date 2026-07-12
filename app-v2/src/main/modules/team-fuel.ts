@@ -1,5 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
+import { createServer, type Server as HttpServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import type { Duplex } from 'node:stream'
 import Bonjour, { type Browser, type Service } from 'bonjour-service'
 import WebSocket, { WebSocketServer } from 'ws'
 import type { RawData } from 'ws'
@@ -14,7 +16,9 @@ const BROADCAST_INTERVAL_MS = 1000
 const STALE_PEER_MS = 15_000
 const MAX_MESSAGE_BYTES = 8192
 const MAX_PEERS = 32
+const MAX_RAW_SOCKETS = 32
 const MAX_FUTURE_SKEW_MS = 5000
+const HANDSHAKE_DEADLINE_MS = 5000
 const RECONNECT_BACKOFF_MS = 1000
 
 interface WireChallenge {
@@ -44,7 +48,15 @@ interface WireLeave {
 
 type WireMessage = WireChallenge | WireHello | WireState | WireLeave
 
-type PeerSocket = WebSocket & { teamFuelAuthed?: boolean; teamFuelPeerId?: string; teamFuelNonce?: string }
+type ClientPhase = 'connecting' | 'helloSent' | 'v1Ready'
+type PeerSocket = WebSocket & {
+  teamFuelAuthed?: boolean
+  teamFuelPeerId?: string
+  teamFuelNonce?: string
+  teamFuelPhase?: ClientPhase
+  teamFuelGeneration?: number
+  teamFuelHandshakeTimer?: ReturnType<typeof setTimeout>
+}
 
 function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
@@ -56,6 +68,13 @@ function optionalFinite(value: unknown): value is number | undefined {
 
 function optionalString(value: unknown): value is string | undefined {
   return value === undefined || typeof value === 'string'
+}
+
+function hasOnlyKeys(value: unknown, required: string[], optional: string[] = []): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const item = value as Record<string, unknown>
+  const allowed = new Set([...required, ...optional])
+  return required.every((key) => Object.hasOwn(item, key)) && Object.keys(item).every((key) => allowed.has(key))
 }
 
 function sanitizeString(value: string, fallback: string, maxLength = 80): string {
@@ -90,6 +109,11 @@ function serviceRoomHash(service: Service): string | undefined {
   return readTxt(txt?.room)
 }
 
+function serviceVersion(service: Service): string | undefined {
+  const txt = service.txt as Record<string, unknown> | undefined
+  return readTxt(txt?.version)
+}
+
 function serviceAddress(service: Service): string | undefined {
   const addresses = service.addresses ?? []
   return addresses.find((address) => /^\d+\.\d+\.\d+\.\d+$/.test(address)) ?? addresses[0] ?? service.referer?.address
@@ -97,39 +121,60 @@ function serviceAddress(service: Service): string | undefined {
 
 function isPitWindow(value: unknown): value is TeamFuelPitWindow {
   if (value === undefined) return true
-  if (!value || typeof value !== 'object') return false
+  if (!hasOnlyKeys(value, [], ['latestLap', 'lapsUntilPit', 'status'])) return false
   const item = value as Record<string, unknown>
   const status = item.status
   return optionalFinite(item.latestLap) && optionalFinite(item.lapsUntilPit) && (status === undefined || status === 'unknown' || status === 'safe' || status === 'save' || status === 'pit-required' || status === 'critical')
 }
 
 function isPeer(value: unknown): value is TeamFuelPeer {
-  if (!value || typeof value !== 'object') return false
+  if (!hasOnlyKeys(value, ['peerId', 'driverName', 'ts'], [
+    'custId', 'sessionUniqueId', 'fuelLiters', 'fuelPerLap', 'lapsRemaining',
+    'stintTargetLaps', 'pitWindow', 'local'
+  ])) return false
   const item = value as Record<string, unknown>
   return typeof item.peerId === 'string' && item.peerId.length > 0 && item.peerId.length <= 80 &&
     typeof item.driverName === 'string' && item.driverName.length > 0 && item.driverName.length <= 120 &&
     optionalFinite(item.custId) && optionalFinite(item.sessionUniqueId) && optionalFinite(item.fuelLiters) &&
     optionalFinite(item.fuelPerLap) && optionalFinite(item.lapsRemaining) && optionalFinite(item.stintTargetLaps) &&
-    finite(item.ts) && item.ts > 0 && item.ts <= Date.now() + MAX_FUTURE_SKEW_MS && isPitWindow(item.pitWindow)
+    finite(item.ts) && item.ts > 0 && item.ts <= Date.now() + MAX_FUTURE_SKEW_MS && isPitWindow(item.pitWindow) &&
+    (item.local === undefined || typeof item.local === 'boolean')
 }
 
 function parseWire(data: RawData, expectedRoomHash: string): WireMessage | null {
-  const bytes = typeof data === 'string' ? Buffer.byteLength(data) : Buffer.isBuffer(data) ? data.byteLength : 0
-  if (bytes > MAX_MESSAGE_BYTES) return null
   try {
-    const raw = typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString('utf8') : null
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const byteLength = typeof data === 'string'
+      ? Buffer.byteLength(data)
+      : Buffer.isBuffer(data)
+        ? data.length
+        : Array.isArray(data)
+          ? data.reduce((acc: number, buf: Buffer) => acc + buf.length, 0)
+          : (data as ArrayBuffer).byteLength
+    if (byteLength === 0 || byteLength > MAX_MESSAGE_BYTES) return null
+    const raw = typeof data === 'string'
+      ? data
+      : Buffer.isBuffer(data)
+        ? data.toString('utf8')
+        : Array.isArray(data)
+          ? Buffer.concat(data).toString('utf8')
+          : Buffer.from(data).toString('utf8')
+    const parsed = JSON.parse(raw) as unknown
+    if (!hasOnlyKeys(parsed, ['type', 'roomHash'], ['nonce', 'peerId', 'auth', 'peer'])) return null
     if (parsed.roomHash !== expectedRoomHash) return null
-    if (parsed.type === 'challenge' && typeof parsed.nonce === 'string' && /^[a-f0-9]{32,128}$/i.test(parsed.nonce)) {
+    if (parsed.type === 'challenge' && hasOnlyKeys(parsed, ['type', 'roomHash', 'nonce']) &&
+      typeof parsed.nonce === 'string' && /^[a-f0-9]{32,128}$/i.test(parsed.nonce)) {
       return { type: 'challenge', roomHash: expectedRoomHash, nonce: parsed.nonce }
     }
-    if (parsed.type === 'hello' && typeof parsed.peerId === 'string' && parsed.peerId.length > 0 && parsed.peerId.length <= 80 &&
+    if (parsed.type === 'hello' && hasOnlyKeys(parsed, ['type', 'roomHash', 'peerId', 'auth']) &&
+      typeof parsed.peerId === 'string' && parsed.peerId.length > 0 && parsed.peerId.length <= 80 &&
       typeof parsed.auth === 'string' && /^[a-f0-9]{64}$/i.test(parsed.auth)) {
       return { type: 'hello', roomHash: expectedRoomHash, peerId: parsed.peerId, auth: parsed.auth }
     }
-    if (parsed.type === 'state' && isPeer(parsed.peer)) return { type: 'state', roomHash: expectedRoomHash, peer: parsed.peer }
-    if (parsed.type === 'leave' && typeof parsed.peerId === 'string' && parsed.peerId.length > 0 && parsed.peerId.length <= 80) {
+    if (parsed.type === 'state' && hasOnlyKeys(parsed, ['type', 'roomHash', 'peer']) && isPeer(parsed.peer)) {
+      return { type: 'state', roomHash: expectedRoomHash, peer: parsed.peer }
+    }
+    if (parsed.type === 'leave' && hasOnlyKeys(parsed, ['type', 'roomHash', 'peerId']) &&
+      typeof parsed.peerId === 'string' && parsed.peerId.length > 0 && parsed.peerId.length <= 80) {
       return { type: 'leave', roomHash: expectedRoomHash, peerId: parsed.peerId }
     }
   } catch {
@@ -138,13 +183,24 @@ function parseWire(data: RawData, expectedRoomHash: string): WireMessage | null 
   return null
 }
 
-function send(ws: WebSocket, message: WireMessage): void {
-  if (ws.readyState !== WebSocket.OPEN) return
+function send(ws: WebSocket, message: WireMessage): boolean {
+  if (ws.readyState !== WebSocket.OPEN) return false
   try {
     ws.send(JSON.stringify(message))
+    return true
   } catch {
-    // LAN sharing is best-effort.
+    return false
   }
+}
+
+function clearHandshakeDeadline(socket: PeerSocket): void {
+  if (!socket.teamFuelHandshakeTimer) return
+  clearTimeout(socket.teamFuelHandshakeTimer)
+  delete socket.teamFuelHandshakeTimer
+}
+
+function forceTerminate(socket: WebSocket): void {
+  try { socket.terminate() } catch { /* best-effort */ }
 }
 
 function round(value: number, digits = 2): number {
@@ -183,7 +239,11 @@ class TeamFuelController {
   private service: Service | null = null
   private browser: Browser | null = null
   private server: WebSocketServer | null = null
+  private httpServer: HttpServer | null = null
+  private rawSockets = new Set<Duplex>()
+  private rawSocketDeadlines = new Map<Duplex, ReturnType<typeof setTimeout>>()
   private client: WebSocket | null = null
+  private clientGeneration = 0
   private lastService: Service | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private timer: ReturnType<typeof setInterval> | null = null
@@ -259,16 +319,50 @@ class TeamFuelController {
 
   private async startHost(): Promise<void> {
     if (!this.hash || !this.bonjour) return
-    this.server = new WebSocketServer({ port: 0, host: '0.0.0.0' })
-    this.server.on('connection', (socket) => this.handleServerConnection(socket as PeerSocket))
-    this.server.on('error', (error) => {
+    const wsServer = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES })
+    const httpServer = createServer({
+      headersTimeout: HANDSHAKE_DEADLINE_MS,
+      requestTimeout: HANDSHAKE_DEADLINE_MS,
+      keepAliveTimeout: HANDSHAKE_DEADLINE_MS
+    }, (_request, response) => {
+      response.writeHead(426, { Connection: 'close' })
+      response.end()
+    })
+    this.server = wsServer
+    this.httpServer = httpServer
+    wsServer.on('connection', (socket) => this.handleServerConnection(socket as PeerSocket))
+    wsServer.on('error', (error) => {
+      if (this.server !== wsServer) return
+      this.error = error.message
+      this.state = 'error'
+      this.broadcastPeers()
+    })
+    httpServer.on('connection', (socket) => this.trackRawSocket(socket))
+    httpServer.on('clientError', (_error, socket) => this.destroyRawSocket(socket))
+    httpServer.on('upgrade', (request, socket, head) => {
+      if (this.httpServer !== httpServer || this.server !== wsServer || !this.rawSockets.has(socket)) {
+        this.destroyRawSocket(socket)
+        return
+      }
+      try {
+        wsServer.handleUpgrade(request, socket, head, (webSocket) => {
+          this.clearRawSocketDeadline(socket)
+          wsServer.emit('connection', webSocket, request)
+        })
+      } catch {
+        this.destroyRawSocket(socket)
+      }
+    })
+    httpServer.on('error', (error) => {
+      if (this.httpServer !== httpServer) return
       this.error = error.message
       this.state = 'error'
       this.broadcastPeers()
     })
     await new Promise<void>((resolve, reject) => {
-      this.server?.once('listening', resolve)
-      this.server?.once('error', reject)
+      httpServer.once('listening', resolve)
+      httpServer.once('error', reject)
+      httpServer.listen(0, '0.0.0.0')
     })
     const port = this.serverPort()
     if (!port) throw new Error('WebSocket server did not expose a port.')
@@ -289,41 +383,37 @@ class TeamFuelController {
 
   private maybeConnect(service: Service): void {
     if (!this.hash || !this.roomKey || this.client?.readyState === WebSocket.OPEN || this.client?.readyState === WebSocket.CONNECTING) return
-    if (serviceRoomHash(service) !== this.hash) return
+    if (serviceRoomHash(service) !== this.hash || serviceVersion(service) !== PROTOCOL_VERSION) return
     const address = serviceAddress(service)
     if (!address || !service.port) return
     this.lastService = service
     this.clearReconnectTimer()
+    const generation = ++this.clientGeneration
     try {
-      const ws = new WebSocket(`ws://${address}:${service.port}`) as PeerSocket
+      const ws = new WebSocket(`ws://${address}:${service.port}`, { maxPayload: MAX_MESSAGE_BYTES }) as PeerSocket
+      ws.teamFuelGeneration = generation
+      ws.teamFuelPhase = 'connecting'
       this.client = ws
+      ws.teamFuelHandshakeTimer = setTimeout(() => this.handleClientTimeout(ws, generation), HANDSHAKE_DEADLINE_MS)
       ws.on('open', () => {
-        this.state = 'connected'
-        this.broadcastPeers()
+        if (this.isCurrentClient(ws, generation)) this.broadcastPeers()
       })
-      ws.on('message', (data) => this.handleClientMessage(data))
-      ws.on('close', () => {
-        if (this.client === ws) this.client = null
-        if (this.state !== 'stopped') {
-          this.state = 'joining'
-          this.scheduleReconnect()
-        }
-        this.broadcastPeers()
-      })
-      ws.on('error', () => {
-        if (this.client === ws) this.client = null
-      })
+      ws.on('message', (data) => this.handleClientMessage(ws, generation, data))
+      ws.on('close', () => this.handleClientClose(ws, generation))
+      ws.on('error', () => undefined)
     } catch {
       // Off-LAN or blocked mDNS/socket should not crash the app.
-      this.scheduleReconnect()
+      this.scheduleReconnect(generation)
     }
   }
 
-  private scheduleReconnect(): void {
-    if (this.state === 'stopped' || this.mode !== 'join' || !this.lastService || this.reconnectTimer) return
+  private scheduleReconnect(generation = this.clientGeneration): void {
+    if (this.state === 'stopped' || this.mode !== 'join' || !this.lastService || this.reconnectTimer ||
+      generation !== this.clientGeneration) return
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null
-      if (this.state === 'stopped' || this.mode !== 'join' || !this.lastService) return
+      if (this.state === 'stopped' || this.mode !== 'join' || !this.lastService ||
+        generation !== this.clientGeneration) return
       this.maybeConnect(this.lastService)
     }, RECONNECT_BACKOFF_MS)
   }
@@ -334,7 +424,59 @@ class TeamFuelController {
     this.reconnectTimer = null
   }
 
+  private trackRawSocket(socket: Duplex): void {
+    socket.on('error', () => undefined)
+    if (this.rawSockets.size >= MAX_RAW_SOCKETS) {
+      socket.destroy()
+      return
+    }
+    this.rawSockets.add(socket)
+    this.rawSocketDeadlines.set(socket, setTimeout(() => this.destroyRawSocket(socket), HANDSHAKE_DEADLINE_MS))
+    socket.once('close', () => this.releaseRawSocket(socket))
+  }
+
+  private clearRawSocketDeadline(socket: Duplex): void {
+    const timer = this.rawSocketDeadlines.get(socket)
+    if (timer) clearTimeout(timer)
+    this.rawSocketDeadlines.delete(socket)
+  }
+
+  private releaseRawSocket(socket: Duplex): void {
+    this.clearRawSocketDeadline(socket)
+    this.rawSockets.delete(socket)
+  }
+
+  private destroyRawSocket(socket: Duplex): void {
+    this.releaseRawSocket(socket)
+    if (!socket.destroyed) socket.destroy()
+  }
+
+  private closePeerSocket(socket: PeerSocket): Promise<void> {
+    clearHandshakeDeadline(socket)
+    if (socket.readyState === WebSocket.CLOSED) return Promise.resolve()
+    return new Promise((resolve) => {
+      let settled = false
+      const done = (): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve()
+      }
+      const timer = setTimeout(() => {
+        forceTerminate(socket)
+        done()
+      }, 250)
+      socket.once('close', done)
+      try { socket.close() } catch { forceTerminate(socket); done() }
+    })
+  }
+
   private handleServerConnection(socket: PeerSocket): void {
+    socket.teamFuelAuthed = false
+    socket.teamFuelHandshakeTimer = setTimeout(() => {
+      delete socket.teamFuelHandshakeTimer
+      if (!socket.teamFuelAuthed) forceTerminate(socket)
+    }, HANDSHAKE_DEADLINE_MS)
     if (this.hash) {
       socket.teamFuelNonce = randomBytes(24).toString('hex')
       send(socket, { type: 'challenge', roomHash: this.hash, nonce: socket.teamFuelNonce })
@@ -346,7 +488,8 @@ class TeamFuelController {
       if (message.type === 'hello') {
         if (socket.teamFuelAuthed) return
         if (!socket.teamFuelNonce || !safeEqualHex(message.auth, authHmac(this.roomKey, socket.teamFuelNonce))) {
-          socket.close()
+          clearHandshakeDeadline(socket)
+          forceTerminate(socket)
           return
         }
         if (!this.peers.has(message.peerId) && this.peers.size >= MAX_PEERS) {
@@ -355,6 +498,7 @@ class TeamFuelController {
         }
         socket.teamFuelAuthed = true
         socket.teamFuelPeerId = message.peerId
+        clearHandshakeDeadline(socket)
         for (const peer of this.peersList()) send(socket, { type: 'state', roomHash: this.hash, peer })
         return
       }
@@ -378,6 +522,7 @@ class TeamFuelController {
       }
     })
     socket.on('close', () => {
+      clearHandshakeDeadline(socket)
       if (socket.teamFuelPeerId) {
         if (this.peers.delete(socket.teamFuelPeerId)) this.broadcastPeers()
       }
@@ -385,22 +530,50 @@ class TeamFuelController {
     socket.on('error', () => undefined)
   }
 
-  private handleClientMessage(data: RawData): void {
-    if (!this.hash) return
+  private isCurrentClient(socket: PeerSocket, generation: number): boolean {
+    return this.client === socket && this.clientGeneration === generation && socket.teamFuelGeneration === generation
+  }
+
+  private handleClientTimeout(socket: PeerSocket, generation: number): void {
+    delete socket.teamFuelHandshakeTimer
+    if (this.isCurrentClient(socket, generation) && socket.teamFuelPhase !== 'v1Ready') forceTerminate(socket)
+  }
+
+  private handleClientClose(socket: PeerSocket, generation: number): void {
+    clearHandshakeDeadline(socket)
+    if (!this.isCurrentClient(socket, generation)) return
+    this.client = null
+    if (this.state !== 'stopped') {
+      this.state = 'joining'
+      this.scheduleReconnect(generation)
+    }
+    this.broadcastPeers()
+  }
+
+  private handleClientMessage(socket: PeerSocket, generation: number, data: RawData): void {
+    if (!this.hash || !this.isCurrentClient(socket, generation)) return
     const message = parseWire(data, this.hash)
     if (!message) return
     if (message.type === 'challenge') {
-      if (!this.roomKey) return
-      send(this.client as WebSocket, { type: 'hello', roomHash: this.hash, peerId: this.peerId, auth: authHmac(this.roomKey, message.nonce) })
+      if (!this.roomKey || socket.teamFuelPhase !== 'connecting') return
+      socket.teamFuelPhase = 'helloSent'
+      if (!send(socket, { type: 'hello', roomHash: this.hash, peerId: this.peerId, auth: authHmac(this.roomKey, message.nonce) })) {
+        forceTerminate(socket)
+        return
+      }
+      socket.teamFuelPhase = 'v1Ready'
+      clearHandshakeDeadline(socket)
+      this.state = 'connected'
+      this.broadcastPeers()
       this.sendLocalState()
-    } else if (message.type === 'state') {
+    } else if (socket.teamFuelPhase === 'v1Ready' && message.type === 'state') {
       const peer = { ...message.peer, local: message.peer.peerId === this.peerId }
       if (!this.peers.has(peer.peerId) && this.peers.size >= MAX_PEERS) return
       if (!peersEqual(this.peers.get(peer.peerId), peer)) {
         this.peers.set(peer.peerId, peer)
         this.broadcastPeers()
       }
-    } else if (message.type === 'leave') {
+    } else if (socket.teamFuelPhase === 'v1Ready' && message.type === 'leave') {
       if (this.peers.delete(message.peerId)) this.broadcastPeers()
     }
   }
@@ -440,7 +613,7 @@ class TeamFuelController {
     const message: WireState = { type: 'state', roomHash: this.hash, peer }
     if (this.mode === 'host') {
       this.relay(message)
-    } else if (this.client) {
+    } else if (this.client && (this.client as PeerSocket).teamFuelPhase === 'v1Ready') {
       send(this.client, message)
     }
   }
@@ -449,12 +622,12 @@ class TeamFuelController {
     if (!this.hash) return
     const message: WireLeave = { type: 'leave', roomHash: this.hash, peerId: this.peerId }
     if (this.mode === 'host') this.relay(message)
-    else if (this.client) send(this.client, message)
+    else if (this.client && (this.client as PeerSocket).teamFuelPhase === 'v1Ready') send(this.client, message)
   }
 
-  private relay(message: WireMessage, except?: WebSocket): void {
+  private relay(message: WireState | WireLeave, except?: WebSocket): void {
     for (const client of this.server?.clients ?? []) {
-      if (client !== except) send(client, message)
+      if (client !== except && (client as PeerSocket).teamFuelAuthed === true) send(client, message)
     }
   }
 
@@ -476,7 +649,7 @@ class TeamFuelController {
   }
 
   private serverPort(): number | undefined {
-    const address = this.server?.address()
+    const address = this.httpServer?.address()
     if (!address || typeof address === 'string') return undefined
     return (address as AddressInfo).port
   }
@@ -489,16 +662,31 @@ class TeamFuelController {
       try { this.service.stop() } catch { /* best-effort */ }
     }
     this.service = null
-    if (this.client) {
-      try { this.client.close() } catch { /* best-effort */ }
-    }
+    const client = this.client as PeerSocket | null
     this.client = null
-    if (this.server) {
-      const server = this.server
-      for (const client of server.clients) client.close()
+    this.clientGeneration += 1
+    if (client) {
+      clearHandshakeDeadline(client)
+      try { client.close() } catch { /* best-effort */ }
+    }
+    const server = this.server
+    const httpServer = this.httpServer
+    this.server = null
+    this.httpServer = null
+    const httpClosed = new Promise<void>((resolve) => {
+      if (!httpServer) {
+        resolve()
+        return
+      }
+      try { httpServer.close(() => resolve()) } catch { resolve() }
+    })
+    for (const socket of [...this.rawSocketDeadlines.keys()]) this.destroyRawSocket(socket)
+    if (server) {
+      await Promise.all([...server.clients].map((socket) => this.closePeerSocket(socket as PeerSocket)))
       await new Promise<void>((resolve) => server.close(() => resolve()))
     }
-    this.server = null
+    for (const socket of [...this.rawSockets]) this.destroyRawSocket(socket)
+    await httpClosed
     if (this.bonjour) {
       await new Promise<void>((resolve) => this.bonjour?.destroy(() => resolve()))
     }
