@@ -125,9 +125,10 @@ describe('rich-overlay catalog identity contract', () => {
   const withWidgetId = elements.filter((element) => typeof element.widgetId === 'string')
   const withHifiModuleId = elements.filter((element) => typeof element.hifiModuleId === 'string')
 
-  it('has at least one widgetId and at least one hifiModuleId variant', () => {
-    expect(withWidgetId.length).toBeGreaterThan(0)
-    expect(withHifiModuleId.length).toBeGreaterThan(0)
+  // N/N manifest gate: count changes require intentional manifest review.
+  it('contains exactly 861 widgetId and 838 hifiModuleId variants', () => {
+    expect(withWidgetId).toHaveLength(861)
+    expect(withHifiModuleId).toHaveLength(838)
   })
 
   it('preserves every catalog identity through variantToElement and sanitization', () => {
