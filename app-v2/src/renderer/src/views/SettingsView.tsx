@@ -22,8 +22,7 @@ import { UpdatePanel } from '../components/UpdatePanel'
 import packageJson from '../../../../package.json'
 import {
   CONFIG_IO_CHANNELS,
-  type ConfigExportResult,
-  type ConfigImportResult
+  type ConfigExportResult
 } from '../../../shared/config-io'
 import { LOG_CHANNELS, type LogExportResult, type LogInfo } from '../../../shared/logger'
 import { APP_SETTINGS_CHANGED_EVENT, LANGUAGE_LABELS, resolveAppLanguage, t, tt } from '../i18n'
@@ -140,7 +139,7 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
   const [savedSettings, setSavedSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [backupBusy, setBackupBusy] = useState<false | 'export' | 'import'>(false)
+  const [backupBusy, setBackupBusy] = useState<false | 'export'>(false)
   const [needsRestart, setNeedsRestart] = useState(false)
   const [logsBusy, setLogsBusy] = useState(false)
   const [logInfo, setLogInfo] = useState<LogInfo | null>(null)
@@ -319,39 +318,6 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
     setNeedsRestart(true)
     if (window.confirm(tt(language, 'settings.languageRestartConfirm'))) {
       void restartNow()
-    }
-  }
-
-  const importProfile = async (): Promise<void> => {
-    const confirmed = window.confirm(tt(language, 'settings.importProfileConfirm'))
-    if (!confirmed) return
-    setBackupBusy('import')
-    try {
-      const result = await window.ipc.invoke<ConfigImportResult>(CONFIG_IO_CHANNELS.importAll)
-      if (result.canceled) return
-      const applied = result.summary?.applied.length ?? 0
-      if (applied > 0) {
-        // Imported files are on disk, but every store is cached in memory until
-        // the next launch — must not refetch (it would show stale data and invite
-        // an overwrite). Surface a restart prompt + persistent badge instead.
-        setNeedsRestart(true)
-        showToast(
-          tt(language, 'settings.profileImported', {
-            count: applied,
-            sectionLabel: tt(language, applied === 1 ? 'settings.section.singular' : 'settings.section.plural')
-          }),
-          'success'
-        )
-        if (window.confirm(tt(language, 'settings.profileImportedRestart'))) {
-          await restartNow()
-        }
-      } else {
-        showToast(tt(language, 'settings.validNoSections'), 'error')
-      }
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : String(error), 'error')
-    } finally {
-      setBackupBusy(false)
     }
   }
 
@@ -656,14 +622,17 @@ export default function SettingsView({ showToast, language }: AppViewProps): Rea
             {backupBusy === 'export' ? tt(language, 'settings.exporting') : tt(language, 'settings.exportProfile')}
           </button>
           <button
-            disabled={loading || saving || backupBusy !== false}
-            onClick={importProfile}
+            disabled
+            aria-describedby="full-profile-import-disabled"
             className="ghost-action"
             type="button"
           >
-            {backupBusy === 'import' ? tt(language, 'settings.importing') : tt(language, 'settings.importProfile')}
+            {tt(language, 'settings.importProfile')}
           </button>
         </div>
+        <p id="full-profile-import-disabled" style={{ margin: 0, color: 'var(--muted)', fontSize: 13 }}>
+          {tt(language, 'settings.fullImportDisabled')}
+        </p>
         {needsRestart && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span
