@@ -20,7 +20,7 @@ vi.mock('bonjour-service', () => ({
     destroy(callback: () => void): void { callback() }
   }
 }))
-import { register } from './team-fuel'
+import { parseWire, register } from './team-fuel'
 const KEY = 'containment-room'
 const HASH = createHash('sha256').update(KEY).digest('hex').slice(0, 16)
 const NONCE = 'ab'.repeat(24)
@@ -157,6 +157,42 @@ afterEach(async () => {
   mdns.browsers = []
 })
 describe('team fuel V1 containment', () => {
+  it('rejects oversized raw variants before concatenation or decoding', () => {
+    const concat = vi.spyOn(Buffer, 'concat')
+    const from = vi.spyOn(Buffer, 'from')
+    const decode = vi.spyOn(Buffer.prototype, 'toString')
+    try {
+      expect(parseWire(Buffer.alloc(8193), HASH)).toBeNull()
+      expect(parseWire([Buffer.alloc(4097), Buffer.alloc(4096)], HASH)).toBeNull()
+      expect(parseWire(new ArrayBuffer(8193), HASH)).toBeNull()
+      expect(parseWire(new Uint8Array(8193), HASH)).toBeNull()
+      expect(concat).not.toHaveBeenCalled()
+      expect(from).not.toHaveBeenCalled()
+      expect(decode).not.toHaveBeenCalled()
+    } finally {
+      concat.mockRestore()
+      from.mockRestore()
+      decode.mockRestore()
+    }
+  })
+  it('decodes typed-array and DataView slices using their view bounds', () => {
+    const expected = { type: 'challenge', roomHash: HASH, nonce: NONCE } as const
+    const message = Buffer.from(JSON.stringify(expected))
+    const backing = new Uint8Array(message.byteLength + 8)
+    backing.fill('x'.charCodeAt(0))
+    backing.set(message, 4)
+
+    expect(parseWire(new Uint8Array(backing.buffer, 4, message.byteLength), HASH)).toEqual(expected)
+    expect(parseWire(new DataView(backing.buffer, 4, message.byteLength), HASH)).toEqual(expected)
+  })
+  it('stops inspecting Buffer arrays after the cumulative limit is exceeded', () => {
+    const sentinel = vi.fn(() => Buffer.alloc(1))
+    const chunks = [Buffer.alloc(4097), Buffer.alloc(4096), Buffer.alloc(1)]
+    Object.defineProperty(chunks, 2, { configurable: true, get: sentinel })
+
+    expect(parseWire(chunks, HASH)).toBeNull()
+    expect(sentinel).not.toHaveBeenCalled()
+  })
   it('sends no application state to an unauthenticated socket across ticks', async () => {
     const { status } = await start('host')
     const p = probe(status.port as number)
