@@ -125,6 +125,7 @@ describe('rich-overlay catalog identity contract', () => {
   const withWidgetId = elements.filter((element) => typeof element.widgetId === 'string')
   const withHifiModuleId = elements.filter((element) => typeof element.hifiModuleId === 'string')
 
+  // BASE_SHA manifest gate: count changes require an intentional manifest update and review.
   it('contains exactly 861 widgetId and 838 hifiModuleId variants', () => {
     expect(withWidgetId).toHaveLength(861)
     expect(withHifiModuleId).toHaveLength(838)
