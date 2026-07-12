@@ -27,6 +27,18 @@ import {
 } from '../../shared/config-io'
 import { parseRgbMatrixProfilesPayload } from './rgb-matrix-profile-store'
 
+export const FULL_IMPORT_DISABLED = 'FULL_IMPORT_DISABLED' as const
+
+export interface FullImportDisabledResult {
+  readonly ok: false
+  readonly code: typeof FULL_IMPORT_DISABLED
+}
+
+export const FULL_IMPORT_DISABLED_RESULT: FullImportDisabledResult = Object.freeze({
+  ok: false,
+  code: FULL_IMPORT_DISABLED
+})
+
 // ─── Storage abstraction ───────────────────────────────────────────────────────
 // The engine reads/writes config ONLY through this interface, so the whole
 // export/import flow can be unit-tested in-memory (no disk, no electron). The
@@ -682,15 +694,7 @@ export function register(ctx: ModuleContext): void {
 
   ctx.ipcMain.handle(
     CONFIG_IO_CHANNELS.importAll,
-    async (_event, opts?: { sections?: string[] }): Promise<ConfigImportResult> => {
-      const result = await showOpen(importDialogOpts())
-      if (result.canceled || result.filePaths.length === 0) return { canceled: true }
-      const raw = await readImportPayload(result.filePaths[0])
-      const summary = await engine.importAll(raw, opts)
-      await emitReload(summary)
-      ctx.broadcast(CONFIG_IO_CHANNELS.imported, summary)
-      return { canceled: false, summary }
-    }
+    (): FullImportDisabledResult => FULL_IMPORT_DISABLED_RESULT
   )
 
   ctx.ipcMain.handle(

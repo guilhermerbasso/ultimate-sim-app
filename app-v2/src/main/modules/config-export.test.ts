@@ -1,6 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('electron', () => ({ dialog: {}, shell: {}, app: {} }))
+const electronMocks = vi.hoisted(() => ({
+  showOpenDialog: vi.fn(),
+  showSaveDialog: vi.fn()
+}))
+const fileIoMocks = vi.hoisted(() => ({ readFile: vi.fn(), writeFile: vi.fn() }))
+
+vi.mock('electron', () => ({ dialog: electronMocks, shell: {}, app: {} }))
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return {
+    ...actual,
+    readFile: (...args: unknown[]) => {
+      fileIoMocks.readFile(...args)
+      return Reflect.apply(actual.readFile, undefined, args)
+    },
+    writeFile: (...args: unknown[]) => {
+      fileIoMocks.writeFile(...args)
+      return Reflect.apply(actual.writeFile, undefined, args)
+    }
+  }
+})
 vi.mock('./logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }))
 import {
   existsSync,
@@ -15,15 +35,18 @@ import {
 import { join, resolve } from 'node:path'
 import {
   buildRegistry,
+  FULL_IMPORT_DISABLED_RESULT,
   type ConfigStorage,
   createConfigEngine,
   createFileStorage,
   createMemoryStorage,
-  readImportPayload
+  readImportPayload,
+  register
 } from './config-export'
 import {
   CONFIG_BUNDLE_APP_ID,
   CONFIG_BUNDLE_VERSION,
+  CONFIG_IO_CHANNELS,
   CONFIG_SECTIONS,
   FORBIDDEN_CONFIG_FILES,
   getConfigSection,
@@ -66,6 +89,59 @@ function seededStorage(): ReturnType<typeof createMemoryStorage> {
     'iracing-browser-session.json': { cookies: ['TOPSECRET-COOKIE'] }
   })
 }
+
+type TestIpcHandler = (...args: unknown[]) => unknown
+
+function registerForTest() {
+  const handlers = new Map<string, TestIpcHandler>()
+  const emit = vi.fn()
+  const broadcast = vi.fn()
+  register({
+    app: { getPath: () => join(process.cwd(), 'full-import-disabled-test-user-data') },
+    ipcMain: {
+      handle: (channel: string, handler: TestIpcHandler) => handlers.set(channel, handler),
+      emit
+    },
+    getMainWindow: () => null,
+    broadcast
+  } as unknown as ModuleContext)
+  return { handlers, emit, broadcast }
+}
+
+describe('full-profile IPC containment', () => {
+  it('fails closed before any dialog, file I/O, reload signal, or broadcast', async () => {
+    const { handlers, emit, broadcast } = registerForTest()
+    electronMocks.showOpenDialog.mockResolvedValue({
+      canceled: false,
+      filePaths: [join(process.cwd(), 'must-not-be-read.json')]
+    })
+    vi.clearAllMocks()
+
+    const result = await handlers.get(CONFIG_IO_CHANNELS.importAll)?.({})
+
+    expect(result).toEqual(FULL_IMPORT_DISABLED_RESULT)
+    expect(electronMocks.showOpenDialog).not.toHaveBeenCalled()
+    expect(electronMocks.showSaveDialog).not.toHaveBeenCalled()
+    expect(fileIoMocks.readFile).not.toHaveBeenCalled()
+    expect(fileIoMocks.writeFile).not.toHaveBeenCalled()
+    expect(emit).not.toHaveBeenCalled()
+    expect(broadcast).not.toHaveBeenCalled()
+  })
+
+  it('keeps full export and per-section export/import handlers operational', async () => {
+    const { handlers } = registerForTest()
+    electronMocks.showSaveDialog.mockResolvedValue({ canceled: true, filePath: undefined })
+    electronMocks.showOpenDialog.mockResolvedValue({ canceled: true, filePaths: [] })
+    vi.clearAllMocks()
+
+    await handlers.get(CONFIG_IO_CHANNELS.exportAll)?.({})
+    await handlers.get(CONFIG_IO_CHANNELS.exportSection)?.({}, 'settings')
+    await handlers.get(CONFIG_IO_CHANNELS.importSection)?.({}, 'settings')
+
+    expect(electronMocks.showSaveDialog).toHaveBeenCalledTimes(2)
+    expect(electronMocks.showOpenDialog).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe('config-io bundle shape', () => {
   it('exportAll produces a versioned, app-tagged bundle that validates', async () => {
