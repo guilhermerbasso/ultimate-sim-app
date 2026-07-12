@@ -12,6 +12,9 @@ on:
 permissions:
   contents: write
 
+env:
+  CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
 jobs:
   build-win:
     runs-on: windows-latest
@@ -32,6 +35,9 @@ jobs:
 
       - name: Build NSIS installer
         run: npm run dist:win
+
+      - name: Verify packaged cloudflared and artifacts
+        run: npm run verify:win-package
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
