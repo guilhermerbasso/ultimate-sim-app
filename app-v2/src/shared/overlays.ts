@@ -513,7 +513,9 @@ function cloneJsonSafe(value: unknown, state: WidgetCloneState, depth = 0): unkn
     const descriptors = Object.getOwnPropertyDescriptors(value) as Record<string, PropertyDescriptor>
     const clone: Record<string, unknown> = {}
     for (const [key, descriptor] of Object.entries(descriptors)) {
-      if (++state.nodes > WIDGET_EXTENSION_NODE_BUDGET) return UNSAFE_WIDGET_GRAPH
+      if (++state.nodes > WIDGET_EXTENSION_NODE_BUDGET) {
+        return UNSAFE_WIDGET_GRAPH
+      }
       if (!descriptor.enumerable || !('value' in descriptor) || BLOCKED_WIDGET_KEYS.has(key)) continue
       const item = cloneJsonSafe(descriptor.value, state, depth + 1)
       if (item === UNSAFE_WIDGET_GRAPH) return item
@@ -569,7 +571,8 @@ export function sanitizeCustomOverlayWidget(value: unknown, index = 0): Dashboar
 
 // Sanitize a `widgets` field. Returns undefined when the field is absent / not an
 // array (keeps the overlay LEGACY); returns a (possibly empty) array when present
-// (marks the overlay RICH). Oversized arrays are rejected as an empty rich list.
+// (marks the overlay RICH). Rejects arrays whose length exceeds the maximum,
+// returning an empty array instead of truncating.
 export function sanitizeCustomOverlayWidgets(value: unknown): DashboardElement[] | undefined {
   let isArray = false
   try {
