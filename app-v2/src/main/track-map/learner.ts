@@ -544,9 +544,17 @@ export class TrackMapLearner {
     const captured = lookupLayout(layout)
     if (!captured) return null
     const direct = this.cache.get(captured.key)
-    if (direct) return direct
+    if (captured.trackId && direct) return direct
     const aliases = layoutAliasKeys(captured)
+    if (!captured.trackId && this.catalogFresh) {
+      const row = findCatalogLayout(captured, this.catalog)
+      if (row) {
+        const authoritative = this.cache.get(trackLayoutFromCatalog(row).key)
+        return authoritative?.trackId === row.trackId ? authoritative : null
+      }
+    }
     if (aliases.some((alias) => this.ambiguousAliases.has(alias))) return null
+    if (direct) return direct
     const aliasMatches = aliases
       .map((alias) => this.exactAliases.get(alias))
       .filter((record): record is LearnedRecord => !!record)
@@ -556,11 +564,6 @@ export class TrackMapLearner {
         compareRecords(record, best) > 0 ? record : best
       )
       return null
-    }
-    if (this.catalogFresh) {
-      const row = findCatalogLayout(captured, this.catalog)
-      const promoted = row ? this.cache.get(trackLayoutFromCatalog(row).key) : null
-      if (promoted) return promoted
     }
     const fallback = this.offlineFallbacks.get(normalizeLayoutPart(captured.trackName))
     if (!fallback) return null
@@ -707,15 +710,19 @@ export class TrackMapLearner {
     }
     if (this.suspension && this.acquisition) {
       const currentGeo = geoPoint(snapshot)
+      const resumeWrap = validSeamForwardStep(this.suspension.pct, pct)
       const forward = strictForwardStep(this.suspension.pct, pct)
       const hasGeoPair = !!this.suspension.geo && !!currentGeo
-      const stationaryWithoutGps = forward === 0 && !this.suspension.geo && !currentGeo
+      // Without coordinates, only a stationary resume or a bounded seam crossing
+      // has enough continuity evidence; ordinary forward movement still resets.
+      const continuousWithoutGps =
+        !this.suspension.geo && !currentGeo && (forward === 0 || resumeWrap !== null)
       const jump = this.suspension.geo && currentGeo
         ? geoDeltaMeters(this.suspension.geo, currentGeo).distance : Number.POSITIVE_INFINITY
       if (
         this.suspension.layoutKey !== layout.key ||
         forward === null || forward > MAX_PCT_STEP ||
-        (!hasGeoPair && !stationaryWithoutGps) ||
+        (!hasGeoPair && !continuousWithoutGps) ||
         (hasGeoPair && jump > MAX_RESUME_COORDINATE_JUMP_METERS)
       ) {
         this.acquisition = null
@@ -754,10 +761,10 @@ export class TrackMapLearner {
         // every tick — lastPct tracks the tow but the velocity integrator stays
         // frozen, so on resume the post-tow path is drawn translated. Detect it by
         // the pct jumping more than one normal step while paused (a slow corner or
-        // spin barely moves pct) and drop the in-flight lap. A genuine lap wrap
-        // (~1 → ~0) is not a tow, so never drop on the seam.
+        // spin barely moves pct) and drop the in-flight lap. Only a bounded seam
+        // crossing (~1 → ~0) is accepted as a genuine wrap.
         const pausedStep = pct - this.acquisition.lastPct
-        const wrappedWhilePaused = this.acquisition.lastPct > WRAP_FROM && pct < WRAP_TO
+        const wrappedWhilePaused = validSeamForwardStep(this.acquisition.lastPct, pct) !== null
         if (!wrappedWhilePaused && Math.abs(pausedStep) > MAX_PCT_STEP) {
           this.acquisition = null
           this.note('teleport-reset', nowMs, { step: pausedStep, pct, speedKmh })
@@ -799,7 +806,7 @@ export class TrackMapLearner {
       // translated path on resume — drop the lap. A small pct delta across the gap
       // is a normal stall/clock-reset: resync and keep recording.
       const gapStep = pct - acq.lastPct
-      const wrappedAcrossGap = acq.lastPct > WRAP_FROM && pct < WRAP_TO
+      const wrappedAcrossGap = validSeamForwardStep(acq.lastPct, pct) !== null
       if (!wrappedAcrossGap && Math.abs(gapStep) > MAX_PCT_STEP) {
         this.acquisition = null
         this.note('teleport-reset', nowMs, { step: gapStep, dt: dtRaw })
@@ -814,11 +821,12 @@ export class TrackMapLearner {
     const dt = dtRaw
     const step = pct - acq.lastPct
 
-    // Detect a genuine lap wrap FIRST. At the start/finish line `lapDistPct`
+    // Detect a bounded genuine lap wrap FIRST. At the start/finish line `lapDistPct`
     // jumps from "almost 1" back to "almost 0" in a single sample, which looks
     // EXACTLY like a big backwards teleport. The teleport gate below must never
     // run on a real wrap, or it would discard the nearly-complete lap forever.
-    const wrapped = acq.lastPct > WRAP_FROM && pct < WRAP_TO
+    const wrapForward = validSeamForwardStep(acq.lastPct, pct)
+    const wrapped = wrapForward !== null
 
     // Reject teleports and big rewinds — but never a real wrap. A small backwards
     // step (provider jitter) is fine; we just don't move forward in the path.
@@ -865,7 +873,7 @@ export class TrackMapLearner {
     // seam never corrupts the path.
     appendSample(acq, snapshot, pct, step, dt)
     pushCornerSample(acq, snapshot, pct)
-    const forward = wrapped ? pct + 1 - acq.lastPct : Math.max(0, step)
+    const forward = wrapForward ?? Math.max(0, step)
     if (forward > 0 && forward <= MAX_PCT_STEP * 2) acq.covered += forward
     acq.lastPct = pct
     acq.lastTimestamp = snapshot.timestamp
@@ -1112,9 +1120,16 @@ function geoDeltaMeters(from: GeoPoint, to: GeoPoint): { east: number; north: nu
 }
 
 function strictForwardStep(previousPct: number, pct: number): number | null {
-  if (previousPct > WRAP_FROM && pct < WRAP_TO) return pct + 1 - previousPct
+  const wrapForward = validSeamForwardStep(previousPct, pct)
+  if (wrapForward !== null) return wrapForward
   const step = pct - previousPct
   return step >= 0 ? step : null
+}
+
+function validSeamForwardStep(previousPct: number, pct: number): number | null {
+  if (previousPct <= WRAP_FROM || pct >= WRAP_TO) return null
+  const forward = pct + 1 - previousPct
+  return forward >= 0 && forward <= MAX_PCT_STEP ? forward : null
 }
 
 function bridgeSuspension(
@@ -1575,8 +1590,8 @@ function compareOutlineCandidates(
   a: { outline: PersistedOutline; record: LearnedRecord },
   b: { outline: PersistedOutline; record: LearnedRecord }
 ): number {
-  return compareRecords(a.record, b.record) ||
-    Number(a.outline.record.version === 2) - Number(b.outline.record.version === 2) ||
+  return Number(a.outline.record.version === 2) - Number(b.outline.record.version === 2) ||
+    compareRecords(a.record, b.record) ||
     basename(a.outline.filePath).localeCompare(basename(b.outline.filePath))
 }
 

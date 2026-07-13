@@ -78,6 +78,10 @@ function round6(v: number): number {
   return Math.round(v * 1e6) / 1e6
 }
 
+function hundredthPcts(start: number, end: number): number[] {
+  return Array.from({ length: end - start + 1 }, (_, index) => (start + index) / 100)
+}
+
 // Velocity-yaw snapshots tracing the circle. Trick: with yawNorth=0 the learner's
 // rotation is the identity mapped so that intX accumulates velocityY*dt and intY
 // accumulates velocityX*dt. So set velocityY = ΔEast/dt and velocityX = ΔNorth/dt
@@ -408,6 +412,90 @@ describe('TrackMapLearner — robust capture', () => {
     expect(learner.getRecordingSnapshot().sampleCount).toBeGreaterThan(samplesBefore)
   })
 
+  it('accepts a bounded .99 -> .01 no-GPS seam wrap and finalizes the capture', async () => {
+    learner.armManualCapture()
+    const first = velocityYawLap(hundredthPcts(10, 99))
+    await feed(learner, first)
+    expect(learner.getRecordingSnapshot().active).toBe(true)
+
+    const last = first[first.length - 1]
+    const record = await learner.ingest({ ...last, timestamp: last.timestamp + DT_MS, lapDistPct: 0.01 })
+
+    expect(record).not.toBeNull()
+    expect(learner.getRecordingSnapshot().active).toBe(false)
+    expect(learner.has('Test Circuit')).toBe(true)
+  })
+
+  it.each(['too-slow', 'time-gap', 'replay-resume'] as const)(
+    'keeps a bounded .99 -> .01 no-GPS seam continuous through the %s path',
+    async (path) => {
+      learner.armManualCapture()
+      const first = velocityYawLap(hundredthPcts(80, 99))
+      await feed(learner, first)
+      const last = first[first.length - 1]
+
+      if (path === 'replay-resume') {
+        await learner.ingest({
+          ...last,
+          timestamp: last.timestamp + DT_MS,
+          replayContext: replayContext('replay')
+        })
+        await learner.ingest({
+          ...last,
+          timestamp: last.timestamp + DT_MS * 2,
+          lapDistPct: 0.01,
+          replayContext: replayContext('live')
+        })
+      } else {
+        await learner.ingest({
+          ...last,
+          timestamp: last.timestamp + (path === 'time-gap' ? 1000 : DT_MS),
+          lapDistPct: 0.01,
+          speedKmh: path === 'too-slow' ? 4 : last.speedKmh
+        })
+      }
+
+      expect(learner.getRecordingSnapshot().active).toBe(true)
+      expect(learner.has('Test Circuit')).toBe(false)
+    }
+  )
+
+  it.each(['normal', 'too-slow', 'time-gap', 'replay-resume'] as const)(
+    'rejects a .91 -> .09 no-GPS teleport without finalizing through the %s path',
+    async (path) => {
+      const first = velocityYawLap(hundredthPcts(0, 91))
+      await feed(learner, first)
+      const last = first[first.length - 1]
+      let result: Awaited<ReturnType<TrackMapLearner['ingest']>>
+
+      if (path === 'replay-resume') {
+        await learner.ingest({
+          ...last,
+          timestamp: last.timestamp + DT_MS,
+          replayContext: replayContext('replay')
+        })
+        result = await learner.ingest({
+          ...last,
+          timestamp: last.timestamp + DT_MS * 2,
+          lapDistPct: 0.09,
+          replayContext: replayContext('live')
+        })
+      } else {
+        result = await learner.ingest({
+          ...last,
+          timestamp: last.timestamp + (path === 'time-gap' ? 1000 : DT_MS),
+          lapDistPct: 0.09,
+          speedKmh: path === 'too-slow' ? 4 : last.speedKmh
+        })
+      }
+
+      expect(result).toBeNull()
+      expect(learner.getRecordingSnapshot().active).toBe(false)
+      expect(learner.getLearnState().reason).toBe('teleport-reset')
+      expect(learner.has('Test Circuit')).toBe(false)
+    }
+  )
+
   it.each([
     ['ordinary forward step', 0, 0.35, undefined],
     ['start/finish seam', 0.8, 0.18, 0.002]
@@ -562,6 +650,16 @@ describe('TrackMapLearner — layout persistence and legacy migration', () => {
     expect(spy.calls.some((call) => call.message.includes('quarantined'))).toBe(false)
   })
 
+  it('keeps an exact unambiguous direct record readable offline', async () => {
+    writeV2('Grand Prix', 10, 4, undefined, 'direct.json')
+    const learner = new TrackMapLearner('unused', { rootDir: root })
+    await learner.hydrate()
+
+    const record = learner.get({ trackName: 'Shared Venue', trackConfigName: 'Grand Prix' })
+    expect(record).toMatchObject({ capturedAt: 10, trackId: undefined, trackConfigName: 'Grand Prix' })
+    expect(record?.polyline[0].x).toBe(4)
+  })
+
   it.each([
     ['stale unique', [{ trackId: 101, trackName: 'Shared Venue', trackConfigName: 'Grand Prix' }], false],
     ['fresh ambiguous', [
@@ -592,8 +690,8 @@ describe('TrackMapLearner — layout persistence and legacy migration', () => {
     expect(readdirSync(join(root, 'quarantine')).length).toBeGreaterThan(0)
   })
 
-  it('promotes newer matching V2 before old V1 and preserves the loser in quarantine', async () => {
-    writeLegacy(10, 1)
+  it('keeps an older layout-specific V2 ahead of a newer configless V1', async () => {
+    writeLegacy(30, 1)
     writeV2('Grand Prix', 20, 2)
     const learner = new TrackMapLearner('unused', { rootDir: root, logger: spy.logger })
     await learner.setCatalog([{ trackId: 101, trackName: 'Shared Venue', trackConfigName: 'Grand Prix' }], true)
@@ -603,7 +701,7 @@ describe('TrackMapLearner — layout persistence and legacy migration', () => {
     expect(promoted?.polyline[0].x).toBe(2)
     const quarantined = readdirSync(join(root, 'quarantine'))
       .map((file) => JSON.parse(readFileSync(join(root, 'quarantine', file), 'utf8')) as { capturedAt?: number })
-    expect(quarantined.some((record) => record.capturedAt === 10)).toBe(true)
+    expect(quarantined.some((record) => record.capturedAt === 30)).toBe(true)
 
     const exact = { trackName: 'Shared Venue', trackConfigName: 'Grand Prix' }
     const offline = new TrackMapLearner('unused', { rootDir: root })
@@ -616,7 +714,42 @@ describe('TrackMapLearner — layout persistence and legacy migration', () => {
     expect(stale.get(exact)?.capturedAt).toBe(20)
   })
 
-  it('fails closed when offline ID-backed records claim the same exact name/config alias', async () => {
+  it('promotes the newer V2 when equal-version candidates target the same catalog layout', async () => {
+    writeV2('Grand Prix', 10, 1, 101, 'old-v2.json')
+    writeV2('Grand Prix', 20, 2, undefined, 'new-v2.json')
+    const learner = new TrackMapLearner('unused', { rootDir: root, logger: spy.logger })
+    await learner.setCatalog([{ trackId: 101, trackName: 'Shared Venue', trackConfigName: 'Grand Prix' }], true)
+    await learner.hydrate()
+
+    const promoted = learner.get({ trackId: 101, trackName: 'Shared Venue', trackConfigName: 'Grand Prix' })
+    expect(promoted?.capturedAt).toBe(20)
+    expect(promoted?.polyline[0].x).toBe(2)
+    const quarantined = readdirSync(join(root, 'quarantine'))
+      .map((file) => JSON.parse(readFileSync(join(root, 'quarantine', file), 'utf8')) as { capturedAt?: number })
+    expect(quarantined.some((record) => record.capturedAt === 10)).toBe(true)
+  })
+
+  it('prefers a fresh unique catalog ID over a later direct name-key record', async () => {
+    writeV2('Grand Prix', 10, 7, 101, 'track-101.json')
+    const learner = new TrackMapLearner('unused', { rootDir: root })
+    await learner.hydrate()
+    await learner.setCatalog([{ trackId: 101, trackName: 'Shared Venue', trackConfigName: 'Grand Prix' }], true)
+
+    const directLap = velocityYawLap(lapPcts(0), 1000).map((snapshot) => ({
+      ...snapshot,
+      trackName: 'Shared Venue',
+      trackConfigName: 'Grand Prix'
+    }))
+    const [direct] = await feed(learner, directLap)
+    expect(direct?.trackId).toBeUndefined()
+
+    const resolved = learner.get({ trackName: 'Shared Venue', trackConfigName: 'Grand Prix' })
+    expect(resolved).toMatchObject({ trackId: 101, capturedAt: 10 })
+    expect(resolved?.polyline[0].x).toBe(7)
+  })
+
+  it('fails closed when a direct record and conflicting ID records claim the same exact alias', async () => {
+    writeV2('Grand Prix', 30, 3, undefined, 'direct.json')
     writeV2('Grand Prix', 10, 1, 101, 'track-101.json')
     writeV2('Grand Prix', 20, 2, 102, 'track-102.json')
     const learner = new TrackMapLearner('unused', { rootDir: root })
