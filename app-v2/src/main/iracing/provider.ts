@@ -716,7 +716,7 @@ function replaySessionIdentity(sessionInfo: any, values: AnyRecord): string | un
     if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value)
     if (typeof value === 'string' && value.trim()) return value.trim()
     return ''
-  })
+  }).filter(Boolean)
   return parts.some(Boolean) ? parts.join(':') : undefined
 }
 
