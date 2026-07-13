@@ -28,6 +28,7 @@ import {
   type TrackMapDataApiDiagnostic,
   type TrackMapData,
   type TrackMapLoginMethod,
+  type TrackMapLayoutLookup,
   type TrackMapMfaInput,
   type TrackMapOAuthConfig,
   type TrackMapStatus,
@@ -51,7 +52,6 @@ import {
   IRacingApi,
   IRacingApiError,
   hashIRacingPassword,
-  matchTrackName,
   type IRacingTrack
 } from './iracing-api'
 import { getSharedIRacingAuthService, type SharedIRacingAuthService } from './iracing-auth-service'
@@ -65,11 +65,26 @@ import {
   type CachedAssetWithSvg,
   type StoredCredentials
 } from './store'
+import {
+  captureTrackLayout,
+  findCatalogLayout,
+  trackLayoutFromCatalog,
+  trackLayoutFromSnapshot,
+  type TrackCatalogLayout,
+  type TrackLayoutIdentity
+} from './types'
 
 // ─── State container ────────────────────────────────────────────────────────
 // Keeping this in a class makes it cheap to reason about lifetime, but the
 // public surface is just `register(ctx)`.
-class TrackMapModule {
+interface LayoutResolveRequest {
+  readonly layout: TrackLayoutIdentity
+  readonly revision: number
+  readonly force: boolean
+  readonly token: string
+}
+
+export class TrackMapModule {
   private readonly ctx: ModuleContext
   private readonly credentialsStore: CredentialsStore
   private readonly browserSessionStore: BrowserSessionStore
@@ -102,15 +117,15 @@ class TrackMapModule {
 
   // Catalog (track_id → name) — cached on disk and refreshed lazily.
   private catalog: IRacingTrack[] = []
-  // The last track we successfully resolved an SVG for (per trackName).
-  private resolvedSvgByTrack = new Map<string, CachedAssetWithSvg>()
+  private catalogFresh = false
+  // Resolved SVGs are isolated by canonical layout key, never display name.
+  private resolvedSvgByLayout = new Map<string, CachedAssetWithSvg>()
   // Tracks we already tried to resolve in this session — prevents repeated
   // download attempts when iRacing simply doesn't ship a map for that circuit.
   private resolutionAttempted = new Set<string>()
-  // The current track from the live telemetry.
-  private currentTrackName: string | undefined
-  private currentTrackId: number | undefined
-  // Coalesce concurrent resolves for the same track.
+  private currentLayout: TrackLayoutIdentity | undefined
+  private currentLayoutRevision = 0
+  // Coalesce concurrent resolves for the same captured layout revision.
   private resolveInflight = new Map<string, Promise<void>>()
   // Throttle state for the live recording broadcast — telemetry ticks at 30 Hz
   // but the UI only needs the growing trace a few times per second.
@@ -136,17 +151,21 @@ class TrackMapModule {
   }
 
   async bootstrap(): Promise<void> {
+    const cachedCatalog = await this.assetsCache.loadCatalog()
+    if (cachedCatalog) {
+      this.catalog = cachedCatalog.tracks
+      this.catalogFresh = this.assetsCache.catalogIsFresh(cachedCatalog.cachedAt)
+    }
+    await this.learner.setCatalog(toLearnerCatalog(this.catalog), this.catalogFresh)
     await this.learner.hydrate()
     await this.auth.bootstrap()
-    const cachedCatalog = await this.assetsCache.loadCatalog()
-    if (cachedCatalog) this.catalog = cachedCatalog.tracks
   }
 
   registerIpc(): void {
     const { ipcMain } = this.ctx
     ipcMain.handle(TRACK_MAP_CHANNELS.getForCurrentTrack, () => this.buildDataForCurrentTrack())
-    ipcMain.handle(TRACK_MAP_CHANNELS.getForTrack, (_event, trackName: string) =>
-      this.buildDataForTrack(trackName)
+    ipcMain.handle(TRACK_MAP_CHANNELS.getForTrack, (_event, lookup: TrackMapLayoutLookup | string) =>
+      this.buildDataForLookup(lookup)
     )
     ipcMain.handle(TRACK_MAP_CHANNELS.getStatus, () => this.buildStatus())
     ipcMain.handle(
@@ -193,7 +212,7 @@ class TrackMapModule {
     })
     ipcMain.handle(TRACK_MAP_CHANNELS.clearCredentials, async () => {
       await this.auth.clear()
-      this.resolvedSvgByTrack.clear()
+      this.resolvedSvgByLayout.clear()
       this.resolutionAttempted.clear()
       this.broadcastUpdate()
       return this.buildStatus()
@@ -224,38 +243,36 @@ class TrackMapModule {
 
   // ─── Telemetry handling ──────────────────────────────────────────────────
   private async onSnapshot(snapshot: TelemetrySnapshot | null): Promise<void> {
-    // Feed the learner first — it's CPU-cheap and always-on.
+    let snapshotLayout: TrackLayoutIdentity | null = null
+    let snapshotRevision = this.currentLayoutRevision
+    if (snapshot?.connected) {
+      const observed = trackLayoutFromSnapshot(snapshot)
+      if (observed) {
+        snapshotLayout = this.authoritativeLayout(observed)
+        if (snapshotLayout.key !== this.currentLayout?.key) {
+          this.setCurrentLayout(snapshotLayout)
+          snapshotRevision = this.currentLayoutRevision
+          void this.refreshForCurrentTrack(false)
+          this.broadcastUpdate()
+        } else {
+          this.currentLayout = snapshotLayout
+        }
+      }
+    }
+
     let learnedRecord = null as Awaited<ReturnType<TrackMapLearner['ingest']>>
     try {
-      learnedRecord = await this.learner.ingest(snapshot)
+      learnedRecord = await this.learner.ingest(snapshot, snapshotLayout ?? undefined)
     } catch {
       // Learner is best-effort; never break telemetry on a learner failure.
     }
 
-    if (!snapshot || !snapshot.connected) return
-    const trackName = snapshot.trackName?.trim()
-    if (!trackName) return
-    const telemetryTrackId = getTelemetryTrackId(snapshot)
-
-    if (trackName !== this.currentTrackName) {
-      this.currentTrackName = trackName
-      this.currentTrackId = telemetryTrackId
-      // Kick off a (cached-first) resolve when the player switches tracks.
-      void this.refreshForCurrentTrack(false)
-      // Even before iRacing fetches finish, broadcast whatever we already
-      // have for this track (cached SVG or learned) so dashboards update.
-      this.broadcastUpdate()
-    } else {
-      if (telemetryTrackId && telemetryTrackId !== this.currentTrackId) {
-        this.currentTrackId = telemetryTrackId
-        this.resolutionAttempted.delete(trackName)
-        void this.refreshForCurrentTrack(false)
-      }
-      if (learnedRecord && learnedRecord.trackName === trackName) {
-        // A fresh learned lap is available — notify subscribers.
-        this.broadcastUpdate()
-      }
-    }
+    if (
+      !snapshotLayout ||
+      snapshotRevision !== this.currentLayoutRevision ||
+      snapshotLayout.key !== this.currentLayout?.key
+    ) return
+    if (learnedRecord?.layoutKey === snapshotLayout.key) this.broadcastUpdate()
 
     // Drive the live recording trace/progress to the UI (throttled).
     this.maybeBroadcastRecording()
@@ -274,7 +291,7 @@ class TrackMapModule {
     } catch {
       return
     }
-    const activeForCurrent = rec.active && rec.trackName === this.currentTrackName
+    const activeForCurrent = rec.active && rec.layoutKey === this.currentLayout?.key
     const learnSignature = `${learn.phase}:${learn.reason}`
     const learnChanged = learnSignature !== this.lastLearnSignature
     if (!activeForCurrent && !this.lastRecordingActive && !learnChanged) return
@@ -292,58 +309,51 @@ class TrackMapModule {
     this.broadcastUpdate()
   }
 
-  // Resolves the active trackName to (a) the cached SVG on disk, or (b) a
-  // fresh download from members-ng if we have credentials. Idempotent +
-  // de-duplicated per trackName so concurrent snapshots don't spawn dozens of
-  // requests.
+  // Every resolve captures an immutable layout + revision. A completion from an
+  // older A request cannot mutate cache/disk/IPC after telemetry has switched to B.
   private async refreshForCurrentTrack(force: boolean): Promise<void> {
-    const trackName = this.currentTrackName
-    if (!trackName) return
-
-    if (!force && this.resolutionAttempted.has(trackName) && !this.resolvedSvgByTrack.has(trackName)) {
-      // We already tried this session and failed (no map / unauthenticated).
-      // The learner will still answer via fallback.
-      return
-    }
-    if (this.resolveInflight.has(trackName)) return this.resolveInflight.get(trackName)
-
-    const work = this.doResolve(trackName, force).finally(() => {
-      this.resolveInflight.delete(trackName)
-      this.resolutionAttempted.add(trackName)
+    const layout = this.currentLayout
+    if (!layout) return
+    if (!force && this.resolutionAttempted.has(layout.key) && !this.resolvedSvgByLayout.has(layout.key)) return
+    const request: LayoutResolveRequest = Object.freeze({
+      layout,
+      revision: this.currentLayoutRevision,
+      force,
+      token: `${this.currentLayoutRevision}:${layout.key}`
     })
-    this.resolveInflight.set(trackName, work)
+    if (this.resolveInflight.has(request.token)) return this.resolveInflight.get(request.token)
+
+    const work = this.doResolve(request).finally(() => {
+      if (this.resolveInflight.get(request.token) === work) this.resolveInflight.delete(request.token)
+      if (this.isCurrent(request)) this.resolutionAttempted.add(request.layout.key)
+    })
+    this.resolveInflight.set(request.token, work)
     return work
   }
 
-  private async doResolve(trackName: string, force: boolean): Promise<void> {
-    // 1. Find the track_id via the cached catalog. If we don't have one yet
-    //    and we have credentials, fetch it once.
-    let match = this.matchTrack(trackName)
+  private async doResolve(request: LayoutResolveRequest): Promise<void> {
+    let row = this.matchCatalog(request.layout)
     const api = this.auth.getApi()
-    if ((!match || force) && api) {
-      const fresh = await this.ensureCatalog(force).catch(() => null)
-      if (fresh) match = this.matchTrack(trackName)
+    if ((!row || request.force) && api) {
+      await this.ensureCatalog(request.force).catch(() => null)
+      if (!this.isCurrent(request)) return
+      row = this.matchCatalog(request.layout)
     }
 
-    const trackId = this.currentTrackId ?? match?.track.track_id
-    if (trackId) this.currentTrackId = trackId
+    const trackId = request.layout.trackId ?? row?.trackId
 
-    // 2. Try to serve from disk first.
     if (trackId) {
       const cached = await this.assetsCache.loadAsset(trackId)
-      if (cached && hasRenderableSvg(cached) && !force) {
-        this.resolvedSvgByTrack.set(trackName, cached)
+      if (!this.isCurrent(request)) return
+      if (cached && hasRenderableSvg(cached) && !request.force) {
+        this.resolvedSvgByLayout.set(request.layout.key, resolvedAsset(cached, request.layout, row))
         this.broadcastUpdate()
         return
       }
     }
 
-    // 3. Otherwise, download — but only if we are/can be authed.
-    if (!api) {
-      this.broadcastUpdate()
-      return
-    }
-    if (!trackId) {
+    // Fresh SVG metadata must come from the exact captured catalog row.
+    if (!api || !trackId || !row) {
       this.broadcastUpdate()
       return
     }
@@ -351,6 +361,7 @@ class TrackMapModule {
     try {
       this.authStatus = 'authenticating'
       const assets = await api.listTrackAssets()
+      if (!this.isCurrent(request)) return
       this.authStatus = 'ready'
       this.lastAuthAt = api.lastAuthAt() ?? this.lastAuthAt
       const trackAssets = assets.get(trackId)
@@ -367,32 +378,36 @@ class TrackMapModule {
         if (!filename) continue
         try {
           downloaded[key] = await api.fetchSvgLayer(trackAssets.track_map, filename)
+          if (!this.isCurrent(request)) return
         } catch {
           // Best-effort per layer — missing pitroad shouldn't kill the active map.
         }
       }
 
+      if (!this.isCurrent(request)) return
       const saved = await this.assetsCache.saveAsset(
         {
           trackId,
-          trackName: match?.track.track_name ?? trackName,
-          configName: match?.track.config_name ?? undefined,
+          trackName: row.trackName,
+          configName: row.trackConfigName ?? undefined,
           baseUrl: trackAssets.track_map,
           layerFilenames: filenames,
           cachedAt: Date.now()
         },
         downloaded
       )
+      if (!this.isCurrent(request)) return
       if (hasRenderableSvg(saved)) {
-        this.resolvedSvgByTrack.set(trackName, saved)
+        this.resolvedSvgByLayout.set(request.layout.key, resolvedAsset(saved, request.layout, row))
       } else {
-        this.resolvedSvgByTrack.delete(trackName)
+        this.resolvedSvgByLayout.delete(request.layout.key)
       }
       this.authStatus = 'ready'
       this.lastAuthAt = api.lastAuthAt() ?? Date.now()
       this.lastErrorMessage = undefined
       this.broadcastUpdate()
     } catch (error) {
+      if (!this.isCurrent(request)) return
       this.auth.handleApiError(error)
       this.broadcastUpdate()
     }
@@ -402,6 +417,8 @@ class TrackMapModule {
     const cached = await this.assetsCache.loadCatalog()
     if (cached && this.assetsCache.catalogIsFresh(cached.cachedAt) && !force) {
       this.catalog = cached.tracks
+      this.catalogFresh = true
+      await this.learner.setCatalog(toLearnerCatalog(cached.tracks), true)
       return cached.tracks
     }
     const api = this.auth.getApi()
@@ -409,6 +426,8 @@ class TrackMapModule {
       // We still serve a stale catalog if we have one — better than nothing.
       if (cached) {
         this.catalog = cached.tracks
+        this.catalogFresh = false
+        await this.learner.setCatalog(toLearnerCatalog(cached.tracks), false)
         return cached.tracks
       }
       return null
@@ -416,16 +435,38 @@ class TrackMapModule {
     try {
       const tracks = await api.listTracks()
       this.catalog = tracks
+      this.catalogFresh = true
+      await this.learner.setCatalog(toLearnerCatalog(tracks), true)
       await this.assetsCache.saveCatalog(tracks).catch(() => undefined)
       return tracks
     } catch (error) {
       this.auth.handleApiError(error)
+      if (cached) {
+        this.catalog = cached.tracks
+        this.catalogFresh = false
+        await this.learner.setCatalog(toLearnerCatalog(cached.tracks), false)
+      }
       return cached?.tracks ?? null
     }
   }
 
-  private matchTrack(trackName: string): ReturnType<typeof matchTrackName> {
-    return matchTrackName(trackName, this.catalog)
+  private matchCatalog(layout: TrackLayoutIdentity): TrackCatalogLayout | null {
+    return findCatalogLayout(layout, toLearnerCatalog(this.catalog))
+  }
+
+  private authoritativeLayout(layout: TrackLayoutIdentity): TrackLayoutIdentity {
+    const row = this.matchCatalog(layout)
+    return row && (layout.trackId || this.catalogFresh) ? trackLayoutFromCatalog(row) : layout
+  }
+
+  private setCurrentLayout(layout: TrackLayoutIdentity): void {
+    this.currentLayout = layout
+    this.currentLayoutRevision += 1
+    this.resolutionAttempted.delete(layout.key)
+  }
+
+  private isCurrent(request: LayoutResolveRequest): boolean {
+    return request.revision === this.currentLayoutRevision && request.layout.key === this.currentLayout?.key
   }
 
   // ─── Credential lifecycle ────────────────────────────────────────────────
@@ -797,7 +838,7 @@ class TrackMapModule {
     this.authStatus = 'unconfigured'
     this.lastAuthAt = undefined
     this.lastErrorMessage = undefined
-    this.resolvedSvgByTrack.clear()
+    this.resolvedSvgByLayout.clear()
     this.resolutionAttempted.clear()
     this.broadcastUpdate()
   }
@@ -823,17 +864,21 @@ class TrackMapModule {
 
   // ─── Data assembly + broadcast ───────────────────────────────────────────
   private buildDataForCurrentTrack(): TrackMapData {
-    if (!this.currentTrackName) return { source: 'none' }
-    return this.buildDataForTrack(this.currentTrackName)
+    return this.currentLayout ? this.buildDataForLayout(this.currentLayout) : { source: 'none' }
   }
 
-  private buildDataForTrack(trackName: string): TrackMapData {
-    if (!trackName) return { source: 'none' }
-    const recording = this.recordingForTrack(trackName)
-    const cachedSvg = this.resolvedSvgByTrack.get(trackName)
+  private buildDataForLookup(lookup: TrackMapLayoutLookup | string): TrackMapData {
+    const captured = captureTrackLayout(typeof lookup === 'string' ? { trackName: lookup } : lookup)
+    return captured ? this.buildDataForLayout(this.authoritativeLayout(captured)) : { source: 'none' }
+  }
+
+  private buildDataForLayout(layout: TrackLayoutIdentity): TrackMapData {
+    const recording = this.recordingForLayout(layout)
+    const cachedSvg = this.resolvedSvgByLayout.get(layout.key)
     if (cachedSvg && hasRenderableSvg(cachedSvg)) {
       return {
         source: 'iracing-svg',
+        layoutKey: layout.key,
         trackId: cachedSvg.trackId,
         trackName: cachedSvg.trackName,
         trackConfigName: cachedSvg.configName ?? undefined,
@@ -843,26 +888,36 @@ class TrackMapModule {
         ...(recording ? { recording } : {})
       }
     }
-    const learned = this.learner.get(trackName)
+    const learned = this.learner.get(layout)
     if (learned) {
       return {
         source: 'learned',
+        layoutKey: learned.layoutKey,
+        trackId: learned.trackId,
         trackName: learned.trackName,
+        trackConfigName: learned.trackConfigName,
         polyline: learned.polyline,
         startFinishPct: learned.startFinishPct,
         viewBox: [0, 0, 1, 1],
         ...(recording ? { recording } : {})
       }
     }
-    return { source: 'none', trackName, ...(recording ? { recording } : {}) }
+    return {
+      source: 'none',
+      layoutKey: layout.key,
+      trackId: layout.trackId,
+      trackName: layout.trackName,
+      trackConfigName: layout.trackConfigName,
+      ...(recording ? { recording } : {})
+    }
   }
 
-  // Live recording state for `trackName`, but only when it's the track currently
+  // Live recording state for `layout`, but only when it's the layout currently
   // under telemetry (we never record a track in the background).
-  private recordingForTrack(trackName: string): TrackMapData['recording'] {
-    if (trackName !== this.currentTrackName) return undefined
+  private recordingForLayout(layout: TrackLayoutIdentity): TrackMapData['recording'] {
+    if (layout.key !== this.currentLayout?.key) return undefined
     const rec = this.learner.getRecordingSnapshot()
-    if (!rec.active || rec.trackName !== trackName) return undefined
+    if (!rec.active || rec.layoutKey !== layout.key) return undefined
     return {
       active: true,
       progress: rec.progress,
@@ -886,7 +941,7 @@ class TrackMapModule {
       mode: state.mode ?? undefined,
       reason: state.reason,
       reasonLabel: state.reasonLabel,
-      hasMap: this.learner.has(this.currentTrackName)
+      hasMap: this.learner.has(this.currentLayout)
     }
   }
 
@@ -898,7 +953,9 @@ class TrackMapModule {
       lastAuthAt: auth.lastAuthAt,
       lastErrorMessage: auth.lastErrorMessage,
       encryptionAvailable: auth.encryptionAvailable,
-      currentTrackName: this.currentTrackName,
+      currentTrackName: this.currentLayout?.trackName,
+      currentTrackConfigName: this.currentLayout?.trackConfigName,
+      currentLayoutKey: this.currentLayout?.key,
       currentSource: this.currentSource(),
       learn: this.buildLearnState(),
       loginMethod: auth.loginMethod,
@@ -932,10 +989,10 @@ class TrackMapModule {
   }
 
   private currentSource(): TrackMapStatus['currentSource'] {
-    if (!this.currentTrackName) return 'none'
-    const cached = this.resolvedSvgByTrack.get(this.currentTrackName)
+    if (!this.currentLayout) return 'none'
+    const cached = this.resolvedSvgByLayout.get(this.currentLayout.key)
     if (cached && hasRenderableSvg(cached)) return 'iracing-svg'
-    if (this.learner.has(this.currentTrackName)) return 'learned'
+    if (this.learner.has(this.currentLayout)) return 'learned'
     return 'none'
   }
 
@@ -959,12 +1016,24 @@ class TrackMapModule {
   }
 }
 
+function toLearnerCatalog(tracks: readonly IRacingTrack[]): TrackCatalogLayout[] {
+  return tracks.map((track) => ({
+    trackId: track.track_id,
+    trackName: track.track_name,
+    trackConfigName: track.config_name
+  }))
+}
 
-function getTelemetryTrackId(snapshot: TelemetrySnapshot): number | undefined {
-  const candidate = (snapshot as { trackId?: unknown; track_id?: unknown }).trackId ??
-    (snapshot as { trackId?: unknown; track_id?: unknown }).track_id
-  const value = typeof candidate === 'string' ? Number(candidate) : candidate
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
+function resolvedAsset(
+  asset: CachedAssetWithSvg,
+  layout: TrackLayoutIdentity,
+  row: TrackCatalogLayout | null
+): CachedAssetWithSvg {
+  return {
+    ...asset,
+    trackName: row?.trackName ?? layout.trackName,
+    configName: row?.trackConfigName ?? layout.trackConfigName
+  }
 }
 
 // Honest PT-BR message for a non-successful embedded login. Every branch makes

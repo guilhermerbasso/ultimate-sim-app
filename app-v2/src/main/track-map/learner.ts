@@ -26,16 +26,16 @@
 //   • show a REAL progress value (driven fraction of the current lap), instead
 //     of a static number that looks "stuck".
 //
-// Once a lap is captured for `trackName`, we persist it under
-// `userData/track-maps/learned/<safeTrackName>.json` and replace the in-memory
-// entry. The store subsequently serves it via IPC.
+// Once a lap is captured, we persist it under an immutable layout-specific file
+// (`TrackID` when authoritative, otherwise normalized venue + config) and replace
+// only that layout's in-memory entry. The store subsequently serves it via IPC.
 
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 
 import type { Logger } from '../../shared/logger'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
-import type { TrackMapPoint } from '../../shared/track-map'
+import type { TrackMapLayoutLookup, TrackMapPoint } from '../../shared/track-map'
 import {
   DEFAULT_CORNER_MAP_CONFIG,
   buildCornerMap,
@@ -48,6 +48,18 @@ import {
   type CornerMapData,
   type CornerSample
 } from './corner-map'
+import {
+  captureTrackLayout,
+  catalogLayoutsForVenue,
+  findCatalogLayout,
+  layoutAliasKeys,
+  layoutFileStem,
+  normalizeLayoutPart,
+  trackLayoutFromCatalog,
+  trackLayoutFromSnapshot,
+  type TrackCatalogLayout,
+  type TrackLayoutIdentity
+} from './types'
 
 const LEARNED_DIR = 'learned'
 // Auto-numbered corner maps (Turn 1..N) live alongside the learned outlines, one
@@ -98,6 +110,8 @@ const LAP_FULL_COVERAGE = 0.985
 const LAP_WRAP_MIN_COVERAGE = 0.9
 // Throttle window for repeating the SAME stall reason to the diagnostic log.
 const LOG_THROTTLE_MS = 1000
+const MAX_COORDINATE_JUMP_METERS = 75
+const MAX_RESUME_COORDINATE_JUMP_METERS = 30
 
 type AcquisitionMode = 'lat-lon' | 'velocity-yaw'
 
@@ -112,6 +126,10 @@ export type LearnReason =
   | 'no-acquisition-mode'
   | 'time-gap'
   | 'teleport-reset'
+  | 'replay-suspended'
+  | 'unknown-spatial'
+  | 'off-track'
+  | 'pit-road'
   | 'warming-up'
   | 'recording'
   | 'wrap-too-early'
@@ -119,13 +137,24 @@ export type LearnReason =
   | 'degenerate-path'
   | 'learned'
 
-interface LearnedRecord {
-  version: 1
+export interface LearnedRecord {
+  version: 2
+  layoutKey: string
+  trackId?: number
   trackName: string
+  trackConfigName?: string
   capturedAt: number
   source: AcquisitionMode
   startFinishPct: number
   polyline: TrackMapPoint[]
+}
+
+type LegacyLearnedRecord =
+  Omit<LearnedRecord, 'version' | 'layoutKey' | 'trackId' | 'trackConfigName'> & { version: 1 }
+type PersistedOutline = {
+  filePath: string
+  raw: string
+  record: LearnedRecord | LegacyLearnedRecord
 }
 
 interface RawSample {
@@ -135,10 +164,7 @@ interface RawSample {
 }
 
 interface AcquisitionState {
-  trackName: string
-  /** iRacing TrackConfigName (track LAYOUT) captured with this lap, if any. Keys
-   *  the corner map per-layout so two configs of one track don't share a map. */
-  trackConfigName?: string
+  layout: TrackLayoutIdentity
   // We lock the acquisition mode on the first valid sample so we never mix
   // coordinate systems mid-lap.
   mode: AcquisitionMode
@@ -171,13 +197,20 @@ interface AcquisitionState {
   // keyed by lapDistPct). Independent of the position `raw` buffer so a paused
   // integrator never starves corner detection. Reset on (re)anchor.
   cornerSamples: CornerSample[]
+  lastGeo: GeoPoint | null
 }
+
+type GeoPoint = { lat: number; lon: number }
+type SuspensionState = { layoutKey: string; pct: number; geo: GeoPoint | null }
 
 // Live view of the in-flight capture, surfaced to the renderer so it can draw
 // the trace while the lap is still being recorded.
 export interface RecordingSnapshot {
   active: boolean
+  layoutKey: string | null
+  trackId: number | null
   trackName: string | null
+  trackConfigName: string | null
   progress: number // 0..1 driven fraction of the current lap
   sampleCount: number
   mode: AcquisitionMode | null
@@ -221,7 +254,15 @@ export class TrackMapLearner {
   private readonly cornerConfig: CornerMapConfig
   private readonly log: Logger
   private acquisition: AcquisitionState | null = null
+  private suspension: SuspensionState | null = null
   private cache = new Map<string, LearnedRecord>()
+  private exactAliases = new Map<string, LearnedRecord>()
+  private ambiguousAliases = new Set<string>()
+  private offlineFallbacks = new Map<string, LearnedRecord>()
+  private catalog: TrackCatalogLayout[] = []
+  private catalogFresh = false
+  private persistedOutlines: PersistedOutline[] = []
+  private legacyWarnings = new Set<string>()
   // In-memory corner maps keyed by track LAYOUT (trackName + TrackConfigName;
   // latest detection config wins). Keyed via trackLayoutKey() so two layouts of one
   // track don't share a map.
@@ -241,6 +282,9 @@ export class TrackMapLearner {
   private loggedReasonAt = 0
   // Hysteresis latch for the too-slow gate (see MIN_SPEED_EXIT_KMH).
   private slowLatched = false
+  private onTrackCapabilitySeen = false
+  private pitCapabilitySeen = false
+  private spatialSim: TelemetrySnapshot['sim'] | undefined
 
   constructor(userDataPath: string, options: TrackLearnerOptions = {}) {
     this.rootDir = options.rootDir ?? join(userDataPath, 'track-maps', LEARNED_DIR)
@@ -256,6 +300,7 @@ export class TrackMapLearner {
   armManualCapture(): void {
     this.manualArm = true
     this.acquisition = null
+    this.suspension = null
     this.log.info(LOG_AREA, 'learner: manual capture armed')
   }
 
@@ -263,6 +308,7 @@ export class TrackMapLearner {
   cancelCapture(): void {
     this.manualArm = false
     this.acquisition = null
+    this.suspension = null
     this.log.info(LOG_AREA, 'learner: capture cancelled')
   }
 
@@ -293,6 +339,12 @@ export class TrackMapLearner {
     return this.hydrating
   }
 
+  async setCatalog(catalog: readonly TrackCatalogLayout[], fresh = false): Promise<void> {
+    this.catalog = catalog.map((row) => ({ ...row }))
+    this.catalogFresh = fresh && this.catalog.length > 0
+    if (this.hydrated && this.catalogFresh) await this.promotePersistedOutlines()
+  }
+
   private async runHydrate(): Promise<void> {
     await mkdir(this.rootDir, { recursive: true })
     let entries: string[]
@@ -304,22 +356,159 @@ export class TrackMapLearner {
     for (const file of entries) {
       if (!file.endsWith('.json')) continue
       try {
-        const raw = await readFile(join(this.rootDir, file), 'utf8')
-        const parsed = JSON.parse(raw) as Partial<LearnedRecord>
-        if (
-          parsed.version === 1 &&
-          typeof parsed.trackName === 'string' &&
-          Array.isArray(parsed.polyline) &&
-          parsed.polyline.length > 0
-        ) {
-          this.cache.set(parsed.trackName, normalizeRecord(parsed as LearnedRecord))
+        const filePath = join(this.rootDir, file)
+        const raw = await readFile(filePath, 'utf8')
+        const parsed = JSON.parse(raw) as Partial<LearnedRecord | LegacyLearnedRecord>
+        if (!isPersistedRecord(parsed)) continue
+        if (parsed.version === 2) {
+          const record = normalizeRecord(parsed as LearnedRecord)
+          this.rememberRecord(record)
+          if (!record.trackId && !record.trackConfigName) this.rememberFallback(record)
+          this.persistedOutlines.push({ filePath, raw, record })
+        } else {
+          const record = parsed as LegacyLearnedRecord
+          this.rememberFallback(legacyAsRecord(record))
+          this.persistedOutlines.push({ filePath, raw, record })
         }
       } catch {
         // Skip corrupted files — they'll be replaced on the next capture.
       }
     }
+    if (this.catalogFresh) await this.promotePersistedOutlines()
+    this.rebuildAliases()
     await this.hydrateCorners()
     this.hydrated = true
+  }
+
+  private rememberRecord(record: LearnedRecord): void {
+    const current = this.cache.get(record.layoutKey)
+    if (!current || compareRecords(record, current) > 0) this.cache.set(record.layoutKey, record)
+  }
+
+  private rememberFallback(record: LearnedRecord): void {
+    const key = normalizeLayoutPart(record.trackName)
+    const current = this.offlineFallbacks.get(key)
+    if (!current || compareRecords(record, current) > 0) this.offlineFallbacks.set(key, record)
+  }
+
+  private async promotePersistedOutlines(): Promise<void> {
+    if (!this.catalogFresh) return
+    const groups = new Map<number, { row: TrackCatalogLayout; outlines: PersistedOutline[] }>()
+    for (const outline of this.persistedOutlines) {
+      const lookup = outline.record.version === 2
+        ? captureTrackLayout(outline.record)
+        : captureTrackLayout({ trackName: outline.record.trackName })
+      const row = lookup ? findCatalogLayout(lookup, this.catalog) : null
+      if (!row) {
+        if (this.catalog.length && outline.record.version === 1) this.warnAmbiguousLegacy(outline.record)
+        continue
+      }
+      const group = groups.get(row.trackId) ?? { row, outlines: [] }
+      group.outlines.push(outline)
+      groups.set(row.trackId, group)
+    }
+
+    const processed = new Set<PersistedOutline>()
+    const promotedOutlines: PersistedOutline[] = []
+    for (const { row, outlines } of groups.values()) {
+      const ranked = outlines.map((outline) => ({
+        outline,
+        record: promoteOutline(outline.record, trackLayoutFromCatalog(row))
+      }))
+      ranked.sort((a, b) => compareOutlineCandidates(b, a))
+      const winner = ranked[0]
+      const targetPath = this.recordPath(winner.record)
+      const targetLoser = ranked.find(({ outline }) =>
+        outline.filePath === targetPath && outline !== winner.outline
+      )
+      if (targetLoser) await this.quarantineOutline(targetLoser.outline, 'superseded')
+      let saved: PersistedOutline
+      try {
+        saved = await this.persist(winner.record)
+      } catch (error) {
+        this.log.warn(LOG_AREA, 'learner: outline promotion failed', {
+          trackName: winner.record.trackName, error: error instanceof Error ? error.message : String(error)
+        })
+        continue
+      }
+      for (const candidate of ranked) {
+        processed.add(candidate.outline)
+        if (candidate.outline !== targetLoser?.outline && candidate.outline.filePath !== saved.filePath) {
+          await this.quarantineOutline(
+            candidate.outline,
+            candidate.outline === winner.outline ? 'promoted-source' : 'superseded'
+          )
+        }
+        if (candidate.outline.record.version === 2) {
+          const old = normalizeRecord(candidate.outline.record)
+          if (sameRecord(this.cache.get(old.layoutKey), old)) this.cache.delete(old.layoutKey)
+        }
+      }
+      this.rememberRecord(winner.record)
+      promotedOutlines.push(saved)
+    }
+    this.persistedOutlines = this.persistedOutlines.filter((outline) => !processed.has(outline))
+      .concat(promotedOutlines)
+    this.rebuildFallbacks()
+    this.rebuildAliases()
+  }
+
+  private warnAmbiguousLegacy(record: LegacyLearnedRecord): void {
+    const matches = catalogLayoutsForVenue(record.trackName, this.catalog).length
+    if (matches <= 1) return
+    const key = `${normalizeLayoutPart(record.trackName)}:${matches}`
+    if (this.legacyWarnings.has(key)) return
+    this.legacyWarnings.add(key)
+    this.log.warn(LOG_AREA, 'learner: legacy outline kept configless', {
+      trackName: record.trackName, catalogLayouts: matches
+    })
+  }
+
+  private rebuildFallbacks(): void {
+    this.offlineFallbacks.clear()
+    for (const record of this.cache.values()) {
+      if (!record.trackId && !record.trackConfigName) this.rememberFallback(record)
+    }
+    for (const outline of this.persistedOutlines) {
+      if (outline.record.version === 1) this.rememberFallback(legacyAsRecord(outline.record))
+    }
+  }
+
+  private rebuildAliases(): void {
+    const groups = new Map<string, Map<string, LearnedRecord>>()
+    this.exactAliases.clear()
+    this.ambiguousAliases.clear()
+    for (const record of this.cache.values()) {
+      for (const alias of layoutAliasKeys(record)) {
+        const layouts = groups.get(alias) ?? new Map<string, LearnedRecord>()
+        const identity = record.trackId ? `id:${record.trackId}` : record.layoutKey
+        const current = layouts.get(identity)
+        if (!current || compareRecords(record, current) > 0) layouts.set(identity, record)
+        groups.set(alias, layouts)
+      }
+    }
+    for (const [alias, layouts] of groups) {
+      if (layouts.size !== 1) {
+        this.ambiguousAliases.add(alias)
+        continue
+      }
+      this.exactAliases.set(alias, layouts.values().next().value as LearnedRecord)
+    }
+  }
+
+  private async quarantineOutline(outline: PersistedOutline, reason: string): Promise<void> {
+    try {
+      const dir = join(this.rootDir, 'quarantine')
+      await mkdir(dir, { recursive: true })
+      const name = `${basename(outline.filePath, '.json')}__${reason}__${hashText(outline.raw)}.json`
+      await writeFile(join(dir, name), outline.raw, 'utf8')
+      await rm(outline.filePath, { force: true })
+      this.log.warn(LOG_AREA, 'learner: outline quarantined', { file: basename(outline.filePath), reason })
+    } catch (error) {
+      this.log.warn(LOG_AREA, 'learner: outline quarantine failed', {
+        file: basename(outline.filePath), error: error instanceof Error ? error.message : String(error)
+      })
+    }
   }
 
   // Load every persisted corner map into memory. Only records that match the
@@ -347,14 +536,42 @@ export class TrackMapLearner {
     }
   }
 
-  has(trackName: string | undefined | null): boolean {
-    if (!trackName) return false
-    return this.cache.has(trackName)
+  has(layout: TrackMapLayoutLookup | TrackLayoutIdentity | string | undefined | null): boolean {
+    return this.get(layout) !== null
   }
 
-  get(trackName: string | undefined | null): LearnedRecord | null {
-    if (!trackName) return null
-    return this.cache.get(trackName) ?? null
+  get(layout: TrackMapLayoutLookup | TrackLayoutIdentity | string | undefined | null): LearnedRecord | null {
+    const captured = lookupLayout(layout)
+    if (!captured) return null
+    const direct = this.cache.get(captured.key)
+    if (direct) return direct
+    const aliases = layoutAliasKeys(captured)
+    if (aliases.some((alias) => this.ambiguousAliases.has(alias))) return null
+    const aliasMatches = aliases
+      .map((alias) => this.exactAliases.get(alias))
+      .filter((record): record is LearnedRecord => !!record)
+    if (aliasMatches.length) {
+      const layoutKeys = new Set(aliasMatches.map((record) => record.layoutKey))
+      if (layoutKeys.size === 1) return aliasMatches.reduce((best, record) =>
+        compareRecords(record, best) > 0 ? record : best
+      )
+      return null
+    }
+    if (this.catalogFresh) {
+      const row = findCatalogLayout(captured, this.catalog)
+      const promoted = row ? this.cache.get(trackLayoutFromCatalog(row).key) : null
+      if (promoted) return promoted
+    }
+    const fallback = this.offlineFallbacks.get(normalizeLayoutPart(captured.trackName))
+    if (!fallback) return null
+    if (captured.trackConfigName && this.catalog.length > 0) return null
+    return normalizeRecord({
+      ...fallback,
+      layoutKey: captured.key,
+      trackId: captured.trackId,
+      trackName: captured.trackName,
+      trackConfigName: captured.trackConfigName
+    })
   }
 
   list(): LearnedRecord[] {
@@ -402,7 +619,10 @@ export class TrackMapLearner {
     if (!acq) {
       return {
         active: false,
+        layoutKey: null,
+        trackId: null,
         trackName: null,
+        trackConfigName: null,
         progress: 0,
         sampleCount: 0,
         mode: null,
@@ -413,7 +633,10 @@ export class TrackMapLearner {
     }
     return {
       active: true,
-      trackName: acq.trackName,
+      layoutKey: acq.layout.key,
+      trackId: acq.layout.trackId ?? null,
+      trackName: acq.layout.trackName,
+      trackConfigName: acq.layout.trackConfigName ?? null,
       progress: acq.anchored ? clampUnit(acq.covered) : 0,
       sampleCount: acq.raw.length,
       mode: acq.mode,
@@ -427,33 +650,95 @@ export class TrackMapLearner {
   // captured this tick, otherwise null. The caller is responsible for
   // broadcasting changes — we keep this class side-effect-free except for disk
   // I/O of the captured lap. Logging is throttled and wrapped so it never throws.
-  async ingest(snapshot: TelemetrySnapshot | null): Promise<LearnedRecord | null> {
+  async ingest(snapshot: TelemetrySnapshot | null, resolvedLayout?: TrackLayoutIdentity): Promise<LearnedRecord | null> {
     const nowMs = snapshot && Number.isFinite(snapshot.timestamp) ? snapshot.timestamp : Date.now()
     if (!snapshot || !snapshot.connected) {
       this.acquisition = null
+      this.suspension = null
       this.slowLatched = false
+      this.onTrackCapabilitySeen = false
+      this.pitCapabilitySeen = false
+      this.spatialSim = undefined
       this.note('not-connected', nowMs)
       return null
     }
-    const trackName = snapshot.trackName?.trim()
-    if (!trackName) {
+    const layout = resolvedLayout ?? trackLayoutFromSnapshot(snapshot)
+    if (!layout) {
       this.note('no-track-name', nowMs)
       return null
     }
-    const trackConfigName = snapshot.trackConfigName?.trim() || undefined
     const pct = snapshot.lapDistPct
     if (typeof pct !== 'number' || !Number.isFinite(pct)) {
       this.note('no-lap-dist-pct', nowMs)
       return null
     }
+    if (this.spatialSim !== snapshot.sim) {
+      this.spatialSim = snapshot.sim
+      this.onTrackCapabilitySeen = false
+      this.pitCapabilitySeen = false
+    }
 
-    // Drop the in-flight lap whenever the user switches sessions/tracks — or to a
-    // different LAYOUT of the same track (same display name, different config).
-    if (
-      this.acquisition &&
-      (this.acquisition.trackName !== trackName || this.acquisition.trackConfigName !== trackConfigName)
-    ) {
+    if (this.acquisition && this.acquisition.layout.key !== layout.key) {
       this.acquisition = null
+      this.suspension = null
+      this.slowLatched = false
+    }
+    if (replaySuspended(snapshot)) {
+      this.captureSuspension()
+      this.note('replay-suspended', nowMs)
+      return null
+    }
+    if (typeof snapshot.onTrack === 'boolean') this.onTrackCapabilitySeen = true
+    if (typeof snapshot.onPitRoad === 'boolean' || typeof snapshot.pit?.inPitStall === 'boolean') {
+      this.pitCapabilitySeen = true
+    }
+    const spatialState = getSpatialState(snapshot, this.onTrackCapabilitySeen, this.pitCapabilitySeen)
+    if (spatialState === 'pit' || spatialState === 'off-track') {
+      this.acquisition = null
+      this.suspension = null
+      this.slowLatched = false
+      this.note(spatialState === 'pit' ? 'pit-road' : 'off-track', nowMs)
+      return null
+    }
+    if (spatialState === 'unknown') {
+      this.captureSuspension()
+      this.note('unknown-spatial', nowMs)
+      return null
+    }
+    if (this.suspension && this.acquisition) {
+      const currentGeo = geoPoint(snapshot)
+      const forward = strictForwardStep(this.suspension.pct, pct)
+      const hasGeoPair = !!this.suspension.geo && !!currentGeo
+      const stationaryWithoutGps = forward === 0 && !this.suspension.geo && !currentGeo
+      const jump = this.suspension.geo && currentGeo
+        ? geoDeltaMeters(this.suspension.geo, currentGeo).distance : Number.POSITIVE_INFINITY
+      if (
+        this.suspension.layoutKey !== layout.key ||
+        forward === null || forward > MAX_PCT_STEP ||
+        (!hasGeoPair && !stationaryWithoutGps) ||
+        (hasGeoPair && jump > MAX_RESUME_COORDINATE_JUMP_METERS)
+      ) {
+        this.acquisition = null
+        this.suspension = null
+        this.note('teleport-reset', nowMs, { forward, coordinateJumpM: jump })
+        return null
+      }
+      if (currentGeo) bridgeSuspension(this.acquisition, snapshot, pct, forward, currentGeo)
+      else {
+        this.acquisition.lastPct = pct
+        this.acquisition.lastTimestamp = snapshot.timestamp
+      }
+      this.suspension = null
+      this.note(this.acquisition.anchored ? 'recording' : 'warming-up', nowMs, { resumed: true })
+      return null
+    }
+    this.suspension = null
+    const currentGeo = geoPoint(snapshot)
+    if (this.acquisition?.lastGeo && currentGeo &&
+      geoDeltaMeters(this.acquisition.lastGeo, currentGeo).distance > MAX_COORDINATE_JUMP_METERS) {
+      this.acquisition = null
+      this.note('teleport-reset', nowMs, { reason: 'coordinate-jump' })
+      return null
     }
 
     // Slow / stationary samples destroy the path quality. We no longer DESTROY an
@@ -480,6 +765,7 @@ export class TrackMapLearner {
         }
         this.acquisition.lastPct = pct
         this.acquisition.lastTimestamp = snapshot.timestamp
+        this.acquisition.lastGeo = currentGeo
       }
       this.note('too-slow', nowMs, { speedKmh, pct })
       return null
@@ -497,7 +783,7 @@ export class TrackMapLearner {
       const manual = this.manualArm
       this.manualArm = false
       const anchored = manual || pct <= START_MAX_PCT
-      this.acquisition = newAcquisitionState(trackName, mode, snapshot, { manual, anchored, trackConfigName })
+      this.acquisition = newAcquisitionState(layout, mode, snapshot, { manual, anchored })
       this.note(anchored ? 'recording' : 'warming-up', nowMs, { pct, mode, manual })
       return null
     }
@@ -521,6 +807,7 @@ export class TrackMapLearner {
       }
       acq.lastPct = pct
       acq.lastTimestamp = snapshot.timestamp
+      acq.lastGeo = currentGeo
       this.note('time-gap', nowMs, { dt: dtRaw })
       return null
     }
@@ -550,6 +837,7 @@ export class TrackMapLearner {
       // threshold; now it self-heals in one tick.
       acq.lastPct = pct
       acq.lastTimestamp = snapshot.timestamp
+      acq.lastGeo = currentGeo
       this.note('teleport-reset', nowMs, { step, pct, skipped: true })
       return null
     }
@@ -566,6 +854,7 @@ export class TrackMapLearner {
       appendSample(acq, snapshot, pct, step, dt)
       acq.lastPct = pct
       acq.lastTimestamp = snapshot.timestamp
+      acq.lastGeo = currentGeo
       if (acq.raw.length > MAX_SAMPLES_PER_LAP) this.acquisition = null
       this.note('warming-up', nowMs, { pct })
       return null
@@ -580,6 +869,7 @@ export class TrackMapLearner {
     if (forward > 0 && forward <= MAX_PCT_STEP * 2) acq.covered += forward
     acq.lastPct = pct
     acq.lastTimestamp = snapshot.timestamp
+    acq.lastGeo = currentGeo
 
     if (acq.raw.length > MAX_SAMPLES_PER_LAP) {
       this.acquisition = null
@@ -606,22 +896,29 @@ export class TrackMapLearner {
       return null
     }
 
-    const polyline = buildFinalPolyline(captured.raw)
-    if (!polyline) {
+    const finalMap = buildFinalPolyline(captured.raw, captured.startPct)
+    if (!finalMap) {
       this.note('degenerate-path', nowMs, { samples: captured.raw.length })
       return null
     }
 
     const record: LearnedRecord = {
-      version: 1,
-      trackName: captured.trackName,
+      version: 2,
+      layoutKey: captured.layout.key,
+      trackId: captured.layout.trackId,
+      trackName: captured.layout.trackName,
+      trackConfigName: captured.layout.trackConfigName,
       capturedAt: snapshot.timestamp,
       source: captured.mode,
-      startFinishPct: 0,
-      polyline
+      startFinishPct: finalMap.startFinishPct,
+      polyline: finalMap.polyline
     }
-    this.cache.set(captured.trackName, record)
-    await this.persist(record).catch((error) => {
+    this.rememberRecord(record)
+    this.rebuildAliases()
+    if (!record.trackId && !record.trackConfigName) this.rememberFallback(record)
+    await this.persist(record).then((stored) => {
+      this.persistedOutlines.push(stored)
+    }).catch((error) => {
       this.log.warn(LOG_AREA, 'learner: persist failed (map kept in memory)', {
         trackName: record.trackName,
         error: error instanceof Error ? error.message : String(error)
@@ -637,12 +934,18 @@ export class TrackMapLearner {
     this.log.info(LOG_AREA, 'learner: map learned', {
       trackName: record.trackName,
       source: record.source,
-      points: polyline.length,
+      points: finalMap.polyline.length,
       samples: captured.raw.length,
       covered: round3(captured.covered),
       manual: captured.manual
     })
     return record
+  }
+
+  private captureSuspension(): void {
+    const acq = this.acquisition
+    if (!acq || this.suspension) return
+    this.suspension = { layoutKey: acq.layout.key, pct: acq.lastPct, geo: acq.lastGeo }
   }
 
   // Too-slow gate with hysteresis: ENTER the slow/pause state below MIN_SPEED_KMH,
@@ -676,10 +979,17 @@ export class TrackMapLearner {
     }
   }
 
-  private async persist(record: LearnedRecord): Promise<void> {
+  private recordPath(record: LearnedRecord): string {
+    const layout = captureTrackLayout(record) as TrackLayoutIdentity
+    return join(this.rootDir, `${layoutFileStem(layout)}.json`)
+  }
+
+  private async persist(record: LearnedRecord): Promise<PersistedOutline> {
     await mkdir(this.rootDir, { recursive: true })
-    const file = join(this.rootDir, `${safeFileName(record.trackName)}.json`)
-    await writeFile(file, `${JSON.stringify(record, null, 2)}\n`, 'utf8')
+    const filePath = this.recordPath(record)
+    const raw = `${JSON.stringify(record, null, 2)}\n`
+    await writeFile(filePath, raw, 'utf8')
+    return { filePath, raw, record }
   }
 
   // Detect, cache and persist the auto-numbered corner map for a captured lap.
@@ -688,15 +998,15 @@ export class TrackMapLearner {
   private async learnCornerMap(captured: AcquisitionState, nowMs: number): Promise<void> {
     try {
       const map = buildCornerMap(
-        captured.trackName,
+        captured.layout.trackName,
         captured.cornerSamples,
         this.cornerConfig,
         nowMs,
-        captured.trackConfigName
+        captured.layout.trackConfigName
       )
       if (map.corners.length === 0) {
         this.log.debug(LOG_AREA, 'learner: no corners detected', {
-          trackName: captured.trackName,
+          trackName: captured.layout.trackName,
           samples: captured.cornerSamples.length
         })
         return
@@ -711,7 +1021,7 @@ export class TrackMapLearner {
       })
     } catch (error) {
       this.log.warn(LOG_AREA, 'learner: corner map failed (outline kept)', {
-        trackName: captured.trackName,
+        trackName: captured.layout.trackName,
         error: error instanceof Error ? error.message : String(error)
       })
     }
@@ -769,6 +1079,66 @@ function hasValidLatLon(snapshot: TelemetrySnapshot): boolean {
   )
 }
 
+function replaySuspended(snapshot: TelemetrySnapshot): boolean {
+  if (snapshot.replayContext) return snapshot.replayContext.active || snapshot.replayContext.state !== 'live'
+  return snapshot.replayPlaying === true
+}
+
+function getSpatialState(
+  snapshot: TelemetrySnapshot,
+  requireOnTrack: boolean,
+  requirePitState: boolean
+): 'track' | 'pit' | 'off-track' | 'unknown' {
+  if (snapshot.onPitRoad === true || snapshot.pit?.inPitStall === true) return 'pit'
+  if (snapshot.onTrack === false) return 'off-track'
+  if (requireOnTrack && snapshot.onTrack !== true) return 'unknown'
+  if (
+    requirePitState &&
+    snapshot.onPitRoad !== false &&
+    snapshot.pit?.inPitStall !== false
+  ) return 'unknown'
+  return 'track'
+}
+
+function geoPoint(snapshot: TelemetrySnapshot): GeoPoint | null {
+  return hasValidLatLon(snapshot) ? { lat: snapshot.lat as number, lon: snapshot.lon as number } : null
+}
+
+function geoDeltaMeters(from: GeoPoint, to: GeoPoint): { east: number; north: number; distance: number } {
+  const meanLat = ((from.lat + to.lat) * Math.PI) / 360
+  const north = (to.lat - from.lat) * METERS_PER_DEG_LAT
+  const east = (to.lon - from.lon) * METERS_PER_DEG_LAT * Math.cos(meanLat)
+  return { east, north, distance: Math.hypot(east, north) }
+}
+
+function strictForwardStep(previousPct: number, pct: number): number | null {
+  if (previousPct > WRAP_FROM && pct < WRAP_TO) return pct + 1 - previousPct
+  const step = pct - previousPct
+  return step >= 0 ? step : null
+}
+
+function bridgeSuspension(
+  acq: AcquisitionState, snapshot: TelemetrySnapshot, pct: number, forward: number, currentGeo: GeoPoint
+): void {
+  if (forward > 0) {
+    if (acq.mode === 'lat-lon') {
+      appendLatLon(acq, snapshot, pct)
+    } else if (acq.lastGeo) {
+      const delta = geoDeltaMeters(acq.lastGeo, currentGeo)
+      acq.intX += delta.east
+      acq.intY += delta.north
+      acq.raw.push({ pct, x: acq.intX, y: acq.intY })
+    }
+    if (acq.anchored) {
+      acq.covered += forward
+      pushCornerSample(acq, snapshot, pct)
+    }
+  }
+  acq.lastPct = pct
+  acq.lastTimestamp = snapshot.timestamp
+  acq.lastGeo = currentGeo
+}
+
 // Presence/finiteness of each position field — logged when no mode can be picked
 // so the user can see EXACTLY which signal the sim isn't exposing.
 function acquisitionFields(snapshot: TelemetrySnapshot): Record<string, unknown> {
@@ -782,15 +1152,14 @@ function acquisitionFields(snapshot: TelemetrySnapshot): Record<string, unknown>
 }
 
 function newAcquisitionState(
-  trackName: string,
+  layout: TrackLayoutIdentity,
   mode: AcquisitionMode,
   snapshot: TelemetrySnapshot,
-  init: { manual: boolean; anchored: boolean; trackConfigName?: string }
+  init: { manual: boolean; anchored: boolean }
 ): AcquisitionState {
   const startPct = snapshot.lapDistPct ?? 0
   const state: AcquisitionState = {
-    trackName,
-    trackConfigName: init.trackConfigName,
+    layout,
     mode,
     manual: init.manual,
     anchored: init.anchored,
@@ -804,7 +1173,8 @@ function newAcquisitionState(
     metersPerDegLon: METERS_PER_DEG_LAT,
     intX: 0,
     intY: 0,
-    cornerSamples: []
+    cornerSamples: [],
+    lastGeo: geoPoint(snapshot)
   }
   if (mode === 'lat-lon' && hasValidLatLon(snapshot)) {
     state.originLat = snapshot.lat ?? null
@@ -826,6 +1196,7 @@ function reanchorAtStartFinish(acq: AcquisitionState, snapshot: TelemetrySnapsho
   acq.startPct = startPct
   acq.lastPct = startPct
   acq.lastTimestamp = snapshot.timestamp
+  acq.lastGeo = geoPoint(snapshot)
   acq.covered = 0
   acq.intX = 0
   acq.intY = 0
@@ -968,15 +1339,22 @@ function computeUnitProjection(raw: RawSample[]): UnitProjection | null {
 }
 
 function projectToUnit(raw: RawSample[], proj: UnitProjection): TrackMapPoint[] {
-  return raw.map((p) => ({
+  return raw.map((p) => projectPointToUnit(p, proj))
+}
+
+function projectPointToUnit(p: Pick<RawSample, 'x' | 'y'>, proj: UnitProjection): TrackMapPoint {
+  return {
     x: proj.offsetX + (p.x - proj.minX) * proj.scale,
     // Y is flipped so "north" points up in SVG-style top-left-origin space.
     y: 1 - (proj.offsetY + (p.y - proj.minY) * proj.scale)
-  }))
+  }
 }
 
 // Final, closed, smoothed polyline used as the cached learned map.
-function buildFinalPolyline(raw: RawSample[]): TrackMapPoint[] | null {
+function buildFinalPolyline(
+  raw: RawSample[],
+  captureStartPct: number
+): { polyline: TrackMapPoint[]; startFinishPct: number } | null {
   if (raw.length < MIN_SAMPLES_PER_LAP) return null
   const proj = computeUnitProjection(raw)
   if (!proj) return null
@@ -991,7 +1369,40 @@ function buildFinalPolyline(raw: RawSample[]): TrackMapPoint[] | null {
   if (first && last && Math.hypot(first.x - last.x, first.y - last.y) > 0.001) {
     out.push({ x: first.x, y: first.y })
   }
-  return out
+  const startFinishPct =
+    findStartFinishFraction(raw) ?? normalizeLapPct(1 - normalizeLapPct(captureStartPct))
+  return { polyline: out, startFinishPct }
+}
+
+function findStartFinishFraction(raw: RawSample[]): number | null {
+  if (normalizeLapPct(raw[0]?.pct ?? 1) === 0) return 0
+  const closingLength = Math.hypot(raw[0].x - raw[raw.length - 1].x, raw[0].y - raw[raw.length - 1].y)
+  let total = closingLength
+  for (let i = 1; i < raw.length; i += 1) {
+    total += Math.hypot(raw[i].x - raw[i - 1].x, raw[i].y - raw[i - 1].y)
+  }
+  if (total <= 0) return null
+  let traversed = 0
+  for (let i = 1; i < raw.length; i += 1) {
+    const before = raw[i - 1]
+    const after = raw[i]
+    const segmentLength = Math.hypot(after.x - before.x, after.y - before.y)
+    if (before.pct > WRAP_FROM && after.pct < WRAP_TO) {
+      const beforeSpan = 1 - normalizeLapPct(before.pct)
+      const afterSpan = normalizeLapPct(after.pct)
+      const pctSpan = beforeSpan + afterSpan
+      const t = pctSpan > 0 ? beforeSpan / pctSpan : 0.5
+      return clampUnit((traversed + segmentLength * t) / total)
+    }
+    traversed += segmentLength
+  }
+  return null
+}
+
+function normalizeLapPct(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  const normalized = value % 1
+  return normalized < 0 ? normalized + 1 : normalized
 }
 
 // Partial, OPEN, lightly-smoothed polyline used for the live recording trace.
@@ -1102,6 +1513,14 @@ function reasonLabel(reason: LearnReason): string {
       return 'Telemetry paused — resuming recording'
     case 'teleport-reset':
       return 'Position reset (tow/reset) — restarting recording'
+    case 'replay-suspended':
+      return 'Replay active — map recording suspended'
+    case 'unknown-spatial':
+      return 'Waiting for confirmed on-track position'
+    case 'off-track':
+      return 'Car off track — restarting recording'
+    case 'pit-road':
+      return 'Car in pit lane — restarting recording'
     case 'warming-up':
       return 'Going to the start/finish line to begin recording…'
     case 'recording':
@@ -1123,9 +1542,77 @@ function safeFileName(value: string): string {
   return value.replace(/[^a-zA-Z0-9.-]+/g, '_').slice(0, 120) || 'unknown-track'
 }
 
+function lookupLayout(value: TrackMapLayoutLookup | TrackLayoutIdentity | string | undefined | null): TrackLayoutIdentity | null {
+  if (!value) return null
+  return typeof value === 'string' ? captureTrackLayout({ trackName: value }) : captureTrackLayout(value)
+}
+
+function legacyAsRecord(record: LegacyLearnedRecord): LearnedRecord {
+  const layout = captureTrackLayout({ trackName: record.trackName }) as TrackLayoutIdentity
+  return normalizeRecord({ ...record, version: 2, layoutKey: layout.key })
+}
+
+function promoteOutline(
+  record: LearnedRecord | LegacyLearnedRecord,
+  layout: TrackLayoutIdentity
+): LearnedRecord {
+  return normalizeRecord({
+    ...record,
+    version: 2,
+    layoutKey: layout.key,
+    trackId: layout.trackId,
+    trackName: layout.trackName,
+    trackConfigName: layout.trackConfigName
+  })
+}
+
+function compareRecords(a: LearnedRecord, b: LearnedRecord): number {
+  const captured = finiteTimestamp(a.capturedAt) - finiteTimestamp(b.capturedAt)
+  return captured || recordContentKey(a).localeCompare(recordContentKey(b))
+}
+
+function compareOutlineCandidates(
+  a: { outline: PersistedOutline; record: LearnedRecord },
+  b: { outline: PersistedOutline; record: LearnedRecord }
+): number {
+  return compareRecords(a.record, b.record) ||
+    Number(a.outline.record.version === 2) - Number(b.outline.record.version === 2) ||
+    basename(a.outline.filePath).localeCompare(basename(b.outline.filePath))
+}
+
+function recordContentKey(record: LearnedRecord): string {
+  return JSON.stringify([record.source, record.startFinishPct, record.polyline])
+}
+
+function sameRecord(a: LearnedRecord | undefined, b: LearnedRecord): boolean {
+  return !!a && a.layoutKey === b.layoutKey && a.capturedAt === b.capturedAt &&
+    recordContentKey(a) === recordContentKey(b)
+}
+
+function finiteTimestamp(value: number): number {
+  return Number.isFinite(value) ? value : 0
+}
+
+function hashText(value: string): string {
+  let hash = 2166136261
+  for (let i = 0; i < value.length; i += 1) hash = Math.imul(hash ^ value.charCodeAt(i), 16777619)
+  return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+function isPersistedRecord(value: Partial<LearnedRecord | LegacyLearnedRecord>): value is LearnedRecord | LegacyLearnedRecord {
+  return (value.version === 1 || value.version === 2) && typeof value.trackName === 'string' &&
+    Array.isArray(value.polyline) && value.polyline.length > 0
+}
+
 function normalizeRecord(record: LearnedRecord): LearnedRecord {
+  const layout = captureTrackLayout(record) as TrackLayoutIdentity
   return {
     ...record,
+    version: 2,
+    layoutKey: layout.key,
+    trackId: layout.trackId,
+    trackName: layout.trackName,
+    trackConfigName: layout.trackConfigName,
     polyline: record.polyline.filter(
       (p) =>
         typeof p.x === 'number' &&
