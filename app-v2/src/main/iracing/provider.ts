@@ -1,5 +1,6 @@
 import type { Corners, DriverEntry, Flags, IRacingDiagnostics, IRacingMmfDiagnostics, PitStatus, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
 import { carLeftRightStateFromEnum, carLeftRightCountFromEnum, engineWarningsFromBitfield, sessionStateLabel, paceModeLabel, paceFlagsList, deriveTcActive, tcOptionsForSensitivity, tcLatchTimingsForSensitivity, TcLatch, TC_ACTIVE_DERIVED, type TcSensitivity } from '../../shared/telemetry'
+import { ReplayContextTracker } from '../../shared/replay'
 import { inHgToKpa, mss2ToG } from '../../shared/units'
 import { FALLBACK_SHIFT_BLINK_PCT, redlineBandPct } from '../../shared/revlights'
 import { IRacingMemoryMap } from './irsdk-mmf'
@@ -705,11 +706,28 @@ function incidentLimit(sessionInfo: any, session: any): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
+function replaySessionIdentity(sessionInfo: any, values: AnyRecord): string | undefined {
+  const parts = [
+    sessionValue(sessionInfo, ['WeekendInfo', 'SessionID']),
+    sessionValue(sessionInfo, ['WeekendInfo', 'SubSessionID']),
+    values.SessionUniqueID,
+    values.SessionNum
+  ].map((value) => {
+    if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value)
+    if (typeof value === 'string' && value.trim()) return value.trim()
+    return ''
+  }).filter(Boolean)
+  return parts.some(Boolean) ? parts.join(':') : undefined
+}
+
 export class IRacingProvider implements TelemetryProvider {
   readonly id = 'iracing' as const
   private mmf = new IRacingMemoryMap()
   private started = false
   private lastSnapshot: TelemetrySnapshot | null = null
+  private replayTracker = new ReplayContextTracker()
+  private replayConnectionEpoch = 0
+  private replayConnected = false
   private reusedLastSnapshot = false
   private driverStaticKey = ''
   private driverStaticSessionInfo: any = null
@@ -744,12 +762,15 @@ export class IRacingProvider implements TelemetryProvider {
 
   start(): void {
     if (this.started && this.mmf.isOpen()) return
+    if (!this.started) this.resetReplayTracker()
     this.started = true
     this.mmf.start()
   }
 
   stop(): void {
+    if (this.started || this.replayConnected) this.resetReplayTracker()
     this.started = false
+    this.replayConnected = false
     this.lastSnapshot = null
     this.reusedLastSnapshot = false
     this.driverStaticKey = ''
@@ -765,11 +786,19 @@ export class IRacingProvider implements TelemetryProvider {
 
   isConnected(): boolean {
     if (this.started && !this.mmf.isOpen()) this.mmf.start()
-    return this.started && this.mmf.isConnected()
+    const connected = this.started && this.mmf.isConnected()
+    if (connected !== this.replayConnected) {
+      this.replayConnected = connected
+      this.resetReplayTracker()
+      this.lastSnapshot = null
+      this.reusedLastSnapshot = false
+    }
+    return connected
   }
 
   poll(): TelemetrySnapshot | null {
-    if (!this.isConnected()) {
+    const connected = this.isConnected()
+    if (!connected) {
       this.lastSnapshot = null
       this.reusedLastSnapshot = false
       this.driverStaticKey = ''
@@ -872,6 +901,19 @@ export class IRacingProvider implements TelemetryProvider {
     const tireColdPressuresKpa = coldPressures(values)
     const pitTyreTargetsKpa = corners(values, ['PitSvLFP', 'PitSvRFP', 'PitSvLRP', 'PitSvRRP'])
     const trackLength = trackLengthKm(sessionInfo)
+    const simModeValue = sessionValue(sessionInfo, ['WeekendInfo', 'SimMode'])
+    const replayContext = this.replayTracker.update({
+      simMode: simModeValue,
+      isReplayPlaying: values.IsReplayPlaying,
+      replaySessionNum: values.ReplaySessionNum,
+      replayFrameNum: values.ReplayFrameNum,
+      replayFrameNumEnd: values.ReplayFrameNumEnd,
+      sessionTime: values.SessionTime,
+      replaySessionTime: values.ReplaySessionTime
+    }, {
+      sessionIdentity: replaySessionIdentity(sessionInfo, values),
+      connectionEpoch: this.replayConnectionEpoch
+    })
 
     this.logSessionDiagnostics(sessionInfo, values, carSetup, maxRpm)
     this.logTelemetryTap(() => ({
@@ -991,6 +1033,7 @@ export class IRacingProvider implements TelemetryProvider {
       replayPlaying: optionalBool(values.IsReplayPlaying),
       replayFrameNum: optionalInt(values.ReplayFrameNum),
       replayFrameEnd: optionalInt(values.ReplayFrameNumEnd),
+      replayContext,
       weightPenaltyKg,
       powerAdjustPct,
       fuelLiters: optionalNum(values.FuelLevel),
@@ -1077,6 +1120,11 @@ export class IRacingProvider implements TelemetryProvider {
     }
     this.lastSnapshot = snapshot
     return snapshot
+  }
+
+  private resetReplayTracker(): void {
+    this.replayConnectionEpoch += 1
+    this.replayTracker.reset()
   }
 
   // Write the resolved per-car shift-light band to the 24h logs so they reveal exactly
