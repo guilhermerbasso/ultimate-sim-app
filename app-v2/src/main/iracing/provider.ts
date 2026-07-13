@@ -790,6 +790,8 @@ export class IRacingProvider implements TelemetryProvider {
     if (connected !== this.replayConnected) {
       this.replayConnected = connected
       this.resetReplayTracker()
+      this.lastSnapshot = null
+      this.reusedLastSnapshot = false
     }
     return connected
   }

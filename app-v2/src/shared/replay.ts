@@ -95,6 +95,7 @@ export class ReplayContextTracker {
   private revision = 0
   private current: ReplayContext | undefined
   private replayLatched = false
+  private lastValidReplaySessionNum: number | undefined
   private initialized = false
 
   update(raw: ReplayContextSource, identity: ReplayContextIdentity): ReplayContext {
@@ -106,15 +107,15 @@ export class ReplayContextTracker {
       : 0
     const previous = this.current
     const replaySessionNum = integer(raw.replaySessionNum, -1).value
-    const replaySessionChanged = previous?.inputs.replaySessionNum !== undefined
-      && replaySessionNum !== undefined
-      && previous.inputs.replaySessionNum !== replaySessionNum
-    if (previous && (previous.sessionIdentity !== sessionIdentity
-      || previous.connectionEpoch !== connectionEpoch
-      || replaySessionChanged)) this.replayLatched = false
+    if (previous && (previous.sessionIdentity !== sessionIdentity || previous.connectionEpoch !== connectionEpoch)) {
+      this.replayLatched = false; this.lastValidReplaySessionNum = undefined
+    }
+    const validReplaySessionNum = replaySessionNum !== undefined && replaySessionNum >= 0 ? replaySessionNum : undefined
+    if (this.lastValidReplaySessionNum !== undefined && validReplaySessionNum !== undefined && this.lastValidReplaySessionNum !== validReplaySessionNum) this.replayLatched = false
     const resolution = resolveReplayContext(raw)
     if (resolution.state === 'replay') this.replayLatched = true
     else if (resolution.state === 'live') this.replayLatched = false
+    this.lastValidReplaySessionNum = resolution.state === 'live' ? undefined : validReplaySessionNum ?? this.lastValidReplaySessionNum
     const active = resolution.state === 'replay' || (resolution.state === 'unknown' && this.replayLatched)
     const changed = previous !== undefined && (
       previous.active !== active
@@ -141,5 +142,6 @@ export class ReplayContextTracker {
     if (this.initialized) this.revision += 1
     this.current = undefined
     this.replayLatched = false
+    this.lastValidReplaySessionNum = undefined
   }
 }

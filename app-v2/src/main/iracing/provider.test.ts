@@ -627,16 +627,17 @@ describe('iRacing canonical replay context', () => {
     const initial = tracker.update({}, identity)
     const playing = tracker.update({ simMode: 'full', isReplayPlaying: true, replaySessionNum: 1 }, identity)
     const unknown = tracker.update({ simMode: 'mystery' }, identity)
+    const switched = tracker.update({ simMode: 'full', isReplayPlaying: false, replaySessionNum: 2, replayFrameNum: 100, replayFrameNumEnd: 0, sessionTime: 100, replaySessionTime: 100 }, identity)
 
     expect(initial).toMatchObject({ state: 'unknown', active: false, revision: 0 })
     expect(playing).toMatchObject({ state: 'replay', active: true, revision: 1 })
     expect(unknown).toMatchObject({ state: 'unknown', active: true, revision: 2 })
+    expect(switched).toMatchObject({ state: 'unknown', active: false, revision: 3 })
   })
 
   it.each([
     ['session identity', { simMode: 'mystery' }, { sessionIdentity: 'session-b', connectionEpoch: 1 }],
-    ['connection epoch', { simMode: 'mystery' }, { sessionIdentity: 'session-a', connectionEpoch: 2 }],
-    ['replay session', { simMode: 'full', isReplayPlaying: false, replaySessionNum: 2, replayFrameNum: 100, replayFrameNumEnd: 0, sessionTime: 100, replaySessionTime: 100 }, { sessionIdentity: 'session-a', connectionEpoch: 1 }]
+    ['connection epoch', { simMode: 'mystery' }, { sessionIdentity: 'session-a', connectionEpoch: 2 }]
   ] as const)('clears a replay latch before an unknown sample on %s change', (_name, sample, nextIdentity) => {
     const tracker = new ReplayContextTracker()
     tracker.update({ simMode: 'full', isReplayPlaying: true, replaySessionNum: 1 }, { sessionIdentity: 'session-a', connectionEpoch: 1 })
@@ -655,36 +656,33 @@ describe('iRacing canonical replay context', () => {
     })
   })
 
-  it('auto-mode isConnected checks invalidate replay across a skipped-poll disconnect/reconnect', () => {
+  it('auto-mode reconnect never reuses a pre-disconnect snapshot when the first read is empty', () => {
     let connected = true
-    let sessionInfo = liveInfo
     const replayValues = { ...liveValues, IsReplayPlaying: true, ReplaySessionNum: 2 }
+    let readResult: StubReadResult | null = { values: replayValues, sessionInfo: liveInfo, sessionInfoYaml: '' }
     const provider = new IRacingProvider()
     ;(provider as unknown as { mmf: unknown }).mmf = {
       start() {},
       stop() {},
       isOpen: () => true,
       isConnected: () => connected,
-      read: () => ({ values: replayValues, sessionInfo, sessionInfoYaml: '' })
+      read: () => readResult
     }
     provider.start()
-    const first = provider.poll()?.replayContext
+    const first = provider.poll()
     connected = false
     expect(provider.isConnected()).toBe(false)
-    provider.stop()
-    provider.start()
     connected = true
     expect(provider.isConnected()).toBe(true)
-    const reconnected = provider.poll()?.replayContext
-    sessionInfo = { WeekendInfo: { ...liveInfo.WeekendInfo, SubSessionID: 21 } }
-    const newSession = provider.poll()?.replayContext
+    readResult = null
+    expect(provider.poll()).toBeNull()
+    readResult = { values: { Speed: 50, RPM: 7000, Gear: 3 }, sessionInfo: liveInfo, sessionInfoYaml: '' }
+    const reconnected = provider.poll()
 
-    expect(first).toMatchObject({ state: 'replay', active: true, revision: 0 })
-    expect(reconnected?.revision).toBe((first?.revision ?? 0) + 4)
-    expect(reconnected?.connectionEpoch).toBe((first?.connectionEpoch ?? 0) + 4)
-    expect(reconnected?.token).not.toBe(first?.token)
-    expect(newSession?.revision).toBe((reconnected?.revision ?? 0) + 1)
-    expect(newSession?.sessionIdentity).toBe('10:21:44:2')
+    expect(first?.replayContext).toMatchObject({ state: 'replay', active: true, revision: 0 })
+    expect(reconnected).not.toBe(first)
+    expect(reconnected?.replayContext).toMatchObject({ state: 'unknown', active: false, revision: 2 })
+    expect(reconnected?.replayContext?.connectionEpoch).toBe((first?.replayContext?.connectionEpoch ?? 0) + 2)
   })
 })
 
