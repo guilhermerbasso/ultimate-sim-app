@@ -1,6 +1,9 @@
 // Modelo de telemetria normalizado — fonte única de verdade compartilhada entre
 // providers (iRacing/ACC/AC/AMS2/Mock), engine do OLED, overlays e demais consumidores.
 
+import type { ReplayContext } from './replay'
+export type { ReplayContext, ReplayContextInputs, ReplayContextReason } from './replay'
+
 export type SimId = 'iracing' | 'acc' | 'ac' | 'ams2' | 'lmu' | 'mock' | 'replay' | 'none'
 
 export type TelemetrySource = SimId | 'auto' | 'off'
@@ -650,6 +653,7 @@ export interface TelemetrySnapshot {
   replayPlaying?: boolean
   replayFrameNum?: number
   replayFrameEnd?: number
+  replayContext?: ReplayContext
 
   // BoP / penalidades (iRacing)
   weightPenaltyKg?: number // PlayerCarWeightPenalty — lastro de BoP em kg

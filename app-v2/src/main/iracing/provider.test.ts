@@ -7,6 +7,7 @@ vi.mock('electron', () => ({ dialog: {}, shell: {}, app: {} }))
 
 import { __iracingTelemetryTest, IRacingProvider } from './provider'
 import { logger } from '../modules/logger'
+import { resolveReplayContext } from '../../shared/replay'
 
 describe('iRacing telemetry provider parsing', () => {
   it('builds driver identity and fallback standings from SessionInfo YAML structures', () => {
@@ -586,6 +587,110 @@ describe('iRacing remaining widget-channel snapshot mapping', () => {
       'precipitationPct', 'airDensityKgM3', 'airPressureKpa', 'airPressureHg', 'weatherType', 'trackLengthKm'
     ] as const
     for (const field of fields) expect(snap?.[field]).toBeUndefined()
+  })
+})
+
+describe('iRacing canonical replay context', () => {
+  const liveValues = {
+    Speed: 50,
+    RPM: 7000,
+    Gear: 3,
+    IsReplayPlaying: false,
+    ReplaySessionNum: -1,
+    ReplayFrameNum: 480_000,
+    ReplayFrameNumEnd: 180_000,
+    SessionTime: 7_200,
+    ReplaySessionTime: 3_600
+  }
+
+  it.each([
+    ['playing', {
+      simMode: 'full',
+      isReplayPlaying: true,
+      replaySessionNum: 2
+    }, 'replay-playing'],
+    ['paused replay mode', {
+      simMode: 'REPLAY',
+      isReplayPlaying: false,
+      replaySessionNum: 2,
+      replayFrameNumEnd: 0
+    }, 'replay-sim-mode'],
+    ['scrubbed behind live', {
+      simMode: 'full',
+      isReplayPlaying: false,
+      replaySessionNum: 2,
+      replayFrameNum: 420_000,
+      replayFrameNumEnd: 300
+    }, 'cursor-behind-live']
+  ] as const)('resolves %s from positive replay evidence', (_name, inputs, reason) => {
+    expect(resolveReplayContext(inputs)).toMatchObject({ active: true, reason })
+  })
+
+  it('fails closed for invalid metadata and recovers without latching', () => {
+    const active = resolveReplayContext({ simMode: 'replay', isReplayPlaying: true, replaySessionNum: 1 })
+    const invalid = resolveReplayContext({ simMode: 'replay', isReplayPlaying: true, replaySessionNum: -1 }, active)
+    const recovered = resolveReplayContext({ simMode: 'replay', isReplayPlaying: false, replaySessionNum: 1 }, invalid)
+
+    expect(invalid).toMatchObject({ active: false, revision: 1, reason: 'invalid-metadata' })
+    expect(resolveReplayContext({ isReplayPlaying: true, replaySessionNum: 1 })).toMatchObject({
+      active: false,
+      reason: 'invalid-metadata'
+    })
+    expect(recovered).toMatchObject({ active: true, revision: 2, reason: 'replay-sim-mode' })
+  })
+
+  it('maps a real-shaped live sample without treating a large stale frame distance as replay', () => {
+    const snap = pollWith(liveValues, { WeekendInfo: { SimMode: 'full' } })
+    expect(snap?.replayContext).toMatchObject({
+      active: false,
+      revision: 0,
+      reason: 'confirmed-live',
+      inputs: { simMode: 'full', replayFrameNumEnd: 180_000 }
+    })
+  })
+
+  it('does not assume a numeric WeekendInfo.SimMode or accept an invalid replay session', () => {
+    const snap = pollWith({
+      ...liveValues,
+      IsReplayPlaying: true,
+      ReplaySessionNum: -1
+    }, { WeekendInfo: { SimMode: 1 } })
+    expect(snap?.replayContext).toMatchObject({
+      active: false,
+      reason: 'invalid-metadata',
+      inputs: { simMode: undefined }
+    })
+  })
+
+  it('increments revision exactly once at each live/replay boundary', () => {
+    const reads = [
+      { values: liveValues, sessionInfo: { WeekendInfo: { SimMode: 'full' } }, sessionInfoYaml: '' },
+      { values: { ...liveValues, IsReplayPlaying: true, ReplaySessionNum: 2 }, sessionInfo: { WeekendInfo: { SimMode: 'full' } }, sessionInfoYaml: '' },
+      { values: { ...liveValues, ReplaySessionNum: 2, ReplayFrameNumEnd: 0 }, sessionInfo: { WeekendInfo: { SimMode: 'replay' } }, sessionInfoYaml: '' },
+      { values: { ...liveValues, ReplaySessionNum: 2, ReplayFrameNumEnd: 300 }, sessionInfo: { WeekendInfo: { SimMode: 'full' } }, sessionInfoYaml: '' },
+      { values: liveValues, sessionInfo: { WeekendInfo: { SimMode: 'full' } }, sessionInfoYaml: '' },
+      { values: liveValues, sessionInfo: { WeekendInfo: { SimMode: 'full' } }, sessionInfoYaml: '' }
+    ]
+    let index = 0
+    const provider = new IRacingProvider()
+    ;(provider as unknown as { mmf: unknown }).mmf = {
+      start() {},
+      stop() {},
+      isOpen: () => true,
+      isConnected: () => true,
+      read: () => reads[index++]
+    }
+    ;(provider as unknown as { started: boolean }).started = true
+
+    const contexts = reads.map(() => provider.poll()?.replayContext)
+    expect(contexts.map((context) => [context?.active, context?.revision, context?.reason])).toEqual([
+      [false, 0, 'confirmed-live'],
+      [true, 1, 'replay-playing'],
+      [true, 1, 'replay-sim-mode'],
+      [true, 1, 'cursor-behind-live'],
+      [false, 2, 'confirmed-live'],
+      [false, 2, 'confirmed-live']
+    ])
   })
 })
 

@@ -1,5 +1,6 @@
-import type { Corners, DriverEntry, Flags, IRacingDiagnostics, IRacingMmfDiagnostics, PitStatus, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
+import type { Corners, DriverEntry, Flags, IRacingDiagnostics, IRacingMmfDiagnostics, PitStatus, RelativeCarEntry, ReplayContext, TelemetrySnapshot } from '../../shared/telemetry'
 import { carLeftRightStateFromEnum, carLeftRightCountFromEnum, engineWarningsFromBitfield, sessionStateLabel, paceModeLabel, paceFlagsList, deriveTcActive, tcOptionsForSensitivity, tcLatchTimingsForSensitivity, TcLatch, TC_ACTIVE_DERIVED, type TcSensitivity } from '../../shared/telemetry'
+import { resolveReplayContext } from '../../shared/replay'
 import { inHgToKpa, mss2ToG } from '../../shared/units'
 import { FALLBACK_SHIFT_BLINK_PCT, redlineBandPct } from '../../shared/revlights'
 import { IRacingMemoryMap } from './irsdk-mmf'
@@ -106,6 +107,12 @@ function optionalBool(value: unknown): boolean | undefined {
   if (value === undefined || value === null) return undefined
   if (typeof value === 'number' && Number.isFinite(value)) return value !== 0
   return bool(value)
+}
+
+function optionalSdkBool(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value
+  if (value === 0 || value === 1) return value === 1
+  return undefined
 }
 
 function arr<T = any>(value: unknown): T[] {
@@ -710,6 +717,7 @@ export class IRacingProvider implements TelemetryProvider {
   private mmf = new IRacingMemoryMap()
   private started = false
   private lastSnapshot: TelemetrySnapshot | null = null
+  private replayContext: ReplayContext | undefined
   private reusedLastSnapshot = false
   private driverStaticKey = ''
   private driverStaticSessionInfo: any = null
@@ -872,6 +880,16 @@ export class IRacingProvider implements TelemetryProvider {
     const tireColdPressuresKpa = coldPressures(values)
     const pitTyreTargetsKpa = corners(values, ['PitSvLFP', 'PitSvRFP', 'PitSvLRP', 'PitSvRRP'])
     const trackLength = trackLengthKm(sessionInfo)
+    const simModeValue = sessionValue(sessionInfo, ['WeekendInfo', 'SimMode'])
+    const replayContext = resolveReplayContext({
+      simMode: typeof simModeValue === 'string' ? simModeValue : undefined,
+      isReplayPlaying: optionalSdkBool(values.IsReplayPlaying),
+      replaySessionNum: optionalNum(values.ReplaySessionNum),
+      replayFrameNum: optionalNum(values.ReplayFrameNum),
+      replayFrameNumEnd: optionalNum(values.ReplayFrameNumEnd),
+      sessionTime: optionalNum(values.SessionTime),
+      replaySessionTime: optionalNum(values.ReplaySessionTime)
+    }, this.replayContext)
 
     this.logSessionDiagnostics(sessionInfo, values, carSetup, maxRpm)
     this.logTelemetryTap(() => ({
@@ -991,6 +1009,7 @@ export class IRacingProvider implements TelemetryProvider {
       replayPlaying: optionalBool(values.IsReplayPlaying),
       replayFrameNum: optionalInt(values.ReplayFrameNum),
       replayFrameEnd: optionalInt(values.ReplayFrameNumEnd),
+      replayContext,
       weightPenaltyKg,
       powerAdjustPct,
       fuelLiters: optionalNum(values.FuelLevel),
@@ -1075,6 +1094,7 @@ export class IRacingProvider implements TelemetryProvider {
       // Derivation disabled ('off') — keep tcActive undefined and clear any latched state.
       this.tcLatch.reset()
     }
+    this.replayContext = replayContext
     this.lastSnapshot = snapshot
     return snapshot
   }
