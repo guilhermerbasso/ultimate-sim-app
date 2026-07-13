@@ -786,15 +786,16 @@ export class IRacingProvider implements TelemetryProvider {
 
   isConnected(): boolean {
     if (this.started && !this.mmf.isOpen()) this.mmf.start()
-    return this.started && this.mmf.isConnected()
-  }
-
-  poll(): TelemetrySnapshot | null {
-    const connected = this.isConnected()
+    const connected = this.started && this.mmf.isConnected()
     if (connected !== this.replayConnected) {
       this.replayConnected = connected
       this.resetReplayTracker()
     }
+    return connected
+  }
+
+  poll(): TelemetrySnapshot | null {
+    const connected = this.isConnected()
     if (!connected) {
       this.lastSnapshot = null
       this.reusedLastSnapshot = false

@@ -1,4 +1,4 @@
-/** Allows the replay clock's observed ~1s live-edge lag plus 250ms of SDK/poll jitter. */
+/** Treats a replay clock lag above the observed ~1s live-edge skew as behind live. */
 export const REPLAY_LIVE_TIME_TOLERANCE_SEC = 1.25
 
 export type ReplaySimMode = 'full' | 'replay'
@@ -17,28 +17,14 @@ export interface ReplayContextInputs {
 
 export type ReplayContextSource = Partial<Record<keyof ReplayContextInputs, unknown>>
 
-export type ReplayContextReason =
-  | 'confirmed-live'
-  | 'replay-playing'
-  | 'replay-sim-mode'
-  | 'cursor-behind-live'
-  | 'missing-metadata'
-  | 'invalid-metadata'
-  | 'contradictory-metadata'
+export type ReplayContextReason = 'confirmed-live' | 'replay-playing' | 'replay-sim-mode' | 'cursor-behind-live'
+  | 'missing-metadata' | 'invalid-metadata' | 'contradictory-metadata'
 
-export interface ReplayResolution {
-  state: ReplayContextState
-  reason: ReplayContextReason
-  inputs: ReplayContextInputs
-}
+export type ReplayResolution = { state: ReplayContextState; reason: ReplayContextReason; inputs: ReplayContextInputs }
 
 export type ReplayContextIdentity = { sessionIdentity?: string; connectionEpoch: number }
 
-export interface ReplayContext extends ReplayResolution, ReplayContextIdentity {
-  active: boolean
-  revision: number
-  token: string
-}
+export type ReplayContext = ReplayResolution & ReplayContextIdentity & { active: boolean; revision: number; token: string }
 
 type Checked<T> = { value?: T; missing: boolean; invalid: boolean }
 
@@ -83,21 +69,18 @@ export function resolveReplayContext(raw: ReplayContextSource): ReplayResolution
     ? sessionTime.value - replayTime.value
     : undefined
 
-  if (playing.value === true) return { state: 'replay', reason: 'replay-playing', inputs }
-  if (mode.value === 'replay') return { state: 'replay', reason: 'replay-sim-mode', inputs }
-  if ((frameEnd.value ?? 0) > 1
-    || (timeDelta !== undefined && timeDelta > REPLAY_LIVE_TIME_TOLERANCE_SEC)) {
-    return { state: 'replay', reason: 'cursor-behind-live', inputs }
-  }
-
   const complete = fields.every((field) => !field.missing && !field.invalid)
   if (complete
     && mode.value === 'full'
     && playing.value === false
-    && session.value === -1
-    && (frameEnd.value ?? 2) <= 1
-    && Math.abs(timeDelta ?? Infinity) <= REPLAY_LIVE_TIME_TOLERANCE_SEC) {
+    && session.value === -1) {
     return { state: 'live', reason: 'confirmed-live', inputs }
+  }
+  if (playing.value === true) return { state: 'replay', reason: 'replay-playing', inputs }
+  if (mode.value === 'replay') return { state: 'replay', reason: 'replay-sim-mode', inputs }
+  if ((session.value ?? -1) >= 0
+    && ((frameEnd.value ?? 0) > 1 || (timeDelta !== undefined && timeDelta > REPLAY_LIVE_TIME_TOLERANCE_SEC))) {
+    return { state: 'replay', reason: 'cursor-behind-live', inputs }
   }
 
   const reason: ReplayContextReason = fields.some((field) => field.invalid)
@@ -115,10 +98,6 @@ export class ReplayContextTracker {
   private initialized = false
 
   update(raw: ReplayContextSource, identity: ReplayContextIdentity): ReplayContext {
-    const resolution = resolveReplayContext(raw)
-    if (resolution.state === 'replay') this.replayLatched = true
-    else if (resolution.state === 'live') this.replayLatched = false
-    const active = resolution.state === 'replay' || (resolution.state === 'unknown' && this.replayLatched)
     const sessionIdentity = typeof identity.sessionIdentity === 'string' && identity.sessionIdentity.trim()
       ? identity.sessionIdentity.trim()
       : undefined
@@ -126,6 +105,17 @@ export class ReplayContextTracker {
       ? identity.connectionEpoch
       : 0
     const previous = this.current
+    const replaySessionNum = integer(raw.replaySessionNum, -1).value
+    const replaySessionChanged = previous?.inputs.replaySessionNum !== undefined
+      && replaySessionNum !== undefined
+      && previous.inputs.replaySessionNum !== replaySessionNum
+    if (previous && (previous.sessionIdentity !== sessionIdentity
+      || previous.connectionEpoch !== connectionEpoch
+      || replaySessionChanged)) this.replayLatched = false
+    const resolution = resolveReplayContext(raw)
+    if (resolution.state === 'replay') this.replayLatched = true
+    else if (resolution.state === 'live') this.replayLatched = false
+    const active = resolution.state === 'replay' || (resolution.state === 'unknown' && this.replayLatched)
     const changed = previous !== undefined && (
       previous.active !== active
       || previous.state !== resolution.state
