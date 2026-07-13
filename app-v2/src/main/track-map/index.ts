@@ -80,8 +80,28 @@ import {
 interface LayoutResolveRequest {
   readonly layout: TrackLayoutIdentity
   readonly revision: number
+  readonly generation: number
   readonly force: boolean
+  readonly refreshCatalog: boolean
   readonly token: string
+}
+
+interface RefreshInflight {
+  readonly force: boolean
+  readonly refreshCatalog: boolean
+  readonly promise: Promise<void>
+}
+
+interface RefreshCoordinator {
+  generation: number
+  readonly inflight: Map<string, RefreshInflight>
+  commitTail: Promise<void>
+}
+
+interface ResolvedSvgCacheEntry extends CachedAssetWithSvg {
+  readonly catalogGeneration: number
+  readonly resolvedTrackId: number
+  readonly layout: TrackLayoutIdentity
 }
 
 export class TrackMapModule {
@@ -118,15 +138,20 @@ export class TrackMapModule {
   // Catalog (track_id → name) — cached on disk and refreshed lazily.
   private catalog: IRacingTrack[] = []
   private catalogFresh = false
-  // Resolved SVGs are isolated by canonical layout key, never display name.
-  private resolvedSvgByLayout = new Map<string, CachedAssetWithSvg>()
+  private catalogGeneration = 0
+  // Resolved SVGs retain the catalog generation + TrackID that authorized a
+  // name key. Direct TrackID keys remain authoritative across catalog changes.
+  private resolvedSvgByLayout = new Map<string, ResolvedSvgCacheEntry>()
   // Tracks we already tried to resolve in this session — prevents repeated
   // download attempts when iRacing simply doesn't ship a map for that circuit.
   private resolutionAttempted = new Set<string>()
   private currentLayout: TrackLayoutIdentity | undefined
   private currentLayoutRevision = 0
-  // Coalesce concurrent resolves for the same captured layout revision.
-  private resolveInflight = new Map<string, Promise<void>>()
+  private readonly refreshCoordinator: RefreshCoordinator = {
+    generation: 0,
+    inflight: new Map(),
+    commitTail: Promise.resolve()
+  }
   // Throttle state for the live recording broadcast — telemetry ticks at 30 Hz
   // but the UI only needs the growing trace a few times per second.
   private lastRecordingBroadcastAt = 0
@@ -146,7 +171,9 @@ export class TrackMapModule {
     this.learner = new TrackMapLearner(userData, { logger })
     this.auth = getSharedIRacingAuthService(userData)
     this.auth.onChanged(() => {
-      void this.onSharedAuthChanged()
+      void this.onSharedAuthChanged().catch((error) => {
+        this.logRefreshFailure('shared auth refresh failed', error)
+      })
     })
   }
 
@@ -172,7 +199,7 @@ export class TrackMapModule {
       TRACK_MAP_CHANNELS.setCredentials,
       async (_event, payload: TrackMapCredentialsInput) => {
         const result = await this.auth.setCredentials(payload, () => this.buildStatus())
-        void this.ensureCatalog(true).then(() => this.refreshForCurrentTrack(true))
+        this.refreshAfterAuthInBackground(true)
         this.broadcastUpdate()
         return result
       }
@@ -181,20 +208,20 @@ export class TrackMapModule {
       TRACK_MAP_CHANNELS.submitMfa,
       async (_event, payload: TrackMapMfaInput) => {
         const result = await this.auth.submitMfa(payload, () => this.buildStatus())
-        void this.ensureCatalog(true).then(() => this.refreshForCurrentTrack(true))
+        this.refreshAfterAuthInBackground(true)
         this.broadcastUpdate()
         return result
       }
     )
     ipcMain.handle(TRACK_MAP_CHANNELS.browserLogin, async () => {
       const result = await this.auth.browserLogin(this.ctx.getMainWindow(), () => this.buildStatus())
-      if (result.status === 'ok') void this.ensureCatalog(true).then(() => this.refreshForCurrentTrack(true))
+      if (result.status === 'ok') this.refreshAfterAuthInBackground(true)
       this.broadcastUpdate()
       return result
     })
     ipcMain.handle(TRACK_MAP_CHANNELS.oauthLogin, async () => {
       const result = await this.auth.oauthLogin(this.ctx.getMainWindow(), () => this.buildStatus())
-      if (result.status === 'ok') void this.ensureCatalog(true).then(() => this.refreshForCurrentTrack(true))
+      if (result.status === 'ok') this.refreshAfterAuthInBackground(true)
       this.broadcastUpdate()
       return result
     })
@@ -252,7 +279,7 @@ export class TrackMapModule {
         if (snapshotLayout.key !== this.currentLayout?.key) {
           this.setCurrentLayout(snapshotLayout)
           snapshotRevision = this.currentLayoutRevision
-          void this.refreshForCurrentTrack(false)
+          this.refreshCurrentTrackInBackground(false)
           this.broadcastUpdate()
         } else {
           this.currentLayout = snapshotLayout
@@ -309,34 +336,104 @@ export class TrackMapModule {
     this.broadcastUpdate()
   }
 
-  // Every resolve captures an immutable layout + revision. A completion from an
-  // older A request cannot mutate cache/disk/IPC after telemetry has switched to B.
-  private async refreshForCurrentTrack(force: boolean): Promise<void> {
+  // Every refresh captures an immutable layout + revision and a monotonic
+  // generation. A stronger request for the same layout (forced or catalog-aware)
+  // waits for the weaker execution, then performs fresh work instead of reusing it.
+  private refreshForCurrentTrack(force: boolean, refreshCatalog = false): Promise<void> {
     const layout = this.currentLayout
-    if (!layout) return
-    if (!force && this.resolutionAttempted.has(layout.key) && !this.resolvedSvgByLayout.has(layout.key)) return
-    const request: LayoutResolveRequest = Object.freeze({
-      layout,
-      revision: this.currentLayoutRevision,
-      force,
-      token: `${this.currentLayoutRevision}:${layout.key}`
-    })
-    if (this.resolveInflight.has(request.token)) return this.resolveInflight.get(request.token)
+    if (!layout) return refreshCatalog || force ? this.refreshCatalogOnly(force) : Promise.resolve()
+    if (
+      !force &&
+      !refreshCatalog &&
+      this.resolutionAttempted.has(layout.key) &&
+      !this.resolvedSvgByLayout.has(layout.key)
+    ) {
+      return Promise.resolve()
+    }
 
-    const work = this.doResolve(request).finally(() => {
-      if (this.resolveInflight.get(request.token) === work) this.resolveInflight.delete(request.token)
-      if (this.isCurrent(request)) this.resolutionAttempted.add(request.layout.key)
+    const revision = this.currentLayoutRevision
+    const token = `${revision}:${layout.key}`
+    return this.coordinateRefresh(token, force, refreshCatalog || force, async (generation) => {
+      const request: LayoutResolveRequest = Object.freeze({
+        layout,
+        revision,
+        generation,
+        force,
+        refreshCatalog: refreshCatalog || force,
+        token
+      })
+      try {
+        await this.doResolve(request)
+      } finally {
+        if (this.canCommit(request)) this.resolutionAttempted.add(request.layout.key)
+      }
     })
-    this.resolveInflight.set(request.token, work)
+  }
+
+  private refreshCatalogOnly(force: boolean): Promise<void> {
+    return this.coordinateRefresh('catalog-only', force, true, async (generation) => {
+      await this.ensureCatalog({ generation, force })
+    })
+  }
+
+  private coordinateRefresh(
+    token: string,
+    force: boolean,
+    refreshCatalog: boolean,
+    execute: (generation: number) => Promise<void>
+  ): Promise<void> {
+    const existing = this.refreshCoordinator.inflight.get(token)
+    if (existing) {
+      const needsFreshExecution =
+        (force && !existing.force) || (refreshCatalog && !existing.refreshCatalog)
+      if (!needsFreshExecution) return existing.promise
+    }
+
+    const generation = ++this.refreshCoordinator.generation
+    const run = (): Promise<void> => execute(generation)
+    const started = existing
+      ? existing.promise.then(run, run)
+      : Promise.resolve().then(run)
+    let work!: Promise<void>
+    work = started.finally(() => {
+      if (this.refreshCoordinator.inflight.get(token)?.promise === work) {
+        this.refreshCoordinator.inflight.delete(token)
+      }
+    })
+    this.refreshCoordinator.inflight.set(token, { force, refreshCatalog, promise: work })
     return work
+  }
+
+  private refreshCatalogAndCurrentTrack(force: boolean): Promise<void> {
+    return this.currentLayout
+      ? this.refreshForCurrentTrack(force, true)
+      : this.refreshCatalogOnly(force)
+  }
+
+  private refreshCurrentTrackInBackground(force: boolean): void {
+    void this.refreshForCurrentTrack(force).catch((error) => {
+      this.logRefreshFailure('track asset refresh failed', error)
+    })
+  }
+
+  private refreshAfterAuthInBackground(force: boolean): void {
+    void this.refreshCatalogAndCurrentTrack(force).catch((error) => {
+      this.logRefreshFailure('authenticated catalog refresh failed', error)
+    })
+  }
+
+  private logRefreshFailure(message: string, error: unknown): void {
+    logger.warn('track-map', message, {
+      error: error instanceof Error ? error.message : String(error)
+    })
   }
 
   private async doResolve(request: LayoutResolveRequest): Promise<void> {
     let row = this.matchCatalog(request.layout)
     const api = this.auth.getApi()
-    if ((!row || request.force) && api) {
-      await this.ensureCatalog(request.force).catch(() => null)
-      if (!this.isCurrent(request)) return
+    if (request.refreshCatalog || ((!row || request.force) && api)) {
+      await this.ensureCatalog(request)
+      if (!this.canCommit(request)) return
       row = this.matchCatalog(request.layout)
     }
 
@@ -344,29 +441,39 @@ export class TrackMapModule {
 
     if (trackId) {
       const cached = await this.assetsCache.loadAsset(trackId)
-      if (!this.isCurrent(request)) return
+      if (!this.canCommit(request)) return
       if (cached && hasRenderableSvg(cached) && !request.force) {
-        this.resolvedSvgByLayout.set(request.layout.key, resolvedAsset(cached, request.layout, row))
-        this.broadcastUpdate()
+        const resolved = resolvedAsset(cached, request.layout, row, this.catalogGeneration)
+        await this.enqueueRefreshCommit(request.generation, () => {
+          if (!this.isCurrent(request)) return
+          this.resolvedSvgByLayout.set(request.layout.key, resolved)
+          this.broadcastUpdate()
+        })
         return
       }
     }
 
     // Fresh SVG metadata must come from the exact captured catalog row.
     if (!api || !trackId || !row) {
-      this.broadcastUpdate()
+      await this.enqueueRefreshCommit(request.generation, () => {
+        if (this.isCurrent(request)) this.broadcastUpdate()
+      })
       return
     }
 
     try {
+      if (!this.canCommit(request)) return
       this.authStatus = 'authenticating'
       const assets = await api.listTrackAssets()
-      if (!this.isCurrent(request)) return
-      this.authStatus = 'ready'
-      this.lastAuthAt = api.lastAuthAt() ?? this.lastAuthAt
+      if (!this.canCommit(request)) return
       const trackAssets = assets.get(trackId)
       if (!trackAssets) {
-        this.broadcastUpdate()
+        await this.enqueueRefreshCommit(request.generation, () => {
+          if (!this.isCurrent(request)) return
+          this.authStatus = 'ready'
+          this.lastAuthAt = api.lastAuthAt() ?? this.lastAuthAt
+          this.broadcastUpdate()
+        })
         return
       }
 
@@ -378,76 +485,125 @@ export class TrackMapModule {
         if (!filename) continue
         try {
           downloaded[key] = await api.fetchSvgLayer(trackAssets.track_map, filename)
-          if (!this.isCurrent(request)) return
+          if (!this.canCommit(request)) return
         } catch {
           // Best-effort per layer — missing pitroad shouldn't kill the active map.
         }
       }
 
-      if (!this.isCurrent(request)) return
-      const saved = await this.assetsCache.saveAsset(
-        {
-          trackId,
-          trackName: row.trackName,
-          configName: row.trackConfigName ?? undefined,
-          baseUrl: trackAssets.track_map,
-          layerFilenames: filenames,
-          cachedAt: Date.now()
-        },
-        downloaded
-      )
-      if (!this.isCurrent(request)) return
-      if (hasRenderableSvg(saved)) {
-        this.resolvedSvgByLayout.set(request.layout.key, resolvedAsset(saved, request.layout, row))
-      } else {
-        this.resolvedSvgByLayout.delete(request.layout.key)
-      }
-      this.authStatus = 'ready'
-      this.lastAuthAt = api.lastAuthAt() ?? Date.now()
-      this.lastErrorMessage = undefined
-      this.broadcastUpdate()
+      if (!this.canCommit(request)) return
+      await this.enqueueRefreshCommit(request.generation, async () => {
+        if (!this.isCurrent(request)) return
+        const saved = await this.assetsCache.saveAsset(
+          {
+            trackId,
+            trackName: row.trackName,
+            configName: row.trackConfigName ?? undefined,
+            baseUrl: trackAssets.track_map,
+            layerFilenames: filenames,
+            cachedAt: Date.now()
+          },
+          downloaded
+        )
+        if (!this.canCommit(request)) return
+        if (hasRenderableSvg(saved)) {
+          this.resolvedSvgByLayout.set(
+            request.layout.key,
+            resolvedAsset(saved, request.layout, row, this.catalogGeneration)
+          )
+        } else {
+          this.resolvedSvgByLayout.delete(request.layout.key)
+        }
+        this.authStatus = 'ready'
+        this.lastAuthAt = api.lastAuthAt() ?? Date.now()
+        this.lastErrorMessage = undefined
+        this.broadcastUpdate()
+      })
     } catch (error) {
-      if (!this.isCurrent(request)) return
-      this.auth.handleApiError(error)
-      this.broadcastUpdate()
+      if (!this.canCommit(request)) return
+      await this.enqueueRefreshCommit(request.generation, () => {
+        if (!this.isCurrent(request)) return
+        this.auth.handleApiError(error)
+        this.broadcastUpdate()
+      })
     }
   }
 
-  private async ensureCatalog(force: boolean): Promise<IRacingTrack[] | null> {
+  private async ensureCatalog(request: {
+    readonly generation: number
+    readonly force: boolean
+  }): Promise<IRacingTrack[] | null> {
     const cached = await this.assetsCache.loadCatalog()
-    if (cached && this.assetsCache.catalogIsFresh(cached.cachedAt) && !force) {
-      this.catalog = cached.tracks
-      this.catalogFresh = true
-      await this.learner.setCatalog(toLearnerCatalog(cached.tracks), true)
-      return cached.tracks
+    if (!this.isLatestGeneration(request.generation)) return null
+    if (cached && this.assetsCache.catalogIsFresh(cached.cachedAt) && !request.force) {
+      return this.commitCatalog(request.generation, cached.tracks, true, false)
     }
     const api = this.auth.getApi()
     if (!api) {
       // We still serve a stale catalog if we have one — better than nothing.
       if (cached) {
-        this.catalog = cached.tracks
-        this.catalogFresh = false
-        await this.learner.setCatalog(toLearnerCatalog(cached.tracks), false)
-        return cached.tracks
+        return this.commitCatalog(request.generation, cached.tracks, false, false)
       }
       return null
     }
     try {
       const tracks = await api.listTracks()
-      this.catalog = tracks
-      this.catalogFresh = true
-      await this.learner.setCatalog(toLearnerCatalog(tracks), true)
-      await this.assetsCache.saveCatalog(tracks).catch(() => undefined)
-      return tracks
+      if (!this.isLatestGeneration(request.generation)) return null
+      return this.commitCatalog(request.generation, tracks, true, true)
     } catch (error) {
-      this.auth.handleApiError(error)
+      if (!this.isLatestGeneration(request.generation)) return null
       if (cached) {
-        this.catalog = cached.tracks
-        this.catalogFresh = false
-        await this.learner.setCatalog(toLearnerCatalog(cached.tracks), false)
+        return this.commitCatalog(request.generation, cached.tracks, false, false, error)
       }
-      return cached?.tracks ?? null
+      await this.enqueueRefreshCommit(request.generation, () => {
+        this.auth.handleApiError(error)
+      })
+      return null
     }
+  }
+
+  private async commitCatalog(
+    generation: number,
+    tracks: IRacingTrack[],
+    fresh: boolean,
+    persist: boolean,
+    apiError?: unknown
+  ): Promise<IRacingTrack[] | null> {
+    const committed = await this.enqueueRefreshCommit(generation, async () => {
+      if (apiError !== undefined) this.auth.handleApiError(apiError)
+      await this.learner.setCatalog(toLearnerCatalog(tracks), fresh)
+      if (!this.isLatestGeneration(generation)) return undefined
+
+      this.catalog = tracks
+      this.catalogFresh = fresh
+      this.catalogGeneration = generation
+      if (fresh) this.revalidateResolvedSvgCache()
+
+      if (persist) {
+        try {
+          await this.assetsCache.saveCatalog(tracks)
+        } catch (error) {
+          this.logRefreshFailure('catalog cache save failed', error)
+        }
+      }
+      return tracks
+    })
+    return committed ?? null
+  }
+
+  private enqueueRefreshCommit<T>(
+    generation: number,
+    commit: () => T | Promise<T>
+  ): Promise<T | undefined> {
+    const work = this.refreshCoordinator.commitTail.then(() => {
+      if (!this.isLatestGeneration(generation)) return undefined
+      return commit()
+    })
+    this.refreshCoordinator.commitTail = work.then(
+      () => undefined,
+      () => undefined
+    )
+    return work
   }
 
   private matchCatalog(layout: TrackLayoutIdentity): TrackCatalogLayout | null {
@@ -459,6 +615,55 @@ export class TrackMapModule {
     return row && (layout.trackId || this.catalogFresh) ? trackLayoutFromCatalog(row) : layout
   }
 
+  private revalidateResolvedSvgCache(): void {
+    for (const [key, cached] of this.resolvedSvgByLayout) {
+      const boundLayout = cached.layout
+      const resolvedTrackId = cached.resolvedTrackId ?? cached.trackId
+      if (!boundLayout) {
+        if (!key.startsWith('id:')) this.resolvedSvgByLayout.delete(key)
+        continue
+      }
+      if (boundLayout.trackId) {
+        if (boundLayout.trackId !== resolvedTrackId) this.resolvedSvgByLayout.delete(key)
+        continue
+      }
+      const row = this.matchCatalog(boundLayout)
+      if (!row || row.trackId !== resolvedTrackId) {
+        this.resolvedSvgByLayout.delete(key)
+        continue
+      }
+      if (cached.catalogGeneration !== this.catalogGeneration) {
+        this.resolvedSvgByLayout.set(key, {
+          ...cached,
+          catalogGeneration: this.catalogGeneration
+        })
+      }
+    }
+  }
+
+  private resolvedSvgForLayout(layout: TrackLayoutIdentity): ResolvedSvgCacheEntry | null {
+    const cached = this.resolvedSvgByLayout.get(layout.key)
+    if (!cached || !hasRenderableSvg(cached)) return null
+    const resolvedTrackId = cached.resolvedTrackId ?? cached.trackId
+    if (layout.trackId) return resolvedTrackId === layout.trackId ? cached : null
+    if (!this.catalogFresh) return cached
+
+    const row = this.matchCatalog(layout)
+    if (!row || row.trackId !== resolvedTrackId) {
+      this.resolvedSvgByLayout.delete(layout.key)
+      return null
+    }
+    if (cached.catalogGeneration === this.catalogGeneration && cached.layout) return cached
+    const rebound: ResolvedSvgCacheEntry = {
+      ...cached,
+      catalogGeneration: this.catalogGeneration,
+      resolvedTrackId,
+      layout
+    }
+    this.resolvedSvgByLayout.set(layout.key, rebound)
+    return rebound
+  }
+
   private setCurrentLayout(layout: TrackLayoutIdentity): void {
     this.currentLayout = layout
     this.currentLayoutRevision += 1
@@ -467,6 +672,14 @@ export class TrackMapModule {
 
   private isCurrent(request: LayoutResolveRequest): boolean {
     return request.revision === this.currentLayoutRevision && request.layout.key === this.currentLayout?.key
+  }
+
+  private isLatestGeneration(generation: number): boolean {
+    return generation === this.refreshCoordinator.generation
+  }
+
+  private canCommit(request: LayoutResolveRequest): boolean {
+    return this.isLatestGeneration(request.generation) && this.isCurrent(request)
   }
 
   // ─── Credential lifecycle ────────────────────────────────────────────────
@@ -738,7 +951,7 @@ export class TrackMapModule {
 
     this.installBrowserApi(api, expiresAt)
     // Now that we're authenticated, refresh catalog + the current track's SVG.
-    void this.ensureCatalog(true).then(() => this.refreshForCurrentTrack(true))
+    this.refreshAfterAuthInBackground(true)
     this.broadcastUpdate()
     return { status: 'ok', trackMap: this.buildStatus(), diagnostics: result.diagnostics }
   }
@@ -818,7 +1031,7 @@ export class TrackMapModule {
     await this.persistPasswordSession(api)
 
     // Best-effort: refresh the catalog + current track in the background.
-    void this.ensureCatalog(true).then(() => this.refreshForCurrentTrack(true))
+    this.refreshAfterAuthInBackground(true)
   }
 
   private async handleClearCredentials(): Promise<void> {
@@ -874,8 +1087,8 @@ export class TrackMapModule {
 
   private buildDataForLayout(layout: TrackLayoutIdentity): TrackMapData {
     const recording = this.recordingForLayout(layout)
-    const cachedSvg = this.resolvedSvgByLayout.get(layout.key)
-    if (cachedSvg && hasRenderableSvg(cachedSvg)) {
+    const cachedSvg = this.resolvedSvgForLayout(layout)
+    if (cachedSvg) {
       return {
         source: 'iracing-svg',
         layoutKey: layout.key,
@@ -990,8 +1203,7 @@ export class TrackMapModule {
 
   private currentSource(): TrackMapStatus['currentSource'] {
     if (!this.currentLayout) return 'none'
-    const cached = this.resolvedSvgByLayout.get(this.currentLayout.key)
-    if (cached && hasRenderableSvg(cached)) return 'iracing-svg'
+    if (this.resolvedSvgForLayout(this.currentLayout)) return 'iracing-svg'
     if (this.learner.has(this.currentLayout)) return 'learned'
     return 'none'
   }
@@ -1002,11 +1214,11 @@ export class TrackMapModule {
   }
 
   private async onSharedAuthChanged(): Promise<void> {
-    if (this.auth.getApi()) {
-      await this.ensureCatalog(false).catch(() => null)
-      await this.refreshForCurrentTrack(false).catch(() => undefined)
+    try {
+      if (this.auth.getApi()) await this.refreshCatalogAndCurrentTrack(false)
+    } finally {
+      this.broadcastUpdate()
     }
-    this.broadcastUpdate()
   }
 
   // Called on app exit: persist the freshest password-mode session jar (cookies
@@ -1027,12 +1239,16 @@ function toLearnerCatalog(tracks: readonly IRacingTrack[]): TrackCatalogLayout[]
 function resolvedAsset(
   asset: CachedAssetWithSvg,
   layout: TrackLayoutIdentity,
-  row: TrackCatalogLayout | null
-): CachedAssetWithSvg {
+  row: TrackCatalogLayout | null,
+  catalogGeneration: number
+): ResolvedSvgCacheEntry {
   return {
     ...asset,
     trackName: row?.trackName ?? layout.trackName,
-    configName: row?.trackConfigName ?? layout.trackConfigName
+    configName: row?.trackConfigName ?? layout.trackConfigName,
+    catalogGeneration,
+    resolvedTrackId: asset.trackId,
+    layout
   }
 }
 
