@@ -82,6 +82,9 @@ const NOOP_LOGGER: Logger = {
 // so we don't reject every lap.
 const MIN_PCT_STEP = -0.02 // allow tiny rewinds (provider jitter)
 const MAX_PCT_STEP = 0.05 // anything >5% per tick is a teleport
+// Eight machine epsilons absorb binary rounding at the exact seam-step boundary
+// (for example, .95 → 0) without admitting a meaningfully larger telemetry jump.
+const PCT_STEP_EPSILON = Number.EPSILON * 8
 const START_MAX_PCT = 0.05 // anchor IMMEDIATELY at S/F when a capture starts this close
 const WRAP_FROM = 0.9 // lap is "done" when pct passes this...
 const WRAP_TO = 0.1 // ...and the next sample comes back below this
@@ -411,11 +414,10 @@ export class TrackMapLearner {
     const processed = new Set<PersistedOutline>()
     const promotedOutlines: PersistedOutline[] = []
     for (const { row, outlines } of groups.values()) {
-      const ranked = outlines.map((outline) => ({
+      const ranked = rankOutlineCandidates(outlines.map((outline) => ({
         outline,
         record: promoteOutline(outline.record, trackLayoutFromCatalog(row))
-      }))
-      ranked.sort((a, b) => compareOutlineCandidates(b, a))
+      })))
       const winner = ranked[0]
       const targetPath = this.recordPath(winner.record)
       const targetLoser = ranked.find(({ outline }) =>
@@ -481,18 +483,19 @@ export class TrackMapLearner {
     for (const record of this.cache.values()) {
       for (const alias of layoutAliasKeys(record)) {
         const layouts = groups.get(alias) ?? new Map<string, LearnedRecord>()
-        const identity = record.trackId ? `id:${record.trackId}` : record.layoutKey
+        const identity = aliasRecordIdentity(record)
         const current = layouts.get(identity)
         if (!current || compareRecords(record, current) > 0) layouts.set(identity, record)
         groups.set(alias, layouts)
       }
     }
     for (const [alias, layouts] of groups) {
-      if (layouts.size !== 1) {
+      const preferred = preferredAliasRecord(layouts)
+      if (!preferred) {
         this.ambiguousAliases.add(alias)
         continue
       }
-      this.exactAliases.set(alias, layouts.values().next().value as LearnedRecord)
+      this.exactAliases.set(alias, preferred)
     }
   }
 
@@ -554,17 +557,19 @@ export class TrackMapLearner {
       }
     }
     if (aliases.some((alias) => this.ambiguousAliases.has(alias))) return null
-    if (direct) return direct
     const aliasMatches = aliases
       .map((alias) => this.exactAliases.get(alias))
       .filter((record): record is LearnedRecord => !!record)
     if (aliasMatches.length) {
-      const layoutKeys = new Set(aliasMatches.map((record) => record.layoutKey))
-      if (layoutKeys.size === 1) return aliasMatches.reduce((best, record) =>
-        compareRecords(record, best) > 0 ? record : best
-      )
-      return null
+      const layouts = new Map<string, LearnedRecord>()
+      for (const record of aliasMatches) {
+        const identity = aliasRecordIdentity(record)
+        const current = layouts.get(identity)
+        if (!current || compareRecords(record, current) > 0) layouts.set(identity, record)
+      }
+      return preferredAliasRecord(layouts)
     }
+    if (direct) return direct
     const fallback = this.offlineFallbacks.get(normalizeLayoutPart(captured.trackName))
     if (!fallback) return null
     if (captured.trackConfigName && this.catalog.length > 0) return null
@@ -721,7 +726,7 @@ export class TrackMapLearner {
         ? geoDeltaMeters(this.suspension.geo, currentGeo).distance : Number.POSITIVE_INFINITY
       if (
         this.suspension.layoutKey !== layout.key ||
-        forward === null || forward > MAX_PCT_STEP ||
+        forward === null || forward > MAX_PCT_STEP + PCT_STEP_EPSILON ||
         (!hasGeoPair && !continuousWithoutGps) ||
         (hasGeoPair && jump > MAX_RESUME_COORDINATE_JUMP_METERS)
       ) {
@@ -1129,7 +1134,7 @@ function strictForwardStep(previousPct: number, pct: number): number | null {
 function validSeamForwardStep(previousPct: number, pct: number): number | null {
   if (previousPct <= WRAP_FROM || pct >= WRAP_TO) return null
   const forward = pct + 1 - previousPct
-  return forward >= 0 && forward <= MAX_PCT_STEP ? forward : null
+  return forward >= 0 && forward <= MAX_PCT_STEP + PCT_STEP_EPSILON ? forward : null
 }
 
 function bridgeSuspension(
@@ -1586,13 +1591,34 @@ function compareRecords(a: LearnedRecord, b: LearnedRecord): number {
   return captured || recordContentKey(a).localeCompare(recordContentKey(b))
 }
 
-function compareOutlineCandidates(
-  a: { outline: PersistedOutline; record: LearnedRecord },
-  b: { outline: PersistedOutline; record: LearnedRecord }
-): number {
-  return Number(a.outline.record.version === 2) - Number(b.outline.record.version === 2) ||
-    compareRecords(a.record, b.record) ||
-    basename(a.outline.filePath).localeCompare(basename(b.outline.filePath))
+function rankOutlineCandidates(
+  candidates: Array<{ outline: PersistedOutline; record: LearnedRecord }>
+): Array<{ outline: PersistedOutline; record: LearnedRecord }> {
+  const byRecency = (
+    a: { outline: PersistedOutline; record: LearnedRecord },
+    b: { outline: PersistedOutline; record: LearnedRecord }
+  ): number => compareRecords(b.record, a.record) ||
+    basename(b.outline.filePath).localeCompare(basename(a.outline.filePath))
+  const v2 = candidates.filter(({ outline }) => outline.record.version === 2).sort(byRecency)
+  const v1 = candidates.filter(({ outline }) => outline.record.version === 1).sort(byRecency)
+  const bestV2 = v2[0]
+  const bestV1 = v1[0]
+  let winner = bestV2 ?? bestV1
+  if (bestV2 && bestV1) {
+    // Identity-bearing V2 is authoritative; otherwise recency/content wins and
+    // V2 is only the final tie-break for two configless candidates.
+    winner = (
+      hasLayoutIdentity(bestV2.outline.record) ||
+      compareRecords(bestV2.record, bestV1.record) >= 0
+    ) ? bestV2 : bestV1
+  }
+  return winner ? [winner, ...v2.filter((candidate) => candidate !== winner),
+    ...v1.filter((candidate) => candidate !== winner)] : []
+}
+
+function hasLayoutIdentity(record: LearnedRecord | LegacyLearnedRecord): boolean {
+  return record.version === 2 &&
+    (record.trackId !== undefined || normalizeLayoutPart(record.trackConfigName).length > 0)
 }
 
 function recordContentKey(record: LearnedRecord): string {
@@ -1600,8 +1626,26 @@ function recordContentKey(record: LearnedRecord): string {
 }
 
 function sameRecord(a: LearnedRecord | undefined, b: LearnedRecord): boolean {
-  return !!a && a.layoutKey === b.layoutKey && a.capturedAt === b.capturedAt &&
-    recordContentKey(a) === recordContentKey(b)
+  return !!a && a.layoutKey === b.layoutKey && sameRecordContent(a, b)
+}
+
+function sameRecordContent(a: LearnedRecord, b: LearnedRecord): boolean {
+  return a.capturedAt === b.capturedAt && recordContentKey(a) === recordContentKey(b)
+}
+
+function preferredAliasRecord(layouts: Map<string, LearnedRecord>): LearnedRecord | null {
+  const records = Array.from(layouts.values())
+  if (records.length === 1) return records[0]
+  const idRecords = records.filter((record) => record.trackId !== undefined)
+  if (idRecords.length !== 1) return null
+  const authoritative = idRecords[0]
+  return records.every((record) =>
+    record.trackId !== undefined || sameRecordContent(record, authoritative)
+  ) ? authoritative : null
+}
+
+function aliasRecordIdentity(record: LearnedRecord): string {
+  return record.trackId !== undefined ? `id:${record.trackId}` : record.layoutKey
 }
 
 function finiteTimestamp(value: number): number {
