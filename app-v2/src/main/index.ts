@@ -10,7 +10,12 @@ import type {
   ProfilePayload
 } from '../shared/ipc'
 import { IRacingControl } from './iracing/control'
-import type { ModuleContext } from './module-context'
+import {
+  GracefulQuitController,
+  GracefulTeardownRegistry,
+  runOrderedGracefulTeardown,
+  type ModuleContext
+} from './module-context'
 import { registerModules, type RegisteredModules } from './modules'
 import { ProfileStore } from './profiles'
 import { SerialHub } from './serial/hub'
@@ -82,8 +87,9 @@ let tray: Tray | null = null
 // so the main window's close button hides-to-tray only when NOT actually quitting.
 let isQuitting = false
 let registered: RegisteredModules | null = null
-let teardownStarted = false
-let teardownDone = false
+const gracefulTeardownTasks = new GracefulTeardownRegistry()
+const HARDWARE_OPERATION_TIMEOUT_MS = 1_000
+const PERSISTENCE_TIMEOUT_MS = 2_500
 // One-shot guard so the "still running in the tray" hint is evaluated at most once
 // per run (the persisted flag file then makes it once per install).
 let trayHintShownThisRun = false
@@ -188,42 +194,63 @@ function createTray(): void {
   tray.on('double-click', () => showMainWindow())
 }
 
-// Clean, ORDERED quit teardown: turn the hardware OFF (iFlag black + rev-lights) and
-// DRAIN it while the serial ports are still open, THEN close ports + telemetry. Bounded
-// so a wedged port can never hang the quit. Runs once; the before-quit handler re-quits
-// after it resolves.
-async function gracefulTeardown(): Promise<void> {
-  try {
-    await registered?.rgbMatrix.allOff()
-  } catch {
-    // best effort
-  }
-  // Pull the SIM-X rev-lights strip down deterministically BEFORE closing the ports.
-  // The revlights module also disposes on its own before-quit, but that is
-  // fire-and-forget and would otherwise race serialHub.disconnectAll() on the SIM-X
-  // port; awaiting here guarantees the rev-level-0 write drains before disconnect.
-  // dispose() is idempotent, so the double call is harmless.
-  try {
-    await registered?.revlightsEngine.dispose()
-  } catch {
-    // best effort
-  }
-  try {
-    await serialHub.disconnectAll()
-  } catch {
-    // best effort
-  }
-  try {
-    await telemetryHub.dispose()
-  } catch {
-    // best effort
-  }
-  try {
-    await logger.flush()
-  } catch {
-    // best effort
-  }
+function teardownError(stage: string, error: unknown): void {
+  logger.warn('app', 'graceful teardown step failed', {
+    stage,
+    message: error instanceof Error ? error.message : String(error)
+  })
 }
+
+// Clean, ORDERED quit teardown: first close producer ingestion synchronously, then
+// attempt every hardware-off/drain operation under its own watchdog. Only after that
+// bounded hardware stage has settled does the global 2.5s persistence budget begin.
+async function gracefulTeardown(): Promise<void> {
+  await runOrderedGracefulTeardown({
+    registry: gracefulTeardownTasks,
+    outputOff: [
+      {
+        stage: 'iflag-rgb-off',
+        timeoutMs: HARDWARE_OPERATION_TIMEOUT_MS,
+        task: () => registered?.rgbMatrix.allOff()
+      },
+      {
+        stage: 'revlights-off',
+        timeoutMs: HARDWARE_OPERATION_TIMEOUT_MS,
+        task: () => registered?.revlightsEngine.dispose()
+      }
+    ],
+    drain: [
+      {
+        stage: 'serial-drain',
+        timeoutMs: HARDWARE_OPERATION_TIMEOUT_MS,
+        task: () => serialHub.disconnectAll()
+      },
+      {
+        stage: 'telemetry-dispose',
+        timeoutMs: HARDWARE_OPERATION_TIMEOUT_MS,
+        task: () => telemetryHub.dispose()
+      }
+    ],
+    persistenceTimeoutMs: PERSISTENCE_TIMEOUT_MS,
+    finishPersistence: () => logger.flush(),
+    onError: teardownError
+  })
+}
+
+const gracefulQuitController = new GracefulQuitController({
+  teardown: gracefulTeardown,
+  quit: () => app.quit(),
+  onStart: () => logger.info('app', 'app quitting'),
+  onComplete: () => {
+    try {
+      tray?.destroy()
+    } catch {
+      // ignore
+    }
+    tray = null
+  },
+  onError: (error) => teardownError('teardown', error)
+})
 
 function openExternalUrl(url: string, protocols: ReadonlySet<string>): void {
   try {
@@ -264,7 +291,8 @@ function buildModuleContext(): ModuleContext {
     profileStore,
     iracingControl,
     getMainWindow: () => mainWindow,
-    broadcast: instrumentBroadcast(broadcast)
+    broadcast: instrumentBroadcast(broadcast),
+    registerGracefulTeardown: (task, phase) => gracefulTeardownTasks.register(task, phase)
   }
 }
 
@@ -495,28 +523,10 @@ if (!app.requestSingleInstanceLock()) {
 
 app.on('before-quit', (event) => {
   isQuitting = true
-  // Gate the quit on teardown COMPLETION, not start. A `closeToTray = off` close also
-  // fires `window-all-closed` (the main window genuinely closes), which would trigger a
-  // SECOND before-quit while gracefulTeardown() is still draining the iFlag/serial. We
-  // must keep deferring on EVERY pass until the hardware-off sequence has finished, or
-  // the process would exit mid-teardown and leave the iFlag lit / ports open.
-  if (teardownDone) return
-  // Defer the quit until the hardware is OFF and drained, then re-quit. Bounded so a
-  // wedged serial port can never hang the exit.
-  event.preventDefault()
-  if (teardownStarted) return
-  teardownStarted = true
-  logger.info('app', 'app quitting')
-  void Promise.race([gracefulTeardown(), delayMs(2500)]).finally(() => {
-    teardownDone = true
-    try {
-      tray?.destroy()
-    } catch {
-      // ignore
-    }
-    tray = null
-    app.quit()
-  })
+  // Every pass is prevented until the controller has completed quiesce, the bounded
+  // hardware stage, and the separately bounded persistence stage. The re-issued
+  // app.quit() is the only pass allowed through.
+  gracefulQuitController.handleBeforeQuit(event)
 })
 
 app.on('window-all-closed', () => {
@@ -524,7 +534,3 @@ app.on('window-all-closed', () => {
   // teardown (all windows actually closed) — quit on non-macOS.
   if (process.platform !== 'darwin') app.quit()
 })
-
-function delayMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
