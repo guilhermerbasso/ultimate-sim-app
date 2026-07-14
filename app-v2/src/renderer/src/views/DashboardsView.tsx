@@ -20,7 +20,11 @@ import type {
 import {
   BUILTIN_PRESETS,
   DASHBOARD_BINDINGS,
+  DASHBOARD_DELTA_RANGE_SEC_MAX,
+  DASHBOARD_DELTA_RANGE_SEC_MIN,
   DASHBOARD_FONT_OPTIONS,
+  DASHBOARD_TRACE_WIDTH_MAX,
+  DASHBOARD_TRACE_WIDTH_MIN,
   WIDGET_SLOTS,
   applySlotField,
   composeImageFilter,
@@ -2563,12 +2567,12 @@ function ElementInspector({
             </>
           )}
           {element.type === 'deltabar' && (
-            <NumberField label="Range ±s" value={element.style.deltaRangeSec ?? 1} onChange={(v) => onChangeStyle({ deltaRangeSec: Math.max(0.05, v) })} min={0.05} max={10} step={0.05} />
+            <NumberField label="Range ±s" value={element.style.deltaRangeSec ?? 1} onChange={(v) => onChangeStyle({ deltaRangeSec: clamp(v, DASHBOARD_DELTA_RANGE_SEC_MIN, DASHBOARD_DELTA_RANGE_SEC_MAX) })} min={DASHBOARD_DELTA_RANGE_SEC_MIN} max={DASHBOARD_DELTA_RANGE_SEC_MAX} step={0.05} />
           )}
           {element.type === 'trace' && (
             <>
               <NumberField label="Amostras" value={element.style.traceLength ?? 120} onChange={(v) => onChangeStyle({ traceLength: Math.max(8, Math.min(2048, Math.round(v))) })} min={8} max={2048} step={1} />
-              <NumberField label="Espessura" value={element.style.traceWidth ?? 1.6} onChange={(v) => onChangeStyle({ traceWidth: Math.max(0.5, Math.min(8, v)) })} min={0.5} max={8} step={0.1} />
+              <NumberField label="Espessura" value={element.style.traceWidth ?? 1.6} onChange={(v) => onChangeStyle({ traceWidth: clamp(v, DASHBOARD_TRACE_WIDTH_MIN, DASHBOARD_TRACE_WIDTH_MAX) })} min={DASHBOARD_TRACE_WIDTH_MIN} max={DASHBOARD_TRACE_WIDTH_MAX} step={0.1} />
               <div>
                 <label style={fieldLabel()}>Binding secondary</label>
                 <select
@@ -3347,7 +3351,7 @@ function Gt3Config({
       <div style={grid}>
         <SectionLabel>Data</SectionLabel>
         <SelectField label="Reference" value={s.deltaReference ?? 'session'} options={[{ value: 'session', label: 'Best of session' }, { value: 'best', label: 'My best' }, { value: 'last', label: 'Last lap' }]} onChange={(v) => onChangeStyle({ deltaReference: v as 'session' | 'best' | 'last' })} />
-        <NumberField label="Range ±s" value={s.deltaRangeSec ?? 1} onChange={(v) => onChangeStyle({ deltaRangeSec: Math.max(0.05, v) })} min={0.05} max={10} step={0.05} />
+        <NumberField label="Range ±s" value={s.deltaRangeSec ?? 1} onChange={(v) => onChangeStyle({ deltaRangeSec: clamp(v, DASHBOARD_DELTA_RANGE_SEC_MIN, DASHBOARD_DELTA_RANGE_SEC_MAX) })} min={DASHBOARD_DELTA_RANGE_SEC_MIN} max={DASHBOARD_DELTA_RANGE_SEC_MAX} step={0.05} />
       </div>
     )
   }
@@ -3388,7 +3392,7 @@ function Gt3Config({
         {t === 'inputtrace' && (
           <>
             <NumberField label="Amostras" value={s.traceLength ?? 160} onChange={(v) => onChangeStyle({ traceLength: Math.max(16, Math.min(2048, Math.round(v))) })} min={16} max={2048} />
-            <NumberField label="Espessura" value={s.traceWidth ?? 1.8} onChange={(v) => onChangeStyle({ traceWidth: Math.max(0.5, Math.min(8, v)) })} min={0.5} max={8} step={0.1} />
+            <NumberField label="Espessura" value={s.traceWidth ?? 1.8} onChange={(v) => onChangeStyle({ traceWidth: clamp(v, DASHBOARD_TRACE_WIDTH_MIN, DASHBOARD_TRACE_WIDTH_MAX) })} min={DASHBOARD_TRACE_WIDTH_MIN} max={DASHBOARD_TRACE_WIDTH_MAX} step={0.1} />
             <NumberField label="Steering max.°" value={s.maxDegrees ?? 540} onChange={(v) => onChangeStyle({ maxDegrees: Math.max(90, Math.round(v)) })} min={90} max={1440} step={10} />
           </>
         )}

@@ -4,6 +4,10 @@ import {
   applyDecimals,
   composeImageFilter,
   createBlankAdaptiveDashboard,
+  DASHBOARD_DELTA_RANGE_SEC_MAX,
+  DASHBOARD_DELTA_RANGE_SEC_MIN,
+  DASHBOARD_TRACE_WIDTH_MAX,
+  DASHBOARD_TRACE_WIDTH_MIN,
   dashboardPlaylistValidationError,
   dashboardStorageValidationResult,
   dashboardValidationError,
@@ -329,7 +333,12 @@ describe('dashboard storage schema compatibility', () => {
         y: 180,
         w: 500,
         h: 300,
-        style: { tableColumns: ['pos', 'number', 'name', 'gap', 'last'], tableMaxRows: 12 }
+        style: {
+          tableColumns: ['pos', 'number', 'name', 'gap', 'last'],
+          tableMaxRows: 12,
+          deltaRangeSec: DASHBOARD_DELTA_RANGE_SEC_MIN,
+          traceWidth: DASHBOARD_TRACE_WIDTH_MAX
+        }
       }
     ]
     legacy.adaptive = {
@@ -358,7 +367,11 @@ describe('dashboard storage schema compatibility', () => {
       widgetId: hifi!.widgetId,
       hifiModuleId: hifi!.hifiModuleId
     })
-    expect(result.dashboard.elements[1].style.tableColumns).toEqual(['pos', 'number', 'name', 'gap', 'laps'])
+    expect(result.dashboard.elements[1].style).toMatchObject({
+      tableColumns: ['pos', 'number', 'name', 'gap', 'laps'],
+      deltaRangeSec: DASHBOARD_DELTA_RANGE_SEC_MIN,
+      traceWidth: DASHBOARD_TRACE_WIDTH_MAX
+    })
     expect(result.dashboard.adaptive?.rules?.[0].frame?.elements[0].hifiModuleId).toBe(hifi!.hifiModuleId)
     expect(result.migrations.map((migration) => migration.code)).toEqual(expect.arrayContaining([
       'catalog-overlay-identity',
@@ -367,6 +380,37 @@ describe('dashboard storage schema compatibility', () => {
     ]))
     expect(dashboardValidationError(result.dashboard)).toBeNull()
     expect(legacy).toEqual(original)
+  })
+
+  it('accepts exact editor trace bounds and quarantines values immediately outside them', () => {
+    const accepted: Array<['deltaRangeSec' | 'traceWidth', number]> = [
+      ['deltaRangeSec', DASHBOARD_DELTA_RANGE_SEC_MIN],
+      ['deltaRangeSec', DASHBOARD_DELTA_RANGE_SEC_MAX],
+      ['traceWidth', DASHBOARD_TRACE_WIDTH_MIN],
+      ['traceWidth', DASHBOARD_TRACE_WIDTH_MAX]
+    ]
+    for (const [field, value] of accepted) {
+      const dashboard = storedDashboard(`accepted-${field}-${value}`)
+      dashboard.elements[0].style[field] = value
+      expect(dashboardValidationError(dashboard), `${field}=${value}`).toBeNull()
+      expect(dashboardStorageValidationResult(dashboard), `${field}=${value}`).toMatchObject({ status: 'valid' })
+    }
+
+    const rejected: Array<['deltaRangeSec' | 'traceWidth', number]> = [
+      ['deltaRangeSec', DASHBOARD_DELTA_RANGE_SEC_MIN - 0.01],
+      ['deltaRangeSec', DASHBOARD_DELTA_RANGE_SEC_MAX + 0.01],
+      ['traceWidth', DASHBOARD_TRACE_WIDTH_MIN - 0.1],
+      ['traceWidth', DASHBOARD_TRACE_WIDTH_MAX + 0.1]
+    ]
+    for (const [field, value] of rejected) {
+      const dashboard = storedDashboard(`rejected-${field}-${value}`)
+      dashboard.elements[0].style[field] = value
+      expect(dashboardValidationError(dashboard), `${field}=${value}`).toMatch(/must be from/)
+      expect(dashboardStorageValidationResult(dashboard), `${field}=${value}`).toMatchObject({
+        status: 'quarantine',
+        error: expect.stringMatching(/must be from/)
+      })
+    }
   })
 
   it('preserves valid existing scalar, array, slot, and instrument styles without cloning or normalization', () => {
