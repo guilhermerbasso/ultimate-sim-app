@@ -454,6 +454,46 @@ describe('replay owner/runtime cancellation', () => {
     expect(spotterSpeechState()).toEqual({ speaking: false, queued: 0 })
   })
 
+  it('settles a resume-blocked spotter Piper callout when the spotter owner is cancelled', async () => {
+    const resume = deferred<undefined>()
+    context.state = 'suspended'
+    context.resume.mockImplementation(() => resume.promise)
+    const config = {
+      ...DEFAULT_SPOTTER_CONFIG,
+      defaultVoiceURI: '',
+      callouts: Object.fromEntries(
+        Object.entries(DEFAULT_SPOTTER_CONFIG.callouts).map(([id, callout]) => [id, { ...callout, voiceURI: '' }])
+      )
+    } as SpotterConfig
+    ipcInvoke.mockImplementation(async (channel: string) => {
+      if (channel === SPOTTER_CHANNELS.getConfig) return config
+      if (channel === TTS_CHANNELS.listVoices) return []
+      if (channel === TTS_CHANNELS.synth) return new Uint8Array([1, 2, 3])
+      if (channel === TTS_CHANNELS.ensureVoice) return { ok: true, installed: true }
+      return null
+    })
+    useTtsRuntime()
+    useSpotterRuntime()
+    await settle()
+
+    const clearFlags = { green: false, yellow: false, blue: false, white: false, checkered: false, red: false, black: false, meatball: false, repair: false, disqualify: false, greenWhiteCheckered: false }
+    emitIpc('telemetry:snapshot', live({ flags: clearFlags }))
+    emitIpc('telemetry:snapshot', live({ timestamp: 1_100, flags: { ...clearFlags, green: true } }))
+    await vi.waitFor(() => expect(context.resume).toHaveBeenCalled())
+
+    emitIpc(REPLAY_SPEECH_CANCEL_CHANNELS.spotter, replayCancel('spotter', 'replay', 1))
+    await settle()
+
+    expect(context.decodeAudioData).not.toHaveBeenCalled()
+    expect(window.speechSynthesis.speak).not.toHaveBeenCalled()
+    expect(spotterSpeechState()).toEqual({ speaking: false, queued: 0 })
+
+    resume.resolve(undefined)
+    await settle()
+    expect(context.decodeAudioData).not.toHaveBeenCalled()
+    expect(context.sources).toHaveLength(0)
+  })
+
   it('ignores an old preview decode rejection while the replacement Piper source is playing', async () => {
     const oldDecode = deferred<AudioBuffer>()
     context.decodeAudioData

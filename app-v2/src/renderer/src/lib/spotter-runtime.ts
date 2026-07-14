@@ -34,6 +34,7 @@ import {
   cancelOwnedWebSpeech,
   cancelSpeechOwner,
   claimOwnedWebSpeech,
+  createSpeechOwnerCancellationSignal,
   isSpeechOwnerTokenCurrent,
   registerSpeechOwnerCanceller,
   speechOwnerToken
@@ -595,7 +596,17 @@ async function speakWithPiper(line: QueuedLine): Promise<void> {
     }
     let audioBuffer: AudioBuffer
     try {
-      if (ctx.state === 'suspended') await ctx.resume()
+      if (ctx.state === 'suspended') {
+        // Race ctx.resume() against owner cancellation so a superseded callout
+        // never hangs indefinitely under the Chromium autoplay lock.
+        const resumeSignal = createSpeechOwnerCancellationSignal('spotter', ownerToken)
+        const cancelled = resumeSignal.isCancelled() || await Promise.race([
+          ctx.resume().then((): boolean => false),
+          resumeSignal.promise.then((): boolean => true)
+        ])
+        resumeSignal.dispose()
+        if (cancelled) return
+      }
       if (!isCurrent()) return
       audioBuffer = await ctx.decodeAudioData(toAudioBuffer(raw))
     } catch {
