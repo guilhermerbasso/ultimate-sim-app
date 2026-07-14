@@ -30,8 +30,15 @@ import {
   type SoundshiftMode,
   type SoundshiftSnapshotLike
 } from '../../shared/soundshift'
+import {
+  isLiveTelemetrySnapshot,
+  LiveTelemetryGate,
+  sameLiveTelemetryContext,
+  type LiveTelemetryContext
+} from '../../shared/replay'
 
 const CONFIG_FILE = 'soundshift.json'
+const SOUNDSHIFT_CANCEL_EVENT = 'soundshift:cancel'
 
 export type SoundsConfigPatch = {
   version?: 2
@@ -58,13 +65,54 @@ const lastCueAt: Partial<Record<SoundAlertId, number>> = {}
 
 export function register(ctx: ModuleContext): void {
   const configPath = join(ctx.app.getPath('userData'), CONFIG_FILE)
+  const liveGate = new LiveTelemetryGate()
+  let lastLiveContext: LiveTelemetryContext | null = null
+  let observedLive = false
+  let configReady = false
+  let pendingLiveSnapshot: TelemetrySnapshot | null = null
 
   void loadConfig(configPath).then((loaded) => {
     config = loaded
+    configReady = true
     ctx.broadcast(SOUNDSHIFT_CHANNELS.configEvent, config)
+    const pending = pendingLiveSnapshot
+    pendingLiveSnapshot = null
+    if (pending) {
+      resetLiveState()
+      seedLiveState(pending)
+    }
   })
 
   ctx.telemetryHub.on('snapshot', (snapshot: TelemetrySnapshot | null) => {
+    const live = liveGate.observe(snapshot)
+    const liveContextChanged = Boolean(
+      live.live &&
+      live.context &&
+      lastLiveContext &&
+      !sameLiveTelemetryContext(live.context, lastLiveContext)
+    )
+    const boundary = live.boundary || liveContextChanged
+    const firstLive = live.live && !observedLive
+    if (live.live) observedLive = true
+    if (live.live && live.context) lastLiveContext = live.context
+
+    if (boundary) {
+      resetLiveState()
+      ctx.broadcast(SOUNDSHIFT_CANCEL_EVENT, { state: live.state, revision: snapshot?.replayContext?.revision })
+    }
+    if (!live.live || !snapshot) {
+      pendingLiveSnapshot = null
+      return
+    }
+    if (!configReady) {
+      pendingLiveSnapshot = snapshot
+      return
+    }
+    if (firstLive && !boundary) resetLiveState()
+    if (boundary || firstLive) {
+      seedLiveState(snapshot)
+      return
+    }
     processSnapshot(ctx, snapshot)
   })
 
@@ -79,6 +127,7 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(
     SOUNDSHIFT_CHANNELS.updateLearned,
     async (_event, carKeyArg: string | undefined, gearArg: number, rpmArg: number, carName?: string, maxRpmArg?: number, carPathArg?: string) => {
+      if (!isLiveTelemetrySnapshot(ctx.telemetryHub.getLatest())) return config
       const cars = learnedUpshiftWrite(config.soundshift, carKeyArg, gearArg, rpmArg, carName, maxRpmArg, carPathArg)
       if (!cars) return config
       config = mergeConfig(config, { soundshift: { cars } })
@@ -144,15 +193,34 @@ function stripLearned(cars: Record<string, SoundshiftCarTuning>): Record<string,
   )
 }
 
+function resetLiveState(): void {
+  previousSnapshot = null
+  previousIncidentCount = undefined
+  shiftArmed = true
+  wasInShiftZone = false
+  wasAbsEngaging = false
+  wasTcsEngaging = false
+  lastShiftResolutionKey = null
+  for (const key of Object.keys(lastCueAt) as SoundAlertId[]) delete lastCueAt[key]
+}
+
+function seedLiveState(snapshot: TelemetrySnapshot): void {
+  previousSnapshot = snapshot
+  if (snapshot.incidentCount != null && Number.isFinite(snapshot.incidentCount)) {
+    previousIncidentCount = snapshot.incidentCount
+  }
+
+  const shiftDecision = evaluateShift({ ...config.soundshift, enabled: true }, snapshot)
+  wasInShiftZone = shiftDecision.shouldBeep
+  shiftArmed = !shiftDecision.shouldBeep
+  wasAbsEngaging = evaluateAbs({ ...config.abs, enabled: true }, snapshot).engaging
+  if (wasAbsEngaging && config.abs.triggerMode === 'repeat') lastCueAt.abs = Date.now()
+  wasTcsEngaging = evaluateTcs({ ...config.tcs, enabled: true }, snapshot).engaging
+}
+
 function processSnapshot(ctx: ModuleContext, snapshot: TelemetrySnapshot | null): void {
-  if (!snapshot) {
-    previousSnapshot = null
-    previousIncidentCount = undefined
-    shiftArmed = true
-    wasInShiftZone = false
-    wasAbsEngaging = false
-    wasTcsEngaging = false
-    lastShiftResolutionKey = null
+  if (!isLiveTelemetrySnapshot(snapshot)) {
+    resetLiveState()
     return
   }
 
