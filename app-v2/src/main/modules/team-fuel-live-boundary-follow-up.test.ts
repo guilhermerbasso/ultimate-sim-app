@@ -358,6 +358,25 @@ describe('team fuel canonical live boundaries', () => {
     expectOnlyCurrentLocal(test.controller, 11, 35)
   })
 
+  it('fails closed when connected is omitted and accepts explicitly connected telemetry', async () => {
+    const missingConnection = snapshot('live', 0, 'live-a', 1)
+    Reflect.deleteProperty(missingConnection, 'connected')
+    expect(missingConnection.connected).toBeUndefined()
+
+    const test = harness(missingConnection)
+    await startHost(test)
+
+    expect(test.controller.peersList()).toEqual([])
+
+    test.emit(snapshot('live', 1, 'live-a', 1, {
+      connected: true,
+      driverName: 'Local B',
+      fuelLiters: 35
+    }))
+
+    expectOnlyCurrentLocal(test.controller, 11, 35)
+  })
+
   it('keeps stopped controllers empty across boundaries and ticks', () => {
     const test = harness(snapshot('live', 0, 'live-a', 1))
     test.broadcast.mockClear()
