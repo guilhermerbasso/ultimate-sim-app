@@ -30,6 +30,8 @@ import { PREDICTIONS_CHANNELS, type PredictionsSnapshot } from '../../../shared/
 import type { DriverEntry, RadarCarEntry, TelemetrySnapshot } from '../../../shared/telemetry'
 import type { TrackMapData } from '../../../shared/track-map'
 import { TRACK_MAP_CHANNELS } from '../../../shared/track-map'
+import { EXPR_CHANNELS } from '../../../shared/expr'
+import type { ExpressionDestinationPlacement } from '../../../shared/expression-studio'
 import { RADAR_THREAT_COLORS, radarSideThreat, radarThreatColor, radarThreatLevel } from '../../../shared/radar'
 import {
   buildTrackMap,
@@ -1711,6 +1713,7 @@ export function DashboardCanvas({
 
 export function DashboardRoot() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
+  const [expressionPlacements, setExpressionPlacements] = useState<DashboardElement[]>([])
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const dashId = useMemo(getDashIdFromQuery, [])
@@ -1739,6 +1742,34 @@ export function DashboardRoot() {
       })
     return () => {
       canceled = true
+    }
+  }, [dashId])
+
+  useEffect(() => {
+    if (!dashId) return
+    let canceled = false
+    const refresh = (): void => {
+      void window.ipc
+        .invoke<ExpressionDestinationPlacement[]>(EXPR_CHANNELS.getPlacements, {
+          surface: 'dashboard',
+          targetId: dashId
+        })
+        .then((placements) => {
+          if (!canceled) setExpressionPlacements((placements ?? []).map((item) => item.element))
+        })
+        .catch(() => {
+          if (!canceled) setExpressionPlacements([])
+        })
+    }
+    refresh()
+    const off = window.ipc.subscribe(EXPR_CHANNELS.studioChanged, refresh)
+    const offDashboard = window.ipc.subscribe<Dashboard>('app:dash:updated', (next) => {
+      if (next?.id === dashId) refresh()
+    })
+    return () => {
+      canceled = true
+      off()
+      offDashboard()
     }
   }, [dashId])
 
@@ -1826,5 +1857,10 @@ export function DashboardRoot() {
     )
   }
 
-  return <DashboardCanvas dashboard={dashboard} snapshot={snapshot} kiosk={kiosk} dashId={dashId} />
+  const expressionIds = new Set(expressionPlacements.map((element) => element.id))
+  const effectiveDashboard: Dashboard = {
+    ...dashboard,
+    elements: [...dashboard.elements.filter((element) => !expressionIds.has(element.id)), ...expressionPlacements]
+  }
+  return <DashboardCanvas dashboard={effectiveDashboard} snapshot={snapshot} kiosk={kiosk} dashId={dashId} />
 }

@@ -8,6 +8,9 @@ import {
   type ExpressionDef,
   type ExpressionValue
 } from '../../../../shared/expr'
+import type { ExpressionDestinationPlacement } from '../../../../shared/expression-studio'
+import type { ExpressionStudioSnapshot } from '../../../../shared/expression-studio'
+import type { DashboardElement } from '../../../../shared/dashboards'
 import { isCustomOverlayId, isRichCustomOverlay, type CustomOverlayDef } from '../../../../shared/overlays'
 import type { WidgetProps } from './types'
 import { RichOverlayCanvas } from '../RichOverlayCanvas'
@@ -58,6 +61,7 @@ export function CustomOverlayWidget({ snapshot }: WidgetProps) {
   const [def, setDef] = useState<CustomOverlayDef | null>(null)
   const [expressions, setExpressions] = useState<Record<string, ExpressionDef>>({})
   const [enabledVars, setEnabledVars] = useState<EnabledIracingVars>([])
+  const [expressionPlacements, setExpressionPlacements] = useState<DashboardElement[]>([])
 
   useEffect(() => {
     const ipc = typeof window !== 'undefined' ? window.ipc : undefined
@@ -90,9 +94,44 @@ export function CustomOverlayWidget({ snapshot }: WidgetProps) {
     const offDef = ipc.subscribe<CustomOverlayDef>('overlays:customDef', (payload) => {
       if (payload && payload.id === overlayId) setDef(payload)
     })
+    const offStudio = ipc.subscribe<ExpressionStudioSnapshot>(EXPR_CHANNELS.studioChanged, (snapshot) => {
+      if (!snapshot || !Array.isArray(snapshot.expressions) || !Array.isArray(snapshot.enabledVars)) return
+      setExpressions(Object.fromEntries(snapshot.expressions.map((item) => [item.id, item])))
+      setEnabledVars(snapshot.enabledVars)
+    })
 
     return () => {
       canceled = true
+      offDef()
+      offStudio()
+    }
+  }, [overlayId])
+
+  useEffect(() => {
+    const ipc = typeof window !== 'undefined' ? window.ipc : undefined
+    if (!ipc || !overlayId) return
+    let canceled = false
+    const refresh = (): void => {
+      void ipc
+        .invoke<ExpressionDestinationPlacement[]>(EXPR_CHANNELS.getPlacements, {
+          surface: 'overlay',
+          targetId: overlayId
+        })
+        .then((placements) => {
+          if (!canceled) setExpressionPlacements((placements ?? []).map((item) => item.element))
+        })
+        .catch(() => {
+          if (!canceled) setExpressionPlacements([])
+        })
+    }
+    refresh()
+    const off = ipc.subscribe(EXPR_CHANNELS.studioChanged, refresh)
+    const offDef = ipc.subscribe<CustomOverlayDef>('overlays:customDef', (next) => {
+      if (next?.id === overlayId) refresh()
+    })
+    return () => {
+      canceled = true
+      off()
       offDef()
     }
   }, [overlayId])
@@ -144,7 +183,8 @@ export function CustomOverlayWidget({ snapshot }: WidgetProps) {
   // renderer over a transparent canvas (no card chrome). Legacy overlays keep
   // the expression/channel text-card rendering below.
   if (def && isRichCustomOverlay(def)) {
-    const widgets = def.widgets ?? []
+    const placementIds = new Set(expressionPlacements.map((element) => element.id))
+    const widgets = [...(def.widgets ?? []).filter((element) => !placementIds.has(element.id)), ...expressionPlacements]
     return (
       <RichOverlayCanvas
         widgets={widgets}
@@ -183,6 +223,15 @@ export function CustomOverlayWidget({ snapshot }: WidgetProps) {
           </div>
         )
       })}
+      {def && expressionPlacements.length > 0 && (
+        <RichOverlayCanvas
+          widgets={expressionPlacements}
+          canvasWidth={def.canvasWidth ?? def.position.width}
+          canvasHeight={def.canvasHeight ?? def.position.height}
+          snapshot={snapshot}
+          scaleMode="stretch"
+        />
+      )}
     </div>
   )
 }

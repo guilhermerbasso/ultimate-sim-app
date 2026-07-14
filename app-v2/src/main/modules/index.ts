@@ -178,6 +178,7 @@ export function registerModules(ctx: ModuleContext): RegisteredModules {
   const exprApi = expressionEngine(ctx)
   const routerApi = outputRouter(ctx)
   routerApi.setExpressionResolver((exprId) => exprApi.getResultsSnapshot()[exprId]?.value ?? undefined)
+  exprApi.setOutputSink((routes, activeExpressionIds) => routerApi.setExpressionRoutes(routes, activeExpressionIds))
 
   return { settingsStore, revlightsEngine, rgbMatrix: rgbMatrixModule }
 }

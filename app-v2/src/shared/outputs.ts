@@ -85,6 +85,8 @@ export interface OutputValueUpdate {
   value: string
   // The raw (pre-format) value when available — handy for numeric bindings.
   raw?: ExpressionValue
+  // Route-deletion tombstone. Consumers must remove cached values by route id/name.
+  deleted?: true
 }
 
 // Batched payload broadcast on `outputs:value` (~10Hz).
@@ -257,9 +259,16 @@ export function isOutputTarget(value: unknown): value is OutputTarget {
 export function isOutputFormat(value: unknown): value is OutputFormat {
   if (!value || typeof value !== 'object') return false
   const format = value as Partial<OutputFormat>
-  if (format.decimals !== undefined && typeof format.decimals !== 'number') return false
+  if (
+    format.decimals !== undefined &&
+    (typeof format.decimals !== 'number' ||
+      !Number.isFinite(format.decimals) ||
+      !Number.isInteger(format.decimals) ||
+      format.decimals < 0 ||
+      format.decimals > 20)
+  ) return false
   if (format.prefix !== undefined && typeof format.prefix !== 'string') return false
   if (format.suffix !== undefined && typeof format.suffix !== 'string') return false
-  if (format.scale !== undefined && typeof format.scale !== 'number') return false
+  if (format.scale !== undefined && (typeof format.scale !== 'number' || !Number.isFinite(format.scale))) return false
   return true
 }

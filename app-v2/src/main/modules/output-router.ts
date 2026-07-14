@@ -39,6 +39,7 @@ export interface ExpressionResolver {
 
 export interface OutputRouterApi {
   setExpressionResolver(resolver: ExpressionResolver | null): void
+  setExpressionRoutes(routes: OutputRoute[], activeExpressionIds?: readonly string[]): void
   // Read-only snapshot of the last computed value per route id.
   getValuesSnapshot(): Record<string, OutputValueUpdate>
   getRoutes(): OutputRoute[]
@@ -56,7 +57,12 @@ export function register(ctx: ModuleContext): OutputRouterApi {
 }
 
 class OutputRouter {
+  // Routes persisted by the general Output Routing screen.
   private routes: OutputRoute[] = []
+  // Expression-owned v3 outputs live atomically in expressions.json and are
+  // injected here at runtime. They never get copied back to output-routes.json.
+  private expressionRoutes: OutputRoute[] = []
+  private activeExpressionIds: Set<string> | null = null
   private loaded = false
   private loadPromise: Promise<void> | null = null
 
@@ -103,8 +109,16 @@ class OutputRouter {
       setExpressionResolver: (resolver) => {
         this.resolver = resolver ?? null
       },
+      setExpressionRoutes: (routes, activeExpressionIds = []) => {
+        this.expressionRoutes = normalizeRoutes(routes)
+        this.activeExpressionIds = new Set(activeExpressionIds)
+        this.pruneStaleState(new Set(this.effectiveRoutes().map((route) => route.id)))
+        this.lastSerialAt.clear()
+        this.lastSerialPayload.clear()
+        this.ctx.broadcast(OUTPUTS_CHANNELS.routesChanged, { routes: this.effectiveRoutes() })
+      },
       getValuesSnapshot: () => Object.fromEntries(this.values),
-      getRoutes: () => this.routes.slice()
+      getRoutes: () => this.effectiveRoutes()
     }
   }
 
@@ -113,21 +127,23 @@ class OutputRouter {
   private registerIpc(): void {
     this.ctx.ipcMain.handle(OUTPUTS_CHANNELS.getRoutes, async () => {
       await this.ensureLoaded()
-      return this.routes
+      return this.effectiveRoutes()
     })
     this.ctx.ipcMain.handle(OUTPUTS_CHANNELS.setRoutes, async (_event, input: unknown) => {
       await this.ensureLoaded()
       const next = normalizeRoutes(input)
-      this.routes = next
-      this.pruneStaleState(new Set(next.map((route) => route.id)))
+      const managedIds = new Set(this.expressionRoutes.map((route) => route.id))
+      this.routes = next.filter((route) => !managedIds.has(route.id) && !isLegacyExpressionManagedRoute(route))
+      const effective = this.effectiveRoutes()
+      this.pruneStaleState(new Set(effective.map((route) => route.id)))
       // A route's serial target (deviceId/template) can change while keeping its
       // id — drop ALL serial dedup/throttle state so retargeted routes re-send to
       // the new device/template on the next tick instead of being skipped.
       this.lastSerialAt.clear()
       this.lastSerialPayload.clear()
       await this.saveRoutes()
-      this.ctx.broadcast(OUTPUTS_CHANNELS.routesChanged, { routes: next })
-      return next
+      this.ctx.broadcast(OUTPUTS_CHANNELS.routesChanged, { routes: effective })
+      return effective
     })
     this.ctx.ipcMain.handle(OUTPUTS_CHANNELS.getValues, async () => {
       await this.ensureLoaded()
@@ -139,9 +155,10 @@ class OutputRouter {
 
   private onSnapshot(snapshot: TelemetrySnapshot | null): void {
     if (!this.loaded) return
-    if (this.routes.length === 0) return
+    const routes = this.effectiveRoutes()
+    if (routes.length === 0) return
 
-    for (const route of this.routes) {
+    for (const route of routes) {
       if (!route.enabled) continue
       const raw = this.evaluateSource(route.source, snapshot)
       if (raw === undefined) {
@@ -317,7 +334,8 @@ class OutputRouter {
       const raw = await readFile(this.storePath, 'utf8')
       const parsed = JSON.parse(raw) as Partial<OutputRoutesPayload>
       const routes = Array.isArray(parsed.routes) ? normalizeRoutes(parsed.routes) : []
-      this.routes = routes
+      this.routes = routes.filter((route) => !isLegacyExpressionManagedRoute(route))
+      if (this.routes.length !== routes.length) await this.saveRoutes()
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
       if (code !== 'ENOENT') {
@@ -341,8 +359,16 @@ class OutputRouter {
   }
 
   private pruneStaleState(activeIds: Set<string>): void {
-    for (const id of [...this.values.keys()]) {
-      if (!activeIds.has(id)) this.values.delete(id)
+    for (const [id, previous] of [...this.values.entries()]) {
+      if (!activeIds.has(id)) {
+        this.values.delete(id)
+        this.pendingUpdates.set(id, {
+          routeId: id,
+          name: previous.name,
+          value: '',
+          deleted: true
+        })
+      }
     }
     for (const id of [...this.lastSerialAt.keys()]) {
       if (!activeIds.has(id)) this.lastSerialAt.delete(id)
@@ -354,8 +380,32 @@ class OutputRouter {
       if (!activeIds.has(id)) this.lastDashboardActive.delete(id)
     }
     for (const id of [...this.pendingUpdates.keys()]) {
-      if (!activeIds.has(id)) this.pendingUpdates.delete(id)
+      const pending = this.pendingUpdates.get(id)
+      if (!activeIds.has(id) && pending && !pending.deleted) {
+        this.pendingUpdates.set(id, {
+          routeId: id,
+          name: pending.name,
+          value: '',
+          deleted: true
+        })
+      }
     }
+  }
+
+  private effectiveRoutes(): OutputRoute[] {
+    const merged = new Map<string, OutputRoute>()
+    for (const route of this.routes) {
+      if (
+        route.source.kind === 'expression' &&
+        this.activeExpressionIds &&
+        !this.activeExpressionIds.has(route.source.exprId)
+      ) {
+        continue
+      }
+      merged.set(route.id, route)
+    }
+    for (const route of this.expressionRoutes) merged.set(route.id, route)
+    return [...merged.values()]
   }
 }
 
@@ -406,6 +456,10 @@ function normalizeRoutes(input: unknown): OutputRoute[] {
 function ensureString(value: unknown, message: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(message)
   return value.trim()
+}
+
+function isLegacyExpressionManagedRoute(route: OutputRoute): boolean {
+  return route.id.startsWith('expr:') && route.source.kind === 'expression'
 }
 
 function sourceFieldName(source: OutputSource): string | undefined {

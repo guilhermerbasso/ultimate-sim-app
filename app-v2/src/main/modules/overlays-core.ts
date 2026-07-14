@@ -52,6 +52,7 @@ export function register(ctx: ModuleContext): void {
   const onSectionReset = (_event: unknown, sectionId: string): void => {
     if (sectionId === 'overlays') manager?.dropInMemoryForReset()
   }
+
   ctx.ipcMain.on(CONFIG_SECTION_RESET_SIGNAL, onSectionReset)
 
   // Overlays cannot hot-swap their live windows mid-session, so an imported
@@ -73,4 +74,8 @@ export function register(ctx: ModuleContext): void {
     void manager?.dispose()
     manager = null
   })
+}
+
+export function getOverlayManager(): OverlayManager | null {
+  return manager
 }

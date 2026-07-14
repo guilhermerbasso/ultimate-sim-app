@@ -5,6 +5,7 @@ import { createCustomOverlayDef, createCustomOverlayElement, createRichCustomOve
 import type { Corners, DriverEntry, Flags, PitStatus, RadarCarEntry, RelativeCars, SimId, TelemetrySnapshot, TyreInfo } from '../../../shared/telemetry'
 import { PLAYABLE_SIMS, simLabel, widgetSupportedSims } from '../../../shared/sim-coverage'
 import { OverlayWidgetBuilder } from './overlay/OverlayWidgetBuilder'
+import { consumeEditorTarget } from '../lib/app-navigation'
 import { EXPR_CHANNELS, type ExpressionDef } from '../../../shared/expr'
 import { IRACING_VARIABLES, IRACING_VAR_CATEGORY_LABELS, IRACING_VAR_CATEGORY_ORDER } from '../../../shared/iracing-vars'
 import type { AppViewProps } from '../App'
@@ -395,6 +396,7 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
   const [builderOpen, setBuilderOpen] = useState(false)
   const [builderEditingId, setBuilderEditingId] = useState<string | null>(null)
   const [builderDraft, setBuilderDraft] = useState<CustomOverlayDef | null>(null)
+  const [editorTargetId, setEditorTargetId] = useState<string | null>(() => consumeEditorTarget('overlay'))
   const enabledCount = useMemo(() => items.filter((item) => item.enabled).length, [items])
   const sortedItems = useMemo(() => sortOverlayEntries(items), [items])
   const [selectedWidgetIds, setSelectedWidgetIds] = useState<Set<string>>(() => new Set())
@@ -813,6 +815,14 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
     if (isRichCustomOverlay(overlay)) openBuilderForEdit(overlay)
     else openDesignerForEdit(overlay)
   }
+
+  useEffect(() => {
+    if (!editorTargetId) return
+    const overlay = customOverlays.find((item) => item.id === editorTargetId)
+    if (!overlay) return
+    editCustomOverlay(overlay)
+    setEditorTargetId(null)
+  }, [customOverlays, editorTargetId])
 
   return (
     <div className="overlays-view">

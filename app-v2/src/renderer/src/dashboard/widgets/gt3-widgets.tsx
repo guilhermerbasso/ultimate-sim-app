@@ -2331,7 +2331,18 @@ function ValueWidget({ element, snapshot, unitSystem = 'metric', mode }: WidgetP
   const value = body === '—' ? '—' : `${s.prefix ?? ''}${body}`
   const label = (s.label ?? s.title ?? '').toString()
   const unit = (r.unit ?? s.suffix ?? '').toString()
-  const ratio = clamp01(r.pct ?? 0)
+  const rangeMin = s.gaugeMin
+  const rangeMax = s.gaugeMax
+  const rangedRatio =
+    r.numeric !== undefined &&
+    rangeMin !== undefined &&
+    rangeMax !== undefined &&
+    Number.isFinite(rangeMin) &&
+    Number.isFinite(rangeMax) &&
+    rangeMax > rangeMin
+      ? (r.numeric - rangeMin) / (rangeMax - rangeMin)
+      : undefined
+  const ratio = clamp01(rangedRatio ?? r.pct ?? 0)
   const accent = resolveCssColor(s.accentColor, skin.palette.accent)
   const valueColor = resolveCssColor(s.color, skin.palette.text)
   // Content-aware VALUE font: numeric readouts render in DSEG (FONT_MONO),
