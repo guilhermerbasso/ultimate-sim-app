@@ -1312,9 +1312,10 @@ export function createDashboardId(): string {
 }
 
 export function copyDashboardAsNew(dashboard: Dashboard): Dashboard {
-  const { storageEpoch: _epoch, storageRevision: _revision, ...copy } = dashboard
+  const cloned = structuredClone(dashboard)
+  const { storageEpoch: _epoch, storageRevision: _revision, ...copy } = cloned
   const now = Date.now()
-  return { ...copy, id: createDashboardId(), name: `${dashboard.name} copy`, createdAt: now, updatedAt: now }
+  return { ...copy, id: createDashboardId(), name: `${copy.name} copy`, createdAt: now, updatedAt: now }
 }
 
 export function createElementId(): string {
