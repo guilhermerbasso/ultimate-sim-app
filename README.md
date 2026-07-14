@@ -4,7 +4,7 @@
 
 # Ultimate Sim App
 
-**Ultimate Sim App 2.50.0** is a Windows sim-racing companion for iRacing-focused telemetry, GT3-style dashboards, transparent overlays, strategy tools, DIY hardware, and local AI coaching.
+**Ultimate Sim App 2.51.0** is a Windows sim-racing companion for iRacing-focused telemetry, GT3-style dashboards, transparent overlays, strategy tools, DIY hardware, and local AI coaching.
 
 Independent community project maintained by Guilherme Basso · Electron + React + TypeScript · Apache-2.0
 
@@ -16,13 +16,25 @@ Independent community project maintained by Guilherme Basso · Electron + React 
 
 ---
 
-## What is included in 2.50.0
+## What is included in 2.51.0
 
 Ultimate Sim App combines live race telemetry, dashboard composition, transparent overlays, phone streaming, hardware control, and local AI into one desktop app. It is designed for Windows racing rigs, second monitors, cockpit tablets/phones, and DIY Arduino/ESP32 devices.
 
 ## What's new
 
 <!-- WHATS_NEW:START -->
+
+### 2.51.0 — telemetry, dense dashboards, units & live-data safety
+
+- **423 real telemetry widget variants for 141 implemented concepts**, using competition, futuristic-plausible, and DDU-inspired styles. Opponent steering remains blocked because iRacing exposes no opponent steering; shift lights use the separate shared rev-light implementation. Missing data stays empty or explicit instead of becoming a fake value. (#29)
+- **50 individually authored dense GT3 dashboards**, bringing the built-in catalog to **336 presets** for qualifying, sprint, race, and endurance use. (#29)
+- **Global Metric / Imperial-US units** across widgets, overlays, dashboards, strategy, Coach, and Engineer output. (#29)
+- **Gallery previews are inert and fast**, generating no live telemetry, Coach, Engineer, or settings IPC. (#32, #34)
+- **Saved overlays retain their exact widget identity**, while persisted dashboards are validated and migrated instead of silently accepting malformed state. (#37, #38, #46)
+- Rev/RPM lights use one shared shift-point behavior: all LEDs turn strong blue and strobe uniformly. (#29)
+
+See the [v2.51.0 release notes](https://github.com/guilhermerbasso/ultimate-sim-app/releases/tag/v2.51.0) for the full list.
+
 ### 2.50.0 — Intent- & racecraft-aware AI Coach
 
 - The local **AI Coach** now infers **driver intent** (racecraft, stint management, track/session conditions) over a time window before calling anything a mistake — deterministic and local-first, **no cloud LLM, no black-box ML**.
