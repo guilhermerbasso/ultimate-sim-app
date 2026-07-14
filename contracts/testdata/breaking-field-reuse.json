@@ -1,0 +1,5 @@
+{
+  "relativepath": "ultimate/sim/raceops/v1/race_ops_event.proto",
+  "replace": "  RaceOpsEventClass event_class = 2;",
+  "with": "  string legacy_event_class = 2;"
+}

@@ -1,0 +1,43 @@
+edition = "2023";
+
+package ultimate.sim.raceops.v1;
+
+enum DataValidity {
+  DATA_VALIDITY_UNSPECIFIED = 0;
+  DATA_VALIDITY_VALID = 1;
+  DATA_VALIDITY_STALE = 2;
+  DATA_VALIDITY_MISSING = 3;
+  DATA_VALIDITY_INVALID = 4;
+}
+
+enum NullReason {
+  NULL_REASON_UNSPECIFIED = 0;
+  NULL_REASON_NOT_AVAILABLE = 1;
+  NULL_REASON_NOT_APPLICABLE = 2;
+  NULL_REASON_SOURCE_DISCONNECTED = 3;
+  NULL_REASON_REDACTED = 4;
+  NULL_REASON_OUT_OF_RANGE = 5;
+}
+
+enum PrivacyClass {
+  PRIVACY_CLASS_UNSPECIFIED = 0;
+  PRIVACY_CLASS_D0_PUBLIC = 1;
+  PRIVACY_CLASS_D1_ACCOUNT = 2;
+  PRIVACY_CLASS_D2_DRIVER = 3;
+  PRIVACY_CLASS_D3_TEAM = 4;
+  PRIVACY_CLASS_D4_SENSITIVE = 5;
+  PRIVACY_CLASS_D5_RESTRICTED = 6;
+}
+
+message ProvenanceReference {
+  string source_id = 1;
+  string transform_id = 2;
+  string schema_fingerprint = 3;
+  string canonical_unit = 4;
+  DataValidity validity = 5;
+  NullReason null_reason = 6;
+  uint64 source_tick = 7;
+  uint64 observed_monotonic_ns = 8;
+  uint64 age_ms = 9;
+  PrivacyClass privacy_class = 10;
+}

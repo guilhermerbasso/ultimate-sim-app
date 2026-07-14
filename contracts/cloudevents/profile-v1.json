@@ -1,0 +1,128 @@
+{
+  "profileversion": "1.0.0",
+  "specversion": "1.0",
+  "eventtypeprefix": "ultimate.sim.",
+  "payload": {
+    "type": "ultimate.sim.raceops.v1.RaceOpsEvent",
+    "datacontenttype": "application/x-protobuf",
+    "dataschema": "urn:ultimate-sim:raceops:v1:race-ops-event",
+    "rich64bitfields": [
+      "consent_epoch",
+      "sequence",
+      "partition_seq",
+      "source_tick",
+      "observed_monotonic_ns",
+      "ttl_ms"
+    ]
+  },
+  "standardattributes": {
+    "specversion": {
+      "type": "string",
+      "required": true
+    },
+    "id": {
+      "type": "string",
+      "required": true
+    },
+    "source": {
+      "type": "uri-reference",
+      "required": true
+    },
+    "type": {
+      "type": "string",
+      "required": true
+    },
+    "subject": {
+      "type": "string",
+      "required": false
+    },
+    "time": {
+      "type": "timestamp",
+      "required": false
+    },
+    "datacontenttype": {
+      "type": "string",
+      "required": true
+    },
+    "dataschema": {
+      "type": "uri",
+      "required": true
+    }
+  },
+  "extensions": {
+    "sequence": {
+      "type": "string",
+      "format": "decimal-uint64",
+      "payloadfield": "sequence"
+    },
+    "sourcetick": {
+      "type": "string",
+      "format": "decimal-uint64",
+      "payloadfield": "source_tick"
+    },
+    "monotonicns": {
+      "type": "string",
+      "format": "decimal-uint64",
+      "payloadfield": "observed_monotonic_ns"
+    },
+    "sessionid": {
+      "type": "string",
+      "payloadfield": "session_ref"
+    },
+    "producerid": {
+      "type": "string"
+    },
+    "schemafp": {
+      "type": "string"
+    },
+    "correlationid": {
+      "type": "string",
+      "payloadfield": "correlation_id"
+    },
+    "causationid": {
+      "type": "string"
+    },
+    "privacyclass": {
+      "type": "string",
+      "payloadfield": "privacy_class"
+    },
+    "rolepolicyid": {
+      "type": "string",
+      "payloadfield": "policy_ref"
+    },
+    "capgrantid": {
+      "type": "string",
+      "payloadfield": "capability_ref"
+    },
+    "consentepoch": {
+      "type": "string",
+      "format": "decimal-uint64",
+      "payloadfield": "consent_epoch"
+    },
+    "approvalid": {
+      "type": "string",
+      "payloadfield": "approval_ref"
+    },
+    "partitionkey": {
+      "type": "string",
+      "payloadfield": "partition_key"
+    },
+    "partitionseq": {
+      "type": "string",
+      "format": "decimal-uint64",
+      "payloadfield": "partition_seq"
+    },
+    "stale": {
+      "type": "boolean",
+      "payloadfield": "integrity_flags"
+    },
+    "derived": {
+      "type": "boolean",
+      "payloadfield": "integrity_flags"
+    },
+    "gap": {
+      "type": "boolean",
+      "payloadfield": "integrity_flags"
+    }
+  }
+}
