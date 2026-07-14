@@ -656,6 +656,11 @@ describe('iRacing canonical replay context', () => {
     })
   })
 
+  it('canonicalizes provider session identity when metadata segments are missing', () => {
+    const snap = pollWith(liveValues, { WeekendInfo: { SimMode: 'full', SessionID: 10 } })
+    expect(snap?.replayContext?.sessionIdentity).toBe('10:44:2')
+  })
+
   it('auto-mode reconnect never reuses a pre-disconnect snapshot when the first read is empty', () => {
     let connected = true
     const replayValues = { ...liveValues, IsReplayPlaying: true, ReplaySessionNum: 2 }
