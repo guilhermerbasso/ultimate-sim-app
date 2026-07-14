@@ -27,7 +27,7 @@ export const DEBRIEF_CHANNELS = {
   last: 'debrief:last',
   /** Broadcast: a freshly composed debrief (after a generate). */
   updated: 'debrief:updated',
-  /** Broadcast: stint/session ended — the renderer should auto-generate. */
+  /** Broadcast: immutable ended-session facts; main already auto-generated the debrief. */
   trigger: 'debrief:trigger'
 } as const
 
@@ -65,6 +65,14 @@ export interface DebriefGenerateRequest {
   sessionInfo?: DebriefSessionInfo
   /** When true, try the local LLM to phrase; otherwise return deterministic text. */
   useLlm?: boolean
+}
+
+/** Immutable ended-session snapshot carried by `debrief:trigger`. */
+export interface DebriefTriggerPayload {
+  reason: Exclude<DebriefReason, 'manual'>
+  findings: CoachFinding[]
+  predictions: PredictionsSnapshot | null
+  sessionInfo: DebriefSessionInfo
 }
 
 /** The composed debrief, broadcast on `debrief:updated` and returned by IPC. */
