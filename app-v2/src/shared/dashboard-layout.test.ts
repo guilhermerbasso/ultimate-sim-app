@@ -136,6 +136,9 @@ describe('buildDashboardFromBlueprint — end to end', () => {
               failures.push(`${key}: missing catalog/element at ${index}`)
               continue
             }
+            if (typeof element.binding === 'string' && !element.binding.trim()) {
+              failures.push(`${key}: blank binding for ${source.id}`)
+            }
             if (element.widgetId !== source.widgetId || element.hifiModuleId !== source.hifiModuleId) {
               failures.push(`${key}: lost identity for ${source.id}`)
             }

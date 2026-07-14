@@ -153,6 +153,8 @@ describe('packWidgetsIntoGrid', () => {
     const els = packWidgetsIntoGrid(FIXTURE)
     expect(els[0].type).toBe('fuelstint')
     expect(els[0].binding).toBe('fuelLiters')
+    expect(els[1].binding).toBeUndefined()
+    expect(els.every((element) => element.binding === undefined || element.binding.trim().length > 0)).toBe(true)
     expect(els[0].style).not.toBe(FIXTURE[0].style)
     expect(new Set(els.map((e) => e.id)).size).toBe(els.length)
   })
