@@ -215,7 +215,7 @@ The language selector supports **pt-BR, en, es, fr, de, zh, and ja**. `Auto` fol
 ## Quick start for users
 
 1. Open the [latest published release](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest).
-2. Download `Ultimate-Sim-App-<version>-x64.exe`, or the x64 `.zip` for portable use.
+2. Choose the Windows x64 `.exe` installer, or the portable x64 `.zip`, whose version matches the release tag. Ignore any older-version asset retained on a historical release.
 3. Install and launch Ultimate Sim App, then select Auto-detect, Demo, iRacing, ACC, Assetto Corsa, AMS2, or LMU.
 4. Use Borderless or Windowed mode for overlays; exclusive fullscreen cannot display Windows overlay windows.
 5. Open a dashboard on another display or start streaming. LAN/Internet streaming requires a password in addition to the generated token.
