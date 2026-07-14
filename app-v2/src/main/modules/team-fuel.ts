@@ -235,10 +235,7 @@ function localCustId(snapshot: TelemetrySnapshot | null): number | undefined {
 }
 
 function telemetryForGate(snapshot: TelemetrySnapshot | null): TelemetrySnapshot | null {
-  if (snapshot && (snapshot as { connected?: boolean }).connected === undefined) {
-    return { ...snapshot, connected: true }
-  }
-  return snapshot
+  return snapshot?.connected === true ? snapshot : null
 }
 
 function peersEqual(a: TeamFuelPeer | undefined, b: TeamFuelPeer): boolean {

@@ -41,6 +41,7 @@ function fakeContext(driverName = 'Local Driver'): TestContext {
     ipcMain: { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) },
     telemetryHub: {
       getLatest: () => ({
+        connected: true,
         driverName,
         fuelLiters: 42,
         fuelPerLap: 2.5,
