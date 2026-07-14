@@ -26,6 +26,38 @@ export type ReplayContextIdentity = { sessionIdentity?: string; connectionEpoch:
 
 export type ReplayContext = ReplayResolution & ReplayContextIdentity & { active: boolean; revision: number; token: string }
 
+export interface ReplayAwareTelemetrySnapshot {
+  connected?: boolean
+  sim?: string
+  sessionUniqueId?: number
+  replayContext?: ReplayContext
+}
+
+export type LiveTelemetryState = ReplayContextState | 'disconnected'
+
+export interface LiveTelemetryContext {
+  state: 'live'
+  revision: number
+  token: string
+  connectionEpoch: number
+  sessionIdentity?: string
+}
+
+export interface LiveTelemetryDecision {
+  state: LiveTelemetryState
+  live: boolean
+  boundary: boolean
+  enteredLive: boolean
+  enteredNonLive: boolean
+  sessionChanged: boolean
+  context: LiveTelemetryContext | null
+}
+
+/** Track-map replay gating is intentionally owned by the stacked track-layout-safety predecessor. */
+export const REPLAY_GATING_PREDECESSORS = {
+  trackMap: 'guilhermerbasso/track-layout-safety'
+} as const
+
 type Checked<T> = { value?: T; missing: boolean; invalid: boolean }
 
 function checked<T>(raw: unknown, guard: (value: unknown) => value is T): Checked<T> {
@@ -45,6 +77,94 @@ function simMode(raw: unknown): Checked<ReplaySimMode> {
 
 function integer(raw: unknown, min: number): Checked<number> {
   return checked(raw, (value): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= min)
+}
+
+export function liveTelemetryState(snapshot: ReplayAwareTelemetrySnapshot | null | undefined): LiveTelemetryState {
+  if (!snapshot?.connected) return 'disconnected'
+  return snapshot.replayContext?.state ?? 'live'
+}
+
+export function captureLiveTelemetryContext(
+  snapshot: ReplayAwareTelemetrySnapshot | null | undefined
+): LiveTelemetryContext | null {
+  if (liveTelemetryState(snapshot) !== 'live') return null
+  const context = snapshot?.replayContext
+  if (context) {
+    return {
+      state: 'live',
+      revision: context.revision,
+      token: context.token,
+      connectionEpoch: context.connectionEpoch,
+      sessionIdentity: context.sessionIdentity
+    }
+  }
+  const sim = snapshot?.sim ?? 'telemetry'
+  const session = Number.isFinite(snapshot?.sessionUniqueId) ? snapshot?.sessionUniqueId : 'session'
+  return { state: 'live', revision: 0, token: `${sim}:${session}`, connectionEpoch: 0 }
+}
+
+export function sameLiveTelemetryContext(
+  left: LiveTelemetryContext | null | undefined,
+  right: LiveTelemetryContext | null | undefined
+): boolean {
+  return Boolean(
+    left &&
+    right &&
+    left.revision === right.revision &&
+    left.token === right.token &&
+    left.connectionEpoch === right.connectionEpoch &&
+    left.sessionIdentity === right.sessionIdentity
+  )
+}
+
+export function isCurrentLiveTelemetryContext(
+  snapshot: ReplayAwareTelemetrySnapshot | null | undefined,
+  captured: LiveTelemetryContext | null | undefined
+): boolean {
+  return sameLiveTelemetryContext(captureLiveTelemetryContext(snapshot), captured)
+}
+
+export function isLiveTelemetrySnapshot<T extends ReplayAwareTelemetrySnapshot>(
+  snapshot: T | null | undefined
+): snapshot is T {
+  return liveTelemetryState(snapshot) === 'live'
+}
+
+export class LiveTelemetryGate {
+  private previousKey: string | undefined
+  private lastLiveContext: LiveTelemetryContext | null = null
+
+  observe(snapshot: ReplayAwareTelemetrySnapshot | null | undefined): LiveTelemetryDecision {
+    const state = liveTelemetryState(snapshot)
+    const raw = snapshot?.replayContext
+    const context = captureLiveTelemetryContext(snapshot)
+    const key = raw
+      ? `${state}:${raw.connectionEpoch}:${raw.revision}:${raw.sessionIdentity ?? ''}`
+      : `${state}:${context?.token ?? ''}`
+    const first = this.previousKey === undefined
+    const boundary = first ? state !== 'live' : key !== this.previousKey
+    const sessionChanged = Boolean(
+      context &&
+      this.lastLiveContext &&
+      (
+        context.connectionEpoch !== this.lastLiveContext.connectionEpoch ||
+        context.sessionIdentity !== this.lastLiveContext.sessionIdentity ||
+        (!raw && context.token !== this.lastLiveContext.token)
+      )
+    )
+    this.previousKey = key
+    if (context) this.lastLiveContext = context
+
+    return {
+      state,
+      live: state === 'live',
+      boundary,
+      enteredLive: state === 'live' && boundary,
+      enteredNonLive: state !== 'live' && boundary,
+      sessionChanged,
+      context
+    }
+  }
 }
 
 export function resolveReplayContext(raw: ReplayContextSource): ReplayResolution {

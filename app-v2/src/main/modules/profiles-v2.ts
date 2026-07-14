@@ -2,6 +2,7 @@ import type { RaceProfile } from '../../shared/raceprofiles'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import type { ModuleContext } from '../module-context'
 import { RaceProfileStore } from '../raceprofiles/store'
+import { LiveTelemetryGate } from '../../shared/replay'
 
 export function register(ctx: ModuleContext): void {
   const store = new RaceProfileStore(ctx.app.getPath('userData'))
@@ -9,6 +10,13 @@ export function register(ctx: ModuleContext): void {
   let lastTrackName: string | undefined
   let lastSuggestedProfileId: string | null = null
   let suggestionGeneration = 0
+  const liveGate = new LiveTelemetryGate()
+  const resetLiveState = (): void => {
+    suggestionGeneration += 1
+    lastCarName = undefined
+    lastTrackName = undefined
+    lastSuggestedProfileId = null
+  }
 
   ctx.ipcMain.handle('profilesv2:list', () => store.list())
   ctx.ipcMain.handle('profilesv2:get', (_event, id: string) => store.get(id))
@@ -18,15 +26,13 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle('profilesv2:setAutoSwitch', (_event, enabled: boolean) => store.setAutoSwitch(enabled))
 
   ctx.telemetryHub.on('snapshot', (snapshot: TelemetrySnapshot | null) => {
-    if (!snapshot?.connected) {
-      suggestionGeneration += 1
-      // Reset the last car/track (and suggestion) so reconnecting with the same
-      // car/track re-evaluates and can re-show the autoswitch prompt.
-      lastCarName = undefined
-      lastTrackName = undefined
-      lastSuggestedProfileId = null
+    const live = liveGate.observe(snapshot)
+    if (!live.live) {
+      if (live.boundary) resetLiveState()
       return
     }
+    if (live.boundary) resetLiveState()
+    if (!snapshot) return
 
     const carName = normalizeTelemetryName(snapshot.carName)
     const trackName = normalizeTelemetryName(snapshot.trackName)

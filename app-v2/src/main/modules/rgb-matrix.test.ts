@@ -317,6 +317,8 @@ describe('RgbMatrixModule live drive (keyframe + quick retry)', () => {
 })
 
 describe('RgbMatrixModule allOff (quit teardown)', () => {
+  afterEach(() => vi.useRealTimers())
+
   it('sends brightness 0 + a black P-frame to each connected iFlag and stops driving', async () => {
     const sent: string[] = []
     const device = {
@@ -346,6 +348,65 @@ describe('RgbMatrixModule allOff (quit teardown)', () => {
     await mod.allOff()
     expect(sent).toContain('Y0') // brightness 0
     expect(sent.some((f) => /^P0{384}$/.test(f))).toBe(true) // all-black 64-pixel frame
+  })
+
+  it('drains legitimate multi-device writes concurrently even when each device takes over 1s', async () => {
+    vi.useFakeTimers()
+    const sent = new Map<string, string[]>()
+    const makeSlowDevice = (id: string): SerialDevice => ({
+      id,
+      kind: 'generic',
+      isOpen: () => true,
+      sendRaw: (frame: string) => {
+        const frames = sent.get(id) ?? []
+        frames.push(frame)
+        sent.set(id, frames)
+        return new Promise<void>((resolve) => setTimeout(resolve, 550))
+      }
+    }) as unknown as SerialDevice
+    const devices = new Map([
+      ['dev1', makeSlowDevice('dev1')],
+      ['dev2', makeSlowDevice('dev2')]
+    ])
+    const hub = { on: () => {}, off: () => {} }
+    const ctx = {
+      app: { getPath: () => process.cwd() },
+      telemetryHub: hub,
+      serialHub: {
+        ...hub,
+        getPrimaryId: () => null,
+        getDevice: (id: string) => devices.get(id) ?? null
+      }
+    } as unknown as ModuleContext
+    const mod = new RgbMatrixModule(ctx)
+    internals(mod).loaded = true
+    internals(mod).profiles = [...devices.keys()].map((deviceId, index) => ({
+      id: `prof${index + 1}`,
+      deviceId,
+      components: [{
+        id: `comp${index + 1}`,
+        type: 'rgbMatrix',
+        mode: 'iflag',
+        enabled: true,
+        brightness: 120
+      }]
+    })) as unknown as DeviceProfile[]
+
+    let settled = false
+    const allOff = mod.allOff().then(() => {
+      settled = true
+    })
+    await vi.advanceTimersByTimeAsync(1_099)
+    expect(settled).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1)
+    await allOff
+    expect(settled).toBe(true)
+    for (const frames of sent.values()) {
+      expect(frames).toContain('Y0')
+      expect(frames.some((frame) => /^P0{384}$/.test(frame))).toBe(true)
+    }
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('is safe with no connected matrix (no throw)', async () => {

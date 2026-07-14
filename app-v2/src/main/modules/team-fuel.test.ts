@@ -41,6 +41,7 @@ function fakeContext(driverName = 'Local Driver'): TestContext {
     ipcMain: { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) },
     telemetryHub: {
       getLatest: () => ({
+        connected: true,
         driverName,
         fuelLiters: 42,
         fuelPerLap: 2.5,
@@ -106,8 +107,8 @@ async function makeServer(onConnection: (socket: WebSocket) => void): Promise<{ 
   await once(server, 'listening')
   return { server, port: (server.address() as AddressInfo).port }
 }
-function peer(peerId: string): TeamFuelPeer {
-  return { peerId, driverName: peerId, fuelLiters: 20, ts: Date.now() }
+function peer(peerId: string, overrides: Partial<TeamFuelPeer> = {}): TeamFuelPeer {
+  return { peerId, driverName: peerId, fuelLiters: 20, ts: Date.now(), ...overrides }
 }
 function send(socket: WebSocket, value: unknown, options?: { fin?: boolean }): void {
   socket.send(typeof value === 'string' ? value : JSON.stringify(value), options ?? {})
@@ -374,8 +375,17 @@ describe('team fuel V1 containment', () => {
     const oldClient = probe(modernHost.status.port as number)
     const challengeMessage = await challenge(oldClient)
     send(oldClient.ws, { type: 'hello', roomHash: HASH, peerId: 'legacy', auth: createHmac('sha256', KEY).update(challengeMessage.nonce as string).digest('hex') })
-    send(oldClient.ws, { type: 'state', roomHash: HASH, peer: peer('legacy') })
+    const firstTs = Date.now()
+    send(oldClient.ws, { type: 'state', roomHash: HASH, peer: peer('legacy', { ts: firstTs }) })
+    await sleep(50)
+    expect((await invoke<TeamFuelPeer[]>(modernHost.ctx, TEAM_FUEL_CHANNELS.state)).some((item) => item.peerId === 'legacy')).toBe(false)
+    send(oldClient.ws, { type: 'state', roomHash: HASH, peer: peer('legacy', { fuelLiters: 19, ts: firstTs + 1 }) })
     await waitUntil(async () => (await invoke<TeamFuelPeer[]>(modernHost.ctx, TEAM_FUEL_CHANNELS.state)).some((item) => item.peerId === 'legacy'))
+    expect((await invoke<TeamFuelPeer[]>(modernHost.ctx, TEAM_FUEL_CHANNELS.state)).find((item) => item.peerId === 'legacy')).toMatchObject({
+      fuelLiters: 19,
+      sessionUniqueId: 7,
+      local: false
+    })
 
     const legacyReceived: Wire[] = []
     const oldHost = await makeServer((socket) => {
@@ -386,5 +396,24 @@ describe('team fuel V1 containment', () => {
     await waitUntil(() => legacyReceived.some((message) => message.type === 'state'))
     expect(oldClient.messages.some((message) => message.type === 'state')).toBe(true)
     expect(legacyReceived.slice(0, 2).map((message) => message.type)).toEqual(['hello', 'state'])
+  })
+
+  it('keeps sessionless legacy peers on probation for identical or older timestamps', async () => {
+    const { ctx, status } = await start('host')
+    const legacy = probe(status.port as number)
+    const challengeMessage = await challenge(legacy)
+    send(legacy.ws, {
+      type: 'hello',
+      roomHash: HASH,
+      peerId: 'legacy-probation',
+      auth: createHmac('sha256', KEY).update(challengeMessage.nonce as string).digest('hex')
+    })
+    const ts = Date.now()
+    send(legacy.ws, { type: 'state', roomHash: HASH, peer: peer('legacy-probation', { ts }) })
+    send(legacy.ws, { type: 'state', roomHash: HASH, peer: peer('legacy-probation', { fuelLiters: 18, ts }) })
+    send(legacy.ws, { type: 'state', roomHash: HASH, peer: peer('legacy-probation', { fuelLiters: 17, ts: ts - 1 }) })
+    await sleep(50)
+
+    expect((await invoke<TeamFuelPeer[]>(ctx, TEAM_FUEL_CHANNELS.state)).some((item) => item.peerId === 'legacy-probation')).toBe(false)
   })
 })

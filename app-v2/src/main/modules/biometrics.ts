@@ -28,6 +28,7 @@ import {
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import type { ModuleContext } from '../module-context'
 import { logger } from './logger'
+import { isLiveTelemetrySnapshot, LiveTelemetryGate } from '../../shared/replay'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Biometrics module (F7).
@@ -106,6 +107,7 @@ export class MockHeartRateSource extends BaseHeartRateSource {
   private phase = 0
   private incidentUntil = 0
   private lastIncidentCount: number | undefined
+  private wasLive = false
 
   constructor(
     private readonly getSnapshot: () => TelemetrySnapshot | null,
@@ -133,7 +135,20 @@ export class MockHeartRateSource extends BaseHeartRateSource {
 
   private tick(): void {
     const snapshot = this.getSnapshot()
-    const engaged = Boolean(snapshot?.connected)
+    if (!isLiveTelemetrySnapshot(snapshot)) {
+      if (this.wasLive) {
+        this.wasLive = false
+        this.incidentUntil = 0
+        this.lastIncidentCount = undefined
+      }
+      return
+    }
+    if (!this.wasLive) {
+      this.wasLive = true
+      this.incidentUntil = 0
+      this.lastIncidentCount = snapshot.incidentCount
+    }
+    const engaged = true
     const now = Date.now()
 
     // Latch a transient arousal bump for a few seconds after a fresh incident.
@@ -233,7 +248,8 @@ interface ActiveSession {
   source: HeartRateSourceKind
 }
 
-class BiometricsService {
+export class BiometricsService {
+  private readonly liveGate = new LiveTelemetryGate()
   private source: HeartRateSource
   private unsubscribeSource: (() => void) | null = null
   private readonly samples: HrSample[] = []
@@ -249,9 +265,11 @@ class BiometricsService {
   private lastLap: number | undefined
   private lastIncidentCount: number | undefined
   private lastYellow = false
+  private liveContextActive = false
 
   constructor(private readonly ctx: ModuleContext, private readonly sessionsPath: string) {
     this.source = new MockHeartRateSource(() => ctx.telemetryHub.getLatest())
+    this.liveContextActive = this.liveGate.observe(ctx.telemetryHub.getLatest()).live
     ctx.telemetryHub.on('snapshot', (snapshot) => this.onTelemetry(snapshot))
   }
 
@@ -294,6 +312,7 @@ class BiometricsService {
 
   /** Forward a raw BLE 0x2A37 value from the renderer to an active BLE source. */
   ingestBleValue(bytes: unknown): BioStatus {
+    if (!this.liveContextActive) return this.status()
     const array = toByteArray(bytes)
     if (array && this.source instanceof WebBleHeartRateSource) {
       try {
@@ -308,7 +327,7 @@ class BiometricsService {
   // ── source readings ──────────────────────────────────────────────────────────
 
   private onReading(reading: HeartRateReading): void {
-    if (!this.running) return
+    if (!this.running || !this.liveContextActive) return
     this.lastBpm = reading.bpm
     // Seed the baseline on the first sample, then track it with a slow EMA so
     // "elevated/stressed" is measured against THIS driver's session resting HR.
@@ -339,7 +358,14 @@ class BiometricsService {
   // ── telemetry → lap / incident / flag events ────────────────────────────────
 
   private onTelemetry(snapshot: TelemetrySnapshot | null): void {
-    if (!this.running || !snapshot?.connected) return
+    const live = this.liveGate.observe(snapshot)
+    if (!live.live) {
+      if (live.boundary) this.resetTelemetryBoundary()
+      return
+    }
+    if (live.boundary) this.resetTelemetryBoundary()
+    this.liveContextActive = true
+    if (!this.running || !snapshot) return
     const now = Date.now()
 
     if (typeof snapshot.currentLap === 'number') {
@@ -366,6 +392,16 @@ class BiometricsService {
     this.lastYellow = yellow
 
     if (this.events.length > 400) this.events.splice(0, this.events.length - 400)
+  }
+
+  private resetTelemetryBoundary(): void {
+    this.liveContextActive = false
+    this.lastLap = undefined
+    this.lastIncidentCount = undefined
+    this.lastYellow = false
+    this.lastBpm = undefined
+    this.lastState = 'calm'
+    if (this.running) this.broadcastStatus()
   }
 
   // ── queries ──────────────────────────────────────────────────────────────────
@@ -468,7 +504,7 @@ export function register(ctx: ModuleContext): void {
 // ─── pure-ish helpers ────────────────────────────────────────────────────────
 
 function intensityInputs(snapshot: TelemetrySnapshot | null): Parameters<typeof drivingIntensity>[0] {
-  if (!snapshot?.connected) return {}
+  if (!isLiveTelemetrySnapshot(snapshot)) return {}
   return {
     speedKmh: snapshot.speedKmh,
     throttle: snapshot.throttle,

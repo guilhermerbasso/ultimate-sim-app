@@ -94,6 +94,7 @@ function makeHarness(overrides?: {
   config?: Partial<EngineerConfig>
   snapshot?: TelemetrySnapshot | null
   racecraftContext?: RacecraftAdviceContext | null
+  getLiveContext?: EngineerOrchestratorDeps['getLiveContext']
 }): Harness {
   const config: EngineerConfig = { ...DEFAULT_ENGINEER_CONFIG, ...overrides?.config }
   const runtime = makeRuntime()
@@ -109,7 +110,8 @@ function makeHarness(overrides?: {
     broadcast,
     config,
     saveConfig,
-    now: () => 1000
+    now: () => 1000,
+    getLiveContext: overrides?.getLiveContext
   }
   return { deps, runtime, modelManager, broadcast, saveConfig }
 }
@@ -154,6 +156,54 @@ describe('createEngineerOrchestrator.ask', () => {
     // No telemetry → deterministic "no data" reply (English default).
     expect(answer.text).toBe('No telemetry right now.')
     expect(h.broadcast).toHaveBeenCalledWith(ENGINEER_CHANNELS.answer, expect.objectContaining({ source: 'intent' }))
+  })
+
+  it('returns the local empty fallback without consulting live context', async () => {
+    const getLiveContext = vi.fn(() => null)
+    const harness = makeHarness({ getLiveContext })
+    const orch = createEngineerOrchestrator(harness.deps)
+
+    const answer = await orch.ask('   ')
+
+    expect(answer).toMatchObject({
+      question: '',
+      text: 'Can you repeat the question?',
+      kind: 'answer',
+      source: 'system'
+    })
+    expect(answer.id).not.toContain('live-context-reset')
+    expect(getLiveContext).not.toHaveBeenCalled()
+    expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
+  it('keeps same-millisecond live-context rejection ids unique and deterministic', async () => {
+    const getLiveContext = vi.fn(() => null)
+    const harness = makeHarness({ getLiveContext })
+    const orch = createEngineerOrchestrator(harness.deps)
+
+    const first = await orch.ask('first rejected question')
+    const second = await orch.ask('second rejected question')
+
+    const pattern = /^eng-live-context-reset-1000-(\d+)$/
+    const firstMatch = pattern.exec(first.id)
+    const secondMatch = pattern.exec(second.id)
+    if (!firstMatch || !secondMatch) throw new Error('Unexpected live-context rejection id')
+
+    expect(second.id).not.toBe(first.id)
+    expect(Number(secondMatch[1])).toBe(Number(firstMatch[1]) + 1)
+    for (const answer of [first, second]) {
+      expect(answer).toMatchObject({
+        at: 1000,
+        text: 'Live telemetry is unavailable.',
+        speak: false,
+        kind: 'disabled',
+        source: 'system'
+      })
+    }
+    expect(getLiveContext).toHaveBeenCalledTimes(2)
+    expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
   })
 
   it('answers how to pass the car ahead from deterministic racecraft evidence without the LLM', async () => {
@@ -288,11 +338,16 @@ describe('createEngineerOrchestrator.ask', () => {
   })
 
   it('short-circuits with a friendly note when disabled', async () => {
-    const harness = makeHarness({ config: { enabled: false } })
+    const getLiveContext = vi.fn(() => null)
+    const harness = makeHarness({ config: { enabled: false }, getLiveContext })
     const orch = createEngineerOrchestrator(harness.deps)
     const answer = await orch.ask('boxes agora?')
 
     expect(answer.kind).toBe('disabled')
+    expect(answer.source).toBe('system')
+    expect(answer.id).not.toContain('live-context-reset')
+    expect(getLiveContext).not.toHaveBeenCalled()
+    expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
     expect(answer.text).toContain('turned off')
   })

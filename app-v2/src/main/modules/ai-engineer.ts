@@ -60,6 +60,12 @@ import { logger } from './logger'
 import { getLatestPredictions } from './predictions'
 import { getLatestCoachFindings, getLatestCoachRacecraftContext } from './proactive-engineer'
 import type { UnitSystem } from '../../shared/units'
+import {
+  captureLiveTelemetryContext,
+  LiveTelemetryGate,
+  sameLiveTelemetryContext,
+  type LiveTelemetryContext
+} from '../../shared/replay'
 
 const LOG_AREA = 'ai'
 const CONFIG_FILE = 'engineer.json'
@@ -74,6 +80,7 @@ const ASK_LOG_THROTTLE_MS = 4000
 
 // Keep the most recent Q&A pairs in memory (the renderer keeps its own scrollback).
 const MAX_LOG_ENTRIES = 50
+let liveContextRejectionSeq = 0
 
 // ─── Injectable dependency seams (tests pass fakes) ───────────────────────────
 
@@ -107,6 +114,8 @@ export interface EngineerOrchestratorDeps {
   logger?: Logger
   now?(): number
   getUnitSystem?(): UnitSystem
+  /** Canonical live context used to reject replay/unknown and stale async answers. */
+  getLiveContext?(): LiveTelemetryContext | null
 }
 
 export interface EngineerOrchestrator {
@@ -116,6 +125,7 @@ export interface EngineerOrchestrator {
   getConfig(): EngineerConfig
   setConfig(patch: EngineerConfigPatch): Promise<EngineerConfig>
   cancel(): void
+  resetLiveContext(): void
   getLog(): EngineerAnswer[]
 }
 
@@ -296,7 +306,26 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     if (recent.length > MAX_LOG_ENTRIES) recent.splice(0, recent.length - MAX_LOG_ENTRIES)
   }
 
-  function finalize(
+  function contextIsCurrent(context: LiveTelemetryContext | null): boolean {
+    return !deps.getLiveContext || sameLiveTelemetryContext(deps.getLiveContext(), context)
+  }
+
+  function rejectedAnswer(question: string): EngineerAnswer {
+    const at = now()
+    liveContextRejectionSeq += 1
+    return {
+      id: `eng-live-context-reset-${at}-${liveContextRejectionSeq}`,
+      at,
+      question,
+      text: isPt(config) ? 'Telemetria ao vivo indisponível.' : 'Live telemetry is unavailable.',
+      speak: false,
+      lang: config.language,
+      kind: 'disabled',
+      source: 'system'
+    }
+  }
+
+  function publishAnswer(
     question: string,
     text: string,
     kind: EngineerAnswerKind,
@@ -329,6 +358,18 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     return answer
   }
 
+  function finalize(
+    question: string,
+    text: string,
+    kind: EngineerAnswerKind,
+    source: EngineerAnswerSource,
+    command: EngineerCommandDirective | undefined,
+    context: LiveTelemetryContext | null
+  ): EngineerAnswer {
+    if (!contextIsCurrent(context)) return rejectedAnswer(question)
+    return publishAnswer(question, text, kind, source, command)
+  }
+
   function applyRuntimeOptions(): void {
     const patch: LlmRuntimeOptions = {
       modelId: config.modelId,
@@ -345,7 +386,7 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     deps.broadcast(ENGINEER_CHANNELS.modelProgress, progress)
   }
 
-  async function llmAnswer(question: string): Promise<EngineerAnswer> {
+  async function llmAnswer(question: string, context: LiveTelemetryContext | null): Promise<EngineerAnswer> {
     // Create the abort controller FIRST so "Parar" (engineer:cancel) can cancel even the
     // ~1 GB first-run model download — otherwise a surprise download mid online-race could
     // saturate the connection with no way to stop it.
@@ -353,10 +394,17 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     currentAbort = controller
     try {
       // Lazy model resolution (download-on-first-run with progress + cancellable).
-      const ensured = await deps.modelManager.ensureModel(config.modelId, onModelProgress, controller.signal)
+      const ensured = await deps.modelManager.ensureModel(
+        config.modelId,
+        (progress) => {
+          if (contextIsCurrent(context)) deps.broadcast(ENGINEER_CHANNELS.modelProgress, progress)
+        },
+        controller.signal
+      )
+      if (!contextIsCurrent(context)) return rejectedAnswer(question)
       if (!ensured.ok) {
         log?.warn(LOG_AREA, 'ensureModel failed', { modelId: config.modelId, error: ensured.error })
-        return finalize(question, pick(config, FALLBACK.noModel), 'error', 'llm')
+        return finalize(question, pick(config, FALLBACK.noModel), 'error', 'llm', undefined, context)
       }
 
       deps.runtime.setOptions({
@@ -392,39 +440,52 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         temperature: gen.temperature,
         signal: controller.signal
       })
+      if (!contextIsCurrent(context)) return rejectedAnswer(question)
       if (!result.ok) {
         log?.warn(LOG_AREA, 'generate failed', { code: result.code })
-        return finalize(question, pick(config, FALLBACK.llmError), 'error', 'llm')
+        return finalize(question, pick(config, FALLBACK.llmError), 'error', 'llm', undefined, context)
       }
       const text = (result.text ?? '').trim() || pick(config, FALLBACK.llmError)
-      return finalize(question, text, 'answer', 'llm')
+      return finalize(question, text, 'answer', 'llm', undefined, context)
     } catch (error) {
       // The runtime never throws, but keep the orchestrator bullet-proof regardless.
+      if (!contextIsCurrent(context)) return rejectedAnswer(question)
       log?.error(LOG_AREA, 'generate threw', { message: error instanceof Error ? error.message : String(error) })
-      return finalize(question, pick(config, FALLBACK.llmError), 'error', 'llm')
+      return finalize(question, pick(config, FALLBACK.llmError), 'error', 'llm', undefined, context)
     } finally {
-      if (currentAbort === controller) currentAbort = null
+      if (currentAbort === controller) {
+        currentAbort = null
+      }
     }
   }
 
-  function runCommand(question: string, kind: IntentCommandKind, speak: string, args?: Record<string, unknown>): EngineerAnswer {
+  function runCommand(
+    question: string,
+    kind: IntentCommandKind,
+    speak: string,
+    args: Record<string, unknown> | undefined,
+    context: LiveTelemetryContext | null
+  ): EngineerAnswer {
     const directive = resolveCommandDirective(kind, args)
     if (directive.executable) {
       // Execute by reusing the EXISTING renderer IPC: broadcast the directive and
       // let the EngineerView invoke the same channel the renderer uses today. Main
       // can't reach the other modules' live engines without editing them.
+      if (!contextIsCurrent(context)) return rejectedAnswer(question)
       deps.broadcast(ENGINEER_CHANNELS.command, directive)
-      return finalize(question, speak, 'command', 'command', directive)
+      return finalize(question, speak, 'command', 'command', directive, context)
     }
     // No existing channel (setup.save / lap.mark) — honest spoken reply, no-op.
-    return finalize(question, pick(config, FALLBACK.noCommand), 'command', 'command', directive)
+    return finalize(question, pick(config, FALLBACK.noCommand), 'command', 'command', directive, context)
   }
 
   async function ask(rawQuestion: string): Promise<EngineerAnswer> {
     const question = (rawQuestion ?? '').toString().trim()
-    if (!question) return finalize('', pick(config, FALLBACK.empty), 'answer', 'system')
-    if (!config.enabled) return finalize(question, pick(config, FALLBACK.disabled), 'disabled', 'system')
+    if (!question) return publishAnswer('', pick(config, FALLBACK.empty), 'answer', 'system')
+    if (!config.enabled) return publishAnswer(question, pick(config, FALLBACK.disabled), 'disabled', 'system')
 
+    const context = deps.getLiveContext?.() ?? null
+    if (deps.getLiveContext && !context) return rejectedAnswer(question)
     const racecraftIntent = detectRacecraftQuestion(question)
     const unitSystem = deps.getUnitSystem?.() ?? 'metric'
     if (racecraftIntent) {
@@ -462,17 +523,17 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         deps.racecraftContext?.() ?? fallbackContext,
         { language: config.language, unitSystem }
       )
-      return finalize(question, advice.text, 'answer', 'intent')
+      return finalize(question, advice.text, 'answer', 'intent', undefined, context)
     }
 
     const intent = routeIntent(question, deps.context, isPt(config) ? 'pt' : 'en', unitSystem)
     if (intent.type === 'answer') {
-      return finalize(question, intent.text, 'answer', 'intent')
+      return finalize(question, intent.text, 'answer', 'intent', undefined, context)
     }
     if (intent.type === 'command') {
-      return runCommand(question, intent.kind, intent.speak, intent.args)
+      return runCommand(question, intent.kind, intent.speak, intent.args, context)
     }
-    return llmAnswer(question)
+    return llmAnswer(question, context)
   }
 
   function getStatus(): EngineerStatus {
@@ -515,6 +576,12 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     currentAbort?.abort()
   }
 
+  function resetLiveContext(): void {
+    currentAbort?.abort()
+    currentAbort = null
+    recent.splice(0, recent.length)
+  }
+
   return {
     ask,
     getStatus,
@@ -522,6 +589,7 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     getConfig: () => config,
     setConfig,
     cancel,
+    resetLiveContext,
     getLog: () => recent.slice()
   }
 }
@@ -597,7 +665,13 @@ export function register(ctx: ModuleContext): void {
       activeEngineerConfig = next
     },
     getUnitSystem: () => unitSystem,
+    getLiveContext: () => captureLiveTelemetryContext(ctx.telemetryHub.getLatest()),
     logger
+  })
+
+  const liveGate = new LiveTelemetryGate()
+  ctx.telemetryHub.on('snapshot', (snapshot) => {
+    if (liveGate.observe(snapshot).boundary) orchestrator.resetLiveContext()
   })
 
   settingsEvents.onChanged((settings) => {

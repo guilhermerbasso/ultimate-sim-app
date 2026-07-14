@@ -26,6 +26,7 @@ import {
   type TelemetrySeries,
   type TelemetrySeriesSample
 } from '../../shared/community'
+import { LiveTelemetryGate } from '../../shared/replay'
 
 // Reject an untrusted imported .simshare larger than this before reading it.
 const MAX_IMPORT_BYTES = 32 * 1024 * 1024
@@ -367,7 +368,7 @@ function sanitizeSourceList(input: unknown): CommunitySource[] {
 // Buffers the current lap into a ghost (finalized on each lap completion) and
 // keeps a rolling telemetry window. Read-only on the telemetry hub; never writes.
 
-interface CapturedLap {
+export interface CapturedLap {
   samples: RawGhostSample[]
   lapTimeSec?: number
   sim: SimId
@@ -380,7 +381,8 @@ function finiteOrUndefined(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-class LiveCapture {
+export class LiveCapture {
+  private readonly liveGate = new LiveTelemetryGate()
   private currentSamples: RawGhostSample[] = []
   private currentStartedAt = 0
   private lastLapDistPct: number | null = null
@@ -391,7 +393,13 @@ class LiveCapture {
   private readonly telemetry: Array<TelemetrySeriesSample & { ts: number }> = []
 
   onSnapshot(snapshot: TelemetrySnapshot | null): void {
-    if (!snapshot?.connected) return
+    const live = this.liveGate.observe(snapshot)
+    if (!live.live) {
+      if (live.boundary) this.resetPartial()
+      return
+    }
+    if (live.boundary) this.resetPartial()
+    if (!snapshot) return
     const dist = finiteOrUndefined(snapshot.lapDistPct)
     if (dist === undefined) return
     const clampedDist = Math.max(0, Math.min(1, dist))
@@ -423,6 +431,16 @@ class LiveCapture {
 
     this.lastLapDistPct = clampedDist
     this.lastLapNumber = finiteOrUndefined(snapshot.currentLap)
+  }
+
+  private resetPartial(): void {
+    this.currentSamples = []
+    this.currentStartedAt = 0
+    this.lastLapDistPct = null
+    this.lastLapNumber = undefined
+    this.lastSampleAt = 0
+    this.telemetry.length = 0
+    this.context = { sim: 'none' }
   }
 
   private detectLapBoundary(snapshot: TelemetrySnapshot, dist: number, now: number): void {

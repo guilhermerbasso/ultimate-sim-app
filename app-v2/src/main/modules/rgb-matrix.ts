@@ -344,8 +344,9 @@ export class RgbMatrixModule {
 
   // Turn EVERY iFlag matrix panel OFF (black) and stop driving — used on app quit so
   // the WS2812 LEDs don't hold their last lit frame after the serial port closes
-  // (the firmware only auto-sleeps after ~60s). Each write is raced against a short
-  // timeout so a wedged port can't hang the quit. Best-effort; never throws.
+  // (the firmware only auto-sleeps after ~60s). Devices drain concurrently while
+  // each device's ordered brightness/black writes have their own short watchdog.
+  // Best-effort; never throws.
   async allOff(): Promise<void> {
     // Stop the drive loop first so nothing repaints over the black frame.
     if (this.refreshTimer) {
@@ -372,26 +373,40 @@ export class RgbMatrixModule {
     const primaryId = this.ctx.serialHub.getPrimaryId()
     const black = formatStripRgb(new Array(64).fill('000000'))
     const seen = new Set<string>()
+    const targets: Array<{
+      device: SerialDevice
+      profileId: string
+      componentId: string
+    }> = []
     for (const profile of this.profiles) {
       for (const component of profile.components) {
         if (component.type !== 'rgbMatrix') continue
         const target = this.resolveMatrixTarget(`${profile.id}:${component.id}`, primaryId)
         if (!target || seen.has(target.device.id)) continue
         seen.add(target.device.id)
+        targets.push({
+          device: target.device,
+          profileId: profile.id,
+          componentId: component.id
+        })
+      }
+    }
+    await Promise.all(
+      targets.map(async ({ device, profileId, componentId }) => {
         try {
-          await withWriteTimeout(target.device.sendRaw(formatBrightness(0)), MATRIX_OFF_WRITE_TIMEOUT_MS)
-          if (black) await withWriteTimeout(target.device.sendRaw(black), MATRIX_OFF_WRITE_TIMEOUT_MS)
+          await withWriteTimeout(device.sendRaw(formatBrightness(0)), MATRIX_OFF_WRITE_TIMEOUT_MS)
+          if (black) await withWriteTimeout(device.sendRaw(black), MATRIX_OFF_WRITE_TIMEOUT_MS)
         } catch (error) {
           logger.error('iflag', 'failed to turn matrix off during shutdown', {
-            deviceId: target.device.id,
-            profileId: profile.id,
-            componentId: component.id,
+            deviceId: device.id,
+            profileId,
+            componentId,
             message: errorMessage(error)
           })
           // best effort — the panel may already be gone or the port wedged
         }
-      }
-    }
+      })
+    )
   }
 
   private registerIpc(): void {

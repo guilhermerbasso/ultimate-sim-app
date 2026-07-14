@@ -23,6 +23,12 @@ import {
 } from '../../shared/outputs'
 import { AlertsDetector } from '../alerts/detector'
 import { settingsEvents } from '../settings/events'
+import {
+  LiveTelemetryGate,
+  sameLiveTelemetryContext,
+  type LiveTelemetryContext
+} from '../../shared/replay'
+import type { TelemetrySnapshot } from '../../shared/telemetry'
 
 const CONFIG_FILE = 'alerts-config.json'
 
@@ -42,26 +48,126 @@ const BUTTONBOX_DEFAULTS = {
 } as const
 
 let config: AlertsConfig = DEFAULT_ALERTS_CONFIG
-let detector: AlertsDetector | null = null
 
-// Pending transient SIM-X effects keyed by alertKey (rule+outputIdx). Allows
-// us to cancel a previous timer when a new event re-arms the same effect.
-const pendingTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const HARDWARE_RETRY_MS = 100
+const HARDWARE_TEARDOWN_ATTEMPTS = 3
+const HARDWARE_WRITE_TIMEOUT_MS = 300
+const HARDWARE_NEUTRAL_SIGNATURE = 'neutral'
+
+type HardwareActuator = 'start' | 'rev' | 'shift' | 'display'
+type HardwareValue =
+  | { kind: 'raw'; command: string }
+  | { kind: 'oled'; lines: readonly [string, string, string] }
+  | { kind: 'bigNum'; value: string }
+
+interface HardwareLease {
+  sequence: number
+  value: HardwareValue
+  timer?: ReturnType<typeof setTimeout>
+}
+
+interface HardwareActuatorState {
+  key: string
+  deviceId: string
+  actuator: HardwareActuator
+  ctx: ModuleContext
+  leases: Map<string, HardwareLease>
+  appliedSignature: string | undefined
+  desiredRevision: number
+  appliedRevision: number
+  forceNeutral: boolean
+  activeAttempt?: HardwareWriteAttempt
+  retryTimer?: ReturnType<typeof setTimeout>
+  lastError?: unknown
+}
+
+interface HardwareTarget {
+  signature: string
+  revision: number
+  value?: HardwareValue
+}
+
+interface HardwareWriteAttempt {
+  token: symbol
+  target: HardwareTarget
+  promise: Promise<void>
+  cancel: () => void
+}
+
+interface BoundedHardwareWrite {
+  promise: Promise<void>
+  cancel: () => void
+}
+
+type GracefulTeardownContext = ModuleContext & {
+  registerGracefulTeardown?: (task: () => Promise<void> | void) => () => void
+}
+
+const hardwareActuators = new Map<string, HardwareActuatorState>()
+let hardwareLeaseSequence = 0
+let hardwareEffectsEnabled = true
+let hardwareTeardownStarted = false
+
 // Last serial send timestamp keyed by (ruleType:outputIdx:deviceId).
 const lastSerialSendAt = new Map<string, number>()
 
 export function register(ctx: ModuleContext): void {
   const configPath = join(ctx.app.getPath('userData'), CONFIG_FILE)
-  detector = new AlertsDetector(config)
-  settingsEvents.onChanged((settings) => detector?.setUnitSystem(settings.unitSystem))
+  const detector = new AlertsDetector(config)
+  const liveGate = new LiveTelemetryGate()
+  let lastLiveContext: LiveTelemetryContext | null = null
+  let observedLive = false
+  let configReady = false
+  let pendingLive: { snapshot: TelemetrySnapshot; context: LiveTelemetryContext } | null = null
+  let stopped = false
+  hardwareEffectsEnabled = true
+  hardwareTeardownStarted = false
+  settingsEvents.onChanged((settings) => detector.setUnitSystem(settings.unitSystem))
 
   void loadConfig(configPath).then((loaded) => {
+    if (stopped) return
     config = loaded
-    detector?.setConfig(config)
+    detector.setConfig(config)
+    const pending = pendingLive
+    pendingLive = null
+    if (pending && sameLiveTelemetryContext(pending.context, lastLiveContext)) {
+      seedDetector(detector, pending.snapshot, config)
+    }
+    configReady = true
   })
 
   ctx.telemetryHub.on('snapshot', (snapshot) => {
-    if (!detector) return
+    if (stopped || hardwareTeardownStarted) return
+    const live = liveGate.observe(snapshot)
+    const liveContextChanged = Boolean(
+      live.live &&
+      live.context &&
+      lastLiveContext &&
+      !sameLiveTelemetryContext(live.context, lastLiveContext)
+    )
+    const boundary = live.boundary || liveContextChanged
+    const firstLive = live.live && !observedLive
+    if (live.live) observedLive = true
+    if (live.live && live.context) lastLiveContext = live.context
+
+    if (boundary) {
+      releaseAllHardwareLeases(ctx)
+      detector.reset()
+      lastSerialSendAt.clear()
+    }
+    if (!live.live || !snapshot || !live.context) {
+      pendingLive = null
+      return
+    }
+    if (!configReady) {
+      pendingLive = { snapshot, context: live.context }
+      return
+    }
+    if (boundary || firstLive) {
+      seedDetector(detector, snapshot, config)
+      return
+    }
+
     for (const event of detector.process(snapshot)) {
       const eventWithSound = attachSoundPayload(event)
       ctx.broadcast('alerts:event', eventWithSound)
@@ -72,10 +178,85 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle('alerts:getConfig', () => config)
   ctx.ipcMain.handle('alerts:setConfig', async (_event, patch: AlertsConfigPatch) => {
     config = mergeConfig(config, patch)
-    detector?.setConfig(config)
+    detector.setConfig(config)
     await saveConfig(configPath, config)
     return config
   })
+
+  const retryOnReconnect = (summary: unknown): void => {
+    const deviceId =
+      summary && typeof summary === 'object' && 'id' in summary && typeof summary.id === 'string'
+        ? summary.id
+        : undefined
+    if (deviceId) retryHardwareActuators(ctx, deviceId)
+  }
+  ctx.serialHub?.on?.('device-added', retryOnReconnect)
+  ctx.serialHub?.on?.('device-updated', retryOnReconnect)
+
+  registerAlertHardwareTeardown(ctx, async () => {
+    hardwareEffectsEnabled = false
+    stopped = true
+    pendingLive = null
+    ctx.serialHub?.off?.('device-added', retryOnReconnect)
+    ctx.serialHub?.off?.('device-updated', retryOnReconnect)
+    await drainHardwareNeutralization(ctx)
+  })
+}
+
+function registerAlertHardwareTeardown(
+  ctx: ModuleContext,
+  task: () => Promise<void> | void
+): void {
+  const registerGracefulTeardown = (ctx as GracefulTeardownContext).registerGracefulTeardown
+  if (typeof registerGracefulTeardown === 'function') {
+    registerGracefulTeardown.call(ctx, task)
+    return
+  }
+
+  ctx.app.prependOnceListener('before-quit', () => {
+    try {
+      void Promise.resolve(task()).catch(() => undefined)
+    } catch {
+      // The bounded central quit path must continue even if cleanup fails synchronously.
+    }
+  })
+}
+
+function seedDetector(
+  detector: AlertsDetector,
+  snapshot: TelemetrySnapshot,
+  activeConfig: AlertsConfig
+): void {
+  detector.setConfig(silentAlertsConfig(activeConfig))
+  detector.reset()
+  try {
+    detector.process(snapshot)
+  } finally {
+    detector.setConfig(activeConfig)
+  }
+}
+
+function silentAlertsConfig(activeConfig: AlertsConfig): AlertsConfig {
+  return {
+    ...activeConfig,
+    audioEnabled: false,
+    pitLimiter: { ...activeConfig.pitLimiter, enabled: false },
+    flags: { ...activeConfig.flags, enabled: false },
+    lowFuel: { ...activeConfig.lowFuel, enabled: false },
+    shiftPoint: { ...activeConfig.shiftPoint, enabled: false },
+    incidentLimit: { ...activeConfig.incidentLimit, enabled: false },
+    tyrePressure: activeConfig.tyrePressure
+      ? { ...activeConfig.tyrePressure, enabled: false }
+      : undefined,
+    tyreTemp: activeConfig.tyreTemp ? { ...activeConfig.tyreTemp, enabled: false } : undefined,
+    brakeTemp: activeConfig.brakeTemp
+      ? { ...activeConfig.brakeTemp, enabled: false }
+      : undefined,
+    drsAvailable: activeConfig.drsAvailable
+      ? { ...activeConfig.drsAvailable, enabled: false }
+      : undefined,
+    blueFlag: activeConfig.blueFlag ? { ...activeConfig.blueFlag, enabled: false } : undefined
+  }
 }
 
 // ─── Output dispatch ───────────────────────────────────────────────────────
@@ -126,76 +307,353 @@ function dispatchButtonbox(
   event: AlertEvent,
   index: number
 ): void {
-  const device = ctx.serialHub.getPrimary()
-  if (!device) return
+  if (!hardwareEffectsEnabled) return
+  if (!ctx.serialHub.getPrimary()) return
 
-  const key = `bb:${event.type}:${index}`
-  const existing = pendingTimers.get(key)
-  if (existing) clearTimeout(existing)
-
+  const deviceId = ctx.serialHub.getPrimaryId() ?? 'primary'
+  const owner = `${event.type}:${index}`
   const extras = templateExtras(event)
   switch (output.preset) {
     case 'startLedFlash': {
-      void device.sendRaw('S1').catch(() => undefined)
       const duration = clampMs(output.durationMs, BUTTONBOX_DEFAULTS.startLedFlash)
-      pendingTimers.set(
-        key,
-        setTimeout(() => {
-          pendingTimers.delete(key)
-          void device.sendRaw('S0').catch(() => undefined)
-        }, duration)
-      )
+      acquireHardwareLease(ctx, deviceId, 'start', owner, { kind: 'raw', command: 'S1' }, duration)
       break
     }
     case 'revLightsPulse': {
       const level = clampLevel(output.revLevel)
-      void device.sendRaw(`R${level}`).catch(() => undefined)
       const duration = clampMs(output.durationMs, BUTTONBOX_DEFAULTS.revLightsPulse)
-      pendingTimers.set(
-        key,
-        setTimeout(() => {
-          pendingTimers.delete(key)
-          void device.sendRaw('R0').catch(() => undefined)
-        }, duration)
-      )
+      acquireHardwareLease(ctx, deviceId, 'rev', owner, { kind: 'raw', command: `R${level}` }, duration)
       break
     }
     case 'shiftBlink': {
-      void device.sendRaw('B1').catch(() => undefined)
       const duration = clampMs(output.durationMs, BUTTONBOX_DEFAULTS.shiftBlink)
-      pendingTimers.set(
-        key,
-        setTimeout(() => {
-          pendingTimers.delete(key)
-          void device.sendRaw('B0').catch(() => undefined)
-        }, duration)
-      )
+      acquireHardwareLease(ctx, deviceId, 'shift', owner, { kind: 'raw', command: 'B1' }, duration)
       break
     }
     case 'oledMessage': {
       const line1 = renderLine(output.oledLine1 ?? '${message}', event, extras)
       const line2 = renderLine(output.oledLine2 ?? '', event, extras)
       const line3 = renderLine(output.oledLine3 ?? '', event, extras)
-      void device.sendOled(line1.slice(0, 16), line2.slice(0, 16), line3.slice(0, 16)).catch(() => undefined)
       // OLED is sticky — schedule a clear unless durationMs <= 0.
       const duration = clampMs(output.durationMs, BUTTONBOX_DEFAULTS.oledMessage)
-      if (duration > 0) {
-        pendingTimers.set(
-          key,
-          setTimeout(() => {
-            pendingTimers.delete(key)
-            void device.sendOled('', '', '').catch(() => undefined)
-          }, duration)
-        )
-      }
+      acquireHardwareLease(
+        ctx,
+        deviceId,
+        'display',
+        owner,
+        {
+          kind: 'oled',
+          lines: [line1.slice(0, 16), line2.slice(0, 16), line3.slice(0, 16)]
+        },
+        duration > 0 ? duration : undefined
+      )
       break
     }
     case 'bigNum': {
       const value = renderLine(output.bigNumValue ?? '${value}', event, extras)
-      void device.sendBigNum(value.slice(0, 8)).catch(() => undefined)
+      acquireHardwareLease(ctx, deviceId, 'display', owner, { kind: 'bigNum', value: value.slice(0, 8) })
       break
     }
   }
+}
+
+function acquireHardwareLease(
+  ctx: ModuleContext,
+  deviceId: string,
+  actuator: HardwareActuator,
+  owner: string,
+  value: HardwareValue,
+  durationMs?: number
+): void {
+  if (!hardwareEffectsEnabled) return
+  const key = `${deviceId}:${actuator}`
+  let state = hardwareActuators.get(key)
+  if (!state) {
+    state = {
+      key,
+      deviceId,
+      actuator,
+      ctx,
+      leases: new Map(),
+      appliedSignature: HARDWARE_NEUTRAL_SIGNATURE,
+      desiredRevision: 0,
+      appliedRevision: 0,
+      forceNeutral: false
+    }
+    hardwareActuators.set(key, state)
+  } else {
+    state.ctx = ctx
+  }
+
+  const previousSignature = desiredHardwareTarget(state).signature
+  state.forceNeutral = false
+  const previous = state.leases.get(owner)
+  if (previous?.timer) clearTimeout(previous.timer)
+
+  const lease: HardwareLease = {
+    sequence: ++hardwareLeaseSequence,
+    value
+  }
+  if (durationMs !== undefined) {
+    lease.timer = setTimeout(() => {
+      if (state?.leases.get(owner) !== lease) return
+      const previousSignature = desiredHardwareTarget(state).signature
+      state.leases.delete(owner)
+      if (desiredHardwareTarget(state).signature !== previousSignature) state.desiredRevision += 1
+      queueHardwareReconcile(state)
+    }, durationMs)
+  }
+  state.leases.set(owner, lease)
+  if (desiredHardwareTarget(state).signature !== previousSignature) state.desiredRevision += 1
+  queueHardwareReconcile(state)
+}
+
+function desiredHardwareTarget(state: HardwareActuatorState): HardwareTarget {
+  if (state.forceNeutral) {
+    return { signature: HARDWARE_NEUTRAL_SIGNATURE, revision: state.desiredRevision }
+  }
+  let latest: HardwareLease | undefined
+  for (const lease of state.leases.values()) {
+    if (!latest || lease.sequence > latest.sequence) latest = lease
+  }
+  if (!latest) return { signature: HARDWARE_NEUTRAL_SIGNATURE, revision: state.desiredRevision }
+  return {
+    signature: hardwareValueSignature(latest.value),
+    revision: state.desiredRevision,
+    value: latest.value
+  }
+}
+
+function hardwareValueSignature(value: HardwareValue): string {
+  switch (value.kind) {
+    case 'raw':
+      return `raw:${value.command}`
+    case 'oled':
+      return `oled:${value.lines.join('\u0000')}`
+    case 'bigNum':
+      return `bigNum:${value.value}`
+  }
+}
+
+async function sendHardwareTarget(state: HardwareActuatorState, target: HardwareTarget): Promise<void> {
+  const device =
+    state.ctx.serialHub.getDevice(state.deviceId) ??
+    (state.ctx.serialHub.getPrimaryId() === state.deviceId ? state.ctx.serialHub.getPrimary() : null)
+  if (!device) throw new Error(`device "${state.deviceId}" is unavailable`)
+
+  if (target.value) {
+    switch (target.value.kind) {
+      case 'raw':
+        await device.sendRaw(target.value.command)
+        return
+      case 'oled':
+        await device.sendOled(...target.value.lines)
+        return
+      case 'bigNum':
+        await device.sendBigNum(target.value.value)
+        return
+    }
+  }
+
+  switch (state.actuator) {
+    case 'start':
+      await device.sendRaw('S0')
+      return
+    case 'rev':
+      await device.sendRaw('R0')
+      return
+    case 'shift':
+      await device.sendRaw('B0')
+      return
+    case 'display':
+      await device.sendOled('', '', '')
+      return
+  }
+}
+
+function clearHardwareRetry(state: HardwareActuatorState): void {
+  if (!state.retryTimer) return
+  clearTimeout(state.retryTimer)
+  state.retryTimer = undefined
+}
+
+function scheduleHardwareRetry(state: HardwareActuatorState): void {
+  if (hardwareTeardownStarted || state.retryTimer || hardwareActuators.get(state.key) !== state) return
+  state.retryTimer = setTimeout(() => {
+    state.retryTimer = undefined
+    queueHardwareReconcile(state)
+  }, HARDWARE_RETRY_MS)
+}
+
+function boundedHardwareWrite(write: Promise<void>, stateKey: string): BoundedHardwareWrite {
+  let settled = false
+  let rejectBounded: ((error: unknown) => void) | undefined
+  const watchdog = setTimeout(() => {
+    if (settled) return
+    settled = true
+    rejectBounded?.(new Error(`Hardware actuator "${stateKey}" write timed out`))
+  }, HARDWARE_WRITE_TIMEOUT_MS)
+
+  const promise = new Promise<void>((resolve, reject) => {
+    rejectBounded = reject
+    write.then(
+      () => {
+        if (settled) return
+        settled = true
+        clearTimeout(watchdog)
+        resolve()
+      },
+      (error) => {
+        if (settled) return
+        settled = true
+        clearTimeout(watchdog)
+        reject(error)
+      }
+    )
+  })
+
+  return {
+    promise,
+    cancel: () => {
+      if (settled) return
+      settled = true
+      clearTimeout(watchdog)
+      rejectBounded?.(new Error(`Hardware actuator "${stateKey}" write was superseded`))
+    }
+  }
+}
+
+function detachHardwareAttempt(state: HardwareActuatorState): HardwareWriteAttempt | undefined {
+  const attempt = state.activeAttempt
+  if (!attempt) return undefined
+  state.activeAttempt = undefined
+  return attempt
+}
+
+function reconcileHardwareActuator(state: HardwareActuatorState): Promise<void> {
+  if (state.activeAttempt) return state.activeAttempt.promise
+  const target = desiredHardwareTarget(state)
+  if (state.appliedSignature === target.signature && state.appliedRevision === target.revision) {
+    if (target.signature === HARDWARE_NEUTRAL_SIGNATURE && state.leases.size === 0) {
+      clearHardwareRetry(state)
+      hardwareActuators.delete(state.key)
+    }
+    return Promise.resolve()
+  }
+
+  const retryTimer = state.retryTimer
+  state.retryTimer = undefined
+  const token = Symbol(state.key)
+  const bounded = boundedHardwareWrite(sendHardwareTarget(state, target), state.key)
+  const write = (async () => {
+    let writeSucceeded = false
+    try {
+      await bounded.promise
+      writeSucceeded = true
+      if (state.activeAttempt?.token !== token || hardwareActuators.get(state.key) !== state) return
+      const desired = desiredHardwareTarget(state)
+      if (desired.signature !== target.signature || desired.revision !== target.revision) {
+        state.appliedSignature = undefined
+        return
+      }
+      state.appliedSignature = target.signature
+      state.appliedRevision = target.revision
+      state.lastError = undefined
+      if (
+        target.signature === HARDWARE_NEUTRAL_SIGNATURE &&
+        desired.signature === target.signature &&
+        desired.revision === target.revision &&
+        state.activeAttempt?.token === token
+      ) {
+        hardwareActuators.delete(state.key)
+      }
+    } catch (error) {
+      if (state.activeAttempt?.token !== token || hardwareActuators.get(state.key) !== state) return
+      state.appliedSignature = undefined
+      if (state.lastError === undefined) {
+        console.warn(`[alerts] hardware actuator "${state.key}" write failed; retaining it for retry:`, error)
+      }
+      state.lastError = error
+      scheduleHardwareRetry(state)
+      throw error
+    } finally {
+      if (state.activeAttempt?.token !== token) return
+      state.activeAttempt = undefined
+      if (hardwareActuators.get(state.key) === state && writeSucceeded) {
+        const nextTarget = desiredHardwareTarget(state)
+        if (
+          nextTarget.signature !== state.appliedSignature ||
+          nextTarget.revision !== state.appliedRevision
+        ) {
+          queueHardwareReconcile(state)
+        }
+      }
+    }
+  })()
+  const attempt: HardwareWriteAttempt = { token, target, promise: write, cancel: bounded.cancel }
+  state.activeAttempt = attempt
+  if (retryTimer) clearTimeout(retryTimer)
+  return write
+}
+
+function queueHardwareReconcile(state: HardwareActuatorState): void {
+  // Failures are recorded on the actuator and schedule an idempotent retry.
+  void reconcileHardwareActuator(state).catch(() => undefined)
+}
+
+function releaseAllHardwareLeases(ctx: ModuleContext): void {
+  const timers: Array<ReturnType<typeof setTimeout>> = []
+  const states = [...hardwareActuators.values()]
+  for (const state of states) {
+    state.ctx = ctx
+    state.forceNeutral = true
+    state.desiredRevision += 1
+    for (const lease of state.leases.values()) {
+      if (lease.timer) timers.push(lease.timer)
+    }
+    const staleAttempt = detachHardwareAttempt(state)
+    queueHardwareReconcile(state)
+    staleAttempt?.cancel()
+    state.leases.clear()
+  }
+  for (const timer of timers) clearTimeout(timer)
+}
+
+function retryHardwareActuators(ctx: ModuleContext, deviceId: string): void {
+  for (const state of hardwareActuators.values()) {
+    if (state.deviceId !== deviceId) continue
+    state.ctx = ctx
+    state.appliedSignature = undefined
+    state.desiredRevision += 1
+    const staleAttempt = detachHardwareAttempt(state)
+    queueHardwareReconcile(state)
+    staleAttempt?.cancel()
+  }
+}
+
+async function settleHardwareActuatorForDrain(state: HardwareActuatorState): Promise<void> {
+  while (hardwareActuators.get(state.key) === state) {
+    await reconcileHardwareActuator(state)
+  }
+}
+
+async function drainHardwareNeutralization(ctx: ModuleContext): Promise<void> {
+  hardwareEffectsEnabled = false
+  hardwareTeardownStarted = true
+  releaseAllHardwareLeases(ctx)
+
+  for (let attempt = 1; attempt <= HARDWARE_TEARDOWN_ATTEMPTS; attempt += 1) {
+    const pending = [...hardwareActuators.values()]
+    if (pending.length === 0) return
+    for (const state of pending) clearHardwareRetry(state)
+    await Promise.allSettled(pending.map((state) => settleHardwareActuatorForDrain(state)))
+    if (hardwareActuators.size === 0) return
+  }
+
+  const pendingKeys = [...hardwareActuators.keys()].join(', ')
+  const error = new Error(`Failed to neutralize alert hardware actuators: ${pendingKeys}`)
+  console.error('[alerts] graceful hardware drain failed:', error)
+  throw error
 }
 
 function dispatchSerial(

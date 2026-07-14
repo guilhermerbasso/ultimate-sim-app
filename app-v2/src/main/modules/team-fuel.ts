@@ -9,6 +9,7 @@ import type { TeamFuelMode, TeamFuelPeer, TeamFuelPitWindow, TeamFuelStartArgs, 
 import { TEAM_FUEL_CHANNELS } from '../../shared/team-fuel'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import type { ModuleContext } from '../module-context'
+import { captureLiveTelemetryContext, isLiveTelemetrySnapshot, LiveTelemetryGate } from '../../shared/replay'
 
 const SERVICE_TYPE = 'usateamfuel'
 const PROTOCOL_VERSION = '1'
@@ -49,12 +50,19 @@ interface WireLeave {
 type WireMessage = WireChallenge | WireHello | WireState | WireLeave
 
 type ClientPhase = 'connecting' | 'helloSent' | 'v1Ready'
+interface LegacyPeerProbation {
+  liveGeneration: number
+  lastTs: number
+  admitted: boolean
+}
+
 type PeerSocket = WebSocket & {
   teamFuelAuthed?: boolean
   teamFuelPeerId?: string
   teamFuelNonce?: string
   teamFuelPhase?: ClientPhase
   teamFuelGeneration?: number
+  teamFuelLiveGeneration?: number
   teamFuelHandshakeTimer?: ReturnType<typeof setTimeout>
 }
 
@@ -226,6 +234,10 @@ function localCustId(snapshot: TelemetrySnapshot | null): number | undefined {
   return snapshot?.drivers?.find((driver) => driver.isPlayer)?.custId
 }
 
+function telemetryForGate(snapshot: TelemetrySnapshot | null): TelemetrySnapshot | null {
+  return snapshot?.connected === true ? snapshot : null
+}
+
 function peersEqual(a: TeamFuelPeer | undefined, b: TeamFuelPeer): boolean {
   return a?.peerId === b.peerId && a.driverName === b.driverName && a.custId === b.custId &&
     a.sessionUniqueId === b.sessionUniqueId && a.fuelLiters === b.fuelLiters &&
@@ -236,15 +248,27 @@ function peersEqual(a: TeamFuelPeer | undefined, b: TeamFuelPeer): boolean {
     a.pitWindow?.status === b.pitWindow?.status
 }
 
-class TeamFuelController {
+function validSessionUniqueId(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+function peerMatchesLocalSession(local: TeamFuelPeer | undefined, remote: TeamFuelPeer): boolean {
+  return local?.local === true &&
+    validSessionUniqueId(local.sessionUniqueId) &&
+    validSessionUniqueId(remote.sessionUniqueId) &&
+    remote.sessionUniqueId === local.sessionUniqueId
+}
+
+export class TeamFuelController {
   private readonly ctx: ModuleContext
+  private readonly liveGate = new LiveTelemetryGate()
   private readonly peerId = randomUUID()
   private peers = new Map<string, TeamFuelPeer>()
   private state: TeamFuelStatus['state'] = 'stopped'
   private mode: TeamFuelMode | undefined
   private hash: string | undefined
   private roomKey: string | undefined
-  private driverName = 'Driver'
+  private configuredDriverName: string | undefined
   private bonjour: Bonjour | null = null
   private service: Service | null = null
   private browser: Browser | null = null
@@ -258,9 +282,16 @@ class TeamFuelController {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private timer: ReturnType<typeof setInterval> | null = null
   private error: string | undefined
+  private liveContextActive = false
+  private liveGeneration = 0
+  private legacyProbations = new Map<PeerSocket, Map<string, LegacyPeerProbation>>()
 
   constructor(ctx: ModuleContext) {
     this.ctx = ctx
+    const initial = this.liveGate.observe(telemetryForGate(ctx.telemetryHub.getLatest()))
+    this.liveContextActive = initial.live
+    if (initial.boundary) this.liveGeneration += 1
+    ctx.telemetryHub.on?.('snapshot', (snapshot) => this.onTelemetry(snapshot))
   }
 
   async start(args: TeamFuelStartArgs): Promise<TeamFuelStatus> {
@@ -275,11 +306,14 @@ class TeamFuelController {
     this.mode = args.mode === 'host' ? 'host' : 'join'
     this.roomKey = normalizedKey
     this.hash = roomHash(normalizedKey)
-    this.driverName = sanitizeString(args.driverName ?? this.ctx.telemetryHub.getLatest()?.driverName ?? 'Driver', 'Driver')
+    const requestedDriverName = typeof args.driverName === 'string' ? args.driverName.trim() : ''
+    this.configuredDriverName = requestedDriverName
+      ? sanitizeString(requestedDriverName, 'Driver')
+      : undefined
     this.state = this.mode === 'host' ? 'hosting' : 'joining'
     this.error = undefined
     this.peers.clear()
-    this.updateLocalPeer()
+    this.updateLocalPeer(this.ctx.telemetryHub.getLatest())
 
     try {
       this.bonjour = new Bonjour(undefined, () => undefined)
@@ -307,6 +341,7 @@ class TeamFuelController {
     this.mode = undefined
     this.hash = undefined
     this.roomKey = undefined
+    this.configuredDriverName = undefined
     this.error = undefined
     this.ctx.broadcast(TEAM_FUEL_CHANNELS.updated, [])
     return []
@@ -325,6 +360,10 @@ class TeamFuelController {
 
   peersList(): TeamFuelPeer[] {
     return [...this.peers.values()].sort((a, b) => (b.local ? 1 : 0) - (a.local ? 1 : 0) || a.driverName.localeCompare(b.driverName))
+  }
+
+  private isActive(): boolean {
+    return this.state === 'hosting' || this.state === 'joining' || this.state === 'connected'
   }
 
   private async startHost(): Promise<void> {
@@ -402,7 +441,9 @@ class TeamFuelController {
     try {
       const ws = new WebSocket(`ws://${address}:${service.port}`, { maxPayload: MAX_MESSAGE_BYTES }) as PeerSocket
       ws.teamFuelGeneration = generation
+      ws.teamFuelLiveGeneration = this.liveGeneration
       ws.teamFuelPhase = 'connecting'
+      this.resetLegacyProbation(ws)
       this.client = ws
       ws.teamFuelHandshakeTimer = setTimeout(() => this.handleClientTimeout(ws, generation), HANDSHAKE_DEADLINE_MS)
       ws.on('open', () => {
@@ -483,6 +524,8 @@ class TeamFuelController {
 
   private handleServerConnection(socket: PeerSocket): void {
     socket.teamFuelAuthed = false
+    socket.teamFuelLiveGeneration = this.liveGeneration
+    this.resetLegacyProbation(socket)
     socket.teamFuelHandshakeTimer = setTimeout(() => {
       delete socket.teamFuelHandshakeTimer
       if (!socket.teamFuelAuthed) forceTerminate(socket)
@@ -493,6 +536,10 @@ class TeamFuelController {
     }
     socket.on('message', (data) => {
       if (!this.hash || !this.roomKey) return
+      if (socket.teamFuelLiveGeneration !== this.liveGeneration) {
+        forceTerminate(socket)
+        return
+      }
       const message = parseWire(data, this.hash)
       if (!message) return
       if (message.type === 'hello') {
@@ -508,14 +555,18 @@ class TeamFuelController {
         }
         socket.teamFuelAuthed = true
         socket.teamFuelPeerId = message.peerId
+        this.resetLegacyProbation(socket)
         clearHandshakeDeadline(socket)
         for (const peer of this.peersList()) send(socket, { type: 'state', roomHash: this.hash, peer })
         return
       }
       if (!socket.teamFuelAuthed) return
+      if (!this.isActive() || !this.liveContextActive) return
       if (message.type === 'state') {
         if (!socket.teamFuelPeerId) return
-        const peer = { ...message.peer, peerId: socket.teamFuelPeerId, local: false }
+        const accepted = this.acceptInboundPeer(socket, message.peer, socket.teamFuelPeerId)
+        if (!accepted) return
+        const peer = { ...accepted, local: false }
         if (!this.peers.has(peer.peerId) && this.peers.size >= MAX_PEERS) return
         if (!peersEqual(this.peers.get(peer.peerId), peer)) {
           this.peers.set(peer.peerId, peer)
@@ -525,6 +576,7 @@ class TeamFuelController {
       } else if (message.type === 'leave') {
         if (!socket.teamFuelPeerId) return
         const peerId = socket.teamFuelPeerId
+        this.legacyProbations.get(socket)?.delete(peerId)
         if (this.peers.delete(peerId)) {
           this.relay({ type: 'leave', roomHash: this.hash, peerId }, socket)
           this.broadcastPeers()
@@ -533,7 +585,8 @@ class TeamFuelController {
     })
     socket.on('close', () => {
       clearHandshakeDeadline(socket)
-      if (socket.teamFuelPeerId) {
+      this.legacyProbations.delete(socket)
+      if (socket.teamFuelLiveGeneration === this.liveGeneration && socket.teamFuelPeerId) {
         if (this.peers.delete(socket.teamFuelPeerId)) this.broadcastPeers()
       }
     })
@@ -553,6 +606,8 @@ class TeamFuelController {
     clearHandshakeDeadline(socket)
     if (!this.isCurrentClient(socket, generation)) return
     this.client = null
+    this.legacyProbations.delete(socket)
+    this.clearRemotePeers()
     if (this.state !== 'stopped') {
       this.state = 'joining'
       this.scheduleReconnect(generation)
@@ -562,10 +617,15 @@ class TeamFuelController {
 
   private handleClientMessage(socket: PeerSocket, generation: number, data: RawData): void {
     if (!this.hash || !this.isCurrentClient(socket, generation)) return
+    if (socket.teamFuelLiveGeneration !== this.liveGeneration) {
+      forceTerminate(socket)
+      return
+    }
     const message = parseWire(data, this.hash)
     if (!message) return
     if (message.type === 'challenge') {
       if (!this.roomKey || socket.teamFuelPhase !== 'connecting') return
+      this.resetLegacyProbation(socket)
       socket.teamFuelPhase = 'helloSent'
       if (!send(socket, { type: 'hello', roomHash: this.hash, peerId: this.peerId, auth: authHmac(this.roomKey, message.nonce) })) {
         forceTerminate(socket)
@@ -576,36 +636,75 @@ class TeamFuelController {
       this.state = 'connected'
       this.broadcastPeers()
       this.sendLocalState()
-    } else if (socket.teamFuelPhase === 'v1Ready' && message.type === 'state') {
-      const peer = { ...message.peer, local: message.peer.peerId === this.peerId }
+    } else if (socket.teamFuelPhase === 'v1Ready' && this.isActive() && this.liveContextActive &&
+      this.peers.has(this.peerId) && message.type === 'state') {
+      const accepted = this.acceptInboundPeer(socket, message.peer, message.peer.peerId)
+      if (!accepted) return
+      const peer = { ...accepted, local: accepted.peerId === this.peerId }
       if (!this.peers.has(peer.peerId) && this.peers.size >= MAX_PEERS) return
       if (!peersEqual(this.peers.get(peer.peerId), peer)) {
         this.peers.set(peer.peerId, peer)
         this.broadcastPeers()
       }
-    } else if (socket.teamFuelPhase === 'v1Ready' && message.type === 'leave') {
+    } else if (socket.teamFuelPhase === 'v1Ready' && this.isActive() && this.liveContextActive && message.type === 'leave') {
+      this.legacyProbations.get(socket)?.delete(message.peerId)
       if (this.peers.delete(message.peerId)) this.broadcastPeers()
     }
   }
 
   private tick(): void {
-    this.updateLocalPeer()
+    if (!this.isActive() || !this.liveContextActive) return
+    if (!this.updateLocalPeer(this.ctx.telemetryHub.getLatest())) {
+      const hadPeers = this.peers.size > 0
+      this.peers.clear()
+      if (hadPeers) this.broadcastPeers()
+      return
+    }
     this.pruneStalePeers()
     this.sendLocalState()
     this.broadcastPeers()
   }
 
-  private updateLocalPeer(): void {
-    const snapshot = this.ctx.telemetryHub.getLatest()
+  private onTelemetry(snapshot: TelemetrySnapshot | null): void {
+    const live = this.liveGate.observe(telemetryForGate(snapshot))
+    this.liveContextActive = live.live
+    if (!live.boundary) return
+
+    this.liveGeneration += 1
+    this.legacyProbations.clear()
+    this.invalidateBoundaryTransports()
+    this.peers.clear()
+    if (!this.isActive()) return
+    if (live.live) this.updateLocalPeer(snapshot)
+    this.broadcastPeers()
+  }
+
+  private updateLocalPeer(snapshot: TelemetrySnapshot | null): boolean {
+    snapshot = telemetryForGate(snapshot)
+    if (!this.isActive() || !this.liveContextActive || !isLiveTelemetrySnapshot(snapshot)) {
+      this.peers.delete(this.peerId)
+      return false
+    }
+    const liveContext = captureLiveTelemetryContext(snapshot)
+    const sessionUniqueId = firstFinite(snapshot.sessionUniqueId)
     const fuelLiters = firstFinite(snapshot?.fuelLiters)
+    const snapshotDriverName = typeof snapshot.driverName === 'string' && snapshot.driverName.trim()
+      ? sanitizeString(snapshot.driverName, 'Driver')
+      : undefined
+    const existingLocal = this.peers.get(this.peerId)
+    const driverName = snapshotDriverName ?? existingLocal?.driverName ?? this.configuredDriverName
+    if (!liveContext || !validSessionUniqueId(sessionUniqueId) || !driverName || !finite(fuelLiters) || fuelLiters < 0) {
+      this.peers.delete(this.peerId)
+      return false
+    }
     const fuelPerLap = firstFinite(snapshot?.fuelPerLap)
     const lapsRemaining = firstFinite(snapshot?.lapsRemaining, finite(fuelLiters) && finite(fuelPerLap) && fuelPerLap > 0 ? fuelLiters / fuelPerLap : undefined)
     const stintTargetLaps = finite(fuelLiters) && finite(fuelPerLap) && fuelPerLap > 0 ? Math.floor(fuelLiters / fuelPerLap) : undefined
     this.peers.set(this.peerId, {
       peerId: this.peerId,
-      driverName: sanitizeString(snapshot?.driverName ?? this.driverName, this.driverName),
+      driverName,
       custId: localCustId(snapshot),
-      sessionUniqueId: snapshot?.sessionUniqueId,
+      sessionUniqueId,
       fuelLiters: finite(fuelLiters) ? round(fuelLiters, 2) : undefined,
       fuelPerLap: finite(fuelPerLap) ? round(fuelPerLap, 3) : undefined,
       lapsRemaining: finite(lapsRemaining) ? round(lapsRemaining, 2) : undefined,
@@ -614,16 +713,19 @@ class TeamFuelController {
       ts: Date.now(),
       local: true
     })
+    return true
   }
 
   private sendLocalState(): void {
-    if (!this.hash) return
+    if (!this.isActive() || !this.liveContextActive || !this.hash) return
     const peer = this.peers.get(this.peerId)
     if (!peer) return
     const message: WireState = { type: 'state', roomHash: this.hash, peer }
     if (this.mode === 'host') {
       this.relay(message)
-    } else if (this.client && (this.client as PeerSocket).teamFuelPhase === 'v1Ready') {
+    } else if (this.client &&
+      (this.client as PeerSocket).teamFuelPhase === 'v1Ready' &&
+      (this.client as PeerSocket).teamFuelLiveGeneration === this.liveGeneration) {
       send(this.client, message)
     }
   }
@@ -632,17 +734,119 @@ class TeamFuelController {
     if (!this.hash) return
     const message: WireLeave = { type: 'leave', roomHash: this.hash, peerId: this.peerId }
     if (this.mode === 'host') this.relay(message)
-    else if (this.client && (this.client as PeerSocket).teamFuelPhase === 'v1Ready') send(this.client, message)
+    else if (this.client &&
+      (this.client as PeerSocket).teamFuelPhase === 'v1Ready' &&
+      (this.client as PeerSocket).teamFuelLiveGeneration === this.liveGeneration) {
+      send(this.client, message)
+    }
   }
 
   private relay(message: WireState | WireLeave, except?: WebSocket): void {
     for (const client of this.server?.clients ?? []) {
-      if (client !== except && (client as PeerSocket).teamFuelAuthed === true) send(client, message)
+      const socket = client as PeerSocket
+      if (client !== except &&
+        socket.teamFuelAuthed === true &&
+        socket.teamFuelLiveGeneration === this.liveGeneration) {
+        send(client, message)
+      }
     }
+  }
+
+  private invalidateBoundaryTransports(): void {
+    for (const client of this.server?.clients ?? []) {
+      clearHandshakeDeadline(client as PeerSocket)
+      forceTerminate(client)
+    }
+
+    const reconnect = this.isActive() && this.mode === 'join' && this.lastService
+    this.clearReconnectTimer()
+    const client = this.client as PeerSocket | null
+    this.client = null
+    const generation = ++this.clientGeneration
+    if (client) {
+      clearHandshakeDeadline(client)
+      forceTerminate(client)
+    }
+    if (reconnect) {
+      this.state = 'joining'
+      this.scheduleReconnect(generation)
+    }
+  }
+
+  private acceptInboundPeer(socket: PeerSocket, remote: TeamFuelPeer, peerId: string): TeamFuelPeer | null {
+    const local = this.peers.get(this.peerId)
+    if (!local?.local || !validSessionUniqueId(local.sessionUniqueId)) return null
+
+    const now = Date.now()
+    this.pruneLegacyProbations(now)
+    const probation = this.legacyProbations.get(socket) ?? new Map<string, LegacyPeerProbation>()
+    if (!this.legacyProbations.has(socket)) this.legacyProbations.set(socket, probation)
+    const existingProbation = probation.get(peerId)
+    if (!this.peers.has(peerId) && !existingProbation &&
+      this.peers.size + this.pendingLegacyPeerCount() >= MAX_PEERS) {
+      return null
+    }
+
+    if (remote.sessionUniqueId !== undefined) {
+      if (!peerMatchesLocalSession(local, remote)) return null
+      probation.delete(peerId)
+      return { ...remote, peerId }
+    }
+
+    if (now - remote.ts > STALE_PEER_MS) return null
+    if (!existingProbation || existingProbation.liveGeneration !== this.liveGeneration) {
+      probation.set(peerId, {
+        liveGeneration: this.liveGeneration,
+        lastTs: remote.ts,
+        admitted: false
+      })
+      return null
+    }
+    if (remote.ts <= existingProbation.lastTs) return null
+
+    existingProbation.lastTs = remote.ts
+    existingProbation.admitted = true
+    return { ...remote, peerId, sessionUniqueId: local.sessionUniqueId }
+  }
+
+  private pendingLegacyPeerCount(): number {
+    this.pruneLegacyProbations(Date.now())
+    const pending = new Set<string>()
+    for (const probation of this.legacyProbations.values()) {
+      for (const [peerId, state] of probation) {
+        if (state.liveGeneration === this.liveGeneration && !state.admitted && !this.peers.has(peerId)) {
+          pending.add(peerId)
+        }
+      }
+    }
+    return pending.size
+  }
+
+  private resetLegacyProbation(socket: PeerSocket): void {
+    this.legacyProbations.set(socket, new Map())
+  }
+
+  private pruneLegacyProbations(now: number): void {
+    for (const probation of this.legacyProbations.values()) {
+      for (const [peerId, state] of probation) {
+        if (now - state.lastTs > STALE_PEER_MS) probation.delete(peerId)
+      }
+    }
+  }
+
+  private clearRemotePeers(): boolean {
+    let changed = false
+    for (const [peerId, peer] of this.peers) {
+      if (peer.local) continue
+      this.peers.delete(peerId)
+      changed = true
+    }
+    return changed
   }
 
   private pruneStalePeers(): void {
     const now = Date.now()
+    this.pruneLegacyProbations(now)
     let changed = false
     for (const [peerId, peer] of this.peers) {
       if (peer.local) continue
@@ -666,6 +870,7 @@ class TeamFuelController {
 
   private async disposeNetwork(): Promise<void> {
     this.clearReconnectTimer()
+    this.legacyProbations.clear()
     this.browser?.stop()
     this.browser = null
     if (this.service) {
