@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { EXPR_CHANNELS, type ExpressionResultsBatch } from '../../shared/expr'
 import type { ExpressionStudioSnapshot } from '../../shared/expression-studio'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import type { ModuleContext } from '../module-context'
+import { CONFIG_SECTION_RELOAD_SIGNAL } from '../../shared/config-io'
 import { register } from './expression-engine'
 
 type Handler = (...args: unknown[]) => unknown
@@ -114,6 +115,54 @@ describe('expression engine deletion tombstones', () => {
       deleted: true
     })
     expect(api.getResultsSnapshot()).toEqual({})
+    quitListeners.forEach((listener) => listener())
+  })
+
+  it('rolls back an invalid imported file and throws through the reload signal', async () => {
+    const handlers = new Map<string, Handler>()
+    const eventListeners = new Map<string, Set<Handler>>()
+    const quitListeners: Array<() => void> = []
+    const ctx = {
+      app: {
+        getPath: () => root,
+        once: (_event: string, listener: () => void) => quitListeners.push(listener)
+      },
+      ipcMain: {
+        handle: (channel: string, handler: Handler) => handlers.set(channel, handler),
+        on: (channel: string, handler: Handler) => {
+          const set = eventListeners.get(channel) ?? new Set<Handler>()
+          set.add(handler)
+          eventListeners.set(channel, set)
+        },
+        off: (channel: string, handler: Handler) => eventListeners.get(channel)?.delete(handler)
+      },
+      telemetryHub: { on: () => undefined, getLatest: () => null },
+      broadcast: () => undefined
+    } as unknown as ModuleContext
+
+    register(ctx)
+    const getStudio = handlers.get(EXPR_CHANNELS.getStudio)
+    const mutate = handlers.get(EXPR_CHANNELS.mutateStudio)
+    const initial = await getStudio?.() as ExpressionStudioSnapshot
+    await mutate?.(undefined, {
+      revision: initial.revision,
+      expressions: [{ id: 'expr-1', name: 'Valid', expr: 'speedKmh' }],
+      enabledVars: [],
+      outputs: [],
+      destinations: []
+    })
+    const storePath = join(root, 'expressions.json')
+    const previousDisk = JSON.parse(readFileSync(storePath, 'utf8'))
+    writeFileSync(storePath, '{"version":3,"expressions":')
+
+    const reload = [...(eventListeners.get(CONFIG_SECTION_RELOAD_SIGNAL) ?? [])][0]
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    expect(() => reload?.({ source: 'config-export' }, 'expressions')).toThrow()
+    warn.mockRestore()
+    expect(JSON.parse(readFileSync(storePath, 'utf8'))).toEqual(previousDisk)
+    expect((await getStudio?.() as ExpressionStudioSnapshot).expressions).toEqual([
+      { id: 'expr-1', name: 'Valid', expr: 'speedKmh' }
+    ])
     quitListeners.forEach((listener) => listener())
   })
 })

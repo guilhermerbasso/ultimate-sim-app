@@ -2,6 +2,23 @@ import { useEffect, useMemo, useState } from 'react'
 import { EXPR_CHANNELS, type ExpressionResultEntry, type ExpressionResultsBatch, type ExpressionValue } from '../../../shared/expr'
 import type { ButtonBoxButton } from '../../../shared/touch-panel'
 
+export function mergeTouchExpressionValues(
+  current: Readonly<Record<string, ExpressionValue | undefined>>,
+  wanted: ReadonlySet<string>,
+  entries: Readonly<Record<string, ExpressionResultEntry>>
+): Record<string, ExpressionValue | undefined> {
+  const next: Record<string, ExpressionValue | undefined> = {}
+  for (const id of wanted) {
+    if (Object.prototype.hasOwnProperty.call(entries, id)) {
+      const entry = entries[id]
+      if (!entry?.deleted) next[id] = entry?.value
+      continue
+    }
+    if (Object.prototype.hasOwnProperty.call(current, id)) next[id] = current[id]
+  }
+  return next
+}
+
 /**
  * Read-only adapter over the canonical expression engine. It stores only the
  * latest values needed by this mounted panel; expression definitions/evaluation
@@ -31,11 +48,7 @@ export function useTouchExpressionValues(
     const wanted = new Set(ids)
     const merge = (entries: Record<string, ExpressionResultEntry>): void => {
       if (!alive) return
-      setValues((current) => {
-        const next: Record<string, ExpressionValue | undefined> = {}
-        for (const id of wanted) next[id] = entries[id]?.value ?? current[id]
-        return next
-      })
+      setValues((current) => mergeTouchExpressionValues(current, wanted, entries))
     }
     void window.ipc
       .invoke<Record<string, ExpressionResultEntry>>(EXPR_CHANNELS.getResults)

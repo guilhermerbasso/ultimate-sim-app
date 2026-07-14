@@ -39,6 +39,7 @@ type OutputSink = (routes: OutputRoute[], activeExpressionIds: string[]) => void
 export interface ExpressionEngineApi {
   getResultsSnapshot(): Record<string, ExpressionResultEntry>
   getOutputRoutes(): Promise<OutputRoute[]>
+  migrateLegacyOutputState(routes: readonly OutputRoute[]): Promise<string[]>
   setOutputSink(sink: OutputSink | null): void
 }
 
@@ -68,6 +69,7 @@ export function register(ctx: ModuleContext): ExpressionEngineApi {
   return {
     getResultsSnapshot: () => engine.getResultsSnapshot(),
     getOutputRoutes: () => engine.getOutputRoutes(),
+    migrateLegacyOutputState: (routes) => engine.migrateLegacyOutputState(routes),
     setOutputSink: (sink) => engine.setOutputSink(sink)
   }
 }
@@ -105,16 +107,26 @@ class ExpressionEngine {
     const onSectionReload = (_event: unknown, sectionId: string): void => {
       if (sectionId !== 'expressions') return
       const previousExpressions = this.studio.snapshot().expressions
-      void this.studio
-        .reloadImported()
-        .then((payload) => this.afterStudioCommit(payload, previousExpressions))
-        .catch((error) => console.warn('[expr] Failed to apply imported Expression Studio store:', error))
+      try {
+        const capabilities = this.capabilities()
+        const payload = this.studio.reloadImportedSynchronously(
+          (next) => validateExpressionDestinationsForCapabilities(next, capabilities)
+        )
+        this.afterStudioCommit(payload, previousExpressions)
+      } catch (error) {
+        console.warn('[expr] Failed to apply imported Expression Studio store:', error)
+        // EventEmitter propagates listener exceptions to config:importSection,
+        // making the import fail truthfully after the store has rolled back.
+        throw error
+      }
     }
     const onSectionReset = (_event: unknown, sectionId: string): void => {
       if (sectionId !== 'expressions') return
       const previousExpressions = this.studio.snapshot().expressions
-      const payload = this.studio.dropInMemoryForReset()
-      this.afterStudioCommit(payload, previousExpressions)
+      void this.studio
+        .dropInMemoryForReset()
+        .then((payload) => this.afterStudioCommit(payload, previousExpressions))
+        .catch((error) => console.warn('[expr] Failed to reset Expression Studio store:', error))
     }
     this.ctx.ipcMain.on(CONFIG_SECTION_RELOAD_SIGNAL, onSectionReload)
     this.ctx.ipcMain.on(CONFIG_SECTION_RESET_SIGNAL, onSectionReset)
@@ -165,6 +177,16 @@ class ExpressionEngine {
   async getOutputRoutes(): Promise<OutputRoute[]> {
     await this.ensureLoaded()
     return this.studio.snapshot().outputs
+  }
+
+  async migrateLegacyOutputState(routes: readonly OutputRoute[]): Promise<string[]> {
+    await this.ensureLoaded()
+    const previousExpressions = this.studio.snapshot().expressions
+    const result = await this.studio.migrateLegacyOutputState(routes)
+    if (result.migratedRouteIds.length > 0) {
+      this.afterStudioCommit(result.payload, previousExpressions)
+    }
+    return result.migratedRouteIds
   }
 
   setOutputSink(sink: OutputSink | null): void {
