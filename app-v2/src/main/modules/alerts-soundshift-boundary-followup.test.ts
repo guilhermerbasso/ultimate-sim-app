@@ -1094,6 +1094,90 @@ describe('soundshift boundary seeding', () => {
     ])
   })
 
+  it('allows disabled shift, ABS, and TCS cues to fire when enabled while active', async () => {
+    const { register } = await import('./soundshift')
+    const harness = moduleHarness('soundshift-enable-active')
+    register(harness.ctx)
+    await settleSoundshiftConfigLoad(harness.broadcast)
+    await harness.handlers.get(SOUNDSHIFT_CHANNELS.setConfig)?.(undefined, {
+      soundshift: { enabled: false, defaultMode: 'exact', leadMs: 0 },
+      abs: { enabled: false, triggerMode: 'start', inputThreshold: 0.2, repeatMs: 75 },
+      tcs: { enabled: false, triggerMode: 'start', inputThreshold: 0.2, repeatMs: 75 }
+    })
+
+    vi.useFakeTimers({ now: 10_000 })
+    const active = {
+      rpm: 7_100,
+      maxRpm: 8_000,
+      shiftRpm: 7_000,
+      shiftIndicatorPct: 1,
+      brake: 0.8,
+      absActive: true,
+      throttle: 0.8,
+      tcActive: true
+    }
+    harness.emit(snapshot('live', 0, active))
+    expect(callsFor(harness.broadcast, SOUNDSHIFT_CHANNELS.cueEvent)).toEqual([])
+
+    await harness.handlers.get(SOUNDSHIFT_CHANNELS.setConfig)?.(undefined, {
+      soundshift: { enabled: true },
+      abs: { enabled: true },
+      tcs: { enabled: true }
+    })
+    harness.broadcast.mockClear()
+
+    harness.emit(snapshot('live', 0, { ...active, timestamp: 1_100 }))
+    expect(callsFor(harness.broadcast, SOUNDSHIFT_CHANNELS.cueEvent).map((cue: any) => cue.id)).toEqual([
+      'soundshift',
+      'abs',
+      'tcs'
+    ])
+  })
+
+  it('starts the ABS repeat interval when a disabled active cue is enabled', async () => {
+    const { register } = await import('./soundshift')
+    const harness = moduleHarness('soundshift-enable-active-abs-repeat')
+    register(harness.ctx)
+    await settleSoundshiftConfigLoad(harness.broadcast)
+    await harness.handlers.get(SOUNDSHIFT_CHANNELS.setConfig)?.(undefined, {
+      soundshift: {},
+      abs: { enabled: false, triggerMode: 'repeat', inputThreshold: 0.2, repeatMs: 250 }
+    })
+    expect(await harness.handlers.get(SOUNDSHIFT_CHANNELS.getConfig)?.()).toMatchObject({
+      abs: { enabled: false, triggerMode: 'repeat', repeatMs: 250 }
+    })
+
+    vi.useFakeTimers({ now: 10_000 })
+    const active = { brake: 0.8, absActive: true }
+    harness.emit(snapshot('live', 0, active))
+    expect(callsFor(harness.broadcast, SOUNDSHIFT_CHANNELS.cueEvent)).toEqual([])
+
+    await harness.handlers.get(SOUNDSHIFT_CHANNELS.setConfig)?.(undefined, {
+      soundshift: {},
+      abs: { enabled: true }
+    })
+    expect(await harness.handlers.get(SOUNDSHIFT_CHANNELS.getConfig)?.()).toMatchObject({
+      abs: { enabled: true, triggerMode: 'repeat', repeatMs: 250 }
+    })
+    harness.broadcast.mockClear()
+
+    harness.emit(snapshot('live', 0, { ...active, timestamp: 1_100 }))
+    expect(callsFor(harness.broadcast, SOUNDSHIFT_CHANNELS.cueEvent)).toEqual([
+      expect.objectContaining({ id: 'abs' })
+    ])
+
+    harness.broadcast.mockClear()
+    vi.setSystemTime(10_249)
+    harness.emit(snapshot('live', 0, { ...active, timestamp: 1_200 }))
+    expect(callsFor(harness.broadcast, SOUNDSHIFT_CHANNELS.cueEvent)).toEqual([])
+
+    vi.setSystemTime(10_250)
+    harness.emit(snapshot('live', 0, { ...active, timestamp: 1_300 }))
+    expect(callsFor(harness.broadcast, SOUNDSHIFT_CHANNELS.cueEvent)).toEqual([
+      expect.objectContaining({ id: 'abs' })
+    ])
+  })
+
   it('starts an already-active repeating ABS cue from a fresh repeat interval', async () => {
     const { register } = await import('./soundshift')
     const harness = moduleHarness('soundshift-abs-repeat')

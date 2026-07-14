@@ -210,12 +210,16 @@ function seedLiveState(snapshot: TelemetrySnapshot): void {
     previousIncidentCount = snapshot.incidentCount
   }
 
-  const shiftDecision = evaluateShift({ ...config.soundshift, enabled: true }, snapshot)
+  const shiftDecision = evaluateShift(config.soundshift, snapshot)
   wasInShiftZone = shiftDecision.shouldBeep
   shiftArmed = !shiftDecision.shouldBeep
-  wasAbsEngaging = evaluateAbs({ ...config.abs, enabled: true }, snapshot).engaging
-  if (wasAbsEngaging && config.abs.triggerMode === 'repeat') lastCueAt.abs = Date.now()
-  wasTcsEngaging = evaluateTcs({ ...config.tcs, enabled: true }, snapshot).engaging
+  wasAbsEngaging = evaluateAbs(config.abs, snapshot).engaging
+  if (wasAbsEngaging && config.abs.triggerMode === 'repeat') {
+    lastCueAt.abs = Date.now()
+  } else {
+    delete lastCueAt.abs
+  }
+  wasTcsEngaging = evaluateTcs(config.tcs, snapshot).engaging
 }
 
 function processSnapshot(ctx: ModuleContext, snapshot: TelemetrySnapshot | null): void {
