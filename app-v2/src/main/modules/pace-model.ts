@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import type { ModuleContext } from '../module-context'
@@ -7,6 +7,7 @@ import type { PaceFeatures, PaceModel } from '../../shared/predictions'
 import { PaceLearner, type PaceLearnerState } from '../../shared/pace-learner'
 import { setPredictionsPaceModel } from './predictions'
 import { logger } from './logger'
+import { LiveTelemetryGate } from '../../shared/replay'
 
 // WS-L pace-model module. Owns ONE personalized `PaceLearner` per (car+track),
 // feeds it CLEAN green laps (once per completed lap — NEVER in the tick loop),
@@ -43,6 +44,25 @@ export interface PaceModelStatus {
 interface PaceModelFile {
   version: typeof STORE_VERSION
   models: Record<string, PaceLearnerState>
+}
+
+interface VersionedPacePayload {
+  version: number
+  json: string
+}
+
+export interface PaceModelPersistence {
+  mkdir(path: string): Promise<void>
+  writeFile(path: string, payload: string): Promise<void>
+  rename(from: string, to: string): Promise<void>
+  remove(path: string): Promise<void>
+}
+
+const DEFAULT_PERSISTENCE: PaceModelPersistence = {
+  mkdir: (path) => mkdir(path, { recursive: true }).then(() => undefined),
+  writeFile: (path, payload) => writeFile(path, payload, 'utf8'),
+  rename,
+  remove: (path) => rm(path, { force: true })
 }
 
 function isFiniteNum(v: unknown): v is number {
@@ -85,7 +105,8 @@ export function modelKey(
   return config ? `${base}__${config}` : base
 }
 
-class PaceModelStore {
+export class PaceModelStore {
+  private readonly liveGate = new LiveTelemetryGate()
   private readonly learners = new Map<string, PaceLearner>()
   private active: PaceLearner | null = null
   private activeKey: string | null = null
@@ -95,15 +116,21 @@ class PaceModelStore {
   private lapsOnStint = 0
   private pitSeenThisLap = false
   private lastIncidentCount: number | null = null
-  private wasConnected = false
 
   private loadPromise: Promise<void> | null = null
   private saveTimer: ReturnType<typeof setTimeout> | null = null
-  private dirty = false
+  private dirtyPayload: VersionedPacePayload | null = null
+  private writeQueue: Promise<void> = Promise.resolve()
+  private writeSequence = 0
+  private latestPayloadVersion = 0
+  private persistedPayloadVersion = 0
+  private liveContextActive = false
+  private ingestionClosed = false
 
   constructor(
     private readonly ctx: ModuleContext,
-    private readonly filePath: string
+    private readonly filePath: string,
+    private readonly persistence: PaceModelPersistence = DEFAULT_PERSISTENCE
   ) {}
 
   load(): Promise<void> {
@@ -151,15 +178,17 @@ class PaceModelStore {
 
   /** Called once per telemetry snapshot. Cheap; only does work on lap edges. */
   onSnapshot(snap: TelemetrySnapshot | null): void {
+    if (this.ingestionClosed) return
     try {
-      if (!snap || !snap.connected) {
-        // Re-base on the next connection so a fresh session doesn't inherit
-        // stale lap/stint counters.
-        if (this.wasConnected) this.resetSession()
-        this.wasConnected = false
+      const live = this.liveGate.observe(snap)
+      if (!live.live) {
+        if (live.boundary) this.pauseLiveContext()
         return
       }
-      this.wasConnected = true
+      if (live.boundary) this.resetLiveSession()
+      this.liveContextActive = true
+      if (this.dirtyPayload && !this.saveTimer) this.scheduleSave(false)
+      if (!snap) return
 
       this.selectActive(snap)
       this.trackPitAndIncidents(snap)
@@ -178,6 +207,21 @@ class PaceModelStore {
     this.lapsOnStint = 0
     this.pitSeenThisLap = false
     this.lastIncidentCount = null
+  }
+
+  private resetLiveSession(): void {
+    this.resetSession()
+    this.active = null
+    this.activeKey = null
+  }
+
+  private pauseLiveContext(): void {
+    this.liveContextActive = false
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer)
+      this.saveTimer = null
+    }
+    this.resetLiveSession()
   }
 
   private selectActive(snap: TelemetrySnapshot): void {
@@ -260,11 +304,18 @@ class PaceModelStore {
     if (accepted) this.scheduleSave()
   }
 
-  private scheduleSave(): void {
-    this.dirty = true
-    if (this.saveTimer) return
+  private scheduleSave(capture = true): void {
+    if (this.ingestionClosed) return
+    if (capture) {
+      this.dirtyPayload = {
+        version: ++this.latestPayloadVersion,
+        json: this.serializeModels()
+      }
+    }
+    if (!this.liveContextActive || this.saveTimer) return
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null
+      if (!this.liveContextActive || this.ingestionClosed) return
       void this.flush()
     }, SAVE_DEBOUNCE_MS)
     if (typeof this.saveTimer === 'object' && this.saveTimer && 'unref' in this.saveTimer) {
@@ -273,28 +324,64 @@ class PaceModelStore {
   }
 
   async flush(): Promise<void> {
-    if (!this.dirty) return
-    this.dirty = false
+    const pending = this.dirtyPayload
+    if (!pending) {
+      await this.writeQueue
+      return
+    }
+    this.dirtyPayload = null
+    const tempPath = `${this.filePath}.${process.pid}.${++this.writeSequence}.tmp`
+    const persist = async (): Promise<void> => {
+      try {
+        await this.persistence.mkdir(dirname(this.filePath))
+        await this.persistence.writeFile(tempPath, pending.json)
+        await this.persistence.rename(tempPath, this.filePath)
+        this.persistedPayloadVersion = Math.max(this.persistedPayloadVersion, pending.version)
+      } catch (error) {
+        if (
+          pending.version === this.latestPayloadVersion &&
+          pending.version > this.persistedPayloadVersion &&
+          (!this.dirtyPayload || this.dirtyPayload.version < pending.version)
+        ) {
+          this.dirtyPayload = pending
+        }
+        await this.persistence.remove(tempPath).catch(() => undefined)
+        logger.warn('pacemodel', 'failed to persist models', {
+          message: error instanceof Error ? error.message : String(error)
+        })
+      }
+    }
+    this.writeQueue = this.writeQueue.then(persist, persist)
+    await this.writeQueue
+  }
+
+  private serializeModels(): string {
     const models: Record<string, PaceLearnerState> = {}
     for (const [key, learner] of this.learners) models[key] = learner.toJSON()
     const file: PaceModelFile = { version: STORE_VERSION, models }
-    try {
-      await mkdir(dirname(this.filePath), { recursive: true })
-      await writeFile(this.filePath, JSON.stringify(file), 'utf8')
-    } catch (error) {
-      this.dirty = true // retry on the next save
-      logger.warn('pacemodel', 'failed to persist models', {
-        message: error instanceof Error ? error.message : String(error)
-      })
-    }
+    return JSON.stringify(file)
   }
 
-  dispose(): void {
+  quiesce(): void {
+    if (this.ingestionClosed) return
+    this.ingestionClosed = true
+    this.liveContextActive = false
     if (this.saveTimer) {
       clearTimeout(this.saveTimer)
       this.saveTimer = null
     }
-    void this.flush()
+  }
+
+  isQuiesced(): boolean {
+    return this.ingestionClosed
+  }
+
+  async dispose(): Promise<void> {
+    this.quiesce()
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await this.flush()
+      if (!this.dirtyPayload) break
+    }
   }
 
   status(): PaceModelStatus {
@@ -319,7 +406,7 @@ export function register(ctx: ModuleContext): void {
 
   // Load persisted learners, THEN plug the adapter into the predictions engine.
   void store.load().then(() => {
-    setPredictionsPaceModel(store.adapter())
+    if (!store.isQuiesced()) setPredictionsPaceModel(store.adapter())
   })
 
   ctx.telemetryHub.on('snapshot', (snapshot: TelemetrySnapshot | null) => {
@@ -328,8 +415,9 @@ export function register(ctx: ModuleContext): void {
 
   ctx.ipcMain.handle(PACE_MODEL_CHANNELS.get, (): PaceModelStatus => store.status())
 
-  ctx.app.once('before-quit', () => {
+  ctx.registerGracefulTeardown(() => {
     setPredictionsPaceModel(null)
-    store.dispose()
-  })
+    store.quiesce()
+  }, 'quiesce')
+  ctx.registerGracefulTeardown(() => store.dispose(), 'persistence')
 }

@@ -1,4 +1,5 @@
 import { mkdir, readFile, readdir, rm, writeFile, appendFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import type {
@@ -8,6 +9,7 @@ import type {
   RecordingStartOptions,
   RecordingStatus
 } from '../../shared/recording'
+import { LiveTelemetryGate } from '../../shared/replay'
 
 type JsonlRow = RecordingSample
 
@@ -17,17 +19,35 @@ const MAX_SAMPLE_INTERVAL_MS = 1000
 const LAP_WRAP_HIGH = 0.82
 const LAP_WRAP_LOW = 0.18
 
+export interface TelemetryRecorderLifecycle {
+  prepareSession(dir: string): Promise<void>
+  removeSession(dir: string): Promise<void>
+}
+
+const DEFAULT_LIFECYCLE: TelemetryRecorderLifecycle = {
+  prepareSession: (dir) => mkdir(dir, { recursive: true }).then(() => undefined),
+  removeSession: (dir) => rm(dir, { recursive: true, force: true })
+}
+
 function clampSampleRate(rate?: number): number {
   if (!Number.isFinite(rate) || !rate) return DEFAULT_SAMPLE_RATE_HZ
   return Math.max(1, Math.min(30, Math.round(rate)))
 }
 
 function sessionIdFromDate(date = new Date()): string {
-  return date.toISOString().replace(/[:.]/g, '-').replace('T', '_').replace('Z', '')
+  return `${date.toISOString().replace(/[:.]/g, '-').replace('T', '_').replace('Z', '')}-${randomUUID().slice(0, 8)}`
 }
 
 function finiteOrUndefined(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function recordingFailure(message: string, error: unknown): Error {
+  return new Error(`${message}: ${errorMessage(error)}`, { cause: error })
 }
 
 function lapDist(snapshot: TelemetrySnapshot): number | null {
@@ -37,6 +57,7 @@ function lapDist(snapshot: TelemetrySnapshot): number | null {
 }
 
 export class TelemetryRecorder {
+  private readonly liveGate = new LiveTelemetryGate()
   private readonly recordingsDir: string
   private active: RecordingSessionSummary | null = null
   private lastSampleAt = 0
@@ -45,10 +66,22 @@ export class TelemetryRecorder {
   private lapStartedAtBoundary = new Map<number, boolean>()
   private writeQueue: Promise<void> = Promise.resolve()
   private metadataQueue: Promise<void> = Promise.resolve()
-  private lastWriteError: string | null = null
+  private pendingWriteFailures: Error[] = []
   private stopping = false
+  private boundaryPending = false
+  private startGeneration = 0
+  private startRequest: {
+    generation: number
+    contextKey: string | null
+    sampleRateHz: number
+    promise: Promise<RecordingStatus>
+  } | null = null
+  private accepting = true
 
-  constructor(userDataPath: string) {
+  constructor(
+    userDataPath: string,
+    private readonly lifecycle: TelemetryRecorderLifecycle = DEFAULT_LIFECYCLE
+  ) {
     this.recordingsDir = join(userDataPath, 'recordings')
   }
 
@@ -56,9 +89,65 @@ export class TelemetryRecorder {
     return { recording: this.active !== null, activeSession: this.active }
   }
 
-  async start(options: RecordingStartOptions = {}): Promise<RecordingStatus> {
-    if (this.active) return this.status()
+  async start(
+    options: RecordingStartOptions = {},
+    isCurrent: () => boolean = () => true,
+    contextKey: string | null = null
+  ): Promise<RecordingStatus> {
+    if (!this.accepting) throw new Error('Recording lifecycle is shutting down.')
+    const sampleRateHz = clampSampleRate(options.sampleRateHz)
+    const pending = this.startRequest
+    if (
+      pending &&
+      pending.generation === this.startGeneration &&
+      pending.contextKey === contextKey &&
+      pending.sampleRateHz === sampleRateHz
+    ) {
+      return pending.promise
+    }
+    if (pending?.generation === this.startGeneration) this.cancelPendingStart()
+    if (!pending && this.active) return this.status()
+    const generation = ++this.startGeneration
+    const predecessor = pending?.promise.then(
+      () => undefined,
+      () => undefined
+    ) ?? Promise.resolve()
+    const promise = predecessor.then(() =>
+      this.startInternal({ ...options, sampleRateHz }, generation, isCurrent)
+    )
+    const request = { generation, contextKey, sampleRateHz, promise }
+    this.startRequest = request
+    void promise.then(
+      () => {
+        if (this.startRequest === request) this.startRequest = null
+      },
+      () => {
+        if (this.startRequest === request) this.startRequest = null
+      }
+    )
+    return promise
+  }
 
+  cancelPendingStart(): void {
+    this.startGeneration += 1
+  }
+
+  async settlePendingStart(): Promise<void> {
+    await this.startRequest?.promise.catch(() => undefined)
+  }
+
+  quiesce(): void {
+    if (!this.accepting) return
+    this.accepting = false
+    this.cancelPendingStart()
+  }
+
+  private async startInternal(
+    options: RecordingStartOptions,
+    generation: number,
+    isCurrent: () => boolean
+  ): Promise<RecordingStatus> {
+    if (!this.startIsCurrent(generation, isCurrent)) return this.status()
     const startedAt = Date.now()
     const id = sessionIdFromDate(new Date(startedAt))
     const sampleRateHz = clampSampleRate(options.sampleRateHz)
@@ -76,42 +165,124 @@ export class TelemetryRecorder {
     // a failed mkdir/persist would leave `active` set and `onSnapshot` would
     // start enqueuing appends to a directory that never got created.
     try {
-      await mkdir(this.sessionDir(id), { recursive: true })
+      await this.lifecycle.prepareSession(this.sessionDir(id))
+      if (!this.startIsCurrent(generation, isCurrent)) {
+        await this.lifecycle.removeSession(this.sessionDir(id))
+        return this.status()
+      }
+      this.writeQueue = Promise.resolve()
+      this.metadataQueue = Promise.resolve()
+      this.pendingWriteFailures = []
+      await this.enqueueMetadataPersist(pending)
+      if (!this.startIsCurrent(generation, isCurrent)) {
+        await this.lifecycle.removeSession(this.sessionDir(id))
+        return this.status()
+      }
       this.active = pending
       this.lastSampleAt = 0
       this.lastLapDistPct = null
       this.currentLapIndex = -1
       this.lapStartedAtBoundary.clear()
-      this.metadataQueue = Promise.resolve()
-      this.lastWriteError = null
       this.stopping = false
-      await this.enqueueMetadataPersist()
+      this.boundaryPending = false
     } catch (error) {
-      this.active = null
+      await this.rollbackStart(id)
       throw error
     }
     return this.status()
   }
 
   async stop(): Promise<RecordingStatus> {
+    this.cancelPendingStart()
+    await this.settlePendingStart()
     if (!this.active) return this.status()
     const session = this.active
+    const pendingWriteFailures = this.pendingWriteFailures
+    const failures: Error[] = []
+    let metadataFailure: Error | null = null
     this.stopping = true
-    session.endedAt = Date.now()
-    const lap = session.laps[this.currentLapIndex]
-    if (lap && !lap.endedAt) this.finishLap(lap, session.endedAt, false)
-    await this.flushWrites()
-    await this.enqueueMetadataPersist(session)
-    this.active = null
-    this.lastLapDistPct = null
-    this.currentLapIndex = -1
-    this.lapStartedAtBoundary.clear()
-    this.stopping = false
+    try {
+      try {
+        session.endedAt = Date.now()
+        const lap = session.laps[this.currentLapIndex]
+        if (lap && !lap.endedAt) this.finishLap(lap, session.endedAt, false)
+      } catch (error) {
+        failures.push(recordingFailure('Recording finalization failed', error))
+      }
+      try {
+        await this.flushWrites()
+      } catch (error) {
+        failures.push(recordingFailure('Recording sample queue drain failed', error))
+      }
+      try {
+        await this.enqueueMetadataPersist(session)
+      } catch (error) {
+        metadataFailure = recordingFailure('Recording metadata persistence failed', error)
+      }
+    } finally {
+      this.clearStoppedSession(session, pendingWriteFailures)
+      failures.push(...pendingWriteFailures)
+      if (metadataFailure) failures.push(metadataFailure)
+    }
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Recording persistence failed.')
+    }
     return this.status()
   }
 
+  private clearStoppedSession(
+    session: RecordingSessionSummary,
+    pendingWriteFailures: Error[]
+  ): void {
+    if (this.active === session) {
+      this.active = null
+      this.lastSampleAt = 0
+      this.lastLapDistPct = null
+      this.currentLapIndex = -1
+      this.lapStartedAtBoundary.clear()
+      this.boundaryPending = false
+      this.writeQueue = Promise.resolve()
+      this.metadataQueue = Promise.resolve()
+    }
+    if (this.pendingWriteFailures === pendingWriteFailures) this.pendingWriteFailures = []
+    this.stopping = false
+  }
+
+  private startIsCurrent(generation: number, isCurrent: () => boolean): boolean {
+    if (generation !== this.startGeneration) return false
+    try {
+      return isCurrent()
+    } catch {
+      return false
+    }
+  }
+
+  private async rollbackStart(sessionId: string): Promise<void> {
+    if (this.active?.id === sessionId) {
+      this.stopping = true
+      await this.flushWrites()
+      await this.metadataQueue.catch(() => undefined)
+      this.active = null
+      this.lastSampleAt = 0
+      this.lastLapDistPct = null
+      this.currentLapIndex = -1
+      this.lapStartedAtBoundary.clear()
+      this.boundaryPending = false
+      this.stopping = false
+    }
+    await this.lifecycle.removeSession(this.sessionDir(sessionId)).catch(() => undefined)
+  }
+
   onSnapshot(snapshot: TelemetrySnapshot | null): void {
-    if (!this.active || this.stopping || !snapshot?.connected) return
+    if (!this.accepting) return
+    const live = this.liveGate.observe(snapshot)
+    if (!live.live) {
+      if (live.boundary) this.resetTelemetryBoundary()
+      return
+    }
+    if (live.boundary) this.resetTelemetryBoundary()
+    if (!this.active || this.stopping || !snapshot) return
     const dist = lapDist(snapshot)
     if (dist === null) return
 
@@ -144,6 +315,12 @@ export class TelemetryRecorder {
     this.lastSampleAt = now
     this.lastLapDistPct = dist
     this.enqueueAppend(sample)
+  }
+
+  private resetTelemetryBoundary(): void {
+    this.lastSampleAt = 0
+    this.lastLapDistPct = null
+    this.boundaryPending = this.active !== null
   }
 
   async listSessions(): Promise<RecordingSessionSummary[]> {
@@ -185,9 +362,10 @@ export class TelemetryRecorder {
     )
     const wrapped = this.lastLapDistPct !== null && this.lastLapDistPct > LAP_WRAP_HIGH && dist < LAP_WRAP_LOW
 
-    if (!currentLap || lapNumberChanged || wrapped) {
+    if (!currentLap || this.boundaryPending || lapNumberChanged || wrapped) {
       if (currentLap && !currentLap.endedAt) {
-        this.finishLap(currentLap, timestamp, this.lapStartedAtBoundary.get(currentLap.lapIndex) === true)
+        const complete = !this.boundaryPending && this.lapStartedAtBoundary.get(currentLap.lapIndex) === true
+        this.finishLap(currentLap, timestamp, complete)
       }
       this.currentLapIndex += 1
       const openedAtBoundary = wrapped || lapNumberChanged || (!currentLap && dist < LAP_WRAP_LOW)
@@ -200,9 +378,11 @@ export class TelemetryRecorder {
       })
       this.lapStartedAtBoundary.set(this.currentLapIndex, openedAtBoundary)
       this.active.lapCount = this.active.laps.length
+      this.boundaryPending = false
+      const pendingWriteFailures = this.pendingWriteFailures
       void this.enqueueMetadataPersist().catch((error: unknown) => {
-        this.lastWriteError = error instanceof Error ? error.message : String(error)
-        console.warn('[recording] metadata persist failed:', this.lastWriteError)
+        pendingWriteFailures.push(recordingFailure('Recording I/O failed', error))
+        console.warn('[recording] metadata persist failed:', errorMessage(error))
       })
     }
   }
@@ -229,14 +409,15 @@ export class TelemetryRecorder {
   private enqueueAppend(sample: RecordingSample): void {
     if (!this.active) return
     const filePath = join(this.sessionDir(this.active.id), 'samples.jsonl')
+    const pendingWriteFailures = this.pendingWriteFailures
     // `.then(append).catch(...)` keeps the promise chain alive after a failed
     // write. The previous version dropped silently on the first rejection and
     // stopped recording without any visible error.
     this.writeQueue = this.writeQueue
       .then(() => appendFile(filePath, `${JSON.stringify(sample)}\n`, 'utf8'))
       .catch((error: unknown) => {
-        this.lastWriteError = error instanceof Error ? error.message : String(error)
-        console.warn('[recording] sample append failed:', this.lastWriteError)
+        pendingWriteFailures.push(recordingFailure('Recording I/O failed', error))
+        console.warn('[recording] sample append failed:', errorMessage(error))
       })
   }
 
