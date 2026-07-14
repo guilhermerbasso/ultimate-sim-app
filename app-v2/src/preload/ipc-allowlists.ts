@@ -10,6 +10,11 @@ export const READ_ONLY_EXPRESSION_CHANNELS = new Set<string>([
   EXPR_CHANNELS.studioChanged
 ])
 
+export const TOUCH_READ_ONLY_EXPRESSION_CHANNELS = new Set<string>([
+  EXPR_CHANNELS.getResults,
+  EXPR_CHANNELS.results
+])
+
 const OVERLAY_PREFIXES = [
   'telemetry:',
   'overlays:',
@@ -39,12 +44,13 @@ const TOUCH_EXACT_CHANNELS = new Set<string>([
   'iracing:command',
   'actions:testEmulation',
   'actions:touchKeyboardHold',
-  'app:getSettings',
-  'app:settingsChanged',
   'app:dash:cycle',
   'oled:setActivePage',
   'overlays:toggle',
-  ...READ_ONLY_EXPRESSION_CHANNELS
+  'app:touchpanel:get',
+  'app:touchpanel:close',
+  'app:touchpanel:updated',
+  ...TOUCH_READ_ONLY_EXPRESSION_CHANNELS
 ])
 
 export function isOverlayIpcAllowed(channel: string): boolean {
@@ -56,5 +62,5 @@ export function isOverlayIpcAllowed(channel: string): boolean {
 }
 
 export function isTouchpanelIpcAllowed(channel: string): boolean {
-  return TOUCH_EXACT_CHANNELS.has(channel) || channel.startsWith('app:touchpanel:')
+  return TOUCH_EXACT_CHANNELS.has(channel)
 }
