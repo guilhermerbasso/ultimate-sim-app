@@ -53,7 +53,20 @@ export interface StreamingSelfTestResult {
   statusCode: number | null
   message: string
   url: string | null
+  stage: StreamingSelfTestStage
+  resourceCount?: number
 }
+
+export type StreamingSelfTestStage =
+  | 'server'
+  | 'document'
+  | 'session'
+  | 'assets'
+  | 'ping'
+  | 'authentication'
+  | 'target'
+  | 'sse'
+  | 'complete'
 
 export interface StreamingClientInfo {
   id: number

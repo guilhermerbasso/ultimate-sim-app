@@ -4,23 +4,15 @@ import {
   type TouchActionPhase
 } from '../../../shared/touch-panel'
 import type { TouchActionResult, TouchControlActionEvent } from './ButtonBoxRenderer'
-
-function authToken(): string {
-  try {
-    return new URLSearchParams(window.location.search).get('token') ?? ''
-  } catch {
-    return ''
-  }
-}
+import { streamEndpoint } from '../stream/urls'
 
 export function isBrowserStreamRuntime(): boolean {
   return typeof window.ipc?.invoke !== 'function'
 }
 
 export async function fetchStreamPanel(panelId: string): Promise<unknown> {
-  const url = new URL(`/api/touch/panel/${encodeURIComponent(panelId)}`, window.location.origin)
-  url.searchParams.set('token', authToken())
-  const response = await fetch(url)
+  const url = streamEndpoint(`api/touch/panel/${encodeURIComponent(panelId)}`)
+  const response = await fetch(url, { credentials: 'same-origin' })
   if (!response.ok) throw new Error(`Panel load failed (HTTP ${response.status}).`)
   return response.json()
 }
@@ -42,10 +34,10 @@ async function executeBrowserAction(action: ButtonAction, phase: TouchActionPhas
   if (phase !== 'trigger') {
     throw new Error('Press-and-hold is unavailable in browser streaming mode.')
   }
-  const url = new URL('/api/touch/action', window.location.origin)
-  url.searchParams.set('token', authToken())
+  const url = streamEndpoint('api/touch/action')
   const response = await fetch(url, {
     method: 'POST',
+    credentials: 'same-origin',
     headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
     body: JSON.stringify(action)
   })

@@ -534,14 +534,16 @@ function ElementGauge({ element, snapshot, unitSystem = 'metric' }: ElementProps
 function useTrackMapData(): TrackMapData | null {
   const [data, setData] = useState<TrackMapData | null>(null)
   useEffect(() => {
+    const ipc = (window as typeof window & { ipc?: typeof window.ipc }).ipc
+    if (!ipc) return
     let canceled = false
-    void window.ipc
+    void ipc
       .invoke<TrackMapData | null>(TRACK_MAP_CHANNELS.getForCurrentTrack)
       .then((next) => {
         if (!canceled) setData(next ?? null)
       })
       .catch(() => undefined)
-    const off = window.ipc.subscribe<TrackMapData | null>(TRACK_MAP_CHANNELS.updated, (next) => {
+    const off = ipc.subscribe<TrackMapData | null>(TRACK_MAP_CHANNELS.updated, (next) => {
       setData(next ?? null)
     })
     return () => {
@@ -1475,11 +1477,15 @@ interface RaceMomentRuntime {
 
 const EMPTY_ACTILE: ReadonlySet<string> = new Set<string>()
 
-function useRaceMoment(enabled: boolean): RaceMomentRuntime {
+function useRaceMoment(enabled: boolean, externalSnapshot: TelemetrySnapshot | null): RaceMomentRuntime {
   const momentRef = useRef<RaceMomentState | null>(null)
   const liveSnapshotRef = useRef<TelemetrySnapshot | null>(null)
   const predictionsRef = useRef<PredictionsSnapshot | null>(null)
   const [runtime, setRuntime] = useState<RaceMomentRuntime>({ moment: null, active: EMPTY_ACTILE })
+
+  useEffect(() => {
+    liveSnapshotRef.current = externalSnapshot
+  }, [externalSnapshot])
 
   useEffect(() => {
     if (!enabled) {
@@ -1488,22 +1494,29 @@ function useRaceMoment(enabled: boolean): RaceMomentRuntime {
       return
     }
     momentRef.current = initialRaceMomentState()
-    const offTelemetry = window.ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', (snap) => {
-      liveSnapshotRef.current = snap
-    })
-    void window.ipc
-      .invoke<TelemetrySnapshot | null>('telemetry:getLatest')
-      .then((snap) => {
-        liveSnapshotRef.current = snap
-      })
-      .catch(() => undefined)
+    const ipc = (window as typeof window & { ipc?: typeof window.ipc }).ipc
+    const offTelemetry = ipc
+      ? ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', (snap) => {
+          liveSnapshotRef.current = snap
+        })
+      : () => undefined
+    if (ipc) {
+      void ipc
+        .invoke<TelemetrySnapshot | null>('telemetry:getLatest')
+        .then((snap) => {
+          liveSnapshotRef.current = snap
+        })
+        .catch(() => undefined)
+    }
     let offPredictions: (() => void) | undefined
-    try {
-      offPredictions = window.ipc.subscribe<PredictionsSnapshot | null>(PREDICTIONS_CHANNELS.snapshot, (snap) => {
-        predictionsRef.current = snap
-      })
-    } catch {
-      // predictions channel not registered — telemetry-only fallback
+    if (ipc) {
+      try {
+        offPredictions = ipc.subscribe<PredictionsSnapshot | null>(PREDICTIONS_CHANNELS.snapshot, (snap) => {
+          predictionsRef.current = snap
+        })
+      } catch {
+        // predictions channel not registered — telemetry-only fallback
+      }
     }
     const id = window.setInterval(() => {
       const next = resolveRaceMoment(liveSnapshotRef.current, predictionsRef.current, momentRef.current)
@@ -1649,7 +1662,7 @@ export function DashboardCanvas({
    [dashboard]
  )
  useEffect(() => retainBindingIpc(), [])
- const { moment: momentState, active: activeMoments } = useRaceMoment(adaptive)
+ const { moment: momentState, active: activeMoments } = useRaceMoment(adaptive, snapshot)
  const [dashBlink, setDashBlink] = useState<AdaptiveBlink | undefined>(undefined)
  const onDashboardBlink = useCallback((b: AdaptiveBlink | undefined) => setDashBlink(b), [])
  const [frameBg, setFrameBg] = useState<string | undefined>(undefined)
