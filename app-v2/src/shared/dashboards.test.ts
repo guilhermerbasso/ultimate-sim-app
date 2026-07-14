@@ -3,6 +3,7 @@ import { ALL_VARIANTS } from '../renderer/src/views/dashboard/widget-catalog-dat
 import {
   applyDecimals,
   composeImageFilter,
+  copyDashboardAsNew,
   createBlankAdaptiveDashboard,
   DASHBOARD_DELTA_RANGE_SEC_MAX,
   DASHBOARD_DELTA_RANGE_SEC_MIN,
@@ -35,6 +36,136 @@ function storedDashboard(id = 'stored'): Dashboard {
     elements: [{ id: 'value', type: 'text', x: 10, y: 10, w: 200, h: 80, style: { text: '42' } }]
   }
 }
+
+function copySourceDashboard(): Dashboard {
+  return {
+    id: 'copy-source',
+    name: 'Copy source',
+    width: 1024,
+    height: 600,
+    bg: '#05070a',
+    scaleMode: 'stretch',
+    description: 'Preserve dashboard metadata',
+    author: 'Original author',
+    previewPng: 'base64-preview',
+    createdAt: 100,
+    updatedAt: 200,
+    hidden: true,
+    storageEpoch: 'source-epoch',
+    storageRevision: 'source-revision',
+    elements: [{
+      id: 'base-value',
+      type: 'text',
+      x: 10,
+      y: 20,
+      w: 240,
+      h: 100,
+      binding: 'speedKmh',
+      style: {
+        text: '42',
+        channels: ['throttle', 'brake'],
+        slots: { value: { fontColor: '#ffffff', fontSize: 42 } },
+        instrument: {
+          template: 'dial',
+          parts: { led: { segments: 12, shape: 'led', warnAt: 0.7 } }
+        }
+      }
+    }],
+    adaptive: {
+      enabled: true,
+      rules: [{
+        moment: 'yellow',
+        enabled: true,
+        elements: {
+          'base-value': { visible: true, blink: { color: '#ffff00', hz: 2 } }
+        },
+        blinkDashboard: { color: '#ff0000', hz: 1 },
+        frame: {
+          bg: '#111111',
+          updatedAt: 300,
+          elements: [{
+            id: 'frame-value',
+            type: 'text',
+            x: 30,
+            y: 40,
+            w: 260,
+            h: 120,
+            binding: 'deltaSec',
+            style: {
+              text: 'FRAME',
+              slots: { value: { fontColor: '#00ff00' } }
+            }
+          }]
+        }
+      }]
+    }
+  }
+}
+
+describe('copyDashboardAsNew', () => {
+  it('preserves dashboard data while replacing only copy identity, timestamps, and storage ownership', () => {
+    const original = copySourceDashboard()
+    const originalSnapshot = structuredClone(original)
+    const copy = copyDashboardAsNew(original)
+    const {
+      id: _originalId,
+      name: _originalName,
+      createdAt: _originalCreatedAt,
+      updatedAt: _originalUpdatedAt,
+      storageEpoch: _originalEpoch,
+      storageRevision: _originalRevision,
+      ...originalData
+    } = originalSnapshot
+    const {
+      id: copyId,
+      name: copyName,
+      createdAt: copyCreatedAt,
+      updatedAt: copyUpdatedAt,
+      storageEpoch: copyEpoch,
+      storageRevision: copyRevision,
+      ...copyData
+    } = copy
+
+    expect(copyId).toMatch(/^dash-/)
+    expect(copyId).not.toBe(original.id)
+    expect(copyName).toBe('Copy source copy')
+    expect(copyCreatedAt).toEqual(expect.any(Number))
+    expect(copyUpdatedAt).toBe(copyCreatedAt)
+    expect(copyCreatedAt).not.toBe(original.createdAt)
+    expect(copyUpdatedAt).not.toBe(original.updatedAt)
+    expect(copyEpoch).toBeUndefined()
+    expect(copyRevision).toBeUndefined()
+    expect(copyData).toEqual(originalData)
+    expect(original).toEqual(originalSnapshot)
+  })
+
+  it('deep-clones element style/config and adaptive frame graphs', () => {
+    const original = copySourceDashboard()
+    const originalSnapshot = structuredClone(original)
+    const copy = copyDashboardAsNew(original)
+
+    expect(copy.elements).not.toBe(original.elements)
+    expect(copy.elements[0]).not.toBe(original.elements[0])
+    expect(copy.elements[0].style).not.toBe(original.elements[0].style)
+    expect(copy.elements[0].style.slots).not.toBe(original.elements[0].style.slots)
+    expect(copy.elements[0].style.instrument).not.toBe(original.elements[0].style.instrument)
+    expect(copy.adaptive).not.toBe(original.adaptive)
+    expect(copy.adaptive?.rules).not.toBe(original.adaptive?.rules)
+    expect(copy.adaptive?.rules?.[0].frame).not.toBe(original.adaptive?.rules?.[0].frame)
+    expect(copy.adaptive?.rules?.[0].frame?.elements).not.toBe(original.adaptive?.rules?.[0].frame?.elements)
+
+    copy.elements[0].style.text = 'MUTATED'
+    copy.elements[0].style.channels![0] = 'clutch'
+    copy.elements[0].style.slots!.value!.fontColor = '#000000'
+    copy.elements[0].style.instrument!.parts!.led!.segments = 99
+    copy.adaptive!.rules![0].elements!['base-value'].blink!.color = '#0000ff'
+    copy.adaptive!.rules![0].frame!.bg = '#222222'
+    copy.adaptive!.rules![0].frame!.elements[0].style.text = 'MUTATED FRAME'
+    copy.adaptive!.rules![0].frame!.elements[0].style.slots!.value!.fontColor = '#ff00ff'
+
+    expect(original).toEqual(originalSnapshot)
+  })
+})
 
 describe('resolveSlotStyle', () => {
   it('returns the defaults untouched when the style has no slots (back-compat)', () => {
