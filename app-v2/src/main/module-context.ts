@@ -18,6 +18,7 @@ export interface BoundedTeardownOperation {
 
 export interface OrderedGracefulTeardownPlan {
   registry: GracefulTeardownRegistry
+  quiesceTimeoutMs: number
   outputOff: readonly BoundedTeardownOperation[]
   drain: readonly BoundedTeardownOperation[]
   persistenceTimeoutMs: number
@@ -101,7 +102,7 @@ export async function settleBoundedTeardownOperation(
   onError: GracefulTeardownErrorHandler
 ): Promise<void> {
   let timeout: ReturnType<typeof setTimeout> | null = null
-  const work = Promise.resolve().then(operation.task)
+  const work = Promise.resolve().then(() => operation.task())
   const watchdog = new Promise<never>((_resolve, reject) => {
     timeout = setTimeout(
       () => reject(new TeardownTimeoutError(operation.stage, operation.timeoutMs)),
@@ -114,7 +115,7 @@ export async function settleBoundedTeardownOperation(
     try {
       onError(operation.stage, error)
     } catch {
-      // Error reporting must not prevent the remaining hardware safety attempts.
+      // Error reporting must not prevent the remaining teardown stages.
     }
   } finally {
     if (timeout) clearTimeout(timeout)
@@ -122,7 +123,14 @@ export async function settleBoundedTeardownOperation(
 }
 
 export async function runOrderedGracefulTeardown(plan: OrderedGracefulTeardownPlan): Promise<void> {
-  await plan.registry.runPhase('quiesce', plan.onError)
+  await settleBoundedTeardownOperation(
+    {
+      stage: 'quiesce',
+      timeoutMs: plan.quiesceTimeoutMs,
+      task: () => plan.registry.runPhase('quiesce', plan.onError)
+    },
+    plan.onError
+  )
   await Promise.all(
     plan.outputOff.map((operation) => settleBoundedTeardownOperation(operation, plan.onError))
   )
@@ -158,7 +166,7 @@ export class GracefulQuitController {
     } catch {
       // Startup diagnostics must not block teardown.
     }
-    const teardown = Promise.resolve().then(this.options.teardown)
+    const teardown = Promise.resolve().then(() => this.options.teardown())
     void teardown.then(
       () => this.complete(),
       (error: unknown) => {

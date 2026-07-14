@@ -88,7 +88,9 @@ let tray: Tray | null = null
 let isQuitting = false
 let registered: RegisteredModules | null = null
 const gracefulTeardownTasks = new GracefulTeardownRegistry()
+const QUIESCE_TIMEOUT_MS = 1_000
 const HARDWARE_OPERATION_TIMEOUT_MS = 1_000
+const RGB_MATRIX_ALL_OFF_TIMEOUT_MS = 2_000
 const PERSISTENCE_TIMEOUT_MS = 2_500
 // One-shot guard so the "still running in the tray" hint is evaluated at most once
 // per run (the persisted flag file then makes it once per install).
@@ -207,10 +209,11 @@ function teardownError(stage: string, error: unknown): void {
 async function gracefulTeardown(): Promise<void> {
   await runOrderedGracefulTeardown({
     registry: gracefulTeardownTasks,
+    quiesceTimeoutMs: QUIESCE_TIMEOUT_MS,
     outputOff: [
       {
         stage: 'iflag-rgb-off',
-        timeoutMs: HARDWARE_OPERATION_TIMEOUT_MS,
+        timeoutMs: RGB_MATRIX_ALL_OFF_TIMEOUT_MS,
         task: () => registered?.rgbMatrix.allOff()
       },
       {
