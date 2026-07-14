@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { CachedAsset, CachedAssetWithSvg } from './store'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { TrackMapLearner } from './learner'
+import { TrackAssetsCache, type CachedAsset, type CachedAssetWithSvg } from './store'
 import { TrackMapModule } from './index'
 import {
   captureTrackLayout,
@@ -25,7 +28,7 @@ function deferred<T>(): Deferred<T> {
 
 async function waitForCalls(spy: ReturnType<typeof vi.fn>, count: number): Promise<void> {
   for (let i = 0; i < 100 && spy.mock.calls.length < count; i += 1) {
-    await Promise.resolve()
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
   }
   expect(spy).toHaveBeenCalledTimes(count)
 }
@@ -98,7 +101,8 @@ function assetMap(...rows: Array<{ trackId: number; filename?: string; inactive?
 
 function bareModule(): any {
   const initialCatalogToken = token()
-  const initialRequestToken = token()
+  const initialAssetRequestToken = token()
+  const initialCatalogRequestToken = token()
   const initialAuth = { epoch: token(), apiToken: token(), api: null }
   const saveAsset = vi.fn(
     async (
@@ -121,9 +125,11 @@ function bareModule(): any {
     resolutionAttempted: new Set(),
     resolvedSvgByLayout: new Map(),
     refreshCoordinator: {
-      latestRequestToken: initialRequestToken,
+      latestAssetRequestToken: initialAssetRequestToken,
+      latestCatalogRequestToken: initialCatalogRequestToken,
       inflight: new Set(),
-      publicationTail: Promise.resolve()
+      assetPublicationTail: Promise.resolve(),
+      catalogPublicationTail: Promise.resolve()
     },
     authBinding: initialAuth,
     authUnsubscribe: null,
@@ -134,6 +140,7 @@ function bareModule(): any {
       get: vi.fn(() => null),
       has: vi.fn(() => false),
       getRecordingSnapshot: vi.fn(() => ({ active: false })),
+      publishCatalog: vi.fn(async () => undefined),
       setCatalog: vi.fn(async () => undefined)
     },
     auth: {
@@ -144,6 +151,7 @@ function bareModule(): any {
       loadCatalog: vi.fn(async () => null),
       catalogIsFresh: vi.fn(() => false),
       saveCatalog: vi.fn(async () => undefined),
+      catalogPath: vi.fn(() => join(process.cwd(), 'track-map-test-catalog.json')),
       loadAsset: vi.fn(async () => null),
       saveAsset
     },
@@ -211,6 +219,74 @@ function catalogRaceHarness(): {
   return { subject, oldCatalog, newerCatalog, listTracks, saveCatalog, handleApiError }
 }
 
+function learnerCatalog(rows: ReturnType<typeof track>[]): Array<{
+  trackId: number
+  trackName: string
+  trackConfigName: string | null
+}> {
+  return rows.map((row) => ({
+    trackId: row.track_id,
+    trackName: row.track_name,
+    trackConfigName: row.config_name
+  }))
+}
+
+function writeLegacyOutline(root: string, trackName = 'Shared Venue'): void {
+  mkdirSync(root, { recursive: true })
+  writeFileSync(join(root, 'legacy.json'), JSON.stringify({
+    version: 1,
+    trackName,
+    capturedAt: 1,
+    source: 'lat-lon',
+    startFinishPct: 0,
+    polyline: [{ x: 0, y: 0 }, { x: 1, y: 1 }]
+  }))
+}
+
+async function attachRealCatalogState(
+  subject: any,
+  initialCatalog: ReturnType<typeof track>[],
+  fresh: boolean,
+  withLegacy = false
+): Promise<{
+  root: string
+  learner: TrackMapLearner
+  cache: TrackAssetsCache
+  cleanup: () => void
+}> {
+  const root = mkdtempSync(join(process.cwd(), 'track-map-catalog-test-'))
+  const learnerRoot = join(root, 'learned')
+  if (withLegacy) writeLegacyOutline(learnerRoot)
+  const learner = new TrackMapLearner('unused', { rootDir: learnerRoot })
+  await learner.setCatalog(learnerCatalog(initialCatalog), fresh)
+  await learner.hydrate()
+  const cache = new TrackAssetsCache(root)
+  await cache.saveCatalog(initialCatalog)
+  subject.learner = learner
+  subject.assetsCache = cache
+  subject.catalog = initialCatalog
+  subject.catalogFresh = fresh
+  return {
+    root,
+    learner,
+    cache,
+    cleanup: () => rmSync(root, { recursive: true, force: true })
+  }
+}
+
+function deferLearnerPromotion(learner: TrackMapLearner): {
+  gate: Deferred<void>
+  persist: ReturnType<typeof vi.fn>
+} {
+  const gate = deferred<void>()
+  const originalPersist = (learner as any).persist.bind(learner)
+  const persist = vi.spyOn(learner as any, 'persist').mockImplementation(async (record: unknown) => {
+    await gate.promise
+    return originalPersist(record)
+  })
+  return { gate, persist: persist as unknown as ReturnType<typeof vi.fn> }
+}
+
 describe('TrackMapModule catalog/cache safety', () => {
   it('matches combined and separated venue/config names while failing closed on ambiguity', () => {
     const okayama = [
@@ -257,7 +333,7 @@ describe('TrackMapModule catalog/cache safety', () => {
 
     expect(subject.catalog).toEqual(winningCatalog)
     expect(subject.catalogFresh).toBe(true)
-    expect(subject.learner.setCatalog).toHaveBeenCalledTimes(1)
+    expect(subject.learner.publishCatalog).toHaveBeenCalledTimes(1)
     expect(saveCatalog).toHaveBeenCalledTimes(1)
     expect(saveCatalog).toHaveBeenCalledWith(winningCatalog)
     expect(handleApiError).not.toHaveBeenCalled()
@@ -279,7 +355,7 @@ describe('TrackMapModule catalog/cache safety', () => {
     await older
 
     expect(subject.catalog).toEqual(winningCatalog)
-    expect(subject.learner.setCatalog).toHaveBeenCalledTimes(1)
+    expect(subject.learner.publishCatalog).toHaveBeenCalledTimes(1)
     expect(saveCatalog).toHaveBeenCalledTimes(1)
     expect(saveCatalog).toHaveBeenCalledWith(winningCatalog)
   })
@@ -315,7 +391,7 @@ describe('TrackMapModule catalog/cache safety', () => {
     forcedAssets.resolve(new Map())
     await Promise.all([nonForced, forced, coalescedForce])
 
-    expect(subject.learner.setCatalog).toHaveBeenCalledTimes(1)
+    expect(subject.learner.publishCatalog).toHaveBeenCalledTimes(1)
     expect(subject.assetsCache.saveCatalog).toHaveBeenCalledTimes(1)
   })
 
@@ -372,10 +448,10 @@ describe('TrackMapModule catalog/cache safety', () => {
     expect(auth.handleApiError).not.toHaveBeenCalled()
   })
 
-  it('publishes catalog transactions without being overtaken during setCatalog', async () => {
+  it('publishes catalog transactions without being overtaken during learner promotion', async () => {
     const subject = bareModule()
     const firstSetCatalog = deferred<void>()
-    subject.learner.setCatalog = vi.fn()
+    subject.learner.publishCatalog = vi.fn()
       .mockImplementationOnce(() => firstSetCatalog.promise)
       .mockResolvedValue(undefined)
     const firstCatalog = deferred<ReturnType<typeof track>[]>()
@@ -395,7 +471,7 @@ describe('TrackMapModule catalog/cache safety', () => {
     await waitForCalls(listTracks, 1)
     const firstRows = [track(1, 'Shared Venue', 'Grand Prix')]
     firstCatalog.resolve(firstRows)
-    await waitForCalls(subject.learner.setCatalog, 1)
+    await waitForCalls(subject.learner.publishCatalog, 1)
 
     setLayout(subject, 2, 'Shared Venue', 'Club')
     const second = subject.refreshForCurrentTrack(true, true)
@@ -408,7 +484,7 @@ describe('TrackMapModule catalog/cache safety', () => {
     firstSetCatalog.resolve(undefined)
     await Promise.all([first, second])
 
-    expect(subject.learner.setCatalog).toHaveBeenCalledTimes(2)
+    expect(subject.learner.publishCatalog).toHaveBeenCalledTimes(2)
     expect(subject.assetsCache.saveCatalog.mock.calls.map(([rows]: [any]) => rows)).toEqual([
       firstRows,
       secondRows
@@ -416,12 +492,266 @@ describe('TrackMapModule catalog/cache safety', () => {
     expect(subject.catalog).toEqual(secondRows)
   })
 
-  it('does not publish catalog memory after auth changes during saveCatalog', async () => {
+  it('holds asset resolution behind a real learner promotion and commits catalog ID2 everywhere', async () => {
+    const subject = bareModule()
+    const initialCatalog = [track(1, 'Shared Venue')]
+    const nextCatalog = [track(2, 'Shared Venue')]
+    const state = await attachRealCatalogState(subject, initialCatalog, false, true)
+    try {
+      const layout = captureTrackLayout({ trackName: 'Shared Venue' })!
+      subject.setCurrentLayout(layout)
+      const { gate, persist } = deferLearnerPromotion(state.learner)
+      const listTrackAssets = vi.fn(async () => assetMap(
+        { trackId: 1, filename: 'one.svg' },
+        { trackId: 2, filename: 'two.svg' }
+      ))
+      const api = {
+        listTracks: vi.fn(async () => nextCatalog),
+        listTrackAssets,
+        fetchSvgLayer: vi.fn(async (_base: string, filename: string) => `<svg id="${filename}"/>`)
+      }
+      bindAuth(subject, api)
+
+      const catalogRefresh = subject.refreshCatalogOnly(true)
+      await waitForCalls(persist, 1)
+      expect(subject.catalog).toEqual(nextCatalog)
+      expect((state.learner as any).catalog).toEqual(learnerCatalog(nextCatalog))
+
+      const assetRefresh = subject.refreshForCurrentTrack(false)
+      await Promise.resolve()
+      expect(listTrackAssets).not.toHaveBeenCalled()
+
+      gate.resolve(undefined)
+      await Promise.all([catalogRefresh, assetRefresh])
+
+      expect((await state.cache.loadCatalog())?.tracks).toEqual(nextCatalog)
+      expect(subject.currentLayout).toMatchObject({ key: 'id:2', trackId: 2 })
+      expect(Array.from(subject.resolvedSvgByLayout.keys())).toEqual(['id:2'])
+      expect(await state.cache.loadAsset(1)).toBeNull()
+      expect((await state.cache.loadAsset(2))?.activeSvg).toContain('two.svg')
+    } finally {
+      state.cleanup()
+    }
+  })
+
+  it('keeps module and real learner catalogs aligned when auth changes during promotion', async () => {
+    const subject = bareModule()
+    const initialCatalog = [track(1, 'Shared Venue')]
+    const nextCatalog = [track(2, 'Shared Venue')]
+    const state = await attachRealCatalogState(subject, initialCatalog, false, true)
+    try {
+      const layout = captureTrackLayout({ trackName: 'Shared Venue' })!
+      subject.setCurrentLayout(layout)
+      subject.resolvedSvgByLayout.set(
+        layout.key,
+        boundCached(layout, 1, '<svg id="old"/>', subject.catalogToken)
+      )
+      const { gate, persist } = deferLearnerPromotion(state.learner)
+      const listTrackAssets = vi.fn(async () => assetMap({ trackId: 2 }))
+      const api = {
+        listTracks: vi.fn(async () => nextCatalog),
+        listTrackAssets,
+        fetchSvgLayer: vi.fn(async () => '<svg id="stale-auth"/>')
+      }
+      const auth = bindAuth(subject, api)
+
+      const refresh = subject.refreshForCurrentTrack(true, true)
+      await waitForCalls(persist, 1)
+      expect(subject.catalog).toEqual(nextCatalog)
+      expect((state.learner as any).catalog).toEqual(learnerCatalog(nextCatalog))
+
+      subject.authStatus = 'error'
+      auth.transition(null)
+      gate.resolve(undefined)
+      await refresh
+
+      expect(subject.catalog).toEqual(nextCatalog)
+      expect((state.learner as any).catalog).toEqual(learnerCatalog(nextCatalog))
+      expect((await state.cache.loadCatalog())?.tracks).toEqual(nextCatalog)
+      expect(subject.authBinding.api).toBeNull()
+      expect(subject.authStatus).toBe('error')
+      expect(subject.currentLayout).toStrictEqual(layout)
+      expect(subject.resolvedSvgByLayout.size).toBe(0)
+      expect(listTrackAssets).not.toHaveBeenCalled()
+      expect(subject.broadcastUpdate).not.toHaveBeenCalled()
+      expect(auth.handleApiError).not.toHaveBeenCalled()
+    } finally {
+      state.cleanup()
+    }
+  })
+
+  it('waits for an admitted real learner promotion during dispose without stale publication', async () => {
+    const subject = bareModule()
+    const initialCatalog = [track(1, 'Shared Venue')]
+    const nextCatalog = [track(2, 'Shared Venue')]
+    const state = await attachRealCatalogState(subject, initialCatalog, false, true)
+    try {
+      subject.setCurrentLayout(captureTrackLayout({ trackName: 'Shared Venue' })!)
+      const { gate, persist } = deferLearnerPromotion(state.learner)
+      const listTrackAssets = vi.fn(async () => assetMap({ trackId: 2 }))
+      const api = {
+        listTracks: vi.fn(async () => nextCatalog),
+        listTrackAssets,
+        fetchSvgLayer: vi.fn(async () => '<svg id="disposed"/>')
+      }
+      bindAuth(subject, api)
+
+      const refresh = subject.refreshForCurrentTrack(true, true)
+      await waitForCalls(persist, 1)
+      let disposeFinished = false
+      const disposing = subject.dispose().then(() => {
+        disposeFinished = true
+      })
+      await Promise.resolve()
+      expect(disposeFinished).toBe(false)
+
+      gate.resolve(undefined)
+      await Promise.all([refresh, disposing])
+
+      expect(disposeFinished).toBe(true)
+      expect(subject.catalog).toEqual(nextCatalog)
+      expect((state.learner as any).catalog).toEqual(learnerCatalog(nextCatalog))
+      expect((await state.cache.loadCatalog())?.tracks).toEqual(nextCatalog)
+      expect(listTrackAssets).not.toHaveBeenCalled()
+      expect(subject.resolvedSvgByLayout.size).toBe(0)
+      expect(subject.broadcastUpdate).not.toHaveBeenCalled()
+    } finally {
+      state.cleanup()
+    }
+  })
+
+  it('rolls persisted catalog back when publication storage fails', async () => {
+    const subject = bareModule()
+    const initialCatalog = [track(1, 'Shared Venue')]
+    const nextCatalog = [track(2, 'Shared Venue')]
+    const state = await attachRealCatalogState(subject, initialCatalog, true)
+    try {
+      const persistedBefore = await state.cache.loadCatalog()
+      const originalSaveCatalog = state.cache.saveCatalog.bind(state.cache)
+      const saveCatalog = vi.spyOn(state.cache, 'saveCatalog')
+        .mockImplementationOnce(async (rows) => {
+          await originalSaveCatalog(rows)
+          throw new Error('ENOSPC after write')
+        })
+      const api = { listTracks: vi.fn(async () => nextCatalog) }
+      const auth = bindAuth(subject, api)
+
+      await subject.refreshCatalogOnly(true)
+
+      expect(saveCatalog).toHaveBeenCalledTimes(1)
+      expect(subject.catalog).toEqual(initialCatalog)
+      expect((state.learner as any).catalog).toEqual(learnerCatalog(initialCatalog))
+      expect(await state.cache.loadCatalog()).toEqual(persistedBefore)
+      expect(auth.handleApiError).not.toHaveBeenCalled()
+      expect(subject.logRefreshFailure).toHaveBeenCalledWith(
+        'catalog cache save failed',
+        expect.any(Error)
+      )
+    } finally {
+      state.cleanup()
+    }
+  })
+
+  it('keeps catalog publication committed when learner promotion persistence fails', async () => {
+    const subject = bareModule()
+    const initialCatalog = [track(1, 'Shared Venue')]
+    const nextCatalog = [track(2, 'Shared Venue')]
+    const state = await attachRealCatalogState(subject, initialCatalog, false, true)
+    try {
+      const persist = vi.spyOn(state.learner as any, 'persist')
+        .mockRejectedValue(new Error('learner disk unavailable'))
+      const api = { listTracks: vi.fn(async () => nextCatalog) }
+      const auth = bindAuth(subject, api)
+
+      await subject.refreshCatalogOnly(true)
+
+      expect(persist).toHaveBeenCalledTimes(1)
+      expect(subject.catalog).toEqual(nextCatalog)
+      expect((state.learner as any).catalog).toEqual(learnerCatalog(nextCatalog))
+      expect((await state.cache.loadCatalog())?.tracks).toEqual(nextCatalog)
+      expect(state.learner.get({
+        trackId: 2,
+        trackName: 'Shared Venue'
+      })).toMatchObject({ trackId: 2 })
+      expect(auth.handleApiError).not.toHaveBeenCalled()
+    } finally {
+      state.cleanup()
+    }
+  })
+
+  it.each(['fetch', 'save'] as const)(
+    'retries asset resolution when a newer catalog commits during %s',
+    async (phase) => {
+      const subject = bareModule()
+      const initialCatalog = [track(1, 'Shared Venue')]
+      const nextCatalog = [track(2, 'Shared Venue')]
+      const state = await attachRealCatalogState(subject, initialCatalog, true)
+      try {
+        subject.setCurrentLayout(captureTrackLayout({ trackName: 'Shared Venue' })!)
+        const fetchGate = deferred<string>()
+        const saveGate = deferred<void>()
+        const fetchSvgLayer = vi.fn(async (baseUrl: string) =>
+          `<svg id="${baseUrl.includes('/2/') ? 'new' : 'old'}"/>`
+        )
+        if (phase === 'fetch') {
+          fetchSvgLayer.mockImplementationOnce(() => fetchGate.promise)
+        }
+        const originalSaveAsset = state.cache.saveAsset.bind(state.cache)
+        const saveAsset = vi.spyOn(state.cache, 'saveAsset')
+        if (phase === 'save') {
+          saveAsset.mockImplementationOnce(async (asset, layers) => {
+            await saveGate.promise
+            return originalSaveAsset(asset, layers)
+          })
+        }
+        const api = {
+          listTracks: vi.fn(async () => nextCatalog),
+          listTrackAssets: vi.fn(async () => assetMap(
+            { trackId: 1, filename: 'one.svg' },
+            { trackId: 2, filename: 'two.svg' }
+          )),
+          fetchSvgLayer
+        }
+        bindAuth(subject, api)
+
+        const assetRefresh = subject.refreshForCurrentTrack(false)
+        if (phase === 'fetch') {
+          await waitForCalls(fetchSvgLayer, 1)
+        } else {
+          await waitForCalls(saveAsset, 1)
+        }
+        await subject.refreshCatalogOnly(true)
+        if (phase === 'fetch') {
+          fetchGate.resolve('<svg id="old"/>')
+        } else {
+          saveGate.resolve(undefined)
+        }
+        await assetRefresh
+
+        expect(fetchSvgLayer.mock.calls.map(([baseUrl]) => baseUrl)).toEqual([
+          'https://maps/1/',
+          'https://maps/2/'
+        ])
+        expect(saveAsset.mock.calls.map(([asset]) => asset.trackId)).toEqual(
+          phase === 'fetch' ? [2] : [1, 2]
+        )
+        expect(subject.currentLayout).toMatchObject({ key: 'id:2', trackId: 2 })
+        expect(Array.from(subject.resolvedSvgByLayout.keys())).toEqual(['id:2'])
+        expect(subject.broadcastUpdate).toHaveBeenCalledTimes(1)
+        expect(subject.catalog).toEqual(nextCatalog)
+        expect((state.learner as any).catalog).toEqual(learnerCatalog(nextCatalog))
+        expect((await state.cache.loadCatalog())?.tracks).toEqual(nextCatalog)
+      } finally {
+        state.cleanup()
+      }
+    }
+  )
+
+  it('finishes an admitted catalog publication after auth changes during saveCatalog', async () => {
     const subject = bareModule()
     const saveCatalog = deferred<void>()
     subject.assetsCache.saveCatalog = vi.fn(() => saveCatalog.promise)
     const rows = [track(7, 'Atomic Venue')]
-    const originalCatalog = subject.catalog
     const api = { listTracks: vi.fn(async () => rows) }
     const auth = bindAuth(subject, api)
 
@@ -431,9 +761,9 @@ describe('TrackMapModule catalog/cache safety', () => {
     saveCatalog.resolve(undefined)
     await refresh
 
-    expect(subject.catalog).toBe(originalCatalog)
+    expect(subject.catalog).toEqual(rows)
     expect(subject.catalogFresh).toBe(true)
-    expect(subject.learner.setCatalog).not.toHaveBeenCalled()
+    expect(subject.learner.publishCatalog).toHaveBeenCalledTimes(1)
     expect(auth.handleApiError).not.toHaveBeenCalled()
   })
 
@@ -705,13 +1035,14 @@ describe('TrackMapModule catalog/cache safety', () => {
     expect(subject.catalog).toBe(memory)
     expect(subject.catalogFresh).toBe(true)
     expect(subject.catalogToken).toBe(memoryToken)
-    expect(subject.learner.setCatalog).not.toHaveBeenCalled()
+    expect(subject.learner.publishCatalog).not.toHaveBeenCalled()
     expect(auth.handleApiError).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps fresh catalog state when saveCatalog fails without changing auth', async () => {
+  it('keeps the old catalog everywhere when catalog persistence fails', async () => {
     const subject = bareModule()
     const rows = [track(50, 'Disk Full Catalog')]
+    const originalCatalog = subject.catalog
     const api = { listTracks: vi.fn(async () => rows) }
     const auth = bindAuth(subject, api)
     subject.assetsCache.saveCatalog = vi.fn(async () => {
@@ -720,9 +1051,9 @@ describe('TrackMapModule catalog/cache safety', () => {
 
     await subject.refreshCatalogOnly(true)
 
-    expect(subject.catalog).toEqual(rows)
+    expect(subject.catalog).toBe(originalCatalog)
     expect(subject.catalogFresh).toBe(true)
-    expect(subject.learner.setCatalog).toHaveBeenCalledTimes(1)
+    expect(subject.learner.publishCatalog).not.toHaveBeenCalled()
     expect(auth.handleApiError).not.toHaveBeenCalled()
     expect(subject.logRefreshFailure).toHaveBeenCalledWith(
       'catalog cache save failed',

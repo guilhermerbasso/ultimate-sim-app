@@ -159,6 +159,12 @@ type PersistedOutline = {
   raw: string
   record: LearnedRecord | LegacyLearnedRecord
 }
+type OutlineCandidate = { outline: PersistedOutline; record: LearnedRecord }
+type OutlinePromotion = {
+  ranked: OutlineCandidate[]
+  winner: OutlineCandidate
+  targetLoser: OutlineCandidate | undefined
+}
 
 interface RawSample {
   pct: number
@@ -342,10 +348,19 @@ export class TrackMapLearner {
     return this.hydrating
   }
 
-  async setCatalog(catalog: readonly TrackCatalogLayout[], fresh = false): Promise<void> {
-    this.catalog = catalog.map((row) => ({ ...row }))
+  // Observable catalog/cache promotion is synchronous; the promise only tracks
+  // the recoverable disk migration that follows.
+  publishCatalog(catalog: readonly TrackCatalogLayout[], fresh = false): Promise<void> {
+    const nextCatalog = catalog.map((row) => ({ ...row }))
+    this.catalog = nextCatalog
     this.catalogFresh = fresh && this.catalog.length > 0
-    if (this.hydrated && this.catalogFresh) await this.promotePersistedOutlines()
+    return this.hydrated && this.catalogFresh
+      ? this.promotePersistedOutlines()
+      : Promise.resolve()
+  }
+
+  async setCatalog(catalog: readonly TrackCatalogLayout[], fresh = false): Promise<void> {
+    await this.publishCatalog(catalog, fresh)
   }
 
   private async runHydrate(): Promise<void> {
@@ -394,8 +409,8 @@ export class TrackMapLearner {
     if (!current || compareRecords(record, current) > 0) this.offlineFallbacks.set(key, record)
   }
 
-  private async promotePersistedOutlines(): Promise<void> {
-    if (!this.catalogFresh) return
+  private promotePersistedOutlines(): Promise<void> {
+    if (!this.catalogFresh) return Promise.resolve()
     const groups = new Map<number, { row: TrackCatalogLayout; outlines: PersistedOutline[] }>()
     for (const outline of this.persistedOutlines) {
       const lookup = outline.record.version === 2
@@ -411,8 +426,7 @@ export class TrackMapLearner {
       groups.set(row.trackId, group)
     }
 
-    const processed = new Set<PersistedOutline>()
-    const promotedOutlines: PersistedOutline[] = []
+    const promotions: OutlinePromotion[] = []
     for (const { row, outlines } of groups.values()) {
       const ranked = rankOutlineCandidates(row, outlines.map((outline) => ({
         outline,
@@ -423,7 +437,25 @@ export class TrackMapLearner {
       const targetLoser = ranked.find(({ outline }) =>
         outline.filePath === targetPath && outline !== winner.outline
       )
-      if (targetLoser) await this.quarantineOutline(targetLoser.outline, 'superseded')
+      for (const candidate of ranked) {
+        if (candidate.outline.record.version === 2) {
+          const old = normalizeRecord(candidate.outline.record)
+          if (sameRecord(this.cache.get(old.layoutKey), old)) this.cache.delete(old.layoutKey)
+        }
+      }
+      this.rememberRecord(winner.record)
+      promotions.push({ ranked, winner, targetLoser })
+    }
+    this.rebuildFallbacks()
+    this.rebuildAliases()
+    return this.persistOutlinePromotions(promotions)
+  }
+
+  private async persistOutlinePromotions(promotions: readonly OutlinePromotion[]): Promise<void> {
+    const processed = new Set<PersistedOutline>()
+    const promotedOutlines: PersistedOutline[] = []
+    for (const { ranked, winner, targetLoser } of promotions) {
+      if (targetLoser) await this.archiveOutline(targetLoser.outline, 'superseded')
       let saved: PersistedOutline
       try {
         saved = await this.persist(winner.record)
@@ -435,18 +467,16 @@ export class TrackMapLearner {
       }
       for (const candidate of ranked) {
         processed.add(candidate.outline)
-        if (candidate.outline !== targetLoser?.outline && candidate.outline.filePath !== saved.filePath) {
+        if (
+          candidate.outline !== targetLoser?.outline &&
+          candidate.outline.filePath !== saved.filePath
+        ) {
           await this.quarantineOutline(
             candidate.outline,
             candidate.outline === winner.outline ? 'promoted-source' : 'superseded'
           )
         }
-        if (candidate.outline.record.version === 2) {
-          const old = normalizeRecord(candidate.outline.record)
-          if (sameRecord(this.cache.get(old.layoutKey), old)) this.cache.delete(old.layoutKey)
-        }
       }
-      this.rememberRecord(winner.record)
       promotedOutlines.push(saved)
     }
     this.persistedOutlines = this.persistedOutlines.filter((outline) => !processed.has(outline))
@@ -499,14 +529,26 @@ export class TrackMapLearner {
     }
   }
 
-  private async quarantineOutline(outline: PersistedOutline, reason: string): Promise<void> {
+  private async archiveOutline(outline: PersistedOutline, reason: string): Promise<boolean> {
     try {
       const dir = join(this.rootDir, 'quarantine')
       await mkdir(dir, { recursive: true })
       const name = `${basename(outline.filePath, '.json')}__${reason}__${hashText(outline.raw)}.json`
       await writeFile(join(dir, name), outline.raw, 'utf8')
-      await rm(outline.filePath, { force: true })
       this.log.warn(LOG_AREA, 'learner: outline quarantined', { file: basename(outline.filePath), reason })
+      return true
+    } catch (error) {
+      this.log.warn(LOG_AREA, 'learner: outline quarantine failed', {
+        file: basename(outline.filePath), error: error instanceof Error ? error.message : String(error)
+      })
+      return false
+    }
+  }
+
+  private async quarantineOutline(outline: PersistedOutline, reason: string): Promise<void> {
+    if (!(await this.archiveOutline(outline, reason))) return
+    try {
+      await rm(outline.filePath, { force: true })
     } catch (error) {
       this.log.warn(LOG_AREA, 'learner: outline quarantine failed', {
         file: basename(outline.filePath), error: error instanceof Error ? error.message : String(error)

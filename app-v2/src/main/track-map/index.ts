@@ -18,6 +18,8 @@
 // We never block telemetry handling on network I/O: the iRacing fetch runs in
 // a background task, and the learner is always ready to provide a fallback.
 
+import { rm, writeFile } from 'node:fs/promises'
+
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import {
   TRACK_MAP_CHANNELS,
@@ -87,7 +89,8 @@ interface AuthBinding {
 }
 
 interface RefreshRequest {
-  readonly token: OpaqueToken
+  readonly assetRequestToken?: OpaqueToken
+  readonly catalogRequestToken?: OpaqueToken
   readonly authEpoch: OpaqueToken
   readonly apiToken: OpaqueToken
   readonly api: IRacingApi | null
@@ -102,7 +105,8 @@ interface LayoutResolveRequest extends RefreshRequest {
 
 interface RefreshInflight {
   readonly dedupeKey: string
-  readonly requestToken: OpaqueToken
+  readonly assetRequestToken?: OpaqueToken
+  readonly catalogRequestToken?: OpaqueToken
   readonly layoutToken?: OpaqueToken
   readonly authEpoch: OpaqueToken
   readonly apiToken: OpaqueToken
@@ -113,15 +117,23 @@ interface RefreshInflight {
 }
 
 interface RefreshCoordinator {
-  latestRequestToken: OpaqueToken
+  latestAssetRequestToken: OpaqueToken
+  latestCatalogRequestToken: OpaqueToken
   readonly inflight: Set<RefreshInflight>
-  publicationTail: Promise<void>
+  assetPublicationTail: Promise<void>
+  catalogPublicationTail: Promise<void>
 }
 
 interface ResolvedSvgCacheEntry extends CachedAssetWithSvg {
   readonly catalogToken: OpaqueToken
   readonly resolvedTrackId: number
   readonly layout: TrackLayoutIdentity
+}
+
+type AssetResolutionResult = 'done' | 'retry'
+
+interface CatalogPersistenceSnapshot {
+  readonly catalog: { tracks: IRacingTrack[]; cachedAt: number } | null
 }
 
 export class TrackMapModule {
@@ -168,9 +180,11 @@ export class TrackMapModule {
   private currentLayout: TrackLayoutIdentity | undefined
   private currentLayoutToken = opaqueToken()
   private readonly refreshCoordinator: RefreshCoordinator = {
-    latestRequestToken: opaqueToken(),
+    latestAssetRequestToken: opaqueToken(),
+    latestCatalogRequestToken: opaqueToken(),
     inflight: new Set(),
-    publicationTail: Promise.resolve()
+    assetPublicationTail: Promise.resolve(),
+    catalogPublicationTail: Promise.resolve()
   }
   private authBinding!: AuthBinding
   private authUnsubscribe: (() => void) | null = null
@@ -208,11 +222,18 @@ export class TrackMapModule {
     if (this.disposed) return
     const cachedCatalog = await this.assetsCache.loadCatalog()
     if (this.disposed) return
-    if (cachedCatalog) {
-      this.catalog = cachedCatalog.tracks
-      this.catalogFresh = this.assetsCache.catalogIsFresh(cachedCatalog.cachedAt)
+    const catalog = cachedCatalog?.tracks ?? this.catalog
+    const catalogFresh = cachedCatalog
+      ? this.assetsCache.catalogIsFresh(cachedCatalog.cachedAt)
+      : this.catalogFresh
+    const learnerPromotion = this.learner.publishCatalog(toLearnerCatalog(catalog), catalogFresh)
+    this.catalog = catalog
+    this.catalogFresh = catalogFresh
+    try {
+      await learnerPromotion
+    } catch (error) {
+      this.logRefreshFailure('learner catalog promotion failed after bootstrap publication', error)
     }
-    await this.learner.setCatalog(toLearnerCatalog(this.catalog), this.catalogFresh)
     if (this.disposed) return
     await this.learner.hydrate()
     if (this.disposed) return
@@ -376,9 +397,13 @@ export class TrackMapModule {
     if (this.disposed) return Promise.resolve()
     const layout = this.currentLayout
     if (!layout) return refreshCatalog || force ? this.refreshCatalogOnly(force) : Promise.resolve()
+    const requestsCatalog =
+      refreshCatalog ||
+      force ||
+      (!this.matchCatalog(layout) && this.authBinding.api !== null)
     if (
       !force &&
-      !refreshCatalog &&
+      !requestsCatalog &&
       this.resolutionAttempted.has(layout.key) &&
       !this.resolvedSvgByLayout.has(layout.key)
     ) {
@@ -390,13 +415,13 @@ export class TrackMapModule {
       layout.key,
       layoutToken,
       force,
-      refreshCatalog || force,
+      requestsCatalog,
       async (identity) => {
         const request: LayoutResolveRequest = Object.freeze({
           ...identity,
           layout,
           layoutToken,
-          refreshCatalog: refreshCatalog || force
+          refreshCatalog: requestsCatalog
         })
         try {
           await this.doResolve(request)
@@ -427,7 +452,10 @@ export class TrackMapModule {
     const matching = Array.from(this.refreshCoordinator.inflight)
       .reverse()
       .find((entry) =>
-        entry.requestToken === this.refreshCoordinator.latestRequestToken &&
+        (entry.assetRequestToken === undefined ||
+          entry.assetRequestToken === this.refreshCoordinator.latestAssetRequestToken) &&
+        (entry.catalogRequestToken === undefined ||
+          entry.catalogRequestToken === this.refreshCoordinator.latestCatalogRequestToken) &&
         entry.dedupeKey === dedupeKey &&
         entry.layoutToken === layoutToken &&
         entry.authEpoch === auth.epoch &&
@@ -440,16 +468,24 @@ export class TrackMapModule {
       if (!needsFreshExecution) return matching.promise
     }
 
+    const assetRequestToken = layoutToken ? opaqueToken() : undefined
+    const catalogRequestToken = refreshCatalog ? opaqueToken() : undefined
     const request: RefreshRequest = Object.freeze({
-      token: opaqueToken(),
+      assetRequestToken,
+      catalogRequestToken,
       authEpoch: auth.epoch,
       apiToken: auth.apiToken,
       api: auth.api,
       force
     })
-    this.refreshCoordinator.latestRequestToken = request.token
+    if (assetRequestToken) {
+      this.refreshCoordinator.latestAssetRequestToken = assetRequestToken
+    }
+    if (catalogRequestToken) {
+      this.refreshCoordinator.latestCatalogRequestToken = catalogRequestToken
+    }
     const run = (): Promise<void> => {
-      if (!this.isRequestCurrent(request)) return Promise.resolve()
+      if (!this.isRefreshRequestCurrent(request)) return Promise.resolve()
       return execute(request)
     }
     const started = matching
@@ -461,7 +497,8 @@ export class TrackMapModule {
     })
     entry = {
       dedupeKey,
-      requestToken: request.token,
+      assetRequestToken,
+      catalogRequestToken,
       layoutToken,
       authEpoch: request.authEpoch,
       apiToken: request.apiToken,
@@ -482,7 +519,10 @@ export class TrackMapModule {
 
   private async clearSharedCredentials(): Promise<void> {
     this.advanceAuthBinding(null)
-    await this.refreshCoordinator.publicationTail
+    await Promise.all([
+      this.refreshCoordinator.catalogPublicationTail,
+      this.refreshCoordinator.assetPublicationTail
+    ])
     await this.auth.clear()
     await this.enqueueLifecyclePublication(undefined, () => {
       this.resolvedSvgByLayout.clear()
@@ -512,48 +552,68 @@ export class TrackMapModule {
   }
 
   private async doResolve(request: LayoutResolveRequest): Promise<void> {
-    if (!this.isLayoutRequestCurrent(request)) return
-    let row = this.matchCatalog(request.layout)
-    if (request.refreshCatalog || ((!row || request.force) && request.api)) {
+    if (request.refreshCatalog && this.isCatalogRequestCurrent(request)) {
       await this.ensureCatalog(request)
-      if (!this.isLayoutRequestCurrent(request)) return
-      row = this.matchCatalog(request.layout)
     }
+    while (this.isLayoutRequestCurrent(request)) {
+      await this.awaitCatalogPublication()
+      if (!this.isLayoutRequestCurrent(request)) return
+      const catalogToken = this.catalogToken
+      const result = await this.resolveAgainstCatalog(request, catalogToken)
+      if (result === 'done') return
+    }
+  }
 
+  private async resolveAgainstCatalog(
+    request: LayoutResolveRequest,
+    catalogToken: OpaqueToken
+  ): Promise<AssetResolutionResult> {
+    const row = this.matchCatalog(request.layout)
     const trackId = request.layout.trackId ?? row?.trackId
     const publicationLayout = this.publicationLayout(request.layout, row)
     let cachedAsset: CachedAssetWithSvg | null = null
     if (trackId) {
       cachedAsset = await this.assetsCache.loadAsset(trackId)
-      if (!this.isLayoutRequestCurrent(request)) return
+      if (!this.isLayoutRequestCurrent(request)) return 'done'
+      if (await this.catalogVersionChanged(catalogToken)) return 'retry'
       if (cachedAsset && hasRenderableSvg(cachedAsset) && !request.force) {
-        await this.publishLayoutRequest(request, () => {
+        await this.publishLayoutRequest(request, catalogToken, () => {
           this.publishResolvedAsset(request, publicationLayout, cachedAsset!, row)
           this.broadcastUpdate()
         })
-        return
+        return this.assetAttemptResult(request, catalogToken)
       }
     }
 
     if (!request.api || !trackId || !row) {
-      await this.publishLayoutRequest(request, () => {
+      await this.publishLayoutRequest(request, catalogToken, () => {
         this.broadcastUpdate()
       })
-      return
+      return this.assetAttemptResult(request, catalogToken)
     }
 
     let assets: Awaited<ReturnType<IRacingApi['listTrackAssets']>>
     try {
       assets = await request.api.listTrackAssets()
     } catch (error) {
-      await this.publishAssetApiFailure(request, publicationLayout, error)
-      return
+      if (!this.isLayoutRequestCurrent(request)) return 'done'
+      if (await this.catalogVersionChanged(catalogToken)) return 'retry'
+      await this.publishAssetApiFailure(request, catalogToken, publicationLayout, error)
+      return this.assetAttemptResult(request, catalogToken)
     }
-    if (!this.isLayoutRequestCurrent(request)) return
+    if (!this.isLayoutRequestCurrent(request)) return 'done'
+    if (await this.catalogVersionChanged(catalogToken)) return 'retry'
     const trackAssets = assets.get(trackId)
     if (!trackAssets) {
-      await this.publishLastGoodAsset(request, publicationLayout, cachedAsset, row, undefined)
-      return
+      await this.publishLastGoodAsset(
+        request,
+        catalogToken,
+        publicationLayout,
+        cachedAsset,
+        row,
+        undefined
+      )
+      return this.assetAttemptResult(request, catalogToken)
     }
 
     const filenames = assetsToLayerMap(trackAssets.track_map_layers)
@@ -573,19 +633,21 @@ export class TrackMapModule {
       } catch (error) {
         downloadErrors.push(error)
       }
-      if (!this.isLayoutRequestCurrent(request)) return
+      if (!this.isLayoutRequestCurrent(request)) return 'done'
+      if (await this.catalogVersionChanged(catalogToken)) return 'retry'
     }
 
     const downloadedLayers: TrackMapSvgLayers = { ...downloaded }
     if (!firstSvgLayer(downloadedLayers)) {
       await this.publishLastGoodAsset(
         request,
+        catalogToken,
         publicationLayout,
         cachedAsset,
         row,
         downloadErrors[0]
       )
-      return
+      return this.assetAttemptResult(request, catalogToken)
     }
 
     const layerFilenames = manifestForDownloadedLayers(filenames, downloadedLayers)
@@ -602,8 +664,10 @@ export class TrackMapModule {
       layers: downloadedLayers,
       activeSvg: downloadedLayers.active
     }
-    await this.publishLayoutRequest(request, async () => {
-      let persistenceError: unknown
+    let persistenceError: unknown
+    let saveAttempted = false
+    await this.publishLayoutRequest(request, catalogToken, async () => {
+      saveAttempted = true
       try {
         const saved = await this.assetsCache.saveAsset(metadata, downloaded)
         if (!hasRenderableSvg(saved)) {
@@ -614,7 +678,11 @@ export class TrackMapModule {
       } catch (error) {
         persistenceError = error
       }
-      if (!this.isLayoutRequestCurrent(request)) return
+    })
+    if (!this.isLayoutRequestCurrent(request)) return 'done'
+    if (await this.catalogVersionChanged(catalogToken)) return 'retry'
+    if (!saveAttempted) return 'done'
+    await this.publishLayoutRequest(request, catalogToken, () => {
       if (persistenceError !== undefined) {
         this.logRefreshFailure('track asset cache save failed', persistenceError)
       }
@@ -627,16 +695,31 @@ export class TrackMapModule {
       this.publishResolvedAsset(request, publicationLayout, stagedAsset, row)
       this.broadcastUpdate()
     })
+    return this.assetAttemptResult(request, catalogToken)
+  }
+
+  private async assetAttemptResult(
+    request: LayoutResolveRequest,
+    catalogToken: OpaqueToken
+  ): Promise<AssetResolutionResult> {
+    if (!this.isLayoutRequestCurrent(request)) return 'done'
+    return (await this.catalogVersionChanged(catalogToken)) ? 'retry' : 'done'
+  }
+
+  private async catalogVersionChanged(catalogToken: OpaqueToken): Promise<boolean> {
+    await this.awaitCatalogPublication()
+    return catalogToken !== this.catalogToken
   }
 
   private async publishLastGoodAsset(
     request: LayoutResolveRequest,
+    catalogToken: OpaqueToken,
     publicationLayout: TrackLayoutIdentity,
     cachedAsset: CachedAssetWithSvg | null,
     row: TrackCatalogLayout,
     assetError: unknown
   ): Promise<void> {
-    await this.publishLayoutRequest(request, () => {
+    await this.publishLayoutRequest(request, catalogToken, () => {
       const current = this.resolvedSvgByLayout.get(request.layout.key)
       const currentTrackId = current?.resolvedTrackId ?? current?.trackId
       const lastGood =
@@ -667,10 +750,11 @@ export class TrackMapModule {
 
   private async publishAssetApiFailure(
     request: LayoutResolveRequest,
+    catalogToken: OpaqueToken,
     publicationLayout: TrackLayoutIdentity,
     error: unknown
   ): Promise<void> {
-    await this.publishLayoutRequest(request, () => {
+    await this.publishLayoutRequest(request, catalogToken, () => {
       this.migrateCurrentLayout(request, publicationLayout)
       this.auth.handleApiError(error)
       this.broadcastUpdate()
@@ -678,21 +762,21 @@ export class TrackMapModule {
   }
 
   private async publishApiFailure(request: RefreshRequest, error: unknown): Promise<void> {
-    await this.publishRequest(request, () => {
+    await this.publishCatalogRequest(request, () => {
       this.auth.handleApiError(error)
       this.broadcastUpdate()
     })
   }
 
   private async ensureCatalog(request: RefreshRequest): Promise<IRacingTrack[] | null> {
-    if (!this.isRequestCurrent(request)) return null
+    if (!this.isCatalogRequestCurrent(request)) return null
     const memory = this.catalog.length > 0 ? this.catalog : null
     if (memory && this.catalogFresh && !request.force) return memory
 
     let cached: { tracks: IRacingTrack[]; cachedAt: number } | null = null
     if (!memory) {
       cached = await this.assetsCache.loadCatalog()
-      if (!this.isRequestCurrent(request)) return null
+      if (!this.isCatalogRequestCurrent(request)) return null
       if (cached && this.assetsCache.catalogIsFresh(cached.cachedAt) && !request.force) {
         return this.commitCatalog(request, cached.tracks, true, false)
       }
@@ -705,10 +789,10 @@ export class TrackMapModule {
 
     try {
       const tracks = await request.api.listTracks()
-      if (!this.isRequestCurrent(request)) return null
+      if (!this.isCatalogRequestCurrent(request)) return null
       return this.commitCatalog(request, tracks, true, true)
     } catch (error) {
-      if (!this.isRequestCurrent(request)) return null
+      if (!this.isCatalogRequestCurrent(request)) return null
       if (this.catalog.length > 0) {
         await this.publishApiFailure(request, error)
         return this.catalog
@@ -728,52 +812,120 @@ export class TrackMapModule {
     persist: boolean,
     apiError?: unknown
   ): Promise<IRacingTrack[] | null> {
-    const committed = await this.publishRequest(request, async () => {
-      let persistenceError: unknown
+    const committed = await this.publishCatalogRequest(request, async () => {
+      let persistenceSnapshot: CatalogPersistenceSnapshot | undefined
       if (persist) {
-        try {
-          await this.assetsCache.saveCatalog(tracks)
-        } catch (error) {
-          persistenceError = error
-        }
-        if (!this.isRequestCurrent(request)) return undefined
-        if (persistenceError !== undefined) {
-          this.logRefreshFailure('catalog cache save failed', persistenceError)
-        }
+        const snapshot = await this.persistCatalogForPublication(tracks)
+        if (!snapshot) return undefined
+        persistenceSnapshot = snapshot
       }
 
-      await this.learner.setCatalog(toLearnerCatalog(tracks), fresh)
-      if (!this.isRequestCurrent(request)) return undefined
-
+      const previousCatalog = this.catalog
+      const previousCatalogFresh = this.catalogFresh
+      let learnerPromotion: Promise<void>
+      try {
+        // Learner-visible state changes synchronously, so module + learner commit
+        // together before asynchronous promotion persistence can yield.
+        learnerPromotion = this.learner.publishCatalog(toLearnerCatalog(tracks), fresh)
+      } catch (error) {
+        if (persistenceSnapshot) {
+          await this.restorePersistedCatalog(persistenceSnapshot, 'learner catalog publication failed')
+        }
+        try {
+          await this.learner.publishCatalog(
+            toLearnerCatalog(previousCatalog),
+            previousCatalogFresh
+          )
+        } catch (recoveryError) {
+          this.logRefreshFailure('learner catalog rollback failed', recoveryError)
+        }
+        this.logRefreshFailure('learner catalog publication failed', error)
+        return undefined
+      }
       this.catalog = tracks
       this.catalogFresh = fresh
-      this.catalogToken = request.token
+      this.catalogToken = request.catalogRequestToken ?? opaqueToken()
       if (fresh) this.revalidateResolvedSvgCache()
-      if (apiError !== undefined) this.auth.handleApiError(apiError)
+      try {
+        await learnerPromotion
+      } catch (error) {
+        this.logRefreshFailure(
+          'learner catalog promotion failed after catalog publication',
+          error
+        )
+      }
+      if (apiError !== undefined && this.isAuthRequestCurrent(request)) {
+        this.auth.handleApiError(apiError)
+      }
       return tracks
     })
-    return committed ?? null
+    return committed ?? (this.catalog.length > 0 ? this.catalog : null)
+  }
+
+  private async persistCatalogForPublication(
+    tracks: IRacingTrack[]
+  ): Promise<CatalogPersistenceSnapshot | null> {
+    const previous = await this.assetsCache.loadCatalog()
+    const snapshot: CatalogPersistenceSnapshot = {
+      catalog: previous
+    }
+    try {
+      await this.assetsCache.saveCatalog(tracks)
+      return snapshot
+    } catch (error) {
+      this.logRefreshFailure('catalog cache save failed', error)
+      await this.restorePersistedCatalog(snapshot, 'catalog cache save failed')
+      return null
+    }
+  }
+
+  private async restorePersistedCatalog(
+    snapshot: CatalogPersistenceSnapshot,
+    reason: string
+  ): Promise<void> {
+    try {
+      if (snapshot.catalog) {
+        await writeFile(
+          this.assetsCache.catalogPath(),
+          JSON.stringify(snapshot.catalog),
+          'utf8'
+        )
+      } else {
+        await rm(this.assetsCache.catalogPath(), { force: true })
+      }
+    } catch (error) {
+      this.logRefreshFailure(`${reason}; catalog cache rollback failed`, error)
+    }
   }
 
   private publishLayoutRequest<T>(
     request: LayoutResolveRequest,
+    catalogToken: OpaqueToken,
     publish: () => T | Promise<T>
   ): Promise<T | undefined> {
-    return this.enqueuePublication(() => this.isLayoutRequestCurrent(request), publish)
+    return this.enqueueAssetPublication(
+      () =>
+        this.isLayoutRequestCurrent(request) &&
+        catalogToken === this.catalogToken,
+      publish
+    )
   }
 
-  private publishRequest<T>(
+  private publishCatalogRequest<T>(
     request: RefreshRequest,
     publish: () => T | Promise<T>
   ): Promise<T | undefined> {
-    return this.enqueuePublication(() => this.isRequestCurrent(request), publish)
+    return this.enqueueCatalogPublication(
+      () => this.isCatalogRequestCurrent(request),
+      publish
+    )
   }
 
   private enqueueLifecyclePublication<T>(
     binding: AuthBinding | undefined,
     publish: () => T | Promise<T>
   ): Promise<T | undefined> {
-    return this.enqueuePublication(
+    return this.enqueueAssetPublication(
       () =>
         !this.disposed &&
         (!binding ||
@@ -784,19 +936,44 @@ export class TrackMapModule {
     )
   }
 
-  private enqueuePublication<T>(
+  private enqueueAssetPublication<T>(
     isValid: () => boolean,
     publish: () => T | Promise<T>
   ): Promise<T | undefined> {
-    const work = this.refreshCoordinator.publicationTail.then(() => {
+    const work = this.refreshCoordinator.assetPublicationTail.then(async () => {
+      await this.awaitCatalogPublication()
       if (!isValid()) return undefined
       return publish()
     })
-    this.refreshCoordinator.publicationTail = work.then(
+    this.refreshCoordinator.assetPublicationTail = work.then(
       () => undefined,
       () => undefined
     )
     return work
+  }
+
+  private enqueueCatalogPublication<T>(
+    isValid: () => boolean,
+    publish: () => T | Promise<T>
+  ): Promise<T | undefined> {
+    const work = this.refreshCoordinator.catalogPublicationTail.then(() => {
+      if (!isValid()) return undefined
+      return publish()
+    })
+    this.refreshCoordinator.catalogPublicationTail = work.then(
+      () => undefined,
+      () => undefined
+    )
+    return work
+  }
+
+  private async awaitCatalogPublication(): Promise<void> {
+    let barrier = this.refreshCoordinator.catalogPublicationTail
+    await barrier
+    while (barrier !== this.refreshCoordinator.catalogPublicationTail) {
+      barrier = this.refreshCoordinator.catalogPublicationTail
+      await barrier
+    }
   }
 
   private matchCatalog(layout: TrackLayoutIdentity): TrackCatalogLayout | null {
@@ -903,24 +1080,44 @@ export class TrackMapModule {
   private advanceAuthBinding(api: IRacingApi | null): AuthBinding {
     const binding = createAuthBinding(api)
     this.authBinding = binding
-    this.refreshCoordinator.latestRequestToken = opaqueToken()
+    this.refreshCoordinator.latestAssetRequestToken = opaqueToken()
+    this.refreshCoordinator.latestCatalogRequestToken = opaqueToken()
     this.resolutionAttempted.clear()
     return binding
   }
 
-  private isRequestCurrent(request: RefreshRequest): boolean {
+  private isAuthRequestCurrent(request: RefreshRequest): boolean {
     return (
       !this.disposed &&
-      request.token === this.refreshCoordinator.latestRequestToken &&
       request.authEpoch === this.authBinding.epoch &&
       request.apiToken === this.authBinding.apiToken &&
       request.api === this.authBinding.api
     )
   }
 
+  private isCatalogRequestCurrent(request: RefreshRequest): boolean {
+    return (
+      this.isAuthRequestCurrent(request) &&
+      request.catalogRequestToken !== undefined &&
+      request.catalogRequestToken === this.refreshCoordinator.latestCatalogRequestToken
+    )
+  }
+
+  private isAssetRequestCurrent(request: RefreshRequest): boolean {
+    return (
+      this.isAuthRequestCurrent(request) &&
+      request.assetRequestToken !== undefined &&
+      request.assetRequestToken === this.refreshCoordinator.latestAssetRequestToken
+    )
+  }
+
+  private isRefreshRequestCurrent(request: RefreshRequest): boolean {
+    return this.isCatalogRequestCurrent(request) || this.isAssetRequestCurrent(request)
+  }
+
   private isLayoutRequestCurrent(request: LayoutResolveRequest): boolean {
     return (
-      this.isRequestCurrent(request) &&
+      this.isAssetRequestCurrent(request) &&
       request.layoutToken === this.currentLayoutToken &&
       request.layout.key === this.currentLayout?.key
     )
@@ -1476,18 +1673,25 @@ export class TrackMapModule {
 
   async dispose(): Promise<void> {
     if (this.disposed) {
-      await this.refreshCoordinator.publicationTail
+      await Promise.all([
+        this.refreshCoordinator.catalogPublicationTail,
+        this.refreshCoordinator.assetPublicationTail
+      ])
       return
     }
     this.disposed = true
-    this.refreshCoordinator.latestRequestToken = opaqueToken()
+    this.refreshCoordinator.latestAssetRequestToken = opaqueToken()
+    this.refreshCoordinator.latestCatalogRequestToken = opaqueToken()
     this.refreshCoordinator.inflight.clear()
     this.authBinding = createAuthBinding(null)
     this.authUnsubscribe?.()
     this.authUnsubscribe = null
     this.telemetryUnsubscribe?.()
     this.telemetryUnsubscribe = null
-    await this.refreshCoordinator.publicationTail
+    await Promise.all([
+      this.refreshCoordinator.catalogPublicationTail,
+      this.refreshCoordinator.assetPublicationTail
+    ])
   }
 
   // Called on app exit: persist the freshest password-mode session jar (cookies

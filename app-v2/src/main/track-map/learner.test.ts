@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -15,6 +15,17 @@ interface LogCall {
   area: string
   message: string
   detail?: unknown
+}
+
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+} {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
 }
 
 function makeSpyLogger(): { logger: Logger; calls: LogCall[]; messages: () => string[] } {
@@ -799,6 +810,76 @@ describe('TrackMapLearner — layout persistence and legacy migration', () => {
     expect(learner.get({ trackId: 102, trackName: 'Shared Venue', trackConfigName: 'Club' })).toBeNull()
     expect(readdirSync(root)).not.toContain('track-101.json')
     expect(readdirSync(root)).toContain('legacy.json')
+  })
+
+  it('publishes catalog and promoted memory before asynchronous promotion persistence completes', async () => {
+    writeLegacy()
+    const learner = new TrackMapLearner('unused', { rootDir: root, logger: spy.logger })
+    await learner.hydrate()
+    const gate = deferred<void>()
+    const originalPersist = (learner as any).persist.bind(learner)
+    const persist = vi.spyOn(learner as any, 'persist').mockImplementation(async (record: unknown) => {
+      await gate.promise
+      return originalPersist(record)
+    })
+
+    const publication = learner.publishCatalog([
+      { trackId: 101, trackName: 'Shared Venue', trackConfigName: 'Grand Prix' }
+    ], true)
+
+    expect(persist).toHaveBeenCalledTimes(1)
+    expect((learner as any).catalog).toEqual([
+      { trackId: 101, trackName: 'Shared Venue', trackConfigName: 'Grand Prix' }
+    ])
+    expect(learner.get({
+      trackId: 101,
+      trackName: 'Shared Venue',
+      trackConfigName: 'Grand Prix'
+    })).toMatchObject({ trackId: 101, trackConfigName: 'Grand Prix' })
+    expect(readdirSync(root)).not.toContain('track-101.json')
+
+    gate.resolve(undefined)
+    await publication
+
+    expect(readdirSync(root)).toContain('track-101.json')
+  })
+
+  it('keeps promoted memory recoverable when promotion persistence fails', async () => {
+    writeLegacy()
+    const learner = new TrackMapLearner('unused', { rootDir: root, logger: spy.logger })
+    await learner.hydrate()
+    vi.spyOn(learner as any, 'persist').mockRejectedValue(new Error('disk unavailable'))
+
+    await learner.setCatalog([
+      { trackId: 101, trackName: 'Shared Venue', trackConfigName: 'Grand Prix' }
+    ], true)
+
+    expect((learner as any).catalog).toEqual([
+      { trackId: 101, trackName: 'Shared Venue', trackConfigName: 'Grand Prix' }
+    ])
+    expect(learner.get({
+      trackId: 101,
+      trackName: 'Shared Venue',
+      trackConfigName: 'Grand Prix'
+    })).toMatchObject({ trackId: 101 })
+    expect(readdirSync(root)).toContain('legacy.json')
+    expect(readdirSync(root)).not.toContain('track-101.json')
+    expect(spy.calls).toContainEqual(expect.objectContaining({
+      level: 'warn',
+      message: 'learner: outline promotion failed'
+    }))
+
+    const restarted = new TrackMapLearner('unused', { rootDir: root })
+    await restarted.setCatalog([
+      { trackId: 101, trackName: 'Shared Venue', trackConfigName: 'Grand Prix' }
+    ], true)
+    await restarted.hydrate()
+    expect(restarted.get({
+      trackId: 101,
+      trackName: 'Shared Venue',
+      trackConfigName: 'Grand Prix'
+    })).toMatchObject({ trackId: 101 })
+    expect(readdirSync(root)).toContain('track-101.json')
   })
 
   it('promotes a fresh unique legacy match and archives its source', async () => {
