@@ -1,16 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { isTouchpanelIpcAllowed } from './ipc-allowlists'
 
-// Dedicated preload for the fullscreen RGB button-box window. Exposes ONLY the
-// generic `window.ipc` bridge with a TIGHT allowlist: the exact channels a button
-// panel can ever fire — iRacing broadcast (`iracing:command`), a single keyboard
-// macro emulation (`actions:testEmulation`), playlist cycling (`app:dash:cycle`),
-// OLED page + overlay toggles (`oled:setActivePage`, `overlays:toggle`), read-only
-// expression/results channels, plus the panel's own window control / data +
-// live-update events (`app:touchpanel:*`).
-// It deliberately does NOT grant the whole `actions:` prefix, so the fullscreen
-// window can never reach `actions:setBindings` / `actions:trigger`. It never sees
-// `window.api`.
+// Dedicated preload for the fullscreen touch window. The shared allowlist grants
+// only discrete actions, the keyboard hold lifecycle, read-only expression data,
+// and the panel's own read/close/update channels. It exposes neither a mutable
+// channel prefix nor `window.api`.
 
 const ipc = {
   invoke(channel: string, ...args: unknown[]): Promise<unknown> {

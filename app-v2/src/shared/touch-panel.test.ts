@@ -14,6 +14,7 @@ import {
   isTouchPanelPlaylistItem,
   normalizeAction,
   parseButtonBoxPanel,
+  primaryButtonAction,
   resizePanelButtons,
   serializeButtonBoxPanel,
   summarizeButtonBoxPanel,
@@ -103,7 +104,7 @@ describe('ButtonBox model — action normalisation + IPC mapping', () => {
     })
     const parsed = parseButtonBoxPanel(json)
     expect(parsed).not.toBeNull()
-    const action = parsed!.buttons[0].action
+    const action = primaryButtonAction(parsed!.buttons[0].control)
     expect(action).toMatchObject({ kind: 'keyboard', command: { mode: 'press', keys: [] } })
     expect(() => describeButtonAction(action)).not.toThrow()
     expect(describeButtonAction(action)).toContain('Keyboard')

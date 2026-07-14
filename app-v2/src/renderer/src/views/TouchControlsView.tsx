@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactElement } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type ReactElement } from 'react'
 import type { DashboardPlaylist } from '../../../shared/dashboards'
 import {
   addButtonPanelToPlaylist,
+  buttonControlActions,
   createButtonBoxPanel,
   parseButtonBoxPanel,
+  parseButtonBoxPanelDetailed,
+  serializeButtonBoxPanel,
   type ButtonBoxPanel,
   type ButtonBoxSummary
 } from '../../../shared/touch-panel'
@@ -36,6 +39,7 @@ function btn(kind: 'default' | 'primary' | 'danger' = 'default'): CSSProperties 
     border: `1px solid ${PANEL_BORDER}`,
     borderRadius: 8,
     padding: '8px 14px',
+    minHeight: 44,
     fontSize: 13,
     fontWeight: 600,
     cursor: 'pointer',
@@ -48,7 +52,7 @@ function btn(kind: 'default' | 'primary' | 'danger' = 'default'): CSSProperties 
 }
 
 function input(): CSSProperties {
-  return { background: '#0b0e13', color: TEXT_FG, border: `1px solid ${PANEL_BORDER}`, borderRadius: 8, padding: '8px 10px', fontSize: 13 }
+  return { background: '#0b0e13', color: TEXT_FG, border: `1px solid ${PANEL_BORDER}`, borderRadius: 8, padding: '8px 10px', minHeight: 44, fontSize: 13 }
 }
 
 function SectionIcon({ children }: { children: ReactElement | ReactElement[] }): ReactElement {
@@ -109,9 +113,12 @@ function touchPresetTags(preset: ButtonBoxPanel): string[] {
   }
   for (const button of preset.buttons) {
     tags.add(button.material.replace('_', '-'))
-    if (button.action.kind === 'iracing') tags.add('iRacing')
-    if (button.action.kind === 'keyboard') tags.add('keyboard')
-    if (button.action.kind === 'app') tags.add('app')
+    tags.add(button.control.kind)
+    for (const action of buttonControlActions(button.control)) {
+      if (action.kind === 'iracing') tags.add('iRacing')
+      if (action.kind === 'keyboard') tags.add('keyboard')
+      if (action.kind === 'app') tags.add('app')
+    }
   }
   return Array.from(tags)
 }
@@ -131,6 +138,7 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
   const [dirty, setDirty] = useState(false)
   const [presetTagFilters, setPresetTagFilters] = useState<string[]>([])
   const [selectedPanelIds, setSelectedPanelIds] = useState<Set<string>>(() => new Set())
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   const refreshDisplays = useCallback(async () => {
     const list = await window.ipc.invoke<DisplayInfo[]>('app:touchpanel:listDisplays')
@@ -254,6 +262,48 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
     showToast(tt(language, 'touchControls.savedToast'), 'success')
   }, [language, panelDraft, refreshPanels, showToast])
 
+  const importPanel = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0]
+      event.target.value = ''
+      if (!file) return
+      if (file.size > 2_000_000) throw new Error('Touch panel import is larger than 2 MB.')
+      const parsed = parseButtonBoxPanelDetailed(await file.text())
+      if (!parsed.panel) throw new Error(parsed.errors.join(' '))
+      const imported = createButtonBoxPanel({
+        name: `${parsed.panel.name} (imported)`,
+        columns: parsed.panel.columns,
+        rows: parsed.panel.rows,
+        gap: parsed.panel.gap,
+        background: parsed.panel.background,
+        tags: parsed.panel.tags,
+        buttons: parsed.panel.buttons
+      })
+      await window.ipc.invoke('app:touchpanel:save', imported)
+      await refreshPanels()
+      setPanelDraft(imported)
+      setSelectedId(imported.id)
+      setSelectedButtonId(null)
+      setDirty(false)
+      const migration = parsed.migratedFrom ? ` Migrated from schema v${parsed.migratedFrom}.` : ''
+      const warnings = parsed.warnings.length > 0 ? ` ${parsed.warnings.join(' ')}` : ''
+      showToast(`Touch panel imported.${migration}${warnings}`, parsed.warnings.length > 0 ? 'info' : 'success')
+    },
+    [refreshPanels, showToast]
+  )
+
+  const exportPanel = useCallback(() => {
+    if (!panelDraft) return
+    const payload = serializeButtonBoxPanel(panelDraft)
+    const blob = new Blob([payload], { type: 'application/json;charset=UTF-8' })
+    const objectUrl = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = objectUrl
+    anchor.download = `${panelDraft.name.replace(/[^A-Za-z0-9._-]+/g, '_') || 'touch-panel'}.json`
+    anchor.click()
+    URL.revokeObjectURL(objectUrl)
+    showToast('Touch panel exported.', 'success')
+  }, [panelDraft, showToast])
   const deletePanel = useCallback(async () => {
     if (!selectedId) return
     if (!window.confirm(tt(language, 'touchControls.deleteConfirm'))) return
@@ -375,7 +425,17 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
             <ButtonBoxIcon />
             <strong style={{ color: TEXT_FG, fontSize: 14, letterSpacing: '0.04em' }}>{tt(language, 'touchControls.editableBoxes')}</strong>
           </div>
-          <button style={btn('primary')} disabled={busy} onClick={requestCreatePanel}>+ New button box</button>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button style={btn()} disabled={busy} onClick={() => importInputRef.current?.click()}>Import JSON</button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept="application/json,.json"
+              hidden
+              onChange={(event) => void run(() => importPanel(event))}
+            />
+            <button style={btn('primary')} disabled={busy} onClick={requestCreatePanel}>+ New button box</button>
+          </div>
         </div>
 
         <details style={{ marginBottom: 12 }}>
@@ -449,6 +509,7 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
           <>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
               <button style={btn('primary')} disabled={busy} onClick={() => run(savePanel)}>{tt(language, 'touchControls.save')}</button>
+              <button style={btn()} disabled={busy} onClick={exportPanel}>Export JSON</button>
               <button style={btn()} disabled={busy} onClick={() => run(openFullscreen)}>{tt(language, 'touchControls.openFullscreen')}</button>
               <button style={btn()} disabled={busy} onClick={() => run(addToPlaylist)}>{tt(language, 'touchControls.addPlaylist')}</button>
               <button style={btn('danger')} disabled={busy} onClick={() => run(deletePanel)}>{tt(language, 'touchControls.delete')}</button>

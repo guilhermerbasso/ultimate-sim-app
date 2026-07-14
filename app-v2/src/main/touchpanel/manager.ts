@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import type { ModuleContext } from '../module-context'
 import {
-  parseButtonBoxPanel,
+  parseButtonBoxPanelDetailed,
   summarizeButtonBoxPanel,
   type ButtonBoxPanel,
   type ButtonBoxSummary,
@@ -68,9 +68,17 @@ export class TouchPanelManager {
     for (const file of files) {
       if (!file.endsWith('.json')) continue
       try {
-        const raw = await readFile(join(this.storeDir, file), 'utf8')
-        const panel = parseButtonBoxPanel(JSON.parse(raw))
-        if (panel) this.panels.set(panel.id, panel)
+        const filePath = join(this.storeDir, file)
+        const raw = await readFile(filePath, 'utf8')
+        const parsed = parseButtonBoxPanelDetailed(JSON.parse(raw))
+        if (parsed.panel) {
+          this.panels.set(parsed.panel.id, parsed.panel)
+          // One-way, idempotent v1 → v2 migration. Layout/action data is preserved
+          // before the upgraded document replaces the legacy file.
+          if (parsed.migratedFrom === 1) {
+            await writeFile(filePath, JSON.stringify(parsed.panel, null, 2), 'utf8')
+          }
+        }
       } catch {
         // ignore corrupt panel files
       }
@@ -128,8 +136,9 @@ export class TouchPanelManager {
   }
 
   async save(raw: unknown): Promise<ButtonBoxSummary | null> {
-    const panel = parseButtonBoxPanel(raw)
-    if (!panel) return null
+    const parsed = parseButtonBoxPanelDetailed(raw)
+    if (!parsed.panel) throw new Error(`Invalid touch panel: ${parsed.errors.join(' ')}`)
+    const panel = parsed.panel
     panel.updatedAt = Date.now()
     this.panels.set(panel.id, panel)
     await writeFile(this.panelFilePath(panel.id), JSON.stringify(panel, null, 2), 'utf8')

@@ -2,6 +2,7 @@ import type { ModuleContext } from '../module-context'
 import { ActionDispatcher } from '../actions/dispatcher'
 import { EmulationEngine } from '../actions/emulation'
 import type { ActionBinding, EmulationTestRequest, HidButtonControl } from '../../shared/actions'
+import { normalizeTouchKeyboardHoldRequest } from '../../shared/touch-panel'
 import { ENGINEER_CHANNELS, resolveEngineerAction } from '../../shared/engineer-ipc'
 import { getEngineerConfigSnapshot } from './ai-engineer'
 
@@ -42,6 +43,14 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle('actions:testEmulation', (_event, request: EmulationTestRequest) => {
     if (request.type === 'keyboard') return emulation.pressKey(request.command)
     return emulation.tapGamepad(request.command)
+  })
+  // Touch panels get one exact keyboard-only lifecycle channel. No gamepad or
+  // generic action-store access is exposed by the dedicated preload.
+  ctx.ipcMain.handle('actions:touchKeyboardHold', (_event, raw: unknown) => {
+    const request = normalizeTouchKeyboardHoldRequest(raw)
+    if (!request) return { ok: false, message: 'Invalid touch keyboard hold request.' }
+    if (request.phase === 'begin') return emulation.beginKeyboardHold(request.token, request.command)
+    return emulation.endKeyboardHold(request.token)
   })
   ctx.ipcMain.handle('app:dash:cycleControl:get', () => cycleControls)
 

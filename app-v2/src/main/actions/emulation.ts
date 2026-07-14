@@ -119,6 +119,8 @@ export class EmulationEngine {
   private vigemError: string | null = null
   private toggledButtons = new Set<string>()
   private toggledKeyboard = new Map<string, NutKey[]>()
+  private heldTouchKeyboard = new Map<string, NutKey[]>()
+  private heldTouchTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   isAvailable(): EmulationStatus {
     return {
@@ -174,6 +176,51 @@ export class EmulationEngine {
     }
   }
 
+  /** Hold keys until the matching pointer/key release arrives. */
+  async beginKeyboardHold(token: string, macro: KeyboardMacroCommand): Promise<EmulationResult> {
+    const nut = this.ensureNut()
+    if (!nut.ok) return nut
+    try {
+      const previous = this.heldTouchKeyboard.get(token)
+      const previousTimer = this.heldTouchTimers.get(token)
+      if (previousTimer) clearTimeout(previousTimer)
+      if (previous) await this.releaseKeyboardKeys(previous)
+      this.heldTouchTimers.delete(token)
+      this.heldTouchKeyboard.delete(token)
+      const keys = macro.keys.map((key) => this.resolveKey(key, this.nut as NutModule))
+      if (keys.length === 0) return { ok: false, message: 'Enter at least one key for hold.' }
+      if (macro.pressDelayMs && macro.pressDelayMs > 0) await delay(macro.pressDelayMs)
+      await Promise.resolve((this.nut as NutModule).keyboard.pressKey(...keys))
+      this.heldTouchKeyboard.set(token, keys)
+      // Fail-safe for a destroyed renderer that cannot deliver pointercancel/unload.
+      this.heldTouchTimers.set(token, setTimeout(() => void this.endKeyboardHold(token), 30_000))
+      return { ok: true, message: `Hold started: ${macro.keys.join(' + ')}` }
+    } catch (error) {
+      const timer = this.heldTouchTimers.get(token)
+      if (timer) clearTimeout(timer)
+      this.heldTouchTimers.delete(token)
+      this.heldTouchKeyboard.delete(token)
+      return { ok: false, message: `Failed to start keyboard hold: ${errorMessage(error)}` }
+    }
+  }
+
+  async endKeyboardHold(token: string): Promise<EmulationResult> {
+    const keys = this.heldTouchKeyboard.get(token)
+    const timer = this.heldTouchTimers.get(token)
+    if (timer) clearTimeout(timer)
+    this.heldTouchTimers.delete(token)
+    if (!keys) return { ok: true, message: 'Hold already released.' }
+    try {
+      await this.releaseKeyboardKeys(keys)
+      this.heldTouchKeyboard.delete(token)
+      return { ok: true, message: 'Hold released.' }
+    } catch (error) {
+      // Keep a release path if the keyboard backend fails transiently.
+      this.heldTouchTimers.set(token, setTimeout(() => void this.endKeyboardHold(token), 1_000))
+      return { ok: false, message: `Failed to release keyboard hold: ${errorMessage(error)}` }
+    }
+  }
+
   async tapGamepad(command: GamepadEmulationCommand): Promise<EmulationResult> {
     return this.setGamepad(command)
   }
@@ -213,6 +260,9 @@ export class EmulationEngine {
       for (const keys of this.toggledKeyboard.values()) {
         await this.releaseKeyboardKeys(keys).catch(() => undefined)
       }
+      for (const keys of this.heldTouchKeyboard.values()) {
+        await this.releaseKeyboardKeys(keys).catch(() => undefined)
+      }
       if (this.virtualPad?.reset) await Promise.resolve(this.virtualPad.reset())
       if (this.virtualPad?.disconnect) await Promise.resolve(this.virtualPad.disconnect())
       if (this.virtualPad?.dispose) await Promise.resolve(this.virtualPad.dispose())
@@ -223,6 +273,9 @@ export class EmulationEngine {
       this.vigemClient = null
       this.toggledButtons.clear()
       this.toggledKeyboard.clear()
+      this.heldTouchKeyboard.clear()
+      for (const timer of this.heldTouchTimers.values()) clearTimeout(timer)
+      this.heldTouchTimers.clear()
     }
   }
 

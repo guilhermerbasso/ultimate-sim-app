@@ -38,6 +38,7 @@ const OVERLAY_APP_CHANNELS = new Set([
 const TOUCH_EXACT_CHANNELS = new Set<string>([
   'iracing:command',
   'actions:testEmulation',
+  'actions:touchKeyboardHold',
   'app:getSettings',
   'app:settingsChanged',
   'app:dash:cycle',

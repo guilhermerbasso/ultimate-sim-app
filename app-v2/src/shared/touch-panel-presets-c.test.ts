@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buttonControlActions,
   KEY_MATERIALS,
   summarizeButtonBoxPanel,
   type ButtonAction,
@@ -28,7 +29,7 @@ describe("touch panel presets C", () => {
       );
       for (const button of panel.buttons) {
         expect(KEY_MATERIALS).toContain(button.material);
-        expect(VALID_ACTION_KINDS).toContain(button.action.kind);
+        for (const action of buttonControlActions(button.control)) expect(VALID_ACTION_KINDS).toContain(action.kind);
       }
     }
   });
