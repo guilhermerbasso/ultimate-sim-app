@@ -108,7 +108,7 @@ Ultimate Sim App combines live race telemetry, dashboard composition, transparen
 ### App experience
 
 - **Seven-language selector**: English, Portuguese (Brazil), Spanish, French, German, Chinese, and Japanese, with incremental screen coverage and English fallback.
-- **Metric / Imperial-US units** persisted across telemetry, dashboards, strategy, Coach, and Engineer output.
+- **Metric / Imperial/US units** persisted across telemetry, dashboards, strategy, Coach, and Engineer output.
 - **Configuration safety tools** for inspecting/deleting saved sections and exporting the full profile; full-profile import remains temporarily disabled while per-section import stays available.
 - **Auto-update** through GitHub Releases, including a startup update banner and manual update check.
 - **Persistent Report bug / Support button** in the app chrome.
@@ -188,7 +188,7 @@ The AI Engineer, AI Coach, lap analysis, semantic search, and adaptive selection
 - **Controls & Keyboard** — button-to-key, virtual gamepad, iRacing command, and app-action mapping.
 - **Pinout Designer** — low-code pin mapping for LEDs, encoders, multiplexers, and displays.
 - **Profiles** — save and load hardware/race configurations.
-- **Settings** — updates, startup behavior, tray behavior, telemetry defaults, Metric/Imperial-US units, language, theme, and saved-configuration safety controls.
+- **Settings** — updates, startup behavior, tray behavior, telemetry defaults, Metric/Imperial/US units, language, theme, and saved-configuration safety controls.
 - **About / Credits** — licenses, fonts, and third-party component credits.
 
 ---
