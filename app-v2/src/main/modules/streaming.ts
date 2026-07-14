@@ -8,8 +8,8 @@ import { isIP, type AddressInfo } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import QRCode from 'qrcode'
 import type { DriverEntry, RadarCarEntry, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
-import type { StreamingAccessMode, StreamingLayoutKind, StreamingSelfTestResult, StreamingStartArgs, StreamingStartResult, StreamingStatus, StreamingTelemetryFrame } from '../../shared/streaming'
-import { STREAMING_CHANNELS } from '../../shared/streaming'
+import type { StreamingAccessMode, StreamingDashboardPayload, StreamingLayoutKind, StreamingSelfTestResult, StreamingStartArgs, StreamingStartResult, StreamingStatus, StreamingTelemetryFrame } from '../../shared/streaming'
+import { STREAMING_CHANNELS, STREAMING_EXPRESSION_EXCLUSION_MESSAGE } from '../../shared/streaming'
 import type { ModuleContext } from '../module-context'
 import { getDashboardManager } from './dashboards'
 import { logger } from './logger'
@@ -797,7 +797,14 @@ function serveSelectedDashboard(id: string, request: IncomingMessage, response: 
     send(response, 404, 'Not found')
     return
   }
-  sendJson(response, dashboard, request.method)
+  const payload: StreamingDashboardPayload = {
+    dashboard,
+    expressionContent: {
+      mode: 'excluded',
+      message: STREAMING_EXPRESSION_EXCLUSION_MESSAGE
+    }
+  }
+  sendJson(response, payload, request.method)
 }
 
 function serveSelectedTouchPanel(id: string, request: IncomingMessage, response: ServerResponse): void {
@@ -950,6 +957,17 @@ function dashboardUrl(origin = baseOrigin()): string | null {
   return url.toString()
 }
 
+function advertisedLanUrl(): string | null {
+  if (state.accessMode !== 'lan') return null
+  const origin = lanOrigin()
+  return origin ? dashboardUrl(origin) : null
+}
+
+function localTestUrl(): string | null {
+  if (!state.port || state.accessMode === 'internet') return null
+  return dashboardUrl(`http://127.0.0.1:${state.port}`)
+}
+
 function touchControlsUrl(origin = baseOrigin()): string | null {
   void origin
   return null
@@ -987,7 +1005,7 @@ async function status(): Promise<StreamingStatus> {
   return {
     running: state.server !== null,
     url,
-    lanUrl: state.lanEnabled && lanOrigin() ? dashboardUrl(lanOrigin()!) : null,
+    lanUrl: advertisedLanUrl(),
     touchUrl,
     qrDataUrl: state.qrDataUrl,
     touchQrDataUrl: state.touchQrDataUrl,
@@ -1009,7 +1027,7 @@ async function status(): Promise<StreamingStatus> {
     accessMode: state.accessMode,
     publicBaseUrl: state.publicBaseUrl,
     password: state.passwordPlaintext,
-    localTestUrl: state.port ? dashboardUrl(`http://127.0.0.1:${state.port}`) : null,
+    localTestUrl: localTestUrl(),
     firewallMessage: state.firewallMessage,
     passwordEnabled: state.passwordHash !== null,
     warning: warning(),
@@ -1413,9 +1431,21 @@ async function selfTest(): Promise<StreamingSelfTestResult> {
     const targetResponse = await performStageProbe('target', targetUrl, { headers: targetCookie ? { Cookie: targetCookie } : undefined })
     expectProbeSuccess('target', targetUrl, targetResponse)
     try {
-      const target = JSON.parse(targetResponse.body.toString('utf8')) as { id?: unknown }
-      if (target.id !== state.layoutId) {
-        throw new SelfTestStageError('target', `Target API returned ${String(target.id ?? 'no id')} instead of ${state.layoutId}.`)
+      const target = JSON.parse(targetResponse.body.toString('utf8')) as {
+        id?: unknown
+        dashboard?: { id?: unknown }
+        expressionContent?: { mode?: unknown; message?: unknown }
+      }
+      const targetId = state.layoutKind === 'dashboard' ? target.dashboard?.id : target.id
+      if (targetId !== state.layoutId) {
+        throw new SelfTestStageError('target', `Target API returned ${String(targetId ?? 'no id')} instead of ${state.layoutId}.`)
+      }
+      if (state.layoutKind === 'dashboard' && (
+        target.expressionContent?.mode !== 'excluded' ||
+        typeof target.expressionContent.message !== 'string' ||
+        target.expressionContent.message.length === 0
+      )) {
+        throw new SelfTestStageError('target', 'Dashboard target did not declare how expression-backed content is handled.')
       }
     } catch (error) {
       if (error instanceof SelfTestStageError) throw error
@@ -1862,7 +1892,7 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
   await refreshQrCodes()
   return {
     url: dashboardUrl() ?? '',
-    lanUrl: state.lanEnabled && lanOrigin() ? dashboardUrl(lanOrigin()!) : null,
+    lanUrl: advertisedLanUrl(),
     touchUrl: touchControlsUrl(),
     qrDataUrl: state.qrDataUrl,
     touchQrDataUrl: state.touchQrDataUrl,
@@ -1873,7 +1903,7 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
     lanAddress: state.lanAddress,
     publicBaseUrl: state.publicBaseUrl,
     password: state.passwordPlaintext,
-    localTestUrl: state.port ? dashboardUrl(`http://127.0.0.1:${state.port}`) : null,
+    localTestUrl: localTestUrl(),
     firewallMessage: state.firewallMessage,
     warning: warning(),
     autoTunnelAvailable: resolveCloudflaredBinary() !== null,

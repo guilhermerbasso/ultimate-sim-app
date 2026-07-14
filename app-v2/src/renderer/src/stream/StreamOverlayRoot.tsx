@@ -3,7 +3,8 @@ import type { CSSProperties, ReactElement } from 'react'
 import type { Dashboard } from '../../../shared/dashboards'
 import type { OverlayWidgetConfig, OverlayWidgetId } from '../../../shared/overlays'
 import { createDefaultOverlaysConfig, createDefaultOverlayStyle, DEFAULT_OVERLAY_STYLE_PRESET } from '../../../shared/overlays'
-import type { StreamingLayoutKind, StreamingTelemetryFrame } from '../../../shared/streaming'
+import type { StreamingDashboardPayload, StreamingLayoutKind, StreamingTelemetryFrame } from '../../../shared/streaming'
+import { STREAMING_EXPRESSION_EXCLUSION_MESSAGE } from '../../../shared/streaming'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import { DashboardCanvas } from '../dashboard/DashboardRoot'
 import { CompactHudWidget, COMPACT_HUD_STREAM_SAFE } from '../overlay/widgets/CompactHudWidget'
@@ -79,6 +80,14 @@ function LoadingState({ label }: { label: string }): ReactElement {
   )
 }
 
+export function StreamExpressionNotice({ message = STREAMING_EXPRESSION_EXCLUSION_MESSAGE }: { message?: string }): ReactElement {
+  return (
+    <div className="stream-expression-notice" role="status" data-stream-expression-content="excluded">
+      {message}
+    </div>
+  )
+}
+
 export function StreamOverlayRoot() {
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const [connected, setConnected] = useState(false)
@@ -91,6 +100,7 @@ export function StreamOverlayRoot() {
   const [authenticating, setAuthenticating] = useState(false)
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
+  const [expressionNotice, setExpressionNotice] = useState(STREAMING_EXPRESSION_EXCLUSION_MESSAGE)
   const [targetError, setTargetError] = useState<string | null>(null)
   const target = useMemo(streamTarget, [])
   const configs = useMemo(() => Object.fromEntries(WIDGETS.map((item) => [item.id, widgetConfig(item.id)])) as Record<OverlayWidgetId, OverlayWidgetConfig>, [])
@@ -154,11 +164,15 @@ export function StreamOverlayRoot() {
     fetch(dashboardApiUrl(target.id), { cache: 'no-store', credentials: 'same-origin' })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json() as Promise<Dashboard>
+        return res.json() as Promise<StreamingDashboardPayload>
       })
-      .then((dash) => {
+      .then((payload) => {
         if (!alive) return
-        setDashboard(dash)
+        if (!payload?.dashboard || payload.expressionContent?.mode !== 'excluded') {
+          throw new Error('Invalid dashboard streaming payload.')
+        }
+        setDashboard(payload.dashboard)
+        setExpressionNotice(payload.expressionContent.message || STREAMING_EXPRESSION_EXCLUSION_MESSAGE)
       })
       .catch((err) => {
         if (alive) setTargetError(err instanceof Error ? err.message : 'Failed to load dashboard.')
@@ -259,7 +273,14 @@ export function StreamOverlayRoot() {
   if (hasSelectedTarget && target.kind === 'touch') return <TouchPanelWindowRoot />
 
   if (hasSelectedTarget && target.kind === 'dashboard') {
-    if (dashboard) return <DashboardCanvas dashboard={dashboard} snapshot={snapshot} />
+    if (dashboard) {
+      return (
+        <>
+          <DashboardCanvas dashboard={dashboard} snapshot={snapshot} />
+          <StreamExpressionNotice message={expressionNotice} />
+        </>
+      )
+    }
     return <LoadingState label="Loading dashboard…" />
   }
 

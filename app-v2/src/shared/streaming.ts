@@ -1,3 +1,4 @@
+import type { Dashboard } from './dashboards'
 import type { TelemetrySnapshot } from './telemetry'
 
 export const STREAMING_CHANNELS = {
@@ -25,6 +26,17 @@ export interface StreamingStartArgs {
 }
 
 export type StreamingAccessMode = 'local' | 'lan' | 'internet'
+
+export const STREAMING_EXPRESSION_EXCLUSION_MESSAGE =
+  'Expression placements and resolved expression values are excluded from browser streaming.'
+
+export interface StreamingDashboardPayload {
+  dashboard: Dashboard
+  expressionContent: {
+    mode: 'excluded'
+    message: string
+  }
+}
 
 export interface StreamingStartResult {
   url: string

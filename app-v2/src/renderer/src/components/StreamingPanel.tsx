@@ -480,7 +480,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
       {status?.url ? (
         <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
           <p className="overlay-help">{tt(language, 'streaming.mode')}: <strong>{ACCESS_LABELS[statusAccessMode(status)]}</strong></p>
-          {status.lanAddress ? <p className="overlay-help">{tt(language, 'streaming.lanDetected')}: <strong>{status.lanAddress}</strong> ? {tt(language, 'streaming.port')}: <strong>{status.port}</strong></p> : null}
+          {statusAccessMode(status) === 'lan' && status.lanAddress ? <p className="overlay-help">{tt(language, 'streaming.lanDetected')}: <strong>{status.lanAddress}</strong> ? {tt(language, 'streaming.port')}: <strong>{status.port}</strong></p> : null}
           {status.firewallMessage ? <p className="overlay-help">? {status.firewallMessage}</p> : null}
           <label className="designer-field">
             {tt(language, 'streaming.dashboardUrl')}

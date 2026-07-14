@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { request, type IncomingHttpHeaders } from 'node:http'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { STREAMING_CHANNELS, type StreamingSelfTestResult, type StreamingStartArgs, type StreamingStartResult, type StreamingStatus } from '../../shared/streaming'
+import { STREAMING_CHANNELS, STREAMING_EXPRESSION_EXCLUSION_MESSAGE, type StreamingSelfTestResult, type StreamingStartArgs, type StreamingStartResult, type StreamingStatus } from '../../shared/streaming'
 import type { ModuleContext } from '../module-context'
 
 const managerState = vi.hoisted(() => ({
@@ -19,7 +19,15 @@ vi.mock('./dashboards', () => ({
     ],
     getDashboard: (id: string) => {
       managerState.requestedDashboards.push(id)
-      return id === 'default' || id === 'race' ? { id, name: `${id} dashboard`, elements: [] } : null
+      return id === 'default' || id === 'race'
+        ? {
+            id,
+            name: `${id} dashboard`,
+            elements: id === 'race'
+              ? [{ id: 'expr-value', type: 'text', x: 0, y: 0, w: 160, h: 60, binding: 'expr:#race-delta', style: {} }]
+              : []
+          }
+        : null
     }
   })
 }))
@@ -238,6 +246,11 @@ describe('streaming authenticated server', () => {
     expect(publicUrl.origin).toBe('https://stream.example.test')
     expect(publicUrl.pathname).toBe('/public/overlay/obs/race')
     expect(publicUrl.searchParams.get('dash')).toBe('race')
+    expect(started.lanUrl).toBeNull()
+    expect(started.localTestUrl).toBeNull()
+    const internetStatus = await invoke<StreamingStatus>(ctx, STREAMING_CHANNELS.status)
+    expect(internetStatus.lanUrl).toBeNull()
+    expect(internetStatus.localTestUrl).toBeNull()
 
     const localPrefixedUrl = `http://127.0.0.1:${started.port}${publicUrl.pathname}${publicUrl.search}`
     const document = await httpRequest(localPrefixedUrl, {
@@ -288,6 +301,10 @@ describe('streaming authenticated server', () => {
       password: 'correct-password',
       layoutId: 'race'
     })
+    expect(started.localTestUrl).not.toBeNull()
+    if (started.lanAddress) {
+      expect(started.lanUrl).toMatch(/^http:\/\//)
+    }
     const documentUrl = localDocumentUrl(started)
     const document = await httpRequest(documentUrl)
     const cookie = sessionCookie(document)
@@ -376,7 +393,13 @@ describe('streaming authenticated server', () => {
       expect(ping.statusCode).toBe(200)
       expect(JSON.parse(ping.body)).toEqual({ passwordRequired: false })
       expect(dashboard.statusCode).toBe(200)
-      expect(JSON.parse(dashboard.body).id).toBe('race')
+      const dashboardPayload = JSON.parse(dashboard.body)
+      expect(dashboardPayload.dashboard.id).toBe('race')
+      expect(dashboardPayload.dashboard.elements[0].binding).toBe('expr:#race-delta')
+      expect(dashboardPayload.expressionContent).toEqual({
+        mode: 'excluded',
+        message: STREAMING_EXPRESSION_EXCLUSION_MESSAGE
+      })
       expect(asset.statusCode).toBe(200)
     }
 
