@@ -18,16 +18,47 @@ DEST="resources/whisper"
 BIN="whisper-cli.exe"
 # Repo-local scratch dir (never /tmp) — cleaned on exit.
 WORK=".whisper-dl"
+STAGE="${DEST}.stage.$$"
+BACKUP="${DEST}.backup.$$"
 
-if [ -f "$DEST/$BIN" ]; then
-  echo "[fetch-win-whisper] $DEST/$BIN already present — skipping"
+REQUIRED_RUNTIME=(
+  "$BIN"
+  "whisper.dll"
+  "ggml.dll"
+  "ggml-base.dll"
+  "ggml-cpu-alderlake.dll"
+  "ggml-cpu-cannonlake.dll"
+  "ggml-cpu-cascadelake.dll"
+  "ggml-cpu-haswell.dll"
+  "ggml-cpu-icelake.dll"
+  "ggml-cpu-sandybridge.dll"
+  "ggml-cpu-skylakex.dll"
+  "ggml-cpu-sse42.dll"
+  "ggml-cpu-x64.dll"
+)
+
+runtime_complete_at() {
+  local dir="$1" file
+  for file in "${REQUIRED_RUNTIME[@]}"; do
+    [ -s "$dir/$file" ] || return 1
+  done
+}
+
+if runtime_complete_at "$DEST"; then
+  echo "[fetch-win-whisper] complete Windows runtime already present — skipping"
   exit 0
 fi
 
 echo "[fetch-win-whisper] fetching whisper.cpp ${WHISPER_VER} ($ASSET) ..."
-rm -rf "$WORK"
+rm -rf "$WORK" "$STAGE" "$BACKUP"
 mkdir -p "$WORK"
-trap 'rm -rf "$WORK"' EXIT
+cleanup() {
+  if [ -d "$BACKUP" ] && [ ! -d "$DEST" ]; then
+    mv "$BACKUP" "$DEST"
+  fi
+  rm -rf "$WORK" "$STAGE" "$BACKUP"
+}
+trap cleanup EXIT
 
 curl -fSL -o "$WORK/whisper.zip" "$URL"
 unzip -q -o "$WORK/whisper.zip" -d "$WORK/extracted"
@@ -42,18 +73,29 @@ if [ -z "$SRC" ] || [ ! -f "$SRC/$BIN" ]; then
   exit 1
 fi
 
-rm -rf "$DEST"
-mkdir -p "$DEST"
-cp "$SRC/$BIN" "$DEST/"
+mkdir -p "$STAGE"
+for metadata in .gitignore .gitkeep; do
+  [ -f "$DEST/$metadata" ] && cp "$DEST/$metadata" "$STAGE/"
+done
+cp "$SRC/$BIN" "$STAGE/"
 for dll in whisper.dll ggml.dll ggml-base.dll; do
-  [ -f "$SRC/$dll" ] && cp "$SRC/$dll" "$DEST/"
+  [ -f "$SRC/$dll" ] && cp "$SRC/$dll" "$STAGE/"
 done
 # All CPU backend variants (alderlake/haswell/skylakex/sse42/x64/…).
-cp "$SRC"/ggml-cpu-*.dll "$DEST/" 2>/dev/null || true
+cp "$SRC"/ggml-cpu-*.dll "$STAGE/" 2>/dev/null || true
 
-if [ -f "$DEST/$BIN" ]; then
-  echo "[fetch-win-whisper] placed $(ls -1 "$DEST" | wc -l | tr -d ' ') file(s) in $DEST (binary + CPU DLLs)"
-else
-  echo "[fetch-win-whisper] ERROR: $BIN missing after extract" >&2
+if ! runtime_complete_at "$STAGE"; then
+  echo "[fetch-win-whisper] ERROR: incomplete Windows runtime after extract" >&2
+  for file in "${REQUIRED_RUNTIME[@]}"; do
+    [ -s "$STAGE/$file" ] || echo "[fetch-win-whisper] missing: $file" >&2
+  done
   exit 1
 fi
+
+if [ -d "$DEST" ]; then
+  mv "$DEST" "$BACKUP"
+fi
+mv "$STAGE" "$DEST"
+rm -rf "$BACKUP"
+
+echo "[fetch-win-whisper] placed $(find "$DEST" -maxdepth 1 -type f | wc -l | tr -d ' ') file(s) in $DEST (binary + CPU DLLs)"
