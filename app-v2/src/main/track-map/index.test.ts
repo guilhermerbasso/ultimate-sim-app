@@ -403,7 +403,7 @@ describe('TrackMapModule catalog/cache safety', () => {
     const secondRows = [track(2, 'Shared Venue', 'Club')]
     secondCatalog.resolve(secondRows)
     await Promise.resolve()
-    expect(subject.assetsCache.saveCatalog).not.toHaveBeenCalled()
+    expect(subject.assetsCache.saveCatalog).toHaveBeenCalledTimes(1)
 
     firstSetCatalog.resolve(undefined)
     await Promise.all([first, second])
@@ -416,11 +416,12 @@ describe('TrackMapModule catalog/cache safety', () => {
     expect(subject.catalog).toEqual(secondRows)
   })
 
-  it('finishes an admitted saveCatalog publication atomically across an auth change', async () => {
+  it('does not publish catalog memory after auth changes during saveCatalog', async () => {
     const subject = bareModule()
     const saveCatalog = deferred<void>()
     subject.assetsCache.saveCatalog = vi.fn(() => saveCatalog.promise)
     const rows = [track(7, 'Atomic Venue')]
+    const originalCatalog = subject.catalog
     const api = { listTracks: vi.fn(async () => rows) }
     const auth = bindAuth(subject, api)
 
@@ -430,9 +431,9 @@ describe('TrackMapModule catalog/cache safety', () => {
     saveCatalog.resolve(undefined)
     await refresh
 
-    expect(subject.catalog).toEqual(rows)
+    expect(subject.catalog).toBe(originalCatalog)
     expect(subject.catalogFresh).toBe(true)
-    expect(subject.learner.setCatalog).toHaveBeenCalledTimes(1)
+    expect(subject.learner.setCatalog).not.toHaveBeenCalled()
     expect(auth.handleApiError).not.toHaveBeenCalled()
   })
 
@@ -506,9 +507,9 @@ describe('TrackMapModule catalog/cache safety', () => {
     await waitForCalls(saveAsset, 2)
     await Promise.all([first, second])
 
-    expect(subject.resolvedSvgByLayout.get(layoutA.key)?.trackId).toBe(1)
+    expect(subject.resolvedSvgByLayout.has(layoutA.key)).toBe(false)
     expect(subject.resolvedSvgByLayout.get(layoutB.key)?.trackId).toBe(2)
-    expect(subject.broadcastUpdate).toHaveBeenCalledTimes(2)
+    expect(subject.broadcastUpdate).toHaveBeenCalledTimes(1)
   })
 
   it('retains the last good SVG when every layer download fails', async () => {
@@ -531,19 +532,26 @@ describe('TrackMapModule catalog/cache safety', () => {
     await refresh
 
     expect(subject.assetsCache.saveAsset).not.toHaveBeenCalled()
-    expect(subject.resolvedSvgByLayout.get(layout.key)).toBe(good)
+    expect(subject.resolvedSvgByLayout.get(layout.key)).toStrictEqual(good)
     expect(subject.buildDataForLookup({
       trackId: 1,
       trackName: 'Shared Venue',
       trackConfigName: 'Grand Prix'
     }).svg).toContain('good')
-    expect(auth.handleApiError).toHaveBeenCalledTimes(1)
+    expect(auth.handleApiError).not.toHaveBeenCalled()
+    expect(subject.logRefreshFailure).toHaveBeenCalledWith(
+      'track SVG layer refresh failed; retaining last good asset',
+      expect.any(Error)
+    )
   })
 
-  it('publishes deterministic partial SVG layers without treating optional failures as auth loss', async () => {
+  it('persists only validated partial layers so restart cannot resurrect stale files', async () => {
     const subject = bareModule()
     const layout = setLayout(subject, 1, 'Shared Venue', 'Grand Prix')
+    const oldAsset = cached(1, 'Shared Venue', 'Grand Prix', '<svg id="old-active"/>')
+    subject.assetsCache.loadAsset = vi.fn(async () => oldAsset)
     const api = {
+      listTracks: vi.fn(async () => [track(1, 'Shared Venue', 'Grand Prix')]),
       listTrackAssets: vi.fn(async () => assetMap({
         trackId: 1,
         filename: 'active.svg',
@@ -556,16 +564,124 @@ describe('TrackMapModule catalog/cache safety', () => {
     }
     const auth = bindAuth(subject, api)
 
-    await subject.refreshForCurrentTrack(false)
+    await subject.refreshForCurrentTrack(true)
 
     expect(subject.assetsCache.saveAsset).toHaveBeenCalledWith(
-      expect.objectContaining({ trackId: 1 }),
+      expect.objectContaining({
+        trackId: 1,
+        layerFilenames: { inactive: 'inactive.svg' }
+      }),
       { inactive: '<svg id="inactive"/>' }
     )
     expect(subject.resolvedSvgByLayout.get(layout.key)?.layers).toEqual({
       inactive: '<svg id="inactive"/>'
     })
+    const [metadata] = subject.assetsCache.saveAsset.mock.calls[0]
+    const physicalFiles = {
+      active: '<svg id="old-active"/>',
+      inactive: '<svg id="inactive"/>'
+    }
+    const reloadedLayers = Object.fromEntries(
+      Object.keys(metadata.layerFilenames).map((key) => [
+        key,
+        physicalFiles[key as keyof typeof physicalFiles]
+      ])
+    )
+    expect(reloadedLayers).toEqual({ inactive: '<svg id="inactive"/>' })
     expect(auth.handleApiError).not.toHaveBeenCalled()
+    expect(subject.logRefreshFailure).toHaveBeenCalledWith(
+      'track SVG layer refresh was partial; published validated layers only',
+      expect.any(Error)
+    )
+  })
+
+  it('publishes a fresh name/config resolution under its authoritative ID key', async () => {
+    const subject = bareModule()
+    subject.catalog = [track(12, 'Canonical Venue', 'Grand Prix')]
+    subject.catalogFresh = true
+    const nameLayout = captureTrackLayout({
+      trackName: 'Canonical Venue',
+      trackConfigName: 'Grand Prix'
+    })!
+    subject.setCurrentLayout(nameLayout)
+    const api = {
+      listTrackAssets: vi.fn(async () => assetMap({ trackId: 12 })),
+      fetchSvgLayer: vi.fn(async () => '<svg id="canonical"/>')
+    }
+    bindAuth(subject, api)
+
+    await subject.refreshForCurrentTrack(false)
+
+    expect(subject.currentLayout).toMatchObject({
+      key: 'id:12',
+      trackId: 12,
+      trackName: 'Canonical Venue',
+      trackConfigName: 'Grand Prix'
+    })
+    expect(subject.resolvedSvgByLayout.has(nameLayout.key)).toBe(false)
+    expect(subject.resolvedSvgByLayout.get('id:12')?.activeSvg).toContain('canonical')
+    expect(subject.buildDataForCurrentTrack()).toMatchObject({
+      source: 'iracing-svg',
+      layoutKey: 'id:12',
+      trackId: 12
+    })
+    expect(subject.buildDataForLookup({
+      trackName: 'Canonical Venue',
+      trackConfigName: 'Grand Prix'
+    })).toMatchObject({
+      source: 'iracing-svg',
+      layoutKey: 'id:12',
+      trackId: 12
+    })
+  })
+
+  it('does not repopulate memory when auth changes during saveAsset', async () => {
+    const subject = bareModule()
+    const saved = deferred<CachedAssetWithSvg>()
+    subject.assetsCache.saveAsset = vi.fn(() => saved.promise)
+    const api = {
+      listTrackAssets: vi.fn(async () => assetMap({ trackId: 1 })),
+      fetchSvgLayer: vi.fn(async () => '<svg id="old-auth"/>')
+    }
+    const auth = bindAuth(subject, api)
+    const layout = setLayout(subject, 1, 'Shared Venue', 'Grand Prix')
+
+    const refresh = subject.refreshForCurrentTrack(false)
+    await waitForCalls(subject.assetsCache.saveAsset, 1)
+    auth.transition(null)
+    saved.resolve(cached(1, 'Shared Venue', 'Grand Prix', '<svg id="saved"/>'))
+    await refresh
+
+    expect(subject.resolvedSvgByLayout.has(layout.key)).toBe(false)
+    expect(subject.broadcastUpdate).not.toHaveBeenCalled()
+    expect(auth.handleApiError).not.toHaveBeenCalled()
+  })
+
+  it('does not repopulate memory or broadcast when disposed during saveAsset', async () => {
+    const subject = bareModule()
+    const saved = deferred<CachedAssetWithSvg>()
+    subject.assetsCache.saveAsset = vi.fn(() => saved.promise)
+    const api = {
+      listTrackAssets: vi.fn(async () => assetMap({ trackId: 1 })),
+      fetchSvgLayer: vi.fn(async () => '<svg id="disposing"/>')
+    }
+    bindAuth(subject, api)
+    setLayout(subject, 1, 'Shared Venue', 'Grand Prix')
+
+    const refresh = subject.refreshForCurrentTrack(false)
+    await waitForCalls(subject.assetsCache.saveAsset, 1)
+    let disposeFinished = false
+    const disposing = subject.dispose().then(() => {
+      disposeFinished = true
+    })
+    await Promise.resolve()
+    expect(disposeFinished).toBe(false)
+
+    saved.resolve(cached(1, 'Shared Venue', 'Grand Prix', '<svg id="saved"/>'))
+    await Promise.all([refresh, disposing])
+
+    expect(subject.resolvedSvgByLayout.size).toBe(0)
+    expect(subject.broadcastUpdate).not.toHaveBeenCalled()
   })
 
   it('keeps a fresh in-memory catalog when a forced network refresh fails', async () => {

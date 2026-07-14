@@ -521,14 +521,14 @@ export class TrackMapModule {
     }
 
     const trackId = request.layout.trackId ?? row?.trackId
+    const publicationLayout = this.publicationLayout(request.layout, row)
     let cachedAsset: CachedAssetWithSvg | null = null
     if (trackId) {
       cachedAsset = await this.assetsCache.loadAsset(trackId)
       if (!this.isLayoutRequestCurrent(request)) return
       if (cachedAsset && hasRenderableSvg(cachedAsset) && !request.force) {
-        const resolved = resolvedAsset(cachedAsset, request.layout, row, this.catalogToken)
         await this.publishLayoutRequest(request, () => {
-          this.resolvedSvgByLayout.set(request.layout.key, resolved)
+          this.publishResolvedAsset(request, publicationLayout, cachedAsset!, row)
           this.broadcastUpdate()
         })
         return
@@ -546,13 +546,13 @@ export class TrackMapModule {
     try {
       assets = await request.api.listTrackAssets()
     } catch (error) {
-      await this.publishApiFailure(request, error)
+      await this.publishAssetApiFailure(request, publicationLayout, error)
       return
     }
     if (!this.isLayoutRequestCurrent(request)) return
     const trackAssets = assets.get(trackId)
     if (!trackAssets) {
-      await this.publishLastGoodAsset(request, cachedAsset, row, undefined)
+      await this.publishLastGoodAsset(request, publicationLayout, cachedAsset, row, undefined)
       return
     }
 
@@ -564,7 +564,12 @@ export class TrackMapModule {
     >) {
       if (!filename) continue
       try {
-        downloaded[key] = await request.api.fetchSvgLayer(trackAssets.track_map, filename)
+        const content = await request.api.fetchSvgLayer(trackAssets.track_map, filename)
+        if (content) {
+          downloaded[key] = content
+        } else {
+          downloadErrors.push(new Error(`Empty ${key} SVG layer for track ${trackId}`))
+        }
       } catch (error) {
         downloadErrors.push(error)
       }
@@ -573,16 +578,23 @@ export class TrackMapModule {
 
     const downloadedLayers: TrackMapSvgLayers = { ...downloaded }
     if (!firstSvgLayer(downloadedLayers)) {
-      await this.publishLastGoodAsset(request, cachedAsset, row, downloadErrors[0])
+      await this.publishLastGoodAsset(
+        request,
+        publicationLayout,
+        cachedAsset,
+        row,
+        downloadErrors[0]
+      )
       return
     }
 
+    const layerFilenames = manifestForDownloadedLayers(filenames, downloadedLayers)
     const metadata: CachedAsset = {
       trackId,
       trackName: row.trackName,
       configName: row.trackConfigName ?? undefined,
       baseUrl: trackAssets.track_map,
-      layerFilenames: filenames,
+      layerFilenames,
       cachedAt: Date.now()
     }
     const stagedAsset: CachedAssetWithSvg = {
@@ -591,50 +603,76 @@ export class TrackMapModule {
       activeSvg: downloadedLayers.active
     }
     await this.publishLayoutRequest(request, async () => {
-      let published = stagedAsset
+      let persistenceError: unknown
       try {
         const saved = await this.assetsCache.saveAsset(metadata, downloaded)
-        if (hasRenderableSvg(saved)) {
-          published = saved
-        } else {
-          this.logRefreshFailure(
-            'track asset cache returned no renderable SVG; retaining staged asset',
-            new Error(`Track ${trackId}`)
+        if (!hasRenderableSvg(saved)) {
+          persistenceError = new Error(
+            `Track ${trackId} cache returned no renderable SVG; retaining staged asset`
           )
         }
       } catch (error) {
-        this.logRefreshFailure('track asset cache save failed', error)
+        persistenceError = error
       }
-      this.resolvedSvgByLayout.set(
-        request.layout.key,
-        resolvedAsset(published, request.layout, row, this.catalogToken)
-      )
+      if (!this.isLayoutRequestCurrent(request)) return
+      if (persistenceError !== undefined) {
+        this.logRefreshFailure('track asset cache save failed', persistenceError)
+      }
+      if (downloadErrors.length > 0) {
+        this.logRefreshFailure(
+          'track SVG layer refresh was partial; published validated layers only',
+          downloadErrors[0]
+        )
+      }
+      this.publishResolvedAsset(request, publicationLayout, stagedAsset, row)
       this.broadcastUpdate()
     })
   }
 
   private async publishLastGoodAsset(
     request: LayoutResolveRequest,
+    publicationLayout: TrackLayoutIdentity,
     cachedAsset: CachedAssetWithSvg | null,
     row: TrackCatalogLayout,
-    apiError: unknown
+    assetError: unknown
   ): Promise<void> {
     await this.publishLayoutRequest(request, () => {
       const current = this.resolvedSvgByLayout.get(request.layout.key)
-      if ((!current || !hasRenderableSvg(current)) && cachedAsset && hasRenderableSvg(cachedAsset)) {
-        this.resolvedSvgByLayout.set(
-          request.layout.key,
-          resolvedAsset(cachedAsset, request.layout, row, this.catalogToken)
-        )
+      const currentTrackId = current?.resolvedTrackId ?? current?.trackId
+      const lastGood =
+        current && hasRenderableSvg(current) && currentTrackId === row.trackId
+          ? current
+          : cachedAsset && hasRenderableSvg(cachedAsset) && cachedAsset.trackId === row.trackId
+            ? cachedAsset
+            : null
+      if (lastGood) {
+        this.publishResolvedAsset(request, publicationLayout, lastGood, row)
+      } else {
+        this.migrateCurrentLayout(request, publicationLayout)
       }
-      if (apiError !== undefined) {
-        this.auth.handleApiError(apiError)
+      if (assetError !== undefined) {
+        this.logRefreshFailure(
+          'track SVG layer refresh failed; retaining last good asset',
+          assetError
+        )
       } else {
         this.logRefreshFailure(
           'track asset refresh returned no renderable SVG; retaining last good asset',
           new Error(`Track ${row.trackId}`)
         )
       }
+      this.broadcastUpdate()
+    })
+  }
+
+  private async publishAssetApiFailure(
+    request: LayoutResolveRequest,
+    publicationLayout: TrackLayoutIdentity,
+    error: unknown
+  ): Promise<void> {
+    await this.publishLayoutRequest(request, () => {
+      this.migrateCurrentLayout(request, publicationLayout)
+      this.auth.handleApiError(error)
       this.broadcastUpdate()
     })
   }
@@ -691,20 +729,27 @@ export class TrackMapModule {
     apiError?: unknown
   ): Promise<IRacingTrack[] | null> {
     const committed = await this.publishRequest(request, async () => {
-      if (apiError !== undefined) this.auth.handleApiError(apiError)
-      await this.learner.setCatalog(toLearnerCatalog(tracks), fresh)
-      this.catalog = tracks
-      this.catalogFresh = fresh
-      this.catalogToken = request.token
-      if (fresh) this.revalidateResolvedSvgCache()
-
+      let persistenceError: unknown
       if (persist) {
         try {
           await this.assetsCache.saveCatalog(tracks)
         } catch (error) {
-          this.logRefreshFailure('catalog cache save failed', error)
+          persistenceError = error
+        }
+        if (!this.isRequestCurrent(request)) return undefined
+        if (persistenceError !== undefined) {
+          this.logRefreshFailure('catalog cache save failed', persistenceError)
         }
       }
+
+      await this.learner.setCatalog(toLearnerCatalog(tracks), fresh)
+      if (!this.isRequestCurrent(request)) return undefined
+
+      this.catalog = tracks
+      this.catalogFresh = fresh
+      this.catalogToken = request.token
+      if (fresh) this.revalidateResolvedSvgCache()
+      if (apiError !== undefined) this.auth.handleApiError(apiError)
       return tracks
     })
     return committed ?? null
@@ -761,6 +806,43 @@ export class TrackMapModule {
   private authoritativeLayout(layout: TrackLayoutIdentity): TrackLayoutIdentity {
     const row = this.matchCatalog(layout)
     return row && (layout.trackId || this.catalogFresh) ? trackLayoutFromCatalog(row) : layout
+  }
+
+  private publicationLayout(
+    layout: TrackLayoutIdentity,
+    row: TrackCatalogLayout | null
+  ): TrackLayoutIdentity {
+    return row && (layout.trackId || this.catalogFresh) ? trackLayoutFromCatalog(row) : layout
+  }
+
+  private publishResolvedAsset(
+    request: LayoutResolveRequest,
+    publicationLayout: TrackLayoutIdentity,
+    asset: CachedAssetWithSvg,
+    row: TrackCatalogLayout | null
+  ): void {
+    this.migrateCurrentLayout(request, publicationLayout)
+    if (publicationLayout.key !== request.layout.key) {
+      this.resolvedSvgByLayout.delete(request.layout.key)
+    }
+    this.resolvedSvgByLayout.set(
+      publicationLayout.key,
+      resolvedAsset(asset, publicationLayout, row, this.catalogToken)
+    )
+    this.resolutionAttempted.add(publicationLayout.key)
+  }
+
+  private migrateCurrentLayout(
+    request: LayoutResolveRequest,
+    publicationLayout: TrackLayoutIdentity
+  ): void {
+    if (
+      publicationLayout.key !== request.layout.key &&
+      request.layoutToken === this.currentLayoutToken &&
+      request.layout.key === this.currentLayout?.key
+    ) {
+      this.currentLayout = publicationLayout
+    }
   }
 
   private revalidateResolvedSvgCache(): void {
@@ -1421,6 +1503,19 @@ function toLearnerCatalog(tracks: readonly IRacingTrack[]): TrackCatalogLayout[]
     trackName: track.track_name,
     trackConfigName: track.config_name
   }))
+}
+
+function manifestForDownloadedLayers(
+  filenames: TrackMapSvgLayers,
+  layers: TrackMapSvgLayers
+): TrackMapSvgLayers {
+  const manifest: TrackMapSvgLayers = {}
+  for (const [key, filename] of Object.entries(filenames) as Array<
+    [keyof TrackMapSvgLayers, string | undefined]
+  >) {
+    if (filename && layers[key]) manifest[key] = filename
+  }
+  return manifest
 }
 
 function resolvedAsset(
