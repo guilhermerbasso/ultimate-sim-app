@@ -40,6 +40,14 @@ export interface TrackMapPoint {
 // transform for both kinds.
 export type TrackMapViewBox = [number, number, number, number]
 
+// Exact layout selector used by map lookup IPC. `trackId` is authoritative when
+// available; otherwise callers must provide the venue + configuration pair.
+export interface TrackMapLayoutLookup {
+  trackId?: number
+  trackName: string
+  trackConfigName?: string
+}
+
 // Live state of the telemetry lap-learner while it is recording the current
 // lap. This is the SimHub-style path: the car's position is captured every
 // tick and the polyline grows until the lap closes. Surfacing it lets the UI
@@ -71,6 +79,9 @@ export interface TrackMapRecording {
 
 export interface TrackMapData {
   source: TrackMapSource
+  // Canonical immutable layout key (`id:<TrackID>` when authoritative, otherwise
+  // normalized venue + configuration). Prevents same-venue layouts from sharing.
+  layoutKey?: string
   // Best-effort identifiers. May be undefined when source === 'none'.
   trackId?: number
   trackName?: string
@@ -174,6 +185,8 @@ export interface TrackMapStatus {
   // Track currently being served by `trackmap:getForCurrentTrack`. Updated on
   // every successful resolve so the renderer can show "Spa-Francorchamps" etc.
   currentTrackName?: string
+  currentTrackConfigName?: string
+  currentLayoutKey?: string
   currentSource?: TrackMapSource
   // Live telemetry-learner diagnostics + progress for the status panel.
   learn?: TrackMapLearnState
