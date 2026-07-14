@@ -119,23 +119,31 @@ Ultimate Sim App combines live race telemetry, dashboard composition, transparen
 
 ## Screenshots
 
-The versioned dashboard/contact-sheet images below are historical v2.48 captures. Current-main screenshots are maintained through the real-renderer visual-audit workflow.
+These v2.51 images were captured locally from the current-main React renderer and visual-audit harness with deterministic mock telemetry. They are real UI renders, not generated marketing artwork. Authentication-, simulator-, and hardware-only states remain empty when the harness cannot supply them.
 
-| GT3 DDU dashboard | Race dashboard preset gallery |
+| Current GT3 endurance DDU | Current 336-preset dashboard gallery |
 |---|---|
-| ![GT3 DDU dashboard](app-v2/docs/screenshots/hifi-ddu-v248.png) | ![Race dashboard presets](app-v2/docs/screenshots/dashboard-presets-race-sun-v248.png) |
+| <img src="app-v2/docs/screenshots/dashboard-gt3-endurance-stint.png" alt="Current GT3 endurance dashboard with gear, speed, RPM LEDs, delta, fuel, tyres, and stint telemetry" width="520" /> | <img src="app-v2/docs/screenshots/dashboard-presets-336-gallery.png" alt="Top of the current dashboard renderer gallery showing 336 presets" width="520" /> |
 
-| Live telemetry view | Rev-light configuration |
+| Dashboard editor and protected streaming target | Current race-sun preset family |
 |---|---|
-| ![Telemetry](app-v2/docs/screenshots/telemetry.png) | ![Rev lights](app-v2/docs/screenshots/revlights.png) |
+| <img src="app-v2/docs/screenshots/dashboards.png" alt="Dashboard management screen with editor controls, stream-safe target selector, network access, and preset gallery" width="520" /> | <img src="app-v2/docs/screenshots/dashboard-presets-race-sun.png" alt="Contact sheet of 20 current race-sun dashboard presets rendered with mock telemetry" width="520" /> |
 
-| Dashboards and streaming | Overlays |
+| Live telemetry source and diagnostics | Rev-light presets and LED configuration |
 |---|---|
-| ![Dashboards](app-v2/docs/screenshots/dashboards.png) | ![Overlays](app-v2/docs/screenshots/overlays.png) |
+| <img src="app-v2/docs/screenshots/telemetry.png" alt="Telemetry screen showing mock source selection, live status, diagnostics, and vehicle data" width="520" /> | <img src="app-v2/docs/screenshots/revlights.png" alt="Rev Lights settings with LED preview, shift thresholds, presets, and hardware controls" width="520" /> |
 
-| Settings and updates | v2.48 preset contact sheet |
+| Fuel strategy and Team Fuel LAN | Local AI Coach before the first completed lap |
 |---|---|
-| ![Settings](app-v2/docs/screenshots/settings.png) | <img src="app-v2/docs/screenshots/dashboard-presets-existing-v248.png" alt="v2.48 dashboard preset contact sheet" width="360" /> |
+| <img src="app-v2/docs/screenshots/fuel.png" alt="Fuel strategy showing fuel-to-finish metrics, pit window, stint planner, and Team Fuel LAN room" width="520" /> | <img src="app-v2/docs/screenshots/coach.png" alt="AI Coach summary before a completed lap, with track map, improvement points, debrief, and setup sections" width="520" /> |
+
+| Units and telemetry configuration | Profile backup and saved-configuration safety |
+|---|---|
+| <img src="app-v2/docs/screenshots/settings-units.png" alt="Settings units selector with metric and US choices plus telemetry configuration" width="520" /> | <img src="app-v2/docs/screenshots/settings-configuration-safety.png" alt="Settings profile backup and saved-configuration safety controls with full-profile import disabled" width="520" /> |
+
+| Current overlay widget renderer | All 336 current dashboard presets |
+|---|---|
+| <img src="app-v2/docs/screenshots/overlay-widgets-gallery.png" alt="Minimal-style overlay gallery showing current real-renderer telemetry widgets" width="520" /> | <img src="app-v2/docs/screenshots/dashboard-presets-336-contact-sheet.png" alt="Contact sheet of all 336 current v2.51 dashboard presets rendered by the real dashboard renderer" width="520" /> |
 
 ---
 
@@ -267,10 +275,12 @@ The README screenshots are produced from `app-v2/visual-audit/`:
 cd app-v2
 node visual-audit/shoot-views.mjs
 node visual-audit/shoot-dashboards.mjs
-node visual-audit/shoot-hifi.mjs
+node visual-audit/shoot.mjs minimal
 ```
 
-`shoot-views.mjs` writes candidate captures directly to `app-v2/docs/screenshots/`; review them before committing. `shoot-dashboards.mjs` renders all dashboard presets and contact sheets under ignored `app-v2/visual-audit/` output folders, and `shoot-hifi.mjs` produces working output that must be reviewed before any curated copy is committed. Versioned screenshots can lag current `main`.
+`shoot-views.mjs` captures every registered app view and writes candidate images directly to `app-v2/docs/screenshots/`; review and keep only useful frames. `shoot-dashboards.mjs` renders every `BUILTIN_PRESETS` dashboard through the production dashboard renderer (336 in this v2.51 audit) and writes individual captures, category contact sheets, and a report under ignored `app-v2/visual-audit/` output folders. `shoot.mjs minimal` validates the real overlay-widget gallery (95 registered widgets in this capture) plus representative dashboards under the ignored `shots/` folder.
+
+The committed gallery and contact-sheet images are curated from those real-renderer outputs using the existing image tooling. Standalone files under `visual-audit/hifi/` are audit fixtures and are not used for the current README screenshots.
 
 ---
 
