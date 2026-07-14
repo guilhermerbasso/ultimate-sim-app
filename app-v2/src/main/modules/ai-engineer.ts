@@ -325,15 +325,13 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     }
   }
 
-  function finalize(
+  function publishAnswer(
     question: string,
     text: string,
     kind: EngineerAnswerKind,
     source: EngineerAnswerSource,
-    command?: EngineerCommandDirective,
-    context: LiveTelemetryContext | null = null
+    command?: EngineerCommandDirective
   ): EngineerAnswer {
-    if (!contextIsCurrent(context)) return rejectedAnswer(question)
     const answer: EngineerAnswer = {
       id: nextId(),
       at: now(),
@@ -358,6 +356,18 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     }
     deps.broadcast(ENGINEER_CHANNELS.answer, answer)
     return answer
+  }
+
+  function finalize(
+    question: string,
+    text: string,
+    kind: EngineerAnswerKind,
+    source: EngineerAnswerSource,
+    command: EngineerCommandDirective | undefined,
+    context: LiveTelemetryContext | null
+  ): EngineerAnswer {
+    if (!contextIsCurrent(context)) return rejectedAnswer(question)
+    return publishAnswer(question, text, kind, source, command)
   }
 
   function applyRuntimeOptions(): void {
@@ -471,11 +481,11 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
 
   async function ask(rawQuestion: string): Promise<EngineerAnswer> {
     const question = (rawQuestion ?? '').toString().trim()
+    if (!question) return publishAnswer('', pick(config, FALLBACK.empty), 'answer', 'system')
+    if (!config.enabled) return publishAnswer(question, pick(config, FALLBACK.disabled), 'disabled', 'system')
+
     const context = deps.getLiveContext?.() ?? null
     if (deps.getLiveContext && !context) return rejectedAnswer(question)
-    if (!question) return finalize('', pick(config, FALLBACK.empty), 'answer', 'system', undefined, context)
-    if (!config.enabled) return finalize(question, pick(config, FALLBACK.disabled), 'disabled', 'system', undefined, context)
-
     const racecraftIntent = detectRacecraftQuestion(question)
     const unitSystem = deps.getUnitSystem?.() ?? 'metric'
     if (racecraftIntent) {

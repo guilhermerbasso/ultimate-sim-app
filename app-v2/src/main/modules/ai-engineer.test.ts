@@ -158,8 +158,28 @@ describe('createEngineerOrchestrator.ask', () => {
     expect(h.broadcast).toHaveBeenCalledWith(ENGINEER_CHANNELS.answer, expect.objectContaining({ source: 'intent' }))
   })
 
+  it('returns the local empty fallback without consulting live context', async () => {
+    const getLiveContext = vi.fn(() => null)
+    const harness = makeHarness({ getLiveContext })
+    const orch = createEngineerOrchestrator(harness.deps)
+
+    const answer = await orch.ask('   ')
+
+    expect(answer).toMatchObject({
+      question: '',
+      text: 'Can you repeat the question?',
+      kind: 'answer',
+      source: 'system'
+    })
+    expect(answer.id).not.toContain('live-context-reset')
+    expect(getLiveContext).not.toHaveBeenCalled()
+    expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
   it('keeps same-millisecond live-context rejection ids unique and deterministic', async () => {
-    const harness = makeHarness({ getLiveContext: () => null })
+    const getLiveContext = vi.fn(() => null)
+    const harness = makeHarness({ getLiveContext })
     const orch = createEngineerOrchestrator(harness.deps)
 
     const first = await orch.ask('first rejected question')
@@ -181,6 +201,7 @@ describe('createEngineerOrchestrator.ask', () => {
         source: 'system'
       })
     }
+    expect(getLiveContext).toHaveBeenCalledTimes(2)
     expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
   })
@@ -317,11 +338,16 @@ describe('createEngineerOrchestrator.ask', () => {
   })
 
   it('short-circuits with a friendly note when disabled', async () => {
-    const harness = makeHarness({ config: { enabled: false } })
+    const getLiveContext = vi.fn(() => null)
+    const harness = makeHarness({ config: { enabled: false }, getLiveContext })
     const orch = createEngineerOrchestrator(harness.deps)
     const answer = await orch.ask('boxes agora?')
 
     expect(answer.kind).toBe('disabled')
+    expect(answer.source).toBe('system')
+    expect(answer.id).not.toContain('live-context-reset')
+    expect(getLiveContext).not.toHaveBeenCalled()
+    expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
     expect(answer.text).toContain('turned off')
   })
