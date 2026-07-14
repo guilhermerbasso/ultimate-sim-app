@@ -197,7 +197,7 @@ function startSubscriptions(): void {
       return
     }
     // Never throw in the telemetry path: if there is no snapshot / no nearby
-    // cars the engine yesply stays silent. update() is a no-op while stopped.
+    // cars the engine simply stays silent. update() is a no-op while stopped.
     try {
       if (live.boundary) stopSpotter3DPlayback()
       if (!currentConfig.enabled) {
