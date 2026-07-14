@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ALL_VARIANTS } from '../renderer/src/views/dashboard/widget-catalog-data'
-import type { DashboardElementType } from './dashboards'
+import { dashboardValidationError, type DashboardElementType } from './dashboards'
 import {
   buildDashboardFromPhrase,
   buildDashboardFromWidgetIds,
@@ -157,6 +157,19 @@ describe('packWidgetsIntoGrid', () => {
     expect(new Set(els.map((e) => e.id)).size).toBe(els.length)
   })
 
+  it('preserves overlay widget identities while packing catalog widgets', () => {
+    const source = widget('identity-overlay', 'overlaywidget', 'Digital', {
+      widgetId: 'hifi:identity-module',
+      hifiModuleId: 'identity-module'
+    })
+    const [element] = packWidgetsIntoGrid([source])
+    expect(element).toMatchObject({
+      type: 'overlaywidget',
+      widgetId: 'hifi:identity-module',
+      hifiModuleId: 'identity-module'
+    })
+  })
+
   it('returns [] for no widgets', () => {
     expect(packWidgetsIntoGrid([])).toEqual([])
   })
@@ -177,6 +190,19 @@ describe('buildDashboardFromWidgetIds', () => {
     expect(dash.height).toBe(600)
     expect(dash.scaleMode).toBe('fit')
     expect(dash.id).toMatch(/^dash-/)
+  })
+
+  it('preserves identities through the real catalog widget-ID generator path', () => {
+    const source = ALL_VARIANTS.find((variant) =>
+      variant.type === 'overlaywidget' && variant.widgetId?.startsWith('hifi:') && variant.hifiModuleId)
+    expect(source).toBeDefined()
+    const dashboard = buildDashboardFromWidgetIds([source!.id], ALL_VARIANTS)
+    expect(dashboard.elements).toHaveLength(1)
+    expect(dashboard.elements[0]).toMatchObject({
+      widgetId: source!.widgetId,
+      hifiModuleId: source!.hifiModuleId
+    })
+    expect(dashboardValidationError(dashboard)).toBeNull()
   })
 })
 

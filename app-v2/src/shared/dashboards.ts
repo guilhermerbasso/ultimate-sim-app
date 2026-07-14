@@ -56,146 +56,128 @@ import {
 // overlays.ts imports the DashboardElement type from this module.
 import type { OverlayWidgetId } from './overlays'
 
-export type DashboardElementType =
-  | 'text'
-  | 'rect'
-  | 'bar'
-  | 'barv'
-  | 'dualbar'
-  | 'deltabar'
-  | 'gauge'
-  | 'shiftlights'
-  | 'map'
-  | 'radar'
-  | 'image'
-  | 'table'
-  | 'standings'
-  | 'flag'
-  | 'trace'
-  // ── Widgets GT3 (semânticos, prontos para uso) ─────────────────────────────
-  // Cada um é um cluster completo que lê telemetria real e desenha um painel
-  // estilo GT3 (carbono escuro, barras segmentadas, rampas de cor). Aditivos:
-  // os tipos primitivos acima continuam funcionando.
-  | 'shiftbar' // RPM/shift segmentado v2 (gradiente + flash no ponto de troca)
-  | 'gearcluster' // central gear gigante + speed + RPM
-  | 'tyregrid' // tires 2×2 (temp/pressão/wear) com rampa térmica
-  | 'brakegrid' // brakes 2×2 com rampa térmica
-  | 'cornerstack' // cartão por canto (tire temp/pressão/wear + brake)
-  | 'fuelstint' // calculadora de fuel/stint
-  | 'deltatile' // delta preditivo (barra central + number grande)
-  | 'laptiming' // tempos de lap (atual/last/melhor + delta)
-  | 'positiongaps' // position/classe + gaps frente/trás
-  | 'flagoverlay' // overlay de flags/avisos v2 (prioridade + flash)
-  | 'inputbars' // barras verticais throttle/brake/clutch
-  | 'inputtrace' // trace multi-canal (throttle/brake/steering)
-  | 'steering' // ângulo de steering (barra/arco)
-  | 'setupstrip' // ABS/TC/MAP/BB + limitador + incidentes
-  | 'enginetemps' // água/óleo/pressão de óleo (bindings configuráveis)
-  | 'weather' // condição de pista/ar/molhado/grip
-  | 'trackmini' // mini map de progresso (loop + marcadores)
-  // ── Curated iRacing widgets: every concept has clean + elaborate variants ──
-  | 'tyres-clean' | 'tyres-elaborate'
-  | 'abs-clean' | 'abs-elaborate'
-  | 'tc-clean' | 'tc-elaborate'
-  | 'map-clean' | 'map-elaborate'
-  | 'bb-clean' | 'bb-elaborate'
-  | 'pitlimiter-clean' | 'pitlimiter-elaborate'
-  | 'incidents-clean' | 'incidents-elaborate'
-  | 'relatives-clean' | 'relatives-elaborate'
-  | 'radar-clean' | 'radar-elaborate'
-  | 'trackmap-clean' | 'trackmap-elaborate'
-  | 'speed-clean' | 'speed-elaborate'
-  | 'gear-clean' | 'gear-elaborate'
-  | 'rpm-clean' | 'rpm-elaborate'
-  | 'delta-clean' | 'delta-elaborate'
-  | 'fuel-clean' | 'fuel-elaborate'
-  | 'lap-clean' | 'lap-elaborate'
-  | 'position-clean' | 'position-elaborate'
-  | 'flags-clean' | 'flags-elaborate'
-  | 'inputs-clean' | 'inputs-elaborate'
-  | 'temps-clean' | 'temps-elaborate'
-  | 'clutch-clean' | 'clutch-elaborate'
-  | 'drs-clean' | 'drs-elaborate'
-  // ── Generic clean channel widgets (one bindable widget per telemetry value) ─
-  // `value`     → tiny label + big value + optional tiny unit (the minimal tile)
-  // `valuebar`  → value with a hairline progress bar below (bounded 0..1 channel)
-  // `valuegauge`→ value centered inside a minimal 270° arc (bounded 0..1 channel)
-  | 'value' | 'valuebar' | 'valuegauge'
-  // ── Round-7 extra widget kinds (varied visual styles, all generic+bindable) ─
-  // Implemented in dashboard/widgets/extra-widgets.tsx and dispatched through
-  // renderGt3Widget. Additive: every kind above keeps working unchanged.
-  | 'analoggauge' // ANALOG — 270° needle dial over a graduated scale
-  | 'linearmeter' // ANALOG — horizontal needle sweeping a graduated bar
-  | 'gforcemeter' // ANALOG — 2D g-force dot (lat/long accel) on a crosshair
-  | 'segment7' // DIGITAL — 7-segment numeric readout with ghosted backdrop
-  | 'digitalclock' // DIGITAL — 7-segment lap/clock time (mm:ss.mmm)
-  | 'bigtext' // DIGITAL CLEAN — oversized flat numeric with a tiny caption
-  | 'historygraph' // GRAPH — rolling line/area/sparkline of any numeric channel
-  | 'barchart' // CHART — multi-series vertical columns (tyres/brakes/inputs)
-  | 'radialbars' // CHART — concentric radial bars (radial chart)
-  | 'donut' // CHART — pie/donut progress ring with center value
-  | 'segmentbars' // CHART/BAR — segmented block bar for a 0..1 channel
-  | 'ringgauge' // RING — thick arc/ring gauge with big center value
-  | 'ledbar' // LED — generic segmented LED bar (horizontal or vertical)
-  | 'heatmap' // HEATMAP — 2×2 tyre/brake temperature heat cells
-  | 'statuslamp' // STATUS — icon/status tile that lights on a condition
-  // ── Wave-16 widgets: futuristic + minimalist, several on NEW iRacing telemetry ─
-  // Implemented in dashboard/widgets/new-widgets-{telemetry,futuristic,minimal}.tsx
-  // and dispatched through renderGt3Widget. Additive: every kind above keeps
-  // working unchanged. Telemetry-backed kinds read the new snapshot fields
-  // (ERS battery, push-to-pass, declared-wet, track surface, BoP, cold pressures,
-  // session clock, pit status); the rest are generic + bindable.
-  | 'ers-bar-futuristic' | 'ers-bar-minimal' // ERS/hybrid battery — segmented/hairline bar
-  | 'ers-radial-futuristic' | 'ers-radial-minimal' // ERS/hybrid battery — radial arc
-  | 'p2p-futuristic' | 'p2p-minimal' // push-to-pass indicator + remaining count
-  | 'weather-status-futuristic' | 'weather-status-minimal' // declared-wet / wetness status
-  | 'track-surface-futuristic' | 'track-surface-minimal' // track-surface material indicator
-  | 'bop-futuristic' | 'bop-minimal' // BoP weight penalty + power adjust
-  | 'cold-pressures-futuristic' | 'cold-pressures-minimal' // tyre cold pressures 2×2
-  | 'clock-futuristic' | 'clock-minimal' // session clock (time of day)
-  | 'pit-status-futuristic' | 'pit-status-minimal' // pit repair/opt/pits-open/in-stall panel
-  | 'neon-ring-futuristic' // FUTURISTIC — neon 270° ring gauge (any channel)
-  | 'segmented-gauge-futuristic' // FUTURISTIC — segmented arc gauge
-  | 'sci-fi-delta-futuristic' // FUTURISTIC — bipolar delta bar with pointer
-  | 'hud-tile-futuristic' // FUTURISTIC — HUD value tile with corner brackets
-  | 'neon-bar-futuristic' // FUTURISTIC — neon segmented bar
-  | 'grid-gauge-futuristic' // FUTURISTIC — value over a sci-fi grid backdrop
-  | 'mono-tile-minimal' // MINIMAL — label · value · unit tile with hairline fill
-  | 'typo-readout-minimal' // MINIMAL — oversized typographic number + rule
-  | 'hairline-bar-minimal' // MINIMAL — ultra-thin progress bar
-  | 'dot-gauge-minimal' // MINIMAL — row of ticks filled to the value
-  | 'stacked-readout-minimal' // MINIMAL — label stacked over a big value
-  | 'arc-minimal' // MINIMAL — thin 270° ring with centred value
-  // ── WS-H: predictor dashboard widgets (futuristic + minimal) ───────────────
-  // Implemented in dashboard/widgets/new-widgets-predictions.tsx and dispatched
-  // through renderGt3Widget. Backed by the predictions snapshot.
-  | 'pred-catch-ahead-futuristic' | 'pred-catch-ahead-minimal'
-  | 'pred-caught-behind-futuristic' | 'pred-caught-behind-minimal'
-  | 'pred-fuel-margin-futuristic' | 'pred-fuel-margin-minimal'
-  | 'pred-tire-wear-futuristic' | 'pred-tire-wear-minimal'
-  | 'pred-pace-futuristic' | 'pred-pace-minimal'
-  // ── WS-M: coaching heatmap dashboard widget ────────────────────────────────
-  | 'coach-heatmap' // track map coloured per corner (lose/par/improve)
-  // ── R19 seam: Live Coach / AI Engineer TEXT + GRAPH widgets ────────────────
-  // Implemented in dashboard/widgets/coach-engineer-widgets.tsx (WS-WIDGETS) and
-  // dispatched through renderGt3Widget. Read live coach report (coach:report) and
-  // engineer messages (engineer:answer/proactive). Additive.
-  | 'coach-tips' // live coach: latest actionable tip(s) as text
-  | 'coach-findings' // live coach: scrollable findings list (improve/lose/good)
-  | 'coach-sector-graph' // live coach: per-sector delta bars (good/bad sectors)
-  | 'engineer-feed' // AI engineer: latest message/answer as text
-  // ── WS-DASH: embedded full-frame dashboard ─────────────────────────────────
-  // Mounts ONE registered overlay widget (WIDGET_COMPONENTS[widgetId]) filling
-  // the element box, fed by the dashboard's live telemetry snapshot. Used by the
-  // six full-screen presets (Grid/Pro/Bosch 296/Ring/LMU Endurance/LMU Stint)
-  // that were moved out of the floating-overlay picker. Requires `widgetId`.
-  | 'overlaywidget'
+export const DASHBOARD_ELEMENT_TYPES = [
+  'text', 'rect', 'bar', 'barv', 'dualbar', 'deltabar', 'gauge', 'shiftlights',
+  'map', 'radar', 'image', 'table', 'standings', 'flag', 'trace',
+  'shiftbar', 'gearcluster', 'tyregrid', 'brakegrid', 'cornerstack', 'fuelstint',
+  'deltatile', 'laptiming', 'positiongaps', 'flagoverlay', 'inputbars',
+  'inputtrace', 'steering', 'setupstrip', 'enginetemps', 'weather', 'trackmini',
+  'tyres-clean', 'tyres-elaborate', 'abs-clean', 'abs-elaborate', 'tc-clean',
+  'tc-elaborate', 'map-clean', 'map-elaborate', 'bb-clean', 'bb-elaborate',
+  'pitlimiter-clean', 'pitlimiter-elaborate', 'incidents-clean',
+  'incidents-elaborate', 'relatives-clean', 'relatives-elaborate', 'radar-clean',
+  'radar-elaborate', 'trackmap-clean', 'trackmap-elaborate', 'speed-clean',
+  'speed-elaborate', 'gear-clean', 'gear-elaborate', 'rpm-clean', 'rpm-elaborate',
+  'delta-clean', 'delta-elaborate', 'fuel-clean', 'fuel-elaborate', 'lap-clean',
+  'lap-elaborate', 'position-clean', 'position-elaborate', 'flags-clean',
+  'flags-elaborate', 'inputs-clean', 'inputs-elaborate', 'temps-clean',
+  'temps-elaborate', 'clutch-clean', 'clutch-elaborate', 'drs-clean',
+  'drs-elaborate', 'value', 'valuebar', 'valuegauge', 'analoggauge',
+  'linearmeter', 'gforcemeter', 'segment7', 'digitalclock', 'bigtext',
+  'historygraph', 'barchart', 'radialbars', 'donut', 'segmentbars', 'ringgauge',
+  'ledbar', 'heatmap', 'statuslamp', 'ers-bar-futuristic', 'ers-bar-minimal',
+  'ers-radial-futuristic', 'ers-radial-minimal', 'p2p-futuristic', 'p2p-minimal',
+  'weather-status-futuristic', 'weather-status-minimal',
+  'track-surface-futuristic', 'track-surface-minimal', 'bop-futuristic',
+  'bop-minimal', 'cold-pressures-futuristic', 'cold-pressures-minimal',
+  'clock-futuristic', 'clock-minimal', 'pit-status-futuristic',
+  'pit-status-minimal', 'neon-ring-futuristic', 'segmented-gauge-futuristic',
+  'sci-fi-delta-futuristic', 'hud-tile-futuristic', 'neon-bar-futuristic',
+  'grid-gauge-futuristic', 'mono-tile-minimal', 'typo-readout-minimal',
+  'hairline-bar-minimal', 'dot-gauge-minimal', 'stacked-readout-minimal',
+  'arc-minimal', 'pred-catch-ahead-futuristic', 'pred-catch-ahead-minimal',
+  'pred-caught-behind-futuristic', 'pred-caught-behind-minimal',
+  'pred-fuel-margin-futuristic', 'pred-fuel-margin-minimal',
+  'pred-tire-wear-futuristic', 'pred-tire-wear-minimal', 'pred-pace-futuristic',
+  'pred-pace-minimal', 'coach-heatmap', 'coach-tips', 'coach-findings',
+  'coach-sector-graph', 'engineer-feed', 'overlaywidget'
+] as const
+
+export type DashboardElementType = (typeof DASHBOARD_ELEMENT_TYPES)[number]
+
+const DASHBOARD_ELEMENT_TYPE_SET = new Set<string>(DASHBOARD_ELEMENT_TYPES)
+
+export function isDashboardElementType(value: unknown): value is DashboardElementType {
+  return typeof value === 'string' && DASHBOARD_ELEMENT_TYPE_SET.has(value)
+}
 
 export type TextAlign = 'left' | 'center' | 'right'
 
 export type TextTransform = 'none' | 'uppercase' | 'lowercase' | 'capitalize'
 
 export type DashboardScaleMode = 'fit' | 'fill' | 'stretch'
+
+export const DASHBOARD_TABLE_COLUMNS = [
+  'pos', 'classPos', 'number', 'name', 'gap', 'class', 'license', 'iRating', 'laps'
+] as const
+
+export const DASHBOARD_CONFIG_MUTATION_DISABLED_REASON =
+  'Dashboard import, reset, and delete are disabled until atomic dashboard directory transactions are available.'
+
+export interface DashboardMutationToken {
+  epoch: string
+  revision: string | null
+}
+
+export interface DashboardStorageMetadata {
+  storageEpoch?: string
+  storageRevision?: string
+}
+
+export const EDITOR_VERSION_CONFLICT = 'EDITOR_VERSION_CONFLICT' as const
+export interface EditorVersionConflict {
+  code: typeof EDITOR_VERSION_CONFLICT
+  id: string
+  kind: 'updated' | 'deleted'
+  remoteVersion: string | null
+}
+export type EditorRefreshAction = 'none' | 'reload' | 'conflict'
+
+export function dashboardStorageVersion(value: DashboardStorageMetadata | null | undefined): string | null {
+  return typeof value?.storageEpoch === 'string' && typeof value.storageRevision === 'string'
+    ? `${value.storageEpoch}:${value.storageRevision}`
+    : null
+}
+
+export function editorRefreshAction(dirty: boolean, loadedVersion: string | null, remoteVersion: string | null): EditorRefreshAction {
+  return loadedVersion === remoteVersion ? 'none' : dirty ? 'conflict' : 'reload'
+}
+
+export function editorVersionConflict(id: string, remoteVersion: string | null): EditorVersionConflict {
+  return { code: EDITOR_VERSION_CONFLICT, id, kind: remoteVersion === null ? 'deleted' : 'updated', remoteVersion }
+}
+
+export const DASHBOARD_STORAGE_UNAVAILABLE = 'DASHBOARD_STORAGE_UNAVAILABLE' as const
+export type DashboardStorageUnavailableState = 'unloaded' | 'loading' | 'recovery' | 'unregistered'
+
+export class DashboardStorageUnavailableError extends Error {
+  readonly code = DASHBOARD_STORAGE_UNAVAILABLE
+  constructor(readonly state: DashboardStorageUnavailableState, readonly reason: string) {
+    super(`${DASHBOARD_STORAGE_UNAVAILABLE}: ${reason}`)
+    this.name = 'DashboardStorageUnavailableError'
+  }
+}
+
+export function isDashboardStorageUnavailableError(value: unknown): value is DashboardStorageUnavailableError {
+  return value instanceof DashboardStorageUnavailableError ||
+    (Boolean(value) && typeof value === 'object' && (value as { code?: unknown }).code === DASHBOARD_STORAGE_UNAVAILABLE)
+}
+
+export interface DashboardStorageSnapshot {
+  files: Record<string, unknown>
+  sizeBytes: number
+  itemCount: number
+  modifiedAt: number | null
+}
+
+export function observedDashboardMutationToken(
+  value: DashboardStorageMetadata
+): DashboardMutationToken {
+  if (typeof value.storageEpoch !== 'string' || typeof value.storageRevision !== 'string') {
+    throw new Error('Dashboard storage version is missing; refresh before changing saved dashboards.')
+  }
+  return { epoch: value.storageEpoch, revision: value.storageRevision }
+}
 
 // ── Estilo granular por "slot" de texto dentro de um widget ───────────────────
 // Widgets compostos (ex.: um valor rotulado, tabelas/standings, gauges) desenham
@@ -496,7 +478,7 @@ export interface DashboardAdaptiveConfig {
   rules?: AdaptiveMomentRule[] // ordered; later rules win on conflicts
 }
 
-export interface Dashboard {
+export interface Dashboard extends DashboardStorageMetadata {
   id: string
   name: string
   width: number
@@ -535,7 +517,7 @@ export interface DashboardPreset {
   priority?: number
 }
 
-export interface DashboardSummary {
+export interface DashboardSummary extends DashboardStorageMetadata {
   id: string
   name: string
   width: number
@@ -584,9 +566,628 @@ export interface DashboardPlaylistItem {
   touchPanelId?: string
 }
 
-export interface DashboardPlaylist {
+export interface DashboardPlaylist extends DashboardStorageMetadata {
   items: DashboardPlaylistItem[]
   updatedAt: number
+}
+
+const DANGEROUS_ID_KEYS = new Set([...Object.getOwnPropertyNames(Object.prototype), 'prototype'])
+function isDangerousId(value: string): boolean { return DANGEROUS_ID_KEYS.has(value) }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  try {
+    const prototype = Object.getPrototypeOf(value)
+    return prototype === Object.prototype || prototype === null
+  } catch {
+    return false
+  }
+}
+
+export function dashboardIdRecord<T>(source?: Readonly<Record<string, T>>): Record<string, T> {
+  const out = Object.create(null) as Record<string, T>
+  for (const [key, value] of Object.entries(source ?? {})) if (!isDangerousId(key)) out[key] = value
+  return out
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+const MAX_DASHBOARD_DIMENSION = 32_768
+const MAX_DASHBOARD_ELEMENTS = 2_048
+const MAX_ADAPTIVE_RULES = 256
+const MAX_ADAPTIVE_ELEMENT_RULES = 2_048
+const MAX_PLAIN_JSON_DEPTH = 64
+const MAX_PLAIN_JSON_NODES = 200_000
+const MAX_PLAIN_JSON_ARRAY_ITEMS = 8_192
+const MAX_PLAIN_JSON_OBJECT_FIELDS = 4_096
+
+interface PlainJsonValidationState {
+  nodes: number
+  stack: WeakSet<object>
+}
+
+function childPath(path: string, key: string): string {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? `${path}.${key}` : `${path}[${JSON.stringify(key)}]`
+}
+
+function validatePlainJsonValue(
+  value: unknown,
+  path: string,
+  state: PlainJsonValidationState,
+  depth: number,
+  allowUndefined: boolean
+): string | null {
+  state.nodes += 1
+  if (state.nodes > MAX_PLAIN_JSON_NODES) return `${path} exceeds the plain JSON node limit.`
+  if (depth > MAX_PLAIN_JSON_DEPTH) return `${path} exceeds the plain JSON depth limit.`
+  if (value === undefined) return allowUndefined ? null : `${path} must not be undefined.`
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return null
+  if (typeof value === 'number') return Number.isFinite(value) ? null : `${path} must contain only finite JSON numbers.`
+  if (typeof value !== 'object') return `${path} must contain plain JSON data.`
+  if (state.stack.has(value)) return `${path} must not contain a circular reference.`
+  state.stack.add(value)
+  try {
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) return `${path} must use the standard Array.prototype.`
+      if (value.length > MAX_PLAIN_JSON_ARRAY_ITEMS) return `${path} has too many array entries.`
+      for (const key of Reflect.ownKeys(value)) {
+        if (typeof key !== 'string') return `${path} must not contain symbol keys.`
+        if (key === 'length') continue
+        if (!/^(0|[1-9]\d*)$/.test(key) || Number(key) >= value.length) return `${path} contains a custom array key.`
+      }
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index))
+        if (!descriptor) return `${path}[${index}] must not be a sparse array entry.`
+        if (!descriptor.enumerable || !('value' in descriptor)) return `${path}[${index}] must be an enumerable data value.`
+        const error = validatePlainJsonValue(descriptor.value, `${path}[${index}]`, state, depth + 1, false)
+        if (error) return error
+      }
+      return null
+    }
+    if (!isRecord(value)) return `${path} must contain plain JSON objects.`
+    const keys = Reflect.ownKeys(value)
+    if (keys.length > MAX_PLAIN_JSON_OBJECT_FIELDS) return `${path} has too many object fields.`
+    for (const key of keys) {
+      if (typeof key !== 'string') return `${path} must not contain symbol keys.`
+      const nextPath = childPath(path, key)
+      if (isDangerousId(key)) return `${nextPath} is a dangerous key.`
+      const descriptor = Object.getOwnPropertyDescriptor(value, key)
+      if (!descriptor?.enumerable || !('value' in descriptor)) return `${nextPath} must be an enumerable data value.`
+      const error = validatePlainJsonValue(descriptor.value, nextPath, state, depth + 1, true)
+      if (error) return error
+    }
+    return null
+  } finally {
+    state.stack.delete(value)
+  }
+}
+
+function plainJsonValidationError(value: unknown, path = 'Dashboard'): string | null {
+  try {
+    return validatePlainJsonValue(value, path, { nodes: 0, stack: new WeakSet<object>() }, 0, false)
+  } catch {
+    return `${path} must contain plain JSON data.`
+  }
+}
+
+const words = (value: string): string[] => value.split(' ')
+const STYLE_STRINGS = words('background border color fontFamily fillColor warnColor dangerColor text prefix suffix src secondaryBinding secondaryColor dryndaryBinding dryndaryColor flagKey traceColor2 headerColor rowAltBackground flashColor unit accentColor bindingWater bindingOil bindingOilPressure bindingAbs bindingTc bindingMap bindingBrakeBias label reference title needleColor')
+const STYLE_NUMBERS = words('borderWidth radius fontSize padding warnAt dangerAt segments decimals opacity filterGrayscale filterSepia redTint brightness contrast saturate hueRotate invert blur deltaRangeSec traceLength traceWidth tableMaxRows rowHeight flashAt coldAt optimalAt hotAt criticalAt targetValue tolerance reserveLaps warnAtLaps maxDegrees minFontSize maxFontSize gaugeMin gaugeMax ticks digits ringThickness zIndex')
+const STYLE_BOOLEANS = words('highlightPlayer showHeader reverse glow pitLimiterOverride showRpm showLabels showAverage enduranceMode showCurrent showLast showBest showEstimated showTotal compact includeIncidents showNumeric showIcon showNeedle showValue graphFill autoRange ghost')
+const STYLE_ARRAYS = words('tableColumns channels fields')
+const STYLE_BINDINGS = words('secondaryBinding dryndaryBinding bindingWater bindingOil bindingOilPressure bindingAbs bindingTc bindingMap bindingBrakeBias flagKey')
+const COUNT_BOUNDS: Record<string, readonly [number, number]> = {
+  segments: [1, 256], decimals: [0, 6], traceLength: [8, 2_048],
+  tableMaxRows: [1, 64], ticks: [1, 128], digits: [1, 32]
+}
+const STYLE_NUMBER_BOUNDS: Record<string, readonly [number, number]> = {
+  borderWidth: [0, 4_096], radius: [0, MAX_DASHBOARD_DIMENSION],
+  fontSize: [0, 4_096], padding: [0, MAX_DASHBOARD_DIMENSION],
+  warnAt: [0, 1], dangerAt: [0, 1], opacity: [0, 1],
+  filterGrayscale: [0, 1], filterSepia: [0, 1], redTint: [0, 1],
+  brightness: [0, 2], contrast: [0, 2], saturate: [0, 3],
+  hueRotate: [-180, 180], invert: [0, 1], blur: [0, 1_024],
+  deltaRangeSec: [Number.MIN_VALUE, 3_600], traceWidth: [0, 1_024],
+  rowHeight: [0, MAX_DASHBOARD_DIMENSION], flashAt: [0, 1],
+  coldAt: [-1_000_000, 1_000_000], optimalAt: [-1_000_000, 1_000_000],
+  hotAt: [-1_000_000, 1_000_000], criticalAt: [-1_000_000, 1_000_000],
+  targetValue: [-1_000_000_000, 1_000_000_000], tolerance: [0, 1_000_000_000],
+  reserveLaps: [0, 1_000_000], warnAtLaps: [0, 1_000_000],
+  maxDegrees: [0, 1_000_000], minFontSize: [0, 4_096], maxFontSize: [0, 4_096],
+  gaugeMin: [-1_000_000_000_000, 1_000_000_000_000],
+  gaugeMax: [-1_000_000_000_000, 1_000_000_000_000],
+  ringThickness: [0, 4_096], zIndex: [-1_000_000, 1_000_000]
+}
+const TABLE_COLUMNS = new Set<string>(DASHBOARD_TABLE_COLUMNS)
+const STYLE_ENUMS: Record<string, readonly string[]> = {
+  align: words('left center right'), fit: words('cover contain fill none'),
+  segmentShape: words('led trapezoid bar'), gridMode: words('temp pressure wear'),
+  deltaReference: words('best session last'), orientation: words('h v'),
+  graphStyle: words('line area sparkline'),
+  chartSource: words('tyreTemp tyrePressure tyreWear brakeTemp inputs fuel lap'),
+  heatSource: words('tyre brake'), statusKind: words('abs tc drs pit flag rain limiter'),
+  skin: words('gt3 hud'), brandStyle: words('generic stuttgart bavaria maranello')
+}
+
+function validateElementStyle(value: unknown, path: string): string | null {
+  if (!isRecord(value)) return `${path} must be an object.`
+  for (const key of STYLE_STRINGS) if (value[key] !== undefined && typeof value[key] !== 'string') return `${path}.${key} must be a string.`
+  for (const key of STYLE_NUMBERS) if (value[key] !== undefined && !isFiniteNumber(value[key])) return `${path}.${key} must be a finite number.`
+  for (const key of STYLE_BOOLEANS) if (value[key] !== undefined && typeof value[key] !== 'boolean') return `${path}.${key} must be a boolean.`
+  for (const key of STYLE_ARRAYS) {
+    if (value[key] !== undefined && (!Array.isArray(value[key]) || value[key].some((item) => typeof item !== 'string'))) {
+      return `${path}.${key} must be an array of strings.`
+    }
+    const array = value[key] as string[] | undefined
+    if (array && array.length > (key === 'tableColumns' ? 16 : 64)) return `${path}.${key} has too many entries.`
+    if (key === 'tableColumns' && array?.some((column) => !TABLE_COLUMNS.has(column))) return `${path}.tableColumns contains an unsupported column.`
+    if (key === 'tableColumns' && array && new Set(array).size !== array.length) return `${path}.tableColumns contains duplicate columns.`
+    if (array?.some(isDangerousId)) return `${path}.${key} contains a dangerous key.`
+  }
+  for (const key of STYLE_BINDINGS) if (typeof value[key] === 'string' && isDangerousId(value[key])) return `${path}.${key} is dangerous.`
+  for (const [key, [min, max]] of Object.entries(COUNT_BOUNDS)) {
+    if (value[key] !== undefined && (!Number.isInteger(value[key]) || (value[key] as number) < min || (value[key] as number) > max)) return `${path}.${key} must be an integer from ${min} to ${max}.`
+  }
+  for (const [key, [min, max]] of Object.entries(STYLE_NUMBER_BOUNDS)) {
+    if (value[key] !== undefined && ((value[key] as number) < min || (value[key] as number) > max)) {
+      return `${path}.${key} must be from ${min} to ${max}.`
+    }
+  }
+  for (const [key, allowed] of Object.entries(STYLE_ENUMS)) {
+    if (value[key] !== undefined && !allowed.includes(value[key] as string)) return `${path}.${key} is invalid.`
+  }
+  if (value.fontWeight !== undefined && typeof value.fontWeight !== 'string' && !isFiniteNumber(value.fontWeight)) {
+    return `${path}.fontWeight must be a string or finite number.`
+  }
+  if (typeof value.fontWeight === 'number' && (value.fontWeight < 1 || value.fontWeight > 1_000)) {
+    return `${path}.fontWeight must be from 1 to 1000.`
+  }
+  if (isFiniteNumber(value.gaugeMin) && isFiniteNumber(value.gaugeMax) && value.gaugeMax <= value.gaugeMin) {
+    return `${path}.gaugeMax must be greater than gaugeMin.`
+  }
+  if (isFiniteNumber(value.minFontSize) && isFiniteNumber(value.maxFontSize) && value.maxFontSize < value.minFontSize) {
+    return `${path}.maxFontSize must be greater than or equal to minFontSize.`
+  }
+  if (value.slots !== undefined) {
+    if (!isRecord(value.slots)) return `${path}.slots must be an object.`
+    if (Object.keys(value.slots).length > 128) return `${path}.slots has too many entries.`
+    for (const [slot, raw] of Object.entries(value.slots)) {
+      const slotPath = `${path}.slots[${JSON.stringify(slot)}]`
+      if (isDangerousId(slot)) return `${slotPath} is dangerous.`
+      if (!isRecord(raw)) return `${slotPath} must be an object.`
+      for (const key of ['fontFamily', 'fontColor', 'shadow'] as const) if (raw[key] !== undefined && typeof raw[key] !== 'string') return `${slotPath}.${key} must be a string.`
+      for (const key of ['fontSize', 'letterSpacing'] as const) if (raw[key] !== undefined && !isFiniteNumber(raw[key])) return `${slotPath}.${key} must be a finite number.`
+      if (raw.fontWeight !== undefined && typeof raw.fontWeight !== 'string' && !isFiniteNumber(raw.fontWeight)) return `${slotPath}.fontWeight is invalid.`
+      if (isFiniteNumber(raw.fontSize) && (raw.fontSize < 0 || raw.fontSize > 4_096)) return `${slotPath}.fontSize is out of range.`
+      if (isFiniteNumber(raw.letterSpacing) && Math.abs(raw.letterSpacing) > 4_096) return `${slotPath}.letterSpacing is out of range.`
+      if (typeof raw.fontWeight === 'number' && (raw.fontWeight < 1 || raw.fontWeight > 1_000)) return `${slotPath}.fontWeight is out of range.`
+      if (raw.align !== undefined && !['left', 'center', 'right'].includes(raw.align as string)) return `${slotPath}.align is invalid.`
+      if (raw.textTransform !== undefined && !['none', 'uppercase', 'lowercase', 'capitalize'].includes(raw.textTransform as string)) return `${slotPath}.textTransform is invalid.`
+    }
+  }
+  if (value.instrument !== undefined) {
+    if (!isRecord(value.instrument)) return `${path}.instrument must be an object.`
+    const instrument = value.instrument
+    for (const [key, allowed] of Object.entries({
+      template: ['revled', 'dial', 'segment', 'telltale', 'tile', 'alarm', 'bezelring'],
+      bezel: ['none', 'thin', 'chrome', 'double'],
+      material: ['matte', 'carbon', 'brushed']
+    })) if (instrument[key] !== undefined && !allowed.includes(instrument[key] as string)) return `${path}.instrument.${key} is invalid.`
+    if (instrument.glow !== undefined && typeof instrument.glow !== 'boolean') return `${path}.instrument.glow must be a boolean.`
+    if (instrument.parts !== undefined) {
+      if (!isRecord(instrument.parts)) return `${path}.instrument.parts must be an object.`
+      const partNumberBounds: Record<string, Readonly<Record<string, readonly [number, number]>>> = {
+        led: {
+          segments: [1, 256], bloom: [0, 16], flashAt: [0, 1], warnAt: [0, 1], dangerAt: [0, 1]
+        },
+        dial: {
+          startAngleDeg: [-3_600, 3_600], endAngleDeg: [-3_600, 3_600],
+          majorTicks: [1, 128], minorPerMajor: [0, 32], damp: [0, 1],
+          warnFrom: [-1_000_000_000, 1_000_000_000],
+          redlineFrom: [-1_000_000_000, 1_000_000_000]
+        },
+        needle: { width: [0, 4_096], tail: [-4_096, 4_096] },
+        scale: { majorLen: [0, 4_096], minorLen: [0, 4_096] },
+        segment: { digits: [1, 32] }
+      }
+      for (const [partName, bounds] of Object.entries(partNumberBounds)) {
+        const part = instrument.parts[partName]
+        if (part === undefined) continue
+        if (!isRecord(part)) return `${path}.instrument.parts.${partName} must be an object.`
+        for (const [key, [min, max]] of Object.entries(bounds)) {
+          if (part[key] !== undefined && !isFiniteNumber(part[key])) return `${path}.instrument.parts.${partName}.${key} must be finite.`
+          if (isFiniteNumber(part[key]) && ((part[key] as number) < min || (part[key] as number) > max)) {
+            return `${path}.instrument.parts.${partName}.${key} must be from ${min} to ${max}.`
+          }
+        }
+      }
+      const { led, needle, scale, segment, tile } = instrument.parts
+      const countBounds: Array<[unknown, string, number, number]> = [
+        [isRecord(led) ? led.segments : undefined, 'led.segments', 1, 256],
+        [isRecord(instrument.parts.dial) ? instrument.parts.dial.majorTicks : undefined, 'dial.majorTicks', 1, 128],
+        [isRecord(instrument.parts.dial) ? instrument.parts.dial.minorPerMajor : undefined, 'dial.minorPerMajor', 0, 32],
+        [isRecord(segment) ? segment.digits : undefined, 'segment.digits', 1, 32]
+      ]
+      for (const [raw, key, min, max] of countBounds) if (raw !== undefined && (!Number.isInteger(raw) || (raw as number) < min || (raw as number) > max)) return `${path}.instrument.parts.${key} is out of range.`
+      if (isRecord(led) && led.shape !== undefined && !['led', 'bar', 'trapezoid'].includes(led.shape as string)) return `${path}.instrument.parts.led.shape is invalid.`
+      if (isRecord(needle) && needle.color !== undefined && typeof needle.color !== 'string') return `${path}.instrument.parts.needle.color must be a string.`
+      if (isRecord(scale) && scale.showLabels !== undefined && typeof scale.showLabels !== 'boolean') return `${path}.instrument.parts.scale.showLabels must be a boolean.`
+      if (isRecord(segment)) {
+        if (segment.mode !== undefined && segment.mode !== '7' && segment.mode !== '14') return `${path}.instrument.parts.segment.mode is invalid.`
+        if (segment.ghost !== undefined && typeof segment.ghost !== 'boolean') return `${path}.instrument.parts.segment.ghost must be a boolean.`
+      }
+      if (tile !== undefined) {
+        if (!isRecord(tile)) return `${path}.instrument.parts.tile must be an object.`
+        if (tile.align !== undefined && !['left', 'center', 'right'].includes(tile.align as string)) return `${path}.instrument.parts.tile.align is invalid.`
+        if (tile.numeric !== undefined && typeof tile.numeric !== 'boolean') return `${path}.instrument.parts.tile.numeric must be a boolean.`
+      }
+    }
+  }
+  return null
+}
+
+function validateBlink(value: unknown, path: string): string | null {
+  if (!isRecord(value) || typeof value.color !== 'string' || !value.color) {
+    return `${path} must contain a non-empty color.`
+  }
+  if (value.hz !== undefined && (!isFiniteNumber(value.hz) || value.hz < 0.01 || value.hz > 120)) {
+    return `${path}.hz must be a finite number from 0.01 to 120.`
+  }
+  return null
+}
+
+function validateElementList(value: unknown, width: number, height: number, path: string): string | null {
+  if (!Array.isArray(value)) return `${path} must be an array.`
+  if (value.length > MAX_DASHBOARD_ELEMENTS) return `${path} has too many elements.`
+  const ids = new Set<string>()
+  for (let index = 0; index < value.length; index += 1) {
+    const element = value[index]
+    const elementPath = `${path}[${index}]`
+    if (!isRecord(element)) return `${elementPath} must be an object.`
+    if (typeof element.id !== 'string' || !element.id.trim()) return `${elementPath}.id is required.`
+    if (element.id.length > 512) return `${elementPath}.id is too long.`
+    if (isDangerousId(element.id)) return `${elementPath}.id is dangerous.`
+    if (ids.has(element.id)) return `${path} contains duplicate element id "${element.id}".`
+    ids.add(element.id)
+    if (!isDashboardElementType(element.type)) return `${elementPath}.type is not supported.`
+    for (const key of ['widgetId', 'hifiModuleId'] as const) {
+      if (element[key] !== undefined && (typeof element[key] !== 'string' || !element[key].trim())) return `${elementPath}.${key} must be a non-empty string.`
+      if (typeof element[key] === 'string' && element[key].length > 512) return `${elementPath}.${key} is too long.`
+      if (typeof element[key] === 'string' && isDangerousId(element[key])) return `${elementPath}.${key} is dangerous.`
+    }
+    if (element.type !== 'overlaywidget' && (element.widgetId !== undefined || element.hifiModuleId !== undefined)) {
+      return `${elementPath} may only declare widgetId or hifiModuleId for overlaywidget elements.`
+    }
+    if (element.type === 'overlaywidget') {
+      if (!element.widgetId && !element.hifiModuleId) return `${elementPath} overlaywidget requires widgetId or hifiModuleId.`
+      if (typeof element.widgetId === 'string' && element.widgetId.startsWith('hifi:')) {
+        const moduleId = element.widgetId.slice('hifi:'.length)
+        if (!moduleId) return `${elementPath}.widgetId requires a hi-fi module id.`
+        if (isDangerousId(moduleId)) return `${elementPath}.widgetId contains a dangerous hi-fi module id.`
+        if (typeof element.hifiModuleId === 'string' && element.hifiModuleId !== moduleId) {
+          return `${elementPath}.widgetId and hifiModuleId must identify the same hi-fi module.`
+        }
+      } else if (element.widgetId && element.hifiModuleId) {
+        return `${elementPath}.hifiModuleId requires a hifi: widgetId.`
+      }
+    }
+    if (!isFiniteNumber(element.x) || !isFiniteNumber(element.y) ||
+      !isFiniteNumber(element.w) || !isFiniteNumber(element.h)) {
+      return `${elementPath} geometry must contain finite numbers.`
+    }
+    if (element.x < 0 || element.y < 0 || element.w <= 0 || element.h <= 0 ||
+      element.x + element.w > width || element.y + element.h > height) {
+      return `${elementPath} geometry must stay inside the dashboard without clamping.`
+    }
+    const styleError = validateElementStyle(element.style, `${elementPath}.style`)
+    if (styleError) return styleError
+    if (element.binding !== undefined && typeof element.binding !== 'string') return `${elementPath}.binding must be a string.`
+    if (typeof element.binding === 'string' && isDangerousId(element.binding)) return `${elementPath}.binding is dangerous.`
+    if (element.name !== undefined && typeof element.name !== 'string') return `${elementPath}.name must be a string.`
+    if (element.sourceType !== undefined && typeof element.sourceType !== 'string') return `${elementPath}.sourceType must be a string.`
+    if (element.visible !== undefined && typeof element.visible !== 'boolean') return `${elementPath}.visible must be a boolean.`
+  }
+  return null
+}
+
+function validateAdaptive(value: unknown, width: number, height: number): string | null {
+  if (!isRecord(value)) return 'adaptive must be an object.'
+  if (value.enabled !== undefined && typeof value.enabled !== 'boolean') {
+    return 'adaptive.enabled must be a boolean.'
+  }
+  if (value.rules === undefined) return null
+  if (!Array.isArray(value.rules)) return 'adaptive.rules must be an array.'
+  if (value.rules.length > MAX_ADAPTIVE_RULES) return 'adaptive.rules has too many entries.'
+  const moments = new Set<string>()
+  for (let index = 0; index < value.rules.length; index += 1) {
+    const rule = value.rules[index]
+    const path = `adaptive.rules[${index}]`
+    if (!isRecord(rule) || typeof rule.moment !== 'string' || !rule.moment.trim()) return `${path}.moment is required.`
+    if (rule.moment.length > 512) return `${path}.moment is too long.`
+    if (isDangerousId(rule.moment)) return `${path}.moment is dangerous.`
+    if (moments.has(rule.moment)) return `adaptive.rules contains duplicate moment "${rule.moment}".`
+    moments.add(rule.moment)
+    if (rule.enabled !== undefined && typeof rule.enabled !== 'boolean') return `${path}.enabled must be a boolean.`
+    if (rule.blinkDashboard !== undefined) {
+      const error = validateBlink(rule.blinkDashboard, `${path}.blinkDashboard`)
+      if (error) return error
+    }
+    if (rule.elements !== undefined) {
+      if (!isRecord(rule.elements)) return `${path}.elements must be an object.`
+      if (Object.keys(rule.elements).length > MAX_ADAPTIVE_ELEMENT_RULES) return `${path}.elements has too many entries.`
+      for (const [elementId, rawElementRule] of Object.entries(rule.elements)) {
+        const elementPath = `${path}.elements[${JSON.stringify(elementId)}]`
+        if (!elementId.trim() || !isRecord(rawElementRule)) return `${elementPath} must be an object.`
+        if (isDangerousId(elementId)) return `${elementPath} is dangerous.`
+        if (rawElementRule.visible !== undefined && typeof rawElementRule.visible !== 'boolean') return `${elementPath}.visible must be a boolean.`
+        if (rawElementRule.emphasis !== undefined &&
+          (!isFiniteNumber(rawElementRule.emphasis) || rawElementRule.emphasis <= 0 || rawElementRule.emphasis > 64)) {
+          return `${elementPath}.emphasis must be a finite number greater than 0 and at most 64.`
+        }
+        if (rawElementRule.blink !== undefined) {
+          const error = validateBlink(rawElementRule.blink, `${elementPath}.blink`)
+          if (error) return error
+        }
+      }
+    }
+    if (rule.frame !== undefined) {
+      if (!isRecord(rule.frame)) return `${path}.frame must be an object.`
+      const error = validateElementList(rule.frame.elements, width, height, `${path}.frame.elements`)
+      if (error) return error
+      if (rule.frame.bg !== undefined && typeof rule.frame.bg !== 'string') return `${path}.frame.bg must be a string.`
+      if (rule.frame.updatedAt !== undefined && !isFiniteNumber(rule.frame.updatedAt)) return `${path}.frame.updatedAt must be a finite number.`
+    }
+  }
+  return null
+}
+
+function dashboardValidationErrorUnsafe(value: unknown): string | null {
+  const plainJsonError = plainJsonValidationError(value)
+  if (plainJsonError) return plainJsonError
+  if (!isRecord(value)) return 'Dashboard must be an object.'
+  if (typeof value.id !== 'string' || !value.id.trim()) return 'Dashboard id is required.'
+  if (value.id.length > 512) return 'Dashboard id is too long.'
+  if (isDangerousId(value.id)) return 'Dashboard id is dangerous.'
+  if (typeof value.name !== 'string' || !value.name.trim()) return 'Dashboard name is required.'
+  if (typeof value.bg !== 'string') return 'Dashboard background must be a string.'
+  if (!isFiniteNumber(value.width) || value.width <= 0 || value.width > MAX_DASHBOARD_DIMENSION) return `Dashboard width must be positive, finite, and at most ${MAX_DASHBOARD_DIMENSION}.`
+  if (!isFiniteNumber(value.height) || value.height <= 0 || value.height > MAX_DASHBOARD_DIMENSION) return `Dashboard height must be positive, finite, and at most ${MAX_DASHBOARD_DIMENSION}.`
+  if (value.scaleMode !== undefined && value.scaleMode !== 'fit' && value.scaleMode !== 'fill' && value.scaleMode !== 'stretch') return 'Dashboard scaleMode is invalid.'
+  if (value.hidden !== undefined && typeof value.hidden !== 'boolean') return 'Dashboard hidden must be a boolean.'
+  for (const key of ['description', 'author', 'previewPng', 'storageEpoch', 'storageRevision'] as const) {
+    if (value[key] !== undefined && typeof value[key] !== 'string') return `Dashboard ${key} must be a string.`
+  }
+  if (value.createdAt !== undefined && !isFiniteNumber(value.createdAt)) return 'Dashboard createdAt must be finite.'
+  if (value.updatedAt !== undefined && !isFiniteNumber(value.updatedAt)) return 'Dashboard updatedAt must be finite.'
+  const elementError = validateElementList(value.elements, value.width, value.height, 'elements')
+  if (elementError) return elementError
+  return value.adaptive === undefined ? null : validateAdaptive(value.adaptive, value.width, value.height)
+}
+
+export function dashboardValidationError(value: unknown): string | null {
+  try {
+    return dashboardValidationErrorUnsafe(value)
+  } catch {
+    return 'Dashboard contains an unreadable or unsafe value.'
+  }
+}
+
+export interface DashboardIdentityCatalogEntry {
+  id: string
+  type: DashboardElementType
+  label?: string
+  name?: string
+  binding?: string
+  widgetId?: string
+  hifiModuleId?: string
+}
+
+export interface DashboardStorageValidationOptions {
+  identityCatalog?: readonly DashboardIdentityCatalogEntry[]
+}
+
+export type DashboardStorageMigrationCode =
+  | 'table-column-last-to-laps'
+  | 'derive-widget-id'
+  | 'derive-hifi-module-id'
+  | 'catalog-overlay-identity'
+  | 'remove-empty-overlay-identity'
+
+export interface DashboardStorageMigration {
+  code: DashboardStorageMigrationCode
+  path: string
+  from: unknown
+  to: unknown
+}
+
+export type DashboardStorageValidationResult =
+  | { status: 'valid'; dashboard: Dashboard; migrations: DashboardStorageMigration[] }
+  | { status: 'migrated'; dashboard: Dashboard; migrations: DashboardStorageMigration[] }
+  | { status: 'quarantine'; error: string; migrations: DashboardStorageMigration[] }
+
+interface CatalogElementIdentity {
+  widgetId?: string
+  hifiModuleId?: string
+}
+
+function catalogIdentityKey(type: string, name: string, binding: string | undefined): string {
+  return JSON.stringify([type, name, binding ?? null])
+}
+
+function catalogIdentityIndex(
+  catalog: readonly DashboardIdentityCatalogEntry[]
+): Map<string, CatalogElementIdentity[]> {
+  const index = new Map<string, CatalogElementIdentity[]>()
+  for (const entry of catalog) {
+    if (entry.type !== 'overlaywidget') continue
+    let widgetId = typeof entry.widgetId === 'string' && entry.widgetId.trim() ? entry.widgetId : undefined
+    let hifiModuleId = typeof entry.hifiModuleId === 'string' && entry.hifiModuleId.trim() ? entry.hifiModuleId : undefined
+    if (!widgetId && hifiModuleId) widgetId = `hifi:${hifiModuleId}`
+    if (widgetId?.startsWith('hifi:') && !hifiModuleId) hifiModuleId = widgetId.slice('hifi:'.length) || undefined
+    if (!widgetId && !hifiModuleId) continue
+    if (widgetId?.startsWith('hifi:') && hifiModuleId && widgetId !== `hifi:${hifiModuleId}`) continue
+    const identity = { widgetId, hifiModuleId }
+    const names = new Set([entry.id, entry.label, entry.name].filter((name): name is string => Boolean(name)))
+    for (const name of names) {
+      const key = catalogIdentityKey(entry.type, name, entry.binding)
+      const existing = index.get(key) ?? []
+      if (!existing.some((candidate) => candidate.widgetId === widgetId && candidate.hifiModuleId === hifiModuleId)) {
+        existing.push(identity)
+        index.set(key, existing)
+      }
+    }
+  }
+  return index
+}
+
+function migrateStoredElement(
+  element: Record<string, unknown>,
+  path: string,
+  identityIndex: ReadonlyMap<string, CatalogElementIdentity[]>,
+  migrations: DashboardStorageMigration[]
+): void {
+  if (isRecord(element.style) && Array.isArray(element.style.tableColumns) &&
+    element.style.tableColumns.some((column) => column === 'last')) {
+    const from = [...element.style.tableColumns]
+    const to = element.style.tableColumns.map((column) => column === 'last' ? 'laps' : column)
+    element.style.tableColumns = to
+    migrations.push({ code: 'table-column-last-to-laps', path: `${path}.style.tableColumns`, from, to: [...to] })
+  }
+  if (element.type !== 'overlaywidget') return
+
+  for (const key of ['widgetId', 'hifiModuleId'] as const) {
+    if (typeof element[key] === 'string' && !element[key].trim()) {
+      const from = element[key]
+      delete element[key]
+      migrations.push({ code: 'remove-empty-overlay-identity', path: `${path}.${key}`, from, to: undefined })
+    }
+  }
+
+  const widgetId = typeof element.widgetId === 'string' ? element.widgetId : undefined
+  const hifiModuleId = typeof element.hifiModuleId === 'string' ? element.hifiModuleId : undefined
+  if (!widgetId && hifiModuleId) {
+    const next = `hifi:${hifiModuleId}`
+    element.widgetId = next
+    migrations.push({ code: 'derive-widget-id', path: `${path}.widgetId`, from: undefined, to: next })
+    return
+  }
+  if (widgetId?.startsWith('hifi:') && !hifiModuleId) {
+    const next = widgetId.slice('hifi:'.length)
+    if (next) {
+      element.hifiModuleId = next
+      migrations.push({ code: 'derive-hifi-module-id', path: `${path}.hifiModuleId`, from: undefined, to: next })
+    }
+    return
+  }
+  if (widgetId || hifiModuleId) return
+
+  const name = typeof element.name === 'string' ? element.name : undefined
+  const binding = typeof element.binding === 'string' ? element.binding : undefined
+  if (!name) return
+  const candidates = identityIndex.get(catalogIdentityKey('overlaywidget', name, binding)) ?? []
+  if (candidates.length !== 1) return
+  const [identity] = candidates
+  if (identity.widgetId) element.widgetId = identity.widgetId
+  if (identity.hifiModuleId) element.hifiModuleId = identity.hifiModuleId
+  migrations.push({
+    code: 'catalog-overlay-identity',
+    path,
+    from: { widgetId: undefined, hifiModuleId: undefined },
+    to: { ...(identity.widgetId ? { widgetId: identity.widgetId } : {}), ...(identity.hifiModuleId ? { hifiModuleId: identity.hifiModuleId } : {}) }
+  })
+}
+
+function migrateStoredElementList(
+  value: unknown,
+  path: string,
+  identityIndex: ReadonlyMap<string, CatalogElementIdentity[]>,
+  migrations: DashboardStorageMigration[]
+): void {
+  if (!Array.isArray(value)) return
+  for (let index = 0; index < value.length; index += 1) {
+    if (isRecord(value[index])) migrateStoredElement(value[index], `${path}[${index}]`, identityIndex, migrations)
+  }
+}
+
+/**
+ * Per-file storage contract. Unambiguous legacy shapes are returned as a migrated
+ * dashboard to rewrite atomically; all other invalid files are explicitly marked
+ * for quarantine so a caller can keep loading unrelated valid dashboard files.
+ */
+function dashboardStorageValidationResultUnsafe(
+  value: unknown,
+  options: DashboardStorageValidationOptions = {}
+): DashboardStorageValidationResult {
+  const plainJsonError = plainJsonValidationError(value)
+  if (plainJsonError) return { status: 'quarantine', error: plainJsonError, migrations: [] }
+
+  let migratedValue: unknown
+  try {
+    migratedValue = structuredClone(value)
+  } catch {
+    return { status: 'quarantine', error: 'Dashboard could not be cloned as plain JSON data.', migrations: [] }
+  }
+  const migrations: DashboardStorageMigration[] = []
+  const identityIndex = catalogIdentityIndex(options.identityCatalog ?? [])
+  if (isRecord(migratedValue)) {
+    migrateStoredElementList(migratedValue.elements, 'elements', identityIndex, migrations)
+    if (isRecord(migratedValue.adaptive) && Array.isArray(migratedValue.adaptive.rules)) {
+      for (let index = 0; index < migratedValue.adaptive.rules.length; index += 1) {
+        const rule = migratedValue.adaptive.rules[index]
+        if (isRecord(rule) && isRecord(rule.frame)) {
+          migrateStoredElementList(rule.frame.elements, `adaptive.rules[${index}].frame.elements`, identityIndex, migrations)
+        }
+      }
+    }
+  }
+  const error = dashboardValidationError(migratedValue)
+  if (error) return { status: 'quarantine', error, migrations }
+  if (migrations.length > 0) return { status: 'migrated', dashboard: migratedValue as Dashboard, migrations }
+  return { status: 'valid', dashboard: value as Dashboard, migrations }
+}
+
+export function dashboardStorageValidationResult(
+  value: unknown,
+  options: DashboardStorageValidationOptions = {}
+): DashboardStorageValidationResult {
+  try {
+    return dashboardStorageValidationResultUnsafe(value, options)
+  } catch {
+    return { status: 'quarantine', error: 'Dashboard contains an unreadable or unsafe value.', migrations: [] }
+  }
+}
+
+export function isDashboard(value: unknown): value is Dashboard {
+  return dashboardValidationError(value) === null
+}
+
+function dashboardPlaylistValidationErrorUnsafe(value: unknown): string | null {
+  const plainJsonError = plainJsonValidationError(value, 'Dashboard playlist')
+  if (plainJsonError) return plainJsonError
+  if (!isRecord(value) || !Array.isArray(value.items)) return 'Dashboard playlist must contain an items array.'
+  if (value.items.length > MAX_PLAIN_JSON_ARRAY_ITEMS) return 'Dashboard playlist has too many items.'
+  if (!isFiniteNumber(value.updatedAt)) return 'Dashboard playlist updatedAt must be finite.'
+  for (let index = 0; index < value.items.length; index += 1) {
+    const item = value.items[index]
+    const path = `items[${index}]`
+    if (!isRecord(item) || typeof item.dashboardId !== 'string' || !item.dashboardId) return `${path}.dashboardId is required.`
+    if (isDangerousId(item.dashboardId)) return `${path}.dashboardId is dangerous.`
+    if (item.displayId !== undefined && !isFiniteNumber(item.displayId)) return `${path}.displayId must be finite.`
+    if (item.fullscreen !== undefined && typeof item.fullscreen !== 'boolean') return `${path}.fullscreen must be a boolean.`
+    if (item.kind !== undefined && item.kind !== 'dashboard' && item.kind !== 'touch-panel') return `${path}.kind is invalid.`
+    if (item.touchPanelId !== undefined && typeof item.touchPanelId !== 'string') return `${path}.touchPanelId must be a string.`
+    if (typeof item.touchPanelId === 'string' && isDangerousId(item.touchPanelId)) return `${path}.touchPanelId is dangerous.`
+  }
+  return null
+}
+
+export function dashboardPlaylistValidationError(value: unknown): string | null {
+  try {
+    return dashboardPlaylistValidationErrorUnsafe(value)
+  } catch {
+    return 'Dashboard playlist contains an unreadable or unsafe value.'
+  }
 }
 
 // ─── Chaves de binding reconhecidas pelo renderer ─────────────────────────────
@@ -696,6 +1297,12 @@ export const DASHBOARD_BINDINGS: DashboardBindingDef[] = [
 
 export function createDashboardId(): string {
   return `dash-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+export function copyDashboardAsNew(dashboard: Dashboard): Dashboard {
+  const { storageEpoch: _epoch, storageRevision: _revision, ...copy } = dashboard
+  const now = Date.now()
+  return { ...copy, id: createDashboardId(), name: `${dashboard.name} copy`, createdAt: now, updatedAt: now }
 }
 
 export function createElementId(): string {
@@ -3016,7 +3623,9 @@ export function summarizeDashboard(dash: Dashboard): DashboardSummary {
     description: dash.description,
     author: dash.author,
     updatedAt: dash.updatedAt,
-    hidden: Boolean(dash.hidden)
+    hidden: Boolean(dash.hidden),
+    ...(typeof dash.storageEpoch === 'string' ? { storageEpoch: dash.storageEpoch } : {}),
+    ...(typeof dash.storageRevision === 'string' ? { storageRevision: dash.storageRevision } : {})
   }
 }
 
