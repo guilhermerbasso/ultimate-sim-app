@@ -53,10 +53,24 @@ export interface LiveTelemetryDecision {
   context: LiveTelemetryContext | null
 }
 
+export const REPLAY_SPEECH_CANCEL_CHANNELS = {
+  coach: 'coach:cancelSpeech',
+  engineer: 'engineer:cancelSpeech',
+  spotter: 'spotter:cancelSpeech'
+} as const
+
 /** Track-map replay gating is intentionally owned by the stacked track-layout-safety predecessor. */
 export const REPLAY_GATING_PREDECESSORS = {
   trackMap: 'guilhermerbasso/track-layout-safety'
 } as const
+
+export type ReplaySpeechOwner = keyof typeof REPLAY_SPEECH_CANCEL_CHANNELS
+
+export interface ReplaySpeechCancelEvent {
+  owner: ReplaySpeechOwner
+  state: Exclude<LiveTelemetryState, 'live'>
+  revision?: number
+}
 
 type Checked<T> = { value?: T; missing: boolean; invalid: boolean }
 

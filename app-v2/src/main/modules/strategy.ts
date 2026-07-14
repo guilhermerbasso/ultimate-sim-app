@@ -37,6 +37,13 @@ import { getLlmRuntime } from '../ai/llm-runtime'
 import { getModelManager } from '../ai/model-manager'
 import { logger } from './logger'
 import { settingsEvents } from '../settings/events'
+import {
+  captureLiveTelemetryContext,
+  isCurrentLiveTelemetryContext,
+  LiveTelemetryGate,
+  REPLAY_SPEECH_CANCEL_CHANNELS,
+  type ReplaySpeechCancelEvent
+} from '../../shared/replay'
 
 const LOG_AREA = 'ai'
 const CONFIG_FILE = 'strategy.json'
@@ -166,6 +173,7 @@ export function register(ctx: ModuleContext): void {
   let latestSnapshot: TelemetrySnapshot | null = null
   let latestPlan: StrategyPlan = computeStrategyPlan(null, {}, config)
   let lastComputeAt = 0
+  const liveGate = new LiveTelemetryGate()
 
   const buildPlan = (): StrategyPlan => {
     const fuelState = fuelCalc.get()
@@ -174,7 +182,35 @@ export function register(ctx: ModuleContext): void {
     return computeStrategyPlan(latestSnapshot, rates, config)
   }
 
+  const resetLiveState = (): void => {
+    latestSnapshot = null
+    fuelCalc.update(null)
+    fuelCalc.reset()
+    tireCalc.update(null)
+    tireCalc.reset()
+    lastComputeAt = 0
+    latestPlan = buildPlan()
+    ctx.broadcast(STRATEGY_CHANNELS.update, latestPlan)
+  }
+
   ctx.telemetryHub.on('snapshot', (snapshot: TelemetrySnapshot | null) => {
+    const live = liveGate.observe(snapshot)
+    if (!live.live) {
+      if (live.boundary) {
+        const state = live.state === 'live' ? 'unknown' : live.state
+        for (const [owner, channel] of Object.entries(REPLAY_SPEECH_CANCEL_CHANNELS)) {
+          const event: ReplaySpeechCancelEvent = {
+            owner: owner as ReplaySpeechCancelEvent['owner'],
+            state,
+            revision: snapshot?.replayContext?.revision
+          }
+          ctx.broadcast(channel, event)
+        }
+        resetLiveState()
+      }
+      return
+    }
+    if (live.boundary) resetLiveState()
     latestSnapshot = snapshot
     // Keep the rolling samples fresh every tick (cheap; this is the sampling the
     // pure projection depends on).
@@ -211,6 +247,8 @@ export function register(ctx: ModuleContext): void {
 
   ctx.ipcMain.handle(STRATEGY_CHANNELS.narrate, async (_event, request?: StrategyNarrateRequest): Promise<StrategyNarration> => {
     const lang: 'pt' | 'en' = request?.lang === 'en' ? 'en' : 'pt'
+    const context = captureLiveTelemetryContext(ctx.telemetryHub.getLatest())
+    if (!context) return { text: '', source: 'deterministic', plan: latestPlan }
     if (request?.settings && typeof request.settings === 'object') {
       config = clampConfig(request.settings, config)
       saveConfig(configPath, config)
@@ -221,6 +259,9 @@ export function register(ctx: ModuleContext): void {
     if (request?.useLlm === true && plan.connected) {
       const { system, prompt } = narratePrompt(plan, lang, unitSystem)
       const llmText = await tryLlmNarrate(system, prompt)
+      if (!isCurrentLiveTelemetryContext(ctx.telemetryHub.getLatest(), context)) {
+        return { text: '', source: 'deterministic', plan: latestPlan }
+      }
       if (llmText) return { text: llmText, source: 'llm', plan }
     }
     return { text: deterministic, source: 'deterministic', plan }
