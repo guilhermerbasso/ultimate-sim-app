@@ -11,6 +11,11 @@ import {
   type TyreReading
 } from '../../shared/predictions'
 import { logger } from './logger'
+import {
+  isCurrentLiveTelemetryContext,
+  LiveTelemetryGate,
+  type LiveTelemetryContext
+} from '../../shared/replay'
 
 // WS-G predictions module. ALL heavy math lives in shared/predictions.ts (pure +
 // unit-tested). This module only: (1) keeps cheap rolling SAMPLES of telemetry,
@@ -76,7 +81,9 @@ function incidentCount(snap: TelemetrySnapshot): number | null {
   return null
 }
 
-class PredictionsEngine {
+export class PredictionsEngine {
+  private readonly liveGate = new LiveTelemetryGate()
+  private liveContext: LiveTelemetryContext | null = null
   private latest: TelemetrySnapshot | null = null
   private timer: ReturnType<typeof setInterval> | null = null
   private ahead = emptySide()
@@ -90,7 +97,6 @@ class PredictionsEngine {
   private lastSnapshot: PredictionsSnapshot | null = null
   private lastBroadcastAt = 0
   private model: PaceModel | null = null
-  private wasConnected = false
 
   constructor(private readonly ctx: ModuleContext) {}
 
@@ -114,7 +120,14 @@ class PredictionsEngine {
   }
 
   onSnapshot(snapshot: TelemetrySnapshot | null): void {
-    // Cheap: only stash the latest. All work happens on the light timer.
+    const live = this.liveGate.observe(snapshot)
+    if (!live.live) {
+      if (live.boundary) this.resetAndPublish()
+      return
+    }
+    if (live.boundary) this.resetAndPublish()
+    this.liveContext = live.context
+    // Cheap: only stash a canonical live snapshot. All work happens on the light timer.
     this.latest = snapshot
   }
 
@@ -135,20 +148,22 @@ class PredictionsEngine {
     this.pitSeenThisLap = false
     this.lastIncidentCount = null
     this.lastSnapshot = null
+    this.lastBroadcastAt = 0
+  }
+
+  private resetAndPublish(): void {
+    this.resetSession()
+    this.latest = null
+    this.liveContext = null
+    this.ctx.broadcast(PREDICTIONS_CHANNELS.snapshot, null)
   }
 
   // ── light timer: sample, detect lap completion, recompute, broadcast ──
   private tick(): void {
     try {
       const snap = this.latest
-      if (!snap || !snap.connected) {
-        if (this.wasConnected) {
-          this.resetSession()
-          this.wasConnected = false
-        }
-        return
-      }
-      this.wasConnected = true
+      const context = this.liveContext
+      if (!snap || !context || !isCurrentLiveTelemetryContext(snap, context)) return
 
       const lapFrac = this.lapFraction(snap)
       this.sampleGaps(snap, lapFrac)
@@ -157,6 +172,7 @@ class PredictionsEngine {
 
       const inputs = this.buildInputs(snap)
       const next = computePredictions(inputs, this.model)
+      if (!isCurrentLiveTelemetryContext(this.latest, context)) return
       this.lastSnapshot = next
 
       const now = Date.now()

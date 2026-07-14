@@ -20,6 +20,7 @@ import {
   type RaceMomentState,
   type SalientStyleFamily
 } from './race-moment'
+import { isLiveTelemetrySnapshot } from './replay'
 
 // Session "phase" the dashboard adapts to. This combines session KIND (practice/
 // qualifying/race) with lifecycle state (formation lap, in the pits).
@@ -131,7 +132,7 @@ function isPositiveNum(v: unknown): v is number {
  * formation/parade lap.
  */
 export function resolveAdaptivePhase(snapshot: TelemetrySnapshot | null | undefined): AdaptivePhase {
-  if (!snapshot || !snapshot.connected) return 'unknown'
+  if (!isLiveTelemetrySnapshot(snapshot)) return 'unknown'
   if (snapshot.onPitRoad === true || snapshot.pit?.inPitStall === true || snapshot.pitLimiter === true) return 'pit'
   const kind = sessionKind(snapshot.sessionType)
   if (kind === 'race') {
@@ -238,24 +239,25 @@ export interface PlanOptions {
  * (flags raised, rain, low fuel) promote the relevant concept to EMPHASIZE.
  */
 export function planAdaptiveDashboard(snapshot: TelemetrySnapshot | null | undefined, opts: PlanOptions = {}): AdaptivePlan {
-  const phase = opts.phase ?? resolveAdaptivePhase(snapshot)
+  const liveSnapshot = isLiveTelemetrySnapshot(snapshot) ? snapshot : null
+  const phase = opts.phase ?? resolveAdaptivePhase(liveSnapshot)
   const rule = PHASE_RULES[phase]
   const emphasize = new Set<DashboardConcept>(rule.emphasize)
   const hide = new Set<DashboardConcept>(rule.hide)
 
   const extras: string[] = []
-  if ((opts.dynamic ?? true) && snapshot) {
-    if (anyFlagActive(snapshot)) {
+  if ((opts.dynamic ?? true) && liveSnapshot) {
+    if (anyFlagActive(liveSnapshot)) {
       emphasize.add('flags')
       hide.delete('flags')
       extras.push('active flag')
     }
-    if (isWet(snapshot)) {
+    if (isWet(liveSnapshot)) {
       emphasize.add('weather')
       hide.delete('weather')
       extras.push('wet track')
     }
-    if (fuelIsLow(snapshot)) {
+    if (fuelIsLow(liveSnapshot)) {
       emphasize.add('fuel')
       hide.delete('fuel')
       extras.push('low fuel')

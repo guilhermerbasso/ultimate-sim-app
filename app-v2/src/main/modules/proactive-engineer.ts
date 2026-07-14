@@ -72,6 +72,7 @@ import { CoachBaselineStore, getCoachBaselineStore } from './coach-baselines'
 import { logger } from './logger'
 import { settingsEvents } from '../settings/events'
 import type { UnitSystem } from '../../shared/units'
+import { isLiveTelemetrySnapshot, LiveTelemetryGate } from '../../shared/replay'
 
 const LOG_AREA = 'ai'
 
@@ -130,6 +131,7 @@ function publishedConditionMatches(
 export function getLatestCoachFindings(currentSnapshot?: TelemetrySnapshot | null): CoachFinding[] {
   const { findings, carName, carPath, trackName, trackConfigName, condition } = latestCoachFindings
   if (findings.length === 0) return []
+  if (currentSnapshot && !isLiveTelemetrySnapshot(currentSnapshot)) return []
   if (currentSnapshot && currentSnapshot.connected !== false) {
     const liveCar = currentSnapshot.carName
     const liveCarPath = currentSnapshot.carPath
@@ -188,6 +190,7 @@ export function getLatestCoachRacecraftContext(
 ): RacecraftAdviceContext | null {
   const context = latestRacecraftContext
   if (!context) return null
+  if (currentSnapshot && !isLiveTelemetrySnapshot(currentSnapshot)) return null
   if (currentSnapshot && currentSnapshot.connected !== false) {
     if (context.carPath !== undefined || currentSnapshot.carPath !== undefined) {
       if (!samePublishedIdentity(context.carPath, currentSnapshot.carPath)) return null
@@ -963,6 +966,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     deps.cadence === 'corner' || deps.cadence === 'sector' ? deps.cadence : 'auto'
   const buildCornerMapFn = deps.buildCornerMap ?? buildCornerMap
   const baselineStore = deps.baselineStore
+  const liveGate = new LiveTelemetryGate()
 
   const tracker = createSectorTracker()
   const cornerTracker = createCornerTracker()
@@ -1174,6 +1178,30 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     lastBehindN = 99
     lastAheadN = 99
     lapIncidentStart = undefined
+  }
+
+  function resetLiveSession(): void {
+    reset()
+    lastSnapshot = null
+    lastFindingsContext = undefined
+    activeAnalysisKey = null
+    activeAnalysisIdentity = null
+    cornerMap = null
+    reference = null
+    referenceLapTimeSec = undefined
+    latestCornerMetrics = []
+    gapSamples = []
+    racecraftFindings = []
+    previousTrackWetnessPct = undefined
+    conditionIdentityKey = null
+    stableTrackCondition = undefined
+    lastSessionKind = deriveSessionKind(undefined)
+    lastQualiSessionKey = null
+    lastEmitAt = 0
+    lastEmittedFindingId = null
+    outLap = true
+    setFindings([])
+    publishRacecraft(null)
   }
 
   function finalizeLap(snapshot: TelemetrySnapshot): void {
@@ -1435,35 +1463,17 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   }
 
   function onSnapshot(snapshot: TelemetrySnapshot | null): void {
+    const live = liveGate.observe(snapshot)
+    if (!live.live) {
+      if (live.boundary) resetLiveSession()
+      return
+    }
+    if (live.boundary) resetLiveSession()
+
     const config = deps.getConfig()
     // Fully disabled → do nothing (the on-demand engineer reports "off" anyway).
     if (!config.enabled) return
-
-    if (!snapshot || snapshot.connected === false) {
-      // Disconnected: drop the partial lap AND clear the published findings — the
-      // next session may be a different car/track, so stale coaching must not leak.
-      // The next flying lap after reconnect is an out-lap.
-      reset()
-      lastSnapshot = null
-      lastFindingsContext = undefined
-      activeAnalysisKey = null
-      activeAnalysisIdentity = null
-      cornerMap = null
-      reference = null
-      referenceLapTimeSec = undefined
-      latestCornerMetrics = []
-      gapSamples = []
-      racecraftFindings = []
-      previousTrackWetnessPct = undefined
-      conditionIdentityKey = null
-      stableTrackCondition = undefined
-      lastSessionKind = deriveSessionKind(undefined)
-      lastQualiSessionKey = null
-      outLap = true
-      setFindings([])
-      publishRacecraft(null)
-      return
-    }
+    if (!snapshot) return
 
     lastSnapshot = snapshot
     ensureAnalysisContext(snapshot)

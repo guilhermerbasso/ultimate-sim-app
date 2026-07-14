@@ -19,6 +19,11 @@
 
 import type { TelemetrySnapshot } from './telemetry'
 import type { PredictionsSnapshot } from './predictions'
+import {
+  captureLiveTelemetryContext,
+  isLiveTelemetrySnapshot,
+  type LiveTelemetryContext
+} from './replay'
 import type { DashboardConcept } from './dashboard-nl'
 
 // ─── Public taxonomy ─────────────────────────────────────────────────────────
@@ -64,6 +69,15 @@ export type SalientStyleFamily = 'gauge' | 'ring' | 'led' | 'heatmap'
 
 // ─── State carried between ticks (the reducer's "prev") ──────────────────────
 
+export interface RaceMomentHysteresisState {
+  moment: RaceMoment
+  color: RaceMomentColor
+  since: number
+  lastSwitchAt: number
+  candidate: RaceMoment | null
+  candidateSince: number
+}
+
 export interface RaceMomentState {
   /** Currently committed hero moment. */
   moment: RaceMoment
@@ -88,6 +102,12 @@ export interface RaceMomentState {
   lastOnPitRoad: boolean
   /** ms timestamp the reducer last ran (for caller-side throttling). */
   updatedAt: number
+  /** Canonical live context whose edge/candidate state this reducer belongs to. */
+  liveContext: LiveTelemetryContext | null
+  /** Whether the stored context came from the canonical helper's telemetry fallback. */
+  liveContextFallback: boolean
+  /** Live hysteresis hidden while replay/unknown is active, restored only for the same session. */
+  suspendedHysteresis: RaceMomentHysteresisState | null
 }
 
 export interface RaceMomentTunables {
@@ -364,8 +384,58 @@ export function initialRaceMomentState(now = Date.now()): RaceMomentState {
     incidentAt: 0,
     leftPitAt: 0,
     lastOnPitRoad: false,
-    updatedAt: now
+    updatedAt: now,
+    liveContext: null,
+    liveContextFallback: false,
+    suspendedHysteresis: null
   }
+}
+
+function hasRaceMomentHistory(state: RaceMomentState): boolean {
+  return state.moment !== 'clear-running' ||
+    state.lastSwitchAt !== 0 ||
+    state.candidate !== null ||
+    state.lastIncidentCount !== 0 ||
+    state.incidentAt !== 0 ||
+    state.leftPitAt !== 0 ||
+    state.lastOnPitRoad
+}
+
+function seedLiveRaceMomentState(
+  snapshot: TelemetrySnapshot,
+  liveContext: LiveTelemetryContext,
+  liveContextFallback: boolean,
+  now: number
+): RaceMomentState {
+  return {
+    ...initialRaceMomentState(now),
+    lastIncidentCount: num(snapshot.incidentCountMy) ?? num(snapshot.incidentCount) ?? 0,
+    lastOnPitRoad: snapshot.onPitRoad === true,
+    liveContext,
+    liveContextFallback
+  }
+}
+
+function captureHysteresis(state: RaceMomentState): RaceMomentHysteresisState {
+  return {
+    moment: state.moment,
+    color: state.color,
+    since: state.since,
+    lastSwitchAt: state.lastSwitchAt,
+    candidate: state.candidate,
+    candidateSince: state.candidateSince
+  }
+}
+
+function sameLiveSession(
+  left: LiveTelemetryContext,
+  right: LiveTelemetryContext,
+  leftFallback: boolean,
+  rightFallback: boolean
+): boolean {
+  if (leftFallback !== rightFallback) return false
+  if (left.connectionEpoch !== right.connectionEpoch || left.sessionIdentity !== right.sessionIdentity) return false
+  return !leftFallback || left.token === right.token
 }
 
 export interface ResolveOptions {
@@ -389,18 +459,55 @@ export function resolveRaceMoment(
 ): RaceMomentState {
   const now = opts.now ?? Date.now()
   const tun = { ...DEFAULT_RACE_MOMENT_TUNABLES, ...opts.tunables }
-  const base = prev ?? initialRaceMomentState(now)
 
-  if (!snapshot || !snapshot.connected) {
+  if (!isLiveTelemetrySnapshot(snapshot)) {
+    const suspendedHysteresis = prev?.suspendedHysteresis ??
+      (prev?.liveContext ? captureHysteresis(prev) : null)
     return {
-      ...base,
-      moment: 'clear-running',
-      color: MOMENT_PRESETS['clear-running'].color,
-      candidate: null,
-      candidateSince: now,
-      updatedAt: now
+      ...initialRaceMomentState(now),
+      lastSwitchAt: suspendedHysteresis?.lastSwitchAt ?? 0,
+      candidate: suspendedHysteresis?.candidate ?? null,
+      candidateSince: suspendedHysteresis?.candidateSince ?? now,
+      liveContext: prev?.liveContext ?? null,
+      liveContextFallback: prev?.liveContextFallback ?? false,
+      suspendedHysteresis
     }
   }
+
+  const liveContext = captureLiveTelemetryContext(snapshot)
+  const liveContextFallback = !snapshot.replayContext
+  const hardBoundary = Boolean(
+    liveContext &&
+    (
+      prev?.liveContext
+        ? !sameLiveSession(
+            prev.liveContext,
+            liveContext,
+            prev.liveContextFallback,
+            liveContextFallback
+          )
+        : !prev || !hasRaceMomentHistory(prev)
+    )
+  )
+  const resumingSameSession = Boolean(
+    liveContext &&
+    prev?.liveContext &&
+    prev.suspendedHysteresis &&
+    sameLiveSession(
+      prev.liveContext,
+      liveContext,
+      prev.liveContextFallback,
+      liveContextFallback
+    )
+  )
+  const base = hardBoundary && liveContext
+    ? seedLiveRaceMomentState(snapshot, liveContext, liveContextFallback, now)
+    : resumingSameSession && liveContext && prev?.suspendedHysteresis
+      ? {
+          ...seedLiveRaceMomentState(snapshot, liveContext, liveContextFallback, now),
+          ...prev.suspendedHysteresis
+        }
+      : prev ?? initialRaceMomentState(now)
 
   // ── edge detection (incident + pit-exit), produced from prev + snapshot ──
   const incidentCount = num(snapshot.incidentCountMy) ?? num(snapshot.incidentCount) ?? base.lastIncidentCount
@@ -458,7 +565,10 @@ export function resolveRaceMoment(
     incidentAt,
     leftPitAt,
     lastOnPitRoad: onPitRoad,
-    updatedAt: now
+    updatedAt: now,
+    liveContext,
+    liveContextFallback,
+    suspendedHysteresis: null
   }
 
   if (target === base.moment) {
@@ -469,8 +579,8 @@ export function resolveRaceMoment(
     return next
   }
 
-  // First-ever classification (no real prev) commits immediately.
-  if (!prev) {
+  // The first classification in a live context commits immediately.
+  if (!prev || hardBoundary) {
     next.moment = target
     next.color = MOMENT_PRESETS[target].color
     next.since = now
@@ -661,7 +771,7 @@ export function detectActiveMoments(
   opts: ActiveMomentOptions = {}
 ): Set<string> {
   const active = new Set<string>()
-  if (!snapshot || !snapshot.connected) {
+  if (!isLiveTelemetrySnapshot(snapshot)) {
     active.add('garage')
     return active
   }

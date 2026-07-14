@@ -62,6 +62,11 @@ import {
   speechLanguageFromAppLanguage,
   type SpeechLanguage
 } from '../../shared/tts-voice'
+import {
+  LiveTelemetryGate,
+  sameLiveTelemetryContext,
+  type LiveTelemetryContext
+} from '../../shared/replay'
 
 // One shared, immutable driver-intent registry so the Live Coach gates deliberate
 // racecraft/management/condition choices (context/silence) exactly like the proactive engine.
@@ -163,6 +168,7 @@ export interface LiveCoachDeps {
 }
 
 export class LiveCoachEngine {
+  private readonly liveGate = new LiveTelemetryGate()
   private running = false
   private startedAt: number | undefined
   private sampleCount = 0
@@ -257,6 +263,13 @@ export class LiveCoachEngine {
   }
 
   onSnapshot(snapshot: TelemetrySnapshot | null): void {
+    const live = this.liveGate.observe(snapshot)
+    if (!live.live) {
+      if (live.boundary) this.resetLiveSession()
+      return
+    }
+    if (live.boundary) this.resetLiveSession()
+
     if (!this.running) {
       // Auto-start on the first LIVE frame (connected + on-track) when enabled.
       if (this.autoStartEnabled && snapshot && snapshot.connected && snapshot.onPitRoad !== true) {
@@ -289,6 +302,24 @@ export class LiveCoachEngine {
     this.advanceSegments(sample.lapDistPct)
     this.maybeWarmupCue()
     this.publish()
+  }
+
+  private resetLiveSession(): void {
+    this.sampleCount = 0
+    this.lastUpdatedAt = undefined
+    this.lastBroadcastAt = 0
+    this.lastSpeakAt = -Number.MAX_SAFE_INTEGER
+    this.warmupCueSent = false
+    this.previousLapNumber = undefined
+    this.recentLapTimes = []
+    this.cornerMap = null
+    this.reference = null
+    this.referenceLapTimeSec = undefined
+    this.findings = []
+    this.lastSessionKind = 'practice'
+    this.tips.clear()
+    this.resetLap()
+    this.publish(true)
   }
 
   private resetLap(): void {
@@ -540,7 +571,7 @@ const RECENT_LAPS = 8
 const EXPLAIN_TIMEOUT_MS = 8000
 const EXPLAIN_MAX_TOKENS = 96
 
-interface LapCoachDeps {
+export interface LapCoachDeps {
   broadcast(channel: string, payload: unknown): void
   /** Lazy LLM accessors — kept optional so the analyzer works with the model off. */
   getModelPath?: () => string | null
@@ -556,7 +587,10 @@ interface LapCoachDeps {
   getUnitSystem?: () => UnitSystem
 }
 
-class LapCoachAnalyzer {
+export class LapCoachAnalyzer {
+  private readonly liveGate = new LiveTelemetryGate()
+  private liveContext: LiveTelemetryContext | null = null
+  private explainAbort: AbortController | null = null
   private buffer: CoachLapSample[] = []
   private previous: CoachLapSample | null = null
   private previousLapNumber: number | undefined
@@ -575,7 +609,16 @@ class LapCoachAnalyzer {
   constructor(private readonly deps: LapCoachDeps) {}
 
   onSnapshot(snapshot: TelemetrySnapshot | null): void {
-    if (!snapshot || snapshot.connected === false || snapshot.onPitRoad === true) {
+    const live = this.liveGate.observe(snapshot)
+    if (!live.live) {
+      if (live.boundary) this.resetLiveSession()
+      return
+    }
+    if (live.boundary) this.resetLiveSession()
+    this.liveContext = live.context
+    if (!snapshot) return
+
+    if (snapshot.onPitRoad === true) {
       // Discard a partial lap in the pits / when disconnected.
       this.buffer = []
       this.previous = null
@@ -592,6 +635,23 @@ class LapCoachAnalyzer {
     if (this.buffer.length < MAX_LAP_SAMPLES) this.buffer.push(sample)
     this.previous = sample
     this.previousLapNumber = finiteOrUndefined(snapshot.currentLap)
+  }
+
+  private resetLiveSession(): void {
+    this.explainAbort?.abort()
+    this.explainAbort = null
+    this.liveContext = null
+    this.buffer = []
+    this.previous = null
+    this.previousLapNumber = undefined
+    this.recentLapTimes = []
+    this.reports = []
+    this.latestReport = null
+    this.latestSetup = null
+    this.cornerMap = null
+    this.reference = null
+    this.referenceLapTimeSec = undefined
+    this.deps.broadcast(COACH_CHANNELS.report, this.payload())
   }
 
   // Lap completion: prefer the sim's lap counter; fall back to a lap-distance wrap.
@@ -674,9 +734,13 @@ class LapCoachAnalyzer {
     // Only touch the LLM when a model is already present — never trigger a download.
     const modelPath = this.deps.getModelPath()
     if (!modelPath) return { text: deterministic, source: 'deterministic', findingId: finding.id }
+    const context = this.liveContext
+    if (!context) return { text: deterministic, source: 'deterministic', findingId: finding.id }
+    const controller = new AbortController()
     try {
       this.deps.setModel?.(modelPath, this.deps.getModelId?.() ?? '')
-      const controller = new AbortController()
+      this.explainAbort?.abort()
+      this.explainAbort = controller
       const timer = setTimeout(() => controller.abort(), EXPLAIN_TIMEOUT_MS)
       if (typeof timer === 'object' && timer && 'unref' in timer) (timer as { unref?: () => void }).unref?.()
       const result = await this.deps
@@ -689,12 +753,20 @@ class LapCoachAnalyzer {
           signal: controller.signal
         })
         .finally(() => clearTimeout(timer))
+      if (!sameLiveTelemetryContext(this.liveContext, context)) {
+        return { text: '', source: 'deterministic', findingId: finding.id }
+      }
       const text = (result.text ?? '').trim()
       if (result.ok && text.length > 0) {
         return { text, source: 'llm', findingId: finding.id }
       }
     } catch {
       // fall through to deterministic
+    } finally {
+      if (this.explainAbort === controller) this.explainAbort = null
+    }
+    if (!sameLiveTelemetryContext(this.liveContext, context)) {
+      return { text: '', source: 'deterministic', findingId: finding.id }
     }
     return { text: deterministic, source: 'deterministic', findingId: finding.id }
   }
