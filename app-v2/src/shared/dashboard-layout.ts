@@ -356,6 +356,8 @@ function elementFromVariant(variant: LayoutCatalogWidget, rect: Box, theme: Fami
     h: rect.h,
     binding: variant.binding,
     name: variant.name ?? variant.label ?? variant.id,
+    ...(variant.widgetId ? { widgetId: variant.widgetId } : {}),
+    ...(variant.hifiModuleId ? { hifiModuleId: variant.hifiModuleId } : {}),
     style: applyFamilyTheme(variant.style, theme, role)
   }
 }
