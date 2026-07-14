@@ -111,6 +111,11 @@ export const DASHBOARD_TABLE_COLUMNS = [
   'pos', 'classPos', 'number', 'name', 'gap', 'class', 'license', 'iRating', 'laps'
 ] as const
 
+export const DASHBOARD_DELTA_RANGE_SEC_MIN = 0.05
+export const DASHBOARD_DELTA_RANGE_SEC_MAX = 10
+export const DASHBOARD_TRACE_WIDTH_MIN = 0.5
+export const DASHBOARD_TRACE_WIDTH_MAX = 8
+
 export const DASHBOARD_CONFIG_MUTATION_DISABLED_REASON =
   'Dashboard import, reset, and delete are disabled until atomic dashboard directory transactions are available.'
 
@@ -688,7 +693,8 @@ const STYLE_NUMBER_BOUNDS: Record<string, readonly [number, number]> = {
   filterGrayscale: [0, 1], filterSepia: [0, 1], redTint: [0, 1],
   brightness: [0, 2], contrast: [0, 2], saturate: [0, 3],
   hueRotate: [-180, 180], invert: [0, 1], blur: [0, 1_024],
-  deltaRangeSec: [Number.MIN_VALUE, 3_600], traceWidth: [0, 1_024],
+  deltaRangeSec: [DASHBOARD_DELTA_RANGE_SEC_MIN, DASHBOARD_DELTA_RANGE_SEC_MAX],
+  traceWidth: [DASHBOARD_TRACE_WIDTH_MIN, DASHBOARD_TRACE_WIDTH_MAX],
   rowHeight: [0, MAX_DASHBOARD_DIMENSION], flashAt: [0, 1],
   coldAt: [-1_000_000, 1_000_000], optimalAt: [-1_000_000, 1_000_000],
   hotAt: [-1_000_000, 1_000_000], criticalAt: [-1_000_000, 1_000_000],
