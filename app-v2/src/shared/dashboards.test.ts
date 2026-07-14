@@ -309,6 +309,57 @@ describe('dashboard storage schema compatibility', () => {
     expect(isDashboard(revocable.proxy)).toBe(false)
   })
 
+  it('rejects empty and whitespace-only bindings in structural validation', () => {
+    for (const binding of ['', ' ', '\t\r\n']) {
+      const dashboard = storedDashboard(`blank-binding-${JSON.stringify(binding)}`)
+      dashboard.elements[0].binding = binding
+      expect(dashboardValidationError(dashboard), JSON.stringify(binding)).toMatch(/binding must be a non-empty string/)
+      expect(isDashboard(dashboard), JSON.stringify(binding)).toBe(false)
+    }
+  })
+
+  it('migrates an exact legacy empty binding to undefined without mutating persisted input', () => {
+    const legacy = storedDashboard('legacy-empty-binding')
+    legacy.elements[0].binding = ''
+    const original = structuredClone(legacy)
+
+    const result = dashboardStorageValidationResult(legacy)
+    expect(result.status).toBe('migrated')
+    if (result.status !== 'migrated') throw new Error(result.status === 'quarantine' ? result.error : 'Expected migration')
+    expect(result.dashboard.elements[0].binding).toBeUndefined()
+    expect(result.migrations).toContainEqual({
+      code: 'remove-empty-binding',
+      path: 'elements[0].binding',
+      from: '',
+      to: undefined
+    })
+    expect(dashboardValidationError(result.dashboard)).toBeNull()
+    expect(legacy).toEqual(original)
+  })
+
+  it('quarantines whitespace-only persisted bindings instead of guessing an identifier', () => {
+    const invalid = storedDashboard('persisted-whitespace-binding')
+    invalid.elements[0].binding = ' \t '
+
+    expect(dashboardStorageValidationResult(invalid)).toMatchObject({
+      status: 'quarantine',
+      error: expect.stringMatching(/binding must be a non-empty string/),
+      migrations: []
+    })
+  })
+
+  it('preserves legitimate nonblank binding identifiers byte-for-byte', () => {
+    const valid = storedDashboard('nonblank-binding')
+    valid.elements[0].binding = 'ir:OilPressure'
+
+    const result = dashboardStorageValidationResult(valid)
+    expect(result.status).toBe('valid')
+    if (result.status !== 'valid') throw new Error(result.status === 'quarantine' ? result.error : 'Unexpected migration')
+    expect(result.dashboard).toBe(valid)
+    expect(result.dashboard.elements[0].binding).toBe('ir:OilPressure')
+    expect(result.migrations).toEqual([])
+  })
+
   it('migrates only unambiguous legacy columns and overlay identities through the real catalog registry', () => {
     const hifi = ALL_VARIANTS.find((variant) =>
       variant.type === 'overlaywidget' && variant.widgetId?.startsWith('hifi:') && variant.hifiModuleId)

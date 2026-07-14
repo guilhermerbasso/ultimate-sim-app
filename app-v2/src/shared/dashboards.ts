@@ -889,6 +889,7 @@ function validateElementList(value: unknown, width: number, height: number, path
     const styleError = validateElementStyle(element.style, `${elementPath}.style`)
     if (styleError) return styleError
     if (element.binding !== undefined && typeof element.binding !== 'string') return `${elementPath}.binding must be a string.`
+    if (typeof element.binding === 'string' && !element.binding.trim()) return `${elementPath}.binding must be a non-empty string.`
     if (typeof element.binding === 'string' && isDangerousId(element.binding)) return `${elementPath}.binding is dangerous.`
     if (element.name !== undefined && typeof element.name !== 'string') return `${elementPath}.name must be a string.`
     if (element.sourceType !== undefined && typeof element.sourceType !== 'string') return `${elementPath}.sourceType must be a string.`
@@ -998,6 +999,7 @@ export type DashboardStorageMigrationCode =
   | 'derive-widget-id'
   | 'derive-hifi-module-id'
   | 'catalog-overlay-identity'
+  | 'remove-empty-binding'
   | 'remove-empty-overlay-identity'
 
 export interface DashboardStorageMigration {
@@ -1053,6 +1055,10 @@ function migrateStoredElement(
   identityIndex: ReadonlyMap<string, CatalogElementIdentity[]>,
   migrations: DashboardStorageMigration[]
 ): void {
+  if (element.binding === '') {
+    delete element.binding
+    migrations.push({ code: 'remove-empty-binding', path: `${path}.binding`, from: '', to: undefined })
+  }
   if (isRecord(element.style) && Array.isArray(element.style.tableColumns) &&
     element.style.tableColumns.some((column) => column === 'last')) {
     const from = [...element.style.tableColumns]

@@ -6,10 +6,12 @@ import { displayUnitLabel, resolveBinding } from './binding'
 import { PREVIEW_SNAPSHOT } from './widgets/gt3-theme'
 import { UnitSystemProvider } from '../lib/units'
 import type { UnitSystem } from '../../../shared/units'
-import type {
-  DashboardElement,
-  DashboardElementStyle,
-  DashboardElementType
+import {
+  dashboardStorageValidationResult,
+  type Dashboard,
+  type DashboardElement,
+  type DashboardElementStyle,
+  type DashboardElementType
 } from '../../../shared/dashboards'
 
 // Build a builtin board element and render it exactly as production does (the
@@ -51,6 +53,22 @@ describe('dashboard measurement units', () => {
     const result = resolveBinding('ir:OilPressure', { ...PREVIEW_SNAPSHOT, oilPressureKpa: 500 }, 'imperial')
     expect(result.displayNumeric).toBeCloseTo(72.5189, 3)
     expect(result.unit).toBe('psi')
+  })
+
+  it('resolves a migrated legacy empty binding as deterministic unbound output', () => {
+    const legacy: Dashboard = {
+      id: 'legacy-render-binding',
+      name: 'Legacy renderer binding',
+      width: 1024,
+      height: 600,
+      bg: '#000',
+      elements: [el('value', {}, '')]
+    }
+    const migrated = dashboardStorageValidationResult(legacy)
+    expect(migrated.status).toBe('migrated')
+    if (migrated.status !== 'migrated') throw new Error(migrated.status === 'quarantine' ? migrated.error : 'Expected migration')
+    expect(migrated.dashboard.elements[0].binding).toBeUndefined()
+    expect(resolveBinding(migrated.dashboard.elements[0].binding, PREVIEW_SNAPSHOT)).toEqual({ text: '' })
   })
 
   it('converts units embedded in dashboard labels and titles', () => {
