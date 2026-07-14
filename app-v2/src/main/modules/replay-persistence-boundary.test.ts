@@ -669,6 +669,67 @@ describe('recording persistence lifecycle', () => {
       readFileSync(join(root, 'recordings', sessionId as string, 'session.json'), 'utf8')
     )).toMatchObject({ endedAt: expect.any(Number) })
   })
+
+  it('drains sidecars and propagates a final metadata failure after clearing recorder state', async () => {
+    const root = scratch('recording-metadata-loss')
+    const recorder = new TelemetryRecorder(root)
+    const live = snapshot('A', 'Track A', 0, { timestamp: 2_000, lapDistPct: 0.3 })
+    await recorder.start({ sampleRateHz: 15 })
+    const sessionId = recorder.status().activeSession?.id
+    expect(sessionId).toBeTruthy()
+    const metadataPath = join(root, 'recordings', sessionId as string, 'session.json')
+    await rm(metadataPath, { force: true })
+    await mkdir(metadataPath)
+
+    const sidecarStarted = deferred()
+    const releaseSidecar = deferred()
+    let sidecarDrained = false
+    const enricher = new SessionEnricher(root, async () => {
+      sidecarStarted.resolve()
+      await releaseSidecar.promise
+      sidecarDrained = true
+    })
+    enricher.observe(sessionId as string, live)
+    const coordinator = new RecordingLifecycleCoordinator(
+      recorder,
+      enricher,
+      () => live,
+      vi.fn(),
+      vi.fn()
+    )
+
+    coordinator.quiesce()
+    const shutdown = coordinator.shutdown()
+    await sidecarStarted.promise
+    expect(recorder.status()).toEqual({ recording: false, activeSession: null })
+
+    let settled = false
+    void shutdown.then(
+      () => {
+        settled = true
+      },
+      () => {
+        settled = true
+      }
+    )
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    releaseSidecar.resolve()
+    let failure: unknown
+    try {
+      await shutdown
+    } catch (error) {
+      failure = error
+    }
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors.some(
+      (error) => error instanceof Error &&
+        error.message.includes('Recording metadata persistence failed')
+    )).toBe(true)
+    expect(sidecarDrained).toBe(true)
+  })
 })
 
 describe('pace persistence versions and quiescence', () => {

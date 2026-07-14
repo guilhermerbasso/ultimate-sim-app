@@ -42,6 +42,14 @@ function finiteOrUndefined(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function recordingFailure(message: string, error: unknown): Error {
+  return new Error(`${message}: ${errorMessage(error)}`, { cause: error })
+}
+
 function lapDist(snapshot: TelemetrySnapshot): number | null {
   const value = finiteOrUndefined(snapshot.lapDistPct)
   if (value === undefined) return null
@@ -58,7 +66,7 @@ export class TelemetryRecorder {
   private lapStartedAtBoundary = new Map<number, boolean>()
   private writeQueue: Promise<void> = Promise.resolve()
   private metadataQueue: Promise<void> = Promise.resolve()
-  private lastWriteError: string | null = null
+  private pendingWriteFailures: Error[] = []
   private stopping = false
   private boundaryPending = false
   private startGeneration = 0
@@ -162,8 +170,9 @@ export class TelemetryRecorder {
         await this.lifecycle.removeSession(this.sessionDir(id))
         return this.status()
       }
+      this.writeQueue = Promise.resolve()
       this.metadataQueue = Promise.resolve()
-      this.lastWriteError = null
+      this.pendingWriteFailures = []
       await this.enqueueMetadataPersist(pending)
       if (!this.startIsCurrent(generation, isCurrent)) {
         await this.lifecycle.removeSession(this.sessionDir(id))
@@ -188,25 +197,56 @@ export class TelemetryRecorder {
     await this.settlePendingStart()
     if (!this.active) return this.status()
     const session = this.active
+    const pendingWriteFailures = this.pendingWriteFailures
+    const failures: Error[] = []
+    let metadataFailure: Error | null = null
     this.stopping = true
     try {
-      session.endedAt = Date.now()
-      const lap = session.laps[this.currentLapIndex]
-      if (lap && !lap.endedAt) this.finishLap(lap, session.endedAt, false)
-      await this.flushWrites()
-      await this.enqueueMetadataPersist(session)
-      const queuedWriteError = this.lastWriteError
-      this.lastWriteError = null
+      try {
+        session.endedAt = Date.now()
+        const lap = session.laps[this.currentLapIndex]
+        if (lap && !lap.endedAt) this.finishLap(lap, session.endedAt, false)
+      } catch (error) {
+        failures.push(recordingFailure('Recording finalization failed', error))
+      }
+      try {
+        await this.flushWrites()
+      } catch (error) {
+        failures.push(recordingFailure('Recording sample queue drain failed', error))
+      }
+      try {
+        await this.enqueueMetadataPersist(session)
+      } catch (error) {
+        metadataFailure = recordingFailure('Recording metadata persistence failed', error)
+      }
+    } finally {
+      this.clearStoppedSession(session, pendingWriteFailures)
+      failures.push(...pendingWriteFailures)
+      if (metadataFailure) failures.push(metadataFailure)
+    }
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Recording persistence failed.')
+    }
+    return this.status()
+  }
+
+  private clearStoppedSession(
+    session: RecordingSessionSummary,
+    pendingWriteFailures: Error[]
+  ): void {
+    if (this.active === session) {
       this.active = null
+      this.lastSampleAt = 0
       this.lastLapDistPct = null
       this.currentLapIndex = -1
       this.lapStartedAtBoundary.clear()
       this.boundaryPending = false
-      if (queuedWriteError) throw new Error(`Recording I/O failed: ${queuedWriteError}`)
-      return this.status()
-    } finally {
-      this.stopping = false
+      this.writeQueue = Promise.resolve()
+      this.metadataQueue = Promise.resolve()
     }
+    if (this.pendingWriteFailures === pendingWriteFailures) this.pendingWriteFailures = []
+    this.stopping = false
   }
 
   private startIsCurrent(generation: number, isCurrent: () => boolean): boolean {
@@ -339,9 +379,10 @@ export class TelemetryRecorder {
       this.lapStartedAtBoundary.set(this.currentLapIndex, openedAtBoundary)
       this.active.lapCount = this.active.laps.length
       this.boundaryPending = false
+      const pendingWriteFailures = this.pendingWriteFailures
       void this.enqueueMetadataPersist().catch((error: unknown) => {
-        this.lastWriteError = error instanceof Error ? error.message : String(error)
-        console.warn('[recording] metadata persist failed:', this.lastWriteError)
+        pendingWriteFailures.push(recordingFailure('Recording I/O failed', error))
+        console.warn('[recording] metadata persist failed:', errorMessage(error))
       })
     }
   }
@@ -368,14 +409,15 @@ export class TelemetryRecorder {
   private enqueueAppend(sample: RecordingSample): void {
     if (!this.active) return
     const filePath = join(this.sessionDir(this.active.id), 'samples.jsonl')
+    const pendingWriteFailures = this.pendingWriteFailures
     // `.then(append).catch(...)` keeps the promise chain alive after a failed
     // write. The previous version dropped silently on the first rejection and
     // stopped recording without any visible error.
     this.writeQueue = this.writeQueue
       .then(() => appendFile(filePath, `${JSON.stringify(sample)}\n`, 'utf8'))
       .catch((error: unknown) => {
-        this.lastWriteError = error instanceof Error ? error.message : String(error)
-        console.warn('[recording] sample append failed:', this.lastWriteError)
+        pendingWriteFailures.push(recordingFailure('Recording I/O failed', error))
+        console.warn('[recording] sample append failed:', errorMessage(error))
       })
   }
 
