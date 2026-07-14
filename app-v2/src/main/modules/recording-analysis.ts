@@ -271,6 +271,8 @@ export class SessionEnricher implements RecordingSessionEnricher {
     this.pause(sessionId)
     this.cache.delete(sessionId)
     this.writeTails.delete(sessionId)
+    this.closedSessions.delete(sessionId)
+    this.forgottenSessions.delete(sessionId)
   }
 }
 
