@@ -29,6 +29,16 @@ import {
 } from '../../../shared/tts-voice'
 import { logClient } from './log-client'
 import { notifyExternalSpeaking } from './tts-runtime'
+import { isLiveTelemetrySnapshot, LiveTelemetryGate } from '../../../shared/replay'
+import {
+  cancelOwnedWebSpeech,
+  cancelSpeechOwner,
+  claimOwnedWebSpeech,
+  createSpeechOwnerCancellationSignal,
+  isSpeechOwnerTokenCurrent,
+  registerSpeechOwnerCanceller,
+  speechOwnerToken
+} from './speech-owner-runtime'
 
 // Voice Spotter runtime engine.
 //
@@ -366,6 +376,12 @@ function ensurePiperCtx(): AudioContext | null {
   return piperCtx
 }
 
+function disposePiperCtx(): void {
+  const ctx = piperCtx
+  piperCtx = null
+  if (ctx) void ctx.close().catch(() => undefined)
+}
+
 interface GapSample {
   sec: number
   at: number
@@ -390,6 +406,7 @@ interface EngineState {
   speaking: boolean
   currentPriority: number
   activeUtterance: SpeechSynthesisUtterance | null
+  activeWebRelease: (() => void) | null
   watchdog: ReturnType<typeof setTimeout> | null
   activePiperSource: AudioBufferSourceNode | null
   activePiperGain: GainNode | null
@@ -405,6 +422,7 @@ const state: EngineState = {
   speaking: false,
   currentPriority: 0,
   activeUtterance: null,
+  activeWebRelease: null,
   watchdog: null,
   activePiperSource: null,
   activePiperGain: null,
@@ -451,6 +469,8 @@ function onUtteranceDone(utterance: SpeechSynthesisUtterance): void {
   if (state.activeUtterance !== utterance) return
   if (state.watchdog) { clearTimeout(state.watchdog); state.watchdog = null }
   state.activeUtterance = null
+  state.activeWebRelease?.()
+  state.activeWebRelease = null
   state.speaking = false
   state.currentPriority = 0
   setSpotterAudible(false)
@@ -506,8 +526,11 @@ function applyVoiceAndSpeak(utterance: SpeechSynthesisUtterance, line: QueuedLin
   pushLog({ id: line.id, text: line.text, priority: line.priority, at: Date.now() })
   setSpotterAudible(true)
   try {
+    state.activeWebRelease = claimOwnedWebSpeech('spotter', () => window.speechSynthesis.cancel())
     window.speechSynthesis.speak(utterance)
   } catch {
+    state.activeWebRelease?.()
+    state.activeWebRelease = null
     onUtteranceDone(utterance)
   }
 }
@@ -543,9 +566,11 @@ function speakWithOS(line: QueuedLine): void {
 async function speakWithPiper(line: QueuedLine): Promise<void> {
   const voiceId = line.voiceURI.slice('piper:'.length)
   const gen = state.piperGen // capture BEFORE any await; cancelPiperAudio() bumps this
+  const ownerToken = speechOwnerToken('spotter')
+  const isCurrent = (): boolean => gen === state.piperGen && isSpeechOwnerTokenCurrent('spotter', ownerToken)
   try {
     const raw = await window.ipc.invoke<Uint8Array | null>(TTS_CHANNELS.synth, line.text, voiceId, line.rate)
-    if (gen !== state.piperGen) return // cancelled while synth was in-flight
+    if (!isCurrent()) return
 
     if (!raw) {
       // Piper engine/model unavailable — fall back to a SAME-LANGUAGE OS voice so
@@ -562,30 +587,36 @@ async function speakWithPiper(line: QueuedLine): Promise<void> {
       speakWithOS({ ...line, voiceURI: '', lang: fallbackLang, seedVoiceId: voiceId })
       return
     }
-    logClient.info('spotter', `callout ${line.id} spoken`, {
-      engine: 'piper',
-      requestedVoiceURI: line.configuredVoiceURI || '(language default)',
-      resolvedVoiceURI: line.voiceURI,
-      lang: line.lang
-    })
-    pushLog({ id: line.id, text: line.text, priority: line.priority, at: Date.now() })
     const ctx = ensurePiperCtx()
     if (!ctx) {
       // No Web Audio → OS fallback so a callout never goes silent.
+      if (!isCurrent()) return
       speakWithOS({ ...line, voiceURI: '', lang: line.lang, seedVoiceId: voiceId })
       return
     }
     let audioBuffer: AudioBuffer
     try {
-      if (ctx.state === 'suspended') await ctx.resume()
+      if (ctx.state === 'suspended') {
+        // Race ctx.resume() against owner cancellation so a superseded callout
+        // never hangs indefinitely under the Chromium autoplay lock.
+        const resumeSignal = createSpeechOwnerCancellationSignal('spotter', ownerToken)
+        const cancelled = resumeSignal.isCancelled() || await Promise.race([
+          ctx.resume().then((): boolean => false),
+          resumeSignal.promise.then((): boolean => true)
+        ])
+        resumeSignal.dispose()
+        if (cancelled) return
+      }
+      if (!isCurrent()) return
       audioBuffer = await ctx.decodeAudioData(toAudioBuffer(raw))
     } catch {
+      if (!isCurrent()) return
       // Neural bytes wouldn't decode → fall back so we never go silent.
       logClient.warn('spotter', `callout ${line.id} piper-decode fallback`, { bytes: raw.byteLength })
       speakWithOS({ ...line, voiceURI: '', lang: line.lang, seedVoiceId: voiceId })
       return
     }
-    if (gen !== state.piperGen) return
+    if (!isCurrent()) return
     const sink = ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> }
     if (line.outputDeviceId && typeof sink.setSinkId === 'function') {
       try {
@@ -594,7 +625,7 @@ async function speakWithPiper(line: QueuedLine): Promise<void> {
         // setSinkId unsupported (e.g. dev macOS) — continue without routing
       }
     }
-    if (gen !== state.piperGen) return
+    if (!isCurrent()) return
     const source = ctx.createBufferSource()
     source.buffer = audioBuffer
     source.playbackRate.value = Math.max(0.25, Math.min(4, line.rate))
@@ -604,6 +635,13 @@ async function speakWithPiper(line: QueuedLine): Promise<void> {
     gain.connect(ctx.destination)
     state.activePiperSource = source
     state.activePiperGain = gain
+    logClient.info('spotter', `callout ${line.id} spoken`, {
+      engine: 'piper',
+      requestedVoiceURI: line.configuredVoiceURI || '(language default)',
+      resolvedVoiceURI: line.voiceURI,
+      lang: line.lang
+    })
+    pushLog({ id: line.id, text: line.text, priority: line.priority, at: Date.now() })
     const done = (): void => {
       if (state.activePiperSource === source) {
         state.activePiperSource = null
@@ -620,7 +658,7 @@ async function speakWithPiper(line: QueuedLine): Promise<void> {
     setSpotterAudible(true)
     source.start()
   } catch {
-    if (gen === state.piperGen) {
+    if (isCurrent()) {
       cancelPiperAudio()
       state.speaking = false
       state.currentPriority = 0
@@ -674,13 +712,11 @@ function enqueue(line: QueuedLine): void {
   // Preempt a lower-priority line in progress for urgent safety callouts.
   if (line.priority >= URGENT_PRIORITY && line.priority > state.currentPriority) {
     state.activeUtterance = null
+    cancelOwnedWebSpeech('spotter')
+    state.activeWebRelease?.()
+    state.activeWebRelease = null
     state.speaking = false
     state.currentPriority = 0
-    try {
-      window.speechSynthesis.cancel()
-    } catch {
-      // ignore
-    }
     cancelPiperAudio()
     speakNext()
   }
@@ -909,9 +945,10 @@ function processLap(config: SpotterConfig, snapshot: TelemetrySnapshot, lapsOfFu
   }
 }
 
-function processSnapshot(snapshot: TelemetrySnapshot | null, config: SpotterConfig): void {
-  if (!snapshot) {
+export function processSpotterSnapshot(snapshot: TelemetrySnapshot | null, config: SpotterConfig): void {
+  if (!isLiveTelemetrySnapshot(snapshot)) {
     resetTransientState()
+    stopSpotterPlayback()
     return
   }
   const th = config.thresholds
@@ -986,9 +1023,16 @@ function speakOSImmediate(
       lang: utterance.lang
     })
     try {
+      state.activeUtterance = utterance
+      state.speaking = true
+      utterance.onend = () => onUtteranceDone(utterance)
+      utterance.onerror = () => onUtteranceDone(utterance)
+      state.activeWebRelease = claimOwnedWebSpeech('spotter', () => window.speechSynthesis.cancel())
+      setSpotterAudible(true)
       window.speechSynthesis.speak(utterance)
     } catch {
-      // ignore
+      if (gen !== state.piperGen) return
+      onUtteranceDone(utterance)
     }
   }
   if (voiceCache.length === 0 && !voicesSettled) void ensureVoicesLoaded().then(go)
@@ -1010,14 +1054,12 @@ function speakImmediate(
   // Cancel any ongoing speech — this is an explicit user test.
   state.queue = []
   state.activeUtterance = null
+  cancelOwnedWebSpeech('spotter')
+  state.activeWebRelease?.()
+  state.activeWebRelease = null
   state.speaking = false
   state.currentPriority = 0
   cancelPiperAudio()
-  try {
-    if (synthAvailable()) window.speechSynthesis.cancel()
-  } catch {
-    // ignore
-  }
   pushLog({ id: 'test', text, priority: 0, at: Date.now() })
   // cancelPiperAudio() above bumped piperGen — capture AFTER it so a second
   // speakImmediate (OS or Piper) invalidates this one's deferred work.
@@ -1044,15 +1086,10 @@ function speakImmediate(
           speakOSImmediate(text, '', fallbackLang, rate, pitch, volume, gen, voiceId, configuredVoiceURI)
           return
         }
-        logClient.info('spotter', 'test voice spoken', {
-          engine: 'piper',
-          requestedVoiceURI: configuredVoiceURI || '(language default)',
-          resolvedVoiceURI: voiceURI,
-          lang
-        })
         const ctx = ensurePiperCtx()
         if (!ctx) {
           // No Web Audio → OS fallback so the test stays audible.
+          if (gen !== state.piperGen) return
           state.speaking = false
           speakOSImmediate(text, '', lang, rate, pitch, volume, gen, voiceId, configuredVoiceURI)
           return
@@ -1060,8 +1097,10 @@ function speakImmediate(
         let audioBuffer: AudioBuffer
         try {
           if (ctx.state === 'suspended') await ctx.resume()
+          if (gen !== state.piperGen) return
           audioBuffer = await ctx.decodeAudioData(toAudioBuffer(raw))
         } catch {
+          if (gen !== state.piperGen) return
           // Neural bytes wouldn't decode → fall back so the test never goes silent.
           state.speaking = false
           speakOSImmediate(text, '', lang, rate, pitch, volume, gen, voiceId, configuredVoiceURI)
@@ -1082,19 +1121,41 @@ function speakImmediate(
         gain.connect(ctx.destination)
         state.activePiperSource = source
         state.activePiperGain = gain
+        logClient.info('spotter', 'test voice spoken', {
+          engine: 'piper',
+          requestedVoiceURI: configuredVoiceURI || '(language default)',
+          resolvedVoiceURI: voiceURI,
+          lang
+        })
+        const disconnect = (): void => {
+          try { source.disconnect() } catch { /* already gone */ }
+          try { gain.disconnect() } catch { /* already gone */ }
+        }
         const done = (): void => {
+          if (gen !== state.piperGen) {
+            disconnect()
+            return
+          }
           if (state.activePiperSource === source) {
             state.activePiperSource = null
             state.activePiperGain = null
           }
-          try { source.disconnect() } catch { /* already gone */ }
-          try { gain.disconnect() } catch { /* already gone */ }
+          disconnect()
           state.speaking = false
           setSpotterAudible(false)
         }
         source.onended = done
         setSpotterAudible(true)
-        try { source.start() } catch { done() }
+        try {
+          source.start()
+        } catch {
+          if (gen !== state.piperGen) {
+            source.onended = null
+            disconnect()
+            return
+          }
+          done()
+        }
       })
       .catch(() => {
         if (gen === state.piperGen) {
@@ -1128,19 +1189,24 @@ export function testSpotterVoice(config: SpotterConfig): void {
   speakImmediate(text, config.defaultVoiceURI, config.language, 1, 1, clamp01(config.masterVolume), config.outputDeviceId)
 }
 
-export function stopSpotterSpeech(): void {
+export function stopSpotterPlayback(): void {
   state.queue = []
   state.activeUtterance = null
+  cancelOwnedWebSpeech('spotter')
+  state.activeWebRelease?.()
+  state.activeWebRelease = null
   state.speaking = false
   state.currentPriority = 0
   cancelPiperAudio()
-  if (synthAvailable()) {
-    try {
-      window.speechSynthesis.cancel()
-    } catch {
-      // ignore
-    }
-  }
+}
+
+export function stopSpotterSpeech(): void {
+  cancelSpeechOwner('spotter')
+  stopSpotterPlayback()
+}
+
+export function spotterSpeechState(): { queued: number; speaking: boolean } {
+  return { queued: state.queue.length, speaking: state.speaking }
 }
 
 // ─── Ref-counted runtime hook ────────────────────────────────────────────────
@@ -1155,9 +1221,11 @@ let currentConfig: SpotterConfig = DEFAULT_SPOTTER_CONFIG
 let subscriberCount = 0
 let offTelemetry: (() => void) | null = null
 let offConfig: (() => void) | null = null
+let offOwnerCancel: (() => void) | null = null
 
 function startSubscriptions(): void {
   initVoices()
+  offOwnerCancel = registerSpeechOwnerCanceller('spotter', stopSpotterPlayback)
   // Kick the async voice list so it's populated before the first callout — the
   // Web Speech voiceschanged race is the main reason a chosen voice was ignored.
   void ensureVoicesLoaded()
@@ -1177,16 +1245,28 @@ function startSubscriptions(): void {
     // A voice change in the Engineer/Spotter UI lands here → download it on demand.
     ensureSelectedPiperVoices(config)
   })
+  const liveGate = new LiveTelemetryGate()
   offTelemetry = window.ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', (snapshot) => {
-    processSnapshot(snapshot, currentConfig)
+    const live = liveGate.observe(snapshot)
+    if (!live.live) {
+      if (live.boundary) {
+        resetTransientState()
+        stopSpotterPlayback()
+      }
+      return
+    }
+    if (live.boundary) resetTransientState()
+    processSpotterSnapshot(snapshot, currentConfig)
   })
 }
 
 function stopSubscriptions(): void {
   offConfig?.()
   offTelemetry?.()
+  offOwnerCancel?.()
   offConfig = null
   offTelemetry = null
+  offOwnerCancel = null
 }
 
 export function useSpotterRuntime(): void {
@@ -1198,7 +1278,8 @@ export function useSpotterRuntime(): void {
       if (subscriberCount === 0) {
         stopSubscriptions()
         resetTransientState()
-        stopSpotterSpeech()
+        stopSpotterPlayback()
+        disposePiperCtx()
       }
     }
   }, [])

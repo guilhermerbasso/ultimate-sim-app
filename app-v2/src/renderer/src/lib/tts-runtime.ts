@@ -35,6 +35,18 @@ import {
   resolvePiperVoice
 } from '../../../shared/tts-voice'
 import { logClient } from './log-client'
+import { REPLAY_SPEECH_CANCEL_CHANNELS, type ReplaySpeechCancelEvent } from '../../../shared/replay'
+import {
+  cancelOwnedWebSpeech,
+  cancelSpeechOwner,
+  claimOwnedWebSpeech,
+  createSpeechOwnerCancellationSignal,
+  isSpeechOwnerTokenCurrent,
+  registerSpeechOwnerCanceller,
+  speechOwnerToken,
+  type SpeechOwnerCancellationSignal,
+  type SpeechOwner
+} from './speech-owner-runtime'
 
 // ─── Renderer-local config (PURE helpers — unit-tested in node) ──────────────────
 
@@ -194,6 +206,13 @@ let currentSource: AudioBufferSourceNode | null = null
 // newer callout immediately supersedes an older one (barge-in, like a real spotter).
 let speakSeq = 0
 let speakingCount = 0
+let currentOwner: SpeechOwner | null = null
+interface ActiveTtsCallCancellation {
+  owner: SpeechOwner
+  ownerToken: number
+  signal: SpeechOwnerCancellationSignal
+}
+let activeCallCancellation: ActiveTtsCallCancellation | null = null
 // Other speech channels (the Voice Spotter — spotter-runtime) register here so the
 // wake-word self-listen guard suppresses mic capture while THEY speak too. Without
 // this, `isTtsSpeaking()` only reflected THIS module's `speakingCount`, so the mic
@@ -221,6 +240,19 @@ export function externalSpeakingDepth(): number {
  *  neither the engineer's own TTS nor the spotter's callouts are transcribed. */
 export function isTtsSpeaking(): boolean {
   return speakingCount > 0 || externalSpeakingCount > 0
+}
+
+type OwnerStageResult<T> = { cancelled: true } | { cancelled: false; value: T }
+
+function raceOwnerStage<T>(
+  stage: Promise<T>,
+  signal: SpeechOwnerCancellationSignal
+): Promise<OwnerStageResult<T>> {
+  if (signal.isCancelled()) return Promise.resolve({ cancelled: true })
+  return Promise.race([
+    stage.then((value): OwnerStageResult<T> => ({ cancelled: false, value })),
+    signal.promise.then((): OwnerStageResult<T> => ({ cancelled: true }))
+  ])
 }
 
 // ─── Web Speech (fallback) ───────────────────────────────────────────────────────
@@ -267,14 +299,23 @@ async function webSpeechSpeak(
   lang: string | undefined,
   rate: number,
   seq: number,
+  owner: SpeechOwner,
+  ownerToken: number,
+  signal: SpeechOwnerCancellationSignal,
   seedVoiceId?: string
 ): Promise<void> {
-  if (!isWebSpeechAvailable() || !text || seq !== speakSeq) return
+  if (!isWebSpeechAvailable() || !text || seq !== speakSeq || !isSpeechOwnerTokenCurrent(owner, ownerToken)) return
   // Warm the async OS voice list before picking so the FIRST utterance honors a
   // distinct voice rather than collapsing to the engine default.
-  if (seedVoiceId && window.speechSynthesis.getVoices().length === 0) await ensureWebVoices()
-  if (seq !== speakSeq) return
-  return new Promise<void>((resolve) => {
+  if (seedVoiceId && window.speechSynthesis.getVoices().length === 0) {
+    const voicesReady = await raceOwnerStage(ensureWebVoices(), signal)
+    if (voicesReady.cancelled) return
+  }
+  if (seq !== speakSeq || !isSpeechOwnerTokenCurrent(owner, ownerToken)) return
+  let finish = (): void => undefined
+  let release = (): void => undefined
+  let cancelClaim = (): void => undefined
+  const playback = new Promise<void>((resolve) => {
     try {
       const utterance = new SpeechSynthesisUtterance(text)
       utterance.rate = rate
@@ -300,15 +341,26 @@ async function webSpeechSpeak(
       const done = (): void => {
         if (settled) return
         settled = true
+        release()
         resolve()
       }
+      finish = done
       utterance.onend = done
       utterance.onerror = done
+      const claim = claimOwnedWebSpeech(owner, () => window.speechSynthesis.cancel())
+      release = claim
+      cancelClaim = claim.cancel
       window.speechSynthesis.speak(utterance)
     } catch {
+      release()
       resolve()
     }
   })
+  const result = await raceOwnerStage(playback, signal)
+  if (result.cancelled) {
+    cancelClaim()
+    finish()
+  }
 }
 
 // ─── WAV playback ─────────────────────────────────────────────────────────────────
@@ -364,22 +416,43 @@ function ensureAudioCtx(): AudioContext | null {
   return audioCtx
 }
 
+function disposeAudioCtx(): void {
+  const ctx = audioCtx
+  audioCtx = null
+  if (ctx) void ctx.close().catch(() => undefined)
+}
+
 // Play a neural WAV via Web Audio. Resolves TRUE on successful end, FALSE on
 // decode/play failure so the caller can fall back to web-speech (never go silent).
-async function playWav(bytes: Uint8Array, rate: number, seq: number): Promise<boolean> {
-  if (seq !== speakSeq || bytes.byteLength === 0) return true
+async function playWav(
+  bytes: Uint8Array,
+  rate: number,
+  seq: number,
+  owner: SpeechOwner,
+  ownerToken: number,
+  signal: SpeechOwnerCancellationSignal
+): Promise<boolean> {
+  const isCurrent = (): boolean => seq === speakSeq && isSpeechOwnerTokenCurrent(owner, ownerToken)
+  if (!isCurrent() || bytes.byteLength === 0) return true
   const ctx = ensureAudioCtx()
   if (!ctx) return false
   let audioBuffer: AudioBuffer
   try {
-    if (ctx.state === 'suspended') await ctx.resume()
-    audioBuffer = await ctx.decodeAudioData(toAudioBuffer(bytes))
+    if (ctx.state === 'suspended') {
+      const resumed = await raceOwnerStage(ctx.resume(), signal)
+      if (resumed.cancelled) return true
+    }
+    if (!isCurrent()) return true
+    const decoded = await raceOwnerStage(ctx.decodeAudioData(toAudioBuffer(bytes)), signal)
+    if (decoded.cancelled) return true
+    audioBuffer = decoded.value
   } catch {
+    if (!isCurrent()) return true
     logClient.warn('tts', 'playWav decode failed', { bytes: bytes.byteLength, rate })
     return false
   }
-  if (seq !== speakSeq) return true
-  return new Promise<boolean>((resolve) => {
+  if (!isCurrent()) return true
+  const playback = new Promise<boolean>((resolve) => {
     try {
       const source = ctx.createBufferSource()
       source.buffer = audioBuffer
@@ -396,6 +469,8 @@ async function playWav(bytes: Uint8Array, rate: number, seq: number): Promise<bo
       resolve(false)
     }
   })
+  const result = await raceOwnerStage(playback, signal)
+  return result.cancelled ? true : result.value
 }
 
 // ─── Synthesis IPC ───────────────────────────────────────────────────────────────
@@ -408,17 +483,23 @@ async function synthesize(text: string, voiceId: string, rate: number): Promise<
   }
 }
 
-/** Stop any in-flight speech/audio immediately (barge-in / teardown). */
-export function stopTts(): void {
+function stopTtsPlaybackOwner(owner: SpeechOwner): void {
+  cancelOwnedWebSpeech(owner)
+  if (currentOwner !== owner) return
   speakSeq += 1
   disposeCurrentAudio()
-  if (isWebSpeechAvailable()) {
-    try {
-      window.speechSynthesis.cancel()
-    } catch {
-      // ignore
-    }
-  }
+  currentOwner = null
+}
+
+export function stopTtsOwner(owner: Extract<SpeechOwner, 'coach' | 'engineer'>): void {
+  cancelSpeechOwner(owner)
+  stopTtsPlaybackOwner(owner)
+}
+
+/** Stop coach and engineer speech during renderer teardown. */
+export function stopTts(): void {
+  stopTtsOwner('coach')
+  stopTtsOwner('engineer')
 }
 
 export interface SpeakOptions {
@@ -453,6 +534,12 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
   // OS Web Speech remains only as a manual override or as the synth-null fallback.
   const usePiper = options.voiceId ? true : pref.engine !== 'webspeech'
   const fallbackLang = resolvedVoice.language
+  const owner: SpeechOwner = options.source === 'coach' ? 'coach' : 'engineer'
+  activeCallCancellation?.signal.cancel()
+  const ownerToken = speechOwnerToken(owner)
+  const cancellation = createSpeechOwnerCancellationSignal(owner, ownerToken)
+  const activeCall = { owner, ownerToken, signal: cancellation }
+  activeCallCancellation = activeCall
   // Observability: tag every utterance with its SOURCE (coach / engineer / …) + the
   // originating tip so a spoken line is never an anonymous "via piper" in the log.
   const diag = {
@@ -462,15 +549,10 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
   }
 
   const seq = ++speakSeq
+  if (currentOwner) cancelOwnedWebSpeech(currentOwner)
   // Supersede any current/queued speech (latest callout wins) WITHOUT bumping seq again.
   disposeCurrentAudio()
-  if (isWebSpeechAvailable()) {
-    try {
-      window.speechSynthesis.cancel()
-    } catch {
-      // ignore
-    }
-  }
+  currentOwner = owner
 
   // Mark "speaking" for the whole synth/play lifetime so the wake-word mic can skip
   // capture (never transcribe the engineer's own voice). Always cleared in finally.
@@ -483,7 +565,7 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
         lang: fallbackLang ?? null,
         ...diag
       })
-      await webSpeechSpeak(content, fallbackLang, rate, seq, voiceId)
+      await webSpeechSpeak(content, fallbackLang, rate, seq, owner, ownerToken, cancellation, voiceId)
       return
     }
 
@@ -493,13 +575,15 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
     let engineUnavailable = false
     let loggedPath = false
     for (const chunk of chunks) {
-      if (seq !== speakSeq) return
+      if (seq !== speakSeq || !isSpeechOwnerTokenCurrent(owner, ownerToken)) return
       if (engineUnavailable) {
-        await webSpeechSpeak(chunk, fallbackLang, rate, seq, voiceId)
+        await webSpeechSpeak(chunk, fallbackLang, rate, seq, owner, ownerToken, cancellation, voiceId)
         continue
       }
-      const wav = await synthesize(chunk, voiceId, rate)
-      if (seq !== speakSeq) return
+      const synthesized = await raceOwnerStage(synthesize(chunk, voiceId, rate), cancellation)
+      if (synthesized.cancelled) return
+      const wav = synthesized.value
+      if (seq !== speakSeq || !isSpeechOwnerTokenCurrent(owner, ownerToken)) return
       if (wav && wav.byteLength > 0) {
         if (!loggedPath) {
           // Diagnostic: confirm WHICH path actually produced audio. A distinct
@@ -508,8 +592,8 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
           logClient.info('tts', 'speakViaTts via piper', { engine: 'piper', voiceId, lang: fallbackLang ?? null, ...diag })
           loggedPath = true
         }
-        const played = await playWav(wav, rate, seq)
-        if (seq !== speakSeq) return
+        const played = await playWav(wav, rate, seq, owner, ownerToken, cancellation)
+        if (seq !== speakSeq || !isSpeechOwnerTokenCurrent(owner, ownerToken)) return
         if (played) continue
         // Neural bytes wouldn't decode/play → fall back so we never go silent.
         engineUnavailable = true
@@ -520,7 +604,7 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
           lang: fallbackLang ?? null,
           ...diag
         })
-        await webSpeechSpeak(chunk, fallbackLang, rate, seq, voiceId)
+        await webSpeechSpeak(chunk, fallbackLang, rate, seq, owner, ownerToken, cancellation, voiceId)
         continue
       }
       // Engine/voice missing → fall back for THIS and the remaining chunks (same language).
@@ -532,10 +616,13 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
         lang: fallbackLang ?? null,
         ...diag
       })
-      await webSpeechSpeak(chunk, fallbackLang, rate, seq, voiceId)
+      await webSpeechSpeak(chunk, fallbackLang, rate, seq, owner, ownerToken, cancellation, voiceId)
     }
   } finally {
+    cancellation.dispose()
+    if (activeCallCancellation === activeCall) activeCallCancellation = null
     speakingCount -= 1
+    if (seq === speakSeq && currentOwner === owner) currentOwner = null
   }
 }
 
@@ -571,15 +658,44 @@ export function subscribeVoiceProgress(cb: (progress: PiperVoiceProgress) => voi
 // ─── Global mount hook ───────────────────────────────────────────────────────────
 
 let mountCount = 0
+let runtimeCleanup: (() => void) | null = null
 
 /** Mount ONCE (App.tsx). Warms the config cache + cleans up audio on teardown. Renders nothing. */
 export function useTtsRuntime(): void {
   useEffect(() => {
     mountCount += 1
-    if (mountCount === 1) getTtsPref() // warm cache from localStorage
+    if (mountCount === 1) {
+      getTtsPref()
+      const offCoach = registerSpeechOwnerCanceller('coach', () => stopTtsPlaybackOwner('coach'))
+      const offEngineer = registerSpeechOwnerCanceller('engineer', () => stopTtsPlaybackOwner('engineer'))
+      const unsubCoach = window.ipc.subscribe<ReplaySpeechCancelEvent>(
+        REPLAY_SPEECH_CANCEL_CHANNELS.coach,
+        (event) => cancelSpeechOwner('coach', event)
+      )
+      const unsubEngineer = window.ipc.subscribe<ReplaySpeechCancelEvent>(
+        REPLAY_SPEECH_CANCEL_CHANNELS.engineer,
+        (event) => cancelSpeechOwner('engineer', event)
+      )
+      const unsubSpotter = window.ipc.subscribe<ReplaySpeechCancelEvent>(
+        REPLAY_SPEECH_CANCEL_CHANNELS.spotter,
+        (event) => cancelSpeechOwner('spotter', event)
+      )
+      runtimeCleanup = () => {
+        unsubCoach()
+        unsubEngineer()
+        unsubSpotter()
+        offCoach()
+        offEngineer()
+      }
+    }
     return () => {
       mountCount -= 1
-      if (mountCount === 0) stopTts()
+      if (mountCount === 0) {
+        stopTts()
+        disposeAudioCtx()
+        runtimeCleanup?.()
+        runtimeCleanup = null
+      }
     }
   }, [])
 }

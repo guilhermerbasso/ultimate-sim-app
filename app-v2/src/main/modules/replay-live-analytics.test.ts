@@ -11,9 +11,11 @@ import { PREDICTIONS_CHANNELS, type PredictionsSnapshot } from '../../shared/pre
 import {
   captureLiveTelemetryContext,
   REPLAY_GATING_PREDECESSORS,
+  REPLAY_SPEECH_CANCEL_CHANNELS,
   type ReplayContext,
   type ReplayContextState
 } from '../../shared/replay'
+import { STRATEGY_CHANNELS } from '../../shared/strategy'
 import { TIRE_CHANNELS } from '../../shared/tire-strategy'
 import { BIO_CHANNELS } from '../../shared/biometrics'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
@@ -28,6 +30,7 @@ import { register as registerLapTiming } from './lap-timing'
 import { PredictionsEngine } from './predictions'
 import { createProactiveEngine } from './proactive-engineer'
 import { register as registerProfiles } from './profiles-v2'
+import { register as registerStrategy } from './strategy'
 import { TeamFuelController } from './team-fuel'
 import { register as registerTireStrategy } from './tire-strategy'
 vi.mock('electron', () => ({
@@ -308,6 +311,35 @@ describe('canonical replay boundaries for live analytics', () => {
     profiles.emit(replay)
     await new Promise<void>((resolve) => setImmediate(resolve))
     expect(profiles.broadcast).not.toHaveBeenCalledWith('profilesv2:suggest', expect.anything())
+  })
+
+  it('cancels each speech owner once per non-live strategy boundary', async () => {
+    const strategy = moduleHarness(scratch('strategy-speech'))
+    registerStrategy(strategy.ctx)
+    strategy.emit(snap('live', 0, { fuelLiters: 40, fuelPerLap: 3 }))
+    strategy.broadcast.mockClear()
+
+    const replay = snap('replay', 1, { currentLap: 99, fuelLiters: 1 })
+    strategy.emit(replay)
+    const broadcastsAfterReplayBoundary = strategy.broadcast.mock.calls.length
+    strategy.emit(replay)
+    expect(strategy.broadcast).toHaveBeenCalledTimes(broadcastsAfterReplayBoundary)
+
+    strategy.emit(snap('unknown', 2))
+    for (const [owner, channel] of Object.entries(REPLAY_SPEECH_CANCEL_CHANNELS)) {
+      expect(strategy.broadcast.mock.calls.filter(([sent]) => sent === channel)).toHaveLength(2)
+      expect(strategy.broadcast).toHaveBeenCalledWith(channel, expect.objectContaining({ owner }))
+    }
+    expect(strategy.broadcast).toHaveBeenCalledWith(
+      STRATEGY_CHANNELS.update,
+      expect.objectContaining({ connected: false })
+    )
+
+    const narration = await strategy.handlers.get(STRATEGY_CHANNELS.narrate)?.(undefined, {
+      useLlm: true,
+      settings: { fuelMarginLaps: 99 }
+    })
+    expect(narration).toMatchObject({ text: '', source: 'deterministic', plan: { connected: false } })
   })
 
   it('blocks biometric sampling and team-fuel transmission outside live context', async () => {

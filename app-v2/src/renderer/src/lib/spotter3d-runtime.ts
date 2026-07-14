@@ -2,9 +2,9 @@
 //
 // Mounted ONCE at the app root (App.tsx, next to useSpotterRuntime /
 // useSoundshiftRuntime / useHapticsRuntime) so the spatial spotter runs for the
-// whole session — any view open, or none. It owns a SINGLE long-lived
-// Spotter3DEngine + AudioContext for the app lifetime (never per-view), feeds it
-// the live telemetry stream, and respects the (default-enabled) config live.
+// whole session — any view open, or none. It owns a SINGLE active
+// Spotter3DEngine (never per-view), rebuilds its audio graph at canonical context
+// boundaries, feeds it the live telemetry stream, and respects config live.
 //
 // AUTOPLAY UNLOCK: Chromium starts every AudioContext suspended until a user
 // gesture. Instead of a dedicated "Enable áudio" button, we install ONE app-wide
@@ -23,11 +23,18 @@ import {
   Spotter3DEngine,
   type Spotter3DConfig
 } from './spotter-3d'
+import {
+  LiveTelemetryGate,
+  type LiveTelemetryState,
+  type ReplaySpeechCancelEvent
+} from '../../../shared/replay'
+import { registerSpeechOwnerCanceller } from './speech-owner-runtime'
 
 // ─── Module singletons (one engine + config for the whole app) ────────────────
 
 let engine: Spotter3DEngine | null = null
 let currentConfig: Spotter3DConfig = DEFAULT_SPOTTER_3D_CONFIG
+let canonicalState: LiveTelemetryState = 'unknown'
 
 export interface Spotter3DStatus {
   // True once the AudioContext is actually running (sound can be heard).
@@ -69,50 +76,81 @@ export function subscribeSpotter3DStatus(listener: (status: Spotter3DStatus) => 
   }
 }
 
+export function stopSpotter3DPlayback(): void {
+  removeGestureListeners()
+  const active = engine
+  engine = null
+  if (active) {
+    try { active.update(null) } catch { /* best effort cue reset */ }
+    try { active.stop() } catch { /* best effort silence */ }
+    try { active.dispose() } catch { /* best effort teardown */ }
+  }
+  publishStatus({ running: false, unlocked: false })
+}
+
 // ─── App-wide gesture unlock (install once) ───────────────────────────────────
 
 const GESTURE_EVENTS: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'touchstart']
 let gestureArmed = false
+let gestureGeneration = 0
+let gestureEngine: Spotter3DEngine | null = null
+let gestureHandler: (() => void) | null = null
 
-function refreshUnlockedFlag(): void {
-  publishStatus({ unlocked: getSpotter3DEngine().isUnlocked() })
-}
-
-function handleGesture(): void {
-  const eng = getSpotter3DEngine()
-  void eng.resume().then(() => {
-    refreshUnlockedFlag()
-    if (eng.isUnlocked()) removeGestureListeners()
-  })
-}
-
-function installGestureListeners(): void {
-  if (gestureArmed || typeof window === 'undefined') return
-  gestureArmed = true
-  for (const type of GESTURE_EVENTS) {
-    window.addEventListener(type, handleGesture, { passive: true })
-  }
-}
-
-function removeGestureListeners(): void {
-  if (!gestureArmed || typeof window === 'undefined') return
+function removeGestureListeners(expectedGeneration?: number): void {
+  if (expectedGeneration !== undefined && expectedGeneration !== gestureGeneration) return
+  const handler = gestureHandler
+  gestureGeneration += 1
   gestureArmed = false
+  gestureEngine = null
+  gestureHandler = null
+  if (!handler || typeof window === 'undefined') return
   for (const type of GESTURE_EVENTS) {
-    window.removeEventListener(type, handleGesture)
+    window.removeEventListener(type, handler)
   }
 }
 
-// Apply config to the engine and start/stop it to match `enabled`.
+function installGestureListeners(eng: Spotter3DEngine): void {
+  if (typeof window === 'undefined') return
+  if (gestureArmed && gestureEngine === eng) return
+  removeGestureListeners()
+  const generation = ++gestureGeneration
+  const handler = (): void => {
+    if (generation !== gestureGeneration || engine !== eng) return
+    void eng.resume().then(() => {
+      if (generation !== gestureGeneration || engine !== eng) return
+      const unlocked = eng.isUnlocked()
+      publishStatus({ unlocked })
+      if (unlocked) removeGestureListeners(generation)
+    })
+  }
+  gestureArmed = true
+  gestureEngine = eng
+  gestureHandler = handler
+  for (const type of GESTURE_EVENTS) {
+    window.addEventListener(type, handler, { passive: true })
+  }
+}
+
+function syncGestureUnlock(eng: Spotter3DEngine): void {
+  const unlocked = eng.isUnlocked()
+  publishStatus({ unlocked })
+  if (unlocked) removeGestureListeners()
+  else installGestureListeners(eng)
+}
+
+// Apply config without arming audio until telemetry is canonically live.
 function applyConfig(config: Spotter3DConfig): void {
   currentConfig = config
+  if (!config.enabled || canonicalState !== 'live') {
+    stopSpotter3DPlayback()
+    publishStatus({ enabled: config.enabled })
+    return
+  }
   const eng = getSpotter3DEngine()
   eng.setConfig(config)
-  if (config.enabled) {
-    eng.start()
-  } else {
-    eng.stop()
-  }
-  publishStatus({ enabled: config.enabled, running: config.enabled && eng.isRunning(), unlocked: eng.isUnlocked() })
+  if (!eng.isRunning()) eng.start()
+  publishStatus({ enabled: true, running: eng.isRunning() })
+  syncGestureUnlock(eng)
 }
 
 // ─── Ref-counted subscriptions (telemetry + config) ───────────────────────────
@@ -120,27 +158,58 @@ function applyConfig(config: Spotter3DConfig): void {
 let subscriberCount = 0
 let offConfig: (() => void) | null = null
 let offTelemetry: (() => void) | null = null
+let offOwnerCancel: (() => void) | null = null
+let subscriptionGeneration = 0
+let configRevision = 0
 
 function startSubscriptions(): void {
-  installGestureListeners()
+  const generation = ++subscriptionGeneration
+  canonicalState = 'unknown'
+  removeGestureListeners()
+  offOwnerCancel = registerSpeechOwnerCanceller('spotter', (event?: ReplaySpeechCancelEvent) => {
+    if (event) canonicalState = event.state
+    stopSpotter3DPlayback()
+  })
 
+  const loadRevision = configRevision
   void window.ipc
     .invoke<Spotter3DConfig>(SPOTTER_3D_CHANNELS.getConfig)
-    .then((config) => applyConfig(config))
+    .then((config) => {
+      if (generation === subscriptionGeneration && loadRevision === configRevision) applyConfig(config)
+    })
     .catch(() => {
-      // No saved config yet — run on the default-enabled config so audio is live.
-      applyConfig(DEFAULT_SPOTTER_3D_CONFIG)
+      if (generation === subscriptionGeneration && loadRevision === configRevision) {
+        applyConfig(DEFAULT_SPOTTER_3D_CONFIG)
+      }
     })
 
   offConfig = window.ipc.subscribe<Spotter3DConfig>(SPOTTER_3D_CHANNELS.configEvent, (config) => {
+    configRevision += 1
     applyConfig(config)
   })
 
+  const liveGate = new LiveTelemetryGate()
   offTelemetry = window.ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', (snapshot) => {
+    const live = liveGate.observe(snapshot)
+    canonicalState = live.state
+    if (!live.live) {
+      if (live.boundary) stopSpotter3DPlayback()
+      return
+    }
     // Never throw in the telemetry path: if there is no snapshot / no nearby
-    // cars the engine yesply stays silent. update() is a no-op while stopped.
+    // cars the engine simply stays silent. update() is a no-op while stopped.
     try {
-      getSpotter3DEngine().update(snapshot)
+      if (live.boundary) stopSpotter3DPlayback()
+      if (!currentConfig.enabled) {
+        publishStatus({ enabled: false, running: false })
+        return
+      }
+      const eng = getSpotter3DEngine()
+      eng.setConfig(currentConfig)
+      if (!eng.isRunning()) eng.start()
+      eng.update(snapshot)
+      publishStatus({ enabled: true, running: eng.isRunning() })
+      syncGestureUnlock(eng)
     } catch {
       // Audio runtime hiccup must not break telemetry delivery.
     }
@@ -148,10 +217,14 @@ function startSubscriptions(): void {
 }
 
 function stopSubscriptions(): void {
+  subscriptionGeneration += 1
+  canonicalState = 'unknown'
   offConfig?.()
   offTelemetry?.()
+  offOwnerCancel?.()
   offConfig = null
   offTelemetry = null
+  offOwnerCancel = null
 }
 
 // Mount ONCE at the app root. Ref-counted so it is safe even if mounted in more
@@ -165,6 +238,7 @@ export function useSpotter3DRuntime(): void {
       if (subscriberCount === 0) {
         stopSubscriptions()
         removeGestureListeners()
+        stopSpotter3DPlayback()
         engine?.dispose()
         engine = null
         publishStatus({ running: false, unlocked: false })
