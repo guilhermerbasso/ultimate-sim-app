@@ -1,11 +1,22 @@
 import { describe, expect, it } from 'vitest'
+import { ALL_VARIANTS } from '../renderer/src/views/dashboard/widget-catalog-data'
 import {
   applyDecimals,
   composeImageFilter,
+  copyDashboardAsNew,
   createBlankAdaptiveDashboard,
+  DASHBOARD_DELTA_RANGE_SEC_MAX,
+  DASHBOARD_DELTA_RANGE_SEC_MIN,
+  DASHBOARD_TRACE_WIDTH_MAX,
+  DASHBOARD_TRACE_WIDTH_MIN,
+  dashboardPlaylistValidationError,
+  dashboardStorageValidationResult,
+  dashboardValidationError,
+  isDashboard,
   reorderElements,
   resolveSlotStyle,
   sortElementsByZ,
+  type Dashboard,
   type DashboardElement,
   type DashboardElementStyle
 } from './dashboards'
@@ -14,6 +25,147 @@ import { isAdaptiveDashboard } from './dashboard-adaptive-preset'
 function el(id: string, style: DashboardElementStyle = {}): DashboardElement {
   return { id, type: 'text', x: 0, y: 0, w: 10, h: 10, style }
 }
+
+function storedDashboard(id = 'stored'): Dashboard {
+  return {
+    id,
+    name: id,
+    width: 1024,
+    height: 600,
+    bg: '#05070a',
+    elements: [{ id: 'value', type: 'text', x: 10, y: 10, w: 200, h: 80, style: { text: '42' } }]
+  }
+}
+
+function copySourceDashboard(): Dashboard {
+  return {
+    id: 'copy-source',
+    name: 'Copy source',
+    width: 1024,
+    height: 600,
+    bg: '#05070a',
+    scaleMode: 'stretch',
+    description: 'Preserve dashboard metadata',
+    author: 'Original author',
+    previewPng: 'base64-preview',
+    createdAt: 100,
+    updatedAt: 200,
+    hidden: true,
+    storageEpoch: 'source-epoch',
+    storageRevision: 'source-revision',
+    elements: [{
+      id: 'base-value',
+      type: 'text',
+      x: 10,
+      y: 20,
+      w: 240,
+      h: 100,
+      binding: 'speedKmh',
+      style: {
+        text: '42',
+        channels: ['throttle', 'brake'],
+        slots: { value: { fontColor: '#ffffff', fontSize: 42 } },
+        instrument: {
+          template: 'dial',
+          parts: { led: { segments: 12, shape: 'led', warnAt: 0.7 } }
+        }
+      }
+    }],
+    adaptive: {
+      enabled: true,
+      rules: [{
+        moment: 'yellow',
+        enabled: true,
+        elements: {
+          'base-value': { visible: true, blink: { color: '#ffff00', hz: 2 } }
+        },
+        blinkDashboard: { color: '#ff0000', hz: 1 },
+        frame: {
+          bg: '#111111',
+          updatedAt: 300,
+          elements: [{
+            id: 'frame-value',
+            type: 'text',
+            x: 30,
+            y: 40,
+            w: 260,
+            h: 120,
+            binding: 'deltaSec',
+            style: {
+              text: 'FRAME',
+              slots: { value: { fontColor: '#00ff00' } }
+            }
+          }]
+        }
+      }]
+    }
+  }
+}
+
+describe('copyDashboardAsNew', () => {
+  it('preserves dashboard data while replacing only copy identity, timestamps, and storage ownership', () => {
+    const original = copySourceDashboard()
+    const originalSnapshot = structuredClone(original)
+    const copy = copyDashboardAsNew(original)
+    const {
+      id: _originalId,
+      name: _originalName,
+      createdAt: _originalCreatedAt,
+      updatedAt: _originalUpdatedAt,
+      storageEpoch: _originalEpoch,
+      storageRevision: _originalRevision,
+      ...originalData
+    } = originalSnapshot
+    const {
+      id: copyId,
+      name: copyName,
+      createdAt: copyCreatedAt,
+      updatedAt: copyUpdatedAt,
+      storageEpoch: copyEpoch,
+      storageRevision: copyRevision,
+      ...copyData
+    } = copy
+
+    expect(copyId).toMatch(/^dash-/)
+    expect(copyId).not.toBe(original.id)
+    expect(copyName).toBe('Copy source copy')
+    expect(copyCreatedAt).toEqual(expect.any(Number))
+    expect(copyUpdatedAt).toBe(copyCreatedAt)
+    expect(copyCreatedAt).not.toBe(original.createdAt)
+    expect(copyUpdatedAt).not.toBe(original.updatedAt)
+    expect(copyEpoch).toBeUndefined()
+    expect(copyRevision).toBeUndefined()
+    expect(copyData).toEqual(originalData)
+    expect(original).toEqual(originalSnapshot)
+  })
+
+  it('deep-clones element style/config and adaptive frame graphs', () => {
+    const original = copySourceDashboard()
+    const originalSnapshot = structuredClone(original)
+    const copy = copyDashboardAsNew(original)
+
+    expect(copy.elements).not.toBe(original.elements)
+    expect(copy.elements[0]).not.toBe(original.elements[0])
+    expect(copy.elements[0].style).not.toBe(original.elements[0].style)
+    expect(copy.elements[0].style.slots).not.toBe(original.elements[0].style.slots)
+    expect(copy.elements[0].style.instrument).not.toBe(original.elements[0].style.instrument)
+    expect(copy.adaptive).not.toBe(original.adaptive)
+    expect(copy.adaptive?.rules).not.toBe(original.adaptive?.rules)
+    expect(copy.adaptive?.rules?.[0].frame).not.toBe(original.adaptive?.rules?.[0].frame)
+    expect(copy.adaptive?.rules?.[0].frame?.elements).not.toBe(original.adaptive?.rules?.[0].frame?.elements)
+
+    copy.elements[0].style.text = 'MUTATED'
+    copy.elements[0].style.channels![0] = 'clutch'
+    copy.elements[0].style.slots!.value!.fontColor = '#000000'
+    copy.elements[0].style.instrument!.parts!.led!.segments = 99
+    copy.adaptive!.rules![0].elements!['base-value'].blink!.color = '#0000ff'
+    copy.adaptive!.rules![0].frame!.bg = '#222222'
+    copy.adaptive!.rules![0].frame!.elements[0].style.text = 'MUTATED FRAME'
+    copy.adaptive!.rules![0].frame!.elements[0].style.slots!.value!.fontColor = '#ff00ff'
+
+    expect(original).toEqual(originalSnapshot)
+  })
+})
 
 describe('resolveSlotStyle', () => {
   it('returns the defaults untouched when the style has no slots (back-compat)', () => {
@@ -227,5 +379,302 @@ describe('createBlankAdaptiveDashboard', () => {
     const b = createBlankAdaptiveDashboard()
     expect(a).not.toBe(b)
     expect(a.elements).not.toBe(b.elements)
+  })
+})
+
+describe('dashboard storage schema compatibility', () => {
+  it('rejects null-prototype and accessor-backed style arrays without invoking unsafe methods/getters', () => {
+    const fields = {
+      channels: ['throttle'],
+      fields: ['water'],
+      tableColumns: ['pos']
+    } as const
+    for (const [field, values] of Object.entries(fields)) {
+      const nullPrototype = [...values]
+      Object.setPrototypeOf(nullPrototype, null)
+      const withNullPrototype = storedDashboard(`null-array-${field}`)
+      ;(withNullPrototype.elements[0].style as Record<string, unknown>)[field] = nullPrototype
+      expect(() => dashboardValidationError(withNullPrototype), `${field} null prototype`).not.toThrow()
+      expect(dashboardValidationError(withNullPrototype), `${field} null prototype`).toMatch(/standard Array\.prototype/)
+
+      const accessorArray = [...values]
+      Object.defineProperty(accessorArray, '0', {
+        configurable: true,
+        enumerable: true,
+        get: () => { throw new Error(`${field} getter must not run`) }
+      })
+      const withAccessorArray = storedDashboard(`accessor-array-${field}`)
+      ;(withAccessorArray.elements[0].style as Record<string, unknown>)[field] = accessorArray
+      expect(() => dashboardValidationError(withAccessorArray), `${field} accessor array`).not.toThrow()
+      expect(dashboardValidationError(withAccessorArray), `${field} accessor array`).toMatch(/enumerable data value/)
+
+      const withStyleGetter = storedDashboard(`style-getter-${field}`)
+      Object.defineProperty(withStyleGetter.elements[0].style, field, {
+        configurable: true,
+        enumerable: true,
+        get: () => { throw new Error(`${field} style getter must not run`) }
+      })
+      expect(() => dashboardValidationError(withStyleGetter), `${field} style getter`).not.toThrow()
+      expect(dashboardValidationError(withStyleGetter), `${field} style getter`).toMatch(/enumerable data value/)
+    }
+  })
+
+  it('keeps every public validator total for null/custom prototypes and revoked proxies', () => {
+    const nullPrototype = Object.assign(Object.create(null) as Record<string, unknown>, storedDashboard('null-prototype'))
+    expect(() => dashboardValidationError(nullPrototype)).not.toThrow()
+    expect(dashboardValidationError(nullPrototype)).toBeNull()
+
+    const customPrototype = Object.assign(Object.create({ inherited: true }) as Record<string, unknown>, storedDashboard('custom-prototype'))
+    expect(() => dashboardValidationError(customPrototype)).not.toThrow()
+    expect(dashboardValidationError(customPrototype)).toMatch(/plain JSON objects/)
+
+    const revocable = Proxy.revocable({}, {})
+    revocable.revoke()
+    expect(() => dashboardValidationError(revocable.proxy)).not.toThrow()
+    expect(() => dashboardPlaylistValidationError(revocable.proxy)).not.toThrow()
+    expect(() => dashboardStorageValidationResult(revocable.proxy)).not.toThrow()
+    expect(() => isDashboard(revocable.proxy)).not.toThrow()
+    expect(dashboardValidationError(revocable.proxy)).not.toBeNull()
+    expect(dashboardPlaylistValidationError(revocable.proxy)).not.toBeNull()
+    expect(dashboardStorageValidationResult(revocable.proxy).status).toBe('quarantine')
+    expect(isDashboard(revocable.proxy)).toBe(false)
+  })
+
+  it('rejects empty and whitespace-only bindings in structural validation', () => {
+    for (const binding of ['', ' ', '\t\r\n']) {
+      const dashboard = storedDashboard(`blank-binding-${JSON.stringify(binding)}`)
+      dashboard.elements[0].binding = binding
+      expect(dashboardValidationError(dashboard), JSON.stringify(binding)).toMatch(/binding must be a non-empty string/)
+      expect(isDashboard(dashboard), JSON.stringify(binding)).toBe(false)
+    }
+  })
+
+  it('migrates an exact legacy empty binding to undefined without mutating persisted input', () => {
+    const legacy = storedDashboard('legacy-empty-binding')
+    legacy.elements[0].binding = ''
+    const original = structuredClone(legacy)
+
+    const result = dashboardStorageValidationResult(legacy)
+    expect(result.status).toBe('migrated')
+    if (result.status !== 'migrated') throw new Error(result.status === 'quarantine' ? result.error : 'Expected migration')
+    expect(result.dashboard.elements[0].binding).toBeUndefined()
+    expect(result.migrations).toContainEqual({
+      code: 'remove-empty-binding',
+      path: 'elements[0].binding',
+      from: '',
+      to: undefined
+    })
+    expect(dashboardValidationError(result.dashboard)).toBeNull()
+    expect(legacy).toEqual(original)
+  })
+
+  it('quarantines whitespace-only persisted bindings instead of guessing an identifier', () => {
+    const invalid = storedDashboard('persisted-whitespace-binding')
+    invalid.elements[0].binding = ' \t '
+
+    expect(dashboardStorageValidationResult(invalid)).toMatchObject({
+      status: 'quarantine',
+      error: expect.stringMatching(/binding must be a non-empty string/),
+      migrations: []
+    })
+  })
+
+  it('preserves legitimate nonblank binding identifiers byte-for-byte', () => {
+    const valid = storedDashboard('nonblank-binding')
+    valid.elements[0].binding = 'ir:OilPressure'
+
+    const result = dashboardStorageValidationResult(valid)
+    expect(result.status).toBe('valid')
+    if (result.status !== 'valid') throw new Error(result.status === 'quarantine' ? result.error : 'Unexpected migration')
+    expect(result.dashboard).toBe(valid)
+    expect(result.dashboard.elements[0].binding).toBe('ir:OilPressure')
+    expect(result.migrations).toEqual([])
+  })
+
+  it('migrates only unambiguous legacy columns and overlay identities through the real catalog registry', () => {
+    const hifi = ALL_VARIANTS.find((variant) =>
+      variant.type === 'overlaywidget' && variant.widgetId?.startsWith('hifi:') && variant.hifiModuleId)
+    expect(hifi).toBeDefined()
+    const legacy = storedDashboard('legacy-generated')
+    legacy.elements = [
+      {
+        id: 'legacy-overlay',
+        type: 'overlaywidget',
+        x: 0,
+        y: 0,
+        w: 320,
+        h: 160,
+        binding: hifi!.binding,
+        name: hifi!.label,
+        style: {}
+      },
+      {
+        id: 'legacy-table',
+        type: 'standings',
+        x: 0,
+        y: 180,
+        w: 500,
+        h: 300,
+        style: {
+          tableColumns: ['pos', 'number', 'name', 'gap', 'last'],
+          tableMaxRows: 12,
+          deltaRangeSec: DASHBOARD_DELTA_RANGE_SEC_MIN,
+          traceWidth: DASHBOARD_TRACE_WIDTH_MAX
+        }
+      }
+    ]
+    legacy.adaptive = {
+      rules: [{
+        moment: 'yellow',
+        frame: {
+          elements: [{
+            id: 'legacy-frame-overlay',
+            type: 'overlaywidget',
+            x: 0,
+            y: 0,
+            w: 320,
+            h: 160,
+            widgetId: hifi!.widgetId,
+            style: {}
+          }]
+        }
+      }]
+    }
+    const original = structuredClone(legacy)
+
+    const result = dashboardStorageValidationResult(legacy, { identityCatalog: ALL_VARIANTS })
+    expect(result.status).toBe('migrated')
+    if (result.status !== 'migrated') throw new Error(result.status === 'quarantine' ? result.error : 'Expected migration')
+    expect(result.dashboard.elements[0]).toMatchObject({
+      widgetId: hifi!.widgetId,
+      hifiModuleId: hifi!.hifiModuleId
+    })
+    expect(result.dashboard.elements[1].style).toMatchObject({
+      tableColumns: ['pos', 'number', 'name', 'gap', 'laps'],
+      deltaRangeSec: DASHBOARD_DELTA_RANGE_SEC_MIN,
+      traceWidth: DASHBOARD_TRACE_WIDTH_MAX
+    })
+    expect(result.dashboard.adaptive?.rules?.[0].frame?.elements[0].hifiModuleId).toBe(hifi!.hifiModuleId)
+    expect(result.migrations.map((migration) => migration.code)).toEqual(expect.arrayContaining([
+      'catalog-overlay-identity',
+      'table-column-last-to-laps',
+      'derive-hifi-module-id'
+    ]))
+    expect(dashboardValidationError(result.dashboard)).toBeNull()
+    expect(legacy).toEqual(original)
+  })
+
+  it('accepts exact editor trace bounds and quarantines values immediately outside them', () => {
+    const accepted: Array<['deltaRangeSec' | 'traceWidth', number]> = [
+      ['deltaRangeSec', DASHBOARD_DELTA_RANGE_SEC_MIN],
+      ['deltaRangeSec', DASHBOARD_DELTA_RANGE_SEC_MAX],
+      ['traceWidth', DASHBOARD_TRACE_WIDTH_MIN],
+      ['traceWidth', DASHBOARD_TRACE_WIDTH_MAX]
+    ]
+    for (const [field, value] of accepted) {
+      const dashboard = storedDashboard(`accepted-${field}-${value}`)
+      dashboard.elements[0].style[field] = value
+      expect(dashboardValidationError(dashboard), `${field}=${value}`).toBeNull()
+      expect(dashboardStorageValidationResult(dashboard), `${field}=${value}`).toMatchObject({ status: 'valid' })
+    }
+
+    const rejected: Array<['deltaRangeSec' | 'traceWidth', number]> = [
+      ['deltaRangeSec', DASHBOARD_DELTA_RANGE_SEC_MIN - 0.01],
+      ['deltaRangeSec', DASHBOARD_DELTA_RANGE_SEC_MAX + 0.01],
+      ['traceWidth', DASHBOARD_TRACE_WIDTH_MIN - 0.1],
+      ['traceWidth', DASHBOARD_TRACE_WIDTH_MAX + 0.1]
+    ]
+    for (const [field, value] of rejected) {
+      const dashboard = storedDashboard(`rejected-${field}-${value}`)
+      dashboard.elements[0].style[field] = value
+      expect(dashboardValidationError(dashboard), `${field}=${value}`).toMatch(/must be from/)
+      expect(dashboardStorageValidationResult(dashboard), `${field}=${value}`).toMatchObject({
+        status: 'quarantine',
+        error: expect.stringMatching(/must be from/)
+      })
+    }
+  })
+
+  it('preserves valid existing scalar, array, slot, and instrument styles without cloning or normalization', () => {
+    const valid = storedDashboard('preserved')
+    valid.elements[0].style = {
+      background: 'rgba(0,0,0,.5)',
+      opacity: 0.75,
+      decimals: 4,
+      tableColumns: ['pos', 'number', 'name', 'gap', 'laps'],
+      channels: ['throttle', 'brake'],
+      fields: ['water', 'oil'],
+      slots: {
+        value: {
+          fontFamily: 'DSEG7',
+          fontSize: 42,
+          fontColor: '#fff',
+          fontWeight: 800,
+          align: 'right',
+          letterSpacing: 2,
+          textTransform: 'uppercase',
+          shadow: '0 0 4px #fff'
+        }
+      },
+      instrument: {
+        template: 'dial',
+        bezel: 'chrome',
+        material: 'brushed',
+        glow: true,
+        parts: {
+          led: { segments: 16, shape: 'led', bloom: 0.5, flashAt: 0.97, warnAt: 0.6, dangerAt: 0.85 },
+          dial: { startAngleDeg: -130, endAngleDeg: 130, majorTicks: 10, minorPerMajor: 4, damp: 0.2 },
+          needle: { color: '#f00', width: 2, tail: 6 },
+          scale: { showLabels: true, majorLen: 8, minorLen: 4 },
+          segment: { mode: '7', ghost: true, digits: 4 },
+          tile: { align: 'center', numeric: true }
+        }
+      }
+    }
+    const before = structuredClone(valid)
+    const result = dashboardStorageValidationResult(valid)
+    expect(result.status).toBe('valid')
+    if (result.status !== 'valid') throw new Error(result.status === 'quarantine' ? result.error : 'Unexpected migration')
+    expect(result.dashboard).toBe(valid)
+    expect(result.migrations).toEqual([])
+    expect(valid).toEqual(before)
+  })
+
+  it('rejects renderer-crash shapes and out-of-range renderer controls', () => {
+    const cases: Array<[string, (dashboard: Dashboard) => void]> = [
+      ['React child label', (dashboard) => { (dashboard.elements[0].style as Record<string, unknown>).label = { unsafe: true } }],
+      ['non-array channels', (dashboard) => { (dashboard.elements[0].style as Record<string, unknown>).channels = { throttle: true } }],
+      ['invalid slot scalar', (dashboard) => { (dashboard.elements[0].style as Record<string, unknown>).slots = { value: { fontSize: [] } } }],
+      ['unbounded instrument count', (dashboard) => { dashboard.elements[0].style.instrument = { parts: { led: { segments: 1_000_000 } } } }],
+      ['non-JSON style value', (dashboard) => { (dashboard.elements[0].style as Record<string, unknown>).future = new Date() }],
+      ['invalid opacity', (dashboard) => { dashboard.elements[0].style.opacity = 2 }],
+      ['renderer row overflow', (dashboard) => { dashboard.elements[0].style.tableMaxRows = 65 }],
+      ['identity on wrong type', (dashboard) => { (dashboard.elements[0] as unknown as Record<string, unknown>).widgetId = 'future:wrong-type' }]
+    ]
+    for (const [name, mutate] of cases) {
+      const dashboard = storedDashboard(`invalid-${name}`)
+      mutate(dashboard)
+      expect(dashboardValidationError(dashboard), name).not.toBeNull()
+    }
+  })
+
+  it('exposes the manager integration contract for valid, rewrite-and-load, and per-file quarantine outcomes', () => {
+    const valid = storedDashboard('valid-file')
+    const migrated = storedDashboard('migrated-file')
+    migrated.elements[0].style.tableColumns = ['pos', 'last']
+    const invalid = storedDashboard('invalid-file')
+    invalid.elements[0].type = 'overlaywidget'
+    const results = [valid, migrated, invalid].map((dashboard) => dashboardStorageValidationResult(dashboard))
+    const managerAction = (status: typeof results[number]['status']): string =>
+      status === 'valid' ? 'load' : status === 'migrated' ? 'rewrite-and-load' : 'quarantine-file'
+    expect(results.map((result) => result.status)).toEqual(['valid', 'migrated', 'quarantine'])
+    expect(results.map((result) => managerAction(result.status))).toEqual(['load', 'rewrite-and-load', 'quarantine-file'])
+    expect(results[0]).toMatchObject({ status: 'valid', dashboard: valid })
+    expect(results[1]).toMatchObject({
+      status: 'migrated',
+      migrations: [expect.objectContaining({ code: 'table-column-last-to-laps' })]
+    })
+    expect(results[2]).toMatchObject({ status: 'quarantine', error: expect.stringMatching(/requires widgetId/) })
+    expect('dashboard' in results[2]).toBe(false)
   })
 })
