@@ -169,7 +169,7 @@ async function feed(
 
 type ContinuityPath = 'normal' | 'too-slow' | 'time-gap' | 'replay-resume'
 
-async function ingestNoGpsTransition(
+async function ingestContinuityTransition(
   learner: TrackMapLearner,
   last: TelemetrySnapshot,
   lapDistPct: number,
@@ -463,7 +463,7 @@ describe('TrackMapLearner — robust capture', () => {
       await feed(learner, first)
       const last = first[first.length - 1]
 
-      await ingestNoGpsTransition(learner, last, 0.01, path)
+      await ingestContinuityTransition(learner, last, 0.01, path)
 
       expect(learner.getRecordingSnapshot().active).toBe(true)
       expect(learner.has('Test Circuit')).toBe(false)
@@ -476,7 +476,7 @@ describe('TrackMapLearner — robust capture', () => {
       const first = velocityYawLap(hundredthPcts(0, 91))
       await feed(learner, first)
       const last = first[first.length - 1]
-      const result = await ingestNoGpsTransition(learner, last, 0.09, path)
+      const result = await ingestContinuityTransition(learner, last, 0.09, path)
 
       expect(result).toBeNull()
       expect(learner.getRecordingSnapshot().active).toBe(false)
@@ -491,7 +491,7 @@ describe('TrackMapLearner — robust capture', () => {
       learner.armManualCapture()
       const first = velocityYawLap(hundredthPcts(path === 'normal' ? 5 : 80, 95))
       await feed(learner, first)
-      const result = await ingestNoGpsTransition(learner, first[first.length - 1], 0, path)
+      const result = await ingestContinuityTransition(learner, first[first.length - 1], 0, path)
 
       if (path === 'normal') {
         expect(result).not.toBeNull()
@@ -509,7 +509,7 @@ describe('TrackMapLearner — robust capture', () => {
     async (path) => {
       const first = velocityYawLap([...hundredthPcts(0, 94), 0.949999])
       await feed(learner, first)
-      const result = await ingestNoGpsTransition(learner, first[first.length - 1], 0, path)
+      const result = await ingestContinuityTransition(learner, first[first.length - 1], 0, path)
 
       expect(result).toBeNull()
       expect(learner.getRecordingSnapshot().active).toBe(false)
@@ -517,6 +517,75 @@ describe('TrackMapLearner — robust capture', () => {
       expect(learner.has('Test Circuit')).toBe(false)
     }
   )
+
+  it.each(['normal', 'too-slow', 'time-gap', 'replay-resume'] as const)(
+    'accepts the exact non-seam .15 -> .20 step through the %s path',
+    async (path) => {
+      const pcts = hundredthPcts(0, 15)
+      const first = path === 'replay-resume' ? latLonLap(pcts) : velocityYawLap(pcts)
+      await feed(learner, first)
+      const before = learner.getRecordingSnapshot().sampleCount
+      const result = await ingestContinuityTransition(learner, first[first.length - 1], 0.2, path)
+
+      expect(result).toBeNull()
+      expect(learner.getRecordingSnapshot().active).toBe(true)
+      expect(learner.getLearnState().reason).toBe(
+        path === 'too-slow' ? 'too-slow' : path === 'time-gap' ? 'time-gap' : 'recording'
+      )
+      if (path === 'normal' || path === 'replay-resume') {
+        expect(learner.getRecordingSnapshot().sampleCount).toBeGreaterThan(before)
+      }
+    }
+  )
+
+  it.each(['normal', 'too-slow', 'time-gap', 'replay-resume'] as const)(
+    'rejects the just-over non-seam .15 -> .200001 step through the %s path',
+    async (path) => {
+      const pcts = hundredthPcts(0, 15)
+      const first = path === 'replay-resume' ? latLonLap(pcts) : velocityYawLap(pcts)
+      await feed(learner, first)
+      const before = learner.getRecordingSnapshot().sampleCount
+      const result = await ingestContinuityTransition(learner, first[first.length - 1], 0.200001, path)
+
+      expect(result).toBeNull()
+      expect(learner.getLearnState().reason).toBe('teleport-reset')
+      if (path === 'normal') {
+        expect(learner.getRecordingSnapshot().active).toBe(true)
+        expect(learner.getRecordingSnapshot().sampleCount).toBe(before)
+      } else {
+        expect(learner.getRecordingSnapshot().active).toBe(false)
+      }
+    }
+  )
+
+  it.each(['normal', 'too-slow', 'time-gap', 'replay-resume'] as const)(
+    'clamps epsilon-sized negative percentage jitter through the %s path',
+    async (path) => {
+      const first = velocityYawLap(hundredthPcts(0, 50))
+      await feed(learner, first)
+      const result = await ingestContinuityTransition(
+        learner,
+        first[first.length - 1],
+        0.5 - Number.EPSILON,
+        path
+      )
+
+      expect(result).toBeNull()
+      expect(learner.getRecordingSnapshot().active).toBe(true)
+      expect(learner.getLearnState().reason).toBe(
+        path === 'too-slow' ? 'too-slow' : path === 'time-gap' ? 'time-gap' : 'recording'
+      )
+    }
+  )
+
+  it('resets a replay-resumed meaningful reverse step', async () => {
+    const first = velocityYawLap(hundredthPcts(0, 50))
+    await feed(learner, first)
+    await ingestContinuityTransition(learner, first[first.length - 1], 0.499, 'replay-resume')
+
+    expect(learner.getRecordingSnapshot().active).toBe(false)
+    expect(learner.getLearnState().reason).toBe('teleport-reset')
+  })
 
   it.each([
     ['ordinary forward step', 0, 0.35, undefined],
@@ -781,6 +850,41 @@ describe('TrackMapLearner — layout persistence and legacy migration', () => {
     const quarantined = readdirSync(join(root, 'quarantine'))
       .map((file) => JSON.parse(readFileSync(join(root, 'quarantine', file), 'utf8')) as { capturedAt?: number })
     expect(quarantined.some((record) => record.capturedAt === 20)).toBe(true)
+  })
+
+  it('prioritizes an exact TrackID V2 over newer configless V2 and V1 candidates', async () => {
+    writeV2(undefined, 10, 1, 101, 'layout-v2.json')
+    writeV2(undefined, 20, 2, undefined, 'configless-v2.json')
+    writeLegacy(30, 3)
+    const learner = new TrackMapLearner('unused', { rootDir: root, logger: spy.logger })
+    await learner.setCatalog([{ trackId: 101, trackName: 'Shared Venue', trackConfigName: 'Grand Prix' }], true)
+    await learner.hydrate()
+
+    const promoted = learner.get({ trackId: 101, trackName: 'Shared Venue', trackConfigName: 'Grand Prix' })
+    expect(promoted?.capturedAt).toBe(10)
+    expect(promoted?.polyline[0].x).toBe(1)
+    const quarantined = readdirSync(join(root, 'quarantine'))
+      .map((file) => JSON.parse(readFileSync(join(root, 'quarantine', file), 'utf8')) as { capturedAt?: number })
+    expect(quarantined).toEqual(expect.arrayContaining([
+      expect.objectContaining({ capturedAt: 20 }),
+      expect.objectContaining({ capturedAt: 30 })
+    ]))
+  })
+
+  it('treats a canonical combined-name V2 as exact identity without matching another config', async () => {
+    writeV2(undefined, 10, 1, undefined, 'combined-v2.json', 'Shared Venue - Grand Prix')
+    writeV2(undefined, 20, 2, undefined, 'configless-v2.json')
+    writeLegacy(30, 3)
+    writeV2('Club', 40, 4, undefined, 'club-v2.json')
+    const learner = new TrackMapLearner('unused', { rootDir: root, logger: spy.logger })
+    await learner.setCatalog([{ trackId: 101, trackName: 'Shared Venue', trackConfigName: 'Grand Prix' }], true)
+    await learner.hydrate()
+
+    const promoted = learner.get({ trackId: 101, trackName: 'Shared Venue', trackConfigName: 'Grand Prix' })
+    expect(promoted?.capturedAt).toBe(10)
+    expect(promoted?.polyline[0].x).toBe(1)
+    expect(learner.get({ trackName: 'Shared Venue', trackConfigName: 'Club' })?.polyline[0].x).toBe(4)
+    expect(readdirSync(root)).toContain('club-v2.json')
   })
 
   it('promotes the newer V2 when equal-version candidates target the same catalog layout', async () => {

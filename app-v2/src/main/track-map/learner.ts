@@ -82,8 +82,8 @@ const NOOP_LOGGER: Logger = {
 // so we don't reject every lap.
 const MIN_PCT_STEP = -0.02 // allow tiny rewinds (provider jitter)
 const MAX_PCT_STEP = 0.05 // anything >5% per tick is a teleport
-// Eight machine epsilons absorb binary rounding at the exact seam-step boundary
-// (for example, .95 → 0) without admitting a meaningfully larger telemetry jump.
+// Eight machine epsilons absorb binary rounding at exact step boundaries
+// (for example, .15 → .20 or .95 → 0) without admitting a larger telemetry jump.
 const PCT_STEP_EPSILON = Number.EPSILON * 8
 const START_MAX_PCT = 0.05 // anchor IMMEDIATELY at S/F when a capture starts this close
 const WRAP_FROM = 0.9 // lap is "done" when pct passes this...
@@ -414,7 +414,7 @@ export class TrackMapLearner {
     const processed = new Set<PersistedOutline>()
     const promotedOutlines: PersistedOutline[] = []
     for (const { row, outlines } of groups.values()) {
-      const ranked = rankOutlineCandidates(outlines.map((outline) => ({
+      const ranked = rankOutlineCandidates(row, outlines.map((outline) => ({
         outline,
         record: promoteOutline(outline.record, trackLayoutFromCatalog(row))
       })))
@@ -726,7 +726,7 @@ export class TrackMapLearner {
         ? geoDeltaMeters(this.suspension.geo, currentGeo).distance : Number.POSITIVE_INFINITY
       if (
         this.suspension.layoutKey !== layout.key ||
-        forward === null || forward > MAX_PCT_STEP + PCT_STEP_EPSILON ||
+        forward === null || pctStepExceedsLimit(forward) ||
         (!hasGeoPair && !continuousWithoutGps) ||
         (hasGeoPair && jump > MAX_RESUME_COORDINATE_JUMP_METERS)
       ) {
@@ -768,9 +768,9 @@ export class TrackMapLearner {
         // the pct jumping more than one normal step while paused (a slow corner or
         // spin barely moves pct) and drop the in-flight lap. Only a bounded seam
         // crossing (~1 → ~0) is accepted as a genuine wrap.
-        const pausedStep = pct - this.acquisition.lastPct
+        const pausedStep = normalizePctStep(pct - this.acquisition.lastPct)
         const wrappedWhilePaused = validSeamForwardStep(this.acquisition.lastPct, pct) !== null
-        if (!wrappedWhilePaused && Math.abs(pausedStep) > MAX_PCT_STEP) {
+        if (!wrappedWhilePaused && pctStepExceedsLimit(pausedStep)) {
           this.acquisition = null
           this.note('teleport-reset', nowMs, { step: pausedStep, pct, speedKmh })
           return null
@@ -810,9 +810,9 @@ export class TrackMapLearner {
       // during the gap (not a lap wrap), the frozen integrator would draw a
       // translated path on resume — drop the lap. A small pct delta across the gap
       // is a normal stall/clock-reset: resync and keep recording.
-      const gapStep = pct - acq.lastPct
+      const gapStep = normalizePctStep(pct - acq.lastPct)
       const wrappedAcrossGap = validSeamForwardStep(acq.lastPct, pct) !== null
-      if (!wrappedAcrossGap && Math.abs(gapStep) > MAX_PCT_STEP) {
+      if (!wrappedAcrossGap && pctStepExceedsLimit(gapStep)) {
         this.acquisition = null
         this.note('teleport-reset', nowMs, { step: gapStep, dt: dtRaw })
         return null
@@ -824,7 +824,7 @@ export class TrackMapLearner {
       return null
     }
     const dt = dtRaw
-    const step = pct - acq.lastPct
+    const step = normalizePctStep(pct - acq.lastPct)
 
     // Detect a bounded genuine lap wrap FIRST. At the start/finish line `lapDistPct`
     // jumps from "almost 1" back to "almost 0" in a single sample, which looks
@@ -835,10 +835,10 @@ export class TrackMapLearner {
 
     // Reject teleports and big rewinds — but never a real wrap. A small backwards
     // step (provider jitter) is fine; we just don't move forward in the path.
-    if (!wrapped && (step > MAX_PCT_STEP || step < MIN_PCT_STEP)) {
+    if (!wrapped && (pctStepExceedsLimit(step) || step < MIN_PCT_STEP)) {
       // A LARGE discontinuity (tow/reset/teleport) is unsalvageable — drop the lap.
       // After a reset the next moving tick re-arms automatically.
-      if (Math.abs(step) > MAX_PCT_STEP * 4) {
+      if (pctStepExceedsLimit(step, 4)) {
         this.acquisition = null
         this.note('teleport-reset', nowMs, { step, pct })
         return null
@@ -879,7 +879,7 @@ export class TrackMapLearner {
     appendSample(acq, snapshot, pct, step, dt)
     pushCornerSample(acq, snapshot, pct)
     const forward = wrapForward ?? Math.max(0, step)
-    if (forward > 0 && forward <= MAX_PCT_STEP * 2) acq.covered += forward
+    if (forward > 0 && !pctStepExceedsLimit(forward, 2)) acq.covered += forward
     acq.lastPct = pct
     acq.lastTimestamp = snapshot.timestamp
     acq.lastGeo = currentGeo
@@ -1127,14 +1127,22 @@ function geoDeltaMeters(from: GeoPoint, to: GeoPoint): { east: number; north: nu
 function strictForwardStep(previousPct: number, pct: number): number | null {
   const wrapForward = validSeamForwardStep(previousPct, pct)
   if (wrapForward !== null) return wrapForward
-  const step = pct - previousPct
+  const step = normalizePctStep(pct - previousPct)
   return step >= 0 ? step : null
 }
 
 function validSeamForwardStep(previousPct: number, pct: number): number | null {
   if (previousPct <= WRAP_FROM || pct >= WRAP_TO) return null
-  const forward = pct + 1 - previousPct
-  return forward >= 0 && forward <= MAX_PCT_STEP + PCT_STEP_EPSILON ? forward : null
+  const forward = normalizePctStep(pct + 1 - previousPct)
+  return forward >= 0 && !pctStepExceedsLimit(forward) ? forward : null
+}
+
+function normalizePctStep(step: number): number {
+  return Math.abs(step) <= PCT_STEP_EPSILON ? 0 : step
+}
+
+function pctStepExceedsLimit(step: number, multiplier = 1): boolean {
+  return Math.abs(step) > MAX_PCT_STEP * multiplier + PCT_STEP_EPSILON
 }
 
 function bridgeSuspension(
@@ -1592,6 +1600,7 @@ function compareRecords(a: LearnedRecord, b: LearnedRecord): number {
 }
 
 function rankOutlineCandidates(
+  row: TrackCatalogLayout,
   candidates: Array<{ outline: PersistedOutline; record: LearnedRecord }>
 ): Array<{ outline: PersistedOutline; record: LearnedRecord }> {
   const byRecency = (
@@ -1599,26 +1608,33 @@ function rankOutlineCandidates(
     b: { outline: PersistedOutline; record: LearnedRecord }
   ): number => compareRecords(b.record, a.record) ||
     basename(b.outline.filePath).localeCompare(basename(a.outline.filePath))
-  const v2 = candidates.filter(({ outline }) => outline.record.version === 2).sort(byRecency)
-  const v1 = candidates.filter(({ outline }) => outline.record.version === 1).sort(byRecency)
-  const bestV2 = v2[0]
-  const bestV1 = v1[0]
-  let winner = bestV2 ?? bestV1
-  if (bestV2 && bestV1) {
-    // Identity-bearing V2 is authoritative; otherwise recency/content wins and
-    // V2 is only the final tie-break for two configless candidates.
-    winner = (
-      hasLayoutIdentity(bestV2.outline.record) ||
-      compareRecords(bestV2.record, bestV1.record) >= 0
-    ) ? bestV2 : bestV1
-  }
-  return winner ? [winner, ...v2.filter((candidate) => candidate !== winner),
-    ...v1.filter((candidate) => candidate !== winner)] : []
+  const byConfiglessPrecedence = (
+    a: { outline: PersistedOutline; record: LearnedRecord },
+    b: { outline: PersistedOutline; record: LearnedRecord }
+  ): number => compareRecords(b.record, a.record) ||
+    Number(b.outline.record.version === 2) - Number(a.outline.record.version === 2) ||
+    basename(b.outline.filePath).localeCompare(basename(a.outline.filePath))
+  const identityV2 = candidates
+    .filter(({ outline }) => hasMatchingLayoutIdentity(outline.record, row))
+    .sort(byRecency)
+  const winner = identityV2[0]
+  if (!winner) return candidates.sort(byConfiglessPrecedence)
+  return [winner, ...candidates.filter((candidate) => candidate !== winner).sort(byConfiglessPrecedence)]
 }
 
-function hasLayoutIdentity(record: LearnedRecord | LegacyLearnedRecord): boolean {
-  return record.version === 2 &&
-    (record.trackId !== undefined || normalizeLayoutPart(record.trackConfigName).length > 0)
+function hasMatchingLayoutIdentity(
+  record: LearnedRecord | LegacyLearnedRecord,
+  row: TrackCatalogLayout
+): boolean {
+  if (record.version !== 2) return false
+  if (record.trackId !== undefined) return record.trackId === row.trackId
+  const aliases = layoutAliasKeys(record)
+  const targetAliases = new Set(layoutAliasKeys(trackLayoutFromCatalog(row)))
+  const matchesExactLayout = aliases.some((alias) => targetAliases.has(alias))
+  return matchesExactLayout && (
+    normalizeLayoutPart(record.trackConfigName).length > 0 ||
+    aliases.length > 1
+  )
 }
 
 function recordContentKey(record: LearnedRecord): string {
