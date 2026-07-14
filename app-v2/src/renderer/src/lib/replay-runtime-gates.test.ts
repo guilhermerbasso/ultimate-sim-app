@@ -282,6 +282,36 @@ describe('replay owner/runtime cancellation', () => {
     await engineer
   })
 
+  it('physically stops current Web Speech when owner cancellation has no replacement', async () => {
+    const speech = speakViaTts('Engineer cancelled', { source: 'engineer', lang: 'en-US' })
+    await vi.waitFor(() => expect(activeUtterance?.text).toBe('Engineer cancelled'))
+
+    cancelSpeechOwner('engineer')
+    await speech
+
+    expect(speechCancel).toHaveBeenCalledOnce()
+    expect(activeUtterance).toBeNull()
+    expect(isTtsSpeaking()).toBe(false)
+  })
+
+  it('does not let late superseded cancellation stop newer Web Speech', async () => {
+    const first = speakViaTts('Old engineer line', { source: 'engineer', lang: 'en-US' })
+    await vi.waitFor(() => expect(activeUtterance?.text).toBe('Old engineer line'))
+
+    const second = speakViaTts('Current engineer line', { source: 'engineer', lang: 'en-US' })
+    await vi.waitFor(() => expect(activeUtterance?.text).toBe('Current engineer line'))
+    await first
+
+    expect(speechCancel).toHaveBeenCalledOnce()
+    expect(activeUtterance?.text).toBe('Current engineer line')
+    expect(isTtsSpeaking()).toBe(true)
+
+    activeUtterance?.onend?.()
+    await second
+    expect(speechCancel).toHaveBeenCalledOnce()
+    expect(isTtsSpeaking()).toBe(false)
+  })
+
   it('settles owner cancellation while AudioContext resume is suspended', async () => {
     const resume = deferred<undefined>()
     context.state = 'suspended'

@@ -313,8 +313,9 @@ async function webSpeechSpeak(
   }
   if (seq !== speakSeq || !isSpeechOwnerTokenCurrent(owner, ownerToken)) return
   let finish = (): void => undefined
+  let release = (): void => undefined
+  let cancelClaim = (): void => undefined
   const playback = new Promise<void>((resolve) => {
-    let release: () => void = () => undefined
     try {
       const utterance = new SpeechSynthesisUtterance(text)
       utterance.rate = rate
@@ -346,7 +347,9 @@ async function webSpeechSpeak(
       finish = done
       utterance.onend = done
       utterance.onerror = done
-      release = claimOwnedWebSpeech(owner, () => window.speechSynthesis.cancel())
+      const claim = claimOwnedWebSpeech(owner, () => window.speechSynthesis.cancel())
+      release = claim
+      cancelClaim = claim.cancel
       window.speechSynthesis.speak(utterance)
     } catch {
       release()
@@ -354,7 +357,10 @@ async function webSpeechSpeak(
     }
   })
   const result = await raceOwnerStage(playback, signal)
-  if (result.cancelled) finish()
+  if (result.cancelled) {
+    cancelClaim()
+    finish()
+  }
 }
 
 // ─── WAV playback ─────────────────────────────────────────────────────────────────

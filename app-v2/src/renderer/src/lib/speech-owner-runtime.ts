@@ -11,7 +11,11 @@ interface SpeechOwnerWaiter {
 
 const cancellers = new Map<SpeechOwner, Set<SpeechOwnerCanceller>>()
 const cancellationWaiters = new Map<SpeechOwner, Set<SpeechOwnerWaiter>>()
-let activeWebSpeech: { owner: SpeechOwner; cancel: () => void } | null = null
+interface ActiveWebSpeech {
+  owner: SpeechOwner
+  cancel: () => void
+}
+let activeWebSpeech: ActiveWebSpeech | null = null
 
 export function speechOwnerToken(owner: SpeechOwner): number {
   return generations[owner]
@@ -90,7 +94,18 @@ export function cancelSpeechOwner(owner: SpeechOwner, event?: ReplaySpeechCancel
   }
 }
 
-export function claimOwnedWebSpeech(owner: SpeechOwner, cancel: () => void): () => void {
+function cancelWebSpeechClaim(claim: ActiveWebSpeech): void {
+  if (activeWebSpeech !== claim) return
+  activeWebSpeech = null
+  try { claim.cancel() } catch { /* best effort */ }
+}
+
+export interface OwnedWebSpeechRelease {
+  (): void
+  cancel: () => void
+}
+
+export function claimOwnedWebSpeech(owner: SpeechOwner, cancel: () => void): OwnedWebSpeechRelease {
   const previous = activeWebSpeech
   activeWebSpeech = null
   if (previous) {
@@ -98,16 +113,16 @@ export function claimOwnedWebSpeech(owner: SpeechOwner, cancel: () => void): () 
   }
   const claim = { owner, cancel }
   activeWebSpeech = claim
-  return () => {
+  const release = (() => {
     if (activeWebSpeech === claim) activeWebSpeech = null
-  }
+  }) as OwnedWebSpeechRelease
+  release.cancel = () => cancelWebSpeechClaim(claim)
+  return release
 }
 
 export function cancelOwnedWebSpeech(owner: SpeechOwner): void {
   if (activeWebSpeech?.owner !== owner) return
-  const active = activeWebSpeech
-  activeWebSpeech = null
-  try { active.cancel() } catch { /* best effort */ }
+  cancelWebSpeechClaim(activeWebSpeech)
 }
 
 export function resetSpeechOwnerRuntimeForTests(): void {
