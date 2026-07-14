@@ -250,10 +250,17 @@ function DeltaWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement
 }
 
 function PositionWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+  const w = width ?? 280
+  const h = height ?? 140
   const pos = num(snapshot?.position)
   const total = num(snapshot?.totalCars)
   const value = pos == null ? '—' : `P${Math.trunc(pos)}${total == null ? '' : ` / ${Math.trunc(total)}`}`
-  return <SingleMetric width={width ?? 280} height={height ?? 140} label="POS" value={value} color={YELLOW} />
+  const valueSize = Math.min(h * 0.36, w * 0.17)
+  return (
+    <CleanTile width={w} height={h}>
+      <text x={w / 2} y={h * 0.66} textAnchor="middle" fill={pos == null ? C.dim : YELLOW} fontFamily={FONT_BIG} fontWeight={900} fontSize={valueSize} {...legibleStroke(valueSize)}>{value}</text>
+    </CleanTile>
+  )
 }
 
 const dashRequires: HifiWidgetModule['requires'] = ['gear', 'speedKmh', 'rpm', 'maxRpm', 'shiftIndicatorPct', 'fuelLiters', 'oilTempC', 'waterTempC', 'lastLapTimeSec', 'deltaToBestSec', 'position', 'totalCars']

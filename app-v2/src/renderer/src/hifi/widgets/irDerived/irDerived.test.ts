@@ -114,4 +114,16 @@ describe('IR_DERIVED_WIDGETS', () => {
     const nullMarkup = renderAll(null).join('\n')
     expect(nullMarkup).toContain('—')
   })
+
+  it('fits the six-digit session id inside its tag backing', () => {
+    const widget = IR_DERIVED_WIDGETS.find((candidate) => candidate.id === 'sessionTag')
+    expect(widget).toBeTruthy()
+    if (!widget) return
+
+    const markup = renderWidget(widget, { ...baseSnapshot(), sessionUniqueId: 990217 } as TelemetrySnapshot)
+    const tag = markup.match(/<text[^>]*y="142"[^>]*font-size="([^"]+)"[^>]*>#990217<\/text>/)
+    expect(tag).toBeTruthy()
+    expect(Number(tag?.[1])).toBeGreaterThanOrEqual(48)
+    expect(Number(tag?.[1])).toBeLessThanOrEqual(51)
+  })
 })

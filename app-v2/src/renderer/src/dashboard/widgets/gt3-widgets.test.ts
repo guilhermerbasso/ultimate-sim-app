@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { renderGt3Widget, GT3_WIDGET_TYPES } from './gt3-widgets'
+import { computeFuelStintLayout, renderGt3Widget, GT3_WIDGET_TYPES } from './gt3-widgets'
 import { PREVIEW_SNAPSHOT } from './gt3-theme'
 import { WIDGET_SLOTS, type DashboardElement, type DashboardElementStyle, type DashboardElementType } from '../../../../shared/dashboards'
 import { createElement } from 'react'
 import { MotorsportGlyph, type MotorsportIconId } from '../../icons/motorsport'
+import { computeFit } from '../../skins/FitText'
 
 function el(type: DashboardElementType, style: DashboardElementStyle, binding?: string, w = 220, h = 160): DashboardElement {
   return { id: `e-${type}`, type, x: 0, y: 0, w, h, binding, style }
@@ -66,6 +67,33 @@ describe('previously hard-coded GT3 text now honours font colour + size', () => 
     expect(styled).toContain('#ff8800')
     expect(styled).toContain('font-size:13px')
   })
+})
+
+describe('FuelStint compact column layout', () => {
+  for (const [label, w, h] of [['tile', 300, 92], ['wide', 340, 110], ['endurance', 320, 120]] as const) {
+    it(`keeps the fuel-per-lap value and unit legible and compact at ${label} size`, () => {
+      const layout = computeFuelStintLayout(w, h)
+      const unitFit = computeFit(null, 'L/lap', layout.perLapUnitBoxW, layout.perLapUnitBoxH, 13, 16, 'squeeze')
+      expect(unitFit.didFit).toBe(true)
+      expect(unitFit.fontPx).toBeGreaterThanOrEqual(13)
+
+      // fuelstint and x4-fuelstint-tile both render at 300×92 in drive/redline.
+      // Use the bundled DSEG font's Chromium-measured advance so this catches the
+      // runtime data-didfit="0" regression that the SSR fallback underestimates.
+      let measuredFontPx = 13
+      const dsegMeasurement = {
+        setAttribute: (name: string, value: string) => {
+          if (name === 'font-size') measuredFontPx = Number(value)
+        },
+        getComputedTextLength: () => measuredFontPx * (31.828125 / 13)
+      } as unknown as SVGTextElement
+      const valueBoxW = layout.halfSide - layout.perLapUnitBoxW - 2
+      const valueBoxH = layout.perLapUnitBoxH / 0.6
+      const valueFit = computeFit(dsegMeasurement, '2.86', valueBoxW, valueBoxH, 13, valueBoxH * 0.8, 'squeeze')
+      expect(valueFit.didFit).toBe(true)
+      expect(valueFit.fontPx).toBeGreaterThanOrEqual(13)
+    })
+  }
 })
 
 // The v2.35.0 GT3 typography fix: the generic value widget chooses its VALUE-slot

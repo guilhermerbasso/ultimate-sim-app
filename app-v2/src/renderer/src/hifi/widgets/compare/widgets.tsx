@@ -308,10 +308,13 @@ function GapW({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const w = width ?? 320
   const h = height ?? 150
   const delta = num(snapshot?.deltaToBestSec)
+  const value = signed(delta, 3)
   const col = condColor(delta, { positiveIsGood: false, deadzone: 0.02, good: '#2BFF66', bad: '#ff4040', neutral: WHITE })
+  const effectiveChars = value.length + 0.84
+  const valueSize = Math.max(24, Math.min(h * 0.42, (w - 32) / (effectiveChars * 0.78)))
   return (
     <CleanTile width={w} height={h}>
-      <text x={w / 2} y={h * 0.72} textAnchor="middle" fill={col} fontFamily={FONT_BIG} fontWeight={900} fontSize={h * 0.46} {...legibleStroke(h * 0.46)}>{signed(delta, 3)}<tspan fill={GREY} fontFamily={FONT_LABEL} fontSize={h * 0.2}> s</tspan></text>
+      <text x={w / 2} y={h * 0.72} textAnchor="middle" fill={col} fontFamily={FONT_BIG} fontWeight={900} fontSize={valueSize} {...legibleStroke(valueSize)}>{value}<tspan fill={GREY} fontFamily={FONT_LABEL} fontSize={valueSize * 0.42}> s</tspan></text>
     </CleanTile>
   )
 }

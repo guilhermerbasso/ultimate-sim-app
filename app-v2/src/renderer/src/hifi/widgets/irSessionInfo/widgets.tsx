@@ -205,7 +205,7 @@ function TrackInfo({ width, height, snapshot }: HifiWidgetProps): ReactElement {
   const config = safeText(snapshot?.trackConfigName)
   const missing = track == null
   const main = track ?? '—'
-  const mainSize = fitSize(main, INFO_W - 42, config ? 39 : 46, 13, 0.57)
+  const mainSize = fitSize(main, INFO_W - 42, config ? 39 : 46, 13, 0.72)
   const configSize = fitSize(config ?? '', INFO_W - 58, 25, 11, 0.57)
 
   return (

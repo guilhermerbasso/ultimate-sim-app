@@ -420,6 +420,11 @@ function spotterRaw(pal: ThemePal) {
 }
 
 // ── 12. Session tag ───────────────────────────────────────────────────────────
+function sessionTagSize(tag: string): number {
+  if (tag === '—') return 72
+  return Math.max(32, Math.min(72, (W - 96) / (tag.length * 0.92)))
+}
+
 function sessionTag(pal: ThemePal) {
   return function ThemedSessionTag({ width, height, snapshot }: HifiWidgetProps): ReactElement {
     const id = num(snapshot?.sessionUniqueId)
@@ -428,7 +433,7 @@ function sessionTag(pal: ThemePal) {
     return (
       <Root width={width} height={height} snapshot={snapshot}>
         <rect x={40} y={70} width={W - 80} height={100} rx={16} fill="rgba(255,255,255,0.04)" stroke={pal.main} strokeWidth={1.5} strokeOpacity={0.6} />
-        <BigNum x={W / 2} y={140} value={tag} color={color} size={id != null && tag.length > 7 ? 56 : 72} />
+        <BigNum x={W / 2} y={140} value={tag} color={color} size={sessionTagSize(tag)} />
         {id != null ? <AccentBar pal={pal} cx={W / 2} y={158} w={130} /> : null}
         <Label text="SESSION ID" x={W / 2} y={196} />
       </Root>
