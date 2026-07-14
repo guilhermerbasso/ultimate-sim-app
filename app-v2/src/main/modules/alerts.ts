@@ -310,8 +310,7 @@ function dispatchButtonbox(
   index: number
 ): void {
   if (!hardwareEffectsEnabled) return
-  const device = ctx.serialHub.getPrimary()
-  if (!device) return
+  if (!ctx.serialHub.getPrimary()) return
 
   const deviceId = ctx.serialHub.getPrimaryId() ?? 'primary'
   const owner = `${event.type}:${index}`
