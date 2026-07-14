@@ -38,7 +38,6 @@ import {
 } from '../../shared/replay'
 
 const CONFIG_FILE = 'soundshift.json'
-const SOUNDSHIFT_CANCEL_EVENT = 'soundshift:cancel'
 
 export type SoundsConfigPatch = {
   version?: 2
@@ -98,7 +97,6 @@ export function register(ctx: ModuleContext): void {
 
     if (boundary) {
       resetLiveState()
-      ctx.broadcast(SOUNDSHIFT_CANCEL_EVENT, { state: live.state, revision: snapshot?.replayContext?.revision })
     }
     if (!live.live || !snapshot) {
       pendingLiveSnapshot = null

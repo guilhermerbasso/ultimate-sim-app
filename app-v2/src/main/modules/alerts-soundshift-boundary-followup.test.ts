@@ -6,8 +6,6 @@ import type { ReplayContext, ReplayContextState } from '../../shared/replay'
 import { SOUNDSHIFT_CHANNELS } from '../../shared/soundshift'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 
-const SOUNDSHIFT_CANCEL_EVENT = 'soundshift:cancel'
-
 vi.mock('../settings/events', () => ({
   settingsEvents: { onChanged: vi.fn() }
 }))
@@ -405,7 +403,6 @@ describe('alerts hardware boundary cleanup', () => {
       'B0'
     ])
     expect(harness.device.sendOled.mock.calls.filter((args) => args.every((value) => value === ''))).toHaveLength(1)
-    expect(callsFor(harness.broadcast, 'alerts:reset')).toHaveLength(1)
 
     const neutralizerOrders = [
       ...harness.device.sendRaw.mock.invocationCallOrder.slice(3),
@@ -421,7 +418,6 @@ describe('alerts hardware boundary cleanup', () => {
     await settleHardwareWrites()
     expect(harness.device.sendRaw).toHaveBeenCalledTimes(rawCount)
     expect(harness.device.sendOled).toHaveBeenCalledTimes(oledCount)
-    expect(callsFor(harness.broadcast, 'alerts:reset')).toHaveLength(1)
   })
 
   it('silently seeds active alert conditions after replay and token-only live context changes', async () => {
@@ -1061,13 +1057,11 @@ describe('soundshift boundary seeding', () => {
     const replay = snapshot('replay', 1, active)
     harness.emit(replay)
     harness.emit(replay)
-    expect(callsFor(harness.broadcast, SOUNDSHIFT_CANCEL_EVENT)).toHaveLength(1)
     expect(callsFor(harness.broadcast, SOUNDSHIFT_CHANNELS.cueEvent)).toEqual([])
 
     harness.broadcast.mockClear()
     harness.emit(snapshot('live', 2, active))
     harness.emit(snapshot('live', 2, { ...active, timestamp: 1_300 }))
-    expect(callsFor(harness.broadcast, SOUNDSHIFT_CANCEL_EVENT)).toHaveLength(1)
     expect(callsFor(harness.broadcast, SOUNDSHIFT_CHANNELS.cueEvent)).toEqual([])
 
     harness.emit(snapshot('live', 2, { ...low, timestamp: 1_400 }))
@@ -1082,7 +1076,6 @@ describe('soundshift boundary seeding', () => {
     harness.broadcast.mockClear()
     harness.emit(snapshot('live', 2, { ...active, timestamp: 1_700 }, 'token-b'))
     harness.emit(snapshot('live', 2, { ...active, timestamp: 1_800 }, 'token-b'))
-    expect(callsFor(harness.broadcast, SOUNDSHIFT_CANCEL_EVENT)).toHaveLength(1)
     expect(callsFor(harness.broadcast, SOUNDSHIFT_CHANNELS.cueEvent)).toEqual([])
 
     harness.emit(snapshot('live', 2, { ...low, timestamp: 1_900 }, 'token-b'))

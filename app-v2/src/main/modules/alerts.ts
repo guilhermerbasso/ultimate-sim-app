@@ -77,7 +77,6 @@ interface HardwareActuatorState {
   appliedRevision: number
   forceNeutral: boolean
   activeAttempt?: HardwareWriteAttempt
-  inFlight?: Promise<void>
   retryTimer?: ReturnType<typeof setTimeout>
   lastError?: unknown
 }
@@ -155,7 +154,6 @@ export function register(ctx: ModuleContext): void {
       releaseAllHardwareLeases(ctx)
       detector.reset()
       lastSerialSendAt.clear()
-      ctx.broadcast('alerts:reset', { state: live.state, revision: snapshot?.replayContext?.revision })
     }
     if (!live.live || !snapshot || !live.context) {
       pendingLive = null
@@ -529,7 +527,6 @@ function detachHardwareAttempt(state: HardwareActuatorState): HardwareWriteAttem
   const attempt = state.activeAttempt
   if (!attempt) return undefined
   state.activeAttempt = undefined
-  state.inFlight = undefined
   return attempt
 }
 
@@ -582,7 +579,6 @@ function reconcileHardwareActuator(state: HardwareActuatorState): Promise<void> 
     } finally {
       if (state.activeAttempt?.token !== token) return
       state.activeAttempt = undefined
-      state.inFlight = undefined
       if (hardwareActuators.get(state.key) === state && writeSucceeded) {
         const nextTarget = desiredHardwareTarget(state)
         if (
@@ -596,7 +592,6 @@ function reconcileHardwareActuator(state: HardwareActuatorState): Promise<void> 
   })()
   const attempt: HardwareWriteAttempt = { token, target, promise: write, cancel: bounded.cancel }
   state.activeAttempt = attempt
-  state.inFlight = write
   if (retryTimer) clearTimeout(retryTimer)
   return write
 }
