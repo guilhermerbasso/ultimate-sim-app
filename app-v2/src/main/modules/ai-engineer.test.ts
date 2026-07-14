@@ -94,6 +94,7 @@ function makeHarness(overrides?: {
   config?: Partial<EngineerConfig>
   snapshot?: TelemetrySnapshot | null
   racecraftContext?: RacecraftAdviceContext | null
+  getLiveContext?: EngineerOrchestratorDeps['getLiveContext']
 }): Harness {
   const config: EngineerConfig = { ...DEFAULT_ENGINEER_CONFIG, ...overrides?.config }
   const runtime = makeRuntime()
@@ -109,7 +110,8 @@ function makeHarness(overrides?: {
     broadcast,
     config,
     saveConfig,
-    now: () => 1000
+    now: () => 1000,
+    getLiveContext: overrides?.getLiveContext
   }
   return { deps, runtime, modelManager, broadcast, saveConfig }
 }
@@ -154,6 +156,33 @@ describe('createEngineerOrchestrator.ask', () => {
     // No telemetry → deterministic "no data" reply (English default).
     expect(answer.text).toBe('No telemetry right now.')
     expect(h.broadcast).toHaveBeenCalledWith(ENGINEER_CHANNELS.answer, expect.objectContaining({ source: 'intent' }))
+  })
+
+  it('keeps same-millisecond live-context rejection ids unique and deterministic', async () => {
+    const harness = makeHarness({ getLiveContext: () => null })
+    const orch = createEngineerOrchestrator(harness.deps)
+
+    const first = await orch.ask('first rejected question')
+    const second = await orch.ask('second rejected question')
+
+    const pattern = /^eng-live-context-reset-1000-(\d+)$/
+    const firstMatch = pattern.exec(first.id)
+    const secondMatch = pattern.exec(second.id)
+    if (!firstMatch || !secondMatch) throw new Error('Unexpected live-context rejection id')
+
+    expect(second.id).not.toBe(first.id)
+    expect(Number(secondMatch[1])).toBe(Number(firstMatch[1]) + 1)
+    for (const answer of [first, second]) {
+      expect(answer).toMatchObject({
+        at: 1000,
+        text: 'Live telemetry is unavailable.',
+        speak: false,
+        kind: 'disabled',
+        source: 'system'
+      })
+    }
+    expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
   })
 
   it('answers how to pass the car ahead from deterministic racecraft evidence without the LLM', async () => {

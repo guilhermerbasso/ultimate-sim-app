@@ -80,6 +80,7 @@ const ASK_LOG_THROTTLE_MS = 4000
 
 // Keep the most recent Q&A pairs in memory (the renderer keeps its own scrollback).
 const MAX_LOG_ENTRIES = 50
+let liveContextRejectionSeq = 0
 
 // ─── Injectable dependency seams (tests pass fakes) ───────────────────────────
 
@@ -310,9 +311,11 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
   }
 
   function rejectedAnswer(question: string): EngineerAnswer {
+    const at = now()
+    liveContextRejectionSeq += 1
     return {
-      id: 'eng-live-context-reset',
-      at: now(),
+      id: `eng-live-context-reset-${at}-${liveContextRejectionSeq}`,
+      at,
       question,
       text: isPt(config) ? 'Telemetria ao vivo indisponível.' : 'Live telemetry is unavailable.',
       speak: false,
