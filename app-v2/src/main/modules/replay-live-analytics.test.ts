@@ -244,7 +244,15 @@ describe('canonical replay boundaries for live analytics', () => {
     currentContext = null
     orchestrator.resetLiveContext()
     resolveEngineer({ ok: true, text: 'stale engineer text', tokens: 5, ms: 1, functionCalls: 0, stopReason: 'eogToken' })
-    await expect(answer).resolves.toMatchObject({ speak: false, kind: 'disabled', source: 'system' })
+    const rejected = await answer
+    expect(rejected).toMatchObject({
+      text: 'Live telemetry is unavailable.',
+      speak: false,
+      kind: 'disabled',
+      source: 'system'
+    })
+    expect(rejected.id).toMatch(/^eng-live-context-reset-\d+-\d+$/)
+    expect(rejected.text).not.toBe('stale engineer text')
     expect(engineerBroadcast).not.toHaveBeenCalledWith(ENGINEER_CHANNELS.answer, expect.anything())
     expect(orchestrator.getLog()).toEqual([])
   })
