@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { TOUCH_ACTION_IPC_CHANNEL } from '../../../shared/touch-panel'
 import type { TouchControlActionEvent } from './ButtonBoxRenderer'
 import { executeTouchControlAction, fetchStreamPanel } from './runtime'
 
@@ -9,12 +10,15 @@ function stubBrowserRuntime(href: string): ReturnType<typeof vi.fn> {
   return fetchMock
 }
 
-function touchEvent(phase: TouchControlActionEvent['phase']): TouchControlActionEvent {
+function touchEvent(
+  phase: TouchControlActionEvent['phase'],
+  action: TouchControlActionEvent['action'] = { kind: 'keyboard', command: { mode: 'press', keys: ['P'] } }
+): TouchControlActionEvent {
   return {
     button: {} as TouchControlActionEvent['button'],
     index: 0,
     zone: 'primary',
-    action: { kind: 'none' },
+    action,
     phase,
     token: 'hold-token'
   }
@@ -41,27 +45,36 @@ describe('touch panel browser streaming runtime', () => {
     expect(init).toEqual({ credentials: 'same-origin' })
   })
 
-  it('sends discrete actions through the authenticated endpoint and rejects browser holds', async () => {
+  it('fails every browser action closed without POSTing to the intentional 405 endpoint', async () => {
     const fetchMock = stubBrowserRuntime('https://stream.example/race/obs/touch?token=secret')
-    fetchMock.mockResolvedValue({ ok: true, status: 200 })
 
-    await expect(executeTouchControlAction(touchEvent('trigger'))).resolves.toEqual({
-      ok: true,
-      message: 'Action sent.'
-    })
-
-    const [url, init] = fetchMock.mock.calls[0]
-    expect(String(url)).toBe('https://stream.example/race/api/touch/action')
-    expect(init).toMatchObject({
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-      body: JSON.stringify({ kind: 'none' })
-    })
-
-    await expect(executeTouchControlAction(touchEvent('begin'))).rejects.toThrow(
-      'Press-and-hold is unavailable in browser streaming mode.'
+    await expect(executeTouchControlAction(touchEvent('trigger'))).rejects.toThrow(
+      'Touch controls are read-only in browser streaming mode.'
     )
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await expect(executeTouchControlAction(touchEvent('begin'))).rejects.toThrow(
+      'Touch controls are read-only in browser streaming mode.'
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('touch panel Electron runtime', () => {
+  it('invokes only the dedicated semantic Touch action channel', async () => {
+    const invoke = vi.fn().mockResolvedValue({ ok: true, message: 'sent' })
+    vi.stubGlobal('window', { ipc: { invoke } })
+    const event = touchEvent('trigger', {
+      kind: 'iracing',
+      command: { group: 'pit', name: 'pit:addFuel', fuelLiters: 10 }
+    })
+
+    await expect(executeTouchControlAction(event)).resolves.toEqual({ ok: true, message: 'sent' })
+    expect(invoke).toHaveBeenCalledWith(TOUCH_ACTION_IPC_CHANNEL, {
+      action: event.action,
+      phase: 'trigger',
+      token: 'hold-token',
+      zone: 'primary'
+    })
+    expect(invoke).not.toHaveBeenCalledWith('iracing:command', expect.anything())
+    expect(invoke).not.toHaveBeenCalledWith('actions:testEmulation', expect.anything())
   })
 })

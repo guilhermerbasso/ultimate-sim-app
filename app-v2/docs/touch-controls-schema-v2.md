@@ -4,7 +4,7 @@
 
 ## Migration guarantee
 
-Legacy `button.action` becomes an explicit `momentary` control, regardless of its old cosmetic material. This preserves the old one-press behavior. Existing colors, labels, icons, actions, and cells are retained; short legacy grids are padded with non-action value tiles and oversized grids grow rows when possible. Invalid/future schemas are rejected with actionable errors.
+Legacy `button.action` becomes an explicit `momentary` control, regardless of its old cosmetic material. This preserves the old one-press behavior. Existing colors, labels, icons, actions, and cells are retained; short legacy grids are padded with non-action value tiles and oversized grids grow rows when possible. Invalid/future schemas are rejected with actionable errors. Legacy keyboard sequences preserve up to 64 keys; larger or malformed sequences fail migration without truncation or file rewrite.
 
 ## Control semantics
 
@@ -39,6 +39,6 @@ This is exported by `touchControlStateDestinationId()` for expression/output int
 
 ## Safety boundaries
 
-Imports accept only strict action/control shapes, hex colors, bounded text/timing, and small base64 raster images. External/file/javascript URLs, SVG payloads, arbitrary CSS, arbitrary zones, unknown state destinations, and gamepad actions are rejected. The fullscreen preload uses exact channels only.
+Imports accept only strict action/control shapes, hex colors, bounded text/timing, and small base64 raster images. External/file/javascript URLs, SVG payloads, arbitrary CSS, arbitrary zones, unknown state destinations, and gamepad actions are rejected. The fullscreen preload exposes one semantic action channel plus exact read-only/data channels; raw iRacing, emulation, dashboard, OLED, and overlay action channels are not exposed.
 
-Browser-streamed true holds remain disabled until the streaming transport provides an authenticated begin/end/cancel path. The local Electron runtime supports true keyboard holds and has unmount plus main-process timeout release safeguards.
+Browser-streamed Touch controls are fully read-only until the streaming transport provides an authenticated semantic action lifecycle; the renderer never POSTs to the intentionally non-interactive endpoint. The local Electron runtime serializes holds per token, cancels quick releases safely, and releases active latching keyboard toggles during teardown.

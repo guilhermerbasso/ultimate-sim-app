@@ -54,7 +54,7 @@ function normalizeBindings(bindings: ActionBinding[]): ActionBinding[] {
 // requested action has no clean SDK mapping (camera next/previous,
 // black-box paging) — the dispatcher then reports an
 // "indispolevel" message instead of pretending the command went through.
-function mapIracingCommand(command: IracingCommand): IRacingCommand | null {
+export function mapIracingCommand(command: IracingCommand): IRacingCommand | null {
   const name: IracingCommandName = command.name
   switch (name) {
     case 'pit:addFuel':

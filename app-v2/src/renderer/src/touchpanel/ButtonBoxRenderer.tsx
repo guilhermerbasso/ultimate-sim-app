@@ -257,6 +257,7 @@ export function ButtonBoxKey({
   const repeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const guardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activePressRef = useRef<{ action: ButtonAction; zone: string } | null>(null)
+  const activeLatchingKeyboardRef = useRef<{ action: ButtonAction; token: string } | null>(null)
   const keyboardActiveRef = useRef(false)
   const state = {
     ...external,
@@ -286,6 +287,19 @@ export function ButtonBoxKey({
             token: `${button.id}:${active.zone}`
           })
         ).catch(() => undefined)
+      }      const latching = activeLatchingKeyboardRef.current
+      if (latching && onAction) {
+        activeLatchingKeyboardRef.current = null
+        void Promise.resolve(
+          onAction({
+            button,
+            index,
+            zone: 'teardown',
+            action: latching.action,
+            phase: 'cancel',
+            token: latching.token
+          })
+        ).catch(() => undefined)
       }
     },
     []
@@ -298,9 +312,9 @@ export function ButtonBoxKey({
     repeatIntervalRef.current = null
   }
 
-  const emit = (action: ButtonAction, phase: TouchActionPhase, zone: string): void => {
+  const emit = (action: ButtonAction, phase: TouchActionPhase, zone: string, tokenZone = zone): void => {
     if (action.kind === 'none' || !onAction) return
-    const token = `${button.id}:${zone}`
+    const token = `${button.id}:${tokenZone}`
     setFeedback('pending')
     onFeedback?.({ controlId: button.id, ok: true, pending: true, message: `${button.label}: pending` })
     try {
@@ -488,8 +502,23 @@ export function ButtonBoxKey({
             aria-pressed={state.active}
             {...discreteHandlers(() => {
               const next = !state.active
+              const stableToken = `${button.id}:latching`
               setLocalActive(next)
-              emit(next ? control.onAction : control.offAction, 'trigger', next ? 'on' : 'off')
+              if (next) {
+                if (control.onAction.kind === 'keyboard' && control.onAction.command.mode === 'toggle') {
+                  activeLatchingKeyboardRef.current = { action: control.onAction, token: stableToken }
+                }
+                emit(control.onAction, 'trigger', 'on', 'latching')
+                return
+              }
+              const activeToggle = activeLatchingKeyboardRef.current
+              activeLatchingKeyboardRef.current = null
+              if (control.offAction.kind === 'keyboard' && control.offAction.command.mode === 'toggle') {
+                emit(control.offAction, 'trigger', 'off', 'latching')
+              } else {
+                if (activeToggle) emit(activeToggle.action, 'cancel', 'teardown', 'latching')
+                emit(control.offAction, 'trigger', 'off')
+              }
             })}
           />
         )

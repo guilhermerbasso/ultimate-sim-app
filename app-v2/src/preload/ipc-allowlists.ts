@@ -1,4 +1,5 @@
 import { EXPR_CHANNELS } from '../shared/expr'
+import { TOUCH_ACTION_IPC_CHANNEL } from '../shared/touch-panel'
 
 export const READ_ONLY_EXPRESSION_CHANNELS = new Set<string>([
   EXPR_CHANNELS.getStudio,
@@ -41,12 +42,7 @@ const OVERLAY_APP_CHANNELS = new Set([
 ])
 
 const TOUCH_EXACT_CHANNELS = new Set<string>([
-  'iracing:command',
-  'actions:testEmulation',
-  'actions:touchKeyboardHold',
-  'app:dash:cycle',
-  'oled:setActivePage',
-  'overlays:toggle',
+  TOUCH_ACTION_IPC_CHANNEL,
   'app:touchpanel:get',
   'app:touchpanel:close',
   'app:touchpanel:updated',

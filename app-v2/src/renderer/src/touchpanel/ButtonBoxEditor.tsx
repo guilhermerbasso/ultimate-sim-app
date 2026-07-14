@@ -898,7 +898,7 @@ function ActionEditor({ action, onChange, title = 'Action' }: { action: ButtonAc
   return (
     <div style={{ ...row(), borderTop: `1px solid ${PANEL_BORDER}`, paddingTop: 12 }}>
       <label style={label()}>{title}</label>
-      <select style={field()} value={action.kind} onChange={(e) => setKind(e.target.value as ButtonAction['kind'])}>
+      <select aria-label={`${title} type`} style={field()} value={action.kind} onChange={(e) => setKind(e.target.value as ButtonAction['kind'])}>
         <option value="none">No action</option>
         <option value="iracing">iRacing command</option>
         <option value="keyboard">Keyboard shortcut</option>
@@ -908,11 +908,20 @@ function ActionEditor({ action, onChange, title = 'Action' }: { action: ButtonAc
       {action.kind === 'iracing' ? (
         <>
           <select
+            aria-label={`${title} iRacing command`}
             style={field()}
             value={action.command.name}
             onChange={(e) => {
               const found = IRACING_COMMANDS.find((c) => c.value === (e.target.value as IracingCommandName))
-              if (found) onChange({ kind: 'iracing', command: { group: found.group, name: found.value, fuelLiters: action.command.fuelLiters } })
+              if (!found) return
+              const command = found.value === 'pit:addFuel'
+                ? {
+                    group: found.group,
+                    name: found.value,
+                    fuelLiters: action.command.name === 'pit:addFuel' ? action.command.fuelLiters ?? 0 : 0
+                  }
+                : { group: found.group, name: found.value }
+              onChange({ kind: 'iracing', command })
             }}
           >
             {IRACING_COMMANDS.map((c) => (
@@ -930,7 +939,7 @@ function ActionEditor({ action, onChange, title = 'Action' }: { action: ButtonAc
               onChange={(e) => {
                 const displayValue = Math.max(0, Number(e.target.value) || 0)
                 const fuelLiters = unitSystem === 'imperial' ? usGallonsToLiters(displayValue) ?? 0 : displayValue
-                onChange({ kind: 'iracing', command: { ...action.command, fuelLiters } })
+                onChange({ kind: 'iracing', command: { group: 'pit', name: 'pit:addFuel', fuelLiters } })
               }}
             />
           ) : null}
@@ -944,9 +953,15 @@ function ActionEditor({ action, onChange, title = 'Action' }: { action: ButtonAc
       {action.kind === 'app' ? (
         <>
           <select
+            aria-label={`${title} app command`}
             style={field()}
             value={action.command.name}
-            onChange={(e) => onChange({ kind: 'app', command: { ...action.command, name: e.target.value as AppActionName } })}
+            onChange={(e) => {
+              const name = e.target.value as AppActionName
+              if (name === 'oled:setActivePage') onChange({ kind: 'app', command: { name, pageIndex: 0 } })
+              else if (name === 'overlays:toggle') onChange({ kind: 'app', command: { name, overlayId: 'relative' } })
+              else onChange({ kind: 'app', command: { name } })
+            }}
           >
             {APP_ACTIONS.map((a) => (
               <option key={a.value} value={a.value}>{a.label}</option>
@@ -962,7 +977,7 @@ function ActionEditor({ action, onChange, title = 'Action' }: { action: ButtonAc
               onChange={(e) =>
                 onChange({
                   kind: 'app',
-                  command: { ...action.command, pageIndex: Math.max(0, Math.round(Number(e.target.value) || 0)) }
+                  command: { name: 'oled:setActivePage', pageIndex: Math.max(0, Math.round(Number(e.target.value) || 0)) }
                 })
               }
             />
@@ -971,7 +986,7 @@ function ActionEditor({ action, onChange, title = 'Action' }: { action: ButtonAc
             <select
               style={field()}
               value={action.command.overlayId ?? 'relative'}
-              onChange={(e) => onChange({ kind: 'app', command: { ...action.command, overlayId: e.target.value } })}
+              onChange={(e) => onChange({ kind: 'app', command: { name: 'overlays:toggle', overlayId: e.target.value } })}
             >
               {OVERLAY_WIDGETS.map((w) => (
                 <option key={w.id} value={w.id}>{overlayWidgetDisplayTitle(w)}</option>
@@ -989,7 +1004,12 @@ function ActionEditor({ action, onChange, title = 'Action' }: { action: ButtonAc
 function KeyboardEditor({ command, onChange }: { command: KeyboardMacroCommand; onChange: (command: KeyboardMacroCommand) => void }): ReactElement {
   return (
     <>
-      <select style={field()} value={command.mode} onChange={(e) => onChange({ ...command, mode: e.target.value as KeyboardMacroCommand['mode'] })}>
+      <select
+        aria-label="Keyboard mode"
+        style={field()}
+        value={command.mode}
+        onChange={(e) => onChange({ mode: e.target.value as KeyboardMacroCommand['mode'], keys: [...command.keys] })}
+      >
         <option value="press">Press</option>
         <option value="chord">Combination (chord)</option>
         <option value="sequence">Sequence</option>

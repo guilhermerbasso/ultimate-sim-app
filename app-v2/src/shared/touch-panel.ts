@@ -11,10 +11,9 @@ import type { DashboardPlaylist, DashboardPlaylistItem } from './dashboards'
 //
 // This is a NEW, self-contained panel type for the "Touch Controls Dash" menu.
 // It deliberately does NOT route through gt3-widgets / DashboardRoot — a panel is
-// just a grid of fully-styleable buttons, each bound to an existing app action
-// (an iRacing broadcast command or a keyboard macro) that fires over the SAME IPC
-// the rest of the app already uses (`iracing:command`, `actions:testEmulation`,
-// `app:dash:cycle`). Everything here is pure + framework-free so it can be unit
+// just a grid of fully-styleable buttons, each bound to a semantic app action
+// that crosses one runtime-validated Touch IPC boundary. Everything here is pure
+// and framework-free so it can be unit
 // tested without React or Electron.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -417,6 +416,8 @@ export const KEYBOARD_MACRO_MODES: ReadonlyArray<KeyboardMacroCommand['mode']> =
   'toggle',
   'repeat'
 ]
+export const TOUCH_KEYBOARD_MAX_KEYS = 12
+export const TOUCH_KEYBOARD_MAX_SEQUENCE_KEYS = 64
 
 /** Allow only small inline raster images; SVG/external/file/javascript URLs are rejected. */
 export function safeImage(value: unknown): string | undefined {
@@ -929,7 +930,7 @@ export function normalizeAction(raw: unknown): ButtonAction {
             .filter((key): key is string => typeof key === 'string')
             .map((key) => safeText(key.trim(), '', 40))
             .filter(Boolean)
-            .slice(0, 12)
+            .slice(0, mode === 'sequence' ? TOUCH_KEYBOARD_MAX_SEQUENCE_KEYS : TOUCH_KEYBOARD_MAX_KEYS)
         : []
       const normalized: KeyboardMacroCommand = { mode, keys }
       const delayMs = optionalTiming(command.delayMs, 0, 10_000)
@@ -999,7 +1000,7 @@ export function isValidButtonAction(raw: unknown): raw is ButtonAction {
       typeof command.mode !== 'string' ||
       !KEYBOARD_MACRO_MODES.includes(command.mode as KeyboardMacroCommand['mode']) ||
       !Array.isArray(command.keys) ||
-      command.keys.length > 12 ||
+      command.keys.length > (command.mode === 'sequence' ? TOUCH_KEYBOARD_MAX_SEQUENCE_KEYS : TOUCH_KEYBOARD_MAX_KEYS) ||
       !command.keys.every((key) => typeof key === 'string' && key.trim().length > 0 && key.length <= 40) ||
       !Object.keys(command).every((key) => key === 'mode' || key === 'keys' || key in timingRanges)
     ) return false
@@ -1029,82 +1030,63 @@ export function isValidButtonAction(raw: unknown): raw is ButtonAction {
 }
 export type TouchActionPhase = 'trigger' | 'begin' | 'end' | 'cancel'
 
-export type TouchKeyboardHoldRequest =
-  | { phase: 'begin'; token: string; command: KeyboardMacroCommand }
-  | { phase: 'end' | 'cancel'; token: string }
+/** The only privileged action channel exposed to a fullscreen Touch renderer. */
+export const TOUCH_ACTION_IPC_CHANNEL = 'app:touchpanel:action' as const
 
-export function normalizeTouchKeyboardHoldRequest(raw: unknown): TouchKeyboardHoldRequest | null {
+export interface TouchSemanticActionRequest {
+  action: ButtonAction
+  phase: TouchActionPhase
+  token: string
+  zone: string
+}
+
+/** Strict runtime boundary: malformed/coerced actions never reach main-process services. */
+export function normalizeTouchSemanticActionRequest(raw: unknown): TouchSemanticActionRequest | null {
   const value = recordOf(raw)
-  if (!value || !['begin', 'end', 'cancel'].includes(String(value.phase))) return null
-  if (typeof value.token !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(value.token)) return null
-  const phase = value.phase as TouchKeyboardHoldRequest['phase']
-  if (phase === 'begin') {
-    const action = normalizeAction({ kind: 'keyboard', command: value.command })
-    if (action.kind !== 'keyboard' || action.command.mode !== 'hold' || action.command.keys.length === 0) return null
-    return { phase, token: value.token, command: action.command }
+  if (!value || !isValidButtonAction(value.action) || value.action.kind === 'none') return null
+  if (!['trigger', 'begin', 'end', 'cancel'].includes(String(value.phase))) return null
+  if (typeof value.token !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,319}$/.test(value.token)) return null
+  if (typeof value.zone !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(value.zone)) return null
+
+  const request: TouchSemanticActionRequest = {
+    action: value.action,
+    phase: value.phase as TouchActionPhase,
+    token: value.token,
+    zone: value.zone
   }
-  return { phase, token: value.token }
+  if (request.action.kind !== 'keyboard') return request.phase === 'trigger' ? request : null
+  if (request.action.command.mode === 'hold') return request
+  if (request.action.command.mode === 'toggle') {
+    return request.phase === 'trigger' || request.phase === 'cancel' ? request : null
+  }
+  return request.phase === 'trigger' ? request : null
 }
+
 export interface ButtonActionIpc {
-  channel: string
-  args: unknown[]
+  channel: typeof TOUCH_ACTION_IPC_CHANNEL
+  args: [TouchSemanticActionRequest]
 }
 
-/**
- * Map a button's bound action onto the concrete IPC call the renderer should
- * make. Reuses the EXISTING channels:
- *   - `iracing:command`        — broadcast pit/camera/black-box commands
- *   - `actions:testEmulation`  — fire a keyboard macro
- *   - `app:dash:cycle`         — playlist next/prev
- *   - `oled:setActivePage` / `overlays:toggle` — app actions
- * Returns null when there is nothing to do (`none`).
- */
 export function buttonActionToIpc(action: ButtonAction): ButtonActionIpc | null {
-  switch (action.kind) {
-    case 'none':
-      return null
-    case 'iracing':
-      return { channel: 'iracing:command', args: [action.command] }
-    case 'keyboard':
-      return { channel: 'actions:testEmulation', args: [{ type: 'keyboard', command: action.command }] }
-    case 'app':
-      switch (action.command.name) {
-        case 'dash:cycleNext':
-          return { channel: 'app:dash:cycle', args: ['next'] }
-        case 'dash:cyclePrev':
-          return { channel: 'app:dash:cycle', args: ['prev'] }
-        case 'oled:setActivePage':
-          return { channel: 'oled:setActivePage', args: [action.command.pageIndex ?? 0] }
-        case 'overlays:toggle':
-          return { channel: 'overlays:toggle', args: [action.command.overlayId ?? 'relative'] }
-        default:
-          return null
-      }
-    default:
-      return null
+  if (action.kind === 'none') return null
+  return {
+    channel: TOUCH_ACTION_IPC_CHANNEL,
+    args: [{ action, phase: 'trigger', token: 'touch:legacy', zone: 'main' }]
   }
 }
 
-/** Map pointer/key lifecycle phases without widening the touch preload allowlist. */
+/** Map every semantic action through one validated main-process boundary. */
 export function buttonActionEventToIpc(
   action: ButtonAction,
   phase: TouchActionPhase,
-  token: string
+  token: string,
+  zone = 'main'
 ): ButtonActionIpc | null {
-  if (action.kind === 'keyboard' && action.command.mode === 'hold') {
-    if (phase === 'trigger') return buttonActionToIpc(action)
-    const request: TouchKeyboardHoldRequest =
-      phase === 'begin'
-        ? { phase: 'begin', token, command: action.command }
-        : { phase: phase === 'cancel' ? 'cancel' : 'end', token }
-    return { channel: 'actions:touchKeyboardHold', args: [request] }
+  if (action.kind === 'none') return null
+  return {
+    channel: TOUCH_ACTION_IPC_CHANNEL,
+    args: [{ action, phase, token, zone }]
   }
-  if (phase !== 'trigger') return null
-  if (action.kind === 'keyboard' && action.command.mode === 'repeat') {
-    const { repeatCount: _repeatCount, repeatMs: _repeatMs, ...singlePress } = action.command
-    return buttonActionToIpc({ kind: 'keyboard', command: { ...singlePress, mode: 'press' } })
-  }
-  return buttonActionToIpc(action)
 }
 /** Short human label describing what a button is bound to (for the editor). */
 export function describeButtonAction(action: ButtonAction): string {
@@ -1151,6 +1133,70 @@ function parsePanelInput(raw: unknown): { value: Record<string, unknown> | null;
   return object ? { value: object } : { value: null, error: 'Panel payload must be an object.' }
 }
 
+function legacyButtonActions(rawButton: unknown): Array<{ path: string; action: unknown }> {
+  const button = recordOf(rawButton)
+  if (!button) return []
+  const actions: Array<{ path: string; action: unknown }> = []
+  if (button.action !== undefined) actions.push({ path: 'action', action: button.action })
+  const control = recordOf(button.control)
+  if (!control || typeof control.kind !== 'string') return actions
+  const add = (path: string, action: unknown): void => {
+    if (action !== undefined) actions.push({ path, action })
+  }
+  switch (control.kind) {
+    case 'momentary':
+    case 'guarded-two-step':
+      add('control.action', control.action)
+      break
+    case 'latching-toggle':
+      add('control.onAction', control.onAction)
+      add('control.offAction', control.offAction)
+      break
+    case 'two-position-rocker':
+      add('control.negativeAction', control.negativeAction)
+      add('control.positiveAction', control.positiveAction)
+      break
+    case 'rotary':
+      add('control.decrementAction', control.decrementAction)
+      add('control.incrementAction', control.incrementAction)
+      break
+    case 'selector':
+      if (Array.isArray(control.choices)) {
+        control.choices.forEach((choice, index) => add(`control.choices[${index}].action`, recordOf(choice)?.action))
+      }
+      break
+  }
+  return actions
+}
+
+function legacyKeyboardMigrationErrors(rawButton: unknown, buttonIndex: number): string[] {
+  const errors: string[] = []
+  for (const entry of legacyButtonActions(rawButton)) {
+    const action = recordOf(entry.action)
+    if (action?.kind !== 'keyboard') continue
+    const command = recordOf(action.command)
+    const mode = command?.mode
+    const keys = command?.keys
+    const prefix = `Button ${buttonIndex + 1} ${entry.path}`
+    if (typeof mode !== 'string' || !KEYBOARD_MACRO_MODES.includes(mode as KeyboardMacroCommand['mode'])) {
+      errors.push(`${prefix} has an invalid keyboard mode; migration aborted without changing the action.`)
+      continue
+    }
+    if (!Array.isArray(keys)) {
+      errors.push(`${prefix} has no keyboard key list; migration aborted without changing the action.`)
+      continue
+    }
+    if (!keys.every((key) => typeof key === 'string' && key.trim().length > 0 && key.length <= 40)) {
+      errors.push(`${prefix} contains an invalid or overlong key; migration aborted without dropping keys.`)
+      continue
+    }
+    const limit = mode === 'sequence' ? TOUCH_KEYBOARD_MAX_SEQUENCE_KEYS : TOUCH_KEYBOARD_MAX_KEYS
+    if (keys.length > limit) {
+      errors.push(`${prefix} contains ${keys.length} keys (maximum ${limit}); migration aborted without truncation.`)
+    }
+  }
+  return errors
+}
 export function parseButtonBoxPanelDetailed(raw: unknown): TouchPanelParseResult {
   const decoded = parsePanelInput(raw)
   if (!decoded.value) return { panel: null, errors: [decoded.error ?? 'Invalid panel.'], warnings: [] }
@@ -1172,7 +1218,9 @@ export function parseButtonBoxPanelDetailed(raw: unknown): TouchPanelParseResult
   const columns = clampColumns(value.columns)
   let rows = clampRows(value.rows)
   const rawButtons = Array.isArray(value.buttons) ? value.buttons : []
-  if (!legacy) {
+  if (legacy) {
+    rawButtons.forEach((button, index) => errors.push(...legacyKeyboardMigrationErrors(button, index)))
+  } else {
     rawButtons.forEach((button, index) => {
       const object = recordOf(button)
       if (!object) errors.push(`Button ${index + 1} must be an object.`)

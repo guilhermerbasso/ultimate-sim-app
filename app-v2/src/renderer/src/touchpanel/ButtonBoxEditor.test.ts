@@ -2,7 +2,12 @@
 import { createElement } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createButtonBoxPanel, type ButtonBoxPanel } from '../../../shared/touch-panel'
+import {
+  createButtonBoxPanel,
+  primaryButtonAction,
+  type ButtonAction,
+  type ButtonBoxPanel
+} from '../../../shared/touch-panel'
 import { ButtonBoxEditor } from './ButtonBoxEditor'
 
 const invoke = vi.fn(async (channel: string) => {
@@ -21,12 +26,12 @@ beforeEach(() => {
 
 afterEach(cleanup)
 
-function setup() {
+function setup(action: ButtonAction = { kind: 'none' }) {
   const panel = createButtonBoxPanel({
     id: 'editor-panel',
     columns: 1,
     rows: 1,
-    buttons: [{ id: 'edited-control', label: 'LIMITER' }]
+    buttons: [{ id: 'edited-control', label: 'LIMITER', control: { kind: 'momentary', action } }]
   })
   const changes: ButtonBoxPanel[] = []
   render(
@@ -53,6 +58,38 @@ describe('ButtonBoxEditor semantic UX', () => {
     expect(changes.at(-1)?.buttons[0].material).toBe('carbon')
   })
 
+  it('drops fuel fields when switching to a non-fuel iRacing command', () => {
+    const { changes } = setup({
+      kind: 'iracing',
+      command: { group: 'pit', name: 'pit:addFuel', fuelLiters: 42 }
+    })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Action on press iRacing command' }), {
+      target: { value: 'pit:clearAll' }
+    })
+    const action = changes.at(-1) ? primaryButtonAction(changes.at(-1)!.buttons[0].control) : null
+    expect(action).toEqual({ kind: 'iracing', command: { group: 'pit', name: 'pit:clearAll' } })
+    expect(action && action.kind === 'iracing' ? 'fuelLiters' in action.command : true).toBe(false)
+  })
+
+  it('constructs clean app command variants without stale page or overlay fields', () => {
+    const { changes } = setup({ kind: 'app', command: { name: 'oled:setActivePage', pageIndex: 7 } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Action on press app command' }), {
+      target: { value: 'overlays:toggle' }
+    })
+    const action = changes.at(-1) ? primaryButtonAction(changes.at(-1)!.buttons[0].control) : null
+    expect(action).toEqual({ kind: 'app', command: { name: 'overlays:toggle', overlayId: 'relative' } })
+    expect(action && action.kind === 'app' ? 'pageIndex' in action.command : true).toBe(false)
+  })
+
+  it('drops repeat-only timing when the keyboard mode changes', () => {
+    const { changes } = setup({
+      kind: 'keyboard',
+      command: { mode: 'repeat', keys: ['PageUp'], repeatMs: 80, repeatCount: 9 }
+    })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Keyboard mode' }), { target: { value: 'press' } })
+    const action = changes.at(-1) ? primaryButtonAction(changes.at(-1)!.buttons[0].control) : null
+    expect(action).toEqual({ kind: 'keyboard', command: { mode: 'press', keys: ['PageUp'] } })
+  })
   it('offers a safe interactive preview without dispatching IPC actions', () => {
     setup()
     const preview = screen.getByRole('button', { name: 'Interact with preview' })

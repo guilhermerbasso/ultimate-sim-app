@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  TOUCH_ACTION_IPC_CHANNEL,
   TOUCH_CONTROL_KINDS,
   TOUCH_PANEL_SCHEMA_VERSION,
   buttonActionEventToIpc,
@@ -8,8 +9,10 @@ import {
   createTouchControl,
   isValidButtonAction,
   normalizeAction,
+  normalizeTouchSemanticActionRequest,
   parseButtonBoxPanel,
   parseButtonBoxPanelDetailed,
+  primaryButtonAction,
   safeColor,
   safeImage,
   serializeButtonBoxPanel,
@@ -104,6 +107,38 @@ describe('touch panel schema v2 and migration', () => {
     expect(result.errors.join(' ')).toContain('exactly 4 controls')
   })
 
+  it('preserves legacy keyboard sequences longer than the old twelve-key limit', () => {
+    const keys = Array.from({ length: 20 }, (_, index) => `K${index + 1}`)
+    const result = parseButtonBoxPanelDetailed({
+      id: 'legacy-sequence',
+      columns: 1,
+      rows: 1,
+      buttons: [{
+        id: 'sequence',
+        action: { kind: 'keyboard', command: { mode: 'sequence', keys } }
+      }]
+    })
+    expect(result.errors).toEqual([])
+    const action = result.panel ? primaryButtonAction(result.panel.buttons[0].control) : null
+    expect(action?.kind).toBe('keyboard')
+    if (action?.kind === 'keyboard') expect(action.command.keys).toEqual(keys)
+  })
+
+  it('fails oversized legacy sequences without silently truncating them', () => {
+    const keys = Array.from({ length: 65 }, (_, index) => `K${index + 1}`)
+    const result = parseButtonBoxPanelDetailed({
+      id: 'legacy-sequence-too-long',
+      columns: 1,
+      rows: 1,
+      buttons: [{
+        id: 'sequence',
+        action: { kind: 'keyboard', command: { mode: 'sequence', keys } }
+      }]
+    })
+    expect(result.panel).toBeNull()
+    expect(result.errors.join(' ')).toContain('65 keys')
+    expect(result.errors.join(' ')).toContain('without truncation')
+  })
   it('rejects unknown future schema versions', () => {
     const result = parseButtonBoxPanelDetailed({ schemaVersion: 99, id: 'future' })
     expect(result.panel).toBeNull()
@@ -213,26 +248,51 @@ describe('safe visual and expression destinations', () => {
   })
 })
 
-describe('pointer lifecycle IPC mapping', () => {
-  it('maps hold begin/end to one exact keyboard-only channel', () => {
+describe('semantic Touch IPC mapping', () => {
+  it('maps hold begin/cancel through one dedicated channel with the full validated request', () => {
     const action = key('V', 'hold')
-    if (action.kind !== 'keyboard') throw new Error('test action must be keyboard')
-    expect(buttonActionEventToIpc(action, 'begin', 'radio:main')).toEqual({
-      channel: 'actions:touchKeyboardHold',
-      args: [{ phase: 'begin', token: 'radio:main', command: action.command }]
+    const begin = buttonActionEventToIpc(action, 'begin', 'radio:main', 'main')
+    expect(begin).toEqual({
+      channel: TOUCH_ACTION_IPC_CHANNEL,
+      args: [{ action, phase: 'begin', token: 'radio:main', zone: 'main' }]
     })
-    expect(buttonActionEventToIpc(action, 'cancel', 'radio:main')).toEqual({
-      channel: 'actions:touchKeyboardHold',
-      args: [{ phase: 'cancel', token: 'radio:main' }]
+    expect(buttonActionEventToIpc(action, 'cancel', 'radio:main', 'main')).toEqual({
+      channel: TOUCH_ACTION_IPC_CHANNEL,
+      args: [{ action, phase: 'cancel', token: 'radio:main', zone: 'main' }]
     })
   })
 
-  it('turns each renderer repeat tick into one keyboard press', () => {
-    const ipc = buttonActionEventToIpc(key('PageUp', 'repeat'), 'trigger', 'tc:increment')
-    expect(ipc?.channel).toBe('actions:testEmulation')
-    expect(ipc?.args).toEqual([
-      { type: 'keyboard', command: expect.objectContaining({ mode: 'press', keys: ['PageUp'] }) }
-    ])
-    expect(buttonActionEventToIpc(key('A'), 'end', 'a:main')).toBeNull()
+  it('never returns raw iRacing or emulation channels', () => {
+    const actions: ButtonAction[] = [
+      key('PageUp', 'repeat'),
+      { kind: 'iracing', command: { group: 'pit', name: 'pit:addFuel', fuelLiters: 10 } }
+    ]
+    for (const action of actions) {
+      const ipc = buttonActionEventToIpc(action, 'trigger', 'control:main', 'main')
+      expect(ipc?.channel).toBe(TOUCH_ACTION_IPC_CHANNEL)
+      expect(ipc?.channel).not.toBe('iracing:command')
+      expect(ipc?.channel).not.toBe('actions:testEmulation')
+    }
+  })
+
+  it('rejects malformed, coerced, and phase-incompatible requests at runtime', () => {
+    expect(normalizeTouchSemanticActionRequest({
+      action: { kind: 'iracing', command: { group: 'camera', name: 'pit:clearAll' } },
+      phase: 'trigger',
+      token: 'pit:main',
+      zone: 'main'
+    })).toBeNull()
+    expect(normalizeTouchSemanticActionRequest({
+      action: { kind: 'gamepad', command: { button: 1 } },
+      phase: 'trigger',
+      token: 'bad:main',
+      zone: 'main'
+    })).toBeNull()
+    expect(normalizeTouchSemanticActionRequest({
+      action: key('A'),
+      phase: 'cancel',
+      token: 'a:main',
+      zone: 'main'
+    })).toBeNull()
   })
 })

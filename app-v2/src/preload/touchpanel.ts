@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { isTouchpanelIpcAllowed } from './ipc-allowlists'
 
 // Dedicated preload for the fullscreen touch window. The shared allowlist grants
-// only discrete actions, the keyboard hold lifecycle, read-only expression data,
+// only one runtime-validated semantic action boundary, read-only expression data,
 // and the panel's own read/close/update channels. It exposes neither a mutable
 // channel prefix nor `window.api`.
 

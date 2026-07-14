@@ -10,7 +10,7 @@ import {
 } from '../../../shared/touch-panel'
 import { ButtonBoxRenderer, type TouchControlActionEvent } from './ButtonBoxRenderer'
 
-const key = (name: string, mode: 'press' | 'hold' | 'repeat' = 'press'): ButtonAction => ({
+const key = (name: string, mode: 'press' | 'hold' | 'repeat' | 'toggle' = 'press'): ButtonAction => ({
   kind: 'keyboard',
   command: { mode, keys: [name], repeatMs: mode === 'repeat' ? 80 : undefined }
 })
@@ -75,6 +75,41 @@ describe('ButtonBoxRenderer pointer lifecycle', () => {
     pointerDown(screen.getByRole('button', { name: /momentary/i }))
     view.unmount()
     expect(events.map((event) => event.phase)).toEqual(['begin', 'cancel'])
+  })
+  it('releases an active latching keyboard toggle when the control unmounts', () => {
+    const events: TouchControlActionEvent[] = []
+    const toggle = key('H', 'toggle')
+    const view = render(createElement(ButtonBoxRenderer, {
+      panel: panelWith({ kind: 'latching-toggle', onAction: toggle, offAction: { kind: 'none' } }),
+      onAction: (event) => { events.push(event) }
+    }))
+    const hit = screen.getByRole('button', { name: /latching toggle/i })
+    pointerDown(hit)
+    pointerUp(hit)
+    view.unmount()
+
+    expect(events.map((event) => event.phase)).toEqual(['trigger', 'cancel'])
+    expect(events.map((event) => event.zone)).toEqual(['on', 'teardown'])
+    expect(events[0].token).toBe('control-1:latching')
+    expect(events[1].token).toBe(events[0].token)
+  })
+
+  it('uses the same stable token when a latching keyboard toggle turns off', () => {
+    const events: TouchControlActionEvent[] = []
+    const toggle = key('H', 'toggle')
+    const view = render(createElement(ButtonBoxRenderer, {
+      panel: panelWith({ kind: 'latching-toggle', onAction: toggle, offAction: toggle }),
+      onAction: (event) => { events.push(event) }
+    }))
+    const hit = screen.getByRole('button', { name: /latching toggle/i })
+    pointerDown(hit)
+    pointerUp(hit)
+    pointerDown(hit)
+    pointerUp(hit)
+    view.unmount()
+
+    expect(events.map((event) => event.zone)).toEqual(['on', 'off'])
+    expect(events.every((event) => event.token === 'control-1:latching')).toBe(true)
   })
   it('does not execute through a closed guard on the first tap', () => {
     const events: TouchControlActionEvent[] = []

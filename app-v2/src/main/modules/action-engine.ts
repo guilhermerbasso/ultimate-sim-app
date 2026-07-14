@@ -1,11 +1,121 @@
 import type { ModuleContext } from '../module-context'
-import { ActionDispatcher } from '../actions/dispatcher'
+import { ActionDispatcher, mapIracingCommand } from '../actions/dispatcher'
 import { EmulationEngine } from '../actions/emulation'
 import type { ActionBinding, EmulationTestRequest, HidButtonControl } from '../../shared/actions'
-import { normalizeTouchKeyboardHoldRequest } from '../../shared/touch-panel'
+import {
+  TOUCH_ACTION_IPC_CHANNEL,
+  normalizeTouchSemanticActionRequest,
+  type TouchSemanticActionRequest
+} from '../../shared/touch-panel'
+import type { OverlayWidgetId } from '../../shared/overlays'
+import { getDashboardManager } from './dashboards'
+import { getOverlayManager } from './overlays-core'
+import { getOledDashboardEngine } from './oled-dashboard'
 import { ENGINEER_CHANNELS, resolveEngineerAction } from '../../shared/engineer-ipc'
 import { getEngineerConfigSnapshot } from './ai-engineer'
 
+export interface TouchActionExecutionResult {
+  ok: boolean
+  message: string
+}
+
+export interface TouchActionEmulation {
+  pressKey(command: import('../../shared/actions').KeyboardMacroCommand): Promise<TouchActionExecutionResult>
+  beginKeyboardHold(token: string, command: import('../../shared/actions').KeyboardMacroCommand): Promise<TouchActionExecutionResult>
+  endKeyboardHold(token: string): Promise<TouchActionExecutionResult>
+  setTouchKeyboardToggle(
+    token: string,
+    command: import('../../shared/actions').KeyboardMacroCommand,
+    active: boolean
+  ): Promise<TouchActionExecutionResult>
+}
+
+function rejected(message: string): TouchActionExecutionResult {
+  return { ok: false, message }
+}
+
+async function executeTouchAppAction(request: TouchSemanticActionRequest): Promise<TouchActionExecutionResult> {
+  if (request.action.kind !== 'app') return rejected('Invalid Touch app action.')
+  switch (request.action.command.name) {
+    case 'dash:cycleNext':
+    case 'dash:cyclePrev': {
+      const manager = getDashboardManager()
+      if (!manager) return rejected('Dashboard manager is unavailable.')
+      await manager.cycle(request.action.command.name === 'dash:cyclePrev' ? 'prev' : 'next')
+      return { ok: true, message: 'Dashboard playlist cycled.' }
+    }
+    case 'oled:setActivePage': {
+      const engine = getOledDashboardEngine()
+      if (!engine) return rejected('OLED dashboard engine is unavailable.')
+      await engine.setActivePage(request.action.command.pageIndex ?? 0)
+      return { ok: true, message: 'OLED page changed.' }
+    }
+    case 'overlays:toggle': {
+      const manager = getOverlayManager()
+      if (!manager) return rejected('Overlay manager is unavailable.')
+      try {
+        await manager.toggle((request.action.command.overlayId ?? 'relative') as OverlayWidgetId)
+        return { ok: true, message: 'Overlay toggled.' }
+      } catch (error) {
+        return rejected(error instanceof Error ? error.message : 'Overlay action failed.')
+      }
+    }
+  }
+}
+
+export function createTouchSemanticActionHandler(
+  ctx: ModuleContext,
+  emulation: TouchActionEmulation
+): (raw: unknown) => Promise<TouchActionExecutionResult> {
+  return async (raw: unknown): Promise<TouchActionExecutionResult> => {
+    const request = normalizeTouchSemanticActionRequest(raw)
+    if (!request) return rejected('Invalid semantic Touch action request.')
+    try {
+      if (request.action.kind === 'iracing') {
+        const command = mapIracingCommand(request.action.command)
+        if (!command) return rejected(`iRacing command "${request.action.command.name}" is unavailable.`)
+        const result = ctx.iracingControl.execute(command)
+        return {
+          ok: result.ok,
+          message: result.ok
+            ? `iRacing: ${request.action.command.name} dispatched.`
+            : result.message ?? `iRacing command "${request.action.command.name}" failed.`
+        }
+      }
+      if (request.action.kind === 'app') return executeTouchAppAction(request)
+      if (request.action.kind !== 'keyboard') return rejected('Unsupported Touch action.')
+
+      const command = request.action.command
+      if (command.mode === 'hold') {
+        if (request.phase === 'begin') return emulation.beginKeyboardHold(request.token, command)
+        if (request.phase === 'end' || request.phase === 'cancel') return emulation.endKeyboardHold(request.token)
+        return emulation.pressKey(command)
+      }
+      if (command.mode === 'toggle') {
+        if (request.phase === 'cancel' || request.zone === 'off') {
+          return emulation.setTouchKeyboardToggle(request.token, command, false)
+        }
+        if (request.zone === 'on') {
+          return emulation.setTouchKeyboardToggle(request.token, command, true)
+        }
+        return emulation.pressKey(command)
+      }
+      if (command.mode === 'repeat') {
+        const singlePress = {
+          mode: 'press' as const,
+          keys: [...command.keys],
+          ...(command.delayMs !== undefined ? { delayMs: command.delayMs } : {}),
+          ...(command.pressDelayMs !== undefined ? { pressDelayMs: command.pressDelayMs } : {}),
+          ...(command.releaseDelayMs !== undefined ? { releaseDelayMs: command.releaseDelayMs } : {})
+        }
+        return emulation.pressKey(singlePress)
+      }
+      return emulation.pressKey(command)
+    } catch (error) {
+      return rejected(error instanceof Error ? error.message : 'Touch action execution failed.')
+    }
+  }
+}
 interface DashboardCycleControlState {
   next: HidButtonControl | null
   prev: HidButtonControl | null
@@ -44,14 +154,9 @@ export function register(ctx: ModuleContext): void {
     if (request.type === 'keyboard') return emulation.pressKey(request.command)
     return emulation.tapGamepad(request.command)
   })
-  // Touch panels get one exact keyboard-only lifecycle channel. No gamepad or
-  // generic action-store access is exposed by the dedicated preload.
-  ctx.ipcMain.handle('actions:touchKeyboardHold', (_event, raw: unknown) => {
-    const request = normalizeTouchKeyboardHoldRequest(raw)
-    if (!request) return { ok: false, message: 'Invalid touch keyboard hold request.' }
-    if (request.phase === 'begin') return emulation.beginKeyboardHold(request.token, request.command)
-    return emulation.endKeyboardHold(request.token)
-  })
+  // The Touch preload exposes only this semantic, runtime-validated action boundary.
+  const handleTouchAction = createTouchSemanticActionHandler(ctx, emulation)
+  ctx.ipcMain.handle(TOUCH_ACTION_IPC_CHANNEL, (_event, raw: unknown) => handleTouchAction(raw))
   ctx.ipcMain.handle('app:dash:cycleControl:get', () => cycleControls)
 
   // ── Engineer Q&A hardware triggers (ADDITIVE) ─────────────────────────────────

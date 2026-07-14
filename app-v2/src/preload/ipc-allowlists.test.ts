@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { EXPR_CHANNELS } from '../shared/expr'
+import { TOUCH_ACTION_IPC_CHANNEL } from '../shared/touch-panel'
 import {
   READ_ONLY_EXPRESSION_CHANNELS,
   TOUCH_READ_ONLY_EXPRESSION_CHANNELS,
@@ -18,6 +19,12 @@ describe('restricted renderer expression IPC allowlists', () => {
     expect(isOverlayIpcAllowed('expr:any-future-setter')).toBe(false)
   })
 
+  it('exposes only the dedicated semantic Touch action channel', () => {
+    expect(isTouchpanelIpcAllowed(TOUCH_ACTION_IPC_CHANNEL)).toBe(true)
+    expect(isTouchpanelIpcAllowed('iracing:command')).toBe(false)
+    expect(isTouchpanelIpcAllowed('actions:testEmulation')).toBe(false)
+    expect(isTouchpanelIpcAllowed('actions:touchKeyboardHold')).toBe(false)
+  })
   it('limits touch windows to expression results and no definitions or setters', () => {
     for (const channel of TOUCH_READ_ONLY_EXPRESSION_CHANNELS) {
       expect(isTouchpanelIpcAllowed(channel), channel).toBe(true)

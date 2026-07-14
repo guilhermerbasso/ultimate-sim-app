@@ -78,6 +78,8 @@ export class TouchPanelManager {
           if (parsed.migratedFrom === 1) {
             await writeFile(filePath, JSON.stringify(parsed.panel, null, 2), 'utf8')
           }
+        } else if (parsed.errors.length > 0) {
+          console.warn(`[touchpanel] ${file} was not migrated: ${parsed.errors.join(' ')}`)
         }
       } catch {
         // ignore corrupt panel files
