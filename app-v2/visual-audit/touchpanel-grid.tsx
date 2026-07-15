@@ -42,7 +42,6 @@ function materialDemo(m: KeyMaterial): ButtonBoxPanel {
 }
 
 function semanticDemo(): ButtonBoxPanel {
-  const none = { kind: 'none' } as const
   const key = (name: string, mode: 'press' | 'hold' = 'press'): ButtonAction => ({ kind: 'keyboard', command: { mode, keys: [name] } })
   return createButtonBoxPanel({
     id: 'semantic-controls',

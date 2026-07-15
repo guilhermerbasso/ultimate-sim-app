@@ -32,6 +32,20 @@ describe('exact expression and iRacing binding caches', () => {
     expect(resolveBinding('var:exact', null).text).toBe('—')
   })
 
+  it('keeps the most recently updated duplicate-name route when an unrelated route is removed', () => {
+    applyOutputValueCacheUpdate({ routeId: 'route-1', name: 'duplicate', value: '1', raw: 1 })
+    applyOutputValueCacheUpdate({ routeId: 'route-2', name: 'duplicate', value: '2', raw: 2 })
+    applyOutputValueCacheUpdate({ routeId: 'route-3', name: 'duplicate', value: '3', raw: 3 })
+    applyOutputValueCacheUpdate({ routeId: 'route-1', name: 'duplicate', value: '4', raw: 4 })
+    expect(resolveBinding('var:duplicate', null).text).toBe('4')
+
+    applyOutputValueCacheUpdate({ routeId: 'route-2', name: 'duplicate', value: '', deleted: true })
+    expect(resolveBinding('var:duplicate', null).text).toBe('4')
+
+    applyOutputValueCacheUpdate({ routeId: 'route-1', name: 'duplicate', value: '', deleted: true })
+    expect(resolveBinding('var:duplicate', null).text).toBe('3')
+  })
+
   it('resolves an exact mapped ir variable without a publish-name fallback', () => {
     const snapshot = { speedKmh: 123 } as TelemetrySnapshot
     expect(resolveBinding('ir:Speed', snapshot).numeric).toBe(123)

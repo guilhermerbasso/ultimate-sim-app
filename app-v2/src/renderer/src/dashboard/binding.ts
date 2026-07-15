@@ -160,27 +160,46 @@ interface VarCacheEntry {
 const varCache = new Map<string, VarCacheEntry>()
 const exprCacheByName = new Map<string, VarCacheEntry>()
 const exprCacheById = new Map<string, VarCacheEntry>()
-const varCacheByRouteId = new Map<string, { name: string; entry: VarCacheEntry }>()
+const varCacheByRouteId = new Map<string, { name: string; entry: VarCacheEntry; revision: number }>()
+const varCacheRouteByName = new Map<string, string>()
 const exprNameById = new Map<string, string>()
+let varCacheRevision = 0
 
 function rebuildVarName(name: string): void {
   const candidates = [...varCacheByRouteId.values()].filter((item) => item.name === name)
-  const latest = candidates[candidates.length - 1]
-  if (latest) varCache.set(name, latest.entry)
-  else varCache.delete(name)
+  const latest = candidates.reduce<(typeof candidates)[number] | undefined>(
+    (selected, item) => (!selected || item.revision > selected.revision ? item : selected),
+    undefined
+  )
+  if (latest) {
+    varCache.set(name, latest.entry)
+    const route = [...varCacheByRouteId.entries()].find(([, item]) => item === latest)
+    if (route) varCacheRouteByName.set(name, route[0])
+  } else {
+    varCache.delete(name)
+    varCacheRouteByName.delete(name)
+  }
 }
 
 export function applyOutputValueCacheUpdate(update: OutputValueUpdate): void {
   const previous = varCacheByRouteId.get(update.routeId)
   if (update.deleted) {
     varCacheByRouteId.delete(update.routeId)
-    if (previous) rebuildVarName(previous.name)
+    if (previous && varCacheRouteByName.get(previous.name) === update.routeId) rebuildVarName(previous.name)
     return
   }
   const entry = buildVarEntry(update)
-  varCacheByRouteId.set(update.routeId, { name: update.name, entry })
-  if (previous && previous.name !== update.name) rebuildVarName(previous.name)
+  varCacheRevision += 1
+  varCacheByRouteId.set(update.routeId, { name: update.name, entry, revision: varCacheRevision })
+  if (
+    previous &&
+    previous.name !== update.name &&
+    varCacheRouteByName.get(previous.name) === update.routeId
+  ) {
+    rebuildVarName(previous.name)
+  }
   varCache.set(update.name, entry)
+  varCacheRouteByName.set(update.name, update.routeId)
 }
 
 export function applyExpressionResultCacheUpdate(exprId: string, entry: ExpressionResultEntry): void {
@@ -207,7 +226,9 @@ export function clearDynamicBindingCaches(): void {
   exprCacheByName.clear()
   exprCacheById.clear()
   varCacheByRouteId.clear()
+  varCacheRouteByName.clear()
   exprNameById.clear()
+  varCacheRevision = 0
 }
 
 function rawToText(raw: unknown): string {
