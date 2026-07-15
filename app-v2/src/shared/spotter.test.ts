@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { carLeftRightStateFromEnum } from './telemetry'
-import { buildPhrase, decideProximity, fallbackVoiceProsody, pickDistinctOsVoice, pickVoice, piperVoiceLang, proximitySideFromState, type VoiceLike } from './spotter'
+import {
+  buildPhrase,
+  buildSpotterVoiceTestPhrase,
+  decideProximity,
+  fallbackVoiceProsody,
+  pickDistinctOsVoice,
+  pickVoice,
+  piperVoiceLang,
+  proximitySideFromState,
+  type CalloutId,
+  type PhraseParams,
+  type VoiceLike
+} from './spotter'
 
 // The Voice Spotter used to fabricate each nearby car's side by INDEX PARITY over
 // the iRacing CarLeftRight flag (provider) and then decide left/right from the
@@ -85,16 +97,51 @@ describe('decideProximity (authoritative side + edge detection)', () => {
 })
 
 describe('buildPhrase Portuguese default', () => {
-  it('defaults to pt-BR when no language is passed', () => {
-    expect(buildPhrase('proximity.spotter', undefined, { side: 'left' })).toBe('Car on your left')
-    expect(buildPhrase('proximity.spotter', undefined, { side: 'right' })).toBe('Car on your right')
-    expect(buildPhrase('proximity.spotter', undefined, { side: 'three-wide' })).toBe('Three wide, careful')
-    expect(buildPhrase('flag.green')).toBe('Green, green, green flag')
+  const cases: Array<[CalloutId, PhraseParams, string]> = [
+    ['flag.green', {}, 'Verde, verde, verde'],
+    ['flag.yellow', {}, 'Amarela, amarela, cuidado'],
+    ['flag.blue', {}, 'Bandeira azul, deixe passar'],
+    ['flag.white', {}, 'Bandeira branca, última volta'],
+    ['flag.checkered', {}, 'Bandeirada, corrida encerrada'],
+    ['flag.meatball', {}, 'Bandeira preta e laranja, carro danificado, vá aos boxes'],
+    ['flag.black', {}, 'Bandeira preta, penalidade'],
+    ['fuel.low', {}, 'Combustível baixo'],
+    ['fuel.lapsLeft', { laps: 1 }, 'Uma volta de combustível restante'],
+    ['fuel.lapsLeft', { laps: 3 }, '3 voltas de combustível restantes'],
+    ['fuel.box', {}, 'Entre nos boxes nesta volta por combustível'],
+    ['pit.windowOpen', {}, 'Janela de parada aberta'],
+    ['pit.onPitRoad', {}, 'Você entrou na via dos boxes'],
+    ['pit.speeding', {}, 'Excesso de velocidade nos boxes, reduza'],
+    ['proximity.spotter', { side: 'left' }, 'Carro à esquerda'],
+    ['proximity.spotter', { side: 'right' }, 'Carro à direita'],
+    ['proximity.spotter', { side: 'three-wide' }, 'Três lado a lado, cuidado'],
+    ['gap.ahead', { gapSec: 1.2, trend: 'closing' }, '1,2 segundos para o carro à frente, se aproximando'],
+    ['gap.behind', { gapSec: 2.3, trend: 'pulling-away' }, '2,3 segundos para o carro atrás, abrindo'],
+    ['position.change', { positionNumber: 4 }, 'Posição 4'],
+    ['incident.points', { points: 3 }, 'Incidente, 3 pontos'],
+    ['incident.limit', {}, 'Cuidado, limite de incidentes próximo'],
+    ['shift.point', {}, 'Troque a marcha'],
+    ['lap.delta', { deltaSec: 0 }, 'Última volta, mesmo tempo'],
+    ['lap.delta', { deltaSec: 0.4 }, 'Última volta, 0,4 segundos mais lenta'],
+    ['lap.delta', { deltaSec: -0.4 }, 'Última volta, 0,4 segundos mais rápida'],
+    ['lap.personalBest', {}, 'Melhor volta pessoal'],
+    ['session.start', {}, 'Sessão iniciada, boa sorte']
+  ]
+
+  it.each(cases)('speaks %s in Brazilian Portuguese', (id, params, expected) => {
+    expect(buildPhrase(id, undefined, params)).toBe(expected)
   })
 
   it('still produces English when explicitly requested', () => {
     expect(buildPhrase('proximity.spotter', 'en-US', { side: 'left' })).toBe('Car left')
     expect(buildPhrase('proximity.spotter', 'en-US', { side: 'three-wide' })).toBe('Three wide, three wide')
+  })
+})
+
+describe('buildSpotterVoiceTestPhrase', () => {
+  it('matches the selected speech language', () => {
+    expect(buildSpotterVoiceTestPhrase('pt-BR')).toBe('Engenheiro de áudio online. Boa corrida.')
+    expect(buildSpotterVoiceTestPhrase('en-US')).toBe('Audio engineer online. Have a good race.')
   })
 })
 

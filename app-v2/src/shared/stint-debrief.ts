@@ -14,8 +14,9 @@
 // and ALWAYS falls back to the deterministic `text` here — the model is never
 // loaded or run from the telemetry loop.
 
-import type { CoachFinding } from './coach'
+import { coachComposeAction, type CoachFinding } from './coach'
 import type { PredictionsSnapshot } from './predictions'
+import type { SpeechLanguage } from './tts-voice'
 import { formatMeasurement, type UnitSystem } from './units'
 
 // ─── IPC channels (all under the `debrief:` preload allowlist prefix) ─────────
@@ -72,6 +73,7 @@ export interface StintDebrief extends DebriefComposition {
   generatedAt: number
   /** Whether the `text` was phrased by the LLM or is the deterministic fallback. */
   source: 'deterministic' | 'llm'
+  language: SpeechLanguage
   reason: DebriefReason
   sessionInfo?: DebriefSessionInfo
 }
@@ -110,11 +112,12 @@ export function formatLapTime(seconds: number | undefined): string {
 }
 
 /** Where a finding happened — prefer the WS-E corner, fall back to the sector. */
-export function findingLocation(finding: CoachFinding): string {
+export function findingLocation(finding: CoachFinding, language: SpeechLanguage = 'pt-BR'): string {
+  const pt = language === 'pt-BR'
   const corner = (finding as EnrichedFinding).corner
-  if (finite(corner) && corner > 0) return `Turn ${Math.round(corner)}`
-  if (finite(finding.sector) && finding.sector > 0) return `Sector ${finding.sector}`
-  return 'Pista'
+  if (finite(corner) && corner > 0) return `${pt ? 'Curva' : 'Turn'} ${Math.round(corner)}`
+  if (finite(finding.sector) && finding.sector > 0) return `${pt ? 'Setor' : 'Sector'} ${finding.sector}`
+  return pt ? 'Pista' : 'Track'
 }
 
 /** A finding is a GAIN when it praises the driver (good / explicit gain signal). */
@@ -145,31 +148,37 @@ export function lossMagnitudeSec(finding: CoachFinding): number {
   return finite(finding.estTimeLossSec) && finding.estTimeLossSec > 0 ? finding.estTimeLossSec : 0
 }
 
-function headlineFor(finding: CoachFinding): string {
-  const title = (finding.title ?? '').trim()
-  return title.length > 0 ? title : finding.kind
+function headlineFor(finding: CoachFinding, language: SpeechLanguage): string {
+  return coachComposeAction(finding.kind, language)
 }
 
-function bulletForLoss(finding: CoachFinding): string {
-  const loc = findingLocation(finding)
+function bulletForLoss(finding: CoachFinding, language: SpeechLanguage): string {
+  const loc = findingLocation(finding, language)
   const mag = lossMagnitudeSec(finding)
   const suffix = mag > 0 ? ` (−${num(mag)} s)` : ''
-  return `${loc}: ${headlineFor(finding)}${suffix}`
+  return `${loc}: ${headlineFor(finding, language)}${suffix}`
 }
 
-function bulletForGain(finding: CoachFinding): string {
-  const loc = findingLocation(finding)
+function bulletForGain(finding: CoachFinding, language: SpeechLanguage): string {
+  const loc = findingLocation(finding, language)
   const mag = gainMagnitudeSec(finding)
   const suffix = mag > 0 ? ` (+${num(mag)} s)` : ''
-  return `${loc}: ${headlineFor(finding)}${suffix}`
+  return `${loc}: ${headlineFor(finding, language)}${suffix}`
 }
 
-const PRESSURE_LABEL: Record<string, string> = { low: 'low', ok: 'ok', high: 'high' }
-const TEMP_LABEL: Record<string, string> = { cold: 'cold', optimal: 'ideal', hot: 'hot' }
+const PRESSURE_LABEL_PT: Record<string, string> = { low: 'baixa', ok: 'ideal', high: 'alta' }
+const PRESSURE_LABEL_EN: Record<string, string> = { low: 'low', ok: 'ok', high: 'high' }
+const TEMP_LABEL_PT: Record<string, string> = { cold: 'fria', optimal: 'ideal', hot: 'quente' }
+const TEMP_LABEL_EN: Record<string, string> = { cold: 'cold', optimal: 'ideal', hot: 'hot' }
 
-/** One short pt-BR strategy line from the predictions, or null when no signal. */
-export function strategyNote(predictions: PredictionsSnapshot | null | undefined, unitSystem: UnitSystem = 'metric'): string | null {
+/** One short localized strategy line from the predictions, or null when no signal. */
+export function strategyNote(
+  predictions: PredictionsSnapshot | null | undefined,
+  unitSystem: UnitSystem = 'metric',
+  language: SpeechLanguage = 'pt-BR'
+): string | null {
   if (!predictions) return null
+  const pt = language === 'pt-BR'
   const parts: string[] = []
 
   const fuel = predictions.fuel
@@ -177,30 +186,40 @@ export function strategyNote(predictions: PredictionsSnapshot | null | undefined
     const m = fuel.finishMarginLaps
     if (m >= 0) {
       const volume = finite(fuel.finishMarginL)
-        ? `, ~${formatMeasurement(fuel.finishMarginL, 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true }).display} left`
+        ? `, ~${formatMeasurement(fuel.finishMarginL, 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true }).display} ${pt ? 'restantes' : 'left'}`
         : ''
-      parts.push(`fuel: margin of ${num(m, 1)} laps to the end${volume}`)
+      parts.push(pt ? `combustível: margem de ${num(m, 1)} voltas até o fim${volume}` : `fuel: margin of ${num(m, 1)} laps to the end${volume}`)
     } else {
       const volume = finite(fuel.finishMarginL)
-        ? `, short ~${formatMeasurement(Math.abs(fuel.finishMarginL), 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true }).display}`
+        ? `, ${pt ? 'faltam' : 'short'} ~${formatMeasurement(Math.abs(fuel.finishMarginL), 'fuel-volume-l', unitSystem, { decimals: 1, includeUnit: true }).display}`
         : ''
-      parts.push(`fuel: deficit of ${num(Math.abs(m), 1)} laps${volume} - needs saving/stopping`)
+      parts.push(
+        pt
+          ? `combustível: déficit de ${num(Math.abs(m), 1)} voltas${volume} — precisa economizar ou parar`
+          : `fuel: deficit of ${num(Math.abs(m), 1)} laps${volume} - needs saving/stopping`
+      )
     }
   }
 
   const tire = predictions.tire
   if (tire) {
     const tParts: string[] = []
-    if (finite(tire.degSecPerLap) && tire.degSecPerLap > 0) tParts.push(`loss ~${num(tire.degSecPerLap)} s/lap`)
-    if (finite(tire.lapsToCliff) && tire.lapsToCliff > 0) tParts.push(`~${Math.round(tire.lapsToCliff)} laps until drop-off`)
-    if (tire.pressureState && tire.pressureState !== 'ok') tParts.push(`${PRESSURE_LABEL[tire.pressureState] ?? tire.pressureState} pressure`)
-    if (tire.tempState && tire.tempState !== 'optimal') tParts.push(`${TEMP_LABEL[tire.tempState] ?? tire.tempState} temp`)
-    if (tParts.length > 0) parts.push(`tire: ${tParts.join(', ')}`)
+    if (finite(tire.degSecPerLap) && tire.degSecPerLap > 0) tParts.push(pt ? `perda ~${num(tire.degSecPerLap)} s por volta` : `loss ~${num(tire.degSecPerLap)} s/lap`)
+    if (finite(tire.lapsToCliff) && tire.lapsToCliff > 0) tParts.push(pt ? `~${Math.round(tire.lapsToCliff)} voltas até a queda` : `~${Math.round(tire.lapsToCliff)} laps until drop-off`)
+    if (tire.pressureState && tire.pressureState !== 'ok') {
+      const label = (pt ? PRESSURE_LABEL_PT : PRESSURE_LABEL_EN)[tire.pressureState] ?? tire.pressureState
+      tParts.push(pt ? `pressão ${label}` : `${label} pressure`)
+    }
+    if (tire.tempState && tire.tempState !== 'optimal') {
+      const label = (pt ? TEMP_LABEL_PT : TEMP_LABEL_EN)[tire.tempState] ?? tire.tempState
+      tParts.push(pt ? `temperatura ${label}` : `${label} temp`)
+    }
+    if (tParts.length > 0) parts.push(`${pt ? 'pneus' : 'tire'}: ${tParts.join(', ')}`)
   }
 
   const pace = predictions.pace
   if (pace && finite(pace.projectedLapSec) && pace.projectedLapSec > 0) {
-    parts.push(`projected pace ${formatLapTime(pace.projectedLapSec)}`)
+    parts.push(`${pt ? 'ritmo projetado' : 'projected pace'} ${formatLapTime(pace.projectedLapSec)}`)
   }
 
   if (parts.length === 0) return null
@@ -213,15 +232,16 @@ export function strategyNote(predictions: PredictionsSnapshot | null | undefined
 const MAX_LOSSES = 3
 const MAX_GAINS = 2
 
-function sessionHeader(info: DebriefSessionInfo | undefined): string | null {
+function sessionHeader(info: DebriefSessionInfo | undefined, language: SpeechLanguage): string | null {
   if (!info) return null
+  const pt = language === 'pt-BR'
   const bits: string[] = []
   if (info.trackName) bits.push(info.trackName)
   if (info.carName) bits.push(info.carName)
   if (info.sessionType) bits.push(info.sessionType)
   const meta: string[] = []
-  if (finite(info.lapsCompleted) && info.lapsCompleted > 0) meta.push(`${Math.round(info.lapsCompleted)} laps`)
-  if (finite(info.bestLapTimeSec) && info.bestLapTimeSec > 0) meta.push(`melhor ${formatLapTime(info.bestLapTimeSec)}`)
+  if (finite(info.lapsCompleted) && info.lapsCompleted > 0) meta.push(`${Math.round(info.lapsCompleted)} ${pt ? 'voltas' : 'laps'}`)
+  if (finite(info.bestLapTimeSec) && info.bestLapTimeSec > 0) meta.push(`${pt ? 'melhor' : 'best'} ${formatLapTime(info.bestLapTimeSec)}`)
   const left = bits.join(' · ')
   const right = meta.length > 0 ? ` (${meta.join(', ')})` : ''
   const body = `${left}${right}`.trim()
@@ -240,8 +260,10 @@ export function composeDebrief(
   findings: CoachFinding[] | null | undefined,
   predictions: PredictionsSnapshot | null | undefined,
   sessionInfo?: DebriefSessionInfo,
-  unitSystem: UnitSystem = 'metric'
+  unitSystem: UnitSystem = 'metric',
+  language: SpeechLanguage = 'pt-BR'
 ): DebriefComposition {
+  const pt = language === 'pt-BR'
   const list = Array.isArray(findings) ? findings : []
 
   const losses = list
@@ -254,37 +276,45 @@ export function composeDebrief(
     .sort((a, b) => gainMagnitudeSec(b) - gainMagnitudeSec(a))
     .slice(0, MAX_GAINS)
 
-  const strategy = strategyNote(predictions, unitSystem)
-  const header = sessionHeader(sessionInfo)
+  const strategy = strategyNote(predictions, unitSystem, language)
+  const header = sessionHeader(sessionInfo, language)
 
   const bullets: string[] = []
-  for (const f of losses) bullets.push(`⚠ ${bulletForLoss(f)}`)
-  for (const f of gains) bullets.push(`✅ ${bulletForGain(f)}`)
-  if (strategy) bullets.push(`📊 Strategy - ${strategy}`)
+  for (const f of losses) bullets.push(`⚠ ${bulletForLoss(f, language)}`)
+  for (const f of gains) bullets.push(`✅ ${bulletForGain(f, language)}`)
+  if (strategy) bullets.push(`📊 ${pt ? 'Estratégia' : 'Strategy'} — ${strategy}`)
 
   // Graceful empty state: nothing measured at all.
   if (losses.length === 0 && gains.length === 0 && !strategy) {
     const head = header ? `${header}. ` : ''
     return {
-      text: `${head}Not enough data for a detailed debrief of this stint. Run a few clean laps so the Coach can analyze them.`.trim(),
+      text: `${head}${pt ? 'Ainda não há dados suficientes para um resumo detalhado deste stint. Faça algumas voltas limpas para o Coach analisar.' : 'Not enough data for a detailed debrief of this stint. Run a few clean laps so the Coach can analyze them.'}`.trim(),
       bullets: []
     }
   }
 
   const lines: string[] = []
-  if (header) lines.push(`Debrief — ${header}.`)
+  if (header) lines.push(`${pt ? 'Resumo' : 'Debrief'} — ${header}.`)
 
   if (losses.length > 0) {
-    lines.push(`Where you lost time: ${losses.map((f) => `${findingLocation(f)} (${headlineFor(f)})`).join('; ')}.`)
+    lines.push(
+      `${pt ? 'Onde perdeu tempo' : 'Where you lost time'}: ${losses
+        .map((f) => `${findingLocation(f, language)} (${headlineFor(f, language)})`)
+        .join('; ')}.`
+    )
   } else {
-    lines.push('Where you lost time: nothing significant - clean stint.')
+    lines.push(pt ? 'Onde perdeu tempo: nenhuma perda relevante — stint limpo.' : 'Where you lost time: nothing significant - clean stint.')
   }
 
   if (gains.length > 0) {
-    lines.push(`Where you did well: ${gains.map((f) => `${findingLocation(f)} (${headlineFor(f)})`).join('; ')}.`)
+    lines.push(
+      `${pt ? 'Onde foi bem' : 'Where you did well'}: ${gains
+        .map((f) => `${findingLocation(f, language)} (${headlineFor(f, language)})`)
+        .join('; ')}.`
+    )
   }
 
-  if (strategy) lines.push(`Strategy: ${strategy}.`)
+  if (strategy) lines.push(`${pt ? 'Estratégia' : 'Strategy'}: ${strategy}.`)
 
   return { text: lines.join(' '), bullets }
 }

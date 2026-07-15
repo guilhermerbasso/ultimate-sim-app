@@ -19,7 +19,7 @@
 // cache and tears down audio on unmount. Renders nothing. Because `speakViaTts` is a
 // free function, code running WITHOUT a view open can still speak.
 
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import {
   TTS_CHANNELS,
   isValidPiperVoiceId,
@@ -572,8 +572,10 @@ export function subscribeVoiceProgress(cb: (progress: PiperVoiceProgress) => voi
 
 let mountCount = 0
 
-/** Mount ONCE (App.tsx). Warms the config cache + cleans up audio on teardown. Renders nothing. */
-export function useTtsRuntime(): void {
+/** Mount ONCE (App.tsx). Warms the config cache + cleans up audio on teardown or language changes. */
+export function useTtsRuntime(language?: string): void {
+  const previousLanguage = useRef(language)
+
   useEffect(() => {
     mountCount += 1
     if (mountCount === 1) getTtsPref() // warm cache from localStorage
@@ -582,4 +584,9 @@ export function useTtsRuntime(): void {
       if (mountCount === 0) stopTts()
     }
   }, [])
+
+  useEffect(() => {
+    if (previousLanguage.current && language && previousLanguage.current !== language) stopTts()
+    previousLanguage.current = language
+  }, [language])
 }

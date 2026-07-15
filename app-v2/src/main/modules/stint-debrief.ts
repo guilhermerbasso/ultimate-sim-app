@@ -27,6 +27,7 @@ import { getLlmRuntime } from '../ai/llm-runtime'
 import { getModelManager } from '../ai/model-manager'
 import { logger } from './logger'
 import { settingsEvents } from '../settings/events'
+import { speechLanguageFromAppLanguage, type SpeechLanguage } from '../../shared/tts-voice'
 
 const LOG_AREA = 'ai'
 // Hard cap so an optional LLM phrasing stays a SHORT debrief, never an essay.
@@ -61,14 +62,24 @@ async function tryLlmPhrase(system: string, prompt: string): Promise<string | nu
   }
 }
 
-function phrasePrompt(facts: string, unitSystem: UnitSystem): { system: string; prompt: string } {
-  const units = unitSystem === 'imperial' ? 'Use US customary units only.' : 'Use metric units only.'
-  const system =
-    'You are a race engineer on the radio. Rewrite the debrief below in ' +
-    'American English, in 2 to 4 short sentences, with a calm, executive, ' +
-    'encouraging tone. Mention where the driver lost time, where they did well, and the ' +
-    `strategy points. Do NOT invent numbers or turns — use only the given facts. ${units}`
-  return { system, prompt: `${facts}\n\nDebrief:` }
+function phrasePrompt(
+  facts: string,
+  unitSystem: UnitSystem,
+  language: SpeechLanguage
+): { system: string; prompt: string } {
+  const pt = language === 'pt-BR'
+  const units =
+    unitSystem === 'imperial'
+      ? pt
+        ? 'Use somente unidades imperiais dos EUA.'
+        : 'Use US customary units only.'
+      : pt
+        ? 'Use somente unidades métricas.'
+        : 'Use metric units only.'
+  const system = pt
+    ? `Você é um engenheiro de corrida no rádio. Reescreva o resumo abaixo em português do Brasil, em 2 a 4 frases curtas, com tom calmo, executivo e encorajador. Diga onde o piloto perdeu tempo, onde foi bem e os pontos de estratégia. Não invente números nem curvas — use somente os fatos fornecidos. ${units}`
+    : `You are a race engineer on the radio. Rewrite the debrief below in American English, in 2 to 4 short sentences, with a calm, executive, encouraging tone. Mention where the driver lost time, where they did well, and the strategy points. Do NOT invent numbers or turns — use only the given facts. ${units}`
+  return { system, prompt: `${facts}\n\n${pt ? 'Resumo' : 'Debrief'}:` }
 }
 
 // ─── stint/session boundary detection (telemetry-driven) ──────────────────────
@@ -137,8 +148,10 @@ function detectBoundary(state: BoundaryState, snap: TelemetrySnapshot | null): D
 export function register(ctx: ModuleContext): void {
   let latest: StintDebrief | null = null
   let unitSystem: UnitSystem = 'metric'
+  let language: SpeechLanguage = 'en-US'
   settingsEvents.onChanged((settings) => {
     unitSystem = settings.unitSystem
+    language = speechLanguageFromAppLanguage(settings.language, ctx.app.getLocale())
   })
   const boundary = newBoundaryState()
 
@@ -152,7 +165,7 @@ export function register(ctx: ModuleContext): void {
 
   ctx.ipcMain.handle(DEBRIEF_CHANNELS.generate, async (_event, request?: DebriefGenerateRequest): Promise<StintDebrief> => {
     const reason: DebriefReason = request?.sessionInfo?.reason ?? 'manual'
-    const composition = composeDebrief(request?.findings, request?.predictions, request?.sessionInfo, unitSystem)
+    const composition = composeDebrief(request?.findings, request?.predictions, request?.sessionInfo, unitSystem, language)
 
     let text = composition.text
     let source: StintDebrief['source'] = 'deterministic'
@@ -160,7 +173,7 @@ export function register(ctx: ModuleContext): void {
     if (request?.useLlm === true) {
       const facts = debriefLlmFacts(composition)
       if (facts.trim().length > 0) {
-        const { system, prompt } = phrasePrompt(facts, unitSystem)
+        const { system, prompt } = phrasePrompt(facts, unitSystem, language)
         const llmText = await tryLlmPhrase(system, prompt)
         if (llmText) {
           text = llmText
@@ -174,6 +187,7 @@ export function register(ctx: ModuleContext): void {
       text,
       bullets: composition.bullets,
       source,
+      language,
       reason,
       sessionInfo: request?.sessionInfo
     }
