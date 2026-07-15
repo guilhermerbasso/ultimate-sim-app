@@ -1,4 +1,3 @@
-import type { OverlaySemanticTriggerId } from '../overlay-trigger'
 import type { TelemetrySnapshot } from '../telemetry'
 
 export const TELEMETRY_REPRESENTATION_STYLES = [
@@ -100,45 +99,14 @@ export interface TelemetryRepresentationContract {
   ddu: string
 }
 
-export type TelemetryTriggerClassification =
-  | 'none'
-  | 'trigger-only'
-  | 'alert-candidate'
+export type TelemetrySourceConstraintId =
+  | 'provider-fallback-ambiguous'
+  | 'provider-normalization-missing'
 
-export type TelemetryVisibilityMode =
-  | 'level'
-  | 'threshold'
-  | 'rising-edge-hold'
-  | 'level-with-falling-hold'
-
-export type TelemetryTriggerSource =
-  | {
-      kind: 'semantic'
-      semantic: OverlaySemanticTriggerId
-    }
-  | {
-      kind: 'proximity'
-      thresholdSec: number
-    }
-  | {
-      kind: 'shiftPoint'
-      shiftPct: number
-    }
-  | {
-      kind: 'lowFuel'
-      lapsToEmpty: number
-    }
-
-export interface TelemetryTriggerPolicy {
-  source: TelemetryTriggerSource
-  mode: TelemetryVisibilityMode
-  predicate: string
-  ttlMs?: number
-}
-
-export interface TelemetryTriggerContract {
-  classification: TelemetryTriggerClassification
-  policies: readonly TelemetryTriggerPolicy[]
+export interface TelemetrySourceConstraint {
+  id: TelemetrySourceConstraintId
+  scope: 'provider'
+  detail: string
 }
 
 export interface TelemetryCapabilityBase {
@@ -153,14 +121,18 @@ export interface TelemetryCapabilityBase {
   data: TelemetryCapabilityData
   dependencies: TelemetryCapabilityDependencies
   normalization: string
-  trigger: TelemetryTriggerContract
+  sourceConstraints: readonly TelemetrySourceConstraint[]
+  surfaces: {
+    widget: true
+    ordinaryOverlay: true
+  }
 }
 
 export interface GeneratedTelemetryCapability
   extends TelemetryCapabilityBase {
-  surfaces: {
-    dashboardWidget: 'supported'
-    ordinaryOverlay: 'supported' | 'trigger-only'
+  runtime: {
+    availability: 'visualizable'
+    unavailablePresentation: 'explicit'
   }
   implementation: {
     mode: 'generated-three-variant'
@@ -170,9 +142,9 @@ export interface GeneratedTelemetryCapability
 
 export interface DedicatedTelemetryCapability
   extends TelemetryCapabilityBase {
-  surfaces: {
-    dashboardWidget: 'supported'
-    ordinaryOverlay: 'supported'
+  runtime: {
+    availability: 'visualizable'
+    unavailablePresentation: 'explicit'
   }
   implementation: {
     mode: 'dedicated-shared-rev-lights'
@@ -180,14 +152,15 @@ export interface DedicatedTelemetryCapability
   }
 }
 
-export interface BlockedTelemetryCapability
+export interface UnsupportedTelemetryCapability
   extends TelemetryCapabilityBase {
-  surfaces: {
-    dashboardWidget: 'blocked'
-    ordinaryOverlay: 'blocked'
+  runtime: {
+    availability: 'unsupported'
+    unavailablePresentation: 'explicit'
+    unsupportedReason: string
   }
   implementation: {
-    mode: 'blocked'
+    mode: 'unsupported-unavailable'
     blockedOn: 'provider-normalization'
     reason: string
   }
@@ -196,7 +169,7 @@ export interface BlockedTelemetryCapability
 export type TelemetryCapability =
   | GeneratedTelemetryCapability
   | DedicatedTelemetryCapability
-  | BlockedTelemetryCapability
+  | UnsupportedTelemetryCapability
 
 export interface TelemetryCapabilityTagValidation {
   valid: boolean
@@ -206,13 +179,11 @@ export interface TelemetryCapabilityTagValidation {
 
 export interface TelemetryCapabilityRegistrySummary {
   total: number
-  visualizable: number
+  currentlyVisualizable: number
   generatedThreeVariant: number
   generatedRepresentations: number
   dedicated: number
-  blocked: number
-  dashboardWidget: number
-  ordinaryOverlay: number
-  triggerOnly: number
-  alertCandidates: number
+  unsupported: number
+  plannedWidgets: number
+  plannedOrdinaryOverlays: number
 }

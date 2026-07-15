@@ -4,10 +4,10 @@ import {
   type TelemetryCapabilityId
 } from './capabilities'
 import type {
-  BlockedTelemetryCapability,
   TelemetryCapability,
   TelemetryCapabilityRegistrySummary,
-  TelemetryCapabilityTagValidation
+  TelemetryCapabilityTagValidation,
+  UnsupportedTelemetryCapability
 } from './types'
 
 export const TELEMETRY_CAPABILITY_REGISTRY = TELEMETRY_CAPABILITIES
@@ -33,24 +33,18 @@ export function getTelemetryCapability(
 
 export function isVisualizableTelemetryCapability(
   capability: TelemetryCapability
-): capability is Exclude<TelemetryCapability, BlockedTelemetryCapability> {
-  return capability.implementation.mode !== 'blocked'
+): capability is Exclude<
+  TelemetryCapability,
+  UnsupportedTelemetryCapability
+> {
+  return capability.runtime.availability === 'visualizable'
 }
 
 export function filterVisualizableTelemetryCapabilities(
   capabilities: readonly TelemetryCapability[] =
     TELEMETRY_CAPABILITY_REGISTRY
-): Exclude<TelemetryCapability, BlockedTelemetryCapability>[] {
+): Exclude<TelemetryCapability, UnsupportedTelemetryCapability>[] {
   return capabilities.filter(isVisualizableTelemetryCapability)
-}
-
-export function filterTriggerOnlyTelemetryCapabilities(
-  capabilities: readonly TelemetryCapability[] =
-    TELEMETRY_CAPABILITY_REGISTRY
-): TelemetryCapability[] {
-  return capabilities.filter(
-    (capability) => capability.trigger.classification === 'trigger-only'
-  )
 }
 
 export function validateNormalizedTelemetryTags(
@@ -85,11 +79,10 @@ export function summarizeTelemetryCapabilityRegistry(
 ): TelemetryCapabilityRegistrySummary {
   let generatedThreeVariant = 0
   let dedicated = 0
-  let blocked = 0
-  let dashboardWidget = 0
-  let ordinaryOverlay = 0
-  let triggerOnly = 0
-  let alertCandidates = 0
+  let unsupported = 0
+  let currentlyVisualizable = 0
+  let plannedWidgets = 0
+  let plannedOrdinaryOverlays = 0
 
   for (const capability of capabilities) {
     if (capability.implementation.mode === 'generated-three-variant') {
@@ -99,34 +92,29 @@ export function summarizeTelemetryCapabilityRegistry(
     ) {
       dedicated += 1
     } else {
-      blocked += 1
+      unsupported += 1
     }
 
-    if (capability.surfaces.dashboardWidget === 'supported') {
-      dashboardWidget += 1
+    if (capability.runtime.availability === 'visualizable') {
+      currentlyVisualizable += 1
     }
-    if (capability.surfaces.ordinaryOverlay === 'supported') {
-      ordinaryOverlay += 1
+    if (capability.surfaces.widget) {
+      plannedWidgets += 1
     }
-    if (capability.trigger.classification === 'trigger-only') {
-      triggerOnly += 1
-    }
-    if (capability.trigger.classification === 'alert-candidate') {
-      alertCandidates += 1
+    if (capability.surfaces.ordinaryOverlay) {
+      plannedOrdinaryOverlays += 1
     }
   }
 
   return {
     total: capabilities.length,
-    visualizable: capabilities.length - blocked,
+    currentlyVisualizable,
     generatedThreeVariant,
     generatedRepresentations: generatedThreeVariant * 3,
     dedicated,
-    blocked,
-    dashboardWidget,
-    ordinaryOverlay,
-    triggerOnly,
-    alertCandidates
+    unsupported,
+    plannedWidgets,
+    plannedOrdinaryOverlays
   }
 }
 

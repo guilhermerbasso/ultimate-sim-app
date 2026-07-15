@@ -1,66 +1,24 @@
 import { isControlledTag, unitTagFor } from '../tags'
 import type {
-  BlockedTelemetryCapability,
   DedicatedTelemetryCapability,
   GeneratedTelemetryCapability,
   TelemetryCapabilityBase,
   TelemetryRepresentationContract,
-  TelemetryTriggerContract,
-  TelemetryTriggerPolicy,
-  TelemetryTriggerSource,
-  TelemetryVisibilityMode
+  TelemetrySourceConstraint,
+  UnsupportedTelemetryCapability
 } from './types'
 
 type CapabilityDefinition<Id extends string> = Omit<
   TelemetryCapabilityBase,
-  'id' | 'tags'
+  'id' | 'sourceConstraints' | 'surfaces' | 'tags'
 > & {
   id: Id
+  sourceConstraints?: readonly TelemetrySourceConstraint[]
   tags: readonly string[]
 }
 
 type GeneratedDefinition<Id extends string> = CapabilityDefinition<Id> & {
-  ordinaryOverlay: 'supported' | 'trigger-only'
   representations: TelemetryRepresentationContract
-}
-
-const NO_TRIGGER: TelemetryTriggerContract = {
-  classification: 'none',
-  policies: []
-}
-
-function semanticPolicy(
-  semantic: Extract<TelemetryTriggerSource, { kind: 'semantic' }>['semantic'],
-  mode: TelemetryVisibilityMode,
-  predicate: string,
-  ttlMs?: number
-): TelemetryTriggerPolicy {
-  return {
-    source: { kind: 'semantic', semantic },
-    mode,
-    predicate,
-    ...(ttlMs == null ? {} : { ttlMs })
-  }
-}
-
-function builtInPolicy(
-  source: Exclude<TelemetryTriggerSource, { kind: 'semantic' }>,
-  mode: TelemetryVisibilityMode,
-  predicate: string
-): TelemetryTriggerPolicy {
-  return { source, mode, predicate }
-}
-
-function triggerOnly(
-  ...policies: readonly TelemetryTriggerPolicy[]
-): TelemetryTriggerContract {
-  return { classification: 'trigger-only', policies }
-}
-
-function alertCandidate(
-  ...policies: readonly TelemetryTriggerPolicy[]
-): TelemetryTriggerContract {
-  return { classification: 'alert-candidate', policies }
 }
 
 function capabilityTags(
@@ -79,32 +37,37 @@ function capabilityTags(
   ]
   const unitTag = unitTagFor(definition.data.unit ?? undefined)
   if (unitTag && isControlledTag(unitTag)) candidates.push(unitTag)
-  if (definition.trigger.classification === 'trigger-only') {
-    candidates.push('trigger-only')
-  }
-  if (definition.trigger.policies.some((policy) => policy.ttlMs != null)) {
-    candidates.push('trigger-hold')
-  }
-  if (
-    definition.trigger.policies.some(
-      (policy) => policy.mode === 'rising-edge-hold'
-    )
-  ) {
-    candidates.push('trigger-edge')
-  }
   return [...new Set(candidates)]
+}
+
+function capabilityBase<const Id extends string>(
+  definition: CapabilityDefinition<Id>
+): TelemetryCapabilityBase & { id: Id } {
+  const {
+    sourceConstraints = [],
+    tags: _tags,
+    ...base
+  } = definition
+  return {
+    ...base,
+    tags: capabilityTags(definition),
+    sourceConstraints,
+    surfaces: {
+      widget: true,
+      ordinaryOverlay: true
+    }
+  }
 }
 
 function generated<const Id extends string>(
   definition: GeneratedDefinition<Id>
 ): GeneratedTelemetryCapability & { id: Id } {
-  const { ordinaryOverlay, representations, tags: _tags, ...base } = definition
+  const { representations, ...base } = definition
   return {
-    ...base,
-    tags: capabilityTags(definition),
-    surfaces: {
-      dashboardWidget: 'supported',
-      ordinaryOverlay
+    ...capabilityBase(base),
+    runtime: {
+      availability: 'visualizable',
+      unavailablePresentation: 'explicit'
     },
     implementation: { mode: 'generated-three-variant' },
     representations
@@ -114,13 +77,11 @@ function generated<const Id extends string>(
 function dedicated<const Id extends string>(
   definition: CapabilityDefinition<Id>
 ): DedicatedTelemetryCapability & { id: Id } {
-  const { tags: _tags, ...base } = definition
   return {
-    ...base,
-    tags: capabilityTags(definition),
-    surfaces: {
-      dashboardWidget: 'supported',
-      ordinaryOverlay: 'supported'
+    ...capabilityBase(definition),
+    runtime: {
+      availability: 'visualizable',
+      unavailablePresentation: 'explicit'
     },
     implementation: {
       mode: 'dedicated-shared-rev-lights',
@@ -129,20 +90,19 @@ function dedicated<const Id extends string>(
   }
 }
 
-function blocked<const Id extends string>(
+function unsupported<const Id extends string>(
   definition: CapabilityDefinition<Id>,
   reason: string
-): BlockedTelemetryCapability & { id: Id } {
-  const { tags: _tags, ...base } = definition
+): UnsupportedTelemetryCapability & { id: Id } {
   return {
-    ...base,
-    tags: capabilityTags(definition),
-    surfaces: {
-      dashboardWidget: 'blocked',
-      ordinaryOverlay: 'blocked'
+    ...capabilityBase(definition),
+    runtime: {
+      availability: 'unsupported',
+      unavailablePresentation: 'explicit',
+      unsupportedReason: reason
     },
     implementation: {
-      mode: 'blocked',
+      mode: 'unsupported-unavailable',
       blockedOn: 'provider-normalization',
       reason
     }
@@ -161,9 +121,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'km/h', detail: 'float; m/s raw → km/h; display 0..360' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player car' },
     normalization: 'Speed*3.6',
-    trigger: NO_TRIGGER,
     tags: ['speed'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend ring',
@@ -181,9 +139,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'rpm', detail: 'float; rpm' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player car' },
     normalization: 'provider uses RPM; Engine0_RPM catalog-only',
-    trigger: NO_TRIGGER,
     tags: ['rpm', 'engine'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend ring',
@@ -201,9 +157,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'enum', unit: null, detail: 'int; -1/R,0/N,1..n' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player car' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['gear'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'numeric',
       futuristic: 'trend card',
@@ -221,7 +175,6 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'composite', unit: 'mixed', detail: 'thresholds + 0..1' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player car' },
     normalization: 'clamp((RPM-first)/(shift-first)); fallbacks',
-    trigger: alertCandidate(builtInPolicy({ kind: 'shiftPoint', shiftPct: 0.97 }, 'threshold', 'shiftIndicatorPct is at least 0.97')),
     tags: ['engine', 'revlights', 'shift']
   }),
   generated({
@@ -235,9 +188,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'bitfield', unit: null, detail: 'bitfield → booleans' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player car' },
     normalization: 'decode warning bits',
-    trigger: triggerOnly(semanticPolicy('engineWarnings', 'level', 'any decoded engine-warning bit is active'), semanticPolicy('alert2EngineWarning', 'level', 'any decoded engine-warning bit is active')),
     tags: ['engine', 'flags', 'warning'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'lamp',
       futuristic: 'timeline',
@@ -255,9 +206,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'kPa', detail: 'float; kPa; display 0..700' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player car' },
     normalization: 'raw<30 ? raw*100 : raw',
-    trigger: alertCandidate(semanticPolicy('alert2OilPressureLow', 'threshold', 'oil-pressure warning is active or oilPressureKpa is at most 140')),
     tags: ['oil', 'pressure'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -275,9 +224,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '°C', detail: 'float; °C; 40..160 display' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player car' },
     normalization: 'direct',
-    trigger: alertCandidate(semanticPolicy('alert2OilTempCritical', 'threshold', 'oil-temperature warning is active or oilTempC is at least 125')),
     tags: ['oil', 'temperature'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -295,9 +242,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '°C', detail: 'float; °C; 40..140 display' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player car' },
     normalization: 'direct',
-    trigger: alertCandidate(semanticPolicy('alert2WaterTempCritical', 'threshold', 'water warning is active or waterTempC is at least 105')),
     tags: ['water', 'temperature'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -315,9 +260,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'L', detail: 'float; L; 0..8 display' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['water', 'level'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -335,9 +278,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'L', detail: 'float; L; 0..6 display' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['oil', 'level'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -355,9 +296,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'V', detail: 'float; V; 10..16 display' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['electrical', 'voltage'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -375,9 +314,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'bar', detail: 'float; bar; 0..3 display' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['boost', 'pressure'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -395,9 +332,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'bar', detail: 'float; bar; 0..8 display' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['fuel', 'pressure'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -415,9 +350,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '%', detail: 'float; 0..1 → %' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'hybrid cars only' },
     normalization: 'ratio*100 for widget',
-    trigger: NO_TRIGGER,
     tags: ['ers', 'battery'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -435,9 +368,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'kg', detail: 'float; kg' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'series-dependent' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['bop', 'weight'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'numeric',
       futuristic: 'trend',
@@ -455,9 +386,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '%', detail: 'float; %' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'series-dependent' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['bop', 'power'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'numeric',
       futuristic: 'trend',
@@ -475,9 +404,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'enum', unit: null, detail: 'enum 0..3 + bool' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'fitted cars' },
     normalization: 'normalize status; Boolean compatibility field',
-    trigger: triggerOnly(semanticPolicy('drs', 'level-with-falling-hold', 'drsState is known and greater than 0; retain deactivation for the hold window', 5000)),
     tags: ['drs'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'lamp',
       futuristic: 'timeline',
@@ -495,9 +422,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'boolean', unit: null, detail: 'bool' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'fitted cars' },
     normalization: 'prefer status, fallback button',
-    trigger: triggerOnly(semanticPolicy('pushToPassState', 'level', 'pushToPass is true')),
     tags: ['push-to-pass'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'lamp',
       futuristic: 'timeline',
@@ -515,9 +440,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'integer', unit: null, detail: 'int count' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'fitted cars' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['push-to-pass', 'count'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'numeric',
       futuristic: 'trend',
@@ -535,9 +458,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'vector', unit: 'm/s', detail: 'float[3]; m/s' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player live/logged' },
     normalization: 'X/Y may fall back to Speed+YawNorth',
-    trigger: NO_TRIGGER,
     tags: ['vector', 'velocity', 'speed'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'cross-plot',
       futuristic: 'vector trace',
@@ -555,9 +476,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'vector', unit: 'g', detail: 'float[3]; m/s² → G' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player live/logged' },
     normalization: 'value/9.80665',
-    trigger: NO_TRIGGER,
     tags: ['g-force', 'vector', 'acceleration'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'G-G',
       futuristic: 'vector trace',
@@ -575,9 +494,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'vector', unit: 'rad', detail: 'float[3]; rad' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player channel' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['vector', 'attitude', 'chassis'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'attitude crosshair',
       futuristic: 'trace',
@@ -595,9 +512,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'vector', unit: 'rad/s', detail: 'float[3]; rad/s' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player channel' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['vector', 'rotation', 'chassis'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'cross-plot',
       futuristic: 'trace',
@@ -615,9 +530,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'vector', unit: 'mixed', detail: 'deg,deg,m' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'channel/replay-dependent' },
     normalization: 'tuple',
-    trigger: NO_TRIGGER,
     tags: ['map', 'track', 'position'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'map readout',
       futuristic: 'path',
@@ -635,9 +548,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '°', detail: 'rad raw → 0..360°' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player channel' },
     normalization: 'normalized compass degrees',
-    trigger: NO_TRIGGER,
     tags: ['heading', 'track'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'compass arc',
       futuristic: 'ribbon',
@@ -655,9 +566,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '%', detail: 'float 0..1' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['throttle'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'bar',
       futuristic: 'history',
@@ -675,9 +584,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '%', detail: 'float 0..1' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['brakes'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'bar',
       futuristic: 'history',
@@ -695,9 +602,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '%', detail: 'float 0..1' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['clutch'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'bar',
       futuristic: 'history',
@@ -715,9 +620,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '%', detail: 'float 0..1' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'raw-first fallback',
-    trigger: NO_TRIGGER,
     tags: ['handbrake'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'bar',
       futuristic: 'history',
@@ -735,9 +638,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'composite', unit: '°', detail: 'rad → degrees' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player' },
     normalization: 'rad*180/pi',
-    trigger: NO_TRIGGER,
     tags: ['steering', 'indicator', 'driver-input'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'wheel indicator',
       futuristic: 'trace',
@@ -755,9 +656,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '°', detail: 'degrees; 0..1080 display' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'rad*180/pi',
-    trigger: NO_TRIGGER,
     tags: ['steering', 'lock'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'bar',
       futuristic: 'range ribbon',
@@ -775,9 +674,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '%', detail: 'float 0..1 → %' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'wheel/channel-dependent' },
     normalization: 'ratio*100',
-    trigger: NO_TRIGGER,
     tags: ['steering', 'torque'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'bar',
       futuristic: 'history',
@@ -795,9 +692,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'setting', unit: '%', detail: 'number/string; %' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'abs(raw)<=1 ? raw*100 : raw',
-    trigger: NO_TRIGGER,
     tags: ['brake-bias', 'setup'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'setting tile',
       futuristic: 'ladder',
@@ -815,9 +710,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'setting', unit: null, detail: 'setting' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'fitted cars' },
     normalization: 'first defined',
-    trigger: NO_TRIGGER,
     tags: ['abs', 'setup'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'setting tile',
       futuristic: 'ladder',
@@ -835,9 +728,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'boolean', unit: null, detail: 'bool' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'fitted cars' },
     normalization: 'direct',
-    trigger: triggerOnly(semanticPolicy('absActive', 'level', 'absActive is true')),
     tags: ['abs', 'intervention'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'lamp',
       futuristic: 'intervention timeline',
@@ -855,9 +746,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '%', detail: 'float %' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'fitted cars' },
     normalization: 'direct',
-    trigger: triggerOnly(semanticPolicy('absCut', 'level', 'absCutPct is greater than 0')),
     tags: ['abs', 'brakes'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -875,9 +764,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'setting', unit: null, detail: 'setting' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'fitted cars' },
     normalization: 'first defined',
-    trigger: NO_TRIGGER,
     tags: ['tc', 'setup'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'setting tile',
       futuristic: 'ladder',
@@ -895,9 +782,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'boolean', unit: null, detail: 'derived bool' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'fitted cars' },
     normalization: 'throttle/TC/speed/brake/long-G predicate + latch',
-    trigger: triggerOnly(semanticPolicy('tcActive', 'level', 'tcActive is true')),
     tags: ['tc', 'intervention', 'derived'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'lamp',
       futuristic: 'intervention timeline',
@@ -915,9 +800,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'setting', unit: null, detail: 'setting' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['setup', 'throttle'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'setting tile',
       futuristic: 'ladder',
@@ -934,10 +817,15 @@ export const TELEMETRY_CAPABILITIES = [
     rawIracingHints: ['dcFuelMixture', 'dcEnginePower', 'dcBoostLevel'],
     data: { kind: 'setting', unit: null, detail: 'setting' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
-    normalization: 'first defined',
-    trigger: NO_TRIGGER,
+    normalization: 'first defined genuine engine-map channel',
+    sourceConstraints: [
+      {
+        id: 'provider-fallback-ambiguous',
+        scope: 'provider',
+        detail: 'The capability accepts dcFuelMixture, dcEnginePower, or dcBoostLevel. The current provider also falls back to dcThrottleShape; that fallback belongs to throttleMap and must be removed by provider integration.'
+      }
+    ],
     tags: ['engine-map', 'setup'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'setting tile',
       futuristic: 'ladder',
@@ -955,9 +843,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'setting', unit: null, detail: 'setting' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['setup', 'engine-braking'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'setting tile',
       futuristic: 'ladder',
@@ -975,9 +861,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'setting', unit: null, detail: 'setting' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['setup', 'anti-roll'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'setting tile',
       futuristic: 'ladder',
@@ -995,9 +879,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'setting', unit: null, detail: 'setting' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['setup', 'anti-roll'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'setting tile',
       futuristic: 'ladder',
@@ -1015,9 +897,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'setting', unit: null, detail: 'setting' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['setup', 'weight-jacker'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'setting tile',
       futuristic: 'ladder',
@@ -1035,9 +915,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'integer', unit: null, detail: 'int count' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'valid session' },
     normalization: 'truncate',
-    trigger: NO_TRIGGER,
     tags: ['laps'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'numeric',
       futuristic: 'lap ribbon',
@@ -1055,9 +933,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'integer', unit: null, detail: 'int count' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'valid session' },
     normalization: 'provider uses LapCompleted',
-    trigger: NO_TRIGGER,
     tags: ['laps', 'completed'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'numeric',
       futuristic: 'lap ribbon',
@@ -1075,9 +951,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'm', detail: 'float m' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'track-dependent' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['map', 'track', 'laps', 'distance'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'map',
       futuristic: 'path ribbon',
@@ -1095,9 +969,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '%', detail: 'float 0..1 → %' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'valid lap' },
     normalization: 'clamp',
-    trigger: NO_TRIGGER,
     tags: ['laps', 'track'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'bar',
       futuristic: 'track ribbon',
@@ -1115,9 +987,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 's', detail: 'seconds' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'valid lap' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['laps', 'clock'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'clock',
       futuristic: 'timeline',
@@ -1135,9 +1005,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 's', detail: 'seconds' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'valid completed lap' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['laps', 'clock'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'clock',
       futuristic: 'trend',
@@ -1155,9 +1023,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 's', detail: 'seconds' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'valid timed lap' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['laps', 'clock', 'best'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'clock',
       futuristic: 'trend',
@@ -1175,9 +1041,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'composite', unit: 'mixed', detail: 'lap + seconds' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'session-dependent' },
     normalization: 'joined display',
-    trigger: NO_TRIGGER,
     tags: ['laps', 'best', 'clock'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'clock',
       futuristic: 'trend',
@@ -1195,9 +1059,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 's', detail: 'seconds' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'lap-history-dependent' },
     normalization: 'provider uses LapLastNLapTime',
-    trigger: NO_TRIGGER,
     tags: ['laps', 'clock', 'estimated'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'clock',
       futuristic: 'projection',
@@ -1215,9 +1077,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 's', detail: 'seconds; display -5..5' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'valid reference' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['delta', 'pace'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'delta bar',
       futuristic: 'history',
@@ -1235,9 +1095,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 's', detail: 'seconds; -5..5' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'valid reference' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['delta', 'pace'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'delta bar',
       futuristic: 'history',
@@ -1255,9 +1113,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 's', detail: 'seconds; -5..5' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'valid reference' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['delta', 'pace'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'delta bar',
       futuristic: 'history',
@@ -1275,9 +1131,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 's', detail: 'seconds; -5..5' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'valid reference' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['delta', 'pace'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'delta bar',
       futuristic: 'history',
@@ -1295,9 +1149,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 's', detail: 'seconds; -5..5' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'valid reference' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['delta', 'pace'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'delta bar',
       futuristic: 'history',
@@ -1315,9 +1167,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'integer', unit: null, detail: 'int' },
     dependencies: { car: 'none', session: 'live-session', notes: 'session' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['session', 'count'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'numeric',
       futuristic: 'timeline',
@@ -1335,9 +1185,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'enum', unit: null, detail: 'enum 0..6' },
     dependencies: { car: 'none', session: 'live-session', notes: 'session' },
     normalization: 'enum→label',
-    trigger: NO_TRIGGER,
     tags: ['session', 'status'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'status',
       futuristic: 'timeline',
@@ -1355,9 +1203,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 's', detail: 'seconds' },
     dependencies: { car: 'none', session: 'live-session', notes: 'session' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['session', 'clock'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'clock',
       futuristic: 'timeline',
@@ -1375,9 +1221,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 's', detail: 'seconds since midnight' },
     dependencies: { car: 'none', session: 'live-session', notes: 'session' },
     normalization: 'formatted HH:MM when needed',
-    trigger: NO_TRIGGER,
     tags: ['clock', 'session'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'clock',
       futuristic: 'day arc',
@@ -1395,9 +1239,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 's', detail: 'seconds' },
     dependencies: { car: 'none', session: 'live-session', notes: 'timed sessions' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['clock', 'session'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'countdown',
       futuristic: 'projection',
@@ -1415,9 +1257,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'integer', unit: 'count', detail: 'int' },
     dependencies: { car: 'none', session: 'timing-or-scoring', notes: 'lap-limited session' },
     normalization: 'prefer Ex',
-    trigger: NO_TRIGGER,
     tags: ['laps', 'session'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'count',
       futuristic: 'projection',
@@ -1435,9 +1275,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'text', unit: null, detail: 'text' },
     dependencies: { car: 'none', session: 'session-info', notes: 'YAML' },
     normalization: 'SessionInfo',
-    trigger: NO_TRIGGER,
     tags: ['session', 'identity'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'identity strip',
       futuristic: 'ribbon',
@@ -1455,9 +1293,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'boolean', unit: null, detail: 'bool' },
     dependencies: { car: 'none', session: 'live-session', notes: 'session' },
     normalization: 'prefer IsOnTrackCar',
-    trigger: NO_TRIGGER,
     tags: ['track', 'status'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'status',
       futuristic: 'state arc',
@@ -1475,9 +1311,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'boolean', unit: null, detail: 'bool/context' },
     dependencies: { car: 'none', session: 'replay', notes: 'replay' },
     normalization: 'ReplayContextTracker',
-    trigger: triggerOnly(semanticPolicy('replayState', 'level', 'replay context is active')),
     tags: ['replay', 'status'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'status',
       futuristic: 'timeline',
@@ -1495,9 +1329,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'frame', detail: 'frame indices' },
     dependencies: { car: 'none', session: 'replay', notes: 'replay' },
     normalization: 'current/end',
-    trigger: triggerOnly(semanticPolicy('replayTimeline', 'level', 'replay context is active')),
     tags: ['replay', 'timeline'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'bar',
       futuristic: 'timeline',
@@ -1515,9 +1347,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'composite', unit: null, detail: 'joined identity' },
     dependencies: { car: 'per-car', session: 'live-session', notes: 'camera context' },
     normalization: 'resolve index to driver',
-    trigger: NO_TRIGGER,
     tags: ['camera', 'driver', 'status'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'status',
       futuristic: 'identity ribbon',
@@ -1535,9 +1365,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'enum', unit: null, detail: 'enum 0..4' },
     dependencies: { car: 'none', session: 'live-session', notes: 'pacing sessions' },
     normalization: 'enum→label',
-    trigger: triggerOnly(semanticPolicy('paceMode', 'level', 'paceMode is not \'notPacing\'')),
     tags: ['session', 'pace'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'status',
       futuristic: 'formation arc',
@@ -1555,9 +1383,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'bitfield', unit: null, detail: 'bitfield/list' },
     dependencies: { car: 'per-car', session: 'live-session', notes: 'pacing + pace-car identity' },
     normalization: 'decode EOL/free-pass/waved-around',
-    trigger: triggerOnly(semanticPolicy('paceFlags', 'level-with-falling-hold', 'the SessionInfo pace car is out of the pits; retain PACE CLEAR after it returns', 5000)),
     tags: ['pace', 'flags', 'status'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'status',
       futuristic: 'state arc',
@@ -1575,9 +1401,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: null, detail: 'per-car ints' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'pacing/scoring' },
     normalization: 'join line+row',
-    trigger: triggerOnly(semanticPolicy('paceFormation', 'level', 'paceMode is active')),
     tags: ['standings', 'pace', 'formation', 'table'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'table',
       futuristic: 'formation ribbon',
@@ -1595,9 +1419,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'bitfield', unit: null, detail: 'bitfield→booleans' },
     dependencies: { car: 'none', session: 'live-session', notes: 'race control' },
     normalization: 'decode; grouped yellow; meatball=repair; GWC false',
-    trigger: triggerOnly(semanticPolicy('raceControlFlags', 'level', 'any decoded race-control flag other than green is active'), semanticPolicy('alert2BlueFlag', 'level', 'flags.blue is true')),
     tags: ['flags', 'session'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'banner',
       futuristic: 'timeline',
@@ -1615,9 +1437,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'enum', unit: null, detail: 'enum 0..6' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'player traffic' },
     normalization: 'enum→side/count',
-    trigger: triggerOnly(semanticPolicy('sideProximity', 'level', 'carLeftRight is not \'clear\'')),
     tags: ['radar', 'traffic'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'arrows',
       futuristic: 'radar ribbon',
@@ -1635,9 +1455,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'text', unit: null, detail: 'text' },
     dependencies: { car: 'player-car', session: 'session-info', notes: 'YAML' },
     normalization: 'resolve player car',
-    trigger: NO_TRIGGER,
     tags: ['car', 'identity'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'identity',
       futuristic: 'ribbon',
@@ -1655,9 +1473,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'text', unit: null, detail: 'text' },
     dependencies: { car: 'player-car', session: 'session-info', notes: 'YAML' },
     normalization: 'player driver row',
-    trigger: NO_TRIGGER,
     tags: ['car', 'number', 'identity'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'number badge',
       futuristic: 'ribbon',
@@ -1675,9 +1491,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'composite', unit: null, detail: 'text/color' },
     dependencies: { car: 'player-car', session: 'session-info', notes: 'YAML' },
     normalization: 'player class row',
-    trigger: NO_TRIGGER,
     tags: ['class', 'identity'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'class badge',
       futuristic: 'ribbon',
@@ -1695,9 +1509,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'text', unit: null, detail: 'text' },
     dependencies: { car: 'player-car', session: 'session-info', notes: 'YAML' },
     normalization: 'player driver',
-    trigger: NO_TRIGGER,
     tags: ['driver', 'identity'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'identity',
       futuristic: 'ribbon',
@@ -1715,9 +1527,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'composite', unit: null, detail: 'rating + text' },
     dependencies: { car: 'player-car', session: 'session-info', notes: 'YAML' },
     normalization: 'joined display',
-    trigger: NO_TRIGGER,
     tags: ['driver', 'rating', 'license'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'rating tile',
       futuristic: 'ribbon',
@@ -1735,9 +1545,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'text', unit: null, detail: 'text' },
     dependencies: { car: 'player-car', session: 'session-info', notes: 'YAML' },
     normalization: 'player team row',
-    trigger: NO_TRIGGER,
     tags: ['team', 'identity'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'identity',
       futuristic: 'ribbon',
@@ -1755,9 +1563,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'integer', unit: 'count', detail: 'int' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'scored session' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['position', 'standings'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'P-number',
       futuristic: 'trend',
@@ -1775,9 +1581,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'integer', unit: 'count', detail: 'int' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'multiclass/scored' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['position', 'class', 'standings'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'class P-number',
       futuristic: 'trend',
@@ -1795,9 +1599,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'integer', unit: 'count', detail: 'int' },
     dependencies: { car: 'none', session: 'timing-or-scoring', notes: 'DriverInfo' },
     normalization: 'drivers.length; TotalCars catalog-only',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'field'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'count',
       futuristic: 'field ribbon',
@@ -1815,9 +1617,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'integer', unit: 'iRating', detail: 'iRating points' },
     dependencies: { car: 'none', session: 'session-info', notes: 'YAML/drivers' },
     normalization: 'explicit value else mean positive iRating',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'irating'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'number',
       futuristic: 'field trend',
@@ -1835,9 +1635,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: 'count', detail: 'int[car]' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'per-car scoring' },
     normalization: 'joined live/results',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'relative', 'table', 'position'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'table',
       futuristic: 'ribbon',
@@ -1855,9 +1653,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: 'count', detail: 'int[car]' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'multiclass' },
     normalization: 'joined live/results',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'relative', 'table', 'class', 'position'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'table',
       futuristic: 'ribbon',
@@ -1875,9 +1671,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: 'count', detail: 'int[car]' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'per-car' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'relative', 'table', 'laps'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'table',
       futuristic: 'ribbon',
@@ -1895,9 +1689,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: 'count', detail: 'int[car]' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'per-car' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'relative', 'table', 'laps'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'table',
       futuristic: 'ribbon',
@@ -1915,9 +1707,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: '%', detail: 'float[car] 0..1' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'per-car' },
     normalization: 'clamp',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'relative', 'table', 'laps', 'track'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'table',
       futuristic: 'track ribbon',
@@ -1935,9 +1725,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: 's', detail: 'seconds[car]' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'per-car' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'relative', 'table', 'estimated', 'timing'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'table',
       futuristic: 'ribbon',
@@ -1955,9 +1743,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: 's', detail: 'seconds[car]' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'per-car' },
     normalization: 'EstTime difference → F2 difference → lap-distance estimate',
-    trigger: alertCandidate(builtInPolicy({ kind: 'proximity', thresholdSec: 0.5 }, 'threshold', 'any relative or radar gap is at most 0.5 seconds')),
     tags: ['standings', 'relative', 'radar', 'traffic'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'relative radar',
       futuristic: 'orbit',
@@ -1975,9 +1761,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: null, detail: 'int[car]' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'per-car' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'relative', 'table', 'gear'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'table',
       futuristic: 'ribbon',
@@ -1995,16 +1779,14 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: 'rpm', detail: 'rpm[car]' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'per-car' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'relative', 'table', 'rpm', 'engine'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'table',
       futuristic: 'ribbon',
       ddu: 'DDU multirow'
     }
   }),
-  blocked(
+  unsupported(
     {
       id: 'perCarSteering',
       label: 'Per-Car Steering',
@@ -2016,7 +1798,13 @@ export const TELEMETRY_CAPABILITIES = [
       data: { kind: 'per-car', unit: 'rad', detail: 'rad[car]' },
       dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'per-car' },
       normalization: 'no normalized provider field',
-      trigger: NO_TRIGGER,
+      sourceConstraints: [
+        {
+          id: 'provider-normalization-missing',
+          scope: 'provider',
+          detail: 'CarIdxSteer is not normalized into TelemetrySnapshot. The governed ordinary artifact must render an explicit unsupported state and never synthesize opponent steering.'
+        }
+      ],
       tags: ['standings', 'steering', 'table']
     },
     'CarIdxSteer exists in the SDK sample, but the iRacing provider does not normalize it into TelemetrySnapshot.'
@@ -2032,9 +1820,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: null, detail: 'bool[car]' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'per-car' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'relative', 'table', 'pit', 'status'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'table',
       futuristic: 'ribbon',
@@ -2052,9 +1838,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: null, detail: 'enum[car]' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'per-car' },
     normalization: 'track-location labels',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'relative', 'table', 'track', 'status'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'table',
       futuristic: 'ribbon',
@@ -2072,9 +1856,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: null, detail: 'enum[car]' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'per-car' },
     normalization: 'material-family labels',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'relative', 'table', 'track', 'surface'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'table',
       futuristic: 'ribbon',
@@ -2092,9 +1874,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: 's', detail: 'seconds[car]' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'per-car' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'relative', 'table', 'lap-time'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'table',
       futuristic: 'ribbon',
@@ -2112,9 +1892,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: 'mixed', detail: 'seconds+lap[car]' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'per-car' },
     normalization: 'joined',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'relative', 'table', 'best', 'lap-time'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'table',
       futuristic: 'ribbon',
@@ -2132,9 +1910,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'per-car', unit: 'mixed', detail: 'bool+int[car]' },
     dependencies: { car: 'per-car', session: 'timing-or-scoring', notes: 'supported series' },
     normalization: 'joined',
-    trigger: NO_TRIGGER,
     tags: ['standings', 'relative', 'table', 'push-to-pass'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'table',
       futuristic: 'ribbon',
@@ -2152,9 +1928,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'L', detail: 'L' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player' },
     normalization: 'direct',
-    trigger: alertCandidate(builtInPolicy({ kind: 'lowFuel', lapsToEmpty: 2 }, 'threshold', 'fuelLiters / fuelPerLap is at most 2')),
     tags: ['fuel', 'level'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -2172,9 +1946,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '%', detail: '0..1 → %' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'player' },
     normalization: 'clamp',
-    trigger: NO_TRIGGER,
     tags: ['fuel', 'level'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -2192,9 +1964,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'kg/h', detail: 'kg/h' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car/channel-dependent' },
     normalization: 'direct mass flow',
-    trigger: NO_TRIGGER,
     tags: ['fuel', 'consumption'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'number',
       futuristic: 'trend',
@@ -2212,9 +1982,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'kg/lap', detail: 'kg/lap' },
     dependencies: { car: 'player-car', session: 'timing-or-scoring', notes: 'needs valid lap' },
     normalization: 'FuelUsePerHour/3600*last valid lap time',
-    trigger: NO_TRIGGER,
     tags: ['fuel', 'laps', 'derived'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'number',
       futuristic: 'projection',
@@ -2232,9 +2000,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'L', detail: 'L' },
     dependencies: { car: 'feature-dependent', session: 'session-info', notes: 'car/YAML' },
     normalization: 'YAML max else FuelLevel/FuelLevelPct',
-    trigger: NO_TRIGGER,
     tags: ['fuel', 'capacity'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'number',
       futuristic: 'strategy card',
@@ -2252,9 +2018,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'corners', unit: '°C', detail: '°C; 4×3' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'retain zones; aggregate center',
-    trigger: alertCandidate(semanticPolicy('alert2TyreTempCritical', 'threshold', 'the hottest available tyre zone is at least 115 °C')),
     tags: ['tyres', 'temperature', 'corner-grid'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: '4-corner',
       futuristic: 'heatmap',
@@ -2272,9 +2036,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'corners', unit: '°C', detail: '°C; 4×3' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'retain zones',
-    trigger: alertCandidate(semanticPolicy('alert2TyreTempCritical', 'threshold', 'the hottest available tyre zone is at least 115 °C')),
     tags: ['tyres', 'temperature', 'surface', 'corner-grid'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: '4-corner',
       futuristic: 'heatmap',
@@ -2292,9 +2054,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'corners', unit: 'kPa', detail: 'kPa; four corners' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car/setup' },
     normalization: 'garage cold pressure only',
-    trigger: NO_TRIGGER,
     tags: ['tyres', 'tyre-pressure', 'cold', 'corner-grid'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: '4-corner',
       futuristic: 'heatmap',
@@ -2312,9 +2072,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'corners', unit: '%', detail: '0..1 remaining; 4×3' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car/channel-dependent' },
     normalization: 'retain zones; aggregate center',
-    trigger: NO_TRIGGER,
     tags: ['tyres', 'tyre-wear', 'corner-grid'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: '4-corner',
       futuristic: 'heatmap',
@@ -2332,9 +2090,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'corners', unit: 'bar', detail: 'bar; four corners' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'direct',
-    trigger: alertCandidate(semanticPolicy('alert2BrakePressureLow', 'threshold', 'brake is at least 0.35 and maximum brake-line pressure is below 25 bar')),
     tags: ['brakes', 'pressure', 'corner-grid'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: '4-corner',
       futuristic: 'trends',
@@ -2352,9 +2108,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'corners', unit: '°C', detail: '°C; four corners' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['brakes', 'temperature', 'corner-grid'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: '4-corner',
       futuristic: 'heatmap',
@@ -2372,9 +2126,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '°C', detail: '°C; -10..50 display' },
     dependencies: { car: 'none', session: 'weather', notes: 'session weather' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['weather', 'temperature'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -2392,9 +2144,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '°C', detail: '°C; 0..70 display' },
     dependencies: { car: 'none', session: 'weather', notes: 'session weather' },
     normalization: 'provider uses TrackTemp; Crew is sample/catalog-only',
-    trigger: NO_TRIGGER,
     tags: ['weather', 'temperature', 'track'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -2412,9 +2162,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'kg/m³', detail: 'kg/m³; 0.8..1.5 display' },
     dependencies: { car: 'none', session: 'weather', notes: 'session weather' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['weather', 'density'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -2432,9 +2180,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'kPa', detail: 'raw inHg + normalized kPa; 85..120 kPa display' },
     dependencies: { car: 'none', session: 'weather', notes: 'session weather' },
     normalization: 'inHg*3.386389',
-    trigger: NO_TRIGGER,
     tags: ['weather', 'pressure'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'arc',
       futuristic: 'trend',
@@ -2452,9 +2198,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '%', detail: '0..1 → %' },
     dependencies: { car: 'none', session: 'weather', notes: 'session weather' },
     normalization: 'clamp',
-    trigger: triggerOnly(semanticPolicy('fogLevel', 'level', 'fogPct is greater than 0')),
     tags: ['weather', 'fog'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'bar',
       futuristic: 'history',
@@ -2472,9 +2216,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '%', detail: '0..1 → %' },
     dependencies: { car: 'none', session: 'weather', notes: 'session weather' },
     normalization: 'clamp',
-    trigger: NO_TRIGGER,
     tags: ['weather', 'humidity'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'bar',
       futuristic: 'history',
@@ -2492,9 +2234,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'enum', unit: null, detail: 'enum 0..3' },
     dependencies: { car: 'none', session: 'weather', notes: 'session weather' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['weather', 'skies'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'status',
       futuristic: 'sky arc',
@@ -2512,9 +2252,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'enum', unit: null, detail: 'enum 0 constant/1 dynamic' },
     dependencies: { car: 'none', session: 'weather', notes: 'session weather' },
     normalization: 'direct',
-    trigger: NO_TRIGGER,
     tags: ['weather', 'status'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'status',
       futuristic: 'state arc',
@@ -2532,9 +2270,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'vector', unit: 'mixed', detail: 'rad + m/s' },
     dependencies: { car: 'none', session: 'weather', notes: 'session weather' },
     normalization: 'vector conversion for display',
-    trigger: NO_TRIGGER,
     tags: ['vector', 'weather', 'wind'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'vector',
       futuristic: 'trace',
@@ -2552,9 +2288,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'vector', unit: 'rad', detail: 'rad pair' },
     dependencies: { car: 'none', session: 'weather', notes: 'session weather' },
     normalization: 'vector/degrees for display',
-    trigger: NO_TRIGGER,
     tags: ['vector', 'weather', 'solar'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'sun vector',
       futuristic: 'trace',
@@ -2572,9 +2306,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '%', detail: 'enum 0..7 → 0..1' },
     dependencies: { car: 'none', session: 'weather', notes: 'rain-enabled sessions' },
     normalization: '(enum-1)/6 after dry/unknown',
-    trigger: triggerOnly(semanticPolicy('trackWetness', 'level', 'trackWetnessPct is greater than 0')),
     tags: ['weather', 'wetness', 'track'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'bar',
       futuristic: 'history',
@@ -2592,9 +2324,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '%', detail: '0..1 → %' },
     dependencies: { car: 'none', session: 'weather', notes: 'rain-enabled sessions' },
     normalization: 'provider consumes Precipitation only',
-    trigger: triggerOnly(semanticPolicy('precipitation', 'level', 'isRaining is true or precipitationPct is greater than 0')),
     tags: ['weather', 'rain', 'wetness'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'bar',
       futuristic: 'history',
@@ -2612,9 +2342,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: '%', detail: '0..1 → %' },
     dependencies: { car: 'none', session: 'weather', notes: 'session/track' },
     normalization: 'clamp first-defined',
-    trigger: NO_TRIGGER,
     tags: ['weather', 'grip', 'track'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'bar',
       futuristic: 'history',
@@ -2632,9 +2360,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'boolean', unit: null, detail: 'bool' },
     dependencies: { car: 'none', session: 'weather', notes: 'race-control/rain' },
     normalization: 'direct',
-    trigger: triggerOnly(semanticPolicy('declaredWet', 'level', 'weatherDeclaredWet is true')),
     tags: ['weather', 'wetness', 'flags'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'lamp',
       futuristic: 'state timeline',
@@ -2652,9 +2378,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'enum', unit: null, detail: 'enum -1..27' },
     dependencies: { car: 'player-car', session: 'weather', notes: 'player location' },
     normalization: 'material-family label',
-    trigger: alertCandidate(semanticPolicy('alert2BadSurface', 'level', 'surface material is known and is not asphalt, concrete, paint, or kerb')),
     tags: ['weather', 'track', 'surface'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'status',
       futuristic: 'surface ribbon',
@@ -2672,9 +2396,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'text', unit: null, detail: 'text' },
     dependencies: { car: 'none', session: 'session-info', notes: 'YAML' },
     normalization: 'display name fallback internal name + layout',
-    trigger: NO_TRIGGER,
     tags: ['track', 'identity'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'identity',
       futuristic: 'track ribbon',
@@ -2692,9 +2414,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'km', detail: 'km' },
     dependencies: { car: 'none', session: 'session-info', notes: 'YAML' },
     normalization: 'parse SessionInfo text',
-    trigger: NO_TRIGGER,
     tags: ['map', 'track', 'distance'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'map',
       futuristic: 'path',
@@ -2712,9 +2432,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'boolean', unit: null, detail: 'bool' },
     dependencies: { car: 'player-car', session: 'pit', notes: 'pit/race' },
     normalization: 'direct',
-    trigger: triggerOnly(semanticPolicy('onPitRoad', 'level', 'onPitRoad is true')),
     tags: ['pit', 'status'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'lamp',
       futuristic: 'timeline',
@@ -2732,9 +2450,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'boolean', unit: null, detail: 'bool' },
     dependencies: { car: 'feature-dependent', session: 'pit', notes: 'fitted cars' },
     normalization: 'provider uses PitLimiter',
-    trigger: triggerOnly(semanticPolicy('pitLimiter', 'level', 'pitLimiter is true')),
     tags: ['pit', 'limiter'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'lamp',
       futuristic: 'timeline',
@@ -2752,9 +2468,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'bitfield', unit: null, detail: 'bitfield→list' },
     dependencies: { car: 'player-car', session: 'pit', notes: 'in-car/pit' },
     normalization: 'decode service bits',
-    trigger: triggerOnly(semanticPolicy('pitServicesSelected', 'level', 'onPitRoad is true')),
     tags: ['pit', 'service', 'strategy'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'checklist',
       futuristic: 'service flow',
@@ -2772,9 +2486,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'corners', unit: 'kPa', detail: 'kPa; four corners' },
     dependencies: { car: 'player-car', session: 'pit', notes: 'in-car/pit' },
     normalization: 'group corners',
-    trigger: triggerOnly(semanticPolicy('pitTyreTargets', 'level', 'onPitRoad is true')),
     tags: ['pit', 'tyres', 'pressure', 'corner-grid'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: '4-corner',
       futuristic: 'heatmap',
@@ -2792,9 +2504,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 'L', detail: 'L' },
     dependencies: { car: 'player-car', session: 'pit', notes: 'in-car/pit' },
     normalization: 'direct',
-    trigger: triggerOnly(semanticPolicy('pitFuelToAdd', 'level', 'onPitRoad is true; the current trigger does not test the amount')),
     tags: ['pit', 'fuel', 'strategy'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'bar',
       futuristic: 'strategy trend',
@@ -2812,9 +2522,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 's', detail: 'seconds' },
     dependencies: { car: 'player-car', session: 'pit', notes: 'repair context' },
     normalization: 'direct',
-    trigger: triggerOnly(semanticPolicy('repairTime', 'level', 'onPitRoad is true or repairTimeSec is greater than 0')),
     tags: ['pit', 'repair', 'clock'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'timer',
       futuristic: 'timeline',
@@ -2832,9 +2540,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'number', unit: 's', detail: 'seconds' },
     dependencies: { car: 'player-car', session: 'pit', notes: 'repair context' },
     normalization: 'direct',
-    trigger: triggerOnly(semanticPolicy('optionalRepairTime', 'level', 'onPitRoad is true or optionalRepairTimeSec is greater than 0')),
     tags: ['pit', 'repair', 'clock'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'timer',
       futuristic: 'timeline',
@@ -2852,9 +2558,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'boolean', unit: null, detail: 'bool' },
     dependencies: { car: 'player-car', session: 'pit', notes: 'service context' },
     normalization: 'direct',
-    trigger: triggerOnly(semanticPolicy('pitStopActive', 'level', 'pitStopActive is true')),
     tags: ['pit', 'status', 'service'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'status',
       futuristic: 'timeline',
@@ -2872,9 +2576,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'boolean', unit: null, detail: 'bool' },
     dependencies: { car: 'none', session: 'pit', notes: 'race-control' },
     normalization: 'direct',
-    trigger: triggerOnly(semanticPolicy('pitsOpen', 'rising-edge-hold', 'pit.pitsOpen changes from false to true', 5000)),
     tags: ['pit', 'flags'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'banner',
       futuristic: 'state arc',
@@ -2892,9 +2594,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'boolean', unit: null, detail: 'bool' },
     dependencies: { car: 'player-car', session: 'pit', notes: 'pit box' },
     normalization: 'direct',
-    trigger: triggerOnly(semanticPolicy('inPitStall', 'level', 'pit.inPitStall is true')),
     tags: ['pit', 'service'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'lamp',
       futuristic: 'timeline',
@@ -2912,9 +2612,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'enum', unit: null, detail: 'enum 0,1,2,100..105' },
     dependencies: { car: 'player-car', session: 'pit', notes: 'pit box' },
     normalization: 'raw enum',
-    trigger: triggerOnly(semanticPolicy('pitServiceStatus', 'level-with-falling-hold', 'onPitRoad is true; retain service-done after pending service clears', 4000)),
     tags: ['pit', 'service'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'banner',
       futuristic: 'service flow',
@@ -2932,9 +2630,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'boolean', unit: null, detail: 'derived bool' },
     dependencies: { car: 'player-car', session: 'pit', notes: 'repair context' },
     normalization: 'repair timers >0',
-    trigger: triggerOnly(semanticPolicy('repairRequirement', 'level', 'pit.repairNeeded or pit.optRepairNeeded is true')),
     tags: ['pit', 'repair', 'warning'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'warning',
       futuristic: 'state timeline',
@@ -2952,9 +2648,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'integer', unit: 'count', detail: 'int count' },
     dependencies: { car: 'feature-dependent', session: 'pit', notes: 'series/session-dependent' },
     normalization: 'generated widget shows available; used remains snapshot-only',
-    trigger: NO_TRIGGER,
     tags: ['pit', 'repair', 'count'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'count',
       futuristic: 'service trend',
@@ -2972,9 +2666,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'integer', unit: 'count', detail: 'int count' },
     dependencies: { car: 'player-car', session: 'live-session', notes: 'race session' },
     normalization: 'my count; aggregate fallback team',
-    trigger: triggerOnly(semanticPolicy('incidentCounts', 'level', 'the first known player, team, or aggregate incident count is greater than 0')),
     tags: ['incidents', 'pit'],
-    ordinaryOverlay: 'trigger-only',
     representations: {
       competition: 'bar',
       futuristic: 'event trend',
@@ -2992,9 +2684,7 @@ export const TELEMETRY_CAPABILITIES = [
     data: { kind: 'integer', unit: 'count', detail: 'int count' },
     dependencies: { car: 'player-car', session: 'session-info', notes: 'session rules' },
     normalization: 'provider uses YAML ResultsIncidentLimit/IncidentLimit',
-    trigger: NO_TRIGGER,
     tags: ['incidents', 'pit'],
-    ordinaryOverlay: 'supported',
     representations: {
       competition: 'number',
       futuristic: 'risk trend',
