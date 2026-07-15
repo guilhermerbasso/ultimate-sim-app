@@ -315,6 +315,8 @@ function StatCell({
   labelFont = FONT_CONDENSED,
   labelFrac = 0.3,
   valueMaxPx,
+  unitMaxPx,
+  unitFrac,
   minPx = 11
 }: {
   rect: Rect
@@ -329,6 +331,8 @@ function StatCell({
   labelFont?: string
   labelFrac?: number
   valueMaxPx?: number
+  unitMaxPx?: number
+  unitFrac?: number
   minPx?: number
 }): ReactElement {
   const { x, y, w, h } = rect
@@ -338,8 +342,8 @@ function StatCell({
   const valH = Math.max(1, h - labelH)
   const cx = x + w / 2
   const hasUnit = Boolean(unit && unit.length)
-  const unitFrac = hasUnit && (unit as string).length >= 6 ? 0.52 : 0.34
-  const vBoxW = hasUnit ? w * (1 - unitFrac) : w
+  const resolvedUnitFrac = unitFrac ?? (hasUnit && (unit as string).length >= 6 ? 0.52 : 0.34)
+  const vBoxW = hasUnit ? w * (1 - resolvedUnitFrac) : w
   const uBoxW = hasUnit ? w - vBoxW : 0
   const vMax = Math.max(minPx, valueMaxPx !== undefined ? Math.min(valueMaxPx, valH) : valH * 0.8)
   return (
@@ -382,7 +386,7 @@ function StatCell({
           fontFamily={labelFont}
           fill={unitColor ?? labelColor ?? skin.palette.textDim}
           minFontPx={minPx}
-          maxFontPx={Math.max(minPx, valH * 0.5)}
+          maxFontPx={Math.max(minPx, Math.min(unitMaxPx ?? valH * 0.5, valH * 0.5))}
           anchor="start"
           baseline="central"
         />
@@ -1224,6 +1228,8 @@ export function CornerStack({ element, snapshot, unitSystem = 'metric' }: Widget
   )
 }
 
+const FUEL_STINT_PER_LAP_UNIT_FRAC = 0.55
+
 export function FuelStint({ element, snapshot, unitSystem = 'metric' }: WidgetProps): ReactElement {
   const s = element.style
   const skin = resolveElementSkin(s)
@@ -1246,15 +1252,16 @@ export function FuelStint({ element, snapshot, unitSystem = 'metric' }: WidgetPr
   const perLapText = perLapReading.display
   const addText = needed === undefined ? '—' : needed > 0 ? `+${addReading.display}` : 'OK'
   const addColor = needed !== undefined && needed > 0 ? skin.palette.warn : skin.palette.ok
-  const pad = Math.max(5, Math.round(Math.min(W, H) * 0.06))
-  const innerW = W - pad * 2
-  const innerH = H - pad * 2
-  const barH = Math.max(6, Math.min(innerH * 0.2, 14))
-  const topH = Math.max(14, innerH - barH - 6)
-  const lapsW = innerW * 0.42
-  const sideX = pad + lapsW + 8
-  const sideW = W - pad - sideX
-  const halfSide = (sideW - 6) / 2
+  const {
+    pad,
+    innerW,
+    barH,
+    topH,
+    lapsW,
+    sideX,
+    columnGap,
+    halfSide
+  } = computeFuelStintLayout(W, H)
   return (
     <SvgRoot element={element} skin={skin} panel="panel" className="gt3-fuelstint">
       <StatCell
@@ -1279,9 +1286,12 @@ export function FuelStint({ element, snapshot, unitSystem = 'metric' }: WidgetPr
         labelColor={skin.palette.textDim}
         skin={skin}
         labelFrac={0.3}
+        unitFrac={FUEL_STINT_PER_LAP_UNIT_FRAC}
+        unitMaxPx={Math.max(13, Math.min(16, topH * 0.24))}
+        minPx={13}
       />
       <StatCell
-        rect={{ x: sideX + halfSide + 6, y: pad, w: halfSide, h: topH }}
+        rect={{ x: sideX + halfSide + columnGap, y: pad, w: halfSide, h: topH }}
         label="ADD"
         value={addText}
         unit={needed !== undefined && needed > 0 ? addReading.unit : undefined}
@@ -1305,6 +1315,45 @@ export function FuelStint({ element, snapshot, unitSystem = 'metric' }: WidgetPr
       />
     </SvgRoot>
   )
+}
+
+export function computeFuelStintLayout(W: number, H: number): {
+  pad: number
+  innerW: number
+  barH: number
+  topH: number
+  lapsW: number
+  sideX: number
+  columnGap: number
+  halfSide: number
+  perLapUnitBoxW: number
+  perLapUnitBoxH: number
+} {
+  const pad = Math.max(5, Math.round(Math.min(W, H) * 0.06))
+  const innerW = W - pad * 2
+  const innerH = H - pad * 2
+  const barH = Math.max(6, Math.min(innerH * 0.2, 14))
+  const topH = Math.max(14, innerH - barH - 6)
+  const lapsW = innerW * 0.42
+  const sideX = pad + lapsW + 8
+  const sideW = W - pad - sideX
+  const columnGap = Math.max(12, Math.min(18, Math.round(innerW * 0.05)))
+  const halfSide = (sideW - columnGap) / 2
+  const labelH = Math.max(15, Math.min(topH * 0.3, topH * 0.5))
+  const valueH = Math.max(1, topH - labelH)
+
+  return {
+    pad,
+    innerW,
+    barH,
+    topH,
+    lapsW,
+    sideX,
+    columnGap,
+    halfSide,
+    perLapUnitBoxW: Math.max(1, halfSide * FUEL_STINT_PER_LAP_UNIT_FRAC - 2),
+    perLapUnitBoxH: valueH * 0.6
+  }
 }
 
 export function DeltaTile({ element, snapshot }: WidgetProps): ReactElement {

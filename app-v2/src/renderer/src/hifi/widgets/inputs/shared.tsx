@@ -68,6 +68,11 @@ export function PercentBarWidget({
   const barY = 50
   const barW = 34
   const barH = 130
+  const readoutLeft = barX + barW + 8
+  const readoutRight = w - 8
+  const readoutX = (readoutLeft + readoutRight) / 2
+  const readout = inputPctText(value)
+  const readoutSize = Math.max(18, Math.min(46, h * 0.21, (readoutRight - readoutLeft) / Math.max(1, readout.length)))
   return (
     <WidgetSvg w={w} h={h} label={label} accent={color}>
       <g>
@@ -85,10 +90,10 @@ export function PercentBarWidget({
         <VBar x={barX} y={barY} w={barW} h={barH} f={f} color={color} />
         <rect x={barX + 3} y={barY + 3} width={barW - 6} height={barH - 6} rx={(barW - 6) / 2} fill="none" stroke="rgba(255,255,255,0.18)" />
         <rect x={barX + 5} y={barY + barH - Math.max(0, barH * f) - 10} width={barW - 10} height={14} rx={7} fill={color} opacity={pct == null ? 0 : 0.35} filter={`url(#${label}-soft)`} />
-        <text x={w - 42} y={118} textAnchor="middle" fill={valueColor(pct, C.text)} fontFamily={FONT_BIG} fontSize={46} fontWeight={800} {...legibleStroke(46)}>
-          {inputPctText(value)}
+        <text x={readoutX} y={118} textAnchor="middle" fill={valueColor(pct, C.text)} fontFamily={FONT_BIG} fontSize={readoutSize} fontWeight={800} {...legibleStroke(readoutSize)}>
+          {readout}
         </text>
-        <text x={w - 42} y={148} textAnchor="middle" fill={valueColor(pct, color)} fontFamily={FONT_LABEL} fontSize={24} fontWeight={800} {...LEGIBLE}>
+        <text x={readoutX} y={148} textAnchor="middle" fill={valueColor(pct, color)} fontFamily={FONT_LABEL} fontSize={24} fontWeight={800} {...LEGIBLE}>
           %
         </text>
       </g>
