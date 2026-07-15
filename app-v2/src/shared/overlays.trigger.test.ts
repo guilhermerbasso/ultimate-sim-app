@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_ALERTS_CONFIG } from './alerts'
 import { evaluateOverlayTrigger, sanitizeOverlayTrigger } from './overlays'
 import type { TelemetrySnapshot } from './telemetry'
 
@@ -35,11 +36,30 @@ describe('evaluateOverlayTrigger', () => {
     expect(evaluateOverlayTrigger({ kind: 'proximity', thresholdSec: 2 }, far)).toBe(true)
   })
 
-  it('shiftPoint fires above the configured fraction', () => {
-    const s = { ...snap({}), shiftIndicatorPct: 0.98 } as TelemetrySnapshot
-    expect(evaluateOverlayTrigger({ kind: 'shiftPoint' }, s)).toBe(true)
-    const low = { ...snap({}), shiftIndicatorPct: 0.5 } as TelemetrySnapshot
-    expect(evaluateOverlayTrigger({ kind: 'shiftPoint' }, low)).toBe(false)
+  it('shiftPoint uses AlertsConfig and ignores the deprecated per-trigger fallback', () => {
+    const config = {
+      ...DEFAULT_ALERTS_CONFIG,
+      shiftPoint: {
+        ...DEFAULT_ALERTS_CONFIG.shiftPoint,
+        shiftIndicatorPct: 0.8,
+        rpmPct: 0.9
+      }
+    }
+    expect(evaluateOverlayTrigger(
+      { kind: 'shiftPoint', shiftPct: 0.99 },
+      snap({ shiftIndicatorPct: 0.81, rpm: 6000, maxRpm: 8000 }),
+      config
+    )).toBe(true)
+    expect(evaluateOverlayTrigger(
+      { kind: 'shiftPoint' },
+      snap({ shiftIndicatorPct: 0.79, rpm: 6000, maxRpm: 8000 }),
+      config
+    )).toBe(false)
+    expect(evaluateOverlayTrigger(
+      { kind: 'shiftPoint' },
+      snap({ shiftIndicatorPct: undefined, rpm: 7300, maxRpm: 8000 }),
+      config
+    )).toBe(true)
   })
 
   it('pitLimiter / flag', () => {
@@ -56,12 +76,31 @@ describe('evaluateOverlayTrigger', () => {
     expect(evaluateOverlayTrigger({ kind: 'flag' }, greenOnly)).toBe(false)
   })
 
-  it('lowFuel uses laps-to-empty = fuel / perLap', () => {
-    const low = { ...snap({}), fuelLiters: 3, fuelPerLap: 2 } as TelemetrySnapshot // 1.5 laps
-    expect(evaluateOverlayTrigger({ kind: 'lowFuel' }, low)).toBe(true)
-    const ok = { ...snap({}), fuelLiters: 30, fuelPerLap: 2 } as TelemetrySnapshot // 15 laps
-    expect(evaluateOverlayTrigger({ kind: 'lowFuel' }, ok)).toBe(false)
-    expect(evaluateOverlayTrigger({ kind: 'lowFuel', lapsToEmpty: 20 }, ok)).toBe(true)
+  it('lowFuel uses canonical laps and the AlertsConfig threshold', () => {
+    const config = {
+      ...DEFAULT_ALERTS_CONFIG,
+      lowFuel: { ...DEFAULT_ALERTS_CONFIG.lowFuel, lapsThreshold: 4 }
+    }
+    expect(evaluateOverlayTrigger(
+      { kind: 'lowFuel', lapsToEmpty: 1 },
+      snap({ fuelLapsRemaining: 3.5 }),
+      config
+    )).toBe(true)
+    expect(evaluateOverlayTrigger(
+      { kind: 'lowFuel' },
+      snap({ fuelLiters: 8, fuelPerLapLiters: 2 }),
+      config
+    )).toBe(false)
+    expect(evaluateOverlayTrigger(
+      { kind: 'lowFuel' },
+      snap({ fuelLiters: 4, fuelPerLap: 2, fuelPerLapKg: 2 }),
+      config
+    )).toBe(false)
+    expect(evaluateOverlayTrigger(
+      { kind: 'lowFuel' },
+      snap({ fuelLapsRemaining: Number.NaN }),
+      config
+    )).toBe(false)
   })
 })
 

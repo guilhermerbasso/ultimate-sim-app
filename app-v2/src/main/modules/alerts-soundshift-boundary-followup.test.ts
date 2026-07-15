@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ModuleContext } from '../module-context'
@@ -134,6 +134,7 @@ function moduleHarness(name: string, options: HarnessOptions = {}) {
 
   return {
     ctx,
+    userData,
     handlers,
     broadcast,
     device,
@@ -178,6 +179,43 @@ function deferred<T>() {
   })
   return { promise, resolve, reject }
 }
+
+describe('alerts policy persistence', () => {
+  it('migrates older configs and persists user-configured brake-pressure policy', async () => {
+    const harness = moduleHarness('alerts-policy-migration')
+    writeFileSync(
+      join(harness.userData, 'alerts-config.json'),
+      JSON.stringify({ lowFuel: { enabled: true, lapsThreshold: 4 } }),
+      'utf8'
+    )
+    const { register } = await import('./alerts')
+    register(harness.ctx)
+    await settleConfigLoad()
+
+    expect(harness.handlers.get('alerts:getConfig')?.()).toMatchObject({
+      lowFuel: { lapsThreshold: 4 },
+      brakePressureLow: { brakeInputMin: 0.35, maxLinePressureBar: 25 }
+    })
+
+    const updated = await harness.handlers.get('alerts:setConfig')?.(undefined, {
+      brakePressureLow: { brakeInputMin: 0.6, maxLinePressureBar: 32 }
+    })
+    expect(updated).toMatchObject({
+      brakePressureLow: { brakeInputMin: 0.6, maxLinePressureBar: 32 }
+    })
+    expect(callsFor(harness.broadcast, 'alerts:config').at(-1)).toMatchObject({
+      brakePressureLow: { brakeInputMin: 0.6, maxLinePressureBar: 32 }
+    })
+
+    const persisted = JSON.parse(
+      readFileSync(join(harness.userData, 'alerts-config.json'), 'utf8')
+    )
+    expect(persisted.brakePressureLow).toEqual({
+      brakeInputMin: 0.6,
+      maxLinePressureBar: 32
+    })
+  })
+})
 
 describe('alerts hardware boundary cleanup', () => {
   it('waits for persisted config and silently seeds the latest live shift frame', async () => {

@@ -487,8 +487,8 @@ function shiftBand(rpm: number, setup: DriverCarShiftLights, redlineRpm?: number
 
   // The live ShiftIndicatorPct path (cars without an SL band) can cap BELOW 1.0 even at
   // the limiter. Once RPM reaches the genuine per-car over-rev point (blink ≈ last),
-  // force the fill to FULL so the shift-now triggers that key off the pct (the iFlag
-  // redline effect at ≥0.97, the soundshift beep, the spotter callout) still fire. This
+  // force the fill to FULL so shift-now consumers using their configured pct threshold
+  // (iFlag, soundshift, spotter, overlays) still fire. This
   // clamps only the TOP at a real per-car RPM — it never widens the band at idle, so it
   // cannot reintroduce the rpm/maxRpm idle-glow. (The SL band already reaches 1.0 at
   // SLShiftRPM, so this only matters for the live fallback.)
@@ -722,6 +722,80 @@ function replaySessionIdentity(sessionInfo: any, values: AnyRecord): string | un
   return parts.some(Boolean) ? parts.join(':') : undefined
 }
 
+const MAX_FUEL_LAP_SAMPLES = 8
+
+class FuelLapEstimator {
+  private sessionIdentity: string | undefined
+  private lapStart: { lap: number; fuelLiters: number } | undefined
+  private samples: number[] = []
+
+  update(input: {
+    sessionIdentity?: string
+    live: boolean
+    currentLap?: number
+    fuelLiters?: number
+  }): { fuelPerLapLiters?: number; fuelLapsRemaining?: number } {
+    if (input.sessionIdentity !== this.sessionIdentity) {
+      this.reset()
+      this.sessionIdentity = input.sessionIdentity
+    }
+    if (!input.live) {
+      this.lapStart = undefined
+      return {}
+    }
+
+    const lap = input.currentLap
+    const fuelLiters = input.fuelLiters
+    if (
+      typeof lap !== 'number' ||
+      !Number.isInteger(lap) ||
+      lap < 0 ||
+      typeof fuelLiters !== 'number' ||
+      !Number.isFinite(fuelLiters) ||
+      fuelLiters < 0
+    ) {
+      return this.current(fuelLiters)
+    }
+
+    if (!this.lapStart) {
+      this.lapStart = { lap, fuelLiters }
+    } else if (lap > this.lapStart.lap) {
+      const lapDelta = lap - this.lapStart.lap
+      const usedLiters = this.lapStart.fuelLiters - fuelLiters
+      if (lapDelta === 1 && usedLiters > 0.05 && usedLiters < 25) {
+        this.samples.push(usedLiters)
+        this.samples = this.samples.slice(-MAX_FUEL_LAP_SAMPLES)
+      }
+      this.lapStart = { lap, fuelLiters }
+    } else if (lap < this.lapStart.lap) {
+      this.samples = []
+      this.lapStart = { lap, fuelLiters }
+    } else if (fuelLiters > this.lapStart.fuelLiters + 0.05) {
+      this.lapStart = { lap, fuelLiters }
+    }
+
+    return this.current(fuelLiters)
+  }
+
+  reset(): void {
+    this.sessionIdentity = undefined
+    this.lapStart = undefined
+    this.samples = []
+  }
+
+  private current(fuelLiters?: number): { fuelPerLapLiters?: number; fuelLapsRemaining?: number } {
+    if (this.samples.length === 0) return {}
+    const fuelPerLapLiters = this.samples.reduce((sum, sample) => sum + sample, 0) / this.samples.length
+    return {
+      fuelPerLapLiters,
+      fuelLapsRemaining:
+        typeof fuelLiters === 'number' && Number.isFinite(fuelLiters) && fuelLiters >= 0
+          ? fuelLiters / fuelPerLapLiters
+          : undefined
+    }
+  }
+}
+
 export class IRacingProvider implements TelemetryProvider {
   readonly id = 'iracing' as const
   private mmf = new IRacingMemoryMap()
@@ -752,6 +826,7 @@ export class IRacingProvider implements TelemetryProvider {
   // frame-to-frame as longAccelG oscillates around 0 on corner exits. Window tracks the
   // sensitivity (lower = longer hold). Re-created whenever the sensitivity changes.
   private tcLatch = new TcLatch(tcLatchTimingsForSensitivity('medium'))
+  private fuelLapEstimator = new FuelLapEstimator()
 
   // Live-updates the TC-active derivation sensitivity from the settings store, so a change
   // in the UI takes effect on the next poll without restarting the provider. Rebuilds the
@@ -783,6 +858,7 @@ export class IRacingProvider implements TelemetryProvider {
     this.sessionDiagKey = ''
     this.lastTapAt = 0
     this.tcLatch.reset()
+    this.fuelLapEstimator.reset()
     this.mmf.stop()
   }
 
@@ -794,6 +870,7 @@ export class IRacingProvider implements TelemetryProvider {
       this.resetReplayTracker()
       this.lastSnapshot = null
       this.reusedLastSnapshot = false
+      this.fuelLapEstimator.reset()
     }
     return connected
   }
@@ -806,6 +883,7 @@ export class IRacingProvider implements TelemetryProvider {
       this.driverStaticKey = ''
       this.driverStaticSessionInfo = null
       this.driverStatic = undefined
+      this.fuelLapEstimator.reset()
       return null
     }
     const read = this.mmf.read()
@@ -836,7 +914,9 @@ export class IRacingProvider implements TelemetryProvider {
     const precipitation = pct(values.Precipitation)
     const absLevel = firstDefined(values.dcABS, values.dcABS1, values.dcAntiLockBrake)
     const tcLevel = firstDefined(values.dcTractionControl, values.dcTractionControl2)
-    const engineMap = firstDefined(values.dcFuelMixture, values.dcEnginePower, values.dcThrottleShape, values.dcBoostLevel)
+    const engineMap =
+      optionalSetting(values.dcFuelMixture) ??
+      optionalSetting(values.dcEnginePower)
     const throttleMap = optionalSetting(values.dcThrottleShape)
     const engineBraking = optionalSetting(values.dcEngineBraking)
     const antiRollFront = optionalSetting(values.dcAntiRollFront)
@@ -899,6 +979,8 @@ export class IRacingProvider implements TelemetryProvider {
     const carLeftRightCount = carLeftRightCountFromEnum(optionalNum(values.CarLeftRight))
     const weightPenaltyKg = optionalNum(values.PlayerCarWeightPenalty)
     const powerAdjustPct = optionalNum(values.PlayerCarPowerAdjust)
+    const currentLap = optionalInt(values.Lap)
+    const fuelLiters = optionalNum(values.FuelLevel)
     const sessionTimeOfDay = optionalNum(values.SessionTimeOfDay)
     const pit = pitStatus(values)
     const tireColdPressuresKpa = coldPressures(values)
@@ -916,6 +998,12 @@ export class IRacingProvider implements TelemetryProvider {
     }, {
       sessionIdentity: replaySessionIdentity(sessionInfo, values),
       connectionEpoch: this.replayConnectionEpoch
+    })
+    const fuelEstimate = this.fuelLapEstimator.update({
+      sessionIdentity: replayContext.sessionIdentity,
+      live: replayContext.state === 'live',
+      currentLap,
+      fuelLiters
     })
 
     this.logSessionDiagnostics(sessionInfo, values, carSetup, maxRpm)
@@ -975,7 +1063,7 @@ export class IRacingProvider implements TelemetryProvider {
       tcActive: undefined,
       tcEnabled: bool(values.dcTractionControlToggle) || num(tcLevel, 0) > 0,
       tcLevel: typeof tcLevel === 'number' || typeof tcLevel === 'string' ? tcLevel : undefined,
-      engineMap: typeof engineMap === 'number' || typeof engineMap === 'string' ? engineMap : undefined,
+      engineMap,
       throttleMap,
       engineBraking,
       antiRollFront,
@@ -1040,8 +1128,10 @@ export class IRacingProvider implements TelemetryProvider {
       replayContext,
       weightPenaltyKg,
       powerAdjustPct,
-      fuelLiters: optionalNum(values.FuelLevel),
-      fuelPerLap: fuelPerLapKg,
+      fuelLiters,
+      fuelPerLap: fuelEstimate.fuelPerLapLiters,
+      fuelPerLapLiters: fuelEstimate.fuelPerLapLiters,
+      fuelLapsRemaining: fuelEstimate.fuelLapsRemaining,
       fuelUsePerHourKg,
       fuelPerLapKg,
       fuelCapacityLiters: carSetup.fuelCapacityLiters ?? (num(values.FuelLevelPct, 0) > 0 ? num(values.FuelLevel) / num(values.FuelLevelPct) : undefined),

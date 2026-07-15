@@ -6,6 +6,7 @@
 // array; the registry aggregates them WITHOUT touching any shared union, so groups
 // can be built fully in parallel with zero registration conflicts.
 import type { ReactElement } from 'react'
+import type { AlertsConfig } from '../../../../shared/alerts'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
 import type {
   OverlayRole,
@@ -52,6 +53,8 @@ export interface HifiWidgetProps {
   unitSystem?: UnitSystem
   /** Runtime trigger phase; preview/runtime controllers are isolated. */
   visibility?: OverlayTriggerResult
+  /** Persisted alert policy used by trigger-aware widgets. */
+  alertsConfig?: AlertsConfig
 }
 
 export interface HifiWidgetModule {

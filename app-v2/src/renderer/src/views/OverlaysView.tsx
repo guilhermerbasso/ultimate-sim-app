@@ -21,12 +21,14 @@ import { consumeEditorTarget } from '../lib/app-navigation'
 import { EXPR_CHANNELS, type ExpressionDef } from '../../../shared/expr'
 import { IRACING_VARIABLES, IRACING_VAR_CATEGORY_LABELS, IRACING_VAR_CATEGORY_ORDER } from '../../../shared/iracing-vars'
 import type { AppViewProps } from '../App'
+import type { AlertsConfig } from '../../../shared/alerts'
 import { tt } from '../i18n'
 import { useDevices } from '../lib/devices/DeviceRegistry'
 import { SectionExportImport } from '../components/SectionExportImport'
 import { TagFilter, filterByTags } from '../components/TagFilter'
 import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, hasAllHifiOverlayConfigs, mergeHifiOverlayConfigs, mergeHifiOverlayItems, resolveOverlayTrigger } from '../overlay/hifi-overlays'
 import { resolveWidgetComponent } from '../overlay/widgets'
+import { useAlertsConfig } from '../lib/alerts-config'
 import '../overlay/overlay-runtime.css'
 import '../overlay/overlay-view.css'
 
@@ -328,11 +330,13 @@ function overlayShellVars(config: OverlayListItem): CSSProperties {
 function OverlayRuntimePreview({
   item,
   definition,
-  fallback
+  fallback,
+  alertsConfig
 }: {
   item: OverlayListItem
   definition: OverlayWidgetDefinition | undefined
   fallback: string
+  alertsConfig: AlertsConfig
 }): ReactElement {
   const controller = useRef<OverlayTriggerController | null>(null)
   if (!controller.current) controller.current = new OverlayTriggerController()
@@ -360,8 +364,19 @@ function OverlayRuntimePreview({
   const trigger = resolveOverlayTrigger(definition, item)
   const frame = tick % 8
   const simulatedActive = frame === 1 || frame === 2
-  const previewSnapshot = simulateOverlayTriggerSnapshot(OVERLAY_PREVIEW_SNAPSHOT, trigger, simulatedActive)
-  const visibility = controller.current.evaluate(`preview:${item.id}`, trigger, previewSnapshot, tick * 1250)
+  const previewSnapshot = simulateOverlayTriggerSnapshot(
+    OVERLAY_PREVIEW_SNAPSHOT,
+    trigger,
+    simulatedActive,
+    alertsConfig
+  )
+  const visibility = controller.current.evaluate(
+    `preview:${item.id}`,
+    trigger,
+    previewSnapshot,
+    tick * 1250,
+    alertsConfig
+  )
   const renderWidget = definition?.role !== 'alert' || visibility.visible
   const natW = Math.max(1, item.position.width)
   const natH = Math.max(1, item.position.height)
@@ -409,7 +424,14 @@ function OverlayRuntimePreview({
           <OverlayPreviewErrorBoundary id={item.id} fallback={fallback}>
             <>
               {Widget && renderWidget
-                ? <Widget snapshot={previewSnapshot} config={item} visibility={visibility} />
+                ? (
+                    <Widget
+                      snapshot={previewSnapshot}
+                      config={item}
+                      visibility={visibility}
+                      alertsConfig={alertsConfig}
+                    />
+                  )
                 : Widget
                   ? null
                   : <div>{fallback}</div>}
@@ -451,6 +473,7 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
   const [builderEditingId, setBuilderEditingId] = useState<string | null>(null)
   const [builderDraft, setBuilderDraft] = useState<CustomOverlayDef | null>(null)
   const [editorTargetId, setEditorTargetId] = useState<string | null>(() => consumeEditorTarget('overlay'))
+  const alertsConfig = useAlertsConfig()
   const enabledCount = useMemo(() => items.filter((item) => item.enabled).length, [items])
   const sortedItems = useMemo(() => sortOverlayEntries(items), [items])
   const [selectedWidgetIds, setSelectedWidgetIds] = useState<Set<string>>(() => new Set())
@@ -1219,6 +1242,7 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
               item={item}
               definition={defById.get(item.id)}
               fallback={tr('previewUnavailable')}
+              alertsConfig={alertsConfig}
             />
 
             <div className="overlay-toggles">

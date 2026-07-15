@@ -7,7 +7,13 @@ import {
   type AlertSeverity,
   type AlertType
 } from '../../shared/alerts'
-import type { Corners, Flags, TelemetrySnapshot, TyreInfo } from '../../shared/telemetry'
+import {
+  fuelLapsRemainingOf,
+  type Corners,
+  type Flags,
+  type TelemetrySnapshot,
+  type TyreInfo
+} from '../../shared/telemetry'
 import { formatMeasurement, type UnitSystem } from '../../shared/units'
 
 const FLAG_LABELS: Partial<Record<keyof Flags, string>> = {
@@ -155,7 +161,7 @@ export class AlertsDetector {
 
   private detectLowFuel(snapshot: TelemetrySnapshot, events: AlertEvent[]): void {
     const rule = this.config.lowFuel
-    const fuelLaps = fuelLapsRemaining(snapshot)
+    const fuelLaps = fuelLapsRemainingOf(snapshot)
     const key = 'lowFuel'
     if (fuelLaps === undefined) {
       this.state.fuelLaps = undefined
@@ -447,17 +453,4 @@ export class AlertsDetector {
       if (cached) this.lastByKey.set(key, { ...cached, lastMessage: message, lastContext: context })
     }
   }
-}
-
-function fuelLapsRemaining(snapshot: TelemetrySnapshot): number | undefined {
-  if (
-    snapshot.fuelLiters === undefined ||
-    snapshot.fuelPerLap === undefined ||
-    snapshot.fuelPerLap <= 0 ||
-    !Number.isFinite(snapshot.fuelLiters) ||
-    !Number.isFinite(snapshot.fuelPerLap)
-  ) {
-    return undefined
-  }
-  return snapshot.fuelLiters / snapshot.fuelPerLap
 }

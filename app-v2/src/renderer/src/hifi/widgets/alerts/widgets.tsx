@@ -1,5 +1,9 @@
 import { type ReactElement } from 'react'
-import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
+import { DEFAULT_ALERTS_CONFIG } from '../../../../../shared/alerts'
+import {
+  fuelLapsRemainingOf,
+  type TelemetrySnapshot
+} from '../../../../../shared/telemetry'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, fixed, frac, legibleStroke, num } from '../kit'
 import { SHIFT_STROBE_BLUE, ShiftStrobe, resolveRevLightState, revLightRowLayout } from '../../../lib/rev-lights'
@@ -114,14 +118,23 @@ function AlertProximityRadar({ snapshot, width, height }: HifiWidgetProps): Reac
   )
 }
 
-function AlertShiftFlash({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function AlertShiftFlash({
+  snapshot,
+  width,
+  height,
+  visibility,
+  alertsConfig
+}: HifiWidgetProps): ReactElement {
   const w = width ?? 1200
   const h = height ?? 80
   const state = resolveRevLightState(
     frac(num(snapshot?.shiftIndicatorPct), 0, 1),
-    snapshot?.revLights?.blink
+    snapshot?.revLights?.blink,
+    alertsConfig?.shiftPoint.shiftIndicatorPct ??
+      DEFAULT_ALERTS_CONFIG.shiftPoint.shiftIndicatorPct
   )
-  if (!snapshot || !state.atShiftPoint) return empty(w, h)
+  const active = visibility ? visibility.visible : state.atShiftPoint
+  if (!snapshot || !active) return empty(w, h)
   const layout = revLightRowLayout(w, h, 72, {
     gap: 5,
     heightRatio: 0.2,
@@ -231,10 +244,8 @@ function AlertFlag({ snapshot, width, height }: HifiWidgetProps): ReactElement {
 function AlertLowFuel({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const w = width ?? 360
   const h = height ?? 200
-  const fuel = num(snapshot?.fuelLiters)
-  const perLap = num(snapshot?.fuelPerLap)
-  if (!snapshot || fuel == null || perLap == null || perLap <= 0) return empty(w, h)
-  const laps = fuel / perLap
+  const laps = fuelLapsRemainingOf(snapshot)
+  if (!snapshot || laps == null) return empty(w, h)
   return (
     <CleanTile width={w} height={h}>
       <defs>
@@ -303,7 +314,7 @@ export const alertShiftFlashWidget: HifiWidgetModule = {
   tags: ['rev-lights', 'shift', 'led', 'trigger', 'clean'],
   requires: ['shiftIndicatorPct'],
   defaultSize: { w: 1200, h: 80 },
-  defaultTrigger: { kind: 'shiftPoint', shiftPct: 0.97 },
+  defaultTrigger: { kind: 'shiftPoint' },
   render: AlertShiftFlash
 }
 
@@ -337,8 +348,8 @@ export const alertLowFuelWidget: HifiWidgetModule = {
   description: 'Trigger-only amber fuel pump with laps-to-empty readout.',
   category: 'alerts',
   tags: ['fuel', 'low-fuel', 'warning', 'trigger', 'clean'],
-  requires: ['fuelLiters', 'fuelPerLap'],
+  requires: ['fuelLapsRemaining'],
   defaultSize: { w: 360, h: 200 },
-  defaultTrigger: { kind: 'lowFuel', lapsToEmpty: 2 },
+  defaultTrigger: { kind: 'lowFuel' },
   render: AlertLowFuel
 }

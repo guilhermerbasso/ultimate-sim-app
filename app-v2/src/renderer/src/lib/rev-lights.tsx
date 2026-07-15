@@ -1,7 +1,8 @@
 import { type ReactElement } from 'react'
+import { DEFAULT_ALERTS_CONFIG } from '../../../shared/alerts'
 
 export const SHIFT_STROBE_BLUE = '#1e63ff'
-export const SHIFT_PCT = 0.97
+export const SHIFT_PCT = DEFAULT_ALERTS_CONFIG.shiftPoint.shiftIndicatorPct
 
 export interface RevLightState {
   pct: number

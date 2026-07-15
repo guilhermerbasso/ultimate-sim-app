@@ -8,6 +8,7 @@ import { coachFindings, topCoachTips } from '../../lib/coach-insights'
 import { useEngineerFeed, type EngineerFeedItem } from '../../lib/engineer-feed'
 import type { WidgetProps } from './types'
 import { useUnitSystem } from '../../lib/units'
+import { useAlertsConfig } from '../../lib/alerts-config'
 
 const BOX_FILL_STRIP_IDS = new Set([
   'rpmBar',
@@ -148,7 +149,8 @@ function HifiWidgetView({ props, ai, unitSystem }: { props: WidgetProps; ai: Hif
     width: dw,
     height: dh,
     unitSystem,
-    visibility: props.visibility
+    visibility: props.visibility,
+    alertsConfig: props.alertsConfig
   })
   const style = props.config.style
   const borderColor = style.borderColor ?? style.border
@@ -214,6 +216,22 @@ function LiveHifiWidgetHost({ props, unitSystem }: { props: WidgetProps; unitSys
   return <HifiWidgetView props={props} ai={buildAiContext(coachReport, engineerFeed)} unitSystem={unitSystem} />
 }
 
+function RuntimeHifiWidgetHost({
+  props,
+  unitSystem
+}: {
+  props: WidgetProps
+  unitSystem: UnitSystem
+}): ReactElement {
+  const alertsConfig = useAlertsConfig(props.alertsConfig)
+  return (
+    <LiveHifiWidgetHost
+      props={{ ...props, alertsConfig }}
+      unitSystem={unitSystem}
+    />
+  )
+}
+
 export interface HifiWidgetHostProps extends WidgetProps {
   preview?: 'inert'
 }
@@ -223,5 +241,5 @@ export function HifiWidgetHost({ preview, ...props }: HifiWidgetHostProps): Reac
   if (preview === 'inert') {
     return <HifiWidgetView props={props} ai={PREVIEW_AI_CONTEXT} unitSystem={unitSystem} />
   }
-  return <LiveHifiWidgetHost props={props} unitSystem={unitSystem} />
+  return <RuntimeHifiWidgetHost props={props} unitSystem={unitSystem} />
 }

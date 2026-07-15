@@ -166,7 +166,7 @@ describe('iRacing shift-light band (shiftBand)', () => {
   it('forces the live fallback fill to FULL at the over-rev RPM even if ShiftIndicatorPct caps below 1.0', () => {
     // Only the LIVE path (no SL band) can cap below 1.0. A car that drives
     // ShiftIndicatorPct but caps it at 0.9 must still hit 1.0 at/after its blink RPM so
-    // the pct≥0.97 shift-now triggers fire. Top-only clamp at a real per-car RPM.
+    // configured shift-now thresholds can fire. Top-only clamp at a real per-car RPM.
     const noSl = { blinkRpm: 7900 } // blink RPM present, but no First/Shift band → live path
     const r = __iracingTelemetryTest.shiftBand(8000, noSl, 8000, 0.9) // 8000 ≥ blink 7900
     expect(r).toMatchObject({ pct: 1, blink: true, source: 'iracing-live' })
@@ -524,6 +524,81 @@ describe('iRacing B2 channels (ABS/TC fix + SDK-gap fields) snapshot mapping', (
 })
 
 describe('iRacing remaining widget-channel snapshot mapping', () => {
+  it('keeps engineMap separate from throttleMap and hides unsupported fallbacks', () => {
+    const throttleOnly = pollWith({
+      Speed: 50,
+      RPM: 7000,
+      Gear: 3,
+      dcThrottleShape: 4,
+      dcBoostLevel: 5
+    })
+    expect(throttleOnly?.throttleMap).toBe(4)
+    expect(throttleOnly?.engineMap).toBeUndefined()
+
+    const mapped = pollWith({
+      Speed: 50,
+      RPM: 7000,
+      Gear: 3,
+      dcThrottleShape: 4,
+      dcFuelMixture: 2
+    })
+    expect(mapped).toMatchObject({ throttleMap: 4, engineMap: 2 })
+
+    expect(pollWith({
+      Speed: 50,
+      RPM: 7000,
+      Gear: 3,
+      dcFuelMixture: '',
+      dcEnginePower: 3
+    })?.engineMap).toBe(3)
+  })
+
+  it('keeps kg/lap separate until observed FuelLevel deltas establish litres/lap', () => {
+    let values: Record<string, unknown> = {
+      Speed: 50,
+      RPM: 7000,
+      Gear: 3,
+      Lap: 1,
+      FuelLevel: 20,
+      FuelUsePerHour: 36,
+      LapLastLapTime: 100,
+      IsReplayPlaying: false,
+      ReplaySessionNum: -1,
+      ReplayFrameNum: 100,
+      ReplayFrameNumEnd: 0,
+      SessionTime: 100,
+      ReplaySessionTime: 100,
+      SessionUniqueID: 44,
+      SessionNum: 0
+    }
+    const provider = new IRacingProvider()
+    ;(provider as unknown as { mmf: unknown }).mmf = {
+      start() {},
+      stop() {},
+      isOpen: () => true,
+      isConnected: () => true,
+      read: (): StubReadResult => ({
+        values,
+        sessionInfo: { WeekendInfo: { SimMode: 'full', SessionID: 10 } },
+        sessionInfoYaml: ''
+      })
+    }
+    ;(provider as unknown as { started: boolean }).started = true
+
+    const first = provider.poll()
+    expect(first?.fuelPerLapKg).toBeCloseTo(1, 5)
+    expect(first?.fuelPerLapLiters).toBeUndefined()
+    expect(first?.fuelLapsRemaining).toBeUndefined()
+    expect(first?.fuelPerLap).toBeUndefined()
+
+    values = { ...values, Lap: 2, FuelLevel: 18 }
+    const second = provider.poll()
+    expect(second?.fuelPerLapKg).toBeCloseTo(1, 5)
+    expect(second?.fuelPerLapLiters).toBeCloseTo(2, 5)
+    expect(second?.fuelPerLap).toBeCloseTo(2, 5)
+    expect(second?.fuelLapsRemaining).toBeCloseTo(9, 5)
+  })
+
   it('maps scalar, replay, pit, weather, setup, vector, and map fields without inventing defaults', () => {
     const snap = pollWith({
       Speed: 50,
@@ -597,12 +672,13 @@ describe('iRacing remaining widget-channel snapshot mapping', () => {
   it('keeps every new optional channel undefined when the SDK omits it', () => {
     const snap = pollWith({ Speed: 50, RPM: 7000, Gear: 3 })
     const fields = [
-      'velocityZ', 'throttleMap', 'engineBraking', 'antiRollFront', 'antiRollRear',
+      'velocityZ', 'engineMap', 'throttleMap', 'engineBraking', 'antiRollFront', 'antiRollRear',
       'weightJackerRight', 'sessionNumber', 'sessionTimeSec', 'completedLaps',
       'lapDistanceM', 'bestNLapLap', 'bestNLapTimeSec', 'onTrack', 'cameraCarIdx',
       'replayPlaying', 'replayFrameNum', 'replayFrameEnd', 'pitTyreTargetsKpa',
       'pitFuelToAddL', 'repairTimeSec', 'optionalRepairTimeSec', 'pitStopActive',
-      'precipitationPct', 'airDensityKgM3', 'airPressureKpa', 'airPressureHg', 'weatherType', 'trackLengthKm'
+      'precipitationPct', 'airDensityKgM3', 'airPressureKpa', 'airPressureHg', 'weatherType', 'trackLengthKm',
+      'fuelPerLapLiters', 'fuelLapsRemaining'
     ] as const
     for (const field of fields) expect(snap?.[field]).toBeUndefined()
   })

@@ -586,6 +586,7 @@ export interface TelemetrySnapshot {
   tcActive?: boolean
   tcEnabled?: boolean
   tcLevel?: number | string
+  // Genuine fuel-mixture / engine-power setting only. Never aliases throttleMap.
   engineMap?: number | string
   throttleMap?: number | string
   engineBraking?: number | string
@@ -674,7 +675,10 @@ export interface TelemetrySnapshot {
 
   // Fuel
   fuelLiters?: number
+  /** @deprecated Ambiguous legacy field. Use fuelPerLapLiters or fuelPerLapKg. */
   fuelPerLap?: number
+  fuelPerLapLiters?: number // observed FuelLevel delta averaged across completed laps
+  fuelLapsRemaining?: number // fuelLiters / fuelPerLapLiters
   fuelUsePerHourKg?: number
   fuelPerLapKg?: number
   fuelCapacityLiters?: number
@@ -760,6 +764,36 @@ export interface TelemetrySnapshot {
   velocityX?: number // m/s — frame do carro/mundo conforme o sim (iRacing: car frame)
   velocityY?: number // m/s — frame do carro/mundo conforme o sim
   yawNorth?: number // rad — yaw relativo ao Norte (iRacing YawNorth)
+}
+
+export function fuelPerLapLitersOf(snapshot: TelemetrySnapshot | null | undefined): number | undefined {
+  const explicit = snapshot?.fuelPerLapLiters
+  if (typeof explicit === 'number' && Number.isFinite(explicit) && explicit > 0) return explicit
+
+  const legacy = snapshot?.fuelPerLap
+  const legacyIsFinite = typeof legacy === 'number' && Number.isFinite(legacy) && legacy > 0
+  const legacyIsKnownMass =
+    snapshot?.sim === 'iracing' &&
+    typeof snapshot.fuelPerLapKg === 'number' &&
+    Number.isFinite(snapshot.fuelPerLapKg)
+  return legacyIsFinite && !legacyIsKnownMass ? legacy : undefined
+}
+
+export function fuelLapsRemainingOf(snapshot: TelemetrySnapshot | null | undefined): number | undefined {
+  const direct = snapshot?.fuelLapsRemaining
+  if (typeof direct === 'number' && Number.isFinite(direct) && direct >= 0) return direct
+
+  const fuelLiters = snapshot?.fuelLiters
+  const fuelPerLapLiters = fuelPerLapLitersOf(snapshot)
+  if (
+    typeof fuelLiters !== 'number' ||
+    !Number.isFinite(fuelLiters) ||
+    fuelLiters < 0 ||
+    fuelPerLapLiters === undefined
+  ) {
+    return undefined
+  }
+  return fuelLiters / fuelPerLapLiters
 }
 
 export interface TelemetryStatus {

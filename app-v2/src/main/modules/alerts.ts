@@ -134,6 +134,7 @@ export function register(ctx: ModuleContext): void {
       seedDetector(detector, pending.snapshot, config)
     }
     configReady = true
+    ctx.broadcast('alerts:config', config)
   })
 
   ctx.telemetryHub.on('snapshot', (snapshot) => {
@@ -177,9 +178,11 @@ export function register(ctx: ModuleContext): void {
 
   ctx.ipcMain.handle('alerts:getConfig', () => config)
   ctx.ipcMain.handle('alerts:setConfig', async (_event, patch: AlertsConfigPatch) => {
-    config = mergeConfig(config, patch)
-    detector.setConfig(config)
-    await saveConfig(configPath, config)
+    const nextConfig = mergeConfig(config, patch)
+    await saveConfig(configPath, nextConfig)
+    config = nextConfig
+    detector.setConfig(nextConfig)
+    ctx.broadcast('alerts:config', nextConfig)
     return config
   })
 
@@ -789,6 +792,9 @@ function mergeConfig(base: AlertsConfig, patch: AlertsConfigPatch): AlertsConfig
     brakeTemp: sanitizeBrakeTemp(
       mergeOptional(base.brakeTemp ?? DEFAULT_ALERTS_CONFIG.brakeTemp, patch.brakeTemp)
     ),
+    brakePressureLow: sanitizeBrakePressureLow(
+      mergeOptional(base.brakePressureLow ?? DEFAULT_ALERTS_CONFIG.brakePressureLow, patch.brakePressureLow)
+    ),
     drsAvailable: sanitizeRule(mergeOptional(base.drsAvailable ?? DEFAULT_ALERTS_CONFIG.drsAvailable, patch.drsAvailable)),
     blueFlag: sanitizeRule(mergeOptional(base.blueFlag ?? DEFAULT_ALERTS_CONFIG.blueFlag, patch.blueFlag))
   }
@@ -854,6 +860,25 @@ function sanitizeBrakeTemp(value: NonNullable<AlertsConfig['brakeTemp']>): NonNu
   return {
     ...sanitizeRule(value),
     maxC: clamp(value.maxC ?? 0, 0, 1200, DEFAULT_ALERTS_CONFIG.brakeTemp!.maxC as number)
+  }
+}
+
+function sanitizeBrakePressureLow(
+  value: NonNullable<AlertsConfig['brakePressureLow']>
+): NonNullable<AlertsConfig['brakePressureLow']> {
+  return {
+    brakeInputMin: clamp(
+      value.brakeInputMin,
+      0,
+      1,
+      DEFAULT_ALERTS_CONFIG.brakePressureLow!.brakeInputMin
+    ),
+    maxLinePressureBar: clamp(
+      value.maxLinePressureBar,
+      0,
+      500,
+      DEFAULT_ALERTS_CONFIG.brakePressureLow!.maxLinePressureBar
+    )
   }
 }
 

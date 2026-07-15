@@ -129,6 +129,11 @@ export interface AlertRuleConfig {
   outputs?: AlertOutput[]
 }
 
+export interface BrakePressureLowAlertPolicy {
+  brakeInputMin: number
+  maxLinePressureBar: number
+}
+
 export interface AlertsConfig {
   audioEnabled: boolean
   pitLimiter: AlertRuleConfig
@@ -155,6 +160,7 @@ export interface AlertsConfig {
   brakeTemp?: AlertRuleConfig & {
     maxC?: number
   }
+  brakePressureLow?: BrakePressureLowAlertPolicy
   drsAvailable?: AlertRuleConfig
   blueFlag?: AlertRuleConfig
 }
@@ -169,6 +175,7 @@ export type AlertsConfigPatch = Partial<{
   tyrePressure: Partial<NonNullable<AlertsConfig['tyrePressure']>>
   tyreTemp: Partial<NonNullable<AlertsConfig['tyreTemp']>>
   brakeTemp: Partial<NonNullable<AlertsConfig['brakeTemp']>>
+  brakePressureLow: Partial<NonNullable<AlertsConfig['brakePressureLow']>>
   drsAvailable: Partial<AlertRuleConfig>
   blueFlag: Partial<AlertRuleConfig>
 }>
@@ -183,6 +190,9 @@ export const DEFAULT_ALERTS_CONFIG: AlertsConfig = {
   tyrePressure: { enabled: false, minKpa: 150, maxKpa: 230 },
   tyreTemp: { enabled: false, maxC: 110 },
   brakeTemp: { enabled: false, maxC: 700 },
+  // Compatibility defaults for the brake-pressure overlay. They are user policy,
+  // not universal motorsport limits.
+  brakePressureLow: { brakeInputMin: 0.35, maxLinePressureBar: 25 },
   drsAvailable: { enabled: false },
   blueFlag: { enabled: false }
 }

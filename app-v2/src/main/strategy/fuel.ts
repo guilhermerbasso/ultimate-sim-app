@@ -1,5 +1,5 @@
 import type { FuelLapSample, FuelPitWindow, FuelStrategySettings, FuelStrategyState } from '../../shared/fuel'
-import type { TelemetrySnapshot } from '../../shared/telemetry'
+import { fuelPerLapLitersOf, type TelemetrySnapshot } from '../../shared/telemetry'
 
 const DEFAULT_SETTINGS: FuelStrategySettings = { fuelMarginLiters: 3 }
 const MAX_SAMPLES = 8
@@ -80,7 +80,7 @@ export class FuelStrategyCalculator {
     const snapshot = this.latest
     const connected = snapshot?.connected ?? false
     const sampleAverage = average(this.samples.map((sample) => sample.usedLiters))
-    const usedPerLap = sampleAverage ?? (positive(snapshot?.fuelPerLap) ? snapshot?.fuelPerLap : undefined)
+    const usedPerLap = sampleAverage ?? fuelPerLapLitersOf(snapshot)
     const fuelLiters = snapshot?.fuelLiters
     const fuelCapacityLiters = snapshot?.fuelCapacityLiters
     const estimatedLapTimeSec = positive(snapshot?.estimatedLapTimeSec)

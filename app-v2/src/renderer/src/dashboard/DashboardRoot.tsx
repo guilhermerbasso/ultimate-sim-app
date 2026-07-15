@@ -40,6 +40,7 @@ import {
   trackMapStrokeWidth
 } from '../lib/track-map'
 import { readButtonPressed } from '../lib/gamepad'
+import { useAlertsConfig } from '../lib/alerts-config'
 import { useUnitSystem } from '../lib/units'
 import { displayUnitLabel, getActiveFlag, resolveBinding, retainBindingIpc } from './binding'
 import { useSwipeCycle, type CycleDirection } from './useSwipeCycle'
@@ -1554,6 +1555,7 @@ function useRaceMoment(enabled: boolean, externalSnapshot: TelemetrySnapshot | n
 function AdaptiveCanvas({
   dashboard,
   snapshot,
+  lowFuelLapsThreshold,
   momentState,
   activeMoments,
   onDashboardBlink,
@@ -1561,15 +1563,26 @@ function AdaptiveCanvas({
 }: {
   dashboard: Dashboard
   snapshot: TelemetrySnapshot | null
+  lowFuelLapsThreshold: number
   momentState: RaceMomentState | null
   activeMoments: ReadonlySet<string>
   onDashboardBlink: (blink: AdaptiveBlink | undefined) => void
   onFrameBg: (bg: string | undefined) => void
 }) {
   const resolved = useMemo(() => {
-    const plan = withRaceMoment(planAdaptiveDashboard(snapshot), momentState)
+    const plan = withRaceMoment(
+      planAdaptiveDashboard(snapshot, { lowFuelLapsThreshold }),
+      momentState
+    )
     return resolveAdaptiveRuntime(dashboard.elements, plan, dashboard.adaptive, activeMoments)
-  }, [dashboard.elements, dashboard.adaptive, snapshot, momentState, activeMoments])
+  }, [
+    dashboard.elements,
+    dashboard.adaptive,
+    snapshot,
+    lowFuelLapsThreshold,
+    momentState,
+    activeMoments
+  ])
 
   useEffect(() => {
     onDashboardBlink(resolved.dashboardBlink)
@@ -1661,6 +1674,7 @@ export function DashboardCanvas({
    () => isAdaptiveDashboard(dashboard) || dashboard.adaptive?.enabled === true,
    [dashboard]
  )
+ const alertsConfig = useAlertsConfig()
  useEffect(() => retainBindingIpc(), [])
  const { moment: momentState, active: activeMoments } = useRaceMoment(adaptive, snapshot)
  const [dashBlink, setDashBlink] = useState<AdaptiveBlink | undefined>(undefined)
@@ -1692,6 +1706,7 @@ export function DashboardCanvas({
          <AdaptiveCanvas
            dashboard={dashboard}
            snapshot={snapshot}
+           lowFuelLapsThreshold={alertsConfig.lowFuel.lapsThreshold}
            momentState={momentState}
            activeMoments={activeMoments}
            onDashboardBlink={onDashboardBlink}
