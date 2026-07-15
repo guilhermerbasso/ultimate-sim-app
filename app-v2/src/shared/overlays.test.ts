@@ -65,6 +65,25 @@ describe('gap overlays registry', () => {
     }
   })
 
+  describe('Release A legacy trigger-only overlays', () => {
+    it.each([
+      ['flags', 'raceControlFlags'],
+      ['flagIconStack', 'raceControlFlags'],
+      ['sideRadarGlyph', 'sideProximity'],
+      ['pushToPassHud', 'pushToPassState'],
+      ['wetTag', 'trackWetness'],
+      ['engineTellTales', 'engineWarnings'],
+      ['absCut', 'absCut'],
+      ['paceRestart', 'paceMode'],
+      ['sideProximity', 'sideProximity']
+    ] as const)('%s is an alert with a non-always semantic trigger', (id, semantic) => {
+      const definition = OVERLAY_WIDGETS.find((entry) => entry.id === id)
+      expect(definition?.role).toBe('alert')
+      expect(definition?.defaultTrigger).toEqual({ kind: 'semantic', semantic })
+      expect(definition?.tags).toEqual(expect.arrayContaining(['trigger-only', 'release-a']))
+    })
+  })
+
   it('includes both gap overlays in the default overlays config (disabled by default)', () => {
     const config = createDefaultOverlaysConfig()
     for (const id of GAP_IDS) {

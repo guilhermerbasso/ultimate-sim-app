@@ -4,7 +4,12 @@ import { describe, expect, it } from 'vitest'
 import { createDefaultOverlayStyle, DEFAULT_OVERLAY_STYLE_PRESET, type OverlayWidgetConfig, type OverlayWidgetId } from '../../../shared/overlays'
 import { HIFI_WIDGETS, hifiWidgetTags } from '../hifi/widgets/registry'
 import { HifiWidgetHost, resolveWidgetComponent } from './widgets'
-import { createDefaultOverlaysConfigWithHifi, HIFI_OVERLAY_DEFS } from './hifi-overlays'
+import {
+  createDefaultOverlaysConfigWithHifi,
+  HIFI_OVERLAY_DEFS,
+  mergeHifiOverlayConfigs,
+  shouldRenderOverlayRuntime
+} from './hifi-overlays'
 
 describe('hi-fi overlay bridge', () => {
   it('creates one unique hifi: definition per hi-fi module', () => {
@@ -19,6 +24,122 @@ describe('hi-fi overlay bridge', () => {
       const def = HIFI_OVERLAY_DEFS.find((item) => item.id === `hifi:${module.id}`)
       expect(def?.tags).toEqual(expect.arrayContaining(hifiWidgetTags(module)))
     }
+  })
+
+  it('enforces the alert-role invariant across current and generated visual families', () => {
+    const alerts = HIFI_WIDGETS.filter((module) => module.role === 'alert')
+    expect(alerts.length).toBeGreaterThan(20)
+    for (const module of alerts) {
+      expect(module.defaultTrigger, `${module.id} has no trigger`).toBeDefined()
+      expect(module.defaultTrigger?.kind, `${module.id} is always-on`).not.toBe('always')
+      expect(module.preview, `${module.id} has no isolated preview sequence`).toBe('simulated-active-sequence')
+      expect(module.tags, `${module.id} lacks trigger-only tag`).toContain('trigger-only')
+      expect(module.tags, `${module.id} lacks release cohort tag`).toContain('release-a')
+    }
+  })
+
+  it('applies audited semantics to direct hi-fi families', () => {
+    const expected = new Map([
+      ['drs', 'drs'],
+      ['pushToPass', 'pushToPassState'],
+      ['absState', 'absActive'],
+      ['tcState', 'tcActive'],
+      ['engineWarnings', 'engineWarnings'],
+      ['paceMode', 'paceMode'],
+      ['flag', 'raceControlFlags'],
+      ['raceControlFlags', 'raceControlFlags'],
+      ['incidents', 'incidentCounts'],
+      ['pitLimiter', 'pitLimiter'],
+      ['pitService', 'pitServicesSelected'],
+      ['wetDeclared', 'declaredWet'],
+      ['wetness', 'trackWetness'],
+      ['fog', 'fogLevel'],
+      ['spotterRaw', 'sideProximity']
+    ])
+    for (const [id, semantic] of expected) {
+      const module = HIFI_WIDGETS.find((entry) => entry.id === id)
+      expect(module, `missing ${id}`).toBeDefined()
+      expect(module?.role).toBe('alert')
+      expect(module?.defaultTrigger).toEqual({ kind: 'semantic', semantic })
+    }
+    for (const module of HIFI_WIDGETS.filter((entry) => entry.id.startsWith('spotterRaw'))) {
+      expect(module.defaultTrigger).toEqual({ kind: 'semantic', semantic: 'sideProximity' })
+    }
+  })
+
+  it.each([
+    'paceFlags',
+    'pitFuelToAdd',
+    'precipitation',
+    'repairTime',
+    'optionalRepairTime',
+    'incidentCounts',
+    'repairRequirement',
+    'pitServiceStatus',
+    'pitsOpen',
+    'pitServicesSelected',
+    'trackWetness',
+    'fogLevel',
+    'proximity',
+    'raceFlags',
+    'drs',
+    'engineWarnings',
+    'pushToPassState',
+    'absActive',
+    'absCut',
+    'tcActive',
+    'declaredWet',
+    'paceMode',
+    'paceFormation',
+    'onPitRoad',
+    'pitLimiter',
+    'inPitStall',
+    'pitStopActive',
+    'pitTyreTargets',
+    'replayState',
+    'replayTimeline'
+  ])('keeps all three generated %s variants on one semantic policy', (base) => {
+    const variants = HIFI_WIDGETS.filter((module) =>
+      new RegExp(`^telemetry-${base}-(competition|futuristic|ddu)$`).test(module.id)
+    )
+    expect(variants).toHaveLength(3)
+    expect(new Set(variants.map((module) => module.defaultTrigger?.semantic)).size).toBe(1)
+    expect(variants.every((module) => module.role === 'alert')).toBe(true)
+  })
+
+  it('does not turn ordinary air/track temperature variants into weather alerts', () => {
+    for (const base of ['airTemperature', 'trackTemperature']) {
+      const variants = HIFI_WIDGETS.filter((module) =>
+        new RegExp(`^telemetry-${base}-(competition|futuristic|ddu)$`).test(module.id)
+      )
+      expect(variants).toHaveLength(3)
+      expect(variants.every((module) => module.role !== 'alert')).toBe(true)
+    }
+  })
+
+  it('sanitizes an alert always override while preserving an ordinary explicit override', () => {
+    const defaults = createDefaultOverlaysConfigWithHifi()
+    const alert = HIFI_OVERLAY_DEFS.find((definition) => definition.role === 'alert')!
+    const ordinary = HIFI_OVERLAY_DEFS.find((definition) => definition.role !== 'alert')!
+    const merged = mergeHifiOverlayConfigs({
+      ...defaults,
+      widgets: {
+        ...defaults.widgets,
+        [alert.id]: { ...defaults.widgets[alert.id], trigger: { kind: 'always' } },
+        [ordinary.id]: { ...defaults.widgets[ordinary.id], trigger: { kind: 'always' } }
+      }
+    })
+    expect(merged.widgets[alert.id].trigger).toEqual(alert.defaultTrigger)
+    expect(merged.widgets[ordinary.id].trigger).toEqual({ kind: 'always' })
+  })
+
+  it('removes inactive alerts from runtime/hit-test projections even while unlocked', () => {
+    const alert = HIFI_OVERLAY_DEFS.find((definition) => definition.role === 'alert')!
+    const ordinary = HIFI_OVERLAY_DEFS.find((definition) => definition.role !== 'alert')!
+    const inactive = { visible: false, active: false, held: false, phase: 'inactive' }
+    expect(shouldRenderOverlayRuntime(alert, { locked: false }, inactive)).toBe(false)
+    expect(shouldRenderOverlayRuntime(ordinary, { locked: false }, inactive)).toBe(true)
+    expect(shouldRenderOverlayRuntime(ordinary, { locked: true }, inactive)).toBe(false)
   })
 
   it('resolves hifi ids to HifiWidgetHost', () => {

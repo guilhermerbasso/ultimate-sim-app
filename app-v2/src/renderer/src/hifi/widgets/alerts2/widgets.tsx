@@ -1,6 +1,7 @@
 import { type ReactElement } from 'react'
 import { trackSurfaceMaterialLabel, type TelemetrySnapshot, type TyreInfo } from '../../../../../shared/telemetry'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
+import { semanticOverlayTrigger } from '../../../../../shared/overlays'
 import { Bar, C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, fixed, frac, legibleStroke, num } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'
 
@@ -196,7 +197,7 @@ export const alert2EngineWarningWidget: HifiWidgetModule = {
   tags: ['alert', 'trigger', 'clean', 'engine', 'warning'],
   requires: ['engineWarnings'],
   defaultSize: { w: 380, h: 190 },
-  defaultTrigger: { kind: 'always' },
+  defaultTrigger: semanticOverlayTrigger('alert2EngineWarning'),
   render: Alert2EngineWarning
 }
 
@@ -208,7 +209,7 @@ export const alert2WaterTempCriticalWidget: HifiWidgetModule = {
   tags: ['alert', 'trigger', 'clean', 'water', 'temperature'],
   requires: ['waterTempC', 'engineWarnings'],
   defaultSize: { w: 360, h: 190 },
-  defaultTrigger: { kind: 'always' },
+  defaultTrigger: semanticOverlayTrigger('alert2WaterTempCritical'),
   render: Alert2WaterTempCritical
 }
 
@@ -220,7 +221,7 @@ export const alert2OilTempCriticalWidget: HifiWidgetModule = {
   tags: ['alert', 'trigger', 'clean', 'oil', 'temperature'],
   requires: ['oilTempC', 'engineWarnings'],
   defaultSize: { w: 360, h: 190 },
-  defaultTrigger: { kind: 'always' },
+  defaultTrigger: semanticOverlayTrigger('alert2OilTempCritical'),
   render: Alert2OilTempCritical
 }
 
@@ -232,7 +233,7 @@ export const alert2OilPressureLowWidget: HifiWidgetModule = {
   tags: ['alert', 'trigger', 'clean', 'oil', 'pressure'],
   requires: ['oilPressureKpa', 'engineWarnings'],
   defaultSize: { w: 380, h: 190 },
-  defaultTrigger: { kind: 'always' },
+  defaultTrigger: semanticOverlayTrigger('alert2OilPressureLow'),
   render: Alert2OilPressureLow
 }
 
@@ -244,7 +245,7 @@ export const alert2BadSurfaceWidget: HifiWidgetModule = {
   tags: ['alert', 'trigger', 'clean', 'surface', 'off-track'],
   requires: ['trackSurfaceMaterial'],
   defaultSize: { w: 420, h: 190 },
-  defaultTrigger: { kind: 'always' },
+  defaultTrigger: semanticOverlayTrigger('alert2BadSurface'),
   render: Alert2BadSurface
 }
 
@@ -256,7 +257,7 @@ export const alert2BlueFlagWidget: HifiWidgetModule = {
   tags: ['alert', 'trigger', 'clean', 'flag', 'blue-flag'],
   requires: ['flags'],
   defaultSize: { w: 360, h: 210 },
-  defaultTrigger: { kind: 'flag' },
+  defaultTrigger: semanticOverlayTrigger('alert2BlueFlag'),
   render: Alert2BlueFlag
 }
 
@@ -268,7 +269,7 @@ export const alert2TyreTempCriticalWidget: HifiWidgetModule = {
   tags: ['alert', 'trigger', 'clean', 'tyre', 'temperature'],
   requires: ['tyres'],
   defaultSize: { w: 380, h: 200 },
-  defaultTrigger: { kind: 'always' },
+  defaultTrigger: semanticOverlayTrigger('alert2TyreTempCritical'),
   render: Alert2TyreTempCritical
 }
 
@@ -280,6 +281,6 @@ export const alert2BrakePressureLowWidget: HifiWidgetModule = {
   tags: ['alert', 'trigger', 'clean', 'brake', 'pressure'],
   requires: ['brake', 'brakeLinePressBar'],
   defaultSize: { w: 420, h: 190 },
-  defaultTrigger: { kind: 'always' },
+  defaultTrigger: semanticOverlayTrigger('alert2BrakePressureLow'),
   render: Alert2BrakePressureLow
 }

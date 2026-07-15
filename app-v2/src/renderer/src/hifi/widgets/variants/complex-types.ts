@@ -1,4 +1,5 @@
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
+import type { OverlayVisibilityMetadata } from '../../../../../shared/overlays'
 import type { TelemetryField } from '../types'
 import type { TelemetryTone } from './types'
 
@@ -133,5 +134,6 @@ export interface ComplexTelemetryDescriptor {
   focus: string
   requires: readonly TelemetryField[]
   tags?: readonly string[]
+  visibility?: OverlayVisibilityMetadata
   read: (snapshot: TelemetrySnapshot | null) => ComplexTelemetryModel
 }

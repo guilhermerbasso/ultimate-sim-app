@@ -24,11 +24,14 @@ import {
   createDefaultOverlaysConfig,
   CUSTOM_OVERLAY_ID_PREFIX,
   DEFAULT_CUSTOM_OVERLAY_POSITION,
+  defaultTriggerForHifiModule,
   getOverlayStylePreset,
+  hifiModuleRole,
   isCustomOverlayId,
   OVERLAY_WIDGETS,
   sanitizeCustomOverlayWidgets,
-  sanitizeOverlayTrigger
+  sanitizeOverlayTrigger,
+  sanitizeOverlayTriggerForRole
 } from '../../shared/overlays'
 import type { ModuleContext } from '../module-context'
 import { fixIracingFullscreen, readIracingGraphicsStatus } from './iracing-graphics'
@@ -336,7 +339,7 @@ function sanitizeCustomElement(value: unknown, index: number): CustomOverlayElem
   }
 }
 
-function normalizeCustomOverlay(value: unknown, fallbackId: string): CustomOverlayDef {
+function normalizeCustomOverlay(value: unknown, fallbackId: string, fallbackCreatedAt = 0): CustomOverlayDef {
   const raw = isPlainObject(value) ? value : {}
   const id = isCustomOverlayId(raw.id) ? (raw.id as string) : fallbackId
   const stylePreset = getOverlayStylePreset(typeof raw.stylePreset === 'string' ? raw.stylePreset : undefined).id
@@ -354,6 +357,12 @@ function normalizeCustomOverlay(value: unknown, fallbackId: string): CustomOverl
     stylePreset,
     style: sanitizeStyle(isPlainObject(raw.style) ? (raw.style as Partial<OverlayWidgetStyle>) : undefined, stylePreset),
     hidden: Boolean(raw.hidden),
+    createdAt: typeof raw.createdAt === 'number' && Number.isFinite(raw.createdAt) ? raw.createdAt : fallbackCreatedAt,
+    updatedAt: typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt)
+      ? raw.updatedAt
+      : typeof raw.createdAt === 'number' && Number.isFinite(raw.createdAt)
+        ? raw.createdAt
+        : fallbackCreatedAt,
     trigger: sanitizeOverlayTrigger(raw.trigger),
     display: sanitizeDisplayRef(raw.display),
     elements
@@ -375,7 +384,11 @@ function normalizeCustomOverlays(value: unknown): CustomOverlayDef[] {
   const seen = new Set<string>()
   const result: CustomOverlayDef[] = []
   value.forEach((item, index) => {
-    const overlay = normalizeCustomOverlay(item, `${CUSTOM_OVERLAY_ID_PREFIX}${index}-${Date.now().toString(36)}`)
+    const overlay = normalizeCustomOverlay(
+      item,
+      `${CUSTOM_OVERLAY_ID_PREFIX}${index}-${Date.now().toString(36)}`,
+      index + 1
+    )
     if (seen.has(overlay.id)) return
     seen.add(overlay.id)
     result.push(overlay)
@@ -403,7 +416,14 @@ function mergeConfig(config: Partial<OverlaysConfig> | null): OverlaysConfig {
         stylePreset,
         style: sanitizeStyle(current?.style, stylePreset),
         hidden: Boolean(current?.hidden ?? base.hidden),
-        trigger: sanitizeOverlayTrigger(current?.trigger),
+        role: definition.role,
+        trigger: current?.trigger == null
+          ? base.trigger ?? definition.defaultTrigger ?? null
+          : sanitizeOverlayTriggerForRole(
+              current.trigger,
+              definition.role,
+              base.trigger ?? definition.defaultTrigger
+            ),
         display: sanitizeDisplayRef(current?.display)
       }
     ] as const
@@ -413,6 +433,11 @@ function mergeConfig(config: Partial<OverlaysConfig> | null): OverlaysConfig {
     .map(([id, value]) => {
       const current = (isPlainObject(value) ? value : {}) as Partial<OverlayWidgetConfig>
       const stylePreset = getOverlayStylePreset(current.stylePreset).id
+      const moduleId = typeof current.hifiModuleId === 'string' && current.hifiModuleId.trim()
+        ? current.hifiModuleId
+        : id.slice(5)
+      const role = current.role === 'alert' ? 'alert' : hifiModuleRole(moduleId)
+      const fallbackTrigger = defaultTriggerForHifiModule(moduleId)
       return [
         id,
         {
@@ -425,11 +450,14 @@ function mergeConfig(config: Partial<OverlaysConfig> | null): OverlaysConfig {
           stylePreset,
           style: sanitizeStyle(current.style, stylePreset),
           hidden: Boolean(current.hidden),
-          trigger: sanitizeOverlayTrigger(current.trigger),
+          role,
+          trigger: current.trigger == null
+            ? role === 'alert'
+              ? sanitizeOverlayTriggerForRole(null, role, fallbackTrigger)
+              : fallbackTrigger ?? null
+            : sanitizeOverlayTriggerForRole(current.trigger, role, fallbackTrigger),
           display: sanitizeDisplayRef(current.display),
-          hifiModuleId: typeof current.hifiModuleId === 'string' && current.hifiModuleId.trim()
-            ? current.hifiModuleId
-            : id.slice(5)
+          hifiModuleId: moduleId
         }
       ] as const
     })
@@ -445,6 +473,7 @@ function mergeConfig(config: Partial<OverlaysConfig> | null): OverlaysConfig {
 
 export class OverlayManager {
   private readonly windows = new Map<string, BrowserWindow>()
+  private readonly runtimeHiddenAlerts = new Set<string>()
   private readonly configPath: string
   private config = createDefaultOverlaysConfig()
   private isDisposing = false
@@ -542,6 +571,11 @@ export class OverlayManager {
       async (_event, id: OverlayWidgetId, patch: Partial<Pick<OverlayWidgetConfig, 'stylePreset' | 'style'>>) =>
         this.setStyle(id, patch)
     )
+    this.ctx.ipcMain.handle('overlays:setRuntimeVisibility', (event, id: string, visible: boolean) => {
+      const win = this.windows.get(id)
+      if (!win || win.isDestroyed() || win.webContents !== event.sender) return
+      this.setRuntimeVisibility(id, visible)
+    })
     // ─── Custom overlays (designer) ────────────────────────────────────────────
     this.ctx.ipcMain.handle('overlays:listCustom', () => this.listCustom())
     this.ctx.ipcMain.handle('overlays:getCustom', (_event, id: string) => this.getCustom(id))
@@ -588,7 +622,13 @@ export class OverlayManager {
     // draft (prevents collisions and id spoofing across overlays).
     const base = isPlainObject(input) ? { ...input } : {}
     delete (base as Record<string, unknown>).id
-    const overlay = normalizeCustomOverlay(base, `${CUSTOM_OVERLAY_ID_PREFIX}${randomUUID()}`)
+    delete (base as Record<string, unknown>).createdAt
+    delete (base as Record<string, unknown>).updatedAt
+    const now = Date.now()
+    const overlay = normalizeCustomOverlay(
+      { ...base, createdAt: now, updatedAt: now },
+      `${CUSTOM_OVERLAY_ID_PREFIX}${randomUUID()}`
+    )
     this.config.customOverlays.push(overlay)
     if (overlay.enabled) this.createWindow(overlay.id)
     await this.save()
@@ -602,7 +642,13 @@ export class OverlayManager {
     if (index < 0) throw new Error(`Unknown custom overlay: ${String(id)}`)
     const previous = this.config.customOverlays[index]
     // Force the id to stay the same — a patch must never re-key the overlay.
-    const merged = normalizeCustomOverlay({ ...previous, ...(isPlainObject(patch) ? patch : {}), id: previous.id }, previous.id)
+    const merged = normalizeCustomOverlay({
+      ...previous,
+      ...(isPlainObject(patch) ? patch : {}),
+      id: previous.id,
+      createdAt: previous.createdAt,
+      updatedAt: Date.now()
+    }, previous.id)
     this.config.customOverlays[index] = merged
     this.syncWindow(id, merged)
     this.pushCustomDef(id)
@@ -638,6 +684,13 @@ export class OverlayManager {
     await this.save()
     this.broadcastState()
     return this.config
+  }
+
+  private setRuntimeVisibility(id: string, visible: boolean): void {
+    if (!this.isAlertOverlay(id)) return
+    if (visible) this.runtimeHiddenAlerts.delete(id)
+    else this.runtimeHiddenAlerts.add(id)
+    this.updateMouseMode(id)
   }
 
   async toggle(id: OverlayWidgetId, enabled?: boolean): Promise<OverlayListItem[]> {
@@ -900,6 +953,7 @@ export class OverlayManager {
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
     win.setFullScreenable(false)
     this.windows.set(id, win)
+    if (this.isAlertOverlay(id)) this.runtimeHiddenAlerts.add(id)
     logger.info('overlays', 'overlay window created', { id, bounds: initialBounds })
     this.applyOpacity(id)
     this.updateMouseMode(id)
@@ -1006,6 +1060,7 @@ export class OverlayManager {
     const win = this.windows.get(id)
     if (!win || win.isDestroyed()) return
     this.windows.delete(id)
+    this.runtimeHiddenAlerts.delete(id)
     logger.info('overlays', 'overlay window destroyed', { id })
     win.close()
   }
@@ -1030,9 +1085,21 @@ export class OverlayManager {
     // Per-overlay interactivity: a window receives the mouse when global config
     // mode is on OR the overlay itself is unlocked. A LOCKED overlay stays
     // click-through (race-safe) so the cursor passes straight to the simulator.
-    const clickThrough = !this.config.configMode && Boolean(entry.locked)
+    const clickThrough =
+      this.runtimeHiddenAlerts.has(id) ||
+      (!this.config.configMode && Boolean(entry.locked))
     win.setIgnoreMouseEvents(clickThrough, { forward: true })
     win.webContents.send('overlays:configMode', this.getWindowConfigPayload(id))
+  }
+
+  private isAlertOverlay(id: string): boolean {
+    if (id.startsWith(CUSTOM_OVERLAY_ID_PREFIX)) return false
+    if (id.startsWith('hifi:')) {
+      const entry = this.config.widgets[id as OverlayWidgetId]
+      const moduleId = entry?.hifiModuleId ?? id.slice(5)
+      return entry?.role === 'alert' || hifiModuleRole(moduleId) === 'alert'
+    }
+    return OVERLAY_WIDGETS.find((definition) => definition.id === id)?.role === 'alert'
   }
 
   private captureBounds(id: string): void {
