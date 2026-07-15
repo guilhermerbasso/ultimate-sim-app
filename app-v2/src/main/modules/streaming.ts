@@ -23,7 +23,8 @@ const TOKEN_BYTES = 24
 const SESSION_BYTES = 32
 const SESSION_COOKIE_NAME = 'ultimate_sim_stream_session'
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000
-const MAX_AUTH_SESSIONS = 64
+const MAX_BOOTSTRAP_SESSIONS = 64
+const MAX_AUTHENTICATED_SESSIONS = 64
 const AUTH_FAILURE_WINDOW_MS = 60_000
 const AUTH_FAILURE_LIMIT = 10
 const MAX_SSE_CLIENTS = 12
@@ -329,12 +330,20 @@ function trimTunnelOutput(output: string): string {
   return output.length <= CLOUDFLARED_OUTPUT_LIMIT ? output : output.slice(-CLOUDFLARED_OUTPUT_LIMIT)
 }
 
+export function publicBaseUrlAfterTunnelStops(
+  currentPublicBaseUrl: string | null,
+  tunnelUrl: string | null,
+  manualPublicBaseUrl: string | null
+): string | null {
+  return tunnelUrl && currentPublicBaseUrl === tunnelUrl ? manualPublicBaseUrl : currentPublicBaseUrl
+}
+
 async function stopAutoTunnelProcess(): Promise<void> {
   const child = state.autoTunnelProcess
   const tunnelUrl = state.autoTunnelUrl
   state.autoTunnelProcess = null
   state.autoTunnelUrl = null
-  if (tunnelUrl && state.publicBaseUrl === tunnelUrl) state.publicBaseUrl = state.manualPublicBaseUrl
+  state.publicBaseUrl = publicBaseUrlAfterTunnelStops(state.publicBaseUrl, tunnelUrl, state.manualPublicBaseUrl)
   if (!child || child.exitCode !== null) return
 
   state.autoTunnelStopRequested = true
@@ -426,7 +435,7 @@ async function launchAutoTunnel(): Promise<string> {
         state.autoTunnelProcess = null
         const tunnelUrl = state.autoTunnelUrl
         state.autoTunnelUrl = null
-        if (tunnelUrl && state.publicBaseUrl === tunnelUrl) state.publicBaseUrl = state.manualPublicBaseUrl
+        state.publicBaseUrl = publicBaseUrlAfterTunnelStops(state.publicBaseUrl, tunnelUrl, state.manualPublicBaseUrl)
       }
       if (!settled) {
         const detail = output.trim().split(/\r?\n/).filter(Boolean).slice(-1)[0]
@@ -511,12 +520,31 @@ function serializeSessionCookie(sessionId: string, basePath: string): string {
   return attributes.join('; ')
 }
 
-function createSession(route: StreamingRequestRoute, access: StreamingSessionAccess): { id: string; cookie: string } {
+function sessionCount(access: StreamingSessionAccess): number {
+  let count = 0
+  for (const session of state.sessions.values()) {
+    if (session.access === access) count += 1
+  }
+  return count
+}
+
+function oldestSessionId(access: StreamingSessionAccess): string | null {
+  for (const [id, session] of state.sessions) {
+    if (session.access === access) return id
+  }
+  return null
+}
+
+function createSession(route: StreamingRequestRoute, access: StreamingSessionAccess): { id: string; cookie: string } | null {
   cleanupExpiredSessions()
-  while (state.sessions.size >= MAX_AUTH_SESSIONS) {
-    const oldest = state.sessions.keys().next().value as string | undefined
-    if (!oldest) break
-    state.sessions.delete(oldest)
+  if (access === 'bootstrap') {
+    while (sessionCount('bootstrap') >= MAX_BOOTSTRAP_SESSIONS) {
+      const oldestBootstrap = oldestSessionId('bootstrap')
+      if (!oldestBootstrap) break
+      state.sessions.delete(oldestBootstrap)
+    }
+  } else if (sessionCount('authenticated') >= MAX_AUTHENTICATED_SESSIONS) {
+    return null
   }
   const id = randomBytes(SESSION_BYTES).toString('base64url')
   state.sessions.set(id, {
@@ -777,6 +805,10 @@ async function exchangePasswordSession(
   }
 
   clearAuthFailure(request, 'password')
+  if (active.session.access === 'bootstrap' && sessionCount('authenticated') >= MAX_AUTHENTICATED_SESSIONS) {
+    send(response, 503, 'Too many authenticated streaming sessions')
+    return
+  }
   active.session.access = 'authenticated'
   active.session.expiresAt = Date.now() + SESSION_TTL_MS
   applyCors(response)
@@ -935,19 +967,37 @@ function closeAllClients(): void {
   for (const id of [...state.clients.keys()]) closeClient(id)
 }
 
-function baseOrigin(): string {
-  if (state.accessMode === 'internet' && state.publicBaseUrl) return state.publicBaseUrl
-  const host = state.accessMode !== 'local' && state.lanAddress ? state.lanAddress : HOST
-  return `http://${host}:${state.port}`
+export function resolveStreamingBaseOrigin(
+  accessMode: StreamingAccessMode,
+  publicBaseUrl: string | null,
+  port: number | null,
+  lanAddress: string | null
+): string | null {
+  if (!port) return null
+  if (accessMode === 'internet') {
+    if (!publicBaseUrl) return null
+    try {
+      return new URL(publicBaseUrl).protocol === 'https:' ? publicBaseUrl : null
+    } catch {
+      return null
+    }
+  }
+  const host = accessMode === 'lan' && lanAddress ? lanAddress : HOST
+  return `http://${host}:${port}`
+}
+
+function baseOrigin(): string | null {
+  return resolveStreamingBaseOrigin(state.accessMode, state.publicBaseUrl, state.port, state.lanAddress)
 }
 
 function lanOrigin(): string | null {
   return state.port && state.lanAddress ? `http://${state.lanAddress}:${state.port}` : null
 }
 
-function dashboardUrl(origin = baseOrigin()): string | null {
-  if (!state.port || !state.token) return null
-  const url = urlFromBase(origin, `obs/${state.layoutId}`)
+function dashboardUrl(origin?: string | null): string | null {
+  const resolvedOrigin = origin === undefined ? baseOrigin() : origin
+  if (!state.port || !state.token || !resolvedOrigin) return null
+  const url = urlFromBase(resolvedOrigin, `obs/${state.layoutId}`)
   url.searchParams.set('token', state.token)
   url.searchParams.set('kind', state.layoutKind)
   if (state.layoutKind === 'touch') url.searchParams.set('panel', state.layoutId)
@@ -968,7 +1018,7 @@ function localTestUrl(): string | null {
   return dashboardUrl(`http://127.0.0.1:${state.port}`)
 }
 
-function touchControlsUrl(origin = baseOrigin()): string | null {
+function touchControlsUrl(origin?: string | null): string | null {
   void origin
   return null
 }
@@ -1366,7 +1416,10 @@ async function selfTest(): Promise<StreamingSelfTestResult> {
     : null
   const safeUrl = requestUrl ? displayUrl(requestUrl) : null
   if (!requestUrl) {
-    return { reachable: false, statusCode: null, url: safeUrl, stage: 'server', message: 'Streaming server is not running.' }
+    const message = state.server && state.accessMode === 'internet'
+      ? 'No active public HTTPS endpoint is available for Internet streaming.'
+      : 'Streaming server is not running.'
+    return { reachable: false, statusCode: null, url: safeUrl, stage: 'server', message }
   }
 
   const startedAt = Date.now()
@@ -1540,7 +1593,12 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
           return
         }
         clearAuthFailure(request, 'token')
-        sessionCookie = createSession(route, state.accessMode === 'local' ? 'authenticated' : 'bootstrap').cookie
+        const session = createSession(route, state.accessMode === 'local' ? 'authenticated' : 'bootstrap')
+        if (!session) {
+          send(response, 503, 'Too many authenticated streaming sessions')
+          return
+        }
+        sessionCookie = session.cookie
       }
       const layoutId = pathname.slice('/obs/'.length)
       if (!isValidLayoutId(layoutId) || layoutId !== state.layoutId) {

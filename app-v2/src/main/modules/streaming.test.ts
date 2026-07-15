@@ -42,7 +42,12 @@ vi.mock('../touchpanel/manager', () => ({
   })
 }))
 
-import { isLocalNetworkAddress, register } from './streaming'
+import {
+  isLocalNetworkAddress,
+  publicBaseUrlAfterTunnelStops,
+  register,
+  resolveStreamingBaseOrigin
+} from './streaming'
 
 interface ResponseData {
   statusCode: number
@@ -410,6 +415,73 @@ describe('streaming authenticated server', () => {
     expect(handshake).not.toContain('Rival Name')
   })
 
+  it('evicts only bootstrap sessions at capacity and preserves authenticated viewers', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, {
+      accessMode: 'lan',
+      password: 'capacity-password',
+      layoutId: 'race'
+    })
+    const documentUrl = localDocumentUrl(started)
+    const baseUrl = new URL('../', documentUrl)
+    const initialDocument = await httpRequest(documentUrl)
+    let authenticatedCookie = sessionCookie(initialDocument)
+    const authenticated = await httpRequest(new URL('auth/session', baseUrl).toString(), {
+      method: 'POST',
+      headers: { Cookie: authenticatedCookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'capacity-password' })
+    })
+    expect(authenticated.statusCode).toBe(200)
+    authenticatedCookie = sessionCookie(authenticated)
+
+    const bootstrapCookies: string[] = []
+    for (let index = 0; index < 65; index += 1) {
+      const bootstrap = await httpRequest(documentUrl)
+      expect(bootstrap.statusCode).toBe(200)
+      bootstrapCookies.push(sessionCookie(bootstrap))
+    }
+
+    const authenticatedPing = await httpRequest(new URL('ping', baseUrl).toString(), {
+      headers: { Cookie: authenticatedCookie }
+    })
+    expect(authenticatedPing.statusCode).toBe(200)
+    expect(JSON.parse(authenticatedPing.body)).toEqual({ passwordRequired: false })
+
+    const evictedBootstrap = await httpRequest(new URL('ping', baseUrl).toString(), {
+      headers: { Cookie: bootstrapCookies[0] }
+    })
+    const newestBootstrap = await httpRequest(new URL('ping', baseUrl).toString(), {
+      headers: { Cookie: bootstrapCookies.at(-1)! }
+    })
+    expect(evictedBootstrap.statusCode).toBe(403)
+    expect(newestBootstrap.statusCode).toBe(200)
+    expect(JSON.parse(newestBootstrap.body)).toEqual({ passwordRequired: true })
+  })
+
+  it('rejects new local authenticated sessions at capacity without evicting existing viewers', async () => {
+    ctx = fakeContext()
+    register(ctx)
+    const started = await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, { layoutId: 'race' })
+    const documentUrl = localDocumentUrl(started)
+    const baseUrl = new URL('../', documentUrl)
+    const authenticatedCookies: string[] = []
+
+    for (let index = 0; index < 64; index += 1) {
+      const document = await httpRequest(documentUrl)
+      expect(document.statusCode).toBe(200)
+      authenticatedCookies.push(sessionCookie(document))
+    }
+    const overCapacity = await httpRequest(documentUrl)
+    expect(overCapacity.statusCode).toBe(503)
+
+    const existingViewer = await httpRequest(new URL('ping', baseUrl).toString(), {
+      headers: { Cookie: authenticatedCookies[0] }
+    })
+    expect(existingViewer.statusCode).toBe(200)
+    expect(JSON.parse(existingViewer.body)).toEqual({ passwordRequired: false })
+  })
+
   it('runs a complete packaged graph, target, ping, password, and SSE self-test', async () => {
     ctx = fakeContext()
     register(ctx)
@@ -481,6 +553,28 @@ describe('streaming authenticated server', () => {
     expect(result.url).toBe('https://stream.invalid/public/overlay/obs/race')
     expect(result.message).toMatch(/public HTTPS endpoint/i)
     expect(result.url).not.toContain('token=')
+  })
+})
+
+describe('streaming public endpoint selection', () => {
+  it('exposes no Internet URL after a tunnel stops without a manual HTTPS fallback', () => {
+    const tunnelUrl = 'https://temporary.trycloudflare.com'
+    const stopped = publicBaseUrlAfterTunnelStops(tunnelUrl, tunnelUrl, null)
+
+    expect(stopped).toBeNull()
+    expect(resolveStreamingBaseOrigin('internet', stopped, 3210, '192.168.1.20')).toBeNull()
+    expect(resolveStreamingBaseOrigin('internet', 'http://192.168.1.20:3210', 3210, '192.168.1.20')).toBeNull()
+  })
+
+  it('keeps a manual HTTPS fallback and preserves local/LAN HTTP modes', () => {
+    const tunnelUrl = 'https://temporary.trycloudflare.com'
+    const manualUrl = 'https://stream.example.test/prefix'
+    const stopped = publicBaseUrlAfterTunnelStops(tunnelUrl, tunnelUrl, manualUrl)
+
+    expect(stopped).toBe(manualUrl)
+    expect(resolveStreamingBaseOrigin('internet', stopped, 3210, '192.168.1.20')).toBe(manualUrl)
+    expect(resolveStreamingBaseOrigin('local', null, 3210, null)).toBe('http://127.0.0.1:3210')
+    expect(resolveStreamingBaseOrigin('lan', null, 3210, '192.168.1.20')).toBe('http://192.168.1.20:3210')
   })
 })
 
