@@ -19,7 +19,7 @@ describe('IR_ELECTRONICS_WIDGETS', () => {
 
   it('every widget requires the expected iRacing electronics field', () => {
     const fields = new Set(IR_ELECTRONICS_WIDGETS.flatMap((w) => w.requires))
-    for (const f of ['drs', 'pushToPass', 'pushToPassCount']) {
+    for (const f of ['drsState', 'pushToPass', 'pushToPassCount']) {
       expect(fields.has(f as keyof TelemetrySnapshot)).toBe(true)
     }
   })
@@ -28,6 +28,7 @@ describe('IR_ELECTRONICS_WIDGETS', () => {
     const allOn: TelemetrySnapshot = {
       ...baseSnapshot(),
       drs: true,
+      drsState: 3,
       pushToPass: true,
       pushToPassCount: 8
     }
@@ -42,15 +43,21 @@ describe('IR_ELECTRONICS_WIDGETS', () => {
     }
   })
 
-  it('renders DRS true and false as distinct tell-tale states', () => {
+  it('renders all normalized DRS states and the deactivated hold', () => {
     const drs = IR_ELECTRONICS_WIDGETS.find((widget) => widget.id === 'drs')
     expect(drs).toBeTruthy()
     const size = drs?.defaultSize ?? { w: 320, h: 220 }
-    const active = renderToStaticMarkup(createElement(drs?.render ?? IR_ELECTRONICS_WIDGETS[0].render, { snapshot: { ...baseSnapshot(), drs: true } as TelemetrySnapshot, width: size.w, height: size.h }))
-    const inactive = renderToStaticMarkup(createElement(drs?.render ?? IR_ELECTRONICS_WIDGETS[0].render, { snapshot: { ...baseSnapshot(), drs: false } as TelemetrySnapshot, width: size.w, height: size.h }))
+    const render = (drsState: 0 | 1 | 2 | 3, phase = 'drs-state') =>
+      renderToStaticMarkup(createElement(drs?.render ?? IR_ELECTRONICS_WIDGETS[0].render, {
+        snapshot: { ...baseSnapshot(), drsState } as TelemetrySnapshot,
+        width: size.w,
+        height: size.h,
+        visibility: { visible: true, active: drsState > 0, held: phase === 'drs-deactivated', phase }
+      }))
 
-    expect(active).not.toBe(inactive)
-    expect(active).toContain('DRS')
-    expect(inactive).toContain('DRS')
+    expect(render(1)).toContain('AVAILABLE')
+    expect(render(2)).toContain('ZONE')
+    expect(render(3)).toContain('ACTIVE')
+    expect(render(0, 'drs-deactivated')).toContain('DEACTIVATED')
   })
 })

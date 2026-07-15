@@ -66,6 +66,8 @@ export interface DriverEntry {
   carPath?: string // pasta do carro p/ paints (ex.: 'rt2000')
   carNumberRaw?: number
   isPlayer: boolean
+  /** DriverInfo.Drivers[].CarIsPaceCar from the iRacing session YAML. */
+  isPaceCar?: boolean
   inPits?: boolean
   lap?: number
   completedLaps?: number
@@ -115,6 +117,14 @@ export interface RadarCarEntry {
 // reverse-engineered from per-car radar positions (which, for iRacing, are only
 // a coarse parity-based approximation used to place radar dots).
 export type CarLeftRightState = 'clear' | 'left' | 'right' | 'both'
+
+/** iRacing DRS_Status values used by the overlay state machine. Unknown values stay absent. */
+export type DrsState = 0 | 1 | 2 | 3
+
+export function drsStateFromRaw(raw: unknown): DrsState | undefined {
+  if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0 || raw > 3) return undefined
+  return raw as DrsState
+}
 
 // Maps the raw iRacing CarLeftRight enum into the decided side:
 //   0=Off, 1=Clear(no cars)        → 'clear'
@@ -566,7 +576,10 @@ export interface TelemetrySnapshot {
   rollRateRadSec?: number
   altitudeM?: number
   velocityZ?: number
+  /** Legacy DRS boolean kept for existing dashboards/expressions. */
   drs?: boolean
+  /** Raw iRacing DRS_Status normalized only when it is one of the documented 0..3 states. */
+  drsState?: DrsState
   absActive?: boolean
   absEnabled?: boolean
   absLevel?: number | string

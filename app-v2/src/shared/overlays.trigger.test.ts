@@ -14,6 +14,7 @@ describe('evaluateOverlayTrigger', () => {
 
   it('non-always with no snapshot => hidden', () => {
     expect(evaluateOverlayTrigger({ kind: 'pitLimiter' }, null)).toBe(false)
+    expect(evaluateOverlayTrigger({ kind: 'never' }, snap())).toBe(false)
   })
 
   it('car left/right respects the decided side', () => {
@@ -52,7 +53,7 @@ describe('evaluateOverlayTrigger', () => {
       ...snap({}),
       flags: { green: true, yellow: false, blue: false, white: false, checkered: false, red: false, black: false, meatball: false, repair: false, disqualify: false, greenWhiteCheckered: false }
     } as TelemetrySnapshot
-    expect(evaluateOverlayTrigger({ kind: 'flag' }, greenOnly)).toBe(false)
+    expect(evaluateOverlayTrigger({ kind: 'flag' }, greenOnly)).toBe(true)
   })
 
   it('lowFuel uses laps-to-empty = fuel / perLap', () => {
@@ -67,6 +68,9 @@ describe('evaluateOverlayTrigger', () => {
 describe('sanitizeOverlayTrigger', () => {
   it('accepts a valid trigger and rejects junk', () => {
     expect(sanitizeOverlayTrigger({ kind: 'proximity', thresholdSec: 0.6 })).toEqual({ kind: 'proximity', thresholdSec: 0.6 })
+    expect(sanitizeOverlayTrigger({ kind: 'semantic', semantic: 'drs' })).toEqual({ kind: 'semantic', semantic: 'drs' })
+    expect(sanitizeOverlayTrigger({ kind: 'never' })).toEqual({ kind: 'never' })
+    expect(sanitizeOverlayTrigger({ kind: 'semantic', semantic: 'unknown' })).toBeNull()
     expect(sanitizeOverlayTrigger({ kind: 'nope' })).toBeNull()
     expect(sanitizeOverlayTrigger(null)).toBeNull()
     expect(sanitizeOverlayTrigger('x')).toBeNull()

@@ -15,7 +15,7 @@ describe('iRacing telemetry provider parsing', () => {
       DriverInfo: {
         DriverCarIdx: 1,
         Drivers: [
-          { CarIdx: 0, UserName: 'Ahead Driver', CarNumber: '12', CarClassID: 7, CarClassShortName: 'GT3', CarClassColor: '49c5b1', IRating: 3200, LicString: 'A 4.99', UserID: 100 },
+          { CarIdx: 0, UserName: 'Ahead Driver', CarNumber: '12', CarClassID: 7, CarClassShortName: 'GT3', CarClassColor: '49c5b1', IRating: 3200, LicString: 'A 4.99', UserID: 100, CarIsPaceCar: 1 },
           { CarIdx: 1, UserName: 'Player Driver', CarNumber: '7', CarClassID: 7, CarClassShortName: 'GT3', CarClassColor: '49c5b1', IRating: 3000, LicString: 'A 4.50', UserID: 101 },
           { CarIdx: 2, UserName: 'Behind Driver', CarNumber: '3', CarClassID: 7, CarClassShortName: 'GT3', CarClassColor: '49c5b1', IRating: 2800, LicString: 'B 3.80', UserID: 102 }
         ]
@@ -52,7 +52,7 @@ describe('iRacing telemetry provider parsing', () => {
       CarIdxPaceRow: [1, 2, 3]
     }, statics)
 
-    expect(drivers?.[0]).toMatchObject({ name: 'Ahead Driver', position: 1, classPosition: 1, gapToPlayerSec: 2, relativeTimeSec: 2, completedLaps: 9, estimatedTimeSec: 84, gear: 5, rpm: 7100, trackLocation: 3, trackSurfaceMaterial: 1, bestLapTimeSec: 89.8, bestLapNum: 7, pushToPassActive: false, pushToPassCount: 3, paceLine: 0, paceRow: 1, isPlayer: false })
+    expect(drivers?.[0]).toMatchObject({ name: 'Ahead Driver', position: 1, classPosition: 1, gapToPlayerSec: 2, relativeTimeSec: 2, completedLaps: 9, estimatedTimeSec: 84, gear: 5, rpm: 7100, trackLocation: 3, trackSurfaceMaterial: 1, bestLapTimeSec: 89.8, bestLapNum: 7, pushToPassActive: false, pushToPassCount: 3, paceLine: 0, paceRow: 1, isPlayer: false, isPaceCar: true })
     expect(drivers?.[1]).toMatchObject({ name: 'Player Driver', position: 2, classPosition: 2, gapToPlayerSec: 0, relativeTimeSec: 0, pushToPassActive: true, paceFlags: ['freePass'], isPlayer: true })
     expect(drivers?.[2]).toMatchObject({ name: 'Behind Driver', position: 3, classPosition: 3, gapToPlayerSec: -2, relativeTimeSec: -2, inPits: true, paceFlags: ['endOfLine'] })
   })
@@ -333,6 +333,24 @@ function pollSustained(
 }
 
 describe('iRacing new-channel snapshot mapping (poll)', () => {
+  it.each([
+    [0, 0, false],
+    [1, 1, false],
+    [2, 2, true],
+    [3, 3, true],
+    [7, undefined, true]
+  ] as const)('normalizes DRS_Status=%s without changing the legacy boolean', (raw, state, legacy) => {
+    const snap = pollWith({ Speed: 50, RPM: 7000, Gear: 3, DRS_Status: raw })
+    expect(snap?.drsState).toBe(state)
+    expect(snap?.drs).toBe(legacy)
+  })
+
+  it('preserves the legacy DRS_Active fallback when DRS_Status is absent', () => {
+    const snap = pollWith({ Speed: 50, RPM: 7000, Gear: 3, DRS_Active: true })
+    expect(snap?.drsState).toBeUndefined()
+    expect(snap?.drs).toBe(true)
+  })
+
   it('maps every new field from its verified irSDK var', () => {
     const snap = pollWith({
       Speed: 50, RPM: 7000, Gear: 3,

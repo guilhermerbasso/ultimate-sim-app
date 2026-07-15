@@ -1,6 +1,12 @@
 import type { HifiWidgetModule } from '../types'
 import { unitTagFor } from '../../../../../shared/tags'
 import {
+  RELEASE_A_CATALOG_ORDER,
+  RELEASE_A_RELEASED_AT,
+  RELEASE_A_TAG
+} from '../../../../../shared/catalog-order'
+import { overlayTriggerTags } from '../../../../../shared/overlays'
+import {
   createCompetitionRenderer,
   createDduRenderer,
   createFuturisticRenderer,
@@ -87,10 +93,17 @@ export const TELEMETRY_VARIANT_WIDGETS: HifiWidgetModule[] =
         ...(variant === 'ddu' ? ['ddu-inspired'] : []),
         ...ARCHETYPE_TAGS[descriptor.archetype],
         unitTagFor(descriptor.unit) ?? '',
-        ...(descriptor.tags ?? [])
+        ...(descriptor.tags ?? []),
+        ...overlayTriggerTags(descriptor.visibility?.trigger),
+        ...(descriptor.visibility ? [RELEASE_A_TAG] : [])
       ]),
       requires: [...descriptor.requires],
       defaultSize: defaultSizeFor(descriptor, variant),
+      role: descriptor.visibility?.role,
+      defaultTrigger: descriptor.visibility?.trigger,
+      preview: descriptor.visibility?.preview,
+      catalogOrder: descriptor.visibility ? RELEASE_A_CATALOG_ORDER : undefined,
+      releasedAt: descriptor.visibility ? RELEASE_A_RELEASED_AT : undefined,
       render: rendererFor(descriptor, variant)
     }))
   )

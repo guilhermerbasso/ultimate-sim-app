@@ -29,6 +29,7 @@ import {
   type CoverageSimId
 } from '../../../../shared/sim-coverage'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
+import { compareCatalogEntries } from '../../../../shared/catalog-order'
 import { HIFI_WIDGETS, hifiWidgetTags } from '../../hifi/widgets/registry'
 // v2.40 extra widget variants (separate files; they import nx from ./widget-nx so
 // there is NO import cycle back into this module). Added as a WIDGET_CATALOG category.
@@ -88,6 +89,9 @@ export interface WidgetVariant {
   advanced?: boolean
   /** Campos de telemetria ainda not fornecidos por todos os provedores. */
   missing?: string
+  catalogOrder?: number
+  releasedAt?: string
+  priority?: number
 }
 
 export interface WidgetCategory {
@@ -695,6 +699,9 @@ function toHifiCatalogVariant(module: (typeof HIFI_WIDGETS)[number]): WidgetVari
     styleFamily: hifiStyleFamily(module),
     cluster: hifiCluster(module),
     tags: ['hifi', 'overlay', module.category, ...hifiWidgetTags(module)],
+    catalogOrder: module.catalogOrder,
+    releasedAt: module.releasedAt,
+    priority: module.priority,
     style: gt3({
       background: generatedVariant ? 'transparent' : '#000000',
       border: generatedVariant ? 'transparent' : '#1F1F1F',
@@ -1003,7 +1010,10 @@ export function normalizeVariant(v: WidgetVariant): NormalizedVariant {
 
 // Flattened, fully-categorised catalog — the single source the gallery filters
 // and the tests assert against.
-export const ALL_VARIANTS: NormalizedVariant[] = WIDGET_CATALOG.flatMap((c) => c.variants).map(normalizeVariant)
+export const ALL_VARIANTS: NormalizedVariant[] = WIDGET_CATALOG
+  .flatMap((category) => category.variants)
+  .map(normalizeVariant)
+  .sort(compareCatalogEntries)
 
 export function variantToElement(v: WidgetVariant, x: number, y: number): DashboardElement {
   return {

@@ -67,7 +67,8 @@ export const STYLE_TAGS = [
 ] as const
 
 export const TYPE_TAGS = [
-  'overlay', 'widget', 'dashboard', 'touch', 'hifi', 'telemetry', 'telemetry-framework'
+  'overlay', 'widget', 'dashboard', 'touch', 'hifi', 'telemetry', 'telemetry-framework',
+  'trigger-only', 'trigger-edge', 'trigger-hold', 'release-a'
 ] as const
 
 export const UNIT_TAGS = [

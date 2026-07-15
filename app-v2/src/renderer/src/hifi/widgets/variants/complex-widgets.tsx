@@ -1,6 +1,12 @@
 import type { HifiWidgetModule } from '../types'
 import { unitTagFor } from '../../../../../shared/tags'
 import {
+  RELEASE_A_CATALOG_ORDER,
+  RELEASE_A_RELEASED_AT,
+  RELEASE_A_TAG
+} from '../../../../../shared/catalog-order'
+import { overlayTriggerTags } from '../../../../../shared/overlays'
+import {
   createCompetitionRenderer,
   createDduRenderer,
   createFuturisticRenderer,
@@ -50,7 +56,7 @@ function scalarRenderer(
 }
 
 function commonTags(
-  descriptor: Pick<TelemetryDescriptor, 'id' | 'category' | 'focus' | 'tags'>,
+  descriptor: Pick<TelemetryDescriptor, 'id' | 'category' | 'focus' | 'tags' | 'visibility'>,
   variant: TelemetryVariant,
   archetypeTags: readonly string[],
   unit?: string
@@ -70,7 +76,9 @@ function commonTags(
     ...(variant === 'ddu' ? ['ddu-inspired'] : []),
     ...archetypeTags,
     unitTagFor(unit) ?? '',
-    ...(descriptor.tags ?? [])
+    ...(descriptor.tags ?? []),
+    ...overlayTriggerTags(descriptor.visibility?.trigger),
+    ...(descriptor.visibility ? [RELEASE_A_TAG] : [])
   ])
 }
 
@@ -89,6 +97,11 @@ export const SNAPSHOT_GAP_WIDGETS: HifiWidgetModule[] = SNAPSHOT_GAP_DESCRIPTORS
       ),
       requires: [...descriptor.requires],
       defaultSize: defaultSizeFor(descriptor, variant),
+      role: descriptor.visibility?.role,
+      defaultTrigger: descriptor.visibility?.trigger,
+      preview: descriptor.visibility?.preview,
+      catalogOrder: descriptor.visibility ? RELEASE_A_CATALOG_ORDER : undefined,
+      releasedAt: descriptor.visibility ? RELEASE_A_RELEASED_AT : undefined,
       render: scalarRenderer(descriptor, variant)
     }))
 )
@@ -109,6 +122,11 @@ function complexWidget(
     ),
     requires: [...descriptor.requires],
     defaultSize: complexDefaultSizeFor(descriptor, variant),
+    role: descriptor.visibility?.role,
+    defaultTrigger: descriptor.visibility?.trigger,
+    preview: descriptor.visibility?.preview,
+    catalogOrder: descriptor.visibility ? RELEASE_A_CATALOG_ORDER : undefined,
+    releasedAt: descriptor.visibility ? RELEASE_A_RELEASED_AT : undefined,
     render: createComplexRenderer(descriptor, variant)
   }
 }

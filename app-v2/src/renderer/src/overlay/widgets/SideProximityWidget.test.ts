@@ -104,9 +104,9 @@ describe('SideProximityWidget', () => {
     }
   })
 
-  it('is registered per-yes with requires=[carLeftRightCount] (iRacing-tagged)', () => {
+  it('is registered with the authoritative side plus the optional car count', () => {
     const def = OVERLAY_WIDGETS.find((w) => w.id === 'sideProximity')
     expect(def, 'sideProximity not registered in OVERLAY_WIDGETS').toBeTruthy()
-    expect(def?.requires).toEqual(['carLeftRightCount'])
+    expect(def?.requires).toEqual(['carLeftRight', 'carLeftRightCount'])
   })
 })
