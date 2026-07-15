@@ -1,0 +1,110 @@
+edition = "2023";
+
+package ultimate.sim.raceops.v1;
+
+import "ultimate/sim/raceops/v1/provenance.proto";
+
+enum RaceOpsEventClass {
+  RACE_OPS_EVENT_CLASS_UNSPECIFIED = 0;
+  RACE_OPS_EVENT_CLASS_FACT = 1;
+  RACE_OPS_EVENT_CLASS_INFERENCE = 2;
+  RACE_OPS_EVENT_CLASS_RECOMMENDATION = 3;
+  RACE_OPS_EVENT_CLASS_DECISION = 4;
+  RACE_OPS_EVENT_CLASS_ACTION = 5;
+  RACE_OPS_EVENT_CLASS_OUTCOME = 6;
+  RACE_OPS_EVENT_CLASS_DISCLOSURE = 7;
+}
+
+enum RaceOpsSeverity {
+  RACE_OPS_SEVERITY_UNSPECIFIED = 0;
+  RACE_OPS_SEVERITY_INFO = 1;
+  RACE_OPS_SEVERITY_NOTICE = 2;
+  RACE_OPS_SEVERITY_WARNING = 3;
+  RACE_OPS_SEVERITY_CRITICAL = 4;
+}
+
+enum RaceOpsPriority {
+  RACE_OPS_PRIORITY_UNSPECIFIED = 0;
+  RACE_OPS_PRIORITY_BACKGROUND = 1;
+  RACE_OPS_PRIORITY_NORMAL = 2;
+  RACE_OPS_PRIORITY_HIGH = 3;
+  RACE_OPS_PRIORITY_IMMEDIATE = 4;
+}
+
+enum TelemetryContext {
+  TELEMETRY_CONTEXT_UNSPECIFIED = 0;
+  TELEMETRY_CONTEXT_LIVE = 1;
+  TELEMETRY_CONTEXT_REPLAY = 2;
+  TELEMETRY_CONTEXT_UNKNOWN = 3;
+}
+
+enum IntegrityFlag {
+  INTEGRITY_FLAG_UNSPECIFIED = 0;
+  INTEGRITY_FLAG_STALE = 1;
+  INTEGRITY_FLAG_GAP = 2;
+  INTEGRITY_FLAG_DERIVED = 3;
+  INTEGRITY_FLAG_REDACTED = 4;
+  INTEGRITY_FLAG_EXTERNALLY_ATTESTED = 5;
+}
+
+message ObservedInterval {
+  uint64 source_tick_start = 1;
+  uint64 source_tick_end = 2;
+  uint64 monotonic_ns_start = 3;
+  uint64 monotonic_ns_end = 4;
+  sint64 sim_time_ms_start = 5;
+  sint64 sim_time_ms_end = 6;
+}
+
+message Confidence {
+  double value = 1;
+  string method = 2;
+  bool abstained = 3;
+}
+
+message CanonicalFact {
+  string name = 1;
+  string canonical_unit = 2;
+
+  oneof value {
+    double double_value = 3;
+    sint64 signed_value = 4;
+    uint64 unsigned_value = 5;
+    bool bool_value = 6;
+    string string_value = 7;
+    bytes bytes_value = 8;
+  }
+
+  ProvenanceReference provenance = 9;
+}
+
+message RaceOpsEvent {
+  string event_id = 1;
+  RaceOpsEventClass event_class = 2;
+  string event_type = 3;
+  string session_ref = 4;
+  string actor_ref = 5;
+  string subject_ref = 6;
+  ObservedInterval observed_interval = 7;
+  repeated CanonicalFact facts = 8;
+  Confidence confidence = 9;
+  RaceOpsSeverity severity = 10;
+  RaceOpsPriority priority = 11;
+  repeated string evidence_refs = 12;
+  string policy_ref = 13;
+  string capability_ref = 14;
+  uint64 consent_epoch = 15;
+  string approval_ref = 16;
+  string correlation_id = 17;
+  string dedupe_key = 18;
+  PrivacyClass privacy_class = 19;
+  repeated IntegrityFlag integrity_flags = 20;
+  string supersedes_event_id = 21;
+  uint64 sequence = 22;
+  string partition_key = 23;
+  uint64 partition_seq = 24;
+  TelemetryContext telemetry_context = 25;
+  uint64 source_tick = 26;
+  uint64 observed_monotonic_ns = 27;
+  uint64 ttl_ms = 28;
+}

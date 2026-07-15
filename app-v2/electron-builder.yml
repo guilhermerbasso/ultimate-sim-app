@@ -103,7 +103,12 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-  perMachine: false
+  # Assisted installs previously allowed a per-machine Program Files choice while
+  # update metadata still reported no admin requirement. Always use the
+  # per-machine mode so electron-updater launches NSIS through elevate.exe.
+  perMachine: true
+  allowElevation: true
+  packElevateHelper: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
   shortcutName: "Ultimate Sim App"
