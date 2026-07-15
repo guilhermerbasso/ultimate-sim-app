@@ -8,7 +8,7 @@
 
 Independent community project maintained by Guilherme Basso · Electron + React + TypeScript · Apache-2.0
 
-Latest published release: **Ultimate Sim App 2.50.0** · [Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
+Latest published release: **Ultimate Sim App 2.52.0** · [Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
 
 Development builds use the version in [`app-v2/package.json`](app-v2/package.json) and may be ahead of the latest published release.
 
@@ -27,14 +27,17 @@ Ultimate Sim App combines live race telemetry, dashboard composition, transparen
 ## What's new
 
 <!-- WHATS_NEW:START -->
-### 2.52.0 (draft) — semantic controls, expression destinations, secure streaming, and language-correct speech
 
-- **Touch Controls schema v2** adds momentary, latching toggle, rocker, guarded two-step, rotary, selector, status LED, and value-tile controls with expression-driven states and accessible interaction.
-- **Expression Studio destinations** can place custom expressions or mapped iRacing variables on a selected dashboard or custom overlay with value, bar, gauge, or status presentations.
-- **Streaming hardening** adds prefix-safe resource discovery, HttpOnly viewer sessions, authentication throttling, capacity isolation, explicit HTTPS requirements for Internet mode, and fail-closed browser controls.
-- **Trigger-only race overlays** now use temporal rising/falling edges, pulses, TTL windows, preview isolation, and replay/session reset boundaries; normal steady green no longer activates race-control alerts.
-- **Speech language synchronization** keeps Spotter, Coach, Engineer, voice previews, and Stint Debrief text aligned with the selected voice/language and cancels stale speech when language changes.
-- **Visual and catalog reliability** fixes 19 release-blocking widget layouts, preserves expression output recency, and keeps newly released overlays, widgets, and dashboards ahead of older catalog entries.
+### 2.52.0 — semantic controls, expression destinations & secure streaming
+
+- **Touch Controls schema v2** — momentary, latching toggle, rocker, guarded two-step, rotary, selector, status LED, and value-tile controls with expression-driven states, accessibility, multi-touch ownership, and deterministic key release.
+- **Expression visualization destinations** — place a custom expression or mapped iRacing variable on a selected dashboard or custom overlay as a value, bar, gauge, or status.
+- **Secure streaming sessions** — HttpOnly viewers, authentication throttling, prefix-safe resource discovery, capacity isolation, HTTPS-only Internet exposure, and fail-closed browser controls.
+- **Temporal trigger-only overlays** — pace-car, pits-open, DRS, pit service, repairs, precipitation/wetness/fog, proximity, incidents, race-control flags, pit limiter, low fuel, and other alerts appear only while relevant or for their configured pulse/TTL.
+- **Language-correct speech** — Spotter, Coach, Engineer, previews, and Stint Debrief keep spoken copy synchronized with the selected language and cancel stale audio on language changes.
+- **Visual reliability** — 19 release-blocking widget targets were corrected across validated telemetry states, and steady green no longer triggers a race-control warning.
+
+See the [v2.52.0 release notes](https://github.com/guilhermerbasso/ultimate-sim-app/releases/tag/v2.52.0) for the full list.
 
 ### 2.50.0 — Intent- & racecraft-aware AI Coach
 
