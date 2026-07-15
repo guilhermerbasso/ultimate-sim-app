@@ -1,8 +1,8 @@
 # Dashboard differentiation gate
 
 Release B uses deterministic structural fingerprints before screenshot metrics are
-considered. Fingerprints normalize geometry to the canvas, sort elements, and ignore
-dashboard/element IDs, names, timestamps, and source array order.
+considered. Fingerprints normalize geometry to the canvas and ignore dashboard/element
+IDs, names, timestamps, and source reorderings that do not change effective paint order.
 
 ## Structural gate
 
@@ -18,11 +18,17 @@ A candidate pair fails when any condition is true:
 1. canonical fingerprints are exactly equal;
 2. weighted similarity is `>= 0.75`;
 3. Jaccard is `>= 0.80`, geometry IoU is `>= 0.85`, and same-widget
-   placement is `>= 0.50` together.
+   placement is `>= 0.50` together;
+4. area-weighted, one-to-one same-widget containment is `>= 0.75`.
 
 Individual threshold crossings are emitted as warnings. Existing-baseline findings
 are reported separately and never fail candidate work unless a supplied candidate is
 one side of the rejected pair.
+
+Canonical fingerprints retain effective paint order for overlapping elements: lower
+`zIndex` paints first, and equal-z overlaps retain stable source order. Case-sensitive
+widget and binding identifiers are preserved; only human-facing literal labels are
+case-normalized.
 
 ## Perceptual evidence
 

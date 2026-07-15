@@ -97,6 +97,7 @@ function finding(
       semanticWidgetJaccard: rounded(comparison.metrics.semanticWidgetJaccard),
       geometryIou: rounded(comparison.metrics.geometryIou),
       sameWidgetPlacement: rounded(comparison.metrics.sameWidgetPlacement),
+      areaWeightedContainment: rounded(comparison.metrics.areaWeightedContainment),
       topology: rounded(comparison.metrics.topology),
       overallSimilarity: rounded(comparison.metrics.overallSimilarity)
     },

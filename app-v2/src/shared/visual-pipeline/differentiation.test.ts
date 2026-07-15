@@ -30,6 +30,32 @@ function widget(id: string, moduleId: string, box: Box): DashboardElement {
   }
 }
 
+function textElement(
+  id: string,
+  box: Box,
+  options: { binding?: string; text?: string } = {}
+): DashboardElement {
+  return {
+    id,
+    type: 'text',
+    ...box,
+    binding: options.binding,
+    style: { color: '#ffffff', text: options.text }
+  }
+}
+
+function fullCanvasLayer(id: string, background: string): DashboardElement {
+  return {
+    id,
+    type: 'rect',
+    x: 0,
+    y: 0,
+    w: 1024,
+    h: 600,
+    style: { background }
+  }
+}
+
 function dashboard(id: string, elements: DashboardElement[]): Dashboard {
   return {
     id,
@@ -113,6 +139,23 @@ describe('dashboard structural differentiation', () => {
     expect(secondFingerprint.hash).toBe(firstFingerprint.hash)
   })
 
+  it('preserves source paint order for overlapping equal-z elements', () => {
+    const redThenBlue = dashboard('red-blue', [
+      fullCanvasLayer('red', '#ff0000'),
+      fullCanvasLayer('blue', '#0000ff')
+    ])
+    const blueThenRed = dashboard('blue-red', [
+      fullCanvasLayer('blue-copy', '#0000ff'),
+      fullCanvasLayer('red-copy', '#ff0000')
+    ])
+
+    const firstFingerprint = createDashboardFingerprint(redThenBlue)
+    const secondFingerprint = createDashboardFingerprint(blueThenRed)
+    expect(secondFingerprint.canonical).not.toBe(firstFingerprint.canonical)
+    expect(compareDashboardStructures(redThenBlue, blueThenRed).metrics.exactCanonicalEquality)
+      .toBe(false)
+  })
+
   it('hard-fails a near duplicate at the inclusive placement threshold', () => {
     const original = dashboard('original', [
       widget('a', 'speed', BOXES.topLeft),
@@ -136,6 +179,49 @@ describe('dashboard structural differentiation', () => {
     expect(comparison.decision.hardFail).toBe(true)
     expect(comparison.decision.reasons.map((reason) => reason.code))
       .toContain('conjunctive-structural-thresholds')
+  })
+
+  it('rejects a copied four-widget core diluted with four valid 1x1 text elements', () => {
+    const original = dashboard('original', [
+      widget('a', 'speed', BOXES.topLeft),
+      widget('b', 'gear', BOXES.topRight),
+      widget('c', 'delta', BOXES.bottomLeft),
+      widget('d', 'fuel', BOXES.bottomRight)
+    ])
+    const dilutedCopy = dashboard('diluted-copy', [
+      widget('copy-a', 'speed', BOXES.topLeft),
+      widget('copy-b', 'gear', BOXES.topRight),
+      widget('copy-c', 'delta', BOXES.bottomLeft),
+      widget('copy-d', 'fuel', BOXES.bottomRight),
+      textElement('tiny-1', { x: 500, y: 290, w: 1, h: 1 }, { text: 'noise-a' }),
+      textElement('tiny-2', { x: 502, y: 290, w: 1, h: 1 }, { text: 'noise-b' }),
+      textElement('tiny-3', { x: 504, y: 290, w: 1, h: 1 }, { text: 'noise-c' }),
+      textElement('tiny-4', { x: 506, y: 290, w: 1, h: 1 }, { text: 'noise-d' })
+    ])
+
+    const comparison = compareDashboardStructures(original, dilutedCopy)
+    expect(comparison.metrics.overallSimilarity)
+      .toBeLessThan(STRUCTURAL_SIMILARITY_THRESHOLDS.overallReject)
+    expect(comparison.metrics.areaWeightedContainment)
+      .toBeGreaterThanOrEqual(STRUCTURAL_SIMILARITY_THRESHOLDS.areaWeightedContainment)
+    expect(comparison.decision.hardFail).toBe(true)
+    expect(comparison.decision.reasons.map((reason) => reason.code))
+      .toContain('area-weighted-containment')
+  })
+
+  it('preserves case-sensitive binding identifiers', () => {
+    const upperCaseBinding = dashboard('upper', [
+      textElement('upper-binding', BOXES.topLeft, { binding: 'var:Fuel' })
+    ])
+    const lowerCaseBinding = dashboard('lower', [
+      textElement('lower-binding', BOXES.topLeft, { binding: 'var:fuel' })
+    ])
+
+    const comparison = compareDashboardStructures(upperCaseBinding, lowerCaseBinding)
+    expect(comparison.metrics.semanticWidgetJaccard).toBe(0)
+    expect(comparison.metrics.sameWidgetPlacement).toBe(0)
+    expect(comparison.metrics.areaWeightedContainment).toBe(0)
+    expect(comparison.metrics.exactCanonicalEquality).toBe(false)
   })
 
   it('allows a genuinely different widget set and topology', () => {
@@ -165,6 +251,7 @@ describe('dashboard structural differentiation', () => {
       semanticWidgetJaccard: 0.79,
       geometryIou: 0.84,
       sameWidgetPlacement: 0.49,
+      areaWeightedContainment: 0.74,
       topology: 0.4,
       overallSimilarity: STRUCTURAL_SIMILARITY_THRESHOLDS.overallReject
     })

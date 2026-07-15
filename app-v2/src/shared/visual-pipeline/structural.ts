@@ -1,7 +1,6 @@
 import type {
   Dashboard,
   DashboardElement,
-  DashboardElementStyle,
   DashboardElementType
 } from '../dashboards'
 
@@ -12,7 +11,8 @@ export const STRUCTURAL_SIMILARITY_THRESHOLDS = {
   overallReject: 0.75,
   semanticWidgetJaccard: 0.8,
   geometryIou: 0.85,
-  sameWidgetPlacement: 0.5
+  sameWidgetPlacement: 0.5,
+  areaWeightedContainment: 0.75
 } as const
 
 export const STRUCTURAL_SIMILARITY_WEIGHTS = {
@@ -55,6 +55,7 @@ export interface StructuralSimilarityMetrics {
   semanticWidgetJaccard: number
   geometryIou: number
   sameWidgetPlacement: number
+  areaWeightedContainment: number
   topology: number
   overallSimilarity: number
 }
@@ -63,6 +64,7 @@ export type StructuralWarningCode =
   | 'semantic-widget-jaccard'
   | 'geometry-iou'
   | 'same-widget-placement'
+  | 'area-weighted-containment'
 
 export interface StructuralWarning {
   code: StructuralWarningCode
@@ -75,6 +77,7 @@ export type StructuralRejectionCode =
   | 'exact-canonical-equality'
   | 'overall-similarity'
   | 'conjunctive-structural-thresholds'
+  | 'area-weighted-containment'
 
 export interface StructuralRejectionReason {
   code: StructuralRejectionCode
@@ -116,20 +119,25 @@ function clampSimilarity(value: number): number {
   return Math.max(0, Math.min(1, value))
 }
 
-function normalizedText(value: string | undefined): string | undefined {
+function normalizedIdentifier(value: string | undefined): string | undefined {
+  const normalized = value?.trim()
+  return normalized ? normalized : undefined
+}
+
+function normalizedHumanText(value: string | undefined): string | undefined {
   const normalized = value?.trim().replace(/\s+/g, ' ').toLowerCase()
   return normalized ? normalized : undefined
 }
 
 function semanticArray(values: readonly string[] | undefined): string[] {
   if (!values) return []
-  return [...new Set(values.map(normalizedText).filter((value): value is string => Boolean(value)))].sort()
+  return [...new Set(values.map(normalizedIdentifier).filter((value): value is string => Boolean(value)))].sort()
 }
 
 export function semanticWidgetKey(element: DashboardElement): string {
   const style = element.style
-  const widgetId = normalizedText(element.widgetId)
-  const hifiModuleId = normalizedText(element.hifiModuleId) ??
+  const widgetId = normalizedIdentifier(element.widgetId)
+  const hifiModuleId = normalizedIdentifier(element.hifiModuleId) ??
     (widgetId?.startsWith('hifi:') ? widgetId.slice('hifi:'.length) : undefined)
 
   if (hifiModuleId) return `${element.type}|hifi:${hifiModuleId}`
@@ -156,7 +164,7 @@ export function semanticWidgetKey(element: DashboardElement): string {
     ...semanticArray(style.fields)
   ].filter((value): value is string => typeof value === 'string'))
   const literal = bindings.length === 0
-    ? normalizedText(style.text ?? style.label ?? style.title)
+    ? normalizedHumanText(style.text ?? style.label ?? style.title)
     : undefined
 
   return JSON.stringify([
@@ -315,6 +323,80 @@ export function sameWidgetPlacementSimilarity(
   ))
 }
 
+function rectangleArea(rect: NormalizedRectangle): number {
+  return rect.width * rect.height
+}
+
+function normalizedElementKey(element: NormalizedDashboardElement): string {
+  return JSON.stringify([
+    element.semanticKey,
+    element.rect.x,
+    element.rect.y,
+    element.rect.width,
+    element.rect.height
+  ])
+}
+
+export function areaWeightedContainmentSimilarity(
+  left: readonly NormalizedDashboardElement[],
+  right: readonly NormalizedDashboardElement[]
+): number {
+  if (left.length === 0 && right.length === 0) return 1
+  if (left.length === 0 || right.length === 0) return 0
+
+  const totalLeftArea = left.reduce((total, element) => total + rectangleArea(element.rect), 0)
+  const totalRightArea = right.reduce((total, element) => total + rectangleArea(element.rect), 0)
+  if (totalLeftArea <= 0 || totalRightArea <= 0) return 0
+
+  const candidates: {
+    leftIndex: number
+    rightIndex: number
+    iou: number
+    score: number
+    tieKey: string
+  }[] = []
+  for (let leftIndex = 0; leftIndex < left.length; leftIndex += 1) {
+    for (let rightIndex = 0; rightIndex < right.length; rightIndex += 1) {
+      const leftElement = left[leftIndex]
+      const rightElement = right[rightIndex]
+      if (leftElement.semanticKey !== rightElement.semanticKey) continue
+      const iou = rectangleIou(leftElement.rect, rightElement.rect)
+      if (iou <= 0) continue
+      const leftWeight = rectangleArea(leftElement.rect) / totalLeftArea
+      const rightWeight = rectangleArea(rightElement.rect) / totalRightArea
+      const pairKeys = [normalizedElementKey(leftElement), normalizedElementKey(rightElement)].sort()
+      candidates.push({
+        leftIndex,
+        rightIndex,
+        iou,
+        score: iou * (leftWeight + rightWeight),
+        tieKey: JSON.stringify(pairKeys)
+      })
+    }
+  }
+  candidates.sort((leftCandidate, rightCandidate) =>
+    rightCandidate.score - leftCandidate.score ||
+    rightCandidate.iou - leftCandidate.iou ||
+    leftCandidate.tieKey.localeCompare(rightCandidate.tieKey)
+  )
+
+  const matchedLeft = new Set<number>()
+  const matchedRight = new Set<number>()
+  let coveredLeftArea = 0
+  let coveredRightArea = 0
+  for (const candidate of candidates) {
+    if (matchedLeft.has(candidate.leftIndex) || matchedRight.has(candidate.rightIndex)) continue
+    matchedLeft.add(candidate.leftIndex)
+    matchedRight.add(candidate.rightIndex)
+    coveredLeftArea += rectangleArea(left[candidate.leftIndex].rect) * candidate.iou
+    coveredRightArea += rectangleArea(right[candidate.rightIndex].rect) * candidate.iou
+  }
+
+  return roundNormalized(clampSimilarity(
+    (coveredLeftArea / totalLeftArea + coveredRightArea / totalRightArea) / 2
+  ))
+}
+
 function band(value: number, count: number): number {
   return Math.min(count - 1, Math.max(0, Math.floor(value * count)))
 }
@@ -441,8 +523,33 @@ function canonicalElement(
     semanticKey: semanticWidgetKey(element),
     binding: element.binding?.trim() ?? null,
     rect: canonicalizeValue(normalizeRectangle(element, dashboard), 'element.rect') as CanonicalJson,
-    style: canonicalizeValue(element.style satisfies DashboardElementStyle, 'element.style') as CanonicalJson
+    style: canonicalizeValue(element.style, 'element.style') as CanonicalJson
   }
+}
+
+function elementsOverlap(left: DashboardElement, right: DashboardElement): boolean {
+  return Math.min(left.x + left.w, right.x + right.w) > Math.max(left.x, right.x) &&
+    Math.min(left.y + left.h, right.y + right.h) > Math.max(left.y, right.y)
+}
+
+function canonicalPaintOrder(dashboard: Dashboard): CanonicalJson[] {
+  const painted = dashboard.elements
+    .map((element, sourceIndex) => ({
+      element,
+      sourceIndex,
+      zIndex: element.style.zIndex ?? 0,
+      canonical: JSON.stringify(canonicalElement(element, dashboard))
+    }))
+    .filter(({ element }) => element.visible !== false)
+    .sort((left, right) => left.zIndex - right.zIndex || left.sourceIndex - right.sourceIndex)
+  const relations: string[] = []
+  for (let lower = 0; lower < painted.length; lower += 1) {
+    for (let upper = lower + 1; upper < painted.length; upper += 1) {
+      if (!elementsOverlap(painted[lower].element, painted[upper].element)) continue
+      relations.push(JSON.stringify([painted[lower].canonical, painted[upper].canonical]))
+    }
+  }
+  return relations.sort().map((relation) => JSON.parse(relation) as CanonicalJson)
 }
 
 function fingerprintHash(canonical: string): string {
@@ -470,7 +577,8 @@ export function createDashboardFingerprint(dashboard: Dashboard): DashboardFinge
       background: dashboard.bg.trim(),
       scaleMode: dashboard.scaleMode ?? 'fit'
     },
-    elements: canonicalElements
+    elements: canonicalElements,
+    paintOrder: canonicalPaintOrder(dashboard)
   })
 
   return {
@@ -526,6 +634,14 @@ export function decideStructuralSimilarity(
       message: 'Same-widget placement similarity reached the structural warning threshold.'
     })
   }
+  if (metrics.areaWeightedContainment >= STRUCTURAL_SIMILARITY_THRESHOLDS.areaWeightedContainment) {
+    warnings.push({
+      code: 'area-weighted-containment',
+      value: metrics.areaWeightedContainment,
+      threshold: STRUCTURAL_SIMILARITY_THRESHOLDS.areaWeightedContainment,
+      message: 'Area-weighted one-to-one containment reached the structural warning threshold.'
+    })
+  }
 
   const reasons: StructuralRejectionReason[] = []
   if (metrics.exactCanonicalEquality) {
@@ -550,6 +666,12 @@ export function decideStructuralSimilarity(
       message: 'Semantic, geometry, and same-widget placement thresholds were reached together.'
     })
   }
+  if (metrics.areaWeightedContainment >= STRUCTURAL_SIMILARITY_THRESHOLDS.areaWeightedContainment) {
+    reasons.push({
+      code: 'area-weighted-containment',
+      message: 'Bidirectional one-to-one visual-core coverage averages at least 75% by area.'
+    })
+  }
 
   return { hardFail: reasons.length > 0, reasons, warnings }
 }
@@ -562,6 +684,7 @@ export function compareDashboardFingerprints(
     semanticWidgetJaccard: jaccardSimilarity(left.semanticWidgetSet, right.semanticWidgetSet),
     geometryIou: symmetricRectangleIouSimilarity(left.geometry, right.geometry),
     sameWidgetPlacement: sameWidgetPlacementSimilarity(left.geometry, right.geometry),
+    areaWeightedContainment: areaWeightedContainmentSimilarity(left.geometry, right.geometry),
     topology: topologySimilarity(left.topology, right.topology)
   }
   const metrics: StructuralSimilarityMetrics = {
