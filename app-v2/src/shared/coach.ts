@@ -2,6 +2,7 @@ import type { CarLeftRightState, Corners, PaceMode, SessionState, TelemetrySnaps
 import type { DriverIntentRegistry, IntentCategory, IntentId } from './driver-intent'
 import type { CoachBaseline } from './coach-baseline'
 import { applyIntentGate } from './coach-intent-gate'
+import type { SpeechLanguage } from './tts-voice'
 import { formatMeasurement, type UnitSystem } from './units'
 
 export type CoachSeverity = 'high' | 'med' | 'low' | 'good'
@@ -517,7 +518,7 @@ export function coachDimensionForKind(kind: CoachFindingKind): CoachDimension | 
  * `coachActionForFindingKind` (which the single-tip spoken path pins) so each path
  * can evolve independently.
  */
-export function coachComposeAction(kind: CoachFindingKind, language: 'pt-BR' | 'en-US' = 'pt-BR'): string {
+export function coachComposeAction(kind: CoachFindingKind, language: SpeechLanguage = 'pt-BR'): string {
   const pt = language === 'pt-BR'
   switch (kind) {
     case 'brake-late':

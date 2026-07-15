@@ -16,6 +16,7 @@
 
 import { coachComposeAction, type CoachFinding } from './coach'
 import type { PredictionsSnapshot } from './predictions'
+import type { SpeechLanguage } from './tts-voice'
 import { formatMeasurement, type UnitSystem } from './units'
 
 // ─── IPC channels (all under the `debrief:` preload allowlist prefix) ─────────
@@ -37,7 +38,6 @@ export type DebriefChannel = (typeof DEBRIEF_CHANNELS)[keyof typeof DEBRIEF_CHAN
 
 /** Why a debrief was produced. */
 export type DebriefReason = 'stint-end' | 'session-end' | 'manual'
-export type DebriefLanguage = 'pt-BR' | 'en-US'
 
 /** Lightweight session context shown in the debrief header. */
 export interface DebriefSessionInfo {
@@ -73,7 +73,7 @@ export interface StintDebrief extends DebriefComposition {
   generatedAt: number
   /** Whether the `text` was phrased by the LLM or is the deterministic fallback. */
   source: 'deterministic' | 'llm'
-  language: DebriefLanguage
+  language: SpeechLanguage
   reason: DebriefReason
   sessionInfo?: DebriefSessionInfo
 }
@@ -112,7 +112,7 @@ export function formatLapTime(seconds: number | undefined): string {
 }
 
 /** Where a finding happened — prefer the WS-E corner, fall back to the sector. */
-export function findingLocation(finding: CoachFinding, language: DebriefLanguage = 'pt-BR'): string {
+export function findingLocation(finding: CoachFinding, language: SpeechLanguage = 'pt-BR'): string {
   const pt = language === 'pt-BR'
   const corner = (finding as EnrichedFinding).corner
   if (finite(corner) && corner > 0) return `${pt ? 'Curva' : 'Turn'} ${Math.round(corner)}`
@@ -148,18 +148,18 @@ export function lossMagnitudeSec(finding: CoachFinding): number {
   return finite(finding.estTimeLossSec) && finding.estTimeLossSec > 0 ? finding.estTimeLossSec : 0
 }
 
-function headlineFor(finding: CoachFinding, language: DebriefLanguage): string {
+function headlineFor(finding: CoachFinding, language: SpeechLanguage): string {
   return coachComposeAction(finding.kind, language)
 }
 
-function bulletForLoss(finding: CoachFinding, language: DebriefLanguage): string {
+function bulletForLoss(finding: CoachFinding, language: SpeechLanguage): string {
   const loc = findingLocation(finding, language)
   const mag = lossMagnitudeSec(finding)
   const suffix = mag > 0 ? ` (−${num(mag)} s)` : ''
   return `${loc}: ${headlineFor(finding, language)}${suffix}`
 }
 
-function bulletForGain(finding: CoachFinding, language: DebriefLanguage): string {
+function bulletForGain(finding: CoachFinding, language: SpeechLanguage): string {
   const loc = findingLocation(finding, language)
   const mag = gainMagnitudeSec(finding)
   const suffix = mag > 0 ? ` (+${num(mag)} s)` : ''
@@ -171,11 +171,11 @@ const PRESSURE_LABEL_EN: Record<string, string> = { low: 'low', ok: 'ok', high: 
 const TEMP_LABEL_PT: Record<string, string> = { cold: 'fria', optimal: 'ideal', hot: 'quente' }
 const TEMP_LABEL_EN: Record<string, string> = { cold: 'cold', optimal: 'ideal', hot: 'hot' }
 
-/** One short pt-BR strategy line from the predictions, or null when no signal. */
+/** One short localized strategy line from the predictions, or null when no signal. */
 export function strategyNote(
   predictions: PredictionsSnapshot | null | undefined,
   unitSystem: UnitSystem = 'metric',
-  language: DebriefLanguage = 'pt-BR'
+  language: SpeechLanguage = 'pt-BR'
 ): string | null {
   if (!predictions) return null
   const pt = language === 'pt-BR'
@@ -232,7 +232,7 @@ export function strategyNote(
 const MAX_LOSSES = 3
 const MAX_GAINS = 2
 
-function sessionHeader(info: DebriefSessionInfo | undefined, language: DebriefLanguage): string | null {
+function sessionHeader(info: DebriefSessionInfo | undefined, language: SpeechLanguage): string | null {
   if (!info) return null
   const pt = language === 'pt-BR'
   const bits: string[] = []
@@ -261,7 +261,7 @@ export function composeDebrief(
   predictions: PredictionsSnapshot | null | undefined,
   sessionInfo?: DebriefSessionInfo,
   unitSystem: UnitSystem = 'metric',
-  language: DebriefLanguage = 'pt-BR'
+  language: SpeechLanguage = 'pt-BR'
 ): DebriefComposition {
   const pt = language === 'pt-BR'
   const list = Array.isArray(findings) ? findings : []
