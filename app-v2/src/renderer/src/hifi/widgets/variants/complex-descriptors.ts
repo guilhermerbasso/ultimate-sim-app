@@ -4,6 +4,7 @@ import {
   type TelemetrySnapshot,
   type TyreInfo
 } from '../../../../../shared/telemetry'
+import { semanticAlertVisibility } from '../../../../../shared/overlays'
 import type {
   ComplexCornerCell,
   ComplexCornersModel,
@@ -295,8 +296,9 @@ const PER_CAR_TABLES: ComplexTelemetryDescriptor[] = [
     archetype: 'table',
     category: 'standings',
     focus: 'race-control',
-    requires: ['drivers'],
+    requires: ['drivers', 'paceMode'],
     tags: ['standings', 'pace', 'formation', 'table'],
+    visibility: semanticAlertVisibility('paceFormation'),
     read: (snapshot) => {
       const rows = tableRows(snapshot, (driver) => ({
         value:
@@ -501,6 +503,7 @@ const CORNER_DESCRIPTORS: ComplexTelemetryDescriptor[] = [
     focus: 'strategy',
     requires: ['pitTyreTargetsKpa'],
     tags: ['pit', 'tyres', 'pressure', 'corner-grid'],
+    visibility: semanticAlertVisibility('pitTyreTargets'),
     read: (snapshot) =>
       cornersModel(
         'kPa',
@@ -692,8 +695,12 @@ const STATUS_DESCRIPTORS: ComplexTelemetryDescriptor[] = [
     focus: 'race-control',
     requires: ['paceFlags', 'drivers'],
     tags: ['pace', 'flags', 'status'],
+    visibility: semanticAlertVisibility('paceFlags'),
     read: (snapshot) => {
-      const active = (snapshot?.drivers ?? [])
+      const paceCarOut = (snapshot?.drivers ?? []).some(
+        (driver) => driver.isPaceCar === true && driver.inPits === false
+      )
+      const active = (paceCarOut ? snapshot?.drivers ?? [] : [])
         .flatMap((driver) =>
           (driver.paceFlags ?? []).map((flag) => ({
             key: `${driver.carIdx}-${flag}`,
@@ -703,7 +710,7 @@ const STATUS_DESCRIPTORS: ComplexTelemetryDescriptor[] = [
           }))
         )
         .slice(0, 3)
-      const playerFlags = snapshot?.paceFlags ?? []
+      const playerFlags = paceCarOut ? snapshot?.paceFlags ?? [] : []
       const primary = playerFlags[0] ? paceFlagLabel(playerFlags[0]) : active[0]?.label ?? 'PACE CLEAR'
       return statusModel(primary, {
         secondary: playerFlags.length > 1 ? playerFlags.slice(1).map(paceFlagLabel).join(' · ') : undefined,
@@ -723,6 +730,7 @@ const STATUS_DESCRIPTORS: ComplexTelemetryDescriptor[] = [
     focus: 'strategy',
     requires: ['pitStopActive'],
     tags: ['pit', 'status', 'service'],
+    visibility: semanticAlertVisibility('pitStopActive'),
     read: (snapshot) => {
       if (typeof snapshot?.pitStopActive !== 'boolean') return statusModel('—', { available: false })
       return statusModel(snapshot.pitStopActive ? 'PIT SERVICE' : 'STANDBY', {
@@ -738,12 +746,14 @@ const STATUS_DESCRIPTORS: ComplexTelemetryDescriptor[] = [
     archetype: 'status',
     category: 'session',
     focus: 'session',
-    requires: ['replayPlaying'],
+    requires: ['replayPlaying', 'replayContext'],
     tags: ['replay', 'status'],
+    visibility: semanticAlertVisibility('replayState'),
     read: (snapshot) => {
-      if (typeof snapshot?.replayPlaying !== 'boolean') return statusModel('—', { available: false })
-      return statusModel(snapshot.replayPlaying ? 'REPLAY' : 'LIVE', {
-        tone: snapshot.replayPlaying ? 'info' : 'good',
+      const replay = snapshot?.replayContext?.active ?? snapshot?.replayPlaying
+      if (typeof replay !== 'boolean') return statusModel('—', { available: false })
+      return statusModel(replay ? 'REPLAY' : 'LIVE', {
+        tone: replay ? 'info' : 'good',
         active: true
       })
     }

@@ -19,6 +19,7 @@
     "visual:diff": "node scripts/visual-regression.mjs",
     "visual:update": "node scripts/visual-regression.mjs --update",
     "visual:capture": "node scripts/capture-widgets.mjs",
+    "visual:release-a-triggers": "node scripts/capture-release-a-triggers.mjs",
     "visual:widgets": "node visual-audit/lint-overflow.mjs",
     "visual:contact": "node visual-audit/contact-sheet.mjs",
     "visual:dash": "node visual-audit/shoot-dashboards.mjs",

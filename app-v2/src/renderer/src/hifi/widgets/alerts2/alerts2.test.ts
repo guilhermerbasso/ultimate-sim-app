@@ -63,12 +63,17 @@ describe('ALERTS2_WIDGETS', () => {
     expect(byId.get('alert2BrakePressureLow')).toEqual(['brake', 'brakeLinePressBar'])
   })
 
-  it('uses existing overlay trigger kinds only', () => {
-    const byId = new Map(ALERTS2_WIDGETS.map((w) => [w.id, w.defaultTrigger?.kind]))
-    expect(byId.get('alert2BlueFlag')).toBe('flag')
-    for (const widget of ALERTS2_WIDGETS.filter((w) => w.id !== 'alert2BlueFlag')) {
-      expect(widget.defaultTrigger?.kind).toBe('always')
-    }
+  it('uses a dedicated non-always semantic trigger for every alert', () => {
+    const byId = new Map(ALERTS2_WIDGETS.map((widget) => [widget.id, widget.defaultTrigger]))
+    for (const widget of ALERTS2_WIDGETS) expect(widget.defaultTrigger?.kind).toBe('semantic')
+    expect(byId.get('alert2EngineWarning')?.semantic).toBe('alert2EngineWarning')
+    expect(byId.get('alert2WaterTempCritical')?.semantic).toBe('alert2WaterTempCritical')
+    expect(byId.get('alert2OilTempCritical')?.semantic).toBe('alert2OilTempCritical')
+    expect(byId.get('alert2OilPressureLow')?.semantic).toBe('alert2OilPressureLow')
+    expect(byId.get('alert2BadSurface')?.semantic).toBe('alert2BadSurface')
+    expect(byId.get('alert2BlueFlag')?.semantic).toBe('alert2BlueFlag')
+    expect(byId.get('alert2TyreTempCritical')?.semantic).toBe('alert2TyreTempCritical')
+    expect(byId.get('alert2BrakePressureLow')?.semantic).toBe('alert2BrakePressureLow')
   })
 
   it('renders base, null, data, and extreme invalid snapshots without unsafe tokens', () => {

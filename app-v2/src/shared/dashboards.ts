@@ -55,6 +55,11 @@ import {
 // a compile-time (erased) reference with no runtime import cycle, even though
 // overlays.ts imports the DashboardElement type from this module.
 import type { OverlayWidgetId } from './overlays'
+import {
+  RELEASE_A_CATALOG_ORDER,
+  RELEASE_A_RELEASED_AT,
+  RELEASE_A_TAG
+} from './catalog-order'
 
 export const DASHBOARD_ELEMENT_TYPES = [
   'text', 'rect', 'bar', 'barv', 'dualbar', 'deltabar', 'gauge', 'shiftlights',
@@ -522,6 +527,8 @@ export interface DashboardPreset {
   tags?: string[]
   /** Lower values appear earlier in the preset gallery. Missing values use 1000. */
   priority?: number
+  catalogOrder?: number
+  releasedAt?: string
 }
 
 export interface DashboardSummary extends DashboardStorageMetadata {
@@ -533,6 +540,7 @@ export interface DashboardSummary extends DashboardStorageMetadata {
   hasPreview: boolean
   description?: string
   author?: string
+  createdAt?: number
   updatedAt?: number
   hidden?: boolean
 }
@@ -3528,8 +3536,25 @@ function withDefaultPresetPriority(presets: DashboardPreset[]): DashboardPreset[
   }))
 }
 
+function withPresetReleaseCohort(
+  presets: DashboardPreset[],
+  catalogOrder: number,
+  releasedAt: string
+): DashboardPreset[] {
+  return presets.map((preset) => ({
+    ...preset,
+    catalogOrder,
+    releasedAt,
+    tags: [...new Set([...(preset.tags ?? []), RELEASE_A_TAG])]
+  }))
+}
+
 export const BUILTIN_PRESETS: DashboardPreset[] = withDefaultPresetPriority([
-  ...GT3_DENSE_50_PRESETS,
+  ...withPresetReleaseCohort(
+    GT3_DENSE_50_PRESETS,
+    RELEASE_A_CATALOG_ORDER,
+    RELEASE_A_RELEASED_AT
+  ),
   // ── WS-5 cross-agent: adaptive dashboard preset (owned by the adaptive agent) ──
   { id: ADAPTIVE_DASHBOARD_ID, name: ADAPTIVE_DASHBOARD_PRESET.name, build: createAdaptiveDashboardPreset, tags: [...ADAPTIVE_DASHBOARD_TAGS] },
   // ── WS-5 typographic showcase presets (offline self-hosted font families) ──
@@ -3637,6 +3662,7 @@ export function summarizeDashboard(dash: Dashboard): DashboardSummary {
     hasPreview: Boolean(dash.previewPng),
     description: dash.description,
     author: dash.author,
+    createdAt: dash.createdAt,
     updatedAt: dash.updatedAt,
     hidden: Boolean(dash.hidden),
     ...(typeof dash.storageEpoch === 'string' ? { storageEpoch: dash.storageEpoch } : {}),

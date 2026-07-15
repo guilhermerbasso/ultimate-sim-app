@@ -1,9 +1,21 @@
-import { Component, useCallback, useEffect, useMemo, useState } from 'react'
+import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ErrorInfo, ReactElement } from 'react'
 import type { CustomOverlayDef, CustomOverlayElement, CustomOverlayElementAlign, CustomOverlayListItem, IracingGraphicsStatus, FixIracingFullscreenResult, OverlayListItem, OverlayPosition, OverlayWidgetId, OverlayWidgetStyle, OverlaysConfig } from '../../../shared/overlays'
-import { createCustomOverlayDef, createCustomOverlayElement, createRichCustomOverlayDef, isRichCustomOverlay, OVERLAY_FORMS, overlayDesignFamily, overlayWidgetDisplayTitle } from '../../../shared/overlays'
+import {
+  OverlayTriggerController,
+  createCustomOverlayDef,
+  createCustomOverlayElement,
+  createRichCustomOverlayDef,
+  isRichCustomOverlay,
+  OVERLAY_FORMS,
+  overlayDesignFamily,
+  overlayWidgetDisplayTitle,
+  simulateOverlayTriggerSnapshot,
+  type OverlayWidgetDefinition
+} from '../../../shared/overlays'
 import type { Corners, DriverEntry, Flags, PitStatus, RadarCarEntry, RelativeCars, SimId, TelemetrySnapshot, TyreInfo } from '../../../shared/telemetry'
 import { PLAYABLE_SIMS, simLabel, widgetSupportedSims } from '../../../shared/sim-coverage'
+import { compareCatalogEntries, compareCreatedAtEntries } from '../../../shared/catalog-order'
 import { OverlayWidgetBuilder } from './overlay/OverlayWidgetBuilder'
 import { consumeEditorTarget } from '../lib/app-navigation'
 import { EXPR_CHANNELS, type ExpressionDef } from '../../../shared/expr'
@@ -13,7 +25,7 @@ import { tt } from '../i18n'
 import { useDevices } from '../lib/devices/DeviceRegistry'
 import { SectionExportImport } from '../components/SectionExportImport'
 import { TagFilter, filterByTags } from '../components/TagFilter'
-import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, hasAllHifiOverlayConfigs, mergeHifiOverlayConfigs, mergeHifiOverlayItems } from '../overlay/hifi-overlays'
+import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, hasAllHifiOverlayConfigs, mergeHifiOverlayConfigs, mergeHifiOverlayItems, resolveOverlayTrigger } from '../overlay/hifi-overlays'
 import { resolveWidgetComponent } from '../overlay/widgets'
 import '../overlay/overlay-runtime.css'
 import '../overlay/overlay-view.css'
@@ -259,6 +271,8 @@ function configModeFrom(items: OverlayListItem[], fallback: OverlaysConfig): Ove
         stylePreset: item.stylePreset,
         style: item.style,
         hidden: item.hidden,
+        role: item.role,
+        trigger: item.trigger,
         hifiModuleId: item.hifiModuleId
       }]))
     } as OverlaysConfig['widgets']
@@ -272,15 +286,12 @@ function definitionTags(def: { category?: string; tags?: string[] } | undefined)
 
 // Configuration-list ordering is intentionally independent from enabled state:
 // toggling an overlay must not move its card and make the page jump.
-function sortOverlayEntries<T extends { enabled: boolean; favorite?: boolean }>(entries: T[]): T[] {
-  return entries
-    .map((entry, index) => ({ entry, index }))
-    .sort((a, b) => {
-      const favoriteRank = (a.entry.favorite ? 0 : 1) - (b.entry.favorite ? 0 : 1)
-      if (favoriteRank !== 0) return favoriteRank
-      return a.index - b.index
-    })
-    .map((item) => item.entry)
+function sortOverlayEntries<T extends OverlayListItem>(entries: T[]): T[] {
+  return [...entries].sort((left, right) => compareCatalogEntries(left, right, true))
+}
+
+function sortCustomOverlayEntries<T extends CustomOverlayListItem>(entries: T[]): T[] {
+  return [...entries].sort(compareCreatedAtEntries)
 }
 
 class OverlayPreviewErrorBoundary extends Component<
@@ -314,8 +325,44 @@ function overlayShellVars(config: OverlayListItem): CSSProperties {
   } as CSSProperties
 }
 
-function OverlayRuntimePreview({ item, fallback }: { item: OverlayListItem; fallback: string }): ReactElement {
+function OverlayRuntimePreview({
+  item,
+  definition,
+  fallback
+}: {
+  item: OverlayListItem
+  definition: OverlayWidgetDefinition | undefined
+  fallback: string
+}): ReactElement {
+  const controller = useRef<OverlayTriggerController | null>(null)
+  if (!controller.current) controller.current = new OverlayTriggerController()
+  const previewRef = useRef<HTMLDivElement>(null)
+  const [previewVisible, setPreviewVisible] = useState(
+    () => typeof IntersectionObserver === 'undefined'
+  )
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') return
+    const node = previewRef.current
+    if (!node) return
+    const observer = new IntersectionObserver((entries) => {
+      setPreviewVisible(entries.some((entry) => entry.isIntersecting))
+    }, { rootMargin: '160px' })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+  useEffect(() => {
+    if (!previewVisible) return
+    const timer = window.setInterval(() => setTick((value) => value + 1), 1250)
+    return () => window.clearInterval(timer)
+  }, [previewVisible])
   const Widget = resolveWidgetComponent(item.id)
+  const trigger = resolveOverlayTrigger(definition, item)
+  const frame = tick % 8
+  const simulatedActive = frame === 1 || frame === 2
+  const previewSnapshot = simulateOverlayTriggerSnapshot(OVERLAY_PREVIEW_SNAPSHOT, trigger, simulatedActive)
+  const visibility = controller.current.evaluate(`preview:${item.id}`, trigger, previewSnapshot, tick * 1250)
+  const renderWidget = definition?.role !== 'alert' || visibility.visible
   const natW = Math.max(1, item.position.width)
   const natH = Math.max(1, item.position.height)
   const scale = Math.min(1, PREVIEW_MAX_W / natW, PREVIEW_MAX_H / natH)
@@ -340,6 +387,7 @@ function OverlayRuntimePreview({ item, fallback }: { item: OverlayListItem; fall
 
   return (
     <div
+      ref={previewRef}
       style={{
         display: 'grid',
         placeItems: 'center',
@@ -359,7 +407,13 @@ function OverlayRuntimePreview({ item, fallback }: { item: OverlayListItem; fall
       <div style={stageStyle}>
         <main className="overlay-shell" style={shellStyle}>
           <OverlayPreviewErrorBoundary id={item.id} fallback={fallback}>
-            {Widget ? <Widget snapshot={OVERLAY_PREVIEW_SNAPSHOT} config={item} /> : <div>{fallback}</div>}
+            <>
+              {Widget && renderWidget
+                ? <Widget snapshot={previewSnapshot} config={item} visibility={visibility} />
+                : Widget
+                  ? null
+                  : <div>{fallback}</div>}
+            </>
           </OverlayPreviewErrorBoundary>
         </main>
       </div>
@@ -426,7 +480,7 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
   const visibleItems = useMemo(() => {
     return filterByTags(simFilteredItems, tagFilters, (item) => definitionTags(defById.get(item.id as OverlayWidgetId)))
   }, [simFilteredItems, tagFilters, defById])
-  const sortedCustomOverlays = useMemo(() => sortOverlayEntries(customOverlays), [customOverlays])
+  const sortedCustomOverlays = useMemo(() => sortCustomOverlayEntries(customOverlays), [customOverlays])
   const visibleCustomOverlays = useMemo(() => sortedCustomOverlays.filter((overlay) => !overlay.hidden), [sortedCustomOverlays])
   const hiddenCustomOverlays = useMemo(() => sortedCustomOverlays.filter((overlay) => overlay.hidden), [sortedCustomOverlays])
   const activeOverlays = useMemo<ActiveOverlayEntry[]>(() => [
@@ -1161,7 +1215,11 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
               </div>
             </div>
 
-            <OverlayRuntimePreview item={item} fallback={tr('previewUnavailable')} />
+            <OverlayRuntimePreview
+              item={item}
+              definition={defById.get(item.id)}
+              fallback={tr('previewUnavailable')}
+            />
 
             <div className="overlay-toggles">
               <button

@@ -5,14 +5,14 @@ import {
   createDefaultOverlayStyle,
   DEFAULT_CUSTOM_OVERLAY_POSITION,
   DEFAULT_OVERLAY_STYLE_PRESET,
-  evaluateOverlayTrigger,
   isCustomOverlayId,
   isRichCustomOverlay
 } from '../../../shared/overlays'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
-import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, HIFI_DEFAULT_TRIGGERS, mergeHifiOverlayConfigs } from './hifi-overlays'
+import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, mergeHifiOverlayConfigs, resolveOverlayTrigger, shouldRenderOverlayRuntime } from './hifi-overlays'
 import { resolveWidgetComponent } from './widgets'
 import { CustomOverlayWidget } from './widgets/CustomOverlayWidget'
+import { useOverlayTriggerController } from './useOverlayTriggerController'
 import './overlay-runtime.css'
 
 const RESIZE_DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
@@ -61,10 +61,10 @@ export function OverlayRoot() {
   const editable = configMode || !widgetConfig.locked
   // A LOCKED overlay never moves/resizes, even inside global config mode ("pinned").
   const movable = !widgetConfig.locked
-  // Trigger-only overlays (spotter-style) are condition-gated ONLY while locked
-  // (racing); when unlocked (editing) they always render so they can be placed.
-  const overlayTrigger = widgetConfig.trigger ?? HIFI_DEFAULT_TRIGGERS[widgetId] ?? null
-  const triggerHidden = !movable && !evaluateOverlayTrigger(overlayTrigger, snapshot)
+  const triggerController = useOverlayTriggerController(snapshot)
+  const overlayTrigger = resolveOverlayTrigger(definition, widgetConfig)
+  const triggerState = triggerController.evaluate(widgetId, overlayTrigger)
+  const triggerHidden = !shouldRenderOverlayRuntime(definition, widgetConfig, triggerState)
   const positionRef = useRef<OverlayPosition>(widgetConfig.position)
   useEffect(() => {
     positionRef.current = widgetConfig.position
@@ -166,6 +166,13 @@ export function OverlayRoot() {
     }
   }, [widgetId])
 
+  useEffect(() => {
+    if (definition?.role !== 'alert') return
+    void window.ipc.invoke('overlays:setRuntimeVisibility', widgetId, !triggerHidden).catch(() => undefined)
+  }, [definition?.role, triggerHidden, widgetId])
+
+  if (definition?.role === 'alert' && triggerHidden) return null
+
   return (
     <main
       className={`overlay-shell${configMode ? ' config-mode' : ''}${movable ? ' draggable' : ''}${isRich ? ' rich-overlay' : ''}`}
@@ -178,7 +185,7 @@ export function OverlayRoot() {
           {movable ? ' — edit: drag to move — edges resize' : ' · pinned'}
         </div>
       )}
-      {!triggerHidden && <ResolvedWidget snapshot={snapshot} config={widgetConfig} />}
+      {!triggerHidden && <ResolvedWidget snapshot={snapshot} config={widgetConfig} visibility={triggerState} />}
       {movable &&
         RESIZE_DIRS.map((dir) => (
           <div

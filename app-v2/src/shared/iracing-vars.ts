@@ -255,7 +255,9 @@ export const IRACING_VARIABLES: IracingVarDef[] = [
   { id: 'dcAntiRollFront', label: 'Front anti-roll bar', category: 'controls' },
   { id: 'dcAntiRollRear', label: 'Rear anti-roll bar', category: 'controls' },
   { id: 'dcWeightJackerRight', label: 'Right weight jacker', category: 'controls' },
-  { id: 'DRS_Status', label: 'Status DRS', category: 'controls', telemetryField: 'drs' },
+  // Compatibility contract: existing saved expressions expect DRS_Status to stay boolean.
+  { id: 'DRS_Status', label: 'DRS active', category: 'controls', telemetryField: 'drs' },
+  { id: 'DRS_State', label: 'DRS state (0–3)', category: 'controls', telemetryField: 'drsState' },
   // The real iRacing raw var for "ABS intervening" is `BrakeABSactive` (lower-case `active`).
   // The old `ABSActive` id was a PHANTOM (iRacing publishes no such var) — corrected here.
   { id: 'BrakeABSactive', label: 'ABS active', category: 'controls', telemetryField: 'absActive' },

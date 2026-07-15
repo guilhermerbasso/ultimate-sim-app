@@ -6,6 +6,7 @@ import {
   type Flags,
   type TelemetrySnapshot
 } from '../../../../../shared/telemetry'
+import { semanticAlertVisibility } from '../../../../../shared/overlays'
 import type { TelemetryField } from '../types'
 import type {
   TelemetryDatum,
@@ -209,7 +210,7 @@ function raceFlagTone(datum: TelemetryDatum): TelemetryTone {
 function pitServiceLabel(value: number): string {
   if (value === 0) return 'STANDBY'
   if (value === 1) return 'SERVICING'
-  if (value === 2) return 'COMPLETE'
+  if (value === 2) return 'SERVICE DONE'
   if (value >= 100) return 'SERVICE ERR'
   return `STATUS ${Math.trunc(value)}`
 }
@@ -281,6 +282,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     focus: 'engine',
     requires: ['engineWarnings'],
     tags: ['engine', 'flags', 'warning'],
+    visibility: semanticAlertVisibility('engineWarnings'),
     read: (snapshot) => activeEngineWarnings(snapshot?.engineWarnings),
     format: firstOrClear,
     active: (datum) => Array.isArray(datum) && datum.length > 0,
@@ -427,14 +429,23 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     format: (datum) => formatSigned(datum, 1),
     tags: ['bop', 'power']
   }),
-  booleanField('drs', {
+  numericField('drsState', {
     id: 'drs',
     label: 'DRS State',
     archetype: 'indicator',
     category: 'drive',
     focus: 'pace',
-    format: (datum) => (datum === true ? 'DRS' : 'DRS OFF'),
-    tone: (datum) => (datum === true ? 'good' : 'neutral'),
+    format: (datum, _snapshot, visibility) => {
+      if (visibility?.phase === 'drs-deactivated') return 'DRS DEACTIVATED'
+      const state = numberDatum(datum)
+      if (state === 1) return 'DRS AVAILABLE'
+      if (state === 2) return 'DRS ZONE'
+      if (state === 3) return 'DRS ACTIVE'
+      return state === 0 ? 'DRS DEACTIVATED' : '—'
+    },
+    active: (datum) => (numberDatum(datum) ?? 0) > 0,
+    tone: (datum) => (numberDatum(datum) === 3 ? 'good' : 'info'),
+    visibility: semanticAlertVisibility('drs'),
     tags: ['drs']
   }),
   booleanField('pushToPass', {
@@ -445,6 +456,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     focus: 'strategy',
     format: (datum) => (datum === true ? 'P2P' : 'P2P READY'),
     tone: (datum) => (datum === true ? 'info' : 'neutral'),
+    visibility: semanticAlertVisibility('pushToPassState'),
     tags: ['push-to-pass']
   }),
   numericField('pushToPassCount', {
@@ -593,6 +605,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     focus: 'controls',
     format: (datum) => (datum === true ? 'ABS' : 'ABS READY'),
     tone: (datum) => (datum === true ? 'warning' : 'neutral'),
+    visibility: semanticAlertVisibility('absActive'),
     tags: ['abs', 'intervention']
   }),
   numericField('absCutPct', {
@@ -606,6 +619,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     archetype: 'radial',
     category: 'inputs',
     focus: 'controls',
+    visibility: semanticAlertVisibility('absCut'),
     tags: ['abs', 'brakes']
   }),
   settingField('tcLevel', {
@@ -625,6 +639,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     focus: 'controls',
     format: (datum) => (datum === true ? 'TC' : 'TC READY'),
     tone: (datum) => (datum === true ? 'warning' : 'neutral'),
+    visibility: semanticAlertVisibility('tcActive'),
     tags: ['tc', 'intervention', 'derived']
   }),
   settingField('engineMap', {
@@ -801,6 +816,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     focus: 'race-control',
     requires: ['paceMode'],
     tags: ['session', 'pace'],
+    visibility: semanticAlertVisibility('paceMode'),
     read: (snapshot) => snapshot?.paceMode,
     format: (datum) => (typeof datum === 'string' ? compact(humanize(datum), 18) : '—')
   },
@@ -812,6 +828,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     focus: 'race-control',
     requires: ['flags'],
     tags: ['flags', 'session'],
+    visibility: semanticAlertVisibility('raceControlFlags'),
     read: (snapshot) => activeRaceFlags(snapshot?.flags),
     format: firstOrClear,
     active: (datum) => Array.isArray(datum) && datum.length > 0,
@@ -826,6 +843,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     focus: 'traffic',
     requires: ['carLeftRight'],
     tags: ['radar', 'traffic'],
+    visibility: semanticAlertVisibility('sideProximity'),
     read: (snapshot) => snapshot?.carLeftRight,
     format: (datum, snapshot) => {
       if (typeof datum !== 'string') return '—'
@@ -1050,6 +1068,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
       archetype: 'linear',
       category: 'weather',
       focus: 'weather',
+      visibility: semanticAlertVisibility('fogLevel'),
       tags: ['weather', 'fog']
     },
     ratioToPercent
@@ -1096,6 +1115,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
       archetype: 'linear',
       category: 'weather',
       focus: 'weather',
+      visibility: semanticAlertVisibility('trackWetness'),
       tags: ['weather', 'wetness', 'track']
     },
     ratioToPercent
@@ -1125,6 +1145,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     format: (datum) => (datum === true ? 'WET' : 'DRY'),
     active: (datum) => datum !== undefined,
     tone: (datum) => (datum === true ? 'warning' : 'neutral'),
+    visibility: semanticAlertVisibility('declaredWet'),
     tags: ['weather', 'wetness', 'flags']
   }),
   {
@@ -1167,6 +1188,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     focus: 'strategy',
     format: (datum) => (datum === true ? 'PIT ROAD' : 'TRACK'),
     tone: (datum) => (datum === true ? 'info' : 'neutral'),
+    visibility: semanticAlertVisibility('onPitRoad'),
     tags: ['pit', 'status']
   }),
   booleanField('pitLimiter', {
@@ -1177,6 +1199,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     focus: 'strategy',
     format: (datum) => (datum === true ? 'LIMITER' : 'LIMITER OFF'),
     tone: (datum) => (datum === true ? 'info' : 'neutral'),
+    visibility: semanticAlertVisibility('pitLimiter'),
     tags: ['pit', 'limiter']
   }),
   {
@@ -1188,6 +1211,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     focus: 'strategy',
     requires: ['pitServiceFlags'],
     tags: ['pit', 'service', 'strategy'],
+    visibility: semanticAlertVisibility('pitServicesSelected'),
     read: (snapshot) => snapshot?.pitServiceFlags,
     format: (datum) => {
       if (!Array.isArray(datum)) return '—'
@@ -1208,6 +1232,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     focus: 'race-control',
     requires: ['pit'],
     tags: ['pit', 'flags'],
+    visibility: semanticAlertVisibility('pitsOpen'),
     read: (snapshot) => snapshot?.pit?.pitsOpen,
     format: (datum) => (datum === true ? 'PITS OPEN' : 'PITS CLOSED'),
     active: (datum) => datum !== undefined,
@@ -1221,6 +1246,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     focus: 'strategy',
     requires: ['pit'],
     tags: ['pit', 'service'],
+    visibility: semanticAlertVisibility('inPitStall'),
     read: (snapshot) => snapshot?.pit?.inPitStall,
     format: (datum) => (datum === true ? 'IN STALL' : 'OUT OF STALL'),
     tone: (datum) => (datum === true ? 'info' : 'neutral')
@@ -1234,6 +1260,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     focus: 'strategy',
     requires: ['pit'],
     tags: ['pit', 'service'],
+    visibility: semanticAlertVisibility('pitServiceStatus'),
     read: (snapshot) => finite(snapshot?.pit?.svStatus),
     format: (datum) => {
       const value = numberDatum(datum)
@@ -1256,6 +1283,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     focus: 'incidents',
     requires: ['pit'],
     tags: ['pit', 'repair', 'warning'],
+    visibility: semanticAlertVisibility('repairRequirement'),
     read: (snapshot) => {
       const pit = snapshot?.pit
       return pit ? pit.repairNeeded || pit.optRepairNeeded : undefined
@@ -1294,6 +1322,7 @@ export const TELEMETRY_DESCRIPTORS: TelemetryDescriptor[] = [
     },
     requires: ['incidentCount'],
     tags: ['incidents', 'pit'],
+    visibility: semanticAlertVisibility('incidentCounts'),
     read: (snapshot) =>
       finite(snapshot?.incidentCountMy) ??
       finite(snapshot?.incidentCountTeam) ??
