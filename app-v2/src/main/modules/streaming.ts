@@ -1222,6 +1222,70 @@ function resourceUrl(value: string, base: URL): URL | null {
   return url
 }
 
+function isHtmlTagNameChar(value: string | undefined): boolean {
+  if (!value) return false
+  const code = value.charCodeAt(0)
+  return (
+    (code >= 48 && code <= 57) ||
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122) ||
+    value === ':' ||
+    value === '_' ||
+    value === '-'
+  )
+}
+
+function findHtmlTagEnd(html: string, start: number): number {
+  let quote = ''
+  for (let index = start; index < html.length; index += 1) {
+    const char = html[index]
+    if (quote) {
+      if (char === quote) quote = ''
+      continue
+    }
+    if (char === '"' || char === "'") {
+      quote = char
+      continue
+    }
+    if (char === '>') return index
+  }
+  return -1
+}
+
+function inlineModuleScripts(html: string): Array<{ attributes: string; source: string }> {
+  const lower = html.toLowerCase()
+  const scripts: Array<{ attributes: string; source: string }> = []
+  let cursor = 0
+
+  while (cursor < html.length) {
+    const openStart = lower.indexOf('<script', cursor)
+    if (openStart < 0) break
+    const openNameEnd = openStart + '<script'.length
+    if (isHtmlTagNameChar(lower[openNameEnd])) {
+      cursor = openNameEnd
+      continue
+    }
+    const openEnd = findHtmlTagEnd(html, openNameEnd)
+    if (openEnd < 0) break
+
+    let closeStart = lower.indexOf('</script', openEnd + 1)
+    while (closeStart >= 0 && isHtmlTagNameChar(lower[closeStart + '</script'.length])) {
+      closeStart = lower.indexOf('</script', closeStart + '</script'.length)
+    }
+    if (closeStart < 0) break
+    const closeEnd = findHtmlTagEnd(html, closeStart + '</script'.length)
+    if (closeEnd < 0) break
+
+    scripts.push({
+      attributes: html.slice(openNameEnd, openEnd),
+      source: html.slice(openEnd + 1, closeStart)
+    })
+    cursor = closeEnd + 1
+  }
+
+  return scripts
+}
+
 function htmlResourceGraph(html: string, documentUrl: URL): { baseUrl: URL; resources: URL[]; inlineModules: string[] } {
   const baseTag = html.match(/<base\b[^>]*>/i)?.[0]
   const baseHref = baseTag ? htmlAttribute(baseTag, 'href') : null
@@ -1244,8 +1308,10 @@ function htmlResourceGraph(html: string, documentUrl: URL): { baseUrl: URL; reso
     if (resolved) resources.push(resolved)
   }
 
-  for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
-    if (/\btype\s*=\s*(['"])module\1/i.test(match[1]) && !/\bsrc\s*=/i.test(match[1])) inlineModules.push(match[2])
+  for (const script of inlineModuleScripts(html)) {
+    if (/\btype\s*=\s*(['"])module\1/i.test(script.attributes) && !/\bsrc\s*=/i.test(script.attributes)) {
+      inlineModules.push(script.source)
+    }
   }
   return { baseUrl, resources, inlineModules }
 }
