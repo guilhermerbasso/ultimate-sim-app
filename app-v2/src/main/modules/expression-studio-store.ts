@@ -20,6 +20,7 @@ import type { OutputRoute } from '../../shared/outputs'
 export interface ExpressionStudioStoreOptions {
   now?: () => string
   writeAtomic?: (path: string, payload: ExpressionStudioPayload) => Promise<void>
+  writeAtomicSync?: (path: string, payload: ExpressionStudioPayload) => void
 }
 
 export interface LegacyOutputStateMigration {
@@ -30,9 +31,12 @@ export interface LegacyOutputStateMigration {
 export class ExpressionStudioStore {
   private loaded = false
   private loadPromise: Promise<void> | null = null
+  private hasValidPayload = false
+  private failedLoadRaw: string | null = null
   private payload: ExpressionStudioPayload
   private readonly now: () => string
   private readonly writeAtomic: (path: string, payload: ExpressionStudioPayload) => Promise<void>
+  private readonly writeAtomicSync: (path: string, payload: ExpressionStudioPayload) => void
   private operationTail: Promise<void> = Promise.resolve()
   private pendingOperations = 0
 
@@ -42,6 +46,7 @@ export class ExpressionStudioStore {
   ) {
     this.now = options.now ?? (() => new Date().toISOString())
     this.writeAtomic = options.writeAtomic ?? writeExpressionStudioAtomic
+    this.writeAtomicSync = options.writeAtomicSync ?? writeExpressionStudioAtomicSync
     this.payload = emptyExpressionStudioPayload(this.now())
   }
 
@@ -70,6 +75,8 @@ export class ExpressionStudioStore {
       validate?.(next)
       await this.writeAtomic(this.storePath, next)
       this.payload = next
+      this.hasValidPayload = true
+      this.failedLoadRaw = null
       return this.snapshot()
     })
   }
@@ -78,14 +85,20 @@ export class ExpressionStudioStore {
     validate?: (payload: ExpressionStudioPayload) => void
   ): Promise<ExpressionStudioPayload> {
     return this.runSerialized(async () => {
-      await this.ensureLoaded()
-      const previous = this.snapshot()
+      try {
+        await this.ensureLoaded()
+      } catch {
+        if (this.hasValidPayload) throw new Error('Expression Studio failed to reload after a prior valid load.')
+        this.loaded = false
+        this.loadPromise = null
+      }
+      const previous = this.hasValidPayload ? this.snapshot() : null
       try {
         const raw = JSON.parse(await readFile(this.storePath, 'utf8')) as unknown
         const next = this.prepareImportedPayload(raw)
         validate?.(next)
         await this.writeAtomic(this.storePath, next)
-        this.payload = next
+        this.adoptPayload(next)
         return this.snapshot()
       } catch (error) {
         return this.rollbackImport(previous, error)
@@ -96,7 +109,7 @@ export class ExpressionStudioStore {
   reloadImportedSynchronously(
     validate?: (payload: ExpressionStudioPayload) => void
   ): ExpressionStudioPayload {
-    if (!this.loaded || this.pendingOperations > 0) {
+    if (this.hasValidPayload && this.pendingOperations > 0) {
       const busyError = new Error('Expression Studio is busy; the imported file was rolled back. Retry the import.')
       try {
         this.rollbackImportSynchronously()
@@ -105,20 +118,22 @@ export class ExpressionStudioStore {
       }
       throw busyError
     }
-    const previous = this.snapshot()
+    const previous = this.hasValidPayload ? this.snapshot() : null
     try {
       const raw = JSON.parse(readFileSync(this.storePath, 'utf8')) as unknown
       const next = this.prepareImportedPayload(raw)
       validate?.(next)
-      writeExpressionStudioAtomicSync(this.storePath, next)
-      this.payload = next
+      this.writeAtomicSync(this.storePath, next)
+      this.adoptPayload(next)
       return this.snapshot()
     } catch (error) {
       try {
-        writeExpressionStudioAtomicSync(this.storePath, previous)
+        this.rollbackRecoveryImportSynchronously(previous)
       } catch (rollbackError) {
         throw importRollbackError(error, rollbackError)
       }
+      this.loaded = this.hasValidPayload
+      this.loadPromise = null
       throw error
     }
   }
@@ -131,9 +146,7 @@ export class ExpressionStudioStore {
         revision: this.payload.revision + 1
       }
       await rm(this.storePath, { force: true })
-      this.payload = next
-      this.loaded = true
-      this.loadPromise = null
+      this.adoptPayload(next)
       return this.snapshot()
     })
   }
@@ -175,14 +188,18 @@ export class ExpressionStudioStore {
         updatedAt: this.now()
       }
       await this.writeAtomic(this.storePath, next)
-      this.payload = next
+      this.adoptPayload(next)
       return { payload: this.snapshot(), migratedRouteIds }
     })
   }
 
   private async ensureLoaded(): Promise<void> {
     if (this.loaded) return
-    if (!this.loadPromise) this.loadPromise = this.loadFromDisk()
+    if (!this.loadPromise) {
+      this.loadPromise = (async () => {
+        this.loadFromDiskSynchronously()
+      })()
+    }
     await this.loadPromise
   }
 
@@ -195,17 +212,39 @@ export class ExpressionStudioStore {
     }
   }
 
-  private async rollbackImport(previous: ExpressionStudioPayload, error: unknown): Promise<never> {
+  private async rollbackImport(previous: ExpressionStudioPayload | null, error: unknown): Promise<never> {
     try {
-      await this.writeAtomic(this.storePath, previous)
+      if (previous) {
+        await this.writeAtomic(this.storePath, previous)
+      } else if (this.failedLoadRaw !== null) {
+        await writeRawAtomic(this.storePath, this.failedLoadRaw)
+      }
     } catch (rollbackError) {
       throw importRollbackError(error, rollbackError)
     }
+    this.loaded = this.hasValidPayload
+    this.loadPromise = null
     throw error
   }
 
   private rollbackImportSynchronously(): void {
-    writeExpressionStudioAtomicSync(this.storePath, this.payload)
+    this.writeAtomicSync(this.storePath, this.payload)
+  }
+
+  private rollbackRecoveryImportSynchronously(previous: ExpressionStudioPayload | null): void {
+    if (previous) {
+      this.writeAtomicSync(this.storePath, previous)
+    } else if (this.failedLoadRaw !== null) {
+      writeRawAtomicSync(this.storePath, this.failedLoadRaw)
+    }
+  }
+
+  private adoptPayload(payload: ExpressionStudioPayload): void {
+    this.payload = payload
+    this.loaded = true
+    this.loadPromise = null
+    this.hasValidPayload = true
+    this.failedLoadRaw = null
   }
 
   private runSerialized<T>(operation: () => Promise<T>): Promise<T> {
@@ -217,20 +256,25 @@ export class ExpressionStudioStore {
     })
   }
 
-  private async loadFromDisk(): Promise<void> {
+  private loadFromDiskSynchronously(): void {
+    let rawText: string | null = null
     try {
-      const raw = JSON.parse(await readFile(this.storePath, 'utf8')) as unknown
+      rawText = readFileSync(this.storePath, 'utf8')
+      const raw = JSON.parse(rawText) as unknown
       const result = migrateExpressionStudioPayload(raw, { now: this.now() })
-      if (result.migrated) await this.writeAtomic(this.storePath, result.payload)
-      this.payload = result.payload
+      if (result.migrated) this.writeAtomicSync(this.storePath, result.payload)
+      this.adoptPayload(result.payload)
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
-      if (code !== 'ENOENT') throw error
+      if (code !== 'ENOENT') {
+        this.failedLoadRaw = rawText
+        this.loaded = false
+        throw error
+      }
       const initial = emptyExpressionStudioPayload(this.now())
-      await this.writeAtomic(this.storePath, initial)
-      this.payload = initial
+      this.writeAtomicSync(this.storePath, initial)
+      this.adoptPayload(initial)
     }
-    this.loaded = true
   }
 }
 
@@ -268,4 +312,28 @@ function importRollbackError(importError: unknown, rollbackError: unknown): Erro
   const importMessage = importError instanceof Error ? importError.message : String(importError)
   const rollbackMessage = rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
   return new Error(`Expression import failed (${importMessage}) and rollback failed (${rollbackMessage}).`)
+}
+
+async function writeRawAtomic(path: string, raw: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true })
+  const temporaryPath = `${path}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.raw.tmp`
+  try {
+    await writeFile(temporaryPath, raw, 'utf8')
+    await rename(temporaryPath, path)
+  } catch (error) {
+    await rm(temporaryPath, { force: true }).catch(() => undefined)
+    throw error
+  }
+}
+
+function writeRawAtomicSync(path: string, raw: string): void {
+  mkdirSync(dirname(path), { recursive: true })
+  const temporaryPath = `${path}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.raw.sync.tmp`
+  try {
+    writeFileSync(temporaryPath, raw, 'utf8')
+    renameSync(temporaryPath, path)
+  } catch (error) {
+    rmSync(temporaryPath, { force: true })
+    throw error
+  }
 }

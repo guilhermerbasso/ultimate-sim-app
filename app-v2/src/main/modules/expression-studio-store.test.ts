@@ -58,13 +58,65 @@ describe('ExpressionStudioStore atomic persistence and CAS', () => {
     })
     writeFileSync(path, legacy)
     const store = new ExpressionStudioStore(path, {
-      writeAtomic: async () => {
+      writeAtomicSync: () => {
         throw new Error('migration write failed')
       }
     })
 
     await expect(store.load()).rejects.toThrow('migration write failed')
     expect(readFileSync(path, 'utf8')).toBe(legacy)
+  })
+
+  it('adopts a valid recovery import after the initial load failed', async () => {
+    writeFileSync(path, '{"version":3,"expressions":')
+    const store = new ExpressionStudioStore(path)
+    await expect(store.load()).rejects.toThrow()
+    writeFileSync(path, JSON.stringify({
+      version: 3,
+      revision: 77,
+      expressions: [{ id: 'recovered', name: 'Recovered', expr: 'speedKmh' }],
+      enabledVars: [],
+      outputs: [],
+      destinations: [],
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    }))
+
+    const recovered = await store.reloadImported()
+
+    expect(recovered.revision).toBe(1)
+    expect(recovered.expressions).toEqual([{ id: 'recovered', name: 'Recovered', expr: 'speedKmh' }])
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual(recovered)
+    expect(await store.load()).toEqual(recovered)
+  })
+
+  it('does not replace failed-load data with the constructor empty payload when recovery import is invalid', async () => {
+    const priorFailedData = '{"version":3,"revision":0,"expressions":[{"id":"prior"'
+    writeFileSync(path, priorFailedData)
+    const store = new ExpressionStudioStore(path)
+    await expect(store.load()).rejects.toThrow()
+    writeFileSync(path, '{"version":3,"revision":9,"expressions":[')
+
+    expect(() => store.reloadImportedSynchronously()).toThrow()
+    expect(readFileSync(path, 'utf8')).toBe(priorFailedData)
+  })
+
+  it('can adopt a valid import while the first queued load has not started', async () => {
+    const store = new ExpressionStudioStore(path)
+    const loading = store.load()
+    writeFileSync(path, JSON.stringify({
+      version: 3,
+      revision: 4,
+      expressions: [{ id: 'early-recovery', name: 'Early recovery', expr: 'rpm' }],
+      enabledVars: [],
+      outputs: [],
+      destinations: [],
+      updatedAt: '2026-07-01T00:00:00.000Z'
+    }))
+
+    const recovered = store.reloadImportedSynchronously()
+
+    expect(recovered.expressions[0].id).toBe('early-recovery')
+    expect(await loading).toEqual(recovered)
   })
 
   it('checks the revision and increments it once per successful full mutation', async () => {
