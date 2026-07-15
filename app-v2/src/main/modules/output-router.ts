@@ -371,7 +371,14 @@ class OutputRouter {
     const temporaryPath = `${this.storePath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
     try {
       await writeFile(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
-      await rename(temporaryPath, this.storePath)
+      try {
+        await rename(temporaryPath, this.storePath)
+      } catch (renameError: unknown) {
+        const code = (renameError as NodeJS.ErrnoException).code
+        if (code !== 'EPERM' && code !== 'EEXIST') throw renameError
+        await rm(this.storePath, { force: true })
+        await rename(temporaryPath, this.storePath)
+      }
     } catch (error) {
       await rm(temporaryPath, { force: true }).catch(() => undefined)
       throw error

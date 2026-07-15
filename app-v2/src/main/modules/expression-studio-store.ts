@@ -286,7 +286,14 @@ export async function writeExpressionStudioAtomic(
   const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`
   try {
     await writeFile(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
-    await rename(temporaryPath, path)
+    try {
+      await rename(temporaryPath, path)
+    } catch (renameError: unknown) {
+      const code = (renameError as NodeJS.ErrnoException).code
+      if (code !== 'EPERM' && code !== 'EEXIST') throw renameError
+      await rm(path, { force: true })
+      await rename(temporaryPath, path)
+    }
   } catch (error) {
     await rm(temporaryPath, { force: true }).catch(() => undefined)
     throw error
@@ -301,7 +308,14 @@ export function writeExpressionStudioAtomicSync(
   const temporaryPath = `${path}.${process.pid}.${Date.now()}.sync.tmp`
   try {
     writeFileSync(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
-    renameSync(temporaryPath, path)
+    try {
+      renameSync(temporaryPath, path)
+    } catch (renameError: unknown) {
+      const code = (renameError as NodeJS.ErrnoException).code
+      if (code !== 'EPERM' && code !== 'EEXIST') throw renameError
+      rmSync(path, { force: true })
+      renameSync(temporaryPath, path)
+    }
   } catch (error) {
     rmSync(temporaryPath, { force: true })
     throw error
