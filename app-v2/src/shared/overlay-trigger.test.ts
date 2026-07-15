@@ -115,6 +115,11 @@ describe('OverlayTriggerController semantic policies', () => {
       green: true, yellow: false, blue: false, white: false, checkered: false,
       red: false, black: false, meatball: false, repair: false, disqualify: false,
       greenWhiteCheckered: false
+    } })).toBe(false)
+    expect(active('raceControlFlags', { flags: {
+      green: true, yellow: true, blue: false, white: false, checkered: false,
+      red: false, black: false, meatball: false, repair: false, disqualify: false,
+      greenWhiteCheckered: false
     } })).toBe(true)
     expect(active('engineWarnings', { engineWarnings: {
       waterTemp: false, fuelPressure: false, oilPressure: true, oilTemp: false,
