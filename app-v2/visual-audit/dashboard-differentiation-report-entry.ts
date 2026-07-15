@@ -8,7 +8,11 @@ import {
   STRUCTURAL_SIMILARITY_WEIGHTS,
   compareDashboardFingerprints,
   createDashboardFingerprint,
+  evaluatePerceptualPairEvidence,
+  parsePerceptualEvidenceDocument,
+  perceptualPairKey,
   type DashboardFingerprint,
+  type PerceptualPairDecision,
   type StructuralComparison
 } from '@shared/visual-pipeline'
 
@@ -37,8 +41,40 @@ interface PairReport {
   findings: readonly PairFinding[]
 }
 
+interface CandidatePairComparison {
+  key: string
+  scope: Exclude<PairScope, 'baseline-existing'>
+  leftId: string
+  rightId: string
+  structural: {
+    hardFail: boolean
+    metrics: StructuralComparison['metrics']
+    rejectionCodes: readonly string[]
+    warningCodes: readonly string[]
+  }
+  perceptual: PerceptualPairDecision['decision']
+  perceptualEvidencePresent: boolean
+  passed: boolean
+}
+
+interface CandidateGateReport {
+  pairsCompared: number
+  findingCount: number
+  findings: readonly PairFinding[]
+  exactCanonicalPairCount: number
+  structuralHardFailPairCount: number
+  perceptualHardFailPairCount: number
+  missingPerceptualPairCount: number
+  incompletePerceptualPairCount: number
+  invalidPerceptualPairCount: number
+  rejectedPerceptualPairCount: number
+  hardFailPairCount: number
+  comparisons: readonly CandidatePairComparison[]
+  passed: boolean
+}
+
 export interface DashboardDifferentiationReport {
-  schemaVersion: 1
+  schemaVersion: 2
   mode: 'baseline' | 'candidate'
   thresholds: typeof STRUCTURAL_SIMILARITY_THRESHOLDS
   weights: typeof STRUCTURAL_SIMILARITY_WEIGHTS
@@ -55,7 +91,7 @@ export interface DashboardDifferentiationReport {
     }[]
   }
   baselineExisting: PairReport
-  candidateGate: null | (PairReport & { passed: boolean })
+  candidateGate: CandidateGateReport | null
 }
 
 function preparePreset(preset: DashboardPreset): PreparedPreset {
@@ -125,11 +161,11 @@ function pairReport(
   }
 }
 
-function withinGroupPairs(
+function withinGroupPairs<Scope extends PairScope>(
   presets: readonly PreparedPreset[],
-  scope: PairScope
-): [PreparedPreset, PreparedPreset, PairScope][] {
-  const pairs: [PreparedPreset, PreparedPreset, PairScope][] = []
+  scope: Scope
+): [PreparedPreset, PreparedPreset, Scope][] {
+  const pairs: [PreparedPreset, PreparedPreset, Scope][] = []
   for (let left = 0; left < presets.length; left += 1) {
     for (let right = left + 1; right < presets.length; right += 1) {
       pairs.push([presets[left], presets[right], scope])
@@ -139,7 +175,8 @@ function withinGroupPairs(
 }
 
 export function createBuiltinDashboardDifferentiationReport(
-  candidateIds: readonly string[] = []
+  candidateIds: readonly string[] = [],
+  perceptualEvidenceInput?: unknown
 ): DashboardDifferentiationReport {
   const duplicateRegistryIds = BUILTIN_PRESETS
     .map((preset) => preset.id)
@@ -166,19 +203,94 @@ export function createBuiltinDashboardDifferentiationReport(
   const baselineExisting = pairReport(withinGroupPairs(baseline, 'baseline-existing'))
   let candidateGate: DashboardDifferentiationReport['candidateGate'] = null
   if (candidates.length > 0) {
-    const candidatePairs: [PreparedPreset, PreparedPreset, PairScope][] = []
+    const candidatePairs: [PreparedPreset, PreparedPreset, Exclude<PairScope, 'baseline-existing'>][] = []
     for (const candidate of candidates) {
       for (const existing of baseline) {
         candidatePairs.push([candidate, existing, 'candidate-vs-baseline'])
       }
     }
     candidatePairs.push(...withinGroupPairs(candidates, 'candidate-vs-candidate'))
-    const report = pairReport(candidatePairs)
-    candidateGate = { ...report, passed: report.hardFailPairCount === 0 }
+    const structuralReport = pairReport(candidatePairs)
+    const structuralByKey = new Map<string, {
+      pair: typeof candidatePairs[number]
+      comparison: StructuralComparison
+    }>()
+    for (const pair of candidatePairs) {
+      const [left, right] = pair
+      const key = perceptualPairKey(left.id, right.id)
+      structuralByKey.set(key, {
+        pair,
+        comparison: compareDashboardFingerprints(left.fingerprint, right.fingerprint)
+      })
+    }
+    const perceptualDocument = perceptualEvidenceInput === undefined
+      ? undefined
+      : parsePerceptualEvidenceDocument(perceptualEvidenceInput)
+    const perceptualDecisions = evaluatePerceptualPairEvidence(
+      candidatePairs.map(([left, right]) => ({ leftId: left.id, rightId: right.id })),
+      perceptualDocument
+    )
+    const comparisons = perceptualDecisions.map((perceptual): CandidatePairComparison => {
+      const structuralEntry = structuralByKey.get(perceptual.key)
+      if (!structuralEntry) throw new Error(`Missing structural comparison for ${perceptual.key}.`)
+      const [left, right, scope] = structuralEntry.pair
+      const structural = structuralEntry.comparison
+      return {
+        key: perceptual.key,
+        scope,
+        leftId: left.id,
+        rightId: right.id,
+        structural: {
+          hardFail: structural.decision.hardFail,
+          metrics: {
+            ...structural.metrics,
+            semanticWidgetJaccard: rounded(structural.metrics.semanticWidgetJaccard),
+            geometryIou: rounded(structural.metrics.geometryIou),
+            sameWidgetPlacement: rounded(structural.metrics.sameWidgetPlacement),
+            areaWeightedContainment: rounded(structural.metrics.areaWeightedContainment),
+            topology: rounded(structural.metrics.topology),
+            overallSimilarity: rounded(structural.metrics.overallSimilarity)
+          },
+          rejectionCodes: structural.decision.reasons.map((reason) => reason.code),
+          warningCodes: structural.decision.warnings.map((warning) => warning.code)
+        },
+        perceptual: perceptual.decision,
+        perceptualEvidencePresent: perceptual.evidencePresent,
+        passed: !structural.decision.hardFail && perceptual.decision.status === 'passed'
+      }
+    })
+    const structuralHardFailPairCount = comparisons.filter((entry) => entry.structural.hardFail).length
+    const perceptualHardFailPairCount = comparisons.filter((entry) => entry.perceptual.hardFail).length
+    const missingPerceptualPairCount = comparisons.filter((entry) => !entry.perceptualEvidencePresent).length
+    const incompletePerceptualPairCount = comparisons.filter((entry) =>
+      entry.perceptualEvidencePresent && entry.perceptual.status === 'incomplete'
+    ).length
+    const invalidPerceptualPairCount = comparisons.filter((entry) =>
+      entry.perceptual.status === 'invalid'
+    ).length
+    const rejectedPerceptualPairCount = comparisons.filter((entry) =>
+      entry.perceptual.status === 'rejected'
+    ).length
+    const hardFailPairCount = comparisons.filter((entry) => !entry.passed).length
+    candidateGate = {
+      pairsCompared: candidatePairs.length,
+      findingCount: structuralReport.findingCount,
+      findings: structuralReport.findings,
+      exactCanonicalPairCount: structuralReport.exactCanonicalPairCount,
+      structuralHardFailPairCount,
+      perceptualHardFailPairCount,
+      missingPerceptualPairCount,
+      incompletePerceptualPairCount,
+      invalidPerceptualPairCount,
+      rejectedPerceptualPairCount,
+      hardFailPairCount,
+      comparisons,
+      passed: hardFailPairCount === 0
+    }
   }
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     mode: candidates.length > 0 ? 'candidate' : 'baseline',
     thresholds: STRUCTURAL_SIMILARITY_THRESHOLDS,
     weights: STRUCTURAL_SIMILARITY_WEIGHTS,

@@ -1,6 +1,7 @@
 import type {
   Dashboard,
   DashboardElement,
+  DashboardElementStyle,
   DashboardElementType
 } from '../dashboards'
 
@@ -119,9 +120,8 @@ function clampSimilarity(value: number): number {
   return Math.max(0, Math.min(1, value))
 }
 
-function normalizedIdentifier(value: string | undefined): string | undefined {
-  const normalized = value?.trim()
-  return normalized ? normalized : undefined
+function runtimeIdentifier(value: string | undefined): string | undefined {
+  return value === undefined || value.length === 0 ? undefined : value
 }
 
 function normalizedHumanText(value: string | undefined): string | undefined {
@@ -129,50 +129,218 @@ function normalizedHumanText(value: string | undefined): string | undefined {
   return normalized ? normalized : undefined
 }
 
-function semanticArray(values: readonly string[] | undefined): string[] {
-  if (!values) return []
-  return [...new Set(values.map(normalizedIdentifier).filter((value): value is string => Boolean(value)))].sort()
+type SemanticStyleField =
+  | 'secondaryBinding'
+  | 'flagKey'
+  | 'chartSource'
+  | 'heatSource'
+  | 'statusKind'
+  | 'statusOnText'
+  | 'statusOffText'
+  | 'channels'
+  | 'fields'
+  | 'bindingWater'
+  | 'bindingOil'
+  | 'bindingOilPressure'
+  | 'bindingAbs'
+  | 'bindingTc'
+  | 'bindingMap'
+  | 'bindingBrakeBias'
+
+const SEMANTIC_STYLE_FIELDS: Partial<Record<DashboardElementType, readonly SemanticStyleField[]>> = {
+  dualbar: ['secondaryBinding'],
+  trace: ['secondaryBinding'],
+  flag: ['flagKey'],
+  barchart: ['chartSource'],
+  radialbars: ['chartSource'],
+  heatmap: ['heatSource'],
+  statuslamp: ['statusKind', 'statusOnText', 'statusOffText'],
+  inputbars: ['channels'],
+  inputtrace: ['channels'],
+  setupstrip: ['fields', 'bindingAbs', 'bindingTc', 'bindingMap', 'bindingBrakeBias'],
+  enginetemps: ['bindingWater', 'bindingOil', 'bindingOilPressure']
+}
+
+const PRIMARY_BINDING_CONSUMED_TYPES = new Set<DashboardElementType>([
+  'text',
+  'bar',
+  'barv',
+  'dualbar',
+  'deltabar',
+  'gauge',
+  'shiftlights',
+  'map',
+  'trace',
+  'deltatile',
+  'value',
+  'valuebar',
+  'valuegauge',
+  'analoggauge',
+  'linearmeter',
+  'segment7',
+  'digitalclock',
+  'bigtext',
+  'historygraph',
+  'donut',
+  'segmentbars',
+  'ringgauge',
+  'ledbar',
+  'statuslamp'
+])
+
+function semanticStyleConfiguration(element: DashboardElement): Record<string, unknown> {
+  const style = element.style
+  const configuration: Record<string, unknown> = {}
+  for (const field of SEMANTIC_STYLE_FIELDS[element.type] ?? []) {
+    const value = style[field]
+    if (value !== undefined) configuration[field] = Array.isArray(value) ? [...value] : value
+  }
+  return configuration
 }
 
 export function semanticWidgetKey(element: DashboardElement): string {
   const style = element.style
-  const widgetId = normalizedIdentifier(element.widgetId)
-  const hifiModuleId = normalizedIdentifier(element.hifiModuleId) ??
+  const widgetId = runtimeIdentifier(element.widgetId)
+  const hifiModuleId = runtimeIdentifier(element.hifiModuleId) ??
     (widgetId?.startsWith('hifi:') ? widgetId.slice('hifi:'.length) : undefined)
 
   if (hifiModuleId) return `${element.type}|hifi:${hifiModuleId}`
   if (widgetId) return `${element.type}|widget:${widgetId}`
 
-  const bindings = semanticArray([
-    element.binding,
-    style.secondaryBinding,
-    style.dryndaryBinding,
-    style.bindingWater,
-    style.bindingOil,
-    style.bindingOilPressure,
-    style.bindingAbs,
-    style.bindingTc,
-    style.bindingMap,
-    style.bindingBrakeBias
-  ].filter((value): value is string => typeof value === 'string'))
-  const descriptors = semanticArray([
-    style.chartSource,
-    style.heatSource,
-    style.statusKind,
-    style.flagKey,
-    ...semanticArray(style.channels),
-    ...semanticArray(style.fields)
-  ].filter((value): value is string => typeof value === 'string'))
-  const literal = bindings.length === 0
-    ? normalizedHumanText(style.text ?? style.label ?? style.title)
+  const binding = PRIMARY_BINDING_CONSUMED_TYPES.has(element.type)
+    ? runtimeIdentifier(element.binding)
+    : undefined
+  const literal = binding === undefined && element.type === 'text'
+    ? normalizedHumanText(`${style.prefix ?? ''}${style.text ?? ''}${style.suffix ?? ''}`)
     : undefined
 
   return JSON.stringify([
     element.type,
-    bindings,
-    descriptors,
+    binding ?? null,
+    semanticStyleConfiguration(element),
     literal ?? null
   ])
+}
+
+const TYPE_SPECIFIC_STYLE_FIELDS = new Set<keyof DashboardElementStyle>([
+  'secondaryBinding',
+  'dryndaryBinding',
+  'chartSource',
+  'heatSource',
+  'statusKind',
+  'statusOnText',
+  'statusOffText',
+  'flagKey',
+  'channels',
+  'fields',
+  'bindingWater',
+  'bindingOil',
+  'bindingOilPressure',
+  'bindingAbs',
+  'bindingTc',
+  'bindingMap',
+  'bindingBrakeBias'
+])
+
+const CANONICAL_STYLE_ALLOWLISTS: Partial<Record<
+  DashboardElementType,
+  ReadonlySet<keyof DashboardElementStyle>
+>> = {
+  text: new Set([
+    'background',
+    'border',
+    'borderWidth',
+    'radius',
+    'color',
+    'fontFamily',
+    'fontSize',
+    'fontWeight',
+    'align',
+    'padding',
+    'text',
+    'prefix',
+    'suffix',
+    'decimals',
+    'slots',
+    'minFontSize',
+    'zIndex'
+  ]),
+  rect: new Set(['background', 'border', 'borderWidth', 'radius', 'zIndex']),
+  image: new Set([
+    'background',
+    'border',
+    'borderWidth',
+    'radius',
+    'padding',
+    'src',
+    'fit',
+    'opacity',
+    'filterGrayscale',
+    'filterSepia',
+    'redTint',
+    'brightness',
+    'contrast',
+    'saturate',
+    'hueRotate',
+    'invert',
+    'blur',
+    'zIndex'
+  ]),
+  overlaywidget: new Set(['background', 'border', 'borderWidth', 'radius', 'zIndex'])
+}
+
+function effectiveElementStyle(element: DashboardElement): Partial<DashboardElementStyle> {
+  const allowlist = CANONICAL_STYLE_ALLOWLISTS[element.type]
+  const semanticFields = new Set<keyof DashboardElementStyle>(
+    SEMANTIC_STYLE_FIELDS[element.type] ?? []
+  )
+  const output: Partial<DashboardElementStyle> = {}
+  for (const key of Object.keys(element.style) as (keyof DashboardElementStyle)[]) {
+    if (allowlist && !allowlist.has(key)) continue
+    if (!allowlist && TYPE_SPECIFIC_STYLE_FIELDS.has(key) && !semanticFields.has(key)) continue
+    output[key] = element.style[key] as never
+  }
+  return output
+}
+
+function isFullyTransparentColor(value: string | undefined): boolean {
+  if (value === undefined) return true
+  const normalized = value.trim().toLowerCase()
+  if (!normalized || normalized === 'transparent') return true
+  if (/^#[0-9a-f]{4}$/.test(normalized)) return normalized[4] === '0'
+  if (/^#[0-9a-f]{8}$/.test(normalized)) return normalized.slice(7) === '00'
+  const functional = normalized.match(/^(?:rgba?|hsla?)\((.*)\)$/)
+  if (!functional) return false
+  const body = functional[1]
+  const alphaToken = body.includes('/')
+    ? body.slice(body.lastIndexOf('/') + 1).trim()
+    : body.split(',')[3]?.trim()
+  if (alphaToken === undefined) return false
+  const alpha = alphaToken.endsWith('%')
+    ? Number(alphaToken.slice(0, -1)) / 100
+    : Number(alphaToken)
+  return Number.isFinite(alpha) && alpha <= 0
+}
+
+function hasVisibleFrame(element: DashboardElement): boolean {
+  return (element.style.borderWidth ?? 0) > 0 &&
+    !isFullyTransparentColor(element.style.border)
+}
+
+export function isProvablyInertElement(element: DashboardElement): boolean {
+  if (element.visible === false) return true
+  if (element.type === 'rect') {
+    return isFullyTransparentColor(element.style.background) && !hasVisibleFrame(element)
+  }
+  if (element.type === 'image' && (element.style.opacity ?? 1) <= 0) return true
+  if (element.type === 'text') {
+    const hasContent = element.binding !== undefined ||
+      Boolean(element.style.text || element.style.prefix || element.style.suffix)
+    return !hasContent &&
+      isFullyTransparentColor(element.style.background) &&
+      !hasVisibleFrame(element)
+  }
+  return false
 }
 
 function assertFingerprintableDashboard(dashboard: Dashboard): void {
@@ -235,7 +403,7 @@ export function normalizeDashboardGeometry(
 ): readonly NormalizedDashboardElement[] {
   assertFingerprintableDashboard(dashboard)
   return dashboard.elements
-    .filter((element) => element.visible !== false)
+    .filter((element) => !isProvablyInertElement(element))
     .map((element) => ({
       type: element.type,
       semanticKey: semanticWidgetKey(element),
@@ -521,9 +689,9 @@ function canonicalElement(
   return {
     type: element.type,
     semanticKey: semanticWidgetKey(element),
-    binding: element.binding?.trim() ?? null,
+    binding: PRIMARY_BINDING_CONSUMED_TYPES.has(element.type) ? element.binding ?? null : null,
     rect: canonicalizeValue(normalizeRectangle(element, dashboard), 'element.rect') as CanonicalJson,
-    style: canonicalizeValue(element.style, 'element.style') as CanonicalJson
+    style: canonicalizeValue(effectiveElementStyle(element), 'element.style') as CanonicalJson
   }
 }
 
@@ -540,7 +708,7 @@ function canonicalPaintOrder(dashboard: Dashboard): CanonicalJson[] {
       zIndex: element.style.zIndex ?? 0,
       canonical: JSON.stringify(canonicalElement(element, dashboard))
     }))
-    .filter(({ element }) => element.visible !== false)
+    .filter(({ element }) => !isProvablyInertElement(element))
     .sort((left, right) => left.zIndex - right.zIndex || left.sourceIndex - right.sourceIndex)
   const relations: string[] = []
   for (let lower = 0; lower < painted.length; lower += 1) {
@@ -566,7 +734,7 @@ export function createDashboardFingerprint(dashboard: Dashboard): DashboardFinge
   const geometry = normalizeDashboardGeometry(dashboard)
   const topology = createTopologySignature(geometry)
   const canonicalElements = dashboard.elements
-    .filter((element) => element.visible !== false)
+    .filter((element) => !isProvablyInertElement(element))
     .map((element) => JSON.stringify(canonicalElement(element, dashboard)))
     .sort()
     .map((element) => JSON.parse(element) as CanonicalJson)

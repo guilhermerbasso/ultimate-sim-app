@@ -27,8 +27,10 @@ one side of the rejected pair.
 
 Canonical fingerprints retain effective paint order for overlapping elements: lower
 `zIndex` paints first, and equal-z overlaps retain stable source order. Case-sensitive
-widget and binding identifiers are preserved; only human-facing literal labels are
-case-normalized.
+widget and binding identifiers, including surrounding whitespace, are preserved;
+only human-facing literal labels are case-normalized. Type-specific semantic fields
+are included only when that renderer consumes them. Provably inert elements, such as
+transparent unbordered rectangles, are excluded from visual geometry and fingerprints.
 
 ## Perceptual evidence
 
@@ -52,9 +54,35 @@ node visual-audit\dashboard-differentiation-report.mjs --out dashboard-structure
 # Candidate gate: compare candidates with baseline and with each other.
 node visual-audit\dashboard-differentiation-report.mjs `
   --candidates release_b_one,release_b_two `
+  --perceptual release-b-perceptual.json `
   --out dashboard-structure.json
 ```
 
 Without `--out`, JSON is written to stdout. Exit code `1` means a candidate pair was
 rejected; exit code `2` means invalid arguments, a missing candidate, or a malformed
 preset. Baseline duplicate findings alone keep exit code `0`.
+
+Candidate mode requires pair-scoped perceptual evidence for every candidate comparison.
+Missing, incomplete, invalid, or perceptually rejected pairs keep the combined gate
+from passing. Baseline mode remains structural-only and informational. The abbreviated
+schema example below shows one state; real entries require all eight.
+
+```json
+{
+  "schemaVersion": 1,
+  "pairs": [{
+    "leftId": "release_b_one",
+    "rightId": "existing_dashboard",
+    "states": [{
+      "state": "idle",
+      "ssim": 0.81,
+      "pHashDistance": 18,
+      "pixelMismatchRatio": 0.22,
+      "paletteSimilarity": 0.84
+    }]
+  }]
+}
+```
+
+Each pair must contain all eight required states listed above. Pair order is
+insignificant, but duplicate or unexpected pair entries are rejected as malformed.

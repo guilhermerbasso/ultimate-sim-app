@@ -7,7 +7,10 @@ import {
   compareDashboardStructures,
   createDashboardFingerprint,
   decideStructuralSimilarity,
+  evaluatePerceptualPairEvidence,
   evaluatePerceptualSimilarity,
+  parsePerceptualEvidenceDocument,
+  perceptualPairKey,
   type PerceptualStateMetrics,
   type RequiredPerceptualState
 } from '.'
@@ -139,6 +142,20 @@ describe('dashboard structural differentiation', () => {
     expect(secondFingerprint.hash).toBe(firstFingerprint.hash)
   })
 
+  it('ignores renderer-inert channels metadata on text elements', () => {
+    const firstText = textElement('first', BOXES.topLeft, { text: 'SPEED' })
+    firstText.style.channels = ['ignored-one']
+    const secondText = textElement('second', BOXES.topLeft, { text: 'SPEED' })
+    secondText.style.channels = ['ignored-two']
+
+    const first = dashboard('first', [firstText])
+    const second = dashboard('second', [secondText])
+    const comparison = compareDashboardStructures(first, second)
+    expect(comparison.metrics.exactCanonicalEquality).toBe(true)
+    expect(comparison.metrics.semanticWidgetJaccard).toBe(1)
+    expect(comparison.decision.hardFail).toBe(true)
+  })
+
   it('preserves source paint order for overlapping equal-z elements', () => {
     const redThenBlue = dashboard('red-blue', [
       fullCanvasLayer('red', '#ff0000'),
@@ -209,6 +226,40 @@ describe('dashboard structural differentiation', () => {
       .toContain('area-weighted-containment')
   })
 
+  it('excludes transparent full-canvas rectangles from visual similarity', () => {
+    const original = dashboard('original', [
+      widget('a', 'speed', BOXES.topLeft),
+      widget('b', 'gear', BOXES.topRight),
+      widget('c', 'delta', BOXES.bottomLeft),
+      widget('d', 'fuel', BOXES.bottomRight)
+    ])
+    const transparentLayer = (id: string): DashboardElement => ({
+      id,
+      type: 'rect',
+      x: 0,
+      y: 0,
+      w: 1024,
+      h: 600,
+      style: { background: 'rgba(0, 0, 0, 0)', borderWidth: 0 }
+    })
+    const dilutedCopy = dashboard('transparent-dilution', [
+      widget('copy-a', 'speed', BOXES.topLeft),
+      widget('copy-b', 'gear', BOXES.topRight),
+      widget('copy-c', 'delta', BOXES.bottomLeft),
+      widget('copy-d', 'fuel', BOXES.bottomRight),
+      transparentLayer('transparent-1'),
+      transparentLayer('transparent-2'),
+      transparentLayer('transparent-3')
+    ])
+
+    const originalFingerprint = createDashboardFingerprint(original)
+    const dilutedFingerprint = createDashboardFingerprint(dilutedCopy)
+    const comparison = compareDashboardStructures(original, dilutedCopy)
+    expect(dilutedFingerprint.elementCount).toBe(originalFingerprint.elementCount)
+    expect(dilutedFingerprint.canonical).toBe(originalFingerprint.canonical)
+    expect(comparison.decision.hardFail).toBe(true)
+  })
+
   it('preserves case-sensitive binding identifiers', () => {
     const upperCaseBinding = dashboard('upper', [
       textElement('upper-binding', BOXES.topLeft, { binding: 'var:Fuel' })
@@ -221,6 +272,19 @@ describe('dashboard structural differentiation', () => {
     expect(comparison.metrics.semanticWidgetJaccard).toBe(0)
     expect(comparison.metrics.sameWidgetPlacement).toBe(0)
     expect(comparison.metrics.areaWeightedContainment).toBe(0)
+    expect(comparison.metrics.exactCanonicalEquality).toBe(false)
+  })
+
+  it('preserves binding identifier surrounding whitespace exactly', () => {
+    const exactBinding = dashboard('exact', [
+      textElement('exact-binding', BOXES.topLeft, { binding: 'speedKmh' })
+    ])
+    const spacedBinding = dashboard('spaced', [
+      textElement('spaced-binding', BOXES.topLeft, { binding: ' speedKmh ' })
+    ])
+
+    const comparison = compareDashboardStructures(exactBinding, spacedBinding)
+    expect(comparison.metrics.semanticWidgetJaccard).toBe(0)
     expect(comparison.metrics.exactCanonicalEquality).toBe(false)
   })
 
@@ -296,5 +360,47 @@ describe('dashboard perceptual differentiation', () => {
     expect(decision.complete).toBe(true)
     expect(decision.similarStates).toHaveLength(3)
     expect(decision.hardFail).toBe(false)
+  })
+})
+
+describe('candidate pair perceptual evidence', () => {
+  const pair = { leftId: 'release-b-candidate', rightId: 'baseline-dashboard' }
+  const document = (states: readonly PerceptualStateMetrics[]) =>
+    parsePerceptualEvidenceDocument({
+      schemaVersion: 1,
+      pairs: [{ ...pair, states }]
+    })
+
+  it('marks missing pair evidence incomplete', () => {
+    const [result] = evaluatePerceptualPairEvidence([pair])
+    expect(result.key).toBe(perceptualPairKey(pair.leftId, pair.rightId))
+    expect(result.evidencePresent).toBe(false)
+    expect(result.decision.status).toBe('incomplete')
+    expect(result.decision.hardFail).toBe(true)
+  })
+
+  it('marks seven-state pair evidence incomplete', () => {
+    const states = REQUIRED_PERCEPTUAL_STATES
+      .slice(0, -1)
+      .map((state) => perceptualMetric(state, false))
+    const [result] = evaluatePerceptualPairEvidence([pair], document(states))
+    expect(result.evidencePresent).toBe(true)
+    expect(result.decision.status).toBe('incomplete')
+  })
+
+  it('rejects pair evidence matching in four states', () => {
+    const states = REQUIRED_PERCEPTUAL_STATES.map((state, index) =>
+      perceptualMetric(state, index < PERCEPTUAL_SIMILARITY_THRESHOLDS.similarStateRejectCount)
+    )
+    const [result] = evaluatePerceptualPairEvidence([pair], document(states))
+    expect(result.decision.status).toBe('rejected')
+    expect(result.decision.hardFail).toBe(true)
+  })
+
+  it('passes complete pair evidence below perceptual thresholds', () => {
+    const states = REQUIRED_PERCEPTUAL_STATES.map((state) => perceptualMetric(state, false))
+    const [result] = evaluatePerceptualPairEvidence([pair], document(states))
+    expect(result.decision.status).toBe('passed')
+    expect(result.decision.hardFail).toBe(false)
   })
 })

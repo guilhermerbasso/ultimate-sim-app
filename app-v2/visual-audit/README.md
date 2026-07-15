@@ -14,7 +14,7 @@ node visual-audit/shoot.mjs neon glass terminal      # custom overlay style-pres
 
 # deterministic dashboard structure report / candidate gate
 node visual-audit/dashboard-differentiation-report.mjs --out dashboard-structure.json
-node visual-audit/dashboard-differentiation-report.mjs --candidates id-one,id-two
+node visual-audit/dashboard-differentiation-report.mjs --candidates id-one,id-two --perceptual evidence.json
 ```
 
 Output lands in `visual-audit/shots/` (git-ignored):
