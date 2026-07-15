@@ -22,6 +22,7 @@ import type { ModuleContext } from '../module-context'
 import { exportSimhubDash, importSimhubDash, type ImportScreenSummary } from './simhubdash'
 import { applyDashboardQuery, buildDashboardQuery } from '../../shared/kiosk'
 import { isTouchPanelPlaylistItem } from '../../shared/touch-panel'
+import { compareCreatedAtEntries } from '../../shared/catalog-order'
 import { getTouchPanelManager, type TouchPanelManager } from '../touchpanel/manager'
 import { logger } from '../modules/logger'
 
@@ -326,7 +327,7 @@ export class DashboardManager {
 
   list(): DashboardSummary[] {
     return [...this.dashboards.values()]
-      .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+      .sort(compareCreatedAtEntries)
       .map((dash) => summarizeDashboard(dash))
   }
 

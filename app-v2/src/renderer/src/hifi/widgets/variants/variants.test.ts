@@ -128,6 +128,20 @@ describe('telemetry variant framework', () => {
 
   it('renders aggregate tables, radar, sector map, vector, corners, status, and steering archetypes', () => {
     const snapshot = baseSnapshot()
+    snapshot.drivers = [
+      ...(snapshot.drivers ?? []),
+      {
+        carIdx: 63,
+        name: 'Pace Car',
+        carNumber: 'PC',
+        position: 0,
+        classPosition: 0,
+        classId: 0,
+        isPlayer: false,
+        isPaceCar: true,
+        inPits: false
+      }
+    ]
     const ids = [
       'telemetry-perCarPosition-competition',
       'telemetry-perCarRelativeTime-futuristic',
@@ -161,5 +175,21 @@ describe('telemetry variant framework', () => {
     expect(markup[5]).toContain('FREE PASS')
     expect(markup[6]).toContain('STEER')
     expect(markup.slice(0, 7).every((output) => output.includes('var(--overlay-accent'))).toBe(true)
+  })
+
+  it('renders normalized DRS available, zone, active, and deactivated states', () => {
+    const widget = ALL_WIDGETS.find((entry) => entry.id === 'telemetry-drs-competition')
+    expect(widget).toBeDefined()
+    const render = (drsState: 0 | 1 | 2 | 3, phase = 'drs-state') =>
+      renderToStaticMarkup(createElement(widget!.render, {
+        snapshot: { ...baseSnapshot(), drsState },
+        width: widget!.defaultSize.w,
+        height: widget!.defaultSize.h,
+        visibility: { visible: true, active: drsState > 0, held: phase === 'drs-deactivated', phase }
+      }))
+    expect(render(1)).toContain('DRS AVAILABLE')
+    expect(render(2)).toContain('DRS ZONE')
+    expect(render(3)).toContain('DRS ACTIVE')
+    expect(render(0, 'drs-deactivated')).toContain('DRS DEACTIVATED')
   })
 })

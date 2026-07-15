@@ -142,7 +142,14 @@ function HifiWidgetView({ props, ai, unitSystem }: { props: WidgetProps; ai: Hif
   const fillBox = BOX_FILL_STRIP_IDS.has(mod.id)
   const dw = Math.max(1, Math.round(fillBox ? props.config.position.width : mod.defaultSize.w))
   const dh = Math.max(1, Math.round(fillBox ? props.config.position.height : mod.defaultSize.h))
-  const content = mod.render({ snapshot: props.snapshot, ai, width: dw, height: dh, unitSystem })
+  const content = mod.render({
+    snapshot: props.snapshot,
+    ai,
+    width: dw,
+    height: dh,
+    unitSystem,
+    visibility: props.visibility
+  })
   const style = props.config.style
   const borderColor = style.borderColor ?? style.border
   const borderWidth = Math.max(0, Math.round(style.borderWidth ?? (borderColor && borderColor !== 'transparent' ? 1 : 0)))

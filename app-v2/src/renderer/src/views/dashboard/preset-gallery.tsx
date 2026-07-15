@@ -3,12 +3,13 @@
 import { Component, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement, ReactNode, RefObject } from 'react'
 import type { Dashboard, DashboardPreset } from '../../../../shared/dashboards'
-import { DEFAULT_DASHBOARD_PRESET_PRIORITY, sortElementsByZ } from '../../../../shared/dashboards'
+import { sortElementsByZ } from '../../../../shared/dashboards'
 import { renderDashboardElement } from '../../dashboard/DashboardRoot'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
 import { TagFilter, filterByTags } from '../../components/TagFilter'
 import { APP_SETTINGS_CHANGED_EVENT, resolveAppLanguage, type ResolvedLanguage } from '../../i18n'
 import type { AppSettings } from '../../../../shared/settings'
+import { compareCatalogEntries } from '../../../../shared/catalog-order'
 import '../../overlay/overlay-view.css'
 
 const ACCENT = 'var(--accent-primary)'
@@ -20,10 +21,6 @@ export type PresetEntry = DashboardPreset
 
 const THUMB_W = 248
 const THUMB_H = 140
-
-function presetPriority(entry: PresetEntry): number {
-  return Number.isFinite(entry.priority) ? entry.priority as number : DEFAULT_DASHBOARD_PRESET_PRIORITY
-}
 
 class PresetThumbBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -161,10 +158,7 @@ export function PresetGallery({
     return () => window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, onSettingsChanged)
   }, [])
   const orderedPresets = useMemo(
-    () => presets
-      .map((preset, index) => ({ preset, index }))
-      .sort((a, b) => presetPriority(a.preset) - presetPriority(b.preset) || a.index - b.index)
-      .map(({ preset }) => preset),
+    () => [...presets].sort(compareCatalogEntries),
     [presets]
   )
   const filtered = useMemo(() => filterByTags(orderedPresets, selectedTags, (preset) => preset.tags), [orderedPresets, selectedTags])

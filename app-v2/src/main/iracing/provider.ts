@@ -1,5 +1,5 @@
 import type { Corners, DriverEntry, Flags, IRacingDiagnostics, IRacingMmfDiagnostics, PitStatus, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
-import { carLeftRightStateFromEnum, carLeftRightCountFromEnum, engineWarningsFromBitfield, sessionStateLabel, paceModeLabel, paceFlagsList, deriveTcActive, tcOptionsForSensitivity, tcLatchTimingsForSensitivity, TcLatch, TC_ACTIVE_DERIVED, type TcSensitivity } from '../../shared/telemetry'
+import { carLeftRightStateFromEnum, carLeftRightCountFromEnum, drsStateFromRaw, engineWarningsFromBitfield, sessionStateLabel, paceModeLabel, paceFlagsList, deriveTcActive, tcOptionsForSensitivity, tcLatchTimingsForSensitivity, TcLatch, TC_ACTIVE_DERIVED, type TcSensitivity } from '../../shared/telemetry'
 import { ReplayContextTracker } from '../../shared/replay'
 import { inHgToKpa, mss2ToG } from '../../shared/units'
 import { FALLBACK_SHIFT_BLINK_PCT, redlineBandPct } from '../../shared/revlights'
@@ -25,6 +25,7 @@ type DriverStaticEntry = Pick<
   | 'teamName'
   | 'carPath'
   | 'carNumberRaw'
+  | 'isPaceCar'
 > & {
   fallbackPosition: number
   fallbackClassPosition: number
@@ -313,6 +314,7 @@ function buildDriverStatic(sessionInfo: any): DriverStaticEntry[] | undefined {
       teamName: typeof driver.TeamName === 'string' && driver.TeamName ? driver.TeamName : undefined,
       carPath: typeof driver.CarPath === 'string' && driver.CarPath ? driver.CarPath : undefined,
       carNumberRaw: optionalNum(driver.CarNumberRaw),
+      isPaceCar: optionalBool(driver.CarIsPaceCar),
       fallbackPosition: result?.position ?? num(driver.CarIdxPosition, 0),
       fallbackClassPosition: result?.classPosition ?? num(driver.CarIdxClassPosition, 0)
     }
@@ -883,6 +885,7 @@ export class IRacingProvider implements TelemetryProvider {
     const pushToPass = optionalBool(firstDefined(values.P2P_Status, values.PushToPass))
     const pushToPassCount = optionalInt(values.P2P_Count)
     const weatherDeclaredWet = optionalBool(values.WeatherDeclaredWet)
+    const drsState = drsStateFromRaw(values.DRS_Status)
     const trackSurfaceMaterial = optionalInt(values.PlayerTrackSurfaceMaterial)
     // New SDK-gap channels (all OPTIONAL / undefined-safe). EngineWarnings is the
     // dashboard tell-tale bitfield; BrakeABSCutPct is the % of brake pressure the ABS
@@ -961,6 +964,7 @@ export class IRacingProvider implements TelemetryProvider {
       altitudeM: optionalNum(values.Alt),
       velocityZ: optionalNum(values.VelocityZ),
       drs: values.DRS_Status !== undefined ? num(values.DRS_Status, 0) >= 2 : bool(values.DRS_Active),
+      drsState,
       absActive: optionalBool(values.BrakeABSactive),
       absEnabled: bool(values.BrakeABSactive) || num(absLevel, 0) > 0,
       absLevel: typeof absLevel === 'number' || typeof absLevel === 'string' ? absLevel : undefined,

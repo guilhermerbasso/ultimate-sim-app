@@ -1,9 +1,11 @@
-import type { OverlayListItem, OverlayPosition, OverlayTrigger, OverlayWidgetConfig, OverlayWidgetDefinition, OverlayWidgetId, OverlaysConfig } from '../../../shared/overlays'
+import type { OverlayListItem, OverlayPosition, OverlayTrigger, OverlayTriggerResult, OverlayWidgetConfig, OverlayWidgetDefinition, OverlayWidgetId, OverlaysConfig } from '../../../shared/overlays'
 import {
   createDefaultOverlayStyle,
   createDefaultOverlaysConfig,
   DEFAULT_OVERLAY_STYLE_PRESET,
-  OVERLAY_WIDGETS
+  OVERLAY_WIDGETS,
+  sanitizeOverlayTrigger,
+  sanitizeOverlayTriggerForRole
 } from '../../../shared/overlays'
 import { HIFI_WIDGETS, hifiWidgetTags } from '../hifi/widgets/registry'
 
@@ -39,6 +41,11 @@ export const HIFI_OVERLAY_DEFS: OverlayWidgetDefinition[] = HIFI_WIDGETS.map((mo
   category: module.category,
   tags: hifiWidgetTags(module),
   requires: module.requires,
+  role: module.role,
+  defaultTrigger: module.defaultTrigger,
+  catalogOrder: module.catalogOrder,
+  releasedAt: module.releasedAt,
+  priority: module.priority,
   defaultPosition: defaultPosition(index, module.defaultSize)
 }))
 
@@ -61,6 +68,7 @@ export function hifiOverlayConfigs(): Record<string, OverlayWidgetConfig> {
           style: createDefaultOverlayStyle(),
           display: null,
           hifiModuleId: moduleId,
+          role: definition.role,
           ...(HIFI_DEFAULT_TRIGGERS[definition.id] ? { trigger: HIFI_DEFAULT_TRIGGERS[definition.id] } : {})
         } satisfies OverlayWidgetConfig
       ]
@@ -82,15 +90,19 @@ export function createDefaultOverlaysConfigWithHifi(): OverlaysConfig {
 export function mergeHifiOverlayConfigs(config: OverlaysConfig): OverlaysConfig {
   const hifiDefaults = hifiOverlayConfigs()
   const hifiWidgets = Object.fromEntries(
-    Object.entries(hifiDefaults).map(([id, defaults]) => [
-      id,
-      {
+    Object.entries(hifiDefaults).map(([id, defaults]) => {
+      const definition = HIFI_OVERLAY_DEFS.find((item) => item.id === id)
+      const current = config.widgets[id as OverlayWidgetId]
+      const merged = {
         ...defaults,
-        ...(config.widgets[id as OverlayWidgetId] ?? {}),
+        ...(current ?? {}),
         id: id as OverlayWidgetId,
-        hifiModuleId: defaults.hifiModuleId
+        hifiModuleId: defaults.hifiModuleId,
+        role: definition?.role ?? current?.role
       }
-    ])
+      merged.trigger = resolveOverlayTrigger(definition, current)
+      return [id, merged]
+    })
   )
   return {
     ...config,
@@ -99,6 +111,30 @@ export function mergeHifiOverlayConfigs(config: OverlaysConfig): OverlaysConfig 
       ...hifiWidgets
     } as OverlaysConfig['widgets']
   }
+}
+
+export function resolveOverlayTrigger(
+  definition: OverlayWidgetDefinition | undefined,
+  config: Pick<OverlayWidgetConfig, 'trigger'> | null | undefined
+): OverlayTrigger | null {
+  const fallback = definition?.defaultTrigger ?? null
+  if (config?.trigger == null) {
+    return definition?.role === 'alert'
+      ? sanitizeOverlayTriggerForRole(null, definition.role, fallback)
+      : fallback
+  }
+  if (definition?.role === 'alert') {
+    return sanitizeOverlayTriggerForRole(config.trigger, definition.role, fallback)
+  }
+  return sanitizeOverlayTrigger(config.trigger)
+}
+
+export function shouldRenderOverlayRuntime(
+  definition: OverlayWidgetDefinition | undefined,
+  config: Pick<OverlayWidgetConfig, 'locked'>,
+  visibility: OverlayTriggerResult
+): boolean {
+  return definition?.role !== 'alert' && !config.locked ? true : visibility.visible
 }
 
 export function hasAllHifiOverlayConfigs(config: OverlaysConfig): boolean {
@@ -112,6 +148,7 @@ export function mergeHifiOverlayItems(items: OverlayListItem[], config: Overlays
     return {
       ...definition,
       ...current,
+      role: definition.role,
       visible: Boolean(current?.enabled)
     } as OverlayListItem
   })
@@ -120,4 +157,3 @@ export function mergeHifiOverlayItems(items: OverlayListItem[], config: Overlays
     ...hifiItems.filter((item) => !byId.has(item.id))
   ]
 }
-

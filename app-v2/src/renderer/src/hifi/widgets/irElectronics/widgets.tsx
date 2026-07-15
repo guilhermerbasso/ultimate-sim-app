@@ -33,10 +33,27 @@ function Glow({ id, color }: { id: string; color: string }): ReactElement {
   )
 }
 
-function DrsBadge({ width, height, snapshot }: HifiWidgetProps): ReactElement {
-  const active = snapshot?.drs === true
-  const color = active ? C.green : OFF_STROKE
-  const fill = active ? 'rgba(34,224,106,0.28)' : OFF_FILL
+function DrsBadge({ width, height, snapshot, visibility }: HifiWidgetProps): ReactElement {
+  const state = snapshot?.drsState
+  const deactivated = visibility?.phase === 'drs-deactivated'
+  const label = deactivated
+    ? 'DEACTIVATED'
+    : state === 1
+      ? 'AVAILABLE'
+      : state === 2
+        ? 'ZONE'
+        : state === 3
+          ? 'ACTIVE'
+          : '—'
+  const active = deactivated || state === 1 || state === 2 || state === 3
+  const color = state === 3 && !deactivated
+    ? C.green
+    : state === 2 && !deactivated
+      ? C.amber
+      : active
+        ? C.cyan
+        : OFF_STROKE
+  const fill = active ? `${color}38` : OFF_FILL
   return (
     <Root width={width} height={height} snapshot={snapshot}>
       <defs>
@@ -44,9 +61,14 @@ function DrsBadge({ width, height, snapshot }: HifiWidgetProps): ReactElement {
       </defs>
       <g filter={active ? 'url(#irElectronicsDrsGlow)' : undefined} opacity={active ? 1 : 0.42}>
         <rect x={29} y={55} width={262} height={111} rx={32} fill={fill} stroke={color} strokeWidth={8} />
-        <text x={160} y={137} textAnchor="middle" fill={active ? '#14ff22' : C.dim} fontFamily={FONT_LABEL} fontSize={82} fontWeight={900} letterSpacing={5} {...legibleStroke(82)}>
+        <text x={160} y={121} textAnchor="middle" fill={active ? color : C.dim} fontFamily={FONT_LABEL} fontSize={70} fontWeight={900} letterSpacing={5} {...legibleStroke(70)}>
           DRS
         </text>
+        {label !== '—' ? (
+          <text x={160} y={151} textAnchor="middle" fill={active ? color : C.dim} fontFamily={FONT_LABEL} fontSize={18} fontWeight={900} letterSpacing={2.5} {...LEGIBLE}>
+            {label}
+          </text>
+        ) : null}
         <rect x={45} y={71} width={230} height={79} rx={24} fill="none" stroke={active ? 'rgba(255,255,255,0.76)' : 'rgba(255,255,255,0.18)'} strokeWidth={3} opacity={active ? 0.9 : 0.35} />
       </g>
     </Root>
@@ -128,10 +150,10 @@ function PushToPassCount({ width, height, snapshot }: HifiWidgetProps): ReactEle
 export const drsWidget: HifiWidgetModule = {
   id: 'drs',
   title: 'DRS',
-  description: 'Clean DRS tell-tale badge that glows bright green while DRS is active.',
+  description: 'Trigger-only DRS state badge for available, zone, active, and the five-second deactivated hold.',
   category: 'controls',
   tags: ['drs', 'controls', 'electronics', 'badge', 'telltale', 'clean'],
-  requires: ['drs'],
+  requires: ['drsState'],
   defaultSize: { w: W, h: H },
   render: (props) => <DrsBadge {...props} />
 }
