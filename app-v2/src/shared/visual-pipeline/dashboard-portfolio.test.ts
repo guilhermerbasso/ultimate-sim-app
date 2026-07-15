@@ -120,6 +120,36 @@ describe('Release B dashboard portfolio registry', () => {
     }
   })
 
+  it('uses condition or event phrases for trigger-only alerts, never workflow policies', () => {
+    const workflowPolicyPatterns = [
+      /\bat a time\b/i,
+      /\bqueue(?:d|ing)? decision alert\b/i,
+      /\brequir(?:e|es|ed|ing) (?:explicit )?acknowledg(?:e)?ment\b/i,
+      /\bworkflow policy\b/i
+    ]
+
+    for (const entry of DASHBOARD_PORTFOLIO) {
+      for (const alert of entry.triggerOnlyAlerts) {
+        expect(
+          workflowPolicyPatterns.some((pattern) => pattern.test(alert)),
+          `${entry.id}: ${alert}`
+        ).toBe(false)
+      }
+    }
+
+    const calmPitwall = lookupDashboardPortfolioEntry('R2-45')
+    expect(calmPitwall?.triggerOnlyAlerts).toEqual([
+      'configured critical-fuel threshold decision alert',
+      'pit-window closing decision alert',
+      'red-flag stop decision alert',
+      'driver-time limit decision alert'
+    ])
+    expect(calmPitwall?.layoutGrammar).toContain('later decisions to a queue count')
+    expect(calmPitwall?.imagePromptConstraints.requiredComposition.join(' ')).toContain(
+      'explicit acknowledgement for consequential changes'
+    )
+  })
+
   it('enforces the prompt IP and business-dashboard guardrails per entry', () => {
     for (const entry of DASHBOARD_PORTFOLIO) {
       const avoid = entry.imagePromptConstraints.avoid.join(' ').toLowerCase()

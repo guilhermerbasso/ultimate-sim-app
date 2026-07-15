@@ -861,7 +861,7 @@ export const DASHBOARD_PORTFOLIO_ENTRIES_F_J = [
       'external:pitwallWorkflowState', 'derived:strategyWindow',
       'derived:decisionRecommendation'
     ],
-    layoutGrammar: 'A stable four-step vertical flow—DECIDE, EVIDENCE, RECOMMEND, CONFIRM—reveals one section at a time while preserving fixed positions and large targets.',
+    layoutGrammar: 'A stable four-step vertical flow—DECIDE, EVIDENCE, RECOMMEND, CONFIRM—shows one active decision at a time, reduces later decisions to a queue count, and reserves CONFIRM for explicit acknowledgement of consequential changes while preserving fixed positions and large targets.',
     visualLanguage: 'Warm, calm operations interface with deliberate pacing and no reordering or alarm cascade.',
     materials: ['warm dark-gray matte surface', 'soft-touch visual panels', 'low-glare flat controls'],
     typographyConstraints: 'Humanist sans, plain language, large targets, short sentences, and no dense abbreviations without explanation.',
@@ -869,7 +869,7 @@ export const DASHBOARD_PORTFOLIO_ENTRIES_F_J = [
     differentiation: 'Unlike every other engineer page, this brief behaves as a guided task workflow rather than a simultaneous data workspace.',
     candidateWidgetConcepts: ['decision step', 'evidence summary', 'recommendation block', 'confirmation control', 'single-alert queue'],
     ordinaryOverlays: ['race-state header', 'next decision queue count', 'source/freshness footer'],
-    triggerOnlyAlerts: ['one queued decision alert at a time', 'critical stop recommendation', 'required acknowledgement for consequential change'],
+    triggerOnlyAlerts: ['configured critical-fuel threshold decision alert', 'pit-window closing decision alert', 'red-flag stop decision alert', 'driver-time limit decision alert'],
     tags: ['dashboard', 'release-b', 'telemetry-framework', '1024x600', 'family-i', 'accessibility', 'cognitive', 'strategy', 'workflow', 'minimal'],
     researchNotes: [
       'The workflow must never reorder itself or show multiple competing alarms; consequential changes require explicit acknowledgement.',
@@ -880,8 +880,8 @@ export const DASHBOARD_PORTFOLIO_ENTRIES_F_J = [
       canvas: DASHBOARD_PORTFOLIO_CANVAS,
       viewpoint: 'Orthographic guided pit-wall workflow with no office scene, people, or generic web application frame.',
       sampleReadouts: ['DECISION: PIT IN 3 LAPS?', 'EVIDENCE: FUEL +0.4 / RAIN ETA 8 MIN', 'RECOMMEND: STAY OUT', 'CONFIRM'],
-      requiredComposition: ['four stable labeled steps', 'one expanded current step', 'large confirmation target and one-alert queue'],
-      legibility: 'No blinking, movement, or reordering; each step uses plain language and large readable text.',
+      requiredComposition: ['four stable labeled steps', 'exactly one expanded active decision with later decisions shown only as a queue count', 'large CONFIRM target requiring explicit acknowledgement for consequential changes'],
+      legibility: 'No blinking, movement, or reordering; each step uses plain language and large readable text, and queued items never compete with the single active decision alert.',
       avoid: DASHBOARD_PORTFOLIO_PROMPT_PROHIBITIONS,
       avoidAlso: ['no kanban cards', 'no toast notification pile', 'no simultaneous conflicting recommendations']
     }

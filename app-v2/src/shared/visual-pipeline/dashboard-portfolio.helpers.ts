@@ -20,6 +20,12 @@ const PORTFOLIO_ID_SET = new Set<string>(DASHBOARD_PORTFOLIO_IDS)
 const FAMILY_ID_SET = new Set<string>(DASHBOARD_PORTFOLIO_FAMILY_IDS)
 const SOURCE_ID_SET = new Set<string>(DASHBOARD_PORTFOLIO_SOURCE_IDS)
 const TELEMETRY_CONCEPT_ID_SET = new Set<string>(DASHBOARD_PORTFOLIO_TELEMETRY_CONCEPT_IDS)
+const WORKFLOW_POLICY_ALERT_PATTERNS = [
+  /\bat a time\b/i,
+  /\bqueue(?:d|ing)? decision alert\b/i,
+  /\brequir(?:e|es|ed|ing) (?:explicit )?acknowledg(?:e)?ment\b/i,
+  /\bworkflow policy\b/i
+] as const
 const PORTFOLIO_BY_ID = new Map<string, DashboardPortfolioEntry>(
   DASHBOARD_PORTFOLIO.map((entry) => [entry.id, entry] as const)
 )
@@ -222,6 +228,9 @@ export function validateDashboardPortfolioEntry(entry: DashboardPortfolioEntry):
   for (const alert of entry.triggerOnlyAlerts) {
     if (ordinary.has(normalizedSemanticText(alert))) {
       errors.push(`alert duplicates an ordinary overlay: ${alert}`)
+    }
+    if (WORKFLOW_POLICY_ALERT_PATTERNS.some((pattern) => pattern.test(alert))) {
+      errors.push(`trigger-only alert is a workflow policy, not a condition or event: ${alert}`)
     }
   }
 
