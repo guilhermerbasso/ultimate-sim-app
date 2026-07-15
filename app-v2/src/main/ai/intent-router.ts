@@ -107,7 +107,7 @@ function matchCommand(text: string, lang: IntentLang): IntentCommand | null {
       return command('dashboard.prev', lang, 'Dashboard anterior.', 'Previous dashboard.', 'dash:cyclePrev')
     }
     if (NEXT_TOKENS.some((t) => hasWord(text, t))) {
-      return command('dashboard.next', lang, 'Proximo dashboard.', 'Next dashboard.', 'dash:cycleNext')
+      return command('dashboard.next', lang, 'Próximo dashboard.', 'Next dashboard.', 'dash:cycleNext')
     }
   }
 
@@ -118,12 +118,12 @@ function matchCommand(text: string, lang: IntentLang): IntentCommand | null {
 
   // Mark / flag the current lap
   if (hasWord(text, 'marcar', 'marca', 'marque', 'mark', 'flag', 'flagging') && has(text, 'lap', 'lap')) {
-    return command('lap.mark', lang, 'Lap marked.', 'Lap marked.', 'lap:mark')
+    return command('lap.mark', lang, 'Volta marcada.', 'Lap marked.', 'lap:mark')
   }
 
   // Reset fuel calculation
   if (hasWord(text, 'resetar', 'reseta', 'resete', 'zerar', 'zera', 'reset', 'limpar', 'limpa') && has(text, 'fuel', 'fuel', 'gasolina', 'tanque')) {
-    return command('fuel.reset', lang, 'Fuel calculation reset.', 'Fuel calculation reset.', 'fuel:reset')
+    return command('fuel.reset', lang, 'Cálculo de combustível reiniciado.', 'Fuel calculation reset.', 'fuel:reset')
   }
 
   // Rev-lights toggle — check DISABLE before ENABLE.
@@ -228,31 +228,48 @@ function matchQuestion(text: string, lang: IntentLang, ctx: EngineerContext, uni
 
 // ─── answer builders ─────────────────────────────────────────────────────────
 
+function formatFuelPerLapForSpeech(value: number, unitSystem: UnitSystem, pt: boolean): string {
+  const measurement = formatMeasurement(value, 'fuel-per-lap-l', unitSystem, {
+    decimals: 2,
+    trimTrailingZeros: true,
+    includeUnit: !pt
+  })
+  if (!pt) return measurement.display
+  const number = measurement.display.replace('.', ',')
+  const singular = measurement.value !== undefined && Math.abs(measurement.value - 1) < 0.0001
+  if (unitSystem === 'imperial') return `${number} ${singular ? 'galão' : 'galões'} por volta`
+  return `${number} ${singular ? 'litro' : 'litros'} por volta`
+}
+
 function buildFuelAnswer(ctx: EngineerContext, lang: IntentLang, finishFirst: boolean, unitSystem: UnitSystem): string {
   const fuel = deriveFuel(ctx.getSnapshot(), ctx.getFuelState?.())
   const pt = lang === 'pt'
   const parts: string[] = []
 
   if (finishFirst && typeof fuel.canFinish === 'boolean') {
-    if (fuel.canFinish) parts.push(pt ? 'Can we finish.' : 'You can make the finish.')
-    else parts.push(pt ? 'We cannot finish — you will need to pit.' : "You can't make the finish — you'll need to pit.")
+    if (fuel.canFinish) parts.push(pt ? 'Dá para chegar ao fim.' : 'You can make the finish.')
+    else parts.push(pt ? 'Não dá para chegar ao fim — será preciso parar nos boxes.' : "You can't make the finish — you'll need to pit.")
   }
 
   if (isFiniteNum(fuel.liters)) {
-    parts.push(`Fuel: ${formatMeasurement(fuel.liters, 'fuel-volume-l', unitSystem, { decimals: 1, trimTrailingZeros: true, includeUnit: true }).display}`)
+    parts.push(`${pt ? 'Combustível' : 'Fuel'}: ${formatMeasurement(fuel.liters, 'fuel-volume-l', unitSystem, { decimals: 1, trimTrailingZeros: true, includeUnit: true }).display}`)
   }
-  if (isFiniteNum(fuel.perLap)) parts.push(formatMeasurement(fuel.perLap, 'fuel-per-lap-l', unitSystem, { decimals: 2, trimTrailingZeros: true, includeUnit: true }).display)
-  if (isFiniteNum(fuel.lapsLeft)) parts.push(pt ? `good for about ${fuel.lapsLeft} laps` : `good for ~${fuel.lapsLeft} laps`)
+  if (isFiniteNum(fuel.perLap)) {
+    const perLap = formatFuelPerLapForSpeech(fuel.perLap, unitSystem, pt)
+    parts.push(pt ? `consumo ${perLap}` : perLap)
+  }
+  if (isFiniteNum(fuel.lapsLeft)) parts.push(pt ? `cerca de ${fuel.lapsLeft} voltas` : `good for ~${fuel.lapsLeft} laps`)
 
   if (!finishFirst && typeof fuel.canFinish === 'boolean') {
-    if (fuel.canFinish) parts.push(pt ? 'can finish' : 'enough to finish')
-    else parts.push(pt ? 'cannot finish' : 'not enough to finish')
+    if (fuel.canFinish) parts.push(pt ? 'combustível suficiente até o fim' : 'enough to finish')
+    else parts.push(pt ? 'combustível insuficiente até o fim' : 'not enough to finish')
   }
   if (isFiniteNum(fuel.saveTargetPerLap) && fuel.saveTargetPerLap > 0) {
-    parts.push(`save ${formatMeasurement(fuel.saveTargetPerLap, 'fuel-per-lap-l', unitSystem, { decimals: 2, trimTrailingZeros: true, includeUnit: true }).display}`)
+    const save = formatFuelPerLapForSpeech(fuel.saveTargetPerLap, unitSystem, pt)
+    parts.push(pt ? `economize ${save}` : `save ${save}`)
   }
 
-  if (parts.length === 0) return pt ? 'No fuel data yet.' : 'No fuel data yet.'
+  if (parts.length === 0) return pt ? 'Ainda não há dados de combustível.' : 'No fuel data yet.'
   return `${parts.join(pt ? '. ' : ', ')}.`
 }
 
@@ -261,13 +278,13 @@ function buildPitAnswer(ctx: EngineerContext, lang: IntentLang): string {
   const pt = lang === 'pt'
   const parts: string[] = []
 
-  if (rec.recommendPit) parts.push(pt ? 'Yes, pit now.' : 'Yes, pit.')
-  else parts.push(pt ? 'No need to pit now.' : 'No need to pit yet.')
+  if (rec.recommendPit) parts.push(pt ? 'Sim, pare nos boxes agora.' : 'Yes, pit.')
+  else parts.push(pt ? 'Não precisa parar agora.' : 'No need to pit yet.')
 
-  if (rec.fuelStatus === 'save') parts.push(pt ? 'Save fuel to stretch the stint.' : 'Save fuel to stretch the stint.')
-  if (isFiniteNum(rec.fuelLapsLeft)) parts.push(pt ? `fuel good for about ${rec.fuelLapsLeft} laps` : `fuel for ~${rec.fuelLapsLeft} laps`)
-  if (isFiniteNum(rec.tyreLapsLeft)) parts.push(pt ? `tires good for about ${rec.tyreLapsLeft} laps` : `tyres for ~${rec.tyreLapsLeft} laps`)
-  if (isPositive(rec.recommendedPitLap)) parts.push(pt ? `window on lap ${rec.recommendedPitLap}` : `window on lap ${rec.recommendedPitLap}`)
+  if (rec.fuelStatus === 'save') parts.push(pt ? 'Economize combustível para prolongar o stint.' : 'Save fuel to stretch the stint.')
+  if (isFiniteNum(rec.fuelLapsLeft)) parts.push(pt ? `combustível para cerca de ${rec.fuelLapsLeft} voltas` : `fuel for ~${rec.fuelLapsLeft} laps`)
+  if (isFiniteNum(rec.tyreLapsLeft)) parts.push(pt ? `pneus para cerca de ${rec.tyreLapsLeft} voltas` : `tyres for ~${rec.tyreLapsLeft} laps`)
+  if (isPositive(rec.recommendedPitLap)) parts.push(pt ? `janela na volta ${rec.recommendedPitLap}` : `window on lap ${rec.recommendedPitLap}`)
 
   return `${parts.join(pt ? '. ' : ', ')}.`
 }
@@ -279,13 +296,13 @@ function buildGapAnswer(ctx: EngineerContext, lang: IntentLang, wantAhead: boole
   const parts: string[] = []
 
   if ((wantAhead || both) && isFiniteNum(gaps.aheadSec)) {
-    parts.push(pt ? `Ahead: ${gaps.aheadSec}s${gaps.aheadName ? ` (${gaps.aheadName})` : ''}` : `Ahead: ${gaps.aheadSec}s${gaps.aheadName ? ` (${gaps.aheadName})` : ''}`)
+    parts.push(pt ? `À frente: ${gaps.aheadSec}s${gaps.aheadName ? ` (${gaps.aheadName})` : ''}` : `Ahead: ${gaps.aheadSec}s${gaps.aheadName ? ` (${gaps.aheadName})` : ''}`)
   }
   if ((wantBehind || both) && isFiniteNum(gaps.behindSec)) {
-    parts.push(pt ? `Behind: ${gaps.behindSec}s${gaps.behindName ? ` (${gaps.behindName})` : ''}` : `Behind: ${gaps.behindSec}s${gaps.behindName ? ` (${gaps.behindName})` : ''}`)
+    parts.push(pt ? `Atrás: ${gaps.behindSec}s${gaps.behindName ? ` (${gaps.behindName})` : ''}` : `Behind: ${gaps.behindSec}s${gaps.behindName ? ` (${gaps.behindName})` : ''}`)
   }
 
-  if (parts.length === 0) return pt ? 'No nearby cars right now.' : 'No cars close right now.'
+  if (parts.length === 0) return pt ? 'Não há carros próximos agora.' : 'No cars close right now.'
   return `${parts.join('. ')}.`
 }
 
@@ -297,18 +314,18 @@ function buildLapsAnswer(ctx: EngineerContext, lang: IntentLang): string {
   // and before lap pace is established at the green — exactly when this is most asked. Treat
   // any >= 9999 as "not a real lap count" and fall back to the timed-session message.
   if (!isFiniteNum(laps) || (laps as number) < 0 || (laps as number) >= 9999) {
-    return pt ? 'Remaining laps unavailable (timed session?).' : 'Laps remaining unavailable (timed session?).'
+    return pt ? 'Número de voltas indisponível, talvez seja uma sessão por tempo.' : 'Laps remaining unavailable (timed session?).'
   }
   const n = Math.round(laps as number)
-  if (n <= 0) return pt ? 'Last lap.' : 'Last lap.'
-  return pt ? `About ${n} laps to go.` : `~${n} laps to go.`
+  if (n <= 0) return pt ? 'Última volta.' : 'Last lap.'
+  return pt ? `Cerca de ${n} voltas restantes.` : `~${n} laps to go.`
 }
 
 function buildPositionAnswer(ctx: EngineerContext, lang: IntentLang): string {
   const pos = derivePosition(ctx.getSnapshot())
   const pt = lang === 'pt'
   if (!isPositive(pos.position) && !isPositive(pos.classPosition)) {
-    return pt ? 'Position unavailable.' : 'Position unavailable.'
+    return pt ? 'Posição indisponível.' : 'Position unavailable.'
   }
   const parts: string[] = []
   if (isPositive(pos.position)) parts.push(pt ? `P${pos.position} no geral` : `P${pos.position} overall`)
@@ -324,14 +341,14 @@ function buildDeltaAnswer(ctx: EngineerContext, lang: IntentLang): string {
 
   if (isFiniteNum(timing.deltaSec)) {
     const d = timing.deltaSec
-    if (d < -0.02) parts.push(pt ? `You are ${formatSignedSec(d)} — faster than your best` : `You're ${formatSignedSec(d)} — faster than your best`)
-    else if (d > 0.02) parts.push(pt ? `You are ${formatSignedSec(d)} off your best` : `You're ${formatSignedSec(d)} off your best`)
-    else parts.push(pt ? 'No pace off your best lap' : 'Right on your best pace')
+    if (d < -0.02) parts.push(pt ? `Você está ${formatSignedSec(d)} — mais rápido que sua melhor volta` : `You're ${formatSignedSec(d)} — faster than your best`)
+    else if (d > 0.02) parts.push(pt ? `Você está ${formatSignedSec(d)} acima da sua melhor volta` : `You're ${formatSignedSec(d)} off your best`)
+    else parts.push(pt ? 'No ritmo da sua melhor volta' : 'Right on your best pace')
   }
-  if (isPositive(timing.lastSec)) parts.push(pt ? `last ${formatLapTime(timing.lastSec)}` : `last ${formatLapTime(timing.lastSec)}`)
+  if (isPositive(timing.lastSec)) parts.push(pt ? `última ${formatLapTime(timing.lastSec)}` : `last ${formatLapTime(timing.lastSec)}`)
   if (isPositive(timing.bestSec)) parts.push(pt ? `melhor ${formatLapTime(timing.bestSec)}` : `best ${formatLapTime(timing.bestSec)}`)
 
-  if (parts.length === 0) return pt ? 'Sem lap time ainda.' : 'No lap-time data yet.'
+  if (parts.length === 0) return pt ? 'Ainda não há tempo de volta.' : 'No lap-time data yet.'
   return `${parts.join(pt ? '. ' : ', ')}.`
 }
 
@@ -347,10 +364,10 @@ function buildTyresAnswer(ctx: EngineerContext, lang: IntentLang, unitSystem: Un
     if (isFiniteNum(corner.wearPct)) bits.push(`${corner.wearPct}%`)
     if (bits.length) parts.push(`${id.toUpperCase()} ${bits.join(' ')}`)
   }
-  const head = parts.length ? `${pt ? 'Tires' : 'Tyres'}: ${parts.join(', ')}` : pt ? 'No tire data' : 'No tyre data'
+  const head = parts.length ? `${pt ? 'Pneus' : 'Tyres'}: ${parts.join(', ')}` : pt ? 'Sem dados dos pneus' : 'No tyre data'
   const tail: string[] = []
   if (tyres.worst) tail.push(pt ? `pior: ${tyres.worst}` : `worst: ${tyres.worst}`)
-  if (isFiniteNum(tyres.lapsLeft)) tail.push(pt ? `~${tyres.lapsLeft} laps remaining` : `~${tyres.lapsLeft} laps left`)
+  if (isFiniteNum(tyres.lapsLeft)) tail.push(pt ? `cerca de ${tyres.lapsLeft} voltas restantes` : `~${tyres.lapsLeft} laps left`)
   return `${[head, ...tail].join('. ')}.`
 }
 
@@ -363,6 +380,6 @@ function buildWeatherAnswer(ctx: EngineerContext, lang: IntentLang, unitSystem: 
   if (isFiniteNum(w.wetnessPct)) parts.push(pt ? `umidade ${w.wetnessPct}%` : `${w.wetnessPct}% wet`)
   if (isFiniteNum(w.airTempC)) parts.push(`${pt ? 'ar' : 'air'} ${formatMeasurement(w.airTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}`)
   if (isFiniteNum(w.trackTempC)) parts.push(`${pt ? 'pista' : 'track'} ${formatMeasurement(w.trackTempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display}`)
-  if (w.declaredWet) parts.push(pt ? 'rain declared — rain tires allowed' : 'wet declared — rain tyres allowed')
+  if (w.declaredWet) parts.push(pt ? 'chuva declarada — pneus de chuva permitidos' : 'wet declared — rain tyres allowed')
   return `${parts.join(pt ? ', ' : ', ')}.`
 }

@@ -183,7 +183,7 @@ function App(): ReactElement {
   useSoundshiftRuntime()
   useSpotterRuntime()
   useHapticsRuntime()
-  useTtsRuntime()
+  useTtsRuntime(language)
   useSpotter3DRuntime()
   useWakeWord()
 

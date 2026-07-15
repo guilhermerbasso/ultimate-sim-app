@@ -320,6 +320,7 @@ export default function EngineerView({ showToast, language }: AppViewProps): Rea
     })
     const unsubStatus = window.ipc.subscribe<EngineerStatus>(ENGINEER_CHANNELS.statusEvent, (s) => {
       setStatus(s)
+      setProgress(null)
       applyServerConfig(s?.config)
     })
 

@@ -362,6 +362,48 @@ describe('createEngineerOrchestrator.ask', () => {
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
     expect(answer.text.length).toBeGreaterThan(0)
   })
+
+  it('cancels an in-flight English generation instead of relabeling it as Portuguese', async () => {
+    const harness = makeHarness({ config: { language: 'en-US', speakAnswers: true } })
+    let resolveGeneration!: (result: GenerateResult) => void
+    harness.runtime.generateWithTools.mockImplementationOnce(
+      () =>
+        new Promise<GenerateResult>((resolve) => {
+          resolveGeneration = resolve
+        })
+    )
+    const orch = createEngineerOrchestrator(harness.deps)
+    const pending = orch.ask('Explain the ideal strategy')
+    await vi.waitFor(() => expect(harness.runtime.generateWithTools).toHaveBeenCalledTimes(1))
+
+    await orch.setConfig({ language: 'pt-BR' })
+    resolveGeneration({ ok: true, text: 'Stay out for two more laps.', tokens: 8, ms: 10, functionCalls: 0, stopReason: 'eogToken' })
+
+    const answer = await pending
+    expect(answer.lang).toBe('pt-BR')
+    expect(answer.speak).toBe(false)
+    expect(answer.text).toBe('Solicitação cancelada porque a configuração de idioma mudou. Tente novamente.')
+    expect(answer.text).not.toContain('Stay out')
+  })
+
+  it('keeps every fallback response in PT-BR when Portuguese is configured', async () => {
+    const noCommandHarness = makeHarness({ config: { language: 'pt-BR' } })
+    const noCommand = await createEngineerOrchestrator(noCommandHarness.deps).ask('salvar setup')
+    expect(noCommand.text).toBe('Ainda não consigo fazer isso por aqui.')
+
+    const disabledHarness = makeHarness({ config: { language: 'pt-BR', enabled: false } })
+    const disabled = await createEngineerOrchestrator(disabledHarness.deps).ask('boxes agora?')
+    expect(disabled.text).toBe('O engenheiro de IA está desativado. Ative-o nas configurações.')
+
+    const noModelHarness = makeHarness({ config: { language: 'pt-BR' } })
+    noModelHarness.modelManager.ensureModel.mockResolvedValueOnce({
+      ok: false,
+      id: noModelHarness.deps.config.modelId,
+      error: 'offline'
+    })
+    const noModel = await createEngineerOrchestrator(noModelHarness.deps).ask('explique a estratégia ideal')
+    expect(noModel.text).toBe('Não consegui carregar o modelo de IA. Verifique a conexão e tente baixar novamente.')
+  })
 })
 
 describe('createEngineerOrchestrator.setConfig', () => {

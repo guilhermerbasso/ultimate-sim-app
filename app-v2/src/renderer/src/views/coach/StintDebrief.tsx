@@ -129,7 +129,7 @@ export default function StintDebrief(): ReactElement {
     const speech = lines.join('. ')
     setSpeaking(true)
     try {
-      await speakViaTts(speech, { lang: 'pt-BR' })
+      await speakViaTts(speech, { lang: debrief.language, source: 'coach' })
     } finally {
       setSpeaking(false)
     }
