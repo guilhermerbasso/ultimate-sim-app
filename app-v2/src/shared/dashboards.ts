@@ -396,6 +396,8 @@ export interface DashboardElementStyle {
   chartSource?: 'tyreTemp' | 'tyrePressure' | 'tyreWear' | 'brakeTemp' | 'inputs' | 'fuel' | 'lap'
   heatSource?: 'tyre' | 'brake' // heatmap
   statusKind?: 'abs' | 'tc' | 'drs' | 'pit' | 'flag' | 'rain' | 'limiter' // statuslamp
+  statusOnText?: string // arbitrary-binding statuslamp true label
+  statusOffText?: string // arbitrary-binding statuslamp false label
   digits?: number // segment7: nº de dígitos do backdrop fantasma (default 3)
   ghost?: boolean // segment7: desenhar dígitos "88:88" apagados behind (default true)
   needleColor?: string // cor do ponteiro analog (default = accentColor)

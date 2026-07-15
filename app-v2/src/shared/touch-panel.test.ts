@@ -7,17 +7,19 @@ import {
   clampColumns,
   clampFontSize,
   createButtonBoxPanel,
-  describeButtonAction,
   estimateDataUrlBytes,
   IMAGE_MAX_BYTES,
   isDataUrlWithinLimit,
   isTouchPanelPlaylistItem,
   normalizeAction,
   parseButtonBoxPanel,
+  parseButtonBoxPanelDetailed,
   resizePanelButtons,
   serializeButtonBoxPanel,
   summarizeButtonBoxPanel,
-  TYRE_CORNER_LABELS
+  TOUCH_ACTION_IPC_CHANNEL,
+  TYRE_CORNER_LABELS,
+  type ButtonAction
 } from './touch-panel'
 
 describe('ButtonBox model — clamps', () => {
@@ -93,76 +95,37 @@ describe('ButtonBox model — action normalisation + IPC mapping', () => {
     ).toEqual({ kind: 'keyboard', command: { mode: 'press', keys: ['a', 'b'] } })
   })
 
-  it('parses a keys-less keyboard button without throwing in describeButtonAction', () => {
-    const json = JSON.stringify({
+  it('fails a keys-less legacy keyboard migration instead of silently changing it', () => {
+    const result = parseButtonBoxPanelDetailed({
       id: 'p1',
       name: 'Corrupt',
       columns: 1,
       rows: 1,
       buttons: [{ id: 'b1', action: { kind: 'keyboard', command: { mode: 'press' } } }]
     })
-    const parsed = parseButtonBoxPanel(json)
-    expect(parsed).not.toBeNull()
-    const action = parsed!.buttons[0].action
-    expect(action).toMatchObject({ kind: 'keyboard', command: { mode: 'press', keys: [] } })
-    expect(() => describeButtonAction(action)).not.toThrow()
-    expect(describeButtonAction(action)).toContain('Keyboard')
+    expect(result.panel).toBeNull()
+    expect(result.errors.join(' ')).toContain('has no keyboard key list')
+    expect(result.errors.join(' ')).toContain('migration aborted')
   })
 
-  it('maps an iRacing action onto iracing:command', () => {
-    const ipc = buttonActionToIpc({
-      kind: 'iracing',
-      command: { group: 'pit', name: 'pit:clearAll' }
-    })
-    expect(ipc).toEqual({ channel: 'iracing:command', args: [{ group: 'pit', name: 'pit:clearAll' }] })
-  })
-
-  it('maps a keyboard macro onto actions:testEmulation', () => {
-    const ipc = buttonActionToIpc({
-      kind: 'keyboard',
-      command: { mode: 'press', keys: ['F1'] }
-    })
-    expect(ipc).toEqual({
-      channel: 'actions:testEmulation',
-      args: [{ type: 'keyboard', command: { mode: 'press', keys: ['F1'] } }]
-    })
-  })
-
-  it('maps app actions onto their app channels', () => {
-    expect(buttonActionToIpc({ kind: 'app', command: { name: 'dash:cycleNext' } })).toEqual({
-      channel: 'app:dash:cycle',
-      args: ['next']
-    })
-    expect(buttonActionToIpc({ kind: 'app', command: { name: 'dash:cyclePrev' } })).toEqual({
-      channel: 'app:dash:cycle',
-      args: ['prev']
-    })
-    expect(
-      buttonActionToIpc({ kind: 'app', command: { name: 'overlays:toggle', overlayId: 'relative' } })
-    ).toEqual({ channel: 'overlays:toggle', args: ['relative'] })
+  it('maps every action kind through the dedicated semantic Touch channel', () => {
+    const actions: ButtonAction[] = [
+      { kind: 'iracing', command: { group: 'pit', name: 'pit:clearAll' } },
+      { kind: 'keyboard', command: { mode: 'press', keys: ['F1'] } },
+      { kind: 'app', command: { name: 'dash:cycleNext' } },
+      { kind: 'app', command: { name: 'oled:setActivePage', pageIndex: 3 } },
+      { kind: 'app', command: { name: 'overlays:toggle', overlayId: 'fuel' } }
+    ]
+    for (const action of actions) {
+      const ipc = buttonActionToIpc(action)
+      expect(ipc?.channel).toBe(TOUCH_ACTION_IPC_CHANNEL)
+      expect(ipc?.args[0]).toMatchObject({ action, phase: 'trigger', zone: 'main' })
+    }
   })
 
   it('returns null for a none action', () => {
     expect(buttonActionToIpc({ kind: 'none' })).toBeNull()
-  })
-
-  it('passes the OLED page index through to oled:setActivePage', () => {
-    expect(
-      buttonActionToIpc({ kind: 'app', command: { name: 'oled:setActivePage', pageIndex: 3 } })
-    ).toEqual({ channel: 'oled:setActivePage', args: [3] })
-    // Defaults to page 0 when no index is set.
-    expect(buttonActionToIpc({ kind: 'app', command: { name: 'oled:setActivePage' } })).toEqual({
-      channel: 'oled:setActivePage',
-      args: [0]
-    })
-  })
-
-  it('passes the chosen overlay id through to overlays:toggle', () => {
-    expect(
-      buttonActionToIpc({ kind: 'app', command: { name: 'overlays:toggle', overlayId: 'fuel' } })
-    ).toEqual({ channel: 'overlays:toggle', args: ['fuel'] })
-  })
-})
+  })})
 
 describe('ButtonBox model — tyre corner labels (QA: inverted L/R)', () => {
   // Corner-code semantics: L=Esquerdo, R=Direito, F=Dianteiro, R(ear)=Traseiro.

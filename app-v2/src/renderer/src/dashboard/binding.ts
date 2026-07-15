@@ -160,6 +160,76 @@ interface VarCacheEntry {
 const varCache = new Map<string, VarCacheEntry>()
 const exprCacheByName = new Map<string, VarCacheEntry>()
 const exprCacheById = new Map<string, VarCacheEntry>()
+const varCacheByRouteId = new Map<string, { name: string; entry: VarCacheEntry; revision: number }>()
+const varCacheRouteByName = new Map<string, string>()
+const exprNameById = new Map<string, string>()
+let varCacheRevision = 0
+
+function rebuildVarName(name: string): void {
+  const candidates = [...varCacheByRouteId.values()].filter((item) => item.name === name)
+  const latest = candidates.reduce<(typeof candidates)[number] | undefined>(
+    (selected, item) => (!selected || item.revision > selected.revision ? item : selected),
+    undefined
+  )
+  if (latest) {
+    varCache.set(name, latest.entry)
+    const route = [...varCacheByRouteId.entries()].find(([, item]) => item === latest)
+    if (route) varCacheRouteByName.set(name, route[0])
+  } else {
+    varCache.delete(name)
+    varCacheRouteByName.delete(name)
+  }
+}
+
+export function applyOutputValueCacheUpdate(update: OutputValueUpdate): void {
+  const previous = varCacheByRouteId.get(update.routeId)
+  if (update.deleted) {
+    varCacheByRouteId.delete(update.routeId)
+    if (previous && varCacheRouteByName.get(previous.name) === update.routeId) rebuildVarName(previous.name)
+    return
+  }
+  const entry = buildVarEntry(update)
+  varCacheRevision += 1
+  varCacheByRouteId.set(update.routeId, { name: update.name, entry, revision: varCacheRevision })
+  if (
+    previous &&
+    previous.name !== update.name &&
+    varCacheRouteByName.get(previous.name) === update.routeId
+  ) {
+    rebuildVarName(previous.name)
+  }
+  varCache.set(update.name, entry)
+  varCacheRouteByName.set(update.name, update.routeId)
+}
+
+export function applyExpressionResultCacheUpdate(exprId: string, entry: ExpressionResultEntry): void {
+  const previousName = exprNameById.get(exprId)
+  if (entry.deleted) {
+    exprCacheById.delete(exprId)
+    exprNameById.delete(exprId)
+    if (previousName) exprCacheByName.delete(previousName)
+    if (entry.name) exprCacheByName.delete(entry.name)
+    return
+  }
+
+  const cacheEntry = buildExprEntry(entry)
+  exprCacheById.set(exprId, cacheEntry)
+  if (previousName && previousName !== entry.name) exprCacheByName.delete(previousName)
+  if (entry.name) {
+    exprNameById.set(exprId, entry.name)
+    exprCacheByName.set(entry.name, cacheEntry)
+  }
+}
+
+export function clearDynamicBindingCaches(): void {
+  varCache.clear()
+  exprCacheByName.clear()
+  exprCacheById.clear()
+  varCacheByRouteId.clear()
+  varCacheRouteByName.clear()
+  exprNameById.clear()
+  varCacheRevision = 0
+}
 
 function rawToText(raw: unknown): string {
   if (raw === undefined || raw === null) return '—'
@@ -230,7 +300,7 @@ function startCaches(): () => void {
     if (!batch || !Array.isArray(batch.updates)) return
     for (const update of batch.updates) {
       if (!update || typeof update.name !== 'string' || update.name.length === 0) continue
-      varCache.set(update.name, buildVarEntry(update))
+      applyOutputValueCacheUpdate(update)
     }
   })
 
@@ -238,9 +308,7 @@ function startCaches(): () => void {
     if (!batch || !batch.results) return
     for (const [exprId, entry] of Object.entries(batch.results)) {
       if (!entry) continue
-      const cacheEntry = buildExprEntry(entry)
-      exprCacheById.set(exprId, cacheEntry)
-      if (entry.name) exprCacheByName.set(entry.name, cacheEntry)
+      applyExpressionResultCacheUpdate(exprId, entry)
     }
   })
 
@@ -251,7 +319,7 @@ function startCaches(): () => void {
       if (!active || !snapshot) return
       for (const update of Object.values(snapshot)) {
         if (!update || typeof update.name !== 'string' || update.name.length === 0) continue
-        varCache.set(update.name, buildVarEntry(update))
+        applyOutputValueCacheUpdate(update)
       }
     })
     .catch(() => undefined)
@@ -262,9 +330,7 @@ function startCaches(): () => void {
       if (!active || !snapshot) return
       for (const [exprId, entry] of Object.entries(snapshot)) {
         if (!entry) continue
-        const cacheEntry = buildExprEntry(entry)
-        exprCacheById.set(exprId, cacheEntry)
-        if (entry.name) exprCacheByName.set(entry.name, cacheEntry)
+        applyExpressionResultCacheUpdate(exprId, entry)
       }
     })
     .catch(() => undefined)
@@ -463,8 +529,8 @@ function resolveBindingCanonical(
     return result ?? { text: '—' }
   }
 
-  // Expression results — either by published name (`expr:<name>`, matching
-  // ExpressionDef.outputName/name) or by raw id (`expr:#<exprId>`). The
+  // Expression results — either by legacy name (`expr:<name>`) or by the stable
+  // raw id (`expr:#<exprId>`). New destinations always use the id form. The
   // engine broadcasts on `expr:results` regardless of whether the expression
   // has any output targets, so this works for ad-hoc expressions too.
   if (binding.startsWith('expr:')) {

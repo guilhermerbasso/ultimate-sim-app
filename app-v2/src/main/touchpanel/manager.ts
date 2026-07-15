@@ -2,8 +2,10 @@ import { BrowserWindow, screen } from 'electron'
 import { join } from 'node:path'
 import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import type { ModuleContext } from '../module-context'
+import { releaseTouchActionsForWebContents } from '../actions/touch-owner'
 import {
-  parseButtonBoxPanel,
+  buttonControlActions,
+  parseButtonBoxPanelDetailed,
   summarizeButtonBoxPanel,
   type ButtonBoxPanel,
   type ButtonBoxSummary,
@@ -31,6 +33,56 @@ export function panelFileName(id: string): string {
   return collapsed.length > 0 ? collapsed : '_'
 }
 
+export function bindTouchActionWindowLifecycle(
+  win: BrowserWindow,
+  release: (webContentsId: number) => Promise<void> = releaseTouchActionsForWebContents
+): void {
+  const webContentsId = win.webContents.id
+  const releaseOwner = (): void => {
+    void release(webContentsId)
+  }
+  win.on('close', releaseOwner)
+  win.once('closed', releaseOwner)
+  win.webContents.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
+    if (isMainFrame !== false) releaseOwner()
+  })
+  win.webContents.on('render-process-gone', releaseOwner)
+  win.webContents.once('destroyed', releaseOwner)
+}
+function controlActionSignature(button: ButtonBoxPanel['buttons'][number]): string {
+  return JSON.stringify({
+    kind: button.control.kind,
+    actions: buttonControlActions(button.control),
+    choiceIds: button.control.kind === 'selector'
+      ? button.control.choices.map((choice) => choice.id)
+      : undefined,
+    disabled: Boolean(button.state?.disabled),
+    disabledExpressionId: button.stateBindings?.disabled?.expressionId
+  })
+}
+
+export function touchPanelActionSemanticsChanged(
+  previous: ButtonBoxPanel,
+  next: ButtonBoxPanel
+): boolean {
+  if (previous.buttons.length !== next.buttons.length) return true
+  const previousById = new Map(previous.buttons.map((button) => [button.id, button]))
+  return next.buttons.some((button) => {
+    const before = previousById.get(button.id)
+    return !before || controlActionSignature(before) !== controlActionSignature(button)
+  })
+}
+
+export async function publishLiveTouchPanelUpdate(
+  previous: ButtonBoxPanel,
+  next: ButtonBoxPanel,
+  webContentsId: number,
+  release: (id: number) => Promise<void>,
+  send: (panel: ButtonBoxPanel) => void
+): Promise<void> {
+  if (touchPanelActionSemanticsChanged(previous, next)) await release(webContentsId)
+  send(next)
+}
 export interface TouchPanelDisplayInfo {
   id: number
   label: string
@@ -68,9 +120,19 @@ export class TouchPanelManager {
     for (const file of files) {
       if (!file.endsWith('.json')) continue
       try {
-        const raw = await readFile(join(this.storeDir, file), 'utf8')
-        const panel = parseButtonBoxPanel(JSON.parse(raw))
-        if (panel) this.panels.set(panel.id, panel)
+        const filePath = join(this.storeDir, file)
+        const raw = await readFile(filePath, 'utf8')
+        const parsed = parseButtonBoxPanelDetailed(JSON.parse(raw))
+        if (parsed.panel) {
+          this.panels.set(parsed.panel.id, parsed.panel)
+          // One-way, idempotent v1 → v2 migration. Layout/action data is preserved
+          // before the upgraded document replaces the legacy file.
+          if (parsed.migratedFrom === 1) {
+            await writeFile(filePath, JSON.stringify(parsed.panel, null, 2), 'utf8')
+          }
+        } else if (parsed.errors.length > 0) {
+          console.warn(`[touchpanel] ${file} was not migrated: ${parsed.errors.join(' ')}`)
+        }
       } catch {
         // ignore corrupt panel files
       }
@@ -128,8 +190,10 @@ export class TouchPanelManager {
   }
 
   async save(raw: unknown): Promise<ButtonBoxSummary | null> {
-    const panel = parseButtonBoxPanel(raw)
-    if (!panel) return null
+    const parsed = parseButtonBoxPanelDetailed(raw)
+    if (!parsed.panel) throw new Error(`Invalid touch panel: ${parsed.errors.join(' ')}`)
+    const panel = parsed.panel
+    const previous = this.panels.get(panel.id) ?? null
     panel.updatedAt = Date.now()
     this.panels.set(panel.id, panel)
     await writeFile(this.panelFilePath(panel.id), JSON.stringify(panel, null, 2), 'utf8')
@@ -137,7 +201,17 @@ export class TouchPanelManager {
     // If the open window shows this panel, push the update live.
     if (this.window && !this.window.isDestroyed() && this.currentPanelId === panel.id) {
       try {
-        this.window.webContents.send('app:touchpanel:updated', panel)
+        if (previous) {
+          await publishLiveTouchPanelUpdate(
+            previous,
+            panel,
+            this.window.webContents.id,
+            releaseTouchActionsForWebContents,
+            (next) => this.window?.webContents.send('app:touchpanel:updated', next)
+          )
+        } else {
+          this.window.webContents.send('app:touchpanel:updated', panel)
+        }
       } catch {
         // window closed mid-send
       }
@@ -230,6 +304,7 @@ export class TouchPanelManager {
       }
     })
 
+    bindTouchActionWindowLifecycle(win)
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     // Defence-in-depth: the touch-panel window carries a privileged preload, so
     // never let it navigate away from the app-served panel document (external
@@ -254,6 +329,7 @@ export class TouchPanelManager {
   }
 
   private loadPanel(win: BrowserWindow, panelId: string): void {
+    void releaseTouchActionsForWebContents(win.webContents.id)
     const query = { panel: panelId }
     if (process.env.ELECTRON_RENDERER_URL) {
       const url = new URL('touchpanel.html', process.env.ELECTRON_RENDERER_URL)
@@ -265,7 +341,10 @@ export class TouchPanelManager {
   }
 
   closeWindow(): void {
-    if (this.window && !this.window.isDestroyed()) this.window.close()
+    if (this.window && !this.window.isDestroyed()) {
+      void releaseTouchActionsForWebContents(this.window.webContents.id)
+      this.window.close()
+    }
     this.window = null
     this.currentPanelId = null
     this.broadcastOpenState()

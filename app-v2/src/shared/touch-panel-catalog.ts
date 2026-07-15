@@ -1,4 +1,10 @@
-import { createButtonBoxButton, type ButtonBoxButton, type KeyMaterial } from './touch-panel'
+import {
+  createButtonBoxButton,
+  type ButtonAction,
+  type ButtonBoxButton,
+  type ButtonBoxButtonInput,
+  type KeyMaterial
+} from './touch-panel'
 
 export interface TouchButtonGroup {
   id: string
@@ -8,7 +14,7 @@ export interface TouchButtonGroup {
 
 let paletteIndex = 0
 
-function button(partial: Partial<ButtonBoxButton>): ButtonBoxButton {
+function button(partial: ButtonBoxButtonInput): ButtonBoxButton {
   return createButtonBoxButton(partial, paletteIndex++)
 }
 
@@ -20,7 +26,7 @@ function key(
   bodyColor: string,
   borderColor: string,
   fontSize: number,
-  action: ButtonBoxButton['action'],
+  action: ButtonAction,
   textColor = '#f8fafc',
   borderWidth = 2
 ): ButtonBoxButton {
@@ -74,7 +80,7 @@ export const TOUCH_BUTTON_CATALOG: TouchButtonGroup[] = [
       key('tb-system-reset', 'RESET', 'backlit', 'reset', '#0891b2', '#22d3ee', 26, keyboard('press', ['r'])),
       key('tb-system-mark', 'MARK', 'backlit', 'mark', '#0891b2', '#22d3ee', 26, keyboard('press', ['m'])),
       key('tb-system-delta', 'DELTA', 'rotary', 'delta', '#0e7490', '#67e8f9', 24, keyboard('press', ['d'])),
-      key('tb-system-settings', 'SETTINGS', 'glass', 'settings', '#334155', '#94a3b8', 22, none)
+      button({ id: 'tb-system-settings', label: 'SESSION', material: 'glass', shape: 'status', icon: 'settings', bodyColor: '#334155', borderColor: '#94a3b8', textColor: '#f8fafc', fontSize: 22, borderWidth: 2, control: { kind: 'value-tile', value: 'READY' } })
     ]
   },
   {

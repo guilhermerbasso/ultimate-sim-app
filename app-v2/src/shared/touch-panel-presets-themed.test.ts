@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { KEY_MATERIALS, type ButtonAction, type KeyMaterial } from './touch-panel'
+import { buttonControlActions, KEY_MATERIALS, type ButtonAction, type KeyMaterial } from './touch-panel'
 import { TOUCH_PANEL_PRESETS } from './touch-panel-presets'
 import { TOUCH_PRESETS_THEMED } from './touch-panel-presets-themed'
 
@@ -35,7 +35,7 @@ describe('themed touch panel presets', () => {
       expect(panel.buttons.length, panel.id).toBe(panel.columns * panel.rows)
       for (const button of panel.buttons) {
         expect(KEY_MATERIALS).toContain(button.material)
-        expect(VALID_ACTION_KINDS).toContain(button.action.kind)
+        for (const action of buttonControlActions(button.control)) expect(VALID_ACTION_KINDS).toContain(action.kind)
       }
     }
   })

@@ -1099,7 +1099,21 @@ function lampState(kind: string | undefined, snapshot: TelemetrySnapshot | null)
 
 export function StatusLamp({ element, snapshot }: ExtraWidgetProps): ReactElement {
   const s = element.style
-  const st = lampState(s.statusKind, snapshot)
+  const bound = element.binding ? resolveBinding(element.binding, snapshot) : null
+  const boundOn = bound
+    ? bound.numeric !== undefined
+      ? bound.numeric !== 0
+      : !['', '0', 'false', 'off', 'no', '—'].includes(bound.text.trim().toLowerCase())
+    : undefined
+  const base = lampState(s.statusKind, snapshot)
+  const st = boundOn === undefined
+    ? base
+    : {
+        tag: s.label ? String(s.label) : base.tag,
+        on: boundOn,
+        color: s.fillColor ?? s.accentColor ?? base.color,
+        state: boundOn ? (s.statusOnText ?? 'ON') : (s.statusOffText ?? 'OFF')
+      }
   if (usesInstrument(element)) {
     const iconByKind: Record<string, TelltaleLamp['icon']> = {
       tc: 'tc', drs: 'drs', pit: 'pit-limiter', limiter: 'pit-limiter',

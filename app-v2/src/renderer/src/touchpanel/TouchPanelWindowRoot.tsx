@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import { parseButtonBoxPanel, type ButtonBoxPanel } from '../../../shared/touch-panel'
-import { ButtonBoxRenderer } from './ButtonBoxRenderer'
-import { executeButtonAction, fetchStreamPanel, isBrowserStreamRuntime } from './runtime'
+import { ButtonBoxRenderer, type TouchRuntimeFeedback } from './ButtonBoxRenderer'
+import { executeTouchControlAction, fetchStreamPanel, isBrowserStreamRuntime } from './runtime'
+import { useTouchExpressionValues } from './useTouchExpressionValues'
 import './buttonbox.css'
 
 // Fullscreen renderer for an editable RGB button-box panel. Mirrors the pit-panel
@@ -46,6 +47,8 @@ export function TouchPanelWindowRoot(): ReactElement {
   const [panel, setPanel] = useState<ButtonBoxPanel | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [fullscreen, setFullscreen] = useState<boolean>(() => detectFullscreen())
+  const [feedback, setFeedback] = useState<TouchRuntimeFeedback | null>(null)
+  const expressionValues = useTouchExpressionValues(panel?.buttons)
 
   useEffect(() => {
     const id = panelIdFromQuery()
@@ -81,6 +84,11 @@ export function TouchPanelWindowRoot(): ReactElement {
     window.addEventListener('resize', update)
     return () => window.removeEventListener('resize', update)
   }, [])
+  useEffect(() => {
+    if (!feedback || feedback.pending) return
+    const timer = window.setTimeout(() => setFeedback(null), feedback.ok ? 2_500 : 6_000)
+    return () => window.clearTimeout(timer)
+  }, [feedback])
 
   if (error) {
     return (
@@ -122,7 +130,35 @@ export function TouchPanelWindowRoot(): ReactElement {
           ✕
         </button>
       ) : null}
-      <ButtonBoxRenderer panel={panel} onPress={(button) => void executeButtonAction(button.action)} />
+      <ButtonBoxRenderer
+        panel={panel}
+        expressionValues={expressionValues}
+        onAction={executeTouchControlAction}
+        onFeedback={setFeedback}
+      />
+      {feedback ? (
+        <div
+          role={feedback.ok ? 'status' : 'alert'}
+          aria-live={feedback.ok ? 'polite' : 'assertive'}
+          style={{
+            position: 'fixed',
+            left: 12,
+            right: 12,
+            bottom: 10,
+            zIndex: 20,
+            minHeight: 44,
+            padding: '10px 14px',
+            border: `2px solid ${feedback.ok ? '#22c55e' : '#ef4444'}`,
+            borderRadius: 10,
+            background: 'rgba(2, 6, 23, 0.94)',
+            color: '#f8fafc',
+            font: '700 14px/1.4 Segoe UI, system-ui, sans-serif',
+            pointerEvents: 'none'
+          }}
+        >
+          {feedback.pending ? 'Working…' : feedback.message ?? (feedback.ok ? 'Action complete.' : 'Action failed.')}
+        </div>
+      ) : null}
     </div>
   )
 }

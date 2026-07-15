@@ -105,4 +105,24 @@ describe('ButtonBoxRenderer (static markup)', () => {
     expect(html).toContain('bb-mat-led_ring')
     expect(html).toContain('bb-led-ring')
   })
-})
+
+  it('matches the semantic control-family renderer snapshot', () => {
+    const none = { kind: 'none' } as const
+    const panel = createButtonBoxPanel({
+      id: 'semantic-snapshot',
+      columns: 4,
+      rows: 2,
+      buttons: [
+        { id: 'momentary', label: 'PIT', shape: 'round', control: { kind: 'momentary', action: none } },
+        { id: 'toggle', label: 'LIGHTS', shape: 'pill', state: { active: true }, control: { kind: 'latching-toggle', onAction: none, offAction: none } },
+        { id: 'rocker', label: 'TC', shape: 'rocker', control: { kind: 'two-position-rocker', negativeAction: none, positiveAction: none, negativeLabel: 'TC down', positiveLabel: 'TC up' } },
+        { id: 'guard', label: 'IGNITION', shape: 'guarded', control: { kind: 'guarded-two-step', action: none, armTimeoutMs: 4000 } },
+        { id: 'rotary', label: 'ABS', shape: 'rotary', control: { kind: 'rotary', decrementAction: none, incrementAction: none, decrementLabel: 'ABS down', incrementLabel: 'ABS up', repeat: { delayMs: 420, intervalMs: 120 } } },
+        { id: 'selector', label: 'MAP', control: { kind: 'selector', initialChoiceId: 'map-1', choices: [{ id: 'map-1', label: 'MAP 1', value: '1', action: none }, { id: 'map-2', label: 'MAP 2', value: '2', action: none }] } },
+        { id: 'status', label: 'ENGINE', shape: 'status', state: { warning: true }, control: { kind: 'status-led', value: 'HOT' } },
+        { id: 'value', label: 'FUEL', shape: 'wide', control: { kind: 'value-tile', value: '52.1', unit: 'L' } }
+      ]
+    })
+    const html = renderToStaticMarkup(createElement(ButtonBoxRenderer, { panel, interactive: false }))
+    expect(html).toMatchSnapshot()
+  })})

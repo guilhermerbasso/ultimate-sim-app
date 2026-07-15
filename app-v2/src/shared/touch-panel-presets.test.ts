@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { KEY_MATERIALS, type ButtonAction } from './touch-panel'
+import { buttonControlActions, KEY_MATERIALS, TOUCH_CONTROL_KINDS, type ButtonAction } from './touch-panel'
 import { ALL_TOUCH_BUTTONS, TOUCH_BUTTON_CATALOG } from './touch-panel-catalog'
 import { TOUCH_PANEL_PRESETS } from './touch-panel-presets'
 
@@ -20,8 +20,11 @@ describe('touch button catalog', () => {
   it('every catalog button has a valid material + action', () => {
     for (const b of ALL_TOUCH_BUTTONS) {
       expect(KEY_MATERIALS).toContain(b.material)
-      expect(VALID_ACTION_KINDS).toContain(b.action.kind)
-      if (b.action.kind === 'iracing') expect(VALID_IRACING.has(b.action.command.name)).toBe(true)
+      expect(TOUCH_CONTROL_KINDS).toContain(b.control.kind)
+      for (const action of buttonControlActions(b.control)) {
+        expect(VALID_ACTION_KINDS).toContain(action.kind)
+        if (action.kind === 'iracing') expect(VALID_IRACING.has(action.command.name)).toBe(true)
+      }
     }
   })
 
@@ -42,6 +45,13 @@ describe('touch panel presets', () => {
     }
   })
 
+  it('ships real examples of every semantic control kind', () => {
+    const kinds = new Set([
+      ...ALL_TOUCH_BUTTONS.map((button) => button.control.kind),
+      ...TOUCH_PANEL_PRESETS.flatMap((panel) => panel.buttons.map((button) => button.control.kind))
+    ])
+    expect([...kinds].sort()).toEqual([...TOUCH_CONTROL_KINDS].sort())
+  })
   it('every preset has a unique id and unique button ids', () => {
     const ids = TOUCH_PANEL_PRESETS.map((p) => p.id)
     expect(new Set(ids).size).toBe(ids.length)
@@ -55,10 +65,13 @@ describe('touch panel presets', () => {
     for (const p of TOUCH_PANEL_PRESETS) {
       for (const b of p.buttons) {
         expect(KEY_MATERIALS).toContain(b.material)
-        expect(VALID_ACTION_KINDS).toContain(b.action.kind)
-        if (b.action.kind === 'iracing') {
-          expect(VALID_IRACING.has(b.action.command.name), `${p.id}/${b.id}`).toBe(true)
-          expect(b.action.command.group).toBe(b.action.command.name.split(':')[0])
+        expect(TOUCH_CONTROL_KINDS).toContain(b.control.kind)
+        for (const action of buttonControlActions(b.control)) {
+          expect(VALID_ACTION_KINDS).toContain(action.kind)
+          if (action.kind === 'iracing') {
+            expect(VALID_IRACING.has(action.command.name), `${p.id}/${b.id}`).toBe(true)
+            expect(action.command.group).toBe(action.command.name.split(':')[0])
+          }
         }
       }
     }

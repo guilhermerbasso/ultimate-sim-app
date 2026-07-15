@@ -59,6 +59,7 @@ import { PresetGallery } from './dashboard/preset-gallery'
 import StreamingPanel from '../components/StreamingPanel'
 import { tt } from '../i18n'
 import '../dashboard/dashboard-runtime.css'
+import { consumeEditorTarget } from '../lib/app-navigation'
 
 const ACCENT = 'var(--accent-primary)'
 const PANEL_BG = '#0e1116'
@@ -514,7 +515,7 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
   const [displays, setDisplays] = useState<DashboardDisplayInfo[]>([])
   const [playlist, setPlaylist] = useState<DashboardPlaylist>({ items: [], updatedAt: 0 })
   const [touchSummaries, setTouchSummaries] = useState<ButtonBoxSummary[]>([])
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(() => consumeEditorTarget('dashboard'))
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedDashboardIds, setSelectedDashboardIds] = useState<Set<string>>(() => new Set())
   const [selectedDash, setSelectedDash] = useState<Dashboard | null>(null)

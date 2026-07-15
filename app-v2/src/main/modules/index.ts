@@ -178,6 +178,17 @@ export function registerModules(ctx: ModuleContext): RegisteredModules {
   const exprApi = expressionEngine(ctx)
   const routerApi = outputRouter(ctx)
   routerApi.setExpressionResolver((exprId) => exprApi.getResultsSnapshot()[exprId]?.value ?? undefined)
+  exprApi.setOutputSink((routes, activeExpressionIds) => routerApi.setExpressionRoutes(routes, activeExpressionIds))
+  void (async () => {
+    const legacyRoutes = await routerApi.getLegacyExpressionRoutes()
+    if (legacyRoutes.length === 0) return
+    const migratedRouteIds = await exprApi.migrateLegacyOutputState(legacyRoutes)
+    await routerApi.removeLegacyExpressionRoutes(migratedRouteIds)
+  })().catch((error) => {
+    logger.warn('main', 'failed to migrate legacy expression output state', {
+      message: error instanceof Error ? error.message : String(error)
+    })
+  })
 
   return { settingsStore, revlightsEngine, rgbMatrix: rgbMatrixModule }
 }

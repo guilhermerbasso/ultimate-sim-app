@@ -335,12 +335,12 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
     }
   }
 
-  async function testFromThisPc(): Promise<void> {
-    if (!status?.localTestUrl) return
+  async function testActiveEndpoint(): Promise<void> {
+    if (!status?.running) return
     setTestResult(tt(language, 'streaming.test.running'))
     try {
       const result = await window.ipc.invoke<StreamingSelfTestResult>(STREAMING_CHANNELS.selfTest)
-      setTestResult(result.reachable ? `${tt(language, 'streaming.test.ok')} ${result.message}` : result.message)
+      setTestResult(result.message)
     } catch (err) {
       setTestResult(err instanceof Error ? err.message : tt(language, 'streaming.test.failed'))
     }
@@ -480,7 +480,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
       {status?.url ? (
         <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
           <p className="overlay-help">{tt(language, 'streaming.mode')}: <strong>{ACCESS_LABELS[statusAccessMode(status)]}</strong></p>
-          {status.lanAddress ? <p className="overlay-help">{tt(language, 'streaming.lanDetected')}: <strong>{status.lanAddress}</strong> ? {tt(language, 'streaming.port')}: <strong>{status.port}</strong></p> : null}
+          {statusAccessMode(status) === 'lan' && status.lanAddress ? <p className="overlay-help">{tt(language, 'streaming.lanDetected')}: <strong>{status.lanAddress}</strong> ? {tt(language, 'streaming.port')}: <strong>{status.port}</strong></p> : null}
           {status.firewallMessage ? <p className="overlay-help">? {status.firewallMessage}</p> : null}
           <label className="designer-field">
             {tt(language, 'streaming.dashboardUrl')}
@@ -511,7 +511,7 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
             {status.lanUrl && status.lanUrl !== status.url ? (
               <button className="ghost-action" onClick={() => void copyUrl('lan', status.lanUrl)}>{copied === 'lan' ? tt(language, 'streaming.copied') : tt(language, 'streaming.copyLan')}</button>
             ) : null}
-            <button className="ghost-action" disabled={!status.localTestUrl} onClick={() => void testFromThisPc()}>{tt(language, 'streaming.test.button')}</button>
+            <button className="ghost-action" disabled={!status.running} onClick={() => void testActiveEndpoint()}>{tt(language, 'streaming.test.button')}</button>
           </div>
           {testResult ? <p className="overlay-help" style={{ margin: 0 }}>{testResult}</p> : null}
           <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>

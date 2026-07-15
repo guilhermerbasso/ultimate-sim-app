@@ -43,6 +43,7 @@ import {
   type ResolvedLanguage
 } from './i18n'
 import './styles/navigation.css'
+import { APP_NAVIGATE_EVENT, type AppNavigateDetail } from './lib/app-navigation'
 
 type ToastTone = 'success' | 'error' | 'info'
 
@@ -265,6 +266,15 @@ function App(): ReactElement {
   const activateView = useCallback((id: string) => {
     setActiveId(id)
   }, [])
+
+  useEffect(() => {
+    const onNavigate = (event: Event): void => {
+      const detail = (event as CustomEvent<AppNavigateDetail>).detail
+      if (detail && viewById.has(detail.viewId)) setActiveId(detail.viewId)
+    }
+    window.addEventListener(APP_NAVIGATE_EVENT, onNavigate)
+    return () => window.removeEventListener(APP_NAVIGATE_EVENT, onNavigate)
+  }, [viewById])
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((collapsed) => !collapsed)

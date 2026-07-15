@@ -30,6 +30,8 @@ import { PREDICTIONS_CHANNELS, type PredictionsSnapshot } from '../../../shared/
 import type { DriverEntry, RadarCarEntry, TelemetrySnapshot } from '../../../shared/telemetry'
 import type { TrackMapData } from '../../../shared/track-map'
 import { TRACK_MAP_CHANNELS } from '../../../shared/track-map'
+import { EXPR_CHANNELS } from '../../../shared/expr'
+import type { ExpressionDestinationPlacement } from '../../../shared/expression-studio'
 import { RADAR_THREAT_COLORS, radarSideThreat, radarThreatColor, radarThreatLevel } from '../../../shared/radar'
 import {
   buildTrackMap,
@@ -532,14 +534,16 @@ function ElementGauge({ element, snapshot, unitSystem = 'metric' }: ElementProps
 function useTrackMapData(): TrackMapData | null {
   const [data, setData] = useState<TrackMapData | null>(null)
   useEffect(() => {
+    const ipc = (window as typeof window & { ipc?: typeof window.ipc }).ipc
+    if (!ipc) return
     let canceled = false
-    void window.ipc
+    void ipc
       .invoke<TrackMapData | null>(TRACK_MAP_CHANNELS.getForCurrentTrack)
       .then((next) => {
         if (!canceled) setData(next ?? null)
       })
       .catch(() => undefined)
-    const off = window.ipc.subscribe<TrackMapData | null>(TRACK_MAP_CHANNELS.updated, (next) => {
+    const off = ipc.subscribe<TrackMapData | null>(TRACK_MAP_CHANNELS.updated, (next) => {
       setData(next ?? null)
     })
     return () => {
@@ -1473,11 +1477,15 @@ interface RaceMomentRuntime {
 
 const EMPTY_ACTILE: ReadonlySet<string> = new Set<string>()
 
-function useRaceMoment(enabled: boolean): RaceMomentRuntime {
+function useRaceMoment(enabled: boolean, externalSnapshot: TelemetrySnapshot | null): RaceMomentRuntime {
   const momentRef = useRef<RaceMomentState | null>(null)
   const liveSnapshotRef = useRef<TelemetrySnapshot | null>(null)
   const predictionsRef = useRef<PredictionsSnapshot | null>(null)
   const [runtime, setRuntime] = useState<RaceMomentRuntime>({ moment: null, active: EMPTY_ACTILE })
+
+  useEffect(() => {
+    liveSnapshotRef.current = externalSnapshot
+  }, [externalSnapshot])
 
   useEffect(() => {
     if (!enabled) {
@@ -1486,22 +1494,29 @@ function useRaceMoment(enabled: boolean): RaceMomentRuntime {
       return
     }
     momentRef.current = initialRaceMomentState()
-    const offTelemetry = window.ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', (snap) => {
-      liveSnapshotRef.current = snap
-    })
-    void window.ipc
-      .invoke<TelemetrySnapshot | null>('telemetry:getLatest')
-      .then((snap) => {
-        liveSnapshotRef.current = snap
-      })
-      .catch(() => undefined)
+    const ipc = (window as typeof window & { ipc?: typeof window.ipc }).ipc
+    const offTelemetry = ipc
+      ? ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', (snap) => {
+          liveSnapshotRef.current = snap
+        })
+      : () => undefined
+    if (ipc) {
+      void ipc
+        .invoke<TelemetrySnapshot | null>('telemetry:getLatest')
+        .then((snap) => {
+          liveSnapshotRef.current = snap
+        })
+        .catch(() => undefined)
+    }
     let offPredictions: (() => void) | undefined
-    try {
-      offPredictions = window.ipc.subscribe<PredictionsSnapshot | null>(PREDICTIONS_CHANNELS.snapshot, (snap) => {
-        predictionsRef.current = snap
-      })
-    } catch {
-      // predictions channel not registered — telemetry-only fallback
+    if (ipc) {
+      try {
+        offPredictions = ipc.subscribe<PredictionsSnapshot | null>(PREDICTIONS_CHANNELS.snapshot, (snap) => {
+          predictionsRef.current = snap
+        })
+      } catch {
+        // predictions channel not registered — telemetry-only fallback
+      }
     }
     const id = window.setInterval(() => {
       const next = resolveRaceMoment(liveSnapshotRef.current, predictionsRef.current, momentRef.current)
@@ -1647,7 +1662,7 @@ export function DashboardCanvas({
    [dashboard]
  )
  useEffect(() => retainBindingIpc(), [])
- const { moment: momentState, active: activeMoments } = useRaceMoment(adaptive)
+ const { moment: momentState, active: activeMoments } = useRaceMoment(adaptive, snapshot)
  const [dashBlink, setDashBlink] = useState<AdaptiveBlink | undefined>(undefined)
  const onDashboardBlink = useCallback((b: AdaptiveBlink | undefined) => setDashBlink(b), [])
  const [frameBg, setFrameBg] = useState<string | undefined>(undefined)
@@ -1711,6 +1726,7 @@ export function DashboardCanvas({
 
 export function DashboardRoot() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
+  const [expressionPlacements, setExpressionPlacements] = useState<DashboardElement[]>([])
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const dashId = useMemo(getDashIdFromQuery, [])
@@ -1739,6 +1755,34 @@ export function DashboardRoot() {
       })
     return () => {
       canceled = true
+    }
+  }, [dashId])
+
+  useEffect(() => {
+    if (!dashId) return
+    let canceled = false
+    const refresh = (): void => {
+      void window.ipc
+        .invoke<ExpressionDestinationPlacement[]>(EXPR_CHANNELS.getPlacements, {
+          surface: 'dashboard',
+          targetId: dashId
+        })
+        .then((placements) => {
+          if (!canceled) setExpressionPlacements((placements ?? []).map((item) => item.element))
+        })
+        .catch(() => {
+          if (!canceled) setExpressionPlacements([])
+        })
+    }
+    refresh()
+    const off = window.ipc.subscribe(EXPR_CHANNELS.studioChanged, refresh)
+    const offDashboard = window.ipc.subscribe<Dashboard>('app:dash:updated', (next) => {
+      if (next?.id === dashId) refresh()
+    })
+    return () => {
+      canceled = true
+      off()
+      offDashboard()
     }
   }, [dashId])
 
@@ -1826,5 +1870,10 @@ export function DashboardRoot() {
     )
   }
 
-  return <DashboardCanvas dashboard={dashboard} snapshot={snapshot} kiosk={kiosk} dashId={dashId} />
+  const expressionIds = new Set(expressionPlacements.map((element) => element.id))
+  const effectiveDashboard: Dashboard = {
+    ...dashboard,
+    elements: [...dashboard.elements.filter((element) => !expressionIds.has(element.id)), ...expressionPlacements]
+  }
+  return <DashboardCanvas dashboard={effectiveDashboard} snapshot={snapshot} kiosk={kiosk} dashId={dashId} />
 }
