@@ -11,6 +11,10 @@ Electron or a sim.
 # from app-v2/
 node visual-audit/shoot.mjs                          # default: 8 representative presets + dashboards
 node visual-audit/shoot.mjs neon glass terminal      # custom overlay style-preset list
+
+# deterministic dashboard structure report / candidate gate
+node visual-audit/dashboard-differentiation-report.mjs --out dashboard-structure.json
+node visual-audit/dashboard-differentiation-report.mjs --candidates id-one,id-two
 ```
 
 Output lands in `visual-audit/shots/` (git-ignored):
@@ -54,7 +58,11 @@ for deterministic frames, then screenshots full-page at a fixed 1600px width.
 | `gallery.css` | Gallery chrome only (page bg, grid, labels) — never touches widget styling. |
 | `vite.config.ts` | React plugin + `@renderer`/`@shared` aliases + `fs.allow` for the app source. |
 | `shoot.mjs` | Playwright capture driver. |
+| `dashboard-differentiation-report.mjs` | Baseline structural report and strict candidate gate. |
 | `tsconfig.json` | Optional standalone typecheck of the harness (`npx tsc --noEmit -p visual-audit/tsconfig.json`). |
+
+Thresholds, eight-state perceptual evidence, and baseline/candidate behavior are
+documented in [`../docs/dashboard-differentiation-gate.md`](../docs/dashboard-differentiation-gate.md).
 
 ## Notes
 
