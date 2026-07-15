@@ -100,4 +100,18 @@ describe('THEMED_DERIVED_WIDGETS', () => {
       }
     }
   })
+
+  it('shares the fitted six-digit session-id size across all six themes', () => {
+    const snapshot = { ...baseSnapshot(), sessionUniqueId: 990217 } as TelemetrySnapshot
+    const widgets = THEMED_DERIVED_WIDGETS.filter((widget) => widget.id.startsWith('sessionTag'))
+    expect(widgets).toHaveLength(6)
+
+    for (const widget of widgets) {
+      const markup = renderWidget(widget, snapshot)
+      const tag = markup.match(/<text[^>]*y="140"[^>]*font-size="([^"]+)"[^>]*>#990217<\/text>/)
+      expect(tag, widget.id).toBeTruthy()
+      expect(Number(tag?.[1]), widget.id).toBeGreaterThanOrEqual(48)
+      expect(Number(tag?.[1]), widget.id).toBeLessThanOrEqual(51)
+    }
+  })
 })

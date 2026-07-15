@@ -49,4 +49,15 @@ describe('IR_SESSION2_WIDGETS', () => {
     const missing = renderToStaticMarkup(createElement(sof.render, { snapshot: null, width: size.w, height: size.h }))
     expect(missing).toContain('—')
   })
+
+  it('fits a five-digit strength of field inside the default viewBox', () => {
+    const sof = IR_SESSION2_WIDGETS[0]
+    const size = sof.defaultSize
+    const markup = renderToStaticMarkup(
+      createElement(sof.render, { snapshot: { ...baseSnapshot(), strengthOfField: 10000 } as TelemetrySnapshot, width: size.w, height: size.h })
+    )
+    const value = markup.match(/<text[^>]*font-size="([^"]+)"[^>]*>10000<\/text>/)
+    expect(value).toBeTruthy()
+    expect(Number(value?.[1])).toBeLessThanOrEqual(78)
+  })
 })

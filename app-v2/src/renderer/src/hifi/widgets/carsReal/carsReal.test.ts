@@ -11,6 +11,17 @@ function renderAll(snapshot: TelemetrySnapshot | null): string[] {
   return CARS_REAL_WIDGETS.map((widget) => renderToStaticMarkup(createElement(widget.render, { snapshot, width: widget.defaultSize.w, height: widget.defaultSize.h })))
 }
 
+function renderWidget(id: string, snapshot: TelemetrySnapshot, width?: number, height?: number): string {
+  const widget = CARS_REAL_WIDGETS.find((candidate) => candidate.id === id)
+  expect(widget, `missing ${id}`).toBeTruthy()
+  if (!widget) return ''
+  return renderToStaticMarkup(createElement(widget.render, {
+    snapshot,
+    width: width ?? widget.defaultSize.w,
+    height: height ?? widget.defaultSize.h
+  }))
+}
+
 describe('CARS_REAL_WIDGETS', () => {
   it('exports unique car modules (Ferrari 296, Porsche Cup, Mustang GTD, ...)', () => {
     const ids = CARS_REAL_WIDGETS.map((widget) => widget.id)
@@ -44,5 +55,18 @@ describe('CARS_REAL_WIDGETS', () => {
       expect(markup.length).toBeGreaterThan(100)
       expect(markup).not.toMatch(badTokens)
     }
+  })
+
+  it('fits a three-digit Lamborghini fuel value without using the maximum readout size', () => {
+    const markup = renderWidget('lhDash', { ...baseSnapshot(), fuelLiters: 100 } as TelemetrySnapshot)
+    const value = markup.match(/<text[^>]*font-size="([^"]+)"[^>]*>100\.0<\/text>/)
+    expect(value).toBeTruthy()
+    expect(Number(value?.[1])).toBeLessThanOrEqual(32)
+  })
+
+  it('keeps Ferrari position self-explanatory without a redundant POS title', () => {
+    const markup = renderWidget('f488Position', { ...baseSnapshot(), position: 4, totalCars: 24 } as TelemetrySnapshot)
+    expect(markup).toContain('P4 / 24')
+    expect(markup).not.toContain('>POS</text>')
   })
 })
