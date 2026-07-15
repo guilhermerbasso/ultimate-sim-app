@@ -441,24 +441,24 @@ export function worstFindingForCorner(findings: CoachFinding[] | null | undefine
 }
 
 const REASON_PT: Record<CoachFindingKind, string> = {
-  'brake-early': 'braking too early',
-  'brake-late': 'braking too late',
+  'brake-early': 'freando cedo demais',
+  'brake-late': 'freando tarde demais',
   'throttle-early': 'acelerando cedo demais',
   'throttle-late': 'acelerando tarde demais',
-  'steering-early': 'girando o steering cedo demais',
-  'steering-late': 'girando o steering tarde demais',
-  'trail-brake-lock': 'locking the brake on entry',
-  coast: 'coasting mid-corner',
-  'throttle-hesitation': 'hesitating on throttle at exit',
-  'abs-overuse': 'burying the brake into ABS',
-  'tc-overuse': 'getting to throttle too early and leaning on traction control',
-  'steering-busy': 'sawing at the wheel',
-  'steering-insufficient': 'virando pouco o steering',
-  inconsistency: 'inconsistente entre as laps',
-  'time-loss': 'losing time',
-  'min-speed-gain': 'carrying more speed at the apex',
-  'brake-gain': 'braking later with confidence',
-  'throttle-gain': 'getting to throttle earlier on exit',
+  'steering-early': 'virando cedo demais',
+  'steering-late': 'virando tarde demais',
+  'trail-brake-lock': 'travando o freio na entrada',
+  coast: 'deixando o carro rolar no meio da curva',
+  'throttle-hesitation': 'hesitando para acelerar na saída',
+  'abs-overuse': 'forçando o freio até o ABS',
+  'tc-overuse': 'acelerando cedo demais e dependendo do controle de tração',
+  'steering-busy': 'corrigindo demais o volante',
+  'steering-insufficient': 'virando pouco o volante',
+  inconsistency: 'inconsistente entre as voltas',
+  'time-loss': 'perdendo tempo',
+  'min-speed-gain': 'levando mais velocidade ao ápice',
+  'brake-gain': 'freando mais tarde com confiança',
+  'throttle-gain': 'acelerando antes na saída',
   good: 'limpo'
 }
 
@@ -497,24 +497,24 @@ function formatLoss(sec: number): string {
  */
 const IMPROVE_PT: Record<CoachFindingKind, string> = {
   'brake-early': 'freie mais tarde',
-  'brake-late': 'brake earlier',
+  'brake-late': 'freie antes',
   'throttle-early': 'acelere mais tarde',
   'throttle-late': 'acelere antes',
   'steering-early': 'vire mais tarde',
-  'steering-late': 'turn in earlier',
-  'trail-brake-lock': 'release the brake on entry',
-  coast: 'no coasting, connect brake to throttle',
-  'throttle-hesitation': 'commit to throttle on exit',
-  'abs-overuse': 'less brake, stay out of ABS',
-  'tc-overuse': 'smoother throttle on exit',
-  'steering-busy': 'menos steering',
-  'steering-insufficient': 'more steering',
-  inconsistency: 'repeat the same lap',
-  'time-loss': 'push the pace',
-  'min-speed-gain': 'hold the pace',
-  'brake-gain': 'hold the pace',
-  'throttle-gain': 'hold the pace',
-  good: 'hold the pace'
+  'steering-late': 'vire antes',
+  'trail-brake-lock': 'solte o freio na entrada',
+  coast: 'não deixe rolar, ligue a frenagem à aceleração',
+  'throttle-hesitation': 'confie no acelerador na saída',
+  'abs-overuse': 'use menos freio, evite o ABS',
+  'tc-overuse': 'acelere mais suave na saída',
+  'steering-busy': 'faça menos correções no volante',
+  'steering-insufficient': 'vire mais o volante',
+  inconsistency: 'repita a mesma volta',
+  'time-loss': 'aumente o ritmo',
+  'min-speed-gain': 'mantenha o ritmo',
+  'brake-gain': 'mantenha o ritmo',
+  'throttle-gain': 'mantenha o ritmo',
+  good: 'mantenha o ritmo'
 }
 
 const IMPROVE_EN: Record<CoachFindingKind, string> = {
@@ -559,17 +559,17 @@ export function composeBrutalSectorLine(finding: CoachFinding, opts: BrutalLineO
   if (pt) {
     if (opts.assertiveness === 'brutal') {
       return hasLoss
-        ? `Sector ${s}: you threw away ${loss}s ${reason}. Fix it.`
-        : `Sector ${s}: ${reason}. Fix it.`
+        ? `Setor ${s}: você perdeu ${loss}s ${reason}. Corrija.`
+        : `Setor ${s}: ${reason}. Corrija.`
     }
     if (opts.assertiveness === 'assertive') {
       return hasLoss
-        ? `Sector ${s}: lost ${loss}s ${reason}. You can get it back — focus.`
-        : `Sector ${s}: ${reason}. You can get it back — focus.`
+        ? `Setor ${s}: perdeu ${loss}s ${reason}. Dá para recuperar — foco.`
+        : `Setor ${s}: ${reason}. Dá para recuperar — foco.`
     }
     return hasLoss
-      ? `Sector ${s}: about ${loss}s to gain ${reason}. Adjust next lap.`
-      : `Sector ${s}: ${reason}. Adjust next lap.`
+      ? `Setor ${s}: há cerca de ${loss}s para ganhar porque você está ${reason}. Ajuste na próxima volta.`
+      : `Setor ${s}: ${reason}. Ajuste na próxima volta.`
   }
 
   if (opts.assertiveness === 'brutal') {
@@ -589,9 +589,10 @@ export function composeBrutalSectorLine(finding: CoachFinding, opts: BrutalLineO
  * more steering, throttle earlier — never praise. Falls back to the full sector
  * line when the finding carries no corner number.
  */
-/** "Turn N (Sector M)" when the sector is known, else "Turn N" — one locator for
+/** "Curva N (Setor M)" in PT-BR / "Turn N (Sector M)" in EN when the sector is known — one locator for
  *  the race phrasing so the driver always hears both the corner and its sector. */
-function turnSectorLabel(corner: number, sector?: number): string {
+function turnSectorLabel(corner: number, sector: number | undefined, pt: boolean): string {
+  if (pt) return sector !== undefined && Number.isFinite(sector) ? `Curva ${corner} (Setor ${sector})` : `Curva ${corner}`
   return sector !== undefined && Number.isFinite(sector) ? `Turn ${corner} (Sector ${sector})` : `Turn ${corner}`
 }
 
@@ -604,7 +605,7 @@ export function composeBrutalCornerLine(finding: CoachFinding, opts: BrutalLineO
 
   if (n === undefined) return composeBrutalSectorLine(finding, opts)
 
-  const where = turnSectorLabel(n, finding.sector)
+  const where = turnSectorLabel(n, finding.sector, pt)
   if (pt) {
     if (opts.assertiveness === 'brutal') {
       return hasLoss ? `${where}, ${improve} — ${loss}s.` : `${where}, ${improve}.`
@@ -612,7 +613,7 @@ export function composeBrutalCornerLine(finding: CoachFinding, opts: BrutalLineO
     if (opts.assertiveness === 'assertive') {
       return hasLoss ? `${where}, ${improve}. Foco — ${loss}s.` : `${where}, ${improve}. Foco.`
     }
-    return hasLoss ? `${where}, ${improve} next lap (${loss}s).` : `${where}, ${improve} next lap.`
+    return hasLoss ? `${where}, ${improve} na próxima volta (${loss}s).` : `${where}, ${improve} na próxima volta.`
   }
 
   if (opts.assertiveness === 'brutal') {
@@ -669,7 +670,7 @@ export function findingsByDimensionForCorner(
  * (`coachComposeAction('time-loss')`) so race and practice say the same thing.
  */
 function improveFragment(finding: CoachFinding, pt: boolean): string {
-  if (finding.kind === 'time-loss') return pt ? 'find more time here' : 'find more time here'
+  if (finding.kind === 'time-loss') return pt ? 'ganhe mais tempo aqui' : 'find more time here'
   return (pt ? IMPROVE_PT : IMPROVE_EN)[finding.kind] ?? finding.title
 }
 
@@ -699,12 +700,12 @@ export function composeBrutalCornerComposite(
   const worstLoss = ranked[0].estTimeLossSec
   const hasLoss = worstLoss > 0
   const loss = formatLoss(worstLoss)
-  const where = turnSectorLabel(corner, ranked[0].sector)
+  const where = turnSectorLabel(corner, ranked[0].sector, pt)
 
   if (pt) {
     if (opts.assertiveness === 'brutal') return hasLoss ? `${where}, ${body} — ${loss}s.` : `${where}, ${body}.`
     if (opts.assertiveness === 'assertive') return hasLoss ? `${where}, ${body}. Foco — ${loss}s.` : `${where}, ${body}. Foco.`
-    return hasLoss ? `${where}, ${body} next lap (${loss}s).` : `${where}, ${body} next lap.`
+    return hasLoss ? `${where}, ${body} na próxima volta (${loss}s).` : `${where}, ${body} na próxima volta.`
   }
   if (opts.assertiveness === 'brutal') return hasLoss ? `${where}, ${body} — ${loss}s.` : `${where}, ${body}.`
   if (opts.assertiveness === 'assertive') return hasLoss ? `${where}, ${body}. Focus — ${loss}s.` : `${where}, ${body}. Focus.`
@@ -953,6 +954,23 @@ export function lapsToCatch(gapSec?: number, chaserLapSec?: number, leaderLapSec
   const perLapGain = (leaderLapSec as number) - (chaserLapSec as number)
   if (perLapGain <= 0.05 || gap <= 0) return null // not closing (or noise)
   return Math.max(1, Math.ceil(gap / perLapGain))
+}
+
+export function composeCatchLine(
+  direction: 'ahead' | 'behind',
+  laps: number,
+  language: EngineerLanguage
+): string {
+  const count = Math.max(1, Math.round(laps))
+  const en = language === 'en-US'
+  if (direction === 'behind') {
+    return en
+      ? `Car behind catches you in ${count} lap${count === 1 ? '' : 's'}.`
+      : `O carro de trás alcança você em ${count} ${count === 1 ? 'volta' : 'voltas'}.`
+  }
+  return en
+    ? `You catch the car ahead in ${count} lap${count === 1 ? '' : 's'}.`
+    : `Você alcança o carro da frente em ${count} ${count === 1 ? 'volta' : 'voltas'}.`
 }
 
 export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngine {
@@ -1373,11 +1391,14 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     const myLap = snapshot.lastLapTimeSec
     if (!Number.isFinite(myLap) || (myLap ?? 0) <= 0) return
     const behindN = lapsToCatch(snapshot.relatives?.behind?.gapSec, snapshot.relatives?.behind?.lastLapTimeSec, myLap)
-    const en = config.language?.toLowerCase().startsWith('en')
-    if (behindN !== null && behindN <= 5 && behindN < lastBehindN) emitCatch(en ? `Car behind catches you in ${behindN} lap${behindN === 1 ? '' : 's'}.` : `The car behind catches you in ${behindN} ${behindN === 1 ? 'lap' : 'laps'}.`, config)
+    if (behindN !== null && behindN <= 5 && behindN < lastBehindN) {
+      emitCatch(composeCatchLine('behind', behindN, config.language), config)
+    }
     lastBehindN = behindN ?? 99
     const aheadN = lapsToCatch(snapshot.relatives?.ahead?.gapSec, myLap, snapshot.relatives?.ahead?.lastLapTimeSec)
-    if (aheadN !== null && aheadN <= 5 && aheadN < lastAheadN) emitCatch(en ? `You catch the car ahead in ${aheadN} lap${aheadN === 1 ? '' : 's'}.` : `You catch the car ahead in ${aheadN} ${aheadN === 1 ? 'lap' : 'laps'}.`, config)
+    if (aheadN !== null && aheadN <= 5 && aheadN < lastAheadN) {
+      emitCatch(composeCatchLine('ahead', aheadN, config.language), config)
+    }
     lastAheadN = aheadN ?? 99
   }
 

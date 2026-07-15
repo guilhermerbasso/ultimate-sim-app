@@ -6,6 +6,7 @@ import {
   SPOTTER_CHANNELS,
   TTS_CHANNELS,
   buildPhrase,
+  buildSpotterVoiceTestPhrase,
   decideProximity,
   isValidPiperVoiceId,
   parsePiperVoiceId,
@@ -1124,7 +1125,7 @@ export function testCallout(id: CalloutId, config: SpotterConfig): void {
 }
 
 export function testSpotterVoice(config: SpotterConfig): void {
-  const text = config.language === 'pt-BR' ? 'Audio engineer online. Have a good race.' : 'Audio engineer online. Have a good race.'
+  const text = buildSpotterVoiceTestPhrase(config.language)
   speakImmediate(text, config.defaultVoiceURI, config.language, 1, 1, clamp01(config.masterVolume), config.outputDeviceId)
 }
 
@@ -1152,11 +1153,15 @@ export function stopSpotterSpeech(): void {
 // never a double-speak.
 
 let currentConfig: SpotterConfig = DEFAULT_SPOTTER_CONFIG
+let configReady = false
+let lastConfigUpdatedAt = -1
 let subscriberCount = 0
 let offTelemetry: (() => void) | null = null
 let offConfig: (() => void) | null = null
 
 function startSubscriptions(): void {
+  configReady = false
+  lastConfigUpdatedAt = -1
   initVoices()
   // Kick the async voice list so it's populated before the first callout — the
   // Web Speech voiceschanged race is the main reason a chosen voice was ignored.
@@ -1165,19 +1170,28 @@ function startSubscriptions(): void {
   // wait for the persisted, app-language-synced config below so a PT app never
   // starts an unnecessary English model download during renderer boot.
   const piperVoicesReady = fetchPiperVoices()
+  const applyRuntimeConfig = (config: SpotterConfig): void => {
+    const updatedAt = Number.isFinite(config.updatedAt) ? config.updatedAt : 0
+    if (configReady && updatedAt < lastConfigUpdatedAt) return
+    if (currentConfig.language !== config.language) stopSpotterSpeech()
+    currentConfig = config
+    configReady = true
+    lastConfigUpdatedAt = updatedAt
+    void piperVoicesReady.then(() => ensureSelectedPiperVoices(config))
+  }
   void window.ipc
     .invoke<SpotterConfig>(SPOTTER_CHANNELS.getConfig)
-    .then((config) => {
-      currentConfig = config
-      void piperVoicesReady.then(() => ensureSelectedPiperVoices(config))
+    .then(applyRuntimeConfig)
+    .catch((error) => {
+      logClient.warn('spotter', 'initial config unavailable; speech remains gated', {
+        message: error instanceof Error ? error.message : String(error)
+      })
     })
-    .catch(() => undefined)
   offConfig = window.ipc.subscribe<SpotterConfig>(SPOTTER_CHANNELS.configEvent, (config) => {
-    currentConfig = config
-    // A voice change in the Engineer/Spotter UI lands here → download it on demand.
-    ensureSelectedPiperVoices(config)
+    applyRuntimeConfig(config)
   })
   offTelemetry = window.ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', (snapshot) => {
+    if (!configReady) return
     processSnapshot(snapshot, currentConfig)
   })
 }

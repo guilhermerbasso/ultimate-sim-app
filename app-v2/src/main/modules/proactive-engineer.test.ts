@@ -13,6 +13,7 @@ import {
   composeBrutalCornerComposite,
   composeBrutalCornerLine,
   composeBrutalSectorLine,
+  composeCatchLine,
   CoachRacecraftHistoryStore,
   createCornerTracker,
   createProactiveEngine,
@@ -235,13 +236,16 @@ describe('composeBrutalSectorLine', () => {
 
   it('brutal PT is blunt, names the sector, the loss and demands a fix', () => {
     const line = composeBrutalSectorLine(finding, { language: 'pt-BR', assertiveness: 'brutal' })
-    expect(line).toBe('Sector 2: you threw away 0.4s braking too late. Fix it.')
+    expect(line).toBe('Setor 2: você perdeu 0.4s freando tarde demais. Corrija.')
   })
 
   it('assertive and balanced PT are progressively softer', () => {
-    expect(composeBrutalSectorLine(finding, { language: 'pt-BR', assertiveness: 'assertive' })).toContain('Sector 2')
-    expect(composeBrutalSectorLine(finding, { language: 'pt-BR', assertiveness: 'assertive' })).toContain('focus')
-    expect(composeBrutalSectorLine(finding, { language: 'pt-BR', assertiveness: 'balanced' })).toContain('Adjust next lap')
+    expect(composeBrutalSectorLine(finding, { language: 'pt-BR', assertiveness: 'assertive' })).toContain('Setor 2')
+    expect(composeBrutalSectorLine(finding, { language: 'pt-BR', assertiveness: 'assertive' })).toContain('foco')
+    const balanced = composeBrutalSectorLine(finding, { language: 'pt-BR', assertiveness: 'balanced' })
+    expect(balanced).toContain('há cerca de 0.4s para ganhar porque você está freando tarde demais')
+    expect(balanced).toContain('Ajuste na próxima volta')
+    expect(balanced).not.toContain('para ganhar freando tarde demais')
   })
 
   it('brutal EN mirrors the blunt cadence', () => {
@@ -252,7 +256,7 @@ describe('composeBrutalSectorLine', () => {
   it('omits the number when the finding has no measured loss', () => {
     const noLoss = makeFinding({ sector: 1, kind: 'steering-busy', estTimeLossSec: 0 })
     expect(composeBrutalSectorLine(noLoss, { language: 'pt-BR', assertiveness: 'brutal' })).toBe(
-      'Sector 1: sawing at the wheel. Fix it.'
+      'Setor 1: corrigindo demais o volante. Corrija.'
     )
   })
 })
@@ -326,7 +330,7 @@ describe('createProactiveEngine', () => {
     engine.onSnapshot(makeSnapshot(0.4)) // completes sector 1
     expect(harness.events).toHaveLength(1)
     expect(harness.events[0].sector).toBe(1)
-    expect(harness.events[0].text).toContain('Sector 1')
+    expect(harness.events[0].text).toContain('Setor 1')
     expect(harness.events[0].speak).toBe(true)
   })
 
@@ -724,10 +728,10 @@ describe('worstFindingForCorner', () => {
 })
 
 describe('composeBrutalCornerLine', () => {
-  it('speaks "Turn N: <erro>" in PT-BR brutal mode', () => {
+  it('speaks "Curva N: <erro>" in PT-BR brutal mode', () => {
     const f = makeFinding({ sector: 2, kind: 'brake-late', corner: 2, estTimeLossSec: 0.4 })
     const line = composeBrutalCornerLine(f, { language: 'pt-BR', assertiveness: 'brutal' })
-    expect(line).toContain('Turn 2')
+    expect(line).toContain('Curva 2')
     expect(line).toMatch(/0\.4s/)
   })
 
@@ -747,19 +751,19 @@ describe('composeBrutalCornerLine', () => {
   // Terse, improvement-only cues: each kind maps to a short "what to fix" fragment.
   const PT = { language: 'pt-BR', assertiveness: 'brutal' } as const
   const cueCases: Array<[CoachFindingKind, string]> = [
-    ['steering-late', 'turn in earlier'],
+    ['steering-late', 'vire antes'],
     ['steering-early', 'vire mais tarde'],
     ['throttle-late', 'acelere antes'],
     ['throttle-early', 'acelere mais tarde'],
-    ['steering-busy', 'menos steering'],
-    ['steering-insufficient', 'more steering'],
-    ['brake-late', 'brake earlier'],
+    ['steering-busy', 'faça menos correções no volante'],
+    ['steering-insufficient', 'vire mais o volante'],
+    ['brake-late', 'freie antes'],
     ['brake-early', 'freie mais tarde']
   ]
-  it.each(cueCases)('Turn cue for %s says "%s"', (kind, cue) => {
+  it.each(cueCases)('Curva cue for %s says "%s"', (kind, cue) => {
     const f = makeFinding({ sector: 1, kind, corner: 3, estTimeLossSec: 0.2 })
     const line = composeBrutalCornerLine(f, PT)
-    expect(line).toContain('Turn 3')
+    expect(line).toContain('Curva 3')
     expect(line).toContain(cue)
   })
 
@@ -790,12 +794,12 @@ describe('composeBrutalCornerComposite', () => {
       makeFinding({ id: 't', sector: 2, kind: 'throttle-early', corner: 3, estTimeLossSec: 0.15 })
     ]
     const line = composeBrutalCornerComposite(findings, 3, PT)
-    expect(line).toContain('Turn 3')
-    expect(line).toContain('brake earlier') // brake
-    expect(line).toContain('turn in earlier') // turn-in timing
+    expect(line).toContain('Curva 3')
+    expect(line).toContain('freie antes') // brake
+    expect(line).toContain('vire antes') // turn-in timing
     expect(line).toContain('acelere mais tarde') // throttle
     // Ordered by time lost (brake worst first).
-    expect(line.indexOf('brake earlier')).toBeLessThan(line.indexOf('turn in earlier'))
+    expect(line.indexOf('freie antes')).toBeLessThan(line.indexOf('vire antes'))
   })
 
   it('collapses to the single-finding phrasing when only one dimension is off', () => {
@@ -837,8 +841,8 @@ describe('composeBrutalCornerComposite', () => {
       3,
       PT
     )
-    expect(line).toContain('Turn 3')
-    expect(line).toContain('find more time here')
+    expect(line).toContain('Curva 3')
+    expect(line).toContain('ganhe mais tempo aqui')
   })
 
   it('does NOT let time-loss crowd out or duplicate a SPECIFIC cue when both exist', () => {
@@ -850,8 +854,8 @@ describe('composeBrutalCornerComposite', () => {
       3,
       PT
     )
-    expect(line).toContain('brake earlier')
-    expect(line).not.toContain('find more time here')
+    expect(line).toContain('freie antes')
+    expect(line).not.toContain('ganhe mais tempo aqui')
   })
 })
 
@@ -876,7 +880,7 @@ describe('cadenceForSession', () => {
 describe('createProactiveEngine — corner cadence in a race', () => {
   const FAKE_MAP = { corners: CORNERS } as unknown as CornerMapData
 
-  it('calls out by CORNER ("Turn N") once a map is learned in a race', () => {
+  it('calls out by CORNER ("Curva N") once a map is learned in a race', () => {
     const { harness, engine } = makeEngine({}, { buildCornerMap: () => FAKE_MAP })
 
     // Lap 1 (Race): fill the buffer past MIN_LAP_SAMPLES so the map can be learned.
@@ -896,16 +900,16 @@ describe('createProactiveEngine — corner cadence in a race', () => {
     engine.onSnapshot(makeSnapshot(0.25, { currentLap: 2, trackName: 'Interlagos' })) // in C1
     engine.onSnapshot(makeSnapshot(0.35, { currentLap: 2, trackName: 'Interlagos' })) // exit C1
 
-    const cornerEvents = harness.events.filter((e) => e.text.includes('Turn'))
+    const cornerEvents = harness.events.filter((e) => e.text.includes('Curva'))
     expect(cornerEvents.length).toBeGreaterThan(0)
-    expect(cornerEvents[0].text).toContain('Turn 1')
-    expect(cornerEvents[0].text).toContain('turn in earlier')
+    expect(cornerEvents[0].text).toContain('Curva 1')
+    expect(cornerEvents[0].text).toContain('vire antes')
     // Observability: the race call-out is attributed to the engineer + tagged with the corner.
     expect(cornerEvents[0].source).toBe('engineer')
     expect(cornerEvents[0].corner).toBe(1)
   })
 
-  it('chains MULTIPLE dimensions into one race corner call-out ("Turn N, brake earlier, turn in earlier, …")', () => {
+  it('chains MULTIPLE dimensions into one race corner call-out ("Curva N, freie antes, vire antes, …")', () => {
     const { harness, engine } = makeEngine({}, { buildCornerMap: () => FAKE_MAP })
 
     for (let i = 0; i < 34; i += 1) {
@@ -926,12 +930,12 @@ describe('createProactiveEngine — corner cadence in a race', () => {
     engine.onSnapshot(makeSnapshot(0.25, { currentLap: 2, trackName: 'Interlagos' })) // in C1
     engine.onSnapshot(makeSnapshot(0.35, { currentLap: 2, trackName: 'Interlagos' })) // exit C1
 
-    const cornerEvents = harness.events.filter((e) => e.text.includes('Turn'))
+    const cornerEvents = harness.events.filter((e) => e.text.includes('Curva'))
     expect(cornerEvents.length).toBeGreaterThan(0)
     const line = cornerEvents[0].text
-    expect(line).toContain('Turn 1')
-    expect(line).toContain('brake earlier')
-    expect(line).toContain('turn in earlier')
+    expect(line).toContain('Curva 1')
+    expect(line).toContain('freie antes')
+    expect(line).toContain('vire antes')
     expect(line).toContain('acelere mais tarde')
     expect(cornerEvents[0].corner).toBe(1)
   })
@@ -954,10 +958,10 @@ describe('createProactiveEngine — corner cadence in a race', () => {
     engine.onSnapshot(makeSnapshot(0.25, { currentLap: 2, trackName: 'Interlagos' })) // in C1
     engine.onSnapshot(makeSnapshot(0.35, { currentLap: 2, trackName: 'Interlagos' })) // exit C1
 
-    const cornerEvents = harness.events.filter((e) => e.text.includes('Turn'))
+    const cornerEvents = harness.events.filter((e) => e.text.includes('Curva'))
     expect(cornerEvents.length).toBeGreaterThan(0)
-    expect(cornerEvents[0].text).toContain('Turn 1')
-    expect(cornerEvents[0].text).toContain('find more time here')
+    expect(cornerEvents[0].text).toContain('Curva 1')
+    expect(cornerEvents[0].text).toContain('ganhe mais tempo aqui')
     expect(cornerEvents[0].corner).toBe(1)
   })
 
@@ -969,7 +973,7 @@ describe('createProactiveEngine — corner cadence in a race', () => {
     engine.onSnapshot(makeSnapshot(0.1, { currentLap: 1 }))
     engine.onSnapshot(makeSnapshot(0.4, { currentLap: 1 })) // completes sector 1
     expect(harness.events).toHaveLength(1)
-    expect(harness.events[0].text).toContain('Sector 1')
+    expect(harness.events[0].text).toContain('Setor 1')
   })
 })
 
@@ -982,5 +986,18 @@ describe('lapsToCatch', () => {
     expect(lapsToCatch(6, 90, 90)).toBeNull() // same pace
     expect(lapsToCatch(6, 91, 90)).toBeNull() // chaser slower
     expect(lapsToCatch(undefined, 89, 90)).toBeNull()
+  })
+})
+
+describe('composeCatchLine', () => {
+  it('speaks catch estimates in Brazilian Portuguese', () => {
+    expect(composeCatchLine('behind', 1, 'pt-BR')).toBe('O carro de trás alcança você em 1 volta.')
+    expect(composeCatchLine('behind', 3, 'pt-BR')).toBe('O carro de trás alcança você em 3 voltas.')
+    expect(composeCatchLine('ahead', 2, 'pt-BR')).toBe('Você alcança o carro da frente em 2 voltas.')
+  })
+
+  it('keeps the English radio copy when requested', () => {
+    expect(composeCatchLine('behind', 2, 'en-US')).toBe('Car behind catches you in 2 laps.')
+    expect(composeCatchLine('ahead', 1, 'en-US')).toBe('You catch the car ahead in 1 lap.')
   })
 })

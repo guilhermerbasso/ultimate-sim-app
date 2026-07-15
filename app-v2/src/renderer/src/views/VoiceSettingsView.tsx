@@ -105,7 +105,7 @@ const LANG_LABEL: Record<PiperVoiceInfo['lang'], string> = {
 }
 
 const PREVIEW_TEXT: Record<string, string> = {
-  'pt-BR': 'Turn three on your right. You are clear, good lap.',
+  'pt-BR': 'Curva três, carro à direita. Livre, boa volta.',
   'en-US': 'Turn three on your right. You are clear, good lap.'
 }
 

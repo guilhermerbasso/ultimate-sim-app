@@ -252,13 +252,13 @@ function promptLabel(config: EngineerConfig): string {
 
 const FALLBACK = {
   empty: { pt: 'Pode repetir a pergunta?', en: 'Can you repeat the question?' },
-  disabled: { pt: 'The AI engineer is turned off. Enable it in settings.', en: 'The AI engineer is turned off. Enable it in settings.' },
+  disabled: { pt: 'O engenheiro de IA está desativado. Ative-o nas configurações.', en: 'The AI engineer is turned off. Enable it in settings.' },
   noModel: {
-    pt: 'I could not load the AI model. Check the connection and try downloading again.',
+    pt: 'Não consegui carregar o modelo de IA. Verifique a conexão e tente baixar novamente.',
     en: "Couldn't load the AI model. Check your connection and try downloading it again."
   },
-  llmError: { pt: 'I could not process that right now. Try again shortly.', en: "I couldn't process that right now. Try again shortly." },
-  noCommand: { pt: 'I cannot do that from here yet.', en: "I can't do that from here yet." }
+  llmError: { pt: 'Não consegui processar isso agora. Tente novamente em instantes.', en: "I couldn't process that right now. Try again shortly." },
+  noCommand: { pt: 'Ainda não consigo fazer isso por aqui.', en: "I can't do that from here yet." }
 } as const
 
 function pick(config: EngineerConfig, copy: { pt: string; en: string }): string {
@@ -293,6 +293,7 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
   deps.onConfigChange?.(config)
   const recent: EngineerAnswer[] = []
   let currentAbort: AbortController | null = null
+  let configRevision = 0
   let seq = 0
   let lastAskLogAt = 0
 
@@ -323,6 +324,25 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       kind: 'disabled',
       source: 'system'
     }
+  }
+
+  function cancelledForConfigChange(question: string): EngineerAnswer {
+    const answer: EngineerAnswer = {
+      id: nextId(),
+      at: now(),
+      question,
+      text:
+        config.language === 'pt-BR'
+          ? 'Solicitação cancelada porque a configuração de idioma mudou. Tente novamente.'
+          : 'Request cancelled because the language setting changed. Please try again.',
+      speak: false,
+      lang: config.language,
+      kind: 'disabled',
+      source: 'system'
+    }
+    record(answer)
+    deps.broadcast(ENGINEER_CHANNELS.answer, answer)
+    return answer
   }
 
   function publishAnswer(
@@ -392,27 +412,31 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     // saturate the connection with no way to stop it.
     const controller = new AbortController()
     currentAbort = controller
+    const requestConfig = config
+    const requestRevision = configRevision
+    const requestConfigIsCurrent = (): boolean => configRevision === requestRevision
     try {
       // Lazy model resolution (download-on-first-run with progress + cancellable).
       const ensured = await deps.modelManager.ensureModel(
-        config.modelId,
+        requestConfig.modelId,
         (progress) => {
-          if (contextIsCurrent(context)) deps.broadcast(ENGINEER_CHANNELS.modelProgress, progress)
+          if (contextIsCurrent(context) && requestConfigIsCurrent()) deps.broadcast(ENGINEER_CHANNELS.modelProgress, progress)
         },
         controller.signal
       )
       if (!contextIsCurrent(context)) return rejectedAnswer(question)
+      if (!requestConfigIsCurrent()) return cancelledForConfigChange(question)
       if (!ensured.ok) {
-        log?.warn(LOG_AREA, 'ensureModel failed', { modelId: config.modelId, error: ensured.error })
-        return finalize(question, pick(config, FALLBACK.noModel), 'error', 'llm', undefined, context)
+        log?.warn(LOG_AREA, 'ensureModel failed', { modelId: requestConfig.modelId, error: ensured.error })
+        return finalize(question, pick(requestConfig, FALLBACK.noModel), 'error', 'llm', undefined, context)
       }
 
       deps.runtime.setOptions({
         modelPath: ensured.path,
-        modelId: config.modelId,
-        maxTokens: config.maxTokens,
-        idleUnloadMs: config.idleUnloadMs,
-        ...(config.threads > 0 ? { threads: config.threads } : {})
+        modelId: requestConfig.modelId,
+        maxTokens: requestConfig.maxTokens,
+        idleUnloadMs: requestConfig.idleUnloadMs,
+        ...(requestConfig.threads > 0 ? { threads: requestConfig.threads } : {})
       })
 
       const snapshot = deps.context.getSnapshot()
@@ -429,11 +453,11 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       })
       const contextText = renderContextText(pack, { maxTokens: CONTEXT_MAX_TOKENS, unitSystem })
       const functions = adaptEngineerTools(buildEngineerTools(deps.context, unitSystem))
-      const prompt = `${contextText}\n\n${promptLabel(config)}: ${question}`
+      const prompt = `${contextText}\n\n${promptLabel(requestConfig)}: ${question}`
 
-      const gen = generationParams(config)
+      const gen = generationParams(requestConfig)
       const result = await deps.runtime.generateWithTools({
-        system: personaSystem(config, unitSystem),
+        system: personaSystem(requestConfig, unitSystem),
         prompt,
         functions,
         maxTokens: gen.maxTokens,
@@ -441,17 +465,19 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         signal: controller.signal
       })
       if (!contextIsCurrent(context)) return rejectedAnswer(question)
+      if (!requestConfigIsCurrent()) return cancelledForConfigChange(question)
       if (!result.ok) {
         log?.warn(LOG_AREA, 'generate failed', { code: result.code })
-        return finalize(question, pick(config, FALLBACK.llmError), 'error', 'llm', undefined, context)
+        return finalize(question, pick(requestConfig, FALLBACK.llmError), 'error', 'llm', undefined, context)
       }
-      const text = (result.text ?? '').trim() || pick(config, FALLBACK.llmError)
+      const text = (result.text ?? '').trim() || pick(requestConfig, FALLBACK.llmError)
       return finalize(question, text, 'answer', 'llm', undefined, context)
     } catch (error) {
       // The runtime never throws, but keep the orchestrator bullet-proof regardless.
       if (!contextIsCurrent(context)) return rejectedAnswer(question)
+      if (!requestConfigIsCurrent()) return cancelledForConfigChange(question)
       log?.error(LOG_AREA, 'generate threw', { message: error instanceof Error ? error.message : String(error) })
-      return finalize(question, pick(config, FALLBACK.llmError), 'error', 'llm', undefined, context)
+      return finalize(question, pick(requestConfig, FALLBACK.llmError), 'error', 'llm', undefined, context)
     } finally {
       if (currentAbort === controller) {
         currentAbort = null
@@ -556,6 +582,8 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
   async function setConfig(patch: EngineerConfigPatch): Promise<EngineerConfig> {
     const previousModel = config.modelId
     config = mergeEngineerConfig(config, { ...patch, updatedAt: now() })
+    configRevision += 1
+    currentAbort?.abort()
     deps.onConfigChange?.(config)
     await deps.saveConfig(config)
     if (config.modelId !== previousModel) {

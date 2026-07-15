@@ -142,7 +142,7 @@ describe('routeIntent -- PT-BR questions', () => {
     expect(r.type).toBe('answer')
     if (r.type !== 'answer') return
     expect(r.category).toBe('gap')
-    expect(r.text).toContain('Ahead')
+    expect(r.text).toContain('À frente')
     expect(r.text).toContain('1.2')
   })
 
@@ -169,7 +169,7 @@ describe('routeIntent -- PT-BR questions', () => {
     if (r.type !== 'answer') return
     expect(r.category).toBe('laps')
     expect(r.text).not.toContain('32767')
-    expect(r.text.toLowerCase()).toContain('timed')
+    expect(r.text.toLowerCase()).toContain('sessão por tempo')
   })
 
   it('answers position (qual minha position?)', () => {
@@ -237,6 +237,54 @@ describe('routeIntent -- English questions', () => {
   })
 })
 
+describe('routeIntent -- forced PT-BR output', () => {
+  const answerText = (question: string): string => {
+    const result = routeIntent(question, ctx(), 'pt')
+    expect(result.type).toBe('answer')
+    if (result.type !== 'answer') return ''
+    expect(result.lang).toBe('pt')
+    return result.text
+  }
+
+  it('answers saved English preset questions in the configured Portuguese language', () => {
+    const fuel = answerText('How much fuel?')
+    expect(fuel).toContain('Combustível')
+    expect(fuel).toContain('litros por volta')
+    expect(fuel).not.toContain('/lap')
+    expect(answerText('Can we finish?')).toContain('Dá para chegar ao fim')
+    expect(answerText('Should I pit?')).toMatch(/boxes|parar/)
+    expect(answerText('Gap ahead')).toContain('À frente')
+    expect(answerText('How many laps?')).toContain('voltas restantes')
+    expect(answerText('What is my position?')).toContain('P4')
+    expect(answerText('How is my pace?')).toContain('melhor volta')
+    expect(answerText('How are the tyres?')).toContain('Pneus')
+    expect(answerText('Is it raining?')).toContain('Pista seca')
+  })
+
+  it('speaks imperial fuel consumption as galões por volta in Portuguese', () => {
+    const result = routeIntent('How much fuel?', ctx(), 'pt', 'imperial')
+    expect(result.type).toBe('answer')
+    if (result.type !== 'answer') return
+    expect(result.text).toContain('galões por volta')
+    expect(result.text).not.toContain('gal/lap')
+  })
+
+  it('never emits common English radio copy in forced Portuguese answers', () => {
+    const combined = [
+      answerText('How much fuel?'),
+      answerText('Can we finish?'),
+      answerText('Should I pit?'),
+      answerText('Gap ahead'),
+      answerText('How many laps?'),
+      answerText('How is my pace?'),
+      answerText('How are the tyres?'),
+      answerText('Is it raining?')
+    ].join(' ')
+
+    expect(combined).not.toMatch(/\b(fuel|finish|ahead|behind|laps|remaining|tyres|track|rain|best|pace|need)\b/i)
+  })
+})
+
 describe('routeIntent -- voice commands', () => {
   const cases: Array<[string, string, string | undefined]> = [
     ['next dashboard', 'dashboard.next', 'dash:cycleNext'],
@@ -264,6 +312,15 @@ describe('routeIntent -- voice commands', () => {
     const off = routeIntent('desliga as rev-lights', ctx())
     if (on.type === 'command') expect(on.args).toEqual({ enabled: true })
     if (off.type === 'command') expect(off.args).toEqual({ enabled: false })
+  })
+
+  it('keeps executable command confirmations in PT-BR when Portuguese is configured', () => {
+    const lap = routeIntent('mark lap', ctx(), 'pt')
+    const fuel = routeIntent('resetar gasolina', ctx(), 'pt')
+    expect(lap.type).toBe('command')
+    expect(fuel.type).toBe('command')
+    if (lap.type === 'command') expect(lap.speak).toBe('Volta marcada.')
+    if (fuel.type === 'command') expect(fuel.speak).toBe('Cálculo de combustível reiniciado.')
   })
 })
 

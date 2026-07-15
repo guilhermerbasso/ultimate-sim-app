@@ -517,43 +517,44 @@ export function coachDimensionForKind(kind: CoachFindingKind): CoachDimension | 
  * `coachActionForFindingKind` (which the single-tip spoken path pins) so each path
  * can evolve independently.
  */
-export function coachComposeAction(kind: CoachFindingKind): string {
+export function coachComposeAction(kind: CoachFindingKind, language: 'pt-BR' | 'en-US' = 'pt-BR'): string {
+  const pt = language === 'pt-BR'
   switch (kind) {
     case 'brake-late':
-      return 'brake earlier'
+      return pt ? 'freie antes' : 'brake earlier'
     case 'brake-early':
-      return 'brake later'
+      return pt ? 'freie mais tarde' : 'brake later'
     case 'trail-brake-lock':
-      return 'release the brake as you turn'
+      return pt ? 'solte o freio ao virar' : 'release the brake as you turn'
     case 'abs-overuse':
-      return 'release the brake'
+      return pt ? 'use menos freio' : 'release the brake'
     case 'steering-late':
-      return 'turn in earlier'
+      return pt ? 'vire antes' : 'turn in earlier'
     case 'steering-early':
-      return 'vire depois'
+      return pt ? 'vire depois' : 'turn in later'
     case 'steering-insufficient':
-      return 'more steering'
+      return pt ? 'vire mais o volante' : 'more steering'
     case 'steering-busy':
-      return 'steering mais suave'
+      return pt ? 'faça menos correções no volante' : 'smooth the steering'
     case 'throttle-late':
-      return 'acelere antes'
+      return pt ? 'acelere antes' : 'throttle earlier'
     case 'throttle-early':
-      return 'throttle later'
+      return pt ? 'acelere mais tarde' : 'throttle later'
     case 'throttle-hesitation':
-      return 'commit to throttle'
+      return pt ? 'confie no acelerador' : 'commit to throttle'
     case 'tc-overuse':
-      return 'smooth the throttle on exit'
+      return pt ? 'acelere mais suave na saída' : 'smooth the throttle on exit'
     case 'coast':
-      return 'do not coast'
+      return pt ? 'não deixe o carro rolar' : 'do not coast'
     case 'inconsistency':
-      return 'repita os pontos de freada'
+      return pt ? 'repita os pontos de freada' : 'repeat the braking points'
     case 'time-loss':
-      return 'find more time here'
+      return pt ? 'ganhe mais tempo aqui' : 'find more time here'
     case 'min-speed-gain':
     case 'brake-gain':
     case 'throttle-gain':
     case 'good':
-      return 'hold the pace'
+      return pt ? 'mantenha o ritmo' : 'hold the pace'
   }
 }
 
@@ -650,9 +651,11 @@ export interface ComposedCornerAdvice {
 export function composeCornerAdvice(
   findings: CoachFinding[],
   where: { corner?: number; sector?: number } = {},
-  opts: { maxDims?: number } = {}
+  opts: { maxDims?: number; language?: 'pt-BR' | 'en-US' } = {}
 ): ComposedCornerAdvice | null {
   const maxDims = Math.max(1, Math.floor(opts.maxDims ?? 3))
+  const language = opts.language ?? 'pt-BR'
+  const pt = language === 'pt-BR'
   // Keep the worst finding per dimension (so we never say "brake earlier" twice).
   const worstPerDim = new Map<CoachDimension, CoachFinding>()
   for (const f of findings) {
@@ -673,14 +676,17 @@ export function composeCornerAdvice(
       .filter((f) => f.kind === 'time-loss' && f.sign !== 'gain' && f.estTimeLossSec > 0)
       .sort((a, b) => b.estTimeLossSec - a.estTimeLossSec)[0]
     if (!tl) return null
-    const action = coachComposeAction(tl.kind)
+    const action = coachComposeAction(tl.kind, language)
     const worstLossSec = tl.estTimeLossSec
     const sector = where.sector !== undefined && Number.isFinite(where.sector) ? where.sector : tl.sector
     let text: string
     if (where.corner !== undefined && Number.isFinite(where.corner)) {
-      text = sector !== undefined && Number.isFinite(sector) ? `Turn ${where.corner} (Sector ${sector}): ${action}.` : `Turn ${where.corner}: ${action}.`
+      text =
+        sector !== undefined && Number.isFinite(sector)
+          ? `${pt ? 'Curva' : 'Turn'} ${where.corner} (${pt ? 'Setor' : 'Sector'} ${sector}): ${action}.`
+          : `${pt ? 'Curva' : 'Turn'} ${where.corner}: ${action}.`
     } else if (sector !== undefined && Number.isFinite(sector)) {
-      text = `Sector ${sector}: ${action}.`
+      text = `${pt ? 'Setor' : 'Sector'} ${sector}: ${action}.`
     } else {
       text = `${capitalizeFirst(action)}.`
     }
@@ -700,7 +706,7 @@ export function composeCornerAdvice(
     .sort((a, b) => b.estTimeLossSec - a.estTimeLossSec)
     .slice(0, maxDims)
 
-  const actions = ordered.map((f) => coachComposeAction(f.kind))
+  const actions = ordered.map((f) => coachComposeAction(f.kind, language))
   const kinds = ordered.map((f) => f.kind)
   const worstLossSec = ordered[0].estTimeLossSec
   const totalLossSec = ordered.reduce((sum, f) => sum + f.estTimeLossSec, 0)
@@ -710,9 +716,12 @@ export function composeCornerAdvice(
   const body = actions.join(', ')
   let text: string
   if (where.corner !== undefined && Number.isFinite(where.corner)) {
-    text = sector !== undefined && Number.isFinite(sector) ? `Turn ${where.corner} (Sector ${sector}): ${body}.` : `Turn ${where.corner}: ${body}.`
+    text =
+      sector !== undefined && Number.isFinite(sector)
+        ? `${pt ? 'Curva' : 'Turn'} ${where.corner} (${pt ? 'Setor' : 'Sector'} ${sector}): ${body}.`
+        : `${pt ? 'Curva' : 'Turn'} ${where.corner}: ${body}.`
   } else if (sector !== undefined && Number.isFinite(sector)) {
-    text = `Sector ${sector}: ${body}.`
+    text = `${pt ? 'Setor' : 'Sector'} ${sector}: ${body}.`
   } else {
     text = `${capitalizeFirst(body)}.`
   }
@@ -1938,16 +1947,25 @@ function summarizeReport(findings: CoachFinding[], deltaToBestSec: number | unde
 }
 
 /** Deterministic, LLM-free phrasing for a finding (used as the `coach:explain` fallback). */
-export function deterministicPhrasing(finding: CoachFinding): string {
-  const where = finding.corner ? `Turn ${finding.corner}` : finding.sector ? `Sector ${finding.sector}` : ''
+export function deterministicPhrasing(
+  finding: CoachFinding,
+  language: 'pt-BR' | 'en-US' = 'pt-BR'
+): string {
+  const pt = language === 'pt-BR'
+  const where = finding.corner
+    ? `${pt ? 'Curva' : 'Turn'} ${finding.corner}`
+    : finding.sector
+      ? `${pt ? 'Setor' : 'Sector'} ${finding.sector}`
+      : ''
+  const action = capitalizeFirst(coachComposeAction(finding.kind, language))
   const impactTxt =
     finding.sign === 'gain'
-      ? ` Ganho estimado ~${(finding.estTimeDeltaSec ?? 0).toFixed(2)}s.`
+      ? ` ${pt ? 'Ganho estimado' : 'Estimated gain'} ~${(finding.estTimeDeltaSec ?? 0).toFixed(2)}s.`
       : finding.severity === 'good'
         ? ''
-        : ` Perda estimada ~${finding.estTimeLossSec.toFixed(2)}s.`
-  const head = where ? `${where}: ${finding.title}` : finding.title
-  return `${head}. ${finding.detail} (${finding.evidence}).${impactTxt}`.trim()
+        : ` ${pt ? 'Perda estimada' : 'Estimated loss'} ~${finding.estTimeLossSec.toFixed(2)}s.`
+  const head = where ? `${where}: ${action}` : action
+  return `${head}.${impactTxt}`.trim()
 }
 
 // ─── coach:explain IPC contract ─────────────────────────────────────────────────

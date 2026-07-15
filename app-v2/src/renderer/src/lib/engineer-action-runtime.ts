@@ -10,6 +10,7 @@ import {
 } from '../../../shared/engineer-ipc'
 import { readButtonPressed } from './gamepad'
 import { isActionRuntimeSuppressed, type ActionRuntimeToast } from './action-runtime'
+import { stopTts } from './tts-runtime'
 
 // ─── App-level AI Engineer action runtime ─────────────────────────────────────
 //
@@ -120,7 +121,18 @@ export function useEngineerActionRuntime(showToast?: ActionRuntimeToast): void {
     }
     void loadConfig()
     const unsubStatus = window.ipc.subscribe<EngineerStatus>(ENGINEER_CHANNELS.statusEvent, (s) => {
-      if (s?.config) configRef.current = s.config
+      if (!s?.config) return
+      if (configRef.current.language !== s.config.language) {
+        stopTts()
+        try {
+          recognition?.abort()
+        } catch {
+          // ignore
+        }
+        recognition = null
+        setListeningState(false)
+      }
+      configRef.current = s.config
     })
 
     // Push-to-talk: LISTEN once (Web Speech) and feed the transcript to engineer:ask.
