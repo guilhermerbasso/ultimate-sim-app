@@ -1,5 +1,53 @@
 # Ultimate Sim App — Release Notes
 
+## v2.52.0 — Semantic controls, expression destinations, secure streaming & synchronized speech
+
+Release 2.52 brings the Release B foundations into the Windows app: richer cockpit controls,
+explicit destinations for custom telemetry, safer browser streaming, temporal race alerts, and
+speech that stays aligned with the selected language.
+
+### Highlights
+- 🎛️ **Touch Controls schema v2** — momentary, latching toggle, rocker, guarded two-step,
+  rotary, selector, status LED, and value-tile controls with expression-driven states,
+  accessibility, multi-touch ownership, and deterministic key release.
+- 📊 **Expression visualization destinations** — place a custom expression or mapped iRacing
+  variable on a selected dashboard or custom overlay as a value, bar, gauge, or status.
+- 🔐 **Secure streaming sessions** — HttpOnly viewers, authentication throttling, prefix-safe
+  resource discovery, capacity isolation, HTTPS-only Internet exposure, and fail-closed browser
+  controls.
+- 🚨 **Temporal trigger-only overlays** — pace-car, pits-open, DRS, pit service, repairs,
+  precipitation/wetness/fog, proximity, incidents, race-control flags, pit limiter, low fuel, and
+  other alerts appear only while relevant or for their configured pulse/TTL.
+- 🗣️ **Language-correct speech** — Spotter, Coach, Engineer, previews, and Stint Debrief now keep
+  spoken copy synchronized with the selected language and cancel stale audio on language changes.
+- 🧼 **Visual reliability** — 19 release-blocking widget targets were corrected across validated
+  telemetry states, and steady green no longer triggers a race-control warning.
+
+### Reliability and compatibility
+- Expression imports are transactional and revision-checked; deletion tombstones, unsaved drafts,
+  legacy route state, and duplicate-name output recency are preserved.
+- Touch key holds/latches release on unmount, close, reload, navigation, renderer loss, live edits,
+  disabled-state transitions, and app teardown.
+- Packaged streaming verifies nested JavaScript/CSS resources, dynamic imports, preloads, and
+  browser-tolerated script closing tags.
+- Windows 10/11 x64 · Electron + React + TypeScript · local-first Coach/Engineer/TTS.
+
+### Validation
+- Full test suite: **3,683 tests passing. Typecheck clean.**
+- Production build and the **47-file streaming resource graph** pass.
+- Windows packaging is verified before all four updater artifacts are attached.
+
+_Installer: `Ultimate-Sim-App-2.52.0-x64.exe` (NSIS, x64) + portable `.zip` + blockmap + `latest.yml`._
+
+### What's Changed
+- [#54](https://github.com/guilhermerbasso/ultimate-sim-app/pull/54) — repair release-blocking widget clipping and overflow.
+- [#56](https://github.com/guilhermerbasso/ultimate-sim-app/pull/56) — add temporal trigger-only overlay lifecycles.
+- [#57](https://github.com/guilhermerbasso/ultimate-sim-app/pull/57) — exclude steady green from race-control alerts.
+- [#55](https://github.com/guilhermerbasso/ultimate-sim-app/pull/55) — synchronize spoken text with the selected language.
+- [#58](https://github.com/guilhermerbasso/ultimate-sim-app/pull/58) — add Expression destinations, semantic Touch Controls, and secure streaming foundations.
+
+**Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.50.0...v2.52.0
+
 ## v2.44.0 — v5: real-dash car themes + more iRacing widgets (Windows .exe restored) 🏎️
 
 Consolidates the v5 work from PR #15 and **fixes the Windows installer pipeline** so every release ships a working `.exe` again.

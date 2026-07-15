@@ -33,15 +33,15 @@ describe('Windows updater package safety', () => {
     })
   })
 
-  it('keeps package and lockfile versions aligned at 2.51.1', () => {
+  it('keeps package and lockfile versions aligned at 2.52.0', () => {
     const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string }
     const packageLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8')) as {
       version: string
       packages: Record<string, { version?: string }>
     }
 
-    expect(packageJson.version).toBe('2.51.1')
-    expect(packageLock.version).toBe('2.51.1')
-    expect(packageLock.packages['']?.version).toBe('2.51.1')
+    expect(packageJson.version).toBe('2.52.0')
+    expect(packageLock.version).toBe('2.52.0')
+    expect(packageLock.packages['']?.version).toBe('2.52.0')
   })
 })

@@ -27,14 +27,14 @@ Ultimate Sim App combines live race telemetry, dashboard composition, transparen
 ## What's new
 
 <!-- WHATS_NEW:START -->
-### 2.51.0 (draft) — telemetry coverage, dense dashboards, units, and live-data safety
+### 2.52.0 (draft) — semantic controls, expression destinations, secure streaming, and language-correct speech
 
-- The generated iRacing telemetry framework implements **423 real widget variants for 141 concepts**, with competition, futuristic-plausible, and DDU-inspired styles.
-- The dashboard catalog adds **50 individually authored dense GT3 layouts**, bringing the built-in total to **336 presets**.
-- Settings adds **Metric** and **Imperial/US** units for telemetry, dashboards, strategy, Coach, and Engineer output.
-- The local Coach distinguishes overtake, defend, general improvement, and qualifying contexts without claiming opponent controls that iRacing does not expose.
-- Streaming adds a searchable dashboard/Touch Controls target and an optional bundled Cloudflare quick tunnel; LAN and Internet access require a token and password.
-- Confirmed live, replay, and unknown telemetry contexts now fence live-only analytics, alerts, alert-driven transient hardware effects, and track-map learning. Full-profile import is temporarily disabled; per-section import/export remains available.
+- **Touch Controls schema v2** adds momentary, latching toggle, rocker, guarded two-step, rotary, selector, status LED, and value-tile controls with expression-driven states and accessible interaction.
+- **Expression Studio destinations** can place custom expressions or mapped iRacing variables on a selected dashboard or custom overlay with value, bar, gauge, or status presentations.
+- **Streaming hardening** adds prefix-safe resource discovery, HttpOnly viewer sessions, authentication throttling, capacity isolation, explicit HTTPS requirements for Internet mode, and fail-closed browser controls.
+- **Trigger-only race overlays** now use temporal rising/falling edges, pulses, TTL windows, preview isolation, and replay/session reset boundaries; normal steady green no longer activates race-control alerts.
+- **Speech language synchronization** keeps Spotter, Coach, Engineer, voice previews, and Stint Debrief text aligned with the selected voice/language and cancels stale speech when language changes.
+- **Visual and catalog reliability** fixes 19 release-blocking widget layouts, preserves expression output recency, and keeps newly released overlays, widgets, and dashboards ahead of older catalog entries.
 
 ### 2.50.0 — Intent- & racecraft-aware AI Coach
 
@@ -66,16 +66,16 @@ Ultimate Sim App combines live race telemetry, dashboard composition, transparen
 - **Dashboard builder/editor** with live preview, duplicate-and-edit workflow, monitor selection, import/export, and open-on-display support.
 - **336 built-in dashboard presets**, including 50 dense 1024×600 GT3 layouts for qualifying, sprint, race, and endurance use.
 - **Race playlist** support can interleave dashboards and Touch Controls panels and cycle them from mapped hardware buttons.
-- **Read-only dashboard streaming** in local, LAN, or Internet mode, with a session token, mandatory password for LAN/Internet, stream-safe identity masking, selectable dashboard or Touch Controls target, and either a manual public HTTPS URL or the bundled checksum-verified Cloudflare quick tunnel.
+- **Read-only dashboard streaming** in local, LAN, or Internet mode, with HttpOnly viewer sessions, authentication throttling, capacity isolation, stream-safe identity masking, a selectable dashboard or Touch Controls target, and either a verified public HTTPS URL or the bundled checksum-verified Cloudflare quick tunnel.
 - **Adaptive dashboards** that show/hide or emphasize widgets according to session phase and live race context.
 - **AI dashboard builder** that assembles a preview from a plain-English description, with an offline keyword fallback when the local model is unavailable.
 - **OLED Dashboard** presets for 128x64 ButtonBox displays.
-- **Touch Controls Dash** for pit panels and editable RGB button boxes on a cockpit touchscreen or streamed device.
+- **Touch Controls Dash schema v2** for semantic momentary, toggle, rocker, guarded, rotary, selector, status-LED, and value-tile controls, with expression-driven states, keyboard ownership cleanup, accessible interaction, and editable RGB button boxes.
 
 ### Overlays and race awareness
 
 - Transparent overlay windows for gear/speed, delta, inputs, fuel, relative/standings, flags, tyres, brakes, weather, radar, rev lights, and telemetry widgets.
-- **Trigger-only condition overlays** for warnings such as spotter arrows, proximity/radar, shift flash, pit limiter, flag alerts, and low fuel.
+- **Trigger-only condition overlays** for spotter/proximity, pace-car and pits-open messages, DRS, pit service, repairs, weather, race-control flags, incidents, shift flash, pit limiter, and low fuel, with pulse/TTL behavior and replay/session-safe resets.
 - **Interactive 3D Waze-style navigation map** with follow-camera track-up behavior, zoom, pan/rotate, recenter, layout-specific learned outlines/corners, replay-safe learning pauses, and a 2D fallback where WebGL is unavailable.
 - Overlay editing, positioning, import/export, and compositor mode for one transparent window per display.
 
@@ -119,7 +119,7 @@ Ultimate Sim App combines live race telemetry, dashboard composition, transparen
 
 ## Screenshots
 
-These v2.51 images were captured locally from the current-main React renderer and visual-audit harness with deterministic mock telemetry. They are real UI renders, not generated marketing artwork. Authentication-, simulator-, and hardware-only states remain empty when the harness cannot supply them.
+These images were captured locally from the current-main React renderer and visual-audit harness with deterministic mock telemetry. The v2.52 refresh includes the semantic Touch Controls editor and Expression Studio destinations. They are real UI renders, not generated marketing artwork. Authentication-, simulator-, and hardware-only states remain empty when the harness cannot supply them.
 
 | Current GT3 endurance DDU | Current 336-preset dashboard gallery |
 |---|---|
@@ -143,7 +143,11 @@ These v2.51 images were captured locally from the current-main React renderer an
 
 | Current overlay widget renderer | All 336 current dashboard presets |
 |---|---|
-| <img src="app-v2/docs/screenshots/overlay-widgets-gallery.png" alt="Minimal-style overlay gallery showing current real-renderer telemetry widgets" width="520" /> | <img src="app-v2/docs/screenshots/dashboard-presets-336-contact-sheet.png" alt="Contact sheet of all 336 current v2.51 dashboard presets rendered by the real dashboard renderer" width="520" /> |
+| <img src="app-v2/docs/screenshots/overlay-widgets-gallery.png" alt="Minimal-style overlay gallery showing current real-renderer telemetry widgets" width="520" /> | <img src="app-v2/docs/screenshots/dashboard-presets-336-contact-sheet.png" alt="Contact sheet of all 336 current dashboard presets rendered by the real dashboard renderer" width="520" /> |
+
+| Semantic Touch Controls editor | Expression visualization destinations |
+|---|---|
+| <img src="app-v2/docs/screenshots/touch-controls.png" alt="Touch Controls Dash schema v2 editor with semantic racing controls and cockpit display targeting" width="520" /> | <img src="app-v2/docs/screenshots/expr.png" alt="Expression Studio showing a live expression and explicit dashboard and overlay visualization destinations" width="520" /> |
 
 ---
 
@@ -175,7 +179,7 @@ These v2.51 images were captured locally from the current-main React renderer an
 - **Race Profiles** — per-car/track profiles for bindings, OLED pages, overlays, alerts, and hardware behavior.
 - **Setups** — local or URL-based setup installation workflows.
 - **Community** — local-first ghosts, telemetry, and setup sharing through `.simshare` files.
-- **Expressions** — CSP-safe custom fields and conditions without `eval`.
+- **Expressions** — CSP-safe custom fields and conditions without `eval`, transaction-safe imports, revision conflict protection, and explicit Dashboard/custom Overlay visualization destinations.
 
 ### Local AI
 
@@ -185,7 +189,7 @@ The AI Engineer, AI Coach, lap analysis, semantic search, and adaptive selection
 - **AI Coach** — intent- and racecraft-aware driving coach for overtake, defend, general improvement, and qualifying context, with confidence, silence when unsure, Turn+Sector grounding, local per-car/track baselines, and replay/live fencing.
 - **AI Dashboard Builder** — dashboard generation from text, with offline fallback behavior.
 - **Semantic Search** — meaning-based search with keyword fallback.
-- **Voice / TTS** — offline voices where available, system fallback, and voice-oriented race feedback.
+- **Voice / TTS** — offline voices where available, system fallback, and language-synchronized Spotter, Coach, Engineer, preview, and Stint Debrief speech.
 
 ### Hardware and app
 

@@ -6,6 +6,38 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
+## 2.52.0 — semantic controls, expression destinations, secure streaming, and synchronized speech
+
+### Added
+- **Touch Controls schema v2** with momentary, latching toggle, two-position rocker, guarded
+  two-step, rotary, selector, status-LED, and value-tile controls. Controls support
+  expression-driven active/pressed/disabled/warning/value states and accessible interaction.
+- **Expression Studio visualization destinations** for placing expressions or mapped iRacing
+  variables on a selected dashboard or custom overlay as a value, bar, gauge, or status.
+- **Trigger-only overlay lifecycle** with rising/falling edges, pulses, TTL windows, preview
+  isolation, DRS state normalization, and replay/session/connection reset boundaries.
+- **Streaming resource graph verification** for packaged HTML, JavaScript, CSS, dynamic imports,
+  preloads, and nested assets.
+
+### Changed
+- Streaming viewer sessions are HttpOnly, authentication attempts are throttled, token bootstrap
+  cannot evict authenticated viewers, public Internet mode requires active HTTPS, and browser
+  Touch Controls fail closed.
+- Expression imports are transaction-safe and revision-checked; legacy route state, deletion
+  tombstones, unsaved drafts, and newest duplicate output values are preserved.
+- Touch holds and latches are owned per pointer and renderer generation, with cleanup on unmount,
+  close, reload, navigation, renderer loss, live semantic edits, disabled-state transitions, and
+  app teardown.
+- Newly released overlays, widgets, and dashboards sort ahead of older catalog entries.
+
+### Fixed
+- Spotter, Live Coach, deterministic/proactive Engineer, voice previews, and Stint Debrief now
+  compose spoken text and language atomically. Language changes cancel current speech, queues,
+  recognition, and stale Engineer generations.
+- Steady green is treated as normal running and no longer activates race-control alert overlays.
+- Nineteen release-blocking widget layouts no longer clip, overlap, or overflow in the validated
+  telemetry states.
+
 ## 2.47.0 — per-car themed telemetry widgets, car-fidelity images, more i18n
 
 ### Added
