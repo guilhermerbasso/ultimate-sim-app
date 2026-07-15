@@ -1,6 +1,8 @@
+import { EventEmitter } from 'node:events'
 import { join, resolve, sep } from 'node:path'
-import { describe, expect, it } from 'vitest'
-import { panelFileName } from './manager'
+import type { BrowserWindow } from 'electron'
+import { describe, expect, it, vi } from 'vitest'
+import { bindTouchActionWindowLifecycle, panelFileName } from './manager'
 
 // Security regression: panel ids are UNTRUSTED (user-edited / imported JSON). A
 // crafted id must never let a save/delete escape the panels directory.
@@ -48,5 +50,25 @@ describe('panelFileName — path-traversal hardening', () => {
   it('never returns an empty name', () => {
     expect(panelFileName('')).toBe('_')
     expect(panelFileName('..')).not.toBe('')
+  })
+})
+describe('Touch BrowserWindow action lifecycle', () => {
+  it('releases its webContents owner on reload/navigation, process loss, destruction, and close', () => {
+    const win = new EventEmitter() as EventEmitter & { webContents: EventEmitter & { id: number } }
+    win.webContents = new EventEmitter() as EventEmitter & { id: number }
+    win.webContents.id = 77
+    const release = vi.fn().mockResolvedValue(undefined)
+    bindTouchActionWindowLifecycle(win as unknown as BrowserWindow, release)
+
+    win.webContents.emit('did-start-navigation', {}, 'file://subframe', false, false)
+    expect(release).not.toHaveBeenCalled()
+    win.webContents.emit('did-start-navigation', {}, 'file://touchpanel', false, true)
+    win.webContents.emit('render-process-gone')
+    win.webContents.emit('destroyed')
+    win.emit('close')
+    win.emit('closed')
+
+    expect(release).toHaveBeenCalledTimes(5)
+    expect(release.mock.calls.every(([id]) => id === 77)).toBe(true)
   })
 })

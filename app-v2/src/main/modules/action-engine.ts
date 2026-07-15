@@ -1,6 +1,8 @@
+import type { WebContents } from 'electron'
 import type { ModuleContext } from '../module-context'
 import { ActionDispatcher, mapIracingCommand } from '../actions/dispatcher'
 import { EmulationEngine } from '../actions/emulation'
+import { registerTouchActionOwnerReleaser } from '../actions/touch-owner'
 import type { ActionBinding, EmulationTestRequest, HidButtonControl } from '../../shared/actions'
 import {
   TOUCH_ACTION_IPC_CHANNEL,
@@ -23,12 +25,50 @@ export interface TouchActionEmulation {
   pressKey(command: import('../../shared/actions').KeyboardMacroCommand): Promise<TouchActionExecutionResult>
   beginKeyboardHold(token: string, command: import('../../shared/actions').KeyboardMacroCommand): Promise<TouchActionExecutionResult>
   endKeyboardHold(token: string): Promise<TouchActionExecutionResult>
+  toggleTouchKeyboard(
+    token: string,
+    command: import('../../shared/actions').KeyboardMacroCommand
+  ): Promise<TouchActionExecutionResult>
   setTouchKeyboardToggle(
     token: string,
     command: import('../../shared/actions').KeyboardMacroCommand,
     active: boolean
   ): Promise<TouchActionExecutionResult>
+  releaseTouchKeyboardOwner(ownerKey: string): Promise<void>
 }
+
+export class TouchActionOwnerRegistry {
+  private readonly generations = new Map<number, number>()
+  private readonly tracked = new Set<number>()
+
+  constructor(private readonly emulation: Pick<TouchActionEmulation, 'releaseTouchKeyboardOwner'>) {}
+
+  currentOwnerKey(webContentsId: number): string {
+    return `webcontents-${webContentsId}-generation-${this.generations.get(webContentsId) ?? 0}`
+  }
+
+  async release(webContentsId: number): Promise<void> {
+    const ownerKey = this.currentOwnerKey(webContentsId)
+    // Advance synchronously so a new document can never inherit an in-flight release.
+    this.generations.set(webContentsId, (this.generations.get(webContentsId) ?? 0) + 1)
+    await this.emulation.releaseTouchKeyboardOwner(ownerKey)
+  }
+
+  track(sender: WebContents): void {
+    const webContentsId = sender.id
+    if (this.tracked.has(webContentsId)) return
+    this.tracked.add(webContentsId)
+    sender.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
+      if (isMainFrame !== false) void this.release(webContentsId)
+    })
+    sender.on('render-process-gone', () => void this.release(webContentsId))
+    sender.once('destroyed', () => {
+      this.tracked.delete(webContentsId)
+      void this.release(webContentsId)
+    })
+  }
+}
+
 
 function rejected(message: string): TouchActionExecutionResult {
   return { ok: false, message }
@@ -66,8 +106,11 @@ async function executeTouchAppAction(request: TouchSemanticActionRequest): Promi
 export function createTouchSemanticActionHandler(
   ctx: ModuleContext,
   emulation: TouchActionEmulation
-): (raw: unknown) => Promise<TouchActionExecutionResult> {
-  return async (raw: unknown): Promise<TouchActionExecutionResult> => {
+): (raw: unknown, ownerKey?: string) => Promise<TouchActionExecutionResult> {
+  return async (
+    raw: unknown,
+    ownerKey = 'webcontents-unscoped-generation-0'
+  ): Promise<TouchActionExecutionResult> => {
     const request = normalizeTouchSemanticActionRequest(raw)
     if (!request) return rejected('Invalid semantic Touch action request.')
     try {
@@ -86,19 +129,20 @@ export function createTouchSemanticActionHandler(
       if (request.action.kind !== 'keyboard') return rejected('Unsupported Touch action.')
 
       const command = request.action.command
+      const ownedToken = `${ownerKey}:${request.token}`
       if (command.mode === 'hold') {
-        if (request.phase === 'begin') return emulation.beginKeyboardHold(request.token, command)
-        if (request.phase === 'end' || request.phase === 'cancel') return emulation.endKeyboardHold(request.token)
+        if (request.phase === 'begin') return emulation.beginKeyboardHold(ownedToken, command)
+        if (request.phase === 'end' || request.phase === 'cancel') return emulation.endKeyboardHold(ownedToken)
         return emulation.pressKey(command)
       }
       if (command.mode === 'toggle') {
         if (request.phase === 'cancel' || request.zone === 'off') {
-          return emulation.setTouchKeyboardToggle(request.token, command, false)
+          return emulation.setTouchKeyboardToggle(ownedToken, command, false)
         }
         if (request.zone === 'on') {
-          return emulation.setTouchKeyboardToggle(request.token, command, true)
+          return emulation.setTouchKeyboardToggle(ownedToken, command, true)
         }
-        return emulation.pressKey(command)
+        return emulation.toggleTouchKeyboard(ownedToken, command)
       }
       if (command.mode === 'repeat') {
         const singlePress = {
@@ -156,7 +200,14 @@ export function register(ctx: ModuleContext): void {
   })
   // The Touch preload exposes only this semantic, runtime-validated action boundary.
   const handleTouchAction = createTouchSemanticActionHandler(ctx, emulation)
-  ctx.ipcMain.handle(TOUCH_ACTION_IPC_CHANNEL, (_event, raw: unknown) => handleTouchAction(raw))
+  const touchActionOwners = new TouchActionOwnerRegistry(emulation)
+  const unregisterTouchActionOwners = registerTouchActionOwnerReleaser((webContentsId) =>
+    touchActionOwners.release(webContentsId)
+  )
+  ctx.ipcMain.handle(TOUCH_ACTION_IPC_CHANNEL, (event, raw: unknown) => {
+    touchActionOwners.track(event.sender)
+    return handleTouchAction(raw, touchActionOwners.currentOwnerKey(event.sender.id))
+  })
   ctx.ipcMain.handle('app:dash:cycleControl:get', () => cycleControls)
 
   // ── Engineer Q&A hardware triggers (ADDITIVE) ─────────────────────────────────
@@ -175,6 +226,7 @@ export function register(ctx: ModuleContext): void {
   })
 
   ctx.app.on('before-quit', () => {
+    unregisterTouchActionOwners()
     void emulation.dispose().catch((error) => console.warn('[actions] Failed to dispose emulation engine.', error))
   })
 

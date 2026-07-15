@@ -2,6 +2,7 @@ import { BrowserWindow, screen } from 'electron'
 import { join } from 'node:path'
 import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import type { ModuleContext } from '../module-context'
+import { releaseTouchActionsForWebContents } from '../actions/touch-owner'
 import {
   parseButtonBoxPanelDetailed,
   summarizeButtonBoxPanel,
@@ -31,6 +32,22 @@ export function panelFileName(id: string): string {
   return collapsed.length > 0 ? collapsed : '_'
 }
 
+export function bindTouchActionWindowLifecycle(
+  win: BrowserWindow,
+  release: (webContentsId: number) => Promise<void> = releaseTouchActionsForWebContents
+): void {
+  const webContentsId = win.webContents.id
+  const releaseOwner = (): void => {
+    void release(webContentsId)
+  }
+  win.on('close', releaseOwner)
+  win.once('closed', releaseOwner)
+  win.webContents.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
+    if (isMainFrame !== false) releaseOwner()
+  })
+  win.webContents.on('render-process-gone', releaseOwner)
+  win.webContents.once('destroyed', releaseOwner)
+}
 export interface TouchPanelDisplayInfo {
   id: number
   label: string
@@ -241,6 +258,7 @@ export class TouchPanelManager {
       }
     })
 
+    bindTouchActionWindowLifecycle(win)
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     // Defence-in-depth: the touch-panel window carries a privileged preload, so
     // never let it navigate away from the app-served panel document (external
@@ -265,6 +283,7 @@ export class TouchPanelManager {
   }
 
   private loadPanel(win: BrowserWindow, panelId: string): void {
+    void releaseTouchActionsForWebContents(win.webContents.id)
     const query = { panel: panelId }
     if (process.env.ELECTRON_RENDERER_URL) {
       const url = new URL('touchpanel.html', process.env.ELECTRON_RENDERER_URL)
@@ -276,7 +295,10 @@ export class TouchPanelManager {
   }
 
   closeWindow(): void {
-    if (this.window && !this.window.isDestroyed()) this.window.close()
+    if (this.window && !this.window.isDestroyed()) {
+      void releaseTouchActionsForWebContents(this.window.webContents.id)
+      this.window.close()
+    }
     this.window = null
     this.currentPanelId = null
     this.broadcastOpenState()

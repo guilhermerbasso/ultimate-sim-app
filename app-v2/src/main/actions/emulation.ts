@@ -298,6 +298,13 @@ export class EmulationEngine {
     if (this.touchHoldStates.get(state.token) === state) this.touchHoldStates.delete(state.token)
   }
 
+  async toggleTouchKeyboard(
+    token: string,
+    macro: KeyboardMacroCommand
+  ): Promise<EmulationResult> {
+    const current = this.touchToggleStates.get(token)
+    return this.setTouchKeyboardToggle(token, macro, !(current?.desiredActive ?? false))
+  }
   /** Deterministic, token-scoped latching keyboard state used only by Touch. */
   async setTouchKeyboardToggle(
     token: string,
@@ -370,6 +377,31 @@ export class EmulationEngine {
     } catch (error) {
       state.timer = setTimeout(() => void this.releaseTouchToggleState(state), 1_000)
       return { ok: false, message: `Failed to release keyboard toggle: ${errorMessage(error)}` }
+    }
+  }
+  /** Cancel/release only the states captured for one webContents generation. */
+  async releaseTouchKeyboardOwner(ownerKey: string): Promise<void> {
+    const prefix = `${ownerKey}:`
+    const holds = [...this.touchHoldStates.values()].filter((state) => state.token.startsWith(prefix))
+    const toggles = [...this.touchToggleStates.values()].filter((state) => state.token.startsWith(prefix))
+    // Mark cancellation synchronously before awaiting in-flight key-down operations.
+    for (const state of holds) {
+      state.cancelRequested = true
+      if (state.timer) clearTimeout(state.timer)
+      state.timer = null
+    }
+    for (const state of toggles) {
+      state.desiredActive = false
+      if (state.timer) clearTimeout(state.timer)
+      state.timer = null
+    }
+    for (const state of holds) {
+      await state.operation.catch(() => undefined)
+      await this.releaseTouchHoldState(state).catch(() => undefined)
+    }
+    for (const state of toggles) {
+      await state.operation.catch(() => undefined)
+      await this.releaseTouchToggleState(state).catch(() => undefined)
     }
   }
   async tapGamepad(command: GamepadEmulationCommand): Promise<EmulationResult> {

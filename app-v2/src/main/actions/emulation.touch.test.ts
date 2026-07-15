@@ -90,6 +90,28 @@ describe('EmulationEngine Touch hold serialization', () => {
   })
 })
 
+describe('EmulationEngine Touch owner isolation', () => {
+  it('releases only the captured webContents generation', async () => {
+    const fake = backend()
+    const engine = new EmulationEngine({ nut: fake.nut })
+    const ownerA = 'webcontents-10-generation-0'
+    const ownerB = 'webcontents-20-generation-0'
+
+    await engine.beginKeyboardHold(`${ownerA}:radio:main`, { mode: 'hold', keys: ['V'] })
+    await engine.setTouchKeyboardToggle(`${ownerA}:lights:latching`, { mode: 'toggle', keys: ['H'] }, true)
+    await engine.beginKeyboardHold(`${ownerB}:radio:main`, { mode: 'hold', keys: ['PageUp'] })
+    fake.releaseKey.mockClear()
+
+    await engine.releaseTouchKeyboardOwner(ownerA)
+
+    expect(fake.releaseKey).toHaveBeenCalledWith('V')
+    expect(fake.releaseKey).toHaveBeenCalledWith('H')
+    expect(fake.releaseKey).not.toHaveBeenCalledWith('PageUp')
+    fake.releaseKey.mockClear()
+    await engine.endKeyboardHold(`${ownerB}:radio:main`)
+    expect(fake.releaseKey).toHaveBeenCalledWith('PageUp')
+  })
+})
 describe('EmulationEngine Touch latching teardown', () => {
   it('cancels an in-flight toggle activation and releases any late key-down', async () => {
     const pendingPress = deferred()
