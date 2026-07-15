@@ -53,7 +53,7 @@ describe('evaluateOverlayTrigger', () => {
       ...snap({}),
       flags: { green: true, yellow: false, blue: false, white: false, checkered: false, red: false, black: false, meatball: false, repair: false, disqualify: false, greenWhiteCheckered: false }
     } as TelemetrySnapshot
-    expect(evaluateOverlayTrigger({ kind: 'flag' }, greenOnly)).toBe(true)
+    expect(evaluateOverlayTrigger({ kind: 'flag' }, greenOnly)).toBe(false)
   })
 
   it('lowFuel uses laps-to-empty = fuel / perLap', () => {

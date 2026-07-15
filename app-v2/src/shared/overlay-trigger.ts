@@ -177,7 +177,8 @@ function knownPositive(value: unknown): TriggerSignal {
 function activeRaceControlFlags(snapshot: TelemetrySnapshot | null | undefined): TriggerSignal {
   const flags = snapshot?.flags
   if (!flags) return { known: false, value: false }
-  return { known: true, value: Object.values(flags).some(Boolean) }
+  const { green: _green, ...alertFlags } = flags
+  return { known: true, value: Object.values(alertFlags).some(Boolean) }
 }
 
 function activeEngineWarnings(snapshot: TelemetrySnapshot | null | undefined): TriggerSignal {
