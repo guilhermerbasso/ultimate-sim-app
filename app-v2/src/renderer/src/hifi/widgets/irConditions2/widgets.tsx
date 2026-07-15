@@ -147,7 +147,7 @@ function TrackSurface({ width, height, snapshot }: HifiWidgetProps): ReactElemen
   const label = trackSurfaceMaterialLabel(raw)
   const display = label == null ? '—' : label.toUpperCase()
   const color = surfaceColor(label)
-  const fontSize = display.length > 10 ? 47 : display.length > 7 ? 58 : 70
+  const fontSize = display === '—' ? 70 : Math.max(30, Math.min(70, (W - 48) / (display.length * 0.92)))
   return (
     <Root width={width} height={height} snapshot={snapshot}>
       <defs>

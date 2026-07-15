@@ -42,6 +42,7 @@ export function register(ctx: ModuleContext): void {
   let checking = false
   let downloading = false
   let available = false
+  let installRequested = false
   let timer: ReturnType<typeof setInterval> | null = null
   let status: UpdaterStatus = {
     currentVersion: ctx.app.getVersion(),
@@ -135,6 +136,9 @@ export function register(ctx: ModuleContext): void {
     debug: (message: string) => logger.debug('updater', message)
   }
   autoUpdater.autoDownload = false
+  // The updater's quit hook runs after Electron's final quit event. This lets the
+  // app's before-quit controller finish ordered hardware/persistence teardown
+  // before NSIS is started.
   autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.disableWebInstaller = true
   autoUpdater.setFeedURL({
@@ -194,10 +198,17 @@ export function register(ctx: ModuleContext): void {
       const next = emitError(new Error('No downloaded update to install.'))
       return { ok: false, status: next }
     }
+    if (installRequested) return { ok: true, status }
+    installRequested = true
     try {
-      autoUpdater.quitAndInstall(false, true)
+      logger.info('updater', 'update install requested; waiting for ordered app quit')
+      // Do not call quitAndInstall here. It starts NSIS before app.quit(), which
+      // races the bounded before-quit teardown and can corrupt the installation.
+      // electron-updater's autoInstallOnAppQuit hook installs after final quit.
+      ctx.app.quit()
       return { ok: true, status }
     } catch (error) {
+      installRequested = false
       return { ok: false, status: emitError(error) }
     }
   })

@@ -15,7 +15,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'chrome.update.bannerDownloading': 'Downloading update… {pct}%',
     'chrome.update.bannerDownloaded': 'Update {version} is ready — restart to install.',
     'chrome.update.download': 'Download',
-    'chrome.update.install': 'Restart & install',
+    'chrome.update.install': 'Install & close',
     'chrome.update.dismiss': 'Later',
     'settings.languageRestartConfirm': 'Restart the app now to apply the new language everywhere?'
   },
@@ -30,7 +30,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'chrome.update.bannerDownloading': 'Baixando atualização… {pct}%',
     'chrome.update.bannerDownloaded': 'Atualização {version} pronta — reinicie para instalar.',
     'chrome.update.download': 'Baixar',
-    'chrome.update.install': 'Reiniciar e instalar',
+    'chrome.update.install': 'Instalar e fechar',
     'chrome.update.dismiss': 'Depois',
     'settings.languageRestartConfirm': 'Reiniciar o app agora para aplicar o novo idioma em todo lugar?'
   },
@@ -45,7 +45,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'chrome.update.bannerDownloading': 'Descargando actualización… {pct}%',
     'chrome.update.bannerDownloaded': 'Actualización {version} lista: reinicia para instalar.',
     'chrome.update.download': 'Descargar',
-    'chrome.update.install': 'Reiniciar e instalar',
+    'chrome.update.install': 'Instalar y cerrar',
     'chrome.update.dismiss': 'Más tarde',
     'settings.languageRestartConfirm': '¿Reiniciar la app ahora para aplicar el nuevo idioma en todas partes?'
   },
@@ -60,7 +60,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'chrome.update.bannerDownloading': 'Téléchargement de la mise à jour… {pct}%',
     'chrome.update.bannerDownloaded': 'Mise à jour {version} prête — redémarrez pour l’installer.',
     'chrome.update.download': 'Télécharger',
-    'chrome.update.install': 'Redémarrer et installer',
+    'chrome.update.install': 'Installer et fermer',
     'chrome.update.dismiss': 'Plus tard',
     'settings.languageRestartConfirm': 'Redémarrer l’app maintenant pour appliquer la nouvelle langue partout ?'
   },
@@ -75,7 +75,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'chrome.update.bannerDownloading': 'Update wird heruntergeladen… {pct}%',
     'chrome.update.bannerDownloaded': 'Update {version} bereit — zum Installieren neu starten.',
     'chrome.update.download': 'Herunterladen',
-    'chrome.update.install': 'Neu starten & installieren',
+    'chrome.update.install': 'Installieren & schließen',
     'chrome.update.dismiss': 'Später',
     'settings.languageRestartConfirm': 'Die App jetzt neu starten, um die neue Sprache überall anzuwenden?'
   },
@@ -90,7 +90,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'chrome.update.bannerDownloading': '正在下载更新… {pct}%',
     'chrome.update.bannerDownloaded': '更新 {version} 已就绪 — 重启以安装。',
     'chrome.update.download': '下载',
-    'chrome.update.install': '重启并安装',
+    'chrome.update.install': '安装并关闭',
     'chrome.update.dismiss': '稍后',
     'settings.languageRestartConfirm': '立即重启应用以在各处应用新语言？'
   },
@@ -105,7 +105,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'chrome.update.bannerDownloading': 'アップデートをダウンロード中… {pct}%',
     'chrome.update.bannerDownloaded': 'アップデート {version} の準備ができました — 再起動してインストール。',
     'chrome.update.download': 'ダウンロード',
-    'chrome.update.install': '再起動してインストール',
+    'chrome.update.install': 'インストールして終了',
     'chrome.update.dismiss': '後で',
     'settings.languageRestartConfirm': '新しい言語をすべてに適用するために、今すぐアプリを再起動しますか？'
   }

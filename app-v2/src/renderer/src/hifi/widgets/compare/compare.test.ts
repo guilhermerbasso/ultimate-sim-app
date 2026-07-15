@@ -11,6 +11,17 @@ function renderAll(snapshot: TelemetrySnapshot | null): string[] {
   return COMPARE_WIDGETS.map((widget) => renderToStaticMarkup(createElement(widget.render, { snapshot, width: widget.defaultSize.w, height: widget.defaultSize.h })))
 }
 
+function renderWidget(id: string, snapshot: TelemetrySnapshot): string {
+  const widget = COMPARE_WIDGETS.find((candidate) => candidate.id === id)
+  expect(widget, `missing ${id}`).toBeTruthy()
+  if (!widget) return ''
+  return renderToStaticMarkup(createElement(widget.render, {
+    snapshot,
+    width: widget.defaultSize.w,
+    height: widget.defaultSize.h
+  }))
+}
+
 describe('COMPARE_WIDGETS', () => {
   it('exports unique broadcast-comparison modules incl. the full dash', () => {
     const ids = COMPARE_WIDGETS.map((widget) => widget.id)
@@ -45,5 +56,12 @@ describe('COMPARE_WIDGETS', () => {
       expect(markup.length).toBeGreaterThan(100)
       expect(markup).not.toMatch(badTokens)
     }
+  })
+
+  it('fits a double-digit signed gap with its unit', () => {
+    const markup = renderWidget('cmpGap', { ...baseSnapshot(), deltaToBestSec: 10 } as TelemetrySnapshot)
+    const value = markup.match(/<text[^>]*font-size="([^"]+)"[^>]*>\+10\.000/)
+    expect(value).toBeTruthy()
+    expect(Number(value?.[1])).toBeLessThanOrEqual(48)
   })
 })

@@ -395,6 +395,11 @@ function SpotterRaw({ width, height, snapshot }: HifiWidgetProps): ReactElement 
 }
 
 // ── Session tag (unique session identity) ─────────────────────────────────────
+function sessionTagSize(tag: string): number {
+  if (tag === '—') return 72
+  return Math.max(32, Math.min(72, (W - 96) / (tag.length * 0.92)))
+}
+
 function SessionTag({ width, height, snapshot }: HifiWidgetProps): ReactElement {
   const id = num(snapshot?.sessionUniqueId)
   const tag = id == null ? '—' : `#${Math.trunc(id)}`
@@ -402,7 +407,7 @@ function SessionTag({ width, height, snapshot }: HifiWidgetProps): ReactElement 
   return (
     <Root width={width} height={height} snapshot={snapshot}>
       <rect x={40} y={70} width={W - 80} height={100} rx={16} fill="rgba(255,255,255,0.04)" stroke={C.stroke} strokeWidth={1.5} />
-      <BigNum x={W / 2} y={142} value={tag} color={color} size={id != null && tag.length > 7 ? 56 : 72} />
+      <BigNum x={W / 2} y={142} value={tag} color={color} size={sessionTagSize(tag)} />
       <text x={W / 2} y={196} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={22} fontWeight={800} letterSpacing={4} {...LEGIBLE}>SESSION ID</text>
     </Root>
   )
