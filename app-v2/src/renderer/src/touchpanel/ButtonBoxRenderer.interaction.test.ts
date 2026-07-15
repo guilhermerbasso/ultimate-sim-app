@@ -163,6 +163,113 @@ describe('ButtonBoxRenderer pointer lifecycle', () => {
       token: 'control-1:latching'
     })
   })
+  it('releases an active latch when a live edit disables the control', () => {
+    const events: TouchControlActionEvent[] = []
+    const toggle = key('H', 'toggle')
+    const control: TouchControl = {
+      kind: 'latching-toggle',
+      onAction: toggle,
+      offAction: { kind: 'none' }
+    }
+    const view = render(createElement(ButtonBoxRenderer, {
+      panel: panelWith(control),
+      onAction: (event) => { events.push(event) }
+    }))
+    const hit = screen.getByRole('button', { name: /latching toggle/i })
+    pointerDown(hit)
+    pointerUp(hit)
+
+    view.rerender(createElement(ButtonBoxRenderer, {
+      panel: panelWith(control, { state: { disabled: true } }),
+      onAction: (event) => { events.push(event) }
+    }))
+
+    expect(events.map((event) => event.phase)).toEqual(['trigger', 'cancel'])
+    expect(events[1]).toMatchObject({ zone: 'teardown', token: 'control-1:latching' })
+    expect((screen.getByRole('button', { name: /disabled/i }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('cancels a hold immediately when expression state disables it', () => {
+    const events: TouchControlActionEvent[] = []
+    const panel = panelWith(
+      { kind: 'momentary', action: key('V', 'hold') },
+      { stateBindings: { disabled: { source: 'expression', expressionId: 'disabled-expr' } } }
+    )
+    const view = render(createElement(ButtonBoxRenderer, {
+      panel,
+      expressionValues: { 'disabled-expr': false },
+      onAction: (event) => { events.push(event) }
+    }))
+    pointerDown(screen.getByRole('button', { name: /momentary/i }), 41)
+
+    view.rerender(createElement(ButtonBoxRenderer, {
+      panel,
+      expressionValues: { 'disabled-expr': true },
+      onAction: (event) => { events.push(event) }
+    }))
+
+    expect(events.map((event) => event.phase)).toEqual(['begin', 'cancel'])
+    expect((screen.getByRole('button', { name: /disabled/i }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('cancels only the control made non-interactive and preserves unrelated pointers', () => {
+    const events: TouchControlActionEvent[] = []
+    const panel = createButtonBoxPanel({
+      id: 'two-holds',
+      columns: 2,
+      rows: 1,
+      buttons: [
+        {
+          id: 'radio-a',
+          label: 'RADIO A',
+          control: { kind: 'momentary', action: key('V', 'hold') },
+          stateBindings: { disabled: { source: 'expression', expressionId: 'disable-a' } }
+        },
+        {
+          id: 'radio-b',
+          label: 'RADIO B',
+          control: { kind: 'momentary', action: key('H', 'hold') }
+        }
+      ]
+    })
+    const view = render(createElement(ButtonBoxRenderer, {
+      panel,
+      expressionValues: { 'disable-a': false },
+      onAction: (event) => { events.push(event) }
+    }))
+    pointerDown(screen.getByRole('button', { name: /radio a.*momentary/i }), 51)
+    pointerDown(screen.getByRole('button', { name: /radio b.*momentary/i }), 52)
+
+    view.rerender(createElement(ButtonBoxRenderer, {
+      panel,
+      expressionValues: { 'disable-a': true },
+      onAction: (event) => { events.push(event) }
+    }))
+    expect(events.map((event) => `${event.button.id}:${event.phase}`)).toEqual([
+      'radio-a:begin',
+      'radio-b:begin',
+      'radio-a:cancel'
+    ])
+    pointerUp(screen.getByRole('button', { name: /radio b.*momentary/i }), 52)
+    expect(events.at(-1)).toMatchObject({ button: { id: 'radio-b' }, phase: 'end' })
+  })
+
+  it('cancels a hold when the renderer becomes globally non-interactive', () => {
+    const events: TouchControlActionEvent[] = []
+    const panel = panelWith({ kind: 'momentary', action: key('V', 'hold') })
+    const view = render(createElement(ButtonBoxRenderer, {
+      panel,
+      interactive: true,
+      onAction: (event) => { events.push(event) }
+    }))
+    pointerDown(screen.getByRole('button', { name: /momentary/i }), 61)
+    view.rerender(createElement(ButtonBoxRenderer, {
+      panel,
+      interactive: false,
+      onAction: (event) => { events.push(event) }
+    }))
+    expect(events.map((event) => event.phase)).toEqual(['begin', 'cancel'])
+  })
   it('releases an active latching keyboard toggle when the control unmounts', () => {
     const events: TouchControlActionEvent[] = []
     const toggle = key('H', 'toggle')

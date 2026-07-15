@@ -105,8 +105,13 @@ describe('live Touch panel action replacement', () => {
         control: { kind: 'momentary' as const, action: { kind: 'keyboard' as const, command: { mode: 'press' as const, keys: ['L'] } } }
       }))
     }
+    const disabledLiveEdit = {
+      ...previous,
+      buttons: previous.buttons.map((button) => ({ ...button, state: { ...button.state, disabled: true } }))
+    }
     expect(touchPanelActionSemanticsChanged(previous, visualOnly)).toBe(false)
     expect(touchPanelActionSemanticsChanged(previous, changedAction)).toBe(true)
+    expect(touchPanelActionSemanticsChanged(previous, disabledLiveEdit)).toBe(true)
   })
 
   it('awaits owner release before sending the replacement control', async () => {

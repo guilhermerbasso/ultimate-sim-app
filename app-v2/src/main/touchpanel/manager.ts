@@ -55,7 +55,9 @@ function controlActionSignature(button: ButtonBoxPanel['buttons'][number]): stri
     actions: buttonControlActions(button.control),
     choiceIds: button.control.kind === 'selector'
       ? button.control.choices.map((choice) => choice.id)
-      : undefined
+      : undefined,
+    disabled: Boolean(button.state?.disabled),
+    disabledExpressionId: button.stateBindings?.disabled?.expressionId
   })
 }
 

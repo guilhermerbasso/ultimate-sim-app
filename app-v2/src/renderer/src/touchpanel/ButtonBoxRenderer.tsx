@@ -268,6 +268,7 @@ export function ButtonBoxKey({
     pressed: external.pressed || localPressed
   }
   const disabled = !interactive || state.disabled
+  const wasEffectivelyInteractiveRef = useRef(!disabled)
 
   useEffect(() => {
     if (button.stateBindings?.active) setLocalActive(external.active)
@@ -372,9 +373,7 @@ export function ButtonBoxKey({
     }
   }
 
-  useEffect(() => {
-    if (previousControlSignatureRef.current === controlSignature) return
-    previousControlSignatureRef.current = controlSignature
+  const cancelActiveLifecycle = (nextLocalActive = false): void => {
     clearRepeat()
     if (guardTimerRef.current) clearTimeout(guardTimerRef.current)
     guardTimerRef.current = null
@@ -393,8 +392,21 @@ export function ButtonBoxKey({
     setLocalPressed(false)
     setPressedZone(null)
     setGuardArmed(false)
-    setLocalActive(external.active)
+    setLocalActive(nextLocalActive)
+  }
+
+  useEffect(() => {
+    if (previousControlSignatureRef.current === controlSignature) return
+    previousControlSignatureRef.current = controlSignature
+    cancelActiveLifecycle(external.active)
   }, [controlSignature])
+
+  useEffect(() => {
+    const effectivelyInteractive = !disabled
+    const wasEffectivelyInteractive = wasEffectivelyInteractiveRef.current
+    wasEffectivelyInteractiveRef.current = effectivelyInteractive
+    if (wasEffectivelyInteractive && !effectivelyInteractive) cancelActiveLifecycle(false)
+  }, [disabled])
   const makeHandlers = (
     begin: () => void,
     finish: (phase: 'end' | 'cancel') => void = finishLifecycle
