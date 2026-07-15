@@ -652,7 +652,7 @@ export interface ComposedCornerAdvice {
 export function composeCornerAdvice(
   findings: CoachFinding[],
   where: { corner?: number; sector?: number } = {},
-  opts: { maxDims?: number; language?: 'pt-BR' | 'en-US' } = {}
+  opts: { maxDims?: number; language?: SpeechLanguage } = {}
 ): ComposedCornerAdvice | null {
   const maxDims = Math.max(1, Math.floor(opts.maxDims ?? 3))
   const language = opts.language ?? 'pt-BR'
@@ -1950,7 +1950,7 @@ function summarizeReport(findings: CoachFinding[], deltaToBestSec: number | unde
 /** Deterministic, LLM-free phrasing for a finding (used as the `coach:explain` fallback). */
 export function deterministicPhrasing(
   finding: CoachFinding,
-  language: 'pt-BR' | 'en-US' = 'pt-BR'
+  language: SpeechLanguage = 'pt-BR'
 ): string {
   const pt = language === 'pt-BR'
   const where = finding.corner
