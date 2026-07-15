@@ -26,6 +26,11 @@ import type { AppViewProps } from '../App'
 import { getLatestTelemetry, onTelemetry } from '../lib/telemetry'
 import { SectionExportImport } from '../components/SectionExportImport'
 import { ExpressionVisualizationPanel } from './expressions/ExpressionVisualizationPanel'
+import {
+  expressionEditorFor,
+  newExpressionEditor,
+  reconcileExpressionEditor
+} from './expressions/expression-editor-state'
 
 const card: CSSProperties = {
   background: 'var(--surface-raised)',
@@ -63,12 +68,12 @@ function getErrorMessage(error: unknown): string {
 
 export default function ExpressionsView({ showToast }: AppViewProps): ReactElement {
   const [studio, setStudio] = useState<ExpressionStudioSnapshot | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [draft, setDraft] = useState<ExpressionDef>(() => blankExpression())
+  const [editor, setEditor] = useState(() => newExpressionEditor(blankExpression()))
   const [latest, setLatest] = useState<TelemetrySnapshot | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [liveResults, setLiveResults] = useState<Record<string, ExpressionResultEntry>>({})
   const [visualSource, setVisualSource] = useState<ExpressionVisualizationSource | null>(null)
+  const { selectedId, draft } = editor
 
   const expressions = studio?.expressions ?? []
   const enabledVarIds = studio?.enabledVars ?? []
@@ -136,18 +141,15 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
 
   const reloadStudioAndDraft = useCallback(async (): Promise<void> => {
     const snapshot = await loadStudio()
-    const next = snapshot.expressions.find((item) => item.id === selectedId) ?? snapshot.expressions[0]
-    setSelectedId(next?.id ?? null)
-    setDraft(next ?? blankExpression())
-  }, [loadStudio, selectedId])
+    setEditor((current) => reconcileExpressionEditor(current, snapshot.expressions, blankExpression))
+  }, [loadStudio])
 
   useEffect(() => {
     let canceled = false
     void loadStudio()
       .then((snapshot) => {
         if (canceled || !snapshot.expressions[0]) return
-        setSelectedId(snapshot.expressions[0].id)
-        setDraft(snapshot.expressions[0])
+        setEditor(expressionEditorFor(snapshot.expressions[0]))
       })
       .catch((error) => {
         if (!canceled) setLoadError(getErrorMessage(error))
@@ -175,16 +177,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
     const offStudio = window.ipc.subscribe<ExpressionStudioSnapshot>(EXPR_CHANNELS.studioChanged, (snapshot) => {
       if (snapshot?.version !== 3) return
       setStudio(snapshot)
-      setSelectedId((current) => (
-        current && snapshot.expressions.some((item) => item.id === current)
-          ? current
-          : snapshot.expressions[0]?.id ?? null
-      ))
-      setDraft((current) => (
-        snapshot.expressions.find((item) => item.id === current.id) ??
-        snapshot.expressions[0] ??
-        current
-      ))
+      setEditor((current) => reconcileExpressionEditor(current, snapshot.expressions, blankExpression))
     })
     const refreshTargets = (): void => {
       void loadStudio().catch(() => undefined)
@@ -204,8 +197,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
   }, [loadStudio])
 
   const selectExpression = useCallback((item: ExpressionDef): void => {
-    setSelectedId(item.id)
-    setDraft(item)
+    setEditor(expressionEditorFor(item))
   }, [])
 
   const saveDraft = useCallback(async (): Promise<void> => {
@@ -228,8 +220,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
       : [normalized, ...expressions]
     try {
       await mutateStudio({ expressions: nextExpressions })
-      setSelectedId(normalized.id)
-      setDraft(normalized)
+      setEditor(expressionEditorFor(normalized))
       showToast('Expression saved.', 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
@@ -254,8 +245,9 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
       setVisualSource((current) =>
         current && 'expressionId' in current && current.expressionId === selectedId ? null : current
       )
-      setSelectedId(nextExpressions[0]?.id ?? null)
-      setDraft(nextExpressions[0] ?? blankExpression())
+      setEditor(nextExpressions[0]
+        ? expressionEditorFor(nextExpressions[0])
+        : newExpressionEditor(blankExpression()))
       showToast('Expression removed.', 'success')
     } catch (error) {
       showToast(getErrorMessage(error), 'error')
@@ -326,8 +318,7 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
               className="primary-action compact"
               type="button"
               onClick={() => {
-                setSelectedId(null)
-                setDraft(blankExpression())
+                setEditor(newExpressionEditor(blankExpression()))
               }}
             >
               New
@@ -385,7 +376,14 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
           <div style={label}>Editor</div>
           <label style={{ display: 'block', marginTop: 10 }}>
             Name
-            <input style={input} value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} />
+            <input
+              style={input}
+              value={draft.name}
+              onChange={(event) => setEditor((current) => ({
+                ...current,
+                draft: { ...current.draft, name: event.target.value }
+              }))}
+            />
           </label>
           <label style={{ display: 'block', marginTop: 12 }}>
             Expression
@@ -393,7 +391,10 @@ export default function ExpressionsView({ showToast }: AppViewProps): ReactEleme
               rows={4}
               style={{ ...input, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', resize: 'vertical' }}
               value={draft.expr}
-              onChange={(event) => setDraft((current) => ({ ...current, expr: event.target.value }))}
+              onChange={(event) => setEditor((current) => ({
+                ...current,
+                draft: { ...current.draft, expr: event.target.value }
+              }))}
             />
           </label>
           <p style={{ opacity: 0.72, margin: '10px 0 0' }}>
