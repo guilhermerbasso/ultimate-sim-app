@@ -4,6 +4,7 @@ import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import type { ModuleContext } from '../module-context'
 import { releaseTouchActionsForWebContents } from '../actions/touch-owner'
 import {
+  buttonControlActions,
   parseButtonBoxPanelDetailed,
   summarizeButtonBoxPanel,
   type ButtonBoxPanel,
@@ -47,6 +48,38 @@ export function bindTouchActionWindowLifecycle(
   })
   win.webContents.on('render-process-gone', releaseOwner)
   win.webContents.once('destroyed', releaseOwner)
+}
+function controlActionSignature(button: ButtonBoxPanel['buttons'][number]): string {
+  return JSON.stringify({
+    kind: button.control.kind,
+    actions: buttonControlActions(button.control),
+    choiceIds: button.control.kind === 'selector'
+      ? button.control.choices.map((choice) => choice.id)
+      : undefined
+  })
+}
+
+export function touchPanelActionSemanticsChanged(
+  previous: ButtonBoxPanel,
+  next: ButtonBoxPanel
+): boolean {
+  if (previous.buttons.length !== next.buttons.length) return true
+  const previousById = new Map(previous.buttons.map((button) => [button.id, button]))
+  return next.buttons.some((button) => {
+    const before = previousById.get(button.id)
+    return !before || controlActionSignature(before) !== controlActionSignature(button)
+  })
+}
+
+export async function publishLiveTouchPanelUpdate(
+  previous: ButtonBoxPanel,
+  next: ButtonBoxPanel,
+  webContentsId: number,
+  release: (id: number) => Promise<void>,
+  send: (panel: ButtonBoxPanel) => void
+): Promise<void> {
+  if (touchPanelActionSemanticsChanged(previous, next)) await release(webContentsId)
+  send(next)
 }
 export interface TouchPanelDisplayInfo {
   id: number
@@ -158,6 +191,7 @@ export class TouchPanelManager {
     const parsed = parseButtonBoxPanelDetailed(raw)
     if (!parsed.panel) throw new Error(`Invalid touch panel: ${parsed.errors.join(' ')}`)
     const panel = parsed.panel
+    const previous = this.panels.get(panel.id) ?? null
     panel.updatedAt = Date.now()
     this.panels.set(panel.id, panel)
     await writeFile(this.panelFilePath(panel.id), JSON.stringify(panel, null, 2), 'utf8')
@@ -165,7 +199,17 @@ export class TouchPanelManager {
     // If the open window shows this panel, push the update live.
     if (this.window && !this.window.isDestroyed() && this.currentPanelId === panel.id) {
       try {
-        this.window.webContents.send('app:touchpanel:updated', panel)
+        if (previous) {
+          await publishLiveTouchPanelUpdate(
+            previous,
+            panel,
+            this.window.webContents.id,
+            releaseTouchActionsForWebContents,
+            (next) => this.window?.webContents.send('app:touchpanel:updated', next)
+          )
+        } else {
+          this.window.webContents.send('app:touchpanel:updated', panel)
+        }
       } catch {
         // window closed mid-send
       }

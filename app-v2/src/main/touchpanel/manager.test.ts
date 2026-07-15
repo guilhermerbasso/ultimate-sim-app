@@ -2,7 +2,13 @@ import { EventEmitter } from 'node:events'
 import { join, resolve, sep } from 'node:path'
 import type { BrowserWindow } from 'electron'
 import { describe, expect, it, vi } from 'vitest'
-import { bindTouchActionWindowLifecycle, panelFileName } from './manager'
+import { createButtonBoxPanel } from '../../shared/touch-panel'
+import {
+  bindTouchActionWindowLifecycle,
+  panelFileName,
+  publishLiveTouchPanelUpdate,
+  touchPanelActionSemanticsChanged
+} from './manager'
 
 // Security regression: panel ids are UNTRUSTED (user-edited / imported JSON). A
 // crafted id must never let a save/delete escape the panels directory.
@@ -70,5 +76,67 @@ describe('Touch BrowserWindow action lifecycle', () => {
 
     expect(release).toHaveBeenCalledTimes(5)
     expect(release.mock.calls.every(([id]) => id === 77)).toBe(true)
+  })
+})
+describe('live Touch panel action replacement', () => {
+  it('distinguishes control action/type edits from visual-only edits', () => {
+    const previous = createButtonBoxPanel({
+      id: 'panel-live',
+      columns: 1,
+      rows: 1,
+      buttons: [{
+        id: 'lights',
+        label: 'LIGHTS',
+        control: {
+          kind: 'latching-toggle',
+          onAction: { kind: 'keyboard', command: { mode: 'toggle', keys: ['H'] } },
+          offAction: { kind: 'none' }
+        }
+      }]
+    })
+    const visualOnly = {
+      ...previous,
+      buttons: previous.buttons.map((button) => ({ ...button, bodyColor: '#112233' }))
+    }
+    const changedAction = {
+      ...previous,
+      buttons: previous.buttons.map((button) => ({
+        ...button,
+        control: { kind: 'momentary' as const, action: { kind: 'keyboard' as const, command: { mode: 'press' as const, keys: ['L'] } } }
+      }))
+    }
+    expect(touchPanelActionSemanticsChanged(previous, visualOnly)).toBe(false)
+    expect(touchPanelActionSemanticsChanged(previous, changedAction)).toBe(true)
+  })
+
+  it('awaits owner release before sending the replacement control', async () => {
+    const previous = createButtonBoxPanel({
+      id: 'panel-live', columns: 1, rows: 1,
+      buttons: [{ id: 'lights', control: { kind: 'latching-toggle', onAction: { kind: 'keyboard', command: { mode: 'toggle', keys: ['H'] } }, offAction: { kind: 'none' } } }]
+    })
+    const next = createButtonBoxPanel({
+      id: 'panel-live', columns: 1, rows: 1,
+      buttons: [{ id: 'lights', control: { kind: 'momentary', action: { kind: 'keyboard', command: { mode: 'press', keys: ['L'] } } } }]
+    })
+    const events: string[] = []
+    let finishRelease!: () => void
+    const release = vi.fn(() => new Promise<void>((resolve) => {
+      events.push('release-start')
+      finishRelease = () => {
+        events.push('release-finish')
+        resolve()
+      }
+    }))
+    const send = vi.fn(() => events.push('send'))
+
+    const update = publishLiveTouchPanelUpdate(previous, next, 77, release, send)
+    expect(events).toEqual(['release-start'])
+    expect(send).not.toHaveBeenCalled()
+    finishRelease()
+    await update
+
+    expect(events).toEqual(['release-start', 'release-finish', 'send'])
+    expect(release).toHaveBeenCalledWith(77)
+    expect(send).toHaveBeenCalledWith(next)
   })
 })

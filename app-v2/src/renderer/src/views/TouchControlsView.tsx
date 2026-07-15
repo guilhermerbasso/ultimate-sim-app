@@ -16,6 +16,24 @@ import { TagFilter, filterByTags } from '../components/TagFilter'
 import { ButtonBoxEditor } from '../touchpanel/ButtonBoxEditor'
 import { tt } from '../i18n'
 
+export function confirmTouchDraftDiscard(
+  dirty: boolean,
+  message: string,
+  confirm: (message: string) => boolean = (value) => window.confirm(value)
+): boolean {
+  return !dirty || confirm(message)
+}
+
+export function requestTouchPanelImport(
+  input: Pick<HTMLInputElement, 'click'> | null,
+  dirty: boolean,
+  message: string,
+  confirm: (message: string) => boolean = (value) => window.confirm(value)
+): boolean {
+  if (!confirmTouchDraftDiscard(dirty, message, confirm)) return false
+  input?.click()
+  return input !== null
+}
 interface DisplayInfo {
   id: number
   label: string
@@ -181,7 +199,7 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
   const requestLoadPanel = useCallback(
     (id: string) => {
       if (id === selectedId) return
-      if (dirty && !window.confirm(tt(language, 'touchControls.discardSwitchConfirm'))) return
+      if (!confirmTouchDraftDiscard(dirty, tt(language, 'touchControls.discardSwitchConfirm'))) return
       void run(() => loadPanel(id))
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -216,7 +234,7 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
   }, [refreshPanels, showToast, summaries.length])
 
   const requestCreatePanel = useCallback(() => {
-    if (dirty && !window.confirm(tt(language, 'touchControls.discardCreateConfirm'))) return
+    if (!confirmTouchDraftDiscard(dirty, tt(language, 'touchControls.discardCreateConfirm'))) return
     void run(createPanel)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createPanel, dirty])
@@ -247,7 +265,7 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
 
   const requestCreateFromPreset = useCallback(
     (id: string) => {
-      if (dirty && !window.confirm(tt(language, 'touchControls.discardTemplateConfirm'))) return
+      if (!confirmTouchDraftDiscard(dirty, tt(language, 'touchControls.discardTemplateConfirm'))) return
       void run(() => createFromPreset(id))
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -262,6 +280,13 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
     showToast(tt(language, 'touchControls.savedToast'), 'success')
   }, [language, panelDraft, refreshPanels, showToast])
 
+  const requestImportPanel = useCallback(() => {
+    requestTouchPanelImport(
+      importInputRef.current,
+      dirty,
+      tt(language, 'touchControls.discardSwitchConfirm')
+    )
+  }, [dirty, language])
   const importPanel = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0]
@@ -426,7 +451,7 @@ export default function TouchControlsView({ showToast, language }: AppViewProps)
             <strong style={{ color: TEXT_FG, fontSize: 14, letterSpacing: '0.04em' }}>{tt(language, 'touchControls.editableBoxes')}</strong>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button style={btn()} disabled={busy} onClick={() => importInputRef.current?.click()}>Import JSON</button>
+            <button style={btn()} disabled={busy} onClick={requestImportPanel}>Import JSON</button>
             <input
               ref={importInputRef}
               type="file"

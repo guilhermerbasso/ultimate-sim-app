@@ -216,7 +216,7 @@ interface HitHandlers {
   onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void
   onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void
   onPointerCancel: (event: PointerEvent<HTMLButtonElement>) => void
-  onLostPointerCapture: () => void
+  onLostPointerCapture: (event: PointerEvent<HTMLButtonElement>) => void
   onKeyDown: (event: KeyboardEvent<HTMLButtonElement>) => void
   onKeyUp: (event: KeyboardEvent<HTMLButtonElement>) => void
 }
@@ -257,8 +257,11 @@ export function ButtonBoxKey({
   const repeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const guardTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activePressRef = useRef<{ action: ButtonAction; zone: string } | null>(null)
+  const activePointerIdRef = useRef<number | null>(null)
   const activeLatchingKeyboardRef = useRef<{ action: ButtonAction; token: string } | null>(null)
   const keyboardActiveRef = useRef(false)
+  const controlSignature = JSON.stringify(button.control)
+  const previousControlSignatureRef = useRef(controlSignature)
   const state = {
     ...external,
     active: button.stateBindings?.active ? external.active : localActive,
@@ -275,6 +278,7 @@ export function ButtonBoxKey({
       if (repeatDelayRef.current) clearTimeout(repeatDelayRef.current)
       if (repeatIntervalRef.current) clearInterval(repeatIntervalRef.current)
       if (guardTimerRef.current) clearTimeout(guardTimerRef.current)
+      activePointerIdRef.current = null
       const active = activePressRef.current
       if (active?.action.kind === 'keyboard' && active.action.command.mode === 'hold' && onAction) {
         void Promise.resolve(
@@ -287,7 +291,8 @@ export function ButtonBoxKey({
             token: `${button.id}:${active.zone}`
           })
         ).catch(() => undefined)
-      }      const latching = activeLatchingKeyboardRef.current
+      }
+      const latching = activeLatchingKeyboardRef.current
       if (latching && onAction) {
         activeLatchingKeyboardRef.current = null
         void Promise.resolve(
@@ -358,6 +363,7 @@ export function ButtonBoxKey({
     const active = activePressRef.current
     clearRepeat()
     activePressRef.current = null
+    activePointerIdRef.current = null
     keyboardActiveRef.current = false
     setPressedZone(null)
     setLocalPressed(false)
@@ -366,31 +372,72 @@ export function ButtonBoxKey({
     }
   }
 
+  useEffect(() => {
+    if (previousControlSignatureRef.current === controlSignature) return
+    previousControlSignatureRef.current = controlSignature
+    clearRepeat()
+    if (guardTimerRef.current) clearTimeout(guardTimerRef.current)
+    guardTimerRef.current = null
+
+    const activePress = activePressRef.current
+    activePressRef.current = null
+    if (activePress?.action.kind === 'keyboard' && activePress.action.command.mode === 'hold') {
+      emit(activePress.action, 'cancel', activePress.zone)
+    }
+    const activeLatch = activeLatchingKeyboardRef.current
+    activeLatchingKeyboardRef.current = null
+    if (activeLatch) emit(activeLatch.action, 'cancel', 'teardown', 'latching')
+
+    activePointerIdRef.current = null
+    keyboardActiveRef.current = false
+    setLocalPressed(false)
+    setPressedZone(null)
+    setGuardArmed(false)
+    setLocalActive(external.active)
+  }, [controlSignature])
   const makeHandlers = (
     begin: () => void,
     finish: (phase: 'end' | 'cancel') => void = finishLifecycle
   ): HitHandlers => ({
     onPointerDown: (event) => {
-      if (disabled || event.button !== 0) return
+      if (disabled || event.button !== 0 || keyboardActiveRef.current) return
+      // One control has one physical lifecycle. Reject additional fingers rather
+      // than overwriting the owner and losing the first pointer's release.
+      if (activePointerIdRef.current !== null) {
+        event.preventDefault()
+        return
+      }
       event.preventDefault()
+      activePointerIdRef.current = event.pointerId
       event.currentTarget.setPointerCapture?.(event.pointerId)
       begin()
     },
     onPointerUp: (event) => {
-      if (!activePressRef.current && !localPressed) return
+      if (activePointerIdRef.current !== event.pointerId) return
       event.preventDefault()
+      activePointerIdRef.current = null
       finish('end')
       if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
     },
     onPointerCancel: (event) => {
+      if (activePointerIdRef.current !== event.pointerId) return
       event.preventDefault()
+      activePointerIdRef.current = null
       finish('cancel')
     },
-    onLostPointerCapture: () => {
-      if (activePressRef.current || localPressed) finish('cancel')
+    onLostPointerCapture: (event) => {
+      if (activePointerIdRef.current !== event.pointerId) return
+      activePointerIdRef.current = null
+      finish('cancel')
     },
     onKeyDown: (event) => {
-      if (disabled || event.repeat || keyboardActiveRef.current || !isActivationKey(event.key)) return
+      if (
+        disabled ||
+        event.repeat ||
+        keyboardActiveRef.current ||
+        activePointerIdRef.current !== null ||
+        !isActivationKey(event.key)
+      ) return
       event.preventDefault()
       keyboardActiveRef.current = true
       begin()

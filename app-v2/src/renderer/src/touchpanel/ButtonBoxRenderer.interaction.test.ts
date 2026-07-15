@@ -66,6 +66,70 @@ describe('ButtonBoxRenderer pointer lifecycle', () => {
     expect(events[0].token).toBe(events[1].token)
   })
 
+  it('keeps hold ownership with the first pointer and ignores extra fingers', () => {
+    const events: TouchControlActionEvent[] = []
+    render(createElement(ButtonBoxRenderer, {
+      panel: panelWith({ kind: 'momentary', action: key('V', 'hold') }),
+      onAction: (event) => { events.push(event) }
+    }))
+    const hit = screen.getByRole('button', { name: /momentary/i })
+    pointerDown(hit, 1)
+    pointerDown(hit, 2)
+    pointerUp(hit, 2)
+    expect(events.map((event) => event.phase)).toEqual(['begin'])
+    pointerUp(hit, 1)
+    expect(events.map((event) => event.phase)).toEqual(['begin', 'end'])
+  })
+
+  it('does not let a second rocker pointer replace the active zone', () => {
+    const events: TouchControlActionEvent[] = []
+    render(createElement(ButtonBoxRenderer, {
+      panel: panelWith({
+        kind: 'two-position-rocker',
+        negativeAction: key('PageDown'),
+        positiveAction: key('PageUp'),
+        negativeLabel: 'TC decrease',
+        positiveLabel: 'TC increase'
+      }),
+      onAction: (event) => { events.push(event) }
+    }))
+    const negative = screen.getByRole('button', { name: /tc decrease/i })
+    const positive = screen.getByRole('button', { name: /tc increase/i })
+    pointerDown(negative, 11)
+    pointerDown(positive, 22)
+    pointerUp(positive, 22)
+    pointerUp(negative, 11)
+    pointerDown(positive, 22)
+    pointerUp(positive, 22)
+    expect(events.map((event) => event.zone)).toEqual(['negative', 'positive'])
+  })
+
+  it('keeps rotary repeat bound to its first pointer until that pointer releases', () => {
+    vi.useFakeTimers()
+    const events: TouchControlActionEvent[] = []
+    render(createElement(ButtonBoxRenderer, {
+      panel: panelWith({
+        kind: 'rotary',
+        decrementAction: key('['),
+        incrementAction: key(']'),
+        decrementLabel: 'ABS decrease',
+        incrementLabel: 'ABS increase',
+        repeat: { delayMs: 100, intervalMs: 50 }
+      }),
+      onAction: (event) => { events.push(event) }
+    }))
+    const decrement = screen.getByRole('button', { name: /abs decrease/i })
+    const increment = screen.getByRole('button', { name: /abs increase/i })
+    pointerDown(increment, 31)
+    pointerDown(decrement, 32)
+    act(() => vi.advanceTimersByTime(160))
+    pointerUp(decrement, 32)
+    const beforeOwnerRelease = events.length
+    act(() => vi.advanceTimersByTime(100))
+    expect(events.length).toBeGreaterThan(beforeOwnerRelease)
+    pointerUp(increment, 31)
+    expect(events.every((event) => event.zone === 'increment')).toBe(true)
+  })
   it('emits a cancellation release when a held control unmounts', () => {
     const events: TouchControlActionEvent[] = []
     const view = render(createElement(ButtonBoxRenderer, {
@@ -75,6 +139,29 @@ describe('ButtonBoxRenderer pointer lifecycle', () => {
     pointerDown(screen.getByRole('button', { name: /momentary/i }))
     view.unmount()
     expect(events.map((event) => event.phase)).toEqual(['begin', 'cancel'])
+  })
+  it('releases the old latching action when live edits replace the control', () => {
+    const events: TouchControlActionEvent[] = []
+    const toggle = key('H', 'toggle')
+    const view = render(createElement(ButtonBoxRenderer, {
+      panel: panelWith({ kind: 'latching-toggle', onAction: toggle, offAction: { kind: 'none' } }),
+      onAction: (event) => { events.push(event) }
+    }))
+    const hit = screen.getByRole('button', { name: /latching toggle/i })
+    pointerDown(hit)
+    pointerUp(hit)
+
+    view.rerender(createElement(ButtonBoxRenderer, {
+      panel: panelWith({ kind: 'momentary', action: key('L') }),
+      onAction: (event) => { events.push(event) }
+    }))
+
+    expect(events.map((event) => event.phase)).toEqual(['trigger', 'cancel'])
+    expect(events[1]).toMatchObject({
+      action: { kind: 'keyboard', command: { mode: 'toggle', keys: ['H'] } },
+      zone: 'teardown',
+      token: 'control-1:latching'
+    })
   })
   it('releases an active latching keyboard toggle when the control unmounts', () => {
     const events: TouchControlActionEvent[] = []
