@@ -513,6 +513,19 @@ describe('streaming authenticated server', () => {
     expect(result.message).toMatch(/missing-nested\.js.*HTTP 404/i)
   })
 
+  it('discovers inline modules when the script end tag contains whitespace', async () => {
+    process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR = resolve(fixtureRoot, 'stream-renderer-inline-whitespace')
+    ctx = fakeContext()
+    register(ctx)
+    await invoke<StreamingStartResult>(ctx, STREAMING_CHANNELS.start, { layoutId: 'race' })
+
+    const result = await invoke<StreamingSelfTestResult>(ctx, STREAMING_CHANNELS.selfTest)
+    expect(result.reachable).toBe(false)
+    expect(result.stage).toBe('assets')
+    expect(result.statusCode).toBe(404)
+    expect(result.message).toContain('missing.js')
+  })
+
   it('selects touch targets and serves only the selected target API', async () => {
     ctx = fakeContext()
     register(ctx)

@@ -1244,7 +1244,7 @@ function htmlResourceGraph(html: string, documentUrl: URL): { baseUrl: URL; reso
     if (resolved) resources.push(resolved)
   }
 
-  for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+  for (const match of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)) {
     if (/\btype\s*=\s*(['"])module\1/i.test(match[1]) && !/\bsrc\s*=/i.test(match[1])) inlineModules.push(match[2])
   }
   return { baseUrl, resources, inlineModules }
