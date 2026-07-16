@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { canonicalStringify, utf8ByteLength } from './canonical'
 import {
+  APPROVED_EXACT_ARTIFACT_COUNT,
   MAX_ARTIFACTS,
   MAX_CANONICAL_NODES,
   MAX_CANONICAL_NODES_PER_EVENT,
@@ -10,11 +11,13 @@ import {
   MAX_IMAGE_ATTEMPTS,
   MAX_LEDGER_EVENTS,
   MAX_REVISIONS_PER_ARTIFACT,
+  MAX_PLAN_ARTIFACTS,
   MAX_SCHEDULER_EVENTS,
   MAX_SCHEDULER_EVENTS_PER_ATTEMPT,
   MAX_SERIALIZED_BYTES,
   MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION,
   MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT,
+  MAX_SERIALIZED_JSON_FRAMING_BYTES,
   MAX_SERIALIZED_PLAN_BYTES,
   MIN_TOTAL_ARTIFACT_COUNT
 } from './constants'
@@ -52,6 +55,9 @@ describe('derived maximum-state resource limits', () => {
         1
     )
     expect(MAX_ARTIFACTS).toBeGreaterThanOrEqual(MIN_TOTAL_ARTIFACT_COUNT)
+    expect(MAX_PLAN_ARTIFACTS).toBeGreaterThanOrEqual(
+      APPROVED_EXACT_ARTIFACT_COUNT
+    )
     expect(MAX_CANONICAL_NODES).toBeGreaterThanOrEqual(
       MAX_LEDGER_EVENTS * MAX_CANONICAL_NODES_PER_EVENT
     )
@@ -62,13 +68,15 @@ describe('derived maximum-state resource limits', () => {
       MAX_ARTIFACTS *
         MAX_REVISIONS_PER_ARTIFACT *
         MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION +
-      MAX_SERIALIZED_PLAN_BYTES
+      MAX_SERIALIZED_PLAN_BYTES +
+      MAX_SERIALIZED_JSON_FRAMING_BYTES
     const maximumSchedulerBytes =
       MAX_ARTIFACTS *
         MAX_REVISIONS_PER_ARTIFACT *
         MAX_IMAGE_ATTEMPTS *
         MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT +
-      MAX_SERIALIZED_PLAN_BYTES
+      MAX_SERIALIZED_PLAN_BYTES +
+      MAX_SERIALIZED_JSON_FRAMING_BYTES
 
     expect(maximumLedgerBytes).toBeLessThanOrEqual(MAX_SERIALIZED_BYTES)
     expect(maximumSchedulerBytes).toBeLessThanOrEqual(MAX_SERIALIZED_BYTES)

@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { parseVisualArtifactLedger, VisualArtifactLedger } from './ledger'
 import { expectedArtifactIds } from './plan'
 import {
+  APPROVED_EXACT_ARTIFACT_COUNT,
+  MAX_SERIALIZED_BYTES,
   MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION,
+  MAX_SERIALIZED_JSON_FRAMING_BYTES,
   MAX_SERIALIZED_PLAN_BYTES
 } from './constants'
 import {
@@ -17,13 +20,15 @@ import {
   makeScheduler
 } from './test-fixtures'
 
-describe('14,850-artifact incremental and finalization performance', () => {
+describe('16,600-artifact exact contract performance', () => {
   it(
-    'updates one stage incrementally and reserves full O(n) replay for finalization',
-    { timeout: 180_000 },
+    'creates, accepts, finalizes, serializes, and replays the approved exact plan',
+    { timeout: 300_000 },
     () => {
-      const plan = makePlan()
+      const planStartedAt = performance.now()
+      const plan = makePlan(45)
       const ids = expectedArtifactIds(plan)
+      const planCreationMs = performance.now() - planStartedAt
       const governance = makeGovernance()
       const scheduler = makeScheduler(governance, {
         ...DEFAULT_POLICY,
@@ -105,29 +110,32 @@ describe('14,850-artifact incremental and finalization performance', () => {
       const roundTripMs = performance.now() - roundTripStartedAt
 
       console.info(
-        `VISUAL_ARTIFACT_LEDGER_PERF artifacts=${ids.length} ` +
+        `VISUAL_ARTIFACT_LEDGER_PERF artifacts=${ids.length} planMs=${planCreationMs.toFixed(2)} ` +
           `stageEvents=${ids.length} stageMs=${stageUpdateMs.toFixed(2)} ` +
           `lifecycleEvents=${preFinalizationEvents} lifecycleMs=${lifecycleMs.toFixed(2)} ` +
           `finalizationReplayEvents=${preFinalizationEvents} finalizationMs=${finalizationMs.toFixed(2)} ` +
           `serializedBytes=${serializedBytes} roundTripMs=${roundTripMs.toFixed(2)}`
       )
 
-      expect(ids).toHaveLength(14_850)
-      expect(ledger.artifactCount).toBe(14_850)
-      expect(ledger.acceptedArtifactCount).toBe(14_850)
-      expect(preFinalizationEvents).toBe(14_850 * 9)
+      expect(ids).toHaveLength(APPROVED_EXACT_ARTIFACT_COUNT)
+      expect(ledger.artifactCount).toBe(APPROVED_EXACT_ARTIFACT_COUNT)
+      expect(ledger.acceptedArtifactCount).toBe(APPROVED_EXACT_ARTIFACT_COUNT)
+      expect(preFinalizationEvents).toBe(APPROVED_EXACT_ARTIFACT_COUNT * 9)
       expect(ledger.eventCount).toBe(preFinalizationEvents + 1)
       expect(ledger.isFinalized).toBe(true)
       expect(reparsed.rootHash).toBe(finalizedRoot)
       expect(reparsed.isFinalized).toBe(true)
       expect(serializedBytes).toBeLessThanOrEqual(
         ids.length * MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION +
-          MAX_SERIALIZED_PLAN_BYTES
+          MAX_SERIALIZED_PLAN_BYTES +
+          MAX_SERIALIZED_JSON_FRAMING_BYTES
       )
-      expect(stageUpdateMs).toBeLessThan(10_000)
-      expect(lifecycleMs).toBeLessThan(90_000)
-      expect(finalizationMs).toBeLessThan(60_000)
-      expect(roundTripMs).toBeLessThan(90_000)
+      expect(serializedBytes).toBeLessThan(MAX_SERIALIZED_BYTES)
+      expect(planCreationMs).toBeLessThan(5_000)
+      expect(stageUpdateMs).toBeLessThan(15_000)
+      expect(lifecycleMs).toBeLessThan(120_000)
+      expect(finalizationMs).toBeLessThan(90_000)
+      expect(roundTripMs).toBeLessThan(120_000)
     }
   )
 })

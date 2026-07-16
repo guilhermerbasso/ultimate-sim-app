@@ -13,6 +13,7 @@ The canonical plan has 50 styles and 143 concepts:
 - 7,150 ordinary overlays (`50 × 143`)
 - at least 500 independent trigger artifacts
 - minimum total: **14,850**
+- approved release contract: 45 trigger families / 2,250 triggers / **16,600 total**
 
 IDs and ordering are derived from exact-key, ordinal registries. Finalization compares every expected
 ID and binds the plan hash, registry hash, and canonical artifact-set hash.
@@ -63,7 +64,9 @@ externally issued scheduler-root attestation.
 
 ## Resource limits
 
-The documented maximum is 15,000 artifacts, two revisions per artifact, and three image attempts per
-revision. Derived limits are 270,001 ledger events, 270,001 scheduler events, 270,000 evidence
-records, pre-commit per-revision/per-attempt byte budgets, derived canonical-node capacity, and a 768 MiB UTF-8
-parser ceiling. Parsers accept only byte-for-byte canonical JSON, which also rejects duplicate keys.
+The supported bound is 17,000 artifacts (400 beyond the approved 16,600 contract), two revisions per
+artifact, and three image attempts per revision. Derived limits are 306,001 ledger events, 306,001
+scheduler events, 306,000 evidence records, pre-commit per-revision/per-attempt byte budgets,
+explicit plan/envelope/event-separator JSON framing, derived canonical-node capacity, and a 768 MiB
+UTF-8 parser ceiling. Parsers accept only byte-for-byte canonical JSON, which also rejects duplicate
+keys.

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  APPROVED_EXACT_ARTIFACT_COUNT,
   BASE_ARTIFACT_COUNT,
   MIN_TOTAL_ARTIFACT_COUNT,
   MIN_TRIGGER_ARTIFACT_COUNT
@@ -39,8 +40,18 @@ describe('complete governed artifact plan', () => {
       concepts: [...plan.concepts].reverse(),
       triggerFamilies: [...plan.triggerFamilies].reverse()
     })
+
     expect(reordered.planHash).toBe(plan.planHash)
     expect(expectedArtifactIds(reordered)).toEqual(expectedArtifactIds(plan))
+  })
+
+  it('creates the approved exact 16,600-artifact contract with 45 trigger families', () => {
+    const plan = makePlan(45)
+    const ids = expectedArtifactIds(plan)
+    expect(plan.counts.triggers).toBe(2_250)
+    expect(plan.counts.total).toBe(APPROVED_EXACT_ARTIFACT_COUNT)
+    expect(ids).toHaveLength(APPROVED_EXACT_ARTIFACT_COUNT)
+    expect(ids.at(-1)).toBe('va2:t:style-050:trigger-45')
   })
 
   it('rejects unknown plan and identity fields', () => {
