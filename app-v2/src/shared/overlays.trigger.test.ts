@@ -60,6 +60,14 @@ describe('evaluateOverlayTrigger', () => {
       snap({ shiftIndicatorPct: undefined, rpm: 7300, maxRpm: 8000 }),
       config
     )).toBe(true)
+    expect(evaluateOverlayTrigger(
+      { kind: 'shiftPoint' },
+      snap({ shiftIndicatorPct: 1, rpm: 8000, maxRpm: 8000 }),
+      {
+        ...config,
+        shiftPoint: { ...config.shiftPoint, enabled: false }
+      }
+    )).toBe(false)
   })
 
   it('pitLimiter / flag', () => {

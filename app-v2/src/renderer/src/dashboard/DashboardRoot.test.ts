@@ -132,6 +132,14 @@ describe('dashboard-embedded alert policy', () => {
 
     expect(dashboardAlertMarkup('alertShiftFlash', snapshot, alertsConfig))
       .toContain(SHIFT_STROBE_BLUE)
+    expect(dashboardAlertMarkup('alertShiftFlash', {
+      ...snapshot,
+      shiftIndicatorPct: 1,
+      rpm: 8000
+    }, {
+      ...alertsConfig,
+      shiftPoint: { ...alertsConfig.shiftPoint, enabled: false }
+    })).not.toContain(SHIFT_STROBE_BLUE)
   })
 
   it('uses configured low-fuel lapsThreshold', () => {

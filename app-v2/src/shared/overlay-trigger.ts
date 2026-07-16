@@ -319,6 +319,7 @@ function brakePressureLow(
 }
 
 function shiftPointActive(snapshot: TelemetrySnapshot, alertsConfig: AlertsConfig): boolean {
+  if (!alertsConfig.shiftPoint.enabled) return false
   const shiftIndicatorPct = finite(snapshot.shiftIndicatorPct)
   const rpm = finite(snapshot.rpm)
   const maxRpm = finite(snapshot.maxRpm)
