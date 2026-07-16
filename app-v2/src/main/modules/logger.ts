@@ -9,7 +9,7 @@
 // calls; this module only needs to be importable and safe — it adds NO calls
 // inside their files.
 
-import { dialog, shell, type SaveDialogOptions } from 'electron'
+import type { SaveDialogOptions } from 'electron'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { appendFile, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -46,6 +46,11 @@ const VERBOSE_FLAG_FILE = 'verbose.flag'
 // capture a repro and forgets it doesn't write the full-event tap forever. The repro
 // workflow (enable → restart → reproduce → export) fits comfortably inside this.
 const VERBOSE_MAX_AGE_MS = 48 * 60 * 60 * 1000
+
+async function loadElectronRuntime() {
+  const { dialog, shell } = await import('electron')
+  return { dialog, shell }
+}
 
 export interface LoggerConfig {
   dir: string
@@ -375,6 +380,7 @@ export function register(ctx: ModuleContext): void {
     try {
       await mkdir(dir, { recursive: true })
       logger.info('logs', 'open logs folder')
+      const { shell } = await loadElectronRuntime()
       return await shell.openPath(dir)
     } catch (error) {
       return error instanceof Error ? error.message : String(error)
@@ -382,6 +388,7 @@ export function register(ctx: ModuleContext): void {
   })
 
   ctx.ipcMain.handle(LOG_CHANNELS.export, async (): Promise<LogExportResult> => {
+    const { dialog } = await loadElectronRuntime()
     const opts: SaveDialogOptions = {
       title: 'Export diagnostic logs',
       defaultPath: `ultimate-sim-app-logs-${dateStamp()}.txt`,
