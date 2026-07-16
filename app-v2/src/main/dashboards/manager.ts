@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url'
 import type {
   Dashboard,
   DashboardDisplayInfo,
+  DashboardIdentityCatalogEntry,
   DashboardOpenOptions,
   DashboardOpenState,
   DashboardPlaylist,
@@ -17,6 +18,7 @@ import {
   BUILTIN_PRESETS,
   dashboardPlaylistValidationError,
   dashboardStorageValidationResult,
+  getBuiltinDashboardIdentityCatalog,
   summarizeDashboard
 } from '../../shared/dashboards'
 import type { ModuleContext } from '../module-context'
@@ -145,6 +147,31 @@ interface SimhubImportResponse {
   filePath?: string
 }
 
+interface DashboardFileCandidate {
+  file: string
+  dashboard: Dashboard
+}
+
+function dashboardCandidateTimestamp(candidate: DashboardFileCandidate): number {
+  return candidate.dashboard.updatedAt ?? candidate.dashboard.createdAt ?? Number.NEGATIVE_INFINITY
+}
+
+function selectDashboardFileCandidate(
+  candidates: readonly DashboardFileCandidate[],
+  canonicalFile: string
+): DashboardFileCandidate | null {
+  const newestTimestamp = Math.max(...candidates.map(dashboardCandidateTimestamp))
+  const freshest = candidates.filter((candidate) => dashboardCandidateTimestamp(candidate) === newestTimestamp)
+  if (freshest.length === 1) return freshest[0]
+
+  const withRevision = freshest.filter((candidate) => Boolean(candidate.dashboard.storageRevision))
+  if (withRevision.length === 1) return withRevision[0]
+  if (new Set(withRevision.map((candidate) => candidate.dashboard.storageRevision)).size > 1) return null
+
+  const canonical = freshest.filter((candidate) => candidate.file.toLowerCase() === canonicalFile.toLowerCase())
+  return canonical.length === 1 ? canonical[0] : null
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -153,8 +180,12 @@ function isMissingFileError(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
 }
 
-function validatedDashboard(value: unknown, context: string): Dashboard {
-  const result = dashboardStorageValidationResult(value)
+function validatedDashboard(
+  value: unknown,
+  context: string,
+  identityCatalog: readonly DashboardIdentityCatalogEntry[]
+): Dashboard {
+  const result = dashboardStorageValidationResult(value, { identityCatalog })
   if (result.status === 'quarantine') throw new Error(`${context}: ${result.error}`)
   return result.dashboard
 }
@@ -255,6 +286,7 @@ export class DashboardManager {
   private readonly windows = new Map<string, OpenWindowMeta>()
   private dashboards = new Map<string, Dashboard>()
   private storageIssues: DashboardStorageIssue[] = []
+  private readonly identityCatalog = getBuiltinDashboardIdentityCatalog()
   private loaded = false
   private loadPromise: Promise<void> | null = null
   private isDisposing = false
@@ -264,6 +296,8 @@ export class DashboardManager {
   private cycleInFlight = false
   private activateChain: Promise<void> = Promise.resolve()
   private readonly windowOpenChains = new Map<string, Promise<void>>()
+  private readonly pendingWindows = new Map<string, BrowserWindow>()
+  private readonly dashboardDeletionRevisions = new Map<string, number>()
   private screenListenersRegistered = false
   private readonly onDisplaysChanged = (): void => {
     if (this.isDisposing) return
@@ -291,6 +325,7 @@ export class DashboardManager {
     await mkdir(join(this.storeDir, QUARANTINE_DIR), { recursive: true })
     const files = (await readdir(this.storeDir)).sort((a, b) => a.localeCompare(b))
     const dashboards = new Map<string, Dashboard>()
+    const candidatesById = new Map<string, DashboardFileCandidate[]>()
     this.storageIssues = []
     for (const file of files) {
       if (!file.toLowerCase().endsWith('.json') || file === PLAYLIST_FILE) continue
@@ -303,16 +338,14 @@ export class DashboardManager {
         await this.quarantineFile(file, `Malformed JSON: ${errorMessage(error)}`)
         continue
       }
-      const result = dashboardStorageValidationResult(parsed)
+      const result = dashboardStorageValidationResult(parsed, { identityCatalog: this.identityCatalog })
       if (result.status === 'quarantine') {
         await this.quarantineFile(file, result.error)
         continue
       }
-      if (dashboards.has(result.dashboard.id)) {
-        await this.quarantineFile(file, `Duplicate dashboard id "${result.dashboard.id}".`)
-        continue
-      }
-      dashboards.set(result.dashboard.id, result.dashboard)
+      const candidates = candidatesById.get(result.dashboard.id) ?? []
+      candidates.push({ file, dashboard: result.dashboard })
+      candidatesById.set(result.dashboard.id, candidates)
       if (result.status === 'migrated') {
         logger.info('dashboards', 'dashboard loaded with in-memory storage migrations', {
           file,
@@ -321,10 +354,48 @@ export class DashboardManager {
         })
       }
     }
+    for (const [id, candidates] of candidatesById) {
+      if (candidates.length === 1) {
+        dashboards.set(id, candidates[0].dashboard)
+        continue
+      }
+      const canonicalFile = `${this.fileNameOf(id)}.json`
+      const winner = selectDashboardFileCandidate(candidates, canonicalFile)
+      if (!winner) {
+        const files = candidates.map((candidate) => candidate.file).join(', ')
+        for (const candidate of candidates) {
+          await this.quarantineFile(
+            candidate.file,
+            `Ambiguous duplicate dashboard id "${id}" across files: ${files}.`
+          )
+        }
+        continue
+      }
+      for (const candidate of candidates) {
+        if (candidate === winner) continue
+        await this.quarantineFile(
+          candidate.file,
+          `Duplicate dashboard id "${id}" superseded by authoritative file "${winner.file}".`
+        )
+      }
+      if (winner.file.toLowerCase() !== canonicalFile.toLowerCase()) {
+        await rename(join(this.storeDir, winner.file), join(this.storeDir, canonicalFile))
+        logger.info('dashboards', 'canonicalized duplicate dashboard winner filename', {
+          id,
+          from: winner.file,
+          to: canonicalFile
+        })
+      }
+      dashboards.set(id, winner.dashboard)
+    }
     if (dashboards.size === 0) {
       // Sementeia com presets na primeira execução
       for (const preset of BUILTIN_PRESETS) {
-        const dash = validatedDashboard(preset.build(), `Builtin preset "${preset.id}" is invalid`)
+        const dash = validatedDashboard(
+          preset.build(),
+          `Builtin preset "${preset.id}" is invalid`,
+          this.identityCatalog
+        )
         dashboards.set(dash.id, dash)
         await this.persist(dash)
       }
@@ -651,7 +722,7 @@ export class DashboardManager {
   }
 
   async save(dash: Dashboard): Promise<DashboardSummary> {
-    const canonical = validatedDashboard(dash, 'Invalid dashboard')
+    const canonical = validatedDashboard(dash, 'Invalid dashboard', this.identityCatalog)
     canonical.updatedAt = Date.now()
     if (!canonical.createdAt) canonical.createdAt = canonical.updatedAt
     this.dashboards.set(canonical.id, canonical)
@@ -662,8 +733,12 @@ export class DashboardManager {
   }
 
   async delete(id: string): Promise<DashboardSummary[]> {
-    if (this.windows.has(id)) await this.closeWindow(id)
     const existed = this.dashboards.delete(id)
+    this.dashboardDeletionRevisions.set(id, (this.dashboardDeletionRevisions.get(id) ?? 0) + 1)
+    const pending = this.pendingWindows.get(id)
+    if (pending && !pending.isDestroyed()) pending.close()
+    await this.windowOpenChains.get(id)
+    if (this.windows.has(id)) await this.closeWindow(id)
     if (existed) {
       try {
         await unlink(join(this.storeDir, `${this.fileNameOf(id)}.json`))
@@ -704,7 +779,11 @@ export class DashboardManager {
   private async materializeBuiltinPreset(id: string): Promise<Dashboard | null> {
     const preset = BUILTIN_PRESETS.find((p) => p.id === id)
     if (!preset) return null
-    const built = validatedDashboard(preset.build(), `Builtin preset "${id}" is invalid`)
+    const built = validatedDashboard(
+      preset.build(),
+      `Builtin preset "${id}" is invalid`,
+      this.identityCatalog
+    )
     // Force the stable preset id so the dashboard is addressable by it.
     const dash: Dashboard = { ...built, id }
     this.dashboards.set(id, dash)
@@ -739,13 +818,21 @@ export class DashboardManager {
         const result = screen.index === first.selectedScreenIndex
           ? first
           : await importSimhubDash(target, { screenIndex: screen.index })
-        const imported = validatedDashboard(result.dashboard, `Imported dashboard "${screen.name}" is invalid`)
+        const imported = validatedDashboard(
+          result.dashboard,
+          `Imported dashboard "${screen.name}" is invalid`,
+          this.identityCatalog
+        )
         summaries.push(await this.save(imported))
         for (const note of result.notes) if (!allNotes.includes(note)) allNotes.push(note)
       }
       return { summaries, notes: allNotes, screens: first.screens, selectedScreenIndex: first.selectedScreenIndex, filePath: target }
     }
-    const imported = validatedDashboard(first.dashboard, 'Imported dashboard is invalid')
+    const imported = validatedDashboard(
+      first.dashboard,
+      'Imported dashboard is invalid',
+      this.identityCatalog
+    )
     const summary = await this.save(imported)
     return {
       summary,
@@ -767,7 +854,8 @@ export class DashboardManager {
 
   openWindow(id: string, options: DashboardOpenOptions = {}): Promise<DashboardOpenState> {
     const previous = this.windowOpenChains.get(id) ?? Promise.resolve()
-    const opened = previous.then(() => this.openWindowInternal(id, options))
+    const deletionRevision = this.dashboardDeletionRevisions.get(id) ?? 0
+    const opened = previous.then(() => this.openWindowInternal(id, options, deletionRevision))
     const tail = opened.then(
       () => undefined,
       () => undefined
@@ -779,8 +867,15 @@ export class DashboardManager {
     return opened
   }
 
-  private async openWindowInternal(id: string, options: DashboardOpenOptions): Promise<DashboardOpenState> {
+  private async openWindowInternal(
+    id: string,
+    options: DashboardOpenOptions,
+    deletionRevision: number
+  ): Promise<DashboardOpenState> {
     if (this.isDisposing) throw new Error('Dashboard manager is shutting down.')
+    if ((this.dashboardDeletionRevisions.get(id) ?? 0) !== deletionRevision) {
+      throw new Error(`Dashboard open canceled because "${id}" was deleted.`)
+    }
     let dash = this.dashboards.get(id)
     if (!dash) dash = (await this.materializeBuiltinPreset(id)) ?? undefined
     if (!dash) throw new Error(`Dashboard not found: ${id}`)
@@ -834,6 +929,7 @@ export class DashboardManager {
       rendererHealthy: true
     }
     this.bindRendererHealth(id, next)
+    this.pendingWindows.set(id, win)
 
     win.webContents.setWindowOpenHandler(({ url }) => {
       openExternalUrl(url)
@@ -873,10 +969,16 @@ export class DashboardManager {
         error: errorMessage(error)
       })
       throw error
+    } finally {
+      if (this.pendingWindows.get(id) === win) this.pendingWindows.delete(id)
     }
     if (this.isDisposing) {
       if (!win.isDestroyed()) win.close()
       throw new Error('Dashboard manager shut down while the renderer was loading.')
+    }
+    if ((this.dashboardDeletionRevisions.get(id) ?? 0) !== deletionRevision || !this.dashboards.has(id)) {
+      if (!win.isDestroyed()) win.close()
+      throw new Error(`Dashboard open canceled because "${id}" was deleted while its renderer was loading.`)
     }
     if (!this.isWindowHealthy(next)) {
       if (!win.isDestroyed()) win.close()
@@ -912,6 +1014,8 @@ export class DashboardManager {
   }
 
   async closeWindow(id: string): Promise<DashboardOpenState[]> {
+    const pending = this.pendingWindows.get(id)
+    if (pending && !pending.isDestroyed()) pending.close()
     await this.windowOpenChains.get(id)
     const meta = this.windows.get(id)
     const hadWindow = Boolean(meta && !meta.window.isDestroyed())
@@ -928,6 +1032,10 @@ export class DashboardManager {
   async dispose(): Promise<void> {
     this.isDisposing = true
     this.unregisterScreenListeners()
+    for (const pending of this.pendingWindows.values()) {
+      if (!pending.isDestroyed()) pending.close()
+    }
+    this.pendingWindows.clear()
     logger.info('dashboards', 'dispose: closing dashboard windows', { count: this.windows.size })
     for (const id of [...this.windows.keys()]) {
       const meta = this.windows.get(id)

@@ -3658,6 +3658,44 @@ export const BUILTIN_PRESETS: DashboardPreset[] = withDefaultPresetPriority([
   ...HIFI_THEMED_CAR_PRESETS
 ])
 
+let builtinDashboardIdentityCatalog: readonly DashboardIdentityCatalogEntry[] | null = null
+
+export function getBuiltinDashboardIdentityCatalog(): readonly DashboardIdentityCatalogEntry[] {
+  if (builtinDashboardIdentityCatalog) return builtinDashboardIdentityCatalog
+  const entries = new Map<string, DashboardIdentityCatalogEntry>()
+  const addElements = (elements: readonly DashboardElement[]): void => {
+    for (const element of elements) {
+      if (element.type !== 'overlaywidget' || (!element.widgetId && !element.hifiModuleId)) continue
+      const id = element.widgetId ?? element.hifiModuleId ?? element.id
+      const entry: DashboardIdentityCatalogEntry = {
+        id,
+        type: 'overlaywidget',
+        ...(element.name ? { label: element.name, name: element.name } : {}),
+        ...(element.binding ? { binding: element.binding } : {}),
+        ...(element.widgetId ? { widgetId: element.widgetId } : {}),
+        ...(element.hifiModuleId ? { hifiModuleId: element.hifiModuleId } : {})
+      }
+      const key = JSON.stringify([
+        entry.id,
+        entry.name ?? null,
+        entry.binding ?? null,
+        entry.widgetId ?? null,
+        entry.hifiModuleId ?? null
+      ])
+      entries.set(key, entry)
+    }
+  }
+  for (const preset of BUILTIN_PRESETS) {
+    const dashboard = preset.build()
+    addElements(dashboard.elements)
+    for (const rule of dashboard.adaptive?.rules ?? []) {
+      if (rule.frame?.elements) addElements(rule.frame.elements)
+    }
+  }
+  builtinDashboardIdentityCatalog = Object.freeze([...entries.values()].map((entry) => Object.freeze(entry)))
+  return builtinDashboardIdentityCatalog
+}
+
 export function summarizeDashboard(dash: Dashboard): DashboardSummary {
   return {
     id: dash.id,

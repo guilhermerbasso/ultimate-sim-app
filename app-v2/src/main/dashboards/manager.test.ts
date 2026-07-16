@@ -467,6 +467,74 @@ describe('DashboardManager restart restoration', () => {
     expect(manager.listStorageIssues()).toEqual([])
   })
 
+  it('restores a legacy hi-fi overlay identity from the shared builtin catalog', async () => {
+    const source = raceTrafficAttack().elements.find((element) => element.name === 'speedGear')
+    if (!source) throw new Error('speedGear identity source is missing')
+    const legacyElement = structuredClone(source) as DashboardElement
+    delete legacyElement.widgetId
+    delete legacyElement.hifiModuleId
+    const legacy: Dashboard = {
+      id: 'legacy-hifi-identity',
+      name: 'Legacy hi-fi identity',
+      width: 1024,
+      height: 600,
+      bg: '#000',
+      elements: [legacyElement]
+    }
+    const stored = persistDashboard(userData, legacy)
+
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+
+    expect(manager.getDashboard(legacy.id)?.elements[0]).toMatchObject({
+      widgetId: 'hifi:speedGear',
+      hifiModuleId: 'speedGear'
+    })
+    expect(readFileSync(stored.path, 'utf8')).toBe(stored.raw)
+    expect(manager.listStorageIssues()).toEqual([])
+  })
+
+  it('selects the newer duplicate dashboard regardless of lexical file order', async () => {
+    const stale = { ...raceTrafficAttack(), id: 'duplicate-dashboard', name: 'Stale', updatedAt: 100 }
+    const newer = { ...raceTrafficAttack(), id: 'duplicate-dashboard', name: 'Newer', updatedAt: 200 }
+    const staleStored = persistRawDashboard(userData, 'a-stale.json', stale)
+    const newerStored = persistRawDashboard(userData, 'z-newer.json', newer)
+
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+
+    expect(manager.getDashboard('duplicate-dashboard')?.name).toBe('Newer')
+    expect(existsSync(newerStored.path)).toBe(false)
+    expect(readFileSync(join(userData, 'dashboards', 'duplicate-dashboard.json'), 'utf8')).toBe(newerStored.raw)
+    expect(existsSync(staleStored.path)).toBe(false)
+    const staleIssue = manager.listStorageIssues().find((issue) => issue.file === 'a-stale.json')
+    expect(staleIssue?.error).toMatch(/superseded/)
+    expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', staleIssue!.quarantinedFile), 'utf8'))
+      .toBe(staleStored.raw)
+  })
+
+  it('quarantines every equal ambiguous duplicate instead of choosing lexical-first', async () => {
+    persistDashboard(userData, raceTrafficAttack())
+    const first = { ...raceTrafficAttack(), id: 'ambiguous-dashboard', name: 'First', updatedAt: 100 }
+    const second = { ...raceTrafficAttack(), id: 'ambiguous-dashboard', name: 'Second', updatedAt: 100 }
+    const firstStored = persistRawDashboard(userData, 'a-equal.json', first)
+    const secondStored = persistRawDashboard(userData, 'b-equal.json', second)
+
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+
+    expect(manager.getDashboard('ambiguous-dashboard')).toBeNull()
+    const issues = manager.listStorageIssues().filter((issue) => issue.error.includes('Ambiguous duplicate'))
+    expect(issues.map((issue) => issue.file).sort()).toEqual(['a-equal.json', 'b-equal.json'])
+    for (const stored of [firstStored, secondStored]) {
+      expect(existsSync(stored.path)).toBe(false)
+      const issue = issues.find((candidate) => candidate.file === stored.path.split('\\').at(-1))
+      expect(issue).toBeDefined()
+      expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', issue!.quarantinedFile), 'utf8'))
+        .toBe(stored.raw)
+    }
+  })
+
   it('waits for persisted dashboards to load before answering renderer bootstrap IPC', async () => {
     const handlers = new Map<string, IpcHandler>()
     const manager = makeHeadlessManager(userData, handlers)
@@ -690,5 +758,25 @@ describe('DashboardManager window replacement lifecycle', () => {
     expect(manager.getDashboard(dashboard.id)?.name).toBe('Saved while loading')
     expect(broadcast).toHaveBeenCalledWith('app:dash:updated', expect.objectContaining({ name: 'Saved while loading' }))
     expect(window.webContents.send).not.toHaveBeenCalled()
+  })
+
+  it('cancels a pending first load when the dashboard is deleted', async () => {
+    let window!: FakeDashboardWindow
+    electronMocks.createBrowserWindow.mockImplementationOnce((options) => {
+      window = new FakeDashboardWindow(options as Record<string, unknown>)
+      return window
+    })
+
+    const opening = manager.openWindow(dashboard.id, { displayId: primaryDisplay.id, fullscreen: true })
+    await vi.waitFor(() => expect(window).toBeDefined())
+    const deleting = manager.delete(dashboard.id)
+
+    await expect(opening).rejects.toThrow(/closed before.*ready|deleted/i)
+    await deleting
+    expect(window.close).toHaveBeenCalledOnce()
+    expect(window.show).not.toHaveBeenCalled()
+    expect(manager.getDashboard(dashboard.id)).toBeNull()
+    expect(managerInternals(manager).windows.has(dashboard.id)).toBe(false)
+    expect(existsSync(join(userData, 'dashboards', `${dashboard.id}.json`))).toBe(false)
   })
 })
