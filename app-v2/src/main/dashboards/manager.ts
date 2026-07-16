@@ -155,6 +155,11 @@ interface DashboardFileCandidate {
   migrated: boolean
 }
 
+export interface DashboardStorageIo {
+  readFile(path: string): Promise<Buffer>
+  rename(from: string, to: string): Promise<void>
+}
+
 function dashboardCandidateTimestamp(candidate: DashboardFileCandidate): number {
   return candidate.dashboard.updatedAt ?? candidate.dashboard.createdAt ?? Number.NEGATIVE_INFINITY
 }
@@ -225,6 +230,12 @@ function nextDashboardRevision(previous: number | undefined, now = Date.now()): 
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function errorCode(error: unknown): string | undefined {
+  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+    ? error.code
+    : undefined
 }
 
 function isMissingFileError(error: unknown): boolean {
@@ -334,6 +345,7 @@ export function waitForDashboardWindowLoad(
 
 export class DashboardManager {
   private readonly storeDir: string
+  private readonly storageIo: DashboardStorageIo
   private readonly windows = new Map<string, OpenWindowMeta>()
   private dashboards = new Map<string, Dashboard>()
   private dashboardSourceFiles = new Map<string, string>()
@@ -358,8 +370,15 @@ export class DashboardManager {
     this.broadcastDisplayState()
   }
 
-  constructor(private readonly ctx: ModuleContext) {
+  constructor(
+    private readonly ctx: ModuleContext,
+    storageIo: Partial<DashboardStorageIo> = {}
+  ) {
     this.storeDir = join(ctx.app.getPath('userData'), SUBDIR)
+    this.storageIo = {
+      readFile: storageIo.readFile ?? ((path) => readFile(path)),
+      rename: storageIo.rename ?? ((from, to) => rename(from, to))
+    }
   }
 
   load(): Promise<void> {
@@ -401,6 +420,8 @@ export class DashboardManager {
     await mkdir(join(this.storeDir, QUARANTINE_DIR), { recursive: true })
     await mkdir(join(this.storeDir, MIGRATION_DIR), { recursive: true })
     const files = (await readdir(this.storeDir)).sort((a, b) => a.localeCompare(b))
+    const dashboardCandidateFiles = files.filter((file) =>
+      file.toLowerCase().endsWith('.json') && file !== PLAYLIST_FILE)
     const dashboards = new Map<string, Dashboard>()
     const sourceFiles = new Map<string, string>()
     const candidatesById = new Map<string, DashboardFileCandidate[]>()
@@ -408,7 +429,18 @@ export class DashboardManager {
     for (const file of files) {
       if (!file.toLowerCase().endsWith('.json') || file === PLAYLIST_FILE) continue
       const path = join(this.storeDir, file)
-      const raw = await readFile(path)
+      let raw: Buffer
+      try {
+        raw = await this.storageIo.readFile(path)
+      } catch (error) {
+        this.recordStorageIssue({
+          file,
+          path,
+          ...(errorCode(error) ? { code: errorCode(error) } : {}),
+          error: `Could not read dashboard candidate: ${errorMessage(error)}`
+        })
+        continue
+      }
       const hash = exactFileHash(raw)
       let parsed: unknown
       try {
@@ -488,7 +520,6 @@ export class DashboardManager {
     }
     for (const [id, candidate] of selectedCandidates) {
       const canonicalFile = `${this.fileNameOf(id)}.json`
-      await this.canonicalizeDashboardSource(candidate, canonicalFile)
       const dashboard = candidate.migrated
         ? {
             ...candidate.dashboard,
@@ -497,13 +528,24 @@ export class DashboardManager {
             )
           }
         : candidate.dashboard
-      if (candidate.migrated) {
-        await this.persistMigratedDashboard(candidate, canonicalFile, dashboard)
+      try {
+        await this.canonicalizeDashboardSource(candidate, canonicalFile)
+        if (candidate.migrated) {
+          await this.persistMigratedDashboard(candidate, canonicalFile, dashboard)
+        }
+      } catch (error) {
+        this.recordStorageIssue({
+          file: candidate.file,
+          path: join(this.storeDir, canonicalFile),
+          ...(errorCode(error) ? { code: errorCode(error) } : {}),
+          error: `Could not canonicalize dashboard candidate "${id}": ${errorMessage(error)}`
+        })
+        continue
       }
       dashboards.set(id, dashboard)
       sourceFiles.set(id, canonicalFile)
     }
-    if (dashboards.size === 0) {
+    if (dashboards.size === 0 && dashboardCandidateFiles.length === 0) {
       // Sementeia com presets na primeira execução
       for (const preset of BUILTIN_PRESETS) {
         const built = validatedDashboard(
@@ -612,6 +654,11 @@ export class DashboardManager {
 
   listStorageIssues(): DashboardStorageIssue[] {
     return this.storageIssues.map((issue) => ({ ...issue }))
+  }
+
+  private recordStorageIssue(issue: DashboardStorageIssue): void {
+    this.storageIssues.push(issue)
+    logger.warn('dashboards', 'dashboard storage issue', issue)
   }
 
   listOpen(): DashboardOpenState[] {
@@ -1213,16 +1260,16 @@ export class DashboardManager {
     const target = join(this.storeDir, canonicalFile)
     let moved = false
     try {
-      await rename(source, target)
+      await this.storageIo.rename(source, target)
       moved = true
-      const migrated = await readFile(target)
+      const migrated = await this.storageIo.readFile(target)
       if (exactFileHash(migrated) !== candidate.hash) {
         throw new Error(`Canonical filename migration changed bytes for "${candidate.file}".`)
       }
     } catch (error) {
       if (moved) {
         try {
-          await rename(target, source)
+          await this.storageIo.rename(target, source)
         } catch (rollbackError) {
           try {
             await this.quarantineFile(
@@ -1258,15 +1305,15 @@ export class DashboardManager {
     const temp = join(this.storeDir, `.tmp-dashboard-migration-${randomUUID()}.json`)
     let archived = false
     try {
-      await rename(source, archive)
+      await this.storageIo.rename(source, archive)
       archived = true
-      if (exactFileHash(await readFile(archive)) !== candidate.hash) {
+      if (exactFileHash(await this.storageIo.readFile(archive)) !== candidate.hash) {
         throw new Error(`Dashboard migration archive changed bytes for "${candidate.file}".`)
       }
       await writeFile(temp, JSON.stringify(dashboard, null, 2), 'utf8')
-      await rename(temp, source)
+      await this.storageIo.rename(temp, source)
       const persisted = dashboardStorageValidationResult(
-        JSON.parse((await readFile(source)).toString('utf8')) as unknown,
+        JSON.parse((await this.storageIo.readFile(source)).toString('utf8')) as unknown,
         { identityCatalog: this.identityCatalog }
       )
       if (persisted.status !== 'valid' || persisted.dashboard.updatedAt !== dashboard.updatedAt) {
@@ -1290,7 +1337,7 @@ export class DashboardManager {
           } catch (cleanupError) {
             if (!isMissingFileError(cleanupError)) throw cleanupError
           }
-          await rename(archive, source)
+          await this.storageIo.rename(archive, source)
         } catch (rollbackError) {
           throw new Error(
             `Dashboard migration failed and rollback could not restore "${candidate.file}": ` +
@@ -1320,7 +1367,7 @@ export class DashboardManager {
     const path = join(this.storeDir, file)
     let raw: Buffer
     try {
-      raw = await readFile(path)
+      raw = await this.storageIo.readFile(path)
     } catch (error) {
       if (!isMissingFileError(error)) throw error
       this.dashboardSourceFiles.delete(id)
@@ -1347,53 +1394,103 @@ export class DashboardManager {
     this.dashboardSourceFiles.delete(id)
   }
 
-  private async quarantineFile(file: string, error: string, expectedHash?: string): Promise<void> {
+  private async quarantineFile(file: string, error: string, expectedHash?: string): Promise<boolean> {
     const source = join(this.storeDir, file)
-    const sourceHash = expectedHash ?? exactFileHash(await readFile(source))
+    let sourceHash = expectedHash
+    if (!sourceHash) {
+      try {
+        sourceHash = exactFileHash(await this.storageIo.readFile(source))
+      } catch (readError) {
+        this.recordStorageIssue({
+          file,
+          path: source,
+          ...(errorCode(readError) ? { code: errorCode(readError) } : {}),
+          error: `${error} Quarantine could not read the original bytes: ${errorMessage(readError)}`
+        })
+        return false
+      }
+    }
     const nameHash = createHash('sha256').update(file, 'utf8').digest('hex').slice(0, 16)
     const quarantinedFile = `q.${nameHash}.${randomUUID()}.json`
     const target = join(this.storeDir, QUARANTINE_DIR, quarantinedFile)
-    await rename(source, target)
     try {
-      const quarantinedHash = exactFileHash(await readFile(target))
+      await this.storageIo.rename(source, target)
+    } catch (renameError) {
+      this.recordStorageIssue({
+        file,
+        path: source,
+        ...(errorCode(renameError) ? { code: errorCode(renameError) } : {}),
+        error: `${error} Quarantine rename failed; original bytes remain in place: ${errorMessage(renameError)}`
+      })
+      return false
+    }
+    try {
+      const quarantinedHash = exactFileHash(await this.storageIo.readFile(target))
       if (quarantinedHash !== sourceHash) throw new Error(`Quarantine changed bytes for "${file}".`)
     } catch (verificationError) {
       try {
-        await rename(target, source)
+        await this.storageIo.rename(target, source)
       } catch (rollbackError) {
-        throw new Error(
-          `Quarantine verification failed for "${file}" and rollback failed: ` +
-          `${errorMessage(verificationError)}; ${errorMessage(rollbackError)}`
-        )
+        this.recordStorageIssue({
+          file,
+          path: target,
+          quarantinedFile,
+          ...(errorCode(rollbackError) ? { code: errorCode(rollbackError) } : {}),
+          error: `${error} Quarantine verification and rollback failed; bytes remain at the reported path: ` +
+            `${errorMessage(verificationError)}; ${errorMessage(rollbackError)}`
+        })
+        return false
       }
-      throw verificationError
+      this.recordStorageIssue({
+        file,
+        path: source,
+        ...(errorCode(verificationError) ? { code: errorCode(verificationError) } : {}),
+        error: `${error} Quarantine verification failed; original bytes were restored: ${errorMessage(verificationError)}`
+      })
+      return false
     }
-    const issue: DashboardStorageIssue = { file, quarantinedFile, error }
-    this.storageIssues.push(issue)
-    logger.warn('dashboards', 'quarantined invalid dashboard storage file', issue)
+    this.recordStorageIssue({
+      file,
+      path: source,
+      code: 'QUARANTINED',
+      quarantinedFile,
+      error
+    })
+    return true
   }
 
   private async loadPlaylist(): Promise<void> {
     const path = join(this.storeDir, PLAYLIST_FILE)
-    let raw: string
+    let raw: Buffer
     try {
-      raw = await readFile(path, 'utf8')
+      raw = await this.storageIo.readFile(path)
     } catch (error) {
-      if (!isMissingFileError(error)) throw error
+      if (!isMissingFileError(error)) {
+        this.recordStorageIssue({
+          file: PLAYLIST_FILE,
+          path,
+          ...(errorCode(error) ? { code: errorCode(error) } : {}),
+          error: `Could not read dashboard playlist: ${errorMessage(error)}`
+        })
+      }
       this.playlist = { items: [], updatedAt: 0 }
       return
     }
     let parsed: unknown
     try {
-      parsed = JSON.parse(raw) as unknown
+      parsed = JSON.parse(raw.toString('utf8')) as unknown
     } catch (error) {
-      await this.quarantineFile(PLAYLIST_FILE, `Malformed JSON: ${errorMessage(error)}`)
+      await this.quarantineFile(
+        PLAYLIST_FILE,
+        `Malformed JSON: ${errorMessage(error)}`,
+        exactFileHash(raw)
+      )
       this.playlist = { items: [], updatedAt: 0 }
       return
     }
     const validationError = dashboardPlaylistValidationError(parsed)
     if (validationError) {
-      await this.quarantineFile(PLAYLIST_FILE, validationError)
+      await this.quarantineFile(PLAYLIST_FILE, validationError, exactFileHash(raw))
       this.playlist = { items: [], updatedAt: 0 }
       return
     }

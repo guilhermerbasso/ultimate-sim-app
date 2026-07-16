@@ -4,9 +4,24 @@ import { buttonPanelPlaylistItem } from '../../../shared/touch-panel'
 import {
   applyInstrumentPart,
   applyInstrumentPatch,
+  dashboardStorageIssueMessage,
   partitionHiddenSummaries,
   resolvePlaylistRowLabel
 } from './DashboardsView'
+
+describe('dashboardStorageIssueMessage', () => {
+  it('surfaces path and OS code without claiming a failed quarantine succeeded', () => {
+    const message = dashboardStorageIssueMessage({
+      file: 'locked.json',
+      path: 'C:\\data\\locked.json',
+      code: 'EBUSY',
+      error: 'Quarantine rename failed; original bytes remain in place.'
+    })
+    expect(message).toContain('locked.json [EBUSY]')
+    expect(message).toContain('C:\\data\\locked.json')
+    expect(message).not.toContain('Saved unchanged in .dashboard-quarantine')
+  })
+})
 
 // ── Blocker A (playlist UI) — touch-panel rows resolve a real name ────────────
 describe('resolvePlaylistRowLabel', () => {

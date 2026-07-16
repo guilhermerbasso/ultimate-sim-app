@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { readFile as readFileAsync, rename as renameAsync } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Dashboard, DashboardElement, DashboardPlaylistItem } from '../../shared/dashboards'
 import { BUILTIN_PRESETS, DASHBOARD_ELEMENT_TYPES, dashboardStorageValidationResult } from '../../shared/dashboards'
@@ -11,6 +12,7 @@ import {
   openablePlaylistItems,
   resolveCycleStep,
   sameCockpitTarget,
+  type DashboardStorageIo,
   touchPanelIdOf
 } from './manager'
 
@@ -253,7 +255,8 @@ function managerInternals(manager: DashboardManager): DashboardManagerInternals 
 function makeHeadlessManager(
   userData: string,
   handlers = new Map<string, IpcHandler>(),
-  broadcast: (channel: string, payload: unknown) => void = () => {}
+  broadcast: (channel: string, payload: unknown) => void = () => {},
+  storageIo: Partial<DashboardStorageIo> = {}
 ): DashboardManager {
   const manager = new DashboardManager({
     app: { getPath: () => userData },
@@ -265,7 +268,7 @@ function makeHeadlessManager(
     broadcast,
     telemetryHub: { getLatest: () => null },
     getMainWindow: () => null
-  } as unknown as ModuleContext)
+  } as unknown as ModuleContext, storageIo)
   managerInternals(manager).registerScreenListeners = () => {}
   return manager
 }
@@ -292,6 +295,10 @@ function persistRawDashboard(userData: string, file: string, value: unknown): { 
   const raw = JSON.stringify(value, null, 2)
   writeFileSync(path, raw, 'utf8')
   return { path, raw }
+}
+
+function storageIoError(code: string, message: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(message), { code })
 }
 
 describe('DashboardManager restart restoration', () => {
@@ -435,9 +442,96 @@ describe('DashboardManager restart restoration', () => {
       expect(existsSync(stored.path)).toBe(false)
       const issue = issues.find((candidate) => candidate.file === file)
       expect(issue).toBeDefined()
-      expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', issue!.quarantinedFile), 'utf8'))
+      expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', issue!.quarantinedFile!), 'utf8'))
         .toBe(stored.raw)
     }
+  })
+
+  it('isolates an unreadable candidate and still loads, opens, and reports the valid sibling', async () => {
+    const valid = raceTrafficAttack()
+    persistDashboard(userData, valid)
+    const unreadable = persistRawDashboard(userData, 'unreadable.json', {
+      ...valid,
+      id: 'unreadable-dashboard'
+    })
+    const handlers = new Map<string, IpcHandler>()
+    const broadcast = vi.fn()
+    const manager = makeHeadlessManager(userData, handlers, broadcast, {
+      readFile: async (path) => {
+        if (path.endsWith('unreadable.json')) throw storageIoError('EACCES', 'access denied')
+        return readFileAsync(path)
+      }
+    })
+    manager.registerIpc()
+
+    await manager.load()
+
+    expect(manager.getDashboard(valid.id)).not.toBeNull()
+    expect(manager.getDashboard('unreadable-dashboard')).toBeNull()
+    expect(readFileSync(unreadable.path, 'utf8')).toBe(unreadable.raw)
+    const issue = manager.listStorageIssues().find((candidate) => candidate.file === 'unreadable.json')
+    expect(issue).toBeDefined()
+    expect(issue).toMatchObject({
+      path: unreadable.path,
+      code: 'EACCES',
+      error: expect.stringMatching(/Could not read/)
+    })
+    const storageIssuesHandler = handlers.get('app:dash:storageIssues')
+    expect(await storageIssuesHandler!({})).toContainEqual(issue!)
+    expect(broadcast).toHaveBeenCalledWith('app:dash:storageIssues', expect.arrayContaining([issue!]))
+
+    let window!: FakeDashboardWindow
+    electronMocks.createBrowserWindow.mockImplementationOnce((options) => {
+      window = new FakeDashboardWindow(options as Record<string, unknown>)
+      return window
+    })
+    const opening = manager.openWindow(valid.id, { displayId: primaryDisplay.id, fullscreen: true })
+    await vi.waitFor(() => expect(window).toBeDefined())
+    window.finishLoad()
+    await opening
+    expect(window.show).toHaveBeenCalledOnce()
+  })
+
+  it('isolates a directory named like a dashboard JSON file', async () => {
+    const valid = raceTrafficAttack()
+    persistDashboard(userData, valid)
+    const directoryPath = join(userData, 'dashboards', 'directory.json')
+    mkdirSync(directoryPath)
+
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+
+    expect(manager.getDashboard(valid.id)).not.toBeNull()
+    const issue = manager.listStorageIssues().find((candidate) => candidate.file === 'directory.json')
+    expect(issue?.path).toBe(directoryPath)
+    expect(issue?.code).toMatch(/EISDIR|EACCES|EPERM/)
+    expect(issue?.error).toMatch(/Could not read/)
+    expect(existsSync(directoryPath)).toBe(true)
+  })
+
+  it('keeps original bytes when quarantine rename is locked', async () => {
+    const valid = raceTrafficAttack()
+    persistDashboard(userData, valid)
+    const lockedPath = join(userData, 'dashboards', 'locked-invalid.json')
+    const lockedRaw = '{"id":'
+    writeFileSync(lockedPath, lockedRaw, 'utf8')
+    const manager = makeHeadlessManager(userData, new Map(), () => {}, {
+      rename: async (from, to) => {
+        if (from.endsWith('locked-invalid.json')) throw storageIoError('EBUSY', 'file is locked')
+        await renameAsync(from, to)
+      }
+    })
+
+    await manager.load()
+
+    expect(manager.getDashboard(valid.id)).not.toBeNull()
+    expect(readFileSync(lockedPath, 'utf8')).toBe(lockedRaw)
+    const issue = manager.listStorageIssues().find((candidate) => candidate.file === 'locked-invalid.json')
+    expect(issue).toMatchObject({
+      path: lockedPath,
+      code: 'EBUSY',
+      error: expect.stringMatching(/original bytes remain in place/)
+    })
   })
 
   it('persists canonical legacy migrations while archiving the original bytes', async () => {
@@ -564,7 +658,7 @@ describe('DashboardManager restart restoration', () => {
     expect(existsSync(staleStored.path)).toBe(false)
     const staleIssue = manager.listStorageIssues().find((issue) => issue.file === 'a-stale.json')
     expect(staleIssue?.error).toMatch(/superseded/)
-    expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', staleIssue!.quarantinedFile), 'utf8'))
+    expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', staleIssue!.quarantinedFile!), 'utf8'))
       .toBe(staleStored.raw)
   })
 
@@ -599,7 +693,7 @@ describe('DashboardManager restart restoration', () => {
       expect(existsSync(stored.path)).toBe(false)
       const issue = issues.find((candidate) => candidate.file === stored.path.split('\\').at(-1))
       expect(issue).toBeDefined()
-      expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', issue!.quarantinedFile), 'utf8'))
+      expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', issue!.quarantinedFile!), 'utf8'))
         .toBe(stored.raw)
     }
   })
@@ -636,7 +730,7 @@ describe('DashboardManager restart restoration', () => {
       const file = stored.path.split('\\').at(-1)
       const issue = issues.find((candidate) => candidate.file === file)
       expect(issue).toBeDefined()
-      expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', issue!.quarantinedFile), 'utf8'))
+      expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', issue!.quarantinedFile!), 'utf8'))
         .toBe(stored.raw)
     }
   })
@@ -662,7 +756,7 @@ describe('DashboardManager restart restoration', () => {
     expect(issues).toHaveLength(1)
     const duplicate = issues[0]
     expect([first.path, second.path].some((path) => path.endsWith(duplicate.file))).toBe(true)
-    expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', duplicate.quarantinedFile), 'utf8'))
+    expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', duplicate.quarantinedFile!), 'utf8'))
       .toBe(first.raw)
   })
 

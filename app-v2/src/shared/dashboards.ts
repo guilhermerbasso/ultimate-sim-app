@@ -564,7 +564,9 @@ export interface DashboardOpenState {
 
 export interface DashboardStorageIssue {
   file: string
-  quarantinedFile: string
+  path: string
+  code?: string
+  quarantinedFile?: string
   error: string
 }
 

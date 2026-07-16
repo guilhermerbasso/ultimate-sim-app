@@ -469,6 +469,14 @@ export function partitionHiddenSummaries<T extends { hidden?: boolean }>(items: 
   }
 }
 
+export function dashboardStorageIssueMessage(issue: DashboardStorageIssue): string {
+  const code = issue.code ? ` [${issue.code}]` : ''
+  const quarantine = issue.quarantinedFile
+    ? ` Saved unchanged in .dashboard-quarantine/${issue.quarantinedFile}.`
+    : ''
+  return `${issue.file}${code}: ${issue.error} Path: ${issue.path}.${quarantine}`
+}
+
 // ── Pure `style.instrument` writers (unit-tested; no React/DOM) ────────────────
 // The instrument fidelity spec is ADDITIVE/OPTIONAL. These helpers immutably
 // patch it, dropping keys set back to `undefined` and returning `undefined` when
@@ -1347,8 +1355,8 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
           <strong>Invalid dashboard files were quarantined</strong>
           <div style={{ marginTop: 8, display: 'grid', gap: 6, color: TEXT_DIM, fontSize: 12 }}>
             {storageIssues.map((issue) => (
-              <div key={issue.quarantinedFile}>
-                <code>{issue.file}</code>: {issue.error} Saved unchanged in <code>.dashboard-quarantine/{issue.quarantinedFile}</code>.
+              <div key={`${issue.file}:${issue.quarantinedFile ?? issue.code ?? issue.error}`}>
+                {dashboardStorageIssueMessage(issue)}
               </div>
             ))}
           </div>
