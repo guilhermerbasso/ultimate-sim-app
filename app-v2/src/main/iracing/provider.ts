@@ -483,9 +483,10 @@ function shiftBand(rpm: number, setup: DriverCarShiftLights, redlineRpm?: number
   // The live ShiftIndicatorPct path (cars without an SL band) can cap BELOW 1.0 even at
   // the limiter. Once RPM reaches the genuine per-car over-rev point (blink ≈ last),
   // force the fill to FULL so shift-now consumers using their configured pct threshold
-  // (iFlag, soundshift, spotter, overlays) still fire. This
-  // clamps only the TOP at a real per-car RPM — it never widens the band at idle, so it
-  // cannot reintroduce the rpm/maxRpm idle-glow. (The SL band already reaches 1.0 at
+  // (iFlag, soundshift, overlays) still fire. Note: the spotter uses its own hardcoded
+  // SHIFT_PCT threshold and is not wired to AlertsConfig.shiftPoint.shiftIndicatorPct.
+  // This clamps only the TOP at a real per-car RPM — it never widens the band at idle, so
+  // it cannot reintroduce the rpm/maxRpm idle-glow. (The SL band already reaches 1.0 at
   // SLShiftRPM, so this only matters for the live fallback.)
   if (source === 'iracing-live' && pctValue !== undefined && pctValue < 1) {
     const topRpm = setup.blinkRpm ?? setup.lastRpm ?? setup.shiftRpm
