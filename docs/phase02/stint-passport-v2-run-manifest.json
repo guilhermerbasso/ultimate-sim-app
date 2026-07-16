@@ -1,0 +1,37 @@
+{
+  "manifestVersion": 1,
+  "acceptanceContract": "docs/phase02/stint-passport-v2-acceptance-contract.json",
+  "acceptanceContractSha256": "2d124af6597ea87cb454770cd8bc7819cbe7db54d0213f2473ed246eb8492440",
+  "implementationHead": "edc546f54cbea33b01246cd79be0f593ab5d6679",
+  "implementationTree": "f8b1014ceeb0de94e8664360dd52214d12eb1300",
+  "branch": "feat/phase2-stint-passport-v2",
+  "baseCommit": "31a414d90df8ddf639672453ff00d42b5d46a574",
+  "autonomousOverride": true,
+  "humanTokenUsed": false,
+  "evidence": {
+    "targetedTests": {
+      "tests": 94,
+      "status": "passed",
+      "command": "npm test -- --run <V2 targeted and regression selectors>",
+      "files": 15
+    },
+    "build": {
+      "status": "passed",
+      "command": "npm run build",
+      "workerSmoke": true,
+      "workerBytes": 76747
+    },
+    "typecheck": {
+      "command": "npm run typecheck",
+      "status": "passed"
+    },
+    "contracts": {
+      "baselineStatus": "checked",
+      "n1DescriptorSha256": "41889342c70e6851a1586152f225a4413e9e9b89c3974ff5e931c90aa5b23102",
+      "passportItems": 12,
+      "breakingFixtureRejected": true,
+      "status": "passed",
+      "descriptorSha256": "56b082789424f746193b0fe40685fb26ea84d194a3a47b5adb1a9de9a7aa2df6"
+    }
+  }
+}
