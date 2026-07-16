@@ -75,7 +75,7 @@ export const STYLE_TAGS = [
 
 export const TYPE_TAGS = [
   'overlay', 'widget', 'dashboard', 'touch', 'hifi', 'telemetry', 'telemetry-framework',
-  'trigger-only', 'trigger-edge', 'trigger-hold', 'release-a'
+  'trigger-only', 'trigger-edge', 'trigger-hold', 'release-a', 'release-b'
 ] as const
 
 export const UNIT_TAGS = [
@@ -100,7 +100,17 @@ export const ORIENTATION_LAYOUT_TAGS = [
   '1024x600', 'portrait', 'landscape', 'dense'
 ] as const
 
-export const META_TAGS = [...TYPE_TAGS, ...ORIENTATION_LAYOUT_TAGS] as const
+/** Stable Release B dashboard-family facets exposed to shared UI filters. */
+export const DASHBOARD_PORTFOLIO_FAMILY_TAGS = [
+  'family-a', 'family-b', 'family-c', 'family-d', 'family-e',
+  'family-f', 'family-g', 'family-h', 'family-i', 'family-j'
+] as const
+
+export const META_TAGS = [
+  ...TYPE_TAGS,
+  ...ORIENTATION_LAYOUT_TAGS,
+  ...DASHBOARD_PORTFOLIO_FAMILY_TAGS
+] as const
 
 export const DISCIPLINE_TAGS = ['GT3'] as const
 
