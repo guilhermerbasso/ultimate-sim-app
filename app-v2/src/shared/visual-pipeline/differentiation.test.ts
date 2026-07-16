@@ -262,6 +262,43 @@ describe('dashboard structural differentiation', () => {
     expect(comparison.decision.hardFail).toBe(true)
   })
 
+  it('excludes transparent whitespace-only text layers from visual similarity', () => {
+    const original = dashboard('original', [
+      widget('a', 'speed', BOXES.topLeft),
+      widget('b', 'gear', BOXES.topRight),
+      widget('c', 'delta', BOXES.bottomLeft),
+      widget('d', 'fuel', BOXES.bottomRight)
+    ])
+    const whitespaceLayer = (id: string): DashboardElement => ({
+      id,
+      type: 'text',
+      x: 0,
+      y: 0,
+      w: 1024,
+      h: 600,
+      style: {
+        background: 'transparent',
+        borderWidth: 0,
+        prefix: '\t',
+        text: '   ',
+        suffix: '\n'
+      }
+    })
+    const dilutedCopy = dashboard('whitespace-dilution', [
+      widget('copy-a', 'speed', BOXES.topLeft),
+      widget('copy-b', 'gear', BOXES.topRight),
+      widget('copy-c', 'delta', BOXES.bottomLeft),
+      widget('copy-d', 'fuel', BOXES.bottomRight),
+      whitespaceLayer('whitespace-1'),
+      whitespaceLayer('whitespace-2'),
+      whitespaceLayer('whitespace-3')
+    ])
+
+    const comparison = compareDashboardStructures(original, dilutedCopy)
+    expect(comparison.metrics.exactCanonicalEquality).toBe(true)
+    expect(comparison.decision.hardFail).toBe(true)
+  })
+
   it('excludes a redundant full-canvas backplate matching dashboard.bg', () => {
     const withoutBackplate = dashboard('without-backplate', [
       widget('speed', 'speed', BOXES.topLeft)
@@ -275,6 +312,23 @@ describe('dashboard structural differentiation', () => {
     const second = createDashboardFingerprint(withBackplate)
     expect(second.elementCount).toBe(first.elementCount)
     expect(second.canonical).toBe(first.canonical)
+  })
+
+  it('retains semi-transparent matching-color backplates', () => {
+    const withoutBackplate = dashboard('without-backplate', [
+      widget('speed', 'speed', BOXES.topLeft)
+    ])
+    withoutBackplate.bg = 'rgba(0, 0, 0, 0.5)'
+    const withBackplate = dashboard('with-backplate', [
+      fullCanvasLayer('compositing-backplate', 'rgba(0, 0, 0, 0.5)'),
+      widget('speed-copy', 'speed', BOXES.topLeft)
+    ])
+    withBackplate.bg = 'rgba(0, 0, 0, 0.5)'
+
+    const first = createDashboardFingerprint(withoutBackplate)
+    const second = createDashboardFingerprint(withBackplate)
+    expect(second.elementCount).toBe(first.elementCount + 1)
+    expect(second.canonical).not.toBe(first.canonical)
   })
 
   it('does not reject race-wet-minimal vs ferrari_gt3 from matching backplates', () => {
@@ -316,6 +370,51 @@ describe('dashboard structural differentiation', () => {
       expect(comparison.metrics.exactCanonicalEquality).toBe(false)
     }
   )
+
+  it.each([
+    'inputs-clean',
+    'inputs-elaborate'
+  ] satisfies DashboardElementType[])(
+    'includes channels identity for the %s renderer',
+    (type) => {
+      const throttle = dashboard(`${type}-throttle`, [{
+        id: 'throttle',
+        type,
+        ...BOXES.topLeft,
+        style: { channels: ['throttle'] }
+      }])
+      const brake = dashboard(`${type}-brake`, [{
+        id: 'brake',
+        type,
+        ...BOXES.topLeft,
+        style: { channels: ['brake'] }
+      }])
+
+      const comparison = compareDashboardStructures(throttle, brake)
+      expect(comparison.metrics.semanticWidgetJaccard).toBe(0)
+      expect(comparison.metrics.exactCanonicalEquality).toBe(false)
+    }
+  )
+
+  it('canonicalizes an omitted barchart source to the rendered tyreTemp default', () => {
+    const omitted = dashboard('barchart-omitted', [{
+      id: 'omitted',
+      type: 'barchart',
+      ...BOXES.topLeft,
+      style: {}
+    }])
+    const explicit = dashboard('barchart-explicit', [{
+      id: 'explicit',
+      type: 'barchart',
+      ...BOXES.topLeft,
+      style: { chartSource: 'tyreTemp' }
+    }])
+
+    const comparison = compareDashboardStructures(omitted, explicit)
+    expect(comparison.metrics.semanticWidgetJaccard).toBe(1)
+    expect(comparison.metrics.exactCanonicalEquality).toBe(true)
+    expect(comparison.decision.hardFail).toBe(true)
+  })
 
   it('preserves case-sensitive binding identifiers', () => {
     const upperCaseBinding = dashboard('upper', [

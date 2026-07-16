@@ -158,15 +158,65 @@ const SEMANTIC_STYLE_FIELDS: Partial<Record<DashboardElementType, readonly Seman
   statuslamp: ['statusKind', 'statusOnText', 'statusOffText'],
   inputbars: ['channels'],
   inputtrace: ['channels'],
+  'inputs-clean': ['channels'],
+  'inputs-elaborate': ['channels'],
   setupstrip: ['fields', 'bindingAbs', 'bindingTc', 'bindingMap', 'bindingBrakeBias'],
   enginetemps: ['bindingWater', 'bindingOil', 'bindingOilPressure']
 }
 
-function semanticStyleConfiguration(element: DashboardElement): Record<string, unknown> {
+function effectiveSemanticStyleValue(
+  element: DashboardElement,
+  field: SemanticStyleField
+): unknown {
   const style = element.style
+  switch (field) {
+    case 'secondaryBinding':
+      return element.type === 'dualbar' ? style.secondaryBinding ?? 'brake' : style.secondaryBinding
+    case 'chartSource':
+      return element.type === 'barchart'
+        ? style.chartSource ?? 'tyreTemp'
+        : element.type === 'radialbars'
+          ? style.chartSource ?? 'tyreWear'
+          : style.chartSource
+    case 'heatSource':
+      return style.heatSource ?? 'tyre'
+    case 'statusKind':
+      return style.statusKind ?? 'abs'
+    case 'statusOnText':
+      return element.binding ? style.statusOnText ?? 'ON' : undefined
+    case 'statusOffText':
+      return element.binding ? style.statusOffText ?? 'OFF' : undefined
+    case 'channels':
+      if (element.type === 'inputbars' || element.type === 'inputtrace') {
+        return style.channels && style.channels.length > 0
+          ? [...style.channels]
+          : ['throttle', 'brake']
+      }
+      if (element.type === 'inputs-clean' || element.type === 'inputs-elaborate') {
+        return style.channels === undefined
+          ? ['throttle', 'brake', 'clutch']
+          : [...style.channels]
+      }
+      return style.channels
+    case 'fields':
+      return style.fields && style.fields.length > 0
+        ? [...style.fields]
+        : ['abs', 'tc', 'map', 'bb', 'inc']
+    case 'bindingWater':
+      return style.bindingWater ?? 'var:waterTempC'
+    case 'bindingOil':
+      return style.bindingOil ?? 'var:oilTempC'
+    case 'bindingOilPressure':
+      return style.bindingOilPressure ?? 'var:oilPressureKpa'
+    default:
+      return style[field]
+  }
+}
+
+function semanticStyleConfiguration(element: DashboardElement): Record<string, unknown> {
   const configuration: Record<string, unknown> = {}
   for (const field of SEMANTIC_STYLE_FIELDS[element.type] ?? []) {
-    const value = style[field]
+    const value = effectiveSemanticStyleValue(element, field)
     if (value !== undefined) configuration[field] = Array.isArray(value) ? [...value] : value
   }
   return configuration
@@ -271,8 +321,14 @@ function effectiveElementStyle(element: DashboardElement): Partial<DashboardElem
   const output: Partial<DashboardElementStyle> = {}
   for (const key of Object.keys(element.style) as (keyof DashboardElementStyle)[]) {
     if (allowlist && !allowlist.has(key)) continue
-    if (!allowlist && TYPE_SPECIFIC_STYLE_FIELDS.has(key) && !semanticFields.has(key)) continue
+    if (!allowlist && TYPE_SPECIFIC_STYLE_FIELDS.has(key)) continue
     output[key] = element.style[key] as never
+  }
+  if (!allowlist) {
+    for (const field of semanticFields) {
+      const value = effectiveSemanticStyleValue(element, field as SemanticStyleField)
+      if (value !== undefined) output[field] = value as never
+    }
   }
   return output
 }
@@ -301,7 +357,12 @@ function hasVisibleFrame(element: DashboardElement): boolean {
     !isFullyTransparentColor(element.style.border)
 }
 
-function cssColorKey(value: string): string {
+interface ParsedCssColor {
+  key: string
+  alpha: number
+}
+
+function parseCssColor(value: string): ParsedCssColor | null {
   const normalized = value.trim().toLowerCase()
   const hex = normalized.match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/)
   if (hex) {
@@ -310,7 +371,10 @@ function cssColorKey(value: string): string {
       ? [...raw].map((part) => `${part}${part}`).join('')
       : raw
     const withAlpha = expanded.length === 6 ? `${expanded}ff` : expanded
-    return `rgba:${withAlpha}`
+    return {
+      key: `rgba:${withAlpha}`,
+      alpha: Number.parseInt(withAlpha.slice(6), 16)
+    }
   }
   const functional = normalized.match(/^rgba?\((.*)\)$/)
   if (functional) {
@@ -333,12 +397,16 @@ function cssColorKey(value: string): string {
         : Math.round(Number(alphaToken) * 255)
     const rgb = channels.slice(0, 3).map(channel)
     if (rgb.every((part): part is number => part !== undefined) && Number.isFinite(alpha)) {
-      return `rgba:${rgb.map((part) => part.toString(16).padStart(2, '0')).join('')}${
-        Math.max(0, Math.min(255, alpha)).toString(16).padStart(2, '0')
-      }`
+      const normalizedAlpha = Math.max(0, Math.min(255, alpha))
+      return {
+        key: `rgba:${rgb.map((part) => part.toString(16).padStart(2, '0')).join('')}${
+          normalizedAlpha.toString(16).padStart(2, '0')
+        }`,
+        alpha: normalizedAlpha
+      }
     }
   }
-  return normalized.replace(/\s+/g, ' ')
+  return null
 }
 
 function isFullCanvas(element: DashboardElement, dashboard: Dashboard): boolean {
@@ -349,11 +417,18 @@ function isFullCanvas(element: DashboardElement, dashboard: Dashboard): boolean 
 }
 
 function isMatchingDashboardBackplate(element: DashboardElement, dashboard: Dashboard): boolean {
+  const background = element.style.background
+  if (background === undefined) return false
+  const fill = parseCssColor(background)
+  const canvas = parseCssColor(dashboard.bg)
   return element.type === 'rect' &&
     isFullCanvas(element, dashboard) &&
     !hasVisibleFrame(element) &&
-    !isFullyTransparentColor(element.style.background) &&
-    cssColorKey(element.style.background as string) === cssColorKey(dashboard.bg)
+    fill !== null &&
+    canvas !== null &&
+    fill.alpha === 255 &&
+    canvas.alpha === 255 &&
+    fill.key === canvas.key
 }
 
 function isRedundantDashboardBackplate(
@@ -393,7 +468,7 @@ export function isProvablyInertElement(
   if (element.type === 'image' && (element.style.opacity ?? 1) <= 0) return true
   if (element.type === 'text') {
     const hasContent = element.binding !== undefined ||
-      Boolean(element.style.text || element.style.prefix || element.style.suffix)
+      `${element.style.prefix ?? ''}${element.style.text ?? ''}${element.style.suffix ?? ''}`.trim().length > 0
     return !hasContent &&
       isFullyTransparentColor(element.style.background) &&
       !hasVisibleFrame(element)
