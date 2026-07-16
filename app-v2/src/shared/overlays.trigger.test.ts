@@ -101,6 +101,19 @@ describe('evaluateOverlayTrigger', () => {
       snap({ fuelLapsRemaining: Number.NaN }),
       config
     )).toBe(false)
+    expect(evaluateOverlayTrigger(
+      { kind: 'lowFuel' },
+      snap({ connected: false, fuelLapsRemaining: 1 }),
+      config
+    )).toBe(false)
+    expect(evaluateOverlayTrigger(
+      { kind: 'lowFuel' },
+      snap({ fuelLapsRemaining: 1 }),
+      {
+        ...config,
+        lowFuel: { ...config.lowFuel, enabled: false }
+      }
+    )).toBe(false)
   })
 })
 

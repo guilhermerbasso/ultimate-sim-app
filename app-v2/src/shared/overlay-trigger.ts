@@ -514,6 +514,7 @@ export function evaluateOverlayTrigger(
     case 'flag':
       return activeRaceControlFlags(snapshot).value
     case 'lowFuel': {
+      if (!snapshot.connected || !alertsConfig.lowFuel.enabled) return false
       const lapsRemaining = fuelLapsRemainingOf(snapshot)
       return lapsRemaining != null && lapsRemaining < alertsConfig.lowFuel.lapsThreshold
     }

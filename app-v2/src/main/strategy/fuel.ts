@@ -1,14 +1,14 @@
-import type { FuelLapSample, FuelPitWindow, FuelStrategySettings, FuelStrategyState } from '../../shared/fuel'
+import {
+  FuelLapEstimator,
+  type FuelLapEstimate,
+  type FuelLapSample,
+  type FuelPitWindow,
+  type FuelStrategySettings,
+  type FuelStrategyState
+} from '../../shared/fuel'
 import { fuelPerLapLitersOf, type TelemetrySnapshot } from '../../shared/telemetry'
 
 const DEFAULT_SETTINGS: FuelStrategySettings = { fuelMarginLiters: 3 }
-const MAX_SAMPLES = 8
-
-interface LapStartState {
-  lap: number
-  fuelLiters: number
-  timestamp: number
-}
 
 function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
@@ -32,38 +32,43 @@ function average(values: number[]): number | undefined {
   return values.reduce((sum, value) => sum + value, 0) / values.length
 }
 
+function fuelSessionIdentity(snapshot: TelemetrySnapshot): string {
+  if (snapshot.replayContext?.sessionIdentity) {
+    return snapshot.replayContext.sessionIdentity
+  }
+  return [
+    snapshot.sim,
+    snapshot.sessionUniqueId,
+    snapshot.sessionNumber,
+    snapshot.trackName,
+    snapshot.carName
+  ].filter((value) => value !== undefined && value !== null && value !== '').join('|')
+}
+
+function isLiveFuelSnapshot(snapshot: TelemetrySnapshot): boolean {
+  if (!snapshot.connected) return false
+  if (snapshot.replayContext) return snapshot.replayContext.state === 'live'
+  return snapshot.replayPlaying !== true
+}
+
 export class FuelStrategyCalculator {
-  private samples: FuelLapSample[] = []
-  private lapStart: LapStartState | null = null
+  private estimator = new FuelLapEstimator()
+  private estimate: FuelLapEstimate = { samples: [] }
   private latest: TelemetrySnapshot | null = null
   private settings: FuelStrategySettings = { ...DEFAULT_SETTINGS }
 
   update(snapshot: TelemetrySnapshot | null): FuelStrategyState {
     this.latest = snapshot
-    if (!snapshot?.connected) return this.get()
-
-    const lap = snapshot.currentLap
-    const fuel = snapshot.fuelLiters
-    if (positive(lap) && finite(fuel)) {
-      if (!this.lapStart) {
-        this.lapStart = { lap, fuelLiters: fuel, timestamp: snapshot.timestamp }
-      } else if (lap > this.lapStart.lap) {
-        const lapDelta = lap - this.lapStart.lap
-        const usedLiters = this.lapStart.fuelLiters - fuel
-        const lapTimeSec = positive(snapshot.lastLapTimeSec)
-          ? snapshot.lastLapTimeSec
-          : (snapshot.timestamp - this.lapStart.timestamp) / 1000
-
-        if (lapDelta === 1 && usedLiters > 0.05 && usedLiters < 25) {
-          this.samples.push({ lap: this.lapStart.lap, usedLiters: round(usedLiters, 3), lapTimeSec: round(lapTimeSec, 3) })
-          this.samples = this.samples.slice(-MAX_SAMPLES)
-        }
-        this.lapStart = { lap, fuelLiters: fuel, timestamp: snapshot.timestamp }
-      } else if (lap < this.lapStart.lap) {
-        this.samples = []
-        this.lapStart = { lap, fuelLiters: fuel, timestamp: snapshot.timestamp }
-      }
-    }
+    this.estimate = snapshot
+      ? this.estimator.update({
+          sessionIdentity: fuelSessionIdentity(snapshot),
+          live: isLiveFuelSnapshot(snapshot),
+          currentLap: snapshot.currentLap,
+          fuelLiters: snapshot.fuelLiters,
+          timestamp: snapshot.timestamp,
+          lapTimeSec: snapshot.lastLapTimeSec
+        })
+      : this.estimator.update({ live: false })
 
     return this.get()
   }
@@ -79,13 +84,22 @@ export class FuelStrategyCalculator {
 
     const snapshot = this.latest
     const connected = snapshot?.connected ?? false
-    const sampleAverage = average(this.samples.map((sample) => sample.usedLiters))
-    const usedPerLap = sampleAverage ?? fuelPerLapLitersOf(snapshot)
+    const live = snapshot ? isLiveFuelSnapshot(snapshot) : false
+    const samples = this.estimate.samples.map((sample): FuelLapSample => ({
+      lap: sample.lap,
+      usedLiters: round(sample.usedLiters, 3),
+      lapTimeSec: finite(sample.lapTimeSec) ? round(sample.lapTimeSec, 3) : undefined
+    }))
+    // Provider-normalized litres/lap is authoritative. The shared estimator is
+    // only a truthful fallback for sims that do not publish the canonical field.
+    const usedPerLap = live
+      ? fuelPerLapLitersOf(snapshot) ?? this.estimate.fuelPerLapLiters
+      : undefined
     const fuelLiters = snapshot?.fuelLiters
     const fuelCapacityLiters = snapshot?.fuelCapacityLiters
     const estimatedLapTimeSec = positive(snapshot?.estimatedLapTimeSec)
       ? snapshot?.estimatedLapTimeSec
-      : average(this.samples.map((sample) => sample.lapTimeSec).filter(positive)) ?? snapshot?.bestLapTimeSec ?? snapshot?.lastLapTimeSec
+      : average(samples.map((sample) => sample.lapTimeSec).filter(positive)) ?? snapshot?.bestLapTimeSec ?? snapshot?.lastLapTimeSec
     const raceLapsRemaining = this.getRaceLapsRemaining(snapshot, estimatedLapTimeSec)
     const margin = this.settings.fuelMarginLiters
     const usableFuel = finite(fuelLiters) ? Math.max(0, fuelLiters - margin) : undefined
@@ -105,7 +119,7 @@ export class FuelStrategyCalculator {
       fuelLiters: finite(fuelLiters) ? round(fuelLiters, 2) : undefined,
       fuelCapacityLiters,
       usedPerLap: finite(usedPerLap) ? round(usedPerLap, 3) : undefined,
-      samples: [...this.samples],
+      samples,
       lapsLeftWithFuel: finite(lapsLeftWithFuel) ? round(lapsLeftWithFuel, 2) : undefined,
       raceLapsRemaining: finite(raceLapsRemaining) ? round(raceLapsRemaining, 2) : undefined,
       fuelToFinish: finite(fuelToFinish) ? round(fuelToFinish, 2) : undefined,
@@ -126,8 +140,7 @@ export class FuelStrategyCalculator {
   }
 
   reset(): FuelStrategyState {
-    this.samples = []
-    this.lapStart = null
+    this.estimate = this.estimator.reset()
     return this.get()
   }
 

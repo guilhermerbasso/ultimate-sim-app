@@ -147,9 +147,27 @@ describe('dashboard-embedded alert policy', () => {
       ...DEFAULT_ALERTS_CONFIG,
       lowFuel: { ...DEFAULT_ALERTS_CONFIG.lowFuel, lapsThreshold: 5 }
     })
+    const disabled = dashboardAlertMarkup('alertLowFuel', snapshot, {
+      ...DEFAULT_ALERTS_CONFIG,
+      lowFuel: {
+        ...DEFAULT_ALERTS_CONFIG.lowFuel,
+        enabled: false,
+        lapsThreshold: 5
+      }
+    })
+    const disconnected = dashboardAlertMarkup(
+      'alertLowFuel',
+      { ...snapshot, connected: false },
+      {
+        ...DEFAULT_ALERTS_CONFIG,
+        lowFuel: { ...DEFAULT_ALERTS_CONFIG.lowFuel, lapsThreshold: 5 }
+      }
+    )
 
     expect(hidden).not.toContain('LAPS')
     expect(visible).toContain('4.0')
+    expect(disabled).not.toContain('LAPS')
+    expect(disconnected).not.toContain('LAPS')
   })
 })
 

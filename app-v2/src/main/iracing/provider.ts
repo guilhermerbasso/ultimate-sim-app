@@ -1,6 +1,7 @@
 import type { Corners, DriverEntry, Flags, IRacingDiagnostics, IRacingMmfDiagnostics, PitStatus, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
 import { carLeftRightStateFromEnum, carLeftRightCountFromEnum, drsStateFromRaw, engineWarningsFromBitfield, sessionStateLabel, paceModeLabel, paceFlagsList, deriveTcActive, tcOptionsForSensitivity, tcLatchTimingsForSensitivity, TcLatch, TC_ACTIVE_DERIVED, type TcSensitivity } from '../../shared/telemetry'
 import { ReplayContextTracker } from '../../shared/replay'
+import { FuelLapEstimator } from '../../shared/fuel'
 import { inHgToKpa, mss2ToG } from '../../shared/units'
 import { FALLBACK_SHIFT_BLINK_PCT, redlineBandPct } from '../../shared/revlights'
 import { IRacingMemoryMap } from './irsdk-mmf'
@@ -720,119 +721,6 @@ function replaySessionIdentity(sessionInfo: any, values: AnyRecord): string | un
     return ''
   }).filter(Boolean)
   return parts.some(Boolean) ? parts.join(':') : undefined
-}
-
-const MAX_FUEL_LAP_SAMPLES = 8
-
-class FuelLapEstimator {
-  private sessionIdentity: string | undefined
-  private lapStart: {
-    lap: number
-    fuelLiters: number
-    minFuelLiters: number
-    boundaryObserved: boolean
-    refueled: boolean
-  } | undefined
-  private samples: number[] = []
-
-  update(input: {
-    sessionIdentity?: string
-    live: boolean
-    currentLap?: number
-    fuelLiters?: number
-  }): { fuelPerLapLiters?: number; fuelLapsRemaining?: number } {
-    if (input.sessionIdentity !== this.sessionIdentity) {
-      this.reset()
-      this.sessionIdentity = input.sessionIdentity
-    }
-    if (!input.live) {
-      this.lapStart = undefined
-      return {}
-    }
-
-    const lap = input.currentLap
-    const fuelLiters = input.fuelLiters
-    if (
-      typeof lap !== 'number' ||
-      !Number.isInteger(lap) ||
-      lap < 0 ||
-      typeof fuelLiters !== 'number' ||
-      !Number.isFinite(fuelLiters) ||
-      fuelLiters < 0
-    ) {
-      return this.current(fuelLiters)
-    }
-
-    if (!this.lapStart) {
-      this.lapStart = {
-        lap,
-        fuelLiters,
-        minFuelLiters: fuelLiters,
-        boundaryObserved: false,
-        refueled: false
-      }
-    } else if (lap > this.lapStart.lap) {
-      const lapDelta = lap - this.lapStart.lap
-      const usedLiters = this.lapStart.fuelLiters - fuelLiters
-      const refueled =
-        this.lapStart.refueled ||
-        fuelLiters > this.lapStart.minFuelLiters + 0.05
-      if (
-        lapDelta === 1 &&
-        this.lapStart.boundaryObserved &&
-        !refueled &&
-        usedLiters > 0.05 &&
-        usedLiters < 25
-      ) {
-        this.samples.push(usedLiters)
-        this.samples = this.samples.slice(-MAX_FUEL_LAP_SAMPLES)
-      }
-      this.lapStart = {
-        lap,
-        fuelLiters,
-        minFuelLiters: fuelLiters,
-        boundaryObserved: lapDelta === 1,
-        refueled: false
-      }
-    } else if (lap < this.lapStart.lap) {
-      this.samples = []
-      this.lapStart = {
-        lap,
-        fuelLiters,
-        minFuelLiters: fuelLiters,
-        boundaryObserved: false,
-        refueled: false
-      }
-    } else {
-      if (fuelLiters > this.lapStart.minFuelLiters + 0.05) {
-        this.lapStart.refueled = true
-      }
-      this.lapStart.minFuelLiters = Math.min(
-        this.lapStart.minFuelLiters,
-        fuelLiters
-      )
-    }
-
-    return this.current(fuelLiters)
-  }
-
-  reset(): void {
-    this.sessionIdentity = undefined
-    this.lapStart = undefined
-    this.samples = []
-  }
-
-  private current(fuelLiters?: number): { fuelPerLapLiters?: number; fuelLapsRemaining?: number } {
-    if (this.samples.length === 0) return {}
-    const fuelPerLapLiters = this.samples.reduce((sum, sample) => sum + sample, 0) / this.samples.length
-    return {
-      fuelPerLapLiters,
-      fuelLapsRemaining:
-        typeof fuelLiters === 'number' && Number.isFinite(fuelLiters) && fuelLiters >= 0
-          ? fuelLiters / fuelPerLapLiters
-          : undefined
-    }
-  }
 }
 
 export class IRacingProvider implements TelemetryProvider {

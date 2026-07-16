@@ -114,18 +114,24 @@ describe('ALERTS_WIDGETS', () => {
 
   it('uses the shared low-fuel threshold when visibility is absent', () => {
     const widget = ALERTS_WIDGETS.find((candidate) => candidate.id === 'alertLowFuel')!
-    const render = (lapsThreshold: number): string =>
+    const render = (
+      lapsThreshold: number,
+      enabled = true,
+      connected = true
+    ): string =>
       renderToStaticMarkup(createElement(widget.render, {
-        snapshot: { ...populatedSnapshot(), fuelLapsRemaining: 4 },
+        snapshot: { ...populatedSnapshot(), connected, fuelLapsRemaining: 4 },
         width: widget.defaultSize.w,
         height: widget.defaultSize.h,
         alertsConfig: {
           ...DEFAULT_ALERTS_CONFIG,
-          lowFuel: { ...DEFAULT_ALERTS_CONFIG.lowFuel, lapsThreshold }
+          lowFuel: { ...DEFAULT_ALERTS_CONFIG.lowFuel, enabled, lapsThreshold }
         }
       }))
 
     expect(render(3)).not.toContain('LAPS')
     expect(render(5)).toContain('4.0')
+    expect(render(5, false)).not.toContain('LAPS')
+    expect(render(5, true, false)).not.toContain('LAPS')
   })
 })
