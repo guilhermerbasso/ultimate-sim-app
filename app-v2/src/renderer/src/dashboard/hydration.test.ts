@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Dashboard } from '../../../shared/dashboards'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
-import { subscribeWithHydration } from './hydration'
+import { subscribeWithRevisionedHydration, subscribeWithTelemetryHydration } from './hydration'
 
 function deferred<T>(): {
   promise: Promise<T>
@@ -14,7 +14,7 @@ function deferred<T>(): {
   return { promise, resolve }
 }
 
-describe('subscribeWithHydration', () => {
+describe('subscribeWithRevisionedHydration', () => {
   it('keeps a restored dashboard update when the initial IPC lookup resolves late with null', async () => {
     const initial = deferred<Dashboard | null>()
     const applied: Array<Dashboard | null> = []
@@ -28,7 +28,7 @@ describe('subscribeWithHydration', () => {
       elements: []
     } satisfies Dashboard
 
-    subscribeWithHydration({
+    subscribeWithRevisionedHydration({
       subscribe: (listener) => {
         emit = listener
         return () => {}
@@ -61,7 +61,7 @@ describe('subscribeWithHydration', () => {
     } satisfies Dashboard
     const current = { ...stale, name: 'After save', updatedAt: 2 } satisfies Dashboard
 
-    subscribeWithHydration({
+    subscribeWithRevisionedHydration({
       subscribe: (listener) => {
         emit = listener
         return () => {}
@@ -79,6 +79,42 @@ describe('subscribeWithHydration', () => {
     expect(applied).toEqual([stale, current])
   })
 
+  it('ignores an older dashboard broadcast after a newer one', async () => {
+    const initial = deferred<Dashboard | null>()
+    const applied: Array<Dashboard | null> = []
+    let emit!: (value: Dashboard | null) => void
+    const newer = {
+      id: 'restored-dashboard',
+      name: 'Newer',
+      width: 1024,
+      height: 600,
+      bg: '#000',
+      elements: [],
+      updatedAt: 3
+    } satisfies Dashboard
+    const older = { ...newer, name: 'Older', updatedAt: 2 } satisfies Dashboard
+
+    subscribeWithRevisionedHydration({
+      subscribe: (listener) => {
+        emit = listener
+        return () => {}
+      },
+      hydrate: () => initial.promise,
+      revision: (value) => value?.updatedAt ?? Number.NEGATIVE_INFINITY,
+      apply: (value) => applied.push(value)
+    })
+
+    emit(newer)
+    emit(older)
+    initial.resolve(older)
+    await initial.promise
+    await Promise.resolve()
+
+    expect(applied).toEqual([newer])
+  })
+})
+
+describe('subscribeWithTelemetryHydration', () => {
   it('does not let a stale telemetry seed overwrite a newer live snapshot', async () => {
     const initial = deferred<TelemetrySnapshot | null>()
     const applied: Array<TelemetrySnapshot | null> = []
@@ -94,13 +130,12 @@ describe('subscribeWithHydration', () => {
       timestamp: 1
     } as TelemetrySnapshot
 
-    subscribeWithHydration({
+    subscribeWithTelemetryHydration({
       subscribe: (listener) => {
         emit = listener
         return () => {}
       },
       hydrate: () => initial.promise,
-      revision: (value) => value?.timestamp ?? Number.NEGATIVE_INFINITY,
       apply: (value) => applied.push(value)
     })
 
@@ -119,14 +154,12 @@ describe('subscribeWithHydration', () => {
     const live = { sim: 'mock', connected: true, timestamp: 2 } as TelemetrySnapshot
     const hydrated = { sim: 'mock', connected: true, timestamp: 3 } as TelemetrySnapshot
 
-    subscribeWithHydration({
+    subscribeWithTelemetryHydration({
       subscribe: (listener) => {
         emit = listener
         return () => {}
       },
       hydrate: () => initial.promise,
-      revision: (value) => value?.timestamp ?? Number.NEGATIVE_INFINITY,
-      liveValueSupersedesHydration: (value) => value === null,
       apply: (value) => applied.push(value)
     })
 
@@ -146,14 +179,12 @@ describe('subscribeWithHydration', () => {
     const live = { sim: 'mock', connected: true, timestamp: 4 } as TelemetrySnapshot
     const stale = { sim: 'mock', connected: true, timestamp: 3 } as TelemetrySnapshot
 
-    subscribeWithHydration({
+    subscribeWithTelemetryHydration({
       subscribe: (listener) => {
         emit = listener
         return () => {}
       },
       hydrate: () => initial.promise,
-      revision: (value) => value?.timestamp ?? Number.NEGATIVE_INFINITY,
-      liveValueSupersedesHydration: (value) => value === null,
       apply: (value) => applied.push(value)
     })
 

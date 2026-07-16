@@ -42,7 +42,7 @@ import {
 import { readButtonPressed } from '../lib/gamepad'
 import { useUnitSystem } from '../lib/units'
 import { displayUnitLabel, getActiveFlag, resolveBinding, retainBindingIpc } from './binding'
-import { subscribeWithHydration } from './hydration'
+import { subscribeWithRevisionedHydration, subscribeWithTelemetryHydration } from './hydration'
 import { useSwipeCycle, type CycleDirection } from './useSwipeCycle'
 import { renderGt3Widget, instrumentColorsFor, instrumentBezel, instrumentMaterial, revLedPropsFor } from './widgets/gt3-widgets'
 import { AnalogDial, RevLedBar } from '../instruments'
@@ -1726,7 +1726,7 @@ export function DashboardRoot() {
       return
     }
     setError(null)
-    return subscribeWithHydration<Dashboard | null>({
+    return subscribeWithRevisionedHydration<Dashboard | null>({
       subscribe: (apply) => window.ipc.subscribe<Dashboard>('app:dash:updated', (next) => {
         if (next?.id === dashId) apply(next)
       }),
@@ -1822,11 +1822,9 @@ export function DashboardRoot() {
   }, [])
 
   useEffect(() => {
-    return subscribeWithHydration<TelemetrySnapshot | null>({
+    return subscribeWithTelemetryHydration({
       subscribe: (apply) => window.ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', apply),
       hydrate: () => window.ipc.invoke<TelemetrySnapshot | null>('telemetry:getLatest'),
-      revision: (snap) => snap?.timestamp ?? Number.NEGATIVE_INFINITY,
-      liveValueSupersedesHydration: (snap) => snap === null,
       apply: (snap) => {
         lastFrameRef.current = performance.now()
         setSnapshot(snap)
