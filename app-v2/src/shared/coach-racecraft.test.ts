@@ -96,7 +96,33 @@ function safeAdvice(
   context: RacecraftAdviceContext,
   opts?: Parameters<typeof buildAdvice>[2]
 ) {
-  return buildAdvice(intent, { safety: KNOWN_SAFE_RACE, ...context }, opts)
+  const last = context.gaps?.[context.gaps.length - 1]
+  const currentGapSample =
+    context.currentGapSample ??
+    (
+      context.currentGapAheadSec !== undefined || context.currentGapBehindSec !== undefined
+        ? {
+            at: last?.at ?? 1,
+            aheadSec: context.currentGapAheadSec,
+            behindSec: context.currentGapBehindSec,
+            aheadCarIdx: last?.aheadCarIdx ?? (context.currentGapAheadSec !== undefined ? 10 : undefined),
+            behindCarIdx: last?.behindCarIdx ?? (context.currentGapBehindSec !== undefined ? 20 : undefined)
+          }
+        : undefined
+    )
+  const gaps =
+    context.gaps ??
+    (currentGapSample ? [currentGapSample] : undefined)
+  return buildAdvice(
+    intent,
+    {
+      safety: KNOWN_SAFE_RACE,
+      ...context,
+      gaps,
+      currentGapSample
+    },
+    opts
+  )
 }
 
 describe('racecraft question routing', () => {
@@ -213,7 +239,9 @@ describe('racecraft question routing', () => {
           {
             safety,
             findings: [finding('throttle-late', { corner: 2, phase: 'exit' })],
-            currentGapAheadSec: 0.8
+            currentGapAheadSec: 0.8,
+            gaps: [{ at: 1, aheadSec: 0.8, aheadCarIdx: 10 }],
+            currentGapSample: { at: 1, aheadSec: 0.8, aheadCarIdx: 10 }
           },
           { language }
         )
@@ -275,7 +303,8 @@ describe('buildRacecraftAdvice', () => {
         { at: 1000, behindSec: 1.1, behindCarIdx: 20 },
         { at: 3000, behindSec: 0.9, behindCarIdx: 20 },
         { at: 5000, behindSec: 0.7, behindCarIdx: 20 }
-      ]
+      ],
+      currentGapBehindSec: 0.7
     })
 
     expect(advice.mode).toBe('defend')

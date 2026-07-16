@@ -72,6 +72,7 @@ export interface RacecraftAdviceContext {
   reference?: CoachReferenceLap | null
   historyEvidence?: RacecraftHistoryEvidence | null
   gaps?: readonly CoachGapSample[]
+  currentGapSample?: CoachGapSample
   currentGapAheadSec?: number
   currentGapBehindSec?: number
   safety?: RacecraftSafetyContext
@@ -585,6 +586,29 @@ export interface RacecraftGapTrendAnalysis {
   sampleCount: number
   deltaSec?: number
   windowSec?: number
+}
+
+function hasCurrentOpponentSample(
+  context: RacecraftAdviceContext,
+  side: 'ahead' | 'behind'
+): boolean {
+  const sample = context.currentGapSample
+  const latest = context.gaps?.[context.gaps.length - 1]
+  const gapKey = side === 'ahead' ? 'aheadSec' : 'behindSec'
+  const carKey = side === 'ahead' ? 'aheadCarIdx' : 'behindCarIdx'
+  const currentGap = side === 'ahead' ? context.currentGapAheadSec : context.currentGapBehindSec
+  const sampleGap = positiveGap(sample?.[gapKey])
+  return Boolean(
+    sample &&
+    latest &&
+    finite(sample.at) &&
+    sample.at === latest.at &&
+    finite(sample[carKey]) &&
+    sample[carKey] === latest[carKey] &&
+    sampleGap !== undefined &&
+    positiveGap(latest[gapKey]) === sampleGap &&
+    positiveGap(currentGap) === sampleGap
+  )
 }
 
 export function analyzeGapTrend(
@@ -1443,7 +1467,15 @@ export function buildRacecraftAdvice(
       speechItemCount: 0
     }
   }
-  const gap = analyzeGapTrend(context.gaps, side, currentGap)
+  const gap = hasCurrentOpponentSample(context, side)
+    ? analyzeGapTrend(context.gaps, side, currentGap)
+    : {
+        gapSec: undefined,
+        trend: 'unknown' as const,
+        confidence: 0,
+        relevant: false,
+        sampleCount: 0
+      }
   const confidentlyClosing =
     gap.relevant &&
     gap.trend === 'closing' &&

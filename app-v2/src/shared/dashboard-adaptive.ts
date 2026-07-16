@@ -9,7 +9,7 @@
 // React/Electron/node-free: importable by main, renderer and unit tests.
 
 import type { TelemetrySnapshot } from './telemetry'
-import { sessionKindForSnapshot } from './telemetry'
+import { isQualifyingLikeSessionKind, sessionKindForSnapshot } from './telemetry'
 import type { DashboardElement, DashboardElementType } from './dashboards'
 import type { AdaptiveBlink, AdaptiveElementRule, AdaptiveMomentFrame, DashboardAdaptiveConfig } from './dashboards'
 import { createElementId } from './dashboards'
@@ -131,7 +131,7 @@ export function resolveAdaptivePhase(snapshot: TelemetrySnapshot | null | undefi
     if (notStarted && snapshot.flags?.checkered !== true) return 'formation'
     return 'race'
   }
-  if (kind === 'qualify') return 'qualifying'
+  if (isQualifyingLikeSessionKind(kind)) return 'qualifying'
   if (kind === 'warmup') return 'warmup'
   if (kind === 'practice') return 'practice'
   return 'unknown'

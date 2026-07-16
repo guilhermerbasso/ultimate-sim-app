@@ -71,6 +71,10 @@ export function sessionKindForSnapshot(
   return snapshot?.sessionKind ?? sessionKindFromProvider(snapshot?.sim ?? 'none', snapshot?.sessionType)
 }
 
+export function isQualifyingLikeSessionKind(kind: SessionKind): boolean {
+  return kind === 'qualify' || kind === 'hotlap'
+}
+
 export interface Corners<T> {
   lf: T
   rf: T

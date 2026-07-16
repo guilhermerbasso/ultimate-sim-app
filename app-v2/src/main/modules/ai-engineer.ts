@@ -528,23 +528,26 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     const context = deps.getLiveContext?.() ?? null
     const unitSystem = deps.getUnitSystem?.() ?? 'metric'
     const snapshot = deps.context.getSnapshot()
+    const fallbackGapSample = snapshot
+      ? {
+          at: snapshot.timestamp,
+          aheadSec: Number.isFinite(snapshot.relatives?.ahead?.gapSec)
+            ? Math.abs(snapshot.relatives!.ahead!.gapSec as number)
+            : undefined,
+          behindSec: Number.isFinite(snapshot.relatives?.behind?.gapSec)
+            ? Math.abs(snapshot.relatives!.behind!.gapSec as number)
+            : undefined,
+          aheadCarIdx: snapshot.relatives?.ahead?.carIdx,
+          behindCarIdx: snapshot.relatives?.behind?.carIdx
+        }
+      : undefined
+    const hasFallbackRelative =
+      fallbackGapSample?.aheadSec !== undefined ||
+      fallbackGapSample?.behindSec !== undefined
     const makeFallbackContext = (): RacecraftAdviceContext => ({
       findings: deps.context.getCoachFindings?.() ?? [],
-      gaps: snapshot
-        ? [
-            {
-              at: snapshot.timestamp,
-              aheadSec: Number.isFinite(snapshot.relatives?.ahead?.gapSec)
-                ? Math.abs(snapshot.relatives!.ahead!.gapSec as number)
-                : undefined,
-              behindSec: Number.isFinite(snapshot.relatives?.behind?.gapSec)
-                ? Math.abs(snapshot.relatives!.behind!.gapSec as number)
-                : undefined,
-              aheadCarIdx: snapshot.relatives?.ahead?.carIdx,
-              behindCarIdx: snapshot.relatives?.behind?.carIdx
-            }
-          ]
-        : [],
+      gaps: hasFallbackRelative && fallbackGapSample ? [fallbackGapSample] : [],
+      currentGapSample: hasFallbackRelative ? fallbackGapSample : undefined,
       currentGapAheadSec: Number.isFinite(snapshot?.relatives?.ahead?.gapSec)
         ? Math.abs(snapshot!.relatives!.ahead!.gapSec as number)
         : undefined,

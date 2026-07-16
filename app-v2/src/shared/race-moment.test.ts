@@ -122,6 +122,22 @@ describe('resolveRaceMoment — basic detection', () => {
     const st = resolveRaceMoment(snap({ sessionType: 'Open Qualify', lapDistPct: 0.4, speedKmh: 200 }), preds(), null, { now: 1000 })
     expect(st.moment).toBe('qualifying-lap')
   })
+
+  it('treats ACC hotlap as a qualifying-lap hero without making it a race', () => {
+    const st = resolveRaceMoment(
+      snap({
+        sim: 'acc',
+        sessionType: '3',
+        sessionKind: 'hotlap',
+        lapDistPct: 0.4,
+        speedKmh: 200
+      }),
+      preds(),
+      null,
+      { now: 1000 }
+    )
+    expect(st.moment).toBe('qualifying-lap')
+  })
 })
 
 describe('resolveRaceMoment — precedence', () => {

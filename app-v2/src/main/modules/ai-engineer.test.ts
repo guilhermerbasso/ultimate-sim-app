@@ -63,6 +63,29 @@ const KNOWN_SAFE_RACE = {
   replayState: 'live' as const
 }
 
+function groundedRacecraftContext(context: RacecraftAdviceContext): RacecraftAdviceContext {
+  const last = context.gaps?.[context.gaps.length - 1]
+  const currentGapSample =
+    context.currentGapSample ??
+    (
+      context.currentGapAheadSec !== undefined || context.currentGapBehindSec !== undefined
+        ? {
+            at: last?.at ?? 1,
+            aheadSec: context.currentGapAheadSec,
+            behindSec: context.currentGapBehindSec,
+            aheadCarIdx: last?.aheadCarIdx ?? (context.currentGapAheadSec !== undefined ? 10 : undefined),
+            behindCarIdx: last?.behindCarIdx ?? (context.currentGapBehindSec !== undefined ? 20 : undefined)
+          }
+        : undefined
+    )
+  return {
+    safety: KNOWN_SAFE_RACE,
+    ...context,
+    gaps: context.gaps ?? (currentGapSample ? [currentGapSample] : undefined),
+    currentGapSample
+  }
+}
+
 function makeRuntime(text = 'engineer response') {
   return {
     generateWithTools: vi.fn(
@@ -119,17 +142,18 @@ function makeHarness(overrides?: {
   const broadcast = vi.fn()
   const saveConfig = vi.fn(async () => undefined)
   const context: EngineerContext = { getSnapshot: () => overrides?.snapshot ?? null }
+  const racecraftContext = overrides?.racecraftContext
   const deps: EngineerOrchestratorDeps = {
     runtime,
     modelManager,
     context,
     racecraftContext:
-      overrides?.racecraftContext === undefined
+      racecraftContext === undefined
         ? undefined
         : () =>
-            overrides.racecraftContext === null
+            racecraftContext === null
               ? null
-              : { safety: KNOWN_SAFE_RACE, ...overrides.racecraftContext },
+              : groundedRacecraftContext(racecraftContext),
     broadcast,
     config,
     saveConfig,
@@ -250,7 +274,8 @@ describe('createEngineerOrchestrator.ask', () => {
           { at: 1000, aheadSec: 1.2, aheadCarIdx: 10 },
           { at: 3000, aheadSec: 1.0, aheadCarIdx: 10 },
           { at: 5000, aheadSec: 0.8, aheadCarIdx: 10 }
-        ]
+        ],
+        currentGapAheadSec: 0.8
       }
     })
     const orch = createEngineerOrchestrator(harness.deps)
@@ -274,9 +299,11 @@ describe('createEngineerOrchestrator.ask', () => {
       racecraftContext: {
         findings: [racecraftFinding({ kind: 'brake-early', phase: 'entry', corner: 2, sector: 1 })],
         gaps: [
-          { at: 1000, behindSec: 1.0 },
-          { at: 4000, behindSec: 0.6 }
-        ]
+          { at: 1000, behindSec: 1.0, behindCarIdx: 20 },
+          { at: 3000, behindSec: 0.8, behindCarIdx: 20 },
+          { at: 5000, behindSec: 0.6, behindCarIdx: 20 }
+        ],
+        currentGapBehindSec: 0.6
       }
     })
     const orch = createEngineerOrchestrator(harness.deps)

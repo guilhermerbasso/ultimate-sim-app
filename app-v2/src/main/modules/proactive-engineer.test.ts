@@ -9,6 +9,7 @@ import type {
   CoachLapHistoryEntry,
   RacecraftAdviceContext
 } from '../../shared/coach-racecraft'
+import { buildRacecraftAdvice } from '../../shared/coach-racecraft'
 import { DEFAULT_ENGINEER_CONFIG, mergeEngineerConfig, type EngineerProactiveEvent } from '../../shared/engineer-ipc'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { sessionKindFromProvider, type SessionKind, type SimId } from '../../shared/telemetry'
@@ -1275,6 +1276,67 @@ describe('createProactiveEngine', () => {
     })
     expect(context?.currentGapAheadSec).toBe(0.8)
     expect(context?.currentGapBehindSec).toBe(0.7)
+  })
+
+  it.each([
+    ['ahead', 'overtake'],
+    ['behind', 'pull-away']
+  ] as const)('invalidates stale %s evidence immediately when relatives disappear', (side, intent) => {
+    const published: Array<RacecraftAdviceContext | null> = []
+    const { engine } = makeEngine(
+      { language: 'en-US' },
+      { publishRacecraftContext: (context) => published.push(context) }
+    )
+    engine.setFindings([
+      makeFinding({
+        sector: 1,
+        corner: 2,
+        kind: side === 'ahead' ? 'throttle-late' : 'brake-late',
+        phase: side === 'ahead' ? 'exit' : 'entry'
+      })
+    ])
+    for (const [index, gapSec] of [1.2, 1.0, 0.8].entries()) {
+      engine.onSnapshot(
+        makeSnapshot(0.1 + index * 0.05, {
+          sessionKind: 'race',
+          timestamp: 1_000 + index * 2_000,
+          relatives: {
+            [side]: {
+              carIdx: side === 'ahead' ? 10 : 20,
+              name: side,
+              carNumber: side === 'ahead' ? '10' : '20',
+              gapSec
+            }
+          }
+        })
+      )
+    }
+    const before = published
+      .filter((context): context is RacecraftAdviceContext => context !== null)
+      .at(-1)
+    expect(before?.currentGapSample).toBeDefined()
+    expect(buildRacecraftAdvice(intent, before!).mode).toBe(
+      side === 'ahead' ? 'overtake' : 'defend'
+    )
+
+    engine.onSnapshot(
+      makeSnapshot(0.3, {
+        sessionKind: 'race',
+        timestamp: 7_000,
+        relatives: undefined
+      })
+    )
+    const after = published
+      .filter((context): context is RacecraftAdviceContext => context !== null)
+      .at(-1)
+    expect(after?.gaps).toEqual([])
+    expect(after?.currentGapSample).toBeUndefined()
+    expect(after?.currentGapAheadSec).toBeUndefined()
+    expect(after?.currentGapBehindSec).toBeUndefined()
+    const advice = buildRacecraftAdvice(intent, after!)
+    expect(advice.mode).toBe('lap-improvement')
+    expect(advice.opponentData).toBe('unavailable')
+    expect(advice.gapTrend).toBe('unknown')
   })
 
   it('does not use dry history for a wet qualifying start', () => {

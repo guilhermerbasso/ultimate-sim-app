@@ -222,6 +222,9 @@ function publishCoachRacecraftContext(context: RacecraftAdviceContext | null): v
         findings: [...(context.findings ?? [])],
         cornerMetrics: [...(context.cornerMetrics ?? [])],
         gaps: [...(context.gaps ?? [])],
+        currentGapSample: context.currentGapSample
+          ? { ...context.currentGapSample }
+          : undefined,
         reference: context.reference
           ? { corners: context.reference.corners.map((corner) => ({ ...corner })) }
           : null,
@@ -251,6 +254,9 @@ export function getLatestCoachRacecraftContext(
     findings: [...context.findings],
     cornerMetrics: [...context.cornerMetrics],
     gaps: [...context.gaps],
+    currentGapSample: context.currentGapSample
+      ? { ...context.currentGapSample }
+      : undefined,
     reference: context.reference
       ? { corners: context.reference.corners.map((corner) => ({ ...corner })) }
       : null,
@@ -1086,6 +1092,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     cornerMetrics: lap.cornerMetrics.map((metrics) => ({ ...metrics }))
   }))
   let gapSamples: CoachGapSample[] = []
+  let currentGapSample: CoachGapSample | undefined
   let lastSnapshot: TelemetrySnapshot | null = null
   let lastFindingsContext: FindingsContext | undefined
   let activeAnalysisKey: string | null = null
@@ -1203,15 +1210,12 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       reference,
       historyEvidence: racecraftHistoryEvidence,
       gaps: gapSamples,
+      currentGapSample,
       safety: snapshot ? racecraftSafetyFromSnapshot(snapshot) : undefined,
       sessionKey: activeSessionHistoryKey,
       sessionBoundaryMs: activeSessionBoundaryMs,
-      currentGapAheadSec: Number.isFinite(snapshot?.relatives?.ahead?.gapSec)
-        ? Math.abs(snapshot!.relatives!.ahead!.gapSec as number)
-        : undefined,
-      currentGapBehindSec: Number.isFinite(snapshot?.relatives?.behind?.gapSec)
-        ? Math.abs(snapshot!.relatives!.behind!.gapSec as number)
-        : undefined,
+      currentGapAheadSec: currentGapSample?.aheadSec,
+      currentGapBehindSec: currentGapSample?.behindSec,
       carName: context?.carName,
       carPath: context?.carPath,
       trackId: context?.trackId,
@@ -1241,26 +1245,37 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     publishRacecraftState()
   }
 
-  function recordGapSample(snapshot: TelemetrySnapshot): void {
-    if (racecraftSafetyReason(racecraftSafetyFromSnapshot(snapshot)) !== undefined) {
-      gapSamples = []
-      return
-    }
+  function gapSampleFromSnapshot(snapshot: TelemetrySnapshot): CoachGapSample | undefined {
     const aheadSec = Number.isFinite(snapshot.relatives?.ahead?.gapSec)
       ? Math.abs(snapshot.relatives!.ahead!.gapSec as number)
       : undefined
     const behindSec = Number.isFinite(snapshot.relatives?.behind?.gapSec)
       ? Math.abs(snapshot.relatives!.behind!.gapSec as number)
       : undefined
-    if (aheadSec === undefined && behindSec === undefined) return
-    const at = Number.isFinite(snapshot.timestamp) ? snapshot.timestamp : now()
-    const next: CoachGapSample = {
-      at,
+    if (aheadSec === undefined && behindSec === undefined) return undefined
+    return {
+      at: Number.isFinite(snapshot.timestamp) ? snapshot.timestamp : now(),
       aheadSec,
       behindSec,
       aheadCarIdx: snapshot.relatives?.ahead?.carIdx,
       behindCarIdx: snapshot.relatives?.behind?.carIdx
     }
+  }
+
+  function recordGapSample(snapshot: TelemetrySnapshot): void {
+    if (racecraftSafetyReason(racecraftSafetyFromSnapshot(snapshot)) !== undefined) {
+      gapSamples = []
+      currentGapSample = undefined
+      return
+    }
+    const next = gapSampleFromSnapshot(snapshot)
+    if (!next) {
+      gapSamples = []
+      currentGapSample = undefined
+      return
+    }
+    currentGapSample = next
+    const at = next.at
     const previous = gapSamples[gapSamples.length - 1]
     if (previous && at - previous.at < MIN_GAP_SAMPLE_INTERVAL_MS) {
       gapSamples[gapSamples.length - 1] = next
@@ -1286,6 +1301,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       referenceLapTimeSec = undefined
       latestCornerMetrics = []
       gapSamples = []
+      currentGapSample = undefined
       findings = []
       racecraftFindings = []
       if (keyChanged) {
@@ -1328,6 +1344,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     referenceLapTimeSec = undefined
     latestCornerMetrics = []
     gapSamples = []
+    currentGapSample = undefined
     racecraftFindings = []
     racecraftHistoryEvidence = null
     previousTrackWetnessPct = undefined

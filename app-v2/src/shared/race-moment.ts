@@ -18,7 +18,10 @@
 // React/Electron/node-free: importable by main, renderer and unit tests.
 
 import type { TelemetrySnapshot } from './telemetry'
-import { sessionKindForSnapshot, sessionKindFromText } from './telemetry'
+import {
+  isQualifyingLikeSessionKind,
+  sessionKindForSnapshot
+} from './telemetry'
 import type { PredictionsSnapshot } from './predictions'
 import {
   captureLiveTelemetryContext,
@@ -289,14 +292,6 @@ function num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
-function sessionIsRace(t: string | undefined): boolean {
-  return sessionKindFromText(t) === 'race'
-}
-
-function sessionIsQualify(t: string | undefined): boolean {
-  return sessionKindFromText(t) === 'qualify'
-}
-
 /** Fuel margin (laps) preferring predictions, falling back to raw telemetry. */
 function fuelMargin(snapshot: TelemetrySnapshot, predictions: PredictionsSnapshot | null | undefined): number | null {
   const fromPred = num(predictions?.fuel?.finishMarginLaps)
@@ -527,7 +522,7 @@ export function resolveRaceMoment(
   const s: Signals = {
     connected: true,
     isRace: sessionKindForSnapshot(snapshot) === 'race',
-    isQualify: sessionKindForSnapshot(snapshot) === 'qualify',
+    isQualify: isQualifyingLikeSessionKind(sessionKindForSnapshot(snapshot)),
     onPitRoad,
     pitLimiter: snapshot.pitLimiter === true,
     inPitStall: snapshot.pit?.inPitStall === true,
@@ -739,16 +734,6 @@ export function momentLabel(id: string): string {
 
 // ─── Multi-moment detection (drives USER rules at runtime) ───────────────────
 
-function sessionIsPractice(t: string | undefined): boolean {
-  if (!t) return false
-  const s = t.toLowerCase()
-  return s.includes('practice') || s.includes('test') || s.includes('offline')
-}
-
-function sessionIsWarmup(t: string | undefined): boolean {
-  return !!t && t.toLowerCase().includes('warm')
-}
-
 export interface ActiveMomentOptions {
   now?: number
   /** Include the hero micro-moment id from `hero` in the set (default true). */
@@ -777,11 +762,11 @@ export function detectActiveMoments(
 
   if ((opts.includeHero ?? true) && hero?.moment) active.add(hero.moment)
 
-  const type = snapshot.sessionType
-  const isRace = sessionIsRace(type)
-  const isQualify = sessionIsQualify(type)
-  const isPractice = sessionIsPractice(type)
-  const isWarmup = sessionIsWarmup(type)
+  const kind = sessionKindForSnapshot(snapshot)
+  const isRace = kind === 'race'
+  const isQualify = isQualifyingLikeSessionKind(kind)
+  const isPractice = kind === 'practice'
+  const isWarmup = kind === 'warmup'
 
   const flags = snapshot.flags
   const checkered = flags?.checkered === true || flags?.greenWhiteCheckered === true
