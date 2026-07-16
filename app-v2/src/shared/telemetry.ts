@@ -713,6 +713,8 @@ export interface TelemetrySnapshot {
   lapDistPct?: number // 0..1
   lapDistanceM?: number
   lastLapTimeSec?: number
+  /** Provider-verified completed-lap validity; unknown when not exposed reliably. */
+  lapValidity?: 'valid' | 'invalid' | 'unknown'
   bestLapTimeSec?: number
   bestNLapLap?: number
   bestNLapTimeSec?: number
@@ -737,6 +739,8 @@ export interface TelemetrySnapshot {
   replayPlaying?: boolean
   replayFrameNum?: number
   replayFrameEnd?: number
+  /** Provider/hub connection generation for fallback live identity. */
+  connectionEpoch?: number
   replayContext?: ReplayContext
 
   // BoP / penalidades (iRacing)

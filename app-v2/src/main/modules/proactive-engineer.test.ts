@@ -63,6 +63,7 @@ function makeFinding(partial: Partial<CoachFinding> & { sector: number; kind: Co
 
 function makeSnapshot(lapDistPct: number, overrides: Partial<TelemetrySnapshot> = {}): TelemetrySnapshot {
   return {
+    sim: 'iracing',
     connected: true,
     speedKmh: 120,
     throttle: 0.5,
@@ -93,6 +94,7 @@ function makeSnapshot(lapDistPct: number, overrides: Partial<TelemetrySnapshot> 
 }
 
 const DRY_IDENTITY: CoachComparableIdentity = {
+  sim: 'iracing',
   trackName: 'Interlagos',
   trackConfigName: 'Grand Prix',
   carName: 'GT3 R',
@@ -110,6 +112,7 @@ function historyLap(id: string, finding: CoachFinding, sessionId = Number(id)): 
     at: sessionId,
     sessionId,
     valid: true,
+    verification: 'verified-clean',
     sessionKind: 'race',
     identity: DRY_IDENTITY,
     findings: [finding],
@@ -536,7 +539,8 @@ describe('createProactiveEngine', () => {
       carName: 'GT3 R',
       carPath: 'gt3r',
       trackWetnessPct: 0,
-      isRaining: false
+      isRaining: false,
+      lapValidity: 'valid' as const
     }
     const qualify = makeEngine({ language: 'en-US' })
     qualify.engine.onSnapshot(
@@ -645,6 +649,121 @@ describe('createProactiveEngine', () => {
     expect(persistHistory).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['acc', undefined, 'unverified', false],
+    ['ams2', 'valid', 'verified-clean', true]
+  ] as const)(
+    'classifies %s completed laps with validity %s as %s',
+    (sim, lapValidity, expectedVerification, expectReference) => {
+      const published: Array<RacecraftAdviceContext | null> = []
+      const fakeMap = {
+        corners: [{ index: 1, startPct: 0.1, apexPct: 0.2, endPct: 0.3 }]
+      } as unknown as CornerMapData
+      const { engine } = makeEngine(
+        { language: 'en-US' },
+        {
+          buildCornerMap: () => fakeMap,
+          publishRacecraftContext: (context) => published.push(context)
+        }
+      )
+      const base = {
+        sim,
+        sessionKind: 'race' as const,
+        sessionType: 'Race',
+        trackName: 'Validity Track',
+        carName: 'GT3 R',
+        carPath: 'gt3r',
+        trackWetnessPct: 0,
+        isRaining: false,
+        currentLap: 1,
+        lapValidity
+      }
+      for (let index = 0; index < 34; index += 1) {
+        engine.onSnapshot(
+          makeSnapshot((index / 34) * 0.99, {
+            ...base,
+            timestamp: 1_000 + index * 100
+          })
+        )
+      }
+      engine.onSnapshot(
+        makeSnapshot(0.02, {
+          ...base,
+          timestamp: 5_000,
+          currentLap: 2,
+          lastLapTimeSec: 90
+        })
+      )
+
+      expect(engine.getHistory()).toHaveLength(1)
+      expect(engine.getHistory()[0].verification).toBe(expectedVerification)
+      const context = published
+        .filter((entry): entry is RacecraftAdviceContext => entry !== null)
+        .at(-1)
+      expect(Boolean(context?.reference)).toBe(expectReference)
+    }
+  )
+
+  it('discards a partial startup lap until the first start/finish boundary', () => {
+    const fakeMap = {
+      corners: [{ index: 1, startPct: 0.1, apexPct: 0.2, endPct: 0.3 }]
+    } as unknown as CornerMapData
+    const { engine } = makeEngine(
+      { language: 'en-US' },
+      { buildCornerMap: () => fakeMap }
+    )
+    const base = {
+      sim: 'ams2' as const,
+      sessionKind: 'practice' as const,
+      sessionType: '1',
+      trackName: 'Partial Track',
+      carName: 'GT3 R',
+      carPath: 'gt3r',
+      trackWetnessPct: 0,
+      isRaining: false,
+      lapValidity: 'valid' as const
+    }
+
+    for (let index = 0; index < 34; index += 1) {
+      engine.onSnapshot(
+        makeSnapshot(0.5 + (index / 34) * 0.48, {
+          ...base,
+          timestamp: 1_000 + index * 100,
+          currentLap: 1
+        })
+      )
+    }
+    engine.onSnapshot(
+      makeSnapshot(0.02, {
+        ...base,
+        timestamp: 5_000,
+        currentLap: 2,
+        lastLapTimeSec: 45
+      })
+    )
+    expect(engine.getHistory()).toEqual([])
+
+    for (let index = 1; index < 35; index += 1) {
+      engine.onSnapshot(
+        makeSnapshot((index / 35) * 0.97, {
+          ...base,
+          timestamp: 6_000 + index * 100,
+          currentLap: 2
+        })
+      )
+    }
+    engine.onSnapshot(
+      makeSnapshot(0.02, {
+        ...base,
+        timestamp: 10_000,
+        currentLap: 3,
+        lastLapTimeSec: 90
+      })
+    )
+    expect(engine.getHistory()).toHaveLength(1)
+    expect(engine.getHistory()[0].lapNumber).toBe(3)
+  })
+
   it('emits one honest qualifying-start summary but no per-sector qualifying coaching', () => {
     const { harness, engine } = makeEngine({ language: 'en-US' })
     engine.setFindings([makeFinding({ sector: 1, kind: 'brake-late' })])
@@ -671,9 +790,9 @@ describe('createProactiveEngine', () => {
       { language: 'en-US' },
       {
         history: [
-          historyLap('1', recurring, 1),
-          historyLap('2', recurring, 2),
-          historyLap('3', recurring, 3)
+          { ...historyLap('1', recurring, 1), identity: { ...DRY_IDENTITY, sim: 'acc' as const } },
+          { ...historyLap('2', recurring, 2), identity: { ...DRY_IDENTITY, sim: 'acc' as const } },
+          { ...historyLap('3', recurring, 3), identity: { ...DRY_IDENTITY, sim: 'acc' as const } }
         ]
       }
     )
@@ -729,9 +848,9 @@ describe('createProactiveEngine', () => {
       { language: 'en-US' },
       {
         history: [
-          historyLap('1', recurring, 1),
-          historyLap('2', recurring, 2),
-          historyLap('3', recurring, 3)
+          { ...historyLap('1', recurring, 1), identity: { ...DRY_IDENTITY, sim: 'acc' as const } },
+          { ...historyLap('2', recurring, 2), identity: { ...DRY_IDENTITY, sim: 'acc' as const } },
+          { ...historyLap('3', recurring, 3), identity: { ...DRY_IDENTITY, sim: 'acc' as const } }
         ]
       }
     )
@@ -930,7 +1049,8 @@ describe('createProactiveEngine', () => {
       carName: 'GT3 R',
       carPath: 'gt3r',
       trackWetnessPct: 0,
-      isRaining: false
+      isRaining: false,
+      lapValidity: 'valid' as const
     }
 
     for (let index = 0; index < 34; index += 1) {
@@ -965,9 +1085,10 @@ describe('createProactiveEngine', () => {
     const practiceContext = published
       .filter((context): context is RacecraftAdviceContext => context !== null)
       .at(-1)
-    expect(practiceContext?.reference).not.toBeNull()
+    expect(engine.getHistory().at(-1)?.verification).toBe('verified-clean')
+    expect(practiceContext?.findings).toHaveLength(1)
     const historyAfterPractice = engine.getHistory().length
-    expect(historyAfterPractice).toBeGreaterThanOrEqual(2)
+    expect(historyAfterPractice).toBe(1)
 
     engine.onSnapshot(
       makeSnapshot(0.1, {
@@ -1424,9 +1545,9 @@ describe('createProactiveEngine', () => {
       { language: 'en-US' },
       {
         history: [
-          historyLap('1', recurring, 1),
-          historyLap('2', recurring, 2),
-          historyLap('3', recurring, 3)
+          { ...historyLap('1', recurring, 1), identity: { ...DRY_IDENTITY, sim: 'acc' as const } },
+          { ...historyLap('2', recurring, 2), identity: { ...DRY_IDENTITY, sim: 'acc' as const } },
+          { ...historyLap('3', recurring, 3), identity: { ...DRY_IDENTITY, sim: 'acc' as const } }
         ]
       }
     )
@@ -1523,6 +1644,21 @@ describe('getLatestCoachFindings — car/track scoping', () => {
     const engine = singletonEngine()
     engine.setFindings([makeFinding({ sector: 1, kind: 'brake-late' })], { carName: 'A', trackName: 'X' })
     expect(getLatestCoachFindings(makeSnapshot(0.1, { carName: 'A', trackName: 'Y' }))).toHaveLength(0)
+  })
+
+  it('DROPS findings and racecraft context across simulator providers', () => {
+    const engine = singletonEngine()
+    engine.setFindings(
+      [makeFinding({ sector: 1, kind: 'brake-late' })],
+      { sim: 'iracing', carName: 'A', trackName: 'X' }
+    )
+    const acc = makeSnapshot(0.1, {
+      sim: 'acc',
+      carName: 'A',
+      trackName: 'X'
+    })
+    expect(getLatestCoachFindings(acc)).toEqual([])
+    expect(getLatestCoachRacecraftContext(acc)).toBeNull()
   })
 
   it('DROPS findings and racecraft evidence after a track-config change', () => {

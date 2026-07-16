@@ -10,6 +10,7 @@ import {
   comparableCoachLaps,
   detectRacecraftQuestion,
   detectRacecraftQuestionWithLanguage,
+  detectRacecraftLikeQuestionLanguage,
   MAX_QUALI_BRIEFING_LENGTH,
   MAX_RACECRAFT_ADVICE_LENGTH,
   MAX_RACECRAFT_SPEECH_LENGTH,
@@ -50,6 +51,7 @@ function finding(
 }
 
 const DRY_IDENTITY: CoachComparableIdentity = {
+  sim: 'iracing',
   trackName: 'Interlagos',
   trackConfigName: 'Grand Prix',
   carName: 'GT3 R',
@@ -71,6 +73,7 @@ function historyLap(
     id,
     at: Number(id.replace(/\D/g, '')) || 1,
     valid: true,
+    verification: 'verified-clean',
     sessionKind: 'race',
     identity,
     findings,
@@ -112,7 +115,14 @@ function safeAdvice(
     )
   const gaps =
     context.gaps ??
-    (currentGapSample ? [currentGapSample] : undefined)
+    (
+      currentGapSample
+        ? [
+            { ...currentGapSample, at: currentGapSample.at - 1_000 },
+            currentGapSample
+          ]
+        : undefined
+    )
   return buildAdvice(
     intent,
     {
@@ -148,6 +158,40 @@ describe('racecraft question routing', () => {
       expect(detectRacecraftQuestionWithLanguage(question), question).toEqual({ intent, language })
     }
   })
+
+  it.each([
+    ['get past the car in front', 'en-US'],
+    ['passar pelo carro que está na minha frente', 'pt-BR'],
+    ['superar al coche que tengo delante', 'es'],
+    ['passer la voiture qui me précède', 'fr'],
+    ['wie komme ich am vorausfahrenden Auto vorbei', 'de'],
+    ['怎么超过我前面的车', 'zh'],
+    ['前を走る車をどう抜けばいい', 'ja']
+  ] as Array<[string, CoachAdviceLanguage]>)(
+    'recognizes adversarial overtake paraphrase %s',
+    (question, language) => {
+      expect(detectRacecraftQuestionWithLanguage(question)).toEqual({
+        intent: 'overtake',
+        language
+      })
+    }
+  )
+
+  it.each([
+    ['Should I send it down the inside?', 'en-US'],
+    ['Devo mergulhar por dentro?', 'pt-BR'],
+    ['¿Debo tirarme por dentro?', 'es'],
+    ['Dois-je plonger à l’intérieur ?', 'fr'],
+    ['Soll ich innen reinstechen?', 'de'],
+    ['我该钻内线吗？', 'zh'],
+    ['インに飛び込むべき？', 'ja']
+  ] as Array<[string, CoachAdviceLanguage]>)(
+    'classifies unknown tactical paraphrase %s for grounded clarification',
+    (question, language) => {
+      expect(detectRacecraftQuestionWithLanguage(question)).toBeNull()
+      expect(detectRacecraftLikeQuestionLanguage(question)).toBe(language)
+    }
+  )
 
   it.each([
     [{ flagRed: true, flagYellow: true, flagBlue: true }, 'red-flag'],
@@ -240,7 +284,10 @@ describe('racecraft question routing', () => {
             safety,
             findings: [finding('throttle-late', { corner: 2, phase: 'exit' })],
             currentGapAheadSec: 0.8,
-            gaps: [{ at: 1, aheadSec: 0.8, aheadCarIdx: 10 }],
+            gaps: [
+              { at: 0, aheadSec: 0.9, aheadCarIdx: 10 },
+              { at: 1, aheadSec: 0.8, aheadCarIdx: 10 }
+            ],
             currentGapSample: { at: 1, aheadSec: 0.8, aheadCarIdx: 10 }
           },
           { language }
@@ -251,6 +298,61 @@ describe('racecraft question routing', () => {
       }
     }
   )
+
+  it.each([
+    { carLeftRight: 'left' as const },
+    { carLeftRight: 'right' as const },
+    { carLeftRight: 'both' as const },
+    { carsAlongsideCount: 1 },
+    { radarClosestMeters: 4 },
+    { gapAheadSec: 0.2 },
+    { gapBehindSec: 0.2 }
+  ])('suppresses both tactical intents during overlap/proximity %#', (proximity) => {
+    for (const intent of ['overtake', 'pull-away'] as const) {
+      const advice = buildAdvice(intent, {
+        safety: { ...KNOWN_SAFE_RACE, ...proximity },
+        findings: [finding('throttle-late', { corner: 2, phase: 'exit' })],
+        currentGapAheadSec: 0.8,
+        currentGapBehindSec: 0.8,
+        gaps: [
+          { at: 1, aheadSec: 0.9, behindSec: 0.9, aheadCarIdx: 10, behindCarIdx: 20 },
+          { at: 2, aheadSec: 0.8, behindSec: 0.8, aheadCarIdx: 10, behindCarIdx: 20 }
+        ],
+        currentGapSample: {
+          at: 2,
+          aheadSec: 0.8,
+          behindSec: 0.8,
+          aheadCarIdx: 10,
+          behindCarIdx: 20
+        }
+      })
+      expect(advice.mode).toBe('suppressed')
+      expect(['overlap', 'proximity']).toContain(advice.suppressedReason)
+      expect(advice.items).toEqual([])
+    }
+  })
+
+  it('requires stable non-overlap samples after separation before tactical advice resumes', () => {
+    const base: RacecraftAdviceContext = {
+      safety: KNOWN_SAFE_RACE,
+      findings: [finding('throttle-late', { corner: 2, phase: 'exit' })],
+      currentGapAheadSec: 0.8,
+      currentGapSample: { at: 2, aheadSec: 0.8, aheadCarIdx: 10 }
+    }
+    const firstClear = buildAdvice('overtake', {
+      ...base,
+      gaps: [{ at: 2, aheadSec: 0.8, aheadCarIdx: 10 }]
+    })
+    const stableClear = buildAdvice('overtake', {
+      ...base,
+      gaps: [
+        { at: 1, aheadSec: 0.9, aheadCarIdx: 10 },
+        { at: 2, aheadSec: 0.8, aheadCarIdx: 10 }
+      ]
+    })
+    expect(firstClear.mode).toBe('lap-improvement')
+    expect(stableClear.mode).toBe('overtake')
+  })
 })
 
 describe('buildRacecraftAdvice', () => {
@@ -800,6 +902,7 @@ describe('qualifying comparable history', () => {
     }
     const changed = [
       historyLap('track', { ...DRY_IDENTITY, trackName: 'Spa' }, []),
+      historyLap('sim', { ...DRY_IDENTITY, sim: 'acc' }, []),
       historyLap('config', { ...DRY_IDENTITY, trackConfigName: 'Moto' }, []),
       historyLap('config-missing', { ...DRY_IDENTITY, trackConfigName: undefined }, []),
       historyLap('car', { ...DRY_IDENTITY, carPath: 'gt4', carName: 'GT4', carClassId: 8 }, []),
@@ -956,6 +1059,40 @@ describe('qualifying comparable history', () => {
     const summary = buildQualiStartSummary({ current: DRY_IDENTITY, history })
     expect(summary.items).toEqual([])
     expect(summary.insufficientReason).toBe('confidence')
+  })
+
+  it('keeps missing-validity history explicitly unverified and out of clean benchmarks', () => {
+    const recurring = finding('throttle-late', {
+      corner: 7,
+      phase: 'exit',
+      confidence: 0.9
+    })
+    const history = [1, 2, 3].map((id) =>
+      historyLap(String(id), DRY_IDENTITY, [recurring], {
+        verification: 'unverified',
+        lapTimeSec: 90 - id,
+        cornerMetrics: [
+          {
+            corner: 7,
+            entrySpeedKmh: 190,
+            minSpeedKmh: 90,
+            exitSpeedKmh: 140,
+            throttleStartPct: 0.55
+          }
+        ]
+      })
+    )
+    const evidence = buildRacecraftHistoryEvidence(DRY_IDENTITY, history)
+    expect(evidence).toMatchObject({
+      comparableLapCount: 3,
+      verifiedLapCount: 0,
+      unverifiedLapCount: 3,
+      patterns: [],
+      reference: undefined
+    })
+    const summary = buildQualiStartSummary({ current: DRY_IDENTITY, history })
+    expect(summary.unverifiedLapCount).toBe(3)
+    expect(summary.text).toContain('unverified')
   })
 
   it('stays neutral for tied opposite directional history regardless of insertion order', () => {

@@ -1,7 +1,7 @@
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { sessionKindFromProvider } from '../../shared/telemetry'
 import type { TelemetryProvider } from '../telemetry/provider'
-import { firstString, loadKoffi, num, optionalNum, openSharedMemory, type SharedMemoryHandle } from './shared-memory'
+import { bool, firstString, loadKoffi, num, optionalNum, openSharedMemory, type SharedMemoryHandle } from './shared-memory'
 
 function ams2Gear(value: unknown): number {
   const gear = Math.trunc(num(value, 0)) & 0x0f
@@ -11,6 +11,27 @@ function ams2Gear(value: unknown): number {
 function validLapSeconds(value: unknown): number | undefined {
   const n = optionalNum(value)
   return n !== undefined && n > 0 ? n : undefined
+}
+
+export function ams2WeatherFromRainDensity(
+  rainDensity: unknown
+): Pick<TelemetrySnapshot, 'precipitationPct' | 'isRaining' | 'trackWetnessPct'> {
+  const precipitationPct = Math.max(0, Math.min(1, num(rainDensity, 0)))
+  return {
+    precipitationPct,
+    isRaining: precipitationPct > 0.01,
+    trackWetnessPct: undefined
+  }
+}
+
+export function ams2TrackIdentity(
+  location: unknown,
+  variation: unknown
+): Pick<TelemetrySnapshot, 'trackName' | 'trackConfigName'> {
+  return {
+    trackName: firstString(location),
+    trackConfigName: firstString(variation)
+  }
 }
 
 export class AMS2Provider implements TelemetryProvider {
@@ -41,6 +62,8 @@ export class AMS2Provider implements TelemetryProvider {
     const data = this.memory?.view
     if (!data) return null
     const rawSession = data.mSessionState
+    const track = ams2TrackIdentity(data.mTrackLocation, data.mTrackVariation)
+    const weather = ams2WeatherFromRainDensity(data.mRainDensity)
     return {
       sim: 'ams2',
       connected: true,
@@ -56,16 +79,18 @@ export class AMS2Provider implements TelemetryProvider {
       sessionType: String(rawSession ?? ''),
       sessionKind: sessionKindFromProvider('ams2', rawSession),
       carName: firstString(data.mCarName),
-      trackName: firstString(data.mTrackLocation) ?? firstString(data.mTrackVariation),
+      ...track,
       sessionTimeRemainingSec: optionalNum(data.mEventTimeRemaining),
       currentLap: Math.trunc(num(data.mLapsCompleted, 0)) + 1,
       lapDistPct: optionalNum(data.mLapDistance) === undefined ? undefined : num(data.mLapDistance) / Math.max(1, num(data.mTrackLength, 1)),
       lastLapTimeSec: validLapSeconds(data.mLastLapTime),
+      lapValidity: bool(data.mLapInvalidated) ? 'invalid' : 'valid',
       bestLapTimeSec: validLapSeconds(data.mBestLapTime),
       currentLapTimeSec: optionalNum(data.mCurrentTime),
       position: Math.trunc(num(data.mRacePosition, 0)) || undefined,
       fuelLiters: optionalNum(data.mFuelLevel),
-      fuelCapacityLiters: num(data.mFuelCapacity, 0) || undefined
+      fuelCapacityLiters: num(data.mFuelCapacity, 0) || undefined,
+      ...weather
     }
   }
 }

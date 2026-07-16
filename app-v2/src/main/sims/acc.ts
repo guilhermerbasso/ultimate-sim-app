@@ -21,6 +21,20 @@ function accRainIntensityPct(value: unknown): number {
   return Math.max(0, Math.min(1, Math.trunc(num(value, 0)) / 5))
 }
 
+export function accWeatherFromGraphics(
+  rainIntensity: unknown,
+  surfaceGrip: unknown
+): Pick<TelemetrySnapshot, 'precipitationPct' | 'isRaining' | 'trackWetnessPct' | 'gripPct'> {
+  const precipitationPct = accRainIntensityPct(rainIntensity)
+  const grip = optionalNum(surfaceGrip)
+  return {
+    precipitationPct,
+    isRaining: precipitationPct > 0,
+    trackWetnessPct: undefined,
+    gripPct: grip !== undefined ? Math.max(0, Math.min(1, grip)) : undefined
+  }
+}
+
 export class ACCProvider implements TelemetryProvider {
   readonly id = 'acc' as const
   private koffi: any | null = null
@@ -58,7 +72,7 @@ export class ACCProvider implements TelemetryProvider {
     const graphics = this.graphics?.view
     if (!physics || !graphics) return null
     const staticInfo = this.staticInfo?.view ?? {}
-    const rainIntensityPct = accRainIntensityPct(graphics.rainIntensity)
+    const weather = accWeatherFromGraphics(graphics.rainIntensity, graphics.surfaceGrip)
     const rawSession = graphics.session
 
     return {
@@ -96,8 +110,7 @@ export class ACCProvider implements TelemetryProvider {
       },
       airTempC: optionalNum(graphics.airTemp),
       trackTempC: optionalNum(graphics.roadTemp),
-      isRaining: rainIntensityPct > 0,
-      trackWetnessPct: rainIntensityPct
+      ...weather
     }
   }
 }

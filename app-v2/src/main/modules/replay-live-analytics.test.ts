@@ -147,6 +147,7 @@ describe('canonical replay boundaries for live analytics', () => {
       at: 1,
       sessionId: 1,
       valid: true,
+      verification: 'verified-clean',
       identity: { trackName: 'Interlagos', carName: 'GT3 R', condition: 'dry' },
       findings: [finding()],
       cornerMetrics: []

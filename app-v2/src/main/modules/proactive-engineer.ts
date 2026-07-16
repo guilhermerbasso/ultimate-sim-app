@@ -97,6 +97,7 @@ const intentRegistry = createDefaultIntentRegistry()
 
 /** A car/track identity used to scope findings to the session they were measured on. */
 export interface FindingsContext {
+  sim?: TelemetrySnapshot['sim']
   trackId?: string | number
   carName?: string
   carPath?: string
@@ -121,6 +122,7 @@ function samePublishedIdentity(
 }
 
 function publishedTrackMatches(context: FindingsContext, snapshot: TelemetrySnapshot): boolean {
+  if (context.sim !== undefined && context.sim !== snapshot.sim) return false
   if (context.trackId !== undefined && snapshot.trackId !== undefined) {
     if (!samePublishedIdentity(context.trackId, snapshot.trackId)) return false
   } else if (!samePublishedIdentity(context.trackName, snapshot.trackName)) {
@@ -176,6 +178,7 @@ export function getLatestCoachFindings(currentSnapshot?: TelemetrySnapshot | nul
 function publishCoachFindings(findings: CoachFinding[], context?: FindingsContext): void {
   latestCoachFindings = {
     findings: Array.isArray(findings) ? findings : [],
+    sim: context?.sim,
     trackId: context?.trackId,
     carName: context?.carName,
     carPath: context?.carPath,
@@ -200,6 +203,8 @@ function cloneRacecraftHistoryEvidence(
   return {
     condition: evidence.condition,
     comparableLapCount: evidence.comparableLapCount,
+    verifiedLapCount: evidence.verifiedLapCount,
+    unverifiedLapCount: evidence.unverifiedLapCount,
     sufficientHistory: evidence.sufficientHistory,
     patterns: evidence.patterns.map((pattern) => ({
       finding: { ...pattern.finding, metrics: { ...pattern.finding.metrics } },
@@ -207,7 +212,8 @@ function cloneRacecraftHistoryEvidence(
       lapsSeen: pattern.lapsSeen,
       lapsCompared: pattern.lapsCompared,
       averageLossSec: pattern.averageLossSec,
-      confidence: pattern.confidence
+      confidence: pattern.confidence,
+      unverifiedLapsSeen: pattern.unverifiedLapsSeen
     })),
     reference: evidence.reference
       ? { corners: evidence.reference.corners.map((corner) => ({ ...corner })) }
@@ -821,6 +827,19 @@ function isOptionalTrackId(value: unknown): value is string | number | undefined
   return value === undefined || typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))
 }
 
+function isStoredSim(value: unknown): boolean {
+  return (
+    value === 'iracing' ||
+    value === 'acc' ||
+    value === 'ac' ||
+    value === 'ams2' ||
+    value === 'lmu' ||
+    value === 'mock' ||
+    value === 'replay' ||
+    value === 'none'
+  )
+}
+
 function isOptionalSessionKind(value: unknown): boolean {
   return (
     value === undefined ||
@@ -835,6 +854,10 @@ function isOptionalSessionKind(value: unknown): boolean {
     value === 'other' ||
     value === 'unknown'
   )
+}
+
+function isStoredVerification(value: unknown): boolean {
+  return value === undefined || value === 'verified-clean' || value === 'unverified'
 }
 
 function isStoredFinding(value: unknown): value is CoachFinding {
@@ -875,6 +898,7 @@ function isStoredHistoryLap(value: unknown): value is CoachLapHistoryEntry {
     typeof value.id === 'string' &&
     Number.isFinite(value.at) &&
     value.valid === true &&
+    isStoredVerification(value.verification) &&
     isOptionalFinite(value.sessionId) &&
     isOptionalString(value.sessionKey) &&
     isOptionalFinite(value.sessionBoundaryMs) &&
@@ -882,6 +906,7 @@ function isStoredHistoryLap(value: unknown): value is CoachLapHistoryEntry {
     isOptionalString(value.sessionType) &&
     isOptionalFinite(value.lapNumber) &&
     isOptionalFinite(value.lapTimeSec) &&
+    isStoredSim(value.identity.sim) &&
     isOptionalTrackId(value.identity.trackId) &&
     isOptionalString(value.identity.trackName) &&
     isOptionalString(value.identity.trackConfigName) &&
@@ -1119,8 +1144,9 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   let lastLapCount: number | null = null
   let lastBehindN = 99
   let lastAheadN = 99
-  // The first flying lap after a pit stop / reconnect is an OUT-LAP (warm-up) and
-  // must not be coached or analysed; cleared on the first lap completion after it.
+  // A mid-lap startup/reconnect is ignored until the first observed finish-line boundary.
+  let awaitingInitialBoundary = true
+  // The first flying lap after a pit stop is an OUT-LAP (warm-up).
   let outLap = false
   let seq = 0
 
@@ -1158,6 +1184,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     return {
       trackId: snapshot.trackId,
       carName: snapshot.carName,
+      sim: snapshot.sim,
       carPath: snapshot.carPath,
       trackName: snapshot.trackName,
       trackConfigName: snapshot.trackConfigName,
@@ -1217,6 +1244,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       currentGapAheadSec: currentGapSample?.aheadSec,
       currentGapBehindSec: currentGapSample?.behindSec,
       carName: context?.carName,
+      sim: context?.sim,
       carPath: context?.carPath,
       trackId: context?.trackId,
       trackName: context?.trackName,
@@ -1305,7 +1333,8 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       findings = []
       racecraftFindings = []
       if (keyChanged) {
-        outLap = true
+        awaitingInitialBoundary = true
+        outLap = false
         lastEmitAt = 0
         lastEmittedFindingId = null
       }
@@ -1352,7 +1381,8 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     stableTrackCondition = undefined
     lastEmitAt = 0
     lastEmittedFindingId = null
-    outLap = true
+    awaitingInitialBoundary = true
+    outLap = false
     setFindings([])
     publishRacecraft(null)
   }
@@ -1394,18 +1424,25 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
         )
         : evidenceReport
       const incidentEnd = incidentCount(snapshot)
-      const incidentKnownClean =
+      const incidentKnown =
         lapIncidentStart !== undefined && incidentEnd !== undefined
-          ? incidentEnd <= lapIncidentStart
-          : snapshot.sim !== 'iracing'
+      const incidentKnownClean =
+        incidentKnown && (incidentEnd as number) <= (lapIncidentStart as number)
       const hadCaution = lapSamples.some(
         (sample) => sample.ctx?.flagYellow === true || sample.ctx?.caution === true
       )
+      const explicitlyInvalid = snapshot.lapValidity === 'invalid'
+      const explicitlyValid = snapshot.lapValidity === 'valid'
       const validLap =
         lapTimeSec !== undefined &&
         lapTimeSec > 0 &&
-        incidentKnownClean &&
+        !explicitlyInvalid &&
+        (!incidentKnown || incidentKnownClean) &&
         !hadCaution
+      const verification =
+        validLap && (explicitlyValid || incidentKnownClean)
+          ? 'verified-clean' as const
+          : 'unverified' as const
 
       const stamp = contextForSnapshot(snapshot)
       if (validLap) {
@@ -1431,7 +1468,8 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
               now(),
               identity,
               activeSessionHistoryKey,
-              activeSessionBoundaryMs
+              activeSessionBoundaryMs,
+              verification
             )
           )
           history.splice(0, Math.max(0, history.length - MAX_RACECRAFT_HISTORY_LAPS))
@@ -1445,6 +1483,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
           }
         }
         if (
+          verification === 'verified-clean' &&
           evidenceReport.cornerMetrics.length > 0 &&
           (referenceLapTimeSec === undefined || lapTimeSec < referenceLapTimeSec)
         ) {
@@ -1454,7 +1493,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
         }
       }
       // Learn this lap's events so future laps can tell a repeated issue from noise.
-      if (baselineStore && baseline && validLap) {
+      if (baselineStore && baseline && validLap && verification === 'verified-clean') {
         const lapForRep = isRealLapCount(snapshot.currentLap) ? (snapshot.currentLap as number) : (lastLapCount ?? 0)
         baselineStore.put({
           ...baseline,
@@ -1469,8 +1508,14 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   }
 
   function onLapComplete(snapshot: TelemetrySnapshot): void {
+    if (awaitingInitialBoundary) {
+      awaitingInitialBoundary = false
+      buffer = []
+      lapIncidentStart = incidentCount(snapshot)
+      return
+    }
     if (outLap) {
-      // Out-lap (post-pit / post-reconnect warm-up): discard WITHOUT analysing so
+      // Post-pit out-lap: discard WITHOUT analysing so
       // lift-and-coast + cold-tyre braking never become "findings", and clear the
       // flag so the next green lap is coached normally.
       outLap = false
@@ -1889,7 +1934,12 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       return
     }
     if (live.boundary) resetLiveSession()
-    if (live.enteredLive && !live.sessionChanged) noIdSuppressLapResetOnce = true
+    if (
+      live.enteredLive &&
+      (!live.sessionChanged || (snapshot && GENERATED_SESSION_SIMS.has(snapshot.sim)))
+    ) {
+      noIdSuppressLapResetOnce = true
+    }
 
     const config = deps.getConfig()
     // Fully disabled → do nothing (the on-demand engineer reports "off" anyway).
@@ -1908,6 +1958,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       // and mark the next flying lap an out-lap. KEEP the findings — the last green
       // lap's advice is still valid across the stop.
       reset()
+      awaitingInitialBoundary = false
       outLap = true
       publishRacecraftState(snapshot)
       previousTrackWetnessPct = Number.isFinite(snapshot.trackWetnessPct)
@@ -1923,6 +1974,13 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
         ? snapshot.trackWetnessPct
         : previousTrackWetnessPct
       return
+    }
+    if (
+      awaitingInitialBoundary &&
+      buffer.length === 0 &&
+      sample.lapDistPct <= 0.05
+    ) {
+      awaitingInitialBoundary = false
     }
 
     const advance = advanceSectorTracker(tracker, sample.lapDistPct, starts)

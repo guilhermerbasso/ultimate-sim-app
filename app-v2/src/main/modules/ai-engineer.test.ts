@@ -15,6 +15,7 @@ import {
   type RacecraftAdviceContext
 } from '../../shared/coach-racecraft'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
+import { captureLiveTelemetryContext } from '../../shared/replay'
 import {
   DEFAULT_ENGINEER_CONFIG,
   DEFAULT_PRESET_QUESTIONS,
@@ -81,7 +82,16 @@ function groundedRacecraftContext(context: RacecraftAdviceContext): RacecraftAdv
   return {
     safety: KNOWN_SAFE_RACE,
     ...context,
-    gaps: context.gaps ?? (currentGapSample ? [currentGapSample] : undefined),
+    gaps:
+      context.gaps ??
+      (
+        currentGapSample
+          ? [
+              { ...currentGapSample, at: currentGapSample.at - 1_000 },
+              currentGapSample
+            ]
+          : undefined
+      ),
     currentGapSample
   }
 }
@@ -342,6 +352,27 @@ describe('createEngineerOrchestrator.ask', () => {
     }
   })
 
+  it.each([
+    ['Should I send it down the inside?', 'en-US'],
+    ['Devo mergulhar por dentro?', 'pt-BR'],
+    ['¿Debo tirarme por dentro?', 'es'],
+    ['Dois-je plonger à l’intérieur ?', 'fr'],
+    ['Soll ich innen reinstechen?', 'de'],
+    ['我该钻内线吗？', 'zh'],
+    ['インに飛び込むべき？', 'ja']
+  ] as Array<[string, CoachAdviceLanguage]>)(
+    'fails closed for unknown tactical paraphrase %s',
+    async (question, language) => {
+      const harness = makeHarness({ racecraftLanguage: language })
+      const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+      expect(answer.source).toBe('intent')
+      expect(answer.lang).toBe(language)
+      expect(answer.text.length).toBeGreaterThan(20)
+      expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+      expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+    }
+  )
+
   it('returns deterministic safety suppression for replay racecraft questions without the LLM', async () => {
     const snapshot = {
       connected: true,
@@ -526,6 +557,54 @@ describe('createEngineerOrchestrator.ask', () => {
     expect(answer.speak).toBe(false)
     expect(answer.text).toBe('Solicitação cancelada porque a configuração de idioma mudou. Tente novamente.')
     expect(answer.text).not.toContain('Stay out')
+  })
+
+  it('cancels an in-flight answer across fallback Race → Hotlap identity', async () => {
+    const raceSnapshot = {
+      sim: 'acc',
+      connected: true,
+      timestamp: 101_000,
+      sessionTimeSec: 100,
+      sessionKind: 'race',
+      trackName: 'Spa',
+      trackConfigName: 'GP',
+      carName: 'GT3 R'
+    } as TelemetrySnapshot
+    const hotlapSnapshot = {
+      ...raceSnapshot,
+      sessionKind: 'hotlap',
+      sessionType: '3'
+    }
+    let currentContext = captureLiveTelemetryContext(raceSnapshot)
+    const harness = makeHarness({
+      getLiveContext: () => currentContext
+    })
+    let resolveGeneration!: (result: GenerateResult) => void
+    harness.runtime.generateWithTools.mockImplementationOnce(
+      () =>
+        new Promise<GenerateResult>((resolve) => {
+          resolveGeneration = resolve
+        })
+    )
+    const orch = createEngineerOrchestrator(harness.deps)
+    const pending = orch.ask('Explain my strategy options')
+    await vi.waitFor(() => expect(harness.runtime.generateWithTools).toHaveBeenCalledOnce())
+
+    currentContext = captureLiveTelemetryContext(hotlapSnapshot)
+    orch.resetLiveContext()
+    resolveGeneration({
+      ok: true,
+      text: 'stale race answer',
+      tokens: 4,
+      ms: 1,
+      functionCalls: 0,
+      stopReason: 'eogToken'
+    })
+
+    const answer = await pending
+    expect(answer.kind).toBe('disabled')
+    expect(answer.text).toBe('Live telemetry is unavailable.')
+    expect(answer.text).not.toContain('stale race answer')
   })
 
   it('keeps every fallback response in PT-BR when Portuguese is configured', async () => {

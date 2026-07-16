@@ -33,7 +33,9 @@ import type { EngineerContext, EngineerToolset, IntentCommandKind } from '../../
 import {
   buildRacecraftAdvice,
   coachAdviceLanguageFromAppLanguage,
+  detectRacecraftLikeQuestionLanguage,
   detectRacecraftQuestionWithLanguage,
+  racecraftClarificationText,
   racecraftSafetyFromSnapshot,
   type CoachAdviceLanguage,
   type RacecraftAdviceContext
@@ -521,9 +523,11 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     if (!config.enabled) return publishAnswer(question, pick(config, FALLBACK.disabled), 'disabled', 'system')
 
     const detectedRacecraft = detectRacecraftQuestionWithLanguage(question)
+    const racecraftLikeLanguage = detectRacecraftLikeQuestionLanguage(question)
     const adviceLanguage =
       deps.getRacecraftLanguage?.() ??
       detectedRacecraft?.language ??
+      racecraftLikeLanguage ??
       coachAdviceLanguageFromAppLanguage(config.language)
     const context = deps.getLiveContext?.() ?? null
     const unitSystem = deps.getUnitSystem?.() ?? 'metric'
@@ -558,6 +562,7 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         ? racecraftSafetyFromSnapshot(snapshot)
         : { connected: false, onTrack: false, replayState: 'unknown' },
       trackId: snapshot?.trackId,
+      sim: snapshot?.sim,
       trackName: snapshot?.trackName,
       trackConfigName: snapshot?.trackConfigName,
       carName: snapshot?.carName,
@@ -579,6 +584,18 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
           advice.speechText
         )
       }
+      if (racecraftLikeLanguage) {
+        const text = racecraftClarificationText(adviceLanguage)
+        return publishAnswer(
+          question,
+          text,
+          'answer',
+          'intent',
+          undefined,
+          adviceLanguage,
+          text
+        )
+      }
       return rejectedAnswer(question)
     }
     if (detectedRacecraft) {
@@ -597,6 +614,19 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         context,
         adviceLanguage,
         advice.speechText
+      )
+    }
+    if (racecraftLikeLanguage) {
+      const text = racecraftClarificationText(adviceLanguage)
+      return finalize(
+        question,
+        text,
+        'answer',
+        'intent',
+        undefined,
+        context,
+        adviceLanguage,
+        text
       )
     }
 
@@ -730,6 +760,7 @@ export function register(ctx: ModuleContext): void {
 
   let unitSystem: UnitSystem = 'metric'
   let racecraftLanguage = coachAdviceLanguageFromAppLanguage('auto', ctx.app.getLocale())
+  let currentLiveContext = captureLiveTelemetryContext(ctx.telemetryHub.getLatest())
   const orchestrator = createEngineerOrchestrator({
     runtime,
     modelManager,
@@ -743,13 +774,15 @@ export function register(ctx: ModuleContext): void {
     },
     getUnitSystem: () => unitSystem,
     getRacecraftLanguage: () => racecraftLanguage,
-    getLiveContext: () => captureLiveTelemetryContext(ctx.telemetryHub.getLatest()),
+    getLiveContext: () => currentLiveContext,
     logger
   })
 
   const liveGate = new LiveTelemetryGate()
   ctx.telemetryHub.on('snapshot', (snapshot) => {
-    if (liveGate.observe(snapshot).boundary) orchestrator.resetLiveContext()
+    const decision = liveGate.observe(snapshot)
+    currentLiveContext = decision.context
+    if (decision.boundary) orchestrator.resetLiveContext()
   })
 
   settingsEvents.onChanged((settings) => {

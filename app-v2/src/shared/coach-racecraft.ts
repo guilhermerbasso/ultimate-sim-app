@@ -8,7 +8,14 @@ import {
   type CoachReport
 } from './coach'
 import type { AppLanguage } from './settings'
-import type { PaceMode, SessionKind, SessionState, TelemetrySnapshot } from './telemetry'
+import type {
+  CarLeftRightState,
+  PaceMode,
+  SessionKind,
+  SessionState,
+  SimId,
+  TelemetrySnapshot
+} from './telemetry'
 import { sessionKindForSnapshot, sessionKindFromText } from './telemetry'
 import { formatMeasurement, type UnitSystem } from './units'
 
@@ -18,6 +25,7 @@ export type RacecraftGapTrend = 'closing' | 'opening' | 'stable' | 'unknown'
 export type CoachTrackCondition = 'dry' | 'intermediate' | 'wet' | 'drying' | 'unknown'
 export type CoachAdviceLanguage = 'en-US' | 'pt-BR' | 'es' | 'fr' | 'de' | 'zh' | 'ja'
 export type RacecraftEvidenceSource = 'current-lap' | 'history'
+export type CoachLapVerification = 'verified-clean' | 'unverified'
 export type RacecraftSafetyReason =
   | 'yellow-flag'
   | 'blue-flag'
@@ -28,6 +36,8 @@ export type RacecraftSafetyReason =
   | 'disqualify'
   | 'checkered'
   | 'race-control-unknown'
+  | 'overlap'
+  | 'proximity'
   | 'caution'
   | 'pacing'
   | 'pit'
@@ -58,6 +68,11 @@ export interface RacecraftSafetyContext {
   flagsKnown?: boolean
   pitStateKnown?: boolean
   paceStateKnown?: boolean
+  carLeftRight?: CarLeftRightState
+  carsAlongsideCount?: number
+  radarClosestMeters?: number
+  gapAheadSec?: number
+  gapBehindSec?: number
   caution?: boolean
   paceMode?: PaceMode
   sessionState?: SessionState
@@ -78,6 +93,7 @@ export interface RacecraftAdviceContext {
   safety?: RacecraftSafetyContext
   sessionKey?: string
   sessionBoundaryMs?: number
+  sim?: SimId
   trackId?: string | number
   trackName?: string
   trackConfigName?: string
@@ -140,6 +156,7 @@ export interface RacecraftAdvice {
 }
 
 export interface CoachComparableIdentity {
+  sim?: SimId
   trackId?: string | number
   trackName?: string
   trackConfigName?: string
@@ -163,6 +180,7 @@ export interface CoachLapHistoryEntry {
   lapNumber?: number
   lapTimeSec?: number
   valid: boolean
+  verification: CoachLapVerification
   identity: CoachComparableIdentity
   findings: CoachFinding[]
   cornerMetrics: CoachCornerMetrics[]
@@ -175,11 +193,14 @@ export interface RacecraftHistoryPattern {
   lapsCompared: number
   averageLossSec: number
   confidence: number
+  unverifiedLapsSeen: number
 }
 
 export interface RacecraftHistoryEvidence {
   condition: CoachTrackCondition
   comparableLapCount: number
+  verifiedLapCount: number
+  unverifiedLapCount: number
   sufficientHistory: boolean
   patterns: RacecraftHistoryPattern[]
   reference?: CoachReferenceLap
@@ -204,6 +225,8 @@ export interface QualiStartSummaryRequest {
 export interface QualiStartSummary {
   sufficientHistory: boolean
   comparableLapCount: number
+  verifiedLapCount: number
+  unverifiedLapCount: number
   currentSessionLapCount: number
   source: 'history' | 'current-session' | 'none'
   insufficientReason?: 'identity' | 'condition' | 'laps' | 'confidence'
@@ -230,6 +253,9 @@ const MIN_GAP_TREND_SAMPLES = 3
 const MIN_GAP_TREND_CONFIDENCE = 0.65
 const MAX_RELEVANT_GAP_SEC = { ahead: 8, behind: 5 } as const
 const MAX_TACTICAL_CLOSING_GAP_SEC = { ahead: 4, behind: 3 } as const
+const MIN_STABLE_NON_OVERLAP_SAMPLES = 2
+const PROXIMITY_RADAR_METERS = 8
+const PROXIMITY_GAP_SEC = 0.35
 
 function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
@@ -243,6 +269,7 @@ function normalize(value: string | undefined): string {
   return (value ?? '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .normalize('NFC')
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim()
@@ -323,6 +350,7 @@ export function coachComparableIdentityFromSnapshot(
 ): CoachComparableIdentity {
   const player = playerDriver(snapshot)
   return {
+    sim: snapshot?.sim,
     trackId: snapshot?.trackId,
     trackName: snapshot?.trackName,
     trackConfigName: snapshot?.trackConfigName,
@@ -339,6 +367,15 @@ export function coachComparableIdentityFromSnapshot(
     airTempC: finite(snapshot?.airTempC) ? snapshot.airTempC : undefined,
     trackTempC: finite(snapshot?.trackTempC) ? snapshot.trackTempC : undefined
   }
+}
+
+function closestRadarMeters(snapshot: TelemetrySnapshot | null | undefined): number | undefined {
+  let closest = Number.POSITIVE_INFINITY
+  for (const car of snapshot?.radarCars ?? []) {
+    if (!finite(car.relativeX) || !finite(car.relativeY)) continue
+    closest = Math.min(closest, Math.hypot(car.relativeX, car.relativeY))
+  }
+  return closest === Number.POSITIVE_INFINITY ? undefined : closest
 }
 
 export function racecraftSafetyFromSnapshot(
@@ -361,6 +398,17 @@ export function racecraftSafetyFromSnapshot(
       typeof snapshot?.onPitRoad === 'boolean' ||
       typeof snapshot?.pit?.inPitStall === 'boolean',
     paceStateKnown: snapshot?.paceMode !== undefined,
+    carLeftRight: snapshot?.carLeftRight,
+    carsAlongsideCount: finite(snapshot?.carLeftRightCount)
+      ? snapshot?.carLeftRightCount
+      : undefined,
+    radarClosestMeters: closestRadarMeters(snapshot),
+    gapAheadSec: finite(snapshot?.relatives?.ahead?.gapSec)
+      ? Math.abs(snapshot!.relatives!.ahead!.gapSec as number)
+      : undefined,
+    gapBehindSec: finite(snapshot?.relatives?.behind?.gapSec)
+      ? Math.abs(snapshot!.relatives!.behind!.gapSec as number)
+      : undefined,
     caution:
       snapshot?.flags?.yellow === true ||
       (snapshot?.paceMode !== undefined && snapshot.paceMode !== 'notPacing') ||
@@ -392,6 +440,17 @@ export function racecraftSafetyReason(
   if (safety.flagBlue === true) return 'blue-flag'
   if (safety.paceMode !== undefined && safety.paceMode !== 'notPacing') return 'pacing'
   if (safety.caution === true) return 'caution'
+  if (
+    safety.carLeftRight === 'left' ||
+    safety.carLeftRight === 'right' ||
+    safety.carLeftRight === 'both' ||
+    (finite(safety.carsAlongsideCount) && safety.carsAlongsideCount > 0)
+  ) return 'overlap'
+  if (
+    (finite(safety.radarClosestMeters) && safety.radarClosestMeters <= PROXIMITY_RADAR_METERS) ||
+    (finite(safety.gapAheadSec) && safety.gapAheadSec <= PROXIMITY_GAP_SEC) ||
+    (finite(safety.gapBehindSec) && safety.gapBehindSec <= PROXIMITY_GAP_SEC)
+  ) return 'proximity'
   if (safety.sessionState !== undefined && safety.sessionState !== 'racing') return 'non-racing'
   if (
     safety.sessionKind !== undefined &&
@@ -420,7 +479,8 @@ export function coachLapHistoryEntry(
   at = snapshot.timestamp || Date.now(),
   identity = coachComparableIdentityFromSnapshot(snapshot),
   sessionKey?: string,
-  sessionBoundaryMs?: number
+  sessionBoundaryMs?: number,
+  verification: CoachLapVerification = 'unverified'
 ): CoachLapHistoryEntry {
   return {
     id: `${snapshot.sessionUniqueId ?? 'session'}:${report.lapNumber ?? at}`,
@@ -433,6 +493,7 @@ export function coachLapHistoryEntry(
     lapNumber: report.lapNumber,
     lapTimeSec: report.lapTimeSec,
     valid,
+    verification,
     identity: { ...identity },
     findings: report.findings.map((finding) => ({ ...finding, metrics: { ...finding.metrics } })),
     cornerMetrics: report.cornerMetrics.map((metrics) => ({ ...metrics }))
@@ -445,6 +506,7 @@ export function areCoachLapsComparable(
   opts: { airToleranceC?: number; trackToleranceC?: number } = {}
 ): boolean {
   if (current.condition === 'unknown' || candidate.condition === 'unknown') return false
+  if (!current.sim || !candidate.sim || current.sim !== candidate.sim) return false
   const currentTrackId = normalizedIdentityValue(current.trackId)
   const candidateTrackId = normalizedIdentityValue(candidate.trackId)
   const currentTrackName = normalize(current.trackName)
@@ -533,37 +595,37 @@ export function detectRacecraftQuestionWithLanguage(question: string): DetectedR
   }> = [
     {
       language: 'en-US',
-      overtake: /\b(overtake|pass (?:the )?car ahead|how (?:do|can|should) i (?:pass|overtake)|what should i do to pass)\b/,
+      overtake: /\b(overtake|get past (?:the )?car (?:in front|ahead)|get by (?:the )?car (?:in front|ahead)|make a pass on (?:the )?car (?:in front|ahead)|pass (?:the )?car ahead|how (?:do|can|should) i (?:pass|overtake)|what should i do to pass)\b/,
       pullAway: /\b(pull away|open (?:a )?gap|gap the car behind|lose the car behind|drop the car behind)\b/
     },
     {
       language: 'pt-BR',
-      overtake: /\b(como (?:eu )?(?:passo|passar|ultrapasso|ultrapassar)|passar o carro da frente|ultrapassar o carro da frente)\b/,
+      overtake: /\b(como (?:eu )?(?:passo|passar|ultrapasso|ultrapassar)|passar pelo carro que esta (?:na minha )?frente|passar o carro da frente|ultrapassar o carro da frente)\b/,
       pullAway: /\b(como (?:eu )?(?:abro|abrir|aumento|aumentar) (?:(?:a|o) )?(?:distancia|vantagem|gap)|afastar o carro de tras|escapar do carro de tras)\b/
     },
     {
       language: 'es',
-      overtake: /\b(como (?:puedo |debo )?(?:adelantar|pasar)|adelantar (?:al )?coche de delante|pasar (?:al )?coche de delante)\b/,
+      overtake: /\b(como (?:puedo |debo )?(?:adelantar|pasar|superar)|superar al coche que tengo delante|adelantar (?:al )?coche de delante|pasar (?:al )?coche de delante)\b/,
       pullAway: /\b(como (?:puedo )?(?:alejarme|escaparme|abrir hueco|aumentar la distancia)|sacarle distancia al coche de detras|alejarme del coche de detras)\b/
     },
     {
       language: 'fr',
-      overtake: /\b(comment (?:faire pour )?(?:depasser|passer)|depasser la voiture devant|passer la voiture de devant)\b/,
+      overtake: /\b(comment (?:faire pour )?(?:depasser|passer)|passer la voiture qui me precede|depasser la voiture devant|passer la voiture de devant)\b/,
       pullAway: /\b(comment (?:faire pour )?(?:distancer|semer|creuser l ecart)|distancer la voiture derriere|creuser l ecart avec la voiture derriere)\b/
     },
     {
       language: 'de',
-      overtake: /\b(wie (?:kann|soll) ich (?:uberholen|am auto vor mir vorbeikommen)|das auto vor mir uberholen)\b/,
+      overtake: /\b(wie (?:kann|soll) ich (?:uberholen|am (?:vorausfahrenden )?auto vor mir vorbeikommen)|wie komme ich am vorausfahrenden auto vorbei|das auto vor mir uberholen)\b/,
       pullAway: /\b(wie (?:kann|soll) ich mich .*absetzen|abstand zum auto hinter mir vergroßern|das auto hinter mir abschutteln)\b/
     },
     {
       language: 'zh',
-      overtake: /(怎么|如何).*(超车|超过|超越).*(前车|前面的车)|(超车|超过|超越).*(前车|前面的车)/,
+      overtake: /(怎么|如何).*(超车|超过|超越).*(前车|前面的车|我前面的车)|(超车|超过|超越).*(前车|前面的车|我前面的车)/,
       pullAway: /(怎么|如何).*(甩开|拉开|扩大).*(后车|后面的车|差距)|(甩开|拉开).*(后车|后面的车)/
     },
     {
       language: 'ja',
-      overtake: /(どう|どのよう).*(前の車|前車).*(抜く|追い越す)|(前の車|前車).*(どう|どのよう)?.*(抜く|追い越す|抜きたい|追い越したい)/,
+      overtake: /(どう|どのよう).*(前の車|前車|前を走る車).*(抜く|追い越す)|(前の車|前車|前を走る車).*?(抜|追い越)/,
       pullAway: /(どう|どのよう).*(後ろの車|後続車).*(引き離す|差を広げる)|(後ろの車|後続車).*(どう|どのよう)?.*(引き離す|差を広げる|引き離したい|差を広げたい)/
     }
   ]
@@ -576,6 +638,36 @@ export function detectRacecraftQuestionWithLanguage(question: string): DetectedR
 
 export function detectRacecraftQuestion(question: string): RacecraftQuestionIntent | null {
   return detectRacecraftQuestionWithLanguage(question)?.intent ?? null
+}
+
+export function detectRacecraftLikeQuestionLanguage(
+  question: string
+): CoachAdviceLanguage | null {
+  const detected = detectRacecraftQuestionWithLanguage(question)
+  if (detected) return detected.language
+  const q = normalize(question).replace(/[’']/g, ' ')
+  const hints: ReadonlyArray<[CoachAdviceLanguage, RegExp]> = [
+    ['en-US', /\b(divebomb|send it|move down the inside|go around the outside|attack the car|defend from the car|make a racing move)\b/],
+    ['pt-BR', /\b(mergulhar por dentro|mandar por dentro|atacar o carro|defender do carro|fazer uma manobra)\b/],
+    ['es', /\b(tirarme por dentro|lanzarme por dentro|atacar al coche|defenderme del coche|hacer una maniobra)\b/],
+    ['fr', /\b(plonger a l interieur|attaquer la voiture|defendre contre la voiture|tenter une manoeuvre)\b/],
+    ['de', /\b(innen reinstechen|das auto angreifen|gegen das auto verteidigen|ein rennmanover)\b/],
+    ['zh', /(晚刹强攻|钻内线|走外线|攻击前车|防守后车|做赛车动作)/],
+    ['ja', /(ダイブボム|飛び込|アウトから行く|前車を攻める|後続車を守る|仕掛ける)/]
+  ]
+  return hints.find(([, pattern]) => pattern.test(q))?.[0] ?? null
+}
+
+export function racecraftClarificationText(language: CoachAdviceLanguage): string {
+  return localized(language, {
+    'en-US': 'I can only give a grounded plan for passing the car ahead or opening a gap behind. Which one do you mean?',
+    'pt-BR': 'Só posso dar um plano fundamentado para passar o carro da frente ou abrir do carro de trás. Qual deles você quer?',
+    es: 'Solo puedo dar un plan fundamentado para adelantar al coche de delante o abrir distancia al de detrás. ¿Cuál quieres?',
+    fr: 'Je peux seulement donner un plan fondé pour dépasser la voiture devant ou creuser l’écart derrière. Lequel veux-tu ?',
+    de: 'Ich kann nur einen belegten Plan zum Überholen des Autos vorn oder zum Absetzen vom Auto hinten geben. Was meinst du?',
+    zh: '我只能基于实时证据回答“如何超过前车”或“如何拉开与后车的差距”。你指哪一种？',
+    ja: '実データに基づいて答えられるのは「前車を抜く」か「後続車を引き離す」だけです。どちらですか？'
+  })
 }
 
 export interface RacecraftGapTrendAnalysis {
@@ -1374,6 +1466,17 @@ export function racecraftSafetyMessage(
       ja: 'レースコントロール状態を取得できません — 安全に追い越しや引き離しを助言できません。'
     })
   }
+  if (reason === 'overlap' || reason === 'proximity') {
+    return localized(language, {
+      'en-US': 'TACTICS PAUSED — a car is alongside or inside the proximity zone. Hold a predictable line; ask again after stable separation.',
+      'pt-BR': 'TÁTICA PAUSADA — há carro lado a lado ou na zona de proximidade. Mantenha uma linha previsível e pergunte após separar.',
+      es: 'TÁCTICA EN PAUSA — hay un coche en paralelo o dentro de la zona de proximidad. Mantén una línea predecible y pregunta tras separarte.',
+      fr: 'TACTIQUE EN PAUSE — une voiture est côte à côte ou dans la zone de proximité. Garde une ligne prévisible et redemande après séparation.',
+      de: 'TAKTIK PAUSIERT — ein Auto ist neben dir oder in der Nahzone. Halte eine berechenbare Linie und frage nach stabiler Trennung erneut.',
+      zh: '战术暂停——车辆正并排或处于近距离区域。保持可预测线路，稳定拉开后再询问。',
+      ja: '戦術停止 — 車両が並走中または近接範囲内です。予測可能なラインを維持し、安定して離れてから再度確認してください。'
+    })
+  }
   if (reason === 'blue-flag') {
     return localized(language, {
       'en-US': 'TACTICS PAUSED — blue flag active. Follow race control and manage the faster traffic; no attack or pull-away plan now.',
@@ -1480,14 +1583,17 @@ export function buildRacecraftAdvice(
     gap.relevant &&
     gap.trend === 'closing' &&
     gap.confidence >= MIN_GAP_TREND_CONFIDENCE
+  const stableNonOverlap = gap.sampleCount >= MIN_STABLE_NON_OVERLAP_SAMPLES
   const mode: RacecraftAdviceMode =
     intent === 'overtake' &&
       gap.relevant &&
+      stableNonOverlap &&
       finite(gap.gapSec) &&
       (gap.gapSec <= 3 || (confidentlyClosing && gap.gapSec <= MAX_TACTICAL_CLOSING_GAP_SEC.ahead))
       ? 'overtake'
       : intent === 'pull-away' &&
           gap.relevant &&
+          stableNonOverlap &&
           finite(gap.gapSec) &&
           (
             gap.gapSec <= 1.6 ||
@@ -1685,6 +1791,7 @@ interface QualiPattern {
   lapsSeen: number
   totalLossSec: number
   totalConfidence: number
+  unverifiedLapsSeen: number
 }
 
 function qualiPatterns(laps: readonly CoachLapHistoryEntry[]): QualiPattern[] {
@@ -1700,11 +1807,13 @@ function qualiPatterns(laps: readonly CoachLapHistoryEntry[]): QualiPattern[] {
       const metrics = finite(finding.corner)
         ? lap.cornerMetrics.find((candidate) => candidate.corner === finding.corner)
         : undefined
-      const confidence = finite(finding.confidence) ? finding.confidence : 0
+      const verificationFactor = lap.verification === 'verified-clean' ? 1 : 0.5
+      const confidence = (finite(finding.confidence) ? finding.confidence : 0) * verificationFactor
       if (previous) {
         previous.lapsSeen += 1
         previous.totalLossSec += finding.estTimeLossSec
         previous.totalConfidence += confidence
+        if (lap.verification !== 'verified-clean') previous.unverifiedLapsSeen += 1
         const previousConfidence = finite(previous.finding.confidence) ? previous.finding.confidence : 0
         if (
           confidence > previousConfidence ||
@@ -1719,7 +1828,8 @@ function qualiPatterns(laps: readonly CoachLapHistoryEntry[]): QualiPattern[] {
           metrics,
           lapsSeen: 1,
           totalLossSec: finding.estTimeLossSec,
-          totalConfidence: confidence
+          totalConfidence: confidence,
+          unverifiedLapsSeen: lap.verification === 'verified-clean' ? 0 : 1
         })
       }
     }
@@ -1780,6 +1890,8 @@ export function buildRacecraftHistoryEvidence(
   opts: { maxPatterns?: number } = {}
 ): RacecraftHistoryEvidence {
   const comparable = comparableCoachLaps(current, laps)
+  const verifiedLapCount = comparable.filter((lap) => lap.verification === 'verified-clean').length
+  const unverifiedLapCount = comparable.length - verifiedLapCount
   const maxPatterns = Math.max(1, Math.min(8, Math.floor(opts.maxPatterns ?? 6)))
   const sufficientHistory = comparable.length >= MIN_HISTORY_COMPARABLE_LAPS
   const patterns = sufficientHistory
@@ -1810,13 +1922,15 @@ export function buildRacecraftHistoryEvidence(
       lapsSeen: pattern.lapsSeen,
       lapsCompared: comparable.length,
       averageLossSec: pattern.totalLossSec / pattern.lapsSeen,
-      confidence: pattern.totalConfidence / pattern.lapsSeen
+      confidence: pattern.totalConfidence / pattern.lapsSeen,
+      unverifiedLapsSeen: pattern.unverifiedLapsSeen
     }))
     : []
   const bestLap = sufficientHistory
     ? comparable
     .filter(
       (lap) =>
+        lap.verification === 'verified-clean' &&
         finite(lap.lapTimeSec) &&
         lap.lapTimeSec > 0 &&
         lap.cornerMetrics.length > 0
@@ -1828,6 +1942,8 @@ export function buildRacecraftHistoryEvidence(
   return {
     condition: current.condition,
     comparableLapCount: comparable.length,
+    verifiedLapCount,
+    unverifiedLapCount,
     sufficientHistory,
     patterns,
     reference: bestLap
@@ -1868,6 +1984,8 @@ export function buildQualiStartSummary(request: QualiStartSummaryRequest): Quali
   const maxItems = Math.max(1, Math.min(MAX_QUALI_ITEMS, Math.floor(request.maxItems ?? MAX_QUALI_ITEMS)))
   const identityIssue = comparableIdentityIssue(request.current)
   const history = identityIssue ? [] : comparableCoachLaps(request.current, request.history)
+  const verifiedHistoryCount = history.filter((lap) => lap.verification === 'verified-clean').length
+  const unverifiedHistoryCount = history.length - verifiedHistoryCount
   const currentSession = identityIssue
     ? []
     : comparableCoachLaps(request.current, request.currentSession ?? [])
@@ -1966,6 +2084,18 @@ export function buildQualiStartSummary(request: QualiStartSummaryRequest): Quali
       ja: '証拠不足: 現在のコースまたは車両を特定できません。'
     })}`
   } else if (sufficientHistory) {
+    const verificationNote =
+      unverifiedHistoryCount > 0
+        ? ` ${localized(language, {
+            'en-US': `${unverifiedHistoryCount} lap(s) unverified; they are down-weighted and never used as a clean benchmark.`,
+            'pt-BR': `${unverifiedHistoryCount} volta(s) não verificada(s); peso reduzido e nunca usadas como benchmark limpo.`,
+            es: `${unverifiedHistoryCount} vuelta(s) no verificada(s); peso reducido y nunca como referencia limpia.`,
+            fr: `${unverifiedHistoryCount} tour(s) non vérifié(s), pondérés à la baisse et jamais utilisés comme référence propre.`,
+            de: `${unverifiedHistoryCount} unverifizierte Runde(n), niedriger gewichtet und nie als saubere Referenz genutzt.`,
+            zh: `${unverifiedHistoryCount} 个圈未经验证；降低权重且绝不用作干净基准。`,
+            ja: `${unverifiedHistoryCount} 周は未検証です。低く重み付けし、クリーン基準には使いません。`
+          })}`
+        : ''
     header = `${qualify} — ${localized(language, {
       'en-US': `player ${condition} history, ${history.length} comparable completed laps.`,
       'pt-BR': `histórico próprio no ${condition}, ${history.length} voltas completas comparáveis.`,
@@ -1974,7 +2104,7 @@ export function buildQualiStartSummary(request: QualiStartSummaryRequest): Quali
       de: `eigene Historie (${condition}), ${history.length} vergleichbare vollständige Runden.`,
       zh: `车手${condition}历史，${history.length} 个可比完整圈。`,
       ja: `ドライバーの${condition}履歴、比較可能な完走ラップ ${history.length} 周。`
-    })}`
+    })}${verificationNote}`
   } else {
     insufficientReason = 'laps'
     header = `${qualify} — ${localized(language, {
@@ -2022,6 +2152,8 @@ export function buildQualiStartSummary(request: QualiStartSummaryRequest): Quali
   return {
     sufficientHistory,
     comparableLapCount: history.length,
+    verifiedLapCount: verifiedHistoryCount,
+    unverifiedLapCount: unverifiedHistoryCount,
     currentSessionLapCount: currentSession.length,
     source,
     insufficientReason,
