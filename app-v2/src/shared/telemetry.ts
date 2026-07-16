@@ -5,21 +5,33 @@ import type { ReplayContext } from './replay'
 export type { ReplayContext, ReplayContextIdentity, ReplayContextInputs, ReplayContextReason, ReplayContextSource, ReplayContextState, ReplayResolution } from './replay'
 
 export type SimId = 'iracing' | 'acc' | 'ac' | 'ams2' | 'lmu' | 'mock' | 'replay' | 'none'
-export type SessionKind = 'practice' | 'qualify' | 'race' | 'warmup' | 'unknown'
+export type SessionKind =
+  | 'practice'
+  | 'qualify'
+  | 'race'
+  | 'warmup'
+  | 'hotlap'
+  | 'time-attack'
+  | 'drift'
+  | 'drag'
+  | 'other'
+  | 'unknown'
 
 export type TelemetrySource = SimId | 'auto' | 'off'
 
 export function sessionKindFromText(raw: unknown): SessionKind {
   const value = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
   if (!value) return 'unknown'
+  if (value.includes('hotlap') || value.includes('hot lap')) return 'hotlap'
+  if (value.includes('time attack') || value.includes('time-attack')) return 'time-attack'
+  if (value.includes('drift')) return 'drift'
+  if (value.includes('drag')) return 'drag'
   if (value.includes('race')) return 'race'
   if (value.includes('qual') || value.includes('lone')) return 'qualify'
   if (value.includes('warm') || value.includes('formation')) return 'warmup'
   if (
     value.includes('practice') ||
     value.includes('test') ||
-    value.includes('hotlap') ||
-    value.includes('time attack') ||
     value.includes('offline')
   ) return 'practice'
   return 'unknown'
@@ -33,17 +45,22 @@ export function sessionKindFromProvider(sim: SimId, raw: unknown): SessionKind {
         ? Math.trunc(Number(raw))
         : undefined
   if ((sim === 'ac' || sim === 'acc') && numeric !== undefined) {
-    if (numeric === 0 || numeric === 3 || numeric === 4 || numeric === 5) return 'practice'
+    if (numeric === 0) return 'practice'
     if (numeric === 1) return 'qualify'
-    if (numeric === 2 || numeric === 6) return 'race'
-    return 'unknown'
+    if (numeric === 2) return 'race'
+    if (numeric === 3) return 'hotlap'
+    if (numeric === 4) return 'time-attack'
+    if (numeric === 5) return 'drift'
+    if (numeric === 6) return 'drag'
+    return numeric < 0 ? 'unknown' : 'other'
   }
   if (sim === 'ams2' && numeric !== undefined) {
-    if (numeric === 1 || numeric === 2 || numeric === 6) return 'practice'
+    if (numeric === 1 || numeric === 2) return 'practice'
     if (numeric === 3) return 'qualify'
     if (numeric === 4) return 'warmup'
     if (numeric === 5) return 'race'
-    return 'unknown'
+    if (numeric === 6) return 'time-attack'
+    return numeric <= 0 ? 'unknown' : 'other'
   }
   return sessionKindFromText(raw)
 }

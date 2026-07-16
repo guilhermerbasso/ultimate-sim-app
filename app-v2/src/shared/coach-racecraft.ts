@@ -479,11 +479,24 @@ export function areCoachLapsComparable(
   return true
 }
 
+export function isCoachHistorySessionKind(
+  kind: SessionKind | undefined
+): kind is 'practice' | 'qualify' | 'race' {
+  return kind === 'practice' || kind === 'qualify' || kind === 'race'
+}
+
 export function comparableCoachLaps(
   current: CoachComparableIdentity,
   laps: readonly CoachLapHistoryEntry[]
 ): CoachLapHistoryEntry[] {
-  return laps.filter((lap) => lap.valid && areCoachLapsComparable(current, lap.identity))
+  return laps.filter((lap) => {
+    const kind = lap.sessionKind ?? sessionKindFromText(lap.sessionType)
+    return (
+      lap.valid &&
+      isCoachHistorySessionKind(kind) &&
+      areCoachLapsComparable(current, lap.identity)
+    )
+  })
 }
 
 export interface DetectedRacecraftQuestion {

@@ -92,6 +92,7 @@ function historyLap(id: string, finding: CoachFinding, sessionId = Number(id)): 
     at: sessionId,
     sessionId,
     valid: true,
+    sessionKind: 'race',
     identity: DRY_IDENTITY,
     findings: [finding],
     cornerMetrics: []
@@ -554,6 +555,78 @@ describe('createProactiveEngine', () => {
     expect(race.harness.events.some((event) => event.eventType === 'finding')).toBe(true)
   })
 
+  it.each([
+    ['acc', 3, 'hotlap'],
+    ['acc', 4, 'time-attack'],
+    ['acc', 5, 'drift'],
+    ['acc', 6, 'drag'],
+    ['ac', 6, 'drag'],
+    ['ams2', 6, 'time-attack']
+  ] as Array<[SimId, number, SessionKind]>)(
+    'keeps %s session %d (%s) out of race-only coaching',
+    (sim, raw, expected) => {
+      const { harness, engine } = makeEngine({ language: 'en-US' })
+      engine.setFindings([makeFinding({ sector: 1, kind: 'brake-late' })])
+      const sessionKind = sessionKindFromProvider(sim, raw)
+      expect(sessionKind).toBe(expected)
+      engine.onSnapshot(
+        makeSnapshot(0.1, {
+          sim,
+          sessionType: String(raw),
+          sessionKind,
+          timestamp: 1_000
+        })
+      )
+      engine.onSnapshot(
+        makeSnapshot(0.4, {
+          sim,
+          sessionType: String(raw),
+          sessionKind,
+          timestamp: 2_000
+        })
+      )
+      expect(harness.events).toHaveLength(0)
+    }
+  )
+
+  it('does not persist drag laps as coaching history', () => {
+    const persistHistory = vi.fn()
+    const { engine } = makeEngine(
+      { language: 'en-US' },
+      { persistHistory }
+    )
+    const base = {
+      sim: 'acc' as const,
+      sessionType: '6',
+      sessionKind: 'drag' as const,
+      trackName: 'Drag Strip',
+      carName: 'GT3 R',
+      carPath: 'gt3r',
+      trackWetnessPct: 0,
+      isRaining: false,
+      currentLap: 1
+    }
+    for (let index = 0; index < 34; index += 1) {
+      engine.onSnapshot(
+        makeSnapshot((index / 34) * 0.99, {
+          ...base,
+          timestamp: 1_000 + index * 100
+        })
+      )
+    }
+    engine.onSnapshot(
+      makeSnapshot(0.02, {
+        ...base,
+        timestamp: 5_000,
+        currentLap: 2,
+        lastLapTimeSec: 12
+      })
+    )
+
+    expect(engine.getHistory()).toEqual([])
+    expect(persistHistory).not.toHaveBeenCalled()
+  })
+
   it('emits one honest qualifying-start summary but no per-sector qualifying coaching', () => {
     const { harness, engine } = makeEngine({ language: 'en-US' })
     engine.setFindings([makeFinding({ sector: 1, kind: 'brake-late' })])
@@ -813,6 +886,119 @@ describe('createProactiveEngine', () => {
     expect(harness.events.every((event) => event.eventType === 'insufficient-history')).toBe(true)
   })
 
+  it('clears live analysis caches on Practice → Qualify → Race while preserving history', () => {
+    const published: Array<RacecraftAdviceContext | null> = []
+    const priorHistory = historyLap(
+      'prior',
+      makeFinding({ sector: 1, corner: 1, kind: 'brake-late' }),
+      50
+    )
+    priorHistory.sessionKey = 'prior-session'
+    priorHistory.sessionBoundaryMs = 50_000
+    const fakeMap = {
+      corners: [{ index: 1, startPct: 0.1, apexPct: 0.2, endPct: 0.3 }]
+    } as unknown as CornerMapData
+    const { engine } = makeEngine(
+      { language: 'en-US' },
+      {
+        history: [priorHistory],
+        buildCornerMap: () => fakeMap,
+        publishRacecraftContext: (context) => published.push(context)
+      }
+    )
+    const base = {
+      sim: 'acc' as const,
+      trackName: 'Monza',
+      carName: 'GT3 R',
+      carPath: 'gt3r',
+      trackWetnessPct: 0,
+      isRaining: false
+    }
+
+    for (let index = 0; index < 34; index += 1) {
+      engine.onSnapshot(
+        makeSnapshot((index / 34) * 0.99, {
+          ...base,
+          sessionKind: 'practice',
+          sessionType: undefined,
+          timestamp: 1_000 + index * 100,
+          sessionTimeRemainingSec: 1_000 - index,
+          currentLap: 1,
+          relatives: {
+            ahead: { carIdx: 10, name: 'Ahead', carNumber: '10', gapSec: 1.2 }
+          }
+        })
+      )
+    }
+    engine.onSnapshot(
+      makeSnapshot(0.02, {
+        ...base,
+        sessionKind: 'practice',
+        sessionType: undefined,
+        timestamp: 5_000,
+        sessionTimeRemainingSec: 960,
+        currentLap: 2,
+        lastLapTimeSec: 90
+      })
+    )
+    engine.setFindings([
+      makeFinding({ sector: 1, corner: 1, kind: 'brake-late' })
+    ])
+    const practiceContext = published
+      .filter((context): context is RacecraftAdviceContext => context !== null)
+      .at(-1)
+    expect(practiceContext?.reference).not.toBeNull()
+    const historyAfterPractice = engine.getHistory().length
+    expect(historyAfterPractice).toBeGreaterThanOrEqual(2)
+
+    engine.onSnapshot(
+      makeSnapshot(0.1, {
+        ...base,
+        sessionKind: 'qualify',
+        sessionType: undefined,
+        timestamp: 6_000,
+        sessionTimeRemainingSec: 600,
+        currentLap: 1,
+        relatives: {
+          ahead: { carIdx: 20, name: 'Quali ahead', carNumber: '20', gapSec: 2.0 }
+        }
+      })
+    )
+    const qualifyContext = published
+      .filter((context): context is RacecraftAdviceContext => context !== null)
+      .at(-1)
+    expect(engine.getFindings()).toEqual([])
+    expect(qualifyContext?.reference).toBeNull()
+    expect(qualifyContext?.cornerMetrics).toEqual([])
+    expect(qualifyContext?.gaps).toEqual([])
+    expect(engine.getHistory()).toHaveLength(historyAfterPractice)
+
+    engine.setFindings([
+      makeFinding({ sector: 1, corner: 1, kind: 'throttle-late' })
+    ])
+    engine.onSnapshot(
+      makeSnapshot(0.1, {
+        ...base,
+        sessionKind: 'race',
+        sessionType: undefined,
+        timestamp: 7_000,
+        sessionTimeRemainingSec: 3_600,
+        currentLap: 1,
+        relatives: {
+          ahead: { carIdx: 30, name: 'Race ahead', carNumber: '30', gapSec: 3.0 }
+        }
+      })
+    )
+    const raceContext = published
+      .filter((context): context is RacecraftAdviceContext => context !== null)
+      .at(-1)
+    expect(engine.getFindings()).toEqual([])
+    expect(raceContext?.reference).toBeNull()
+    expect(raceContext?.cornerMetrics).toEqual([])
+    expect(raceContext?.gaps).toHaveLength(1)
+    expect(engine.getHistory()).toHaveLength(historyAfterPractice)
+  })
+
   it('keeps the same no-ID qualifying generation across replay/disconnect/reconnect', () => {
     const { harness, engine } = makeEngine({ language: 'en-US' })
     const live = (timestamp: number, currentLap: number) =>
@@ -939,9 +1125,13 @@ describe('createProactiveEngine', () => {
       sessionKey: `legacy-no-boundary-${id}`,
       sessionKind: 'qualify' as const
     }))
+    const publishedAfterRestart: Array<RacecraftAdviceContext | null> = []
     const afterRestart = makeEngine(
       { language: 'en-US' },
-      { history: [...sameSessionHistory, ...unprovenLegacyHistory] }
+      {
+        history: [...sameSessionHistory, ...unprovenLegacyHistory],
+        publishRacecraftContext: (context) => publishedAfterRestart.push(context)
+      }
     )
     afterRestart.engine.onSnapshot(
       makeSnapshot(0.7, {
@@ -956,6 +1146,12 @@ describe('createProactiveEngine', () => {
     expect(afterRestart.harness.events[0].eventType).toBe('insufficient-history')
     expect(afterRestart.harness.events[0].text).toContain('insufficient dry history (0/3')
     expect(afterRestart.harness.events[0].text).not.toContain('Turn 7')
+    const restartedContext = publishedAfterRestart
+      .filter((context): context is RacecraftAdviceContext => context !== null)
+      .at(-1)
+    expect(restartedContext?.findings).toEqual([])
+    expect(restartedContext?.reference).toBeNull()
+    expect(restartedContext?.gaps).toEqual([])
   })
 
   it('uses sufficient comparable valid-lap history in the qualifying-start summary', () => {

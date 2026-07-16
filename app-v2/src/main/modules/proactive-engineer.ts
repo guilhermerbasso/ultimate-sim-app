@@ -51,6 +51,7 @@ import {
   coachAdviceLanguageFromAppLanguage,
   coachComparableIdentityFromSnapshot,
   coachLapHistoryEntry,
+  isCoachHistorySessionKind,
   racecraftSafetyFromSnapshot,
   racecraftSafetyMessage,
   racecraftSafetyReason,
@@ -821,6 +822,11 @@ function isOptionalSessionKind(value: unknown): boolean {
     value === 'qualify' ||
     value === 'race' ||
     value === 'warmup' ||
+    value === 'hotlap' ||
+    value === 'time-attack' ||
+    value === 'drift' ||
+    value === 'drag' ||
+    value === 'other' ||
     value === 'unknown'
   )
 }
@@ -1156,7 +1162,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     return (value ?? '').trim().toLowerCase()
   }
 
-  function analysisKey(snapshot: TelemetrySnapshot): string {
+  function analysisKey(snapshot: TelemetrySnapshot, sessionKey: string): string {
     const identity = coachComparableIdentityFromSnapshot(snapshot, previousTrackWetnessPct)
     return [
       normalizedIdentityPart(identity.trackId === undefined ? undefined : String(identity.trackId)),
@@ -1164,7 +1170,9 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       normalizedIdentityPart(identity.trackConfigName),
       normalizedIdentityPart(identity.carPath || identity.carName),
       Number.isFinite(identity.carClassId) ? identity.carClassId : '',
-      conditionForSnapshot(snapshot)
+      conditionForSnapshot(snapshot),
+      sessionKindForSnapshot(snapshot),
+      sessionKey
     ].join('::')
   }
 
@@ -1262,8 +1270,8 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     }
   }
 
-  function ensureAnalysisContext(snapshot: TelemetrySnapshot): void {
-    const nextKey = analysisKey(snapshot)
+  function ensureAnalysisContext(snapshot: TelemetrySnapshot, sessionKey: string): void {
+    const nextKey = analysisKey(snapshot, sessionKey)
     const nextIdentity = coachComparableIdentityFromSnapshot(snapshot, previousTrackWetnessPct)
     nextIdentity.condition = conditionForSnapshot(snapshot)
     const ambientChanged =
@@ -1280,6 +1288,11 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       gapSamples = []
       findings = []
       racecraftFindings = []
+      if (keyChanged) {
+        outLap = true
+        lastEmitAt = 0
+        lastEmittedFindingId = null
+      }
       lastFindingsContext = contextForSnapshot(snapshot)
       publish([], lastFindingsContext)
     }
@@ -1389,7 +1402,10 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       if (validLap) {
         const identity = coachComparableIdentityFromSnapshot(snapshot, previousTrackWetnessPct)
         identity.condition = conditionForSnapshot(snapshot)
-        if (identity.condition !== 'unknown') {
+        if (
+          identity.condition !== 'unknown' &&
+          isCoachHistorySessionKind(sessionKindForSnapshot(snapshot))
+        ) {
           history.push(
             coachLapHistoryEntry(
               snapshot,
@@ -1658,8 +1674,11 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     })
   }
 
-  function maybeEmitQualiStart(snapshot: TelemetrySnapshot, config: ProactiveConfigView): void {
-    const key = qualiSessionKey(snapshot)
+  function maybeEmitQualiStart(
+    snapshot: TelemetrySnapshot,
+    config: ProactiveConfigView,
+    key: string
+  ): void {
     const kind = sessionKindForSnapshot(snapshot)
     if (kind !== 'qualify') return
     if (!config.proactiveCoaching) return
@@ -1856,10 +1875,11 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     if (!config.enabled) return
     if (!snapshot) return
 
+    const sessionKey = qualiSessionKey(snapshot)
     lastSnapshot = snapshot
-    ensureAnalysisContext(snapshot)
+    ensureAnalysisContext(snapshot, sessionKey)
     recordGapSample(snapshot)
-    maybeEmitQualiStart(snapshot, config)
+    maybeEmitQualiStart(snapshot, config, sessionKey)
     if (lapIncidentStart === undefined) lapIncidentStart = incidentCount(snapshot)
 
     if (snapshot.onPitRoad === true) {

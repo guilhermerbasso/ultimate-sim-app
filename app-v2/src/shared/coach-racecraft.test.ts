@@ -13,6 +13,7 @@ import {
   MAX_QUALI_BRIEFING_LENGTH,
   MAX_RACECRAFT_ADVICE_LENGTH,
   MAX_RACECRAFT_SPEECH_LENGTH,
+  isCoachHistorySessionKind,
   racecraftSafetyFromSnapshot,
   racecraftSafetyReason,
   type CoachComparableIdentity,
@@ -69,6 +70,7 @@ function historyLap(
     id,
     at: Number(id.replace(/\D/g, '')) || 1,
     valid: true,
+    sessionKind: 'race',
     identity,
     findings,
     cornerMetrics: [],
@@ -605,6 +607,21 @@ describe('qualifying comparable history', () => {
 
     expect(comparableCoachLaps(DRY_IDENTITY, laps).map((lap) => lap.id)).toEqual(['dry-valid'])
     expect(comparableCoachLaps(wet, laps).map((lap) => lap.id)).toEqual(['wet-valid'])
+  })
+
+  it('excludes drag and other non-race modes from coaching history', () => {
+    expect(isCoachHistorySessionKind('practice')).toBe(true)
+    expect(isCoachHistorySessionKind('qualify')).toBe(true)
+    expect(isCoachHistorySessionKind('race')).toBe(true)
+    for (const kind of ['hotlap', 'time-attack', 'drift', 'drag', 'other', 'warmup'] as const) {
+      expect(isCoachHistorySessionKind(kind)).toBe(false)
+    }
+    const nonRaceLaps = (['hotlap', 'time-attack', 'drift', 'drag'] as const).map((kind, index) =>
+      historyLap(`non-race-${index}`, DRY_IDENTITY, [finding('brake-early')], {
+        sessionKind: kind
+      })
+    )
+    expect(comparableCoachLaps(DRY_IDENTITY, nonRaceLaps)).toEqual([])
   })
 
   it('builds history evidence without leaking wet laps into a dry plan', () => {
