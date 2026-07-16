@@ -23,7 +23,6 @@ export interface TelemetryContractAdapterInput {
   processedAtMs: number
   observedMonotonicNs: bigint
 }
-
 function clean(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const normalized = value.trim()
@@ -262,4 +261,3 @@ export function telemetrySnapshotToRaceOpsEvent(
     ttlMs: '2000'
   }
 }
-

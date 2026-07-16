@@ -41,7 +41,6 @@ export interface ProvenanceReference {
   ageMs: string
   privacyClass: PrivacyClass
 }
-
 export type CanonicalFactValue =
   | { kind: 'double'; value: number }
   | { kind: 'signed'; value: string }
@@ -158,4 +157,3 @@ export function canonicalFactsByName(
 ): ReadonlyMap<string, CanonicalFact> {
   return new Map(facts.map((fact) => [fact.name, fact]))
 }
-

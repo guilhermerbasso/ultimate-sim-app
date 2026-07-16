@@ -9,7 +9,6 @@ const kernels: Phase02TapKernel[] = []
 afterEach(() => {
   for (const kernel of kernels.splice(0)) kernel.dispose()
 })
-
 function context(revision = 0): ReplayContext {
   return {
     state: 'live',
@@ -113,6 +112,35 @@ describe('Phase02TapKernel bounded asynchronous isolation', () => {
     })
   })
 
+  it('isolates subscriber payload mutation', async () => {
+    const hub = new TelemetryHub()
+    const kernel = new Phase02TapKernel(hub)
+    kernels.push(kernel)
+    let healthyDriver = ''
+    kernel.subscribe('mutating', {
+      maxItems: 4,
+      maxBytes: 64 * 1024,
+      maxAgeMs: 5_000,
+      maxDrainBatch: 4
+    }, (delivery) => {
+      const driver = delivery.event.facts.find((fact) => fact.name === 'driver.name')
+      if (driver?.value?.kind === 'string') driver.value.value = 'MUTATED'
+    })
+    kernel.subscribe('healthy', {
+      maxItems: 4,
+      maxBytes: 64 * 1024,
+      maxAgeMs: 5_000,
+      maxDrainBatch: 4
+    }, (delivery) => {
+      const driver = delivery.event.facts.find((fact) => fact.name === 'driver.name')
+      if (driver?.value?.kind === 'string') healthyDriver = driver.value.value
+    })
+
+    hub.emit('snapshot', snapshot(1))
+    await settle()
+    expect(healthyDriver).toBe('Driver A')
+  })
+
   it('bounds overflow, reports drops, and marks the surviving frame with a gap', async () => {
     const hub = new TelemetryHub()
     const kernel = new Phase02TapKernel(hub)
@@ -166,4 +194,3 @@ describe('Phase02TapKernel bounded asynchronous isolation', () => {
     })
   })
 })
-

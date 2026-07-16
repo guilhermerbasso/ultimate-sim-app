@@ -6,7 +6,6 @@ export interface Phase02TapBudgets {
   maxAgeMs: number
   maxDrainBatch: number
 }
-
 export interface Phase02TapStatus {
   enabled: boolean
   killSwitch: boolean
@@ -51,4 +50,3 @@ export const DEFAULT_PASSPORT_TAP_BUDGETS: Phase02TapBudgets = {
   maxAgeMs: 2_000,
   maxDrainBatch: 4
 }
-

@@ -1,4 +1,5 @@
 import type { TelemetrySnapshot } from '../../shared/telemetry'
+import type { CanonicalRaceOpsEvent } from '../../shared/phase02-contracts'
 import type {
   Phase02Tap,
   Phase02TapBudgets,
@@ -16,7 +17,6 @@ interface SourceEntry {
   sequence: bigint
   enqueuedAt: number
 }
-
 function schedule(task: () => void): void {
   setImmediate(task)
 }
@@ -25,6 +25,25 @@ function estimateBytes(delivery: Phase02TapDelivery): number {
   return Buffer.byteLength(JSON.stringify(delivery.event, (_key, value) =>
     value instanceof Uint8Array ? Buffer.from(value).toString('base64') : value
   ))
+}
+
+function cloneEvent(event: CanonicalRaceOpsEvent): CanonicalRaceOpsEvent {
+  return {
+    ...event,
+    observedInterval: { ...event.observedInterval },
+    confidence: { ...event.confidence },
+    facts: event.facts.map((fact) => ({
+      ...fact,
+      value: fact.value?.kind === 'bytes'
+        ? { kind: 'bytes', value: Uint8Array.from(fact.value.value) }
+        : fact.value
+          ? { ...fact.value }
+          : undefined,
+      provenance: fact.provenance ? { ...fact.provenance } : undefined
+    })),
+    evidenceRefs: [...event.evidenceRefs],
+    integrityFlags: [...event.integrityFlags]
+  }
 }
 
 class BoundedTapSubscription implements Phase02TapSubscription {
@@ -261,15 +280,7 @@ export class Phase02TapKernel implements Phase02Tap {
         for (const subscription of this.subscriptions.values()) {
           subscription.enqueue({
             ...delivery,
-            event: {
-              ...event,
-              facts: event.facts.map((fact) => ({
-                ...fact,
-                value: fact.value?.kind === 'bytes'
-                  ? { kind: 'bytes', value: Uint8Array.from(fact.value.value) }
-                  : fact.value
-              }))
-            }
+            event: cloneEvent(event)
           })
         }
         processed += 1
@@ -295,4 +306,3 @@ function validateBudgets(budgets: Phase02TapBudgets): void {
     throw new Error('Phase 02 tap maxDrainBatch is invalid.')
   }
 }
-
