@@ -62,6 +62,7 @@ class BoundedTapSubscription implements Phase02TapSubscription {
   ) {
     this.id = id
     this.state = {
+      budgets: { ...budgets },
       enabled: true,
       killSwitch: false,
       queuedItems: 0,
@@ -110,7 +111,7 @@ class BoundedTapSubscription implements Phase02TapSubscription {
   }
 
   status(): Phase02TapStatus {
-    return { ...this.state }
+    return { ...this.state, budgets: { ...this.state.budgets } }
   }
 
   setKillSwitch(enabled: boolean): void {

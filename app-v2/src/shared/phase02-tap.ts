@@ -7,6 +7,7 @@ export interface Phase02TapBudgets {
   maxDrainBatch: number
 }
 export interface Phase02TapStatus {
+  budgets: Phase02TapBudgets
   enabled: boolean
   killSwitch: boolean
   queuedItems: number
