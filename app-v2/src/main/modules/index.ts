@@ -56,6 +56,7 @@ import { register as paceModel } from './pace-model'
 import { register as aiEngineer } from './ai-engineer'
 import { register as proactiveEngineer } from './proactive-engineer'
 import { register as strategy } from './strategy'
+import { register as stintPassport } from './stint-passport'
 import { register as stintDebrief } from './stint-debrief'
 import { register as incidentRecorder } from './incident-recorder'
 import { register as communityLocal } from './community-local'
@@ -121,6 +122,7 @@ const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   aiEngineer,
   proactiveEngineer,
   strategy,
+  stintPassport,
   stintDebrief,
   incidentRecorder,
   communityLocal,

@@ -24,6 +24,7 @@ const CareerView = lazy(() => import('./CareerView'))
 const EngineerView = lazy(() => import('./EngineerView'))
 const CoachView = lazy(() => import('./CoachView'))
 const StrategyView = lazy(() => import('./StrategyView'))
+const StintPassportView = lazy(() => import('./StintPassportView'))
 const CommunityView = lazy(() => import('./CommunityView'))
 const DashboardBuilderView = lazy(() => import('./DashboardBuilderView'))
 const AdaptiveDashboardView = lazy(() => import('./AdaptiveDashboardView'))
@@ -68,6 +69,7 @@ export const viewRegistry: ViewDef[] = [
   { id: 'haptics', group: 'Sim Racing', label: 'Haptics', eyebrow: 'Bass shaker', description: 'ShakeIt-style haptic feedback: bass shaker (audio) + haptics.', shortcut: 'TF', Component: HapticsView },
   { id: 'coach', group: 'Sim Racing', label: 'AI Coach', eyebrow: 'Local AI', description: 'Driving coach + lap analysis: corner findings, track map, and suggested setup adjustments.', shortcut: 'T6', Component: CoachView },
   { id: 'strategy', group: 'Sim Racing', label: 'Strategy', eyebrow: 'Predictive', description: 'Pit window, fuel margin, undercut, and incident clips.', shortcut: 'TH', Component: StrategyView },
+  { id: 'stint-passport', group: 'Sim Racing', label: 'Stint Passport', eyebrow: 'Endurance', description: 'Role-owned 12-item driver handover readiness and retained stint history.', shortcut: 'TO', Component: StintPassportView },
   { id: 'dashboard-builder', group: 'Sim Racing', label: 'AI Dashboard', eyebrow: 'LLM local', description: 'Build dashboards by describing them in text; adaptive mode by session phase.', shortcut: 'TI', Component: DashboardBuilderView },
   { id: 'dashboard-adaptive', group: 'Sim Racing', label: 'Adaptive Dashboard', eyebrow: 'Live', description: 'Single panel that reorganizes itself by session phase and lap moment.', shortcut: 'TN', Component: AdaptiveDashboardView },
   { id: 'biometrics', group: 'Sim Racing', label: 'Biometrics', eyebrow: 'HR/AR', description: 'Heart rate, stress × pace, and AR HUD.', shortcut: 'TJ', Component: BiometricsView },

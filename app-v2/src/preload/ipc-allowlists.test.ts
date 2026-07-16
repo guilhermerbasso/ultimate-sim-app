@@ -1,9 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { EXPR_CHANNELS } from '../shared/expr'
 import { TOUCH_ACTION_IPC_CHANNEL } from '../shared/touch-panel'
+import { STINT_PASSPORT_CHANNELS } from '../shared/stint-passport'
 import {
+  MAIN_PASSPORT_INVOKE_CHANNELS,
+  MAIN_PASSPORT_SUBSCRIBE_CHANNELS,
   READ_ONLY_EXPRESSION_CHANNELS,
   TOUCH_READ_ONLY_EXPRESSION_CHANNELS,
+  isMainPassportInvokeAllowed,
+  isMainPassportSubscribeAllowed,
   isOverlayIpcAllowed,
   isTouchpanelIpcAllowed
 } from './ipc-allowlists'
@@ -37,5 +42,23 @@ describe('restricted renderer expression IPC allowlists', () => {
     expect(isTouchpanelIpcAllowed(EXPR_CHANNELS.mutateStudio)).toBe(false)
     expect(isTouchpanelIpcAllowed(EXPR_CHANNELS.setExpressions)).toBe(false)
     expect(isTouchpanelIpcAllowed(EXPR_CHANNELS.setEnabledVars)).toBe(false)
+  })
+
+  it('grants Passport IPC by exact channel and direction only', () => {
+    expect(MAIN_PASSPORT_SUBSCRIBE_CHANNELS).toEqual(new Set([STINT_PASSPORT_CHANNELS.updated]))
+    for (const channel of Object.values(STINT_PASSPORT_CHANNELS)) {
+      if (channel === STINT_PASSPORT_CHANNELS.updated) {
+        expect(isMainPassportInvokeAllowed(channel)).toBe(false)
+        expect(isMainPassportSubscribeAllowed(channel)).toBe(true)
+      } else {
+        expect(MAIN_PASSPORT_INVOKE_CHANNELS.has(channel), channel).toBe(true)
+        expect(isMainPassportInvokeAllowed(channel), channel).toBe(true)
+        expect(isMainPassportSubscribeAllowed(channel), channel).toBe(false)
+      }
+    }
+    expect(isMainPassportInvokeAllowed('stintPassport:any-future-command')).toBe(false)
+    expect(isMainPassportSubscribeAllowed('stintPassport:any-future-event')).toBe(false)
+    expect(isOverlayIpcAllowed(STINT_PASSPORT_CHANNELS.getSnapshot)).toBe(false)
+    expect(isTouchpanelIpcAllowed(STINT_PASSPORT_CHANNELS.completeChallenge)).toBe(false)
   })
 })

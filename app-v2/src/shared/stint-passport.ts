@@ -37,6 +37,7 @@ export type PassportCloseReason =
   | 'car-track-boundary'
   | 'disconnect'
   | 'replay-boundary'
+  | 'restart-recovery'
   | 'manual'
 export type PassportDataClass = Extract<PrivacyClass, 'D1' | 'D2' | 'D3'>
 export type WeatherAssumption = 'dry' | 'wet' | 'any'
@@ -285,4 +286,3 @@ export function isPassportRole(value: unknown): value is PassportRole {
     value === 'spotter' ||
     value === 'team-manager'
 }
-
