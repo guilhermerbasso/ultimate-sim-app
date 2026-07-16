@@ -34,6 +34,7 @@ describe('subscribeWithHydration', () => {
         return () => {}
       },
       hydrate: () => initial.promise,
+      revision: (value) => value?.updatedAt ?? Number.NEGATIVE_INFINITY,
       apply: (value) => applied.push(value)
     })
 
@@ -43,6 +44,39 @@ describe('subscribeWithHydration', () => {
     await Promise.resolve()
 
     expect(applied).toEqual([dashboard])
+  })
+
+  it('lets a newer hydrated save replace an older startup event', async () => {
+    const initial = deferred<Dashboard | null>()
+    const applied: Array<Dashboard | null> = []
+    let emit!: (value: Dashboard | null) => void
+    const stale = {
+      id: 'restored-dashboard',
+      name: 'Before save',
+      width: 1024,
+      height: 600,
+      bg: '#000',
+      elements: [],
+      updatedAt: 1
+    } satisfies Dashboard
+    const current = { ...stale, name: 'After save', updatedAt: 2 } satisfies Dashboard
+
+    subscribeWithHydration({
+      subscribe: (listener) => {
+        emit = listener
+        return () => {}
+      },
+      hydrate: () => initial.promise,
+      revision: (value) => value?.updatedAt ?? Number.NEGATIVE_INFINITY,
+      apply: (value) => applied.push(value)
+    })
+
+    emit(stale)
+    initial.resolve(current)
+    await initial.promise
+    await Promise.resolve()
+
+    expect(applied).toEqual([stale, current])
   })
 
   it('does not let a stale telemetry seed overwrite a newer live snapshot', async () => {
@@ -66,6 +100,7 @@ describe('subscribeWithHydration', () => {
         return () => {}
       },
       hydrate: () => initial.promise,
+      revision: (value) => value?.timestamp ?? Number.NEGATIVE_INFINITY,
       apply: (value) => applied.push(value)
     })
 

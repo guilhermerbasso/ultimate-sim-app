@@ -1496,19 +1496,6 @@ function useRaceMoment(enabled: boolean, externalSnapshot: TelemetrySnapshot | n
     }
     momentRef.current = initialRaceMomentState()
     const ipc = (window as typeof window & { ipc?: typeof window.ipc }).ipc
-    const offTelemetry = ipc
-      ? ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', (snap) => {
-          liveSnapshotRef.current = snap
-        })
-      : () => undefined
-    if (ipc) {
-      void ipc
-        .invoke<TelemetrySnapshot | null>('telemetry:getLatest')
-        .then((snap) => {
-          liveSnapshotRef.current = snap
-        })
-        .catch(() => undefined)
-    }
     let offPredictions: (() => void) | undefined
     if (ipc) {
       try {
@@ -1534,7 +1521,6 @@ function useRaceMoment(enabled: boolean, externalSnapshot: TelemetrySnapshot | n
       })
     }, MOMENT_RECOMPUTE_MS)
     return () => {
-      offTelemetry()
       offPredictions?.()
       window.clearInterval(id)
     }
@@ -1745,6 +1731,7 @@ export function DashboardRoot() {
         if (next?.id === dashId) apply(next)
       }),
       hydrate: () => window.ipc.invoke<Dashboard | null>('app:dash:get', dashId),
+      revision: (dash) => dash?.updatedAt ?? dash?.createdAt ?? Number.NEGATIVE_INFINITY,
       apply: (dash) => {
         if (!dash) {
           setDashboard(null)
@@ -1838,6 +1825,7 @@ export function DashboardRoot() {
     return subscribeWithHydration<TelemetrySnapshot | null>({
       subscribe: (apply) => window.ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', apply),
       hydrate: () => window.ipc.invoke<TelemetrySnapshot | null>('telemetry:getLatest'),
+      revision: (snap) => snap?.timestamp ?? Number.NEGATIVE_INFINITY,
       apply: (snap) => {
         lastFrameRef.current = performance.now()
         setSnapshot(snap)
