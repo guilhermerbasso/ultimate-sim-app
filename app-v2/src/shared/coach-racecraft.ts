@@ -20,6 +20,11 @@ export type RacecraftEvidenceSource = 'current-lap' | 'history'
 export type RacecraftSafetyReason =
   | 'yellow-flag'
   | 'blue-flag'
+  | 'red-flag'
+  | 'black-flag'
+  | 'meatball'
+  | 'repair'
+  | 'disqualify'
   | 'caution'
   | 'pacing'
   | 'pit'
@@ -41,6 +46,11 @@ export interface RacecraftSafetyContext {
   onPitRoad?: boolean
   flagYellow?: boolean
   flagBlue?: boolean
+  flagRed?: boolean
+  flagBlack?: boolean
+  flagMeatball?: boolean
+  flagRepair?: boolean
+  flagDisqualify?: boolean
   flagCheckered?: boolean
   caution?: boolean
   paceMode?: PaceMode
@@ -321,6 +331,11 @@ export function racecraftSafetyFromSnapshot(
     onPitRoad: snapshot?.onPitRoad,
     flagYellow: snapshot?.flags?.yellow,
     flagBlue: snapshot?.flags?.blue,
+    flagRed: snapshot?.flags?.red,
+    flagBlack: snapshot?.flags?.black,
+    flagMeatball: snapshot?.flags?.meatball,
+    flagRepair: snapshot?.flags?.repair,
+    flagDisqualify: snapshot?.flags?.disqualify,
     flagCheckered: snapshot?.flags?.checkered,
     caution:
       snapshot?.flags?.yellow === true ||
@@ -342,6 +357,11 @@ export function racecraftSafetyReason(
   if (safety.onPitRoad === true) return 'pit'
   if (safety.flagYellow === true) return 'yellow-flag'
   if (safety.flagBlue === true) return 'blue-flag'
+  if (safety.flagRed === true) return 'red-flag'
+  if (safety.flagBlack === true) return 'black-flag'
+  if (safety.flagMeatball === true) return 'meatball'
+  if (safety.flagRepair === true) return 'repair'
+  if (safety.flagDisqualify === true) return 'disqualify'
   if (safety.paceMode !== undefined && safety.paceMode !== 'notPacing') return 'pacing'
   if (safety.caution === true) return 'caution'
   if (
@@ -1262,6 +1282,23 @@ function safetySuppressionText(
       de: 'TAKTIK PAUSIERT — blaue Flagge aktiv. Befolge die Rennleitung und manage den schnelleren Verkehr; jetzt kein Angriffsplan.',
       zh: '战术暂停——蓝旗生效。服从赛会并处理更快车辆；现在不提供进攻或拉开差距方案。',
       ja: '戦術停止 — ブルーフラッグ中です。レースコントロールに従い、速い車両を処理してください。今は攻防プランを出しません。'
+    })
+  }
+  if (
+    reason === 'red-flag' ||
+    reason === 'black-flag' ||
+    reason === 'meatball' ||
+    reason === 'repair' ||
+    reason === 'disqualify'
+  ) {
+    return localized(language, {
+      'en-US': 'TACTICS PAUSED — a safety or penalty flag is active. Follow race control instructions; no attack or pull-away plan now.',
+      'pt-BR': 'TÁTICA PAUSADA — bandeira de segurança ou penalidade ativa. Siga a direção de prova; sem plano de ataque ou fuga agora.',
+      es: 'TÁCTICA EN PAUSA — bandera de seguridad o sanción activa. Sigue dirección de carrera; sin plan de ataque o escapada.',
+      fr: 'TACTIQUE EN PAUSE — drapeau de sécurité ou pénalité actif. Suis la direction de course; aucun plan d’attaque maintenant.',
+      de: 'TAKTIK PAUSIERT — Sicherheits- oder Strafsignal aktiv. Befolge die Rennleitung; jetzt kein Angriffs- oder Absetzplan.',
+      zh: '战术暂停——安全或处罚旗帜生效。服从赛会指令；现在不提供进攻或拉开差距方案。',
+      ja: '戦術停止 — 安全またはペナルティフラッグ中です。レースコントロールに従い、今は攻防プランを出しません。'
     })
   }
   if (reason === 'yellow-flag' || reason === 'caution' || reason === 'pacing') {

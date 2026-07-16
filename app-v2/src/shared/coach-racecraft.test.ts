@@ -12,10 +12,12 @@ import {
   detectRacecraftQuestionWithLanguage,
   MAX_QUALI_BRIEFING_LENGTH,
   MAX_RACECRAFT_ADVICE_LENGTH,
+  racecraftSafetyFromSnapshot,
   type CoachComparableIdentity,
   type CoachLapHistoryEntry,
   type CoachAdviceLanguage
 } from './coach-racecraft'
+import type { Flags, TelemetrySnapshot } from './telemetry'
 
 function finding(
   kind: CoachFindingKind,
@@ -317,25 +319,76 @@ describe('buildRacecraftAdvice', () => {
   it.each([
     ['yellow-flag', { flagYellow: true }],
     ['blue-flag', { flagBlue: true }],
+    ['red-flag', { flagRed: true }],
+    ['black-flag', { flagBlack: true }],
+    ['meatball', { flagMeatball: true }],
+    ['repair', { flagRepair: true }],
+    ['disqualify', { flagDisqualify: true }],
+    ['non-racing', { flagCheckered: true }],
+    ['caution', { caution: true }],
     ['pacing', { paceMode: 'doubleFileRestart' as const }],
     ['pit', { onPitRoad: true }],
     ['replay', { replayState: 'replay' as const }],
     ['non-racing', { sessionState: 'warmup' as const }],
-    ['not-on-track', { connected: false }]
+    ['not-on-track', { onTrack: false }]
   ])('suppresses tactical advice for %s', (reason, safety) => {
-    const advice = buildRacecraftAdvice('overtake', {
-      safety,
-      findings: [finding('throttle-late', { corner: 7, phase: 'exit' })],
-      currentGapAheadSec: 0.7
-    })
+    for (const intent of ['overtake', 'pull-away'] as const) {
+      const advice = buildRacecraftAdvice(intent, {
+        safety,
+        findings: [finding('throttle-late', { corner: 7, phase: 'exit' })],
+        currentGapAheadSec: 0.7,
+        currentGapBehindSec: 0.7
+      })
 
-    expect(advice).toMatchObject({
-      mode: 'suppressed',
-      suppressedReason: reason,
-      items: [],
-      gapTrend: 'unknown'
-    })
-    expect(advice.text).not.toContain('Turn 7')
+      expect(advice).toMatchObject({
+        mode: 'suppressed',
+        suppressedReason: reason,
+        items: [],
+        gapTrend: 'unknown'
+      })
+      expect(advice.text).not.toContain('Turn 7')
+    }
+  })
+
+  it.each([
+    'yellow',
+    'blue',
+    'red',
+    'black',
+    'meatball',
+    'repair',
+    'disqualify',
+    'checkered'
+  ] as const)('maps telemetry flag %s into suppression for both tactical intents', (flag) => {
+    const flags: Flags = {
+      green: false,
+      yellow: false,
+      blue: false,
+      white: false,
+      checkered: false,
+      red: false,
+      black: false,
+      meatball: false,
+      repair: false,
+      disqualify: false,
+      greenWhiteCheckered: false,
+      [flag]: true
+    }
+    const safety = racecraftSafetyFromSnapshot({
+      connected: true,
+      flags
+    } as TelemetrySnapshot)
+
+    for (const intent of ['overtake', 'pull-away'] as const) {
+      expect(
+        buildRacecraftAdvice(intent, {
+          safety,
+          findings: [finding('brake-late', { corner: 2 })],
+          currentGapAheadSec: 0.8,
+          currentGapBehindSec: 0.8
+        })
+      ).toMatchObject({ mode: 'suppressed', items: [] })
+    }
   })
 
   it('ignores huge irrelevant gaps and requires confidence before calling a trend closing', () => {

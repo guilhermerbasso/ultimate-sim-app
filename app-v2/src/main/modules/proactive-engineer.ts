@@ -762,6 +762,10 @@ const DEFAULT_MIN_SPEED_KMH = 5
 const MAX_RACECRAFT_HISTORY_LAPS = 120
 const MAX_GAP_SAMPLES = 24
 const MIN_GAP_SAMPLE_INTERVAL_MS = 500
+const NO_ID_START_MARKER_TOLERANCE_MS = 10_000
+const NO_ID_SESSION_TIME_RESET_SEC = 5
+const NO_ID_REMAINING_RESET_SEC = 30
+const GENERATED_SESSION_SIMS = new Set(['acc', 'ac', 'ams2', 'lmu'])
 const RACECRAFT_HISTORY_FILE = 'coach-racecraft-history.json'
 const RACECRAFT_HISTORY_VERSION = 1 as const
 
@@ -1069,6 +1073,14 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   let conditionIdentityKey: string | null = null
   let stableTrackCondition: CoachTrackCondition | undefined
   let lastQualiSessionKey: string | null = null
+  let noIdSessionBaseKey: string | null = null
+  let noIdSessionGeneration = 0
+  let noIdLastKind: ReturnType<typeof deriveSessionKind> | null = null
+  let noIdLastStartMarkerMs: number | undefined
+  let noIdLastSessionTimeSec: number | undefined
+  let noIdLastRemainingSec: number | undefined
+  let noIdLastLap: number | undefined
+  let noIdSuppressLapResetOnce = false
   let lastEmitAt = 0
   let lastEmittedFindingId: string | null = null
   let lastLapCount: number | null = null
@@ -1405,19 +1417,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     maybeEmitCatch(snapshot, deps.getConfig())
   }
 
-  function qualiSessionKey(snapshot: TelemetrySnapshot): string {
-    const canonical = snapshot.replayContext?.sessionIdentity?.trim()
-    if (canonical) {
-      return [
-        `canonical:${canonical}`,
-        Number.isFinite(snapshot.sessionUniqueId) ? snapshot.sessionUniqueId : '',
-        Number.isFinite(snapshot.sessionNumber) ? snapshot.sessionNumber : ''
-      ].join(':')
-    }
-    if (Number.isFinite(snapshot.sessionUniqueId)) return `session:${snapshot.sessionUniqueId}`
-    if (Number.isFinite(snapshot.sessionNumber)) {
-      return `session-number:${snapshot.sim}:${snapshot.sessionNumber}`
-    }
+  function noIdSessionBase(snapshot: TelemetrySnapshot): string {
     return [
       snapshot.sim,
       normalizedIdentityPart(snapshot.trackId === undefined ? undefined : String(snapshot.trackId)),
@@ -1427,10 +1427,114 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     ].join('::')
   }
 
+  function derivedSessionStartMarker(snapshot: TelemetrySnapshot): number | undefined {
+    if (
+      !Number.isFinite(snapshot.timestamp) ||
+      !Number.isFinite(snapshot.sessionTimeSec) ||
+      (snapshot.sessionTimeSec as number) < 0
+    ) return undefined
+    return snapshot.timestamp - (snapshot.sessionTimeSec as number) * 1000
+  }
+
+  function noIdSessionKey(snapshot: TelemetrySnapshot): string {
+    const suppressLapOnlyReset = noIdSuppressLapResetOnce
+    noIdSuppressLapResetOnce = false
+    const base = noIdSessionBase(snapshot)
+    const kind = deriveSessionKind(snapshot.sessionType)
+    const startMarker = derivedSessionStartMarker(snapshot)
+    const sessionTimeSec = Number.isFinite(snapshot.sessionTimeSec) ? snapshot.sessionTimeSec : undefined
+    const remainingSec = Number.isFinite(snapshot.sessionTimeRemainingSec)
+      ? snapshot.sessionTimeRemainingSec
+      : undefined
+    const lap = isRealLapCount(snapshot.currentLap) ? snapshot.currentLap : undefined
+
+    if (noIdSessionBaseKey !== base) {
+      noIdSessionBaseKey = base
+      noIdSessionGeneration += 1
+      noIdLastKind = kind === 'unknown' ? null : kind
+      noIdLastStartMarkerMs = startMarker
+      noIdLastSessionTimeSec = sessionTimeSec
+      noIdLastRemainingSec = remainingSec
+      noIdLastLap = lap
+      return `${base}::generation:${noIdSessionGeneration}`
+    }
+
+    const phaseChanged =
+      kind !== 'unknown' &&
+      noIdLastKind !== null &&
+      kind !== noIdLastKind
+    const startMarkerChanged =
+      startMarker !== undefined &&
+      noIdLastStartMarkerMs !== undefined &&
+      Math.abs(startMarker - noIdLastStartMarkerMs) > NO_ID_START_MARKER_TOLERANCE_MS
+    const sessionTimeReset =
+      sessionTimeSec !== undefined &&
+      noIdLastSessionTimeSec !== undefined &&
+      sessionTimeSec + NO_ID_SESSION_TIME_RESET_SEC < noIdLastSessionTimeSec
+    const remainingIncreased =
+      remainingSec !== undefined &&
+      noIdLastRemainingSec !== undefined &&
+      remainingSec > noIdLastRemainingSec + NO_ID_REMAINING_RESET_SEC
+    const lapReset =
+      lap !== undefined &&
+      noIdLastLap !== undefined &&
+      noIdLastLap >= 2 &&
+      lap <= 1
+    const remainingReset =
+      remainingIncreased &&
+      (lapReset || (noIdLastRemainingSec !== undefined && noIdLastRemainingSec <= NO_ID_REMAINING_RESET_SEC))
+    const lapOnlyReset =
+      lapReset &&
+      !suppressLapOnlyReset &&
+      sessionTimeSec === undefined &&
+      remainingSec === undefined
+    const newSession =
+      phaseChanged ||
+      startMarkerChanged ||
+      sessionTimeReset ||
+      remainingReset ||
+      lapOnlyReset
+
+    if (newSession) {
+      noIdSessionGeneration += 1
+      noIdLastKind = kind === 'unknown' ? noIdLastKind : kind
+      noIdLastStartMarkerMs = startMarker
+      noIdLastSessionTimeSec = sessionTimeSec
+      noIdLastRemainingSec = remainingSec
+      noIdLastLap = lap
+    } else {
+      if (kind !== 'unknown') noIdLastKind = kind
+      if (startMarker !== undefined) noIdLastStartMarkerMs = startMarker
+      if (sessionTimeSec !== undefined) noIdLastSessionTimeSec = sessionTimeSec
+      if (remainingSec !== undefined) noIdLastRemainingSec = remainingSec
+      if (lap !== undefined) noIdLastLap = lap
+    }
+
+    return `${base}::generation:${noIdSessionGeneration}`
+  }
+
+  function qualiSessionKey(snapshot: TelemetrySnapshot): string {
+    if (!GENERATED_SESSION_SIMS.has(snapshot.sim)) {
+      const canonical = snapshot.replayContext?.sessionIdentity?.trim()
+      if (canonical) {
+        return [
+          `canonical:${canonical}`,
+          Number.isFinite(snapshot.sessionUniqueId) ? snapshot.sessionUniqueId : '',
+          Number.isFinite(snapshot.sessionNumber) ? snapshot.sessionNumber : ''
+        ].join(':')
+      }
+      if (Number.isFinite(snapshot.sessionUniqueId)) return `session:${snapshot.sessionUniqueId}`
+      if (Number.isFinite(snapshot.sessionNumber)) {
+        return `session-number:${snapshot.sim}:${snapshot.sessionNumber}`
+      }
+    }
+    return noIdSessionKey(snapshot)
+  }
+
   function maybeEmitQualiStart(snapshot: TelemetrySnapshot, config: ProactiveConfigView): void {
+    const key = qualiSessionKey(snapshot)
     const kind = deriveSessionKind(snapshot.sessionType)
     if (kind !== 'qualify') return
-    const key = qualiSessionKey(snapshot)
     if (lastQualiSessionKey === key) return
     if (!config.proactiveCoaching) return
     lastQualiSessionKey = key
@@ -1592,6 +1696,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       return
     }
     if (live.boundary) resetLiveSession()
+    if (live.enteredLive && !live.sessionChanged) noIdSuppressLapResetOnce = true
 
     const config = deps.getConfig()
     // Fully disabled → do nothing (the on-demand engineer reports "off" anyway).

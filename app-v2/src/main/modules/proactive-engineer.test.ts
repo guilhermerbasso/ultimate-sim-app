@@ -577,6 +577,118 @@ describe('createProactiveEngine', () => {
     expect(harness.events).toHaveLength(2)
   })
 
+  it('creates a new no-ID generation for Qualify → Race → new Qualify on the same context', () => {
+    const { harness, engine } = makeEngine({ language: 'en-US' })
+    const context = {
+      sim: 'acc' as const,
+      trackName: 'Monza',
+      carName: 'GT3 R',
+      carPath: 'gt3r',
+      trackWetnessPct: 0,
+      isRaining: false
+    }
+
+    engine.onSnapshot(
+      makeSnapshot(0.1, {
+        ...context,
+        sessionType: 'Qualify',
+        timestamp: 1_000,
+        sessionTimeRemainingSec: 600,
+        currentLap: 1
+      })
+    )
+    engine.onSnapshot(
+      makeSnapshot(0.2, {
+        ...context,
+        sessionType: 'Race',
+        timestamp: 2_000,
+        sessionTimeRemainingSec: 3_600,
+        currentLap: 1
+      })
+    )
+    engine.onSnapshot(
+      makeSnapshot(0.1, {
+        ...context,
+        sessionType: 'Qualify',
+        timestamp: 3_000,
+        sessionTimeRemainingSec: 600,
+        currentLap: 1
+      })
+    )
+
+    expect(harness.events).toHaveLength(2)
+    expect(harness.events.every((event) => event.eventType === 'insufficient-history')).toBe(true)
+  })
+
+  it('keeps the same no-ID qualifying generation across replay/disconnect/reconnect', () => {
+    const { harness, engine } = makeEngine({ language: 'en-US' })
+    const live = (timestamp: number, currentLap: number) =>
+      makeSnapshot(0.1, {
+        sim: 'acc',
+        sessionType: 'Qualify',
+        timestamp,
+        currentLap,
+        trackName: 'Monza',
+        carName: 'GT3 R',
+        carPath: 'gt3r',
+        trackWetnessPct: 0,
+        isRaining: false
+      })
+    const replay = {
+      ...live(2_000, 3),
+      replayContext: {
+        state: 'replay' as const,
+        reason: 'replay-playing' as const,
+        inputs: {},
+        active: true,
+        revision: 1,
+        token: 'replay',
+        connectionEpoch: 1
+      }
+    }
+
+    engine.onSnapshot(live(1_000, 3))
+    engine.onSnapshot(replay)
+    engine.onSnapshot(null)
+    engine.onSnapshot(live(3_000, 1))
+
+    expect(harness.events).toHaveLength(1)
+  })
+
+  it('detects a new same-phase no-ID session from start-time and lap reset signals', () => {
+    const { harness, engine } = makeEngine({ language: 'en-US' })
+    const context = {
+      sim: 'lmu' as const,
+      sessionType: 'Qualify',
+      trackName: 'Le Mans',
+      carName: 'GT3 R',
+      carPath: 'gt3r',
+      trackWetnessPct: 0,
+      isRaining: false
+    }
+
+    engine.onSnapshot(
+      makeSnapshot(0.6, {
+        ...context,
+        timestamp: 101_000,
+        sessionTimeSec: 100,
+        sessionTimeRemainingSec: 500,
+        currentLap: 3
+      })
+    )
+    engine.onSnapshot(
+      makeSnapshot(0.01, {
+        ...context,
+        timestamp: 200_000,
+        sessionTimeSec: 0,
+        sessionTimeRemainingSec: 600,
+        currentLap: 1
+      })
+    )
+
+    expect(harness.events).toHaveLength(2)
+  })
+
   it('uses sufficient comparable valid-lap history in the qualifying-start summary', () => {
     const recurring = makeFinding({
       sector: 2,
