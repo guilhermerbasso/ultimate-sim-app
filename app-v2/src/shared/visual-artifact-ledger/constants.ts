@@ -1,0 +1,19 @@
+export const VISUAL_ARTIFACT_LEDGER_VERSION = 2 as const
+export const GOVERNED_STYLE_COUNT = 50 as const
+export const GOVERNED_CONCEPT_COUNT = 143 as const
+export const BASE_ARTIFACT_COUNT = 14_350 as const
+export const MIN_TRIGGER_ARTIFACT_COUNT = 500 as const
+export const MIN_TOTAL_ARTIFACT_COUNT = 14_850 as const
+export const IMAGE_REQUEST_LIMIT = 6 as const
+
+export const MAX_ARTIFACTS = 20_000 as const
+export const MAX_LEDGER_EVENTS = 250_000 as const
+export const MAX_SCHEDULER_EVENTS = 250_000 as const
+export const MAX_EVIDENCE = 220_000 as const
+export const MAX_SERIALIZED_BYTES = 192 * 1024 * 1024
+export const MAX_STRING_LENGTH = 512 as const
+export const MAX_IDENTIFIER_LENGTH = 128 as const
+export const MAX_CANONICAL_DEPTH = 32 as const
+export const MAX_CANONICAL_NODES = 8_000_000 as const
+
+export const ZERO_HASH = '0'.repeat(64)

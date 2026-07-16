@@ -1,0 +1,1661 @@
+import {
+  assertExactKeys,
+  assertIdentifier,
+  assertIsoTimestamp,
+  assertPlainObject,
+  assertSafeInteger,
+  assertSha256,
+  canonicalStringify,
+  cloneCanonical,
+  compareIso,
+  deepFreeze,
+  sha256Hex,
+  utf8ByteLength
+} from './canonical'
+import {
+  MAX_EVIDENCE,
+  MAX_LEDGER_EVENTS,
+  MAX_SERIALIZED_BYTES,
+  VISUAL_ARTIFACT_LEDGER_VERSION,
+  ZERO_HASH
+} from './constants'
+import { fail } from './errors'
+import {
+  expectedArtifactIds,
+  expectedArtifactSetHash,
+  parseArtifactId,
+  parseArtifactPlan,
+  type ArtifactId,
+  type ArtifactPlan
+} from './plan'
+import {
+  ValidatedImageScheduler,
+  type ImageFailureReason,
+  type SchedulerReceipt
+} from './scheduler'
+
+export type EvidenceKind =
+  | 'research'
+  | 'prompt-draft'
+  | 'prompt-qa'
+  | 'image-generation'
+  | 'image-qa'
+  | 'implementation'
+  | 'render'
+  | 'render-qa'
+  | 'acceptance'
+  | 'exhaustion'
+
+export interface ArtifactEvidence {
+  readonly evidenceId: string
+  readonly artifactId: ArtifactId
+  readonly revision: number
+  readonly kind: EvidenceKind
+  readonly createdAt: string
+  readonly createdBy: string
+  readonly subjectHash: string
+  readonly contentHash: string
+}
+
+export type ArtifactRevisionStatus =
+  | 'started'
+  | 'researched'
+  | 'prompt-drafted'
+  | 'prompt-approved'
+  | 'image-generated'
+  | 'image-approved'
+  | 'implemented'
+  | 'render-approved'
+  | 'accepted'
+  | 'rejected'
+  | 'exhausted'
+
+export type ArtifactEventType =
+  | 'artifact-revision-started'
+  | 'artifact-revision-superseded'
+  | 'research-recorded'
+  | 'prompt-drafted'
+  | 'prompt-qa-reviewed'
+  | 'image-generation-recorded'
+  | 'image-qa-reviewed'
+  | 'implementation-recorded'
+  | 'render-qa-reviewed'
+  | 'artifact-accepted'
+  | 'revision-exhausted'
+  | 'ledger-finalized'
+
+interface ArtifactEventHeader {
+  readonly sequence: number
+  readonly type: ArtifactEventType
+  readonly occurredAt: string
+  readonly actorId: string
+  readonly previousEventHash: string
+  readonly eventHash: string
+}
+
+interface ArtifactRevisionEventHeader extends ArtifactEventHeader {
+  readonly artifactId: ArtifactId
+  readonly revision: number
+}
+
+export interface ArtifactRevisionStartedEvent extends ArtifactRevisionEventHeader {
+  readonly type: 'artifact-revision-started'
+  readonly specificationHash: string
+  readonly planHash: string
+}
+
+export interface ArtifactRevisionSupersededEvent extends ArtifactRevisionEventHeader {
+  readonly type: 'artifact-revision-superseded'
+  readonly priorRevision: number
+  readonly priorRevisionRootHash: string
+  readonly specificationHash: string
+  readonly planHash: string
+}
+
+export interface ResearchRecordedEvent extends ArtifactRevisionEventHeader {
+  readonly type: 'research-recorded'
+  readonly researchHash: string
+  readonly evidence: ArtifactEvidence
+}
+
+export interface PromptDraftedEvent extends ArtifactRevisionEventHeader {
+  readonly type: 'prompt-drafted'
+  readonly promptHash: string
+  readonly evidence: ArtifactEvidence
+}
+
+export interface PromptQaReviewedEvent extends ArtifactRevisionEventHeader {
+  readonly type: 'prompt-qa-reviewed'
+  readonly promptHash: string
+  readonly verdict: 'approved' | 'rejected'
+  readonly reportHash: string
+  readonly evidence: ArtifactEvidence
+}
+
+export interface ImageGenerationRecordedEvent extends ArtifactRevisionEventHeader {
+  readonly type: 'image-generation-recorded'
+  readonly attempt: number
+  readonly promptHash: string
+  readonly promptApprovalHash: string
+  readonly requestHash: string
+  readonly imageHash: string
+  readonly idempotencyKey: string
+  readonly policyHash: string
+  readonly schedulerCallId: string
+  readonly schedulerCallHash: string
+  readonly schedulerReceiptHash: string
+  readonly evidence: ArtifactEvidence
+}
+
+export interface ImageQaReviewedEvent extends ArtifactRevisionEventHeader {
+  readonly type: 'image-qa-reviewed'
+  readonly imageHash: string
+  readonly verdict: 'approved' | 'rejected'
+  readonly reportHash: string
+  readonly evidence: ArtifactEvidence
+}
+
+export interface ImplementationRecordedEvent extends ArtifactRevisionEventHeader {
+  readonly type: 'implementation-recorded'
+  readonly implementationHash: string
+  readonly evidence: ArtifactEvidence
+}
+
+export interface RenderQaReviewedEvent extends ArtifactRevisionEventHeader {
+  readonly type: 'render-qa-reviewed'
+  readonly renderHash: string
+  readonly verdict: 'approved' | 'rejected'
+  readonly reportHash: string
+  readonly renderEvidence: ArtifactEvidence
+  readonly qaEvidence: ArtifactEvidence
+}
+
+export interface ArtifactAcceptedEvent extends ArtifactRevisionEventHeader {
+  readonly type: 'artifact-accepted'
+  readonly acceptanceHash: string
+  readonly evidence: ArtifactEvidence
+}
+
+export interface RevisionExhaustedEvent extends ArtifactRevisionEventHeader {
+  readonly type: 'revision-exhausted'
+  readonly schedulerCallId: string
+  readonly schedulerCallHash: string
+  readonly failureReason: ImageFailureReason
+  readonly exhaustionHash: string
+  readonly evidence: ArtifactEvidence
+}
+
+export interface LedgerFinalizedEvent extends ArtifactEventHeader {
+  readonly type: 'ledger-finalized'
+  readonly planHash: string
+  readonly registryHash: string
+  readonly artifactCount: number
+  readonly artifactSetHash: string
+  readonly trustedCheckpointSequence: number
+  readonly trustedCheckpointRootHash: string
+}
+
+export type ArtifactEvent =
+  | ArtifactRevisionStartedEvent
+  | ArtifactRevisionSupersededEvent
+  | ResearchRecordedEvent
+  | PromptDraftedEvent
+  | PromptQaReviewedEvent
+  | ImageGenerationRecordedEvent
+  | ImageQaReviewedEvent
+  | ImplementationRecordedEvent
+  | RenderQaReviewedEvent
+  | ArtifactAcceptedEvent
+  | RevisionExhaustedEvent
+  | LedgerFinalizedEvent
+
+type StoredEventMetadata = 'sequence' | 'previousEventHash' | 'eventHash'
+
+type ArtifactEventInput =
+  | Omit<ArtifactRevisionStartedEvent, StoredEventMetadata>
+  | Omit<ArtifactRevisionSupersededEvent, StoredEventMetadata>
+  | Omit<ResearchRecordedEvent, StoredEventMetadata>
+  | Omit<PromptDraftedEvent, StoredEventMetadata>
+  | Omit<PromptQaReviewedEvent, StoredEventMetadata>
+  | Omit<ImageGenerationRecordedEvent, StoredEventMetadata>
+  | Omit<ImageQaReviewedEvent, StoredEventMetadata>
+  | Omit<ImplementationRecordedEvent, StoredEventMetadata>
+  | Omit<RenderQaReviewedEvent, StoredEventMetadata>
+  | Omit<ArtifactAcceptedEvent, StoredEventMetadata>
+  | Omit<RevisionExhaustedEvent, StoredEventMetadata>
+
+interface MutableRevisionState {
+  revision: number
+  status: ArtifactRevisionStatus
+  specificationHash: string
+  rootHash: string
+  researchHash?: string
+  researchAuthor?: string
+  promptHash?: string
+  promptAuthor?: string
+  promptQaReportHash?: string
+  promptReviewer?: string
+  promptApprovedAt?: string
+  promptApprovalEventHash?: string
+  generationAttempt?: number
+  requestHash?: string
+  imageHash?: string
+  imageGenerator?: string
+  schedulerCallId?: string
+  schedulerReceiptHash?: string
+  imageQaReportHash?: string
+  imageReviewer?: string
+  implementationHash?: string
+  implementer?: string
+  renderHash?: string
+  renderQaReportHash?: string
+  renderReviewer?: string
+  acceptanceHash?: string
+}
+
+interface MutableArtifactHistory {
+  artifactId: ArtifactId
+  revisions: MutableRevisionState[]
+}
+
+export interface ArtifactRevisionSnapshot {
+  readonly revision: number
+  readonly status: ArtifactRevisionStatus
+  readonly specificationHash: string
+  readonly rootHash: string
+  readonly researchHash?: string
+  readonly promptHash?: string
+  readonly promptQaReportHash?: string
+  readonly promptApprovedAt?: string
+  readonly promptApprovalEventHash?: string
+  readonly generationAttempt?: number
+  readonly requestHash?: string
+  readonly imageHash?: string
+  readonly schedulerCallId?: string
+  readonly schedulerReceiptHash?: string
+  readonly imageQaReportHash?: string
+  readonly implementationHash?: string
+  readonly renderHash?: string
+  readonly renderQaReportHash?: string
+  readonly acceptanceHash?: string
+}
+
+export interface ArtifactHistorySnapshot {
+  readonly artifactId: ArtifactId
+  readonly revisions: readonly ArtifactRevisionSnapshot[]
+}
+
+export interface LedgerCheckpoint {
+  readonly schemaVersion: typeof VISUAL_ARTIFACT_LEDGER_VERSION
+  readonly sequence: number
+  readonly eventHash: string
+  readonly rootHash: string
+  readonly planHash: string
+  readonly registryHash: string
+}
+
+export interface SerializedVisualArtifactLedger {
+  readonly schemaVersion: typeof VISUAL_ARTIFACT_LEDGER_VERSION
+  readonly plan: ArtifactPlan
+  readonly events: readonly ArtifactEvent[]
+}
+
+export interface LedgerTrustOptions {
+  readonly trustedRootHash?: string
+  readonly trustedCheckpoint?: LedgerCheckpoint
+}
+
+export interface ParseVisualArtifactLedgerOptions extends LedgerTrustOptions {
+  readonly scheduler?: ValidatedImageScheduler
+}
+
+const EVIDENCE_KEYS = [
+  'evidenceId',
+  'artifactId',
+  'revision',
+  'kind',
+  'createdAt',
+  'createdBy',
+  'subjectHash',
+  'contentHash'
+] as const
+
+const EVENT_HEADER_KEYS = [
+  'sequence',
+  'type',
+  'occurredAt',
+  'actorId',
+  'previousEventHash',
+  'eventHash'
+] as const
+
+const INPUT_HEADER_KEYS = ['type', 'occurredAt', 'actorId'] as const
+const REVISION_INPUT_KEYS = [...INPUT_HEADER_KEYS, 'artifactId', 'revision'] as const
+const REVISION_EVENT_KEYS = [...EVENT_HEADER_KEYS, 'artifactId', 'revision'] as const
+
+const EVIDENCE_KINDS: readonly EvidenceKind[] = [
+  'research',
+  'prompt-draft',
+  'prompt-qa',
+  'image-generation',
+  'image-qa',
+  'implementation',
+  'render',
+  'render-qa',
+  'acceptance',
+  'exhaustion'
+]
+
+const IMAGE_FAILURE_REASONS: readonly ImageFailureReason[] = [
+  'rate-limit',
+  'timeout',
+  'transient-service',
+  'content-policy',
+  'quota-exhausted',
+  'budget-exhausted',
+  'authentication',
+  'deployment-mismatch',
+  'manual-review'
+]
+
+function assertVerdict(value: unknown, label: string): 'approved' | 'rejected' {
+  if (value !== 'approved' && value !== 'rejected') {
+    fail('SCHEMA', `${label} must be approved or rejected.`)
+  }
+  return value
+}
+
+function normalizeEvidence(value: unknown, label: string): ArtifactEvidence {
+  assertPlainObject(value, label)
+  assertExactKeys(value, EVIDENCE_KEYS, label)
+  if (!EVIDENCE_KINDS.includes(value.kind as EvidenceKind)) {
+    fail('SCHEMA', `${label}.kind is unsupported.`)
+  }
+  return deepFreeze({
+    evidenceId: assertIdentifier(value.evidenceId, `${label}.evidenceId`),
+    artifactId: parseArtifactId(value.artifactId).id,
+    revision: assertSafeInteger(value.revision, `${label}.revision`, 1, 10_000),
+    kind: value.kind as EvidenceKind,
+    createdAt: assertIsoTimestamp(value.createdAt, `${label}.createdAt`),
+    createdBy: assertIdentifier(value.createdBy, `${label}.createdBy`),
+    subjectHash: assertSha256(value.subjectHash, `${label}.subjectHash`),
+    contentHash: assertSha256(value.contentHash, `${label}.contentHash`)
+  })
+}
+
+function normalizeInput(value: unknown): ArtifactEventInput {
+  assertPlainObject(value, 'Artifact event')
+  const type = value.type
+  if (typeof type !== 'string') fail('SCHEMA', 'Artifact event type must be a string.')
+  const occurredAt = assertIsoTimestamp(value.occurredAt, 'Artifact event occurredAt')
+  const actorId = assertIdentifier(value.actorId, 'Artifact event actorId')
+
+  if (type === 'artifact-revision-started') {
+    assertExactKeys(
+      value,
+      [...REVISION_INPUT_KEYS, 'specificationHash', 'planHash'],
+      'Artifact revision start'
+    )
+    return {
+      type,
+      occurredAt,
+      actorId,
+      artifactId: parseArtifactId(value.artifactId).id,
+      revision: assertSafeInteger(value.revision, 'Artifact revision start revision', 1, 10_000),
+      specificationHash: assertSha256(
+        value.specificationHash,
+        'Artifact revision start specificationHash'
+      ),
+      planHash: assertSha256(value.planHash, 'Artifact revision start planHash')
+    }
+  }
+  if (type === 'artifact-revision-superseded') {
+    assertExactKeys(
+      value,
+      [
+        ...REVISION_INPUT_KEYS,
+        'priorRevision',
+        'priorRevisionRootHash',
+        'specificationHash',
+        'planHash'
+      ],
+      'Artifact revision supersession'
+    )
+    return {
+      type,
+      occurredAt,
+      actorId,
+      artifactId: parseArtifactId(value.artifactId).id,
+      revision: assertSafeInteger(value.revision, 'Artifact supersession revision', 2, 10_000),
+      priorRevision: assertSafeInteger(value.priorRevision, 'Artifact supersession priorRevision', 1, 9_999),
+      priorRevisionRootHash: assertSha256(
+        value.priorRevisionRootHash,
+        'Artifact supersession priorRevisionRootHash'
+      ),
+      specificationHash: assertSha256(
+        value.specificationHash,
+        'Artifact supersession specificationHash'
+      ),
+      planHash: assertSha256(value.planHash, 'Artifact supersession planHash')
+    }
+  }
+
+  const artifactId = parseArtifactId(value.artifactId).id
+  const revision = assertSafeInteger(value.revision, 'Artifact event revision', 1, 10_000)
+  if (type === 'research-recorded') {
+    assertExactKeys(value, [...REVISION_INPUT_KEYS, 'researchHash', 'evidence'], 'Research event')
+    return {
+      type,
+      occurredAt,
+      actorId,
+      artifactId,
+      revision,
+      researchHash: assertSha256(value.researchHash, 'Research event researchHash'),
+      evidence: normalizeEvidence(value.evidence, 'Research event evidence')
+    }
+  }
+  if (type === 'prompt-drafted') {
+    assertExactKeys(value, [...REVISION_INPUT_KEYS, 'promptHash', 'evidence'], 'Prompt draft event')
+    return {
+      type,
+      occurredAt,
+      actorId,
+      artifactId,
+      revision,
+      promptHash: assertSha256(value.promptHash, 'Prompt draft promptHash'),
+      evidence: normalizeEvidence(value.evidence, 'Prompt draft evidence')
+    }
+  }
+  if (type === 'prompt-qa-reviewed') {
+    assertExactKeys(
+      value,
+      [...REVISION_INPUT_KEYS, 'promptHash', 'verdict', 'reportHash', 'evidence'],
+      'Prompt QA event'
+    )
+    return {
+      type,
+      occurredAt,
+      actorId,
+      artifactId,
+      revision,
+      promptHash: assertSha256(value.promptHash, 'Prompt QA promptHash'),
+      verdict: assertVerdict(value.verdict, 'Prompt QA verdict'),
+      reportHash: assertSha256(value.reportHash, 'Prompt QA reportHash'),
+      evidence: normalizeEvidence(value.evidence, 'Prompt QA evidence')
+    }
+  }
+  if (type === 'image-generation-recorded') {
+    assertExactKeys(
+      value,
+      [
+        ...REVISION_INPUT_KEYS,
+        'attempt',
+        'promptHash',
+        'promptApprovalHash',
+        'requestHash',
+        'imageHash',
+        'idempotencyKey',
+        'policyHash',
+        'schedulerCallId',
+        'schedulerCallHash',
+        'schedulerReceiptHash',
+        'evidence'
+      ],
+      'Image generation event'
+    )
+    return {
+      type,
+      occurredAt,
+      actorId,
+      artifactId,
+      revision,
+      attempt: assertSafeInteger(value.attempt, 'Image generation attempt', 1, 10),
+      promptHash: assertSha256(value.promptHash, 'Image generation promptHash'),
+      promptApprovalHash: assertSha256(
+        value.promptApprovalHash,
+        'Image generation promptApprovalHash'
+      ),
+      requestHash: assertSha256(value.requestHash, 'Image generation requestHash'),
+      imageHash: assertSha256(value.imageHash, 'Image generation imageHash'),
+      idempotencyKey: assertIdentifier(value.idempotencyKey, 'Image generation idempotencyKey'),
+      policyHash: assertSha256(value.policyHash, 'Image generation policyHash'),
+      schedulerCallId: assertIdentifier(value.schedulerCallId, 'Image generation schedulerCallId'),
+      schedulerCallHash: assertSha256(
+        value.schedulerCallHash,
+        'Image generation schedulerCallHash'
+      ),
+      schedulerReceiptHash: assertSha256(
+        value.schedulerReceiptHash,
+        'Image generation schedulerReceiptHash'
+      ),
+      evidence: normalizeEvidence(value.evidence, 'Image generation evidence')
+    }
+  }
+  if (type === 'image-qa-reviewed') {
+    assertExactKeys(
+      value,
+      [...REVISION_INPUT_KEYS, 'imageHash', 'verdict', 'reportHash', 'evidence'],
+      'Image QA event'
+    )
+    return {
+      type,
+      occurredAt,
+      actorId,
+      artifactId,
+      revision,
+      imageHash: assertSha256(value.imageHash, 'Image QA imageHash'),
+      verdict: assertVerdict(value.verdict, 'Image QA verdict'),
+      reportHash: assertSha256(value.reportHash, 'Image QA reportHash'),
+      evidence: normalizeEvidence(value.evidence, 'Image QA evidence')
+    }
+  }
+  if (type === 'implementation-recorded') {
+    assertExactKeys(
+      value,
+      [...REVISION_INPUT_KEYS, 'implementationHash', 'evidence'],
+      'Implementation event'
+    )
+    return {
+      type,
+      occurredAt,
+      actorId,
+      artifactId,
+      revision,
+      implementationHash: assertSha256(
+        value.implementationHash,
+        'Implementation event implementationHash'
+      ),
+      evidence: normalizeEvidence(value.evidence, 'Implementation evidence')
+    }
+  }
+  if (type === 'render-qa-reviewed') {
+    assertExactKeys(
+      value,
+      [
+        ...REVISION_INPUT_KEYS,
+        'renderHash',
+        'verdict',
+        'reportHash',
+        'renderEvidence',
+        'qaEvidence'
+      ],
+      'Render QA event'
+    )
+    return {
+      type,
+      occurredAt,
+      actorId,
+      artifactId,
+      revision,
+      renderHash: assertSha256(value.renderHash, 'Render QA renderHash'),
+      verdict: assertVerdict(value.verdict, 'Render QA verdict'),
+      reportHash: assertSha256(value.reportHash, 'Render QA reportHash'),
+      renderEvidence: normalizeEvidence(value.renderEvidence, 'Render evidence'),
+      qaEvidence: normalizeEvidence(value.qaEvidence, 'Render QA evidence')
+    }
+  }
+  if (type === 'artifact-accepted') {
+    assertExactKeys(
+      value,
+      [...REVISION_INPUT_KEYS, 'acceptanceHash', 'evidence'],
+      'Artifact acceptance event'
+    )
+    return {
+      type,
+      occurredAt,
+      actorId,
+      artifactId,
+      revision,
+      acceptanceHash: assertSha256(value.acceptanceHash, 'Artifact acceptance acceptanceHash'),
+      evidence: normalizeEvidence(value.evidence, 'Artifact acceptance evidence')
+    }
+  }
+  if (type === 'revision-exhausted') {
+    assertExactKeys(
+      value,
+      [
+        ...REVISION_INPUT_KEYS,
+        'schedulerCallId',
+        'schedulerCallHash',
+        'failureReason',
+        'exhaustionHash',
+        'evidence'
+      ],
+      'Revision exhaustion event'
+    )
+    if (!IMAGE_FAILURE_REASONS.includes(value.failureReason as ImageFailureReason)) {
+      fail('SCHEMA', 'Revision exhaustion failureReason is unsupported.')
+    }
+    return {
+      type,
+      occurredAt,
+      actorId,
+      artifactId,
+      revision,
+      schedulerCallId: assertIdentifier(
+        value.schedulerCallId,
+        'Revision exhaustion schedulerCallId'
+      ),
+      schedulerCallHash: assertSha256(
+        value.schedulerCallHash,
+        'Revision exhaustion schedulerCallHash'
+      ),
+      failureReason: value.failureReason as ImageFailureReason,
+      exhaustionHash: assertSha256(value.exhaustionHash, 'Revision exhaustion exhaustionHash'),
+      evidence: normalizeEvidence(value.evidence, 'Revision exhaustion evidence')
+    }
+  }
+  if (type === 'ledger-finalized') {
+    fail('FINALIZATION', 'Ledger finalization is available only through finalize().')
+  }
+  fail('SCHEMA', `Artifact event type "${type}" is unsupported.`)
+}
+
+export function computeArtifactEventHash(event: Omit<ArtifactEvent, 'eventHash'>): string {
+  return sha256Hex({ domain: 'visual-artifact-event-v2', event })
+}
+
+export function computeVisualArtifactLedgerRootHash(
+  planHash: string,
+  sequence: number,
+  lastEventHash: string
+): string {
+  assertSha256(planHash, 'Ledger root planHash')
+  assertSafeInteger(sequence, 'Ledger root sequence', 0, MAX_LEDGER_EVENTS)
+  assertSha256(lastEventHash, 'Ledger root lastEventHash')
+  return sha256Hex({
+    domain: 'visual-artifact-ledger-root-v2',
+    planHash,
+    sequence,
+    lastEventHash
+  })
+}
+
+function nextRevisionRoot(previousRoot: string, eventHash: string): string {
+  return sha256Hex({
+    domain: 'visual-artifact-revision-root-v2',
+    previousRoot,
+    eventHash
+  })
+}
+
+function checkpointFromUnknown(value: unknown): LedgerCheckpoint {
+  assertPlainObject(value, 'Ledger checkpoint')
+  assertExactKeys(
+    value,
+    ['schemaVersion', 'sequence', 'eventHash', 'rootHash', 'planHash', 'registryHash'],
+    'Ledger checkpoint'
+  )
+  if (value.schemaVersion !== VISUAL_ARTIFACT_LEDGER_VERSION) {
+    fail('SCHEMA', `Ledger checkpoint schemaVersion must be ${VISUAL_ARTIFACT_LEDGER_VERSION}.`)
+  }
+  return deepFreeze({
+    schemaVersion: VISUAL_ARTIFACT_LEDGER_VERSION,
+    sequence: assertSafeInteger(value.sequence, 'Ledger checkpoint sequence', 0, MAX_LEDGER_EVENTS),
+    eventHash: assertSha256(value.eventHash, 'Ledger checkpoint eventHash'),
+    rootHash: assertSha256(value.rootHash, 'Ledger checkpoint rootHash'),
+    planHash: assertSha256(value.planHash, 'Ledger checkpoint planHash'),
+    registryHash: assertSha256(value.registryHash, 'Ledger checkpoint registryHash')
+  })
+}
+
+function revisionIsTerminal(status: ArtifactRevisionStatus): boolean {
+  return status === 'accepted' || status === 'rejected' || status === 'exhausted'
+}
+
+interface EvidenceExpectation {
+  kind: EvidenceKind
+  artifactId: ArtifactId
+  revision: number
+  createdAt: string
+  createdBy: string
+  subjectHash: string
+  contentHash: string
+}
+
+export class VisualArtifactLedger {
+  readonly plan: ArtifactPlan
+
+  private readonly expectedIds: readonly ArtifactId[]
+  private readonly expectedIdSet: ReadonlySet<ArtifactId>
+  private readonly scheduler?: ValidatedImageScheduler
+  private readonly eventLog: ArtifactEvent[] = []
+  private readonly artifacts = new Map<ArtifactId, MutableArtifactHistory>()
+  private readonly evidenceIds = new Map<string, string>()
+  private readonly evidenceContentOwners = new Map<string, string>()
+  private lastEventHash = ZERO_HASH
+  private lastTimestamp = ''
+  private acceptedCurrentCount = 0
+  private hasAcceptedHistory = false
+  private finalized = false
+
+  private constructor(plan: ArtifactPlan, scheduler?: ValidatedImageScheduler) {
+    this.plan = plan
+    this.expectedIds = expectedArtifactIds(plan)
+    this.expectedIdSet = new Set(this.expectedIds)
+    if (scheduler !== undefined && !(scheduler instanceof ValidatedImageScheduler)) {
+      fail('SCHEMA', 'Ledger scheduler must be a validated authoritative scheduler instance.')
+    }
+    this.scheduler = scheduler
+  }
+
+  static create(planValue: unknown, scheduler?: ValidatedImageScheduler): VisualArtifactLedger {
+    return new VisualArtifactLedger(parseArtifactPlan(planValue), scheduler)
+  }
+
+  get sequence(): number {
+    return this.eventLog.length
+  }
+
+  get eventCount(): number {
+    return this.eventLog.length
+  }
+
+  get artifactCount(): number {
+    return this.artifacts.size
+  }
+
+  get evidenceCount(): number {
+    return this.evidenceIds.size
+  }
+
+  get acceptedArtifactCount(): number {
+    return this.acceptedCurrentCount
+  }
+
+  get isFinalized(): boolean {
+    return this.finalized
+  }
+
+  get rootHash(): string {
+    return computeVisualArtifactLedgerRootHash(this.plan.planHash, this.sequence, this.lastEventHash)
+  }
+
+  private assertWritable(): void {
+    if (this.finalized) fail('FINALIZATION', 'A finalized visual artifact ledger is immutable.')
+    if (this.eventLog.length >= MAX_LEDGER_EVENTS) {
+      fail('CARDINALITY', `Ledger event limit ${MAX_LEDGER_EVENTS} reached.`)
+    }
+  }
+
+  private assertTimestamp(timestamp: string): void {
+    if (this.lastTimestamp && compareIso(timestamp, this.lastTimestamp) < 0) {
+      fail('INTEGRITY', 'Artifact event timestamps must be globally nondecreasing.')
+    }
+  }
+
+  private currentRevision(artifactId: ArtifactId, revision: number): MutableRevisionState {
+    const history = this.artifacts.get(artifactId)
+    if (!history) fail('LIFECYCLE', `Artifact "${artifactId}" has not started revision 1.`)
+    const current = history.revisions[history.revisions.length - 1]
+    if (current.revision !== revision) {
+      fail('LIFECYCLE', `Artifact "${artifactId}" current revision is ${current.revision}, not ${revision}.`)
+    }
+    return current
+  }
+
+  private assertExpectedArtifact(artifactId: ArtifactId): void {
+    if (!this.expectedIdSet.has(artifactId)) {
+      fail('INTEGRITY', `Artifact "${artifactId}" is not an exact member of the governed plan.`)
+    }
+  }
+
+  private assertEvidence(
+    evidence: ArtifactEvidence,
+    expected: EvidenceExpectation,
+    pending: readonly ArtifactEvidence[] = []
+  ): void {
+    for (const [key, value] of Object.entries(expected)) {
+      if (evidence[key as keyof ArtifactEvidence] !== value) {
+        fail('INTEGRITY', `Evidence "${evidence.evidenceId}" has a foreign or mismatched ${key}.`)
+      }
+    }
+    const owner = `${expected.artifactId}#${expected.revision}`
+    if (this.evidenceIds.has(evidence.evidenceId)) {
+      fail('INTEGRITY', `Evidence id "${evidence.evidenceId}" is already owned by another event.`)
+    }
+    const contentOwner = this.evidenceContentOwners.get(evidence.contentHash)
+    if (contentOwner) {
+      fail('INTEGRITY', `Evidence content ${evidence.contentHash} is already owned by ${contentOwner}.`)
+    }
+    if (
+      pending.some(
+        (entry) =>
+          entry.evidenceId === evidence.evidenceId || entry.contentHash === evidence.contentHash
+      )
+    ) {
+      fail('INTEGRITY', 'One event cannot reuse an evidence id or content hash.')
+    }
+    if (this.evidenceIds.size + pending.length >= MAX_EVIDENCE) {
+      fail('CARDINALITY', `Ledger evidence limit ${MAX_EVIDENCE} reached.`)
+    }
+    if (owner.length > 256) fail('CARDINALITY', 'Evidence owner key exceeds its limit.')
+  }
+
+  private commitEvidence(evidence: ArtifactEvidence): void {
+    const owner = `${evidence.artifactId}#${evidence.revision}`
+    this.evidenceIds.set(evidence.evidenceId, owner)
+    this.evidenceContentOwners.set(evidence.contentHash, owner)
+  }
+
+  private assertReceiptMatches(
+    input: Extract<ArtifactEventInput, { type: 'image-generation-recorded' }>,
+    revision: MutableRevisionState
+  ): SchedulerReceipt {
+    if (!this.scheduler) {
+      fail('RECEIPT', 'Image generation requires the one supplied validated scheduler authority.')
+    }
+    const receipt = this.scheduler.requireSucceededReceipt(input.schedulerCallId)
+    const expected: Record<string, unknown> = {
+      artifactId: input.artifactId,
+      revision: input.revision,
+      attempt: input.attempt,
+      promptHash: input.promptHash,
+      promptApprovalHash: input.promptApprovalHash,
+      requestHash: input.requestHash,
+      imageHash: input.imageHash,
+      idempotencyKey: input.idempotencyKey,
+      policyHash: input.policyHash,
+      callHash: input.schedulerCallHash,
+      receiptHash: input.schedulerReceiptHash
+    }
+    for (const [key, value] of Object.entries(expected)) {
+      if (receipt[key as keyof SchedulerReceipt] !== value) {
+        fail('RECEIPT', `Scheduler receipt ${input.schedulerCallId} does not match ${key}.`)
+      }
+    }
+    if (compareIso(input.occurredAt, receipt.completedAt) < 0) {
+      fail('RECEIPT', 'Image generation evidence cannot predate scheduler completion.')
+    }
+    if (
+      !revision.promptApprovedAt ||
+      !revision.promptApprovalEventHash ||
+      input.promptApprovalHash !== revision.promptApprovalEventHash ||
+      compareIso(receipt.reservedAt, revision.promptApprovedAt) <= 0
+    ) {
+      fail('RECEIPT', 'Scheduler reservation must be strictly after and bound to prompt approval.')
+    }
+    return receipt
+  }
+
+  append(value: unknown): ArtifactEvent {
+    this.assertWritable()
+    const input = normalizeInput(value)
+    this.assertTimestamp(input.occurredAt)
+    this.assertExpectedArtifact(input.artifactId)
+
+    const evidenceToCommit: ArtifactEvidence[] = []
+    let revisionForRoot: MutableRevisionState | undefined
+    if (input.type === 'artifact-revision-started') {
+      if (input.revision !== 1) fail('LIFECYCLE', 'The first artifact revision must be revision 1.')
+      if (input.planHash !== this.plan.planHash) fail('INTEGRITY', 'Revision start planHash is incorrect.')
+      if (this.artifacts.has(input.artifactId)) {
+        fail('LIFECYCLE', `Artifact "${input.artifactId}" already has revision history.`)
+      }
+    } else if (input.type === 'artifact-revision-superseded') {
+      if (input.planHash !== this.plan.planHash) {
+        fail('INTEGRITY', 'Revision supersession planHash is incorrect.')
+      }
+      const history = this.artifacts.get(input.artifactId)
+      if (!history) fail('LIFECYCLE', 'Revision supersession requires a complete prior history.')
+      const prior = history.revisions[history.revisions.length - 1]
+      if (!revisionIsTerminal(prior.status)) {
+        fail('LIFECYCLE', 'A revision may be superseded only after accepted, rejected, or exhausted.')
+      }
+      if (
+        input.priorRevision !== prior.revision ||
+        input.revision !== prior.revision + 1 ||
+        input.priorRevisionRootHash !== prior.rootHash
+      ) {
+        fail('INTEGRITY', 'Revision supersession must be contiguous and link the full prior root.')
+      }
+    } else {
+      const revision = this.currentRevision(input.artifactId, input.revision)
+      revisionForRoot = revision
+      if (input.type === 'research-recorded') {
+        if (revision.status !== 'started') fail('LIFECYCLE', 'Research must be the first lifecycle stage.')
+        this.assertEvidence(input.evidence, {
+          kind: 'research',
+          artifactId: input.artifactId,
+          revision: input.revision,
+          createdAt: input.occurredAt,
+          createdBy: input.actorId,
+          subjectHash: revision.specificationHash,
+          contentHash: input.researchHash
+        })
+        evidenceToCommit.push(input.evidence)
+      } else if (input.type === 'prompt-drafted') {
+        if (revision.status !== 'researched' || !revision.researchHash) {
+          fail('LIFECYCLE', 'Prompt drafting requires completed research.')
+        }
+        this.assertEvidence(input.evidence, {
+          kind: 'prompt-draft',
+          artifactId: input.artifactId,
+          revision: input.revision,
+          createdAt: input.occurredAt,
+          createdBy: input.actorId,
+          subjectHash: revision.researchHash,
+          contentHash: input.promptHash
+        })
+        evidenceToCommit.push(input.evidence)
+      } else if (input.type === 'prompt-qa-reviewed') {
+        if (revision.status !== 'prompt-drafted' || !revision.promptHash || !revision.promptAuthor) {
+          fail('LIFECYCLE', 'Prompt QA requires one drafted prompt.')
+        }
+        if (input.promptHash !== revision.promptHash) {
+          fail('INTEGRITY', 'Prompt QA subject does not match the drafted prompt.')
+        }
+        if (input.actorId === revision.promptAuthor || input.actorId === revision.researchAuthor) {
+          fail('LIFECYCLE', 'Prompt QA must be independent from prompt drafting and research.')
+        }
+        this.assertEvidence(input.evidence, {
+          kind: 'prompt-qa',
+          artifactId: input.artifactId,
+          revision: input.revision,
+          createdAt: input.occurredAt,
+          createdBy: input.actorId,
+          subjectHash: input.promptHash,
+          contentHash: input.reportHash
+        })
+        evidenceToCommit.push(input.evidence)
+      } else if (input.type === 'image-generation-recorded') {
+        if (revision.status !== 'prompt-approved' || !revision.promptHash) {
+          fail('LIFECYCLE', 'Image generation requires independent approved prompt QA.')
+        }
+        if (input.promptHash !== revision.promptHash) {
+          fail('INTEGRITY', 'Image generation prompt differs from the approved prompt.')
+        }
+        this.assertReceiptMatches(input, revision)
+        this.assertEvidence(input.evidence, {
+          kind: 'image-generation',
+          artifactId: input.artifactId,
+          revision: input.revision,
+          createdAt: input.occurredAt,
+          createdBy: input.actorId,
+          subjectHash: input.schedulerReceiptHash,
+          contentHash: input.imageHash
+        })
+        evidenceToCommit.push(input.evidence)
+      } else if (input.type === 'image-qa-reviewed') {
+        if (revision.status !== 'image-generated' || !revision.imageHash || !revision.imageGenerator) {
+          fail('LIFECYCLE', 'Image QA requires scheduler-backed image generation.')
+        }
+        if (input.imageHash !== revision.imageHash) {
+          fail('INTEGRITY', 'Image QA subject does not match the generated image.')
+        }
+        if (input.actorId === revision.imageGenerator) {
+          fail('LIFECYCLE', 'Image QA must be independent from image generation.')
+        }
+        this.assertEvidence(input.evidence, {
+          kind: 'image-qa',
+          artifactId: input.artifactId,
+          revision: input.revision,
+          createdAt: input.occurredAt,
+          createdBy: input.actorId,
+          subjectHash: input.imageHash,
+          contentHash: input.reportHash
+        })
+        evidenceToCommit.push(input.evidence)
+      } else if (input.type === 'implementation-recorded') {
+        if (revision.status !== 'image-approved' || !revision.imageHash) {
+          fail('LIFECYCLE', 'Implementation requires independently approved image QA.')
+        }
+        this.assertEvidence(input.evidence, {
+          kind: 'implementation',
+          artifactId: input.artifactId,
+          revision: input.revision,
+          createdAt: input.occurredAt,
+          createdBy: input.actorId,
+          subjectHash: revision.imageHash,
+          contentHash: input.implementationHash
+        })
+        evidenceToCommit.push(input.evidence)
+      } else if (input.type === 'render-qa-reviewed') {
+        if (revision.status !== 'implemented' || !revision.implementationHash || !revision.implementer) {
+          fail('LIFECYCLE', 'Render QA requires implementation.')
+        }
+        if (input.actorId === revision.implementer) {
+          fail('LIFECYCLE', 'Render QA must be independent from implementation.')
+        }
+        this.assertEvidence(input.renderEvidence, {
+          kind: 'render',
+          artifactId: input.artifactId,
+          revision: input.revision,
+          createdAt: input.occurredAt,
+          createdBy: revision.implementer,
+          subjectHash: revision.implementationHash,
+          contentHash: input.renderHash
+        })
+        this.assertEvidence(
+          input.qaEvidence,
+          {
+            kind: 'render-qa',
+            artifactId: input.artifactId,
+            revision: input.revision,
+            createdAt: input.occurredAt,
+            createdBy: input.actorId,
+            subjectHash: input.renderHash,
+            contentHash: input.reportHash
+          },
+          [input.renderEvidence]
+        )
+        evidenceToCommit.push(input.renderEvidence, input.qaEvidence)
+      } else if (input.type === 'artifact-accepted') {
+        if (revision.status !== 'render-approved' || !revision.renderHash) {
+          fail('LIFECYCLE', 'Acceptance requires independently approved render QA.')
+        }
+        this.assertEvidence(input.evidence, {
+          kind: 'acceptance',
+          artifactId: input.artifactId,
+          revision: input.revision,
+          createdAt: input.occurredAt,
+          createdBy: input.actorId,
+          subjectHash: revision.renderHash,
+          contentHash: input.acceptanceHash
+        })
+        evidenceToCommit.push(input.evidence)
+      } else if (input.type === 'revision-exhausted') {
+        if (revision.status !== 'prompt-approved' || !revision.promptHash) {
+          fail('LIFECYCLE', 'Revision exhaustion is valid only after approved prompt QA.')
+        }
+        if (!this.scheduler) {
+          fail('RECEIPT', 'Revision exhaustion requires the authoritative scheduler.')
+        }
+        const call = this.scheduler.requireExhaustedFailure(input.schedulerCallId)
+        if (
+          call.artifactId !== input.artifactId ||
+          call.revision !== input.revision ||
+          call.promptHash !== revision.promptHash ||
+          call.promptApprovalHash !== revision.promptApprovalEventHash ||
+          call.callHash !== input.schedulerCallHash ||
+          call.failureReason !== input.failureReason ||
+          !revision.promptApprovedAt ||
+          compareIso(call.reservedAt, revision.promptApprovedAt) <= 0 ||
+          !call.completedAt ||
+          compareIso(input.occurredAt, call.completedAt) < 0
+        ) {
+          fail('RECEIPT', 'Revision exhaustion does not match the final scheduler failure.')
+        }
+        this.assertEvidence(input.evidence, {
+          kind: 'exhaustion',
+          artifactId: input.artifactId,
+          revision: input.revision,
+          createdAt: input.occurredAt,
+          createdBy: input.actorId,
+          subjectHash: input.schedulerCallHash,
+          contentHash: input.exhaustionHash
+        })
+        evidenceToCommit.push(input.evidence)
+      }
+    }
+
+    const withoutHash = {
+      sequence: this.eventLog.length + 1,
+      ...input,
+      previousEventHash: this.lastEventHash
+    } as Omit<ArtifactEvent, 'eventHash'>
+    const event = deepFreeze({
+      ...withoutHash,
+      eventHash: computeArtifactEventHash(withoutHash)
+    }) as ArtifactEvent
+
+    if (input.type === 'artifact-revision-started') {
+      const revision: MutableRevisionState = {
+        revision: 1,
+        status: 'started',
+        specificationHash: input.specificationHash,
+        rootHash: nextRevisionRoot(ZERO_HASH, event.eventHash)
+      }
+      this.artifacts.set(input.artifactId, {
+        artifactId: input.artifactId,
+        revisions: [revision]
+      })
+    } else if (input.type === 'artifact-revision-superseded') {
+      const history = this.artifacts.get(input.artifactId)!
+      const prior = history.revisions[history.revisions.length - 1]
+      if (prior.status === 'accepted') this.acceptedCurrentCount -= 1
+      history.revisions.push({
+        revision: input.revision,
+        status: 'started',
+        specificationHash: input.specificationHash,
+        rootHash: nextRevisionRoot(ZERO_HASH, event.eventHash)
+      })
+    } else {
+      const revision = revisionForRoot!
+      revision.rootHash = nextRevisionRoot(revision.rootHash, event.eventHash)
+      if (input.type === 'research-recorded') {
+        revision.status = 'researched'
+        revision.researchHash = input.researchHash
+        revision.researchAuthor = input.actorId
+      } else if (input.type === 'prompt-drafted') {
+        revision.status = 'prompt-drafted'
+        revision.promptHash = input.promptHash
+        revision.promptAuthor = input.actorId
+      } else if (input.type === 'prompt-qa-reviewed') {
+        revision.promptQaReportHash = input.reportHash
+        revision.promptReviewer = input.actorId
+        revision.status = input.verdict === 'approved' ? 'prompt-approved' : 'rejected'
+        if (input.verdict === 'approved') {
+          revision.promptApprovedAt = input.occurredAt
+          revision.promptApprovalEventHash = event.eventHash
+        }
+      } else if (input.type === 'image-generation-recorded') {
+        revision.status = 'image-generated'
+        revision.generationAttempt = input.attempt
+        revision.requestHash = input.requestHash
+        revision.imageHash = input.imageHash
+        revision.imageGenerator = input.actorId
+        revision.schedulerCallId = input.schedulerCallId
+        revision.schedulerReceiptHash = input.schedulerReceiptHash
+      } else if (input.type === 'image-qa-reviewed') {
+        revision.imageQaReportHash = input.reportHash
+        revision.imageReviewer = input.actorId
+        revision.status = input.verdict === 'approved' ? 'image-approved' : 'rejected'
+      } else if (input.type === 'implementation-recorded') {
+        revision.status = 'implemented'
+        revision.implementationHash = input.implementationHash
+        revision.implementer = input.actorId
+      } else if (input.type === 'render-qa-reviewed') {
+        revision.renderHash = input.renderHash
+        revision.renderQaReportHash = input.reportHash
+        revision.renderReviewer = input.actorId
+        revision.status = input.verdict === 'approved' ? 'render-approved' : 'rejected'
+      } else if (input.type === 'artifact-accepted') {
+        revision.status = 'accepted'
+        revision.acceptanceHash = input.acceptanceHash
+        this.acceptedCurrentCount += 1
+        this.hasAcceptedHistory = true
+      } else if (input.type === 'revision-exhausted') {
+        revision.status = 'exhausted'
+      }
+    }
+
+    for (const evidence of evidenceToCommit) this.commitEvidence(evidence)
+    this.eventLog.push(event)
+    this.lastTimestamp = event.occurredAt
+    this.lastEventHash = event.eventHash
+    return event
+  }
+
+  getArtifact(artifactIdValue: unknown): ArtifactHistorySnapshot | undefined {
+    const artifactId = parseArtifactId(artifactIdValue).id
+    const history = this.artifacts.get(artifactId)
+    if (!history) return undefined
+    const revisions: ArtifactRevisionSnapshot[] = history.revisions.map((revision) => ({
+      revision: revision.revision,
+      status: revision.status,
+      specificationHash: revision.specificationHash,
+      rootHash: revision.rootHash,
+      ...(revision.researchHash === undefined ? {} : { researchHash: revision.researchHash }),
+      ...(revision.promptHash === undefined ? {} : { promptHash: revision.promptHash }),
+      ...(revision.promptQaReportHash === undefined
+        ? {}
+        : { promptQaReportHash: revision.promptQaReportHash }),
+      ...(revision.promptApprovedAt === undefined
+        ? {}
+        : { promptApprovedAt: revision.promptApprovedAt }),
+      ...(revision.promptApprovalEventHash === undefined
+        ? {}
+        : { promptApprovalEventHash: revision.promptApprovalEventHash }),
+      ...(revision.generationAttempt === undefined
+        ? {}
+        : { generationAttempt: revision.generationAttempt }),
+      ...(revision.requestHash === undefined ? {} : { requestHash: revision.requestHash }),
+      ...(revision.imageHash === undefined ? {} : { imageHash: revision.imageHash }),
+      ...(revision.schedulerCallId === undefined
+        ? {}
+        : { schedulerCallId: revision.schedulerCallId }),
+      ...(revision.schedulerReceiptHash === undefined
+        ? {}
+        : { schedulerReceiptHash: revision.schedulerReceiptHash }),
+      ...(revision.imageQaReportHash === undefined
+        ? {}
+        : { imageQaReportHash: revision.imageQaReportHash }),
+      ...(revision.implementationHash === undefined
+        ? {}
+        : { implementationHash: revision.implementationHash }),
+      ...(revision.renderHash === undefined ? {} : { renderHash: revision.renderHash }),
+      ...(revision.renderQaReportHash === undefined
+        ? {}
+        : { renderQaReportHash: revision.renderQaReportHash }),
+      ...(revision.acceptanceHash === undefined
+        ? {}
+        : { acceptanceHash: revision.acceptanceHash })
+    }))
+    return deepFreeze(
+      cloneCanonical({
+        artifactId: history.artifactId,
+        revisions
+      })
+    )
+  }
+
+  events(): readonly ArtifactEvent[] {
+    return deepFreeze(cloneCanonical(this.eventLog))
+  }
+
+  createCheckpoint(): LedgerCheckpoint {
+    return deepFreeze({
+      schemaVersion: VISUAL_ARTIFACT_LEDGER_VERSION,
+      sequence: this.sequence,
+      eventHash: this.lastEventHash,
+      rootHash: this.rootHash,
+      planHash: this.plan.planHash,
+      registryHash: this.plan.registryHash
+    })
+  }
+
+  private verifyCheckpoint(checkpointValue: unknown, requireCurrent: boolean): LedgerCheckpoint {
+    const checkpoint = checkpointFromUnknown(checkpointValue)
+    if (
+      checkpoint.planHash !== this.plan.planHash ||
+      checkpoint.registryHash !== this.plan.registryHash
+    ) {
+      fail('TRUST', 'Trusted checkpoint plan or registry hash does not match this ledger.')
+    }
+    if (checkpoint.sequence > this.sequence) fail('TRUST', 'Trusted checkpoint is beyond ledger history.')
+    const eventHash =
+      checkpoint.sequence === 0 ? ZERO_HASH : this.eventLog[checkpoint.sequence - 1].eventHash
+    const rootHash = computeVisualArtifactLedgerRootHash(
+      this.plan.planHash,
+      checkpoint.sequence,
+      eventHash
+    )
+    if (checkpoint.eventHash !== eventHash || checkpoint.rootHash !== rootHash) {
+      fail('TRUST', 'Trusted checkpoint does not match the ledger prefix.')
+    }
+    if (requireCurrent && checkpoint.sequence !== this.sequence) {
+      fail('TRUST', 'Trusted checkpoint must cover the entire accepted ledger.')
+    }
+    return checkpoint
+  }
+
+  private assertCompleteAcceptedPlan(): void {
+    if (this.artifacts.size === 0) fail('FINALIZATION', 'Empty ledgers cannot be finalized.')
+    if (
+      this.artifacts.size !== this.expectedIds.length ||
+      this.acceptedCurrentCount !== this.expectedIds.length
+    ) {
+      fail(
+        'FINALIZATION',
+        `Ledger is incomplete: ${this.acceptedCurrentCount}/${this.expectedIds.length} artifacts are accepted.`
+      )
+    }
+    for (const artifactId of this.expectedIds) {
+      const history = this.artifacts.get(artifactId)
+      const current = history?.revisions[history.revisions.length - 1]
+      if (!current || current.status !== 'accepted') {
+        fail('FINALIZATION', `Expected artifact "${artifactId}" is not accepted.`)
+      }
+    }
+  }
+
+  private appendFinalization(
+    value: {
+      occurredAt: string
+      actorId: string
+      planHash: string
+      registryHash: string
+      trustedCheckpoint: LedgerCheckpoint
+    },
+    skipFullReplay: boolean
+  ): LedgerFinalizedEvent {
+    this.assertWritable()
+    const occurredAt = assertIsoTimestamp(value.occurredAt, 'Ledger finalization occurredAt')
+    this.assertTimestamp(occurredAt)
+    const actorId = assertIdentifier(value.actorId, 'Ledger finalization actorId')
+    if (value.planHash !== this.plan.planHash || value.registryHash !== this.plan.registryHash) {
+      fail('FINALIZATION', 'Finalization planHash or registryHash is not exact.')
+    }
+    const checkpoint = this.verifyCheckpoint(value.trustedCheckpoint, true)
+    if (!skipFullReplay) {
+      const replayed = replayLedgerEvents(this.plan, this.eventLog, this.scheduler)
+      replayed.assertCompleteAcceptedPlan()
+    }
+    this.assertCompleteAcceptedPlan()
+
+    const input = {
+      sequence: this.sequence + 1,
+      type: 'ledger-finalized' as const,
+      occurredAt,
+      actorId,
+      planHash: this.plan.planHash,
+      registryHash: this.plan.registryHash,
+      artifactCount: this.expectedIds.length,
+      artifactSetHash: expectedArtifactSetHash(this.plan),
+      trustedCheckpointSequence: checkpoint.sequence,
+      trustedCheckpointRootHash: checkpoint.rootHash,
+      previousEventHash: this.lastEventHash
+    }
+    const event = deepFreeze({
+      ...input,
+      eventHash: computeArtifactEventHash(input)
+    }) as LedgerFinalizedEvent
+    this.eventLog.push(event)
+    this.lastTimestamp = occurredAt
+    this.lastEventHash = event.eventHash
+    this.finalized = true
+    return event
+  }
+
+  finalize(value: unknown): LedgerFinalizedEvent {
+    assertPlainObject(value, 'Ledger finalization')
+    assertExactKeys(
+      value,
+      ['occurredAt', 'actorId', 'planHash', 'registryHash', 'trustedCheckpoint'],
+      'Ledger finalization'
+    )
+    return this.appendFinalization(
+      {
+        occurredAt: assertIsoTimestamp(value.occurredAt, 'Ledger finalization occurredAt'),
+        actorId: assertIdentifier(value.actorId, 'Ledger finalization actorId'),
+        planHash: assertSha256(value.planHash, 'Ledger finalization planHash'),
+        registryHash: assertSha256(value.registryHash, 'Ledger finalization registryHash'),
+        trustedCheckpoint: checkpointFromUnknown(value.trustedCheckpoint)
+      },
+      false
+    )
+  }
+
+  private assertExternalTrust(optionsValue: LedgerTrustOptions): void {
+    assertPlainObject(optionsValue, 'Ledger trust options')
+    const keys = Object.keys(optionsValue)
+    for (const key of keys) {
+      if (key !== 'trustedRootHash' && key !== 'trustedCheckpoint') {
+        fail('SCHEMA', `Ledger trust options contain unknown field "${key}".`)
+      }
+    }
+    const root =
+      optionsValue.trustedRootHash === undefined
+        ? undefined
+        : assertSha256(optionsValue.trustedRootHash, 'Ledger trustedRootHash')
+    const checkpoint =
+      optionsValue.trustedCheckpoint === undefined
+        ? undefined
+        : checkpointFromUnknown(optionsValue.trustedCheckpoint)
+    if (root && checkpoint) fail('TRUST', 'Supply one trusted root or checkpoint, not both.')
+
+    const trustRequired = this.hasAcceptedHistory || this.finalized
+    if (trustRequired && !root && !checkpoint) {
+      fail('TRUST', 'Accepted or finalized ledgers require an externally supplied trusted root/checkpoint.')
+    }
+    if (root && root !== this.rootHash) {
+      fail('TRUST', 'Ledger does not match the externally supplied trusted root.')
+    }
+    if (checkpoint) {
+      this.verifyCheckpoint(checkpoint, trustRequired)
+    }
+  }
+
+  toSerializable(): SerializedVisualArtifactLedger {
+    return deepFreeze({
+      schemaVersion: VISUAL_ARTIFACT_LEDGER_VERSION,
+      plan: cloneCanonical(this.plan),
+      events: this.events()
+    })
+  }
+
+  serialize(options: LedgerTrustOptions = {}): string {
+    this.assertExternalTrust(options)
+    return canonicalStringify(this.toSerializable())
+  }
+}
+
+function storedEventToInput(value: unknown, sequence: number, previousHash: string): ArtifactEventInput {
+  assertPlainObject(value, `Artifact event ${sequence}`)
+  if (value.sequence !== sequence) fail('INTEGRITY', 'Artifact event sequence is not contiguous.')
+  const prior = assertSha256(value.previousEventHash, `Artifact event ${sequence} previousEventHash`)
+  if (prior !== previousHash) fail('INTEGRITY', 'Artifact previous-event hash chain is broken.')
+  assertSha256(value.eventHash, `Artifact event ${sequence} eventHash`)
+  const type = value.type
+  if (typeof type !== 'string') fail('SCHEMA', `Artifact event ${sequence} type is invalid.`)
+
+  const eventKeysByType: Record<string, readonly string[]> = {
+    'artifact-revision-started': [...REVISION_EVENT_KEYS, 'specificationHash', 'planHash'],
+    'artifact-revision-superseded': [
+      ...REVISION_EVENT_KEYS,
+      'priorRevision',
+      'priorRevisionRootHash',
+      'specificationHash',
+      'planHash'
+    ],
+    'research-recorded': [...REVISION_EVENT_KEYS, 'researchHash', 'evidence'],
+    'prompt-drafted': [...REVISION_EVENT_KEYS, 'promptHash', 'evidence'],
+    'prompt-qa-reviewed': [
+      ...REVISION_EVENT_KEYS,
+      'promptHash',
+      'verdict',
+      'reportHash',
+      'evidence'
+    ],
+    'image-generation-recorded': [
+      ...REVISION_EVENT_KEYS,
+      'attempt',
+      'promptHash',
+      'promptApprovalHash',
+      'requestHash',
+      'imageHash',
+      'idempotencyKey',
+      'policyHash',
+      'schedulerCallId',
+      'schedulerCallHash',
+      'schedulerReceiptHash',
+      'evidence'
+    ],
+    'image-qa-reviewed': [
+      ...REVISION_EVENT_KEYS,
+      'imageHash',
+      'verdict',
+      'reportHash',
+      'evidence'
+    ],
+    'implementation-recorded': [...REVISION_EVENT_KEYS, 'implementationHash', 'evidence'],
+    'render-qa-reviewed': [
+      ...REVISION_EVENT_KEYS,
+      'renderHash',
+      'verdict',
+      'reportHash',
+      'renderEvidence',
+      'qaEvidence'
+    ],
+    'artifact-accepted': [...REVISION_EVENT_KEYS, 'acceptanceHash', 'evidence'],
+    'revision-exhausted': [
+      ...REVISION_EVENT_KEYS,
+      'schedulerCallId',
+      'schedulerCallHash',
+      'failureReason',
+      'exhaustionHash',
+      'evidence'
+    ]
+  }
+  const keys = eventKeysByType[type]
+  if (!keys) fail('SCHEMA', `Artifact event ${sequence} has unsupported type "${type}".`)
+  assertExactKeys(value, keys, `Artifact event ${sequence}`)
+  const input: Record<string, unknown> = {}
+  for (const key of keys) {
+    if (!EVENT_HEADER_KEYS.includes(key as (typeof EVENT_HEADER_KEYS)[number])) input[key] = value[key]
+  }
+  input.type = type
+  input.occurredAt = value.occurredAt
+  input.actorId = value.actorId
+  return normalizeInput(input)
+}
+
+function replayLedgerEvents(
+  plan: ArtifactPlan,
+  events: readonly ArtifactEvent[],
+  scheduler?: ValidatedImageScheduler
+): VisualArtifactLedger {
+  if (events.length > MAX_LEDGER_EVENTS) {
+    fail('CARDINALITY', `Ledger history exceeds ${MAX_LEDGER_EVENTS} events.`)
+  }
+  const ledger = VisualArtifactLedger.create(plan, scheduler)
+  let previousHash = ZERO_HASH
+  for (let index = 0; index < events.length; index += 1) {
+    const stored = events[index]
+    if (
+      typeof stored === 'object' &&
+      stored !== null &&
+      !Array.isArray(stored) &&
+      (stored as { type?: unknown }).type === 'ledger-finalized'
+    ) {
+      fail('FINALIZATION', 'Finalization must be the unique last event.')
+    }
+    const input = storedEventToInput(stored, index + 1, previousHash)
+    const generated = ledger.append(input)
+    if (canonicalStringify(stored) !== canonicalStringify(generated)) {
+      fail('INTEGRITY', `Artifact event ${index + 1} hash or derived content does not match replay.`)
+    }
+    previousHash = generated.eventHash
+  }
+  return ledger
+}
+
+function appendStoredFinalization(
+  ledger: VisualArtifactLedger,
+  value: unknown,
+  sequence: number,
+  previousHash: string
+): void {
+  assertPlainObject(value, `Artifact event ${sequence}`)
+  assertExactKeys(
+    value,
+    [
+      ...EVENT_HEADER_KEYS,
+      'planHash',
+      'registryHash',
+      'artifactCount',
+      'artifactSetHash',
+      'trustedCheckpointSequence',
+      'trustedCheckpointRootHash'
+    ],
+    `Artifact event ${sequence}`
+  )
+  if (value.sequence !== sequence || value.type !== 'ledger-finalized') {
+    fail('INTEGRITY', 'Finalization event sequence or type is invalid.')
+  }
+  if (value.previousEventHash !== previousHash) fail('INTEGRITY', 'Finalization hash chain is broken.')
+  if (value.planHash !== ledger.plan.planHash || value.registryHash !== ledger.plan.registryHash) {
+    fail('FINALIZATION', 'Stored finalization plan or registry hash is incorrect.')
+  }
+  if (
+    value.artifactCount !== expectedArtifactIds(ledger.plan).length ||
+    value.artifactSetHash !== expectedArtifactSetHash(ledger.plan)
+  ) {
+    fail('FINALIZATION', 'Stored finalization does not bind the exact expected artifact IDs.')
+  }
+  const checkpoint: LedgerCheckpoint = {
+    schemaVersion: VISUAL_ARTIFACT_LEDGER_VERSION,
+    sequence: assertSafeInteger(
+      value.trustedCheckpointSequence,
+      'Finalization trustedCheckpointSequence',
+      0,
+      MAX_LEDGER_EVENTS
+    ),
+    eventHash: previousHash,
+    rootHash: assertSha256(value.trustedCheckpointRootHash, 'Finalization trustedCheckpointRootHash'),
+    planHash: ledger.plan.planHash,
+    registryHash: ledger.plan.registryHash
+  }
+  const generated = (
+    ledger as unknown as {
+      appendFinalization(
+        input: {
+          occurredAt: string
+          actorId: string
+          planHash: string
+          registryHash: string
+          trustedCheckpoint: LedgerCheckpoint
+        },
+        skipFullReplay: boolean
+      ): LedgerFinalizedEvent
+    }
+  ).appendFinalization(
+    {
+      occurredAt: assertIsoTimestamp(value.occurredAt, 'Stored finalization occurredAt'),
+      actorId: assertIdentifier(value.actorId, 'Stored finalization actorId'),
+      planHash: ledger.plan.planHash,
+      registryHash: ledger.plan.registryHash,
+      trustedCheckpoint: checkpoint
+    },
+    true
+  )
+  if (canonicalStringify(value) !== canonicalStringify(generated)) {
+    fail('INTEGRITY', 'Stored finalization hash or derived content does not match replay.')
+  }
+}
+
+export function parseVisualArtifactLedger(
+  serialized: string,
+  options: ParseVisualArtifactLedgerOptions = {}
+): VisualArtifactLedger {
+  if (
+    typeof serialized !== 'string' ||
+    serialized.length > MAX_SERIALIZED_BYTES ||
+    utf8ByteLength(serialized) > MAX_SERIALIZED_BYTES
+  ) {
+    fail('CARDINALITY', `Serialized ledger exceeds ${MAX_SERIALIZED_BYTES} bytes.`)
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(serialized)
+  } catch {
+    fail('SCHEMA', 'Serialized visual artifact ledger is not valid JSON.')
+  }
+  assertPlainObject(parsed, 'Serialized visual artifact ledger')
+  assertExactKeys(parsed, ['schemaVersion', 'plan', 'events'], 'Serialized visual artifact ledger')
+  if (parsed.schemaVersion !== VISUAL_ARTIFACT_LEDGER_VERSION) {
+    fail('SCHEMA', `Ledger schemaVersion must be ${VISUAL_ARTIFACT_LEDGER_VERSION}.`)
+  }
+  const plan = parseArtifactPlan(parsed.plan)
+  if (!Array.isArray(parsed.events)) fail('SCHEMA', 'Ledger history must be an array.')
+  if (parsed.events.length > MAX_LEDGER_EVENTS) {
+    fail('CARDINALITY', `Ledger history exceeds ${MAX_LEDGER_EVENTS} events.`)
+  }
+  if (options.scheduler !== undefined && !(options.scheduler instanceof ValidatedImageScheduler)) {
+    fail('SCHEMA', 'Ledger parser requires a validated scheduler authority.')
+  }
+
+  let finalization: unknown
+  let artifactEvents = parsed.events
+  const finalIndex = parsed.events.findIndex(
+    (event) =>
+      typeof event === 'object' &&
+      event !== null &&
+      !Array.isArray(event) &&
+      (event as Record<string, unknown>).type === 'ledger-finalized'
+  )
+  if (finalIndex >= 0) {
+    if (finalIndex !== parsed.events.length - 1) {
+      fail('FINALIZATION', 'Ledger finalization must be the unique last event.')
+    }
+    finalization = parsed.events[finalIndex]
+    artifactEvents = parsed.events.slice(0, finalIndex)
+  }
+  const ledger = replayLedgerEvents(plan, artifactEvents as ArtifactEvent[], options.scheduler)
+  if (finalization !== undefined) {
+    appendStoredFinalization(ledger, finalization, parsed.events.length, ledger.createCheckpoint().eventHash)
+  }
+  const trustOptions: LedgerTrustOptions = {
+    ...(options.trustedRootHash === undefined
+      ? {}
+      : { trustedRootHash: options.trustedRootHash }),
+    ...(options.trustedCheckpoint === undefined
+      ? {}
+      : { trustedCheckpoint: options.trustedCheckpoint })
+  }
+  ;(
+    ledger as unknown as { assertExternalTrust(options: LedgerTrustOptions): void }
+  ).assertExternalTrust(trustOptions)
+  return ledger
+}
+
+export function serializeVisualArtifactLedger(
+  ledger: VisualArtifactLedger,
+  options: LedgerTrustOptions = {}
+): string {
+  if (!(ledger instanceof VisualArtifactLedger)) {
+    fail('SCHEMA', 'Only a validated visual artifact ledger can be serialized.')
+  }
+  return ledger.serialize(options)
+}
