@@ -43,17 +43,19 @@ export const SOURCE_TAGS = ['iRacing', 'iracing', 'source-iracing'] as const
 export const CATEGORY_TAGS = [
   'abs', 'acceleration', 'anti-roll', 'attitude', 'battery', 'best', 'boost', 'bop',
   'brake-bias', 'brakes', 'camera', 'capacity', 'car', 'chassis', 'class', 'clock',
-  'clutch', 'cold', 'completed', 'consumption', 'controls', 'count', 'delta',
+  'clutch', 'cold', 'completed', 'consumption', 'controls', 'count', 'damage', 'delta',
   'density', 'derived', 'distance', 'drive', 'driver', 'driver-input', 'drs',
-  'electrical', 'engine', 'engine-braking', 'engine-map', 'ers', 'estimated',
-  'field', 'flags', 'fog', 'formation', 'fuel', 'g-force', 'gap', 'gear', 'grip',
+  'electric', 'electrical', 'energy', 'engine', 'engine-braking', 'engine-map', 'ers',
+  'estimated', 'evidence', 'field', 'flags', 'fog', 'formation', 'fuel', 'g-force',
+  'gap', 'gear', 'grip',
   'handbrake', 'heading', 'humidity', 'identity', 'incidents', 'inputs',
   'intervention', 'irating', 'lap-time', 'laps', 'level', 'license', 'limiter',
-  'lock', 'map', 'number', 'oil', 'pace', 'pit', 'position', 'power', 'pressure',
-  'push-to-pass', 'race-control', 'radar', 'rain', 'rating', 'relative', 'repair',
-  'replay', 'revlights', 'rotation', 'rpm', 'sectors', 'service', 'session',
+  'lock', 'map', 'multiclass', 'number', 'oil', 'pace', 'pacenotes', 'pit', 'points',
+  'position', 'power', 'pressure', 'push-to-pass', 'race-control', 'radar', 'rain',
+  'rating', 'relative', 'repair', 'replay', 'restart', 'revlights', 'rotation', 'rpm',
+  'sectors', 'service', 'session',
   'setup', 'shift', 'skies', 'solar', 'speed', 'standings', 'steering', 'strategy',
-  'surface', 'tc', 'team', 'temperature', 'throttle', 'timeline', 'timing',
+  'surface', 'tc', 'team', 'temperature', 'thermal', 'throttle', 'timeline', 'timing',
   'torque', 'track', 'traffic', 'tyre-pressure', 'tyre-wear', 'tyres', 'velocity',
   'voltage', 'warning', 'water', 'weather', 'weight', 'weight-jacker', 'wetness',
   'wind'
@@ -62,8 +64,9 @@ export const CATEGORY_TAGS = [
 export const STYLE_TAGS = [
   '3d', 'analog', 'arc', 'bar', 'barv', 'bignum', 'broadcast', 'clean',
   'corner-grid', 'ddu-inspired', 'dial', 'digital', 'gauge', 'graph', 'heatmap',
-  'icon', 'indicator', 'led', 'linear', 'minimal', 'needle', 'neon', 'pixel',
-  'radial', 'ring', 'segment', 'status', 'table', 'tile', 'track-map', 'vector'
+  'icon', 'indicator', 'led', 'linear', 'matrix', 'minimal', 'needle', 'neon', 'pixel',
+  'radial', 'ring', 'scatter', 'segment', 'status', 'table', 'text', 'tile',
+  'track-map', 'vector'
 ] as const
 
 export const TYPE_TAGS = [
@@ -105,17 +108,27 @@ export const META_TAGS = [
   ...DASHBOARD_PORTFOLIO_FAMILY_TAGS
 ] as const
 
-export const DISCIPLINE_TAGS = ['GT3'] as const
+export const DISCIPLINE_TAGS = [
+  'GT3', 'gt', 'open-wheel', 'oval', 'prototype', 'rally', 'historic', 'club'
+] as const
 
-export const SESSION_TAGS = ['quali', 'sprint', 'race', 'endurance'] as const
+export const SESSION_TAGS = ['quali', 'sprint', 'race', 'endurance', 'stage'] as const
 
-export const TRACK_CONDITION_TAGS = ['dry', 'wet'] as const
+export const TRACK_CONDITION_TAGS = ['dry', 'wet', 'night'] as const
 
 export const RUN_MODE_TAGS = ['fuel-save', 'tyre-save'] as const
 
 export const CONDITION_TAGS = [...TRACK_CONDITION_TAGS, ...RUN_MODE_TAGS] as const
 
-export const PURPOSE_TAGS = ['consistency', 'traffic', 'strategy', 'pace', 'stint', 'engineer'] as const
+export const PURPOSE_TAGS = [
+  'analysis', 'battle', 'coach', 'comparison', 'consistency', 'driver-coaching',
+  'engineer', 'forecast', 'launch', 'navigation', 'operations', 'pace', 'safety',
+  'spotter', 'steward', 'stint', 'story', 'strategy', 'traffic', 'workflow'
+] as const
+
+export const ACCESSIBILITY_TAGS = [
+  'accessibility', 'captions', 'cognitive', 'color-safe', 'haptic', 'low-vision'
+] as const
 
 export const FOCUS_TAGS = [
   'brakes', 'chassis', 'consistency', 'controls', 'delta', 'engine', 'engineer',
@@ -142,7 +155,8 @@ export const DASHBOARD_STYLE_TAGS = [
 export const ALL_TAG_VOCAB: string[] = [...new Set([
   ...SIM_TAGS, ...SOURCE_TAGS, ...CATEGORY_TAGS, ...STYLE_TAGS, ...META_TAGS,
   ...UNIT_TAGS, ...DISCIPLINE_TAGS, ...SESSION_TAGS, ...CONDITION_TAGS,
-  ...PURPOSE_TAGS, ...FOCUS_TAGS, ...ALERT_LEVEL_TAGS, ...DASHBOARD_STYLE_TAGS
+  ...PURPOSE_TAGS, ...ACCESSIBILITY_TAGS, ...FOCUS_TAGS, ...ALERT_LEVEL_TAGS,
+  ...DASHBOARD_STYLE_TAGS
 ])]
 
 const CONTROLLED_TAGS = new Set(ALL_TAG_VOCAB)

@@ -6,25 +6,9 @@ import type {
   DashboardPortfolioId,
   DashboardPortfolioSource
 } from './dashboard-portfolio.types'
+import { deepFreeze } from './immutability'
 
 export * from './dashboard-portfolio.types'
-
-type DeepReadonly<T> =
-  T extends (...args: never[]) => unknown
-    ? T
-    : T extends object
-      ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
-      : T
-
-function deepFreeze<T>(value: T): DeepReadonly<T> {
-  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
-    for (const child of Object.values(value as Record<string, unknown>)) {
-      deepFreeze(child)
-    }
-    Object.freeze(value)
-  }
-  return value as DeepReadonly<T>
-}
 
 export const DASHBOARD_PORTFOLIO_SOURCES = deepFreeze([
   { id: 'S01', label: 'Bosch Motorsport Display DDU 11', url: 'https://www.bosch-motorsport.com/products/displays/display-ddu-11/', domain: 'hardware' },

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ACCESSIBILITY_TAGS,
   DASHBOARD_PORTFOLIO_FAMILY_TAGS,
+  DISCIPLINE_TAGS,
   TYPE_TAGS,
   UNIT_TAGS,
   isControlledTag,
@@ -59,6 +61,10 @@ describe('dashboard portfolio controlled tags', () => {
 
     expect(TYPE_TAGS).toContain('release-b')
     expect(DASHBOARD_PORTFOLIO_FAMILY_TAGS).toHaveLength(10)
+    expect(DISCIPLINE_TAGS).toEqual(expect.arrayContaining(['gt', 'open-wheel', 'oval', 'rally']))
+    expect(ACCESSIBILITY_TAGS).toEqual(
+      expect.arrayContaining(['accessibility', 'color-safe', 'haptic', 'low-vision'])
+    )
     for (const tag of requiredPortfolioTags) expect(isControlledTag(tag), tag).toBe(true)
   })
 })
