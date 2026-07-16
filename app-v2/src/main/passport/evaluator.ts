@@ -20,6 +20,7 @@ import {
 } from '../../shared/phase02-contracts'
 
 export interface PassportExternalReadiness {
+  capturedAt: number
   raceProfile: {
     profileId: string
     exists: boolean
@@ -56,6 +57,7 @@ interface ItemEvaluation {
   detail: string
   evidence?: Record<string, unknown>
   source: string
+  capturedAt: number
 }
 
 function stable(value: unknown): string {
@@ -73,11 +75,13 @@ function hash(value: unknown): string {
 }
 
 function factText(fact: CanonicalFact | undefined): string | undefined {
+  if (fact?.provenance?.validity !== 'valid') return undefined
   const value = canonicalFactValue(fact)
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
 function factNumber(fact: CanonicalFact | undefined): number | undefined {
+  if (fact?.provenance?.validity !== 'valid') return undefined
   const value = canonicalFactValue(fact)
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value && Number.isFinite(Number(value))) return Number(value)
@@ -85,6 +89,7 @@ function factNumber(fact: CanonicalFact | undefined): number | undefined {
 }
 
 function factBoolean(fact: CanonicalFact | undefined): boolean | undefined {
+  if (fact?.provenance?.validity !== 'valid') return undefined
   const value = canonicalFactValue(fact)
   return typeof value === 'boolean' ? value : undefined
 }
@@ -134,7 +139,8 @@ function evaluateTelemetryItem(
   id: PassportItemId,
   facts: ReadonlyMap<string, CanonicalFact>,
   roster: PassportRosterMember[],
-  config: PassportConfig
+  config: PassportConfig,
+  capturedAt: number
 ): ItemEvaluation {
   const sessionRef = factText(facts.get('session.identity'))
   const connected = factBoolean(facts.get('telemetry.connected'))
@@ -154,7 +160,8 @@ function evaluateTelemetryItem(
         status: ok ? 'verified' : 'unknown',
         detail: ok ? 'Live session identity is current.' : 'Live session identity is unavailable.',
         source: 'phase02.tap',
-        evidence: { connected, sessionRef }
+        evidence: { connected, sessionRef },
+        capturedAt
       }
     }
     case 'incoming-driver': {
@@ -174,7 +181,8 @@ function evaluateTelemetryItem(
             ? 'Telemetry driver is not bound to an active roster driver.'
             : 'Driver identity is unavailable.',
         source: 'phase02.tap+roster',
-        evidence: { driverRef, driverName, rosterMemberId: member?.memberId }
+        evidence: { driverRef, driverName, rosterMemberId: member?.memberId },
+        capturedAt
       }
     }
     case 'car-track': {
@@ -183,19 +191,21 @@ function evaluateTelemetryItem(
         status: ok ? 'verified' : 'unknown',
         detail: ok ? 'Car and track references are current.' : 'Car or track identity is unavailable.',
         source: 'phase02.tap',
-        evidence: { carRef, trackRef }
+        evidence: { carRef, trackRef },
+        capturedAt
       }
     }
     case 'fuel-load': {
       if (fuelLiters === undefined) {
-        return { status: 'unknown', detail: 'Fuel level is unavailable.', source: 'phase02.tap' }
+        return { status: 'unknown', detail: 'Fuel level is unavailable or stale.', source: 'phase02.tap', capturedAt }
       }
       if (config.minimumFuelLiters <= 0) {
         return {
           status: 'unknown',
           detail: 'A specific minimum fuel load has not been configured.',
           source: 'passport.config',
-          evidence: { fuelLiters }
+          evidence: { fuelLiters },
+          capturedAt
         }
       }
       const ok = fuelLiters >= config.minimumFuelLiters
@@ -205,18 +215,20 @@ function evaluateTelemetryItem(
           ? `${fuelLiters.toFixed(1)} L meets the ${config.minimumFuelLiters.toFixed(1)} L minimum.`
           : `${fuelLiters.toFixed(1)} L is below the ${config.minimumFuelLiters.toFixed(1)} L minimum.`,
         source: 'phase02.tap+passport.config',
-        evidence: { fuelLiters, minimumFuelLiters: config.minimumFuelLiters }
+        evidence: { fuelLiters, minimumFuelLiters: config.minimumFuelLiters },
+        capturedAt
       }
     }
     case 'stint-target': {
       if (fuelLiters === undefined || fuelPerLap === undefined || fuelPerLap <= 0) {
-        return { status: 'unknown', detail: 'Fuel-per-lap evidence is unavailable.', source: 'phase02.tap' }
+        return { status: 'unknown', detail: 'Fuel-per-lap evidence is unavailable or stale.', source: 'phase02.tap', capturedAt }
       }
       if (config.targetStintLaps <= 0) {
         return {
           status: 'unknown',
           detail: 'A specific target stint length has not been configured.',
-          source: 'passport.config'
+          source: 'passport.config',
+          capturedAt
         }
       }
       const availableLaps = fuelLiters / fuelPerLap
@@ -227,7 +239,8 @@ function evaluateTelemetryItem(
           ? `${availableLaps.toFixed(1)} fuel laps cover the ${config.targetStintLaps} lap target.`
           : `${availableLaps.toFixed(1)} fuel laps do not cover the ${config.targetStintLaps} lap target.`,
         source: 'phase02.tap+passport.config',
-        evidence: { fuelLiters, fuelPerLap, availableLaps, targetStintLaps: config.targetStintLaps }
+        evidence: { fuelLiters, fuelPerLap, availableLaps, targetStintLaps: config.targetStintLaps },
+        capturedAt
       }
     }
     case 'weather-assumption': {
@@ -236,11 +249,12 @@ function evaluateTelemetryItem(
           status: 'verified',
           detail: 'Weather assumption accepts dry or wet conditions.',
           source: 'passport.config',
-          evidence: { assumption: 'any', raining, wetness }
+          evidence: { assumption: 'any', raining, wetness },
+          capturedAt
         }
       }
       if (raining === undefined && wetness === undefined) {
-        return { status: 'unknown', detail: 'Weather evidence is unavailable.', source: 'phase02.tap' }
+        return { status: 'unknown', detail: 'Weather evidence is unavailable or stale.', source: 'phase02.tap', capturedAt }
       }
       const wet = raining === true || (wetness ?? 0) > 0.05
       const ok = config.weatherAssumption === 'wet' ? wet : !wet
@@ -250,20 +264,23 @@ function evaluateTelemetryItem(
           ? `Observed conditions match the ${config.weatherAssumption} assumption.`
           : `Observed conditions contradict the ${config.weatherAssumption} assumption.`,
         source: 'phase02.tap+passport.config',
-        evidence: { assumption: config.weatherAssumption, raining, wetness }
+        evidence: { assumption: config.weatherAssumption, raining, wetness },
+        capturedAt
       }
     }
     case 'final-acknowledgement':
       return {
         status: 'unknown',
         detail: 'Final driver/team-manager acknowledgement is required.',
-        source: 'manual'
+        source: 'manual',
+        capturedAt
       }
     default:
       return {
         status: 'unknown',
         detail: 'External readiness has not been evaluated.',
-        source: 'passport.external'
+        source: 'passport.external',
+        capturedAt
       }
   }
 }
@@ -274,12 +291,12 @@ function evaluateExternalItem(
   config: PassportConfig
 ): ItemEvaluation {
   if (!external) {
-    return { status: 'unknown', detail: 'External readiness has not been refreshed.', source: 'passport.external' }
+    return { status: 'unknown', detail: 'External readiness has not been refreshed.', source: 'passport.external', capturedAt: 0 }
   }
   switch (id) {
     case 'race-profile': {
       const expected = config.expectedRaceProfileId
-      if (!expected) return { status: 'unknown', detail: 'No specific race profile is selected.', source: 'passport.config' }
+      if (!expected) return { status: 'unknown', detail: 'No specific race profile is selected.', source: 'passport.config', capturedAt: external.capturedAt }
       const profile = external.raceProfile
       const ok = profile.profileId === expected && profile.exists && profile.matchesCar && profile.matchesTrack
       return {
@@ -288,12 +305,13 @@ function evaluateExternalItem(
           ? `Race profile ${expected} exists and matches the live car and track.`
           : `Race profile ${expected} is missing or does not match the live car and track.`,
         source: 'race-profile-store',
-        evidence: profile
+        evidence: profile,
+        capturedAt: external.capturedAt
       }
     }
     case 'buttonbox-profile': {
       const expected = config.expectedButtonboxProfile
-      if (!expected) return { status: 'unknown', detail: 'No specific ButtonBox profile is selected.', source: 'passport.config' }
+      if (!expected) return { status: 'unknown', detail: 'No specific ButtonBox profile is selected.', source: 'passport.config', capturedAt: external.capturedAt }
       const profile = external.buttonboxProfile
       const linked = external.raceProfile.buttonboxProfile
       const ok = profile.exists && profile.profileName === expected && (!linked || linked === expected)
@@ -303,12 +321,13 @@ function evaluateExternalItem(
           ? `ButtonBox profile ${expected} exists and matches the selected race profile.`
           : `ButtonBox profile ${expected} is missing or conflicts with the selected race profile.`,
         source: 'buttonbox-profile-store',
-        evidence: { ...profile, linkedProfile: linked }
+        evidence: { ...profile, linkedProfile: linked },
+        capturedAt: external.capturedAt
       }
     }
     case 'required-devices': {
       if (config.requiredDeviceIds.length === 0) {
-        return { status: 'unknown', detail: 'No specific required device IDs are configured.', source: 'passport.config' }
+        return { status: 'unknown', detail: 'No specific required device IDs are configured.', source: 'passport.config', capturedAt: external.capturedAt }
       }
       const missing = config.requiredDeviceIds.filter((idValue) =>
         !external.devices.some((device) => device.id === idValue && device.connected)
@@ -319,15 +338,16 @@ function evaluateExternalItem(
           ? `Required devices connected: ${config.requiredDeviceIds.join(', ')}.`
           : `Required devices not connected: ${missing.join(', ')}.`,
         source: 'serial-hub',
-        evidence: { requiredDeviceIds: config.requiredDeviceIds, devices: external.devices }
+        evidence: { requiredDeviceIds: config.requiredDeviceIds, devices: external.devices },
+        capturedAt: external.capturedAt
       }
     }
     case 'critical-controls': {
       if (config.requiredControlIds.length === 0) {
-        return { status: 'unknown', detail: 'No specific critical controls are configured.', source: 'passport.config' }
+        return { status: 'unknown', detail: 'No specific critical controls are configured.', source: 'passport.config', capturedAt: external.capturedAt }
       }
       if (!external.buttonboxProfile.exists) {
-        return { status: 'mismatch', detail: 'The selected ButtonBox profile is unavailable.', source: 'buttonbox-profile-store' }
+        return { status: 'mismatch', detail: 'The selected ButtonBox profile is unavailable.', source: 'buttonbox-profile-store', capturedAt: external.capturedAt }
       }
       const missing = config.requiredControlIds.filter((controlId) =>
         !external.buttonboxProfile.controlIds.includes(controlId)
@@ -342,7 +362,8 @@ function evaluateExternalItem(
           profileName: external.buttonboxProfile.profileName,
           requiredControlIds: config.requiredControlIds,
           mappedControlIds: external.buttonboxProfile.controlIds
-        }
+        },
+        capturedAt: external.capturedAt
       }
     }
     case 'audio-comms': {
@@ -367,7 +388,8 @@ function evaluateExternalItem(
             requiredOutputDeviceId: config.requiredAudioOutputDeviceId,
             requiredCallouts,
             missingCallouts
-          }
+          },
+          capturedAt: external.capturedAt
         }
       }
       return {
@@ -380,20 +402,23 @@ function evaluateExternalItem(
           ...external.audio,
           communicationChannel: config.communicationChannel,
           requiredCallouts
-        }
+        },
+        capturedAt: external.capturedAt
       }
     }
     default:
       return {
         status: 'unknown',
         detail: 'This item is evaluated from live telemetry.',
-        source: 'phase02.tap'
+        source: 'phase02.tap',
+        capturedAt: external.capturedAt
       }
   }
 }
 
 export function evaluatePassportItems(input: EvaluatePassportInput): PassportItem[] {
   const facts = canonicalFactsByName(input.event.facts)
+  const eventCapturedAt = Number(input.event.sourceTick) || input.now
   const currentById = new Map(input.passport.items.map((item) => [item.id, item]))
   return PASSPORT_ITEM_DEFINITIONS.map((definition) => {
     const current = currentById.get(definition.id)
@@ -416,19 +441,22 @@ export function evaluatePassportItems(input: EvaluatePassportInput): PassportIte
     }
     const result = externalItem
       ? evaluateExternalItem(definition.id, input.external, input.config)
-      : evaluateTelemetryItem(definition.id, facts, input.roster, input.config)
+      : evaluateTelemetryItem(definition.id, facts, input.roster, input.config, eventCapturedAt)
     const nextEvidence = result.evidence
-      ? evidence(result.source, result.detail, result.evidence, input.now)
+      ? evidence(result.source, result.detail, result.evidence, result.capturedAt)
       : undefined
-    const expiresAt = result.status === 'verified'
-      ? input.now + definition.ttlMs
+    const expired = result.status === 'verified' &&
+      result.capturedAt + definition.ttlMs <= input.now
+    const status = expired ? 'expired' : result.status
+    const expiresAt = status === 'verified'
+      ? result.capturedAt + definition.ttlMs
       : undefined
     return {
       id: definition.id,
-      status: result.status,
+      status,
       owner: ownerFor(definition.id, current?.owner, input.roster),
       detail: result.detail,
-      verifiedAt: result.status === 'verified' ? input.now : undefined,
+      verifiedAt: status === 'verified' ? result.capturedAt : undefined,
       expiresAt,
       evidence: nextEvidence,
       revision: (current?.revision ?? 0) + 1

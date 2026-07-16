@@ -15,18 +15,18 @@
       "binary": "stint-passport-v1.binpb",
       "type": "ultimate.sim.raceops.v1.StintPassport",
       "producerVersion": 1,
-      "binarySha256": "51265718d84472a26a19f823fa49f08a012b7ee8d6b7513bf4e41ebd3bc7c066",
-      "jsonSha256": "6c89f414d50644e80cc7f8342a4c8b323e37d33df7fa9a2752d954b59fdc4735",
-      "bytes": 1019
+      "binarySha256": "8367b94acf6cc245b54b0f90cf2f1948e73d0d33d3f04fdb94efb69b31dd4104",
+      "jsonSha256": "1a2e5c35a1ca17939d6ad4a53e6f5cf80694f59c7c2ad17c593eb20a24ea629b",
+      "bytes": 1031
     },
     {
       "json": "stint-passport-n-1.json",
       "binary": "stint-passport-n-1.binpb",
-      "type": "ultimate.sim.raceops.v1.StintPassport",
+      "type": "ultimate.sim.raceops.n1.v1.StintPassport",
       "producerVersion": 0,
-      "binarySha256": "8024d6104ecd5c35930852c24eb3ffd000d7eb1d9e0ff0dfc080dd4def143a82",
-      "jsonSha256": "b5dce1c45da99fd3beea2138fa7222e3ec4ba2ddad11c39277abe639579f85a0",
-      "bytes": 177
+      "binarySha256": "dcf0175ed13e0daba27cfced9ba79345e68c78fff757fe9d4ed8f36b8c3175a6",
+      "jsonSha256": "383f8088df184cebcad2d6d98075d1848e7ad0084f7cfc5220b633c9e9721dc3",
+      "bytes": 176
     }
   ]
 }

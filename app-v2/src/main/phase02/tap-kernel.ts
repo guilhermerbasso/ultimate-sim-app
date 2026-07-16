@@ -1,5 +1,6 @@
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import type { CanonicalRaceOpsEvent } from '../../shared/phase02-contracts'
+import { canonicalFactValue } from '../../shared/phase02-contracts'
 import type {
   Phase02Tap,
   Phase02TapBudgets,
@@ -25,6 +26,13 @@ function estimateBytes(delivery: Phase02TapDelivery): number {
   return Buffer.byteLength(JSON.stringify(delivery.event, (_key, value) =>
     value instanceof Uint8Array ? Buffer.from(value).toString('base64') : value
   ))
+}
+
+function isLifecycleBoundary(delivery: Phase02TapDelivery): boolean {
+  const connected = canonicalFactValue(
+    delivery.event.facts.find((fact) => fact.name === 'telemetry.connected')
+  )
+  return delivery.event.telemetryContext !== 'live' || connected === false
 }
 
 function cloneEvent(event: CanonicalRaceOpsEvent): CanonicalRaceOpsEvent {
@@ -72,11 +80,14 @@ class BoundedTapSubscription implements Phase02TapSubscription {
       dropped: 0,
       overflowCount: 0,
       consumerErrors: 0
+      ,
+      gapPending: false
     }
   }
 
   enqueue(delivery: Phase02TapDelivery): void {
-    if (this.disposed || !this.state.enabled || this.state.killSwitch) return
+    const boundary = isLifecycleBoundary(delivery)
+    if (this.disposed || ((!this.state.enabled || this.state.killSwitch) && !boundary)) return
     const byteLength = estimateBytes(delivery)
     const next: Phase02TapDelivery = { ...delivery, byteLength }
     if (byteLength > this.budgets.maxBytes) {
@@ -98,13 +109,6 @@ class BoundedTapSubscription implements Phase02TapSubscription {
     }
     if (dropped > 0) {
       this.markOverflow(dropped)
-      const newest = this.queue.at(-1)
-      if (newest && !newest.event.integrityFlags.includes('gap')) {
-        newest.event = {
-          ...newest.event,
-          integrityFlags: [...newest.event.integrityFlags, 'gap']
-        }
-      }
     }
     this.syncQueueState()
     this.requestDrain()
@@ -133,7 +137,11 @@ class BoundedTapSubscription implements Phase02TapSubscription {
   }
 
   private requestDrain(): void {
-    if (this.draining || this.disposed || this.state.killSwitch) return
+    if (
+      this.draining ||
+      this.disposed ||
+      (this.state.killSwitch && !this.queue.some(isLifecycleBoundary))
+    ) return
     this.draining = true
     schedule(() => void this.drain())
   }
@@ -144,19 +152,25 @@ class BoundedTapSubscription implements Phase02TapSubscription {
       while (
         processed < this.budgets.maxDrainBatch &&
         this.queue.length > 0 &&
-        !this.disposed &&
-        !this.state.killSwitch
+        !this.disposed
       ) {
+        if (this.state.killSwitch && !isLifecycleBoundary(this.queue[0])) break
         const delivery = this.queue.shift()
         if (!delivery) break
         this.queuedBytes -= delivery.byteLength
         const age = this.now() - delivery.enqueuedAt
-        if (age > this.budgets.maxAgeMs) {
-          this.state.dropped += 1
-          this.state.lastOverflowAt = this.now()
+        if (age > this.budgets.maxAgeMs && !isLifecycleBoundary(delivery)) {
+          this.markOverflow(1)
           this.syncQueueState()
           processed += 1
           continue
+        }
+        if (this.state.gapPending && !delivery.event.integrityFlags.includes('gap')) {
+          delivery.event = {
+            ...delivery.event,
+            integrityFlags: [...delivery.event.integrityFlags, 'gap']
+          }
+          this.state.gapPending = false
         }
         try {
           await this.consumer(delivery)
@@ -165,13 +179,18 @@ class BoundedTapSubscription implements Phase02TapSubscription {
         } catch (error) {
           this.state.consumerErrors += 1
           this.state.lastError = error instanceof Error ? error.message : String(error)
+          this.state.gapPending = true
         }
         this.syncQueueState()
         processed += 1
       }
     } finally {
       this.draining = false
-      if (this.queue.length > 0 && !this.disposed && !this.state.killSwitch) {
+      if (
+        this.queue.length > 0 &&
+        !this.disposed &&
+        (!this.state.killSwitch || this.queue.some(isLifecycleBoundary))
+      ) {
         this.requestDrain()
       }
     }
@@ -181,6 +200,7 @@ class BoundedTapSubscription implements Phase02TapSubscription {
     this.state.dropped += dropped
     this.state.overflowCount += 1
     this.state.lastOverflowAt = this.now()
+    this.state.gapPending = true
   }
 
   private syncQueueState(): void {

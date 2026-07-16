@@ -9,7 +9,8 @@ import {
   type PassportItem,
   type StintPassport
 } from '../../shared/stint-passport'
-import { PassportStore } from './store'
+import { emptyConfidence, emptyObservedInterval } from '../../shared/phase02-contracts'
+import { PassportPersistenceEngine as PassportStore } from './persistence-engine'
 
 const dirs: string[] = []
 const stores: PassportStore[] = []
@@ -92,16 +93,62 @@ function passport(id = 'stint-1', startedAt = 1_000): StintPassport {
     challengeCompletedAt: startedAt,
     challengeOwner: { memberId: 'driver-1', role: 'driver' },
     interrupted: false,
-    persisted: false
+    persisted: false,
+    revision: 1,
+    durability: 'ephemeral'
   }
 }
 
-function event(index: number) {
+function event(index: number, dedupeKey = `event-${index}`, stintId = 'stint-1') {
   return {
-    eventType: 'ultimate.sim.raceops.passport.item-updated.v1',
-    dedupeKey: `event-${index}`,
     dataClass: 'D2' as const,
-    payload: { index }
+    capturedAt: 1_000 + index,
+    canonicalEvent: {
+      eventId: `event-id-${index}`,
+      eventClass: 'fact' as const,
+      eventType: 'ultimate.sim.raceops.passport.item-updated.v2',
+      sessionRef: `session:${stintId}`,
+      actorRef: 'system:test',
+      subjectRef: `stint:${stintId}`,
+      observedInterval: emptyObservedInterval(),
+      facts: [{
+        name: 'passport.index',
+        canonicalUnit: 'count',
+        value: { kind: 'double' as const, value: index },
+        provenance: {
+          sourceId: 'test',
+          transformId: 'test.v2',
+          schemaFingerprint: 'test',
+          canonicalUnit: 'count',
+          validity: 'valid' as const,
+          nullReason: 'unspecified' as const,
+          sourceTick: String(1_000 + index),
+          observedMonotonicNs: '0',
+          ageMs: '0',
+          privacyClass: 'D2' as const
+        }
+      }],
+      confidence: emptyConfidence(),
+      severity: 'info' as const,
+      priority: 'normal' as const,
+      evidenceRefs: [],
+      policyRef: 'test',
+      capabilityRef: 'test',
+      consentEpoch: '1',
+      approvalRef: '',
+      correlationId: stintId,
+      dedupeKey,
+      privacyClass: 'D2' as const,
+      integrityFlags: ['derived' as const],
+      supersedesEventId: '',
+      sequence: '0',
+      partitionKey: `stint:${stintId}`,
+      partitionSeq: '0',
+      telemetryContext: 'live' as const,
+      sourceTick: String(1_000 + index),
+      observedMonotonicNs: '0',
+      ttlMs: '0'
+    }
   }
 }
 
@@ -177,6 +224,34 @@ describe('PassportStore privacy and incremental integrity', () => {
     expect(store.getPassport('stint-1')?.lifecycle).toBe('ready')
   })
 
+  it('persists and exports canonical RaceOpsEvent ProtoJSON/binary instead of parallel payload JSON', () => {
+    const path = join(scratch('canonical-events'), 'passport.db')
+    const { store } = open(path, 1_000)
+    store.setPrivacy({ ...DEFAULT_PASSPORT_PRIVACY, identityPersistenceOptIn: true, updatedAt: 0 })
+    store.persistPassport(passport(), event(1))
+    const db = new DatabaseSync(path)
+    const row = db.prepare(`
+      SELECT event_binary, payload_json FROM passport_event LIMIT 1
+    `).get() as { event_binary: Uint8Array; payload_json: string }
+    db.close()
+    const protoJson = JSON.parse(row.payload_json)
+    expect(row.event_binary.byteLength).toBeGreaterThan(0)
+    expect(protoJson).toMatchObject({
+      eventId: 'event-id-1',
+      eventClass: 'RACE_OPS_EVENT_CLASS_FACT',
+      policyRef: 'test',
+      capabilityRef: 'test',
+      consentEpoch: '1'
+    })
+    expect(protoJson.facts[0].provenance).toMatchObject({
+      validity: 'DATA_VALIDITY_VALID',
+      privacyClass: 'PRIVACY_CLASS_D2_DRIVER'
+    })
+    expect(store.exportPackage('full-local').canonicalEvents[0]).toMatchObject({
+      eventId: 'event-id-1'
+    })
+  })
+
   it('deletes one closed stint without breaking another stint integrity chain', () => {
     const { store } = open(join(scratch('retention'), 'passport.db'), 1_000)
     store.setPrivacy({ ...DEFAULT_PASSPORT_PRIVACY, identityPersistenceOptIn: true, updatedAt: 0 })
@@ -187,12 +262,13 @@ describe('PassportStore privacy and incremental integrity', () => {
       closeReason: 'manual' as const
     }
     const second = passport('stint-b', 300)
-    store.persistPassport(first, { ...event(1), dedupeKey: 'a-1' })
-    store.persistPassport(second, { ...event(2), dedupeKey: 'b-1' })
+    store.persistPassport(first, event(1, 'a-1', 'stint-a'))
+    store.persistPassport(second, event(2, 'b-1', 'stint-b'))
 
     const result = store.deleteByClass('D3')
     expect(result.deletedStints).toBe(1)
     expect(store.getPassport('stint-a')).toBeNull()
+    expect(store.exportPackage('race-only').deletionTombstones.length).toBeGreaterThan(0)
     expect(store.verifyActiveStint('stint-b')).toMatchObject({
       state: 'unanchored',
       verified: false
@@ -200,9 +276,16 @@ describe('PassportStore privacy and incremental integrity', () => {
   })
 
   it('redacts class-scoped evidence without creating broken surviving references', () => {
-    const { store } = open(join(scratch('class-retention'), 'passport.db'), 1_000)
+    const path = join(scratch('class-retention'), 'passport.db')
+    const { store } = open(path, 1_000)
     store.setPrivacy({ ...DEFAULT_PASSPORT_PRIVACY, identityPersistenceOptIn: true, updatedAt: 0 })
-    store.persistPassport(passport(), event(1))
+    const data = passport()
+    data.items = data.items.map((item) =>
+      passportItemDataClass(item.id) === 'D2'
+        ? { ...item, owner: undefined, reasonCode: undefined }
+        : item
+    )
+    store.persistPassport(data, event(1))
     const result = store.deleteByClass('D2')
     expect(result.redactedEvidence).toBeGreaterThan(0)
     expect(store.getPassport('stint-1')?.items.some((item) =>
@@ -212,6 +295,13 @@ describe('PassportStore privacy and incremental integrity', () => {
       state: 'unanchored',
       verified: false
     })
+    const db = new DatabaseSync(path)
+    const redacted = db.prepare(`
+      SELECT COUNT(*) AS count FROM passport_event
+      WHERE payload_state = 'retention-redacted' AND payload_json IS NULL
+    `).get() as { count: number }
+    db.close()
+    expect(redacted.count).toBeGreaterThan(0)
   })
 
   it('deletes D1 queue/runtime diagnostics through the same data-class control', () => {
@@ -219,6 +309,33 @@ describe('PassportStore privacy and incremental integrity', () => {
     store.logRuntime('tap-overflow', { dropped: 3 })
     const result = store.deleteByClass('D1')
     expect(result.redactedEvidence).toBeGreaterThan(0)
+  })
+
+  it('uses evidence capturedAt rather than mutable verification time for retention', () => {
+    const opened = open(join(scratch('captured-at'), 'passport.db'), 2 * 86_400_000)
+    const { store } = opened
+    store.setPrivacy({
+      ...DEFAULT_PASSPORT_PRIVACY,
+      identityPersistenceOptIn: true,
+      retentionDays: { D1: 90, D2: 1, D3: 7 },
+      updatedAt: 0
+    })
+    const data = passport()
+    data.items = data.items.map((item) =>
+      passportItemDataClass(item.id) === 'D2'
+        ? {
+            ...item,
+            owner: undefined,
+            verifiedAt: 2 * 86_400_000,
+            evidence: item.evidence ? { ...item.evidence, capturedAt: 1 } : undefined
+          }
+        : item
+    )
+    store.persistPassport(data, event(1))
+    store.purgeRetention(2 * 86_400_000)
+    expect(store.getPassport('stint-1')?.items.some((item) =>
+      passportItemDataClass(item.id) === 'D2' && item.evidence !== undefined
+    )).toBe(false)
   })
 
   it('reports tampered event content as corrupt only during bounded or explicit audit', async () => {
@@ -231,8 +348,18 @@ describe('PassportStore privacy and incremental integrity', () => {
     db.close()
 
     expect(store.getIntegrity().state).toBe('unanchored')
-    expect(store.verifyActiveStint('stint-1').state).toBe('corrupt')
+    const corrupted = store.verifyActiveStint('stint-1')
+    expect(corrupted.state).toBe('corrupt')
+    expect(corrupted.repairToken).toBeTruthy()
+    expect(store.validateRepairToken(corrupted.repairToken!)).toBe(true)
+    expect(store.validateRepairToken('wrong')).toBe(false)
     expect((await store.runFullAudit()).state).toBe('corrupt')
+    expect(() => store.persistPassport(passport(), event(2))).toThrow(/quarantined/i)
+    store.close()
+    stores.splice(stores.indexOf(store), 1)
+    const reopened = open(path, 2_000).store
+    expect(reopened.getIntegrity()).toMatchObject({ state: 'corrupt', verified: false })
+    expect(() => reopened.persistPassport(passport(), event(3))).toThrow(/quarantined/i)
   })
 
   it('detects mutable Passport item tampering through the event state hash', () => {
@@ -254,13 +381,21 @@ describe('PassportStore privacy and incremental integrity', () => {
   }
 
   it('redacts driver, team, role owner, and evidence acknowledgements in portable exports', () => {
-    const { store } = open(join(scratch('redaction'), 'passport.db'), 1_000)
+    const path = join(scratch('redaction'), 'passport.db')
+    const { store } = open(path, 1_000)
     store.setPrivacy({ ...DEFAULT_PASSPORT_PRIVACY, identityPersistenceOptIn: true, updatedAt: 0 })
     store.saveRoster([
       { memberId: 'driver-1', displayName: 'Alice', roles: ['driver'], active: true },
       { memberId: 'engineer-1', displayName: 'Engineer Bob', roles: ['engineer'], active: true }
     ])
     store.persistPassport(passport(), event(1))
+    const classificationDb = new DatabaseSync(path)
+    const leakedOwners = classificationDb.prepare(`
+      SELECT COUNT(*) AS count FROM passport_item
+      WHERE data_class IN ('D1', 'D2') AND owner_json IS NOT NULL
+    `).get() as { count: number }
+    classificationDb.close()
+    expect(leakedOwners.count).toBe(0)
 
     const pseudonymized = JSON.stringify(store.exportPackage('pseudonymized'))
     expect(pseudonymized).not.toContain('Alice')

@@ -12,15 +12,16 @@ import type {
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { DEFAULT_PASSPORT_PRIVACY, type PassportConfig } from '../../shared/stint-passport'
 import { telemetrySnapshotToRaceOpsEvent } from '../phase02/telemetry-contract-adapter'
-import { PassportStore } from './store'
+import { PassportPersistenceEngine } from './persistence-engine'
+import type { PassportPersistenceClient } from './persistence-client'
 import { StintPassportService } from './service'
 
 const dirs: string[] = []
 const services: StintPassportService[] = []
-const stores: PassportStore[] = []
+const stores: PassportPersistenceEngine[] = []
 
-afterEach(() => {
-  for (const service of services.splice(0)) service.dispose()
+afterEach(async () => {
+  for (const service of services.splice(0)) await service.dispose()
   for (const store of stores.splice(0)) {
     try {
       store.close()
@@ -48,7 +49,8 @@ class FakeTap implements Phase02Tap {
     delivered: 0,
     dropped: 0,
     overflowCount: 0,
-    consumerErrors: 0
+    consumerErrors: 0,
+    gapPending: false
   }
 
   subscribe(
@@ -86,6 +88,37 @@ class FakeTap implements Phase02Tap {
     this.state.delivered += 1
     this.state.lastDeliveredSequence = delivery.event.sequence
   }
+}
+
+function clientFor(engine: PassportPersistenceEngine): PassportPersistenceClient {
+  let killed = false
+  const client: Record<string, unknown> = {
+    status: () => ({
+      state: killed ? 'killed' : 'ready',
+      queued: 0,
+      queuedBytes: 0,
+      inFlight: false,
+      failures: 0,
+      restarts: 0
+    }),
+    setKillSwitch: (enabled: boolean) => { killed = enabled },
+    close: async () => engine.close(),
+    setWorkerKillSwitch: async (enabled: boolean) => engine.setKillSwitch(enabled),
+    runFullAudit: async () => ({
+      integrity: await engine.runFullAudit(),
+      durationMs: 0
+    })
+  }
+  for (const method of [
+    'getConfig', 'setConfig', 'getPrivacy', 'setPrivacy', 'getKillSwitch',
+    'listRoster', 'saveRoster', 'persistPassport', 'listPassports', 'getPassport',
+    'getIntegrity', 'verifyActiveStint', 'purgeRetention', 'deleteByClass',
+    'exportPackage', 'logRuntime', 'eventHeaders', 'metricsSnapshot'
+  ]) {
+    client[method] = async (...args: unknown[]) =>
+      (engine as unknown as Record<string, (...values: unknown[]) => unknown>)[method](...args)
+  }
+  return client as unknown as PassportPersistenceClient
 }
 
 function scratch(name: string): string {
@@ -149,7 +182,7 @@ function delivery(snapshot: TelemetrySnapshot | null, sequence: bigint, gap = fa
       snapshot,
       sequence,
       gap,
-      processedAtMs: 2_000 + Number(sequence),
+      processedAtMs: (snapshot?.timestamp ?? 2_000) + 10,
       observedMonotonicNs: 5_000n + sequence
     }),
     enqueuedAt: 2_000,
@@ -219,13 +252,14 @@ function harness(name: string) {
   } as unknown as ModuleContext
   let now = 10_000
   let ids = 0
-  const store = new PassportStore({
+  const store = new PassportPersistenceEngine({
     path: join(dir, 'passport.db'),
     now: () => now,
     idFactory: () => `id-${++ids}`
   })
   stores.push(store)
-  const service = new StintPassportService(ctx, store, () => now)
+  const client = clientFor(store)
+  const service = new StintPassportService(ctx, client, () => now)
   services.push(service)
   const config: PassportConfig = {
     expectedRaceProfileId: 'race-spa',
@@ -245,6 +279,7 @@ function harness(name: string) {
     ctx,
     tap,
     store,
+    client,
     service,
     broadcast,
     config,
@@ -304,10 +339,16 @@ describe('StintPassportService lifecycle and privacy', () => {
       itemId: 'audio-comms',
       status: 'manual-confirmed',
       owner: { memberId: 'spotter-1', role: 'spotter' },
-      reason: 'Discord radio check complete.'
+      reasonCode: 'COMMS_CHECK_COMPLETE'
+    })
+    const challenge = await test.service.prepareChallenge({
+      stintId: first.identity.stintId,
+      owner: { memberId: first.identity.driverRef, role: 'driver' }
     })
     await test.service.completeChallenge({
       stintId: first.identity.stintId,
+      challengeId: challenge.challengeId,
+      response: challenge.nonce,
       owner: { memberId: first.identity.driverRef, role: 'driver' }
     })
     expect((await test.service.snapshot()).current?.lifecycle).toBe('ready')
@@ -346,6 +387,43 @@ describe('StintPassportService lifecycle and privacy', () => {
     })
   })
 
+  it('does not renew freshness from snapshot reads and demotes Ready after expiry', async () => {
+    const test = harness('freshness')
+    await test.service.setConfig(test.config)
+    await test.tap.emit(delivery(telemetry(), 1n))
+    let snapshot = await test.service.snapshot()
+    const current = snapshot.current!
+    await configureRoster(test, current.identity.driverRef, 'Driver A')
+    await test.service.resolveItem({
+      stintId: current.identity.stintId,
+      itemId: 'audio-comms',
+      status: 'manual-confirmed',
+      owner: { memberId: 'spotter-1', role: 'spotter' },
+      reasonCode: 'COMMS_CHECK_COMPLETE'
+    })
+    const challenge = await test.service.prepareChallenge({
+      stintId: current.identity.stintId,
+      owner: { memberId: current.identity.driverRef, role: 'driver' }
+    })
+    await test.service.completeChallenge({
+      stintId: current.identity.stintId,
+      challengeId: challenge.challengeId,
+      response: challenge.nonce,
+      owner: { memberId: current.identity.driverRef, role: 'driver' }
+    })
+    snapshot = await test.service.snapshot()
+    const verifiedAt = snapshot.current?.items.find((item) => item.id === 'session-identity')?.verifiedAt
+    test.setNow(5_000)
+    expect((await test.service.snapshot()).current?.items.find(
+      (item) => item.id === 'session-identity'
+    )?.verifiedAt).toBe(verifiedAt)
+    test.setNow(20_000)
+    snapshot = await test.service.snapshot()
+    expect(snapshot.current?.items.find((item) => item.id === 'session-identity')?.status).toBe('expired')
+    expect(snapshot.current?.lifecycle).toBe('awaiting-checklist')
+    expect(snapshot.challenge).toBeUndefined()
+  })
+
   it('marks a persisted active stint interrupted when recovering from an unclean restart', async () => {
     const test = harness('restart-recovery')
     await test.service.setConfig(test.config)
@@ -362,12 +440,12 @@ describe('StintPassportService lifecycle and privacy', () => {
     test.store.close()
     stores.splice(stores.indexOf(test.store), 1)
 
-    const restartedStore = new PassportStore({ path: join(test.dir, 'passport.db'), now: () => 30_000 })
+    const restartedStore = new PassportPersistenceEngine({ path: join(test.dir, 'passport.db'), now: () => 30_000 })
     stores.push(restartedStore)
     const restartedTap = new FakeTap()
     const restartedService = new StintPassportService(
       { ...test.ctx, phase02Tap: restartedTap } as ModuleContext,
-      restartedStore,
+      clientFor(restartedStore),
       () => 30_000
     )
     services.push(restartedService)
@@ -385,7 +463,7 @@ describe('StintPassportService lifecycle and privacy', () => {
     await test.tap.emit(delivery(telemetry(), 1n, true))
     let snapshot = await test.service.snapshot()
     expect(snapshot.runtime.overflowBlocked).toBe(true)
-    await expect(test.service.completeChallenge({
+    await expect(test.service.prepareChallenge({
       stintId: snapshot.current?.identity.stintId ?? '',
       owner: { memberId: snapshot.current?.identity.driverRef ?? '', role: 'driver' }
     })).rejects.toThrow(/overflow/i)
@@ -396,6 +474,20 @@ describe('StintPassportService lifecycle and privacy', () => {
     snapshot = await test.service.snapshot()
     expect(snapshot.runtime.overflowBlocked).toBe(false)
     expect(snapshot.runtime.cleanFramesSinceOverflow).toBe(3)
+  })
+
+  it('interrupts the current Passport before enabling the kill switch', async () => {
+    const test = harness('kill-switch-current')
+    await test.service.setConfig(test.config)
+    await test.tap.emit(delivery(telemetry(), 1n))
+    const currentId = (await test.service.snapshot()).current?.identity.stintId
+    await test.service.setKillSwitch(true)
+    const snapshot = await test.service.snapshot()
+    expect(snapshot.current).toBeNull()
+    expect(snapshot.runtime.queue.killSwitch).toBe(true)
+    expect(snapshot.history.find((passport) => passport.identity.stintId === currentId)).toMatchObject({
+      lifecycle: 'interrupted'
+    })
   })
 
   it('supports reasoned waivers and not-applicable resolutions with roster-bound owners', async () => {
@@ -421,21 +513,47 @@ describe('StintPassportService lifecycle and privacy', () => {
       itemId: 'fuel-load',
       status: 'waived-with-reason',
       owner: { memberId: 'engineer-1', role: 'engineer' },
-      reason: 'Fuel sensor is under a documented manual cross-check.'
+      reasonCode: 'FUEL_SENSOR_MANUAL'
     })
     await test.service.resolveItem({
       stintId: current?.identity.stintId ?? '',
       itemId: 'weather-assumption',
       status: 'not-applicable',
       owner: { memberId: 'crew-1', role: 'crew-chief' },
-      reason: 'Open-weather plan accepts either condition.'
+      reasonCode: 'OPEN_WEATHER'
     })
     const snapshot = await test.service.snapshot()
     expect(snapshot.current?.items.find((item) => item.id === 'fuel-load')).toMatchObject({
       status: 'waived-with-reason',
-      overrideReason: 'Fuel sensor is under a documented manual cross-check.'
+      overrideReason: 'FUEL_SENSOR_MANUAL'
     })
     expect(snapshot.current?.items.find((item) => item.id === 'weather-assumption')?.status).toBe('not-applicable')
+  })
+
+  it('does not transfer attestations across roster changes', async () => {
+    const test = harness('roster-invalidation')
+    await test.service.setConfig(test.config)
+    await test.tap.emit(delivery(telemetry(), 1n))
+    const current = (await test.service.snapshot()).current!
+    await configureRoster(test, current.identity.driverRef, 'Driver A')
+    await test.service.resolveItem({
+      stintId: current.identity.stintId,
+      itemId: 'audio-comms',
+      status: 'manual-confirmed',
+      owner: { memberId: 'spotter-1', role: 'spotter' },
+      reasonCode: 'COMMS_CHECK_COMPLETE'
+    })
+    expect((await test.service.snapshot()).current?.items.find((item) => item.id === 'audio-comms')?.status).toBe('manual-confirmed')
+    await test.service.setRoster([
+      { memberId: current.identity.driverRef, displayName: 'Driver A', roles: ['driver'], active: true },
+      { memberId: 'engineer-1', displayName: 'Engineer B', roles: ['engineer'], active: true },
+      { memberId: 'manager-1', displayName: 'Manager B', roles: ['team-manager'], active: true }
+    ])
+    const snapshot = await test.service.snapshot()
+    expect(snapshot.current?.items.find((item) => item.id === 'audio-comms')).toMatchObject({
+      status: 'unknown'
+    })
+    expect(snapshot.challenge).toBeUndefined()
   })
 
   it('does not turn unchanged tap frames into synchronous persistence work', async () => {
@@ -476,10 +594,86 @@ describe('StintPassportService lifecycle and privacy', () => {
     expect(test.store.listPassports()).toEqual([])
   })
 
+  it('does not resurrect deleted in-memory evidence from the same observation', async () => {
+    const test = harness('memory-redaction')
+    await test.service.setConfig(test.config)
+    const firstFrame = telemetry()
+    await test.tap.emit(delivery(firstFrame, 1n))
+    await test.service.deleteByClass('D2')
+    let snapshot = await test.service.snapshot()
+    expect(snapshot.current?.items.find((item) => item.id === 'fuel-load')?.evidence).toBeUndefined()
+    snapshot = await test.service.snapshot()
+    expect(snapshot.current?.items.find((item) => item.id === 'fuel-load')?.evidence).toBeUndefined()
+    await test.tap.emit(delivery(firstFrame, 2n))
+    expect((await test.service.snapshot()).current?.items.find(
+      (item) => item.id === 'fuel-load'
+    )?.evidence).toBeUndefined()
+    await test.tap.emit(delivery(telemetry('Driver A', 10, 2), 3n))
+    expect((await test.service.snapshot()).current?.items.find(
+      (item) => item.id === 'fuel-load'
+    )?.evidence).toBeDefined()
+  })
+
+  it('runs retention on a schedule in addition to startup and explicit controls', async () => {
+    vi.useFakeTimers()
+    const test = harness('scheduled-retention')
+    await test.service.snapshot()
+    const purge = vi.fn(async () => [])
+    test.client.purgeRetention = purge
+    await vi.advanceTimersByTimeAsync(15 * 60_000)
+    expect(purge).toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('cannot remain Ready when opted-in durability fails', async () => {
+    const test = harness('durability-failure')
+    await test.service.setConfig(test.config)
+    await test.tap.emit(delivery(telemetry(), 1n))
+    const current = (await test.service.snapshot()).current!
+    await configureRoster(test, current.identity.driverRef, 'Driver A')
+    await test.service.resolveItem({
+      stintId: current.identity.stintId,
+      itemId: 'audio-comms',
+      status: 'manual-confirmed',
+      owner: { memberId: 'spotter-1', role: 'spotter' },
+      reasonCode: 'COMMS_CHECK_COMPLETE'
+    })
+    const challenge = await test.service.prepareChallenge({
+      stintId: current.identity.stintId,
+      owner: { memberId: current.identity.driverRef, role: 'driver' }
+    })
+    await test.service.completeChallenge({
+      stintId: current.identity.stintId,
+      challengeId: challenge.challengeId,
+      response: challenge.nonce,
+      owner: { memberId: current.identity.driverRef, role: 'driver' }
+    })
+    test.client.persistPassport = vi.fn(async () => {
+      throw new Error('worker disk failure')
+    })
+    await test.service.setPrivacy({
+      ...DEFAULT_PASSPORT_PRIVACY,
+      identityPersistenceOptIn: true,
+      updatedAt: 0
+    })
+    const snapshot = await test.service.snapshot()
+    expect(snapshot.current?.durability).toBe('failed')
+    expect(snapshot.current?.lifecycle).toBe('awaiting-checklist')
+    expect(snapshot.current?.challengeCompletedAt).toBeUndefined()
+  })
+
   it('contains no direct Phase 1 Strategy, Coach, Team Fuel, or TelemetryHub coupling', () => {
     const source = readFileSync(new URL('./service.ts', import.meta.url), 'utf8')
     expect(source).not.toMatch(/telemetryHub/)
     expect(source).not.toMatch(/modules\/strategy|modules\/coach|modules\/team-fuel/)
     expect(source).toContain('ctx.phase02Tap.subscribe')
+  })
+
+  it('issues and verifies an unguessable main-side mutation capability', async () => {
+    const test = harness('capability')
+    const capability = (await test.service.snapshot()).mutationCapability
+    expect(capability.length).toBeGreaterThan(20)
+    expect(() => test.service.assertCapability(capability)).not.toThrow()
+    expect(() => test.service.assertCapability('wrong-capability')).toThrow(/invalid/i)
   })
 })

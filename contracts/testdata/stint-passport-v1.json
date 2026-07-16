@@ -53,5 +53,7 @@
     "role": "PASSPORT_ROLE_DRIVER"
   },
   "interrupted": false,
-  "persisted": true
+  "persisted": true,
+  "revision": "1",
+  "durability": "durable"
 }

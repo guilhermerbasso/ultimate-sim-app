@@ -12,8 +12,11 @@ import {
   PHASE02_DESCRIPTOR_SHA256,
   phase02DescriptorBytes
 } from './generated/contract-descriptor'
+import { phase02_n1DescriptorBytes } from './generated/n1-contract-descriptor'
 import {
   STINT_PASSPORT_CONTRACT_VERSION,
+  PASSPORT_ITEM_DEFINITIONS,
+  calculatePassportCoverage,
   type PassportItem,
   type PassportItemId,
   type PassportItemStatus,
@@ -38,6 +41,12 @@ import type {
 const registry = createFileRegistry(fromBinary(FileDescriptorSetSchema, phase02DescriptorBytes()))
 const raceOpsEventSchema = requiredMessage('ultimate.sim.raceops.v1.RaceOpsEvent')
 const stintPassportSchema = requiredMessage('ultimate.sim.raceops.v1.StintPassport')
+const n1Registry = createFileRegistry(fromBinary(FileDescriptorSetSchema, phase02_n1DescriptorBytes()))
+const n1StintPassportSchema = (() => {
+  const message = n1Registry.getMessage('ultimate.sim.raceops.n1.v1.StintPassport')
+  if (!message) throw new Error('Phase 02 N-1 descriptor is missing StintPassport.')
+  return message
+})()
 
 const EVENT_CLASS_TO_PROTO: Record<RaceOpsEventClass, string> = {
   unspecified: 'RACE_OPS_EVENT_CLASS_UNSPECIFIED',
@@ -48,6 +57,64 @@ const EVENT_CLASS_TO_PROTO: Record<RaceOpsEventClass, string> = {
   action: 'RACE_OPS_EVENT_CLASS_ACTION',
   outcome: 'RACE_OPS_EVENT_CLASS_OUTCOME',
   disclosure: 'RACE_OPS_EVENT_CLASS_DISCLOSURE'
+}
+
+export function decodeStintPassportN1(bytes: Uint8Array): StintPassport {
+  const json = object(toJson(
+    n1StintPassportSchema,
+    fromBinary(n1StintPassportSchema, bytes),
+    { alwaysEmitImplicit: true }
+  ))
+  if (numeric(json.contractVersion) !== 0) {
+    throw new Error(`Unsupported N-1 StintPassport version: ${String(json.contractVersion)}`)
+  }
+  const identity = object(json.identity)
+  const legacyItems = new Map(array(json.items).map((value) => {
+    const item = object(value)
+    return [
+      reverseMap(ITEM_ID_TO_PROTO, item.itemId),
+      {
+        id: reverseMap(ITEM_ID_TO_PROTO, item.itemId),
+        status: reverseMap(ITEM_STATUS_TO_PROTO, item.status),
+        detail: text(item.detail),
+        verifiedAt: Number(text(item.capturedAtMs)) || undefined,
+        expiresAt: undefined,
+        evidence: undefined,
+        revision: 1
+      } satisfies PassportItem
+    ] as const
+  }))
+  const items = PASSPORT_ITEM_DEFINITIONS.map((definition) =>
+    legacyItems.get(definition.id) ?? {
+      id: definition.id,
+      status: 'unknown' as const,
+      detail: 'Not present in the explicit N-1 contract.',
+      revision: 1
+    }
+  )
+  const coverage = calculatePassportCoverage(items)
+  return {
+    contractVersion: STINT_PASSPORT_CONTRACT_VERSION,
+    identity: {
+      stintId: text(identity.stintId),
+      sessionRef: text(identity.sessionRef),
+      trackRef: text(identity.trackRef),
+      trackLabel: text(identity.trackLabel),
+      carRef: text(identity.carRef),
+      carLabel: text(identity.carLabel),
+      driverRef: text(identity.driverRef),
+      driverLabel: text(identity.driverLabel),
+      startedAt: Number(text(identity.startedAtMs))
+    },
+    lifecycle: 'awaiting-checklist',
+    telemetryContext: 'live',
+    items,
+    ...coverage,
+    interrupted: false,
+    persisted: false,
+    revision: 1,
+    durability: 'ephemeral'
+  }
 }
 const SEVERITY_TO_PROTO: Record<RaceOpsSeverity, string> = {
   unspecified: 'RACE_OPS_SEVERITY_UNSPECIFIED',
@@ -144,9 +211,10 @@ function requiredMessage(typeName: string): DescMessage {
   return message
 }
 
-function reverseMap<T extends string>(map: Record<T, string>, value: unknown, fallback: T): T {
+function reverseMap<T extends string>(map: Record<T, string>, value: unknown): T {
   const entry = Object.entries(map).find(([, proto]) => proto === value)
-  return (entry?.[0] as T | undefined) ?? fallback
+  if (!entry) throw new Error(`Unknown or future Protobuf enum value: ${String(value)}`)
+  return entry[0] as T
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -239,12 +307,12 @@ function factFromJson(value: unknown): CanonicalFact {
           transformId: text(provenanceJson.transformId),
           schemaFingerprint: text(provenanceJson.schemaFingerprint),
           canonicalUnit: text(provenanceJson.canonicalUnit),
-          validity: reverseMap(VALIDITY_TO_PROTO, provenanceJson.validity, 'unspecified'),
-          nullReason: reverseMap(NULL_REASON_TO_PROTO, provenanceJson.nullReason, 'unspecified'),
+          validity: reverseMap(VALIDITY_TO_PROTO, provenanceJson.validity),
+          nullReason: reverseMap(NULL_REASON_TO_PROTO, provenanceJson.nullReason),
           sourceTick: text(provenanceJson.sourceTick),
           observedMonotonicNs: text(provenanceJson.observedMonotonicNs),
           ageMs: text(provenanceJson.ageMs),
-          privacyClass: reverseMap(PRIVACY_TO_PROTO, provenanceJson.privacyClass, 'D0')
+          privacyClass: reverseMap(PRIVACY_TO_PROTO, provenanceJson.privacyClass)
         }
       : undefined
   }
@@ -294,9 +362,9 @@ export function raceOpsEventFromProtoJson(value: JsonValue): CanonicalRaceOpsEve
   const json = object(value)
   const interval = object(json.observedInterval)
   const confidence = object(json.confidence)
-  return {
+  const event: CanonicalRaceOpsEvent = {
     eventId: text(json.eventId),
-    eventClass: reverseMap(EVENT_CLASS_TO_PROTO, json.eventClass, 'unspecified'),
+    eventClass: reverseMap(EVENT_CLASS_TO_PROTO, json.eventClass),
     eventType: text(json.eventType),
     sessionRef: text(json.sessionRef),
     actorRef: text(json.actorRef),
@@ -315,8 +383,8 @@ export function raceOpsEventFromProtoJson(value: JsonValue): CanonicalRaceOpsEve
       method: text(confidence.method),
       abstained: bool(confidence.abstained)
     },
-    severity: reverseMap(SEVERITY_TO_PROTO, json.severity, 'unspecified'),
-    priority: reverseMap(PRIORITY_TO_PROTO, json.priority, 'unspecified'),
+    severity: reverseMap(SEVERITY_TO_PROTO, json.severity),
+    priority: reverseMap(PRIORITY_TO_PROTO, json.priority),
     evidenceRefs: array(json.evidenceRefs).map(text),
     policyRef: text(json.policyRef),
     capabilityRef: text(json.capabilityRef),
@@ -324,19 +392,34 @@ export function raceOpsEventFromProtoJson(value: JsonValue): CanonicalRaceOpsEve
     approvalRef: text(json.approvalRef),
     correlationId: text(json.correlationId),
     dedupeKey: text(json.dedupeKey),
-    privacyClass: reverseMap(PRIVACY_TO_PROTO, json.privacyClass, 'D0'),
+    privacyClass: reverseMap(PRIVACY_TO_PROTO, json.privacyClass),
     integrityFlags: array(json.integrityFlags).map((flag) =>
-      reverseMap(INTEGRITY_TO_PROTO, flag, 'unspecified')
+      reverseMap(INTEGRITY_TO_PROTO, flag)
     ),
     supersedesEventId: text(json.supersedesEventId),
     sequence: text(json.sequence),
     partitionKey: text(json.partitionKey),
     partitionSeq: text(json.partitionSeq),
-    telemetryContext: reverseMap(TELEMETRY_TO_PROTO, json.telemetryContext, 'unspecified'),
+    telemetryContext: reverseMap(TELEMETRY_TO_PROTO, json.telemetryContext),
     sourceTick: text(json.sourceTick),
     observedMonotonicNs: text(json.observedMonotonicNs),
     ttlMs: text(json.ttlMs)
   }
+  if (
+    event.eventClass === 'unspecified' ||
+    event.severity === 'unspecified' ||
+    event.priority === 'unspecified' ||
+    event.telemetryContext === 'unspecified'
+  ) {
+    throw new Error('RaceOpsEvent contains an unspecified required enum.')
+  }
+  if (!event.eventId || !event.eventType || !event.dedupeKey || !event.partitionKey) {
+    throw new Error('RaceOpsEvent is missing required canonical identity fields.')
+  }
+  if (event.facts.some((fact) => fact.provenance?.validity === 'unspecified')) {
+    throw new Error('RaceOpsEvent fact provenance validity is unspecified.')
+  }
+  return event
 }
 
 export function encodeRaceOpsEvent(event: CanonicalRaceOpsEvent): Uint8Array {
@@ -397,7 +480,26 @@ export function decodeRaceOpsCloudEvent(envelope: RaceOpsCloudEvent): CanonicalR
     throw new Error('Unsupported RaceOps schema.')
   }
   const event = decodeRaceOpsEvent(envelope.data)
-  if (event.eventId !== envelope.id || event.eventType !== envelope.type) {
+  if (
+    event.eventId !== envelope.id ||
+    event.eventType !== envelope.type ||
+    event.subjectRef !== (envelope.subject ?? '') ||
+    event.sequence !== envelope.sequence ||
+    event.sourceTick !== envelope.sourcetick ||
+    event.observedMonotonicNs !== envelope.monotonicns ||
+    event.sessionRef !== envelope.sessionid ||
+    event.correlationId !== envelope.correlationid ||
+    event.privacyClass !== envelope.privacyclass ||
+    event.policyRef !== envelope.rolepolicyid ||
+    event.capabilityRef !== envelope.capgrantid ||
+    event.consentEpoch !== envelope.consentepoch ||
+    event.approvalRef !== envelope.approvalid ||
+    event.partitionKey !== envelope.partitionkey ||
+    event.partitionSeq !== envelope.partitionseq ||
+    event.integrityFlags.includes('stale') !== envelope.stale ||
+    event.integrityFlags.includes('derived') !== envelope.derived ||
+    event.integrityFlags.includes('gap') !== envelope.gap
+  ) {
     throw new Error('CloudEvents envelope does not match the RaceOps payload.')
   }
   return event
@@ -454,7 +556,9 @@ export function stintPassportToProtoJson(passport: StintPassport): JsonValue {
     applicableItems: passport.applicableItems,
     coveredItems: passport.coveredItems,
     interrupted: passport.interrupted,
-    persisted: passport.persisted
+    persisted: passport.persisted,
+    revision: String(passport.revision),
+    durability: passport.durability
   }
   if (passport.challengeCompletedAt !== undefined) {
     json.challengeCompletedAtMs = String(passport.challengeCompletedAt)
@@ -470,7 +574,7 @@ function ownerFromJson(value: unknown): PassportItem['owner'] {
   if (!text(json.memberId)) return undefined
   return {
     memberId: text(json.memberId),
-    role: reverseMap(ROLE_TO_PROTO, json.role, 'driver')
+    role: reverseMap(ROLE_TO_PROTO, json.role)
   }
 }
 
@@ -480,8 +584,8 @@ function itemFromJson(value: unknown): PassportItem {
   const verifiedAt = Number(text(json.verifiedAtMs))
   const expiresAt = Number(text(json.expiresAtMs))
   return {
-    id: reverseMap(ITEM_ID_TO_PROTO, json.itemId, 'session-identity'),
-    status: reverseMap(ITEM_STATUS_TO_PROTO, json.status, 'unknown'),
+    id: reverseMap(ITEM_ID_TO_PROTO, json.itemId),
+    status: reverseMap(ITEM_STATUS_TO_PROTO, json.status),
     owner: ownerFromJson(json.owner),
     detail: text(json.detail),
     overrideReason: text(json.overrideReason) || undefined,
@@ -506,10 +610,13 @@ function itemFromJson(value: unknown): PassportItem {
 
 export function stintPassportFromProtoJson(value: JsonValue): StintPassport {
   const json = object(value)
+  if (numeric(json.contractVersion) !== STINT_PASSPORT_CONTRACT_VERSION) {
+    throw new Error(`Unsupported StintPassport contract version: ${String(json.contractVersion)}`)
+  }
   const identity = object(json.identity)
   const challengeCompletedAt = Number(text(json.challengeCompletedAtMs))
   const closedAt = Number(text(json.closedAtMs))
-  return {
+  const passport: StintPassport = {
     contractVersion: STINT_PASSPORT_CONTRACT_VERSION,
     identity: {
       stintId: text(identity.stintId),
@@ -524,8 +631,8 @@ export function stintPassportFromProtoJson(value: JsonValue): StintPassport {
       teamLabel: text(identity.teamLabel) || undefined,
       startedAt: Number(text(identity.startedAtMs))
     },
-    lifecycle: reverseMap(LIFECYCLE_TO_PROTO, json.lifecycle, 'awaiting-checklist'),
-    telemetryContext: reverseMap(TELEMETRY_TO_PROTO, json.telemetryContext, 'unknown'),
+    lifecycle: reverseMap(LIFECYCLE_TO_PROTO, json.lifecycle),
+    telemetryContext: reverseMap(TELEMETRY_TO_PROTO, json.telemetryContext),
     items: array(json.items).map(itemFromJson),
     coverage: numeric(json.coverage),
     applicableItems: numeric(json.applicableItems),
@@ -535,8 +642,24 @@ export function stintPassportFromProtoJson(value: JsonValue): StintPassport {
     closedAt: closedAt > 0 ? closedAt : undefined,
     closeReason: text(json.closeReason) as StintPassport['closeReason'] || undefined,
     interrupted: bool(json.interrupted),
-    persisted: bool(json.persisted)
+    persisted: bool(json.persisted),
+    revision: Number(text(json.revision)) || 1,
+    durability: text(json.durability) === 'durable'
+      ? 'durable'
+      : text(json.durability) === 'failed'
+        ? 'failed'
+        : text(json.durability) === 'quarantined'
+          ? 'quarantined'
+          : text(json.durability) === 'pending'
+            ? 'pending'
+            : bool(json.persisted)
+              ? 'durable'
+              : 'ephemeral'
   }
+  if (!passport.identity.stintId || passport.revision < 1) {
+    throw new Error('StintPassport identity or revision is invalid.')
+  }
+  return passport
 }
 
 export function encodeStintPassport(passport: StintPassport): Uint8Array {

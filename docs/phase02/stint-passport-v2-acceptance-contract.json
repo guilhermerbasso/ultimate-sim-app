@@ -1,0 +1,38 @@
+{
+  "contractVersion": 1,
+  "id": "AC-PASSPORT-V2",
+  "branch": "feat/phase2-stint-passport-v2",
+  "baseCommit": "31a414d90df8ddf639672453ff00d42b5d46a574",
+  "autonomousOverride": true,
+  "humanTokenRequired": false,
+  "scope": "Endurance Stint Passport only; Decision Flight Recorder excluded",
+  "requirements": [
+    "Bounded asynchronous Phase 02 tap with gap-on-drop and lifecycle boundary bypass",
+    "Dedicated persistence worker with deadlines, backpressure, circuit breaker, kill switch and restart",
+    "Provenance-driven freshness with no snapshot-based renewal",
+    "Twelve specific role-owned readiness items with explicit N/A eligibility",
+    "Revision-bound expiring nonce challenge with authenticated sender capability",
+    "Default-off D3 persistence and data-class retention/deletion with tombstones",
+    "Sticky integrity quarantine and explicit repair acknowledgement workflow",
+    "Strict v1 codec plus explicit checked-in N-1 descriptor migration only",
+    "Canonical RaceOpsEvent and StintPassport ProtoJSON/binary persistence/export",
+    "Accessible navigation, history, replay inspection, privacy and runtime error UI",
+    "Experiment instrumentation for defects, false blocks, bypasses, manual baseline and overhead"
+  ],
+  "experimentMetrics": {
+    "handoffDefectRate": "handoffDefects / completedChallenges",
+    "manualBaselineDefectRate": "manualBaselineDefects / manualBaselineSwaps",
+    "falseBlockRate": "falseBlocks / handoffAttempts",
+    "bypassRate": "bypasses / handoffAttempts",
+    "medianOverheadTargetMs": 15000,
+    "successDefectReduction": 0.3,
+    "maxFalseBlockRate": 0.1,
+    "minimumDecisionCoverage": 0.95
+  },
+  "requiredEvidence": [
+    "Targeted Vitest audit suite",
+    "TypeScript typecheck",
+    "Electron production build with packaged worker smoke",
+    "Buf lint/breaking plus v1 and true N-1 descriptor/golden verification"
+  ]
+}

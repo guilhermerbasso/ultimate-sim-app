@@ -1,0 +1,50 @@
+edition = "2023";
+
+package ultimate.sim.raceops.n1.v1;
+
+enum PassportItemId {
+  PASSPORT_ITEM_ID_UNSPECIFIED = 0;
+  PASSPORT_ITEM_ID_SESSION_IDENTITY = 1;
+  PASSPORT_ITEM_ID_INCOMING_DRIVER = 2;
+  PASSPORT_ITEM_ID_CAR_TRACK = 3;
+  PASSPORT_ITEM_ID_FUEL_LOAD = 4;
+  PASSPORT_ITEM_ID_STINT_TARGET = 5;
+  PASSPORT_ITEM_ID_RACE_PROFILE = 6;
+  PASSPORT_ITEM_ID_FINAL_ACKNOWLEDGEMENT = 7;
+}
+
+enum PassportItemStatus {
+  PASSPORT_ITEM_STATUS_UNSPECIFIED = 0;
+  PASSPORT_ITEM_STATUS_UNKNOWN = 1;
+  PASSPORT_ITEM_STATUS_VERIFIED = 2;
+  PASSPORT_ITEM_STATUS_MANUAL_CONFIRMED = 3;
+  PASSPORT_ITEM_STATUS_WAIVED_WITH_REASON = 4;
+  PASSPORT_ITEM_STATUS_NOT_APPLICABLE = 5;
+  PASSPORT_ITEM_STATUS_MISMATCH = 6;
+}
+
+message StintIdentity {
+  string stint_id = 1;
+  string session_ref = 2;
+  string track_ref = 3;
+  string track_label = 4;
+  string car_ref = 5;
+  string car_label = 6;
+  string driver_ref = 7;
+  string driver_label = 8;
+  uint64 started_at_ms = 9;
+}
+
+message PassportItem {
+  PassportItemId item_id = 1;
+  PassportItemStatus status = 2;
+  string detail = 3;
+  uint64 captured_at_ms = 4;
+}
+
+message StintPassport {
+  uint32 contract_version = 1;
+  StintIdentity identity = 2;
+  repeated PassportItem items = 3;
+  bool ready = 4;
+}

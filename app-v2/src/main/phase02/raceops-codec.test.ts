@@ -6,6 +6,7 @@ import {
   decodeRaceOpsCloudEvent,
   decodeRaceOpsEvent,
   decodeStintPassport,
+  decodeStintPassportN1,
   encodeRaceOpsEvent,
   encodeStintPassport,
   phase02ContractRuntime,
@@ -90,6 +91,27 @@ describe('canonical Phase 02 RaceOps runtime mapping', () => {
     expect(envelope.gap).toBe(true)
     expect(envelope.derived).toBe(true)
     expect(decodeRaceOpsCloudEvent(envelope)).toEqual(event)
+    expect(() => decodeRaceOpsCloudEvent({ ...envelope, sequence: '1000' })).toThrow(/does not match/i)
+    expect(() => decodeRaceOpsCloudEvent({ ...envelope, privacyclass: 'D0' })).toThrow(/does not match/i)
+  })
+
+  it('rejects unknown or future canonical enum and version values', () => {
+    const eventJson = json('race-ops-event-v1.json') as Record<string, unknown>
+    expect(() => raceOpsEventFromProtoJson({
+      ...eventJson,
+      eventClass: 'RACE_OPS_EVENT_CLASS_FUTURE'
+    })).toThrow(/unknown or future/i)
+    const passportJson = json('stint-passport-v1.json') as Record<string, unknown>
+    expect(() => stintPassportFromProtoJson({
+      ...passportJson,
+      contractVersion: 2
+    })).toThrow(/unsupported/i)
+    const items = structuredClone(passportJson.items) as Array<Record<string, unknown>>
+    items[0].itemId = 'PASSPORT_ITEM_ID_FUTURE'
+    expect(() => stintPassportFromProtoJson({ ...passportJson, items } as unknown as JsonValue)).toThrow(/unknown or future/i)
+    const roleItems = structuredClone(passportJson.items) as Array<Record<string, unknown>>
+    roleItems[0].owner = { memberId: 'member', role: 'PASSPORT_ROLE_FUTURE' }
+    expect(() => stintPassportFromProtoJson({ ...passportJson, items: roleItems } as unknown as JsonValue)).toThrow(/unknown or future/i)
   })
 })
 
@@ -105,12 +127,13 @@ describe('Stint Passport ProtoJSON/binary compatibility', () => {
   })
 
   it('decodes the N-1 sparse fixture with additive defaults', () => {
-    const decoded = decodeStintPassport(binary('stint-passport-n-1.binpb'))
+    const decoded = decodeStintPassportN1(binary('stint-passport-n-1.binpb'))
     expect(decoded.contractVersion).toBe(1)
     expect(decoded.identity.stintId).toBe('stint-n-1')
-    expect(decoded.items).toHaveLength(2)
+    expect(decoded.items).toHaveLength(12)
     expect(decoded.items[0].status).toBe('verified')
-    expect(decoded.coverage).toBe(0)
-    expect(() => encodeStintPassport(decoded)).not.toThrow()
+    expect(decoded.coverage).toBeCloseTo(1 / 12)
+    expect(decoded.items.filter((item) => item.status === 'unknown').length).toBeGreaterThan(0)
+    expect(() => decodeStintPassport(binary('stint-passport-n-1.binpb'))).toThrow()
   })
 })

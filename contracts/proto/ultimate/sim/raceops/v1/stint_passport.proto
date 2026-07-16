@@ -109,6 +109,8 @@ message StintPassport {
   string close_reason = 12;
   bool interrupted = 13;
   bool persisted = 14;
+  uint64 revision = 15;
+  string durability = 16;
 }
 
 message PassportEvent {

@@ -41,7 +41,8 @@ function emptySnapshot(): PassportSnapshot {
         delivered: 0,
         dropped: 0,
         overflowCount: 0,
-        consumerErrors: 0
+        consumerErrors: 0,
+        gapPending: false
       },
       overflowBlocked: false,
       cleanFramesSinceOverflow: 0
@@ -52,21 +53,45 @@ function emptySnapshot(): PassportSnapshot {
       scope: 'bounded',
       checkedEvents: 0,
       lastCheckedAt: 0
+    },
+    persistence: {
+      state: 'ready',
+      queued: 0,
+      queuedBytes: 0,
+      inFlight: false,
+      failures: 0,
+      restarts: 0
+    },
+    mutationCapability: 'test-capability',
+    experiment: {
+      handoffAttempts: 0,
+      handoffDefects: 0,
+      falseBlocks: 0,
+      bypasses: 0,
+      completedChallenges: 0,
+      totalOverheadMs: 0,
+      manualBaselineDefects: 0,
+      manualBaselineSwaps: 0
     }
   }
 }
 
-function installIpc(snapshot: PassportSnapshot, invokeError?: Error): void {
+function installIpc(snapshot: PassportSnapshot, invokeError?: Error): ReturnType<typeof vi.fn> {
+  const invoke = vi.fn(async (channel: string, input?: unknown) => {
+    if (invokeError) throw invokeError
+    if (channel === 'stintPassport:setPrivacy') {
+      return (input as { payload: unknown }).payload
+    }
+    return snapshot
+  })
   Object.defineProperty(window, 'ipc', {
     configurable: true,
     value: {
-      invoke: vi.fn(async () => {
-        if (invokeError) throw invokeError
-        return snapshot
-      }),
+      invoke,
       subscribe: vi.fn(() => () => undefined)
     }
   })
+  return invoke
 }
 
 afterEach(() => {
@@ -119,7 +144,7 @@ describe('Stint Passport accessible empty, error, and no-current controls', () =
   })
 
   it('keeps privacy, retention, deletion, export, and audit controls available without a current passport', async () => {
-    installIpc(emptySnapshot())
+    const invoke = installIpc(emptySnapshot())
     render(createElement(StintPassportView, {
       language: 'en',
       showToast: vi.fn()
@@ -131,6 +156,15 @@ describe('Stint Passport accessible empty, error, and no-current controls', () =
     expect(screen.getByRole('button', { name: 'Export pseudonymized' })).not.toBeNull()
     expect(screen.getByRole('button', { name: 'Delete\/redact D3 data' })).not.toBeNull()
     expect(screen.getByRole('button', { name: 'Run full integrity audit' })).not.toBeNull()
+    fireEvent.click(screen.getByLabelText(/Explicitly persist D3/i))
+    fireEvent.click(screen.getByRole('button', { name: 'Save privacy controls' }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith(
+      'stintPassport:setPrivacy',
+      expect.objectContaining({
+        capability: 'test-capability',
+        payload: expect.objectContaining({ identityPersistenceOptIn: true })
+      })
+    ))
   })
 
   it('supports keyboard arrow navigation between tabs', async () => {

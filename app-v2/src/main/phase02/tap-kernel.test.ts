@@ -186,11 +186,40 @@ describe('Phase02TapKernel bounded asynchronous isolation', () => {
     for (let index = 1; index <= 5; index += 1) hub.emit('snapshot', snapshot(index))
     await settle()
     expect(consumer).not.toHaveBeenCalled()
+    hub.emit('snapshot', null)
+    await settle()
+    expect(consumer).toHaveBeenCalledOnce()
     expect(subscription.status()).toMatchObject({
       killSwitch: true,
       enabled: false,
       queuedItems: 0,
       queuedBytes: 0
     })
+  })
+
+  it('marks an age-expired involuntary drop as a gap on the next delivery', async () => {
+      const hub = new TelemetryHub()
+      let now = 0
+      const kernel = new Phase02TapKernel(hub, () => now, () => BigInt(now + 1))
+      kernels.push(kernel)
+      const deliveries: string[][] = []
+      const subscription = kernel.subscribe('passport', {
+        maxItems: 4,
+        maxBytes: 64 * 1024,
+        maxAgeMs: 100,
+        maxDrainBatch: 4
+      }, (delivery) => {
+        deliveries.push(delivery.event.integrityFlags)
+      })
+      hub.emit('snapshot', snapshot(1))
+      now = 1_000
+      await settle()
+      expect(subscription.status().dropped).toBe(1)
+      expect(deliveries).toEqual([])
+      now = 1_001
+      hub.emit('snapshot', snapshot(2))
+      await settle()
+      expect(deliveries[0]).toContain('gap')
+      expect(subscription.status().gapPending).toBe(false)
   })
 })

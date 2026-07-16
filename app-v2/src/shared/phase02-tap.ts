@@ -20,6 +20,7 @@ export interface Phase02TapStatus {
   lastError?: string
   lastOverflowAt?: number
   lastDeliveredSequence?: string
+  gapPending: boolean
 }
 
 export interface Phase02TapDelivery {

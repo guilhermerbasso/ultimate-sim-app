@@ -18,7 +18,8 @@ function normalized(value: string | undefined): string {
 export async function inspectPassportReadiness(
   ctx: ModuleContext,
   event: CanonicalRaceOpsEvent,
-  config: PassportConfig
+  config: PassportConfig,
+  capturedAt = Date.now()
 ): Promise<PassportExternalReadiness> {
   const raceProfiles = new RaceProfileStore(ctx.app.getPath('userData'))
   const raceProfile = config.expectedRaceProfileId
@@ -53,6 +54,7 @@ export async function inspectPassportReadiness(
   }
 
   return {
+    capturedAt,
     raceProfile: {
       profileId: config.expectedRaceProfileId,
       exists: raceProfile !== null,

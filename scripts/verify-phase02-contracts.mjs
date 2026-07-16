@@ -47,6 +47,15 @@ const generatedDescriptorPath = join(
   'generated',
   'contract-descriptor.ts'
 )
+const generatedN1DescriptorPath = join(
+  repoRoot,
+  'app-v2',
+  'src',
+  'main',
+  'phase02',
+  'generated',
+  'n1-contract-descriptor.ts'
+)
 const profilePath = join(contractsRoot, 'cloudevents', 'profile-v1.json')
 const fixturePath = join(
   contractsRoot,
@@ -275,10 +284,10 @@ function validateDescriptorTypes(descriptorPath) {
   }
 }
 
-function validateGeneratedDescriptor(expectedFingerprint) {
-  const source = readFileSync(generatedDescriptorPath, 'utf8')
-  const declared = source.match(/PHASE02_DESCRIPTOR_SHA256 = '([0-9a-f]{64})'/)?.[1]
-  const base64 = source.match(/PHASE02_DESCRIPTOR_BASE64 = '([A-Za-z0-9+/=]+)'/)?.[1]
+function validateGeneratedDescriptor(expectedFingerprint, path, prefix) {
+  const source = readFileSync(path, 'utf8')
+  const declared = source.match(new RegExp(`${prefix}_DESCRIPTOR_SHA256 = '([0-9a-f]{64})'`))?.[1]
+  const base64 = source.match(new RegExp(`${prefix}_DESCRIPTOR_BASE64 = '([A-Za-z0-9+/=]+)'`))?.[1]
   if (!declared || !base64) throw new Error('Generated Phase 02 descriptor constants are missing')
   const bytes = Buffer.from(base64, 'base64')
   const actual = createHash('sha256').update(bytes).digest('hex')
@@ -303,7 +312,7 @@ function validateGoldenManifest() {
     }
   }
   if (!manifest.fixtures.some((fixture) =>
-    fixture.type === 'ultimate.sim.raceops.v1.StintPassport' &&
+    fixture.type === 'ultimate.sim.raceops.n1.v1.StintPassport' &&
     fixture.producerVersion === 0
   )) {
     throw new Error('Phase 02 N-1 Stint Passport fixture is missing')
@@ -351,6 +360,7 @@ validateEditionSources()
 validateCloudEventsProfile()
 validateGoldenManifest()
 runBuf(['lint', contractsRoot])
+runBuf(['lint', join(contractsRoot, 'n-1')])
 const baselineStatus = validateRealSchemaEvolution()
 
 const tempRoot = join(repoRoot, `.phase02-contract-verify-${process.pid}`)
@@ -360,6 +370,7 @@ try {
   const firstDescriptor = join(tempRoot, 'descriptor-1.binpb')
   const secondDescriptor = join(tempRoot, 'descriptor-2.binpb')
   const descriptorJson = join(tempRoot, 'descriptor.json')
+  const n1Descriptor = join(tempRoot, 'n1-descriptor.binpb')
   const buildArgs = [
     'build',
     contractsRoot,
@@ -377,7 +388,17 @@ try {
     throw new Error('Descriptor fingerprint is not reproducible')
   }
   validateDescriptorTypes(descriptorJson)
-  validateGeneratedDescriptor(firstFingerprint)
+  validateGeneratedDescriptor(firstFingerprint, generatedDescriptorPath, 'PHASE02')
+  runBuf([
+    'build',
+    join(contractsRoot, 'n-1'),
+    '--as-file-descriptor-set',
+    '--exclude-source-info',
+    '--output',
+    n1Descriptor
+  ])
+  const n1Fingerprint = sha256(n1Descriptor)
+  validateGeneratedDescriptor(n1Fingerprint, generatedN1DescriptorPath, 'PHASE02_N1')
 
   const breakingRoot = join(tempRoot, 'breaking-field-reuse')
   cpSync(contractsRoot, breakingRoot, { recursive: true })
@@ -417,6 +438,7 @@ try {
       JSON.parse(readFileSync(profilePath, 'utf8')).extensions
     ).length,
     passportItems: 12,
+    n1DescriptorSha256: n1Fingerprint,
     breakingFixtureRejected: true
   }))
 } finally {

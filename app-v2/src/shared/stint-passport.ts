@@ -62,21 +62,22 @@ export interface PassportItemDefinition {
   dataClass: PassportDataClass
   allowedRoles: PassportRole[]
   ttlMs: number
+  notApplicableEligible: boolean
 }
 
 export const PASSPORT_ITEM_DEFINITIONS: readonly PassportItemDefinition[] = [
-  { id: 'session-identity', required: true, critical: true, dataClass: 'D2', allowedRoles: ['engineer', 'team-manager'], ttlMs: 15_000 },
-  { id: 'incoming-driver', required: true, critical: true, dataClass: 'D3', allowedRoles: ['driver', 'team-manager'], ttlMs: 30_000 },
-  { id: 'car-track', required: true, critical: true, dataClass: 'D2', allowedRoles: ['driver', 'engineer'], ttlMs: 30_000 },
-  { id: 'fuel-load', required: true, critical: true, dataClass: 'D2', allowedRoles: ['engineer', 'crew-chief'], ttlMs: 15_000 },
-  { id: 'stint-target', required: true, critical: true, dataClass: 'D2', allowedRoles: ['engineer', 'crew-chief'], ttlMs: 60_000 },
-  { id: 'race-profile', required: true, critical: true, dataClass: 'D2', allowedRoles: ['driver', 'engineer'], ttlMs: 60_000 },
-  { id: 'buttonbox-profile', required: true, critical: true, dataClass: 'D2', allowedRoles: ['driver', 'engineer'], ttlMs: 60_000 },
-  { id: 'required-devices', required: true, critical: true, dataClass: 'D1', allowedRoles: ['engineer', 'crew-chief'], ttlMs: 30_000 },
-  { id: 'critical-controls', required: true, critical: true, dataClass: 'D1', allowedRoles: ['driver', 'engineer'], ttlMs: 60_000 },
-  { id: 'audio-comms', required: true, critical: true, dataClass: 'D1', allowedRoles: ['driver', 'spotter', 'engineer'], ttlMs: 60_000 },
-  { id: 'weather-assumption', required: true, critical: false, dataClass: 'D2', allowedRoles: ['engineer', 'crew-chief'], ttlMs: 30_000 },
-  { id: 'final-acknowledgement', required: true, critical: true, dataClass: 'D3', allowedRoles: ['driver', 'team-manager'], ttlMs: 5 * 60_000 }
+  { id: 'session-identity', required: true, critical: true, dataClass: 'D2', allowedRoles: ['engineer', 'team-manager'], ttlMs: 15_000, notApplicableEligible: false },
+  { id: 'incoming-driver', required: true, critical: true, dataClass: 'D3', allowedRoles: ['driver', 'team-manager'], ttlMs: 30_000, notApplicableEligible: false },
+  { id: 'car-track', required: true, critical: true, dataClass: 'D2', allowedRoles: ['driver', 'engineer'], ttlMs: 30_000, notApplicableEligible: false },
+  { id: 'fuel-load', required: true, critical: true, dataClass: 'D2', allowedRoles: ['engineer', 'crew-chief'], ttlMs: 15_000, notApplicableEligible: false },
+  { id: 'stint-target', required: true, critical: true, dataClass: 'D2', allowedRoles: ['engineer', 'crew-chief'], ttlMs: 60_000, notApplicableEligible: false },
+  { id: 'race-profile', required: true, critical: true, dataClass: 'D2', allowedRoles: ['driver', 'engineer'], ttlMs: 60_000, notApplicableEligible: false },
+  { id: 'buttonbox-profile', required: true, critical: true, dataClass: 'D2', allowedRoles: ['driver', 'engineer'], ttlMs: 60_000, notApplicableEligible: false },
+  { id: 'required-devices', required: true, critical: true, dataClass: 'D1', allowedRoles: ['engineer', 'crew-chief'], ttlMs: 30_000, notApplicableEligible: false },
+  { id: 'critical-controls', required: true, critical: true, dataClass: 'D1', allowedRoles: ['driver', 'engineer'], ttlMs: 60_000, notApplicableEligible: false },
+  { id: 'audio-comms', required: true, critical: true, dataClass: 'D1', allowedRoles: ['driver', 'spotter', 'engineer'], ttlMs: 60_000, notApplicableEligible: false },
+  { id: 'weather-assumption', required: true, critical: false, dataClass: 'D2', allowedRoles: ['engineer', 'crew-chief'], ttlMs: 30_000, notApplicableEligible: true },
+  { id: 'final-acknowledgement', required: true, critical: true, dataClass: 'D3', allowedRoles: ['driver', 'team-manager'], ttlMs: 5 * 60_000, notApplicableEligible: false }
 ] as const
 
 export interface PassportItemEvidence {
@@ -93,6 +94,7 @@ export interface PassportItem {
   owner?: PassportOwner
   detail: string
   overrideReason?: string
+  reasonCode?: string
   verifiedAt?: number
   expiresAt?: number
   evidence?: PassportItemEvidence
@@ -128,6 +130,8 @@ export interface StintPassport {
   closeReason?: PassportCloseReason
   interrupted: boolean
   persisted: boolean
+  revision: number
+  durability: 'ephemeral' | 'pending' | 'durable' | 'failed' | 'quarantined'
 }
 
 export interface PassportConfig {
@@ -185,6 +189,17 @@ export interface PassportIntegrityState {
   headHash?: string
   lastCheckedAt: number
   message?: string
+  repairToken?: string
+}
+
+export interface PassportPersistenceState {
+  state: 'starting' | 'ready' | 'degraded' | 'open-circuit' | 'killed' | 'quarantined'
+  queued: number
+  queuedBytes: number
+  inFlight: boolean
+  failures: number
+  restarts: number
+  lastError?: string
 }
 
 export interface PassportRuntimeState {
@@ -204,6 +219,10 @@ export interface PassportSnapshot {
   privacy: PassportPrivacySettings
   runtime: PassportRuntimeState
   integrity: PassportIntegrityState
+  persistence: PassportPersistenceState
+  mutationCapability: string
+  challenge?: PassportChallenge
+  experiment: PassportExperimentMetrics
 }
 
 export interface PassportItemResolutionInput {
@@ -211,12 +230,44 @@ export interface PassportItemResolutionInput {
   itemId: PassportItemId
   status: Extract<PassportItemStatus, 'manual-confirmed' | 'waived-with-reason' | 'not-applicable'>
   owner: PassportOwner
-  reason?: string
+  reasonCode?: string
+  freeText?: string
+}
+
+export interface PassportChallengeOwnerInput {
+  stintId: string
+  owner: PassportOwner
+}
+
+export interface PassportChallenge {
+  challengeId: string
+  nonce: string
+  owner: PassportOwner
+  passportRevision: number
+  expiresAt: number
 }
 
 export interface PassportChallengeInput {
   stintId: string
+  challengeId: string
+  response: string
   owner: PassportOwner
+}
+
+export interface PassportExperimentMetrics {
+  handoffAttempts: number
+  handoffDefects: number
+  falseBlocks: number
+  bypasses: number
+  completedChallenges: number
+  totalOverheadMs: number
+  manualBaselineDefects: number
+  manualBaselineSwaps: number
+}
+
+export interface PassportExperimentUpdate {
+  kind: 'handoff-defect' | 'false-block' | 'bypass' | 'manual-baseline-defect' | 'manual-baseline-swap'
+  count?: number
 }
 
 export interface PassportExportResult {
@@ -245,11 +296,15 @@ export const STINT_PASSPORT_CHANNELS = {
   setPrivacy: 'stintPassport:setPrivacy',
   resolveItem: 'stintPassport:resolveItem',
   completeChallenge: 'stintPassport:completeChallenge',
+  prepareChallenge: 'stintPassport:prepareChallenge',
   closeCurrent: 'stintPassport:closeCurrent',
   setKillSwitch: 'stintPassport:setKillSwitch',
   saveExport: 'stintPassport:saveExport',
   deleteByClass: 'stintPassport:deleteByClass',
   runFullAudit: 'stintPassport:runFullAudit'
+  ,
+  repairPersistence: 'stintPassport:repairPersistence',
+  recordExperiment: 'stintPassport:recordExperiment'
 } as const
 
 export function isCoveredStatus(status: PassportItemStatus): boolean {
@@ -264,8 +319,15 @@ export function calculatePassportCoverage(items: readonly PassportItem[]): {
   applicableItems: number
   coveredItems: number
 } {
-  const applicable = items.filter((item) => item.status !== 'not-applicable')
-  const covered = applicable.filter((item) => isCoveredStatus(item.status))
+  const applicable = items.filter((item) => {
+    const definition = passportItemDefinition(item.id)
+    return !(item.status === 'not-applicable' && definition.notApplicableEligible)
+  })
+  const covered = applicable.filter((item) =>
+    item.status === 'verified' ||
+    item.status === 'manual-confirmed' ||
+    item.status === 'waived-with-reason'
+  )
   return {
     coverage: applicable.length === 0 ? 1 : covered.length / applicable.length,
     applicableItems: applicable.length,

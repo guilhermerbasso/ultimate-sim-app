@@ -113,7 +113,9 @@ function fixture(): {
     applicableItems: 12,
     coveredItems: 0,
     interrupted: false,
-    persisted: false
+    persisted: false,
+    revision: 1,
+    durability: 'ephemeral'
   }
   const roster: PassportRosterMember[] = [
     { memberId: driverRef, displayName: 'Driver A', roles: ['driver'], active: true },
@@ -136,6 +138,7 @@ function fixture(): {
     updatedAt: 1_000
   }
   const external: PassportExternalReadiness = {
+    capturedAt: 2_000,
     raceProfile: {
       profileId: 'race-spa',
       exists: true,
@@ -240,5 +243,18 @@ describe('complete 12-item Stint Passport evaluation', () => {
     const errors = validateChallengeReadiness(withCoverage(data.passport, items), data.roster, 2_100)
     expect(errors.join(' ')).toContain('owner is not valid')
     expect(errors.join(' ')).toContain('waiver requires a reason')
+  })
+
+  it('never turns ineligible critical not-applicable items into full coverage', () => {
+    const data = fixture()
+    const items = data.passport.items.map((item, index) => ({
+      ...item,
+      status: index < 11 ? 'not-applicable' as const : 'verified' as const,
+      owner: { memberId: 'manager-1', role: 'team-manager' as const }
+    }))
+    const coverage = calculatePassportCoverage(items)
+    expect(coverage.coverage).toBeCloseTo(1 / 11)
+    expect(coverage.coverage).toBeLessThan(0.95)
+    expect(validateChallengeReadiness({ ...data.passport, items, ...coverage }, data.roster, 2_000).length).toBeGreaterThan(0)
   })
 })

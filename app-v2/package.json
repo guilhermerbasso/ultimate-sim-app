@@ -8,7 +8,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "electron-vite build && node scripts/verify-stream-resource-graph.mjs",
+    "build": "electron-vite build && node scripts/verify-stream-resource-graph.mjs && node scripts/verify-passport-worker.mjs",
     "dev": "electron-vite dev",
     "dist:win": "bash scripts/fetch-win-cloudflared.sh && bash scripts/fetch-win-llama.sh && bash scripts/fetch-win-whisper.sh && bash scripts/fetch-win-sherpa.sh && bash scripts/verify-win-tts.sh && (bash scripts/fetch-win-sharp.sh || true) && npm run build && bash scripts/fetch-win-cloudflared.sh --verify && electron-builder --win --publish never",
     "verify:win-package": "bash scripts/fetch-win-cloudflared.sh --verify-package",
