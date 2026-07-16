@@ -1,30 +1,35 @@
 export type DeepReadonly<T> =
-  T extends (...args: infer Args) => infer Result
-    ? (...args: Args) => Result
-    : T extends readonly (infer Item)[]
-      ? readonly DeepReadonly<Item>[]
-      : T extends object
-        ? { readonly [Key in keyof T]: DeepReadonly<T[Key]> }
-        : T
+  T extends (...args: infer _Arguments) => infer _Result
+    ? T
+    : T extends readonly []
+      ? readonly []
+      : T extends readonly [unknown, ...unknown[]]
+        ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
+        : T extends ReadonlyArray<infer Item>
+          ? ReadonlyArray<DeepReadonly<Item>>
+          : T extends object
+            ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
+            : T
 
-export function deepFreeze<T>(value: T): DeepReadonly<T> {
-  const seen = new WeakSet<object>()
+function freezeValue(value: unknown, seen: WeakSet<object>): void {
+  if (
+    value === null ||
+    (typeof value !== 'object' && typeof value !== 'function')
+  ) return
 
-  function freeze(node: unknown): void {
-    if ((typeof node !== 'object' && typeof node !== 'function') || node === null) {
-      return
-    }
-    const object = node as object
-    if (seen.has(object)) return
-    seen.add(object)
+  const target = value as object
+  if (seen.has(target)) return
+  seen.add(target)
 
-    for (const key of Reflect.ownKeys(object)) {
-      freeze((object as Record<PropertyKey, unknown>)[key])
-    }
-    Object.freeze(object)
+  for (const key of Reflect.ownKeys(target)) {
+    const descriptor = Object.getOwnPropertyDescriptor(target, key)
+    if (descriptor && 'value' in descriptor) freezeValue(descriptor.value, seen)
   }
+  if (!Object.isFrozen(target)) Object.freeze(target)
+}
 
-  freeze(value)
+export function deepFreeze<const T>(value: T): DeepReadonly<T> {
+  freezeValue(value, new WeakSet<object>())
   return value as DeepReadonly<T>
 }
 
