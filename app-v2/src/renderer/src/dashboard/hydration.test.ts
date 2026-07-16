@@ -111,4 +111,58 @@ describe('subscribeWithHydration', () => {
 
     expect(applied).toEqual([live])
   })
+
+  it('accepts a live snapshot-to-null disconnect and rejects a late hydrated snapshot', async () => {
+    const initial = deferred<TelemetrySnapshot | null>()
+    const applied: Array<TelemetrySnapshot | null> = []
+    let emit!: (value: TelemetrySnapshot | null) => void
+    const live = { sim: 'mock', connected: true, timestamp: 2 } as TelemetrySnapshot
+    const hydrated = { sim: 'mock', connected: true, timestamp: 3 } as TelemetrySnapshot
+
+    subscribeWithHydration({
+      subscribe: (listener) => {
+        emit = listener
+        return () => {}
+      },
+      hydrate: () => initial.promise,
+      revision: (value) => value?.timestamp ?? Number.NEGATIVE_INFINITY,
+      liveValueSupersedesHydration: (value) => value === null,
+      apply: (value) => applied.push(value)
+    })
+
+    emit(live)
+    emit(null)
+    initial.resolve(hydrated)
+    await initial.promise
+    await Promise.resolve()
+
+    expect(applied).toEqual([live, null])
+  })
+
+  it('accepts a live null-to-snapshot reconnect in emission order', async () => {
+    const initial = deferred<TelemetrySnapshot | null>()
+    const applied: Array<TelemetrySnapshot | null> = []
+    let emit!: (value: TelemetrySnapshot | null) => void
+    const live = { sim: 'mock', connected: true, timestamp: 4 } as TelemetrySnapshot
+    const stale = { sim: 'mock', connected: true, timestamp: 3 } as TelemetrySnapshot
+
+    subscribeWithHydration({
+      subscribe: (listener) => {
+        emit = listener
+        return () => {}
+      },
+      hydrate: () => initial.promise,
+      revision: (value) => value?.timestamp ?? Number.NEGATIVE_INFINITY,
+      liveValueSupersedesHydration: (value) => value === null,
+      apply: (value) => applied.push(value)
+    })
+
+    emit(null)
+    emit(live)
+    initial.resolve(stale)
+    await initial.promise
+    await Promise.resolve()
+
+    expect(applied).toEqual([null, live])
+  })
 })

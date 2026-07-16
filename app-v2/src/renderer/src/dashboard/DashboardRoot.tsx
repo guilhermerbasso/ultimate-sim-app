@@ -1826,6 +1826,7 @@ export function DashboardRoot() {
       subscribe: (apply) => window.ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', apply),
       hydrate: () => window.ipc.invoke<TelemetrySnapshot | null>('telemetry:getLatest'),
       revision: (snap) => snap?.timestamp ?? Number.NEGATIVE_INFINITY,
+      liveValueSupersedesHydration: (snap) => snap === null,
       apply: (snap) => {
         lastFrameRef.current = performance.now()
         setSnapshot(snap)

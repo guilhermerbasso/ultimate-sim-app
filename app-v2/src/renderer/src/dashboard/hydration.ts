@@ -2,6 +2,7 @@ export interface SubscribeWithHydrationOptions<T> {
   subscribe(listener: (value: T) => void): () => void
   hydrate(): Promise<T>
   revision(value: T): number
+  liveValueSupersedesHydration?(value: T): boolean
   apply(value: T): void
   onError?(error: unknown): void
 }
@@ -10,33 +11,30 @@ export function subscribeWithHydration<T>({
   subscribe,
   hydrate,
   revision,
+  liveValueSupersedesHydration,
   apply,
   onError
 }: SubscribeWithHydrationOptions<T>): () => void {
   let active = true
-  let hasValue = false
-  let newestRevision = Number.NEGATIVE_INFINITY
-  let newestSource: 'hydrate' | 'live' | null = null
-  const applyNewest = (value: T, source: 'hydrate' | 'live'): void => {
-    if (!active) return
-    const candidateRevision = revision(value)
-    if (hasValue && candidateRevision < newestRevision) return
-    if (hasValue && candidateRevision === newestRevision && source === 'hydrate' && newestSource === 'live') return
-    hasValue = true
-    newestRevision = candidateRevision
-    newestSource = source
-    apply(value)
-  }
+  let latestLive: { value: T } | null = null
   const unsubscribe = subscribe((value) => {
-    applyNewest(value, 'live')
+    if (!active) return
+    latestLive = { value }
+    apply(value)
   })
 
   void hydrate().then(
     (value) => {
-      applyNewest(value, 'hydrate')
+      if (!active) return
+      if (!latestLive) {
+        apply(value)
+        return
+      }
+      if (liveValueSupersedesHydration?.(latestLive.value)) return
+      if (revision(value) > revision(latestLive.value)) apply(value)
     },
     (error: unknown) => {
-      if (active && !hasValue) onError?.(error)
+      if (active && !latestLive) onError?.(error)
     }
   )
 
