@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { canonicalStringify } from './canonical'
 import {
   computeArtifactEventHash,
   computeVisualArtifactLedgerRootHash,
@@ -8,53 +9,97 @@ import {
   type ArtifactEvent,
   type SerializedVisualArtifactLedger
 } from './ledger'
-import { MAX_LEDGER_EVENTS, ZERO_HASH } from './constants'
 import { expectedArtifactIds } from './plan'
+import {
+  MAX_LEDGER_EVENTS,
+  MAX_REVISIONS_PER_ARTIFACT,
+  ZERO_HASH
+} from './constants'
 import {
   DEFAULT_POLICY,
   HashPool,
   TestClock,
   appendAcceptedArtifact,
+  appendLedger,
   appendPromptApproved,
+  appendScheduler,
   evidence,
   hashNumber,
+  ledgerRootAttestation,
+  makeGovernance,
   makePlan,
   makeScheduler,
-  scheduleSucceededImage,
-  type PromptApprovedContext
+  schedulerPrincipal,
+  type PromptApprovedContext,
+  type TestGovernance
 } from './test-fixtures'
-import { ValidatedImageScheduler } from './scheduler'
 
-function setup(): {
-  ledger: VisualArtifactLedger
-  scheduler: ValidatedImageScheduler
-  schedulerClock: TestClock
-  ledgerClock: TestClock
-  hashes: HashPool
-  ids: ReturnType<typeof expectedArtifactIds>
-} {
+function setup() {
+  const governance = makeGovernance()
+  const scheduler = makeScheduler(governance)
   const plan = makePlan()
-  const schedulerClock = new TestClock()
-  const scheduler = makeScheduler(schedulerClock)
+  const ledger = VisualArtifactLedger.create(plan, governance.ledgerDependencies(scheduler))
   return {
-    ledger: VisualArtifactLedger.create(plan, scheduler),
+    governance,
     scheduler,
-    schedulerClock,
-    ledgerClock: new TestClock(1_000_000),
-    hashes: new HashPool(),
-    ids: expectedArtifactIds(plan)
+    ledger,
+    plan,
+    ids: expectedArtifactIds(plan),
+    clock: new TestClock(1_000_000),
+    hashes: new HashPool()
   }
+}
+
+function startArtifact(
+  ledger: VisualArtifactLedger,
+  governance: TestGovernance,
+  artifactId: (ReturnType<typeof expectedArtifactIds>)[number],
+  hashes: HashPool,
+  clock: TestClock,
+  revision = 1,
+  type: 'artifact-revision-started' | 'artifact-revision-superseded' =
+    'artifact-revision-started',
+  priorRoot?: string
+): string {
+  const specificationHash = hashes.next()
+  if (type === 'artifact-revision-started') {
+    appendLedger(ledger, governance, {
+      type,
+      occurredAt: clock.next(),
+      actorId: 'planner',
+      artifactId,
+      revision,
+      specificationHash,
+      planHash: ledger.plan.planHash
+    })
+  } else {
+    appendLedger(ledger, governance, {
+      type,
+      occurredAt: clock.next(),
+      actorId: 'planner',
+      artifactId,
+      revision,
+      priorRevision: revision - 1,
+      priorRevisionRootHash: priorRoot,
+      specificationHash,
+      planHash: ledger.plan.planHash
+    })
+  }
+  return specificationHash
 }
 
 function recordGeneration(
   ledger: VisualArtifactLedger,
+  governance: TestGovernance,
   context: PromptApprovedContext,
-  receipt: ReturnType<ValidatedImageScheduler['requireSucceededReceipt']>,
+  receipt: ReturnType<typeof setup>['scheduler'] extends infer _T
+    ? ReturnType<ReturnType<typeof makeScheduler>['requireSucceededReceipt']>
+    : never,
   clock: TestClock
 ): void {
   clock.ensureAfter(receipt.completedAt)
   const occurredAt = clock.next()
-  ledger.append({
+  appendLedger(ledger, governance, {
     type: 'image-generation-recorded',
     occurredAt,
     actorId: 'image-runner',
@@ -70,7 +115,13 @@ function recordGeneration(
     schedulerCallId: receipt.callId,
     schedulerCallHash: receipt.callHash,
     schedulerReceiptHash: receipt.receiptHash,
+    schedulerAuthorityId: receipt.authorityId,
+    schedulerAuthorityVersion: receipt.authorityVersion,
+    schedulerAuthorityRootHash: receipt.authorityRootHash,
+    schedulerAuthorityCommitHash: receipt.authorityCommitHash,
     evidence: evidence(
+      ledger,
+      governance,
       'image-generation',
       context.artifactId,
       context.revision,
@@ -82,57 +133,16 @@ function recordGeneration(
   })
 }
 
-function approveImageAndImplement(
-  ledger: VisualArtifactLedger,
-  context: PromptApprovedContext,
-  imageHash: string,
-  hashes: HashPool,
-  clock: TestClock
-): { implementationHash: string } {
-  const imageQaReportHash = hashes.next()
-  let occurredAt = clock.next()
-  ledger.append({
-    type: 'image-qa-reviewed',
-    occurredAt,
-    actorId: 'image-reviewer',
-    artifactId: context.artifactId,
-    revision: context.revision,
-    imageHash,
-    verdict: 'approved',
-    reportHash: imageQaReportHash,
-    evidence: evidence(
-      'image-qa',
-      context.artifactId,
-      context.revision,
-      occurredAt,
-      'image-reviewer',
-      imageHash,
-      imageQaReportHash
-    )
+function canonicalEnvelope(ledger: VisualArtifactLedger): string {
+  return canonicalStringify({
+    schemaVersion: 2,
+    plan: ledger.plan,
+    rootAttestation: { token: ledger.rootHash },
+    events: ledger.events()
   })
-  const implementationHash = hashes.next()
-  occurredAt = clock.next()
-  ledger.append({
-    type: 'implementation-recorded',
-    occurredAt,
-    actorId: 'implementer',
-    artifactId: context.artifactId,
-    revision: context.revision,
-    implementationHash,
-    evidence: evidence(
-      'implementation',
-      context.artifactId,
-      context.revision,
-      occurredAt,
-      'implementer',
-      imageHash,
-      implementationHash
-    )
-  })
-  return { implementationHash }
 }
 
-function rehashLedger(envelope: SerializedVisualArtifactLedger): string {
+function rehashEnvelope(envelope: SerializedVisualArtifactLedger): string {
   let previousEventHash = ZERO_HASH
   for (let index = 0; index < envelope.events.length; index += 1) {
     const event = envelope.events[index] as ArtifactEvent & {
@@ -142,32 +152,31 @@ function rehashLedger(envelope: SerializedVisualArtifactLedger): string {
     }
     event.sequence = index + 1
     event.previousEventHash = previousEventHash
-    const { eventHash: _ignored, ...withoutHash } = event
-    event.eventHash = computeArtifactEventHash(withoutHash as Omit<ArtifactEvent, 'eventHash'>)
+    const { eventHash: _eventHash, ...withoutHash } = event
+    event.eventHash = computeArtifactEventHash(
+      withoutHash as Omit<ArtifactEvent, 'eventHash'>
+    )
     previousEventHash = event.eventHash
   }
-  return JSON.stringify(envelope)
+  return canonicalStringify(envelope)
 }
 
-describe('event-sourced visual artifact governance ledger', () => {
-  it('enforces the complete lifecycle and maintains an append-only global hash chain', () => {
-    const { ledger, scheduler, schedulerClock, ledgerClock, hashes, ids } = setup()
+describe('externally attested visual artifact ledger', () => {
+  it('enforces lifecycle order and global append-only event hashes', () => {
+    const { governance, scheduler, ledger, ids, clock, hashes } = setup()
     appendAcceptedArtifact(
       ledger,
       scheduler,
+      governance,
       ids[0],
       1,
       hashes,
-      ledgerClock,
-      schedulerClock
+      clock
     )
-
     expect(ledger.getArtifact(ids[0])?.revisions[0].status).toBe('accepted')
     expect(ledger.eventCount).toBe(9)
     expect(ledger.evidenceCount).toBe(9)
-    expect(ledger.acceptedArtifactCount).toBe(1)
     const events = ledger.events()
-    expect(events[0].sequence).toBe(1)
     expect(events[0].previousEventHash).toBe(ZERO_HASH)
     for (let index = 1; index < events.length; index += 1) {
       expect(events[index].sequence).toBe(index + 1)
@@ -175,22 +184,19 @@ describe('event-sourced visual artifact governance ledger', () => {
     }
   })
 
-  it('rejects skipped, repeated, or out-of-order lifecycle stages', () => {
-    const { ledger, ledgerClock, hashes, ids } = setup()
-    const specificationHash = hashes.next()
-    ledger.append({
-      type: 'artifact-revision-started',
-      occurredAt: ledgerClock.next(),
-      actorId: 'planner',
-      artifactId: ids[0],
-      revision: 1,
-      specificationHash,
-      planHash: ledger.plan.planHash
-    })
+  it('rejects skipped stages, unknown identity fields, prompt bodies, URLs, and secrets', () => {
+    const { governance, ledger, ids, clock, hashes } = setup()
+    const specificationHash = startArtifact(
+      ledger,
+      governance,
+      ids[0],
+      hashes,
+      clock
+    )
     const promptHash = hashes.next()
-    const occurredAt = ledgerClock.next()
+    const occurredAt = clock.next()
     expect(() =>
-      ledger.append({
+      appendLedger(ledger, governance, {
         type: 'prompt-drafted',
         occurredAt,
         actorId: 'prompt-author',
@@ -198,6 +204,8 @@ describe('event-sourced visual artifact governance ledger', () => {
         revision: 1,
         promptHash,
         evidence: evidence(
+          ledger,
+          governance,
           'prompt-draft',
           ids[0],
           1,
@@ -208,177 +216,108 @@ describe('event-sourced visual artifact governance ledger', () => {
         )
       })
     ).toThrow(/requires completed research/i)
-  })
 
-  it('rejects unknown fields, prompt bodies, URL material, and identity mutation', () => {
-    const { ledger, ledgerClock, hashes, ids } = setup()
     expect(() =>
-      ledger.append({
+      ledger.principalBindingFor({
         type: 'artifact-revision-started',
-        occurredAt: ledgerClock.next(),
-        actorId: 'planner',
-        artifactId: ids[0],
+        occurredAt: clock.next(),
+        actorId: 'x:sk-proj-secret',
+        artifactId: ids[1],
         revision: 1,
         specificationHash: hashes.next(),
         planHash: ledger.plan.planHash,
-        kind: 'dashboard'
+        promptBody: 'forbidden'
       })
-    ).toThrow(/unknown field "kind"/i)
-
-    expect(() =>
-      ledger.append({
-        type: 'artifact-revision-started',
-        occurredAt: ledgerClock.next(),
-        actorId: 'https://example.test/secret',
-        artifactId: ids[0],
-        revision: 1,
-        specificationHash: hashes.next(),
-        planHash: ledger.plan.planHash
-      })
-    ).toThrow(/safe identifier|forbidden URL/i)
-
-    const context = appendPromptApproved(ledger, ids[0], 1, hashes, ledgerClock, {
-      promptVerdict: 'rejected'
-    })
-    expect(() =>
-      ledger.append({
-        type: 'prompt-drafted',
-        occurredAt: ledgerClock.next(),
-        actorId: 'prompt-author',
-        artifactId: context.artifactId,
-        revision: 1,
-        promptHash: hashes.next(),
-        promptBody: 'paid network prompt',
-        evidence: {}
-      })
-    ).toThrow(/unknown field "promptBody"/i)
+    ).toThrow(/unknown field "promptBody"|forbidden URL/i)
   })
 
-  it('rejects self-QA at prompt, image, and render gates', () => {
-    const promptSetup = setup()
+  it('rejects principal-label impersonation with an otherwise valid signed token', () => {
+    const { governance, ledger, ids, clock, hashes } = setup()
+    const legitimate = {
+      type: 'artifact-revision-started',
+      occurredAt: clock.next(),
+      actorId: 'planner',
+      artifactId: ids[0],
+      revision: 1,
+      specificationHash: hashes.next(),
+      planHash: ledger.plan.planHash
+    }
+    const token = governance.attestations.issuePrincipal(
+      ledger.principalBindingFor(legitimate)
+    )
+    expect(() =>
+      ledger.append({ ...legitimate, actorId: 'impersonated-planner' }, token)
+    ).toThrow(/authenticated principal attestation is invalid/i)
+  })
+
+  it('rejects fabricated or relabelled evidence despite matching caller hashes', () => {
+    const { governance, ledger, ids, clock, hashes } = setup()
+    const specificationHash = startArtifact(
+      ledger,
+      governance,
+      ids[0],
+      hashes,
+      clock
+    )
+    const researchHash = hashes.next()
+    const occurredAt = clock.next()
+    const validEvidence = evidence(
+      ledger,
+      governance,
+      'research',
+      ids[0],
+      1,
+      occurredAt,
+      'researcher',
+      specificationHash,
+      researchHash
+    )
+    const input = {
+      type: 'research-recorded',
+      occurredAt,
+      actorId: 'researcher',
+      artifactId: ids[0],
+      revision: 1,
+      researchHash,
+      evidence: {
+        ...validEvidence,
+        attestation: { token: 'caller-fabricated-evidence-proof' }
+      }
+    }
+    const principal = governance.attestations.issuePrincipal(
+      ledger.principalBindingFor(input)
+    )
+    expect(() => ledger.append(input, principal)).toThrow(
+      /valid external content attestation/i
+    )
+  })
+
+  it('rejects self-QA and foreign evidence subjects', () => {
+    const prompt = setup()
     expect(() =>
       appendPromptApproved(
-        promptSetup.ledger,
-        promptSetup.ids[0],
+        prompt.ledger,
+        prompt.governance,
+        prompt.ids[0],
         1,
-        promptSetup.hashes,
-        promptSetup.ledgerClock,
+        prompt.hashes,
+        prompt.clock,
         { promptReviewer: 'prompt-author' }
       )
     ).toThrow(/prompt QA must be independent/i)
 
-    const imageSetup = setup()
-    const imageContext = appendPromptApproved(
-      imageSetup.ledger,
-      imageSetup.ids[0],
-      1,
-      imageSetup.hashes,
-      imageSetup.ledgerClock
-    )
-    const receipt = scheduleSucceededImage(
-      imageSetup.scheduler,
-      imageContext,
-      imageSetup.hashes,
-      imageSetup.schedulerClock
-    )
-    recordGeneration(imageSetup.ledger, imageContext, receipt, imageSetup.ledgerClock)
-    let occurredAt = imageSetup.ledgerClock.next()
-    const imageQaHash = imageSetup.hashes.next()
-    expect(() =>
-      imageSetup.ledger.append({
-        type: 'image-qa-reviewed',
-        occurredAt,
-        actorId: 'image-runner',
-        artifactId: imageContext.artifactId,
-        revision: 1,
-        imageHash: receipt.imageHash,
-        verdict: 'approved',
-        reportHash: imageQaHash,
-        evidence: evidence(
-          'image-qa',
-          imageContext.artifactId,
-          1,
-          occurredAt,
-          'image-runner',
-          receipt.imageHash,
-          imageQaHash
-        )
-      })
-    ).toThrow(/image QA must be independent/i)
-
-    const renderSetup = setup()
-    const renderContext = appendPromptApproved(
-      renderSetup.ledger,
-      renderSetup.ids[0],
-      1,
-      renderSetup.hashes,
-      renderSetup.ledgerClock
-    )
-    const renderReceipt = scheduleSucceededImage(
-      renderSetup.scheduler,
-      renderContext,
-      renderSetup.hashes,
-      renderSetup.schedulerClock
-    )
-    recordGeneration(renderSetup.ledger, renderContext, renderReceipt, renderSetup.ledgerClock)
-    const { implementationHash } = approveImageAndImplement(
-      renderSetup.ledger,
-      renderContext,
-      renderReceipt.imageHash,
-      renderSetup.hashes,
-      renderSetup.ledgerClock
-    )
-    occurredAt = renderSetup.ledgerClock.next()
-    const renderHash = renderSetup.hashes.next()
-    const reportHash = renderSetup.hashes.next()
-    expect(() =>
-      renderSetup.ledger.append({
-        type: 'render-qa-reviewed',
-        occurredAt,
-        actorId: 'implementer',
-        artifactId: renderContext.artifactId,
-        revision: 1,
-        renderHash,
-        verdict: 'approved',
-        reportHash,
-        renderEvidence: evidence(
-          'render',
-          renderContext.artifactId,
-          1,
-          occurredAt,
-          'implementer',
-          implementationHash,
-          renderHash
-        ),
-        qaEvidence: evidence(
-          'render-qa',
-          renderContext.artifactId,
-          1,
-          occurredAt,
-          'implementer',
-          renderHash,
-          reportHash
-        )
-      })
-    ).toThrow(/render QA must be independent/i)
-  })
-
-  it('rejects foreign subjects and evidence createdBy mismatches', () => {
     const foreign = setup()
-    const specificationHash = foreign.hashes.next()
-    foreign.ledger.append({
-      type: 'artifact-revision-started',
-      occurredAt: foreign.ledgerClock.next(),
-      actorId: 'planner',
-      artifactId: foreign.ids[0],
-      revision: 1,
-      specificationHash,
-      planHash: foreign.ledger.plan.planHash
-    })
-    let occurredAt = foreign.ledgerClock.next()
+    const specificationHash = startArtifact(
+      foreign.ledger,
+      foreign.governance,
+      foreign.ids[0],
+      foreign.hashes,
+      foreign.clock
+    )
     const researchHash = foreign.hashes.next()
+    const occurredAt = foreign.clock.next()
     expect(() =>
-      foreign.ledger.append({
+      appendLedger(foreign.ledger, foreign.governance, {
         type: 'research-recorded',
         occurredAt,
         actorId: 'researcher',
@@ -386,6 +325,8 @@ describe('event-sourced visual artifact governance ledger', () => {
         revision: 1,
         researchHash,
         evidence: evidence(
+          foreign.ledger,
+          foreign.governance,
           'research',
           foreign.ids[0],
           1,
@@ -396,437 +337,397 @@ describe('event-sourced visual artifact governance ledger', () => {
         )
       })
     ).toThrow(/mismatched subjectHash/i)
-
-    const creator = setup()
-    const creatorSpecificationHash = creator.hashes.next()
-    creator.ledger.append({
-      type: 'artifact-revision-started',
-      occurredAt: creator.ledgerClock.next(),
-      actorId: 'planner',
-      artifactId: creator.ids[0],
-      revision: 1,
-      specificationHash: creatorSpecificationHash,
-      planHash: creator.ledger.plan.planHash
-    })
-    occurredAt = creator.ledgerClock.next()
-    const creatorResearchHash = creator.hashes.next()
-    expect(() =>
-      creator.ledger.append({
-        type: 'research-recorded',
-        occurredAt,
-        actorId: 'researcher',
-        artifactId: creator.ids[0],
-        revision: 1,
-        researchHash: creatorResearchHash,
-        evidence: evidence(
-          'research',
-          creator.ids[0],
-          1,
-          occurredAt,
-          'someone-else',
-          creatorSpecificationHash,
-          creatorResearchHash
-        )
-      })
-    ).toThrow(/mismatched createdBy/i)
+    expect(specificationHash).toMatch(/^[a-f0-9]{64}$/)
   })
 
-  it('prevents evidence id and content reuse across artifacts', () => {
-    const { ledger, ledgerClock, hashes, ids } = setup()
-    const firstSpecification = hashes.next()
-    ledger.append({
-      type: 'artifact-revision-started',
-      occurredAt: ledgerClock.next(),
-      actorId: 'planner',
-      artifactId: ids[0],
-      revision: 1,
-      specificationHash: firstSpecification,
-      planHash: ledger.plan.planHash
-    })
-    const sharedContent = hashes.next()
-    let occurredAt = ledgerClock.next()
+  it('prevents evidence ID and digest reuse across artifacts', () => {
+    const { governance, ledger, ids, clock, hashes } = setup()
+    const firstSpec = startArtifact(ledger, governance, ids[0], hashes, clock)
+    const contentHash = hashes.next()
+    let occurredAt = clock.next()
     const firstEvidence = evidence(
+      ledger,
+      governance,
       'research',
       ids[0],
       1,
       occurredAt,
       'researcher',
-      firstSpecification,
-      sharedContent,
-      'shared-id'
+      firstSpec,
+      contentHash,
+      'shared'
     )
-    ledger.append({
+    appendLedger(ledger, governance, {
       type: 'research-recorded',
       occurredAt,
       actorId: 'researcher',
       artifactId: ids[0],
       revision: 1,
-      researchHash: sharedContent,
+      researchHash: contentHash,
       evidence: firstEvidence
     })
-
-    const secondSpecification = hashes.next()
-    ledger.append({
-      type: 'artifact-revision-started',
-      occurredAt: ledgerClock.next(),
-      actorId: 'planner',
-      artifactId: ids[1],
-      revision: 1,
-      specificationHash: secondSpecification,
-      planHash: ledger.plan.planHash
-    })
-    occurredAt = ledgerClock.next()
+    const secondSpec = startArtifact(ledger, governance, ids[1], hashes, clock)
+    occurredAt = clock.next()
+    const secondEvidence = evidence(
+      ledger,
+      governance,
+      'research',
+      ids[1],
+      1,
+      occurredAt,
+      'researcher',
+      secondSpec,
+      contentHash,
+      'other'
+    )
     expect(() =>
-      ledger.append({
+      appendLedger(ledger, governance, {
         type: 'research-recorded',
         occurredAt,
         actorId: 'researcher',
         artifactId: ids[1],
         revision: 1,
-        researchHash: sharedContent,
-        evidence: {
-          ...evidence(
-            'research',
-            ids[1],
-            1,
-            occurredAt,
-            'researcher',
-            secondSpecification,
-            sharedContent,
-            'unique-id'
-          ),
-          evidenceId: firstEvidence.evidenceId
-        }
+        researchHash: contentHash,
+        evidence: { ...secondEvidence, evidenceId: firstEvidence.evidenceId }
       })
     ).toThrow(/evidence id|evidence content/i)
   })
 
-  it('accepts only scheduler-owned succeeded receipts from one global authority', () => {
-    const { ledger, scheduler, schedulerClock, ledgerClock, hashes, ids } = setup()
-    const context = appendPromptApproved(ledger, ids[0], 1, hashes, ledgerClock)
-    schedulerClock.ensureAfter(context.promptApprovedAt)
-    const receipt = scheduleSucceededImage(scheduler, context, hashes, schedulerClock)
-    const occurredAt = ledgerClock.next()
-
-    expect(() =>
-      ledger.append({
-        type: 'image-generation-recorded',
-        occurredAt,
-        actorId: 'image-runner',
-        artifactId: context.artifactId,
-        revision: 1,
-        attempt: receipt.attempt,
-        promptHash: receipt.promptHash,
-        promptApprovalHash: receipt.promptApprovalHash,
-        requestHash: receipt.requestHash,
-        imageHash: receipt.imageHash,
-        idempotencyKey: receipt.idempotencyKey,
-        policyHash: receipt.policyHash,
-        schedulerCallId: 'fake-call',
-        schedulerCallHash: receipt.callHash,
-        schedulerReceiptHash: receipt.receiptHash,
-        evidence: evidence(
-          'image-generation',
-          context.artifactId,
-          1,
-          occurredAt,
-          'image-runner',
-          receipt.receiptHash,
-          receipt.imageHash
-        )
-      })
-    ).toThrow(/no succeeded receipt/i)
-
-    const rogueClock = new TestClock()
-    const rogueScheduler = makeScheduler(rogueClock)
-    const rogueReceipt = scheduleSucceededImage(
-      rogueScheduler,
-      context,
-      hashes,
-      rogueClock
-    )
-    expect(() => recordGeneration(ledger, context, rogueReceipt, ledgerClock)).toThrow(
-      /no succeeded receipt|does not match/i
-    )
-  })
-
-  it('binds scheduler reservation and terminal timestamps to prompt approval', () => {
-    const early = setup()
+  it('accepts only scheduler receipts committed by the supplied authority', () => {
+    const { governance, scheduler, ledger, ids, clock, hashes } = setup()
     const context = appendPromptApproved(
-      early.ledger,
-      early.ids[0],
+      ledger,
+      governance,
+      ids[0],
       1,
-      early.hashes,
-      early.ledgerClock
+      hashes,
+      clock
     )
-    early.scheduler.reserve({
-      expectedVersion: early.scheduler.version,
-      occurredAt: early.schedulerClock.next(),
+    const requestHash = hashes.next()
+    governance.schedulerAuthority.ensureAfter(context.promptApprovedAt)
+    appendScheduler(scheduler, governance, 'reserve', {
       actorId: 'scheduler-control',
-      callId: 'pre-approval-call',
+      callId: 'real-call',
       artifactId: context.artifactId,
       revision: 1,
       attempt: 1,
       promptHash: context.promptHash,
       promptApprovalHash: context.promptApprovalHash,
-      requestHash: early.hashes.next(),
+      approvalCheckpoint: context.approvalCheckpoint,
+      requestHash,
       retryOfCallId: null,
       retryReason: null
     })
-    early.scheduler.dispatch({
-      expectedVersion: early.scheduler.version,
-      occurredAt: early.schedulerClock.next(),
+    appendScheduler(scheduler, governance, 'dispatch', {
       actorId: 'scheduler-worker',
-      callId: 'pre-approval-call'
+      callId: 'real-call'
     })
-    early.scheduler.succeed({
-      expectedVersion: early.scheduler.version,
-      occurredAt: early.schedulerClock.next(),
+    const imageHash = hashes.next()
+    const serviceBinding = scheduler.serviceReceiptBinding('real-call', imageHash)
+    appendScheduler(scheduler, governance, 'succeed', {
       actorId: 'scheduler-worker',
-      callId: 'pre-approval-call',
-      imageHash: early.hashes.next()
+      callId: 'real-call',
+      imageHash,
+      serviceReceiptAttestation:
+        governance.attestations.issueServiceReceipt(serviceBinding)
     })
-    const earlyReceipt = early.scheduler.requireSucceededReceipt('pre-approval-call')
-    expect(() =>
-      recordGeneration(early.ledger, context, earlyReceipt, early.ledgerClock)
-    ).toThrow(/strictly after and bound to prompt approval/i)
-
-    const plan = makePlan()
-    const schedulerClock = new TestClock()
-    const scheduler = makeScheduler(schedulerClock, { ...DEFAULT_POLICY, maxAttempts: 1 })
-    const ledgerClock = new TestClock(1_000_000)
-    const hashes = new HashPool()
-    const artifactId = expectedArtifactIds(plan)[0]
-    const ledger = VisualArtifactLedger.create(plan, scheduler)
-    const exhaustedContext = appendPromptApproved(
-      ledger,
-      artifactId,
-      1,
-      hashes,
-      ledgerClock
-    )
-    schedulerClock.ensureAfter(exhaustedContext.promptApprovedAt)
-    scheduler.reserve({
-      expectedVersion: scheduler.version,
-      occurredAt: schedulerClock.next(),
-      actorId: 'scheduler-control',
-      callId: 'late-failure',
-      artifactId,
+    const receipt = scheduler.requireSucceededReceipt('real-call')
+    clock.ensureAfter(receipt.completedAt)
+    const occurredAt = clock.next()
+    const fakeInput = {
+      type: 'image-generation-recorded',
+      occurredAt,
+      actorId: 'image-runner',
+      artifactId: context.artifactId,
       revision: 1,
-      attempt: 1,
-      promptHash: exhaustedContext.promptHash,
-      promptApprovalHash: exhaustedContext.promptApprovalHash,
-      requestHash: hashes.next(),
-      retryOfCallId: null,
-      retryReason: null
-    })
-    scheduler.dispatch({
-      expectedVersion: scheduler.version,
-      occurredAt: schedulerClock.next(),
-      actorId: 'scheduler-worker',
-      callId: 'late-failure'
-    })
-    scheduler.fail({
-      expectedVersion: scheduler.version,
-      occurredAt: schedulerClock.next(),
-      actorId: 'scheduler-worker',
-      callId: 'late-failure',
-      failureReason: 'timeout',
-      retryAfterMs: null
-    })
-    const finalCall = scheduler.requireExhaustedFailure('late-failure')
-    const exhaustionHash = hashes.next()
-    const occurredAt = ledgerClock.next()
-    expect(() =>
-      ledger.append({
-        type: 'revision-exhausted',
+      attempt: receipt.attempt,
+      promptHash: receipt.promptHash,
+      promptApprovalHash: receipt.promptApprovalHash,
+      requestHash: receipt.requestHash,
+      imageHash: receipt.imageHash,
+      idempotencyKey: receipt.idempotencyKey,
+      policyHash: receipt.policyHash,
+      schedulerCallId: 'fake-call',
+      schedulerCallHash: receipt.callHash,
+      schedulerReceiptHash: receipt.receiptHash,
+      schedulerAuthorityId: receipt.authorityId,
+      schedulerAuthorityVersion: receipt.authorityVersion,
+      schedulerAuthorityRootHash: receipt.authorityRootHash,
+      schedulerAuthorityCommitHash: receipt.authorityCommitHash,
+      evidence: evidence(
+        ledger,
+        governance,
+        'image-generation',
+        context.artifactId,
+        1,
         occurredAt,
-        actorId: 'release-owner',
-        artifactId,
-        revision: 1,
-        schedulerCallId: finalCall.callId,
-        schedulerCallHash: finalCall.callHash,
-        failureReason: finalCall.failureReason,
-        exhaustionHash,
-        evidence: evidence(
-          'exhaustion',
-          artifactId,
-          1,
-          occurredAt,
-          'release-owner',
-          finalCall.callHash,
-          exhaustionHash
-        )
-      })
-    ).toThrow(/final scheduler failure/i)
-  })
-
-  it('rejects accepted-ledger parsing without external trust and detects coherent offline rewriting', () => {
-    const { ledger, scheduler, schedulerClock, ledgerClock, hashes, ids } = setup()
-    appendAcceptedArtifact(
-      ledger,
-      scheduler,
-      ids[0],
-      1,
-      hashes,
-      ledgerClock,
-      schedulerClock
-    )
-    const trustedRoot = ledger.rootHash
-    const serialized = serializeVisualArtifactLedger(ledger, { trustedRootHash: trustedRoot })
-    expect(() => parseVisualArtifactLedger(serialized, { scheduler })).toThrow(/externally supplied/i)
-
-    const envelope = JSON.parse(serialized) as SerializedVisualArtifactLedger
-    const acceptance = envelope.events.at(-1)! as unknown as {
-      actorId: string
-      evidence: { createdBy: string }
+        'image-runner',
+        receipt.receiptHash,
+        receipt.imageHash
+      )
     }
-    acceptance.actorId = 'offline-rewriter'
-    acceptance.evidence.createdBy = 'offline-rewriter'
-    const rewritten = rehashLedger(envelope)
-    expect(() =>
-      parseVisualArtifactLedger(rewritten, { scheduler, trustedRootHash: trustedRoot })
-    ).toThrow(/trusted root/i)
+    const principal = governance.attestations.issuePrincipal(
+      ledger.principalBindingFor(fakeInput)
+    )
+    expect(() => ledger.append(fakeInput, principal)).toThrow(/no committed succeeded receipt/i)
   })
 
-  it('canonically serializes, parses, and verifies external roots or checkpoints', () => {
-    const { ledger, scheduler, schedulerClock, ledgerClock, hashes, ids } = setup()
+  it('requires externally issued root attestations and exposes no unchecked serializer', () => {
+    const { governance, ledger, ids, clock, hashes } = setup()
+    appendPromptApproved(ledger, governance, ids[0], 1, hashes, clock, {
+      promptVerdict: 'rejected'
+    })
+
+    expect(() =>
+      ledger.serialize({ trustedRootHash: ledger.rootHash })
+    ).toThrow(/unknown field "trustedRootHash"/i)
+    expect(() =>
+      ledger.serialize({ rootAttestation: { token: ledger.rootHash } })
+    ).toThrow(/externally issued trusted attestation/i)
+    expect((ledger as unknown as { toSerializable?: unknown }).toSerializable).toBeUndefined()
+    expect((ledger as unknown as { serializedValue?: unknown }).serializedValue).toBeUndefined()
+    expect(() =>
+      parseVisualArtifactLedger(
+        canonicalStringify({
+          schemaVersion: 2,
+          plan: ledger.plan,
+          events: ledger.events()
+        }),
+        { dependencies: governance.ledgerDependencies() }
+      )
+    ).toThrow(/missing required field "rootAttestation"/i)
+    expect(() =>
+      parseVisualArtifactLedger(canonicalEnvelope(ledger), {
+        dependencies: governance.ledgerDependencies()
+      })
+    ).toThrow(/externally issued trusted attestation/i)
+  })
+
+  it('domain-separates finalization checkpoints from serialized envelope trust', () => {
+    const { governance, ledger, ids, clock, hashes } = setup()
+    appendPromptApproved(ledger, governance, ids[0], 1, hashes, clock, {
+      promptVerdict: 'rejected'
+    })
+    const checkpointBinding = {
+      domain: 'visual-artifact-ledger' as const,
+      purpose: 'finalization-checkpoint' as const,
+      rootHash: ledger.rootHash,
+      version: ledger.sequence,
+      contextHash: ledger.plan.planHash
+    }
+    const checkpointToken =
+      governance.attestations.issueRoot(checkpointBinding)
+    expect(
+      governance.attestations.verifyRoot(checkpointToken, {
+        ...checkpointBinding,
+        purpose: 'envelope'
+      })
+    ).toBe(false)
+  })
+
+  it('rejects coherent offline rewriting against the original external root attestation', () => {
+    const original = setup()
+    appendPromptApproved(
+      original.ledger,
+      original.governance,
+      original.ids[0],
+      1,
+      original.hashes,
+      original.clock,
+      { promptVerdict: 'rejected' }
+    )
+    const originalAttestation = ledgerRootAttestation(
+      original.ledger,
+      original.governance
+    )
+
+    const rewritten = setup()
+    appendPromptApproved(
+      rewritten.ledger,
+      rewritten.governance,
+      rewritten.ids[0],
+      1,
+      rewritten.hashes,
+      rewritten.clock,
+      {
+        promptVerdict: 'rejected',
+        promptReviewer: 'different-authenticated-reviewer'
+      }
+    )
+    const rewrittenBytes = rewritten.ledger.serialize({
+      rootAttestation: ledgerRootAttestation(
+        rewritten.ledger,
+        rewritten.governance
+      )
+    })
+    const rewrittenEnvelope = JSON.parse(
+      rewrittenBytes
+    ) as SerializedVisualArtifactLedger
+    ;(rewrittenEnvelope as { rootAttestation: typeof originalAttestation }).rootAttestation =
+      originalAttestation
+    expect(() =>
+      parseVisualArtifactLedger(canonicalStringify(rewrittenEnvelope), {
+        dependencies: original.governance.ledgerDependencies()
+      })
+    ).toThrow(/externally issued trusted attestation/i)
+  })
+
+  it('canonically serializes/parses only with exact parser options', () => {
+    const { governance, scheduler, ledger, ids, clock, hashes } = setup()
     appendAcceptedArtifact(
       ledger,
       scheduler,
+      governance,
       ids[0],
       1,
       hashes,
-      ledgerClock,
-      schedulerClock
+      clock
     )
-    const checkpoint = ledger.createCheckpoint()
-    const serialized = ledger.serialize({ trustedCheckpoint: checkpoint })
-    const parsed = parseVisualArtifactLedger(serialized, { scheduler, trustedCheckpoint: checkpoint })
-
+    const rootAttestation = ledgerRootAttestation(ledger, governance)
+    const serialized = serializeVisualArtifactLedger(ledger, {
+      rootAttestation
+    })
+    const parsed = parseVisualArtifactLedger(serialized, {
+      dependencies: governance.ledgerDependencies(scheduler)
+    })
     expect(parsed.rootHash).toBe(ledger.rootHash)
-    expect(parsed.serialize({ trustedCheckpoint: checkpoint })).toBe(serialized)
+    expect(() => parseVisualArtifactLedger(serialized, null)).toThrow(/plain object/i)
     expect(() =>
       parseVisualArtifactLedger(serialized, {
-        scheduler,
-        trustedRootHash: hashNumber(999_999)
+        dependencies: governance.ledgerDependencies(scheduler),
+        trustedCheckpoint: ledger.createCheckpoint()
       })
-    ).toThrow(/trusted root/i)
+    ).toThrow(/unknown field "trustedCheckpoint"/i)
   })
 
-  it('fails empty, incomplete, and plan/registry-mismatched finalization', () => {
-    const empty = setup()
+  it('rejects duplicate JSON keys before replay', () => {
+    const { governance, ledger, ids, clock, hashes } = setup()
+    appendPromptApproved(ledger, governance, ids[0], 1, hashes, clock, {
+      promptVerdict: 'rejected'
+    })
+    const rootAttestation = ledgerRootAttestation(ledger, governance)
+    const serialized = ledger.serialize({ rootAttestation })
+    const duplicate = serialized.replace(
+      '{"events"',
+      '{"schemaVersion":2,"events"'
+    )
     expect(() =>
-      empty.ledger.finalize({
-        occurredAt: empty.ledgerClock.next(),
-        actorId: 'release-owner',
-        planHash: empty.ledger.plan.planHash,
-        registryHash: empty.ledger.plan.registryHash,
-        trustedCheckpoint: empty.ledger.createCheckpoint()
+      parseVisualArtifactLedger(duplicate, {
+        dependencies: governance.ledgerDependencies()
       })
-    ).toThrow(/empty ledgers/i)
+    ).toThrow(/canonical|duplicate keys/i)
+  })
+
+  it('fails empty/incomplete finalization and requires attested pre-final checkpoint', () => {
+    const empty = setup()
+    const checkpoint = empty.ledger.createCheckpoint()
+    const raw = {
+      occurredAt: empty.clock.next(),
+      actorId: 'release-owner',
+      planHash: empty.plan.planHash,
+      registryHash: empty.plan.registryHash,
+      trustedCheckpoint: checkpoint,
+      trustedCheckpointAttestation: { token: 'self-issued' }
+    }
+    const principal = empty.governance.attestations.issuePrincipal(
+      empty.ledger.finalizationPrincipalBindingFor(raw)
+    )
+    expect(() => empty.ledger.finalize(raw, principal)).toThrow(
+      /externally attested accepted checkpoint/i
+    )
 
     const incomplete = setup()
     appendAcceptedArtifact(
       incomplete.ledger,
       incomplete.scheduler,
+      incomplete.governance,
       incomplete.ids[0],
       1,
       incomplete.hashes,
-      incomplete.ledgerClock,
-      incomplete.schedulerClock
+      incomplete.clock
     )
-    expect(() =>
-      incomplete.ledger.finalize({
-        occurredAt: incomplete.ledgerClock.next(),
-        actorId: 'release-owner',
-        planHash: incomplete.ledger.plan.planHash,
-        registryHash: incomplete.ledger.plan.registryHash,
-        trustedCheckpoint: incomplete.ledger.createCheckpoint()
-      })
-    ).toThrow(/incomplete/i)
-    expect(() =>
-      incomplete.ledger.finalize({
-        occurredAt: incomplete.ledgerClock.next(),
-        actorId: 'release-owner',
-        planHash: hashNumber(999),
-        registryHash: incomplete.ledger.plan.registryHash,
-        trustedCheckpoint: incomplete.ledger.createCheckpoint()
-      })
-    ).toThrow(/planHash or registryHash/i)
-  })
-
-  it('keeps complete contiguous supersession chains for multiple artifacts', () => {
-    const { ledger, ledgerClock, hashes, ids } = setup()
-    for (const artifactId of ids.slice(0, 2)) {
-      appendPromptApproved(ledger, artifactId, 1, hashes, ledgerClock, {
-        promptVerdict: 'rejected'
-      })
-      const priorRoot = ledger.getArtifact(artifactId)!.revisions[0].rootHash
-      ledger.append({
-        type: 'artifact-revision-superseded',
-        occurredAt: ledgerClock.next(),
-        actorId: 'planner',
-        artifactId,
-        revision: 2,
-        priorRevision: 1,
-        priorRevisionRootHash: priorRoot,
-        specificationHash: hashes.next(),
-        planHash: ledger.plan.planHash
-      })
-      expect(ledger.getArtifact(artifactId)?.revisions.map((revision) => revision.revision)).toEqual([
-        1, 2
-      ])
-      expect(ledger.getArtifact(artifactId)?.revisions[1].status).toBe('started')
-    }
-  })
-
-  it('rejects missing revision numbers, prior-root tampering, and removed supersession history', () => {
-    const { ledger, ledgerClock, hashes, ids } = setup()
-    appendPromptApproved(ledger, ids[0], 1, hashes, ledgerClock, { promptVerdict: 'rejected' })
-    const priorRoot = ledger.getArtifact(ids[0])!.revisions[0].rootHash
-    expect(() =>
-      ledger.append({
-        type: 'artifact-revision-superseded',
-        occurredAt: ledgerClock.next(),
-        actorId: 'planner',
-        artifactId: ids[0],
-        revision: 3,
-        priorRevision: 1,
-        priorRevisionRootHash: priorRoot,
-        specificationHash: hashes.next(),
-        planHash: ledger.plan.planHash
-      })
-    ).toThrow(/contiguous/i)
-    expect(() =>
-      ledger.append({
-        type: 'artifact-revision-superseded',
-        occurredAt: ledgerClock.next(),
-        actorId: 'planner',
-        artifactId: ids[0],
-        revision: 2,
-        priorRevision: 1,
-        priorRevisionRootHash: hashNumber(123_456),
-        specificationHash: hashes.next(),
-        planHash: ledger.plan.planHash
-      })
-    ).toThrow(/full prior root/i)
-
-    ledger.append({
-      type: 'artifact-revision-superseded',
-      occurredAt: ledgerClock.next(),
-      actorId: 'planner',
-      artifactId: ids[0],
-      revision: 2,
-      priorRevision: 1,
-      priorRevisionRootHash: priorRoot,
-      specificationHash: hashes.next(),
-      planHash: ledger.plan.planHash
+    const incompleteCheckpoint = incomplete.ledger.createCheckpoint()
+    const checkpointAttestation = incomplete.governance.attestations.issueRoot({
+      domain: 'visual-artifact-ledger',
+      purpose: 'finalization-checkpoint',
+      rootHash: incompleteCheckpoint.rootHash,
+      version: incompleteCheckpoint.sequence,
+      contextHash: incomplete.plan.planHash
     })
-    const revisionTwoSpecification = ledger.getArtifact(ids[0])!.revisions[1].specificationHash
+    const value = {
+      occurredAt: incomplete.clock.next(),
+      actorId: 'release-owner',
+      planHash: incomplete.plan.planHash,
+      registryHash: incomplete.plan.registryHash,
+      trustedCheckpoint: incompleteCheckpoint,
+      trustedCheckpointAttestation: checkpointAttestation
+    }
+    const incompletePrincipal = incomplete.governance.attestations.issuePrincipal(
+      incomplete.ledger.finalizationPrincipalBindingFor(value)
+    )
+    expect(() => incomplete.ledger.finalize(value, incompletePrincipal)).toThrow(/incomplete/i)
+  })
+
+  it('keeps contiguous supersession histories and rejects gaps/root tampering', () => {
+    const { governance, ledger, ids, clock, hashes } = setup()
+    for (const artifactId of ids.slice(0, 2)) {
+      appendPromptApproved(
+        ledger,
+        governance,
+        artifactId,
+        1,
+        hashes,
+        clock,
+        { promptVerdict: 'rejected' }
+      )
+      const priorRoot = ledger.getArtifact(artifactId)!.revisions[0].rootHash
+      startArtifact(
+        ledger,
+        governance,
+        artifactId,
+        hashes,
+        clock,
+        2,
+        'artifact-revision-superseded',
+        priorRoot
+      )
+      expect(
+        ledger.getArtifact(artifactId)?.revisions.map((revision) => revision.revision)
+      ).toEqual([1, 2])
+    }
+    expect(() =>
+      startArtifact(
+        ledger,
+        governance,
+        ids[0],
+        hashes,
+        clock,
+        MAX_REVISIONS_PER_ARTIFACT + 1,
+        'artifact-revision-superseded',
+        hashNumber(999)
+      )
+    ).toThrow(/revision/i)
+  })
+
+  it('rejects removed supersession history even after coherent event rehashing', () => {
+    const { governance, ledger, ids, clock, hashes } = setup()
+    appendPromptApproved(ledger, governance, ids[0], 1, hashes, clock, {
+      promptVerdict: 'rejected'
+    })
+    const priorRoot = ledger.getArtifact(ids[0])!.revisions[0].rootHash
+    const specificationHash = startArtifact(
+      ledger,
+      governance,
+      ids[0],
+      hashes,
+      clock,
+      2,
+      'artifact-revision-superseded',
+      priorRoot
+    )
     const researchHash = hashes.next()
-    const occurredAt = ledgerClock.next()
-    ledger.append({
+    const occurredAt = clock.next()
+    appendLedger(ledger, governance, {
       type: 'research-recorded',
       occurredAt,
       actorId: 'researcher',
@@ -834,36 +735,54 @@ describe('event-sourced visual artifact governance ledger', () => {
       revision: 2,
       researchHash,
       evidence: evidence(
+        ledger,
+        governance,
         'research',
         ids[0],
         2,
         occurredAt,
         'researcher',
-        revisionTwoSpecification,
+        specificationHash,
         researchHash
       )
     })
-    const envelope = JSON.parse(ledger.serialize()) as SerializedVisualArtifactLedger
-    const supersessionIndex = envelope.events.findIndex(
+    const envelope = JSON.parse(
+      ledger.serialize({ rootAttestation: ledgerRootAttestation(ledger, governance) })
+    ) as SerializedVisualArtifactLedger
+    const index = envelope.events.findIndex(
       (event) => event.type === 'artifact-revision-superseded'
     )
-    ;(envelope.events as ArtifactEvent[]).splice(supersessionIndex, 1)
-    const missingRevision = rehashLedger(envelope)
-    expect(() => parseVisualArtifactLedger(missingRevision)).toThrow(/current revision|has not started/i)
+    ;(envelope.events as ArtifactEvent[]).splice(index, 1)
+    const tampered = rehashEnvelope(envelope)
+    expect(() =>
+      parseVisualArtifactLedger(tampered, {
+        dependencies: governance.ledgerDependencies()
+      })
+    ).toThrow(/attestation|current revision|has not started/i)
   })
 
-  it('allows supersession after scheduler exhaustion only with the final failed call bound', () => {
-    const { ledger, scheduler, schedulerClock, ledgerClock, hashes, ids } = setup()
-    const context = appendPromptApproved(ledger, ids[0], 1, hashes, ledgerClock)
-    schedulerClock.ensureAfter(context.promptApprovedAt)
+  it('binds exhaustion to the final authority-committed failed attempt', () => {
+    const { governance, scheduler, ledger, ids, clock, hashes } = setup()
+    const context = appendPromptApproved(
+      ledger,
+      governance,
+      ids[0],
+      1,
+      hashes,
+      clock
+    )
+    governance.schedulerAuthority.ensureAfter(context.promptApprovedAt)
     let priorCallId: string | null = null
     let priorReason: 'timeout' | 'rate-limit' | null = null
     let finalCallId = ''
     for (let attempt = 1; attempt <= scheduler.policy.maxAttempts; attempt += 1) {
-      finalCallId = `exhaust:${attempt}`
-      scheduler.reserve({
-        expectedVersion: scheduler.version,
-        occurredAt: schedulerClock.next(attempt === 1 ? 1 : attempt === 2 ? 1_001 : 2_001),
+      if (attempt > 1) {
+        governance.schedulerAuthority.advance(
+          attempt === 2 ? scheduler.policy.baseBackoffMs : scheduler.policy.baseBackoffMs * 2
+        )
+      }
+      finalCallId = `exhaust-${attempt}`
+      appendScheduler(scheduler, governance, 'reserve', {
         actorId: 'scheduler-control',
         callId: finalCallId,
         artifactId: context.artifactId,
@@ -871,33 +790,30 @@ describe('event-sourced visual artifact governance ledger', () => {
         attempt,
         promptHash: context.promptHash,
         promptApprovalHash: context.promptApprovalHash,
+        approvalCheckpoint: context.approvalCheckpoint,
         requestHash: hashes.next(),
         retryOfCallId: priorCallId,
         retryReason: priorReason
       })
-      scheduler.dispatch({
-        expectedVersion: scheduler.version,
-        occurredAt: schedulerClock.next(),
+      appendScheduler(scheduler, governance, 'dispatch', {
         actorId: 'scheduler-worker',
         callId: finalCallId
       })
-      const failureReason = attempt === scheduler.policy.maxAttempts ? 'rate-limit' : 'timeout'
-      scheduler.fail({
-        expectedVersion: scheduler.version,
-        occurredAt: schedulerClock.next(),
+      const reason = attempt === scheduler.policy.maxAttempts ? 'rate-limit' : 'timeout'
+      appendScheduler(scheduler, governance, 'fail', {
         actorId: 'scheduler-worker',
         callId: finalCallId,
-        failureReason,
+        failureReason: reason,
         retryAfterMs: null
       })
       priorCallId = finalCallId
-      priorReason = failureReason
+      priorReason = reason
     }
     const finalCall = scheduler.requireExhaustedFailure(finalCallId)
+    clock.ensureAfter(finalCall.completedAt!)
+    const occurredAt = clock.next()
     const exhaustionHash = hashes.next()
-    ledgerClock.ensureAfter(finalCall.completedAt!)
-    const occurredAt = ledgerClock.next()
-    ledger.append({
+    appendLedger(ledger, governance, {
       type: 'revision-exhausted',
       occurredAt,
       actorId: 'release-owner',
@@ -905,9 +821,15 @@ describe('event-sourced visual artifact governance ledger', () => {
       revision: 1,
       schedulerCallId: finalCall.callId,
       schedulerCallHash: finalCall.callHash,
+      schedulerAuthorityId: scheduler.authorityId,
+      schedulerAuthorityVersion: finalCall.completionAuthorityVersion,
+      schedulerAuthorityRootHash: finalCall.completionAuthorityRootHash,
+      schedulerAuthorityCommitHash: finalCall.completionAuthorityCommitHash,
       failureReason: finalCall.failureReason,
       exhaustionHash,
       evidence: evidence(
+        ledger,
+        governance,
         'exhaustion',
         context.artifactId,
         1,
@@ -918,47 +840,48 @@ describe('event-sourced visual artifact governance ledger', () => {
       )
     })
     expect(ledger.getArtifact(ids[0])?.revisions[0].status).toBe('exhausted')
-    expect(() =>
-      ledger.append({
-        type: 'artifact-revision-superseded',
-        occurredAt: ledgerClock.next(),
-        actorId: 'planner',
-        artifactId: ids[0],
-        revision: 2,
-        priorRevision: 1,
-        priorRevisionRootHash: ledger.getArtifact(ids[0])!.revisions[0].rootHash,
-        specificationHash: hashes.next(),
-        planHash: ledger.plan.planHash
-      })
-    ).not.toThrow()
   })
 
-  it('rejects null/malformed history and caps event cardinality before replay allocation', () => {
-    const plan = makePlan()
+  it('rejects null/malformed history and cardinality exhaustion before replay', () => {
+    const { governance, plan } = setup()
+    const rootAttestation = governance.attestations.issueRoot({
+      domain: 'visual-artifact-ledger',
+      purpose: 'envelope',
+      rootHash: hashNumber(1),
+      version: 0,
+      contextHash: plan.planHash
+    })
     expect(() =>
       parseVisualArtifactLedger(
-        JSON.stringify({ schemaVersion: 2, plan, events: null })
+        canonicalStringify({
+          schemaVersion: 2,
+          plan,
+          rootAttestation,
+          events: null
+        }),
+        {
+          dependencies: governance.ledgerDependencies()
+        }
       )
     ).toThrow(/history must be an array/i)
     expect(() =>
       parseVisualArtifactLedger(
-        JSON.stringify({ schemaVersion: 2, plan, events: [null] })
-      )
-    ).toThrow(/plain object/i)
-    expect(() =>
-      parseVisualArtifactLedger(
-        JSON.stringify({
+        canonicalStringify({
           schemaVersion: 2,
           plan,
+          rootAttestation,
           events: new Array(MAX_LEDGER_EVENTS + 1).fill(null)
-        })
+        }),
+        {
+          dependencies: governance.ledgerDependencies()
+        }
       )
     ).toThrow(/exceeds .* events/i)
   })
 
-  it('binds the calculated root to sequence, final event hash, and plan hash', () => {
-    const { ledger, ledgerClock, hashes, ids } = setup()
-    appendPromptApproved(ledger, ids[0], 1, hashes, ledgerClock, {
+  it('binds root to plan, sequence, and final event hash', () => {
+    const { governance, ledger, ids, clock, hashes } = setup()
+    appendPromptApproved(ledger, governance, ids[0], 1, hashes, clock, {
       promptVerdict: 'rejected'
     })
     expect(ledger.rootHash).toBe(

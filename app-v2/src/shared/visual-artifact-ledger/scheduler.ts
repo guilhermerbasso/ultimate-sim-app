@@ -1,4 +1,16 @@
 import {
+  type AuthenticatedPrincipalBinding,
+  type GovernanceRole,
+  type OpaqueAttestation,
+  type PromptApprovalCheckpoint,
+  type PromptApprovalCheckpointBinding,
+  type SchedulerAuthorityCommit,
+  type SchedulerAuthorityDependencies,
+  type SchedulerAuthorityOperation,
+  type SchedulerServiceReceiptBinding,
+  parseOpaqueAttestation
+} from './authorities'
+import {
   assertExactKeys,
   assertIdentifier,
   assertIsoTimestamp,
@@ -16,8 +28,11 @@ import {
 } from './canonical'
 import {
   IMAGE_REQUEST_LIMIT,
+  MAX_IMAGE_ATTEMPTS,
+  MAX_REVISIONS_PER_ARTIFACT,
   MAX_SCHEDULER_EVENTS,
   MAX_SERIALIZED_BYTES,
+  MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT,
   VISUAL_ARTIFACT_LEDGER_VERSION,
   ZERO_HASH
 } from './constants'
@@ -44,13 +59,29 @@ export type ImageFailureReason =
   | 'manual-review'
 
 export type SchedulerCallStatus = 'reserved' | 'dispatched' | 'succeeded' | 'failed' | 'ambiguous'
+export type SchedulerAction =
+  | 'configure'
+  | 'reserve'
+  | 'dispatch'
+  | 'succeed'
+  | 'fail'
+  | 'ambiguous'
 
-interface SchedulerEventHeader {
+interface SchedulerAuthorityHeader {
+  readonly authorityId: string
+  readonly authorityVersion: number
+  readonly authorityPreviousRootHash: string
+  readonly authorityRootHash: string
+  readonly authorityOperationHash: string
+  readonly authorityAttestation: OpaqueAttestation
+}
+
+interface SchedulerEventHeader extends SchedulerAuthorityHeader {
   readonly sequence: number
-  readonly expectedVersion: number
   readonly type: SchedulerEvent['type']
   readonly occurredAt: string
   readonly actorId: string
+  readonly principalAttestation: OpaqueAttestation
   readonly previousEventHash: string
   readonly eventHash: string
 }
@@ -68,6 +99,11 @@ export interface ImageCallReservedEvent extends SchedulerEventHeader {
   readonly attempt: number
   readonly promptHash: string
   readonly promptApprovalHash: string
+  readonly approvalLedgerRootHash: string
+  readonly approvalLedgerSequence: number
+  readonly approvalPlanHash: string
+  readonly promptApprovedAt: string
+  readonly approvalCheckpointAttestation: OpaqueAttestation
   readonly requestHash: string
   readonly idempotencyKey: string
   readonly retryOfCallId: string | null
@@ -83,6 +119,7 @@ export interface ImageCallSucceededEvent extends SchedulerEventHeader {
   readonly type: 'image-call-succeeded'
   readonly callId: string
   readonly imageHash: string
+  readonly serviceReceiptAttestation: OpaqueAttestation
 }
 
 export interface ImageCallFailedEvent extends SchedulerEventHeader {
@@ -114,6 +151,11 @@ interface MutableCallState {
   attempt: number
   promptHash: string
   promptApprovalHash: string
+  approvalLedgerRootHash: string
+  approvalLedgerSequence: number
+  approvalPlanHash: string
+  promptApprovedAt: string
+  approvalCheckpointAttestation: OpaqueAttestation
   requestHash: string
   idempotencyKey: string
   policyHash: string
@@ -126,8 +168,15 @@ interface MutableCallState {
   retryNotBefore?: string
   failureReason?: ImageFailureReason | 'ambiguous-dispatch'
   imageHash?: string
+  serviceReceiptAttestation?: OpaqueAttestation
   status: SchedulerCallStatus
   callHash: string
+  dispatchAuthorityVersion?: number
+  dispatchAuthorityRootHash?: string
+  completionAuthorityVersion?: number
+  completionAuthorityRootHash?: string
+  completionAuthorityCommitHash?: string
+  serializedBytes: number
 }
 
 export interface SchedulerCallSnapshot {
@@ -137,6 +186,10 @@ export interface SchedulerCallSnapshot {
   readonly attempt: number
   readonly promptHash: string
   readonly promptApprovalHash: string
+  readonly approvalLedgerRootHash: string
+  readonly approvalLedgerSequence: number
+  readonly approvalPlanHash: string
+  readonly promptApprovedAt: string
   readonly requestHash: string
   readonly idempotencyKey: string
   readonly policyHash: string
@@ -151,6 +204,11 @@ export interface SchedulerCallSnapshot {
   readonly imageHash?: string
   readonly status: SchedulerCallStatus
   readonly callHash: string
+  readonly dispatchAuthorityVersion?: number
+  readonly dispatchAuthorityRootHash?: string
+  readonly completionAuthorityVersion?: number
+  readonly completionAuthorityRootHash?: string
+  readonly completionAuthorityCommitHash?: string
 }
 
 export interface SchedulerReceipt {
@@ -161,6 +219,10 @@ export interface SchedulerReceipt {
   readonly attempt: number
   readonly promptHash: string
   readonly promptApprovalHash: string
+  readonly approvalLedgerRootHash: string
+  readonly approvalLedgerSequence: number
+  readonly approvalPlanHash: string
+  readonly promptApprovedAt: string
   readonly requestHash: string
   readonly idempotencyKey: string
   readonly policyHash: string
@@ -168,6 +230,10 @@ export interface SchedulerReceipt {
   readonly reservedAt: string
   readonly dispatchedAt: string
   readonly completedAt: string
+  readonly authorityId: string
+  readonly authorityVersion: number
+  readonly authorityRootHash: string
+  readonly authorityCommitHash: string
   readonly status: 'succeeded'
   readonly receiptHash: string
 }
@@ -176,7 +242,46 @@ export interface SerializedImageScheduler {
   readonly schemaVersion: typeof VISUAL_ARTIFACT_LEDGER_VERSION
   readonly policy: ImageSchedulingPolicy
   readonly policyHash: string
+  readonly authorityId: string
+  readonly rootAttestation: OpaqueAttestation
   readonly events: readonly SchedulerEvent[]
+}
+
+export interface SchedulerGenesisInput {
+  readonly actorId: string
+}
+
+export interface SchedulerReserveInput {
+  readonly actorId: string
+  readonly callId: string
+  readonly artifactId: ArtifactId
+  readonly revision: number
+  readonly attempt: number
+  readonly promptHash: string
+  readonly promptApprovalHash: string
+  readonly approvalCheckpoint: PromptApprovalCheckpoint
+  readonly requestHash: string
+  readonly retryOfCallId: string | null
+  readonly retryReason: ImageFailureReason | null
+}
+
+export interface SchedulerCallInput {
+  readonly actorId: string
+  readonly callId: string
+}
+
+export interface SchedulerSuccessInput extends SchedulerCallInput {
+  readonly imageHash: string
+  readonly serviceReceiptAttestation: OpaqueAttestation
+}
+
+export interface SchedulerFailureInput extends SchedulerCallInput {
+  readonly failureReason: ImageFailureReason
+  readonly retryAfterMs: number | null
+}
+
+export interface SchedulerAmbiguousInput extends SchedulerCallInput {
+  readonly ambiguityReason: 'ambiguous-dispatch'
 }
 
 const POLICY_KEYS = [
@@ -187,14 +292,24 @@ const POLICY_KEYS = [
   'maxBackoffMs'
 ] as const
 
+const AUTHORITY_HEADER_KEYS = [
+  'authorityId',
+  'authorityVersion',
+  'authorityPreviousRootHash',
+  'authorityRootHash',
+  'authorityOperationHash',
+  'authorityAttestation'
+] as const
+
 const EVENT_HEADER_KEYS = [
   'sequence',
-  'expectedVersion',
   'type',
   'occurredAt',
   'actorId',
+  'principalAttestation',
   'previousEventHash',
-  'eventHash'
+  'eventHash',
+  ...AUTHORITY_HEADER_KEYS
 ] as const
 
 const FAILURE_REASONS: readonly ImageFailureReason[] = [
@@ -208,6 +323,26 @@ const FAILURE_REASONS: readonly ImageFailureReason[] = [
   'deployment-mismatch',
   'manual-review'
 ]
+
+function assertDependencies(
+  dependencies: SchedulerAuthorityDependencies
+): SchedulerAuthorityDependencies {
+  if (
+    typeof dependencies !== 'object' ||
+    dependencies === null ||
+    typeof dependencies.authority?.commit !== 'function' ||
+    typeof dependencies.authority?.recover !== 'function' ||
+    typeof dependencies.authority?.verifyCommit !== 'function' ||
+    typeof dependencies.principalVerifier?.verifyPrincipal !== 'function' ||
+    typeof dependencies.approvalVerifier?.verifyPromptApprovalCheckpoint !== 'function' ||
+    typeof dependencies.serviceReceiptVerifier?.verifyServiceReceipt !== 'function' ||
+    typeof dependencies.rootVerifier?.verifyRoot !== 'function'
+  ) {
+    fail('TRUST', 'Scheduler requires explicit trusted authority and verifier dependencies.')
+  }
+  assertIdentifier(dependencies.authority.authorityId, 'Scheduler authority id')
+  return dependencies
+}
 
 function assertFailureReason(value: unknown, label: string): ImageFailureReason {
   if (!FAILURE_REASONS.includes(value as ImageFailureReason)) {
@@ -223,7 +358,12 @@ export function parseImageSchedulingPolicy(value: unknown): ImageSchedulingPolic
   if (value.requestLimit !== IMAGE_REQUEST_LIMIT) {
     fail('POLICY', `Image scheduling policy requestLimit must be exactly ${IMAGE_REQUEST_LIMIT}.`)
   }
-  const maxAttempts = assertSafeInteger(value.maxAttempts, 'Image scheduling policy maxAttempts', 1, 10)
+  const maxAttempts = assertSafeInteger(
+    value.maxAttempts,
+    'Image scheduling policy maxAttempts',
+    1,
+    MAX_IMAGE_ATTEMPTS
+  )
   const baseBackoffMs = assertSafeInteger(
     value.baseBackoffMs,
     'Image scheduling policy baseBackoffMs',
@@ -247,7 +387,7 @@ export function parseImageSchedulingPolicy(value: unknown): ImageSchedulingPolic
 
 export function computeImageSchedulingPolicyHash(policy: ImageSchedulingPolicy): string {
   return sha256Hex({
-    domain: 'image-scheduling-policy-v2',
+    domain: 'image-scheduling-policy-v3',
     policy: parseImageSchedulingPolicy(policy)
   })
 }
@@ -258,29 +398,36 @@ export function computeImageBackoffMs(attempt: number, policy: ImageSchedulingPo
   return Math.min(parsed.maxBackoffMs, parsed.baseBackoffMs * 2 ** (attempt - 1))
 }
 
-function idempotencyKeyFor(
-  artifactId: ArtifactId,
-  revision: number,
-  attempt: number,
-  promptHash: string,
-  promptApprovalHash: string,
-  requestHash: string,
+function addMilliseconds(timestamp: string, milliseconds: number): string {
+  const result = Date.parse(timestamp) + milliseconds
+  if (!Number.isFinite(result) || Math.abs(result) > 8_640_000_000_000_000) {
+    fail('POLICY', 'Image retry backoff exceeds the supported timestamp range.')
+  }
+  return new Date(result).toISOString()
+}
+
+function revisionKey(planHash: string, artifactId: ArtifactId, revision: number): string {
+  return `${planHash}#${artifactId}#${revision}`
+}
+
+function idempotencyKeyFor(input: {
+  artifactId: ArtifactId
+  revision: number
+  attempt: number
+  promptHash: string
+  promptApprovalHash: string
+  approvalLedgerRootHash: string
+  approvalLedgerSequence: number
+  approvalPlanHash: string
+  promptApprovedAt: string
+  requestHash: string
   policyHash: string
-): string {
-  return `img:v2:${sha256Hex({
-    domain: 'image-idempotency-v2',
-    artifactId,
-    revision,
-    attempt,
-    promptHash,
-    promptApprovalHash,
-    requestHash,
-    policyHash
-  })}`
+}): string {
+  return `img:v3:${sha256Hex({ domain: 'image-idempotency-v3', ...input })}`
 }
 
 export function computeSchedulerEventHash(event: Omit<SchedulerEvent, 'eventHash'>): string {
-  return sha256Hex({ domain: 'image-scheduler-event-v2', event })
+  return sha256Hex({ domain: 'image-scheduler-event-v3', event })
 }
 
 export function computeSchedulerRootHash(
@@ -292,21 +439,28 @@ export function computeSchedulerRootHash(
   assertSafeInteger(sequence, 'Scheduler root sequence', 0, MAX_SCHEDULER_EVENTS)
   assertSha256(lastEventHash, 'Scheduler root lastEventHash')
   return sha256Hex({
-    domain: 'image-scheduler-root-v2',
+    domain: 'image-scheduler-root-v3',
     policyHash,
     sequence,
     lastEventHash
   })
 }
 
-function receiptFromCall(call: MutableCallState): SchedulerReceipt {
+function commitHash(commit: SchedulerAuthorityCommit): string {
+  return sha256Hex({ domain: 'scheduler-authority-commit-v1', commit })
+}
+
+function receiptFromCall(call: MutableCallState, authorityId: string): SchedulerReceipt {
   if (
     call.status !== 'succeeded' ||
     !call.dispatchedAt ||
     !call.completedAt ||
-    !call.imageHash
+    !call.imageHash ||
+    call.completionAuthorityVersion === undefined ||
+    !call.completionAuthorityRootHash ||
+    !call.completionAuthorityCommitHash
   ) {
-    fail('RECEIPT', `Scheduler call "${call.callId}" is not a succeeded image call.`)
+    fail('RECEIPT', `Scheduler call "${call.callId}" is not a committed succeeded image call.`)
   }
   const payload = {
     callId: call.callId,
@@ -316,6 +470,10 @@ function receiptFromCall(call: MutableCallState): SchedulerReceipt {
     attempt: call.attempt,
     promptHash: call.promptHash,
     promptApprovalHash: call.promptApprovalHash,
+    approvalLedgerRootHash: call.approvalLedgerRootHash,
+    approvalLedgerSequence: call.approvalLedgerSequence,
+    approvalPlanHash: call.approvalPlanHash,
+    promptApprovedAt: call.promptApprovedAt,
     requestHash: call.requestHash,
     idempotencyKey: call.idempotencyKey,
     policyHash: call.policyHash,
@@ -323,27 +481,234 @@ function receiptFromCall(call: MutableCallState): SchedulerReceipt {
     reservedAt: call.reservedAt,
     dispatchedAt: call.dispatchedAt,
     completedAt: call.completedAt,
+    authorityId,
+    authorityVersion: call.completionAuthorityVersion,
+    authorityRootHash: call.completionAuthorityRootHash,
+    authorityCommitHash: call.completionAuthorityCommitHash,
     status: 'succeeded' as const
   }
-  return deepFreeze({ ...payload, receiptHash: sha256Hex({ domain: 'image-scheduler-receipt-v2', ...payload }) })
+  return deepFreeze({
+    ...payload,
+    receiptHash: sha256Hex({ domain: 'image-scheduler-receipt-v3', ...payload })
+  })
 }
 
-function revisionKey(artifactId: ArtifactId, revision: number): string {
-  return `${artifactId}#${revision}`
+function normalizeCheckpoint(value: unknown): PromptApprovalCheckpoint {
+  assertPlainObject(value, 'Prompt approval checkpoint')
+  assertExactKeys(
+    value,
+    [
+      'ledgerRootHash',
+      'ledgerSequence',
+      'promptApprovedAt',
+      'planHash',
+      'artifactId',
+      'revision',
+      'promptHash',
+      'promptApprovalEventHash',
+      'attestation'
+    ],
+    'Prompt approval checkpoint'
+  )
+  return deepFreeze({
+    ledgerRootHash: assertSha256(value.ledgerRootHash, 'Prompt approval checkpoint ledgerRootHash'),
+    ledgerSequence: assertSafeInteger(
+      value.ledgerSequence,
+      'Prompt approval checkpoint ledgerSequence',
+      1,
+      MAX_SCHEDULER_EVENTS
+    ),
+    promptApprovedAt: assertIsoTimestamp(
+      value.promptApprovedAt,
+      'Prompt approval checkpoint promptApprovedAt'
+    ),
+    planHash: assertSha256(value.planHash, 'Prompt approval checkpoint planHash'),
+    artifactId: parseArtifactId(value.artifactId).id,
+    revision: assertSafeInteger(
+      value.revision,
+      'Prompt approval checkpoint revision',
+      1,
+      MAX_REVISIONS_PER_ARTIFACT
+    ),
+    promptHash: assertSha256(value.promptHash, 'Prompt approval checkpoint promptHash'),
+    promptApprovalEventHash: assertSha256(
+      value.promptApprovalEventHash,
+      'Prompt approval checkpoint promptApprovalEventHash'
+    ),
+    attestation: parseOpaqueAttestation(
+      value.attestation,
+      'Prompt approval checkpoint attestation'
+    )
+  })
 }
 
-function addMilliseconds(timestamp: string, milliseconds: number): string {
-  const result = Date.parse(timestamp) + milliseconds
-  if (!Number.isFinite(result) || Math.abs(result) > 8_640_000_000_000_000) {
-    fail('POLICY', 'Image retry backoff exceeds the supported timestamp range.')
+function checkpointBinding(checkpoint: PromptApprovalCheckpoint): PromptApprovalCheckpointBinding {
+  const { attestation: _attestation, ...binding } = checkpoint
+  return binding
+}
+
+function normalizeGenesis(value: unknown): SchedulerGenesisInput {
+  assertPlainObject(value, 'Scheduler genesis')
+  assertExactKeys(value, ['actorId'], 'Scheduler genesis')
+  return { actorId: assertIdentifier(value.actorId, 'Scheduler genesis actorId') }
+}
+
+function normalizeReserve(value: unknown): SchedulerReserveInput {
+  assertPlainObject(value, 'Image reservation')
+  assertExactKeys(
+    value,
+    [
+      'actorId',
+      'callId',
+      'artifactId',
+      'revision',
+      'attempt',
+      'promptHash',
+      'promptApprovalHash',
+      'approvalCheckpoint',
+      'requestHash',
+      'retryOfCallId',
+      'retryReason'
+    ],
+    'Image reservation'
+  )
+  const retryReason =
+    value.retryReason === null
+      ? null
+      : assertFailureReason(value.retryReason, 'Image reservation retryReason')
+  return {
+    actorId: assertIdentifier(value.actorId, 'Image reservation actorId'),
+    callId: assertIdentifier(value.callId, 'Image reservation callId'),
+    artifactId: parseArtifactId(value.artifactId).id,
+    revision: assertSafeInteger(
+      value.revision,
+      'Image reservation revision',
+      1,
+      MAX_REVISIONS_PER_ARTIFACT
+    ),
+    attempt: assertSafeInteger(
+      value.attempt,
+      'Image reservation attempt',
+      1,
+      MAX_IMAGE_ATTEMPTS
+    ),
+    promptHash: assertSha256(value.promptHash, 'Image reservation promptHash'),
+    promptApprovalHash: assertSha256(
+      value.promptApprovalHash,
+      'Image reservation promptApprovalHash'
+    ),
+    approvalCheckpoint: normalizeCheckpoint(value.approvalCheckpoint),
+    requestHash: assertSha256(value.requestHash, 'Image reservation requestHash'),
+    retryOfCallId: assertNullableIdentifier(
+      value.retryOfCallId,
+      'Image reservation retryOfCallId'
+    ),
+    retryReason
   }
-  return new Date(result).toISOString()
+}
+
+function normalizeCall(value: unknown, label: string): SchedulerCallInput {
+  assertPlainObject(value, label)
+  assertExactKeys(value, ['actorId', 'callId'], label)
+  return {
+    actorId: assertIdentifier(value.actorId, `${label} actorId`),
+    callId: assertIdentifier(value.callId, `${label} callId`)
+  }
+}
+
+function normalizeSuccess(value: unknown): SchedulerSuccessInput {
+  assertPlainObject(value, 'Image success')
+  assertExactKeys(
+    value,
+    ['actorId', 'callId', 'imageHash', 'serviceReceiptAttestation'],
+    'Image success'
+  )
+  return {
+    actorId: assertIdentifier(value.actorId, 'Image success actorId'),
+    callId: assertIdentifier(value.callId, 'Image success callId'),
+    imageHash: assertSha256(value.imageHash, 'Image success imageHash'),
+    serviceReceiptAttestation: parseOpaqueAttestation(
+      value.serviceReceiptAttestation,
+      'Image service receipt attestation'
+    )
+  }
+}
+
+function normalizeFailure(value: unknown): SchedulerFailureInput {
+  assertPlainObject(value, 'Image failure')
+  assertExactKeys(
+    value,
+    ['actorId', 'callId', 'failureReason', 'retryAfterMs'],
+    'Image failure'
+  )
+  return {
+    actorId: assertIdentifier(value.actorId, 'Image failure actorId'),
+    callId: assertIdentifier(value.callId, 'Image failure callId'),
+    failureReason: assertFailureReason(value.failureReason, 'Image failure reason'),
+    retryAfterMs: assertNullableSafeInteger(
+      value.retryAfterMs,
+      'Image failure retryAfterMs',
+      1,
+      2_592_000_000
+    )
+  }
+}
+
+function normalizeAmbiguous(value: unknown): SchedulerAmbiguousInput {
+  assertPlainObject(value, 'Ambiguous image dispatch')
+  assertExactKeys(
+    value,
+    ['actorId', 'callId', 'ambiguityReason'],
+    'Ambiguous image dispatch'
+  )
+  if (value.ambiguityReason !== 'ambiguous-dispatch') {
+    fail('SCHEMA', 'Ambiguous image dispatch reason must be "ambiguous-dispatch".')
+  }
+  return {
+    actorId: assertIdentifier(value.actorId, 'Ambiguous image dispatch actorId'),
+    callId: assertIdentifier(value.callId, 'Ambiguous image dispatch callId'),
+    ambiguityReason: 'ambiguous-dispatch'
+  }
+}
+
+function roleForAction(action: SchedulerAction): GovernanceRole {
+  return action === 'configure' || action === 'reserve'
+    ? 'scheduler-control'
+    : 'scheduler-worker'
+}
+
+export function schedulerGenesisPrincipalBinding(
+  policyValue: unknown,
+  genesisValue: unknown,
+  authorityIdValue: unknown
+): AuthenticatedPrincipalBinding {
+  const policy = parseImageSchedulingPolicy(policyValue)
+  const genesis = normalizeGenesis(genesisValue)
+  const authorityId = assertIdentifier(authorityIdValue, 'Scheduler authority id')
+  return deepFreeze({
+    domain: 'image-scheduler',
+    principalId: genesis.actorId,
+    role: 'scheduler-control',
+    action: 'configure',
+    actionHash: sha256Hex({
+      domain: 'scheduler-principal-action-v1',
+      action: 'configure',
+      normalized: genesis,
+      policyHash: computeImageSchedulingPolicyHash(policy),
+      authorityId
+    }),
+    contextRootHash: ZERO_HASH,
+    contextVersion: 0
+  })
 }
 
 export class ValidatedImageScheduler {
   readonly policy: ImageSchedulingPolicy
   readonly policyHash: string
+  readonly authorityId: string
 
+  private authorityVersion = 0
+  private authorityRootHash = ZERO_HASH
   private readonly eventLog: SchedulerEvent[] = []
   private readonly calls = new Map<string, MutableCallState>()
   private readonly latestCallByRevision = new Map<string, MutableCallState>()
@@ -355,28 +720,39 @@ export class ValidatedImageScheduler {
   private lastEventHash = ZERO_HASH
   private circuitOpen = false
 
-  private constructor(policy: ImageSchedulingPolicy) {
+  private constructor(
+    policy: ImageSchedulingPolicy,
+    private readonly dependencies: SchedulerAuthorityDependencies
+  ) {
     this.policy = policy
     this.policyHash = computeImageSchedulingPolicyHash(policy)
+    this.authorityId = dependencies.authority.authorityId
   }
 
-  static create(policyValue: unknown, genesisValue: unknown): ValidatedImageScheduler {
+  static create(
+    policyValue: unknown,
+    genesisValue: unknown,
+    dependenciesValue: SchedulerAuthorityDependencies,
+    principalAttestationValue: unknown
+  ): ValidatedImageScheduler {
+    const dependencies = assertDependencies(dependenciesValue)
     const policy = parseImageSchedulingPolicy(policyValue)
-    assertPlainObject(genesisValue, 'Scheduler genesis')
-    assertExactKeys(genesisValue, ['occurredAt', 'actorId'], 'Scheduler genesis')
-    const scheduler = new ValidatedImageScheduler(policy)
-    scheduler.appendEvent({
-      expectedVersion: 0,
-      type: 'scheduler-configured',
-      occurredAt: assertIsoTimestamp(genesisValue.occurredAt, 'Scheduler genesis occurredAt'),
-      actorId: assertIdentifier(genesisValue.actorId, 'Scheduler genesis actorId'),
-      policyHash: scheduler.policyHash
-    })
+    const genesis = normalizeGenesis(genesisValue)
+    const scheduler = new ValidatedImageScheduler(policy, dependencies)
+    scheduler.configure(genesis, parseOpaqueAttestation(principalAttestationValue, 'Scheduler principal attestation'))
     return scheduler
   }
 
   get version(): number {
     return this.eventLog.length
+  }
+
+  get authorityCasVersion(): number {
+    return this.authorityVersion
+  }
+
+  get authorityCommittedRootHash(): string {
+    return this.authorityRootHash
   }
 
   get eventCount(): number {
@@ -395,23 +771,201 @@ export class ValidatedImageScheduler {
     return computeSchedulerRootHash(this.policyHash, this.version, this.lastEventHash)
   }
 
-  private assertExpectedVersion(value: unknown): number {
-    const expectedVersion = assertSafeInteger(
-      value,
-      'Scheduler expectedVersion',
-      0,
-      MAX_SCHEDULER_EVENTS
-    )
-    if (expectedVersion !== this.version) {
-      fail('CAS', `Stale scheduler CAS version ${expectedVersion}; current version is ${this.version}.`)
-    }
-    return expectedVersion
+  private actionHash(action: SchedulerAction, normalized: unknown): string {
+    return sha256Hex({
+      domain: 'scheduler-principal-action-v1',
+      action,
+      normalized,
+      policyHash: this.policyHash,
+      authorityId: this.authorityId
+    })
   }
 
-  private assertMonotonicTimestamp(timestamp: string): void {
-    if (this.lastTimestamp && compareIso(timestamp, this.lastTimestamp) < 0) {
-      fail('INTEGRITY', 'Scheduler event timestamps must be globally nondecreasing.')
+  principalBindingFor(action: SchedulerAction, value: unknown): AuthenticatedPrincipalBinding {
+    const normalized =
+      action === 'configure'
+        ? normalizeGenesis(value)
+        : action === 'reserve'
+          ? normalizeReserve(value)
+          : action === 'dispatch'
+            ? normalizeCall(value, 'Image dispatch')
+            : action === 'succeed'
+              ? normalizeSuccess(value)
+              : action === 'fail'
+                ? normalizeFailure(value)
+                : normalizeAmbiguous(value)
+    return deepFreeze({
+      domain: 'image-scheduler',
+      principalId: normalized.actorId,
+      role: roleForAction(action),
+      action,
+      actionHash: this.actionHash(action, normalized),
+      contextRootHash: this.authorityRootHash,
+      contextVersion: this.authorityVersion
+    })
+  }
+
+  private verifyPrincipal(
+    action: SchedulerAction,
+    normalized: { actorId: string },
+    attestation: OpaqueAttestation
+  ): void {
+    const binding: AuthenticatedPrincipalBinding = {
+      domain: 'image-scheduler',
+      principalId: normalized.actorId,
+      role: roleForAction(action),
+      action,
+      actionHash: this.actionHash(action, normalized),
+      contextRootHash: this.authorityRootHash,
+      contextVersion: this.authorityVersion
     }
+    if (!this.dependencies.principalVerifier.verifyPrincipal(attestation, binding)) {
+      fail('TRUST', `Authenticated principal attestation is invalid for scheduler ${action}.`)
+    }
+  }
+
+  private operationFor(
+    action: SchedulerAction,
+    normalized: {
+      actorId: string
+      callId?: string
+      artifactId?: ArtifactId
+      revision?: number
+      attempt?: number
+      authorityNotBefore?: string | null
+      authorityLatestCommittedAt?: string
+    },
+    principalAttestation: OpaqueAttestation
+  ): SchedulerAuthorityOperation {
+    const operationHash = sha256Hex({
+      domain: 'scheduler-authority-operation-v1',
+      action,
+      normalized,
+      principalAttestation,
+      expectedVersion: this.authorityVersion,
+      previousRootHash: this.authorityRootHash,
+      policyHash: this.policyHash
+    })
+    const common = {
+      expectedVersion: this.authorityVersion,
+      previousRootHash: this.authorityRootHash,
+      policyHash: this.policyHash,
+      operationHash,
+      principalId: normalized.actorId,
+      principalRole: roleForAction(action) as 'scheduler-control' | 'scheduler-worker',
+      principalAttestation
+    }
+    if (action === 'configure') {
+      return {
+        ...common,
+        action,
+        windowMs: this.policy.windowMs,
+        requestLimit: this.policy.requestLimit
+      }
+    }
+    if (action === 'reserve') {
+      return {
+        ...common,
+        action,
+        windowMs: this.policy.windowMs,
+        requestLimit: this.policy.requestLimit,
+        callId: normalized.callId!,
+        artifactId: normalized.artifactId!,
+        revision: normalized.revision!,
+        attempt: normalized.attempt!,
+        notBefore:
+          (normalized as typeof normalized & { authorityNotBefore?: string | null })
+            .authorityNotBefore ?? null
+      }
+    }
+    if (action === 'fail') {
+      return {
+        ...common,
+        action,
+        callId: normalized.callId!,
+        latestCommittedAt: normalized.authorityLatestCommittedAt!
+      }
+    }
+    return { ...common, action, callId: normalized.callId! }
+  }
+
+  private commitOperation(
+    operation: SchedulerAuthorityOperation,
+    replayCommit?: SchedulerAuthorityCommit
+  ): SchedulerAuthorityCommit {
+    if (
+      this.eventLog.length >= MAX_SCHEDULER_EVENTS ||
+      this.authorityVersion >= MAX_SCHEDULER_EVENTS
+    ) {
+      fail('CARDINALITY', `Scheduler event limit ${MAX_SCHEDULER_EVENTS} reached before authority commit.`)
+    }
+    let commit: SchedulerAuthorityCommit
+    if (replayCommit) {
+      commit = replayCommit
+    } else {
+      try {
+        commit = this.dependencies.authority.commit(operation)
+      } catch (error) {
+        const recovered = this.dependencies.authority.recover(operation)
+        if (recovered) {
+          commit = recovered
+        } else {
+          const message = error instanceof Error ? error.message : String(error)
+          fail('CAS', `Scheduler authority rejected atomic commit: ${message}`)
+        }
+      }
+    }
+    assertPlainObject(commit, 'Scheduler authority commit')
+    assertExactKeys(
+      commit,
+      [
+        'authorityId',
+        'version',
+        'committedAt',
+        'previousRootHash',
+        'rootHash',
+        'operationHash',
+        'attestation'
+      ],
+      'Scheduler authority commit'
+    )
+    const normalizedCommit: SchedulerAuthorityCommit = {
+      authorityId: assertIdentifier(commit.authorityId, 'Scheduler authority commit authorityId'),
+      version: assertSafeInteger(
+        commit.version,
+        'Scheduler authority commit version',
+        1,
+        MAX_SCHEDULER_EVENTS
+      ),
+      committedAt: assertIsoTimestamp(
+        commit.committedAt,
+        'Scheduler authority commit committedAt'
+      ),
+      previousRootHash: assertSha256(
+        commit.previousRootHash,
+        'Scheduler authority commit previousRootHash'
+      ),
+      rootHash: assertSha256(commit.rootHash, 'Scheduler authority commit rootHash'),
+      operationHash: assertSha256(
+        commit.operationHash,
+        'Scheduler authority commit operationHash'
+      ),
+      attestation: parseOpaqueAttestation(
+        commit.attestation,
+        'Scheduler authority commit attestation'
+      )
+    }
+    if (
+      normalizedCommit.authorityId !== this.authorityId ||
+      normalizedCommit.version !== this.authorityVersion + 1 ||
+      normalizedCommit.previousRootHash !== this.authorityRootHash ||
+      normalizedCommit.operationHash !== operation.operationHash ||
+      (this.lastTimestamp && compareIso(normalizedCommit.committedAt, this.lastTimestamp) < 0) ||
+      !this.dependencies.authority.verifyCommit(normalizedCommit, operation)
+    ) {
+      fail('TRUST', 'Scheduler authority returned an invalid or stale committed operation.')
+    }
+    return deepFreeze(normalizedCommit)
   }
 
   private activeDispatchedCalls(atTimestamp: string): number {
@@ -425,370 +979,537 @@ export class ValidatedImageScheduler {
     return this.dispatchTimes.length - this.dispatchWindowStart
   }
 
+  private assertAttemptEventBudget(
+    input: Record<string, unknown> & { type: SchedulerEvent['type'] },
+    actorId: string,
+    principalAttestation: OpaqueAttestation,
+    existingAttemptBytes: number
+  ): void {
+    const maximumToken = { token: 'x'.repeat(128) }
+    const preview = {
+      sequence: MAX_SCHEDULER_EVENTS,
+      occurredAt: 'x'.repeat(32),
+      actorId,
+      principalAttestation,
+      previousEventHash: 'f'.repeat(64),
+      authorityId: this.authorityId,
+      authorityVersion: MAX_SCHEDULER_EVENTS,
+      authorityPreviousRootHash: 'f'.repeat(64),
+      authorityRootHash: 'f'.repeat(64),
+      authorityOperationHash: 'f'.repeat(64),
+      authorityAttestation: maximumToken,
+      ...input,
+      eventHash: 'f'.repeat(64)
+    }
+    if (
+      existingAttemptBytes + utf8ByteLength(canonicalStringify(preview)) >
+      MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT
+    ) {
+      fail('CARDINALITY', 'Scheduler attempt serialized byte budget is exhausted.')
+    }
+  }
+
   private appendEvent(
-    input:
-      | {
-          expectedVersion: number
-          type: 'scheduler-configured'
-          occurredAt: string
-          actorId: string
-          policyHash: string
-        }
-      | {
-          expectedVersion: number
-          type: 'image-call-reserved'
-          occurredAt: string
-          actorId: string
-          callId: string
-          artifactId: ArtifactId
-          revision: number
-          attempt: number
-          promptHash: string
-          promptApprovalHash: string
-          requestHash: string
-          idempotencyKey: string
-          retryOfCallId: string | null
-          retryReason: ImageFailureReason | null
-        }
-      | {
-          expectedVersion: number
-          type: 'image-call-dispatched'
-          occurredAt: string
-          actorId: string
-          callId: string
-        }
-      | {
-          expectedVersion: number
-          type: 'image-call-succeeded'
-          occurredAt: string
-          actorId: string
-          callId: string
-          imageHash: string
-        }
-      | {
-          expectedVersion: number
-          type: 'image-call-failed'
-          occurredAt: string
-          actorId: string
-          callId: string
-          failureReason: ImageFailureReason
-          retryAfterMs: number | null
-          retryNotBefore: string
-        }
-      | {
-          expectedVersion: number
-          type: 'image-call-ambiguous'
-          occurredAt: string
-          actorId: string
-          callId: string
-          ambiguityReason: 'ambiguous-dispatch'
-        }
+    input: Record<string, unknown> & { type: SchedulerEvent['type'] },
+    actorId: string,
+    principalAttestation: OpaqueAttestation,
+    commit: SchedulerAuthorityCommit,
+    existingAttemptBytes?: number
   ): SchedulerEvent {
     if (this.eventLog.length >= MAX_SCHEDULER_EVENTS) {
       fail('CARDINALITY', `Scheduler event limit ${MAX_SCHEDULER_EVENTS} reached.`)
     }
-    this.assertExpectedVersion(input.expectedVersion)
-    this.assertMonotonicTimestamp(input.occurredAt)
     const withoutHash = {
       sequence: this.eventLog.length + 1,
-      ...input,
-      previousEventHash: this.lastEventHash
+      occurredAt: commit.committedAt,
+      actorId,
+      principalAttestation,
+      previousEventHash: this.lastEventHash,
+      authorityId: commit.authorityId,
+      authorityVersion: commit.version,
+      authorityPreviousRootHash: commit.previousRootHash,
+      authorityRootHash: commit.rootHash,
+      authorityOperationHash: commit.operationHash,
+      authorityAttestation: commit.attestation,
+      ...input
     } as Omit<SchedulerEvent, 'eventHash'>
     const event = deepFreeze({
       ...withoutHash,
       eventHash: computeSchedulerEventHash(withoutHash)
     }) as SchedulerEvent
+    if (
+      existingAttemptBytes !== undefined &&
+      existingAttemptBytes + utf8ByteLength(canonicalStringify(event)) >
+        MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT
+    ) {
+      fail('CARDINALITY', 'Scheduler attempt serialized byte budget is exhausted.')
+    }
     this.eventLog.push(event)
     this.lastTimestamp = event.occurredAt
     this.lastEventHash = event.eventHash
+    this.authorityVersion = commit.version
+    this.authorityRootHash = commit.rootHash
     return event
   }
 
-  reserve(value: unknown): ImageCallReservedEvent {
-    assertPlainObject(value, 'Image reservation')
-    assertExactKeys(
-      value,
-      [
-        'expectedVersion',
-        'occurredAt',
-        'actorId',
-        'callId',
-        'artifactId',
-        'revision',
-        'attempt',
-        'promptHash',
-        'promptApprovalHash',
-        'requestHash',
-        'retryOfCallId',
-        'retryReason'
-      ],
-      'Image reservation'
+  private configure(
+    genesis: SchedulerGenesisInput,
+    principalAttestation: OpaqueAttestation,
+    replayCommit?: SchedulerAuthorityCommit
+  ): SchedulerConfiguredEvent {
+    if (this.version !== 0) fail('INTEGRITY', 'Scheduler can be configured only once.')
+    this.verifyPrincipal('configure', genesis, principalAttestation)
+    const operation = this.operationFor('configure', genesis, principalAttestation)
+    const commit = this.commitOperation(operation, replayCommit)
+    return this.appendEvent(
+      { type: 'scheduler-configured', policyHash: this.policyHash },
+      genesis.actorId,
+      principalAttestation,
+      commit
+    ) as SchedulerConfiguredEvent
+  }
+
+  reserve(value: unknown, principalAttestationValue: unknown): ImageCallReservedEvent {
+    return this.reserveInternal(
+      normalizeReserve(value),
+      parseOpaqueAttestation(principalAttestationValue, 'Scheduler principal attestation')
     )
-    const expectedVersion = this.assertExpectedVersion(value.expectedVersion)
-    const occurredAt = assertIsoTimestamp(value.occurredAt, 'Image reservation occurredAt')
-    this.assertMonotonicTimestamp(occurredAt)
-    const actorId = assertIdentifier(value.actorId, 'Image reservation actorId')
-    const callId = assertIdentifier(value.callId, 'Image reservation callId')
-    if (this.calls.has(callId)) fail('INTEGRITY', `Scheduler call id "${callId}" is already used.`)
-    if (this.calls.size >= Math.floor(MAX_SCHEDULER_EVENTS / 2)) {
-      fail('CARDINALITY', 'Scheduler call cardinality limit reached.')
-    }
+  }
+
+  private reserveInternal(
+    input: SchedulerReserveInput,
+    principalAttestation: OpaqueAttestation,
+    replayCommit?: SchedulerAuthorityCommit
+  ): ImageCallReservedEvent {
+    this.verifyPrincipal('reserve', input, principalAttestation)
+    if (this.calls.has(input.callId)) fail('INTEGRITY', `Scheduler call id "${input.callId}" is already used.`)
     if (this.circuitOpen) fail('CIRCUIT', 'The global image scheduler circuit is open.')
+    if (input.attempt > this.policy.maxAttempts) {
+      fail('POLICY', 'Image reservation attempt exceeds the immutable policy maximum.')
+    }
+    const checkpoint = input.approvalCheckpoint
+    if (
+      checkpoint.artifactId !== input.artifactId ||
+      checkpoint.revision !== input.revision ||
+      checkpoint.promptHash !== input.promptHash ||
+      checkpoint.promptApprovalEventHash !== input.promptApprovalHash ||
+      !this.dependencies.approvalVerifier.verifyPromptApprovalCheckpoint(
+        checkpoint.attestation,
+        checkpointBinding(checkpoint)
+      )
+    ) {
+      fail('TRUST', 'Image reservation requires a trusted committed prompt-approval checkpoint.')
+    }
 
-    const artifactId = parseArtifactId(value.artifactId).id
-    const revision = assertSafeInteger(value.revision, 'Image reservation revision', 1, 10_000)
-    const attempt = assertSafeInteger(
-      value.attempt,
-      'Image reservation attempt',
-      1,
-      this.policy.maxAttempts
+    const previous = this.latestCallByRevision.get(
+      revisionKey(checkpoint.planHash, input.artifactId, input.revision)
     )
-    const promptHash = assertSha256(value.promptHash, 'Image reservation promptHash')
-    const promptApprovalHash = assertSha256(
-      value.promptApprovalHash,
-      'Image reservation promptApprovalHash'
-    )
-    const requestHash = assertSha256(value.requestHash, 'Image reservation requestHash')
-    const retryOfCallId = assertNullableIdentifier(value.retryOfCallId, 'Image reservation retryOfCallId')
-    const retryReason =
-      value.retryReason === null
-        ? null
-        : assertFailureReason(value.retryReason, 'Image reservation retryReason')
-
-    const previous = this.latestCallByRevision.get(revisionKey(artifactId, revision))
-    if (attempt === 1) {
-      if (previous || retryOfCallId !== null || retryReason !== null) {
-        fail('POLICY', 'Image attempt 1 cannot be a retry and must be the first call for the revision.')
+    if (input.attempt === 1) {
+      if (previous || input.retryOfCallId !== null || input.retryReason !== null) {
+        fail('POLICY', 'Image attempt 1 cannot be a retry and must be first for the revision.')
       }
     } else {
-      if (!previous || previous.attempt !== attempt - 1) {
+      if (!previous || previous.attempt !== input.attempt - 1) {
         fail('POLICY', 'Image retry attempts must be complete and contiguous from attempt 1.')
       }
       if (previous.status !== 'failed' || !previous.retryNotBefore || !previous.failureReason) {
         fail('POLICY', 'Only an immediate failed image call may be retried.')
       }
-      if (retryOfCallId !== previous.callId || retryReason !== previous.failureReason) {
-        fail('POLICY', 'Image retry call and reason must match the immediate failed attempt.')
-      }
-      if (promptHash !== previous.promptHash) {
-        fail('POLICY', 'Image retry promptHash must match the approved prompt used by the failed attempt.')
-      }
-      if (promptApprovalHash !== previous.promptApprovalHash) {
-        fail('POLICY', 'Image retry promptApprovalHash must match the original prompt approval.')
-      }
-      if (compareIso(occurredAt, previous.retryNotBefore) < 0) {
-        fail('POLICY', 'Image retry was reserved before its positive backoff elapsed.')
+      if (
+        input.retryOfCallId !== previous.callId ||
+        input.retryReason !== previous.failureReason ||
+        input.promptHash !== previous.promptHash ||
+        input.promptApprovalHash !== previous.promptApprovalHash ||
+        checkpoint.ledgerRootHash !== previous.approvalLedgerRootHash ||
+        checkpoint.ledgerSequence !== previous.approvalLedgerSequence ||
+        checkpoint.promptApprovedAt !== previous.promptApprovedAt
+      ) {
+        fail('POLICY', 'Retry must preserve the immediate failure, prompt, and approval checkpoint.')
       }
     }
 
-    if (this.activeDispatchedCalls(occurredAt) + this.outstandingReservations >= IMAGE_REQUEST_LIMIT) {
-      fail('QUOTA', 'The global six-request rolling window is fully reserved.')
-    }
-
-    const idempotencyKey = idempotencyKeyFor(
-      artifactId,
-      revision,
-      attempt,
-      promptHash,
-      promptApprovalHash,
-      requestHash,
-      this.policyHash
-    )
-    const event = this.appendEvent({
-      expectedVersion,
-      type: 'image-call-reserved',
-      occurredAt,
-      actorId,
-      callId,
-      artifactId,
-      revision,
-      attempt,
-      promptHash,
-      promptApprovalHash,
-      requestHash,
+    const idempotencyKey = idempotencyKeyFor({
+      artifactId: input.artifactId,
+      revision: input.revision,
+      attempt: input.attempt,
+      promptHash: input.promptHash,
+      promptApprovalHash: input.promptApprovalHash,
+      approvalLedgerRootHash: checkpoint.ledgerRootHash,
+      approvalLedgerSequence: checkpoint.ledgerSequence,
+      approvalPlanHash: checkpoint.planHash,
+      promptApprovedAt: checkpoint.promptApprovedAt,
+      requestHash: input.requestHash,
+      policyHash: this.policyHash
+    })
+    const eventPayload = {
+      type: 'image-call-reserved' as const,
+      callId: input.callId,
+      artifactId: input.artifactId,
+      revision: input.revision,
+      attempt: input.attempt,
+      promptHash: input.promptHash,
+      promptApprovalHash: input.promptApprovalHash,
+      approvalLedgerRootHash: checkpoint.ledgerRootHash,
+      approvalLedgerSequence: checkpoint.ledgerSequence,
+      approvalPlanHash: checkpoint.planHash,
+      promptApprovedAt: checkpoint.promptApprovedAt,
+      approvalCheckpointAttestation: checkpoint.attestation,
+      requestHash: input.requestHash,
       idempotencyKey,
-      retryOfCallId,
-      retryReason
-    }) as ImageCallReservedEvent
-
+      retryOfCallId: input.retryOfCallId,
+      retryReason: input.retryReason
+    }
+    this.assertAttemptEventBudget(eventPayload, input.actorId, principalAttestation, 0)
+    const approvalNotBefore = addMilliseconds(checkpoint.promptApprovedAt, 1)
+    const authorityNotBefore =
+      previous?.retryNotBefore &&
+      compareIso(previous.retryNotBefore, approvalNotBefore) > 0
+        ? previous.retryNotBefore
+        : approvalNotBefore
+    const operation = this.operationFor(
+      'reserve',
+      {
+        ...input,
+        authorityNotBefore
+      },
+      principalAttestation
+    )
+    const commit = this.commitOperation(operation, replayCommit)
+    if (
+      compareIso(commit.committedAt, authorityNotBefore) < 0
+    ) {
+      fail('POLICY', 'Image reservation was committed before approval/backoff elapsed.')
+    }
+    if (
+      this.activeDispatchedCalls(commit.committedAt) + this.outstandingReservations >=
+      IMAGE_REQUEST_LIMIT
+    ) {
+      fail('QUOTA', 'Authoritative scheduler commit exceeds the global six-request capacity.')
+    }
+    const event = this.appendEvent(
+      eventPayload,
+      input.actorId,
+      principalAttestation,
+      commit,
+      0
+    ) as ImageCallReservedEvent
+    const serializedBytes = utf8ByteLength(canonicalStringify(event))
+    if (serializedBytes > MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT) {
+      fail(
+        'CARDINALITY',
+        `Scheduler attempt exceeds ${MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT} serialized bytes.`
+      )
+    }
     const call: MutableCallState = {
-      callId,
-      artifactId,
-      revision,
-      attempt,
-      promptHash,
-      promptApprovalHash,
-      requestHash,
+      callId: input.callId,
+      artifactId: input.artifactId,
+      revision: input.revision,
+      attempt: input.attempt,
+      promptHash: input.promptHash,
+      promptApprovalHash: input.promptApprovalHash,
+      approvalLedgerRootHash: checkpoint.ledgerRootHash,
+      approvalLedgerSequence: checkpoint.ledgerSequence,
+      approvalPlanHash: checkpoint.planHash,
+      promptApprovedAt: checkpoint.promptApprovedAt,
+      approvalCheckpointAttestation: checkpoint.attestation,
+      requestHash: input.requestHash,
       idempotencyKey,
       policyHash: this.policyHash,
-      retryOfCallId,
-      retryReason,
-      reservedAt: occurredAt,
+      retryOfCallId: input.retryOfCallId,
+      retryReason: input.retryReason,
+      reservedAt: event.occurredAt,
       status: 'reserved',
-      callHash: event.eventHash
+      callHash: event.eventHash,
+      serializedBytes
     }
-    this.calls.set(callId, call)
-    this.latestCallByRevision.set(revisionKey(artifactId, revision), call)
+    this.calls.set(input.callId, call)
+    this.latestCallByRevision.set(
+      revisionKey(checkpoint.planHash, input.artifactId, input.revision),
+      call
+    )
     this.outstandingReservations += 1
     return event
   }
 
-  dispatch(value: unknown): ImageCallDispatchedEvent {
-    assertPlainObject(value, 'Image dispatch')
-    assertExactKeys(value, ['expectedVersion', 'occurredAt', 'actorId', 'callId'], 'Image dispatch')
-    const expectedVersion = this.assertExpectedVersion(value.expectedVersion)
-    const occurredAt = assertIsoTimestamp(value.occurredAt, 'Image dispatch occurredAt')
-    this.assertMonotonicTimestamp(occurredAt)
-    const actorId = assertIdentifier(value.actorId, 'Image dispatch actorId')
-    const callId = assertIdentifier(value.callId, 'Image dispatch callId')
-    const call = this.calls.get(callId)
-    if (!call || call.status !== 'reserved') fail('POLICY', 'Image dispatch requires one outstanding reservation.')
+  dispatch(value: unknown, principalAttestationValue: unknown): ImageCallDispatchedEvent {
+    return this.dispatchInternal(
+      normalizeCall(value, 'Image dispatch'),
+      parseOpaqueAttestation(principalAttestationValue, 'Scheduler principal attestation')
+    )
+  }
+
+  private dispatchInternal(
+    input: SchedulerCallInput,
+    principalAttestation: OpaqueAttestation,
+    replayCommit?: SchedulerAuthorityCommit
+  ): ImageCallDispatchedEvent {
+    this.verifyPrincipal('dispatch', input, principalAttestation)
+    const call = this.calls.get(input.callId)
+    if (!call || call.status !== 'reserved') fail('POLICY', 'Image dispatch requires one reservation.')
     if (this.circuitOpen) fail('CIRCUIT', 'Image dispatch is forbidden while the global circuit is open.')
-    if (compareIso(occurredAt, call.reservedAt) < 0) {
-      fail('INTEGRITY', 'Image dispatch cannot precede its reservation.')
+    const eventPayload = {
+      type: 'image-call-dispatched' as const,
+      callId: input.callId
     }
-    const aggregateUsage =
-      this.activeDispatchedCalls(occurredAt) + (this.outstandingReservations - 1) + 1
-    if (aggregateUsage > IMAGE_REQUEST_LIMIT) {
-      fail('QUOTA', 'Delayed dispatch would exceed the global rolling request window.')
+    this.assertAttemptEventBudget(
+      eventPayload,
+      input.actorId,
+      principalAttestation,
+      call.serializedBytes
+    )
+    const operation = this.operationFor('dispatch', input, principalAttestation)
+    const commit = this.commitOperation(operation, replayCommit)
+    const aggregate =
+      this.activeDispatchedCalls(commit.committedAt) + (this.outstandingReservations - 1) + 1
+    if (aggregate > IMAGE_REQUEST_LIMIT) {
+      fail('QUOTA', 'Authoritative delayed dispatch exceeds the global rolling window.')
     }
-
-    const event = this.appendEvent({
-      expectedVersion,
-      type: 'image-call-dispatched',
-      occurredAt,
-      actorId,
-      callId
-    }) as ImageCallDispatchedEvent
+    const event = this.appendEvent(
+      eventPayload,
+      input.actorId,
+      principalAttestation,
+      commit,
+      call.serializedBytes
+    ) as ImageCallDispatchedEvent
+    const eventBytes = utf8ByteLength(canonicalStringify(event))
+    if (call.serializedBytes + eventBytes > MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT) {
+      fail('CARDINALITY', 'Scheduler attempt serialized byte budget is exhausted.')
+    }
+    call.serializedBytes += eventBytes
     call.status = 'dispatched'
-    call.dispatchedAt = occurredAt
+    call.dispatchedAt = event.occurredAt
     call.callHash = event.eventHash
+    call.dispatchAuthorityVersion = commit.version
+    call.dispatchAuthorityRootHash = commit.rootHash
     this.outstandingReservations -= 1
-    this.dispatchTimes.push(Date.parse(occurredAt))
+    this.dispatchTimes.push(Date.parse(event.occurredAt))
     return event
   }
 
-  succeed(value: unknown): ImageCallSucceededEvent {
-    assertPlainObject(value, 'Image success')
-    assertExactKeys(
-      value,
-      ['expectedVersion', 'occurredAt', 'actorId', 'callId', 'imageHash'],
-      'Image success'
-    )
-    const expectedVersion = this.assertExpectedVersion(value.expectedVersion)
-    const occurredAt = assertIsoTimestamp(value.occurredAt, 'Image success occurredAt')
-    this.assertMonotonicTimestamp(occurredAt)
-    const actorId = assertIdentifier(value.actorId, 'Image success actorId')
-    const callId = assertIdentifier(value.callId, 'Image success callId')
-    const imageHash = assertSha256(value.imageHash, 'Image success imageHash')
+  serviceReceiptBinding(callIdValue: unknown, imageHashValue: unknown): SchedulerServiceReceiptBinding {
+    const callId = assertIdentifier(callIdValue, 'Scheduler service call id')
+    const imageHash = assertSha256(imageHashValue, 'Scheduler service imageHash')
     const call = this.calls.get(callId)
-    if (!call || call.status !== 'dispatched' || !call.dispatchedAt) {
-      fail('POLICY', 'Image success requires a dispatched, non-terminal call.')
+    if (
+      !call ||
+      call.status !== 'dispatched' ||
+      call.dispatchAuthorityVersion === undefined ||
+      !call.dispatchAuthorityRootHash
+    ) {
+      fail('RECEIPT', 'Service receipt binding requires a committed dispatched call.')
     }
-    if (compareIso(occurredAt, call.dispatchedAt) < 0) {
-      fail('INTEGRITY', 'Image success cannot precede dispatch.')
-    }
-
-    const event = this.appendEvent({
-      expectedVersion,
-      type: 'image-call-succeeded',
-      occurredAt,
-      actorId,
-      callId,
+    return deepFreeze({
+      authorityId: this.authorityId,
+      dispatchAuthorityRootHash: call.dispatchAuthorityRootHash,
+      dispatchAuthorityVersion: call.dispatchAuthorityVersion,
+      callId: call.callId,
+      artifactId: call.artifactId,
+      revision: call.revision,
+      attempt: call.attempt,
+      promptHash: call.promptHash,
+      promptApprovalHash: call.promptApprovalHash,
+      approvalLedgerRootHash: call.approvalLedgerRootHash,
+      approvalLedgerSequence: call.approvalLedgerSequence,
+      approvalPlanHash: call.approvalPlanHash,
+      promptApprovedAt: call.promptApprovedAt,
+      requestHash: call.requestHash,
+      idempotencyKey: call.idempotencyKey,
+      policyHash: call.policyHash,
       imageHash
-    }) as ImageCallSucceededEvent
+    })
+  }
+
+  succeed(value: unknown, principalAttestationValue: unknown): ImageCallSucceededEvent {
+    return this.succeedInternal(
+      normalizeSuccess(value),
+      parseOpaqueAttestation(principalAttestationValue, 'Scheduler principal attestation')
+    )
+  }
+
+  private succeedInternal(
+    input: SchedulerSuccessInput,
+    principalAttestation: OpaqueAttestation,
+    replayCommit?: SchedulerAuthorityCommit
+  ): ImageCallSucceededEvent {
+    this.verifyPrincipal('succeed', input, principalAttestation)
+    const call = this.calls.get(input.callId)
+    if (!call || call.status !== 'dispatched') {
+      fail('POLICY', 'Image success requires a committed dispatched call.')
+    }
+    const serviceBinding = this.serviceReceiptBinding(input.callId, input.imageHash)
+    if (
+      !this.dependencies.serviceReceiptVerifier.verifyServiceReceipt(
+        input.serviceReceiptAttestation,
+        serviceBinding
+      )
+    ) {
+      fail('RECEIPT', 'Image success requires an externally verified scheduler-service receipt.')
+    }
+    const eventPayload = {
+      type: 'image-call-succeeded' as const,
+      callId: input.callId,
+      imageHash: input.imageHash,
+      serviceReceiptAttestation: input.serviceReceiptAttestation
+    }
+    this.assertAttemptEventBudget(
+      eventPayload,
+      input.actorId,
+      principalAttestation,
+      call.serializedBytes
+    )
+    const operation = this.operationFor('succeed', input, principalAttestation)
+    const commit = this.commitOperation(operation, replayCommit)
+    const event = this.appendEvent(
+      eventPayload,
+      input.actorId,
+      principalAttestation,
+      commit,
+      call.serializedBytes
+    ) as ImageCallSucceededEvent
+    const eventBytes = utf8ByteLength(canonicalStringify(event))
+    if (call.serializedBytes + eventBytes > MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT) {
+      fail('CARDINALITY', 'Scheduler attempt serialized byte budget is exhausted.')
+    }
+    call.serializedBytes += eventBytes
     call.status = 'succeeded'
-    call.completedAt = occurredAt
-    call.imageHash = imageHash
+    call.completedAt = event.occurredAt
+    call.imageHash = input.imageHash
+    call.serviceReceiptAttestation = input.serviceReceiptAttestation
     call.callHash = event.eventHash
-    this.receipts.set(callId, receiptFromCall(call))
+    call.completionAuthorityVersion = commit.version
+    call.completionAuthorityRootHash = commit.rootHash
+    call.completionAuthorityCommitHash = commitHash(commit)
+    this.receipts.set(input.callId, receiptFromCall(call, this.authorityId))
     return event
   }
 
-  fail(value: unknown): ImageCallFailedEvent {
-    assertPlainObject(value, 'Image failure')
-    assertExactKeys(
-      value,
-      ['expectedVersion', 'occurredAt', 'actorId', 'callId', 'failureReason', 'retryAfterMs'],
-      'Image failure'
+  fail(value: unknown, principalAttestationValue: unknown): ImageCallFailedEvent {
+    return this.failInternal(
+      normalizeFailure(value),
+      parseOpaqueAttestation(principalAttestationValue, 'Scheduler principal attestation')
     )
-    const expectedVersion = this.assertExpectedVersion(value.expectedVersion)
-    const occurredAt = assertIsoTimestamp(value.occurredAt, 'Image failure occurredAt')
-    this.assertMonotonicTimestamp(occurredAt)
-    const actorId = assertIdentifier(value.actorId, 'Image failure actorId')
-    const callId = assertIdentifier(value.callId, 'Image failure callId')
-    const failureReason = assertFailureReason(value.failureReason, 'Image failure reason')
-    const retryAfterMs = assertNullableSafeInteger(
-      value.retryAfterMs,
-      'Image failure retryAfterMs',
-      1,
-      2_592_000_000
-    )
-    const call = this.calls.get(callId)
-    if (!call || call.status !== 'dispatched' || !call.dispatchedAt) {
-      fail('POLICY', 'Image failure requires a dispatched, non-terminal call.')
-    }
-    if (compareIso(occurredAt, call.dispatchedAt) < 0) {
-      fail('INTEGRITY', 'Image failure cannot precede dispatch.')
+  }
+
+  private failInternal(
+    input: SchedulerFailureInput,
+    principalAttestation: OpaqueAttestation,
+    replayCommit?: SchedulerAuthorityCommit
+  ): ImageCallFailedEvent {
+    this.verifyPrincipal('fail', input, principalAttestation)
+    const call = this.calls.get(input.callId)
+    if (!call || call.status !== 'dispatched') {
+      fail('POLICY', 'Image failure requires a committed dispatched call.')
     }
     const backoffMs = Math.max(
       computeImageBackoffMs(call.attempt, this.policy),
-      retryAfterMs ?? 0
+      input.retryAfterMs ?? 0
     )
-    const retryNotBefore = addMilliseconds(occurredAt, backoffMs)
-    const event = this.appendEvent({
-      expectedVersion,
-      type: 'image-call-failed',
-      occurredAt,
-      actorId,
-      callId,
-      failureReason,
-      retryAfterMs,
-      retryNotBefore
-    }) as ImageCallFailedEvent
+    this.assertAttemptEventBudget(
+      {
+        type: 'image-call-failed',
+        callId: input.callId,
+        failureReason: input.failureReason,
+        retryAfterMs: input.retryAfterMs,
+        retryNotBefore: 'x'.repeat(32)
+      },
+      input.actorId,
+      principalAttestation,
+      call.serializedBytes
+    )
+    const operation = this.operationFor(
+      'fail',
+      {
+        ...input,
+        authorityLatestCommittedAt: new Date(
+          8_640_000_000_000_000 - backoffMs
+        ).toISOString()
+      },
+      principalAttestation
+    )
+    const commit = this.commitOperation(operation, replayCommit)
+    const retryNotBefore = addMilliseconds(
+      commit.committedAt,
+      backoffMs
+    )
+    const event = this.appendEvent(
+      {
+        type: 'image-call-failed',
+        callId: input.callId,
+        failureReason: input.failureReason,
+        retryAfterMs: input.retryAfterMs,
+        retryNotBefore
+      },
+      input.actorId,
+      principalAttestation,
+      commit,
+      call.serializedBytes
+    ) as ImageCallFailedEvent
+    const eventBytes = utf8ByteLength(canonicalStringify(event))
+    if (call.serializedBytes + eventBytes > MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT) {
+      fail('CARDINALITY', 'Scheduler attempt serialized byte budget is exhausted.')
+    }
+    call.serializedBytes += eventBytes
     call.status = 'failed'
-    call.completedAt = occurredAt
-    call.failureReason = failureReason
-    call.retryAfterMs = retryAfterMs
+    call.completedAt = event.occurredAt
+    call.failureReason = input.failureReason
+    call.retryAfterMs = input.retryAfterMs
     call.retryNotBefore = retryNotBefore
     call.callHash = event.eventHash
+    call.completionAuthorityVersion = commit.version
+    call.completionAuthorityRootHash = commit.rootHash
+    call.completionAuthorityCommitHash = commitHash(commit)
     return event
   }
 
-  markAmbiguous(value: unknown): ImageCallAmbiguousEvent {
-    assertPlainObject(value, 'Ambiguous image dispatch')
-    assertExactKeys(
-      value,
-      ['expectedVersion', 'occurredAt', 'actorId', 'callId', 'ambiguityReason'],
-      'Ambiguous image dispatch'
+  markAmbiguous(value: unknown, principalAttestationValue: unknown): ImageCallAmbiguousEvent {
+    return this.ambiguousInternal(
+      normalizeAmbiguous(value),
+      parseOpaqueAttestation(principalAttestationValue, 'Scheduler principal attestation')
     )
-    const expectedVersion = this.assertExpectedVersion(value.expectedVersion)
-    const occurredAt = assertIsoTimestamp(value.occurredAt, 'Ambiguous image dispatch occurredAt')
-    this.assertMonotonicTimestamp(occurredAt)
-    const actorId = assertIdentifier(value.actorId, 'Ambiguous image dispatch actorId')
-    const callId = assertIdentifier(value.callId, 'Ambiguous image dispatch callId')
-    if (value.ambiguityReason !== 'ambiguous-dispatch') {
-      fail('SCHEMA', 'Ambiguous image dispatch reason must be "ambiguous-dispatch".')
+  }
+
+  private ambiguousInternal(
+    input: SchedulerAmbiguousInput,
+    principalAttestation: OpaqueAttestation,
+    replayCommit?: SchedulerAuthorityCommit
+  ): ImageCallAmbiguousEvent {
+    this.verifyPrincipal('ambiguous', input, principalAttestation)
+    const call = this.calls.get(input.callId)
+    if (!call || call.status !== 'dispatched') {
+      fail('POLICY', 'Ambiguity requires a committed dispatched call.')
     }
-    const call = this.calls.get(callId)
-    if (!call || call.status !== 'dispatched' || !call.dispatchedAt) {
-      fail('POLICY', 'Ambiguity can be recorded only for a dispatched, non-terminal call.')
+    const eventPayload = {
+      type: 'image-call-ambiguous' as const,
+      callId: input.callId,
+      ambiguityReason: 'ambiguous-dispatch' as const
     }
-    if (compareIso(occurredAt, call.dispatchedAt) < 0) {
-      fail('INTEGRITY', 'Ambiguous completion cannot precede dispatch.')
+    this.assertAttemptEventBudget(
+      eventPayload,
+      input.actorId,
+      principalAttestation,
+      call.serializedBytes
+    )
+    const operation = this.operationFor('ambiguous', input, principalAttestation)
+    const commit = this.commitOperation(operation, replayCommit)
+    const event = this.appendEvent(
+      eventPayload,
+      input.actorId,
+      principalAttestation,
+      commit,
+      call.serializedBytes
+    ) as ImageCallAmbiguousEvent
+    const eventBytes = utf8ByteLength(canonicalStringify(event))
+    if (call.serializedBytes + eventBytes > MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT) {
+      fail('CARDINALITY', 'Scheduler attempt serialized byte budget is exhausted.')
     }
-    const event = this.appendEvent({
-      expectedVersion,
-      type: 'image-call-ambiguous',
-      occurredAt,
-      actorId,
-      callId,
-      ambiguityReason: 'ambiguous-dispatch'
-    }) as ImageCallAmbiguousEvent
+    call.serializedBytes += eventBytes
     call.status = 'ambiguous'
-    call.completedAt = occurredAt
+    call.completedAt = event.occurredAt
     call.failureReason = 'ambiguous-dispatch'
     call.callHash = event.eventHash
+    call.completionAuthorityVersion = commit.version
+    call.completionAuthorityRootHash = commit.rootHash
+    call.completionAuthorityCommitHash = commitHash(commit)
     this.circuitOpen = true
     return event
   }
@@ -796,13 +1517,18 @@ export class ValidatedImageScheduler {
   getCall(callIdValue: unknown): SchedulerCallSnapshot | undefined {
     const callId = assertIdentifier(callIdValue, 'Scheduler call lookup id')
     const call = this.calls.get(callId)
-    return call ? deepFreeze(cloneCanonical(call)) : undefined
+    if (!call) return undefined
+    const clone = cloneCanonical(call) as MutableCallState
+    delete (clone as Partial<MutableCallState>).approvalCheckpointAttestation
+    delete (clone as Partial<MutableCallState>).serviceReceiptAttestation
+    delete (clone as Partial<MutableCallState>).serializedBytes
+    return deepFreeze(clone) as SchedulerCallSnapshot
   }
 
   requireSucceededReceipt(callIdValue: unknown): SchedulerReceipt {
     const callId = assertIdentifier(callIdValue, 'Scheduler receipt call id')
     const receipt = this.receipts.get(callId)
-    if (!receipt) fail('RECEIPT', `Scheduler call "${callId}" has no succeeded receipt.`)
+    if (!receipt) fail('RECEIPT', `Scheduler call "${callId}" has no committed succeeded receipt.`)
     return receipt
   }
 
@@ -813,135 +1539,171 @@ export class ValidatedImageScheduler {
       !call ||
       call.status !== 'failed' ||
       call.attempt !== this.policy.maxAttempts ||
-      !call.failureReason
+      !call.failureReason ||
+      call.completionAuthorityVersion === undefined ||
+      !call.completionAuthorityRootHash
     ) {
-      fail('RECEIPT', 'Revision exhaustion requires the final allowed scheduler attempt to have failed.')
+      fail('RECEIPT', 'Revision exhaustion requires the final committed scheduler attempt to fail.')
     }
-    return deepFreeze(cloneCanonical(call))
+    return this.getCall(callId)!
   }
 
   events(): readonly SchedulerEvent[] {
     return deepFreeze(cloneCanonical(this.eventLog))
   }
 
-  toSerializable(): SerializedImageScheduler {
-    return deepFreeze({
+  verifyRootAttestation(attestationValue: unknown): void {
+    const attestation = parseOpaqueAttestation(attestationValue, 'Scheduler root attestation')
+    if (
+      !this.dependencies.rootVerifier.verifyRoot(attestation, {
+        domain: 'image-scheduler',
+        purpose: 'envelope',
+        rootHash: this.rootHash,
+        version: this.version,
+        contextHash: this.policyHash
+      })
+    ) {
+      fail('TRUST', 'Scheduler root lacks an externally issued trusted attestation.')
+    }
+  }
+
+  static serializeTrusted(
+    scheduler: ValidatedImageScheduler,
+    rootAttestationValue: unknown
+  ): string {
+    if (!(scheduler instanceof ValidatedImageScheduler)) {
+      fail('SCHEMA', 'Only a validated scheduler instance can be serialized.')
+    }
+    scheduler.verifyRootAttestation(rootAttestationValue)
+    return canonicalStringify({
       schemaVersion: VISUAL_ARTIFACT_LEDGER_VERSION,
-      policy: cloneCanonical(this.policy),
-      policyHash: this.policyHash,
-      events: this.events()
+      policy: cloneCanonical(scheduler.policy),
+      policyHash: scheduler.policyHash,
+      authorityId: scheduler.authorityId,
+      rootAttestation: parseOpaqueAttestation(
+        rootAttestationValue,
+        'Scheduler root attestation'
+      ),
+      events: scheduler.events()
     })
   }
-}
 
-function assertStoredHeader(
-  value: Record<string, unknown>,
-  expectedSequence: number,
-  expectedPreviousHash: string
-): void {
-  if (value.sequence !== expectedSequence) fail('INTEGRITY', 'Scheduler event sequence is not contiguous.')
-  if (value.expectedVersion !== expectedSequence - 1) {
-    fail('CAS', 'Scheduler history contains a stale or branching CAS version.')
-  }
-  assertIsoTimestamp(value.occurredAt, `Scheduler event ${expectedSequence} occurredAt`)
-  assertIdentifier(value.actorId, `Scheduler event ${expectedSequence} actorId`)
-  const previous = assertSha256(value.previousEventHash, `Scheduler event ${expectedSequence} previousEventHash`)
-  if (previous !== expectedPreviousHash) fail('INTEGRITY', 'Scheduler previous-event hash chain is broken.')
-  assertSha256(value.eventHash, `Scheduler event ${expectedSequence} eventHash`)
-}
-
-function assertGeneratedEventMatches(stored: Record<string, unknown>, generated: SchedulerEvent): void {
-  if (canonicalStringify(stored) !== canonicalStringify(generated)) {
-    fail('INTEGRITY', `Scheduler event ${generated.sequence} hash or derived fields do not match replay.`)
-  }
-}
-
-export interface ParseImageSchedulerOptions {
-  readonly expectedPolicyHash: string
-  readonly trustedRootHash: string
-}
-
-export function serializeImageScheduler(scheduler: ValidatedImageScheduler): string {
-  if (!(scheduler instanceof ValidatedImageScheduler)) {
-    fail('SCHEMA', 'Only a validated scheduler instance can be serialized.')
-  }
-  return canonicalStringify(scheduler.toSerializable())
-}
-
-export function parseImageScheduler(
-  serialized: string,
-  optionsValue: ParseImageSchedulerOptions
-): ValidatedImageScheduler {
-  if (
-    typeof serialized !== 'string' ||
-    serialized.length > MAX_SERIALIZED_BYTES ||
-    utf8ByteLength(serialized) > MAX_SERIALIZED_BYTES
-  ) {
-    fail('CARDINALITY', `Serialized scheduler exceeds ${MAX_SERIALIZED_BYTES} bytes.`)
-  }
-  assertPlainObject(optionsValue, 'Scheduler parse options')
-  assertExactKeys(optionsValue, ['expectedPolicyHash', 'trustedRootHash'], 'Scheduler parse options')
-  const expectedPolicyHash = assertSha256(
-    optionsValue.expectedPolicyHash,
-    'Scheduler expected policy hash'
-  )
-  const trustedRootHash = assertSha256(optionsValue.trustedRootHash, 'Scheduler trusted root hash')
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(serialized)
-  } catch {
-    fail('SCHEMA', 'Serialized scheduler is not valid JSON.')
-  }
-  assertPlainObject(parsed, 'Serialized scheduler')
-  assertExactKeys(parsed, ['schemaVersion', 'policy', 'policyHash', 'events'], 'Serialized scheduler')
-  if (parsed.schemaVersion !== VISUAL_ARTIFACT_LEDGER_VERSION) {
-    fail('SCHEMA', `Scheduler schemaVersion must be ${VISUAL_ARTIFACT_LEDGER_VERSION}.`)
-  }
-  const policy = parseImageSchedulingPolicy(parsed.policy)
-  const suppliedPolicyHash = assertSha256(parsed.policyHash, 'Serialized scheduler policyHash')
-  const computedPolicyHash = computeImageSchedulingPolicyHash(policy)
-  if (suppliedPolicyHash !== computedPolicyHash) {
-    fail('INTEGRITY', 'Scheduler policyHash does not match its immutable policy.')
-  }
-  if (suppliedPolicyHash !== expectedPolicyHash) {
-    fail('POLICY', 'Scheduler policy drifted from the externally trusted policy hash.')
-  }
-  if (!Array.isArray(parsed.events) || parsed.events.length < 1) {
-    fail('SCHEMA', 'Scheduler history must contain its configuration event.')
-  }
-  if (parsed.events.length > MAX_SCHEDULER_EVENTS) {
-    fail('CARDINALITY', `Scheduler history exceeds ${MAX_SCHEDULER_EVENTS} events.`)
-  }
-
-  let scheduler: ValidatedImageScheduler | undefined
-  let previousHash = ZERO_HASH
-  for (let index = 0; index < parsed.events.length; index += 1) {
-    const value = parsed.events[index]
-    const sequence = index + 1
-    assertPlainObject(value, `Scheduler event ${sequence}`)
-    if (typeof value.type !== 'string') fail('SCHEMA', `Scheduler event ${sequence} type is invalid.`)
-    const common = {
-      expectedVersion: value.expectedVersion,
-      occurredAt: value.occurredAt,
-      actorId: value.actorId
+  private static replayCommitFromEvent(event: Record<string, unknown>): SchedulerAuthorityCommit {
+    return {
+      authorityId: assertIdentifier(event.authorityId, 'Stored authorityId'),
+      version: assertSafeInteger(event.authorityVersion, 'Stored authorityVersion', 1, MAX_SCHEDULER_EVENTS),
+      committedAt: assertIsoTimestamp(event.occurredAt, 'Stored authority committedAt'),
+      previousRootHash: assertSha256(
+        event.authorityPreviousRootHash,
+        'Stored authorityPreviousRootHash'
+      ),
+      rootHash: assertSha256(event.authorityRootHash, 'Stored authorityRootHash'),
+      operationHash: assertSha256(event.authorityOperationHash, 'Stored authorityOperationHash'),
+      attestation: parseOpaqueAttestation(
+        event.authorityAttestation,
+        'Stored authorityAttestation'
+      )
     }
+  }
 
-    if (value.type === 'scheduler-configured') {
-      assertExactKeys(value, [...EVENT_HEADER_KEYS, 'policyHash'], `Scheduler event ${sequence}`)
-      assertStoredHeader(value, sequence, previousHash)
-      if (sequence !== 1 || value.policyHash !== suppliedPolicyHash) {
-        fail('INTEGRITY', 'Scheduler configuration must be the first event and bind the policy hash.')
+  static parseTrusted(
+    serialized: string,
+    optionsValue: unknown
+  ): ValidatedImageScheduler {
+    if (
+      typeof serialized !== 'string' ||
+      serialized.length > MAX_SERIALIZED_BYTES ||
+      utf8ByteLength(serialized) > MAX_SERIALIZED_BYTES
+    ) {
+      fail('CARDINALITY', `Serialized scheduler exceeds ${MAX_SERIALIZED_BYTES} bytes.`)
+    }
+    assertPlainObject(optionsValue, 'Scheduler parse options')
+    assertExactKeys(
+      optionsValue,
+      ['expectedPolicyHash', 'dependencies'],
+      'Scheduler parse options'
+    )
+    const expectedPolicyHash = assertSha256(
+      optionsValue.expectedPolicyHash,
+      'Scheduler expected policy hash'
+    )
+    const dependencies = assertDependencies(
+      optionsValue.dependencies as SchedulerAuthorityDependencies
+    )
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(serialized)
+    } catch {
+      fail('SCHEMA', 'Serialized scheduler is not valid JSON.')
+    }
+    if (canonicalStringify(parsed) !== serialized) {
+      fail('SCHEMA', 'Scheduler JSON must be byte-for-byte canonical and contain no duplicate keys.')
+    }
+    assertPlainObject(parsed, 'Serialized scheduler')
+    assertExactKeys(
+      parsed,
+      [
+        'schemaVersion',
+        'policy',
+        'policyHash',
+        'authorityId',
+        'rootAttestation',
+        'events'
+      ],
+      'Serialized scheduler'
+    )
+    if (parsed.schemaVersion !== VISUAL_ARTIFACT_LEDGER_VERSION) {
+      fail('SCHEMA', `Scheduler schemaVersion must be ${VISUAL_ARTIFACT_LEDGER_VERSION}.`)
+    }
+    const policy = parseImageSchedulingPolicy(parsed.policy)
+    const policyHash = assertSha256(parsed.policyHash, 'Serialized scheduler policyHash')
+    if (
+      policyHash !== computeImageSchedulingPolicyHash(policy) ||
+      policyHash !== expectedPolicyHash
+    ) {
+      fail('POLICY', 'Scheduler policy drifted from the externally trusted policy hash.')
+    }
+    const authorityId = assertIdentifier(parsed.authorityId, 'Serialized scheduler authorityId')
+    if (authorityId !== dependencies.authority.authorityId) {
+      fail('TRUST', 'Serialized scheduler belongs to a different authority.')
+    }
+    if (!Array.isArray(parsed.events) || parsed.events.length < 1) {
+      fail('SCHEMA', 'Scheduler history must contain configuration.')
+    }
+    if (parsed.events.length > MAX_SCHEDULER_EVENTS) {
+      fail('CARDINALITY', `Scheduler history exceeds ${MAX_SCHEDULER_EVENTS} events.`)
+    }
+    const scheduler = new ValidatedImageScheduler(policy, dependencies)
+    let previousEventHash = ZERO_HASH
+    for (let index = 0; index < parsed.events.length; index += 1) {
+      const value = parsed.events[index]
+      const sequence = index + 1
+      assertPlainObject(value, `Scheduler event ${sequence}`)
+      if (value.sequence !== sequence) fail('INTEGRITY', 'Scheduler event sequence is not contiguous.')
+      if (value.previousEventHash !== previousEventHash) {
+        fail('INTEGRITY', 'Scheduler previous-event hash chain is broken.')
       }
-      scheduler = ValidatedImageScheduler.create(policy, {
-        occurredAt: value.occurredAt,
-        actorId: value.actorId
-      })
-      assertGeneratedEventMatches(value, scheduler.events()[0] as SchedulerEvent)
-    } else {
-      if (!scheduler) fail('INTEGRITY', 'Scheduler history must begin with configuration.')
+      const principalAttestation = parseOpaqueAttestation(
+        value.principalAttestation,
+        `Scheduler event ${sequence} principalAttestation`
+      )
+      const replayCommit = ValidatedImageScheduler.replayCommitFromEvent(value)
       let generated: SchedulerEvent
-      if (value.type === 'image-call-reserved') {
+      if (value.type === 'scheduler-configured') {
+        assertExactKeys(
+          value,
+          [...EVENT_HEADER_KEYS, 'policyHash'],
+          `Scheduler event ${sequence}`
+        )
+        if (sequence !== 1 || value.policyHash !== policyHash) {
+          fail('INTEGRITY', 'Scheduler configuration must be the first policy-bound event.')
+        }
+        generated = scheduler.configure(
+          normalizeGenesis({ actorId: value.actorId }),
+          principalAttestation,
+          replayCommit
+        )
+      } else if (value.type === 'image-call-reserved') {
         assertExactKeys(
           value,
           [
@@ -952,6 +1714,11 @@ export function parseImageScheduler(
             'attempt',
             'promptHash',
             'promptApprovalHash',
+            'approvalLedgerRootHash',
+            'approvalLedgerSequence',
+            'approvalPlanHash',
+            'promptApprovedAt',
+            'approvalCheckpointAttestation',
             'requestHash',
             'idempotencyKey',
             'retryOfCallId',
@@ -959,35 +1726,60 @@ export function parseImageScheduler(
           ],
           `Scheduler event ${sequence}`
         )
-        assertStoredHeader(value, sequence, previousHash)
-        generated = scheduler.reserve({
-          ...common,
-          callId: value.callId,
-          artifactId: value.artifactId,
-          revision: value.revision,
-          attempt: value.attempt,
-          promptHash: value.promptHash,
-          promptApprovalHash: value.promptApprovalHash,
-          requestHash: value.requestHash,
-          retryOfCallId: value.retryOfCallId,
-          retryReason: value.retryReason
-        })
+        const approvalCheckpointAttestation = parseOpaqueAttestation(
+          value.approvalCheckpointAttestation,
+          'Stored approval checkpoint attestation'
+        )
+        generated = scheduler.reserveInternal(
+          normalizeReserve({
+            actorId: value.actorId,
+            callId: value.callId,
+            artifactId: value.artifactId,
+            revision: value.revision,
+            attempt: value.attempt,
+            promptHash: value.promptHash,
+            promptApprovalHash: value.promptApprovalHash,
+            approvalCheckpoint: {
+              ledgerRootHash: value.approvalLedgerRootHash,
+              ledgerSequence: value.approvalLedgerSequence,
+              promptApprovedAt: value.promptApprovedAt,
+              planHash: value.approvalPlanHash,
+              artifactId: value.artifactId,
+              revision: value.revision,
+              promptHash: value.promptHash,
+              promptApprovalEventHash: value.promptApprovalHash,
+              attestation: approvalCheckpointAttestation
+            },
+            requestHash: value.requestHash,
+            retryOfCallId: value.retryOfCallId,
+            retryReason: value.retryReason
+          }),
+          principalAttestation,
+          replayCommit
+        )
       } else if (value.type === 'image-call-dispatched') {
         assertExactKeys(value, [...EVENT_HEADER_KEYS, 'callId'], `Scheduler event ${sequence}`)
-        assertStoredHeader(value, sequence, previousHash)
-        generated = scheduler.dispatch({ ...common, callId: value.callId })
+        generated = scheduler.dispatchInternal(
+          normalizeCall({ actorId: value.actorId, callId: value.callId }, 'Image dispatch'),
+          principalAttestation,
+          replayCommit
+        )
       } else if (value.type === 'image-call-succeeded') {
         assertExactKeys(
           value,
-          [...EVENT_HEADER_KEYS, 'callId', 'imageHash'],
+          [...EVENT_HEADER_KEYS, 'callId', 'imageHash', 'serviceReceiptAttestation'],
           `Scheduler event ${sequence}`
         )
-        assertStoredHeader(value, sequence, previousHash)
-        generated = scheduler.succeed({
-          ...common,
-          callId: value.callId,
-          imageHash: value.imageHash
-        })
+        generated = scheduler.succeedInternal(
+          normalizeSuccess({
+            actorId: value.actorId,
+            callId: value.callId,
+            imageHash: value.imageHash,
+            serviceReceiptAttestation: value.serviceReceiptAttestation
+          }),
+          principalAttestation,
+          replayCommit
+        )
       } else if (value.type === 'image-call-failed') {
         assertExactKeys(
           value,
@@ -1000,35 +1792,56 @@ export function parseImageScheduler(
           ],
           `Scheduler event ${sequence}`
         )
-        assertStoredHeader(value, sequence, previousHash)
-        generated = scheduler.fail({
-          ...common,
-          callId: value.callId,
-          failureReason: value.failureReason,
-          retryAfterMs: value.retryAfterMs
-        })
+        generated = scheduler.failInternal(
+          normalizeFailure({
+            actorId: value.actorId,
+            callId: value.callId,
+            failureReason: value.failureReason,
+            retryAfterMs: value.retryAfterMs
+          }),
+          principalAttestation,
+          replayCommit
+        )
       } else if (value.type === 'image-call-ambiguous') {
         assertExactKeys(
           value,
           [...EVENT_HEADER_KEYS, 'callId', 'ambiguityReason'],
           `Scheduler event ${sequence}`
         )
-        assertStoredHeader(value, sequence, previousHash)
-        generated = scheduler.markAmbiguous({
-          ...common,
-          callId: value.callId,
-          ambiguityReason: value.ambiguityReason
-        })
+        generated = scheduler.ambiguousInternal(
+          normalizeAmbiguous({
+            actorId: value.actorId,
+            callId: value.callId,
+            ambiguityReason: value.ambiguityReason
+          }),
+          principalAttestation,
+          replayCommit
+        )
       } else {
-        fail('SCHEMA', `Scheduler event ${sequence} has unknown type "${value.type}".`)
+        fail('SCHEMA', `Scheduler event ${sequence} has an unsupported type.`)
       }
-      assertGeneratedEventMatches(value, generated)
+      if (canonicalStringify(value) !== canonicalStringify(generated)) {
+        fail('INTEGRITY', `Scheduler event ${sequence} does not match trusted replay.`)
+      }
+      previousEventHash = generated.eventHash
     }
-    previousHash = assertSha256(value.eventHash, `Scheduler event ${sequence} eventHash`)
+    scheduler.verifyRootAttestation(parsed.rootAttestation)
+    return scheduler
   }
-  if (!scheduler) fail('INTEGRITY', 'Scheduler history is empty.')
-  if (scheduler.rootHash !== trustedRootHash) {
-    fail('TRUST', 'Scheduler content does not match the externally supplied trusted root.')
-  }
-  return scheduler
+}
+
+export function serializeImageScheduler(
+  scheduler: ValidatedImageScheduler,
+  optionsValue: unknown
+): string {
+  assertPlainObject(optionsValue, 'Scheduler serialization options')
+  assertExactKeys(optionsValue, ['rootAttestation'], 'Scheduler serialization options')
+  return ValidatedImageScheduler.serializeTrusted(scheduler, optionsValue.rootAttestation)
+}
+
+export function parseImageScheduler(
+  serialized: string,
+  optionsValue: unknown
+): ValidatedImageScheduler {
+  return ValidatedImageScheduler.parseTrusted(serialized, optionsValue)
 }

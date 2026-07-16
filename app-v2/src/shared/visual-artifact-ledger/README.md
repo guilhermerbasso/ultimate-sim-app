@@ -29,31 +29,41 @@ image generation, independent image QA, implementation, independent render QA, a
 Rejected or exhausted revisions are immutable. Supersession starts the next contiguous revision with
 a link to the complete prior revision root and no copied lifecycle state.
 
-Evidence is exact-key, content-addressed, creator-bound, subject-bound, revision-bound, and globally
-unique. Prompt bodies, arbitrary metadata, URLs, and secret-like values have no schema location.
+Evidence is exact-key, content-addressed, creator-bound, subject-bound, revision-bound, globally
+unique, and accepted only with an injected external evidence attestation. Every event likewise
+requires an authenticated-principal attestation bound to its role, payload, prior root, and sequence.
+Prompt bodies, arbitrary metadata, URLs, and secret-like values have no schema location.
 
-Accepted or finalized serialized ledgers require a full-current root or checkpoint obtained from an
-external trusted store. Finalization additionally embeds the externally trusted pre-finalization
-checkpoint that authorized the accepted set. A root calculated from the document being parsed is not
-accepted implicitly.
+All serialization and parsing require an opaque root attestation, embedded in the canonical envelope
+and verified by an injected trust verifier. Raw root hashes are never authorization, public
+plan/event views cannot reconstruct an authenticated envelope, and no unchecked serializable
+snapshot API is exported. Finalization additionally embeds a purpose-separated pre-finalization
+checkpoint attestation that cannot authorize a stripped, unfinalized envelope.
 
 ## Scheduler
 
-`ValidatedImageScheduler` is the single authoritative event log for image calls. It has an immutable
-policy hash, global CAS version, six-request rolling-window accounting, aggregate outstanding
-reservations, positive retry backoff, bounded attempts, and a global ambiguity circuit.
+`ValidatedImageScheduler` has no production in-memory authority. Every operation must be atomically
+committed by an injected shared `SchedulerAuthority`, which owns the durable CAS version, root,
+monotonic time, six-request rolling window, outstanding reservations, and global ambiguity circuit.
+Forked scheduler instances therefore contend on one external version/root instead of independent
+local quota counters.
 
 Only the scheduler can derive a success receipt. Artifact generation events carry a call ID and
 hashes; the ledger resolves them against the supplied validated scheduler and checks artifact,
 revision, attempt, prompt-approval event, request, idempotency, policy, image, call, and receipt
-bindings. Reservation must occur strictly after prompt approval, and generation/exhaustion evidence
-cannot predate scheduler completion.
+bindings. Reservation requires an externally attested committed ledger checkpoint proving prompt
+approval already exists and binds its approval timestamp as the authority-clock lower bound. Success
+additionally requires an externally verified scheduler-service receipt, and the resulting receipt
+binds the authority commit root/version. Authority commits are recoverable idempotently by operation
+hash when a durable response is lost.
+Retry lineage is scoped by plan hash, artifact ID, and revision.
 
-Persisted scheduler parsing requires both an externally expected policy hash and an external trusted
-scheduler root.
+Persisted scheduler parsing requires the expected policy hash, injected authority/verifiers, and an
+externally issued scheduler-root attestation.
 
 ## Resource limits
 
-Parsing is fail-fast and bounded before replay: 20,000 artifacts, 250,000 ledger events, 250,000
-scheduler events, 220,000 evidence records, bounded strings/depth/canonical nodes, and a 192 MiB
-serialized-input ceiling. Ordering and serialization are deterministic.
+The documented maximum is 15,000 artifacts, two revisions per artifact, and three image attempts per
+revision. Derived limits are 270,001 ledger events, 270,001 scheduler events, 270,000 evidence
+records, pre-commit per-revision/per-attempt byte budgets, derived canonical-node capacity, and a 768 MiB UTF-8
+parser ceiling. Parsers accept only byte-for-byte canonical JSON, which also rejects duplicate keys.

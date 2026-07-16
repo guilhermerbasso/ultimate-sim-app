@@ -1,484 +1,587 @@
 import { describe, expect, it } from 'vitest'
+import { canonicalStringify, utf8ByteLength } from './canonical'
 import {
-  computeImageSchedulingPolicyHash,
-  computeSchedulerEventHash,
-  computeSchedulerRootHash,
+  MAX_SCHEDULER_EVENTS,
+  MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT
+} from './constants'
+import {
   parseImageScheduler,
   serializeImageScheduler,
   ValidatedImageScheduler,
   type ImageSchedulingPolicy,
-  type SchedulerEvent,
   type SerializedImageScheduler
 } from './scheduler'
-import { expectedArtifactIds } from './plan'
-import { ZERO_HASH } from './constants'
+import { VisualArtifactLedger } from './ledger'
+import { createArtifactPlan, expectedArtifactIds } from './plan'
 import {
   DEFAULT_POLICY,
   HashPool,
   TestClock,
+  appendLedger,
+  appendPromptApproved,
+  appendScheduler,
   hashNumber,
+  makeGovernance,
   makePlan,
-  makeScheduler
+  makeScheduler,
+  schedulerPrincipal,
+  schedulerRootAttestation,
+  type PromptApprovedContext,
+  type TestGovernance
 } from './test-fixtures'
 
+function setupApproved(count = 1, policy: ImageSchedulingPolicy = DEFAULT_POLICY): {
+  governance: TestGovernance
+  scheduler: ReturnType<typeof makeScheduler>
+  ledger: VisualArtifactLedger
+  contexts: PromptApprovedContext[]
+  hashes: HashPool
+} {
+  const governance = makeGovernance()
+  const scheduler = makeScheduler(governance, policy)
+  const plan = makePlan()
+  const ledger = VisualArtifactLedger.create(plan, governance.ledgerDependencies(scheduler))
+  const clock = new TestClock(1_000_000)
+  const hashes = new HashPool()
+  const ids = expectedArtifactIds(plan)
+  const contexts = Array.from({ length: count }, (_, index) =>
+    appendPromptApproved(ledger, governance, ids[index], 1, hashes, clock)
+  )
+  return { governance, scheduler, ledger, contexts, hashes }
+}
+
 function reserve(
-  scheduler: ValidatedImageScheduler,
-  clock: TestClock,
+  scheduler: ReturnType<typeof makeScheduler>,
+  governance: TestGovernance,
+  context: PromptApprovedContext,
   callId: string,
-  artifactId: string,
+  hashes: HashPool,
   options: {
-    revision?: number
     attempt?: number
     promptHash?: string
     promptApprovalHash?: string
-    requestHash?: string
     retryOfCallId?: string | null
     retryReason?: string | null
   } = {}
 ): void {
-  scheduler.reserve({
-    expectedVersion: scheduler.version,
-    occurredAt: clock.next(),
+  governance.schedulerAuthority.ensureAfter(context.promptApprovedAt)
+  appendScheduler(scheduler, governance, 'reserve', {
     actorId: 'scheduler-control',
     callId,
-    artifactId,
-    revision: options.revision ?? 1,
+    artifactId: context.artifactId,
+    revision: context.revision,
     attempt: options.attempt ?? 1,
-    promptHash: options.promptHash ?? hashNumber(10),
-    promptApprovalHash: options.promptApprovalHash ?? hashNumber(11),
-    requestHash: options.requestHash ?? hashNumber(20 + scheduler.version),
+    promptHash: options.promptHash ?? context.promptHash,
+    promptApprovalHash: options.promptApprovalHash ?? context.promptApprovalHash,
+    approvalCheckpoint: context.approvalCheckpoint,
+    requestHash: hashes.next(),
     retryOfCallId: options.retryOfCallId ?? null,
     retryReason: options.retryReason ?? null
   })
 }
 
-function dispatch(scheduler: ValidatedImageScheduler, clock: TestClock, callId: string): void {
-  scheduler.dispatch({
-    expectedVersion: scheduler.version,
-    occurredAt: clock.next(),
+function dispatch(
+  scheduler: ReturnType<typeof makeScheduler>,
+  governance: TestGovernance,
+  callId: string
+): void {
+  appendScheduler(scheduler, governance, 'dispatch', {
     actorId: 'scheduler-worker',
     callId
   })
 }
 
-function succeed(
-  scheduler: ValidatedImageScheduler,
-  clock: TestClock,
+function failCall(
+  scheduler: ReturnType<typeof makeScheduler>,
+  governance: TestGovernance,
   callId: string,
-  imageHash: string
+  failureReason: 'timeout' | 'rate-limit' = 'timeout',
+  retryAfterMs: number | null = null
 ): void {
-  scheduler.succeed({
-    expectedVersion: scheduler.version,
-    occurredAt: clock.next(),
+  appendScheduler(scheduler, governance, 'fail', {
     actorId: 'scheduler-worker',
     callId,
-    imageHash
+    failureReason,
+    retryAfterMs
   })
 }
 
-function rehashScheduler(envelope: SerializedImageScheduler): string {
-  let previousEventHash = ZERO_HASH
-  for (let index = 0; index < envelope.events.length; index += 1) {
-    const event = envelope.events[index] as SchedulerEvent & {
-      sequence: number
-      expectedVersion: number
-      previousEventHash: string
-      eventHash: string
-    }
-    event.sequence = index + 1
-    event.expectedVersion = index
-    event.previousEventHash = previousEventHash
-    const { eventHash: _ignored, ...withoutHash } = event
-    event.eventHash = computeSchedulerEventHash(withoutHash as Omit<SchedulerEvent, 'eventHash'>)
-    previousEventHash = event.eventHash
-  }
-  return JSON.stringify(envelope)
-}
-
-function parsedEnvelope(scheduler: ValidatedImageScheduler): SerializedImageScheduler {
-  return JSON.parse(serializeImageScheduler(scheduler)) as SerializedImageScheduler
-}
-
-describe('authoritative image scheduler event ledger', () => {
-  it('persists a strict immutable policy, monotonic hashes, and a scheduler-issued receipt', () => {
-    const clock = new TestClock()
-    const scheduler = makeScheduler(clock)
-    const artifactId = expectedArtifactIds(makePlan())[0]
-    reserve(scheduler, clock, 'call-1', artifactId)
-    dispatch(scheduler, clock, 'call-1')
-    succeed(scheduler, clock, 'call-1', hashNumber(30))
+describe('externally authoritative image scheduler', () => {
+  it('binds receipts to authenticated service proof and committed authority root/version', () => {
+    const { governance, scheduler, contexts, hashes } = setupApproved()
+    reserve(scheduler, governance, contexts[0], 'call-1', hashes)
+    dispatch(scheduler, governance, 'call-1')
+    const imageHash = hashes.next()
+    const serviceBinding = scheduler.serviceReceiptBinding('call-1', imageHash)
+    appendScheduler(scheduler, governance, 'succeed', {
+      actorId: 'scheduler-worker',
+      callId: 'call-1',
+      imageHash,
+      serviceReceiptAttestation:
+        governance.attestations.issueServiceReceipt(serviceBinding)
+    })
 
     const receipt = scheduler.requireSucceededReceipt('call-1')
-    expect(receipt.status).toBe('succeeded')
-    expect(receipt.policyHash).toBe(computeImageSchedulingPolicyHash(DEFAULT_POLICY))
-    expect(receipt.callHash).toBe(scheduler.events().at(-1)?.eventHash)
-    expect(scheduler.version).toBe(4)
-    expect(scheduler.rootHash).toBe(
-      computeSchedulerRootHash(scheduler.policyHash, scheduler.version, scheduler.events().at(-1)!.eventHash)
-    )
-    const parsed = parseImageScheduler(serializeImageScheduler(scheduler), {
+    expect(receipt.authorityId).toBe(governance.schedulerAuthority.authorityId)
+    expect(receipt.authorityVersion).toBe(scheduler.authorityCasVersion)
+    expect(receipt.authorityRootHash).toBe(scheduler.authorityCommittedRootHash)
+    expect(receipt.authorityCommitHash).toMatch(/^[a-f0-9]{64}$/)
+
+    const rootAttestation = schedulerRootAttestation(scheduler, governance)
+    const serialized = serializeImageScheduler(scheduler, { rootAttestation })
+    const parsed = parseImageScheduler(serialized, {
       expectedPolicyHash: scheduler.policyHash,
-      trustedRootHash: scheduler.rootHash
+      dependencies: governance.schedulerDependencies
     })
-    expect(parsed.rootHash).toBe(scheduler.rootHash)
     expect(parsed.requireSucceededReceipt('call-1')).toEqual(receipt)
   })
 
-  it('rejects policy drift and a window shrink against the external policy hash', () => {
-    const clock = new TestClock()
-    const scheduler = makeScheduler(clock)
-    const envelope = parsedEnvelope(scheduler) as unknown as {
-      schemaVersion: number
-      policy: ImageSchedulingPolicy
-      policyHash: string
-      events: Array<Record<string, unknown>>
+  it('preflights a maximum-length authenticated scheduler attempt before authority commit', () => {
+    const { governance, scheduler, contexts, hashes } = setupApproved()
+    governance.schedulerAuthority.ensureAfter(contexts[0].promptApprovedAt)
+    const callId = 'c'.repeat(128)
+    const controlActor = 'k'.repeat(128)
+    const workerActor = 'w'.repeat(128)
+    const reserveInput = {
+      actorId: controlActor,
+      callId,
+      artifactId: contexts[0].artifactId,
+      revision: 1,
+      attempt: 1,
+      promptHash: contexts[0].promptHash,
+      promptApprovalHash: contexts[0].promptApprovalHash,
+      approvalCheckpoint: contexts[0].approvalCheckpoint,
+      requestHash: hashes.next(),
+      retryOfCallId: null,
+      retryReason: null
     }
-    envelope.policy = { ...envelope.policy, windowMs: 1 }
-    envelope.policyHash = computeImageSchedulingPolicyHash(envelope.policy)
-    envelope.events[0].policyHash = envelope.policyHash
-    const serialized = rehashScheduler(envelope as unknown as SerializedImageScheduler)
-    const tamperedRoot = computeSchedulerRootHash(
-      envelope.policyHash,
-      envelope.events.length,
-      envelope.events.at(-1)!.eventHash as string
+    scheduler.reserve(
+      reserveInput,
+      schedulerPrincipal(scheduler, governance, 'reserve', reserveInput)
+    )
+    const dispatchInput = { actorId: workerActor, callId }
+    scheduler.dispatch(
+      dispatchInput,
+      schedulerPrincipal(scheduler, governance, 'dispatch', dispatchInput)
+    )
+    const imageHash = hashes.next()
+    const successInput = {
+      actorId: workerActor,
+      callId,
+      imageHash,
+      serviceReceiptAttestation: governance.attestations.issueServiceReceipt(
+        scheduler.serviceReceiptBinding(callId, imageHash)
+      )
+    }
+    scheduler.succeed(
+      successInput,
+      schedulerPrincipal(scheduler, governance, 'succeed', successInput)
+    )
+    const attemptBytes = scheduler
+      .events()
+      .slice(1)
+      .reduce((total, event) => total + utf8ByteLength(canonicalStringify(event)), 0)
+    expect(attemptBytes).toBeLessThanOrEqual(
+      MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT
+    )
+    expect(scheduler.authorityCasVersion).toBe(
+      governance.schedulerAuthority.currentVersion
+    )
+  })
+
+  it('rejects event-cap exhaustion before consuming the shared authority CAS', () => {
+    const { governance, scheduler, contexts, hashes } = setupApproved()
+    const cappedRoot = hashNumber(800)
+    const schedulerInternals = scheduler as unknown as {
+      eventLog: unknown[]
+      authorityVersion: number
+      authorityRootHash: string
+    }
+    const authorityInternals = governance.schedulerAuthority as unknown as {
+      version: number
+      rootHash: string
+    }
+    schedulerInternals.eventLog.length = MAX_SCHEDULER_EVENTS
+    schedulerInternals.authorityVersion = MAX_SCHEDULER_EVENTS
+    schedulerInternals.authorityRootHash = cappedRoot
+    authorityInternals.version = MAX_SCHEDULER_EVENTS
+    authorityInternals.rootHash = cappedRoot
+    const input = {
+      actorId: 'scheduler-control',
+      callId: 'capacity-guard',
+      artifactId: contexts[0].artifactId,
+      revision: 1,
+      attempt: 1,
+      promptHash: contexts[0].promptHash,
+      promptApprovalHash: contexts[0].promptApprovalHash,
+      approvalCheckpoint: contexts[0].approvalCheckpoint,
+      requestHash: hashes.next(),
+      retryOfCallId: null,
+      retryReason: null
+    }
+    const principal = schedulerPrincipal(scheduler, governance, 'reserve', input)
+    expect(() => scheduler.reserve(input, principal)).toThrow(
+      /event limit .* before authority commit/i
+    )
+    expect(governance.schedulerAuthority.currentVersion).toBe(MAX_SCHEDULER_EVENTS)
+  })
+
+  it('fails closed without explicit authority dependencies or a root attestation', () => {
+    const governance = makeGovernance()
+    const genesis = { actorId: 'scheduler-control' }
+    expect(() =>
+      ValidatedImageScheduler.create(
+        DEFAULT_POLICY,
+        genesis,
+        undefined as never,
+        { token: 'untrusted' }
+      )
+    ).toThrow(/explicit trusted authority/i)
+
+    const scheduler = makeScheduler(governance)
+    expect(
+      (scheduler as unknown as { serializedValue?: unknown }).serializedValue
+    ).toBeUndefined()
+    expect(() => serializeImageScheduler(scheduler, { rootAttestation: { token: 'self' } })).toThrow(
+      /externally issued trusted attestation/i
+    )
+    expect(() =>
+      parseImageScheduler('{}', null)
+    ).toThrow(/plain object|canonical/i)
+    expect(genesis.actorId).toBe('scheduler-control')
+  })
+
+  it('uses one shared durable CAS/quota authority across forked scheduler instances', () => {
+    const { governance, scheduler, contexts, hashes } = setupApproved(7)
+    const genesisRoot = schedulerRootAttestation(scheduler, governance)
+    const genesisSerialized = serializeImageScheduler(scheduler, {
+      rootAttestation: genesisRoot
+    })
+
+    const staleFork = parseImageScheduler(genesisSerialized, {
+      expectedPolicyHash: scheduler.policyHash,
+      dependencies: governance.schedulerDependencies
+    })
+
+    reserve(scheduler, governance, contexts[0], 'primary-0', hashes)
+    dispatch(scheduler, governance, 'primary-0')
+    expect(() => reserve(staleFork, governance, contexts[1], 'stale-fork', hashes)).toThrow(
+      /stale shared scheduler CAS/i
     )
 
-    expect(() =>
-      parseImageScheduler(serialized, {
-        expectedPolicyHash: scheduler.policyHash,
-        trustedRootHash: tamperedRoot
-      })
-    ).toThrow(/policy drifted/i)
+    for (let index = 1; index < 6; index += 1) {
+      reserve(scheduler, governance, contexts[index], `primary-${index}`, hashes)
+      dispatch(scheduler, governance, `primary-${index}`)
+    }
+    expect(() => reserve(scheduler, governance, contexts[6], 'seventh', hashes)).toThrow(
+      /six-request capacity exhausted/i
+    )
+    expect(governance.schedulerAuthority.currentVersion).toBe(scheduler.authorityCasVersion)
   })
 
-  it('allows six aggregate reservations and rejects the seventh', () => {
-    const clock = new TestClock()
-    const scheduler = makeScheduler(clock)
-    const ids = expectedArtifactIds(makePlan())
-    for (let index = 0; index < 6; index += 1) reserve(scheduler, clock, `call-${index}`, ids[index])
-
-    expect(() => reserve(scheduler, clock, 'call-7', ids[6])).toThrow(/six-request.*reserved/i)
-    expect(scheduler.callCount).toBe(6)
-  })
-
-  it('keeps an old delayed reservation in aggregate capacity accounting', () => {
-    const policy = { ...DEFAULT_POLICY, windowMs: 10 }
-    const clock = new TestClock()
-    const scheduler = makeScheduler(clock, policy)
-    const ids = expectedArtifactIds(makePlan())
-    reserve(scheduler, clock, 'delayed', ids[0])
-    clock.next(20)
-
-    for (let index = 1; index <= 5; index += 1) {
-      reserve(scheduler, clock, `recent-${index}`, ids[index])
-      dispatch(scheduler, clock, `recent-${index}`)
-    }
-    expect(() => reserve(scheduler, clock, 'seventh-capacity', ids[6])).toThrow(/fully reserved/i)
-    expect(() => dispatch(scheduler, clock, 'delayed')).not.toThrow()
-  })
-
-  it('rejects a coherently rehashed ledger-wide seven-receipt burst', () => {
-    const policy = { ...DEFAULT_POLICY, windowMs: 10 }
-    const clock = new TestClock()
-    const scheduler = makeScheduler(clock, policy)
-    const ids = expectedArtifactIds(makePlan())
-    const hashes = new HashPool(100)
-    for (let index = 0; index < 7; index += 1) {
-      clock.next(20)
-      reserve(scheduler, clock, `call-${index}`, ids[index], {
-        promptHash: hashes.next(),
-        requestHash: hashes.next()
-      })
-      dispatch(scheduler, clock, `call-${index}`)
-      succeed(scheduler, clock, `call-${index}`, hashes.next())
-    }
-    const envelope = parsedEnvelope(scheduler) as unknown as {
-      policyHash: string
-      events: Array<Record<string, unknown>>
-    }
-    const burstTimestamp = new TestClock().current()
-    for (const event of envelope.events) {
-      event.occurredAt = burstTimestamp
-    }
-    const serialized = rehashScheduler(envelope as unknown as SerializedImageScheduler)
-    const root = computeSchedulerRootHash(
-      scheduler.policyHash,
-      envelope.events.length,
-      envelope.events.at(-1)!.eventHash as string
+  it('keeps retry lineage independent for identical artifact IDs in different plans', () => {
+    const governance = makeGovernance()
+    const scheduler = makeScheduler(governance)
+    const planA = makePlan()
+    const planB = createArtifactPlan({
+      registryHash: hashNumber(999_001),
+      styles: planA.styles,
+      concepts: planA.concepts,
+      triggerFamilies: planA.triggerFamilies
+    })
+    const artifactId = expectedArtifactIds(planA)[0]
+    const clock = new TestClock(1_000_000)
+    const hashes = new HashPool()
+    const ledgerA = VisualArtifactLedger.create(
+      planA,
+      governance.ledgerDependencies(scheduler)
+    )
+    const ledgerB = VisualArtifactLedger.create(
+      planB,
+      governance.ledgerDependencies(scheduler)
+    )
+    const contextA = appendPromptApproved(
+      ledgerA,
+      governance,
+      artifactId,
+      1,
+      hashes,
+      clock
+    )
+    const contextB = appendPromptApproved(
+      ledgerB,
+      governance,
+      artifactId,
+      1,
+      hashes,
+      clock
     )
     expect(() =>
-      parseImageScheduler(serialized, {
-        expectedPolicyHash: scheduler.policyHash,
-        trustedRootHash: root
-      })
-    ).toThrow(/rolling window|fully reserved/i)
+      reserve(scheduler, governance, contextA, 'plan-a-attempt-1', hashes)
+    ).not.toThrow()
+    expect(() =>
+      reserve(scheduler, governance, contextB, 'plan-b-attempt-1', hashes)
+    ).not.toThrow()
   })
 
-  it('rejects stale CAS writes and stale-CAS branches in replay', () => {
-    const clock = new TestClock()
-    const scheduler = makeScheduler(clock)
-    const artifactId = expectedArtifactIds(makePlan())[0]
-    expect(() =>
-      scheduler.reserve({
-        expectedVersion: 0,
-        occurredAt: clock.next(),
-        actorId: 'scheduler-control',
-        callId: 'stale',
+  it('recovers an authority commit when the durable response is lost', () => {
+    const { governance, scheduler, contexts, hashes } = setupApproved()
+    governance.schedulerAuthority.ensureAfter(contexts[0].promptApprovedAt)
+    governance.schedulerAuthority.simulateLostNextResponse()
+    reserve(scheduler, governance, contexts[0], 'recoverable-reservation', hashes)
+    expect(scheduler.getCall('recoverable-reservation')?.status).toBe('reserved')
+    expect(scheduler.authorityCasVersion).toBe(
+      governance.schedulerAuthority.currentVersion
+    )
+    expect(scheduler.authorityCommittedRootHash).toBe(
+      governance.schedulerAuthority.currentRootHash
+    )
+  })
+
+  it('rejects reservation before attested prompt approval time without consuming CAS', () => {
+    const { governance, scheduler, contexts, hashes } = setupApproved()
+    const beforeVersion = governance.schedulerAuthority.currentVersion
+    const input = {
+      actorId: 'scheduler-control',
+      callId: 'too-early-for-approval',
+      artifactId: contexts[0].artifactId,
+      revision: 1,
+      attempt: 1,
+      promptHash: contexts[0].promptHash,
+      promptApprovalHash: contexts[0].promptApprovalHash,
+      approvalCheckpoint: contexts[0].approvalCheckpoint,
+      requestHash: hashes.next(),
+      retryOfCallId: null,
+      retryReason: null
+    }
+    const principal = schedulerPrincipal(scheduler, governance, 'reserve', input)
+    expect(() => scheduler.reserve(input, principal)).toThrow(
+      /approval.*has not elapsed|atomic commit/i
+    )
+    expect(governance.schedulerAuthority.currentVersion).toBe(beforeVersion)
+    expect(scheduler.getCall('too-early-for-approval')).toBeUndefined()
+  })
+
+  it('does not accept caller-controlled timestamps', () => {
+    const { governance, scheduler, contexts, hashes } = setupApproved()
+    const input = {
+      actorId: 'scheduler-control',
+      occurredAt: '2030-01-01T00:00:00.000Z',
+      callId: 'caller-time',
+      artifactId: contexts[0].artifactId,
+      revision: 1,
+      attempt: 1,
+      promptHash: contexts[0].promptHash,
+      promptApprovalHash: contexts[0].promptApprovalHash,
+      approvalCheckpoint: contexts[0].approvalCheckpoint,
+      requestHash: hashes.next(),
+      retryOfCallId: null,
+      retryReason: null
+    }
+    expect(() => scheduler.principalBindingFor('reserve', input)).toThrow(
+      /unknown field "occurredAt"/i
+    )
+  })
+
+  it('rejects a predicted future prompt approval without a committed checkpoint attestation', () => {
+    const governance = makeGovernance()
+    const scheduler = makeScheduler(governance)
+    const plan = makePlan()
+    const artifactId = expectedArtifactIds(plan)[0]
+    const predictedPromptHash = hashNumber(100)
+    const predictedApprovalHash = hashNumber(101)
+    const input = {
+      actorId: 'scheduler-control',
+      callId: 'predicted-future',
+      artifactId,
+      revision: 1,
+      attempt: 1,
+      promptHash: predictedPromptHash,
+      promptApprovalHash: predictedApprovalHash,
+      approvalCheckpoint: {
+        ledgerRootHash: hashNumber(102),
+        ledgerSequence: 4,
+        promptApprovedAt: '2026-01-01T00:00:10.000Z',
+        planHash: plan.planHash,
         artifactId,
         revision: 1,
-        attempt: 1,
-        promptHash: hashNumber(1),
-        promptApprovalHash: hashNumber(3),
-        requestHash: hashNumber(2),
-        retryOfCallId: null,
-        retryReason: null
-      })
-    ).toThrow(/stale scheduler CAS/i)
-
-    reserve(scheduler, clock, 'valid', artifactId)
-    const envelope = parsedEnvelope(scheduler) as unknown as {
-      policyHash: string
-      events: Array<Record<string, unknown>>
+        promptHash: predictedPromptHash,
+        promptApprovalEventHash: predictedApprovalHash,
+        attestation: { token: 'predicted-without-authority-issuance' }
+      },
+      requestHash: hashNumber(103),
+      retryOfCallId: null,
+      retryReason: null
     }
-    envelope.events[1].expectedVersion = 0
-    const serialized = rehashScheduler(envelope as unknown as SerializedImageScheduler)
-    envelope.events[1].expectedVersion = 0
-    const { eventHash: _ignored, ...withoutHash } = envelope.events[1]
-    envelope.events[1].eventHash = computeSchedulerEventHash(
-      withoutHash as unknown as Omit<SchedulerEvent, 'eventHash'>
+    const principal = schedulerPrincipal(scheduler, governance, 'reserve', input)
+    expect(() => scheduler.reserve(input, principal)).toThrow(
+      /trusted committed prompt-approval checkpoint/i
     )
-    const root = computeSchedulerRootHash(
-      scheduler.policyHash,
-      envelope.events.length,
-      envelope.events.at(-1)!.eventHash as string
-    )
-    expect(() =>
-      parseImageScheduler(JSON.stringify(envelope), {
-        expectedPolicyHash: scheduler.policyHash,
-        trustedRootHash: root
-      })
-    ).toThrow(/stale or branching CAS/i)
   })
 
-  it('opens the global circuit on ambiguity, blocks dispatch, and never auto-retries', () => {
-    const clock = new TestClock()
-    const scheduler = makeScheduler(clock)
-    const ids = expectedArtifactIds(makePlan())
-    reserve(scheduler, clock, 'ambiguous', ids[0])
-    reserve(scheduler, clock, 'waiting', ids[1])
-    dispatch(scheduler, clock, 'ambiguous')
-    scheduler.markAmbiguous({
-      expectedVersion: scheduler.version,
-      occurredAt: clock.next(),
+  it('rejects direct succeed with a fabricated scheduler-service receipt', () => {
+    const { governance, scheduler, contexts, hashes } = setupApproved()
+    reserve(scheduler, governance, contexts[0], 'fake-success', hashes)
+    dispatch(scheduler, governance, 'fake-success')
+    const input = {
+      actorId: 'scheduler-worker',
+      callId: 'fake-success',
+      imageHash: hashes.next(),
+      serviceReceiptAttestation: { token: 'fabricated-service-proof' }
+    }
+    const principal = schedulerPrincipal(scheduler, governance, 'succeed', input)
+    expect(() => scheduler.succeed(input, principal)).toThrow(
+      /externally verified scheduler-service receipt/i
+    )
+  })
+
+  it('enforces retry prompt, immediate failure reason, and authority-clock backoff', () => {
+    const { governance, scheduler, contexts, hashes } = setupApproved()
+    reserve(scheduler, governance, contexts[0], 'attempt-1', hashes)
+    dispatch(scheduler, governance, 'attempt-1')
+    failCall(scheduler, governance, 'attempt-1', 'timeout')
+
+    expect(() =>
+      reserve(scheduler, governance, contexts[0], 'wrong-prompt', hashes, {
+        attempt: 2,
+        promptHash: hashNumber(200),
+        retryOfCallId: 'attempt-1',
+        retryReason: 'timeout'
+      })
+    ).toThrow(/trusted committed prompt-approval checkpoint|preserve/i)
+    expect(() =>
+      reserve(scheduler, governance, contexts[0], 'wrong-reason', hashes, {
+        attempt: 2,
+        retryOfCallId: 'attempt-1',
+        retryReason: 'rate-limit'
+      })
+    ).toThrow(/preserve the immediate failure/i)
+    expect(() =>
+      reserve(scheduler, governance, contexts[0], 'too-early', hashes, {
+        attempt: 2,
+        retryOfCallId: 'attempt-1',
+        retryReason: 'timeout'
+      })
+    ).toThrow(/backoff has not elapsed/i)
+
+    governance.schedulerAuthority.advance(1_000)
+    expect(() =>
+      reserve(scheduler, governance, contexts[0], 'attempt-2', hashes, {
+        attempt: 2,
+        retryOfCallId: 'attempt-1',
+        retryReason: 'timeout'
+      })
+    ).not.toThrow()
+  })
+
+  it('opens the global circuit on ambiguity and blocks another instance', () => {
+    const { governance, scheduler, contexts, hashes } = setupApproved(2)
+    const rootAttestation = schedulerRootAttestation(scheduler, governance)
+    const fork = parseImageScheduler(
+      serializeImageScheduler(scheduler, { rootAttestation }),
+      {
+        expectedPolicyHash: scheduler.policyHash,
+        dependencies: governance.schedulerDependencies
+      }
+    )
+    reserve(scheduler, governance, contexts[0], 'ambiguous', hashes)
+    reserve(scheduler, governance, contexts[1], 'waiting', hashes)
+    dispatch(scheduler, governance, 'ambiguous')
+    appendScheduler(scheduler, governance, 'ambiguous', {
       actorId: 'scheduler-worker',
       callId: 'ambiguous',
       ambiguityReason: 'ambiguous-dispatch'
     })
-
     expect(scheduler.isCircuitOpen).toBe(true)
-    expect(() => dispatch(scheduler, clock, 'waiting')).toThrow(/circuit is open/i)
-    expect(() =>
-      reserve(scheduler, clock, 'ambiguous-retry', ids[0], {
-        attempt: 2,
-        retryOfCallId: 'ambiguous',
-        retryReason: 'timeout'
-      })
-    ).toThrow(/circuit is open/i)
-  })
-
-  it('requires retry prompt and reason to match the immediate failed attempt', () => {
-    const artifactId = expectedArtifactIds(makePlan())[0]
-    const promptHash = hashNumber(40)
-
-    const wrongPromptClock = new TestClock()
-    const wrongPromptScheduler = makeScheduler(wrongPromptClock)
-    reserve(wrongPromptScheduler, wrongPromptClock, 'failed-prompt', artifactId, { promptHash })
-    dispatch(wrongPromptScheduler, wrongPromptClock, 'failed-prompt')
-    wrongPromptScheduler.fail({
-      expectedVersion: wrongPromptScheduler.version,
-      occurredAt: wrongPromptClock.next(),
-      actorId: 'scheduler-worker',
-      callId: 'failed-prompt',
-      failureReason: 'timeout',
-      retryAfterMs: null
-    })
-    wrongPromptClock.next(1_000)
-    expect(() =>
-      reserve(wrongPromptScheduler, wrongPromptClock, 'retry-wrong-prompt', artifactId, {
-        attempt: 2,
-        promptHash: hashNumber(41),
-        retryOfCallId: 'failed-prompt',
-        retryReason: 'timeout'
-      })
-    ).toThrow(/promptHash must match/i)
-
-    const wrongReasonClock = new TestClock()
-    const wrongReasonScheduler = makeScheduler(wrongReasonClock)
-    reserve(wrongReasonScheduler, wrongReasonClock, 'failed-reason', artifactId, { promptHash })
-    dispatch(wrongReasonScheduler, wrongReasonClock, 'failed-reason')
-    wrongReasonScheduler.fail({
-      expectedVersion: wrongReasonScheduler.version,
-      occurredAt: wrongReasonClock.next(),
-      actorId: 'scheduler-worker',
-      callId: 'failed-reason',
-      failureReason: 'timeout',
-      retryAfterMs: null
-    })
-    wrongReasonClock.next(1_000)
-    expect(() =>
-      reserve(wrongReasonScheduler, wrongReasonClock, 'retry-wrong-reason', artifactId, {
-        attempt: 2,
-        promptHash,
-        retryOfCallId: 'failed-reason',
-        retryReason: 'rate-limit'
-      })
-    ).toThrow(/reason must match/i)
-  })
-
-  it('enforces positive immediate backoff and rejects conflicting Retry-After replay', () => {
-    const clock = new TestClock()
-    const scheduler = makeScheduler(clock)
-    const artifactId = expectedArtifactIds(makePlan())[0]
-    const promptHash = hashNumber(50)
-    reserve(scheduler, clock, 'failed', artifactId, { promptHash })
-    dispatch(scheduler, clock, 'failed')
-    const failure = scheduler.fail({
-      expectedVersion: scheduler.version,
-      occurredAt: clock.next(),
-      actorId: 'scheduler-worker',
-      callId: 'failed',
-      failureReason: 'rate-limit',
-      retryAfterMs: 5_000
-    })
-    expect(() =>
-      scheduler.reserve({
-        expectedVersion: scheduler.version,
-        occurredAt: failure.occurredAt,
-        actorId: 'scheduler-control',
-        callId: 'too-early',
-        artifactId,
-        revision: 1,
-        attempt: 2,
-        promptHash,
-        promptApprovalHash: hashNumber(11),
-        requestHash: hashNumber(51),
-        retryOfCallId: 'failed',
-        retryReason: 'rate-limit'
-      })
-    ).toThrow(/before its positive backoff/i)
-    expect(() =>
-      scheduler.fail({
-        expectedVersion: scheduler.version,
-        occurredAt: clock.next(),
-        actorId: 'scheduler-worker',
-        callId: 'failed',
-        failureReason: 'rate-limit',
-        retryAfterMs: 10_000
-      })
-    ).toThrow(/non-terminal/i)
-
-    const envelope = parsedEnvelope(scheduler) as unknown as {
-      policyHash: string
-      events: Array<Record<string, unknown>>
-    }
-    const failedEvent = envelope.events.find((event) => event.type === 'image-call-failed')!
-    failedEvent.retryNotBefore = new Date(
-      Date.parse(failedEvent.occurredAt as string) + 6_000
-    ).toISOString()
-    const serialized = rehashScheduler(envelope as unknown as SerializedImageScheduler)
-    const root = computeSchedulerRootHash(
-      scheduler.policyHash,
-      envelope.events.length,
-      envelope.events.at(-1)!.eventHash as string
+    expect(() => dispatch(scheduler, governance, 'waiting')).toThrow(/global circuit is open/i)
+    expect(() => reserve(fork, governance, contexts[1], 'fork-after-open', hashes)).toThrow(
+      /stale shared scheduler CAS|global circuit is open/i
     )
+  })
+
+  it('rejects non-canonical or duplicate-key JSON and malformed parser options', () => {
+    const { governance, scheduler } = setupApproved()
+    const rootAttestation = schedulerRootAttestation(scheduler, governance)
+    const serialized = serializeImageScheduler(scheduler, { rootAttestation })
+    const duplicate = serialized.replace(
+      '{"authorityId"',
+      '{"schemaVersion":2,"authorityId"'
+    )
+    expect(() =>
+      parseImageScheduler(duplicate, {
+        expectedPolicyHash: scheduler.policyHash,
+        dependencies: governance.schedulerDependencies
+      })
+    ).toThrow(/canonical|duplicate keys/i)
+    expect(() => parseImageScheduler(serialized, null)).toThrow(/plain object/i)
+    expect(() =>
+      parseImageScheduler(
+        canonicalStringify({
+          schemaVersion: 2,
+          policy: scheduler.policy,
+          policyHash: scheduler.policyHash,
+          authorityId: scheduler.authorityId,
+          events: scheduler.events()
+        }),
+        {
+          expectedPolicyHash: scheduler.policyHash,
+          dependencies: governance.schedulerDependencies
+        }
+      )
+    ).toThrow(/missing required field "rootAttestation"/i)
     expect(() =>
       parseImageScheduler(serialized, {
         expectedPolicyHash: scheduler.policyHash,
-        trustedRootHash: root
-      })
-    ).toThrow(/derived fields do not match replay/i)
-  })
-
-  it('rejects malformed timestamps, negative attempts, and attempts over policy maximum', () => {
-    const clock = new TestClock()
-    const scheduler = makeScheduler(clock)
-    const artifactId = expectedArtifactIds(makePlan())[0]
-    const base = {
-      expectedVersion: scheduler.version,
-      actorId: 'scheduler-control',
-      callId: 'invalid',
-      artifactId,
-      revision: 1,
-      promptHash: hashNumber(60),
-      promptApprovalHash: hashNumber(62),
-      requestHash: hashNumber(61),
-      retryOfCallId: null,
-      retryReason: null
-    }
-    expect(() =>
-      scheduler.reserve({ ...base, occurredAt: 'not-a-date', attempt: 1 })
-    ).toThrow(/canonical UTC ISO/i)
-    expect(() =>
-      scheduler.reserve({ ...base, occurredAt: clock.next(), attempt: -1 })
-    ).toThrow(/attempt/i)
-    expect(() =>
-      scheduler.reserve({
-        ...base,
-        occurredAt: clock.next(),
-        attempt: scheduler.policy.maxAttempts + 1
-      })
-    ).toThrow(/attempt/i)
-  })
-
-  it('turns retry timestamp overflow into a bounded governance error', () => {
-    const policy = { ...DEFAULT_POLICY, baseBackoffMs: 1_000, maxBackoffMs: 1_000 }
-    const scheduler = ValidatedImageScheduler.create(policy, {
-      occurredAt: '+275760-09-12T23:59:59.998Z',
-      actorId: 'scheduler-control'
-    })
-    const artifactId = expectedArtifactIds(makePlan())[0]
-    scheduler.reserve({
-      expectedVersion: scheduler.version,
-      occurredAt: '+275760-09-12T23:59:59.998Z',
-      actorId: 'scheduler-control',
-      callId: 'overflow',
-      artifactId,
-      revision: 1,
-      attempt: 1,
-      promptHash: hashNumber(70),
-      promptApprovalHash: hashNumber(71),
-      requestHash: hashNumber(72),
-      retryOfCallId: null,
-      retryReason: null
-    })
-    scheduler.dispatch({
-      expectedVersion: scheduler.version,
-      occurredAt: '+275760-09-12T23:59:59.999Z',
-      actorId: 'scheduler-worker',
-      callId: 'overflow'
-    })
-    expect(() =>
-      scheduler.fail({
-        expectedVersion: scheduler.version,
-        occurredAt: '+275760-09-13T00:00:00.000Z',
-        actorId: 'scheduler-worker',
-        callId: 'overflow',
-        failureReason: 'timeout',
-        retryAfterMs: null
-      })
-    ).toThrow(/supported timestamp range/i)
-  })
-
-  it('rejects unknown state and event fields before trusting history', () => {
-    const clock = new TestClock()
-    const scheduler = makeScheduler(clock)
-    const envelope = parsedEnvelope(scheduler) as unknown as Record<string, unknown>
-    envelope.credentials = 'forbidden'
-    expect(() =>
-      parseImageScheduler(JSON.stringify(envelope), {
-        expectedPolicyHash: scheduler.policyHash,
+        dependencies: governance.schedulerDependencies,
         trustedRootHash: scheduler.rootHash
       })
-    ).toThrow(/unknown field "credentials"/i)
+    ).toThrow(/unknown field "trustedRootHash"/i)
+  })
+
+  it('rejects policy drift even when the modified JSON is canonical', () => {
+    const { governance, scheduler } = setupApproved()
+    const rootAttestation = schedulerRootAttestation(scheduler, governance)
+    const envelope = JSON.parse(
+      serializeImageScheduler(scheduler, { rootAttestation })
+    ) as SerializedImageScheduler
+    const changed = {
+      ...envelope,
+      policy: { ...envelope.policy, windowMs: 1 }
+    }
+    expect(() =>
+      parseImageScheduler(canonicalStringify(changed), {
+        expectedPolicyHash: scheduler.policyHash,
+        dependencies: governance.schedulerDependencies
+      })
+    ).toThrow(/policy drifted/i)
+  })
+
+  it('converts retry timestamp overflow into a governance failure', () => {
+    const maxDate = Date.parse('+275760-09-13T00:00:00.000Z')
+    const authorityClock = new TestClock(maxDate - Date.parse('2026-01-01T00:00:00.000Z') - 4)
+    const governance = makeGovernance(authorityClock)
+    const scheduler = makeScheduler(governance, {
+      ...DEFAULT_POLICY,
+      maxAttempts: 1,
+      baseBackoffMs: 1_000,
+      maxBackoffMs: 1_000
+    })
+    const plan = makePlan()
+    const ledger = VisualArtifactLedger.create(plan, governance.ledgerDependencies(scheduler))
+    const hashes = new HashPool()
+    const clock = new TestClock()
+    const context = appendPromptApproved(
+      ledger,
+      governance,
+      expectedArtifactIds(plan)[0],
+      1,
+      hashes,
+      clock
+    )
+    reserve(scheduler, governance, context, 'overflow', hashes)
+    dispatch(scheduler, governance, 'overflow')
+    expect(() => failCall(scheduler, governance, 'overflow')).toThrow(
+      /supported timestamp range/i
+    )
   })
 })

@@ -1,4 +1,13 @@
 import {
+  type AuthenticatedPrincipalBinding,
+  type EvidenceAttestationBinding,
+  type GovernanceRole,
+  type LedgerAuthorityDependencies,
+  type OpaqueAttestation,
+  type PromptApprovalCheckpointBinding,
+  parseOpaqueAttestation
+} from './authorities'
+import {
   assertExactKeys,
   assertIdentifier,
   assertIsoTimestamp,
@@ -15,7 +24,10 @@ import {
 import {
   MAX_EVIDENCE,
   MAX_LEDGER_EVENTS,
+  MAX_REVISIONS_PER_ARTIFACT,
+  MAX_SCHEDULER_EVENTS,
   MAX_SERIALIZED_BYTES,
+  MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION,
   VISUAL_ARTIFACT_LEDGER_VERSION,
   ZERO_HASH
 } from './constants'
@@ -55,6 +67,7 @@ export interface ArtifactEvidence {
   readonly createdBy: string
   readonly subjectHash: string
   readonly contentHash: string
+  readonly attestation: OpaqueAttestation
 }
 
 export type ArtifactRevisionStatus =
@@ -89,6 +102,7 @@ interface ArtifactEventHeader {
   readonly type: ArtifactEventType
   readonly occurredAt: string
   readonly actorId: string
+  readonly principalAttestation: OpaqueAttestation
   readonly previousEventHash: string
   readonly eventHash: string
 }
@@ -144,6 +158,10 @@ export interface ImageGenerationRecordedEvent extends ArtifactRevisionEventHeade
   readonly schedulerCallId: string
   readonly schedulerCallHash: string
   readonly schedulerReceiptHash: string
+  readonly schedulerAuthorityId: string
+  readonly schedulerAuthorityVersion: number
+  readonly schedulerAuthorityRootHash: string
+  readonly schedulerAuthorityCommitHash: string
   readonly evidence: ArtifactEvidence
 }
 
@@ -180,6 +198,10 @@ export interface RevisionExhaustedEvent extends ArtifactRevisionEventHeader {
   readonly type: 'revision-exhausted'
   readonly schedulerCallId: string
   readonly schedulerCallHash: string
+  readonly schedulerAuthorityId: string
+  readonly schedulerAuthorityVersion: number
+  readonly schedulerAuthorityRootHash: string
+  readonly schedulerAuthorityCommitHash: string
   readonly failureReason: ImageFailureReason
   readonly exhaustionHash: string
   readonly evidence: ArtifactEvidence
@@ -193,6 +215,7 @@ export interface LedgerFinalizedEvent extends ArtifactEventHeader {
   readonly artifactSetHash: string
   readonly trustedCheckpointSequence: number
   readonly trustedCheckpointRootHash: string
+  readonly trustedCheckpointAttestation: OpaqueAttestation
 }
 
 export type ArtifactEvent =
@@ -209,7 +232,11 @@ export type ArtifactEvent =
   | RevisionExhaustedEvent
   | LedgerFinalizedEvent
 
-type StoredEventMetadata = 'sequence' | 'previousEventHash' | 'eventHash'
+type StoredEventMetadata =
+  | 'sequence'
+  | 'principalAttestation'
+  | 'previousEventHash'
+  | 'eventHash'
 
 type ArtifactEventInput =
   | Omit<ArtifactRevisionStartedEvent, StoredEventMetadata>
@@ -229,6 +256,7 @@ interface MutableRevisionState {
   status: ArtifactRevisionStatus
   specificationHash: string
   rootHash: string
+  serializedBytes: number
   researchHash?: string
   researchAuthor?: string
   promptHash?: string
@@ -237,6 +265,8 @@ interface MutableRevisionState {
   promptReviewer?: string
   promptApprovedAt?: string
   promptApprovalEventHash?: string
+  promptApprovalLedgerRootHash?: string
+  promptApprovalSequence?: number
   generationAttempt?: number
   requestHash?: string
   imageHash?: string
@@ -268,6 +298,8 @@ export interface ArtifactRevisionSnapshot {
   readonly promptQaReportHash?: string
   readonly promptApprovedAt?: string
   readonly promptApprovalEventHash?: string
+  readonly promptApprovalLedgerRootHash?: string
+  readonly promptApprovalSequence?: number
   readonly generationAttempt?: number
   readonly requestHash?: string
   readonly imageHash?: string
@@ -297,15 +329,11 @@ export interface LedgerCheckpoint {
 export interface SerializedVisualArtifactLedger {
   readonly schemaVersion: typeof VISUAL_ARTIFACT_LEDGER_VERSION
   readonly plan: ArtifactPlan
+  readonly rootAttestation: OpaqueAttestation
   readonly events: readonly ArtifactEvent[]
 }
 
-export interface LedgerTrustOptions {
-  readonly trustedRootHash?: string
-  readonly trustedCheckpoint?: LedgerCheckpoint
-}
-
-export interface ParseVisualArtifactLedgerOptions extends LedgerTrustOptions {
+export interface VisualArtifactLedgerDependencies extends LedgerAuthorityDependencies {
   readonly scheduler?: ValidatedImageScheduler
 }
 
@@ -317,7 +345,8 @@ const EVIDENCE_KEYS = [
   'createdAt',
   'createdBy',
   'subjectHash',
-  'contentHash'
+  'contentHash',
+  'attestation'
 ] as const
 
 const EVENT_HEADER_KEYS = [
@@ -325,6 +354,7 @@ const EVENT_HEADER_KEYS = [
   'type',
   'occurredAt',
   'actorId',
+  'principalAttestation',
   'previousEventHash',
   'eventHash'
 ] as const
@@ -374,12 +404,18 @@ function normalizeEvidence(value: unknown, label: string): ArtifactEvidence {
   return deepFreeze({
     evidenceId: assertIdentifier(value.evidenceId, `${label}.evidenceId`),
     artifactId: parseArtifactId(value.artifactId).id,
-    revision: assertSafeInteger(value.revision, `${label}.revision`, 1, 10_000),
+    revision: assertSafeInteger(
+      value.revision,
+      `${label}.revision`,
+      1,
+      MAX_REVISIONS_PER_ARTIFACT
+    ),
     kind: value.kind as EvidenceKind,
     createdAt: assertIsoTimestamp(value.createdAt, `${label}.createdAt`),
     createdBy: assertIdentifier(value.createdBy, `${label}.createdBy`),
     subjectHash: assertSha256(value.subjectHash, `${label}.subjectHash`),
-    contentHash: assertSha256(value.contentHash, `${label}.contentHash`)
+    contentHash: assertSha256(value.contentHash, `${label}.contentHash`),
+    attestation: parseOpaqueAttestation(value.attestation, `${label}.attestation`)
   })
 }
 
@@ -401,7 +437,12 @@ function normalizeInput(value: unknown): ArtifactEventInput {
       occurredAt,
       actorId,
       artifactId: parseArtifactId(value.artifactId).id,
-      revision: assertSafeInteger(value.revision, 'Artifact revision start revision', 1, 10_000),
+      revision: assertSafeInteger(
+        value.revision,
+        'Artifact revision start revision',
+        1,
+        MAX_REVISIONS_PER_ARTIFACT
+      ),
       specificationHash: assertSha256(
         value.specificationHash,
         'Artifact revision start specificationHash'
@@ -426,8 +467,18 @@ function normalizeInput(value: unknown): ArtifactEventInput {
       occurredAt,
       actorId,
       artifactId: parseArtifactId(value.artifactId).id,
-      revision: assertSafeInteger(value.revision, 'Artifact supersession revision', 2, 10_000),
-      priorRevision: assertSafeInteger(value.priorRevision, 'Artifact supersession priorRevision', 1, 9_999),
+      revision: assertSafeInteger(
+        value.revision,
+        'Artifact supersession revision',
+        2,
+        MAX_REVISIONS_PER_ARTIFACT
+      ),
+      priorRevision: assertSafeInteger(
+        value.priorRevision,
+        'Artifact supersession priorRevision',
+        1,
+        MAX_REVISIONS_PER_ARTIFACT - 1
+      ),
       priorRevisionRootHash: assertSha256(
         value.priorRevisionRootHash,
         'Artifact supersession priorRevisionRootHash'
@@ -441,7 +492,12 @@ function normalizeInput(value: unknown): ArtifactEventInput {
   }
 
   const artifactId = parseArtifactId(value.artifactId).id
-  const revision = assertSafeInteger(value.revision, 'Artifact event revision', 1, 10_000)
+  const revision = assertSafeInteger(
+    value.revision,
+    'Artifact event revision',
+    1,
+    MAX_REVISIONS_PER_ARTIFACT
+  )
   if (type === 'research-recorded') {
     assertExactKeys(value, [...REVISION_INPUT_KEYS, 'researchHash', 'evidence'], 'Research event')
     return {
@@ -499,6 +555,10 @@ function normalizeInput(value: unknown): ArtifactEventInput {
         'schedulerCallId',
         'schedulerCallHash',
         'schedulerReceiptHash',
+        'schedulerAuthorityId',
+        'schedulerAuthorityVersion',
+        'schedulerAuthorityRootHash',
+        'schedulerAuthorityCommitHash',
         'evidence'
       ],
       'Image generation event'
@@ -527,6 +587,24 @@ function normalizeInput(value: unknown): ArtifactEventInput {
       schedulerReceiptHash: assertSha256(
         value.schedulerReceiptHash,
         'Image generation schedulerReceiptHash'
+      ),
+      schedulerAuthorityId: assertIdentifier(
+        value.schedulerAuthorityId,
+        'Image generation schedulerAuthorityId'
+      ),
+      schedulerAuthorityVersion: assertSafeInteger(
+        value.schedulerAuthorityVersion,
+        'Image generation schedulerAuthorityVersion',
+        1,
+        MAX_SCHEDULER_EVENTS
+      ),
+      schedulerAuthorityRootHash: assertSha256(
+        value.schedulerAuthorityRootHash,
+        'Image generation schedulerAuthorityRootHash'
+      ),
+      schedulerAuthorityCommitHash: assertSha256(
+        value.schedulerAuthorityCommitHash,
+        'Image generation schedulerAuthorityCommitHash'
       ),
       evidence: normalizeEvidence(value.evidence, 'Image generation evidence')
     }
@@ -617,6 +695,10 @@ function normalizeInput(value: unknown): ArtifactEventInput {
         ...REVISION_INPUT_KEYS,
         'schedulerCallId',
         'schedulerCallHash',
+        'schedulerAuthorityId',
+        'schedulerAuthorityVersion',
+        'schedulerAuthorityRootHash',
+        'schedulerAuthorityCommitHash',
         'failureReason',
         'exhaustionHash',
         'evidence'
@@ -639,6 +721,24 @@ function normalizeInput(value: unknown): ArtifactEventInput {
       schedulerCallHash: assertSha256(
         value.schedulerCallHash,
         'Revision exhaustion schedulerCallHash'
+      ),
+      schedulerAuthorityId: assertIdentifier(
+        value.schedulerAuthorityId,
+        'Revision exhaustion schedulerAuthorityId'
+      ),
+      schedulerAuthorityVersion: assertSafeInteger(
+        value.schedulerAuthorityVersion,
+        'Revision exhaustion schedulerAuthorityVersion',
+        1,
+        MAX_SCHEDULER_EVENTS
+      ),
+      schedulerAuthorityRootHash: assertSha256(
+        value.schedulerAuthorityRootHash,
+        'Revision exhaustion schedulerAuthorityRootHash'
+      ),
+      schedulerAuthorityCommitHash: assertSha256(
+        value.schedulerAuthorityCommitHash,
+        'Revision exhaustion schedulerAuthorityCommitHash'
       ),
       failureReason: value.failureReason as ImageFailureReason,
       exhaustionHash: assertSha256(value.exhaustionHash, 'Revision exhaustion exhaustionHash'),
@@ -703,6 +803,53 @@ function revisionIsTerminal(status: ArtifactRevisionStatus): boolean {
   return status === 'accepted' || status === 'rejected' || status === 'exhausted'
 }
 
+function assertLedgerDependencies(
+  dependencies: VisualArtifactLedgerDependencies
+): VisualArtifactLedgerDependencies {
+  if (
+    typeof dependencies !== 'object' ||
+    dependencies === null ||
+    typeof dependencies.principalVerifier?.verifyPrincipal !== 'function' ||
+    typeof dependencies.evidenceVerifier?.verifyEvidence !== 'function' ||
+    typeof dependencies.rootVerifier?.verifyRoot !== 'function'
+  ) {
+    fail('TRUST', 'Ledger requires explicit principal, evidence, and root verifier dependencies.')
+  }
+  if (
+    dependencies.scheduler !== undefined &&
+    !(dependencies.scheduler instanceof ValidatedImageScheduler)
+  ) {
+    fail('SCHEMA', 'Ledger scheduler must be a validated authoritative scheduler instance.')
+  }
+  return dependencies
+}
+
+function roleForArtifactEvent(type: ArtifactEventType): GovernanceRole {
+  switch (type) {
+    case 'artifact-revision-started':
+    case 'artifact-revision-superseded':
+      return 'planner'
+    case 'research-recorded':
+      return 'researcher'
+    case 'prompt-drafted':
+      return 'prompt-author'
+    case 'prompt-qa-reviewed':
+      return 'prompt-reviewer'
+    case 'image-generation-recorded':
+      return 'image-generator'
+    case 'image-qa-reviewed':
+      return 'image-reviewer'
+    case 'implementation-recorded':
+      return 'implementer'
+    case 'render-qa-reviewed':
+      return 'render-reviewer'
+    case 'artifact-accepted':
+    case 'revision-exhausted':
+    case 'ledger-finalized':
+      return 'release-owner'
+  }
+}
+
 interface EvidenceExpectation {
   kind: EvidenceKind
   artifactId: ArtifactId
@@ -729,18 +876,24 @@ export class VisualArtifactLedger {
   private hasAcceptedHistory = false
   private finalized = false
 
-  private constructor(plan: ArtifactPlan, scheduler?: ValidatedImageScheduler) {
+  private constructor(
+    plan: ArtifactPlan,
+    private readonly dependencies: VisualArtifactLedgerDependencies
+  ) {
     this.plan = plan
     this.expectedIds = expectedArtifactIds(plan)
     this.expectedIdSet = new Set(this.expectedIds)
-    if (scheduler !== undefined && !(scheduler instanceof ValidatedImageScheduler)) {
-      fail('SCHEMA', 'Ledger scheduler must be a validated authoritative scheduler instance.')
-    }
-    this.scheduler = scheduler
+    this.scheduler = dependencies.scheduler
   }
 
-  static create(planValue: unknown, scheduler?: ValidatedImageScheduler): VisualArtifactLedger {
-    return new VisualArtifactLedger(parseArtifactPlan(planValue), scheduler)
+  static create(
+    planValue: unknown,
+    dependenciesValue: VisualArtifactLedgerDependencies
+  ): VisualArtifactLedger {
+    return new VisualArtifactLedger(
+      parseArtifactPlan(planValue),
+      assertLedgerDependencies(dependenciesValue)
+    )
   }
 
   get sequence(): number {
@@ -769,6 +922,69 @@ export class VisualArtifactLedger {
 
   get rootHash(): string {
     return computeVisualArtifactLedgerRootHash(this.plan.planHash, this.sequence, this.lastEventHash)
+  }
+
+  principalBindingFor(value: unknown): AuthenticatedPrincipalBinding {
+    const input = normalizeInput(value)
+    return deepFreeze({
+      domain: 'visual-artifact-ledger',
+      principalId: input.actorId,
+      role: roleForArtifactEvent(input.type),
+      action: input.type,
+      actionHash: sha256Hex({
+        domain: 'visual-artifact-principal-action-v1',
+        event: input
+      }),
+      contextRootHash: this.rootHash,
+      contextVersion: this.sequence
+    })
+  }
+
+  evidenceBindingFor(value: unknown): EvidenceAttestationBinding {
+    assertPlainObject(value, 'Artifact evidence binding input')
+    assertExactKeys(
+      value,
+      EVIDENCE_KEYS.filter((key) => key !== 'attestation'),
+      'Artifact evidence binding input'
+    )
+    const evidence = normalizeEvidence(
+      { ...value, attestation: { token: 'pending-attestation' } },
+      'Artifact evidence binding input'
+    )
+    return deepFreeze({
+      evidenceId: evidence.evidenceId,
+      artifactId: evidence.artifactId,
+      revision: evidence.revision,
+      kind: evidence.kind,
+      createdAt: evidence.createdAt,
+      createdBy: evidence.createdBy,
+      subjectHash: evidence.subjectHash,
+      contentHash: evidence.contentHash,
+      planHash: this.plan.planHash,
+      ledgerRootBefore: this.rootHash,
+      ledgerSequence: this.sequence + 1
+    })
+  }
+
+  private verifyPrincipal(
+    input: ArtifactEventInput,
+    attestation: OpaqueAttestation
+  ): void {
+    const binding: AuthenticatedPrincipalBinding = {
+      domain: 'visual-artifact-ledger',
+      principalId: input.actorId,
+      role: roleForArtifactEvent(input.type),
+      action: input.type,
+      actionHash: sha256Hex({
+        domain: 'visual-artifact-principal-action-v1',
+        event: input
+      }),
+      contextRootHash: this.rootHash,
+      contextVersion: this.sequence
+    }
+    if (!this.dependencies.principalVerifier.verifyPrincipal(attestation, binding)) {
+      fail('TRUST', `Authenticated principal attestation is invalid for ${input.type}.`)
+    }
   }
 
   private assertWritable(): void {
@@ -830,6 +1046,22 @@ export class VisualArtifactLedger {
       fail('CARDINALITY', `Ledger evidence limit ${MAX_EVIDENCE} reached.`)
     }
     if (owner.length > 256) fail('CARDINALITY', 'Evidence owner key exceeds its limit.')
+    const binding: EvidenceAttestationBinding = {
+      evidenceId: evidence.evidenceId,
+      artifactId: evidence.artifactId,
+      revision: evidence.revision,
+      kind: evidence.kind,
+      createdAt: evidence.createdAt,
+      createdBy: evidence.createdBy,
+      subjectHash: evidence.subjectHash,
+      contentHash: evidence.contentHash,
+      planHash: this.plan.planHash,
+      ledgerRootBefore: this.rootHash,
+      ledgerSequence: this.sequence + 1
+    }
+    if (!this.dependencies.evidenceVerifier.verifyEvidence(evidence.attestation, binding)) {
+      fail('TRUST', `Evidence "${evidence.evidenceId}" lacks a valid external content attestation.`)
+    }
   }
 
   private commitEvidence(evidence: ArtifactEvidence): void {
@@ -852,12 +1084,20 @@ export class VisualArtifactLedger {
       attempt: input.attempt,
       promptHash: input.promptHash,
       promptApprovalHash: input.promptApprovalHash,
+      approvalLedgerRootHash: revision.promptApprovalLedgerRootHash,
+      approvalLedgerSequence: revision.promptApprovalSequence,
+      approvalPlanHash: this.plan.planHash,
+      promptApprovedAt: revision.promptApprovedAt!,
       requestHash: input.requestHash,
       imageHash: input.imageHash,
       idempotencyKey: input.idempotencyKey,
       policyHash: input.policyHash,
       callHash: input.schedulerCallHash,
-      receiptHash: input.schedulerReceiptHash
+      receiptHash: input.schedulerReceiptHash,
+      authorityId: input.schedulerAuthorityId,
+      authorityVersion: input.schedulerAuthorityVersion,
+      authorityRootHash: input.schedulerAuthorityRootHash,
+      authorityCommitHash: input.schedulerAuthorityCommitHash
     }
     for (const [key, value] of Object.entries(expected)) {
       if (receipt[key as keyof SchedulerReceipt] !== value) {
@@ -870,6 +1110,8 @@ export class VisualArtifactLedger {
     if (
       !revision.promptApprovedAt ||
       !revision.promptApprovalEventHash ||
+      !revision.promptApprovalLedgerRootHash ||
+      revision.promptApprovalSequence === undefined ||
       input.promptApprovalHash !== revision.promptApprovalEventHash ||
       compareIso(receipt.reservedAt, revision.promptApprovedAt) <= 0
     ) {
@@ -878,9 +1120,14 @@ export class VisualArtifactLedger {
     return receipt
   }
 
-  append(value: unknown): ArtifactEvent {
+  append(value: unknown, principalAttestationValue: unknown): ArtifactEvent {
     this.assertWritable()
     const input = normalizeInput(value)
+    const principalAttestation = parseOpaqueAttestation(
+      principalAttestationValue,
+      'Artifact event principal attestation'
+    )
+    this.verifyPrincipal(input, principalAttestation)
     this.assertTimestamp(input.occurredAt)
     this.assertExpectedArtifact(input.artifactId)
 
@@ -1067,7 +1314,14 @@ export class VisualArtifactLedger {
           call.revision !== input.revision ||
           call.promptHash !== revision.promptHash ||
           call.promptApprovalHash !== revision.promptApprovalEventHash ||
+          call.approvalLedgerRootHash !== revision.promptApprovalLedgerRootHash ||
+          call.approvalLedgerSequence !== revision.promptApprovalSequence ||
+          call.approvalPlanHash !== this.plan.planHash ||
           call.callHash !== input.schedulerCallHash ||
+          input.schedulerAuthorityId !== this.scheduler.authorityId ||
+          call.completionAuthorityVersion !== input.schedulerAuthorityVersion ||
+          call.completionAuthorityRootHash !== input.schedulerAuthorityRootHash ||
+          call.completionAuthorityCommitHash !== input.schedulerAuthorityCommitHash ||
           call.failureReason !== input.failureReason ||
           !revision.promptApprovedAt ||
           compareIso(call.reservedAt, revision.promptApprovedAt) <= 0 ||
@@ -1092,19 +1346,33 @@ export class VisualArtifactLedger {
     const withoutHash = {
       sequence: this.eventLog.length + 1,
       ...input,
+      principalAttestation,
       previousEventHash: this.lastEventHash
     } as Omit<ArtifactEvent, 'eventHash'>
     const event = deepFreeze({
       ...withoutHash,
       eventHash: computeArtifactEventHash(withoutHash)
     }) as ArtifactEvent
+    const eventBytes = utf8ByteLength(canonicalStringify(event))
+    if (
+      eventBytes > MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION ||
+      (revisionForRoot !== undefined &&
+        revisionForRoot.serializedBytes + eventBytes >
+          MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION)
+    ) {
+      fail(
+        'CARDINALITY',
+        `Artifact revision exceeds ${MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION} serialized bytes.`
+      )
+    }
 
     if (input.type === 'artifact-revision-started') {
       const revision: MutableRevisionState = {
         revision: 1,
         status: 'started',
         specificationHash: input.specificationHash,
-        rootHash: nextRevisionRoot(ZERO_HASH, event.eventHash)
+        rootHash: nextRevisionRoot(ZERO_HASH, event.eventHash),
+        serializedBytes: eventBytes
       }
       this.artifacts.set(input.artifactId, {
         artifactId: input.artifactId,
@@ -1118,10 +1386,12 @@ export class VisualArtifactLedger {
         revision: input.revision,
         status: 'started',
         specificationHash: input.specificationHash,
-        rootHash: nextRevisionRoot(ZERO_HASH, event.eventHash)
+        rootHash: nextRevisionRoot(ZERO_HASH, event.eventHash),
+        serializedBytes: eventBytes
       })
     } else {
       const revision = revisionForRoot!
+      revision.serializedBytes += eventBytes
       revision.rootHash = nextRevisionRoot(revision.rootHash, event.eventHash)
       if (input.type === 'research-recorded') {
         revision.status = 'researched'
@@ -1138,6 +1408,12 @@ export class VisualArtifactLedger {
         if (input.verdict === 'approved') {
           revision.promptApprovedAt = input.occurredAt
           revision.promptApprovalEventHash = event.eventHash
+          revision.promptApprovalSequence = event.sequence
+          revision.promptApprovalLedgerRootHash = computeVisualArtifactLedgerRootHash(
+            this.plan.planHash,
+            event.sequence,
+            event.eventHash
+          )
         }
       } else if (input.type === 'image-generation-recorded') {
         revision.status = 'image-generated'
@@ -1197,6 +1473,12 @@ export class VisualArtifactLedger {
       ...(revision.promptApprovalEventHash === undefined
         ? {}
         : { promptApprovalEventHash: revision.promptApprovalEventHash }),
+      ...(revision.promptApprovalLedgerRootHash === undefined
+        ? {}
+        : { promptApprovalLedgerRootHash: revision.promptApprovalLedgerRootHash }),
+      ...(revision.promptApprovalSequence === undefined
+        ? {}
+        : { promptApprovalSequence: revision.promptApprovalSequence }),
       ...(revision.generationAttempt === undefined
         ? {}
         : { generationAttempt: revision.generationAttempt }),
@@ -1232,6 +1514,33 @@ export class VisualArtifactLedger {
 
   events(): readonly ArtifactEvent[] {
     return deepFreeze(cloneCanonical(this.eventLog))
+  }
+
+  promptApprovalCheckpointBinding(artifactIdValue: unknown): PromptApprovalCheckpointBinding {
+    const artifactId = parseArtifactId(artifactIdValue).id
+    const history = this.artifacts.get(artifactId)
+    const revision = history?.revisions[history.revisions.length - 1]
+    if (
+      !revision ||
+      revision.status !== 'prompt-approved' ||
+      !revision.promptHash ||
+      !revision.promptApprovedAt ||
+      !revision.promptApprovalEventHash ||
+      !revision.promptApprovalLedgerRootHash ||
+      revision.promptApprovalSequence === undefined
+    ) {
+      fail('TRUST', 'A committed approved prompt is required before issuing a scheduler checkpoint.')
+    }
+    return deepFreeze({
+      ledgerRootHash: revision.promptApprovalLedgerRootHash,
+      ledgerSequence: revision.promptApprovalSequence,
+      promptApprovedAt: revision.promptApprovedAt,
+      planHash: this.plan.planHash,
+      artifactId,
+      revision: revision.revision,
+      promptHash: revision.promptHash,
+      promptApprovalEventHash: revision.promptApprovalEventHash
+    })
   }
 
   createCheckpoint(): LedgerCheckpoint {
@@ -1297,7 +1606,9 @@ export class VisualArtifactLedger {
       planHash: string
       registryHash: string
       trustedCheckpoint: LedgerCheckpoint
+      trustedCheckpointAttestation: OpaqueAttestation
     },
+    principalAttestation: OpaqueAttestation,
     skipFullReplay: boolean
   ): LedgerFinalizedEvent {
     this.assertWritable()
@@ -1308,8 +1619,42 @@ export class VisualArtifactLedger {
       fail('FINALIZATION', 'Finalization planHash or registryHash is not exact.')
     }
     const checkpoint = this.verifyCheckpoint(value.trustedCheckpoint, true)
+    if (
+      !this.dependencies.rootVerifier.verifyRoot(value.trustedCheckpointAttestation, {
+        domain: 'visual-artifact-ledger',
+        purpose: 'finalization-checkpoint',
+        rootHash: checkpoint.rootHash,
+        version: checkpoint.sequence,
+        contextHash: this.plan.planHash
+      })
+    ) {
+      fail('TRUST', 'Finalization requires an externally attested accepted checkpoint.')
+    }
+    const principalBinding: AuthenticatedPrincipalBinding = {
+      domain: 'visual-artifact-ledger',
+      principalId: actorId,
+      role: 'release-owner',
+      action: 'ledger-finalized',
+      actionHash: sha256Hex({
+        domain: 'visual-artifact-principal-action-v1',
+        event: {
+          type: 'ledger-finalized',
+          occurredAt,
+          actorId,
+          planHash: this.plan.planHash,
+          registryHash: this.plan.registryHash,
+          trustedCheckpoint: checkpoint,
+          trustedCheckpointAttestation: value.trustedCheckpointAttestation
+        }
+      }),
+      contextRootHash: this.rootHash,
+      contextVersion: this.sequence
+    }
+    if (!this.dependencies.principalVerifier.verifyPrincipal(principalAttestation, principalBinding)) {
+      fail('TRUST', 'Finalization requires an authenticated release-owner attestation.')
+    }
     if (!skipFullReplay) {
-      const replayed = replayLedgerEvents(this.plan, this.eventLog, this.scheduler)
+      const replayed = replayLedgerEvents(this.plan, this.eventLog, this.dependencies)
       replayed.assertCompleteAcceptedPlan()
     }
     this.assertCompleteAcceptedPlan()
@@ -1319,12 +1664,14 @@ export class VisualArtifactLedger {
       type: 'ledger-finalized' as const,
       occurredAt,
       actorId,
+      principalAttestation,
       planHash: this.plan.planHash,
       registryHash: this.plan.registryHash,
       artifactCount: this.expectedIds.length,
       artifactSetHash: expectedArtifactSetHash(this.plan),
       trustedCheckpointSequence: checkpoint.sequence,
       trustedCheckpointRootHash: checkpoint.rootHash,
+      trustedCheckpointAttestation: value.trustedCheckpointAttestation,
       previousEventHash: this.lastEventHash
     }
     const event = deepFreeze({
@@ -1338,70 +1685,105 @@ export class VisualArtifactLedger {
     return event
   }
 
-  finalize(value: unknown): LedgerFinalizedEvent {
+  finalizationPrincipalBindingFor(value: unknown): AuthenticatedPrincipalBinding {
     assertPlainObject(value, 'Ledger finalization')
     assertExactKeys(
       value,
-      ['occurredAt', 'actorId', 'planHash', 'registryHash', 'trustedCheckpoint'],
+      [
+        'occurredAt',
+        'actorId',
+        'planHash',
+        'registryHash',
+        'trustedCheckpoint',
+        'trustedCheckpointAttestation'
+      ],
       'Ledger finalization'
     )
+    const occurredAt = assertIsoTimestamp(value.occurredAt, 'Ledger finalization occurredAt')
+    const actorId = assertIdentifier(value.actorId, 'Ledger finalization actorId')
+    const checkpoint = checkpointFromUnknown(value.trustedCheckpoint)
+    const checkpointAttestation = parseOpaqueAttestation(
+      value.trustedCheckpointAttestation,
+      'Ledger finalization checkpoint attestation'
+    )
+    return deepFreeze({
+      domain: 'visual-artifact-ledger',
+      principalId: actorId,
+      role: 'release-owner',
+      action: 'ledger-finalized',
+      actionHash: sha256Hex({
+        domain: 'visual-artifact-principal-action-v1',
+        event: {
+          type: 'ledger-finalized',
+          occurredAt,
+          actorId,
+          planHash: assertSha256(value.planHash, 'Ledger finalization planHash'),
+          registryHash: assertSha256(value.registryHash, 'Ledger finalization registryHash'),
+          trustedCheckpoint: checkpoint,
+          trustedCheckpointAttestation: checkpointAttestation
+        }
+      }),
+      contextRootHash: this.rootHash,
+      contextVersion: this.sequence
+    })
+  }
+
+  finalize(value: unknown, principalAttestationValue: unknown): LedgerFinalizedEvent {
+    this.finalizationPrincipalBindingFor(value)
+    assertPlainObject(value, 'Ledger finalization')
     return this.appendFinalization(
       {
         occurredAt: assertIsoTimestamp(value.occurredAt, 'Ledger finalization occurredAt'),
         actorId: assertIdentifier(value.actorId, 'Ledger finalization actorId'),
         planHash: assertSha256(value.planHash, 'Ledger finalization planHash'),
         registryHash: assertSha256(value.registryHash, 'Ledger finalization registryHash'),
-        trustedCheckpoint: checkpointFromUnknown(value.trustedCheckpoint)
+        trustedCheckpoint: checkpointFromUnknown(value.trustedCheckpoint),
+        trustedCheckpointAttestation: parseOpaqueAttestation(
+          value.trustedCheckpointAttestation,
+          'Ledger finalization checkpoint attestation'
+        )
       },
+      parseOpaqueAttestation(principalAttestationValue, 'Finalization principal attestation'),
       false
     )
   }
 
-  private assertExternalTrust(optionsValue: LedgerTrustOptions): void {
-    assertPlainObject(optionsValue, 'Ledger trust options')
-    const keys = Object.keys(optionsValue)
-    for (const key of keys) {
-      if (key !== 'trustedRootHash' && key !== 'trustedCheckpoint') {
-        fail('SCHEMA', `Ledger trust options contain unknown field "${key}".`)
-      }
-    }
-    const root =
-      optionsValue.trustedRootHash === undefined
-        ? undefined
-        : assertSha256(optionsValue.trustedRootHash, 'Ledger trustedRootHash')
-    const checkpoint =
-      optionsValue.trustedCheckpoint === undefined
-        ? undefined
-        : checkpointFromUnknown(optionsValue.trustedCheckpoint)
-    if (root && checkpoint) fail('TRUST', 'Supply one trusted root or checkpoint, not both.')
-
-    const trustRequired = this.hasAcceptedHistory || this.finalized
-    if (trustRequired && !root && !checkpoint) {
-      fail('TRUST', 'Accepted or finalized ledgers require an externally supplied trusted root/checkpoint.')
-    }
-    if (root && root !== this.rootHash) {
-      fail('TRUST', 'Ledger does not match the externally supplied trusted root.')
-    }
-    if (checkpoint) {
-      this.verifyCheckpoint(checkpoint, trustRequired)
+  verifyRootAttestation(attestationValue: unknown): void {
+    const attestation = parseOpaqueAttestation(attestationValue, 'Ledger root attestation')
+    if (
+      !this.dependencies.rootVerifier.verifyRoot(attestation, {
+        domain: 'visual-artifact-ledger',
+        purpose: 'envelope',
+        rootHash: this.rootHash,
+        version: this.sequence,
+        contextHash: this.plan.planHash
+      })
+    ) {
+      fail('TRUST', 'Ledger root lacks an externally issued trusted attestation.')
     }
   }
 
-  toSerializable(): SerializedVisualArtifactLedger {
-    return deepFreeze({
+  serialize(optionsValue: unknown): string {
+    assertPlainObject(optionsValue, 'Ledger serialization options')
+    assertExactKeys(optionsValue, ['rootAttestation'], 'Ledger serialization options')
+    this.verifyRootAttestation(optionsValue.rootAttestation)
+    return canonicalStringify({
       schemaVersion: VISUAL_ARTIFACT_LEDGER_VERSION,
       plan: cloneCanonical(this.plan),
+      rootAttestation: parseOpaqueAttestation(
+        optionsValue.rootAttestation,
+        'Ledger root attestation'
+      ),
       events: this.events()
     })
   }
-
-  serialize(options: LedgerTrustOptions = {}): string {
-    this.assertExternalTrust(options)
-    return canonicalStringify(this.toSerializable())
-  }
 }
 
-function storedEventToInput(value: unknown, sequence: number, previousHash: string): ArtifactEventInput {
+function storedEventToInput(
+  value: unknown,
+  sequence: number,
+  previousHash: string
+): { input: ArtifactEventInput; principalAttestation: OpaqueAttestation } {
   assertPlainObject(value, `Artifact event ${sequence}`)
   if (value.sequence !== sequence) fail('INTEGRITY', 'Artifact event sequence is not contiguous.')
   const prior = assertSha256(value.previousEventHash, `Artifact event ${sequence} previousEventHash`)
@@ -1440,6 +1822,10 @@ function storedEventToInput(value: unknown, sequence: number, previousHash: stri
       'schedulerCallId',
       'schedulerCallHash',
       'schedulerReceiptHash',
+      'schedulerAuthorityId',
+      'schedulerAuthorityVersion',
+      'schedulerAuthorityRootHash',
+      'schedulerAuthorityCommitHash',
       'evidence'
     ],
     'image-qa-reviewed': [
@@ -1463,6 +1849,10 @@ function storedEventToInput(value: unknown, sequence: number, previousHash: stri
       ...REVISION_EVENT_KEYS,
       'schedulerCallId',
       'schedulerCallHash',
+      'schedulerAuthorityId',
+      'schedulerAuthorityVersion',
+      'schedulerAuthorityRootHash',
+      'schedulerAuthorityCommitHash',
       'failureReason',
       'exhaustionHash',
       'evidence'
@@ -1478,18 +1868,24 @@ function storedEventToInput(value: unknown, sequence: number, previousHash: stri
   input.type = type
   input.occurredAt = value.occurredAt
   input.actorId = value.actorId
-  return normalizeInput(input)
+  return {
+    input: normalizeInput(input),
+    principalAttestation: parseOpaqueAttestation(
+      value.principalAttestation,
+      `Artifact event ${sequence} principalAttestation`
+    )
+  }
 }
 
 function replayLedgerEvents(
   plan: ArtifactPlan,
   events: readonly ArtifactEvent[],
-  scheduler?: ValidatedImageScheduler
+  dependencies: VisualArtifactLedgerDependencies
 ): VisualArtifactLedger {
   if (events.length > MAX_LEDGER_EVENTS) {
     fail('CARDINALITY', `Ledger history exceeds ${MAX_LEDGER_EVENTS} events.`)
   }
-  const ledger = VisualArtifactLedger.create(plan, scheduler)
+  const ledger = VisualArtifactLedger.create(plan, dependencies)
   let previousHash = ZERO_HASH
   for (let index = 0; index < events.length; index += 1) {
     const stored = events[index]
@@ -1501,8 +1897,8 @@ function replayLedgerEvents(
     ) {
       fail('FINALIZATION', 'Finalization must be the unique last event.')
     }
-    const input = storedEventToInput(stored, index + 1, previousHash)
-    const generated = ledger.append(input)
+    const storedInput = storedEventToInput(stored, index + 1, previousHash)
+    const generated = ledger.append(storedInput.input, storedInput.principalAttestation)
     if (canonicalStringify(stored) !== canonicalStringify(generated)) {
       fail('INTEGRITY', `Artifact event ${index + 1} hash or derived content does not match replay.`)
     }
@@ -1527,7 +1923,8 @@ function appendStoredFinalization(
       'artifactCount',
       'artifactSetHash',
       'trustedCheckpointSequence',
-      'trustedCheckpointRootHash'
+      'trustedCheckpointRootHash',
+      'trustedCheckpointAttestation'
     ],
     `Artifact event ${sequence}`
   )
@@ -1566,7 +1963,9 @@ function appendStoredFinalization(
           planHash: string
           registryHash: string
           trustedCheckpoint: LedgerCheckpoint
+          trustedCheckpointAttestation: OpaqueAttestation
         },
+        principalAttestation: OpaqueAttestation,
         skipFullReplay: boolean
       ): LedgerFinalizedEvent
     }
@@ -1576,8 +1975,16 @@ function appendStoredFinalization(
       actorId: assertIdentifier(value.actorId, 'Stored finalization actorId'),
       planHash: ledger.plan.planHash,
       registryHash: ledger.plan.registryHash,
-      trustedCheckpoint: checkpoint
+      trustedCheckpoint: checkpoint,
+      trustedCheckpointAttestation: parseOpaqueAttestation(
+        value.trustedCheckpointAttestation,
+        'Stored finalization checkpoint attestation'
+      )
     },
+    parseOpaqueAttestation(
+      value.principalAttestation,
+      'Stored finalization principal attestation'
+    ),
     true
   )
   if (canonicalStringify(value) !== canonicalStringify(generated)) {
@@ -1587,7 +1994,7 @@ function appendStoredFinalization(
 
 export function parseVisualArtifactLedger(
   serialized: string,
-  options: ParseVisualArtifactLedgerOptions = {}
+  optionsValue: unknown
 ): VisualArtifactLedger {
   if (
     typeof serialized !== 'string' ||
@@ -1602,8 +2009,24 @@ export function parseVisualArtifactLedger(
   } catch {
     fail('SCHEMA', 'Serialized visual artifact ledger is not valid JSON.')
   }
+  if (canonicalStringify(parsed) !== serialized) {
+    fail('SCHEMA', 'Ledger JSON must be byte-for-byte canonical and contain no duplicate keys.')
+  }
+  assertPlainObject(optionsValue, 'Ledger parse options')
+  assertExactKeys(
+    optionsValue,
+    ['dependencies'],
+    'Ledger parse options'
+  )
+  const dependencies = assertLedgerDependencies(
+    optionsValue.dependencies as VisualArtifactLedgerDependencies
+  )
   assertPlainObject(parsed, 'Serialized visual artifact ledger')
-  assertExactKeys(parsed, ['schemaVersion', 'plan', 'events'], 'Serialized visual artifact ledger')
+  assertExactKeys(
+    parsed,
+    ['schemaVersion', 'plan', 'rootAttestation', 'events'],
+    'Serialized visual artifact ledger'
+  )
   if (parsed.schemaVersion !== VISUAL_ARTIFACT_LEDGER_VERSION) {
     fail('SCHEMA', `Ledger schemaVersion must be ${VISUAL_ARTIFACT_LEDGER_VERSION}.`)
   }
@@ -1612,10 +2035,6 @@ export function parseVisualArtifactLedger(
   if (parsed.events.length > MAX_LEDGER_EVENTS) {
     fail('CARDINALITY', `Ledger history exceeds ${MAX_LEDGER_EVENTS} events.`)
   }
-  if (options.scheduler !== undefined && !(options.scheduler instanceof ValidatedImageScheduler)) {
-    fail('SCHEMA', 'Ledger parser requires a validated scheduler authority.')
-  }
-
   let finalization: unknown
   let artifactEvents = parsed.events
   const finalIndex = parsed.events.findIndex(
@@ -1632,30 +2051,24 @@ export function parseVisualArtifactLedger(
     finalization = parsed.events[finalIndex]
     artifactEvents = parsed.events.slice(0, finalIndex)
   }
-  const ledger = replayLedgerEvents(plan, artifactEvents as ArtifactEvent[], options.scheduler)
+  const ledger = replayLedgerEvents(
+    plan,
+    artifactEvents as ArtifactEvent[],
+    dependencies
+  )
   if (finalization !== undefined) {
     appendStoredFinalization(ledger, finalization, parsed.events.length, ledger.createCheckpoint().eventHash)
   }
-  const trustOptions: LedgerTrustOptions = {
-    ...(options.trustedRootHash === undefined
-      ? {}
-      : { trustedRootHash: options.trustedRootHash }),
-    ...(options.trustedCheckpoint === undefined
-      ? {}
-      : { trustedCheckpoint: options.trustedCheckpoint })
-  }
-  ;(
-    ledger as unknown as { assertExternalTrust(options: LedgerTrustOptions): void }
-  ).assertExternalTrust(trustOptions)
+  ledger.verifyRootAttestation(parsed.rootAttestation)
   return ledger
 }
 
 export function serializeVisualArtifactLedger(
   ledger: VisualArtifactLedger,
-  options: LedgerTrustOptions = {}
+  optionsValue: unknown
 ): string {
   if (!(ledger instanceof VisualArtifactLedger)) {
     fail('SCHEMA', 'Only a validated visual artifact ledger can be serialized.')
   }
-  return ledger.serialize(options)
+  return ledger.serialize(optionsValue)
 }

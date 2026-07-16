@@ -4,6 +4,7 @@ import {
   canonicalStringify,
   utf8ByteLength
 } from './canonical'
+import { parseOpaqueAttestation } from './authorities'
 import { createArtifactPlan } from './plan'
 import { makePlan } from './test-fixtures'
 
@@ -20,7 +21,10 @@ describe('bounded canonical validation', () => {
       'mailto:user@example.com',
       'ftp:example.com',
       'sk-proj-abcdef',
-      'github_pat_abcdef'
+      'github_pat_abcdef',
+      'x:sk-proj-abcdef',
+      'prefix:mailto:user@example.com',
+      'x:token'
     ]) {
       expect(() => assertIdentifier(value, 'test identifier')).toThrow(
         /forbidden URL, credential, or environment-secret/i
@@ -41,5 +45,14 @@ describe('bounded canonical validation', () => {
     ).toThrow(/cannot be sparse/i)
     expect(() => canonicalStringify(new Array(1))).toThrow(/cannot be sparse/i)
     expect(utf8ByteLength('\u0800')).toBe(3)
+  })
+
+  it('restricts opaque attestations to bounded ASCII encoding', () => {
+    expect(() =>
+      parseOpaqueAttestation({ token: `valid:${'a'.repeat(122)}` }, 'attestation')
+    ).not.toThrow()
+    expect(() =>
+      parseOpaqueAttestation({ token: `bad:${'\ud800'.repeat(120)}` }, 'attestation')
+    ).toThrow(/bounded ASCII attestation encoding/i)
   })
 })

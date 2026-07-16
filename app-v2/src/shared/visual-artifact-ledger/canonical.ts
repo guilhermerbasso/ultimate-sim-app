@@ -69,9 +69,9 @@ export function assertString(
 
 const SAFE_IDENTIFIER = /^[a-zA-Z0-9][a-zA-Z0-9._:@-]*$/
 const FORBIDDEN_URI_SCHEME =
-  /^(?:https?|ftp|ftps|file|data|mailto|ssh|s3|azure|ws|wss):/i
+  /(?:https?|ftp|ftps|file|data|mailto|ssh|s3|azure|ws|wss):/i
 const SECRET_SHAPE =
-  /^(?:sk-|gh[pousr]_|github_pat_|xox[a-z]-|akia[0-9a-z]{8,}|aiza[0-9a-z_-]{8,}|eyj[a-z0-9_-]*\.)/i
+  /(?:^|[:._@-])(?:sk-|gh[pousr]_|github_pat_|xox[a-z]-|akia[0-9a-z]{8,}|aiza[0-9a-z_-]{8,}|eyj[a-z0-9_-]*\.)/i
 
 export function assertIdentifier(value: unknown, label: string): string {
   const identifier = assertString(value, label, MAX_IDENTIFIER_LENGTH)

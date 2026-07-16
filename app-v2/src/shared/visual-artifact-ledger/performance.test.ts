@@ -2,10 +2,17 @@ import { describe, expect, it } from 'vitest'
 import { parseVisualArtifactLedger, VisualArtifactLedger } from './ledger'
 import { expectedArtifactIds } from './plan'
 import {
+  MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION,
+  MAX_SERIALIZED_PLAN_BYTES
+} from './constants'
+import {
   DEFAULT_POLICY,
   HashPool,
   TestClock,
   appendAcceptedArtifact,
+  appendLedger,
+  ledgerRootAttestation,
+  makeGovernance,
   makePlan,
   makeScheduler
 } from './test-fixtures'
@@ -17,12 +24,15 @@ describe('14,850-artifact incremental and finalization performance', () => {
     () => {
       const plan = makePlan()
       const ids = expectedArtifactIds(plan)
-      const schedulerClock = new TestClock()
-      const scheduler = makeScheduler(schedulerClock, {
+      const governance = makeGovernance()
+      const scheduler = makeScheduler(governance, {
         ...DEFAULT_POLICY,
         windowMs: 1
       })
-      const ledger = VisualArtifactLedger.create(plan, scheduler)
+      const ledger = VisualArtifactLedger.create(
+        plan,
+        governance.ledgerDependencies(scheduler)
+      )
       const ledgerClock = new TestClock(1_000_000)
       const hashes = new HashPool(1_000_000)
       const specificationHashes: string[] = []
@@ -31,7 +41,7 @@ describe('14,850-artifact incremental and finalization performance', () => {
       for (const artifactId of ids) {
         const specificationHash = hashes.next()
         specificationHashes.push(specificationHash)
-        ledger.append({
+        appendLedger(ledger, governance, {
           type: 'artifact-revision-started',
           occurredAt: ledgerClock.next(),
           actorId: 'planner',
@@ -48,36 +58,49 @@ describe('14,850-artifact incremental and finalization performance', () => {
         appendAcceptedArtifact(
           ledger,
           scheduler,
+          governance,
           ids[index],
           1,
           hashes,
           ledgerClock,
-          schedulerClock,
           { start: false, specificationHash: specificationHashes[index] }
         )
       }
       const lifecycleMs = performance.now() - lifecycleStartedAt
       const preFinalizationEvents = ledger.eventCount
       const checkpoint = ledger.createCheckpoint()
+      const checkpointAttestation = governance.attestations.issueRoot({
+        domain: 'visual-artifact-ledger',
+        purpose: 'finalization-checkpoint',
+        rootHash: checkpoint.rootHash,
+        version: checkpoint.sequence,
+        contextHash: plan.planHash
+      })
 
       const finalizationStartedAt = performance.now()
-      ledger.finalize({
+      const finalization = {
         occurredAt: ledgerClock.next(),
         actorId: 'release-owner',
         planHash: plan.planHash,
         registryHash: plan.registryHash,
-        trustedCheckpoint: checkpoint
-      })
+        trustedCheckpoint: checkpoint,
+        trustedCheckpointAttestation: checkpointAttestation
+      }
+      ledger.finalize(
+        finalization,
+        governance.attestations.issuePrincipal(
+          ledger.finalizationPrincipalBindingFor(finalization)
+        )
+      )
       const finalizationMs = performance.now() - finalizationStartedAt
       const finalizedRoot = ledger.rootHash
-      const finalizedCheckpoint = ledger.createCheckpoint()
+      const finalRootAttestation = ledgerRootAttestation(ledger, governance)
 
       const roundTripStartedAt = performance.now()
-      const serialized = ledger.serialize({ trustedCheckpoint: finalizedCheckpoint })
+      const serialized = ledger.serialize({ rootAttestation: finalRootAttestation })
       const serializedBytes = Buffer.byteLength(serialized, 'utf8')
       const reparsed = parseVisualArtifactLedger(serialized, {
-        scheduler,
-        trustedCheckpoint: finalizedCheckpoint
+        dependencies: governance.ledgerDependencies(scheduler)
       })
       const roundTripMs = performance.now() - roundTripStartedAt
 
@@ -97,6 +120,10 @@ describe('14,850-artifact incremental and finalization performance', () => {
       expect(ledger.isFinalized).toBe(true)
       expect(reparsed.rootHash).toBe(finalizedRoot)
       expect(reparsed.isFinalized).toBe(true)
+      expect(serializedBytes).toBeLessThanOrEqual(
+        ids.length * MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION +
+          MAX_SERIALIZED_PLAN_BYTES
+      )
       expect(stageUpdateMs).toBeLessThan(10_000)
       expect(lifecycleMs).toBeLessThan(90_000)
       expect(finalizationMs).toBeLessThan(60_000)
