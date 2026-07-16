@@ -130,6 +130,7 @@ function isAllowedAppNavigation(url: string): boolean {
 const SUBDIR = 'dashboards'
 const PLAYLIST_FILE = 'dashboard-playlist.json'
 const QUARANTINE_DIR = '.dashboard-quarantine'
+const MIGRATION_DIR = '.dashboard-migrations'
 const CYCLE_DEBOUNCE_MS = 350
 
 interface SimhubImportOptions {
@@ -151,6 +152,7 @@ interface DashboardFileCandidate {
   file: string
   dashboard: Dashboard
   hash: string
+  migrated: boolean
 }
 
 function dashboardCandidateTimestamp(candidate: DashboardFileCandidate): number {
@@ -210,6 +212,15 @@ function selectDashboardFileCandidate(
 
 function exactFileHash(raw: Uint8Array): string {
   return createHash('sha256').update(raw).digest('hex')
+}
+
+function nextDashboardRevision(previous: number | undefined, now = Date.now()): number {
+  if (previous === undefined) return now
+  const normalized = Math.floor(previous)
+  if (!Number.isSafeInteger(normalized) || normalized >= Number.MAX_SAFE_INTEGER) {
+    throw new Error(`Dashboard revision cannot advance beyond ${String(previous)}.`)
+  }
+  return Math.max(now, normalized + 1)
 }
 
 function errorMessage(error: unknown): string {
@@ -388,6 +399,7 @@ export class DashboardManager {
     if (this.loaded) return
     await mkdir(this.storeDir, { recursive: true })
     await mkdir(join(this.storeDir, QUARANTINE_DIR), { recursive: true })
+    await mkdir(join(this.storeDir, MIGRATION_DIR), { recursive: true })
     const files = (await readdir(this.storeDir)).sort((a, b) => a.localeCompare(b))
     const dashboards = new Map<string, Dashboard>()
     const sourceFiles = new Map<string, string>()
@@ -411,7 +423,12 @@ export class DashboardManager {
         continue
       }
       const candidates = candidatesById.get(result.dashboard.id) ?? []
-      candidates.push({ file, dashboard: result.dashboard, hash })
+      candidates.push({
+        file,
+        dashboard: result.dashboard,
+        hash,
+        migrated: result.status === 'migrated'
+      })
       candidatesById.set(result.dashboard.id, candidates)
       if (result.status === 'migrated') {
         logger.info('dashboards', 'dashboard loaded with in-memory storage migrations', {
@@ -472,17 +489,32 @@ export class DashboardManager {
     for (const [id, candidate] of selectedCandidates) {
       const canonicalFile = `${this.fileNameOf(id)}.json`
       await this.canonicalizeDashboardSource(candidate, canonicalFile)
-      dashboards.set(id, candidate.dashboard)
+      const dashboard = candidate.migrated
+        ? {
+            ...candidate.dashboard,
+            updatedAt: nextDashboardRevision(
+              candidate.dashboard.updatedAt ?? candidate.dashboard.createdAt
+            )
+          }
+        : candidate.dashboard
+      if (candidate.migrated) {
+        await this.persistMigratedDashboard(candidate, canonicalFile, dashboard)
+      }
+      dashboards.set(id, dashboard)
       sourceFiles.set(id, canonicalFile)
     }
     if (dashboards.size === 0) {
       // Sementeia com presets na primeira execução
       for (const preset of BUILTIN_PRESETS) {
-        const dash = validatedDashboard(
+        const built = validatedDashboard(
           preset.build(),
           `Builtin preset "${preset.id}" is invalid`,
           this.identityCatalog
         )
+        const dash = {
+          ...built,
+          updatedAt: nextDashboardRevision(undefined)
+        }
         dashboards.set(dash.id, dash)
         await this.persist(dash)
         sourceFiles.set(dash.id, `${this.fileNameOf(dash.id)}.json`)
@@ -825,8 +857,10 @@ export class DashboardManager {
 
   private async saveInternal(dash: Dashboard): Promise<DashboardSummary> {
     const canonical = validatedDashboard(dash, 'Invalid dashboard', this.identityCatalog)
-    canonical.updatedAt = Date.now()
-    if (!canonical.createdAt) canonical.createdAt = canonical.updatedAt
+    const existing = this.dashboards.get(canonical.id)
+    const createdAt = existing?.createdAt ?? canonical.createdAt ?? Date.now()
+    canonical.createdAt = createdAt
+    canonical.updatedAt = nextDashboardRevision(existing?.updatedAt ?? existing?.createdAt)
     await this.persist(canonical)
     this.dashboards.set(canonical.id, canonical)
     this.ctx.broadcast('app:dash:list', this.list())
@@ -857,7 +891,11 @@ export class DashboardManager {
   private async setHiddenInternal(id: string, hidden: boolean): Promise<DashboardSummary[]> {
     const dash = this.dashboards.get(id)
     if (!dash) throw new Error(`Dashboard not found: ${id}`)
-    const next = { ...dash, hidden: Boolean(hidden), updatedAt: Date.now() }
+    const next = {
+      ...dash,
+      hidden: Boolean(hidden),
+      updatedAt: nextDashboardRevision(dash.updatedAt ?? dash.createdAt)
+    }
     await this.persist(next)
     this.dashboards.set(id, next)
     const list = this.list()
@@ -890,7 +928,12 @@ export class DashboardManager {
         `Builtin preset "${id}" is invalid`,
         this.identityCatalog
       )
-      const dash: Dashboard = { ...built, id }
+      const dash: Dashboard = {
+        ...built,
+        id,
+        createdAt: built.createdAt ?? Date.now(),
+        updatedAt: nextDashboardRevision(undefined)
+      }
       await this.persist(dash)
       this.dashboards.set(id, dash)
       this.ctx.broadcast('app:dash:list', this.list())
@@ -1200,6 +1243,68 @@ export class DashboardManager {
       id: candidate.dashboard.id,
       from: candidate.file,
       to: canonicalFile
+    })
+  }
+
+  private async persistMigratedDashboard(
+    candidate: DashboardFileCandidate,
+    canonicalFile: string,
+    dashboard: Dashboard
+  ): Promise<void> {
+    const source = join(this.storeDir, canonicalFile)
+    const nameHash = createHash('sha256').update(candidate.file, 'utf8').digest('hex').slice(0, 16)
+    const archiveFile = `m.${nameHash}.${randomUUID()}.json`
+    const archive = join(this.storeDir, MIGRATION_DIR, archiveFile)
+    const temp = join(this.storeDir, `.tmp-dashboard-migration-${randomUUID()}.json`)
+    let archived = false
+    try {
+      await rename(source, archive)
+      archived = true
+      if (exactFileHash(await readFile(archive)) !== candidate.hash) {
+        throw new Error(`Dashboard migration archive changed bytes for "${candidate.file}".`)
+      }
+      await writeFile(temp, JSON.stringify(dashboard, null, 2), 'utf8')
+      await rename(temp, source)
+      const persisted = dashboardStorageValidationResult(
+        JSON.parse((await readFile(source)).toString('utf8')) as unknown,
+        { identityCatalog: this.identityCatalog }
+      )
+      if (persisted.status !== 'valid' || persisted.dashboard.updatedAt !== dashboard.updatedAt) {
+        throw new Error(`Dashboard migration did not persist a canonical revision for "${dashboard.id}".`)
+      }
+    } catch (error) {
+      try {
+        await unlink(temp)
+      } catch (cleanupError) {
+        if (!isMissingFileError(cleanupError)) {
+          logger.warn('dashboards', 'failed to remove dashboard migration temp file', {
+            file: temp,
+            error: errorMessage(cleanupError)
+          })
+        }
+      }
+      if (archived) {
+        try {
+          try {
+            await unlink(source)
+          } catch (cleanupError) {
+            if (!isMissingFileError(cleanupError)) throw cleanupError
+          }
+          await rename(archive, source)
+        } catch (rollbackError) {
+          throw new Error(
+            `Dashboard migration failed and rollback could not restore "${candidate.file}": ` +
+            `${errorMessage(error)}; ${errorMessage(rollbackError)}`
+          )
+        }
+      }
+      throw error
+    }
+    logger.info('dashboards', 'persisted canonical dashboard storage migration', {
+      id: dashboard.id,
+      source: canonicalFile,
+      archive: `${MIGRATION_DIR}/${archiveFile}`,
+      updatedAt: dashboard.updatedAt
     })
   }
 

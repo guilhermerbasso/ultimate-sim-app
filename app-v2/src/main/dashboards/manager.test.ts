@@ -440,7 +440,7 @@ describe('DashboardManager restart restoration', () => {
     }
   })
 
-  it('applies canonical legacy migrations in memory without rewriting persisted bytes', async () => {
+  it('persists canonical legacy migrations while archiving the original bytes', async () => {
     const legacy: Dashboard = {
       id: 'legacy-table',
       name: 'Legacy table',
@@ -463,9 +463,25 @@ describe('DashboardManager restart restoration', () => {
     const manager = makeHeadlessManager(userData)
     await manager.load()
 
-    expect(manager.getDashboard(legacy.id)?.elements[0].style.tableColumns).toEqual(['pos', 'laps'])
-    expect(readFileSync(stored.path, 'utf8')).toBe(stored.raw)
+    const migrated = manager.getDashboard(legacy.id)
+    expect(migrated?.elements[0].style.tableColumns).toEqual(['pos', 'laps'])
+    expect(migrated?.updatedAt).toEqual(expect.any(Number))
+    const migrationFiles = readdirSync(join(userData, 'dashboards', '.dashboard-migrations'))
+    expect(migrationFiles).toHaveLength(1)
+    expect(readFileSync(join(userData, 'dashboards', '.dashboard-migrations', migrationFiles[0]), 'utf8'))
+      .toBe(stored.raw)
+    const persistedMigration = JSON.parse(readFileSync(stored.path, 'utf8')) as Dashboard
+    expect(persistedMigration.elements[0].style.tableColumns).toEqual(['pos', 'laps'])
+    expect(persistedMigration.updatedAt).toBe(migrated?.updatedAt)
     expect(manager.listStorageIssues()).toEqual([])
+    const migratedRevision = migrated!.updatedAt!
+    const now = vi.spyOn(Date, 'now').mockReturnValue(0)
+    try {
+      await manager.save({ ...migrated!, name: 'Migrated and saved' })
+    } finally {
+      now.mockRestore()
+    }
+    expect(manager.getDashboard(legacy.id)?.updatedAt).toBe(migratedRevision + 1)
   })
 
   it('restores a legacy hi-fi overlay identity from the shared catalog', async () => {
@@ -491,7 +507,10 @@ describe('DashboardManager restart restoration', () => {
       widgetId: 'hifi:speedGear',
       hifiModuleId: 'speedGear'
     })
-    expect(readFileSync(stored.path, 'utf8')).toBe(stored.raw)
+    const migrationFiles = readdirSync(join(userData, 'dashboards', '.dashboard-migrations'))
+    expect(migrationFiles).toHaveLength(1)
+    expect(readFileSync(join(userData, 'dashboards', '.dashboard-migrations', migrationFiles[0]), 'utf8'))
+      .toBe(stored.raw)
     expect(manager.listStorageIssues()).toEqual([])
   })
 
@@ -523,7 +542,10 @@ describe('DashboardManager restart restoration', () => {
       widgetId: 'hifi:absState',
       hifiModuleId: 'absState'
     })
-    expect(readFileSync(stored.path, 'utf8')).toBe(stored.raw)
+    const migrationFiles = readdirSync(join(userData, 'dashboards', '.dashboard-migrations'))
+    expect(migrationFiles).toHaveLength(1)
+    expect(readFileSync(join(userData, 'dashboards', '.dashboard-migrations', migrationFiles[0]), 'utf8'))
+      .toBe(stored.raw)
     expect(manager.listStorageIssues()).toEqual([])
   })
 
@@ -748,8 +770,76 @@ describe('DashboardManager restart restoration', () => {
       .toBe('Saved during startup')
   })
 
-  it('serializes direct mutations through one manager-wide chain', async () => {
+  it('advances beyond a future-dated stored revision when saving', async () => {
+    const futureRevision = Date.now() + 10_000_000
+    const stored = {
+      ...raceTrafficAttack(),
+      id: 'future-revision',
+      name: 'Future revision',
+      createdAt: 123,
+      updatedAt: futureRevision
+    }
+    persistDashboard(userData, stored)
     const manager = makeHeadlessManager(userData)
+    await manager.load()
+
+    await manager.save({ ...stored, name: 'Saved after future revision' })
+
+    const saved = manager.getDashboard(stored.id)
+    expect(saved?.updatedAt).toBe(futureRevision + 1)
+    expect(saved?.createdAt).toBe(123)
+    expect(JSON.parse(readFileSync(join(userData, 'dashboards', `${stored.id}.json`), 'utf8')).updatedAt)
+      .toBe(futureRevision + 1)
+  })
+
+  it('keeps visibility revisions monotonic when the system clock rolls back', async () => {
+    const stored = {
+      ...raceTrafficAttack(),
+      id: 'clock-rollback',
+      createdAt: 100,
+      updatedAt: 5_000
+    }
+    persistDashboard(userData, stored)
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    try {
+      await manager.setHidden(stored.id, true)
+    } finally {
+      now.mockRestore()
+    }
+
+    expect(manager.getDashboard(stored.id)).toMatchObject({
+      hidden: true,
+      createdAt: 100,
+      updatedAt: 5_001
+    })
+  })
+
+  it('continues the persisted monotonic revision after restart', async () => {
+    const futureRevision = Date.now() + 20_000_000
+    const stored = {
+      ...raceTrafficAttack(),
+      id: 'restart-revision',
+      createdAt: 200,
+      updatedAt: futureRevision
+    }
+    persistDashboard(userData, stored)
+    const first = makeHeadlessManager(userData)
+    await first.load()
+    await first.save({ ...stored, name: 'First revision' })
+    expect(first.getDashboard(stored.id)?.updatedAt).toBe(futureRevision + 1)
+
+    const restarted = makeHeadlessManager(userData)
+    await restarted.load()
+    await restarted.save({ ...stored, name: 'Second revision' })
+    expect(restarted.getDashboard(stored.id)?.updatedAt).toBe(futureRevision + 2)
+    expect(restarted.getDashboard(stored.id)?.createdAt).toBe(200)
+  })
+
+  it('serializes direct mutations through one manager-wide chain', async () => {
+    const broadcast = vi.fn()
+    const manager = makeHeadlessManager(userData, new Map(), broadcast)
     manager.load = async () => {}
     let releaseFirst!: () => void
     const firstGate = new Promise<void>((resolve) => {
@@ -757,23 +847,34 @@ describe('DashboardManager restart restoration', () => {
     })
     let activeWrites = 0
     let maxActiveWrites = 0
+    const revisions: number[] = []
     managerInternals(manager).persist = async (dashboard) => {
       activeWrites += 1
       maxActiveWrites = Math.max(maxActiveWrites, activeWrites)
+      revisions.push(dashboard.updatedAt ?? -1)
       if (dashboard.name === 'First save') await firstGate
       activeWrites -= 1
     }
     const base = raceTrafficAttack()
-    const first = manager.save({ ...base, id: 'serialized-save', name: 'First save' })
-    await vi.waitFor(() => expect(activeWrites).toBe(1))
-    const second = manager.save({ ...base, id: 'serialized-save', name: 'Second save' })
-    await Promise.resolve()
-    expect(activeWrites).toBe(1)
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000)
+    try {
+      const first = manager.save({ ...base, id: 'serialized-save', name: 'First save' })
+      await vi.waitFor(() => expect(activeWrites).toBe(1))
+      const second = manager.save({ ...base, id: 'serialized-save', name: 'Second save' })
+      await Promise.resolve()
+      expect(activeWrites).toBe(1)
 
-    releaseFirst()
-    await Promise.all([first, second])
+      releaseFirst()
+      await Promise.all([first, second])
+    } finally {
+      now.mockRestore()
+    }
     expect(maxActiveWrites).toBe(1)
+    expect(revisions).toEqual([1_000, 1_001])
     expect(manager.getDashboard('serialized-save')?.name).toBe('Second save')
+    expect(broadcast.mock.calls
+      .filter(([channel]) => channel === 'app:dash:updated')
+      .map(([, dashboard]) => (dashboard as Dashboard).updatedAt)).toEqual([1_000, 1_001])
   })
 })
 
