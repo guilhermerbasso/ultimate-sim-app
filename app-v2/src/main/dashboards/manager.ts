@@ -221,11 +221,10 @@ function exactFileHash(raw: Uint8Array): string {
 
 function nextDashboardRevision(previous: number | undefined, now = Date.now()): number {
   if (previous === undefined) return now
-  const normalized = Math.floor(previous)
-  if (!Number.isSafeInteger(normalized) || normalized >= Number.MAX_SAFE_INTEGER) {
+  if (!Number.isSafeInteger(previous) || previous >= Number.MAX_SAFE_INTEGER) {
     throw new Error(`Dashboard revision cannot advance beyond ${String(previous)}.`)
   }
-  return Math.max(now, normalized + 1)
+  return Math.max(now, previous + 1)
 }
 
 function errorMessage(error: unknown): string {
@@ -520,30 +519,30 @@ export class DashboardManager {
     }
     for (const [id, candidate] of selectedCandidates) {
       const canonicalFile = `${this.fileNameOf(id)}.json`
-      const dashboard = candidate.migrated
-        ? {
-            ...candidate.dashboard,
-            updatedAt: nextDashboardRevision(
-              candidate.dashboard.updatedAt ?? candidate.dashboard.createdAt
-            )
-          }
-        : candidate.dashboard
       try {
+        const dashboard = candidate.migrated
+          ? {
+              ...candidate.dashboard,
+              updatedAt: nextDashboardRevision(
+                candidate.dashboard.updatedAt ?? candidate.dashboard.createdAt
+              )
+            }
+          : candidate.dashboard
         await this.canonicalizeDashboardSource(candidate, canonicalFile)
         if (candidate.migrated) {
           await this.persistMigratedDashboard(candidate, canonicalFile, dashboard)
         }
+        dashboards.set(id, dashboard)
+        sourceFiles.set(id, canonicalFile)
       } catch (error) {
         this.recordStorageIssue({
           file: candidate.file,
           path: join(this.storeDir, canonicalFile),
           ...(errorCode(error) ? { code: errorCode(error) } : {}),
-          error: `Could not canonicalize dashboard candidate "${id}": ${errorMessage(error)}`
+          error: `Could not accept dashboard candidate "${id}": ${errorMessage(error)}`
         })
         continue
       }
-      dashboards.set(id, dashboard)
-      sourceFiles.set(id, canonicalFile)
     }
     if (dashboards.size === 0 && dashboardCandidateFiles.length === 0) {
       // Sementeia com presets na primeira execução

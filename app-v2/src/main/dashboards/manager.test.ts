@@ -534,6 +534,41 @@ describe('DashboardManager restart restoration', () => {
     })
   })
 
+  it('isolates a migrated dashboard with an unsafe updatedAt and loads its valid sibling', async () => {
+    const valid = raceTrafficAttack()
+    persistDashboard(userData, valid)
+    const unsafe: Dashboard = {
+      id: 'unsafe-migrated-revision',
+      name: 'Unsafe migrated revision',
+      width: 1024,
+      height: 600,
+      bg: '#000',
+      updatedAt: 1e16,
+      elements: [{
+        id: 'table',
+        type: 'table',
+        x: 0,
+        y: 0,
+        w: 400,
+        h: 300,
+        style: {}
+      }]
+    }
+    ;(unsafe.elements[0].style as Record<string, unknown>).tableColumns = ['pos', 'last']
+    const stored = persistDashboard(userData, unsafe)
+
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+
+    expect(manager.getDashboard(valid.id)).not.toBeNull()
+    expect(manager.getDashboard(unsafe.id)).toBeNull()
+    const issue = manager.listStorageIssues().find((candidate) => candidate.file === `${unsafe.id}.json`)
+    expect(issue?.error).toMatch(/updatedAt must be a safe integer/)
+    expect(issue?.quarantinedFile).toBeDefined()
+    expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', issue!.quarantinedFile!), 'utf8'))
+      .toBe(stored.raw)
+  })
+
   it('persists canonical legacy migrations while archiving the original bytes', async () => {
     const legacy: Dashboard = {
       id: 'legacy-table',

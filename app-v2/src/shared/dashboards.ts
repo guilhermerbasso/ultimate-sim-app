@@ -617,6 +617,10 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
+function isSafeTimestamp(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value)
+}
+
 const MAX_DASHBOARD_DIMENSION = 32_768
 const MAX_DASHBOARD_ELEMENTS = 2_048
 const MAX_ADAPTIVE_RULES = 256
@@ -962,7 +966,7 @@ function validateAdaptive(value: unknown, width: number, height: number): string
       const error = validateElementList(rule.frame.elements, width, height, `${path}.frame.elements`)
       if (error) return error
       if (rule.frame.bg !== undefined && typeof rule.frame.bg !== 'string') return `${path}.frame.bg must be a string.`
-      if (rule.frame.updatedAt !== undefined && !isFiniteNumber(rule.frame.updatedAt)) return `${path}.frame.updatedAt must be a finite number.`
+      if (rule.frame.updatedAt !== undefined && !isSafeTimestamp(rule.frame.updatedAt)) return `${path}.frame.updatedAt must be a safe integer.`
     }
   }
   return null
@@ -992,8 +996,8 @@ function dashboardValidationErrorUnsafe(value: unknown): string | null {
   if ((value.storageEpoch === undefined) !== (value.storageRevision === undefined)) {
     return 'Dashboard storageEpoch and storageRevision must be provided together.'
   }
-  if (value.createdAt !== undefined && !isFiniteNumber(value.createdAt)) return 'Dashboard createdAt must be finite.'
-  if (value.updatedAt !== undefined && !isFiniteNumber(value.updatedAt)) return 'Dashboard updatedAt must be finite.'
+  if (value.createdAt !== undefined && !isSafeTimestamp(value.createdAt)) return 'Dashboard createdAt must be a safe integer.'
+  if (value.updatedAt !== undefined && !isSafeTimestamp(value.updatedAt)) return 'Dashboard updatedAt must be a safe integer.'
   const elementError = validateElementList(value.elements, value.width, value.height, 'elements')
   if (elementError) return elementError
   return value.adaptive === undefined ? null : validateAdaptive(value.adaptive, value.width, value.height)
@@ -1206,7 +1210,7 @@ function dashboardPlaylistValidationErrorUnsafe(value: unknown): string | null {
   if (plainJsonError) return plainJsonError
   if (!isRecord(value) || !Array.isArray(value.items)) return 'Dashboard playlist must contain an items array.'
   if (value.items.length > MAX_PLAIN_JSON_ARRAY_ITEMS) return 'Dashboard playlist has too many items.'
-  if (!isFiniteNumber(value.updatedAt)) return 'Dashboard playlist updatedAt must be finite.'
+  if (!isSafeTimestamp(value.updatedAt)) return 'Dashboard playlist updatedAt must be a safe integer.'
   for (let index = 0; index < value.items.length; index += 1) {
     const item = value.items[index]
     const path = `items[${index}]`

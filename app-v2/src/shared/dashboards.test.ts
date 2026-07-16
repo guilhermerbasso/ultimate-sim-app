@@ -607,6 +607,21 @@ describe('dashboard storage schema compatibility', () => {
     }
   })
 
+  it('rejects non-safe dashboard and playlist timestamps', () => {
+    for (const key of ['createdAt', 'updatedAt'] as const) {
+      const invalid = storedDashboard(`unsafe-${key}`)
+      invalid[key] = 1e16
+      expect(dashboardStorageValidationResult(invalid)).toMatchObject({
+        status: 'quarantine',
+        error: expect.stringMatching(new RegExp(`${key} must be a safe integer`))
+      })
+    }
+    expect(dashboardPlaylistValidationError({
+      items: [],
+      updatedAt: 1e16
+    })).toMatch(/updatedAt must be a safe integer/)
+  })
+
   it('keeps the generated shared identity catalog aligned with every canonical overlay variant', () => {
     const expected = ALL_VARIANTS
       .filter((variant) =>
