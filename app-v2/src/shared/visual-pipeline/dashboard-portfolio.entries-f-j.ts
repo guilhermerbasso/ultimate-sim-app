@@ -32,7 +32,7 @@ export const DASHBOARD_PORTFOLIO_ENTRIES_F_J = [
     candidateWidgetConcepts: ['stacked trace panes', 'shared distance ruler', 'linked cursor readout', 'reference selector', 'corner annotations'],
     ordinaryOverlays: ['selected-lap and reference identifiers', 'cursor value table', 'corner marker rail'],
     triggerOnlyAlerts: ['channel-dropout marker', 'sensor-saturation marker', 'distance-synchronization error'],
-    tags: ['dashboard', 'release-b', 'telemetry-framework', '1024x600', 'family-f', 'engineer', 'graph', 'delta', 'inputs', 'dataheavy'],
+    tags: ['dashboard', 'release-b', 'telemetry-framework', '1024x600', 'family-f', 'engineer', 'graph', 'delta', 'inputs', 'dense'],
     researchNotes: [
       'The workspace uses only player-car controls; opponent control traces are prohibited by the available telemetry contract.',
       'Reference validity and synchronization quality must remain visible whenever comparative traces are shown.'
@@ -207,7 +207,7 @@ export const DASHBOARD_PORTFOLIO_ENTRIES_F_J = [
     candidateWidgetConcepts: ['variance lattice', 'confidence bands', 'regime filters', 'corrected-pace distribution', 'outlier marker'],
     ordinaryOverlays: ['sample-count and confidence header', 'selected-regime filters', 'best / median / variance summary'],
     triggerOnlyAlerts: ['anomalous-lap marker', 'timing-gap warning', 'variance-spike warning', 'track-regime-change marker'],
-    tags: ['dashboard', 'release-b', 'telemetry-framework', '1024x600', 'family-f', 'engineer', 'consistency', 'heatmap', 'sectors', 'dataheavy'],
+    tags: ['dashboard', 'release-b', 'telemetry-framework', '1024x600', 'family-f', 'engineer', 'consistency', 'heatmap', 'sectors', 'dense'],
     researchNotes: [
       'Corrected pace and regime grouping are derived; assumptions and sample counts must remain visible.',
       'Use sequential perceptual color plus numbers/patterns so variance is never color-only.'
@@ -383,7 +383,7 @@ export const DASHBOARD_PORTFOLIO_ENTRIES_F_J = [
     candidateWidgetConcepts: ['stint bars', 'driver-time bands', 'tyre-set inventory', 'scenario lanes', 'pit-event gates'],
     ordinaryOverlays: ['current race cursor', 'projected pit loss', 'fuel/energy range labels'],
     triggerOnlyAlerts: ['window-opening marker', 'window-closing marker', 'driver-time breach', 'unavailable-tyre warning', 'pit-conflict warning'],
-    tags: ['dashboard', 'release-b', 'telemetry-framework', '1024x600', 'family-g', 'strategy', 'endurance', 'pit', 'timeline', 'dataheavy'],
+    tags: ['dashboard', 'release-b', 'telemetry-framework', '1024x600', 'family-g', 'strategy', 'endurance', 'pit', 'timeline', 'dense'],
     researchNotes: [
       'Driver rules and tyre inventory are external operational inputs and must be versioned and freshness-labeled.',
       'Scenario bars must state assumptions; caution timing must not be presented as certain.'

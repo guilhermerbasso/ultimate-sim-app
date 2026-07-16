@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { isControlledTag } from '../tags'
+import { filterVariants, type WidgetTaxon } from '../widget-taxonomy'
 import {
   DASHBOARD_PORTFOLIO,
   DASHBOARD_PORTFOLIO_FAMILIES,
@@ -120,6 +121,33 @@ describe('Release B dashboard portfolio registry', () => {
       'telemetry-framework'
     ])
     for (const tag of requiredPortfolioTags) expect(isControlledTag(tag), tag).toBe(true)
+  })
+
+  it('has zero uncontrolled tags and supports combined portfolio filtering', () => {
+    for (const entry of DASHBOARD_PORTFOLIO) {
+      for (const tag of entry.tags) expect(isControlledTag(tag), `${entry.id}: ${tag}`).toBe(true)
+    }
+
+    const filterableEntries: WidgetTaxon[] = DASHBOARD_PORTFOLIO.map((entry) => ({
+      id: entry.id,
+      label: entry.name,
+      category: 'Digital',
+      styleFamily: 'clean',
+      tags: entry.tags
+    }))
+    const openWheel = filterVariants(filterableEntries, {
+      tags: ['dashboard', 'release-b', 'family-b', 'open-wheel']
+    })
+    const accessible = filterVariants(filterableEntries, {
+      tags: ['dashboard', 'release-b', 'family-i', 'accessibility']
+    })
+
+    expect(openWheel.map((entry) => entry.id)).toEqual([
+      'R2-06', 'R2-07', 'R2-08', 'R2-09', 'R2-10'
+    ])
+    expect(accessible.map((entry) => entry.id)).toEqual([
+      'R2-41', 'R2-42', 'R2-43', 'R2-44', 'R2-45'
+    ])
   })
 
   it('interleaves A through J in each of five processing waves', () => {

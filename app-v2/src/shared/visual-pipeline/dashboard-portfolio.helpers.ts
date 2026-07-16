@@ -207,6 +207,9 @@ export function validateDashboardPortfolioEntry(entry: DashboardPortfolioEntry):
   if (entry.differentiation.length < 48) errors.push('differentiation is not specific enough')
   if (entry.candidateWidgetConcepts.length < 3) errors.push('candidateWidgetConcepts must include at least three concepts')
   if (!hasNormalizedDashboardTags(entry.tags)) errors.push('tags are not normalized and unique')
+  for (const tag of entry.tags) {
+    if (!isControlledTag(tag)) errors.push(`uncontrolled portfolio tag: ${tag}`)
+  }
 
   const requiredTags = [
     'dashboard',
@@ -216,7 +219,6 @@ export function validateDashboardPortfolioEntry(entry: DashboardPortfolioEntry):
   ]
   for (const tag of requiredTags) {
     if (!entry.tags.includes(tag)) errors.push(`missing required tag ${tag}`)
-    if (!isControlledTag(tag)) errors.push(`required portfolio tag is not controlled: ${tag}`)
   }
 
   for (const conceptId of entry.requiredTelemetryConceptIds) {
