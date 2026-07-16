@@ -46,7 +46,7 @@ function markup(
 }
 
 function dashboardAlertMarkup(
-  moduleId: 'alertShiftFlash' | 'alertLowFuel',
+  moduleId: 'alertShiftFlash' | 'alertLowFuel' | 'alert2BlueFlag',
   snapshot: TelemetrySnapshot,
   alertsConfig: AlertsConfig
 ): string {
@@ -56,7 +56,7 @@ function dashboardAlertMarkup(
     x: 0,
     y: 0,
     w: moduleId === 'alertShiftFlash' ? 1000 : 360,
-    h: moduleId === 'alertShiftFlash' ? 36 : 200,
+    h: moduleId === 'alertShiftFlash' ? 36 : moduleId === 'alert2BlueFlag' ? 210 : 200,
     style: {},
     widgetId: `hifi:${moduleId}`,
     hifiModuleId: moduleId
@@ -140,6 +140,12 @@ describe('dashboard-embedded alert policy', () => {
       ...alertsConfig,
       shiftPoint: { ...alertsConfig.shiftPoint, enabled: false }
     })).not.toContain(SHIFT_STROBE_BLUE)
+    expect(dashboardAlertMarkup('alertShiftFlash', {
+      ...snapshot,
+      connected: false,
+      shiftIndicatorPct: 1,
+      rpm: 8000
+    }, alertsConfig)).not.toContain(SHIFT_STROBE_BLUE)
   })
 
   it('uses configured low-fuel lapsThreshold', () => {
@@ -176,6 +182,23 @@ describe('dashboard-embedded alert policy', () => {
     expect(visible).toContain('4.0')
     expect(disabled).not.toContain('LAPS')
     expect(disconnected).not.toContain('LAPS')
+  })
+
+  it('hides disconnected semantic alert widgets', () => {
+    const snapshot = {
+      ...PREVIEW_SNAPSHOT,
+      flags: { ...PREVIEW_SNAPSHOT.flags!, blue: true }
+    }
+    expect(dashboardAlertMarkup(
+      'alert2BlueFlag',
+      snapshot,
+      DEFAULT_ALERTS_CONFIG
+    )).toContain('BLUE FLAG')
+    expect(dashboardAlertMarkup(
+      'alert2BlueFlag',
+      { ...snapshot, connected: false },
+      DEFAULT_ALERTS_CONFIG
+    )).not.toContain('BLUE FLAG')
   })
 })
 

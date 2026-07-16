@@ -46,7 +46,7 @@ export class FuelLapEstimator {
     }
     if (!input.live) {
       this.lapStart = undefined
-      return { samples: [...this.samples] }
+      return { samples: this.cloneSamples() }
     }
 
     const lap = input.currentLap
@@ -160,8 +160,12 @@ export class FuelLapEstimator {
         fuelLiters >= 0
           ? fuelLiters / fuelPerLapLiters
           : undefined,
-      samples: this.samples.map((sample) => ({ ...sample }))
+      samples: this.cloneSamples()
     }
+  }
+
+  private cloneSamples(): FuelLapSample[] {
+    return this.samples.map((sample) => ({ ...sample }))
   }
 }
 

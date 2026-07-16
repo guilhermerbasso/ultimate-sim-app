@@ -480,6 +480,7 @@ export function evaluateOverlayTrigger(
   if (!trigger || trigger.kind === 'always') return true
   if (trigger.kind === 'never') return false
   if (!snapshot) return false
+  if (!snapshot.connected) return false
   if (trigger.kind === 'semantic') {
     if (!trigger.semantic) return false
     const policy = POLICIES[trigger.semantic]
@@ -515,7 +516,7 @@ export function evaluateOverlayTrigger(
     case 'flag':
       return activeRaceControlFlags(snapshot).value
     case 'lowFuel': {
-      if (!snapshot.connected || !alertsConfig.lowFuel.enabled) return false
+      if (!alertsConfig.lowFuel.enabled) return false
       const lapsRemaining = fuelLapsRemainingOf(snapshot)
       return lapsRemaining != null && lapsRemaining < alertsConfig.lowFuel.lapsThreshold
     }
