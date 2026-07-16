@@ -3,8 +3,9 @@ import {
   DASHBOARD_PORTFOLIO_PROMPT_PROHIBITIONS,
   type DashboardPortfolioEntry
 } from './dashboard-portfolio.types'
+import { deepFreeze } from './immutability'
 
-export const DASHBOARD_PORTFOLIO_ENTRIES_A_E = [
+export const DASHBOARD_PORTFOLIO_ENTRIES_A_E = deepFreeze([
   {
     id: 'R2-01',
     name: 'GT Gear Monolith',
@@ -1104,4 +1105,4 @@ export const DASHBOARD_PORTFOLIO_ENTRIES_A_E = [
       avoidAlso: ['no photoreal foggy road', 'no flashlight illustration', 'no bright neon or blue glow']
     }
   }
-] as const satisfies readonly DashboardPortfolioEntry[]
+] as const satisfies readonly DashboardPortfolioEntry[])

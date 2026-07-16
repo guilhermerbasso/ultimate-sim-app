@@ -18,14 +18,14 @@ function freezeValue(value: unknown, seen: WeakSet<object>): void {
   ) return
 
   const target = value as object
-  if (seen.has(target) || Object.isFrozen(target)) return
+  if (seen.has(target)) return
   seen.add(target)
 
   for (const key of Reflect.ownKeys(target)) {
     const descriptor = Object.getOwnPropertyDescriptor(target, key)
     if (descriptor && 'value' in descriptor) freezeValue(descriptor.value, seen)
   }
-  Object.freeze(target)
+  if (!Object.isFrozen(target)) Object.freeze(target)
 }
 
 export function deepFreeze<const T>(value: T): DeepReadonly<T> {

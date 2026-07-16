@@ -3,8 +3,9 @@ import {
   DASHBOARD_PORTFOLIO_PROMPT_PROHIBITIONS,
   type DashboardPortfolioEntry
 } from './dashboard-portfolio.types'
+import { deepFreeze } from './immutability'
 
-export const DASHBOARD_PORTFOLIO_ENTRIES_F_J = [
+export const DASHBOARD_PORTFOLIO_ENTRIES_F_J = deepFreeze([
   {
     id: 'R2-26',
     name: 'Channel Trace Stack',
@@ -1106,4 +1107,4 @@ export const DASHBOARD_PORTFOLIO_ENTRIES_F_J = [
       avoidAlso: ['no branded tripmaster replica', 'no RPM tachometer', 'no GPS navigation-app map']
     }
   }
-] as const satisfies readonly DashboardPortfolioEntry[]
+] as const satisfies readonly DashboardPortfolioEntry[])
