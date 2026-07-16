@@ -5,6 +5,7 @@ import {
   areCoachLapsComparable,
   buildQualiStartSummary,
   buildRacecraftAdvice,
+  buildRacecraftHistoryEvidence,
   classifyCoachTrackCondition,
   comparableCoachLaps,
   detectRacecraftQuestion,
@@ -67,6 +68,7 @@ function historyLap(
 
 describe('racecraft question routing', () => {
   it('recognizes pass-ahead and pull-away questions in English and PT-BR', () => {
+    expect(detectRacecraftQuestion('What should I do to pass the car ahead?')).toBe('overtake')
     expect(detectRacecraftQuestion('How do I pass the car ahead?')).toBe('overtake')
     expect(detectRacecraftQuestion('Como ultrapassar o carro da frente?')).toBe('overtake')
     expect(detectRacecraftQuestion('How do I pull away from the car behind?')).toBe('pull-away')
@@ -108,6 +110,7 @@ describe('buildRacecraftAdvice', () => {
     expect(advice.items[0]).toMatchObject({ corner: 7, phase: 'exit' })
     expect(advice.items[0].text).toContain('exit 141 km/h')
     expect(advice.items[0].text).toContain('throttle return 57.2% lap')
+    expect(advice.evidenceSource).toBe('current-lap')
     expect(advice.text).toContain('OVERTAKE')
     expect(advice.text).toContain('opponent controls are unavailable')
   })
@@ -129,6 +132,65 @@ describe('buildRacecraftAdvice', () => {
     expect(advice.items[0].phase).toBe('entry')
     expect(advice.items[0].expectedBenefit).toContain('deny the car behind')
     expect(advice.text).toContain('DEFEND')
+  })
+
+  it('falls back to condition-matched player history for both ahead and behind advice', () => {
+    const recurring = finding('throttle-late', {
+      corner: 7,
+      sector: 2,
+      phase: 'exit',
+      estTimeLossSec: 0.24
+    })
+    const history = [
+      historyLap('1', DRY_IDENTITY, [recurring], {
+        lapTimeSec: 90,
+        cornerMetrics: [{ corner: 7, entrySpeedKmh: 198, minSpeedKmh: 91, exitSpeedKmh: 138, throttleStartPct: 0.58 }]
+      }),
+      historyLap('2', DRY_IDENTITY, [recurring], {
+        lapTimeSec: 89,
+        cornerMetrics: [{ corner: 7, entrySpeedKmh: 199, minSpeedKmh: 92, exitSpeedKmh: 140, throttleStartPct: 0.57 }]
+      }),
+      historyLap('3', DRY_IDENTITY, [recurring], {
+        lapTimeSec: 88,
+        cornerMetrics: [{ corner: 7, entrySpeedKmh: 201, minSpeedKmh: 94, exitSpeedKmh: 145, throttleStartPct: 0.55 }]
+      })
+    ]
+    const historyEvidence = buildRacecraftHistoryEvidence(DRY_IDENTITY, history)
+
+    const overtake = buildRacecraftAdvice('overtake', {
+      condition: 'dry',
+      historyEvidence,
+      currentGapAheadSec: 0.9
+    })
+    const defend = buildRacecraftAdvice('pull-away', {
+      condition: 'dry',
+      historyEvidence,
+      currentGapBehindSec: 0.7
+    })
+
+    expect(overtake).toMatchObject({
+      mode: 'overtake',
+      evidenceSource: 'history',
+      comparableHistoryLaps: 3
+    })
+    expect(overtake.items[0]).toMatchObject({
+      corner: 7,
+      source: 'history',
+      evidence: {
+        source: 'history',
+        referenceSource: 'history-best',
+        lapsSeen: 3,
+        lapsCompared: 3
+      }
+    })
+    expect(overtake.text).toContain('exit 138 km/h vs 145 km/h')
+    expect(overtake.text).toContain('own history 3/3 laps')
+    expect(defend.mode).toBe('defend')
+    expect(defend.items[0].source).toBe('history')
+    for (const text of [overtake.text, defend.text]) {
+      expect(text).toContain('opponent controls are unavailable')
+      expect(text).not.toMatch(/opponent (?:brak|throttle|turn|entry|exit)/i)
+    }
   })
 
   it('normalizes signed relative gaps without inventing opponent controls', () => {
@@ -230,6 +292,8 @@ describe('buildRacecraftAdvice', () => {
 
 describe('qualifying comparable history', () => {
   it('separates dry, wet, intermediate, and drying conditions deterministically', () => {
+    expect(classifyCoachTrackCondition({})).toBe('unknown')
+    expect(classifyCoachTrackCondition({ isRaining: false })).toBe('unknown')
     expect(classifyCoachTrackCondition({ trackWetnessPct: 0, isRaining: false })).toBe('dry')
     expect(classifyCoachTrackCondition({ trackWetnessPct: 0.2, isRaining: true })).toBe('intermediate')
     expect(classifyCoachTrackCondition({ trackWetnessPct: 0.75, isRaining: true })).toBe('wet')
@@ -252,6 +316,40 @@ describe('qualifying comparable history', () => {
 
     expect(comparableCoachLaps(DRY_IDENTITY, laps).map((lap) => lap.id)).toEqual(['dry-valid'])
     expect(comparableCoachLaps(wet, laps).map((lap) => lap.id)).toEqual(['wet-valid'])
+  })
+
+  it('builds history evidence without leaking wet laps into a dry plan', () => {
+    const wet = { ...DRY_IDENTITY, condition: 'wet' as const }
+    const dryFinding = finding('brake-early', { corner: 2, phase: 'entry' })
+    const wetFinding = finding('throttle-late', { corner: 9, phase: 'exit' })
+    const evidence = buildRacecraftHistoryEvidence(DRY_IDENTITY, [
+      historyLap('dry-1', DRY_IDENTITY, [dryFinding]),
+      historyLap('dry-2', DRY_IDENTITY, [dryFinding]),
+      historyLap('wet-1', wet, [wetFinding]),
+      historyLap('wet-2', wet, [wetFinding]),
+      historyLap('wet-3', wet, [wetFinding])
+    ])
+
+    expect(evidence.comparableLapCount).toBe(2)
+    expect(evidence.patterns.map((pattern) => pattern.finding.corner)).toEqual([2])
+  })
+
+  it('does not promote a one-off historical mistake as a recurring racecraft pattern', () => {
+    const evidence = buildRacecraftHistoryEvidence(DRY_IDENTITY, [
+      historyLap('1', DRY_IDENTITY, [finding('brake-early', { corner: 2 })]),
+      historyLap('2', DRY_IDENTITY, []),
+      historyLap('3', DRY_IDENTITY, [])
+    ])
+    const advice = buildRacecraftAdvice('overtake', {
+      condition: 'dry',
+      historyEvidence: evidence,
+      currentGapAheadSec: 0.8
+    })
+
+    expect(evidence.comparableLapCount).toBe(3)
+    expect(evidence.patterns).toEqual([])
+    expect(advice.evidenceSource).toBe('none')
+    expect(advice.text).toContain('no recurring actionable loss')
   })
 
   it('rejects track, config, car/class, and ambient changes', () => {
@@ -306,5 +404,31 @@ describe('qualifying comparable history', () => {
     expect(summary.text).toContain('insufficient comparable history (1/3)')
     expect(summary.text).toContain('current session')
     expect(summary.text).not.toContain('recurring in')
+  })
+
+  it('does not classify unknown conditions or incomplete identity as personalized history', () => {
+    const unknownCondition = buildQualiStartSummary({
+      current: { ...DRY_IDENTITY, condition: 'unknown' },
+      history: [
+        historyLap('1', DRY_IDENTITY, [finding('brake-early', { corner: 2 })]),
+        historyLap('2', DRY_IDENTITY, [finding('brake-early', { corner: 2 })]),
+        historyLap('3', DRY_IDENTITY, [finding('brake-early', { corner: 2 })])
+      ]
+    })
+    const unknownTrack = buildQualiStartSummary({
+      current: { ...DRY_IDENTITY, trackConfigName: undefined },
+      history: []
+    })
+
+    expect(unknownCondition).toMatchObject({
+      sufficientHistory: false,
+      comparableLapCount: 0,
+      source: 'none',
+      items: []
+    })
+    expect(unknownCondition.text).toContain('current track condition is unavailable')
+    expect(unknownCondition.text).toContain('dry and wet laps will not be mixed')
+    expect(unknownCondition.text).not.toContain('Turn 2')
+    expect(unknownTrack.text).toContain('track configuration is not identified reliably')
   })
 })

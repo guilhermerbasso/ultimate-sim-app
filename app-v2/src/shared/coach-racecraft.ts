@@ -13,8 +13,9 @@ import { formatMeasurement, type UnitSystem } from './units'
 export type RacecraftQuestionIntent = 'overtake' | 'pull-away'
 export type RacecraftAdviceMode = 'overtake' | 'defend' | 'lap-improvement'
 export type RacecraftGapTrend = 'closing' | 'opening' | 'stable' | 'unknown'
-export type CoachTrackCondition = 'dry' | 'intermediate' | 'wet' | 'drying'
+export type CoachTrackCondition = 'dry' | 'intermediate' | 'wet' | 'drying' | 'unknown'
 export type CoachAdviceLanguage = 'en-US' | 'pt-BR'
+export type RacecraftEvidenceSource = 'current-lap' | 'history'
 
 export interface CoachGapSample {
   at: number
@@ -28,6 +29,7 @@ export interface RacecraftAdviceContext {
   findings?: readonly CoachFinding[]
   cornerMetrics?: readonly CoachCornerMetrics[]
   reference?: CoachReferenceLap | null
+  historyEvidence?: RacecraftHistoryEvidence | null
   gaps?: readonly CoachGapSample[]
   currentGapAheadSec?: number
   currentGapBehindSec?: number
@@ -54,6 +56,10 @@ export interface RacecraftAdviceEvidence {
   tractionQuality?: 'clean' | 'delayed' | 'disconnected' | 'tc-limited'
   gapSec?: number
   gapTrend?: RacecraftGapTrend
+  source: RacecraftEvidenceSource
+  referenceSource?: 'current-best' | 'history-best'
+  lapsSeen?: number
+  lapsCompared?: number
 }
 
 export interface RacecraftAdviceItem {
@@ -65,6 +71,7 @@ export interface RacecraftAdviceItem {
   action: string
   expectedBenefit: string
   evidence: RacecraftAdviceEvidence
+  source: RacecraftEvidenceSource
   text: string
 }
 
@@ -74,6 +81,8 @@ export interface RacecraftAdvice {
   opponentData: 'timing-only' | 'unavailable'
   gapSec?: number
   gapTrend: RacecraftGapTrend
+  evidenceSource: RacecraftEvidenceSource | 'current+history' | 'none'
+  comparableHistoryLaps: number
   items: RacecraftAdviceItem[]
   honestyNote: string
   text: string
@@ -102,6 +111,21 @@ export interface CoachLapHistoryEntry {
   identity: CoachComparableIdentity
   findings: CoachFinding[]
   cornerMetrics: CoachCornerMetrics[]
+}
+
+export interface RacecraftHistoryPattern {
+  finding: CoachFinding
+  metrics?: CoachCornerMetrics
+  lapsSeen: number
+  lapsCompared: number
+  averageLossSec: number
+}
+
+export interface RacecraftHistoryEvidence {
+  condition: CoachTrackCondition
+  comparableLapCount: number
+  patterns: RacecraftHistoryPattern[]
+  reference?: CoachReferenceLap
 }
 
 export interface QualiSummaryItem extends RacecraftAdviceItem {
@@ -165,7 +189,10 @@ export function classifyCoachTrackCondition(input: {
   weatherDeclaredWet?: boolean
   previousTrackWetnessPct?: number
 }): CoachTrackCondition {
-  const wetness = finite(input.trackWetnessPct) ? Math.max(0, Math.min(1, input.trackWetnessPct)) : 0
+  const hasWetness = finite(input.trackWetnessPct)
+  const hasPositiveWeatherSignal = input.isRaining === true || input.weatherDeclaredWet === true
+  if (!hasWetness && !hasPositiveWeatherSignal) return 'unknown'
+  const wetness = hasWetness ? Math.max(0, Math.min(1, input.trackWetnessPct as number)) : 0
   const wasWetter =
     finite(input.previousTrackWetnessPct) && input.previousTrackWetnessPct - wetness >= 0.03
   if (
@@ -229,6 +256,7 @@ export function areCoachLapsComparable(
   candidate: CoachComparableIdentity,
   opts: { airToleranceC?: number; trackToleranceC?: number } = {}
 ): boolean {
+  if (current.condition === 'unknown' || candidate.condition === 'unknown') return false
   if (!normalize(current.trackName) || normalize(current.trackName) !== normalize(candidate.trackName)) return false
   if (
     !normalize(current.trackConfigName) ||
@@ -456,6 +484,15 @@ function actionableFindings(findings: readonly CoachFinding[] | undefined): Coac
   return selected.filter((finding) => finding.kind !== 'time-loss' || !specificLocations.has(locationKey(finding)))
 }
 
+interface RacecraftAdviceCandidate {
+  finding: CoachFinding
+  metrics?: CoachCornerMetrics
+  source: RacecraftEvidenceSource
+  lapsSeen?: number
+  lapsCompared?: number
+  averageLossSec?: number
+}
+
 function adviceScore(finding: CoachFinding, mode: RacecraftAdviceMode): number {
   const phase = phaseForFinding(finding)
   const phaseBoost =
@@ -490,7 +527,7 @@ function metricSnippet(
     if (!finite(current)) return undefined
     const currentReading = formatMeasurement(current, 'speed-kmh', unitSystem, { decimals: 0 })
     return finite(reference)
-      ? `${label} ${currentReading.display} vs ${formatMeasurement(reference, 'speed-kmh', unitSystem, { decimals: 0 }).display} ${currentReading.unit}`
+      ? `${label} ${currentReading.display} ${currentReading.unit} vs ${formatMeasurement(reference, 'speed-kmh', unitSystem, { decimals: 0 }).display} ${currentReading.unit}`
       : `${label} ${currentReading.display} ${currentReading.unit}`
   }
   const point = (label: string, current: number | undefined, reference: number | undefined): string | undefined => {
@@ -531,7 +568,11 @@ function findingEvidence(
   metrics: CoachCornerMetrics | undefined,
   reference: CoachCornerMetrics | undefined,
   gapSec: number | undefined,
-  gapTrend: RacecraftGapTrend
+  gapTrend: RacecraftGapTrend,
+  source: RacecraftEvidenceSource,
+  referenceSource: RacecraftAdviceEvidence['referenceSource'],
+  lapsSeen?: number,
+  lapsCompared?: number
 ): RacecraftAdviceEvidence {
   return {
     entrySpeedKmh: metrics?.entrySpeedKmh ?? (finite(finding.metrics.entrySpeedKmh) ? finding.metrics.entrySpeedKmh : undefined),
@@ -552,7 +593,11 @@ function findingEvidence(
     referenceThrottleReturnPct: reference?.throttleStartPct,
     tractionQuality: tractionQuality(finding, metrics),
     gapSec,
-    gapTrend
+    gapTrend,
+    source,
+    referenceSource: reference ? referenceSource : undefined,
+    lapsSeen,
+    lapsCompared
   }
 }
 
@@ -571,7 +616,11 @@ function buildAdviceItem(
   reference: CoachCornerMetrics | undefined,
   gapSec: number | undefined,
   gapTrend: RacecraftGapTrend,
-  unitSystem: UnitSystem
+  unitSystem: UnitSystem,
+  source: RacecraftEvidenceSource,
+  referenceSource: RacecraftAdviceEvidence['referenceSource'],
+  lapsSeen?: number,
+  lapsCompared?: number
 ): RacecraftAdviceItem {
   const phase = phaseForFinding(finding)
   const hasValidReference =
@@ -582,9 +631,25 @@ function buildAdviceItem(
     finite(finding.metrics.refThrottleStartPct)
   const action = actionForKind(finding.kind, language, hasValidReference)
   const benefit = expectedBenefit(mode, phase, language)
-  const evidence = findingEvidence(finding, metrics, reference, gapSec, gapTrend)
+  const evidence = findingEvidence(
+    finding,
+    metrics,
+    reference,
+    gapSec,
+    gapTrend,
+    source,
+    referenceSource,
+    lapsSeen,
+    lapsCompared
+  )
   const measured = metricSnippet(evidence, phase, finding.kind, language, unitSystem)
-  const text = `${locator(finding, language)} — ${measured ? `${measured}: ` : ''}${action}; ${benefit}.`
+  const historyLabel =
+    source === 'history' && finite(lapsSeen) && finite(lapsCompared)
+      ? language === 'pt-BR'
+        ? ` [histórico próprio ${lapsSeen}/${lapsCompared} voltas]`
+        : ` [own history ${lapsSeen}/${lapsCompared} laps]`
+      : ''
+  const text = `${locator(finding, language)} — ${measured ? `${measured}: ` : ''}${action}; ${benefit}.${historyLabel}`
   return {
     priority,
     kind: finding.kind,
@@ -594,6 +659,7 @@ function buildAdviceItem(
     action,
     expectedBenefit: benefit,
     evidence,
+    source,
     text
   }
 }
@@ -648,56 +714,123 @@ export function buildRacecraftAdvice(
 
   const metricsByCorner = new Map<number, CoachCornerMetrics>()
   for (const metrics of context.cornerMetrics ?? []) metricsByCorner.set(metrics.corner, metrics)
+  const history =
+    context.historyEvidence &&
+    context.historyEvidence.condition !== 'unknown' &&
+    (context.condition === undefined || context.condition === context.historyEvidence.condition)
+      ? context.historyEvidence
+      : null
+  const effectiveReference =
+    context.reference && context.reference.corners.length > 0
+      ? context.reference
+      : history?.reference
+  const referenceSource: RacecraftAdviceEvidence['referenceSource'] =
+    context.reference && context.reference.corners.length > 0
+      ? 'current-best'
+      : history?.reference
+        ? 'history-best'
+        : undefined
   const referenceByCorner = new Map<number, CoachCornerMetrics>()
-  for (const metrics of context.reference?.corners ?? []) referenceByCorner.set(metrics.corner, metrics)
+  for (const metrics of effectiveReference?.corners ?? []) referenceByCorner.set(metrics.corner, metrics)
 
   const maxItems = Math.max(1, Math.min(MAX_RACECRAFT_ITEMS, Math.floor(opts.maxItems ?? MAX_RACECRAFT_ITEMS)))
-  const ranked = actionableFindings(context.findings)
-    .sort(
-      (a, b) =>
-        adviceScore(b, mode) - adviceScore(a, mode) ||
-        locationKey(a).localeCompare(locationKey(b)) ||
-        a.kind.localeCompare(b.kind)
+  const currentCandidates: RacecraftAdviceCandidate[] = actionableFindings(context.findings).map((finding) => ({
+    finding,
+    metrics: finite(finding.corner) ? metricsByCorner.get(finding.corner) : undefined,
+    source: 'current-lap'
+  }))
+  const currentDimensions = new Set(currentCandidates.map((candidate) => candidateKey(candidate.finding)))
+  const historyCandidates: RacecraftAdviceCandidate[] = (history?.patterns ?? [])
+    .filter((pattern) => !currentDimensions.has(candidateKey(pattern.finding)))
+    .map((pattern) => ({
+      finding: pattern.finding,
+      metrics: pattern.metrics,
+      source: 'history',
+      lapsSeen: pattern.lapsSeen,
+      lapsCompared: pattern.lapsCompared,
+      averageLossSec: pattern.averageLossSec
+    }))
+  const ranked = [...currentCandidates, ...historyCandidates].sort((a, b) => {
+    const aRecurrence =
+      a.source === 'history' && finite(a.lapsSeen) && finite(a.lapsCompared) && a.lapsCompared > 0
+        ? (a.lapsSeen / a.lapsCompared) * 0.2
+        : 0
+    const bRecurrence =
+      b.source === 'history' && finite(b.lapsSeen) && finite(b.lapsCompared) && b.lapsCompared > 0
+        ? (b.lapsSeen / b.lapsCompared) * 0.2
+        : 0
+    const aFinding =
+      a.source === 'history' && finite(a.averageLossSec)
+        ? { ...a.finding, estTimeLossSec: a.averageLossSec }
+        : a.finding
+    const bFinding =
+      b.source === 'history' && finite(b.averageLossSec)
+        ? { ...b.finding, estTimeLossSec: b.averageLossSec }
+        : b.finding
+    const aScore = adviceScore(aFinding, mode) + (a.source === 'current-lap' ? 1 : aRecurrence)
+    const bScore = adviceScore(bFinding, mode) + (b.source === 'current-lap' ? 1 : bRecurrence)
+    return (
+      bScore - aScore ||
+      locationKey(a.finding).localeCompare(locationKey(b.finding)) ||
+      a.finding.kind.localeCompare(b.finding.kind)
     )
+  })
 
-  const onePerLocation = new Map<string, CoachFinding>()
-  for (const finding of ranked) {
-    const key = locationKey(finding)
-    if (!onePerLocation.has(key)) onePerLocation.set(key, finding)
+  const onePerLocation = new Map<string, RacecraftAdviceCandidate>()
+  for (const candidate of ranked) {
+    const key = locationKey(candidate.finding)
+    if (!onePerLocation.has(key)) onePerLocation.set(key, candidate)
   }
   const items = [...onePerLocation.values()]
     .slice(0, maxItems)
-    .map((finding, index) =>
+    .map((candidate, index) =>
       buildAdviceItem(
-        finding,
+        candidate.finding,
         index + 1,
         mode,
         language,
-        finite(finding.corner) ? metricsByCorner.get(finding.corner) : undefined,
-        finite(finding.corner) ? referenceByCorner.get(finding.corner) : undefined,
+        candidate.metrics,
+        finite(candidate.finding.corner) ? referenceByCorner.get(candidate.finding.corner) : undefined,
         gap.gapSec,
         gap.trend,
-        unitSystem
+        unitSystem,
+        candidate.source,
+        referenceSource,
+        candidate.lapsSeen,
+        candidate.lapsCompared
       )
     )
 
   const header = racecraftHeader(intent, mode, gap.gapSec, gap.trend, language)
   const noEvidence =
-    language === 'pt-BR'
-      ? 'Complete uma volta válida para eu montar um plano específico por curva.'
-      : 'Complete a valid lap before I give a corner-specific plan.'
+    history && history.comparableLapCount > 0
+      ? language === 'pt-BR'
+        ? `${history.comparableLapCount} volta(s) válida(s) comparável(is) não mostram perda acionável recorrente; complete uma volta atual para atualizar o plano.`
+        : `${history.comparableLapCount} comparable valid lap(s) show no recurring actionable loss; complete a current lap to refresh the plan.`
+      : language === 'pt-BR'
+        ? 'Complete uma volta válida para eu montar um plano específico por curva.'
+        : 'Complete a valid lap before I give a corner-specific plan.'
   const text = items.length > 0 ? `${header} ${items.map((item) => `${item.priority}) ${item.text}`).join(' ')}` : `${header} ${noEvidence}`
+  const itemSources = new Set(items.map((item) => item.source))
+  const evidenceSource: RacecraftAdvice['evidenceSource'] =
+    itemSources.size === 0
+      ? 'none'
+      : itemSources.size > 1
+        ? 'current+history'
+        : items[0].source
   return {
     intent,
     mode,
     opponentData: finite(gap.gapSec) ? 'timing-only' : 'unavailable',
     gapSec: gap.gapSec,
     gapTrend: gap.trend,
+    evidenceSource,
+    comparableHistoryLaps: history?.comparableLapCount ?? 0,
     items,
     honestyNote:
       language === 'pt-BR'
-        ? 'O rival só fornece gap/posição/radar; o plano usa sua telemetria, referências válidas e tendência de gap.'
-        : 'The opponent only supplies gap/position/radar; the plan uses player telemetry, valid references, and gap trend.',
+        ? 'O rival só fornece gap/posição/radar; o plano usa sua telemetria, seu histórico comparável, referências válidas e tendência de gap.'
+        : 'The opponent only supplies gap/position/radar; the plan uses player telemetry, comparable player history, valid references, and gap trend.',
     text
   }
 }
@@ -755,9 +888,75 @@ function qualiPatterns(laps: readonly CoachLapHistoryEntry[]): QualiPattern[] {
   )
 }
 
+export function buildRacecraftHistoryEvidence(
+  current: CoachComparableIdentity,
+  laps: readonly CoachLapHistoryEntry[],
+  opts: { maxPatterns?: number } = {}
+): RacecraftHistoryEvidence {
+  const comparable = comparableCoachLaps(current, laps)
+  const maxPatterns = Math.max(1, Math.min(8, Math.floor(opts.maxPatterns ?? 6)))
+  const minSeen = comparable.length >= 3 ? 2 : 1
+  const patterns = qualiPatterns(comparable)
+    .filter((pattern) => pattern.lapsSeen >= minSeen)
+    .sort((a, b) => {
+      const aAverage = a.totalLossSec / a.lapsSeen
+      const bAverage = b.totalLossSec / b.lapsSeen
+      return (
+        b.lapsSeen / comparable.length * bAverage -
+          a.lapsSeen / comparable.length * aAverage ||
+        locationKey(a.finding).localeCompare(locationKey(b.finding)) ||
+        a.finding.kind.localeCompare(b.finding.kind)
+      )
+    })
+    .slice(0, maxPatterns)
+    .map((pattern): RacecraftHistoryPattern => ({
+      finding: { ...pattern.finding, metrics: { ...pattern.finding.metrics } },
+      metrics: pattern.metrics ? { ...pattern.metrics } : undefined,
+      lapsSeen: pattern.lapsSeen,
+      lapsCompared: comparable.length,
+      averageLossSec: pattern.totalLossSec / pattern.lapsSeen
+    }))
+  const bestLap = comparable
+    .filter(
+      (lap) =>
+        finite(lap.lapTimeSec) &&
+        lap.lapTimeSec > 0 &&
+        lap.cornerMetrics.length > 0
+    )
+    .slice()
+    .sort((a, b) => (a.lapTimeSec as number) - (b.lapTimeSec as number) || b.at - a.at)[0]
+
+  return {
+    condition: current.condition,
+    comparableLapCount: comparable.length,
+    patterns,
+    reference: bestLap
+      ? { corners: bestLap.cornerMetrics.map((metrics) => ({ ...metrics })) }
+      : undefined
+  }
+}
+
 function conditionLabel(condition: CoachTrackCondition, language: CoachAdviceLanguage): string {
   if (language === 'en-US') return condition
-  return ({ dry: 'seco', intermediate: 'intermediário', wet: 'molhado', drying: 'secando' } as const)[condition]
+  return ({
+    dry: 'seco',
+    intermediate: 'intermediário',
+    wet: 'molhado',
+    drying: 'secando',
+    unknown: 'desconhecido'
+  } as const)[condition]
+}
+
+function comparableIdentityIssue(identity: CoachComparableIdentity): 'condition' | 'track' | 'config' | 'car' | null {
+  if (identity.condition === 'unknown') return 'condition'
+  if (!normalize(identity.trackName)) return 'track'
+  if (!normalize(identity.trackConfigName)) return 'config'
+  if (
+    !normalize(identity.carPath) &&
+    !normalize(identity.carName) &&
+    !finite(identity.carClassId)
+  ) return 'car'
+  return null
 }
 
 export function buildQualiStartSummary(request: QualiStartSummaryRequest): QualiStartSummary {
@@ -765,8 +964,11 @@ export function buildQualiStartSummary(request: QualiStartSummaryRequest): Quali
   const unitSystem = request.unitSystem ?? 'metric'
   const minComparableLaps = Math.max(1, Math.floor(request.minComparableLaps ?? 3))
   const maxItems = Math.max(1, Math.min(MAX_RACECRAFT_ITEMS, Math.floor(request.maxItems ?? MAX_RACECRAFT_ITEMS)))
-  const history = comparableCoachLaps(request.current, request.history)
-  const currentSession = comparableCoachLaps(request.current, request.currentSession ?? [])
+  const identityIssue = comparableIdentityIssue(request.current)
+  const history = identityIssue ? [] : comparableCoachLaps(request.current, request.history)
+  const currentSession = identityIssue
+    ? []
+    : comparableCoachLaps(request.current, request.currentSession ?? [])
   const sufficientHistory = history.length >= minComparableLaps
   const source: QualiStartSummary['source'] = sufficientHistory
     ? 'history'
@@ -798,7 +1000,11 @@ export function buildQualiStartSummary(request: QualiStartSummaryRequest): Quali
       undefined,
       undefined,
       'unknown',
-      unitSystem
+      unitSystem,
+      source === 'history' ? 'history' : 'current-lap',
+      undefined,
+      pattern.lapsSeen,
+      dataset.length
     )
     const averageLossSec = pattern.totalLossSec / pattern.lapsSeen
     const prefix =
@@ -820,7 +1026,21 @@ export function buildQualiStartSummary(request: QualiStartSummaryRequest): Quali
 
   const condition = conditionLabel(request.current.condition, language)
   let header: string
-  if (source === 'history') {
+  if (identityIssue === 'condition') {
+    header =
+      language === 'pt-BR'
+        ? 'QUALI — histórico comparável insuficiente: a condição atual da pista está indisponível, então não vou misturar voltas secas e molhadas.'
+        : 'QUALIFY — insufficient comparable history: current track condition is unavailable, so dry and wet laps will not be mixed.'
+  } else if (identityIssue) {
+    const missing =
+      language === 'pt-BR'
+        ? ({ track: 'pista', config: 'traçado', car: 'carro' } as const)[identityIssue]
+        : ({ track: 'track', config: 'track configuration', car: 'car' } as const)[identityIssue]
+    header =
+      language === 'pt-BR'
+        ? `QUALI — histórico comparável insuficiente: ${missing} atual não identificado com segurança.`
+        : `QUALIFY — insufficient comparable history: current ${missing} is not identified reliably.`
+  } else if (source === 'history') {
     header =
       language === 'pt-BR'
         ? `QUALI — ${history.length} voltas válidas comparáveis no ${condition}.`
@@ -838,7 +1058,11 @@ export function buildQualiStartSummary(request: QualiStartSummaryRequest): Quali
   }
 
   const noPattern =
-    source === 'history'
+    identityIssue
+      ? language === 'pt-BR'
+        ? 'Nenhuma conclusão personalizada será feita sem esse contexto.'
+        : 'No personalized conclusion will be made without that context.'
+      : source === 'history'
       ? language === 'pt-BR'
         ? 'Nenhum erro recorrente tem evidência suficiente para ser chamado de padrão pessoal.'
         : 'No recurring loss has enough evidence to call it a personal pattern.'

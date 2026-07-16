@@ -227,12 +227,14 @@ describe('createEngineerOrchestrator.ask', () => {
     })
     const orch = createEngineerOrchestrator(harness.deps)
 
-    const answer = await orch.ask('How do I pass the car ahead?')
+    const answer = await orch.ask('What should I do to pass the car ahead?')
 
     expect(answer.source).toBe('intent')
     expect(answer.text).toContain('OVERTAKE')
     expect(answer.text).toContain('Turn 7')
     expect(answer.text).toContain('gap ahead 0.8s, closing')
+    expect(answer.text).toContain('opponent controls are unavailable')
+    expect(answer.text).not.toMatch(/opponent (?:brak|throttle|turn|entry|exit)/i)
     expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
   })

@@ -3,7 +3,11 @@ import { join } from 'node:path'
 
 import { describe, expect, it, vi } from 'vitest'
 import type { CoachFinding, CoachFindingKind, CoachSeverity } from '../../shared/coach'
-import type { CoachComparableIdentity, CoachLapHistoryEntry } from '../../shared/coach-racecraft'
+import type {
+  CoachComparableIdentity,
+  CoachLapHistoryEntry,
+  RacecraftAdviceContext
+} from '../../shared/coach-racecraft'
 import { DEFAULT_ENGINEER_CONFIG, mergeEngineerConfig, type EngineerProactiveEvent } from '../../shared/engineer-ipc'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import {
@@ -299,6 +303,7 @@ function makeEngine(
     buildCornerMap?: (trackName: string, samples: CornerSample[]) => CornerMapData
     history?: CoachLapHistoryEntry[]
     persistHistory?: (history: readonly CoachLapHistoryEntry[]) => void
+    publishRacecraftContext?: (context: RacecraftAdviceContext | null) => void
   } = {}
 ) {
   const harness: Harness = {
@@ -310,7 +315,7 @@ function makeEngine(
     emit: (e) => harness.events.push(e),
     getConfig: () => harness.config,
     publishFindings: () => undefined,
-    publishRacecraftContext: () => undefined,
+    publishRacecraftContext: opts.publishRacecraftContext ?? (() => undefined),
     now: () => harness.time.value,
     minEmitIntervalMs: opts.minEmitIntervalMs ?? 1000,
     sectorCount: 3,
@@ -476,6 +481,42 @@ describe('createProactiveEngine', () => {
     expect(harness.events[0].text).toContain('insufficient comparable history')
   })
 
+  it('emits the qualifying briefing on the first qualifying frame only', () => {
+    const { harness, engine } = makeEngine({ language: 'en-US' })
+    const identity = {
+      sessionUniqueId: 77,
+      trackName: 'Interlagos',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      carPath: 'gt3r',
+      trackWetnessPct: 0,
+      isRaining: false
+    }
+
+    engine.onSnapshot(makeSnapshot(0.1, { ...identity, sessionType: 'Race', timestamp: 1000 }))
+    expect(harness.events).toHaveLength(0)
+    engine.onSnapshot(
+      makeSnapshot(0.2, {
+        ...identity,
+        sessionType: 'Qualify',
+        timestamp: 2000,
+        trackConfigName: undefined
+      })
+    )
+    expect(harness.events).toHaveLength(1)
+    expect(harness.events[0].id).toContain('eng-quali')
+    expect(harness.events[0].text).toContain('track configuration is not identified reliably')
+    engine.onSnapshot(
+      makeSnapshot(0.3, {
+        ...identity,
+        sessionType: 'Qualify',
+        timestamp: 3000,
+        trackConfigName: 'Grand Prix'
+      })
+    )
+    expect(harness.events).toHaveLength(1)
+  })
+
   it('uses sufficient comparable valid-lap history in the qualifying-start summary', () => {
     const recurring = makeFinding({
       sector: 2,
@@ -525,6 +566,109 @@ describe('createProactiveEngine', () => {
     expect(harness.events[0].text).toContain('3 comparable valid dry laps')
     expect(harness.events[0].text).toContain('Turn 7')
     expect(harness.events[0].text).toContain('recurring in 3/3 valid laps')
+  })
+
+  it('publishes compact comparable history for on-demand ahead/behind answers', () => {
+    const recurring = makeFinding({
+      sector: 2,
+      corner: 7,
+      kind: 'throttle-late',
+      phase: 'exit',
+      estTimeLossSec: 0.24
+    })
+    const published: Array<RacecraftAdviceContext | null> = []
+    const { engine } = makeEngine(
+      { language: 'en-US' },
+      {
+        history: [
+          historyLap('1', recurring, 1),
+          historyLap('2', recurring, 2),
+          historyLap('3', recurring, 3)
+        ],
+        publishRacecraftContext: (context) => published.push(context)
+      }
+    )
+    engine.onSnapshot(
+      makeSnapshot(0.01, {
+        sessionType: 'Race',
+        sessionUniqueId: 99,
+        trackName: 'Interlagos',
+        trackConfigName: 'Grand Prix',
+        carName: 'GT3 R',
+        carPath: 'gt3r',
+        airTempC: 24,
+        trackTempC: 35,
+        trackWetnessPct: 0,
+        isRaining: false,
+        relatives: {
+          ahead: { carIdx: 10, name: 'Ahead', carNumber: '10', gapSec: 0.8 },
+          behind: { carIdx: 20, name: 'Behind', carNumber: '20', gapSec: -0.7 }
+        }
+      })
+    )
+
+    const context = published.filter((entry): entry is RacecraftAdviceContext => entry !== null).at(-1)
+    expect(context?.historyEvidence).toMatchObject({
+      condition: 'dry',
+      comparableLapCount: 3
+    })
+    expect(context?.historyEvidence?.patterns[0]).toMatchObject({
+      finding: { corner: 7, kind: 'throttle-late' },
+      lapsSeen: 3,
+      lapsCompared: 3
+    })
+    expect(context?.currentGapAheadSec).toBe(0.8)
+    expect(context?.currentGapBehindSec).toBe(0.7)
+  })
+
+  it('does not use dry history for a wet qualifying start', () => {
+    const recurring = makeFinding({
+      sector: 2,
+      corner: 7,
+      kind: 'throttle-late',
+      phase: 'exit',
+      estTimeLossSec: 0.24
+    })
+    const { harness, engine } = makeEngine(
+      { language: 'en-US' },
+      {
+        history: [
+          historyLap('1', recurring, 1),
+          historyLap('2', recurring, 2),
+          historyLap('3', recurring, 3)
+        ]
+      }
+    )
+    engine.onSnapshot(
+      makeSnapshot(0.01, {
+        sessionType: 'Qualify',
+        sessionUniqueId: 99,
+        trackName: 'Interlagos',
+        trackConfigName: 'Grand Prix',
+        carName: 'GT3 R',
+        carPath: 'gt3r',
+        airTempC: 24,
+        trackTempC: 35,
+        trackWetnessPct: 0.75,
+        isRaining: true,
+        drivers: [
+          {
+            carIdx: 0,
+            name: 'Player',
+            carNumber: '7',
+            position: 1,
+            classPosition: 1,
+            classId: 7,
+            className: 'GT3',
+            isPlayer: true
+          }
+        ]
+      })
+    )
+
+    expect(harness.events).toHaveLength(1)
+    expect(harness.events[0].text).toContain('insufficient comparable history (0/3)')
+    expect(harness.events[0].text).not.toContain('Turn 7')
   })
 
   it('does not persist an iRacing lap whose incident count increased', () => {

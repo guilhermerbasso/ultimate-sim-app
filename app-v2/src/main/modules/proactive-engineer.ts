@@ -47,11 +47,13 @@ import {
 } from '../../shared/coach'
 import {
   buildQualiStartSummary,
+  buildRacecraftHistoryEvidence,
   coachComparableIdentityFromSnapshot,
   coachLapHistoryEntry,
   type CoachComparableIdentity,
   type CoachGapSample,
   type CoachLapHistoryEntry,
+  type RacecraftHistoryEvidence,
   type CoachTrackCondition,
   type RacecraftAdviceContext
 } from '../../shared/coach-racecraft'
@@ -171,6 +173,26 @@ interface PublishedRacecraftContext extends RacecraftAdviceContext {
 
 let latestRacecraftContext: PublishedRacecraftContext | null = null
 
+function cloneRacecraftHistoryEvidence(
+  evidence: RacecraftHistoryEvidence | null | undefined
+): RacecraftHistoryEvidence | null | undefined {
+  if (evidence === null || evidence === undefined) return evidence
+  return {
+    condition: evidence.condition,
+    comparableLapCount: evidence.comparableLapCount,
+    patterns: evidence.patterns.map((pattern) => ({
+      finding: { ...pattern.finding, metrics: { ...pattern.finding.metrics } },
+      metrics: pattern.metrics ? { ...pattern.metrics } : undefined,
+      lapsSeen: pattern.lapsSeen,
+      lapsCompared: pattern.lapsCompared,
+      averageLossSec: pattern.averageLossSec
+    })),
+    reference: evidence.reference
+      ? { corners: evidence.reference.corners.map((corner) => ({ ...corner })) }
+      : undefined
+  }
+}
+
 function publishCoachRacecraftContext(context: RacecraftAdviceContext | null): void {
   latestRacecraftContext = context
     ? {
@@ -180,7 +202,8 @@ function publishCoachRacecraftContext(context: RacecraftAdviceContext | null): v
         gaps: [...(context.gaps ?? [])],
         reference: context.reference
           ? { corners: context.reference.corners.map((corner) => ({ ...corner })) }
-          : null
+          : null,
+        historyEvidence: cloneRacecraftHistoryEvidence(context.historyEvidence)
       }
     : null
 }
@@ -211,7 +234,8 @@ export function getLatestCoachRacecraftContext(
     gaps: [...context.gaps],
     reference: context.reference
       ? { corners: context.reference.corners.map((corner) => ({ ...corner })) }
-      : null
+      : null,
+    historyEvidence: cloneRacecraftHistoryEvidence(context.historyEvidence)
   }
 }
 
@@ -789,7 +813,13 @@ function isStoredCornerMetrics(value: unknown): value is CoachCornerMetrics {
 function isStoredHistoryLap(value: unknown): value is CoachLapHistoryEntry {
   if (!isRecord(value) || !isRecord(value.identity)) return false
   const condition = value.identity.condition
-  if (condition !== 'dry' && condition !== 'intermediate' && condition !== 'wet' && condition !== 'drying') return false
+  if (
+    condition !== 'dry' &&
+    condition !== 'intermediate' &&
+    condition !== 'wet' &&
+    condition !== 'drying' &&
+    condition !== 'unknown'
+  ) return false
   return (
     typeof value.id === 'string' &&
     Number.isFinite(value.at) &&
@@ -997,6 +1027,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   let buffer: CoachLapSample[] = []
   let findings: CoachFinding[] = []
   let racecraftFindings: CoachFinding[] = []
+  let racecraftHistoryEvidence: RacecraftHistoryEvidence | null = null
   const history: CoachLapHistoryEntry[] = (deps.history ?? []).map((lap) => ({
     ...lap,
     identity: { ...lap.identity },
@@ -1103,6 +1134,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       findings: racecraftFindings,
       cornerMetrics: latestCornerMetrics,
       reference,
+      historyEvidence: racecraftHistoryEvidence,
       gaps: gapSamples,
       currentGapAheadSec: Number.isFinite(snapshot?.relatives?.ahead?.gapSec)
         ? Math.abs(snapshot!.relatives!.ahead!.gapSec as number)
@@ -1116,6 +1148,12 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       trackConfigName: context?.trackConfigName,
       condition: context?.condition
     })
+  }
+
+  function refreshRacecraftHistoryEvidence(): void {
+    racecraftHistoryEvidence = activeAnalysisIdentity
+      ? buildRacecraftHistoryEvidence(activeAnalysisIdentity, history)
+      : null
   }
 
   function setFindings(
@@ -1181,6 +1219,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     activeAnalysisKey = nextKey
     if (activeAnalysisIdentity === null || keyChanged || ambientChanged) {
       activeAnalysisIdentity = nextIdentity
+      refreshRacecraftHistoryEvidence()
     }
   }
 
@@ -1210,6 +1249,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     latestCornerMetrics = []
     gapSamples = []
     racecraftFindings = []
+    racecraftHistoryEvidence = null
     previousTrackWetnessPct = undefined
     conditionIdentityKey = null
     stableTrackCondition = undefined
@@ -1284,14 +1324,17 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       if (validLap) {
         const identity = coachComparableIdentityFromSnapshot(snapshot, previousTrackWetnessPct)
         identity.condition = conditionForSnapshot(snapshot)
-        history.push(coachLapHistoryEntry(snapshot, evidenceReport, true, now(), identity))
-        history.splice(0, Math.max(0, history.length - MAX_RACECRAFT_HISTORY_LAPS))
-        try {
-          deps.persistHistory?.(history)
-        } catch (error) {
-          logger.warn(LOG_AREA, 'racecraft history persistence failed', {
-            message: error instanceof Error ? error.message : String(error)
-          })
+        if (identity.condition !== 'unknown') {
+          history.push(coachLapHistoryEntry(snapshot, evidenceReport, true, now(), identity))
+          history.splice(0, Math.max(0, history.length - MAX_RACECRAFT_HISTORY_LAPS))
+          refreshRacecraftHistoryEvidence()
+          try {
+            deps.persistHistory?.(history)
+          } catch (error) {
+            logger.warn(LOG_AREA, 'racecraft history persistence failed', {
+              message: error instanceof Error ? error.message : String(error)
+            })
+          }
         }
         if (
           evidenceReport.cornerMetrics.length > 0 &&
@@ -1332,8 +1375,9 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   }
 
   function qualiSessionKey(snapshot: TelemetrySnapshot): string {
+    if (Number.isFinite(snapshot.sessionUniqueId)) return `session:${snapshot.sessionUniqueId}`
     return [
-      snapshot.sessionUniqueId ?? 'session',
+      snapshot.sim,
       normalizedIdentityPart(snapshot.trackName),
       normalizedIdentityPart(snapshot.trackConfigName),
       normalizedIdentityPart(snapshot.carPath || snapshot.carName)
