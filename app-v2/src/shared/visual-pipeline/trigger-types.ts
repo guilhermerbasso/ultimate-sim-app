@@ -1,4 +1,7 @@
-import type { OverlayTrigger } from '../overlay-trigger'
+import type {
+  OverlayTrigger,
+  TemporalTriggerMode as RuntimeTemporalTriggerMode
+} from '../overlay-trigger'
 import type { TelemetryCapabilityId } from './capabilities'
 import type { DeepReadonly } from './immutability'
 
@@ -8,12 +11,7 @@ export type TriggerThresholdSource =
   | 'user-config'
   | 'reviewed-policy'
 
-export type TriggerTemporalMode =
-  | 'level'
-  | 'rising'
-  | 'falling'
-  | 'pulse'
-  | 'after-false'
+export type TriggerTemporalMode = RuntimeTemporalTriggerMode
 
 export interface TriggerOnlyFixtures {
   readonly active: string

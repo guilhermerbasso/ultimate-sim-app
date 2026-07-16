@@ -95,10 +95,8 @@ export interface TelemetryCapabilityData {
 
 export type TelemetrySnapshotField = keyof TelemetrySnapshot
 
-export interface TelemetryRepresentationContract {
-  readonly competition: string
-  readonly futuristic: string
-  readonly ddu: string
+export type TelemetryRepresentationContract = {
+  readonly [Style in TelemetryRepresentationStyle]: string
 }
 
 export type TelemetrySourceConstraintId =

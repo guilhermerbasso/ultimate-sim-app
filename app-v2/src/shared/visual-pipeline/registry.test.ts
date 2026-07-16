@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { COMPLEX_TELEMETRY_DESCRIPTORS } from '../../renderer/src/hifi/widgets/variants/complex-descriptors'
 import { TELEMETRY_DESCRIPTORS } from '../../renderer/src/hifi/widgets/variants/descriptors'
 import { SNAPSHOT_GAP_DESCRIPTORS } from '../../renderer/src/hifi/widgets/variants/snapshot-gap-descriptors'
+import type { TemporalTriggerMode } from '../overlay-trigger'
 import {
   TELEMETRY_CAPABILITY_REGISTRY,
   TELEMETRY_CAPABILITY_SUMMARY,
@@ -20,6 +21,33 @@ import {
   validateNormalizedTelemetryTags,
   validateTelemetryCapabilityTags
 } from './index'
+import type {
+  TelemetryRepresentationContract,
+  TelemetryRepresentationStyle,
+  TriggerTemporalMode
+} from './index'
+
+type Equal<Left, Right> =
+  (<Value>() => Value extends Left ? 1 : 2) extends
+  (<Value>() => Value extends Right ? 1 : 2)
+    ? (<Value>() => Value extends Right ? 1 : 2) extends
+      (<Value>() => Value extends Left ? 1 : 2)
+      ? true
+      : false
+    : false
+
+type Assert<Condition extends true> = Condition
+
+type TemporalModesMatchRuntime = Assert<
+  Equal<TriggerTemporalMode, TemporalTriggerMode>
+>
+
+type RepresentationKeysMatchStyles = Assert<
+  Equal<
+    keyof TelemetryRepresentationContract,
+    TelemetryRepresentationStyle
+  >
+>
 
 const GENERATED_DESCRIPTORS = [
   ...TELEMETRY_DESCRIPTORS,
@@ -369,7 +397,7 @@ describe('visual telemetry capability registry', () => {
   })
 
   it('requires provenance, hidden unknown behavior, temporal modes, and fixtures', () => {
-    const temporalModes = new Set([
+    const temporalModes = new Set<TriggerTemporalMode>([
       'level',
       'rising',
       'falling',
