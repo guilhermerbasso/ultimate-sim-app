@@ -544,8 +544,8 @@ export class DashboardManager {
         continue
       }
     }
-    if (dashboards.size === 0 && dashboardCandidateFiles.length === 0) {
-      // Sementeia com presets na primeira execução
+    if (dashboards.size === 0) {
+      // Sementeia com presets na primeira execução ou quando todos os candidatos foram quarentenados
       for (const preset of BUILTIN_PRESETS) {
         const built = validatedDashboard(
           preset.build(),
