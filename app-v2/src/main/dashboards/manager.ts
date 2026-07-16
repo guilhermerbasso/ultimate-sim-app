@@ -18,7 +18,7 @@ import {
   BUILTIN_PRESETS,
   dashboardPlaylistValidationError,
   dashboardStorageValidationResult,
-  getBuiltinDashboardIdentityCatalog,
+  getDashboardIdentityCatalog,
   summarizeDashboard
 } from '../../shared/dashboards'
 import type { ModuleContext } from '../module-context'
@@ -150,26 +150,66 @@ interface SimhubImportResponse {
 interface DashboardFileCandidate {
   file: string
   dashboard: Dashboard
+  hash: string
 }
 
 function dashboardCandidateTimestamp(candidate: DashboardFileCandidate): number {
   return candidate.dashboard.updatedAt ?? candidate.dashboard.createdAt ?? Number.NEGATIVE_INFINITY
 }
 
+function dashboardCandidateVersion(
+  candidate: DashboardFileCandidate
+): { epoch: string; revision: string } | null {
+  const { storageEpoch: epoch, storageRevision: revision } = candidate.dashboard
+  return typeof epoch === 'string' && epoch && typeof revision === 'string' && revision
+    ? { epoch, revision }
+    : null
+}
+
 function selectDashboardFileCandidate(
   candidates: readonly DashboardFileCandidate[],
   canonicalFile: string
 ): DashboardFileCandidate | null {
+  if (new Set(candidates.map((candidate) => candidate.hash)).size === 1) {
+    const canonical = candidates.find((candidate) => candidate.file.toLowerCase() === canonicalFile.toLowerCase())
+    return canonical ?? [...candidates].sort((a, b) => a.file.localeCompare(b.file))[0]
+  }
+
+  const versioned = candidates
+    .map((candidate) => ({ candidate, version: dashboardCandidateVersion(candidate) }))
+    .filter((entry): entry is { candidate: DashboardFileCandidate; version: { epoch: string; revision: string } } =>
+      entry.version !== null)
+  if (versioned.length > 0) {
+    if (new Set(versioned.map((entry) => entry.version.epoch)).size !== 1) return null
+    const byRevision = new Map<string, DashboardFileCandidate[]>()
+    for (const entry of versioned) {
+      const revisionCandidates = byRevision.get(entry.version.revision) ?? []
+      revisionCandidates.push(entry.candidate)
+      byRevision.set(entry.version.revision, revisionCandidates)
+    }
+    for (const revisionCandidates of byRevision.values()) {
+      if (new Set(revisionCandidates.map((candidate) => candidate.hash)).size > 1) return null
+    }
+    const representatives = [...byRevision.values()].map((revisionCandidates) =>
+      revisionCandidates.find((candidate) => candidate.file.toLowerCase() === canonicalFile.toLowerCase()) ??
+      [...revisionCandidates].sort((a, b) => a.file.localeCompare(b.file))[0]
+    )
+    if (representatives.length === 1) return representatives[0]
+    const newestTimestamp = Math.max(...representatives.map(dashboardCandidateTimestamp))
+    const freshest = representatives.filter((candidate) => dashboardCandidateTimestamp(candidate) === newestTimestamp)
+    return freshest.length === 1 ? freshest[0] : null
+  }
+
   const newestTimestamp = Math.max(...candidates.map(dashboardCandidateTimestamp))
   const freshest = candidates.filter((candidate) => dashboardCandidateTimestamp(candidate) === newestTimestamp)
   if (freshest.length === 1) return freshest[0]
 
-  const withRevision = freshest.filter((candidate) => Boolean(candidate.dashboard.storageRevision))
-  if (withRevision.length === 1) return withRevision[0]
-  if (new Set(withRevision.map((candidate) => candidate.dashboard.storageRevision)).size > 1) return null
-
   const canonical = freshest.filter((candidate) => candidate.file.toLowerCase() === canonicalFile.toLowerCase())
   return canonical.length === 1 ? canonical[0] : null
+}
+
+function exactFileHash(raw: Uint8Array): string {
+  return createHash('sha256').update(raw).digest('hex')
 }
 
 function errorMessage(error: unknown): string {
@@ -285,8 +325,9 @@ export class DashboardManager {
   private readonly storeDir: string
   private readonly windows = new Map<string, OpenWindowMeta>()
   private dashboards = new Map<string, Dashboard>()
+  private dashboardSourceFiles = new Map<string, string>()
   private storageIssues: DashboardStorageIssue[] = []
-  private readonly identityCatalog = getBuiltinDashboardIdentityCatalog()
+  private readonly identityCatalog = getDashboardIdentityCatalog()
   private loaded = false
   private loadPromise: Promise<void> | null = null
   private isDisposing = false
@@ -295,9 +336,10 @@ export class DashboardManager {
   private currentPlaylistIndex = -1
   private cycleInFlight = false
   private activateChain: Promise<void> = Promise.resolve()
+  private mutationChain: Promise<void> = Promise.resolve()
   private readonly windowOpenChains = new Map<string, Promise<void>>()
   private readonly pendingWindows = new Map<string, BrowserWindow>()
-  private readonly dashboardDeletionRevisions = new Map<string, number>()
+  private readonly windowIntentGenerations = new Map<string, number>()
   private screenListenersRegistered = false
   private readonly onDisplaysChanged = (): void => {
     if (this.isDisposing) return
@@ -319,32 +361,57 @@ export class DashboardManager {
     return this.loadPromise
   }
 
+  private enqueueMutation<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.isDisposing) return Promise.reject(new Error('Dashboard manager is shutting down.'))
+    const run = this.mutationChain.then(async () => {
+      await this.load()
+      return operation()
+    })
+    this.mutationChain = run.then(
+      () => undefined,
+      () => undefined
+    )
+    return run
+  }
+
+  private currentWindowIntent(id: string): number {
+    return this.windowIntentGenerations.get(id) ?? 0
+  }
+
+  private invalidateWindowIntents(id: string): void {
+    this.windowIntentGenerations.set(id, this.currentWindowIntent(id) + 1)
+    const pending = this.pendingWindows.get(id)
+    if (pending && !pending.isDestroyed()) pending.close()
+  }
+
   private async loadInternal(): Promise<void> {
     if (this.loaded) return
     await mkdir(this.storeDir, { recursive: true })
     await mkdir(join(this.storeDir, QUARANTINE_DIR), { recursive: true })
     const files = (await readdir(this.storeDir)).sort((a, b) => a.localeCompare(b))
     const dashboards = new Map<string, Dashboard>()
+    const sourceFiles = new Map<string, string>()
     const candidatesById = new Map<string, DashboardFileCandidate[]>()
     this.storageIssues = []
     for (const file of files) {
       if (!file.toLowerCase().endsWith('.json') || file === PLAYLIST_FILE) continue
       const path = join(this.storeDir, file)
-      const raw = await readFile(path, 'utf8')
+      const raw = await readFile(path)
+      const hash = exactFileHash(raw)
       let parsed: unknown
       try {
-        parsed = JSON.parse(raw) as unknown
+        parsed = JSON.parse(raw.toString('utf8')) as unknown
       } catch (error) {
-        await this.quarantineFile(file, `Malformed JSON: ${errorMessage(error)}`)
+        await this.quarantineFile(file, `Malformed JSON: ${errorMessage(error)}`, hash)
         continue
       }
       const result = dashboardStorageValidationResult(parsed, { identityCatalog: this.identityCatalog })
       if (result.status === 'quarantine') {
-        await this.quarantineFile(file, result.error)
+        await this.quarantineFile(file, result.error, hash)
         continue
       }
       const candidates = candidatesById.get(result.dashboard.id) ?? []
-      candidates.push({ file, dashboard: result.dashboard })
+      candidates.push({ file, dashboard: result.dashboard, hash })
       candidatesById.set(result.dashboard.id, candidates)
       if (result.status === 'migrated') {
         logger.info('dashboards', 'dashboard loaded with in-memory storage migrations', {
@@ -354,9 +421,10 @@ export class DashboardManager {
         })
       }
     }
+    const selectedCandidates = new Map<string, DashboardFileCandidate>()
     for (const [id, candidates] of candidatesById) {
       if (candidates.length === 1) {
-        dashboards.set(id, candidates[0].dashboard)
+        selectedCandidates.set(id, candidates[0])
         continue
       }
       const canonicalFile = `${this.fileNameOf(id)}.json`
@@ -366,7 +434,8 @@ export class DashboardManager {
         for (const candidate of candidates) {
           await this.quarantineFile(
             candidate.file,
-            `Ambiguous duplicate dashboard id "${id}" across files: ${files}.`
+            `Ambiguous duplicate dashboard id "${id}" across files: ${files}.`,
+            candidate.hash
           )
         }
         continue
@@ -375,18 +444,36 @@ export class DashboardManager {
         if (candidate === winner) continue
         await this.quarantineFile(
           candidate.file,
-          `Duplicate dashboard id "${id}" superseded by authoritative file "${winner.file}".`
+          `Duplicate dashboard id "${id}" superseded by authoritative file "${winner.file}".`,
+          candidate.hash
         )
       }
-      if (winner.file.toLowerCase() !== canonicalFile.toLowerCase()) {
-        await rename(join(this.storeDir, winner.file), join(this.storeDir, canonicalFile))
-        logger.info('dashboards', 'canonicalized duplicate dashboard winner filename', {
-          id,
-          from: winner.file,
-          to: canonicalFile
-        })
+      selectedCandidates.set(id, winner)
+    }
+    const canonicalOwners = new Map<string, Array<{ id: string; candidate: DashboardFileCandidate }>>()
+    for (const [id, candidate] of selectedCandidates) {
+      const canonicalFile = `${this.fileNameOf(id)}.json`
+      const owners = canonicalOwners.get(canonicalFile.toLowerCase()) ?? []
+      owners.push({ id, candidate })
+      canonicalOwners.set(canonicalFile.toLowerCase(), owners)
+    }
+    for (const owners of canonicalOwners.values()) {
+      if (owners.length < 2) continue
+      const ids = owners.map((owner) => owner.id).join(', ')
+      for (const owner of owners) {
+        await this.quarantineFile(
+          owner.candidate.file,
+          `Dashboard ids collide on the same canonical filename: ${ids}.`,
+          owner.candidate.hash
+        )
+        selectedCandidates.delete(owner.id)
       }
-      dashboards.set(id, winner.dashboard)
+    }
+    for (const [id, candidate] of selectedCandidates) {
+      const canonicalFile = `${this.fileNameOf(id)}.json`
+      await this.canonicalizeDashboardSource(candidate, canonicalFile)
+      dashboards.set(id, candidate.dashboard)
+      sourceFiles.set(id, canonicalFile)
     }
     if (dashboards.size === 0) {
       // Sementeia com presets na primeira execução
@@ -398,9 +485,11 @@ export class DashboardManager {
         )
         dashboards.set(dash.id, dash)
         await this.persist(dash)
+        sourceFiles.set(dash.id, `${this.fileNameOf(dash.id)}.json`)
       }
     }
     this.dashboards = dashboards
+    this.dashboardSourceFiles = sourceFiles
     await this.loadPlaylist()
     this.loaded = true
     if (!this.isDisposing) this.registerScreenListeners()
@@ -559,7 +648,11 @@ export class DashboardManager {
     }
   }
 
-  async setPlaylist(playlist: DashboardPlaylist): Promise<DashboardPlaylist> {
+  setPlaylist(playlist: DashboardPlaylist): Promise<DashboardPlaylist> {
+    return this.enqueueMutation(() => this.setPlaylistInternal(playlist))
+  }
+
+  private async setPlaylistInternal(playlist: DashboardPlaylist): Promise<DashboardPlaylist> {
     const items = Array.isArray(playlist?.items)
       ? playlist.items
           .filter((item): item is DashboardPlaylistItem => Boolean(item && typeof item.dashboardId === 'string' && item.dashboardId))
@@ -573,14 +666,16 @@ export class DashboardManager {
             touchPanelId: typeof item.touchPanelId === 'string' ? item.touchPanelId : undefined
           }))
       : []
-    this.playlist = { items, updatedAt: Date.now() }
+    const next = { items, updatedAt: Date.now() }
+    await this.persistPlaylist(next)
+    this.playlist = next
     this.currentPlaylistIndex = -1
-    await this.persistPlaylist()
     this.ctx.broadcast('app:dash:playlist', this.getPlaylist())
     return this.getPlaylist()
   }
 
   async cycle(direction: 'next' | 'prev' = 'next'): Promise<DashboardOpenState | null> {
+    await this.load()
     const now = Date.now()
     if (this.cycleInFlight || now - this.lastCycleAt < CYCLE_DEBOUNCE_MS) return null
 
@@ -672,7 +767,10 @@ export class DashboardManager {
   // sequences interleave and the final visible window becomes nondeterministic.
   // Each call waits for the previous activation to settle before running.
   activate(id: string): Promise<DashboardOpenState> {
-    const run = this.activateChain.then(() => this.activateInternal(id))
+    const run = this.activateChain.then(async () => {
+      await this.load()
+      return this.activateInternal(id)
+    })
     // Keep the queue alive even when an activation rejects.
     this.activateChain = run.then(
       () => undefined,
@@ -721,54 +819,59 @@ export class DashboardManager {
     return opened
   }
 
-  async save(dash: Dashboard): Promise<DashboardSummary> {
+  save(dash: Dashboard): Promise<DashboardSummary> {
+    return this.enqueueMutation(() => this.saveInternal(dash))
+  }
+
+  private async saveInternal(dash: Dashboard): Promise<DashboardSummary> {
     const canonical = validatedDashboard(dash, 'Invalid dashboard', this.identityCatalog)
     canonical.updatedAt = Date.now()
     if (!canonical.createdAt) canonical.createdAt = canonical.updatedAt
-    this.dashboards.set(canonical.id, canonical)
     await this.persist(canonical)
+    this.dashboards.set(canonical.id, canonical)
     this.ctx.broadcast('app:dash:list', this.list())
     this.ctx.broadcast('app:dash:updated', canonical)
     return summarizeDashboard(canonical)
   }
 
-  async delete(id: string): Promise<DashboardSummary[]> {
-    const existed = this.dashboards.delete(id)
-    this.dashboardDeletionRevisions.set(id, (this.dashboardDeletionRevisions.get(id) ?? 0) + 1)
-    const pending = this.pendingWindows.get(id)
-    if (pending && !pending.isDestroyed()) pending.close()
+  delete(id: string): Promise<DashboardSummary[]> {
+    this.invalidateWindowIntents(id)
+    return this.enqueueMutation(() => this.deleteInternal(id))
+  }
+
+  private async deleteInternal(id: string): Promise<DashboardSummary[]> {
     await this.windowOpenChains.get(id)
-    if (this.windows.has(id)) await this.closeWindow(id)
-    if (existed) {
-      try {
-        await unlink(join(this.storeDir, `${this.fileNameOf(id)}.json`))
-      } catch (error) {
-        if (!isMissingFileError(error)) throw error
-      }
-    }
+    if (this.windows.has(id)) await this.closeWindowInternal(id)
+    const existed = this.dashboards.has(id)
+    if (existed) await this.removeDashboardSource(id)
+    this.dashboards.delete(id)
     const list = this.list()
     this.ctx.broadcast('app:dash:list', list)
     return list
   }
 
-  async setHidden(id: string, hidden: boolean): Promise<DashboardSummary[]> {
+  setHidden(id: string, hidden: boolean): Promise<DashboardSummary[]> {
+    return this.enqueueMutation(() => this.setHiddenInternal(id, hidden))
+  }
+
+  private async setHiddenInternal(id: string, hidden: boolean): Promise<DashboardSummary[]> {
     const dash = this.dashboards.get(id)
     if (!dash) throw new Error(`Dashboard not found: ${id}`)
-    dash.hidden = Boolean(hidden)
-    dash.updatedAt = Date.now()
-    this.dashboards.set(id, dash)
-    await this.persist(dash)
+    const next = { ...dash, hidden: Boolean(hidden), updatedAt: Date.now() }
+    await this.persist(next)
+    this.dashboards.set(id, next)
     const list = this.list()
     this.ctx.broadcast('app:dash:list', list)
-    this.ctx.broadcast('app:dash:updated', dash)
+    this.ctx.broadcast('app:dash:updated', next)
     return list
   }
 
-  async createFromPreset(presetId: string): Promise<DashboardSummary> {
-    const preset = BUILTIN_PRESETS.find((p) => p.id === presetId)
-    if (!preset) throw new Error(`Preset unknown: ${presetId}`)
-    const dash = preset.build()
-    return this.save(dash)
+  createFromPreset(presetId: string): Promise<DashboardSummary> {
+    return this.enqueueMutation(async () => {
+      const preset = BUILTIN_PRESETS.find((candidate) => candidate.id === presetId)
+      if (!preset) throw new Error(`Preset unknown: ${presetId}`)
+      return this.saveInternal(preset.build())
+    })
   }
 
   // Built-in presets are seeded to disk only on the very first run. On existing
@@ -777,26 +880,22 @@ export class DashboardManager {
   // Resolve those lazily: when a requested id matches a known preset id, build +
   // persist it on demand (under the stable preset id) so it becomes openable.
   private async materializeBuiltinPreset(id: string): Promise<Dashboard | null> {
-    const preset = BUILTIN_PRESETS.find((p) => p.id === id)
-    if (!preset) return null
-    const built = validatedDashboard(
-      preset.build(),
-      `Builtin preset "${id}" is invalid`,
-      this.identityCatalog
-    )
-    // Force the stable preset id so the dashboard is addressable by it.
-    const dash: Dashboard = { ...built, id }
-    this.dashboards.set(id, dash)
-    try {
+    return this.enqueueMutation(async () => {
+      const existing = this.dashboards.get(id)
+      if (existing) return existing
+      const preset = BUILTIN_PRESETS.find((candidate) => candidate.id === id)
+      if (!preset) return null
+      const built = validatedDashboard(
+        preset.build(),
+        `Builtin preset "${id}" is invalid`,
+        this.identityCatalog
+      )
+      const dash: Dashboard = { ...built, id }
       await this.persist(dash)
-    } catch (error) {
-      logger.warn('dashboards', 'failed to persist lazily materialized preset', {
-        id,
-        error: errorMessage(error)
-      })
-    }
-    this.ctx.broadcast('app:dash:list', this.list())
-    return dash
+      this.dashboards.set(id, dash)
+      this.ctx.broadcast('app:dash:list', this.list())
+      return dash
+    })
   }
 
   async importSimhub(filePath?: string, options: SimhubImportOptions = {}): Promise<SimhubImportResponse> {
@@ -854,8 +953,11 @@ export class DashboardManager {
 
   openWindow(id: string, options: DashboardOpenOptions = {}): Promise<DashboardOpenState> {
     const previous = this.windowOpenChains.get(id) ?? Promise.resolve()
-    const deletionRevision = this.dashboardDeletionRevisions.get(id) ?? 0
-    const opened = previous.then(() => this.openWindowInternal(id, options, deletionRevision))
+    const intentGeneration = this.currentWindowIntent(id)
+    const opened = previous.then(async () => {
+      await this.load()
+      return this.openWindowInternal(id, options, intentGeneration)
+    })
     const tail = opened.then(
       () => undefined,
       () => undefined
@@ -870,11 +972,11 @@ export class DashboardManager {
   private async openWindowInternal(
     id: string,
     options: DashboardOpenOptions,
-    deletionRevision: number
+    intentGeneration: number
   ): Promise<DashboardOpenState> {
     if (this.isDisposing) throw new Error('Dashboard manager is shutting down.')
-    if ((this.dashboardDeletionRevisions.get(id) ?? 0) !== deletionRevision) {
-      throw new Error(`Dashboard open canceled because "${id}" was deleted.`)
+    if (this.currentWindowIntent(id) !== intentGeneration) {
+      throw new Error(`Dashboard open canceled because a newer intent superseded "${id}".`)
     }
     let dash = this.dashboards.get(id)
     if (!dash) dash = (await this.materializeBuiltinPreset(id)) ?? undefined
@@ -976,9 +1078,9 @@ export class DashboardManager {
       if (!win.isDestroyed()) win.close()
       throw new Error('Dashboard manager shut down while the renderer was loading.')
     }
-    if ((this.dashboardDeletionRevisions.get(id) ?? 0) !== deletionRevision || !this.dashboards.has(id)) {
+    if (this.currentWindowIntent(id) !== intentGeneration || !this.dashboards.has(id)) {
       if (!win.isDestroyed()) win.close()
-      throw new Error(`Dashboard open canceled because "${id}" was deleted while its renderer was loading.`)
+      throw new Error(`Dashboard open canceled because a newer intent superseded "${id}" while its renderer was loading.`)
     }
     if (!this.isWindowHealthy(next)) {
       if (!win.isDestroyed()) win.close()
@@ -1013,9 +1115,12 @@ export class DashboardManager {
     return { id, displayId: display.id, fullscreen }
   }
 
-  async closeWindow(id: string): Promise<DashboardOpenState[]> {
-    const pending = this.pendingWindows.get(id)
-    if (pending && !pending.isDestroyed()) pending.close()
+  closeWindow(id: string): Promise<DashboardOpenState[]> {
+    this.invalidateWindowIntents(id)
+    return this.closeWindowInternal(id)
+  }
+
+  private async closeWindowInternal(id: string): Promise<DashboardOpenState[]> {
     await this.windowOpenChains.get(id)
     const meta = this.windows.get(id)
     const hadWindow = Boolean(meta && !meta.window.isDestroyed())
@@ -1032,6 +1137,14 @@ export class DashboardManager {
   async dispose(): Promise<void> {
     this.isDisposing = true
     this.unregisterScreenListeners()
+    const ids = new Set([
+      ...this.windows.keys(),
+      ...this.pendingWindows.keys(),
+      ...this.windowOpenChains.keys()
+    ])
+    for (const id of ids) this.invalidateWindowIntents(id)
+    await Promise.all([...this.windowOpenChains.values()])
+    await this.mutationChain
     for (const pending of this.pendingWindows.values()) {
       if (!pending.isDestroyed()) pending.close()
     }
@@ -1048,15 +1161,108 @@ export class DashboardManager {
     return id.replace(/[^A-Za-z0-9._-]/g, '_')
   }
 
-  private async persist(dash: Dashboard): Promise<void> {
-    const path = join(this.storeDir, `${this.fileNameOf(dash.id)}.json`)
-    await writeFile(path, JSON.stringify(dash, null, 2), 'utf8')
+  private async canonicalizeDashboardSource(
+    candidate: DashboardFileCandidate,
+    canonicalFile: string
+  ): Promise<void> {
+    if (candidate.file.toLowerCase() === canonicalFile.toLowerCase()) return
+    const source = join(this.storeDir, candidate.file)
+    const target = join(this.storeDir, canonicalFile)
+    let moved = false
+    try {
+      await rename(source, target)
+      moved = true
+      const migrated = await readFile(target)
+      if (exactFileHash(migrated) !== candidate.hash) {
+        throw new Error(`Canonical filename migration changed bytes for "${candidate.file}".`)
+      }
+    } catch (error) {
+      if (moved) {
+        try {
+          await rename(target, source)
+        } catch (rollbackError) {
+          try {
+            await this.quarantineFile(
+              canonicalFile,
+              `Canonical filename migration rollback failed for "${candidate.file}": ${errorMessage(rollbackError)}.`
+            )
+          } catch (quarantineError) {
+            throw new Error(
+              `Dashboard source migration and recovery failed: ${errorMessage(error)}; ` +
+              `rollback: ${errorMessage(rollbackError)}; quarantine: ${errorMessage(quarantineError)}`
+            )
+          }
+        }
+      }
+      throw error
+    }
+    logger.info('dashboards', 'canonicalized dashboard source filename', {
+      id: candidate.dashboard.id,
+      from: candidate.file,
+      to: canonicalFile
+    })
   }
 
-  private async quarantineFile(file: string, error: string): Promise<void> {
+  private async persist(dash: Dashboard): Promise<void> {
+    const file = `${this.fileNameOf(dash.id)}.json`
+    const path = join(this.storeDir, file)
+    await writeFile(path, JSON.stringify(dash, null, 2), 'utf8')
+    this.dashboardSourceFiles.set(dash.id, file)
+  }
+
+  private async removeDashboardSource(id: string): Promise<void> {
+    const file = this.dashboardSourceFiles.get(id) ?? `${this.fileNameOf(id)}.json`
+    const path = join(this.storeDir, file)
+    let raw: Buffer
+    try {
+      raw = await readFile(path)
+    } catch (error) {
+      if (!isMissingFileError(error)) throw error
+      this.dashboardSourceFiles.delete(id)
+      return
+    }
+    const hash = exactFileHash(raw)
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw.toString('utf8')) as unknown
+    } catch (error) {
+      await this.quarantineFile(file, `Deleted dashboard source contained malformed JSON: ${errorMessage(error)}`, hash)
+      this.dashboardSourceFiles.delete(id)
+      return
+    }
+    const result = dashboardStorageValidationResult(parsed, { identityCatalog: this.identityCatalog })
+    if (result.status === 'quarantine' || result.dashboard.id !== id) {
+      const reason = result.status === 'quarantine'
+        ? result.error
+        : `Source ownership changed from "${id}" to "${result.dashboard.id}".`
+      await this.quarantineFile(file, `Deleted dashboard source was not safely removable: ${reason}`, hash)
+    } else {
+      await unlink(path)
+    }
+    this.dashboardSourceFiles.delete(id)
+  }
+
+  private async quarantineFile(file: string, error: string, expectedHash?: string): Promise<void> {
+    const source = join(this.storeDir, file)
+    const sourceHash = expectedHash ?? exactFileHash(await readFile(source))
     const nameHash = createHash('sha256').update(file, 'utf8').digest('hex').slice(0, 16)
     const quarantinedFile = `q.${nameHash}.${randomUUID()}.json`
-    await rename(join(this.storeDir, file), join(this.storeDir, QUARANTINE_DIR, quarantinedFile))
+    const target = join(this.storeDir, QUARANTINE_DIR, quarantinedFile)
+    await rename(source, target)
+    try {
+      const quarantinedHash = exactFileHash(await readFile(target))
+      if (quarantinedHash !== sourceHash) throw new Error(`Quarantine changed bytes for "${file}".`)
+    } catch (verificationError) {
+      try {
+        await rename(target, source)
+      } catch (rollbackError) {
+        throw new Error(
+          `Quarantine verification failed for "${file}" and rollback failed: ` +
+          `${errorMessage(verificationError)}; ${errorMessage(rollbackError)}`
+        )
+      }
+      throw verificationError
+    }
     const issue: DashboardStorageIssue = { file, quarantinedFile, error }
     this.storageIssues.push(issue)
     logger.warn('dashboards', 'quarantined invalid dashboard storage file', issue)
@@ -1133,8 +1339,8 @@ export class DashboardManager {
     }
   }
 
-  private async persistPlaylist(): Promise<void> {
-    await writeFile(join(this.storeDir, PLAYLIST_FILE), JSON.stringify(this.playlist, null, 2), 'utf8')
+  private async persistPlaylist(playlist: DashboardPlaylist = this.playlist): Promise<void> {
+    await writeFile(join(this.storeDir, PLAYLIST_FILE), JSON.stringify(playlist, null, 2), 'utf8')
   }
 
   private async pickOpenPath(): Promise<string | null> {

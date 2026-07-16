@@ -60,6 +60,7 @@ import {
   RELEASE_A_RELEASED_AT,
   RELEASE_A_TAG
 } from './catalog-order'
+import { DASHBOARD_IDENTITY_CATALOG } from './dashboard-identity-catalog.generated'
 
 export const DASHBOARD_ELEMENT_TYPES = [
   'text', 'rect', 'bar', 'barv', 'dualbar', 'deltabar', 'gauge', 'shiftlights',
@@ -693,7 +694,7 @@ function plainJsonValidationError(value: unknown, path = 'Dashboard'): string | 
 }
 
 const words = (value: string): string[] => value.split(' ')
-const STYLE_STRINGS = words('background border color fontFamily fillColor warnColor dangerColor text prefix suffix src secondaryBinding secondaryColor dryndaryBinding dryndaryColor flagKey traceColor2 headerColor rowAltBackground flashColor unit accentColor bindingWater bindingOil bindingOilPressure bindingAbs bindingTc bindingMap bindingBrakeBias label reference title needleColor')
+const STYLE_STRINGS = words('background border color fontFamily fillColor warnColor dangerColor text prefix suffix src secondaryBinding secondaryColor dryndaryBinding dryndaryColor flagKey traceColor2 headerColor rowAltBackground flashColor unit accentColor bindingWater bindingOil bindingOilPressure bindingAbs bindingTc bindingMap bindingBrakeBias label reference title statusOnText statusOffText needleColor')
 const STYLE_NUMBERS = words('borderWidth radius fontSize padding warnAt dangerAt segments decimals opacity filterGrayscale filterSepia redTint brightness contrast saturate hueRotate invert blur deltaRangeSec traceLength traceWidth tableMaxRows rowHeight flashAt coldAt optimalAt hotAt criticalAt targetValue tolerance reserveLaps warnAtLaps maxDegrees minFontSize maxFontSize gaugeMin gaugeMax ticks digits ringThickness zIndex')
 const STYLE_BOOLEANS = words('highlightPlayer showHeader reverse glow pitLimiterOverride showRpm showLabels showAverage enduranceMode showCurrent showLast showBest showEstimated showTotal compact includeIncidents showNumeric showIcon showNeedle showValue graphFill autoRange ghost')
 const STYLE_ARRAYS = words('tableColumns channels fields')
@@ -978,8 +979,16 @@ function dashboardValidationErrorUnsafe(value: unknown): string | null {
   if (!isFiniteNumber(value.height) || value.height <= 0 || value.height > MAX_DASHBOARD_DIMENSION) return `Dashboard height must be positive, finite, and at most ${MAX_DASHBOARD_DIMENSION}.`
   if (value.scaleMode !== undefined && value.scaleMode !== 'fit' && value.scaleMode !== 'fill' && value.scaleMode !== 'stretch') return 'Dashboard scaleMode is invalid.'
   if (value.hidden !== undefined && typeof value.hidden !== 'boolean') return 'Dashboard hidden must be a boolean.'
-  for (const key of ['description', 'author', 'previewPng', 'storageEpoch', 'storageRevision'] as const) {
+  for (const key of ['description', 'author', 'previewPng'] as const) {
     if (value[key] !== undefined && typeof value[key] !== 'string') return `Dashboard ${key} must be a string.`
+  }
+  for (const key of ['storageEpoch', 'storageRevision'] as const) {
+    if (value[key] !== undefined && (typeof value[key] !== 'string' || !value[key].trim())) {
+      return `Dashboard ${key} must be a non-empty string.`
+    }
+  }
+  if ((value.storageEpoch === undefined) !== (value.storageRevision === undefined)) {
+    return 'Dashboard storageEpoch and storageRevision must be provided together.'
   }
   if (value.createdAt !== undefined && !isFiniteNumber(value.createdAt)) return 'Dashboard createdAt must be finite.'
   if (value.updatedAt !== undefined && !isFiniteNumber(value.updatedAt)) return 'Dashboard updatedAt must be finite.'
@@ -3658,42 +3667,8 @@ export const BUILTIN_PRESETS: DashboardPreset[] = withDefaultPresetPriority([
   ...HIFI_THEMED_CAR_PRESETS
 ])
 
-let builtinDashboardIdentityCatalog: readonly DashboardIdentityCatalogEntry[] | null = null
-
-export function getBuiltinDashboardIdentityCatalog(): readonly DashboardIdentityCatalogEntry[] {
-  if (builtinDashboardIdentityCatalog) return builtinDashboardIdentityCatalog
-  const entries = new Map<string, DashboardIdentityCatalogEntry>()
-  const addElements = (elements: readonly DashboardElement[]): void => {
-    for (const element of elements) {
-      if (element.type !== 'overlaywidget' || (!element.widgetId && !element.hifiModuleId)) continue
-      const id = element.widgetId ?? element.hifiModuleId ?? element.id
-      const entry: DashboardIdentityCatalogEntry = {
-        id,
-        type: 'overlaywidget',
-        ...(element.name ? { label: element.name, name: element.name } : {}),
-        ...(element.binding ? { binding: element.binding } : {}),
-        ...(element.widgetId ? { widgetId: element.widgetId } : {}),
-        ...(element.hifiModuleId ? { hifiModuleId: element.hifiModuleId } : {})
-      }
-      const key = JSON.stringify([
-        entry.id,
-        entry.name ?? null,
-        entry.binding ?? null,
-        entry.widgetId ?? null,
-        entry.hifiModuleId ?? null
-      ])
-      entries.set(key, entry)
-    }
-  }
-  for (const preset of BUILTIN_PRESETS) {
-    const dashboard = preset.build()
-    addElements(dashboard.elements)
-    for (const rule of dashboard.adaptive?.rules ?? []) {
-      if (rule.frame?.elements) addElements(rule.frame.elements)
-    }
-  }
-  builtinDashboardIdentityCatalog = Object.freeze([...entries.values()].map((entry) => Object.freeze(entry)))
-  return builtinDashboardIdentityCatalog
+export function getDashboardIdentityCatalog(): readonly DashboardIdentityCatalogEntry[] {
+  return DASHBOARD_IDENTITY_CATALOG
 }
 
 export function summarizeDashboard(dash: Dashboard): DashboardSummary {

@@ -242,6 +242,7 @@ type IpcHandler = (event: unknown, ...args: unknown[]) => unknown
 interface DashboardManagerInternals {
   dashboards: Map<string, Dashboard>
   windows: Map<string, { window: unknown }>
+  persist(dashboard: Dashboard): Promise<void>
   registerScreenListeners(): void
 }
 
@@ -467,7 +468,7 @@ describe('DashboardManager restart restoration', () => {
     expect(manager.listStorageIssues()).toEqual([])
   })
 
-  it('restores a legacy hi-fi overlay identity from the shared builtin catalog', async () => {
+  it('restores a legacy hi-fi overlay identity from the shared catalog', async () => {
     const source = raceTrafficAttack().elements.find((element) => element.name === 'speedGear')
     if (!source) throw new Error('speedGear identity source is missing')
     const legacyElement = structuredClone(source) as DashboardElement
@@ -494,6 +495,38 @@ describe('DashboardManager restart restoration', () => {
     expect(manager.listStorageIssues()).toEqual([])
   })
 
+  it('restores ABS State legacy identity from the full canonical widget catalog', async () => {
+    const legacy: Dashboard = {
+      id: 'legacy-abs-state',
+      name: 'Legacy ABS State',
+      width: 1024,
+      height: 600,
+      bg: '#000',
+      elements: [{
+        id: 'abs-state',
+        type: 'overlaywidget',
+        x: 0,
+        y: 0,
+        w: 320,
+        h: 160,
+        name: 'ABS State',
+        binding: 'absActive',
+        style: {}
+      }]
+    }
+    const stored = persistDashboard(userData, legacy)
+
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+
+    expect(manager.getDashboard(legacy.id)?.elements[0]).toMatchObject({
+      widgetId: 'hifi:absState',
+      hifiModuleId: 'absState'
+    })
+    expect(readFileSync(stored.path, 'utf8')).toBe(stored.raw)
+    expect(manager.listStorageIssues()).toEqual([])
+  })
+
   it('selects the newer duplicate dashboard regardless of lexical file order', async () => {
     const stale = { ...raceTrafficAttack(), id: 'duplicate-dashboard', name: 'Stale', updatedAt: 100 }
     const newer = { ...raceTrafficAttack(), id: 'duplicate-dashboard', name: 'Newer', updatedAt: 200 }
@@ -515,8 +548,22 @@ describe('DashboardManager restart restoration', () => {
 
   it('quarantines every equal ambiguous duplicate instead of choosing lexical-first', async () => {
     persistDashboard(userData, raceTrafficAttack())
-    const first = { ...raceTrafficAttack(), id: 'ambiguous-dashboard', name: 'First', updatedAt: 100 }
-    const second = { ...raceTrafficAttack(), id: 'ambiguous-dashboard', name: 'Second', updatedAt: 100 }
+    const first = {
+      ...raceTrafficAttack(),
+      id: 'ambiguous-dashboard',
+      name: 'First',
+      updatedAt: 100,
+      storageEpoch: 'epoch-a',
+      storageRevision: 'revision-1'
+    }
+    const second = {
+      ...raceTrafficAttack(),
+      id: 'ambiguous-dashboard',
+      name: 'Second',
+      updatedAt: 100,
+      storageEpoch: 'epoch-a',
+      storageRevision: 'revision-1'
+    }
     const firstStored = persistRawDashboard(userData, 'a-equal.json', first)
     const secondStored = persistRawDashboard(userData, 'b-equal.json', second)
 
@@ -533,6 +580,115 @@ describe('DashboardManager restart restoration', () => {
       expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', issue!.quarantinedFile), 'utf8'))
         .toBe(stored.raw)
     }
+  })
+
+  it('fails closed when duplicate dashboards claim different storage epochs', async () => {
+    persistDashboard(userData, raceTrafficAttack())
+    const first = {
+      ...raceTrafficAttack(),
+      id: 'epoch-conflict',
+      name: 'Epoch A',
+      updatedAt: 100,
+      storageEpoch: 'epoch-a',
+      storageRevision: 'revision-1'
+    }
+    const second = {
+      ...raceTrafficAttack(),
+      id: 'epoch-conflict',
+      name: 'Epoch B',
+      updatedAt: 200,
+      storageEpoch: 'epoch-b',
+      storageRevision: 'revision-2'
+    }
+    const firstStored = persistRawDashboard(userData, 'epoch-a.json', first)
+    const secondStored = persistRawDashboard(userData, 'epoch-b.json', second)
+
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+
+    expect(manager.getDashboard('epoch-conflict')).toBeNull()
+    const issues = manager.listStorageIssues().filter((issue) => issue.error.includes('Ambiguous duplicate'))
+    expect(issues.map((issue) => issue.file).sort()).toEqual(['epoch-a.json', 'epoch-b.json'])
+    for (const stored of [firstStored, secondStored]) {
+      expect(existsSync(stored.path)).toBe(false)
+      const file = stored.path.split('\\').at(-1)
+      const issue = issues.find((candidate) => candidate.file === file)
+      expect(issue).toBeDefined()
+      expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', issue!.quarantinedFile), 'utf8'))
+        .toBe(stored.raw)
+    }
+  })
+
+  it('deduplicates byte-identical versioned files without treating them as ambiguous', async () => {
+    const dashboard = {
+      ...raceTrafficAttack(),
+      id: 'identical-versioned',
+      name: 'Identical versioned',
+      updatedAt: 100,
+      storageEpoch: 'epoch-a',
+      storageRevision: 'revision-1'
+    }
+    const first = persistRawDashboard(userData, 'identical-a.json', dashboard)
+    const second = persistRawDashboard(userData, 'identical-b.json', dashboard)
+
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+
+    expect(manager.getDashboard(dashboard.id)?.name).toBe('Identical versioned')
+    expect(readFileSync(join(userData, 'dashboards', 'identical-versioned.json'), 'utf8')).toBe(first.raw)
+    const issues = manager.listStorageIssues()
+    expect(issues).toHaveLength(1)
+    const duplicate = issues[0]
+    expect([first.path, second.path].some((path) => path.endsWith(duplicate.file))).toBe(true)
+    expect(readFileSync(join(userData, 'dashboards', '.dashboard-quarantine', duplicate.quarantinedFile), 'utf8'))
+      .toBe(first.raw)
+  })
+
+  it('canonicalizes a noncanonical source and deletes the verified file without restart resurrection', async () => {
+    persistDashboard(userData, raceTrafficAttack())
+    const custom = {
+      ...raceTrafficAttack(),
+      id: 'noncanonical-delete',
+      name: 'Noncanonical delete',
+      updatedAt: 300
+    }
+    const stored = persistRawDashboard(userData, 'legacy-export-name.json', custom)
+    const canonicalPath = join(userData, 'dashboards', 'noncanonical-delete.json')
+
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+
+    expect(existsSync(stored.path)).toBe(false)
+    expect(readFileSync(canonicalPath, 'utf8')).toBe(stored.raw)
+    await manager.delete(custom.id)
+    expect(existsSync(canonicalPath)).toBe(false)
+
+    const restarted = makeHeadlessManager(userData)
+    await restarted.load()
+    expect(restarted.getDashboard(custom.id)).toBeNull()
+  })
+
+  it('rejects malformed status labels before saving or exposing them to the renderer', async () => {
+    persistDashboard(userData, raceTrafficAttack())
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+    const invalid = {
+      ...raceTrafficAttack(),
+      id: 'invalid-status-label',
+      elements: [{
+        id: 'status',
+        type: 'statuslamp',
+        x: 0,
+        y: 0,
+        w: 200,
+        h: 100,
+        style: { statusOnText: { unsafe: true } }
+      }]
+    } as unknown as Dashboard
+
+    await expect(manager.save(invalid)).rejects.toThrow(/statusOnText must be a string/)
+    expect(manager.getDashboard(invalid.id)).toBeNull()
+    expect(existsSync(join(userData, 'dashboards', `${invalid.id}.json`))).toBe(false)
   })
 
   it('waits for persisted dashboards to load before answering renderer bootstrap IPC', async () => {
@@ -561,6 +717,63 @@ describe('DashboardManager restart restoration', () => {
     expect(settled).toBe(false)
     releaseLoad()
     expect(await pending).toEqual(dashboard)
+  })
+
+  it('gates a direct save on startup load so late hydration cannot overwrite it', async () => {
+    const manager = makeHeadlessManager(userData)
+    const persisted = { ...raceTrafficAttack(), id: 'startup-save', name: 'Persisted before startup' }
+    const saved = { ...persisted, name: 'Saved during startup' }
+    let releaseLoad!: () => void
+    const loadGate = new Promise<void>((resolve) => {
+      releaseLoad = resolve
+    })
+    manager.load = async () => {
+      await loadGate
+      mkdirSync(join(userData, 'dashboards'), { recursive: true })
+      managerInternals(manager).dashboards.set(persisted.id, persisted)
+    }
+
+    let settled = false
+    const pending = manager.save(saved).then((summary) => {
+      settled = true
+      return summary
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    releaseLoad()
+    await pending
+    expect(manager.getDashboard(saved.id)?.name).toBe('Saved during startup')
+    expect(JSON.parse(readFileSync(join(userData, 'dashboards', `${saved.id}.json`), 'utf8')).name)
+      .toBe('Saved during startup')
+  })
+
+  it('serializes direct mutations through one manager-wide chain', async () => {
+    const manager = makeHeadlessManager(userData)
+    manager.load = async () => {}
+    let releaseFirst!: () => void
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    let activeWrites = 0
+    let maxActiveWrites = 0
+    managerInternals(manager).persist = async (dashboard) => {
+      activeWrites += 1
+      maxActiveWrites = Math.max(maxActiveWrites, activeWrites)
+      if (dashboard.name === 'First save') await firstGate
+      activeWrites -= 1
+    }
+    const base = raceTrafficAttack()
+    const first = manager.save({ ...base, id: 'serialized-save', name: 'First save' })
+    await vi.waitFor(() => expect(activeWrites).toBe(1))
+    const second = manager.save({ ...base, id: 'serialized-save', name: 'Second save' })
+    await Promise.resolve()
+    expect(activeWrites).toBe(1)
+
+    releaseFirst()
+    await Promise.all([first, second])
+    expect(maxActiveWrites).toBe(1)
+    expect(manager.getDashboard('serialized-save')?.name).toBe('Second save')
   })
 })
 
@@ -771,12 +984,65 @@ describe('DashboardManager window replacement lifecycle', () => {
     await vi.waitFor(() => expect(window).toBeDefined())
     const deleting = manager.delete(dashboard.id)
 
-    await expect(opening).rejects.toThrow(/closed before.*ready|deleted/i)
+    await expect(opening).rejects.toThrow(/closed before.*ready|superseded/i)
     await deleting
     expect(window.close).toHaveBeenCalledOnce()
     expect(window.show).not.toHaveBeenCalled()
     expect(manager.getDashboard(dashboard.id)).toBeNull()
     expect(managerInternals(manager).windows.has(dashboard.id)).toBe(false)
     expect(existsSync(join(userData, 'dashboards', `${dashboard.id}.json`))).toBe(false)
+  })
+
+  it('invalidates two queued opens when close is requested', async () => {
+    let first!: FakeDashboardWindow
+    let second!: FakeDashboardWindow
+    electronMocks.createBrowserWindow
+      .mockImplementationOnce((options) => {
+        first = new FakeDashboardWindow(options as Record<string, unknown>)
+        return first
+      })
+      .mockImplementationOnce((options) => {
+        second = new FakeDashboardWindow(options as Record<string, unknown>)
+        return second
+      })
+
+    const firstOpen = manager.openWindow(dashboard.id, { displayId: primaryDisplay.id, fullscreen: true })
+    const secondOpen = manager.openWindow(dashboard.id, { displayId: secondaryDisplay.id, fullscreen: true })
+    const settled = Promise.allSettled([firstOpen, secondOpen])
+    await vi.waitFor(() => expect(first).toBeDefined())
+    await manager.closeWindow(dashboard.id)
+    const results = await settled
+
+    expect(results.every((result) => result.status === 'rejected')).toBe(true)
+    expect(first.close).toHaveBeenCalledOnce()
+    expect(first.show).not.toHaveBeenCalled()
+    expect(second).toBeUndefined()
+    expect(managerInternals(manager).windows.has(dashboard.id)).toBe(false)
+  })
+
+  it('invalidates queued opens during dispose', async () => {
+    let first!: FakeDashboardWindow
+    let second!: FakeDashboardWindow
+    electronMocks.createBrowserWindow
+      .mockImplementationOnce((options) => {
+        first = new FakeDashboardWindow(options as Record<string, unknown>)
+        return first
+      })
+      .mockImplementationOnce((options) => {
+        second = new FakeDashboardWindow(options as Record<string, unknown>)
+        return second
+      })
+
+    const firstOpen = manager.openWindow(dashboard.id, { displayId: primaryDisplay.id, fullscreen: true })
+    const secondOpen = manager.openWindow(dashboard.id, { displayId: secondaryDisplay.id, fullscreen: true })
+    const settled = Promise.allSettled([firstOpen, secondOpen])
+    await vi.waitFor(() => expect(first).toBeDefined())
+    await manager.dispose()
+    const results = await settled
+
+    expect(results.every((result) => result.status === 'rejected')).toBe(true)
+    expect(first.close).toHaveBeenCalledOnce()
+    expect(first.show).not.toHaveBeenCalled()
+    expect(second).toBeUndefined()
   })
 })

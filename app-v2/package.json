@@ -14,6 +14,7 @@
     "verify:win-package": "bash scripts/fetch-win-cloudflared.sh --verify-package",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.json",
+    "dashboard:identity-catalog": "node scripts/generate-dashboard-identity-catalog.mjs",
     "palette": "node scripts/extract-palette.mjs",
     "assets:instruments": "bash scripts/gen-instrument-assets.sh",
     "visual:diff": "node scripts/visual-regression.mjs",
