@@ -627,6 +627,8 @@ export interface TelemetrySnapshot {
    *  Stable across UI languages and renames, unlike the localized carName — soundshift
    *  keys its per-car tuning on this. */
   carPath?: string
+  /** Stable provider-specific track id when available; falls back to trackName. */
+  trackId?: string | number
   trackName?: string
   /** iRacing WeekendInfo.TrackConfigName — the LAYOUT within a track (e.g. "Grand
    *  Prix" vs "International"). Undefined for tracks with a single configuration.

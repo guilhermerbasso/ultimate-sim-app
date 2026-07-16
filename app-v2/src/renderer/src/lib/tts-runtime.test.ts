@@ -8,7 +8,8 @@ import {
   TTS_CHUNK_MAX_CHARS,
   isTtsSpeaking,
   notifyExternalSpeaking,
-  externalSpeakingDepth
+  externalSpeakingDepth,
+  piperSupportsLanguage
 } from './tts-runtime'
 
 // Pure-logic tests for the renderer TTS config + text chunking. These run in the
@@ -59,6 +60,16 @@ describe('mergeTtsPref', () => {
   it('clamps the rate', () => {
     expect(mergeTtsPref({ rate: 99 }).rate).toBe(2)
     expect(mergeTtsPref({ rate: 0 }).rate).toBe(0.5)
+  })
+})
+
+describe('piperSupportsLanguage', () => {
+  it('uses OS speech for app languages without a bundled Piper model', () => {
+    expect(piperSupportsLanguage('en-US')).toBe(true)
+    expect(piperSupportsLanguage('pt-BR')).toBe(true)
+    for (const language of ['es', 'fr', 'de', 'zh', 'ja']) {
+      expect(piperSupportsLanguage(language)).toBe(false)
+    }
   })
 })
 

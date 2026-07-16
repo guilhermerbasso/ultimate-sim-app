@@ -81,6 +81,7 @@ const ALL_FIELD_FLAGS: Record<Field, true> = {
   paceFlags: true,
   carName: true,
   carPath: true,
+  trackId: true,
   trackName: true,
   trackConfigName: true,
   sessionTimeRemainingSec: true,

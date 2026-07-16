@@ -434,6 +434,17 @@ export interface SpeakOptions {
   corner?: number
 }
 
+export function piperSupportsLanguage(language: string | null | undefined): boolean {
+  const normalized = (language ?? '').trim().toLowerCase().replace('_', '-')
+  return (
+    normalized === '' ||
+    normalized === 'en' ||
+    normalized.startsWith('en-') ||
+    normalized === 'pt' ||
+    normalized.startsWith('pt-')
+  )
+}
+
 /**
  * THE seam: speak `text` via the neural Piper engine, falling back to OS Web Speech.
  * Resolves once playback finishes (or is superseded by a newer call). Never throws.
@@ -451,8 +462,10 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
   // NEURAL is the primary path: a preview (explicit voiceId) ALWAYS tries Piper, and
   // every other call uses Piper unless the user has explicitly forced OS Web Speech.
   // OS Web Speech remains only as a manual override or as the synth-null fallback.
-  const usePiper = options.voiceId ? true : pref.engine !== 'webspeech'
-  const fallbackLang = resolvedVoice.language
+  const usePiper =
+    options.voiceId ? true : pref.engine !== 'webspeech' && piperSupportsLanguage(options.lang)
+  const fallbackLang = options.lang?.trim() || resolvedVoice.language
+  const fallbackSeedVoiceId = piperSupportsLanguage(options.lang) ? voiceId : undefined
   // Observability: tag every utterance with its SOURCE (coach / engineer / …) + the
   // originating tip so a spoken line is never an anonymous "via piper" in the log.
   const diag = {
@@ -483,7 +496,7 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
         lang: fallbackLang ?? null,
         ...diag
       })
-      await webSpeechSpeak(content, fallbackLang, rate, seq, voiceId)
+      await webSpeechSpeak(content, fallbackLang, rate, seq, fallbackSeedVoiceId)
       return
     }
 
@@ -495,7 +508,7 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
     for (const chunk of chunks) {
       if (seq !== speakSeq) return
       if (engineUnavailable) {
-        await webSpeechSpeak(chunk, fallbackLang, rate, seq, voiceId)
+        await webSpeechSpeak(chunk, fallbackLang, rate, seq, fallbackSeedVoiceId)
         continue
       }
       const wav = await synthesize(chunk, voiceId, rate)
@@ -520,7 +533,7 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
           lang: fallbackLang ?? null,
           ...diag
         })
-        await webSpeechSpeak(chunk, fallbackLang, rate, seq, voiceId)
+        await webSpeechSpeak(chunk, fallbackLang, rate, seq, fallbackSeedVoiceId)
         continue
       }
       // Engine/voice missing → fall back for THIS and the remaining chunks (same language).
@@ -532,7 +545,7 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
         lang: fallbackLang ?? null,
         ...diag
       })
-      await webSpeechSpeak(chunk, fallbackLang, rate, seq, voiceId)
+      await webSpeechSpeak(chunk, fallbackLang, rate, seq, fallbackSeedVoiceId)
     }
   } finally {
     speakingCount -= 1

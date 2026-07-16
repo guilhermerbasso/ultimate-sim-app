@@ -26,7 +26,7 @@ import {
   sectorDeltaBars,
   topCoachTips
 } from '../../lib/coach-insights'
-import { feedClock, useEngineerFeed, type EngineerFeedItem } from '../../lib/engineer-feed'
+import { engineerFeedScope, feedClock, useEngineerFeed, type EngineerFeedItem } from '../../lib/engineer-feed'
 import { GOOD_GREEN, WARM_AMBER, WARM_ORANGE, WARM_RED } from './raceControl'
 import { DataTile, SegmentReadout, TelltaleIcon } from '../../instruments'
 import type { WidgetProps } from './types'
@@ -258,11 +258,12 @@ export function EngineerFeedWidget({ config }: WidgetProps): ReactElement {
 function OverlayFeedRow({ item, accent }: { item: EngineerFeedItem; accent: string }): ReactElement {
   const tone = item.source === 'proactive' && item.severity ? toneColor(findingTone(item.severity)) : accent
   const clock = feedClock(item.at)
+  const scope = engineerFeedScope(item)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 1, paddingLeft: 7, borderLeft: `3px solid ${tone}` }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
         <span style={{ fontSize: 9, letterSpacing: '0.07em', color: tone, textTransform: 'uppercase' }}>
-          {item.source === 'proactive' ? `Sector ${item.sector ?? '—'}` : 'Resposta'}
+          {scope}
         </span>
         {clock ? <SegmentReadout value={clock} height={10} color={MUTED} idPrefix="engineer-clock" /> : null}
       </div>

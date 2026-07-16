@@ -32,7 +32,10 @@ import {
 import type { EngineerContext, EngineerToolset, IntentCommandKind } from '../../shared/ai-engineer'
 import {
   buildRacecraftAdvice,
-  detectRacecraftQuestion,
+  coachAdviceLanguageFromAppLanguage,
+  detectRacecraftQuestionWithLanguage,
+  racecraftSafetyFromSnapshot,
+  type CoachAdviceLanguage,
   type RacecraftAdviceContext
 } from '../../shared/coach-racecraft'
 import {
@@ -44,6 +47,7 @@ import {
   type EngineerCommandDirective,
   type EngineerConfig,
   type EngineerConfigPatch,
+  type EngineerMessageLanguage,
   type EngineerStatus,
   mergeEngineerConfig,
   resolveCommandDirective
@@ -114,6 +118,7 @@ export interface EngineerOrchestratorDeps {
   logger?: Logger
   now?(): number
   getUnitSystem?(): UnitSystem
+  getRacecraftLanguage?(): CoachAdviceLanguage
   /** Canonical live context used to reject replay/unknown and stale async answers. */
   getLiveContext?(): LiveTelemetryContext | null
 }
@@ -350,7 +355,8 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     text: string,
     kind: EngineerAnswerKind,
     source: EngineerAnswerSource,
-    command?: EngineerCommandDirective
+    command?: EngineerCommandDirective,
+    language: EngineerMessageLanguage = config.language
   ): EngineerAnswer {
     const answer: EngineerAnswer = {
       id: nextId(),
@@ -358,7 +364,7 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       question,
       text,
       speak: config.speakAnswers && text.length > 0,
-      lang: config.language,
+      lang: language,
       kind,
       source,
       command
@@ -384,10 +390,11 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     kind: EngineerAnswerKind,
     source: EngineerAnswerSource,
     command: EngineerCommandDirective | undefined,
-    context: LiveTelemetryContext | null
+    context: LiveTelemetryContext | null,
+    language?: EngineerMessageLanguage
   ): EngineerAnswer {
     if (!contextIsCurrent(context)) return rejectedAnswer(question)
-    return publishAnswer(question, text, kind, source, command)
+    return publishAnswer(question, text, kind, source, command, language)
   }
 
   function applyRuntimeOptions(): void {
@@ -510,46 +517,64 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     if (!question) return publishAnswer('', pick(config, FALLBACK.empty), 'answer', 'system')
     if (!config.enabled) return publishAnswer(question, pick(config, FALLBACK.disabled), 'disabled', 'system')
 
+    const detectedRacecraft = detectRacecraftQuestionWithLanguage(question)
+    const adviceLanguage =
+      deps.getRacecraftLanguage?.() ??
+      detectedRacecraft?.language ??
+      coachAdviceLanguageFromAppLanguage(config.language)
     const context = deps.getLiveContext?.() ?? null
-    if (deps.getLiveContext && !context) return rejectedAnswer(question)
-    const racecraftIntent = detectRacecraftQuestion(question)
     const unitSystem = deps.getUnitSystem?.() ?? 'metric'
-    if (racecraftIntent) {
-      const snapshot = deps.context.getSnapshot()
-      const fallbackContext: RacecraftAdviceContext = {
-        findings: deps.context.getCoachFindings?.() ?? [],
-        gaps: snapshot
-          ? [
-              {
-                at: snapshot.timestamp,
-                aheadSec: Number.isFinite(snapshot.relatives?.ahead?.gapSec)
-                  ? Math.abs(snapshot.relatives!.ahead!.gapSec as number)
-                  : undefined,
-                behindSec: Number.isFinite(snapshot.relatives?.behind?.gapSec)
-                  ? Math.abs(snapshot.relatives!.behind!.gapSec as number)
-                  : undefined,
-                aheadCarIdx: snapshot.relatives?.ahead?.carIdx,
-                behindCarIdx: snapshot.relatives?.behind?.carIdx
-              }
-            ]
-          : [],
-        currentGapAheadSec: Number.isFinite(snapshot?.relatives?.ahead?.gapSec)
-          ? Math.abs(snapshot!.relatives!.ahead!.gapSec as number)
-          : undefined,
-        currentGapBehindSec: Number.isFinite(snapshot?.relatives?.behind?.gapSec)
-          ? Math.abs(snapshot!.relatives!.behind!.gapSec as number)
-          : undefined,
-        trackName: snapshot?.trackName,
-        trackConfigName: snapshot?.trackConfigName,
-        carName: snapshot?.carName,
-        carPath: snapshot?.carPath
+    const snapshot = deps.context.getSnapshot()
+    const makeFallbackContext = (): RacecraftAdviceContext => ({
+      findings: deps.context.getCoachFindings?.() ?? [],
+      gaps: snapshot
+        ? [
+            {
+              at: snapshot.timestamp,
+              aheadSec: Number.isFinite(snapshot.relatives?.ahead?.gapSec)
+                ? Math.abs(snapshot.relatives!.ahead!.gapSec as number)
+                : undefined,
+              behindSec: Number.isFinite(snapshot.relatives?.behind?.gapSec)
+                ? Math.abs(snapshot.relatives!.behind!.gapSec as number)
+                : undefined,
+              aheadCarIdx: snapshot.relatives?.ahead?.carIdx,
+              behindCarIdx: snapshot.relatives?.behind?.carIdx
+            }
+          ]
+        : [],
+      currentGapAheadSec: Number.isFinite(snapshot?.relatives?.ahead?.gapSec)
+        ? Math.abs(snapshot!.relatives!.ahead!.gapSec as number)
+        : undefined,
+      currentGapBehindSec: Number.isFinite(snapshot?.relatives?.behind?.gapSec)
+        ? Math.abs(snapshot!.relatives!.behind!.gapSec as number)
+        : undefined,
+      safety: snapshot
+        ? racecraftSafetyFromSnapshot(snapshot)
+        : { connected: false, onTrack: false, replayState: 'unknown' },
+      trackId: snapshot?.trackId,
+      trackName: snapshot?.trackName,
+      trackConfigName: snapshot?.trackConfigName,
+      carName: snapshot?.carName,
+      carPath: snapshot?.carPath
+    })
+    if (deps.getLiveContext && !context) {
+      if (detectedRacecraft) {
+        const advice = buildRacecraftAdvice(detectedRacecraft.intent, makeFallbackContext(), {
+          language: adviceLanguage,
+          unitSystem
+        })
+        return publishAnswer(question, advice.text, 'answer', 'intent', undefined, adviceLanguage)
       }
+      return rejectedAnswer(question)
+    }
+    if (detectedRacecraft) {
+      const fallbackContext = makeFallbackContext()
       const advice = buildRacecraftAdvice(
-        racecraftIntent,
+        detectedRacecraft.intent,
         deps.racecraftContext?.() ?? fallbackContext,
-        { language: config.language, unitSystem }
+        { language: adviceLanguage, unitSystem }
       )
-      return finalize(question, advice.text, 'answer', 'intent', undefined, context)
+      return finalize(question, advice.text, 'answer', 'intent', undefined, context, adviceLanguage)
     }
 
     const intent = routeIntent(question, deps.context, isPt(config) ? 'pt' : 'en', unitSystem)
@@ -681,6 +706,7 @@ export function register(ctx: ModuleContext): void {
   }
 
   let unitSystem: UnitSystem = 'metric'
+  let racecraftLanguage = coachAdviceLanguageFromAppLanguage('auto', ctx.app.getLocale())
   const orchestrator = createEngineerOrchestrator({
     runtime,
     modelManager,
@@ -693,6 +719,7 @@ export function register(ctx: ModuleContext): void {
       activeEngineerConfig = next
     },
     getUnitSystem: () => unitSystem,
+    getRacecraftLanguage: () => racecraftLanguage,
     getLiveContext: () => captureLiveTelemetryContext(ctx.telemetryHub.getLatest()),
     logger
   })
@@ -704,6 +731,7 @@ export function register(ctx: ModuleContext): void {
 
   settingsEvents.onChanged((settings) => {
     unitSystem = settings.unitSystem
+    racecraftLanguage = coachAdviceLanguageFromAppLanguage(settings.language, ctx.app.getLocale())
     const language = speechLanguageFromAppLanguage(settings.language, ctx.app.getLocale())
     if (orchestrator.getConfig().language !== language) {
       void orchestrator.setConfig({ language })

@@ -48,8 +48,12 @@ import {
 import {
   buildQualiStartSummary,
   buildRacecraftHistoryEvidence,
+  coachAdviceLanguageFromAppLanguage,
   coachComparableIdentityFromSnapshot,
   coachLapHistoryEntry,
+  racecraftSafetyFromSnapshot,
+  racecraftSafetyReason,
+  type CoachAdviceLanguage,
   type CoachComparableIdentity,
   type CoachGapSample,
   type CoachLapHistoryEntry,
@@ -90,6 +94,7 @@ const intentRegistry = createDefaultIntentRegistry()
 
 /** A car/track identity used to scope findings to the session they were measured on. */
 export interface FindingsContext {
+  trackId?: string | number
   carName?: string
   carPath?: string
   trackName?: string
@@ -103,10 +108,27 @@ interface PublishedCoachFindings extends FindingsContext {
 
 let latestCoachFindings: PublishedCoachFindings = { findings: [] }
 
-function samePublishedIdentity(left: string | undefined, right: string | undefined): boolean {
-  const normalizedLeft = (left ?? '').trim().toLowerCase()
-  const normalizedRight = (right ?? '').trim().toLowerCase()
+function samePublishedIdentity(
+  left: string | number | undefined,
+  right: string | number | undefined
+): boolean {
+  const normalizedLeft = String(left ?? '').trim().toLowerCase()
+  const normalizedRight = String(right ?? '').trim().toLowerCase()
   return normalizedLeft.length > 0 && normalizedLeft === normalizedRight
+}
+
+function publishedTrackMatches(context: FindingsContext, snapshot: TelemetrySnapshot): boolean {
+  if (context.trackId !== undefined && snapshot.trackId !== undefined) {
+    if (!samePublishedIdentity(context.trackId, snapshot.trackId)) return false
+  } else if (!samePublishedIdentity(context.trackName, snapshot.trackName)) {
+    return false
+  }
+  const contextConfig = context.trackConfigName?.trim()
+  const snapshotConfig = snapshot.trackConfigName?.trim()
+  if (contextConfig || snapshotConfig) {
+    if (!samePublishedIdentity(context.trackConfigName, snapshot.trackConfigName)) return false
+  }
+  return true
 }
 
 function publishedConditionMatches(
@@ -131,24 +153,18 @@ function publishedConditionMatches(
  * be cited). Empty until a lap completes; cleared on disconnect.
  */
 export function getLatestCoachFindings(currentSnapshot?: TelemetrySnapshot | null): CoachFinding[] {
-  const { findings, carName, carPath, trackName, trackConfigName, condition } = latestCoachFindings
+  const { findings, carName, carPath, condition } = latestCoachFindings
   if (findings.length === 0) return []
   if (currentSnapshot && !isLiveTelemetrySnapshot(currentSnapshot)) return []
   if (currentSnapshot && currentSnapshot.connected !== false) {
     const liveCar = currentSnapshot.carName
     const liveCarPath = currentSnapshot.carPath
-    const liveTrack = currentSnapshot.trackName
-    const liveTrackConfig = currentSnapshot.trackConfigName
-    if (carPath !== undefined || liveCarPath !== undefined) {
+    if (carPath?.trim() || liveCarPath?.trim()) {
       if (!samePublishedIdentity(carPath, liveCarPath)) return []
     } else if (!samePublishedIdentity(carName, liveCar)) {
       return []
     }
-    if (!samePublishedIdentity(trackName, liveTrack)) return []
-    if (
-      (trackConfigName !== undefined || liveTrackConfig !== undefined) &&
-      !samePublishedIdentity(trackConfigName, liveTrackConfig)
-    ) return []
+    if (!publishedTrackMatches(latestCoachFindings, currentSnapshot)) return []
     if (!publishedConditionMatches(condition, currentSnapshot)) return []
   }
   return findings
@@ -157,6 +173,7 @@ export function getLatestCoachFindings(currentSnapshot?: TelemetrySnapshot | nul
 function publishCoachFindings(findings: CoachFinding[], context?: FindingsContext): void {
   latestCoachFindings = {
     findings: Array.isArray(findings) ? findings : [],
+    trackId: context?.trackId,
     carName: context?.carName,
     carPath: context?.carPath,
     trackName: context?.trackName,
@@ -180,12 +197,14 @@ function cloneRacecraftHistoryEvidence(
   return {
     condition: evidence.condition,
     comparableLapCount: evidence.comparableLapCount,
+    sufficientHistory: evidence.sufficientHistory,
     patterns: evidence.patterns.map((pattern) => ({
       finding: { ...pattern.finding, metrics: { ...pattern.finding.metrics } },
       metrics: pattern.metrics ? { ...pattern.metrics } : undefined,
       lapsSeen: pattern.lapsSeen,
       lapsCompared: pattern.lapsCompared,
-      averageLossSec: pattern.averageLossSec
+      averageLossSec: pattern.averageLossSec,
+      confidence: pattern.confidence
     })),
     reference: evidence.reference
       ? { corners: evidence.reference.corners.map((corner) => ({ ...corner })) }
@@ -203,6 +222,7 @@ function publishCoachRacecraftContext(context: RacecraftAdviceContext | null): v
         reference: context.reference
           ? { corners: context.reference.corners.map((corner) => ({ ...corner })) }
           : null,
+        safety: context.safety ? { ...context.safety } : undefined,
         historyEvidence: cloneRacecraftHistoryEvidence(context.historyEvidence)
       }
     : null
@@ -215,16 +235,12 @@ export function getLatestCoachRacecraftContext(
   if (!context) return null
   if (currentSnapshot && !isLiveTelemetrySnapshot(currentSnapshot)) return null
   if (currentSnapshot && currentSnapshot.connected !== false) {
-    if (context.carPath !== undefined || currentSnapshot.carPath !== undefined) {
+    if (context.carPath?.trim() || currentSnapshot.carPath?.trim()) {
       if (!samePublishedIdentity(context.carPath, currentSnapshot.carPath)) return null
     } else if (!samePublishedIdentity(context.carName, currentSnapshot.carName)) {
       return null
     }
-    if (!samePublishedIdentity(context.trackName, currentSnapshot.trackName)) return null
-    if (
-      (context.trackConfigName !== undefined || currentSnapshot.trackConfigName !== undefined) &&
-      !samePublishedIdentity(context.trackConfigName, currentSnapshot.trackConfigName)
-    ) return null
+    if (!publishedTrackMatches(context, currentSnapshot)) return null
     if (!publishedConditionMatches(context.condition, currentSnapshot)) return null
   }
   return {
@@ -235,6 +251,7 @@ export function getLatestCoachRacecraftContext(
     reference: context.reference
       ? { corners: context.reference.corners.map((corner) => ({ ...corner })) }
       : null,
+    safety: context.safety ? { ...context.safety } : undefined,
     historyEvidence: cloneRacecraftHistoryEvidence(context.historyEvidence)
   }
 }
@@ -787,6 +804,10 @@ function isOptionalString(value: unknown): value is string | undefined {
   return value === undefined || typeof value === 'string'
 }
 
+function isOptionalTrackId(value: unknown): value is string | number | undefined {
+  return value === undefined || typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))
+}
+
 function isStoredFinding(value: unknown): value is CoachFinding {
   if (!isRecord(value) || !COACH_FINDING_KINDS.has(value.kind as CoachFindingKind)) return false
   if (
@@ -798,6 +819,7 @@ function isStoredFinding(value: unknown): value is CoachFinding {
     typeof value.title !== 'string' ||
     typeof value.detail !== 'string' ||
     typeof value.evidence !== 'string' ||
+    !isOptionalFinite(value.confidence) ||
     !isRecord(value.metrics)
   ) return false
   return Object.values(value.metrics).every((metric) => typeof metric === 'number' && Number.isFinite(metric))
@@ -828,6 +850,7 @@ function isStoredHistoryLap(value: unknown): value is CoachLapHistoryEntry {
     isOptionalString(value.sessionType) &&
     isOptionalFinite(value.lapNumber) &&
     isOptionalFinite(value.lapTimeSec) &&
+    isOptionalTrackId(value.identity.trackId) &&
     isOptionalString(value.identity.trackName) &&
     isOptionalString(value.identity.trackConfigName) &&
     isOptionalString(value.identity.carName) &&
@@ -939,6 +962,8 @@ export interface ProactiveEngineDeps {
    */
   buildCornerMap?: (trackName: string, samples: CornerSample[]) => CornerMapData
   getUnitSystem?: () => UnitSystem
+  /** Full app language for deterministic racecraft/quali messages. */
+  getAdviceLanguage?: () => CoachAdviceLanguage
 }
 
 export interface ProactiveEngine {
@@ -958,7 +983,7 @@ function sessionAllowsProactive(snapshot: TelemetrySnapshot): boolean {
   // guarantees exactly ONE
   // speaker per session — no double-speak (the Live Coach is muted in races,
   // coach.ts maybeSpeak). A user forcing cadence still routes through this gate.
-  return kind === 'race'
+  return kind === 'race' && racecraftSafetyReason(racecraftSafetyFromSnapshot(snapshot)) === undefined
 }
 
 /**
@@ -1043,7 +1068,6 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   let previousTrackWetnessPct: number | undefined
   let conditionIdentityKey: string | null = null
   let stableTrackCondition: CoachTrackCondition | undefined
-  let lastSessionKind = deriveSessionKind(undefined)
   let lastQualiSessionKey: string | null = null
   let lastEmitAt = 0
   let lastEmittedFindingId: string | null = null
@@ -1063,6 +1087,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
 
   function conditionForSnapshot(snapshot: TelemetrySnapshot): CoachTrackCondition {
     const identityKey = [
+      normalizedIdentityPart(snapshot.trackId === undefined ? undefined : String(snapshot.trackId)),
       normalizedIdentityPart(snapshot.trackName),
       normalizedIdentityPart(snapshot.trackConfigName),
       normalizedIdentityPart(snapshot.carPath || snapshot.carName)
@@ -1086,6 +1111,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
 
   function contextForSnapshot(snapshot: TelemetrySnapshot): FindingsContext {
     return {
+      trackId: snapshot.trackId,
       carName: snapshot.carName,
       carPath: snapshot.carPath,
       trackName: snapshot.trackName,
@@ -1101,6 +1127,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   function analysisKey(snapshot: TelemetrySnapshot): string {
     const identity = coachComparableIdentityFromSnapshot(snapshot, previousTrackWetnessPct)
     return [
+      normalizedIdentityPart(identity.trackId === undefined ? undefined : String(identity.trackId)),
       normalizedIdentityPart(identity.trackName),
       normalizedIdentityPart(identity.trackConfigName),
       normalizedIdentityPart(identity.carPath || identity.carName),
@@ -1136,6 +1163,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       reference,
       historyEvidence: racecraftHistoryEvidence,
       gaps: gapSamples,
+      safety: snapshot ? racecraftSafetyFromSnapshot(snapshot) : undefined,
       currentGapAheadSec: Number.isFinite(snapshot?.relatives?.ahead?.gapSec)
         ? Math.abs(snapshot!.relatives!.ahead!.gapSec as number)
         : undefined,
@@ -1144,6 +1172,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
         : undefined,
       carName: context?.carName,
       carPath: context?.carPath,
+      trackId: context?.trackId,
       trackName: context?.trackName,
       trackConfigName: context?.trackConfigName,
       condition: context?.condition
@@ -1171,6 +1200,10 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   }
 
   function recordGapSample(snapshot: TelemetrySnapshot): void {
+    if (racecraftSafetyReason(racecraftSafetyFromSnapshot(snapshot)) !== undefined) {
+      gapSamples = []
+      return
+    }
     const aheadSec = Number.isFinite(snapshot.relatives?.ahead?.gapSec)
       ? Math.abs(snapshot.relatives!.ahead!.gapSec as number)
       : undefined
@@ -1253,8 +1286,6 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     previousTrackWetnessPct = undefined
     conditionIdentityKey = null
     stableTrackCondition = undefined
-    lastSessionKind = deriveSessionKind(undefined)
-    lastQualiSessionKey = null
     lastEmitAt = 0
     lastEmittedFindingId = null
     outLap = true
@@ -1375,9 +1406,21 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   }
 
   function qualiSessionKey(snapshot: TelemetrySnapshot): string {
+    const canonical = snapshot.replayContext?.sessionIdentity?.trim()
+    if (canonical) {
+      return [
+        `canonical:${canonical}`,
+        Number.isFinite(snapshot.sessionUniqueId) ? snapshot.sessionUniqueId : '',
+        Number.isFinite(snapshot.sessionNumber) ? snapshot.sessionNumber : ''
+      ].join(':')
+    }
     if (Number.isFinite(snapshot.sessionUniqueId)) return `session:${snapshot.sessionUniqueId}`
+    if (Number.isFinite(snapshot.sessionNumber)) {
+      return `session-number:${snapshot.sim}:${snapshot.sessionNumber}`
+    }
     return [
       snapshot.sim,
+      normalizedIdentityPart(snapshot.trackId === undefined ? undefined : String(snapshot.trackId)),
       normalizedIdentityPart(snapshot.trackName),
       normalizedIdentityPart(snapshot.trackConfigName),
       normalizedIdentityPart(snapshot.carPath || snapshot.carName)
@@ -1386,12 +1429,11 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
 
   function maybeEmitQualiStart(snapshot: TelemetrySnapshot, config: ProactiveConfigView): void {
     const kind = deriveSessionKind(snapshot.sessionType)
+    if (kind !== 'qualify') return
     const key = qualiSessionKey(snapshot)
-    const enteringQuali = kind === 'qualify' && (lastSessionKind !== 'qualify' || lastQualiSessionKey !== key)
-    lastSessionKind = kind
-    if (!enteringQuali) return
-    lastQualiSessionKey = key
+    if (lastQualiSessionKey === key) return
     if (!config.proactiveCoaching) return
+    lastQualiSessionKey = key
 
     const sessionId = Number.isFinite(snapshot.sessionUniqueId) ? snapshot.sessionUniqueId : undefined
     const currentSession =
@@ -1400,29 +1442,34 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       sessionId === undefined ? history : history.filter((lap) => lap.sessionId !== sessionId)
     const currentIdentity = coachComparableIdentityFromSnapshot(snapshot, previousTrackWetnessPct)
     currentIdentity.condition = conditionForSnapshot(snapshot)
+    const language = deps.getAdviceLanguage?.() ?? coachAdviceLanguageFromAppLanguage(config.language)
     const summary = buildQualiStartSummary({
       current: currentIdentity,
       history: priorHistory,
       currentSession,
-      language: config.language,
+      language,
       unitSystem: deps.getUnitSystem?.()
     })
     const top = summary.items[0]
     const at = now()
     seq += 1
-    deps.emit({
+    const event: EngineerProactiveEvent = {
       id: `eng-quali-${at}-${seq}`,
       at,
       text: summary.text,
-      sector: top?.sector ?? 1,
-      kind: top?.kind ?? 'time-loss',
-      severity: severityForLoss(top?.averageLossSec ?? 0),
-      estTimeLossSec: top?.averageLossSec ?? 0,
+      eventType: summary.sufficientHistory ? 'quali-briefing' : 'insufficient-history',
       speak: true,
-      lang: config.language,
-      source: 'engineer',
-      corner: top?.corner
-    })
+      lang: language,
+      source: 'engineer'
+    }
+    if (top) {
+      event.sector = top.sector
+      event.kind = top.kind
+      event.severity = severityForLoss(top.averageLossSec)
+      event.estTimeLossSec = top.averageLossSec
+      event.corner = top.corner
+    }
+    deps.emit(event)
   }
 
   // Proactive "who catches whom" callout, evaluated once per completed lap: from my
@@ -1449,7 +1496,16 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   function emitCatch(text: string, config: ProactiveConfigView): void {
     const at = now()
     seq += 1
-    deps.emit({ id: `eng-catch-${at}-${seq}`, at, text, sector: 1, kind: 'time-loss', severity: 'low', estTimeLossSec: 0, speak: true, lang: config.language, source: 'engineer' })
+    deps.emit({
+      id: `eng-catch-${at}-${seq}`,
+      at,
+      text,
+      eventType: 'race-status',
+      severity: 'low',
+      speak: true,
+      lang: config.language,
+      source: 'engineer'
+    })
   }
 
   function maybeEmit(completedSector: number, snapshot: TelemetrySnapshot, config: ProactiveConfigView): void {
@@ -1473,6 +1529,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       id: `eng-proactive-${at}-${seq}`,
       at,
       text,
+      eventType: 'finding',
       sector: completedSector,
       kind: finding.kind,
       severity: finding.severity,
@@ -1512,6 +1569,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       id: `eng-proactive-${at}-${seq}`,
       at,
       text,
+      eventType: 'finding',
       // The IPC event carries the finding's sector (the corner number is in `text`).
       sector: finding.sector,
       kind: finding.kind,
@@ -1642,8 +1700,10 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
 
 export function register(ctx: ModuleContext): void {
   let unitSystem: UnitSystem = 'metric'
+  let adviceLanguage = coachAdviceLanguageFromAppLanguage('auto', ctx.app.getLocale())
   settingsEvents.onChanged((settings) => {
     unitSystem = settings.unitSystem
+    adviceLanguage = coachAdviceLanguageFromAppLanguage(settings.language, ctx.app.getLocale())
   })
   const userDataDir = ctx.app.getPath('userData')
   const baselineStore = getCoachBaselineStore(userDataDir)
@@ -1665,7 +1725,8 @@ export function register(ctx: ModuleContext): void {
     baselineStore,
     history: historyStore.all(),
     persistHistory: (history) => historyStore.replace(history),
-    getUnitSystem: () => unitSystem
+    getUnitSystem: () => unitSystem,
+    getAdviceLanguage: () => adviceLanguage
   })
 
   ctx.telemetryHub.on('snapshot', (snapshot: TelemetrySnapshot | null) => {

@@ -9,7 +9,7 @@ import type {
 } from '../../shared/ai'
 import type { EngineerContext } from '../../shared/ai-engineer'
 import type { CoachFinding } from '../../shared/coach'
-import type { RacecraftAdviceContext } from '../../shared/coach-racecraft'
+import type { CoachAdviceLanguage, RacecraftAdviceContext } from '../../shared/coach-racecraft'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import {
   DEFAULT_ENGINEER_CONFIG,
@@ -95,6 +95,7 @@ function makeHarness(overrides?: {
   snapshot?: TelemetrySnapshot | null
   racecraftContext?: RacecraftAdviceContext | null
   getLiveContext?: EngineerOrchestratorDeps['getLiveContext']
+  racecraftLanguage?: CoachAdviceLanguage
 }): Harness {
   const config: EngineerConfig = { ...DEFAULT_ENGINEER_CONFIG, ...overrides?.config }
   const runtime = makeRuntime()
@@ -111,7 +112,10 @@ function makeHarness(overrides?: {
     config,
     saveConfig,
     now: () => 1000,
-    getLiveContext: overrides?.getLiveContext
+    getLiveContext: overrides?.getLiveContext,
+    getRacecraftLanguage: overrides?.racecraftLanguage
+      ? () => overrides.racecraftLanguage as CoachAdviceLanguage
+      : undefined
   }
   return { deps, runtime, modelManager, broadcast, saveConfig }
 }
@@ -132,6 +136,7 @@ function racecraftFinding(overrides: Partial<CoachFinding> = {}): CoachFinding {
     title: 'Late throttle',
     detail: 'Late throttle',
     evidence: 'player telemetry',
+    confidence: 0.9,
     metrics: {},
     ...overrides
   }
@@ -221,7 +226,8 @@ describe('createEngineerOrchestrator.ask', () => {
         ],
         gaps: [
           { at: 1000, aheadSec: 1.2 },
-          { at: 4000, aheadSec: 0.8 }
+          { at: 3000, aheadSec: 1.0 },
+          { at: 5000, aheadSec: 0.8 }
         ]
       }
     })
@@ -257,6 +263,61 @@ describe('createEngineerOrchestrator.ask', () => {
     expect(answer.text).toContain('DEFEND')
     expect(answer.text).toContain('Turn 2')
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
+  it('routes racecraft questions in every app language without falling through to the LLM', async () => {
+    const cases: Array<[string, CoachAdviceLanguage, string]> = [
+      ['What should I do to pass the car ahead?', 'en-US', 'OVERTAKE'],
+      ['Como ultrapassar o carro da frente?', 'pt-BR', 'ULTRAPASSAGEM'],
+      ['¿Cómo adelantar al coche de delante?', 'es', 'ADELANTAMIENTO'],
+      ['Comment dépasser la voiture devant ?', 'fr', 'DÉPASSEMENT'],
+      ['Wie kann ich das Auto vor mir überholen?', 'de', 'ÜBERHOLEN'],
+      ['怎么超过前车？', 'zh', '超车'],
+      ['前の車をどう追い越す？', 'ja', 'オーバーテイク']
+    ]
+    for (const [question, language, marker] of cases) {
+      const harness = makeHarness({
+        racecraftContext: {
+          findings: [racecraftFinding()],
+          currentGapAheadSec: 0.8
+        }
+      })
+      const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+      expect(answer.source).toBe('intent')
+      expect(answer.lang).toBe(language)
+      expect(answer.text).toContain(marker)
+      expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+      expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+    }
+  })
+
+  it('returns deterministic safety suppression for replay racecraft questions without the LLM', async () => {
+    const snapshot = {
+      connected: true,
+      sim: 'iracing',
+      timestamp: 1000,
+      sessionType: 'Race',
+      replayContext: {
+        state: 'replay',
+        reason: 'replay-playing',
+        inputs: {},
+        active: true,
+        revision: 1,
+        token: 'replay',
+        connectionEpoch: 1
+      }
+    } as TelemetrySnapshot
+    const harness = makeHarness({
+      snapshot,
+      getLiveContext: () => null
+    })
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask('How do I pass the car ahead?')
+
+    expect(answer.source).toBe('intent')
+    expect(answer.text).toContain('TACTICAL ADVICE UNAVAILABLE')
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+    expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
   })
 
   it('routes an open-ended question through the LLM exactly once, with tools + context', async () => {

@@ -62,6 +62,7 @@ export type EngineerChannel = (typeof ENGINEER_CHANNELS)[keyof typeof ENGINEER_C
 // ─── Persisted config (engineer.json in userData) ──────────────────────────────
 
 export type EngineerLanguage = 'pt-BR' | 'en-US'
+export type EngineerMessageLanguage = EngineerLanguage | 'es' | 'fr' | 'de' | 'zh' | 'ja'
 
 /**
  * How blunt the engineer's persona is. `brutal` is the most assertive/demanding
@@ -407,7 +408,7 @@ export interface EngineerAnswer {
   /** Whether the renderer should speak this answer (already gated by speakAnswers). */
   speak: boolean
   /** Language the answer text is in — drives the renderer's TTS voice (Piper/Web Speech). */
-  lang?: EngineerLanguage
+  lang?: EngineerMessageLanguage
   kind: EngineerAnswerKind
   source: EngineerAnswerSource
   /** Present for command intents — the renderer executes this directive. */
@@ -424,11 +425,12 @@ export interface EngineerStatus {
 }
 
 /**
- * Payload of `engineer:proactive` — a self-initiated, per-sector radio call.
+ * Payload of `engineer:proactive` — a self-initiated finding, race-status, or
+ * qualifying briefing.
  *
- * Composed deterministically from the worst coach finding in the just-completed
- * sector, so it works with the local LLM absent. The renderer shows it in a feed
- * and (when `speak`) routes it through the SAME `speak()` seam answers use.
+ * Finding events are composed from deterministic coach evidence. Informational
+ * events carry no fabricated sector/finding fields. The renderer shows the event
+ * in a feed and routes spoken events through the same TTS seam answers use.
  */
 export interface EngineerProactiveEvent {
   /** Stable id for renderer de-duplication. */
@@ -437,17 +439,19 @@ export interface EngineerProactiveEvent {
   at: number
   /** The brutal one-liner to display/speak. */
   text: string
-  /** 1-based sector this call-out is about. */
-  sector: number
-  /** The coach finding kind that drove the call-out. */
-  kind: CoachFindingKind
-  severity: CoachSeverity
-  /** Estimated time lost to the called-out issue, seconds. */
-  estTimeLossSec: number
+  /** Explicit shape so informational/no-data events never masquerade as findings. */
+  eventType?: 'finding' | 'race-status' | 'quali-briefing' | 'insufficient-history'
+  /** 1-based sector this call-out is about, only when evidence is sector-scoped. */
+  sector?: number
+  /** The coach finding kind that drove the call-out, absent for informational events. */
+  kind?: CoachFindingKind
+  severity?: CoachSeverity
+  /** Estimated time lost to the called-out issue, absent when no finding exists. */
+  estTimeLossSec?: number
   /** Whether the renderer should speak this (gated by proactiveCoaching + enabled). */
   speak: boolean
   /** Language the text was composed in (drives TTS voice). */
-  lang: EngineerLanguage
+  lang: EngineerMessageLanguage
   /** Which subsystem produced this call-out (for the TTS/observability log). */
   source?: 'engineer'
   /** 1-based corner number this call-out is about, when corner-scoped (Turn N). */

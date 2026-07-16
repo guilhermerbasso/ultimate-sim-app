@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { CoachFinding, CoachFindingKind, CoachSeverity } from '../../shared/coach'
 import type {
+  CoachAdviceLanguage,
   CoachComparableIdentity,
   CoachLapHistoryEntry,
   RacecraftAdviceContext
@@ -53,6 +54,7 @@ function makeFinding(partial: Partial<CoachFinding> & { sector: number; kind: Co
     title: partial.title ?? 'Freada tarde',
     detail: partial.detail ?? 'detalhe',
     evidence: partial.evidence ?? 'evidence',
+    confidence: partial.confidence ?? 0.9,
     metrics: partial.metrics ?? {}
   }
 }
@@ -304,6 +306,7 @@ function makeEngine(
     history?: CoachLapHistoryEntry[]
     persistHistory?: (history: readonly CoachLapHistoryEntry[]) => void
     publishRacecraftContext?: (context: RacecraftAdviceContext | null) => void
+    adviceLanguage?: CoachAdviceLanguage
   } = {}
 ) {
   const harness: Harness = {
@@ -322,7 +325,8 @@ function makeEngine(
     cadence: opts.cadence,
     buildCornerMap: opts.buildCornerMap,
     history: opts.history,
-    persistHistory: opts.persistHistory
+    persistHistory: opts.persistHistory,
+    getAdviceLanguage: opts.adviceLanguage ? () => opts.adviceLanguage as CoachAdviceLanguage : undefined
   })
   return { harness, engine }
 }
@@ -471,6 +475,19 @@ describe('createProactiveEngine', () => {
     expect(harness.events).toHaveLength(0)
   })
 
+  it.each([
+    { flags: { yellow: true } as TelemetrySnapshot['flags'] },
+    { flags: { blue: true } as TelemetrySnapshot['flags'] },
+    { paceMode: 'doubleFileRestart' as const },
+    { sessionState: 'paradeLaps' as const }
+  ])('stays silent under race-control state %#', (unsafe) => {
+    const { harness, engine } = makeEngine()
+    engine.setFindings([makeFinding({ sector: 1, kind: 'brake-late' })])
+    engine.onSnapshot(makeSnapshot(0.1, { sessionType: 'Race', ...unsafe }))
+    engine.onSnapshot(makeSnapshot(0.4, { sessionType: 'Race', ...unsafe }))
+    expect(harness.events).toHaveLength(0)
+  })
+
   it('emits one honest qualifying-start summary but no per-sector qualifying coaching', () => {
     const { harness, engine } = makeEngine({ language: 'en-US' })
     engine.setFindings([makeFinding({ sector: 1, kind: 'brake-late' })])
@@ -478,7 +495,11 @@ describe('createProactiveEngine', () => {
     engine.onSnapshot(makeSnapshot(0.4, { sessionType: 'Qualify' }))
     expect(harness.events).toHaveLength(1)
     expect(harness.events[0].text).toContain('QUALIFY')
-    expect(harness.events[0].text).toContain('insufficient comparable history')
+    expect(harness.events[0].eventType).toBe('insufficient-history')
+    expect(harness.events[0].sector).toBeUndefined()
+    expect(harness.events[0].kind).toBeUndefined()
+    expect(harness.events[0].estTimeLossSec).toBeUndefined()
+    expect(harness.events[0].text).toContain('insufficient evidence')
   })
 
   it('emits the qualifying briefing on the first qualifying frame only', () => {
@@ -505,7 +526,7 @@ describe('createProactiveEngine', () => {
     )
     expect(harness.events).toHaveLength(1)
     expect(harness.events[0].id).toContain('eng-quali')
-    expect(harness.events[0].text).toContain('track configuration is not identified reliably')
+    expect(harness.events[0].text).toContain('insufficient dry history')
     engine.onSnapshot(
       makeSnapshot(0.3, {
         ...identity,
@@ -515,6 +536,45 @@ describe('createProactiveEngine', () => {
       })
     )
     expect(harness.events).toHaveLength(1)
+  })
+
+  it('deduplicates qualifying announcements across replay/disconnect/reconnect in the same session', () => {
+    const { harness, engine } = makeEngine({ language: 'en-US' })
+    const snapshot = (
+      state: 'live' | 'replay',
+      sessionIdentity: string,
+      connectionEpoch: number,
+      revision: number
+    ) =>
+      makeSnapshot(0.1, {
+        sessionType: 'Qualify',
+        sessionUniqueId: 99,
+        trackName: 'Interlagos',
+        trackConfigName: 'Grand Prix',
+        carName: 'GT3 R',
+        carPath: 'gt3r',
+        trackWetnessPct: 0,
+        isRaining: false,
+        replayContext: {
+          state,
+          reason: state === 'live' ? 'confirmed-live' : 'replay-playing',
+          inputs: {},
+          active: state !== 'live',
+          revision,
+          token: `${connectionEpoch}:${revision}`,
+          sessionIdentity,
+          connectionEpoch
+        }
+      })
+
+    engine.onSnapshot(snapshot('live', 'session-a', 1, 0))
+    expect(harness.events).toHaveLength(1)
+    engine.onSnapshot(snapshot('replay', 'session-a', 1, 1))
+    engine.onSnapshot(null)
+    engine.onSnapshot(snapshot('live', 'session-a', 2, 2))
+    expect(harness.events).toHaveLength(1)
+    engine.onSnapshot(snapshot('live', 'session-b', 2, 3))
+    expect(harness.events).toHaveLength(2)
   })
 
   it('uses sufficient comparable valid-lap history in the qualifying-start summary', () => {
@@ -563,9 +623,10 @@ describe('createProactiveEngine', () => {
     )
 
     expect(harness.events).toHaveLength(1)
-    expect(harness.events[0].text).toContain('3 comparable valid dry laps')
+    expect(harness.events[0].eventType).toBe('quali-briefing')
+    expect(harness.events[0].text).toContain('player dry history, 3 comparable completed laps')
     expect(harness.events[0].text).toContain('Turn 7')
-    expect(harness.events[0].text).toContain('recurring in 3/3 valid laps')
+    expect(harness.events[0].text).toContain('3/3 laps')
   })
 
   it('publishes compact comparable history for on-demand ahead/behind answers', () => {
@@ -610,7 +671,8 @@ describe('createProactiveEngine', () => {
     const context = published.filter((entry): entry is RacecraftAdviceContext => entry !== null).at(-1)
     expect(context?.historyEvidence).toMatchObject({
       condition: 'dry',
-      comparableLapCount: 3
+      comparableLapCount: 3,
+      sufficientHistory: true
     })
     expect(context?.historyEvidence?.patterns[0]).toMatchObject({
       finding: { corner: 7, kind: 'throttle-late' },
@@ -667,8 +729,32 @@ describe('createProactiveEngine', () => {
     )
 
     expect(harness.events).toHaveLength(1)
-    expect(harness.events[0].text).toContain('insufficient comparable history (0/3)')
+    expect(harness.events[0].eventType).toBe('insufficient-history')
+    expect(harness.events[0].text).toContain('insufficient wet history (0/3 completed laps)')
     expect(harness.events[0].text).not.toContain('Turn 7')
+  })
+
+  it('uses the full app language for deterministic qualifying briefings', () => {
+    const { harness, engine } = makeEngine(
+      { language: 'en-US' },
+      { adviceLanguage: 'es' }
+    )
+    engine.onSnapshot(
+      makeSnapshot(0.01, {
+        sessionType: 'Qualify',
+        sessionUniqueId: 199,
+        trackName: 'Monza',
+        carName: 'GT3 R',
+        carPath: 'gt3r',
+        trackWetnessPct: 0,
+        isRaining: false
+      })
+    )
+
+    expect(harness.events).toHaveLength(1)
+    expect(harness.events[0].lang).toBe('es')
+    expect(harness.events[0].text).toContain('CLASIFICACIÓN')
+    expect(harness.events[0].text).toContain('historial seco insuficiente')
   })
 
   it('does not persist an iRacing lap whose incident count increased', () => {
