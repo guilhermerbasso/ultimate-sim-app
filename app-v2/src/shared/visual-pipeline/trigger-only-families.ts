@@ -65,7 +65,7 @@ export const TRIGGER_ONLY_FAMILY_REGISTRY = deepFreeze([
     ]
   }),
   family({
-    id: 'proximity',
+    id: 'gap-proximity',
     ordinal: 3,
     origin: 'dedicated-widget',
     conceptIds: ['perCarRelativeTime'],

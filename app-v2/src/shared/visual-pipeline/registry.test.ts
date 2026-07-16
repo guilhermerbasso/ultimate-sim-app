@@ -58,7 +58,7 @@ const GENERATED_DESCRIPTORS = [
 const DEDICATED_TRIGGER_FAMILY_IDS = [
   'car-left',
   'car-right',
-  'proximity',
+  'gap-proximity',
   'shift-point',
   'pit-limiter',
   'race-flag',
