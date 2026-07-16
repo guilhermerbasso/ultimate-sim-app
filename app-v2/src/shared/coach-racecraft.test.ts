@@ -4,7 +4,7 @@ import {
   analyzeGapTrend,
   areCoachLapsComparable,
   buildQualiStartSummary,
-  buildRacecraftAdvice,
+  buildRacecraftAdvice as buildAdvice,
   buildRacecraftHistoryEvidence,
   classifyCoachTrackCondition,
   comparableCoachLaps,
@@ -18,6 +18,7 @@ import {
   racecraftSafetyReason,
   type CoachComparableIdentity,
   type CoachLapHistoryEntry,
+  type RacecraftAdviceContext,
   type CoachAdviceLanguage
 } from './coach-racecraft'
 import type { Flags, TelemetrySnapshot } from './telemetry'
@@ -78,6 +79,26 @@ function historyLap(
   }
 }
 
+const KNOWN_SAFE_RACE = {
+  connected: true,
+  onTrack: true,
+  onPitRoad: false,
+  flagsKnown: true,
+  pitStateKnown: true,
+  paceStateKnown: true,
+  paceMode: 'notPacing' as const,
+  sessionKind: 'race' as const,
+  replayState: 'live' as const
+}
+
+function safeAdvice(
+  intent: Parameters<typeof buildAdvice>[0],
+  context: RacecraftAdviceContext,
+  opts?: Parameters<typeof buildAdvice>[2]
+) {
+  return buildAdvice(intent, { safety: KNOWN_SAFE_RACE, ...context }, opts)
+}
+
 describe('racecraft question routing', () => {
   it('recognizes overtake and pull-away questions in every app language', () => {
     const cases: Array<[string, 'overtake' | 'pull-away', CoachAdviceLanguage]> = [
@@ -122,6 +143,86 @@ describe('racecraft question routing', () => {
       )
     ).toBe('non-racing')
   })
+
+  it('fails closed with localized guidance when provider safety channels are unavailable', () => {
+    const copy: Record<CoachAdviceLanguage, string> = {
+      'en-US': 'RACE-CONTROL STATE UNAVAILABLE',
+      'pt-BR': 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL',
+      es: 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE',
+      fr: 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE',
+      de: 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR',
+      zh: '无法获取赛会控制状态',
+      ja: 'レースコントロール状態を取得できません'
+    }
+    for (const sim of ['acc', 'ac', 'ams2'] as const) {
+      const safety = racecraftSafetyFromSnapshot({
+        sim,
+        connected: true,
+        sessionKind: 'race'
+      } as TelemetrySnapshot)
+      for (const language of Object.keys(copy) as CoachAdviceLanguage[]) {
+        for (const intent of ['overtake', 'pull-away'] as const) {
+          const advice = buildAdvice(
+            intent,
+            {
+              safety,
+              findings: [finding('throttle-late', { corner: 2, phase: 'exit' })],
+              currentGapAheadSec: 0.8,
+              currentGapBehindSec: 0.8
+            },
+            { language }
+          )
+          expect(advice).toMatchObject({
+            mode: 'suppressed',
+            suppressedReason: 'race-control-unknown',
+            items: []
+          })
+          expect(advice.text).toContain(copy[language])
+        }
+      }
+    }
+  })
+
+  it.each(['acc', 'ac', 'ams2'] as const)(
+    'allows tactical advice for %s only when all safety channels are known-safe',
+    (sim) => {
+      const safety = racecraftSafetyFromSnapshot({
+        sim,
+        connected: true,
+        sessionKind: 'race',
+        onTrack: true,
+        onPitRoad: false,
+        paceMode: 'notPacing',
+        flags: {
+          green: true,
+          yellow: false,
+          blue: false,
+          white: false,
+          checkered: false,
+          red: false,
+          black: false,
+          meatball: false,
+          repair: false,
+          disqualify: false,
+          greenWhiteCheckered: false
+        }
+      } as TelemetrySnapshot)
+      for (const language of ['en-US', 'pt-BR', 'es', 'fr', 'de', 'zh', 'ja'] as const) {
+        const advice = buildAdvice(
+          'overtake',
+          {
+            safety,
+            findings: [finding('throttle-late', { corner: 2, phase: 'exit' })],
+            currentGapAheadSec: 0.8
+          },
+          { language }
+        )
+        expect(advice.mode).toBe('overtake')
+        expect(advice.suppressedReason).toBeUndefined()
+        expect(advice.items.length).toBeGreaterThan(0)
+      }
+    }
+  )
 })
 
 describe('buildRacecraftAdvice', () => {
@@ -139,7 +240,7 @@ describe('buildRacecraftAdvice', () => {
   ]
 
   it('builds an OVERTAKE plan from player exit evidence and a closing car-ahead gap', () => {
-    const advice = buildRacecraftAdvice('overtake', {
+    const advice = safeAdvice('overtake', {
       findings: [
         finding('brake-early', { corner: 4, sector: 1, phase: 'entry', estTimeLossSec: 0.3 }),
         finding('throttle-hesitation', { corner: 7, sector: 2, phase: 'exit', estTimeLossSec: 0.18 })
@@ -165,7 +266,7 @@ describe('buildRacecraftAdvice', () => {
   })
 
   it('builds a DEFEND plan when the car behind is close and closing', () => {
-    const advice = buildRacecraftAdvice('pull-away', {
+    const advice = safeAdvice('pull-away', {
       findings: [finding('brake-early', { corner: 2, sector: 1, phase: 'entry' })],
       cornerMetrics: [
         { corner: 2, entrySpeedKmh: 188, minSpeedKmh: 84, brakeStartPct: 0.22 }
@@ -207,12 +308,12 @@ describe('buildRacecraftAdvice', () => {
     ]
     const historyEvidence = buildRacecraftHistoryEvidence(DRY_IDENTITY, history)
 
-    const overtake = buildRacecraftAdvice('overtake', {
+    const overtake = safeAdvice('overtake', {
       condition: 'dry',
       historyEvidence,
       currentGapAheadSec: 0.9
     })
-    const defend = buildRacecraftAdvice('pull-away', {
+    const defend = safeAdvice('pull-away', {
       condition: 'dry',
       historyEvidence,
       currentGapBehindSec: 0.7
@@ -244,7 +345,7 @@ describe('buildRacecraftAdvice', () => {
   })
 
   it('normalizes signed relative gaps without inventing opponent controls', () => {
-    const advice = buildRacecraftAdvice('pull-away', {
+    const advice = safeAdvice('pull-away', {
       findings: [finding('throttle-late', { corner: 2, phase: 'exit' })],
       currentGapBehindSec: -0.8
     })
@@ -255,7 +356,7 @@ describe('buildRacecraftAdvice', () => {
   })
 
   it('falls back to general lap improvement when opponent timing is missing', () => {
-    const advice = buildRacecraftAdvice('overtake', {
+    const advice = safeAdvice('overtake', {
       findings: [finding('steering-late', { corner: 5, sector: 2 })]
     })
 
@@ -268,7 +369,7 @@ describe('buildRacecraftAdvice', () => {
   })
 
   it('uses general lap improvement when the car ahead is not yet in passing range', () => {
-    const advice = buildRacecraftAdvice('overtake', {
+    const advice = safeAdvice('overtake', {
       findings: [finding('throttle-late', { corner: 7, sector: 2, phase: 'exit' })],
       currentGapAheadSec: 5.2
     })
@@ -320,17 +421,17 @@ describe('buildRacecraftAdvice', () => {
   })
 
   it('distinguishes entry improvement from exit/traction improvement', () => {
-    const entry = buildRacecraftAdvice('overtake', {
+    const entry = safeAdvice('overtake', {
       findings: [finding('brake-early', { corner: 7, sector: 2, phase: 'entry' })],
       cornerMetrics,
       currentGapAheadSec: 0.9
     })
-    const exit = buildRacecraftAdvice('overtake', {
+    const exit = safeAdvice('overtake', {
       findings: [finding('tc-overuse', { corner: 7, sector: 2, phase: 'exit' })],
       cornerMetrics,
       currentGapAheadSec: 0.9
     })
-    const turnIn = buildRacecraftAdvice('overtake', {
+    const turnIn = safeAdvice('overtake', {
       findings: [finding('steering-late', { corner: 7, sector: 2, phase: 'entry' })],
       cornerMetrics,
       currentGapAheadSec: 0.9
@@ -346,7 +447,7 @@ describe('buildRacecraftAdvice', () => {
   })
 
   it('keeps messages concise, capped, and removes contradictory recommendations', () => {
-    const advice = buildRacecraftAdvice(
+    const advice = safeAdvice(
       'pull-away',
       {
         currentGapBehindSec: 0.8,
@@ -385,7 +486,7 @@ describe('buildRacecraftAdvice', () => {
     ['not-on-track', { onTrack: false }]
   ])('suppresses tactical advice for %s', (reason, safety) => {
     for (const intent of ['overtake', 'pull-away'] as const) {
-      const advice = buildRacecraftAdvice(intent, {
+      const advice = safeAdvice(intent, {
         safety,
         findings: [finding('throttle-late', { corner: 7, phase: 'exit' })],
         currentGapAheadSec: 0.7,
@@ -433,7 +534,7 @@ describe('buildRacecraftAdvice', () => {
 
     for (const intent of ['overtake', 'pull-away'] as const) {
       expect(
-        buildRacecraftAdvice(intent, {
+        safeAdvice(intent, {
           safety,
           findings: [finding('brake-late', { corner: 2 })],
           currentGapAheadSec: 0.8,
@@ -461,7 +562,7 @@ describe('buildRacecraftAdvice', () => {
       'ahead',
       1.7
     )
-    const advice = buildRacecraftAdvice('overtake', {
+    const advice = safeAdvice('overtake', {
       findings: [finding('throttle-late', { corner: 7, phase: 'exit' })],
       gaps: [
         { at: 1000, aheadSec: 20 },
@@ -490,7 +591,7 @@ describe('buildRacecraftAdvice', () => {
       historyLap('2', DRY_IDENTITY, [historical]),
       historyLap('3', DRY_IDENTITY, [historical])
     ])
-    const advice = buildRacecraftAdvice('overtake', {
+    const advice = safeAdvice('overtake', {
       condition: 'dry',
       historyEvidence,
       findings: [
@@ -512,7 +613,7 @@ describe('buildRacecraftAdvice', () => {
   })
 
   it('does not claim an identical reference value is an improvement target', () => {
-    const advice = buildRacecraftAdvice('overtake', {
+    const advice = safeAdvice('overtake', {
       findings: [
         finding('brake-early', {
           corner: 2,
@@ -544,7 +645,7 @@ describe('buildRacecraftAdvice', () => {
       ja: { overtake: 'オーバーテイク', defend: 'ディフェンス', caveat: '相手のブレーキ' }
     }
     for (const language of Object.keys(copy) as CoachAdviceLanguage[]) {
-      const advice = buildRacecraftAdvice(
+      const advice = safeAdvice(
         'overtake',
         {
           currentGapAheadSec: 0.8,
@@ -557,7 +658,7 @@ describe('buildRacecraftAdvice', () => {
         },
         { language }
       )
-      const defend = buildRacecraftAdvice(
+      const defend = safeAdvice(
         'pull-away',
         {
           currentGapBehindSec: 0.8,
@@ -648,7 +749,7 @@ describe('qualifying comparable history', () => {
       historyLap('2', DRY_IDENTITY, []),
       historyLap('3', DRY_IDENTITY, [])
     ])
-    const advice = buildRacecraftAdvice('overtake', {
+    const advice = safeAdvice('overtake', {
       condition: 'dry',
       historyEvidence: evidence,
       currentGapAheadSec: 0.8
@@ -793,7 +894,7 @@ describe('qualifying comparable history', () => {
       sufficientHistory: true,
       patterns: []
     })
-    const oneLapAdvice = buildRacecraftAdvice('overtake', {
+    const oneLapAdvice = safeAdvice('overtake', {
       condition: 'dry',
       historyEvidence: oneLap,
       currentGapAheadSec: 0.8

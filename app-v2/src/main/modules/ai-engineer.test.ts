@@ -51,6 +51,18 @@ const READY_STATUS: LlmRuntimeStatus = {
   queueLength: 0
 }
 
+const KNOWN_SAFE_RACE = {
+  connected: true,
+  onTrack: true,
+  onPitRoad: false,
+  flagsKnown: true,
+  pitStateKnown: true,
+  paceStateKnown: true,
+  paceMode: 'notPacing' as const,
+  sessionKind: 'race' as const,
+  replayState: 'live' as const
+}
+
 function makeRuntime(text = 'engineer response') {
   return {
     generateWithTools: vi.fn(
@@ -111,7 +123,13 @@ function makeHarness(overrides?: {
     runtime,
     modelManager,
     context,
-    racecraftContext: overrides?.racecraftContext === undefined ? undefined : () => overrides.racecraftContext,
+    racecraftContext:
+      overrides?.racecraftContext === undefined
+        ? undefined
+        : () =>
+            overrides.racecraftContext === null
+              ? null
+              : { safety: KNOWN_SAFE_RACE, ...overrides.racecraftContext },
     broadcast,
     config,
     saveConfig,
@@ -322,6 +340,34 @@ describe('createEngineerOrchestrator.ask', () => {
 
     expect(answer.source).toBe('intent')
     expect(answer.text).toContain('TACTICAL ADVICE UNAVAILABLE')
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+    expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+  })
+
+  it('fails closed when a provider omits race-control safety channels', async () => {
+    const harness = makeHarness({
+      racecraftLanguage: 'es',
+      snapshot: {
+        sim: 'acc',
+        connected: true,
+        timestamp: 1000,
+        sessionKind: 'race',
+        speedKmh: 180,
+        throttle: 0.8,
+        brake: 0,
+        clutch: 0,
+        lapDistPct: 0.2,
+        relatives: {
+          ahead: { carIdx: 10, name: 'Ahead', carNumber: '10', gapSec: 0.8 }
+        }
+      } as TelemetrySnapshot
+    })
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask('How do I pass the car ahead?')
+
+    expect(answer.source).toBe('intent')
+    expect(answer.lang).toBe('es')
+    expect(answer.text).toContain('ESTADO DE CONTROL DE CARRERA NO DISPONIBLE')
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
     expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
   })

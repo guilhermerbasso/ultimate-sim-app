@@ -27,6 +27,7 @@ export type RacecraftSafetyReason =
   | 'repair'
   | 'disqualify'
   | 'checkered'
+  | 'race-control-unknown'
   | 'caution'
   | 'pacing'
   | 'pit'
@@ -54,6 +55,9 @@ export interface RacecraftSafetyContext {
   flagRepair?: boolean
   flagDisqualify?: boolean
   flagCheckered?: boolean
+  flagsKnown?: boolean
+  pitStateKnown?: boolean
+  paceStateKnown?: boolean
   caution?: boolean
   paceMode?: PaceMode
   sessionState?: SessionState
@@ -342,7 +346,7 @@ export function racecraftSafetyFromSnapshot(
   return {
     connected: snapshot?.connected,
     onTrack: snapshot?.onTrack,
-    onPitRoad: snapshot?.onPitRoad,
+    onPitRoad: snapshot?.onPitRoad ?? snapshot?.pit?.inPitStall,
     flagYellow: snapshot?.flags?.yellow,
     flagBlue: snapshot?.flags?.blue,
     flagRed: snapshot?.flags?.red,
@@ -351,6 +355,11 @@ export function racecraftSafetyFromSnapshot(
     flagRepair: snapshot?.flags?.repair,
     flagDisqualify: snapshot?.flags?.disqualify,
     flagCheckered: snapshot?.flags?.checkered,
+    flagsKnown: snapshot?.flags !== undefined,
+    pitStateKnown:
+      typeof snapshot?.onPitRoad === 'boolean' ||
+      typeof snapshot?.pit?.inPitStall === 'boolean',
+    paceStateKnown: snapshot?.paceMode !== undefined,
     caution:
       snapshot?.flags?.yellow === true ||
       (snapshot?.paceMode !== undefined && snapshot.paceMode !== 'notPacing') ||
@@ -365,9 +374,10 @@ export function racecraftSafetyFromSnapshot(
 
 export function racecraftSafetyReason(
   safety: RacecraftSafetyContext | null | undefined,
-  allowedSessionKinds: readonly SessionKind[] = ['race']
+  allowedSessionKinds: readonly SessionKind[] = ['race'],
+  requireKnownRaceControl = true
 ): RacecraftSafetyReason | undefined {
-  if (!safety) return undefined
+  if (!safety) return requireKnownRaceControl ? 'race-control-unknown' : undefined
   if (safety.replayState !== undefined && safety.replayState !== 'live') return 'replay'
   if (safety.connected === false || safety.onTrack === false) return 'not-on-track'
   if (safety.onPitRoad === true) return 'pit'
@@ -391,6 +401,14 @@ export function racecraftSafetyReason(
     if (kind !== 'unknown' && !allowedSessionKinds.includes(kind)) return 'non-racing'
     if (kind === 'unknown' && normalize(safety.sessionType)) return 'non-racing'
   }
+  if (
+    requireKnownRaceControl &&
+    (
+      safety.flagsKnown !== true ||
+      safety.pitStateKnown !== true ||
+      safety.paceStateKnown !== true
+    )
+  ) return 'race-control-unknown'
   return undefined
 }
 
@@ -1321,6 +1339,17 @@ export function racecraftSafetyMessage(
   reason: RacecraftSafetyReason,
   language: CoachAdviceLanguage
 ): string {
+  if (reason === 'race-control-unknown') {
+    return localized(language, {
+      'en-US': 'RACE-CONTROL STATE UNAVAILABLE — I cannot safely advise a pass or pull-away.',
+      'pt-BR': 'ESTADO DA DIREÇÃO DE PROVA INDISPONÍVEL — não posso orientar uma ultrapassagem ou fuga com segurança.',
+      es: 'ESTADO DE CONTROL DE CARRERA NO DISPONIBLE — no puedo aconsejar un adelantamiento o escapada con seguridad.',
+      fr: 'ÉTAT DE LA DIRECTION DE COURSE INDISPONIBLE — impossible de conseiller un dépassement ou une échappée en sécurité.',
+      de: 'RENNLEITUNGSSTATUS NICHT VERFÜGBAR — ich kann kein sicheres Überhol- oder Absetzmanöver empfehlen.',
+      zh: '无法获取赛会控制状态——不能安全地建议超车或拉开差距。',
+      ja: 'レースコントロール状態を取得できません — 安全に追い越しや引き離しを助言できません。'
+    })
+  }
   if (reason === 'blue-flag') {
     return localized(language, {
       'en-US': 'TACTICS PAUSED — blue flag active. Follow race control and manage the faster traffic; no attack or pull-away plan now.',

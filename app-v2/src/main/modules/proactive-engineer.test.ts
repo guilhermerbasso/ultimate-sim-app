@@ -69,6 +69,23 @@ function makeSnapshot(lapDistPct: number, overrides: Partial<TelemetrySnapshot> 
     clutch: 0,
     lapDistPct,
     sessionType: 'Race',
+    sessionState: 'racing',
+    paceMode: 'notPacing',
+    onPitRoad: false,
+    onTrack: true,
+    flags: {
+      green: true,
+      yellow: false,
+      blue: false,
+      white: false,
+      checkered: false,
+      red: false,
+      black: false,
+      meatball: false,
+      repair: false,
+      disqualify: false,
+      greenWhiteCheckered: false
+    },
     timestamp: 1000,
     ...overrides
   } as unknown as TelemetrySnapshot
@@ -1332,6 +1349,48 @@ describe('createProactiveEngine', () => {
     expect(harness.events[0].lang).toBe('es')
     expect(harness.events[0].text).toContain('CLASIFICACIÓN')
     expect(harness.events[0].text).toContain('historial seco insuficiente')
+  })
+
+  it('still emits non-tactical qualifying history when race-control channels are unavailable', () => {
+    const recurring = makeFinding({
+      sector: 1,
+      corner: 2,
+      kind: 'brake-early',
+      phase: 'entry'
+    })
+    const { harness, engine } = makeEngine(
+      { language: 'en-US' },
+      {
+        history: [
+          historyLap('1', recurring, 1),
+          historyLap('2', recurring, 2),
+          historyLap('3', recurring, 3)
+        ]
+      }
+    )
+    engine.onSnapshot(
+      makeSnapshot(0.1, {
+        sim: 'acc',
+        sessionKind: 'qualify',
+        sessionType: undefined,
+        sessionUniqueId: 99,
+        trackName: 'Interlagos',
+        trackConfigName: 'Grand Prix',
+        carName: 'GT3 R',
+        carPath: 'gt3r',
+        airTempC: 24,
+        trackTempC: 35,
+        trackWetnessPct: 0,
+        isRaining: false,
+        flags: undefined,
+        onPitRoad: undefined,
+        paceMode: undefined
+      })
+    )
+
+    expect(harness.events).toHaveLength(1)
+    expect(harness.events[0].eventType).toBe('quali-briefing')
+    expect(harness.events[0].text).toContain('brake later')
   })
 
   it('does not persist an iRacing lap whose incident count increased', () => {

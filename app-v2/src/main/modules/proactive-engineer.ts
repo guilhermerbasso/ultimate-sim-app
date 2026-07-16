@@ -1683,7 +1683,11 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     if (kind !== 'qualify') return
     if (!config.proactiveCoaching) return
     const language = deps.getAdviceLanguage?.() ?? coachAdviceLanguageFromAppLanguage(config.language)
-    const safetyReason = racecraftSafetyReason(racecraftSafetyFromSnapshot(snapshot), ['qualify'])
+    const safetyReason = racecraftSafetyReason(
+      racecraftSafetyFromSnapshot(snapshot),
+      ['qualify'],
+      false
+    )
     if (safetyReason) {
       emitQualiSafety(config, key, safetyReason)
       return
