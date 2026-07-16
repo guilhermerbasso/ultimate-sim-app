@@ -1,4 +1,5 @@
 import type { TelemetrySnapshot } from '../telemetry'
+import type { DeepReadonly } from './immutability'
 
 export const TELEMETRY_REPRESENTATION_STYLES = [
   'competition',
@@ -80,88 +81,88 @@ export type SessionDependencyScope =
   | 'replay'
 
 export interface TelemetryCapabilityDependencies {
-  car: CarDependencyScope
-  session: SessionDependencyScope
-  notes: string
+  readonly car: CarDependencyScope
+  readonly session: SessionDependencyScope
+  readonly notes: string
 }
 
 export interface TelemetryCapabilityData {
-  kind: TelemetryDataKind
-  unit: string | null
-  detail: string
+  readonly kind: TelemetryDataKind
+  readonly unit: string | null
+  readonly detail: string
 }
 
 export type TelemetrySnapshotField = keyof TelemetrySnapshot
 
 export interface TelemetryRepresentationContract {
-  competition: string
-  futuristic: string
-  ddu: string
+  readonly competition: string
+  readonly futuristic: string
+  readonly ddu: string
 }
 
 export type TelemetrySourceConstraintId =
   'provider-normalization-missing'
 
 export interface TelemetrySourceConstraint {
-  id: TelemetrySourceConstraintId
-  scope: 'provider'
-  detail: string
+  readonly id: TelemetrySourceConstraintId
+  readonly scope: 'provider'
+  readonly detail: string
 }
 
 export interface TelemetryCapabilityBase {
-  id: string
-  label: string
-  category: TelemetryCapabilityCategory
-  focus: TelemetryCapabilityFocus
-  tags: readonly string[]
-  requiredSnapshotFields: readonly TelemetrySnapshotField[]
-  normalizedSnapshotPaths: readonly string[]
-  rawIracingHints: readonly string[]
-  data: TelemetryCapabilityData
-  dependencies: TelemetryCapabilityDependencies
-  normalization: string
-  sourceConstraints: readonly TelemetrySourceConstraint[]
-  surfaces: {
-    widget: true
-    ordinaryOverlay: true
+  readonly id: string
+  readonly label: string
+  readonly category: TelemetryCapabilityCategory
+  readonly focus: TelemetryCapabilityFocus
+  readonly tags: readonly string[]
+  readonly requiredSnapshotFields: readonly TelemetrySnapshotField[]
+  readonly normalizedSnapshotPaths: readonly string[]
+  readonly rawIracingHints: readonly string[]
+  readonly data: TelemetryCapabilityData
+  readonly dependencies: TelemetryCapabilityDependencies
+  readonly normalization: string
+  readonly sourceConstraints: readonly TelemetrySourceConstraint[]
+  readonly surfaces: {
+    readonly widget: true
+    readonly ordinaryOverlay: true
   }
 }
 
 export interface GeneratedTelemetryCapability
   extends TelemetryCapabilityBase {
-  runtime: {
-    availability: 'visualizable'
-    unavailablePresentation: 'explicit'
+  readonly runtime: {
+    readonly availability: 'visualizable'
+    readonly unavailablePresentation: 'explicit'
   }
-  implementation: {
-    mode: 'generated-three-variant'
+  readonly implementation: {
+    readonly mode: 'generated-three-variant'
   }
-  representations: TelemetryRepresentationContract
+  readonly representations: TelemetryRepresentationContract
 }
 
 export interface DedicatedTelemetryCapability
   extends TelemetryCapabilityBase {
-  runtime: {
-    availability: 'visualizable'
-    unavailablePresentation: 'explicit'
+  readonly runtime: {
+    readonly availability: 'visualizable'
+    readonly unavailablePresentation: 'explicit'
   }
-  implementation: {
-    mode: 'dedicated-shared-rev-lights'
-    sharedModule: 'revlights'
+  readonly implementation: {
+    readonly mode: 'dedicated-shared-rev-lights'
+    readonly sharedModule: 'revlights'
   }
 }
 
 export interface UnsupportedTelemetryCapability
   extends TelemetryCapabilityBase {
-  runtime: {
-    availability: 'unsupported'
-    unavailablePresentation: 'explicit'
-    unsupportedReason: string
+  readonly runtime: {
+    readonly availability: 'unsupported'
+    readonly unavailablePresentation: 'explicit'
+    readonly unsupportedReason: string
   }
-  implementation: {
-    mode: 'unsupported-unavailable'
-    blockedOn: 'provider-normalization'
-    reason: string
+  readonly implementation: {
+    readonly mode: 'unsupported-unavailable'
+    readonly blockedOn: 'provider-normalization'
+    readonly reason: string
   }
 }
 
@@ -170,19 +171,27 @@ export type TelemetryCapability =
   | DedicatedTelemetryCapability
   | UnsupportedTelemetryCapability
 
+export type ReadonlyTelemetryCapability =
+  DeepReadonly<TelemetryCapability>
+
+export type ReadonlyVisualizableTelemetryCapability =
+  DeepReadonly<
+    GeneratedTelemetryCapability | DedicatedTelemetryCapability
+  >
+
 export interface TelemetryCapabilityTagValidation {
-  valid: boolean
-  duplicates: readonly string[]
-  invalid: readonly string[]
+  readonly valid: boolean
+  readonly duplicates: readonly string[]
+  readonly invalid: readonly string[]
 }
 
 export interface TelemetryCapabilityRegistrySummary {
-  total: number
-  currentlyVisualizable: number
-  generatedThreeVariant: number
-  generatedRepresentations: number
-  dedicated: number
-  unsupported: number
-  plannedWidgets: number
-  plannedOrdinaryOverlays: number
+  readonly total: number
+  readonly currentlyVisualizable: number
+  readonly generatedThreeVariant: number
+  readonly generatedRepresentations: number
+  readonly dedicated: number
+  readonly unsupported: number
+  readonly plannedWidgets: number
+  readonly plannedOrdinaryOverlays: number
 }

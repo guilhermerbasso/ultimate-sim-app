@@ -12,6 +12,8 @@ import {
   filterVisualizableTelemetryCapabilities,
   getTelemetryCapability,
   getTriggerOnlyFamily,
+  summarizeTelemetryCapabilityRegistry,
+  summarizeTriggerOnlyFamilyRegistry,
   triggerOnlyFamiliesForConcept,
   validateNormalizedTelemetryTags,
   validateTelemetryCapabilityTags
@@ -81,6 +83,59 @@ const SEMANTIC_TRIGGER_IDS = [
   'alert2TyreTempCritical',
   'alert2BrakePressureLow'
 ] as const
+
+function expectDeeplyFrozen(
+  value: unknown,
+  seen = new WeakSet<object>()
+): void {
+  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) {
+    return
+  }
+  const object = value as object
+  if (seen.has(object)) return
+  seen.add(object)
+  expect(Object.isFrozen(object)).toBe(true)
+  for (const key of Reflect.ownKeys(object)) {
+    expectDeeplyFrozen(
+      (object as Record<PropertyKey, unknown>)[key],
+      seen
+    )
+  }
+}
+
+function assertCompileTimeReadonlyContracts(): void {
+  if (false) {
+    const capability = getTelemetryCapability('speed')
+    const family = getTriggerOnlyFamily('shift-point')
+    const visualizable = filterVisualizableTelemetryCapabilities()
+    const related = triggerOnlyFamiliesForConcept('raceFlags')
+
+    // @ts-expect-error capability identity is deeply readonly
+    capability.id = 'corrupted'
+    // @ts-expect-error capability tags cannot be mutated
+    capability.tags.push('corrupted')
+    if ('representations' in capability) {
+      // @ts-expect-error nested representation contracts are readonly
+      capability.representations.competition = 'corrupted'
+    }
+    // @ts-expect-error trigger family identity is readonly
+    family.id = 'corrupted'
+    // @ts-expect-error nested rules cannot be mutated
+    family.rules[0].trigger.kind = 'never'
+    // @ts-expect-error lookup-derived fixtures are readonly
+    family.rules[0].fixtures.active = 'corrupted'
+    // @ts-expect-error filtered capability results are readonly arrays
+    visualizable.push(capability)
+    // @ts-expect-error filtered trigger results are readonly arrays
+    related.pop()
+    // @ts-expect-error registry arrays are readonly
+    TELEMETRY_CAPABILITY_REGISTRY.push(capability)
+    // @ts-expect-error trigger registry arrays are readonly
+    TRIGGER_ONLY_FAMILY_REGISTRY.pop()
+  }
+}
+
+assertCompileTimeReadonlyContracts()
 
 describe('visual telemetry capability registry', () => {
   it('governs all 143 ordinary widget and overlay artifacts', () => {
@@ -402,6 +457,97 @@ describe('visual telemetry capability registry', () => {
     expect(throttleMap?.rawIracingHints).toEqual(['dcThrottleShape'])
     expect(throttleMap?.requiredSnapshotFields).toEqual(['throttleMap'])
     expect(throttleMap?.sourceConstraints).toEqual([])
+  })
+
+  it('deep-freezes registry graphs and preserves lookup and summary integrity', () => {
+    const speed = getTelemetryCapability('speed')
+    const shiftFamily = getTriggerOnlyFamily('shift-point')
+    const capabilitySummary = { ...TELEMETRY_CAPABILITY_SUMMARY }
+    const triggerSummary = { ...TRIGGER_ONLY_FAMILY_SUMMARY }
+
+    expectDeeplyFrozen(TELEMETRY_CAPABILITY_REGISTRY)
+    expectDeeplyFrozen(TRIGGER_ONLY_FAMILY_REGISTRY)
+    expectDeeplyFrozen(TELEMETRY_CAPABILITY_SUMMARY)
+    expectDeeplyFrozen(TRIGGER_ONLY_FAMILY_SUMMARY)
+    expectDeeplyFrozen(speed)
+    expectDeeplyFrozen(shiftFamily)
+
+    const visualizable = filterVisualizableTelemetryCapabilities()
+    const raceFlagFamilies = triggerOnlyFamiliesForConcept('raceFlags')
+    expect(Object.isFrozen(visualizable)).toBe(true)
+    expect(Object.isFrozen(raceFlagFamilies)).toBe(true)
+
+    const mutationAttempts = [
+      () => {
+        (speed as unknown as { id: string }).id = 'corrupted'
+      },
+      () => {
+        (speed.tags as unknown as string[]).push('corrupted')
+      },
+      () => {
+        if ('representations' in speed) {
+          (
+            speed.representations as unknown as { competition: string }
+          ).competition = 'corrupted'
+        }
+      },
+      () => {
+        (
+          shiftFamily.rules[0].trigger as unknown as { kind: string }
+        ).kind = 'never'
+      },
+      () => {
+        (
+          shiftFamily.rules[0].fixtures as unknown as { active: string }
+        ).active = 'corrupted'
+      },
+      () => {
+        (shiftFamily.conceptIds as unknown as string[]).pop()
+      },
+      () => {
+        (shiftFamily.rules as unknown as unknown[]).pop()
+      },
+      () => {
+        (
+          TELEMETRY_CAPABILITY_REGISTRY as unknown as unknown[]
+        ).pop()
+      },
+      () => {
+        (TRIGGER_ONLY_FAMILY_REGISTRY as unknown as unknown[]).pop()
+      },
+      () => {
+        (visualizable as unknown as unknown[]).pop()
+      },
+      () => {
+        (raceFlagFamilies as unknown as unknown[]).pop()
+      },
+      () => {
+        (
+          TELEMETRY_CAPABILITY_SUMMARY as unknown as { total: number }
+        ).total = 0
+      },
+      () => {
+        (
+          TRIGGER_ONLY_FAMILY_SUMMARY as unknown as { families: number }
+        ).families = 0
+      }
+    ]
+    for (const mutate of mutationAttempts) {
+      expect(mutate).toThrow(TypeError)
+    }
+
+    expect(getTelemetryCapability('speed')).toBe(speed)
+    expect(getTelemetryCapability('corrupted')).toBeUndefined()
+    expect(getTriggerOnlyFamily('shift-point')).toBe(shiftFamily)
+    expect(getTriggerOnlyFamily('corrupted')).toBeUndefined()
+    expect(TELEMETRY_CAPABILITY_SUMMARY).toEqual(capabilitySummary)
+    expect(TRIGGER_ONLY_FAMILY_SUMMARY).toEqual(triggerSummary)
+    expect(summarizeTelemetryCapabilityRegistry()).toEqual(
+      capabilitySummary
+    )
+    expect(summarizeTriggerOnlyFamilyRegistry()).toEqual(
+      triggerSummary
+    )
   })
 
   it('keeps tags controlled and opponent steering unavailable', () => {

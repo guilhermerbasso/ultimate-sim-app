@@ -3,16 +3,17 @@ import {
   TELEMETRY_CAPABILITIES,
   type TelemetryCapabilityId
 } from './capabilities'
+import { deepFreeze, freezeArrayCopy } from './immutability'
 import type {
-  TelemetryCapability,
+  ReadonlyTelemetryCapability,
+  ReadonlyVisualizableTelemetryCapability,
   TelemetryCapabilityRegistrySummary,
-  TelemetryCapabilityTagValidation,
-  UnsupportedTelemetryCapability
+  TelemetryCapabilityTagValidation
 } from './types'
 
 export const TELEMETRY_CAPABILITY_REGISTRY = TELEMETRY_CAPABILITIES
 
-const CAPABILITY_BY_ID = new Map<string, TelemetryCapability>(
+const CAPABILITY_BY_ID = new Map<string, ReadonlyTelemetryCapability>(
   TELEMETRY_CAPABILITY_REGISTRY.map((capability) => [
     capability.id,
     capability
@@ -21,30 +22,29 @@ const CAPABILITY_BY_ID = new Map<string, TelemetryCapability>(
 
 export function getTelemetryCapability(
   id: TelemetryCapabilityId
-): TelemetryCapability
+): ReadonlyTelemetryCapability
 export function getTelemetryCapability(
   id: string
-): TelemetryCapability | undefined
+): ReadonlyTelemetryCapability | undefined
 export function getTelemetryCapability(
   id: string
-): TelemetryCapability | undefined {
+): ReadonlyTelemetryCapability | undefined {
   return CAPABILITY_BY_ID.get(id)
 }
 
 export function isVisualizableTelemetryCapability(
-  capability: TelemetryCapability
-): capability is Exclude<
-  TelemetryCapability,
-  UnsupportedTelemetryCapability
-> {
+  capability: ReadonlyTelemetryCapability
+): capability is ReadonlyVisualizableTelemetryCapability {
   return capability.runtime.availability === 'visualizable'
 }
 
 export function filterVisualizableTelemetryCapabilities(
-  capabilities: readonly TelemetryCapability[] =
+  capabilities: readonly ReadonlyTelemetryCapability[] =
     TELEMETRY_CAPABILITY_REGISTRY
-): Exclude<TelemetryCapability, UnsupportedTelemetryCapability>[] {
-  return capabilities.filter(isVisualizableTelemetryCapability)
+): readonly ReadonlyVisualizableTelemetryCapability[] {
+  return freezeArrayCopy(
+    capabilities.filter(isVisualizableTelemetryCapability)
+  )
 }
 
 export function validateNormalizedTelemetryTags(
@@ -60,21 +60,21 @@ export function validateNormalizedTelemetryTags(
     if (!isControlledTag(tag)) invalid.add(tag)
   }
 
-  return {
+  return deepFreeze({
     valid: duplicates.size === 0 && invalid.size === 0,
     duplicates: [...duplicates],
     invalid: [...invalid]
-  }
+  })
 }
 
 export function validateTelemetryCapabilityTags(
-  capability: TelemetryCapability
+  capability: ReadonlyTelemetryCapability
 ): TelemetryCapabilityTagValidation {
   return validateNormalizedTelemetryTags(capability.tags)
 }
 
 export function summarizeTelemetryCapabilityRegistry(
-  capabilities: readonly TelemetryCapability[] =
+  capabilities: readonly ReadonlyTelemetryCapability[] =
     TELEMETRY_CAPABILITY_REGISTRY
 ): TelemetryCapabilityRegistrySummary {
   let generatedThreeVariant = 0
@@ -106,7 +106,7 @@ export function summarizeTelemetryCapabilityRegistry(
     }
   }
 
-  return {
+  return deepFreeze({
     total: capabilities.length,
     currentlyVisualizable,
     generatedThreeVariant,
@@ -115,7 +115,7 @@ export function summarizeTelemetryCapabilityRegistry(
     unsupported,
     plannedWidgets,
     plannedOrdinaryOverlays
-  }
+  })
 }
 
 export const TELEMETRY_CAPABILITY_SUMMARY =

@@ -1,3 +1,4 @@
+export * from './immutability'
 export * from './registry'
 export * from './trigger-only-families'
 export * from './trigger-types'

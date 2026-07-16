@@ -1,5 +1,11 @@
 import type { TelemetryCapabilityId } from './capabilities'
-import type { TriggerOnlyFamily, TriggerOnlyFamilyRegistrySummary, TriggerOnlyFixtures } from './trigger-types'
+import { deepFreeze, freezeArrayCopy } from './immutability'
+import type {
+  ReadonlyTriggerOnlyFamily,
+  TriggerOnlyFamily,
+  TriggerOnlyFamilyRegistrySummary,
+  TriggerOnlyFixtures
+} from './trigger-types'
 
 function fixtures(id: string, held = false): TriggerOnlyFixtures {
   return {
@@ -15,7 +21,7 @@ function family<const Id extends string>(definition: TriggerOnlyFamily & { id: I
   return definition
 }
 
-export const TRIGGER_ONLY_FAMILY_REGISTRY = [
+export const TRIGGER_ONLY_FAMILY_REGISTRY = deepFreeze([
   family({
     id: 'car-left',
     ordinal: 1,
@@ -1002,38 +1008,48 @@ export const TRIGGER_ONLY_FAMILY_REGISTRY = [
       }
     ]
   })
-] as const satisfies readonly TriggerOnlyFamily[]
+] as const satisfies readonly TriggerOnlyFamily[])
 
 export type TriggerOnlyFamilyId =
   (typeof TRIGGER_ONLY_FAMILY_REGISTRY)[number]['id']
 
-const FAMILY_BY_ID = new Map<string, TriggerOnlyFamily>(
+const FAMILY_BY_ID = new Map<string, ReadonlyTriggerOnlyFamily>(
   TRIGGER_ONLY_FAMILY_REGISTRY.map((entry) => [entry.id, entry])
 )
 
-export function getTriggerOnlyFamily(id: TriggerOnlyFamilyId): TriggerOnlyFamily
-export function getTriggerOnlyFamily(id: string): TriggerOnlyFamily | undefined
-export function getTriggerOnlyFamily(id: string): TriggerOnlyFamily | undefined {
+export function getTriggerOnlyFamily(
+  id: TriggerOnlyFamilyId
+): ReadonlyTriggerOnlyFamily
+export function getTriggerOnlyFamily(
+  id: string
+): ReadonlyTriggerOnlyFamily | undefined
+export function getTriggerOnlyFamily(
+  id: string
+): ReadonlyTriggerOnlyFamily | undefined {
   return FAMILY_BY_ID.get(id)
 }
 
 export function triggerOnlyFamiliesForConcept(
   conceptId: TelemetryCapabilityId,
-  families: readonly TriggerOnlyFamily[] = TRIGGER_ONLY_FAMILY_REGISTRY
-): TriggerOnlyFamily[] {
-  return families.filter((entry) => entry.conceptIds.includes(conceptId))
+  families: readonly ReadonlyTriggerOnlyFamily[] =
+    TRIGGER_ONLY_FAMILY_REGISTRY
+): readonly ReadonlyTriggerOnlyFamily[] {
+  return freezeArrayCopy(
+    families.filter((entry) => entry.conceptIds.includes(conceptId))
+  )
 }
 
 export function summarizeTriggerOnlyFamilyRegistry(
-  families: readonly TriggerOnlyFamily[] = TRIGGER_ONLY_FAMILY_REGISTRY
+  families: readonly ReadonlyTriggerOnlyFamily[] =
+    TRIGGER_ONLY_FAMILY_REGISTRY
 ): TriggerOnlyFamilyRegistrySummary {
-  return {
+  return deepFreeze({
     families: families.length,
     rules: families.reduce((total, entry) => total + entry.rules.length, 0),
     dedicatedFamilies: families.filter((entry) => entry.origin === 'dedicated-widget').length,
     semanticFamilies: families.filter((entry) => entry.origin === 'semantic-overlay').length,
     temporalRules: families.flatMap((entry) => entry.rules).filter((entry) => entry.temporalMode !== 'level').length
-  }
+  })
 }
 
 export const TRIGGER_ONLY_FAMILY_SUMMARY =

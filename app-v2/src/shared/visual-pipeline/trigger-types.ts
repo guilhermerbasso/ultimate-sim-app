@@ -1,5 +1,6 @@
 import type { OverlayTrigger } from '../overlay-trigger'
 import type { TelemetryCapabilityId } from './capabilities'
+import type { DeepReadonly } from './immutability'
 
 export type TriggerThresholdSource =
   | 'sdk'
@@ -15,41 +16,44 @@ export type TriggerTemporalMode =
   | 'after-false'
 
 export interface TriggerOnlyFixtures {
-  active: string
-  inactive: string
-  unknown: string
-  disconnected: string
-  held?: string
+  readonly active: string
+  readonly inactive: string
+  readonly unknown: string
+  readonly disconnected: string
+  readonly held?: string
 }
 
 export interface TriggerOnlyRule {
-  id: string
-  trigger: OverlayTrigger
-  temporalMode: TriggerTemporalMode
-  ttlMs?: number
-  thresholdSource: TriggerThresholdSource
-  provenance: string
-  provenanceHash: `sha256:${string}`
-  unknownBehavior: 'hidden'
-  policyRef: string
-  sourceConstraint?: string
-  fixtures: TriggerOnlyFixtures
+  readonly id: string
+  readonly trigger: DeepReadonly<OverlayTrigger>
+  readonly temporalMode: TriggerTemporalMode
+  readonly ttlMs?: number
+  readonly thresholdSource: TriggerThresholdSource
+  readonly provenance: string
+  readonly provenanceHash: `sha256:${string}`
+  readonly unknownBehavior: 'hidden'
+  readonly policyRef: string
+  readonly sourceConstraint?: string
+  readonly fixtures: TriggerOnlyFixtures
 }
 
 export interface TriggerOnlyFamily {
-  id: string
-  ordinal: number
-  origin: 'dedicated-widget' | 'semantic-overlay'
-  conceptIds: readonly TelemetryCapabilityId[]
-  role: 'trigger-only'
-  severity: 'info' | 'warning' | 'critical'
-  rules: readonly TriggerOnlyRule[]
+  readonly id: string
+  readonly ordinal: number
+  readonly origin: 'dedicated-widget' | 'semantic-overlay'
+  readonly conceptIds: readonly TelemetryCapabilityId[]
+  readonly role: 'trigger-only'
+  readonly severity: 'info' | 'warning' | 'critical'
+  readonly rules: readonly TriggerOnlyRule[]
 }
 
+export type ReadonlyTriggerOnlyFamily =
+  DeepReadonly<TriggerOnlyFamily>
+
 export interface TriggerOnlyFamilyRegistrySummary {
-  families: number
-  rules: number
-  dedicatedFamilies: number
-  semanticFamilies: number
-  temporalRules: number
+  readonly families: number
+  readonly rules: number
+  readonly dedicatedFamilies: number
+  readonly semanticFamilies: number
+  readonly temporalRules: number
 }

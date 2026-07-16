@@ -1,4 +1,5 @@
 import { isControlledTag, unitTagFor } from '../tags'
+import { deepFreeze } from './immutability'
 import type {
   DedicatedTelemetryCapability,
   GeneratedTelemetryCapability,
@@ -109,7 +110,7 @@ function unsupported<const Id extends string>(
   }
 }
 
-export const TELEMETRY_CAPABILITIES = [
+export const TELEMETRY_CAPABILITIES = deepFreeze([
   generated({
     id: 'speed',
     label: 'Speed',
@@ -2684,7 +2685,7 @@ export const TELEMETRY_CAPABILITIES = [
       ddu: 'DDU row'
     }
   })
-] as const
+] as const)
 
 export type TelemetryCapabilityId =
   (typeof TELEMETRY_CAPABILITIES)[number]['id']
