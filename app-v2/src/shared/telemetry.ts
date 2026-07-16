@@ -5,8 +5,54 @@ import type { ReplayContext } from './replay'
 export type { ReplayContext, ReplayContextIdentity, ReplayContextInputs, ReplayContextReason, ReplayContextSource, ReplayContextState, ReplayResolution } from './replay'
 
 export type SimId = 'iracing' | 'acc' | 'ac' | 'ams2' | 'lmu' | 'mock' | 'replay' | 'none'
+export type SessionKind = 'practice' | 'qualify' | 'race' | 'warmup' | 'unknown'
 
 export type TelemetrySource = SimId | 'auto' | 'off'
+
+export function sessionKindFromText(raw: unknown): SessionKind {
+  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+  if (!value) return 'unknown'
+  if (value.includes('race')) return 'race'
+  if (value.includes('qual') || value.includes('lone')) return 'qualify'
+  if (value.includes('warm') || value.includes('formation')) return 'warmup'
+  if (
+    value.includes('practice') ||
+    value.includes('test') ||
+    value.includes('hotlap') ||
+    value.includes('time attack') ||
+    value.includes('offline')
+  ) return 'practice'
+  return 'unknown'
+}
+
+export function sessionKindFromProvider(sim: SimId, raw: unknown): SessionKind {
+  const numeric =
+    typeof raw === 'number' && Number.isFinite(raw)
+      ? Math.trunc(raw)
+      : typeof raw === 'string' && raw.trim() !== '' && Number.isFinite(Number(raw))
+        ? Math.trunc(Number(raw))
+        : undefined
+  if ((sim === 'ac' || sim === 'acc') && numeric !== undefined) {
+    if (numeric === 0 || numeric === 3 || numeric === 4 || numeric === 5) return 'practice'
+    if (numeric === 1) return 'qualify'
+    if (numeric === 2 || numeric === 6) return 'race'
+    return 'unknown'
+  }
+  if (sim === 'ams2' && numeric !== undefined) {
+    if (numeric === 1 || numeric === 2 || numeric === 6) return 'practice'
+    if (numeric === 3) return 'qualify'
+    if (numeric === 4) return 'warmup'
+    if (numeric === 5) return 'race'
+    return 'unknown'
+  }
+  return sessionKindFromText(raw)
+}
+
+export function sessionKindForSnapshot(
+  snapshot: Pick<TelemetrySnapshot, 'sim' | 'sessionKind' | 'sessionType'> | null | undefined
+): SessionKind {
+  return snapshot?.sessionKind ?? sessionKindFromProvider(snapshot?.sim ?? 'none', snapshot?.sessionType)
+}
 
 export interface Corners<T> {
   lf: T
@@ -616,6 +662,8 @@ export interface TelemetrySnapshot {
 
   // Session / tempo
   sessionType?: string
+  /** Canonical provider-normalized session classification. */
+  sessionKind?: SessionKind
   // Overall session phase from irsdk_SessionState (use sessionStateLabel to decode).
   sessionState?: SessionState
   // Pace/formation state from irsdk_PaceMode (use paceModeLabel to decode).

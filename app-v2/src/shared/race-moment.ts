@@ -18,6 +18,7 @@
 // React/Electron/node-free: importable by main, renderer and unit tests.
 
 import type { TelemetrySnapshot } from './telemetry'
+import { sessionKindForSnapshot, sessionKindFromText } from './telemetry'
 import type { PredictionsSnapshot } from './predictions'
 import {
   captureLiveTelemetryContext,
@@ -289,13 +290,11 @@ function num(v: unknown): number | null {
 }
 
 function sessionIsRace(t: string | undefined): boolean {
-  return !!t && t.toLowerCase().includes('race')
+  return sessionKindFromText(t) === 'race'
 }
 
 function sessionIsQualify(t: string | undefined): boolean {
-  if (!t) return false
-  const s = t.toLowerCase()
-  return s.includes('qual') || s.includes('lone') || s.includes('hotlap') || s.includes('hot lap')
+  return sessionKindFromText(t) === 'qualify'
 }
 
 /** Fuel margin (laps) preferring predictions, falling back to raw telemetry. */
@@ -527,8 +526,8 @@ export function resolveRaceMoment(
 
   const s: Signals = {
     connected: true,
-    isRace: sessionIsRace(snapshot.sessionType),
-    isQualify: sessionIsQualify(snapshot.sessionType),
+    isRace: sessionKindForSnapshot(snapshot) === 'race',
+    isQualify: sessionKindForSnapshot(snapshot) === 'qualify',
     onPitRoad,
     pitLimiter: snapshot.pitLimiter === true,
     inPitStall: snapshot.pit?.inPitStall === true,

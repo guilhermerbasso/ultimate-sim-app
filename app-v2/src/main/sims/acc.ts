@@ -1,4 +1,5 @@
 import type { TelemetrySnapshot } from '../../shared/telemetry'
+import { sessionKindFromProvider } from '../../shared/telemetry'
 import type { TelemetryProvider } from '../telemetry/provider'
 import { bool, firstString, loadKoffi, msToSeconds, num, optionalNum, openSharedMemory, type SharedMemoryHandle } from './shared-memory'
 
@@ -58,6 +59,7 @@ export class ACCProvider implements TelemetryProvider {
     if (!physics || !graphics) return null
     const staticInfo = this.staticInfo?.view ?? {}
     const rainIntensityPct = accRainIntensityPct(graphics.rainIntensity)
+    const rawSession = graphics.session
 
     return {
       sim: 'acc',
@@ -73,7 +75,8 @@ export class ACCProvider implements TelemetryProvider {
       steerAngleDeg: normalizedSteerToDeg(physics.steerAngle),
       absActive: bool(physics.abs),
       tcActive: bool(physics.tc),
-      sessionType: firstString(graphics.session),
+      sessionType: firstString(rawSession),
+      sessionKind: sessionKindFromProvider('acc', rawSession),
       carName: firstString(staticInfo.carModel),
       trackName: firstString(staticInfo.track),
       sessionTimeRemainingSec: msToSeconds(graphics.sessionTimeLeft),

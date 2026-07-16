@@ -137,6 +137,7 @@ describe('mapRf2Snapshot', () => {
     expect(s.lapDistPct).toBeCloseTo(0.5, 6) // 6814.5 / 13629
     expect(s.sessionTimeRemainingSec).toBeCloseTo(600, 6) // 1834.5 - 1234.5
     expect(s.sessionType).toBe('Race')
+    expect(s.sessionKind).toBe('race')
     expect(s.airTempC).toBe(24)
     expect(s.trackTempC).toBe(31)
     expect(s.trackName).toBe('Le Mans')

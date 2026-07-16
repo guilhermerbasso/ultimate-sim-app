@@ -9,7 +9,11 @@ import type {
 } from '../../shared/ai'
 import type { EngineerContext } from '../../shared/ai-engineer'
 import type { CoachFinding } from '../../shared/coach'
-import type { CoachAdviceLanguage, RacecraftAdviceContext } from '../../shared/coach-racecraft'
+import {
+  MAX_RACECRAFT_SPEECH_LENGTH,
+  type CoachAdviceLanguage,
+  type RacecraftAdviceContext
+} from '../../shared/coach-racecraft'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import {
   DEFAULT_ENGINEER_CONFIG,
@@ -225,9 +229,9 @@ describe('createEngineerOrchestrator.ask', () => {
           }
         ],
         gaps: [
-          { at: 1000, aheadSec: 1.2 },
-          { at: 3000, aheadSec: 1.0 },
-          { at: 5000, aheadSec: 0.8 }
+          { at: 1000, aheadSec: 1.2, aheadCarIdx: 10 },
+          { at: 3000, aheadSec: 1.0, aheadCarIdx: 10 },
+          { at: 5000, aheadSec: 0.8, aheadCarIdx: 10 }
         ]
       }
     })
@@ -241,6 +245,8 @@ describe('createEngineerOrchestrator.ask', () => {
     expect(answer.text).toContain('gap ahead 0.8s, closing')
     expect(answer.text).toContain('opponent controls are unavailable')
     expect(answer.text).not.toMatch(/opponent (?:brak|throttle|turn|entry|exit)/i)
+    expect(answer.speechText).toBeTruthy()
+    expect(answer.speechText!.length).toBeLessThanOrEqual(MAX_RACECRAFT_SPEECH_LENGTH)
     expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
   })

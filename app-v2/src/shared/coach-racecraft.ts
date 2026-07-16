@@ -8,7 +8,8 @@ import {
   type CoachReport
 } from './coach'
 import type { AppLanguage } from './settings'
-import type { PaceMode, SessionState, TelemetrySnapshot } from './telemetry'
+import type { PaceMode, SessionKind, SessionState, TelemetrySnapshot } from './telemetry'
+import { sessionKindForSnapshot, sessionKindFromText } from './telemetry'
 import { formatMeasurement, type UnitSystem } from './units'
 
 export type RacecraftQuestionIntent = 'overtake' | 'pull-away'
@@ -25,6 +26,7 @@ export type RacecraftSafetyReason =
   | 'meatball'
   | 'repair'
   | 'disqualify'
+  | 'checkered'
   | 'caution'
   | 'pacing'
   | 'pit'
@@ -55,6 +57,7 @@ export interface RacecraftSafetyContext {
   caution?: boolean
   paceMode?: PaceMode
   sessionState?: SessionState
+  sessionKind?: SessionKind
   sessionType?: string
   replayState?: 'live' | 'replay' | 'unknown'
 }
@@ -68,6 +71,8 @@ export interface RacecraftAdviceContext {
   currentGapAheadSec?: number
   currentGapBehindSec?: number
   safety?: RacecraftSafetyContext
+  sessionKey?: string
+  sessionBoundaryMs?: number
   trackId?: string | number
   trackName?: string
   trackConfigName?: string
@@ -125,6 +130,8 @@ export interface RacecraftAdvice {
   suppressedReason?: RacecraftSafetyReason
   honestyNote: string
   text: string
+  speechText: string
+  speechItemCount: number
 }
 
 export interface CoachComparableIdentity {
@@ -144,6 +151,9 @@ export interface CoachLapHistoryEntry {
   id: string
   at: number
   sessionId?: number
+  sessionKey?: string
+  sessionBoundaryMs?: number
+  sessionKind?: SessionKind
   sessionType?: string
   lapNumber?: number
   lapTimeSec?: number
@@ -198,11 +208,15 @@ export interface QualiStartSummary {
 }
 
 export const MAX_RACECRAFT_ADVICE_LENGTH = 649
+export const MAX_RACECRAFT_SPEECH_LENGTH = 380
 export const MAX_QUALI_BRIEFING_LENGTH = 320
 export const MIN_HISTORY_COMPARABLE_LAPS = 3
 export const MIN_HISTORY_PATTERN_LAPS = 2
 export const MIN_HISTORY_OCCURRENCE_RATIO = 0.5
 export const MIN_HISTORY_CONFIDENCE = 0.6
+const MIN_HISTORY_DIRECTION_CONFIDENCE_MARGIN = 0.1
+const MIN_HISTORY_DIRECTION_OCCURRENCE_RATIO = 1.5
+const MIN_HISTORY_DIRECTION_SCORE_RATIO = 1.35
 const MAX_RACECRAFT_ITEMS = 3
 const MAX_QUALI_ITEMS = 2
 const MIN_GAP_TREND_DELTA_SEC = 0.15
@@ -343,33 +357,40 @@ export function racecraftSafetyFromSnapshot(
       snapshot?.sessionState === 'paradeLaps',
     paceMode: snapshot?.paceMode,
     sessionState: snapshot?.sessionState,
+    sessionKind: sessionKindForSnapshot(snapshot),
     sessionType: snapshot?.sessionType,
     replayState: snapshot?.replayContext?.state ?? 'live'
   }
 }
 
 export function racecraftSafetyReason(
-  safety: RacecraftSafetyContext | null | undefined
+  safety: RacecraftSafetyContext | null | undefined,
+  allowedSessionKinds: readonly SessionKind[] = ['race']
 ): RacecraftSafetyReason | undefined {
   if (!safety) return undefined
   if (safety.replayState !== undefined && safety.replayState !== 'live') return 'replay'
   if (safety.connected === false || safety.onTrack === false) return 'not-on-track'
   if (safety.onPitRoad === true) return 'pit'
-  if (safety.flagYellow === true) return 'yellow-flag'
-  if (safety.flagBlue === true) return 'blue-flag'
+  if (safety.flagDisqualify === true) return 'disqualify'
   if (safety.flagRed === true) return 'red-flag'
   if (safety.flagBlack === true) return 'black-flag'
+  if (safety.flagCheckered === true) return 'checkered'
   if (safety.flagMeatball === true) return 'meatball'
   if (safety.flagRepair === true) return 'repair'
-  if (safety.flagDisqualify === true) return 'disqualify'
+  if (safety.flagYellow === true) return 'yellow-flag'
+  if (safety.flagBlue === true) return 'blue-flag'
   if (safety.paceMode !== undefined && safety.paceMode !== 'notPacing') return 'pacing'
   if (safety.caution === true) return 'caution'
+  if (safety.sessionState !== undefined && safety.sessionState !== 'racing') return 'non-racing'
   if (
-    safety.flagCheckered === true ||
-    (safety.sessionState !== undefined && safety.sessionState !== 'racing')
+    safety.sessionKind !== undefined &&
+    !allowedSessionKinds.includes(safety.sessionKind)
   ) return 'non-racing'
-  const sessionType = normalize(safety.sessionType)
-  if (sessionType && !sessionType.includes('race')) return 'non-racing'
+  if (safety.sessionKind === undefined) {
+    const kind = sessionKindFromText(safety.sessionType)
+    if (kind !== 'unknown' && !allowedSessionKinds.includes(kind)) return 'non-racing'
+    if (kind === 'unknown' && normalize(safety.sessionType)) return 'non-racing'
+  }
   return undefined
 }
 
@@ -378,12 +399,17 @@ export function coachLapHistoryEntry(
   report: CoachReport,
   valid: boolean,
   at = snapshot.timestamp || Date.now(),
-  identity = coachComparableIdentityFromSnapshot(snapshot)
+  identity = coachComparableIdentityFromSnapshot(snapshot),
+  sessionKey?: string,
+  sessionBoundaryMs?: number
 ): CoachLapHistoryEntry {
   return {
     id: `${snapshot.sessionUniqueId ?? 'session'}:${report.lapNumber ?? at}`,
     at,
     sessionId: finite(snapshot.sessionUniqueId) ? snapshot.sessionUniqueId : undefined,
+    sessionKey,
+    sessionBoundaryMs,
+    sessionKind: sessionKindForSnapshot(snapshot),
     sessionType: snapshot.sessionType,
     lapNumber: report.lapNumber,
     lapTimeSec: report.lapTimeSec,
@@ -539,18 +565,27 @@ export function analyzeGapTrend(
   const carKey = side === 'ahead' ? 'aheadCarIdx' : 'behindCarIdx'
   const maxGapSec = MAX_RELEVANT_GAP_SEC[side]
   const fallback = positiveGap(currentGapSec)
-  const allUsable = (samples ?? [])
-    .filter((sample) => {
-      const gap = positiveGap(sample[key])
-      return finite(sample.at) && gap !== undefined && gap <= maxGapSec
-    })
+  const ordered = (samples ?? [])
+    .filter((sample) => finite(sample.at))
     .slice()
     .sort((a, b) => a.at - b.at)
-  const latestCarIdx = allUsable.length > 0 ? allUsable[allUsable.length - 1][carKey] : undefined
-  const usable = finite(latestCarIdx)
-    ? allUsable.filter((sample) => sample[carKey] === latestCarIdx)
-    : allUsable
-  const latest = fallback ?? (usable.length > 0 ? positiveGap(usable[usable.length - 1][key]) : undefined)
+  const latestSample = ordered[ordered.length - 1]
+  const latestCarIdx = latestSample?.[carKey]
+  const latestSampleGap = positiveGap(latestSample?.[key])
+  const latest = fallback ?? latestSampleGap
+  const usable: CoachGapSample[] = []
+  if (finite(latestCarIdx) && latestSampleGap !== undefined && latestSampleGap <= maxGapSec) {
+    for (let index = ordered.length - 1; index >= 0; index -= 1) {
+      const sample = ordered[index]
+      const gap = positiveGap(sample[key])
+      if (
+        sample[carKey] !== latestCarIdx ||
+        gap === undefined ||
+        gap > maxGapSec
+      ) break
+      usable.unshift(sample)
+    }
+  }
   const latestRelevant = latest !== undefined && latest <= maxGapSec
   if (!latestRelevant || usable.length < MIN_GAP_TREND_SAMPLES) {
     return { gapSec: latest, trend: 'unknown', confidence: 0, relevant: latestRelevant, sampleCount: usable.length }
@@ -1269,7 +1304,7 @@ function racecraftHeader(
   return `${label} — ${gapLabel} ${target} ${gapSec.toFixed(1)}s${trendText}; ${caveat}.`
 }
 
-function safetySuppressionText(
+export function racecraftSafetyMessage(
   reason: RacecraftSafetyReason,
   language: CoachAdviceLanguage
 ): string {
@@ -1289,7 +1324,8 @@ function safetySuppressionText(
     reason === 'black-flag' ||
     reason === 'meatball' ||
     reason === 'repair' ||
-    reason === 'disqualify'
+    reason === 'disqualify' ||
+    reason === 'checkered'
   ) {
     return localized(language, {
       'en-US': 'TACTICS PAUSED — a safety or penalty flag is active. Follow race control instructions; no attack or pull-away plan now.',
@@ -1347,7 +1383,7 @@ export function buildRacecraftAdvice(
   const safetyReason = racecraftSafetyReason(context.safety)
   if (safetyReason) {
     const gapSec = positiveGap(currentGap)
-    const text = capText(safetySuppressionText(safetyReason, language), MAX_RACECRAFT_ADVICE_LENGTH)
+    const text = capText(racecraftSafetyMessage(safetyReason, language), MAX_RACECRAFT_ADVICE_LENGTH)
     return {
       intent,
       mode: 'suppressed',
@@ -1360,7 +1396,9 @@ export function buildRacecraftAdvice(
       items: [],
       suppressedReason: safetyReason,
       honestyNote: honestyText(language),
-      text
+      text,
+      speechText: text,
+      speechItemCount: 0
     }
   }
   const gap = analyzeGapTrend(context.gaps, side, currentGap)
@@ -1534,6 +1572,15 @@ export function buildRacecraftAdvice(
     displayedItems = displayedItems.slice(0, -1)
   }
   const text = capText(compose(displayedItems), MAX_RACECRAFT_ADVICE_LENGTH)
+  let speechItems = displayedItems.slice(0, 2)
+  const composeSpeech = (list: RacecraftAdviceItem[]): string =>
+    list.length > 0
+      ? `${header} ${list.map((item) => `${item.priority}) ${item.text}`).join(' ')}`
+      : `${header} ${noEvidence}`
+  while (speechItems.length > 1 && composeSpeech(speechItems).length > MAX_RACECRAFT_SPEECH_LENGTH) {
+    speechItems = speechItems.slice(0, -1)
+  }
+  const speechText = capText(composeSpeech(speechItems), MAX_RACECRAFT_SPEECH_LENGTH)
   const itemSources = new Set(displayedItems.map((item) => item.source))
   const evidenceSource: RacecraftAdvice['evidenceSource'] =
     itemSources.size === 0
@@ -1552,7 +1599,9 @@ export function buildRacecraftAdvice(
     comparableHistoryLaps: history?.comparableLapCount ?? 0,
     items: displayedItems,
     honestyNote: honestyText(language),
-    text
+    text,
+    speechText,
+    speechItemCount: speechItems.length
   }
 }
 
@@ -1602,32 +1651,44 @@ function qualiPatterns(laps: readonly CoachLapHistoryEntry[]): QualiPattern[] {
     }
   }
 
-  const noContradictions: QualiPattern[] = []
+  const groups: QualiPattern[][] = []
   for (const pattern of exact) {
-    const index = noContradictions.findIndex((candidate) =>
-      sameCandidateDimension(candidate.finding, pattern.finding)
+    const group = groups.find((candidates) =>
+      sameCandidateDimension(candidates[0].finding, pattern.finding)
     )
-    const previous = index >= 0 ? noContradictions[index] : undefined
-    const average = pattern.totalLossSec / pattern.lapsSeen
-    const previousAverage = previous ? previous.totalLossSec / previous.lapsSeen : -1
-    const confidence = pattern.totalConfidence / pattern.lapsSeen
-    const previousConfidence = previous ? previous.totalConfidence / previous.lapsSeen : -1
-    if (
-      !previous ||
-      confidence > previousConfidence ||
-      (confidence === previousConfidence && pattern.lapsSeen > previous.lapsSeen) ||
-      (
-        confidence === previousConfidence &&
-        pattern.lapsSeen === previous.lapsSeen &&
-        average > previousAverage
-      )
-    ) {
-      if (index >= 0) noContradictions[index] = pattern
-      else noContradictions.push(pattern)
-    }
+    if (group) group.push(pattern)
+    else groups.push([pattern])
   }
 
-  const selected = noContradictions
+  const selected = groups.flatMap((group) => {
+    if (group.length === 1) return group
+    const ranked = group.slice().sort((left, right) => {
+      const leftConfidence = left.totalConfidence / left.lapsSeen
+      const rightConfidence = right.totalConfidence / right.lapsSeen
+      const leftAverage = left.totalLossSec / left.lapsSeen
+      const rightAverage = right.totalLossSec / right.lapsSeen
+      return (
+        rightConfidence - leftConfidence ||
+        right.lapsSeen - left.lapsSeen ||
+        rightAverage - leftAverage ||
+        left.finding.kind.localeCompare(right.finding.kind)
+      )
+    })
+    const winner = ranked[0]
+    const runnerUp = ranked[1]
+    const winnerConfidence = winner.totalConfidence / winner.lapsSeen
+    const runnerUpConfidence = runnerUp.totalConfidence / runnerUp.lapsSeen
+    const confidenceDominant =
+      winnerConfidence - runnerUpConfidence >= MIN_HISTORY_DIRECTION_CONFIDENCE_MARGIN
+    const occurrenceDominant =
+      winner.lapsSeen / runnerUp.lapsSeen >= MIN_HISTORY_DIRECTION_OCCURRENCE_RATIO
+    const winnerScore = winnerConfidence * winner.lapsSeen * (winner.totalLossSec / winner.lapsSeen)
+    const runnerUpScore =
+      runnerUpConfidence * runnerUp.lapsSeen * (runnerUp.totalLossSec / runnerUp.lapsSeen)
+    const scoreDominant =
+      runnerUpScore <= 0 || winnerScore / runnerUpScore >= MIN_HISTORY_DIRECTION_SCORE_RATIO
+    return confidenceDominant || occurrenceDominant || scoreDominant ? [winner] : []
+  })
   return selected.filter(
     (pattern) =>
       pattern.finding.kind !== 'time-loss' ||

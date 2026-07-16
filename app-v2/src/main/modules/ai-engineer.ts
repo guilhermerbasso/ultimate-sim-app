@@ -356,13 +356,15 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     kind: EngineerAnswerKind,
     source: EngineerAnswerSource,
     command?: EngineerCommandDirective,
-    language: EngineerMessageLanguage = config.language
+    language: EngineerMessageLanguage = config.language,
+    speechText?: string
   ): EngineerAnswer {
     const answer: EngineerAnswer = {
       id: nextId(),
       at: now(),
       question,
       text,
+      speechText,
       speak: config.speakAnswers && text.length > 0,
       lang: language,
       kind,
@@ -391,10 +393,11 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     source: EngineerAnswerSource,
     command: EngineerCommandDirective | undefined,
     context: LiveTelemetryContext | null,
-    language?: EngineerMessageLanguage
+    language?: EngineerMessageLanguage,
+    speechText?: string
   ): EngineerAnswer {
     if (!contextIsCurrent(context)) return rejectedAnswer(question)
-    return publishAnswer(question, text, kind, source, command, language)
+    return publishAnswer(question, text, kind, source, command, language, speechText)
   }
 
   function applyRuntimeOptions(): void {
@@ -563,7 +566,15 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
           language: adviceLanguage,
           unitSystem
         })
-        return publishAnswer(question, advice.text, 'answer', 'intent', undefined, adviceLanguage)
+        return publishAnswer(
+          question,
+          advice.text,
+          'answer',
+          'intent',
+          undefined,
+          adviceLanguage,
+          advice.speechText
+        )
       }
       return rejectedAnswer(question)
     }
@@ -574,7 +585,16 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         deps.racecraftContext?.() ?? fallbackContext,
         { language: adviceLanguage, unitSystem }
       )
-      return finalize(question, advice.text, 'answer', 'intent', undefined, context, adviceLanguage)
+      return finalize(
+        question,
+        advice.text,
+        'answer',
+        'intent',
+        undefined,
+        context,
+        adviceLanguage,
+        advice.speechText
+      )
     }
 
     const intent = routeIntent(question, deps.context, isPt(config) ? 'pt' : 'en', unitSystem)

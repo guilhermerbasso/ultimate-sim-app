@@ -1,4 +1,5 @@
 import type { TelemetrySnapshot } from '../../shared/telemetry'
+import { sessionKindFromProvider } from '../../shared/telemetry'
 import type { TelemetryProvider } from '../telemetry/provider'
 import { firstString, loadKoffi, num, optionalNum, openSharedMemory, type SharedMemoryHandle } from './shared-memory'
 
@@ -39,6 +40,7 @@ export class AMS2Provider implements TelemetryProvider {
     if (!this.isConnected()) return null
     const data = this.memory?.view
     if (!data) return null
+    const rawSession = data.mSessionState
     return {
       sim: 'ams2',
       connected: true,
@@ -51,7 +53,8 @@ export class AMS2Provider implements TelemetryProvider {
       brake: num(data.mBrake),
       clutch: num(data.mClutch),
       steerAngleDeg: num(data.mSteering) * 450,
-      sessionType: String(data.mSessionState ?? ''),
+      sessionType: String(rawSession ?? ''),
+      sessionKind: sessionKindFromProvider('ams2', rawSession),
       carName: firstString(data.mCarName),
       trackName: firstString(data.mTrackLocation) ?? firstString(data.mTrackVariation),
       sessionTimeRemainingSec: optionalNum(data.mEventTimeRemaining),

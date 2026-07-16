@@ -12,12 +12,15 @@ import {
   detectRacecraftQuestionWithLanguage,
   MAX_QUALI_BRIEFING_LENGTH,
   MAX_RACECRAFT_ADVICE_LENGTH,
+  MAX_RACECRAFT_SPEECH_LENGTH,
   racecraftSafetyFromSnapshot,
+  racecraftSafetyReason,
   type CoachComparableIdentity,
   type CoachLapHistoryEntry,
   type CoachAdviceLanguage
 } from './coach-racecraft'
 import type { Flags, TelemetrySnapshot } from './telemetry'
+import { sessionKindFromProvider } from './telemetry'
 
 function finding(
   kind: CoachFindingKind,
@@ -96,6 +99,27 @@ describe('racecraft question routing', () => {
       expect(detectRacecraftQuestionWithLanguage(question), question).toEqual({ intent, language })
     }
   })
+
+  it.each([
+    [{ flagRed: true, flagYellow: true, flagBlue: true }, 'red-flag'],
+    [{ flagBlack: true, flagYellow: true }, 'black-flag'],
+    [{ flagDisqualify: true, flagYellow: true, flagBlue: true }, 'disqualify'],
+    [{ flagCheckered: true, flagYellow: true }, 'checkered']
+  ] as const)('gives terminal flags precedence for %j', (safety, expected) => {
+    expect(racecraftSafetyReason(safety)).toBe(expected)
+  })
+
+  it('fails closed for an explicit unknown provider session kind', () => {
+    expect(
+      racecraftSafetyReason(
+        racecraftSafetyFromSnapshot({
+          sim: 'acc',
+          connected: true,
+          sessionKind: 'unknown'
+        } as TelemetrySnapshot)
+      )
+    ).toBe('non-racing')
+  })
 })
 
 describe('buildRacecraftAdvice', () => {
@@ -120,9 +144,9 @@ describe('buildRacecraftAdvice', () => {
       ],
       cornerMetrics,
       gaps: [
-        { at: 1000, aheadSec: 1.2 },
-        { at: 3000, aheadSec: 1.0 },
-        { at: 5000, aheadSec: 0.8 }
+        { at: 1000, aheadSec: 1.2, aheadCarIdx: 10 },
+        { at: 3000, aheadSec: 1.0, aheadCarIdx: 10 },
+        { at: 5000, aheadSec: 0.8, aheadCarIdx: 10 }
       ],
       currentGapAheadSec: 0.8
     })
@@ -145,9 +169,9 @@ describe('buildRacecraftAdvice', () => {
         { corner: 2, entrySpeedKmh: 188, minSpeedKmh: 84, brakeStartPct: 0.22 }
       ],
       gaps: [
-        { at: 1000, behindSec: 1.1 },
-        { at: 3000, behindSec: 0.9 },
-        { at: 5000, behindSec: 0.7 }
+        { at: 1000, behindSec: 1.1, behindCarIdx: 20 },
+        { at: 3000, behindSec: 0.9, behindCarIdx: 20 },
+        { at: 5000, behindSec: 0.7, behindCarIdx: 20 }
       ]
     })
 
@@ -267,6 +291,32 @@ describe('buildRacecraftAdvice', () => {
     expect(trend.deltaSec).toBeCloseTo(0.4)
   })
 
+  it('requires a contiguous suffix for one stable opponent identity', () => {
+    const interrupted = analyzeGapTrend(
+      [
+        { at: 1000, aheadSec: 1.8, aheadCarIdx: 10 },
+        { at: 2000, aheadSec: 1.5, aheadCarIdx: 10 },
+        { at: 3000, aheadSec: 1.2, aheadCarIdx: 20 },
+        { at: 4000, aheadSec: 1.0, aheadCarIdx: 10 },
+        { at: 5000, aheadSec: 0.8, aheadCarIdx: 10 }
+      ],
+      'ahead',
+      0.8
+    )
+    const missingLatestIdentity = analyzeGapTrend(
+      [
+        { at: 1000, aheadSec: 1.4, aheadCarIdx: 10 },
+        { at: 3000, aheadSec: 1.1, aheadCarIdx: 10 },
+        { at: 5000, aheadSec: 0.8 }
+      ],
+      'ahead',
+      0.8
+    )
+
+    expect(interrupted).toMatchObject({ trend: 'unknown', confidence: 0, sampleCount: 2 })
+    expect(missingLatestIdentity).toMatchObject({ trend: 'unknown', confidence: 0, sampleCount: 0 })
+  })
+
   it('distinguishes entry improvement from exit/traction improvement', () => {
     const entry = buildRacecraftAdvice('overtake', {
       findings: [finding('brake-early', { corner: 7, sector: 2, phase: 'entry' })],
@@ -324,7 +374,7 @@ describe('buildRacecraftAdvice', () => {
     ['meatball', { flagMeatball: true }],
     ['repair', { flagRepair: true }],
     ['disqualify', { flagDisqualify: true }],
-    ['non-racing', { flagCheckered: true }],
+    ['checkered', { flagCheckered: true }],
     ['caution', { caution: true }],
     ['pacing', { paceMode: 'doubleFileRestart' as const }],
     ['pit', { onPitRoad: true }],
@@ -519,6 +569,10 @@ describe('buildRacecraftAdvice', () => {
       expect(defend.text).toContain(copy[language].caveat)
       expect(advice.text.length).toBeLessThanOrEqual(MAX_RACECRAFT_ADVICE_LENGTH)
       expect(defend.text.length).toBeLessThanOrEqual(MAX_RACECRAFT_ADVICE_LENGTH)
+      expect(advice.speechText.length).toBeLessThanOrEqual(MAX_RACECRAFT_SPEECH_LENGTH)
+      expect(defend.speechText.length).toBeLessThanOrEqual(MAX_RACECRAFT_SPEECH_LENGTH)
+      expect(advice.speechItemCount).toBeLessThanOrEqual(2)
+      expect(defend.speechItemCount).toBeLessThanOrEqual(2)
       expect(advice.honestyNote.length).toBeGreaterThan(10)
       expect(advice.items.length).toBeGreaterThan(0)
     }
@@ -755,6 +809,37 @@ describe('qualifying comparable history', () => {
     const summary = buildQualiStartSummary({ current: DRY_IDENTITY, history })
     expect(summary.items).toEqual([])
     expect(summary.insufficientReason).toBe('confidence')
+  })
+
+  it('stays neutral for tied opposite directional history regardless of insertion order', () => {
+    const early = finding('brake-early', {
+      corner: 2,
+      zonePctStart: 0.2,
+      zonePctEnd: 0.25,
+      confidence: 0.9,
+      estTimeLossSec: 0.2
+    })
+    const late = finding('brake-late', {
+      corner: 2,
+      zonePctStart: 0.2,
+      zonePctEnd: 0.25,
+      confidence: 0.9,
+      estTimeLossSec: 0.2
+    })
+    const orders = [
+      [early, early, late, late],
+      [late, late, early, early]
+    ]
+
+    for (const order of orders) {
+      const history = order.map((direction, index) =>
+        historyLap(String(index + 1), DRY_IDENTITY, [direction])
+      )
+      expect(buildRacecraftHistoryEvidence(DRY_IDENTITY, history).patterns).toEqual([])
+      const summary = buildQualiStartSummary({ current: DRY_IDENTITY, history })
+      expect(summary.items).toEqual([])
+      expect(summary.text).not.toMatch(/brake (?:earlier|later)/i)
+    }
   })
 
   it('attributes history once, limits useful points, and caps qualifying speech', () => {

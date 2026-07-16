@@ -135,6 +135,7 @@ export class MockProvider implements TelemetryProvider {
       oilTempC,
       oilPressureKpa: 420 + throttle * 80,
       sessionType: 'Race',
+      sessionKind: 'race',
       sessionState: 'racing',
       paceMode: 'notPacing',
       paceFlags: [],

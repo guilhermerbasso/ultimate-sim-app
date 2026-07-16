@@ -15,12 +15,12 @@
 import type { CoachFinding, CoachTip } from './coach'
 import type { FuelPitWindow, FuelStrategyState } from './fuel'
 import type { LapTimingState } from './laptiming'
-import type { TelemetrySnapshot } from './telemetry'
+import type { SessionKind, TelemetrySnapshot } from './telemetry'
 import type { TireStrategyState } from './tire-strategy'
 
 // ─── Session classification ──────────────────────────────────────────────────
 
-export type SessionKind = 'practice' | 'qualify' | 'race' | 'warmup' | 'unknown'
+export type { SessionKind } from './telemetry'
 
 export type SessionPhase = 'pre' | 'green' | 'pit' | 'finished' | 'unknown'
 

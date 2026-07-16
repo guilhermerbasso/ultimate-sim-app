@@ -1,5 +1,6 @@
 import type { ModuleContext } from '../module-context'
 import type { Corners, TelemetrySnapshot, TyreInfo } from '../../shared/telemetry'
+import { sessionKindForSnapshot } from '../../shared/telemetry'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
@@ -44,7 +45,6 @@ import { createDefaultIntentRegistry } from '../../shared/driver-intent-catalog'
 import { recordLapEvents } from '../../shared/coach-baseline'
 import { findingEventKeys } from '../../shared/coach-intent-gate'
 import { CoachBaselineStore, getCoachBaselineStore } from './coach-baselines'
-import { deriveSessionKind } from '../ai/context-pack'
 import type { SessionKind } from '../../shared/ai-engineer'
 import {
   buildSetupReport,
@@ -285,7 +285,7 @@ export class LiveCoachEngine {
     const sample = coachSampleFromSnapshot(snapshot)
     if (!sample) return
 
-    this.lastSessionKind = deriveSessionKind(snapshot.sessionType)
+    this.lastSessionKind = sessionKindForSnapshot(snapshot)
     this.sampleCount += 1
     this.lastUpdatedAt = this.now()
 

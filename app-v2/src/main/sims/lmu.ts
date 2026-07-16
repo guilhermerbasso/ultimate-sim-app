@@ -14,6 +14,7 @@
 // rF2ScoringInfo=548, rF2VehicleScoring=584). Verify on Windows if LMU changes the
 // plugin's layout.
 import type { Corners, Flags, TelemetrySnapshot, TyreInfo } from '../../shared/telemetry'
+import { sessionKindFromProvider } from '../../shared/telemetry'
 import type { TelemetryProvider } from '../telemetry/provider'
 import { bool, firstString, loadKoffi, num, optionalNum, openSharedMemory, type SharedMemoryHandle } from './shared-memory'
 
@@ -188,6 +189,7 @@ export function mapRf2Snapshot(
 
   const rainSeverity = num(info.mRaining, 0)
   const wetness = clamp01(num(info.mMaxPathWetness, 0))
+  const sessionType = rf2SessionType(info.mSession)
 
   return {
     sim: 'lmu',
@@ -203,7 +205,8 @@ export function mapRf2Snapshot(
     steerAngleDeg: rf2SteerAngleDeg(playerTelemetry?.mUnfilteredSteering, playerTelemetry?.mPhysicalSteeringWheelRange),
     waterTempC: optionalNum(playerTelemetry?.mEngineWaterTemp),
     oilTempC: optionalNum(playerTelemetry?.mEngineOilTemp),
-    sessionType: rf2SessionType(info.mSession),
+    sessionType,
+    sessionKind: sessionKindFromProvider('lmu', sessionType),
     carName: firstString(playerScoring?.mVehicleName),
     trackName: firstString(info.mTrackName),
     sessionTimeRemainingSec,

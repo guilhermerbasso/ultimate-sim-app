@@ -405,6 +405,8 @@ export interface EngineerAnswer {
   question: string
   /** The spoken/displayed answer text. */
   text: string
+  /** Optional shorter radio payload; UI keeps `text`, TTS prefers this value. */
+  speechText?: string
   /** Whether the renderer should speak this answer (already gated by speakAnswers). */
   speak: boolean
   /** Language the answer text is in — drives the renderer's TTS voice (Piper/Web Speech). */

@@ -202,6 +202,7 @@ function sessionTier(snapshot: TelemetrySnapshot): Partial<TelemetrySnapshot> {
     connected: snapshot.connected,
     timestamp: snapshot.timestamp,
     sessionType: snapshot.sessionType,
+    sessionKind: snapshot.sessionKind,
     carName: snapshot.carName,
     trackName: snapshot.trackName,
     sessionUniqueId: snapshot.sessionUniqueId,

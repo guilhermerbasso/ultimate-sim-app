@@ -11,6 +11,7 @@ import type {
 } from '../../shared/coach-racecraft'
 import { DEFAULT_ENGINEER_CONFIG, mergeEngineerConfig, type EngineerProactiveEvent } from '../../shared/engineer-ipc'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
+import { sessionKindFromProvider, type SessionKind, type SimId } from '../../shared/telemetry'
 import {
   advanceCornerTracker,
   advanceSectorTracker,
@@ -106,6 +107,9 @@ describe('CoachRacecraftHistoryStore', () => {
         '1',
         makeFinding({ kind: 'throttle-late', sector: 2, corner: 7, phase: 'exit' })
       )
+      lap.sessionKey = 'acc::monza::qualify::end:600'
+      lap.sessionKind = 'qualify'
+      lap.sessionBoundaryMs = 600_000
       new CoachRacecraftHistoryStore(folder).replace([lap])
 
       expect(new CoachRacecraftHistoryStore(folder).all()).toEqual([lap])
@@ -488,6 +492,68 @@ describe('createProactiveEngine', () => {
     expect(harness.events).toHaveLength(0)
   })
 
+  it.each([
+    {
+      sim: 'acc' as SimId,
+      qualifyRaw: 1,
+      qualifyType: undefined,
+      raceRaw: 2,
+      raceType: undefined
+    },
+    { sim: 'ac' as SimId, qualifyRaw: 1, qualifyType: '1', raceRaw: 2, raceType: '2' },
+    { sim: 'ams2' as SimId, qualifyRaw: 3, qualifyType: '3', raceRaw: 5, raceType: '5' },
+    { sim: 'lmu' as SimId, qualifyRaw: 'Qualify', qualifyType: 'Qualify', raceRaw: 'Race', raceType: 'Race' },
+    {
+      sim: 'iracing' as SimId,
+      qualifyRaw: 'Lone Qualify',
+      qualifyType: 'Lone Qualify',
+      raceRaw: 'Race',
+      raceType: 'Race'
+    }
+  ])('uses canonical $sim session kinds for qualifying and race gating', (provider) => {
+    const base = {
+      sim: provider.sim,
+      trackName: 'Provider Track',
+      carName: 'GT3 R',
+      carPath: 'gt3r',
+      trackWetnessPct: 0,
+      isRaining: false
+    }
+    const qualify = makeEngine({ language: 'en-US' })
+    qualify.engine.onSnapshot(
+      makeSnapshot(0.1, {
+        ...base,
+        sessionType: provider.qualifyType,
+        sessionKind: sessionKindFromProvider(provider.sim, provider.qualifyRaw),
+        timestamp: 1_000,
+        currentLap: 1
+      })
+    )
+    expect(qualify.harness.events).toHaveLength(1)
+    expect(qualify.harness.events[0].id).toContain('eng-quali')
+
+    const race = makeEngine({ language: 'en-US' })
+    race.engine.setFindings([makeFinding({ sector: 1, kind: 'brake-late' })])
+    const raceKind: SessionKind = sessionKindFromProvider(provider.sim, provider.raceRaw)
+    race.engine.onSnapshot(
+      makeSnapshot(0.1, {
+        ...base,
+        sessionType: provider.raceType,
+        sessionKind: raceKind,
+        timestamp: 2_000
+      })
+    )
+    race.engine.onSnapshot(
+      makeSnapshot(0.4, {
+        ...base,
+        sessionType: provider.raceType,
+        sessionKind: raceKind,
+        timestamp: 3_000
+      })
+    )
+    expect(race.harness.events.some((event) => event.eventType === 'finding')).toBe(true)
+  })
+
   it('emits one honest qualifying-start summary but no per-sector qualifying coaching', () => {
     const { harness, engine } = makeEngine({ language: 'en-US' })
     engine.setFindings([makeFinding({ sector: 1, kind: 'brake-late' })])
@@ -500,6 +566,129 @@ describe('createProactiveEngine', () => {
     expect(harness.events[0].kind).toBeUndefined()
     expect(harness.events[0].estTimeLossSec).toBeUndefined()
     expect(harness.events[0].text).toContain('insufficient evidence')
+  })
+
+  it('uses terminal flag precedence and defers tactical qualifying advice until safe', () => {
+    const recurring = makeFinding({
+      sector: 1,
+      corner: 2,
+      kind: 'brake-early',
+      phase: 'entry',
+      estTimeLossSec: 0.2
+    })
+    const { harness, engine } = makeEngine(
+      { language: 'en-US' },
+      {
+        history: [
+          historyLap('1', recurring, 1),
+          historyLap('2', recurring, 2),
+          historyLap('3', recurring, 3)
+        ]
+      }
+    )
+    const base = {
+      sim: 'acc' as const,
+      sessionType: undefined,
+      sessionKind: 'qualify' as const,
+      sessionUniqueId: 99,
+      trackName: 'Interlagos',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      carPath: 'gt3r',
+      airTempC: 24,
+      trackTempC: 35,
+      trackWetnessPct: 0,
+      isRaining: false,
+      currentLap: 1
+    }
+    engine.onSnapshot(
+      makeSnapshot(0.1, {
+        ...base,
+        timestamp: 1_000,
+        flags: { yellow: true, red: true } as TelemetrySnapshot['flags']
+      })
+    )
+
+    expect(harness.events).toHaveLength(1)
+    expect(harness.events[0].eventType).toBe('race-status')
+    expect(harness.events[0].text).toContain('safety or penalty flag')
+    expect(harness.events[0].text).not.toContain('brake later')
+
+    engine.onSnapshot(makeSnapshot(0.2, { ...base, timestamp: 2_000 }))
+    expect(harness.events).toHaveLength(2)
+    expect(harness.events[1].eventType).toBe('quali-briefing')
+    expect(harness.events[1].text).toContain('brake later')
+  })
+
+  it.each([
+    { flags: { yellow: true } as TelemetrySnapshot['flags'] },
+    { flags: { black: true } as TelemetrySnapshot['flags'] },
+    { flags: { checkered: true } as TelemetrySnapshot['flags'] },
+    { paceMode: 'doubleFileStart' as const },
+    { onPitRoad: true },
+    { sessionState: 'warmup' as const }
+  ])('never emits tactical qualifying advice in unsafe state %#', (unsafe) => {
+    const recurring = makeFinding({
+      sector: 1,
+      corner: 2,
+      kind: 'brake-early',
+      phase: 'entry'
+    })
+    const { harness, engine } = makeEngine(
+      { language: 'en-US' },
+      {
+        history: [
+          historyLap('1', recurring, 1),
+          historyLap('2', recurring, 2),
+          historyLap('3', recurring, 3)
+        ]
+      }
+    )
+    engine.onSnapshot(
+      makeSnapshot(0.1, {
+        sim: 'acc',
+        sessionKind: 'qualify',
+        sessionType: undefined,
+        sessionUniqueId: 99,
+        trackName: 'Interlagos',
+        trackConfigName: 'Grand Prix',
+        carName: 'GT3 R',
+        carPath: 'gt3r',
+        airTempC: 24,
+        trackTempC: 35,
+        trackWetnessPct: 0,
+        isRaining: false,
+        ...unsafe
+      })
+    )
+
+    expect(harness.events).toHaveLength(1)
+    expect(harness.events[0].eventType).toBe('race-status')
+    expect(harness.events[0].text).not.toContain('brake later')
+  })
+
+  it('emits only a non-tactical qualifying safety message while replay is active', () => {
+    const { harness, engine } = makeEngine({ language: 'en-US' })
+    engine.onSnapshot(
+      makeSnapshot(0.1, {
+        sim: 'acc',
+        sessionKind: 'qualify',
+        sessionType: undefined,
+        replayContext: {
+          state: 'replay',
+          reason: 'replay-playing',
+          inputs: {},
+          active: true,
+          revision: 1,
+          token: 'replay',
+          connectionEpoch: 1
+        }
+      })
+    )
+    expect(harness.events).toHaveLength(1)
+    expect(harness.events[0].eventType).toBe('race-status')
+    expect(harness.events[0].text).toContain('TACTICAL ADVICE UNAVAILABLE')
+    expect(harness.events[0].text).not.toContain('brake later')
   })
 
   it('emits the qualifying briefing on the first qualifying frame only', () => {
@@ -572,9 +761,13 @@ describe('createProactiveEngine', () => {
     engine.onSnapshot(snapshot('replay', 'session-a', 1, 1))
     engine.onSnapshot(null)
     engine.onSnapshot(snapshot('live', 'session-a', 2, 2))
-    expect(harness.events).toHaveLength(1)
+    expect(
+      harness.events.filter((event) => event.eventType !== 'race-status')
+    ).toHaveLength(1)
     engine.onSnapshot(snapshot('live', 'session-b', 2, 3))
-    expect(harness.events).toHaveLength(2)
+    expect(
+      harness.events.filter((event) => event.eventType !== 'race-status')
+    ).toHaveLength(2)
   })
 
   it('creates a new no-ID generation for Qualify → Race → new Qualify on the same context', () => {
@@ -652,7 +845,9 @@ describe('createProactiveEngine', () => {
     engine.onSnapshot(null)
     engine.onSnapshot(live(3_000, 1))
 
-    expect(harness.events).toHaveLength(1)
+    expect(
+      harness.events.filter((event) => event.eventType !== 'race-status')
+    ).toHaveLength(1)
   })
 
   it('detects a new same-phase no-ID session from start-time and lap reset signals', () => {
@@ -687,6 +882,80 @@ describe('createProactiveEngine', () => {
     )
 
     expect(harness.events).toHaveLength(2)
+  })
+
+  it('excludes same-session no-ID laps after an app restart mid-qualifying', () => {
+    const published: Array<RacecraftAdviceContext | null> = []
+    const beforeRestart = makeEngine(
+      { language: 'en-US' },
+      { publishRacecraftContext: (context) => published.push(context) }
+    )
+    const base = {
+      sim: 'acc' as const,
+      sessionKind: 'qualify' as const,
+      sessionType: undefined,
+      trackName: 'Interlagos',
+      trackConfigName: 'Grand Prix',
+      carName: 'GT3 R',
+      carPath: 'gt3r',
+      airTempC: 24,
+      trackTempC: 35,
+      trackWetnessPct: 0,
+      isRaining: false
+    }
+    beforeRestart.engine.onSnapshot(
+      makeSnapshot(0.6, {
+        ...base,
+        timestamp: 100_000,
+        sessionTimeRemainingSec: 500,
+        currentLap: 3
+      })
+    )
+    const sessionKey = published
+      .filter((context): context is RacecraftAdviceContext => context !== null)
+      .at(-1)?.sessionKey
+    const sessionBoundaryMs = published
+      .filter((context): context is RacecraftAdviceContext => context !== null)
+      .at(-1)?.sessionBoundaryMs
+    expect(sessionKey).toBeTruthy()
+    expect(sessionBoundaryMs).toBe(600_000)
+
+    const recurring = makeFinding({
+      sector: 2,
+      corner: 7,
+      kind: 'throttle-late',
+      phase: 'exit'
+    })
+    const sameSessionHistory = [1, 2, 3].map((id) => ({
+      ...historyLap(String(id), recurring, id),
+      sessionId: undefined,
+      sessionKey,
+      sessionBoundaryMs,
+      sessionKind: 'qualify' as const
+    }))
+    const unprovenLegacyHistory = [4, 5, 6].map((id) => ({
+      ...historyLap(String(id), recurring, id),
+      sessionId: undefined,
+      sessionKey: `legacy-no-boundary-${id}`,
+      sessionKind: 'qualify' as const
+    }))
+    const afterRestart = makeEngine(
+      { language: 'en-US' },
+      { history: [...sameSessionHistory, ...unprovenLegacyHistory] }
+    )
+    afterRestart.engine.onSnapshot(
+      makeSnapshot(0.7, {
+        ...base,
+        timestamp: 200_000,
+        sessionTimeRemainingSec: 400,
+        currentLap: 4
+      })
+    )
+
+    expect(afterRestart.harness.events).toHaveLength(1)
+    expect(afterRestart.harness.events[0].eventType).toBe('insufficient-history')
+    expect(afterRestart.harness.events[0].text).toContain('insufficient dry history (0/3')
+    expect(afterRestart.harness.events[0].text).not.toContain('Turn 7')
   })
 
   it('uses sufficient comparable valid-lap history in the qualifying-start summary', () => {

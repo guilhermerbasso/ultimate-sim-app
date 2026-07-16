@@ -76,6 +76,7 @@ const ALL_FIELD_FLAGS: Record<Field, true> = {
   pushToPass: true,
   pushToPassCount: true,
   sessionType: true,
+  sessionKind: true,
   sessionState: true,
   paceMode: true,
   paceFlags: true,

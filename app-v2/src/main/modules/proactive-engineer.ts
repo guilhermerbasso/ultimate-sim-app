@@ -52,6 +52,7 @@ import {
   coachComparableIdentityFromSnapshot,
   coachLapHistoryEntry,
   racecraftSafetyFromSnapshot,
+  racecraftSafetyMessage,
   racecraftSafetyReason,
   type CoachAdviceLanguage,
   type CoachComparableIdentity,
@@ -68,6 +69,7 @@ import {
   type EngineerProactiveEvent
 } from '../../shared/engineer-ipc'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
+import { sessionKindForSnapshot } from '../../shared/telemetry'
 import { deriveSessionKind } from '../ai/context-pack'
 import { getEngineerConfigSnapshot } from './ai-engineer'
 import { buildCornerMap, trackLayoutKey, type CornerMapData, type CornerSample } from '../track-map/corner-map'
@@ -812,6 +814,17 @@ function isOptionalTrackId(value: unknown): value is string | number | undefined
   return value === undefined || typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value))
 }
 
+function isOptionalSessionKind(value: unknown): boolean {
+  return (
+    value === undefined ||
+    value === 'practice' ||
+    value === 'qualify' ||
+    value === 'race' ||
+    value === 'warmup' ||
+    value === 'unknown'
+  )
+}
+
 function isStoredFinding(value: unknown): value is CoachFinding {
   if (!isRecord(value) || !COACH_FINDING_KINDS.has(value.kind as CoachFindingKind)) return false
   if (
@@ -851,6 +864,9 @@ function isStoredHistoryLap(value: unknown): value is CoachLapHistoryEntry {
     Number.isFinite(value.at) &&
     value.valid === true &&
     isOptionalFinite(value.sessionId) &&
+    isOptionalString(value.sessionKey) &&
+    isOptionalFinite(value.sessionBoundaryMs) &&
+    isOptionalSessionKind(value.sessionKind) &&
     isOptionalString(value.sessionType) &&
     isOptionalFinite(value.lapNumber) &&
     isOptionalFinite(value.lapTimeSec) &&
@@ -980,7 +996,7 @@ export interface ProactiveEngine {
 }
 
 function sessionAllowsProactive(snapshot: TelemetrySnapshot): boolean {
-  const kind = deriveSessionKind(snapshot.sessionType)
+  const kind = sessionKindForSnapshot(snapshot)
   // RACE-ONLY by default: the proactive engineer owns the audio in a race (corner-
   // numbered + directional call-outs) while the Live Coach owns ordinary
   // practice/qualifying call-outs. Restricting recurring proactive speech to races
@@ -1073,8 +1089,12 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   let conditionIdentityKey: string | null = null
   let stableTrackCondition: CoachTrackCondition | undefined
   let lastQualiSessionKey: string | null = null
+  let lastQualiSafetyKey: string | null = null
+  let activeSessionHistoryKey: string | undefined
+  let activeSessionBoundaryMs: number | undefined
   let noIdSessionBaseKey: string | null = null
   let noIdSessionGeneration = 0
+  let noIdCurrentSessionKey: string | undefined
   let noIdLastKind: ReturnType<typeof deriveSessionKind> | null = null
   let noIdLastStartMarkerMs: number | undefined
   let noIdLastSessionTimeSec: number | undefined
@@ -1176,6 +1196,8 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       historyEvidence: racecraftHistoryEvidence,
       gaps: gapSamples,
       safety: snapshot ? racecraftSafetyFromSnapshot(snapshot) : undefined,
+      sessionKey: activeSessionHistoryKey,
+      sessionBoundaryMs: activeSessionBoundaryMs,
       currentGapAheadSec: Number.isFinite(snapshot?.relatives?.ahead?.gapSec)
         ? Math.abs(snapshot!.relatives!.ahead!.gapSec as number)
         : undefined,
@@ -1368,7 +1390,17 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
         const identity = coachComparableIdentityFromSnapshot(snapshot, previousTrackWetnessPct)
         identity.condition = conditionForSnapshot(snapshot)
         if (identity.condition !== 'unknown') {
-          history.push(coachLapHistoryEntry(snapshot, evidenceReport, true, now(), identity))
+          history.push(
+            coachLapHistoryEntry(
+              snapshot,
+              evidenceReport,
+              true,
+              now(),
+              identity,
+              activeSessionHistoryKey,
+              activeSessionBoundaryMs
+            )
+          )
           history.splice(0, Math.max(0, history.length - MAX_RACECRAFT_HISTORY_LAPS))
           refreshRacecraftHistoryEvidence()
           try {
@@ -1436,11 +1468,71 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     return snapshot.timestamp - (snapshot.sessionTimeSec as number) * 1000
   }
 
+  function noIdBoundaryMs(snapshot: TelemetrySnapshot): number | undefined {
+    const startMarker = derivedSessionStartMarker(snapshot)
+    if (startMarker !== undefined) return startMarker
+    if (
+      Number.isFinite(snapshot.timestamp) &&
+      Number.isFinite(snapshot.sessionTimeRemainingSec) &&
+      (snapshot.sessionTimeRemainingSec as number) >= 0
+    ) {
+      return snapshot.timestamp + (snapshot.sessionTimeRemainingSec as number) * 1000
+    }
+    return undefined
+  }
+
+  function noIdBoundaryToken(snapshot: TelemetrySnapshot): string | undefined {
+    const boundary = noIdBoundaryMs(snapshot)
+    return boundary === undefined
+      ? undefined
+      : `marker:${Math.round(boundary / NO_ID_START_MARKER_TOLERANCE_MS)}`
+  }
+
+  function makeNoIdSessionKey(
+    base: string,
+    kind: ReturnType<typeof deriveSessionKind>,
+    snapshot: TelemetrySnapshot
+  ): string {
+    const boundary = noIdBoundaryToken(snapshot)
+    return `${base}::kind:${kind}::${boundary ?? 'boundary:unknown'}::generation:${noIdSessionGeneration}`
+  }
+
+  function persistedNoIdSessionKey(
+    base: string,
+    kind: ReturnType<typeof deriveSessionKind>,
+    snapshot: TelemetrySnapshot
+  ): string | undefined {
+    const boundary = noIdBoundaryMs(snapshot)
+    const prefix = `${base}::kind:${kind}::`
+    const match = history
+      .filter(
+        (lap) =>
+          lap.sessionKey?.startsWith(prefix) &&
+          (
+            boundary === undefined ||
+            (
+              lap.sessionBoundaryMs !== undefined &&
+              Math.abs(lap.sessionBoundaryMs - boundary) <= NO_ID_START_MARKER_TOLERANCE_MS
+            )
+          )
+      )
+      .slice()
+      .sort((left, right) => right.at - left.at)[0]?.sessionKey
+    if (!match) return undefined
+    const generationMarker = '::generation:'
+    const generation = Number(match.slice(match.lastIndexOf(generationMarker) + generationMarker.length))
+    if (Number.isSafeInteger(generation) && generation > 0) {
+      noIdSessionGeneration = Math.max(noIdSessionGeneration, generation)
+    }
+    return match
+  }
+
   function noIdSessionKey(snapshot: TelemetrySnapshot): string {
     const suppressLapOnlyReset = noIdSuppressLapResetOnce
     noIdSuppressLapResetOnce = false
     const base = noIdSessionBase(snapshot)
-    const kind = deriveSessionKind(snapshot.sessionType)
+    activeSessionBoundaryMs = noIdBoundaryMs(snapshot)
+    const kind = sessionKindForSnapshot(snapshot)
     const startMarker = derivedSessionStartMarker(snapshot)
     const sessionTimeSec = Number.isFinite(snapshot.sessionTimeSec) ? snapshot.sessionTimeSec : undefined
     const remainingSec = Number.isFinite(snapshot.sessionTimeRemainingSec)
@@ -1456,13 +1548,17 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       noIdLastSessionTimeSec = sessionTimeSec
       noIdLastRemainingSec = remainingSec
       noIdLastLap = lap
-      return `${base}::generation:${noIdSessionGeneration}`
+      noIdCurrentSessionKey =
+        persistedNoIdSessionKey(base, kind, snapshot) ??
+        makeNoIdSessionKey(base, kind, snapshot)
+      return noIdCurrentSessionKey
     }
 
     const phaseChanged =
       kind !== 'unknown' &&
       noIdLastKind !== null &&
       kind !== noIdLastKind
+    const phaseEstablished = kind !== 'unknown' && noIdLastKind === null
     const startMarkerChanged =
       startMarker !== undefined &&
       noIdLastStartMarkerMs !== undefined &&
@@ -1490,6 +1586,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       remainingSec === undefined
     const newSession =
       phaseChanged ||
+      phaseEstablished ||
       startMarkerChanged ||
       sessionTimeReset ||
       remainingReset ||
@@ -1502,6 +1599,7 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       noIdLastSessionTimeSec = sessionTimeSec
       noIdLastRemainingSec = remainingSec
       noIdLastLap = lap
+      noIdCurrentSessionKey = makeNoIdSessionKey(base, kind, snapshot)
     } else {
       if (kind !== 'unknown') noIdLastKind = kind
       if (startMarker !== undefined) noIdLastStartMarkerMs = startMarker
@@ -1510,43 +1608,87 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
       if (lap !== undefined) noIdLastLap = lap
     }
 
-    return `${base}::generation:${noIdSessionGeneration}`
+    noIdCurrentSessionKey ??= makeNoIdSessionKey(base, kind, snapshot)
+    return noIdCurrentSessionKey
   }
 
   function qualiSessionKey(snapshot: TelemetrySnapshot): string {
+    const remember = (key: string): string => {
+      activeSessionHistoryKey = key
+      return key
+    }
     if (!GENERATED_SESSION_SIMS.has(snapshot.sim)) {
+      activeSessionBoundaryMs = undefined
       const canonical = snapshot.replayContext?.sessionIdentity?.trim()
       if (canonical) {
-        return [
+        return remember([
           `canonical:${canonical}`,
           Number.isFinite(snapshot.sessionUniqueId) ? snapshot.sessionUniqueId : '',
           Number.isFinite(snapshot.sessionNumber) ? snapshot.sessionNumber : ''
-        ].join(':')
+        ].join(':'))
       }
-      if (Number.isFinite(snapshot.sessionUniqueId)) return `session:${snapshot.sessionUniqueId}`
+      if (Number.isFinite(snapshot.sessionUniqueId)) return remember(`session:${snapshot.sessionUniqueId}`)
       if (Number.isFinite(snapshot.sessionNumber)) {
-        return `session-number:${snapshot.sim}:${snapshot.sessionNumber}`
+        return remember(`session-number:${snapshot.sim}:${snapshot.sessionNumber}`)
       }
     }
-    return noIdSessionKey(snapshot)
+    return remember(noIdSessionKey(snapshot))
+  }
+
+  function emitQualiSafety(
+    config: ProactiveConfigView,
+    key: string,
+    safetyReason: NonNullable<ReturnType<typeof racecraftSafetyReason>>
+  ): void {
+    if (!config.enabled || !config.proactiveCoaching) return
+    const safetyKey = `${key}:${safetyReason}`
+    if (lastQualiSafetyKey === safetyKey) return
+    lastQualiSafetyKey = safetyKey
+    const language = deps.getAdviceLanguage?.() ?? coachAdviceLanguageFromAppLanguage(config.language)
+    const at = now()
+    seq += 1
+    deps.emit({
+      id: `eng-quali-safety-${at}-${seq}`,
+      at,
+      text: racecraftSafetyMessage(safetyReason, language),
+      eventType: 'race-status',
+      speak: true,
+      lang: language,
+      source: 'engineer'
+    })
   }
 
   function maybeEmitQualiStart(snapshot: TelemetrySnapshot, config: ProactiveConfigView): void {
     const key = qualiSessionKey(snapshot)
-    const kind = deriveSessionKind(snapshot.sessionType)
+    const kind = sessionKindForSnapshot(snapshot)
     if (kind !== 'qualify') return
-    if (lastQualiSessionKey === key) return
     if (!config.proactiveCoaching) return
+    const language = deps.getAdviceLanguage?.() ?? coachAdviceLanguageFromAppLanguage(config.language)
+    const safetyReason = racecraftSafetyReason(racecraftSafetyFromSnapshot(snapshot), ['qualify'])
+    if (safetyReason) {
+      emitQualiSafety(config, key, safetyReason)
+      return
+    }
+    if (lastQualiSessionKey === key) return
+    lastQualiSafetyKey = null
     lastQualiSessionKey = key
 
     const sessionId = Number.isFinite(snapshot.sessionUniqueId) ? snapshot.sessionUniqueId : undefined
     const currentSession =
-      sessionId === undefined ? [] : history.filter((lap) => lap.sessionId === sessionId)
+      sessionId === undefined
+        ? history.filter((lap) => lap.sessionKey === key)
+        : history.filter((lap) => lap.sessionId === sessionId)
     const priorHistory =
-      sessionId === undefined ? history : history.filter((lap) => lap.sessionId !== sessionId)
+      sessionId === undefined
+        ? history.filter(
+            (lap) =>
+              lap.sessionKey !== undefined &&
+              lap.sessionBoundaryMs !== undefined &&
+              lap.sessionKey !== key
+          )
+        : history.filter((lap) => lap.sessionId !== sessionId)
     const currentIdentity = coachComparableIdentityFromSnapshot(snapshot, previousTrackWetnessPct)
     currentIdentity.condition = conditionForSnapshot(snapshot)
-    const language = deps.getAdviceLanguage?.() ?? coachAdviceLanguageFromAppLanguage(config.language)
     const summary = buildQualiStartSummary({
       current: currentIdentity,
       history: priorHistory,
@@ -1692,6 +1834,17 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
   function onSnapshot(snapshot: TelemetrySnapshot | null): void {
     const live = liveGate.observe(snapshot)
     if (!live.live) {
+      if (
+        snapshot &&
+        live.state === 'replay' &&
+        sessionKindForSnapshot(snapshot) === 'qualify'
+      ) {
+        const key =
+          activeSessionHistoryKey ??
+          snapshot.replayContext?.sessionIdentity ??
+          noIdSessionBase(snapshot)
+        emitQualiSafety(deps.getConfig(), key, 'replay')
+      }
       if (live.boundary) resetLiveSession()
       return
     }
@@ -1735,7 +1888,13 @@ export function createProactiveEngine(deps: ProactiveEngineDeps): ProactiveEngin
     // Corner cadence advances a parallel corner tracker (only once a map is learned).
     // `auto` resolves to corner in a race, sector otherwise; either way we still need
     // a learned corner map before corner call-outs can fire.
-    const wantCorner = cadenceForSession(cadence, snapshot.sessionType) === 'corner'
+    const effectiveCadence =
+      cadence === 'auto'
+        ? sessionKindForSnapshot(snapshot) === 'race'
+          ? 'corner'
+          : 'sector'
+        : cadence
+    const wantCorner = effectiveCadence === 'corner'
     const useCorner = wantCorner && cornerMap !== null && cornerMap.corners.length > 0
     const cornerAdvance = useCorner
       ? advanceCornerTracker(cornerTracker, sample.lapDistPct, cornerMap!.corners)

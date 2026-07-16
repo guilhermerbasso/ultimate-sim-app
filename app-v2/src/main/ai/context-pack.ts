@@ -35,7 +35,12 @@ import type { FuelStrategyState } from '../../shared/fuel'
 import type { LapTimingState } from '../../shared/laptiming'
 import type { PredictionsSnapshot } from '../../shared/predictions'
 import type { TelemetrySnapshot, TyreInfo } from '../../shared/telemetry'
-import { formatTimeOfDay, trackSurfaceMaterialLabel } from '../../shared/telemetry'
+import {
+  formatTimeOfDay,
+  sessionKindForSnapshot,
+  sessionKindFromText,
+  trackSurfaceMaterialLabel
+} from '../../shared/telemetry'
 import type { TireStrategyState } from '../../shared/tire-strategy'
 
 const DEFAULT_MAX_EVENTS = 3
@@ -75,13 +80,7 @@ export function formatSignedSec(sec: number | undefined, digits = 2): string | u
 // ─── per-field derivations (pure) ────────────────────────────────────────────
 
 export function deriveSessionKind(rawType: string | undefined): SessionKind {
-  if (!rawType) return 'unknown'
-  const t = rawType.toLowerCase()
-  if (t.includes('race')) return 'race'
-  if (t.includes('qual') || t.includes('lone') || t.includes('open qual')) return 'qualify'
-  if (t.includes('warm')) return 'warmup'
-  if (t.includes('practice') || t.includes('test') || t.includes('offline')) return 'practice'
-  return 'unknown'
+  return sessionKindFromText(rawType)
 }
 
 export function deriveSessionPhase(snapshot: TelemetrySnapshot | null): SessionPhase {
@@ -112,7 +111,7 @@ export function deriveSession(snapshot: TelemetrySnapshot | null, fuel?: FuelStr
     ? (snapshot?.currentLap as number) + (lapsRemaining as number)
     : undefined
   return {
-    kind: deriveSessionKind(rawType),
+    kind: sessionKindForSnapshot(snapshot),
     rawType: rawType || undefined,
     phase: deriveSessionPhase(snapshot),
     lap: isPositive(snapshot?.currentLap) ? snapshot?.currentLap : undefined,
