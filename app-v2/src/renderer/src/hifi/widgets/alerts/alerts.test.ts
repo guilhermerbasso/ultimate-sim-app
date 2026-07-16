@@ -54,6 +54,8 @@ describe('ALERTS_WIDGETS', () => {
     }
     expect(ALERTS_WIDGETS.find((widget) => widget.id === 'alertShiftFlash')?.defaultTrigger)
       .toEqual({ kind: 'shiftPoint' })
+    expect(ALERTS_WIDGETS.find((widget) => widget.id === 'alertShiftFlash')?.alternativeRequires)
+      .toEqual([['rpm', 'maxRpm']])
     expect(ALERTS_WIDGETS.find((widget) => widget.id === 'alertLowFuel')?.defaultTrigger)
       .toEqual({ kind: 'lowFuel' })
   })

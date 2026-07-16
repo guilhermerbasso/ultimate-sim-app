@@ -496,7 +496,9 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
     return sortedItems.filter((item) => {
       if (item.hidden) return false
       const def = defById.get(item.id as OverlayWidgetId)
-      return simFilter === 'all' || !def || widgetSupportedSims(def.requires).includes(simFilter)
+      return simFilter === 'all' ||
+        !def ||
+        widgetSupportedSims(def.requires, def.alternativeRequires).includes(simFilter)
     })
   }, [sortedItems, simFilter, defById])
   const hiddenItems = useMemo(() => sortedItems.filter((item) => item.hidden), [sortedItems])

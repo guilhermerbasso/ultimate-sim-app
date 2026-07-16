@@ -98,4 +98,29 @@ describe('AlertsDetector threshold truth', () => {
       expect.objectContaining({ type: 'shiftPoint' })
     ])
   })
+
+  it('ignores iRacing garage cold pressure for live tyre-pressure alerts', () => {
+    const detector = new AlertsDetector(config({
+      tyrePressure: {
+        ...DEFAULT_ALERTS_CONFIG.tyrePressure!,
+        enabled: true,
+        minKpa: 150,
+        maxKpa: 230
+      }
+    }))
+
+    expect(detector.process(snapshot(1000, {
+      tireColdPressuresKpa: { lf: 100, rf: 100, lr: 100, rr: 100 },
+      tyres: { lf: { tempC: 80 }, rf: {}, lr: {}, rr: {} }
+    }))).toEqual([])
+    expect(detector.process(snapshot(2000, {
+      tireColdPressuresKpa: { lf: 100, rf: 100, lr: 100, rr: 100 },
+      tyres: { lf: { pressureKpa: 140 }, rf: {}, lr: {}, rr: {} }
+    }))).toEqual([
+      expect.objectContaining({
+        type: 'tyrePressure',
+        context: { corner: 'lf', value: 140, threshold: 150, unit: 'kPa' }
+      })
+    ])
+  })
 })

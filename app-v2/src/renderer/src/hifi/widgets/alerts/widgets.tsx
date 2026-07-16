@@ -328,6 +328,7 @@ export const alertShiftFlashWidget: HifiWidgetModule = {
   category: 'alerts',
   tags: ['rev-lights', 'shift', 'led', 'trigger', 'clean'],
   requires: ['shiftIndicatorPct'],
+  alternativeRequires: [['rpm', 'maxRpm']],
   defaultSize: { w: 1200, h: 80 },
   defaultTrigger: SHIFT_ALERT_TRIGGER,
   render: AlertShiftFlash

@@ -192,11 +192,6 @@ function tyreTemps(values: AnyRecord): TelemetrySnapshot['tyres'] | undefined {
     [values.LRtempL, values.LRtempM, values.LRtempR],
     [values.RRtempL, values.RRtempM, values.RRtempR]
   ].map((corner) => corner.map(celsius))
-  // iRacing exposes NO live (hot) tyre pressure — only the garage COLD pressures. Show
-  // those so the pressure readout isn't permanently blank; it's the only pressure the
-  // sim provides. (Real GT3 dashes show live hot pressure; iRacing can't.)
-  const cold = coldPressures(values)
-  const pressures: Array<number | undefined> = [cold?.lf, cold?.rf, cold?.lr, cold?.rr]
   const wear = [
     [values.LFwearL, values.LFwearM, values.LFwearR],
     [values.RFwearL, values.RFwearM, values.RFwearR],
@@ -204,7 +199,7 @@ function tyreTemps(values: AnyRecord): TelemetrySnapshot['tyres'] | undefined {
     [values.RRwearL, values.RRwearM, values.RRwearR]
   ].map((corner) => corner.map(optionalNum))
   const allTemps = [...carcass.flat(), ...surface.flat()]
-  if ([...allTemps, ...pressures, ...wear.flat()].every((value) => value === undefined)) return undefined
+  if ([...allTemps, ...wear.flat()].every((value) => value === undefined)) return undefined
   const info = (index: number) => ({
     // Prefer the carcass temp; fall back to the surface temp so a car/session that only
     // reports one of the two still shows a tyre temperature instead of "—".
@@ -215,7 +210,6 @@ function tyreTemps(values: AnyRecord): TelemetrySnapshot['tyres'] | undefined {
     surfaceTempLeftC: surface[index][0],
     surfaceTempMiddleC: surface[index][1],
     surfaceTempRightC: surface[index][2],
-    pressureKpa: pressures[index],
     wearPct: wear[index][1] ?? wear[index][0] ?? wear[index][2],
     wearLeftPct: wear[index][0],
     wearMiddlePct: wear[index][1],

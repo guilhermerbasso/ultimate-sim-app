@@ -286,6 +286,21 @@ describe('iRacing cold tyre pressures (coldPressures)', () => {
   it('returns undefined when no cold-pressure var is present', () => {
     expect(__iracingTelemetryTest.coldPressures({ Speed: 50 })).toBeUndefined()
   })
+
+  it('never copies garage cold pressure into generic live tyre pressure', () => {
+    expect(__iracingTelemetryTest.tyreTemps({
+      LFtempCL: 80,
+      LFtempCM: 82,
+      LFtempCR: 84,
+      LFcoldPressure: 138
+    })?.lf.pressureKpa).toBeUndefined()
+    expect(__iracingTelemetryTest.tyreTemps({
+      LFcoldPressure: 138,
+      RFcoldPressure: 140,
+      LRcoldPressure: 135,
+      RRcoldPressure: 137
+    })).toBeUndefined()
+  })
 })
 
 // ─── New iRacing channels: end-to-end var → snapshot mapping through poll() ──────
@@ -415,6 +430,7 @@ describe('iRacing new-channel snapshot mapping (poll)', () => {
     expect(snap?.sessionTimeOfDay).toBe(3661)
     expect(snap?.pit).toEqual({ repairNeeded: true, optRepairNeeded: false, pitsOpen: true, inPitStall: false, svStatus: 1 })
     expect(snap?.tireColdPressuresKpa).toEqual({ lf: 138, rf: 140, lr: 135, rr: 137 })
+    expect(snap?.tyres).toBeUndefined()
   })
 
   it('falls back to P2P_Status for pushToPass when PushToPass is absent', () => {
