@@ -42,6 +42,7 @@ import {
 import { readButtonPressed } from '../lib/gamepad'
 import { useUnitSystem } from '../lib/units'
 import { displayUnitLabel, getActiveFlag, resolveBinding, retainBindingIpc } from './binding'
+import { subscribeWithHydration } from './hydration'
 import { useSwipeCycle, type CycleDirection } from './useSwipeCycle'
 import { renderGt3Widget, instrumentColorsFor, instrumentBezel, instrumentMaterial, revLedPropsFor } from './widgets/gt3-widgets'
 import { AnalogDial, RevLedBar } from '../instruments'
@@ -1738,24 +1739,26 @@ export function DashboardRoot() {
       setError('No dashboard selected (?dash=<id> missing).')
       return
     }
-    let canceled = false
-    void window.ipc
-      .invoke<Dashboard | null>('app:dash:get', dashId)
-      .then((dash) => {
-        if (canceled) return
+    setError(null)
+    return subscribeWithHydration<Dashboard | null>({
+      subscribe: (apply) => window.ipc.subscribe<Dashboard>('app:dash:updated', (next) => {
+        if (next?.id === dashId) apply(next)
+      }),
+      hydrate: () => window.ipc.invoke<Dashboard | null>('app:dash:get', dashId),
+      apply: (dash) => {
         if (!dash) {
+          setDashboard(null)
           setError(`Dashboard not found: ${dashId}`)
           return
         }
+        setError(null)
         setDashboard(dash)
-      })
-      .catch((err: unknown) => {
-        if (canceled) return
+      },
+      onError: (err) => {
+        setDashboard(null)
         setError(err instanceof Error ? err.message : 'Failed to load dashboard')
-      })
-    return () => {
-      canceled = true
-    }
+      }
+    })
   }, [dashId])
 
   useEffect(() => {
@@ -1832,24 +1835,15 @@ export function DashboardRoot() {
   }, [])
 
   useEffect(() => {
-    const off = window.ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', (snap) => {
-      lastFrameRef.current = performance.now()
-      setSnapshot(snap)
+    return subscribeWithHydration<TelemetrySnapshot | null>({
+      subscribe: (apply) => window.ipc.subscribe<TelemetrySnapshot | null>('telemetry:snapshot', apply),
+      hydrate: () => window.ipc.invoke<TelemetrySnapshot | null>('telemetry:getLatest'),
+      apply: (snap) => {
+        lastFrameRef.current = performance.now()
+        setSnapshot(snap)
+      }
     })
-    // Seed inicial
-    void window.ipc
-      .invoke<TelemetrySnapshot | null>('telemetry:getLatest')
-      .then(setSnapshot)
-      .catch(() => undefined)
-    // Definition update when saving in main (broadcast app:dash:updated)
-    const offUpdate = window.ipc.subscribe<Dashboard>('app:dash:updated', (next) => {
-      if (next?.id === dashId) setDashboard(next)
-    })
-    return () => {
-      off()
-      offUpdate()
-    }
-  }, [dashId])
+  }, [])
 
   if (error) {
     return (

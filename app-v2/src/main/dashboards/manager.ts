@@ -6,7 +6,6 @@ import type {
   Dashboard,
   DashboardDisplayInfo,
   DashboardElement,
-  DashboardElementType,
   DashboardOpenOptions,
   DashboardOpenState,
   DashboardPlaylist,
@@ -16,6 +15,7 @@ import type {
 import {
   BUILTIN_PRESETS,
   createElementId,
+  isDashboardElementType,
   summarizeDashboard
 } from '../../shared/dashboards'
 import type { ModuleContext } from '../module-context'
@@ -143,28 +143,6 @@ interface SimhubImportResponse {
   filePath?: string
 }
 
-const DASHBOARD_ELEMENT_TYPES = new Set<DashboardElementType>([
-  'text', 'rect', 'bar', 'barv', 'dualbar', 'deltabar', 'gauge', 'shiftlights',
-  'map', 'radar', 'image', 'table', 'standings', 'flag', 'trace', 'shiftbar',
-  'gearcluster', 'tyregrid', 'brakegrid', 'cornerstack', 'fuelstint', 'deltatile',
-  'laptiming', 'positiongaps', 'flagoverlay', 'inputbars', 'inputtrace',
-  'steering', 'setupstrip', 'enginetemps', 'weather', 'trackmini',
-  'tyres-clean', 'tyres-elaborate', 'abs-clean', 'abs-elaborate', 'tc-clean', 'tc-elaborate',
-  'map-clean', 'map-elaborate', 'bb-clean', 'bb-elaborate', 'pitlimiter-clean', 'pitlimiter-elaborate',
-  'incidents-clean', 'incidents-elaborate', 'relatives-clean', 'relatives-elaborate',
-  'radar-clean', 'radar-elaborate', 'trackmap-clean', 'trackmap-elaborate',
-  'speed-clean', 'speed-elaborate', 'gear-clean', 'gear-elaborate', 'rpm-clean', 'rpm-elaborate',
-  'delta-clean', 'delta-elaborate', 'fuel-clean', 'fuel-elaborate', 'lap-clean', 'lap-elaborate',
-  'position-clean', 'position-elaborate', 'flags-clean', 'flags-elaborate',
-  'inputs-clean', 'inputs-elaborate', 'temps-clean', 'temps-elaborate', 'clutch-clean', 'clutch-elaborate',
-  'drs-clean', 'drs-elaborate',
-  'value', 'valuebar', 'valuegauge',
-  // Round-7 extra widget kinds (analog/digital/graph/chart/ring/led/heatmap/status)
-  'analoggauge', 'linearmeter', 'gforcemeter', 'segment7', 'digitalclock', 'bigtext',
-  'historygraph', 'barchart', 'radialbars', 'donut', 'segmentbars', 'ringgauge',
-  'ledbar', 'heatmap', 'statuslamp'
-])
-
 function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
@@ -187,7 +165,7 @@ function normalizeDashboard(raw: unknown): Dashboard | null {
         .map((element): DashboardElement | null => {
           if (!element || typeof element !== 'object') return null
           const candidate = element as Partial<DashboardElement>
-          if (!DASHBOARD_ELEMENT_TYPES.has(candidate.type as DashboardElementType)) return null
+          if (!isDashboardElementType(candidate.type)) return null
           const x = finiteNumber(candidate.x)
           const y = finiteNumber(candidate.y)
           const w = finiteNumber(candidate.w)
@@ -196,7 +174,7 @@ function normalizeDashboard(raw: unknown): Dashboard | null {
           return {
             ...candidate,
             id: typeof candidate.id === 'string' && candidate.id ? candidate.id : createElementId(),
-            type: candidate.type as DashboardElementType,
+            type: candidate.type,
             x: clamp(Math.round(x), 0, normalizedWidth),
             y: clamp(Math.round(y), 0, normalizedHeight),
             w: clamp(Math.round(w), 1, normalizedWidth),
@@ -248,6 +226,7 @@ export class DashboardManager {
   private readonly windows = new Map<string, OpenWindowMeta>()
   private dashboards = new Map<string, Dashboard>()
   private loaded = false
+  private loadPromise: Promise<void> | null = null
   private isDisposing = false
   private playlist: DashboardPlaylist = { items: [], updatedAt: 0 }
   private lastCycleAt = 0
@@ -265,7 +244,17 @@ export class DashboardManager {
     this.storeDir = join(ctx.app.getPath('userData'), SUBDIR)
   }
 
-  async load(): Promise<void> {
+  load(): Promise<void> {
+    if (!this.loadPromise) {
+      this.loadPromise = this.loadInternal().catch((error: unknown) => {
+        this.loadPromise = null
+        throw error
+      })
+    }
+    return this.loadPromise
+  }
+
+  private async loadInternal(): Promise<void> {
     if (this.loaded) return
     this.registerScreenListeners()
     await mkdir(this.storeDir, { recursive: true })
@@ -301,28 +290,70 @@ export class DashboardManager {
 
   registerIpc(): void {
     const ipc = this.ctx.ipcMain
-    ipc.handle('app:dash:list', () => this.list())
-    ipc.handle('app:dash:get', (_event, id: string) => this.dashboards.get(id) ?? null)
-    ipc.handle('app:dash:save', (_event, dash: Dashboard) => this.save(dash))
-    ipc.handle('app:dash:delete', (_event, id: string) => this.delete(id))
-    ipc.handle('app:dash:setHidden', (_event, id: string, hidden: boolean) => this.setHidden(id, hidden))
-    ipc.handle('app:dash:open', (_event, id: string, options?: DashboardOpenOptions) =>
-      this.openWindow(id, options)
-    )
-    ipc.handle('app:dash:activate', (_event, id: string) => this.activate(id))
-    ipc.handle('app:dash:close', (_event, id: string) => this.closeWindow(id))
-    ipc.handle('app:dash:listOpen', () => this.listOpen())
-    ipc.handle('app:dash:listDisplays', () => this.listDisplays())
-    ipc.handle('app:dash:importSimhub', (_event, filePath?: string, options?: SimhubImportOptions) => this.importSimhub(filePath, options))
-    ipc.handle('app:dash:exportSimhub', (_event, id: string, outPath?: string) =>
-      this.exportSimhub(id, outPath)
-    )
-    ipc.handle('app:dash:createPreset', (_event, presetId: string) => this.createFromPreset(presetId))
-    ipc.handle('app:dash:playlist:get', () => this.getPlaylist())
-    ipc.handle('app:dash:playlist:set', (_event, playlist: DashboardPlaylist) => this.setPlaylist(playlist))
-    ipc.handle('app:dash:cycle', (_event, direction: unknown = 'next') =>
-      this.cycle(direction === 'prev' ? 'prev' : 'next')
-    )
+    ipc.handle('app:dash:list', async () => {
+      await this.load()
+      return this.list()
+    })
+    ipc.handle('app:dash:get', async (_event, id: string) => {
+      await this.load()
+      return this.dashboards.get(id) ?? null
+    })
+    ipc.handle('app:dash:save', async (_event, dash: Dashboard) => {
+      await this.load()
+      return this.save(dash)
+    })
+    ipc.handle('app:dash:delete', async (_event, id: string) => {
+      await this.load()
+      return this.delete(id)
+    })
+    ipc.handle('app:dash:setHidden', async (_event, id: string, hidden: boolean) => {
+      await this.load()
+      return this.setHidden(id, hidden)
+    })
+    ipc.handle('app:dash:open', async (_event, id: string, options?: DashboardOpenOptions) => {
+      await this.load()
+      return this.openWindow(id, options)
+    })
+    ipc.handle('app:dash:activate', async (_event, id: string) => {
+      await this.load()
+      return this.activate(id)
+    })
+    ipc.handle('app:dash:close', async (_event, id: string) => {
+      await this.load()
+      return this.closeWindow(id)
+    })
+    ipc.handle('app:dash:listOpen', async () => {
+      await this.load()
+      return this.listOpen()
+    })
+    ipc.handle('app:dash:listDisplays', async () => {
+      await this.load()
+      return this.listDisplays()
+    })
+    ipc.handle('app:dash:importSimhub', async (_event, filePath?: string, options?: SimhubImportOptions) => {
+      await this.load()
+      return this.importSimhub(filePath, options)
+    })
+    ipc.handle('app:dash:exportSimhub', async (_event, id: string, outPath?: string) => {
+      await this.load()
+      return this.exportSimhub(id, outPath)
+    })
+    ipc.handle('app:dash:createPreset', async (_event, presetId: string) => {
+      await this.load()
+      return this.createFromPreset(presetId)
+    })
+    ipc.handle('app:dash:playlist:get', async () => {
+      await this.load()
+      return this.getPlaylist()
+    })
+    ipc.handle('app:dash:playlist:set', async (_event, playlist: DashboardPlaylist) => {
+      await this.load()
+      return this.setPlaylist(playlist)
+    })
+    ipc.handle('app:dash:cycle', async (_event, direction: unknown = 'next') => {
+      await this.load()
+      return this.cycle(direction === 'prev' ? 'prev' : 'next')
+    })
   }
 
   list(): DashboardSummary[] {
