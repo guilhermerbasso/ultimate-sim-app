@@ -124,7 +124,7 @@ export function register(ctx: ModuleContext): void {
   hardwareTeardownStarted = false
   settingsEvents.onChanged((settings) => detector.setUnitSystem(settings.unitSystem))
 
-  void loadConfig(configPath).then((loaded) => {
+  const configLoadPromise = loadConfig(configPath).then((loaded) => {
     if (stopped) return
     config = loaded
     detector.setConfig(config)
@@ -136,6 +136,7 @@ export function register(ctx: ModuleContext): void {
     configReady = true
     ctx.broadcast('alerts:config', config)
   })
+  let configCommitQueue: Promise<void> = configLoadPromise.then(() => undefined)
 
   ctx.telemetryHub.on('snapshot', (snapshot) => {
     if (stopped || hardwareTeardownStarted) return
@@ -177,13 +178,20 @@ export function register(ctx: ModuleContext): void {
   })
 
   ctx.ipcMain.handle('alerts:getConfig', () => config)
-  ctx.ipcMain.handle('alerts:setConfig', async (_event, patch: AlertsConfigPatch) => {
-    const nextConfig = mergeConfig(config, patch)
-    await saveConfig(configPath, nextConfig)
-    config = nextConfig
-    detector.setConfig(nextConfig)
-    ctx.broadcast('alerts:config', nextConfig)
-    return config
+  ctx.ipcMain.handle('alerts:setConfig', (_event, patch: AlertsConfigPatch) => {
+    const commit = configCommitQueue.then(async () => {
+      const nextConfig = mergeConfig(config, patch)
+      await saveConfig(configPath, nextConfig)
+      config = nextConfig
+      detector.setConfig(nextConfig)
+      ctx.broadcast('alerts:config', nextConfig)
+      return nextConfig
+    })
+    configCommitQueue = commit.then(
+      () => undefined,
+      () => undefined
+    )
+    return commit
   })
 
   const retryOnReconnect = (summary: unknown): void => {

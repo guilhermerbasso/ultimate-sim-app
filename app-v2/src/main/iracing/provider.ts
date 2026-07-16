@@ -726,7 +726,13 @@ const MAX_FUEL_LAP_SAMPLES = 8
 
 class FuelLapEstimator {
   private sessionIdentity: string | undefined
-  private lapStart: { lap: number; fuelLiters: number } | undefined
+  private lapStart: {
+    lap: number
+    fuelLiters: number
+    minFuelLiters: number
+    boundaryObserved: boolean
+    refueled: boolean
+  } | undefined
   private samples: number[] = []
 
   update(input: {
@@ -758,20 +764,53 @@ class FuelLapEstimator {
     }
 
     if (!this.lapStart) {
-      this.lapStart = { lap, fuelLiters }
+      this.lapStart = {
+        lap,
+        fuelLiters,
+        minFuelLiters: fuelLiters,
+        boundaryObserved: false,
+        refueled: false
+      }
     } else if (lap > this.lapStart.lap) {
       const lapDelta = lap - this.lapStart.lap
       const usedLiters = this.lapStart.fuelLiters - fuelLiters
-      if (lapDelta === 1 && usedLiters > 0.05 && usedLiters < 25) {
+      const refueled =
+        this.lapStart.refueled ||
+        fuelLiters > this.lapStart.minFuelLiters + 0.05
+      if (
+        lapDelta === 1 &&
+        this.lapStart.boundaryObserved &&
+        !refueled &&
+        usedLiters > 0.05 &&
+        usedLiters < 25
+      ) {
         this.samples.push(usedLiters)
         this.samples = this.samples.slice(-MAX_FUEL_LAP_SAMPLES)
       }
-      this.lapStart = { lap, fuelLiters }
+      this.lapStart = {
+        lap,
+        fuelLiters,
+        minFuelLiters: fuelLiters,
+        boundaryObserved: lapDelta === 1,
+        refueled: false
+      }
     } else if (lap < this.lapStart.lap) {
       this.samples = []
-      this.lapStart = { lap, fuelLiters }
-    } else if (fuelLiters > this.lapStart.fuelLiters + 0.05) {
-      this.lapStart = { lap, fuelLiters }
+      this.lapStart = {
+        lap,
+        fuelLiters,
+        minFuelLiters: fuelLiters,
+        boundaryObserved: false,
+        refueled: false
+      }
+    } else {
+      if (fuelLiters > this.lapStart.minFuelLiters + 0.05) {
+        this.lapStart.refueled = true
+      }
+      this.lapStart.minFuelLiters = Math.min(
+        this.lapStart.minFuelLiters,
+        fuelLiters
+      )
     }
 
     return this.current(fuelLiters)

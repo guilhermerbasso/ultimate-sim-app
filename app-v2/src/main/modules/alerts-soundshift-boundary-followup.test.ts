@@ -215,6 +215,63 @@ describe('alerts policy persistence', () => {
       maxLinePressureBar: 32
     })
   })
+
+  it('serializes concurrent patches against the latest committed config', async () => {
+    const firstWrite = deferred<void>()
+    const writes: string[] = []
+    vi.doMock('node:fs/promises', async () => {
+      const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+      return {
+        ...actual,
+        writeFile: vi.fn(async (_path: unknown, data: unknown) => {
+          writes.push(String(data))
+          if (writes.length === 1) await firstWrite.promise
+        })
+      }
+    })
+    const { register } = await import('./alerts')
+    const harness = moduleHarness('alerts-concurrent-config')
+    register(harness.ctx)
+    await settleConfigLoad()
+    const setConfig = harness.handlers.get('alerts:setConfig')!
+
+    const lowFuelCommit = setConfig(undefined, {
+      lowFuel: { lapsThreshold: 5 }
+    })
+    const shiftCommit = setConfig(undefined, {
+      shiftPoint: { rpmPct: 0.88 }
+    })
+
+    await vi.waitFor(() => expect(writes).toHaveLength(1))
+    expect(harness.handlers.get('alerts:getConfig')?.()).toMatchObject({
+      lowFuel: { lapsThreshold: 3 },
+      shiftPoint: { rpmPct: 0.96 }
+    })
+
+    firstWrite.resolve(undefined)
+    const [afterLowFuel, afterShift] = await Promise.all([
+      lowFuelCommit,
+      shiftCommit
+    ])
+
+    expect(afterLowFuel).toMatchObject({
+      lowFuel: { lapsThreshold: 5 },
+      shiftPoint: { rpmPct: 0.96 }
+    })
+    expect(afterShift).toMatchObject({
+      lowFuel: { lapsThreshold: 5 },
+      shiftPoint: { rpmPct: 0.88 }
+    })
+    expect(writes).toHaveLength(2)
+    expect(JSON.parse(writes[1])).toMatchObject({
+      lowFuel: { lapsThreshold: 5 },
+      shiftPoint: { rpmPct: 0.88 }
+    })
+    expect(callsFor(harness.broadcast, 'alerts:config').at(-1)).toMatchObject({
+      lowFuel: { lapsThreshold: 5 },
+      shiftPoint: { rpmPct: 0.88 }
+    })
+  })
 })
 
 describe('alerts hardware boundary cleanup', () => {

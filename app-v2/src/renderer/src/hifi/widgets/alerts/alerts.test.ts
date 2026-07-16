@@ -83,4 +83,49 @@ describe('ALERTS_WIDGETS', () => {
     expect(shift).toContain(SHIFT_STROBE_BLUE)
     expect(shift).toContain('repeatCount="indefinite"')
   })
+
+  it('uses the shared configured RPM fallback when visibility is absent', () => {
+    const widget = ALERTS_WIDGETS.find((candidate) => candidate.id === 'alertShiftFlash')!
+    const alertsConfig = {
+      ...DEFAULT_ALERTS_CONFIG,
+      shiftPoint: {
+        ...DEFAULT_ALERTS_CONFIG.shiftPoint,
+        shiftIndicatorPct: 0.99,
+        rpmPct: 0.9
+      }
+    }
+    const render = (rpm: number): string =>
+      renderToStaticMarkup(createElement(widget.render, {
+        snapshot: {
+          ...populatedSnapshot(),
+          shiftIndicatorPct: 0.5,
+          rpm,
+          maxRpm: 8000,
+          revLights: undefined
+        },
+        width: 1000,
+        height: 36,
+        alertsConfig
+      }))
+
+    expect(render(7100)).not.toContain(SHIFT_STROBE_BLUE)
+    expect(render(7300)).toContain(SHIFT_STROBE_BLUE)
+  })
+
+  it('uses the shared low-fuel threshold when visibility is absent', () => {
+    const widget = ALERTS_WIDGETS.find((candidate) => candidate.id === 'alertLowFuel')!
+    const render = (lapsThreshold: number): string =>
+      renderToStaticMarkup(createElement(widget.render, {
+        snapshot: { ...populatedSnapshot(), fuelLapsRemaining: 4 },
+        width: widget.defaultSize.w,
+        height: widget.defaultSize.h,
+        alertsConfig: {
+          ...DEFAULT_ALERTS_CONFIG,
+          lowFuel: { ...DEFAULT_ALERTS_CONFIG.lowFuel, lapsThreshold }
+        }
+      }))
+
+    expect(render(3)).not.toContain('LAPS')
+    expect(render(5)).toContain('4.0')
+  })
 })

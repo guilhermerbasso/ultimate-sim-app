@@ -304,6 +304,42 @@ function pollWith(values: Record<string, unknown>, sessionInfo: unknown = undefi
   return provider.poll()
 }
 
+function fuelPoller(initialValues: Record<string, unknown>) {
+  let values: Record<string, unknown> = {
+    Speed: 50,
+    RPM: 7000,
+    Gear: 3,
+    FuelUsePerHour: 36,
+    LapLastLapTime: 100,
+    IsReplayPlaying: false,
+    ReplaySessionNum: -1,
+    ReplayFrameNum: 100,
+    ReplayFrameNumEnd: 0,
+    SessionTime: 100,
+    ReplaySessionTime: 100,
+    SessionUniqueID: 44,
+    SessionNum: 0,
+    ...initialValues
+  }
+  const provider = new IRacingProvider()
+  ;(provider as unknown as { mmf: unknown }).mmf = {
+    start() {},
+    stop() {},
+    isOpen: () => true,
+    isConnected: () => true,
+    read: (): StubReadResult => ({
+      values,
+      sessionInfo: { WeekendInfo: { SimMode: 'full', SessionID: 10 } },
+      sessionInfoYaml: ''
+    })
+  }
+  ;(provider as unknown as { started: boolean }).started = true
+  return (nextValues: Record<string, unknown> = {}) => {
+    values = { ...values, ...nextValues }
+    return provider.poll()
+  }
+}
+
 // Like pollWith but drives the SAME provider across several polls with an advancing clock,
 // so the stateful tcActive debounce (TcLatch) can cross its min-on window. snapshot.timestamp
 // is Date.now(), so we mock it to step time forward deterministically.
@@ -553,50 +589,56 @@ describe('iRacing remaining widget-channel snapshot mapping', () => {
     })?.engineMap).toBe(3)
   })
 
-  it('keeps kg/lap separate until observed FuelLevel deltas establish litres/lap', () => {
-    let values: Record<string, unknown> = {
-      Speed: 50,
-      RPM: 7000,
-      Gear: 3,
-      Lap: 1,
-      FuelLevel: 20,
-      FuelUsePerHour: 36,
-      LapLastLapTime: 100,
-      IsReplayPlaying: false,
-      ReplaySessionNum: -1,
-      ReplayFrameNum: 100,
-      ReplayFrameNumEnd: 0,
-      SessionTime: 100,
-      ReplaySessionTime: 100,
-      SessionUniqueID: 44,
-      SessionNum: 0
-    }
-    const provider = new IRacingProvider()
-    ;(provider as unknown as { mmf: unknown }).mmf = {
-      start() {},
-      stop() {},
-      isOpen: () => true,
-      isConnected: () => true,
-      read: (): StubReadResult => ({
-        values,
-        sessionInfo: { WeekendInfo: { SimMode: 'full', SessionID: 10 } },
-        sessionInfoYaml: ''
-      })
-    }
-    ;(provider as unknown as { started: boolean }).started = true
-
-    const first = provider.poll()
+  it('discards the first transition after attach before sampling a full lap', () => {
+    const poll = fuelPoller({ Lap: 4, FuelLevel: 20 })
+    const first = poll()
     expect(first?.fuelPerLapKg).toBeCloseTo(1, 5)
     expect(first?.fuelPerLapLiters).toBeUndefined()
     expect(first?.fuelLapsRemaining).toBeUndefined()
     expect(first?.fuelPerLap).toBeUndefined()
 
-    values = { ...values, Lap: 2, FuelLevel: 18 }
-    const second = provider.poll()
+    const firstTransition = poll({ Lap: 5, FuelLevel: 18.8 })
+    expect(firstTransition?.fuelPerLapLiters).toBeUndefined()
+    expect(firstTransition?.fuelLapsRemaining).toBeUndefined()
+
+    const second = poll({ Lap: 6, FuelLevel: 16.8 })
     expect(second?.fuelPerLapKg).toBeCloseTo(1, 5)
     expect(second?.fuelPerLapLiters).toBeCloseTo(2, 5)
     expect(second?.fuelPerLap).toBeCloseTo(2, 5)
-    expect(second?.fuelLapsRemaining).toBeCloseTo(9, 5)
+    expect(second?.fuelLapsRemaining).toBeCloseTo(8.4, 5)
+  })
+
+  it('discards a boundary-to-boundary lap containing an observed refuel', () => {
+    const poll = fuelPoller({ Lap: 4, FuelLevel: 20 })
+    poll()
+    poll({ Lap: 5, FuelLevel: 18 })
+    poll({ Lap: 5, FuelLevel: 17 })
+    poll({ Lap: 5, FuelLevel: 25 })
+
+    const refueledLap = poll({ Lap: 6, FuelLevel: 23 })
+    expect(refueledLap?.fuelPerLapLiters).toBeUndefined()
+    expect(refueledLap?.fuelLapsRemaining).toBeUndefined()
+
+    const cleanLap = poll({ Lap: 7, FuelLevel: 21 })
+    expect(cleanLap?.fuelPerLapLiters).toBeCloseTo(2, 5)
+    expect(cleanLap?.fuelLapsRemaining).toBeCloseTo(10.5, 5)
+  })
+
+  it('discards a lap when the refuel first appears at the boundary', () => {
+    const poll = fuelPoller({ Lap: 4, FuelLevel: 24 })
+    poll()
+    poll({ Lap: 5, FuelLevel: 22 })
+    const firstCleanLap = poll({ Lap: 6, FuelLevel: 20 })
+    expect(firstCleanLap?.fuelPerLapLiters).toBeCloseTo(2, 5)
+    poll({ Lap: 6, FuelLevel: 10 })
+
+    const boundaryRefuel = poll({ Lap: 7, FuelLevel: 17 })
+    expect(boundaryRefuel?.fuelPerLapLiters).toBeCloseTo(2, 5)
+    expect(boundaryRefuel?.fuelLapsRemaining).toBeCloseTo(8.5, 5)
+
+    const cleanLap = poll({ Lap: 8, FuelLevel: 15 })
+    expect(cleanLap?.fuelPerLapLiters).toBeCloseTo(2, 5)
+    expect(cleanLap?.fuelLapsRemaining).toBeCloseTo(7.5, 5)
   })
 
   it('maps scalar, replay, pit, weather, setup, vector, and map fields without inventing defaults', () => {

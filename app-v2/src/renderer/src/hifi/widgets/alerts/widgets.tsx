@@ -4,15 +4,21 @@ import {
   fuelLapsRemainingOf,
   type TelemetrySnapshot
 } from '../../../../../shared/telemetry'
+import {
+  evaluateOverlayTrigger,
+  type OverlayTrigger
+} from '../../../../../shared/overlays'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, fixed, frac, legibleStroke, num } from '../kit'
-import { SHIFT_STROBE_BLUE, ShiftStrobe, resolveRevLightState, revLightRowLayout } from '../../../lib/rev-lights'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, fixed, legibleStroke, num } from '../kit'
+import { SHIFT_STROBE_BLUE, ShiftStrobe, revLightRowLayout } from '../../../lib/rev-lights'
 
 const AMBER = '#ffb000'
 const CYAN = '#00d8ff'
 const WHITE = '#f8fbff'
 const BLUE = '#157cff'
 const RED = '#ff2626'
+const SHIFT_ALERT_TRIGGER: OverlayTrigger = { kind: 'shiftPoint' }
+const LOW_FUEL_ALERT_TRIGGER: OverlayTrigger = { kind: 'lowFuel' }
 
 function empty(width: number, height: number): ReactElement {
   return <CleanTile width={width} height={height}>{null}</CleanTile>
@@ -127,13 +133,11 @@ function AlertShiftFlash({
 }: HifiWidgetProps): ReactElement {
   const w = width ?? 1200
   const h = height ?? 80
-  const state = resolveRevLightState(
-    frac(num(snapshot?.shiftIndicatorPct), 0, 1),
-    snapshot?.revLights?.blink,
-    alertsConfig?.shiftPoint.shiftIndicatorPct ??
-      DEFAULT_ALERTS_CONFIG.shiftPoint.shiftIndicatorPct
+  const active = visibility?.visible ?? evaluateOverlayTrigger(
+    SHIFT_ALERT_TRIGGER,
+    snapshot,
+    alertsConfig ?? DEFAULT_ALERTS_CONFIG
   )
-  const active = visibility ? visibility.visible : state.atShiftPoint
   if (!snapshot || !active) return empty(w, h)
   const layout = revLightRowLayout(w, h, 72, {
     gap: 5,
@@ -241,11 +245,22 @@ function AlertFlag({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   )
 }
 
-function AlertLowFuel({ snapshot, width, height }: HifiWidgetProps): ReactElement {
+function AlertLowFuel({
+  snapshot,
+  width,
+  height,
+  visibility,
+  alertsConfig
+}: HifiWidgetProps): ReactElement {
   const w = width ?? 360
   const h = height ?? 200
+  const active = visibility?.visible ?? evaluateOverlayTrigger(
+    LOW_FUEL_ALERT_TRIGGER,
+    snapshot,
+    alertsConfig ?? DEFAULT_ALERTS_CONFIG
+  )
   const laps = fuelLapsRemainingOf(snapshot)
-  if (!snapshot || laps == null) return empty(w, h)
+  if (!snapshot || !active || laps == null) return empty(w, h)
   return (
     <CleanTile width={w} height={h}>
       <defs>
@@ -314,7 +329,7 @@ export const alertShiftFlashWidget: HifiWidgetModule = {
   tags: ['rev-lights', 'shift', 'led', 'trigger', 'clean'],
   requires: ['shiftIndicatorPct'],
   defaultSize: { w: 1200, h: 80 },
-  defaultTrigger: { kind: 'shiftPoint' },
+  defaultTrigger: SHIFT_ALERT_TRIGGER,
   render: AlertShiftFlash
 }
 
@@ -350,6 +365,6 @@ export const alertLowFuelWidget: HifiWidgetModule = {
   tags: ['fuel', 'low-fuel', 'warning', 'trigger', 'clean'],
   requires: ['fuelLapsRemaining'],
   defaultSize: { w: 360, h: 200 },
-  defaultTrigger: { kind: 'lowFuel' },
+  defaultTrigger: LOW_FUEL_ALERT_TRIGGER,
   render: AlertLowFuel
 }
