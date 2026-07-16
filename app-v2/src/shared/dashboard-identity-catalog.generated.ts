@@ -488,7 +488,7 @@ export const DASHBOARD_IDENTITY_CATALOG = [
     "type": "overlaywidget",
     "label": "Alert Low Fuel",
     "name": "alertLowFuel",
-    "binding": "fuelLiters",
+    "binding": "fuelLapsRemaining",
     "widgetId": "hifi:alertLowFuel",
     "hifiModuleId": "alertLowFuel"
   },
@@ -2620,7 +2620,7 @@ export const DASHBOARD_IDENTITY_CATALOG = [
     "type": "overlaywidget",
     "label": "Fuel Laps Left",
     "name": "fuelLapsLeft",
-    "binding": "fuelLiters",
+    "binding": "fuelLapsRemaining",
     "widgetId": "hifi:fuelLapsLeft",
     "hifiModuleId": "fuelLapsLeft"
   },
@@ -2637,7 +2637,7 @@ export const DASHBOARD_IDENTITY_CATALOG = [
     "type": "overlaywidget",
     "label": "Mercedes-AMG Fuel Laps Left",
     "name": "fuelLapsLeftAmg",
-    "binding": "fuelLiters",
+    "binding": "fuelLapsRemaining",
     "widgetId": "hifi:fuelLapsLeftAmg",
     "hifiModuleId": "fuelLapsLeftAmg"
   },
@@ -2654,7 +2654,7 @@ export const DASHBOARD_IDENTITY_CATALOG = [
     "type": "overlaywidget",
     "label": "Corvette Fuel Laps Left",
     "name": "fuelLapsLeftCorvette",
-    "binding": "fuelLiters",
+    "binding": "fuelLapsRemaining",
     "widgetId": "hifi:fuelLapsLeftCorvette",
     "hifiModuleId": "fuelLapsLeftCorvette"
   },
@@ -2671,7 +2671,7 @@ export const DASHBOARD_IDENTITY_CATALOG = [
     "type": "overlaywidget",
     "label": "Ferrari Fuel Laps Left",
     "name": "fuelLapsLeftFerrari",
-    "binding": "fuelLiters",
+    "binding": "fuelLapsRemaining",
     "widgetId": "hifi:fuelLapsLeftFerrari",
     "hifiModuleId": "fuelLapsLeftFerrari"
   },
@@ -2688,7 +2688,7 @@ export const DASHBOARD_IDENTITY_CATALOG = [
     "type": "overlaywidget",
     "label": "Lamborghini Fuel Laps Left",
     "name": "fuelLapsLeftLambo",
-    "binding": "fuelLiters",
+    "binding": "fuelLapsRemaining",
     "widgetId": "hifi:fuelLapsLeftLambo",
     "hifiModuleId": "fuelLapsLeftLambo"
   },
@@ -2705,7 +2705,7 @@ export const DASHBOARD_IDENTITY_CATALOG = [
     "type": "overlaywidget",
     "label": "McLaren Fuel Laps Left",
     "name": "fuelLapsLeftMclaren",
-    "binding": "fuelLiters",
+    "binding": "fuelLapsRemaining",
     "widgetId": "hifi:fuelLapsLeftMclaren",
     "hifiModuleId": "fuelLapsLeftMclaren"
   },
@@ -2722,7 +2722,7 @@ export const DASHBOARD_IDENTITY_CATALOG = [
     "type": "overlaywidget",
     "label": "Porsche Fuel Laps Left",
     "name": "fuelLapsLeftPorsche",
-    "binding": "fuelLiters",
+    "binding": "fuelLapsRemaining",
     "widgetId": "hifi:fuelLapsLeftPorsche",
     "hifiModuleId": "fuelLapsLeftPorsche"
   },
@@ -13890,7 +13890,7 @@ export const DASHBOARD_IDENTITY_CATALOG = [
     "type": "overlaywidget",
     "label": "Tyre Pressure",
     "name": "tyrePressure",
-    "binding": "tyres",
+    "binding": "liveTyrePressureKpa",
     "widgetId": "hifi:tyrePressure",
     "hifiModuleId": "tyrePressure"
   },
