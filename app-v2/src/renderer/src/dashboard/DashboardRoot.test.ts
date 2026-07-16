@@ -5,6 +5,9 @@ import { renderDashboardElement } from './DashboardRoot'
 import { displayUnitLabel, resolveBinding } from './binding'
 import { PREVIEW_SNAPSHOT } from './widgets/gt3-theme'
 import { UnitSystemProvider } from '../lib/units'
+import { SHIFT_STROBE_BLUE } from '../lib/rev-lights'
+import { DEFAULT_ALERTS_CONFIG, type AlertsConfig } from '../../../shared/alerts'
+import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import type { UnitSystem } from '../../../shared/units'
 import {
   dashboardStorageValidationResult,
@@ -38,6 +41,36 @@ function markup(
       UnitSystemProvider,
       { initialUnitSystem: unitSystem },
       renderDashboardElement({ element: el(type, style, binding), snapshot: snap })
+    )
+  )
+}
+
+function dashboardAlertMarkup(
+  moduleId: 'alertShiftFlash' | 'alertLowFuel',
+  snapshot: TelemetrySnapshot,
+  alertsConfig: AlertsConfig
+): string {
+  const element: DashboardElement = {
+    id: `dashboard-${moduleId}`,
+    type: 'overlaywidget',
+    x: 0,
+    y: 0,
+    w: moduleId === 'alertShiftFlash' ? 1000 : 360,
+    h: moduleId === 'alertShiftFlash' ? 36 : 200,
+    style: {},
+    widgetId: `hifi:${moduleId}`,
+    hifiModuleId: moduleId
+  }
+  return renderToStaticMarkup(
+    createElement(
+      UnitSystemProvider,
+      { initialUnitSystem: 'metric' },
+      renderDashboardElement({
+        element,
+        snapshot,
+        preview: 'inert',
+        alertsConfig
+      })
     )
   )
 }
@@ -76,6 +109,73 @@ describe('dashboard measurement units', () => {
     expect(displayUnitLabel('FUEL (L)', 'fuelLitersStr', undefined, 'imperial')).toBe('FUEL (gal)')
     expect(displayUnitLabel('Fuel/lap (L)', 'fuelPerLap', undefined, 'imperial')).toBe('Fuel/lap (gal)')
     expect(displayUnitLabel('Speed (km/h)', 'speedKmh', undefined, 'imperial')).toBe('Speed (mph)')
+  })
+})
+
+describe('dashboard-embedded alert policy', () => {
+  it('uses configured shift rpmPct when shiftIndicatorPct is below threshold', () => {
+    const alertsConfig = {
+      ...DEFAULT_ALERTS_CONFIG,
+      shiftPoint: {
+        ...DEFAULT_ALERTS_CONFIG.shiftPoint,
+        shiftIndicatorPct: 0.99,
+        rpmPct: 0.9
+      }
+    }
+    const snapshot = {
+      ...PREVIEW_SNAPSHOT,
+      shiftIndicatorPct: 0.5,
+      rpm: 7300,
+      maxRpm: 8000,
+      revLights: undefined
+    }
+
+    expect(dashboardAlertMarkup('alertShiftFlash', snapshot, alertsConfig))
+      .toContain(SHIFT_STROBE_BLUE)
+    expect(dashboardAlertMarkup('alertShiftFlash', {
+      ...snapshot,
+      shiftIndicatorPct: 1,
+      rpm: 8000
+    }, {
+      ...alertsConfig,
+      shiftPoint: { ...alertsConfig.shiftPoint, enabled: false }
+    })).not.toContain(SHIFT_STROBE_BLUE)
+  })
+
+  it('uses configured low-fuel lapsThreshold', () => {
+    const snapshot = {
+      ...PREVIEW_SNAPSHOT,
+      fuelLapsRemaining: 4
+    }
+    const hidden = dashboardAlertMarkup('alertLowFuel', snapshot, {
+      ...DEFAULT_ALERTS_CONFIG,
+      lowFuel: { ...DEFAULT_ALERTS_CONFIG.lowFuel, lapsThreshold: 3 }
+    })
+    const visible = dashboardAlertMarkup('alertLowFuel', snapshot, {
+      ...DEFAULT_ALERTS_CONFIG,
+      lowFuel: { ...DEFAULT_ALERTS_CONFIG.lowFuel, lapsThreshold: 5 }
+    })
+    const disabled = dashboardAlertMarkup('alertLowFuel', snapshot, {
+      ...DEFAULT_ALERTS_CONFIG,
+      lowFuel: {
+        ...DEFAULT_ALERTS_CONFIG.lowFuel,
+        enabled: false,
+        lapsThreshold: 5
+      }
+    })
+    const disconnected = dashboardAlertMarkup(
+      'alertLowFuel',
+      { ...snapshot, connected: false },
+      {
+        ...DEFAULT_ALERTS_CONFIG,
+        lowFuel: { ...DEFAULT_ALERTS_CONFIG.lowFuel, lapsThreshold: 5 }
+      }
+    )
+
+    expect(hidden).not.toContain('LAPS')
+    expect(visible).toContain('4.0')
+    expect(disabled).not.toContain('LAPS')
+    expect(disconnected).not.toContain('LAPS')
   })
 })
 

@@ -13,6 +13,7 @@ import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, mergeHifiOver
 import { resolveWidgetComponent } from './widgets'
 import { CustomOverlayWidget } from './widgets/CustomOverlayWidget'
 import { useOverlayTriggerController } from './useOverlayTriggerController'
+import { useAlertsConfig } from '../lib/alerts-config'
 import './overlay-runtime.css'
 
 const RESIZE_DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
@@ -61,7 +62,8 @@ export function OverlayRoot() {
   const editable = configMode || !widgetConfig.locked
   // A LOCKED overlay never moves/resizes, even inside global config mode ("pinned").
   const movable = !widgetConfig.locked
-  const triggerController = useOverlayTriggerController(snapshot)
+  const alertsConfig = useAlertsConfig()
+  const triggerController = useOverlayTriggerController(snapshot, alertsConfig)
   const overlayTrigger = resolveOverlayTrigger(definition, widgetConfig)
   const triggerState = triggerController.evaluate(widgetId, overlayTrigger)
   const triggerHidden = !shouldRenderOverlayRuntime(definition, widgetConfig, triggerState)
@@ -185,7 +187,14 @@ export function OverlayRoot() {
           {movable ? ' — edit: drag to move — edges resize' : ' · pinned'}
         </div>
       )}
-      {!triggerHidden && <ResolvedWidget snapshot={snapshot} config={widgetConfig} visibility={triggerState} />}
+      {!triggerHidden && (
+        <ResolvedWidget
+          snapshot={snapshot}
+          config={widgetConfig}
+          visibility={triggerState}
+          alertsConfig={alertsConfig}
+        />
+      )}
       {movable &&
         RESIZE_DIRS.map((dir) => (
           <div

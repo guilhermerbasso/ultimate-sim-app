@@ -23,6 +23,10 @@ import {
   num
 } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'
+import {
+  fuelLapsRemainingOf,
+  fuelPerLapLitersOf
+} from '../../../../../shared/telemetry'
 
 const W = 420
 const H = 240
@@ -202,19 +206,17 @@ function carAttitude(pal: ThemePal) {
 // ── 5. Fuel laps left ─────────────────────────────────────────────────────────
 function fuelLapsLeft(pal: ThemePal) {
   return function ThemedFuelLapsLeft({ width, height, snapshot, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
-    const liters = num(snapshot?.fuelLiters)
-    const perLapKg = num(snapshot?.fuelPerLapKg)
-    const perLapL = perLapKg != null && perLapKg > 0 ? perLapKg / 0.75 : undefined
-    const laps = liters != null && perLapL != null && perLapL > 0 ? liters / perLapL : undefined
+    const laps = fuelLapsRemainingOf(snapshot)
+    const perLapLiters = fuelPerLapLitersOf(snapshot)
     const color = laps == null ? C.dim : laps < 2 ? pal.accent : pal.main
-    const perLapReading = formatMeasurement(perLapKg, 'mass-per-lap-kg', unitSystem, { decimals: 2 })
+    const perLapReading = formatMeasurement(perLapLiters, 'fuel-per-lap-l', unitSystem, { decimals: 2 })
     return (
       <Root width={width} height={height} snapshot={snapshot}>
         <BigNum x={W / 2} y={126} value={laps == null ? '—' : fixed(laps, 1)} color={color} size={104} />
         {laps != null ? <AccentBar pal={pal} cx={W / 2} y={148} w={150} /> : null}
         <Label text="LAPS LEFT" x={W / 2} y={182} />
         <text x={W / 2} y={214} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={20} fontWeight={700} stroke="rgba(0,0,0,0.55)" strokeWidth={3} paintOrder="stroke" strokeLinejoin="round">
-          {perLapKg == null ? '—' : `${perLapReading.display} ${perLapReading.unit}`}
+          {perLapLiters == null ? '—' : `${perLapReading.display} ${perLapReading.unit}`}
         </text>
       </Root>
     )
@@ -446,6 +448,7 @@ interface DerivedSpec {
   title: string
   category: string
   requires: TelemetryField[]
+  alternativeRequires?: TelemetryField[][]
   build: (pal: ThemePal) => (props: HifiWidgetProps) => ReactElement
   tags: string[]
 }
@@ -455,7 +458,7 @@ const SPECS: DerivedSpec[] = [
   { base: 'steeringLock', title: 'Steering Lock', category: 'inputs', requires: ['steerAngleDeg', 'steeringAngleMaxDeg'], build: steeringLock, tags: ['steering', 'lock', 'gauge'] },
   { base: 'rotationRates', title: 'Rotation Rates', category: 'chassis', requires: ['yawRateRadSec', 'pitchRateRadSec', 'rollRateRadSec'], build: rotationRates, tags: ['yaw', 'pitch', 'roll', 'rate'] },
   { base: 'carAttitude', title: 'Car Attitude', category: 'chassis', requires: ['pitchRad', 'rollRad', 'yawRad'], build: carAttitude, tags: ['attitude', 'horizon', 'heading'] },
-  { base: 'fuelLapsLeft', title: 'Fuel Laps Left', category: 'fuel', requires: ['fuelLiters', 'fuelPerLapKg'], build: fuelLapsLeft, tags: ['fuel', 'laps', 'range'] },
+  { base: 'fuelLapsLeft', title: 'Fuel Laps Left', category: 'fuel', requires: ['fuelLapsRemaining'], alternativeRequires: [['fuelLiters', 'fuelPerLapLiters']], build: fuelLapsLeft, tags: ['fuel', 'laps', 'range'] },
   { base: 'sunPosition', title: 'Sun Position', category: 'weather', requires: ['solarAltitudeRad', 'solarAzimuthRad'], build: sunPosition, tags: ['sun', 'solar', 'sky'] },
   { base: 'gpsHeading', title: 'GPS & Heading', category: 'map', requires: ['lat', 'lon', 'yawNorth'], build: gpsHeading, tags: ['gps', 'heading', 'compass'] },
   { base: 'raceControlFlags', title: 'Race Control Flags', category: 'session', requires: ['sessionFlagsRaw'], build: raceControlFlags, tags: ['flags', 'race-control'] },
@@ -474,6 +477,7 @@ export const THEMED_DERIVED_WIDGETS: HifiWidgetModule[] = CARS.flatMap((car) =>
     category: spec.category,
     tags: [...spec.tags, car.key, 'themed', 'derived', 'clean'],
     requires: spec.requires,
+    alternativeRequires: spec.alternativeRequires,
     defaultSize: { w: W, h: H },
     render: spec.build(car)
   }))
