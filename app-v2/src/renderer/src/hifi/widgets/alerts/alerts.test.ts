@@ -96,10 +96,11 @@ describe('ALERTS_WIDGETS', () => {
         rpmPct: 0.9
       }
     }
-    const render = (rpm: number, enabled = true): string =>
+    const render = (rpm: number, enabled = true, connected = true): string =>
       renderToStaticMarkup(createElement(widget.render, {
         snapshot: {
           ...populatedSnapshot(),
+          connected,
           shiftIndicatorPct: 0.5,
           rpm,
           maxRpm: 8000,
@@ -116,6 +117,7 @@ describe('ALERTS_WIDGETS', () => {
     expect(render(7100)).not.toContain(SHIFT_STROBE_BLUE)
     expect(render(7300)).toContain(SHIFT_STROBE_BLUE)
     expect(render(8000, false)).not.toContain(SHIFT_STROBE_BLUE)
+    expect(render(8000, true, false)).not.toContain(SHIFT_STROBE_BLUE)
   })
 
   it('uses the shared low-fuel threshold when visibility is absent', () => {

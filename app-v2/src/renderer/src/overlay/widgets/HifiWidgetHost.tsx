@@ -1,5 +1,7 @@
 import type { CSSProperties, ReactElement } from 'react'
+import { DEFAULT_ALERTS_CONFIG } from '../../../../shared/alerts'
 import type { CoachReport, CoachSeverity } from '../../../../shared/coach'
+import { evaluateOverlayTrigger } from '../../../../shared/overlays'
 import type { UnitSystem } from '../../../../shared/units'
 import type { HifiAiContext, HifiAiSeverity } from '../../hifi/widgets/types'
 import { HIFI_WIDGETS_BY_ID } from '../../hifi/widgets/registry'
@@ -143,15 +145,26 @@ function HifiWidgetView({ props, ai, unitSystem }: { props: WidgetProps; ai: Hif
   const fillBox = BOX_FILL_STRIP_IDS.has(mod.id)
   const dw = Math.max(1, Math.round(fillBox ? props.config.position.width : mod.defaultSize.w))
   const dh = Math.max(1, Math.round(fillBox ? props.config.position.height : mod.defaultSize.h))
-  const content = mod.render({
-    snapshot: props.snapshot,
-    ai,
-    width: dw,
-    height: dh,
-    unitSystem,
-    visibility: props.visibility,
-    alertsConfig: props.alertsConfig
-  })
+  const visible = props.visibility?.visible ?? (
+    mod.role === 'alert'
+      ? evaluateOverlayTrigger(
+          mod.defaultTrigger,
+          props.snapshot,
+          props.alertsConfig ?? DEFAULT_ALERTS_CONFIG
+        )
+      : true
+  )
+  const content = visible
+    ? mod.render({
+        snapshot: props.snapshot,
+        ai,
+        width: dw,
+        height: dh,
+        unitSystem,
+        visibility: props.visibility,
+        alertsConfig: props.alertsConfig
+      })
+    : null
   const style = props.config.style
   const borderColor = style.borderColor ?? style.border
   const borderWidth = Math.max(0, Math.round(style.borderWidth ?? (borderColor && borderColor !== 'transparent' ? 1 : 0)))

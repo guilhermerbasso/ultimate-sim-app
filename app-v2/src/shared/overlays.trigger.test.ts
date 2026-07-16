@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_ALERTS_CONFIG } from './alerts'
 import { evaluateOverlayTrigger, sanitizeOverlayTrigger } from './overlays'
+import type { OverlayTrigger } from './overlays'
 import type { TelemetrySnapshot } from './telemetry'
 
 function snap(partial: Partial<TelemetrySnapshot> = {}): TelemetrySnapshot {
@@ -16,6 +17,62 @@ describe('evaluateOverlayTrigger', () => {
   it('non-always with no snapshot => hidden', () => {
     expect(evaluateOverlayTrigger({ kind: 'pitLimiter' }, null)).toBe(false)
     expect(evaluateOverlayTrigger({ kind: 'never' }, snap())).toBe(false)
+  })
+
+  it('fails every non-always trigger closed for disconnected telemetry', () => {
+    const disconnected = snap({
+      connected: false,
+      carLeftRight: 'both',
+      relatives: {
+        ahead: { carIdx: 2, name: 'Ahead', carNumber: '2', gapSec: 0.1 }
+      },
+      shiftIndicatorPct: 1,
+      rpm: 8000,
+      maxRpm: 8000,
+      pitLimiter: true,
+      flags: {
+        green: false,
+        yellow: true,
+        blue: false,
+        white: false,
+        checkered: false,
+        red: false,
+        black: false,
+        meatball: false,
+        repair: false,
+        disqualify: false,
+        greenWhiteCheckered: false
+      },
+      fuelLapsRemaining: 1,
+      engineWarnings: {
+        waterTemp: true,
+        fuelPressure: false,
+        oilPressure: false,
+        oilTemp: false,
+        stalled: false,
+        pitLimiter: false,
+        revLimiter: false,
+        mandRepair: false,
+        optRepair: false
+      }
+    })
+    const triggers: OverlayTrigger[] = [
+      { kind: 'never' },
+      { kind: 'semantic', semantic: 'engineWarnings' },
+      { kind: 'carLeft' },
+      { kind: 'carRight' },
+      { kind: 'carLeftOrRight' },
+      { kind: 'proximity' },
+      { kind: 'shiftPoint' },
+      { kind: 'pitLimiter' },
+      { kind: 'flag' },
+      { kind: 'lowFuel' }
+    ]
+
+    for (const trigger of triggers) {
+      expect(evaluateOverlayTrigger(trigger, disconnected), trigger.kind).toBe(false)
+    }
+    expect(evaluateOverlayTrigger({ kind: 'always' }, disconnected)).toBe(true)
   })
 
   it('car left/right respects the decided side', () => {
