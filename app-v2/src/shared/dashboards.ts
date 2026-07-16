@@ -60,6 +60,7 @@ import {
   RELEASE_A_RELEASED_AT,
   RELEASE_A_TAG
 } from './catalog-order'
+import { DASHBOARD_IDENTITY_CATALOG } from './dashboard-identity-catalog.generated'
 
 export const DASHBOARD_ELEMENT_TYPES = [
   'text', 'rect', 'bar', 'barv', 'dualbar', 'deltabar', 'gauge', 'shiftlights',
@@ -561,6 +562,14 @@ export interface DashboardOpenState {
   fullscreen: boolean
 }
 
+export interface DashboardStorageIssue {
+  file: string
+  path: string
+  code?: string
+  quarantinedFile?: string
+  error: string
+}
+
 export interface DashboardOpenOptions {
   displayId?: number
   fullscreen?: boolean
@@ -606,6 +615,10 @@ export function dashboardIdRecord<T>(source?: Readonly<Record<string, T>>): Reco
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isSafeTimestamp(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value)
 }
 
 const MAX_DASHBOARD_DIMENSION = 32_768
@@ -687,7 +700,7 @@ function plainJsonValidationError(value: unknown, path = 'Dashboard'): string | 
 }
 
 const words = (value: string): string[] => value.split(' ')
-const STYLE_STRINGS = words('background border color fontFamily fillColor warnColor dangerColor text prefix suffix src secondaryBinding secondaryColor dryndaryBinding dryndaryColor flagKey traceColor2 headerColor rowAltBackground flashColor unit accentColor bindingWater bindingOil bindingOilPressure bindingAbs bindingTc bindingMap bindingBrakeBias label reference title needleColor')
+const STYLE_STRINGS = words('background border color fontFamily fillColor warnColor dangerColor text prefix suffix src secondaryBinding secondaryColor dryndaryBinding dryndaryColor flagKey traceColor2 headerColor rowAltBackground flashColor unit accentColor bindingWater bindingOil bindingOilPressure bindingAbs bindingTc bindingMap bindingBrakeBias label reference title statusOnText statusOffText needleColor')
 const STYLE_NUMBERS = words('borderWidth radius fontSize padding warnAt dangerAt segments decimals opacity filterGrayscale filterSepia redTint brightness contrast saturate hueRotate invert blur deltaRangeSec traceLength traceWidth tableMaxRows rowHeight flashAt coldAt optimalAt hotAt criticalAt targetValue tolerance reserveLaps warnAtLaps maxDegrees minFontSize maxFontSize gaugeMin gaugeMax ticks digits ringThickness zIndex')
 const STYLE_BOOLEANS = words('highlightPlayer showHeader reverse glow pitLimiterOverride showRpm showLabels showAverage enduranceMode showCurrent showLast showBest showEstimated showTotal compact includeIncidents showNumeric showIcon showNeedle showValue graphFill autoRange ghost')
 const STYLE_ARRAYS = words('tableColumns channels fields')
@@ -953,7 +966,7 @@ function validateAdaptive(value: unknown, width: number, height: number): string
       const error = validateElementList(rule.frame.elements, width, height, `${path}.frame.elements`)
       if (error) return error
       if (rule.frame.bg !== undefined && typeof rule.frame.bg !== 'string') return `${path}.frame.bg must be a string.`
-      if (rule.frame.updatedAt !== undefined && !isFiniteNumber(rule.frame.updatedAt)) return `${path}.frame.updatedAt must be a finite number.`
+      if (rule.frame.updatedAt !== undefined && !isSafeTimestamp(rule.frame.updatedAt)) return `${path}.frame.updatedAt must be a safe integer.`
     }
   }
   return null
@@ -972,11 +985,19 @@ function dashboardValidationErrorUnsafe(value: unknown): string | null {
   if (!isFiniteNumber(value.height) || value.height <= 0 || value.height > MAX_DASHBOARD_DIMENSION) return `Dashboard height must be positive, finite, and at most ${MAX_DASHBOARD_DIMENSION}.`
   if (value.scaleMode !== undefined && value.scaleMode !== 'fit' && value.scaleMode !== 'fill' && value.scaleMode !== 'stretch') return 'Dashboard scaleMode is invalid.'
   if (value.hidden !== undefined && typeof value.hidden !== 'boolean') return 'Dashboard hidden must be a boolean.'
-  for (const key of ['description', 'author', 'previewPng', 'storageEpoch', 'storageRevision'] as const) {
+  for (const key of ['description', 'author', 'previewPng'] as const) {
     if (value[key] !== undefined && typeof value[key] !== 'string') return `Dashboard ${key} must be a string.`
   }
-  if (value.createdAt !== undefined && !isFiniteNumber(value.createdAt)) return 'Dashboard createdAt must be finite.'
-  if (value.updatedAt !== undefined && !isFiniteNumber(value.updatedAt)) return 'Dashboard updatedAt must be finite.'
+  for (const key of ['storageEpoch', 'storageRevision'] as const) {
+    if (value[key] !== undefined && (typeof value[key] !== 'string' || !value[key].trim())) {
+      return `Dashboard ${key} must be a non-empty string.`
+    }
+  }
+  if ((value.storageEpoch === undefined) !== (value.storageRevision === undefined)) {
+    return 'Dashboard storageEpoch and storageRevision must be provided together.'
+  }
+  if (value.createdAt !== undefined && !isSafeTimestamp(value.createdAt)) return 'Dashboard createdAt must be a safe integer.'
+  if (value.updatedAt !== undefined && !isSafeTimestamp(value.updatedAt)) return 'Dashboard updatedAt must be a safe integer.'
   const elementError = validateElementList(value.elements, value.width, value.height, 'elements')
   if (elementError) return elementError
   return value.adaptive === undefined ? null : validateAdaptive(value.adaptive, value.width, value.height)
@@ -1088,13 +1109,13 @@ function migrateStoredElement(
 
   const widgetId = typeof element.widgetId === 'string' ? element.widgetId : undefined
   const hifiModuleId = typeof element.hifiModuleId === 'string' ? element.hifiModuleId : undefined
-  if (!widgetId && hifiModuleId) {
+  if (element.widgetId === undefined && hifiModuleId) {
     const next = `hifi:${hifiModuleId}`
     element.widgetId = next
     migrations.push({ code: 'derive-widget-id', path: `${path}.widgetId`, from: undefined, to: next })
     return
   }
-  if (widgetId?.startsWith('hifi:') && !hifiModuleId) {
+  if (widgetId?.startsWith('hifi:') && element.hifiModuleId === undefined) {
     const next = widgetId.slice('hifi:'.length)
     if (next) {
       element.hifiModuleId = next
@@ -1189,7 +1210,7 @@ function dashboardPlaylistValidationErrorUnsafe(value: unknown): string | null {
   if (plainJsonError) return plainJsonError
   if (!isRecord(value) || !Array.isArray(value.items)) return 'Dashboard playlist must contain an items array.'
   if (value.items.length > MAX_PLAIN_JSON_ARRAY_ITEMS) return 'Dashboard playlist has too many items.'
-  if (!isFiniteNumber(value.updatedAt)) return 'Dashboard playlist updatedAt must be finite.'
+  if (!isSafeTimestamp(value.updatedAt)) return 'Dashboard playlist updatedAt must be a safe integer.'
   for (let index = 0; index < value.items.length; index += 1) {
     const item = value.items[index]
     const path = `items[${index}]`
@@ -3651,6 +3672,10 @@ export const BUILTIN_PRESETS: DashboardPreset[] = withDefaultPresetPriority([
   ...HIFI_DIAG_PRESETS,
   ...HIFI_THEMED_CAR_PRESETS
 ])
+
+export function getDashboardIdentityCatalog(): readonly DashboardIdentityCatalogEntry[] {
+  return DASHBOARD_IDENTITY_CATALOG
+}
 
 export function summarizeDashboard(dash: Dashboard): DashboardSummary {
   return {
