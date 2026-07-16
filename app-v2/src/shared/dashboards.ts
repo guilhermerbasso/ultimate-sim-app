@@ -561,6 +561,12 @@ export interface DashboardOpenState {
   fullscreen: boolean
 }
 
+export interface DashboardStorageIssue {
+  file: string
+  quarantinedFile: string
+  error: string
+}
+
 export interface DashboardOpenOptions {
   displayId?: number
   fullscreen?: boolean
@@ -1088,13 +1094,13 @@ function migrateStoredElement(
 
   const widgetId = typeof element.widgetId === 'string' ? element.widgetId : undefined
   const hifiModuleId = typeof element.hifiModuleId === 'string' ? element.hifiModuleId : undefined
-  if (!widgetId && hifiModuleId) {
+  if (element.widgetId === undefined && hifiModuleId) {
     const next = `hifi:${hifiModuleId}`
     element.widgetId = next
     migrations.push({ code: 'derive-widget-id', path: `${path}.widgetId`, from: undefined, to: next })
     return
   }
-  if (widgetId?.startsWith('hifi:') && !hifiModuleId) {
+  if (widgetId?.startsWith('hifi:') && element.hifiModuleId === undefined) {
     const next = widgetId.slice('hifi:'.length)
     if (next) {
       element.hifiModuleId = next

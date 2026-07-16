@@ -1,21 +1,22 @@
+import { createHash, randomUUID } from 'node:crypto'
 import { BrowserWindow, dialog, screen, shell, type Display, type Rectangle } from 'electron'
-import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type {
   Dashboard,
   DashboardDisplayInfo,
-  DashboardElement,
   DashboardOpenOptions,
   DashboardOpenState,
   DashboardPlaylist,
   DashboardPlaylistItem,
+  DashboardStorageIssue,
   DashboardSummary
 } from '../../shared/dashboards'
 import {
   BUILTIN_PRESETS,
-  createElementId,
-  isDashboardElementType,
+  dashboardPlaylistValidationError,
+  dashboardStorageValidationResult,
   summarizeDashboard
 } from '../../shared/dashboards'
 import type { ModuleContext } from '../module-context'
@@ -126,6 +127,7 @@ function isAllowedAppNavigation(url: string): boolean {
 
 const SUBDIR = 'dashboards'
 const PLAYLIST_FILE = 'dashboard-playlist.json'
+const QUARANTINE_DIR = '.dashboard-quarantine'
 const CYCLE_DEBOUNCE_MS = 350
 
 interface SimhubImportOptions {
@@ -143,58 +145,18 @@ interface SimhubImportResponse {
   filePath?: string
 }
 
-function finiteNumber(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
+function isMissingFileError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
 }
 
-function normalizeDashboard(raw: unknown): Dashboard | null {
-  if (!raw || typeof raw !== 'object') return null
-  const source = raw as Partial<Dashboard>
-  if (typeof source.id !== 'string' || !source.id) return null
-  const width = finiteNumber(source.width)
-  const height = finiteNumber(source.height)
-  if (width === null || height === null || width <= 0 || height <= 0) return null
-  const normalizedWidth = Math.max(1, Math.round(width))
-  const normalizedHeight = Math.max(1, Math.round(height))
-  const elements = Array.isArray(source.elements)
-    ? source.elements
-        .map((element): DashboardElement | null => {
-          if (!element || typeof element !== 'object') return null
-          const candidate = element as Partial<DashboardElement>
-          if (!isDashboardElementType(candidate.type)) return null
-          const x = finiteNumber(candidate.x)
-          const y = finiteNumber(candidate.y)
-          const w = finiteNumber(candidate.w)
-          const h = finiteNumber(candidate.h)
-          if (x === null || y === null || w === null || h === null || w <= 0 || h <= 0) return null
-          return {
-            ...candidate,
-            id: typeof candidate.id === 'string' && candidate.id ? candidate.id : createElementId(),
-            type: candidate.type,
-            x: clamp(Math.round(x), 0, normalizedWidth),
-            y: clamp(Math.round(y), 0, normalizedHeight),
-            w: clamp(Math.round(w), 1, normalizedWidth),
-            h: clamp(Math.round(h), 1, normalizedHeight),
-            style: candidate.style && typeof candidate.style === 'object' ? candidate.style : {}
-          }
-        })
-        .filter((element): element is DashboardElement => Boolean(element))
-    : []
-  return {
-    ...source,
-    id: source.id,
-    name: typeof source.name === 'string' && source.name.trim() ? source.name : source.id,
-    width: normalizedWidth,
-    height: normalizedHeight,
-    bg: typeof source.bg === 'string' ? source.bg : '#05070a',
-    elements,
-    scaleMode: source.scaleMode === 'fill' || source.scaleMode === 'stretch' ? source.scaleMode : 'fit',
-    hidden: Boolean(source.hidden)
-  }
+function validatedDashboard(value: unknown, context: string): Dashboard {
+  const result = dashboardStorageValidationResult(value)
+  if (result.status === 'quarantine') throw new Error(`${context}: ${result.error}`)
+  return result.dashboard
 }
 
 function nearestDisplay(rect: Rectangle, displays: Display[]): Display | null {
@@ -219,12 +181,80 @@ interface OpenWindowMeta {
   displayId: number
   fullscreen: boolean
   kiosk: boolean
+  rendererHealthy: boolean
+}
+
+interface DashboardWindowLoadTarget {
+  isDestroyed(): boolean
+  once(event: 'closed', listener: () => void): unknown
+  off(event: 'closed', listener: () => void): unknown
+  webContents: {
+    isDestroyed(): boolean
+    once(event: 'did-finish-load', listener: () => void): unknown
+    on(event: 'did-fail-load' | 'render-process-gone', listener: (...args: unknown[]) => void): unknown
+    off(event: 'did-finish-load', listener: () => void): unknown
+    off(event: 'did-fail-load' | 'render-process-gone', listener: (...args: unknown[]) => void): unknown
+  }
+}
+
+export function waitForDashboardWindowLoad(
+  window: BrowserWindow,
+  load: () => Promise<void>
+): Promise<void> {
+  const target = window as unknown as DashboardWindowLoadTarget
+  return new Promise<void>((resolve, reject) => {
+    let settled = false
+    const cleanup = (): void => {
+      target.webContents.off('did-finish-load', onFinished)
+      target.webContents.off('did-fail-load', onFailed)
+      target.webContents.off('render-process-gone', onRendererGone)
+      target.off('closed', onClosed)
+    }
+    const succeed = (): void => {
+      if (settled) return
+      if (target.isDestroyed() || target.webContents.isDestroyed()) {
+        fail(new Error('Dashboard window was destroyed before its renderer became ready.'))
+        return
+      }
+      settled = true
+      cleanup()
+      resolve()
+    }
+    const fail = (error: unknown): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(error instanceof Error ? error : new Error(String(error)))
+    }
+    const onFinished = (): void => succeed()
+    const onFailed = (...args: unknown[]): void => {
+      if (args[4] === false) return
+      const code = typeof args[1] === 'number' ? args[1] : 0
+      const description = typeof args[2] === 'string' ? args[2] : 'unknown load failure'
+      fail(new Error(`Dashboard renderer failed to load (${code}): ${description}`))
+    }
+    const onRendererGone = (...args: unknown[]): void => {
+      const details = args[1]
+      const reason = details && typeof details === 'object' && 'reason' in details
+        ? String(details.reason)
+        : 'unknown reason'
+      fail(new Error(`Dashboard renderer exited before load completed: ${reason}`))
+    }
+    const onClosed = (): void => fail(new Error('Dashboard window closed before its renderer became ready.'))
+
+    target.webContents.once('did-finish-load', onFinished)
+    target.webContents.on('did-fail-load', onFailed)
+    target.webContents.on('render-process-gone', onRendererGone)
+    target.once('closed', onClosed)
+    void Promise.resolve().then(load).then(succeed, fail)
+  })
 }
 
 export class DashboardManager {
   private readonly storeDir: string
   private readonly windows = new Map<string, OpenWindowMeta>()
   private dashboards = new Map<string, Dashboard>()
+  private storageIssues: DashboardStorageIssue[] = []
   private loaded = false
   private loadPromise: Promise<void> | null = null
   private isDisposing = false
@@ -233,6 +263,7 @@ export class DashboardManager {
   private currentPlaylistIndex = -1
   private cycleInFlight = false
   private activateChain: Promise<void> = Promise.resolve()
+  private readonly windowOpenChains = new Map<string, Promise<void>>()
   private screenListenersRegistered = false
   private readonly onDisplaysChanged = (): void => {
     if (this.isDisposing) return
@@ -256,36 +287,53 @@ export class DashboardManager {
 
   private async loadInternal(): Promise<void> {
     if (this.loaded) return
-    this.registerScreenListeners()
     await mkdir(this.storeDir, { recursive: true })
-    let files: string[] = []
-    try {
-      files = await readdir(this.storeDir)
-    } catch {
-      files = []
-    }
+    await mkdir(join(this.storeDir, QUARANTINE_DIR), { recursive: true })
+    const files = (await readdir(this.storeDir)).sort((a, b) => a.localeCompare(b))
+    const dashboards = new Map<string, Dashboard>()
+    this.storageIssues = []
     for (const file of files) {
-      if (!file.endsWith('.json') || file === PLAYLIST_FILE) continue
+      if (!file.toLowerCase().endsWith('.json') || file === PLAYLIST_FILE) continue
+      const path = join(this.storeDir, file)
+      const raw = await readFile(path, 'utf8')
+      let parsed: unknown
       try {
-        const raw = await readFile(join(this.storeDir, file), 'utf8')
-        const dash = normalizeDashboard(JSON.parse(raw))
-        if (dash) {
-          this.dashboards.set(dash.id, dash)
-        }
-      } catch {
-        // ignora dashboards corrompidos
+        parsed = JSON.parse(raw) as unknown
+      } catch (error) {
+        await this.quarantineFile(file, `Malformed JSON: ${errorMessage(error)}`)
+        continue
+      }
+      const result = dashboardStorageValidationResult(parsed)
+      if (result.status === 'quarantine') {
+        await this.quarantineFile(file, result.error)
+        continue
+      }
+      if (dashboards.has(result.dashboard.id)) {
+        await this.quarantineFile(file, `Duplicate dashboard id "${result.dashboard.id}".`)
+        continue
+      }
+      dashboards.set(result.dashboard.id, result.dashboard)
+      if (result.status === 'migrated') {
+        logger.info('dashboards', 'dashboard loaded with in-memory storage migrations', {
+          file,
+          id: result.dashboard.id,
+          migrations: result.migrations.map((migration) => migration.code)
+        })
       }
     }
-    if (this.dashboards.size === 0) {
+    if (dashboards.size === 0) {
       // Sementeia com presets na primeira execução
       for (const preset of BUILTIN_PRESETS) {
-        const dash = preset.build()
-        this.dashboards.set(dash.id, dash)
+        const dash = validatedDashboard(preset.build(), `Builtin preset "${preset.id}" is invalid`)
+        dashboards.set(dash.id, dash)
         await this.persist(dash)
       }
     }
+    this.dashboards = dashboards
     await this.loadPlaylist()
     this.loaded = true
+    if (!this.isDisposing) this.registerScreenListeners()
+    this.ctx.broadcast('app:dash:storageIssues', this.listStorageIssues())
   }
 
   registerIpc(): void {
@@ -293,6 +341,10 @@ export class DashboardManager {
     ipc.handle('app:dash:list', async () => {
       await this.load()
       return this.list()
+    })
+    ipc.handle('app:dash:storageIssues', async () => {
+      await this.load()
+      return this.listStorageIssues()
     })
     ipc.handle('app:dash:get', async (_event, id: string) => {
       await this.load()
@@ -366,13 +418,54 @@ export class DashboardManager {
     return this.dashboards.get(id) ?? null
   }
 
+  listStorageIssues(): DashboardStorageIssue[] {
+    return this.storageIssues.map((issue) => ({ ...issue }))
+  }
+
   listOpen(): DashboardOpenState[] {
     const out: DashboardOpenState[] = []
     for (const [id, meta] of this.windows) {
-      if (meta.window.isDestroyed()) continue
+      if (!this.isWindowHealthy(meta)) continue
       out.push({ id, displayId: meta.displayId, fullscreen: meta.fullscreen })
     }
     return out
+  }
+
+  private isWindowHealthy(meta: OpenWindowMeta): boolean {
+    return meta.rendererHealthy &&
+      !meta.window.isDestroyed() &&
+      !meta.window.webContents.isDestroyed()
+  }
+
+  private bindRendererHealth(id: string, meta: OpenWindowMeta): void {
+    const markUnhealthy = (reason: string): void => {
+      if (!meta.rendererHealthy) return
+      meta.rendererHealthy = false
+      logger.warn('dashboards', 'dashboard renderer became unhealthy', { id, reason })
+      const tracked = this.windows.get(id)
+      if (tracked?.window !== meta.window) return
+      if (!meta.window.isDestroyed()) {
+        try {
+          meta.window.hide()
+        } catch (error) {
+          logger.warn('dashboards', 'failed to hide unhealthy dashboard window', {
+            id,
+            error: errorMessage(error)
+          })
+        }
+      }
+      if (!this.isDisposing) this.ctx.broadcast('app:dash:openState', this.listOpen())
+    }
+    meta.window.webContents.on('render-process-gone', (_event, details) => {
+      markUnhealthy(`render process gone: ${details.reason}`)
+    })
+    meta.window.webContents.on(
+      'did-fail-load',
+      (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+        if (isMainFrame === false) return
+        markUnhealthy(`load failed (${errorCode}): ${errorDescription}`)
+      }
+    )
   }
 
   listDisplays(): DashboardDisplayInfo[] {
@@ -558,16 +651,14 @@ export class DashboardManager {
   }
 
   async save(dash: Dashboard): Promise<DashboardSummary> {
-    if (!dash || typeof dash.id !== 'string' || !dash.id) {
-      throw new Error('Invalid dashboard: id is required.')
-    }
-    dash.updatedAt = Date.now()
-    if (!dash.createdAt) dash.createdAt = dash.updatedAt
-    this.dashboards.set(dash.id, dash)
-    await this.persist(dash)
+    const canonical = validatedDashboard(dash, 'Invalid dashboard')
+    canonical.updatedAt = Date.now()
+    if (!canonical.createdAt) canonical.createdAt = canonical.updatedAt
+    this.dashboards.set(canonical.id, canonical)
+    await this.persist(canonical)
     this.ctx.broadcast('app:dash:list', this.list())
-    this.ctx.broadcast('app:dash:updated', dash)
-    return summarizeDashboard(dash)
+    this.ctx.broadcast('app:dash:updated', canonical)
+    return summarizeDashboard(canonical)
   }
 
   async delete(id: string): Promise<DashboardSummary[]> {
@@ -576,8 +667,8 @@ export class DashboardManager {
     if (existed) {
       try {
         await unlink(join(this.storeDir, `${this.fileNameOf(id)}.json`))
-      } catch {
-        // arquivo já não existia
+      } catch (error) {
+        if (!isMissingFileError(error)) throw error
       }
     }
     const list = this.list()
@@ -613,14 +704,17 @@ export class DashboardManager {
   private async materializeBuiltinPreset(id: string): Promise<Dashboard | null> {
     const preset = BUILTIN_PRESETS.find((p) => p.id === id)
     if (!preset) return null
-    const built = preset.build()
+    const built = validatedDashboard(preset.build(), `Builtin preset "${id}" is invalid`)
     // Force the stable preset id so the dashboard is addressable by it.
     const dash: Dashboard = { ...built, id }
     this.dashboards.set(id, dash)
     try {
       await this.persist(dash)
-    } catch {
-      // Best-effort persistence — still usable in-memory for this session.
+    } catch (error) {
+      logger.warn('dashboards', 'failed to persist lazily materialized preset', {
+        id,
+        error: errorMessage(error)
+      })
     }
     this.ctx.broadcast('app:dash:list', this.list())
     return dash
@@ -645,16 +739,14 @@ export class DashboardManager {
         const result = screen.index === first.selectedScreenIndex
           ? first
           : await importSimhubDash(target, { screenIndex: screen.index })
-        const normalized = normalizeDashboard(result.dashboard)
-        if (!normalized) throw new Error(`Imported dashboard is invalid: ${screen.name}`)
-        summaries.push(await this.save(normalized))
+        const imported = validatedDashboard(result.dashboard, `Imported dashboard "${screen.name}" is invalid`)
+        summaries.push(await this.save(imported))
         for (const note of result.notes) if (!allNotes.includes(note)) allNotes.push(note)
       }
       return { summaries, notes: allNotes, screens: first.screens, selectedScreenIndex: first.selectedScreenIndex, filePath: target }
     }
-    const normalized = normalizeDashboard(first.dashboard)
-    if (!normalized) throw new Error('Imported dashboard is invalid.')
-    const summary = await this.save(normalized)
+    const imported = validatedDashboard(first.dashboard, 'Imported dashboard is invalid')
+    const summary = await this.save(imported)
     return {
       summary,
       notes: first.notes,
@@ -673,14 +765,28 @@ export class DashboardManager {
     return { path: target }
   }
 
-  async openWindow(id: string, options: DashboardOpenOptions = {}): Promise<DashboardOpenState> {
+  openWindow(id: string, options: DashboardOpenOptions = {}): Promise<DashboardOpenState> {
+    const previous = this.windowOpenChains.get(id) ?? Promise.resolve()
+    const opened = previous.then(() => this.openWindowInternal(id, options))
+    const tail = opened.then(
+      () => undefined,
+      () => undefined
+    )
+    this.windowOpenChains.set(id, tail)
+    void tail.then(() => {
+      if (this.windowOpenChains.get(id) === tail) this.windowOpenChains.delete(id)
+    })
+    return opened
+  }
+
+  private async openWindowInternal(id: string, options: DashboardOpenOptions): Promise<DashboardOpenState> {
+    if (this.isDisposing) throw new Error('Dashboard manager is shutting down.')
     let dash = this.dashboards.get(id)
     if (!dash) dash = (await this.materializeBuiltinPreset(id)) ?? undefined
     if (!dash) throw new Error(`Dashboard not found: ${id}`)
 
-    // Se já está aberto e for o mesmo monitor/fullscreen, reaproveita; senão, fecha e reabre.
     const existing = this.windows.get(id)
-    if (existing && !existing.window.isDestroyed()) {
+    if (existing && this.isWindowHealthy(existing)) {
       if (
         (options.displayId === undefined || options.displayId === existing.displayId) &&
         (options.fullscreen === undefined || options.fullscreen === existing.fullscreen) &&
@@ -689,7 +795,6 @@ export class DashboardManager {
         existing.window.focus()
         return { id, displayId: existing.displayId, fullscreen: existing.fullscreen }
       }
-      await this.closeWindow(id)
     }
 
     const displays = screen.getAllDisplays()
@@ -709,6 +814,7 @@ export class DashboardManager {
       frame: !fullscreen,
       autoHideMenuBar: true,
       fullscreen,
+      show: false,
       skipTaskbar: false,
       webPreferences: {
         // Reaproveita o preload do overlay (somente window.ipc) — dashboards
@@ -720,6 +826,14 @@ export class DashboardManager {
         backgroundThrottling: false
       }
     })
+    const next: OpenWindowMeta = {
+      window: win,
+      displayId: display.id,
+      fullscreen,
+      kiosk: options.kiosk ?? false,
+      rendererHealthy: true
+    }
+    this.bindRendererHealth(id, next)
 
     win.webContents.setWindowOpenHandler(({ url }) => {
       openExternalUrl(url)
@@ -733,38 +847,72 @@ export class DashboardManager {
     })
 
     win.on('closed', () => {
-      // Only clear tracking if THIS window is still the tracked one. A previous
-      // window's async 'closed' (after a reopen on a different display) must not
-      // delete the entry that now belongs to the new window.
-      if (this.windows.get(id)?.window === win) this.windows.delete(id)
-      if (!this.isDisposing) {
+      const wasTracked = this.windows.get(id)?.window === win
+      if (wasTracked) this.windows.delete(id)
+      if (wasTracked && !this.isDisposing) {
         this.ctx.broadcast('app:dash:openState', this.listOpen())
       }
     })
 
-    win.webContents.once('did-finish-load', () => {
-      try {
-        win.webContents.send('app:dash:updated', dash)
-        win.webContents.send('telemetry:snapshot', this.ctx.telemetryHub.getLatest())
-      } catch {
-        // janela já fechada
-      }
-    })
+    const load = process.env.ELECTRON_RENDERER_URL
+      ? (): Promise<void> => {
+          const url = applyDashboardQuery(new URL('dashboard.html', process.env.ELECTRON_RENDERER_URL), id, options.kiosk)
+          return win.loadURL(url.toString())
+        }
+      : (): Promise<void> => win.loadFile(
+          join(__dirname, '../renderer/dashboard.html'),
+          { query: buildDashboardQuery(id, options.kiosk) }
+        )
 
-    if (process.env.ELECTRON_RENDERER_URL) {
-      const url = applyDashboardQuery(new URL('dashboard.html', process.env.ELECTRON_RENDERER_URL), id, options.kiosk)
-      void win.loadURL(url.toString())
-    } else {
-      void win.loadFile(join(__dirname, '../renderer/dashboard.html'), { query: buildDashboardQuery(id, options.kiosk) })
+    try {
+      await waitForDashboardWindowLoad(win, load)
+    } catch (error) {
+      if (!win.isDestroyed()) win.close()
+      logger.warn('dashboards', 'dashboard replacement window failed before becoming ready', {
+        id,
+        error: errorMessage(error)
+      })
+      throw error
     }
-
-    this.windows.set(id, { window: win, displayId: display.id, fullscreen, kiosk: options.kiosk ?? false })
+    if (this.isDisposing) {
+      if (!win.isDestroyed()) win.close()
+      throw new Error('Dashboard manager shut down while the renderer was loading.')
+    }
+    if (!this.isWindowHealthy(next)) {
+      if (!win.isDestroyed()) win.close()
+      throw new Error('Dashboard renderer exited before the replacement could be registered.')
+    }
+    this.windows.set(id, next)
+    try {
+      win.show()
+      win.focus()
+      if (!this.isWindowHealthy(next)) {
+        throw new Error('Dashboard renderer exited while the replacement window was being shown.')
+      }
+    } catch (error) {
+      if (existing) this.windows.set(id, existing)
+      else this.windows.delete(id)
+      if (!win.isDestroyed()) win.close()
+      if (!this.isDisposing) this.ctx.broadcast('app:dash:openState', this.listOpen())
+      throw error
+    }
+    if (existing && !existing.window.isDestroyed()) {
+      try {
+        existing.window.close()
+      } catch (error) {
+        logger.warn('dashboards', 'failed to close replaced dashboard window', {
+          id,
+          error: errorMessage(error)
+        })
+      }
+    }
     logger.info('dashboards', 'dashboard window opened', { id, name: dash.name, displayId: display.id, fullscreen })
     this.ctx.broadcast('app:dash:openState', this.listOpen())
     return { id, displayId: display.id, fullscreen }
   }
 
   async closeWindow(id: string): Promise<DashboardOpenState[]> {
+    await this.windowOpenChains.get(id)
     const meta = this.windows.get(id)
     const hadWindow = Boolean(meta && !meta.window.isDestroyed())
     if (meta && !meta.window.isDestroyed()) {
@@ -797,18 +945,43 @@ export class DashboardManager {
     await writeFile(path, JSON.stringify(dash, null, 2), 'utf8')
   }
 
+  private async quarantineFile(file: string, error: string): Promise<void> {
+    const nameHash = createHash('sha256').update(file, 'utf8').digest('hex').slice(0, 16)
+    const quarantinedFile = `q.${nameHash}.${randomUUID()}.json`
+    await rename(join(this.storeDir, file), join(this.storeDir, QUARANTINE_DIR, quarantinedFile))
+    const issue: DashboardStorageIssue = { file, quarantinedFile, error }
+    this.storageIssues.push(issue)
+    logger.warn('dashboards', 'quarantined invalid dashboard storage file', issue)
+  }
+
   private async loadPlaylist(): Promise<void> {
+    const path = join(this.storeDir, PLAYLIST_FILE)
+    let raw: string
     try {
-      const raw = await readFile(join(this.storeDir, PLAYLIST_FILE), 'utf8')
-      const parsed = JSON.parse(raw) as DashboardPlaylist
-      this.playlist = {
-        items: Array.isArray(parsed.items)
-          ? parsed.items.filter((item) => item && typeof item.dashboardId === 'string')
-          : [],
-        updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : Date.now()
-      }
-    } catch {
+      raw = await readFile(path, 'utf8')
+    } catch (error) {
+      if (!isMissingFileError(error)) throw error
       this.playlist = { items: [], updatedAt: 0 }
+      return
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw) as unknown
+    } catch (error) {
+      await this.quarantineFile(PLAYLIST_FILE, `Malformed JSON: ${errorMessage(error)}`)
+      this.playlist = { items: [], updatedAt: 0 }
+      return
+    }
+    const validationError = dashboardPlaylistValidationError(parsed)
+    if (validationError) {
+      await this.quarantineFile(PLAYLIST_FILE, validationError)
+      this.playlist = { items: [], updatedAt: 0 }
+      return
+    }
+    const playlist = parsed as DashboardPlaylist
+    this.playlist = {
+      items: playlist.items.map((item) => ({ ...item })),
+      updatedAt: playlist.updatedAt
     }
   }
 

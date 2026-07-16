@@ -9,6 +9,7 @@ import type {
   DashboardPlaylist,
   DashboardPlaylistItem,
   DashboardScaleMode,
+  DashboardStorageIssue,
   DashboardSummary,
   InstrumentBezelKind,
   InstrumentMaterialKind,
@@ -514,6 +515,7 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
   const [openStates, setOpenStates] = useState<DashboardOpenState[]>([])
   const [displays, setDisplays] = useState<DashboardDisplayInfo[]>([])
   const [playlist, setPlaylist] = useState<DashboardPlaylist>({ items: [], updatedAt: 0 })
+  const [storageIssues, setStorageIssues] = useState<DashboardStorageIssue[]>([])
   const [touchSummaries, setTouchSummaries] = useState<ButtonBoxSummary[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(() => consumeEditorTarget('dashboard'))
   const [selectionMode, setSelectionMode] = useState(false)
@@ -559,11 +561,12 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
   }, [])
 
   const refreshAll = useCallback(async () => {
-    const [list, opens, screens, savedPlaylist, panels] = await Promise.all([
+    const [list, opens, screens, savedPlaylist, issues, panels] = await Promise.all([
       window.ipc.invoke<DashboardSummary[]>('app:dash:list'),
       window.ipc.invoke<DashboardOpenState[]>('app:dash:listOpen'),
       window.ipc.invoke<DashboardDisplayInfo[]>('app:dash:listDisplays'),
       window.ipc.invoke<DashboardPlaylist>('app:dash:playlist:get'),
+      window.ipc.invoke<DashboardStorageIssue[]>('app:dash:storageIssues'),
       window.ipc
         .invoke<ButtonBoxSummary[]>('app:touchpanel:list')
         .catch(() => [] as ButtonBoxSummary[])
@@ -572,6 +575,7 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
     setOpenStates(opens)
     applyDisplays(screens)
     setPlaylist(savedPlaylist)
+    setStorageIssues(issues)
     setTouchSummaries(Array.isArray(panels) ? panels : [])
     setSelectedId((current) => {
       if (current) return current
@@ -587,6 +591,7 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
     const offOpen = window.ipc.subscribe<DashboardOpenState[]>('app:dash:openState', setOpenStates)
     const offDisplays = window.ipc.subscribe<DashboardDisplayInfo[]>('app:dash:displaysChanged', applyDisplays)
     const offPlaylist = window.ipc.subscribe<DashboardPlaylist>('app:dash:playlist', setPlaylist)
+    const offStorageIssues = window.ipc.subscribe<DashboardStorageIssue[]>('app:dash:storageIssues', setStorageIssues)
     const offTouch = window.ipc.subscribe<ButtonBoxSummary[]>('app:touchpanel:list', (panels) =>
       setTouchSummaries(Array.isArray(panels) ? panels : [])
     )
@@ -600,6 +605,7 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
       offOpen()
       offDisplays()
       offPlaylist()
+      offStorageIssues()
       offTouch()
       offCycle()
     }
@@ -1336,6 +1342,18 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
       </section>
 
       {error && <section style={panel({ borderColor: '#ff5468' })}>{error}</section>}
+      {storageIssues.length > 0 && (
+        <section style={panel({ borderColor: '#ff9f43' })}>
+          <strong>Invalid dashboard files were quarantined</strong>
+          <div style={{ marginTop: 8, display: 'grid', gap: 6, color: TEXT_DIM, fontSize: 12 }}>
+            {storageIssues.map((issue) => (
+              <div key={issue.quarantinedFile}>
+                <code>{issue.file}</code>: {issue.error} Saved unchanged in <code>.dashboard-quarantine/{issue.quarantinedFile}</code>.
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {importPicker && (
         <section style={panel({ borderColor: ACCENT })}>

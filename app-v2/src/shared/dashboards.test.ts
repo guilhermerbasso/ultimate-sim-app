@@ -564,6 +564,26 @@ describe('dashboard storage schema compatibility', () => {
     expect(legacy).toEqual(original)
   })
 
+  it('quarantines wrong-typed overlay identities instead of deriving over them', () => {
+    const invalid = storedDashboard('wrong-overlay-identity-type')
+    invalid.elements = [{
+      id: 'overlay',
+      type: 'overlaywidget',
+      x: 0,
+      y: 0,
+      w: 320,
+      h: 160,
+      widgetId: 42,
+      hifiModuleId: 'speedGear',
+      style: {}
+    } as unknown as DashboardElement]
+
+    expect(dashboardStorageValidationResult(invalid)).toMatchObject({
+      status: 'quarantine',
+      error: expect.stringMatching(/widgetId/)
+    })
+  })
+
   it('accepts exact editor trace bounds and quarantines values immediately outside them', () => {
     const accepted: Array<['deltaRangeSec' | 'traceWidth', number]> = [
       ['deltaRangeSec', DASHBOARD_DELTA_RANGE_SEC_MIN],
