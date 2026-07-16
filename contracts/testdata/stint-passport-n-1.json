@@ -1,0 +1,30 @@
+{
+  "identity": {
+    "stintId": "stint-n-1",
+    "sessionRef": "session:n-1",
+    "trackRef": "track:n-1",
+    "trackLabel": "Legacy Circuit",
+    "carRef": "car:n-1",
+    "carLabel": "Legacy GT3",
+    "driverRef": "driver:n-1",
+    "driverLabel": "Legacy Driver",
+    "startedAtMs": "500"
+  },
+  "lifecycle": "PASSPORT_LIFECYCLE_AWAITING_CHECKLIST",
+  "telemetryContext": "TELEMETRY_CONTEXT_LIVE",
+  "items": [
+    {
+      "itemId": "PASSPORT_ITEM_ID_SESSION_IDENTITY",
+      "status": "PASSPORT_ITEM_STATUS_VERIFIED",
+      "detail": "Legacy session identity.",
+      "verifiedAtMs": "500",
+      "revision": "1"
+    },
+    {
+      "itemId": "PASSPORT_ITEM_ID_INCOMING_DRIVER",
+      "status": "PASSPORT_ITEM_STATUS_UNKNOWN",
+      "detail": "Legacy driver pending.",
+      "revision": "1"
+    }
+  ]
+}

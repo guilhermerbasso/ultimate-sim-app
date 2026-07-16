@@ -2,12 +2,11 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   cpSync,
-  mkdtempSync,
+  mkdirSync,
   readFileSync,
   rmSync,
   writeFileSync
 } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -31,11 +30,33 @@ const provenancePath = join(
   'v1',
   'provenance.proto'
 )
+const passportPath = join(
+  protoRoot,
+  'ultimate',
+  'sim',
+  'raceops',
+  'v1',
+  'stint_passport.proto'
+)
+const generatedDescriptorPath = join(
+  repoRoot,
+  'app-v2',
+  'src',
+  'main',
+  'phase02',
+  'generated',
+  'contract-descriptor.ts'
+)
 const profilePath = join(contractsRoot, 'cloudevents', 'profile-v1.json')
 const fixturePath = join(
   contractsRoot,
   'testdata',
   'breaking-field-reuse.json'
+)
+const goldenManifestPath = join(
+  contractsRoot,
+  'testdata',
+  'phase02-golden-manifest.json'
 )
 const bufBinary = process.env.BUF_BIN || (process.platform === 'win32' ? 'buf.exe' : 'buf')
 const contractBaseRef = (process.env.CONTRACT_BASE_REF || '').trim()
@@ -75,7 +96,7 @@ function sha256(path) {
 }
 
 function validateEditionSources() {
-  for (const path of [raceOpsPath, provenancePath]) {
+  for (const path of [raceOpsPath, provenancePath, passportPath]) {
     const source = readFileSync(path, 'utf8')
     const firstStatement = source
       .split(/\r?\n/)
@@ -231,6 +252,62 @@ function validateDescriptorTypes(descriptorPath) {
       throw new Error(`RaceOpsEvent.${name} must remain an authoritative uint64 field`)
     }
   }
+  const passportFile = (descriptor.file || []).find(
+    (file) => file.name === 'ultimate/sim/raceops/v1/stint_passport.proto'
+  )
+  const expectedMessages = new Set([
+    'PassportOwner',
+    'PassportRosterMember',
+    'PassportItemEvidence',
+    'PassportItem',
+    'StintIdentity',
+    'StintPassport',
+    'PassportEvent'
+  ])
+  for (const message of passportFile?.messageType || []) expectedMessages.delete(message.name)
+  if (expectedMessages.size > 0) {
+    throw new Error(`Stint Passport descriptor is incomplete: ${[...expectedMessages].join(', ')}`)
+  }
+  const itemEnum = (passportFile?.enumType || []).find((entry) => entry.name === 'PassportItemId')
+  const itemValues = (itemEnum?.value || []).filter((entry) => entry.number > 0)
+  if (itemValues.length !== 12) {
+    throw new Error(`PassportItemId must define exactly 12 non-zero checklist items, found ${itemValues.length}`)
+  }
+}
+
+function validateGeneratedDescriptor(expectedFingerprint) {
+  const source = readFileSync(generatedDescriptorPath, 'utf8')
+  const declared = source.match(/PHASE02_DESCRIPTOR_SHA256 = '([0-9a-f]{64})'/)?.[1]
+  const base64 = source.match(/PHASE02_DESCRIPTOR_BASE64 = '([A-Za-z0-9+/=]+)'/)?.[1]
+  if (!declared || !base64) throw new Error('Generated Phase 02 descriptor constants are missing')
+  const bytes = Buffer.from(base64, 'base64')
+  const actual = createHash('sha256').update(bytes).digest('hex')
+  if (declared !== actual || actual !== expectedFingerprint) {
+    throw new Error('Generated Phase 02 descriptor is stale; run scripts/generate-phase02-descriptor.mjs')
+  }
+}
+
+function validateGoldenManifest() {
+  const manifest = JSON.parse(readFileSync(goldenManifestPath, 'utf8'))
+  if (manifest.version !== 1 || !Array.isArray(manifest.fixtures)) {
+    throw new Error('Phase 02 golden manifest is invalid')
+  }
+  for (const fixture of manifest.fixtures) {
+    const jsonPath = join(contractsRoot, 'testdata', fixture.json)
+    const binaryPath = join(contractsRoot, 'testdata', fixture.binary)
+    if (sha256(jsonPath) !== fixture.jsonSha256) {
+      throw new Error(`Phase 02 golden JSON hash mismatch: ${fixture.json}`)
+    }
+    if (sha256(binaryPath) !== fixture.binarySha256) {
+      throw new Error(`Phase 02 golden binary hash mismatch: ${fixture.binary}`)
+    }
+  }
+  if (!manifest.fixtures.some((fixture) =>
+    fixture.type === 'ultimate.sim.raceops.v1.StintPassport' &&
+    fixture.producerVersion === 0
+  )) {
+    throw new Error('Phase 02 N-1 Stint Passport fixture is missing')
+  }
 }
 
 function validateRealSchemaEvolution() {
@@ -272,10 +349,13 @@ function validateRealSchemaEvolution() {
 
 validateEditionSources()
 validateCloudEventsProfile()
+validateGoldenManifest()
 runBuf(['lint', contractsRoot])
 const baselineStatus = validateRealSchemaEvolution()
 
-const tempRoot = mkdtempSync(join(tmpdir(), 'ultimate-sim-contracts-'))
+const tempRoot = join(repoRoot, `.phase02-contract-verify-${process.pid}`)
+rmSync(tempRoot, { recursive: true, force: true })
+mkdirSync(tempRoot, { recursive: true })
 try {
   const firstDescriptor = join(tempRoot, 'descriptor-1.binpb')
   const secondDescriptor = join(tempRoot, 'descriptor-2.binpb')
@@ -297,6 +377,7 @@ try {
     throw new Error('Descriptor fingerprint is not reproducible')
   }
   validateDescriptorTypes(descriptorJson)
+  validateGeneratedDescriptor(firstFingerprint)
 
   const breakingRoot = join(tempRoot, 'breaking-field-reuse')
   cpSync(contractsRoot, breakingRoot, { recursive: true })
@@ -335,6 +416,7 @@ try {
     cloudeventsExtensions: Object.keys(
       JSON.parse(readFileSync(profilePath, 'utf8')).extensions
     ).length,
+    passportItems: 12,
     breakingFixtureRejected: true
   }))
 } finally {

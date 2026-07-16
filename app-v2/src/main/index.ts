@@ -21,6 +21,7 @@ import { ProfileStore } from './profiles'
 import { SerialHub } from './serial/hub'
 import { SerialManager } from './serial-manager'
 import { TelemetryHub } from './telemetry/hub'
+import { Phase02TapKernel } from './phase02/tap-kernel'
 import { isBenignSerialError, serialErrorMessage } from './serial/errors'
 import { logger } from './modules/logger'
 import { instrumentBroadcast, instrumentIpcMain } from './modules/diagnostics-log'
@@ -80,6 +81,7 @@ const serialHub = new SerialHub()
 const serialManager = new SerialManager(serialHub)
 const profileStore = new ProfileStore()
 const telemetryHub = new TelemetryHub()
+const phase02Tap = new Phase02TapKernel(telemetryHub)
 const iracingControl = new IRacingControl()
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -229,6 +231,11 @@ async function gracefulTeardown(): Promise<void> {
         task: () => serialHub.disconnectAll()
       },
       {
+        stage: 'phase02-tap-dispose',
+        timeoutMs: HARDWARE_OPERATION_TIMEOUT_MS,
+        task: () => phase02Tap.dispose()
+      },
+      {
         stage: 'telemetry-dispose',
         timeoutMs: HARDWARE_OPERATION_TIMEOUT_MS,
         task: () => telemetryHub.dispose()
@@ -289,6 +296,7 @@ function buildModuleContext(): ModuleContext {
     app,
     ipcMain: instrumentIpcMain(ipcMain),
     telemetryHub,
+    phase02Tap,
     serialManager,
     serialHub,
     profileStore,
