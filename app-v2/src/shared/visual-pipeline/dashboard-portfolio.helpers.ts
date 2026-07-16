@@ -13,6 +13,7 @@ import {
   type DashboardPortfolioFamilyId,
   type DashboardPortfolioId
 } from './dashboard-portfolio.types'
+import { isControlledTag } from '../tags'
 
 export const DASHBOARD_PORTFOLIO_TAG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
@@ -215,6 +216,7 @@ export function validateDashboardPortfolioEntry(entry: DashboardPortfolioEntry):
   ]
   for (const tag of requiredTags) {
     if (!entry.tags.includes(tag)) errors.push(`missing required tag ${tag}`)
+    if (!isControlledTag(tag)) errors.push(`required portfolio tag is not controlled: ${tag}`)
   }
 
   for (const conceptId of entry.requiredTelemetryConceptIds) {

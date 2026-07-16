@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { isControlledTag } from '../tags'
 import {
   DASHBOARD_PORTFOLIO,
   DASHBOARD_PORTFOLIO_FAMILIES,
@@ -91,6 +92,34 @@ describe('Release B dashboard portfolio registry', () => {
       expect(entry.tags).toContain('release-b')
       expect(entry.tags).toContain(`family-${entry.familyId.toLowerCase()}`)
     }
+  })
+
+  it('keeps every required portfolio filter tag in the shared controlled vocabulary', () => {
+    const requiredPortfolioTags = new Set(
+      DASHBOARD_PORTFOLIO.flatMap((entry) => [
+        'dashboard',
+        'telemetry-framework',
+        'release-b',
+        `family-${entry.familyId.toLowerCase()}`
+      ])
+    )
+
+    expect([...requiredPortfolioTags].sort()).toEqual([
+      'dashboard',
+      'family-a',
+      'family-b',
+      'family-c',
+      'family-d',
+      'family-e',
+      'family-f',
+      'family-g',
+      'family-h',
+      'family-i',
+      'family-j',
+      'release-b',
+      'telemetry-framework'
+    ])
+    for (const tag of requiredPortfolioTags) expect(isControlledTag(tag), tag).toBe(true)
   })
 
   it('interleaves A through J in each of five processing waves', () => {

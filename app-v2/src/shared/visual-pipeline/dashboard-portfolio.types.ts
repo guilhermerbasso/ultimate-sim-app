@@ -29,9 +29,11 @@ export const DASHBOARD_PORTFOLIO_SOURCE_IDS = [
 export type DashboardPortfolioSourceId = (typeof DASHBOARD_PORTFOLIO_SOURCE_IDS)[number]
 
 /**
- * Unprefixed IDs mirror the normalized telemetry inventory. Supplemental concepts
- * are deliberately namespaced so a brief never pretends that an unavailable
- * series feed or a future derived model already exists in TelemetrySnapshot.
+ * Unprefixed IDs are descriptor/inventory concepts, not direct TelemetrySnapshot
+ * property names. Each maps to one or more normalized snapshot fields (for
+ * example, `speed` maps to `speedKmh` and `engineRpm` maps to `rpm`).
+ * Supplemental concepts are deliberately namespaced so a brief never pretends
+ * that an unavailable series feed or future derived model already exists.
  */
 export const DASHBOARD_PORTFOLIO_TELEMETRY_CONCEPT_IDS = [
   'speed',
