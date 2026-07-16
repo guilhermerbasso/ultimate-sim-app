@@ -814,17 +814,10 @@ export const TELEMETRY_CAPABILITIES = [
     focus: 'setup',
     requiredSnapshotFields: ['engineMap'],
     normalizedSnapshotPaths: ['engineMap'],
-    rawIracingHints: ['dcFuelMixture', 'dcEnginePower', 'dcBoostLevel'],
+    rawIracingHints: ['dcFuelMixture', 'dcEnginePower'],
     data: { kind: 'setting', unit: null, detail: 'setting' },
     dependencies: { car: 'feature-dependent', session: 'live-session', notes: 'car-dependent' },
     normalization: 'first defined genuine engine-map channel',
-    sourceConstraints: [
-      {
-        id: 'provider-fallback-ambiguous',
-        scope: 'provider',
-        detail: 'The capability accepts dcFuelMixture, dcEnginePower, or dcBoostLevel. The current provider also falls back to dcThrottleShape; that fallback belongs to throttleMap and must be removed by provider integration.'
-      }
-    ],
     tags: ['engine-map', 'setup'],
     representations: {
       competition: 'setting tile',

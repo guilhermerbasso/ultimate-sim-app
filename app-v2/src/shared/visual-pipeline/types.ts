@@ -100,8 +100,7 @@ export interface TelemetryRepresentationContract {
 }
 
 export type TelemetrySourceConstraintId =
-  | 'provider-fallback-ambiguous'
-  | 'provider-normalization-missing'
+  'provider-normalization-missing'
 
 export interface TelemetrySourceConstraint {
   id: TelemetrySourceConstraintId

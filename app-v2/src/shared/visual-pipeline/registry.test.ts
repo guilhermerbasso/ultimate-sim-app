@@ -317,6 +317,60 @@ describe('visual telemetry capability registry', () => {
     }
   })
 
+  it('matches runtime threshold sources and provenance exactly', () => {
+    const expected = {
+      'shift-point': {
+        ruleId: 'configured-shift-point',
+        thresholdSource: 'user-config',
+        policyRef: 'AlertsConfig.shiftPoint.shiftIndicatorPct and rpmPct',
+        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts/widgets.tsx#alertShiftFlash|app-v2/src/shared/alerts.ts#AlertsConfig.shiftPoint|app-v2/src/shared/overlay-trigger.ts#shiftPointActive'
+      },
+      'water-temperature': {
+        ruleId: 'sdk-water-temperature-warning',
+        thresholdSource: 'sdk',
+        policyRef: 'SDK EngineWarnings.waterTemp bit; live temperature is display-only',
+        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts2/widgets.tsx#alert2WaterTempCritical|app-v2/src/shared/telemetry.ts#ENGINE_WARNING_BITS.waterTemp|app-v2/src/shared/overlay-trigger.ts#POLICIES.alert2WaterTempCritical'
+      },
+      'oil-temperature': {
+        ruleId: 'sdk-oil-temperature-warning',
+        thresholdSource: 'sdk',
+        policyRef: 'SDK EngineWarnings.oilTemp bit; live temperature is display-only',
+        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts2/widgets.tsx#alert2OilTempCritical|app-v2/src/shared/telemetry.ts#ENGINE_WARNING_BITS.oilTemp|app-v2/src/shared/overlay-trigger.ts#POLICIES.alert2OilTempCritical'
+      },
+      'oil-pressure': {
+        ruleId: 'sdk-oil-pressure-warning',
+        thresholdSource: 'sdk',
+        policyRef: 'SDK EngineWarnings.oilPressure bit; live pressure is display-only',
+        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts2/widgets.tsx#alert2OilPressureLow|app-v2/src/shared/telemetry.ts#ENGINE_WARNING_BITS.oilPressure|app-v2/src/shared/overlay-trigger.ts#POLICIES.alert2OilPressureLow'
+      },
+      'tyre-temperature': {
+        ruleId: 'configured-tyre-temperature',
+        thresholdSource: 'user-config',
+        policyRef: 'AlertsConfig.tyreTemp.maxC',
+        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts2/widgets.tsx#alert2TyreTempCritical|app-v2/src/shared/alerts.ts#AlertsConfig.tyreTemp.maxC|app-v2/src/shared/overlay-trigger.ts#hottestTyre'
+      },
+      'brake-pressure': {
+        ruleId: 'configured-brake-pressure',
+        thresholdSource: 'user-config',
+        policyRef: 'AlertsConfig.brakePressureLow.brakeInputMin and maxLinePressureBar',
+        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts2/widgets.tsx#alert2BrakePressureLow|app-v2/src/shared/alerts.ts#AlertsConfig.brakePressureLow|app-v2/src/shared/overlay-trigger.ts#brakePressureLow'
+      }
+    } as const
+
+    for (const [familyId, contract] of Object.entries(expected)) {
+      const rule = getTriggerOnlyFamily(familyId)?.rules[0]
+      expect(rule).toMatchObject({
+        id: contract.ruleId,
+        thresholdSource: contract.thresholdSource,
+        policyRef: contract.policyRef,
+        provenance: contract.provenance,
+        provenanceHash: `sha256:${createHash('sha256')
+          .update(contract.provenance)
+          .digest('hex')}`
+      })
+    }
+  })
+
   it('delegates low fuel to configured laps policy without cross-unit math', () => {
     const lowFuel = getTriggerOnlyFamily('low-fuel')
     const rule = lowFuel?.rules[0]
@@ -338,17 +392,12 @@ describe('visual telemetry capability registry', () => {
 
     expect(engineMap?.rawIracingHints).toEqual([
       'dcFuelMixture',
-      'dcEnginePower',
-      'dcBoostLevel'
+      'dcEnginePower'
     ])
+    expect(engineMap?.rawIracingHints).not.toContain('dcBoostLevel')
     expect(engineMap?.rawIracingHints).not.toContain('dcThrottleShape')
     expect(engineMap?.requiredSnapshotFields).toEqual(['engineMap'])
-    expect(engineMap?.sourceConstraints).toEqual([
-      expect.objectContaining({
-        id: 'provider-fallback-ambiguous',
-        detail: expect.stringContaining('dcThrottleShape')
-      })
-    ])
+    expect(engineMap?.sourceConstraints).toEqual([])
 
     expect(throttleMap?.rawIracingHints).toEqual(['dcThrottleShape'])
     expect(throttleMap?.requiredSnapshotFields).toEqual(['throttleMap'])

@@ -92,11 +92,11 @@ export const TRIGGER_ONLY_FAMILY_REGISTRY = [
         id: 'configured-shift-point',
         trigger: { kind: 'shiftPoint' },
         temporalMode: 'level',
-        thresholdSource: 'car-config',
-        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts/widgets.tsx#alertShiftFlash|app-v2/src/shared/alerts.ts#AlertsConfig.shiftPoint|app-v2/src/shared/revlights.ts',
-        provenanceHash: 'sha256:e338d40c23645a72c712b93a6895e433c4ac5dfca9a43c6951ca68956880622a',
+        thresholdSource: 'user-config',
+        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts/widgets.tsx#alertShiftFlash|app-v2/src/shared/alerts.ts#AlertsConfig.shiftPoint|app-v2/src/shared/overlay-trigger.ts#shiftPointActive',
+        provenanceHash: 'sha256:abbf7e64c88c72f6cab0fd473ff62ef829e70852b4df2c4dabf513abd6031ba7',
         unknownBehavior: 'hidden',
-        policyRef: 'Shared rev-light car thresholds and configured shift-point policy',
+        policyRef: 'AlertsConfig.shiftPoint.shiftIndicatorPct and rpmPct',
         sourceConstraint: 'The registry does not encode a universal shift percentage or RPM percentage.',
         fixtures: fixtures('configured-shift-point')
       }
@@ -196,15 +196,15 @@ export const TRIGGER_ONLY_FAMILY_REGISTRY = [
     severity: 'critical',
     rules: [
       {
-        id: 'reviewed-water-temperature-policy',
+        id: 'sdk-water-temperature-warning',
         trigger: { kind: 'semantic', semantic: 'alert2WaterTempCritical' },
         temporalMode: 'level',
-        thresholdSource: 'reviewed-policy',
-        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts2/widgets.tsx#alert2WaterTempCritical|app-v2/src/shared/overlay-trigger.ts#POLICIES.alert2WaterTempCritical',
-        provenanceHash: 'sha256:23305add99817ae6d61970f43eb51f9d3ce5053ccfa61e84db7a04d4c1e4c15a',
+        thresholdSource: 'sdk',
+        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts2/widgets.tsx#alert2WaterTempCritical|app-v2/src/shared/telemetry.ts#ENGINE_WARNING_BITS.waterTemp|app-v2/src/shared/overlay-trigger.ts#POLICIES.alert2WaterTempCritical',
+        provenanceHash: 'sha256:c6c39df8df5828c8ad401f947494503b538ed780811fc5298a6b3935fc3363d7',
         unknownBehavior: 'hidden',
-        policyRef: 'Reviewed water-temperature or SDK warning policy',
-        fixtures: fixtures('reviewed-water-temperature-policy')
+        policyRef: 'SDK EngineWarnings.waterTemp bit; live temperature is display-only',
+        fixtures: fixtures('sdk-water-temperature-warning')
       }
     ]
   }),
@@ -217,15 +217,15 @@ export const TRIGGER_ONLY_FAMILY_REGISTRY = [
     severity: 'critical',
     rules: [
       {
-        id: 'reviewed-oil-temperature-policy',
+        id: 'sdk-oil-temperature-warning',
         trigger: { kind: 'semantic', semantic: 'alert2OilTempCritical' },
         temporalMode: 'level',
-        thresholdSource: 'reviewed-policy',
-        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts2/widgets.tsx#alert2OilTempCritical|app-v2/src/shared/overlay-trigger.ts#POLICIES.alert2OilTempCritical',
-        provenanceHash: 'sha256:87fe908d515a40c7d01398b709d7e99a87e8dd76c9d28b2b75476fdca89cd45c',
+        thresholdSource: 'sdk',
+        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts2/widgets.tsx#alert2OilTempCritical|app-v2/src/shared/telemetry.ts#ENGINE_WARNING_BITS.oilTemp|app-v2/src/shared/overlay-trigger.ts#POLICIES.alert2OilTempCritical',
+        provenanceHash: 'sha256:cc189510908b344f2a29f8403e364b09abef270de70cb7b0f4453131c880e128',
         unknownBehavior: 'hidden',
-        policyRef: 'Reviewed oil-temperature or SDK warning policy',
-        fixtures: fixtures('reviewed-oil-temperature-policy')
+        policyRef: 'SDK EngineWarnings.oilTemp bit; live temperature is display-only',
+        fixtures: fixtures('sdk-oil-temperature-warning')
       }
     ]
   }),
@@ -238,15 +238,15 @@ export const TRIGGER_ONLY_FAMILY_REGISTRY = [
     severity: 'critical',
     rules: [
       {
-        id: 'reviewed-oil-pressure-policy',
+        id: 'sdk-oil-pressure-warning',
         trigger: { kind: 'semantic', semantic: 'alert2OilPressureLow' },
         temporalMode: 'level',
-        thresholdSource: 'reviewed-policy',
-        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts2/widgets.tsx#alert2OilPressureLow|app-v2/src/shared/overlay-trigger.ts#POLICIES.alert2OilPressureLow',
-        provenanceHash: 'sha256:2adc50485fbe249d7c8542f297f989fa22695896c0aa21017ae8b60009fad194',
+        thresholdSource: 'sdk',
+        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts2/widgets.tsx#alert2OilPressureLow|app-v2/src/shared/telemetry.ts#ENGINE_WARNING_BITS.oilPressure|app-v2/src/shared/overlay-trigger.ts#POLICIES.alert2OilPressureLow',
+        provenanceHash: 'sha256:0c1aa2784fea5c308f6042c7068ed36eaffd282d593fc85cc808a34fbefd897a',
         unknownBehavior: 'hidden',
-        policyRef: 'Reviewed oil-pressure or SDK warning policy',
-        fixtures: fixtures('reviewed-oil-pressure-policy')
+        policyRef: 'SDK EngineWarnings.oilPressure bit; live pressure is display-only',
+        fixtures: fixtures('sdk-oil-pressure-warning')
       }
     ]
   }),
@@ -301,15 +301,15 @@ export const TRIGGER_ONLY_FAMILY_REGISTRY = [
     severity: 'critical',
     rules: [
       {
-        id: 'reviewed-tyre-temperature-policy',
+        id: 'configured-tyre-temperature',
         trigger: { kind: 'semantic', semantic: 'alert2TyreTempCritical' },
         temporalMode: 'level',
-        thresholdSource: 'reviewed-policy',
-        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts2/widgets.tsx#alert2TyreTempCritical|app-v2/src/shared/overlay-trigger.ts#POLICIES.alert2TyreTempCritical',
-        provenanceHash: 'sha256:14a41c46c726a07fa3c44d2cf60e9e43c93de40a1b912fa5f3b2ff25c602591b',
+        thresholdSource: 'user-config',
+        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts2/widgets.tsx#alert2TyreTempCritical|app-v2/src/shared/alerts.ts#AlertsConfig.tyreTemp.maxC|app-v2/src/shared/overlay-trigger.ts#hottestTyre',
+        provenanceHash: 'sha256:e6891f0c72a1179f5c6b686fe23fc791532787bb462f0138b4d34ca05a88c508',
         unknownBehavior: 'hidden',
-        policyRef: 'Reviewed maximum available tyre-zone temperature policy',
-        fixtures: fixtures('reviewed-tyre-temperature-policy')
+        policyRef: 'AlertsConfig.tyreTemp.maxC',
+        fixtures: fixtures('configured-tyre-temperature')
       }
     ]
   }),
@@ -322,15 +322,15 @@ export const TRIGGER_ONLY_FAMILY_REGISTRY = [
     severity: 'critical',
     rules: [
       {
-        id: 'reviewed-brake-pressure-policy',
+        id: 'configured-brake-pressure',
         trigger: { kind: 'semantic', semantic: 'alert2BrakePressureLow' },
         temporalMode: 'level',
-        thresholdSource: 'reviewed-policy',
-        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts2/widgets.tsx#alert2BrakePressureLow|app-v2/src/shared/overlay-trigger.ts#POLICIES.alert2BrakePressureLow',
-        provenanceHash: 'sha256:2e9dc9dafe7687729e8be346b563fa39b0620f1d704756841f1b657d19979943',
+        thresholdSource: 'user-config',
+        provenance: 'app-v2/src/renderer/src/hifi/widgets/alerts2/widgets.tsx#alert2BrakePressureLow|app-v2/src/shared/alerts.ts#AlertsConfig.brakePressureLow|app-v2/src/shared/overlay-trigger.ts#brakePressureLow',
+        provenanceHash: 'sha256:b758cba0c989906776ba22c58883841c846d0dacb1d5cc7f695dbfe22480ef01',
         unknownBehavior: 'hidden',
-        policyRef: 'Reviewed brake-input and brake-line-pressure policy',
-        fixtures: fixtures('reviewed-brake-pressure-policy')
+        policyRef: 'AlertsConfig.brakePressureLow.brakeInputMin and maxLinePressureBar',
+        fixtures: fixtures('configured-brake-pressure')
       }
     ]
   }),
