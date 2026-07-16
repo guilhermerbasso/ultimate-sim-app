@@ -41,9 +41,9 @@ export class MockProvider implements TelemetryProvider {
     const waterTempC = 92 + Math.sin(t * 0.05) * 3
     const oilTempC = 108 + Math.sin(t * 0.07) * 4
 
-    const fuelPerLap = 2.6
+    const fuelPerLapLiters = 2.6
     const fuelCapacity = 90
-    const fuelLiters = Math.max(0, fuelCapacity - fuelPerLap * (t / lapSeconds))
+    const fuelLiters = Math.max(0, fuelCapacity - fuelPerLapLiters * (t / lapSeconds))
 
     // Caminho fechado e suave parametrizado por lapPct, para o track-map learner
     // poder reconstruir um traçado plausível 100% no Mac. Periódico em 2π → fecha
@@ -154,7 +154,9 @@ export class MockProvider implements TelemetryProvider {
       totalCars: drivers.length,
       strengthOfField: 3200,
       fuelLiters,
-      fuelPerLap,
+      fuelPerLap: fuelPerLapLiters,
+      fuelPerLapLiters,
+      fuelLapsRemaining: fuelLiters / fuelPerLapLiters,
       fuelCapacityLiters: fuelCapacity,
       tyres: {
         lf: { tempC: 82 + brake * 20, pressureKpa: 165, wearPct: 1 - (t / lapSeconds) * 0.012 },

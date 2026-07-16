@@ -27,6 +27,28 @@ describe('TYRES_WIDGETS', () => {
     }
   })
 
+  it('keeps the generic pressure widget live-only and ignores garage cold pressures', () => {
+    const widget = TYRES_WIDGETS.find((item) => item.id === 'tyrePressure')
+    expect(widget?.requires).toEqual(['liveTyrePressureKpa'])
+    if (!widget) return
+    const markup = renderToStaticMarkup(createElement(widget.render, {
+      snapshot: {
+        ...baseSnapshot(),
+        tyres: {
+          lf: {},
+          rf: {},
+          lr: {},
+          rr: {}
+        },
+        tireColdPressuresKpa: { lf: 165, rf: 166, lr: 162, rr: 163 }
+      },
+      width: widget.defaultSize.w,
+      height: widget.defaultSize.h
+    }))
+    expect(markup).not.toContain('165')
+    expect(markup).toContain('—')
+  })
+
   it('renders base, null, and extreme invalid snapshots without unsafe tokens', () => {
     const extreme: TelemetrySnapshot = {
       ...baseSnapshot(),

@@ -1,9 +1,10 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { createDefaultOverlaysConfig } from '../../../../shared/overlays'
+import { createDefaultOverlaysConfig, OVERLAY_WIDGETS } from '../../../../shared/overlays'
 import type { OverlayWidgetConfig } from '../../../../shared/overlays'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
+import { widgetSupportedSims } from '../../../../shared/sim-coverage'
 import { resolveSkin } from '../../skins'
 import { PerCornerTyrePressureWidget } from './PerCornerTyrePressureWidget'
 
@@ -67,6 +68,16 @@ const CASES: Array<[string, TelemetrySnapshot | null]> = [
 ]
 
 describe('PerCornerTyrePressureWidget', () => {
+  it('models live pressure and explicitly cold-labelled iRacing pressure separately', () => {
+    const definition = OVERLAY_WIDGETS.find((widget) => widget.id === 'perCornerTyrePressure')
+    expect(definition?.requires).toEqual(['liveTyrePressureKpa'])
+    expect(definition?.alternativeRequires).toEqual([['tireColdPressuresKpa']])
+    expect(widgetSupportedSims(
+      definition?.requires,
+      definition?.alternativeRequires
+    )).toEqual(['iracing', 'acc', 'lmu'])
+  })
+
   it('renders every snapshot NaN / undefined / Infinity-free', () => {
     for (const [label, snap] of CASES) {
       let out = ''

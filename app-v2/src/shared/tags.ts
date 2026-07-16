@@ -4,21 +4,28 @@
 // telemetry fields it needs (`requires`) via the sim-coverage map. So an item that
 // reads `tyres` is auto-tagged IR/ACC/LMU, one that reads `drivers` is auto-tagged
 // IR, etc. — never hand-maintained.
-import type { TelemetrySnapshot } from './telemetry'
-import { simLabel, widgetSupportedSims } from './sim-coverage'
+import {
+  simLabel,
+  widgetSupportedSims,
+  type TelemetryRequirement
+} from './sim-coverage'
 
-export type TelemetryField = keyof TelemetrySnapshot
+export type TelemetryField = TelemetryRequirement
 
 /** Sim tags (e.g. ['IR','ACC','LMU']) that a widget supports, from its required fields. */
-export function simTagsFor(requires: readonly TelemetryField[] | undefined): string[] {
-  return widgetSupportedSims(requires).map((s) => simLabel(s))
+export function simTagsFor(
+  requires: readonly TelemetryField[] | undefined,
+  alternativeRequires: readonly (readonly TelemetryField[])[] = []
+): string[] {
+  return widgetSupportedSims(requires, alternativeRequires).map((s) => simLabel(s))
 }
 
 /** Manual tags + optional category + auto sim tags, de-duplicated, stable order. */
 export function mergeTags(
   manual: readonly string[] | undefined,
   requires: readonly TelemetryField[] | undefined,
-  category?: string
+  category?: string,
+  alternativeRequires: readonly (readonly TelemetryField[])[] = []
 ): string[] {
   const out: string[] = []
   const seen = new Set<string>()
@@ -31,7 +38,7 @@ export function mergeTags(
   }
   if (category) add(category)
   for (const t of manual ?? []) add(t)
-  for (const s of simTagsFor(requires)) add(s)
+  for (const s of simTagsFor(requires, alternativeRequires)) add(s)
   return out
 }
 

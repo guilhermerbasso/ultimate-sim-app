@@ -41,6 +41,7 @@ export const HIFI_OVERLAY_DEFS: OverlayWidgetDefinition[] = HIFI_WIDGETS.map((mo
   category: module.category,
   tags: hifiWidgetTags(module),
   requires: module.requires,
+  alternativeRequires: module.alternativeRequires,
   role: module.role,
   defaultTrigger: module.defaultTrigger,
   catalogOrder: module.catalogOrder,

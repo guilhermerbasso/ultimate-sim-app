@@ -6,7 +6,10 @@ import {
   type OverlaySemanticTriggerId,
   type OverlayTrigger
 } from './overlay-trigger'
-import { simSupportPrefix } from './sim-coverage'
+import {
+  simSupportPrefix,
+  type TelemetryRequirement
+} from './sim-coverage'
 import {
   RELEASE_A_CATALOG_ORDER,
   RELEASE_A_RELEASED_AT
@@ -255,7 +258,9 @@ export interface OverlayWidgetDefinition {
   defaultPosition: OverlayPosition
   /** Telemetry fields this widget needs LIVE. Drives the per-sim availability filter
    *  + the computed "(IR/ACC/LMU)" prefix. Omitted/empty = available on every sim. */
-  requires?: (keyof TelemetrySnapshot)[]
+  requires?: TelemetryRequirement[]
+  /** Alternative AND-groups; support requires the primary group OR any alternative. */
+  alternativeRequires?: TelemetryRequirement[][]
   /** Function/category tag (e.g. 'delta', 'fuel', 'tyres', 'inputs', 'map'). */
   category?: string
   /** Free-form tags for filtering (style + category). Sim tags (IR/ACC/…) are
@@ -270,7 +275,7 @@ export interface OverlayWidgetDefinition {
 
 /** Display title with the computed multi-sim support prefix, e.g. "(IR/ACC/LMU) Tyres". */
 export function overlayWidgetDisplayTitle(def: OverlayWidgetDefinition): string {
-  return `${simSupportPrefix(def.requires)}${def.title}`
+  return `${simSupportPrefix(def.requires, def.alternativeRequires)}${def.title}`
 }
 
 function releaseAAlertMetadata(semantic: OverlaySemanticTriggerId): Pick<
@@ -1539,9 +1544,9 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   // members AND WIDGET_COMPONENTS entries (overlay/widgets/index.ts) intentionally
   // STAY so the dashboard embed can still resolve each component by id.
   ,
-  { id: 'perCornerTyrePressure', title: 'Tire pressure (corners)', description: 'Pressure by corner (2?2) with target band. Live (ACC/LMU) or cold (iRacing).', defaultPosition: { x: 1500, y: 60, width: 300, height: 200 }, requires: ['tyres'] },
+  { id: 'perCornerTyrePressure', title: 'Tire pressure (corners)', description: 'Pressure by corner (2×2) with target band. Live on ACC/LMU; explicitly cold-labelled on iRacing.', defaultPosition: { x: 1500, y: 60, width: 300, height: 200 }, requires: ['liveTyrePressureKpa'], alternativeRequires: [['tireColdPressuresKpa']] },
   { id: 'brakeTempCorners', title: 'Brake temperature (corners)', description: 'Disc temperature by corner (2×2) with cold/optimal/hot bands + peak.', defaultPosition: { x: 1500, y: 280, width: 300, height: 200 }, requires: ['brakeTempC'] },
-  { id: 'fuelDeltaTile', title: 'Fuel delta', description: 'Lap margin, L/lap, laps to empty, and liters delta to target.', defaultPosition: { x: 1500, y: 500, width: 300, height: 180 }, requires: ['fuelLiters', 'fuelPerLap'] },
+  { id: 'fuelDeltaTile', title: 'Fuel delta', description: 'Lap margin, L/lap, laps to empty, and liters delta to target.', defaultPosition: { x: 1500, y: 500, width: 300, height: 180 }, requires: ['fuelLiters', 'fuelPerLapLiters'] },
   { id: 'shiftPointBar', title: 'Shift point', description: 'Large LED shift bar + RPM/gear, with redline flash.', defaultPosition: { x: 560, y: 40, width: 800, height: 90 }, requires: ['shiftIndicatorPct'] },
   { id: 'engineVitalsDial', title: 'Engine vitals (dials)', description: 'Water/oil gauges (?C) and oil pressure (bar).', defaultPosition: { x: 60, y: 500, width: 360, height: 180 }, requires: ['waterTempC'] },
   { id: 'sessionInfoTile', title: 'Session info', description: 'Session type, time remaining, laps, position, and incidents.', defaultPosition: { x: 60, y: 60, width: 360, height: 150 }, requires: ['sessionType'] }

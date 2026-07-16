@@ -1,4 +1,6 @@
+import { DEFAULT_ALERTS_CONFIG, type AlertsConfig } from './alerts'
 import {
+  fuelLapsRemainingOf,
   trackSurfaceMaterialLabel,
   type TelemetrySnapshot,
   type TyreInfo
@@ -63,7 +65,9 @@ export interface OverlayTrigger {
   kind: OverlayTriggerKind
   semantic?: OverlaySemanticTriggerId
   thresholdSec?: number
+  /** @deprecated Shift alerts use AlertsConfig.shiftPoint. */
   shiftPct?: number
+  /** @deprecated Low-fuel alerts use AlertsConfig.lowFuel. */
   lapsToEmpty?: number
 }
 
@@ -98,7 +102,10 @@ interface TemporalChannel {
 }
 
 interface SemanticPolicy {
-  channels(snapshot: TelemetrySnapshot | null | undefined): TemporalChannel[]
+  channels(
+    snapshot: TelemetrySnapshot | null | undefined,
+    alertsConfig: AlertsConfig
+  ): TemporalChannel[]
 }
 
 interface TemporalEntry {
@@ -271,17 +278,26 @@ function maxTyreTemp(tyre: TyreInfo | undefined): number | undefined {
   return values.length > 0 ? Math.max(...values) : undefined
 }
 
-function hottestTyre(snapshot: TelemetrySnapshot | null | undefined): TriggerSignal {
+function hottestTyre(
+  snapshot: TelemetrySnapshot | null | undefined,
+  alertsConfig: AlertsConfig
+): TriggerSignal {
   const tyres = snapshot?.tyres
   if (!tyres) return { known: false, value: false }
   const values = [tyres.lf, tyres.rf, tyres.lr, tyres.rr]
     .map(maxTyreTemp)
     .filter((value): value is number => value != null)
   if (values.length === 0) return { known: false, value: false }
-  return { known: true, value: Math.max(...values) >= 115 }
+  const threshold =
+    finite(alertsConfig.tyreTemp?.maxC) ??
+    DEFAULT_ALERTS_CONFIG.tyreTemp!.maxC!
+  return { known: true, value: Math.max(...values) > threshold }
 }
 
-function brakePressureLow(snapshot: TelemetrySnapshot | null | undefined): TriggerSignal {
+function brakePressureLow(
+  snapshot: TelemetrySnapshot | null | undefined,
+  alertsConfig: AlertsConfig
+): TriggerSignal {
   const brake = finite(snapshot?.brake)
   const pressure = snapshot?.brakeLinePressBar
   const values = pressure
@@ -290,7 +306,28 @@ function brakePressureLow(snapshot: TelemetrySnapshot | null | undefined): Trigg
         .filter((value): value is number => value != null)
     : []
   if (brake == null || values.length === 0) return { known: false, value: false }
-  return { known: true, value: brake >= 0.35 && Math.max(...values) < 25 }
+  const brakeInputMin =
+    finite(alertsConfig.brakePressureLow?.brakeInputMin) ??
+    DEFAULT_ALERTS_CONFIG.brakePressureLow!.brakeInputMin
+  const maxLinePressureBar =
+    finite(alertsConfig.brakePressureLow?.maxLinePressureBar) ??
+    DEFAULT_ALERTS_CONFIG.brakePressureLow!.maxLinePressureBar
+  return {
+    known: true,
+    value: brake >= brakeInputMin && Math.max(...values) < maxLinePressureBar
+  }
+}
+
+function shiftPointActive(snapshot: TelemetrySnapshot, alertsConfig: AlertsConfig): boolean {
+  if (!alertsConfig.shiftPoint.enabled) return false
+  const shiftIndicatorPct = finite(snapshot.shiftIndicatorPct)
+  const rpm = finite(snapshot.rpm)
+  const maxRpm = finite(snapshot.maxRpm)
+  const rpmPct = rpm != null && maxRpm != null && maxRpm > 0 ? rpm / maxRpm : undefined
+  return (
+    (shiftIndicatorPct != null && shiftIndicatorPct >= alertsConfig.shiftPoint.shiftIndicatorPct) ||
+    (rpmPct != null && rpmPct >= alertsConfig.shiftPoint.rpmPct)
+  )
 }
 
 function level(signal: TriggerSignal, phase = 'active', priority = 10): TemporalChannel {
@@ -369,35 +406,20 @@ const POLICIES: Record<OverlaySemanticTriggerId, SemanticPolicy> = {
   alert2EngineWarning: { channels: (snapshot) => [level(activeEngineWarnings(snapshot))] },
   alert2WaterTempCritical: {
     channels: (snapshot) => {
-      const temperature = finite(snapshot?.waterTempC)
       const warning = snapshot?.engineWarnings?.waterTemp
-      return [level(
-        typeof warning === 'boolean' || temperature != null
-          ? { known: true, value: warning === true || (temperature ?? -Infinity) >= 105 }
-          : { known: false, value: false }
-      )]
+      return [level(knownBoolean(warning))]
     }
   },
   alert2OilTempCritical: {
     channels: (snapshot) => {
-      const temperature = finite(snapshot?.oilTempC)
       const warning = snapshot?.engineWarnings?.oilTemp
-      return [level(
-        typeof warning === 'boolean' || temperature != null
-          ? { known: true, value: warning === true || (temperature ?? -Infinity) >= 125 }
-          : { known: false, value: false }
-      )]
+      return [level(knownBoolean(warning))]
     }
   },
   alert2OilPressureLow: {
     channels: (snapshot) => {
-      const pressure = finite(snapshot?.oilPressureKpa)
       const warning = snapshot?.engineWarnings?.oilPressure
-      return [level(
-        typeof warning === 'boolean' || pressure != null
-          ? { known: true, value: warning === true || (pressure ?? Infinity) <= 140 }
-          : { known: false, value: false }
-      )]
+      return [level(knownBoolean(warning))]
     }
   },
   alert2BadSurface: {
@@ -416,8 +438,12 @@ const POLICIES: Record<OverlaySemanticTriggerId, SemanticPolicy> = {
       ? { known: true, value: snapshot.flags.blue === true }
       : { known: false, value: false })]
   },
-  alert2TyreTempCritical: { channels: (snapshot) => [level(hottestTyre(snapshot))] },
-  alert2BrakePressureLow: { channels: (snapshot) => [level(brakePressureLow(snapshot))] }
+  alert2TyreTempCritical: {
+    channels: (snapshot, alertsConfig) => [level(hottestTyre(snapshot, alertsConfig))]
+  },
+  alert2BrakePressureLow: {
+    channels: (snapshot, alertsConfig) => [level(brakePressureLow(snapshot, alertsConfig))]
+  }
 }
 
 const TRIGGER_KINDS: readonly OverlayTriggerKind[] = [
@@ -448,15 +474,17 @@ export function semanticAlertVisibility(semantic: OverlaySemanticTriggerId): Ove
 
 export function evaluateOverlayTrigger(
   trigger: OverlayTrigger | null | undefined,
-  snapshot: TelemetrySnapshot | null | undefined
+  snapshot: TelemetrySnapshot | null | undefined,
+  alertsConfig: AlertsConfig = DEFAULT_ALERTS_CONFIG
 ): boolean {
   if (!trigger || trigger.kind === 'always') return true
   if (trigger.kind === 'never') return false
   if (!snapshot) return false
+  if (!snapshot.connected) return false
   if (trigger.kind === 'semantic') {
     if (!trigger.semantic) return false
     const policy = POLICIES[trigger.semantic]
-    return policy.channels(snapshot).some((channel) =>
+    return policy.channels(snapshot, alertsConfig).some((channel) =>
       channel.signal.known &&
       channel.signal.value &&
       (channel.mode === 'level' || channel.mode === 'after-false' || channel.mode === 'pulse')
@@ -482,16 +510,15 @@ export function evaluateOverlayTrigger(
       return gaps.some((gap) => gap <= threshold)
     }
     case 'shiftPoint':
-      return Number.isFinite(snapshot.shiftIndicatorPct) &&
-        (snapshot.shiftIndicatorPct as number) >= (trigger.shiftPct ?? 0.97)
+      return shiftPointActive(snapshot, alertsConfig)
     case 'pitLimiter':
       return snapshot.pitLimiter === true
     case 'flag':
       return activeRaceControlFlags(snapshot).value
     case 'lowFuel': {
-      const fuel = finite(snapshot.fuelLiters)
-      const perLap = finite(snapshot.fuelPerLap)
-      return fuel != null && perLap != null && perLap > 0 && fuel / perLap <= (trigger.lapsToEmpty ?? 2)
+      if (!alertsConfig.lowFuel.enabled) return false
+      const lapsRemaining = fuelLapsRemainingOf(snapshot)
+      return lapsRemaining != null && lapsRemaining < alertsConfig.lowFuel.lapsThreshold
     }
     default:
       return false
@@ -529,7 +556,7 @@ export function overlayTriggerTags(trigger: OverlayTrigger | null | undefined): 
   if (!trigger || trigger.kind === 'always') return []
   const tags = ['trigger-only']
   if (trigger.kind === 'semantic' && trigger.semantic) {
-    const channels = POLICIES[trigger.semantic].channels(null)
+    const channels = POLICIES[trigger.semantic].channels(null, DEFAULT_ALERTS_CONFIG)
     if (channels.some((channel) => channel.mode === 'rising' || channel.mode === 'falling')) tags.push('trigger-edge')
     if (channels.some((channel) => (channel.ttlMs ?? 0) > 0)) tags.push('trigger-hold')
   }
@@ -655,7 +682,8 @@ export class OverlayTriggerController {
     key: string,
     trigger: OverlayTrigger | null | undefined,
     snapshot: TelemetrySnapshot | null | undefined,
-    now: number
+    now: number,
+    alertsConfig: AlertsConfig = DEFAULT_ALERTS_CONFIG
   ): OverlayTriggerResult {
     this.prepare(snapshot)
     if (!trigger || trigger.kind === 'always') {
@@ -665,11 +693,11 @@ export class OverlayTriggerController {
       return { visible: false, active: false, held: false, phase: 'inactive' }
     }
     if (trigger.kind !== 'semantic' || !trigger.semantic) {
-      const active = evaluateOverlayTrigger(trigger, snapshot)
+      const active = evaluateOverlayTrigger(trigger, snapshot, alertsConfig)
       return { visible: active, active, held: false, phase: active ? 'active' : 'inactive' }
     }
 
-    const channels = POLICIES[trigger.semantic].channels(snapshot)
+    const channels = POLICIES[trigger.semantic].channels(snapshot, alertsConfig)
     const visible = channels
       .map((channel) => ({
         channel,
@@ -819,10 +847,10 @@ const DIRECT_ALERT_TRIGGERS: Record<string, OverlayTrigger> = {
   alertCarLeft: { kind: 'carLeft' },
   alertCarRight: { kind: 'carRight' },
   alertProximityRadar: { kind: 'proximity', thresholdSec: 0.5 },
-  alertShiftFlash: { kind: 'shiftPoint', shiftPct: 0.97 },
+  alertShiftFlash: { kind: 'shiftPoint' },
   alertPitLimiter: { kind: 'pitLimiter' },
   alertFlag: { kind: 'flag' },
-  alertLowFuel: { kind: 'lowFuel', lapsToEmpty: 2 }
+  alertLowFuel: { kind: 'lowFuel' }
 }
 
 export function defaultTriggerForHifiModule(moduleId: string): OverlayTrigger | undefined {
@@ -852,7 +880,8 @@ function previewFlags(active: boolean, blueOnly = false): NonNullable<TelemetryS
 export function simulateOverlayTriggerSnapshot(
   base: TelemetrySnapshot,
   trigger: OverlayTrigger | null | undefined,
-  active: boolean
+  active: boolean,
+  alertsConfig: AlertsConfig = DEFAULT_ALERTS_CONFIG
 ): TelemetrySnapshot {
   const snapshot: TelemetrySnapshot = {
     ...base,
@@ -870,12 +899,25 @@ export function simulateOverlayTriggerSnapshot(
         : { ahead: { carIdx: 2, name: 'Preview', carNumber: '2', gapSec: 2 } }
       snapshot.radarCars = []
     }
-    if (trigger.kind === 'shiftPoint') snapshot.shiftIndicatorPct = active ? 1 : 0.5
+    if (trigger.kind === 'shiftPoint') {
+      snapshot.shiftIndicatorPct = active
+        ? alertsConfig.shiftPoint.shiftIndicatorPct
+        : Math.max(0, alertsConfig.shiftPoint.shiftIndicatorPct - 0.1)
+      snapshot.maxRpm = 1000
+      snapshot.rpm = active
+        ? alertsConfig.shiftPoint.rpmPct * 1000
+        : Math.max(0, alertsConfig.shiftPoint.rpmPct - 0.1) * 1000
+    }
     if (trigger.kind === 'pitLimiter') snapshot.pitLimiter = active
     if (trigger.kind === 'flag') snapshot.flags = previewFlags(active)
     if (trigger.kind === 'lowFuel') {
-      snapshot.fuelLiters = active ? 2 : 30
+      const lapsRemaining = active
+        ? Math.max(0, alertsConfig.lowFuel.lapsThreshold - 0.5)
+        : alertsConfig.lowFuel.lapsThreshold + 0.5
       snapshot.fuelPerLap = 2
+      snapshot.fuelPerLapLiters = 2
+      snapshot.fuelLiters = lapsRemaining * 2
+      snapshot.fuelLapsRemaining = lapsRemaining
     }
     return snapshot
   }
@@ -1035,34 +1077,62 @@ export function simulateOverlayTriggerSnapshot(
       snapshot.flags = previewFlags(active, true)
       break
     case 'alert2TyreTempCritical':
-      snapshot.tyres = {
-        ...(base.tyres ?? {
-          lf: {},
-          rf: {},
-          lr: {},
-          rr: {}
-        }),
-        lf: { ...(base.tyres?.lf ?? {}), tempC: active ? 118 : 88 }
+      {
+        const threshold =
+          finite(alertsConfig.tyreTemp?.maxC) ??
+          DEFAULT_ALERTS_CONFIG.tyreTemp!.maxC!
+        snapshot.tyres = {
+          ...(base.tyres ?? {
+            lf: {},
+            rf: {},
+            lr: {},
+            rr: {}
+          }),
+          lf: {
+            ...(base.tyres?.lf ?? {}),
+            tempC: active ? threshold + 5 : Math.max(0, threshold - 5)
+          }
+        }
+        break
       }
-      break
     case 'alert2BrakePressureLow':
-      snapshot.brake = active ? 0.72 : 0
-      snapshot.brakeLinePressBar = active
-        ? { lf: 18, rf: 17, lr: 14, rr: 13 }
-        : { lf: 80, rf: 78, lr: 65, rr: 64 }
-      break
+      {
+        const brakeInputMin =
+          finite(alertsConfig.brakePressureLow?.brakeInputMin) ??
+          DEFAULT_ALERTS_CONFIG.brakePressureLow!.brakeInputMin
+        const maxLinePressureBar =
+          finite(alertsConfig.brakePressureLow?.maxLinePressureBar) ??
+          DEFAULT_ALERTS_CONFIG.brakePressureLow!.maxLinePressureBar
+        snapshot.brake = active ? Math.min(1, brakeInputMin + 0.1) : 0
+        snapshot.brakeLinePressBar = active
+          ? {
+              lf: Math.max(0, maxLinePressureBar - 4),
+              rf: Math.max(0, maxLinePressureBar - 5),
+              lr: Math.max(0, maxLinePressureBar - 7),
+              rr: Math.max(0, maxLinePressureBar - 8)
+            }
+          : {
+              lf: maxLinePressureBar + 4,
+              rf: maxLinePressureBar + 5,
+              lr: maxLinePressureBar + 7,
+              rr: maxLinePressureBar + 8
+            }
+        break
+      }
   }
   return snapshot
 }
 
 export function isSemanticTriggerWithEdges(trigger: OverlayTrigger | null | undefined): boolean {
   if (trigger?.kind !== 'semantic' || !trigger.semantic) return false
-  return POLICIES[trigger.semantic].channels(null).some((channel) =>
+  return POLICIES[trigger.semantic].channels(null, DEFAULT_ALERTS_CONFIG).some((channel) =>
     channel.mode === 'rising' || channel.mode === 'falling'
   )
 }
 
 export function isSemanticTriggerWithHold(trigger: OverlayTrigger | null | undefined): boolean {
   if (trigger?.kind !== 'semantic' || !trigger.semantic) return false
-  return POLICIES[trigger.semantic].channels(null).some((channel) => (channel.ttlMs ?? 0) > 0)
+  return POLICIES[trigger.semantic]
+    .channels(null, DEFAULT_ALERTS_CONFIG)
+    .some((channel) => (channel.ttlMs ?? 0) > 0)
 }

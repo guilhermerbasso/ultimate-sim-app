@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { HidButtonControl } from '../../../shared/actions'
+import type { AlertsConfig } from '../../../shared/alerts'
 import type {
   Dashboard,
   DashboardElement,
@@ -40,6 +41,7 @@ import {
   trackMapStrokeWidth
 } from '../lib/track-map'
 import { readButtonPressed } from '../lib/gamepad'
+import { useAlertsConfig } from '../lib/alerts-config'
 import { useUnitSystem } from '../lib/units'
 import { displayUnitLabel, getActiveFlag, resolveBinding, retainBindingIpc } from './binding'
 import { useSwipeCycle, type CycleDirection } from './useSwipeCycle'
@@ -177,6 +179,7 @@ interface ElementProps {
   snapshot: TelemetrySnapshot | null
   unitSystem?: import('../../../shared/units').UnitSystem
   preview?: DashboardPreviewMode
+  alertsConfig?: AlertsConfig
 }
 
 const INERT_OVERLAY_WIDGET_IDS = new Set<string>([
@@ -1323,7 +1326,7 @@ function ElementTable({ element, snapshot }: ElementProps) {
 // locked stub: these widgets are snapshot-driven and ignore most of it (some read
 // `config.id`). Missing/unknown widgetId gets a subtle labelled fallback so a
 // broken persisted board remains editable instead of looking like a black canvas.
-function ElementOverlayWidget({ element, snapshot, preview }: ElementProps) {
+function ElementOverlayWidget({ element, snapshot, preview, alertsConfig }: ElementProps) {
   const widgetId =
     element.widgetId ??
     (element.hifiModuleId ? (`hifi:${element.hifiModuleId}` as DashboardElement['widgetId']) : undefined)
@@ -1387,11 +1390,16 @@ function ElementOverlayWidget({ element, snapshot, preview }: ElementProps) {
   return (
     <div className="dash-element dash-overlaywidget" style={containerStyle}>
       {preview === 'inert' && widgetId.startsWith('hifi:') ? (
-        <HifiWidgetHost snapshot={snapshot} config={config} preview="inert" />
+        <HifiWidgetHost
+          snapshot={snapshot}
+          config={config}
+          preview="inert"
+          alertsConfig={alertsConfig}
+        />
       ) : preview === 'inert' && INERT_OVERLAY_WIDGET_IDS.has(widgetId) ? (
         <InertWidgetFixture element={element} snapshot={snapshot} source={widgetId} contained />
       ) : (
-        <Widget snapshot={snapshot} config={config} />
+        <Widget snapshot={snapshot} config={config} alertsConfig={alertsConfig} />
       )}
     </div>
   )
@@ -1449,7 +1457,12 @@ function ElementSwitcher(props: ElementProps) {
 
 // Faithful single-element renderer reused by tests/harnesses so previews match
 // production exactly (same primitives + GT3 widgets, same binding resolution).
-export function renderDashboardElement(props: { element: DashboardElement; snapshot: TelemetrySnapshot | null; preview?: DashboardPreviewMode }) {
+export function renderDashboardElement(props: {
+  element: DashboardElement
+  snapshot: TelemetrySnapshot | null
+  preview?: DashboardPreviewMode
+  alertsConfig?: AlertsConfig
+}) {
   return <ElementSwitcher {...props} />
 }
 
@@ -1554,6 +1567,7 @@ function useRaceMoment(enabled: boolean, externalSnapshot: TelemetrySnapshot | n
 function AdaptiveCanvas({
   dashboard,
   snapshot,
+  alertsConfig,
   momentState,
   activeMoments,
   onDashboardBlink,
@@ -1561,15 +1575,28 @@ function AdaptiveCanvas({
 }: {
   dashboard: Dashboard
   snapshot: TelemetrySnapshot | null
+  alertsConfig: AlertsConfig
   momentState: RaceMomentState | null
   activeMoments: ReadonlySet<string>
   onDashboardBlink: (blink: AdaptiveBlink | undefined) => void
   onFrameBg: (bg: string | undefined) => void
 }) {
   const resolved = useMemo(() => {
-    const plan = withRaceMoment(planAdaptiveDashboard(snapshot), momentState)
+    const plan = withRaceMoment(
+      planAdaptiveDashboard(snapshot, {
+        lowFuelLapsThreshold: alertsConfig.lowFuel.lapsThreshold
+      }),
+      momentState
+    )
     return resolveAdaptiveRuntime(dashboard.elements, plan, dashboard.adaptive, activeMoments)
-  }, [dashboard.elements, dashboard.adaptive, snapshot, momentState, activeMoments])
+  }, [
+    dashboard.elements,
+    dashboard.adaptive,
+    snapshot,
+    alertsConfig,
+    momentState,
+    activeMoments
+  ])
 
   useEffect(() => {
     onDashboardBlink(resolved.dashboardBlink)
@@ -1585,7 +1612,15 @@ function AdaptiveCanvas({
   return (
     <>
       {visible.map(({ element, emphasis, moment, user }) => (
-        <AdaptiveElement key={element.id} element={element} emphasis={emphasis} moment={moment} user={user} snapshot={snapshot} />
+        <AdaptiveElement
+          key={element.id}
+          element={element}
+          emphasis={emphasis}
+          moment={moment}
+          user={user}
+          snapshot={snapshot}
+          alertsConfig={alertsConfig}
+        />
       ))}
     </>
   )
@@ -1596,13 +1631,15 @@ function AdaptiveElement({
   emphasis,
   moment,
   user,
-  snapshot
+  snapshot,
+  alertsConfig
 }: {
   element: DashboardElement
   emphasis: Emphasis
   moment?: MomentApply
   user?: UserElementApply
   snapshot: TelemetrySnapshot | null
+  alertsConfig: AlertsConfig
 }) {
   const promoted = moment?.action === 'promote'
   const demoted = moment?.action === 'demote'
@@ -1637,7 +1674,11 @@ function AdaptiveElement({
   }
   return (
     <div className={blink ? 'adp-blink' : undefined} style={wrapperStyle}>
-      <ElementSwitcher element={{ ...element, x: 0, y: 0 }} snapshot={snapshot} />
+      <ElementSwitcher
+        element={{ ...element, x: 0, y: 0 }}
+        snapshot={snapshot}
+        alertsConfig={alertsConfig}
+      />
     </div>
   )
 }
@@ -1661,6 +1702,7 @@ export function DashboardCanvas({
    () => isAdaptiveDashboard(dashboard) || dashboard.adaptive?.enabled === true,
    [dashboard]
  )
+ const alertsConfig = useAlertsConfig()
  useEffect(() => retainBindingIpc(), [])
  const { moment: momentState, active: activeMoments } = useRaceMoment(adaptive, snapshot)
  const [dashBlink, setDashBlink] = useState<AdaptiveBlink | undefined>(undefined)
@@ -1692,6 +1734,7 @@ export function DashboardCanvas({
          <AdaptiveCanvas
            dashboard={dashboard}
            snapshot={snapshot}
+           alertsConfig={alertsConfig}
            momentState={momentState}
            activeMoments={activeMoments}
            onDashboardBlink={onDashboardBlink}
@@ -1699,7 +1742,12 @@ export function DashboardCanvas({
          />
        ) : (
          sortElementsByZ(dashboard.elements).map((el) => (
-           <ElementSwitcher key={el.id} element={el} snapshot={snapshot} />
+           <ElementSwitcher
+             key={el.id}
+             element={el}
+             snapshot={snapshot}
+             alertsConfig={alertsConfig}
+           />
          ))
        )}
      </div>

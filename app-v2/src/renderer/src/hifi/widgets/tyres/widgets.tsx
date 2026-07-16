@@ -414,7 +414,7 @@ export const TYRES_WIDGETS: HifiWidgetModule[] = [
     description: 'Four-corner tyre pressure grid with psi and kPa readouts.',
     category: common.category,
     tags: ['tyre-pressure', 'grid'],
-    requires: [...common.requires],
+    requires: ['liveTyrePressureKpa'],
     defaultSize: { w: W, h: H },
     render: (props) => <TyrePressureWidget {...props} />
   },
