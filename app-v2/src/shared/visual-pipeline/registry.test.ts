@@ -6,6 +6,8 @@ import { SNAPSHOT_GAP_DESCRIPTORS } from '../../renderer/src/hifi/widgets/varian
 import {
   TELEMETRY_CAPABILITY_REGISTRY,
   TELEMETRY_CAPABILITY_SUMMARY,
+  TELEMETRY_CAPABILITY_CATEGORIES,
+  TELEMETRY_CAPABILITY_FOCUSES,
   TELEMETRY_REPRESENTATION_STYLES,
   TRIGGER_ONLY_FAMILY_REGISTRY,
   TRIGGER_ONLY_FAMILY_SUMMARY,
@@ -132,12 +134,41 @@ function assertCompileTimeReadonlyContracts(): void {
     TELEMETRY_CAPABILITY_REGISTRY.push(capability)
     // @ts-expect-error trigger registry arrays are readonly
     TRIGGER_ONLY_FAMILY_REGISTRY.pop()
+    // @ts-expect-error representation-style vocabulary is readonly
+    TELEMETRY_REPRESENTATION_STYLES.push('corrupted')
+    // @ts-expect-error capability-category vocabulary is readonly
+    TELEMETRY_CAPABILITY_CATEGORIES.push('corrupted')
+    // @ts-expect-error capability-focus vocabulary is readonly
+    TELEMETRY_CAPABILITY_FOCUSES.push('corrupted')
   }
 }
 
 assertCompileTimeReadonlyContracts()
 
 describe('visual telemetry capability registry', () => {
+  it('freezes exported capability vocabularies without widening tuples', () => {
+    const vocabularies = [
+      TELEMETRY_REPRESENTATION_STYLES,
+      TELEMETRY_CAPABILITY_CATEGORIES,
+      TELEMETRY_CAPABILITY_FOCUSES
+    ] as const
+
+    for (const vocabulary of vocabularies) {
+      expect(Object.isFrozen(vocabulary)).toBe(true)
+      expect(() => {
+        (vocabulary as unknown as string[]).push('corrupted')
+      }).toThrow(TypeError)
+    }
+
+    expect(TELEMETRY_REPRESENTATION_STYLES).toEqual([
+      'competition',
+      'futuristic',
+      'ddu'
+    ])
+    expect(TELEMETRY_CAPABILITY_CATEGORIES).toHaveLength(12)
+    expect(TELEMETRY_CAPABILITY_FOCUSES).toHaveLength(18)
+  })
+
   it('governs all 143 ordinary widget and overlay artifacts', () => {
     expect(TELEMETRY_CAPABILITY_REGISTRY).toHaveLength(143)
     expect(TELEMETRY_CAPABILITY_SUMMARY).toEqual({

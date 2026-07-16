@@ -31,3 +31,9 @@ export function deepFreeze<T>(value: T): DeepReadonly<T> {
 export function freezeArrayCopy<T>(values: readonly T[]): readonly T[] {
   return Object.freeze([...values])
 }
+
+export function freezeTuple<const Values extends readonly unknown[]>(
+  values: Values
+): Values {
+  return Object.freeze(values) as Values
+}

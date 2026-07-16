@@ -1,16 +1,17 @@
 import type { TelemetrySnapshot } from '../telemetry'
+import { freezeTuple } from './immutability'
 import type { DeepReadonly } from './immutability'
 
-export const TELEMETRY_REPRESENTATION_STYLES = [
+export const TELEMETRY_REPRESENTATION_STYLES = freezeTuple([
   'competition',
   'futuristic',
   'ddu'
-] as const
+] as const)
 
 export type TelemetryRepresentationStyle =
   (typeof TELEMETRY_REPRESENTATION_STYLES)[number]
 
-export const TELEMETRY_CAPABILITY_CATEGORIES = [
+export const TELEMETRY_CAPABILITY_CATEGORIES = freezeTuple([
   'drive',
   'engine',
   'fuel',
@@ -23,12 +24,12 @@ export const TELEMETRY_CAPABILITY_CATEGORIES = [
   'timing',
   'tyres',
   'weather'
-] as const
+] as const)
 
 export type TelemetryCapabilityCategory =
   (typeof TELEMETRY_CAPABILITY_CATEGORIES)[number]
 
-export const TELEMETRY_CAPABILITY_FOCUSES = [
+export const TELEMETRY_CAPABILITY_FOCUSES = freezeTuple([
   'brakes',
   'chassis',
   'controls',
@@ -47,7 +48,7 @@ export const TELEMETRY_CAPABILITY_FOCUSES = [
   'traffic',
   'tyres',
   'weather'
-] as const
+] as const)
 
 export type TelemetryCapabilityFocus =
   (typeof TELEMETRY_CAPABILITY_FOCUSES)[number]
