@@ -31,6 +31,9 @@ widget and binding identifiers, including surrounding whitespace, are preserved;
 only human-facing literal labels are case-normalized. Type-specific semantic fields
 are included only when that renderer consumes them. Provably inert elements, such as
 transparent unbordered rectangles, are excluded from visual geometry and fingerprints.
+The same applies to bottom-most full-canvas backplates whose fill is equivalent to
+`dashboard.bg`. Binding consumption is declared centrally in
+`visual-pipeline/render-capabilities.ts`.
 
 ## Perceptual evidence
 

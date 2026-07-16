@@ -4,6 +4,7 @@ import type {
   DashboardElementStyle,
   DashboardElementType
 } from '../dashboards'
+import { dashboardElementConsumesBinding } from './render-capabilities'
 
 const NORMALIZED_PRECISION = 1_000_000
 const GEOMETRY_EPSILON = 1 / NORMALIZED_PRECISION
@@ -161,33 +162,6 @@ const SEMANTIC_STYLE_FIELDS: Partial<Record<DashboardElementType, readonly Seman
   enginetemps: ['bindingWater', 'bindingOil', 'bindingOilPressure']
 }
 
-const PRIMARY_BINDING_CONSUMED_TYPES = new Set<DashboardElementType>([
-  'text',
-  'bar',
-  'barv',
-  'dualbar',
-  'deltabar',
-  'gauge',
-  'shiftlights',
-  'map',
-  'trace',
-  'deltatile',
-  'value',
-  'valuebar',
-  'valuegauge',
-  'analoggauge',
-  'linearmeter',
-  'segment7',
-  'digitalclock',
-  'bigtext',
-  'historygraph',
-  'donut',
-  'segmentbars',
-  'ringgauge',
-  'ledbar',
-  'statuslamp'
-])
-
 function semanticStyleConfiguration(element: DashboardElement): Record<string, unknown> {
   const style = element.style
   const configuration: Record<string, unknown> = {}
@@ -207,7 +181,7 @@ export function semanticWidgetKey(element: DashboardElement): string {
   if (hifiModuleId) return `${element.type}|hifi:${hifiModuleId}`
   if (widgetId) return `${element.type}|widget:${widgetId}`
 
-  const binding = PRIMARY_BINDING_CONSUMED_TYPES.has(element.type)
+  const binding = dashboardElementConsumesBinding(element.type)
     ? runtimeIdentifier(element.binding)
     : undefined
   const literal = binding === undefined && element.type === 'text'
@@ -327,8 +301,92 @@ function hasVisibleFrame(element: DashboardElement): boolean {
     !isFullyTransparentColor(element.style.border)
 }
 
-export function isProvablyInertElement(element: DashboardElement): boolean {
+function cssColorKey(value: string): string {
+  const normalized = value.trim().toLowerCase()
+  const hex = normalized.match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/)
+  if (hex) {
+    const raw = hex[1]
+    const expanded = raw.length <= 4
+      ? [...raw].map((part) => `${part}${part}`).join('')
+      : raw
+    const withAlpha = expanded.length === 6 ? `${expanded}ff` : expanded
+    return `rgba:${withAlpha}`
+  }
+  const functional = normalized.match(/^rgba?\((.*)\)$/)
+  if (functional) {
+    const [colorPart, slashAlpha] = functional[1].split('/').map((part) => part.trim())
+    const channels = colorPart.includes(',')
+      ? colorPart.split(',').map((part) => part.trim())
+      : colorPart.split(/\s+/)
+    const alphaToken = slashAlpha ?? channels[3]
+    const channel = (part: string | undefined): number | undefined => {
+      if (part === undefined) return undefined
+      const numeric = part.endsWith('%')
+        ? Math.round(Number(part.slice(0, -1)) * 2.55)
+        : Math.round(Number(part))
+      return Number.isFinite(numeric) ? Math.max(0, Math.min(255, numeric)) : undefined
+    }
+    const alpha = alphaToken === undefined
+      ? 255
+      : alphaToken.endsWith('%')
+        ? Math.round(Number(alphaToken.slice(0, -1)) * 2.55)
+        : Math.round(Number(alphaToken) * 255)
+    const rgb = channels.slice(0, 3).map(channel)
+    if (rgb.every((part): part is number => part !== undefined) && Number.isFinite(alpha)) {
+      return `rgba:${rgb.map((part) => part.toString(16).padStart(2, '0')).join('')}${
+        Math.max(0, Math.min(255, alpha)).toString(16).padStart(2, '0')
+      }`
+    }
+  }
+  return normalized.replace(/\s+/g, ' ')
+}
+
+function isFullCanvas(element: DashboardElement, dashboard: Dashboard): boolean {
+  return Math.abs(element.x) <= GEOMETRY_EPSILON &&
+    Math.abs(element.y) <= GEOMETRY_EPSILON &&
+    Math.abs(element.w - dashboard.width) <= GEOMETRY_EPSILON &&
+    Math.abs(element.h - dashboard.height) <= GEOMETRY_EPSILON
+}
+
+function isMatchingDashboardBackplate(element: DashboardElement, dashboard: Dashboard): boolean {
+  return element.type === 'rect' &&
+    isFullCanvas(element, dashboard) &&
+    !hasVisibleFrame(element) &&
+    !isFullyTransparentColor(element.style.background) &&
+    cssColorKey(element.style.background as string) === cssColorKey(dashboard.bg)
+}
+
+function isRedundantDashboardBackplate(
+  element: DashboardElement,
+  dashboard: Dashboard,
+  sourceIndex: number
+): boolean {
+  if (!isMatchingDashboardBackplate(element, dashboard)) return false
+  const zIndex = element.style.zIndex ?? 0
+  for (let index = 0; index < dashboard.elements.length; index += 1) {
+    if (index === sourceIndex) continue
+    const other = dashboard.elements[index]
+    const otherZIndex = other.style.zIndex ?? 0
+    const paintsBefore = otherZIndex < zIndex ||
+      (otherZIndex === zIndex && index < sourceIndex)
+    if (!paintsBefore || other.visible === false) continue
+    if (isMatchingDashboardBackplate(other, dashboard)) continue
+    if (other.type === 'rect' &&
+      isFullyTransparentColor(other.style.background) &&
+      !hasVisibleFrame(other)) continue
+    return false
+  }
+  return true
+}
+
+export function isProvablyInertElement(
+  element: DashboardElement,
+  dashboard?: Dashboard,
+  sourceIndex = dashboard?.elements.indexOf(element) ?? -1
+): boolean {
   if (element.visible === false) return true
+  if (dashboard && sourceIndex >= 0 &&
+    isRedundantDashboardBackplate(element, dashboard, sourceIndex)) return true
   if (element.type === 'rect') {
     return isFullyTransparentColor(element.style.background) && !hasVisibleFrame(element)
   }
@@ -403,7 +461,7 @@ export function normalizeDashboardGeometry(
 ): readonly NormalizedDashboardElement[] {
   assertFingerprintableDashboard(dashboard)
   return dashboard.elements
-    .filter((element) => !isProvablyInertElement(element))
+    .filter((element, index) => !isProvablyInertElement(element, dashboard, index))
     .map((element) => ({
       type: element.type,
       semanticKey: semanticWidgetKey(element),
@@ -689,7 +747,7 @@ function canonicalElement(
   return {
     type: element.type,
     semanticKey: semanticWidgetKey(element),
-    binding: PRIMARY_BINDING_CONSUMED_TYPES.has(element.type) ? element.binding ?? null : null,
+    binding: dashboardElementConsumesBinding(element.type) ? element.binding ?? null : null,
     rect: canonicalizeValue(normalizeRectangle(element, dashboard), 'element.rect') as CanonicalJson,
     style: canonicalizeValue(effectiveElementStyle(element), 'element.style') as CanonicalJson
   }
@@ -708,7 +766,8 @@ function canonicalPaintOrder(dashboard: Dashboard): CanonicalJson[] {
       zIndex: element.style.zIndex ?? 0,
       canonical: JSON.stringify(canonicalElement(element, dashboard))
     }))
-    .filter(({ element }) => !isProvablyInertElement(element))
+    .filter(({ element, sourceIndex }) =>
+      !isProvablyInertElement(element, dashboard, sourceIndex))
     .sort((left, right) => left.zIndex - right.zIndex || left.sourceIndex - right.sourceIndex)
   const relations: string[] = []
   for (let lower = 0; lower < painted.length; lower += 1) {
@@ -734,7 +793,7 @@ export function createDashboardFingerprint(dashboard: Dashboard): DashboardFinge
   const geometry = normalizeDashboardGeometry(dashboard)
   const topology = createTopologySignature(geometry)
   const canonicalElements = dashboard.elements
-    .filter((element) => !isProvablyInertElement(element))
+    .filter((element, index) => !isProvablyInertElement(element, dashboard, index))
     .map((element) => JSON.stringify(canonicalElement(element, dashboard)))
     .sort()
     .map((element) => JSON.parse(element) as CanonicalJson)

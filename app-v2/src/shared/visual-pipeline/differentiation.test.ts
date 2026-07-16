@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { Dashboard, DashboardElement } from '../dashboards'
+import { BUILTIN_PRESETS } from '../dashboards'
+import type { Dashboard, DashboardElement, DashboardElementType } from '../dashboards'
 import {
+  DASHBOARD_RENDER_CAPABILITIES,
   PERCEPTUAL_SIMILARITY_THRESHOLDS,
   REQUIRED_PERCEPTUAL_STATES,
   STRUCTURAL_SIMILARITY_THRESHOLDS,
@@ -259,6 +261,61 @@ describe('dashboard structural differentiation', () => {
     expect(dilutedFingerprint.canonical).toBe(originalFingerprint.canonical)
     expect(comparison.decision.hardFail).toBe(true)
   })
+
+  it('excludes a redundant full-canvas backplate matching dashboard.bg', () => {
+    const withoutBackplate = dashboard('without-backplate', [
+      widget('speed', 'speed', BOXES.topLeft)
+    ])
+    const withBackplate = dashboard('with-backplate', [
+      fullCanvasLayer('matching-backplate', '#000'),
+      widget('speed-copy', 'speed', BOXES.topLeft)
+    ])
+
+    const first = createDashboardFingerprint(withoutBackplate)
+    const second = createDashboardFingerprint(withBackplate)
+    expect(second.elementCount).toBe(first.elementCount)
+    expect(second.canonical).toBe(first.canonical)
+  })
+
+  it('does not reject race-wet-minimal vs ferrari_gt3 from matching backplates', () => {
+    const wet = BUILTIN_PRESETS.find((preset) => preset.id === 'race-wet-minimal')
+    const ferrari = BUILTIN_PRESETS.find((preset) => preset.id === 'ferrari_gt3')
+    expect(wet).toBeDefined()
+    expect(ferrari).toBeDefined()
+
+    const comparison = compareDashboardStructures(wet!.build(), ferrari!.build())
+    expect(comparison.decision.hardFail).toBe(false)
+  })
+
+  it.each([
+    'mono-tile-minimal',
+    'neon-ring-futuristic',
+    'shiftbar',
+    'trackmini'
+  ] satisfies DashboardElementType[])(
+    'includes binding identity for the %s renderer',
+    (type) => {
+      expect(DASHBOARD_RENDER_CAPABILITIES[type]?.consumesBinding).toBe(true)
+      const speed = dashboard(`${type}-speed`, [{
+        id: 'speed',
+        type,
+        ...BOXES.topLeft,
+        binding: 'speedKmh',
+        style: {}
+      }])
+      const rpm = dashboard(`${type}-rpm`, [{
+        id: 'rpm',
+        type,
+        ...BOXES.topLeft,
+        binding: 'rpm',
+        style: {}
+      }])
+
+      const comparison = compareDashboardStructures(speed, rpm)
+      expect(comparison.metrics.semanticWidgetJaccard).toBe(0)
+      expect(comparison.metrics.exactCanonicalEquality).toBe(false)
+    }
+  )
 
   it('preserves case-sensitive binding identifiers', () => {
     const upperCaseBinding = dashboard('upper', [
