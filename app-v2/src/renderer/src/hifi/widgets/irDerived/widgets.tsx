@@ -9,7 +9,7 @@
 //   steeringLock     ← steerAngleDeg + steeringAngleMaxDeg (% of available lock)
 //   rotationRates    ← yaw/pitch/rollRateRadSec        (3-axis body rates, °/s)
 //   carAttitude      ← pitchRad + rollRad + yawRad      (artificial horizon + hdg)
-//   fuelLapsLeft     ← fuelLiters + fuelPerLapKg        (estimated laps to empty)
+//   fuelLapsLeft     ← canonical fuelLapsRemaining / litres-per-lap
 //   sunPosition      ← solarAltitudeRad + solarAzimuthRad (sky-dome sun plot)
 //   gpsHeading       ← lat + lon + yawNorth             (GPS fix + compass heading)
 //   raceControlFlags ← sessionFlagsRaw                  (decoded flag lamp panel)
@@ -36,6 +36,10 @@ import {
   num
 } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'
+import {
+  fuelLapsRemainingOf,
+  fuelPerLapLitersOf
+} from '../../../../../shared/telemetry'
 
 const W = 420
 const H = 240
@@ -184,20 +188,18 @@ function CarAttitude({ width, height, snapshot }: HifiWidgetProps): ReactElement
   )
 }
 
-// ── Fuel laps-left (liters ÷ per-lap kg → estimated laps) ─────────────────────
+// ── Fuel laps-left (canonical litres-based estimate) ──────────────────────────
 function FuelLapsLeft({ width, height, snapshot, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
-  const liters = num(snapshot?.fuelLiters)
-  const perLapKg = num(snapshot?.fuelPerLapKg)
-  const perLapL = perLapKg != null && perLapKg > 0 ? perLapKg / 0.75 : undefined
-  const laps = liters != null && perLapL != null && perLapL > 0 ? liters / perLapL : undefined
+  const laps = fuelLapsRemainingOf(snapshot)
+  const perLapLiters = fuelPerLapLitersOf(snapshot)
   const color = laps == null ? C.dim : laps < 2 ? C.red : laps < 4 ? C.amber : C.green
-  const perLapReading = formatMeasurement(perLapKg, 'mass-per-lap-kg', unitSystem, { decimals: 2 })
+  const perLapReading = formatMeasurement(perLapLiters, 'fuel-per-lap-l', unitSystem, { decimals: 2 })
   return (
     <Root width={width} height={height} snapshot={snapshot}>
       <BigNum x={W / 2} y={128} value={laps == null ? '—' : fixed(laps, 1)} color={color} size={104} />
       <text x={W / 2} y={168} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={24} fontWeight={800} letterSpacing={3} {...LEGIBLE}>LAPS LEFT</text>
       <text x={W / 2} y={210} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={20} fontWeight={700} {...LEGIBLE}>
-        {perLapKg == null ? '—' : `${perLapReading.display} ${perLapReading.unit}`}
+        {perLapLiters == null ? '—' : `${perLapReading.display} ${perLapReading.unit}`}
       </text>
     </Root>
   )
@@ -463,7 +465,8 @@ export const fuelLapsLeftWidget: HifiWidgetModule = {
   description: 'Estimated laps to empty from tank litres and fuel used per lap.',
   category: 'fuel',
   tags: ['fuel', 'laps', 'range', 'strategy', 'derived', 'clean'],
-  requires: ['fuelLiters', 'fuelPerLapKg'],
+  requires: ['fuelLapsRemaining'],
+  alternativeRequires: [['fuelLiters', 'fuelPerLapLiters']],
   defaultSize: { w: W, h: H },
   render: (props) => <FuelLapsLeft {...props} />
 }

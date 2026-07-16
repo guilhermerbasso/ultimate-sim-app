@@ -190,6 +190,8 @@ export function createMockSnapshot(overrides: Partial<TelemetrySnapshot> = {}): 
     // Fuel
     fuelLiters: 38.4,
     fuelPerLap: 2.86,
+    fuelPerLapLiters: 2.86,
+    fuelLapsRemaining: 38.4 / 2.86,
     fuelUsePerHourKg: 71.5,
     fuelPerLapKg: 2.12,
     fuelCapacityLiters: 120,

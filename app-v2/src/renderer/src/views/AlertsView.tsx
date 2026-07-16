@@ -233,6 +233,11 @@ export default function AlertsView({ showToast, language }: AppViewProps): React
             onPatch={(patch) => updateConfig(patch)}
           />
         ))}
+        <BrakePressurePolicyEditor
+          config={config}
+          language={language}
+          onPatch={(patch) => updateConfig(patch)}
+        />
       </div>
 
       <Feed events={events} language={language} onClear={() => setEvents([])} />
@@ -426,6 +431,53 @@ function ThresholdFields({
     default:
       return null
   }
+}
+
+function BrakePressurePolicyEditor({
+  config,
+  language,
+  onPatch
+}: {
+  config: AlertsConfig
+  language: ResolvedLanguage | undefined
+  onPatch(patch: AlertsConfigPatch): void
+}): ReactElement {
+  return (
+    <div style={card}>
+      <strong>{tt(language, 'alerts.policy.brakePressure.title')}</strong>
+      <p style={{ margin: '8px 0 12px', opacity: 0.72, fontSize: 13 }}>
+        {tt(language, 'alerts.policy.brakePressure.desc')}
+      </p>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <NumberField
+          labelText={tt(language, 'alerts.brakeInputMin')}
+          max={100}
+          min={0}
+          step={1}
+          value={Math.round((config.brakePressureLow?.brakeInputMin ?? 0) * 100)}
+          onCommit={(value) =>
+            onPatch({
+              brakePressureLow: {
+                brakeInputMin:
+                  (value ?? Math.round((config.brakePressureLow?.brakeInputMin ?? 0) * 100)) /
+                  100
+              }
+            })
+          }
+        />
+        <NumberField
+          labelText={tt(language, 'alerts.maxBrakePressureBar')}
+          max={500}
+          min={0}
+          step={1}
+          value={config.brakePressureLow?.maxLinePressureBar}
+          onCommit={(maxLinePressureBar) =>
+            onPatch({ brakePressureLow: { maxLinePressureBar } })
+          }
+        />
+      </div>
+    </div>
+  )
 }
 
 

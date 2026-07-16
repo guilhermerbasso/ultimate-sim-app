@@ -114,4 +114,23 @@ describe('THEMED_DERIVED_WIDGETS', () => {
       expect(Number(tag?.[1]), widget.id).toBeLessThanOrEqual(51)
     }
   })
+
+  it('uses canonical litres-per-lap for every themed fuel-range widget', () => {
+    const snapshot = {
+      ...baseSnapshot(),
+      fuelLiters: 10,
+      fuelPerLapKg: 1,
+      fuelPerLapLiters: 2,
+      fuelLapsRemaining: undefined
+    } as TelemetrySnapshot
+    const widgets = THEMED_DERIVED_WIDGETS.filter((widget) => widget.id.startsWith('fuelLapsLeft'))
+    expect(widgets).toHaveLength(6)
+    for (const widget of widgets) {
+      expect(widget.requires).toEqual(['fuelLapsRemaining'])
+      expect(widget.alternativeRequires).toEqual([['fuelLiters', 'fuelPerLapLiters']])
+      const markup = renderWidget(widget, snapshot)
+      expect(markup, widget.id).toContain('5.0')
+      expect(markup, widget.id).not.toContain('7.5')
+    }
+  })
 })
