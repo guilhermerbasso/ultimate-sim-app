@@ -35,6 +35,7 @@ const SoundsView = lazy(() => import('./SoundsView'))
 const TelemetryView = lazy(() => import('./TelemetryView'))
 const TireStrategyView = lazy(() => import('./TireStrategyView'))
 const TouchControlsView = lazy(() => import('./TouchControlsView'))
+const RigPreflightView = lazy(() => import('./RigPreflightView'))
 
 type ViewComponent = LazyExoticComponent<ComponentType<AppViewProps>>
 export interface ViewDef {
@@ -74,6 +75,7 @@ export const viewRegistry: ViewDef[] = [
   { id: 'community', group: 'Sim Racing', label: 'Community', eyebrow: 'Local-first', description: 'Ghosts, telemetry, and setups via .simshare files; compare where you gain/lose.', shortcut: 'TK', Component: CommunityView },
   { id: 'haptics-zonal', group: 'Sim Racing', label: 'Haptics Zonal', eyebrow: 'Zones', description: 'Events→zones (seat/pedals/wheel) + visual simulator.', shortcut: 'TL', Component: HapticsZonalView },
   { id: 'spotter-3d', group: 'Sim Racing', label: '3D Spotter', eyebrow: 'Spatial audio', description: 'Positional HRTF cues for nearby cars.', shortcut: 'TM', Component: Spotter3DView },
+  { id: 'rig-preflight', group: 'ButtonBox', label: 'Rig Preflight', eyebrow: 'Evidence', description: 'Local desired/reported/delta readiness with expiring certificates, waivers, and fault drills.', shortcut: '0R', Component: RigPreflightView },
   { id: 'devices', group: 'ButtonBox', label: 'Devices', eyebrow: 'Connection', description: 'USB/serial detection and ButtonBox selection.', shortcut: '01', Component: DevicesView },
   { id: 'arduinos', group: 'ButtonBox', label: 'Arduinos', eyebrow: 'Hardware', description: 'SimHub-style hub: RGB, matrix, screens, gauges, controls, pinout, and firmware.', shortcut: '00', Component: ArduinosView },
   { id: 'revlights', group: 'ButtonBox', label: 'Rev Lights', eyebrow: 'LEDs', description: 'Rev lights configuration and presets.', shortcut: '06', Component: RevlightsView },

@@ -1,0 +1,395 @@
+.rig-preflight-view {
+  gap: 18px;
+}
+
+.rig-preflight-hero,
+.rig-preflight-actions,
+.rig-preset-row,
+.rig-check-head,
+.rig-waiver-list > div,
+.rig-history-table > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.rig-preflight-hero {
+  background:
+    radial-gradient(circle at 82% 12%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 34%),
+    var(--panel);
+}
+
+.rig-preflight-hero h3 {
+  margin: 5px 0 8px;
+  font-size: clamp(1.45rem, 2vw, 2rem);
+}
+
+.rig-preflight-actions {
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+.rig-preflight-summary {
+  display: grid;
+  grid-template-columns: minmax(230px, 1.4fr) repeat(3, minmax(150px, 1fr));
+  gap: 14px;
+}
+
+.rig-certificate,
+.rig-metric-card {
+  min-height: 132px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+
+.rig-certificate strong,
+.rig-metric-card strong {
+  font-size: 1.4rem;
+}
+
+.rig-certificate.ready {
+  border-color: color-mix(in srgb, var(--success) 62%, transparent);
+  box-shadow: inset 4px 0 0 var(--success);
+}
+
+.rig-certificate.ready-with-waivers {
+  border-color: #f59e0b;
+  box-shadow: inset 4px 0 0 #f59e0b;
+}
+
+.rig-certificate.blocked {
+  border-color: color-mix(in srgb, var(--danger) 62%, transparent);
+  box-shadow: inset 4px 0 0 var(--danger);
+}
+
+.rig-inline-alert {
+  color: var(--danger);
+  margin: 2px 0 0;
+  font-size: 0.82rem;
+}
+
+.rig-signature {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+
+.rig-preset-row {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin: 14px 0;
+}
+
+.rig-preset {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  padding: 8px 13px;
+  cursor: pointer;
+}
+
+.rig-preset.is-active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.rig-profile-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.rig-profile-fields label,
+.rig-waiver-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.rig-profile-fields input,
+.rig-profile-fields select,
+.rig-waiver-form select,
+.rig-waiver-form textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  color: var(--text);
+  padding: 9px 10px;
+  font: inherit;
+}
+
+.rig-profile-fields small {
+  color: var(--muted);
+}
+
+.rig-requirement-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 9px;
+  margin-top: 16px;
+}
+
+.rig-requirement {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 11px;
+  color: var(--muted);
+}
+
+.rig-requirement:has(input:checked) {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.rig-check-groups {
+  display: grid;
+  gap: 18px;
+  margin-top: 16px;
+}
+
+.rig-check-group {
+  display: grid;
+  gap: 10px;
+}
+
+.rig-check-group h4 {
+  margin: 0;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  font-size: 0.72rem;
+}
+
+.rig-check {
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 12px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--panel-strong, var(--panel)) 84%, transparent);
+}
+
+.rig-check.state-verified {
+  border-left-color: var(--success);
+}
+
+.rig-check.state-fail {
+  border-left-color: var(--danger);
+}
+
+.rig-check.state-unknown {
+  border-left-color: #94a3b8;
+}
+
+.rig-check.state-waived-with-reason {
+  border-left-color: #f59e0b;
+}
+
+.rig-check-head {
+  align-items: flex-start;
+}
+
+.rig-check-head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.rig-check-head small,
+.rig-history-table small,
+.rig-waiver-list small,
+.rig-fault-list small {
+  display: block;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.rig-check > p {
+  margin: 10px 0;
+}
+
+.rig-state {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 4px 9px;
+  white-space: nowrap;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.rig-state.state-verified,
+.rig-state.decision-ready {
+  color: var(--success);
+}
+
+.rig-state.state-fail,
+.rig-state.decision-blocked {
+  color: var(--danger);
+}
+
+.rig-state.state-unknown {
+  color: #94a3b8;
+}
+
+.rig-state.state-waived-with-reason,
+.rig-state.decision-ready-with-waivers {
+  color: #f59e0b;
+}
+
+.rig-evidence {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.rig-evidence > div,
+.rig-delta,
+.rig-remediation,
+.rig-waiver-note {
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 74%, transparent);
+  padding: 10px 12px;
+}
+
+.rig-evidence dt,
+.rig-delta strong,
+.rig-remediation strong {
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.rig-evidence dd {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.rig-delta,
+.rig-remediation,
+.rig-waiver-note {
+  margin-top: 10px;
+}
+
+.rig-delta ul,
+.rig-remediation ul {
+  margin: 7px 0 0;
+  padding-left: 18px;
+}
+
+.rig-remediation {
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.rig-waiver-note {
+  color: #fbbf24;
+  border: 1px solid color-mix(in srgb, #f59e0b 42%, transparent);
+}
+
+.rig-waiver-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.rig-waiver-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.rig-waiver-list > div {
+  border-top: 1px solid var(--line);
+  padding-top: 9px;
+}
+
+.rig-fault-score {
+  display: inline-grid;
+  place-items: center;
+  width: 78px;
+  height: 78px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  margin: 12px 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+.rig-fault-score.pass,
+.rig-fault-list .pass {
+  color: var(--success);
+}
+
+.rig-fault-score.fail,
+.rig-fault-list .fail {
+  color: var(--danger);
+}
+
+.rig-fault-list {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rig-fault-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rig-fault-list li > span {
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.rig-history-table {
+  display: grid;
+  gap: 1px;
+  margin-top: 14px;
+  overflow-x: auto;
+}
+
+.rig-history-table > div {
+  min-width: 760px;
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) minmax(150px, 0.8fr) 90px minmax(230px, 1fr);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 0;
+}
+
+@media (max-width: 1050px) {
+  .rig-preflight-summary,
+  .rig-profile-fields,
+  .rig-requirement-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .rig-preflight-hero,
+  .rig-check-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .rig-preflight-summary,
+  .rig-profile-fields,
+  .rig-requirement-grid,
+  .rig-evidence {
+    grid-template-columns: 1fr;
+  }
+}

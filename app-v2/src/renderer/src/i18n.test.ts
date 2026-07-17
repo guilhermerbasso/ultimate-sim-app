@@ -34,6 +34,9 @@ describe('i18n text helpers', () => {
     expect(tt('en', 'fuel.untilLap', { lap: 12 })).toBe('until lap 12')
     expect(tt('pt-BR', 'fuel.untilLap', { lap: 12 })).toBe('até volta 12')
     expect(tt('es', 'fuel.untilLap', { lap: 12 })).toBe('until lap 12')
+    expect(tt('en', 'rigPreflight.title')).toBe('Rig Twin & Preflight')
+    expect(tt('pt-BR', 'rigPreflight.title')).toBe('Gêmeo do Rig e Preflight')
+    expect(tt('ja', 'rigPreflight.title')).toBe('Rig Twin & Preflight')
   })
 
   it('translates known navigation section titles', () => {

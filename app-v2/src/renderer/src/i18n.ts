@@ -6842,7 +6842,9 @@ export function tt(language: ResolvedLanguage | undefined, key: string, vars: Re
 type ViewText = Pick<ViewDef, 'group' | 'label' | 'eyebrow' | 'description'>
 
 const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
-  'pt-BR': {},
+  'pt-BR': {
+    'rig-preflight': { label: 'Preflight do Rig', eyebrow: 'Evidência', description: 'Readiness local com desejado/reportado/delta, certificados com prazo, dispensas e testes de falha.' }
+  },
   en: {
     telemetry: { label: 'Telemetry', eyebrow: 'Sim', description: 'Live telemetry source and overview.' },
     dashboards: { label: 'Dashboards', eyebrow: 'Monitor', description: 'Monitor windows, .simhubdash import, and dashboard builder.' },
@@ -6868,6 +6870,7 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
     'haptics-zonal': { label: 'Zonal Haptics', eyebrow: 'Zones', description: 'Events to zones plus visual simulator.' },
     haptics: { label: 'Haptics', eyebrow: 'Bass shaker', description: 'ShakeIt-style tactile feedback: bass shaker audio plus haptics.' },
     'spotter-3d': { label: '3D Spotter', eyebrow: 'Spatial audio', description: 'HRTF positional cues for nearby cars.' },
+    'rig-preflight': { label: 'Rig Preflight', eyebrow: 'Evidence', description: 'Local desired/reported/delta readiness with expiring certificates, waivers, and fault drills.' },
     devices: { label: 'Devices', eyebrow: 'Connection', description: 'USB/serial detection and ButtonBox selection.' },
     arduinos: { label: 'Arduinos', eyebrow: 'Hardware', description: 'SimHub-style hardware hub for RGB, matrix, displays, gauges, controls, pinout, and firmware.' },
     revlights: { label: 'Rev Lights', eyebrow: 'LEDs', description: 'Rev light configuration and presets.' },
