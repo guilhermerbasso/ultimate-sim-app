@@ -6842,7 +6842,9 @@ export function tt(language: ResolvedLanguage | undefined, key: string, vars: Re
 type ViewText = Pick<ViewDef, 'group' | 'label' | 'eyebrow' | 'description'>
 
 const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
-  'pt-BR': {},
+  'pt-BR': {
+    'setup-experiment': { label: 'Experimento de Setup', eyebrow: 'A-B-A', description: 'Experimentos locais de uma variável com comparabilidade, incerteza e abstenção.' }
+  },
   en: {
     telemetry: { label: 'Telemetry', eyebrow: 'Sim', description: 'Live telemetry source and overview.' },
     dashboards: { label: 'Dashboards', eyebrow: 'Monitor', description: 'Monitor windows, .simhubdash import, and dashboard builder.' },
@@ -6857,6 +6859,7 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
     'race-profiles': { label: 'Race Profiles', eyebrow: 'Car/Track', description: 'Car/track profiles with automatic switching.' },
     sounds: { label: 'Sounds', eyebrow: 'Audio', description: 'Soundshift, incident, ABS, and TCS audio cues.' },
     setups: { label: 'Setups', eyebrow: 'iRacing', description: 'Auto-install .sto setups from a folder or URL.' },
+    'setup-experiment': { label: 'Setup Experiment', eyebrow: 'A-B-A', description: 'Local one-variable setup experiments with comparability gates, uncertainty, and abstention.' },
     career: { label: 'Career & Ratings', eyebrow: 'iRacing', description: 'iRating, Safety Rating, licenses, incidents, and results.' },
     engineer: { label: 'AI Engineer', eyebrow: 'Local LLM', description: 'Text race engineer for fuel, tyres, gaps, and strategy. Includes Voice Spotter.' },
     coach: { label: 'AI Coach', eyebrow: 'Local AI', description: 'Driving coach and lap analysis with corner findings, track map, and setup suggestions.' },
@@ -6909,6 +6912,7 @@ patchViewText('es', {
   overlays: { label: 'Overlays', eyebrow: 'Pantalla', description: 'Overlays transparentes sobre el simulador.' },
   fuel: { label: 'Combustible' },
   tire: { label: 'Neumáticos' },
+  'setup-experiment': { label: 'Experimento de setup', description: 'Experimentos locales A-B-A de una variable con comparabilidad e incertidumbre.' },
   alerts: { label: 'Alerts' },
   engineer: { label: 'Ingeniero IA' },
   coach: { label: 'Coach IA' },
@@ -6925,6 +6929,7 @@ patchViewText('fr', {
   overlays: { label: 'Overlays', eyebrow: 'Écran', description: 'Overlays transparents au-dessus du simulateur.' },
   fuel: { label: 'Carburant' },
   tire: { label: 'Tires' },
+  'setup-experiment': { label: 'Expérience de réglage', description: 'Expériences locales A-B-A à une variable avec comparabilité et incertitude.' },
   alerts: { label: 'Alertes' },
   engineer: { label: 'Ingénieur IA' },
   coach: { label: 'Coach IA' },
@@ -6942,6 +6947,7 @@ patchViewText('de', {
   overlays: { label: 'Overlays', eyebrow: 'Anzeige', description: 'Transparente Overlays über dem Simulator.' },
   fuel: { label: 'Kraftstoff' },
   tire: { label: 'Reifen' },
+  'setup-experiment': { label: 'Setup-Experiment', description: 'Lokale A-B-A-Experimente mit einer Variable, Vergleichbarkeit und Unsicherheit.' },
   alerts: { label: 'Warnungen' },
   engineer: { label: 'KI-Ingenieur' },
   coach: { label: 'KI-Coach' },
@@ -6961,6 +6967,7 @@ patchViewText('zh', {
   overlays: { label: '叠加层', eyebrow: '屏幕', description: '模拟器之上的透明叠加层。' },
   fuel: { label: '燃油', eyebrow: '策略' },
   tire: { label: '轮胎', eyebrow: '策略' },
+  'setup-experiment': { label: '设置实验', description: '具有可比性与不确定性保护的本地单变量 A-B-A 实验。' },
   alerts: { label: '警报' },
   engineer: { label: 'AI 工程师' },
   coach: { label: 'AI 教练' },
@@ -6980,6 +6987,7 @@ patchViewText('ja', {
   overlays: { label: 'オーバーレイ', eyebrow: '画面', description: 'シミュレーターの上に表示する透明オーバーレイ。' },
   fuel: { label: '燃料', eyebrow: '戦略' },
   tire: { label: 'タイヤ', eyebrow: '戦略' },
+  'setup-experiment': { label: 'セットアップ実験', description: '比較可能性と不確実性を扱うローカル単一変数 A-B-A 実験。' },
   alerts: { label: 'アラート' },
   engineer: { label: 'AI エンジニア' },
   coach: { label: 'AI コーチ' },

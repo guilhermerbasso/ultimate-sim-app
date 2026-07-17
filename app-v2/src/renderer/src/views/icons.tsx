@@ -258,6 +258,14 @@ const iconMap: Record<string, () => ReactElement> = {
       <circle cx="17" cy="13" r="1.6" fill="currentColor" stroke="none" />
     </Svg>
   ),
+  'setup-experiment': () => (
+    <Svg>
+      <path d="M3 17h16M5 14V8M11 14V4M17 14V8" />
+      <circle cx="5" cy="7" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="11" cy="3" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="17" cy="7" r="1.5" fill="currentColor" stroke="none" />
+    </Svg>
+  ),
   tire: () => (
     <Svg>
       {/* tyre: outer + inner ring + tread ticks */}
