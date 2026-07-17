@@ -155,6 +155,14 @@ const iconMap: Record<string, () => ReactElement> = {
       <path d="M14.5 18a4.5 4.5 0 0 1 5.5-4.4" />
     </Svg>
   ),
+  'raceops-blueprints': () => (
+    <Svg>
+      <path d="M5 3h9l3 3v13H5z" />
+      <path d="M14 3v4h4M8 10h6M8 13h6M8 16h4" />
+      <circle cx="17.5" cy="16.5" r="2.5" />
+      <path d="m16.4 16.5.8.8 1.5-1.7" />
+    </Svg>
+  ),
   haptics: () => (
     <Svg>
       {/* shaker body + vibration waves */}

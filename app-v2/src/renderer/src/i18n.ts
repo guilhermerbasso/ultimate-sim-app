@@ -6842,7 +6842,13 @@ export function tt(language: ResolvedLanguage | undefined, key: string, vars: Re
 type ViewText = Pick<ViewDef, 'group' | 'label' | 'eyebrow' | 'description'>
 
 const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
-  'pt-BR': {},
+  'pt-BR': {
+    'raceops-blueprints': {
+      label: 'Blueprints RaceOps',
+      eyebrow: 'Declarativo',
+      description: 'Manifests assinados, dry-runs restritos, evidência de compatibilidade e rollback.'
+    }
+  },
   en: {
     telemetry: { label: 'Telemetry', eyebrow: 'Sim', description: 'Live telemetry source and overview.' },
     dashboards: { label: 'Dashboards', eyebrow: 'Monitor', description: 'Monitor windows, .simhubdash import, and dashboard builder.' },
@@ -6865,6 +6871,7 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
     'dashboard-adaptive': { label: 'Adaptive Dashboard', eyebrow: 'Live', description: 'A single dashboard that reorganizes by session phase and lap moment.' },
     biometrics: { label: 'Biometrics', eyebrow: 'HR/AR', description: 'Heart rate, stress vs pace, and AR HUD.' },
     community: { label: 'Community', eyebrow: 'Local-first', description: 'Ghosts, telemetry, and setups via .simshare files.' },
+    'raceops-blueprints': { label: 'RaceOps Blueprints', eyebrow: 'Declarative', description: 'Signed manifests, constrained dry-runs, compatibility evidence, and rollback.' },
     'haptics-zonal': { label: 'Zonal Haptics', eyebrow: 'Zones', description: 'Events to zones plus visual simulator.' },
     haptics: { label: 'Haptics', eyebrow: 'Bass shaker', description: 'ShakeIt-style tactile feedback: bass shaker audio plus haptics.' },
     'spotter-3d': { label: '3D Spotter', eyebrow: 'Spatial audio', description: 'HRTF positional cues for nearby cars.' },
