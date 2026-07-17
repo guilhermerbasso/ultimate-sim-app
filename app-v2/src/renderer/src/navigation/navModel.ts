@@ -9,6 +9,7 @@ export const navSections: NavSection[] = [
   { title: 'IA & Coaching', viewIds: ['engineer', 'coach', 'dashboard-builder', 'voice', 'search'] },
   { title: 'Strategy', viewIds: ['fuel', 'tire', 'strategy'] },
   { title: 'Garage', viewIds: ['setups', 'race-profiles', 'community'] },
+  { title: 'League Ops', viewIds: ['steward-desk'] },
   { title: 'Hardware', viewIds: ['devices', 'arduinos', 'revlights', 'inputs', 'controls', 'pinout'] },
   { title: 'System', viewIds: ['settings', 'about', 'expr', 'profiles', 'career'] }
 ]
