@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { canonicalStringify, utf8ByteLength } from './canonical'
 import {
+  MAX_IDENTIFIER_LENGTH,
+  MAX_PLAN_ID_LENGTH,
   MAX_SCHEDULER_EVENTS,
+  MAX_SERIALIZED_CHARACTERS,
   MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT
 } from './constants'
 import {
@@ -139,9 +142,9 @@ describe('externally authoritative image scheduler', () => {
   it('preflights a maximum-length authenticated scheduler attempt before authority commit', () => {
     const { governance, scheduler, contexts, hashes } = setupApproved()
     governance.schedulerAuthority.ensureAfter(contexts[0].promptApprovedAt)
-    const callId = 'c'.repeat(128)
-    const controlActor = 'k'.repeat(128)
-    const workerActor = 'w'.repeat(128)
+    const callId = 'c'.repeat(MAX_IDENTIFIER_LENGTH)
+    const controlActor = 'k'.repeat(MAX_IDENTIFIER_LENGTH)
+    const workerActor = 'w'.repeat(MAX_IDENTIFIER_LENGTH)
     const reserveInput = {
       actorId: controlActor,
       callId,
@@ -187,6 +190,128 @@ describe('externally authoritative image scheduler', () => {
     expect(scheduler.authorityCasVersion).toBe(
       governance.schedulerAuthority.currentVersion
     )
+  })
+
+  it('accepts a maximum-field third retry attempt within the runtime-safe cap', () => {
+    const governance = makeGovernance(
+      new TestClock(),
+      'u'.repeat(MAX_IDENTIFIER_LENGTH)
+    )
+    const scheduler = makeScheduler(governance)
+    const basePlan = makePlan()
+    const plan = createArtifactPlan({
+      registryHash: basePlan.registryHash,
+      styles: basePlan.styles.map((identity, index) =>
+        index === 0
+          ? { id: 's'.repeat(MAX_PLAN_ID_LENGTH), ordinal: identity.ordinal }
+          : identity
+      ),
+      concepts: basePlan.concepts.map((identity, index) =>
+        index === 0
+          ? { id: 'c'.repeat(MAX_PLAN_ID_LENGTH), ordinal: identity.ordinal }
+          : identity
+      ),
+      triggerFamilies: basePlan.triggerFamilies
+    })
+    const ledger = VisualArtifactLedger.create(
+      plan,
+      governance.ledgerDependencies(scheduler)
+    )
+    const context = appendPromptApproved(
+      ledger,
+      governance,
+      expectedArtifactIds(plan)[50],
+      1,
+      new HashPool(),
+      new TestClock(1_000_000)
+    )
+    governance.schedulerAuthority.ensureAfter(context.promptApprovedAt)
+    const hashes = new HashPool(10_000)
+    const controlActor = 'k'.repeat(MAX_IDENTIFIER_LENGTH)
+    const workerActor = 'w'.repeat(MAX_IDENTIFIER_LENGTH)
+    const callIds = [
+      'a'.repeat(MAX_IDENTIFIER_LENGTH),
+      'b'.repeat(MAX_IDENTIFIER_LENGTH),
+      'c'.repeat(MAX_IDENTIFIER_LENGTH)
+    ]
+    let retryOfCallId: string | null = null
+    let retryReason: 'timeout' | null = null
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      if (attempt > 1) {
+        governance.schedulerAuthority.advance(attempt === 2 ? 1_000 : 2_000)
+      }
+      const reserveInput = {
+        actorId: controlActor,
+        callId: callIds[attempt - 1],
+        artifactId: context.artifactId,
+        revision: 1,
+        attempt,
+        promptHash: context.promptHash,
+        promptApprovalHash: context.promptApprovalHash,
+        approvalCheckpoint: context.approvalCheckpoint,
+        requestHash: hashes.next(),
+        retryOfCallId,
+        retryReason
+      }
+      scheduler.reserve(
+        reserveInput,
+        schedulerPrincipal(scheduler, governance, 'reserve', reserveInput)
+      )
+      const dispatchInput = {
+        actorId: workerActor,
+        callId: callIds[attempt - 1]
+      }
+      scheduler.dispatch(
+        dispatchInput,
+        schedulerPrincipal(scheduler, governance, 'dispatch', dispatchInput)
+      )
+      if (attempt < 3) {
+        const failureInput = {
+          actorId: workerActor,
+          callId: callIds[attempt - 1],
+          failureReason: 'timeout' as const,
+          retryAfterMs: null
+        }
+        scheduler.fail(
+          failureInput,
+          schedulerPrincipal(scheduler, governance, 'fail', failureInput)
+        )
+        retryOfCallId = callIds[attempt - 1]
+        retryReason = 'timeout'
+      } else {
+        const imageHash = hashes.next()
+        const successInput = {
+          actorId: workerActor,
+          callId: callIds[attempt - 1],
+          imageHash,
+          serviceReceiptAttestation: governance.attestations.issueServiceReceipt(
+            scheduler.serviceReceiptBinding(callIds[attempt - 1], imageHash)
+          )
+        }
+        scheduler.succeed(
+          successInput,
+          schedulerPrincipal(scheduler, governance, 'succeed', successInput)
+        )
+      }
+    }
+
+    for (const callId of callIds) {
+      const attemptBytes = scheduler
+        .events()
+        .filter(
+          (event) =>
+            'callId' in event && event.callId === callId
+        )
+        .reduce(
+          (total, event) =>
+            total + utf8ByteLength(canonicalStringify(event)),
+          0
+        )
+      expect(attemptBytes).toBeLessThanOrEqual(
+        MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT
+      )
+    }
   })
 
   it('rejects event-cap exhaustion before consuming the shared authority CAS', () => {
@@ -242,9 +367,18 @@ describe('externally authoritative image scheduler', () => {
     expect(
       (scheduler as unknown as { serializedValue?: unknown }).serializedValue
     ).toBeUndefined()
-    expect(() => serializeImageScheduler(scheduler, { rootAttestation: { token: 'self' } })).toThrow(
-      /externally issued trusted attestation/i
-    )
+    expect(() =>
+      serializeImageScheduler(scheduler, { rootAttestation: { token: 'self' } })
+    ).toThrow(/primitive boolean true/i)
+    const validRootAttestation = schedulerRootAttestation(scheduler, governance)
+    ;(
+      scheduler as unknown as { serializedEventBytes: number }
+    ).serializedEventBytes = MAX_SERIALIZED_CHARACTERS + 1
+    expect(() =>
+      serializeImageScheduler(scheduler, {
+        rootAttestation: validRootAttestation
+      })
+    ).toThrow(/runtime-safe single-string ceiling/i)
     expect(() =>
       parseImageScheduler('{}', null)
     ).toThrow(/plain object|canonical/i)
@@ -415,7 +549,7 @@ describe('externally authoritative image scheduler', () => {
     }
     const principal = schedulerPrincipal(scheduler, governance, 'reserve', input)
     expect(() => scheduler.reserve(input, principal)).toThrow(
-      /trusted committed prompt-approval checkpoint/i
+      /primitive boolean true/i
     )
   })
 
@@ -431,7 +565,7 @@ describe('externally authoritative image scheduler', () => {
     }
     const principal = schedulerPrincipal(scheduler, governance, 'succeed', input)
     expect(() => scheduler.succeed(input, principal)).toThrow(
-      /externally verified scheduler-service receipt/i
+      /primitive boolean true/i
     )
   })
 
@@ -513,6 +647,18 @@ describe('externally authoritative image scheduler', () => {
         dependencies: governance.schedulerDependencies
       })
     ).toThrow(/canonical|duplicate keys/i)
+    expect(() =>
+      parseImageScheduler('{"value":"\ud800"}', {
+        expectedPolicyHash: scheduler.policyHash,
+        dependencies: governance.schedulerDependencies
+      })
+    ).toThrow(/unpaired UTF-16 surrogates/i)
+    expect(() =>
+      parseImageScheduler('{"\\ud800":1}', {
+        expectedPolicyHash: scheduler.policyHash,
+        dependencies: governance.schedulerDependencies
+      })
+    ).toThrow(/unpaired UTF-16 surrogates/i)
     expect(() => parseImageScheduler(serialized, null)).toThrow(/plain object/i)
     expect(() =>
       parseImageScheduler(

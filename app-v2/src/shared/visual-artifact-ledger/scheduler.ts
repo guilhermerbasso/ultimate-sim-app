@@ -8,6 +8,7 @@ import {
   type SchedulerAuthorityDependencies,
   type SchedulerAuthorityOperation,
   type SchedulerServiceReceiptBinding,
+  invokeSynchronousVerifier,
   parseOpaqueAttestation
 } from './authorities'
 import {
@@ -18,6 +19,8 @@ import {
   assertNullableSafeInteger,
   assertPlainObject,
   assertSafeInteger,
+  assertSerializedLengthsWithinRuntimeCeiling,
+  assertSerializedTextWithinRuntimeCeiling,
   assertSha256,
   canonicalStringify,
   cloneCanonical,
@@ -33,6 +36,7 @@ import {
   MAX_SCHEDULER_EVENTS,
   MAX_SERIALIZED_BYTES,
   MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT,
+  MAX_SERIALIZED_ENVELOPE_FRAMING_BYTES,
   VISUAL_ARTIFACT_LEDGER_VERSION,
   ZERO_HASH
 } from './constants'
@@ -719,6 +723,7 @@ export class ValidatedImageScheduler {
   private lastTimestamp = ''
   private lastEventHash = ZERO_HASH
   private circuitOpen = false
+  private serializedEventBytes = 0
 
   private constructor(
     policy: ImageSchedulingPolicy,
@@ -819,9 +824,12 @@ export class ValidatedImageScheduler {
       contextRootHash: this.authorityRootHash,
       contextVersion: this.authorityVersion
     }
-    if (!this.dependencies.principalVerifier.verifyPrincipal(attestation, binding)) {
-      fail('TRUST', `Authenticated principal attestation is invalid for scheduler ${action}.`)
-    }
+    invokeSynchronousVerifier(
+      this.dependencies.principalVerifier.verifyPrincipal,
+      this.dependencies.principalVerifier,
+      [attestation, binding],
+      `Scheduler principal verifier for ${action}`
+    )
   }
 
   private operationFor(
@@ -960,11 +968,16 @@ export class ValidatedImageScheduler {
       normalizedCommit.version !== this.authorityVersion + 1 ||
       normalizedCommit.previousRootHash !== this.authorityRootHash ||
       normalizedCommit.operationHash !== operation.operationHash ||
-      (this.lastTimestamp && compareIso(normalizedCommit.committedAt, this.lastTimestamp) < 0) ||
-      !this.dependencies.authority.verifyCommit(normalizedCommit, operation)
+      (this.lastTimestamp && compareIso(normalizedCommit.committedAt, this.lastTimestamp) < 0)
     ) {
       fail('TRUST', 'Scheduler authority returned an invalid or stale committed operation.')
     }
+    invokeSynchronousVerifier(
+      this.dependencies.authority.verifyCommit,
+      this.dependencies.authority,
+      [normalizedCommit, operation],
+      'Scheduler authority commit verifier'
+    )
     return deepFreeze(normalizedCommit)
   }
 
@@ -985,7 +998,7 @@ export class ValidatedImageScheduler {
     principalAttestation: OpaqueAttestation,
     existingAttemptBytes: number
   ): void {
-    const maximumToken = { token: 'x'.repeat(128) }
+    const maximumToken = { token: 'x'.repeat(96) }
     const preview = {
       sequence: MAX_SCHEDULER_EVENTS,
       occurredAt: 'x'.repeat(32),
@@ -1037,14 +1050,16 @@ export class ValidatedImageScheduler {
       ...withoutHash,
       eventHash: computeSchedulerEventHash(withoutHash)
     }) as SchedulerEvent
+    const eventBytes = utf8ByteLength(canonicalStringify(event))
     if (
       existingAttemptBytes !== undefined &&
-      existingAttemptBytes + utf8ByteLength(canonicalStringify(event)) >
+      existingAttemptBytes + eventBytes >
         MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT
     ) {
       fail('CARDINALITY', 'Scheduler attempt serialized byte budget is exhausted.')
     }
     this.eventLog.push(event)
+    this.serializedEventBytes += eventBytes
     this.lastTimestamp = event.occurredAt
     this.lastEventHash = event.eventHash
     this.authorityVersion = commit.version
@@ -1092,14 +1107,16 @@ export class ValidatedImageScheduler {
       checkpoint.artifactId !== input.artifactId ||
       checkpoint.revision !== input.revision ||
       checkpoint.promptHash !== input.promptHash ||
-      checkpoint.promptApprovalEventHash !== input.promptApprovalHash ||
-      !this.dependencies.approvalVerifier.verifyPromptApprovalCheckpoint(
-        checkpoint.attestation,
-        checkpointBinding(checkpoint)
-      )
+      checkpoint.promptApprovalEventHash !== input.promptApprovalHash
     ) {
       fail('TRUST', 'Image reservation requires a trusted committed prompt-approval checkpoint.')
     }
+    invokeSynchronousVerifier(
+      this.dependencies.approvalVerifier.verifyPromptApprovalCheckpoint,
+      this.dependencies.approvalVerifier,
+      [checkpoint.attestation, checkpointBinding(checkpoint)],
+      'Prompt approval checkpoint verifier'
+    )
 
     const previous = this.latestCallByRevision.get(
       revisionKey(checkpoint.planHash, input.artifactId, input.revision)
@@ -1337,14 +1354,12 @@ export class ValidatedImageScheduler {
       fail('POLICY', 'Image success requires a committed dispatched call.')
     }
     const serviceBinding = this.serviceReceiptBinding(input.callId, input.imageHash)
-    if (
-      !this.dependencies.serviceReceiptVerifier.verifyServiceReceipt(
-        input.serviceReceiptAttestation,
-        serviceBinding
-      )
-    ) {
-      fail('RECEIPT', 'Image success requires an externally verified scheduler-service receipt.')
-    }
+    invokeSynchronousVerifier(
+      this.dependencies.serviceReceiptVerifier.verifyServiceReceipt,
+      this.dependencies.serviceReceiptVerifier,
+      [input.serviceReceiptAttestation, serviceBinding],
+      'Scheduler service receipt verifier'
+    )
     const eventPayload = {
       type: 'image-call-succeeded' as const,
       callId: input.callId,
@@ -1554,17 +1569,18 @@ export class ValidatedImageScheduler {
 
   verifyRootAttestation(attestationValue: unknown): void {
     const attestation = parseOpaqueAttestation(attestationValue, 'Scheduler root attestation')
-    if (
-      !this.dependencies.rootVerifier.verifyRoot(attestation, {
+    invokeSynchronousVerifier(
+      this.dependencies.rootVerifier.verifyRoot,
+      this.dependencies.rootVerifier,
+      [attestation, {
         domain: 'image-scheduler',
         purpose: 'envelope',
         rootHash: this.rootHash,
         version: this.version,
         contextHash: this.policyHash
-      })
-    ) {
-      fail('TRUST', 'Scheduler root lacks an externally issued trusted attestation.')
-    }
+      }],
+      'Scheduler envelope root verifier'
+    )
   }
 
   static serializeTrusted(
@@ -1575,6 +1591,17 @@ export class ValidatedImageScheduler {
       fail('SCHEMA', 'Only a validated scheduler instance can be serialized.')
     }
     scheduler.verifyRootAttestation(rootAttestationValue)
+    const policyBytes = utf8ByteLength(canonicalStringify(scheduler.policy))
+    const estimatedCharacters =
+      policyBytes +
+      scheduler.serializedEventBytes +
+      Math.max(0, scheduler.eventLog.length - 1) +
+      MAX_SERIALIZED_ENVELOPE_FRAMING_BYTES
+    assertSerializedLengthsWithinRuntimeCeiling(
+      estimatedCharacters,
+      estimatedCharacters,
+      'Serialized scheduler'
+    )
     return canonicalStringify({
       schemaVersion: VISUAL_ARTIFACT_LEDGER_VERSION,
       policy: cloneCanonical(scheduler.policy),
@@ -1610,13 +1637,7 @@ export class ValidatedImageScheduler {
     serialized: string,
     optionsValue: unknown
   ): ValidatedImageScheduler {
-    if (
-      typeof serialized !== 'string' ||
-      serialized.length > MAX_SERIALIZED_BYTES ||
-      utf8ByteLength(serialized) > MAX_SERIALIZED_BYTES
-    ) {
-      fail('CARDINALITY', `Serialized scheduler exceeds ${MAX_SERIALIZED_BYTES} bytes.`)
-    }
+    assertSerializedTextWithinRuntimeCeiling(serialized, 'Serialized scheduler')
     assertPlainObject(optionsValue, 'Scheduler parse options')
     assertExactKeys(
       optionsValue,

@@ -4,9 +4,9 @@ import { expectedArtifactIds } from './plan'
 import {
   APPROVED_EXACT_ARTIFACT_COUNT,
   MAX_SERIALIZED_BYTES,
+  MAX_SERIALIZED_CHARACTERS,
   MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION,
-  MAX_SERIALIZED_JSON_FRAMING_BYTES,
-  MAX_SERIALIZED_PLAN_BYTES
+  MAX_SERIALIZED_LEDGER_FRAMING_BYTES
 } from './constants'
 import {
   DEFAULT_POLICY,
@@ -114,7 +114,8 @@ describe('16,600-artifact exact contract performance', () => {
           `stageEvents=${ids.length} stageMs=${stageUpdateMs.toFixed(2)} ` +
           `lifecycleEvents=${preFinalizationEvents} lifecycleMs=${lifecycleMs.toFixed(2)} ` +
           `finalizationReplayEvents=${preFinalizationEvents} finalizationMs=${finalizationMs.toFixed(2)} ` +
-          `serializedBytes=${serializedBytes} roundTripMs=${roundTripMs.toFixed(2)}`
+          `serializedChars=${serialized.length} serializedBytes=${serializedBytes} ` +
+          `roundTripMs=${roundTripMs.toFixed(2)}`
       )
 
       expect(ids).toHaveLength(APPROVED_EXACT_ARTIFACT_COUNT)
@@ -127,10 +128,10 @@ describe('16,600-artifact exact contract performance', () => {
       expect(reparsed.isFinalized).toBe(true)
       expect(serializedBytes).toBeLessThanOrEqual(
         ids.length * MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION +
-          MAX_SERIALIZED_PLAN_BYTES +
-          MAX_SERIALIZED_JSON_FRAMING_BYTES
+          MAX_SERIALIZED_LEDGER_FRAMING_BYTES
       )
       expect(serializedBytes).toBeLessThan(MAX_SERIALIZED_BYTES)
+      expect(serialized.length).toBeLessThan(MAX_SERIALIZED_CHARACTERS)
       expect(planCreationMs).toBeLessThan(5_000)
       expect(stageUpdateMs).toBeLessThan(15_000)
       expect(lifecycleMs).toBeLessThan(120_000)

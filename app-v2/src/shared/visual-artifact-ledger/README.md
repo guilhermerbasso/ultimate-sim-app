@@ -34,6 +34,11 @@ Evidence is exact-key, content-addressed, creator-bound, subject-bound, revision
 unique, and accepted only with an injected external evidence attestation. Every event likewise
 requires an authenticated-principal attestation bound to its role, payload, prior root, and sequence.
 Prompt bodies, arbitrary metadata, URLs, and secret-like values have no schema location.
+Every verifier is synchronous and succeeds only by returning the primitive boolean `true`; promises,
+thenables, truthy objects/strings/numbers, and `false` fail closed.
+Verifier implementations are trusted in-process code and must be isolated by the host if their own
+execution is adversarial; the module contains the effects of return-type mistakes and ordinary
+rejected Promises.
 
 All serialization and parsing require an opaque root attestation, embedded in the canonical envelope
 and verified by an injected trust verifier. Raw root hashes are never authorization, public
@@ -64,9 +69,11 @@ externally issued scheduler-root attestation.
 
 ## Resource limits
 
-The supported bound is 17,000 artifacts (400 beyond the approved 16,600 contract), two revisions per
-artifact, and three image attempts per revision. Derived limits are 306,001 ledger events, 306,001
-scheduler events, 306,000 evidence records, pre-commit per-revision/per-attempt byte budgets,
-explicit plan/envelope/event-separator JSON framing, derived canonical-node capacity, and a 768 MiB
-UTF-8 parser ceiling. Parsers accept only byte-for-byte canonical JSON, which also rejects duplicate
-keys.
+The supported bound is 16,650 artifacts (one 50-artifact trigger family beyond the approved 16,600
+contract), two revisions per artifact, and three image attempts per revision. Derived limits are
+299,701 ledger events, 299,701 scheduler events, 299,700 evidence records, 80-character identifiers,
+24-character plan IDs, 96-character ASCII
+attestations, and pre-commit per-revision/per-attempt budgets. Plan, envelope, and event-separator
+JSON framing are included. The single-string parser/serializer ceiling is derived at runtime as 85%
+of Node/V8 `MAX_STRING_LENGTH`, with both UTF-16 character and UTF-8 byte checks before allocation.
+Parsers accept only byte-for-byte canonical JSON, which also rejects duplicate keys.

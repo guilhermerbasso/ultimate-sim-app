@@ -49,10 +49,22 @@ describe('bounded canonical validation', () => {
 
   it('restricts opaque attestations to bounded ASCII encoding', () => {
     expect(() =>
-      parseOpaqueAttestation({ token: `valid:${'a'.repeat(122)}` }, 'attestation')
+      parseOpaqueAttestation({ token: `valid:${'a'.repeat(90)}` }, 'attestation')
     ).not.toThrow()
     expect(() =>
-      parseOpaqueAttestation({ token: `bad:${'\ud800'.repeat(120)}` }, 'attestation')
+      parseOpaqueAttestation({ token: `bad:${'\ud800'.repeat(90)}` }, 'attestation')
     ).toThrow(/bounded ASCII attestation encoding/i)
+  })
+
+  it('rejects unpaired UTF-16 surrogates before canonical expansion', () => {
+    expect(() => canonicalStringify({ value: '\ud800' })).toThrow(
+      /unpaired UTF-16 surrogates/i
+    )
+    expect(() => canonicalStringify({ ['\ud800']: 1 })).toThrow(
+      /unpaired UTF-16 surrogates/i
+    )
+    expect(() => canonicalStringify(JSON.parse('{"\\ud800":1}'))).toThrow(
+      /unpaired UTF-16 surrogates/i
+    )
   })
 })

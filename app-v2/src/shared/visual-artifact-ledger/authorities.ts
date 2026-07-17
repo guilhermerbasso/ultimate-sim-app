@@ -5,6 +5,24 @@ import {
   deepFreeze
 } from './canonical'
 import { fail } from './errors'
+import { types as utilTypes } from 'node:util'
+
+const INTRINSIC_PROMISE = Promise
+const INTRINSIC_PROMISE_THEN = Promise.prototype.then
+const INTRINSIC_APPLY = Reflect.apply
+const INTRINSIC_FUNCTION_TO_STRING = Function.prototype.toString
+const INTRINSIC_STRING_INCLUDES = String.prototype.includes
+const INTRINSIC_DEFINE_PROPERTY = Object.defineProperty
+const INTRINSIC_DELETE_PROPERTY = Reflect.deleteProperty
+const INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor
+const INTRINSIC_GET_PROTOTYPE_OF = Object.getPrototypeOf
+const INTRINSIC_IS_EXTENSIBLE = Object.isExtensible
+const INTRINSIC_IS_ASYNC_FUNCTION = utilTypes.isAsyncFunction
+const INTRINSIC_IS_PROMISE = utilTypes.isPromise
+const INTRINSIC_SPECIES = Symbol.species
+const SAFE_PROMISE_SPECIES = Object.freeze({
+  [INTRINSIC_SPECIES]: INTRINSIC_PROMISE
+})
 
 export interface OpaqueAttestation {
   readonly token: string
@@ -13,11 +31,159 @@ export interface OpaqueAttestation {
 export function parseOpaqueAttestation(value: unknown, label: string): OpaqueAttestation {
   assertPlainObject(value, label)
   assertExactKeys(value, ['token'], label)
-  const token = assertString(value.token, `${label}.token`, 128)
+  const token = assertString(value.token, `${label}.token`, 96)
   if (!/^[A-Za-z0-9._:-]+$/.test(token)) {
     fail('SCHEMA', `${label}.token must use bounded ASCII attestation encoding.`)
   }
   return deepFreeze({ token })
+}
+
+function inheritedPropertyDescriptor(
+  value: object,
+  key: PropertyKey
+): { owner: object; descriptor: PropertyDescriptor } | undefined {
+  let owner = INTRINSIC_GET_PROTOTYPE_OF(value)
+  while (owner !== null) {
+    const descriptor = INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR(owner, key)
+    if (descriptor) return { owner, descriptor }
+    owner = INTRINSIC_GET_PROTOTYPE_OF(owner)
+  }
+  return undefined
+}
+
+function observeRejectedNativePromise(value: object): void {
+  const ownConstructor = INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR(value, 'constructor')
+  let constructorOwner: object | undefined
+  let constructorRestore: PropertyDescriptor | undefined
+  let constructorDelete = false
+  let constructorValue: unknown
+  let speciesOwner: object | undefined
+  let speciesRestore: PropertyDescriptor | undefined
+  let speciesDelete = false
+
+  try {
+    if (ownConstructor?.configurable) {
+      constructorOwner = value
+      constructorRestore = ownConstructor
+      INTRINSIC_DEFINE_PROPERTY(value, 'constructor', {
+        configurable: true,
+        value: SAFE_PROMISE_SPECIES
+      })
+      constructorValue = SAFE_PROMISE_SPECIES
+    } else if (ownConstructor && 'value' in ownConstructor) {
+      constructorValue = ownConstructor.value
+    } else if (!ownConstructor) {
+      const inherited = inheritedPropertyDescriptor(value, 'constructor')
+      if (!inherited) {
+        constructorValue = undefined
+      } else if (INTRINSIC_IS_EXTENSIBLE(value)) {
+        constructorOwner = value
+        constructorDelete = true
+        INTRINSIC_DEFINE_PROPERTY(value, 'constructor', {
+          configurable: true,
+          value: SAFE_PROMISE_SPECIES
+        })
+        constructorValue = SAFE_PROMISE_SPECIES
+      } else if (inherited.descriptor.configurable) {
+        constructorOwner = inherited.owner
+        constructorRestore = inherited.descriptor
+        INTRINSIC_DEFINE_PROPERTY(inherited.owner, 'constructor', {
+          configurable: true,
+          value: SAFE_PROMISE_SPECIES
+        })
+        constructorValue = SAFE_PROMISE_SPECIES
+      } else if ('value' in inherited.descriptor) {
+        constructorValue = inherited.descriptor.value
+      } else {
+        return
+      }
+    } else {
+      return
+    }
+
+    if (
+      constructorValue !== SAFE_PROMISE_SPECIES &&
+      ((typeof constructorValue === 'object' && constructorValue !== null) ||
+        typeof constructorValue === 'function')
+    ) {
+      const ownSpecies = INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR(
+        constructorValue,
+        INTRINSIC_SPECIES
+      )
+      const locatedSpecies = ownSpecies
+        ? { owner: constructorValue, descriptor: ownSpecies }
+        : inheritedPropertyDescriptor(constructorValue, INTRINSIC_SPECIES)
+      if (locatedSpecies?.descriptor.configurable) {
+        speciesOwner = locatedSpecies.owner
+        speciesRestore = locatedSpecies.descriptor
+        INTRINSIC_DEFINE_PROPERTY(locatedSpecies.owner, INTRINSIC_SPECIES, {
+          configurable: true,
+          value: INTRINSIC_PROMISE
+        })
+      } else if (!locatedSpecies && INTRINSIC_IS_EXTENSIBLE(constructorValue)) {
+        speciesOwner = constructorValue
+        speciesDelete = true
+        INTRINSIC_DEFINE_PROPERTY(constructorValue, INTRINSIC_SPECIES, {
+          configurable: true,
+          value: INTRINSIC_PROMISE
+        })
+      }
+    }
+
+    void INTRINSIC_APPLY(INTRINSIC_PROMISE_THEN, value, [
+      undefined,
+      () => undefined
+    ])
+  } catch {
+    // The verifier still fails closed below.
+  } finally {
+    if (speciesOwner && speciesRestore) {
+      INTRINSIC_DEFINE_PROPERTY(speciesOwner, INTRINSIC_SPECIES, speciesRestore)
+    } else if (speciesOwner && speciesDelete) {
+      INTRINSIC_DELETE_PROPERTY(speciesOwner, INTRINSIC_SPECIES)
+    }
+    if (constructorOwner && constructorRestore) {
+      INTRINSIC_DEFINE_PROPERTY(
+        constructorOwner,
+        'constructor',
+        constructorRestore
+      )
+    } else if (constructorOwner && constructorDelete) {
+      INTRINSIC_DELETE_PROPERTY(constructorOwner, 'constructor')
+    }
+  }
+}
+
+function assertSynchronousVerifierTrue(value: unknown, label: string): void {
+  if (value !== true) {
+    if (INTRINSIC_IS_PROMISE(value)) {
+      observeRejectedNativePromise(value)
+    }
+    fail('TRUST', `${label} must synchronously return the primitive boolean true.`)
+  }
+}
+
+export function invokeSynchronousVerifier(
+  verifier: (...args: never[]) => unknown,
+  thisArg: unknown,
+  args: readonly unknown[],
+  label: string
+): void {
+  const verifierSource =
+    typeof verifier === 'function'
+      ? INTRINSIC_APPLY(INTRINSIC_FUNCTION_TO_STRING, verifier, [])
+      : ''
+  if (
+    typeof verifier !== 'function' ||
+    INTRINSIC_IS_ASYNC_FUNCTION(verifier) ||
+    INTRINSIC_APPLY(INTRINSIC_STRING_INCLUDES, verifierSource, [
+      '[native code]'
+    ])
+  ) {
+    fail('TRUST', `${label} must be a synchronous verifier function.`)
+  }
+  const result = INTRINSIC_APPLY(verifier, thisArg, args)
+  assertSynchronousVerifierTrue(result, label)
 }
 
 export type GovernanceRole =
@@ -47,7 +213,7 @@ export interface AuthenticatedPrincipalVerifier {
   verifyPrincipal(
     attestation: OpaqueAttestation,
     binding: AuthenticatedPrincipalBinding
-  ): boolean
+  ): unknown
 }
 
 export interface EvidenceAttestationBinding {
@@ -68,7 +234,7 @@ export interface EvidenceAttestationVerifier {
   verifyEvidence(
     attestation: OpaqueAttestation,
     binding: EvidenceAttestationBinding
-  ): boolean
+  ): unknown
 }
 
 export interface RootAttestationBinding {
@@ -80,7 +246,7 @@ export interface RootAttestationBinding {
 }
 
 export interface RootAttestationVerifier {
-  verifyRoot(attestation: OpaqueAttestation, binding: RootAttestationBinding): boolean
+  verifyRoot(attestation: OpaqueAttestation, binding: RootAttestationBinding): unknown
 }
 
 export interface PromptApprovalCheckpointBinding {
@@ -102,7 +268,7 @@ export interface PromptApprovalCheckpointVerifier {
   verifyPromptApprovalCheckpoint(
     attestation: OpaqueAttestation,
     binding: PromptApprovalCheckpointBinding
-  ): boolean
+  ): unknown
 }
 
 export interface SchedulerServiceReceiptBinding {
@@ -129,7 +295,7 @@ export interface SchedulerServiceReceiptVerifier {
   verifyServiceReceipt(
     attestation: OpaqueAttestation,
     binding: SchedulerServiceReceiptBinding
-  ): boolean
+  ): unknown
 }
 
 interface SchedulerAuthorityOperationBase {
@@ -193,7 +359,7 @@ export interface SchedulerAuthority {
   verifyCommit(
     commit: SchedulerAuthorityCommit,
     operation: SchedulerAuthorityOperation
-  ): boolean
+  ): unknown
 }
 
 export interface LedgerAuthorityDependencies {

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { canonicalStringify, utf8ByteLength } from './canonical'
+import {
+  assertSerializedLengthsWithinRuntimeCeiling,
+  canonicalStringify,
+  utf8ByteLength
+} from './canonical'
 import {
   APPROVED_EXACT_ARTIFACT_COUNT,
   MAX_ARTIFACTS,
@@ -9,20 +13,25 @@ import {
   MAX_EVIDENCE_PER_ACCEPTED_REVISION,
   MAX_EVENTS_PER_ACCEPTED_REVISION,
   MAX_IMAGE_ATTEMPTS,
+  MAX_IDENTIFIER_LENGTH,
   MAX_LEDGER_EVENTS,
+  MAX_PLAN_ID_LENGTH,
   MAX_REVISIONS_PER_ARTIFACT,
   MAX_PLAN_ARTIFACTS,
   MAX_SCHEDULER_EVENTS,
   MAX_SCHEDULER_EVENTS_PER_ATTEMPT,
   MAX_SERIALIZED_BYTES,
+  MAX_SERIALIZED_CHARACTERS,
   MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION,
   MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT,
-  MAX_SERIALIZED_JSON_FRAMING_BYTES,
-  MAX_SERIALIZED_PLAN_BYTES,
-  MIN_TOTAL_ARTIFACT_COUNT
+  MAX_SERIALIZED_LEDGER_FRAMING_BYTES,
+  MAX_SERIALIZED_SCHEDULER_FRAMING_BYTES,
+  MIN_TOTAL_ARTIFACT_COUNT,
+  RUNTIME_MAX_STRING_LENGTH,
+  SERIALIZED_STRING_SAFETY_PERCENT
 } from './constants'
 import { VisualArtifactLedger } from './ledger'
-import { expectedArtifactIds } from './plan'
+import { createArtifactPlan, expectedArtifactIds } from './plan'
 import {
   HashPool,
   TestClock,
@@ -58,6 +67,12 @@ describe('derived maximum-state resource limits', () => {
     expect(MAX_PLAN_ARTIFACTS).toBeGreaterThanOrEqual(
       APPROVED_EXACT_ARTIFACT_COUNT
     )
+    expect(SERIALIZED_STRING_SAFETY_PERCENT).toBeLessThanOrEqual(90)
+    expect(MAX_SERIALIZED_CHARACTERS).toBe(
+      Math.floor(
+        (RUNTIME_MAX_STRING_LENGTH * SERIALIZED_STRING_SAFETY_PERCENT) / 100
+      )
+    )
     expect(MAX_CANONICAL_NODES).toBeGreaterThanOrEqual(
       MAX_LEDGER_EVENTS * MAX_CANONICAL_NODES_PER_EVENT
     )
@@ -68,35 +83,62 @@ describe('derived maximum-state resource limits', () => {
       MAX_ARTIFACTS *
         MAX_REVISIONS_PER_ARTIFACT *
         MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION +
-      MAX_SERIALIZED_PLAN_BYTES +
-      MAX_SERIALIZED_JSON_FRAMING_BYTES
+      MAX_SERIALIZED_LEDGER_FRAMING_BYTES
     const maximumSchedulerBytes =
       MAX_ARTIFACTS *
         MAX_REVISIONS_PER_ARTIFACT *
         MAX_IMAGE_ATTEMPTS *
         MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT +
-      MAX_SERIALIZED_PLAN_BYTES +
-      MAX_SERIALIZED_JSON_FRAMING_BYTES
+      MAX_SERIALIZED_SCHEDULER_FRAMING_BYTES
 
     expect(maximumLedgerBytes).toBeLessThanOrEqual(MAX_SERIALIZED_BYTES)
     expect(maximumSchedulerBytes).toBeLessThanOrEqual(MAX_SERIALIZED_BYTES)
-    expect(MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION).toBeGreaterThanOrEqual(
-      Math.ceil(16_465 * 1.25)
-    )
-    expect(MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT).toBeGreaterThanOrEqual(
-      Math.ceil(5_240 * 1.25)
-    )
+    expect(maximumLedgerBytes).toBeLessThanOrEqual(MAX_SERIALIZED_CHARACTERS)
+    expect(maximumSchedulerBytes).toBeLessThanOrEqual(MAX_SERIALIZED_CHARACTERS)
+    expect(MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION).toBeGreaterThanOrEqual(13_000)
+    expect(MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT).toBeGreaterThanOrEqual(4_300)
+  })
+
+  it('rejects reported parser lengths above the runtime-safe ceiling without allocation', () => {
+    expect(() =>
+      assertSerializedLengthsWithinRuntimeCeiling(
+        MAX_SERIALIZED_CHARACTERS + 1,
+        MAX_SERIALIZED_BYTES,
+        'Serialized ledger'
+      )
+    ).toThrow(/runtime-safe single-string ceiling/i)
+    expect(() =>
+      assertSerializedLengthsWithinRuntimeCeiling(
+        MAX_SERIALIZED_CHARACTERS,
+        MAX_SERIALIZED_BYTES + 1,
+        'Serialized scheduler'
+      )
+    ).toThrow(/runtime-safe single-string ceiling/i)
   })
 
   it('accepts a full revision with maximum-length authenticated principal identifiers', () => {
     const governance = makeGovernance()
     const scheduler = makeScheduler(governance)
-    const plan = makePlan()
+    const basePlan = makePlan()
+    const plan = createArtifactPlan({
+      registryHash: basePlan.registryHash,
+      styles: basePlan.styles.map((identity, index) =>
+        index === 0
+          ? { id: 's'.repeat(MAX_PLAN_ID_LENGTH), ordinal: identity.ordinal }
+          : identity
+      ),
+      concepts: basePlan.concepts.map((identity, index) =>
+        index === 0
+          ? { id: 'c'.repeat(MAX_PLAN_ID_LENGTH), ordinal: identity.ordinal }
+          : identity
+      ),
+      triggerFamilies: basePlan.triggerFamilies
+    })
     const ledger = VisualArtifactLedger.create(
       plan,
       governance.ledgerDependencies(scheduler)
     )
-    const artifactId = expectedArtifactIds(plan)[0]
+    const artifactId = expectedArtifactIds(plan)[50]
     appendAcceptedArtifact(
       ledger,
       scheduler,
@@ -107,15 +149,15 @@ describe('derived maximum-state resource limits', () => {
       new TestClock(1_000_000),
       {
         actors: {
-          planner: 'p'.repeat(128),
-          researcher: 'r'.repeat(128),
-          promptAuthor: 'd'.repeat(128),
-          promptReviewer: 'q'.repeat(128),
-          imageGenerator: 'g'.repeat(128),
-          imageReviewer: 'i'.repeat(128),
-          implementer: 'm'.repeat(128),
-          renderReviewer: 'v'.repeat(128),
-          acceptanceOwner: 'a'.repeat(128)
+          planner: 'p'.repeat(MAX_IDENTIFIER_LENGTH),
+          researcher: 'r'.repeat(MAX_IDENTIFIER_LENGTH),
+          promptAuthor: 'd'.repeat(MAX_IDENTIFIER_LENGTH),
+          promptReviewer: 'q'.repeat(MAX_IDENTIFIER_LENGTH),
+          imageGenerator: 'g'.repeat(MAX_IDENTIFIER_LENGTH),
+          imageReviewer: 'i'.repeat(MAX_IDENTIFIER_LENGTH),
+          implementer: 'm'.repeat(MAX_IDENTIFIER_LENGTH),
+          renderReviewer: 'v'.repeat(MAX_IDENTIFIER_LENGTH),
+          acceptanceOwner: 'a'.repeat(MAX_IDENTIFIER_LENGTH)
         }
       }
     )

@@ -5,6 +5,7 @@ import {
   type LedgerAuthorityDependencies,
   type OpaqueAttestation,
   type PromptApprovalCheckpointBinding,
+  invokeSynchronousVerifier,
   parseOpaqueAttestation
 } from './authorities'
 import {
@@ -13,6 +14,8 @@ import {
   assertIsoTimestamp,
   assertPlainObject,
   assertSafeInteger,
+  assertSerializedLengthsWithinRuntimeCeiling,
+  assertSerializedTextWithinRuntimeCeiling,
   assertSha256,
   canonicalStringify,
   cloneCanonical,
@@ -28,6 +31,7 @@ import {
   MAX_SCHEDULER_EVENTS,
   MAX_SERIALIZED_BYTES,
   MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION,
+  MAX_SERIALIZED_ENVELOPE_FRAMING_BYTES,
   VISUAL_ARTIFACT_LEDGER_VERSION,
   ZERO_HASH
 } from './constants'
@@ -875,6 +879,7 @@ export class VisualArtifactLedger {
   private acceptedCurrentCount = 0
   private hasAcceptedHistory = false
   private finalized = false
+  private serializedEventBytes = 0
 
   private constructor(
     plan: ArtifactPlan,
@@ -982,9 +987,12 @@ export class VisualArtifactLedger {
       contextRootHash: this.rootHash,
       contextVersion: this.sequence
     }
-    if (!this.dependencies.principalVerifier.verifyPrincipal(attestation, binding)) {
-      fail('TRUST', `Authenticated principal attestation is invalid for ${input.type}.`)
-    }
+    invokeSynchronousVerifier(
+      this.dependencies.principalVerifier.verifyPrincipal,
+      this.dependencies.principalVerifier,
+      [attestation, binding],
+      `Principal verifier for ${input.type}`
+    )
   }
 
   private assertWritable(): void {
@@ -1059,9 +1067,12 @@ export class VisualArtifactLedger {
       ledgerRootBefore: this.rootHash,
       ledgerSequence: this.sequence + 1
     }
-    if (!this.dependencies.evidenceVerifier.verifyEvidence(evidence.attestation, binding)) {
-      fail('TRUST', `Evidence "${evidence.evidenceId}" lacks a valid external content attestation.`)
-    }
+    invokeSynchronousVerifier(
+      this.dependencies.evidenceVerifier.verifyEvidence,
+      this.dependencies.evidenceVerifier,
+      [evidence.attestation, binding],
+      `Evidence verifier for "${evidence.evidenceId}"`
+    )
   }
 
   private commitEvidence(evidence: ArtifactEvidence): void {
@@ -1448,6 +1459,7 @@ export class VisualArtifactLedger {
 
     for (const evidence of evidenceToCommit) this.commitEvidence(evidence)
     this.eventLog.push(event)
+    this.serializedEventBytes += eventBytes
     this.lastTimestamp = event.occurredAt
     this.lastEventHash = event.eventHash
     return event
@@ -1619,17 +1631,18 @@ export class VisualArtifactLedger {
       fail('FINALIZATION', 'Finalization planHash or registryHash is not exact.')
     }
     const checkpoint = this.verifyCheckpoint(value.trustedCheckpoint, true)
-    if (
-      !this.dependencies.rootVerifier.verifyRoot(value.trustedCheckpointAttestation, {
+    invokeSynchronousVerifier(
+      this.dependencies.rootVerifier.verifyRoot,
+      this.dependencies.rootVerifier,
+      [value.trustedCheckpointAttestation, {
         domain: 'visual-artifact-ledger',
         purpose: 'finalization-checkpoint',
         rootHash: checkpoint.rootHash,
         version: checkpoint.sequence,
         contextHash: this.plan.planHash
-      })
-    ) {
-      fail('TRUST', 'Finalization requires an externally attested accepted checkpoint.')
-    }
+      }],
+      'Finalization checkpoint root verifier'
+    )
     const principalBinding: AuthenticatedPrincipalBinding = {
       domain: 'visual-artifact-ledger',
       principalId: actorId,
@@ -1650,9 +1663,12 @@ export class VisualArtifactLedger {
       contextRootHash: this.rootHash,
       contextVersion: this.sequence
     }
-    if (!this.dependencies.principalVerifier.verifyPrincipal(principalAttestation, principalBinding)) {
-      fail('TRUST', 'Finalization requires an authenticated release-owner attestation.')
-    }
+    invokeSynchronousVerifier(
+      this.dependencies.principalVerifier.verifyPrincipal,
+      this.dependencies.principalVerifier,
+      [principalAttestation, principalBinding],
+      'Finalization principal verifier'
+    )
     if (!skipFullReplay) {
       const replayed = replayLedgerEvents(this.plan, this.eventLog, this.dependencies)
       replayed.assertCompleteAcceptedPlan()
@@ -1678,7 +1694,9 @@ export class VisualArtifactLedger {
       ...input,
       eventHash: computeArtifactEventHash(input)
     }) as LedgerFinalizedEvent
+    const eventBytes = utf8ByteLength(canonicalStringify(event))
     this.eventLog.push(event)
+    this.serializedEventBytes += eventBytes
     this.lastTimestamp = occurredAt
     this.lastEventHash = event.eventHash
     this.finalized = true
@@ -1750,23 +1768,35 @@ export class VisualArtifactLedger {
 
   verifyRootAttestation(attestationValue: unknown): void {
     const attestation = parseOpaqueAttestation(attestationValue, 'Ledger root attestation')
-    if (
-      !this.dependencies.rootVerifier.verifyRoot(attestation, {
+    invokeSynchronousVerifier(
+      this.dependencies.rootVerifier.verifyRoot,
+      this.dependencies.rootVerifier,
+      [attestation, {
         domain: 'visual-artifact-ledger',
         purpose: 'envelope',
         rootHash: this.rootHash,
         version: this.sequence,
         contextHash: this.plan.planHash
-      })
-    ) {
-      fail('TRUST', 'Ledger root lacks an externally issued trusted attestation.')
-    }
+      }],
+      'Ledger envelope root verifier'
+    )
   }
 
   serialize(optionsValue: unknown): string {
     assertPlainObject(optionsValue, 'Ledger serialization options')
     assertExactKeys(optionsValue, ['rootAttestation'], 'Ledger serialization options')
     this.verifyRootAttestation(optionsValue.rootAttestation)
+    const planBytes = utf8ByteLength(canonicalStringify(this.plan))
+    const estimatedCharacters =
+      planBytes +
+      this.serializedEventBytes +
+      Math.max(0, this.eventLog.length - 1) +
+      MAX_SERIALIZED_ENVELOPE_FRAMING_BYTES
+    assertSerializedLengthsWithinRuntimeCeiling(
+      estimatedCharacters,
+      estimatedCharacters,
+      'Serialized visual artifact ledger'
+    )
     return canonicalStringify({
       schemaVersion: VISUAL_ARTIFACT_LEDGER_VERSION,
       plan: cloneCanonical(this.plan),
@@ -1996,13 +2026,7 @@ export function parseVisualArtifactLedger(
   serialized: string,
   optionsValue: unknown
 ): VisualArtifactLedger {
-  if (
-    typeof serialized !== 'string' ||
-    serialized.length > MAX_SERIALIZED_BYTES ||
-    utf8ByteLength(serialized) > MAX_SERIALIZED_BYTES
-  ) {
-    fail('CARDINALITY', `Serialized ledger exceeds ${MAX_SERIALIZED_BYTES} bytes.`)
-  }
+  assertSerializedTextWithinRuntimeCeiling(serialized, 'Serialized visual artifact ledger')
   let parsed: unknown
   try {
     parsed = JSON.parse(serialized)

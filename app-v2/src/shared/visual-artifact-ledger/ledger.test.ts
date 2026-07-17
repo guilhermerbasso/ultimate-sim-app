@@ -13,6 +13,7 @@ import { expectedArtifactIds } from './plan'
 import {
   MAX_LEDGER_EVENTS,
   MAX_REVISIONS_PER_ARTIFACT,
+  MAX_SERIALIZED_CHARACTERS,
   ZERO_HASH
 } from './constants'
 import {
@@ -247,7 +248,7 @@ describe('externally attested visual artifact ledger', () => {
     )
     expect(() =>
       ledger.append({ ...legitimate, actorId: 'impersonated-planner' }, token)
-    ).toThrow(/authenticated principal attestation is invalid/i)
+    ).toThrow(/primitive boolean true/i)
   })
 
   it('rejects fabricated or relabelled evidence despite matching caller hashes', () => {
@@ -287,9 +288,7 @@ describe('externally attested visual artifact ledger', () => {
     const principal = governance.attestations.issuePrincipal(
       ledger.principalBindingFor(input)
     )
-    expect(() => ledger.append(input, principal)).toThrow(
-      /valid external content attestation/i
-    )
+    expect(() => ledger.append(input, principal)).toThrow(/primitive boolean true/i)
   })
 
   it('rejects self-QA and foreign evidence subjects', () => {
@@ -483,7 +482,7 @@ describe('externally attested visual artifact ledger', () => {
     ).toThrow(/unknown field "trustedRootHash"/i)
     expect(() =>
       ledger.serialize({ rootAttestation: { token: ledger.rootHash } })
-    ).toThrow(/externally issued trusted attestation/i)
+    ).toThrow(/primitive boolean true/i)
     expect((ledger as unknown as { toSerializable?: unknown }).toSerializable).toBeUndefined()
     expect((ledger as unknown as { serializedValue?: unknown }).serializedValue).toBeUndefined()
     expect(() =>
@@ -500,7 +499,14 @@ describe('externally attested visual artifact ledger', () => {
       parseVisualArtifactLedger(canonicalEnvelope(ledger), {
         dependencies: governance.ledgerDependencies()
       })
-    ).toThrow(/externally issued trusted attestation/i)
+    ).toThrow(/primitive boolean true/i)
+    const validRootAttestation = ledgerRootAttestation(ledger, governance)
+    ;(
+      ledger as unknown as { serializedEventBytes: number }
+    ).serializedEventBytes = MAX_SERIALIZED_CHARACTERS + 1
+    expect(() =>
+      ledger.serialize({ rootAttestation: validRootAttestation })
+    ).toThrow(/runtime-safe single-string ceiling/i)
   })
 
   it('domain-separates finalization checkpoints from serialized envelope trust', () => {
@@ -569,7 +575,7 @@ describe('externally attested visual artifact ledger', () => {
       parseVisualArtifactLedger(canonicalStringify(rewrittenEnvelope), {
         dependencies: original.governance.ledgerDependencies()
       })
-    ).toThrow(/externally issued trusted attestation/i)
+    ).toThrow(/primitive boolean true/i)
   })
 
   it('canonically serializes/parses only with exact parser options', () => {
@@ -616,6 +622,16 @@ describe('externally attested visual artifact ledger', () => {
         dependencies: governance.ledgerDependencies()
       })
     ).toThrow(/canonical|duplicate keys/i)
+    expect(() =>
+      parseVisualArtifactLedger('{"value":"\ud800"}', {
+        dependencies: governance.ledgerDependencies()
+      })
+    ).toThrow(/unpaired UTF-16 surrogates/i)
+    expect(() =>
+      parseVisualArtifactLedger('{"\ud800":1}', {
+        dependencies: governance.ledgerDependencies()
+      })
+    ).toThrow(/unpaired UTF-16 surrogates/i)
   })
 
   it('fails empty/incomplete finalization and requires attested pre-final checkpoint', () => {
@@ -633,7 +649,7 @@ describe('externally attested visual artifact ledger', () => {
       empty.ledger.finalizationPrincipalBindingFor(raw)
     )
     expect(() => empty.ledger.finalize(raw, principal)).toThrow(
-      /externally attested accepted checkpoint/i
+      /primitive boolean true/i
     )
 
     const incomplete = setup()
@@ -758,7 +774,7 @@ describe('externally attested visual artifact ledger', () => {
       parseVisualArtifactLedger(tampered, {
         dependencies: governance.ledgerDependencies()
       })
-    ).toThrow(/attestation|current revision|has not started/i)
+    ).toThrow(/primitive boolean true|current revision|has not started/i)
   })
 
   it('binds exhaustion to the final authority-committed failed attempt', () => {

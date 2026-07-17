@@ -128,7 +128,7 @@ export class TestAttestationAuthority
         kind,
         binding
       })}`
-    return { token: token.padEnd(128, 'x') }
+    return { token: token.padEnd(96, 'x') }
   }
 
   issuePrincipal(binding: AuthenticatedPrincipalBinding): OpaqueAttestation {
@@ -196,7 +196,7 @@ interface AuthorityCall {
 }
 
 export class TestSchedulerAuthority implements SchedulerAuthority {
-  readonly authorityId = 'test-scheduler-authority'
+  readonly authorityId: string
   private version = 0
   private rootHash = ZERO_HASH
   private configured = false
@@ -209,7 +209,12 @@ export class TestSchedulerAuthority implements SchedulerAuthority {
   private readonly dispatchTimes: number[] = []
   private readonly commitsByOperationHash = new Map<string, SchedulerAuthorityCommit>()
 
-  constructor(private readonly clock: TestClock) {}
+  constructor(
+    private readonly clock: TestClock,
+    authorityId = 'test-scheduler-authority'
+  ) {
+    this.authorityId = authorityId
+  }
 
   get currentVersion(): number {
     return this.version
@@ -242,7 +247,7 @@ export class TestSchedulerAuthority implements SchedulerAuthority {
         secret: 'test-only-scheduler-secret',
         commit
       })}`
-    return { token: token.padEnd(128, 'x') }
+    return { token: token.padEnd(96, 'x') }
   }
 
   commit(operation: SchedulerAuthorityOperation): SchedulerAuthorityCommit {
@@ -363,9 +368,12 @@ export interface TestGovernance {
   ledgerDependencies(scheduler?: ValidatedImageScheduler): VisualArtifactLedgerDependencies
 }
 
-export function makeGovernance(authorityClock = new TestClock()): TestGovernance {
+export function makeGovernance(
+  authorityClock = new TestClock(),
+  authorityId = 'test-scheduler-authority'
+): TestGovernance {
   const attestations = new TestAttestationAuthority()
-  const schedulerAuthority = new TestSchedulerAuthority(authorityClock)
+  const schedulerAuthority = new TestSchedulerAuthority(authorityClock, authorityId)
   return {
     attestations,
     schedulerAuthority,
