@@ -74,6 +74,9 @@ verify_package() {
     echo "[fetch-win-cloudflared] ERROR: latest.yml EXE must require admin rights for the per-machine update" >&2
     return 1
   fi
+  node scripts/verify-win-node-modules.mjs
+  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+    -File scripts/run-packaged-serialport-smoke.ps1
   echo "[fetch-win-cloudflared] verified Windows package artifacts for $version"
 }
 

@@ -8,7 +8,7 @@
 
 Independent community project maintained by Guilherme Basso · Electron + React + TypeScript · Apache-2.0
 
-Release line: **Ultimate Sim App 2.53.0** · [Latest published Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
+Release line: **Ultimate Sim App 2.53.1** · [Latest published Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
 
 Development builds use the version in [`app-v2/package.json`](app-v2/package.json) and may be ahead of the latest published release.
 
@@ -27,6 +27,13 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 ## What's new
 
 <!-- WHATS_NEW:START -->
+### 2.53.1 — SerialPort startup hotfix
+
+- Fixes the v2.53.0 packaged-app startup error where Electron could not resolve `serialport` from
+  `app.asar`.
+- Routes SerialPort through an ASAR-aware CommonJS bridge instead of the failing ESM resolver.
+- Adds packaged-bundle inspection and a real packaged Electron resolver smoke test.
+
 ### 2.53.0 — reliable dashboard restart, telemetry truth, and governed visual foundations
 
 - **Saved dashboard windows recover safely after restart** ([#64](https://github.com/guilhermerbasso/ultimate-sim-app/pull/64)): supported elements, including composed `overlaywidget` dashboards, survive validation and migration; invalid files are preserved in quarantine; replacement is atomic; and renderer/storage failures surface diagnostics instead of a black window.
