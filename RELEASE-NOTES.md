@@ -1,5 +1,22 @@
 # Ultimate Sim App — Release Notes
 
+## v2.53.1 — SerialPort startup hotfix
+
+Version 2.53.1 fixes the JavaScript error shown immediately after installing v2.53.0:
+Electron could not resolve `serialport` from the packaged `app.asar`.
+
+### Fixed
+- The main process now loads SerialPort through an ASAR-aware CommonJS `createRequire` bridge,
+  avoiding Electron's failing ESM resolution for the unpacked native package.
+- Windows package verification now inspects the packaged main bundle, resolves SerialPort with the
+  packaged Electron runtime, and fails the release when the bridge or native binding is unusable.
+
+### Upgrade
+Install `Ultimate-Sim-App-2.53.1-x64.exe` over v2.53.0. User settings and saved data remain in the
+separate app-data directory.
+
+**Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.53.0...v2.53.1
+
 ## v2.53.0 — Restart-safe dashboards, telemetry truth & governed visual foundations
 
 Release 2.53 focuses on trustworthy race data and dependable saved dashboards. It fixes the

@@ -6,6 +6,14 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
+## 2.53.1 — SerialPort startup hotfix
+
+### Fixed
+- Restored packaged-app startup on Windows by routing `serialport` through an ASAR-aware CommonJS
+  `createRequire` bridge instead of Electron's failing ESM package resolution.
+- Added Windows package verification that inspects the packaged main bundle and runs a packaged
+  Electron resolver smoke test before release assets can be accepted.
+
 ## 2.53.0 — restart-safe dashboards, telemetry truth, and governed visual foundations
 
 ### Added

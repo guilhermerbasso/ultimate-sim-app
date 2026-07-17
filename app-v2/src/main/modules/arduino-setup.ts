@@ -16,7 +16,7 @@
 import { existsSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { dialog } from 'electron'
-import { ReadlineParser, SerialPort } from 'serialport'
+import { ReadlineParser, SerialPort } from '../serial/serialport-runtime'
 import {
   COMPANION_BAUD,
   COMPANION_QUERY_COMMAND,
