@@ -108,7 +108,8 @@ export const DEFAULT_POLICY: ImageSchedulingPolicy = {
   requestLimit: IMAGE_REQUEST_LIMIT,
   maxAttempts: 3,
   baseBackoffMs: 1_000,
-  maxBackoffMs: 8_000
+  maxBackoffMs: 8_000,
+  reservationLeaseMs: 30_000
 }
 
 export class TestAttestationAuthority
@@ -128,7 +129,7 @@ export class TestAttestationAuthority
         kind,
         binding
       })}`
-    return { token: token.padEnd(96, 'x') }
+    return { token: token.padEnd(88, 'x') }
   }
 
   issuePrincipal(binding: AuthenticatedPrincipalBinding): OpaqueAttestation {
@@ -191,7 +192,15 @@ export class TestAttestationAuthority
 }
 
 interface AuthorityCall {
-  status: 'reserved' | 'dispatched' | 'succeeded' | 'failed' | 'ambiguous'
+  status:
+    | 'reserved'
+    | 'cancelled'
+    | 'expired'
+    | 'dispatched'
+    | 'succeeded'
+    | 'failed'
+    | 'ambiguous'
+  leaseExpiresAt: number
   dispatchedAt?: number
 }
 
@@ -204,10 +213,12 @@ export class TestSchedulerAuthority implements SchedulerAuthority {
   private windowMs = 0
   private requestLimit = 0
   private outstanding = 0
+  private reservationReleaseCount = 0
   private loseNextResponse = false
   private readonly calls = new Map<string, AuthorityCall>()
   private readonly dispatchTimes: number[] = []
   private readonly commitsByOperationHash = new Map<string, SchedulerAuthorityCommit>()
+  private readonly recoverableOperationHashes = new Set<string>()
 
   constructor(
     private readonly clock: TestClock,
@@ -247,12 +258,10 @@ export class TestSchedulerAuthority implements SchedulerAuthority {
         secret: 'test-only-scheduler-secret',
         commit
       })}`
-    return { token: token.padEnd(96, 'x') }
+    return { token: token.padEnd(88, 'x') }
   }
 
   commit(operation: SchedulerAuthorityOperation): SchedulerAuthorityCommit {
-    const existing = this.commitsByOperationHash.get(operation.operationHash)
-    if (existing) return existing
     if (
       operation.expectedVersion !== this.version ||
       operation.previousRootHash !== this.rootHash
@@ -272,6 +281,15 @@ export class TestSchedulerAuthority implements SchedulerAuthority {
         if (this.circuitOpen) throw new Error('global circuit is open')
         if (this.calls.has(operation.callId)) throw new Error('duplicate call')
         if (
+          this.reservationReleaseCount + this.outstanding >=
+          operation.maxReservationReleases
+        ) {
+          throw new Error('release capacity exhausted')
+        }
+        if (committedMs > Date.parse(operation.latestCommittedAt)) {
+          throw new Error('reservation lease exceeds supported timestamp range')
+        }
+        if (
           operation.notBefore !== null &&
           committedMs < Date.parse(operation.notBefore)
         ) {
@@ -280,7 +298,10 @@ export class TestSchedulerAuthority implements SchedulerAuthority {
         if (this.activeDispatches(committedMs) + this.outstanding >= this.requestLimit) {
           throw new Error('global six-request capacity exhausted')
         }
-        this.calls.set(operation.callId, { status: 'reserved' })
+        this.calls.set(operation.callId, {
+          status: 'reserved',
+          leaseExpiresAt: committedMs + operation.leaseMs
+        })
         this.outstanding += 1
       } else {
         const call = this.calls.get(operation.callId)
@@ -291,9 +312,29 @@ export class TestSchedulerAuthority implements SchedulerAuthority {
         ) {
           throw new Error('supported timestamp range exceeded')
         }
-        if (operation.action === 'dispatch') {
+        if (operation.action === 'cancel' || operation.action === 'expire') {
+          if (call.status !== 'reserved') throw new Error('call is not reserved')
+          if (
+            operation.leaseExpiresAt !==
+            new Date(call.leaseExpiresAt).toISOString()
+          ) {
+            throw new Error('lease binding mismatch')
+          }
+          if (
+            operation.action === 'expire' &&
+            committedMs < call.leaseExpiresAt
+          ) {
+            throw new Error('trusted reservation lease has not expired')
+          }
+          call.status = operation.action === 'expire' ? 'expired' : 'cancelled'
+          this.outstanding -= 1
+          this.reservationReleaseCount += 1
+        } else if (operation.action === 'dispatch') {
           if (this.circuitOpen) throw new Error('global circuit is open')
           if (call.status !== 'reserved') throw new Error('call is not reserved')
+          if (committedMs >= call.leaseExpiresAt) {
+            throw new Error('reservation lease expired before dispatch')
+          }
           if (
             this.activeDispatches(committedMs) + (this.outstanding - 1) + 1 >
             this.requestLimit
@@ -339,12 +380,16 @@ export class TestSchedulerAuthority implements SchedulerAuthority {
     this.commitsByOperationHash.set(operation.operationHash, commit)
     if (this.loseNextResponse) {
       this.loseNextResponse = false
+      this.recoverableOperationHashes.add(operation.operationHash)
       throw new Error('simulated lost authority response after durable commit')
     }
     return commit
   }
 
   recover(operation: SchedulerAuthorityOperation): SchedulerAuthorityCommit | undefined {
+    if (!this.recoverableOperationHashes.delete(operation.operationHash)) {
+      return undefined
+    }
     return this.commitsByOperationHash.get(operation.operationHash)
   }
 
@@ -434,6 +479,10 @@ export function appendScheduler(
       return scheduler.reserve(input, principal)
     case 'dispatch':
       return scheduler.dispatch(input, principal)
+    case 'cancel':
+      return scheduler.cancelReservation(input, principal)
+    case 'expire':
+      return scheduler.expireReservation(input, principal)
     case 'succeed':
       return scheduler.succeed(input, principal)
     case 'fail':

@@ -54,6 +54,11 @@ describe('complete governed artifact plan', () => {
     expect(ids.at(-1)).toBe('va2:t:style-050:trigger-45')
   })
 
+  it('constructs 16,650 and 17,000 headroom plans', () => {
+    expect(makePlan(46).counts.total).toBe(16_650)
+    expect(makePlan(53).counts.total).toBe(17_000)
+  })
+
   it('rejects unknown plan and identity fields', () => {
     const plan = makePlan()
     expect(() =>

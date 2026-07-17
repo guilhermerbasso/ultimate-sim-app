@@ -25,6 +25,7 @@ import {
   utf8ByteLength
 } from './canonical'
 import {
+  APPROVED_EXACT_ARTIFACT_COUNT,
   MAX_EVIDENCE,
   MAX_LEDGER_EVENTS,
   MAX_REVISIONS_PER_ARTIFACT,
@@ -1592,6 +1593,12 @@ export class VisualArtifactLedger {
   }
 
   private assertCompleteAcceptedPlan(): void {
+    if (this.plan.counts.total !== APPROVED_EXACT_ARTIFACT_COUNT) {
+      fail(
+        'FINALIZATION',
+        `Finalization requires the approved exact ${APPROVED_EXACT_ARTIFACT_COUNT}-artifact contract.`
+      )
+    }
     if (this.artifacts.size === 0) fail('FINALIZATION', 'Empty ledgers cannot be finalized.')
     if (
       this.artifacts.size !== this.expectedIds.length ||

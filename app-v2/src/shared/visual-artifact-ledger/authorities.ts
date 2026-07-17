@@ -31,7 +31,7 @@ export interface OpaqueAttestation {
 export function parseOpaqueAttestation(value: unknown, label: string): OpaqueAttestation {
   assertPlainObject(value, label)
   assertExactKeys(value, ['token'], label)
-  const token = assertString(value.token, `${label}.token`, 96)
+  const token = assertString(value.token, `${label}.token`, 88)
   if (!/^[A-Za-z0-9._:-]+$/.test(token)) {
     fail('SCHEMA', `${label}.token must use bounded ASCII attestation encoding.`)
   }
@@ -285,6 +285,7 @@ export interface SchedulerServiceReceiptBinding {
   readonly approvalLedgerSequence: number
   readonly approvalPlanHash: string
   readonly promptApprovedAt: string
+  readonly leaseExpiresAt: string
   readonly requestHash: string
   readonly idempotencyKey: string
   readonly policyHash: string
@@ -323,6 +324,9 @@ export interface SchedulerReserveOperation extends SchedulerAuthorityOperationBa
   readonly revision: number
   readonly attempt: number
   readonly notBefore: string | null
+  readonly leaseMs: number
+  readonly latestCommittedAt: string
+  readonly maxReservationReleases: number
 }
 
 export interface SchedulerCallOperation extends SchedulerAuthorityOperationBase {
@@ -336,11 +340,20 @@ export interface SchedulerFailOperation extends SchedulerAuthorityOperationBase 
   readonly latestCommittedAt: string
 }
 
+export interface SchedulerReservationReleaseOperation
+  extends SchedulerAuthorityOperationBase {
+  readonly action: 'cancel' | 'expire'
+  readonly callId: string
+  readonly leaseExpiresAt: string
+  readonly cancellationReason: string
+}
+
 export type SchedulerAuthorityOperation =
   | SchedulerConfigureOperation
   | SchedulerReserveOperation
   | SchedulerCallOperation
   | SchedulerFailOperation
+  | SchedulerReservationReleaseOperation
 
 export interface SchedulerAuthorityCommit {
   readonly authorityId: string
@@ -355,6 +368,7 @@ export interface SchedulerAuthorityCommit {
 export interface SchedulerAuthority {
   readonly authorityId: string
   commit(operation: SchedulerAuthorityOperation): SchedulerAuthorityCommit
+  /** Recover only a commit whose response was ambiguous for this exact in-flight operation. */
   recover(operation: SchedulerAuthorityOperation): SchedulerAuthorityCommit | undefined
   verifyCommit(
     commit: SchedulerAuthorityCommit,

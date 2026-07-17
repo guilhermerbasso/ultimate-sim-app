@@ -35,10 +35,10 @@ import {
   type TestGovernance
 } from './test-fixtures'
 
-function setup() {
+function setup(triggerFamilyCount = 10) {
   const governance = makeGovernance()
   const scheduler = makeScheduler(governance)
-  const plan = makePlan()
+  const plan = makePlan(triggerFamilyCount)
   const ledger = VisualArtifactLedger.create(plan, governance.ledgerDependencies(scheduler))
   return {
     governance,
@@ -652,7 +652,7 @@ describe('externally attested visual artifact ledger', () => {
       /primitive boolean true/i
     )
 
-    const incomplete = setup()
+    const incomplete = setup(45)
     appendAcceptedArtifact(
       incomplete.ledger,
       incomplete.scheduler,
@@ -682,6 +682,34 @@ describe('externally attested visual artifact ledger', () => {
       incomplete.ledger.finalizationPrincipalBindingFor(value)
     )
     expect(() => incomplete.ledger.finalize(value, incompletePrincipal)).toThrow(/incomplete/i)
+  })
+
+  it('rejects finalization for constructible floor and headroom plans', () => {
+    for (const triggerFamilyCount of [10, 46, 53]) {
+      const subject = setup(triggerFamilyCount)
+      const checkpoint = subject.ledger.createCheckpoint()
+      const checkpointAttestation = subject.governance.attestations.issueRoot({
+        domain: 'visual-artifact-ledger',
+        purpose: 'finalization-checkpoint',
+        rootHash: checkpoint.rootHash,
+        version: checkpoint.sequence,
+        contextHash: subject.plan.planHash
+      })
+      const value = {
+        occurredAt: subject.clock.next(),
+        actorId: 'release-owner',
+        planHash: subject.plan.planHash,
+        registryHash: subject.plan.registryHash,
+        trustedCheckpoint: checkpoint,
+        trustedCheckpointAttestation: checkpointAttestation
+      }
+      const principal = subject.governance.attestations.issuePrincipal(
+        subject.ledger.finalizationPrincipalBindingFor(value)
+      )
+      expect(() => subject.ledger.finalize(value, principal)).toThrow(
+        /approved exact 16600-artifact contract/i
+      )
+    }
   })
 
   it('keeps contiguous supersession histories and rejects gaps/root tampering', () => {

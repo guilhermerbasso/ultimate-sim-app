@@ -49,10 +49,10 @@ describe('bounded canonical validation', () => {
 
   it('restricts opaque attestations to bounded ASCII encoding', () => {
     expect(() =>
-      parseOpaqueAttestation({ token: `valid:${'a'.repeat(90)}` }, 'attestation')
+      parseOpaqueAttestation({ token: `valid:${'a'.repeat(82)}` }, 'attestation')
     ).not.toThrow()
     expect(() =>
-      parseOpaqueAttestation({ token: `bad:${'\ud800'.repeat(90)}` }, 'attestation')
+      parseOpaqueAttestation({ token: `bad:${'\ud800'.repeat(80)}` }, 'attestation')
     ).toThrow(/bounded ASCII attestation encoding/i)
   })
 

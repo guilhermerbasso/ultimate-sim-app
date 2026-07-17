@@ -33,10 +33,14 @@ import {
   IMAGE_REQUEST_LIMIT,
   MAX_IMAGE_ATTEMPTS,
   MAX_REVISIONS_PER_ARTIFACT,
+  MAX_RESERVATION_RELEASES,
   MAX_SCHEDULER_EVENTS,
+  MAX_SCHEDULER_LOGICAL_ATTEMPTS,
+  MAX_SERIALIZED_CHARACTERS,
   MAX_SERIALIZED_BYTES,
   MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT,
   MAX_SERIALIZED_ENVELOPE_FRAMING_BYTES,
+  MAX_SERIALIZED_SCHEDULER_FRAMING_BYTES,
   VISUAL_ARTIFACT_LEDGER_VERSION,
   ZERO_HASH
 } from './constants'
@@ -49,6 +53,7 @@ export interface ImageSchedulingPolicy {
   readonly maxAttempts: number
   readonly baseBackoffMs: number
   readonly maxBackoffMs: number
+  readonly reservationLeaseMs: number
 }
 
 export type ImageFailureReason =
@@ -62,11 +67,24 @@ export type ImageFailureReason =
   | 'deployment-mismatch'
   | 'manual-review'
 
-export type SchedulerCallStatus = 'reserved' | 'dispatched' | 'succeeded' | 'failed' | 'ambiguous'
+export type SchedulerCallStatus =
+  | 'reserved'
+  | 'cancelled'
+  | 'expired'
+  | 'dispatched'
+  | 'succeeded'
+  | 'failed'
+  | 'ambiguous'
+export type ReservationCancellationReason =
+  | 'manual-abandonment'
+  | 'operator-request'
+  | 'superseded'
 export type SchedulerAction =
   | 'configure'
   | 'reserve'
   | 'dispatch'
+  | 'cancel'
+  | 'expire'
   | 'succeed'
   | 'fail'
   | 'ambiguous'
@@ -110,6 +128,7 @@ export interface ImageCallReservedEvent extends SchedulerEventHeader {
   readonly approvalCheckpointAttestation: OpaqueAttestation
   readonly requestHash: string
   readonly idempotencyKey: string
+  readonly leaseExpiresAt: string
   readonly retryOfCallId: string | null
   readonly retryReason: ImageFailureReason | null
 }
@@ -117,6 +136,20 @@ export interface ImageCallReservedEvent extends SchedulerEventHeader {
 export interface ImageCallDispatchedEvent extends SchedulerEventHeader {
   readonly type: 'image-call-dispatched'
   readonly callId: string
+}
+
+export interface ImageCallCancelledEvent extends SchedulerEventHeader {
+  readonly type: 'image-call-cancelled'
+  readonly callId: string
+  readonly leaseExpiresAt: string
+  readonly cancellationReason: ReservationCancellationReason
+}
+
+export interface ImageCallExpiredEvent extends SchedulerEventHeader {
+  readonly type: 'image-call-expired'
+  readonly callId: string
+  readonly leaseExpiresAt: string
+  readonly cancellationReason: 'lease-expired'
 }
 
 export interface ImageCallSucceededEvent extends SchedulerEventHeader {
@@ -143,6 +176,8 @@ export interface ImageCallAmbiguousEvent extends SchedulerEventHeader {
 export type SchedulerEvent =
   | SchedulerConfiguredEvent
   | ImageCallReservedEvent
+  | ImageCallCancelledEvent
+  | ImageCallExpiredEvent
   | ImageCallDispatchedEvent
   | ImageCallSucceededEvent
   | ImageCallFailedEvent
@@ -166,6 +201,9 @@ interface MutableCallState {
   retryOfCallId: string | null
   retryReason: ImageFailureReason | null
   reservedAt: string
+  leaseExpiresAt: string
+  cancelledAt?: string
+  cancellationReason?: ReservationCancellationReason | 'lease-expired'
   dispatchedAt?: string
   completedAt?: string
   retryAfterMs?: number | null
@@ -181,6 +219,8 @@ interface MutableCallState {
   completionAuthorityRootHash?: string
   completionAuthorityCommitHash?: string
   serializedBytes: number
+  remainingEventBudget: number
+  remainingByteBudget: number
 }
 
 export interface SchedulerCallSnapshot {
@@ -200,6 +240,9 @@ export interface SchedulerCallSnapshot {
   readonly retryOfCallId: string | null
   readonly retryReason: ImageFailureReason | null
   readonly reservedAt: string
+  readonly leaseExpiresAt: string
+  readonly cancelledAt?: string
+  readonly cancellationReason?: ReservationCancellationReason | 'lease-expired'
   readonly dispatchedAt?: string
   readonly completedAt?: string
   readonly retryAfterMs?: number | null
@@ -232,6 +275,7 @@ export interface SchedulerReceipt {
   readonly policyHash: string
   readonly imageHash: string
   readonly reservedAt: string
+  readonly leaseExpiresAt: string
   readonly dispatchedAt: string
   readonly completedAt: string
   readonly authorityId: string
@@ -274,6 +318,12 @@ export interface SchedulerCallInput {
   readonly callId: string
 }
 
+export interface SchedulerCancelInput extends SchedulerCallInput {
+  readonly cancellationReason: ReservationCancellationReason
+}
+
+export type SchedulerExpireInput = SchedulerCallInput
+
 export interface SchedulerSuccessInput extends SchedulerCallInput {
   readonly imageHash: string
   readonly serviceReceiptAttestation: OpaqueAttestation
@@ -293,7 +343,8 @@ const POLICY_KEYS = [
   'requestLimit',
   'maxAttempts',
   'baseBackoffMs',
-  'maxBackoffMs'
+  'maxBackoffMs',
+  'reservationLeaseMs'
 ] as const
 
 const AUTHORITY_HEADER_KEYS = [
@@ -327,6 +378,11 @@ const FAILURE_REASONS: readonly ImageFailureReason[] = [
   'deployment-mismatch',
   'manual-review'
 ]
+const CANCELLATION_REASONS: readonly ReservationCancellationReason[] = [
+  'manual-abandonment',
+  'operator-request',
+  'superseded'
+]
 
 function assertDependencies(
   dependencies: SchedulerAuthorityDependencies
@@ -355,6 +411,16 @@ function assertFailureReason(value: unknown, label: string): ImageFailureReason 
   return value as ImageFailureReason
 }
 
+function assertCancellationReason(
+  value: unknown,
+  label: string
+): ReservationCancellationReason {
+  if (!CANCELLATION_REASONS.includes(value as ReservationCancellationReason)) {
+    fail('SCHEMA', `${label} is not an allowed reservation cancellation reason.`)
+  }
+  return value as ReservationCancellationReason
+}
+
 export function parseImageSchedulingPolicy(value: unknown): ImageSchedulingPolicy {
   assertPlainObject(value, 'Image scheduling policy')
   assertExactKeys(value, POLICY_KEYS, 'Image scheduling policy')
@@ -380,12 +446,19 @@ export function parseImageSchedulingPolicy(value: unknown): ImageSchedulingPolic
     baseBackoffMs,
     2_592_000_000
   )
+  const reservationLeaseMs = assertSafeInteger(
+    value.reservationLeaseMs,
+    'Image scheduling policy reservationLeaseMs',
+    1,
+    86_400_000
+  )
   return deepFreeze({
     windowMs,
     requestLimit: IMAGE_REQUEST_LIMIT,
     maxAttempts,
     baseBackoffMs,
-    maxBackoffMs
+    maxBackoffMs,
+    reservationLeaseMs
   })
 }
 
@@ -412,6 +485,15 @@ function addMilliseconds(timestamp: string, milliseconds: number): string {
 
 function revisionKey(planHash: string, artifactId: ArtifactId, revision: number): string {
   return `${planHash}#${artifactId}#${revision}`
+}
+
+function logicalAttemptKey(
+  planHash: string,
+  artifactId: ArtifactId,
+  revision: number,
+  attempt: number
+): string {
+  return `${revisionKey(planHash, artifactId, revision)}#${attempt}`
 }
 
 function idempotencyKeyFor(input: {
@@ -483,6 +565,7 @@ function receiptFromCall(call: MutableCallState, authorityId: string): Scheduler
     policyHash: call.policyHash,
     imageHash: call.imageHash,
     reservedAt: call.reservedAt,
+    leaseExpiresAt: call.leaseExpiresAt,
     dispatchedAt: call.dispatchedAt,
     completedAt: call.completedAt,
     authorityId,
@@ -620,6 +703,23 @@ function normalizeCall(value: unknown, label: string): SchedulerCallInput {
   }
 }
 
+function normalizeCancel(value: unknown): SchedulerCancelInput {
+  assertPlainObject(value, 'Image reservation cancellation')
+  assertExactKeys(
+    value,
+    ['actorId', 'callId', 'cancellationReason'],
+    'Image reservation cancellation'
+  )
+  return {
+    actorId: assertIdentifier(value.actorId, 'Image reservation cancellation actorId'),
+    callId: assertIdentifier(value.callId, 'Image reservation cancellation callId'),
+    cancellationReason: assertCancellationReason(
+      value.cancellationReason,
+      'Image reservation cancellation reason'
+    )
+  }
+}
+
 function normalizeSuccess(value: unknown): SchedulerSuccessInput {
   assertPlainObject(value, 'Image success')
   assertExactKeys(
@@ -676,7 +776,10 @@ function normalizeAmbiguous(value: unknown): SchedulerAmbiguousInput {
 }
 
 function roleForAction(action: SchedulerAction): GovernanceRole {
-  return action === 'configure' || action === 'reserve'
+  return action === 'configure' ||
+    action === 'reserve' ||
+    action === 'cancel' ||
+    action === 'expire'
     ? 'scheduler-control'
     : 'scheduler-worker'
 }
@@ -724,6 +827,10 @@ export class ValidatedImageScheduler {
   private lastEventHash = ZERO_HASH
   private circuitOpen = false
   private serializedEventBytes = 0
+  private reservationReleaseCount = 0
+  private readonly logicalAttemptKeys = new Set<string>()
+  private pendingEventBudget = 0
+  private pendingByteBudget = 0
 
   private constructor(
     policy: ImageSchedulingPolicy,
@@ -794,11 +901,15 @@ export class ValidatedImageScheduler {
           ? normalizeReserve(value)
           : action === 'dispatch'
             ? normalizeCall(value, 'Image dispatch')
+            : action === 'cancel'
+              ? normalizeCancel(value)
+              : action === 'expire'
+                ? normalizeCall(value, 'Image reservation expiry')
             : action === 'succeed'
-              ? normalizeSuccess(value)
-              : action === 'fail'
-                ? normalizeFailure(value)
-                : normalizeAmbiguous(value)
+                  ? normalizeSuccess(value)
+                  : action === 'fail'
+                    ? normalizeFailure(value)
+                    : normalizeAmbiguous(value)
     return deepFreeze({
       domain: 'image-scheduler',
       principalId: normalized.actorId,
@@ -842,6 +953,8 @@ export class ValidatedImageScheduler {
       attempt?: number
       authorityNotBefore?: string | null
       authorityLatestCommittedAt?: string
+      authorityLeaseExpiresAt?: string
+      authorityCancellationReason?: string
     },
     principalAttestation: OpaqueAttestation
   ): SchedulerAuthorityOperation {
@@ -883,7 +996,10 @@ export class ValidatedImageScheduler {
         attempt: normalized.attempt!,
         notBefore:
           (normalized as typeof normalized & { authorityNotBefore?: string | null })
-            .authorityNotBefore ?? null
+            .authorityNotBefore ?? null,
+        leaseMs: this.policy.reservationLeaseMs,
+        latestCommittedAt: normalized.authorityLatestCommittedAt!,
+        maxReservationReleases: MAX_RESERVATION_RELEASES
       }
     }
     if (action === 'fail') {
@@ -892,6 +1008,15 @@ export class ValidatedImageScheduler {
         action,
         callId: normalized.callId!,
         latestCommittedAt: normalized.authorityLatestCommittedAt!
+      }
+    }
+    if (action === 'cancel' || action === 'expire') {
+      return {
+        ...common,
+        action,
+        callId: normalized.callId!,
+        leaseExpiresAt: normalized.authorityLeaseExpiresAt!,
+        cancellationReason: normalized.authorityCancellationReason!
       }
     }
     return { ...common, action, callId: normalized.callId! }
@@ -992,13 +1117,52 @@ export class ValidatedImageScheduler {
     return this.dispatchTimes.length - this.dispatchWindowStart
   }
 
+  private restoreLineageAfterReservationRelease(call: MutableCallState): void {
+    const key = revisionKey(
+      call.approvalPlanHash,
+      call.artifactId,
+      call.revision
+    )
+    if (call.retryOfCallId) {
+      const predecessor = this.calls.get(call.retryOfCallId)
+      if (predecessor) {
+        this.latestCallByRevision.set(key, predecessor)
+        return
+      }
+    }
+    this.latestCallByRevision.delete(key)
+  }
+
+  private consumeReservedCompletionBudget(
+    call: MutableCallState,
+    eventBytes: number,
+    terminal: boolean
+  ): void {
+    if (
+      call.remainingEventBudget < 1 ||
+      call.remainingByteBudget < eventBytes
+    ) {
+      fail('INTEGRITY', 'Scheduler completion budget invariant is broken.')
+    }
+    call.remainingEventBudget -= 1
+    call.remainingByteBudget -= eventBytes
+    this.pendingEventBudget -= 1
+    this.pendingByteBudget -= eventBytes
+    if (terminal) {
+      this.pendingEventBudget -= call.remainingEventBudget
+      this.pendingByteBudget -= call.remainingByteBudget
+      call.remainingEventBudget = 0
+      call.remainingByteBudget = 0
+    }
+  }
+
   private assertAttemptEventBudget(
     input: Record<string, unknown> & { type: SchedulerEvent['type'] },
     actorId: string,
     principalAttestation: OpaqueAttestation,
     existingAttemptBytes: number
   ): void {
-    const maximumToken = { token: 'x'.repeat(96) }
+    const maximumToken = { token: 'x'.repeat(88) }
     const preview = {
       sequence: MAX_SCHEDULER_EVENTS,
       occurredAt: 'x'.repeat(32),
@@ -1099,6 +1263,15 @@ export class ValidatedImageScheduler {
     this.verifyPrincipal('reserve', input, principalAttestation)
     if (this.calls.has(input.callId)) fail('INTEGRITY', `Scheduler call id "${input.callId}" is already used.`)
     if (this.circuitOpen) fail('CIRCUIT', 'The global image scheduler circuit is open.')
+    if (
+      this.reservationReleaseCount + this.outstandingReservations >=
+      MAX_RESERVATION_RELEASES
+    ) {
+      fail(
+        'CARDINALITY',
+        'Scheduler cannot admit a reservation without guaranteed release capacity.'
+      )
+    }
     if (input.attempt > this.policy.maxAttempts) {
       fail('POLICY', 'Image reservation attempt exceeds the immutable policy maximum.')
     }
@@ -1144,6 +1317,40 @@ export class ValidatedImageScheduler {
         fail('POLICY', 'Retry must preserve the immediate failure, prompt, and approval checkpoint.')
       }
     }
+    const attemptKey = logicalAttemptKey(
+      checkpoint.planHash,
+      input.artifactId,
+      input.revision,
+      input.attempt
+    )
+    const newLogicalAttempt = !this.logicalAttemptKeys.has(attemptKey)
+    if (
+      newLogicalAttempt &&
+      this.logicalAttemptKeys.size >= MAX_SCHEDULER_LOGICAL_ATTEMPTS
+    ) {
+      fail('CARDINALITY', 'Scheduler logical attempt limit reached.')
+    }
+    if (
+      this.eventLog.length + this.pendingEventBudget + 3 >
+      MAX_SCHEDULER_EVENTS
+    ) {
+      fail(
+        'CARDINALITY',
+        'Scheduler cannot admit a reservation without terminal event headroom.'
+      )
+    }
+    if (
+      this.serializedEventBytes +
+        this.pendingByteBudget +
+        MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT +
+        MAX_SERIALIZED_SCHEDULER_FRAMING_BYTES >
+      MAX_SERIALIZED_CHARACTERS
+    ) {
+      fail(
+        'CARDINALITY',
+        'Scheduler cannot admit a reservation without terminal byte headroom.'
+      )
+    }
 
     const idempotencyKey = idempotencyKeyFor({
       artifactId: input.artifactId,
@@ -1158,7 +1365,7 @@ export class ValidatedImageScheduler {
       requestHash: input.requestHash,
       policyHash: this.policyHash
     })
-    const eventPayload = {
+    const eventPayloadBase = {
       type: 'image-call-reserved' as const,
       callId: input.callId,
       artifactId: input.artifactId,
@@ -1176,7 +1383,12 @@ export class ValidatedImageScheduler {
       retryOfCallId: input.retryOfCallId,
       retryReason: input.retryReason
     }
-    this.assertAttemptEventBudget(eventPayload, input.actorId, principalAttestation, 0)
+    this.assertAttemptEventBudget(
+      { ...eventPayloadBase, leaseExpiresAt: 'x'.repeat(32) },
+      input.actorId,
+      principalAttestation,
+      0
+    )
     const approvalNotBefore = addMilliseconds(checkpoint.promptApprovedAt, 1)
     const authorityNotBefore =
       previous?.retryNotBefore &&
@@ -1187,7 +1399,10 @@ export class ValidatedImageScheduler {
       'reserve',
       {
         ...input,
-        authorityNotBefore
+        authorityNotBefore,
+        authorityLatestCommittedAt: new Date(
+          8_640_000_000_000_000 - this.policy.reservationLeaseMs
+        ).toISOString()
       },
       principalAttestation
     )
@@ -1203,6 +1418,11 @@ export class ValidatedImageScheduler {
     ) {
       fail('QUOTA', 'Authoritative scheduler commit exceeds the global six-request capacity.')
     }
+    const leaseExpiresAt = addMilliseconds(
+      commit.committedAt,
+      this.policy.reservationLeaseMs
+    )
+    const eventPayload = { ...eventPayloadBase, leaseExpiresAt }
     const event = this.appendEvent(
       eventPayload,
       input.actorId,
@@ -1235,16 +1455,166 @@ export class ValidatedImageScheduler {
       retryOfCallId: input.retryOfCallId,
       retryReason: input.retryReason,
       reservedAt: event.occurredAt,
+      leaseExpiresAt,
       status: 'reserved',
       callHash: event.eventHash,
-      serializedBytes
+      serializedBytes,
+      remainingEventBudget: 2,
+      remainingByteBudget:
+        MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT - serializedBytes
     }
     this.calls.set(input.callId, call)
     this.latestCallByRevision.set(
       revisionKey(checkpoint.planHash, input.artifactId, input.revision),
       call
     )
+    if (newLogicalAttempt) this.logicalAttemptKeys.add(attemptKey)
     this.outstandingReservations += 1
+    this.pendingEventBudget += call.remainingEventBudget
+    this.pendingByteBudget += call.remainingByteBudget
+    return event
+  }
+
+  cancelReservation(
+    value: unknown,
+    principalAttestationValue: unknown
+  ): ImageCallCancelledEvent {
+    return this.cancelInternal(
+      normalizeCancel(value),
+      parseOpaqueAttestation(
+        principalAttestationValue,
+        'Scheduler principal attestation'
+      )
+    )
+  }
+
+  private cancelInternal(
+    input: SchedulerCancelInput,
+    principalAttestation: OpaqueAttestation,
+    replayCommit?: SchedulerAuthorityCommit
+  ): ImageCallCancelledEvent {
+    this.verifyPrincipal('cancel', input, principalAttestation)
+    const call = this.calls.get(input.callId)
+    if (!call || call.status !== 'reserved') {
+      fail('POLICY', 'Only an outstanding reservation may be cancelled.')
+    }
+    const eventPayload = {
+      type: 'image-call-cancelled' as const,
+      callId: input.callId,
+      leaseExpiresAt: call.leaseExpiresAt,
+      cancellationReason: input.cancellationReason
+    }
+    this.assertAttemptEventBudget(
+      eventPayload,
+      input.actorId,
+      principalAttestation,
+      call.serializedBytes
+    )
+    const operation = this.operationFor(
+      'cancel',
+      {
+        ...input,
+        authorityLeaseExpiresAt: call.leaseExpiresAt,
+        authorityCancellationReason: input.cancellationReason
+      },
+      principalAttestation
+    )
+    const commit = this.commitOperation(operation, replayCommit)
+    const event = this.appendEvent(
+      eventPayload,
+      input.actorId,
+      principalAttestation,
+      commit,
+      call.serializedBytes
+    ) as ImageCallCancelledEvent
+    const eventBytes = utf8ByteLength(canonicalStringify(event))
+    this.consumeReservedCompletionBudget(call, eventBytes, true)
+    call.serializedBytes += eventBytes
+    call.status = 'cancelled'
+    call.cancelledAt = event.occurredAt
+    call.cancellationReason = input.cancellationReason
+    call.callHash = event.eventHash
+    call.completionAuthorityVersion = commit.version
+    call.completionAuthorityRootHash = commit.rootHash
+    call.completionAuthorityCommitHash = commitHash(commit)
+    this.outstandingReservations -= 1
+    this.reservationReleaseCount += 1
+    if (this.reservationReleaseCount < MAX_RESERVATION_RELEASES) {
+      this.restoreLineageAfterReservationRelease(call)
+    }
+    return event
+  }
+
+  expireReservation(
+    value: unknown,
+    principalAttestationValue: unknown
+  ): ImageCallExpiredEvent {
+    return this.expireInternal(
+      normalizeCall(value, 'Image reservation expiry'),
+      parseOpaqueAttestation(
+        principalAttestationValue,
+        'Scheduler principal attestation'
+      )
+    )
+  }
+
+  private expireInternal(
+    input: SchedulerExpireInput,
+    principalAttestation: OpaqueAttestation,
+    replayCommit?: SchedulerAuthorityCommit
+  ): ImageCallExpiredEvent {
+    this.verifyPrincipal('expire', input, principalAttestation)
+    const call = this.calls.get(input.callId)
+    if (!call || call.status !== 'reserved') {
+      fail('POLICY', 'Only an outstanding reservation may be expired.')
+    }
+    const eventPayload = {
+      type: 'image-call-expired' as const,
+      callId: input.callId,
+      leaseExpiresAt: call.leaseExpiresAt,
+      cancellationReason: 'lease-expired' as const
+    }
+    this.assertAttemptEventBudget(
+      eventPayload,
+      input.actorId,
+      principalAttestation,
+      call.serializedBytes
+    )
+    const operation = this.operationFor(
+      'expire',
+      {
+        ...input,
+        authorityLeaseExpiresAt: call.leaseExpiresAt,
+        authorityCancellationReason: 'lease-expired'
+      },
+      principalAttestation
+    )
+    const commit = this.commitOperation(operation, replayCommit)
+    if (compareIso(commit.committedAt, call.leaseExpiresAt) < 0) {
+      fail('POLICY', 'Reservation expiry was committed before the trusted lease deadline.')
+    }
+    const event = this.appendEvent(
+      eventPayload,
+      input.actorId,
+      principalAttestation,
+      commit,
+      call.serializedBytes
+    ) as ImageCallExpiredEvent
+    const eventBytes = utf8ByteLength(canonicalStringify(event))
+    this.consumeReservedCompletionBudget(call, eventBytes, true)
+    call.serializedBytes += eventBytes
+    call.status = 'expired'
+    call.cancelledAt = event.occurredAt
+    call.cancellationReason = 'lease-expired'
+    call.callHash = event.eventHash
+    call.completionAuthorityVersion = commit.version
+    call.completionAuthorityRootHash = commit.rootHash
+    call.completionAuthorityCommitHash = commitHash(commit)
+    this.outstandingReservations -= 1
+    this.reservationReleaseCount += 1
+    if (this.reservationReleaseCount < MAX_RESERVATION_RELEASES) {
+      this.restoreLineageAfterReservationRelease(call)
+    }
     return event
   }
 
@@ -1292,6 +1662,7 @@ export class ValidatedImageScheduler {
     if (call.serializedBytes + eventBytes > MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT) {
       fail('CARDINALITY', 'Scheduler attempt serialized byte budget is exhausted.')
     }
+    this.consumeReservedCompletionBudget(call, eventBytes, false)
     call.serializedBytes += eventBytes
     call.status = 'dispatched'
     call.dispatchedAt = event.occurredAt
@@ -1329,6 +1700,7 @@ export class ValidatedImageScheduler {
       approvalLedgerSequence: call.approvalLedgerSequence,
       approvalPlanHash: call.approvalPlanHash,
       promptApprovedAt: call.promptApprovedAt,
+      leaseExpiresAt: call.leaseExpiresAt,
       requestHash: call.requestHash,
       idempotencyKey: call.idempotencyKey,
       policyHash: call.policyHash,
@@ -1385,6 +1757,7 @@ export class ValidatedImageScheduler {
     if (call.serializedBytes + eventBytes > MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT) {
       fail('CARDINALITY', 'Scheduler attempt serialized byte budget is exhausted.')
     }
+    this.consumeReservedCompletionBudget(call, eventBytes, true)
     call.serializedBytes += eventBytes
     call.status = 'succeeded'
     call.completedAt = event.occurredAt
@@ -1463,6 +1836,7 @@ export class ValidatedImageScheduler {
     if (call.serializedBytes + eventBytes > MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT) {
       fail('CARDINALITY', 'Scheduler attempt serialized byte budget is exhausted.')
     }
+    this.consumeReservedCompletionBudget(call, eventBytes, true)
     call.serializedBytes += eventBytes
     call.status = 'failed'
     call.completedAt = event.occurredAt
@@ -1517,6 +1891,7 @@ export class ValidatedImageScheduler {
     if (call.serializedBytes + eventBytes > MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT) {
       fail('CARDINALITY', 'Scheduler attempt serialized byte budget is exhausted.')
     }
+    this.consumeReservedCompletionBudget(call, eventBytes, true)
     call.serializedBytes += eventBytes
     call.status = 'ambiguous'
     call.completedAt = event.occurredAt
@@ -1537,6 +1912,8 @@ export class ValidatedImageScheduler {
     delete (clone as Partial<MutableCallState>).approvalCheckpointAttestation
     delete (clone as Partial<MutableCallState>).serviceReceiptAttestation
     delete (clone as Partial<MutableCallState>).serializedBytes
+    delete (clone as Partial<MutableCallState>).remainingEventBudget
+    delete (clone as Partial<MutableCallState>).remainingByteBudget
     return deepFreeze(clone) as SchedulerCallSnapshot
   }
 
@@ -1742,6 +2119,7 @@ export class ValidatedImageScheduler {
             'approvalCheckpointAttestation',
             'requestHash',
             'idempotencyKey',
+            'leaseExpiresAt',
             'retryOfCallId',
             'retryReason'
           ],
@@ -1775,6 +2153,45 @@ export class ValidatedImageScheduler {
             retryOfCallId: value.retryOfCallId,
             retryReason: value.retryReason
           }),
+          principalAttestation,
+          replayCommit
+        )
+      } else if (value.type === 'image-call-cancelled') {
+        assertExactKeys(
+          value,
+          [
+            ...EVENT_HEADER_KEYS,
+            'callId',
+            'leaseExpiresAt',
+            'cancellationReason'
+          ],
+          `Scheduler event ${sequence}`
+        )
+        generated = scheduler.cancelInternal(
+          normalizeCancel({
+            actorId: value.actorId,
+            callId: value.callId,
+            cancellationReason: value.cancellationReason
+          }),
+          principalAttestation,
+          replayCommit
+        )
+      } else if (value.type === 'image-call-expired') {
+        assertExactKeys(
+          value,
+          [
+            ...EVENT_HEADER_KEYS,
+            'callId',
+            'leaseExpiresAt',
+            'cancellationReason'
+          ],
+          `Scheduler event ${sequence}`
+        )
+        generated = scheduler.expireInternal(
+          normalizeCall(
+            { actorId: value.actorId, callId: value.callId },
+            'Image reservation expiry'
+          ),
           principalAttestation,
           replayCommit
         )

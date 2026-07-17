@@ -3,8 +3,11 @@ import { canonicalStringify, utf8ByteLength } from './canonical'
 import {
   MAX_IDENTIFIER_LENGTH,
   MAX_PLAN_ID_LENGTH,
+  MAX_RESERVATION_RELEASES,
   MAX_SCHEDULER_EVENTS,
+  MAX_SCHEDULER_LOGICAL_ATTEMPTS,
   MAX_SERIALIZED_CHARACTERS,
+  MAX_SERIALIZED_SCHEDULER_FRAMING_BYTES,
   MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT
 } from './constants'
 import {
@@ -345,9 +348,7 @@ describe('externally authoritative image scheduler', () => {
       retryReason: null
     }
     const principal = schedulerPrincipal(scheduler, governance, 'reserve', input)
-    expect(() => scheduler.reserve(input, principal)).toThrow(
-      /event limit .* before authority commit/i
-    )
+    expect(() => scheduler.reserve(input, principal)    ).toThrow(/terminal event headroom|event limit/i)
     expect(governance.schedulerAuthority.currentVersion).toBe(MAX_SCHEDULER_EVENTS)
   })
 
@@ -411,6 +412,282 @@ describe('externally authoritative image scheduler', () => {
       /six-request capacity exhausted/i
     )
     expect(governance.schedulerAuthority.currentVersion).toBe(scheduler.authorityCasVersion)
+  })
+
+  it('releases six abandoned reservations only through trusted lease-expiry commits', () => {
+    const policy = { ...DEFAULT_POLICY, reservationLeaseMs: 10_000 }
+    const { governance, scheduler, contexts, hashes } = setupApproved(7, policy)
+    for (let index = 0; index < 6; index += 1) {
+      reserve(scheduler, governance, contexts[index], `abandoned-${index}`, hashes)
+    }
+    expect(() =>
+      reserve(scheduler, governance, contexts[6], 'blocked-seventh', hashes)
+    ).toThrow(/six-request capacity exhausted/i)
+
+    const beforeExpiryVersion = scheduler.authorityCasVersion
+    expect(() =>
+      appendScheduler(scheduler, governance, 'expire', {
+        actorId: 'scheduler-control',
+        callId: 'abandoned-0'
+      })
+    ).toThrow(/trusted reservation lease has not expired/i)
+    expect(scheduler.authorityCasVersion).toBe(beforeExpiryVersion)
+    expect(() =>
+      scheduler.principalBindingFor('expire', {
+        actorId: 'scheduler-control',
+        callId: 'abandoned-0',
+        occurredAt: '2030-01-01T00:00:00.000Z'
+      })
+    ).toThrow(/unknown field "occurredAt"/i)
+    expect(() =>
+      reserve(scheduler, governance, contexts[6], 'still-blocked', hashes)
+    ).toThrow(/six-request capacity exhausted/i)
+
+    governance.schedulerAuthority.advance(policy.reservationLeaseMs + 1)
+    for (let index = 0; index < 6; index += 1) {
+      appendScheduler(scheduler, governance, 'expire', {
+        actorId: 'scheduler-control',
+        callId: `abandoned-${index}`
+      })
+      expect(scheduler.getCall(`abandoned-${index}`)?.status).toBe('expired')
+    }
+    reserve(
+      scheduler,
+      governance,
+      contexts[0],
+      'replacement-after-expiry',
+      hashes
+    )
+    reserve(scheduler, governance, contexts[6], 'after-expiry', hashes)
+
+    const rootAttestation = schedulerRootAttestation(scheduler, governance)
+    const parsed = parseImageScheduler(
+      serializeImageScheduler(scheduler, { rootAttestation }),
+      {
+        expectedPolicyHash: scheduler.policyHash,
+        dependencies: governance.schedulerDependencies
+      }
+    )
+    expect(parsed.getCall('abandoned-0')?.status).toBe('expired')
+    expect(parsed.getCall('replacement-after-expiry')?.status).toBe('reserved')
+    expect(parsed.getCall('after-expiry')?.status).toBe('reserved')
+  })
+
+  it('supports authenticated manual cancellation without double release or post-dispatch cancel', () => {
+    const { governance, scheduler, contexts, hashes } = setupApproved(3)
+    reserve(scheduler, governance, contexts[0], 'manual-cancel', hashes)
+    appendScheduler(scheduler, governance, 'cancel', {
+      actorId: 'scheduler-control',
+      callId: 'manual-cancel',
+      cancellationReason: 'operator-request'
+    })
+
+    expect(scheduler.getCall('manual-cancel')?.status).toBe('cancelled')
+    reserve(
+      scheduler,
+      governance,
+      contexts[0],
+      'replacement-after-cancel',
+      hashes
+    )
+    expect(() =>
+      appendScheduler(scheduler, governance, 'cancel', {
+        actorId: 'scheduler-control',
+        callId: 'manual-cancel',
+        cancellationReason: 'operator-request'
+      })
+    ).toThrow(/only an outstanding reservation/i)
+    expect(() => dispatch(scheduler, governance, 'manual-cancel')).toThrow(
+      /requires one reservation/i
+    )
+
+    reserve(scheduler, governance, contexts[1], 'dispatched-call', hashes)
+    dispatch(scheduler, governance, 'dispatched-call')
+    expect(() =>
+      appendScheduler(scheduler, governance, 'cancel', {
+        actorId: 'scheduler-control',
+        callId: 'dispatched-call',
+        cancellationReason: 'manual-abandonment'
+      })
+    ).toThrow(/only an outstanding reservation/i)
+    const imageHash = hashes.next()
+    appendScheduler(scheduler, governance, 'succeed', {
+      actorId: 'scheduler-worker',
+      callId: 'dispatched-call',
+      imageHash,
+      serviceReceiptAttestation:
+        governance.attestations.issueServiceReceipt(
+          scheduler.serviceReceiptBinding('dispatched-call', imageHash)
+        )
+    })
+    expect(() =>
+      appendScheduler(scheduler, governance, 'cancel', {
+        actorId: 'scheduler-control',
+        callId: 'dispatched-call',
+        cancellationReason: 'manual-abandonment'
+      })
+    ).toThrow(/only an outstanding reservation/i)
+    reserve(scheduler, governance, contexts[2], 'capacity-reused', hashes)
+  })
+
+  it('rejects reservation-release cardinality before consuming authority CAS', () => {
+    const { governance, scheduler, contexts, hashes } = setupApproved()
+    reserve(scheduler, governance, contexts[0], 'release-cap', hashes)
+    ;(
+      scheduler as unknown as { reservationReleaseCount: number }
+    ).reservationReleaseCount = MAX_RESERVATION_RELEASES - 1
+    ;(
+      governance.schedulerAuthority as unknown as {
+        reservationReleaseCount: number
+      }
+    ).reservationReleaseCount = MAX_RESERVATION_RELEASES - 1
+    appendScheduler(scheduler, governance, 'cancel', {
+      actorId: 'scheduler-control',
+      callId: 'release-cap',
+      cancellationReason: 'operator-request'
+    })
+
+    expect(scheduler.getCall('release-cap')?.status).toBe('cancelled')
+    const beforeVersion = scheduler.authorityCasVersion
+    expect(() =>
+      reserve(
+        scheduler,
+        governance,
+        contexts[0],
+        'release-cap-replacement',
+        hashes
+      )
+    ).toThrow(/without guaranteed release capacity/i)
+    expect(scheduler.authorityCasVersion).toBe(beforeVersion)
+    expect(governance.schedulerAuthority.currentVersion).toBe(beforeVersion)
+  })
+
+  it('reserves logical, event, and byte headroom before authority admission', () => {
+    const logical = setupApproved()
+    ;(
+      logical.scheduler as unknown as {
+        logicalAttemptKeys: { size: number; has: () => boolean }
+      }
+    ).logicalAttemptKeys = {
+      size: MAX_SCHEDULER_LOGICAL_ATTEMPTS,
+      has: () => false
+    }
+    const logicalVersion = logical.scheduler.authorityCasVersion
+    expect(() =>
+      reserve(
+        logical.scheduler,
+        logical.governance,
+        logical.contexts[0],
+        'logical-limit',
+        logical.hashes
+      )
+    ).toThrow(/logical attempt limit/i)
+    expect(logical.scheduler.authorityCasVersion).toBe(logicalVersion)
+
+    const events = setupApproved()
+    ;(
+      events.scheduler as unknown as { eventLog: unknown[] }
+    ).eventLog.length = MAX_SCHEDULER_EVENTS - 2
+    const eventVersion = events.scheduler.authorityCasVersion
+    expect(() =>
+      reserve(
+        events.scheduler,
+        events.governance,
+        events.contexts[0],
+        'event-headroom',
+        events.hashes
+      )
+    ).toThrow(/terminal event headroom/i)
+    expect(events.scheduler.authorityCasVersion).toBe(eventVersion)
+
+    const bytes = setupApproved()
+    ;(
+      bytes.scheduler as unknown as { serializedEventBytes: number }
+    ).serializedEventBytes =
+      MAX_SERIALIZED_CHARACTERS -
+      MAX_SERIALIZED_SCHEDULER_FRAMING_BYTES -
+      MAX_SERIALIZED_BYTES_PER_SCHEDULER_ATTEMPT +
+      1
+    const byteVersion = bytes.scheduler.authorityCasVersion
+    expect(() =>
+      reserve(
+        bytes.scheduler,
+        bytes.governance,
+        bytes.contexts[0],
+        'byte-headroom',
+        bytes.hashes
+      )
+    ).toThrow(/terminal byte headroom/i)
+    expect(bytes.scheduler.authorityCasVersion).toBe(byteVersion)
+  })
+
+  it('rejects forged and stale-fork cancellation while recovering lost cancellation responses', () => {
+    const { governance, scheduler, contexts, hashes } = setupApproved(2)
+    reserve(scheduler, governance, contexts[0], 'race-cancel', hashes)
+    const rootAttestation = schedulerRootAttestation(scheduler, governance)
+    const staleFork = parseImageScheduler(
+      serializeImageScheduler(scheduler, { rootAttestation }),
+      {
+        expectedPolicyHash: scheduler.policyHash,
+        dependencies: governance.schedulerDependencies
+      }
+    )
+    const legitimate = {
+      actorId: 'scheduler-control',
+      callId: 'race-cancel',
+      cancellationReason: 'operator-request' as const
+    }
+    const token = schedulerPrincipal(
+      scheduler,
+      governance,
+      'cancel',
+      legitimate
+    )
+    expect(() =>
+      scheduler.cancelReservation(
+        { ...legitimate, cancellationReason: 'superseded' },
+        token
+      )
+    ).toThrow(/primitive boolean true/i)
+
+    governance.schedulerAuthority.simulateLostNextResponse()
+    scheduler.cancelReservation(legitimate, token)
+    expect(scheduler.getCall('race-cancel')?.status).toBe('cancelled')
+    expect(() =>
+      appendScheduler(staleFork, governance, 'cancel', legitimate)
+    ).toThrow(/stale shared scheduler CAS/i)
+  })
+
+  it('blocks delayed dispatch after lease deadline and keeps circuit semantics unchanged', () => {
+    const policy = { ...DEFAULT_POLICY, reservationLeaseMs: 50 }
+    const { governance, scheduler, contexts, hashes } = setupApproved(3, policy)
+    reserve(scheduler, governance, contexts[0], 'delayed-lease', hashes)
+    governance.schedulerAuthority.advance(policy.reservationLeaseMs)
+    expect(() => dispatch(scheduler, governance, 'delayed-lease')).toThrow(
+      /reservation lease expired before dispatch/i
+    )
+    appendScheduler(scheduler, governance, 'expire', {
+      actorId: 'scheduler-control',
+      callId: 'delayed-lease'
+    })
+
+    reserve(scheduler, governance, contexts[1], 'ambiguous-open', hashes)
+    reserve(scheduler, governance, contexts[2], 'cancel-while-open', hashes)
+    dispatch(scheduler, governance, 'ambiguous-open')
+    appendScheduler(scheduler, governance, 'ambiguous', {
+      actorId: 'scheduler-worker',
+      callId: 'ambiguous-open',
+      ambiguityReason: 'ambiguous-dispatch'
+    })
+    appendScheduler(scheduler, governance, 'cancel', {
+      actorId: 'scheduler-control',
+      callId: 'cancel-while-open',
+      cancellationReason: 'manual-abandonment'
+    })
+    expect(scheduler.isCircuitOpen).toBe(true)
+    expect(() =>
+      reserve(scheduler, governance, contexts[0], 'still-circuit-blocked', hashes)
+    ).toThrow(/global .*circuit is open/i)
   })
 
   it('keeps retry lineage independent for identical artifact IDs in different plans', () => {
@@ -710,7 +987,8 @@ describe('externally authoritative image scheduler', () => {
       ...DEFAULT_POLICY,
       maxAttempts: 1,
       baseBackoffMs: 1_000,
-      maxBackoffMs: 1_000
+      maxBackoffMs: 1_000,
+      reservationLeaseMs: 2
     })
     const plan = makePlan()
     const ledger = VisualArtifactLedger.create(plan, governance.ledgerDependencies(scheduler))
@@ -729,5 +1007,38 @@ describe('externally authoritative image scheduler', () => {
     expect(() => failCall(scheduler, governance, 'overflow')).toThrow(
       /supported timestamp range/i
     )
+  })
+
+  it('rejects lease timestamp overflow before consuming authority CAS or capacity', () => {
+    const maxDate = Date.parse('+275760-09-13T00:00:00.000Z')
+    const authorityClock = new TestClock(
+      maxDate - Date.parse('2026-01-01T00:00:00.000Z') - 2
+    )
+    const governance = makeGovernance(authorityClock)
+    const scheduler = makeScheduler(governance, {
+      ...DEFAULT_POLICY,
+      reservationLeaseMs: 1
+    })
+    const plan = makePlan()
+    const ledger = VisualArtifactLedger.create(
+      plan,
+      governance.ledgerDependencies(scheduler)
+    )
+    const hashes = new HashPool()
+    const context = appendPromptApproved(
+      ledger,
+      governance,
+      expectedArtifactIds(plan)[0],
+      1,
+      hashes,
+      new TestClock()
+    )
+    const beforeVersion = governance.schedulerAuthority.currentVersion
+    expect(() =>
+      reserve(scheduler, governance, context, 'lease-overflow', hashes)
+    ).toThrow(/lease exceeds supported timestamp range/i)
+    expect(governance.schedulerAuthority.currentVersion).toBe(beforeVersion)
+    expect(scheduler.authorityCasVersion).toBe(beforeVersion)
+    expect(scheduler.getCall('lease-overflow')).toBeUndefined()
   })
 })
