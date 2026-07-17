@@ -4,7 +4,7 @@ export interface NavSection {
 }
 
 export const navSections: NavSection[] = [
-  { title: 'Race Hub', viewIds: ['telemetry', 'alerts'] },
+  { title: 'Race Hub', viewIds: ['telemetry', 'alerts', 'context-debt'] },
   { title: 'Drive', viewIds: ['dashboards', 'touch-controls', 'dashboard-adaptive', 'oled-dash', 'overlays', 'spotter-3d', 'sounds', 'haptics', 'haptics-zonal', 'biometrics'] },
   { title: 'IA & Coaching', viewIds: ['engineer', 'coach', 'dashboard-builder', 'voice', 'search'] },
   { title: 'Strategy', viewIds: ['fuel', 'tire', 'strategy'] },

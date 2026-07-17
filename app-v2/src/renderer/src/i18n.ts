@@ -6853,6 +6853,7 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
     tire: { label: 'Tyres', eyebrow: 'Strategy', description: 'Tyre wear, per-lap rate, and pit window.' },
     search: { label: 'Semantic Search', eyebrow: 'Local AI', description: 'Meaning-based search for setups, ghosts, notes, and findings.' },
     alerts: { label: 'Alerts', eyebrow: 'Warnings', description: 'Pit limiter, flags, fuel, and shift warnings.' },
+    'context-debt': { label: 'Context-Debt Meter', eyebrow: 'SP-07 · N=0', description: 'Local pre-race audit of competing cues, routes, devices, and controls.' },
     expr: { label: 'Expressions', eyebrow: 'Custom', description: 'Custom fields and conditions.' },
     'race-profiles': { label: 'Race Profiles', eyebrow: 'Car/Track', description: 'Car/track profiles with automatic switching.' },
     sounds: { label: 'Sounds', eyebrow: 'Audio', description: 'Soundshift, incident, ABS, and TCS audio cues.' },
@@ -6903,6 +6904,14 @@ function patchViewText(language: ResolvedLanguage, patches: Record<string, Parti
   }
 }
 
+patchViewText('pt-BR', {
+  'context-debt': {
+    label: 'Medidor de dívida de contexto',
+    eyebrow: 'SP-07 · N=0',
+    description: 'Auditoria local pré-corrida de cues, rotas, dispositivos e controles concorrentes.'
+  }
+})
+
 patchViewText('es', {
   telemetry: { label: 'Telemetría', description: 'Fuente de telemetría en vivo y vista general.' },
   dashboards: { label: 'Dashboards', description: 'Ventanas de monitor, importación .simhubdash y constructor.' },
@@ -6910,6 +6919,7 @@ patchViewText('es', {
   fuel: { label: 'Combustible' },
   tire: { label: 'Neumáticos' },
   alerts: { label: 'Alerts' },
+  'context-debt': { label: 'Medidor de deuda de contexto', eyebrow: 'SP-07 · N=0', description: 'Auditoría local previa a la carrera de señales, rutas, dispositivos y controles en competencia.' },
   engineer: { label: 'Ingeniero IA' },
   coach: { label: 'Coach IA' },
   haptics: { label: 'Háptica' },
@@ -6926,6 +6936,7 @@ patchViewText('fr', {
   fuel: { label: 'Carburant' },
   tire: { label: 'Tires' },
   alerts: { label: 'Alertes' },
+  'context-debt': { label: 'Mesure de dette de contexte', eyebrow: 'SP-07 · N=0', description: 'Audit local avant course des signaux, routes, appareils et commandes concurrents.' },
   engineer: { label: 'Ingénieur IA' },
   coach: { label: 'Coach IA' },
   haptics: { label: 'Haptique' },
@@ -6943,6 +6954,7 @@ patchViewText('de', {
   fuel: { label: 'Kraftstoff' },
   tire: { label: 'Reifen' },
   alerts: { label: 'Warnungen' },
+  'context-debt': { label: 'Kontextschuld-Messer', eyebrow: 'SP-07 · N=0', description: 'Lokale Vorabprüfung konkurrierender Hinweise, Routen, Geräte und Steuerungen.' },
   engineer: { label: 'KI-Ingenieur' },
   coach: { label: 'KI-Coach' },
   haptics: { label: 'Haptik' },
@@ -6962,6 +6974,7 @@ patchViewText('zh', {
   fuel: { label: '燃油', eyebrow: '策略' },
   tire: { label: '轮胎', eyebrow: '策略' },
   alerts: { label: '警报' },
+  'context-debt': { label: '上下文负债计', eyebrow: 'SP-07 · N=0', description: '本地赛前审计相互竞争的提示、路由、设备和控制。' },
   engineer: { label: 'AI 工程师' },
   coach: { label: 'AI 教练' },
   strategy: { label: '策略' },
@@ -6981,6 +6994,7 @@ patchViewText('ja', {
   fuel: { label: '燃料', eyebrow: '戦略' },
   tire: { label: 'タイヤ', eyebrow: '戦略' },
   alerts: { label: 'アラート' },
+  'context-debt': { label: 'コンテキスト負債メーター', eyebrow: 'SP-07 · N=0', description: '競合するキュー、ルート、デバイス、操作をローカルでレース前監査します。' },
   engineer: { label: 'AI エンジニア' },
   coach: { label: 'AI コーチ' },
   strategy: { label: '戦略' },

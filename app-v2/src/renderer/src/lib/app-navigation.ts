@@ -4,11 +4,16 @@ const EDITOR_TARGET_KEY = 'usa:editor-target'
 export type EditorSurface = 'dashboard' | 'overlay'
 
 export interface AppNavigateDetail {
-  viewId: 'dashboards' | 'overlays'
+  viewId: string
   editorTarget?: {
     surface: EditorSurface
     targetId: string
   }
+}
+
+export function navigateToView(viewId: string): void {
+  if (!viewId) return
+  window.dispatchEvent(new CustomEvent<AppNavigateDetail>(APP_NAVIGATE_EVENT, { detail: { viewId } }))
 }
 
 export function navigateToEditor(surface: EditorSurface, targetId: string): void {

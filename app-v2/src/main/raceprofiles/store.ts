@@ -108,7 +108,7 @@ function normalizeStore(raw: unknown): RaceProfilesFile {
   }
 }
 
-function normalizeProfile(raw: unknown): RaceProfile {
+export function normalizeProfile(raw: unknown): RaceProfile {
   if (!isRecord(raw)) throw new Error('Invalid race profile.')
   const name = asTrimmedString(raw.name)
   if (!name) throw new Error('Enter a name for the race profile.')
@@ -120,6 +120,7 @@ function normalizeProfile(raw: unknown): RaceProfile {
         trackName: asOptionalString(raw.match.trackName)
       }
     : undefined
+  const hapticsGains = normalizeHapticsGains(raw.hapticsGains)
 
   return {
     id,
@@ -129,8 +130,23 @@ function normalizeProfile(raw: unknown): RaceProfile {
     ...(raw.oled !== undefined ? { oled: raw.oled } : {}),
     ...(raw.overlays !== undefined ? { overlays: raw.overlays } : {}),
     ...(raw.alerts !== undefined ? { alerts: raw.alerts } : {}),
-    ...(raw.bindings !== undefined ? { bindings: raw.bindings } : {})
+    ...(raw.bindings !== undefined ? { bindings: raw.bindings } : {}),
+    ...(hapticsGains ? { hapticsGains } : {})
   }
+}
+
+function normalizeHapticsGains(value: unknown): Record<string, number> | undefined {
+  if (!isRecord(value)) return undefined
+  const gains = Object.fromEntries(
+    Object.entries(value)
+      .filter((entry): entry is [string, number] => (
+        entry[0].trim().length > 0 &&
+        typeof entry[1] === 'number' &&
+        Number.isFinite(entry[1])
+      ))
+      .map(([id, intensity]) => [id, Math.max(0, Math.min(1, intensity))])
+  )
+  return Object.keys(gains).length > 0 ? gains : undefined
 }
 
 function matchesTelemetry(profile: RaceProfile, carName?: string, trackName?: string): boolean {
