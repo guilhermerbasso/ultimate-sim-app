@@ -8,7 +8,7 @@
 
 Independent community project maintained by Guilherme Basso · Electron + React + TypeScript · Apache-2.0
 
-Latest published release: **Ultimate Sim App 2.53.0** · [Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/tag/v2.53.0)
+Release line: **Ultimate Sim App 2.53.0** · [Latest published Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
 
 Development builds use the version in [`app-v2/package.json`](app-v2/package.json) and may be ahead of the latest published release.
 
