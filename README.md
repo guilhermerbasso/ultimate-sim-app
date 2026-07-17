@@ -27,12 +27,17 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 ## What's new
 
 <!-- WHATS_NEW:START -->
+
 ### 2.53.1 — SerialPort startup hotfix
 
-- Fixes the v2.53.0 packaged-app startup error where Electron could not resolve `serialport` from
-  `app.asar`.
-- Routes SerialPort through an ASAR-aware CommonJS bridge instead of the failing ESM resolver.
-- Adds packaged-bundle inspection and a real packaged Electron resolver smoke test.
+- The main process now loads SerialPort through an ASAR-aware CommonJS `createRequire` bridge,
+- Windows package verification now inspects the packaged main bundle, resolves SerialPort with the
+- 🖥️ **Saved dashboards restore safely after restart** — every supported element, including
+- ⛽ **Litre-canonical fuel truth** — fuel range and fuel-to-finish use litres consistently, while
+- 🚨 **One alert policy on every surface** — serialized configuration and shared trigger logic keep
+- 🧭 **Telemetry provenance is explicit** — engine map is distinct from throttle map, garage cold
+
+See the [v2.53.1 release notes](https://github.com/guilhermerbasso/ultimate-sim-app/releases/tag/v2.53.1) for the full list.
 
 ### 2.53.0 — reliable dashboard restart, telemetry truth, and governed visual foundations
 
