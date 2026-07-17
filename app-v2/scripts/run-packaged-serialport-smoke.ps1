@@ -7,9 +7,10 @@ $anchor = Join-Path $PSScriptRoot '..\dist-win\win-unpacked\resources\app.asar\o
 $previous = $env:ELECTRON_RUN_AS_NODE
 $env:ELECTRON_RUN_AS_NODE = '1'
 try {
+    $arguments = '"{0}" "{1}"' -f $script.Replace('"', '\"'), $anchor.Replace('"', '\"')
     $process = Start-Process `
         -FilePath $app `
-        -ArgumentList @("""$script""", """$anchor""") `
+        -ArgumentList $arguments `
         -NoNewWindow `
         -PassThru `
         -Wait
