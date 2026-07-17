@@ -27,6 +27,7 @@ import {
   type TelemetrySeriesSample
 } from '../../shared/community'
 import { LiveTelemetryGate } from '../../shared/replay'
+import { sanitizeHttpsUrl } from '../../shared/external-url'
 
 // Reject an untrusted imported .simshare larger than this before reading it.
 const MAX_IMPORT_BYTES = 32 * 1024 * 1024
@@ -311,10 +312,7 @@ function safeText(value: unknown, max = 180): string {
 function safeSourceUrl(value: unknown): string {
   const raw = safeText(value, 500)
   try {
-    const url = new URL(raw)
-    if (url.protocol !== 'https:') throw new Error('Fonte precisa usar HTTPS.')
-    url.hash = ''
-    return url.toString()
+    return sanitizeHttpsUrl(raw, { maxLength: 500, stripHash: true })
   } catch {
     throw new Error('Invalid source URL or missing HTTPS.')
   }

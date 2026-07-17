@@ -26,6 +26,7 @@ import {
   type SavedSectionInfo
 } from '../../shared/config-io'
 import { parseRgbMatrixProfilesPayload } from './rgb-matrix-profile-store'
+import { dashboardDistributionRestrictionReason } from '../../shared/third-party-dashboard-catalog'
 
 export const FULL_IMPORT_DISABLED = 'FULL_IMPORT_DISABLED' as const
 
@@ -305,6 +306,15 @@ interface PreparedSectionData {
   detail?: ConfigSectionImportDetail
 }
 
+function assertSectionDistributionAllowed(sectionId: string, data: unknown): void {
+  if (sectionId !== 'dashboards' || !isPlainObject(data)) return
+  for (const [file, dashboard] of Object.entries(data)) {
+    if (file === 'dashboard-playlist.json') continue
+    const restriction = dashboardDistributionRestrictionReason(dashboard, 'share')
+    if (restriction) throw new Error(`Dashboard configuration sharing blocked for "${file}". ${restriction}`)
+  }
+}
+
 function prepareSectionData(sectionId: string, data: unknown): PreparedSectionData {
   if (sectionId !== 'rgb-matrix') return { data }
   const parsed = parseRgbMatrixProfilesPayload(data)
@@ -361,7 +371,10 @@ export function createConfigEngine(storage: ConfigStorage): ConfigEngine {
       const accessor = registry[section.id]
       if (!accessor) continue
       const data = await accessor.read()
-      if (data !== undefined) sections[section.id] = prepareSectionData(section.id, data).data
+      if (data !== undefined) {
+        assertSectionDistributionAllowed(section.id, data)
+        sections[section.id] = prepareSectionData(section.id, data).data
+      }
     }
     return {
       app: CONFIG_BUNDLE_APP_ID,
@@ -420,6 +433,7 @@ export function createConfigEngine(storage: ConfigStorage): ConfigEngine {
     const accessor = registry[sectionId]
     if (!section || !accessor) throw new Error(`Unknown configuration section: ${sectionId}`)
     const stored = (await accessor.read()) ?? null
+    assertSectionDistributionAllowed(sectionId, stored)
     const data = prepareSectionData(sectionId, stored).data
     return {
       app: CONFIG_BUNDLE_APP_ID,

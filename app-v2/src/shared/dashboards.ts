@@ -33,6 +33,10 @@ import { HIFI_RACE_PRESETS } from './dashboards-hifi-race'
 import { HIFI_ENDURANCE_PRESETS } from './dashboards-hifi-endurance'
 import { HIFI_COACH_PRESETS } from './dashboards-hifi-coach'
 import { HIFI_FAMILY_PRESETS } from './dashboards-hifi-family'
+import {
+  dashboardThirdPartyMetadataValidationError,
+  type DashboardThirdPartyMetadata
+} from './third-party-dashboard-catalog'
 import { HIFI_CARS_PRESETS } from './dashboards-hifi-cars'
 import { HIFI_COMPARE_PRESETS } from './dashboards-hifi-compare'
 import { HIFI_DIAG_PRESETS } from './dashboards-hifi-diagnostics'
@@ -514,6 +518,7 @@ export interface Dashboard extends DashboardStorageMetadata {
   description?: string
   author?: string
   previewPng?: string // base64 (sem prefixo data:)
+  thirdParty?: DashboardThirdPartyMetadata
   createdAt?: number
   updatedAt?: number
   hidden?: boolean
@@ -541,6 +546,7 @@ export interface DashboardSummary extends DashboardStorageMetadata {
   hasPreview: boolean
   description?: string
   author?: string
+  thirdParty?: DashboardThirdPartyMetadata
   createdAt?: number
   updatedAt?: number
   hidden?: boolean
@@ -987,6 +993,10 @@ function dashboardValidationErrorUnsafe(value: unknown): string | null {
   if (value.hidden !== undefined && typeof value.hidden !== 'boolean') return 'Dashboard hidden must be a boolean.'
   for (const key of ['description', 'author', 'previewPng'] as const) {
     if (value[key] !== undefined && typeof value[key] !== 'string') return `Dashboard ${key} must be a string.`
+  }
+  if (value.thirdParty !== undefined) {
+    const thirdPartyError = dashboardThirdPartyMetadataValidationError(value.thirdParty)
+    if (thirdPartyError) return `Dashboard thirdParty ${thirdPartyError}`
   }
   for (const key of ['storageEpoch', 'storageRevision'] as const) {
     if (value[key] !== undefined && (typeof value[key] !== 'string' || !value[key].trim())) {
@@ -3687,6 +3697,7 @@ export function summarizeDashboard(dash: Dashboard): DashboardSummary {
     hasPreview: Boolean(dash.previewPng),
     description: dash.description,
     author: dash.author,
+    ...(dash.thirdParty ? { thirdParty: structuredClone(dash.thirdParty) } : {}),
     createdAt: dash.createdAt,
     updatedAt: dash.updatedAt,
     hidden: Boolean(dash.hidden),
