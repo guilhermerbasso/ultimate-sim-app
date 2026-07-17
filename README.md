@@ -4,11 +4,11 @@
 
 # Ultimate Sim App
 
-**Ultimate Sim App** is a Windows sim-racing companion for iRacing-focused telemetry, GT3-style dashboards, transparent overlays, strategy tools, DIY hardware, and local AI coaching.
+**Ultimate Sim App** is a local-first Windows cockpit companion that turns live telemetry into race-ready GT3/DDU dashboards, transparent overlays, fuel and tyre strategy, alerts, phone/tablet streams, local Coach/Engineer workflows, and SIM-X/Arduino/ESP32 controls.
 
 Independent community project maintained by Guilherme Basso · Electron + React + TypeScript · Apache-2.0
 
-Latest published release: **Ultimate Sim App 2.50.0** · [Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
+Release line: **Ultimate Sim App 2.53.0** · [Latest published Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
 
 Development builds use the version in [`app-v2/package.json`](app-v2/package.json) and may be ahead of the latest published release.
 
@@ -22,12 +22,20 @@ Development builds use the version in [`app-v2/package.json`](app-v2/package.jso
 
 ## Current feature set
 
-Ultimate Sim App combines live race telemetry, dashboard composition, transparent overlays, phone streaming, hardware control, and local AI into one desktop app. It is designed for Windows racing rigs, second monitors, cockpit tablets/phones, and DIY Arduino/ESP32 devices.
+Ultimate Sim App brings live race telemetry, dashboard composition, transparent overlays, strategy, alerting, streaming, hardware control, and local AI into one desktop app. It is built for Windows racing rigs, second monitors, cockpit tablets/phones, and DIY devices, with the deepest telemetry integration on iRacing and narrower source-dependent coverage on ACC, Assetto Corsa, AMS2, and LMU.
 
 ## What's new
 
 <!-- WHATS_NEW:START -->
-### 2.52.0 (draft) — semantic controls, expression destinations, secure streaming, and language-correct speech
+### 2.53.0 — reliable dashboard restart, telemetry truth, and governed visual foundations
+
+- **Saved dashboard windows recover safely after restart** ([#64](https://github.com/guilhermerbasso/ultimate-sim-app/pull/64)): supported elements, including composed `overlaywidget` dashboards, survive validation and migration; invalid files are preserved in quarantine; replacement is atomic; and renderer/storage failures surface diagnostics instead of a black window.
+- **Fuel range is litre-canonical** ([#62](https://github.com/guilhermerbasso/ultimate-sim-app/pull/62)): startup, partial, and refuelling laps no longer contaminate consumption samples, while engine map and throttle map remain distinct and garage cold pressure is not presented as live tyre pressure.
+- **Alert behavior is consistent across alerts, overlays, dashboards, and widgets** ([#62](https://github.com/guilhermerbasso/ultimate-sim-app/pull/62)); configuration updates are serialized and Shift Point uses native shift state or RPM/max-RPM while respecting disabled policies and simulator coverage.
+- **Visual-pipeline foundations are now governed** ([#60](https://github.com/guilhermerbasso/ultimate-sim-app/pull/60), [#61](https://github.com/guilhermerbasso/ultimate-sim-app/pull/61), [#63](https://github.com/guilhermerbasso/ultimate-sim-app/pull/63)): an immutable 50-dashboard brief portfolio, a clone-rejection differentiation gate, and a registry of 143 telemetry concepts (142 currently visualizable) plus 45 trigger-only families.
+- **In development, not shipped in 2.53.0:** the separate Phase 02 program targets 50 newly produced dashboards and 16,600 individually evidenced visual artifacts. This release ships the portfolio, telemetry registry, and quality gates—not those generated images or dashboard outputs.
+
+### 2.52.0 — semantic controls, expression destinations, secure streaming, and language-correct speech
 
 - **Touch Controls schema v2** adds momentary, latching toggle, rocker, guarded two-step, rotary, selector, status LED, and value-tile controls with expression-driven states and accessible interaction.
 - **Expression Studio destinations** can place custom expressions or mapped iRacing variables on a selected dashboard or custom overlay with value, bar, gauge, or status presentations.
@@ -55,8 +63,8 @@ Ultimate Sim App combines live race telemetry, dashboard composition, transparen
 
 ### iRacing telemetry widgets, overlays, and GT3 dashboards
 
-- **423 generated iRacing telemetry variants** for 141 implemented concepts, plus specialized alert, derived, and car-themed widgets.
-- The telemetry inventory records 143 eligible concepts: 141 implemented in the three-style framework, one blocked because opponent steering is unavailable, and shift lights handled by the dedicated rev-light implementation.
+- **423 generated iRacing telemetry variants** for 141 three-style concepts, plus the dedicated shift-light implementation and specialized alert, derived, and car-themed widgets.
+- The governed registry covers **143 ordinary telemetry concepts**: 142 are currently visualizable, 141 use the competition/futuristic/DDU framework, shift lights use the dedicated shared implementation, and opponent steering remains explicitly unavailable because providers do not expose normalized opponent steering.
 - **Per-car themed widgets** for Ferrari, Porsche, Mercedes-AMG, McLaren, Corvette, and Lamborghini visual families.
 - **Themed channel widgets** plus full-frame GT3 DDU/cluster dashboards with shift LEDs, gear, speed, RPM, delta, TC/ABS, brake bias, tyres, fuel, and engineer pages.
 - **NaN-safe rendering**: absent telemetry is shown as empty or placeholder data instead of fake values.
@@ -65,6 +73,7 @@ Ultimate Sim App combines live race telemetry, dashboard composition, transparen
 
 - **Dashboard builder/editor** with live preview, duplicate-and-edit workflow, monitor selection, import/export, and open-on-display support.
 - **336 built-in dashboard presets**, including 50 dense 1024×600 GT3 layouts for qualifying, sprint, race, and endurance use.
+- **Restart-safe persistence** validates and migrates dashboard identities, preserves invalid bytes in quarantine, resolves duplicate/version conflicts, restores saved windows atomically, and reports storage/render failures instead of leaving a black dashboard.
 - **Race playlist** support can interleave dashboards and Touch Controls panels and cycle them from mapped hardware buttons.
 - **Read-only dashboard streaming** in local, LAN, or Internet mode, with HttpOnly viewer sessions, authentication throttling, capacity isolation, stream-safe identity masking, a selectable dashboard or Touch Controls target, and either a verified public HTTPS URL or the bundled checksum-verified Cloudflare quick tunnel.
 - **Adaptive dashboards** that show/hide or emphasize widgets according to session phase and live race context.
@@ -81,7 +90,7 @@ Ultimate Sim App combines live race telemetry, dashboard composition, transparen
 
 ### Strategy, audio, haptics, and hardware
 
-- **Fuel and tyre strategy**: fuel-per-lap, laps remaining, stint planning, tyre wear, degradation, pit windows, and undercut/overcut guidance.
+- **Fuel and tyre strategy**: litre-canonical fuel-per-lap and range, filtered consumption samples, laps remaining, stint planning, tyre wear, degradation, pit windows, and undercut/overcut guidance.
 - **Team Fuel · LAN** rooms share same-session fuel, fuel-per-lap, laps remaining, stint targets, and pit-window state between peers using the same room key.
 - **Rev-lights configuration** with presets, color bands, shift points, and live preview for SIM-X hardware.
 - **Sounds/audio cues** for shift beeps, incidents, ABS, TCS, and race warnings.
@@ -119,23 +128,27 @@ Ultimate Sim App combines live race telemetry, dashboard composition, transparen
 
 ## Screenshots
 
-These images were captured locally from the current-main React renderer and visual-audit harness with deterministic mock telemetry. The v2.52 refresh includes the semantic Touch Controls editor and Expression Studio destinations. They are real UI renders, not generated marketing artwork. Authentication-, simulator-, and hardware-only states remain empty when the harness cannot supply them.
+These images were captured locally from the v2.53.0 React renderer and visual-audit harness with deterministic mock telemetry at desktop dimensions. The refreshed Dashboard, Fuel, Alerts, and GT3 DDU frames use the production rendering paths; they are real UI renders, not generated marketing artwork. The PR #64 quarantine warning is condition-driven and is therefore absent while the harness storage is healthy. Authentication-, simulator-, and hardware-only states remain empty when the harness cannot supply them.
 
 | Current GT3 endurance DDU | Current 336-preset dashboard gallery |
 |---|---|
-| <img src="app-v2/docs/screenshots/dashboard-gt3-endurance-stint.png" alt="Current GT3 endurance dashboard with gear, speed, RPM LEDs, delta, fuel, tyres, and stint telemetry" width="520" /> | <img src="app-v2/docs/screenshots/dashboard-presets-336-gallery.png" alt="Top of the current dashboard renderer gallery showing 336 presets" width="520" /> |
+| <img src="app-v2/docs/screenshots/dashboard-gt3-endurance-stint.png" alt="Production dashboard renderer showing the Endurance Stint Core with full-width shift LEDs, 38.4 litres of fuel, 13.4 laps remaining, relative traffic, stint clock, and race position" width="520" /> | <img src="app-v2/docs/screenshots/dashboard-presets-336-gallery.png" alt="Top of the production dashboard renderer gallery showing the current 336 shipped presets" width="520" /> |
 
-| Dashboard editor and protected streaming target | Current race-sun preset family |
+| Dashboard management and protected streaming target | Current race-sun preset family |
 |---|---|
-| <img src="app-v2/docs/screenshots/dashboards.png" alt="Dashboard management screen with editor controls, stream-safe target selector, network access, and preset gallery" width="520" /> | <img src="app-v2/docs/screenshots/dashboard-presets-race-sun.png" alt="Contact sheet of 20 current race-sun dashboard presets rendered with mock telemetry" width="520" /> |
+| <img src="app-v2/docs/screenshots/dashboards.png" alt="Dashboard management screen with SimHub import and export, display-size presets, read-only stream targeting, identity masking, network mode, and password controls" width="520" /> | <img src="app-v2/docs/screenshots/dashboard-presets-race-sun.png" alt="Contact sheet of 20 shipped race-sun dashboard presets rendered with deterministic mock telemetry" width="520" /> |
+
+| Litre-canonical fuel strategy | Unified alert rules |
+|---|---|
+| <img src="app-v2/docs/screenshots/fuel.png" alt="Fuel strategy detail using litre-based telemetry with 38.4 litres remaining, 2.86 litres per lap, 13.4 laps in tank, fuel-to-finish deficit, pit window, stint plan, and Team Fuel LAN controls" width="520" /> | <img src="app-v2/docs/screenshots/alerts.png" alt="Alert configuration screen showing enabled pit-limiter and flag rules, severity, cooldown and repeat fields, output buttons, and the visible start of the low-fuel rule" width="520" /> |
 
 | Live telemetry source and diagnostics | Rev-light presets and LED configuration |
 |---|---|
 | <img src="app-v2/docs/screenshots/telemetry.png" alt="Telemetry screen showing mock source selection, live status, diagnostics, and vehicle data" width="520" /> | <img src="app-v2/docs/screenshots/revlights.png" alt="Rev Lights settings with LED preview, shift thresholds, presets, and hardware controls" width="520" /> |
 
-| Fuel strategy and Team Fuel LAN | Local AI Coach before the first completed lap |
+| Local AI Coach before the first completed lap | Adaptive dashboard controls |
 |---|---|
-| <img src="app-v2/docs/screenshots/fuel.png" alt="Fuel strategy showing fuel-to-finish metrics, pit window, stint planner, and Team Fuel LAN room" width="520" /> | <img src="app-v2/docs/screenshots/coach.png" alt="AI Coach summary before a completed lap, with track map, improvement points, debrief, and setup sections" width="520" /> |
+| <img src="app-v2/docs/screenshots/coach.png" alt="AI Coach summary before a completed lap, with track map, improvement points, debrief, and setup sections" width="520" /> | <img src="app-v2/docs/screenshots/dashboard-adaptive.png" alt="Adaptive Dashboard controls for changing layout emphasis from current race context and session phase" width="520" /> |
 
 | Units and telemetry configuration | Profile backup and saved-configuration safety |
 |---|---|
@@ -143,7 +156,7 @@ These images were captured locally from the current-main React renderer and visu
 
 | Current overlay widget renderer | All 336 current dashboard presets |
 |---|---|
-| <img src="app-v2/docs/screenshots/overlay-widgets-gallery.png" alt="Minimal-style overlay gallery showing current real-renderer telemetry widgets" width="520" /> | <img src="app-v2/docs/screenshots/dashboard-presets-336-contact-sheet.png" alt="Contact sheet of all 336 current dashboard presets rendered by the real dashboard renderer" width="520" /> |
+| <img src="app-v2/docs/screenshots/overlay-widgets-gallery.png" alt="Minimal-style overlay gallery showing current real-renderer telemetry widgets" width="520" /> | <img src="app-v2/docs/screenshots/dashboard-presets-336-contact-sheet.png" alt="Contact sheet of all 336 shipped dashboard presets rendered by the production dashboard renderer" width="520" /> |
 
 | Semantic Touch Controls editor | Expression visualization destinations |
 |---|---|
@@ -155,7 +168,7 @@ These images were captured locally from the current-main React renderer and visu
 
 ### Race hub
 
-- **Telemetry** — source selection for Off, Auto-detect, Demo (mock), iRacing, ACC, Assetto Corsa, AMS2, LMU, and iRacing diagnostics, with live gear, speed, RPM, position, inputs, lap times, fuel, and relative data.
+- **Telemetry** — source selection for Off, Auto-detect, Demo (mock), iRacing, ACC, Assetto Corsa, and AMS2, plus iRacing diagnostics, with live gear, speed, RPM, position, inputs, lap times, fuel, and relative data. LMU is configured as the default source in Settings or reached through Auto-detect.
 - **Alerts** — pit limiter, flags, low fuel, shift warnings, and condition-driven audio/visual notifications.
 
 ### Drive
@@ -224,18 +237,29 @@ The language selector supports **pt-BR, en, es, fr, de, zh, and ja**. `Auto` fol
 
 ---
 
-## Quick start for users
+## Current limitations
+
+- Windows 10/11 x64 is the supported telemetry, hardware, packaging, and update target. Other platforms can inspect parts of the UI in development/demo mode but are not release targets.
+- iRacing has the deepest normalized telemetry. ACC, Assetto Corsa, AMS2, and LMU support depends on each provider and should not be inferred from the full governed iRacing registry. Opponent throttle, brake, and steering are not exposed; opponent steering remains unsupported.
+- Transparent overlays require Windowed or Borderless mode; exclusive fullscreen cannot display normal Windows overlay windows.
+- Full-profile import remains disabled to protect existing configuration. Per-section import/export and full-profile export remain available.
+- Internet streaming requires a token, password, and active HTTPS endpoint. Hardware, authenticated services, and simulator-only behavior still require validation on the real rig.
+- The local AI path needs compatible CPU resources and downloaded local models; deterministic fallbacks remain available when a model is unavailable. The 50-dashboard / 16,600-visual Phase 02 production program is still in development.
+
+---
+
+## Install and update
 
 1. Open the [latest published release](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest).
-2. Choose the Windows x64 `.exe` installer, or the portable x64 `.zip`, whose version matches the release tag. Ignore any older-version asset retained on a historical release.
-3. Install and launch Ultimate Sim App, then select Auto-detect, Demo, iRacing, ACC, Assetto Corsa, AMS2, or LMU.
-4. Use Borderless or Windowed mode for overlays; exclusive fullscreen cannot display Windows overlay windows.
-5. Open a dashboard on another display or start streaming. LAN/Internet streaming requires a password in addition to the generated token.
-6. Connect SIM-X/ButtonBox/Arduino/ESP32 hardware if you use physical controls, rev lights, OLED, haptics, or LEDs.
+2. Choose `Ultimate-Sim-App-<version>-x64.exe` for the per-machine Windows installer, or the matching portable x64 `.zip`. The installer may request administrator elevation and creates Start menu/desktop shortcuts; application data remains under `%APPDATA%\ultimate-sim-app`.
+3. Unsigned community builds may trigger Windows SmartScreen. Confirm the repository/release URL and version before choosing **Run anyway**.
+4. Launch the app and choose Auto-detect, Demo, iRacing, ACC, Assetto Corsa, or AMS2 on the Telemetry page. For LMU, select it as the default source in Settings or use Auto-detect. Use Borderless or Windowed mode for overlays.
+5. Existing installed builds check the latest **published** GitHub release at startup, every four hours, and from **About → Check for updates**. Draft releases are intentionally invisible to auto-update; a valid release must publish the matching `.exe`, `.zip`, `.exe.blockmap`, and `latest.yml` together.
+6. If an interrupted update reports a missing file such as `icudtl.dat`, run the complete matching installer manually as administrator. Do not delete `%APPDATA%\ultimate-sim-app`; it is separate from the program directory.
+7. Open a dashboard on another display or start streaming. LAN/Internet streaming requires a password in addition to the generated token and HTTPS for public exposure.
+8. Connect SIM-X/ButtonBox/Arduino/ESP32 hardware if you use physical controls, rev lights, OLED, haptics, or LEDs.
 
-Telemetry and installer validation target Windows 10/11. Other platforms can still inspect much of the UI in development/demo mode, but racing telemetry is Windows-first.
-
-Unsigned builds may trigger Windows SmartScreen. See [`MANUAL.md`](MANUAL.md) for basic installation and ButtonBox/SimHub hardware guidance.
+See [`MANUAL.md`](MANUAL.md) for basic installation and ButtonBox/SimHub hardware guidance.
 
 ---
 
@@ -282,9 +306,9 @@ node visual-audit/shoot-dashboards.mjs
 node visual-audit/shoot.mjs minimal
 ```
 
-`shoot-views.mjs` captures every registered app view and writes candidate images directly to `app-v2/docs/screenshots/`; review and keep only useful frames. `shoot-dashboards.mjs` renders every `BUILTIN_PRESETS` dashboard through the production dashboard renderer (336 in this v2.51 audit) and writes individual captures, category contact sheets, and a report under ignored `app-v2/visual-audit/` output folders. `shoot.mjs minimal` validates the real overlay-widget gallery (95 registered widgets in this capture) plus representative dashboards under the ignored `shots/` folder.
+`shoot-views.mjs` captures all 34 registered app views and writes candidate images directly to `app-v2/docs/screenshots/`; review and keep only useful frames. `shoot-dashboards.mjs` renders every `BUILTIN_PRESETS` dashboard through the production dashboard renderer (336 on the v2.53.0 release branch) and writes individual captures, category contact sheets, and a report under ignored `app-v2/visual-audit/` output folders. `shoot.mjs minimal` validates the real overlay-widget gallery plus representative dashboards under the ignored `shots/` folder.
 
-The committed gallery and contact-sheet images are curated from those real-renderer outputs using the existing image tooling. Standalone files under `visual-audit/hifi/` are audit fixtures and are not used for the current README screenshots.
+The committed gallery and contact-sheet images are curated from those real-renderer outputs using the existing image tooling. The v2.53.0 app-view frames are optimized at 1600 pixels wide (up to 1600×1000), while the GT3 dashboard frame is kept at its native 1024×600 canvas. Standalone files under `visual-audit/hifi/` are audit fixtures and are not used for the current README screenshots.
 
 ---
 

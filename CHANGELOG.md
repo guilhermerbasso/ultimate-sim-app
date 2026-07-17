@@ -6,6 +6,45 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
+## 2.53.0 — restart-safe dashboards, telemetry truth, and governed visual foundations
+
+### Added
+- **Dashboard storage health and recovery diagnostics** with canonical validation, legacy identity
+  migration, byte-preserving quarantine for invalid files, duplicate/version resolution, and
+  renderer error containment.
+- **Phase 02 dashboard portfolio foundation** with exactly 50 immutable briefs across 10 families,
+  deterministic processing order, controlled tags, research sources, telemetry requirements, and
+  per-dashboard image-prompt constraints.
+- **Dashboard differentiation gate** with canonical structural fingerprints, a hard clone-rejection
+  threshold, anti-evasion checks, and pair-scoped perceptual evidence across eight governed
+  telemetry states.
+- **Governed telemetry registry** for 143 ordinary concepts: 142 currently visualizable, 141 using
+  the existing three-variant framework, one dedicated shift-light implementation, one explicitly
+  unsupported opponent-steering concept, and 45 separate trigger-only families.
+
+### Changed
+- Fuel range and fuel-to-finish calculations are litre-canonical. Startup, partial, and refuelling
+  laps are excluded from consumption samples.
+- Engine map and throttle map remain distinct, iRacing garage cold pressure is not exposed as live
+  tyre pressure, and Shift Point uses native shift state or RPM/max-RPM while honoring disabled
+  policies and simulator coverage.
+- Alert configuration updates are serialized, and configured trigger behavior is shared
+  consistently by alerts, overlays, dashboards, and widgets.
+- Persisted dashboard restoration separates newest-wins configuration hydration from
+  emission-ordered telemetry reconnect handling and uses monotonic revisions that tolerate
+  future-dated files or clock rollback.
+
+### Fixed
+- Saved dashboard windows, including `overlaywidget` compositions, no longer reopen as black
+  windows after an app restart.
+- Dashboard replacement and queued open/close/delete/save operations are atomic and race-safe
+  across load failures and renderer crashes.
+
+### In development
+- The separate Phase 02 production program targets **50 newly produced dashboards and 16,600
+  individually evidenced visual artifacts**. Version 2.53.0 ships the portfolio, registry, and
+  quality gates, not those generated images or dashboard outputs.
+
 ## 2.52.0 — semantic controls, expression destinations, secure streaming, and synchronized speech
 
 ### Added
