@@ -35,7 +35,15 @@ function readArchivedFile(relative) {
   const buffer = Buffer.alloc(node.size)
   const fd = openSync(archive, 'r')
   try {
-    readSync(fd, buffer, 0, node.size, 8 + raw.headerSize + Number(node.offset))
+    const start = 8 + raw.headerSize + Number(node.offset)
+    let total = 0
+    while (total < node.size) {
+      const count = readSync(fd, buffer, total, node.size - total, start + total)
+      if (count === 0) {
+        fail(`unexpected end of ASAR while reading ${relative}`)
+      }
+      total += count
+    }
   } finally {
     closeSync(fd)
   }
