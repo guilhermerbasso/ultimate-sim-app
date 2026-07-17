@@ -27,13 +27,17 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 ## What's new
 
 <!-- WHATS_NEW:START -->
-### 2.53.0 — reliable dashboard restart, telemetry truth, and governed visual foundations
 
-- **Saved dashboard windows recover safely after restart** ([#64](https://github.com/guilhermerbasso/ultimate-sim-app/pull/64)): supported elements, including composed `overlaywidget` dashboards, survive validation and migration; invalid files are preserved in quarantine; replacement is atomic; and renderer/storage failures surface diagnostics instead of a black window.
-- **Fuel range is litre-canonical** ([#62](https://github.com/guilhermerbasso/ultimate-sim-app/pull/62)): startup, partial, and refuelling laps no longer contaminate consumption samples, while engine map and throttle map remain distinct and garage cold pressure is not presented as live tyre pressure.
-- **Alert behavior is consistent across alerts, overlays, dashboards, and widgets** ([#62](https://github.com/guilhermerbasso/ultimate-sim-app/pull/62)); configuration updates are serialized and Shift Point uses native shift state or RPM/max-RPM while respecting disabled policies and simulator coverage.
-- **Visual-pipeline foundations are now governed** ([#60](https://github.com/guilhermerbasso/ultimate-sim-app/pull/60), [#61](https://github.com/guilhermerbasso/ultimate-sim-app/pull/61), [#63](https://github.com/guilhermerbasso/ultimate-sim-app/pull/63)): an immutable 50-dashboard brief portfolio, a clone-rejection differentiation gate, and a registry of 143 telemetry concepts (142 currently visualizable) plus 45 trigger-only families.
-- **In development, not shipped in 2.53.0:** the separate Phase 02 program targets 50 newly produced dashboards and 16,600 individually evidenced visual artifacts. This release ships the portfolio, telemetry registry, and quality gates—not those generated images or dashboard outputs.
+### 2.53.0 — Restart-safe dashboards and telemetry truth
+
+- 🖥️ **Saved dashboards restore safely after restart** — every supported element, including
+- ⛽ **Litre-canonical fuel truth** — fuel range and fuel-to-finish use litres consistently, while
+- 🚨 **One alert policy on every surface** — serialized configuration and shared trigger logic keep
+- 🧭 **Telemetry provenance is explicit** — engine map is distinct from throttle map, garage cold
+- 🧪 **Governed visual foundations** — PRs #60, #61, and #63 add an immutable 50-dashboard brief
+- The separate Phase 02 program targets **50 newly produced dashboards and 16,600 individually
+
+See the [v2.53.0 release notes](https://github.com/guilhermerbasso/ultimate-sim-app/releases/tag/v2.53.0) for the full list.
 
 ### 2.52.0 — semantic controls, expression destinations, secure streaming, and language-correct speech
 
