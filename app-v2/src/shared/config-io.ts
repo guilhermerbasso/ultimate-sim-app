@@ -119,6 +119,7 @@ export const CONFIG_SECTIONS: readonly ConfigSectionDescriptor[] = [
   { id: 'expressions', label: 'Expressions', kind: 'file', path: 'expressions.json' },
   { id: 'output-routes', label: 'Output routing', kind: 'file', path: 'output-routes.json' },
   { id: 'alerts', label: 'Alerts', kind: 'file', path: 'alerts-config.json' },
+  { id: 'accessibility-cues', label: 'Accessibility cue profiles', kind: 'file', path: 'accessibility-cues.json' },
   { id: 'setups', label: 'Setups (library)', kind: 'file', path: 'setups.json' },
   { id: 'setup-manager', label: 'Setup manager', kind: 'file', path: 'setup-manager.json' },
   { id: 'race-profiles', label: 'Race profiles', kind: 'file', path: 'race-profiles.json' },

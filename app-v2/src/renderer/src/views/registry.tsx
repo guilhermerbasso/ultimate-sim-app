@@ -35,6 +35,7 @@ const SoundsView = lazy(() => import('./SoundsView'))
 const TelemetryView = lazy(() => import('./TelemetryView'))
 const TireStrategyView = lazy(() => import('./TireStrategyView'))
 const TouchControlsView = lazy(() => import('./TouchControlsView'))
+const AccessibilityCuesView = lazy(() => import('./AccessibilityCuesView'))
 
 type ViewComponent = LazyExoticComponent<ComponentType<AppViewProps>>
 export interface ViewDef {
@@ -82,6 +83,7 @@ export const viewRegistry: ViewDef[] = [
   { id: 'controls', group: 'ButtonBox', label: 'Controls & Keyboard', eyebrow: 'Bindings', description: 'Button → key, virtual gamepad, iRacing command, or app action (dashboard/OLED/overlay).', shortcut: '08', Component: ControlsView },
   { id: 'pinout', group: 'ButtonBox', label: 'Pinout Designer', eyebrow: 'Low-code', description: 'Drag-and-drop pin map (LEDs, mux, encoders) + firmware generation.', shortcut: '0P', Component: PinoutDesignerView },
   { id: 'settings', group: 'App', label: 'Settings', eyebrow: 'App', description: 'Auto-start, telemetry source, theme.', shortcut: '09', Component: SettingsView },
+  { id: 'accessibility-cues', group: 'App', label: 'Accessibility Cues', eyebrow: 'Multimodal', description: 'Semantic caption, audio, symbol, LED, and haptic cue profiles.', shortcut: '0C', Component: AccessibilityCuesView },
   { id: 'about', group: 'App', label: 'About / Credits', eyebrow: 'Open source', description: 'Licenses, sources, and third-party components.', shortcut: '0A', Component: AboutView },
   { id: 'voice', group: 'Sim Racing', label: 'Voice / TTS', eyebrow: 'TTS local', description: 'Offline neural voices for Engineer/Spotter, on-demand download; system voice fallback; wake word "Hey, Engineer".', shortcut: 'TL', Component: VoiceSettingsView }
 ]

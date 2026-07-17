@@ -289,6 +289,13 @@ const iconMap: Record<string, () => ReactElement> = {
   ),
 
   // ── App ──────────────────────────────────────────────────────
+  'accessibility-cues': () => (
+    <Svg>
+      <path d="M3 11s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5Z" />
+      <circle cx="11" cy="11" r="2.2" />
+      <path d="M17.5 4.5v3M19 6h-3M4.5 17.5v-3M3 16h3" />
+    </Svg>
+  ),
   settings: () => (
     <Svg>
       {/* gear: hub circle + 8 teeth (4 cardinal + 4 diagonal) */}

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   DEFAULT_TTS_PREF,
   DEFAULT_TTS_VOICE_ID,
+  clampSpatialPan,
   clampTtsRate,
   mergeTtsPref,
   chunkText,
@@ -26,6 +27,16 @@ describe('clampTtsRate', () => {
     expect(clampTtsRate(0.1)).toBe(0.5)
     expect(clampTtsRate(5)).toBe(2)
     expect(clampTtsRate(1.25)).toBe(1.25)
+  })
+
+  describe('clampSpatialPan', () => {
+    it('clamps explicit spatial cue positions and rejects unknown values', () => {
+      expect(clampSpatialPan(-2)).toBe(-1)
+      expect(clampSpatialPan(0.4)).toBe(0.4)
+      expect(clampSpatialPan(2)).toBe(1)
+      expect(clampSpatialPan(Number.NaN)).toBeUndefined()
+      expect(clampSpatialPan('left')).toBeUndefined()
+    })
   })
 
   it('falls back to the default for non-finite / non-number input', () => {

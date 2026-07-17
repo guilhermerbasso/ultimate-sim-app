@@ -17,6 +17,15 @@ import {
   type AlertType
 } from '../../shared/alerts'
 import {
+  ACCESSIBILITY_CUE_CHANNELS,
+  getCueManifest,
+  hardwareOutputsForCueRoute,
+  routeSemanticCue,
+  semanticCueEventFromAlert,
+  type CueHapticPattern,
+  type CueRoute
+} from '../../shared/accessibility-cues'
+import {
   OUTPUTS_CHANNELS,
   type OutputSecondScreenUpdate,
   interpolateTemplate
@@ -29,6 +38,11 @@ import {
   type LiveTelemetryContext
 } from '../../shared/replay'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
+import { getActiveAccessibilityCueProfile } from './accessibility-cues'
+import {
+  dispatchAccessibilityCueHaptic,
+  isAccessibilityHapticsEnabled
+} from './haptics'
 
 const CONFIG_FILE = 'alerts-config.json'
 
@@ -174,6 +188,7 @@ export function register(ctx: ModuleContext): void {
       const eventWithSound = attachSoundPayload(event)
       ctx.broadcast('alerts:event', eventWithSound)
       dispatchOutputs(ctx, eventWithSound)
+      dispatchAccessibilityCue(ctx, eventWithSound)
     }
   })
 
@@ -296,6 +311,72 @@ function dispatchOutputs(ctx: ModuleContext, event: AlertEvent): void {
       console.warn(`[alerts] output #${index} (${output.kind}) for ${event.type} failed:`, error)
     }
   })
+}
+
+function dispatchAccessibilityCue(ctx: ModuleContext, event: AlertEvent): void {
+  const route = routeSemanticCue(
+    semanticCueEventFromAlert(event, 'live'),
+    getActiveAccessibilityCueProfile(),
+    {
+      caption: true,
+      audio: true,
+      symbol: true,
+      led: Boolean(ctx.serialHub.getPrimary()?.isOpen()),
+      haptic: isAccessibilityHapticsEnabled()
+    }
+  )
+  ctx.broadcast(ACCESSIBILITY_CUE_CHANNELS.routedEvent, route)
+  dispatchAccessibilityCueHardware(ctx, event, route)
+}
+
+function dispatchAccessibilityCueHardware(
+  ctx: ModuleContext,
+  event: AlertEvent,
+  route: CueRoute
+): void {
+  const manifestEntry = getCueManifest(route.eventId)
+  if (!manifestEntry) return
+
+  for (const output of hardwareOutputsForCueRoute(route)) {
+    if (output.modality === 'led') {
+      dispatchButtonbox(
+        ctx,
+        {
+          kind: 'buttonbox',
+          preset: manifestEntry.led.preset,
+          durationMs: manifestEntry.led.durationMs,
+          revLevel: manifestEntry.led.revLevel
+        },
+        event,
+        100
+      )
+      dispatchButtonbox(
+        ctx,
+        {
+          kind: 'buttonbox',
+          preset: 'oledMessage',
+          durationMs: manifestEntry.led.durationMs,
+          oledLine1: '${message}',
+          oledLine2: '${severity}',
+          oledLine3: '${type}'
+        },
+        event,
+        101
+      )
+      continue
+    }
+    if (output.modality === 'haptic' && isCueHapticPattern(output.pattern)) {
+      dispatchAccessibilityCueHaptic(
+        ctx,
+        output.pattern,
+        output.intensity ?? manifestEntry.haptic.intensity
+      )
+    }
+  }
+}
+
+function isCueHapticPattern(value: unknown): value is CueHapticPattern {
+  return value === 'single' || value === 'double' || value === 'triple' || value === 'long'
 }
 
 function attachSoundPayload(event: AlertEvent): AlertEvent {

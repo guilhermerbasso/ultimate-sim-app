@@ -22,6 +22,7 @@ import type { ModuleContext } from '../module-context'
 import type { SerialDevice } from '../serial/device'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { formatBuzzer } from '../../shared/companion'
+import type { CueHapticPattern } from '../../shared/accessibility-cues'
 import {
   DEFAULT_HAPTICS_CONFIG,
   HAPTICS_CHANNELS,
@@ -58,6 +59,39 @@ type HapticsConfigPatch = {
 let config: HapticsConfig = DEFAULT_HAPTICS_CONFIG
 let previousSnapshot: TelemetrySnapshot | null = null
 const lastBuzzAt: Partial<Record<HapticsEffectId, number>> = {}
+
+export function isAccessibilityHapticsEnabled(): boolean {
+  return config.enabled && !config.muted
+}
+
+export function dispatchAccessibilityCueHaptic(
+  ctx: ModuleContext,
+  pattern: CueHapticPattern,
+  intensity: number
+): boolean {
+  if (!isAccessibilityHapticsEnabled()) return false
+  if (!config.arduino.enabled) return true
+  const device = resolveArduinoDevice(ctx)
+  if (!device) return true
+
+  const effect = config.effects.impact
+  const safeIntensity = clamp(intensity, 0, 1, 0.7)
+  const pulseCount = pattern === 'triple' ? 3 : pattern === 'double' ? 2 : 1
+  const pulseDuration = pattern === 'long'
+    ? Math.round(180 + safeIntensity * 100)
+    : Math.round(55 + safeIntensity * 75)
+  const spacingMs = pulseDuration + 70
+
+  for (let index = 0; index < pulseCount; index += 1) {
+    setTimeout(() => {
+      if (!device.isOpen()) return
+      void device
+        .sendRaw(formatBuzzer(effect.frequencyHz, pulseDuration))
+        .catch(() => undefined)
+    }, index * spacingMs)
+  }
+  return true
+}
 
 export function register(ctx: ModuleContext): void {
   const configPath = join(ctx.app.getPath('userData'), CONFIG_FILE)

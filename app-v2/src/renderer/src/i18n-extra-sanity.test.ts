@@ -8,4 +8,15 @@ describe('i18n-extra merge', () => {
     // falls back to en for a language without the key
     expect(tt('ja', '_i18nExtraSanity')).toBe('OK')
   })
+
+  it('loads accessibility cue copy for every supported language', () => {
+    for (const language of ['en', 'pt-BR', 'es', 'fr', 'de', 'zh', 'ja'] as const) {
+      expect(tt(language, 'accessibilityCues.title')).not.toBe(
+        'accessibilityCues.title'
+      )
+      expect(tt(language, 'accessibilityCues.runPreview')).not.toBe(
+        'accessibilityCues.runPreview'
+      )
+    }
+  })
 })

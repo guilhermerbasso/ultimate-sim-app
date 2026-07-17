@@ -190,6 +190,7 @@ let currentObjectUrl: string | null = null
 // reliably (same API already used by soundshift/spotter3d). One source plays at a time.
 let audioCtx: AudioContext | null = null
 let currentSource: AudioBufferSourceNode | null = null
+let currentSpatialNode: StereoPannerNode | null = null
 // Bumped on every new speak/stop; an in-flight call whose seq is stale aborts so a
 // newer callout immediately supersedes an older one (barge-in, like a real spotter).
 let speakSeq = 0
@@ -231,6 +232,11 @@ export function isWebSpeechAvailable(): boolean {
     typeof window.speechSynthesis !== 'undefined' &&
     typeof SpeechSynthesisUtterance !== 'undefined'
   )
+}
+
+export function clampSpatialPan(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  return Math.max(-1, Math.min(1, value))
 }
 
 // Resolves once the async OS voice list is populated (or after a short grace
@@ -329,6 +335,14 @@ function disposeCurrentAudio(): void {
     }
     currentSource = null
   }
+  if (currentSpatialNode) {
+    try {
+      currentSpatialNode.disconnect()
+    } catch {
+      // ignore
+    }
+    currentSpatialNode = null
+  }
   if (currentAudio) {
     currentAudio.onended = null
     currentAudio.onerror = null
@@ -366,7 +380,12 @@ function ensureAudioCtx(): AudioContext | null {
 
 // Play a neural WAV via Web Audio. Resolves TRUE on successful end, FALSE on
 // decode/play failure so the caller can fall back to web-speech (never go silent).
-async function playWav(bytes: Uint8Array, rate: number, seq: number): Promise<boolean> {
+async function playWav(
+  bytes: Uint8Array,
+  rate: number,
+  seq: number,
+  spatialPanValue?: number
+): Promise<boolean> {
   if (seq !== speakSeq || bytes.byteLength === 0) return true
   const ctx = ensureAudioCtx()
   if (!ctx) return false
@@ -384,10 +403,21 @@ async function playWav(bytes: Uint8Array, rate: number, seq: number): Promise<bo
       const source = ctx.createBufferSource()
       source.buffer = audioBuffer
       source.playbackRate.value = Math.max(0.25, Math.min(4, rate))
-      source.connect(ctx.destination)
+      const pan = clampSpatialPan(spatialPanValue)
+      const spatialNode = pan === undefined ? null : ctx.createStereoPanner()
+      if (spatialNode && pan !== undefined) {
+        spatialNode.pan.value = pan
+        source.connect(spatialNode)
+        spatialNode.connect(ctx.destination)
+      } else {
+        source.connect(ctx.destination)
+      }
       currentSource = source
+      currentSpatialNode = spatialNode
       source.onended = () => {
         if (currentSource === source) currentSource = null
+        if (currentSpatialNode === spatialNode) currentSpatialNode = null
+        spatialNode?.disconnect()
         resolve(true)
       }
       source.start()
@@ -432,6 +462,8 @@ export interface SpeakOptions {
   tipId?: string
   /** 1-based corner number the line is about, when corner-scoped. */
   corner?: number
+  /** Optional -1..1 stereo position for an accessibility cue. Piper WAV only. */
+  spatialPan?: number
 }
 
 /**
@@ -458,7 +490,8 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
   const diag = {
     source: options.source ?? 'unknown',
     tipId: options.tipId ?? null,
-    corner: options.corner ?? null
+    corner: options.corner ?? null,
+    spatialPan: clampSpatialPan(options.spatialPan) ?? null
   }
 
   const seq = ++speakSeq
@@ -508,7 +541,7 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
           logClient.info('tts', 'speakViaTts via piper', { engine: 'piper', voiceId, lang: fallbackLang ?? null, ...diag })
           loggedPath = true
         }
-        const played = await playWav(wav, rate, seq)
+        const played = await playWav(wav, rate, seq, options.spatialPan)
         if (seq !== speakSeq) return
         if (played) continue
         // Neural bytes wouldn't decode/play → fall back so we never go silent.

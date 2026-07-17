@@ -21,6 +21,7 @@
 // UI (HapticsView) reads the same singleton engine for its live meters + tests.
 
 import { useEffect, useRef } from 'react'
+import type { CueHapticPattern } from '../../../shared/accessibility-cues'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import {
   DEFAULT_HAPTICS_CONFIG,
@@ -369,6 +370,35 @@ class HapticsEngine {
 
   // ─── Test / preview (driven by a user gesture from the View) ─────────────────
 
+  playAccessibilityCue(pattern: CueHapticPattern, intensity: number): boolean {
+    if (!this.config.enabled || this.config.muted || !this.isAvailable()) return false
+    const ctx = this.ensureContext()
+    const voice = this.voices.get('impact')
+    if (!ctx || !voice) return false
+    this.resume()
+    this.applyMaster()
+
+    const peak = Math.max(0.2, clamp01(intensity))
+    voice.osc.frequency.setTargetAtTime(
+      this.config.effects.impact.frequencyHz,
+      ctx.currentTime,
+      0.02
+    )
+    if (pattern === 'long') {
+      this.burstEffect('roadTexture', peak, 500)
+      return true
+    }
+    const pulseCount = pattern === 'triple' ? 3 : pattern === 'double' ? 2 : 1
+    const spacingMs = 220
+    for (let index = 0; index < pulseCount; index += 1) {
+      setTimeout(() => {
+        this.transientLastMs.impact = 0
+        this.triggerTransient('impact', peak)
+      }, index * spacingMs)
+    }
+    return true
+  }
+
   testEffect(id: HapticsEffectId, config: HapticsConfig): void {
     this.applyConfig(config)
     const ctx = this.ctx
@@ -452,6 +482,17 @@ export function testHapticsEffect(id: HapticsEffectId, config: HapticsConfig): v
     getHapticsEngine().testEffect(id, config)
   } catch {
     // AudioContext can be unavailable or blocked before the first gesture.
+  }
+}
+
+export function playAccessibilityHaptic(
+  pattern: CueHapticPattern,
+  intensity: number
+): boolean {
+  try {
+    return getHapticsEngine().playAccessibilityCue(pattern, intensity)
+  } catch {
+    return false
   }
 }
 

@@ -6875,6 +6875,7 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
     profiles: { label: 'Profiles', eyebrow: 'Presets', description: 'Save and load race configurations.' },
     controls: { label: 'Controls & Keyboard', eyebrow: 'Bindings', description: 'Button to key, virtual gamepad, iRacing command, or app action.' },
     pinout: { label: 'Pinout Designer', eyebrow: 'Low-code', description: 'Drag-and-drop pin map plus firmware generation.' },
+    'accessibility-cues': { label: 'Accessibility Cues', eyebrow: 'Multimodal', description: 'Semantic caption, audio, symbol, LED, and haptic cue profiles.' },
     settings: { label: 'Settings', eyebrow: 'App', description: 'Auto-start, telemetry source, language, and theme.' },
     about: { label: 'About / Credits', eyebrow: 'Open source', description: 'Licenses, fonts, and third-party components.' },
     voice: { label: 'Voice / TTS', eyebrow: 'Local TTS', description: 'Offline neural voices, system fallback, and wake-word.' }
@@ -6903,6 +6904,10 @@ function patchViewText(language: ResolvedLanguage, patches: Record<string, Parti
   }
 }
 
+patchViewText('pt-BR', {
+  'accessibility-cues': { label: 'Cues de acessibilidade', eyebrow: 'Multimodal', description: 'Perfis semânticos de caption, áudio, símbolo, LED e háptica.' }
+})
+
 patchViewText('es', {
   telemetry: { label: 'Telemetría', description: 'Fuente de telemetría en vivo y vista general.' },
   dashboards: { label: 'Dashboards', description: 'Ventanas de monitor, importación .simhubdash y constructor.' },
@@ -6916,6 +6921,7 @@ patchViewText('es', {
   'haptics-zonal': { label: 'Háptica zonal' },
   strategy: { label: 'Estrategia' },
   devices: { label: 'Devices' },
+  'accessibility-cues': { label: 'Señales de accesibilidad', description: 'Perfiles semánticos de subtítulos, audio, símbolos, LED y háptica.' },
   settings: { label: 'Configuración', description: 'Autoarranque, telemetría, idioma y tema.' },
   about: { label: 'Acerca de / Créditos' }
 })
@@ -6932,6 +6938,7 @@ patchViewText('fr', {
   'haptics-zonal': { label: 'Haptique zonale' },
   strategy: { label: 'Stratégie' },
   devices: { label: 'Appareils' },
+  'accessibility-cues': { label: 'Signaux d’accessibilité', description: 'Profils sémantiques de sous-titres, audio, symboles, LED et haptique.' },
   settings: { label: 'Paramètres', description: 'Démarrage auto, télémétrie, langue et thème.' },
   about: { label: 'À propos / Crédits' }
 })
@@ -6949,6 +6956,7 @@ patchViewText('de', {
   'haptics-zonal': { label: 'Zonen-Haptik' },
   strategy: { label: 'Strategie' },
   devices: { label: 'Geräte' },
+  'accessibility-cues': { label: 'Barrierefreiheits-Hinweise', description: 'Semantische Profile für Untertitel, Audio, Symbole, LED und Haptik.' },
   settings: { label: 'Einstellungen', description: 'Autostart, Telemetriequelle, Sprache und Theme.' },
   about: { label: 'Über / Credits' }
 })
@@ -6968,6 +6976,7 @@ patchViewText('zh', {
   haptics: { label: '触觉反馈' },
   'haptics-zonal': { label: '分区触觉' },
   devices: { label: '设备' },
+  'accessibility-cues': { label: '无障碍提示', description: '字幕、音频、符号、LED 与触觉的语义配置。' },
   settings: { label: '设置', description: '自动启动、遥测源、语言与主题。' },
   about: { label: '关于 / 致谢' }
 })
@@ -6987,6 +6996,7 @@ patchViewText('ja', {
   haptics: { label: 'ハプティクス' },
   'haptics-zonal': { label: 'ゾーンハプティクス' },
   devices: { label: 'デバイス' },
+  'accessibility-cues': { label: 'アクセシビリティ・キュー', description: '字幕、音声、記号、LED、ハプティクスのセマンティックプロファイル。' },
   settings: { label: '設定', description: '自動起動、テレメトリーソース、言語、テーマ。' },
   about: { label: '概要 / クレジット' }
 })
