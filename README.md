@@ -8,7 +8,7 @@
 
 Independent community project maintained by Guilherme Basso · Electron + React + TypeScript · Apache-2.0
 
-Latest published release: **Ultimate Sim App 2.52.0** · [Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest)
+Latest published release: **Ultimate Sim App 2.53.0** · [Windows x64 downloads](https://github.com/guilhermerbasso/ultimate-sim-app/releases/tag/v2.53.0)
 
 Development builds use the version in [`app-v2/package.json`](app-v2/package.json) and may be ahead of the latest published release.
 
@@ -27,7 +27,7 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 ## What's new
 
 <!-- WHATS_NEW:START -->
-### 2.53.0 (release candidate) — reliable dashboard restart, telemetry truth, and governed visual foundations
+### 2.53.0 — reliable dashboard restart, telemetry truth, and governed visual foundations
 
 - **Saved dashboard windows recover safely after restart** ([#64](https://github.com/guilhermerbasso/ultimate-sim-app/pull/64)): supported elements, including composed `overlaywidget` dashboards, survive validation and migration; invalid files are preserved in quarantine; replacement is atomic; and renderer/storage failures surface diagnostics instead of a black window.
 - **Fuel range is litre-canonical** ([#62](https://github.com/guilhermerbasso/ultimate-sim-app/pull/62)): startup, partial, and refuelling laps no longer contaminate consumption samples, while engine map and throttle map remain distinct and garage cold pressure is not presented as live tyre pressure.
@@ -168,7 +168,7 @@ These images were captured locally from the v2.53.0 React renderer and visual-au
 
 ### Race hub
 
-- **Telemetry** — source selection for Off, Auto-detect, Demo (mock), iRacing, ACC, Assetto Corsa, AMS2, LMU, and iRacing diagnostics, with live gear, speed, RPM, position, inputs, lap times, fuel, and relative data.
+- **Telemetry** — source selection for Off, Auto-detect, Demo (mock), iRacing, ACC, Assetto Corsa, and AMS2, plus iRacing diagnostics, with live gear, speed, RPM, position, inputs, lap times, fuel, and relative data. LMU is configured as the default source in Settings or reached through Auto-detect.
 - **Alerts** — pit limiter, flags, low fuel, shift warnings, and condition-driven audio/visual notifications.
 
 ### Drive
@@ -253,7 +253,7 @@ The language selector supports **pt-BR, en, es, fr, de, zh, and ja**. `Auto` fol
 1. Open the [latest published release](https://github.com/guilhermerbasso/ultimate-sim-app/releases/latest).
 2. Choose `Ultimate-Sim-App-<version>-x64.exe` for the per-machine Windows installer, or the matching portable x64 `.zip`. The installer may request administrator elevation and creates Start menu/desktop shortcuts; application data remains under `%APPDATA%\ultimate-sim-app`.
 3. Unsigned community builds may trigger Windows SmartScreen. Confirm the repository/release URL and version before choosing **Run anyway**.
-4. Launch the app and select Auto-detect, Demo, iRacing, ACC, Assetto Corsa, AMS2, or LMU. Use Borderless or Windowed mode for overlays.
+4. Launch the app and choose Auto-detect, Demo, iRacing, ACC, Assetto Corsa, or AMS2 on the Telemetry page. For LMU, select it as the default source in Settings or use Auto-detect. Use Borderless or Windowed mode for overlays.
 5. Existing installed builds check the latest **published** GitHub release at startup, every four hours, and from **About → Check for updates**. Draft releases are intentionally invisible to auto-update; a valid release must publish the matching `.exe`, `.zip`, `.exe.blockmap`, and `latest.yml` together.
 6. If an interrupted update reports a missing file such as `icudtl.dat`, run the complete matching installer manually as administrator. Do not delete `%APPDATA%\ultimate-sim-app`; it is separate from the program directory.
 7. Open a dashboard on another display or start streaming. LAN/Internet streaming requires a password in addition to the generated token and HTTPS for public exposure.
