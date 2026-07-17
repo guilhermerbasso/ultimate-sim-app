@@ -335,6 +335,7 @@ export function createMockConnectorStatus(
   provider: SocialProvider,
   updatedAtMs = MOCK_SOCIAL_STATUS_TIME_MS
 ): SocialConnectorStatusV1 {
+  if (!Number.isFinite(updatedAtMs)) throw new Error('status.updatedAtMs must be finite')
   const manifest = socialManifestFor(provider)
   const scopes = Object.fromEntries(
     manifest.capabilities.flatMap((capability) =>

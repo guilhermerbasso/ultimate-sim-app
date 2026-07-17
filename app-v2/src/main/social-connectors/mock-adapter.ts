@@ -9,6 +9,7 @@ import {
   type MockWebhookFixtureV1,
   type SocialActionIntentV1,
   type SocialActionResultV1,
+  type SocialActorV1,
   type SocialApprovalQueueV1,
   type SocialAuditDecision,
   type SocialAuditReceiptV1,
@@ -23,11 +24,13 @@ import {
   type SocialInboundResultV1,
   type SocialProvider,
   type SocialQuotaSnapshotV1,
+  type SocialRateLimitV1,
   type SocialReviewState,
   type SocialScopeState,
   type SocialOperatorControlState
 } from '../../shared/social-connectors'
 import { DeterministicSocialApprovalQueue } from './approval-queue'
+import { FixedSocialClock, type SocialClockV1 } from './clock'
 import { verifyMockWebhookFixtureSignature } from './fixture-signature'
 import {
   assertNoCredentialMaterial,
@@ -36,6 +39,16 @@ import {
   socialHash,
   stableSocialJson
 } from './security'
+import {
+  assertFiniteNumber,
+  assertFiniteTimestamp,
+  assertNonEmptyString,
+  assertNonNegativeFinite,
+  assertPositiveFinite,
+  assertPositiveInteger,
+  assertSocialActor,
+  sameSocialActor
+} from './validation'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -75,17 +88,54 @@ interface RateWindow {
 }
 
 interface StoredAction {
+  readonly requestFingerprint: string
   readonly result: SocialActionResultV1
+}
+
+interface StoredWebhookDelivery {
+  readonly receiptId: string
+  readonly expiresAtMs: number
+}
+
+interface StoredEvent {
+  readonly event: SocialInboundEventV1
+  readonly receiptId: string
+  readonly expiresAtMs: number
+}
+
+export interface MockSocialConnectorStorageLimits {
+  readonly maxWebhookDeliveries: number
+  readonly maxEvents: number
+  readonly maxAuditReceipts: number
+  readonly eventRetentionMs: number
+  readonly auditRetentionMs: number
+}
+
+export interface MockSocialConnectorStorageStats {
+  readonly webhookDeliveries: number
+  readonly events: number
+  readonly auditReceipts: number
+}
+
+const DEFAULT_STORAGE_LIMITS: MockSocialConnectorStorageLimits = {
+  maxWebhookDeliveries: 1_024,
+  maxEvents: 1_024,
+  maxAuditReceipts: 2_048,
+  eventRetentionMs: 60 * 60 * 1000,
+  auditRetentionMs: DAY_MS
 }
 
 export interface MockSocialConnectorOptions {
   readonly provider: SocialProvider
   readonly referenceTimeMs: number
+  readonly clock?: SocialClockV1
   readonly fixtureKeyId: string
   readonly fixtureKeyMaterial: string
   readonly policy?: SocialDestinationPolicyV1 | null
   readonly status?: SocialConnectorStatusV1
   readonly approvalQueue?: SocialApprovalQueueV1
+  readonly rateLimitOverrides?: Readonly<Partial<Record<SocialCapabilityId, SocialRateLimitV1>>>
+  readonly storageLimits?: Partial<MockSocialConnectorStorageLimits>
 }
 
 interface ReceiptInput {
@@ -100,6 +150,7 @@ interface ReceiptInput {
   readonly eventIdHash?: string
   readonly deliveryIdHash?: string
   readonly idempotencyKeyHash?: string
+  readonly requestFingerprint?: string
   readonly payloadHash?: string
   readonly policy?: SocialAuditReceiptV1['policy']
   readonly scopeStates?: Readonly<Record<string, SocialScopeState>>
@@ -128,11 +179,72 @@ const PROVIDER_DESTINATION: Readonly<Record<SocialProvider, SocialDestinationPol
   discord: 'discord.guild'
 }
 
+function validateRateLimit(rateLimit: SocialRateLimitV1, label: string): void {
+  assertPositiveInteger(rateLimit.maxRequests, `${label}.maxRequests`)
+  assertPositiveFinite(rateLimit.windowMs, `${label}.windowMs`)
+  assertNonNegativeFinite(rateLimit.quotaCost, `${label}.quotaCost`)
+}
+
+function validateStorageLimits(limits: MockSocialConnectorStorageLimits): void {
+  assertPositiveInteger(limits.maxWebhookDeliveries, 'storage.maxWebhookDeliveries')
+  assertPositiveInteger(limits.maxEvents, 'storage.maxEvents')
+  assertPositiveInteger(limits.maxAuditReceipts, 'storage.maxAuditReceipts')
+  assertPositiveFinite(limits.eventRetentionMs, 'storage.eventRetentionMs')
+  assertPositiveFinite(limits.auditRetentionMs, 'storage.auditRetentionMs')
+}
+
+function validateStatus(status: SocialConnectorStatusV1): void {
+  assertFiniteTimestamp(status.updatedAtMs, 'status.updatedAtMs')
+  assertNonNegativeFinite(status.quota.limit, 'status.quota.limit')
+  assertNonNegativeFinite(status.quota.remaining, 'status.quota.remaining')
+  assertFiniteTimestamp(status.quota.resetAtMs, 'status.quota.resetAtMs')
+  assertFiniteNumber(status.consent.epoch, 'status.consent.epoch')
+  assertFiniteTimestamp(status.consent.expiresAtMs, 'status.consent.expiresAtMs')
+  if (status.quota.remaining > status.quota.limit) {
+    throw new Error('status.quota.remaining cannot exceed status.quota.limit')
+  }
+}
+
+function validateDestinationPolicy(
+  policy: SocialDestinationPolicyV1,
+  expectedProvider?: SocialProvider
+): void {
+  if (
+    policy.schema !== SOCIAL_POLICY_SCHEMA ||
+    policy.contractVersion !== SOCIAL_CONNECTOR_CONTRACT_VERSION
+  ) {
+    throw new Error('Invalid social destination policy contract')
+  }
+  assertFiniteNumber(policy.revision, 'policy.revision')
+  assertFiniteTimestamp(policy.validFromMs, 'policy.validFromMs')
+  assertFiniteTimestamp(policy.validUntilMs, 'policy.validUntilMs')
+  assertPositiveFinite(policy.maxPayloadBytes, 'policy.maxPayloadBytes')
+  if (policy.validUntilMs <= policy.validFromMs) {
+    throw new Error('policy.validUntilMs must be after policy.validFromMs')
+  }
+  if (expectedProvider && policy.provider !== expectedProvider) {
+    throw new Error(`Policy provider ${policy.provider} does not match ${expectedProvider}`)
+  }
+  if (policy.provider === 'twitch' && policy.twitchMergedChatOutput !== 'block') {
+    throw new Error('Twitch policies must block merged-chat output')
+  }
+  if (policy.provider !== 'twitch' && policy.twitchMergedChatOutput !== 'not-applicable') {
+    throw new Error('Merged-chat output policy is only applicable to Twitch')
+  }
+}
+
+function finiteExpiry(baseMs: number, durationMs: number, label: string): number {
+  const expiresAtMs = baseMs + durationMs
+  assertFiniteTimestamp(expiresAtMs, label)
+  return expiresAtMs
+}
+
 export function createMockDestinationPolicy(
   provider: SocialProvider,
   referenceTimeMs: number,
   overrides: Partial<SocialDestinationPolicyV1> = {}
 ): SocialDestinationPolicyV1 {
+  assertFiniteTimestamp(referenceTimeMs, 'policy.referenceTimeMs')
   const manifest = socialManifestFor(provider)
   const policyBase = {
     schema: SOCIAL_POLICY_SCHEMA,
@@ -153,7 +265,7 @@ export function createMockDestinationPolicy(
   } satisfies Omit<SocialDestinationPolicyV1, 'fingerprint'>
   const merged = { ...policyBase, ...overrides }
 
-  return {
+  const policy: SocialDestinationPolicyV1 = {
     ...merged,
     fingerprint:
       overrides.fingerprint ??
@@ -162,6 +274,8 @@ export function createMockDestinationPolicy(
         fingerprint: undefined
       })
   }
+  validateDestinationPolicy(policy, provider)
+  return policy
 }
 
 function capabilityScopeStates(
@@ -186,30 +300,51 @@ function stringArray(value: unknown): string[] | null {
 export class DeterministicMockSocialConnector implements SocialConnectorV1 {
   readonly contractVersion = SOCIAL_CONNECTOR_CONTRACT_VERSION
   readonly manifest
+  readonly #clock: SocialClockV1
   readonly #fixtureKeyId: string
   readonly #fixtureKeyMaterial: string
   readonly #approvalQueue: SocialApprovalQueueV1
   readonly #status: MutableStatus
   readonly #auditReceipts: SocialAuditReceiptV1[] = []
-  readonly #events = new Map<string, { event: SocialInboundEventV1; receiptId: string }>()
-  readonly #webhookDeliveries = new Map<string, string>()
+  readonly #events = new Map<string, StoredEvent>()
+  readonly #webhookDeliveries = new Map<string, StoredWebhookDelivery>()
   readonly #actions = new Map<string, StoredAction>()
   readonly #rateWindows = new Map<SocialCapabilityId, RateWindow>()
+  readonly #rateLimitOverrides: Readonly<Partial<Record<SocialCapabilityId, SocialRateLimitV1>>>
+  readonly #storageLimits: MockSocialConnectorStorageLimits
   #policy: SocialDestinationPolicyV1 | null
   #auditSequence = 0
+  #lastNowMs: number | null = null
 
   constructor(options: MockSocialConnectorOptions) {
+    assertFiniteTimestamp(options.referenceTimeMs, 'connector.referenceTimeMs')
+    assertNonEmptyString(options.fixtureKeyId, 'connector.fixtureKeyId')
+    assertNonEmptyString(options.fixtureKeyMaterial, 'connector.fixtureKeyMaterial')
     this.manifest = socialManifestFor(options.provider)
+    this.#clock = options.clock ?? new FixedSocialClock(options.referenceTimeMs)
+    const authorityNowMs = this.#now()
     this.#fixtureKeyId = options.fixtureKeyId
     this.#fixtureKeyMaterial = options.fixtureKeyMaterial
     this.#approvalQueue = options.approvalQueue ?? new DeterministicSocialApprovalQueue()
-    this.#policy =
+    const policy =
       options.policy === undefined
-        ? createMockDestinationPolicy(options.provider, options.referenceTimeMs)
+        ? createMockDestinationPolicy(options.provider, authorityNowMs)
         : options.policy
+    if (policy) validateDestinationPolicy(policy, options.provider)
+    this.#policy = policy ? cloneSocialValue(policy) : null
     const sourceStatus =
-      options.status ?? createMockConnectorStatus(options.provider, options.referenceTimeMs)
+      options.status ?? createMockConnectorStatus(options.provider, authorityNowMs)
+    validateStatus(sourceStatus)
     this.#status = cloneSocialValue(sourceStatus) as MutableStatus
+    this.#rateLimitOverrides = cloneSocialValue(options.rateLimitOverrides ?? {})
+    for (const [capabilityId, rateLimit] of Object.entries(this.#rateLimitOverrides)) {
+      if (rateLimit) validateRateLimit(rateLimit, `rateLimits.${capabilityId}`)
+    }
+    this.#storageLimits = {
+      ...DEFAULT_STORAGE_LIMITS,
+      ...(options.storageLimits ?? {})
+    }
+    validateStorageLimits(this.#storageLimits)
   }
 
   get approvalQueue(): SocialApprovalQueueV1 {
@@ -218,6 +353,15 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
 
   getStatus(): SocialConnectorStatusV1 {
     return cloneSocialValue(this.#status)
+  }
+
+  getStorageStats(): MockSocialConnectorStorageStats {
+    this.#pruneStorage(this.#now())
+    return {
+      webhookDeliveries: this.#webhookDeliveries.size,
+      events: this.#events.size,
+      auditReceipts: this.#auditReceipts.length
+    }
   }
 
   setScopeState(scope: string, state: SocialScopeState): void {
@@ -236,11 +380,17 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
   }
 
   setQuota(quota: SocialQuotaSnapshotV1): void {
+    assertNonNegativeFinite(quota.limit, 'quota.limit')
+    assertNonNegativeFinite(quota.remaining, 'quota.remaining')
+    assertFiniteTimestamp(quota.resetAtMs, 'quota.resetAtMs')
+    if (quota.remaining > quota.limit) throw new Error('quota.remaining cannot exceed quota.limit')
     this.#status.quota = cloneSocialValue(quota) as MutableStatus['quota']
     this.#refreshLifecycle()
   }
 
   setConsent(state: SocialConsentState, epoch: number, expiresAtMs: number): void {
+    assertFiniteNumber(epoch, 'consent.epoch')
+    assertFiniteTimestamp(expiresAtMs, 'consent.expiresAtMs')
     this.#status.consent = { state, epoch, expiresAtMs }
     this.#refreshLifecycle()
   }
@@ -251,12 +401,15 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
   }
 
   setPolicy(policy: SocialDestinationPolicyV1 | null): void {
+    if (policy) validateDestinationPolicy(policy, this.manifest.provider)
     this.#policy = policy ? cloneSocialValue(policy) : null
     this.#status.policyState = policy ? 'current' : 'missing'
     this.#refreshLifecycle()
   }
 
-  ingestFixture(fixture: MockWebhookFixtureV1, nowMs: number): SocialInboundResultV1 {
+  ingestFixture(fixture: MockWebhookFixtureV1): SocialInboundResultV1 {
+    const nowMs = this.#now()
+    this.#pruneStorage(nowMs)
     const capability = socialCapabilityFor(this.manifest.provider, fixture.capabilityId)
     const baseReceipt = {
       operation: 'ingress' as const,
@@ -268,6 +421,9 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       scopeStates: capabilityScopeStates(capability, this.#status)
     }
 
+    if (!Number.isFinite(fixture.occurredAtMs)) {
+      return this.#inboundDenied(baseReceipt, 'validation.non_finite_time')
+    }
     if (
       fixture.provider !== this.manifest.provider ||
       !capability ||
@@ -293,24 +449,42 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       deliveryId: fixture.deliveryId,
       signature: fixture.signature
     })
-    const replayedReceiptId = this.#webhookDeliveries.get(deliveryKey)
-    if (replayedReceiptId) {
+    const replayedDelivery = this.#webhookDeliveries.get(deliveryKey)
+    if (replayedDelivery) {
       const receipt = this.#recordReceipt({
         ...baseReceipt,
         decision: 'replay',
         reasonCode: 'webhook.replay',
-        replayedReceiptId
+        replayedReceiptId: replayedDelivery.receiptId
       })
       return { outcome: 'replay', reasonCode: 'webhook.replay', receipt }
     }
+    if (this.#webhookDeliveries.size >= this.#storageLimits.maxWebhookDeliveries) {
+      return this.#inboundDenied(baseReceipt, 'storage.replay_capacity')
+    }
 
-    this.#webhookDeliveries.set(deliveryKey, '')
     const accessFailure = this.#capabilityAccessFailure(capability)
     if (accessFailure) {
       const denied = this.#inboundDenied(baseReceipt, accessFailure)
-      this.#webhookDeliveries.set(deliveryKey, denied.receipt.receiptId)
+      this.#storeWebhookDelivery(deliveryKey, denied.receipt.receiptId, nowMs)
       return denied
     }
+
+    const rateLimit = this.#rateLimitFor(capability)
+    const rateWindow = this.#rateWindow(capability.id, rateLimit, nowMs)
+    if (rateWindow.used >= rateLimit.maxRequests) {
+      const retryAfterMs = Math.max(
+        0,
+        rateWindow.startedAtMs + rateLimit.windowMs - nowMs
+      )
+      const denied = this.#inboundDenied(
+        { ...baseReceipt, retryAfterMs },
+        'rate_limit.exceeded'
+      )
+      this.#storeWebhookDelivery(deliveryKey, denied.receipt.receiptId, nowMs)
+      return denied
+    }
+    rateWindow.used += 1
 
     let providerPayload: Readonly<Record<string, unknown>>
     try {
@@ -320,7 +494,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       providerPayload = cloneSocialValue(parsed)
     } catch {
       const denied = this.#inboundDenied(baseReceipt, 'webhook.invalid_payload')
-      this.#webhookDeliveries.set(deliveryKey, denied.receipt.receiptId)
+      this.#storeWebhookDelivery(deliveryKey, denied.receipt.receiptId, nowMs)
       return denied
     }
 
@@ -333,13 +507,18 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
         reasonCode: 'event.duplicate',
         replayedReceiptId: existing.receiptId
       })
-      this.#webhookDeliveries.set(deliveryKey, receipt.receiptId)
+      this.#storeWebhookDelivery(deliveryKey, receipt.receiptId, nowMs)
       return {
         outcome: 'duplicate',
         reasonCode: 'event.duplicate',
         event: cloneSocialValue(existing.event),
         receipt
       }
+    }
+    if (this.#events.size >= this.#storageLimits.maxEvents) {
+      const denied = this.#inboundDenied(baseReceipt, 'storage.event_capacity')
+      this.#storeWebhookDelivery(deliveryKey, denied.receipt.receiptId, nowMs)
+      return denied
     }
 
     const event: SocialInboundEventV1 = {
@@ -357,8 +536,8 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       decision: 'accepted',
       reasonCode: 'fixture.accepted'
     })
-    this.#events.set(eventKey, { event, receiptId: receipt.receiptId })
-    this.#webhookDeliveries.set(deliveryKey, receipt.receiptId)
+    this.#storeEvent(eventKey, event, receipt.receiptId, nowMs)
+    this.#storeWebhookDelivery(deliveryKey, receipt.receiptId, nowMs)
     return {
       outcome: 'accepted',
       reasonCode: 'fixture.accepted',
@@ -367,7 +546,12 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     }
   }
 
-  execute(intent: SocialActionIntentV1, nowMs: number): SocialActionResultV1 {
+  execute(
+    intent: SocialActionIntentV1,
+    authenticatedActor: SocialActorV1
+  ): SocialActionResultV1 {
+    const nowMs = this.#now()
+    this.#pruneStorage(nowMs)
     const capability = socialCapabilityFor(this.manifest.provider, intent.capabilityId)
     const payloadHash = socialHash(intent.payload)
     const idempotencyKeyHash = socialHash(intent.idempotencyKey)
@@ -376,13 +560,26 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       capabilityId: intent.capabilityId,
       destination: intent.destination,
       atMs: nowMs,
-      actorRole: intent.actor.role,
-      actorRefHash: socialHash(intent.actor.actorRef),
+      actorRole:
+        typeof (intent.actor as Partial<SocialActorV1> | undefined)?.role === 'string'
+          ? intent.actor.role
+          : undefined,
+      actorRefHash:
+        typeof (intent.actor as Partial<SocialActorV1> | undefined)?.actorRef === 'string'
+          ? socialHash(intent.actor.actorRef)
+          : undefined,
       idempotencyKeyHash,
       payloadHash,
       scopeStates: capabilityScopeStates(capability, this.#status)
     }
 
+    if (
+      !Number.isFinite(intent.createdAtMs) ||
+      !Number.isFinite(intent.deadlineMs) ||
+      !Number.isFinite(intent.consentEpoch)
+    ) {
+      return this.#actionDenied(baseReceipt, 'validation.non_finite_time')
+    }
     if (
       intent.schema !== SOCIAL_CONNECTOR_SCHEMA ||
       intent.contractVersion !== SOCIAL_CONNECTOR_CONTRACT_VERSION ||
@@ -395,62 +592,91 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     }
 
     try {
+      assertSocialActor(intent.actor, 'intent.actor')
+      assertSocialActor(authenticatedActor, 'authenticatedActor')
+      assertNonEmptyString(intent.idempotencyKey, 'intent.idempotencyKey')
+    } catch {
+      return this.#actionDenied(baseReceipt, 'actor.invalid')
+    }
+    if (!sameSocialActor(intent.actor, authenticatedActor)) {
+      return this.#actionDenied(baseReceipt, 'actor.authenticated_mismatch')
+    }
+
+    try {
       assertNoCredentialMaterial(intent.payload)
     } catch {
       return this.#actionDenied(baseReceipt, 'payload.credential_material')
     }
-    if (nowMs > intent.deadlineMs || intent.deadlineMs <= intent.createdAtMs) {
-      return this.#actionDenied(baseReceipt, 'intent.expired')
-    }
-
-    const actionKey = `${intent.provider}:${intent.capabilityId}:${intent.idempotencyKey}`
+    const requestFingerprint = socialHash({
+      schema: intent.schema,
+      contractVersion: intent.contractVersion,
+      intentId: intent.intentId,
+      provider: intent.provider,
+      capabilityId: intent.capabilityId,
+      destination: intent.destination,
+      actor: intent.actor,
+      idempotencyKey: intent.idempotencyKey,
+      sourceProvider: intent.sourceProvider ?? null,
+      payloadHash,
+      enqueuedPolicy: intent.enqueuedPolicy ?? null,
+      consentEpoch: intent.consentEpoch,
+      createdAtMs: intent.createdAtMs,
+      deadlineMs: intent.deadlineMs
+    })
+    const fingerprintedReceipt = { ...baseReceipt, requestFingerprint }
+    const actionKey = `${intent.provider}:${intent.idempotencyKey}`
     const existing = this.#actions.get(actionKey)
     if (existing) {
-      const receipt = this.#recordReceipt({
-        ...baseReceipt,
+      if (existing.requestFingerprint !== requestFingerprint) {
+        return this.#actionDenied(fingerprintedReceipt, 'idempotency.mismatch')
+      }
+      this.#recordReceipt({
+        ...fingerprintedReceipt,
         decision: 'duplicate',
         reasonCode: 'idempotency.duplicate',
         replayedReceiptId: existing.result.receipt.receiptId,
         mockProviderRef: existing.result.mockProviderRef
       })
       return {
-        outcome: 'duplicate',
-        reasonCode: 'idempotency.duplicate',
-        duplicate: true,
-        mockProviderRef: existing.result.mockProviderRef,
-        receipt
+        ...cloneSocialValue(existing.result),
+        duplicate: true
       }
     }
 
-    const policyFailure = this.#policyFailure(intent, capability, nowMs)
-    if (policyFailure) return this.#actionDenied(baseReceipt, policyFailure)
-
-    const accessFailure = this.#capabilityAccessFailure(capability)
-    if (accessFailure) return this.#actionDenied(baseReceipt, accessFailure)
-    const consentFailure = this.#consentFailure(intent, capability, nowMs)
-    if (consentFailure) return this.#actionDenied(baseReceipt, consentFailure)
-    if (this.#status.operatorControl !== 'enabled') {
-      return this.#actionDenied(baseReceipt, 'operator_override.blocked')
+    if (nowMs > intent.deadlineMs || intent.deadlineMs <= intent.createdAtMs) {
+      return this.#actionDenied(fingerprintedReceipt, 'intent.expired')
     }
 
+    const policyFailure = this.#policyFailure(intent, capability, nowMs)
+    if (policyFailure) return this.#actionDenied(fingerprintedReceipt, policyFailure)
+
+    const accessFailure = this.#capabilityAccessFailure(capability)
+    if (accessFailure) return this.#actionDenied(fingerprintedReceipt, accessFailure)
+    const consentFailure = this.#consentFailure(intent, capability, nowMs)
+    if (consentFailure) return this.#actionDenied(fingerprintedReceipt, consentFailure)
+    if (this.#status.operatorControl !== 'enabled') {
+      return this.#actionDenied(fingerprintedReceipt, 'operator_override.blocked')
+    }
+
+    const rateLimit = this.#rateLimitFor(capability)
     const quotaBefore = this.#refreshQuota(nowMs)
-    if (this.#status.quota.state !== 'available' || quotaBefore < capability.rateLimit.quotaCost) {
+    if (this.#status.quota.state !== 'available' || quotaBefore < rateLimit.quotaCost) {
       return this.#actionDenied(
-        { ...baseReceipt, quotaBefore, quotaAfter: quotaBefore },
+        { ...fingerprintedReceipt, quotaBefore, quotaAfter: quotaBefore },
         'quota.exhausted'
       )
     }
 
-    const rateWindow = this.#rateWindow(capability, nowMs)
-    if (rateWindow.used >= capability.rateLimit.maxRequests) {
+    const rateWindow = this.#rateWindow(capability.id, rateLimit, nowMs)
+    if (rateWindow.used >= rateLimit.maxRequests) {
       return this.#actionDenied(
         {
-          ...baseReceipt,
+          ...fingerprintedReceipt,
           quotaBefore,
           quotaAfter: quotaBefore,
           retryAfterMs: Math.max(
             0,
-            rateWindow.startedAtMs + capability.rateLimit.windowMs - nowMs
+            rateWindow.startedAtMs + rateLimit.windowMs - nowMs
           )
         },
         'rate_limit.exceeded'
@@ -461,7 +687,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     if (capability.approval === 'required') {
       if (!intent.approvalRef) {
         return this.#actionDenied(
-          { ...baseReceipt, quotaBefore, quotaAfter: quotaBefore },
+          { ...fingerprintedReceipt, quotaBefore, quotaAfter: quotaBefore },
           'approval.missing'
         )
       }
@@ -470,11 +696,13 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
         provider: intent.provider,
         capabilityId: intent.capabilityId,
         destination: intent.destination,
+        authenticatedActor,
+        payloadHash,
         nowMs
       })
       if (!approval.allowed) {
         return this.#actionDenied(
-          { ...baseReceipt, quotaBefore, quotaAfter: quotaBefore },
+          { ...fingerprintedReceipt, quotaBefore, quotaAfter: quotaBefore },
           approval.reasonCode
         )
       }
@@ -484,19 +712,17 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     rateWindow.used += 1
     this.#status.quota.remaining = Math.max(
       0,
-      quotaBefore - capability.rateLimit.quotaCost
+      quotaBefore - rateLimit.quotaCost
     )
     this.#status.quota.state =
       this.#status.quota.remaining > 0 ? 'available' : 'exhausted'
     this.#refreshLifecycle()
 
     const mockProviderRef = `mock:${intent.provider}:${socialHash({
-      intentId: intent.intentId,
-      idempotencyKey: intent.idempotencyKey,
-      payloadHash
+      requestFingerprint
     }).slice('sha256:'.length, 'sha256:'.length + 20)}`
     const receipt = this.#recordReceipt({
-      ...baseReceipt,
+      ...fingerprintedReceipt,
       decision: 'simulated',
       reasonCode: 'mock.simulated',
       policy: this.#policy ?? undefined,
@@ -517,15 +743,17 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       mockProviderRef,
       receipt
     }
-    this.#actions.set(actionKey, { result })
+    this.#actions.set(actionKey, { requestFingerprint, result })
     return cloneSocialValue(result)
   }
 
   getAuditReceipts(): readonly SocialAuditReceiptV1[] {
+    this.#pruneStorage(this.#now())
     return cloneSocialValue(this.#auditReceipts)
   }
 
   serializeAuditReceipts(): string {
+    this.#pruneStorage(this.#now())
     return serializePublicSocialRecord(this.#auditReceipts)
   }
 
@@ -543,6 +771,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     if (
       policy.schema !== SOCIAL_POLICY_SCHEMA ||
       policy.contractVersion !== SOCIAL_CONNECTOR_CONTRACT_VERSION ||
+      (policy.provider === 'twitch' && policy.twitchMergedChatOutput !== 'block') ||
       nowMs < policy.validFromMs ||
       nowMs > policy.validUntilMs
     ) {
@@ -565,7 +794,6 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     if (
       intent.provider === 'twitch' &&
       intent.capabilityId === 'twitch.chat.write' &&
-      policy.twitchMergedChatOutput === 'block' &&
       intent.sourceProvider !== 'twitch'
     ) {
       return 'policy.twitch_merged_chat_blocked'
@@ -640,11 +868,19 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     return this.#status.quota.remaining
   }
 
-  #rateWindow(capability: SocialCapabilityV1, nowMs: number): RateWindow {
-    const existing = this.#rateWindows.get(capability.id)
-    if (!existing || nowMs >= existing.startedAtMs + capability.rateLimit.windowMs) {
+  #rateLimitFor(capability: SocialCapabilityV1): SocialRateLimitV1 {
+    return this.#rateLimitOverrides[capability.id] ?? capability.rateLimit
+  }
+
+  #rateWindow(
+    capabilityId: SocialCapabilityId,
+    rateLimit: SocialRateLimitV1,
+    nowMs: number
+  ): RateWindow {
+    const existing = this.#rateWindows.get(capabilityId)
+    if (!existing || nowMs >= existing.startedAtMs + rateLimit.windowMs) {
       const next = { startedAtMs: nowMs, used: 0 }
-      this.#rateWindows.set(capability.id, next)
+      this.#rateWindows.set(capabilityId, next)
       return next
     }
     return existing
@@ -677,7 +913,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       decision: 'denied',
       reasonCode
     })
-    return { outcome: 'denied', reasonCode, receipt }
+    return { outcome: 'denied', reasonCode, retryAfterMs: input.retryAfterMs, receipt }
   }
 
   #actionDenied(
@@ -708,6 +944,8 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
   }
 
   #recordReceipt(input: ReceiptInput): SocialAuditReceiptV1 {
+    assertFiniteTimestamp(input.atMs, 'audit.atMs')
+    this.#pruneStorage(input.atMs)
     this.#auditSequence += 1
     const receiptCore = {
       schema: SOCIAL_AUDIT_SCHEMA,
@@ -725,6 +963,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       eventIdHash: input.eventIdHash,
       deliveryIdHash: input.deliveryIdHash,
       idempotencyKeyHash: input.idempotencyKeyHash,
+      requestFingerprint: input.requestFingerprint,
       payloadHash: input.payloadHash,
       policy: input.policy
         ? {
@@ -754,7 +993,76 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       }).slice('sha256:'.length, 'sha256:'.length + 24)}`
     }
     this.#auditReceipts.push(receipt)
+    if (this.#auditReceipts.length > this.#storageLimits.maxAuditReceipts) {
+      this.#auditReceipts.splice(
+        0,
+        this.#auditReceipts.length - this.#storageLimits.maxAuditReceipts
+      )
+    }
     return cloneSocialValue(receipt)
+  }
+
+  #now(): number {
+    const nowMs = this.#clock.nowMs()
+    assertFiniteTimestamp(nowMs, 'clock.nowMs')
+    if (this.#lastNowMs !== null && nowMs < this.#lastNowMs) {
+      throw new Error('clock.nowMs must be monotonic')
+    }
+    this.#lastNowMs = nowMs
+    return nowMs
+  }
+
+  #storeWebhookDelivery(key: string, receiptId: string, nowMs: number): void {
+    if (
+      !this.#webhookDeliveries.has(key) &&
+      this.#webhookDeliveries.size >= this.#storageLimits.maxWebhookDeliveries
+    ) {
+      throw new Error('Webhook replay storage capacity exceeded')
+    }
+    this.#webhookDeliveries.set(key, {
+      receiptId,
+      expiresAtMs: finiteExpiry(
+        nowMs,
+        this.manifest.webhookReplayWindowMs,
+        'webhook.expiresAtMs'
+      )
+    })
+  }
+
+  #storeEvent(
+    key: string,
+    event: SocialInboundEventV1,
+    receiptId: string,
+    nowMs: number
+  ): void {
+    if (!this.#events.has(key) && this.#events.size >= this.#storageLimits.maxEvents) {
+      throw new Error('Event dedupe storage capacity exceeded')
+    }
+    this.#events.set(key, {
+      event: cloneSocialValue(event),
+      receiptId,
+      expiresAtMs: finiteExpiry(nowMs, this.#storageLimits.eventRetentionMs, 'event.expiresAtMs')
+    })
+  }
+
+  #pruneStorage(nowMs: number): void {
+    for (const [key, delivery] of this.#webhookDeliveries) {
+      if (delivery.expiresAtMs <= nowMs) this.#webhookDeliveries.delete(key)
+    }
+    for (const [key, event] of this.#events) {
+      if (event.expiresAtMs <= nowMs) this.#events.delete(key)
+    }
+    for (let index = this.#auditReceipts.length - 1; index >= 0; index -= 1) {
+      if (
+        finiteExpiry(
+          this.#auditReceipts[index].atMs,
+          this.#storageLimits.auditRetentionMs,
+          'audit.expiresAtMs'
+        ) <= nowMs
+      ) {
+        this.#auditReceipts.splice(index, 1)
+      }
+    }
   }
 }
 

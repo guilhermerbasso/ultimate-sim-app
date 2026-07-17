@@ -198,6 +198,9 @@ export interface SocialApprovalReceiptV1 {
   readonly provider: SocialProvider
   readonly capabilityId: SocialCapabilityId
   readonly destination: SocialDestination
+  readonly requestedBy: SocialActorV1
+  readonly payloadHash: string
+  readonly requestFingerprint: string
   readonly decisionBy: SocialActorV1
   readonly decisionReason: string
   readonly decidedAtMs: number
@@ -211,6 +214,8 @@ export interface SocialApprovalConsumeRequestV1 {
   readonly provider: SocialProvider
   readonly capabilityId: SocialCapabilityId
   readonly destination: SocialDestination
+  readonly authenticatedActor: SocialActorV1
+  readonly payloadHash: string
   readonly nowMs: number
 }
 
@@ -278,6 +283,7 @@ export interface SocialAuditReceiptV1 {
   readonly eventIdHash?: string
   readonly deliveryIdHash?: string
   readonly idempotencyKeyHash?: string
+  readonly requestFingerprint?: string
   readonly payloadHash?: string
   readonly policy?: SocialPolicyReferenceV1
   readonly scopeStates: Readonly<Record<string, SocialScopeState>>
@@ -297,6 +303,7 @@ export interface SocialAuditReceiptV1 {
 export interface SocialInboundResultV1 {
   readonly outcome: 'accepted' | 'duplicate' | 'denied' | 'replay'
   readonly reasonCode: string
+  readonly retryAfterMs?: number
   readonly event?: SocialInboundEventV1
   readonly receipt: SocialAuditReceiptV1
 }
@@ -314,8 +321,8 @@ export interface SocialConnectorV1 {
   readonly contractVersion: typeof SOCIAL_CONNECTOR_CONTRACT_VERSION
   readonly manifest: SocialConnectorManifestV1
   getStatus(): SocialConnectorStatusV1
-  ingestFixture(fixture: MockWebhookFixtureV1, nowMs: number): SocialInboundResultV1
-  execute(intent: SocialActionIntentV1, nowMs: number): SocialActionResultV1
+  ingestFixture(fixture: MockWebhookFixtureV1): SocialInboundResultV1
+  execute(intent: SocialActionIntentV1, authenticatedActor: SocialActorV1): SocialActionResultV1
   getAuditReceipts(): readonly SocialAuditReceiptV1[]
   serializeAuditReceipts(): string
 }

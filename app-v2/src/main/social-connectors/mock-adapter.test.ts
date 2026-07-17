@@ -12,13 +12,18 @@ import {
   type SocialProvider
 } from '../../shared/social-connectors'
 import { DeterministicSocialApprovalQueue } from './approval-queue'
-import { createSignedMockWebhookFixture } from './fixture-signature'
+import { ManualSocialClock } from './clock'
+import {
+  createSignedMockWebhookFixture,
+  verifyMockWebhookFixtureSignature
+} from './fixture-signature'
 import {
   createMockDestinationPolicy,
   createMockDiscordConnector,
   createMockTwitchConnector,
   createMockYouTubeConnector,
-  type DeterministicMockSocialConnector
+  type DeterministicMockSocialConnector,
+  type MockSocialConnectorOptions
 } from './mock-adapter'
 import { socialHash } from './security'
 
@@ -27,11 +32,22 @@ const FIXTURE_KEY_ID = 'fixture-key-v1'
 const FIXTURE_KEY_MATERIAL = 'public-test-fixture-material-not-a-live-credential'
 const OPERATOR: SocialActorV1 = { actorRef: 'operator:fixture', role: 'operator' }
 
-function connector(provider: SocialProvider): DeterministicMockSocialConnector {
+type ConnectorOverrides = Partial<
+  Omit<
+    MockSocialConnectorOptions,
+    'provider' | 'referenceTimeMs' | 'fixtureKeyId' | 'fixtureKeyMaterial'
+  >
+>
+
+function connector(
+  provider: SocialProvider,
+  overrides: ConnectorOverrides = {}
+): DeterministicMockSocialConnector {
   const options = {
     referenceTimeMs: NOW,
     fixtureKeyId: FIXTURE_KEY_ID,
-    fixtureKeyMaterial: FIXTURE_KEY_MATERIAL
+    fixtureKeyMaterial: FIXTURE_KEY_MATERIAL,
+    ...overrides
   }
   if (provider === 'twitch') return createMockTwitchConnector(options)
   if (provider === 'youtube') return createMockYouTubeConnector(options)
@@ -178,7 +194,7 @@ describe('Wave E social connector contracts', () => {
       capabilityId: 'twitch.subscription.create' as SocialCapabilityId
     }
 
-    const result = target.execute(unsupported, NOW)
+    const result = target.execute(unsupported, OPERATOR)
 
     expect(result.outcome).toBe('denied')
     expect(result.reasonCode).toBe('capability.unsupported')
@@ -191,7 +207,7 @@ describe('Wave E social connector contracts', () => {
       sourceProvider: 'youtube'
     })
 
-    const result = target.execute(action, NOW)
+    const result = target.execute(action, OPERATOR)
 
     expect(result.outcome).toBe('denied')
     expect(result.reasonCode).toBe('policy.twitch_merged_chat_blocked')
@@ -209,7 +225,7 @@ describe('social connector authorization and delivery gates', () => {
       intent('twitch', 'twitch.marker.create', { description: 'incident marker' })
     )
 
-    const result = target.execute(action, NOW)
+    const result = target.execute(action, OPERATOR)
 
     expect(result.reasonCode).toBe('scope.revoked')
     expect(result.receipt.scopeStates[capability!.requiredScopes[0]]).toBe('revoked')
@@ -229,7 +245,7 @@ describe('social connector authorization and delivery gates', () => {
       intent('youtube', 'youtube.broadcast.manage', { transition: 'fixture-start' })
     )
 
-    const result = target.execute(action, NOW)
+    const result = target.execute(action, OPERATOR)
 
     expect(result.reasonCode).toBe('quota.exhausted')
     expect(target.approvalQueue.getReceipt(action.approvalRef!)?.state).toBe('approved')
@@ -248,7 +264,7 @@ describe('social connector authorization and delivery gates', () => {
       intent('twitch', 'twitch.poll.manage', { title: 'Fixture poll', options: ['A', 'B'] })
     )
 
-    const result = target.execute(action, NOW)
+    const result = target.execute(action, OPERATOR)
 
     expect(result.reasonCode).toBe('policy.stale')
     expect(target.getStatus().policyState).toBe('stale')
@@ -264,7 +280,7 @@ describe('social connector authorization and delivery gates', () => {
       })
     )
 
-    const result = target.execute(action, NOW)
+    const result = target.execute(action, OPERATOR)
 
     expect(result.reasonCode).toBe('policy.role_leak')
     expect(target.approvalQueue.getReceipt(action.approvalRef!)?.state).toBe('approved')
@@ -280,7 +296,7 @@ describe('social connector authorization and delivery gates', () => {
       })
     )
 
-    expect(target.execute(action, NOW).reasonCode).toBe('policy.role_leak')
+    expect(target.execute(action, OPERATOR).reasonCode).toBe('policy.role_leak')
   })
 
   it('returns the prior simulated result for a duplicate idempotency key without double quota use', () => {
@@ -290,11 +306,14 @@ describe('social connector authorization and delivery gates', () => {
       intent('twitch', 'twitch.marker.create', { description: 'lap 9 incident' })
     )
 
-    const first = target.execute(action, NOW)
-    const second = target.execute(action, NOW + 1)
+    const first = target.execute(action, OPERATOR)
+    const second = target.execute(action, OPERATOR)
 
     expect(first.outcome).toBe('simulated')
-    expect(second.outcome).toBe('duplicate')
+    expect(second.outcome).toBe(first.outcome)
+    expect(second.reasonCode).toBe(first.reasonCode)
+    expect(second.receipt).toEqual(first.receipt)
+    expect(second.duplicate).toBe(true)
     expect(second.mockProviderRef).toBe(first.mockProviderRef)
     expect(target.getStatus().quota.remaining).toBe(99)
   })
@@ -312,7 +331,7 @@ describe('social connector authorization and delivery gates', () => {
         ),
         `poll-${index}`
       )
-      expect(target.execute(action, NOW + index).outcome).toBe('simulated')
+      expect(target.execute(action, OPERATOR).outcome).toBe('simulated')
     }
     const blocked = approve(
       target,
@@ -325,9 +344,9 @@ describe('social connector authorization and delivery gates', () => {
       'poll-rate-blocked'
     )
 
-    const result = target.execute(blocked, NOW + 5)
+    const result = target.execute(blocked, OPERATOR)
     expect(result.reasonCode).toBe('rate_limit.exceeded')
-    expect(result.retryAfterMs).toBe(59_995)
+    expect(result.retryAfterMs).toBe(60_000)
   })
 
   it('fails a required review that is no longer approved', () => {
@@ -338,7 +357,7 @@ describe('social connector authorization and delivery gates', () => {
       intent('youtube', 'youtube.chat.write', { message: 'fixture response' })
     )
 
-    expect(target.execute(action, NOW).reasonCode).toBe('review.pending')
+    expect(target.execute(action, OPERATOR).reasonCode).toBe('review.pending')
   })
 
   it('revalidates consent epoch and revocation immediately before the simulated action', () => {
@@ -349,7 +368,7 @@ describe('social connector authorization and delivery gates', () => {
       intent('twitch', 'twitch.marker.create', { description: 'revoked consent fixture' })
     )
 
-    expect(target.execute(action, NOW).reasonCode).toBe('consent.revoked')
+    expect(target.execute(action, OPERATOR).reasonCode).toBe('consent.revoked')
   })
 
   it('honors the operator fail-closed override', () => {
@@ -360,7 +379,7 @@ describe('social connector authorization and delivery gates', () => {
       intent('youtube', 'youtube.chat.write', { message: 'blocked fixture response' })
     )
 
-    expect(target.execute(action, NOW).reasonCode).toBe('operator_override.blocked')
+    expect(target.execute(action, OPERATOR).reasonCode).toBe('operator_override.blocked')
   })
 })
 
@@ -369,7 +388,7 @@ describe('webhook fixture verification and deduplication', () => {
     const target = connector('youtube')
     const fixture = webhook('youtube', 'youtube.health.read', 'event-1', 'delivery-1')
 
-    const result = target.ingestFixture(fixture, NOW)
+    const result = target.ingestFixture(fixture)
 
     expect(result.outcome).toBe('accepted')
     expect(result.event?.sourceLabel).toBe('youtube')
@@ -384,8 +403,8 @@ describe('webhook fixture verification and deduplication', () => {
     const first = webhook('twitch', 'twitch.eventsub.ingest', 'event-duplicate', 'delivery-a')
     const second = webhook('twitch', 'twitch.eventsub.ingest', 'event-duplicate', 'delivery-b')
 
-    expect(target.ingestFixture(first, NOW).outcome).toBe('accepted')
-    const duplicate = target.ingestFixture(second, NOW + 1)
+    expect(target.ingestFixture(first).outcome).toBe('accepted')
+    const duplicate = target.ingestFixture(second)
 
     expect(duplicate.outcome).toBe('duplicate')
     expect(duplicate.reasonCode).toBe('event.duplicate')
@@ -395,8 +414,8 @@ describe('webhook fixture verification and deduplication', () => {
     const target = connector('discord')
     const fixture = webhook('discord', 'discord.command.receive', 'command-1', 'delivery-replay')
 
-    expect(target.ingestFixture(fixture, NOW).outcome).toBe('accepted')
-    const replay = target.ingestFixture(fixture, NOW + 1)
+    expect(target.ingestFixture(fixture).outcome).toBe('accepted')
+    const replay = target.ingestFixture(fixture)
 
     expect(replay.outcome).toBe('replay')
     expect(replay.reasonCode).toBe('webhook.replay')
@@ -409,7 +428,7 @@ describe('webhook fixture verification and deduplication', () => {
       signature: 'sha256=invalid'
     }
 
-    expect(target.ingestFixture(fixture, NOW).reasonCode).toBe('webhook.invalid_signature')
+    expect(target.ingestFixture(fixture).reasonCode).toBe('webhook.invalid_signature')
   })
 })
 
@@ -427,12 +446,12 @@ describe('approval and audit containment', () => {
       intent('twitch', 'twitch.clip.create', { incidentRef: 'incident:42' })
     )
     const second = {
-      ...intent('twitch', 'twitch.clip.create', { incidentRef: 'incident:43' }, 'second'),
+      ...intent('twitch', 'twitch.clip.create', { incidentRef: 'incident:42' }, 'second'),
       approvalRef: first.approvalRef
     }
 
-    expect(target.execute(first, NOW).outcome).toBe('simulated')
-    expect(target.execute(second, NOW + 1).reasonCode).toBe('approval.consumed')
+    expect(target.execute(first, OPERATOR).outcome).toBe('simulated')
+    expect(target.execute(second, OPERATOR).reasonCode).toBe('approval.consumed')
   })
 
   it('never serializes credential-bearing payload material into audit receipts', () => {
@@ -443,7 +462,7 @@ describe('approval and audit containment', () => {
       oauthToken: sentinel
     })
 
-    const result = target.execute(action, NOW)
+    const result = target.execute(action, OPERATOR)
     const serialized = target.serializeAuditReceipts()
 
     expect(result.reasonCode).toBe('payload.credential_material')

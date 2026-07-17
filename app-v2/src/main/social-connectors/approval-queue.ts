@@ -9,6 +9,13 @@ import {
   type SocialApprovalRequestV1
 } from '../../shared/social-connectors'
 import { cloneSocialValue, socialHash } from './security'
+import {
+  assertCanonicalSha256,
+  assertFiniteTimestamp,
+  assertNonEmptyString,
+  assertSocialActor,
+  sameSocialActor
+} from './validation'
 
 export class DeterministicSocialApprovalQueue implements SocialApprovalQueueV1 {
   readonly #requests = new Map<string, SocialApprovalRequestV1>()
@@ -24,6 +31,11 @@ export class DeterministicSocialApprovalQueue implements SocialApprovalQueueV1 {
     ) {
       throw new Error('Invalid social approval request contract')
     }
+    assertNonEmptyString(request.requestId, 'approval.requestId')
+    assertSocialActor(request.requestedBy, 'approval.requestedBy')
+    assertCanonicalSha256(request.payloadHash, 'approval.payloadHash')
+    assertFiniteTimestamp(request.createdAtMs, 'approval.createdAtMs')
+    assertFiniteTimestamp(request.expiresAtMs, 'approval.expiresAtMs')
     if (request.expiresAtMs <= request.createdAtMs) {
       throw new Error('Social approval request must expire after creation')
     }
@@ -43,6 +55,9 @@ export class DeterministicSocialApprovalQueue implements SocialApprovalQueueV1 {
     reason: string,
     nowMs: number
   ): SocialApprovalReceiptV1 {
+    assertNonEmptyString(requestId, 'approval.requestId')
+    assertSocialActor(actor, 'approval.decisionBy')
+    assertFiniteTimestamp(nowMs, 'approval.decidedAtMs')
     const request = this.#requests.get(requestId)
     if (!request) throw new Error(`Unknown social approval request: ${requestId}`)
     if (this.#requestReceipts.has(requestId)) {
@@ -50,8 +65,18 @@ export class DeterministicSocialApprovalQueue implements SocialApprovalQueueV1 {
     }
 
     const finalState = nowMs > request.expiresAtMs ? 'expired' : state
+    const requestFingerprint = socialHash({
+      requestId: request.requestId,
+      provider: request.provider,
+      capabilityId: request.capabilityId,
+      destination: request.destination,
+      requestedBy: request.requestedBy,
+      payloadHash: request.payloadHash,
+      createdAtMs: request.createdAtMs,
+      expiresAtMs: request.expiresAtMs
+    })
     const approvalRef = `approval:${socialHash({
-      requestId,
+      requestFingerprint,
       state: finalState,
       actor,
       nowMs
@@ -64,6 +89,9 @@ export class DeterministicSocialApprovalQueue implements SocialApprovalQueueV1 {
       provider: request.provider,
       capabilityId: request.capabilityId,
       destination: request.destination,
+      requestedBy: cloneSocialValue(request.requestedBy),
+      payloadHash: request.payloadHash,
+      requestFingerprint,
       decisionBy: cloneSocialValue(actor),
       decisionReason: reason,
       decidedAtMs: nowMs,
@@ -78,8 +106,25 @@ export class DeterministicSocialApprovalQueue implements SocialApprovalQueueV1 {
   }
 
   consume(request: SocialApprovalConsumeRequestV1): SocialApprovalConsumeResultV1 {
+    assertNonEmptyString(request.approvalRef, 'approval.approvalRef')
+    assertSocialActor(request.authenticatedActor, 'approval.authenticatedActor')
+    assertCanonicalSha256(request.payloadHash, 'approval.payloadHash')
+    assertFiniteTimestamp(request.nowMs, 'approval.nowMs')
     const receipt = this.#receipts.get(request.approvalRef)
     if (!receipt) return { allowed: false, reasonCode: 'approval.missing' }
+    if (
+      receipt.provider !== request.provider ||
+      receipt.capabilityId !== request.capabilityId ||
+      receipt.destination !== request.destination
+    ) {
+      return { allowed: false, reasonCode: 'approval.scope_mismatch' }
+    }
+    if (receipt.payloadHash !== request.payloadHash) {
+      return { allowed: false, reasonCode: 'approval.payload_mismatch' }
+    }
+    if (!sameSocialActor(receipt.requestedBy, request.authenticatedActor)) {
+      return { allowed: false, reasonCode: 'approval.actor_mismatch' }
+    }
     if (receipt.state === 'consumed') return { allowed: false, reasonCode: 'approval.consumed' }
     if (receipt.state !== 'approved') {
       return { allowed: false, reasonCode: `approval.${receipt.state}` }
@@ -88,13 +133,6 @@ export class DeterministicSocialApprovalQueue implements SocialApprovalQueueV1 {
       const expired = { ...receipt, state: 'expired' as const }
       this.#receipts.set(receipt.approvalRef, expired)
       return { allowed: false, reasonCode: 'approval.expired', receipt: cloneSocialValue(expired) }
-    }
-    if (
-      receipt.provider !== request.provider ||
-      receipt.capabilityId !== request.capabilityId ||
-      receipt.destination !== request.destination
-    ) {
-      return { allowed: false, reasonCode: 'approval.scope_mismatch' }
     }
 
     const consumed = { ...receipt, state: 'consumed' as const }

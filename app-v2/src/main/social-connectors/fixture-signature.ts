@@ -6,6 +6,7 @@ import {
   type SocialCapabilityId,
   type SocialProvider
 } from '../../shared/social-connectors'
+import { assertFiniteTimestamp, assertNonEmptyString } from './validation'
 
 export interface UnsignedMockWebhookFixtureV1 {
   readonly provider: SocialProvider
@@ -16,27 +17,35 @@ export interface UnsignedMockWebhookFixtureV1 {
   readonly body: string
 }
 
-function fixtureSignatureMessage(
-  fixture: Pick<
-    MockWebhookFixtureV1,
-    'provider' | 'capabilityId' | 'deliveryId' | 'eventId' | 'occurredAtMs' | 'body'
-  >
-): string {
-  return [
+function lengthPrefixedTuple(values: readonly string[]): Buffer {
+  const encoded: Buffer[] = []
+  for (const value of values) {
+    const bytes = Buffer.from(value, 'utf8')
+    if (bytes.length > 0xffff_ffff) throw new Error('Webhook fixture field is too large')
+    const length = Buffer.allocUnsafe(4)
+    length.writeUInt32BE(bytes.length)
+    encoded.push(length, bytes)
+  }
+  return Buffer.concat(encoded)
+}
+
+function fixtureSignatureMessage(fixture: MockWebhookFixtureV1): Buffer {
+  return lengthPrefixedTuple([
+    fixture.schema,
+    fixture.contractVersion,
+    fixture.algorithm,
+    fixture.keyId,
     fixture.provider,
     fixture.capabilityId,
     fixture.deliveryId,
     fixture.eventId,
     String(fixture.occurredAtMs),
     fixture.body
-  ].join('\n')
+  ])
 }
 
 function fixtureSignature(
-  fixture: Pick<
-    MockWebhookFixtureV1,
-    'provider' | 'capabilityId' | 'deliveryId' | 'eventId' | 'occurredAtMs' | 'body'
-  >,
+  fixture: MockWebhookFixtureV1,
   fixtureKeyMaterial: string
 ): string {
   return `sha256=${createHmac('sha256', fixtureKeyMaterial)
@@ -49,14 +58,18 @@ export function createSignedMockWebhookFixture(
   keyId: string,
   fixtureKeyMaterial: string
 ): MockWebhookFixtureV1 {
-  return {
+  assertFiniteTimestamp(fixture.occurredAtMs, 'webhook.occurredAtMs')
+  assertNonEmptyString(keyId, 'webhook.keyId')
+  assertNonEmptyString(fixtureKeyMaterial, 'webhook.fixtureKeyMaterial')
+  const signedFixture: MockWebhookFixtureV1 = {
     schema: SOCIAL_WEBHOOK_FIXTURE_SCHEMA,
     contractVersion: SOCIAL_CONNECTOR_CONTRACT_VERSION,
     ...fixture,
     keyId,
     algorithm: 'fixture-hmac-sha256-v1',
-    signature: fixtureSignature(fixture, fixtureKeyMaterial)
+    signature: ''
   }
+  return { ...signedFixture, signature: fixtureSignature(signedFixture, fixtureKeyMaterial) }
 }
 
 export function verifyMockWebhookFixtureSignature(
@@ -64,6 +77,7 @@ export function verifyMockWebhookFixtureSignature(
   expectedKeyId: string,
   fixtureKeyMaterial: string
 ): boolean {
+  if (!Number.isFinite(fixture.occurredAtMs)) return false
   if (
     fixture.schema !== SOCIAL_WEBHOOK_FIXTURE_SCHEMA ||
     fixture.contractVersion !== SOCIAL_CONNECTOR_CONTRACT_VERSION ||
