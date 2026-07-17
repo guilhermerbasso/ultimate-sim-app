@@ -78,7 +78,10 @@ if (!existsSync(nativeBinding) || statSync(nativeBinding).size <= 0) {
 }
 
 const mainBundle = readArchivedFile('out/main/index.js').toString('utf8')
-if (/\bfrom\s+["']serialport["']/.test(mainBundle)) {
+if (
+  /\bfrom\s*["']serialport["']/.test(mainBundle) ||
+  /\bimport\s*\(\s*["']serialport["']\s*\)/.test(mainBundle)
+) {
   fail('packaged main bundle still contains a direct ESM import from serialport')
 }
 if (

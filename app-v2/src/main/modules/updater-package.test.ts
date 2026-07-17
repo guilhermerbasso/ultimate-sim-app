@@ -42,7 +42,7 @@ describe('Windows updater package safety', () => {
   })
 
   it('routes every main-process SerialPort import through the ASAR-aware bridge', () => {
-    const directImport = /from\s+['"]serialport['"]/
+    const directImport = /from\s*['"]serialport['"]|import\s*\(\s*['"]serialport['"]\s*\)/
     const consumers = [
       join(root, 'src', 'main', 'serial', 'hub.ts'),
       join(root, 'src', 'main', 'serial', 'device.ts'),
