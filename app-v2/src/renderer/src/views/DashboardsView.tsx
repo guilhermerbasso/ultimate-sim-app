@@ -183,7 +183,6 @@ interface SimhubImportPicker {
   screens: SimhubImportScreen[]
   selectedScreenIndex: number
   notes: string[]
-  thirdParty?: DashboardThirdPartyImportInput
 }
 
 export type SimhubImportProvenanceSelection =
@@ -1116,7 +1115,6 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
           screens: result.screens,
           selectedScreenIndex: result.selectedScreenIndex ?? result.screens.find((screen) => screen.selected)?.index ?? result.screens[0].index,
           notes: result.notes,
-          ...(thirdParty ? { thirdParty } : {})
         })
         setImportDiagnostics(result.notes ?? [])
         showToast('Select which .simhubdash screen to import.', 'info')
@@ -1130,14 +1128,15 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
 
   async function completeSimhubImport(importAll = false): Promise<void> {
     if (!importPicker) return
+    const thirdParty = simhubImportMetadataForSelection(importProvenance)
     const result = await window.ipc.invoke<SimhubImportResponse | null>(
       'app:dash:importSimhub',
       importPicker.filePath,
       importAll
-        ? { importAll: true, ...(importPicker.thirdParty ? { thirdParty: importPicker.thirdParty } : {}) }
+        ? { importAll: true, ...(thirdParty ? { thirdParty } : {}) }
         : {
             screenIndex: importPicker.selectedScreenIndex,
-            ...(importPicker.thirdParty ? { thirdParty: importPicker.thirdParty } : {})
+            ...(thirdParty ? { thirdParty } : {})
           }
     )
     setImportPicker(null)

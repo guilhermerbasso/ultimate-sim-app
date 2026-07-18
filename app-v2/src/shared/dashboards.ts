@@ -996,7 +996,7 @@ function dashboardValidationErrorUnsafe(value: unknown): string | null {
   }
   if (value.thirdParty !== undefined) {
     const thirdPartyError = dashboardThirdPartyMetadataValidationError(value.thirdParty)
-    if (thirdPartyError) return `Dashboard thirdParty ${thirdPartyError}`
+    if (thirdPartyError) return `Dashboard ${thirdPartyError}`
   }
   for (const key of ['storageEpoch', 'storageRevision'] as const) {
     if (value[key] !== undefined && (typeof value[key] !== 'string' || !value[key].trim())) {
