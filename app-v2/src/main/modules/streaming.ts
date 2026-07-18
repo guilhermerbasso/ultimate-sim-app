@@ -8,12 +8,40 @@ import { isIP, type AddressInfo } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import QRCode from 'qrcode'
 import type { DriverEntry, RadarCarEntry, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
-import type { StreamingAccessMode, StreamingDashboardPayload, StreamingLayoutKind, StreamingSelfTestResult, StreamingStartArgs, StreamingStartResult, StreamingStatus, StreamingTelemetryFrame } from '../../shared/streaming'
+import type {
+  StreamingAccessMode,
+  StreamingDashboardPayload,
+  StreamingLayoutKind,
+  StreamingSelfTestResult,
+  StreamingStartArgs,
+  StreamingStartResult,
+  StreamingStatus,
+  StreamingTelemetryFrame,
+  StreamingTouchActionRequest,
+  StreamingTouchActionResponse,
+  StreamingTouchCapability,
+  StreamingTouchHealth,
+  StreamingTouchHealthResponse,
+  StreamingTouchPanelPayload,
+  StreamingTouchRole
+} from '../../shared/streaming'
 import { STREAMING_CHANNELS, STREAMING_EXPRESSION_EXCLUSION_MESSAGE } from '../../shared/streaming'
+import {
+  normalizeTouchSemanticActionRequest,
+  type ButtonAction,
+  type ButtonBoxButton,
+  type ButtonBoxPanel,
+  type TouchActionPhase
+} from '../../shared/touch-panel'
 import type { ModuleContext } from '../module-context'
 import { getDashboardManager } from './dashboards'
 import { logger } from './logger'
 import { getTouchPanelManager } from '../touchpanel/manager'
+import {
+  executeTouchSemanticAction,
+  hasTouchSemanticActionRuntime,
+  releaseTouchSemanticActionOwner
+} from '../actions/touch-owner'
 
 const HOST = '127.0.0.1'
 const LAN_HOST = '0.0.0.0'
@@ -21,12 +49,20 @@ const DEFAULT_LAYOUT = 'default'
 const SSE_INTERVAL_MS = 67
 const TOKEN_BYTES = 24
 const SESSION_BYTES = 32
+const CSRF_BYTES = 24
+const NONCE_BYTES = 18
+const CAPABILITY_BYTES = 18
 const SESSION_COOKIE_NAME = 'ultimate_sim_stream_session'
-const SESSION_TTL_MS = 8 * 60 * 60 * 1000
+const LOCAL_SESSION_TTL_MS = 60 * 60 * 1000
+const REMOTE_SESSION_TTL_MS = 15 * 60 * 1000
 const MAX_BOOTSTRAP_SESSIONS = 64
 const MAX_AUTHENTICATED_SESSIONS = 64
 const AUTH_FAILURE_WINDOW_MS = 60_000
 const AUTH_FAILURE_LIMIT = 10
+const INTERACTION_BURST_WINDOW_MS = 1_000
+const INTERACTION_BURST_LIMIT = 30
+const INTERACTION_SUSTAINED_WINDOW_MS = 60_000
+const INTERACTION_SUSTAINED_LIMIT = 300
 const MAX_SSE_CLIENTS = 12
 const SELF_TEST_TIMEOUT_MS = 5_000
 const SELF_TEST_MAX_RESOURCES = 512
@@ -42,14 +78,35 @@ interface SseClient {
   address: string
   userAgent: string | null
   connectedAt: number
+  sessionId: string
 }
 
 type StreamingSessionAccess = 'bootstrap' | 'authenticated'
 
 interface StreamingSession {
   access: StreamingSessionAccess
+  role: StreamingTouchRole
   basePath: string
+  origin: string
+  targetKind: StreamingLayoutKind
+  targetId: string
   expiresAt: number
+  csrfToken: string
+  replayNonce: string
+  activeTokens: Set<string>
+  lastFeedback: string | null
+  expiryTimer: ReturnType<typeof setTimeout> | null
+}
+
+interface StreamingTouchCapabilityEntry extends StreamingTouchCapability {
+  action: ButtonAction
+  token: string
+  fingerprint: string
+  executePhases: TouchActionPhase[]
+}
+
+interface InteractionRateState {
+  timestamps: number[]
 }
 
 interface StreamingState {
@@ -78,6 +135,10 @@ interface StreamingState {
   clients: Map<number, SseClient>
   authFailures: Map<string, { count: number; resetAt: number }>
   sessions: Map<string, StreamingSession>
+  touchCapabilities: Map<string, StreamingTouchCapabilityEntry>
+  interactionRates: Map<string, InteractionRateState>
+  interactionHealth: StreamingTouchHealth
+  lastInteractionFeedback: string | null
   nextClientId: number
 }
 
@@ -107,6 +168,10 @@ const state: StreamingState = {
   clients: new Map(),
   authFailures: new Map(),
   sessions: new Map(),
+  touchCapabilities: new Map(),
+  interactionRates: new Map(),
+  interactionHealth: 'read-only',
+  lastInteractionFeedback: null,
   nextClientId: 1
 }
 
@@ -150,6 +215,246 @@ function requestedPort(value: unknown): number {
 
 function generateToken(): string {
   return randomBytes(TOKEN_BYTES).toString('base64url')
+}
+
+function generateSecret(bytes: number): string {
+  return randomBytes(bytes).toString('base64url')
+}
+
+function configuredSessionTtlMs(): number {
+  const fallback = state.accessMode === 'local' ? LOCAL_SESSION_TTL_MS : REMOTE_SESSION_TTL_MS
+  if (process.env.NODE_ENV !== 'test') return fallback
+  const configured = Number(process.env.ULTIMATE_SIM_STREAM_SESSION_TTL_MS)
+  return Number.isFinite(configured) && configured >= 50 ? Math.floor(configured) : fallback
+}
+
+function actionFingerprint(action: ButtonAction): string {
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical)
+    if (!value || typeof value !== 'object') return value
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, canonical(child)])
+    )
+  }
+  return JSON.stringify(canonical(action))
+}
+
+function isStreamCapabilityAction(action: ButtonAction): boolean {
+  if (action.kind === 'none' || action.kind === 'app') return false
+  const phase: TouchActionPhase = action.kind === 'keyboard' && action.command.mode === 'hold'
+    ? 'begin'
+    : 'trigger'
+  return normalizeTouchSemanticActionRequest({
+    action,
+    phase,
+    token: 'stream:validation',
+    zone: 'validation'
+  }) !== null
+}
+
+function publicCapabilityAction(action: ButtonAction): ButtonAction {
+  if (!isStreamCapabilityAction(action)) return { kind: 'none' }
+  if (action.kind === 'iracing') {
+    return { kind: 'iracing', command: { group: 'blackBox', name: 'blackBox:next' } }
+  }
+  if (action.kind !== 'keyboard') return { kind: 'none' }
+  return {
+    kind: 'keyboard',
+    command: {
+      mode: action.command.mode,
+      keys: ['StreamCapability'],
+      ...(action.command.repeatMs !== undefined ? { repeatMs: action.command.repeatMs } : {})
+    }
+  }
+}
+
+interface TouchCapabilitySpec {
+  controlId: string
+  zone: string
+  action: ButtonAction
+  token: string
+  phases: TouchActionPhase[]
+  executePhases: TouchActionPhase[]
+}
+
+function capabilityPhases(action: ButtonAction): Pick<TouchCapabilitySpec, 'phases' | 'executePhases'> {
+  if (action.kind === 'keyboard' && action.command.mode === 'hold') {
+    return {
+      phases: ['begin', 'end', 'cancel'],
+      executePhases: ['begin', 'end', 'cancel']
+    }
+  }
+  if (action.kind === 'keyboard' && action.command.mode === 'toggle') {
+    return {
+      phases: ['trigger', 'cancel'],
+      executePhases: ['trigger', 'cancel']
+    }
+  }
+  return {
+    phases: ['trigger', 'end', 'cancel'],
+    executePhases: ['trigger']
+  }
+}
+
+function capabilitySpec(
+  button: ButtonBoxButton,
+  zone: string,
+  action: ButtonAction,
+  tokenZone = zone
+): TouchCapabilitySpec | null {
+  if (!isStreamCapabilityAction(action)) return null
+  return {
+    controlId: button.id,
+    zone,
+    action,
+    token: `${button.id}:${tokenZone}`,
+    ...capabilityPhases(action)
+  }
+}
+
+function capabilitySpecsForButton(button: ButtonBoxButton): TouchCapabilitySpec[] {
+  const control = button.control
+  switch (control.kind) {
+    case 'momentary': {
+      const spec = capabilitySpec(button, 'main', control.action)
+      return spec ? [spec] : []
+    }
+    case 'latching-toggle': {
+      if (!isStreamCapabilityAction(control.onAction) || !isStreamCapabilityAction(control.offAction)) return []
+      const on = capabilitySpec(button, 'on', control.onAction, 'latching')
+      const off = capabilitySpec(button, 'off', control.offAction, 'latching')
+      const teardown = control.onAction.kind === 'keyboard' && control.onAction.command.mode === 'toggle'
+        ? capabilitySpec(button, 'teardown', control.onAction, 'latching')
+        : null
+      return [on, off, teardown].filter((value): value is TouchCapabilitySpec => value !== null)
+    }
+    case 'two-position-rocker':
+      return [
+        capabilitySpec(button, 'negative', control.negativeAction),
+        capabilitySpec(button, 'positive', control.positiveAction)
+      ].filter((value): value is TouchCapabilitySpec => value !== null)
+    case 'guarded-two-step': {
+      const spec = capabilitySpec(button, 'guarded', control.action)
+      return spec ? [spec] : []
+    }
+    case 'rotary':
+      return [
+        capabilitySpec(button, 'decrement', control.decrementAction),
+        capabilitySpec(button, 'increment', control.incrementAction)
+      ].filter((value): value is TouchCapabilitySpec => value !== null)
+    case 'selector':
+      return control.choices
+        .map((choice) => capabilitySpec(button, `choice:${choice.id}`, choice.action))
+        .filter((value): value is TouchCapabilitySpec => value !== null)
+    case 'status-led':
+    case 'value-tile':
+      return []
+  }
+}
+
+function rebuildTouchCapabilities(panel: ButtonBoxPanel): void {
+  state.touchCapabilities.clear()
+  for (const button of panel.buttons) {
+    for (const spec of capabilitySpecsForButton(button)) {
+      const id = generateSecret(CAPABILITY_BYTES)
+      state.touchCapabilities.set(id, {
+        id,
+        ...spec,
+        fingerprint: actionFingerprint(spec.action)
+      })
+    }
+  }
+  state.interactionHealth = hasTouchSemanticActionRuntime() && state.touchCapabilities.size > 0
+    ? 'ready'
+    : 'degraded'
+}
+
+function capabilityFor(
+  controlId: string,
+  zone: string,
+  action?: ButtonAction
+): StreamingTouchCapabilityEntry | null {
+  return [...state.touchCapabilities.values()].find((entry) =>
+    entry.controlId === controlId &&
+    entry.zone === zone &&
+    (action === undefined || entry.fingerprint === actionFingerprint(action))
+  ) ?? null
+}
+
+function projectTouchPanelForStreaming(panel: ButtonBoxPanel): ButtonBoxPanel {
+  const buttons = panel.buttons.map((button): ButtonBoxButton => {
+    const project = (zone: string, action: ButtonAction): ButtonAction =>
+      capabilityFor(button.id, zone, action) ? publicCapabilityAction(action) : { kind: 'none' }
+    let control = button.control
+    switch (control.kind) {
+      case 'momentary':
+        control = { ...control, action: project('main', control.action) }
+        break
+      case 'latching-toggle':
+        control = {
+          ...control,
+          onAction: project('on', control.onAction),
+          offAction: project('off', control.offAction)
+        }
+        break
+      case 'two-position-rocker':
+        control = {
+          ...control,
+          negativeAction: project('negative', control.negativeAction),
+          positiveAction: project('positive', control.positiveAction)
+        }
+        break
+      case 'guarded-two-step':
+        control = { ...control, action: project('guarded', control.action) }
+        break
+      case 'rotary':
+        control = {
+          ...control,
+          decrementAction: project('decrement', control.decrementAction),
+          incrementAction: project('increment', control.incrementAction)
+        }
+        break
+      case 'selector':
+        control = {
+          ...control,
+          choices: control.choices.map((choice) => ({
+            ...choice,
+            action: project(`choice:${choice.id}`, choice.action)
+          }))
+        }
+        break
+      case 'status-led':
+      case 'value-tile':
+        break
+    }
+    const interactiveControl = control.kind !== 'status-led' && control.kind !== 'value-tile'
+    const enabled = capabilitySpecsForButton(button).some((spec) =>
+      capabilityFor(spec.controlId, spec.zone, spec.action) !== null
+    )
+    return {
+      ...button,
+      control,
+      state: interactiveControl && !enabled
+        ? { ...button.state, disabled: true }
+        : button.state
+    }
+  })
+  return { ...panel, buttons }
+}
+
+function currentCapabilityAction(entry: StreamingTouchCapabilityEntry): ButtonAction | null {
+  const panel = getTouchPanelManager()?.getPanel(state.layoutId)
+  const button = panel?.buttons.find((candidate) => candidate.id === entry.controlId)
+  if (!button) return null
+  const current = capabilitySpecsForButton(button).find((spec) =>
+    spec.controlId === entry.controlId &&
+    spec.zone === entry.zone &&
+    spec.token === entry.token
+  )
+  if (!current || actionFingerprint(current.action) !== entry.fingerprint) return null
+  return current.action
 }
 
 function passwordHash(value: string | undefined): string | null {
@@ -502,17 +807,117 @@ function requestRoute(request: IncomingMessage): StreamingRequestRoute {
   return { url, pathname, externalBasePath }
 }
 
-function cleanupExpiredSessions(now = Date.now()): void {
-  for (const [id, session] of state.sessions) {
-    if (session.expiresAt <= now) state.sessions.delete(id)
+function normalizedRequestOrigin(request: IncomingMessage): string | null {
+  if (state.accessMode === 'internet') {
+    if (!state.publicBaseUrl) return null
+    const publicUrl = new URL(state.publicBaseUrl)
+    const forwardedProto = firstForwardedValue(headerValue(request, 'x-forwarded-proto')).toLowerCase()
+    const forwardedHost = firstForwardedValue(headerValue(request, 'x-forwarded-host')).toLowerCase()
+    const requestHost = firstForwardedValue(headerValue(request, 'host')).toLowerCase()
+    const effectiveHost = forwardedHost || requestHost
+    if (effectiveHost && effectiveHost !== publicUrl.host.toLowerCase()) return null
+    if (forwardedProto && forwardedProto !== 'https') return null
+    return publicUrl.origin
+  }
+
+  const host = firstForwardedValue(headerValue(request, 'host'))
+  if (!host) return null
+  try {
+    const origin = new URL(`http://${host}`)
+    const hostname = origin.hostname.toLowerCase()
+    const allowed = hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '[::1]' ||
+      hostname === '::1' ||
+      (state.lanAddress !== null && hostname === state.lanAddress.toLowerCase())
+    if (!allowed) return null
+    if (state.port && origin.port && Number(origin.port) !== state.port) return null
+    return origin.origin
+  } catch {
+    return null
   }
 }
 
-function serializeSessionCookie(sessionId: string, basePath: string): string {
+function hasBoundInteractionOrigin(request: IncomingMessage, session: StreamingSession): boolean {
+  const value = headerValue(request, 'origin')
+  if (!value || value === 'null') return false
+  try {
+    return new URL(value).origin === session.origin
+  } catch {
+    return false
+  }
+}
+
+function streamSessionOwnerKey(sessionId: string): string {
+  return `stream-session-${sessionId}`
+}
+
+function removeInteractionRatesForSession(sessionId: string): void {
+  for (const key of state.interactionRates.keys()) {
+    if (key.startsWith(`session:${sessionId}:`)) state.interactionRates.delete(key)
+  }
+}
+
+async function releaseSessionInteraction(sessionId: string, session: StreamingSession, reason: string): Promise<void> {
+  if (session.activeTokens.size === 0) {
+    removeInteractionRatesForSession(sessionId)
+    return
+  }
+  session.activeTokens.clear()
+  removeInteractionRatesForSession(sessionId)
+  try {
+    await releaseTouchSemanticActionOwner(streamSessionOwnerKey(sessionId))
+    logger.info('streaming', 'interactive touch owner released', { reason })
+  } catch (error) {
+    state.interactionHealth = 'degraded'
+    state.lastInteractionFeedback = 'A held Touch control could not be released cleanly.'
+    logger.error('streaming', 'interactive touch owner release failed', {
+      reason,
+      message: error instanceof Error ? error.message : String(error)
+    })
+  }
+}
+
+function scheduleSessionExpiry(sessionId: string, session: StreamingSession): void {
+  if (session.expiryTimer) clearTimeout(session.expiryTimer)
+  session.expiryTimer = setTimeout(() => {
+    const current = state.sessions.get(sessionId)
+    if (current !== session) return
+    if (current.expiresAt > Date.now()) {
+      scheduleSessionExpiry(sessionId, current)
+      return
+    }
+    state.sessions.delete(sessionId)
+    current.expiryTimer = null
+    void releaseSessionInteraction(sessionId, current, 'session-expired')
+    for (const client of [...state.clients.values()]) {
+      if (client.sessionId === sessionId) closeClient(client.id)
+    }
+  }, Math.max(1, session.expiresAt - Date.now()))
+  session.expiryTimer.unref?.()
+}
+
+function deleteStreamingSession(sessionId: string, reason: string): void {
+  const session = state.sessions.get(sessionId)
+  if (!session) return
+  state.sessions.delete(sessionId)
+  if (session.expiryTimer) clearTimeout(session.expiryTimer)
+  session.expiryTimer = null
+  void releaseSessionInteraction(sessionId, session, reason)
+}
+
+function cleanupExpiredSessions(now = Date.now()): void {
+  for (const [id, session] of state.sessions) {
+    if (session.expiresAt <= now) deleteStreamingSession(id, 'session-expired')
+  }
+}
+
+function serializeSessionCookie(sessionId: string, session: StreamingSession): string {
+  const maxAgeSeconds = Math.max(1, Math.ceil((session.expiresAt - Date.now()) / 1_000))
   const attributes = [
     `${SESSION_COOKIE_NAME}=${sessionId}`,
-    `Path=${basePath}`,
-    `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+    `Path=${session.basePath}`,
+    `Max-Age=${maxAgeSeconds}`,
     'HttpOnly',
     'SameSite=Strict'
   ]
@@ -535,24 +940,41 @@ function oldestSessionId(access: StreamingSessionAccess): string | null {
   return null
 }
 
-function createSession(route: StreamingRequestRoute, access: StreamingSessionAccess): { id: string; cookie: string } | null {
+function createSession(
+  request: IncomingMessage,
+  route: StreamingRequestRoute,
+  access: StreamingSessionAccess
+): { id: string; cookie: string } | null {
   cleanupExpiredSessions()
   if (access === 'bootstrap') {
     while (sessionCount('bootstrap') >= MAX_BOOTSTRAP_SESSIONS) {
       const oldestBootstrap = oldestSessionId('bootstrap')
       if (!oldestBootstrap) break
-      state.sessions.delete(oldestBootstrap)
+      deleteStreamingSession(oldestBootstrap, 'bootstrap-evicted')
     }
   } else if (sessionCount('authenticated') >= MAX_AUTHENTICATED_SESSIONS) {
     return null
   }
+  const origin = normalizedRequestOrigin(request)
+  if (!origin) return null
   const id = randomBytes(SESSION_BYTES).toString('base64url')
-  state.sessions.set(id, {
+  const session: StreamingSession = {
     access,
+    role: access === 'authenticated' && state.layoutKind === 'touch' ? 'touch-controller' : 'viewer',
     basePath: route.externalBasePath,
-    expiresAt: Date.now() + SESSION_TTL_MS
-  })
-  return { id, cookie: serializeSessionCookie(id, route.externalBasePath) }
+    origin,
+    targetKind: state.layoutKind,
+    targetId: state.layoutId,
+    expiresAt: Date.now() + configuredSessionTtlMs(),
+    csrfToken: generateSecret(CSRF_BYTES),
+    replayNonce: generateSecret(NONCE_BYTES),
+    activeTokens: new Set(),
+    lastFeedback: null,
+    expiryTimer: null
+  }
+  state.sessions.set(id, session)
+  scheduleSessionExpiry(id, session)
+  return { id, cookie: serializeSessionCookie(id, session) }
 }
 
 function cookieValue(request: IncomingMessage, name: string): string | null {
@@ -571,7 +993,12 @@ function sessionForRequest(request: IncomingMessage, route: StreamingRequestRout
   const id = cookieValue(request, SESSION_COOKIE_NAME)
   if (!id || !/^[A-Za-z0-9_-]{32,128}$/.test(id)) return null
   const session = state.sessions.get(id)
-  if (!session || session.basePath !== route.externalBasePath) return null
+  if (
+    !session ||
+    session.basePath !== route.externalBasePath ||
+    session.targetKind !== state.layoutKind ||
+    session.targetId !== state.layoutId
+  ) return null
   return { id, session }
 }
 
@@ -753,8 +1180,17 @@ function serveStatic(pathname: string, request: IncomingMessage, response: Serve
 }
 
 function sendJson(response: ServerResponse, body: unknown, method: string | undefined): void {
+  sendJsonStatus(response, 200, body, method)
+}
+
+function sendJsonStatus(
+  response: ServerResponse,
+  statusCode: number,
+  body: unknown,
+  method?: string
+): void {
   applyCors(response)
-  response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+  response.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
   response.end(method === 'HEAD' ? undefined : JSON.stringify(body))
 }
 
@@ -810,9 +1246,13 @@ async function exchangePasswordSession(
     return
   }
   active.session.access = 'authenticated'
-  active.session.expiresAt = Date.now() + SESSION_TTL_MS
+  active.session.role = active.session.targetKind === 'touch' ? 'touch-controller' : 'viewer'
+  active.session.expiresAt = Date.now() + configuredSessionTtlMs()
+  active.session.csrfToken = generateSecret(CSRF_BYTES)
+  active.session.replayNonce = generateSecret(NONCE_BYTES)
+  scheduleSessionExpiry(active.id, active.session)
   applyCors(response)
-  response.setHeader('Set-Cookie', serializeSessionCookie(active.id, active.session.basePath))
+  response.setHeader('Set-Cookie', serializeSessionCookie(active.id, active.session))
   response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
   response.end(JSON.stringify({ authenticated: true }))
 }
@@ -839,10 +1279,64 @@ function serveSelectedDashboard(id: string, request: IncomingMessage, response: 
   sendJson(response, payload, request.method)
 }
 
-function serveSelectedTouchPanel(id: string, request: IncomingMessage, response: ServerResponse): void {
+function publicTouchCapabilities(): StreamingTouchCapability[] {
+  return [...state.touchCapabilities.values()]
+    .filter((entry) => currentCapabilityAction(entry) !== null)
+    .map(({ id, controlId, zone, phases }) => ({
+      id,
+      controlId,
+      zone,
+      phases: [...phases]
+    }))
+}
+
+function resolvedInteractionHealth(): StreamingTouchHealth {
+  if (state.layoutKind !== 'touch') return 'read-only'
+  return hasTouchSemanticActionRuntime() ? state.interactionHealth : 'degraded'
+}
+
+function interactionSessionPayload(session: StreamingSession): StreamingTouchPanelPayload['interaction'] {
+  return {
+    interactive: session.role === 'touch-controller',
+    indicator: 'INTERACTIVE TOUCH',
+    role: session.role,
+    health: resolvedInteractionHealth(),
+    targetId: session.targetId,
+    csrfToken: session.csrfToken,
+    nonce: session.replayNonce,
+    expiresAt: session.expiresAt,
+    capabilities: publicTouchCapabilities(),
+    activeControls: session.activeTokens.size,
+    lastFeedback: session.lastFeedback
+  }
+}
+
+function interactionHealthPayload(session: StreamingSession): StreamingTouchHealthResponse {
+  return {
+    interactive: session.role === 'touch-controller',
+    indicator: 'INTERACTIVE TOUCH',
+    role: session.role,
+    health: resolvedInteractionHealth(),
+    targetId: session.targetId,
+    expiresAt: session.expiresAt,
+    activeControls: session.activeTokens.size,
+    lastFeedback: session.lastFeedback
+  }
+}
+
+function serveSelectedTouchPanel(
+  id: string,
+  request: IncomingMessage,
+  response: ServerResponse,
+  activeSession: { id: string; session: StreamingSession }
+): void {
   if (state.layoutKind !== 'touch' || id !== state.layoutId) {
     logger.error('streaming', 'touch api rejected non-selected id', { requestedId: id, selectedId: state.layoutId, layoutKind: state.layoutKind })
     send(response, 404, 'Not found')
+    return
+  }
+  if (activeSession.session.access !== 'authenticated' || activeSession.session.role !== 'touch-controller') {
+    send(response, 403, 'Forbidden')
     return
   }
   const panel = getTouchPanelManager()?.getPanel(id)
@@ -851,7 +1345,185 @@ function serveSelectedTouchPanel(id: string, request: IncomingMessage, response:
     send(response, 404, 'Not found')
     return
   }
-  sendJson(response, panel, request.method)
+  const payload: StreamingTouchPanelPayload = {
+    panel: projectTouchPanelForStreaming(panel),
+    interaction: interactionSessionPayload(activeSession.session)
+  }
+  sendJson(response, payload, request.method)
+}
+
+function consumeInteractionRate(key: string, now: number): boolean {
+  const current = state.interactionRates.get(key) ?? { timestamps: [] }
+  current.timestamps = current.timestamps.filter((timestamp) => now - timestamp < INTERACTION_SUSTAINED_WINDOW_MS)
+  const burstCount = current.timestamps.filter((timestamp) => now - timestamp < INTERACTION_BURST_WINDOW_MS).length
+  if (
+    burstCount >= INTERACTION_BURST_LIMIT ||
+    current.timestamps.length >= INTERACTION_SUSTAINED_LIMIT
+  ) {
+    state.interactionRates.set(key, current)
+    return true
+  }
+  current.timestamps.push(now)
+  state.interactionRates.set(key, current)
+  return false
+}
+
+function isInteractionRateLimited(
+  sessionId: string,
+  request: IncomingMessage,
+  now = Date.now()
+): boolean {
+  const address = normalizeRemoteAddress(request.socket.remoteAddress)
+  return consumeInteractionRate(`session:${sessionId}:${address}`, now) ||
+    consumeInteractionRate(`ip:${address}`, now)
+}
+
+function updateActiveInteraction(
+  session: StreamingSession,
+  capability: StreamingTouchCapabilityEntry,
+  phase: TouchActionPhase
+): void {
+  if (capability.action.kind !== 'keyboard') return
+  const mode = capability.action.command.mode
+  if (mode === 'hold') {
+    if (phase === 'begin') session.activeTokens.add(capability.token)
+    if (phase === 'end' || phase === 'cancel') session.activeTokens.delete(capability.token)
+    return
+  }
+  if (mode !== 'toggle') return
+  if (phase === 'cancel' || capability.zone === 'off' || capability.zone === 'teardown') {
+    session.activeTokens.delete(capability.token)
+    return
+  }
+  if (capability.zone === 'on') {
+    session.activeTokens.add(capability.token)
+    return
+  }
+  if (session.activeTokens.has(capability.token)) session.activeTokens.delete(capability.token)
+  else session.activeTokens.add(capability.token)
+}
+
+function isStreamingTouchActionRequest(value: unknown): value is StreamingTouchActionRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const request = value as Record<string, unknown>
+  if (!Object.keys(request).every((key) => ['targetId', 'capabilityId', 'phase', 'nonce'].includes(key))) return false
+  return (
+    typeof request.targetId === 'string' &&
+    isValidLayoutId(request.targetId) &&
+    typeof request.capabilityId === 'string' &&
+    /^[A-Za-z0-9_-]{16,128}$/.test(request.capabilityId) &&
+    ['trigger', 'begin', 'end', 'cancel'].includes(String(request.phase)) &&
+    typeof request.nonce === 'string' &&
+    /^[A-Za-z0-9_-]{16,128}$/.test(request.nonce)
+  )
+}
+
+async function executeTouchInteraction(
+  request: IncomingMessage,
+  response: ServerResponse,
+  route: StreamingRequestRoute,
+  id: string
+): Promise<void> {
+  const active = sessionForRequest(request, route)
+  if (!active || active.session.access !== 'authenticated') {
+    send(response, 403, 'Forbidden')
+    return
+  }
+  const session = active.session
+  if (
+    state.layoutKind !== 'touch' ||
+    id !== state.layoutId ||
+    session.role !== 'touch-controller' ||
+    session.targetKind !== 'touch' ||
+    session.targetId !== id
+  ) {
+    send(response, 403, 'Interactive Touch role required')
+    return
+  }
+  if (!hasBoundInteractionOrigin(request, session)) {
+    send(response, 403, 'Forbidden origin')
+    return
+  }
+  if (!safeTokenEqual(headerValue(request, 'x-stream-csrf'), session.csrfToken)) {
+    send(response, 403, 'Invalid CSRF token')
+    return
+  }
+  if (!/^application\/json(?:;|$)/i.test(headerValue(request, 'content-type') ?? '')) {
+    send(response, 415, 'Expected application/json')
+    return
+  }
+
+  let body: unknown
+  try {
+    body = JSON.parse(await readRequestBody(request, 2_048))
+  } catch (error) {
+    send(response, error instanceof SyntaxError ? 400 : 413, error instanceof SyntaxError ? 'Invalid JSON' : 'Request body is too large')
+    return
+  }
+  if (!isStreamingTouchActionRequest(body) || body.targetId !== id) {
+    send(response, 400, 'Invalid Touch capability request')
+    return
+  }
+  if (!safeTokenEqual(body.nonce, session.replayNonce)) {
+    const replay: StreamingTouchActionResponse = {
+      ok: false,
+      message: 'Replay or stale interaction nonce rejected.',
+      health: resolvedInteractionHealth(),
+      nextNonce: session.replayNonce,
+      activeControls: session.activeTokens.size
+    }
+    sendJsonStatus(response, 409, replay)
+    return
+  }
+
+  if (isInteractionRateLimited(active.id, request)) {
+    send(response, 429, 'Touch interaction rate limit exceeded')
+    return
+  }
+  const capability = state.touchCapabilities.get(body.capabilityId)
+  if (
+    !capability ||
+    !capability.phases.includes(body.phase) ||
+    !currentCapabilityAction(capability)
+  ) {
+    send(response, 403, 'Touch capability is not allowed')
+    return
+  }
+
+  session.replayNonce = generateSecret(NONCE_BYTES)
+  let result = { ok: true, message: `${capability.controlId} ${body.phase} acknowledged.` }
+  if (capability.executePhases.includes(body.phase)) {
+    const semanticRequest = normalizeTouchSemanticActionRequest({
+      action: capability.action,
+      phase: body.phase,
+      token: capability.token,
+      zone: capability.zone
+    })
+    if (!semanticRequest) {
+      result = { ok: false, message: 'Touch capability failed semantic validation.' }
+    } else {
+      result = await executeTouchSemanticAction(semanticRequest, streamSessionOwnerKey(active.id))
+    }
+  }
+
+  if (result.ok) {
+    updateActiveInteraction(session, capability, body.phase)
+    state.interactionHealth = 'ready'
+  } else {
+    state.interactionHealth = 'degraded'
+  }
+  session.lastFeedback = result.message
+  state.lastInteractionFeedback = result.message
+  const payload: StreamingTouchActionResponse = {
+    ok: result.ok,
+    message: result.message,
+    health: resolvedInteractionHealth(),
+    nextNonce: session.replayNonce,
+    controlId: capability.controlId,
+    phase: body.phase,
+    activeControls: session.activeTokens.size
+  }
+  sendJsonStatus(response, result.ok ? 200 : 422, payload)
 }
 
 function maskName(name: string | undefined, index: number): string {
@@ -911,7 +1583,12 @@ function writeSse(response: ServerResponse, frame: StreamingTelemetryFrame): voi
   response.write(`event: telemetry\ndata: ${JSON.stringify(frame)}\n\n`)
 }
 
-function openSse(ctx: ModuleContext, request: IncomingMessage, response: ServerResponse): void {
+function openSse(
+  ctx: ModuleContext,
+  request: IncomingMessage,
+  response: ServerResponse,
+  sessionId: string
+): void {
   if (request.method === 'HEAD') {
     applyCors(response)
     response.writeHead(200, { 'Cache-Control': 'no-store' })
@@ -937,7 +1614,8 @@ function openSse(ctx: ModuleContext, request: IncomingMessage, response: ServerR
     timer,
     address: normalizeRemoteAddress(request.socket.remoteAddress),
     userAgent: headerValue(request, 'user-agent'),
-    connectedAt: Date.now()
+    connectedAt: Date.now(),
+    sessionId
   }
   state.clients.set(id, client)
   logger.info('streaming', 'client connected', {
@@ -956,6 +1634,13 @@ function closeClient(id: number): void {
   clearInterval(client.timer)
   if (!client.response.destroyed) client.response.end()
   state.clients.delete(id)
+  const sessionStillConnected = [...state.clients.values()].some((candidate) =>
+    candidate.sessionId === client.sessionId
+  )
+  if (!sessionStillConnected) {
+    const session = state.sessions.get(client.sessionId)
+    if (session) void releaseSessionInteraction(client.sessionId, session, 'receiver-disconnected')
+  }
   logger.info('streaming', 'client disconnected', {
     id,
     address: client.address,
@@ -1019,22 +1704,24 @@ function localTestUrl(): string | null {
 }
 
 function touchControlsUrl(origin?: string | null): string | null {
-  void origin
-  return null
+  return state.layoutKind === 'touch' ? dashboardUrl(origin) : null
 }
 
 function warning(): string | null {
+  const interaction = state.layoutKind === 'touch'
+    ? 'Only allowlisted controls in this selected Touch panel are interactive; all other stream surfaces stay read-only.'
+    : 'Dashboard streaming is telemetry-only and read-only.'
   if (state.accessMode === 'internet') {
     if (!state.publicBaseUrl) {
       return state.autoTunnelMessage ?? 'No public HTTPS URL is active. Start Auto-tunnel or enter a manual public HTTPS URL.'
     }
-    return state.firewallMessage ?? 'Internet mode is read-only and requires the token plus password. Use a trusted HTTPS tunnel/public URL that forwards only this stream port.'
+    return state.firewallMessage ?? `Internet mode requires the token plus password. ${interaction} Use a trusted HTTPS tunnel/public URL that forwards only this stream port.`
   }
   if (state.accessMode === 'lan') {
     if (!state.lanAddress) {
       return 'No private LAN IPv4 address was found. The server is running, but phone/tablet QR access is unavailable. Connect this PC to Wi-Fi/Ethernet, then restart streaming.'
     }
-    return state.firewallMessage ?? `LAN streaming is available over HTTP at ${state.lanAddress}:${state.port ?? 'unknown port'} and still requires the token plus password.`
+    return state.firewallMessage ?? `LAN streaming is available over HTTP at ${state.lanAddress}:${state.port ?? 'unknown port'} and still requires the token plus password. ${interaction}`
   }
   return null
 }
@@ -1084,7 +1771,12 @@ async function status(): Promise<StreamingStatus> {
     autoTunnelAvailable: resolveCloudflaredBinary() !== null,
     autoTunnelEnabled: state.autoTunnelEnabled,
     autoTunnelRunning: state.autoTunnelProcess !== null && state.autoTunnelUrl !== null,
-    autoTunnelMessage: state.autoTunnelMessage
+    autoTunnelMessage: state.autoTunnelMessage,
+    interactive: state.layoutKind === 'touch',
+    interactionHealth: resolvedInteractionHealth(),
+    interactiveCapabilities: publicTouchCapabilities().length,
+    activeInteractions: [...state.sessions.values()].reduce((count, session) => count + session.activeTokens.size, 0),
+    lastInteractionFeedback: state.lastInteractionFeedback
   }
 }
 
@@ -1552,12 +2244,21 @@ async function selfTest(): Promise<StreamingSelfTestResult> {
     try {
       const target = JSON.parse(targetResponse.body.toString('utf8')) as {
         id?: unknown
+        panel?: { id?: unknown }
+        interaction?: { interactive?: unknown; role?: unknown; health?: unknown }
         dashboard?: { id?: unknown }
         expressionContent?: { mode?: unknown; message?: unknown }
       }
-      const targetId = state.layoutKind === 'dashboard' ? target.dashboard?.id : target.id
+      const targetId = state.layoutKind === 'dashboard' ? target.dashboard?.id : target.panel?.id ?? target.id
       if (targetId !== state.layoutId) {
         throw new SelfTestStageError('target', `Target API returned ${String(targetId ?? 'no id')} instead of ${state.layoutId}.`)
+      }
+      if (state.layoutKind === 'touch' && (
+        target.interaction?.interactive !== true ||
+        target.interaction.role !== 'touch-controller' ||
+        !['ready', 'degraded'].includes(String(target.interaction.health))
+      )) {
+        throw new SelfTestStageError('target', 'Touch target did not establish an interactive controller session.')
       }
       if (state.layoutKind === 'dashboard' && (
         target.expressionContent?.mode !== 'excluded' ||
@@ -1632,6 +2333,23 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
       return
     }
 
+    if (pathname.startsWith('/api/touch/action/')) {
+      if (request.method !== 'POST') {
+        applyCors(response)
+        response.setHeader('Allow', 'POST')
+        response.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' })
+        response.end('Method not allowed')
+        return
+      }
+      const id = decodeURIComponent(pathname.slice('/api/touch/action/'.length))
+      if (!isValidLayoutId(id)) {
+        send(response, 404, 'Not found')
+        return
+      }
+      await executeTouchInteraction(request, response, route, id)
+      return
+    }
+
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       rejectMethod(response)
       return
@@ -1659,7 +2377,11 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
           return
         }
         clearAuthFailure(request, 'token')
-        const session = createSession(route, state.accessMode === 'local' ? 'authenticated' : 'bootstrap')
+        if (!normalizedRequestOrigin(request)) {
+          send(response, 403, 'Forbidden origin')
+          return
+        }
+        const session = createSession(request, route, state.accessMode === 'local' ? 'authenticated' : 'bootstrap')
         if (!session) {
           send(response, 503, 'Too many authenticated streaming sessions')
           return
@@ -1690,7 +2412,12 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
       return
     }
 
-    if (pathname.startsWith('/assets/') || pathname.startsWith('/api/dashboard/') || pathname.startsWith('/api/touch/panel/')) {
+    if (
+      pathname.startsWith('/assets/') ||
+      pathname.startsWith('/api/dashboard/') ||
+      pathname.startsWith('/api/touch/panel/') ||
+      pathname.startsWith('/api/touch/health/')
+    ) {
       if (!activeSession) {
         send(response, 403, 'Forbidden')
         return
@@ -1712,7 +2439,22 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
           send(response, 404, 'Not found')
           return
         }
-        serveSelectedTouchPanel(id, request, response)
+        serveSelectedTouchPanel(id, request, response, activeSession)
+        return
+      }
+      if (pathname.startsWith('/api/touch/health/')) {
+        const id = decodeURIComponent(pathname.slice('/api/touch/health/'.length))
+        if (
+          !isValidLayoutId(id) ||
+          id !== state.layoutId ||
+          state.layoutKind !== 'touch' ||
+          activeSession.session.access !== 'authenticated' ||
+          activeSession.session.role !== 'touch-controller'
+        ) {
+          send(response, 403, 'Forbidden')
+          return
+        }
+        sendJson(response, interactionHealthPayload(activeSession.session), request.method)
         return
       }
       serveStatic(pathname, request, response)
@@ -1724,7 +2466,7 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
         send(response, 403, 'Forbidden')
         return
       }
-      openSse(ctx, request, response)
+      openSse(ctx, request, response, activeSession.id)
       return
     }
 
@@ -1740,6 +2482,15 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
 }
 
 async function stop(): Promise<StreamingStatus> {
+  for (const session of state.sessions.values()) {
+    if (session.expiryTimer) clearTimeout(session.expiryTimer)
+    session.expiryTimer = null
+  }
+  await Promise.all(
+    [...state.sessions.entries()].map(([id, session]) =>
+      releaseSessionInteraction(id, session, 'stream-stopped')
+    )
+  )
   closeAllClients()
   await stopAutoTunnelProcess()
   const server = state.server
@@ -1767,6 +2518,10 @@ async function stop(): Promise<StreamingStatus> {
   state.autoTunnelStopRequested = false
   state.authFailures.clear()
   state.sessions.clear()
+  state.touchCapabilities.clear()
+  state.interactionRates.clear()
+  state.interactionHealth = 'read-only'
+  state.lastInteractionFeedback = null
   if (server) {
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()))
     logger.info('streaming', 'server stopped', {})
@@ -1901,6 +2656,16 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
   state.layoutId = target.id
   state.layoutKind = target.kind
   state.touchPanelId = target.touchPanelId
+  state.touchCapabilities.clear()
+  state.interactionRates.clear()
+  state.lastInteractionFeedback = null
+  if (target.kind === 'touch') {
+    const panel = getTouchPanelManager()?.getPanel(target.id)
+    if (!panel) throw new Error(`Touch controls panel not found: ${target.id}`)
+    rebuildTouchCapabilities(panel)
+  } else {
+    state.interactionHealth = 'read-only'
+  }
   state.streamSafe = args.streamSafe ?? true
   state.token = generateToken()
   state.accessMode = args.accessMode === 'internet' || args.accessMode === 'lan'

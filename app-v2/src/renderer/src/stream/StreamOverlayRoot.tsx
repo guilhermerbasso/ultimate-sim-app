@@ -277,6 +277,9 @@ export function StreamOverlayRoot() {
       return (
         <>
           <DashboardCanvas dashboard={dashboard} snapshot={snapshot} />
+          <div className={connected ? 'stream-status is-live' : 'stream-status'}>
+            {connected ? 'CONNECTED' : 'WAITING'} · READ ONLY · TELEMETRY
+          </div>
           <StreamExpressionNotice message={expressionNotice} />
         </>
       )

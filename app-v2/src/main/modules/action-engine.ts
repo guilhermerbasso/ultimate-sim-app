@@ -2,7 +2,10 @@ import type { WebContents } from 'electron'
 import type { ModuleContext } from '../module-context'
 import { ActionDispatcher, mapIracingCommand } from '../actions/dispatcher'
 import { EmulationEngine } from '../actions/emulation'
-import { registerTouchActionOwnerReleaser } from '../actions/touch-owner'
+import {
+  registerTouchActionOwnerReleaser,
+  registerTouchSemanticActionRuntime
+} from '../actions/touch-owner'
 import type { ActionBinding, EmulationTestRequest, HidButtonControl } from '../../shared/actions'
 import {
   TOUCH_ACTION_IPC_CHANNEL,
@@ -204,6 +207,10 @@ export function register(ctx: ModuleContext): void {
   const unregisterTouchActionOwners = registerTouchActionOwnerReleaser((webContentsId) =>
     touchActionOwners.release(webContentsId)
   )
+  const unregisterTouchSemanticRuntime = registerTouchSemanticActionRuntime({
+    execute: handleTouchAction,
+    releaseOwner: (ownerKey) => emulation.releaseTouchKeyboardOwner(ownerKey)
+  })
   ctx.ipcMain.handle(TOUCH_ACTION_IPC_CHANNEL, (event, raw: unknown) => {
     touchActionOwners.track(event.sender)
     return handleTouchAction(raw, touchActionOwners.currentOwnerKey(event.sender.id))
@@ -227,7 +234,9 @@ export function register(ctx: ModuleContext): void {
 
   ctx.app.on('before-quit', () => {
     unregisterTouchActionOwners()
-    void emulation.dispose().catch((error) => console.warn('[actions] Failed to dispose emulation engine.', error))
+    void emulation.dispose()
+      .catch((error) => console.warn('[actions] Failed to dispose emulation engine.', error))
+      .finally(unregisterTouchSemanticRuntime)
   })
 
   void refreshCycleControls().catch((error) => console.warn('[actions] Failed to publish dashboard cycle controls.', error))

@@ -1,7 +1,13 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import { parseButtonBoxPanel, type ButtonBoxPanel } from '../../../shared/touch-panel'
+import type { StreamingTouchInteractionSession } from '../../../shared/streaming'
 import { ButtonBoxRenderer, type TouchRuntimeFeedback } from './ButtonBoxRenderer'
-import { executeTouchControlAction, fetchStreamPanel, isBrowserStreamRuntime } from './runtime'
+import {
+  executeTouchControlAction,
+  fetchStreamInteractionHealth,
+  fetchStreamPanel,
+  isBrowserStreamRuntime
+} from './runtime'
 import { useTouchExpressionValues } from './useTouchExpressionValues'
 import './buttonbox.css'
 
@@ -48,6 +54,8 @@ export function TouchPanelWindowRoot(): ReactElement {
   const [error, setError] = useState<string | null>(null)
   const [fullscreen, setFullscreen] = useState<boolean>(() => detectFullscreen())
   const [feedback, setFeedback] = useState<TouchRuntimeFeedback | null>(null)
+  const [interaction, setInteraction] = useState<StreamingTouchInteractionSession | null>(null)
+  const browserStream = isBrowserStreamRuntime()
   const expressionValues = useTouchExpressionValues(panel?.buttons)
 
   useEffect(() => {
@@ -57,18 +65,20 @@ export function TouchPanelWindowRoot(): ReactElement {
       return
     }
     let alive = true
-    const loadPanel = isBrowserStreamRuntime() ? fetchStreamPanel(id) : window.ipc.invoke('app:touchpanel:get', id)
+    const loadPanel = browserStream ? fetchStreamPanel(id) : window.ipc.invoke('app:touchpanel:get', id)
     void loadPanel
       .then((raw) => {
         if (!alive) return
-        const parsed = parseButtonBoxPanel(raw)
+        const browserPayload = browserStream ? raw as Awaited<ReturnType<typeof fetchStreamPanel>> : null
+        const parsed = parseButtonBoxPanel(browserPayload ? browserPayload.panel : raw)
+        if (browserPayload) setInteraction(browserPayload.interaction)
         if (parsed) setPanel(parsed)
         else setError('Panel not found.')
       })
       .catch(() => alive && setError('Failed to load panel.'))
 
     // Live-refresh the open window when the panel is edited in the app.
-    const off = isBrowserStreamRuntime() ? () => {} : window.ipc.subscribe('app:touchpanel:updated', (raw) => {
+    const off = browserStream ? () => {} : window.ipc.subscribe('app:touchpanel:updated', (raw) => {
       const parsed = parseButtonBoxPanel(raw)
       if (parsed && parsed.id === id) setPanel(parsed)
     })
@@ -77,7 +87,7 @@ export function TouchPanelWindowRoot(): ReactElement {
       alive = false
       off()
     }
-  }, [])
+  }, [browserStream])
 
   useEffect(() => {
     const update = (): void => setFullscreen(detectFullscreen())
@@ -89,6 +99,33 @@ export function TouchPanelWindowRoot(): ReactElement {
     const timer = window.setTimeout(() => setFeedback(null), feedback.ok ? 2_500 : 6_000)
     return () => window.clearTimeout(timer)
   }, [feedback])
+  useEffect(() => {
+    if (!browserStream || !panel) return
+    let alive = true
+    const refresh = (): void => {
+      void fetchStreamInteractionHealth(panel.id)
+        .then((health) => {
+          if (!alive) return
+          setInteraction((current) => current
+            ? {
+                ...current,
+                health: health.health,
+                expiresAt: health.expiresAt,
+                activeControls: health.activeControls,
+                lastFeedback: health.lastFeedback
+              }
+            : current)
+        })
+        .catch(() => {
+          if (alive) setInteraction((current) => current ? { ...current, health: 'degraded' } : current)
+        })
+    }
+    const timer = window.setInterval(refresh, 10_000)
+    return () => {
+      alive = false
+      window.clearInterval(timer)
+    }
+  }, [browserStream, panel])
 
   if (error) {
     return (
@@ -102,8 +139,25 @@ export function TouchPanelWindowRoot(): ReactElement {
   // Reserve top padding so the floating ✕ (top-right) can never cover the corner
   // button cell when it is shown.
   const closeButtonSize = { width: 56, height: 48 }
-  const showCloseButton = fullscreen && !isBrowserStreamRuntime()
-  const safeTopPad = showCloseButton ? closeButtonSize.height + 20 : 0
+  const showCloseButton = fullscreen && !browserStream
+  const showInteractionIndicator = browserStream && interaction !== null
+  const safeTopPad = Math.max(
+    showCloseButton ? closeButtonSize.height + 20 : 0,
+    showInteractionIndicator ? 54 : 0
+  )
+
+  const onRuntimeFeedback = (next: TouchRuntimeFeedback): void => {
+    setFeedback(next)
+    if (!next.pending) {
+      setInteraction((current) => current
+        ? {
+            ...current,
+            health: next.ok ? 'ready' : 'degraded',
+            lastFeedback: next.message ?? current.lastFeedback
+          }
+        : current)
+    }
+  }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: panel.background, boxSizing: 'border-box', paddingTop: safeTopPad }}>
@@ -130,11 +184,45 @@ export function TouchPanelWindowRoot(): ReactElement {
           ✕
         </button>
       ) : null}
+      {showInteractionIndicator ? (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'fixed',
+            top: 8,
+            left: 10,
+            right: 10,
+            zIndex: 20,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            minHeight: 36,
+            padding: '6px 12px',
+            border: `1px solid ${interaction.health === 'ready' ? '#22c55e' : '#f59e0b'}`,
+            borderRadius: 10,
+            background: 'rgba(2, 6, 23, 0.94)',
+            color: '#f8fafc',
+            font: '800 12px/1.2 Segoe UI, system-ui, sans-serif',
+            letterSpacing: '0.06em',
+            pointerEvents: 'none'
+          }}
+        >
+          <span>● {interaction.indicator}</span>
+          <span style={{ color: interaction.health === 'ready' ? '#86efac' : '#fcd34d' }}>
+            {interaction.health.toUpperCase()} · {interaction.capabilities.length} ALLOWED
+            {interaction.activeControls > 0 ? ` · ${interaction.activeControls} ACTIVE` : ''}
+          </span>
+        </div>
+      ) : null}
       <ButtonBoxRenderer
         panel={panel}
         expressionValues={expressionValues}
         onAction={executeTouchControlAction}
-        onFeedback={setFeedback}
+        onFeedback={onRuntimeFeedback}
+        interactive={!browserStream || interaction?.interactive === true}
+        reportLifecycle={browserStream}
       />
       {feedback ? (
         <div
