@@ -211,7 +211,10 @@ export interface RelayQuotaPolicy {
   maxObjectsPerTenant: number
   maxObjectsPerDevice: number
   maxObjectsPerDocument: number
-  maxCiphertextBytesPerTenant: number
+  maxStoredBytesPerTenant: number
+  maxEnvelopeBytes: number
+  maxReferenceCount: number
+  maxReferenceBytes: number
   maxOfflineQueueItems: number
   maxOfflineQueueBytes: number
 }
@@ -220,7 +223,7 @@ export interface RelayQuotaUsage {
   tenantObjects: number
   deviceObjects: number
   documentObjects: number
-  tenantCiphertextBytes: number
+  tenantStoredBytes: number
 }
 
 export interface RelayOfflineQueueItem {

@@ -15,8 +15,9 @@ and opaque object store behind the Policy/Egress Gateway. That deployment is not
 1. Only allowlisted user documents and synchronization events enter the relay path.
 2. Raw telemetry, authoritative `RaceOpsEvent`, evidence ledgers, driving commands, secrets, machine
    settings, raw biometrics, and raw voice/video are denied.
-3. D0-D2 follow document/capability policy. D3 additionally requires a current explicit consent epoch,
-   role policy, retention, and capability. D4/D5 are blocked.
+3. D0-D2 follow document/capability policy. D3 additionally requires the exact current granted consent
+   epoch, role policy, retention, and capability. Withdrawal advances the epoch and invalidates queued
+   or newly submitted stale grants. D4/D5 are blocked.
 4. Relay storage receives ciphertext plus public verification metadata, never plaintext, private keys,
    OAuth tokens, stream keys, webhook URLs, or cookies.
 5. Every change/snapshot is bound to a versioned canonical tuple containing document and membership/key
@@ -34,8 +35,11 @@ and opaque object store behind the Policy/Egress Gateway. That deployment is not
   data class, consent epoch, membership epoch, and expiry.
 - Document keys are per-document and per-epoch. Key envelopes are created only for active members.
 - Scheduled rotation increments the document key epoch.
-- Membership revocation marks the signing key revoked, removes the member, increments membership and
-  document key epochs, emits a signed rotation certificate, and creates envelopes only for survivors.
+- Document membership revocation removes the member and rotates only that document. Global device
+  revocation marks the identity revoked, removes it from every document, rotates every affected
+  membership/key epoch, and creates envelopes only for survivors.
+- Previously accepted signed history remains verifiable after either revocation scope; a revoked device
+  cannot submit queued or new envelopes.
 - Unknown, revoked, expired, bad-signature, stale-membership, stale-key, and replayed envelopes are
   rejected or quarantined before merge.
 - The deterministic mock profile models these checks only. A live adapter must use independently reviewed
@@ -45,13 +49,14 @@ and opaque object store behind the Policy/Egress Gateway. That deployment is not
 
 - Apply an allowed change to the local primary copy first.
 - If relay transport is unavailable, queue only the ciphertext envelope.
-- Bound the queue by item count and ciphertext bytes. A full queue never removes the local change.
+- Bound storage and queues by full serialized envelope bytes, not ciphertext alone. Also bound each
+  envelope plus causal-reference count/bytes. A full queue never removes the local change.
 - Revalidate current identity, capability, consent, membership/key epochs, replay counter, provider health,
   and tenant/device/document quotas during flush.
 - Do not retry split-brain, revoked, stale, undeclared, or integrity-failed items automatically. Move them
   to an operator-visible dead letter/quarantine state.
-- Quotas exist per tenant, device, document, ciphertext bytes, and offline queue to limit abuse and
-  denial-of-wallet risk.
+- Quotas exist per tenant, device, document, stored envelope bytes, single-envelope size, causal
+  references, and offline queue to limit abuse and denial-of-wallet risk.
 
 ## Health and resync
 
@@ -67,6 +72,9 @@ Resync compares verified local and relay heads. Pull or push a strict subset; de
 concurrent verified heads. Any quarantined integrity/authenticity failure or split brain blocks automatic
 resync. Restore one authoritative provider generation, verify the ciphertext digest/cursors, then
 generate a fresh resync plan.
+
+Read-only grants never write resync markers. A stored marker requires `document:append`, and only
+document changes/snapshots can mutate document heads.
 
 ## Backup and restore
 
@@ -117,8 +125,10 @@ No version change in this foundation requires a download or external endpoint.
 - compromised relay ciphertext/member-key-envelope quarantine;
 - undeclared fields and prohibited data classes/event kinds;
 - replay rejection;
-- stale key rejection plus membership revocation/rotation;
-- tenant quota denial;
+- verified-only replay watermarks plus duplicate-envelope quarantine;
+- stale key rejection plus document/global revocation and rotation;
+- stale/withdrawn D3 consent rejection during submission and queue flush;
+- tenant, full-envelope, reference, and offline-queue quota denial;
 - offline local-first queue/flush;
 - split-brain health and blocked resync;
 - ciphertext-only backup/restore plus upgrade/rollback manifests;

@@ -41,6 +41,7 @@ interface MockIdentityRegistryEntry {
   identity: RelayIdentityEnvelope
   signingSecret: string
   status: 'active' | 'revoked'
+  revokedAt: number | null
 }
 
 interface MockDocumentSecurityState {
@@ -48,6 +49,8 @@ interface MockDocumentSecurityState {
   documentId: string
   membershipEpoch: number
   keyEpoch: number
+  consentEpoch: number
+  consentGranted: boolean
   members: Set<string>
   heads: Set<string>
 }
@@ -85,7 +88,10 @@ export const DEFAULT_RELAY_QUOTAS: RelayQuotaPolicy = Object.freeze({
   maxObjectsPerTenant: 10_000,
   maxObjectsPerDevice: 2_500,
   maxObjectsPerDocument: 2_000,
-  maxCiphertextBytesPerTenant: 64 * 1024 * 1024,
+  maxStoredBytesPerTenant: 64 * 1024 * 1024,
+  maxEnvelopeBytes: 512 * 1024,
+  maxReferenceCount: 256,
+  maxReferenceBytes: 32 * 1024,
   maxOfflineQueueItems: 1_000,
   maxOfflineQueueBytes: 8 * 1024 * 1024
 })
@@ -123,6 +129,10 @@ function deterministicSign(value: unknown, secret: string): string {
 
 function byteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength
+}
+
+export function serializedByteLength(value: unknown): number {
+  return byteLength(stableSerialize(value))
 }
 
 function withoutSignature<T extends { signature: string }>(value: T): Omit<T, 'signature'> {
@@ -166,6 +176,27 @@ function isSubset(left: readonly string[], right: readonly string[]): boolean {
   return left.every((entry) => rightSet.has(entry))
 }
 
+interface RelayEnvelopeMeasurement {
+  envelopeBytes: number
+  referenceCount: number
+  referenceBytes: number
+}
+
+interface VerifiedStoredScan {
+  records: RelayStoredEnvelope[]
+  replayCounters: Map<string, number>
+  envelopeIds: Set<string>
+}
+
+function measureRelayEnvelope(envelope: RelaySyncEnvelope): RelayEnvelopeMeasurement {
+  const references = [...envelope.parentRefs, ...envelope.headRefs]
+  return {
+    envelopeBytes: serializedByteLength(envelope),
+    referenceCount: references.length,
+    referenceBytes: references.reduce((sum, reference) => sum + byteLength(reference), 0)
+  }
+}
+
 export class DeterministicRelaySecurity {
   private readonly authorityKeyId = 'mock-authority-key-v1'
   private readonly authoritySecret = 'test-only-authority-secret'
@@ -174,10 +205,14 @@ export class DeterministicRelaySecurity {
   private readonly documents = new Map<string, MockDocumentSecurityState>()
 
   createIdentity(input: CreateMockIdentityInput): RelayIdentityEnvelope {
-    if (this.identityByDevice.has(input.deviceId)) {
-      throw new Error('A device identity already exists; revoke it before provisioning a replacement device.')
+    const prior = this.identityByDevice.get(input.deviceId)
+    if (prior) {
+      const priorEntry = this.identities.get(prior.signingKeyId)
+      if (!priorEntry || priorEntry.status !== 'revoked') {
+        throw new Error('A device identity already exists; revoke it before provisioning a replacement identity.')
+      }
     }
-    const identityEpoch = 1
+    const identityEpoch = prior ? prior.identityEpoch + 1 : 1
     const seed = `${input.tenantId}|${input.subjectId}|${input.deviceId}|${identityEpoch}`
     const signingKeyId = `sig-${deterministicDigest(`signing|${seed}`).slice(0, 20)}`
     const encryptionKeyId = `enc-${deterministicDigest(`encryption|${seed}`).slice(0, 20)}`
@@ -201,7 +236,7 @@ export class DeterministicRelaySecurity {
       ...unsigned,
       signature: deterministicSign(unsigned, this.authoritySecret)
     }
-    this.identities.set(signingKeyId, { identity, signingSecret, status: 'active' })
+    this.identities.set(signingKeyId, { identity, signingSecret, status: 'active', revokedAt: null })
     this.identityByDevice.set(input.deviceId, identity)
     return cloneJson(identity)
   }
@@ -217,6 +252,8 @@ export class DeterministicRelaySecurity {
       documentId,
       membershipEpoch: 1,
       keyEpoch: 1,
+      consentEpoch: 1,
+      consentGranted: true,
       members: new Set(memberDeviceIds),
       heads: new Set()
     })
@@ -225,8 +262,12 @@ export class DeterministicRelaySecurity {
   issueCapability(input: IssueMockCapabilityInput): RelayCapabilityEnvelope {
     if (input.documentIds.length === 0) throw new Error('A relay capability must name at least one document.')
     const currentIdentity = this.identityByDevice.get(input.identity.deviceId)
-    if (!currentIdentity || currentIdentity.signingKeyId !== input.identity.signingKeyId) {
-      throw new Error('Cannot issue a capability for an unknown identity.')
+    const identityEntry = this.identities.get(input.identity.signingKeyId)
+    if (!currentIdentity ||
+        currentIdentity.signingKeyId !== input.identity.signingKeyId ||
+        !identityEntry ||
+        identityEntry.status !== 'active') {
+      throw new Error('Cannot issue a capability for an unknown or revoked identity.')
     }
     const states = input.documentIds.map((documentId) => {
       const state = this.documents.get(documentId)
@@ -244,6 +285,11 @@ export class DeterministicRelaySecurity {
     if (maxDataClass === 'D4' || maxDataClass === 'D5') {
       throw new Error('Relay capabilities cannot authorize D4 or D5 content.')
     }
+    const consentEpoch = input.consentEpoch ?? (maxDataClass === 'D3' ? states[0].consentEpoch : 0)
+    if (maxDataClass === 'D3' &&
+        (states.some((state) => !state.consentGranted || state.consentEpoch !== consentEpoch))) {
+      throw new Error('D3 relay capabilities require the current granted consent epoch for every document.')
+    }
     const unsigned: Omit<RelayCapabilityEnvelope, 'signature'> = {
       schemaVersion: RELAY_SCHEMA_VERSION,
       grantId: `grant-${deterministicDigest([
@@ -260,7 +306,7 @@ export class DeterministicRelaySecurity {
       eventKinds: [...(input.eventKinds ?? RELAY_EVENT_KINDS)],
       capabilities: [...(input.capabilities ?? RELAY_CAPABILITIES)],
       maxDataClass,
-      consentEpoch: input.consentEpoch ?? 0,
+      consentEpoch,
       membershipEpoch,
       issuedAt: input.issuedAt,
       expiresAt: input.expiresAt,
@@ -270,6 +316,16 @@ export class DeterministicRelaySecurity {
       ...unsigned,
       signature: deterministicSign(unsigned, this.authoritySecret)
     }
+  }
+
+  updateDocumentConsent(
+    documentId: string,
+    granted: boolean
+  ): { documentId: string; consentEpoch: number; granted: boolean } {
+    const state = this.requireDocument(documentId)
+    state.consentEpoch += 1
+    state.consentGranted = granted
+    return { documentId, consentEpoch: state.consentEpoch, granted }
   }
 
   seal(input: SealMockEnvelopeInput): RelaySyncEnvelope {
@@ -337,7 +393,12 @@ export class DeterministicRelaySecurity {
 
     const identityEntry = this.identities.get(envelope.senderSigningKeyId)
     if (!identityEntry) throw new RelayPolicyError('identity-invalid', 'Sender signing key is unknown.')
-    if (identityEntry.status === 'revoked') throw new RelayPolicyError('signer-revoked', 'Sender signing key is revoked.')
+    if (identityEntry.status === 'revoked' &&
+        (mode === 'submission' ||
+          identityEntry.revokedAt === null ||
+          envelope.createdAt >= identityEntry.revokedAt)) {
+      throw new RelayPolicyError('signer-revoked', 'Sender signing key is revoked.')
+    }
     if (envelope.identity.status !== 'active' ||
         envelope.identity.signingKeyId !== envelope.senderSigningKeyId ||
         envelope.identity.deviceId !== envelope.senderDeviceId ||
@@ -375,6 +436,11 @@ export class DeterministicRelaySecurity {
         (mode === 'submission' && envelope.membershipEpoch !== state.membershipEpoch) ||
         (mode === 'stored' && envelope.membershipEpoch > state.membershipEpoch)) {
       throw new RelayPolicyError('stale-membership', 'Membership epoch is stale.')
+    }
+    if (mode === 'submission' &&
+        envelope.dataClass === 'D3' &&
+        (!state.consentGranted || envelope.capability.consentEpoch !== state.consentEpoch)) {
+      throw new RelayPolicyError('consent-required', 'D3 consent is stale or withdrawn for this document.')
     }
     const actualRecipientKeyIds = envelope.keyEnvelopes.map((entry) => entry.recipientKeyId).sort()
     const expectedRecipientKeyIds = mode === 'submission'
@@ -426,12 +492,15 @@ export class DeterministicRelaySecurity {
     })
   }
 
-  revokeDevice(documentId: string, deviceId: string, reason: string, issuedAt: number): RelayRotationCertificate {
+  revokeDocumentMember(
+    documentId: string,
+    deviceId: string,
+    reason: string,
+    issuedAt: number
+  ): RelayRotationCertificate {
     const state = this.requireDocument(documentId)
     const identity = this.identityByDevice.get(deviceId)
     if (!identity || !state.members.has(deviceId)) throw new Error(`Device ${deviceId} is not a document member.`)
-    const entry = this.identities.get(identity.signingKeyId)
-    if (entry) entry.status = 'revoked'
     state.members.delete(deviceId)
     const previousMembershipEpoch = state.membershipEpoch
     const previousKeyEpoch = state.keyEpoch
@@ -447,11 +516,40 @@ export class DeterministicRelaySecurity {
     })
   }
 
+  revokeDevice(deviceId: string, reason: string, issuedAt: number): readonly RelayRotationCertificate[] {
+    const identity = this.identityByDevice.get(deviceId)
+    if (!identity) throw new Error(`Unknown relay device ${deviceId}.`)
+    const entry = this.identities.get(identity.signingKeyId)
+    if (!entry || entry.status === 'revoked') throw new Error(`Relay device ${deviceId} is already revoked.`)
+    entry.status = 'revoked'
+    entry.revokedAt = issuedAt
+
+    return [...this.documents.values()]
+      .filter((state) => state.members.has(deviceId))
+      .sort((left, right) => left.documentId < right.documentId ? -1 : left.documentId > right.documentId ? 1 : 0)
+      .map((state) => {
+        state.members.delete(deviceId)
+        const previousMembershipEpoch = state.membershipEpoch
+        const previousKeyEpoch = state.keyEpoch
+        state.membershipEpoch += 1
+        state.keyEpoch += 1
+        return this.createRotationCertificate(state, {
+          reason,
+          issuedAt,
+          revokedDeviceId: deviceId,
+          revokedSigningKeyId: identity.signingKeyId,
+          previousMembershipEpoch,
+          previousKeyEpoch
+        })
+      })
+  }
+
   currentHeads(documentId: string): readonly string[] {
     return [...this.requireDocument(documentId).heads].sort()
   }
 
   noteAccepted(envelope: RelaySyncEnvelope): void {
+    if (envelope.eventKind !== 'document-change' && envelope.eventKind !== 'document-snapshot') return
     const state = this.requireDocument(envelope.documentId)
     for (const parent of envelope.parentRefs) state.heads.delete(parent)
     for (const head of envelope.headRefs) state.heads.add(head)
@@ -487,8 +585,11 @@ export class DeterministicRelaySecurity {
       .map((deviceId) => {
         const identity = this.identityByDevice.get(deviceId)
         if (!identity) throw new Error(`Missing identity for active member ${deviceId}.`)
+        const identityEntry = this.identities.get(identity.signingKeyId)
+        if (!identityEntry || identityEntry.status !== 'active') return null
         return this.createKeyEnvelope(state, identity)
       })
+      .filter((entry): entry is RelayKeyEnvelope => entry !== null)
   }
 
   private createRotationCertificate(
@@ -699,22 +800,25 @@ export class DeterministicRelayGateway {
         return this.result('rejected', 'provider-split-brain', 'Relay provider split brain blocks writes.', envelope.envelopeId)
       }
 
+      const storedScan = this.scanVerifiedStored(envelope.tenantId, now)
       const replayKey = `${envelope.documentId}|${envelope.senderSigningKeyId}`
-      const persistedCounter = this.provider.list(envelope.tenantId)
-        .filter((record) =>
-          record.envelope.documentId === envelope.documentId &&
-          record.envelope.senderSigningKeyId === envelope.senderSigningKeyId)
-        .reduce((maximum, record) => Math.max(maximum, record.envelope.replayCounter), 0)
-      const priorCounter = Math.max(this.replayCounters.get(replayKey) ?? 0, persistedCounter)
-      if (envelope.replayCounter <= priorCounter) {
+      const priorCounter = Math.max(
+        this.replayCounters.get(replayKey) ?? 0,
+        storedScan.replayCounters.get(replayKey) ?? 0
+      )
+      if (storedScan.envelopeIds.has(envelope.envelopeId) || envelope.replayCounter <= priorCounter) {
         return this.result('rejected', 'replay', 'Replay counter is not greater than the last accepted counter.', envelope.envelopeId)
       }
 
       const usage = this.quotaUsage(envelope)
+      const measurement = measureRelayEnvelope(envelope)
       if (usage.tenantObjects + 1 > this.quotas.maxObjectsPerTenant ||
           usage.deviceObjects + 1 > this.quotas.maxObjectsPerDevice ||
           usage.documentObjects + 1 > this.quotas.maxObjectsPerDocument ||
-          usage.tenantCiphertextBytes + envelope.ciphertextBytes > this.quotas.maxCiphertextBytesPerTenant) {
+          usage.tenantStoredBytes + measurement.envelopeBytes > this.quotas.maxStoredBytesPerTenant ||
+          measurement.envelopeBytes > this.quotas.maxEnvelopeBytes ||
+          measurement.referenceCount > this.quotas.maxReferenceCount ||
+          measurement.referenceBytes > this.quotas.maxReferenceBytes) {
         return this.result('rejected', 'quota-exceeded', 'Relay quota denied the write before provider storage.', envelope.envelopeId)
       }
 
@@ -734,12 +838,36 @@ export class DeterministicRelayGateway {
   }
 
   verifyStored(tenantId: string, now: number): readonly RelayStoredEnvelope[] {
-    if (this.provider.health(tenantId).status === 'split-brain') return []
-    const verified: RelayStoredEnvelope[] = []
-    for (const record of this.provider.list(tenantId)) {
+    return this.scanVerifiedStored(tenantId, now).records
+  }
+
+  private scanVerifiedStored(tenantId: string, now: number): VerifiedStoredScan {
+    if (this.provider.health(tenantId).status === 'split-brain') {
+      return { records: [], replayCounters: new Map(), envelopeIds: new Set() }
+    }
+
+    const records: RelayStoredEnvelope[] = []
+    const replayCounters = new Map<string, number>()
+    const envelopeIds = new Set<string>()
+    const providerRecords = [...this.provider.list(tenantId)].sort((left, right) => left.cursor - right.cursor)
+    for (const record of providerRecords) {
       try {
-        this.security.validateEnvelope(record.envelope, now, 'stored')
-        verified.push(record)
+        const envelope = this.security.validateEnvelope(record.envelope, now, 'stored')
+        const replayKey = `${envelope.documentId}|${envelope.senderSigningKeyId}`
+        const priorCounter = replayCounters.get(replayKey) ?? 0
+        if (envelopeIds.has(envelope.envelopeId) || envelope.replayCounter <= priorCounter) {
+          this.addQuarantine({
+            quarantinedAt: now,
+            providerId: this.provider.providerId,
+            envelopeId: envelope.envelopeId,
+            code: 'replay',
+            detail: 'Duplicate or non-increasing signed relay envelope was ignored.'
+          })
+          continue
+        }
+        records.push(record)
+        envelopeIds.add(envelope.envelopeId)
+        replayCounters.set(replayKey, envelope.replayCounter)
       } catch (error) {
         const relayError = error instanceof RelayPolicyError
           ? error
@@ -753,7 +881,7 @@ export class DeterministicRelayGateway {
         })
       }
     }
-    return verified
+    return { records, replayCounters, envelopeIds }
   }
 
   quarantine(): readonly RelayQuarantineRecord[] {
@@ -876,7 +1004,7 @@ export class DeterministicRelayGateway {
         record.envelope.senderDeviceId === envelope.senderDeviceId).length,
       documentObjects: records.filter((record) =>
         record.envelope.documentId === envelope.documentId).length,
-      tenantCiphertextBytes: records.reduce((sum, record) => sum + record.envelope.ciphertextBytes, 0)
+      tenantStoredBytes: records.reduce((sum, record) => sum + serializedByteLength(record.envelope), 0)
     }
   }
 
@@ -997,7 +1125,7 @@ export class LocalFirstMockRelayClient {
     const report = this.gateway.health(
       this.identity.tenantId,
       this.offlineQueue.length,
-      this.offlineQueue.reduce((sum, item) => sum + item.envelope.ciphertextBytes, 0)
+      this.offlineQueue.reduce((sum, item) => sum + serializedByteLength(item.envelope), 0)
     )
     if (!this.networkAvailable) {
       return {
@@ -1009,9 +1137,13 @@ export class LocalFirstMockRelayClient {
   }
 
   private enqueue(envelope: RelaySyncEnvelope, now: number): RelaySubmissionResult {
-    const queuedBytes = this.offlineQueue.reduce((sum, item) => sum + item.envelope.ciphertextBytes, 0)
+    const measurement = measureRelayEnvelope(envelope)
+    const queuedBytes = this.offlineQueue.reduce((sum, item) => sum + serializedByteLength(item.envelope), 0)
     if (this.offlineQueue.length + 1 > this.gateway.quotas.maxOfflineQueueItems ||
-        queuedBytes + envelope.ciphertextBytes > this.gateway.quotas.maxOfflineQueueBytes) {
+        queuedBytes + measurement.envelopeBytes > this.gateway.quotas.maxOfflineQueueBytes ||
+        measurement.envelopeBytes > this.gateway.quotas.maxEnvelopeBytes ||
+        measurement.referenceCount > this.gateway.quotas.maxReferenceCount ||
+        measurement.referenceBytes > this.gateway.quotas.maxReferenceBytes) {
       const result: RelaySubmissionResult = {
         status: 'rejected',
         code: 'offline-queue-full',

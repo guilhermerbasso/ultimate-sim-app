@@ -11,6 +11,7 @@ import {
   DeterministicRelayGateway,
   DeterministicRelaySecurity,
   LocalFirstMockRelayClient,
+  serializedByteLength,
   type IssueMockCapabilityInput
 } from './mock'
 import { RelayPolicyError } from './policy'
@@ -25,6 +26,7 @@ import type {
 const NOW = 1_800_000_000_000
 const TENANT_ID = 'tenant-alpha'
 const DOCUMENT_ID = 'dashboard-doc-1'
+const OTHER_DOCUMENT_ID = 'dashboard-doc-2'
 
 interface Fixture {
   security: DeterministicRelaySecurity
@@ -67,10 +69,14 @@ function createFixture(quotas?: RelayQuotaPolicy, providerId = 'mock-provider-a'
   return { security, provider, gateway, alice, bob, aliceCapability, bobCapability }
 }
 
-function dashboardDraft(changeId: string, parentRefs: readonly string[] = []): RelayDocumentDraft {
+function dashboardDraftFor(
+  documentId: string,
+  changeId: string,
+  parentRefs: readonly string[] = []
+): RelayDocumentDraft {
   return {
     tenantId: TENANT_ID,
-    documentId: DOCUMENT_ID,
+    documentId,
     documentKind: 'dashboard-layout',
     eventKind: 'document-change',
     dataClass: 'D2',
@@ -85,6 +91,49 @@ function dashboardDraft(changeId: string, parentRefs: readonly string[] = []): R
     },
     parentRefs,
     headRefs: [`head-${changeId}`]
+  }
+}
+
+function dashboardDraft(changeId: string, parentRefs: readonly string[] = []): RelayDocumentDraft {
+  return dashboardDraftFor(DOCUMENT_ID, changeId, parentRefs)
+}
+
+function raceNoteDraft(changeId: string): RelayDocumentDraft {
+  return {
+    tenantId: TENANT_ID,
+    documentId: DOCUMENT_ID,
+    documentKind: 'race-note',
+    eventKind: 'document-change',
+    dataClass: 'D3',
+    payload: {
+      authorAlias: 'race-engineer',
+      body: 'Box this lap.',
+      revision: 1,
+      tags: ['strategy'],
+      title: 'Pit note',
+      changeId,
+      operations: [{ op: 'replace', path: 'body', value: 'Box this lap.' }],
+      baseHeads: []
+    },
+    parentRefs: [],
+    headRefs: [`head-${changeId}`]
+  }
+}
+
+function resyncMarkerDraft(headRef: string): RelayDocumentDraft {
+  return {
+    tenantId: TENANT_ID,
+    documentId: DOCUMENT_ID,
+    documentKind: 'dashboard-layout',
+    eventKind: 'resync-marker',
+    dataClass: 'D2',
+    payload: {
+      cursor: 0,
+      heads: [headRef],
+      providerGeneration: 1
+    },
+    parentRefs: [],
+    headRefs: [headRef]
   }
 }
 
@@ -134,7 +183,7 @@ describe('optional relay foundation deterministic mocks', () => {
     expect(client.queued()).toHaveLength(0)
     expect(fixture.provider.list(TENANT_ID)).toHaveLength(1)
 
-    fixture.security.revokeDevice(DOCUMENT_ID, fixture.alice.deviceId, 'team access revoked', NOW + 150)
+    fixture.security.revokeDevice(fixture.alice.deviceId, 'team access revoked', NOW + 150)
     expect(client.publish(dashboardDraft('local-after-revoke'), NOW + 200)).toEqual(
       expect.objectContaining({ status: 'rejected', code: 'identity-invalid' })
     )
@@ -225,19 +274,78 @@ describe('optional relay foundation deterministic mocks', () => {
     }
   })
 
-  it('rejects a repeated signed envelope as replay', () => {
+  it('requires write authority for resync markers and never mutates document heads from them', () => {
+    const fixture = createFixture()
+    const readOnlyCapability = fixture.security.issueCapability({
+      identity: fixture.alice,
+      documentIds: [DOCUMENT_ID],
+      documentKinds: ['dashboard-layout'],
+      eventKinds: ['resync-marker'],
+      capabilities: ['document:read'],
+      maxDataClass: 'D2',
+      issuedAt: NOW - 500,
+      expiresAt: NOW + 60_000
+    })
+    const readOnlyMarker = fixture.security.seal({
+      identity: fixture.alice,
+      capability: readOnlyCapability,
+      draft: resyncMarkerDraft('forged-head'),
+      replayCounter: 1,
+      createdAt: NOW + 1,
+      expiresAt: NOW + 30_000
+    })
+
+    expect(fixture.gateway.submit(readOnlyMarker, NOW + 10)).toEqual(
+      expect.objectContaining({ status: 'rejected', code: 'capability-denied' })
+    )
+    expect(fixture.provider.list(TENANT_ID)).toHaveLength(0)
+    expect(fixture.security.currentHeads(DOCUMENT_ID)).toEqual([])
+
+    const appendCapability = fixture.security.issueCapability({
+      identity: fixture.alice,
+      documentIds: [DOCUMENT_ID],
+      documentKinds: ['dashboard-layout'],
+      eventKinds: ['resync-marker'],
+      capabilities: ['document:append'],
+      maxDataClass: 'D2',
+      issuedAt: NOW - 400,
+      expiresAt: NOW + 60_000
+    })
+    const appendMarker = fixture.security.seal({
+      identity: fixture.alice,
+      capability: appendCapability,
+      draft: resyncMarkerDraft('metadata-only-head'),
+      replayCounter: 2,
+      createdAt: NOW + 2,
+      expiresAt: NOW + 30_000
+    })
+
+    expect(fixture.gateway.submit(appendMarker, NOW + 11).code).toBe('accepted')
+    expect(fixture.security.currentHeads(DOCUMENT_ID)).toEqual([])
+  })
+
+  it('uses only verified replay watermarks and verifies duplicate signed envelopes once', () => {
     const fixture = createFixture()
     const envelope = seal(fixture, fixture.alice, fixture.aliceCapability, 1)
+    fixture.provider.write({ ...envelope, replayCounter: 999 }, NOW + 5)
 
     expect(fixture.gateway.submit(envelope, NOW + 10).code).toBe('accepted')
+    fixture.provider.write(envelope, NOW + 11)
+    expect(fixture.gateway.verifyStored(TENANT_ID, NOW + 12).map((record) => record.envelope.envelopeId)).toEqual([
+      envelope.envelopeId
+    ])
+    expect(fixture.gateway.quarantine()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'signature-invalid' }),
+      expect.objectContaining({ code: 'replay' })
+    ]))
     expect(fixture.gateway.submit(envelope, NOW + 11)).toEqual(
       expect.objectContaining({ status: 'rejected', code: 'replay' })
     )
     const restartedGateway = new DeterministicRelayGateway(fixture.provider, fixture.security)
-    expect(restartedGateway.submit(envelope, NOW + 12)).toEqual(
+    expect(restartedGateway.submit(envelope, NOW + 13)).toEqual(
       expect.objectContaining({ status: 'rejected', code: 'replay' })
     )
-    expect(fixture.provider.list(TENANT_ID)).toHaveLength(1)
+    expect(fixture.provider.list(TENANT_ID)).toHaveLength(3)
   })
 
   it('rejects stale document keys and excludes revoked members from new key envelopes', () => {
@@ -265,18 +373,137 @@ describe('optional relay foundation deterministic mocks', () => {
       createdAt: NOW + 11,
       expiresAt: NOW + 30_000
     })
-    const revocation = fixture.security.revokeDevice(DOCUMENT_ID, fixture.bob.deviceId, 'device compromise', NOW + 12)
+    const revocation = fixture.security.revokeDocumentMember(
+      DOCUMENT_ID,
+      fixture.bob.deviceId,
+      'removed from document',
+      NOW + 12
+    )
 
     expect(revocation.revokedDeviceId).toBe(fixture.bob.deviceId)
     expect(revocation.memberKeyEnvelopes.map((entry) => entry.recipientKeyId)).toEqual([
       fixture.alice.encryptionKeyId
     ])
     expect(fixture.gateway.submit(bobPending, NOW + 13)).toEqual(
-      expect.objectContaining({ status: 'rejected', code: 'signer-revoked' })
+      expect.objectContaining({ status: 'rejected', code: 'capability-denied' })
     )
     expect(fixture.gateway.verifyStored(TENANT_ID, NOW + 100_000).map((record) => record.envelope.envelopeId)).toEqual([
       aliceHistory.envelopeId
     ])
+  })
+
+  it('keeps document revocation scoped and removes globally revoked devices from every document', () => {
+    const fixture = createFixture()
+    fixture.security.registerDocument(
+      TENANT_ID,
+      OTHER_DOCUMENT_ID,
+      [fixture.alice.deviceId, fixture.bob.deviceId]
+    )
+    const bobOtherCapability = fixture.security.issueCapability({
+      identity: fixture.bob,
+      documentIds: [OTHER_DOCUMENT_ID],
+      maxDataClass: 'D2',
+      issuedAt: NOW - 500,
+      expiresAt: NOW + 60_000
+    })
+
+    const scoped = fixture.security.revokeDocumentMember(
+      DOCUMENT_ID,
+      fixture.bob.deviceId,
+      'removed from first document',
+      NOW + 1
+    )
+    expect(scoped.memberKeyEnvelopes.map((entry) => entry.recipientKeyId)).toEqual([
+      fixture.alice.encryptionKeyId
+    ])
+
+    const bobHistory = fixture.security.seal({
+      identity: fixture.bob,
+      capability: bobOtherCapability,
+      draft: dashboardDraftFor(OTHER_DOCUMENT_ID, 'bob-other-history'),
+      replayCounter: 1,
+      createdAt: NOW + 2,
+      expiresAt: NOW + 30_000
+    })
+    expect(fixture.gateway.submit(bobHistory, NOW + 3).code).toBe('accepted')
+    const bobPending = fixture.security.seal({
+      identity: fixture.bob,
+      capability: bobOtherCapability,
+      draft: dashboardDraftFor(OTHER_DOCUMENT_ID, 'bob-other-pending'),
+      replayCounter: 2,
+      createdAt: NOW + 4,
+      expiresAt: NOW + 30_000
+    })
+
+    const globalCertificates = fixture.security.revokeDevice(
+      fixture.bob.deviceId,
+      'device compromise',
+      NOW + 5
+    )
+    expect(globalCertificates.map((certificate) => certificate.documentId)).toEqual([
+      OTHER_DOCUMENT_ID
+    ])
+    expect(globalCertificates[0].memberKeyEnvelopes.map((entry) => entry.recipientKeyId)).toEqual([
+      fixture.alice.encryptionKeyId
+    ])
+    expect(fixture.gateway.submit(bobPending, NOW + 6)).toEqual(
+      expect.objectContaining({ status: 'rejected', code: 'signer-revoked' })
+    )
+    expect(fixture.gateway.verifyStored(TENANT_ID, NOW + 100_000).map((record) => record.envelope.envelopeId)).toEqual([
+      bobHistory.envelopeId
+    ])
+    expect(fixture.security.rotateDocumentKey(
+      OTHER_DOCUMENT_ID,
+      'post-compromise rotation',
+      NOW + 7
+    ).memberKeyEnvelopes.map((entry) => entry.recipientKeyId)).toEqual([
+      fixture.alice.encryptionKeyId
+    ])
+  })
+
+  it('rejects stale or withdrawn D3 consent during queue flush and submission', () => {
+    const fixture = createFixture()
+    const client = new LocalFirstMockRelayClient(
+      fixture.alice,
+      fixture.aliceCapability,
+      fixture.security,
+      fixture.gateway
+    )
+    client.setNetworkAvailable(false)
+    expect(client.publish(raceNoteDraft('queued-consent'), NOW)).toEqual(
+      expect.objectContaining({ status: 'queued', code: 'queued-offline' })
+    )
+
+    expect(fixture.security.updateDocumentConsent(DOCUMENT_ID, false)).toEqual({
+      documentId: DOCUMENT_ID,
+      consentEpoch: 2,
+      granted: false
+    })
+    client.setNetworkAvailable(true)
+    expect(client.flush(NOW + 10)).toEqual([
+      expect.objectContaining({ status: 'rejected', code: 'consent-required' })
+    ])
+    expect(fixture.provider.list(TENANT_ID)).toHaveLength(0)
+
+    expect(fixture.security.updateDocumentConsent(DOCUMENT_ID, true)).toEqual({
+      documentId: DOCUMENT_ID,
+      consentEpoch: 3,
+      granted: true
+    })
+    expect(client.publish(raceNoteDraft('stale-consent'), NOW + 20)).toEqual(
+      expect.objectContaining({ status: 'rejected', code: 'consent-required' })
+    )
+
+    const refreshedCapability = fixture.security.issueCapability({
+      identity: fixture.alice,
+      documentIds: [DOCUMENT_ID],
+      maxDataClass: 'D3',
+      consentEpoch: 3,
+      issuedAt: NOW + 21,
+      expiresAt: NOW + 60_000
+    })
+    client.setCapability(refreshedCapability)
+    expect(client.publish(raceNoteDraft('fresh-consent'), NOW + 22).code).toBe('accepted')
   })
 
   it('enforces per-tenant quota before a second ciphertext write', () => {
@@ -284,7 +511,10 @@ describe('optional relay foundation deterministic mocks', () => {
       maxObjectsPerTenant: 1,
       maxObjectsPerDevice: 10,
       maxObjectsPerDocument: 10,
-      maxCiphertextBytesPerTenant: 1_000_000,
+      maxStoredBytesPerTenant: 1_000_000,
+      maxEnvelopeBytes: 100_000,
+      maxReferenceCount: 100,
+      maxReferenceBytes: 100_000,
       maxOfflineQueueItems: 10,
       maxOfflineQueueBytes: 1_000_000
     }
@@ -299,6 +529,51 @@ describe('optional relay foundation deterministic mocks', () => {
       NOW + 11
     )).toEqual(expect.objectContaining({ status: 'rejected', code: 'quota-exceeded' }))
     expect(fixture.provider.list(TENANT_ID)).toHaveLength(1)
+  })
+
+  it('counts references and metadata in storage and offline queue byte quotas', () => {
+    const fixture = createFixture()
+    const longReference = `head-${'x'.repeat(4_000)}`
+    const envelope = seal(
+      fixture,
+      fixture.alice,
+      fixture.aliceCapability,
+      1,
+      dashboardDraft('metadata-heavy', [longReference])
+    )
+    const maxEnvelopeBytes = envelope.ciphertextBytes + 256
+    expect(serializedByteLength(envelope)).toBeGreaterThan(maxEnvelopeBytes)
+
+    const quotas: RelayQuotaPolicy = {
+      maxObjectsPerTenant: 10,
+      maxObjectsPerDevice: 10,
+      maxObjectsPerDocument: 10,
+      maxStoredBytesPerTenant: 1_000_000,
+      maxEnvelopeBytes,
+      maxReferenceCount: 10,
+      maxReferenceBytes: 100_000,
+      maxOfflineQueueItems: 10,
+      maxOfflineQueueBytes: 1_000_000
+    }
+    const gateway = new DeterministicRelayGateway(fixture.provider, fixture.security, quotas)
+
+    expect(gateway.submit(envelope, NOW + 10)).toEqual(
+      expect.objectContaining({ status: 'rejected', code: 'quota-exceeded' })
+    )
+    expect(fixture.provider.list(TENANT_ID)).toHaveLength(0)
+
+    const client = new LocalFirstMockRelayClient(
+      fixture.alice,
+      fixture.aliceCapability,
+      fixture.security,
+      gateway
+    )
+    client.setNetworkAvailable(false)
+    expect(client.publish(dashboardDraft('queued-metadata', [longReference]), NOW + 20)).toEqual(
+      expect.objectContaining({ status: 'rejected', code: 'offline-queue-full' })
+    )
+    expect(client.localDocuments()).toHaveLength(1)
+    expect(client.queued()).toHaveLength(0)
   })
 
   it('blocks writes and automatic resync during provider split brain while keeping local functions available', () => {

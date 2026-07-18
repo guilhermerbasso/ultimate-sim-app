@@ -110,7 +110,7 @@ const REQUIRED_CAPABILITY: Readonly<Record<RelayEventKind, RelayCapability>> = O
   'membership-record': 'membership:admin',
   'key-status-record': 'keys:rotate',
   'rotation-certificate': 'keys:rotate',
-  'resync-marker': 'document:read'
+  'resync-marker': 'document:append'
 })
 
 const DRAFT_KEYS = [
@@ -254,8 +254,8 @@ function assertInteger(value: unknown, path: string, minimum = 0): asserts value
 }
 
 function assertStringArray(value: unknown, path: string): asserts value is string[] {
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
-    throw new RelayPolicyError('undeclared-field', `${path} must be an array of strings.`, path)
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string' || entry.length === 0)) {
+    throw new RelayPolicyError('undeclared-field', `${path} must be an array of non-empty strings.`, path)
   }
 }
 

@@ -22,6 +22,9 @@ IDs, digests, timestamps, epochs, and signatures.
 - Local copies remain primary and usable with network denied.
 - The relay contract accepts only allowlisted document/synchronization-event kinds.
 - D4 secrets and D5 sensitive media/behavioral data are always denied.
+- D3 submissions must match the exact current granted document consent epoch.
+- Read-only capabilities cannot persist resync markers; only changes/snapshots mutate document heads.
+- Replay state is derived from verified unique records, and quotas include full metadata/references.
 - Relay records contain ciphertext, public identity/capability material, hashes, epochs, counters,
   causal references, and sender signatures; never plaintext or private keys.
 - The deterministic mock crypto profile proves validation flow, not cryptographic strength.

@@ -20,6 +20,18 @@
     "rotation-certificate",
     "resync-marker"
   ],
+  "eventCapabilities": {
+    "document-change": "document:append",
+    "document-snapshot": "document:snapshot",
+    "membership-record": "membership:admin",
+    "key-status-record": "keys:rotate",
+    "rotation-certificate": "keys:rotate",
+    "resync-marker": "document:append"
+  },
+  "documentHeadMutationEvents": [
+    "document-change",
+    "document-snapshot"
+  ],
   "allowedDataClasses": {
     "D0": "allowed by document policy",
     "D1": "allowed by document policy",
@@ -83,6 +95,30 @@
     "coverage": "exactly one current document-key envelope per active member encryption key",
     "privateKeysIncluded": false
   },
+  "consentPolicy": {
+    "D3": "grant must equal the current document consent epoch and consent must remain granted at submission or queue flush",
+    "withdrawal": "increments the epoch and rejects queued or newly submitted stale grants"
+  },
+  "revocationPolicy": {
+    "documentMember": "removes access and rotates only the selected document",
+    "device": "revokes the signing identity and removes the device from every document",
+    "history": "previously accepted signed history remains verifiable"
+  },
+  "replayPolicy": {
+    "watermarkSource": "verified unique provider records only",
+    "duplicates": "same envelope ID or non-increasing signer/document counter is quarantined"
+  },
+  "quotaDimensions": [
+    "tenant objects",
+    "device objects",
+    "document objects",
+    "full serialized stored envelope bytes",
+    "single-envelope bytes",
+    "causal reference count",
+    "causal reference bytes",
+    "offline queue items",
+    "full serialized offline queue bytes"
+  ],
   "canonicalSignedTuple": [
     "schemaVersion",
     "providerContract",
