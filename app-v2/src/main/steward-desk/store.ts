@@ -14,6 +14,7 @@ import { basename, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
   STEWARD_CASE_SCHEMA_VERSION,
+  STEWARD_PACKAGE_MAX_BYTES,
   STEWARD_EXPORT_MAGIC,
   STEWARD_EXPORT_VERSION,
   type StewardActor,
@@ -35,6 +36,7 @@ import {
   type StewardDissent,
   type StewardDissentInput,
   type StewardEvidenceLock,
+  type StewardEvidenceDetails,
   type StewardEvidenceLockInput,
   type StewardEvidenceProvenance,
   type StewardExportBundle,
@@ -51,7 +53,14 @@ import {
   type StewardVerdictFinding,
   type StewardVerdictInput
 } from '../../shared/steward-desk'
-import { canonicalStringify, cloneJson, isPlainObject, sha256Canonical, sha256Text } from './canonical'
+import {
+  PACKAGE_MAX_CANONICAL_BYTES,
+  canonicalStringify,
+  cloneJson,
+  isPlainObject,
+  sha256Canonical,
+  sha256Text
+} from './canonical'
 
 const ZERO_HASH = '0'.repeat(64)
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/
@@ -68,7 +77,8 @@ const SUPPORTED_EVENT_TYPES = new Set<StewardCaseEventType>([
   'dissent-recorded',
   'appeal-filed',
   'appeal-resolved',
-  'case-imported'
+  'case-imported',
+  'import-completed'
 ])
 const ACTOR_ROLES = new Set<StewardActorRole>([
   'steward',
@@ -118,6 +128,13 @@ export interface StewardCaseStoreOptions {
   rootDir: string
   now?: () => number
   idFactory?: () => string
+  importFault?: (stage: 'after-evidence' | 'after-stage-write' | 'before-publish') => void
+}
+
+export interface StewardCaseImportOutcome {
+  caseValue: StewardCase
+  deduplicated: boolean
+  retried: boolean
 }
 
 function text(value: unknown, label: string, maxLength = 500): string {
@@ -425,7 +442,11 @@ function eventUnsigned(record: Omit<StewardEventRecord, 'eventHash'>): Omit<Stew
   return record
 }
 
-function eventFingerprint(identityValue: StewardRaceSessionIdentity, bookmark: StewardIncidentBookmarkInput): string {
+function normalizedFingerprintText(value: string): string {
+  return value.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+function legacyEventFingerprint(identityValue: StewardRaceSessionIdentity, bookmark: StewardIncidentBookmarkInput): string {
   return sha256Canonical({
     leagueId: identityValue.leagueId.toLowerCase(),
     eventId: identityValue.eventId.toLowerCase(),
@@ -436,6 +457,36 @@ function eventFingerprint(identityValue: StewardRaceSessionIdentity, bookmark: S
     sessionTimeSec: bookmark.sessionTimeSec ?? null,
     lap: bookmark.lap ?? null,
     replayFrame: bookmark.replayFrame ?? null
+  })
+}
+
+function eventFingerprint(identityValue: StewardRaceSessionIdentity, bookmark: StewardIncidentBookmarkInput): string {
+  const hasStablePosition =
+    bookmark.sessionTimeSec !== undefined ||
+    bookmark.lap !== undefined ||
+    bookmark.lapDistPct !== undefined ||
+    bookmark.replayFrame !== undefined
+  const sourceKey = hasStablePosition
+    ? null
+    : bookmark.source === 'manual'
+      ? normalizedFingerprintText(bookmark.label)
+      : normalizedFingerprintText(bookmark.sourceId)
+  return sha256Canonical({
+    leagueId: normalizedFingerprintText(identityValue.leagueId),
+    eventId: normalizedFingerprintText(identityValue.eventId),
+    sessionId: normalizedFingerprintText(identityValue.sessionId),
+    sim: normalizedFingerprintText(identityValue.sim),
+    sessionType: normalizedFingerprintText(identityValue.sessionType),
+    source: bookmark.source,
+    sourceKey,
+    sessionTimeSec: bookmark.sessionTimeSec === undefined
+      ? null
+      : Math.round(bookmark.sessionTimeSec * 10) / 10,
+    lap: bookmark.lap === undefined ? null : Math.trunc(bookmark.lap),
+    lapDistPct: bookmark.lapDistPct === undefined
+      ? null
+      : Math.round(bookmark.lapDistPct * 10_000) / 10_000,
+    replayFrame: bookmark.replayFrame === undefined ? null : Math.trunc(bookmark.replayFrame)
   })
 }
 
@@ -494,7 +545,7 @@ function placeholderCase(caseId: string, failures: string[]): StewardCase {
 
 function portableCase(value: StewardCase): StewardPortableCase {
   const { history: _history, integrity: _integrity, ...portable } = value
-  return cloneJson(portable)
+  return cloneJson(portable, PACKAGE_MAX_CANONICAL_BYTES)
 }
 
 function sensitiveReplacements(value: StewardPortableCase): Array<[string, string]> {
@@ -552,14 +603,21 @@ function replaceAllInsensitive(value: string, source: string, replacement: strin
 }
 
 function scrubText(value: string, replacements: Array<[string, string]>): string {
-  return replacements.reduce(
+  const scrubbed = replacements.reduce(
     (current, [source, replacement]) => replaceAllInsensitive(current, source, replacement),
     value
   )
+  return scrubbed
+    .replace(
+      /\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})?\b/giu,
+      '[timestamp-normalized]'
+    )
+    .replace(/\b1\d{9}(?:\d{3})?\b/gu, '[timestamp-normalized]')
 }
 
 const SENSITIVE_EVIDENCE_KEY =
-  /name|driver|team|email|user|account|cust(?:omer)?id|member|participant|steward|league|session(?:id|ref)|event(?:id|ref)|path|url|locator|token/i
+  /name|driver|team|email|user|account|cust(?:omer)?id|member|participant|steward|producer|author|owner|league|session(?:id|ref)|event(?:id|ref)|path|url|locator|token/i
+const EXACT_TIME_KEY = /^(?:t|time|timeMs|timestamp|date|dateTime|.*timestamp|.*At|.*_at|.*TimeMs)$/i
 
 function collectSensitiveContentValues(
   value: unknown,
@@ -582,15 +640,27 @@ function collectSensitiveContentValues(
   }
 }
 
-function scrubContent(value: unknown, replacements: Array<[string, string]>, key = ''): unknown {
+function scrubContent(
+  value: unknown,
+  replacements: Array<[string, string]>,
+  normalizeTime: (value: number) => number,
+  key = ''
+): unknown {
   if (SENSITIVE_EVIDENCE_KEY.test(key)) return '[redacted]'
+  if (EXACT_TIME_KEY.test(key)) {
+    if (typeof value === 'number' && Number.isFinite(value)) return normalizeTime(value)
+    if (typeof value === 'string') {
+      const parsed = Date.parse(value)
+      if (Number.isFinite(parsed)) return normalizeTime(parsed)
+    }
+  }
   if (typeof value === 'string') return scrubText(value, replacements)
-  if (Array.isArray(value)) return value.map((entry) => scrubContent(entry, replacements))
+  if (Array.isArray(value)) return value.map((entry) => scrubContent(entry, replacements, normalizeTime))
   if (isPlainObject(value)) {
     return Object.fromEntries(
       Object.entries(value).map(([entryKey, entry]) => [
         entryKey,
-        scrubContent(entry, replacements, entryKey)
+        scrubContent(entry, replacements, normalizeTime, entryKey)
       ])
     )
   }
@@ -630,6 +700,9 @@ function anonymizeCase(
   aliasSeed: string
 ): { caseValue: StewardPortableCase; evidence: StewardExportEvidence[]; redactions: string[] } {
   const replacementMap = new Map(sensitiveReplacements(sourceCase))
+  for (const entry of sourceCase.evidence) {
+    replacementMap.set(entry.provenance.producer, 'producer-redacted')
+  }
   for (const entry of evidenceContents) collectSensitiveContentValues(entry.content, replacementMap)
   const replacements = [...replacementMap.entries()].sort((left, right) => right[0].length - left[0].length)
   const aliases = aliasActors(sourceCase)
@@ -670,7 +743,7 @@ function anonymizeCase(
   }
 
   const anonymizedEvidence = evidenceContents.map((entry) => {
-    const content = scrubContent(entry.content, replacements)
+    const content = scrubContent(entry.content, replacements, relativeTime)
     return {
       evidenceId: evidenceIdMap.get(entry.evidenceId) as string,
       contentHash: sha256Canonical(content),
@@ -701,13 +774,15 @@ function anonymizeCase(
     provenance: {
       sourceKind: entry.provenance.sourceKind,
       sourceRef: '[redacted]',
-      producer: entry.provenance.producer,
-      producerVersion: entry.provenance.producerVersion,
+      producer: 'producer-redacted',
+      producerVersion: scrubText(entry.provenance.producerVersion, replacements),
       capturedAt: relativeTime(entry.provenance.capturedAt),
       ...(entry.provenance.captureRange
-        ? { captureRange: scrubText(entry.provenance.captureRange, replacements) }
+        ? { captureRange: '[normalized]' }
         : {}),
-      ...(entry.provenance.transform ? { transform: entry.provenance.transform } : {}),
+      ...(entry.provenance.transform
+        ? { transform: scrubText(entry.provenance.transform, replacements) }
+        : {}),
       ...(entry.provenance.notes ? { notes: scrubText(entry.provenance.notes, replacements) } : {})
     },
     lockedAt: relativeTime(entry.lockedAt),
@@ -791,26 +866,32 @@ function anonymizeCase(
     evidence: anonymizedEvidence,
     redactions: [
       'participant and steward identities replaced with role aliases',
+      'producer and steward provenance identities removed',
       'league, event, session, track, and source locators removed',
-      'exact timestamps converted to relative minute offsets',
+      'exact timestamps in case data, provenance, and evidence converted to relative minute offsets',
       'sensitive evidence fields and known identity strings removed'
     ]
   }
 }
 
 export function serializeStewardExportBundle(bundle: StewardExportBundle): string {
-  return `${JSON.stringify(bundle, null, 2)}\n`
+  return canonicalStringify(bundle, PACKAGE_MAX_CANONICAL_BYTES)
 }
 
 export function parseStewardExportBundle(raw: string): StewardExportBundle {
-  if (Buffer.byteLength(raw, 'utf8') > 16 * 1024 * 1024) throw new Error('Steward package exceeds 16 MiB.')
+  if (Buffer.byteLength(raw, 'utf8') > STEWARD_PACKAGE_MAX_BYTES + 4 * 1024 * 1024) {
+    throw new Error('Steward package framing exceeds 20 MiB.')
+  }
   const parsed = plain(JSON.parse(raw) as unknown, 'package')
+  canonicalStringify(parsed, PACKAGE_MAX_CANONICAL_BYTES)
   if (parsed.magic !== STEWARD_EXPORT_MAGIC || parsed.version !== STEWARD_EXPORT_VERSION) {
     throw new Error('Unsupported steward package.')
   }
   const packageHash = hash(parsed.packageHash, 'package.packageHash')
   const { packageHash: _packageHash, ...unsigned } = parsed
-  if (sha256Canonical(unsigned) !== packageHash) throw new Error('Steward package hash mismatch.')
+  if (sha256Canonical(unsigned, PACKAGE_MAX_CANONICAL_BYTES) !== packageHash) {
+    throw new Error('Steward package hash mismatch.')
+  }
   return parsed as unknown as StewardExportBundle
 }
 
@@ -850,17 +931,25 @@ export class StewardCaseStore {
   private readonly rootDir: string
   private readonly casesDir: string
   private readonly evidenceDir: string
+  private readonly stagingDir: string
+  private readonly quarantineDir: string
   private readonly now: () => number
   private readonly idFactory: () => string
+  private readonly importFault?: StewardCaseStoreOptions['importFault']
 
   constructor(options: StewardCaseStoreOptions) {
     this.rootDir = options.rootDir
     this.casesDir = join(this.rootDir, 'cases')
     this.evidenceDir = join(this.rootDir, 'evidence')
+    this.stagingDir = join(this.rootDir, 'import-staging')
+    this.quarantineDir = join(this.rootDir, 'quarantine')
     this.now = options.now ?? Date.now
     this.idFactory = options.idFactory ?? randomUUID
+    this.importFault = options.importFault
     mkdirSync(this.casesDir, { recursive: true })
     mkdirSync(this.evidenceDir, { recursive: true })
+    mkdirSync(this.stagingDir, { recursive: true })
+    mkdirSync(this.quarantineDir, { recursive: true })
   }
 
   listCases(): StewardCase[] {
@@ -876,6 +965,23 @@ export class StewardCaseStore {
     const normalized = identifier(caseId, 'caseId')
     const path = this.casePath(normalized)
     return existsSync(path) ? this.loadCase(normalized).value : null
+  }
+
+  getEvidenceDetails(caseId: string, evidenceId: string): StewardEvidenceDetails {
+    const current = this.mutableCase(caseId).value
+    const normalizedEvidenceId = identifier(evidenceId, 'evidenceId')
+    const evidence = current.evidence.find((entry) => entry.evidenceId === normalizedEvidenceId)
+    if (!evidence || evidence.state !== 'available') {
+      throw new Error(`Evidence ${normalizedEvidenceId} is not available.`)
+    }
+    return {
+      caseId: current.caseId,
+      evidence,
+      content: this.readEvidence(evidence.contentHash),
+      contentHashVerified: true,
+      chainState: 'unanchored',
+      verifiedAt: Math.trunc(this.now())
+    }
   }
 
   createCase(input: StewardCaseCreateInput): StewardCase {
@@ -920,8 +1026,11 @@ export class StewardCaseStore {
     const owner = decisionActor(input.actor)
     const current = this.mutableCase(input.caseId)
     if (!CASE_STATUSES.has(input.status)) throw new Error('Unsupported steward case status.')
-    if (input.status === 'closed' && current.value.appeals.some((entry) => entry.status === 'open')) {
-      throw new Error('A steward case cannot be closed while an appeal is open.')
+    if (
+      current.value.appeals.some((entry) => entry.status === 'open') &&
+      input.status !== 'appealed'
+    ) {
+      throw new Error('Case status is derived as appealed while any appeal is open.')
     }
     if (current.value.status === input.status) return current.value
     this.appendEvent(current.value.caseId, 'case-status-set', owner, { status: input.status })
@@ -1130,13 +1239,16 @@ export class StewardCaseStore {
       ? anonymizeCase(sourcePortable, sourceEvidence, randomUUID())
       : { caseValue: sourcePortable, evidence: sourceEvidence, redactions: [] }
     const exportedHeadHash = profile === 'anonymized'
-      ? sha256Canonical({ case: projected.caseValue, evidence: projected.evidence })
+      ? sha256Canonical(
+          { case: projected.caseValue, evidence: projected.evidence },
+          PACKAGE_MAX_CANONICAL_BYTES
+        )
       : current.integrity.headHash
     const unsigned = {
       magic: STEWARD_EXPORT_MAGIC,
       version: STEWARD_EXPORT_VERSION,
       profile,
-      exportedAt: Math.trunc(this.now()),
+      exportedAt: profile === 'anonymized' ? 0 : Math.trunc(this.now()),
       source: {
         caseRef: profile === 'anonymized' ? projected.caseValue.caseId : current.caseId,
         headHash: exportedHeadHash,
@@ -1147,27 +1259,54 @@ export class StewardCaseStore {
       evidence: projected.evidence,
       redactions: projected.redactions
     }
-    return { ...unsigned, packageHash: sha256Canonical(unsigned) }
+    const bundle = {
+      ...unsigned,
+      packageHash: sha256Canonical(unsigned, PACKAGE_MAX_CANONICAL_BYTES)
+    }
+    canonicalStringify(bundle, PACKAGE_MAX_CANONICAL_BYTES)
+    return bundle
   }
 
   importCase(raw: string): StewardCase {
+    return this.importCaseWithResult(raw).caseValue
+  }
+
+  importCaseWithResult(raw: string): StewardCaseImportOutcome {
     const bundle = this.validateBundle(parseStewardExportBundle(raw))
+    const priorImports = this.listCases().filter(
+      (entry) => entry.importProvenance?.sourcePackageHash === bundle.packageHash
+    )
+    const completed = priorImports.find(
+      (entry) => entry.importCompleted === true && entry.integrity.state === 'unanchored'
+    )
+    if (completed) {
+      const staleStage = this.importStagingPath(bundle.packageHash)
+      if (existsSync(staleStage)) unlinkSync(staleStage)
+      return { caseValue: completed, deduplicated: true, retried: false }
+    }
+    let retried = existsSync(this.importStagingPath(bundle.packageHash))
+    for (const incomplete of priorImports) {
+      retried = true
+      this.quarantineIncompleteImport(incomplete.caseId, bundle.packageHash)
+    }
+
     const packageCase = bundle.profile === 'anonymized'
       ? rebaseAnonymizedCase(bundle.case, Math.trunc(this.now()))
       : bundle.case
     const primary = packageCase.bookmarks[0]
+    const duplicate = this.listCases().find(
+      (entry) =>
+        entry.integrity.state === 'unanchored' &&
+        entry.primaryIncidentFingerprint === eventFingerprint(packageCase.identity, primary)
+    )
+    if (duplicate) throw new Error(`Duplicate incident is already tracked by ${duplicate.caseId}.`)
+
     const importActor: StewardActor = {
       id: 'steward-import',
       displayName: 'Imported steward package',
       role: 'league-admin'
     }
-    const created = this.createCase({
-      title: packageCase.title,
-      actor: importActor,
-      identity: packageCase.identity,
-      incident: primary,
-      ...(packageCase.assignedTo ? { assignedTo: packageCase.assignedTo } : {})
-    })
+    const caseId = this.newId('case')
     const provenance: StewardImportProvenance = {
       sourcePackageHash: bundle.packageHash,
       sourceHeadHash: bundle.source.headHash,
@@ -1175,45 +1314,121 @@ export class StewardCaseStore {
       profile: bundle.profile,
       importedAt: Math.trunc(this.now())
     }
-    this.appendEvent(created.caseId, 'case-imported', importActor, { provenance })
+    const baseEvents: Array<{
+      type: StewardCaseEventType
+      actor: StewardActor
+      payload: unknown
+    }> = [
+      {
+        type: 'case-created',
+        actor: importActor,
+        payload: {
+          title: packageCase.title,
+          identity: packageCase.identity,
+          incident: primary,
+          primaryIncidentFingerprint: eventFingerprint(packageCase.identity, primary),
+          ...(packageCase.assignedTo ? { assignedTo: packageCase.assignedTo } : {})
+        } satisfies CaseCreatedPayload
+      },
+      { type: 'case-imported', actor: importActor, payload: { provenance } }
+    ]
+    const stagingPath = this.importStagingPath(bundle.packageHash)
+    this.writeStagedChain(stagingPath, this.buildEventRecords(caseId, baseEvents))
 
-    for (const bookmark of packageCase.bookmarks.slice(1)) {
-      this.appendEvent(created.caseId, 'bookmark-added', bookmark.createdBy, { bookmark })
-    }
     const contents = new Map(bundle.evidence.map((entry) => [entry.evidenceId, entry]))
     for (const evidence of packageCase.evidence) {
       const content = contents.get(evidence.evidenceId) as StewardExportEvidence
       this.writeEvidence(evidence.contentHash, canonicalStringify(content.content))
-      this.appendEvent(created.caseId, 'evidence-locked', evidence.lockedBy, {
-        evidence: { ...evidence, state: 'available' }
-      })
     }
-    for (const citation of packageCase.rules) {
-      this.appendEvent(created.caseId, 'rule-version-cited', citation.citedBy, { citation })
-    }
-    for (const verdict of packageCase.verdicts) {
-      this.appendEvent(created.caseId, 'human-verdict-recorded', verdict.decidedBy, { verdict })
-    }
-    for (const dissent of packageCase.dissents) {
-      this.appendEvent(created.caseId, 'dissent-recorded', dissent.submittedBy, { dissent })
-    }
+    this.importFault?.('after-evidence')
+
+    const events: Array<{
+      type: StewardCaseEventType
+      actor: StewardActor
+      payload: unknown
+    }> = [
+      ...baseEvents,
+      ...packageCase.bookmarks.slice(1).map((bookmark) => ({
+        type: 'bookmark-added' as const,
+        actor: bookmark.createdBy,
+        payload: { bookmark }
+      })),
+      ...packageCase.evidence.map((evidence) => ({
+        type: 'evidence-locked' as const,
+        actor: evidence.lockedBy,
+        payload: { evidence: { ...evidence, state: 'available' as const } }
+      })),
+      ...packageCase.rules.map((citation) => ({
+        type: 'rule-version-cited' as const,
+        actor: citation.citedBy,
+        payload: { citation }
+      })),
+      ...packageCase.verdicts.map((verdict) => ({
+        type: 'human-verdict-recorded' as const,
+        actor: verdict.decidedBy,
+        payload: { verdict }
+      })),
+      ...packageCase.dissents.map((dissent) => ({
+        type: 'dissent-recorded' as const,
+        actor: dissent.submittedBy,
+        payload: { dissent }
+      }))
+    ]
     for (const appeal of packageCase.appeals) {
-      this.appendEvent(created.caseId, 'appeal-filed', appeal.filedBy, {
-        appeal: { ...appeal, status: 'open', resolutions: [] }
+      events.push({
+        type: 'appeal-filed',
+        actor: appeal.filedBy,
+        payload: { appeal: { ...appeal, status: 'open', resolutions: [] } }
       })
       for (const resolution of appeal.resolutions) {
-        this.appendEvent(created.caseId, 'appeal-resolved', resolution.resolvedBy, {
-          appealId: appeal.appealId,
-          resolution
+        events.push({
+          type: 'appeal-resolved',
+          actor: resolution.resolvedBy,
+          payload: { appealId: appeal.appealId, resolution }
         })
       }
     }
-    this.appendEvent(created.caseId, 'case-status-set', importActor, { status: packageCase.status })
-    return this.requireCase(created.caseId).value
+    events.push(
+      {
+        type: 'case-status-set',
+        actor: importActor,
+        payload: { status: packageCase.status }
+      },
+      {
+        type: 'import-completed',
+        actor: importActor,
+        payload: { packageHash: bundle.packageHash }
+      }
+    )
+
+    const records = this.buildEventRecords(caseId, events)
+    this.writeStagedChain(stagingPath, records)
+    this.importFault?.('after-stage-write')
+    const staged = this.loadCase(caseId, stagingPath)
+    if (
+      staged.value.integrity.state !== 'unanchored' ||
+      staged.value.importCompleted !== true ||
+      staged.value.importProvenance?.sourcePackageHash !== bundle.packageHash
+    ) {
+      throw new Error('Staged steward import failed verification.')
+    }
+    this.importFault?.('before-publish')
+    const finalPath = this.casePath(caseId)
+    if (existsSync(finalPath)) throw new Error(`Steward case ${caseId} already exists.`)
+    renameSync(stagingPath, finalPath)
+    return {
+      caseValue: this.requireCase(caseId).value,
+      deduplicated: false,
+      retried
+    }
   }
 
   evidencePath(contentHash: string): string {
     return join(this.evidenceDir, `${hash(contentHash, 'contentHash')}.json`)
+  }
+
+  importStagingPath(packageHash: string): string {
+    return join(this.stagingDir, `${hash(packageHash, 'packageHash')}.jsonl`)
   }
 
   private validateBundle(bundle: StewardExportBundle): StewardExportBundle {
@@ -1294,20 +1509,29 @@ export class StewardCaseStore {
     for (const appeal of appeals) {
       if (!verdictIds.has(appeal.verdictId)) throw new Error('Appeal references an unknown verdict.')
     }
-    if (status === 'closed' && appeals.some((entry) => entry.status === 'open')) {
-      throw new Error('A packaged steward case cannot be closed while an appeal is open.')
+    if (appeals.some((entry) => entry.status === 'open') && status !== 'appealed') {
+      throw new Error('A packaged steward case must remain appealed while any appeal is open.')
     }
     const normalizedIdentity = identity(source.identity)
-    const primaryIncidentFingerprint = hash(
+    const packagedPrimaryIncidentFingerprint = hash(
       source.primaryIncidentFingerprint,
       'package.case.primaryIncidentFingerprint'
     )
-    if (eventFingerprint(normalizedIdentity, bookmarks[0]) !== primaryIncidentFingerprint) {
+    const primaryIncidentFingerprint = eventFingerprint(normalizedIdentity, bookmarks[0])
+    if (
+      packagedPrimaryIncidentFingerprint !== primaryIncidentFingerprint &&
+      packagedPrimaryIncidentFingerprint !== legacyEventFingerprint(normalizedIdentity, bookmarks[0])
+    ) {
       throw new Error('Primary incident fingerprint mismatch.')
     }
     const importProvenance = source.importProvenance
       ? importProvenanceRecord(source.importProvenance)
       : undefined
+    const importCompleted = source.importCompleted === undefined
+      ? undefined
+      : source.importCompleted === true
+        ? true
+        : (() => { throw new Error('package.case.importCompleted must be true when present.') })()
     return {
       schemaVersion: STEWARD_CASE_SCHEMA_VERSION,
       caseId: identifier(source.caseId, 'package.case.caseId'),
@@ -1324,7 +1548,8 @@ export class StewardCaseStore {
       verdicts,
       dissents,
       appeals,
-      ...(importProvenance ? { importProvenance } : {})
+      ...(importProvenance ? { importProvenance } : {}),
+      ...(importCompleted ? { importCompleted } : {})
     }
   }
 
@@ -1342,10 +1567,10 @@ export class StewardCaseStore {
     return this.loadCase(caseId)
   }
 
-  private loadCase(caseId: string): LoadedCase {
+  private loadCase(caseId: string, path = this.casePath(caseId)): LoadedCase {
     const failures: string[] = []
     const records: StewardEventRecord[] = []
-    const raw = readFileSync(this.casePath(caseId), 'utf8')
+    const raw = readFileSync(path, 'utf8')
     const lines = raw.split(/\r?\n/).filter((line) => line.trim().length > 0)
     let previousHash = ZERO_HASH
     for (let index = 0; index < lines.length; index += 1) {
@@ -1402,7 +1627,11 @@ export class StewardCaseStore {
       primaryIncidentFingerprint: hash(source.primaryIncidentFingerprint, 'primaryIncidentFingerprint'),
       ...(source.assignedTo ? { assignedTo: actor(source.assignedTo, 'assignedTo') } : {})
     }
-    if (eventFingerprint(created.identity, created.incident) !== created.primaryIncidentFingerprint) {
+    const stablePrimaryIncidentFingerprint = eventFingerprint(created.identity, created.incident)
+    if (
+      stablePrimaryIncidentFingerprint !== created.primaryIncidentFingerprint &&
+      legacyEventFingerprint(created.identity, created.incident) !== created.primaryIncidentFingerprint
+    ) {
       throw new Error('primary incident fingerprint mismatch')
     }
     const value: StewardCase = {
@@ -1412,7 +1641,7 @@ export class StewardCaseStore {
       createdAt: first.occurredAt,
       createdBy: decisionActor(first.actor, 'case-created actor'),
       identity: created.identity,
-      primaryIncidentFingerprint: created.primaryIncidentFingerprint,
+      primaryIncidentFingerprint: stablePrimaryIncidentFingerprint,
       status: 'triage',
       ...(created.assignedTo ? { assignedTo: created.assignedTo } : {}),
       bookmarks: [created.incident],
@@ -1470,7 +1699,16 @@ export class StewardCaseStore {
         }
         case 'case-imported':
           value.importProvenance = importProvenanceRecord(payload.provenance)
+          value.importCompleted = false
           break
+        case 'import-completed': {
+          const packageHash = hash(payload.packageHash, 'import-completed.packageHash')
+          if (!value.importProvenance || value.importProvenance.sourcePackageHash !== packageHash) {
+            throw new Error('import-completed marker does not match import provenance')
+          }
+          value.importCompleted = true
+          break
+        }
       }
     }
     assertUnique(value.bookmarks, (entry) => entry.bookmarkId, 'bookmarks')
@@ -1479,6 +1717,7 @@ export class StewardCaseStore {
     assertUnique(value.verdicts, (entry) => entry.verdictId, 'verdicts')
     assertUnique(value.dissents, (entry) => entry.dissentId, 'dissents')
     assertUnique(value.appeals, (entry) => entry.appealId, 'appeals')
+    if (value.appeals.some((entry) => entry.status === 'open')) value.status = 'appealed'
 
     const evidenceFailures: string[] = []
     value.evidence = value.evidence.map((entry) => {
@@ -1499,7 +1738,18 @@ export class StewardCaseStore {
     })
     const chainFailures = [...failures]
     const integrity = emptyIntegrity(chainFailures, records.length, records.at(-1)?.eventHash)
-    if (chainFailures.length === 0 && evidenceFailures.length > 0) {
+    if (
+      chainFailures.length === 0 &&
+      value.importProvenance &&
+      value.importCompleted !== true
+    ) {
+      value.integrity = {
+        ...integrity,
+        state: 'import-incomplete',
+        message: 'Imported case has no matching import-completed marker and is quarantined.',
+        failures: ['import-completed marker missing']
+      }
+    } else if (chainFailures.length === 0 && evidenceFailures.length > 0) {
       const missing = value.evidence.some((entry) => entry.state === 'missing')
       value.integrity = {
         ...integrity,
@@ -1522,6 +1772,66 @@ export class StewardCaseStore {
       eventHash: record.eventHash
     }))
     return value
+  }
+
+  private buildEventRecords(
+    caseId: string,
+    events: ReadonlyArray<{ type: StewardCaseEventType; actor: StewardActor; payload: unknown }>
+  ): StewardEventRecord[] {
+    let previousHash = ZERO_HASH
+    let occurredAt = Math.trunc(this.now())
+    return events.map((event, index) => {
+      if (index > 0) occurredAt += 1
+      const unsigned = eventUnsigned({
+        schemaVersion: STEWARD_CASE_SCHEMA_VERSION,
+        caseId,
+        eventId: this.newId('event'),
+        sequence: index + 1,
+        type: event.type,
+        occurredAt,
+        actor: event.actor,
+        payload: cloneJson(event.payload),
+        previousHash
+      })
+      const record: StewardEventRecord = {
+        ...unsigned,
+        eventHash: sha256Canonical(unsigned)
+      }
+      previousHash = record.eventHash
+      return record
+    })
+  }
+
+  private writeStagedChain(path: string, records: readonly StewardEventRecord[]): void {
+    const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`
+    let descriptor: number | undefined
+    try {
+      descriptor = openSync(temporaryPath, 'wx')
+      writeSync(
+        descriptor,
+        records.map((record) => JSON.stringify(record)).join('\n') + '\n',
+        undefined,
+        'utf8'
+      )
+      fsyncSync(descriptor)
+      closeSync(descriptor)
+      descriptor = undefined
+      if (existsSync(path)) unlinkSync(path)
+      renameSync(temporaryPath, path)
+    } finally {
+      if (descriptor !== undefined) closeSync(descriptor)
+      if (existsSync(temporaryPath)) unlinkSync(temporaryPath)
+    }
+  }
+
+  private quarantineIncompleteImport(caseId: string, packageHash: string): void {
+    const source = this.casePath(caseId)
+    if (!existsSync(source)) return
+    const target = join(
+      this.quarantineDir,
+      `${caseId}-${packageHash.slice(0, 12)}-${randomUUID()}.jsonl`
+    )
+    renameSync(source, target)
   }
 
   private appendEvent(caseId: string, type: StewardCaseEventType, eventActor: StewardActor, payload: unknown): void {

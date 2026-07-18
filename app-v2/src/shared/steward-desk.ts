@@ -2,6 +2,8 @@ export const STEWARD_CASE_SCHEMA_VERSION = 1 as const
 export const STEWARD_EXPORT_VERSION = 1 as const
 export const STEWARD_EXPORT_MAGIC = 'ultimate-sim-steward-case' as const
 export const STEWARD_EXPORT_EXTENSION = 'stewardcase' as const
+export const STEWARD_EVIDENCE_MAX_BYTES = 4 * 1024 * 1024
+export const STEWARD_PACKAGE_MAX_BYTES = 16 * 1024 * 1024
 
 export type StewardActorRole =
   | 'steward'
@@ -155,6 +157,7 @@ export type StewardCaseEventType =
   | 'appeal-filed'
   | 'appeal-resolved'
   | 'case-imported'
+  | 'import-completed'
 
 export interface StewardCaseEventSummary {
   eventId: string
@@ -166,7 +169,7 @@ export interface StewardCaseEventSummary {
 }
 
 export interface StewardCaseIntegrity {
-  state: 'unanchored' | 'corrupt' | 'evidence-missing' | 'evidence-corrupt'
+  state: 'unanchored' | 'corrupt' | 'evidence-missing' | 'evidence-corrupt' | 'import-incomplete'
   verified: false
   chainValid: boolean
   evidenceValid: boolean
@@ -202,6 +205,7 @@ export interface StewardCase {
   dissents: StewardDissent[]
   appeals: StewardAppeal[]
   importProvenance?: StewardImportProvenance
+  importCompleted?: boolean
   history: StewardCaseEventSummary[]
   integrity: StewardCaseIntegrity
 }
@@ -337,11 +341,28 @@ export interface StewardImportResult {
   ok: boolean
   canceled: boolean
   importedCase?: StewardCase
+  deduplicated?: boolean
+  retried?: boolean
+}
+
+export interface StewardEvidenceDetailsRequest {
+  caseId: string
+  evidenceId: string
+}
+
+export interface StewardEvidenceDetails {
+  caseId: string
+  evidence: StewardEvidenceLock
+  content: unknown
+  contentHashVerified: true
+  chainState: 'unanchored'
+  verifiedAt: number
 }
 
 export const STEWARD_CHANNELS = {
   listCases: 'steward:listCases',
   getCase: 'steward:getCase',
+  getEvidenceDetails: 'steward:getEvidenceDetails',
   createCase: 'steward:createCase',
   assignCase: 'steward:assignCase',
   setStatus: 'steward:setStatus',

@@ -5,6 +5,7 @@ import type { ModuleContext } from '../module-context'
 import {
   STEWARD_CHANNELS,
   STEWARD_EXPORT_EXTENSION,
+  STEWARD_PACKAGE_MAX_BYTES,
   type StewardAppealInput,
   type StewardAppealResolutionInput,
   type StewardBookmarkAddInput,
@@ -12,6 +13,7 @@ import {
   type StewardCaseCreateInput,
   type StewardCaseStatusInput,
   type StewardDissentInput,
+  type StewardEvidenceDetailsRequest,
   type StewardEvidenceLockInput,
   type StewardExportProfile,
   type StewardExportRequest,
@@ -23,7 +25,7 @@ import {
 import { StewardCaseStore, serializeStewardExportBundle } from '../steward-desk/store'
 import { logger } from './logger'
 
-const MAX_IMPORT_BYTES = 16 * 1024 * 1024
+const MAX_IMPORT_BYTES = STEWARD_PACKAGE_MAX_BYTES + 4 * 1024 * 1024
 
 function authorize(ctx: ModuleContext, event: IpcMainInvokeEvent): void {
   const main = ctx.getMainWindow()
@@ -66,6 +68,13 @@ export function register(ctx: ModuleContext): void {
     authorize(ctx, event)
     return store.getCase(caseId(value))
   })
+  ctx.ipcMain.handle(
+    STEWARD_CHANNELS.getEvidenceDetails,
+    (event, request: StewardEvidenceDetailsRequest) => {
+      authorize(ctx, event)
+      return store.getEvidenceDetails(caseId(request?.caseId), caseId(request?.evidenceId))
+    }
+  )
   ctx.ipcMain.handle(STEWARD_CHANNELS.createCase, (event, input: StewardCaseCreateInput) => {
     authorize(ctx, event)
     return mutate(() => store.createCase(input))
@@ -147,11 +156,17 @@ export function register(ctx: ModuleContext): void {
     if (result.canceled || !filePath) return { ok: false, canceled: true }
     const fileStat = await stat(filePath)
     if (!fileStat.isFile() || fileStat.size > MAX_IMPORT_BYTES) {
-      throw new Error('Steward package is not a supported file or exceeds 16 MiB.')
+      throw new Error('Steward package is not a supported file or exceeds the 20 MiB framing limit.')
     }
-    const importedCase = store.importCase(await readFile(filePath, 'utf8'))
-    changed(importedCase.caseId)
-    return { ok: true, canceled: false, importedCase }
+    const outcome = store.importCaseWithResult(await readFile(filePath, 'utf8'))
+    changed(outcome.caseValue.caseId)
+    return {
+      ok: true,
+      canceled: false,
+      importedCase: outcome.caseValue,
+      deduplicated: outcome.deduplicated,
+      retried: outcome.retried
+    }
   })
 
   logger.info('steward', 'local Steward Desk registered', {

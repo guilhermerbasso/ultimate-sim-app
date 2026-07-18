@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 
-const MAX_CANONICAL_BYTES = 4 * 1024 * 1024
+export const EVIDENCE_MAX_CANONICAL_BYTES = 4 * 1024 * 1024
+export const PACKAGE_MAX_CANONICAL_BYTES = 16 * 1024 * 1024
 const MAX_CANONICAL_DEPTH = 32
 const MAX_CANONICAL_NODES = 100_000
 
@@ -37,22 +38,25 @@ function normalizeCanonical(value: unknown, depth: number, budget: { nodes: numb
   return normalized
 }
 
-export function canonicalStringify(value: unknown): string {
+export function canonicalStringify(
+  value: unknown,
+  maxBytes = EVIDENCE_MAX_CANONICAL_BYTES
+): string {
   const serialized = JSON.stringify(normalizeCanonical(value, 0, { nodes: 0 }))
-  if (Buffer.byteLength(serialized, 'utf8') > MAX_CANONICAL_BYTES) {
-    throw new Error('Canonical value exceeds the 4 MiB limit.')
+  if (Buffer.byteLength(serialized, 'utf8') > maxBytes) {
+    throw new Error(`Canonical value exceeds the ${Math.floor(maxBytes / (1024 * 1024))} MiB limit.`)
   }
   return serialized
 }
 
-export function sha256Canonical(value: unknown): string {
-  return createHash('sha256').update(canonicalStringify(value), 'utf8').digest('hex')
+export function sha256Canonical(value: unknown, maxBytes = EVIDENCE_MAX_CANONICAL_BYTES): string {
+  return createHash('sha256').update(canonicalStringify(value, maxBytes), 'utf8').digest('hex')
 }
 
 export function sha256Text(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex')
 }
 
-export function cloneJson<T>(value: T): T {
-  return JSON.parse(canonicalStringify(value)) as T
+export function cloneJson<T>(value: T, maxBytes = EVIDENCE_MAX_CANONICAL_BYTES): T {
+  return JSON.parse(canonicalStringify(value, maxBytes)) as T
 }
