@@ -73,7 +73,7 @@ describe('CARS_REAL_WIDGETS', () => {
 
   it('uses provider blink across every car-real rev/shift renderer', () => {
     const ids = [
-      'f296Dash', 'f296RevLights',
+      'f296Dash', 'f296RevLights', 'f296RpmBar',
       'pcupDash', 'pcupRevBar',
       'gtdDash', 'gtdArcTach',
       'cvDash', 'cvRevLights', 'cvRpmBar',

@@ -157,17 +157,43 @@ function MapIcon({ color = '#ff2a35' }: { color?: string }): ReactElement {
   return <g fill="none" stroke={color} strokeWidth={4} strokeLinejoin="round"><path d="M2 8 l15 -7 l16 9 l16 -9 l15 7 v45 l-15 8 l-16 -9 l-16 9 l-15 -8 Z" /><path d="M17 1 v60 M33 10 v42 M49 1 v60" /></g>
 }
 
-function RpmBarGraphic({ snapshot, x, y, w, h, id = 'f296-rpm', scale = true }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; h: number; id?: string; scale?: boolean }): ReactElement {
+function RpmBarGraphic({
+  snapshot,
+  x,
+  y,
+  w,
+  h,
+  id = 'f296-rpm',
+  scale = true,
+  strobeOnShift = false
+}: {
+  snapshot: HifiWidgetProps['snapshot']
+  x: number
+  y: number
+  w: number
+  h: number
+  id?: string
+  scale?: boolean
+  strobeOnShift?: boolean
+}): ReactElement {
   const f = rpmFrac(snapshot)
   const rpm = num(snapshot?.rpm)
   const maxRpm = num(snapshot?.maxRpm)
   const missing = rpm == null || maxRpm == null || maxRpm <= 0
+  const shiftPct = resolveRevLightPct(snapshot)
+  const shiftActive = strobeOnShift && atShiftPoint(shiftPct, snapshot?.revLights?.blink)
   const cells = 32
   const gap = 2
   const cell = (w - gap * (cells - 1)) / cells
   const lit = missing ? 0 : Math.round(f * cells)
   return (
-    <g data-rpm-gauge="f296-rpm-bar" data-rpm-pct={f.toFixed(4)} data-rpm-lit={lit}>
+    <g
+      data-rpm-gauge="f296-rpm-bar"
+      data-rpm-pct={f.toFixed(4)}
+      data-rpm-lit={lit}
+      data-shift-active={shiftActive ? 'true' : 'false'}
+    >
+      <ShiftStrobe active={shiftActive} />
       <GlowDefs id={id} />
       {scale ? (
         <g>
@@ -178,7 +204,8 @@ function RpmBarGraphic({ snapshot, x, y, w, h, id = 'f296-rpm', scale = true }: 
       <rect x={x - 2} y={y - 2} width={w + 4} height={h + 4} fill="#050505" stroke="rgba(255,255,255,0.22)" strokeWidth={1.5} />
       {Array.from({ length: cells }, (_, i) => {
         const pct = i / (cells - 1)
-        const color = pct > 0.78 ? '#ff1010' : pct > 0.62 ? YELLOW : pct > 0.42 ? WHITE : '#343434'
+        const baseColor = pct > 0.78 ? '#ff1010' : pct > 0.62 ? YELLOW : pct > 0.42 ? WHITE : '#343434'
+        const color = revFill(baseColor, shiftActive)
         return <rect key={i} x={x + i * (cell + gap)} y={y} width={cell} height={h} fill={i < lit ? color : RECESS} opacity={i < lit ? 1 : 0.62} />
       })}
     </g>
@@ -242,7 +269,7 @@ function RpmBarWidget({ snapshot, width, height }: HifiWidgetProps): ReactElemen
   const w = width ?? 760
   const h = height ?? 130
   const rpm = num(snapshot?.rpm)
-  return <CleanTile width={w} height={h}><text x={w / 2} y={28} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={24} letterSpacing={2} {...legibleStroke(24)}>RPM x1000</text><RpmBarGraphic snapshot={snapshot} x={42} y={78} w={w - 84} h={28} id="f296-rpmbar" /><text x={w - 44} y={44} textAnchor="end" fill={rpm == null ? C.dim : YELLOW} fontFamily={FONT_NUM} fontWeight={900} fontSize={28} {...legibleStroke(28)}>{rpm == null ? '—' : fixed(rpm)}</text></CleanTile>
+  return <CleanTile width={w} height={h}><text x={w / 2} y={28} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={900} fontSize={24} letterSpacing={2} {...legibleStroke(24)}>RPM x1000</text><RpmBarGraphic snapshot={snapshot} x={42} y={78} w={w - 84} h={28} id="f296-rpmbar" strobeOnShift /><text x={w - 44} y={44} textAnchor="end" fill={rpm == null ? C.dim : YELLOW} fontFamily={FONT_NUM} fontWeight={900} fontSize={28} {...legibleStroke(28)}>{rpm == null ? '—' : fixed(rpm)}</text></CleanTile>
 }
 
 function SingleValue({ width = 280, height = 160, label, value, unit, color = WHITE, icon }: { width?: number; height?: number; label: string; value: string; unit?: string; color?: string; icon?: ReactElement }): ReactElement {

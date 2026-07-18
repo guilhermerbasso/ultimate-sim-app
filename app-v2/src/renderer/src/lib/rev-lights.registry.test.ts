@@ -74,12 +74,35 @@ const rpmGaugeContracts = [
     required: ['const rpmPct = resolveRpmGaugePct(s)', 'data-rpm-gauge="analog-tach"']
   },
   {
+    relativePath: 'overlay/widgets/Bosch296DashWidget.tsx',
+    required: ['const rpmPct = resolveRpmGaugePct(s)', '<RevLedBar pct={rpmPct}', 'data-rpm-gauge="bosch296-x1000-bar"']
+  },
+  {
     relativePath: 'overlay/widgets/RingDashWidget.tsx',
     required: ['const rpmPct = resolveRpmGaugePct(s)', 'value={rpmPct * 100}']
   },
   {
     relativePath: 'views/TelemetryView.tsx',
     required: ['const rpmPct = useMemo(() => resolveRpmGaugePct(snap), [snap])', '<Bar value={rpmPct}']
+  }
+] as const
+
+const providerBlinkContracts = [
+  {
+    relativePath: 'overlay/widgets/Bosch296DashWidget.tsx',
+    required: [
+      'const shiftActive = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)',
+      'shiftActive={shiftActive}'
+    ]
+  },
+  {
+    relativePath: 'hifi/widgets/carsReal/ferrari296.tsx',
+    required: [
+      'const shiftActive = strobeOnShift && atShiftPoint(shiftPct, snapshot?.revLights?.blink)',
+      '<ShiftStrobe active={shiftActive} />',
+      'revFill(baseColor, shiftActive)',
+      'strobeOnShift />'
+    ]
   }
 ] as const
 
@@ -103,6 +126,15 @@ describe('renderer shift-fill registry', () => {
     for (const contract of rpmGaugeContracts) {
       const contents = executable(source(contract.relativePath))
       expect(contents, contract.relativePath).toContain('resolveRpmGaugePct')
+      for (const snippet of contract.required) {
+        expect(contents, contract.relativePath).toContain(snippet)
+      }
+    }
+  })
+
+  it('keeps registered RPM-surface strobes provider-blink authoritative', () => {
+    for (const contract of providerBlinkContracts) {
+      const contents = executable(source(contract.relativePath))
       for (const snippet of contract.required) {
         expect(contents, contract.relativePath).toContain(snippet)
       }

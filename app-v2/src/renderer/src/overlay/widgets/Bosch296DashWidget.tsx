@@ -18,7 +18,7 @@ import { resolveSkin, FitText, type SkinToken } from '../../skins'
 import { RevLedBar, DataField, TelltaleBank, type FieldState, type TelltaleLamp } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
-import { atShiftPoint, resolveRevLightPct } from '../../lib/rev-lights'
+import { atShiftPoint, resolveRevLightPct, resolveRpmGaugePct } from '../../lib/rev-lights'
 
 export const BOSCH296_DASH_STREAM_SAFE = true
 
@@ -124,8 +124,9 @@ export function Bosch296DashWidget({ snapshot, config }: WidgetProps): ReactElem
   const P = Math.max(6, Math.round(Math.min(W, H) * 0.02))
   const G = Math.max(4, Math.round(Math.min(W, H) * 0.014))
 
+  const rpmPct = resolveRpmGaugePct(s)
   const shiftPct = shiftFraction(s)
-  const redline = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)
+  const shiftActive = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)
   const gear = formatGear(s?.gear)
 
   // ── vertical bands ──────────────────────────────────────────────────────────
@@ -215,7 +216,9 @@ export function Bosch296DashWidget({ snapshot, config }: WidgetProps): ReactElem
         <rect x={0} y={0} width={W} height={H} fill={palette.bg} />
 
         {/* ── Top: blue-redline rev bar + x1000 scale ─────────────────────── */}
-        <RevLedBar pct={shiftPct} profile={skin.led} x={P} y={P} width={W - 2 * P} height={revH} shiftActive={redline} />
+        <g data-rpm-gauge="bosch296-x1000-bar" data-rpm-pct={rpmPct.toFixed(4)}>
+          <RevLedBar pct={rpmPct} profile={skin.led} x={P} y={P} width={W - 2 * P} height={revH} shiftActive={shiftActive} />
+        </g>
         <FitText
           x={P}
           y={P + revH + scaleH / 2}
@@ -224,7 +227,7 @@ export function Bosch296DashWidget({ snapshot, config }: WidgetProps): ReactElem
           text={`RPM ${n0(s?.rpm)}`}
           anchor="start"
           fontFamily={typography.label}
-          fill={redline ? palette.crit : palette.textDim}
+          fill={shiftActive ? palette.crit : palette.textDim}
           minFontPx={11}
           maxFontPx={scaleH}
           weight={700}
@@ -275,7 +278,7 @@ export function Bosch296DashWidget({ snapshot, config }: WidgetProps): ReactElem
           height={gearH}
           rx={material.radius}
           fill={material.base}
-          stroke={redline ? palette.crit : palette.text}
+          stroke={shiftActive ? palette.crit : palette.text}
           strokeWidth={3}
         />
         <FitText
@@ -300,7 +303,7 @@ export function Bosch296DashWidget({ snapshot, config }: WidgetProps): ReactElem
           text={gear}
           anchor="middle"
           fontFamily={/^\d$/.test(gear) ? segment.numeric : segment.alpha}
-          fill={redline ? palette.crit : palette.text}
+          fill={shiftActive ? palette.crit : palette.text}
           minFontPx={24}
           maxFontPx={gearH * 0.7}
         />
