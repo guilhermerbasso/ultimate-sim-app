@@ -23,6 +23,7 @@ import {
   type StreamSafeAreaInsets,
   type StreamVisibilityOverride
 } from '../../../shared/stream-presentation'
+import { STREAMING_CHANNELS, type StreamingStartResult } from '../../../shared/streaming'
 import { parseButtonBoxPanel, type ButtonBoxPanel } from '../../../shared/touch-panel'
 import type { AppViewProps } from '../App'
 import { tt } from '../i18n'
@@ -87,6 +88,7 @@ export default function StreamingMobileEditorView({ showToast, language }: AppVi
   const [profiles, setProfiles] = useState<StreamPresentationProfileListItem[]>([])
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null)
   const [draft, setDraft] = useState<StreamPresentationProfile | null>(null)
+  const [baseRevision, setBaseRevision] = useState<number | null>(null)
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
   const [touchPanel, setTouchPanel] = useState<ButtonBoxPanel | null>(null)
   const [newTargetKey, setNewTargetKey] = useState('')
@@ -133,14 +135,12 @@ export default function StreamingMobileEditorView({ showToast, language }: AppVi
   useEffect(() => {
     const item = profiles.find((candidate) => candidate.profile.id === selectedProfileId)
     if (!item) return
-    setDraft((current) => {
-      if (!current || current.id !== item.profile.id || (!dirty && current.revision !== item.profile.revision)) {
-        return cloneStreamPresentationProfile(item.profile)
-      }
-      return current
-    })
+    if (!draft || draft.id !== item.profile.id || (!dirty && draft.revision !== item.profile.revision)) {
+      setDraft(cloneStreamPresentationProfile(item.profile))
+      setBaseRevision(item.profile.revision)
+    }
     if (!dirty) setVisibilityScope('base')
-  }, [dirty, profiles, selectedProfileId])
+  }, [dirty, draft?.id, draft?.revision, profiles, selectedProfileId])
 
   const currentTarget = useMemo(
     () => draft
@@ -219,6 +219,7 @@ export default function StreamingMobileEditorView({ showToast, language }: AppVi
     if (!item) return
     setSelectedProfileId(id)
     setDraft(cloneStreamPresentationProfile(item.profile))
+    setBaseRevision(item.profile.revision)
     setVisibilityScope('base')
     setDirty(false)
   }
@@ -230,6 +231,7 @@ export default function StreamingMobileEditorView({ showToast, language }: AppVi
     const profile = createStreamPresentationProfile(target)
     setSelectedProfileId(profile.id)
     setDraft(profile)
+    setBaseRevision(null)
     setVisibilityScope('base')
     setDirty(true)
   }
@@ -242,10 +244,11 @@ export default function StreamingMobileEditorView({ showToast, language }: AppVi
         STREAM_PRESENTATION_CHANNELS.save,
         {
           profile: draft,
-          expectedRevision: selectedStoredItem?.profile.revision ?? null
+          expectedRevision: baseRevision
         }
       )
       setDraft(cloneStreamPresentationProfile(saved.profile))
+      setBaseRevision(saved.profile.revision)
       setSelectedProfileId(saved.profile.id)
       setProfiles((current) => [
         saved,
@@ -261,20 +264,40 @@ export default function StreamingMobileEditorView({ showToast, language }: AppVi
     }
   }
 
+  async function startProfile(): Promise<void> {
+    if (!selectedStoredItem || dirty || targetState !== 'current') return
+    setBusy(true)
+    try {
+      await window.ipc.invoke<StreamingStartResult>(STREAMING_CHANNELS.start, {
+        presentationProfileId: selectedStoredItem.profile.id
+      })
+      showToast(tt(language, 'streamMobile.started'), 'success')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : tt(language, 'streamMobile.startFailed'), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function deleteProfile(): Promise<void> {
-    if (!selectedStoredItem || !window.confirm(tt(language, 'streamMobile.deleteConfirm'))) return
+    if (
+      !selectedStoredItem ||
+      baseRevision === null ||
+      !window.confirm(tt(language, 'streamMobile.deleteConfirm'))
+    ) return
     setBusy(true)
     try {
       const remaining = await window.ipc.invoke<StreamPresentationProfileListItem[]>(
         STREAM_PRESENTATION_CHANNELS.delete,
         {
           id: selectedStoredItem.profile.id,
-          expectedRevision: selectedStoredItem.profile.revision
+          expectedRevision: baseRevision
         }
       )
       setProfiles(remaining)
       setSelectedProfileId(remaining[0]?.profile.id ?? null)
       setDraft(remaining[0] ? cloneStreamPresentationProfile(remaining[0].profile) : null)
+      setBaseRevision(remaining[0]?.profile.revision ?? null)
       setDirty(false)
       showToast(tt(language, 'streamMobile.deleted'), 'success')
     } catch (error) {
@@ -508,6 +531,14 @@ export default function StreamingMobileEditorView({ showToast, language }: AppVi
                     disabled={busy || !dirty || targetState === 'missing'}
                   >
                     {tt(language, 'streamMobile.save')}
+                  </button>
+                  <button
+                    type="button"
+                    className="stream-mobile-primary"
+                    onClick={() => void startProfile()}
+                    disabled={busy || dirty || !selectedStoredItem || targetState !== 'current'}
+                  >
+                    {tt(language, 'streamMobile.start')}
                   </button>
                   <button
                     type="button"
