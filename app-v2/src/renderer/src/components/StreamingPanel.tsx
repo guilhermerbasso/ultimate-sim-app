@@ -373,6 +373,14 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
     void refreshTargets().catch(() => undefined)
   }, [])
 
+  useEffect(() => {
+    if (!status?.running || statusAccessMode(status) !== 'internet' || !status.autoTunnelEnabled) return
+    const timer = setInterval(() => {
+      void refreshStatus().catch(() => undefined)
+    }, 2_000)
+    return () => clearInterval(timer)
+  }, [status?.running, status?.accessMode, status?.autoTunnelEnabled])
+
   const running = Boolean(status?.running)
   const accessDisabled = busy || running
   const requiresPassword = accessMode !== 'local'
