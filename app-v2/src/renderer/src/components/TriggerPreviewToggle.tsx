@@ -22,9 +22,19 @@ export function useEditorTriggerPreviewPreference(): [
 
 export function useOverlayPositioningPreviewChannel(active: boolean): void {
   useEffect(() => {
-    void window.ipc
-      .invoke(OVERLAY_EDITOR_PREVIEW_CHANNELS.setActive, active)
-      .catch(() => undefined)
+    const publishVisibility = (): void => {
+      const effectiveActive = document.visibilityState === 'hidden' ? false : active
+      void window.ipc
+        .invoke(OVERLAY_EDITOR_PREVIEW_CHANNELS.setActive, effectiveActive)
+        .catch(() => undefined)
+    }
+    publishVisibility()
+    document.addEventListener('visibilitychange', publishVisibility)
+    window.addEventListener('focus', publishVisibility)
+    return () => {
+      document.removeEventListener('visibilitychange', publishVisibility)
+      window.removeEventListener('focus', publishVisibility)
+    }
   }, [active])
 
   useEffect(() => {

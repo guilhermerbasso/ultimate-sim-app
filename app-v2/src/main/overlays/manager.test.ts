@@ -523,6 +523,35 @@ describe('OverlayManager editor preview ownership lifecycle', () => {
     expect(harness.owner.listenerCount('did-start-navigation')).toBe(0)
   })
 
+  it('restores the isolated ghost after a tray hide and show re-publishes the active preference', () => {
+    const harness = makePreviewLifecycleHarness(root)
+    expect(harness.setActive(true)).toBe(true)
+
+    harness.mainWindow.visible = false
+    harness.mainWindow.emit('hide')
+    expect(harness.state.editorTriggerPreviewActive).toBe(false)
+    expect(harness.ignored.at(-1)).toBe(true)
+
+    harness.mainWindow.visible = true
+    harness.mainWindow.emit('show')
+    expect(harness.setActive(true)).toBe(true)
+
+    expect(harness.state.editorTriggerPreviewActive).toBe(true)
+    expect(harness.state.runtimeHiddenAlerts.has('flags')).toBe(true)
+    expect(harness.ignored.at(-1)).toBe(false)
+    expect(harness.state.config.widgets.flags.trigger).toEqual(harness.triggerBefore)
+    expect(
+      harness.sent
+        .filter(([channel]) => channel === OVERLAY_EDITOR_PREVIEW_CHANNELS.state)
+        .map(([, payload]) => payload)
+        .slice(-3)
+    ).toEqual([{ active: true }, { active: false }, { active: true }])
+    expect(harness.sent.some(([channel]) => channel.includes('compositor'))).toBe(false)
+    expect(existsSync(join(root, 'overlays.json'))).toBe(false)
+    expect(harness.mainWindow.listenerCount('hide')).toBe(1)
+    expect(harness.owner.listenerCount('did-start-navigation')).toBe(1)
+  })
+
   it('ignores subframe navigation but clears on main-frame navigation/reload', () => {
     const harness = makePreviewLifecycleHarness(root)
     expect(harness.setActive(true)).toBe(true)

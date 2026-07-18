@@ -119,4 +119,58 @@ describe('TriggerPreviewToggle', () => {
       )
     ).toBe(true)
   })
+
+  it('re-publishes the unchanged active preference after tray visibility restore', async () => {
+    let visibilityState: DocumentVisibilityState = 'visible'
+    const visibilitySpy = vi
+      .spyOn(document, 'visibilityState', 'get')
+      .mockImplementation(() => visibilityState)
+    const invoke = vi.fn(async (_channel: string, _active: boolean) => true)
+    Object.defineProperty(window, 'ipc', {
+      configurable: true,
+      value: { invoke, subscribe: vi.fn() }
+    })
+
+    const view = render(
+      createElement(PositioningChannelHarness, { active: true })
+    )
+    await waitFor(() => {
+      expect(invoke).toHaveBeenLastCalledWith(
+        OVERLAY_EDITOR_PREVIEW_CHANNELS.setActive,
+        true
+      )
+    })
+
+    visibilityState = 'hidden'
+    document.dispatchEvent(new Event('visibilitychange'))
+    await waitFor(() => {
+      expect(invoke).toHaveBeenLastCalledWith(
+        OVERLAY_EDITOR_PREVIEW_CHANNELS.setActive,
+        false
+      )
+    })
+
+    visibilityState = 'visible'
+    window.dispatchEvent(new Event('focus'))
+    await waitFor(() => {
+      expect(invoke).toHaveBeenLastCalledWith(
+        OVERLAY_EDITOR_PREVIEW_CHANNELS.setActive,
+        true
+      )
+    })
+
+    document.dispatchEvent(new Event('visibilitychange'))
+    await waitFor(() => {
+      expect(invoke).toHaveBeenLastCalledWith(
+        OVERLAY_EDITOR_PREVIEW_CHANNELS.setActive,
+        true
+      )
+    })
+    expect(
+      invoke.mock.calls.map(([, nextActive]) => nextActive)
+    ).toEqual([true, false, true, true])
+
+    view.unmount()
+    visibilitySpy.mockRestore()
+  })
 })
