@@ -1,5 +1,7 @@
 import {
+  MISSION_MAX_IMPORT_CHARS,
   MissionSchemaError,
+  missionManifestChecksum,
   parseMissionManifestJson,
   parseMissionRunHistoryJson,
   parseMissionRunJson,
@@ -35,12 +37,25 @@ function manifestKeyPart(manifestId: string): string {
   return manifestId.replace(/[^a-z0-9._-]/g, '_')
 }
 
-export function missionResumeStorageKey(manifestId: string): string {
+function manifestIdentityKeyPart(manifest: MissionScenarioManifest): string {
+  const checksum = missionManifestChecksum(manifest).replace(':', '-')
+  return `${manifestKeyPart(manifest.id)}.r${manifest.revision}.${checksum}`
+}
+
+function legacyMissionResumeStorageKey(manifestId: string): string {
   return `${MISSION_REHEARSAL_STORAGE_PREFIX}active.${manifestKeyPart(manifestId)}`
 }
 
-export function missionHistoryStorageKey(manifestId: string): string {
+function legacyMissionHistoryStorageKey(manifestId: string): string {
   return `${MISSION_REHEARSAL_STORAGE_PREFIX}run-history.${manifestKeyPart(manifestId)}`
+}
+
+export function missionResumeStorageKey(manifest: MissionScenarioManifest): string {
+  return `${MISSION_REHEARSAL_STORAGE_PREFIX}active.${manifestIdentityKeyPart(manifest)}`
+}
+
+export function missionHistoryStorageKey(manifest: MissionScenarioManifest): string {
+  return `${MISSION_REHEARSAL_STORAGE_PREFIX}run-history.${manifestIdentityKeyPart(manifest)}`
 }
 
 export function isMissionRehearsalStorageKey(key: string): boolean {
@@ -50,6 +65,49 @@ export function isMissionRehearsalStorageKey(key: string): boolean {
 function asSchemaError(error: unknown, label: string): MissionSchemaError {
   if (error instanceof MissionSchemaError) return error
   return new MissionSchemaError(label, [{ path: '$', message: error instanceof Error ? error.message : String(error) }])
+}
+
+function legacyPayloadTargetsManifest(
+  raw: string,
+  manifest: MissionScenarioManifest,
+  kind: 'resume' | 'history'
+): boolean {
+  if (raw.length > MISSION_MAX_IMPORT_CHARS) return true
+  try {
+    const file = JSON.parse(raw) as Record<string, unknown>
+    const identity = kind === 'resume' && file.run && typeof file.run === 'object'
+      ? file.run as Record<string, unknown>
+      : file
+    if (
+      typeof identity.manifestId !== 'string'
+      || typeof identity.manifestRevision !== 'number'
+      || typeof identity.manifestChecksum !== 'string'
+    ) {
+      return true
+    }
+    return identity.manifestId === manifest.id
+      && identity.manifestRevision === manifest.revision
+      && identity.manifestChecksum === missionManifestChecksum(manifest)
+  } catch {
+    return true
+  }
+}
+
+function migrateLegacyValue<T>(
+  storage: MissionStorageLike,
+  currentKey: string,
+  legacyKey: string,
+  raw: string,
+  value: T,
+  label: string
+): MissionStorageLoadResult<T> {
+  try {
+    storage.setItem(currentKey, raw)
+    storage.removeItem(legacyKey)
+    return { value, error: null }
+  } catch (error) {
+    return { value, error: asSchemaError(error, label) }
+  }
 }
 
 export function saveMissionDraft(
@@ -76,34 +134,81 @@ export function saveMissionResume(
   run: MissionRun,
   now = Date.now()
 ): void {
-  storage.setItem(missionResumeStorageKey(manifest.id), serializeMissionRun(manifest, run, now))
+  storage.setItem(missionResumeStorageKey(manifest), serializeMissionRun(manifest, run, now))
 }
 
 export function loadMissionResume(
   storage: MissionStorageLike,
   manifest: MissionScenarioManifest
 ): MissionStorageLoadResult<MissionRun> {
-  const raw = storage.getItem(missionResumeStorageKey(manifest.id))
-  if (!raw) return { value: null, error: null }
+  const currentKey = missionResumeStorageKey(manifest)
+  const raw = storage.getItem(currentKey)
+  if (raw) {
+    try {
+      return { value: parseMissionRunJson(raw, manifest), error: null }
+    } catch (error) {
+      return { value: null, error: asSchemaError(error, 'Saved mission rehearsal checkpoint is corrupt.') }
+    }
+  }
+
+  const legacyKey = legacyMissionResumeStorageKey(manifest.id)
+  const legacyRaw = storage.getItem(legacyKey)
+  if (!legacyRaw || !legacyPayloadTargetsManifest(legacyRaw, manifest, 'resume')) {
+    return { value: null, error: null }
+  }
   try {
-    return { value: parseMissionRunJson(raw, manifest), error: null }
+    const value = parseMissionRunJson(legacyRaw, manifest)
+    return migrateLegacyValue(
+      storage,
+      currentKey,
+      legacyKey,
+      legacyRaw,
+      value,
+      'Saved mission rehearsal checkpoint was loaded, but its legacy storage key could not be migrated.'
+    )
   } catch (error) {
     return { value: null, error: asSchemaError(error, 'Saved mission rehearsal checkpoint is corrupt.') }
   }
 }
 
-export function clearMissionResume(storage: MissionStorageLike, manifestId: string): void {
-  storage.removeItem(missionResumeStorageKey(manifestId))
+export function clearMissionResume(storage: MissionStorageLike, manifest: MissionScenarioManifest): void {
+  storage.removeItem(missionResumeStorageKey(manifest))
+  const legacyKey = legacyMissionResumeStorageKey(manifest.id)
+  const legacyRaw = storage.getItem(legacyKey)
+  if (legacyRaw && legacyPayloadTargetsManifest(legacyRaw, manifest, 'resume')) {
+    storage.removeItem(legacyKey)
+  }
 }
 
 export function loadMissionRunHistory(
   storage: MissionStorageLike,
   manifest: MissionScenarioManifest
 ): MissionStorageLoadResult<MissionRun[]> {
-  const raw = storage.getItem(missionHistoryStorageKey(manifest.id))
-  if (!raw) return { value: [], error: null }
+  const currentKey = missionHistoryStorageKey(manifest)
+  const raw = storage.getItem(currentKey)
+  if (raw) {
+    try {
+      return { value: parseMissionRunHistoryJson(raw, manifest), error: null }
+    } catch (error) {
+      return { value: null, error: asSchemaError(error, 'Saved mission rehearsal history is corrupt.') }
+    }
+  }
+
+  const legacyKey = legacyMissionHistoryStorageKey(manifest.id)
+  const legacyRaw = storage.getItem(legacyKey)
+  if (!legacyRaw || !legacyPayloadTargetsManifest(legacyRaw, manifest, 'history')) {
+    return { value: [], error: null }
+  }
   try {
-    return { value: parseMissionRunHistoryJson(raw, manifest), error: null }
+    const value = parseMissionRunHistoryJson(legacyRaw, manifest)
+    return migrateLegacyValue(
+      storage,
+      currentKey,
+      legacyKey,
+      legacyRaw,
+      value,
+      'Saved mission rehearsal history was loaded, but its legacy storage key could not be migrated.'
+    )
   } catch (error) {
     return { value: null, error: asSchemaError(error, 'Saved mission rehearsal history is corrupt.') }
   }
@@ -120,20 +225,58 @@ export function archiveMissionRun(
   const current = loaded.value ?? []
   const next = [...current.filter((entry) => entry.id !== run.id), run].slice(-50)
   try {
-    storage.setItem(missionHistoryStorageKey(manifest.id), serializeMissionRunHistory(manifest, next, now))
-    return { value: next, error: null }
+    const serialized = serializeMissionRunHistory(manifest, next, now)
+    storage.setItem(missionHistoryStorageKey(manifest), serialized)
+    return { value: parseMissionRunHistoryJson(serialized, manifest), error: null }
   } catch (error) {
     return { value: null, error: asSchemaError(error, 'Mission rehearsal history could not be saved.') }
   }
 }
 
+export function finalizeMissionRun(
+  storage: MissionStorageLike,
+  manifest: MissionScenarioManifest,
+  run: MissionRun,
+  now = Date.now()
+): MissionStorageLoadResult<MissionRun[]> {
+  try {
+    saveMissionResume(storage, manifest, run, now)
+  } catch (error) {
+    return { value: null, error: asSchemaError(error, 'Completed mission rehearsal could not be checkpointed.') }
+  }
+
+  const archived = archiveMissionRun(storage, manifest, run, now)
+  if (archived.error) return archived
+  try {
+    clearMissionResume(storage, manifest)
+    return archived
+  } catch (error) {
+    return {
+      value: archived.value,
+      error: asSchemaError(error, 'Completed mission rehearsal was archived, but its resume checkpoint could not be cleared.')
+    }
+  }
+}
+
 export function resetMissionTrainingBoundary(
   storage: MissionStorageLike,
-  manifestId: string,
+  manifest: MissionScenarioManifest,
   options: MissionResetOptions = {}
 ): string[] {
-  const removed = [missionResumeStorageKey(manifestId)]
-  if (options.includeHistory) removed.push(missionHistoryStorageKey(manifestId))
+  const removed = [missionResumeStorageKey(manifest)]
+  const legacyResumeKey = legacyMissionResumeStorageKey(manifest.id)
+  const legacyResume = storage.getItem(legacyResumeKey)
+  if (legacyResume && legacyPayloadTargetsManifest(legacyResume, manifest, 'resume')) {
+    removed.push(legacyResumeKey)
+  }
+  if (options.includeHistory) {
+    removed.push(missionHistoryStorageKey(manifest))
+    const legacyHistoryKey = legacyMissionHistoryStorageKey(manifest.id)
+    const legacyHistory = storage.getItem(legacyHistoryKey)
+    if (legacyHistory && legacyPayloadTargetsManifest(legacyHistory, manifest, 'history')) {
+      removed.push(legacyHistoryKey)
+    }
+  }
   if (options.includeDraft) removed.push(MISSION_REHEARSAL_DRAFT_KEY)
   removed.forEach((key) => storage.removeItem(key))
   return removed

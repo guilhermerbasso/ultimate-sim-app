@@ -17,6 +17,7 @@ const en = {
   'mission.tabs.author': 'Author',
   'mission.tabs.run': 'Run',
   'mission.tabs.debrief': 'Debrief',
+  'mission.tabs.lockedDuringRun': 'Authoring and history are locked while a rehearsal is active. Complete or explicitly reset the run to reopen them.',
   'mission.author.eyebrow': 'Versioned manifest · strict schema',
   'mission.author.title': 'Scenario authoring',
   'mission.author.body': 'Edit roles, permissions, branching checkpoints, synthetic injections, expected decisions, outcomes, and scoring in one validated v1 manifest.',
@@ -44,6 +45,8 @@ const en = {
   'mission.runner.readyBody': 'Select a role and start. Expected choices stay hidden until the scored debrief.',
   'mission.runner.complete': 'Rehearsal complete',
   'mission.runner.openDebrief': 'The validated run is stored only in training history and is ready for review.',
+  'mission.runner.archivePending': 'The completed checkpoint is recoverable, but training history still needs to be archived.',
+  'mission.runner.retryArchive': 'Retry history archive',
   'mission.runner.activeRole': 'Active role',
   'mission.runner.savedCheckpoint': 'Decisions saved',
   'mission.runner.manifestRevision': 'Manifest revision',
@@ -106,7 +109,8 @@ const en = {
   'mission.toast.checkpointSaved': 'Checkpoint saved inside the training boundary.',
   'mission.toast.activeReset': 'Active rehearsal reset. Live data was not touched.',
   'mission.toast.allReset': 'Mission Rehearsal data reset. Live data was not touched.',
-  'mission.toast.runExported': 'Training run record exported.'
+  'mission.toast.runExported': 'Training run record exported.',
+  'mission.toast.activeRunLocked': 'Complete or explicitly reset the active rehearsal before opening authoring or history.'
 }
 
 const ptBR = {
@@ -126,6 +130,7 @@ const ptBR = {
   'mission.tabs.author': 'Autoria',
   'mission.tabs.run': 'Executar',
   'mission.tabs.debrief': 'Debrief',
+  'mission.tabs.lockedDuringRun': 'Autoria e histórico ficam bloqueados durante um ensaio ativo. Conclua ou resete explicitamente a execução para reabri-los.',
   'mission.author.eyebrow': 'Manifesto versionado · schema estrito',
   'mission.author.title': 'Autoria de cenário',
   'mission.author.body': 'Edite papéis, permissões, checkpoints ramificados, injeções sintéticas, decisões esperadas, resultados e pontuação em um manifesto v1 validado.',
@@ -153,6 +158,8 @@ const ptBR = {
   'mission.runner.readyBody': 'Selecione um papel e inicie. As escolhas esperadas ficam ocultas até o debrief pontuado.',
   'mission.runner.complete': 'Ensaio concluído',
   'mission.runner.openDebrief': 'A execução validada foi salva somente no histórico de treinamento e está pronta para revisão.',
+  'mission.runner.archivePending': 'O checkpoint concluído está recuperável, mas ainda precisa ser arquivado no histórico de treinamento.',
+  'mission.runner.retryArchive': 'Tentar arquivar novamente',
   'mission.runner.activeRole': 'Papel ativo',
   'mission.runner.savedCheckpoint': 'Decisões salvas',
   'mission.runner.manifestRevision': 'Revisão do manifesto',
@@ -215,7 +222,8 @@ const ptBR = {
   'mission.toast.checkpointSaved': 'Checkpoint salvo dentro do limite de treinamento.',
   'mission.toast.activeReset': 'Ensaio ativo resetado. Dados ao vivo não foram alterados.',
   'mission.toast.allReset': 'Dados do Ensaio de Missão resetados. Dados ao vivo não foram alterados.',
-  'mission.toast.runExported': 'Registro da execução de treinamento exportado.'
+  'mission.toast.runExported': 'Registro da execução de treinamento exportado.',
+  'mission.toast.activeRunLocked': 'Conclua ou resete explicitamente o ensaio ativo antes de abrir autoria ou histórico.'
 }
 
 const es = {

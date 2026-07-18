@@ -264,7 +264,7 @@ export const DEFAULT_MISSION_REHEARSAL_MANIFEST: MissionScenarioManifest = {
       id: 'observer',
       name: 'Observer',
       description: 'Follows the rehearsal and contributes to the blameless debrief.',
-      permissions: ['run', 'debrief']
+      permissions: ['debrief']
     }
   ],
   entryCheckpointId: 'neutralization-call',
@@ -788,6 +788,47 @@ function validateCheckpoint(value: unknown, path: string, issues: MissionValidat
   }
 }
 
+function missionManifestFileLength(manifest: MissionScenarioManifest): number {
+  const base = {
+    kind: MISSION_MANIFEST_FILE_KIND,
+    schemaVersion: MISSION_REHEARSAL_SCHEMA_VERSION,
+    exportedAt: new Date(0).toISOString(),
+    manifest
+  }
+  const file: MissionManifestFile = {
+    ...base,
+    integrity: {
+      algorithm: MISSION_INTEGRITY_ALGORITHM,
+      checksum: 'fnv1a32:00000000'
+    }
+  }
+  return `${JSON.stringify(file, null, 2)}\n`.length
+}
+
+function roleHasOnlyCompletableBranches(
+  checkpoints: Map<string, MissionCheckpoint>,
+  roleId: string,
+  entryCheckpointId: string
+): boolean {
+  const memo = new Map<string, boolean>()
+  const visit = (checkpointId: string, visiting: Set<string>): boolean => {
+    const cached = memo.get(checkpointId)
+    if (cached !== undefined) return cached
+    if (visiting.has(checkpointId)) return false
+    const checkpoint = checkpoints.get(checkpointId)
+    if (!checkpoint) return false
+    const nextVisiting = new Set(visiting)
+    nextVisiting.add(checkpointId)
+    const allowedDecisions = checkpoint.decisions.filter((decision) => decision.allowedRoleIds.includes(roleId))
+    const completable = allowedDecisions.length > 0 && allowedDecisions.every((decision) => (
+      decision.nextCheckpointId === null || visit(decision.nextCheckpointId, nextVisiting)
+    ))
+    memo.set(checkpointId, completable)
+    return completable
+  }
+  return visit(entryCheckpointId, new Set())
+}
+
 function validateManifestRelations(manifest: MissionScenarioManifest, issues: MissionValidationIssue[]): void {
   const roleIds = new Set<string>()
   const rolePermissions = new Map<string, Set<MissionPermission>>()
@@ -871,6 +912,29 @@ function validateManifestRelations(manifest: MissionScenarioManifest, issues: Mi
     addIssue(issues, '$.entryCheckpointId', 'must reference a checkpoint')
     return
   }
+
+  if (!manifest.roles.some((role) => role.permissions.includes('run'))) {
+    addIssue(issues, '$.roles', 'must contain at least one runnable role')
+  }
+
+  manifest.roles.forEach((role, roleIndex) => {
+    if (!role.permissions.includes('run')) return
+    if (!role.permissions.includes('decide')) {
+      addIssue(
+        issues,
+        `$.roles[${roleIndex}].permissions`,
+        'run permission requires decide permission and a complete branch'
+      )
+      return
+    }
+    if (!roleHasOnlyCompletableBranches(checkpoints, role.id, manifest.entryCheckpointId)) {
+      addIssue(
+        issues,
+        `$.roles[${roleIndex}].permissions`,
+        'run permission requires every permitted branch to reach a terminal decision'
+      )
+    }
+  })
 
   let terminalCount = 0
   manifest.checkpoints.forEach((checkpoint, checkpointIndex) => {
@@ -996,6 +1060,16 @@ export function validateMissionManifest(value: unknown): MissionValidationResult
   }
 
   if (issues.length === 0) validateManifestRelations(value as MissionScenarioManifest, issues)
+  if (issues.length === 0) {
+    const serializedLength = missionManifestFileLength(value as MissionScenarioManifest)
+    if (serializedLength > MISSION_MAX_IMPORT_CHARS) {
+      addIssue(
+        issues,
+        '$',
+        `serialized manifest file must contain no more than ${MISSION_MAX_IMPORT_CHARS} characters`
+      )
+    }
+  }
   return issues.length === 0
     ? { ok: true, value: value as MissionScenarioManifest }
     : { ok: false, issues }
@@ -1068,6 +1142,15 @@ function parseJson(text: string, label: string): unknown {
   }
 }
 
+function assertImportableSerializedText(text: string, label: string): string {
+  if (text.length > MISSION_MAX_IMPORT_CHARS) {
+    throw new MissionSchemaError(`${label} is too large.`, [
+      { path: '$', message: `must contain no more than ${MISSION_MAX_IMPORT_CHARS} characters` }
+    ])
+  }
+  return text
+}
+
 function validateIsoDate(value: unknown, path: string, issues: MissionValidationIssue[]): value is string {
   if (!validateString(value, path, issues, 20, 40)) return false
   if (!Number.isFinite(Date.parse(value))) {
@@ -1098,7 +1181,10 @@ export function serializeMissionManifest(manifest: MissionScenarioManifest, now 
     manifest: validManifest
   }
   const file: MissionManifestFile = { ...base, integrity: integrityFor(base) }
-  return `${JSON.stringify(file, null, 2)}\n`
+  return assertImportableSerializedText(
+    `${JSON.stringify(file, null, 2)}\n`,
+    'Mission rehearsal manifest'
+  )
 }
 
 export function parseMissionManifestJson(text: string): MissionScenarioManifest {
@@ -1338,6 +1424,10 @@ function missionRoll(seed: number, checkpointId: string, eventId: string): numbe
   return Number.parseInt(checksum.slice(-8), 16) / 0xffffffff
 }
 
+function compareMissionIds(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
 export function materializeMissionEvents(
   manifest: MissionScenarioManifest,
   checkpointId: string,
@@ -1350,7 +1440,7 @@ export function materializeMissionEvents(
     .filter((event) => event.visibleToRoleIds.includes(roleId))
     .filter((event) => event.probability >= 1 || missionRoll(validManifest.seed, checkpoint.id, event.id) < event.probability)
     .slice()
-    .sort((left, right) => left.offsetMs - right.offsetMs || left.id.localeCompare(right.id))
+    .sort((left, right) => left.offsetMs - right.offsetMs || compareMissionIds(left.id, right.id))
 }
 
 export function scoreMissionRun(manifest: MissionScenarioManifest, run: MissionRun): MissionScore {
@@ -1469,7 +1559,10 @@ export function serializeMissionRun(manifest: MissionScenarioManifest, run: Miss
     run: validRun
   }
   const file: MissionRunFile = { ...base, integrity: integrityFor(base) }
-  return `${JSON.stringify(file, null, 2)}\n`
+  return assertImportableSerializedText(
+    `${JSON.stringify(file, null, 2)}\n`,
+    'Mission rehearsal run'
+  )
 }
 
 export function parseMissionRunJson(text: string, manifest: MissionScenarioManifest): MissionRun {
@@ -1510,17 +1603,25 @@ export function serializeMissionRunHistory(
   if (new Set(validRuns.map((run) => run.id)).size !== validRuns.length) {
     throw new Error('Mission rehearsal history contains duplicate run ids.')
   }
-  const base = {
-    kind: MISSION_HISTORY_FILE_KIND,
-    schemaVersion: MISSION_REHEARSAL_RUN_SCHEMA_VERSION,
-    exportedAt: isoAt(now),
-    manifestId: manifest.id,
-    manifestRevision: manifest.revision,
-    manifestChecksum,
-    runs: validRuns.slice(-50)
+  let retainedRuns = validRuns.slice(-50)
+  while (true) {
+    const base = {
+      kind: MISSION_HISTORY_FILE_KIND,
+      schemaVersion: MISSION_REHEARSAL_RUN_SCHEMA_VERSION,
+      exportedAt: isoAt(now),
+      manifestId: manifest.id,
+      manifestRevision: manifest.revision,
+      manifestChecksum,
+      runs: retainedRuns
+    }
+    const file: MissionRunHistoryFile = { ...base, integrity: integrityFor(base) }
+    const text = `${JSON.stringify(file, null, 2)}\n`
+    if (text.length <= MISSION_MAX_IMPORT_CHARS) return text
+    if (retainedRuns.length <= 1) {
+      return assertImportableSerializedText(text, 'Mission rehearsal run history')
+    }
+    retainedRuns = retainedRuns.slice(1)
   }
-  const file: MissionRunHistoryFile = { ...base, integrity: integrityFor(base) }
-  return `${JSON.stringify(file, null, 2)}\n`
 }
 
 export function parseMissionRunHistoryJson(text: string, manifest: MissionScenarioManifest): MissionRun[] {

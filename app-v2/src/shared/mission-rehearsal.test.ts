@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   BLAMELESS_DEBRIEF_STATEMENT,
   DEFAULT_MISSION_REHEARSAL_MANIFEST,
+  MISSION_MAX_IMPORT_CHARS,
   MISSION_REHEARSAL_SOURCE,
   MissionSchemaError,
   advanceMissionRun,
@@ -12,11 +13,14 @@ import {
   createMissionRun,
   materializeMissionEvents,
   missionChecksum,
+  missionManifestChecksum,
   parseMissionManifestJson,
+  parseMissionRunHistoryJson,
   parseMissionRunJson,
   scoreMissionRun,
   serializeMissionManifest,
   serializeMissionRun,
+  serializeMissionRunHistory,
   validateMissionManifest,
   type MissionRun,
   type MissionScenarioManifest
@@ -24,10 +28,14 @@ import {
 import {
   MISSION_REHEARSAL_STORAGE_PREFIX,
   archiveMissionRun,
+  finalizeMissionRun,
   isMissionRehearsalStorageKey,
   loadMissionResume,
   loadMissionRunHistory,
+  missionHistoryStorageKey,
+  missionResumeStorageKey,
   resetAllMissionTrainingData,
+  resetMissionTrainingBoundary,
   saveMissionDraft,
   saveMissionResume,
   type MissionStorageLike
@@ -50,6 +58,59 @@ function riskRun(id: string, start = 2_000): MissionRun {
   let run = createMissionRun(manifest, 'race-engineer', { id, now: start })
   run = advanceMissionRun(manifest, run, 'protect-gap-before-yellow', start + 100)
   return advanceMissionRun(manifest, run, 'defend-without-timeline', start + 200)
+}
+
+function longRunFixture(): { manifest: MissionScenarioManifest; run: MissionRun } {
+  const manifest = manifestClone()
+  manifest.roles = [{
+    id: 'runner',
+    name: 'Runner',
+    description: 'Completes the bounded long-run fixture.',
+    permissions: ['run', 'decide', 'debrief']
+  }]
+  manifest.entryCheckpointId = `checkpoint-00-${'c'.repeat(100)}`
+  manifest.checkpoints = Array.from({ length: 100 }, (_, index) => {
+    const checkpointId = `checkpoint-${index.toString().padStart(2, '0')}-${'c'.repeat(100)}`
+    const decisionId = `decision-${index.toString().padStart(2, '0')}-${'d'.repeat(102)}`
+    const nextCheckpointId = index === 99
+      ? null
+      : `checkpoint-${(index + 1).toString().padStart(2, '0')}-${'c'.repeat(100)}`
+    return {
+      id: checkpointId,
+      title: `Checkpoint ${index + 1}`,
+      briefing: 'Advance the deterministic long-run fixture.',
+      expectedDecisionId: decisionId,
+      syntheticEvents: [],
+      decisions: [{
+        id: decisionId,
+        label: `Decision ${index + 1}`,
+        description: 'Advance to the next bounded checkpoint.',
+        allowedRoleIds: ['runner'],
+        score: 100,
+        nextCheckpointId,
+        outcomes: [{
+          id: `outcome-${index.toString().padStart(2, '0')}`,
+          title: 'Advanced',
+          description: 'The deterministic fixture advanced.',
+          tone: 'positive' as const
+        }]
+      }]
+    }
+  })
+  const base = createMissionRun(manifest, 'runner', { id: 'run-long-fixture', now: 1_000 })
+  const run: MissionRun = {
+    ...base,
+    updatedAt: 1_100,
+    status: 'completed',
+    currentCheckpointId: null,
+    steps: manifest.checkpoints.map((checkpoint, index) => ({
+      checkpointId: checkpoint.id,
+      decisionId: checkpoint.decisions[0].id,
+      decidedByRoleId: 'runner',
+      decidedAt: 1_001 + index
+    }))
+  }
+  return { manifest, run }
 }
 
 class MemoryStorage implements MissionStorageLike {
@@ -80,6 +141,17 @@ class MemoryStorage implements MissionStorageLike {
   }
 }
 
+class FailingHistoryStorage extends MemoryStorage {
+  failHistoryWrites = true
+
+  override setItem(key: string, value: string): void {
+    if (this.failHistoryWrites && key.includes('.run-history.')) {
+      throw new Error('history write failed')
+    }
+    super.setItem(key, value)
+  }
+}
+
 describe('mission rehearsal manifest and deterministic branches', () => {
   it('accepts the bundled v1 manifest and rejects unknown schema fields', () => {
     expect(assertMissionManifest(manifestClone()).schemaVersion).toBe(1)
@@ -88,6 +160,40 @@ describe('mission rehearsal manifest and deterministic branches', () => {
     const result = validateMissionManifest(unknown)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.issues).toContainEqual({ path: '$.liveTelemetry', message: 'unknown field' })
+  })
+
+  it('rejects a manifest whose exported envelope would exceed the import boundary', () => {
+    const manifest = manifestClone()
+    manifest.checkpoints[0].syntheticEvents[0].payload = {
+      oversized: 'x'.repeat(MISSION_MAX_IMPORT_CHARS)
+    }
+
+    const result = validateMissionManifest(manifest)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.issues.some((issue) => issue.message.includes('serialized manifest file'))).toBe(true)
+    }
+    expect(() => serializeMissionManifest(manifest)).toThrow(MissionSchemaError)
+  })
+
+  it('keeps every serialized file within its parser boundary and round-trips retained history', () => {
+    const { manifest, run } = longRunFixture()
+    const manifestText = serializeMissionManifest(manifest, 1_000)
+    const runText = serializeMissionRun(manifest, run, 1_100)
+    const runs = Array.from({ length: 50 }, (_, index) => ({
+      ...run,
+      id: `run-long-${index.toString().padStart(2, '0')}`
+    }))
+    const historyText = serializeMissionRunHistory(manifest, runs, 1_200)
+    const retained = parseMissionRunHistoryJson(historyText, manifest)
+
+    expect(manifestText.length).toBeLessThanOrEqual(MISSION_MAX_IMPORT_CHARS)
+    expect(runText.length).toBeLessThanOrEqual(MISSION_MAX_IMPORT_CHARS)
+    expect(historyText.length).toBeLessThanOrEqual(MISSION_MAX_IMPORT_CHARS)
+    expect(parseMissionManifestJson(manifestText)).toEqual(manifest)
+    expect(parseMissionRunJson(runText, manifest)).toEqual(run)
+    expect(retained.length).toBeLessThan(runs.length)
+    expect(retained.map((entry) => entry.id)).toEqual(runs.slice(-retained.length).map((entry) => entry.id))
   })
 
   it('materializes the same synthetic events and branch for repeated inputs', () => {
@@ -110,22 +216,102 @@ describe('mission rehearsal manifest and deterministic branches', () => {
     expect(first.status).toBe('completed')
     expect(scoreMissionRun(manifest, first).percent).toBe(scoreMissionRun(manifest, second).percent)
   })
+
+  it('orders equal-offset synthetic events without locale-sensitive comparison', () => {
+    const manifest = manifestClone()
+    const template = manifest.checkpoints[0].syntheticEvents[0]
+    manifest.checkpoints[0].syntheticEvents = [
+      { ...template, id: 'z-event', offsetMs: 500 },
+      { ...template, id: 'a-event', offsetMs: 500 }
+    ]
+    const localeCompare = vi.spyOn(String.prototype, 'localeCompare').mockReturnValue(-1)
+
+    try {
+      expect(materializeMissionEvents(manifest, 'neutralization-call', 'race-engineer').map((event) => event.id))
+        .toEqual(['a-event', 'z-event'])
+      expect(localeCompare).not.toHaveBeenCalled()
+    } finally {
+      localeCompare.mockRestore()
+    }
+  })
 })
 
 describe('mission rehearsal role permissions and checkpoint resume', () => {
-  it('allows observers to follow a run but never to make a protected decision', () => {
+  it('keeps debrief observers out of the runnable-role set', () => {
     const manifest = manifestClone()
-    const run = createMissionRun(manifest, 'observer', { id: 'run-observer', now: 100 })
+    const observer = manifest.roles.find((role) => role.id === 'observer')!
 
+    expect(observer.permissions).not.toContain('run')
     expect(canRoleSelectMissionDecision(
       manifest,
       'observer',
       'neutralization-call',
       'confirm-neutralized-pace'
     )).toBe(false)
-    expect(() => advanceMissionRun(manifest, run, 'confirm-neutralized-pace', 200)).toThrow(
-      /not permitted/
-    )
+    expect(() => createMissionRun(manifest, 'observer', { id: 'run-observer', now: 100 }))
+      .toThrow(/cannot run/)
+  })
+
+  it('rejects a runnable role that has no permitted terminal branch', () => {
+    const manifest = manifestClone()
+    const observer = manifest.roles.find((role) => role.id === 'observer')!
+    observer.permissions = ['run', 'decide', 'debrief']
+
+    const result = validateMissionManifest(manifest)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.issues.some((issue) => issue.message.includes('every permitted branch')))
+        .toBe(true)
+    }
+  })
+
+  it('rejects a runnable role with one safe choice and one dead-end choice', () => {
+    const manifest = manifestClone()
+    manifest.checkpoints[0].decisions[1].nextCheckpointId = 'crew-only-end'
+    manifest.checkpoints.push({
+      id: 'crew-only-end',
+      title: 'Crew-only closeout',
+      briefing: 'Only the crew chief can close this branch.',
+      expectedDecisionId: 'crew-closeout',
+      syntheticEvents: [],
+      decisions: [{
+        id: 'crew-closeout',
+        label: 'Close the crew-only branch',
+        description: 'Complete the branch as crew chief.',
+        allowedRoleIds: ['crew-chief'],
+        score: 100,
+        nextCheckpointId: null,
+        outcomes: [{
+          id: 'crew-closed',
+          title: 'Crew branch closed',
+          description: 'The crew chief completed the branch.',
+          tone: 'positive'
+        }]
+      }]
+    })
+
+    const result = validateMissionManifest(manifest)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.issues.some((issue) => issue.message.includes('every permitted branch')))
+        .toBe(true)
+    }
+  })
+
+  it('rejects a manifest with no runnable role', () => {
+    const manifest = manifestClone()
+    manifest.roles.forEach((role) => {
+      role.permissions = role.permissions.filter((permission) => permission !== 'run')
+    })
+
+    const result = validateMissionManifest(manifest)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.issues).toContainEqual({
+        path: '$.roles',
+        message: 'must contain at least one runnable role'
+      })
+    }
   })
 
   it('round-trips a checksummed checkpoint and resumes the same deterministic branch', () => {
@@ -144,6 +330,57 @@ describe('mission rehearsal role permissions and checkpoint resume', () => {
     resumed = advanceMissionRun(manifest, resumed, 'prepare-wet-stop', 1_200)
     expect(resumed).toEqual(original)
     expect(resumed.currentCheckpointId).toBe('degraded-comms')
+  })
+
+  it('partitions resume and history keys by manifest revision and checksum', () => {
+    const revisionOne = manifestClone()
+    const revisionTwo = manifestClone()
+    revisionTwo.revision = 2
+    const changedChecksum = manifestClone()
+    changedChecksum.title = 'Same revision, changed content'
+
+    expect(missionResumeStorageKey(revisionOne)).not.toBe(missionResumeStorageKey(revisionTwo))
+    expect(missionResumeStorageKey(revisionOne)).not.toBe(missionResumeStorageKey(changedChecksum))
+    expect(missionHistoryStorageKey(revisionOne)).not.toBe(missionHistoryStorageKey(revisionTwo))
+    expect(missionHistoryStorageKey(revisionOne)).not.toBe(missionHistoryStorageKey(changedChecksum))
+  })
+
+  it('migrates compatible id-only storage keys without consuming another manifest revision', () => {
+    const manifest = manifestClone()
+    const otherRevision = manifestClone()
+    otherRevision.revision += 1
+    const storage = new MemoryStorage()
+    const resumed = createMissionRun(manifest, 'race-engineer', { id: 'run-legacy-resume', now: 1_000 })
+    const completed = expectedRun('run-legacy-history')
+    const legacyResumeKey = `${MISSION_REHEARSAL_STORAGE_PREFIX}active.${manifest.id}`
+    const legacyHistoryKey = `${MISSION_REHEARSAL_STORAGE_PREFIX}run-history.${manifest.id}`
+    storage.setItem(legacyResumeKey, serializeMissionRun(manifest, resumed, 1_100))
+    storage.setItem(legacyHistoryKey, serializeMissionRunHistory(manifest, [completed], 1_200))
+
+    expect(loadMissionResume(storage, otherRevision)).toEqual({ value: null, error: null })
+    expect(loadMissionRunHistory(storage, otherRevision)).toEqual({ value: [], error: null })
+    expect(storage.getItem(legacyResumeKey)).not.toBeNull()
+    expect(storage.getItem(legacyHistoryKey)).not.toBeNull()
+
+    expect(loadMissionResume(storage, manifest)).toEqual({ value: resumed, error: null })
+    expect(loadMissionRunHistory(storage, manifest)).toEqual({ value: [completed], error: null })
+    expect(storage.getItem(missionResumeStorageKey(manifest))).not.toBeNull()
+    expect(storage.getItem(missionHistoryStorageKey(manifest))).not.toBeNull()
+    expect(storage.getItem(legacyResumeKey)).toBeNull()
+    expect(storage.getItem(legacyHistoryKey)).toBeNull()
+  })
+
+  it('clears matching legacy checkpoints inside the explicit training boundary', () => {
+    const manifest = manifestClone()
+    const storage = new MemoryStorage()
+    const legacyResumeKey = `${MISSION_REHEARSAL_STORAGE_PREFIX}active.${manifest.id}`
+    const run = createMissionRun(manifest, 'race-engineer', { id: 'run-legacy-reset', now: 1_000 })
+    storage.setItem(legacyResumeKey, serializeMissionRun(manifest, run, 1_100))
+
+    const removed = resetMissionTrainingBoundary(storage, manifest)
+
+    expect(removed).toContain(legacyResumeKey)
+    expect(storage.getItem(legacyResumeKey)).toBeNull()
   })
 })
 
@@ -224,6 +461,23 @@ describe('mission rehearsal scoring, debrief, and repeat comparison', () => {
     const history = loadMissionRunHistory(storage, manifest)
     expect(history.error).toBeNull()
     expect(history.value?.map((run) => run.id)).toEqual(['run-repeat-baseline', 'run-repeat-current'])
+  })
+
+  it('keeps a completed resume recoverable until history archival succeeds', () => {
+    const manifest = manifestClone()
+    const storage = new FailingHistoryStorage()
+    const completed = expectedRun('run-finalize-recovery')
+
+    const failed = finalizeMissionRun(storage, manifest, completed, 4_000)
+    expect(failed.value).toBeNull()
+    expect(failed.error).toBeInstanceOf(MissionSchemaError)
+    expect(loadMissionResume(storage, manifest).value).toEqual(completed)
+
+    storage.failHistoryWrites = false
+    const retried = finalizeMissionRun(storage, manifest, completed, 5_000)
+    expect(retried.error).toBeNull()
+    expect(retried.value?.map((run) => run.id)).toEqual(['run-finalize-recovery'])
+    expect(loadMissionResume(storage, manifest).value).toBeNull()
   })
 })
 

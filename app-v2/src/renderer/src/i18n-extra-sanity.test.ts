@@ -16,6 +16,7 @@ describe('i18n-extra merge', () => {
       expect(tt(language, 'mission.reset.body')).not.toBe('mission.reset.body')
       expect(tt(language, 'mission.debrief.blameless')).not.toBe('mission.debrief.blameless')
       expect(tt(language, 'mission.debrief.blamelessStatement')).not.toBe('mission.debrief.blamelessStatement')
+      expect(tt(language, 'mission.tabs.lockedDuringRun')).not.toBe('mission.tabs.lockedDuringRun')
     }
   })
 })

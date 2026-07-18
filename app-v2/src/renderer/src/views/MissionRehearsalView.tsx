@@ -25,8 +25,7 @@ import {
   type MissionValidationIssue
 } from '../../../shared/mission-rehearsal'
 import {
-  archiveMissionRun,
-  clearMissionResume,
+  finalizeMissionRun,
   loadMissionDraft,
   loadMissionResume,
   loadMissionRunHistory,
@@ -45,6 +44,10 @@ function cloneBundledManifest(): MissionScenarioManifest {
 
 function formatManifest(manifest: MissionScenarioManifest): string {
   return JSON.stringify(manifest, null, 2)
+}
+
+function isMissionRunBoundaryLocked(run: MissionRun | null, history: MissionRun[]): boolean {
+  return Boolean(run && (run.status === 'in-progress' || !history.some((entry) => entry.id === run.id)))
 }
 
 function errorMessage(error: unknown): string {
@@ -97,6 +100,7 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
   const [boundaryError, setBoundaryError] = useState<string | null>(null)
   const [baselineRunId, setBaselineRunId] = useState<string>('')
   const importInputRef = useRef<HTMLInputElement>(null)
+  const activeRunLockedRef = useRef(false)
 
   const hydrateManifestState = useCallback((
     nextManifest: MissionScenarioManifest,
@@ -109,13 +113,16 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
       const storageError = errors.length > 0
         ? errors.flatMap((error) => error?.issues ?? []).map((issue) => `${issue.path}: ${issue.message}`).join(' · ')
         : null
+      const nextHistory = (storedHistory.value ?? []).slice().sort((left, right) => left.updatedAt - right.updatedAt)
+      activeRunLockedRef.current = isMissionRunBoundaryLocked(resume.value, nextHistory)
       setBoundaryError([startupError, storageError].filter(Boolean).join(' · ') || null)
       setRun(resume.value)
-      setHistory((storedHistory.value ?? []).slice().sort((left, right) => left.updatedAt - right.updatedAt))
+      setHistory(nextHistory)
       const resumedRole = resume.value?.roleId
       const preferredRole = resumedRole ?? nextManifest.roles.find((role) => role.permissions.includes('run'))?.id
       setRoleId(preferredRole ?? nextManifest.roles[0]?.id ?? '')
     } catch (error) {
+      activeRunLockedRef.current = false
       setBoundaryError([startupError, errorMessage(error)].filter(Boolean).join(' · '))
       setRun(null)
       setHistory([])
@@ -157,6 +164,8 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
     () => history.filter((entry) => entry.status === 'completed' && entry.id !== run?.id),
     [history, run?.id]
   )
+  const runArchived = Boolean(run && history.some((entry) => entry.id === run.id))
+  const activeRunLocked = isMissionRunBoundaryLocked(run, history)
 
   useEffect(() => {
     if (comparisonCandidates.length === 0) {
@@ -174,7 +183,19 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
     return baseline ? compareMissionRuns(manifest, baseline, run) : null
   }, [baselineRunId, comparisonCandidates, manifest, run])
 
+  useEffect(() => {
+    if (activeRunLocked && tab !== 'run') setTab('run')
+  }, [activeRunLocked, tab])
+
+  const requireUnlockedBoundary = useCallback((): boolean => {
+    if (!activeRunLockedRef.current) return true
+    setTab('run')
+    showToast(tt(language, 'mission.toast.activeRunLocked'), 'info')
+    return false
+  }, [language, showToast])
+
   const applyManifest = useCallback((nextManifest: MissionScenarioManifest, toastKey: string): void => {
+    if (!requireUnlockedBoundary()) return
     try {
       const valid = assertMissionManifest(nextManifest)
       saveMissionDraft(window.localStorage, valid)
@@ -188,9 +209,10 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
       setDraftIssues(issues)
       showToast(tt(language, 'mission.toast.invalidManifest'), 'error')
     }
-  }, [hydrateManifestState, language, showToast])
+  }, [hydrateManifestState, language, requireUnlockedBoundary, showToast])
 
   const validateAndApplyDraft = useCallback((): void => {
+    if (!requireUnlockedBoundary()) return
     try {
       if (draft.length > MISSION_MAX_IMPORT_CHARS) {
         throw new MissionSchemaError('Draft is too large.', [
@@ -206,30 +228,35 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
       setDraftIssues(issues)
       showToast(tt(language, 'mission.toast.invalidManifest'), 'error')
     }
-  }, [applyManifest, draft, language, showToast])
+  }, [applyManifest, draft, language, requireUnlockedBoundary, showToast])
 
   const importManifest = useCallback(async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
+    if (!requireUnlockedBoundary()) return
     try {
-      const imported = parseMissionManifestJson(await file.text())
+      const text = await file.text()
+      if (!requireUnlockedBoundary()) return
+      const imported = parseMissionManifestJson(text)
       applyManifest(imported, 'mission.toast.manifestImported')
     } catch (error) {
       setDraftIssues(schemaIssues(error))
       showToast(tt(language, 'mission.toast.importFailed'), 'error')
     }
-  }, [applyManifest, language, showToast])
+  }, [applyManifest, language, requireUnlockedBoundary, showToast])
 
   const exportManifest = useCallback((): void => {
+    if (!requireUnlockedBoundary()) return
     downloadJson(
       `${safeFilename(manifest.id)}-v${manifest.revision}.mission.json`,
       serializeMissionManifest(manifest)
     )
     showToast(tt(language, 'mission.toast.manifestExported'), 'success')
-  }, [language, manifest, showToast])
+  }, [language, manifest, requireUnlockedBoundary, showToast])
 
   const startRun = useCallback((): void => {
+    if (!requireUnlockedBoundary()) return
     try {
       const now = Date.now()
       const next = createMissionRun(manifest, roleId, {
@@ -237,6 +264,7 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
         now
       })
       saveMissionResume(window.localStorage, manifest, next)
+      activeRunLockedRef.current = true
       setRun(next)
       setTab('run')
       setBoundaryError(null)
@@ -245,22 +273,24 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
       setBoundaryError(errorMessage(error))
       showToast(errorMessage(error), 'error')
     }
-  }, [history.length, language, manifest, roleId, showToast])
+  }, [history.length, language, manifest, requireUnlockedBoundary, roleId, showToast])
 
   const selectDecision = useCallback((decisionId: string): void => {
     if (!run) return
     try {
       const next = advanceMissionRun(manifest, run, decisionId)
-      setRun(next)
       if (next.status === 'completed') {
-        clearMissionResume(window.localStorage, manifest.id)
-        const archived = archiveMissionRun(window.localStorage, manifest, next)
-        if (archived.error) throw archived.error
-        setHistory(archived.value ?? [])
+        const finalized = finalizeMissionRun(window.localStorage, manifest, next)
+        activeRunLockedRef.current = isMissionRunBoundaryLocked(next, finalized.value ?? history)
+        setRun(next)
+        if (finalized.value) setHistory(finalized.value)
+        if (finalized.error) throw finalized.error
         setTab('debrief')
         showToast(tt(language, 'mission.toast.runCompleted'), 'success')
       } else {
         saveMissionResume(window.localStorage, manifest, next)
+        activeRunLockedRef.current = true
+        setRun(next)
         showToast(tt(language, 'mission.toast.checkpointSaved'), 'info')
       }
       setBoundaryError(null)
@@ -268,25 +298,43 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
       setBoundaryError(errorMessage(error))
       showToast(errorMessage(error), 'error')
     }
-  }, [language, manifest, run, showToast])
+  }, [history, language, manifest, run, showToast])
+
+  const retryRunArchive = useCallback((): void => {
+    if (!run || run.status !== 'completed') return
+    const finalized = finalizeMissionRun(window.localStorage, manifest, run)
+    activeRunLockedRef.current = isMissionRunBoundaryLocked(run, finalized.value ?? history)
+    if (finalized.value) setHistory(finalized.value)
+    if (finalized.error) {
+      setBoundaryError(errorMessage(finalized.error))
+      showToast(errorMessage(finalized.error), 'error')
+      return
+    }
+    setBoundaryError(null)
+    setTab('debrief')
+    showToast(tt(language, 'mission.toast.runCompleted'), 'success')
+  }, [history, language, manifest, run, showToast])
 
   const resetActiveRun = useCallback((): void => {
     if (!window.confirm(tt(language, 'mission.reset.activeConfirm'))) return
     try {
-      resetMissionTrainingBoundary(window.localStorage, manifest.id)
+      resetMissionTrainingBoundary(window.localStorage, manifest)
+      activeRunLockedRef.current = false
       setRun(null)
       setBoundaryError(null)
       showToast(tt(language, 'mission.toast.activeReset'), 'info')
     } catch (error) {
       setBoundaryError(errorMessage(error))
     }
-  }, [language, manifest.id, showToast])
+  }, [language, manifest, showToast])
 
   const resetAllTrainingData = useCallback((): void => {
+    if (!requireUnlockedBoundary()) return
     if (!window.confirm(tt(language, 'mission.reset.allConfirm'))) return
     try {
       resetAllMissionTrainingData(window.localStorage)
       const bundled = cloneBundledManifest()
+      activeRunLockedRef.current = false
       setManifest(bundled)
       setDraft(formatManifest(bundled))
       setDraftIssues([])
@@ -298,19 +346,22 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
     } catch (error) {
       setBoundaryError(errorMessage(error))
     }
-  }, [language, manifest.id, showToast])
+  }, [language, requireUnlockedBoundary, showToast])
 
   const exportRun = useCallback((): void => {
     if (!run) return
+    if (!requireUnlockedBoundary()) return
     downloadJson(`${safeFilename(manifest.id)}-${run.id}.mission-run.json`, serializeMissionRun(manifest, run))
     showToast(tt(language, 'mission.toast.runExported'), 'success')
-  }, [language, manifest, run, showToast])
+  }, [language, manifest, requireUnlockedBoundary, run, showToast])
 
   const openHistoryRun = useCallback((historyRun: MissionRun): void => {
+    if (!requireUnlockedBoundary()) return
+    activeRunLockedRef.current = false
     setRun(historyRun)
     setRoleId(historyRun.roleId)
     setTab('debrief')
-  }, [])
+  }, [requireUnlockedBoundary])
 
   const runRole = run ? manifest.roles.find((role) => role.id === run.roleId) : null
 
@@ -340,13 +391,24 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
             role="tab"
             aria-selected={tab === item}
             aria-controls={`mission-panel-${item}`}
+            aria-describedby={activeRunLocked && item !== 'run' ? 'mission-run-lock' : undefined}
             className={tab === item ? 'is-active' : ''}
-            onClick={() => setTab(item)}
+            disabled={activeRunLocked && item !== 'run'}
+            title={activeRunLocked && item !== 'run' ? tt(language, 'mission.tabs.lockedDuringRun') : undefined}
+            onClick={() => {
+              if (activeRunLocked && item !== 'run') return
+              setTab(item)
+            }}
           >
             {tt(language, `mission.tabs.${item}`)}
           </button>
         ))}
       </nav>
+      {activeRunLocked && (
+        <p id="mission-run-lock" className="mission-help" role="status">
+          {tt(language, 'mission.tabs.lockedDuringRun')}
+        </p>
+      )}
 
       {boundaryError && (
         <div className="mission-alert mission-alert--error" role="alert">
@@ -369,20 +431,21 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
               <p>{tt(language, 'mission.author.body')}</p>
             </div>
             <div className="mission-actions">
-              <button type="button" className="mission-button" onClick={() => importInputRef.current?.click()}>
+              <button type="button" className="mission-button" disabled={activeRunLocked} onClick={() => importInputRef.current?.click()}>
                 {tt(language, 'mission.author.import')}
               </button>
               <input
                 ref={importInputRef}
                 type="file"
                 accept="application/json,.json"
+                disabled={activeRunLocked}
                 hidden
                 onChange={(event) => void importManifest(event)}
               />
-              <button type="button" className="mission-button" onClick={exportManifest}>
+              <button type="button" className="mission-button" disabled={activeRunLocked} onClick={exportManifest}>
                 {tt(language, 'mission.author.export')}
               </button>
-              <button type="button" className="mission-button mission-button--primary" onClick={validateAndApplyDraft}>
+              <button type="button" className="mission-button mission-button--primary" disabled={activeRunLocked} onClick={validateAndApplyDraft}>
                 {tt(language, 'mission.author.validateApply')}
               </button>
             </div>
@@ -400,6 +463,7 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
                 id="mission-manifest-editor"
                 className="mission-json-editor"
                 value={draft}
+                readOnly={activeRunLocked}
                 spellCheck={false}
                 aria-describedby="mission-editor-help mission-validation-status"
                 onChange={(event) => {
@@ -481,7 +545,7 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
                 <select
                   id="mission-role"
                   value={run?.status === 'in-progress' ? run.roleId : roleId}
-                  disabled={Boolean(run && run.status === 'in-progress')}
+                  disabled={activeRunLocked}
                   onChange={(event) => setRoleId(event.target.value)}
                 >
                   {manifest.roles.filter((role) => role.permissions.includes('run')).map((role) => (
@@ -490,7 +554,7 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
                 </select>
               </label>
               {!run || run.status === 'completed' ? (
-                <button type="button" className="mission-button mission-button--primary" onClick={startRun}>
+                <button type="button" className="mission-button mission-button--primary" disabled={activeRunLocked} onClick={startRun}>
                   {tt(language, run?.status === 'completed' ? 'mission.runner.repeat' : 'mission.runner.start')}
                 </button>
               ) : (
@@ -506,7 +570,7 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
               <strong>{tt(language, 'mission.runner.ready')}</strong>
               <p>{tt(language, 'mission.runner.readyBody')}</p>
               <ul>
-                {manifest.roles.map((role) => (
+                {manifest.roles.filter((role) => role.permissions.includes('run')).map((role) => (
                   <li key={role.id}><strong>{role.name}:</strong> {role.description}</li>
                 ))}
               </ul>
@@ -516,10 +580,18 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
           {run && run.status === 'completed' && (
             <div className="mission-alert mission-alert--success" role="status">
               <strong>{tt(language, 'mission.runner.complete')}</strong>
-              <span>{tt(language, 'mission.runner.openDebrief')}</span>
-              <button type="button" className="mission-button" onClick={() => setTab('debrief')}>
-                {tt(language, 'mission.tabs.debrief')}
-              </button>
+              <span>
+                {tt(language, activeRunLocked ? 'mission.runner.archivePending' : 'mission.runner.openDebrief')}
+              </span>
+              {activeRunLocked ? (
+                <button type="button" className="mission-button" onClick={retryRunArchive}>
+                  {tt(language, 'mission.runner.retryArchive')}
+                </button>
+              ) : (
+                <button type="button" className="mission-button" onClick={() => setTab('debrief')}>
+                  {tt(language, 'mission.tabs.debrief')}
+                </button>
+              )}
             </div>
           )}
 
@@ -641,7 +713,7 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
                         <strong>{formatRunDate(historyRun.updatedAt, language)}</strong>
                         <span>{scoreMissionRun(manifest, historyRun).percent}% · {historyRun.roleId}</span>
                       </div>
-                      <button type="button" className="mission-button" onClick={() => openHistoryRun(historyRun)}>
+                      <button type="button" className="mission-button" disabled={activeRunLocked} onClick={() => openHistoryRun(historyRun)}>
                         {tt(language, 'mission.debrief.open')}
                       </button>
                     </li>
@@ -798,7 +870,13 @@ export default function MissionRehearsalView({ language = 'en', showToast }: App
           <button type="button" className="mission-button" disabled={!run} onClick={resetActiveRun}>
             {tt(language, 'mission.reset.active')}
           </button>
-          <button type="button" className="mission-button mission-button--danger" onClick={resetAllTrainingData}>
+          <button
+            type="button"
+            className="mission-button mission-button--danger"
+            disabled={activeRunLocked}
+            title={activeRunLocked ? tt(language, 'mission.tabs.lockedDuringRun') : undefined}
+            onClick={resetAllTrainingData}
+          >
             {tt(language, 'mission.reset.all')}
           </button>
         </div>
