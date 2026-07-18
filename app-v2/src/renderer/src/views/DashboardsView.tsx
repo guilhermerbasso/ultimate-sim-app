@@ -61,6 +61,12 @@ import StreamingPanel from '../components/StreamingPanel'
 import { tt } from '../i18n'
 import '../dashboard/dashboard-runtime.css'
 import { consumeEditorTarget } from '../lib/app-navigation'
+import ThirdPartyDashboardCatalog from '../components/ThirdPartyDashboardCatalog'
+import {
+  thirdPartyDistributionRestrictionReason,
+  type DashboardThirdPartyImportInput,
+  type ThirdPartyCatalogEntryId
+} from '../../../shared/third-party-dashboard-catalog'
 
 const ACCENT = 'var(--accent-primary)'
 const PANEL_BG = '#0e1116'
@@ -177,6 +183,19 @@ interface SimhubImportPicker {
   screens: SimhubImportScreen[]
   selectedScreenIndex: number
   notes: string[]
+}
+
+export type SimhubImportProvenanceSelection =
+  | 'source-neutral'
+  | ThirdPartyCatalogEntryId
+  | 'unknown-third-party'
+
+export function simhubImportMetadataForSelection(
+  selection: SimhubImportProvenanceSelection
+): DashboardThirdPartyImportInput | undefined {
+  if (selection === 'source-neutral') return undefined
+  if (selection === 'unknown-third-party') return { sourceName: 'Unspecified third-party source' }
+  return { catalogEntryId: selection }
 }
 
 const NEW_RESOLUTION_PRESETS: Array<{ id: string; label: string; width: number; height: number }> = [
@@ -540,6 +559,7 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
   const [previewMode, setPreviewMode] = useState<'static' | 'yes'>('yes')
   const [importDiagnostics, setImportDiagnostics] = useState<string[]>([])
   const [importPicker, setImportPicker] = useState<SimhubImportPicker | null>(null)
+  const [importProvenance, setImportProvenance] = useState<SimhubImportProvenanceSelection>('source-neutral')
   const [cycleControls, setCycleControls] = useState<DashboardCycleControls>({ next: null, prev: null })
   const [captureCycle, setCaptureCycle] = useState<CycleDirection | null>(null)
   const dirtyRef = useRef(false)
@@ -1082,10 +1102,11 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
 
   async function importSimhub(): Promise<void> {
     try {
+      const thirdParty = simhubImportMetadataForSelection(importProvenance)
       const result = await window.ipc.invoke<SimhubImportResponse | null>(
         'app:dash:importSimhub',
         undefined,
-        { inspectOnly: true }
+        { inspectOnly: true, ...(thirdParty ? { thirdParty } : {}) }
       )
       if (!result) return
       if (!result.summary && result.filePath && result.screens && result.screens.length > 1) {
@@ -1093,7 +1114,7 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
           filePath: result.filePath,
           screens: result.screens,
           selectedScreenIndex: result.selectedScreenIndex ?? result.screens.find((screen) => screen.selected)?.index ?? result.screens[0].index,
-          notes: result.notes
+          notes: result.notes,
         })
         setImportDiagnostics(result.notes ?? [])
         showToast('Select which .simhubdash screen to import.', 'info')
@@ -1107,10 +1128,16 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
 
   async function completeSimhubImport(importAll = false): Promise<void> {
     if (!importPicker) return
+    const thirdParty = simhubImportMetadataForSelection(importProvenance)
     const result = await window.ipc.invoke<SimhubImportResponse | null>(
       'app:dash:importSimhub',
       importPicker.filePath,
-      importAll ? { importAll: true } : { screenIndex: importPicker.selectedScreenIndex }
+      importAll
+        ? { importAll: true, ...(thirdParty ? { thirdParty } : {}) }
+        : {
+            screenIndex: importPicker.selectedScreenIndex,
+            ...(thirdParty ? { thirdParty } : {})
+          }
     )
     setImportPicker(null)
     finishImport(result)
@@ -1198,6 +1225,10 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
   const isOpen = useMemo(() => {
     return selectedDash ? openStates.some((s) => s.id === selectedDash.id) : false
   }, [openStates, selectedDash])
+  const reExportRestriction = useMemo(
+    () => thirdPartyDistributionRestrictionReason(selectedDash?.thirdParty, 'reExport'),
+    [selectedDash?.thirdParty]
+  )
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: 0 }}>
@@ -1208,30 +1239,55 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
             {tt(language, 'dashboards.subtitlePrefix')} <code>.simhubdash</code> {tt(language, 'dashboards.subtitleSuffix')}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-          <SectionExportImport sectionId="dashboards" label={tt(language, 'dashboards.exportImportLabel')} onImported={() => void refreshAll()} />
-          <button style={btn('primary')} disabled={busy} onClick={() => run(importSimhub)}>
-            {tt(language, 'dashboards.importSimhub')}
-          </button>
-          <button style={btn()} disabled={busy || !selectedDash} onClick={() => run(exportSimhub)}>
-            {tt(language, 'dashboards.exportSimhub')}
-          </button>
-          <button style={btn()} disabled={busy} onClick={() => newEmpty(1280, 720, 'New dashboard')}>
-            {tt(language, 'dashboards.newEmpty')}
-          </button>
-          {NEW_RESOLUTION_PRESETS.map((p) => (
-            <button
-              key={p.id}
-              style={btn()}
-              disabled={busy}
-              onClick={() => newEmpty(p.width, p.height, `New ${p.label}`)}
-              title={tt(language, 'dashboards.newPresetTitle', { width: p.width, height: p.height })}
-            >
-              + {p.label}
+        <div style={{ display: 'grid', gap: 6, justifyItems: 'end' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end' }}>
+            <label style={{ display: 'grid', gap: 2, fontSize: 11, color: TEXT_DIM }}>
+              Import provenance (optional)
+              <select
+                style={{ background: 'var(--surface-sunken)', color: TEXT_FG, border: `1px solid ${PANEL_BORDER}`, borderRadius: 'var(--radius-sm)', padding: '6px 8px' }}
+                value={importProvenance}
+                onChange={(event) => setImportProvenance(event.currentTarget.value as SimhubImportProvenanceSelection)}
+              >
+                <option value="source-neutral">Local file — source not asserted</option>
+                <option value="lovely-dashboard">Lovely Dashboard — restricted rights</option>
+                <option value="overtake-iracing">OverTake listing — uploader-specific rights</option>
+                <option value="unknown-third-party">Other third party — rights unknown</option>
+              </select>
+            </label>
+            <SectionExportImport sectionId="dashboards" label={tt(language, 'dashboards.exportImportLabel')} onImported={() => void refreshAll()} />
+            <button style={btn('primary')} disabled={busy} onClick={() => run(importSimhub)}>
+              {tt(language, 'dashboards.importSimhub')}
             </button>
-          ))}
+            <button
+              style={btn()}
+              disabled={busy || !selectedDash || Boolean(reExportRestriction)}
+              onClick={() => run(exportSimhub)}
+              title={reExportRestriction ?? undefined}
+            >
+              {tt(language, 'dashboards.exportSimhub')}
+            </button>
+            <button style={btn()} disabled={busy} onClick={() => newEmpty(1280, 720, 'New dashboard')}>
+              {tt(language, 'dashboards.newEmpty')}
+            </button>
+            {NEW_RESOLUTION_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                style={btn()}
+                disabled={busy}
+                onClick={() => newEmpty(p.width, p.height, `New ${p.label}`)}
+                title={tt(language, 'dashboards.newPresetTitle', { width: p.width, height: p.height })}
+              >
+                + {p.label}
+              </button>
+            ))}
+          </div>
+          <small style={{ color: reExportRestriction ? 'var(--accent-warning, #f0ad4e)' : TEXT_DIM, maxWidth: 760, textAlign: 'right' }}>
+            {reExportRestriction ?? 'The default local import remains source-neutral. Optional third-party metadata persists with the dashboard.'}
+          </small>
         </div>
       </section>
+
+      <ThirdPartyDashboardCatalog onError={(message) => showToast(message, 'error')} />
 
       <StreamingPanel language={language} />
 
