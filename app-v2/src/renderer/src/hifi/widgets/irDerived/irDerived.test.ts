@@ -63,7 +63,7 @@ describe('IR_DERIVED_WIDGETS', () => {
     expect(byId.get('sunPosition')).toEqual(['solarAltitudeRad', 'solarAzimuthRad'])
     expect(byId.get('gpsHeading')).toEqual(['lat', 'lon', 'yawNorth'])
     expect(byId.get('raceControlFlags')).toEqual(['sessionFlagsRaw'])
-    expect(byId.get('shiftPoint')).toEqual(['shiftRpm', 'rpm', 'maxRpm'])
+    expect(byId.get('shiftPoint')).toEqual(['shiftRpm', 'rpm', 'maxRpm', 'revLights'])
     expect(byId.get('engineTelltale')).toEqual(['engineRunning', 'rpm'])
     expect(byId.get('spotterRaw')).toEqual(['carLeftRightRaw'])
     expect(byId.get('sessionTag')).toEqual(['sessionUniqueId'])
@@ -102,6 +102,27 @@ describe('IR_DERIVED_WIDGETS', () => {
       expect(markup.length).toBeGreaterThan(100)
       expect(markup).not.toMatch(badTokens)
     }
+  })
+
+  it('uses provider blink for the derived shift-point cue', () => {
+    const widget = IR_DERIVED_WIDGETS.find((candidate) => candidate.id === 'shiftPoint')!
+    const providerOff = renderWidget(widget, {
+      ...dataSnapshot(),
+      rpm: 7300,
+      shiftRpm: 7200,
+      revLights: { pct: 0.999, blink: false }
+    })
+    expect(providerOff).not.toContain('>SHIFT<')
+    expect(providerOff).not.toContain('repeatCount="indefinite"')
+
+    const providerOn = renderWidget(widget, {
+      ...dataSnapshot(),
+      rpm: 2000,
+      shiftRpm: 7200,
+      revLights: { pct: 0.2, blink: true }
+    })
+    expect(providerOn).toContain('>SHIFT<')
+    expect(providerOn).toContain('repeatCount="indefinite"')
   })
 
   it('shows expected derived data states and neutral/null states', () => {

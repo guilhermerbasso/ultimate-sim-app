@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { baseSnapshot } from '../../../../../shared/telemetry-scenarios'
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
+import { SHIFT_STROBE_BLUE } from '../../../lib/rev-lights'
 import { CARS_REAL_WIDGETS } from './index'
 
 const badTokens = /NaN|undefined|Infinity/
@@ -68,5 +69,42 @@ describe('CARS_REAL_WIDGETS', () => {
     const markup = renderWidget('f488Position', { ...baseSnapshot(), position: 4, totalCars: 24 } as TelemetrySnapshot)
     expect(markup).toContain('P4 / 24')
     expect(markup).not.toContain('>POS</text>')
+  })
+
+  it('uses provider blink across every car-real rev/shift renderer', () => {
+    const ids = [
+      'f296Dash', 'f296RevLights',
+      'pcupDash', 'pcupRevBar',
+      'gtdDash', 'gtdArcTach',
+      'cvDash', 'cvRevLights', 'cvRpmBar',
+      'lhDash', 'lhRevLights', 'lhRpm',
+      'f488Dash', 'f488RevLights', 'f488RpmBar'
+    ]
+    const providerOff = {
+      ...baseSnapshot(),
+      rpm: 8400,
+      maxRpm: 8500,
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    } as TelemetrySnapshot
+    const providerOn = {
+      ...baseSnapshot(),
+      rpm: 2000,
+      maxRpm: 8500,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    } as TelemetrySnapshot
+
+    for (const id of ids) {
+      const normal = renderWidget(id, providerOff)
+      const shifted = renderWidget(id, providerOn)
+      expect(normal, id).not.toContain('repeatCount="indefinite"')
+      expect(shifted, id).toContain(SHIFT_STROBE_BLUE)
+      expect(shifted, id).toContain('repeatCount="indefinite"')
+      expect(
+        (shifted.match(new RegExp(SHIFT_STROBE_BLUE, 'g')) ?? []).length,
+        id
+      ).toBeGreaterThan((normal.match(new RegExp(SHIFT_STROBE_BLUE, 'g')) ?? []).length)
+    }
   })
 })

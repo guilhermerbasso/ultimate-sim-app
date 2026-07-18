@@ -558,7 +558,7 @@ function resolveBindingCanonical(
     }
     case 'shiftPct': {
       // Per-car shift-light band from the provider (0 below SLFirstRPM, 1 at/after
-      // SLLastRPM). revLights.pct is the same band, kept as a fallback. Never
+      // SLShiftRPM). revLights.pct is the same band, kept as a fallback. Never
       // rpm/maxRpm — that lights the bar proportionally at all RPM.
       const pct = Math.min(1, Math.max(0, snap.shiftIndicatorPct ?? snap.revLights?.pct ?? 0))
       return { text: (pct * 100).toFixed(0), numeric: pct, pct }

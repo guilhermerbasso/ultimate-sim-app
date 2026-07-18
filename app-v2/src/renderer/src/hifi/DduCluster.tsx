@@ -9,6 +9,7 @@ import { type ReactElement, type ReactNode } from 'react'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import { convertMeasurement, formatMeasurement, type UnitSystem } from '../../../shared/units'
 import { useUnitSystem } from '../lib/units'
+import { SHIFT_STROBE_BLUE, ShiftStrobe, resolveRevLightState } from '../lib/rev-lights'
 
 const W = 1024
 const H = 600
@@ -121,9 +122,10 @@ function BatteryIcon({ x, y, c }: { x: number; y: number; c: string }): ReactEle
   )
 }
 
-function ShiftArc({ pct }: { pct: number }): ReactElement {
+function ShiftArc({ pct, blink }: { pct: number; blink?: boolean }): ReactElement {
   const count = 15
-  const lit = Math.round(clamp01(pct) * count)
+  const state = resolveRevLightState(pct, blink)
+  const lit = state.atShiftPoint ? count : Math.round(state.pct * count)
   const x0 = 60
   const x1 = W - 60
   const step = (x1 - x0) / (count - 1)
@@ -133,11 +135,13 @@ function ShiftArc({ pct }: { pct: number }): ReactElement {
     const t = (cx - W / 2) / (W / 2)
     const cy = 44 - (1 - t * t) * 16
     const zone = i / (count - 1)
-    const color = zone < 0.33 ? COL.blue : zone < 0.53 ? COL.green : zone < 0.75 ? COL.amber : COL.red
+    const color = state.atShiftPoint
+      ? SHIFT_STROBE_BLUE
+      : zone < 0.33 ? COL.blue : zone < 0.53 ? COL.green : zone < 0.75 ? COL.amber : COL.red
     const on = i < lit
     leds.push(<circle key={i} cx={cx} cy={cy} r={on ? 9 : 7.5} fill={on ? color : '#15181c'} stroke={on ? color : 'rgba(255,255,255,0.08)'} strokeWidth={1} opacity={on ? 1 : 0.55} />)
   }
-  return <g>{leds}</g>
+  return <g><ShiftStrobe active={state.atShiftPoint} />{leds}</g>
 }
 
 function RpmStepBar({ frac, x, y, w, h }: { frac: number; x: number; y: number; w: number; h: number }): ReactElement {
@@ -202,7 +206,7 @@ export function DduCluster({ snapshot: s, width, height }: DduClusterProps): Rea
   const speed = formatMeasurement(n(s.speedKmh), 'speed-kmh', unitSystem, { decimals: 0 })
   const rpm = n(s.rpm)
   const maxRpm = n(s.maxRpm) ?? 8500
-  const shiftPct = n(s.shiftIndicatorPct) ?? (rpm != null ? rpm / maxRpm : 0)
+  const shiftPct = n(s.shiftIndicatorPct) ?? n(s.revLights?.pct) ?? (rpm != null ? rpm / maxRpm : 0)
   const rpmFrac = rpm != null ? clamp01(rpm / maxRpm) : 0
   const delta = n(s.deltaToBestSec)
   const fuel = n(s.fuelLiters)
@@ -224,7 +228,7 @@ export function DduCluster({ snapshot: s, width, height }: DduClusterProps): Rea
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width={width ?? W} height={height ?? H} preserveAspectRatio="xMidYMid meet" role="img" aria-label="GT3 DDU cluster">
       <rect x={0} y={0} width={W} height={H} fill={COL.bg} />
-      <ShiftArc pct={shiftPct} />
+      <ShiftArc pct={shiftPct} blink={s.revLights?.blink} />
 
       <Panel x={16} y={70} w={232} h={112}>
         {label('Fuel', 32, 96)}

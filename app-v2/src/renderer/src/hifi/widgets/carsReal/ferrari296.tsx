@@ -21,7 +21,7 @@ function safeText(v: unknown): string {
 
 function shiftFrac(snapshot: HifiWidgetProps['snapshot']): { f: number; missing: boolean; flash: boolean } {
   const pct = num(snapshot?.shiftIndicatorPct)
-  if (pct != null) return { f: frac(pct, 0, 1), missing: false, flash: pct >= 0.96 || snapshot?.revLights?.blink === true }
+  if (pct != null) return { f: frac(pct, 0, 1), missing: false, flash: snapshot?.revLights?.blink ?? pct >= 0.96 }
   const rpm = num(snapshot?.rpm)
   const max = num(snapshot?.maxRpm)
   if (rpm != null && max != null && max > 0) return { f: frac(rpm, 0, max), missing: false, flash: rpm >= max * 0.96 }
@@ -67,7 +67,7 @@ function GlowDefs({ id }: { id: string }): ReactElement {
 
 function RoundLedStrip({ snapshot, x, y, w, count = 17, id = 'f296-leds', r = 15 }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; count?: number; id?: string; r?: number }): ReactElement {
   const { f, missing, flash } = shiftFrac(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const lit = shift ? count : missing ? 0 : Math.round(f * count)
   const gap = count === 1 ? 0 : w / (count - 1)
   return (

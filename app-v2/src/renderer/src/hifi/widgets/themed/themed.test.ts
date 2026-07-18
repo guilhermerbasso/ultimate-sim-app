@@ -41,15 +41,21 @@ describe('THEMED_WIDGETS', () => {
   it('strobes every themed rev display strong blue only at the shift point', () => {
     const highShift = {
       ...baseSnapshot(),
-      rpm: 8400,
+      rpm: 2000,
       maxRpm: 8500,
-      shiftIndicatorPct: 0.99,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true },
       gear: 4,
       speedKmh: 184,
       waterTempC: 92,
       oilTempC: 104
     }
-    const midShift = { ...highShift, rpm: 5100, shiftIndicatorPct: 0.6 }
+    const midShift = {
+      ...highShift,
+      rpm: 8400,
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    }
 
     for (const markup of renderAll(highShift)) {
       expect(markup).toContain(SHIFT_STROBE_BLUE)

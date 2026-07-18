@@ -40,7 +40,7 @@ export function AnalogTachWidget({ snapshot, config }: WidgetProps): ReactElemen
 
   const shiftPct = pctOrUndefined(s?.shiftIndicatorPct)
   const inShiftBand = shiftPct !== undefined && shiftPct >= 0.85
-  const redlining = frac >= REDLINE_FRAC || inShiftBand
+  const redlining = s?.revLights?.blink ?? (frac >= REDLINE_FRAC || inShiftBand)
 
   const gear = formatGear(s?.gear)
   const speed = formatMeasurement(s?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })

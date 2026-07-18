@@ -28,7 +28,7 @@ function rpmFraction(snapshot: HifiWidgetProps['snapshot']): number {
 
 function shiftState(snapshot: HifiWidgetProps['snapshot']): { f: number; missing: boolean; flash: boolean } {
   const pct = num(snapshot?.shiftIndicatorPct)
-  if (pct != null) return { f: frac(pct, 0, 1), missing: false, flash: pct >= 0.96 || snapshot?.revLights?.blink === true }
+  if (pct != null) return { f: frac(pct, 0, 1), missing: false, flash: snapshot?.revLights?.blink ?? pct >= 0.96 }
   const rpm = num(snapshot?.rpm)
   const max = num(snapshot?.maxRpm)
   if (rpm != null && max != null && max > 0) return { f: frac(rpm, 0, max), missing: false, flash: rpm >= max * 0.96 }
@@ -81,7 +81,7 @@ function GlowDefs({ id }: { id: string }): ReactElement {
 
 function HexShiftRow({ snapshot, x, y, w, h, count = 20, id = 'lh-shift' }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; h: number; count?: number; id?: string }): ReactElement {
   const { f, missing, flash } = shiftState(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const lit = shift ? count : missing ? 0 : Math.round(f * count)
   const gap = Math.max(3, w * 0.006)
   const cell = (w - gap * (count - 1)) / count

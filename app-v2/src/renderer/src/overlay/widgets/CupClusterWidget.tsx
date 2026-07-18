@@ -10,6 +10,7 @@ import { resolveSkin, FitText } from '../../skins'
 import { RevLedBar, DataField, type FieldState } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
+import { atShiftPoint } from '../../lib/rev-lights'
 
 export const CUP_CLUSTER_STREAM_SAFE = true
 
@@ -30,7 +31,7 @@ export function CupClusterWidget({ snapshot, config }: WidgetProps): ReactElemen
   const { W, H } = dims(config)
 
   const shiftPct = pct(s?.shiftIndicatorPct ?? (s?.rpm ?? 0) / (s?.maxRpm ?? 9000))
-  const redline = shiftPct >= 0.95
+  const redline = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)
   const gear = formatGear(s?.gear)
   const speed = formatMeasurement(s?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
   const delta = s?.deltaToBestSec
@@ -55,7 +56,7 @@ export function CupClusterWidget({ snapshot, config }: WidgetProps): ReactElemen
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" width="100%" height="100%" style={{ display: 'block' }}>
         <rect x={0} y={0} width={W} height={H} rx={skin.material.radius} fill={palette.bg} />
 
-        <RevLedBar pct={shiftPct} profile={skin.led} x={P} y={ledY} width={W - 2 * P} height={ledH} flashOn={redline} />
+        <RevLedBar pct={shiftPct} profile={skin.led} x={P} y={ledY} width={W - 2 * P} height={ledH} shiftActive={redline} />
 
         <rect x={P} y={gearY} width={W - 2 * P} height={gearH} rx={skin.material.radius} fill={palette.bg} stroke={redline ? palette.crit : palette.accent} strokeWidth={skin.material.borderWidth} />
         <FitText x={cx} y={gearY + gearH / 2} boxW={(W - 2 * P) * 0.6} boxH={gearH * 0.82} text={gear} anchor="middle" baseline="middle" fontFamily={/^\d$/.test(gear) ? skin.segment.numeric : skin.segment.alpha} fill={redline ? palette.crit : palette.text} minFontPx={28} maxFontPx={gearH * 0.82} />

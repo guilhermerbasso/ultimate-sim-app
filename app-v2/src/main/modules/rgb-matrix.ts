@@ -29,6 +29,7 @@ import {
   type RgbMatrixLeafEffect,
   type RgbMatrixProfile
 } from '../../shared/rgb-matrix'
+import { resolveShiftNow } from '../../shared/revlights'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import { getDeviceConfigStore } from '../devices/store'
 import { logger } from './logger'
@@ -1011,7 +1012,10 @@ export class RgbMatrixModule {
     const key = this.effectStateKey(sendKey, `${effect.id}:redline`)
     const pct = shiftIndicatorLevel(telemetry)
     const wasLatched = this.gearRedlineLatched.get(key) === true
-    const next = selectRedlineReachedWithHysteresis(pct, wasLatched)
+    const next = resolveShiftNow(
+      telemetry?.revLights?.blink,
+      selectRedlineReachedWithHysteresis(pct, wasLatched)
+    )
     this.gearRedlineLatched.set(key, next)
     return next
   }

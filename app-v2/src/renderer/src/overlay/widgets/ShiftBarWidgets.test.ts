@@ -118,4 +118,43 @@ describe('GT3ClusterWidget + RevLightsWidget adopt the shared RevLedBar ladder',
     expect(out).not.toContain('>REV<')
     expect(out).not.toContain('RPM')
   })
+
+  it('uses provider blink across every registered rev-light overlay and cluster', () => {
+    const ids = [
+      'revlights',
+      'gt3Cluster',
+      'compactHud',
+      'gridStackDash',
+      'gridProDash',
+      'bosch296Dash',
+      'lmuEnduranceDash',
+      'shiftPointBar',
+      'revComet',
+      'neonGearBar',
+      'cupCluster',
+      'oledStrip',
+      'hifiDdu',
+      'hifiEndurance',
+      'hifiMinimal'
+    ] as OverlayWidgetId[]
+    const providerOff = {
+      ...redline,
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    } as TelemetrySnapshot
+    const providerOn = {
+      ...redline,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    } as TelemetrySnapshot
+
+    for (const id of ids) {
+      const normal = render(id, 'minimal', providerOff)
+      const shifted = render(id, 'minimal', providerOn)
+      expect(normal, id).not.toContain(SHIFT_STROBE_BLUE)
+      expect(normal, id).not.toContain('repeatCount="indefinite"')
+      expect(shifted, id).toContain(SHIFT_STROBE_BLUE)
+      expect(shifted, id).toContain('repeatCount="indefinite"')
+    }
+  })
 })

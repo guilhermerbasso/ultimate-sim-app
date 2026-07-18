@@ -314,6 +314,29 @@ describe('statusLed renders overlay-friendly (inactive = transparent)', () => {
     const litCells = frame.flat().filter((c) => c.r + c.g + c.b > 0).length
     expect(litCells).toBe(0)
   })
+
+  it('uses provider blink for the iFlag redline status and falls back only when absent', () => {
+    const redline = createRgbMatrixStatusLed('redlineReached')
+    const profile = profileWith([redline])
+
+    const providerOff = renderMatrixFrame(profile, snapshot({
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    }), 0)
+    expect(providerOff.flat().every((color) => color.r + color.g + color.b === 0)).toBe(true)
+
+    const providerOn = renderMatrixFrame(profile, snapshot({
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    }), 0)
+    expect(providerOn.flat().some((color) => color.r + color.g + color.b > 0)).toBe(true)
+
+    const fallback = renderMatrixFrame(profile, snapshot({
+      shiftIndicatorPct: 0.99,
+      revLights: { pct: 0.99 }
+    }), 0)
+    expect(fallback.flat().some((color) => color.r + color.g + color.b > 0)).toBe(true)
+  })
 })
 
 

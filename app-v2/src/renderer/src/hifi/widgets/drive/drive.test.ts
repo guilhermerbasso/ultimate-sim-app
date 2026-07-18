@@ -56,8 +56,16 @@ describe('DRIVE_WIDGETS', () => {
 
   it('uses the shared strong-blue strobe across every rev/RPM light strip', () => {
     const ids = ['rpmBar', 'revlights', 'revlightsGradient', 'revlightsLedStrip', 'revlightsLedBar', 'revlightsMustang']
-    const shift = { ...baseSnapshot(), shiftIndicatorPct: 1 }
-    const mid = { ...baseSnapshot(), shiftIndicatorPct: 0.6 }
+    const shift = {
+      ...baseSnapshot(),
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    }
+    const mid = {
+      ...baseSnapshot(),
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    }
 
     for (const id of ids) {
       const widget = DRIVE_WIDGETS.find((candidate) => candidate.id === id)!
@@ -69,5 +77,10 @@ describe('DRIVE_WIDGETS', () => {
       expect(normal, id).not.toContain(SHIFT_STROBE_BLUE)
       expect(normal, id).not.toContain('repeatCount="indefinite"')
     }
+
+    const fallback = { ...baseSnapshot(), shiftIndicatorPct: 1, revLights: { pct: 1 } }
+    const widget = DRIVE_WIDGETS.find((candidate) => candidate.id === 'revlights')!
+    expect(renderToStaticMarkup(createElement(widget.render, { snapshot: fallback, width: 1000, height: 36 })))
+      .toContain('repeatCount="indefinite"')
   })
 })

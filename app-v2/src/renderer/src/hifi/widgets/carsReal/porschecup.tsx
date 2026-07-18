@@ -15,7 +15,7 @@ const TAGS = ['porsche', 'porsche-911-gt3-cup', 'gt3-cup', 'car', 'ir'] as const
 
 function shiftFrac(snapshot: HifiWidgetProps['snapshot']): { f: number; missing: boolean; flash: boolean } {
   const pct = num(snapshot?.shiftIndicatorPct)
-  if (pct != null) return { f: frac(pct, 0, 1), missing: false, flash: pct >= 0.96 || snapshot?.revLights?.blink === true }
+  if (pct != null) return { f: frac(pct, 0, 1), missing: false, flash: snapshot?.revLights?.blink ?? pct >= 0.96 }
   const rpm = num(snapshot?.rpm)
   const max = num(snapshot?.maxRpm)
   if (rpm != null && max != null && max > 0) return { f: frac(rpm, 0, max), missing: false, flash: rpm >= max * 0.96 }
@@ -47,7 +47,7 @@ function SegmentRevBar({
   dim?: string
 }): ReactElement {
   const { f, missing, flash } = shiftFrac(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const lit = shift ? count : missing ? 0 : Math.round(f * count)
   const gap = Math.max(3, w * 0.004)
   const cell = (w - gap * (count - 1)) / count

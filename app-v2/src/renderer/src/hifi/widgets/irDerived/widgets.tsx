@@ -329,7 +329,7 @@ function ShiftPoint({ width, height, snapshot }: HifiWidgetProps): ReactElement 
   const maxRpm = num(snapshot?.maxRpm)
   const f = rpm != null && maxRpm != null && maxRpm > 0 ? clamp01(rpm / maxRpm) : 0
   const shiftF = shiftRpm != null && maxRpm != null && maxRpm > 0 ? clamp01(shiftRpm / maxRpm) : undefined
-  const upshift = shiftRpm != null && rpm != null && rpm >= shiftRpm
+  const upshift = snapshot?.revLights?.blink ?? (shiftRpm != null && rpm != null && rpm >= shiftRpm)
   const near = shiftRpm != null && rpm != null && rpm >= shiftRpm * 0.95
   const color = upshift ? SHIFT_STROBE_BLUE : near ? C.amber : C.green
   const barX = 40
@@ -510,7 +510,7 @@ export const shiftPointWidget: HifiWidgetModule = {
   description: 'Optimal upshift RPM cue with a live RPM bar and a strong-blue SHIFT prompt.',
   category: 'engine',
   tags: ['shift', 'upshift', 'rpm', 'engine', 'derived', 'clean'],
-  requires: ['shiftRpm', 'rpm', 'maxRpm'],
+  requires: ['shiftRpm', 'rpm', 'maxRpm', 'revLights'],
   defaultSize: { w: W, h: H },
   render: (props) => <ShiftPoint {...props} />
 }

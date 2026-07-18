@@ -89,9 +89,11 @@ export function stripColors(
     base = previewLedColors(rev, result.level)
   }
 
-  // Shift blink: on the "off" half of the cycle, flash the whole strip blue.
-  if (result.shiftActive && !blinkOn(now, STRIP_BLINK_MS)) {
-    base = new Array<string>(rev.ledCount).fill(SHIFT_BLUE)
+  // Shift-now owns the whole strip: every LED strobes uniformly in strong blue.
+  if (result.shiftActive) {
+    base = new Array<string>(rev.ledCount).fill(
+      blinkOn(now, STRIP_BLINK_MS) ? SHIFT_BLUE : STRIP_OFF
+    )
   }
 
   const count = clampCount(component.ledCount, 256)

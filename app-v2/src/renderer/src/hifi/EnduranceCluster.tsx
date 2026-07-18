@@ -5,6 +5,7 @@ import { type ReactElement, type ReactNode } from 'react'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import { formatMeasurement, type UnitSystem } from '../../../shared/units'
 import { useUnitSystem } from '../lib/units'
+import { SHIFT_STROBE_BLUE, ShiftStrobe, resolveRevLightState } from '../lib/rev-lights'
 
 const W = 1024
 const H = 600
@@ -86,13 +87,14 @@ function Label({ x, y, children, anchor = 'start', size = 17 }: { x: number; y: 
   )
 }
 
-function LedStrip({ pct }: { pct: number }): ReactElement {
+function LedStrip({ pct, blink }: { pct: number; blink?: boolean }): ReactElement {
   const count = 19
-  const lit = Math.round(clamp01(pct) * count)
+  const state = resolveRevLightState(pct, blink)
+  const lit = state.atShiftPoint ? count : Math.round(state.pct * count)
   const leds: ReactElement[] = []
   for (let i = 0; i < count; i++) {
     const zone = i / (count - 1)
-    const c = zone < 0.34 ? COL.green : zone < 0.73 ? '#ffca25' : COL.red
+    const c = state.atShiftPoint ? SHIFT_STROBE_BLUE : zone < 0.34 ? COL.green : zone < 0.73 ? '#ffca25' : COL.red
     const on = i < lit
     leds.push(
       <g key={i}>
@@ -103,6 +105,7 @@ function LedStrip({ pct }: { pct: number }): ReactElement {
   }
   return (
     <g>
+      <ShiftStrobe active={state.atShiftPoint} />
       <rect x={140} y={34} width={744} height={46} rx={23} fill="#030405" stroke={COL.line} />
       {leds}
     </g>
@@ -232,7 +235,7 @@ export function EnduranceCluster({ snapshot: s, width, height }: EnduranceCluste
       <rect width={W} height={H} fill={COL.bg} />
       <path d="M22 80 C32 42 40 34 70 32 H954 C984 34 992 42 1002 80 V570 C1000 588 990 594 970 594 H54 C34 594 24 588 22 570 Z" fill={COL.shell} stroke="rgba(155,184,210,0.23)" strokeWidth={2} />
       <path d="M28 82 H996 M30 514 H994 M284 92 V300 M730 92 V300" stroke={COL.lineStrong} strokeWidth={1.2} />
-      <LedStrip pct={shiftPct} />
+      <LedStrip pct={shiftPct} blink={s.revLights?.blink} />
 
       <g filter="url(#enduranceGlow)">
         <Label x={120} y={122} anchor="middle">SPEED</Label>

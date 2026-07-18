@@ -17,6 +17,7 @@ import { resolveSkin, FitText, type SkinToken } from '../../skins'
 import { RevLedBar, DataField, type FieldState } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
+import { atShiftPoint } from '../../lib/rev-lights'
 
 function dims(config: WidgetProps['config']): { W: number; H: number } {
   const w = config?.position?.width
@@ -102,7 +103,7 @@ export function GridProDashWidget({ snapshot, config }: WidgetProps): ReactEleme
 
   const rawShift = s?.shiftIndicatorPct ?? (s?.maxRpm ? (s?.rpm ?? 0) / s.maxRpm : undefined)
   const shiftPct = pct(rawShift)
-  const redline = s?.revLights?.blink ?? shiftPct >= 0.95
+  const redline = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)
   const gear = formatGear(s?.gear)
   const sessionLabel = (s?.sessionType && s.sessionType.length > 0 ? s.sessionType : 'TESTING').toUpperCase()
 
@@ -175,7 +176,7 @@ export function GridProDashWidget({ snapshot, config }: WidgetProps): ReactEleme
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" width="100%" height="100%" style={{ display: 'block' }}>
         <rect x={0} y={0} width={W} height={H} fill={palette.bg} />
 
-        <RevLedBar pct={shiftPct} profile={skin.led} x={P} y={P} width={W - 2 * P} height={revH} flashOn={redline} />
+        <RevLedBar pct={shiftPct} profile={skin.led} x={P} y={P} width={W - 2 * P} height={revH} shiftActive={redline} />
 
         {/* Top strip: RPM · SESSION · TIME */}
         {df(rpmR, 'RPM', n0(s?.rpm), redline ? 'crit' : 'normal')}

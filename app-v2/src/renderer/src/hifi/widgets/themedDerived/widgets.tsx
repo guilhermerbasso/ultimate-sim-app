@@ -351,7 +351,7 @@ function shiftPoint(pal: ThemePal) {
     const maxRpm = num(snapshot?.maxRpm)
     const f = rpm != null && maxRpm != null && maxRpm > 0 ? clamp01(rpm / maxRpm) : 0
     const shiftF = shiftRpm != null && maxRpm != null && maxRpm > 0 ? clamp01(shiftRpm / maxRpm) : undefined
-    const upshift = shiftRpm != null && rpm != null && rpm >= shiftRpm
+    const upshift = snapshot?.revLights?.blink ?? (shiftRpm != null && rpm != null && rpm >= shiftRpm)
     const near = shiftRpm != null && rpm != null && rpm >= shiftRpm * 0.95
     const color = upshift ? SHIFT_STROBE_BLUE : near ? pal.accent : pal.main
     const barX = 40
@@ -462,7 +462,7 @@ const SPECS: DerivedSpec[] = [
   { base: 'sunPosition', title: 'Sun Position', category: 'weather', requires: ['solarAltitudeRad', 'solarAzimuthRad'], build: sunPosition, tags: ['sun', 'solar', 'sky'] },
   { base: 'gpsHeading', title: 'GPS & Heading', category: 'map', requires: ['lat', 'lon', 'yawNorth'], build: gpsHeading, tags: ['gps', 'heading', 'compass'] },
   { base: 'raceControlFlags', title: 'Race Control Flags', category: 'session', requires: ['sessionFlagsRaw'], build: raceControlFlags, tags: ['flags', 'race-control'] },
-  { base: 'shiftPoint', title: 'Shift Point', category: 'engine', requires: ['shiftRpm', 'rpm', 'maxRpm'], build: shiftPoint, tags: ['shift', 'upshift', 'rpm'] },
+  { base: 'shiftPoint', title: 'Shift Point', category: 'engine', requires: ['shiftRpm', 'rpm', 'maxRpm', 'revLights'], build: shiftPoint, tags: ['shift', 'upshift', 'rpm'] },
   { base: 'engineTelltale', title: 'Engine Telltale', category: 'engine', requires: ['engineRunning', 'rpm'], build: engineTelltale, tags: ['engine', 'telltale'] },
   { base: 'spotterRaw', title: 'Spotter', category: 'gap', requires: ['carLeftRightRaw'], build: spotterRaw, tags: ['spotter', 'proximity'] },
   { base: 'sessionTag', title: 'Session ID', category: 'session', requires: ['sessionUniqueId'], build: sessionTag, tags: ['session', 'id'] }

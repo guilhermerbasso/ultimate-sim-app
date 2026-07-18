@@ -113,7 +113,7 @@ function SegmentedRpmBar({ f, x, y, w, h, missing, shift }: { f: number; x: numb
 
 function RpmBarWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = shiftFraction(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const w = width ?? REV_WIDE_W
   const h = height ?? REV_WIDE_H
   const barH = Math.max(6, h * 0.62)
@@ -165,7 +165,7 @@ function RevLedStrip({ f, missing, shift, width, height }: { f: number; missing:
 
 function RevLightsWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = shiftFraction(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const w = width ?? REV_WIDE_W
   const h = height ?? REV_WIDE_H
   return (
@@ -210,7 +210,7 @@ function revRampColor(pct: number): string {
 
 function RevlightsGradientWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = shiftFraction(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const w = width ?? REV_WIDE_W
   const h = height ?? REV_WIDE_H
   const x = 0
@@ -249,7 +249,7 @@ function RevlightsGradientWidget({ snapshot, width, height }: HifiWidgetProps): 
 
 function RevlightsLedStripWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = shiftFraction(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const w = width ?? REV_WIDE_W
   const h = height ?? REV_WIDE_H
   const count = 42
@@ -275,7 +275,7 @@ function RevlightsLedStripWidget({ snapshot, width, height }: HifiWidgetProps): 
 
 function RevlightsLedBarWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = shiftFraction(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const w = width ?? REV_WIDE_W
   const h = height ?? REV_WIDE_H
   const count = 16
@@ -313,7 +313,7 @@ function mustangDotColor(index: number, half: 'left' | 'right', countPerSide: nu
 
 function RevlightsMustangWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = shiftFraction(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const w = width ?? REV_MUSTANG_W
   const h = height ?? REV_MUSTANG_H
   const countPerSide = 8

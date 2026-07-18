@@ -13,6 +13,7 @@ import { resolveSkin, FitText, type SkinToken } from '../../skins'
 import { RevLedBar, DataField, type FieldState } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
+import { atShiftPoint } from '../../lib/rev-lights'
 
 export const LMU_ENDURANCE_DASH_STREAM_SAFE = true
 
@@ -121,7 +122,7 @@ export function LmuEnduranceDashWidget({ snapshot, config }: WidgetProps): React
 
   const rawShift = s?.shiftIndicatorPct ?? (s?.maxRpm ? (s?.rpm ?? 0) / s.maxRpm : undefined)
   const shiftPct = pct(rawShift)
-  const redline = s?.revLights?.blink ?? shiftPct >= 0.95
+  const redline = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)
   const gear = formatGear(s?.gear)
   const flag = flagStateFor(s)
   const lowFuel = isLowFuel(s)
@@ -213,7 +214,7 @@ export function LmuEnduranceDashWidget({ snapshot, config }: WidgetProps): React
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" width="100%" height="100%" style={{ display: 'block' }}>
         <rect x={0} y={0} width={W} height={H} fill={palette.bg} />
 
-        <RevLedBar pct={shiftPct} profile={skin.led} x={P} y={ledY} width={innerW} height={ledH} flashOn={redline} />
+        <RevLedBar pct={shiftPct} profile={skin.led} x={P} y={ledY} width={innerW} height={ledH} shiftActive={redline} />
 
         {/* Top strip */}
         {df(tsx.sess, topY, sessW, topH, 'SESSION', (s?.sessionType?.trim() || '—').toUpperCase())}

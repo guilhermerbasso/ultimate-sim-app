@@ -17,6 +17,7 @@ import { formatDelta, formatGear, pct } from './format'
 import type { WidgetProps } from './types'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
+import { atShiftPoint } from '../../lib/rev-lights'
 
 export const OLED_STRIP_STREAM_SAFE = true
 
@@ -74,7 +75,7 @@ export function OledStripWidget({ snapshot, config }: WidgetProps): ReactElement
         ? rpm / maxRpm
         : undefined
   const shiftPct = pct(shiftRaw)
-  const redline = shiftPct >= 0.99
+  const redline = atShiftPoint(shiftPct, snapshot?.revLights?.blink, 0.99)
 
   const barH = Math.max(8, Math.min(valueH, Math.round(H * 0.34)))
   const barY = valueY + Math.max(0, (valueH - barH) / 2)

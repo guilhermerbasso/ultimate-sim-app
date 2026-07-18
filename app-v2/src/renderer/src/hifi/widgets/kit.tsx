@@ -228,8 +228,8 @@ export function GaugeArc({ cx, cy, r, thickness, f, color }: { cx: number; cy: n
 }
 
 /** LED segment row (0..1) with green→amber→red ramp; strong-blue strobe at the shift point. */
-export function LedRow({ x, y, w, h, f, count = 12 }: { x: number; y: number; w: number; h: number; f: number; count?: number }): ReactElement {
-  const shift = atShiftPoint(f)
+export function LedRow({ x, y, w, h, f, count = 12, blink }: { x: number; y: number; w: number; h: number; f: number; count?: number; blink?: boolean }): ReactElement {
+  const shift = atShiftPoint(f, blink)
   const layout = revLightRowLayout(w, h, count, { gap: 3 })
   const lit = shift ? layout.count : Math.round(clamp01(f) * layout.count)
   const cells: ReactElement[] = []

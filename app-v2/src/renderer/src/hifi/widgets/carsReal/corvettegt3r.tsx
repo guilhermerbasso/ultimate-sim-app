@@ -64,9 +64,9 @@ function ledColor(i: number, count: number): string {
 function ShiftLedRow({ snapshot, x, y, w, h, count = 18, id = 'cv-leds' }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; h: number; count?: number; id?: string }): ReactElement {
   const f = rpmFraction(snapshot)
   const missing = rpmMissing(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const lit = shift ? count : missing ? 0 : Math.round(f * count)
-  const blink = snapshot?.revLights?.blink === true || f >= 0.96
+  const blink = snapshot?.revLights?.blink ?? f >= 0.96
   const gap = w / Math.max(1, count - 1)
   const r = h / 2
   return (
@@ -93,7 +93,7 @@ function ShiftLedRow({ snapshot, x, y, w, h, count = 18, id = 'cv-leds' }: { sna
 function RpmSegmentBar({ snapshot, x, y, w, h, id = 'cv-rpm', labels = true }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; h: number; id?: string; labels?: boolean }): ReactElement {
   const f = rpmFraction(snapshot)
   const missing = rpmMissing(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const cells = 42
   const gap = 4
   const cellW = (w - gap * (cells - 1)) / cells

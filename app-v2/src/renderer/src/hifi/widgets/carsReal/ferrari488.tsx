@@ -57,7 +57,7 @@ function GlowDefs({ id }: { id: string }): ReactElement {
 function ShiftLedRow({ snapshot, x, y, w, count = 12, id = 'f488-leds', r = 18 }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; count?: number; id?: string; r?: number }): ReactElement {
   const f = rpmFraction(snapshot)
   const missing = rpmMissing(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const lit = shift ? count : missing ? 0 : Math.round(f * count)
   const gap = w / Math.max(1, count - 1)
   return (
@@ -92,7 +92,7 @@ function segArc(inner: number, outer: number, a0: number, a1: number): string {
 function CurvedRpmBar({ snapshot, cx, cy, id = 'f488-rpm', scale = true, compact = false }: { snapshot: HifiWidgetProps['snapshot']; cx: number; cy: number; id?: string; scale?: boolean; compact?: boolean }): ReactElement {
   const f = rpmFraction(snapshot)
   const missing = rpmMissing(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const cells = compact ? 28 : 34
   const lit = shift ? cells : missing ? 0 : Math.round(f * cells)
   const start = -112
@@ -102,6 +102,7 @@ function CurvedRpmBar({ snapshot, cx, cy, id = 'f488-rpm', scale = true, compact
   const gap = 1.4
   return (
     <g transform={`translate(${cx},${cy})`}>
+      <ShiftStrobe active={shift} />
       <GlowDefs id={id} />
       <path d={segArc(inner - 9, outer + 8, start - 3, start + sweep + 3)} fill="none" stroke="rgba(255,255,255,0.88)" strokeWidth={compact ? 2 : 3} />
       {Array.from({ length: cells }, (_, i) => {

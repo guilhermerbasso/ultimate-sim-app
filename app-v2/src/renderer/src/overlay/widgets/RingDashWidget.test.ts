@@ -64,4 +64,21 @@ describe('RingDashWidget — overflow-safe SVG scene', () => {
     expect(m).toContain('—')
     expect(m).toContain('data-widget="ringDash"')
   })
+
+  it('uses provider blink for the shift-ring strobe', () => {
+    const providerOff = render({
+      ...POP,
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    } as TelemetrySnapshot)
+    expect(providerOff).not.toContain('dur="0.32s"')
+
+    const providerOn = render({
+      ...POP,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    } as TelemetrySnapshot)
+    expect(providerOn).toContain('dur="0.32s"')
+    expect(providerOn).toContain('repeatCount="indefinite"')
+  })
 })

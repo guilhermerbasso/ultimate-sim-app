@@ -1,5 +1,5 @@
 import type { Flags, SimId, TelemetrySnapshot } from './telemetry'
-import { redlineBandPct } from './revlights'
+import { redlineBandPct, resolveShiftNow } from './revlights'
 
 export const RGB_MATRIX_SIZE = 8
 export const RGB_MATRIX_PROFILE_VERSION = 2
@@ -1384,7 +1384,7 @@ function statusLedActive(status: RgbMatrixStatusLedId, telemetry: TelemetrySnaps
     case 'lowFuel':
       return lowFuel(telemetry)
     case 'redlineReached':
-      return shiftIndicatorLevel(telemetry) >= 0.97
+      return resolveShiftNow(telemetry.revLights?.blink, shiftIndicatorLevel(telemetry) >= 0.97)
     case 'speedLimiterOn':
       return Boolean(telemetry.pitLimiter)
     case 'spotterCarLeft':

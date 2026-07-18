@@ -63,7 +63,7 @@ function GlowDefs({ id, color }: { id: string; color: string }): ReactElement {
 
 function FerrariRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = safeShift(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const lit = shift ? 29 : activeCount(f, 29, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
@@ -93,7 +93,7 @@ function FerrariRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
 function PorscheRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = safeShift(snapshot)
   const count = 22
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const lit = shift ? count : activeCount(f, count, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
@@ -123,7 +123,7 @@ function PorscheRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
 function AmgRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = safeShift(snapshot)
   const count = 24
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const lit = shift ? count : activeCount(f, count, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
@@ -155,7 +155,7 @@ function AmgRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
 
 function MclarenRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = safeShift(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const w = width ?? REV_W
   const h = height ?? REV_H
   const x = 0
@@ -179,7 +179,7 @@ function MclarenRev({ snapshot, width, height }: HifiWidgetProps): ReactElement 
 function CorvetteRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = safeShift(snapshot)
   const perRow = 16
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const lit = shift ? perRow * 2 : activeCount(f, perRow * 2, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
@@ -214,7 +214,7 @@ function CorvetteRev({ snapshot, width, height }: HifiWidgetProps): ReactElement
 function LamboRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const { f, missing } = safeShift(snapshot)
   const count = 20
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const lit = shift ? count : activeCount(f, count, missing)
   const w = width ?? REV_W
   const h = height ?? REV_H
@@ -244,11 +244,11 @@ function LamboRev({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   )
 }
 
-function MiniStrip({ family, f, missing, x, y, w }: { family: Family; f: number; missing: boolean; x: number; y: number; w: number }): ReactElement {
+function MiniStrip({ family, f, missing, blink, x, y, w }: { family: Family; f: number; missing: boolean; blink?: boolean; x: number; y: number; w: number }): ReactElement {
   const count = 18
   const gap = 4
   const cell = (w - gap * (count - 1)) / count
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, blink)
   const lit = shift ? count : activeCount(f, count, missing)
   return (
     <g>
@@ -283,7 +283,7 @@ function SignatureCluster({ snapshot, width, height, family, unitSystem = 'metri
   return (
     <CleanTile width={width ?? CLUSTER_W} height={height ?? CLUSTER_H}>
       <GlowDefs id={`themed-${family}-cluster`} color={p.main} />
-      <MiniStrip family={family} f={f} missing={missing} x={52} y={28} w={356} />
+      <MiniStrip family={family} f={f} missing={missing} blink={snapshot?.revLights?.blink} x={52} y={28} w={356} />
       <path d="M48 62 h92 l20 18 h140 l20 -18 h92" fill="none" stroke={p.main} strokeWidth={2.5} opacity={0.75} />
       <GaugeArc cx={230} cy={177} r={101} thickness={8} f={rpmF} color={rpm == null && missing ? C.dim : p.main} />
       <path d="M118 180 A112 112 0 0 1 342 180" fill="none" stroke={p.accent} strokeWidth={1.5} opacity={0.45} strokeDasharray={family === 'lambo' ? '12 8' : family === 'porsche' ? '4 10' : '2 7'} />

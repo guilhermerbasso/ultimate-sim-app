@@ -2,6 +2,7 @@ import { type ReactElement, type ReactNode } from 'react'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import { formatMeasurement } from '../../../shared/units'
 import { useUnitSystem } from '../lib/units'
+import { SHIFT_STROBE_BLUE, ShiftStrobe, resolveRevLightState } from '../lib/rev-lights'
 
 const W = 1024
 const H = 600
@@ -67,9 +68,10 @@ function Label({ x, y, children }: { x: number; y: number; children: ReactNode }
   )
 }
 
-function ShiftLine({ pct }: { pct: number }): ReactElement {
+function ShiftLine({ pct, blink }: { pct: number; blink?: boolean }): ReactElement {
   const count = 22
-  const lit = Math.round(clamp01(pct) * count)
+  const state = resolveRevLightState(pct, blink)
+  const lit = state.atShiftPoint ? count : Math.round(state.pct * count)
   const x0 = 80
   const gap = 37
   const leds: ReactElement[] = []
@@ -77,7 +79,7 @@ function ShiftLine({ pct }: { pct: number }): ReactElement {
   for (let i = 0; i < count; i++) {
     const active = i < lit
     const warm = active && i >= 8 && i <= 14
-    const fill = warm ? COL.amber : active ? '#f2f2f2' : '#7e7e7e'
+    const fill = state.atShiftPoint ? SHIFT_STROBE_BLUE : warm ? COL.amber : active ? '#f2f2f2' : '#7e7e7e'
     leds.push(
       <circle
         key={i}
@@ -91,7 +93,7 @@ function ShiftLine({ pct }: { pct: number }): ReactElement {
     )
   }
 
-  return <g>{leds}</g>
+  return <g><ShiftStrobe active={state.atShiftPoint} />{leds}</g>
 }
 
 function Tile({
@@ -132,7 +134,7 @@ export function MinimalDash({ snapshot: s, width, height }: MinimalDashProps): R
   const unitSystem = useUnitSystem()
   const speed = formatMeasurement(n(s.speedKmh), 'speed-kmh', unitSystem, { decimals: 0 })
   const delta = n(s.deltaToBestSec)
-  const shiftPct = n(s.shiftIndicatorPct) ?? 0
+  const shiftPct = n(s.shiftIndicatorPct) ?? n(s.revLights?.pct) ?? 0
   const fuel = n(s.fuelLiters)
   const fuelPerLap = n(s.fuelPerLap)
   const fuelLaps = fuel != null && fuelPerLap != null && fuelPerLap > 0 ? fuel / fuelPerLap : undefined
@@ -153,7 +155,7 @@ export function MinimalDash({ snapshot: s, width, height }: MinimalDashProps): R
       </defs>
       <rect x={0} y={0} width={W} height={H} fill={COL.bg} />
 
-      <ShiftLine pct={shiftPct} />
+      <ShiftLine pct={shiftPct} blink={s.revLights?.blink} />
 
       <path d="M45 106 H938" stroke={COL.lineSoft} strokeWidth={1} />
       <path d="M499 100 V112" stroke={COL.line} strokeWidth={1} />

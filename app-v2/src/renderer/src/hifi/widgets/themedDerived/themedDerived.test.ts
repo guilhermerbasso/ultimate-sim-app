@@ -101,6 +101,31 @@ describe('THEMED_DERIVED_WIDGETS', () => {
     }
   })
 
+  it('uses provider blink across all themed derived shift-point variants', () => {
+    const widgets = THEMED_DERIVED_WIDGETS.filter((widget) => widget.id.startsWith('shiftPoint'))
+    expect(widgets).toHaveLength(6)
+
+    for (const widget of widgets) {
+      const providerOff = renderWidget(widget, {
+        ...dataSnapshot(),
+        rpm: 7300,
+        shiftRpm: 7200,
+        revLights: { pct: 0.999, blink: false }
+      })
+      expect(providerOff, widget.id).not.toContain('>SHIFT<')
+      expect(providerOff, widget.id).not.toContain('repeatCount="indefinite"')
+
+      const providerOn = renderWidget(widget, {
+        ...dataSnapshot(),
+        rpm: 2000,
+        shiftRpm: 7200,
+        revLights: { pct: 0.2, blink: true }
+      })
+      expect(providerOn, widget.id).toContain('>SHIFT<')
+      expect(providerOn, widget.id).toContain('repeatCount="indefinite"')
+    }
+  })
+
   it('shares the fitted six-digit session-id size across all six themes', () => {
     const snapshot = { ...baseSnapshot(), sessionUniqueId: 990217 } as TelemetrySnapshot
     const widgets = THEMED_DERIVED_WIDGETS.filter((widget) => widget.id.startsWith('sessionTag'))

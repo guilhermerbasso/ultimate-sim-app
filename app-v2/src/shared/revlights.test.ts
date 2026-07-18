@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { TelemetrySnapshot } from './telemetry'
+import type { Flags, TelemetrySnapshot } from './telemetry'
 import {
   DEFAULT_REVLIGHTS_CONFIG,
   FALLBACK_SHIFT_BAND_END_FRAC,
   FALLBACK_SHIFT_BAND_START_FRAC,
   computeRevlights,
-  redlineBandPct
+  redlineBandPct,
+  resolveShiftNow
 } from './revlights'
 import type { RevlightsConfig } from './revlights'
 
@@ -20,6 +21,23 @@ function snap(partial: Partial<TelemetrySnapshot>): TelemetrySnapshot {
     throttle: 0,
     brake: 0,
     clutch: 0,
+    ...partial
+  }
+}
+
+function flags(partial: Partial<Flags>): Flags {
+  return {
+    green: false,
+    yellow: false,
+    blue: false,
+    white: false,
+    checkered: false,
+    red: false,
+    black: false,
+    meatball: false,
+    repair: false,
+    disqualify: false,
+    greenWhiteCheckered: false,
     ...partial
   }
 }
@@ -76,6 +94,41 @@ describe('computeRevlights drives LEDs from the shift-light band, never rpm/maxR
   it('blinks at/after the configured shift threshold (band-relative)', () => {
     expect(computeRevlights(snap({ shiftIndicatorPct: 0.94, maxRpm: 8000, rpm: 7000 }), config).shiftActive).toBe(false)
     expect(computeRevlights(snap({ shiftIndicatorPct: 0.95, maxRpm: 8000, rpm: 7800 }), config).shiftActive).toBe(true)
+  })
+
+  it('treats provider blink as authoritative and only falls back when it is absent', () => {
+    expect(resolveShiftNow(false, true)).toBe(false)
+    expect(resolveShiftNow(true, false)).toBe(true)
+    expect(resolveShiftNow(undefined, true)).toBe(true)
+
+    expect(computeRevlights(snap({
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    }), config)).toMatchObject({ level: 16, shiftActive: false })
+
+    expect(computeRevlights(snap({
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    }), config)).toMatchObject({ level: 16, shiftActive: true })
+
+    expect(computeRevlights(snap({
+      shiftIndicatorPct: 0.95,
+      revLights: { pct: 0.95 }
+    }), config).shiftActive).toBe(true)
+  })
+
+  it('preserves race-flag detection independently of the shift-now source', () => {
+    expect(computeRevlights(snap({
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false },
+      flags: flags({ yellow: true })
+    }), config)).toMatchObject({ shiftActive: false, flag: 'yellow' })
+
+    expect(computeRevlights(snap({
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true },
+      flags: flags({ blue: true })
+    }), config)).toMatchObject({ shiftActive: true, flag: 'blue' })
   })
 
   it('falls back to revLights.pct (same band) when shiftIndicatorPct is absent', () => {

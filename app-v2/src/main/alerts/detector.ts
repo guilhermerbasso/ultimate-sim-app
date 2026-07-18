@@ -7,6 +7,7 @@ import {
   type AlertSeverity,
   type AlertType
 } from '../../shared/alerts'
+import { resolveShiftNow } from '../../shared/revlights'
 import {
   fuelLapsRemainingOf,
   type Corners,
@@ -194,7 +195,10 @@ export class AlertsDetector {
     const rule = this.config.shiftPoint
     const shiftPct = snapshot.shiftIndicatorPct ?? 0
     const rpmPct = snapshot.maxRpm && snapshot.maxRpm > 0 ? snapshot.rpm / snapshot.maxRpm : 0
-    const active = shiftPct >= rule.shiftIndicatorPct || rpmPct >= rule.rpmPct
+    const active = resolveShiftNow(
+      snapshot.revLights?.blink,
+      shiftPct >= rule.shiftIndicatorPct || rpmPct >= rule.rpmPct
+    )
     const key = 'shiftPoint'
     this.state.activeNow.set(key, rule.enabled && active)
     if (rule.enabled && active && this.state.shiftActive !== true) {

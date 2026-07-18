@@ -18,6 +18,7 @@ import { resolveSkin, FitText, type SkinToken } from '../../skins'
 import { RevLedBar, DataField, type FieldState } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
+import { atShiftPoint } from '../../lib/rev-lights'
 
 // ── pure, NaN-safe helpers ────────────────────────────────────────────────────
 function dims(config: WidgetProps['config']): { W: number; H: number } {
@@ -152,7 +153,7 @@ export function GridStackDashWidget({ snapshot, config }: WidgetProps): ReactEle
   const G = Math.max(4, Math.round(Math.min(W, H) * 0.014))
 
   const shiftPct = pct(s?.shiftIndicatorPct ?? s?.revLights?.pct)
-  const redline = Boolean(s?.revLights?.blink) || shiftPct >= 0.985
+  const redline = atShiftPoint(shiftPct, s?.revLights?.blink, 0.985)
   const gear = formatGear(s?.gear)
 
   const revH = Math.max(22, Math.min(48, Math.round(H * 0.08)))
@@ -230,7 +231,7 @@ export function GridStackDashWidget({ snapshot, config }: WidgetProps): ReactEle
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" width="100%" height="100%" style={{ display: 'block' }}>
         <rect x={0} y={0} width={W} height={H} fill={palette.bg} />
 
-        <RevLedBar pct={shiftPct} profile={skin.led} x={P} y={P} width={W - 2 * P} height={revH} flashOn={redline} />
+        <RevLedBar pct={shiftPct} profile={skin.led} x={P} y={P} width={W - 2 * P} height={revH} shiftActive={redline} />
 
         {/* Top strip */}
         {df(behindR, 'BEHIND', gapStr(s?.relatives?.behind?.gapSec), 'normal', 's')}

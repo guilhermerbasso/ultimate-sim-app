@@ -12,6 +12,7 @@ import { resolveSkin, FitText, zoneColor, type SkinToken } from '../../skins'
 import { AnalogDial, DataField, type FieldState } from '../../instruments'
 import { formatMeasurement, measurementUnit } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
+import { atShiftPoint } from '../../lib/rev-lights'
 
 function dims(config: WidgetProps['config']): { W: number; H: number } {
   const w = config?.position?.width
@@ -80,7 +81,7 @@ export function RingDashWidget({ snapshot, config }: WidgetProps): ReactElement 
 
   const rawShift = s?.shiftIndicatorPct ?? (s?.maxRpm ? (s?.rpm ?? 0) / s.maxRpm : 0)
   const shiftPct = pct(rawShift)
-  const redline = shiftPct >= 0.95
+  const redline = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)
   const gear = formatGear(s?.gear)
   const sessionLabel = (s?.sessionType ?? 'RACE').toUpperCase()
   const yellowFlag = !!s?.flags?.yellow

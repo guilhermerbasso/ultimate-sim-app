@@ -48,6 +48,7 @@ import { subscribeWithRevisionedHydration, subscribeWithTelemetryHydration } fro
 import { useSwipeCycle, type CycleDirection } from './useSwipeCycle'
 import { renderGt3Widget, instrumentColorsFor, instrumentBezel, instrumentMaterial, revLedPropsFor } from './widgets/gt3-widgets'
 import { AnalogDial, RevLedBar } from '../instruments'
+import { atShiftPoint } from '../lib/rev-lights'
 import { resolveElementSkin, FitText } from '../skins'
 // WS-DASH: the six full-frame dashboards (gridStackDash … lmuStintDash) are
 // embedded as `overlaywidget` dashboard elements. They are no longer floating
@@ -364,6 +365,15 @@ function wantsRevLed(element: DashboardElement): boolean {
   return inst?.template === 'revled' || inst?.parts?.led !== undefined
 }
 
+function providerBlinkForBinding(binding: string | undefined, snapshot: TelemetrySnapshot | null): boolean | undefined {
+  return binding === 'shiftPct' ||
+    binding === 'shiftIndicatorPct' ||
+    binding === 'ShiftIndicatorPct' ||
+    binding === 'ir:ShiftIndicatorPct'
+    ? snapshot?.revLights?.blink
+    : undefined
+}
+
 function ElementBar({ element, snapshot }: ElementProps) {
   const result = resolveBinding(element.binding, snapshot)
   const pct = Math.min(1, Math.max(0, result.pct ?? 0))
@@ -382,7 +392,8 @@ function ElementBar({ element, snapshot }: ElementProps) {
   if (wantsRevLed(element)) {
     const ledProps = revLedPropsFor(element.style, pct, {
       width: Math.max(8, element.w - 4),
-      height: Math.max(8, element.h - 4)
+      height: Math.max(8, element.h - 4),
+      blink: providerBlinkForBinding(element.binding, snapshot)
     })
     return (
       <div className="dash-element" style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -410,10 +421,10 @@ function ElementBar({ element, snapshot }: ElementProps) {
 
 function ElementShiftLights({ element, snapshot }: ElementProps) {
   // shiftPct resolves to the provider's per-car shift-light band (binding.ts):
-  // 0 below DriverCarSLFirstRPM, 1 at/after SLLastRPM — never rpm/maxRpm.
+  // 0 below DriverCarSLFirstRPM, 1 at/after DriverCarSLShiftRPM — never rpm/maxRpm.
   const result = resolveBinding(element.binding ?? 'shiftPct', snapshot)
   const pct = Math.min(1, Math.max(0, result.pct ?? 0))
-  const flashing = Boolean(snapshot?.revLights?.blink) || pct >= (element.style.flashAt ?? 0.97)
+  const flashing = atShiftPoint(pct, snapshot?.revLights?.blink, element.style.flashAt ?? 0.97)
 
   const style: CSSProperties = {
     left: element.x,
@@ -907,7 +918,8 @@ function ElementBarL({ element, snapshot }: ElementProps) {
     // HEIGHT and rotate it into the column (reverse flips the fill direction).
     const ledProps = revLedPropsFor(element.style, pct, {
       width: Math.max(8, element.h - 4),
-      height: Math.max(8, element.w - 4)
+      height: Math.max(8, element.w - 4),
+      blink: providerBlinkForBinding(element.binding, snapshot)
     })
     const rotate = element.style.reverse ? 90 : -90
     return (
@@ -958,8 +970,16 @@ function ElementDualBar({ element, snapshot }: ElementProps) {
     // Two stacked modelled LED bars (primary + secondary), each in its own colour.
     const w = Math.max(8, element.w - 4)
     const rowH = Math.max(6, Math.floor((element.h - 12) / 2))
-    const led1 = revLedPropsFor(element.style, p1, { width: w, height: rowH })
-    const led2 = revLedPropsFor(element.style, p2, { width: w, height: rowH })
+    const led1 = revLedPropsFor(element.style, p1, {
+      width: w,
+      height: rowH,
+      blink: providerBlinkForBinding(element.binding, snapshot)
+    })
+    const led2 = revLedPropsFor(element.style, p2, {
+      width: w,
+      height: rowH,
+      blink: providerBlinkForBinding(element.style.secondaryBinding, snapshot)
+    })
     return (
       <div className="dash-element" style={{ ...style, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
         <RevLedBar {...led1} shape={led1.shape === 'led' ? 'bar' : led1.shape} colors={{ ...(led1.colors ?? {}), good: c1, warn: c1, danger: c1 }} />

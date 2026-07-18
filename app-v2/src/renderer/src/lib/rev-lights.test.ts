@@ -17,6 +17,9 @@ describe('shared rev-light shift state', () => {
     expect(resolveRevLightState(SHIFT_PCT - 0.001).atShiftPoint).toBe(false)
     expect(resolveRevLightState(SHIFT_PCT).atShiftPoint).toBe(true)
     expect(resolveRevLightState(0.2, true).atShiftPoint).toBe(true)
+    expect(resolveRevLightState(0.999, false).atShiftPoint).toBe(false)
+    expect(resolveRevLightState(0.2, true).atShiftPoint).toBe(true)
+    expect(resolveRevLightState(SHIFT_PCT, undefined).atShiftPoint).toBe(true)
     expect(revFill('#ff0000', true)).toBe(SHIFT_STROBE_BLUE)
 
     const markup = renderToStaticMarkup(createElement('g', null, createElement(ShiftStrobe, { active: true })))

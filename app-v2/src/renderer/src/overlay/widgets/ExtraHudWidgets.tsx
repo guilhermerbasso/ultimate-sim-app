@@ -16,6 +16,7 @@ import { RevLedBar, SegmentReadout, TelltaleIcon } from '../../instruments'
 import { DASH, FONT_COND } from './dashboard-tiles'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
+import { atShiftPoint } from '../../lib/rev-lights'
 
 // ── Local NaN-safe helpers ────────────────────────────────────────────────────
 
@@ -74,7 +75,7 @@ export function NeonGearBarWidget({ snapshot, config }: WidgetProps): ReactEleme
   const { W, H } = dims(config, 600, 120)
 
   const frac = shiftFrac(snapshot)
-  const redline = frac >= 0.97
+  const redline = atShiftPoint(frac, snapshot?.revLights?.blink, 0.97)
   const gear = safeGear(snapshot?.gear)
   const speed = formatMeasurement(snapshot?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })
   const hasSpeed = speed.value !== undefined
@@ -121,7 +122,7 @@ export function NeonGearBarWidget({ snapshot, config }: WidgetProps): ReactEleme
         y={ledRect.y}
         width={ledRect.w}
         height={ledRect.h}
-        flashOn={redline}
+        shiftActive={redline}
         idPrefix="ehw-neongear-led"
       />
 

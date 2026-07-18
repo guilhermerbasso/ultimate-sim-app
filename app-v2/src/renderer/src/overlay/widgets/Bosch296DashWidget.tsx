@@ -18,6 +18,7 @@ import { resolveSkin, FitText, type SkinToken } from '../../skins'
 import { RevLedBar, DataField, TelltaleBank, type FieldState, type TelltaleLamp } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
+import { atShiftPoint } from '../../lib/rev-lights'
 
 export const BOSCH296_DASH_STREAM_SAFE = true
 
@@ -125,7 +126,7 @@ export function Bosch296DashWidget({ snapshot, config }: WidgetProps): ReactElem
   const G = Math.max(4, Math.round(Math.min(W, H) * 0.014))
 
   const shiftPct = shiftFraction(s)
-  const redline = shiftPct >= 0.95
+  const redline = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)
   const gear = formatGear(s?.gear)
 
   // ── vertical bands ──────────────────────────────────────────────────────────
@@ -215,7 +216,7 @@ export function Bosch296DashWidget({ snapshot, config }: WidgetProps): ReactElem
         <rect x={0} y={0} width={W} height={H} fill={palette.bg} />
 
         {/* ── Top: blue-redline rev bar + x1000 scale ─────────────────────── */}
-        <RevLedBar pct={shiftPct} profile={skin.led} x={P} y={P} width={W - 2 * P} height={revH} flashOn />
+        <RevLedBar pct={shiftPct} profile={skin.led} x={P} y={P} width={W - 2 * P} height={revH} shiftActive={redline} />
         <FitText
           x={P}
           y={P + revH + scaleH / 2}
