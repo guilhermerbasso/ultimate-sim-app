@@ -5,15 +5,17 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState
 } from 'react'
 import type { AppViewProps } from '../App'
 import { tt } from '../i18n'
 import {
   SETUP_EXPERIMENT_CHANNELS,
+  DEFAULT_SETUP_EXPERIMENT_TOLERANCES,
   compareSetupExperimentContexts,
-  expectedSetupPathForArm,
-  nextSetupExperimentArm,
+  expectedSetupPathForTreatment,
+  nextSetupExperimentStep,
   type SetupExperimentAnalysis,
   type SetupExperimentDefinition,
   type SetupExperimentDisposition,
@@ -85,7 +87,13 @@ function setupName(experiment: SetupExperimentDefinition, arm: 'A1' | 'B' | 'A2'
 }
 
 function directionLabel(language: AppViewProps['language'], analysis: SetupExperimentAnalysis): string {
-  return tt(language, `setupExperiment.direction.${analysis.direction}`)
+  const direction = analysis.direction === 'abstain'
+    ? analysis.exploratoryDirection ?? 'abstain'
+    : analysis.direction
+  const prefix = analysis.evidenceStrength === 'confirmatory'
+    ? 'setupExperiment.direction.confirmatory'
+    : 'setupExperiment.direction.exploratory'
+  return tt(language, `${prefix}.${direction}`)
 }
 
 function reasonLabel(language: AppViewProps['language'], reason: string): string {
@@ -126,6 +134,29 @@ export default function SetupExperimentView({
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const revisionRef = useRef<number | null>(null)
+  const liveGenerationRef = useRef(0)
+
+  const applySnapshot = useCallback((
+    next: SetupExperimentSnapshot,
+    source: 'hydrate' | 'live'
+  ): void => {
+    const rawRevision = next.state.revision
+    const nextRevision = typeof rawRevision === 'number' && Number.isSafeInteger(rawRevision)
+      ? rawRevision
+      : null
+    const currentRevision = revisionRef.current
+    if (source === 'hydrate' && liveGenerationRef.current > 0) {
+      if (nextRevision === null || currentRevision === null || nextRevision <= currentRevision) return
+    }
+    if (currentRevision !== null) {
+      if (nextRevision === null || nextRevision < currentRevision) return
+      if (nextRevision === currentRevision) return
+    }
+    if (source === 'live') liveGenerationRef.current += 1
+    revisionRef.current = nextRevision
+    setSnapshot(next)
+  }, [])
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -133,7 +164,7 @@ export default function SetupExperimentView({
         window.ipc.invoke<SetupExperimentSnapshot>(SETUP_EXPERIMENT_CHANNELS.getSnapshot),
         window.ipc.invoke<SetupLibraryResult>(SETUP_MANAGER_CHANNELS.libraryList)
       ])
-      setSnapshot(nextSnapshot)
+      applySnapshot(nextSnapshot, 'hydrate')
       setLibrary(setupLibrary.items)
       setBaselinePath((current) => current || setupLibrary.items[0]?.path || '')
       setVariantPath((current) => current || setupLibrary.items[1]?.path || '')
@@ -141,15 +172,15 @@ export default function SetupExperimentView({
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     }
-  }, [])
+  }, [applySnapshot])
 
   useEffect(() => {
     void refresh()
     return window.ipc.subscribe<SetupExperimentSnapshot>(
       SETUP_EXPERIMENT_CHANNELS.updated,
-      (next) => setSnapshot(next)
+      (next) => applySnapshot(next, 'live')
     )
-  }, [refresh])
+  }, [applySnapshot, refresh])
 
   const run = useCallback(async (
     key: string,
@@ -158,7 +189,7 @@ export default function SetupExperimentView({
     setBusy(key)
     try {
       const result = await operation()
-      if ('state' in result) setSnapshot(result)
+      if ('state' in result) applySnapshot(result, 'live')
       else if (result.ok) {
         showToast(tt(language, 'setupExperiment.exported', { file: result.fileName ?? '' }), 'success')
       }
@@ -170,7 +201,7 @@ export default function SetupExperimentView({
     } finally {
       setBusy(null)
     }
-  }, [language, showToast])
+  }, [applySnapshot, language, showToast])
 
   const create = (event: FormEvent): void => {
     event.preventDefault()
@@ -187,7 +218,11 @@ export default function SetupExperimentView({
   const metrics = snapshot?.metrics
   const liveContext = snapshot?.liveContext
   const liveContextComparable = liveContext
-    ? compareSetupExperimentContexts(liveContext, liveContext).status === 'comparable'
+    ? compareSetupExperimentContexts(
+        liveContext,
+        liveContext,
+        DEFAULT_SETUP_EXPERIMENT_TOLERANCES
+      ).status === 'comparable'
     : false
   const experiments = snapshot?.state.experiments ?? []
   const libraryByPath = useMemo(
@@ -243,16 +278,43 @@ export default function SetupExperimentView({
           detail={tt(language, 'setupExperiment.metric.coverageTarget')}
         />
         <Metric
-          title={tt(language, 'setupExperiment.metric.conditionalAccuracy')}
-          value={pct(metrics?.conditionalDirectionalAccuracy ?? null)}
+          title={tt(language, 'setupExperiment.metric.rollbackAgreement')}
+          value={pct(metrics?.rollbackAgreementRate ?? null)}
           detail={tt(language, 'setupExperiment.metric.accuracyTarget')}
         />
         <Metric
-          title={tt(language, 'setupExperiment.metric.falseDirection')}
-          value={pct(metrics?.falseDirectionRate ?? null)}
+          title={tt(language, 'setupExperiment.metric.rollbackConflict')}
+          value={pct(metrics?.rollbackConflictRate ?? null)}
           detail={tt(language, 'setupExperiment.metric.falseDirectionTarget')}
         />
       </section>
+
+      {(snapshot?.state.storageIssues?.length ?? 0) > 0 && (
+        <section style={{ ...panel, borderColor: 'var(--accent-danger)' }} role="alert">
+          <strong>{tt(language, 'setupExperiment.storageIssue')}</strong>
+          {snapshot?.state.storageIssues?.map((issue) => (
+            <div key={`${issue.sourcePath}:${issue.code}`} style={{ marginTop: 8 }}>
+              <div>{issue.sourcePath}</div>
+              <small>
+                {issue.code} · {issue.quarantineStatus ?? issue.kind}
+                {issue.quarantinePath ? ` · ${issue.quarantinePath}` : ''}
+              </small>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {snapshot?.activeCapture?.persistenceError && (
+        <section style={{ ...panel, borderColor: 'var(--accent-danger)' }} role="alert">
+          <strong>{tt(language, 'setupExperiment.pendingPersistence')}</strong>
+          <div>{snapshot.activeCapture.persistenceError}</div>
+          <small>
+            {tt(language, 'setupExperiment.pendingLapCount', {
+              count: snapshot.activeCapture.pendingLapCount ?? 0
+            })}
+          </small>
+        </section>
+      )}
 
       <section style={panel}>
         <div style={label}>{tt(language, 'setupExperiment.liveContext')}</div>
@@ -319,7 +381,7 @@ export default function SetupExperimentView({
         </div>
       </form>
 
-      {experiments.length === 0 && (
+      {experiments.length === 0 && (snapshot?.state.storageIssues?.length ?? 0) === 0 && (
         <section style={{ ...panel, borderStyle: 'dashed', color: 'var(--text-muted)' }}>
           {tt(language, 'setupExperiment.empty')}
         </section>
@@ -328,11 +390,20 @@ export default function SetupExperimentView({
       {experiments.map((experiment) => {
         const analysis = snapshot?.analyses[experiment.id]
         if (!analysis) return null
-        const nextArm = nextSetupExperimentArm(experiment)
+        const nextStep = nextSetupExperimentStep(experiment)
+        const nextArm = nextStep?.arm ?? null
         const active = snapshot?.activeCapture?.experimentId === experiment.id
-        const expectedPath = nextArm ? expectedSetupPathForArm(experiment, nextArm) : null
+        const expectedPath = nextStep
+          ? expectedSetupPathForTreatment(experiment, nextStep.treatment)
+          : null
         const expectedItem = expectedPath ? libraryByPath.get(expectedPath) : null
-        const liveGate = compareSetupExperimentContexts(experiment.context, liveContext)
+        const liveGate = compareSetupExperimentContexts(
+          experiment.context,
+          liveContext,
+          experiment.environmentTolerances
+        )
+        const analysisPlan = experiment.analysisPlan
+        const tolerances = experiment.environmentTolerances
         return (
           <article key={experiment.id} style={panel}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
@@ -345,6 +416,24 @@ export default function SetupExperimentView({
               </div>
               <div style={{ textAlign: 'right' }}>
                 <strong>{directionLabel(language, analysis)}</strong>
+                <div>
+                  {' · '}
+                  {analysis.rollbackRelation === 'agreement'
+                    ? tt(language, 'setupExperiment.rollback.agreement')
+                    : analysis.rollbackRelation === 'conflict'
+                      ? tt(language, 'setupExperiment.rollback.conflict')
+                      : tt(language, 'setupExperiment.rollback.unknown')}
+                </div>
+                {analysis.evidenceStrength === 'confirmatory' && (
+                  <small style={{ color: 'var(--accent-success)' }}>
+                    {' · '}{tt(language, 'setupExperiment.evidence.confirmatory')}
+                  </small>
+                )}
+                {analysis.evidenceStrength === 'exploratory' && (
+                  <small style={{ color: 'var(--accent-warning)' }}>
+                    {' · '}{tt(language, 'setupExperiment.evidence.exploratory')}
+                  </small>
+                )}
                 <div>{seconds(analysis.effectSec, true)}</div>
                 <small style={{ color: 'var(--text-muted)' }}>
                   95% CI {analysis.confidence95Sec
@@ -352,6 +441,27 @@ export default function SetupExperimentView({
                     : '—'}
                 </small>
               </div>
+            </div>
+
+            <div style={{ marginTop: 10, color: 'var(--text-muted)', fontSize: 12 }}>
+              {tt(language, 'setupExperiment.analysisPlanSummary', {
+                seed: analysisPlan?.seed ?? '—',
+                iterations: analysisPlan?.iterations ?? '—',
+                block: analysisPlan?.lapBlockLength ?? '—',
+                drift: analysisPlan?.maxRollbackDriftSec ?? '—'
+              })}
+              <br />
+              {tt(language, 'setupExperiment.toleranceSummary', {
+                wetness: tolerances?.trackWetnessPct ?? '—',
+                trackTemp: tolerances?.trackTempC ?? '—',
+                airTemp: tolerances?.airTempC ?? '—',
+                fuel: tolerances?.fuelMassKg ?? '—',
+                tyre: tolerances?.tyreStatePct ?? '—',
+                traffic: tolerances?.trafficDensity ?? '—',
+                flags: tolerances?.flagStateIndex ?? '—',
+                damage: tolerances?.damagePct ?? '—',
+                grip: tolerances?.gripPct ?? '—'
+              })}
             </div>
 
             <div style={{ ...grid, marginTop: 14 }}>
@@ -380,7 +490,7 @@ export default function SetupExperimentView({
               </div>
             )}
 
-            {nextArm && !active && (
+            {nextStep && nextArm && !active && (
               <div style={{ marginTop: 14 }}>
                 <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                   <input
@@ -413,7 +523,11 @@ export default function SetupExperimentView({
                         {
                           experimentId: experiment.id,
                           arm: nextArm,
-                          confirmedSetupPath: expectedPath
+                          confirmedSetupPath: expectedPath,
+                          blockId: nextStep.blockId,
+                          sequence: nextStep.sequence,
+                          stepIndex: nextStep.stepIndex,
+                          treatment: nextStep.treatment
                         }
                       )
                       setConfirmed((current) => ({ ...current, [experiment.id]: false }))
@@ -421,9 +535,12 @@ export default function SetupExperimentView({
                     })}
                     type="button"
                   >
-                    {nextArm === 'A2'
+                    {nextStep.sequence === 'ABA' && nextStep.stepIndex === 2
                       ? tt(language, 'setupExperiment.startRollback')
-                      : tt(language, 'setupExperiment.startArm', { arm: nextArm })}
+                      : tt(language, 'setupExperiment.startStep', {
+                          block: nextStep.blockId,
+                          treatment: nextStep.treatment
+                        })}
                   </button>
                   {liveGate.status !== 'comparable' && (
                     <span style={{ color: 'var(--accent-danger)' }}>
@@ -465,7 +582,7 @@ export default function SetupExperimentView({
               </div>
             )}
 
-            {!nextArm && (
+            {!nextStep && (
               <div style={{ ...grid, marginTop: 14 }}>
                 <label>
                   {tt(language, 'setupExperiment.decisionNote')}
@@ -503,6 +620,34 @@ export default function SetupExperimentView({
                     type="button"
                   >
                     {tt(language, 'setupExperiment.abstain')}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'end', flexWrap: 'wrap' }}>
+                  <button
+                    style={secondaryButton}
+                    disabled={busy !== null}
+                    onClick={() => void run(`repeat-bab:${experiment.id}`, () =>
+                      window.ipc.invoke<SetupExperimentSnapshot>(
+                        SETUP_EXPERIMENT_CHANNELS.addBlock,
+                        { experimentId: experiment.id, sequence: 'BAB' }
+                      )
+                    )}
+                    type="button"
+                  >
+                    {tt(language, 'setupExperiment.addCounterbalancedBlock')}
+                  </button>
+                  <button
+                    style={secondaryButton}
+                    disabled={busy !== null}
+                    onClick={() => void run(`repeat-aba:${experiment.id}`, () =>
+                      window.ipc.invoke<SetupExperimentSnapshot>(
+                        SETUP_EXPERIMENT_CHANNELS.addBlock,
+                        { experimentId: experiment.id, sequence: 'ABA' }
+                      )
+                    )}
+                    type="button"
+                  >
+                    {tt(language, 'setupExperiment.addRepeatBlock')}
                   </button>
                 </div>
               </div>

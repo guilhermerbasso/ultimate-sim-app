@@ -6843,7 +6843,7 @@ type ViewText = Pick<ViewDef, 'group' | 'label' | 'eyebrow' | 'description'>
 
 const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
   'pt-BR': {
-    'setup-experiment': { label: 'Experimento de Setup', eyebrow: 'A-B-A', description: 'Experimentos locais de uma variável com comparabilidade, incerteza e abstenção.' }
+    'setup-experiment': { label: 'Experimento de Setup', eyebrow: 'A-B-A', description: 'Blocos locais de uma variável com gates ambientais, bootstrap, repetição e abstenção.' }
   },
   en: {
     telemetry: { label: 'Telemetry', eyebrow: 'Sim', description: 'Live telemetry source and overview.' },
@@ -6859,7 +6859,7 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
     'race-profiles': { label: 'Race Profiles', eyebrow: 'Car/Track', description: 'Car/track profiles with automatic switching.' },
     sounds: { label: 'Sounds', eyebrow: 'Audio', description: 'Soundshift, incident, ABS, and TCS audio cues.' },
     setups: { label: 'Setups', eyebrow: 'iRacing', description: 'Auto-install .sto setups from a folder or URL.' },
-    'setup-experiment': { label: 'Setup Experiment', eyebrow: 'A-B-A', description: 'Local one-variable setup experiments with comparability gates, uncertainty, and abstention.' },
+    'setup-experiment': { label: 'Setup Experiment', eyebrow: 'A-B-A', description: 'Local one-variable setup blocks with environment gates, bootstrap uncertainty, repeats, and abstention.' },
     career: { label: 'Career & Ratings', eyebrow: 'iRacing', description: 'iRating, Safety Rating, licenses, incidents, and results.' },
     engineer: { label: 'AI Engineer', eyebrow: 'Local LLM', description: 'Text race engineer for fuel, tyres, gaps, and strategy. Includes Voice Spotter.' },
     coach: { label: 'AI Coach', eyebrow: 'Local AI', description: 'Driving coach and lap analysis with corner findings, track map, and setup suggestions.' },
