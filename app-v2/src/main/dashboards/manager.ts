@@ -28,6 +28,13 @@ import { isTouchPanelPlaylistItem } from '../../shared/touch-panel'
 import { compareCreatedAtEntries } from '../../shared/catalog-order'
 import { getTouchPanelManager, type TouchPanelManager } from '../touchpanel/manager'
 import { logger } from '../modules/logger'
+import {
+  THIRD_PARTY_CATALOG_OPEN_CHANNEL,
+  normalizeThirdPartyImportMetadata,
+  resolveThirdPartyCatalogActionUrl,
+  thirdPartyDistributionRestrictionReason,
+  type DashboardThirdPartyImportInput
+} from '../../shared/third-party-dashboard-catalog'
 
 
 // ── Pure playlist-routing helpers (unit-tested; no Electron/IPC) ──────────────
@@ -137,6 +144,7 @@ interface SimhubImportOptions {
   screenIndex?: number
   inspectOnly?: boolean
   importAll?: boolean
+  thirdParty?: DashboardThirdPartyImportInput
 }
 
 interface SimhubImportResponse {
@@ -249,6 +257,15 @@ function validatedDashboard(
   const result = dashboardStorageValidationResult(value, { identityCatalog })
   if (result.status === 'quarantine') throw new Error(`${context}: ${result.error}`)
   return result.dashboard
+}
+
+export function applyThirdPartyImportMetadata(
+  dashboard: Dashboard,
+  input: DashboardThirdPartyImportInput | undefined,
+  recordedAt = Date.now()
+): Dashboard {
+  const thirdParty = normalizeThirdPartyImportMetadata(input, recordedAt)
+  return thirdParty ? { ...dashboard, thirdParty } : dashboard
 }
 
 function nearestDisplay(rect: Rectangle, displays: Display[]): Display | null {
@@ -623,6 +640,9 @@ export class DashboardManager {
       await this.load()
       return this.exportSimhub(id, outPath)
     })
+    ipc.handle(THIRD_PARTY_CATALOG_OPEN_CHANNEL, async (_event, entryId: unknown, actionId: unknown) => {
+      return this.openThirdPartyCatalogAction(entryId, actionId)
+    })
     ipc.handle('app:dash:createPreset', async (_event, presetId: string) => {
       await this.load()
       return this.createFromPreset(presetId)
@@ -990,6 +1010,7 @@ export class DashboardManager {
   async importSimhub(filePath?: string, options: SimhubImportOptions = {}): Promise<SimhubImportResponse> {
     const target = filePath ?? (await this.pickOpenPath())
     if (!target) throw new Error('Import canceled.')
+    const recordedAt = Date.now()
     const first = await importSimhubDash(target, { screenIndex: options.screenIndex })
     if (options.inspectOnly && first.screens.length > 1 && options.screenIndex === undefined) {
       return {
@@ -1007,7 +1028,7 @@ export class DashboardManager {
           ? first
           : await importSimhubDash(target, { screenIndex: screen.index })
         const imported = validatedDashboard(
-          result.dashboard,
+          applyThirdPartyImportMetadata(result.dashboard, options.thirdParty, recordedAt),
           `Imported dashboard "${screen.name}" is invalid`,
           this.identityCatalog
         )
@@ -1017,7 +1038,7 @@ export class DashboardManager {
       return { summaries, notes: allNotes, screens: first.screens, selectedScreenIndex: first.selectedScreenIndex, filePath: target }
     }
     const imported = validatedDashboard(
-      first.dashboard,
+      applyThirdPartyImportMetadata(first.dashboard, options.thirdParty, recordedAt),
       'Imported dashboard is invalid',
       this.identityCatalog
     )
@@ -1034,10 +1055,18 @@ export class DashboardManager {
   async exportSimhub(id: string, outPath?: string): Promise<{ path: string }> {
     const dash = this.dashboards.get(id)
     if (!dash) throw new Error(`Dashboard not found: ${id}`)
+    const restriction = thirdPartyDistributionRestrictionReason(dash.thirdParty, 'reExport')
+    if (restriction) throw new Error(`Dashboard re-export blocked. ${restriction}`)
     const target = outPath ?? (await this.pickSavePath(dash.name))
     if (!target) throw new Error('Export canceled.')
     await exportSimhubDash(dash, target)
     return { path: target }
+  }
+
+  async openThirdPartyCatalogAction(entryId: unknown, actionId: unknown): Promise<{ opened: true }> {
+    const url = resolveThirdPartyCatalogActionUrl(entryId, actionId)
+    await shell.openExternal(url)
+    return { opened: true }
   }
 
   openWindow(id: string, options: DashboardOpenOptions = {}): Promise<DashboardOpenState> {

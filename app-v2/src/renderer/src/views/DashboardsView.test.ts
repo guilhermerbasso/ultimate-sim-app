@@ -6,7 +6,8 @@ import {
   applyInstrumentPatch,
   dashboardStorageIssueMessage,
   partitionHiddenSummaries,
-  resolvePlaylistRowLabel
+  resolvePlaylistRowLabel,
+  simhubImportMetadataForSelection
 } from './DashboardsView'
 
 describe('dashboardStorageIssueMessage', () => {
@@ -20,6 +21,24 @@ describe('dashboardStorageIssueMessage', () => {
     expect(message).toContain('locked.json [EBUSY]')
     expect(message).toContain('C:\\data\\locked.json')
     expect(message).not.toContain('Saved unchanged in .dashboard-quarantine')
+  })
+})
+
+describe('simhubImportMetadataForSelection', () => {
+  it('keeps the generic local import source-neutral by default', () => {
+    expect(simhubImportMetadataForSelection('source-neutral')).toBeUndefined()
+  })
+
+  it('adds catalog provenance only when the user selects a third-party source', () => {
+    expect(simhubImportMetadataForSelection('lovely-dashboard')).toEqual({
+      catalogEntryId: 'lovely-dashboard'
+    })
+    expect(simhubImportMetadataForSelection('overtake-iracing')).toEqual({
+      catalogEntryId: 'overtake-iracing'
+    })
+    expect(simhubImportMetadataForSelection('unknown-third-party')).toEqual({
+      sourceName: 'Unspecified third-party source'
+    })
   })
 })
 
