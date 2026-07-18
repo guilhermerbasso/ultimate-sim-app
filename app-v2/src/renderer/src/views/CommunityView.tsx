@@ -11,6 +11,7 @@ import {
 } from '../../../shared/community'
 import type { AppViewProps } from '../App'
 import { tt, type ResolvedLanguage } from '../i18n'
+import ThirdPartyDashboardCatalog from '../components/ThirdPartyDashboardCatalog'
 
 // ─── Warm-chrome style kit (cool/green is reserved for "faster than ghost") ───
 
@@ -391,6 +392,8 @@ export default function CommunityView({ showToast, language }: AppViewProps): Re
           </button>
         </div>
       </section>
+
+      <ThirdPartyDashboardCatalog onError={(message) => showToast(message, 'error')} />
 
       <section style={card}>
         <div style={label}>{tt(language, 'community.liveCapture')}</div>
