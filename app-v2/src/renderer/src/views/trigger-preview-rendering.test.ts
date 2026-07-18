@@ -169,6 +169,29 @@ describe('trigger-only editor rendering', () => {
     expect(shiftOn).toContain('data-trigger-preview-visible="true"')
   })
 
+  it('renders forced side proximity with a nearby radar car instead of CLEAR', () => {
+    const sideRadar = hifiAlertElement(
+      'sideRadarGlyph',
+      'sideRadarGlyph',
+      260,
+      260
+    )
+    sideRadar.hifiModuleId = undefined
+    const markup = renderToStaticMarkup(
+      renderDashboardElement({
+        element: sideRadar,
+        snapshot: PREVIEW_SNAPSHOT,
+        preview: 'inert',
+        alertsConfig: DEFAULT_ALERTS_CONFIG,
+        forceTriggerActive: true
+      })
+    )
+
+    expect(markup).toContain('CAR LEFT')
+    expect(markup).not.toContain('CLEAR')
+    expect(markup).toContain('data-trigger-preview-visible="true"')
+  })
+
   it('keeps inert gallery thumbnails off unless explicitly enabled', () => {
     const variant = ALL_VARIANTS.find(
       (item) => item.id === 'hifi-alert2WaterTempCritical'

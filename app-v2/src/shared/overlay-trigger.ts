@@ -995,6 +995,15 @@ export function simulateOverlayTriggerSnapshot(
     case 'sideProximity':
       snapshot.carLeftRight = active ? 'left' : 'clear'
       snapshot.carLeftRightCount = active ? 1 : undefined
+      snapshot.radarCars = active
+        ? [{
+            carIdx: 62,
+            name: 'Preview',
+            relativeX: -2,
+            relativeY: 1.5,
+            gapSec: 0.2
+          }]
+        : []
       break
     case 'raceControlFlags':
       snapshot.flags = previewFlags(active)

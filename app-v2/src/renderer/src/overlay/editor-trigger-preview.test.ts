@@ -74,6 +74,29 @@ describe('editor trigger preview frames', () => {
     ).toBe(true)
   })
 
+  it('keeps side-proximity car state and radar geometry consistent', () => {
+    const entry = triggerOnly.find(
+      ({ trigger }) => trigger?.semantic === 'sideProximity'
+    )
+    expect(entry).toBeDefined()
+    const frame = createEditorTriggerPreviewFrame(
+      PREVIEW_SNAPSHOT,
+      entry!.trigger,
+      true,
+      DEFAULT_ALERTS_CONFIG,
+      entry!.definition.id
+    )
+    expect(frame.snapshot.carLeftRight).toBe('left')
+    expect(
+      frame.snapshot.radarCars?.some(
+        (car) =>
+          car.relativeX < 0 &&
+          Math.abs(car.relativeX) <= 5 &&
+          Math.abs(car.relativeY) <= 7
+      )
+    ).toBe(true)
+  })
+
   it('leaves inactive previews inactive when the option is off', () => {
     const entry = triggerOnly.find(
       ({ trigger }) => trigger?.semantic === 'alert2WaterTempCritical'

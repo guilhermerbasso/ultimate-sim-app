@@ -20,6 +20,7 @@ import {
   resolveOverlayTrigger
 } from '../../overlay/hifi-overlays'
 import {
+  createEditorPreviewAlertsConfig,
   createEditorTriggerPreviewFrame,
   isTriggerOnlyPreview
 } from '../../overlay/editor-trigger-preview'
@@ -458,7 +459,7 @@ function overlayConfigFromElement(element: DashboardElement, widgetId: OverlayWi
   }
 }
 
-function RuntimeWidgetPreview({
+export function RuntimeWidgetPreview({
   element,
   showTriggerOnlyActive,
   alertsConfig
@@ -467,9 +468,28 @@ function RuntimeWidgetPreview({
   showTriggerOnlyActive: boolean
   alertsConfig?: AlertsConfig
 }): ReactElement {
-  const widgetId = element.widgetId
+  const widgetId =
+    element.widgetId ??
+    (element.hifiModuleId
+      ? (`hifi:${element.hifiModuleId}` as OverlayWidgetId)
+      : undefined)
   const Widget = widgetId ? resolveWidgetComponent(widgetId) : undefined
-  if (!widgetId || !Widget) return renderDashboardElement({ element, snapshot: BUILDER_PREVIEW_SNAPSHOT })
+  const resolvedElement =
+    widgetId && widgetId !== element.widgetId
+      ? { ...element, widgetId }
+      : element
+  const fallbackAlertsConfig = showTriggerOnlyActive
+    ? createEditorPreviewAlertsConfig(alertsConfig)
+    : alertsConfig
+  if ((!element.widgetId && element.hifiModuleId) || !widgetId || !Widget) {
+    return renderDashboardElement({
+      element: resolvedElement,
+      snapshot: BUILDER_PREVIEW_SNAPSHOT,
+      preview: 'inert',
+      alertsConfig: fallbackAlertsConfig,
+      forceTriggerActive: showTriggerOnlyActive
+    })
+  }
   const style = element.style as BuilderElementStyle
   const borderColor = style.borderColor ?? style.border
   const isHifi = widgetId.startsWith('hifi:')
