@@ -3,11 +3,13 @@ import { dirname, join } from 'node:path'
 import { screen } from 'electron'
 import type { ModuleContext } from '../module-context'
 import { getDeviceConfigStore } from '../devices/store'
-import { getSerialDevicesStore } from '../serial-devices/store'
+import { getSerialDevicesStore, serialIdentityMatches } from '../serial-devices/store'
 import { getDashboardManager } from './dashboards'
 import { logger } from './logger'
 import {
   RIG_PREFLIGHT_CHANNELS,
+  normalizeEvidenceTimestamp,
+  stableSortedIdentities,
   type RigAudioObservation,
   type RigControlsObservation,
   type RigEvidenceMeta,
@@ -29,6 +31,7 @@ import {
   type RigPreflightPersistence
 } from '../rig-preflight/service'
 import { probePortOwnership } from '../rig-preflight/port-owner'
+import { RigPreflightExpiryScheduler } from '../rig-preflight/expiry-scheduler'
 
 const STORE_FILE = 'rig-preflight.json'
 const DRIFT_POLL_MS = 5_000
@@ -48,12 +51,33 @@ class FileRigPreflightPersistence implements RigPreflightPersistence {
   async write(content: string): Promise<void> {
     await mkdir(dirname(this.path), { recursive: true })
     const nextPath = `${this.path}.next`
+    const backupPath = `${this.path}.previous`
     await writeFile(nextPath, content, 'utf8')
     try {
       await rename(nextPath, this.path)
-    } catch {
-      await rm(this.path, { force: true })
-      await rename(nextPath, this.path)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== 'EEXIST' && code !== 'EPERM') throw error
+      await rm(backupPath, { force: true })
+      await rename(this.path, backupPath)
+      try {
+        await rename(nextPath, this.path)
+        await rm(backupPath, { force: true })
+      } catch (replaceError) {
+        await rename(backupPath, this.path).catch(() => undefined)
+        throw replaceError
+      }
+    }
+  }
+
+  async quarantine(_reason: string): Promise<string | null> {
+    const quarantinePath = `${this.path}.corrupt-${Date.now()}.json`
+    try {
+      await rename(this.path, quarantinePath)
+      return quarantinePath
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw error
     }
   }
 }
@@ -72,9 +96,8 @@ function strings(value: unknown): string[] {
     : []
 }
 
-function clientObservedAt(client: RigPreflightClientEvidence | undefined, now: number): number {
-  const observedAt = number(client?.observedAt, now)
-  return Math.min(now, Math.max(now - 5 * 60_000, observedAt))
+export function clientObservedAt(client: RigPreflightClientEvidence | undefined, now: number): number {
+  return normalizeEvidenceTimestamp(client?.observedAt, now)
 }
 
 function meta(
@@ -97,12 +120,13 @@ function normalizeAudio(
   if (!value) return undefined
   return {
     meta: meta(clientObservedAt(client, now), 'renderer', 'MediaDevices + silent AudioContext probe'),
-    enumerationAvailable: bool(value.enumerationAvailable),
+    enumerationSucceeded: bool(value.enumerationSucceeded),
     audioEngineOk: bool(value.audioEngineOk),
+    audioContextState: typeof value.audioContextState === 'string' ? value.audioContextState.slice(0, 40) : 'unknown',
     audioEngineError: typeof value.audioEngineError === 'string' ? value.audioEngineError.slice(0, 300) : undefined,
-    outputCount: Math.max(0, number(value.outputCount)),
+    outputIdentities: stableSortedIdentities(strings(value.outputIdentities)),
     outputLabels: strings(value.outputLabels),
-    inputCount: Math.max(0, number(value.inputCount)),
+    inputIdentities: stableSortedIdentities(strings(value.inputIdentities)),
     inputLabels: strings(value.inputLabels)
   }
 }
@@ -118,7 +142,7 @@ function normalizeTts(
     enginePresent: bool(value.enginePresent),
     engineOk: bool(value.engineOk),
     engineReason: typeof value.engineReason === 'string' ? value.engineReason.slice(0, 300) : undefined,
-    installedVoiceCount: Math.max(0, number(value.installedVoiceCount))
+    installedVoiceIds: stableSortedIdentities(strings(value.installedVoiceIds))
   }
 }
 
@@ -164,23 +188,40 @@ function normalizeControls(
   if (!value) return undefined
   return {
     meta: meta(clientObservedAt(client, now), 'renderer', 'Web Gamepad API + actions status'),
-    gamepadCount: Math.max(0, number(value.gamepadCount)),
-    gamepadLabels: strings(value.gamepadLabels),
-    bindingCount: Math.max(0, number(value.bindingCount)),
-    enabledBindingCount: Math.max(0, number(value.enabledBindingCount)),
+    gamepadIdentities: stableSortedIdentities(strings(value.gamepadIdentities)),
+    bindingIdentities: stableSortedIdentities(strings(value.bindingIdentities)),
+    enabledBindingIdentities: stableSortedIdentities(strings(value.enabledBindingIdentities)),
     keyboardEmulationAvailable: bool(value.keyboardEmulationAvailable),
     gamepadEmulationAvailable: bool(value.gamepadEmulationAvailable)
   }
 }
 
+function serialConfigIdentity(config: {
+  id?: string
+  path: string
+  vendorId?: string
+  productId?: string
+  serialNumber?: string
+}): string {
+  if (config.serialNumber) return `serial:${config.serialNumber.trim().toLowerCase()}`
+  if (config.vendorId || config.productId) {
+    return `usb:${(config.vendorId || '?').toLowerCase()}:${(config.productId || '?').toLowerCase()}:${config.id || config.path}`
+  }
+  if (config.id) return `id:${config.id}`
+  return `path:${config.path.toLowerCase()}`
+}
+
 function genericConnected(
-  config: { id?: string; path: string },
-  live: Array<{ id: string; path: string; connected: boolean }>
+  config: { id?: string; path: string; vendorId?: string; productId?: string; serialNumber?: string },
+  live: Array<{ id: string; path: string; connected: boolean }>,
+  ports: Array<{ path: string; vendorId?: string; productId?: string; serialNumber?: string }>
 ): boolean {
-  return live.some((device) =>
-    device.connected &&
-    ((config.id && device.id === config.id) || device.path === config.path)
-  )
+  return live.some((device) => {
+    if (!device.connected) return false
+    if ((config.id && device.id === config.id) || device.path === config.path) return true
+    const port = ports.find((candidate) => candidate.path === device.path)
+    return Boolean(port && serialIdentityMatches(config, port))
+  })
 }
 
 async function collectSerial(ctx: ModuleContext, client: RigPreflightClientEvidence | undefined, now: number): Promise<RigSerialObservation> {
@@ -191,31 +232,39 @@ async function collectSerial(ctx: ModuleContext, client: RigPreflightClientEvide
   const ports = await ctx.serialHub.listPorts().catch(() => [])
   const configured = serialStore.list()
   const profiles = deviceStore.list()
-  const expected = configured.length > 0
-    ? configured.map((entry) => ({
-        id: entry.id,
-        path: entry.path,
-        label: entry.label
-      }))
+  const configuredIdentities = configured.length > 0
+    ? configured.map(serialConfigIdentity)
     : profiles
         .filter((profile) => profile.deviceId !== 'simx' && (profile.deviceId || profile.port))
-        .map((profile) => ({
-          id: profile.deviceId,
-          path: profile.port ?? '',
-          label: profile.label
-        }))
-  const disconnectedLabels = expected
-    .filter((entry) => !genericConnected(entry, live))
-    .map((entry) => entry.label)
+        .map((profile) => `profile:${profile.id}`)
+  const connectedConfiguredIdentities = configured.length > 0
+    ? configured
+        .filter((entry) => genericConnected(entry, live, ports))
+        .map(serialConfigIdentity)
+    : profiles
+        .filter((profile) =>
+          profile.deviceId !== 'simx' &&
+          live.some((device) =>
+            device.connected &&
+            ((profile.deviceId && profile.deviceId === device.id) ||
+              (profile.port && profile.port === device.path))
+          )
+        )
+        .map((profile) => `profile:${profile.id}`)
   const esp32Profiles = profiles.filter((profile) => profile.board === 'esp32' || profile.board === 'esp32s3')
-  const esp32SerialConnected = esp32Profiles.filter((profile) =>
-    live.some((device) =>
-      device.connected &&
-      ((profile.deviceId && profile.deviceId === device.id) || (profile.port && profile.port === device.path))
+  const esp32RequiredIdentities = esp32Profiles.map((profile) => `profile:${profile.id}`)
+  const esp32SerialConnectedIdentities = esp32Profiles
+    .filter((profile) =>
+      live.some((device) =>
+        device.connected &&
+        ((profile.deviceId && profile.deviceId === device.id) || (profile.port && profile.port === device.path))
+      )
     )
-  ).length
-  const esp32WifiConnected = Math.max(0, number(client?.esp32ConnectedCount))
-  const esp32ConfiguredCount = Math.max(esp32Profiles.length, esp32WifiConnected)
+    .map((profile) => `profile:${profile.id}`)
+  const esp32ConnectedIdentities = stableSortedIdentities([
+    ...esp32SerialConnectedIdentities,
+    ...strings(client?.esp32ConnectedIdentities)
+  ])
   const simx = ctx.serialManager.getDevice()
   const simxPort = ports.find((port) => port.path === simx?.path)
   const simxIdentity = simxPort?.serialNumber
@@ -228,19 +277,10 @@ async function collectSerial(ctx: ModuleContext, client: RigPreflightClientEvide
     availablePorts: ports.map((port) => port.path),
     simxConnected: ctx.serialManager.isConnected(),
     simxIdentity,
-    configuredCount: expected.length,
-    connectedConfiguredCount: Math.max(0, expected.length - disconnectedLabels.length),
-    configuredLabels: expected.map((entry) => entry.label),
-    disconnectedLabels,
-    esp32ConfiguredCount,
-    esp32ConnectedCount: Math.min(
-      esp32ConfiguredCount,
-      Math.max(esp32SerialConnected, esp32WifiConnected)
-    ),
-    esp32Labels: [
-      ...esp32Profiles.map((profile) => profile.label),
-      ...strings(client?.esp32Labels)
-    ].filter((label, index, all) => all.indexOf(label) === index)
+    configuredIdentities: stableSortedIdentities(configuredIdentities),
+    connectedConfiguredIdentities: stableSortedIdentities(connectedConfiguredIdentities),
+    esp32RequiredIdentities: stableSortedIdentities(esp32RequiredIdentities),
+    esp32ConnectedIdentities
   }
 }
 
@@ -300,8 +340,12 @@ async function collectObservation(
     },
     displays: {
       meta: meta(now, 'runtime', 'Electron screen + DashboardManager'),
-      displayIds: screen.getAllDisplays().map((display) => display.id),
-      openDashboardWindows: dashboardManager?.listOpen().length ?? 0
+      displayIds: screen.getAllDisplays().map((display) => display.id).sort((a, b) => a - b),
+      openDashboardWindowIdentities: stableSortedIdentities(
+        (dashboardManager?.listOpen() ?? []).map(
+          (window) => `${window.id}@${window.displayId}:${window.fullscreen ? 'fullscreen' : 'windowed'}`
+        )
+      )
     },
     serial,
     audio: normalizeAudio(client, now),
@@ -313,10 +357,6 @@ async function collectObservation(
   }
 }
 
-async function broadcastState(ctx: ModuleContext, service: RigPreflightService): Promise<void> {
-  ctx.broadcast(RIG_PREFLIGHT_CHANNELS.changed, await service.getState())
-}
-
 export function register(ctx: ModuleContext): void {
   const persistence = new FileRigPreflightPersistence(
     join(ctx.app.getPath('userData'), STORE_FILE)
@@ -325,36 +365,85 @@ export function register(ctx: ModuleContext): void {
     persistence,
     collectObservation: (profile, client) => collectObservation(ctx, profile, client)
   })
-
-  ctx.ipcMain.handle(RIG_PREFLIGHT_CHANNELS.getState, () => service.getState())
-  ctx.ipcMain.handle(RIG_PREFLIGHT_CHANNELS.setProfile, async (_event, profile: RigPreflightProfilePatch) => {
-    const state = await service.setProfile(profile ?? {})
+  let expiryScheduler: RigPreflightExpiryScheduler
+  const publishState = async (): Promise<void> => {
+    const state = await service.getState()
+    const active = state.activeCertificate
+    expiryScheduler.schedule(
+      active &&
+      active.invalidatedAt === null &&
+      !state.activeCertificateExpired &&
+      !state.storage.blocked
+        ? active.certificate.expiresAt
+        : null
+    )
     ctx.broadcast(RIG_PREFLIGHT_CHANNELS.changed, state)
+  }
+  expiryScheduler = new RigPreflightExpiryScheduler({
+    onExpire: async () => {
+      try {
+        if (await service.expireActiveCertificate()) await publishState()
+      } catch (error) {
+        logger.warn('rig-preflight', 'certificate expiry failed closed', {
+          message: error instanceof Error ? error.message : String(error)
+        })
+        await publishState()
+      }
+    }
+  })
+  const startupReady = service.requireStartupRevalidation()
+    .then(() => publishState())
+    .catch((error) => {
+      logger.warn('rig-preflight', 'startup revalidation gate failed closed', {
+        message: error instanceof Error ? error.message : String(error)
+      })
+      return publishState()
+    })
+
+  ctx.ipcMain.handle(RIG_PREFLIGHT_CHANNELS.getState, async () => {
+    await startupReady
+    return service.getState()
+  })
+  ctx.ipcMain.handle(RIG_PREFLIGHT_CHANNELS.setProfile, async (_event, profile: RigPreflightProfilePatch) => {
+    await startupReady
+    const state = await service.setProfile(profile ?? {})
+    await publishState()
     return state
   })
   ctx.ipcMain.handle(RIG_PREFLIGHT_CHANNELS.run, async (_event, request?: RigPreflightRunRequest) => {
-    const run = await service.run(request ?? {})
-    await broadcastState(ctx, service)
+    await startupReady
+    const run = await service.run(request as RigPreflightRunRequest)
+    await publishState()
     return run
   })
   ctx.ipcMain.handle(RIG_PREFLIGHT_CHANNELS.waive, async (_event, request: RigPreflightWaiverRequest) => {
+    await startupReady
     const state = await service.createWaiver(request)
-    ctx.broadcast(RIG_PREFLIGHT_CHANNELS.changed, state)
+    await publishState()
     return state
   })
   ctx.ipcMain.handle(RIG_PREFLIGHT_CHANNELS.removeWaiver, async (_event, id: string) => {
+    await startupReady
     const state = await service.removeWaiver(id)
-    ctx.broadcast(RIG_PREFLIGHT_CHANNELS.changed, state)
+    await publishState()
     return state
   })
   ctx.ipcMain.handle(RIG_PREFLIGHT_CHANNELS.acceptKnownGood, async (_event, runId: string, owner?: string) => {
+    await startupReady
     const state = await service.acceptKnownGood(runId, owner)
-    ctx.broadcast(RIG_PREFLIGHT_CHANNELS.changed, state)
+    await publishState()
     return state
   })
-  ctx.ipcMain.handle(RIG_PREFLIGHT_CHANNELS.faultMatrix, async (_event, client?: RigPreflightClientEvidence) => {
-    const result = await service.runFaultMatrix(client)
-    await broadcastState(ctx, service)
+  ctx.ipcMain.handle(RIG_PREFLIGHT_CHANNELS.faultMatrix, async (_event, request?: RigPreflightRunRequest) => {
+    await startupReady
+    const result = await service.runFaultMatrix(request as RigPreflightRunRequest)
+    await publishState()
+    return result
+  })
+  ctx.ipcMain.handle(RIG_PREFLIGHT_CHANNELS.revalidate, async (_event, request?: RigPreflightRunRequest) => {
+    await startupReady
+    const result = await service.revalidate(request as RigPreflightRunRequest)
+    if (result.changed) await publishState()
     return result
   })
 
@@ -380,7 +469,7 @@ export function register(ctx: ModuleContext): void {
           provenance = [{ kind: 'runtime', source: 'Electron display drift monitor' }]
         }
         if (reason && await service.invalidateActiveCertificate(reason, provenance)) {
-          await broadcastState(ctx, service)
+          await publishState()
         }
       })
       .catch((error) => {
@@ -403,7 +492,7 @@ export function register(ctx: ModuleContext): void {
         `${summary.label || summary.path || 'Serial device'} disconnected after certificate issue.`,
         [{ kind: 'runtime', source: 'SerialHub device-removed' }]
       )
-      if (changed) await broadcastState(ctx, service)
+      if (changed) await publishState()
     }).catch(() => undefined)
   }
   ctx.serialHub.on('device-removed', onSerialRemoved)
@@ -415,13 +504,14 @@ export function register(ctx: ModuleContext): void {
         'A required display was removed after certificate issue.',
         [{ kind: 'runtime', source: 'Electron display-removed' }]
       )
-      if (changed) await broadcastState(ctx, service)
+      if (changed) await publishState()
     }).catch(() => undefined)
   }
   screen.on('display-removed', onDisplayRemoved)
 
   ctx.app.once('before-quit', () => {
     clearInterval(driftPoll)
+    expiryScheduler.dispose()
     ctx.serialHub.off('device-removed', onSerialRemoved)
     screen.off('display-removed', onDisplayRemoved)
   })

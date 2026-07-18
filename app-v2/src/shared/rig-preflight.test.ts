@@ -3,6 +3,7 @@ import {
   RIG_PREFLIGHT_CHECK_IDS,
   createRigPreflightProfile,
   evaluateRigPreflightChecks,
+  normalizeEvidenceTimestamp,
   runRigPreflightFaultMatrix,
   summarizeRigPreflightChecks,
   type RigEvidenceMeta,
@@ -34,35 +35,33 @@ function readyObservation(): RigPreflightObservation {
     displays: {
       meta: meta(),
       displayIds: [1, 2],
-      openDashboardWindows: 1
+      openDashboardWindowIdentities: ['race@2:fullscreen']
     },
     serial: {
       meta: meta(),
       availablePorts: ['COM3', 'COM4'],
       simxConnected: true,
       simxIdentity: 'COM3',
-      configuredCount: 1,
-      connectedConfiguredCount: 1,
-      configuredLabels: ['iFlag'],
-      disconnectedLabels: [],
-      esp32ConfiguredCount: 1,
-      esp32ConnectedCount: 1,
-      esp32Labels: ['ESP32-S3']
+      configuredIdentities: ['serial:iflag-001'],
+      connectedConfiguredIdentities: ['serial:iflag-001'],
+      esp32RequiredIdentities: ['profile:esp32-s3'],
+      esp32ConnectedIdentities: ['profile:esp32-s3']
     },
     audio: {
       meta: meta(),
-      enumerationAvailable: true,
+      enumerationSucceeded: true,
       audioEngineOk: true,
-      outputCount: 2,
+      audioContextState: 'running',
+      outputIdentities: ['audio-output:default', 'audio-output:bass'],
       outputLabels: ['System default', 'Bass shaker'],
-      inputCount: 1,
+      inputIdentities: ['audio-input:mic'],
       inputLabels: ['Microphone']
     },
     tts: {
       meta: meta(),
       enginePresent: true,
       engineOk: true,
-      installedVoiceCount: 1
+      installedVoiceIds: ['voice:pt_BR-faber-medium']
     },
     stt: {
       meta: meta(),
@@ -84,10 +83,9 @@ function readyObservation(): RigPreflightObservation {
     },
     controls: {
       meta: meta(),
-      gamepadCount: 1,
-      gamepadLabels: ['Wheel'],
-      bindingCount: 3,
-      enabledBindingCount: 3,
+      gamepadIdentities: ['gamepad:Wheel'],
+      bindingIdentities: ['binding:pit', 'binding:radio', 'binding:wiper'],
+      enabledBindingIdentities: ['binding:pit', 'binding:radio', 'binding:wiper'],
       keyboardEmulationAvailable: true,
       gamepadEmulationAvailable: true
     },
@@ -117,13 +115,12 @@ describe('rig preflight evidence evaluation', () => {
     const observation = readyObservation()
     observation.serial = {
       ...observation.serial!,
-      connectedConfiguredCount: 0,
-      disconnectedLabels: ['iFlag']
+      connectedConfiguredIdentities: []
     }
     const check = evaluateRigPreflightChecks(fullProfile(), observation, [], NOW)
       .find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.configuredSerial)
     expect(check?.state).toBe('fail')
-    expect(check?.observed).toContain('iFlag')
+    expect(check?.observed).toContain('serial:iflag-001')
     expect(check?.remediation.join(' ')).toContain('COM-port')
   })
 
@@ -216,6 +213,61 @@ describe('rig preflight evidence evaluation', () => {
       expect(check?.summary).toContain('Explicitly excluded')
     }
     expect(summarizeRigPreflightChecks(checks).decision).toBe('ready')
+  })
+
+  it('requires successful audio enumeration and a running AudioContext', () => {
+    const profile = fullProfile()
+    const observation = readyObservation()
+    observation.audio = {
+      ...observation.audio!,
+      enumerationSucceeded: false
+    }
+    let check = evaluateRigPreflightChecks(profile, observation, [], NOW)
+      .find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.audioOutput)
+    expect(check?.state).toBe('fail')
+
+    observation.audio = {
+      ...observation.audio!,
+      enumerationSucceeded: true,
+      audioContextState: 'suspended'
+    }
+    check = evaluateRigPreflightChecks(profile, observation, [], NOW)
+      .find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.audioOutput)
+    expect(check?.state).toBe('fail')
+  })
+
+  it('sorts stable identities and detects same-count device replacement', () => {
+    const profile = fullProfile()
+    const first = readyObservation()
+    first.serial!.configuredIdentities = ['serial:b', 'serial:a']
+    first.serial!.connectedConfiguredIdentities = ['serial:b', 'serial:a']
+    const reordered = readyObservation()
+    reordered.serial!.configuredIdentities = ['serial:a', 'serial:b']
+    reordered.serial!.connectedConfiguredIdentities = ['serial:a', 'serial:b']
+    const replaced = readyObservation()
+    replaced.serial!.configuredIdentities = ['serial:a', 'serial:c']
+    replaced.serial!.connectedConfiguredIdentities = ['serial:a', 'serial:c']
+    const material = (observation: RigPreflightObservation): string | undefined =>
+      evaluateRigPreflightChecks(profile, observation, [], NOW)
+        .find((check) => check.id === RIG_PREFLIGHT_CHECK_IDS.configuredSerial)
+        ?.signatureMaterial
+    expect(material(first)).toBe(material(reordered))
+    expect(material(replaced)).not.toBe(material(first))
+  })
+
+  it('preserves old timestamps, rejects invalid values, and caps only future evidence', () => {
+    expect(normalizeEvidenceTimestamp(NOW - 600_000, NOW)).toBe(NOW - 600_000)
+    expect(normalizeEvidenceTimestamp(Number.NaN, NOW)).toBe(0)
+    expect(normalizeEvidenceTimestamp(-1, NOW)).toBe(0)
+    expect(normalizeEvidenceTimestamp(NOW + 60_000, NOW)).toBe(NOW)
+
+    const profile = fullProfile()
+    const observation = readyObservation()
+    observation.audio!.meta.observedAt = Number.NaN
+    const check = evaluateRigPreflightChecks(profile, observation, [], NOW)
+      .find((candidate) => candidate.id === RIG_PREFLIGHT_CHECK_IDS.audioOutput)
+    expect(check?.state).toBe('unknown')
+    expect(check?.observed).toBe('No evidence')
   })
 
   it('detects every safe seeded fault without hardware actuation', () => {

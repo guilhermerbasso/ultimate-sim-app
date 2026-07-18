@@ -1,4 +1,4 @@
-import { type ReactElement, useEffect, useMemo, useState } from 'react'
+import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppViewProps } from '../App'
 import {
   RIG_PREFLIGHT_CHANNELS,
@@ -74,7 +74,13 @@ function stateLabel(language: AppViewProps['language'], state: RigPreflightState
 
 function latestCertificateTone(state: RigPreflightStateSnapshot | null): string {
   const active = state?.activeCertificate
-  if (!active || state?.activeCertificateExpired || active.invalidatedAt !== null) return 'blocked'
+  if (
+    !active ||
+    state?.activeCertificateExpired ||
+    state?.activeCertificateRevalidationRequired ||
+    state?.storage.blocked ||
+    active.invalidatedAt !== null
+  ) return 'blocked'
   return active.certificate.decision
 }
 
@@ -93,6 +99,19 @@ function requirementValue(
   return profile.requirements[key] === true
 }
 
+function profileContent(profile: RigPreflightProfile | null): string {
+  if (!profile) return ''
+  return JSON.stringify({
+    id: profile.id,
+    name: profile.name,
+    owner: profile.owner,
+    mode: profile.mode,
+    evidenceMaxAgeMs: profile.evidenceMaxAgeMs,
+    certificateTtlMs: profile.certificateTtlMs,
+    requirements: profile.requirements
+  })
+}
+
 function RigPreflightView({ language, showToast }: AppViewProps): ReactElement {
   const [state, setState] = useState<RigPreflightStateSnapshot | null>(null)
   const [draft, setDraft] = useState<RigPreflightProfile | null>(null)
@@ -100,11 +119,13 @@ function RigPreflightView({ language, showToast }: AppViewProps): ReactElement {
   const [waiverCheckId, setWaiverCheckId] = useState('')
   const [waiverReason, setWaiverReason] = useState('')
   const [waiverHours, setWaiverHours] = useState(4)
+  const savedProfileRef = useRef<RigPreflightProfile | null>(null)
 
   const loadState = async (): Promise<void> => {
     const next = await window.ipc.invoke<RigPreflightStateSnapshot>(RIG_PREFLIGHT_CHANNELS.getState)
     setState(next)
     setDraft(next.profile)
+    savedProfileRef.current = next.profile
   }
 
   useEffect(() => {
@@ -115,12 +136,22 @@ function RigPreflightView({ language, showToast }: AppViewProps): ReactElement {
       RIG_PREFLIGHT_CHANNELS.changed,
       (next) => {
         setState(next)
-        setDraft(next.profile)
+        setDraft((current) =>
+          current && profileContent(current) !== profileContent(savedProfileRef.current)
+            ? current
+            : next.profile
+        )
+        savedProfileRef.current = next.profile
       }
     )
   }, [])
 
   const latestRun = state?.history[0] ?? null
+  const profileDirty = Boolean(
+    draft &&
+    state &&
+    profileContent(draft) !== profileContent(state.profile)
+  )
   const latestFaultRun = state?.faultHistory[0] ?? null
   const waiverCandidates = latestRun?.checks.filter(
     (check) =>
@@ -174,6 +205,7 @@ function RigPreflightView({ language, showToast }: AppViewProps): ReactElement {
       )
       setState(next)
       setDraft(next.profile)
+      savedProfileRef.current = next.profile
       showToast(tt(language, 'rigPreflight.toast.profileSaved'), 'success')
     } catch (error) {
       showToast(errorMessage(error), 'error')
@@ -183,12 +215,16 @@ function RigPreflightView({ language, showToast }: AppViewProps): ReactElement {
   }
 
   const runPreflight = async (): Promise<void> => {
+    if (!draft || profileDirty) {
+      showToast(tt(language, 'rigPreflight.toast.saveBeforeRun'), 'error')
+      return
+    }
     setBusy('run')
     try {
       const clientEvidence = await collectRigPreflightClientEvidence()
       const run = await window.ipc.invoke<RigPreflightRun>(
         RIG_PREFLIGHT_CHANNELS.run,
-        { clientEvidence }
+        { profile: draft, clientEvidence }
       )
       await loadState()
       showToast(
@@ -205,12 +241,16 @@ function RigPreflightView({ language, showToast }: AppViewProps): ReactElement {
   }
 
   const runFaultMatrix = async (): Promise<void> => {
+    if (!draft || profileDirty) {
+      showToast(tt(language, 'rigPreflight.toast.saveBeforeRun'), 'error')
+      return
+    }
     setBusy('faults')
     try {
       const clientEvidence = await collectRigPreflightClientEvidence()
       const result = await window.ipc.invoke<RigFaultMatrixRun>(
         RIG_PREFLIGHT_CHANNELS.faultMatrix,
-        clientEvidence
+        { profile: draft, clientEvidence }
       )
       await loadState()
       showToast(
@@ -282,10 +322,14 @@ function RigPreflightView({ language, showToast }: AppViewProps): ReactElement {
 
   const certificateTone = latestCertificateTone(state)
   const activeCertificate = state?.activeCertificate
-  const activeStatus = !activeCertificate
+  const activeStatus = state?.storage.blocked
+    ? tt(language, 'rigPreflight.certificate.storageBlocked')
+    : !activeCertificate
     ? tt(language, 'rigPreflight.certificate.none')
     : state?.activeCertificateExpired
       ? tt(language, 'rigPreflight.certificate.expired')
+      : state?.activeCertificateRevalidationRequired
+        ? tt(language, 'rigPreflight.certificate.revalidationRequired')
       : activeCertificate.invalidatedAt !== null
         ? tt(language, 'rigPreflight.certificate.invalidated')
         : translated(
@@ -305,7 +349,7 @@ function RigPreflightView({ language, showToast }: AppViewProps): ReactElement {
         <div className="rig-preflight-actions">
           <button
             className="ghost-action"
-            disabled={Boolean(busy)}
+            disabled={Boolean(busy) || profileDirty || Boolean(state?.storage.blocked)}
             onClick={() => void runFaultMatrix()}
             type="button"
           >
@@ -313,7 +357,7 @@ function RigPreflightView({ language, showToast }: AppViewProps): ReactElement {
           </button>
           <button
             className="primary-action"
-            disabled={Boolean(busy)}
+            disabled={Boolean(busy) || profileDirty || Boolean(state?.storage.blocked)}
             onClick={() => void runPreflight()}
             type="button"
           >
@@ -321,6 +365,22 @@ function RigPreflightView({ language, showToast }: AppViewProps): ReactElement {
           </button>
         </div>
       </article>
+
+      {state?.storage.blocked && (
+        <article className="notice-card danger">
+          <strong>{tt(language, 'rigPreflight.storage.blocked')}</strong>
+          <p>{state.storage.message}</p>
+          {state.storage.quarantinePath && <small>{state.storage.quarantinePath}</small>}
+          <p>{tt(language, 'rigPreflight.storage.recover')}</p>
+        </article>
+      )}
+
+      {profileDirty && (
+        <article className="notice-card warning">
+          <strong>{tt(language, 'rigPreflight.profile.unsaved')}</strong>
+          <p>{tt(language, 'rigPreflight.profile.unsavedHelp')}</p>
+        </article>
+      )}
 
       <section className="rig-preflight-summary">
         <article className={`panel-card rig-certificate ${certificateTone}`}>

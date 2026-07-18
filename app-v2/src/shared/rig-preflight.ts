@@ -6,6 +6,7 @@ export const RIG_PREFLIGHT_CHANNELS = {
   removeWaiver: 'rigPreflight:removeWaiver',
   acceptKnownGood: 'rigPreflight:acceptKnownGood',
   faultMatrix: 'rigPreflight:faultMatrix',
+  revalidate: 'rigPreflight:revalidate',
   changed: 'rigPreflight:changed'
 } as const
 
@@ -102,6 +103,8 @@ export interface RigPreflightRequirements {
 export interface RigPreflightProfile {
   version: 1
   id: string
+  revision: number
+  hash: string
   name: string
   owner: string
   mode: RigPreflightProfileMode
@@ -127,7 +130,7 @@ export interface RigSimulatorObservation {
 export interface RigDisplaysObservation {
   meta: RigEvidenceMeta
   displayIds: number[]
-  openDashboardWindows: number
+  openDashboardWindowIdentities: string[]
 }
 
 export interface RigSerialObservation {
@@ -135,23 +138,21 @@ export interface RigSerialObservation {
   availablePorts: string[]
   simxConnected: boolean
   simxIdentity?: string
-  configuredCount: number
-  connectedConfiguredCount: number
-  configuredLabels: string[]
-  disconnectedLabels: string[]
-  esp32ConfiguredCount: number
-  esp32ConnectedCount: number
-  esp32Labels: string[]
+  configuredIdentities: string[]
+  connectedConfiguredIdentities: string[]
+  esp32RequiredIdentities: string[]
+  esp32ConnectedIdentities: string[]
 }
 
 export interface RigAudioObservation {
   meta: RigEvidenceMeta
-  enumerationAvailable: boolean
+  enumerationSucceeded: boolean
   audioEngineOk: boolean
+  audioContextState: string
   audioEngineError?: string
-  outputCount: number
+  outputIdentities: string[]
   outputLabels: string[]
-  inputCount: number
+  inputIdentities: string[]
   inputLabels: string[]
 }
 
@@ -160,7 +161,7 @@ export interface RigTtsObservation {
   enginePresent: boolean
   engineOk: boolean
   engineReason?: string
-  installedVoiceCount: number
+  installedVoiceIds: string[]
 }
 
 export interface RigSttObservation {
@@ -185,10 +186,9 @@ export interface RigHapticsObservation {
 
 export interface RigControlsObservation {
   meta: RigEvidenceMeta
-  gamepadCount: number
-  gamepadLabels: string[]
-  bindingCount: number
-  enabledBindingCount: number
+  gamepadIdentities: string[]
+  bindingIdentities: string[]
+  enabledBindingIdentities: string[]
   keyboardEmulationAvailable: boolean
   gamepadEmulationAvailable: boolean
 }
@@ -228,8 +228,7 @@ export interface RigPreflightClientEvidence {
   haptics?: Omit<RigHapticsObservation, 'meta'>
   controls?: Omit<RigControlsObservation, 'meta'>
   streaming?: Omit<RigStreamingObservation, 'meta' | 'ownerState' | 'ownerPid' | 'ownerName' | 'ownerDetail'>
-  esp32ConnectedCount?: number
-  esp32Labels?: string[]
+  esp32ConnectedIdentities?: string[]
 }
 
 export interface RigPreflightWaiver {
@@ -265,9 +264,12 @@ export interface RigPreflightCertificate {
   id: string
   issuedAt: number
   expiresAt: number
+  expiryBasis: 'profile-ttl' | 'waiver'
   decision: 'ready' | 'ready-with-waivers' | 'blocked'
   coverage: number
   signature: string
+  profileRevision: number
+  profileHash: string
   knownGoodSignature: string | null
   drift: 'match' | 'mismatch' | 'not-established' | 'not-required'
   counts: Record<RigPreflightState, number>
@@ -279,6 +281,8 @@ export interface RigPreflightRun {
   id: string
   profileId: string
   profileName: string
+  profileRevision: number
+  profileHash: string
   startedAt: number
   completedAt: number
   signature: string
@@ -293,6 +297,8 @@ export interface RigActiveCertificate {
   invalidatedAt: number | null
   invalidationReason: string | null
   invalidationProvenance: RigEvidenceProvenance[]
+  revalidationRequired: boolean
+  lastValidatedAt: number
 }
 
 export interface RigKnownGood {
@@ -331,7 +337,24 @@ export interface RigPreflightPersistedState {
 }
 
 export interface RigPreflightRunRequest {
+  profile: RigPreflightProfile
   clientEvidence?: RigPreflightClientEvidence
+}
+
+export interface RigPreflightRevalidationResult {
+  changed: boolean
+  status: 'idle' | 'verified' | 'invalidated' | 'expired'
+  reason?: string
+}
+
+export type RigPreflightStorageState = 'ok' | 'missing' | 'quarantined' | 'error'
+
+export interface RigPreflightStorageStatus {
+  state: RigPreflightStorageState
+  blocked: boolean
+  message: string | null
+  quarantinePath: string | null
+  occurredAt: number | null
 }
 
 export interface RigPreflightWaiverRequest {
@@ -343,6 +366,8 @@ export interface RigPreflightWaiverRequest {
 
 export interface RigPreflightStateSnapshot extends RigPreflightPersistedState {
   activeCertificateExpired: boolean
+  activeCertificateRevalidationRequired: boolean
+  storage: RigPreflightStorageStatus
 }
 
 const CONFIGURED_REQUIREMENTS: RigPreflightRequirements = {
@@ -411,6 +436,8 @@ export function createRigPreflightProfile(
   return {
     version: 1,
     id: 'local-rig',
+    revision: 1,
+    hash: '',
     name: mode === 'full-rig' ? 'Full race rig' : mode === 'no-hardware' ? 'No-hardware rig' : 'Configured rig',
     owner,
     mode,
@@ -430,6 +457,8 @@ export function applyRigPreflightPreset(
   return {
     ...preset,
     id: current.id,
+    revision: current.revision,
+    hash: current.hash,
     evidenceMaxAgeMs: current.evidenceMaxAgeMs,
     certificateTtlMs: current.certificateTtlMs,
     requirements: {
@@ -442,6 +471,20 @@ export function applyRigPreflightPreset(
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
   return Math.min(max, Math.max(min, Math.trunc(value)))
+}
+
+export function normalizeEvidenceTimestamp(value: unknown, now = Date.now()): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 0
+  return Math.min(value, now)
+}
+
+export function stableSortedIdentities(values: readonly string[]): string[] {
+  return [...new Set(
+    values
+      .filter((value): value is string => typeof value === 'string')
+      .map((value) => value.trim())
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b, 'en'))
 }
 
 function text(value: unknown, fallback: string, max = 120): string {
@@ -463,6 +506,8 @@ export function normalizeRigPreflightProfile(
   return {
     version: 1,
     id: text(input?.id, base.id, 80),
+    revision: clampInt(input?.revision, 1, Number.MAX_SAFE_INTEGER, base.revision),
+    hash: typeof input?.hash === 'string' ? input.hash.trim().slice(0, 128) : base.hash,
     name: text(input?.name, base.name, 120),
     owner: text(input?.owner, base.owner, 120),
     mode,
@@ -488,7 +533,7 @@ export function normalizeRigPreflightProfile(
       requireStreamingTunnel: bool(req.requireStreamingTunnel, base.requirements.requireStreamingTunnel),
       requireKnownGood: bool(req.requireKnownGood, base.requirements.requireKnownGood)
     },
-    updatedAt: clampInt(input?.updatedAt, 0, Number.MAX_SAFE_INTEGER, now)
+    updatedAt: normalizeEvidenceTimestamp(input?.updatedAt, now) || now
   }
 }
 
@@ -658,12 +703,14 @@ export function evaluateRigPreflightChecks(
     summary: simAllowed ? `Live ${sim?.active} telemetry is connected.` : 'The required simulator source is not ready.',
     expected: r.allowMockSimulator ? 'Connected simulator source (mock allowed)' : 'Connected real simulator source',
     observed: sim ? `source=${sim.source}; active=${sim.active}; connected=${sim.connected}` : 'No simulator status',
+    signatureMaterial: sim ? `${sim.source}:${sim.active}:${sim.connected}` : 'no-simulator',
     delta: simAllowed ? [] : ['Launch/select the simulator and wait for a current telemetry snapshot.'],
     remediation: ['Open Telemetry, select Auto or the intended simulator, then verify that live data is updating.']
   })
 
   const displays = observation.displays
-  const displayCount = displays?.displayIds.length ?? 0
+  const displayIds = [...new Set(displays?.displayIds ?? [])].sort((a, b) => a - b)
+  const displayCount = displayIds.length
   add({
     id: RIG_PREFLIGHT_CHECK_IDS.displays,
     category: 'displays',
@@ -673,11 +720,13 @@ export function evaluateRigPreflightChecks(
     state: displayCount >= r.minDisplays ? 'verified' : 'fail',
     summary: displayCount >= r.minDisplays ? `${displayCount} display(s) detected.` : 'Required displays are missing.',
     expected: `At least ${r.minDisplays} display(s)`,
-    observed: `${displayCount} display(s): ${displays?.displayIds.join(', ') || 'none'}`,
+    observed: `${displayCount} display(s): ${displayIds.join(', ') || 'none'}`,
+    signatureMaterial: displayIds.join('|'),
     delta: displayCount >= r.minDisplays ? [] : [`Missing ${r.minDisplays - displayCount} display(s)`],
     remediation: ['Reconnect the display, enable it in Windows Display Settings, and rerun preflight.']
   })
-  const dashboardWindows = displays?.openDashboardWindows ?? 0
+  const dashboardWindowIdentities = stableSortedIdentities(displays?.openDashboardWindowIdentities ?? [])
+  const dashboardWindows = dashboardWindowIdentities.length
   add({
     id: RIG_PREFLIGHT_CHECK_IDS.dashboardWindows,
     category: 'displays',
@@ -689,7 +738,8 @@ export function evaluateRigPreflightChecks(
       ? `${dashboardWindows} dashboard window(s) are healthy.`
       : 'Required dashboard windows are not open.',
     expected: `At least ${r.minDashboardWindows} open dashboard window(s)`,
-    observed: `${dashboardWindows} open dashboard window(s)`,
+    observed: `${dashboardWindows} open dashboard window(s): ${listed(dashboardWindowIdentities)}`,
+    signatureMaterial: dashboardWindowIdentities.join('|'),
     delta: dashboardWindows >= r.minDashboardWindows ? [] : [`Open ${r.minDashboardWindows - dashboardWindows} more dashboard window(s)`],
     remediation: ['Open the intended dashboard on the target display and rerun preflight.']
   })
@@ -705,14 +755,15 @@ export function evaluateRigPreflightChecks(
     summary: serial?.simxConnected ? 'SIM-X is connected through the shared SerialHub.' : 'SIM-X is disconnected.',
     expected: 'Connected SIM-X primary device',
     observed: serial?.simxConnected ? serial.simxIdentity || 'connected' : 'disconnected',
+    signatureMaterial: serial?.simxConnected ? serial.simxIdentity || 'connected-unidentified' : 'disconnected',
     delta: serial?.simxConnected ? [] : ['SIM-X connection missing'],
     remediation: ['Open Devices, choose the stable SIM-X port, connect it, and rerun preflight.']
   })
-  const configuredReady = Boolean(
-    serial &&
-    serial.configuredCount > 0 &&
-    serial.connectedConfiguredCount === serial.configuredCount
-  )
+  const configuredIdentities = stableSortedIdentities(serial?.configuredIdentities ?? [])
+  const connectedConfiguredIdentities = stableSortedIdentities(serial?.connectedConfiguredIdentities ?? [])
+  const connectedConfigured = new Set(connectedConfiguredIdentities)
+  const disconnectedIdentities = configuredIdentities.filter((identity) => !connectedConfigured.has(identity))
+  const configuredReady = configuredIdentities.length > 0 && disconnectedIdentities.length === 0
   add({
     id: RIG_PREFLIGHT_CHECK_IDS.configuredSerial,
     category: 'serial',
@@ -721,20 +772,23 @@ export function evaluateRigPreflightChecks(
     meta: serial?.meta,
     state: configuredReady ? 'verified' : 'fail',
     summary: configuredReady
-      ? `${serial?.connectedConfiguredCount ?? 0} configured serial device(s) connected.`
+      ? `${connectedConfiguredIdentities.length} configured serial device(s) connected by stable identity.`
       : 'One or more configured serial devices are absent.',
     expected: 'Every configured serial/Arduino device connected by stable identity',
-    observed: `${serial?.connectedConfiguredCount ?? 0}/${serial?.configuredCount ?? 0} connected; disconnected: ${listed(serial?.disconnectedLabels ?? [])}`,
-    delta: configuredReady ? [] : serial?.configuredCount
-      ? serial.disconnectedLabels.map((label) => `${label} disconnected`)
+    observed: `desired=${listed(configuredIdentities)}; connected=${listed(connectedConfiguredIdentities)}; disconnected=${listed(disconnectedIdentities)}`,
+    signatureMaterial: `desired=${configuredIdentities.join('|')};connected=${connectedConfiguredIdentities.join('|')}`,
+    delta: configuredReady ? [] : configuredIdentities.length
+      ? disconnectedIdentities.map((identity) => `${identity} disconnected`)
       : ['No serial device is configured'],
     remediation: ['Reconnect devices from Arduinos, resolve exclusive COM-port conflicts, and verify VID/PID/serial identity.']
   })
-  const esp32Ready = Boolean(
-    serial &&
-    serial.esp32ConfiguredCount > 0 &&
-    serial.esp32ConnectedCount >= serial.esp32ConfiguredCount
-  )
+  const esp32RequiredIdentities = stableSortedIdentities(serial?.esp32RequiredIdentities ?? [])
+  const esp32ConnectedIdentities = stableSortedIdentities(serial?.esp32ConnectedIdentities ?? [])
+  const esp32Connected = new Set(esp32ConnectedIdentities)
+  const missingEsp32 = esp32RequiredIdentities.filter((identity) => !esp32Connected.has(identity))
+  const esp32Ready = esp32RequiredIdentities.length > 0
+    ? missingEsp32.length === 0
+    : esp32ConnectedIdentities.length > 0
   add({
     id: RIG_PREFLIGHT_CHECK_IDS.esp32,
     category: 'serial',
@@ -744,45 +798,60 @@ export function evaluateRigPreflightChecks(
     state: esp32Ready ? 'verified' : 'fail',
     summary: esp32Ready ? 'Configured ESP32 devices are connected.' : 'A required ESP32 is not connected.',
     expected: 'Every configured ESP32 connected over USB/serial or LAN',
-    observed: `${serial?.esp32ConnectedCount ?? 0}/${serial?.esp32ConfiguredCount ?? 0}: ${listed(serial?.esp32Labels ?? [])}`,
-    delta: esp32Ready ? [] : ['ESP32 connection or profile is missing'],
+    observed: `desired=${listed(esp32RequiredIdentities)}; connected=${listed(esp32ConnectedIdentities)}`,
+    signatureMaterial: `desired=${esp32RequiredIdentities.join('|')};connected=${esp32ConnectedIdentities.join('|')}`,
+    delta: esp32Ready ? [] : missingEsp32.length
+      ? missingEsp32.map((identity) => `${identity} disconnected`)
+      : ['ESP32 connection or profile is missing'],
     remediation: ['Use ESP32 Wi-Fi Discover/Connect or reconnect its USB serial profile, then rerun preflight.']
   })
 
   const audio = observation.audio
-  const outputReady = Boolean(audio?.audioEngineOk && audio.outputCount > 0)
+  const outputIdentities = stableSortedIdentities(audio?.outputIdentities ?? [])
+  const inputIdentities = stableSortedIdentities(audio?.inputIdentities ?? [])
+  const outputReady = Boolean(
+    audio?.enumerationSucceeded &&
+    audio.audioEngineOk &&
+    audio.audioContextState === 'running' &&
+    outputIdentities.length > 0
+  )
   add({
     id: RIG_PREFLIGHT_CHECK_IDS.audioOutput,
     category: 'audio',
     label: 'Audio output',
     required: r.requireAudioOutput,
     meta: audio?.meta,
-    state: !audio?.enumerationAvailable ? 'unknown' : outputReady ? 'verified' : 'fail',
+    state: outputReady ? 'verified' : 'fail',
     summary: outputReady ? 'Audio engine and at least one output route are available.' : 'Audio output could not be verified.',
     expected: 'Working local audio engine with an enumerated output route',
     observed: audio
-      ? `engine=${audio.audioEngineOk}; outputs=${audio.outputCount} (${listed(audio.outputLabels)})${audio.audioEngineError ? `; ${audio.audioEngineError}` : ''}`
+      ? `enumerated=${audio.enumerationSucceeded}; context=${audio.audioContextState}; engine=${audio.audioEngineOk}; outputs=${listed(outputIdentities)} (${listed(audio.outputLabels)})${audio.audioEngineError ? `; ${audio.audioEngineError}` : ''}`
       : 'No audio evidence',
+    signatureMaterial: audio
+      ? `enumerated=${audio.enumerationSucceeded};context=${audio.audioContextState};outputs=${outputIdentities.join('|')}`
+      : 'no-audio',
     delta: outputReady ? [] : ['Audio engine or output route unavailable'],
     remediation: ['Select a valid Windows output in Sounds/Haptics and run the silent audio probe again.']
   })
-  const inputReady = Boolean(audio?.enumerationAvailable && audio.inputCount > 0)
+  const inputReady = Boolean(audio?.enumerationSucceeded && audio.audioContextState === 'running' && inputIdentities.length > 0)
   add({
     id: RIG_PREFLIGHT_CHECK_IDS.audioInput,
     category: 'audio',
     label: 'Microphone input',
     required: r.requireAudioInput,
     meta: audio?.meta,
-    state: !audio?.enumerationAvailable ? 'unknown' : inputReady ? 'verified' : 'fail',
+    state: inputReady ? 'verified' : 'fail',
     summary: inputReady ? 'At least one microphone input is visible.' : 'No microphone input was detected.',
     expected: 'At least one local microphone input',
-    observed: `${audio?.inputCount ?? 0} input(s): ${listed(audio?.inputLabels ?? [])}`,
+    observed: `${inputIdentities.length} input(s): ${listed(inputIdentities)} (${listed(audio?.inputLabels ?? [])})`,
+    signatureMaterial: `enumerated=${audio?.enumerationSucceeded ?? false};context=${audio?.audioContextState ?? 'missing'};inputs=${inputIdentities.join('|')}`,
     delta: inputReady ? [] : ['Microphone input missing'],
     remediation: ['Connect/enable the microphone and allow microphone access in Windows Privacy settings.']
   })
 
   const tts = observation.tts
-  const ttsReady = Boolean(tts?.engineOk && tts.installedVoiceCount > 0)
+  const installedVoiceIds = stableSortedIdentities(tts?.installedVoiceIds ?? [])
+  const ttsReady = Boolean(tts?.engineOk && installedVoiceIds.length > 0)
   add({
     id: RIG_PREFLIGHT_CHECK_IDS.tts,
     category: 'audio',
@@ -793,8 +862,11 @@ export function evaluateRigPreflightChecks(
     summary: ttsReady ? 'Local neural TTS and an installed voice are ready.' : 'Local TTS is missing an engine or voice.',
     expected: 'Healthy local TTS engine and at least one installed voice',
     observed: tts
-      ? `enginePresent=${tts.enginePresent}; engineOk=${tts.engineOk}; voices=${tts.installedVoiceCount}${tts.engineReason ? `; ${tts.engineReason}` : ''}`
+      ? `enginePresent=${tts.enginePresent}; engineOk=${tts.engineOk}; voices=${listed(installedVoiceIds)}${tts.engineReason ? `; ${tts.engineReason}` : ''}`
       : 'No TTS status',
+    signatureMaterial: tts
+      ? `engine=${tts.enginePresent}:${tts.engineOk};voices=${installedVoiceIds.join('|')}`
+      : 'no-tts',
     delta: ttsReady ? [] : ['TTS engine/voice unavailable'],
     remediation: ['Open Voice / TTS, install a matching voice, and repair bundled sherpa/espeak resources if the engine probe fails.']
   })
@@ -842,7 +914,10 @@ export function evaluateRigPreflightChecks(
   })
 
   const controls = observation.controls
-  const gamepadReady = Boolean(controls && controls.gamepadCount > 0)
+  const gamepadIdentities = stableSortedIdentities(controls?.gamepadIdentities ?? [])
+  const bindingIdentities = stableSortedIdentities(controls?.bindingIdentities ?? [])
+  const enabledBindingIdentities = stableSortedIdentities(controls?.enabledBindingIdentities ?? [])
+  const gamepadReady = gamepadIdentities.length > 0
   add({
     id: RIG_PREFLIGHT_CHECK_IDS.gamepad,
     category: 'controls',
@@ -850,13 +925,14 @@ export function evaluateRigPreflightChecks(
     required: r.requireGamepad,
     meta: controls?.meta,
     state: gamepadReady ? 'verified' : 'fail',
-    summary: gamepadReady ? `${controls?.gamepadCount ?? 0} game controller(s) detected.` : 'No game controller is visible.',
+    summary: gamepadReady ? `${gamepadIdentities.length} stable game controller identity/identities detected.` : 'No game controller is visible.',
     expected: 'At least one connected Web Gamepad/HID controller',
-    observed: `${controls?.gamepadCount ?? 0}: ${listed(controls?.gamepadLabels ?? [])}`,
+    observed: `${gamepadIdentities.length}: ${listed(gamepadIdentities)}`,
+    signatureMaterial: gamepadIdentities.join('|'),
     delta: gamepadReady ? [] : ['Controller not detected'],
     remediation: ['Reconnect the wheel/button box, press a button to wake the Gamepad API, then open Input Monitor.']
   })
-  const bindingsReady = Boolean(controls && controls.enabledBindingCount > 0)
+  const bindingsReady = enabledBindingIdentities.length > 0
   add({
     id: RIG_PREFLIGHT_CHECK_IDS.bindings,
     category: 'controls',
@@ -866,7 +942,8 @@ export function evaluateRigPreflightChecks(
     state: bindingsReady ? 'verified' : 'fail',
     summary: bindingsReady ? 'Enabled control bindings are configured.' : 'No enabled control binding is configured.',
     expected: 'At least one enabled binding',
-    observed: `${controls?.enabledBindingCount ?? 0}/${controls?.bindingCount ?? 0} enabled; keyboard emulation=${controls?.keyboardEmulationAvailable ?? false}; gamepad emulation=${controls?.gamepadEmulationAvailable ?? false}`,
+    observed: `${enabledBindingIdentities.length}/${bindingIdentities.length} enabled (${listed(enabledBindingIdentities)}); keyboard emulation=${controls?.keyboardEmulationAvailable ?? false}; gamepad emulation=${controls?.gamepadEmulationAvailable ?? false}`,
+    signatureMaterial: `all=${bindingIdentities.join('|')};enabled=${enabledBindingIdentities.join('|')};keyboard=${controls?.keyboardEmulationAvailable ?? false};gamepad=${controls?.gamepadEmulationAvailable ?? false}`,
     delta: bindingsReady ? [] : ['Control bindings missing or disabled'],
     remediation: ['Configure and enable the required Controls & Keyboard bindings, then test them before racing.']
   })
@@ -931,11 +1008,12 @@ export function evaluateRigPreflightChecks(
     label: 'TTS voice resource',
     required: r.requireTts,
     meta: tts?.meta,
-    state: (tts?.installedVoiceCount ?? 0) > 0 ? 'verified' : 'fail',
-    summary: (tts?.installedVoiceCount ?? 0) > 0 ? 'At least one local TTS voice is installed.' : 'No local TTS voice is installed.',
+    state: installedVoiceIds.length > 0 ? 'verified' : 'fail',
+    summary: installedVoiceIds.length > 0 ? 'At least one local TTS voice is installed.' : 'No local TTS voice is installed.',
     expected: 'At least one installed voice model',
-    observed: `${tts?.installedVoiceCount ?? 0} installed voice(s)`,
-    delta: (tts?.installedVoiceCount ?? 0) > 0 ? [] : ['Voice model missing'],
+    observed: `${installedVoiceIds.length} installed voice(s): ${listed(installedVoiceIds)}`,
+    signatureMaterial: installedVoiceIds.join('|'),
+    delta: installedVoiceIds.length > 0 ? [] : ['Voice model missing'],
     remediation: ['Download a voice from Voice / TTS before relying on spoken calls.']
   })
   add({
@@ -1086,21 +1164,17 @@ export function applyRigPreflightFault(
         meta: faultMeta(now, faultId),
         availablePorts: [],
         simxConnected: false,
-        configuredCount: 1,
-        connectedConfiguredCount: 0,
-        configuredLabels: ['Seeded Arduino'],
-        disconnectedLabels: ['Seeded Arduino'],
-        esp32ConfiguredCount: 0,
-        esp32ConnectedCount: 0,
-        esp32Labels: []
+        configuredIdentities: ['serial:seeded-arduino'],
+        connectedConfiguredIdentities: [],
+        esp32RequiredIdentities: [],
+        esp32ConnectedIdentities: []
       }),
       meta: faultMeta(now, faultId),
       simxConnected: false,
-      configuredCount: Math.max(1, next.serial?.configuredCount ?? 0),
-      connectedConfiguredCount: 0,
-      disconnectedLabels: next.serial?.configuredLabels.length
-        ? [...next.serial.configuredLabels]
-        : ['Seeded Arduino']
+      configuredIdentities: next.serial?.configuredIdentities.length
+        ? [...next.serial.configuredIdentities]
+        : ['serial:seeded-arduino'],
+      connectedConfiguredIdentities: []
     }
   } else if (faultId === 'stale-evidence') {
     const staleAt = now - maxAgeMs - 1
@@ -1151,19 +1225,21 @@ export function applyRigPreflightFault(
         meta: faultMeta(now, faultId),
         enginePresent: false,
         engineOk: false,
-        installedVoiceCount: 1
+        installedVoiceIds: ['seeded-voice']
       }),
       meta: faultMeta(now, faultId),
       enginePresent: false,
       engineOk: false,
       engineReason: 'Seeded missing engine',
-      installedVoiceCount: Math.max(1, next.tts?.installedVoiceCount ?? 0)
+      installedVoiceIds: next.tts?.installedVoiceIds.length
+        ? [...next.tts.installedVoiceIds]
+        : ['seeded-voice']
     }
   } else if (faultId === 'display-disconnect') {
     next.displays = {
       meta: faultMeta(now, faultId),
       displayIds: [],
-      openDashboardWindows: 0
+      openDashboardWindowIdentities: []
     }
   }
   return next

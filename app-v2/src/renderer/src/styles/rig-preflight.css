@@ -2,6 +2,11 @@
   gap: 18px;
 }
 
+.rig-preflight-view .notice-card.danger {
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
 .rig-preflight-hero,
 .rig-preflight-actions,
 .rig-preset-row,

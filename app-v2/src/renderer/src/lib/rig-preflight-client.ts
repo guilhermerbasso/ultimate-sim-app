@@ -2,7 +2,10 @@ import type { ActionBinding, EmulationStatus } from '../../../shared/actions'
 import type { SerialDeviceSummary } from '../../../shared/arduino'
 import type { HapticsConfig } from '../../../shared/haptics'
 import {
-  type RigPreflightClientEvidence
+  RIG_PREFLIGHT_CHANNELS,
+  stableSortedIdentities,
+  type RigPreflightClientEvidence,
+  type RigPreflightStateSnapshot
 } from '../../../shared/rig-preflight'
 import type { PiperVoiceInfo, TtsEngineStatus } from '../../../shared/spotter'
 import type { SttStatus } from '../../../shared/stt-ipc'
@@ -15,9 +18,21 @@ interface AudioProbe {
   outputIds: string[]
 }
 
+interface AudioContextProbe {
+  state: string
+  resume(): Promise<void>
+  close(): Promise<void>
+}
+
+export interface AudioProbeDependencies {
+  enumerateDevices?: () => Promise<MediaDeviceInfo[]>
+  createAudioContext?: () => AudioContextProbe
+}
+
 interface Esp32Status {
   id?: string
   host?: string
+  port?: number
   connected?: boolean
 }
 
@@ -43,41 +58,56 @@ function mediaLabel(device: MediaDeviceInfo, fallback: string): string {
   return `${fallback} ${device.deviceId.slice(0, 8) || 'unlabelled'}`
 }
 
-async function collectAudioProbe(): Promise<AudioProbe> {
-  const enumerationAvailable = Boolean(navigator.mediaDevices?.enumerateDevices)
-  const devices = enumerationAvailable
-    ? await navigator.mediaDevices.enumerateDevices().catch(() => [] as MediaDeviceInfo[])
-    : []
+export async function collectAudioProbe(
+  dependencies: AudioProbeDependencies = {}
+): Promise<AudioProbe> {
+  let enumerationSucceeded = false
+  let devices: MediaDeviceInfo[] = []
+  let audioEngineError: string | undefined
+  const enumerateDevices =
+    dependencies.enumerateDevices ??
+    (navigator.mediaDevices?.enumerateDevices
+      ? () => navigator.mediaDevices.enumerateDevices()
+      : undefined)
+  if (enumerateDevices) {
+    try {
+      devices = await enumerateDevices()
+      enumerationSucceeded = true
+    } catch (error) {
+      audioEngineError = `Device enumeration failed: ${error instanceof Error ? error.message : String(error)}`
+    }
+  }
   const outputs = devices.filter((device) => device.kind === 'audiooutput' && device.deviceId)
   const inputs = devices.filter((device) => device.kind === 'audioinput' && device.deviceId)
 
   let audioEngineOk = false
-  let audioEngineError: string | undefined
-  let context: AudioContext | null = null
+  let audioContextState = 'unavailable'
+  let context: AudioContextProbe | null = null
   try {
-    context = new AudioContext()
+    context = dependencies.createAudioContext?.() ?? new AudioContext()
     await context.resume().catch(() => undefined)
-    audioEngineOk = context.destination.channelCount > 0
+    audioContextState = context.state
+    audioEngineOk = context.state === 'running'
   } catch (error) {
-    audioEngineError = error instanceof Error ? error.message : String(error)
+    audioEngineError = [
+      audioEngineError,
+      `AudioContext failed: ${error instanceof Error ? error.message : String(error)}`
+    ].filter(Boolean).join('; ')
   } finally {
     await context?.close().catch(() => undefined)
   }
 
   const outputLabels = outputs.map((device) => mediaLabel(device, 'output'))
   const outputIds = outputs.map((device) => device.deviceId)
-  if (audioEngineOk && outputLabels.length === 0) {
-    outputLabels.push('System default (AudioContext)')
-    outputIds.push('default')
-  }
   return {
     evidence: {
-      enumerationAvailable,
+      enumerationSucceeded,
       audioEngineOk,
+      audioContextState,
       audioEngineError,
-      outputCount: outputLabels.length,
+      outputIdentities: stableSortedIdentities(outputIds.map((id) => `audio-output:${id}`)),
       outputLabels,
-      inputCount: inputs.length,
+      inputIdentities: stableSortedIdentities(inputs.map((device) => `audio-input:${device.deviceId}`)),
       inputLabels: inputs.map((device) => mediaLabel(device, 'input'))
     },
     outputIds
@@ -90,6 +120,7 @@ function currentGamepads(): Gamepad[] {
 }
 
 export async function collectRigPreflightClientEvidence(): Promise<RigPreflightClientEvidence> {
+  const observedAt = Date.now()
   const audioPromise = collectAudioProbe()
   const [
     ttsStatus,
@@ -121,18 +152,24 @@ export async function collectRigPreflightClientEvidence(): Promise<RigPreflightC
   const outputDeviceId = haptics?.outputDeviceId ?? ''
   const audioRouteAvailable = outputDeviceId
     ? audio.outputIds.includes(outputDeviceId)
-    : audio.evidence.audioEngineOk && audio.evidence.outputCount > 0
+    : (
+        audio.evidence.enumerationSucceeded &&
+        audio.evidence.audioContextState === 'running' &&
+        audio.evidence.outputIdentities.length > 0
+      )
   const esp32Connected = (esp32Statuses ?? []).filter((status) => status.connected)
 
   return {
-    observedAt: Date.now(),
+    observedAt,
     audio: audio.evidence,
     tts: ttsStatus
       ? {
           enginePresent: ttsStatus.engine !== 'none',
           engineOk: ttsStatus.ok,
           engineReason: ttsStatus.reason,
-          installedVoiceCount: (voices ?? []).filter((voice) => voice.installed).length
+          installedVoiceIds: stableSortedIdentities(
+            (voices ?? []).filter((voice) => voice.installed).map((voice) => `voice:${voice.id}`)
+          )
         }
       : undefined,
     stt: sttStatus
@@ -156,10 +193,15 @@ export async function collectRigPreflightClientEvidence(): Promise<RigPreflightC
         }
       : undefined,
     controls: {
-      gamepadCount: gamepads.length,
-      gamepadLabels: gamepads.map((gamepad) => gamepad.id || `Gamepad ${gamepad.index}`),
-      bindingCount: bindings?.length ?? 0,
-      enabledBindingCount: (bindings ?? []).filter((binding) => binding.enabled).length,
+      gamepadIdentities: stableSortedIdentities(
+        gamepads.map((gamepad) => `gamepad:${gamepad.id || gamepad.index}`)
+      ),
+      bindingIdentities: stableSortedIdentities(
+        (bindings ?? []).map((binding) => `binding:${binding.id}`)
+      ),
+      enabledBindingIdentities: stableSortedIdentities(
+        (bindings ?? []).filter((binding) => binding.enabled).map((binding) => `binding:${binding.id}`)
+      ),
       keyboardEmulationAvailable: emulation?.keyboard.available ?? false,
       gamepadEmulationAvailable: emulation?.gamepad.available ?? false
     },
@@ -171,7 +213,50 @@ export async function collectRigPreflightClientEvidence(): Promise<RigPreflightC
           autoTunnelAvailable: streaming.autoTunnelAvailable
         }
       : undefined,
-    esp32ConnectedCount: esp32Connected.length,
-    esp32Labels: esp32Connected.map((status) => status.id || status.host || 'ESP32')
+    esp32ConnectedIdentities: stableSortedIdentities(
+      esp32Connected.map(
+        (status) => `wifi:${status.id || `${status.host || 'unknown'}:${status.port || 47650}`}`
+      )
+    )
   }
+}
+
+let monitorStarted = false
+
+export function startRigPreflightEvidenceMonitor(intervalMs = 5_000): void {
+  if (monitorStarted) return
+  monitorStarted = true
+  let busy = false
+  const tick = async (): Promise<void> => {
+    if (busy) return
+    busy = true
+    try {
+      const state = await window.ipc.invoke<RigPreflightStateSnapshot>(
+        RIG_PREFLIGHT_CHANNELS.getState
+      )
+      const active = state.activeCertificate
+      if (
+        !active ||
+        active.invalidatedAt !== null ||
+        state.activeCertificateExpired ||
+        state.storage.blocked ||
+        active.certificate.decision === 'blocked'
+      ) return
+      const clientEvidence = await collectRigPreflightClientEvidence()
+      await window.ipc.invoke(
+        RIG_PREFLIGHT_CHANNELS.revalidate,
+        { profile: state.profile, clientEvidence }
+      )
+    } catch {
+      // Main owns fail-closed state and surfaces storage/evidence failures.
+    } finally {
+      busy = false
+    }
+  }
+  const initial = setTimeout(() => void tick(), 1_000)
+  const interval = setInterval(() => void tick(), Math.max(2_000, intervalMs))
+  window.addEventListener('beforeunload', () => {
+    clearTimeout(initial)
+    clearInterval(interval)
+  }, { once: true })
 }

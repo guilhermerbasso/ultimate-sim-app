@@ -64,6 +64,8 @@ const en: Record<string, string> = {
   'rigPreflight.certificate.none': 'No certificate',
   'rigPreflight.certificate.expired': 'Expired',
   'rigPreflight.certificate.invalidated': 'Invalidated by drift',
+  'rigPreflight.certificate.revalidationRequired': 'Startup revalidation required',
+  'rigPreflight.certificate.storageBlocked': 'Storage blocked',
   'rigPreflight.certificate.expires': 'Expires {time}',
   'rigPreflight.certificate.runHint': 'Run preflight to issue a bounded certificate.',
   'rigPreflight.profile.eyebrow': 'Desired rig',
@@ -81,6 +83,10 @@ const en: Record<string, string> = {
   'rigPreflight.profile.minWindows': 'Minimum dashboard windows',
   'rigPreflight.profile.port': 'Streaming port',
   'rigPreflight.profile.portHelp': '0 accepts the app-selected dynamic port.',
+  'rigPreflight.profile.unsaved': 'Unsaved profile changes',
+  'rigPreflight.profile.unsavedHelp': 'Save the desired rig profile before running evidence collection. The main process also rejects stale, concurrent, or mismatched revisions.',
+  'rigPreflight.storage.blocked': 'Preflight storage failed closed',
+  'rigPreflight.storage.recover': 'The original file was preserved/quarantined when possible. Review the error, then explicitly save a profile to recover.',
   'rigPreflight.requirement.simulator': 'Simulator source required',
   'rigPreflight.requirement.mock': 'Mock simulator allowed',
   'rigPreflight.requirement.simx': 'SIM-X required',
@@ -131,7 +137,8 @@ const en: Record<string, string> = {
   'rigPreflight.toast.blocked': 'Preflight blocked. Review evidence and remediation.',
   'rigPreflight.toast.faults': 'Seeded faults detected: {passed}/{total}.',
   'rigPreflight.toast.baselineSaved': 'Known-good signature saved. Rerun preflight to verify the match.',
-  'rigPreflight.toast.waiverSaved': 'Time-bounded waiver saved.'
+  'rigPreflight.toast.waiverSaved': 'Time-bounded waiver saved.',
+  'rigPreflight.toast.saveBeforeRun': 'Save the rig profile before running preflight.'
 }
 
 const ptBR: Record<string, string> = {
@@ -175,6 +182,8 @@ const ptBR: Record<string, string> = {
   'rigPreflight.certificate.none': 'Sem certificado',
   'rigPreflight.certificate.expired': 'Expirado',
   'rigPreflight.certificate.invalidated': 'Invalidado por drift',
+  'rigPreflight.certificate.revalidationRequired': 'Revalidação após reinício obrigatória',
+  'rigPreflight.certificate.storageBlocked': 'Armazenamento bloqueado',
   'rigPreflight.certificate.expires': 'Expira em {time}',
   'rigPreflight.profile.eyebrow': 'Rig desejado',
   'rigPreflight.profile.title': 'Perfil de preflight',
@@ -191,6 +200,10 @@ const ptBR: Record<string, string> = {
   'rigPreflight.profile.minWindows': 'Mínimo de janelas de dashboard',
   'rigPreflight.profile.port': 'Porta de streaming',
   'rigPreflight.profile.portHelp': '0 aceita a porta dinâmica escolhida pelo app.',
+  'rigPreflight.profile.unsaved': 'Alterações de perfil não salvas',
+  'rigPreflight.profile.unsavedHelp': 'Salve o perfil desejado antes de coletar evidências. O processo principal também rejeita revisões obsoletas, concorrentes ou divergentes.',
+  'rigPreflight.storage.blocked': 'Armazenamento do preflight falhou de forma segura',
+  'rigPreflight.storage.recover': 'O arquivo original foi preservado/isolado quando possível. Revise o erro e salve explicitamente um perfil para recuperar.',
   'rigPreflight.requirement.simulator': 'Exigir fonte do simulador',
   'rigPreflight.requirement.mock': 'Permitir simulador mock',
   'rigPreflight.requirement.simx': 'Exigir SIM-X',
@@ -234,7 +247,8 @@ const ptBR: Record<string, string> = {
   'rigPreflight.toast.blocked': 'Preflight bloqueado. Revise evidências e remediações.',
   'rigPreflight.toast.faults': 'Falhas semeadas detectadas: {passed}/{total}.',
   'rigPreflight.toast.baselineSaved': 'Assinatura known-good salva. Execute novamente para verificar a correspondência.',
-  'rigPreflight.toast.waiverSaved': 'Dispensa com prazo salva.'
+  'rigPreflight.toast.waiverSaved': 'Dispensa com prazo salva.',
+  'rigPreflight.toast.saveBeforeRun': 'Salve o perfil do rig antes de executar o preflight.'
 }
 
 const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
