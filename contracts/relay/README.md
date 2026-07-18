@@ -29,6 +29,8 @@ IDs, digests, timestamps, epochs, and signatures.
   admission time, accepted identity/capability/consent epochs, and quota limits/usage.
 - Provider-injected records without valid admission proof are quarantined and never influence replay
   watermarks, quota usage, document heads, or resync.
+- Provider results are tenant-scoped: both the envelope tenant and admission-receipt tenant must exactly
+  match the tenant requested from the adapter, or the record is quarantined before verification.
 - Relay records contain ciphertext, public identity/capability material, hashes, epochs, counters,
   causal references, sender signatures, and admission receipts; never plaintext or private keys.
 - The deterministic mock crypto profile proves validation flow, not cryptographic strength.

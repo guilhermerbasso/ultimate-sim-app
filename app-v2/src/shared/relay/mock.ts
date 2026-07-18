@@ -851,6 +851,16 @@ export class DeterministicMockRelayProvider implements RelayProviderAdapter {
     return this.appendRecord(envelope, storedAt, admission)
   }
 
+  injectUntrustedListingRecord(
+    listedTenantId: string,
+    record: RelayStoredEnvelope
+  ): RelayStoredEnvelope {
+    const records = this.recordsByTenant.get(listedTenantId) ?? []
+    records.push(cloneJson(record))
+    this.recordsByTenant.set(listedTenantId, records)
+    return cloneJson(record)
+  }
+
   private appendRecord(
     envelope: RelaySyncEnvelope,
     storedAt: number,
@@ -1050,6 +1060,14 @@ export class DeterministicRelayGateway {
     const providerRecords = [...this.provider.list(tenantId)].sort((left, right) => left.cursor - right.cursor)
     for (const record of providerRecords) {
       try {
+        const admissionTenantId = record.admission?.tenantId
+        if (record.envelope.tenantId !== tenantId ||
+            (admissionTenantId !== undefined && admissionTenantId !== tenantId)) {
+          throw new RelayPolicyError(
+            'tenant-mismatch',
+            'Provider record envelope/admission tenant does not match the requested tenant scope.'
+          )
+        }
         const envelope = this.security.validateEnvelope(record.envelope, now, 'stored')
         this.security.validateAdmissionReceipt(record.admission, envelope, record.storedAt)
         const replayKey = `${envelope.documentId}|${envelope.senderSigningKeyId}`
@@ -1222,7 +1240,8 @@ export class DeterministicRelayGateway {
       const status = error.code === 'signature-invalid' ||
         error.code === 'ciphertext-hash-mismatch' ||
         error.code === 'key-envelope-hash-mismatch' ||
-        error.code === 'admission-proof-invalid'
+        error.code === 'admission-proof-invalid' ||
+        error.code === 'tenant-mismatch'
         ? 'quarantined'
         : 'rejected'
       return this.result(status, error.code, error.message)

@@ -134,7 +134,8 @@
       "causal reference count",
       "causal reference bytes"
     ],
-    "failure": "missing, malformed, mismatched, forged, or quota-inconsistent admission proof is quarantined",
+    "failure": "missing, malformed, mismatched, forged, quota-inconsistent, or cross-tenant admission proof is quarantined",
+    "tenantIsolation": "envelope tenant and admission tenant must both exactly equal the tenant requested from provider list",
     "import": "snapshots preserve admission receipts; structurally unbound records are rejected before import and cryptographic proof is verified before merge/resync"
   },
   "replayPolicy": {

@@ -25,6 +25,7 @@ import type {
 
 const NOW = 1_800_000_000_000
 const TENANT_ID = 'tenant-alpha'
+const OTHER_TENANT_ID = 'tenant-beta'
 const DOCUMENT_ID = 'dashboard-doc-1'
 const OTHER_DOCUMENT_ID = 'dashboard-doc-2'
 
@@ -287,6 +288,50 @@ describe('optional relay foundation deterministic mocks', () => {
       envelopeId: envelope.envelopeId,
       code: 'admission-proof-invalid'
     }))
+  })
+
+  it('quarantines tenant A admitted records substituted into the provider listing for tenant B', () => {
+    const fixture = createFixture()
+    const envelope = seal(fixture, fixture.alice, fixture.aliceCapability, 1)
+    const admissionMismatchEnvelope = seal(fixture, fixture.alice, fixture.aliceCapability, 2)
+    expect(fixture.gateway.submit(envelope, NOW + 10).code).toBe('accepted')
+    expect(fixture.gateway.submit(admissionMismatchEnvelope, NOW + 11).code).toBe('accepted')
+    const [admitted, admittedForMismatch] = fixture.provider.list(TENANT_ID)
+
+    fixture.provider.injectUntrustedListingRecord(OTHER_TENANT_ID, admitted)
+    fixture.provider.injectUntrustedListingRecord(OTHER_TENANT_ID, {
+      ...admittedForMismatch,
+      envelope: { ...admittedForMismatch.envelope, tenantId: OTHER_TENANT_ID }
+    })
+    expect(fixture.provider.list(OTHER_TENANT_ID)).toEqual([
+      expect.objectContaining({
+        envelope: expect.objectContaining({ tenantId: TENANT_ID }),
+        admission: expect.objectContaining({ tenantId: TENANT_ID })
+      }),
+      expect.objectContaining({
+        envelope: expect.objectContaining({ tenantId: OTHER_TENANT_ID }),
+        admission: expect.objectContaining({ tenantId: TENANT_ID })
+      })
+    ])
+
+    expect(fixture.gateway.verifyStored(OTHER_TENANT_ID, NOW + 20)).toHaveLength(0)
+    expect(fixture.gateway.quarantine()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        envelopeId: envelope.envelopeId,
+        code: 'tenant-mismatch'
+      }),
+      expect.objectContaining({
+        envelopeId: admissionMismatchEnvelope.envelopeId,
+        code: 'tenant-mismatch'
+      })
+    ]))
+    expect(fixture.gateway.planResync(
+      OTHER_TENANT_ID,
+      DOCUMENT_ID,
+      [],
+      NOW + 21
+    )).toEqual(expect.objectContaining({ status: 'blocked-integrity', automatic: false }))
+    expect(fixture.gateway.verifyStored(TENANT_ID, NOW + 22)).toHaveLength(2)
   })
 
   it('rejects undeclared envelope fields and prohibited data before provider storage', () => {

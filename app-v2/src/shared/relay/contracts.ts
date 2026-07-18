@@ -196,6 +196,7 @@ export type RelayRejectionCode =
   | 'stale-membership'
   | 'quota-exceeded'
   | 'admission-proof-invalid'
+  | 'tenant-mismatch'
   | 'provider-offline'
   | 'provider-split-brain'
   | 'backup-integrity-failed'

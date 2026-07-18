@@ -47,6 +47,8 @@ and opaque object store behind the Policy/Egress Gateway. That deployment is not
   passed then-current identity, capability, consent, membership/key, replay, health, and quota checks.
 - Missing, malformed, forged, mismatched, or quota-inconsistent admission receipts are quarantined before
   replay watermarks, quota usage, heads, merge, or resync are calculated.
+- Treat the adapter's list key as untrusted input: envelope and admission tenants must both exactly match
+  the requested tenant, otherwise quarantine the record and block automatic resync.
 - Unknown, revoked, expired, bad-signature, stale-membership, stale-key, and replayed envelopes are
   rejected or quarantined before merge.
 - The deterministic mock profile models these checks only. A live adapter must use independently reviewed
