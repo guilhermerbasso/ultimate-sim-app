@@ -209,6 +209,19 @@ function compactExportJournal(entries: readonly StoryExportJournalEntry[]): Stor
   return [...committed, ...finalized]
 }
 
+function compactStoryQueue(cards: readonly StoryCard[]): StoryCard[] {
+  const sorted = [...cards].sort((left, right) => right.createdAt - left.createdAt)
+  const protectedApproved = sorted.filter((card) =>
+    card.status === 'approved' &&
+    card.exportedAt === undefined &&
+    card.approval?.consumedAt === undefined
+  )
+  const evictable = sorted.filter((card) => !protectedApproved.includes(card))
+  const evictableSlots = Math.max(0, MAX_STORED_CARDS - protectedApproved.length)
+  return [...protectedApproved, ...evictable.slice(0, evictableSlots)]
+    .sort((left, right) => right.createdAt - left.createdAt)
+}
+
 export class StoryEngineStore {
   private state: StoryEngineState
   private readonly now: () => number
@@ -250,9 +263,7 @@ export class StoryEngineStore {
     this.state = {
       ...this.state,
       updatedAt: generated.generatedAt,
-      cards: [...nextCards, ...otherSessions]
-        .sort((left, right) => right.createdAt - left.createdAt)
-        .slice(0, MAX_STORED_CARDS),
+      cards: compactStoryQueue([...nextCards, ...otherSessions]),
       issues: generated.issues,
       lastGeneration: {
         timelineId: generated.timelineId,
@@ -499,6 +510,7 @@ export class StoryEngineStore {
       ) {
         return {
           ...parsed,
+          cards: compactStoryQueue(parsed.cards),
           exportJournal: compactExportJournal(Array.isArray(parsed.exportJournal) ? parsed.exportJournal : [])
         }
       }
@@ -704,13 +716,21 @@ export class StoryTimelineCollector {
       (active.bestLapTimeSec === undefined || lapTimeSec < active.bestLapTimeSec)
     ) {
       active.bestLapTimeSec = lapTimeSec
+      const sessionBestLapTimeSec = finite(snapshot.bestLapTimeSec) && snapshot.bestLapTimeSec > 0
+        ? snapshot.bestLapTimeSec
+        : undefined
+      const explicitSessionBest =
+        sessionBestLapTimeSec !== undefined &&
+        lapTimeSec === sessionBestLapTimeSec
       this.addTelemetryEvent(active, snapshot, 'fastest-lap', {
         assertionId: `fastest-lap:${completedLap}`,
-        predicate: 'recorded-fastest-lap-time',
+        predicate: explicitSessionBest ? 'recorded-fastest-lap-time' : 'fastest-observed-since-capture',
         claimValue: lapTimeSec,
         facts: {
           subjectLabel: 'The player car',
-          lapTimeSec
+          lapTimeSec,
+          fastestScope: explicitSessionBest ? 'session-best' : 'since-capture',
+          ...(explicitSessionBest ? { bestLapTimeSec: sessionBestLapTimeSec } : {})
         },
         lap: completedLap,
         priority: 0.75
@@ -853,6 +873,11 @@ export class StoryTimelineCollector {
         checkedAt: this.now()
       },
       privacyClass: 'D1',
+      piiAttestation: {
+        status: 'none-detected',
+        method: 'identity-excluding-telemetry-schema-v1',
+        checkedAt: this.now()
+      },
       claim,
       facts,
       replayState: snapshot.replayContext?.state ?? 'live'
@@ -979,6 +1004,11 @@ function appendIncidentClips(
       },
       privacyClass: 'D1',
       integrityFlags: ['derived'],
+      piiAttestation: {
+        status: 'none-detected',
+        method: 'identity-excluding-incident-schema-v1',
+        checkedAt: now
+      },
       claim,
       facts
     })

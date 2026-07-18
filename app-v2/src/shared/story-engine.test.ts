@@ -31,6 +31,7 @@ function evidence(id = 'evidence-1', overrides: Partial<StoryEvidence> = {}): St
     rights: { state: 'cleared', scope: 'public', checkedAt: NOW },
     consent: { state: 'not-required', epoch: 1, checkedAt: NOW },
     privacyClass: 'D1',
+    piiAttestation: { status: 'none-detected', method: 'fixture-review-v1', checkedAt: NOW },
     claim: { subjectRef: 'car-7', predicate: 'recorded-finish-position', value: 2 },
     facts: { subjectLabel: 'Car 7', position: 2, totalCars: 20 },
     ...overrides
@@ -79,11 +80,13 @@ describe('evidence-linked story generation', () => {
   it('abstains from contradictory active facts instead of choosing a narrative', () => {
     const events = [
       event('finish-a', {
+        assertionId: 'caller-assertion-a',
         evidenceRefs: ['evidence-a'],
         claim: { subjectRef: 'car-7', predicate: 'recorded-finish-position', value: 2 },
         facts: { subjectLabel: 'Car 7', position: 2 }
       }),
       event('finish-b', {
+        assertionId: 'caller-assertion-b',
         evidenceRefs: ['evidence-b'],
         claim: { subjectRef: 'car-7', predicate: 'recorded-finish-position', value: 3 },
         facts: { subjectLabel: 'Car 7', position: 3 }
@@ -109,19 +112,149 @@ describe('evidence-linked story generation', () => {
     ]))
   })
 
+  it('keeps changing facts separate when their canonical temporal scopes differ', () => {
+    const firstClaim = { subjectRef: 'car-7', predicate: 'position-at-observed-time', value: 4 }
+    const secondClaim = { subjectRef: 'car-7', predicate: 'position-at-observed-time', value: 3 }
+    const result = generateStoryCards(
+      timeline(
+        [
+          event('position-a', {
+            type: 'position-change',
+            assertionId: 'caller-position-a',
+            sessionTimeMs: 10_000,
+            evidenceRefs: ['position-evidence-a'],
+            claim: firstClaim,
+            facts: { subjectLabel: 'Car 7', fromPosition: 5, toPosition: 4 }
+          }),
+          event('position-b', {
+            type: 'position-change',
+            assertionId: 'caller-position-b',
+            sessionTimeMs: 20_000,
+            evidenceRefs: ['position-evidence-b'],
+            claim: secondClaim,
+            facts: { subjectLabel: 'Car 7', fromPosition: 4, toPosition: 3 }
+          })
+        ],
+        [
+          evidence('position-evidence-a', {
+            eventType: 'position-change',
+            claim: firstClaim,
+            facts: { subjectLabel: 'Car 7', fromPosition: 5, toPosition: 4 }
+          }),
+          evidence('position-evidence-b', {
+            eventType: 'position-change',
+            claim: secondClaim,
+            facts: { subjectLabel: 'Car 7', fromPosition: 4, toPosition: 3 },
+            captureRange: { start: 20_000, end: 20_000, unit: 'ms' },
+            clock: { clock: 'sim', sourceTimeMs: 20_000, toSessionOffsetMs: 0 }
+          })
+        ]
+      ),
+      NOW
+    )
+
+    expect(result.candidates).toHaveLength(2)
+    expect(result.issues.some((issue) => issue.code === 'contradictory-events')).toBe(false)
+  })
+
+  it('detects contradictions in rendered facts even when claim values match', () => {
+    const claim = { subjectRef: 'car-7', predicate: 'position-at-observed-time', value: 4 }
+    const result = generateStoryCards(
+      timeline(
+        [
+          event('position-from-five', {
+            type: 'position-change',
+            assertionId: 'caller-position-five',
+            evidenceRefs: ['position-from-five-evidence'],
+            claim,
+            facts: { subjectLabel: 'Car 7', fromPosition: 5, toPosition: 4 }
+          }),
+          event('position-from-six', {
+            type: 'position-change',
+            assertionId: 'caller-position-six',
+            evidenceRefs: ['position-from-six-evidence'],
+            claim,
+            facts: { subjectLabel: 'Car 7', fromPosition: 6, toPosition: 4 }
+          })
+        ],
+        [
+          evidence('position-from-five-evidence', {
+            eventType: 'position-change',
+            claim,
+            facts: { subjectLabel: 'Car 7', fromPosition: 5, toPosition: 4 }
+          }),
+          evidence('position-from-six-evidence', {
+            eventType: 'position-change',
+            claim,
+            facts: { subjectLabel: 'Car 7', fromPosition: 6, toPosition: 4 }
+          })
+        ]
+      ),
+      NOW
+    )
+
+    expect(result.candidates).toHaveLength(0)
+    expect(result.issues.some((issue) => issue.code === 'contradictory-events')).toBe(true)
+  })
+
+  it('includes rendered lap numbers in canonical contradiction payloads', () => {
+    const claim = { subjectRef: 'race-control', predicate: 'flag-state', value: 'yellow' }
+    const result = generateStoryCards(
+      timeline(
+        [
+          event('yellow-lap-four', {
+            type: 'flag',
+            assertionId: 'caller-yellow-four',
+            lap: 4,
+            evidenceRefs: ['yellow-lap-four-evidence'],
+            claim,
+            facts: { flag: 'yellow', lap: 4 }
+          }),
+          event('yellow-lap-five', {
+            type: 'flag',
+            assertionId: 'caller-yellow-five',
+            lap: 5,
+            evidenceRefs: ['yellow-lap-five-evidence'],
+            claim,
+            facts: { flag: 'yellow', lap: 5 }
+          })
+        ],
+        [
+          evidence('yellow-lap-four-evidence', {
+            eventType: 'flag',
+            claim,
+            facts: { flag: 'yellow', lap: 4 }
+          }),
+          evidence('yellow-lap-five-evidence', {
+            eventType: 'flag',
+            claim,
+            facts: { flag: 'yellow', lap: 5 }
+          })
+        ]
+      ),
+      NOW
+    )
+
+    expect(result.candidates).toHaveLength(0)
+    expect(result.issues.some((issue) => issue.code === 'contradictory-events')).toBe(true)
+  })
+
   it('does not let an invalid superseding event hide contradictory facts', () => {
     const events = [
       event('finish-a', {
+        assertionId: 'caller-assertion-a',
         evidenceRefs: ['evidence-a'],
         claim: { subjectRef: 'car-7', predicate: 'recorded-finish-position', value: 2 },
         facts: { subjectLabel: 'Car 7', position: 2 }
       }),
       event('finish-b', {
+        assertionId: 'caller-assertion-b',
         evidenceRefs: ['evidence-b'],
         claim: { subjectRef: 'car-7', predicate: 'recorded-finish-position', value: 3 },
         facts: { subjectLabel: 'Car 7', position: 3 }
       }),
       event('bad-correction', {
+        assertionId: 'caller-correction',
         eventClass: 'recommendation',
         evidenceRefs: [],
         supersedesEventId: 'finish-b',
@@ -147,6 +280,103 @@ describe('evidence-linked story generation', () => {
     expect(result.issues.some((issue) => issue.code === 'contradictory-events')).toBe(true)
   })
 
+  it('does not honor a fully evidenced superseder with invalid rendered semantics', () => {
+    const firstClaim = { subjectRef: 'car-7', predicate: 'position-at-observed-time', value: 4 }
+    const secondClaim = { subjectRef: 'car-7', predicate: 'position-at-observed-time', value: 3 }
+    const invalidClaim = { subjectRef: 'car-7', predicate: 'position-at-observed-time', value: 4 }
+    const result = generateStoryCards(
+      timeline(
+        [
+          event('valid-position-a', {
+            type: 'position-change',
+            assertionId: 'caller-valid-a',
+            evidenceRefs: ['valid-position-evidence-a'],
+            claim: firstClaim,
+            facts: { subjectLabel: 'Car 7', fromPosition: 5, toPosition: 4 }
+          }),
+          event('valid-position-b', {
+            type: 'position-change',
+            assertionId: 'caller-valid-b',
+            evidenceRefs: ['valid-position-evidence-b'],
+            claim: secondClaim,
+            facts: { subjectLabel: 'Car 7', fromPosition: 4, toPosition: 3 }
+          }),
+          event('invalid-position-correction', {
+            type: 'position-change',
+            assertionId: 'caller-invalid-correction',
+            evidenceRefs: ['invalid-position-evidence'],
+            supersedesEventId: 'valid-position-b',
+            claim: invalidClaim,
+            facts: { subjectLabel: 'Car 7', fromPosition: 0, toPosition: 4 }
+          })
+        ],
+        [
+          evidence('valid-position-evidence-a', {
+            eventType: 'position-change',
+            claim: firstClaim,
+            facts: { subjectLabel: 'Car 7', fromPosition: 5, toPosition: 4 }
+          }),
+          evidence('valid-position-evidence-b', {
+            eventType: 'position-change',
+            claim: secondClaim,
+            facts: { subjectLabel: 'Car 7', fromPosition: 4, toPosition: 3 }
+          }),
+          evidence('invalid-position-evidence', {
+            eventType: 'position-change',
+            claim: invalidClaim,
+            facts: { subjectLabel: 'Car 7', fromPosition: 0, toPosition: 4 }
+          })
+        ]
+      ),
+      NOW
+    )
+
+    expect(result.candidates).toHaveLength(0)
+    expect(result.issues.some((issue) => issue.code === 'contradictory-events')).toBe(true)
+  })
+
+  it('rejects cyclic supersession instead of silently erasing contradictions', () => {
+    const firstClaim = { subjectRef: 'car-7', predicate: 'recorded-finish-position', value: 2 }
+    const secondClaim = { subjectRef: 'car-7', predicate: 'recorded-finish-position', value: 3 }
+    const result = generateStoryCards(
+      timeline(
+        [
+          event('cyclic-finish-a', {
+            assertionId: 'caller-cycle-a',
+            evidenceRefs: ['cyclic-evidence-a'],
+            supersedesEventId: 'cyclic-finish-b',
+            claim: firstClaim,
+            facts: { subjectLabel: 'Car 7', position: 2 }
+          }),
+          event('cyclic-finish-b', {
+            assertionId: 'caller-cycle-b',
+            evidenceRefs: ['cyclic-evidence-b'],
+            supersedesEventId: 'cyclic-finish-a',
+            claim: secondClaim,
+            facts: { subjectLabel: 'Car 7', position: 3 }
+          })
+        ],
+        [
+          evidence('cyclic-evidence-a', {
+            claim: firstClaim,
+            facts: { subjectLabel: 'Car 7', position: 2 }
+          }),
+          evidence('cyclic-evidence-b', {
+            claim: secondClaim,
+            facts: { subjectLabel: 'Car 7', position: 3 }
+          })
+        ]
+      ),
+      NOW
+    )
+
+    expect(result.candidates).toHaveLength(0)
+    expect(result.issues.some((issue) =>
+      issue.code === 'invalid-event' && issue.message.includes('Cyclic')
+    )).toBe(true)
+    expect(result.issues.some((issue) => issue.code === 'contradictory-events')).toBe(true)
+  })
+
   it('redacts explicit and detected PII before rendering destination previews', () => {
     const piiEvidence = evidence('evidence-pii', {
       statement: 'Alice Example can be reached at alice@example.com.',
@@ -158,11 +388,12 @@ describe('evidence-linked story generation', () => {
         { kind: 'name', value: 'Alice', replacement: 'Alice' },
         { kind: 'name', value: 'Alice Example', replacement: 'Alice Example' }
       ],
+      piiAttestation: { status: 'pii-declared', method: 'fixture-pii-review-v1', checkedAt: NOW },
       claim: { subjectRef: 'driver-1', predicate: 'podium-attestation', value: true },
       facts: {
         rank: 0.8,
         title: 'Podium for Alice Example',
-        statement: 'Alice Example finished on the podium. Contact alice@example.com or +1 555 123 4567.'
+        statement: 'Alice Example finished on the podium. Contact joão.silva@exemplo.com.br or +55 (11) 91234-5678.'
       }
     })
     const piiEvent = event('event-pii', {
@@ -172,19 +403,162 @@ describe('evidence-linked story generation', () => {
       claim: { subjectRef: 'driver-1', predicate: 'podium-attestation', value: true },
       facts: { rank: 0.8 },
       title: 'Podium for Alice Example',
-      statement: 'Alice Example finished on the podium. Contact alice@example.com or +1 555 123 4567.'
+      statement: 'Alice Example finished on the podium. Contact joão.silva@exemplo.com.br or +55 (11) 91234-5678.'
     })
 
     const [card] = generateStoryCards(timeline([piiEvent], [piiEvidence]), NOW).candidates
     expect(card.title).toBe('Podium for [driver]')
-    expect(card.body).not.toContain('alice@example.com')
-    expect(card.body).not.toContain('555 123 4567')
+    expect(card.body).not.toContain('joão.silva@exemplo.com.br')
+    expect(card.body).not.toContain('91234-5678')
     expect(card.redactions.map((redaction) => redaction.kind)).toEqual(expect.arrayContaining(['name', 'email', 'phone']))
     expect(card.redactions.find((redaction) => redaction.kind === 'name')?.evidenceRef).toMatch(/^evidence-/)
     expect(card.provenance[0].confidenceMethod).toMatch(/^confidence-method-/)
     expect(card.provenance[0].confidenceMethod).not.toContain('@')
     expect(storyPreview(card, 'local')?.status).toBe('redacted')
     expect(storyPreview(card, 'internet')?.status).toBe('blocked')
+  })
+
+  it('fails closed when evidence has no PII attestation', () => {
+    const unattested = evidence('evidence-unattested', {
+      piiAttestation: undefined as never
+    })
+    const result = generateStoryCards(
+      timeline([event('event-unattested', { evidenceRefs: ['evidence-unattested'] })], [unattested]),
+      NOW
+    )
+
+    expect(result.candidates).toHaveLength(0)
+    expect(result.issues.some((issue) => issue.code === 'invalid-evidence')).toBe(true)
+  })
+
+  it('fails a none-detected attestation when international PII is present', () => {
+    const claim = { subjectRef: 'driver-1', predicate: 'contact-attestation', value: true }
+    const statement = 'Contact jose\u0301@example.com or +٩٦٦ ٥٥ ١٢٣ ٤٥٦٧.'
+    const facts = { rank: 0.5, title: 'Contact card', statement }
+    const result = generateStoryCards(
+      timeline(
+        [event('event-unattested-pii', {
+          type: 'explicit',
+          assertionId: 'caller-contact',
+          evidenceRefs: ['evidence-unattested-pii'],
+          claim,
+          facts: { rank: 0.5 },
+          title: 'Contact card',
+          statement
+        })],
+        [evidence('evidence-unattested-pii', {
+          eventType: 'explicit',
+          claim,
+          facts,
+          statement,
+          piiAttestation: { status: 'none-detected', method: 'incorrect-review-v1', checkedAt: NOW }
+        })]
+      ),
+      NOW
+    )
+
+    expect(result.candidates).toHaveLength(0)
+    expect(result.issues.some((issue) =>
+      issue.code === 'invalid-evidence' && issue.message.includes('failed PII attestation')
+    )).toBe(true)
+  })
+
+  it('fails a none-detected attestation for an international phone using non-breaking hyphens', () => {
+    const claim = { subjectRef: 'driver-1', predicate: 'contact-attestation', value: true }
+    const statement = 'Call +44\u201120\u20117946\u20110958.'
+    const facts = { rank: 0.5, title: 'Phone card', statement }
+    const result = generateStoryCards(
+      timeline(
+        [event('event-unattested-unicode-phone', {
+          type: 'explicit',
+          assertionId: 'caller-unicode-phone',
+          evidenceRefs: ['evidence-unattested-unicode-phone'],
+          claim,
+          facts: { rank: 0.5 },
+          title: 'Phone card',
+          statement
+        })],
+        [evidence('evidence-unattested-unicode-phone', {
+          eventType: 'explicit',
+          claim,
+          facts,
+          statement,
+          piiAttestation: { status: 'none-detected', method: 'incorrect-review-v1', checkedAt: NOW }
+        })]
+      ),
+      NOW
+    )
+
+    expect(result.candidates).toHaveLength(0)
+    expect(result.issues.some((issue) =>
+      issue.code === 'invalid-evidence' && issue.message.includes('phone detected')
+    )).toBe(true)
+  })
+
+  it('fails a none-detected attestation for compressed IPv6 addresses', () => {
+    const claim = { subjectRef: 'stream-1', predicate: 'endpoint-attestation', value: true }
+    const statement = 'Observed endpoint 2001:db8::1.'
+    const facts = { rank: 0.4, title: 'Endpoint card', statement }
+    const result = generateStoryCards(
+      timeline(
+        [event('event-ipv6', {
+          type: 'explicit',
+          assertionId: 'caller-ipv6',
+          evidenceRefs: ['evidence-ipv6'],
+          claim,
+          facts: { rank: 0.4 },
+          title: 'Endpoint card',
+          statement
+        })],
+        [evidence('evidence-ipv6', {
+          eventType: 'explicit',
+          claim,
+          facts,
+          statement,
+          piiAttestation: { status: 'none-detected', method: 'incorrect-review-v1', checkedAt: NOW }
+        })]
+      ),
+      NOW
+    )
+
+    expect(result.candidates).toHaveLength(0)
+    expect(result.issues.some((issue) =>
+      issue.code === 'invalid-evidence' && issue.message.includes('ip detected')
+    )).toBe(true)
+  })
+
+  it('redacts a full IPv4-embedded compressed IPv6 token before narrower IPv4 matching', () => {
+    const address = '2001:db8::192.0.2.128'
+    const claim = { subjectRef: 'stream-1', predicate: 'endpoint-attestation', value: true }
+    const statement = `Observed endpoint ${address}.`
+    const facts = { rank: 0.4, title: 'Endpoint card', statement }
+    const result = generateStoryCards(
+      timeline(
+        [event('event-mixed-ipv6', {
+          type: 'explicit',
+          assertionId: 'caller-mixed-ipv6',
+          evidenceRefs: ['evidence-mixed-ipv6'],
+          claim,
+          facts: { rank: 0.4 },
+          title: 'Endpoint card',
+          statement
+        })],
+        [evidence('evidence-mixed-ipv6', {
+          eventType: 'explicit',
+          claim,
+          facts,
+          statement,
+          pii: [{ kind: 'ip', value: '192.0.2.128' }],
+          piiAttestation: { status: 'pii-declared', method: 'endpoint-review-v1', checkedAt: NOW }
+        })]
+      ),
+      NOW
+    )
+
+    expect(result.candidates).toHaveLength(1)
+    expect(result.candidates[0].body).toContain('[ip]')
+    expect(result.candidates[0].body).not.toContain('2001:db8::')
+    expect(result.candidates[0].body).not.toContain('192.0.2.128')
   })
 
   it('collapses duplicate cards that use the same explicit claim and evidence', () => {
@@ -233,6 +607,219 @@ describe('evidence-linked story generation', () => {
       clockOffsetMs: 9_000,
       replayState: 'replay'
     })
+  })
+
+  it('rejects an absolute fastest-lap claim without explicit best-lap equality', () => {
+    const claim = { subjectRef: 'car-7', predicate: 'recorded-fastest-lap-time', value: 82.5 }
+    const facts = {
+      subjectLabel: 'Car 7',
+      lapTimeSec: 82.5,
+      bestLapTimeSec: 82.5005,
+      fastestScope: 'session-best',
+      lap: 4
+    }
+    const result = generateStoryCards(
+      timeline(
+        [event('fastest-without-best', {
+          type: 'fastest-lap',
+          assertionId: 'caller-fastest',
+          lap: 4,
+          evidenceRefs: ['fastest-evidence'],
+          claim,
+          facts
+        })],
+        [evidence('fastest-evidence', {
+          eventType: 'fastest-lap',
+          claim,
+          facts
+        })]
+      ),
+      NOW
+    )
+
+    expect(result.candidates).toHaveLength(0)
+    expect(result.issues.some((issue) =>
+      issue.code === 'invalid-event' && issue.message.includes('session-best equality')
+    )).toBe(true)
+  })
+
+  it('uses scoped wording unless the observed lap explicitly equals the session best', () => {
+    const observedClaim = { subjectRef: 'car-7', predicate: 'fastest-observed-since-capture', value: 82.5 }
+    const observedFacts = {
+      subjectLabel: 'Car 7',
+      lapTimeSec: 82.5,
+      fastestScope: 'since-capture',
+      lap: 4
+    }
+    const observed = generateStoryCards(
+      timeline(
+        [event('fastest-observed', {
+          type: 'fastest-lap',
+          assertionId: 'caller-observed',
+          lap: 4,
+          evidenceRefs: ['observed-evidence'],
+          claim: observedClaim,
+          facts: observedFacts
+        })],
+        [evidence('observed-evidence', {
+          eventType: 'fastest-lap',
+          claim: observedClaim,
+          facts: observedFacts
+        })]
+      ),
+      NOW
+    ).candidates[0]
+    expect(observed.title).toContain('Fastest observed since capture')
+
+    const bestClaim = { subjectRef: 'car-7', predicate: 'recorded-fastest-lap-time', value: 81.234 }
+    const bestFacts = {
+      subjectLabel: 'Car 7',
+      lapTimeSec: 81.234,
+      bestLapTimeSec: 81.234,
+      fastestScope: 'session-best',
+      lap: 5
+    }
+    const sessionBest = generateStoryCards(
+      timeline(
+        [event('fastest-session-best', {
+          type: 'fastest-lap',
+          assertionId: 'caller-session-best',
+          lap: 5,
+          evidenceRefs: ['session-best-evidence'],
+          claim: bestClaim,
+          facts: bestFacts
+        })],
+        [evidence('session-best-evidence', {
+          eventType: 'fastest-lap',
+          claim: bestClaim,
+          facts: bestFacts
+        })]
+      ),
+      NOW
+    ).candidates[0]
+    expect(sessionBest.title).toContain('Recorded fastest lap')
+    expect(sessionBest.body).toContain('matches the explicit session-best value')
+  })
+
+  it('detects conflicting session-best claims for the same lap across different timestamps', () => {
+    const firstClaim = { subjectRef: 'car-7', predicate: 'recorded-fastest-lap-time', value: 82.5 }
+    const secondClaim = { subjectRef: 'car-7', predicate: 'recorded-fastest-lap-time', value: 83 }
+    const firstFacts = {
+      subjectLabel: 'Car 7',
+      lapTimeSec: 82.5,
+      bestLapTimeSec: 82.5,
+      fastestScope: 'session-best',
+      lap: 4
+    }
+    const secondFacts = {
+      subjectLabel: 'Car 7',
+      lapTimeSec: 83,
+      bestLapTimeSec: 83,
+      fastestScope: 'session-best',
+      lap: 4
+    }
+    const result = generateStoryCards(
+      timeline(
+        [
+          event('same-lap-fastest-a', {
+            type: 'fastest-lap',
+            assertionId: 'caller-fastest-a',
+            sessionTimeMs: 10_000,
+            lap: 4,
+            evidenceRefs: ['same-lap-evidence-a'],
+            claim: firstClaim,
+            facts: firstFacts
+          }),
+          event('same-lap-fastest-b', {
+            type: 'fastest-lap',
+            assertionId: 'caller-fastest-b',
+            sessionTimeMs: 10_001,
+            lap: 4,
+            evidenceRefs: ['same-lap-evidence-b'],
+            claim: secondClaim,
+            facts: secondFacts
+          })
+        ],
+        [
+          evidence('same-lap-evidence-a', {
+            eventType: 'fastest-lap',
+            claim: firstClaim,
+            facts: firstFacts
+          }),
+          evidence('same-lap-evidence-b', {
+            eventType: 'fastest-lap',
+            claim: secondClaim,
+            facts: secondFacts,
+            captureRange: { start: 10_001, end: 10_001, unit: 'ms' },
+            clock: { clock: 'sim', sourceTimeMs: 10_001, toSessionOffsetMs: 0 }
+          })
+        ]
+      ),
+      NOW
+    )
+
+    expect(result.candidates).toHaveLength(0)
+    expect(result.issues.some((issue) => issue.code === 'contradictory-events')).toBe(true)
+  })
+
+  it('uses one canonical lap-time identity across fastest-lap wording scopes', () => {
+    const observedClaim = { subjectRef: 'car-7', predicate: 'fastest-observed-since-capture', value: 83 }
+    const bestClaim = { subjectRef: 'car-7', predicate: 'recorded-fastest-lap-time', value: 82.5 }
+    const observedFacts = {
+      subjectLabel: 'Car 7',
+      lapTimeSec: 83,
+      fastestScope: 'since-capture',
+      lap: 4
+    }
+    const bestFacts = {
+      subjectLabel: 'Car 7',
+      lapTimeSec: 82.5,
+      bestLapTimeSec: 82.5,
+      fastestScope: 'session-best',
+      lap: 4
+    }
+    const result = generateStoryCards(
+      timeline(
+        [
+          event('mixed-scope-observed', {
+            type: 'fastest-lap',
+            assertionId: 'caller-mixed-observed',
+            sessionTimeMs: 10_000,
+            lap: 4,
+            evidenceRefs: ['mixed-scope-observed-evidence'],
+            claim: observedClaim,
+            facts: observedFacts
+          }),
+          event('mixed-scope-best', {
+            type: 'fastest-lap',
+            assertionId: 'caller-mixed-best',
+            sessionTimeMs: 10_001,
+            lap: 4,
+            evidenceRefs: ['mixed-scope-best-evidence'],
+            claim: bestClaim,
+            facts: bestFacts
+          })
+        ],
+        [
+          evidence('mixed-scope-observed-evidence', {
+            eventType: 'fastest-lap',
+            claim: observedClaim,
+            facts: observedFacts
+          }),
+          evidence('mixed-scope-best-evidence', {
+            eventType: 'fastest-lap',
+            claim: bestClaim,
+            facts: bestFacts,
+            captureRange: { start: 10_001, end: 10_001, unit: 'ms' },
+            clock: { clock: 'sim', sourceTimeMs: 10_001, toSessionOffsetMs: 0 }
+          })
+        ]
+      ),
+      NOW
+    )
+
+    expect(result.candidates).toHaveLength(0)
+    expect(result.issues.some((issue) => issue.code === 'contradictory-events')).toBe(true)
   })
 
   it('rejects event facts that are not attested by the linked evidence payload', () => {

@@ -90,6 +90,12 @@ export interface StoryPiiToken {
   replacement?: string
 }
 
+export interface StoryPiiAttestation {
+  status: 'none-detected' | 'pii-declared'
+  method: string
+  checkedAt: number
+}
+
 export interface StoryEvidence {
   id: string
   source: StoryEvidenceSource
@@ -115,6 +121,7 @@ export interface StoryEvidence {
   privacyClass: StoryPrivacyClass
   integrityFlags?: StoryIntegrityFlag[]
   pii?: StoryPiiToken[]
+  piiAttestation: StoryPiiAttestation
   claim: StoryClaim
   facts?: StoryFactMap
   replayState?: ReplayContextState
@@ -392,6 +399,7 @@ const STORY_CONSENT_STATES = new Set<StoryConsentState>(['granted', 'not-require
 const STORY_CAPTURE_UNITS = new Set<StoryCaptureRange['unit']>(['ms', 'tick', 'frame'])
 const STORY_REPLAY_STATES = new Set<ReplayContextState>(['live', 'replay', 'unknown'])
 const STORY_PII_KINDS = new Set<StoryPiiToken['kind']>(['name', 'email', 'phone', 'ip', 'account-id', 'other'])
+const STORY_PII_ATTESTATION_STATUSES = new Set<StoryPiiAttestation['status']>(['none-detected', 'pii-declared'])
 const STORY_EVENT_TYPES = new Set<StoryEventType>([
   'position-change',
   'fastest-lap',
@@ -408,7 +416,7 @@ const STORY_EVENT_TYPES = new Set<StoryEventType>([
 
 const STORY_EVENT_PREDICATES: Partial<Record<StoryEventType, ReadonlySet<string>>> = {
   'position-change': new Set(['position-at-observed-time']),
-  'fastest-lap': new Set(['recorded-fastest-lap-time']),
+  'fastest-lap': new Set(['recorded-fastest-lap-time', 'fastest-observed-since-capture']),
   finish: new Set(['recorded-finish-position', 'terminal-classification-position']),
   'lap-complete': new Set(['lap-complete-time']),
   incident: new Set(['incident-classification']),
@@ -425,6 +433,7 @@ interface RedactionRule {
   replacement: string
   reason: StoryRedaction['reason']
   evidenceRef?: string
+  priority: number
 }
 
 interface StoryTemplate {
@@ -544,9 +553,18 @@ function storyTemplate(event: StoryTimelineEvent): StoryTemplate | null {
       const lapTimeSec = factNumber(event.facts, 'lapTimeSec')
       if (!lapTimeSec || lapTimeSec <= 0) return null
       const lap = finite(event.lap) ? `Lap ${Math.trunc(event.lap)} ` : 'A lap '
+      const fastestScope = factString(event.facts, 'fastestScope')
+      if (fastestScope === 'since-capture') {
+        return {
+          title: `Fastest observed since capture: ${formatLapTime(lapTimeSec)}`,
+          body: `${lap}is the fastest lap explicitly observed since this local capture began, at ${formatLapTime(lapTimeSec)}.`,
+          baseRank: 0.76
+        }
+      }
+      if (fastestScope !== 'session-best') return null
       return {
         title: `Recorded fastest lap: ${formatLapTime(lapTimeSec)}`,
-        body: `${lap}was explicitly marked as the fastest recorded lap at ${formatLapTime(lapTimeSec)}.`,
+        body: `${lap}matches the explicit session-best value at ${formatLapTime(lapTimeSec)}.`,
         baseRank: 0.84
       }
     }
@@ -702,6 +720,10 @@ function validateEvidence(
         item.value.length > 500
       )
     )) ||
+    !STORY_PII_ATTESTATION_STATUSES.has(evidence.piiAttestation?.status) ||
+    typeof evidence.piiAttestation?.method !== 'string' ||
+    !evidence.piiAttestation.method.trim() ||
+    !finite(evidence.piiAttestation?.checkedAt) ||
     (evidence.integrityFlags !== undefined && (
       !Array.isArray(evidence.integrityFlags) ||
       evidence.integrityFlags.some((flag) => ![
@@ -745,6 +767,32 @@ function validateEvidence(
       evidenceIds: [opaqueRef('evidence', evidence.id)]
     }
   }
+  const piiTokens = evidence.pii ?? []
+  if (
+    (evidence.piiAttestation.status === 'pii-declared' && piiTokens.length === 0) ||
+    (evidence.piiAttestation.status === 'none-detected' && piiTokens.length > 0)
+  ) {
+    return {
+      code: 'invalid-evidence',
+      message: `Evidence ${opaqueRef('evidence', evidence.id)} has inconsistent PII attestation metadata.`,
+      eventIds: [opaqueRef('event', event.id)],
+      evidenceIds: [opaqueRef('evidence', evidence.id)]
+    }
+  }
+  const piiScanText = [
+    evidence.statement,
+    typeof evidence.claim.value === 'string' ? evidence.claim.value : '',
+    ...Object.values(evidence.facts ?? {}).filter((value): value is string => typeof value === 'string')
+  ].join('\n')
+  const detectedPiiKinds = detectAutomaticPiiKinds(piiScanText)
+  if (evidence.piiAttestation.status === 'none-detected' && detectedPiiKinds.length > 0) {
+    return {
+      code: 'invalid-evidence',
+      message: `Evidence ${opaqueRef('evidence', evidence.id)} failed PII attestation (${detectedPiiKinds.join(', ')} detected).`,
+      eventIds: [opaqueRef('event', event.id)],
+      evidenceIds: [opaqueRef('evidence', evidence.id)]
+    }
+  }
   const normalized = normalizeEvidenceTimeMs(evidence)
   const uncertainty = finite(evidence.clock.uncertaintyMs) ? Math.max(0, evidence.clock.uncertaintyMs) : 0
   if (distanceToEventMs(event, normalized) > STORY_TIMELINE_TOLERANCE_MS + uncertainty) {
@@ -758,16 +806,35 @@ function validateEvidence(
   return null
 }
 
-function validateEvidenceBinding(
-  event: StoryTimelineEvent,
-  evidence: readonly StoryEvidence[]
-): StoryGenerationIssue | null {
+function validateEventSemantics(event: StoryTimelineEvent): StoryGenerationIssue | null {
   const predicates = STORY_EVENT_PREDICATES[event.type]
   if (predicates && !predicates.has(event.claim.predicate)) {
     return {
       code: 'invalid-event',
       message: `${opaqueRef('event', event.id)} uses a claim predicate that does not match ${event.type}.`,
       eventIds: [opaqueRef('event', event.id)]
+    }
+  }
+  if (event.type === 'fastest-lap') {
+    const lapTimeSec = factNumber(event.facts, 'lapTimeSec')
+    const bestLapTimeSec = factNumber(event.facts, 'bestLapTimeSec')
+    const fastestScope = factString(event.facts, 'fastestScope')
+    const explicitSessionBest =
+      event.claim.predicate === 'recorded-fastest-lap-time' &&
+      fastestScope === 'session-best' &&
+      lapTimeSec !== undefined &&
+      bestLapTimeSec !== undefined &&
+      lapTimeSec === bestLapTimeSec
+    const observedSinceCapture =
+      event.claim.predicate === 'fastest-observed-since-capture' &&
+      fastestScope === 'since-capture' &&
+      lapTimeSec !== undefined
+    if (!explicitSessionBest && !observedSinceCapture) {
+      return {
+        code: 'invalid-event',
+        message: `${opaqueRef('event', event.id)} lacks explicit session-best equality or since-capture scope.`,
+        eventIds: [opaqueRef('event', event.id)]
+      }
     }
   }
   const expectedClaimValue = (() => {
@@ -803,6 +870,30 @@ function validateEvidenceBinding(
       eventIds: [opaqueRef('event', event.id)]
     }
   }
+  const template = storyTemplate(event)
+  if (!template) {
+    return {
+      code: 'invalid-event',
+      message: `${opaqueRef('event', event.id)} does not contain the explicit facts required by ${event.type}.`,
+      eventIds: [opaqueRef('event', event.id)]
+    }
+  }
+  if (CAUSAL_LANGUAGE_RE.test(`${template.title} ${template.body}`)) {
+    return {
+      code: 'causal-language',
+      message: `${opaqueRef('event', event.id)} contains causal wording and was not surfaced.`,
+      eventIds: [opaqueRef('event', event.id)]
+    }
+  }
+  return null
+}
+
+function validateEvidenceBinding(
+  event: StoryTimelineEvent,
+  evidence: readonly StoryEvidence[]
+): StoryGenerationIssue | null {
+  const semanticIssue = validateEventSemantics(event)
+  if (semanticIssue) return semanticIssue
   if (evidence.some((item) =>
     item.consent.state !== 'not-required' &&
     (!item.consent.subjectRef || item.consent.subjectRef !== event.claim.subjectRef)
@@ -882,7 +973,11 @@ function validateEvidenceBinding(
 function explicitRedactionRules(evidence: readonly StoryEvidence[]): RedactionRule[] {
   const rules: RedactionRule[] = []
   const tokens = evidence.flatMap((item) =>
-    (item.pii ?? []).map((pii) => ({ evidenceId: item.id, pii, value: pii.value?.trim() ?? '' }))
+    (item.pii ?? []).map((pii) => ({
+      evidenceId: item.id,
+      pii,
+      value: pii.value?.normalize('NFC').trim() ?? ''
+    }))
   )
     .filter((item) => item.value.length > 0)
     .sort((left, right) => right.value.length - left.value.length)
@@ -900,33 +995,105 @@ function explicitRedactionRules(evidence: readonly StoryEvidence[]): RedactionRu
       pattern: new RegExp(escapeRegExp(value), 'gi'),
       replacement,
       reason: 'explicit-pii',
-      evidenceRef: opaqueRef('evidence', evidenceId)
+      evidenceRef: opaqueRef('evidence', evidenceId),
+      priority: pii.kind === 'name' || pii.kind === 'other' ? 20 : 80
     })
   }
   return rules
 }
 
-function automaticRedactionRules(): RedactionRule[] {
+function isIpv4Token(value: string): boolean {
+  const octets = value.split('.')
+  return octets.length === 4 && octets.every((octet) => {
+    if (!/^\d{1,3}$/.test(octet)) return false
+    const number = Number(octet)
+    return number >= 0 && number <= 255
+  })
+}
+
+function isIpv6Token(value: string): boolean {
+  if (!value.includes(':')) return false
+  const mixedMatch = value.match(/(\d{1,3}(?:\.\d{1,3}){3})$/)
+  const ipv4Segments = mixedMatch ? 2 : 0
+  if (mixedMatch && !isIpv4Token(mixedMatch[1])) return false
+  let hextetPart = mixedMatch ? value.slice(0, -mixedMatch[1].length) : value
+  if (hextetPart.endsWith(':') && !hextetPart.endsWith('::')) hextetPart = hextetPart.slice(0, -1)
+  if (!/^[A-Fa-f0-9:]+$/.test(hextetPart)) return false
+  const compressedParts = hextetPart.split('::')
+  if (compressedParts.length > 2) return false
+  const segments = (part: string): string[] => part ? part.split(':') : []
+  const validSegments = (items: string[]): boolean =>
+    items.every((item) => /^[A-Fa-f0-9]{1,4}$/.test(item))
+  if (compressedParts.length === 2) {
+    const left = segments(compressedParts[0])
+    const right = segments(compressedParts[1])
+    return validSegments(left) && validSegments(right) && left.length + right.length + ipv4Segments < 8
+  }
+  const full = segments(hextetPart)
+  return full.length + ipv4Segments === 8 && validSegments(full)
+}
+
+function ipv6RedactionRules(text: string): RedactionRule[] {
+  const normalized = text.normalize('NFC')
+  const tokens = new Set(
+    [
+      ...(normalized.match(/[A-Fa-f0-9:]+(?:\d{1,3}\.){3}\d{1,3}/g) ?? []),
+      ...(normalized.match(/[A-Fa-f0-9:]{2,}/g) ?? [])
+    ]
+      .map((value) => value.trim())
+      .filter(isIpv6Token)
+  )
+  return [...tokens]
+    .sort((left, right) => right.length - left.length)
+    .map((token) => ({
+      kind: 'ip' as const,
+      pattern: new RegExp(escapeRegExp(token), 'gi'),
+      replacement: '[ip]',
+      reason: 'pattern-detected' as const,
+      priority: 100
+    }))
+}
+
+function normalizeAutomaticPiiScanText(text: string): string {
+  return text.normalize('NFC').replace(/\p{Pd}/gu, '-')
+}
+
+function automaticRedactionRules(text = ''): RedactionRule[] {
+  const normalized = text.normalize('NFC')
   return [
     {
       kind: 'email',
-      pattern: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
+      pattern: /[\p{L}\p{M}\p{N}._%+-]+@(?:[\p{L}\p{M}\p{N}-]+\.)+[\p{L}\p{M}]{2,}/giu,
       replacement: '[email]',
-      reason: 'pattern-detected'
+      reason: 'pattern-detected',
+      priority: 90
     },
+    ...ipv6RedactionRules(normalized),
     {
       kind: 'ip',
       pattern: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g,
       replacement: '[ip]',
-      reason: 'pattern-detected'
+      reason: 'pattern-detected',
+      priority: 70
     },
     {
       kind: 'phone',
-      pattern: /(?<![\d.])(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}(?!\d)/g,
+      pattern: /(?<![\p{L}\p{N}.])(?:\+\p{Nd}{1,3}[\s().\p{Pd}]*)?(?:\p{Nd}[\s().\p{Pd}]*){8,14}\p{Nd}(?![\p{L}\p{N}])/gu,
       replacement: '[phone]',
-      reason: 'pattern-detected'
+      reason: 'pattern-detected',
+      priority: 90
     }
   ]
+}
+
+function detectAutomaticPiiKinds(text: string): StoryPiiToken['kind'][] {
+  const normalized = normalizeAutomaticPiiScanText(text)
+  const kinds = new Set<StoryPiiToken['kind']>()
+  for (const rule of automaticRedactionRules(normalized)) {
+    rule.pattern.lastIndex = 0
+    if (rule.pattern.test(normalized)) kinds.add(rule.kind)
+  }
+  return [...kinds]
 }
 
 function redactStoryText(
@@ -934,11 +1101,16 @@ function redactStoryText(
   body: string,
   evidence: readonly StoryEvidence[]
 ): { title: string; body: string; redactions: StoryRedaction[] } {
-  let safeTitle = title
-  let safeBody = body
+  let safeTitle = title.normalize('NFC')
+  let safeBody = body.normalize('NFC')
   const redactions: StoryRedaction[] = []
   const seen = new Set<string>()
-  for (const rule of [...automaticRedactionRules(), ...explicitRedactionRules(evidence)]) {
+  const explicitRules = explicitRedactionRules(evidence)
+  const rules = [
+    ...automaticRedactionRules(`${safeTitle}\n${safeBody}`),
+    ...explicitRules
+  ].sort((left, right) => right.priority - left.priority)
+  for (const rule of rules) {
     rule.pattern.lastIndex = 0
     const titleMatched = rule.pattern.test(safeTitle)
     rule.pattern.lastIndex = 0
@@ -1007,6 +1179,11 @@ function policySnapshot(
         epoch: item.consent.epoch,
         checkedAt: item.consent.checkedAt,
         expiresAt: item.consent.expiresAt
+      },
+      piiAttestation: {
+        status: item.piiAttestation.status,
+        method: item.piiAttestation.method,
+        checkedAt: item.piiAttestation.checkedAt
       }
     }))
   ))
@@ -1075,6 +1252,93 @@ function isStructurallyValidEvent(value: unknown): value is StoryTimelineEvent {
   )
 }
 
+function canonicalClaimIdentity(event: StoryTimelineEvent): string {
+  switch (event.type) {
+    case 'finish':
+      return 'terminal-classification-position'
+    case 'fastest-lap':
+      return 'fastest-lap-time'
+    case 'position-change':
+      return 'position-at-observed-time'
+    case 'lap-complete':
+      return 'completed-lap-time'
+    case 'incident':
+      return 'incident-classification'
+    case 'incident-count':
+      return 'incident-count-at-observed-time'
+    case 'flag':
+      return 'flag-state'
+    case 'pit-stop':
+      return 'pit-road-state'
+    default:
+      return event.claim.predicate.trim().toLowerCase().replace(/\s+/g, '-')
+  }
+}
+
+function canonicalTemporalScope(event: StoryTimelineEvent): string {
+  if (event.type === 'finish') return 'session-terminal'
+  if ((event.type === 'lap-complete' || event.type === 'fastest-lap') && finite(event.lap)) {
+    return `lap:${Math.trunc(event.lap)}`
+  }
+  const start = Math.round(event.sessionTimeMs)
+  const end = finite(event.endSessionTimeMs) ? Math.round(Math.max(event.sessionTimeMs, event.endSessionTimeMs)) : start
+  return `${start}:${end}`
+}
+
+function canonicalClaimKey(event: StoryTimelineEvent): string {
+  return stableSerialize({
+    identity: canonicalClaimIdentity(event),
+    subject: event.claim.subjectRef.trim().toLowerCase(),
+    temporalScope: canonicalTemporalScope(event)
+  })
+}
+
+function canonicalClaimPayload(event: StoryTimelineEvent): string {
+  const semanticFacts: Record<string, unknown> = (() => {
+    switch (event.type) {
+      case 'position-change':
+        return {
+          fromPosition: event.facts.fromPosition,
+          toPosition: event.facts.toPosition
+        }
+      case 'fastest-lap':
+      case 'lap-complete':
+        return { lapTimeSec: event.facts.lapTimeSec }
+      case 'finish':
+        return {
+          position: event.facts.position,
+          totalCars: event.facts.totalCars,
+          resultKind: event.facts.resultKind
+        }
+      case 'incident':
+        return {
+          incidentType: event.facts.incidentType,
+          severity: event.facts.severity
+        }
+      case 'incident-count':
+        return {
+          fromCount: event.facts.fromCount,
+          toCount: event.facts.toCount
+        }
+      case 'flag':
+        return { flag: event.facts.flag }
+      case 'pit-stop':
+        return { inPitRoad: true }
+      default:
+        return {
+          claimValue: event.claim.value,
+          title: event.title ?? null,
+          statement: event.statement ?? null
+        }
+    }
+  })()
+  return stableSerialize({
+    claimValue: event.claim.value,
+    lap: finite(event.lap) ? Math.trunc(event.lap) : null,
+    semanticFacts
+  })
+}
+
 function contradictionState(
   events: readonly StoryTimelineEvent[],
   validSuperseders: ReadonlySet<string>
@@ -1086,36 +1350,29 @@ function contradictionState(
   const superseded = new Set<string>()
   const contradictory = new Set<string>()
   const issues: StoryGenerationIssue[] = []
-  const byAssertion = new Map<string, StoryTimelineEvent[]>()
+  const byClaim = new Map<string, StoryTimelineEvent[]>()
   for (const event of events) {
     if (
-      !event ||
-      typeof event.id !== 'string' ||
-      typeof event.assertionId !== 'string' ||
-      !event.assertionId.trim()
+      !isStructurallyValidEvent(event) ||
+      event.eventClass !== 'fact' ||
+      validateEventSemantics(event) !== null
     ) {
       continue
     }
-    const list = byAssertion.get(event.assertionId) ?? []
+    const claimKey = canonicalClaimKey(event)
+    const list = byClaim.get(claimKey) ?? []
     list.push(event)
-    byAssertion.set(event.assertionId, list)
+    byClaim.set(claimKey, list)
     if (event.supersedesEventId && validSuperseders.has(event.id)) superseded.add(event.supersedesEventId)
   }
-  for (const [assertionId, group] of byAssertion) {
+  for (const [claimKey, group] of byClaim) {
     const active = group.filter((event) => !superseded.has(event.id))
-    const values = new Set(active.map((event) => stableSerialize({
-      type: event.type,
-      claim: event.claim,
-      facts: event.facts,
-      lap: event.lap,
-      title: event.title,
-      statement: event.statement
-    })))
+    const values = new Set(active.map(canonicalClaimPayload))
     if (values.size <= 1) continue
     for (const event of active) contradictory.add(event.id)
     issues.push({
       code: 'contradictory-events',
-      message: `Assertion ${opaqueRef('assertion', assertionId)} has contradictory active facts and was not surfaced.`,
+      message: `Canonical claim ${opaqueRef('claim', claimKey)} has contradictory active facts and was not surfaced.`,
       eventIds: active.map((event) => opaqueRef('event', event.id))
     })
   }
@@ -1346,19 +1603,58 @@ export function generateStoryCards(
       .filter(isStructurallyValidEvent)
       .map((item) => [item.id, item])
   )
-  const validSuperseders = new Set<string>()
+  const supersessionEdges = new Map<string, string>()
   for (const event of timeline.events) {
     if (!isStructurallyValidEvent(event) || event.eventClass !== 'fact' || !event.supersedesEventId) continue
+    if (validateEventSemantics(event) !== null) continue
     const target = eventById.get(event.supersedesEventId)
-    if (!target || target.assertionId !== event.assertionId) continue
+    if (!target || canonicalClaimKey(target) !== canonicalClaimKey(event)) continue
     const evidence = event.evidenceRefs
       .map((id) => evidenceById.get(id))
       .filter((item): item is StoryEvidence => Boolean(item))
     if (evidence.length !== event.evidenceRefs.length) continue
     if (evidence.some((item) => validateEvidence(event, item) !== null)) continue
     if (validateEvidenceBinding(event, evidence) !== null) continue
-    validSuperseders.add(event.id)
+    if (event.id === target.id) {
+      issues.push({
+        code: 'invalid-event',
+        message: `${opaqueRef('event', event.id)} cannot supersede itself.`,
+        eventIds: [opaqueRef('event', event.id)]
+      })
+      continue
+    }
+    supersessionEdges.set(event.id, target.id)
   }
+  const cyclicSuperseders = new Set<string>()
+  const reportedCycles = new Set<string>()
+  for (const start of supersessionEdges.keys()) {
+    const path: string[] = []
+    const pathIndex = new Map<string, number>()
+    let current: string | undefined = start
+    while (current && supersessionEdges.has(current)) {
+      const existingIndex = pathIndex.get(current)
+      if (existingIndex !== undefined) {
+        const cycle = path.slice(existingIndex)
+        cycle.forEach((id) => cyclicSuperseders.add(id))
+        const cycleKey = [...cycle].sort().join(':')
+        if (!reportedCycles.has(cycleKey)) {
+          reportedCycles.add(cycleKey)
+          issues.push({
+            code: 'invalid-event',
+            message: 'Cyclic story-event supersession was rejected.',
+            eventIds: cycle.map((id) => opaqueRef('event', id))
+          })
+        }
+        break
+      }
+      pathIndex.set(current, path.length)
+      path.push(current)
+      current = supersessionEdges.get(current)
+    }
+  }
+  const validSuperseders = new Set(
+    [...supersessionEdges.keys()].filter((id) => !cyclicSuperseders.has(id))
+  )
   const { superseded, contradictory, issues: contradictionIssues } = contradictionState(
     timeline.events,
     validSuperseders

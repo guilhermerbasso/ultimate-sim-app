@@ -40,6 +40,7 @@ function fixtureEvidence(overrides: Partial<StoryEvidence> = {}): StoryEvidence 
     rights: { state: 'cleared', scope: 'public', checkedAt: 1_000 },
     consent: { state: 'not-required', epoch: 1, checkedAt: 1_000 },
     privacyClass: 'D1',
+    piiAttestation: { status: 'none-detected', method: 'fixture-review-v1', checkedAt: 1_000 },
     claim: { subjectRef: 'car-1', predicate: 'recorded-finish-position', value: 1 },
     facts: { subjectLabel: 'Player car', position: 1, totalCars: 24 },
     ...overrides
@@ -227,6 +228,42 @@ describe('StoryTimelineCollector post-race boundary', () => {
     expect(completed[0].timeline.sessionRef).toContain(':777:1')
     expect(completed[0].timeline.events.every((event) => event.facts.fromPosition !== 1)).toBe(true)
   })
+
+  it('uses since-capture semantics unless telemetry best-lap equality is exact', () => {
+    const collect = (bestLapTimeSec: number): StoryTimelineEvent => {
+      const collector = new StoryTimelineCollector('test', () => 95_000, () => `capture-${bestLapTimeSec}`)
+      collector.observe(snapshot({
+        sessionUniqueId: 888,
+        sessionNumber: 1,
+        completedLaps: 4,
+        lastLapTimeSec: 82.5,
+        bestLapTimeSec
+      }))
+      collector.observe(snapshot({
+        sessionUniqueId: 888,
+        sessionNumber: 1,
+        timestamp: 2_000,
+        sessionTimeSec: 100,
+        sessionState: 'checkered',
+        completedLaps: 4,
+        lastLapTimeSec: 82.5,
+        bestLapTimeSec
+      }))
+      const timeline = collector.observe(null)[0].timeline
+      const fastest = timeline.events.find((event) => event.type === 'fastest-lap')
+      if (!fastest) throw new Error('missing fastest-lap event')
+      return fastest
+    }
+
+    expect(collect(82.5005)).toMatchObject({
+      claim: { predicate: 'fastest-observed-since-capture' },
+      facts: { fastestScope: 'since-capture' }
+    })
+    expect(collect(82.5)).toMatchObject({
+      claim: { predicate: 'recorded-fastest-lap-time' },
+      facts: { fastestScope: 'session-best', bestLapTimeSec: 82.5 }
+    })
+  })
 })
 
 describe('StoryEngineStore human decisions and restart', () => {
@@ -302,6 +339,7 @@ describe('StoryEngineStore human decisions and restart', () => {
       privacyClass: 'D3',
       consent: { state: 'granted', subjectRef: 'driver-1', epoch: 2, checkedAt: 1_000 },
       pii: [{ kind: 'name', value: 'Alice Example', replacement: '[driver]' }],
+      piiAttestation: { status: 'pii-declared', method: 'fixture-pii-review-v1', checkedAt: 1_000 },
       claim: { subjectRef: 'driver-1', predicate: 'podium', value: true },
       facts: {
         rank: 0.9,
@@ -400,6 +438,40 @@ describe('StoryEngineStore human decisions and restart', () => {
       reviewer: 'Producer',
       humanConfirmed: true
     })).toThrow(/rights:revoked/)
+  })
+
+  it('preserves approved unexported cards while evicting only disposable queue states', () => {
+    const dir = testDir()
+    let now = 35_000
+    const store = new StoryEngineStore(dir, {
+      now: () => now,
+      approvalId: () => 'approval-protected'
+    })
+    const protectedCard = store.generate(fixtureTimeline('race-protected')).cards[0]
+    now += 1
+    store.decide({
+      cardId: protectedCard.id,
+      revision: protectedCard.revision,
+      decision: 'approved',
+      destination: 'local',
+      reviewer: 'Producer',
+      humanConfirmed: true
+    })
+
+    let state = store.getState()
+    for (let index = 0; index < 270; index += 1) {
+      now += 1
+      state = store.generate(fixtureTimeline(`race-queue-${index}`))
+    }
+
+    expect(state.cards).toHaveLength(250)
+    const retained = state.cards.find((card) => card.id === protectedCard.id)
+    expect(retained).toMatchObject({
+      status: 'approved',
+      approval: { id: 'approval-protected' }
+    })
+    expect(retained?.approval?.consumedAt).toBeUndefined()
+    expect(state.cards.filter((card) => card.status !== 'approved')).toHaveLength(249)
   })
 
   it('recovers a committed pending export by its exact durable journal entry', () => {
