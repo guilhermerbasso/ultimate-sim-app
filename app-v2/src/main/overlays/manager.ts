@@ -1,4 +1,4 @@
-import { BrowserWindow, screen, shell, type Display } from 'electron'
+import { BrowserWindow, screen, shell, type Display, type WebContents } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -65,6 +65,36 @@ function isAllowedAppNavigation(url: string): boolean {
 }
 
 const CONFIG_FILE = 'overlays.json'
+
+function bindEditorPreviewOwnerLifecycle(
+  win: BrowserWindow,
+  release: (owner: WebContents) => void
+): () => void {
+  const owner = win.webContents
+  const releaseOwner = (): void => release(owner)
+  const onDidStartNavigation = (
+    _event: Electron.Event,
+    _url: string,
+    _isInPlace: boolean,
+    isMainFrame: boolean
+  ): void => {
+    if (isMainFrame !== false) releaseOwner()
+  }
+
+  win.on('hide', releaseOwner)
+  win.on('closed', releaseOwner)
+  owner.on('did-start-navigation', onDidStartNavigation)
+  owner.on('render-process-gone', releaseOwner)
+  owner.on('destroyed', releaseOwner)
+
+  return () => {
+    win.removeListener('hide', releaseOwner)
+    win.removeListener('closed', releaseOwner)
+    owner.removeListener('did-start-navigation', onDidStartNavigation)
+    owner.removeListener('render-process-gone', releaseOwner)
+    owner.removeListener('destroyed', releaseOwner)
+  }
+}
 
 function isHifiWidgetId(value: unknown): value is `hifi:${string}` {
   return typeof value === 'string' && value.startsWith('hifi:') && value.length > 5
@@ -479,6 +509,8 @@ export class OverlayManager {
   private readonly windows = new Map<string, BrowserWindow>()
   private readonly runtimeHiddenAlerts = new Set<string>()
   private editorTriggerPreviewActive = false
+  private editorPreviewOwner: WebContents | null = null
+  private unbindEditorPreviewOwner: (() => void) | null = null
   private readonly configPath: string
   private config = createDefaultOverlaysConfig()
   private isDisposing = false
@@ -585,6 +617,7 @@ export class OverlayManager {
       OVERLAY_EDITOR_PREVIEW_CHANNELS.setActive,
       (event, active: boolean) => {
         const mainWindow = this.ctx.getMainWindow()
+        const requestedActive = Boolean(active)
         if (
           !mainWindow ||
           mainWindow.isDestroyed() ||
@@ -593,7 +626,18 @@ export class OverlayManager {
         ) {
           return false
         }
-        this.setEditorPreviewActive(Boolean(active))
+        if (
+          requestedActive &&
+          (!mainWindow.isVisible() || mainWindow.webContents.isLoadingMainFrame())
+        ) {
+          this.setEditorPreviewActive(false)
+          return false
+        }
+        if (requestedActive) {
+          this.setEditorPreviewActiveForOwner(mainWindow, event.sender)
+        } else {
+          this.setEditorPreviewActive(false)
+        }
         return true
       }
     )
@@ -715,6 +759,39 @@ export class OverlayManager {
   }
 
   private setEditorPreviewActive(active: boolean): void {
+    if (!active) this.releaseEditorPreviewOwnership()
+    this.applyEditorPreviewActive(active)
+  }
+
+  private setEditorPreviewActiveForOwner(
+    mainWindow: BrowserWindow,
+    owner: WebContents
+  ): void {
+    if (this.editorPreviewOwner !== owner) {
+      this.releaseEditorPreviewOwnership()
+      this.editorPreviewOwner = owner
+      this.unbindEditorPreviewOwner = bindEditorPreviewOwnerLifecycle(
+        mainWindow,
+        (releasedOwner) => this.clearEditorPreviewForOwner(releasedOwner)
+      )
+    }
+    this.applyEditorPreviewActive(true)
+  }
+
+  private clearEditorPreviewForOwner(owner: WebContents): void {
+    if (this.editorPreviewOwner !== owner) return
+    this.releaseEditorPreviewOwnership()
+    this.applyEditorPreviewActive(false)
+  }
+
+  private releaseEditorPreviewOwnership(): void {
+    const unbind = this.unbindEditorPreviewOwner
+    this.unbindEditorPreviewOwner = null
+    this.editorPreviewOwner = null
+    unbind?.()
+  }
+
+  private applyEditorPreviewActive(active: boolean): void {
     this.editorTriggerPreviewActive = active
     for (const id of this.windows.keys()) this.updateMouseMode(id)
   }
@@ -908,6 +985,8 @@ export class OverlayManager {
 
   async dispose(): Promise<void> {
     this.isDisposing = true
+    this.releaseEditorPreviewOwnership()
+    this.editorTriggerPreviewActive = false
     this.unregisterScreenListeners()
     if (this.saveTimer) {
       clearTimeout(this.saveTimer)

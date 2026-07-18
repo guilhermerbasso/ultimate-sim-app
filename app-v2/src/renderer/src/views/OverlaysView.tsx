@@ -30,7 +30,7 @@ import {
 } from '../components/TriggerPreviewToggle'
 import { TagFilter, filterByTags } from '../components/TagFilter'
 import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, hasAllHifiOverlayConfigs, mergeHifiOverlayConfigs, mergeHifiOverlayItems, resolveOverlayTrigger } from '../overlay/hifi-overlays'
-import { resolveWidgetComponent } from '../overlay/widgets'
+import { HifiWidgetHost, resolveWidgetComponent } from '../overlay/widgets'
 import { useAlertsConfig } from '../lib/alerts-config'
 import {
   createEditorTriggerPreviewFrame,
@@ -347,6 +347,7 @@ export function OverlayRuntimePreview({
   alertsConfig: AlertsConfig
   showTriggerOnlyActive: boolean
 }): ReactElement {
+  const isHifi = item.id.startsWith('hifi:')
   const Widget = resolveWidgetComponent(item.id)
   const runtimeTrigger = resolveOverlayTrigger(definition, item)
   const trigger = showTriggerOnlyActive
@@ -386,6 +387,7 @@ export function OverlayRuntimePreview({
 
   return (
     <div
+      data-overlay-card-hifi-preview={isHifi ? 'inert' : undefined}
       data-trigger-preview-visible={visibility.visible ? 'true' : 'false'}
       data-trigger-preview-forced={triggerPreview.forced ? 'true' : 'false'}
       style={{
@@ -410,12 +412,24 @@ export function OverlayRuntimePreview({
             <>
               {Widget && renderWidget
                 ? (
-                    <Widget
-                      snapshot={previewSnapshot}
-                      config={item}
-                      visibility={visibility}
-                      alertsConfig={triggerPreview.alertsConfig}
-                    />
+                    isHifi
+                      ? (
+                          <HifiWidgetHost
+                            snapshot={previewSnapshot}
+                            config={item}
+                            visibility={visibility}
+                            alertsConfig={triggerPreview.alertsConfig}
+                            preview="inert"
+                          />
+                        )
+                      : (
+                          <Widget
+                            snapshot={previewSnapshot}
+                            config={item}
+                            visibility={visibility}
+                            alertsConfig={triggerPreview.alertsConfig}
+                          />
+                        )
                   )
                 : Widget
                   ? null
