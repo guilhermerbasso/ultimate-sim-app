@@ -116,7 +116,7 @@ export interface DeviceRegistryValue {
   // callers can drive their own toasts/UX without re-querying.
   refreshPorts(): Promise<PortInfo[]>
   refreshFleet(): Promise<void>
-  refreshAudioOutputs(requestLabels?: boolean): Promise<void>
+  refreshAudioOutputs(requestLabels?: boolean): Promise<boolean>
   refreshDisplays(): Promise<OverlayDisplayInfo[]>
   refreshAll(): Promise<void>
 
@@ -222,11 +222,11 @@ export function DeviceRegistryProvider({ children }: { children: ReactNode }): R
     return value
   }, [])
 
-  const refreshAudioOutputs = useCallback(async (requestLabels = false): Promise<void> => {
+  const refreshAudioOutputs = useCallback(async (requestLabels = false): Promise<boolean> => {
     if (!navigator.mediaDevices?.enumerateDevices) {
       setAudioOutputs([])
       setAudioOutputsStatus('Audio output enumeration is not available in this renderer.')
-      return
+      return false
     }
 
     setAudioBusy(true)
@@ -244,12 +244,19 @@ export function DeviceRegistryProvider({ children }: { children: ReactNode }): R
           ? `Found ${outputs.length} audio output device${outputs.length === 1 ? '' : 's'}.`
           : 'No dedicated audio outputs found; using system default.'
       )
+      return true
     } catch (error) {
       setAudioOutputsStatus(
         `Could not refresh labels: ${getErrorMessage(error)}. Showing available outputs if labels are already unlocked.`
       )
-      const fallback = await navigator.mediaDevices.enumerateDevices().catch(() => [] as MediaDeviceInfo[])
-      setAudioOutputs(mapAudioOutputs(fallback))
+      try {
+        const fallback = await navigator.mediaDevices.enumerateDevices()
+        setAudioOutputs(mapAudioOutputs(fallback))
+        return true
+      } catch {
+        setAudioOutputs([])
+        return false
+      }
     } finally {
       setAudioBusy(false)
     }

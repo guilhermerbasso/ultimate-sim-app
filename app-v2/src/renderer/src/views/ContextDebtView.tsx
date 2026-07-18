@@ -12,14 +12,18 @@ import { COACH_CHANNELS, type CoachConfig } from '../../../shared/coach'
 import {
   analyzeContextDebt,
   CONTEXT_DEBT_EXPERIMENT,
+  CONTEXT_DEBT_THRESHOLD_BOUNDS,
   DEFAULT_CONTEXT_DEBT_THRESHOLDS,
   previewContextDebtSuggestions,
   reconcileContextDebtPreviewSelection,
   selectContextDebtProfileSnapshot,
+  updateContextDebtThreshold,
   type ContextDebtConfigSnapshot,
+  type ContextDebtDeviceKind,
   type ContextDebtIssue,
   type ContextDebtPreviewSelection,
   type ContextDebtReport,
+  type ContextDebtScanStatus,
   type ContextDebtSourceFamily,
   type ContextDebtSuggestion,
   type ContextDebtThresholds
@@ -49,6 +53,7 @@ import {
   type ContextDebtDecision,
   type ContextDebtExperimentState
 } from '../lib/context-debt-storage'
+import { scanContextDebtDevices } from '../lib/context-debt-device-scan'
 import { useDevices } from '../lib/devices/DeviceRegistry'
 import { listConnectedGamepads } from '../lib/gamepad'
 import './context-debt.css'
@@ -119,6 +124,12 @@ function issueCopy(language: ResolvedLanguage | undefined, issue: ContextDebtIss
       })
     case 'source-missing':
       return tt(language, 'contextDebt.issue.sourceMissing', { source: issue.details.source })
+    case 'scan-incomplete':
+      return tt(language, 'contextDebt.issue.scanIncomplete', {
+        kind: issue.details.kind,
+        status: issue.details.status,
+        routes: issue.details.routes
+      })
   }
 }
 
@@ -175,9 +186,10 @@ function decisionLabel(
 export default function ContextDebtView({ showToast, language }: AppViewProps): ReactElement {
   const {
     audioOutputs,
-    audioOutputsStatus,
     displays,
-    refreshAll: refreshDevices,
+    refreshAudioOutputs,
+    refreshDisplays,
+    refreshFleet,
     serialDevices
   } = useDevices()
   const [snapshot, setSnapshot] = useState<LoadedContextDebtSnapshot | null>(null)
@@ -188,7 +200,12 @@ export default function ContextDebtView({ showToast, language }: AppViewProps): 
   )
   const [previewSelection, setPreviewSelection] = useState<ContextDebtPreviewSelection | null>(null)
   const [gamepadIds, setGamepadIds] = useState<string[]>([])
-  const [deviceScanComplete, setDeviceScanComplete] = useState(false)
+  const [deviceScanStatus, setDeviceScanStatus] = useState<Record<ContextDebtDeviceKind, ContextDebtScanStatus>>({
+    audio: 'not-run',
+    serial: 'not-run',
+    display: 'not-run',
+    gamepad: 'not-run'
+  })
   const [busy, setBusy] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const lastRecordedFingerprint = useRef<string | null>(null)
@@ -196,7 +213,15 @@ export default function ContextDebtView({ showToast, language }: AppViewProps): 
   const refresh = useCallback(async (): Promise<void> => {
     setBusy(true)
     setLoadError(null)
-    const deviceRefresh = refreshDevices()
+    const deviceScan = scanContextDebtDevices({
+      refreshAudioOutputs: () => refreshAudioOutputs(false),
+      refreshSerialDevices: refreshFleet,
+      refreshDisplays,
+      listGamepads: () => {
+        if (typeof navigator.getGamepads !== 'function') throw new Error('Gamepad enumeration unavailable.')
+        return listConnectedGamepads().map((gamepad) => gamepad.id)
+      }
+    })
     const results = await Promise.allSettled([
       window.ipc.invoke<AlertsConfig>('alerts:getConfig'),
       window.ipc.invoke<OverlaysConfig>('overlays:getConfig'),
@@ -211,17 +236,9 @@ export default function ContextDebtView({ showToast, language }: AppViewProps): 
       window.ipc.invoke<RaceProfile[]>('profilesv2:list')
     ])
 
-    await deviceRefresh.catch(() => undefined)
-    setDeviceScanComplete(true)
-    try {
-      setGamepadIds(
-        typeof navigator.getGamepads === 'function'
-          ? listConnectedGamepads().map((gamepad) => gamepad.id)
-          : []
-      )
-    } catch {
-      setGamepadIds([])
-    }
+    const scannedDevices = await deviceScan
+    setDeviceScanStatus(scannedDevices.scanStatus)
+    setGamepadIds(scannedDevices.gamepadIds)
 
     const [
       alerts,
@@ -269,7 +286,7 @@ export default function ContextDebtView({ showToast, language }: AppViewProps): 
       setLoadError(tt(language, 'contextDebt.partialLoad', { count: failed }))
     }
     setBusy(false)
-  }, [language, refreshDevices])
+  }, [language, refreshAudioOutputs, refreshDisplays, refreshFleet])
 
   useEffect(() => {
     void refresh()
@@ -317,12 +334,7 @@ export default function ContextDebtView({ showToast, language }: AppViewProps): 
         serialDeviceIds: serialDevices.map((device) => device.id),
         displayIds: displays.map((display) => display.id),
         gamepadIds,
-        scanned: {
-          audio: deviceScanComplete && !audioOutputsStatus.toLowerCase().includes('not scanned'),
-          serial: deviceScanComplete,
-          display: deviceScanComplete,
-          gamepad: deviceScanComplete
-        }
+        scanStatus: deviceScanStatus
       },
       sourceAvailability: snapshot.sourceAvailability,
       thresholds
@@ -330,8 +342,7 @@ export default function ContextDebtView({ showToast, language }: AppViewProps): 
     return { report, elapsedMs: Math.round((performance.now() - start) * 10) / 10 }
   }, [
     audioOutputs,
-    audioOutputsStatus,
-    deviceScanComplete,
+    deviceScanStatus,
     displays,
     gamepadIds,
     language,
@@ -414,7 +425,7 @@ export default function ContextDebtView({ showToast, language }: AppViewProps): 
   }
 
   const updateThreshold = (key: keyof ContextDebtThresholds, value: number): void => {
-    setThresholds((current) => ({ ...current, [key]: value }))
+    setThresholds((current) => updateContextDebtThreshold(current, key, value))
   }
 
   if (busy && !report) {
@@ -564,18 +575,18 @@ export default function ContextDebtView({ showToast, language }: AppViewProps): 
           <p>{tt(language, 'contextDebt.thresholdHelp')}</p>
           <p className="context-debt-formula">{tt(language, 'contextDebt.scoreFormula')}</p>
           {([
-            ['maxRoutesPerCue', 1, 8],
-            ['maxModalitiesPerCue', 1, 4],
-            ['maxOverlays', 0, 30],
-            ['maxAudioRoutes', 0, 60],
-            ['maxHapticRoutes', 0, 30],
-            ['maxTotalRoutes', 1, 120]
-          ] as const).map(([key, min, max]) => (
+            'maxRoutesPerCue',
+            'maxModalitiesPerCue',
+            'maxOverlays',
+            'maxAudioRoutes',
+            'maxHapticRoutes',
+            'maxTotalRoutes'
+          ] as const).map((key) => (
             <label className="context-debt-threshold" key={key}>
               <span>{tt(language, `contextDebt.threshold.${key}`)}</span>
               <input
-                max={max}
-                min={min}
+                max={CONTEXT_DEBT_THRESHOLD_BOUNDS[key].max}
+                min={CONTEXT_DEBT_THRESHOLD_BOUNDS[key].min}
                 onChange={(event) => updateThreshold(key, Number(event.target.value))}
                 type="number"
                 value={thresholds[key]}
@@ -747,7 +758,8 @@ export default function ContextDebtView({ showToast, language }: AppViewProps): 
           </article>
           <article>
             <span>{tt(language, 'contextDebt.metric.coverage')}</span>
-            <strong>{report.metrics.sourceCoveragePct}%</strong>
+            <strong>{report.metrics.sourceCoveragePct}% / {report.metrics.hardwareScanCoveragePct}%</strong>
+            <small>{tt(language, 'contextDebt.metric.coverageBreakdown')}</small>
             <small>{tt(language, 'contextDebt.metric.runs', { count: profileExperiment?.runs ?? 0 })}</small>
           </article>
         </div>

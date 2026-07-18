@@ -4,9 +4,12 @@ import { DEFAULT_ALERTS_CONFIG, type AlertsConfig } from './alerts'
 import { DEFAULT_COACH_CONFIG } from './coach'
 import {
   analyzeContextDebt,
+  DEFAULT_CONTEXT_DEBT_THRESHOLDS,
+  fingerprintContextDebtDecisionState,
   previewContextDebtSuggestions,
   reconcileContextDebtPreviewSelection,
   selectContextDebtProfileSnapshot,
+  updateContextDebtThreshold,
   type ContextDebtAnalysisInput,
   type ContextDebtReport,
   type ContextDebtSourceFamily
@@ -75,7 +78,7 @@ function baseInput(patch: Partial<ContextDebtAnalysisInput> = {}): ContextDebtAn
       serialDeviceIds: [],
       displayIds: [],
       gamepadIds: [],
-      scanned: { audio: true, serial: true, display: true, gamepad: true }
+      scanStatus: { audio: 'success', serial: 'success', display: 'success', gamepad: 'success' }
     },
     ...patch
   }
@@ -137,6 +140,35 @@ describe('SP-07 context-debt analysis', () => {
       .not.toContain(flagRoutes[0].id)
   })
 
+  it('locks blue flags and semantic critical overlays regardless of numeric priority', () => {
+    const callouts = Object.fromEntries(
+      Object.entries(DEFAULT_SPOTTER_CONFIG.callouts).map(([id, config]) => [
+        id,
+        { ...config, enabled: id === 'flag.blue', priority: 1 }
+      ])
+    ) as typeof DEFAULT_SPOTTER_CONFIG.callouts
+    const overlays = createDefaultOverlaysConfig()
+    overlays.widgets.customValue = {
+      ...overlays.widgets.customValue,
+      enabled: true,
+      role: 'ordinary',
+      trigger: { kind: 'semantic', semantic: 'alert2OilPressureLow' }
+    }
+    const report = analyzeContextDebt(baseInput({
+      overlays,
+      spotter: { ...DEFAULT_SPOTTER_CONFIG, enabled: true, muted: false, callouts },
+      thresholds: { maxAudioRoutes: 0, maxOverlays: 0 }
+    }))
+
+    const locked = report.routes.filter((route) =>
+      route.signalId === 'blue-flag' || route.signalId === 'oil-pressure-low'
+    )
+    expect(locked).toHaveLength(2)
+    expect(locked.every((route) => route.critical)).toBe(true)
+    const suggested = new Set(report.suggestions.flatMap((suggestion) => suggestion.routeIds))
+    expect(locked.every((route) => !suggested.has(route.id))).toBe(true)
+  })
+
   it('reports configured routes that target an unknown device without disabling them', () => {
     const report = analyzeContextDebt(baseInput({
       sounds: {
@@ -158,7 +190,8 @@ describe('SP-07 context-debt analysis', () => {
 
   it('detects duplicate routes and previews removal of only the extra copy', () => {
     const alerts = disabledAlerts()
-    alerts.pitLimiter = {
+    alerts.shiftPoint = {
+      ...alerts.shiftPoint,
       enabled: true,
       outputs: [
         { kind: 'secondScreen', enabled: true, slot: 'race-warning' },
@@ -290,6 +323,34 @@ describe('SP-07 context-debt analysis', () => {
     }))
   })
 
+  it('normalizes every threshold update before it becomes UI or analysis state', () => {
+    const routesClamped = updateContextDebtThreshold(
+      DEFAULT_CONTEXT_DEBT_THRESHOLDS,
+      'maxRoutesPerCue',
+      -50
+    )
+    const audioClamped = updateContextDebtThreshold(
+      routesClamped,
+      'maxAudioRoutes',
+      999
+    )
+    const invalidFallsBack = updateContextDebtThreshold(
+      audioClamped,
+      'maxOverlays',
+      Number.NaN
+    )
+    const scoreClamped = updateContextDebtThreshold(
+      invalidFallsBack,
+      'warningScore',
+      100
+    )
+
+    expect(routesClamped.maxRoutesPerCue).toBe(1)
+    expect(audioClamped.maxAudioRoutes).toBe(60)
+    expect(invalidFallsBack.maxOverlays).toBe(DEFAULT_CONTEXT_DEBT_THRESHOLDS.maxOverlays)
+    expect(scoreClamped.highScore).toBeGreaterThan(scoreClamped.warningScore)
+  })
+
   it('labels the meter incomplete when any configured evidence source is unavailable', () => {
     const report = analyzeContextDebt(baseInput({
       sourceAvailability: { ...ALL_SOURCES, overlays: false }
@@ -298,13 +359,38 @@ describe('SP-07 context-debt analysis', () => {
     expect(report.missingSources).toEqual(['overlays'])
   })
 
-  it('finds conflicting controls while keeping exact duplicate actions separate', () => {
+  it('keeps failed hardware scans incomplete instead of claiming devices are absent', () => {
+    const report = analyzeContextDebt(baseInput({
+      sounds: {
+        ...DEFAULT_SOUNDS_CONFIG,
+        outputDeviceId: 'unverified-headset',
+        soundshift: { ...DEFAULT_SOUNDS_CONFIG.soundshift, enabled: true }
+      },
+      devices: {
+        audioOutputIds: [],
+        serialDeviceIds: [],
+        displayIds: [],
+        gamepadIds: [],
+        scanStatus: { audio: 'failed', serial: 'success', display: 'success', gamepad: 'success' }
+      }
+    }))
+
+    expect(report.band).toBe('incomplete')
+    expect(report.incompleteScans).toEqual(['audio'])
+    expect(report.issues).toContainEqual(expect.objectContaining({
+      kind: 'scan-incomplete',
+      details: expect.objectContaining({ kind: 'audio', status: 'failed' })
+    }))
+    expect(report.issues.some((issue) => issue.kind === 'unknown-device')).toBe(false)
+  })
+
+  it('mirrors physical input identity with index while ignoring switch interpretation', () => {
     const bindings: ActionBinding[] = [
       {
         id: 'a',
         label: 'A',
         enabled: true,
-        control: { source: 'gamepad', gamepadId: 'wheel', buttonIndex: 1 },
+        control: { source: 'gamepad', gamepadId: 'wheel', gamepadIndex: 0, buttonIndex: 1, switchType: 'momentary' },
         action: { type: 'app', command: { name: 'dash:cycleNext' } },
         createdAt: '2026-07-17T00:00:00.000Z',
         updatedAt: '2026-07-17T00:00:00.000Z'
@@ -313,8 +399,17 @@ describe('SP-07 context-debt analysis', () => {
         id: 'b',
         label: 'B',
         enabled: true,
-        control: { source: 'gamepad', gamepadId: 'wheel', buttonIndex: 1 },
+        control: { source: 'gamepad', gamepadId: 'wheel', gamepadIndex: 0, buttonIndex: 1, switchType: 'toggle' },
         action: { type: 'app', command: { name: 'dash:cyclePrev' } },
+        createdAt: '2026-07-17T00:00:00.000Z',
+        updatedAt: '2026-07-17T00:00:00.000Z'
+      },
+      {
+        id: 'c',
+        label: 'C',
+        enabled: true,
+        control: { source: 'gamepad', gamepadId: 'wheel', gamepadIndex: 1, buttonIndex: 1, switchType: 'momentary' },
+        action: { type: 'app', command: { name: 'overlays:toggle', overlayId: 'relative' } },
         createdAt: '2026-07-17T00:00:00.000Z',
         updatedAt: '2026-07-17T00:00:00.000Z'
       }
@@ -326,14 +421,78 @@ describe('SP-07 context-debt analysis', () => {
         audioOutputIds: [],
         serialDeviceIds: [],
         displayIds: [],
-        scanned: { gamepad: true, audio: true, serial: true, display: true }
+        scanStatus: { gamepad: 'success', audio: 'success', serial: 'success', display: 'success' }
       }
     }))
 
     expect(report.counts.controlConflicts).toBe(1)
+    const conflict = report.issues.find((issue) => issue.kind === 'control-conflict')
+    expect(conflict?.details.control).toContain('index:0')
+    expect(conflict?.details.control).not.toContain('switch')
     expect(report.suggestions).toContainEqual(expect.objectContaining({
       kind: 'resolve-control',
       routeIds: []
     }))
+  })
+
+  it('splits audio simplification plans by their owning screen', () => {
+    const report = analyzeContextDebt(baseInput({
+      sounds: {
+        ...DEFAULT_SOUNDS_CONFIG,
+        soundshift: { ...DEFAULT_SOUNDS_CONFIG.soundshift, enabled: true }
+      },
+      engineer: { ...DEFAULT_ENGINEER_CONFIG, enabled: true, proactiveCoaching: true },
+      coach: { ...DEFAULT_COACH_CONFIG, enabled: true, speakTopTip: true },
+      thresholds: { maxAudioRoutes: 0 }
+    }))
+    const plans = report.suggestions.filter((suggestion) => suggestion.kind === 'trim-audio')
+
+    expect(plans.map((plan) => plan.navigateTo).sort()).toEqual(['coach', 'engineer', 'sounds'])
+    for (const plan of plans) {
+      const owners = new Set(
+        plan.routeIds.map((id) => report.routes.find((route) => route.id === id)?.navigateTo)
+      )
+      expect(owners).toEqual(new Set([plan.navigateTo]))
+    }
+  })
+
+  it('fingerprints route priorities and complete suggestion contents', () => {
+    const callouts = Object.fromEntries(
+      Object.entries(DEFAULT_SPOTTER_CONFIG.callouts).map(([id, config]) => [
+        id,
+        { ...config, enabled: id === 'lap.delta', priority: id === 'lap.delta' ? 2 : config.priority }
+      ])
+    ) as typeof DEFAULT_SPOTTER_CONFIG.callouts
+    const first = analyzeContextDebt(baseInput({
+      spotter: { ...DEFAULT_SPOTTER_CONFIG, enabled: true, muted: false, callouts },
+      thresholds: { maxAudioRoutes: 0 }
+    }))
+    const second = analyzeContextDebt(baseInput({
+      spotter: {
+        ...DEFAULT_SPOTTER_CONFIG,
+        enabled: true,
+        muted: false,
+        callouts: {
+          ...callouts,
+          'lap.delta': { ...callouts['lap.delta'], priority: 3 }
+        }
+      },
+      thresholds: { maxAudioRoutes: 0 }
+    }))
+    expect(second.fingerprint).not.toBe(first.fingerprint)
+
+    const changedSuggestion = first.suggestions.map((suggestion, index) => (
+      index === 0
+        ? { ...suggestion, details: { ...suggestion.details, auditRevision: 2 } }
+        : suggestion
+    ))
+    expect(fingerprintContextDebtDecisionState({
+      profileKey: first.profile.key,
+      thresholds: first.thresholds,
+      routes: first.routes,
+      suggestions: changedSuggestion,
+      missingSources: first.missingSources,
+      incompleteScans: first.incompleteScans
+    })).not.toBe(first.fingerprint)
   })
 })

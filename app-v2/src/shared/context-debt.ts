@@ -41,6 +41,7 @@ export type ContextDebtSource =
 
 export type ContextDebtModality = 'visual' | 'audio' | 'haptic' | 'control'
 export type ContextDebtDeviceKind = 'audio' | 'serial' | 'display' | 'gamepad'
+export type ContextDebtScanStatus = 'success' | 'failed' | 'not-run'
 export type ContextDebtBand = 'clear' | 'watch' | 'high' | 'incomplete'
 export type ContextDebtIssueKind =
   | 'competing-cue'
@@ -49,6 +50,7 @@ export type ContextDebtIssueKind =
   | 'control-conflict'
   | 'threshold-exceeded'
   | 'source-missing'
+  | 'scan-incomplete'
 
 export type ContextDebtSuggestionKind =
   | 'dedupe-route'
@@ -82,7 +84,7 @@ export interface ContextDebtDeviceInventory {
   serialDeviceIds?: readonly string[]
   displayIds?: readonly (string | number)[]
   gamepadIds?: readonly string[]
-  scanned?: Partial<Record<ContextDebtDeviceKind, boolean>>
+  scanStatus?: Partial<Record<ContextDebtDeviceKind, ContextDebtScanStatus>>
 }
 
 export interface ContextDebtThresholds {
@@ -105,6 +107,20 @@ export const DEFAULT_CONTEXT_DEBT_THRESHOLDS: ContextDebtThresholds = {
   maxTotalRoutes: 36,
   warningScore: 4,
   highScore: 10
+}
+
+export const CONTEXT_DEBT_THRESHOLD_BOUNDS: Record<
+  keyof ContextDebtThresholds,
+  { min: number; max: number }
+> = {
+  maxRoutesPerCue: { min: 1, max: 8 },
+  maxModalitiesPerCue: { min: 1, max: 4 },
+  maxOverlays: { min: 0, max: 30 },
+  maxAudioRoutes: { min: 0, max: 60 },
+  maxHapticRoutes: { min: 0, max: 30 },
+  maxTotalRoutes: { min: 1, max: 120 },
+  warningScore: { min: 1, max: 100 },
+  highScore: { min: 2, max: 200 }
 }
 
 export const CONTEXT_DEBT_EXPERIMENT = {
@@ -192,6 +208,7 @@ export interface ContextDebtMetrics {
   overlapRatePct: number
   criticalRoutesProtectedPct: number
   sourceCoveragePct: number
+  hardwareScanCoveragePct: number
   debtPoints: number
 }
 
@@ -206,6 +223,16 @@ export interface ContextDebtReport {
   band: ContextDebtBand
   fingerprint: string
   missingSources: ContextDebtSourceFamily[]
+  incompleteScans: ContextDebtDeviceKind[]
+}
+
+export interface ContextDebtFingerprintInput {
+  profileKey: string
+  thresholds: ContextDebtThresholds
+  routes: ContextDebtRoute[]
+  suggestions: ContextDebtSuggestion[]
+  missingSources?: ContextDebtSourceFamily[]
+  incompleteScans?: ContextDebtDeviceKind[]
 }
 
 export interface ContextDebtPreview {
@@ -256,6 +283,13 @@ const EXPECTED_SOURCES: readonly ContextDebtSourceFamily[] = [
   'coach'
 ]
 
+const CONTEXT_DEBT_DEVICE_KINDS: readonly ContextDebtDeviceKind[] = [
+  'audio',
+  'serial',
+  'display',
+  'gamepad'
+]
+
 const ALERT_RULES: ReadonlyArray<{
   key: keyof AlertsConfig
   type: AlertType
@@ -276,11 +310,14 @@ const ALERT_RULES: ReadonlyArray<{
 
 const OVERLAY_DEFINITION_BY_ID = new Map(OVERLAY_WIDGETS.map((definition) => [definition.id, definition]))
 
-const CRITICAL_OVERLAY_SIGNALS = new Set([
+const CRITICAL_SIGNAL_IDS = new Set([
   'flags',
   'blue-flag',
+  'fuel',
+  'incident-limit',
   'proximity',
   'pit-speeding',
+  'pit-limiter',
   'engine-warning',
   'water-temperature-critical',
   'oil-temperature-critical',
@@ -290,31 +327,80 @@ const CRITICAL_OVERLAY_SIGNALS = new Set([
   'brake-pressure-low'
 ])
 
+function isSemanticCriticalSignal(signalId: string): boolean {
+  return CRITICAL_SIGNAL_IDS.has(signalId)
+}
+
 function clampInteger(value: unknown, min: number, max: number, fallback: number): number {
   const numeric = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(numeric)) return fallback
-  return Math.max(min, Math.min(max, Math.round(numeric)))
+  const candidate = Number.isFinite(numeric) ? Math.round(numeric) : fallback
+  return Math.max(min, Math.min(max, candidate))
 }
 
 export function mergeContextDebtThresholds(
   patch: Partial<ContextDebtThresholds> | undefined
 ): ContextDebtThresholds {
   const base = DEFAULT_CONTEXT_DEBT_THRESHOLDS
+  const bounds = CONTEXT_DEBT_THRESHOLD_BOUNDS
+  const warningScore = clampInteger(
+    patch?.warningScore,
+    bounds.warningScore.min,
+    bounds.warningScore.max,
+    base.warningScore
+  )
   return {
-    maxRoutesPerCue: clampInteger(patch?.maxRoutesPerCue, 1, 12, base.maxRoutesPerCue),
-    maxModalitiesPerCue: clampInteger(patch?.maxModalitiesPerCue, 1, 4, base.maxModalitiesPerCue),
-    maxOverlays: clampInteger(patch?.maxOverlays, 0, 100, base.maxOverlays),
-    maxAudioRoutes: clampInteger(patch?.maxAudioRoutes, 0, 200, base.maxAudioRoutes),
-    maxHapticRoutes: clampInteger(patch?.maxHapticRoutes, 0, 100, base.maxHapticRoutes),
-    maxTotalRoutes: clampInteger(patch?.maxTotalRoutes, 1, 500, base.maxTotalRoutes),
-    warningScore: clampInteger(patch?.warningScore, 1, 100, base.warningScore),
+    maxRoutesPerCue: clampInteger(
+      patch?.maxRoutesPerCue,
+      bounds.maxRoutesPerCue.min,
+      bounds.maxRoutesPerCue.max,
+      base.maxRoutesPerCue
+    ),
+    maxModalitiesPerCue: clampInteger(
+      patch?.maxModalitiesPerCue,
+      bounds.maxModalitiesPerCue.min,
+      bounds.maxModalitiesPerCue.max,
+      base.maxModalitiesPerCue
+    ),
+    maxOverlays: clampInteger(
+      patch?.maxOverlays,
+      bounds.maxOverlays.min,
+      bounds.maxOverlays.max,
+      base.maxOverlays
+    ),
+    maxAudioRoutes: clampInteger(
+      patch?.maxAudioRoutes,
+      bounds.maxAudioRoutes.min,
+      bounds.maxAudioRoutes.max,
+      base.maxAudioRoutes
+    ),
+    maxHapticRoutes: clampInteger(
+      patch?.maxHapticRoutes,
+      bounds.maxHapticRoutes.min,
+      bounds.maxHapticRoutes.max,
+      base.maxHapticRoutes
+    ),
+    maxTotalRoutes: clampInteger(
+      patch?.maxTotalRoutes,
+      bounds.maxTotalRoutes.min,
+      bounds.maxTotalRoutes.max,
+      base.maxTotalRoutes
+    ),
+    warningScore,
     highScore: clampInteger(
       patch?.highScore,
-      clampInteger(patch?.warningScore, 1, 100, base.warningScore) + 1,
-      200,
+      Math.max(bounds.highScore.min, warningScore + 1),
+      bounds.highScore.max,
       base.highScore
     )
   }
+}
+
+export function updateContextDebtThreshold(
+  current: ContextDebtThresholds,
+  key: keyof ContextDebtThresholds,
+  value: number
+): ContextDebtThresholds {
+  return mergeContextDebtThresholds({ ...current, [key]: value })
 }
 
 function slug(value: string): string {
@@ -370,7 +456,7 @@ function addAlertRoutes(input: AlertsConfig, routes: ContextDebtRoute[]): number
     if (!rule?.enabled) continue
     enabledRules += 1
     const severity = alertSeverity(meta.type, rule)
-    const critical = severity === 'critical' || meta.signalId === 'flags' || meta.signalId === 'blue-flag'
+    const critical = severity === 'critical' || isSemanticCriticalSignal(meta.signalId)
     const priority = severity === 'critical' ? 100 : severity === 'warning' ? 75 : 45
     const configurationId = `alert:${String(meta.key)}`
 
@@ -554,7 +640,7 @@ function overlayRoute(
   const triggerSignal = signalFromOverlayTrigger(config.trigger)
   const signalId = triggerSignal ?? signalFromOverlayId(id, category)
   const displayId = config.display?.id
-  const critical = config.role === 'alert' || CRITICAL_OVERLAY_SIGNALS.has(signalId)
+  const critical = config.role === 'alert' || isSemanticCriticalSignal(signalId)
   return {
     id: routeId('overlay', id),
     configurationId: `overlay:${id}`,
@@ -650,11 +736,12 @@ function addSpotterRoutes(input: SpotterConfig, routes: ContextDebtRoute[]): voi
   for (const meta of CALLOUT_CATALOG) {
     const config = input.callouts[meta.id]
     if (!config?.enabled || config.volume <= 0) continue
-    const critical = config.priority >= 8
+    const signalId = signalFromSpotterCallout(meta.id)
+    const critical = isSemanticCriticalSignal(signalId)
     addAudioRoute(routes, {
       id: routeId('spotter', meta.id),
       configurationId: `spotter:${meta.id}`,
-      signalId: signalFromSpotterCallout(meta.id),
+      signalId,
       label: `Voice spotter · ${meta.label}`,
       source: 'spotter',
       sourceId: meta.id,
@@ -662,7 +749,7 @@ function addSpotterRoutes(input: SpotterConfig, routes: ContextDebtRoute[]): voi
       settingPath: `spotter.callouts.${meta.id}.enabled`,
       navigateTo: 'engineer',
       critical,
-      priority: critical ? 95 : 40 + config.priority,
+      priority: 40 + config.priority,
       ...(device ? { device } : {})
     })
   }
@@ -846,9 +933,10 @@ function addZonalHapticsRoutes(input: HapticsZonalConfig, routes: ContextDebtRou
   return count
 }
 
-function controlKey(control: Pick<HidButtonControl, 'gamepadId' | 'gamepadIndex' | 'buttonIndex' | 'switchType'>): string {
-  const device = control.gamepadId?.trim() || `index-${control.gamepadIndex ?? 'any'}`
-  return `gamepad:${device}:button:${control.buttonIndex}:switch:${control.switchType ?? 'momentary'}`
+function controlKey(control: Pick<HidButtonControl, 'gamepadId' | 'gamepadIndex' | 'buttonIndex'>): string {
+  const gamepadId = control.gamepadId?.trim() || 'any'
+  const gamepadIndex = control.gamepadIndex ?? 'any'
+  return `gamepad:id:${gamepadId}:index:${gamepadIndex}:button:${control.buttonIndex}`
 }
 
 function actionKey(action: ActionDefinition): string {
@@ -868,8 +956,7 @@ function engineerControlKey(binding: EngineerButtonBinding): string {
   return controlKey({
     gamepadId: binding.gamepadId,
     gamepadIndex: binding.gamepadIndex,
-    buttonIndex: binding.buttonIndex,
-    switchType: 'momentary'
+    buttonIndex: binding.buttonIndex
   })
 }
 
@@ -995,13 +1082,7 @@ function groupBy<T>(values: readonly T[], keyOf: (value: T) => string): Map<stri
 }
 
 function scanComplete(inventory: ContextDebtDeviceInventory | undefined, kind: ContextDebtDeviceKind): boolean {
-  const explicit = inventory?.scanned?.[kind]
-  if (typeof explicit === 'boolean') return explicit
-  if (!inventory) return false
-  if (kind === 'audio') return inventory.audioOutputIds !== undefined
-  if (kind === 'serial') return inventory.serialDeviceIds !== undefined
-  if (kind === 'display') return inventory.displayIds !== undefined
-  return inventory.gamepadIds !== undefined
+  return inventory?.scanStatus?.[kind] === 'success'
 }
 
 function deviceIds(inventory: ContextDebtDeviceInventory | undefined, kind: ContextDebtDeviceKind): Set<string> {
@@ -1043,6 +1124,32 @@ function routesToRemoveForCue(routes: ContextDebtRoute[], thresholds: ContextDeb
   return sorted.filter((route) => !keepIds.has(route.id))
 }
 
+function addRouteSuggestionsByOwner(
+  suggestions: ContextDebtSuggestion[],
+  base: {
+    id: string
+    kind: ContextDebtSuggestionKind
+    signalId?: string
+    routes: ContextDebtRoute[]
+    details: Record<string, string | number>
+  }
+): void {
+  const groups = [...groupBy(base.routes, (route) => route.navigateTo).entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+  for (const [owner, routes] of groups) {
+    suggestions.push({
+      id: `${base.id}:${slug(owner)}`,
+      kind: base.kind,
+      ...(base.signalId ? { signalId: base.signalId } : {}),
+      routeIds: routes.map((route) => route.id),
+      navigateTo: owner,
+      estimatedRouteReduction: routes.length,
+      reversible: true,
+      details: { ...base.details, owner }
+    })
+  }
+}
+
 function overlapCount(routes: readonly ContextDebtRoute[], thresholds: ContextDebtThresholds): number {
   let count = 0
   for (const group of groupBy(routes.filter((route) => route.modality !== 'control'), (route) => route.signalId).values()) {
@@ -1059,21 +1166,45 @@ function pct(numerator: number, denominator: number): number {
   return Math.round((numerator / denominator) * 1000) / 10
 }
 
-function stableFingerprint(profileKey: string, thresholds: ContextDebtThresholds, routes: ContextDebtRoute[]): string {
+function sortedDetails(details: Record<string, string | number>): Array<[string, string | number]> {
+  return Object.entries(details).sort(([a], [b]) => a.localeCompare(b))
+}
+
+export function fingerprintContextDebtDecisionState(input: ContextDebtFingerprintInput): string {
   const serialized = JSON.stringify({
-    profileKey,
-    thresholds,
-    routes: [...routes]
+    profileKey: input.profileKey,
+    thresholds: input.thresholds,
+    missingSources: [...(input.missingSources ?? [])].sort(),
+    incompleteScans: [...(input.incompleteScans ?? [])].sort(),
+    routes: [...input.routes]
       .sort((a, b) => a.id.localeCompare(b.id))
       .map((route) => [
         route.id,
         route.configurationId,
         route.signalId,
+        route.label,
+        route.source,
+        route.sourceId,
         route.modality,
         route.target,
+        route.settingPath,
+        route.navigateTo,
         route.critical,
+        route.priority,
         route.device?.kind,
         route.device?.id
+      ]),
+    suggestions: [...input.suggestions]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((suggestion) => [
+        suggestion.id,
+        suggestion.kind,
+        suggestion.signalId,
+        suggestion.routeIds,
+        suggestion.navigateTo,
+        suggestion.estimatedRouteReduction,
+        suggestion.reversible,
+        sortedDetails(suggestion.details)
       ])
   })
   let hash = 0x811c9dc5
@@ -1100,11 +1231,19 @@ export function analyzeContextDebt(input: ContextDebtAnalysisInput): ContextDebt
   if (input.haptics) hapticsCount += addHapticsRoutes(input.haptics, routes)
   if (input.zonalHaptics) hapticsCount += addZonalHapticsRoutes(input.zonalHaptics, routes)
   const controlRefs = addControlRoutes(input.bindings ?? [], input.engineer, routes)
+  for (const route of routes) {
+    if (!isSemanticCriticalSignal(route.signalId)) continue
+    route.critical = true
+  }
 
   const issues: ContextDebtIssue[] = []
   const suggestions: ContextDebtSuggestion[] = []
   const suggestedRouteIds = new Set<string>()
   const missingSources = EXPECTED_SOURCES.filter((source) => !sourceAvailable(input, source))
+  const incompleteScans = CONTEXT_DEBT_DEVICE_KINDS.filter((kind) => {
+    const status = input.devices?.scanStatus?.[kind]
+    return status !== undefined && status !== 'success'
+  })
 
   for (const source of missingSources) {
     issues.push({
@@ -1113,6 +1252,18 @@ export function analyzeContextDebt(input: ContextDebtAnalysisInput): ContextDebt
       severity: 'info',
       routeIds: [],
       details: { source }
+    })
+  }
+
+  for (const kind of incompleteScans) {
+    const status = input.devices?.scanStatus?.[kind] ?? 'not-run'
+    const affectedRoutes = routes.filter((route) => route.device?.kind === kind)
+    issues.push({
+      id: `scan-incomplete:${kind}`,
+      kind: 'scan-incomplete',
+      severity: 'warning',
+      routeIds: affectedRoutes.map((route) => route.id),
+      details: { kind, status, routes: affectedRoutes.length }
     })
   }
 
@@ -1184,14 +1335,11 @@ export function analyzeContextDebt(input: ContextDebtAnalysisInput): ContextDebt
       .filter((route) => !suggestedRouteIds.has(route.id))
     if (remove.length === 0) continue
     remove.forEach((route) => suggestedRouteIds.add(route.id))
-    suggestions.push({
+    addRouteSuggestionsByOwner(suggestions, {
       id: `trim-cue:${slug(signalId)}`,
       kind: 'trim-cue',
       signalId,
-      routeIds: remove.map((route) => route.id),
-      navigateTo: remove[0].navigateTo,
-      estimatedRouteReduction: remove.length,
-      reversible: true,
+      routes: remove,
       details: {
         signal: signalId,
         before: group.length,
@@ -1222,16 +1370,18 @@ export function analyzeContextDebt(input: ContextDebtAnalysisInput): ContextDebt
       routeIds: group.map((route) => route.id),
       details: { kind, deviceId: id, routes: group.length }
     })
-    suggestions.push({
-      id: `repair-device:${slug(key)}`,
-      kind: 'repair-device',
-      signalId: group[0].signalId,
-      routeIds: [],
-      navigateTo: group[0].navigateTo,
-      estimatedRouteReduction: 0,
-      reversible: true,
-      details: { kind, deviceId: id, routes: group.length }
-    })
+    for (const [owner, ownerRoutes] of groupBy(group, (route) => route.navigateTo)) {
+      suggestions.push({
+        id: `repair-device:${slug(key)}:${slug(owner)}`,
+        kind: 'repair-device',
+        signalId: ownerRoutes[0].signalId,
+        routeIds: [],
+        navigateTo: owner,
+        estimatedRouteReduction: 0,
+        reversible: true,
+        details: { kind, deviceId: id, routes: ownerRoutes.length, owner }
+      })
+    }
   }
 
   const controlGroups = groupBy(controlRefs, (ref) => ref.controlKey)
@@ -1272,31 +1422,27 @@ export function analyzeContextDebt(input: ContextDebtAnalysisInput): ContextDebt
     limit: number
     candidates: ContextDebtRoute[]
     suggestionKind?: ContextDebtSuggestionKind
-    navigateTo?: string
   }> = [
     {
       key: 'overlays',
       actual: overlayCount,
       limit: thresholds.maxOverlays,
       candidates: overlayRoutes,
-      suggestionKind: 'trim-overlays',
-      navigateTo: 'overlays'
+      suggestionKind: 'trim-overlays'
     },
     {
       key: 'audio',
       actual: audioRoutes.length,
       limit: thresholds.maxAudioRoutes,
       candidates: audioRoutes,
-      suggestionKind: 'trim-audio',
-      navigateTo: 'sounds'
+      suggestionKind: 'trim-audio'
     },
     {
       key: 'haptics',
       actual: hapticsCount,
       limit: thresholds.maxHapticRoutes,
       candidates: hapticRoutes,
-      suggestionKind: 'trim-haptics',
-      navigateTo: 'haptics'
+      suggestionKind: 'trim-haptics'
     },
     {
       key: 'total',
@@ -1316,7 +1462,7 @@ export function analyzeContextDebt(input: ContextDebtAnalysisInput): ContextDebt
       details: { metric: check.key, actual: check.actual, limit: check.limit }
     })
 
-    if (!check.suggestionKind || !check.navigateTo) continue
+    if (!check.suggestionKind) continue
     const needed = check.actual - check.limit
     const removable = [...check.candidates]
       .filter((route) => !route.critical && !suggestedRouteIds.has(route.id))
@@ -1324,13 +1470,10 @@ export function analyzeContextDebt(input: ContextDebtAnalysisInput): ContextDebt
       .slice(0, needed)
     if (removable.length === 0) continue
     removable.forEach((route) => suggestedRouteIds.add(route.id))
-    suggestions.push({
+    addRouteSuggestionsByOwner(suggestions, {
       id: `${check.suggestionKind}:threshold`,
       kind: check.suggestionKind,
-      routeIds: removable.map((route) => route.id),
-      navigateTo: check.navigateTo,
-      estimatedRouteReduction: removable.length,
-      reversible: true,
+      routes: removable,
       details: {
         metric: check.key,
         before: check.actual,
@@ -1352,8 +1495,14 @@ export function analyzeContextDebt(input: ContextDebtAnalysisInput): ContextDebt
     controlConflicts.length * 3 +
     Math.ceil(thresholdDebt / 3)
   const sourceCoveragePct = pct(EXPECTED_SOURCES.length - missingSources.length, EXPECTED_SOURCES.length)
+  const successfulScans = CONTEXT_DEBT_DEVICE_KINDS.filter(
+    (kind) => input.devices?.scanStatus?.[kind] === 'success'
+  ).length
+  const hardwareScanCoveragePct = input.devices?.scanStatus
+    ? pct(successfulScans, CONTEXT_DEBT_DEVICE_KINDS.length)
+    : 0
   const band: ContextDebtBand =
-    missingSources.length > 0
+    missingSources.length > 0 || incompleteScans.length > 0
       ? 'incomplete'
       : debtPoints >= thresholds.highScore
         ? 'high'
@@ -1381,6 +1530,7 @@ export function analyzeContextDebt(input: ContextDebtAnalysisInput): ContextDebt
     overlapRatePct: pct(overlapRoutes, routes.length),
     criticalRoutesProtectedPct: 100,
     sourceCoveragePct,
+    hardwareScanCoveragePct,
     debtPoints
   }
 
@@ -1393,8 +1543,16 @@ export function analyzeContextDebt(input: ContextDebtAnalysisInput): ContextDebt
     counts,
     metrics,
     band,
-    fingerprint: stableFingerprint(input.profile.key, thresholds, routes),
-    missingSources
+    fingerprint: fingerprintContextDebtDecisionState({
+      profileKey: input.profile.key,
+      thresholds,
+      routes,
+      suggestions,
+      missingSources,
+      incompleteScans
+    }),
+    missingSources,
+    incompleteScans
   }
 }
 
