@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "manifestKind": "rollback",
+  "format": "usa.relay.rollback/v1",
+  "rollbackId": "rollback-example-offline",
+  "createdAt": 1800000000200,
+  "targetAppVersion": "2.53.1",
+  "targetProviderContract": "usa.relay.provider/v1",
+  "restoreBackupId": "backup-example-offline",
+  "expectedRecordsDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "reason": "example health gate failure",
+  "steps": [
+    "pause relay writes only",
+    "restore the referenced provider-neutral backup",
+    "verify digest, count, cursors, epochs, and one writer",
+    "run resync planning before releasing queued ciphertext"
+  ],
+  "networkRequired": false
+}

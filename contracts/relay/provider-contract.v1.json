@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "providerContract": "usa.relay.provider/v1",
+  "mode": "foundation-only",
+  "localPrimary": true,
+  "liveNetworkConfigured": false,
+  "credentialsConfigured": false,
+  "allowedDocumentKinds": [
+    "dashboard-layout",
+    "race-note",
+    "accessibility-profile",
+    "raceops-blueprint",
+    "shared-preferences"
+  ],
+  "allowedEventKinds": [
+    "document-change",
+    "document-snapshot",
+    "membership-record",
+    "key-status-record",
+    "rotation-certificate",
+    "resync-marker"
+  ],
+  "allowedDataClasses": {
+    "D0": "allowed by document policy",
+    "D1": "allowed by document policy",
+    "D2": "allowed by document policy and capability",
+    "D3": "explicit current consent, retention, role, and capability required",
+    "D4": "blocked",
+    "D5": "blocked"
+  },
+  "alwaysProhibited": [
+    "raw telemetry",
+    "authoritative RaceOpsEvent",
+    "EvidenceLedger",
+    "driving commands",
+    "OAuth tokens",
+    "stream keys",
+    "webhook URLs",
+    "private keys",
+    "serial ports",
+    "display IDs",
+    "machine-specific settings",
+    "raw biometrics",
+    "raw voice or video"
+  ],
+  "identityEnvelope": {
+    "required": [
+      "tenantId",
+      "subjectId",
+      "deviceId",
+      "identityEpoch",
+      "signingKeyId",
+      "signingPublicKey",
+      "encryptionKeyId",
+      "encryptionPublicKey",
+      "issuedAt",
+      "expiresAt",
+      "status",
+      "issuerKeyId",
+      "signature"
+    ]
+  },
+  "capabilityEnvelope": {
+    "required": [
+      "grantId",
+      "tenantId",
+      "subjectId",
+      "deviceId",
+      "documentIds",
+      "documentKinds",
+      "eventKinds",
+      "capabilities",
+      "maxDataClass",
+      "consentEpoch",
+      "membershipEpoch",
+      "issuedAt",
+      "expiresAt",
+      "issuerKeyId",
+      "signature"
+    ]
+  },
+  "memberKeyEnvelopes": {
+    "coverage": "exactly one current document-key envelope per active member encryption key",
+    "privateKeysIncluded": false
+  },
+  "canonicalSignedTuple": [
+    "schemaVersion",
+    "providerContract",
+    "tenantId",
+    "documentId",
+    "documentKind",
+    "eventKind",
+    "dataClass",
+    "membershipEpoch",
+    "keyEpoch",
+    "senderDeviceId",
+    "senderSigningKeyId",
+    "replayCounter",
+    "parentRefs",
+    "headRefs",
+    "ciphertextHash",
+    "keyEnvelopesHash",
+    "cryptoProfile",
+    "createdAt",
+    "expiresAt"
+  ],
+  "productionCryptoTarget": "xchacha20-poly1305+ed25519+x25519-hkdf-sha256",
+  "implementedCryptoProfile": "deterministic-test-only"
+}

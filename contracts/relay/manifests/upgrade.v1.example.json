@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "manifestKind": "upgrade",
+  "format": "usa.relay.upgrade/v1",
+  "upgradeId": "upgrade-example-offline",
+  "createdAt": 1800000000100,
+  "fromAppVersion": "2.53.1",
+  "toAppVersion": "next-reviewed-version",
+  "fromProviderContract": "usa.relay.provider/v1",
+  "toProviderContract": "usa.relay.provider/v1",
+  "requiredBackupId": "backup-example-offline",
+  "rollbackManifestId": "rollback-example-offline",
+  "preflightChecks": [
+    "writes paused; local editing remains available",
+    "single writer generation",
+    "backup digest verified",
+    "no plaintext, private keys, D4, or D5"
+  ],
+  "steps": [
+    "record versions",
+    "migrate an isolated copy",
+    "verify count, cursors, digests, epochs, and health",
+    "retain rollback checkpoint before resuming writes"
+  ],
+  "networkRequired": false
+}
