@@ -8,6 +8,7 @@ import { BUILTIN_PRESETS, DASHBOARD_ELEMENT_TYPES, dashboardStorageValidationRes
 import { buttonPanelPlaylistItem } from '../../shared/touch-panel'
 import type { ModuleContext } from '../module-context'
 import {
+  applyThirdPartyImportMetadata,
   DashboardManager,
   openablePlaylistItems,
   resolveCycleStep,
@@ -15,11 +16,16 @@ import {
   type DashboardStorageIo,
   touchPanelIdOf
 } from './manager'
+import {
+  THIRD_PARTY_CATALOG_ALLOWED_URLS,
+  THIRD_PARTY_CATALOG_OPEN_CHANNEL
+} from '../../shared/third-party-dashboard-catalog'
 
 const electronMocks = vi.hoisted(() => ({
   createBrowserWindow: vi.fn(),
   getAllDisplays: vi.fn(),
-  getPrimaryDisplay: vi.fn()
+  getPrimaryDisplay: vi.fn(),
+  openExternal: vi.fn()
 }))
 
 vi.mock('electron', () => ({
@@ -35,7 +41,7 @@ vi.mock('electron', () => ({
     getAllDisplays: electronMocks.getAllDisplays,
     getPrimaryDisplay: electronMocks.getPrimaryDisplay
   },
-  shell: { openExternal: vi.fn() }
+  shell: { openExternal: electronMocks.openExternal }
 }))
 
 vi.mock('../modules/logger', () => ({
@@ -62,6 +68,8 @@ beforeEach(() => {
   electronMocks.createBrowserWindow.mockReset()
   electronMocks.getAllDisplays.mockReset()
   electronMocks.getPrimaryDisplay.mockReset()
+  electronMocks.openExternal.mockReset()
+  electronMocks.openExternal.mockResolvedValue(undefined)
   electronMocks.getAllDisplays.mockReturnValue([primaryDisplay, secondaryDisplay])
   electronMocks.getPrimaryDisplay.mockReturnValue(primaryDisplay)
   vi.stubEnv('ELECTRON_RENDERER_URL', 'http://127.0.0.1:5174/')
@@ -205,6 +213,30 @@ describe('resolveCycleStep', () => {
     expect(step!.next).toEqual(items[0])
   })
 
+  describe('third-party dashboard catalog external actions', () => {
+    it('does not open anything before IPC and shells only the allowlisted URL after invocation', async () => {
+      const handlers = new Map<string, IpcHandler>()
+      const manager = makeHeadlessManager(process.cwd(), handlers)
+      manager.registerIpc()
+      const open = handlers.get(THIRD_PARTY_CATALOG_OPEN_CHANNEL)
+      expect(open).toBeDefined()
+      expect(electronMocks.openExternal).not.toHaveBeenCalled()
+
+      await expect(open!({}, 'lovely-dashboard', 'license')).resolves.toEqual({ opened: true })
+      expect(electronMocks.openExternal).toHaveBeenCalledWith(THIRD_PARTY_CATALOG_ALLOWED_URLS.lovelyLicense)
+    })
+
+    it('rejects forged/deep actions without calling the external shell', async () => {
+      const handlers = new Map<string, IpcHandler>()
+      const manager = makeHeadlessManager(process.cwd(), handlers)
+      manager.registerIpc()
+      const open = handlers.get(THIRD_PARTY_CATALOG_OPEN_CHANNEL)!
+
+      await expect(open({}, 'overtake-iracing', 'attachment')).rejects.toThrow(/not allowlisted/)
+      expect(electronMocks.openExternal).not.toHaveBeenCalled()
+    })
+  })
+
   it('advances to the next item — including a touch panel — and reports the one to close', () => {
     const step = resolveCycleStep(items, 0, (i) => i.dashboardId === 'd1', 'next')
     expect(step!.currentIndex).toBe(0)
@@ -337,6 +369,36 @@ describe('DashboardManager restart restoration', () => {
     const restarted = makeHeadlessManager(userData)
     await restarted.load()
     expect(restarted.getDashboard(dashboard.id)?.elements).toHaveLength(18)
+  })
+
+  it('persists third-party provenance and restrictive rights across save and restart', async () => {
+    const baseline = raceTrafficAttack()
+    persistDashboard(userData, baseline)
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+
+    const imported = applyThirdPartyImportMetadata(
+      { ...baseline, id: 'third-party-persisted', name: 'Third-party persisted' },
+      { catalogEntryId: 'lovely-dashboard' },
+      123
+    )
+    await manager.save(imported)
+
+    const stored = JSON.parse(
+      readFileSync(join(userData, 'dashboards', 'third-party-persisted.json'), 'utf8')
+    ) as Dashboard
+    expect(stored.thirdParty).toMatchObject({
+      catalogEntryId: 'lovely-dashboard',
+      rights: { classification: 'proprietary-restricted' },
+      acquisition: { mode: 'manual-local-file', recordedAt: 123 }
+    })
+
+    const restarted = makeHeadlessManager(userData)
+    await restarted.load()
+    expect(restarted.getDashboard(imported.id)?.thirdParty).toEqual(stored.thirdParty)
+    await expect(restarted.exportSimhub(imported.id, join(userData, 'blocked.simhubdash')))
+      .rejects.toThrow(/re-export blocked/i)
+    expect(existsSync(join(userData, 'blocked.simhubdash'))).toBe(false)
   })
 
   it('accepts every element type from the shared dashboard schema after a JSON restart', async () => {
