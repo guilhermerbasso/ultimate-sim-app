@@ -7,6 +7,7 @@ import {
   type StewardAppealResolutionKind,
   type StewardCase,
   type StewardCaseStatus,
+  type StewardEvidenceDetails,
   type StewardExportResult,
   type StewardImportResult,
   type StewardVerdictFinding
@@ -89,6 +90,44 @@ function CaseStatusBadge({
   return <span className={`steward-badge status-${status}`}>{tt(language, `steward.status.${status}`)}</span>
 }
 
+function ReadOnlyDetails({
+  language,
+  verified,
+  children
+}: {
+  language?: ResolvedLanguage
+  verified: boolean
+  children: ReactElement | ReactElement[]
+}): ReactElement {
+  return (
+    <details className="steward-readonly-details">
+      <summary>
+        {tt(language, verified ? 'steward.details.verified' : 'steward.details.quarantined')}
+      </summary>
+      <div className="steward-detail-body" role="group" aria-label={tt(language, 'steward.details.aria')}>
+        {children}
+      </div>
+    </details>
+  )
+}
+
+function DetailList({
+  rows
+}: {
+  rows: Array<[string, string | number | undefined]>
+}): ReactElement {
+  return (
+    <dl className="steward-detail-list">
+      {rows.map(([label, value]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>{value === undefined || value === '' ? '—' : String(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
 export default function StewardDeskView({ showToast, language }: AppViewProps): ReactElement {
   const [cases, setCases] = useState<StewardCase[]>([])
   const [selectedId, setSelectedId] = useState('')
@@ -98,6 +137,10 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
   const [participantName, setParticipantName] = useState('League participant')
   const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([])
   const [selectedEvidenceIds, setSelectedEvidenceIds] = useState<string[]>([])
+  const [referencesDirty, setReferencesDirty] = useState(false)
+  const [evidenceDetails, setEvidenceDetails] = useState<Record<string, StewardEvidenceDetails>>({})
+  const [evidenceLoadingId, setEvidenceLoadingId] = useState('')
+  const [evidenceIncidentId, setEvidenceIncidentId] = useState('')
   const [create, setCreate] = useState({
     title: '',
     leagueId: '',
@@ -147,6 +190,76 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
   )
   const healthy = selected?.integrity.state === 'unanchored'
   const openAppeals = selected?.appeals.filter((entry) => entry.status === 'open') ?? []
+  const statusLockedByAppeal = openAppeals.length > 0
+  const caseDraftDirty = useMemo(
+    () =>
+      referencesDirty ||
+      Object.values(bookmark).some(Boolean) ||
+      Object.values(manualEvidence).some(Boolean) ||
+      Object.values(rule).some(Boolean) ||
+      Boolean(verdict.decisionText || verdict.actionText) ||
+      Boolean(dissent.statement || dissent.grounds) ||
+      Boolean(appeal.grounds || appeal.requestedRemedy) ||
+      Boolean(resolution.reasoning) ||
+      Boolean(evidenceIncidentId) ||
+      verdict.finding !== 'insufficient-evidence' ||
+      dissent.verdictId !== (selected?.verdicts.at(-1)?.verdictId ?? '') ||
+      appeal.verdictId !== (selected?.verdicts.at(-1)?.verdictId ?? '') ||
+      resolution.appealId !== (openAppeals[0]?.appealId ?? '') ||
+      resolution.resolution !== 'upheld',
+    [
+      appeal,
+      bookmark,
+      dissent,
+      evidenceIncidentId,
+      manualEvidence,
+      openAppeals,
+      referencesDirty,
+      resolution,
+      rule,
+      selected,
+      verdict
+    ]
+  )
+
+  function resetCaseDrafts(caseValue: StewardCase | null): void {
+    const latestVerdict = caseValue?.verdicts.at(-1)?.verdictId ?? ''
+    const firstOpenAppeal = caseValue?.appeals.find((entry) => entry.status === 'open')?.appealId ?? ''
+    setBookmark({ sourceId: '', label: '', lap: '', sessionTimeSec: '', replayFrame: '' })
+    setManualEvidence({ summary: '', sourceRef: '', content: '' })
+    setRule({ rulesetId: '', version: '', section: '', title: '', text: '', source: '' })
+    setVerdict({ finding: 'insufficient-evidence', decisionText: '', actionText: '' })
+    setDissent({ verdictId: latestVerdict, statement: '', grounds: '' })
+    setAppeal({ verdictId: latestVerdict, grounds: '', requestedRemedy: '' })
+    setResolution({ appealId: firstOpenAppeal, resolution: 'upheld', reasoning: '' })
+    setSelectedRuleIds(caseValue?.rules.at(-1) ? [caseValue.rules.at(-1)!.citationId] : [])
+    setSelectedEvidenceIds(
+      caseValue?.evidence.filter((entry) => entry.state === 'available').map((entry) => entry.evidenceId) ?? []
+    )
+    setReferencesDirty(false)
+    setEvidenceDetails({})
+    setEvidenceLoadingId('')
+    setEvidenceIncidentId('')
+  }
+
+  function confirmDraftDiscard(): boolean {
+    if (!caseDraftDirty) return true
+    return window.confirm(tt(language, 'steward.drafts.confirmDiscard'))
+  }
+
+  function selectCase(nextId: string): void {
+    if (nextId === selectedId) return
+    if (!confirmDraftDiscard()) return
+    const next = cases.find((entry) => entry.caseId === nextId) ?? null
+    resetCaseDrafts(next)
+    setSelectedId(nextId)
+  }
+
+  function clearDraftsWithConfirmation(): void {
+    if (!caseDraftDirty) return
+    if (!confirmDraftDiscard()) return
+    resetCaseDrafts(selected)
+  }
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -178,6 +291,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
     }
     setSelectedRuleIds(selected.rules.at(-1) ? [selected.rules.at(-1)!.citationId] : [])
     setSelectedEvidenceIds(selected.evidence.filter((entry) => entry.state === 'available').map((entry) => entry.evidenceId))
+    setReferencesDirty(false)
     const latestVerdict = selected.verdicts.at(-1)?.verdictId ?? ''
     setDissent((current) => ({ ...current, verdictId: latestVerdict }))
     setAppeal((current) => ({ ...current, verdictId: latestVerdict }))
@@ -210,6 +324,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
 
   async function createCase(event: FormEvent): Promise<void> {
     event.preventDefault()
+    if (selected && !confirmDraftDiscard()) return
     const incident = selectedClip
       ? {
           source: 'incident-recorder' as const,
@@ -254,6 +369,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       'steward.toast.created'
     )
     if (next) {
+      resetCaseDrafts(next)
       setCreate((current) => ({
         ...current,
         title: '',
@@ -293,10 +409,10 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
   }
 
   async function lockSelectedIncident(): Promise<void> {
-    if (!selected || !create.incidentId) return
+    if (!selected || !evidenceIncidentId) return
     setBusy(true)
     try {
-      const clip = await window.ipc.invoke<IncidentClip | null>(INCIDENT_CHANNELS.get, create.incidentId)
+      const clip = await window.ipc.invoke<IncidentClip | null>(INCIDENT_CHANNELS.get, evidenceIncidentId)
       if (!clip) throw new Error(tt(language, 'steward.error.incidentMissing'))
       const next = await window.ipc.invoke<StewardCase>(STEWARD_CHANNELS.lockEvidence, {
         caseId: selected.caseId,
@@ -316,6 +432,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
         }
       })
       upsert(next)
+      setEvidenceIncidentId('')
       showToast(tt(language, 'steward.toast.evidence'), 'success')
     } catch (error) {
       showToast(errorMessage(error), 'error')
@@ -425,7 +542,13 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       },
       'steward.toast.resolution'
     )
-    if (next) setResolution((current) => ({ ...current, reasoning: '' }))
+    if (next) {
+      setResolution({
+        appealId: next.appeals.find((entry) => entry.status === 'open')?.appealId ?? '',
+        resolution: 'upheld',
+        reasoning: ''
+      })
+    }
   }
 
   async function exportCase(profile: 'full-local' | 'anonymized'): Promise<void> {
@@ -444,13 +567,41 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
     }
   }
 
+  async function loadEvidenceDetails(evidenceId: string): Promise<void> {
+    if (!selected || evidenceDetails[evidenceId]) return
+    setEvidenceLoadingId(evidenceId)
+    try {
+      const details = await window.ipc.invoke<StewardEvidenceDetails>(
+        STEWARD_CHANNELS.getEvidenceDetails,
+        { caseId: selected.caseId, evidenceId }
+      )
+      setEvidenceDetails((current) => ({ ...current, [evidenceId]: details }))
+    } catch (error) {
+      showToast(errorMessage(error), 'error')
+    } finally {
+      setEvidenceLoadingId('')
+    }
+  }
+
   async function importCase(): Promise<void> {
+    if (selected && !confirmDraftDiscard()) return
     setBusy(true)
     try {
       const result = await window.ipc.invoke<StewardImportResult>(STEWARD_CHANNELS.importCase)
       if (result.importedCase) {
+        resetCaseDrafts(result.importedCase)
         upsert(result.importedCase)
-        showToast(tt(language, 'steward.toast.imported'), 'success')
+        showToast(
+          tt(
+            language,
+            result.deduplicated
+              ? 'steward.toast.importDeduplicated'
+              : result.retried
+                ? 'steward.toast.importRetried'
+                : 'steward.toast.imported'
+          ),
+          'success'
+        )
       }
     } catch (error) {
       showToast(errorMessage(error), 'error')
@@ -460,6 +611,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
   }
 
   function toggleReference(id: string, selectedValues: string[], update: (ids: string[]) => void): void {
+    setReferencesDirty(true)
     update(selectedValues.includes(id)
       ? selectedValues.filter((value) => value !== id)
       : [...selectedValues, id])
@@ -505,7 +657,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                   type="button"
                   className={`steward-case-row ${entry.caseId === selectedId ? 'is-selected' : ''}`}
                   key={entry.caseId}
-                  onClick={() => setSelectedId(entry.caseId)}
+                  onClick={() => selectCase(entry.caseId)}
                   aria-current={entry.caseId === selectedId ? 'page' : undefined}
                 >
                   <span>
@@ -622,7 +774,8 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                   <span>{tt(language, 'steward.statusLabel')}</span>
                   <select
                     value={selected.status}
-                    disabled={!healthy || busy}
+                    disabled={!healthy || busy || statusLockedByAppeal}
+                    aria-describedby={statusLockedByAppeal ? 'steward-status-derived' : undefined}
                     onChange={(event) => void mutate<StewardCase>(
                       STEWARD_CHANNELS.setStatus,
                       {
@@ -637,6 +790,9 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                       <option key={status} value={status}>{tt(language, `steward.status.${status}`)}</option>
                     ))}
                   </select>
+                  {statusLockedByAppeal ? (
+                    <small id="steward-status-derived">{tt(language, 'steward.status.appealDerived')}</small>
+                  ) : null}
                 </label>
                 <button type="button" disabled={!healthy || busy} onClick={() => void exportCase('anonymized')}>
                   {tt(language, 'steward.exportAnonymized')}
@@ -658,6 +814,13 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                 </button>
                 <button type="button" disabled={!healthy || busy} onClick={() => void exportCase('full-local')}>
                   {tt(language, 'steward.exportLocal')}
+                </button>
+                <button
+                  type="button"
+                  disabled={!caseDraftDirty || busy}
+                  onClick={clearDraftsWithConfirmation}
+                >
+                  {tt(language, 'steward.drafts.clear')}
                 </button>
               </div>
 
@@ -688,6 +851,24 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                       <div>
                         <strong>{entry.label}</strong>
                         <p>{entry.source} · {entry.sourceId}</p>
+                        <ReadOnlyDetails language={language} verified={healthy}>
+                          <DetailList rows={[
+                            [tt(language, 'steward.details.id'), entry.bookmarkId],
+                            [tt(language, 'steward.details.source'), entry.source],
+                            [tt(language, 'steward.details.sourceRef'), entry.sourceId],
+                            [tt(language, 'steward.details.label'), entry.label],
+                            [tt(language, 'steward.details.occurredAt'), formatDate(entry.occurredAt, language)],
+                            [tt(language, 'steward.details.sessionTime'), entry.sessionTimeSec],
+                            [tt(language, 'steward.details.lap'), entry.lap],
+                            [tt(language, 'steward.details.lapDistance'), entry.lapDistPct],
+                            [tt(language, 'steward.details.replayFrame'), entry.replayFrame],
+                            [tt(language, 'steward.details.windowBefore'), entry.windowBeforeSec],
+                            [tt(language, 'steward.details.windowAfter'), entry.windowAfterSec],
+                            [tt(language, 'steward.details.notes'), entry.notes],
+                            [tt(language, 'steward.details.createdAt'), formatDate(entry.createdAt, language)],
+                            [tt(language, 'steward.details.createdBy'), `${entry.createdBy.displayName} · ${entry.createdBy.id} · ${entry.createdBy.role}`]
+                          ]} />
+                        </ReadOnlyDetails>
                       </div>
                       <span>{entry.lap === undefined ? '—' : `L${entry.lap}`}</span>
                     </article>
@@ -723,6 +904,51 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                         <strong>{entry.summary}</strong>
                         <p>{entry.provenance.producer} · {entry.provenance.sourceRef}</p>
                         <code>{entry.contentHash.slice(0, 16)}</code>
+                        <ReadOnlyDetails language={language} verified={healthy}>
+                          <>
+                            <DetailList rows={[
+                              [tt(language, 'steward.details.id'), entry.evidenceId],
+                              [tt(language, 'steward.details.summary'), entry.summary],
+                              [tt(language, 'steward.details.mediaType'), entry.mediaType],
+                              [tt(language, 'steward.details.contentHash'), entry.contentHash],
+                              [tt(language, 'steward.details.byteLength'), entry.byteLength],
+                              [tt(language, 'steward.details.state'), entry.state],
+                              [tt(language, 'steward.details.sourceKind'), entry.provenance.sourceKind],
+                              [tt(language, 'steward.details.sourceRef'), entry.provenance.sourceRef],
+                              [tt(language, 'steward.details.producer'), entry.provenance.producer],
+                              [tt(language, 'steward.details.producerVersion'), entry.provenance.producerVersion],
+                              [tt(language, 'steward.details.capturedAt'), formatDate(entry.provenance.capturedAt, language)],
+                              [tt(language, 'steward.details.sessionRef'), entry.provenance.sessionRef],
+                              [tt(language, 'steward.details.captureRange'), entry.provenance.captureRange],
+                              [tt(language, 'steward.details.transform'), entry.provenance.transform],
+                              [tt(language, 'steward.details.notes'), entry.provenance.notes],
+                              [tt(language, 'steward.details.lockedAt'), formatDate(entry.lockedAt, language)],
+                              [tt(language, 'steward.details.lockedBy'), `${entry.lockedBy.displayName} · ${entry.lockedBy.id} · ${entry.lockedBy.role}`]
+                            ]} />
+                            <button
+                              type="button"
+                              disabled={!healthy || evidenceLoadingId === entry.evidenceId}
+                              aria-expanded={Boolean(evidenceDetails[entry.evidenceId])}
+                              onClick={() => void loadEvidenceDetails(entry.evidenceId)}
+                            >
+                              {evidenceDetails[entry.evidenceId]
+                                ? tt(language, 'steward.details.contentVerified')
+                                : evidenceLoadingId === entry.evidenceId
+                                  ? tt(language, 'steward.details.loading')
+                                  : tt(language, 'steward.details.loadContent')}
+                            </button>
+                            {evidenceDetails[entry.evidenceId] ? (
+                              <>
+                                <p className="steward-verified-note">
+                                  {tt(language, 'steward.details.hashVerified')} · {formatDate(evidenceDetails[entry.evidenceId].verifiedAt, language)}
+                                </p>
+                                <pre className="steward-evidence-content">
+                                  {JSON.stringify(evidenceDetails[entry.evidenceId].content, null, 2)}
+                                </pre>
+                              </>
+                            ) : null}
+                          </>
+                        </ReadOnlyDetails>
                       </div>
                       <span className={`steward-badge evidence-${entry.state}`}>
                         {tt(language, `steward.evidence.${entry.state}`)}
@@ -732,12 +958,12 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                 </div>
                 <div className="steward-evidence-actions">
                   <Field label={tt(language, 'steward.field.incidentClip')}>
-                    <select value={create.incidentId} onChange={(event) => setCreate({ ...create, incidentId: event.target.value })}>
+                    <select value={evidenceIncidentId} onChange={(event) => setEvidenceIncidentId(event.target.value)}>
                       <option value="">{tt(language, 'steward.incident.choose')}</option>
                       {incidentClips.map((clip) => <option key={clip.id} value={clip.id}>{clip.type} · {clip.id}</option>)}
                     </select>
                   </Field>
-                  <button type="button" disabled={!healthy || busy || !create.incidentId} onClick={() => void lockSelectedIncident()}>
+                  <button type="button" disabled={!healthy || busy || !evidenceIncidentId} onClick={() => void lockSelectedIncident()}>
                     {tt(language, 'steward.evidence.lockIncident')}
                   </button>
                 </div>
@@ -766,6 +992,20 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                         <strong>{entry.rulesetId} {entry.version} · {entry.section}</strong>
                         <p>{entry.title}</p>
                         <code>{entry.contentHash.slice(0, 16)}</code>
+                        <ReadOnlyDetails language={language} verified={healthy}>
+                          <DetailList rows={[
+                            [tt(language, 'steward.details.id'), entry.citationId],
+                            [tt(language, 'steward.details.ruleset'), entry.rulesetId],
+                            [tt(language, 'steward.details.version'), entry.version],
+                            [tt(language, 'steward.details.section'), entry.section],
+                            [tt(language, 'steward.details.title'), entry.title],
+                            [tt(language, 'steward.details.text'), entry.text],
+                            [tt(language, 'steward.details.source'), entry.source],
+                            [tt(language, 'steward.details.contentHash'), entry.contentHash],
+                            [tt(language, 'steward.details.citedAt'), formatDate(entry.citedAt, language)],
+                            [tt(language, 'steward.details.citedBy'), `${entry.citedBy.displayName} · ${entry.citedBy.id} · ${entry.citedBy.role}`]
+                          ]} />
+                        </ReadOnlyDetails>
                       </div>
                       <span>{formatDate(entry.citedAt, language)}</span>
                     </article>
@@ -806,6 +1046,19 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                         <strong>{tt(language, `steward.finding.${entry.finding}`)}</strong>
                         <p>{entry.decisionText}</p>
                         {entry.actionText ? <small>{entry.actionText}</small> : null}
+                        <ReadOnlyDetails language={language} verified={healthy}>
+                          <DetailList rows={[
+                            [tt(language, 'steward.details.id'), entry.verdictId],
+                            [tt(language, 'steward.details.finding'), entry.finding],
+                            [tt(language, 'steward.details.decision'), entry.decisionText],
+                            [tt(language, 'steward.details.manualAction'), entry.actionText],
+                            [tt(language, 'steward.details.ruleRefs'), entry.ruleCitationIds.join(', ')],
+                            [tt(language, 'steward.details.evidenceRefs'), entry.evidenceIds.join(', ')],
+                            [tt(language, 'steward.details.supersedes'), entry.supersedesVerdictId],
+                            [tt(language, 'steward.details.decidedAt'), formatDate(entry.decidedAt, language)],
+                            [tt(language, 'steward.details.decidedBy'), `${entry.decidedBy.displayName} · ${entry.decidedBy.id} · ${entry.decidedBy.role}`]
+                          ]} />
+                        </ReadOnlyDetails>
                       </div>
                       <span>{entry.decidedBy.displayName}</span>
                     </article>
@@ -914,7 +1167,20 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                 <div className="steward-list governance-history">
                   {selected.dissents.map((entry) => (
                     <article key={entry.dissentId}>
-                      <div><strong>{tt(language, 'steward.dissent.title')}</strong><p>{entry.statement}</p></div>
+                      <div>
+                        <strong>{tt(language, 'steward.dissent.title')}</strong>
+                        <p>{entry.statement}</p>
+                        <ReadOnlyDetails language={language} verified={healthy}>
+                          <DetailList rows={[
+                            [tt(language, 'steward.details.id'), entry.dissentId],
+                            [tt(language, 'steward.details.verdictId'), entry.verdictId],
+                            [tt(language, 'steward.details.statement'), entry.statement],
+                            [tt(language, 'steward.details.grounds'), entry.grounds],
+                            [tt(language, 'steward.details.submittedAt'), formatDate(entry.submittedAt, language)],
+                            [tt(language, 'steward.details.submittedBy'), `${entry.submittedBy.displayName} · ${entry.submittedBy.id} · ${entry.submittedBy.role}`]
+                          ]} />
+                        </ReadOnlyDetails>
+                      </div>
                       <span>{entry.submittedBy.displayName}</span>
                     </article>
                   ))}
@@ -924,6 +1190,31 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                         <strong>{tt(language, 'steward.appeal.title')} · {entry.status}</strong>
                         <p>{entry.grounds}</p>
                         {entry.resolutions.map((item) => <small key={item.resolutionId}>{item.resolution}: {item.reasoning}</small>)}
+                        <ReadOnlyDetails language={language} verified={healthy}>
+                          <>
+                            <DetailList rows={[
+                              [tt(language, 'steward.details.id'), entry.appealId],
+                              [tt(language, 'steward.details.verdictId'), entry.verdictId],
+                              [tt(language, 'steward.details.grounds'), entry.grounds],
+                              [tt(language, 'steward.details.remedy'), entry.requestedRemedy],
+                              [tt(language, 'steward.details.filedAt'), formatDate(entry.filedAt, language)],
+                              [tt(language, 'steward.details.filedBy'), `${entry.filedBy.displayName} · ${entry.filedBy.id} · ${entry.filedBy.role}`],
+                              [tt(language, 'steward.details.status'), entry.status]
+                            ]} />
+                            {entry.resolutions.map((item) => (
+                              <div className="steward-resolution-detail" key={item.resolutionId}>
+                                <strong>{tt(language, 'steward.details.resolution')}</strong>
+                                <DetailList rows={[
+                                  [tt(language, 'steward.details.id'), item.resolutionId],
+                                  [tt(language, 'steward.details.resolution'), item.resolution],
+                                  [tt(language, 'steward.details.reasoning'), item.reasoning],
+                                  [tt(language, 'steward.details.resolvedAt'), formatDate(item.resolvedAt, language)],
+                                  [tt(language, 'steward.details.resolvedBy'), `${item.resolvedBy.displayName} · ${item.resolvedBy.id} · ${item.resolvedBy.role}`]
+                                ]} />
+                              </div>
+                            ))}
+                          </>
+                        </ReadOnlyDetails>
                       </div>
                       <span>{entry.filedBy.displayName}</span>
                     </article>

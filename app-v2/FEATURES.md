@@ -22,7 +22,7 @@ do sim **direto** (sem SimHub) e a usa para OLED, overlays, estratégia, alertas
 - **Perfis Corrida** — perfis por carro/pista (mapa HID + OLED + overlays + alertas + bindings) com sugestão de auto-troca.
 - **Soundshift** — beep de troca de marcha no ponto ótimo (Web Audio, áudio do PC), **ajuste por carro** e **auto-aprendizado** do RPM de troca por marcha (com lead preditivo).
 - **Setups** — auto-instalação de setups `.sto` a partir de **pasta local** ou **URL https** para `Documents/iRacing/setups/<carro>/` (Windows; validação https-only + anti-traversal).
-- **Steward Desk** — casos locais com identidade de corrida/sessão, bookmarks de incidente, evidence locks content-addressed, versão de regra, veredito humano, dissenso/recurso e exportação anonimizada. A chain é append-only e sempre rotulada **unanchored** sem âncora externa; o app nunca aplica penalidade automática.
+- **Steward Desk** — casos locais com identidade de corrida/sessão, bookmarks de incidente, evidence locks content-addressed, detalhes verificados somente leitura, versão de regra, veredito humano, dissenso/recurso e exportação anonimizada. Imports são staged e só publicados após `import-completed`, com retry/dedupe por package hash. A chain é append-only e sempre rotulada **unanchored** sem âncora externa; o app nunca aplica penalidade automática.
 
 **ButtonBox** — Dispositivos, Remapeamento, OLED manual, Monitor de Inputs, Perfis (o que já existia).
 
