@@ -1,0 +1,7 @@
+topic write ultimate-sim/v1/simrig/availability
+topic write ultimate-sim/v1/simrig/state/+
+topic write ultimate-sim/v1/simrig/event/+
+topic write ultimate-sim/v1/simrig/health
+topic write ultimate-sim/v1/simrig/schema/announcement
+topic write ultimate-sim/v1/simrig/result/+
+topic read ultimate-sim/v1/simrig/command/+

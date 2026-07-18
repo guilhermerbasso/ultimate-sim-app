@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ultimate-sim:mqtt:v1:command-result",
+  "title": "Ultimate Sim MQTT Command Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "requestId",
+    "capability",
+    "observedAt",
+    "expiresAt",
+    "status",
+    "duplicate",
+    "message"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "requestId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$" },
+    "capability": {
+      "enum": ["app.overlay.show", "app.overlay.hide"]
+    },
+    "observedAt": { "type": "integer", "minimum": 0 },
+    "expiresAt": { "type": "integer", "minimum": 0 },
+    "status": { "enum": ["ok", "denied", "expired", "unsupported", "failed"] },
+    "duplicate": { "type": "boolean" },
+    "message": { "type": "string", "maxLength": 512 }
+  }
+}
