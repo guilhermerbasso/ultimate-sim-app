@@ -540,7 +540,10 @@ export function parseReceiverServerMessage(input: string): ReceiverServerMessage
         value.protocolVersion !== RECEIVER_PROTOCOL_VERSION ||
         value.schemaVersion !== RECEIVER_SCHEMA_VERSION ||
         !Array.isArray(value.capabilities) ||
+        value.capabilities.length === 0 ||
+        value.capabilities.length !== new Set(value.capabilities).size ||
         !value.capabilities.every((item) => typeof item === 'string' && CAPABILITIES.has(item)) ||
+        !(value.capabilities as string[]).includes('telemetry.fast.v1') ||
         !boundedString(value.sessionId, 8, 128) ||
         !boundedInteger(value.rateHz, RECEIVER_MIN_HZ, RECEIVER_MAX_HZ) ||
         !boundedInteger(value.maxPayloadBytes, 1_024, RECEIVER_MAX_SERVER_MESSAGE_BYTES) ||

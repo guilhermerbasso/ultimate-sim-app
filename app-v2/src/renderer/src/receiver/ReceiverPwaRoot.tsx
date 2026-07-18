@@ -3,6 +3,7 @@ import type { FormEvent, ReactElement } from 'react'
 import {
   RECEIVER_CAPABILITIES,
   RECEIVER_DEFAULT_HZ,
+  RECEIVER_MAX_CLIENT_MESSAGE_BYTES,
   RECEIVER_MAX_SERVER_MESSAGE_BYTES,
   RECEIVER_PROTOCOL_VERSION,
   RECEIVER_SCHEMA_VERSION,
@@ -254,7 +255,7 @@ export function ReceiverPwaRoot(): ReactElement {
     const send = (body: unknown): void => {
       if (socket?.readyState !== WebSocket.OPEN) return
       const serialized = JSON.stringify(body)
-      if (new TextEncoder().encode(serialized).length > 4_096) {
+      if (new TextEncoder().encode(serialized).length > RECEIVER_MAX_CLIENT_MESSAGE_BYTES) {
         socket.close(1009, 'client_payload_limit')
         return
       }
