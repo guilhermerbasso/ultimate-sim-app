@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent, ReactElement, ReactNode } from 'react'
+import type { AlertsConfig } from '../../../shared/alerts'
 import type {
   Dashboard,
   DashboardDisplayInfo,
@@ -49,6 +50,10 @@ import type { AppViewProps } from '../App'
 import { setActionRuntimeSuppressed } from '../lib/action-runtime'
 import { useUnitSystem } from '../lib/units'
 import { SectionExportImport } from '../components/SectionExportImport'
+import {
+  TriggerPreviewToggle,
+  useEditorTriggerPreviewPreference
+} from '../components/TriggerPreviewToggle'
 import { findFirstPressedButton } from '../lib/gamepad'
 import { GT3_WIDGET_TYPES } from '../dashboard/widgets/gt3-widgets'
 import { PREVIEW_SNAPSHOT } from '../dashboard/widgets/gt3-theme'
@@ -61,6 +66,7 @@ import StreamingPanel from '../components/StreamingPanel'
 import { tt } from '../i18n'
 import '../dashboard/dashboard-runtime.css'
 import { consumeEditorTarget } from '../lib/app-navigation'
+import { useAlertsConfig } from '../lib/alerts-config'
 
 const ACCENT = 'var(--accent-primary)'
 const PANEL_BG = '#0e1116'
@@ -519,6 +525,7 @@ export function applyInstrumentPart(
 }
 
 export default function DashboardsView({ showToast, language }: AppViewProps): ReactElement {
+  const alertsConfig = useAlertsConfig()
   const [summaries, setSummaries] = useState<DashboardSummary[]>([])
   const [openStates, setOpenStates] = useState<DashboardOpenState[]>([])
   const [displays, setDisplays] = useState<DashboardDisplayInfo[]>([])
@@ -538,6 +545,8 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
   const [snapStep, setSnapStep] = useState<SnapStep>(8)
   const [galleryOpen, setGalleryOpen] = useState<boolean>(true)
   const [previewMode, setPreviewMode] = useState<'static' | 'yes'>('yes')
+  const [showTriggerOnlyActive, setShowTriggerOnlyActive] =
+    useEditorTriggerPreviewPreference()
   const [importDiagnostics, setImportDiagnostics] = useState<string[]>([])
   const [importPicker, setImportPicker] = useState<SimhubImportPicker | null>(null)
   const [cycleControls, setCycleControls] = useState<DashboardCycleControls>({ next: null, prev: null })
@@ -1711,6 +1720,12 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
                         <option value="static">Estatico</option>
                       </select>
                     </label>
+                    <TriggerPreviewToggle
+                      checked={showTriggerOnlyActive}
+                      onChange={setShowTriggerOnlyActive}
+                      language={language}
+                      style={{ maxWidth: 360 }}
+                    />
                     <span style={{ color: TEXT_DIM, fontSize: 11 }}>
                       {selectedDash.elements.length} elements · canvas {selectedDash.width}×{selectedDash.height}
                     </span>
@@ -1724,6 +1739,8 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
                     showGrid={snapEnabled}
                     gridStep={snapStep}
                     yesulate={previewMode === 'yes'}
+                    showTriggerOnlyActive={showTriggerOnlyActive}
+                    alertsConfig={alertsConfig}
                   />
                   <p style={{ color: TEXT_DIM, fontSize: 12, margin: '8px 0 0' }}>
                     {previewMode === 'yes'
@@ -1770,7 +1787,12 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
                         borderRadius: 'var(--radius-sm)'
                       }}
                     >
-                      <WidgetGallery onAdd={addVariant} busy={busy} />
+                      <WidgetGallery
+                        onAdd={addVariant}
+                        busy={busy}
+                        showTriggerOnlyActive={showTriggerOnlyActive}
+                        alertsConfig={alertsConfig}
+                      />
                     </div>
                   )}
                 </div>
@@ -1806,7 +1828,13 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
         <p style={{ margin: '0 0 12px', color: TEXT_DIM, fontSize: 13 }}>
           {tt(language, 'dashboards.presetGalleryHelpPrefix')} <strong>{tt(language, 'dashboards.duplicateAndEdit')}</strong> {tt(language, 'dashboards.presetGalleryHelpMiddle')} <strong>Dashboard Adaptive</strong> {tt(language, 'dashboards.presetGalleryHelpSuffix')} <code>adaptive</code>{tt(language, 'dashboards.presetGalleryHelpEnd')}
         </p>
-        <PresetGallery presets={BUILTIN_PRESETS} busy={busy} onPick={(id) => (id === ADAPTIVE_DASHBOARD_ID ? newBlankAdaptive() : run(() => newFromPreset(id)))} />
+        <PresetGallery
+          presets={BUILTIN_PRESETS}
+          busy={busy}
+          onPick={(id) => (id === ADAPTIVE_DASHBOARD_ID ? newBlankAdaptive() : run(() => newFromPreset(id)))}
+          showTriggerOnlyActive={showTriggerOnlyActive}
+          alertsConfig={alertsConfig}
+        />
       </section>
     </div>
   )
@@ -1825,6 +1853,8 @@ interface PreviewProps {
   showGrid?: boolean
   gridStep?: number
   yesulate?: boolean
+  showTriggerOnlyActive: boolean
+  alertsConfig: AlertsConfig
 }
 
 interface PointerEditState {
@@ -1936,7 +1966,9 @@ function DashboardPreview({
   snapEnabled,
   showGrid,
   gridStep,
-  yesulate
+  yesulate,
+  showTriggerOnlyActive,
+  alertsConfig
 }: PreviewProps): ReactElement {
   const maxW = 640
   const maxH = 360
@@ -2097,6 +2129,8 @@ function DashboardPreview({
             onPointerCancel={endPointerEdit}
             onResizePointerDown={(event, handle) => beginPointerEdit(event, el, 'resize', handle)}
             yesulate={yesulate}
+            showTriggerOnlyActive={showTriggerOnlyActive}
+            alertsConfig={alertsConfig}
           />
         ))}
       </div>
@@ -2116,7 +2150,9 @@ function RuntimePreviewElement({
   onPointerMove,
   onPointerUp,
   onPointerCancel,
-  onResizePointerDown
+  onResizePointerDown,
+  showTriggerOnlyActive,
+  alertsConfig
 }: {
   element: DashboardElement
   snapshot: typeof PREVIEW_SNAPSHOT | null
@@ -2128,6 +2164,8 @@ function RuntimePreviewElement({
   onPointerUp(event: PointerEvent<HTMLElement>): void
   onPointerCancel(event: PointerEvent<HTMLElement>): void
   onResizePointerDown(event: PointerEvent<HTMLElement>, handle: ResizeHandle): void
+  showTriggerOnlyActive: boolean
+  alertsConfig: AlertsConfig
 }): ReactElement {
   const norm: DashboardElement = { ...element, x: 0, y: 0 }
   return (
@@ -2151,7 +2189,13 @@ function RuntimePreviewElement({
         touchAction: 'none'
       }}
     >
-      {renderDashboardElement({ element: norm, snapshot })}
+      {renderDashboardElement({
+        element: norm,
+        snapshot,
+        preview: 'inert',
+        alertsConfig,
+        forceTriggerActive: showTriggerOnlyActive
+      })}
       {selected && (
         <ResizeHandles
           size={handleSize}
@@ -2172,7 +2216,9 @@ function PreviewElement({
   onPointerUp,
   onPointerCancel,
   onResizePointerDown,
-  yesulate
+  yesulate,
+  showTriggerOnlyActive,
+  alertsConfig
 }: {
   element: DashboardElement
   selected: boolean
@@ -2184,6 +2230,8 @@ function PreviewElement({
   onPointerCancel(event: PointerEvent<HTMLElement>): void
   onResizePointerDown(event: PointerEvent<HTMLElement>, handle: ResizeHandle): void
   yesulate?: boolean
+  showTriggerOnlyActive: boolean
+  alertsConfig: AlertsConfig
 }): ReactElement {
   if (element.type === 'overlaywidget' || yesulate) {
     return (
@@ -2198,6 +2246,8 @@ function PreviewElement({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
         onResizePointerDown={onResizePointerDown}
+        showTriggerOnlyActive={showTriggerOnlyActive}
+        alertsConfig={alertsConfig}
       />
     )
   }

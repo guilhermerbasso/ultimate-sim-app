@@ -863,8 +863,8 @@ export function hifiModuleRole(moduleId: string): OverlayRole | undefined {
 
 function previewFlags(active: boolean, blueOnly = false): NonNullable<TelemetrySnapshot['flags']> {
   return {
-    green: active && !blueOnly,
-    yellow: false,
+    green: false,
+    yellow: active && !blueOnly,
     blue: active && blueOnly,
     white: false,
     checkered: false,

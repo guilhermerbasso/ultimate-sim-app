@@ -1,5 +1,6 @@
 import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode } from 'react'
+import type { AlertsConfig } from '../../../../shared/alerts'
 import type { CustomOverlayDef, OverlayWidgetConfig, OverlayWidgetId, OverlayWidgetLine } from '../../../../shared/overlays'
 import { DEFAULT_OVERLAY_STYLE_PRESET, DEFAULT_RICH_OVERLAY_CANVAS, createDefaultOverlayStyle } from '../../../../shared/overlays'
 import type { DashboardElement, DashboardElementStyle, TextSlotStyle } from '../../../../shared/dashboards'
@@ -13,6 +14,16 @@ import {
 import { renderDashboardElement } from '../../dashboard/DashboardRoot'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
 import { resolveWidgetComponent } from '../../overlay/widgets'
+import { HifiWidgetHost } from '../../overlay/widgets/HifiWidgetHost'
+import {
+  ALL_OVERLAY_WIDGETS,
+  resolveOverlayTrigger
+} from '../../overlay/hifi-overlays'
+import {
+  createEditorTriggerPreviewFrame,
+  isTriggerOnlyPreview
+} from '../../overlay/editor-trigger-preview'
+import { TriggerPreviewToggle } from '../../components/TriggerPreviewToggle'
 import { WidgetGallery, variantToElement } from '../dashboard/widget-catalog'
 import type { WidgetVariant } from '../dashboard/widget-catalog'
 import '../../dashboard/dashboard-runtime.css'
@@ -403,6 +414,8 @@ interface CanvasProps {
   selectedId: string | null
   onSelect(id: string | null): void
   onGeometry(id: string, geo: { x: number; y: number; w: number; h: number }): void
+  showTriggerOnlyActive: boolean
+  alertsConfig?: AlertsConfig
 }
 
 interface ActiveEdit {
@@ -445,13 +458,36 @@ function overlayConfigFromElement(element: DashboardElement, widgetId: OverlayWi
   }
 }
 
-function RuntimeWidgetPreview({ element }: { element: DashboardElement }): ReactElement {
+function RuntimeWidgetPreview({
+  element,
+  showTriggerOnlyActive,
+  alertsConfig
+}: {
+  element: DashboardElement
+  showTriggerOnlyActive: boolean
+  alertsConfig?: AlertsConfig
+}): ReactElement {
   const widgetId = element.widgetId
   const Widget = widgetId ? resolveWidgetComponent(widgetId) : undefined
   if (!widgetId || !Widget) return renderDashboardElement({ element, snapshot: BUILDER_PREVIEW_SNAPSHOT })
   const style = element.style as BuilderElementStyle
   const borderColor = style.borderColor ?? style.border
   const isHifi = widgetId.startsWith('hifi:')
+  const config = overlayConfigFromElement(element, widgetId)
+  const definition = ALL_OVERLAY_WIDGETS.find((item) => item.id === widgetId)
+  const trigger = resolveOverlayTrigger(definition, config)
+  const triggerPreview =
+    showTriggerOnlyActive && isTriggerOnlyPreview(definition?.role, trigger)
+      ? createEditorTriggerPreviewFrame(
+          BUILDER_PREVIEW_SNAPSHOT,
+          trigger,
+          true,
+          alertsConfig,
+          `overlay-builder:${element.id}`
+        )
+      : null
+  const renderSnapshot = triggerPreview?.snapshot ?? BUILDER_PREVIEW_SNAPSHOT
+  const visibility = triggerPreview?.visibility
 
   const containerStyle: CSSProperties = {
     position: 'absolute',
@@ -466,13 +502,41 @@ function RuntimeWidgetPreview({ element }: { element: DashboardElement }): React
     border: !isHifi && style.borderWidth ? `${Math.max(0, Math.round(style.borderWidth))}px solid ${borderColor ?? 'transparent'}` : undefined
   }
   return (
-    <div className="dash-element dash-overlaywidget" style={containerStyle}>
-      <Widget snapshot={BUILDER_PREVIEW_SNAPSHOT} config={overlayConfigFromElement(element, widgetId)} />
+    <div
+      className="dash-element dash-overlaywidget"
+      style={containerStyle}
+      data-trigger-preview-visible={visibility?.visible ? 'true' : undefined}
+    >
+      {isHifi ? (
+        <HifiWidgetHost
+          snapshot={renderSnapshot}
+          config={config}
+          visibility={visibility}
+          preview="inert"
+          alertsConfig={alertsConfig}
+        />
+      ) : (
+        <Widget
+          snapshot={renderSnapshot}
+          config={config}
+          visibility={visibility}
+          alertsConfig={alertsConfig}
+        />
+      )}
     </div>
   )
 }
 
-function BuilderCanvas({ widgets, canvasWidth, canvasHeight, selectedId, onSelect, onGeometry }: CanvasProps): ReactElement {
+function BuilderCanvas({
+  widgets,
+  canvasWidth,
+  canvasHeight,
+  selectedId,
+  onSelect,
+  onGeometry,
+  showTriggerOnlyActive,
+  alertsConfig
+}: CanvasProps): ReactElement {
   const stageBoxRef = useRef<HTMLDivElement | null>(null)
   const activeRef = useRef<ActiveEdit | null>(null)
   const [stageBox, setStageBox] = useState({ width: 760, height: 460 })
@@ -561,7 +625,11 @@ function BuilderCanvas({ widgets, canvasWidth, canvasHeight, selectedId, onSelec
           {sorted.map((el) => (
             <div key={el.id} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
               <PreviewErrorBoundary boundaryKey={`${el.id}:${el.widgetId ?? el.type}`}>
-                <RuntimeWidgetPreview element={el} />
+                <RuntimeWidgetPreview
+                  element={el}
+                  showTriggerOnlyActive={showTriggerOnlyActive}
+                  alertsConfig={alertsConfig}
+                />
               </PreviewErrorBoundary>
             </div>
           ))}
@@ -880,11 +948,27 @@ export interface OverlayWidgetBuilderProps {
   initial: CustomOverlayDef
   editing: boolean
   busy?: boolean
+  showTriggerOnlyActive: boolean
+  onShowTriggerOnlyActiveChange(active: boolean): void
+  triggerPreviewLabel: string
+  triggerPreviewHelp: string
+  alertsConfig?: AlertsConfig
   onSave(def: CustomOverlayDef): void
   onCancel(): void
 }
 
-export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel }: OverlayWidgetBuilderProps): ReactElement {
+export function OverlayWidgetBuilder({
+  initial,
+  editing,
+  busy,
+  showTriggerOnlyActive,
+  onShowTriggerOnlyActiveChange,
+  triggerPreviewLabel,
+  triggerPreviewHelp,
+  alertsConfig,
+  onSave,
+  onCancel
+}: OverlayWidgetBuilderProps): ReactElement {
   const [def, setDef] = useState<CustomOverlayDef>(() => ({ ...initial, widgets: [...(initial.widgets ?? [])] }))
   const [selectedId, setSelectedId] = useState<string | null>(initial.widgets?.[0]?.id ?? null)
   const widgets = def.widgets ?? []
@@ -1053,8 +1137,19 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
               <input type="range" min={0} max={100} value={def.opacity} onChange={(e) => patchDef({ opacity: Number(e.target.value) })} />
             </label>
             <button className="ghost-action" onClick={addImage}>+ Image</button>
+            <TriggerPreviewToggle
+              checked={showTriggerOnlyActive}
+              onChange={onShowTriggerOnlyActiveChange}
+              label={triggerPreviewLabel}
+              help={triggerPreviewHelp}
+            />
             <div className="overlay-builder-gallery">
-              <WidgetGallery onAdd={addVariant} busy={busy} />
+              <WidgetGallery
+                onAdd={addVariant}
+                busy={busy}
+                showTriggerOnlyActive={showTriggerOnlyActive}
+                alertsConfig={alertsConfig}
+              />
             </div>
           </aside>
 
@@ -1066,6 +1161,8 @@ export function OverlayWidgetBuilder({ initial, editing, busy, onSave, onCancel 
               selectedId={selectedId}
               onSelect={setSelectedId}
               onGeometry={onGeometry}
+              showTriggerOnlyActive={showTriggerOnlyActive}
+              alertsConfig={alertsConfig}
             />
             <p className="overlay-help">
               {widgets.length} widget(s) · drag to move, pull the corners to resize. Preview with simulated telemetry.

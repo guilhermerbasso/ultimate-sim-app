@@ -47,6 +47,7 @@ import { displayUnitLabel, getActiveFlag, resolveBinding, retainBindingIpc } fro
 import { subscribeWithRevisionedHydration, subscribeWithTelemetryHydration } from './hydration'
 import { useSwipeCycle, type CycleDirection } from './useSwipeCycle'
 import { renderGt3Widget, instrumentColorsFor, instrumentBezel, instrumentMaterial, revLedPropsFor } from './widgets/gt3-widgets'
+import { PREVIEW_SNAPSHOT } from './widgets/gt3-theme'
 import { AnalogDial, RevLedBar } from '../instruments'
 import { resolveElementSkin, FitText } from '../skins'
 // WS-DASH: the six full-frame dashboards (gridStackDash … lmuStintDash) are
@@ -57,6 +58,11 @@ import { resolveElementSkin, FitText } from '../skins'
 // are namespaced, so importing them here adds no global styles.
 import { resolveWidgetComponent } from '../overlay/widgets'
 import { HifiWidgetHost, PREVIEW_COACH_REPORT, PREVIEW_ENGINEER_FEED } from '../overlay/widgets/HifiWidgetHost'
+import { ALL_OVERLAY_WIDGETS, resolveOverlayTrigger } from '../overlay/hifi-overlays'
+import {
+  createEditorTriggerPreviewFrame,
+  isTriggerOnlyPreview
+} from '../overlay/editor-trigger-preview'
 import './dashboard-runtime.css'
 
 function getDashIdFromQuery(): string | null {
@@ -181,6 +187,7 @@ interface ElementProps {
   unitSystem?: import('../../../shared/units').UnitSystem
   preview?: DashboardPreviewMode
   alertsConfig?: AlertsConfig
+  forceTriggerActive?: boolean
 }
 
 const INERT_OVERLAY_WIDGET_IDS = new Set<string>([
@@ -1327,7 +1334,13 @@ function ElementTable({ element, snapshot }: ElementProps) {
 // locked stub: these widgets are snapshot-driven and ignore most of it (some read
 // `config.id`). Missing/unknown widgetId gets a subtle labelled fallback so a
 // broken persisted board remains editable instead of looking like a black canvas.
-function ElementOverlayWidget({ element, snapshot, preview, alertsConfig }: ElementProps) {
+function ElementOverlayWidget({
+  element,
+  snapshot,
+  preview,
+  alertsConfig,
+  forceTriggerActive
+}: ElementProps) {
   const widgetId =
     element.widgetId ??
     (element.hifiModuleId ? (`hifi:${element.hifiModuleId}` as DashboardElement['widgetId']) : undefined)
@@ -1388,19 +1401,42 @@ function ElementOverlayWidget({ element, snapshot, preview, alertsConfig }: Elem
     display: null,
     hifiModuleId: element.hifiModuleId
   }
+  const definition = ALL_OVERLAY_WIDGETS.find((item) => item.id === widgetId)
+  const trigger = resolveOverlayTrigger(definition, config)
+  const triggerPreview = forceTriggerActive && isTriggerOnlyPreview(definition?.role, trigger)
+    ? createEditorTriggerPreviewFrame(
+        snapshot ?? PREVIEW_SNAPSHOT,
+        trigger,
+        true,
+        alertsConfig,
+        `dashboard-editor:${element.id}`
+      )
+    : null
+  const renderSnapshot = triggerPreview?.snapshot ?? snapshot
+  const visibility = triggerPreview?.visibility
   return (
-    <div className="dash-element dash-overlaywidget" style={containerStyle}>
+    <div
+      className="dash-element dash-overlaywidget"
+      style={containerStyle}
+      data-trigger-preview-visible={triggerPreview?.visibility.visible ? 'true' : undefined}
+    >
       {preview === 'inert' && widgetId.startsWith('hifi:') ? (
         <HifiWidgetHost
-          snapshot={snapshot}
+          snapshot={renderSnapshot}
           config={config}
           preview="inert"
+          visibility={visibility}
           alertsConfig={alertsConfig}
         />
       ) : preview === 'inert' && INERT_OVERLAY_WIDGET_IDS.has(widgetId) ? (
-        <InertWidgetFixture element={element} snapshot={snapshot} source={widgetId} contained />
+        <InertWidgetFixture element={element} snapshot={renderSnapshot} source={widgetId} contained />
       ) : (
-        <Widget snapshot={snapshot} config={config} alertsConfig={alertsConfig} />
+        <Widget
+          snapshot={renderSnapshot}
+          config={config}
+          visibility={visibility}
+          alertsConfig={alertsConfig}
+        />
       )}
     </div>
   )
@@ -1463,6 +1499,7 @@ export function renderDashboardElement(props: {
   snapshot: TelemetrySnapshot | null
   preview?: DashboardPreviewMode
   alertsConfig?: AlertsConfig
+  forceTriggerActive?: boolean
 }) {
   return <ElementSwitcher {...props} />
 }
