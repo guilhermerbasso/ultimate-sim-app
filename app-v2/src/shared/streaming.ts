@@ -1,5 +1,6 @@
 import type { Dashboard } from './dashboards'
 import type { TelemetrySnapshot } from './telemetry'
+import type { ReceiverV2Status } from './receiver-v2'
 
 export const STREAMING_CHANNELS = {
   start: 'streaming:start',
@@ -7,7 +8,8 @@ export const STREAMING_CHANNELS = {
   status: 'streaming:status',
   selfTest: 'streaming:selftest',
   startTunnel: 'streaming:tunnel:start',
-  stopTunnel: 'streaming:tunnel:stop'
+  stopTunnel: 'streaming:tunnel:stop',
+  rotateReceiverPairing: 'streaming:receiver:pairing:rotate'
 } as const
 
 export type StreamingLayoutKind = 'dashboard' | 'touch'
@@ -58,6 +60,7 @@ export interface StreamingStartResult {
   autoTunnelEnabled: boolean
   autoTunnelRunning: boolean
   autoTunnelMessage: string | null
+  receiverV2: ReceiverV2Status
 }
 
 export interface StreamingSelfTestResult {
@@ -115,6 +118,7 @@ export interface StreamingStatus {
   autoTunnelEnabled: boolean
   autoTunnelRunning: boolean
   autoTunnelMessage: string | null
+  receiverV2: ReceiverV2Status
 }
 
 export interface StreamingTelemetryFrame {

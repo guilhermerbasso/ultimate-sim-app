@@ -108,3 +108,32 @@ if (javascriptCount === 0 || cssCount === 0) {
 }
 
 console.log(`Verified stream resource graph: ${seen.size} files (${javascriptCount} JavaScript, ${cssCount} CSS).`)
+
+const receiverHtmlPath = resolve(rendererRoot, 'receiver.html')
+if (!existsSync(receiverHtmlPath)) throw new Error(`Missing built receiver document: ${receiverHtmlPath}`)
+const receiverHtml = readFileSync(receiverHtmlPath, 'utf8')
+const receiverBaseTag = receiverHtml.match(/<base\b[^>]*>/i)?.[0]
+const receiverBaseHref = receiverBaseTag ? attribute(receiverBaseTag, 'href') : null
+if (!receiverBaseHref) throw new Error('Built receiver.html is missing its path-preserving base href.')
+if (new URL(receiverBaseHref, 'https://receiver.example.test/prefix/receiver/v2/').pathname !== '/prefix/') {
+  throw new Error(`Built receiver base href does not preserve its external prefix: ${receiverBaseHref}`)
+}
+if (/[?&](?:token|password|pair)=/i.test(receiverHtml)) {
+  throw new Error('Built receiver document contains an authentication secret query parameter.')
+}
+for (const file of ['bootstrap.js', 'service-worker.js', 'manifest.webmanifest', 'icon.svg']) {
+  const target = resolve(rendererRoot, 'receiver', 'v2', file)
+  if (!existsSync(target) || !statSync(target).isFile()) throw new Error(`Missing built receiver PWA resource: ${target}`)
+}
+const receiverBootstrap = readFileSync(resolve(rendererRoot, 'receiver', 'v2', 'bootstrap.js'), 'utf8')
+if (!/history\.replaceState/.test(receiverBootstrap)) {
+  throw new Error('Receiver bootstrap does not remove the one-use fragment from browser history.')
+}
+if (!/searchParams\.delete/.test(receiverBootstrap)) {
+  throw new Error('Receiver bootstrap does not scrub legacy secret query parameters.')
+}
+const receiverWorker = readFileSync(resolve(rendererRoot, 'receiver', 'v2', 'service-worker.js'), 'utf8')
+if (!/url\.search/.test(receiverWorker)) {
+  throw new Error('Receiver service worker does not explicitly reject query-bearing cache entries.')
+}
+console.log('Verified receiver v2 PWA shell, secret handling, and offline resources.')

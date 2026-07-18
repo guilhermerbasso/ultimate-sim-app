@@ -368,10 +368,33 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
     }
   }
 
+  async function rotateReceiverPairing(): Promise<void> {
+    if (!status?.running) return
+    setBusy(true)
+    setError(null)
+    setCopied(null)
+    try {
+      const nextStatus = await window.ipc.invoke<StreamingStatus>(STREAMING_CHANNELS.rotateReceiverPairing)
+      setStatus(nextStatus)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : tt(language, 'streaming.receiver.rotateFailed'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   useEffect(() => {
     void refreshStatus().catch(() => { /* streaming module may be unavailable during startup */ })
     void refreshTargets().catch(() => undefined)
   }, [])
+
+  useEffect(() => {
+    if (!status?.running) return
+    const timer = window.setInterval(() => {
+      void refreshStatus().catch(() => undefined)
+    }, 2_000)
+    return () => window.clearInterval(timer)
+  }, [status?.running])
 
   const running = Boolean(status?.running)
   const accessDisabled = busy || running
@@ -526,6 +549,81 @@ export default function StreamingPanel({ language }: { language?: ResolvedLangua
             ) : (
               <p className="overlay-help" style={{ margin: 0 }}>{tt(language, 'streaming.noDevices')}</p>
             )}
+          </div>
+          <div style={{ display: 'grid', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border-default)' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <strong style={{ color: '#f6fbff' }}>{tt(language, 'streaming.receiver.title')}</strong>
+              <span className={status.receiverV2.clients.length > 0 ? 'status-pill on' : 'status-pill'}>
+                {status.receiverV2.clients.length > 0
+                  ? tt(language, 'streaming.receiver.connected', { count: status.receiverV2.clients.length })
+                  : tt(language, 'streaming.receiver.waiting')}
+              </span>
+            </div>
+            <p className="overlay-help" style={{ margin: 0, color: '#76f7bd', fontWeight: 800 }}>
+              {tt(language, 'streaming.receiver.dataDiode')}
+            </p>
+            <p className="overlay-help" style={{ margin: 0 }}>
+              {tt(language, 'streaming.receiver.transport')}: <strong>{status.receiverV2.transportProfile}</strong>
+              {' · '}{tt(language, 'streaming.receiver.bind')}: <strong>{status.receiverV2.bindAddress ?? '—'}</strong>
+              {' · '}v{status.receiverV2.protocolVersion}/schema {status.receiverV2.schemaVersion}
+            </p>
+            <p className="overlay-help" style={{ margin: 0 }}>
+              {tt(language, 'streaming.receiver.transportHelp')}
+            </p>
+            {status.receiverV2.blockedReason ? (
+              <p className="overlay-help" style={{ margin: 0, color: 'var(--accent-warning, #fbbf24)' }}>
+                {status.receiverV2.blockedReason}
+              </p>
+            ) : null}
+            {status.receiverV2.pairingUrl ? (
+              <label className="designer-field">
+                {tt(language, 'streaming.receiver.pairingUrl')}
+                <input readOnly value={status.receiverV2.pairingUrl} onFocus={(event) => event.currentTarget.select()} />
+              </label>
+            ) : (
+              <p className="overlay-help" style={{ margin: 0 }}>
+                {status.receiverV2.pairingConsumed
+                  ? tt(language, 'streaming.receiver.pairingConsumed')
+                  : tt(language, 'streaming.receiver.pairingUnavailable')}
+              </p>
+            )}
+            <p className="overlay-help" style={{ margin: 0 }}>
+              {tt(language, 'streaming.receiver.secretHandling')}
+            </p>
+            <div className="overlay-actions">
+              <button
+                className="ghost-action"
+                disabled={!status.receiverV2.pairingUrl}
+                onClick={() => void copyUrl('receiver', status.receiverV2.pairingUrl)}
+              >
+                {copied === 'receiver' ? tt(language, 'streaming.copied') : tt(language, 'streaming.receiver.copy')}
+              </button>
+              <button className="ghost-action" disabled={busy} onClick={() => void rotateReceiverPairing()}>
+                {tt(language, 'streaming.receiver.rotate')}
+              </button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+              <div className="overlay-help">
+                {tt(language, 'streaming.receiver.setup')}: <strong>
+                  {status.receiverV2.metrics.setupTimeMs === null ? '—' : `${status.receiverV2.metrics.setupTimeMs} ms`}
+                </strong>
+                {' / '}{status.receiverV2.metrics.setupBudgetMs} ms
+              </div>
+              <div className="overlay-help">
+                {tt(language, 'streaming.receiver.latency')}: <strong>
+                  {status.receiverV2.metrics.latencyP95Ms === null ? '—' : `${status.receiverV2.metrics.latencyP95Ms} ms`}
+                </strong>
+                {' / '}{status.receiverV2.metrics.latencyBudgetMs} ms
+              </div>
+              <div className="overlay-help">
+                {tt(language, 'streaming.receiver.reliability')}: <strong>{status.receiverV2.metrics.reliabilityPct.toFixed(2)}%</strong>
+                {' / '}{status.receiverV2.metrics.reliabilityTargetPct}%
+              </div>
+              <div className="overlay-help">
+                {tt(language, 'streaming.receiver.reconnects')}: <strong>{status.receiverV2.metrics.reconnects}</strong>
+                {' · '}{tt(language, 'streaming.receiver.resyncs')}: <strong>{status.receiverV2.metrics.resyncs}</strong>
+              </div>
+            </div>
           </div>
         </div>
       ) : (
