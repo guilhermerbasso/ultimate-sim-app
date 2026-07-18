@@ -8,12 +8,12 @@
 import type { ReactElement } from 'react'
 import type { TelemetrySnapshot, TyreInfo } from '../../../../shared/telemetry'
 import type { WidgetProps } from './types'
-import { formatGear, formatTime, formatDelta, pct } from './format'
+import { formatGear, formatTime, formatDelta } from './format'
 import { resolveSkin, FitText, type SkinToken } from '../../skins'
 import { RevLedBar, DataField, type FieldState } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
-import { atShiftPoint } from '../../lib/rev-lights'
+import { atShiftPoint, resolveRevLightPct } from '../../lib/rev-lights'
 
 export const LMU_ENDURANCE_DASH_STREAM_SAFE = true
 
@@ -120,8 +120,7 @@ export function LmuEnduranceDashWidget({ snapshot, config }: WidgetProps): React
   const P = Math.max(8, Math.round(Math.min(W, H) * 0.02))
   const G = Math.max(4, Math.round(Math.min(W, H) * 0.014))
 
-  const rawShift = s?.shiftIndicatorPct ?? (s?.maxRpm ? (s?.rpm ?? 0) / s.maxRpm : undefined)
-  const shiftPct = pct(rawShift)
+  const shiftPct = resolveRevLightPct(s)
   const redline = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)
   const gear = formatGear(s?.gear)
   const flag = flagStateFor(s)

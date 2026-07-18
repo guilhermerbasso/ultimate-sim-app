@@ -6,6 +6,7 @@ import {
   FALLBACK_SHIFT_BAND_START_FRAC,
   computeRevlights,
   redlineBandPct,
+  resolveShiftIndicatorPct,
   resolveShiftNow
 } from './revlights'
 import type { RevlightsConfig } from './revlights'
@@ -70,6 +71,30 @@ describe('redlineBandPct (redline-relative fallback band)', () => {
   it('guards bad inputs', () => {
     expect(redlineBandPct(5000, 0)).toBe(0)
     expect(redlineBandPct(Number.NaN, 8000)).toBe(0)
+  })
+})
+
+describe('resolveShiftIndicatorPct', () => {
+  it('uses shiftIndicatorPct, then revLights.pct, then the redline top slice', () => {
+    expect(resolveShiftIndicatorPct(snap({
+      rpm: 7990,
+      maxRpm: 8000,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.8 }
+    }))).toBe(0.2)
+    expect(resolveShiftIndicatorPct(snap({
+      rpm: 7990,
+      maxRpm: 8000,
+      revLights: { pct: 0.6 }
+    }))).toBe(0.6)
+    expect(resolveShiftIndicatorPct(snap({ rpm: 6000, maxRpm: 8000 }))).toBe(0)
+    expect(resolveShiftIndicatorPct(snap({ rpm: 7920, maxRpm: 8000 }))).toBe(1)
+  })
+
+  it('clamps finite provider values and rejects invalid proportional fallbacks', () => {
+    expect(resolveShiftIndicatorPct(snap({ shiftIndicatorPct: 2 }))).toBe(1)
+    expect(resolveShiftIndicatorPct(snap({ shiftIndicatorPct: Number.NaN, revLights: { pct: -1 } }))).toBe(0)
+    expect(resolveShiftIndicatorPct(snap({ rpm: 7000, maxRpm: 0 }))).toBe(0)
   })
 })
 

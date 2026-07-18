@@ -1,6 +1,6 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, revFill, signed, tempColor } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, gearLabel, lapTime, legibleStroke, num, resolveRevLightPct, revFill, signed, tempColor } from '../kit'
 import { formatMeasurement, type UnitSystem } from '../../../../../shared/units'
 
 const DASH_W = 1024
@@ -15,11 +15,7 @@ const DARK = '#010201'
 const TAGS = ['chevrolet', 'corvette', 'corvette-z06-gt3r', 'gt3', 'car', 'bosch-ddu', 'ir'] as const
 
 function rpmFraction(snapshot: HifiWidgetProps['snapshot']): number {
-  const pct = num(snapshot?.shiftIndicatorPct ?? snapshot?.revLights?.pct)
-  if (pct != null) return frac(pct, 0, 1)
-  const rpm = num(snapshot?.rpm)
-  const max = num(snapshot?.maxRpm)
-  return rpm != null && max != null && max > 0 ? frac(rpm, 0, max) : 0
+  return resolveRevLightPct(snapshot)
 }
 
 function rpmMissing(snapshot: HifiWidgetProps['snapshot']): boolean {
@@ -66,7 +62,7 @@ function ShiftLedRow({ snapshot, x, y, w, h, count = 18, id = 'cv-leds' }: { sna
   const missing = rpmMissing(snapshot)
   const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const lit = shift ? count : missing ? 0 : Math.round(f * count)
-  const blink = snapshot?.revLights?.blink ?? f >= 0.96
+  const blink = atShiftPoint(f, snapshot?.revLights?.blink, 0.96)
   const gap = w / Math.max(1, count - 1)
   const r = h / 2
   return (

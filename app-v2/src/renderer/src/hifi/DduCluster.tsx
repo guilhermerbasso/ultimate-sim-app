@@ -9,7 +9,7 @@ import { type ReactElement, type ReactNode } from 'react'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import { convertMeasurement, formatMeasurement, type UnitSystem } from '../../../shared/units'
 import { useUnitSystem } from '../lib/units'
-import { SHIFT_STROBE_BLUE, ShiftStrobe, resolveRevLightState } from '../lib/rev-lights'
+import { SHIFT_STROBE_BLUE, ShiftStrobe, resolveRevLightPct, resolveRevLightState } from '../lib/rev-lights'
 
 const W = 1024
 const H = 600
@@ -144,7 +144,7 @@ function ShiftArc({ pct, blink }: { pct: number; blink?: boolean }): ReactElemen
   return <g><ShiftStrobe active={state.atShiftPoint} />{leds}</g>
 }
 
-function RpmStepBar({ frac, x, y, w, h }: { frac: number; x: number; y: number; w: number; h: number }): ReactElement {
+function ShiftStepBar({ frac, x, y, w, h }: { frac: number; x: number; y: number; w: number; h: number }): ReactElement {
   const steps = 10
   const lit = Math.round(clamp01(frac) * steps)
   const bars: ReactElement[] = []
@@ -158,9 +158,9 @@ function RpmStepBar({ frac, x, y, w, h }: { frac: number; x: number; y: number; 
   return (
     <g>
       {bars}
-      <text x={x + w + 8} y={y + 6} fill={COL.muted} fontSize={11} fontFamily="'Rajdhani',sans-serif">10</text>
+      <text x={x + w + 8} y={y + 6} fill={COL.muted} fontSize={11} fontFamily="'Rajdhani',sans-serif">100</text>
       <text x={x + w + 8} y={y + h} fill={COL.muted} fontSize={11} fontFamily="'Rajdhani',sans-serif">0</text>
-      <text x={x + w + 8} y={y + h + 16} fill={COL.muted} fontSize={11} fontFamily="'Rajdhani',sans-serif">x1000</text>
+      <text x={x + w + 8} y={y + h + 16} fill={COL.muted} fontSize={11} fontFamily="'Rajdhani',sans-serif">SHIFT %</text>
     </g>
   )
 }
@@ -205,9 +205,7 @@ export function DduCluster({ snapshot: s, width, height }: DduClusterProps): Rea
   const unitSystem = useUnitSystem()
   const speed = formatMeasurement(n(s.speedKmh), 'speed-kmh', unitSystem, { decimals: 0 })
   const rpm = n(s.rpm)
-  const maxRpm = n(s.maxRpm) ?? 8500
-  const shiftPct = n(s.shiftIndicatorPct) ?? n(s.revLights?.pct) ?? (rpm != null ? rpm / maxRpm : 0)
-  const rpmFrac = rpm != null ? clamp01(rpm / maxRpm) : 0
+  const shiftPct = resolveRevLightPct(s)
   const delta = n(s.deltaToBestSec)
   const fuel = n(s.fuelLiters)
   const fuelReading = formatMeasurement(fuel, 'fuel-volume-l', unitSystem, { decimals: 1 })
@@ -262,7 +260,7 @@ export function DduCluster({ snapshot: s, width, height }: DduClusterProps): Rea
 
         <text x={724} y={168} textAnchor="end" fill={COL.cyan} fontSize={18} fontWeight={700} fontFamily="'Rajdhani',sans-serif">RPM</text>
         <text x={724} y={214} textAnchor="end" fill={COL.text} fontSize={44} fontWeight={800} fontFamily="'Chakra Petch',monospace">{rpm != null ? String(Math.round(rpm)) : '—'}</text>
-        <RpmStepBar frac={rpmFrac} x={648} y={236} w={52} h={140} />
+        <ShiftStepBar frac={shiftPct} x={648} y={236} w={52} h={140} />
 
         <rect x={286} y={412} width={430} height={38} rx={8} fill="#0a0c0e" stroke={COL.panelStroke} />
         <rect x={286} y={412} width={215} height={38} rx={8} fill="rgba(34,224,106,0.14)" />

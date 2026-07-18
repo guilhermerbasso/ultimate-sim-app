@@ -35,6 +35,30 @@ export function redlineBandPct(rpm: number, redlineRpm: number): number {
   return clamp01((rpm - start) / (end - start))
 }
 
+export type ShiftIndicatorSource = Partial<Pick<
+  TelemetrySnapshot,
+  'shiftIndicatorPct' | 'revLights' | 'rpm' | 'maxRpm'
+>>
+
+// Canonical shift-light fill for every visual and physical surface. The sim's
+// per-car band wins, then the mirrored rev-lights band, then a redline-relative
+// top slice. Never substitute a proportional rpm/maxRpm fill.
+export function resolveShiftIndicatorPct(
+  snapshot: ShiftIndicatorSource | null | undefined
+): number {
+  const indicator = snapshot?.shiftIndicatorPct
+  if (typeof indicator === 'number' && Number.isFinite(indicator)) return clamp01(indicator)
+
+  const revPct = snapshot?.revLights?.pct
+  if (typeof revPct === 'number' && Number.isFinite(revPct)) return clamp01(revPct)
+
+  const rpm = snapshot?.rpm
+  const maxRpm = snapshot?.maxRpm
+  return typeof rpm === 'number' && typeof maxRpm === 'number'
+    ? redlineBandPct(rpm, maxRpm)
+    : 0
+}
+
 export function resolveShiftNow(
   blink: boolean | null | undefined,
   fallbackActive: boolean
@@ -333,12 +357,8 @@ export function computeRevlights(snapshot: TelemetrySnapshot | null, config: Rev
   // shiftIndicatorPct (and the identical revLights.pct): 0 below the first light,
   // 1 at/after the raw shift RPM. Drive the LEDs straight off that band — NEVER rpm/maxRpm,
   // which lights the strip proportionally at all RPM (the bug this replaces).
-  const indicator = snapshot.shiftIndicatorPct
-  const bandPct = snapshot.revLights?.pct
-  if (config.useShiftIndicatorPct && typeof indicator === 'number' && Number.isFinite(indicator)) {
-    pct = clamp01(indicator)
-  } else if (config.useShiftIndicatorPct && typeof bandPct === 'number' && Number.isFinite(bandPct)) {
-    pct = clamp01(bandPct)
+  if (config.useShiftIndicatorPct) {
+    pct = resolveShiftIndicatorPct(snapshot)
   } else if (maxRpm > 0 && Number.isFinite(rpm)) {
     // No sim band available (or user opted out): synthesise a redline-relative
     // top-slice band instead of a 0..maxRpm proportional fill.

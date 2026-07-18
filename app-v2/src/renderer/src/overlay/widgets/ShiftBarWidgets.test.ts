@@ -130,9 +130,12 @@ describe('GT3ClusterWidget + RevLightsWidget adopt the shared RevLedBar ladder',
       'lmuEnduranceDash',
       'shiftPointBar',
       'revComet',
+      'gearRing',
       'neonGearBar',
       'cupCluster',
       'oledStrip',
+      'ringDash',
+      'analogTach',
       'hifiDdu',
       'hifiEndurance',
       'hifiMinimal'
@@ -147,14 +150,22 @@ describe('GT3ClusterWidget + RevLightsWidget adopt the shared RevLedBar ladder',
       shiftIndicatorPct: 0.2,
       revLights: { pct: 0.2, blink: true }
     } as TelemetrySnapshot
+    const revPctOnlyOff = { ...providerOff, shiftIndicatorPct: undefined } as TelemetrySnapshot
+    const revPctOnlyOn = { ...providerOn, shiftIndicatorPct: undefined } as TelemetrySnapshot
 
-    for (const id of ids) {
-      const normal = render(id, 'minimal', providerOff)
-      const shifted = render(id, 'minimal', providerOn)
-      expect(normal, id).not.toContain(SHIFT_STROBE_BLUE)
-      expect(normal, id).not.toContain('repeatCount="indefinite"')
-      expect(shifted, id).toContain(SHIFT_STROBE_BLUE)
-      expect(shifted, id).toContain('repeatCount="indefinite"')
+    for (const [source, normalSnapshot, shiftedSnapshot] of [
+      ['shiftIndicatorPct', providerOff, providerOn],
+      ['revLights.pct fallback', revPctOnlyOff, revPctOnlyOn]
+    ] as const) {
+      for (const id of ids) {
+        const normal = render(id, 'minimal', normalSnapshot)
+        const shifted = render(id, 'minimal', shiftedSnapshot)
+        const label = `${id} (${source})`
+        expect(normal, label).not.toContain(SHIFT_STROBE_BLUE)
+        expect(normal, label).not.toContain('repeatCount="indefinite"')
+        expect(shifted, label).toContain(SHIFT_STROBE_BLUE)
+        expect(shifted, label).toContain('repeatCount="indefinite"')
+      }
     }
   })
 })

@@ -7,13 +7,13 @@
 // while the structure is a single overflow-proof HUD scene. A null snapshot shows "—".
 import type { ReactElement } from 'react'
 import type { WidgetProps } from './types'
-import { formatGear, pct } from './format'
+import { formatGear } from './format'
 import { overlayDesignFamily, type OverlayDesignFamily } from '../../../../shared/overlays'
 import { resolveSkin, FitText, zoneColor } from '../../skins'
 import { RevLedBar, DataField, type FieldState } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
-import { atShiftPoint } from '../../lib/rev-lights'
+import { atShiftPoint, resolveRevLightPct } from '../../lib/rev-lights'
 
 export const COMPACT_HUD_STREAM_SAFE = true
 
@@ -67,8 +67,7 @@ export function CompactHudWidget({ snapshot, config }: WidgetProps): ReactElemen
   const family = overlayDesignFamily(config?.stylePreset)
   const accent = familyAccent(family, palette.accent)
 
-  const rpm = s?.rpm ?? 0
-  const shiftPct = pct(s?.shiftIndicatorPct ?? rpm / (s?.maxRpm ?? 9000))
+  const shiftPct = resolveRevLightPct(s)
   const redline = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)
   const gear = formatGear(s?.gear)
   const speed = formatMeasurement(s?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })

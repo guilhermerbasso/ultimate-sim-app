@@ -31,6 +31,8 @@ function dataSnapshot(): TelemetrySnapshot {
     shiftRpm: 7200,
     rpm: 7300,
     maxRpm: 7800,
+    shiftIndicatorPct: 0.2,
+    revLights: { pct: 0.2, blink: true },
     engineRunning: true,
     carLeftRightRaw: 5,
     sessionUniqueId: 123456

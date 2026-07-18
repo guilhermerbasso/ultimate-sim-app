@@ -5,6 +5,7 @@ import {
   SHIFT_PCT,
   SHIFT_STROBE_BLUE,
   ShiftStrobe,
+  resolveRevLightPct,
   resolveRevLightState,
   revFill,
   revLightRowLayout
@@ -26,6 +27,22 @@ describe('shared rev-light shift state', () => {
     expect(markup).toContain('<animate')
     expect(markup).toContain('repeatCount="indefinite"')
     expect(renderToStaticMarkup(createElement(ShiftStrobe, { active: false }))).toBe('')
+  })
+
+  it('resolves every renderer fill from the canonical top-slice pipeline', () => {
+    expect(resolveRevLightPct({
+      rpm: 7990,
+      maxRpm: 8000,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.8 }
+    })).toBe(0.2)
+    expect(resolveRevLightPct({
+      rpm: 7990,
+      maxRpm: 8000,
+      revLights: { pct: 0.7 }
+    })).toBe(0.7)
+    expect(resolveRevLightPct({ rpm: 6000, maxRpm: 8000 })).toBe(0)
+    expect(resolveRevLightPct({ rpm: 7920, maxRpm: 8000 })).toBe(1)
   })
 })
 

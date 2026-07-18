@@ -13,12 +13,12 @@ import type { ReactElement } from 'react'
 import './dashboard-replicas.css'
 import type { TelemetrySnapshot, TyreInfo } from '../../../../shared/telemetry'
 import type { WidgetProps } from './types'
-import { formatDelta, formatGear, formatTime, pct } from './format'
+import { formatDelta, formatGear, formatTime } from './format'
 import { resolveSkin, FitText, type SkinToken } from '../../skins'
 import { RevLedBar, DataField, type FieldState } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
-import { atShiftPoint } from '../../lib/rev-lights'
+import { atShiftPoint, resolveRevLightPct } from '../../lib/rev-lights'
 
 // ── pure, NaN-safe helpers ────────────────────────────────────────────────────
 function dims(config: WidgetProps['config']): { W: number; H: number } {
@@ -152,7 +152,7 @@ export function GridStackDashWidget({ snapshot, config }: WidgetProps): ReactEle
   const P = Math.max(6, Math.round(Math.min(W, H) * 0.02))
   const G = Math.max(4, Math.round(Math.min(W, H) * 0.014))
 
-  const shiftPct = pct(s?.shiftIndicatorPct ?? s?.revLights?.pct)
+  const shiftPct = resolveRevLightPct(s)
   const redline = atShiftPoint(shiftPct, s?.revLights?.blink, 0.985)
   const gear = formatGear(s?.gear)
 

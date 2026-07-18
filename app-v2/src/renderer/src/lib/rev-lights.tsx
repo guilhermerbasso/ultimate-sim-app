@@ -1,6 +1,10 @@
 import { type ReactElement } from 'react'
 import { DEFAULT_ALERTS_CONFIG } from '../../../shared/alerts'
-import { resolveShiftNow } from '../../../shared/revlights'
+import type { TelemetrySnapshot } from '../../../shared/telemetry'
+import {
+  resolveShiftIndicatorPct,
+  resolveShiftNow
+} from '../../../shared/revlights'
 
 export const SHIFT_STROBE_BLUE = '#1e63ff'
 export const SHIFT_PCT = DEFAULT_ALERTS_CONFIG.shiftPoint.shiftIndicatorPct
@@ -18,9 +22,15 @@ export function clampRevLightPct(value: number | null | undefined): number {
   return Math.max(0, Math.min(1, finiteOr(value, 0)))
 }
 
+export function resolveRevLightPct(
+  snapshot: Pick<TelemetrySnapshot, 'shiftIndicatorPct' | 'revLights' | 'rpm' | 'maxRpm'> | null | undefined
+): number {
+  return resolveShiftIndicatorPct(snapshot)
+}
+
 export function resolveRevLightState(
   value: number | null | undefined,
-  blink?: boolean,
+  blink?: boolean | null,
   shiftPct = SHIFT_PCT
 ): RevLightState {
   const pct = clampRevLightPct(value)
@@ -30,7 +40,7 @@ export function resolveRevLightState(
 
 export function atShiftPoint(
   value: number | null | undefined,
-  blink?: boolean,
+  blink?: boolean | null,
   shiftPct = SHIFT_PCT
 ): boolean {
   return resolveRevLightState(value, blink, shiftPct).atShiftPoint

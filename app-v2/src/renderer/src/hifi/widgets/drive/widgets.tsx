@@ -1,7 +1,7 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, Hairline, fixed, frac, gearLabel, legibleStroke, num } from '../kit'
-import { ShiftStrobe, atShiftPoint, revFill, revLightRowLayout } from '../../../lib/rev-lights'
+import { ShiftStrobe, atShiftPoint, resolveRevLightPct, revFill, revLightRowLayout } from '../../../lib/rev-lights'
 import { formatMeasurement } from '../../../../../shared/units'
 
 const W = 420
@@ -21,6 +21,7 @@ function driveGearLabel(gear: number | undefined): string {
 }
 
 function rpmFraction(rpm: number | undefined, maxRpm: number | undefined): number {
+  // Mechanical tach gauge only; every shift/rev-light fill uses shiftFraction().
   const max = maxRpm != null && maxRpm > 0 ? maxRpm : undefined
   return max != null && rpm != null ? frac(rpm, 0, max) : 0
 }
@@ -34,14 +35,13 @@ function rpmColor(f: number, missing: boolean): string {
 }
 
 function shiftFraction(snapshot: HifiWidgetProps['snapshot']): { f: number; missing: boolean } {
-  const shiftPct = num(snapshot?.shiftIndicatorPct)
-  if (shiftPct != null) return { f: frac(shiftPct, 0, 1), missing: false }
-
   const rpm = num(snapshot?.rpm)
   const maxRpm = num(snapshot?.maxRpm)
-  if (rpm != null && maxRpm != null && maxRpm > 0) return { f: rpmFraction(rpm, maxRpm), missing: false }
-
-  return { f: 0, missing: true }
+  const hasSource =
+    num(snapshot?.shiftIndicatorPct) != null ||
+    num(snapshot?.revLights?.pct) != null ||
+    (rpm != null && maxRpm != null && maxRpm > 0)
+  return { f: resolveRevLightPct(snapshot), missing: !hasSource }
 }
 
 function SpeedWidget({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {

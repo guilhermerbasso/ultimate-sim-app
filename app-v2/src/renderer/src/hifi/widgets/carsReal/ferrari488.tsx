@@ -1,7 +1,7 @@
 import { arc } from 'd3-shape'
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, revFill, signed, tempColor } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, gearLabel, lapTime, legibleStroke, num, resolveRevLightPct, revFill, signed, tempColor } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'
 
 const DASH_W = 1024
@@ -16,11 +16,7 @@ const DARK = '#010101'
 const TAGS = ['ferrari', 'ferrari-488-challenge', 'challenge', 'car', 'ir'] as const
 
 function rpmFraction(snapshot: HifiWidgetProps['snapshot']): number {
-  const pct = num(snapshot?.shiftIndicatorPct ?? snapshot?.revLights?.pct)
-  if (pct != null) return frac(pct, 0, 1)
-  const rpm = num(snapshot?.rpm)
-  const max = num(snapshot?.maxRpm)
-  return rpm != null && max != null && max > 0 ? frac(rpm, 0, max) : 0
+  return resolveRevLightPct(snapshot)
 }
 
 function rpmMissing(snapshot: HifiWidgetProps['snapshot']): boolean {

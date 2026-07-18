@@ -1,6 +1,6 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, revFill, signed } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, gearLabel, lapTime, legibleStroke, num, resolveRevLightPct, revFill, signed } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'
 
 const DASH_W = 1024
@@ -14,12 +14,15 @@ const RECESS = '#161616'
 const TAGS = ['porsche', 'porsche-911-gt3-cup', 'gt3-cup', 'car', 'ir'] as const
 
 function shiftFrac(snapshot: HifiWidgetProps['snapshot']): { f: number; missing: boolean; flash: boolean } {
-  const pct = num(snapshot?.shiftIndicatorPct)
-  if (pct != null) return { f: frac(pct, 0, 1), missing: false, flash: snapshot?.revLights?.blink ?? pct >= 0.96 }
   const rpm = num(snapshot?.rpm)
   const max = num(snapshot?.maxRpm)
-  if (rpm != null && max != null && max > 0) return { f: frac(rpm, 0, max), missing: false, flash: rpm >= max * 0.96 }
-  return { f: 0, missing: true, flash: false }
+  const missing =
+    snapshot == null ||
+    (num(snapshot.shiftIndicatorPct) == null &&
+      num(snapshot.revLights?.pct) == null &&
+      !(rpm != null && max != null && max > 0))
+  const f = resolveRevLightPct(snapshot)
+  return { f, missing, flash: !missing && atShiftPoint(f, snapshot?.revLights?.blink, 0.96) }
 }
 
 function segmentColor(i: number, count: number): string {

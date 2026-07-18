@@ -1,6 +1,6 @@
 ﻿import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, revFill, signed } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, gearLabel, lapTime, legibleStroke, num, resolveRevLightPct, revFill, signed } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'
 
 const DASH_W = 1024
@@ -20,19 +20,19 @@ function safeText(v: unknown): string {
 }
 
 function shiftFrac(snapshot: HifiWidgetProps['snapshot']): { f: number; missing: boolean; flash: boolean } {
-  const pct = num(snapshot?.shiftIndicatorPct)
-  if (pct != null) return { f: frac(pct, 0, 1), missing: false, flash: snapshot?.revLights?.blink ?? pct >= 0.96 }
   const rpm = num(snapshot?.rpm)
   const max = num(snapshot?.maxRpm)
-  if (rpm != null && max != null && max > 0) return { f: frac(rpm, 0, max), missing: false, flash: rpm >= max * 0.96 }
-  return { f: 0, missing: true, flash: false }
+  const missing =
+    snapshot == null ||
+    (num(snapshot.shiftIndicatorPct) == null &&
+      num(snapshot.revLights?.pct) == null &&
+      !(rpm != null && max != null && max > 0))
+  const f = resolveRevLightPct(snapshot)
+  return { f, missing, flash: !missing && atShiftPoint(f, snapshot?.revLights?.blink, 0.96) }
 }
 
 function rpmFrac(snapshot: HifiWidgetProps['snapshot']): number {
-  const rpm = num(snapshot?.rpm)
-  const max = num(snapshot?.maxRpm)
-  if (rpm == null || max == null || max <= 0) return shiftFrac(snapshot).f
-  return frac(rpm, 0, max)
+  return resolveRevLightPct(snapshot)
 }
 
 function ledColor(i: number, count: number): string {
@@ -159,7 +159,11 @@ function MapIcon({ color = '#ff2a35' }: { color?: string }): ReactElement {
 
 function RpmBarGraphic({ snapshot, x, y, w, h, id = 'f296-rpm', scale = true }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; h: number; id?: string; scale?: boolean }): ReactElement {
   const f = rpmFrac(snapshot)
-  const missing = snapshot == null || (num(snapshot.rpm) == null && num(snapshot.shiftIndicatorPct) == null)
+  const missing = snapshot == null || (
+    num(snapshot.rpm) == null &&
+    num(snapshot.shiftIndicatorPct) == null &&
+    num(snapshot.revLights?.pct) == null
+  )
   const cells = 32
   const gap = 2
   const cell = (w - gap * (cells - 1)) / cells

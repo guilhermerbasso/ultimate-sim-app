@@ -17,10 +17,12 @@ import {
   GaugeArc,
   SHIFT_STROBE_BLUE,
   ShiftStrobe,
+  atShiftPoint,
   clamp01,
   fixed,
   legibleStroke,
-  num
+  num,
+  resolveRevLightPct
 } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'
 import {
@@ -349,10 +351,11 @@ function shiftPoint(pal: ThemePal) {
     const shiftRpm = num(snapshot?.shiftRpm)
     const rpm = num(snapshot?.rpm)
     const maxRpm = num(snapshot?.maxRpm)
-    const f = rpm != null && maxRpm != null && maxRpm > 0 ? clamp01(rpm / maxRpm) : 0
+    const f = resolveRevLightPct(snapshot)
+    // Keep the raw DriverCarSLShiftRPM marker authoritative on the tach scale.
     const shiftF = shiftRpm != null && maxRpm != null && maxRpm > 0 ? clamp01(shiftRpm / maxRpm) : undefined
-    const upshift = snapshot?.revLights?.blink ?? (shiftRpm != null && rpm != null && rpm >= shiftRpm)
-    const near = shiftRpm != null && rpm != null && rpm >= shiftRpm * 0.95
+    const upshift = atShiftPoint(f, snapshot?.revLights?.blink)
+    const near = f >= 0.95
     const color = upshift ? SHIFT_STROBE_BLUE : near ? pal.accent : pal.main
     const barX = 40
     const barY = 150

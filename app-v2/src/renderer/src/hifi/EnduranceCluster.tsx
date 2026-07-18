@@ -5,7 +5,7 @@ import { type ReactElement, type ReactNode } from 'react'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import { formatMeasurement, type UnitSystem } from '../../../shared/units'
 import { useUnitSystem } from '../lib/units'
-import { SHIFT_STROBE_BLUE, ShiftStrobe, resolveRevLightState } from '../lib/rev-lights'
+import { SHIFT_STROBE_BLUE, ShiftStrobe, resolveRevLightPct, resolveRevLightState } from '../lib/rev-lights'
 
 const W = 1024
 const H = 600
@@ -208,7 +208,7 @@ export interface EnduranceClusterProps {
 export function EnduranceCluster({ snapshot: s, width, height }: EnduranceClusterProps): ReactElement {
   const unitSystem = useUnitSystem()
   const speed = formatMeasurement(n(s.speedKmh), 'speed-kmh', unitSystem, { decimals: 0 })
-  const shiftPct = n(s.shiftIndicatorPct) ?? n(s.revLights?.pct) ?? 0
+  const shiftPct = resolveRevLightPct(s)
   const ersPct = n(s.ersBatteryPct)
   const ersFrac = ersPct != null ? (ersPct > 1 ? ersPct / 100 : ersPct) : 0
   const ersMj = ersPct != null ? ersFrac * ERS_MJ_MAX : undefined

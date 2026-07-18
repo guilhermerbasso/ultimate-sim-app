@@ -30,7 +30,13 @@ import {
   SegmentReadout,
   TelltaleIcon
 } from '../../instruments'
-import { resolveRevLightState } from '../../lib/rev-lights'
+import {
+  SHIFT_STROBE_BLUE,
+  ShiftStrobe,
+  atShiftPoint,
+  resolveRevLightPct,
+  resolveRevLightState
+} from '../../lib/rev-lights'
 import { FitText, makeGrid, resolveSkin, type SkinToken } from '../../skins'
 import type { WidgetProps } from './types'
 import { formatMeasurement } from '../../../../shared/units'
@@ -87,9 +93,7 @@ function placedDims(config: WidgetProps['config'], fw = 400, fh = 200, minH = 24
 }
 
 function shiftPct(snapshot: TelemetrySnapshot | null): number {
-  const rpm = finite(snapshot?.rpm, 0)
-  const maxRpm = Math.max(1, finite(snapshot?.maxRpm, 9000))
-  return clamp(snapshot?.shiftIndicatorPct ?? rpm / maxRpm)
+  return resolveRevLightPct(snapshot)
 }
 
 function fuelFraction(snapshot: TelemetrySnapshot | null): number {
@@ -575,8 +579,8 @@ export function GearRingWidget({ snapshot, config }: WidgetProps): ReactElement 
   const { W, H } = dims(config, 230, 230)
   const skin = skinFor(familyOf(config))
   const pct = shiftPct(snapshot)
-  const flash = pct > 0.985
-  const color = flash ? WARM_RED : revTone(pct)
+  const flash = atShiftPoint(pct, snapshot?.revLights?.blink, 0.985)
+  const color = flash ? SHIFT_STROBE_BLUE : revTone(pct)
   const gear = safeGear(snapshot?.gear)
   const cx = W / 2
   const cy = H / 2
@@ -591,7 +595,9 @@ export function GearRingWidget({ snapshot, config }: WidgetProps): ReactElement 
   return (
     <Root W={W} H={H} ariaLabel="gear ring">
       <Panel W={W} H={H} skin={skin} />
-      <circle cx={cx} cy={cy} r={rOuter} fill="none" stroke={skin.material.border} strokeWidth={6} />
+      <circle cx={cx} cy={cy} r={rOuter} fill="none" stroke={skin.material.border} strokeWidth={6}>
+        <ShiftStrobe active={flash} />
+      </circle>
       {pct > 0 && sweep < Math.PI * 2 - 0.001 && (
         <path
           d={`M ${cx} ${cy - rOuter} A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${arcEndX} ${arcEndY}`}

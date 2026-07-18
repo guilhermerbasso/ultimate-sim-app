@@ -2,7 +2,7 @@ import { type ReactElement, type ReactNode } from 'react'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import { formatMeasurement } from '../../../shared/units'
 import { useUnitSystem } from '../lib/units'
-import { SHIFT_STROBE_BLUE, ShiftStrobe, resolveRevLightState } from '../lib/rev-lights'
+import { SHIFT_STROBE_BLUE, ShiftStrobe, resolveRevLightPct, resolveRevLightState } from '../lib/rev-lights'
 
 const W = 1024
 const H = 600
@@ -134,7 +134,7 @@ export function MinimalDash({ snapshot: s, width, height }: MinimalDashProps): R
   const unitSystem = useUnitSystem()
   const speed = formatMeasurement(n(s.speedKmh), 'speed-kmh', unitSystem, { decimals: 0 })
   const delta = n(s.deltaToBestSec)
-  const shiftPct = n(s.shiftIndicatorPct) ?? n(s.revLights?.pct) ?? 0
+  const shiftPct = resolveRevLightPct(s)
   const fuel = n(s.fuelLiters)
   const fuelPerLap = n(s.fuelPerLap)
   const fuelLaps = fuel != null && fuelPerLap != null && fuelPerLap > 0 ? fuel / fuelPerLap : undefined

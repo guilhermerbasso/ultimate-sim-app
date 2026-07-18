@@ -9,14 +9,14 @@
 import type { ReactElement } from 'react'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
 import type { WidgetProps } from './types'
-import { formatDelta, formatGear, formatTime, numberOrDash, pct } from './format'
+import { formatDelta, formatGear, formatTime, numberOrDash } from './format'
 import { fuelLaps, fuelLevelPct, GT3_STREAM_SAFE } from './gt3Telemetry'
 import { overlayDesignFamily, type OverlayDesignFamily } from '../../../../shared/overlays'
 import { resolveSkin, FitText, zoneColor } from '../../skins'
 import { RevLedBar, AnalogDial, DataField, type FieldState } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
-import { atShiftPoint } from '../../lib/rev-lights'
+import { atShiftPoint, resolveRevLightPct } from '../../lib/rev-lights'
 
 export const GT3_CLUSTER_STREAM_SAFE = GT3_STREAM_SAFE
 
@@ -63,7 +63,7 @@ interface ClusterModel {
 }
 
 function buildModel(snapshot: TelemetrySnapshot | null): ClusterModel {
-  const shiftPct = pct(snapshot?.shiftIndicatorPct ?? (snapshot?.rpm ?? 0) / (snapshot?.maxRpm ?? 9000))
+  const shiftPct = resolveRevLightPct(snapshot)
   const delta = snapshot?.deltaToBestSec ?? snapshot?.deltaToSessionBestSec
   const speedRaw = snapshot?.speedKmh
   return {

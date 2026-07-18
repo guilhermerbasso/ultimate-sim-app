@@ -7,12 +7,12 @@
 import type { ReactElement } from 'react'
 import type { TyreInfo } from '../../../../shared/telemetry'
 import type { WidgetProps } from './types'
-import { formatGear, formatTime, pct } from './format'
+import { formatGear, formatTime } from './format'
 import { resolveSkin, FitText, zoneColor, type SkinToken } from '../../skins'
 import { AnalogDial, DataField, type FieldState } from '../../instruments'
 import { formatMeasurement, measurementUnit } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
-import { atShiftPoint } from '../../lib/rev-lights'
+import { SHIFT_STROBE_BLUE, atShiftPoint, resolveRevLightPct } from '../../lib/rev-lights'
 
 function dims(config: WidgetProps['config']): { W: number; H: number } {
   const w = config?.position?.width
@@ -79,8 +79,7 @@ export function RingDashWidget({ snapshot, config }: WidgetProps): ReactElement 
   const P = Math.max(6, Math.round(Math.min(W, H) * 0.02))
   const G = Math.max(4, Math.round(Math.min(W, H) * 0.014))
 
-  const rawShift = s?.shiftIndicatorPct ?? (s?.maxRpm ? (s?.rpm ?? 0) / s.maxRpm : 0)
-  const shiftPct = pct(rawShift)
+  const shiftPct = resolveRevLightPct(s)
   const redline = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)
   const gear = formatGear(s?.gear)
   const sessionLabel = (s?.sessionType ?? 'RACE').toUpperCase()
@@ -193,12 +192,12 @@ export function RingDashWidget({ snapshot, config }: WidgetProps): ReactElement 
             material="carbon"
             warnFrom={80}
             redlineFrom={95}
-            needleColor={redline ? palette.crit : ringColor}
+            needleColor={redline ? SHIFT_STROBE_BLUE : ringColor}
             idPrefix="ring-dial"
           />
         </g>
         {redline ? (
-          <circle cx={cx} cy={cy} r={dialSize / 2 - 6} fill="none" stroke={palette.crit} strokeWidth={6}>
+          <circle cx={cx} cy={cy} r={dialSize / 2 - 6} fill="none" stroke={SHIFT_STROBE_BLUE} strokeWidth={6}>
             <animate attributeName="opacity" values="1;0.15;1" dur="0.32s" repeatCount="indefinite" />
           </circle>
         ) : null}
@@ -211,7 +210,7 @@ export function RingDashWidget({ snapshot, config }: WidgetProps): ReactElement 
           anchor="middle"
           baseline="middle"
           fontFamily={/^\d$/.test(gear) ? skin.segment.numeric : skin.segment.alpha}
-          fill={redline ? palette.crit : palette.text}
+          fill={redline ? SHIFT_STROBE_BLUE : palette.text}
           minFontPx={24}
           maxFontPx={dialSize * 0.44}
         />

@@ -18,7 +18,7 @@ import { resolveSkin, FitText, type SkinToken } from '../../skins'
 import { RevLedBar, DataField, TelltaleBank, type FieldState, type TelltaleLamp } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
-import { atShiftPoint } from '../../lib/rev-lights'
+import { atShiftPoint, resolveRevLightPct } from '../../lib/rev-lights'
 
 export const BOSCH296_DASH_STREAM_SAFE = true
 
@@ -48,8 +48,7 @@ function tempState(c: number | undefined, warn: number, crit: number, cold?: num
 }
 
 function shiftFraction(s: TelemetrySnapshot | null): number {
-  const raw = s?.shiftIndicatorPct ?? (s?.maxRpm ? (s?.rpm ?? 0) / s.maxRpm : 0)
-  return Number.isFinite(raw) ? Math.max(0, Math.min(1, raw)) : 0
+  return resolveRevLightPct(s)
 }
 
 function levelText(v: number | string | undefined): string {

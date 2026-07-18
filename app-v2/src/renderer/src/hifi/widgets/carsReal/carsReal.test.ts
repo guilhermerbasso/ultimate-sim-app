@@ -94,17 +94,25 @@ describe('CARS_REAL_WIDGETS', () => {
       shiftIndicatorPct: 0.2,
       revLights: { pct: 0.2, blink: true }
     } as TelemetrySnapshot
+    const revPctOnlyOff = { ...providerOff, shiftIndicatorPct: undefined } as TelemetrySnapshot
+    const revPctOnlyOn = { ...providerOn, shiftIndicatorPct: undefined } as TelemetrySnapshot
 
-    for (const id of ids) {
-      const normal = renderWidget(id, providerOff)
-      const shifted = renderWidget(id, providerOn)
-      expect(normal, id).not.toContain('repeatCount="indefinite"')
-      expect(shifted, id).toContain(SHIFT_STROBE_BLUE)
-      expect(shifted, id).toContain('repeatCount="indefinite"')
-      expect(
-        (shifted.match(new RegExp(SHIFT_STROBE_BLUE, 'g')) ?? []).length,
-        id
-      ).toBeGreaterThan((normal.match(new RegExp(SHIFT_STROBE_BLUE, 'g')) ?? []).length)
+    for (const [source, normalSnapshot, shiftedSnapshot] of [
+      ['shiftIndicatorPct', providerOff, providerOn],
+      ['revLights.pct fallback', revPctOnlyOff, revPctOnlyOn]
+    ] as const) {
+      for (const id of ids) {
+        const normal = renderWidget(id, normalSnapshot)
+        const shifted = renderWidget(id, shiftedSnapshot)
+        const label = `${id} (${source})`
+        expect(normal, label).not.toContain('repeatCount="indefinite"')
+        expect(shifted, label).toContain(SHIFT_STROBE_BLUE)
+        expect(shifted, label).toContain('repeatCount="indefinite"')
+        expect(
+          (shifted.match(new RegExp(SHIFT_STROBE_BLUE, 'g')) ?? []).length,
+          label
+        ).toBeGreaterThan((normal.match(new RegExp(SHIFT_STROBE_BLUE, 'g')) ?? []).length)
+      }
     }
   })
 })

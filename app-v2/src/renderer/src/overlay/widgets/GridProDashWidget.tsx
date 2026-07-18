@@ -12,12 +12,12 @@ import type { ReactElement } from 'react'
 import './dashboard-replicas.css'
 import type { TyreInfo } from '../../../../shared/telemetry'
 import type { WidgetProps } from './types'
-import { formatDelta, formatGear, formatTime, pct } from './format'
+import { formatDelta, formatGear, formatTime } from './format'
 import { resolveSkin, FitText, type SkinToken } from '../../skins'
 import { RevLedBar, DataField, type FieldState } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
-import { atShiftPoint } from '../../lib/rev-lights'
+import { atShiftPoint, resolveRevLightPct } from '../../lib/rev-lights'
 
 function dims(config: WidgetProps['config']): { W: number; H: number } {
   const w = config?.position?.width
@@ -101,8 +101,7 @@ export function GridProDashWidget({ snapshot, config }: WidgetProps): ReactEleme
   const P = Math.max(6, Math.round(Math.min(W, H) * 0.02))
   const G = Math.max(4, Math.round(Math.min(W, H) * 0.014))
 
-  const rawShift = s?.shiftIndicatorPct ?? (s?.maxRpm ? (s?.rpm ?? 0) / s.maxRpm : undefined)
-  const shiftPct = pct(rawShift)
+  const shiftPct = resolveRevLightPct(s)
   const redline = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)
   const gear = formatGear(s?.gear)
   const sessionLabel = (s?.sessionType && s.sessionType.length > 0 ? s.sessionType : 'TESTING').toUpperCase()

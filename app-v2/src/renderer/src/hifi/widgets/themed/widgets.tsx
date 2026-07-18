@@ -1,7 +1,7 @@
 ﻿import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, fixed, frac, gearLabel, legibleStroke, num } from '../kit'
-import { ShiftStrobe, atShiftPoint, revFill } from '../../../lib/rev-lights'
+import { ShiftStrobe, atShiftPoint, resolveRevLightPct, revFill } from '../../../lib/rev-lights'
 import { formatMeasurement, type UnitSystem } from '../../../../../shared/units'
 
 const REV_W = 960
@@ -21,12 +21,14 @@ const PAL = {
 type Family = keyof typeof PAL
 
 function safeShift(snapshot: HifiWidgetProps['snapshot']): { f: number; missing: boolean } {
-  const shift = num(snapshot?.shiftIndicatorPct)
-  if (shift != null) return { f: frac(shift, 0, 1), missing: false }
   const rpm = num(snapshot?.rpm)
   const max = num(snapshot?.maxRpm)
-  if (rpm != null && max != null && max > 0) return { f: frac(rpm, 0, max), missing: false }
-  return { f: 0, missing: true }
+  const missing =
+    snapshot == null ||
+    (num(snapshot.shiftIndicatorPct) == null &&
+      num(snapshot.revLights?.pct) == null &&
+      !(rpm != null && max != null && max > 0))
+  return { f: resolveRevLightPct(snapshot), missing }
 }
 
 function activeCount(f: number, count: number, missing: boolean): number {
@@ -274,12 +276,11 @@ function SignatureCluster({ snapshot, width, height, family, unitSystem = 'metri
   const speed = num(snapshot?.speedKmh)
   const gear = num(snapshot?.gear)
   const rpm = num(snapshot?.rpm)
-  const max = num(snapshot?.maxRpm)
   const water = num(snapshot?.waterTempC)
   const oil = num(snapshot?.oilTempC)
   const speedReading = formatMeasurement(speed, 'speed-kmh', unitSystem, { decimals: 0 })
   const { f, missing } = safeShift(snapshot)
-  const rpmF = rpm != null && max != null && max > 0 ? frac(rpm, 0, max) : f
+  const rpmF = f
   return (
     <CleanTile width={width ?? CLUSTER_W} height={height ?? CLUSTER_H}>
       <GlowDefs id={`themed-${family}-cluster`} color={p.main} />

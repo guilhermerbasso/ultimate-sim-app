@@ -17,6 +17,7 @@ export {
   ShiftStrobe,
   atShiftPoint,
   clampRevLightPct,
+  resolveRevLightPct,
   resolveRevLightState,
   revFill,
   revLightRowLayout

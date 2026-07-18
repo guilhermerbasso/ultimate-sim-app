@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   RGB_MATRIX_FULL_BRIGHTNESS,
+  RGB_MATRIX_SHIFT_BLINK_MS,
+  RGB_MATRIX_SHIFT_BLUE,
   RGB_MATRIX_SIZE,
   buildCalibrationRows,
   buildFlagHexGrid,
@@ -336,6 +338,24 @@ describe('statusLed renders overlay-friendly (inactive = transparent)', () => {
       revLights: { pct: 0.99 }
     }), 0)
     expect(fallback.flat().some((color) => color.r + color.g + color.b > 0)).toBe(true)
+  })
+
+  it('gives shift-now absolute priority and alternates every matrix LED blue/off', () => {
+    const gear = createRgbMatrixEffect('gear')
+    const yellow = createRgbMatrixStatusLed('yellowFlag')
+    const profile = profileWith(ensureUniqueEffectPriorities([gear, yellow]))
+    const telemetry = snapshot({
+      gear: 6,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true },
+      flags: { ...ALL_FLAGS_OFF, yellow: true }
+    })
+
+    const on = renderMatrixFrame(profile, telemetry, 0)
+    expect(new Set(on.flat().map(rgbToHex))).toEqual(new Set([RGB_MATRIX_SHIFT_BLUE]))
+
+    const off = renderMatrixFrame(profile, telemetry, RGB_MATRIX_SHIFT_BLINK_MS)
+    expect(new Set(off.flat().map(rgbToHex))).toEqual(new Set(['#000000']))
   })
 })
 

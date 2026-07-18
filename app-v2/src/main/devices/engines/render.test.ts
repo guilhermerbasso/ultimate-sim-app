@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { RgbStripComponent, StartLedComponent } from '../../../shared/devices'
+import type { RgbMatrixComponent, RgbStripComponent, StartLedComponent } from '../../../shared/devices'
 import { DEFAULT_REVLIGHTS_CONFIG } from '../../../shared/revlights'
 import type { Flags, TelemetrySnapshot } from '../../../shared/telemetry'
-import { startLedOn, stripColors } from './render'
+import { matrixFrame, startLedOn, stripColors } from './render'
 
 function snapshot(partial: Partial<TelemetrySnapshot>): TelemetrySnapshot {
   return {
@@ -97,9 +97,15 @@ describe('hardware shift-now rendering', () => {
       revLights: { pct: 0.2, blink: true }
     })
 
+    const physicalStrip = {
+      ...strip,
+      ledCount: 7,
+      revlights: { ...strip.revlights, ledCount: 4 }
+    } satisfies RgbStripComponent
+
     expect(startLedOn(shiftLed, snap)).toBe(true)
-    expect(stripColors(strip, snap, 0)).toEqual(new Array(4).fill('#1f8dff'))
-    expect(stripColors(strip, snap, 90)).toEqual(new Array(4).fill('#000000'))
+    expect(stripColors(physicalStrip, snap, 0)).toEqual(new Array(7).fill('#1f8dff'))
+    expect(stripColors(physicalStrip, snap, 90)).toEqual(new Array(7).fill('#000000'))
   })
 
   it('uses the percentage threshold only when blink is absent and preserves flags otherwise', () => {
@@ -113,5 +119,41 @@ describe('hardware shift-now rendering', () => {
       revLights: { pct: 0.999, blink: false },
       flags: flags({ yellow: true })
     }), 0)).toEqual(new Array(4).fill(DEFAULT_REVLIGHTS_CONFIG.flagColors.yellow))
+  })
+})
+
+describe('generic RGB matrix shift-now override', () => {
+  const matrix = {
+    id: 'iflag',
+    label: 'iFlag',
+    enabled: true,
+    pins: {},
+    type: 'rgbMatrix',
+    chip: 'ws2812',
+    width: 8,
+    height: 8,
+    brightness: 255,
+    orientation: 0,
+    serpentine: true,
+    mode: 'iflag'
+  } satisfies RgbMatrixComponent
+
+  it('alternates every physical LED strong blue/off and supersedes flags', () => {
+    const snap = snapshot({
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true },
+      flags: flags({ yellow: true })
+    })
+    expect(matrixFrame(matrix, snap, 0).flat()).toEqual(new Array(64).fill('#1f8dff'))
+    expect(matrixFrame(matrix, snap, 90).flat()).toEqual(new Array(64).fill('#000000'))
+  })
+
+  it('does not threshold-strobe when provider blink is explicitly false', () => {
+    const frame = matrixFrame(matrix, snapshot({
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false },
+      flags: flags({ yellow: true })
+    }), 0)
+    expect(new Set(frame.flat())).toEqual(new Set(['#ffcc00']))
   })
 })

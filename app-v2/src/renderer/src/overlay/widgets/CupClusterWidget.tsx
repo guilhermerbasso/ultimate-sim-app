@@ -5,12 +5,12 @@
 // clamp() (the old overflow bug). Skin-token only. A null snapshot shows "—" throughout.
 import type { ReactElement } from 'react'
 import type { WidgetProps } from './types'
-import { formatDelta, formatGear, pct } from './format'
+import { formatDelta, formatGear } from './format'
 import { resolveSkin, FitText } from '../../skins'
 import { RevLedBar, DataField, type FieldState } from '../../instruments'
 import { formatMeasurement } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
-import { atShiftPoint } from '../../lib/rev-lights'
+import { atShiftPoint, resolveRevLightPct } from '../../lib/rev-lights'
 
 export const CUP_CLUSTER_STREAM_SAFE = true
 
@@ -30,7 +30,7 @@ export function CupClusterWidget({ snapshot, config }: WidgetProps): ReactElemen
   const { palette } = skin
   const { W, H } = dims(config)
 
-  const shiftPct = pct(s?.shiftIndicatorPct ?? (s?.rpm ?? 0) / (s?.maxRpm ?? 9000))
+  const shiftPct = resolveRevLightPct(s)
   const redline = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)
   const gear = formatGear(s?.gear)
   const speed = formatMeasurement(s?.speedKmh, 'speed-kmh', unitSystem, { decimals: 0 })

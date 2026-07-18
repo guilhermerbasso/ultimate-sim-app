@@ -19,6 +19,7 @@ import {
   isValidHexGrid,
   normalizeMatrixLayout,
   normalizeRgbMatrixEffects,
+  renderMatrixShiftOverrideFrame,
   renderMatrixFrame,
   rgbToHex,
   selectRedlineReachedWithHysteresis,
@@ -928,6 +929,8 @@ export class RgbMatrixModule {
     // when enabled AND it returns a valid 8-row grid; otherwise the normal frame stands.
     const dynamicRows = this.iflagDynamic?.isEnabled() ? this.iflagDynamic.getHexGrid() : null
     if (dynamicRows && dynamicRows.length === rows.length && dynamicRows.every((r) => r.length === rows[0]?.length)) rows = dynamicRows
+    const shiftOverride = renderMatrixShiftOverrideFrame(snapshot, now)
+    if (shiftOverride) rows = shiftOverride.map((row) => row.map(rgbToHex))
     // When a manual wiring permutation is active, the device runs an identity
     // layout and the app delivers PHYSICAL-ordered frames (streamed as one `P`):
     // re-order the logical image into physical order so customMap alone decides

@@ -12,6 +12,7 @@ import {
   type MeasurementKind,
   type UnitSystem
 } from '../../../shared/units'
+import { resolveShiftIndicatorPct } from '../../../shared/revlights'
 
 // Resolve uma chave de binding em (valor exibido, pct numérico 0–1 quando aplicável).
 // Bindings derivados são pré-calculados aqui para que os componentes só apliquem estilo.
@@ -552,15 +553,17 @@ function resolveBindingCanonical(
     case 'gearLabel':
       return { text: fmtGear(snap.gear), numeric: snap.gear }
     case 'rpmPct': {
+      // Explicit user-facing "RPM (% of max)" binding for ordinary tach gauges.
+      // Shift/rev-light widgets use `shiftPct` below instead.
       const max = snap.maxRpm ?? 0
       const pct = max > 0 ? Math.min(1, Math.max(0, snap.rpm / max)) : 0
       return { text: (pct * 100).toFixed(0), numeric: pct * 100, pct }
     }
     case 'shiftPct': {
       // Per-car shift-light band from the provider (0 below SLFirstRPM, 1 at/after
-      // SLShiftRPM). revLights.pct is the same band, kept as a fallback. Never
-      // rpm/maxRpm — that lights the bar proportionally at all RPM.
-      const pct = Math.min(1, Math.max(0, snap.shiftIndicatorPct ?? snap.revLights?.pct ?? 0))
+      // SLShiftRPM). revLights.pct is the same band, then the shared redline-relative
+      // top slice is the final fallback. Never rpm/maxRpm proportional fill.
+      const pct = resolveShiftIndicatorPct(snap)
       return { text: (pct * 100).toFixed(0), numeric: pct, pct }
     }
     case 'fuelPct': {
