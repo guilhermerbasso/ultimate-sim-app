@@ -1,2 +1,3 @@
+user ultimate-sim-command
 topic write ultimate-sim/v1/simrig/command/+
 topic read ultimate-sim/v1/simrig/result/+

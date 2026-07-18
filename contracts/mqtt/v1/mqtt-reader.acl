@@ -1,3 +1,4 @@
+user ultimate-sim-reader
 topic read ultimate-sim/v1/simrig/availability
 topic read ultimate-sim/v1/simrig/state/+
 topic read ultimate-sim/v1/simrig/event/+

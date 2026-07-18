@@ -360,6 +360,11 @@ export function MqttSetupPanel({ language, showToast }: MqttSetupPanelProps): Re
         <code style={{ color: 'var(--muted)', fontSize: 12, overflowWrap: 'anywhere' }}>
           {status?.commandUrl ?? `mqtt://${config.host}:${config.port + 2}`} · {tt(language, 'mqtt.commandListener')}
         </code>
+        {status?.setupDirectory && (
+          <code style={{ color: 'var(--muted)', fontSize: 12, overflowWrap: 'anywhere' }}>
+            {status.setupDirectory} · {tt(language, 'mqtt.setupDirectory')}
+          </code>
+        )}
       </div>
 
       {contract && (

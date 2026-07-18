@@ -8,12 +8,14 @@ import {
   parseMqttCloudEvent,
   retainedEnvelopeIsFresh,
   serializeMqttPayload,
+  type MqttAvailabilityData,
   type MqttCommandRequestData,
   type MqttCommandResultData,
   type MqttRaceEventData,
   type MqttSessionStateData
 } from '../../shared/mqtt'
 import { InMemoryMqttBroker } from './in-memory-broker'
+import { createMqttBrokerAccessSet } from './broker-auth'
 import {
   MqttCertificationTarget,
   type MqttIncomingPacket,
@@ -58,6 +60,15 @@ function inertWill(topic: string): MqttTransportPacket {
     qos: 0,
     retain: false
   }
+}
+
+function brokerAccess() {
+  let seed = 1
+  return createMqttBrokerAccessSet((size) => {
+    const value = seed
+    seed += 1
+    return new Uint8Array(size).fill(value)
+  })
 }
 
 function commandPacket(
@@ -124,14 +135,15 @@ describe('MQTT certification target conformance', () => {
       commandsEnabled: true,
       instanceId: 'rig-acl'
     })
-    const broker = new InMemoryMqttBroker(() => now)
+    const access = brokerAccess()
+    const broker = new InMemoryMqttBroker(() => now, access)
     const effect = vi.fn()
     const target = new MqttCertificationTarget(broker.transportFactory, {
       now: () => now,
       monotonicNs: () => BigInt(now) * 1_000_000n,
       commandHandlers: { 'app.overlay.show': effect }
     })
-    await target.start(config)
+    await target.start(config, access['target-publisher'])
     await settle(target)
 
     const readerGrant = createMqttCapabilityGrant('local-reader', config, now)
@@ -139,7 +151,8 @@ describe('MQTT certification target conformance', () => {
       config,
       readerGrant,
       inertWill(mqttTopics(config.instanceId).health),
-      { onConnect: () => {}, onDisconnect: () => {}, onMessage: () => {} }
+      { onConnect: () => {}, onDisconnect: () => {}, onMessage: () => {} },
+      access['local-reader']
     )
     reader.connect()
     await expect(
@@ -150,6 +163,15 @@ describe('MQTT certification target conformance', () => {
         retain: false
       })
     ).rejects.toMatchObject({ code: 'acl-denied' })
+
+    const impersonator = broker.createTransport(
+      config,
+      createMqttCapabilityGrant('target-publisher', config, now),
+      inertWill(mqttTopics(config.instanceId).availability),
+      { onConnect: () => {}, onDisconnect: () => {}, onMessage: () => {} },
+      access['local-reader']
+    )
+    expect(() => impersonator.connect()).toThrow(/authentication failed/i)
 
     const valid = commandPacket(config, now, 'acl-bypass')
     broker.inject(valid.packet, 'rogue-local-process')
@@ -388,5 +410,173 @@ describe('MQTT certification target conformance', () => {
       broker.publishedPackets(mqttTopics(config.instanceId).event('warning'))
     ).toHaveLength(0)
     expect(target.getStatus().metrics.denied).toBeGreaterThan(0)
+  })
+
+  it('publishes offline before disable or reconfigure and aligns reconnect wills', async () => {
+    let now = 800_000
+    const configA = normalizeMqttLocalConfig({ enabled: true, instanceId: 'rig-life-a' })
+    const configB = normalizeMqttLocalConfig({ enabled: true, instanceId: 'rig-life-b' })
+    const broker = new InMemoryMqttBroker(() => now)
+    const target = new MqttCertificationTarget(broker.transportFactory, {
+      now: () => now,
+      monotonicNs: () => BigInt(now) * 1_000_000n
+    })
+
+    await target.start(configA)
+    await settle(target)
+    const onlineA = parseMqttCloudEvent<MqttAvailabilityData>(
+      broker.retainedPacket(mqttTopics(configA.instanceId).availability)!.payload,
+      'availability'
+    )
+    expect(onlineA.data.status).toBe('online')
+
+    await target.start({ ...configA, enabled: false })
+    await settle(target)
+    const disabledA = parseMqttCloudEvent<MqttAvailabilityData>(
+      broker.retainedPacket(mqttTopics(configA.instanceId).availability)!.payload,
+      'availability'
+    )
+    expect(disabledA.data.status).toBe('offline')
+
+    now += 1_000
+    await target.start(configB)
+    await settle(target)
+    const firstOnlineB = parseMqttCloudEvent<MqttAvailabilityData>(
+      broker.retainedPacket(mqttTopics(configB.instanceId).availability)!.payload,
+      'availability'
+    )
+
+    now += 1_000
+    broker.restart()
+    await settle(target)
+    const reconnectedB = parseMqttCloudEvent<MqttAvailabilityData>(
+      broker.retainedPacket(mqttTopics(configB.instanceId).availability)!.payload,
+      'availability'
+    )
+    expect(reconnectedB.data.status).toBe('online')
+    expect(reconnectedB.data.generation).toBeGreaterThan(firstOnlineB.data.generation)
+
+    now += 1_000
+    broker.setOnline(false)
+    await Promise.resolve()
+    const reconnectWill = parseMqttCloudEvent<MqttAvailabilityData>(
+      broker.retainedPacket(mqttTopics(configB.instanceId).availability)!.payload,
+      'availability'
+    )
+    expect(reconnectWill.data.status).toBe('offline')
+    expect(reconnectWill.data.generation).toBe(reconnectedB.data.generation)
+  })
+
+  it('keeps offline as the final retained state when disable races resync', async () => {
+    let now = 850_000
+    const config = normalizeMqttLocalConfig({ enabled: true, instanceId: 'rig-stop-race' })
+    const broker = new InMemoryMqttBroker(() => now)
+    const target = new MqttCertificationTarget(broker.transportFactory, {
+      now: () => now,
+      monotonicNs: () => BigInt(now) * 1_000_000n
+    })
+    const release = broker.pausePublishing()
+
+    await target.start(config)
+    const disabling = target.start({ ...config, enabled: false })
+    await Promise.resolve()
+    release()
+    await disabling
+    await settle(target)
+
+    const retained = broker.retainedPacket(mqttTopics(config.instanceId).availability)
+    expect(retained).toBeDefined()
+    const availability = parseMqttCloudEvent<MqttAvailabilityData>(
+      retained!.payload,
+      'availability'
+    )
+    expect(availability.data.status).toBe('offline')
+  })
+
+  it('reserves overload capacity for retained critical state', async () => {
+    let now = 900_000
+    const config = normalizeMqttLocalConfig({ enabled: true, instanceId: 'rig-priority' })
+    const broker = new InMemoryMqttBroker(() => now)
+    const target = new MqttCertificationTarget(broker.transportFactory, {
+      now: () => now,
+      monotonicNs: () => BigInt(now) * 1_000_000n
+    })
+    await target.start(config)
+    await settle(target)
+
+    const release = broker.pausePublishing()
+    for (let index = 0; index < 200; index += 1) {
+      target.publishRaceEvent(raceEvent(index, now))
+    }
+    target.ingestTelemetry(snapshot(now, { sessionUniqueId: 99, currentLap: 1 }))
+    broker.restart()
+    const saturated = target.getStatus()
+    expect(saturated.queueDepth).toBeLessThanOrEqual(64)
+    expect(saturated.metrics.overloadDropped).toBeGreaterThan(0)
+
+    release()
+    await settle(target)
+    const topics = mqttTopics(config.instanceId)
+    const retainedSession = broker.retainedPacket(topics.session)
+    expect(broker.retainedPacket(topics.availability)).toBeDefined()
+    expect(broker.retainedPacket(topics.health)).toBeDefined()
+    expect(broker.retainedPacket(topics.announcement)).toBeDefined()
+    expect(retainedSession).toBeDefined()
+    const session = parseMqttCloudEvent<MqttSessionStateData>(retainedSession!.payload, 'session')
+    expect(session.data.sessionRef).toBe('iracing:session-99')
+  })
+
+  it('drops command completions from an obsolete configuration epoch', async () => {
+    let now = 1_000_000
+    let completeHandler: ((message: string) => void) | undefined
+    const pending = new Promise<string>((resolve) => {
+      completeHandler = resolve
+    })
+    const effect = vi.fn(() => pending)
+    const configA = normalizeMqttLocalConfig({
+      enabled: true,
+      commandsEnabled: true,
+      instanceId: 'rig-epoch-a'
+    })
+    const configB = normalizeMqttLocalConfig({
+      enabled: true,
+      commandsEnabled: true,
+      instanceId: 'rig-epoch-b'
+    })
+    const broker = new InMemoryMqttBroker(() => now)
+    const target = new MqttCertificationTarget(broker.transportFactory, {
+      now: () => now,
+      monotonicNs: () => BigInt(now) * 1_000_000n,
+      commandHandlers: { 'app.overlay.show': effect }
+    })
+    await target.start(configA)
+    await settle(target)
+
+    const request = commandPacket(configA, now, 'epoch-command')
+    const client = broker.createTransport(
+      configA,
+      request.grant,
+      inertWill(mqttTopics(configA.instanceId).result('client-offline')),
+      { onConnect: () => {}, onDisconnect: () => {}, onMessage: () => {} }
+    )
+    client.connect()
+    await client.publish(request.packet)
+    for (let index = 0; index < 12 && effect.mock.calls.length === 0; index += 1) {
+      await Promise.resolve()
+    }
+    expect(effect).toHaveBeenCalledTimes(1)
+
+    now += 1_000
+    await target.start(configB)
+    await settle(target)
+    completeHandler?.('Old command completed.')
+    await settle(target)
+
+    expect(
+      broker.publishedPackets(mqttTopics(configA.instanceId).result('epoch-command'))
+    ).toHaveLength(0)
+    expect(
+      broker.publishedPackets(mqttTopics(configB.instanceId).result('epoch-command'))
+    ).toHaveLength(0)
   })
 })

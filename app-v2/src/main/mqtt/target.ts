@@ -39,6 +39,7 @@ import {
   type MqttSchemaKind,
   type MqttTargetStatus
 } from '../../shared/mqtt'
+import type { MqttTransportAccess } from './broker-auth'
 
 export interface MqttTransportPacket {
   topic: string
@@ -63,6 +64,7 @@ export interface MqttTransport {
   connect(): void
   publish(packet: MqttTransportPacket): Promise<void>
   subscribe(topicFilter: string, qos: MqttQos): Promise<void>
+  setWill(packet: MqttTransportPacket): void
   close(): Promise<void>
 }
 
@@ -70,7 +72,8 @@ export type MqttTransportFactory = (
   config: MqttLocalConfig,
   grant: MqttCapabilityGrant,
   will: MqttTransportPacket,
-  handlers: MqttTransportHandlers
+  handlers: MqttTransportHandlers,
+  access?: MqttTransportAccess
 ) => MqttTransport
 
 export type MqttCommandHandler = (
@@ -83,6 +86,7 @@ export interface MqttTargetOptions {
   commandHandlers?: Partial<Record<MqttCommandCapability, MqttCommandHandler>>
   onStatus?: (status: MqttTargetStatus) => void
   runId?: string
+  setupDirectory?: string
 }
 
 interface QueuedPublication {
@@ -90,12 +94,26 @@ interface QueuedPublication {
   envelope: MqttCloudEvent
   packet: MqttTransportPacket
   expiresAt: number
+  epoch: number
 }
 
 interface CachedCommandResult {
   result: MqttCommandResultData
   expiresAt: number
 }
+
+interface InFlightCommand {
+  epoch: number
+  promise: Promise<MqttCommandResultData>
+}
+
+const CRITICAL_QUEUE_KINDS = new Set<MqttSchemaKind>([
+  'availability',
+  'session',
+  'health',
+  'announcement'
+])
+const NONCRITICAL_QUEUE_LIMIT = MQTT_MAX_QUEUE_DEPTH - CRITICAL_QUEUE_KINDS.size
 
 function cloneConfig(config: MqttLocalConfig): MqttLocalConfig {
   return { ...config }
@@ -126,7 +144,7 @@ export class MqttCertificationTarget {
   private grant: MqttCapabilityGrant | null = null
   private transport: MqttTransport | null = null
   private queue: QueuedPublication[] = []
-  private draining = false
+  private drainingEpochs = new Set<number>()
   private stopped = true
   private sequence = 0
   private eventSequence = 0
@@ -136,10 +154,14 @@ export class MqttCertificationTarget {
   private lastSessionPublishAt = Number.NEGATIVE_INFINITY
   private lastSessionSignature = ''
   private commandResults = new Map<string, CachedCommandResult>()
-  private commandInFlight = new Map<string, Promise<MqttCommandResultData>>()
+  private commandInFlight = new Map<string, InFlightCommand>()
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
   private commandWindowStartedAt = Number.NEGATIVE_INFINITY
   private commandWindowCount = 0
+  private lifecycleEpoch = 0
+  private resyncingEpochs = new Set<number>()
+  private publishTails = new WeakMap<MqttTransport, Promise<void>>()
+  private transportAccess: MqttTransportAccess | undefined
   private readonly now: () => number
   private readonly monotonicNs: () => bigint
   private readonly commandHandlers: Partial<Record<MqttCommandCapability, MqttCommandHandler>>
@@ -162,6 +184,7 @@ export class MqttCertificationTarget {
       brokerUrl: urls.publisher,
       readerUrl: urls.reader,
       commandUrl: urls.command,
+      setupDirectory: options.setupDirectory,
       connected: false,
       generation: 0,
       queueDepth: 0,
@@ -189,9 +212,14 @@ export class MqttCertificationTarget {
       : null
   }
 
-  async start(configInput: unknown): Promise<MqttTargetStatus> {
-    if (this.transport) await this.stop(false)
+  async start(
+    configInput: unknown,
+    access?: MqttTransportAccess
+  ): Promise<MqttTargetStatus> {
+    if (this.transport) await this.stop(true)
+    const epoch = ++this.lifecycleEpoch
     this.config = normalizeMqttLocalConfig(configInput)
+    this.transportAccess = access ? { ...access } : undefined
     const urls = mqttBrokerUrls(this.config)
     this.status = {
       config: cloneConfig(this.config),
@@ -199,6 +227,7 @@ export class MqttCertificationTarget {
       brokerUrl: urls.publisher,
       readerUrl: urls.reader,
       commandUrl: urls.command,
+      setupDirectory: this.status.setupDirectory,
       connected: false,
       generation: this.status.generation,
       queueDepth: 0,
@@ -222,19 +251,28 @@ export class MqttCertificationTarget {
     this.status.generation += 1
     this.grant = createMqttCapabilityGrant('target-publisher', this.config, now, 365 * 24 * 60 * 60 * 1000)
     const will = this.availabilityPacket('offline', now)
-    this.transport = this.transportFactory(this.config, this.grant, will, {
-      onConnect: (sessionPresent) => {
-        void this.handleConnect(sessionPresent)
-      },
-      onDisconnect: (error) => this.handleDisconnect(error),
-      onMessage: (packet) => {
-        void this.handleIncoming(packet)
-      }
-    })
     try {
+      this.transport = this.transportFactory(
+        this.config,
+        this.grant,
+        will,
+        {
+          onConnect: (sessionPresent) => {
+            void this.handleConnect(sessionPresent, epoch)
+          },
+          onDisconnect: (error) => this.handleDisconnect(error, epoch),
+          onMessage: (packet) => {
+            void this.handleIncoming(packet, epoch)
+          }
+        },
+        this.transportAccess
+      )
       this.transport.connect()
     } catch (error) {
+      this.transport = null
+      this.grant.revoked = true
       this.markError(error)
+      return this.getStatus()
     }
     this.startHeartbeat()
     this.notify()
@@ -243,11 +281,12 @@ export class MqttCertificationTarget {
 
   async reconnect(): Promise<MqttTargetStatus> {
     const config = this.getConfig()
-    await this.stop(false)
-    return this.start(config)
+    const access = this.transportAccess ? { ...this.transportAccess } : undefined
+    return this.start(config, access)
   }
 
   async stop(publishOffline = true): Promise<MqttTargetStatus> {
+    this.lifecycleEpoch += 1
     this.stopped = true
     this.stopHeartbeat()
     if (this.status.state !== 'disabled') {
@@ -255,9 +294,11 @@ export class MqttCertificationTarget {
       this.notify()
     }
     const transport = this.transport
-    if (transport && publishOffline && this.status.connected && this.grant && !this.grant.revoked) {
+    const grant = this.grant
+    if (transport && publishOffline && this.status.connected && grant && !grant.revoked) {
       try {
-        await transport.publish(this.availabilityPacket('offline', this.now()))
+        await this.clearRetainedSlots(transport, grant)
+        await this.publishTransport(transport, this.availabilityPacket('offline', this.now()))
       } catch {
         this.status.metrics.publishFailures += 1
       }
@@ -268,6 +309,7 @@ export class MqttCertificationTarget {
     this.status.commandsSubscribed = false
     this.status.connected = false
     this.transport = null
+    this.transportAccess = undefined
     if (transport) {
       try {
         await transport.close()
@@ -344,7 +386,10 @@ export class MqttCertificationTarget {
   async flush(): Promise<void> {
     for (let i = 0; i < 100; i += 1) {
       await Promise.resolve()
-      if (!this.draining && (!this.status.connected || this.queue.length === 0)) return
+      if (
+        !this.drainingEpochs.has(this.lifecycleEpoch) &&
+        (!this.status.connected || this.queue.length === 0)
+      ) return
     }
   }
 
@@ -380,59 +425,78 @@ export class MqttCertificationTarget {
     return this.packetFor(mqttTopics(this.config.instanceId).availability, envelope)
   }
 
-  private async handleConnect(_sessionPresent: boolean): Promise<void> {
-    if (this.stopped || !this.transport) return
-    const wasConnected = this.status.lastConnectedAt !== undefined
+  private async handleConnect(_sessionPresent: boolean, epoch: number): Promise<void> {
+    if (epoch !== this.lifecycleEpoch || this.stopped || !this.transport || !this.grant) return
+    this.resyncingEpochs.add(epoch)
+    const wasReconnect = this.status.state === 'reconnecting'
     this.status.connected = true
     this.status.state = 'online'
     this.status.lastConnectedAt = this.now()
     this.status.lastError = undefined
-    this.status.generation += 1
-    if (wasConnected) this.status.metrics.reconnects += 1
+    if (wasReconnect) this.status.metrics.reconnects += 1
     this.status.metrics.resyncs += 1
-    await this.clearRetainedSlots()
-    if (this.config.commandsEnabled) {
-      try {
-        await this.transport.subscribe(mqttTopics(this.config.instanceId).commandFilter, 1)
-        this.status.commandsSubscribed = true
-      } catch (error) {
-        this.status.commandsSubscribed = false
-        this.markError(error)
+    try {
+      await this.clearRetainedSlots(this.transport, this.grant)
+      if (epoch !== this.lifecycleEpoch || this.stopped || !this.transport) return
+      if (this.config.commandsEnabled) {
+        try {
+          await this.transport.subscribe(mqttTopics(this.config.instanceId).commandFilter, 1)
+          if (epoch !== this.lifecycleEpoch || this.stopped) return
+          this.status.commandsSubscribed = true
+        } catch (error) {
+          if (epoch !== this.lifecycleEpoch || this.stopped) return
+          this.status.commandsSubscribed = false
+          this.markError(error)
+        }
       }
+      const now = this.now()
+      this.enqueuePacket(this.availabilityPacket('online', now), 'availability')
+      this.publishAnnouncement(now)
+      if (this.latestSnapshot) {
+        this.publishSessionState(projectMqttSession(this.latestSnapshot, now, this.config.retainedMaxAgeMs))
+        if (this.latestSnapshot.connected) this.publishTelemetryState(this.latestSnapshot, now)
+      }
+      this.publishHealth(now)
+      this.notify()
+    } finally {
+      this.resyncingEpochs.delete(epoch)
     }
-    const now = this.now()
-    this.enqueuePacket(this.availabilityPacket('online', now), 'availability')
-    this.publishAnnouncement(now)
-    if (this.latestSnapshot) {
-      this.publishSessionState(projectMqttSession(this.latestSnapshot, now, this.config.retainedMaxAgeMs))
-      if (this.latestSnapshot.connected) this.publishTelemetryState(this.latestSnapshot, now)
-    }
-    this.publishHealth(now)
-    this.notify()
+    if (epoch !== this.lifecycleEpoch || this.stopped) return
     await this.drain()
   }
 
-  private handleDisconnect(error?: Error): void {
-    if (this.stopped) return
+  private handleDisconnect(error: Error | undefined, epoch: number): void {
+    if (epoch !== this.lifecycleEpoch || this.stopped) return
     this.status.connected = false
     this.status.commandsSubscribed = false
     this.status.state = 'reconnecting'
+    this.status.generation += 1
+    try {
+      this.transport?.setWill(this.availabilityPacket('offline', this.now()))
+    } catch (willError) {
+      this.status.lastError = compactError(willError)
+    }
     if (error) this.status.lastError = compactError(error)
     this.notify()
   }
 
-  private async clearRetainedSlots(): Promise<void> {
-    if (!this.transport || !this.grant) return
+  private async clearRetainedSlots(
+    transport: MqttTransport,
+    grant: MqttCapabilityGrant
+  ): Promise<void> {
     const topics = mqttTopics(this.config.instanceId)
     const retainedTopics = [topics.availability, topics.session, topics.health, topics.announcement]
     for (const topic of retainedTopics) {
-      const decision = authorizeMqttOperation(this.grant, 'publish', topic, this.config, this.now())
+      const decision = authorizeMqttOperation(grant, 'publish', topic, this.config, this.now())
       if (!decision.allowed) {
         this.status.metrics.denied += 1
         continue
       }
       try {
-        await this.transport.publish({ topic, payload: new Uint8Array(), qos: 1, retain: true })
+        await this.publishTransport(
+          transport,
+          { topic, payload: new Uint8Array(), qos: 1, retain: true }
+        )
         this.status.metrics.staleRetainedCleared += 1
       } catch (error) {
         this.status.metrics.publishFailures += 1
@@ -586,6 +650,13 @@ export class MqttCertificationTarget {
       if (!policy?.schemaKind) return
       envelope = parseMqttCloudEvent(packet.payload, policy.schemaKind)
     }
+    const entry: QueuedPublication = {
+      kind,
+      envelope,
+      packet,
+      expiresAt: envelopeExpiresAt(envelope),
+      epoch: this.lifecycleEpoch
+    }
     const coalescible =
       kind === 'availability' ||
       kind === 'telemetry' ||
@@ -595,73 +666,133 @@ export class MqttCertificationTarget {
     if (coalescible) {
       const existingIndex = this.queue.findIndex((entry) => entry.packet.topic === packet.topic)
       if (existingIndex >= 0) {
-        this.queue[existingIndex] = {
-          kind,
-          envelope,
-          packet,
-          expiresAt: envelopeExpiresAt(envelope)
-        }
+        this.queue[existingIndex] = entry
         this.status.metrics.coalesced += 1
         this.status.queueDepth = this.queue.length
         void this.drain()
         return
       }
     }
-    if (this.queue.length >= MQTT_MAX_QUEUE_DEPTH) {
-      const replaceable = this.queue.findIndex(
-        (entry) => entry.kind === 'telemetry' || entry.kind === 'health' || entry.kind === 'session'
-      )
-      if (replaceable >= 0) this.queue.splice(replaceable, 1)
-      else {
+    if (this.insertQueueEntry(entry)) void this.drain()
+  }
+
+  private insertQueueEntry(entry: QueuedPublication, front = false): boolean {
+    const critical = CRITICAL_QUEUE_KINDS.has(entry.kind)
+    const limit = critical ? MQTT_MAX_QUEUE_DEPTH : NONCRITICAL_QUEUE_LIMIT
+    if (this.queue.length >= limit) {
+      if (critical) {
+        const replaceable = this.queue.findIndex(
+          (queued) => !CRITICAL_QUEUE_KINDS.has(queued.kind)
+        )
+        if (replaceable >= 0) {
+          this.queue.splice(replaceable, 1)
+          this.status.metrics.overloadDropped += 1
+        } else {
+          this.status.metrics.overloadDropped += 1
+          this.status.queueDepth = this.queue.length
+          return false
+        }
+      } else {
         this.status.metrics.overloadDropped += 1
         this.status.queueDepth = this.queue.length
-        return
+        return false
       }
-      this.status.metrics.overloadDropped += 1
     }
-    this.queue.push({ kind, envelope, packet, expiresAt: envelopeExpiresAt(envelope) })
+
+    if (front) {
+      this.queue.unshift(entry)
+    } else if (critical) {
+      const firstNoncritical = this.queue.findIndex(
+        (queued) => !CRITICAL_QUEUE_KINDS.has(queued.kind)
+      )
+      if (firstNoncritical >= 0) this.queue.splice(firstNoncritical, 0, entry)
+      else this.queue.push(entry)
+    } else {
+      this.queue.push(entry)
+    }
     this.status.queueDepth = this.queue.length
-    void this.drain()
+    return true
   }
 
   private async drain(): Promise<void> {
-    if (this.draining || !this.status.connected || !this.transport || !this.grant) return
-    this.draining = true
+    const epoch = this.lifecycleEpoch
+    if (
+      this.drainingEpochs.has(epoch) ||
+      this.resyncingEpochs.has(epoch) ||
+      !this.status.connected ||
+      !this.transport ||
+      !this.grant
+    ) return
+    const transport = this.transport
+    const grant = this.grant
+    let retryBlocked = false
+    this.drainingEpochs.add(epoch)
     try {
-      while (this.status.connected && this.transport && this.grant && this.queue.length > 0) {
+      while (
+        epoch === this.lifecycleEpoch &&
+        this.status.connected &&
+        this.transport === transport &&
+        this.grant === grant &&
+        this.queue.length > 0
+      ) {
         const entry = this.queue.shift()
         if (!entry) break
         this.status.queueDepth = this.queue.length
+        if (entry.epoch !== epoch) continue
         const now = this.now()
         if (now >= entry.expiresAt) {
           this.status.metrics.overloadDropped += 1
           continue
         }
-        const decision = authorizeMqttOperation(this.grant, 'publish', entry.packet.topic, this.config, now)
+        const decision = authorizeMqttOperation(grant, 'publish', entry.packet.topic, this.config, now)
         if (!decision.allowed) {
           this.status.metrics.denied += 1
           this.status.lastError = decision.reason
           continue
         }
         try {
-          await this.transport.publish(entry.packet)
+          await this.publishTransport(transport, entry.packet)
+          if (
+            epoch !== this.lifecycleEpoch ||
+            this.transport !== transport ||
+            this.grant !== grant
+          ) {
+            break
+          }
           this.status.metrics.published += 1
           this.status.lastMessageAt = now
         } catch (error) {
+          if (
+            epoch !== this.lifecycleEpoch ||
+            this.transport !== transport ||
+            this.grant !== grant
+          ) {
+            break
+          }
           this.status.metrics.publishFailures += 1
           this.status.lastError = compactError(error)
-          if (this.queue.length < MQTT_MAX_QUEUE_DEPTH) this.queue.unshift(entry)
+          this.insertQueueEntry(entry, true)
+          retryBlocked = true
           break
         }
       }
     } finally {
-      this.draining = false
+      this.drainingEpochs.delete(epoch)
       this.status.queueDepth = this.queue.length
-      this.notify()
+      if (epoch === this.lifecycleEpoch) this.notify()
+      if (
+        !retryBlocked &&
+        epoch !== this.lifecycleEpoch &&
+        this.status.connected &&
+        this.queue.length > 0
+      ) {
+        void this.drain()
+      }
     }
   }
 
-  private async handleIncoming(packet: MqttIncomingPacket): Promise<void> {
+  private async handleIncoming(packet: MqttIncomingPacket, epoch: number): Promise<void> {
+    if (epoch !== this.lifecycleEpoch || this.stopped) return
     this.status.metrics.received += 1
     if (!this.config.commandsEnabled || packet.retain) {
       this.status.metrics.denied += 1
@@ -708,27 +839,36 @@ export class MqttCertificationTarget {
     const cached = this.commandResults.get(envelope.data.requestId)
     if (cached) {
       this.status.metrics.duplicates += 1
-      await this.publishCommandResult({ ...cached.result, duplicate: true })
+      await this.publishCommandResult({ ...cached.result, duplicate: true }, epoch)
+      if (epoch !== this.lifecycleEpoch || this.stopped) return
       this.notify()
       return
     }
     const inFlight = this.commandInFlight.get(envelope.data.requestId)
-    if (inFlight) {
+    if (inFlight?.epoch === epoch) {
       this.status.metrics.duplicates += 1
-      const result = await inFlight
-      await this.publishCommandResult({ ...result, duplicate: true })
+      const result = await inFlight.promise
+      if (epoch !== this.lifecycleEpoch || this.stopped) return
+      await this.publishCommandResult({ ...result, duplicate: true }, epoch)
+      if (epoch !== this.lifecycleEpoch || this.stopped) return
       this.notify()
       return
     }
 
-    const execution = this.executeCommand(envelope.data)
-    this.commandInFlight.set(envelope.data.requestId, execution)
+    const inFlightEntry: InFlightCommand = {
+      epoch,
+      promise: this.executeCommand(envelope.data, epoch)
+    }
+    this.commandInFlight.set(envelope.data.requestId, inFlightEntry)
     let result: MqttCommandResultData
     try {
-      result = await execution
+      result = await inFlightEntry.promise
     } finally {
-      this.commandInFlight.delete(envelope.data.requestId)
+      if (this.commandInFlight.get(envelope.data.requestId) === inFlightEntry) {
+        this.commandInFlight.delete(envelope.data.requestId)
+      }
     }
+    if (epoch !== this.lifecycleEpoch || this.stopped) return
     const now = this.now()
     this.commandResults.set(envelope.data.requestId, {
       result,
@@ -739,11 +879,18 @@ export class MqttCertificationTarget {
       if (!oldest) break
       this.commandResults.delete(oldest)
     }
-    await this.publishCommandResult(result)
+    await this.publishCommandResult(result, epoch)
+    if (epoch !== this.lifecycleEpoch || this.stopped) return
     this.notify()
   }
 
-  private async executeCommand(request: MqttCommandRequestData): Promise<MqttCommandResultData> {
+  private async executeCommand(
+    request: MqttCommandRequestData,
+    epoch: number
+  ): Promise<MqttCommandResultData> {
+    if (epoch !== this.lifecycleEpoch || this.stopped) {
+      return this.commandResult(request, 'denied', 'Command lifecycle is no longer current.')
+    }
     const now = this.now()
     if (now < request.issuedAt - 5_000 || now >= request.expiresAt) {
       return this.commandResult(request, 'expired', 'Command request expired.')
@@ -754,6 +901,9 @@ export class MqttCertificationTarget {
     }
     try {
       const message = await handler(Object.freeze({ ...request.args }))
+      if (epoch !== this.lifecycleEpoch || this.stopped) {
+        return this.commandResult(request, 'denied', 'Command lifecycle changed before completion.')
+      }
       return this.commandResult(request, 'ok', message || 'Command completed.')
     } catch (error) {
       return this.commandResult(request, 'failed', compactError(error))
@@ -778,7 +928,11 @@ export class MqttCertificationTarget {
     }
   }
 
-  private async publishCommandResult(result: MqttCommandResultData): Promise<void> {
+  private async publishCommandResult(
+    result: MqttCommandResultData,
+    epoch: number
+  ): Promise<void> {
+    if (epoch !== this.lifecycleEpoch || this.stopped) return
     this.enqueueEnvelope(mqttTopics(this.config.instanceId).result(result.requestId), 'result', result, {
       sessionId: '',
       partitionKey: `command:${result.requestId}`,
@@ -807,9 +961,10 @@ export class MqttCertificationTarget {
 
   private startHeartbeat(): void {
     this.stopHeartbeat()
+    const epoch = this.lifecycleEpoch
     const intervalMs = Math.max(5_000, Math.floor(this.config.retainedMaxAgeMs / 2))
     this.heartbeatTimer = setInterval(() => {
-      if (!this.status.connected || this.stopped) return
+      if (epoch !== this.lifecycleEpoch || !this.status.connected || this.stopped) return
       const now = this.now()
       this.enqueuePacket(this.availabilityPacket('online', now), 'availability')
       this.publishAnnouncement(now)
@@ -821,6 +976,18 @@ export class MqttCertificationTarget {
       this.publishHealth(now)
     }, intervalMs)
     this.heartbeatTimer.unref?.()
+  }
+
+  private publishTransport(
+    transport: MqttTransport,
+    packet: MqttTransportPacket
+  ): Promise<void> {
+    const previous = this.publishTails.get(transport) ?? Promise.resolve()
+    const operation = previous
+      .catch(() => undefined)
+      .then(() => transport.publish(packet))
+    this.publishTails.set(transport, operation)
+    return operation
   }
 
   private stopHeartbeat(): void {

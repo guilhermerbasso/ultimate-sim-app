@@ -10,6 +10,7 @@ import {
   MQTT_SCHEMA_IDS,
   MqttContractError,
   authorizeMqttOperation,
+  buildMosquittoAclFiles,
   buildMosquittoLoopbackConfig,
   buildMqttCloudEvent,
   createMqttCapabilityGrant,
@@ -227,11 +228,18 @@ describe('local MQTT v1 contracts', () => {
 
   it('generates a loopback-only broker profile with commands absent by default', () => {
     const config = buildMosquittoLoopbackConfig(DEFAULT_MQTT_LOCAL_CONFIG)
+    const acl = buildMosquittoAclFiles(DEFAULT_MQTT_LOCAL_CONFIG)
     expect(config).toContain('listener 1883 127.0.0.1')
     expect(config).toContain('listener 1884 127.0.0.1')
     expect(config).not.toContain('listener 1885')
     expect(config).not.toContain('0.0.0.0')
-    expect(config).not.toMatch(/password|token|cloud/i)
+    expect(config).toContain('allow_anonymous false')
+    expect(config).toContain('password_file mqtt-publisher.passwd')
+    expect(config).toContain('password_file mqtt-reader.passwd')
+    expect(config).not.toMatch(/token|cloud/i)
+    expect(acl['mqtt-publisher.acl']).toContain('user ultimate-sim-target')
+    expect(acl['mqtt-reader.acl']).toContain('user ultimate-sim-reader')
+    expect(acl['mqtt-command.acl']).toContain('user ultimate-sim-command')
   })
 
   it('ships a parseable AsyncAPI contract with loopback-only servers', () => {
@@ -249,5 +257,6 @@ describe('local MQTT v1 contracts', () => {
     expect(document.channels?.telemetry?.address).toContain('/v1/')
     expect(document.channels?.event?.address).toContain('/event/')
     expect(source).not.toContain('0.0.0.0')
+    expect(source).toContain('type: userPassword')
   })
 })

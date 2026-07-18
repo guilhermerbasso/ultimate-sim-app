@@ -1,3 +1,4 @@
+user ultimate-sim-target
 topic write ultimate-sim/v1/simrig/availability
 topic write ultimate-sim/v1/simrig/state/+
 topic write ultimate-sim/v1/simrig/event/+

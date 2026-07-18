@@ -1,6 +1,9 @@
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { safeStorage } from 'electron'
 import {
+  buildMosquittoAclFiles,
+  buildMosquittoLoopbackConfig,
   DEFAULT_MQTT_LOCAL_CONFIG,
   MQTT_CHANNELS,
   normalizeMqttLocalConfig,
@@ -10,12 +13,22 @@ import {
   type MqttTargetStatus
 } from '../../shared/mqtt'
 import type { ModuleContext } from '../module-context'
+import {
+  buildMosquittoPasswordFiles,
+  buildMqttClientAccessDocument,
+  createMqttBrokerAccessSet,
+  parseMqttBrokerAccessSet,
+  type MqttBrokerAccessSet,
+  type MqttTransportAccess
+} from '../mqtt/broker-auth'
 import { createMqttJsTransport } from '../mqtt/mqttjs-transport'
 import { MqttCertificationTarget, type MqttCommandHandler } from '../mqtt/target'
 import { getOverlayManager } from './overlays-core'
 import { logger } from './logger'
 
 const CONFIG_FILE = 'mqtt-target.json'
+const BROKER_SETUP_DIRECTORY = 'mqtt-broker-v1'
+const BROKER_ACCESS_FILE = 'broker-access.bin'
 
 export class MqttConfigStore {
   constructor(private readonly filePath: string) {}
@@ -46,6 +59,84 @@ export class MqttConfigStore {
   }
 }
 
+export class MqttBrokerSetupStore {
+  readonly setupDirectory: string
+  private accessPromise: Promise<MqttBrokerAccessSet> | null = null
+
+  constructor(userDataPath: string) {
+    this.setupDirectory = join(userDataPath, BROKER_SETUP_DIRECTORY)
+  }
+
+  async prepare(config: MqttLocalConfig): Promise<MqttTransportAccess> {
+    const access = await this.access()
+    const files: Record<string, string | Buffer> = {
+      'mosquitto-loopback.conf': `${buildMosquittoLoopbackConfig(config)}\n`,
+      ...buildMosquittoAclFiles(config),
+      ...buildMosquittoPasswordFiles(access),
+      'mqtt-client-access.json': `${JSON.stringify(buildMqttClientAccessDocument(config, access), null, 2)}\n`,
+      'README.txt': [
+        'Ultimate Sim App local MQTT v1 broker bundle',
+        '',
+        'Start Mosquitto from this directory:',
+        '  mosquitto -c mosquitto-loopback.conf -v',
+        '',
+        'mqtt-client-access.json contains only the read-only integration role',
+        'and, when enabled, the allowlisted non-driving command role.',
+        'The publisher role secret remains OS-encrypted and is never exported.',
+        ''
+      ].join('\n')
+    }
+    await mkdir(this.setupDirectory, { recursive: true })
+    for (const [name, content] of Object.entries(files)) {
+      await writeFile(join(this.setupDirectory, name), content, { mode: 0o600 })
+    }
+    return { ...access['target-publisher'] }
+  }
+
+  private access(): Promise<MqttBrokerAccessSet> {
+    if (!this.accessPromise) {
+      this.accessPromise = this.loadOrCreate().catch((error) => {
+        this.accessPromise = null
+        throw error
+      })
+    }
+    return this.accessPromise
+  }
+
+  private encryptionAvailable(): boolean {
+    try {
+      return safeStorage.isEncryptionAvailable()
+    } catch {
+      return false
+    }
+  }
+
+  private async loadOrCreate(): Promise<MqttBrokerAccessSet> {
+    if (!this.encryptionAvailable()) {
+      throw new Error('OS-protected storage is required for local MQTT broker access.')
+    }
+    const filePath = join(this.setupDirectory, BROKER_ACCESS_FILE)
+    try {
+      const cipher = await readFile(filePath)
+      const parsed = parseMqttBrokerAccessSet(
+        JSON.parse(safeStorage.decryptString(cipher)) as unknown
+      )
+      if (parsed) return parsed
+    } catch {
+      await unlink(filePath).catch(() => undefined)
+    }
+
+    const access = createMqttBrokerAccessSet()
+    await mkdir(this.setupDirectory, { recursive: true })
+    await writeFile(
+      filePath,
+      safeStorage.encryptString(JSON.stringify(access)),
+      { mode: 0o600 }
+    )
+    return access
+  }
+}
+
 function overlayCommand(enabled: boolean): MqttCommandHandler {
   return async (args) => {
     const id = typeof args.id === 'string' ? args.id : ''
@@ -65,11 +156,14 @@ function commandHandlers(): Partial<Record<MqttCommandCapability, MqttCommandHan
 }
 
 export function register(ctx: ModuleContext): void {
-  const store = new MqttConfigStore(join(ctx.app.getPath('userData'), CONFIG_FILE))
+  const userDataPath = ctx.app.getPath('userData')
+  const store = new MqttConfigStore(join(userDataPath, CONFIG_FILE))
+  const brokerSetup = new MqttBrokerSetupStore(userDataPath)
   let lastStatusBroadcastAt = 0
   let lastBroadcastState = ''
   const target = new MqttCertificationTarget(createMqttJsTransport, {
     commandHandlers: commandHandlers(),
+    setupDirectory: brokerSetup.setupDirectory,
     onStatus: (status) => {
       const now = Date.now()
       if (status.state === lastBroadcastState && now - lastStatusBroadcastAt < 250) return
@@ -88,8 +182,10 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(MQTT_CHANNELS.status, () => target.getStatus())
   ctx.ipcMain.handle(MQTT_CHANNELS.contract, () => target.getContract())
   ctx.ipcMain.handle(MQTT_CHANNELS.setConfig, async (_event, input: unknown): Promise<MqttTargetStatus> => {
-    const config = await store.save(input)
-    const status = await target.start(config)
+    const config = normalizeMqttLocalConfig(input)
+    const access = config.enabled ? await brokerSetup.prepare(config) : undefined
+    await store.save(config)
+    const status = await target.start(config, access)
     logger.info('mqtt', config.enabled ? 'local MQTT target enabled' : 'local MQTT target disabled', {
       instanceId: config.instanceId,
       host: config.host,
@@ -100,14 +196,18 @@ export function register(ctx: ModuleContext): void {
   })
   ctx.ipcMain.handle(MQTT_CHANNELS.reconnect, () => target.reconnect())
 
-  void store
-    .load()
-    .then((config) => target.start(config))
-    .catch((error) => {
+  void (async () => {
+    const config = await store.load()
+    try {
+      const access = config.enabled ? await brokerSetup.prepare(config) : undefined
+      await target.start(config, access)
+    } catch (error) {
       logger.warn('mqtt', 'failed to load local MQTT target config', {
         message: error instanceof Error ? error.message : String(error)
       })
-    })
+      await target.start(config)
+    }
+  })()
 
   ctx.registerGracefulTeardown(async () => {
     ctx.telemetryHub.off('snapshot', onTelemetry)

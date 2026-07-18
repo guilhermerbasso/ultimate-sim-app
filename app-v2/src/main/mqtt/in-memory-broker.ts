@@ -15,6 +15,7 @@ import type {
   MqttTransportHandlers,
   MqttTransportPacket
 } from './target'
+import type { MqttBrokerAccessSet, MqttTransportAccess } from './broker-auth'
 
 interface BrokerClient {
   id: number
@@ -22,6 +23,7 @@ interface BrokerClient {
   grant: MqttCapabilityGrant
   will: MqttTransportPacket
   handlers: MqttTransportHandlers
+  access?: MqttTransportAccess
   connected: boolean
   subscriptions: Map<string, MqttQos>
 }
@@ -55,16 +57,20 @@ export class InMemoryMqttBroker {
   private releasePublishGate: (() => void) | null = null
   duplicateQos1 = false
 
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(
+    private readonly now: () => number = Date.now,
+    private readonly expectedAccess?: MqttBrokerAccessSet
+  ) {}
 
-  readonly transportFactory: MqttTransportFactory = (config, grant, will, handlers) =>
-    this.createTransport(config, grant, will, handlers)
+  readonly transportFactory: MqttTransportFactory = (config, grant, will, handlers, access) =>
+    this.createTransport(config, grant, will, handlers, access)
 
   createTransport(
     config: MqttLocalConfig,
     grant: MqttCapabilityGrant,
     will: MqttTransportPacket,
-    handlers: MqttTransportHandlers
+    handlers: MqttTransportHandlers,
+    access?: MqttTransportAccess
   ): MqttTransport {
     const client: BrokerClient = {
       id: this.nextClientId++,
@@ -72,6 +78,7 @@ export class InMemoryMqttBroker {
       grant,
       will: clonePacket(will),
       handlers,
+      access: access ? { ...access } : undefined,
       connected: false,
       subscriptions: new Map()
     }
@@ -80,6 +87,9 @@ export class InMemoryMqttBroker {
       connect: () => this.connect(client),
       publish: (packet) => this.publish(client, packet),
       subscribe: (filter, qos) => this.subscribe(client, filter, qos),
+      setWill: (packet) => {
+        client.will = clonePacket(packet)
+      },
       close: () => this.close(client)
     }
   }
@@ -148,6 +158,17 @@ export class InMemoryMqttBroker {
   }
 
   private connect(client: BrokerClient): void {
+    if (this.expectedAccess) {
+      const expected = this.expectedAccess[client.grant.principal]
+      if (
+        !client.access ||
+        client.access.principal !== client.grant.principal ||
+        client.access.username !== expected.username ||
+        client.access.password !== expected.password
+      ) {
+        throw new MqttContractError('In-memory broker authentication failed.', 'acl-denied')
+      }
+    }
     if (!this.online) {
       client.handlers.onDisconnect(new Error('In-memory broker offline.'))
       return

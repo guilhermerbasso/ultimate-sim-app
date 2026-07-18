@@ -15,7 +15,7 @@ describe('MqttSetupPanel', () => {
     expect(markup).toContain('MQTT pit-wall bridge')
     expect(markup).toContain('127.0.0.1')
     expect(markup).toContain('Default off')
-    expect(markup).toContain('No cloud URL or credential is accepted')
+    expect(markup).toContain('No cloud URL or user-supplied credential is accepted')
     expect(markup).not.toMatch(/type="password"|name="password"|cloud broker/i)
   })
 })

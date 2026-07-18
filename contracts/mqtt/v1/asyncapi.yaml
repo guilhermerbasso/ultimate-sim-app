@@ -11,16 +11,22 @@ servers:
     protocol: mqtt
     protocolVersion: '5.0'
     description: App publisher listener.
+    security:
+      - $ref: '#/components/securitySchemes/localRolePassword'
   reader:
     host: 127.0.0.1:1884
     protocol: mqtt
     protocolVersion: '5.0'
     description: Read-only local integration listener.
+    security:
+      - $ref: '#/components/securitySchemes/localRolePassword'
   command:
     host: 127.0.0.1:1885
     protocol: mqtt
     protocolVersion: '5.0'
     description: Default-off allowlisted command listener.
+    security:
+      - $ref: '#/components/securitySchemes/localRolePassword'
 channels:
   availability:
     address: ultimate-sim/v1/{instanceId}/availability
@@ -126,6 +132,13 @@ operations:
     channel:
       $ref: '#/channels/result'
 components:
+  securitySchemes:
+    localRolePassword:
+      type: userPassword
+      description: >-
+        App-generated local role access. Publisher access is OS-protected;
+        client role files stay in the owner-local runtime bundle. No secret
+        appears in MQTT payloads or app settings.
   parameters:
     instanceId:
       description: Local app instance identifier.

@@ -1,11 +1,54 @@
-import { connect, type MqttClient } from 'mqtt'
+import { connect, type IClientOptions, type MqttClient } from 'mqtt'
 import { mqttBrokerUrls, type MqttCapabilityGrant, type MqttLocalConfig } from '../../shared/mqtt'
+import {
+  validateMqttTransportAccess,
+  type MqttTransportAccess
+} from './broker-auth'
 import type {
   MqttTransport,
   MqttTransportFactory,
   MqttTransportHandlers,
   MqttTransportPacket
 } from './target'
+
+function mqttWill(packet: MqttTransportPacket): NonNullable<IClientOptions['will']> {
+  return {
+    topic: packet.topic,
+    payload: Buffer.from(packet.payload),
+    qos: packet.qos,
+    retain: packet.retain,
+    properties: packet.messageExpirySec
+      ? { messageExpiryInterval: packet.messageExpirySec }
+      : undefined
+  }
+}
+
+export function mqttJsConnectOptions(
+  config: MqttLocalConfig,
+  grant: MqttCapabilityGrant,
+  accessInput: MqttTransportAccess | undefined,
+  will: MqttTransportPacket
+): IClientOptions {
+  const access = validateMqttTransportAccess(grant, accessInput)
+  return {
+    protocolVersion: 5,
+    clean: true,
+    clientId: `ultimate-sim-${config.instanceId}-mqtt-v1`,
+    username: access.username,
+    password: access.password,
+    keepalive: 15,
+    connectTimeout: 5_000,
+    reconnectPeriod: 0,
+    resubscribe: false,
+    queueQoSZero: false,
+    properties: {
+      sessionExpiryInterval: 0,
+      receiveMaximum: 16,
+      maximumPacketSize: config.maxPayloadBytes
+    },
+    will: mqttWill(will)
+  }
+}
 
 class MqttJsTransport implements MqttTransport {
   private client: MqttClient | null = null
@@ -17,7 +60,9 @@ class MqttJsTransport implements MqttTransport {
 
   constructor(
     private readonly config: MqttLocalConfig,
-    private readonly will: MqttTransportPacket,
+    private readonly grant: MqttCapabilityGrant,
+    private readonly access: MqttTransportAccess | undefined,
+    private will: MqttTransportPacket,
     private readonly handlers: MqttTransportHandlers
   ) {
     this.reconnectDelayMs = config.reconnectMinMs
@@ -27,30 +72,10 @@ class MqttJsTransport implements MqttTransport {
     if (this.client) return
     this.stopped = false
     const url = mqttBrokerUrls(this.config).publisher
-    const client = connect(url, {
-      protocolVersion: 5,
-      clean: true,
-      clientId: `ultimate-sim-${this.config.instanceId}-mqtt-v1`,
-      keepalive: 15,
-      connectTimeout: 5_000,
-      reconnectPeriod: 0,
-      resubscribe: false,
-      queueQoSZero: false,
-      properties: {
-        sessionExpiryInterval: 0,
-        receiveMaximum: 16,
-        maximumPacketSize: this.config.maxPayloadBytes
-      },
-      will: {
-        topic: this.will.topic,
-        payload: Buffer.from(this.will.payload),
-        qos: this.will.qos,
-        retain: this.will.retain,
-        properties: this.will.messageExpirySec
-          ? { messageExpiryInterval: this.will.messageExpirySec }
-          : undefined
-      }
-    })
+    const client = connect(
+      url,
+      mqttJsConnectOptions(this.config, this.grant, this.access, this.will)
+    )
     this.client = client
 
     client.on('connect', (packet) => {
@@ -67,7 +92,8 @@ class MqttJsTransport implements MqttTransport {
         qos: packet.qos === 1 ? 1 : 0,
         retain: packet.retain,
         dup: packet.dup,
-        messageExpirySec: packet.properties?.messageExpiryInterval
+        messageExpirySec: packet.properties?.messageExpiryInterval,
+        principal: 'local-command'
       })
     })
     client.on('error', (error) => {
@@ -100,6 +126,14 @@ class MqttJsTransport implements MqttTransport {
     const client = this.client
     if (!client?.connected) throw new Error('Local MQTT broker is not connected.')
     await client.subscribeAsync(topicFilter, { qos })
+  }
+
+  setWill(packet: MqttTransportPacket): void {
+    this.will = {
+      ...packet,
+      payload: packet.payload.slice()
+    }
+    if (this.client) this.client.options.will = mqttWill(this.will)
   }
 
   async close(): Promise<void> {
@@ -140,7 +174,8 @@ class MqttJsTransport implements MqttTransport {
 
 export const createMqttJsTransport: MqttTransportFactory = (
   config: MqttLocalConfig,
-  _grant: MqttCapabilityGrant,
+  grant: MqttCapabilityGrant,
   will: MqttTransportPacket,
-  handlers: MqttTransportHandlers
-) => new MqttJsTransport(config, will, handlers)
+  handlers: MqttTransportHandlers,
+  access?: MqttTransportAccess
+) => new MqttJsTransport(config, grant, access, will, handlers)

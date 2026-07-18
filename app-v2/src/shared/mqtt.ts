@@ -41,6 +41,11 @@ export type MqttSchemaKind =
   | 'command'
   | 'result'
 export type MqttPrincipal = 'target-publisher' | 'local-reader' | 'local-command'
+export const MQTT_BROKER_USERNAMES: Readonly<Record<MqttPrincipal, string>> = Object.freeze({
+  'target-publisher': 'ultimate-sim-target',
+  'local-reader': 'ultimate-sim-reader',
+  'local-command': 'ultimate-sim-command'
+})
 export type MqttAclOperation = 'publish' | 'subscribe'
 export type MqttCapability =
   | 'mqtt.publish.availability'
@@ -363,6 +368,7 @@ export interface MqttTargetStatus {
   brokerUrl: string
   readerUrl: string
   commandUrl: string
+  setupDirectory?: string
   connected: boolean
   generation: number
   queueDepth: number
@@ -376,7 +382,7 @@ export interface MqttTargetStatus {
 export interface MqttContractSummary {
   version: typeof MQTT_CONTRACT_VERSION
   localOnly: true
-  credentialsSupported: false
+  userSuppliedCredentialsSupported: false
   defaultEnabled: false
   topics: {
     availability: string
@@ -392,6 +398,7 @@ export interface MqttContractSummary {
     publisherUrl: string
     readerUrl: string
     commandUrl: string
+    authentication: 'generated-local-role-secrets'
     listenerCapabilities: Record<MqttPrincipal, string[]>
   }
   retainedRules: string[]
@@ -1292,7 +1299,7 @@ export function mqttContractSummary(configInput: MqttLocalConfig): MqttContractS
   return {
     version: MQTT_CONTRACT_VERSION,
     localOnly: true,
-    credentialsSupported: false,
+    userSuppliedCredentialsSupported: false,
     defaultEnabled: false,
     topics: {
       availability: topics.availability,
@@ -1308,6 +1315,7 @@ export function mqttContractSummary(configInput: MqttLocalConfig): MqttContractS
       publisherUrl: urls.publisher,
       readerUrl: urls.reader,
       commandUrl: urls.command,
+      authentication: 'generated-local-role-secrets',
       listenerCapabilities: {
         'target-publisher': [
           'publish availability/state/event/health/schema/result',
@@ -1345,18 +1353,21 @@ export function buildMosquittoLoopbackConfig(configInput: MqttLocalConfig): stri
     `max_queued_messages ${MQTT_MAX_QUEUE_DEPTH}`,
     '',
     `listener ${config.port} ${config.host}`,
-    'allow_anonymous true',
+    'allow_anonymous false',
+    'password_file mqtt-publisher.passwd',
     'acl_file mqtt-publisher.acl',
     '',
     `listener ${config.port + 1} ${config.host}`,
-    'allow_anonymous true',
+    'allow_anonymous false',
+    'password_file mqtt-reader.passwd',
     'acl_file mqtt-reader.acl'
   ]
   if (config.commandsEnabled) {
     lines.push(
       '',
       `listener ${config.port + 2} ${config.host}`,
-      'allow_anonymous true',
+      'allow_anonymous false',
+      'password_file mqtt-command.passwd',
       'acl_file mqtt-command.acl'
     )
   }
@@ -1368,6 +1379,7 @@ export function buildMosquittoAclFiles(configInput: MqttLocalConfig): Record<str
   const root = mqttTopics(config.instanceId).root
   return {
     'mqtt-publisher.acl': [
+      `user ${MQTT_BROKER_USERNAMES['target-publisher']}`,
       `topic write ${root}/availability`,
       `topic write ${root}/state/+`,
       `topic write ${root}/event/+`,
@@ -1377,6 +1389,7 @@ export function buildMosquittoAclFiles(configInput: MqttLocalConfig): Record<str
       `topic read ${root}/command/+`
     ].join('\n'),
     'mqtt-reader.acl': [
+      `user ${MQTT_BROKER_USERNAMES['local-reader']}`,
       `topic read ${root}/availability`,
       `topic read ${root}/state/+`,
       `topic read ${root}/event/+`,
@@ -1385,6 +1398,7 @@ export function buildMosquittoAclFiles(configInput: MqttLocalConfig): Record<str
       `topic read ${root}/result/+`
     ].join('\n'),
     'mqtt-command.acl': [
+      `user ${MQTT_BROKER_USERNAMES['local-command']}`,
       `topic write ${root}/command/+`,
       `topic read ${root}/result/+`
     ].join('\n')
