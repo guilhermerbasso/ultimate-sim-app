@@ -1,9 +1,12 @@
 import type {
   AlertEvent,
-  AlertOutputButtonboxPreset,
+  AlertEventContext,
   AlertSeverity,
   AlertType
 } from './alerts'
+
+export const ACCESSIBILITY_CUE_PROTOCOL_VERSION = 1 as const
+export const ACCESSIBILITY_CUE_STORE_VERSION = 2 as const
 
 export const ACCESSIBILITY_CUE_CHANNELS = {
   getState: 'accessibilityCues:getState',
@@ -16,47 +19,51 @@ export const ACCESSIBILITY_CUE_CHANNELS = {
 
 export const CUE_MODALITIES = ['caption', 'audio', 'symbol', 'led', 'haptic'] as const
 export type CueModality = (typeof CUE_MODALITIES)[number]
+export type CueModalityPolicy = 'inherit' | 'on' | 'off'
+export type CueSensoryChannel = 'visual' | 'auditory' | 'tactile'
 export type CueSource = 'live' | 'replay' | 'preview'
 export type CueSpatialPosition = 'left' | 'center' | 'right'
 export type CueProfileKind = 'standard' | 'low-vision-blind' | 'deaf-hoh' | 'custom'
-export type CueLedPattern =
-  | 'steady'
-  | 'single-pulse'
-  | 'double-pulse'
-  | 'triple-pulse'
-  | 'fast-pulse'
+export type CueLedPattern = 'steady'
 export type CueHapticPattern = 'single' | 'double' | 'triple' | 'long'
-
 export type CueEventId = `alert.${AlertType}`
+
+export const CUE_MODALITY_CHANNEL: Readonly<Record<CueModality, CueSensoryChannel>> = {
+  caption: 'visual',
+  symbol: 'visual',
+  led: 'visual',
+  audio: 'auditory',
+  haptic: 'tactile'
+}
 
 export interface CueManifest {
   eventId: CueEventId
   alertType: AlertType
-  title: string
-  meaning: string
+  labelKey: string
+  meaningKey: string
   severity: AlertSeverity
   preserveCritical: boolean
   defaultModalities: Record<CueModality, boolean>
   symbol: {
     token: string
-    label: string
+    labelKey: string
   }
   led: {
-    pattern: CueLedPattern
-    patternLabel: string
-    color: 'blue' | 'amber' | 'red' | 'white' | 'green'
-    preset: AlertOutputButtonboxPreset
+    // SIM-X currently guarantees a steady start lamp plus transient OLED text.
+    // Do not teach unsupported color/pulse sequences.
+    pattern: 'steady'
+    patternLabelKey: string
+    color: 'device-default'
     durationMs: number
-    revLevel?: number
   }
   haptic: {
     pattern: CueHapticPattern
-    patternLabel: string
+    patternLabelKey: string
     intensity: number
   }
 }
 
-const VISUAL_DEFAULTS: Record<CueModality, boolean> = {
+const BASE_MANIFEST_MODALITIES: Record<CueModality, boolean> = {
   caption: true,
   audio: false,
   symbol: true,
@@ -74,164 +81,183 @@ function manifest(
     eventId: `alert.${alertType}`,
     alertType,
     ...config,
-    defaultModalities: { ...VISUAL_DEFAULTS, ...config.defaultModalities }
+    defaultModalities: {
+      ...BASE_MANIFEST_MODALITIES,
+      ...config.defaultModalities
+    }
+  }
+}
+
+function safeLed(durationMs: number): CueManifest['led'] {
+  return {
+    pattern: 'steady',
+    patternLabelKey: 'accessibilityCues.pattern.led.steadyActual',
+    color: 'device-default',
+    durationMs
   }
 }
 
 export const CUE_MANIFESTS: readonly CueManifest[] = [
   manifest('pitLimiter', {
-    title: 'Pit limiter',
-    meaning: 'Pit limiter state needs attention.',
+    labelKey: 'accessibilityCues.event.alert.pitLimiter',
+    meaningKey: 'accessibilityCues.meaning.alert.pitLimiter',
     severity: 'info',
     preserveCritical: false,
-    symbol: { token: 'PIT', label: 'Pit limiter symbol' },
-    led: {
-      pattern: 'steady',
-      patternLabel: 'Steady lamp',
-      color: 'green',
-      preset: 'startLedFlash',
-      durationMs: 900
+    symbol: {
+      token: 'PIT',
+      labelKey: 'accessibilityCues.symbol.alert.pitLimiter'
     },
-    haptic: { pattern: 'single', patternLabel: 'One short pulse', intensity: 0.45 }
+    led: safeLed(1000),
+    haptic: {
+      pattern: 'single',
+      patternLabelKey: 'accessibilityCues.pattern.haptic.single',
+      intensity: 0.45
+    }
   }),
   manifest('flag', {
-    title: 'Race flag',
-    meaning: 'A race-control flag changed.',
+    labelKey: 'accessibilityCues.event.alert.flag',
+    meaningKey: 'accessibilityCues.meaning.alert.flag',
     severity: 'warning',
     preserveCritical: false,
-    symbol: { token: 'FLAG', label: 'Race flag symbol' },
-    led: {
-      pattern: 'double-pulse',
-      patternLabel: 'Two distinct pulses',
-      color: 'amber',
-      preset: 'revLightsPulse',
-      durationMs: 1200,
-      revLevel: 3
+    symbol: {
+      token: 'FLAG',
+      labelKey: 'accessibilityCues.symbol.alert.flag'
     },
-    haptic: { pattern: 'double', patternLabel: 'Two short pulses', intensity: 0.65 }
+    led: safeLed(1400),
+    haptic: {
+      pattern: 'double',
+      patternLabelKey: 'accessibilityCues.pattern.haptic.double',
+      intensity: 0.65
+    }
   }),
   manifest('lowFuel', {
-    title: 'Low fuel',
-    meaning: 'Fuel margin is critically low.',
+    labelKey: 'accessibilityCues.event.alert.lowFuel',
+    meaningKey: 'accessibilityCues.meaning.alert.lowFuel',
     severity: 'critical',
     preserveCritical: true,
-    symbol: { token: 'FUEL', label: 'Low-fuel symbol' },
-    led: {
-      pattern: 'triple-pulse',
-      patternLabel: 'Three urgent pulses',
-      color: 'red',
-      preset: 'revLightsPulse',
-      durationMs: 1800,
-      revLevel: 4
+    symbol: {
+      token: 'FUEL',
+      labelKey: 'accessibilityCues.symbol.alert.lowFuel'
     },
-    haptic: { pattern: 'triple', patternLabel: 'Three strong pulses', intensity: 0.9 },
-    defaultModalities: { audio: true }
+    led: safeLed(2200),
+    haptic: {
+      pattern: 'triple',
+      patternLabelKey: 'accessibilityCues.pattern.haptic.triple',
+      intensity: 0.9
+    },
+    defaultModalities: { audio: true, haptic: true }
   }),
   manifest('shiftPoint', {
-    title: 'Shift point',
-    meaning: 'The configured shift point was reached.',
+    labelKey: 'accessibilityCues.event.alert.shiftPoint',
+    meaningKey: 'accessibilityCues.meaning.alert.shiftPoint',
     severity: 'info',
     preserveCritical: false,
-    symbol: { token: 'SHIFT', label: 'Shift-point symbol' },
-    led: {
-      pattern: 'fast-pulse',
-      patternLabel: 'Fast repeated blink',
-      color: 'blue',
-      preset: 'shiftBlink',
-      durationMs: 650
+    symbol: {
+      token: 'SHIFT',
+      labelKey: 'accessibilityCues.symbol.alert.shiftPoint'
     },
-    haptic: { pattern: 'single', patternLabel: 'One crisp pulse', intensity: 0.55 }
+    led: safeLed(700),
+    haptic: {
+      pattern: 'single',
+      patternLabelKey: 'accessibilityCues.pattern.haptic.single',
+      intensity: 0.55
+    }
   }),
   manifest('incidentLimit', {
-    title: 'Incident limit',
-    meaning: 'The remaining incident allowance is low.',
+    labelKey: 'accessibilityCues.event.alert.incidentLimit',
+    meaningKey: 'accessibilityCues.meaning.alert.incidentLimit',
     severity: 'warning',
     preserveCritical: false,
-    symbol: { token: 'INC', label: 'Incident-limit symbol' },
-    led: {
-      pattern: 'double-pulse',
-      patternLabel: 'Two distinct pulses',
-      color: 'amber',
-      preset: 'startLedFlash',
-      durationMs: 1300
+    symbol: {
+      token: 'INC',
+      labelKey: 'accessibilityCues.symbol.alert.incidentLimit'
     },
-    haptic: { pattern: 'double', patternLabel: 'Two medium pulses', intensity: 0.7 }
+    led: safeLed(1600),
+    haptic: {
+      pattern: 'double',
+      patternLabelKey: 'accessibilityCues.pattern.haptic.double',
+      intensity: 0.7
+    }
   }),
   manifest('tyrePressure', {
-    title: 'Tyre pressure',
-    meaning: 'A measured tyre pressure crossed the configured range.',
+    labelKey: 'accessibilityCues.event.alert.tyrePressure',
+    meaningKey: 'accessibilityCues.meaning.alert.tyrePressure',
     severity: 'warning',
     preserveCritical: false,
-    symbol: { token: 'PSI', label: 'Tyre-pressure symbol' },
-    led: {
-      pattern: 'double-pulse',
-      patternLabel: 'Two distinct pulses',
-      color: 'amber',
-      preset: 'startLedFlash',
-      durationMs: 1200
+    symbol: {
+      token: 'PSI',
+      labelKey: 'accessibilityCues.symbol.alert.tyrePressure'
     },
-    haptic: { pattern: 'double', patternLabel: 'Two corner-aware pulses', intensity: 0.65 }
+    led: safeLed(1500),
+    haptic: {
+      pattern: 'double',
+      patternLabelKey: 'accessibilityCues.pattern.haptic.double',
+      intensity: 0.65
+    }
   }),
   manifest('tyreTemp', {
-    title: 'Tyre temperature',
-    meaning: 'A measured tyre temperature crossed the configured limit.',
+    labelKey: 'accessibilityCues.event.alert.tyreTemp',
+    meaningKey: 'accessibilityCues.meaning.alert.tyreTemp',
     severity: 'warning',
     preserveCritical: false,
-    symbol: { token: 'TYRE', label: 'Tyre-temperature symbol' },
-    led: {
-      pattern: 'double-pulse',
-      patternLabel: 'Two distinct pulses',
-      color: 'amber',
-      preset: 'startLedFlash',
-      durationMs: 1200
+    symbol: {
+      token: 'TYRE',
+      labelKey: 'accessibilityCues.symbol.alert.tyreTemp'
     },
-    haptic: { pattern: 'double', patternLabel: 'Two corner-aware pulses', intensity: 0.65 }
+    led: safeLed(1500),
+    haptic: {
+      pattern: 'double',
+      patternLabelKey: 'accessibilityCues.pattern.haptic.double',
+      intensity: 0.65
+    }
   }),
   manifest('brakeTemp', {
-    title: 'Brake temperature',
-    meaning: 'A measured brake temperature crossed the configured limit.',
+    labelKey: 'accessibilityCues.event.alert.brakeTemp',
+    meaningKey: 'accessibilityCues.meaning.alert.brakeTemp',
     severity: 'warning',
     preserveCritical: false,
-    symbol: { token: 'BRK', label: 'Brake-temperature symbol' },
-    led: {
-      pattern: 'double-pulse',
-      patternLabel: 'Two distinct pulses',
-      color: 'red',
-      preset: 'startLedFlash',
-      durationMs: 1400
+    symbol: {
+      token: 'BRK',
+      labelKey: 'accessibilityCues.symbol.alert.brakeTemp'
     },
-    haptic: { pattern: 'double', patternLabel: 'Two corner-aware pulses', intensity: 0.7 }
+    led: safeLed(1700),
+    haptic: {
+      pattern: 'double',
+      patternLabelKey: 'accessibilityCues.pattern.haptic.double',
+      intensity: 0.7
+    }
   }),
   manifest('drsAvailable', {
-    title: 'DRS available',
-    meaning: 'DRS became available.',
+    labelKey: 'accessibilityCues.event.alert.drsAvailable',
+    meaningKey: 'accessibilityCues.meaning.alert.drsAvailable',
     severity: 'info',
     preserveCritical: false,
-    symbol: { token: 'DRS', label: 'DRS-available symbol' },
-    led: {
-      pattern: 'single-pulse',
-      patternLabel: 'One clear pulse',
-      color: 'green',
-      preset: 'startLedFlash',
-      durationMs: 750
+    symbol: {
+      token: 'DRS',
+      labelKey: 'accessibilityCues.symbol.alert.drsAvailable'
     },
-    haptic: { pattern: 'single', patternLabel: 'One short pulse', intensity: 0.45 }
+    led: safeLed(800),
+    haptic: {
+      pattern: 'single',
+      patternLabelKey: 'accessibilityCues.pattern.haptic.single',
+      intensity: 0.45
+    }
   }),
   manifest('blueFlag', {
-    title: 'Blue flag',
-    meaning: 'A blue-flag warning is active.',
+    labelKey: 'accessibilityCues.event.alert.blueFlag',
+    meaningKey: 'accessibilityCues.meaning.alert.blueFlag',
     severity: 'warning',
     preserveCritical: false,
-    symbol: { token: 'BLUE', label: 'Blue-flag text symbol' },
-    led: {
-      pattern: 'double-pulse',
-      patternLabel: 'Two distinct pulses',
-      color: 'blue',
-      preset: 'revLightsPulse',
-      durationMs: 1300,
-      revLevel: 2
+    symbol: {
+      token: 'BLUE',
+      labelKey: 'accessibilityCues.symbol.alert.blueFlag'
     },
-    haptic: { pattern: 'double', patternLabel: 'Two medium pulses', intensity: 0.65 }
+    led: safeLed(1600),
+    haptic: {
+      pattern: 'double',
+      patternLabelKey: 'accessibilityCues.pattern.haptic.double',
+      intensity: 0.65
+    }
   })
 ] as const
 
@@ -244,11 +270,11 @@ export interface CueOverride {
 }
 
 export interface CueProfile {
-  version: 1
+  version: 2
   id: string
   kind: CueProfileKind
   name: string
-  modalities: Record<CueModality, boolean>
+  modalities: Record<CueModality, CueModalityPolicy>
   textScale: number
   highContrast: boolean
   spatialAudio: boolean
@@ -261,18 +287,44 @@ export interface CueProfile {
 }
 
 export interface AccessibilityCueStore {
-  version: 1
+  version: 2
+  revision: number
   activeProfileId: string
   profiles: CueProfile[]
   updatedAt: number
 }
 
+export interface AccessibilityCueStateEnvelope {
+  protocolVersion: typeof ACCESSIBILITY_CUE_PROTOCOL_VERSION
+  ready: boolean
+  revision: number
+  state: AccessibilityCueStore
+}
+
+export interface SaveCueProfileRequest {
+  protocolVersion: typeof ACCESSIBILITY_CUE_PROTOCOL_VERSION
+  expectedRevision: number
+  profile: CueProfile
+}
+
+export interface SelectCueProfileRequest {
+  protocolVersion: typeof ACCESSIBILITY_CUE_PROTOCOL_VERSION
+  expectedRevision: number
+  profileId: string
+}
+
 export const STANDARD_CUE_PROFILE: CueProfile = {
-  version: 1,
+  version: 2,
   id: 'standard',
   kind: 'standard',
   name: 'Standard multimodal',
-  modalities: { ...VISUAL_DEFAULTS },
+  modalities: {
+    caption: 'inherit',
+    audio: 'inherit',
+    symbol: 'inherit',
+    led: 'off',
+    haptic: 'off'
+  },
   textScale: 1,
   highContrast: false,
   spatialAudio: false,
@@ -285,16 +337,16 @@ export const STANDARD_CUE_PROFILE: CueProfile = {
 }
 
 export const LOW_VISION_BLIND_CUE_PROFILE: CueProfile = {
-  version: 1,
+  version: 2,
   id: 'low-vision-blind',
   kind: 'low-vision-blind',
   name: 'Low vision / blind',
   modalities: {
-    caption: true,
-    audio: true,
-    symbol: true,
-    led: false,
-    haptic: true
+    caption: 'inherit',
+    audio: 'on',
+    symbol: 'inherit',
+    led: 'off',
+    haptic: 'on'
   },
   textScale: 1.45,
   highContrast: true,
@@ -308,16 +360,16 @@ export const LOW_VISION_BLIND_CUE_PROFILE: CueProfile = {
 }
 
 export const DEAF_HOH_CUE_PROFILE: CueProfile = {
-  version: 1,
+  version: 2,
   id: 'deaf-hoh',
   kind: 'deaf-hoh',
   name: 'Deaf / hard of hearing',
   modalities: {
-    caption: true,
-    audio: false,
-    symbol: true,
-    led: true,
-    haptic: true
+    caption: 'inherit',
+    audio: 'off',
+    symbol: 'inherit',
+    led: 'on',
+    haptic: 'on'
   },
   textScale: 1.25,
   highContrast: true,
@@ -337,15 +389,18 @@ export const BUILTIN_CUE_PROFILES: readonly CueProfile[] = [
 ] as const
 
 export const DEFAULT_ACCESSIBILITY_CUE_STORE: AccessibilityCueStore = {
-  version: 1,
+  version: 2,
+  revision: 0,
   activeProfileId: STANDARD_CUE_PROFILE.id,
   profiles: BUILTIN_CUE_PROFILES.map(cloneCueProfile),
   updatedAt: 0
 }
 
 export interface SemanticCueEvent {
+  instanceId: string
   id: string
-  message: string
+  messageKey: string
+  context?: AlertEventContext
   severity: AlertSeverity
   timestamp: number
   source: CueSource
@@ -372,17 +427,20 @@ export type CueOutputDelivery = 'renderer' | 'hardware' | 'simulated'
 
 export interface RoutedCueOutput {
   modality: CueModality
+  sensoryChannel: CueSensoryChannel
   semanticId: CueEventId
-  message: string
-  accessibleLabel: string
+  messageKey: string
+  context?: AlertEventContext
   delivery: CueOutputDelivery
   symbol?: string
+  symbolLabelKey?: string
   pattern?: CueLedPattern | CueHapticPattern
-  patternLabel?: string
+  patternLabelKey?: string
   color?: CueManifest['led']['color']
-  oledText?: string
+  hardwareTextToken?: string
   spatialPan?: number
   intensity?: number
+  durationMs?: number
 }
 
 export type CueRouteIssueCode =
@@ -393,6 +451,7 @@ export type CueRouteIssueCode =
   | 'preview-hardware-simulated'
   | 'critical-modality-preserved'
   | 'critical-redundancy-unavailable'
+  | 'reduced-motion-pattern-substituted'
 
 export interface CueRouteIssue {
   code: CueRouteIssueCode
@@ -402,7 +461,7 @@ export interface CueRouteIssue {
 
 export type CueProfileConflictCode =
   | 'unknown-override-event'
-  | 'critical-insufficient-redundancy'
+  | 'critical-insufficient-independent-redundancy'
   | 'critical-hardware-only'
 
 export interface CueProfileConflict {
@@ -424,10 +483,13 @@ export interface CuePresentation {
 
 export interface CueRoute {
   status: 'routed' | 'degraded' | 'suppressed' | 'blocked'
+  instanceId: string
   eventId: string
   source: CueSource | 'unknown'
   severity: AlertSeverity
-  message: string
+  timestamp: number
+  messageKey: string
+  context?: AlertEventContext
   outputs: RoutedCueOutput[]
   issues: CueRouteIssue[]
   conflicts: CueProfileConflict[]
@@ -451,6 +513,10 @@ function isCueProfileKind(value: unknown): value is CueProfileKind {
   )
 }
 
+function isCueModalityPolicy(value: unknown): value is CueModalityPolicy {
+  return value === 'inherit' || value === 'on' || value === 'off'
+}
+
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value)
     ? Math.max(min, Math.min(max, value))
@@ -465,7 +531,11 @@ function normalizeTimestamp(value: unknown, fallback = 0): number {
 
 function normalizeProfileId(value: unknown, fallback: string): string {
   if (typeof value !== 'string') return fallback
-  const normalized = value.trim().replace(/[^a-z0-9-]/gi, '-').replace(/-+/g, '-').slice(0, 64)
+  const normalized = value
+    .trim()
+    .replace(/[^a-z0-9-]/gi, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 64)
   return normalized || fallback
 }
 
@@ -475,22 +545,28 @@ function normalizeProfileName(value: unknown, fallback: string): string {
   return normalized || fallback
 }
 
-function normalizeModalities(
+function normalizeModalityPolicies(
   value: unknown,
-  fallback: Record<CueModality, boolean>
-): Record<CueModality, boolean> {
+  fallback: Record<CueModality, CueModalityPolicy>
+): Record<CueModality, CueModalityPolicy> {
   const input = isRecord(value) ? value : {}
   return Object.fromEntries(
-    CUE_MODALITIES.map((modality) => [
-      modality,
-      typeof input[modality] === 'boolean' ? input[modality] : fallback[modality]
-    ])
-  ) as Record<CueModality, boolean>
+    CUE_MODALITIES.map((modality) => {
+      const candidate = input[modality]
+      const policy = isCueModalityPolicy(candidate)
+        ? candidate
+        : typeof candidate === 'boolean'
+          ? candidate
+            ? 'on'
+            : 'off'
+          : fallback[modality]
+      return [modality, policy]
+    })
+  ) as Record<CueModality, CueModalityPolicy>
 }
 
 function normalizeOverride(value: unknown): CueOverride {
-  if (!isRecord(value)) return {}
-  if (!isRecord(value.modalities)) return {}
+  if (!isRecord(value) || !isRecord(value.modalities)) return {}
   const modalities: Partial<Record<CueModality, boolean>> = {}
   for (const modality of CUE_MODALITIES) {
     if (typeof value.modalities[modality] === 'boolean') {
@@ -526,10 +602,24 @@ export function cloneCueProfile(profile: CueProfile): CueProfile {
   }
 }
 
-export function cloneAccessibilityCueStore(store: AccessibilityCueStore): AccessibilityCueStore {
+export function cloneAccessibilityCueStore(
+  store: AccessibilityCueStore
+): AccessibilityCueStore {
   return {
     ...store,
     profiles: store.profiles.map(cloneCueProfile)
+  }
+}
+
+export function createAccessibilityCueStateEnvelope(
+  store: AccessibilityCueStore,
+  ready: boolean
+): AccessibilityCueStateEnvelope {
+  return {
+    protocolVersion: ACCESSIBILITY_CUE_PROTOCOL_VERSION,
+    ready,
+    revision: store.revision,
+    state: cloneAccessibilityCueStore(store)
   }
 }
 
@@ -538,13 +628,12 @@ export function normalizeCueProfile(
   fallback: CueProfile = STANDARD_CUE_PROFILE
 ): CueProfile {
   const input = isRecord(value) ? value : {}
-  const id = normalizeProfileId(input.id, fallback.id)
   return {
-    version: 1,
-    id,
+    version: 2,
+    id: normalizeProfileId(input.id, fallback.id),
     kind: isCueProfileKind(input.kind) ? input.kind : fallback.kind,
     name: normalizeProfileName(input.name, fallback.name),
-    modalities: normalizeModalities(input.modalities, fallback.modalities),
+    modalities: normalizeModalityPolicies(input.modalities, fallback.modalities),
     textScale: clamp(input.textScale, 0.8, 2, fallback.textScale),
     highContrast:
       typeof input.highContrast === 'boolean' ? input.highContrast : fallback.highContrast,
@@ -589,20 +678,24 @@ export function normalizeAccessibilityCueStore(value: unknown): AccessibilityCue
       kind: 'custom',
       name: rawId
     }
-    const normalized = normalizeCueProfile(rawProfile, customFallback)
-    profiles.push({ ...normalized, kind: 'custom' })
-    usedIds.add(normalized.id)
+    profiles.push({
+      ...normalizeCueProfile(rawProfile, customFallback),
+      kind: 'custom'
+    })
+    usedIds.add(rawId)
   }
 
   const requestedActive =
-    typeof input.activeProfileId === 'string' ? input.activeProfileId : STANDARD_CUE_PROFILE.id
-  const activeProfileId = usedIds.has(requestedActive)
-    ? requestedActive
-    : STANDARD_CUE_PROFILE.id
+    typeof input.activeProfileId === 'string'
+      ? input.activeProfileId
+      : STANDARD_CUE_PROFILE.id
 
   return {
-    version: 1,
-    activeProfileId,
+    version: 2,
+    revision: normalizeTimestamp(input.revision),
+    activeProfileId: usedIds.has(requestedActive)
+      ? requestedActive
+      : STANDARD_CUE_PROFILE.id,
     profiles,
     updatedAt: normalizeTimestamp(input.updatedAt)
   }
@@ -628,10 +721,15 @@ export function getActiveCueProfile(store: AccessibilityCueStore): CueProfile {
   )
 }
 
+function nextRevision(store: AccessibilityCueStore, revision?: number): number {
+  return Math.max(store.revision + 1, normalizeTimestamp(revision, store.revision + 1))
+}
+
 export function upsertCueProfile(
   store: AccessibilityCueStore,
   value: unknown,
-  now = Date.now()
+  now = Date.now(),
+  revision?: number
 ): AccessibilityCueStore {
   const input = isRecord(value) ? value : {}
   const requestedId = normalizeProfileId(input.id, STANDARD_CUE_PROFILE.id)
@@ -645,10 +743,10 @@ export function upsertCueProfile(
       kind: 'custom' as const,
       name: requestedId
     }
-  const profile = normalizeCueProfile(input, fallback)
-  const nextProfile = {
-    ...profile,
-    kind: builtin ? builtin.kind : profile.kind === 'custom' ? 'custom' : profile.kind,
+  const normalized = normalizeCueProfile(input, fallback)
+  const nextProfile: CueProfile = {
+    ...normalized,
+    kind: builtin ? builtin.kind : 'custom',
     updatedAt: normalizeTimestamp(now)
   }
   const profiles = store.profiles.some((candidate) => candidate.id === nextProfile.id)
@@ -656,9 +754,9 @@ export function upsertCueProfile(
         candidate.id === nextProfile.id ? nextProfile : cloneCueProfile(candidate)
       )
     : [...store.profiles.map(cloneCueProfile), nextProfile]
-
   return normalizeAccessibilityCueStore({
     ...store,
+    revision: nextRevision(store, revision),
     profiles,
     updatedAt: normalizeTimestamp(now)
   })
@@ -667,7 +765,8 @@ export function upsertCueProfile(
 export function activateCueProfile(
   store: AccessibilityCueStore,
   profileId: unknown,
-  now = Date.now()
+  now = Date.now(),
+  revision?: number
 ): AccessibilityCueStore {
   const requested = typeof profileId === 'string' ? profileId : ''
   if (!store.profiles.some((profile) => profile.id === requested)) {
@@ -675,6 +774,7 @@ export function activateCueProfile(
   }
   return normalizeAccessibilityCueStore({
     ...store,
+    revision: nextRevision(store, revision),
     activeProfileId: requested,
     updatedAt: normalizeTimestamp(now)
   })
@@ -683,12 +783,13 @@ export function activateCueProfile(
 export function resetCueProfile(
   store: AccessibilityCueStore,
   profileId: unknown,
-  now = Date.now()
+  now = Date.now(),
+  revision?: number
 ): AccessibilityCueStore {
   if (typeof profileId !== 'string') return cloneAccessibilityCueStore(store)
   const builtin = BUILTIN_CUE_PROFILES.find((profile) => profile.id === profileId)
   if (!builtin) return cloneAccessibilityCueStore(store)
-  return upsertCueProfile(store, { ...builtin, updatedAt: now }, now)
+  return upsertCueProfile(store, { ...builtin, updatedAt: now }, now, revision)
 }
 
 export function alertCueEventId(type: AlertType): CueEventId {
@@ -697,6 +798,16 @@ export function alertCueEventId(type: AlertType): CueEventId {
 
 export function getCueManifest(eventId: string): CueManifest | undefined {
   return MANIFEST_BY_ID.get(eventId as CueEventId)
+}
+
+function messageKeyForAlert(event: AlertEvent): string {
+  if (event.type === 'flag' && event.context?.flag) {
+    return `accessibilityCues.live.alert.flag.${event.context.flag}`
+  }
+  if (event.type === 'tyrePressure' && event.context?.direction) {
+    return `accessibilityCues.live.alert.tyrePressure.${event.context.direction}`
+  }
+  return `accessibilityCues.live.alert.${event.type}`
 }
 
 export function semanticCueEventFromAlert(
@@ -711,8 +822,10 @@ export function semanticCueEventFromAlert(
         ? 'right'
         : 'center'
   return {
+    instanceId: event.id,
     id: alertCueEventId(event.type),
-    message: event.message,
+    messageKey: messageKeyForAlert(event),
+    context: event.context ? { ...event.context } : undefined,
     severity: event.severity,
     timestamp: event.timestamp,
     source,
@@ -724,15 +837,41 @@ export function effectiveCueModalities(
   profile: CueProfile,
   eventId: string
 ): Record<CueModality, boolean> {
+  const manifestEntry = getCueManifest(eventId)
   const override = profile.overrides[eventId]?.modalities
   return Object.fromEntries(
-    CUE_MODALITIES.map((modality) => [
-      modality,
-      typeof override?.[modality] === 'boolean'
-        ? override[modality]
-        : profile.modalities[modality]
-    ])
+    CUE_MODALITIES.map((modality) => {
+      if (typeof override?.[modality] === 'boolean') {
+        return [modality, override[modality]]
+      }
+      const policy = profile.modalities[modality]
+      return [
+        modality,
+        policy === 'on'
+          ? true
+          : policy === 'off'
+            ? false
+            : Boolean(manifestEntry?.defaultModalities[modality])
+      ]
+    })
   ) as Record<CueModality, boolean>
+}
+
+function isExplicitlyOff(
+  profile: CueProfile,
+  eventId: string,
+  modality: CueModality
+): boolean {
+  const override = profile.overrides[eventId]?.modalities?.[modality]
+  if (override === false) return true
+  if (override === true) return false
+  return profile.modalities[modality] === 'off'
+}
+
+export function independentCueChannels(
+  outputs: readonly RoutedCueOutput[]
+): Set<CueSensoryChannel> {
+  return new Set(outputs.map((output) => output.sensoryChannel))
 }
 
 export function analyzeCueProfile(profileValue: unknown): CueProfileConflict[] {
@@ -744,7 +883,7 @@ export function analyzeCueProfile(profileValue: unknown): CueProfileConflict[] {
         code: 'unknown-override-event',
         severity: 'error',
         eventId,
-        message: `Unknown cue override "${eventId}" is retained for review but never routed.`
+        message: `Unknown cue override "${eventId}" is never routed.`
       })
     }
   }
@@ -754,12 +893,13 @@ export function analyzeCueProfile(profileValue: unknown): CueProfileConflict[] {
     const enabled = CUE_MODALITIES.filter(
       (modality) => effectiveCueModalities(profile, cue.eventId)[modality]
     )
-    if (enabled.length < 2) {
+    const channels = new Set(enabled.map((modality) => CUE_MODALITY_CHANNEL[modality]))
+    if (channels.size < 2) {
       conflicts.push({
-        code: 'critical-insufficient-redundancy',
+        code: 'critical-insufficient-independent-redundancy',
         severity: 'error',
         eventId: cue.eventId,
-        message: `${cue.title} needs at least two modalities; safe fallbacks will be restored at route time.`
+        message: `${cue.eventId} needs two independent sensory channels.`
       })
     }
     if (
@@ -770,7 +910,7 @@ export function analyzeCueProfile(profileValue: unknown): CueProfileConflict[] {
         code: 'critical-hardware-only',
         severity: 'error',
         eventId: cue.eventId,
-        message: `${cue.title} cannot depend only on optional hardware.`
+        message: `${cue.eventId} cannot depend only on optional hardware.`
       })
     }
   }
@@ -782,9 +922,9 @@ function fallbackOrder(profile: CueProfile): readonly CueModality[] {
     return ['audio', 'haptic', 'caption', 'symbol', 'led']
   }
   if (profile.kind === 'deaf-hoh') {
-    return ['caption', 'symbol', 'haptic', 'led', 'audio']
+    return ['haptic', 'caption', 'symbol', 'led', 'audio']
   }
-  return ['caption', 'symbol', 'audio', 'haptic', 'led']
+  return ['audio', 'haptic', 'caption', 'symbol', 'led']
 }
 
 function routeDelivery(source: CueSource, modality: CueModality): CueOutputDelivery | null {
@@ -801,6 +941,18 @@ function spatialPan(position: CueSpatialPosition): number {
   return 0
 }
 
+function hapticPatternFor(
+  manifestEntry: CueManifest,
+  profile: CueProfile
+): CueHapticPattern {
+  if (!profile.reducedMotion) return manifestEntry.haptic.pattern
+  return manifestEntry.haptic.pattern === 'single' ? 'single' : 'long'
+}
+
+function hapticPatternLabelKey(pattern: CueHapticPattern): string {
+  return `accessibilityCues.pattern.haptic.${pattern}`
+}
+
 function buildOutput(
   manifestEntry: CueManifest,
   event: SemanticCueEvent,
@@ -810,60 +962,50 @@ function buildOutput(
 ): RoutedCueOutput {
   const base: RoutedCueOutput = {
     modality,
+    sensoryChannel: CUE_MODALITY_CHANNEL[modality],
     semanticId: manifestEntry.eventId,
-    message: event.message,
-    accessibleLabel: `${manifestEntry.title}: ${event.message}`,
+    messageKey: event.messageKey,
+    context: event.context ? { ...event.context } : undefined,
     delivery
   }
-  switch (modality) {
-    case 'caption':
-      return base
-    case 'audio':
-      return {
-        ...base,
-        spatialPan: profile.spatialAudio ? spatialPan(event.position) : undefined
-      }
-    case 'symbol':
-      return { ...base, symbol: manifestEntry.symbol.token }
-    case 'led':
-      return {
-        ...base,
-        pattern: manifestEntry.led.pattern,
-        patternLabel: manifestEntry.led.patternLabel,
-        color: manifestEntry.led.color,
-        oledText: event.message
-      }
-    case 'haptic':
-      return {
-        ...base,
-        pattern: manifestEntry.haptic.pattern,
-        patternLabel: manifestEntry.haptic.patternLabel,
-        intensity: clamp(
-          manifestEntry.haptic.intensity * profile.hapticIntensity,
-          0,
-          1,
-          manifestEntry.haptic.intensity
-        )
-      }
+  if (modality === 'audio') {
+    return {
+      ...base,
+      spatialPan: profile.spatialAudio ? spatialPan(event.position) : undefined
+    }
   }
-}
-
-function blockedRoute(
-  event: SemanticCueEvent,
-  profile: CueProfile,
-  issue: CueRouteIssue
-): CueRoute {
-  return {
-    status: 'blocked',
-    eventId: event.id,
-    source: isCueSource(event.source) ? event.source : 'unknown',
-    severity: event.severity,
-    message: event.message,
-    outputs: [],
-    issues: [issue],
-    conflicts: analyzeCueProfile(profile),
-    presentation: presentationFor(profile)
+  if (modality === 'symbol') {
+    return {
+      ...base,
+      symbol: manifestEntry.symbol.token,
+      symbolLabelKey: manifestEntry.symbol.labelKey
+    }
   }
+  if (modality === 'led') {
+    return {
+      ...base,
+      pattern: manifestEntry.led.pattern,
+      patternLabelKey: manifestEntry.led.patternLabelKey,
+      color: manifestEntry.led.color,
+      hardwareTextToken: manifestEntry.symbol.token,
+      durationMs: manifestEntry.led.durationMs
+    }
+  }
+  if (modality === 'haptic') {
+    const pattern = hapticPatternFor(manifestEntry, profile)
+    return {
+      ...base,
+      pattern,
+      patternLabelKey: hapticPatternLabelKey(pattern),
+      intensity: clamp(
+        manifestEntry.haptic.intensity * profile.hapticIntensity,
+        0,
+        1,
+        manifestEntry.haptic.intensity
+      )
+    }
+  }
+  return base
 }
 
 function presentationFor(profile: CueProfile): CuePresentation {
@@ -878,13 +1020,33 @@ function presentationFor(profile: CueProfile): CuePresentation {
   }
 }
 
+function blockedRoute(
+  event: SemanticCueEvent,
+  profile: CueProfile,
+  issue: CueRouteIssue
+): CueRoute {
+  return {
+    status: 'blocked',
+    instanceId: event.instanceId,
+    eventId: event.id,
+    source: isCueSource(event.source) ? event.source : 'unknown',
+    severity: event.severity,
+    timestamp: event.timestamp,
+    messageKey: event.messageKey,
+    context: event.context ? { ...event.context } : undefined,
+    outputs: [],
+    issues: [issue],
+    conflicts: analyzeCueProfile(profile),
+    presentation: presentationFor(profile)
+  }
+}
+
 export function routeSemanticCue(
-  eventValue: SemanticCueEvent,
+  event: SemanticCueEvent,
   profileValue: unknown,
   capabilitiesValue: Partial<CueCapabilities> = DEFAULT_CUE_CAPABILITIES
 ): CueRoute {
   const profile = normalizeCueProfile(profileValue)
-  const event = eventValue
   if (!isCueSource(event.source)) {
     return blockedRoute(event, profile, {
       code: 'unknown-source',
@@ -908,23 +1070,48 @@ export function routeSemanticCue(
   const issues: CueRouteIssue[] = []
   const conflicts = analyzeCueProfile(profile)
 
-  const tryAdd = (modality: CueModality, preserveCritical = false): boolean => {
+  const pushIssue = (issue: CueRouteIssue): void => {
+    if (
+      !issues.some(
+        (candidate) =>
+          candidate.code === issue.code &&
+          candidate.modality === issue.modality &&
+          candidate.detail === issue.detail
+      )
+    ) {
+      issues.push(issue)
+    }
+  }
+
+  const tryAdd = (modality: CueModality, preserved = false): boolean => {
     if (outputs.some((output) => output.modality === modality)) return true
     const delivery = routeDelivery(event.source, modality)
     if (!delivery) {
-      issues.push({ code: 'replay-hardware-blocked', modality })
+      pushIssue({ code: 'replay-hardware-blocked', modality })
       return false
     }
     if (event.source !== 'preview' && !capabilities[modality]) {
-      issues.push({ code: 'modality-unavailable', modality })
+      pushIssue({ code: 'modality-unavailable', modality })
       return false
     }
+    const output = buildOutput(manifestEntry, event, profile, modality, delivery)
+    outputs.push(output)
     if (delivery === 'simulated') {
-      issues.push({ code: 'preview-hardware-simulated', modality })
+      pushIssue({ code: 'preview-hardware-simulated', modality })
     }
-    outputs.push(buildOutput(manifestEntry, event, profile, modality, delivery))
-    if (preserveCritical) {
-      issues.push({ code: 'critical-modality-preserved', modality })
+    if (
+      modality === 'haptic' &&
+      profile.reducedMotion &&
+      output.pattern !== manifestEntry.haptic.pattern
+    ) {
+      pushIssue({
+        code: 'reduced-motion-pattern-substituted',
+        modality,
+        detail: `${manifestEntry.haptic.pattern}->${String(output.pattern)}`
+      })
+    }
+    if (preserved) {
+      pushIssue({ code: 'critical-modality-preserved', modality })
     }
     return true
   }
@@ -936,13 +1123,14 @@ export function routeSemanticCue(
   const critical = event.severity === 'critical' || manifestEntry.preserveCritical
   if (critical) {
     for (const modality of fallbackOrder(profile)) {
-      if (outputs.length >= 2) break
-      tryAdd(modality, true)
+      if (independentCueChannels(outputs).size >= 2) break
+      if (isExplicitlyOff(profile, event.id, modality)) continue
+      tryAdd(modality, !enabled[modality])
     }
-    if (outputs.length < 2) {
-      issues.push({
+    if (independentCueChannels(outputs).size < 2) {
+      pushIssue({
         code: 'critical-redundancy-unavailable',
-        detail: `${outputs.length}/2 modalities available`
+        detail: `${independentCueChannels(outputs).size}/2 sensory channels available`
       })
     }
   }
@@ -956,10 +1144,13 @@ export function routeSemanticCue(
 
   return {
     status,
+    instanceId: event.instanceId,
     eventId: manifestEntry.eventId,
     source: event.source,
     severity: event.severity,
-    message: event.message,
+    timestamp: event.timestamp,
+    messageKey: event.messageKey,
+    context: event.context ? { ...event.context } : undefined,
     outputs,
     issues,
     conflicts,

@@ -7,6 +7,7 @@ import {
   mergeTtsPref,
   chunkText,
   TTS_CHUNK_MAX_CHARS,
+  TtsTaskQueue,
   isTtsSpeaking,
   notifyExternalSpeaking,
   externalSpeakingDepth
@@ -36,6 +37,47 @@ describe('clampTtsRate', () => {
       expect(clampSpatialPan(2)).toBe(1)
       expect(clampSpatialPan(Number.NaN)).toBeUndefined()
       expect(clampSpatialPan('left')).toBeUndefined()
+    })
+
+    describe('isolated accessibility TTS queues', () => {
+      it('keeps preview work independent from a blocked live speech queue', async () => {
+        let releaseLive = (): void => undefined
+        const liveGate = new Promise<void>((resolve) => {
+          releaseLive = resolve
+        })
+        const liveQueue = new TtsTaskQueue()
+        const previewQueue = new TtsTaskQueue()
+        const order: string[] = []
+
+        const live = liveQueue.enqueue(async () => {
+          order.push('live-start')
+          await liveGate
+          order.push('live-end')
+        })
+        const preview = previewQueue.enqueue(async () => {
+          order.push('preview')
+        })
+
+        await preview
+        expect(order).toEqual(['live-start', 'preview'])
+        releaseLive()
+        await live
+        expect(order).toEqual(['live-start', 'preview', 'live-end'])
+      })
+
+      it('serializes tasks within one modality channel', async () => {
+        const queue = new TtsTaskQueue()
+        const order: number[] = []
+        await Promise.all([
+          queue.enqueue(async () => {
+            order.push(1)
+          }),
+          queue.enqueue(async () => {
+            order.push(2)
+          })
+        ])
+        expect(order).toEqual([1, 2])
+      })
     })
   })
 

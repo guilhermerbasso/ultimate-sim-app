@@ -201,6 +201,114 @@ let speakingCount = 0
 // stayed open while the spotter spoke and transcribed its own callouts (M4).
 let externalSpeakingCount = 0
 
+export type IsolatedTtsChannelId =
+  | 'accessibility-live'
+  | 'accessibility-preview'
+
+export class TtsTaskQueue {
+  private tail: Promise<void> = Promise.resolve()
+
+  enqueue(task: () => Promise<void>): Promise<void> {
+    const result = this.tail.then(task)
+    this.tail = result.catch(() => undefined)
+    return result
+  }
+}
+
+interface IsolatedTtsChannelState {
+  queue: TtsTaskQueue
+  generation: number
+  context: AudioContext | null
+  source: AudioBufferSourceNode | null
+  spatialNode: StereoPannerNode | null
+}
+
+const isolatedTtsChannels = new Map<IsolatedTtsChannelId, IsolatedTtsChannelState>()
+
+function isolatedChannel(channel: IsolatedTtsChannelId): IsolatedTtsChannelState {
+  const existing = isolatedTtsChannels.get(channel)
+  if (existing) return existing
+  const created: IsolatedTtsChannelState = {
+    queue: new TtsTaskQueue(),
+    generation: 0,
+    context: null,
+    source: null,
+    spatialNode: null
+  }
+  isolatedTtsChannels.set(channel, created)
+  return created
+}
+
+function ensureIsolatedContext(state: IsolatedTtsChannelState): AudioContext | null {
+  if (typeof window === 'undefined') return null
+  const Ctor =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  if (!Ctor) return null
+  if (!state.context) state.context = new Ctor()
+  return state.context
+}
+
+async function playIsolatedWav(
+  state: IsolatedTtsChannelState,
+  bytes: Uint8Array,
+  rate: number,
+  generation: number,
+  spatialPanValue?: number
+): Promise<boolean> {
+  if (generation !== state.generation || bytes.byteLength === 0) return true
+  const context = ensureIsolatedContext(state)
+  if (!context) return false
+  try {
+    if (context.state === 'suspended') await context.resume()
+    const decoded = await context.decodeAudioData(toAudioBuffer(bytes))
+    if (generation !== state.generation) return true
+    return await new Promise<boolean>((resolve) => {
+      const source = context.createBufferSource()
+      source.buffer = decoded
+      source.playbackRate.value = Math.max(0.25, Math.min(4, rate))
+      const pan = clampSpatialPan(spatialPanValue)
+      const spatialNode = pan === undefined ? null : context.createStereoPanner()
+      if (spatialNode && pan !== undefined) {
+        spatialNode.pan.value = pan
+        source.connect(spatialNode)
+        spatialNode.connect(context.destination)
+      } else {
+        source.connect(context.destination)
+      }
+      state.source = source
+      state.spatialNode = spatialNode
+      source.onended = () => {
+        if (state.source === source) state.source = null
+        if (state.spatialNode === spatialNode) state.spatialNode = null
+        spatialNode?.disconnect()
+        resolve(true)
+      }
+      source.start()
+    })
+  } catch {
+    return false
+  }
+}
+
+export function stopIsolatedTts(channel: IsolatedTtsChannelId): void {
+  const state = isolatedTtsChannels.get(channel)
+  if (!state) return
+  state.generation += 1
+  try {
+    state.source?.stop()
+  } catch {
+    // already stopped
+  }
+  state.source = null
+  state.spatialNode?.disconnect()
+  state.spatialNode = null
+}
+
+function stopAllIsolatedTts(): void {
+  for (const channel of isolatedTtsChannels.keys()) stopIsolatedTts(channel)
+}
+
 /**
  * Register/unregister an EXTERNAL speech channel (e.g. the Voice Spotter) as a
  * contributor to the shared "is something speaking" signal. Balanced +1/-1: pass
@@ -466,6 +574,52 @@ export interface SpeakOptions {
   spatialPan?: number
 }
 
+export async function speakViaIsolatedTts(
+  channel: IsolatedTtsChannelId,
+  text: string,
+  options: SpeakOptions = {}
+): Promise<void> {
+  const content = (text ?? '').trim()
+  if (!content) return
+  const state = isolatedChannel(channel)
+  const requestedGeneration = state.generation
+  return state.queue.enqueue(async () => {
+    if (requestedGeneration !== state.generation) return
+    const generation = requestedGeneration
+    const pref = getTtsPref()
+    const resolvedVoice = resolvePiperVoice(options.lang, options.voiceId ?? pref.voiceId)
+    const voiceId = resolvedVoice.voiceId
+    const rate = pref.rate
+    speakingCount += 1
+    try {
+      for (const chunk of chunkText(content)) {
+        if (generation !== state.generation) return
+        const wav = await synthesize(chunk, voiceId, rate)
+        if (generation !== state.generation) return
+        if (!wav || wav.byteLength === 0) {
+          logClient.warn('tts', 'isolated accessibility TTS unavailable', {
+            channel,
+            source: options.source ?? 'unknown',
+            tipId: options.tipId ?? null,
+            voiceId
+          })
+          return
+        }
+        const played = await playIsolatedWav(
+          state,
+          wav,
+          rate,
+          generation,
+          options.spatialPan
+        )
+        if (!played) return
+      }
+    } finally {
+      speakingCount = Math.max(0, speakingCount - 1)
+    }
+  })
+}
+
 /**
  * THE seam: speak `text` via the neural Piper engine, falling back to OS Web Speech.
  * Resolves once playback finishes (or is superseded by a newer call). Never throws.
@@ -614,12 +768,18 @@ export function useTtsRuntime(language?: string): void {
     if (mountCount === 1) getTtsPref() // warm cache from localStorage
     return () => {
       mountCount -= 1
-      if (mountCount === 0) stopTts()
+      if (mountCount === 0) {
+        stopTts()
+        stopAllIsolatedTts()
+      }
     }
   }, [])
 
   useEffect(() => {
-    if (previousLanguage.current && language && previousLanguage.current !== language) stopTts()
+    if (previousLanguage.current && language && previousLanguage.current !== language) {
+      stopTts()
+      stopAllIsolatedTts()
+    }
     previousLanguage.current = language
   }, [language])
 }

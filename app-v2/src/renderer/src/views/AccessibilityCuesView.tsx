@@ -17,11 +17,14 @@ import {
   DEFAULT_CUE_CAPABILITIES,
   analyzeCueProfile,
   cloneAccessibilityCueStore,
+  createAccessibilityCueStateEnvelope,
+  effectiveCueModalities,
   getActiveCueProfile,
   getCueManifest,
   routeSemanticCue,
-  type AccessibilityCueStore,
+  type AccessibilityCueStateEnvelope,
   type CueModality,
+  type CueModalityPolicy,
   type CueProfile,
   type CueRoute,
   type SemanticCueEvent
@@ -31,7 +34,13 @@ import {
   HAPTICS_CHANNELS,
   type HapticsConfig
 } from '../../../shared/haptics'
-import { speakViaTts } from '../lib/tts-runtime'
+import {
+  localizeCueMessage,
+  localizeCuePattern
+} from '../lib/accessibility-cue-localization'
+import { CueProfileMutationQueue } from '../lib/accessibility-cue-profile-client'
+import { speakViaIsolatedTts } from '../lib/tts-runtime'
+import { useUnitSystem } from '../lib/units'
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -54,13 +63,24 @@ function modalityLabel(
   return tt(language, `accessibilityCues.modality.${modality}`)
 }
 
+function modalityPolicyLabel(
+  policy: CueModalityPolicy,
+  language: AppViewProps['language']
+): string {
+  return tt(language, `accessibilityCues.policy.${policy}`)
+}
+
 const AccessibilityCuesView: ComponentType<AppViewProps> = ({
   connectedDevice,
   showToast,
   language
 }): ReactElement => {
-  const [store, setStore] = useState<AccessibilityCueStore>(() =>
-    cloneAccessibilityCueStore(DEFAULT_ACCESSIBILITY_CUE_STORE)
+  const unitSystem = useUnitSystem()
+  const [envelope, setEnvelope] = useState<AccessibilityCueStateEnvelope>(() =>
+    createAccessibilityCueStateEnvelope(
+      cloneAccessibilityCueStore(DEFAULT_ACCESSIBILITY_CUE_STORE),
+      false
+    )
   )
   const [haptics, setHaptics] = useState<HapticsConfig>(DEFAULT_HAPTICS_CONFIG)
   const [selectedEventId, setSelectedEventId] = useState<string>(
@@ -68,20 +88,28 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
       CUE_MANIFESTS[0].eventId
   )
   const [preview, setPreview] = useState<CueRoute | null>(null)
+  const mutationQueueRef = useRef<CueProfileMutationQueue | null>(null)
 
   useEffect(() => {
+    const queue = new CueProfileMutationQueue(
+      envelope,
+      (channel, request) =>
+        window.ipc.invoke<AccessibilityCueStateEnvelope>(channel, request),
+      setEnvelope
+    )
+    mutationQueueRef.current = queue
     void window.ipc
-      .invoke<AccessibilityCueStore>(ACCESSIBILITY_CUE_CHANNELS.getState)
-      .then(setStore)
+      .invoke<AccessibilityCueStateEnvelope>(ACCESSIBILITY_CUE_CHANNELS.getState)
+      .then((next) => queue.acceptBroadcast(next))
       .catch((error) => showToast(errorMessage(error), 'error'))
     void window.ipc
       .invoke<HapticsConfig>(HAPTICS_CHANNELS.getConfig)
       .then(setHaptics)
       .catch(() => undefined)
 
-    const offStore = window.ipc.subscribe<AccessibilityCueStore>(
+    const offStore = window.ipc.subscribe<AccessibilityCueStateEnvelope>(
       ACCESSIBILITY_CUE_CHANNELS.stateEvent,
-      setStore
+      (next) => queue.acceptBroadcast(next)
     )
     const offHaptics = window.ipc.subscribe<HapticsConfig>(
       HAPTICS_CHANNELS.configEvent,
@@ -90,12 +118,13 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
     return () => {
       offStore()
       offHaptics()
+      mutationQueueRef.current = null
     }
   }, [showToast])
 
+  const store = envelope.state
   const activeProfile = useMemo(() => getActiveCueProfile(store), [store])
   const activeProfileRef = useRef(activeProfile)
-  const persistSequenceRef = useRef(0)
   useEffect(() => {
     activeProfileRef.current = activeProfile
   }, [activeProfile])
@@ -113,18 +142,16 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
   )
 
   async function persistProfile(nextProfile: CueProfile): Promise<void> {
-    const sequence = ++persistSequenceRef.current
+    const queue = mutationQueueRef.current
+    if (!queue || !envelope.ready) return
     try {
-      const next = await window.ipc.invoke<AccessibilityCueStore>(
-        ACCESSIBILITY_CUE_CHANNELS.saveProfile,
-        nextProfile
-      )
-      if (sequence !== persistSequenceRef.current) return
-      activeProfileRef.current = getActiveCueProfile(next)
-      setStore(next)
+      await queue.save(nextProfile)
     } catch (error) {
-      if (sequence !== persistSequenceRef.current) return
       showToast(errorMessage(error), 'error')
+      void window.ipc
+        .invoke<AccessibilityCueStateEnvelope>(ACCESSIBILITY_CUE_CHANNELS.getState)
+        .then((next) => queue.acceptBroadcast(next))
+        .catch(() => undefined)
     }
   }
 
@@ -137,11 +164,14 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
       overrides: patch.overrides ?? base.overrides
     }
     activeProfileRef.current = nextProfile
-    setStore((current) => ({
+    setEnvelope((current) => ({
       ...current,
-      profiles: current.profiles.map((profile) =>
-        profile.id === nextProfile.id ? nextProfile : profile
-      )
+      state: {
+        ...current.state,
+        profiles: current.state.profiles.map((profile) =>
+          profile.id === nextProfile.id ? nextProfile : profile
+        )
+      }
     }))
     void persistProfile(nextProfile)
   }
@@ -174,14 +204,11 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
   }
 
   async function selectProfile(profileId: string): Promise<void> {
-    persistSequenceRef.current += 1
+    const queue = mutationQueueRef.current
+    if (!queue || !envelope.ready) return
     try {
-      const next = await window.ipc.invoke<AccessibilityCueStore>(
-        ACCESSIBILITY_CUE_CHANNELS.setActiveProfile,
-        profileId
-      )
-      activeProfileRef.current = getActiveCueProfile(next)
-      setStore(next)
+      await queue.select(profileId)
+      activeProfileRef.current = getActiveCueProfile(queue.current.state)
       setPreview(null)
     } catch (error) {
       showToast(errorMessage(error), 'error')
@@ -189,14 +216,11 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
   }
 
   async function resetProfile(): Promise<void> {
-    persistSequenceRef.current += 1
+    const queue = mutationQueueRef.current
+    if (!queue || !envelope.ready) return
     try {
-      const next = await window.ipc.invoke<AccessibilityCueStore>(
-        ACCESSIBILITY_CUE_CHANNELS.resetProfile,
-        activeProfile.id
-      )
-      activeProfileRef.current = getActiveCueProfile(next)
-      setStore(next)
+      await queue.reset(activeProfile.id)
+      activeProfileRef.current = getActiveCueProfile(queue.current.state)
       setPreview(null)
       showToast(tt(language, 'accessibilityCues.resetDone'), 'success')
     } catch (error) {
@@ -205,11 +229,13 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
   }
 
   function runSafePreview(): void {
+    if (!envelope.ready) return
     const cue = getCueManifest(selectedEventId)
     if (!cue) return
     const event: SemanticCueEvent = {
+      instanceId: `preview-${cue.eventId}-${Date.now()}`,
       id: cue.eventId,
-      message: tt(language, `accessibilityCues.example.${cue.eventId}`),
+      messageKey: `accessibilityCues.example.${cue.eventId}`,
       severity: cue.severity,
       timestamp: 0,
       source: 'preview',
@@ -217,17 +243,26 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
     }
     const route = routeSemanticCue(event, activeProfile, capabilities)
     setPreview(route)
+    const localizedMessage = localizeCueMessage(route, language ?? 'en', unitSystem)
 
     const audio = route.outputs.find((output) => output.modality === 'audio')
     if (audio) {
-      void speakViaTts(route.message, {
-        lang: language,
-        source: 'accessibility-cue-preview',
-        tipId: route.eventId,
-        spatialPan: audio.spatialPan
-      })
+      void speakViaIsolatedTts(
+        'accessibility-preview',
+        localizedMessage,
+        {
+          lang: language,
+          source: 'accessibility-cue-preview',
+          tipId: route.instanceId,
+          spatialPan: audio.spatialPan
+        }
+      )
     }
   }
+
+  const previewMessage = preview
+    ? localizeCueMessage(preview, language ?? 'en', unitSystem)
+    : ''
 
   return (
     <div
@@ -251,6 +286,20 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
         {tt(language, 'accessibilityCues.validationBody')}
       </div>
 
+      <div
+        className="accessibility-cues-status"
+        data-tone={envelope.ready ? 'safe' : undefined}
+        role="status"
+        aria-live="polite"
+      >
+        <strong>{tt(language, 'accessibilityCues.readinessTitle')}</strong>{' '}
+        {envelope.ready
+          ? tt(language, 'accessibilityCues.readinessReady', {
+              revision: envelope.revision
+            })
+          : tt(language, 'accessibilityCues.readinessLoading')}
+      </div>
+
       <div className="accessibility-cues-grid">
         <section className="accessibility-cues-panel" aria-labelledby="cue-profile-heading">
           <h2 id="cue-profile-heading">{tt(language, 'accessibilityCues.profileHeading')}</h2>
@@ -259,6 +308,7 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
             <span>{tt(language, 'accessibilityCues.activeProfile')}</span>
             <select
               value={activeProfile.id}
+              disabled={!envelope.ready}
               onChange={(event) => void selectProfile(event.target.value)}
             >
               {store.profiles.map((profile) => (
@@ -273,22 +323,10 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
             {tt(language, 'accessibilityCues.noInference')}
           </p>
 
-          <fieldset>
+          <fieldset disabled={!envelope.ready}>
             <legend>{tt(language, 'accessibilityCues.globalModalities')}</legend>
             {CUE_MODALITIES.map((modality) => (
-              <label className="accessibility-cues-switch" key={modality}>
-                <input
-                  type="checkbox"
-                  checked={activeProfile.modalities[modality]}
-                  onChange={(event) =>
-                    updateProfile({
-                      modalities: {
-                        ...activeProfile.modalities,
-                        [modality]: event.target.checked
-                      }
-                    })
-                  }
-                />
+              <label className="accessibility-cues-control" key={modality}>
                 <span>
                   <strong>{modalityLabel(modality, language)}</strong>
                   <br />
@@ -296,11 +334,31 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
                     {tt(language, `accessibilityCues.modalityHelp.${modality}`)}
                   </small>
                 </span>
+                <select
+                  value={activeProfile.modalities[modality]}
+                  aria-label={tt(language, 'accessibilityCues.policyAria', {
+                    modality: modalityLabel(modality, language)
+                  })}
+                  onChange={(event) =>
+                    updateProfile({
+                      modalities: {
+                        ...activeProfile.modalities,
+                        [modality]: event.target.value as CueModalityPolicy
+                      }
+                    })
+                  }
+                >
+                  {(['inherit', 'on', 'off'] as const).map((policy) => (
+                    <option key={policy} value={policy}>
+                      {modalityPolicyLabel(policy, language)}
+                    </option>
+                  ))}
+                </select>
               </label>
             ))}
           </fieldset>
 
-          <fieldset>
+          <fieldset disabled={!envelope.ready}>
             <legend>{tt(language, 'accessibilityCues.presentation')}</legend>
 
             <label className="accessibility-cues-control">
@@ -440,6 +498,7 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
             <button
               className="accessibility-cues-button"
               type="button"
+              disabled={!envelope.ready}
               onClick={() => void resetProfile()}
             >
               {tt(language, 'accessibilityCues.resetProfile')}
@@ -457,6 +516,7 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
             <span>{tt(language, 'accessibilityCues.previewEvent')}</span>
             <select
               value={selectedEventId}
+              disabled={!envelope.ready}
               onChange={(event) => {
                 setSelectedEventId(event.target.value)
                 setPreview(null)
@@ -474,6 +534,7 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
             className="accessibility-cues-button accessibility-cues-button--primary"
             type="button"
             aria-describedby="cue-preview-help"
+            disabled={!envelope.ready}
             onClick={runSafePreview}
           >
             {tt(language, 'accessibilityCues.runPreview')}
@@ -500,7 +561,7 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
                 )}
                 <div>
                   <strong>{eventLabel(preview.eventId, language)}</strong>
-                  <div>{preview.message}</div>
+                  <div>{previewMessage}</div>
                 </div>
               </div>
 
@@ -511,8 +572,18 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
                     key={output.modality}
                   >
                     <strong>{modalityLabel(output.modality, language)}</strong>
-                    <span>{output.message}</span>
-                    {output.patternLabel && <small>{output.patternLabel}</small>}
+                    {output.modality === 'caption' && <span>{previewMessage}</span>}
+                    {output.patternLabelKey && (
+                      <small>{localizeCuePattern(output, language ?? 'en')}</small>
+                    )}
+                    {output.hardwareTextToken && (
+                      <small>
+                        {tt(language, 'accessibilityCues.previewHardwareText', {
+                          token: output.hardwareTextToken,
+                          severity: preview.severity.toUpperCase()
+                        })}
+                      </small>
+                    )}
                     {output.delivery === 'simulated' && (
                       <small>
                         {tt(language, 'accessibilityCues.simulatedNoHardware')}
@@ -552,12 +623,15 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
             <tbody>
               {CUE_MANIFESTS.map((cue) => {
                 const override = activeProfile.overrides[cue.eventId]?.modalities
+                const effective = effectiveCueModalities(activeProfile, cue.eventId)
                 return (
                   <tr key={cue.eventId}>
                     <th scope="row">
                       <span className="accessibility-cues-event-name">
                         <span>{eventLabel(cue.eventId, language)}</span>
-                        <small>{cue.symbol.token} · {cue.led.patternLabel}</small>
+                        <small>
+                          {cue.symbol.token} · {tt(language, cue.led.patternLabelKey)}
+                        </small>
                         {cue.preserveCritical && (
                           <span className="accessibility-cues-critical">
                             {tt(language, 'accessibilityCues.critical')}
@@ -569,12 +643,13 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
                       const checked =
                         typeof override?.[modality] === 'boolean'
                           ? override[modality]
-                          : activeProfile.modalities[modality]
+                          : effective[modality]
                       return (
                         <td key={modality}>
                           <input
                             type="checkbox"
                             checked={checked}
+                            disabled={!envelope.ready}
                             aria-label={tt(language, 'accessibilityCues.overrideAria', {
                               modality: modalityLabel(modality, language),
                               event: eventLabel(cue.eventId, language)
@@ -590,7 +665,9 @@ const AccessibilityCuesView: ComponentType<AppViewProps> = ({
                       <button
                         className="accessibility-cues-button"
                         type="button"
-                        disabled={!activeProfile.overrides[cue.eventId]}
+                        disabled={
+                          !envelope.ready || !activeProfile.overrides[cue.eventId]
+                        }
                         onClick={() => clearOverride(cue.eventId)}
                       >
                         {tt(language, 'accessibilityCues.inherit')}

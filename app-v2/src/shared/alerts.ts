@@ -41,6 +41,13 @@ export interface AlertEventContext {
   threshold?: number
   // Free-form unit string, useful for serial templates.
   unit?: string
+  // Semantic qualifiers used by accessibility localization. These are bounded
+  // enums/raw values, never pre-localized prose.
+  flag?: 'blue' | 'yellow' | 'black' | 'meatball'
+  direction?: 'low' | 'high'
+  remaining?: number
+  count?: number
+  limit?: number
 }
 
 // ─── Output actions (NEW) ────────────────────────────────────────────────────

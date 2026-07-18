@@ -16,13 +16,15 @@ describe('AccessibilityCuesView accessibility and preview isolation', () => {
     )
 
     expect(markup).toContain('<h1>Accessibility cue profiles</h1>')
-    expect(markup).toContain('<fieldset>')
+    expect(markup).toContain('<fieldset')
     expect(markup).toContain('<table class="accessibility-cues-table">')
     expect(markup).toContain('aria-describedby="cue-preview-help"')
     expect(markup).toContain('role="note"')
     expect(markup).toContain('The app does not detect or infer disability')
     expect(markup).toContain('do not replace preregistered blind/low-vision')
-    expect(markup).toContain('No device command is sent')
+    expect(markup).toContain('no device command is sent')
+    expect(markup).toContain('Loading the persisted profile')
+    expect(markup).toContain('disabled=""')
   })
 
   it('keeps teach preview code free of direct LED, OLED, and haptic actuation', () => {
@@ -35,5 +37,7 @@ describe('AccessibilityCuesView accessibility and preview isolation', () => {
     expect(source).not.toContain('playAccessibilityHaptic')
     expect(source).not.toContain('testHapticsEffect')
     expect(source).toContain("source: 'preview'")
+    expect(source).toContain("'accessibility-preview'")
+    expect(source).toContain('CueProfileMutationQueue')
   })
 })

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { AlertEvent } from './alerts'
 import {
   CUE_MANIFESTS,
   DEAF_HOH_CUE_PROFILE,
@@ -8,10 +9,13 @@ import {
   activateCueProfile,
   analyzeCueProfile,
   cloneCueProfile,
+  effectiveCueModalities,
   getActiveCueProfile,
   hardwareOutputsForCueRoute,
+  independentCueChannels,
   parseAccessibilityCueStore,
   routeSemanticCue,
+  semanticCueEventFromAlert,
   serializeAccessibilityCueStore,
   upsertCueProfile,
   type CueCapabilities,
@@ -34,8 +38,9 @@ function event(
   patch: Partial<SemanticCueEvent> = {}
 ): SemanticCueEvent {
   return {
+    instanceId: `${source}-${id}-1`,
     id,
-    message: 'Existing alert meaning',
+    messageKey: `accessibilityCues.live.${id}`,
     severity: id === 'alert.lowFuel' ? 'critical' : 'warning',
     timestamp: 1000,
     source,
@@ -44,211 +49,192 @@ function event(
   }
 }
 
-describe('semantic accessibility cue manifests', () => {
-  it('keeps every manifest unique and color-independent', () => {
-    expect(new Set(CUE_MANIFESTS.map((cue) => cue.eventId)).size).toBe(
-      CUE_MANIFESTS.length
-    )
+describe('truthful and reduced-motion-safe manifests', () => {
+  it('teaches only the actual steady SIM-X lamp capability', () => {
     for (const cue of CUE_MANIFESTS) {
+      expect(cue.led).toMatchObject({
+        pattern: 'steady',
+        color: 'device-default',
+        patternLabelKey: 'accessibilityCues.pattern.led.steadyActual'
+      })
       expect(cue.symbol.token.length).toBeGreaterThan(1)
-      expect(cue.symbol.label.length).toBeGreaterThan(0)
-      expect(cue.led.patternLabel.length).toBeGreaterThan(0)
-      expect(cue.led.pattern).not.toBe(cue.led.color)
     }
   })
 
-  it('preserves modality parity through one semantic id and message', () => {
-    const route = routeSemanticCue(
-      event('alert.flag'),
-      {
-        ...STANDARD_CUE_PROFILE,
-        modalities: {
-          caption: true,
-          audio: true,
-          symbol: true,
-          led: true,
-          haptic: true
-        }
-      },
-      allAvailable
-    )
-
-    expect(route.outputs).toHaveLength(5)
-    expect(new Set(route.outputs.map((output) => output.semanticId))).toEqual(
-      new Set(['alert.flag'])
-    )
-    expect(new Set(route.outputs.map((output) => output.message))).toEqual(
-      new Set(['Existing alert meaning'])
-    )
-    expect(route.outputs.every((output) => output.accessibleLabel.includes(route.message))).toBe(
-      true
-    )
-  })
-})
-
-describe('accessibility profiles and routing', () => {
-  it('applies low-vision/blind scaling, contrast, spatial audio, and haptic redundancy', () => {
-    const route = routeSemanticCue(
-      event('alert.tyrePressure', 'live', {
-        severity: 'warning',
-        position: 'left'
-      }),
-      LOW_VISION_BLIND_CUE_PROFILE,
-      allAvailable
-    )
-
-    expect(route.presentation).toMatchObject({
-      profileKind: 'low-vision-blind',
-      highContrast: true,
-      textScale: 1.45,
-      reducedMotion: true
-    })
-    expect(route.outputs.map((output) => output.modality)).toEqual([
-      'caption',
-      'audio',
-      'symbol',
-      'haptic'
-    ])
-    expect(
-      route.outputs.find((output) => output.modality === 'audio')?.spatialPan
-    ).toBeLessThan(0)
-  })
-
-  it('applies Deaf/HoH persistent captions and visual-haptic redundancy without audio', () => {
-    const route = routeSemanticCue(
-      event('alert.flag'),
-      DEAF_HOH_CUE_PROFILE,
-      allAvailable
-    )
-    expect(route.presentation.persistentCaptions).toBe(true)
-    expect(route.outputs.map((output) => output.modality)).toEqual([
-      'caption',
-      'symbol',
-      'led',
-      'haptic'
-    ])
-    expect(route.outputs.some((output) => output.modality === 'audio')).toBe(false)
-  })
-
-  it('preserves a critical cue when an override disables every modality', () => {
-    const profile: CueProfile = {
-      ...cloneCueProfile(STANDARD_CUE_PROFILE),
-      modalities: {
-        caption: false,
-        audio: false,
-        symbol: false,
-        led: false,
-        haptic: false
-      },
-      overrides: {
-        'alert.lowFuel': {
-          modalities: {
-            caption: false,
-            audio: false,
-            symbol: false,
-            led: false,
-            haptic: false
-          }
-        }
-      }
-    }
-    const route = routeSemanticCue(event(), profile, {
-      ...allAvailable,
-      led: false,
-      haptic: false
-    })
-
-    expect(route.outputs).toHaveLength(2)
-    expect(route.outputs.map((output) => output.modality)).toEqual([
-      'caption',
-      'symbol'
-    ])
-    expect(
-      route.issues.filter((issue) => issue.code === 'critical-modality-preserved')
-    ).toHaveLength(2)
-  })
-
-  it('fails closed for disabled hardware and preserves critical visual meaning', () => {
-    const route = routeSemanticCue(event(), DEAF_HOH_CUE_PROFILE, {
-      ...allAvailable,
-      led: false,
-      haptic: false
-    })
-
-    expect(hardwareOutputsForCueRoute(route)).toEqual([])
-    expect(route.outputs.map((output) => output.modality)).toEqual([
-      'caption',
-      'symbol'
-    ])
-    expect(
-      route.issues.filter((issue) => issue.code === 'modality-unavailable').map(
-        (issue) => issue.modality
-      )
-    ).toEqual(expect.arrayContaining(['led', 'haptic']))
-  })
-
-  it('keeps preview hardware isolated while still teaching configured patterns', () => {
-    const route = routeSemanticCue(
-      event('alert.flag', 'preview'),
-      DEAF_HOH_CUE_PROFILE,
-      allAvailable
-    )
-
-    expect(hardwareOutputsForCueRoute(route)).toEqual([])
-    expect(
-      route.outputs
-        .filter((output) => output.modality === 'led' || output.modality === 'haptic')
-        .every((output) => output.delivery === 'simulated')
-    ).toBe(true)
-    expect(
-      route.issues.filter((issue) => issue.code === 'preview-hardware-simulated')
-    ).toHaveLength(2)
-  })
-
-  it('blocks LED and haptic side effects at the replay boundary but allows them live', () => {
-    const live = routeSemanticCue(
-      event('alert.flag', 'live'),
-      DEAF_HOH_CUE_PROFILE,
-      allAvailable
-    )
-    const replay = routeSemanticCue(
-      event('alert.flag', 'replay'),
-      DEAF_HOH_CUE_PROFILE,
-      allAvailable
-    )
-
-    expect(hardwareOutputsForCueRoute(live).map((output) => output.modality)).toEqual([
-      'led',
-      'haptic'
-    ])
-    expect(hardwareOutputsForCueRoute(replay)).toEqual([])
-    expect(replay.outputs.map((output) => output.modality)).toEqual([
-      'caption',
-      'symbol'
-    ])
-    expect(
-      replay.issues.filter((issue) => issue.code === 'replay-hardware-blocked')
-    ).toHaveLength(2)
-  })
-
-  it('routes LED meaning with a pattern and OLED text rather than color alone', () => {
+  it('replaces rapid haptic patterns for the reduced-motion Deaf/HoH default', () => {
     const route = routeSemanticCue(
       event('alert.flag'),
       DEAF_HOH_CUE_PROFILE,
       allAvailable
     )
     const led = route.outputs.find((output) => output.modality === 'led')
-    const symbol = route.outputs.find((output) => output.modality === 'symbol')
+    const haptic = route.outputs.find((output) => output.modality === 'haptic')
 
-    expect(led).toMatchObject({
-      pattern: 'double-pulse',
-      patternLabel: 'Two distinct pulses',
-      oledText: 'Existing alert meaning'
+    expect(led?.pattern).toBe('steady')
+    expect(haptic?.pattern).toBe('long')
+    expect(route.issues).toContainEqual(
+      expect.objectContaining({
+        code: 'reduced-motion-pattern-substituted',
+        modality: 'haptic'
+      })
+    )
+  })
+})
+
+describe('manifest defaults and independent redundancy', () => {
+  it('includes manifest defaults when a profile policy inherits', () => {
+    expect(effectiveCueModalities(STANDARD_CUE_PROFILE, 'alert.lowFuel')).toMatchObject({
+      caption: true,
+      audio: true,
+      symbol: true,
+      led: false,
+      haptic: false
     })
-    expect(symbol?.symbol).toBe('FLAG')
+    expect(effectiveCueModalities(STANDARD_CUE_PROFILE, 'alert.flag').audio).toBe(false)
   })
 
-  it('blocks unknown events without any output', () => {
+  it('allows profile on/off policies and per-event overrides to supersede manifests', () => {
+    const profile: CueProfile = {
+      ...cloneCueProfile(STANDARD_CUE_PROFILE),
+      modalities: {
+        ...STANDARD_CUE_PROFILE.modalities,
+        led: 'on',
+        caption: 'off'
+      },
+      overrides: {
+        'alert.flag': { modalities: { led: false, caption: true } }
+      }
+    }
+    expect(effectiveCueModalities(profile, 'alert.lowFuel').caption).toBe(false)
+    expect(effectiveCueModalities(profile, 'alert.lowFuel').led).toBe(true)
+    expect(effectiveCueModalities(profile, 'alert.flag').caption).toBe(true)
+    expect(effectiveCueModalities(profile, 'alert.flag').led).toBe(false)
+  })
+
+  it('counts caption and symbol in one window as one visual channel', () => {
+    const route = routeSemanticCue(
+      event(),
+      {
+        ...cloneCueProfile(STANDARD_CUE_PROFILE),
+        modalities: {
+          caption: 'on',
+          audio: 'off',
+          symbol: 'on',
+          led: 'off',
+          haptic: 'off'
+        }
+      },
+      allAvailable
+    )
+    expect(route.outputs.map((output) => output.modality)).toEqual([
+      'caption',
+      'symbol'
+    ])
+    expect(independentCueChannels(route.outputs)).toEqual(new Set(['visual']))
+    expect(route.issues).toContainEqual(
+      expect.objectContaining({ code: 'critical-redundancy-unavailable' })
+    )
+  })
+
+  it('preserves critical meaning without overriding an explicit caption-off policy', () => {
+    const route = routeSemanticCue(
+      event(),
+      {
+        ...cloneCueProfile(LOW_VISION_BLIND_CUE_PROFILE),
+        modalities: {
+          ...LOW_VISION_BLIND_CUE_PROFILE.modalities,
+          caption: 'off'
+        }
+      },
+      allAvailable
+    )
+    expect(route.outputs.some((output) => output.modality === 'caption')).toBe(false)
+    expect(independentCueChannels(route.outputs).size).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('boundaries, hardware availability, and semantic payloads', () => {
+  it('keeps preview hardware simulated and identical to the supported live pattern', () => {
+    const preview = routeSemanticCue(
+      event('alert.flag', 'preview'),
+      DEAF_HOH_CUE_PROFILE,
+      allAvailable
+    )
+    const live = routeSemanticCue(
+      event('alert.flag', 'live'),
+      DEAF_HOH_CUE_PROFILE,
+      allAvailable
+    )
+    const previewLed = preview.outputs.find((output) => output.modality === 'led')
+    const liveLed = live.outputs.find((output) => output.modality === 'led')
+
+    expect(hardwareOutputsForCueRoute(preview)).toEqual([])
+    expect(previewLed?.delivery).toBe('simulated')
+    expect(previewLed?.pattern).toBe(liveLed?.pattern)
+    expect(previewLed?.color).toBe(liveLed?.color)
+    expect(previewLed?.hardwareTextToken).toBe(liveLed?.hardwareTextToken)
+  })
+
+  it('blocks hardware at replay boundaries and when devices are disabled', () => {
+    const replay = routeSemanticCue(
+      event('alert.flag', 'replay'),
+      DEAF_HOH_CUE_PROFILE,
+      allAvailable
+    )
+    const disabled = routeSemanticCue(
+      event(),
+      DEAF_HOH_CUE_PROFILE,
+      { ...allAvailable, led: false, haptic: false }
+    )
+
+    expect(hardwareOutputsForCueRoute(replay)).toEqual([])
+    expect(replay.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'replay-hardware-blocked', modality: 'led' }),
+        expect.objectContaining({ code: 'replay-hardware-blocked', modality: 'haptic' })
+      ])
+    )
+    expect(hardwareOutputsForCueRoute(disabled)).toEqual([])
+    expect(disabled.issues).toContainEqual(
+      expect.objectContaining({ code: 'critical-redundancy-unavailable' })
+    )
+  })
+
+  it('routes semantic keys/context and never copies mixed detector prose', () => {
+    const alert: AlertEvent = {
+      id: 'alert-instance',
+      type: 'tyrePressure',
+      message: 'Pressure baixa on dianteiro esquerdo: 21.7 PSI',
+      severity: 'warning',
+      timestamp: 42,
+      context: {
+        corner: 'lf',
+        direction: 'low',
+        value: 149.6,
+        threshold: 150,
+        unit: 'kPa'
+      }
+    }
+    const semantic = semanticCueEventFromAlert(alert)
+    const route = routeSemanticCue(
+      semantic,
+      LOW_VISION_BLIND_CUE_PROFILE,
+      allAvailable
+    )
+
+    expect(semantic.messageKey).toBe(
+      'accessibilityCues.live.alert.tyrePressure.low'
+    )
+    expect(semantic).not.toHaveProperty('message')
+    expect(JSON.stringify(route)).not.toContain('Pressure baixa')
+    expect(route.context).toMatchObject({
+      corner: 'lf',
+      direction: 'low',
+      value: 149.6
+    })
+  })
+
+  it('blocks unknown semantic events fail closed', () => {
     const route = routeSemanticCue(
       event('alert.futureUnknown'),
       STANDARD_CUE_PROFILE,
@@ -256,14 +242,14 @@ describe('accessibility profiles and routing', () => {
     )
     expect(route.status).toBe('blocked')
     expect(route.outputs).toEqual([])
-    expect(route.issues).toEqual([
+    expect(route.issues).toContainEqual(
       expect.objectContaining({ code: 'unknown-event' })
-    ])
+    )
   })
 })
 
-describe('per-user profile persistence and conflicts', () => {
-  it('round-trips active profiles and event overrides deterministically', () => {
+describe('versioned profile persistence and migration', () => {
+  it('round-trips revisions, active profile, and overrides', () => {
     const customized = upsertCueProfile(
       DEFAULT_ACCESSIBILITY_CUE_STORE,
       {
@@ -281,6 +267,8 @@ describe('per-user profile persistence and conflicts', () => {
     const serialized = serializeAccessibilityCueStore(active)
     const restored = parseAccessibilityCueStore(serialized)
 
+    expect(restored.version).toBe(2)
+    expect(restored.revision).toBe(2)
     expect(restored.activeProfileId).toBe('deaf-hoh')
     expect(getActiveCueProfile(restored)).toMatchObject({
       textScale: 1.6,
@@ -293,26 +281,53 @@ describe('per-user profile persistence and conflicts', () => {
     expect(serializeAccessibilityCueStore(restored)).toBe(serialized)
   })
 
-  it('reports unknown overrides and critical under-specification', () => {
+  it('migrates v1 boolean modality settings to explicit v2 policies', () => {
+    const restored = parseAccessibilityCueStore(
+      JSON.stringify({
+        version: 1,
+        activeProfileId: 'standard',
+        profiles: [
+          {
+            ...STANDARD_CUE_PROFILE,
+            version: 1,
+            modalities: {
+              caption: false,
+              audio: true,
+              symbol: true,
+              led: false,
+              haptic: false
+            }
+          }
+        ]
+      })
+    )
+    expect(getActiveCueProfile(restored).modalities).toEqual({
+      caption: 'off',
+      audio: 'on',
+      symbol: 'on',
+      led: 'off',
+      haptic: 'off'
+    })
+  })
+
+  it('reports unknown overrides and independent-channel conflicts', () => {
     const profile: CueProfile = {
       ...cloneCueProfile(STANDARD_CUE_PROFILE),
       modalities: {
-        caption: false,
-        audio: false,
-        symbol: false,
-        led: true,
-        haptic: false
+        caption: 'on',
+        audio: 'off',
+        symbol: 'on',
+        led: 'off',
+        haptic: 'off'
       },
       overrides: {
         'alert.unknown': { modalities: { caption: true } }
       }
     }
-    const conflicts = analyzeCueProfile(profile)
-    expect(conflicts.map((conflict) => conflict.code)).toEqual(
+    expect(analyzeCueProfile(profile).map((conflict) => conflict.code)).toEqual(
       expect.arrayContaining([
         'unknown-override-event',
-        'critical-insufficient-redundancy',
-        'critical-hardware-only'
+        'critical-insufficient-independent-redundancy'
       ])
     )
   })

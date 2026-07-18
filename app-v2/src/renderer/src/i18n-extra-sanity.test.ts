@@ -17,6 +17,12 @@ describe('i18n-extra merge', () => {
       expect(tt(language, 'accessibilityCues.runPreview')).not.toBe(
         'accessibilityCues.runPreview'
       )
+      expect(tt(language, 'accessibilityCues.live.alert.lowFuel')).not.toBe(
+        'accessibilityCues.live.alert.lowFuel'
+      )
+      expect(tt(language, 'accessibilityCues.pattern.led.steadyActual')).not.toBe(
+        'accessibilityCues.pattern.led.steadyActual'
+      )
     }
   })
 })

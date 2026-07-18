@@ -2,22 +2,24 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ModuleContext } from '../module-context'
 import {
   ACCESSIBILITY_CUE_CHANNELS,
+  ACCESSIBILITY_CUE_PROTOCOL_VERSION,
   DEAF_HOH_CUE_PROFILE,
   getActiveCueProfile,
-  type AccessibilityCueStore
+  type AccessibilityCueStateEnvelope
 } from '../../shared/accessibility-cues'
 
 const memoryFs = vi.hoisted(() => ({
-  files: new Map<string, string>()
+  files: new Map<string, string>(),
+  readBlock: null as Promise<void> | null
 }))
 
 vi.mock('node:fs/promises', () => ({
   mkdir: vi.fn(async () => undefined),
   readFile: vi.fn(async (path: string) => {
+    if (memoryFs.readBlock) await memoryFs.readBlock
     const value = memoryFs.files.get(String(path))
     if (value === undefined) {
-      const error = Object.assign(new Error('missing'), { code: 'ENOENT' })
-      throw error
+      throw Object.assign(new Error('missing'), { code: 'ENOENT' })
     }
     return value
   }),
@@ -40,71 +42,96 @@ function harness(userData = 'C:\\cue-profile-user') {
   return { ctx, handlers, broadcast }
 }
 
+function blockRead(): () => void {
+  let release = (): void => undefined
+  memoryFs.readBlock = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  return () => {
+    memoryFs.readBlock = null
+    release()
+  }
+}
+
 beforeEach(() => {
   memoryFs.files.clear()
+  memoryFs.readBlock = null
   vi.resetModules()
 })
 
-describe('accessibility cue profile module persistence', () => {
-  it('persists per-user overrides and restores the active profile', async () => {
-    const first = harness()
+describe('accessibility cue profile readiness and versioning', () => {
+  it('broadcasts not-ready first and exposes a ready versioned envelope after load', async () => {
+    const release = blockRead()
+    const testHarness = harness()
     const module = await import('./accessibility-cues')
-    module.register(first.ctx)
-    const getState = first.handlers.get(ACCESSIBILITY_CUE_CHANNELS.getState)
-    const saveProfile = first.handlers.get(ACCESSIBILITY_CUE_CHANNELS.saveProfile)
-    const setActiveProfile = first.handlers.get(
-      ACCESSIBILITY_CUE_CHANNELS.setActiveProfile
+    module.register(testHarness.ctx)
+
+    expect(module.isAccessibilityCueProfileReady()).toBe(false)
+    expect(testHarness.broadcast).toHaveBeenCalledWith(
+      ACCESSIBILITY_CUE_CHANNELS.stateEvent,
+      expect.objectContaining({
+        protocolVersion: ACCESSIBILITY_CUE_PROTOCOL_VERSION,
+        ready: false,
+        revision: 0
+      })
     )
-    expect(getState).toBeTypeOf('function')
-    expect(saveProfile).toBeTypeOf('function')
-    expect(setActiveProfile).toBeTypeOf('function')
-    await getState?.()
 
-    await saveProfile?.(undefined, {
-      ...DEAF_HOH_CUE_PROFILE,
-      textScale: 1.55,
-      overrides: {
-        'alert.flag': {
-          modalities: { haptic: false, audio: true }
-        }
-      }
-    })
-    const saved = await setActiveProfile?.(
-      undefined,
-      'deaf-hoh'
-    ) as AccessibilityCueStore
+    release()
+    const readyEnvelope = await testHarness.handlers
+      .get(ACCESSIBILITY_CUE_CHANNELS.getState)
+      ?.() as AccessibilityCueStateEnvelope
 
-    expect(saved.activeProfileId).toBe('deaf-hoh')
-    expect(getActiveCueProfile(saved)).toMatchObject({
-      textScale: 1.55,
-      overrides: {
-        'alert.flag': {
-          modalities: { haptic: false, audio: true }
-        }
-      }
-    })
-    expect(
-      [...memoryFs.files.values()].some((text) =>
-        text.includes('"activeProfileId": "deaf-hoh"')
-      )
-    ).toBe(true)
-
-    vi.resetModules()
-    const second = harness()
-    const reloadedModule = await import('./accessibility-cues')
-    reloadedModule.register(second.ctx)
-    const restored = await second.handlers.get(
-      ACCESSIBILITY_CUE_CHANNELS.getState
-    )?.() as AccessibilityCueStore
-
-    expect(restored.activeProfileId).toBe('deaf-hoh')
-    expect(getActiveCueProfile(restored).overrides['alert.flag']?.modalities).toEqual({
-      haptic: false,
-      audio: true
+    expect(module.isAccessibilityCueProfileReady()).toBe(true)
+    expect(module.getActiveAccessibilityCueProfile()).not.toBeNull()
+    expect(readyEnvelope).toMatchObject({
+      protocolVersion: ACCESSIBILITY_CUE_PROTOCOL_VERSION,
+      ready: true,
+      revision: 1
     })
   })
 
-  it('fails closed to built-in defaults when persisted JSON is malformed', async () => {
+  it('persists serialized mutations and rejects stale rapid edits', async () => {
+    const testHarness = harness()
+    const module = await import('./accessibility-cues')
+    module.register(testHarness.ctx)
+    const initial = await testHarness.handlers
+      .get(ACCESSIBILITY_CUE_CHANNELS.getState)
+      ?.() as AccessibilityCueStateEnvelope
+    const save = testHarness.handlers.get(ACCESSIBILITY_CUE_CHANNELS.saveProfile)
+
+    const first = await save?.(undefined, {
+      protocolVersion: ACCESSIBILITY_CUE_PROTOCOL_VERSION,
+      expectedRevision: initial.revision,
+      profile: {
+        ...DEAF_HOH_CUE_PROFILE,
+        textScale: 1.55
+      }
+    }) as AccessibilityCueStateEnvelope
+
+    await expect(
+      save?.(undefined, {
+        protocolVersion: ACCESSIBILITY_CUE_PROTOCOL_VERSION,
+        expectedRevision: initial.revision,
+        profile: {
+          ...DEAF_HOH_CUE_PROFILE,
+          highContrast: false
+        }
+      })
+    ).rejects.toMatchObject({
+      code: 'ACCESSIBILITY_CUE_REVISION_CONFLICT',
+      currentRevision: first.revision
+    })
+
+    expect(getActiveCueProfile(first.state).id).toBe('standard')
+    expect(first.state.profiles.find((profile) => profile.id === 'deaf-hoh')).toMatchObject({
+      textScale: 1.55
+    })
+    expect([...memoryFs.files.values()].some((text) => text.includes('"revision": 2'))).toBe(
+      true
+    )
+  })
+
+  it('fails closed to defaults when persisted JSON is malformed', async () => {
     memoryFs.files.set(
       'C:\\cue-profile-user\\accessibility-cues.json',
       '{not-json'
@@ -112,15 +139,12 @@ describe('accessibility cue profile module persistence', () => {
     const testHarness = harness()
     const module = await import('./accessibility-cues')
     module.register(testHarness.ctx)
-    const restored = await testHarness.handlers.get(
-      ACCESSIBILITY_CUE_CHANNELS.getState
-    )?.() as AccessibilityCueStore
+    const restored = await testHarness.handlers
+      .get(ACCESSIBILITY_CUE_CHANNELS.getState)
+      ?.() as AccessibilityCueStateEnvelope
 
-    expect(restored.activeProfileId).toBe('standard')
-    expect(restored.profiles.map((profile) => profile.id)).toEqual([
-      'standard',
-      'low-vision-blind',
-      'deaf-hoh'
-    ])
+    expect(restored.ready).toBe(true)
+    expect(restored.revision).toBe(1)
+    expect(restored.state.activeProfileId).toBe('standard')
   })
 })

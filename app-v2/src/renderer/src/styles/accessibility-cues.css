@@ -268,12 +268,20 @@
   color: var(--text-muted);
 }
 
-.accessibility-cue-layer {
-  --cue-text-scale: 1;
+.accessibility-cue-stack {
   position: fixed;
   z-index: 10000;
   right: 24px;
   bottom: 24px;
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.accessibility-cue-layer {
+  --cue-text-scale: 1;
   display: grid;
   grid-template-columns: auto minmax(220px, 460px) auto;
   gap: 14px;
@@ -373,9 +381,13 @@
     grid-template-columns: 1fr;
   }
 
-  .accessibility-cue-layer {
+  .accessibility-cue-stack {
     right: 12px;
     bottom: 12px;
     max-width: calc(100vw - 24px);
+  }
+
+  .accessibility-cue-layer {
+    max-width: 100%;
   }
 }

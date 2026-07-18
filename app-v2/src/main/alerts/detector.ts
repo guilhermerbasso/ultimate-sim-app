@@ -152,7 +152,8 @@ export class AlertsDetector {
           key,
           snapshot.timestamp,
           events,
-          defaultSeverity
+          defaultSeverity,
+          { flag: flag as NonNullable<AlertEventContext['flag']> }
         )
       }
       this.state.flags[flag] = active
@@ -184,7 +185,12 @@ export class AlertsDetector {
         snapshot.timestamp,
         events,
         'critical',
-        { value: fuelLaps, threshold: rule.lapsThreshold, unit: 'laps' }
+        {
+          value: fuelLaps,
+          threshold: rule.lapsThreshold,
+          remaining: fuelLaps,
+          unit: 'laps'
+        }
       )
     }
     this.state.fuelLaps = fuelLaps
@@ -230,7 +236,14 @@ export class AlertsDetector {
         snapshot.timestamp,
         events,
         severity,
-        { value: snapshot.incidentCount, threshold: snapshot.incidentLimit, unit: 'incidents' }
+        {
+          value: snapshot.incidentCount,
+          threshold: snapshot.incidentLimit,
+          count: snapshot.incidentCount,
+          limit: snapshot.incidentLimit,
+          remaining,
+          unit: 'incidents'
+        }
       )
     }
 
@@ -257,17 +270,19 @@ export class AlertsDetector {
       const key = `tyrePressure:${corner}`
       this.state.activeNow.set(key, rule.enabled && out)
       if (rule.enabled && out && this.state.tyrePressureOut[corner] !== true) {
-        const direction = pressure < minKpa ? 'baixa' : 'high'
+        const direction: NonNullable<AlertEventContext['direction']> =
+          pressure < minKpa ? 'low' : 'high'
+        const directionLabel = direction === 'low' ? 'baixa' : 'high'
         const threshold = pressure < minKpa ? minKpa : maxKpa
         this.fire(
           rule,
           'tyrePressure',
-          `Pressure ${direction} on ${CORNER_LABELS[corner]}: ${formatMeasurement(pressure, 'pressure-kpa', this.unitSystem, { decimals: this.unitSystem === 'imperial' ? 1 : 0, includeUnit: true }).display}`,
+          `Pressure ${directionLabel} on ${CORNER_LABELS[corner]}: ${formatMeasurement(pressure, 'pressure-kpa', this.unitSystem, { decimals: this.unitSystem === 'imperial' ? 1 : 0, includeUnit: true }).display}`,
           key,
           snapshot.timestamp,
           events,
           undefined,
-          { corner, value: pressure, threshold, unit: 'kPa' }
+          { corner, direction, value: pressure, threshold, unit: 'kPa' }
         )
       }
       this.state.tyrePressureOut[corner] = out
@@ -374,7 +389,16 @@ export class AlertsDetector {
     // detectFlags() (run earlier in process()) already overwrote this tick, so
     // reading it here would make the guard permanently false.
     if (rule.enabled && active && this.state.blueFlagActive !== true) {
-      this.fire(rule, 'blueFlag', 'Faster car approaching (blue flag)', key, snapshot.timestamp, events)
+      this.fire(
+        rule,
+        'blueFlag',
+        'Faster car approaching (blue flag)',
+        key,
+        snapshot.timestamp,
+        events,
+        undefined,
+        { flag: 'blue' }
+      )
     }
     this.state.blueFlagActive = active
   }

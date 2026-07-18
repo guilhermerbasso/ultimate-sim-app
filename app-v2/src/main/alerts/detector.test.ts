@@ -119,7 +119,13 @@ describe('AlertsDetector threshold truth', () => {
     }))).toEqual([
       expect.objectContaining({
         type: 'tyrePressure',
-        context: { corner: 'lf', value: 140, threshold: 150, unit: 'kPa' }
+        context: {
+          corner: 'lf',
+          direction: 'low',
+          value: 140,
+          threshold: 150,
+          unit: 'kPa'
+        }
       })
     ])
   })

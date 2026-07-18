@@ -18,11 +18,11 @@ import {
 } from '../../shared/alerts'
 import {
   ACCESSIBILITY_CUE_CHANNELS,
-  getCueManifest,
   hardwareOutputsForCueRoute,
   routeSemanticCue,
   semanticCueEventFromAlert,
   type CueHapticPattern,
+  type CueProfile,
   type CueRoute
 } from '../../shared/accessibility-cues'
 import {
@@ -38,13 +38,17 @@ import {
   type LiveTelemetryContext
 } from '../../shared/replay'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
-import { getActiveAccessibilityCueProfile } from './accessibility-cues'
+import {
+  getActiveAccessibilityCueProfile,
+  whenAccessibilityCueProfileReady
+} from './accessibility-cues'
 import {
   dispatchAccessibilityCueHaptic,
   isAccessibilityHapticsEnabled
 } from './haptics'
 
 const CONFIG_FILE = 'alerts-config.json'
+const ACCESSIBILITY_STARTUP_QUEUE_MAX = 32
 
 // Minimum spacing between two serial sends caused by the SAME output (per
 // rule × output index). Acts as a debounce guard so a flapping condition
@@ -133,6 +137,8 @@ export function register(ctx: ModuleContext): void {
   let observedLive = false
   let configReady = false
   let pendingLive: { snapshot: TelemetrySnapshot; context: LiveTelemetryContext } | null = null
+  const pendingAccessibilityEvents: AlertEvent[] = []
+  let accessibilityProfileReady = false
   let stopped = false
   hardwareEffectsEnabled = true
   hardwareTeardownStarted = false
@@ -152,6 +158,16 @@ export function register(ctx: ModuleContext): void {
   })
   let configCommitQueue: Promise<void> = configLoadPromise.then(() => undefined)
 
+  void whenAccessibilityCueProfileReady().then(() => {
+    if (stopped) return
+    accessibilityProfileReady = true
+    const profile = getActiveAccessibilityCueProfile()
+    if (!profile) return
+    for (const event of pendingAccessibilityEvents.splice(0)) {
+      dispatchAccessibilityCue(ctx, event, profile)
+    }
+  })
+
   ctx.telemetryHub.on('snapshot', (snapshot) => {
     if (stopped || hardwareTeardownStarted) return
     const live = liveGate.observe(snapshot)
@@ -170,6 +186,7 @@ export function register(ctx: ModuleContext): void {
       releaseAllHardwareLeases(ctx)
       detector.reset()
       lastSerialSendAt.clear()
+      pendingAccessibilityEvents.length = 0
     }
     if (!live.live || !snapshot || !live.context) {
       pendingLive = null
@@ -188,7 +205,15 @@ export function register(ctx: ModuleContext): void {
       const eventWithSound = attachSoundPayload(event)
       ctx.broadcast('alerts:event', eventWithSound)
       dispatchOutputs(ctx, eventWithSound)
-      dispatchAccessibilityCue(ctx, eventWithSound)
+      if (!accessibilityProfileReady) {
+        if (pendingAccessibilityEvents.length >= ACCESSIBILITY_STARTUP_QUEUE_MAX) {
+          pendingAccessibilityEvents.shift()
+        }
+        pendingAccessibilityEvents.push(eventWithSound)
+      } else {
+        const profile = getActiveAccessibilityCueProfile()
+        if (profile) dispatchAccessibilityCue(ctx, eventWithSound, profile)
+      }
     }
   })
 
@@ -223,6 +248,7 @@ export function register(ctx: ModuleContext): void {
     hardwareEffectsEnabled = false
     stopped = true
     pendingLive = null
+    pendingAccessibilityEvents.length = 0
     ctx.serialHub?.off?.('device-added', retryOnReconnect)
     ctx.serialHub?.off?.('device-updated', retryOnReconnect)
     await drainHardwareNeutralization(ctx)
@@ -313,10 +339,14 @@ function dispatchOutputs(ctx: ModuleContext, event: AlertEvent): void {
   })
 }
 
-function dispatchAccessibilityCue(ctx: ModuleContext, event: AlertEvent): void {
+function dispatchAccessibilityCue(
+  ctx: ModuleContext,
+  event: AlertEvent,
+  profile: CueProfile
+): void {
   const route = routeSemanticCue(
     semanticCueEventFromAlert(event, 'live'),
-    getActiveAccessibilityCueProfile(),
+    profile,
     {
       caption: true,
       audio: true,
@@ -334,18 +364,14 @@ function dispatchAccessibilityCueHardware(
   event: AlertEvent,
   route: CueRoute
 ): void {
-  const manifestEntry = getCueManifest(route.eventId)
-  if (!manifestEntry) return
-
   for (const output of hardwareOutputsForCueRoute(route)) {
     if (output.modality === 'led') {
       dispatchButtonbox(
         ctx,
         {
           kind: 'buttonbox',
-          preset: manifestEntry.led.preset,
-          durationMs: manifestEntry.led.durationMs,
-          revLevel: manifestEntry.led.revLevel
+          preset: 'startLedFlash',
+          durationMs: output.durationMs
         },
         event,
         100
@@ -355,10 +381,10 @@ function dispatchAccessibilityCueHardware(
         {
           kind: 'buttonbox',
           preset: 'oledMessage',
-          durationMs: manifestEntry.led.durationMs,
-          oledLine1: '${message}',
-          oledLine2: '${severity}',
-          oledLine3: '${type}'
+          durationMs: output.durationMs,
+          oledLine1: output.hardwareTextToken ?? 'CUE',
+          oledLine2: route.severity.toUpperCase(),
+          oledLine3: 'ACCESS CUE'
         },
         event,
         101
@@ -369,7 +395,7 @@ function dispatchAccessibilityCueHardware(
       dispatchAccessibilityCueHaptic(
         ctx,
         output.pattern,
-        output.intensity ?? manifestEntry.haptic.intensity
+        output.intensity ?? 0.7
       )
     }
   }
