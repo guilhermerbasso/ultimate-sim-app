@@ -14,6 +14,7 @@ import {
 } from './hifi-overlays'
 import {
   EDITOR_TRIGGER_PREVIEW_STORAGE_KEY,
+  createEditorPreviewAlertsConfig,
   createEditorTriggerPreviewFrame,
   persistEditorTriggerPreviewPreference,
   readEditorTriggerPreviewPreference
@@ -111,6 +112,122 @@ describe('editor trigger preview frames', () => {
     expect(DEFAULT_ALERTS_CONFIG).toEqual(configBefore)
     expect(entry!.trigger).toEqual(triggerBefore)
   })
+
+  it('forces disabled low-fuel and shift policies on only inside immutable preview config', () => {
+    const liveConfig = {
+      ...DEFAULT_ALERTS_CONFIG,
+      pitLimiter: { ...DEFAULT_ALERTS_CONFIG.pitLimiter, enabled: false },
+      flags: { ...DEFAULT_ALERTS_CONFIG.flags, enabled: false },
+      lowFuel: {
+        ...DEFAULT_ALERTS_CONFIG.lowFuel,
+        enabled: false,
+        lapsThreshold: 6.5
+      },
+      shiftPoint: {
+        ...DEFAULT_ALERTS_CONFIG.shiftPoint,
+        enabled: false,
+        shiftIndicatorPct: 0.81,
+        rpmPct: 0.89
+      },
+      incidentLimit: { ...DEFAULT_ALERTS_CONFIG.incidentLimit, enabled: false },
+      tyrePressure: {
+        ...DEFAULT_ALERTS_CONFIG.tyrePressure!,
+        enabled: false,
+        minKpa: 142,
+        maxKpa: 244
+      },
+      tyreTemp: {
+        ...DEFAULT_ALERTS_CONFIG.tyreTemp!,
+        enabled: false,
+        maxC: 123
+      },
+      brakeTemp: {
+        ...DEFAULT_ALERTS_CONFIG.brakeTemp!,
+        enabled: false,
+        maxC: 811
+      },
+      drsAvailable: {
+        ...DEFAULT_ALERTS_CONFIG.drsAvailable!,
+        enabled: false
+      },
+      blueFlag: {
+        ...DEFAULT_ALERTS_CONFIG.blueFlag!,
+        enabled: false
+      }
+    }
+    const before = structuredClone(liveConfig)
+    const lowFuel = triggerOnly.find(
+      ({ definition }) => definition.id === 'hifi:alertLowFuel'
+    )!
+    const shift = triggerOnly.find(
+      ({ definition }) => definition.id === 'hifi:alertShiftFlash'
+    )!
+
+    const lowFuelFrame = createEditorTriggerPreviewFrame(
+      PREVIEW_SNAPSHOT,
+      lowFuel.trigger,
+      true,
+      liveConfig,
+      lowFuel.definition.id
+    )
+    const shiftFrame = createEditorTriggerPreviewFrame(
+      PREVIEW_SNAPSHOT,
+      shift.trigger,
+      true,
+      liveConfig,
+      shift.definition.id
+    )
+
+    expect(lowFuelFrame.visibility.visible).toBe(true)
+    expect(lowFuelFrame.snapshot.fuelLapsRemaining).toBe(6)
+    expect(shiftFrame.visibility.visible).toBe(true)
+    expect(shiftFrame.snapshot.shiftIndicatorPct).toBe(0.81)
+    expect(shiftFrame.snapshot.rpm).toBe(890)
+    expect(lowFuelFrame.alertsConfig.lowFuel).toMatchObject({
+      enabled: true,
+      lapsThreshold: 6.5
+    })
+    expect(shiftFrame.alertsConfig.shiftPoint).toMatchObject({
+      enabled: true,
+      shiftIndicatorPct: 0.81,
+      rpmPct: 0.89
+    })
+    expect(Object.isFrozen(lowFuelFrame.alertsConfig)).toBe(true)
+    expect(Object.isFrozen(lowFuelFrame.alertsConfig.lowFuel)).toBe(true)
+    expect(liveConfig).toEqual(before)
+  })
+
+  it('enables every governed alert family without replacing configured thresholds', () => {
+    const current = {
+      ...DEFAULT_ALERTS_CONFIG,
+      lowFuel: {
+        ...DEFAULT_ALERTS_CONFIG.lowFuel,
+        enabled: false,
+        lapsThreshold: 9
+      },
+      tyreTemp: {
+        ...DEFAULT_ALERTS_CONFIG.tyreTemp!,
+        enabled: false,
+        maxC: 127
+      }
+    }
+    const preview = createEditorPreviewAlertsConfig(current)
+    const governed = [
+      preview.pitLimiter,
+      preview.flags,
+      preview.lowFuel,
+      preview.shiftPoint,
+      preview.incidentLimit,
+      preview.tyrePressure,
+      preview.tyreTemp,
+      preview.brakeTemp,
+      preview.drsAvailable,
+      preview.blueFlag
+    ]
+    expect(governed.every((rule) => rule?.enabled === true)).toBe(true)
+    expect(preview.lowFuel.lapsThreshold).toBe(9)
+    expect(preview.tyreTemp?.maxC).toBe(127)
+  })
 })
 
 describe('editor-only preference boundary', () => {
@@ -141,6 +258,18 @@ describe('editor-only preference boundary', () => {
       expect(source, relative).not.toContain('EDITOR_TRIGGER_PREVIEW_STORAGE_KEY')
       expect(source, relative).not.toContain('TriggerPreviewToggle')
       expect(source, relative).not.toContain('usa.editor.triggerOnlyActive')
+    }
+  })
+
+  it('does not wire the positioning ghost channel into compositor or streaming roots', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    for (const relative of [
+      'CompositorRoot.tsx',
+      join('..', 'stream', 'StreamOverlayRoot.tsx')
+    ]) {
+      const source = readFileSync(join(here, relative), 'utf8')
+      expect(source, relative).not.toContain('OVERLAY_EDITOR_PREVIEW_CHANNELS')
+      expect(source, relative).not.toContain('data-overlay-editor-ghost')
     }
   })
 })

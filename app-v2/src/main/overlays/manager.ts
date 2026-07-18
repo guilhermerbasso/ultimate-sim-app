@@ -33,6 +33,10 @@ import {
   sanitizeOverlayTrigger,
   sanitizeOverlayTriggerForRole
 } from '../../shared/overlays'
+import {
+  OVERLAY_EDITOR_PREVIEW_CHANNELS,
+  type OverlayEditorPreviewState
+} from '../../shared/overlay-editor-preview'
 import type { ModuleContext } from '../module-context'
 import { fixIracingFullscreen, readIracingGraphicsStatus } from './iracing-graphics'
 import { logger } from '../modules/logger'
@@ -474,6 +478,7 @@ function mergeConfig(config: Partial<OverlaysConfig> | null): OverlaysConfig {
 export class OverlayManager {
   private readonly windows = new Map<string, BrowserWindow>()
   private readonly runtimeHiddenAlerts = new Set<string>()
+  private editorTriggerPreviewActive = false
   private readonly configPath: string
   private config = createDefaultOverlaysConfig()
   private isDisposing = false
@@ -576,6 +581,22 @@ export class OverlayManager {
       if (!win || win.isDestroyed() || win.webContents !== event.sender) return
       this.setRuntimeVisibility(id, visible)
     })
+    this.ctx.ipcMain.handle(
+      OVERLAY_EDITOR_PREVIEW_CHANNELS.setActive,
+      (event, active: boolean) => {
+        const mainWindow = this.ctx.getMainWindow()
+        if (
+          !mainWindow ||
+          mainWindow.isDestroyed() ||
+          mainWindow.webContents.isDestroyed() ||
+          event.sender !== mainWindow.webContents
+        ) {
+          return false
+        }
+        this.setEditorPreviewActive(Boolean(active))
+        return true
+      }
+    )
     // ─── Custom overlays (designer) ────────────────────────────────────────────
     this.ctx.ipcMain.handle('overlays:listCustom', () => this.listCustom())
     this.ctx.ipcMain.handle('overlays:getCustom', (_event, id: string) => this.getCustom(id))
@@ -691,6 +712,11 @@ export class OverlayManager {
     if (visible) this.runtimeHiddenAlerts.delete(id)
     else this.runtimeHiddenAlerts.add(id)
     this.updateMouseMode(id)
+  }
+
+  private setEditorPreviewActive(active: boolean): void {
+    this.editorTriggerPreviewActive = active
+    for (const id of this.windows.keys()) this.updateMouseMode(id)
   }
 
   async toggle(id: OverlayWidgetId, enabled?: boolean): Promise<OverlayListItem[]> {
@@ -993,6 +1019,7 @@ export class OverlayManager {
       this.reassertTopmost(id)
       win.webContents.send('overlays:state', this.list())
       win.webContents.send('overlays:configMode', this.getWindowConfigPayload(id))
+      this.pushEditorPreviewState(id)
       if (isCustomOverlayId(id)) this.pushCustomDef(id)
       // Seed the overlay with whatever the hub currently has. Live updates flow
       // via the main 'telemetry:snapshot' broadcast registered in modules/telemetry.ts.
@@ -1082,14 +1109,38 @@ export class OverlayManager {
     const win = this.windows.get(id)
     const entry = this.controllable(id)
     if (!win || win.isDestroyed() || !entry) return
-    // Per-overlay interactivity: a window receives the mouse when global config
-    // mode is on OR the overlay itself is unlocked. A LOCKED overlay stays
-    // click-through (race-safe) so the cursor passes straight to the simulator.
+    // Per-overlay interactivity: inactive alerts stay click-through unless the
+    // isolated editor ghost is active. Runtime visibility remains latched in
+    // runtimeHiddenAlerts; the ghost only exposes the existing positioning surface.
+    const editorPreviewActive = this.shouldShowEditorPreview(id, entry)
     const clickThrough =
-      this.runtimeHiddenAlerts.has(id) ||
+      (this.runtimeHiddenAlerts.has(id) && !editorPreviewActive) ||
       (!this.config.configMode && Boolean(entry.locked))
     win.setIgnoreMouseEvents(clickThrough, { forward: true })
     win.webContents.send('overlays:configMode', this.getWindowConfigPayload(id))
+    this.pushEditorPreviewState(id)
+  }
+
+  private shouldShowEditorPreview(
+    id: string,
+    entry: OverlayWidgetConfig | CustomOverlayDef
+  ): boolean {
+    return (
+      this.editorTriggerPreviewActive &&
+      this.runtimeHiddenAlerts.has(id) &&
+      this.isAlertOverlay(id) &&
+      (this.config.configMode || !entry.locked)
+    )
+  }
+
+  private pushEditorPreviewState(id: string): void {
+    const win = this.windows.get(id)
+    const entry = this.controllable(id)
+    if (!win || win.isDestroyed() || !entry) return
+    const payload: OverlayEditorPreviewState = {
+      active: this.shouldShowEditorPreview(id, entry)
+    }
+    win.webContents.send(OVERLAY_EDITOR_PREVIEW_CHANNELS.state, payload)
   }
 
   private isAlertOverlay(id: string): boolean {

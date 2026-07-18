@@ -1414,6 +1414,7 @@ function ElementOverlayWidget({
     : null
   const renderSnapshot = triggerPreview?.snapshot ?? snapshot
   const visibility = triggerPreview?.visibility
+  const renderAlertsConfig = triggerPreview?.alertsConfig ?? alertsConfig
   return (
     <div
       className="dash-element dash-overlaywidget"
@@ -1426,7 +1427,7 @@ function ElementOverlayWidget({
           config={config}
           preview="inert"
           visibility={visibility}
-          alertsConfig={alertsConfig}
+          alertsConfig={renderAlertsConfig}
         />
       ) : preview === 'inert' && INERT_OVERLAY_WIDGET_IDS.has(widgetId) ? (
         <InertWidgetFixture element={element} snapshot={renderSnapshot} source={widgetId} contained />
@@ -1435,7 +1436,7 @@ function ElementOverlayWidget({
           snapshot={renderSnapshot}
           config={config}
           visibility={visibility}
-          alertsConfig={alertsConfig}
+          alertsConfig={renderAlertsConfig}
         />
       )}
     </div>

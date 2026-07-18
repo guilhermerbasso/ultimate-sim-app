@@ -1,7 +1,8 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { CSSProperties, ReactElement } from 'react'
 import type { ResolvedLanguage } from '../i18n'
 import { tt } from '../i18n'
+import { OVERLAY_EDITOR_PREVIEW_CHANNELS } from '../../../shared/overlay-editor-preview'
 import {
   persistEditorTriggerPreviewPreference,
   readEditorTriggerPreviewPreference
@@ -17,6 +18,22 @@ export function useEditorTriggerPreviewPreference(): [
     persistEditorTriggerPreviewPreference(next)
   }, [])
   return [active, update]
+}
+
+export function useOverlayPositioningPreviewChannel(active: boolean): void {
+  useEffect(() => {
+    void window.ipc
+      .invoke(OVERLAY_EDITOR_PREVIEW_CHANNELS.setActive, active)
+      .catch(() => undefined)
+  }, [active])
+
+  useEffect(() => {
+    return () => {
+      void window.ipc
+        .invoke(OVERLAY_EDITOR_PREVIEW_CHANNELS.setActive, false)
+        .catch(() => undefined)
+    }
+  }, [])
 }
 
 export function TriggerPreviewToggle({

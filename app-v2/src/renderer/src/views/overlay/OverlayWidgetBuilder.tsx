@@ -488,6 +488,7 @@ function RuntimeWidgetPreview({
       : null
   const renderSnapshot = triggerPreview?.snapshot ?? BUILDER_PREVIEW_SNAPSHOT
   const visibility = triggerPreview?.visibility
+  const renderAlertsConfig = triggerPreview?.alertsConfig ?? alertsConfig
 
   const containerStyle: CSSProperties = {
     position: 'absolute',
@@ -513,14 +514,14 @@ function RuntimeWidgetPreview({
           config={config}
           visibility={visibility}
           preview="inert"
-          alertsConfig={alertsConfig}
+          alertsConfig={renderAlertsConfig}
         />
       ) : (
         <Widget
           snapshot={renderSnapshot}
           config={config}
           visibility={visibility}
-          alertsConfig={alertsConfig}
+          alertsConfig={renderAlertsConfig}
         />
       )}
     </div>

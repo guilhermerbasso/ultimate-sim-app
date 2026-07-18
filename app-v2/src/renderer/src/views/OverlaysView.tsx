@@ -25,7 +25,8 @@ import { useDevices } from '../lib/devices/DeviceRegistry'
 import { SectionExportImport } from '../components/SectionExportImport'
 import {
   TriggerPreviewToggle,
-  useEditorTriggerPreviewPreference
+  useEditorTriggerPreviewPreference,
+  useOverlayPositioningPreviewChannel
 } from '../components/TriggerPreviewToggle'
 import { TagFilter, filterByTags } from '../components/TagFilter'
 import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, hasAllHifiOverlayConfigs, mergeHifiOverlayConfigs, mergeHifiOverlayItems, resolveOverlayTrigger } from '../overlay/hifi-overlays'
@@ -413,7 +414,7 @@ export function OverlayRuntimePreview({
                       snapshot={previewSnapshot}
                       config={item}
                       visibility={visibility}
-                      alertsConfig={alertsConfig}
+                      alertsConfig={triggerPreview.alertsConfig}
                     />
                   )
                 : Widget
@@ -469,6 +470,7 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
   const [tagFilters, setTagFilters] = useState<string[]>([])
   const [showTriggerOnlyActive, setShowTriggerOnlyActive] =
     useEditorTriggerPreviewPreference()
+  useOverlayPositioningPreviewChannel(showTriggerOnlyActive)
   const tr = useCallback((key: string, vars: Record<string, string | number> = {}) => tt(language, `overlays.${key}`, vars), [language])
   const defById = useMemo(() => new Map(ALL_OVERLAY_WIDGETS.map((def) => [def.id, def])), [])
   const displayTitleFor = useCallback(

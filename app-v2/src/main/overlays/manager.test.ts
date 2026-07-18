@@ -2,7 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { OverlayManager } from './manager'
-import { OVERLAY_WIDGETS } from '../../shared/overlays'
+import { OVERLAY_WIDGETS, type OverlaysConfig } from '../../shared/overlays'
+import {
+  OVERLAY_EDITOR_PREVIEW_CHANNELS,
+  type OverlayEditorPreviewState
+} from '../../shared/overlay-editor-preview'
 import { ALL_VARIANTS, variantToElement } from '../../renderer/src/views/dashboard/widget-catalog-data'
 import type { ModuleContext } from '../module-context'
 
@@ -17,6 +21,9 @@ interface ManagerInternals {
     setIgnoreMouseEvents(ignore: boolean, options: { forward: boolean }): void
     webContents: { send(...args: unknown[]): void }
   }>
+  config: OverlaysConfig
+  runtimeHiddenAlerts: Set<string>
+  editorTriggerPreviewActive: boolean
   saveTimer: ReturnType<typeof setTimeout> | null
   resetPending: boolean
   isDisposing: boolean
@@ -26,6 +33,7 @@ interface ManagerInternals {
   registerScreenListeners(): void
   createWindow(id: string): void
   setRuntimeVisibility(id: string, visible: boolean): void
+  setEditorPreviewActive(active: boolean): void
 }
 
 function internals(mgr: OverlayManager): ManagerInternals {
@@ -339,6 +347,47 @@ describe('OverlayManager inactive alert hit testing', () => {
 
     internals(manager).setRuntimeVisibility('gearSpeed', false)
     expect(ignored).toEqual([])
+  })
+
+  it('uses an isolated editor ghost channel for inactive draggable positioning', () => {
+    const manager = makeHeadlessManager(root)
+    const state = internals(manager)
+    const ignored: boolean[] = []
+    const sent: Array<[string, unknown]> = []
+    state.windows.set('flags', {
+      isDestroyed: () => false,
+      setIgnoreMouseEvents: (ignore) => ignored.push(ignore),
+      webContents: {
+        send: (...args: unknown[]) => sent.push([String(args[0]), args[1]])
+      }
+    })
+    state.config.configMode = true
+    const triggerBefore = structuredClone(state.config.widgets.flags.trigger)
+
+    state.setRuntimeVisibility('flags', false)
+    expect(state.runtimeHiddenAlerts.has('flags')).toBe(true)
+    expect(ignored.at(-1)).toBe(true)
+
+    state.setEditorPreviewActive(true)
+    expect(state.runtimeHiddenAlerts.has('flags')).toBe(true)
+    expect(state.editorTriggerPreviewActive).toBe(true)
+    expect(ignored.at(-1)).toBe(false)
+    const previewStates = sent
+      .filter(([channel]) => channel === OVERLAY_EDITOR_PREVIEW_CHANNELS.state)
+      .map(([, payload]) => payload as OverlayEditorPreviewState)
+    expect(previewStates.at(-1)).toEqual({ active: true })
+    expect(sent.some(([channel]) => channel.includes('compositor'))).toBe(false)
+    expect(state.config.widgets.flags.trigger).toEqual(triggerBefore)
+
+    state.setEditorPreviewActive(false)
+    expect(state.runtimeHiddenAlerts.has('flags')).toBe(true)
+    expect(ignored.at(-1)).toBe(true)
+    expect(
+      sent
+        .filter(([channel]) => channel === OVERLAY_EDITOR_PREVIEW_CHANNELS.state)
+        .at(-1)?.[1]
+    ).toEqual({ active: false })
+    expect(existsSync(join(root, 'overlays.json'))).toBe(false)
   })
 })
 

@@ -35,6 +35,22 @@ function alertElement(): DashboardElement {
   }
 }
 
+function hifiAlertElement(
+  id: string,
+  moduleId: string,
+  width: number,
+  height: number
+): DashboardElement {
+  return {
+    ...alertElement(),
+    id: `embedded-${moduleId}`,
+    widgetId: id as DashboardElement['widgetId'],
+    hifiModuleId: moduleId,
+    w: width,
+    h: height
+  }
+}
+
 describe('trigger-only editor rendering', () => {
   it('forces embedded hi-fi dashboard alerts on and preserves off behavior', () => {
     const element = alertElement()
@@ -80,6 +96,77 @@ describe('trigger-only editor rendering', () => {
     )
     expect(off).not.toContain('WATER')
     expect(on).toContain('WATER')
+  })
+
+  it('renders low-fuel and shift previews even when their live policies are disabled', () => {
+    const disabled = {
+      ...DEFAULT_ALERTS_CONFIG,
+      lowFuel: {
+        ...DEFAULT_ALERTS_CONFIG.lowFuel,
+        enabled: false,
+        lapsThreshold: 7
+      },
+      shiftPoint: {
+        ...DEFAULT_ALERTS_CONFIG.shiftPoint,
+        enabled: false,
+        shiftIndicatorPct: 0.8,
+        rpmPct: 0.9
+      }
+    }
+    const lowFuel = hifiAlertElement(
+      'hifi:alertLowFuel',
+      'alertLowFuel',
+      360,
+      200
+    )
+    const shift = hifiAlertElement(
+      'hifi:alertShiftFlash',
+      'alertShiftFlash',
+      1200,
+      80
+    )
+    const lowFuelOff = renderToStaticMarkup(
+      renderDashboardElement({
+        element: lowFuel,
+        snapshot: PREVIEW_SNAPSHOT,
+        preview: 'inert',
+        alertsConfig: disabled,
+        forceTriggerActive: false
+      })
+    )
+    const lowFuelOn = renderToStaticMarkup(
+      renderDashboardElement({
+        element: lowFuel,
+        snapshot: PREVIEW_SNAPSHOT,
+        preview: 'inert',
+        alertsConfig: disabled,
+        forceTriggerActive: true
+      })
+    )
+    const shiftOn = renderToStaticMarkup(
+      renderDashboardElement({
+        element: shift,
+        snapshot: PREVIEW_SNAPSHOT,
+        preview: 'inert',
+        alertsConfig: disabled,
+        forceTriggerActive: true
+      })
+    )
+    const shiftOff = renderToStaticMarkup(
+      renderDashboardElement({
+        element: shift,
+        snapshot: PREVIEW_SNAPSHOT,
+        preview: 'inert',
+        alertsConfig: disabled,
+        forceTriggerActive: false
+      })
+    )
+
+    expect(lowFuelOff).not.toContain('LAPS')
+    expect(lowFuelOn).toContain('LAPS')
+    expect(lowFuelOn).toContain('data-trigger-preview-visible="true"')
+    expect(shiftOff).not.toContain('data-trigger-preview-visible')
+    expect(shiftOn).toContain('data-trigger-preview-visible="true"')
   })
 
   it('keeps inert gallery thumbnails off unless explicitly enabled', () => {

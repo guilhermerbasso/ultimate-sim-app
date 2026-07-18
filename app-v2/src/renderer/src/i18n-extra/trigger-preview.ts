@@ -2,7 +2,7 @@ import type { ResolvedLanguage } from '../i18n'
 
 const en = {
   'triggerPreview.label': 'Show trigger-only items active',
-  'triggerPreview.help': 'Editor preview only. Live overlays, dashboards, streaming, trigger rules, and race behavior are unchanged.'
+  'triggerPreview.help': 'Editor and positioning preview only. Live overlay state, dashboards, streaming, trigger rules, and race behavior are unchanged.'
 }
 
 const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
