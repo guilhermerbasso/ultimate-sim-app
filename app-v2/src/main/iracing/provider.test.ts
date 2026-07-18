@@ -504,6 +504,20 @@ describe('iRacing new-channel snapshot mapping (poll)', () => {
     ] as const
     for (const f of fields) expect(snap?.[f]).toBeUndefined()
   })
+
+  it('surfaces deterministic fuel-mass and repair-derived damage context for setup experiments', () => {
+    const snap = pollWith({
+      Speed: 10,
+      RPM: 3000,
+      Gear: 1,
+      FuelLevel: 20,
+      PitRepairLeft: 45,
+      PitOptRepairLeft: 15
+    })
+
+    expect(snap?.fuelMassKg).toBeCloseTo(15, 5)
+    expect(snap?.damagePct).toBeCloseTo(0.1, 5)
+  })
 })
 
 // ─── B2 iFlag fix + SDK-gap channels: ABS/TC + new fields through poll() ─────
