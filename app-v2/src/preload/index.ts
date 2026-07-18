@@ -112,6 +112,7 @@ const ALLOWED_PREFIXES = [
   'strategy:',
   'incidents:',
   'community:',
+  'collaboration:',
   'dashai:',
   'bio:',
   'hapticsZonal:',
