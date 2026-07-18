@@ -15,7 +15,8 @@ import {
   SHIFT_STROBE_BLUE,
   ShiftStrobe,
   atShiftPoint,
-  resolveRevLightPct
+  resolveRevLightPct,
+  resolveRpmGaugePct
 } from '../../lib/rev-lights'
 
 export const ANALOG_TACH_STREAM_SAFE = true
@@ -42,6 +43,7 @@ export function AnalogTachWidget({ snapshot, config }: WidgetProps): ReactElemen
   const maxRpm = s?.maxRpm
   const hasRpm = rpm !== undefined && Number.isFinite(rpm) && maxRpm !== undefined && Number.isFinite(maxRpm) && maxRpm > 0
   const maxK = hasRpm ? (maxRpm as number) / 1000 : 9
+  const rpmPct = resolveRpmGaugePct(s)
 
   const shiftPct = resolveRevLightPct(s)
   const redlining = atShiftPoint(shiftPct, s?.revLights?.blink, REDLINE_FRAC)
@@ -73,7 +75,7 @@ export function AnalogTachWidget({ snapshot, config }: WidgetProps): ReactElemen
         <FitText x={W - P} y={headY + headH * 0.94} boxW={W * 0.4} boxH={headH * 0.24} text="×1000 RPM" anchor="end" baseline="middle" fontFamily={skin.typography.label} fill={palette.textDim} minFontPx={11} maxFontPx={13} weight={700} letterSpacing={1} />
 
         {/* Dial (ticks off on this small dial) */}
-        <g transform={`translate(${dialX}, ${dialY})`}>
+        <g transform={`translate(${dialX}, ${dialY})`} data-rpm-gauge="analog-tach" data-rpm-pct={rpmPct.toFixed(4)}>
           <ShiftStrobe active={redlining} />
           <AnalogDial
             value={hasRpm ? (rpm as number) / 1000 : 0}

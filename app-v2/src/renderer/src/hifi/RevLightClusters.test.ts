@@ -52,4 +52,33 @@ describe('full-frame rev-light clusters', () => {
       expect(render(Component, fallback), name).toContain('repeatCount="indefinite"')
     }
   })
+
+  it('keeps the DDU RPM step bar calibrated while blink only drives the shift arc', () => {
+    const shifted = {
+      ...baseSnapshot(),
+      rpm: 4250,
+      maxRpm: 8500,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    } as TelemetrySnapshot
+    const markup = render(DduCluster, shifted)
+
+    expect(markup).toContain('data-rpm-gauge="ddu-step-bar"')
+    expect(markup).toContain('data-rpm-pct="0.5000"')
+    expect(markup).toContain('data-rpm-lit="5"')
+    expect(markup).toContain('>x1000</text>')
+    expect(markup).not.toContain('>SHIFT %</text>')
+    expect(markup).toContain('dur="0.14s"')
+  })
+
+  it('keeps DDU width and height overrides independent', () => {
+    const markup = renderToStaticMarkup(createElement(DduCluster, {
+      snapshot: baseSnapshot(),
+      width: 1280,
+      height: 360
+    }))
+    expect(markup).toContain('width="1280"')
+    expect(markup).toContain('height="360"')
+    expect(markup).toContain('viewBox="0 0 1024 600"')
+  })
 })

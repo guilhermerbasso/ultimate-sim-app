@@ -1,6 +1,6 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, gearLabel, lapTime, legibleStroke, num, resolveRevLightPct, revFill, signed, tempColor } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, gearLabel, lapTime, legibleStroke, num, resolveRevLightPct, resolveRpmGaugePct, revFill, signed, tempColor } from '../kit'
 import { formatMeasurement, type UnitSystem } from '../../../../../shared/units'
 
 const DASH_W = 1024
@@ -14,12 +14,22 @@ const BLUE = '#9fd0ff'
 const DARK = '#010201'
 const TAGS = ['chevrolet', 'corvette', 'corvette-z06-gt3r', 'gt3', 'car', 'bosch-ddu', 'ir'] as const
 
-function rpmFraction(snapshot: HifiWidgetProps['snapshot']): number {
+function shiftFraction(snapshot: HifiWidgetProps['snapshot']): number {
   return resolveRevLightPct(snapshot)
 }
 
-function rpmMissing(snapshot: HifiWidgetProps['snapshot']): boolean {
+function shiftMissing(snapshot: HifiWidgetProps['snapshot']): boolean {
   return snapshot == null || (num(snapshot.rpm) == null && num(snapshot.shiftIndicatorPct) == null && num(snapshot.revLights?.pct) == null)
+}
+
+function rpmFraction(snapshot: HifiWidgetProps['snapshot']): number {
+  return resolveRpmGaugePct(snapshot)
+}
+
+function rpmMissing(snapshot: HifiWidgetProps['snapshot']): boolean {
+  const rpm = num(snapshot?.rpm)
+  const maxRpm = num(snapshot?.maxRpm)
+  return rpm == null || maxRpm == null || maxRpm <= 0
 }
 
 function tyrePressure(snapshot: HifiWidgetProps['snapshot'], corner: 'lf' | 'rf' | 'lr' | 'rr'): number | undefined {
@@ -58,8 +68,8 @@ function ledColor(i: number, count: number): string {
 }
 
 function ShiftLedRow({ snapshot, x, y, w, h, count = 18, id = 'cv-leds' }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; h: number; count?: number; id?: string }): ReactElement {
-  const f = rpmFraction(snapshot)
-  const missing = rpmMissing(snapshot)
+  const f = shiftFraction(snapshot)
+  const missing = shiftMissing(snapshot)
   const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const lit = shift ? count : missing ? 0 : Math.round(f * count)
   const blink = atShiftPoint(f, snapshot?.revLights?.blink, 0.96)
@@ -89,13 +99,14 @@ function ShiftLedRow({ snapshot, x, y, w, h, count = 18, id = 'cv-leds' }: { sna
 function RpmSegmentBar({ snapshot, x, y, w, h, id = 'cv-rpm', labels = true }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; h: number; id?: string; labels?: boolean }): ReactElement {
   const f = rpmFraction(snapshot)
   const missing = rpmMissing(snapshot)
-  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
+  const shiftPct = shiftFraction(snapshot)
+  const shift = atShiftPoint(shiftPct, snapshot?.revLights?.blink)
   const cells = 42
   const gap = 4
   const cellW = (w - gap * (cells - 1)) / cells
-  const lit = shift ? cells : missing ? 0 : Math.round(f * cells)
+  const lit = missing ? 0 : Math.round(f * cells)
   return (
-    <g>
+    <g data-rpm-gauge="corvette-rpm-bar" data-rpm-pct={f.toFixed(4)} data-rpm-lit={lit}>
       <ShiftStrobe active={shift} />
       <BoschDefs id={id} />
       {labels ? (

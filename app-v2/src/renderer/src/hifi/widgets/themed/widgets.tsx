@@ -1,7 +1,7 @@
 ﻿import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, fixed, frac, gearLabel, legibleStroke, num } from '../kit'
-import { ShiftStrobe, atShiftPoint, resolveRevLightPct, revFill } from '../../../lib/rev-lights'
+import { ShiftStrobe, atShiftPoint, resolveRevLightPct, resolveRpmGaugePct, revFill } from '../../../lib/rev-lights'
 import { formatMeasurement, type UnitSystem } from '../../../../../shared/units'
 
 const REV_W = 960
@@ -280,13 +280,15 @@ function SignatureCluster({ snapshot, width, height, family, unitSystem = 'metri
   const oil = num(snapshot?.oilTempC)
   const speedReading = formatMeasurement(speed, 'speed-kmh', unitSystem, { decimals: 0 })
   const { f, missing } = safeShift(snapshot)
-  const rpmF = f
+  const rpmF = resolveRpmGaugePct(snapshot)
   return (
     <CleanTile width={width ?? CLUSTER_W} height={height ?? CLUSTER_H}>
       <GlowDefs id={`themed-${family}-cluster`} color={p.main} />
       <MiniStrip family={family} f={f} missing={missing} blink={snapshot?.revLights?.blink} x={52} y={28} w={356} />
       <path d="M48 62 h92 l20 18 h140 l20 -18 h92" fill="none" stroke={p.main} strokeWidth={2.5} opacity={0.75} />
-      <GaugeArc cx={230} cy={177} r={101} thickness={8} f={rpmF} color={rpm == null && missing ? C.dim : p.main} />
+      <g data-rpm-gauge={`themed-${family}-cluster`} data-rpm-pct={rpmF.toFixed(4)}>
+        <GaugeArc cx={230} cy={177} r={101} thickness={8} f={rpmF} color={rpm == null ? C.dim : p.main} />
+      </g>
       <path d="M118 180 A112 112 0 0 1 342 180" fill="none" stroke={p.accent} strokeWidth={1.5} opacity={0.45} strokeDasharray={family === 'lambo' ? '12 8' : family === 'porsche' ? '4 10' : '2 7'} />
       <text x={230} y={159} textAnchor="middle" fill={gear == null ? C.dim : p.text} fontFamily={FONT_BIG} fontSize={96} fontWeight={900} {...legibleStroke(96)}>{gear == null ? '–' : gearLabel(gear)}</text>
       <text x={230} y={204} textAnchor="middle" fill={speed == null ? C.dim : p.main} fontFamily={FONT_BIG} fontSize={42} fontWeight={900} letterSpacing={-2} {...legibleStroke(42)}>{speedReading.display}</text>

@@ -19,6 +19,7 @@ export {
   clampRevLightPct,
   resolveRevLightPct,
   resolveRevLightState,
+  resolveRpmGaugePct,
   revFill,
   revLightRowLayout
 } from '../../lib/rev-lights'

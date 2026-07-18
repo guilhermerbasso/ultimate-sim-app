@@ -12,7 +12,13 @@ import { resolveSkin, FitText, zoneColor, type SkinToken } from '../../skins'
 import { AnalogDial, DataField, type FieldState } from '../../instruments'
 import { formatMeasurement, measurementUnit } from '../../../../shared/units'
 import { useUnitSystem } from '../../lib/units'
-import { SHIFT_STROBE_BLUE, atShiftPoint, resolveRevLightPct } from '../../lib/rev-lights'
+import {
+  SHIFT_STROBE_BLUE,
+  ShiftStrobe,
+  atShiftPoint,
+  resolveRevLightPct,
+  resolveRpmGaugePct
+} from '../../lib/rev-lights'
 
 function dims(config: WidgetProps['config']): { W: number; H: number } {
   const w = config?.position?.width
@@ -79,8 +85,9 @@ export function RingDashWidget({ snapshot, config }: WidgetProps): ReactElement 
   const P = Math.max(6, Math.round(Math.min(W, H) * 0.02))
   const G = Math.max(4, Math.round(Math.min(W, H) * 0.014))
 
+  const rpmPct = resolveRpmGaugePct(s)
   const shiftPct = resolveRevLightPct(s)
-  const redline = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)
+  const shiftActive = atShiftPoint(shiftPct, s?.revLights?.blink, 0.95)
   const gear = formatGear(s?.gear)
   const sessionLabel = (s?.sessionType ?? 'RACE').toUpperCase()
   const yellowFlag = !!s?.flags?.yellow
@@ -117,7 +124,7 @@ export function RingDashWidget({ snapshot, config }: WidgetProps): ReactElement 
   const dialSize = Math.max(120, Math.min(midW, cH))
   const dialX = cx - dialSize / 2
   const dialY = cy - dialSize / 2
-  const ringColor = zoneColor(skin.led, shiftPct)
+  const ringColor = zoneColor(skin.led, rpmPct)
 
   const stripThirds = (W - 2 * P - 2 * G) / 3
   const pitR = { x: P, y: P, w: stripThirds, h: topH }
@@ -176,44 +183,51 @@ export function RingDashWidget({ snapshot, config }: WidgetProps): ReactElement 
         {df({ x: rightX, y: rightBotY + tCellH + G, w: tCellW, h: tCellH }, 'LR', formatMeasurement(tempC(ty?.lr), 'temperature-c', unitSystem, { decimals: 0 }).display, tempState(tempC(ty?.lr), 100, 110, 70), measurementUnit('temperature-c', unitSystem))}
         {df({ x: rightX + tCellW + G, y: rightBotY + tCellH + G, w: tCellW, h: tCellH }, 'RR', formatMeasurement(tempC(ty?.rr), 'temperature-c', unitSystem, { decimals: 0 }).display, tempState(tempC(ty?.rr), 100, 110, 70), measurementUnit('temperature-c', unitSystem))}
 
-        <g transform={`translate(${dialX}, ${dialY})`}>
-          <AnalogDial
-            value={shiftPct * 100}
-            min={0}
-            max={100}
-            size={dialSize}
-            startAngleDeg={-135}
-            endAngleDeg={135}
-            showTicks
-            majorTicks={11}
-            minorPerMajor={1}
-            showValue={false}
-            bezel="thin"
-            material="carbon"
-            warnFrom={80}
-            redlineFrom={95}
-            needleColor={redline ? SHIFT_STROBE_BLUE : ringColor}
-            idPrefix="ring-dial"
-          />
+        <g
+          data-shift-cue="ring-needle-gear"
+          data-shift-active={shiftActive ? 'true' : 'false'}
+          data-rpm-pct={rpmPct.toFixed(4)}
+        >
+          <ShiftStrobe active={shiftActive} />
+          <g data-shift-part="needle" transform={`translate(${dialX}, ${dialY})`}>
+            <AnalogDial
+              value={rpmPct * 100}
+              min={0}
+              max={100}
+              size={dialSize}
+              startAngleDeg={-135}
+              endAngleDeg={135}
+              showTicks
+              majorTicks={11}
+              minorPerMajor={1}
+              showValue={false}
+              bezel="thin"
+              material="carbon"
+              warnFrom={80}
+              redlineFrom={95}
+              needleColor={shiftActive ? SHIFT_STROBE_BLUE : ringColor}
+              idPrefix="ring-dial"
+            />
+          </g>
+          {shiftActive ? (
+            <circle data-shift-part="ring" cx={cx} cy={cy} r={dialSize / 2 - 6} fill="none" stroke={SHIFT_STROBE_BLUE} strokeWidth={6} />
+          ) : null}
+          <g data-shift-part="gear">
+            <FitText
+              x={cx}
+              y={cy - dialSize * 0.02}
+              boxW={dialSize * 0.42}
+              boxH={dialSize * 0.44}
+              text={gear}
+              anchor="middle"
+              baseline="middle"
+              fontFamily={/^\d$/.test(gear) ? skin.segment.numeric : skin.segment.alpha}
+              fill={shiftActive ? SHIFT_STROBE_BLUE : palette.text}
+              minFontPx={24}
+              maxFontPx={dialSize * 0.44}
+            />
+          </g>
         </g>
-        {redline ? (
-          <circle cx={cx} cy={cy} r={dialSize / 2 - 6} fill="none" stroke={SHIFT_STROBE_BLUE} strokeWidth={6}>
-            <animate attributeName="opacity" values="1;0.15;1" dur="0.32s" repeatCount="indefinite" />
-          </circle>
-        ) : null}
-        <FitText
-          x={cx}
-          y={cy - dialSize * 0.02}
-          boxW={dialSize * 0.42}
-          boxH={dialSize * 0.44}
-          text={gear}
-          anchor="middle"
-          baseline="middle"
-          fontFamily={/^\d$/.test(gear) ? skin.segment.numeric : skin.segment.alpha}
-          fill={redline ? SHIFT_STROBE_BLUE : palette.text}
-          minFontPx={24}
-          maxFontPx={dialSize * 0.44}
-        />
         <FitText
           x={cx}
           y={cy + dialSize * 0.3}

@@ -115,4 +115,36 @@ describe('CARS_REAL_WIDGETS', () => {
       }
     }
   })
+
+  it('keeps car-real RPM gauges calibrated independently from provider shift blink', () => {
+    const providerOn = {
+      ...baseSnapshot(),
+      rpm: 4250,
+      maxRpm: 8500,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    } as TelemetrySnapshot
+    const providerOff = {
+      ...providerOn,
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    } as TelemetrySnapshot
+    const expectedLit: Record<string, number | undefined> = {
+      f296RpmBar: 16,
+      cvRpmBar: 21,
+      f488RpmBar: 14,
+      lhRpm: undefined,
+      gtdArcTach: undefined
+    }
+
+    for (const [id, lit] of Object.entries(expectedLit)) {
+      for (const snapshot of [providerOn, providerOff]) {
+        const markup = renderWidget(id, snapshot)
+        expect(markup, id).toContain('data-rpm-pct="0.5000"')
+        if (lit !== undefined) {
+          expect(markup, id).toContain(`data-rpm-lit="${lit}"`)
+        }
+      }
+    }
+  })
 })

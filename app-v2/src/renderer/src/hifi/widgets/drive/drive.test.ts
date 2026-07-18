@@ -83,4 +83,38 @@ describe('DRIVE_WIDGETS', () => {
     expect(renderToStaticMarkup(createElement(widget.render, { snapshot: fallback, width: 1000, height: 36 })))
       .toContain('repeatCount="indefinite"')
   })
+
+  it('keeps the true RPM bar calibrated when provider blink starts the strobe', () => {
+    const widget = DRIVE_WIDGETS.find((candidate) => candidate.id === 'rpmBar')!
+    const shifted = renderToStaticMarkup(createElement(widget.render, {
+      snapshot: {
+        ...baseSnapshot(),
+        rpm: 4250,
+        maxRpm: 8500,
+        shiftIndicatorPct: 0.2,
+        revLights: { pct: 0.2, blink: true }
+      },
+      width: 1000,
+      height: 36
+    }))
+    const normal = renderToStaticMarkup(createElement(widget.render, {
+      snapshot: {
+        ...baseSnapshot(),
+        rpm: 4250,
+        maxRpm: 8500,
+        shiftIndicatorPct: 0.999,
+        revLights: { pct: 0.999, blink: false }
+      },
+      width: 1000,
+      height: 36
+    }))
+
+    for (const markup of [shifted, normal]) {
+      expect(markup).toContain('data-rpm-pct="0.5000"')
+      expect(markup).toContain('data-rpm-lit="10"')
+      expect(markup).toContain('viewBox="0 0 1000 36"')
+    }
+    expect(shifted).toContain('dur="0.14s"')
+    expect(normal).not.toContain('repeatCount="indefinite"')
+  })
 })

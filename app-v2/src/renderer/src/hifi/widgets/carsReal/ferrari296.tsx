@@ -1,6 +1,6 @@
 ﻿import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, gearLabel, lapTime, legibleStroke, num, resolveRevLightPct, revFill, signed } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, gearLabel, lapTime, legibleStroke, num, resolveRevLightPct, resolveRpmGaugePct, revFill, signed } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'
 
 const DASH_W = 1024
@@ -32,7 +32,7 @@ function shiftFrac(snapshot: HifiWidgetProps['snapshot']): { f: number; missing:
 }
 
 function rpmFrac(snapshot: HifiWidgetProps['snapshot']): number {
-  return resolveRevLightPct(snapshot)
+  return resolveRpmGaugePct(snapshot)
 }
 
 function ledColor(i: number, count: number): string {
@@ -159,17 +159,15 @@ function MapIcon({ color = '#ff2a35' }: { color?: string }): ReactElement {
 
 function RpmBarGraphic({ snapshot, x, y, w, h, id = 'f296-rpm', scale = true }: { snapshot: HifiWidgetProps['snapshot']; x: number; y: number; w: number; h: number; id?: string; scale?: boolean }): ReactElement {
   const f = rpmFrac(snapshot)
-  const missing = snapshot == null || (
-    num(snapshot.rpm) == null &&
-    num(snapshot.shiftIndicatorPct) == null &&
-    num(snapshot.revLights?.pct) == null
-  )
+  const rpm = num(snapshot?.rpm)
+  const maxRpm = num(snapshot?.maxRpm)
+  const missing = rpm == null || maxRpm == null || maxRpm <= 0
   const cells = 32
   const gap = 2
   const cell = (w - gap * (cells - 1)) / cells
   const lit = missing ? 0 : Math.round(f * cells)
   return (
-    <g>
+    <g data-rpm-gauge="f296-rpm-bar" data-rpm-pct={f.toFixed(4)} data-rpm-lit={lit}>
       <GlowDefs id={id} />
       {scale ? (
         <g>

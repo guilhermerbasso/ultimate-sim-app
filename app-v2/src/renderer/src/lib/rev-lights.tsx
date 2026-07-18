@@ -28,6 +28,23 @@ export function resolveRevLightPct(
   return resolveShiftIndicatorPct(snapshot)
 }
 
+export function resolveRpmGaugePct(
+  snapshot: Pick<TelemetrySnapshot, 'rpm' | 'maxRpm'> | null | undefined
+): number {
+  const rpm = snapshot?.rpm
+  const maxRpm = snapshot?.maxRpm
+  if (
+    typeof rpm !== 'number' ||
+    !Number.isFinite(rpm) ||
+    typeof maxRpm !== 'number' ||
+    !Number.isFinite(maxRpm) ||
+    maxRpm <= 0
+  ) {
+    return 0
+  }
+  return clampRevLightPct(rpm / maxRpm)
+}
+
 export function resolveRevLightState(
   value: number | null | undefined,
   blink?: boolean | null,

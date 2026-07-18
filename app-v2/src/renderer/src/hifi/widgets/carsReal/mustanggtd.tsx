@@ -1,6 +1,6 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, SHIFT_STROBE_BLUE, ShiftStrobe, atShiftPoint, condColor, fixed, gearLabel, lapTime, legibleStroke, num, resolveRevLightPct, signed, tempColor } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, SHIFT_STROBE_BLUE, ShiftStrobe, atShiftPoint, condColor, fixed, gearLabel, lapTime, legibleStroke, num, resolveRevLightPct, resolveRpmGaugePct, signed, tempColor } from '../kit'
 import { formatMeasurement, type UnitSystem } from '../../../../../shared/units'
 
 const DASH_W = 1024
@@ -13,15 +13,13 @@ const DARK = '#020508'
 const TAGS = ['ford', 'mustang', 'mustang-gtd', 'car', 'ir'] as const
 
 function rpmFraction(snapshot: HifiWidgetProps['snapshot']): number {
-  return resolveRevLightPct(snapshot)
+  return resolveRpmGaugePct(snapshot)
 }
 
 function rpmMissing(snapshot: HifiWidgetProps['snapshot']): boolean {
-  return snapshot == null || (
-    num(snapshot.rpm) == null &&
-    num(snapshot.shiftIndicatorPct) == null &&
-    num(snapshot.revLights?.pct) == null
-  )
+  const rpm = num(snapshot?.rpm)
+  const maxRpm = num(snapshot?.maxRpm)
+  return rpm == null || maxRpm == null || maxRpm <= 0
 }
 
 function tyrePressure(snapshot: HifiWidgetProps['snapshot'], corner: 'lf' | 'rf' | 'lr' | 'rr'): number | undefined {
@@ -99,18 +97,19 @@ function SweepingArcTach({
 }): ReactElement {
   const f = rpmFraction(snapshot)
   const missing = rpmMissing(snapshot)
-  const shift = !missing && atShiftPoint(f, snapshot?.revLights?.blink)
+  const shiftPct = resolveRevLightPct(snapshot)
+  const shift = atShiftPoint(shiftPct, snapshot?.revLights?.blink)
   const tachColor = (base: string): string => shift ? SHIFT_STROBE_BLUE : base
   const cx = width / 2
   const cy = height * 0.82
   const r = Math.min(width * 0.47, height * 1.35)
   const start = 180
   const end = 360
-  const litEnd = shift ? end : start + (end - start) * (missing ? 0 : f)
+  const litEnd = start + (end - start) * (missing ? 0 : f)
   const major = Array.from({ length: 10 }, (_, i) => i)
   const minor = Array.from({ length: 46 }, (_, i) => i)
   return (
-    <g>
+    <g data-rpm-gauge="mustang-gtd-tach" data-rpm-pct={f.toFixed(4)}>
       <ShiftStrobe active={shift} />
       <GtdDefs id={id} />
       {glow ? <path d={arcPath(cx, cy, r - 22, start, end)} stroke={`url(#${id}-halo)`} strokeWidth={52} fill="none" /> : null}
@@ -140,7 +139,7 @@ function SweepingArcTach({
           </g>
         )
       })}
-      <ShiftNeedle cx={cx} cy={cy} r1={r - 5} r2={r - 62} f={missing ? 0.76 : Math.max(0.76, f)} id={id} shift={shift} />
+      <ShiftNeedle cx={cx} cy={cy} r1={r - 5} r2={r - 62} f={missing ? 0 : f} id={id} shift={shift} />
     </g>
   )
 }

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 const rendererRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-const canonicalShiftFillSources = [
+const canonicalShiftCueSources = [
   'hifi/DduCluster.tsx',
   'hifi/EnduranceCluster.tsx',
   'hifi/MinimalDash.tsx',
@@ -36,6 +36,53 @@ const canonicalShiftFillSources = [
   'views/TelemetryView.tsx'
 ] as const
 
+const rpmGaugeContracts = [
+  {
+    relativePath: 'hifi/DduCluster.tsx',
+    required: ['const rpmPct = resolveRpmGaugePct(s)', '<RpmStepBar frac={rpmPct}']
+  },
+  {
+    relativePath: 'hifi/widgets/drive/widgets.tsx',
+    required: ['const rpmPct = resolveRpmGaugePct(snapshot)', '<SegmentedRpmBar f={rpmPct}']
+  },
+  {
+    relativePath: 'hifi/widgets/themed/widgets.tsx',
+    required: ['const rpmF = resolveRpmGaugePct(snapshot)', 'f={rpmF}']
+  },
+  {
+    relativePath: 'hifi/widgets/carsReal/corvettegt3r.tsx',
+    required: ['return resolveRpmGaugePct(snapshot)', 'data-rpm-gauge="corvette-rpm-bar"']
+  },
+  {
+    relativePath: 'hifi/widgets/carsReal/ferrari296.tsx',
+    required: ['return resolveRpmGaugePct(snapshot)', 'data-rpm-gauge="f296-rpm-bar"']
+  },
+  {
+    relativePath: 'hifi/widgets/carsReal/ferrari488.tsx',
+    required: ['return resolveRpmGaugePct(snapshot)', 'data-rpm-gauge="f488-curved-rpm"']
+  },
+  {
+    relativePath: 'hifi/widgets/carsReal/lambohuracan.tsx',
+    required: ['return resolveRpmGaugePct(snapshot)', 'data-rpm-gauge="lh-rpm-bar"']
+  },
+  {
+    relativePath: 'hifi/widgets/carsReal/mustanggtd.tsx',
+    required: ['return resolveRpmGaugePct(snapshot)', 'data-rpm-gauge="mustang-gtd-tach"']
+  },
+  {
+    relativePath: 'overlay/widgets/AnalogTachWidget.tsx',
+    required: ['const rpmPct = resolveRpmGaugePct(s)', 'data-rpm-gauge="analog-tach"']
+  },
+  {
+    relativePath: 'overlay/widgets/RingDashWidget.tsx',
+    required: ['const rpmPct = resolveRpmGaugePct(s)', 'value={rpmPct * 100}']
+  },
+  {
+    relativePath: 'views/TelemetryView.tsx',
+    required: ['const rpmPct = useMemo(() => resolveRpmGaugePct(snap), [snap])', '<Bar value={rpmPct}']
+  }
+] as const
+
 function source(relativePath: string): string {
   return readFileSync(resolve(rendererRoot, relativePath), 'utf8')
 }
@@ -45,12 +92,20 @@ function executable(input: string): string {
 }
 
 describe('renderer shift-fill registry', () => {
-  it('routes every registered shift/rev fill through the canonical resolver', () => {
-    for (const relativePath of canonicalShiftFillSources) {
+  it('routes every registered shift cue through the canonical resolver', () => {
+    for (const relativePath of canonicalShiftCueSources) {
       const contents = executable(source(relativePath))
       expect(contents, relativePath).toContain('resolveRevLightPct')
-      expect(contents, relativePath).not.toMatch(/\brpm\s*\/\s*(?:\([^)]*maxRpm[^)]*\)|maxRpm|max)\b/)
-      expect(contents, relativePath).not.toMatch(/frac\(\s*rpm\s*,\s*0\s*,\s*(?:maxRpm|max)\s*\)/)
+    }
+  })
+
+  it('keeps registered true RPM gauges calibrated from rpm/maxRpm', () => {
+    for (const contract of rpmGaugeContracts) {
+      const contents = executable(source(contract.relativePath))
+      expect(contents, contract.relativePath).toContain('resolveRpmGaugePct')
+      for (const snippet of contract.required) {
+        expect(contents, contract.relativePath).toContain(snippet)
+      }
     }
   })
 

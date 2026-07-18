@@ -1,7 +1,14 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
 import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, GaugeArc, Hairline, fixed, frac, gearLabel, legibleStroke, num } from '../kit'
-import { ShiftStrobe, atShiftPoint, resolveRevLightPct, revFill, revLightRowLayout } from '../../../lib/rev-lights'
+import {
+  ShiftStrobe,
+  atShiftPoint,
+  resolveRevLightPct,
+  resolveRpmGaugePct,
+  revFill,
+  revLightRowLayout
+} from '../../../lib/rev-lights'
 import { formatMeasurement } from '../../../../../shared/units'
 
 const W = 420
@@ -97,14 +104,15 @@ function RpmWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
 function SegmentedRpmBar({ f, x, y, w, h, missing, shift }: { f: number; x: number; y: number; w: number; h: number; missing: boolean; shift: boolean }): ReactElement {
   const count = 20
   const layout = revLightRowLayout(w, h, count, { gap: 5 })
-  const lit = shift ? layout.count : Math.round(frac(f, 0, 1) * layout.count)
+  const rpmPct = frac(f, 0, 1)
+  const lit = missing ? 0 : Math.round(rpmPct * layout.count)
   return (
-    <g>
+    <g data-rpm-gauge="drive-rpm-bar" data-rpm-pct={rpmPct.toFixed(4)} data-rpm-lit={lit}>
       <ShiftStrobe active={shift} />
       {Array.from({ length: layout.count }, (_, i) => {
         const pct = i / (layout.count - 1)
         const color = pct < 0.55 ? GREEN : pct < 0.78 ? YELLOW : RED
-        const on = shift || (i < lit && !missing)
+        const on = i < lit
         return <rect key={i} x={x + layout.positions[i]} y={y + layout.y} width={layout.ledWidth} height={layout.ledHeight} rx={Math.min(5, layout.ledHeight / 2)} fill={on ? revFill(color, shift) : C.recess} opacity={on ? 1 : 0.42} />
       })}
     </g>
@@ -112,14 +120,18 @@ function SegmentedRpmBar({ f, x, y, w, h, missing, shift }: { f: number; x: numb
 }
 
 function RpmBarWidget({ snapshot, width, height }: HifiWidgetProps): ReactElement {
-  const { f, missing } = shiftFraction(snapshot)
-  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
+  const rpm = num(snapshot?.rpm)
+  const maxRpm = num(snapshot?.maxRpm)
+  const rpmPct = resolveRpmGaugePct(snapshot)
+  const missing = rpm == null || maxRpm == null || maxRpm <= 0
+  const shiftPct = resolveRevLightPct(snapshot)
+  const shift = atShiftPoint(shiftPct, snapshot?.revLights?.blink)
   const w = width ?? REV_WIDE_W
   const h = height ?? REV_WIDE_H
   const barH = Math.max(6, h * 0.62)
   return (
     <CleanTile width={w} height={h}>
-      <SegmentedRpmBar f={f} x={0} y={(h - barH) / 2} w={w} h={barH} missing={missing} shift={shift} />
+      <SegmentedRpmBar f={rpmPct} x={0} y={(h - barH) / 2} w={w} h={barH} missing={missing} shift={shift} />
     </CleanTile>
   )
 }

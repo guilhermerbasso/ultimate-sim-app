@@ -5,7 +5,7 @@ import { tt } from '../i18n'
 import { getIRacingDiagnostics, getTelemetryStatus, onTelemetry, setTelemetrySource } from '../lib/telemetry'
 import { formatMeasurement } from '../../../shared/units'
 import { useUnitSystem } from '../lib/units'
-import { resolveRevLightPct } from '../lib/rev-lights'
+import { resolveRevLightPct, resolveRpmGaugePct } from '../lib/rev-lights'
 
 const SOURCES: { id: TelemetrySource; labelKey?: string; fallback: string }[] = [
   { id: 'off', labelKey: 'telemetry.source.off', fallback: 'Off' },
@@ -104,6 +104,7 @@ export default function TelemetryView({ language }: AppViewProps): ReactElement 
     }
   }
 
+  const rpmPct = useMemo(() => resolveRpmGaugePct(snap), [snap])
   const shiftPct = useMemo(() => resolveRevLightPct(snap), [snap])
 
   const connected = snap?.connected ?? false
@@ -202,7 +203,7 @@ export default function TelemetryView({ language }: AppViewProps): ReactElement 
             <div style={card}>
               <div style={label}>RPM</div>
               <div style={value}>{Math.round(snap.rpm)}</div>
-              <div style={{ marginTop: 8 }}><Bar value={shiftPct} color={shiftPct > 0.8 ? 'var(--accent-danger)' : 'var(--accent-primary)'} /></div>
+              <div style={{ marginTop: 8 }}><Bar value={rpmPct} color={shiftPct > 0.8 ? 'var(--accent-danger)' : 'var(--accent-primary)'} /></div>
             </div>
             <div style={card}>
               <div style={label}>{tt(language, 'telemetry.position')}</div>

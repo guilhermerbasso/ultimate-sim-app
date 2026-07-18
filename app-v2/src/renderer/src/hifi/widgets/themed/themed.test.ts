@@ -12,6 +12,16 @@ function renderAll(snapshot: TelemetrySnapshot | null): string[] {
   return THEMED_WIDGETS.map((widget) => renderToStaticMarkup(createElement(widget.render, { snapshot, width: widget.defaultSize.w, height: widget.defaultSize.h })))
 }
 
+function renderWidget(id: string, snapshot: TelemetrySnapshot): string {
+  const widget = THEMED_WIDGETS.find((candidate) => candidate.id === id)
+  expect(widget, `missing ${id}`).toBeTruthy()
+  return renderToStaticMarkup(createElement(widget!.render, {
+    snapshot,
+    width: widget!.defaultSize.w,
+    height: widget!.defaultSize.h
+  }))
+}
+
 describe('THEMED_WIDGETS', () => {
   it('exports 12 unique themed modules', () => {
     expect(THEMED_WIDGETS).toHaveLength(12)
@@ -65,6 +75,22 @@ describe('THEMED_WIDGETS', () => {
     for (const markup of renderAll(midShift)) {
       expect(markup).not.toContain(SHIFT_STROBE_BLUE)
       expect(markup).not.toContain('repeatCount="indefinite"')
+    }
+  })
+
+  it('keeps signature-cluster RPM arcs calibrated while their mini strips strobe', () => {
+    const snapshot = {
+      ...baseSnapshot(),
+      rpm: 4250,
+      maxRpm: 8500,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    } as TelemetrySnapshot
+
+    for (const id of ['clusterFerrari', 'clusterPorsche', 'clusterAmg', 'clusterMclaren', 'clusterCorvette', 'clusterLambo']) {
+      const markup = renderWidget(id, snapshot)
+      expect(markup, id).toContain('data-rpm-pct="0.5000"')
+      expect(markup, id).toContain('dur="0.14s"')
     }
   })
 })
