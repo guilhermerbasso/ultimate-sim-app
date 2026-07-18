@@ -1140,6 +1140,14 @@ function validatePayloadData(kind: MqttSchemaKind, data: Record<string, unknown>
     numberField(data, 'speedMps')
     numberField(data, 'rpm')
     numberField(data, 'gear')
+    numberField(data, 'throttleRatio')
+    numberField(data, 'brakeRatio')
+    numberField(data, 'clutchRatio')
+    if (typeof data.connected !== 'boolean') throw new MqttContractError('Missing boolean field connected.', 'invalid-payload')
+    if (!Array.isArray(data.activeFlags) || data.activeFlags.some((f: unknown) => typeof f !== 'string')) {
+      throw new MqttContractError('Invalid activeFlags: must be an array of strings.', 'invalid-payload')
+    }
+    if (typeof data.stale !== 'boolean') throw new MqttContractError('Missing boolean field stale.', 'invalid-payload')
   } else if (kind === 'session') {
     stringField(data, 'sim')
     stringField(data, 'sessionRef')
@@ -1154,6 +1162,12 @@ function validatePayloadData(kind: MqttSchemaKind, data: Record<string, unknown>
     stringField(data, 'dedupeKey')
     numberField(data, 'observedAt')
     numberField(data, 'expiresAt')
+    if (!isRecord(data.facts)) throw new MqttContractError('Missing facts object.', 'invalid-payload')
+    for (const [k, v] of Object.entries(data.facts as Record<string, unknown>)) {
+      if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') {
+        throw new MqttContractError(`Invalid facts value for key ${k}: must be string, number, or boolean.`, 'invalid-payload')
+      }
+    }
   } else if (kind === 'health') {
     stringField(data, 'state')
     numberField(data, 'observedAt')
@@ -1173,6 +1187,11 @@ function validatePayloadData(kind: MqttSchemaKind, data: Record<string, unknown>
     numberField(data, 'issuedAt')
     numberField(data, 'expiresAt')
     if (!isRecord(data.args)) throw new MqttContractError('Command args must be an object.', 'invalid-payload')
+    for (const [k, v] of Object.entries(data.args as Record<string, unknown>)) {
+      if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') {
+        throw new MqttContractError(`Invalid args value for key ${k}: must be string, number, or boolean.`, 'invalid-payload')
+      }
+    }
   } else if (kind === 'result') {
     stringField(data, 'requestId')
     const capability = stringField(data, 'capability')
@@ -1208,7 +1227,9 @@ export function parseMqttCloudEvent<T extends MqttPayloadData>(
     parsed.datacontenttype !== 'application/json' ||
     parsed.dataschema !== MQTT_SCHEMA_IDS[kind] ||
     parsed.type !== MQTT_EVENT_NAMES[kind] ||
-    parsed.schemafp !== MQTT_SCHEMA_FINGERPRINTS[kind]
+    parsed.schemafp !== MQTT_SCHEMA_FINGERPRINTS[kind] ||
+    parsed.producerid !== MQTT_PRODUCER_ID ||
+    parsed.rolepolicyid !== MQTT_ROLE_POLICY_ID
   ) {
     throw new MqttContractError('MQTT envelope schema drift detected.', 'schema-drift')
   }

@@ -54,7 +54,7 @@ describe('local MQTT broker role access', () => {
     for (const [file, principal] of roles) {
       const [username, encoded] = files[file].trim().split(':')
       expect(username).toBe(access[principal].username)
-      expect(encoded).toMatch(/^\$7\$1000\$/)
+      expect(encoded).toMatch(/^\$7\$100000\$/)
       expect(encoded).not.toContain(access[principal].password)
       expect(verifyMosquittoPasswordHash(access[principal].password, encoded)).toBe(true)
       expect(verifyMosquittoPasswordHash('wrong-password', encoded)).toBe(false)

@@ -266,7 +266,7 @@ export function MqttSetupPanel({ language, showToast }: MqttSetupPanelProps): Re
             onChange={(event) =>
               setConfig((current) => ({ ...current, instanceId: event.currentTarget.value.toLowerCase() }))
             }
-            pattern="[a-z0-9][a-z0-9_-]*"
+            pattern="[a-z0-9]([a-z0-9_-]{0,30}[a-z0-9])?"
             spellCheck={false}
             type="text"
             value={config.instanceId}

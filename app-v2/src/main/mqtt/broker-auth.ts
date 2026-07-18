@@ -8,7 +8,7 @@ import {
   type MqttPrincipal
 } from '../../shared/mqtt'
 
-const MOSQUITTO_PBKDF2_ITERATIONS = 1_000
+const MOSQUITTO_PBKDF2_ITERATIONS = 100_000
 const MOSQUITTO_HASH_BYTES = 64
 const MOSQUITTO_SALT_BYTES = 64
 
