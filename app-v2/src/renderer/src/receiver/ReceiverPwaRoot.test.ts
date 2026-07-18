@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   RECEIVER_CAPABILITIES,
   RECEIVER_HEARTBEAT_MS,
+  RECEIVER_MAX_CLIENT_MESSAGE_BYTES,
   RECEIVER_MAX_HZ,
   RECEIVER_MAX_SERVER_MESSAGE_BYTES,
   RECEIVER_MIN_HZ,
@@ -20,6 +21,7 @@ const serviceWorkerPath = resolve(
   dirname(fileURLToPath(import.meta.url)),
   '../../public/receiver/v2/service-worker.js'
 )
+const receiverRootPath = resolve(dirname(fileURLToPath(import.meta.url)), 'ReceiverPwaRoot.tsx')
 
 afterEach(() => {
   cleanup()
@@ -30,6 +32,14 @@ afterEach(() => {
 })
 
 describe('receiver PWA recovery', () => {
+  it('uses the shared client message byte limit', () => {
+    const source = readFileSync(receiverRootPath, 'utf8')
+
+    expect(RECEIVER_MAX_CLIENT_MESSAGE_BYTES).toBeGreaterThan(0)
+    expect(source).toMatch(/TextEncoder\(\)\.encode\(serialized\)\.length > RECEIVER_MAX_CLIENT_MESSAGE_BYTES/)
+    expect(source).not.toMatch(/TextEncoder\(\)\.encode\(serialized\)\.length > 4_096/)
+  })
+
   it('retries initial authorization when an offline browser comes back online', async () => {
     let online = false
     Object.defineProperty(window.navigator, 'onLine', {

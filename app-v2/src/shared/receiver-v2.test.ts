@@ -88,6 +88,14 @@ describe('receiver v2 bounded protocol', () => {
     expect(parseReceiverServerMessage(valid.replace('"commands":false', '"commands":true'))).toBeNull()
     expect(parseReceiverServerMessage(valid.replace('"schemaVersion":1', '"schemaVersion":99'))).toBeNull()
     expect(parseReceiverServerMessage(valid.replace('"commands":false', '"commands":false,"extra":"nope"'))).toBeNull()
+    const welcome = JSON.parse(valid) as Record<string, unknown>
+    for (const capabilities of [
+      [],
+      ['ack', 'resync'],
+      ['telemetry.fast.v1', 'telemetry.fast.v1']
+    ]) {
+      expect(parseReceiverServerMessage(JSON.stringify({ ...welcome, capabilities }))).toBeNull()
+    }
   })
 
   it('clamps negotiated rate and evaluates the local latency budget at p95', () => {
