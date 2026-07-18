@@ -14,6 +14,8 @@ import {
   buildMosquittoLoopbackConfig,
   buildMqttCloudEvent,
   createMqttCapabilityGrant,
+  emptyMqttHealthMetrics,
+  mqttSchemaAnnouncement,
   mqttTopics,
   normalizeMqttLocalConfig,
   parseMqttCloudEvent,
@@ -22,6 +24,8 @@ import {
   serializeMqttPayload,
   stableMqttJson,
   validateRetainedPublication,
+  type MqttCloudEvent,
+  type MqttPayloadData,
   type MqttSchemaKind,
   type MqttSessionStateData
 } from './mqtt'
@@ -66,6 +70,41 @@ function canonical(value: unknown): unknown {
   return value
 }
 
+const schemaFiles: Record<MqttSchemaKind, string> = {
+  availability: 'availability.schema.json',
+  telemetry: 'telemetry-state.schema.json',
+  session: 'session-state.schema.json',
+  event: 'race-event.schema.json',
+  health: 'connector-health.schema.json',
+  announcement: 'schema-announcement.schema.json',
+  command: 'command-request.schema.json',
+  result: 'command-result.schema.json'
+}
+
+function contractEnvelope(
+  kind: MqttSchemaKind,
+  data: MqttPayloadData
+): MqttCloudEvent {
+  return buildMqttCloudEvent(kind, data, {
+    id: `contract-${kind}`,
+    instanceId: 'simrig',
+    sequence: '1',
+    sourceTick: '10000',
+    monotonicNs: '1',
+    sessionId: 'iracing:session-1',
+    correlationId: '',
+    causationId: '',
+    partitionKey: `contract:${kind}`,
+    partitionSeq: '1',
+    capabilityGrantId: 'mqtt-target-publisher-simrig-1',
+    observedAt: 10_100
+  })
+}
+
+function cloneEnvelope(envelope: MqttCloudEvent): MqttCloudEvent {
+  return JSON.parse(JSON.stringify(envelope)) as MqttCloudEvent
+}
+
 describe('local MQTT v1 contracts', () => {
   it('is disabled and loopback-only with no credential surface', () => {
     const config = normalizeMqttLocalConfig(undefined)
@@ -73,6 +112,8 @@ describe('local MQTT v1 contracts', () => {
     expect(config.enabled).toBe(false)
     expect(config.host).toBe('127.0.0.1')
     expect(() => normalizeMqttLocalConfig({ host: '192.168.1.10' })).toThrow(/loopback/i)
+    expect(normalizeMqttLocalConfig({ instanceId: 'rig-1' }).instanceId).toBe('rig-1')
+    expect(normalizeMqttLocalConfig({ instanceId: 'rig_' }).instanceId).toBe('simrig')
     expect(() => normalizeMqttLocalConfig({ password: 'do-not-serialize' })).toThrow(MqttContractError)
     expect(stableMqttJson(config)).not.toMatch(/password|token|secret|credential/i)
   })
@@ -150,12 +191,149 @@ describe('local MQTT v1 contracts', () => {
     expect(() =>
       parseMqttCloudEvent(serializeMqttPayload(drifted, 8192), 'telemetry')
     ).toThrow(/schema drift/i)
+    for (const identityDrift of [
+      { ...envelope, producerid: 'other.producer.v1' },
+      { ...envelope, rolepolicyid: 'other.role.policy.v1' }
+    ]) {
+      expect(() =>
+        parseMqttCloudEvent(serializeMqttPayload(identityDrift, 8192), 'telemetry')
+      ).toThrow(/schema drift/i)
+    }
     expect(() =>
       parseMqttCloudEvent(
         serializeMqttPayload({ ...envelope, data: { ...data, futureField: 1 } }, 8192),
         'telemetry'
       )
     ).toThrow(/Unknown telemetry payload field/)
+  })
+
+  it('enforces every required v1 payload field and nested value type', () => {
+    const validPayloads: Record<MqttSchemaKind, MqttPayloadData> = {
+      availability: {
+        schemaVersion: 1,
+        status: 'online',
+        instanceId: 'simrig',
+        observedAt: 10_100,
+        expiresAt: 20_100,
+        generation: 1
+      },
+      telemetry: projectMqttTelemetry(snapshot(), 10_100),
+      session: {
+        schemaVersion: 1,
+        observedAt: 10_100,
+        expiresAt: 20_100,
+        sim: 'iracing',
+        connected: true,
+        sessionRef: 'iracing:session-1',
+        stale: false
+      },
+      event: {
+        schemaVersion: 1,
+        eventId: 'event-1',
+        eventType: 'warning',
+        observedAt: 10_100,
+        expiresAt: 20_100,
+        severity: 'warning',
+        sessionRef: 'iracing:session-1',
+        dedupeKey: 'warning-1',
+        facts: { flag: 'yellow', active: true, carIdx: 4 }
+      },
+      health: {
+        schemaVersion: 1,
+        observedAt: 10_100,
+        expiresAt: 20_100,
+        state: 'online',
+        queueDepth: 0,
+        circuit: 'closed',
+        metrics: emptyMqttHealthMetrics()
+      },
+      announcement: mqttSchemaAnnouncement(10_100),
+      command: {
+        schemaVersion: 1,
+        requestId: 'request-1',
+        capability: 'app.overlay.show',
+        issuedAt: 10_100,
+        expiresAt: 20_100,
+        args: { id: 'gear-speed', enabled: true, opacity: 0.8 }
+      },
+      result: {
+        schemaVersion: 1,
+        requestId: 'request-1',
+        capability: 'app.overlay.show',
+        observedAt: 10_100,
+        expiresAt: 20_100,
+        status: 'ok',
+        duplicate: false,
+        message: 'Overlay shown.'
+      }
+    }
+
+    for (const [kind, data] of Object.entries(validPayloads) as Array<
+      [MqttSchemaKind, MqttPayloadData]
+    >) {
+      const envelope = contractEnvelope(kind, data)
+      expect(() =>
+        parseMqttCloudEvent(serializeMqttPayload(envelope, 16 * 1024), kind)
+      ).not.toThrow()
+
+      const schema = JSON.parse(
+        readFileSync(
+          new URL(`../../../contracts/mqtt/v1/schemas/${schemaFiles[kind]}`, import.meta.url),
+          'utf8'
+        )
+      ) as { required: string[] }
+      for (const requiredField of schema.required) {
+        const missing = cloneEnvelope(envelope)
+        delete (missing.data as unknown as Record<string, unknown>)[requiredField]
+        expect(() =>
+          parseMqttCloudEvent(serializeMqttPayload(missing, 16 * 1024), kind)
+        ).toThrow()
+      }
+    }
+
+    const rejectMutation = (
+      kind: MqttSchemaKind,
+      mutate: (data: Record<string, unknown>) => void
+    ): void => {
+      const malformed = cloneEnvelope(contractEnvelope(kind, validPayloads[kind]))
+      mutate(malformed.data as unknown as Record<string, unknown>)
+      expect(() =>
+        parseMqttCloudEvent(serializeMqttPayload(malformed, 16 * 1024), kind)
+      ).toThrow()
+    }
+
+    rejectMutation('availability', (data) => { data.instanceId = 'rig_' })
+    rejectMutation('telemetry', (data) => { data.connected = 'true' })
+    rejectMutation('telemetry', (data) => { data.activeFlags = ['yellow', 7] })
+    rejectMutation('telemetry', (data) => { data.speedMps = 251 })
+    rejectMutation('session', (data) => { data.carName = 7 })
+    rejectMutation('event', (data) => { data.facts = { nested: { unsafe: true } } })
+    rejectMutation('health', (data) => {
+      const metrics = data.metrics as Record<string, unknown>
+      delete metrics.published
+    })
+    rejectMutation('health', (data) => {
+      const metrics = data.metrics as Record<string, unknown>
+      metrics.received = '0'
+    })
+    rejectMutation('announcement', (data) => {
+      const schemas = data.schemas as Array<Record<string, unknown>>
+      delete schemas[0].fingerprint
+    })
+    rejectMutation('command', (data) => { data.args = { id: { nested: true } } })
+    rejectMutation('result', (data) => { data.duplicate = 'false' })
+    rejectMutation('result', (data) => { data.message = 'x'.repeat(513) })
+
+    const malformedEnvelope = cloneEnvelope(
+      contractEnvelope('telemetry', validPayloads.telemetry)
+    ) as unknown as Record<string, unknown>
+    malformedEnvelope.stale = 'false'
+    expect(() =>
+      parseMqttCloudEvent(
+        serializeMqttPayload(malformedEnvelope, 16 * 1024),
+        'telemetry'
+      )
+    ).toThrow()
   })
 
   it('rejects stale retained state and forbids retaining fast telemetry', () => {
@@ -204,17 +382,7 @@ describe('local MQTT v1 contracts', () => {
   })
 
   it('keeps committed schema fingerprints synchronized with canonical JSON', () => {
-    const files: Record<MqttSchemaKind, string> = {
-      availability: 'availability.schema.json',
-      telemetry: 'telemetry-state.schema.json',
-      session: 'session-state.schema.json',
-      event: 'race-event.schema.json',
-      health: 'connector-health.schema.json',
-      announcement: 'schema-announcement.schema.json',
-      command: 'command-request.schema.json',
-      result: 'command-result.schema.json'
-    }
-    for (const [kind, file] of Object.entries(files) as Array<[MqttSchemaKind, string]>) {
+    for (const [kind, file] of Object.entries(schemaFiles) as Array<[MqttSchemaKind, string]>) {
       const schema = JSON.parse(
         readFileSync(new URL(`../../../contracts/mqtt/v1/schemas/${file}`, import.meta.url), 'utf8')
       ) as { $id?: string }
@@ -253,7 +421,10 @@ describe('local MQTT v1 contracts', () => {
       channels?: Record<string, { address?: string }>
       components?: {
         schemas?: {
-          cloudEvent?: { required?: string[] }
+          cloudEvent?: {
+            required?: string[]
+            properties?: Record<string, { const?: string }>
+          }
         }
       }
     }
@@ -263,6 +434,7 @@ describe('local MQTT v1 contracts', () => {
     expect(document.channels?.event?.address).toContain('/event/')
     expect(source).not.toContain('0.0.0.0')
     expect(source).toContain('type: userPassword')
+    expect(source).toContain('210,000 iterations')
     expect(document.components?.schemas?.cloudEvent?.required).toEqual(
       expect.arrayContaining([
         'sourcetick',
@@ -273,5 +445,9 @@ describe('local MQTT v1 contracts', () => {
         'approvalid'
       ])
     )
+    expect(document.components?.schemas?.cloudEvent?.properties?.producerid?.const)
+      .toBe('ultimate-sim.mqtt-target.v1')
+    expect(document.components?.schemas?.cloudEvent?.properties?.rolepolicyid?.const)
+      .toBe('mqtt.local.connector.v1')
   })
 })

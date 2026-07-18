@@ -7,6 +7,8 @@ import {
   buildMosquittoPasswordFiles,
   buildMqttClientAccessDocument,
   createMqttBrokerAccessSet,
+  MOSQUITTO_PBKDF2_ITERATIONS,
+  mosquittoPasswordHash,
   parseMqttBrokerAccessSet,
   validateMqttTransportAccess,
   verifyMosquittoPasswordHash
@@ -54,11 +56,15 @@ describe('local MQTT broker role access', () => {
     for (const [file, principal] of roles) {
       const [username, encoded] = files[file].trim().split(':')
       expect(username).toBe(access[principal].username)
-      expect(encoded).toMatch(/^\$7\$100000\$/)
+      expect(encoded).toContain(`$7$${MOSQUITTO_PBKDF2_ITERATIONS}$`)
       expect(encoded).not.toContain(access[principal].password)
       expect(verifyMosquittoPasswordHash(access[principal].password, encoded)).toBe(true)
       expect(verifyMosquittoPasswordHash('wrong-password', encoded)).toBe(false)
     }
+    expect(MOSQUITTO_PBKDF2_ITERATIONS).toBeGreaterThanOrEqual(100_000)
+    expect(() =>
+      mosquittoPasswordHash('password', new Uint8Array(64), 99_999)
+    ).toThrow(/parameters/i)
   })
 
   it('binds transport access to the capability principal', () => {

@@ -8,7 +8,8 @@ import {
   type MqttPrincipal
 } from '../../shared/mqtt'
 
-const MOSQUITTO_PBKDF2_ITERATIONS = 100_000
+export const MOSQUITTO_PBKDF2_ITERATIONS = 210_000
+const MOSQUITTO_MIN_PBKDF2_ITERATIONS = 100_000
 const MOSQUITTO_HASH_BYTES = 64
 const MOSQUITTO_SALT_BYTES = 64
 
@@ -108,7 +109,10 @@ export function mosquittoPasswordHash(
   iterations = MOSQUITTO_PBKDF2_ITERATIONS
 ): string {
   const salt = Buffer.from(saltInput)
-  if ((salt.byteLength !== 12 && salt.byteLength !== MOSQUITTO_SALT_BYTES) || iterations < 1) {
+  if (
+    (salt.byteLength !== 12 && salt.byteLength !== MOSQUITTO_SALT_BYTES) ||
+    iterations < MOSQUITTO_MIN_PBKDF2_ITERATIONS
+  ) {
     throw new Error('Invalid Mosquitto password hash parameters.')
   }
   const hash = pbkdf2Sync(password, salt, iterations, MOSQUITTO_HASH_BYTES, 'sha512')
@@ -119,7 +123,7 @@ export function verifyMosquittoPasswordHash(password: string, encoded: string): 
   const parts = encoded.split('$')
   if (parts.length !== 5 || parts[0] !== '' || parts[1] !== '7') return false
   const iterations = Number(parts[2])
-  if (!Number.isInteger(iterations) || iterations < 1) return false
+  if (!Number.isInteger(iterations) || iterations < MOSQUITTO_MIN_PBKDF2_ITERATIONS) return false
   try {
     const salt = Buffer.from(parts[3], 'base64')
     const expected = Buffer.from(parts[4], 'base64')

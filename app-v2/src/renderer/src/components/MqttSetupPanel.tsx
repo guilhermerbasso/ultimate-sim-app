@@ -2,6 +2,7 @@ import { type ReactElement, useEffect, useMemo, useState } from 'react'
 import {
   DEFAULT_MQTT_LOCAL_CONFIG,
   MQTT_CHANNELS,
+  MQTT_INSTANCE_ID_PATTERN,
   stableMqttJson,
   type MqttContractSummary,
   type MqttLocalConfig,
@@ -266,7 +267,7 @@ export function MqttSetupPanel({ language, showToast }: MqttSetupPanelProps): Re
             onChange={(event) =>
               setConfig((current) => ({ ...current, instanceId: event.currentTarget.value.toLowerCase() }))
             }
-            pattern="[a-z0-9]([a-z0-9_-]{0,30}[a-z0-9])?"
+            pattern={MQTT_INSTANCE_ID_PATTERN}
             spellCheck={false}
             type="text"
             value={config.instanceId}

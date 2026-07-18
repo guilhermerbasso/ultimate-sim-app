@@ -8,6 +8,7 @@ export const MQTT_PRODUCER_ID = 'ultimate-sim.mqtt-target.v1' as const
 export const MQTT_CAPABILITY_EPOCH = 1 as const
 export const MQTT_MAX_QUEUE_DEPTH = 64 as const
 export const MQTT_COMMAND_CACHE_SIZE = 256 as const
+export const MQTT_INSTANCE_ID_PATTERN = '[a-z0-9](?:[a-z0-9_-]{0,30}[a-z0-9])?' as const
 
 export const MQTT_CHANNELS = {
   getConfig: 'mqtt:config:get',
@@ -488,7 +489,7 @@ export class MqttContractError extends Error {
 }
 
 const SECRET_KEY = /(?:password|passwd|secret|token|credential|authorization|cookie|privatekey|apikey)/i
-const INSTANCE_ID = /^[a-z0-9](?:[a-z0-9_-]{0,30}[a-z0-9])?$/
+const INSTANCE_ID = new RegExp(`^${MQTT_INSTANCE_ID_PATTERN}$`)
 const REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$/
 const TOPIC_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const ENVELOPE_KEYS = new Set([
@@ -1107,104 +1108,326 @@ export function serializeMqttPayload(value: unknown, maxBytes: number): Uint8Arr
   return encoded
 }
 
-function stringField(value: Record<string, unknown>, key: string): string {
-  if (typeof value[key] !== 'string') throw new MqttContractError(`Missing string field ${key}.`, 'invalid-payload')
-  return value[key] as string
+interface StringFieldOptions {
+  minLength?: number
+  maxLength?: number
+  pattern?: RegExp
 }
 
-function numberField(value: Record<string, unknown>, key: string): number {
-  if (!finite(value[key])) throw new MqttContractError(`Missing numeric field ${key}.`, 'invalid-payload')
-  return value[key] as number
+interface NumberFieldOptions {
+  integer?: boolean
+  min?: number
+  max?: number
+}
+
+const MQTT_CONNECTION_STATES = new Set<MqttConnectionState>([
+  'disabled',
+  'connecting',
+  'online',
+  'reconnecting',
+  'stopping',
+  'error'
+])
+const MQTT_RESULT_STATUSES = new Set<MqttCommandResultData['status']>([
+  'ok',
+  'denied',
+  'expired',
+  'unsupported',
+  'failed'
+])
+const MQTT_SCHEMA_KINDS = new Set<MqttSchemaKind>([
+  'availability',
+  'telemetry',
+  'session',
+  'event',
+  'health',
+  'announcement',
+  'command',
+  'result'
+])
+const MQTT_HEALTH_METRIC_KEYS: ReadonlyArray<keyof MqttHealthMetrics> = [
+  'published',
+  'received',
+  'denied',
+  'duplicates',
+  'schemaRejects',
+  'staleRetainedCleared',
+  'rateLimited',
+  'oversized',
+  'overloadDropped',
+  'coalesced',
+  'reconnects',
+  'resyncs',
+  'publishFailures'
+]
+
+function hasField(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key)
+}
+
+function stringField(
+  value: Record<string, unknown>,
+  key: string,
+  options: StringFieldOptions = {}
+): string {
+  const field = value[key]
+  if (typeof field !== 'string') {
+    throw new MqttContractError(`Missing string field ${key}.`, 'invalid-payload')
+  }
+  if (
+    (options.minLength !== undefined && field.length < options.minLength) ||
+    (options.maxLength !== undefined && field.length > options.maxLength) ||
+    (options.pattern && !options.pattern.test(field))
+  ) {
+    throw new MqttContractError(`Invalid string field ${key}.`, 'invalid-payload')
+  }
+  return field
+}
+
+function optionalStringField(
+  value: Record<string, unknown>,
+  key: string,
+  options: StringFieldOptions = {}
+): void {
+  if (hasField(value, key)) stringField(value, key, options)
+}
+
+function numberField(
+  value: Record<string, unknown>,
+  key: string,
+  options: NumberFieldOptions = {}
+): number {
+  const field = value[key]
+  if (
+    !finite(field) ||
+    (options.integer && !Number.isInteger(field)) ||
+    (options.min !== undefined && field < options.min) ||
+    (options.max !== undefined && field > options.max)
+  ) {
+    throw new MqttContractError(`Missing or invalid numeric field ${key}.`, 'invalid-payload')
+  }
+  return field
+}
+
+function optionalNumberField(
+  value: Record<string, unknown>,
+  key: string,
+  options: NumberFieldOptions = {}
+): void {
+  if (hasField(value, key)) numberField(value, key, options)
+}
+
+function booleanField(value: Record<string, unknown>, key: string): boolean {
+  if (typeof value[key] !== 'boolean') {
+    throw new MqttContractError(`Missing boolean field ${key}.`, 'invalid-payload')
+  }
+  return value[key] as boolean
+}
+
+function optionalBooleanField(value: Record<string, unknown>, key: string): void {
+  if (hasField(value, key)) booleanField(value, key)
+}
+
+function recordField(value: Record<string, unknown>, key: string): Record<string, unknown> {
+  const field = value[key]
+  if (!isRecord(field)) {
+    throw new MqttContractError(`Missing object field ${key}.`, 'invalid-payload')
+  }
+  return field
+}
+
+function assertObjectKeys(
+  value: Record<string, unknown>,
+  allowed: ReadonlySet<string>,
+  label: string
+): void {
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      throw new MqttContractError(`Unknown ${label} field ${key}.`, 'schema-drift')
+    }
+  }
+}
+
+function scalarMapField(
+  value: Record<string, unknown>,
+  key: string,
+  maxProperties: number
+): void {
+  const field = recordField(value, key)
+  if (Object.keys(field).length > maxProperties) {
+    throw new MqttContractError(`${key} exceeds its property limit.`, 'invalid-payload')
+  }
+  for (const entry of Object.values(field)) {
+    if (typeof entry !== 'string' && typeof entry !== 'boolean' && !finite(entry)) {
+      throw new MqttContractError(`${key} values must be JSON scalars.`, 'invalid-payload')
+    }
+  }
 }
 
 function validatePayloadData(kind: MqttSchemaKind, data: Record<string, unknown>): void {
-  for (const key of Object.keys(data)) {
-    if (!PAYLOAD_KEYS[kind].has(key)) {
-      throw new MqttContractError(`Unknown ${kind} payload field ${key}.`, 'schema-drift')
-    }
-  }
+  assertObjectKeys(data, PAYLOAD_KEYS[kind], `${kind} payload`)
   if (data.schemaVersion !== MQTT_CONTRACT_VERSION) {
     throw new MqttContractError('Unsupported MQTT payload schema version.', 'schema-drift')
   }
+
   if (kind === 'availability') {
     if (data.status !== 'online' && data.status !== 'offline') {
       throw new MqttContractError('Invalid availability status.', 'invalid-payload')
     }
-    stringField(data, 'instanceId')
-    numberField(data, 'observedAt')
-    numberField(data, 'expiresAt')
-  } else if (kind === 'telemetry') {
-    stringField(data, 'sim')
-    numberField(data, 'observedAt')
-    numberField(data, 'expiresAt')
-    numberField(data, 'speedMps')
-    numberField(data, 'rpm')
-    numberField(data, 'gear')
-    numberField(data, 'throttleRatio')
-    numberField(data, 'brakeRatio')
-    numberField(data, 'clutchRatio')
-    if (typeof data.connected !== 'boolean') throw new MqttContractError('Missing boolean field connected.', 'invalid-payload')
-    if (!Array.isArray(data.activeFlags) || data.activeFlags.some((f: unknown) => typeof f !== 'string')) {
-      throw new MqttContractError('Invalid activeFlags: must be an array of strings.', 'invalid-payload')
+    stringField(data, 'instanceId', { minLength: 1, maxLength: 32, pattern: INSTANCE_ID })
+    numberField(data, 'observedAt', { integer: true, min: 0 })
+    numberField(data, 'expiresAt', { integer: true, min: 0 })
+    numberField(data, 'generation', { integer: true, min: 0 })
+    return
+  }
+
+  if (kind === 'telemetry') {
+    numberField(data, 'observedAt', { integer: true, min: 0 })
+    numberField(data, 'expiresAt', { integer: true, min: 0 })
+    stringField(data, 'sim', { minLength: 1, maxLength: 32 })
+    booleanField(data, 'connected')
+    numberField(data, 'speedMps', { min: 0, max: 250 })
+    numberField(data, 'rpm', { min: 0, max: 30_000 })
+    numberField(data, 'gear', { integer: true, min: -1, max: 20 })
+    numberField(data, 'throttleRatio', { min: 0, max: 1 })
+    numberField(data, 'brakeRatio', { min: 0, max: 1 })
+    numberField(data, 'clutchRatio', { min: 0, max: 1 })
+    const flags = data.activeFlags
+    if (
+      !Array.isArray(flags) ||
+      flags.length > 16 ||
+      flags.some((flag) => typeof flag !== 'string' || flag.length > 32) ||
+      new Set(flags).size !== flags.length
+    ) {
+      throw new MqttContractError('Invalid telemetry activeFlags.', 'invalid-payload')
     }
-    if (typeof data.stale !== 'boolean') throw new MqttContractError('Missing boolean field stale.', 'invalid-payload')
-  } else if (kind === 'session') {
-    stringField(data, 'sim')
-    stringField(data, 'sessionRef')
-    numberField(data, 'observedAt')
-    numberField(data, 'expiresAt')
-  } else if (kind === 'event') {
-    stringField(data, 'eventId')
+    booleanField(data, 'stale')
+    optionalNumberField(data, 'lapDistanceRatio', { min: 0, max: 1 })
+    optionalNumberField(data, 'deltaToBestSec')
+    optionalNumberField(data, 'fuelLiters', { min: 0 })
+    return
+  }
+
+  if (kind === 'session') {
+    numberField(data, 'observedAt', { integer: true, min: 0 })
+    numberField(data, 'expiresAt', { integer: true, min: 0 })
+    stringField(data, 'sim', { minLength: 1, maxLength: 32 })
+    booleanField(data, 'connected')
+    stringField(data, 'sessionRef', { minLength: 1, maxLength: 128 })
+    booleanField(data, 'stale')
+    optionalStringField(data, 'sessionType', { maxLength: 64 })
+    optionalStringField(data, 'sessionState', { maxLength: 64 })
+    optionalStringField(data, 'carName', { maxLength: 128 })
+    optionalStringField(data, 'trackName', { maxLength: 128 })
+    optionalStringField(data, 'trackConfigName', { maxLength: 128 })
+    optionalNumberField(data, 'currentLap', { min: 0 })
+    optionalNumberField(data, 'lapsRemaining', { min: 0 })
+    optionalNumberField(data, 'position', { min: 0 })
+    optionalNumberField(data, 'classPosition', { min: 0 })
+    optionalNumberField(data, 'fuelLiters', { min: 0 })
+    optionalNumberField(data, 'trackTempC')
+    optionalNumberField(data, 'airTempC')
+    optionalNumberField(data, 'wetnessRatio', { min: 0, max: 1 })
+    optionalBooleanField(data, 'raining')
+    optionalStringField(data, 'primaryFlag', { maxLength: 32 })
+    return
+  }
+
+  if (kind === 'event') {
+    stringField(data, 'eventId', { minLength: 1, maxLength: 256 })
     const eventType = stringField(data, 'eventType')
     if (!MQTT_EVENT_TYPES.includes(eventType as MqttEventType)) {
       throw new MqttContractError('Unknown race event type.', 'schema-drift')
     }
-    stringField(data, 'dedupeKey')
-    numberField(data, 'observedAt')
-    numberField(data, 'expiresAt')
-    if (!isRecord(data.facts)) throw new MqttContractError('Missing facts object.', 'invalid-payload')
-    for (const [k, v] of Object.entries(data.facts as Record<string, unknown>)) {
-      if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') {
-        throw new MqttContractError(`Invalid facts value for key ${k}: must be string, number, or boolean.`, 'invalid-payload')
-      }
+    numberField(data, 'observedAt', { integer: true, min: 0 })
+    numberField(data, 'expiresAt', { integer: true, min: 0 })
+    const severity = stringField(data, 'severity')
+    if (!['info', 'notice', 'warning'].includes(severity)) {
+      throw new MqttContractError('Invalid race event severity.', 'invalid-payload')
     }
-  } else if (kind === 'health') {
-    stringField(data, 'state')
-    numberField(data, 'observedAt')
-    numberField(data, 'expiresAt')
-    if (!isRecord(data.metrics)) throw new MqttContractError('Missing health metrics.', 'invalid-payload')
-  } else if (kind === 'announcement') {
-    numberField(data, 'observedAt')
-    numberField(data, 'expiresAt')
-    if (!Array.isArray(data.schemas)) throw new MqttContractError('Missing schema list.', 'invalid-payload')
-  } else if (kind === 'command') {
+    stringField(data, 'sessionRef', { minLength: 1, maxLength: 128 })
+    stringField(data, 'dedupeKey', { minLength: 1, maxLength: 256 })
+    scalarMapField(data, 'facts', 24)
+    return
+  }
+
+  if (kind === 'health') {
+    numberField(data, 'observedAt', { integer: true, min: 0 })
+    numberField(data, 'expiresAt', { integer: true, min: 0 })
+    const state = stringField(data, 'state')
+    if (!MQTT_CONNECTION_STATES.has(state as MqttConnectionState)) {
+      throw new MqttContractError('Invalid connector state.', 'invalid-payload')
+    }
+    numberField(data, 'queueDepth', { integer: true, min: 0, max: MQTT_MAX_QUEUE_DEPTH })
+    const circuit = stringField(data, 'circuit')
+    if (!['closed', 'open', 'half-open'].includes(circuit)) {
+      throw new MqttContractError('Invalid connector circuit state.', 'invalid-payload')
+    }
+    const metrics = recordField(data, 'metrics')
+    assertObjectKeys(metrics, new Set<string>(MQTT_HEALTH_METRIC_KEYS), 'health metric')
+    for (const key of MQTT_HEALTH_METRIC_KEYS) {
+      numberField(metrics, key, { integer: true, min: 0 })
+    }
+    return
+  }
+
+  if (kind === 'announcement') {
+    numberField(data, 'observedAt', { integer: true, min: 0 })
+    numberField(data, 'expiresAt', { integer: true, min: 0 })
+    if (data.topicVersion !== MQTT_TOPIC_VERSION) {
+      throw new MqttContractError('Invalid schema announcement topic version.', 'schema-drift')
+    }
+    const schemas = data.schemas
+    if (!Array.isArray(schemas) || schemas.length !== MQTT_SCHEMA_KINDS.size) {
+      throw new MqttContractError('Invalid schema announcement list.', 'invalid-payload')
+    }
+    const schemaKeys = new Set(['kind', 'id', 'fingerprint'])
+    for (const schema of schemas) {
+      if (!isRecord(schema)) {
+        throw new MqttContractError('Invalid schema announcement entry.', 'invalid-payload')
+      }
+      assertObjectKeys(schema, schemaKeys, 'schema announcement')
+      const schemaKind = stringField(schema, 'kind')
+      if (!MQTT_SCHEMA_KINDS.has(schemaKind as MqttSchemaKind)) {
+        throw new MqttContractError('Unknown announced schema kind.', 'schema-drift')
+      }
+      stringField(schema, 'id', { minLength: 1, maxLength: 128 })
+      stringField(schema, 'fingerprint', { pattern: /^[a-f0-9]{64}$/ })
+    }
+    return
+  }
+
+  if (kind === 'command') {
     const requestId = stringField(data, 'requestId')
     const capability = stringField(data, 'capability')
-    if (!REQUEST_ID.test(requestId)) throw new MqttContractError('Invalid command request ID.', 'invalid-payload')
+    if (!REQUEST_ID.test(requestId)) {
+      throw new MqttContractError('Invalid command request ID.', 'invalid-payload')
+    }
     if (!MQTT_COMMAND_CAPABILITIES.includes(capability as MqttCommandCapability)) {
       throw new MqttContractError('Command capability is not allowlisted.', 'acl-denied')
     }
-    numberField(data, 'issuedAt')
-    numberField(data, 'expiresAt')
-    if (!isRecord(data.args)) throw new MqttContractError('Command args must be an object.', 'invalid-payload')
-    for (const [k, v] of Object.entries(data.args as Record<string, unknown>)) {
-      if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') {
-        throw new MqttContractError(`Invalid args value for key ${k}: must be string, number, or boolean.`, 'invalid-payload')
-      }
-    }
-  } else if (kind === 'result') {
-    stringField(data, 'requestId')
-    const capability = stringField(data, 'capability')
-    const status = stringField(data, 'status')
-    if (!MQTT_COMMAND_CAPABILITIES.includes(capability as MqttCommandCapability)) {
-      throw new MqttContractError('Unknown command result capability.', 'schema-drift')
-    }
-    if (!['ok', 'denied', 'expired', 'unsupported', 'failed'].includes(status)) {
-      throw new MqttContractError('Unknown command result status.', 'schema-drift')
-    }
-    numberField(data, 'observedAt')
-    numberField(data, 'expiresAt')
+    numberField(data, 'issuedAt', { integer: true, min: 0 })
+    numberField(data, 'expiresAt', { integer: true, min: 0 })
+    scalarMapField(data, 'args', 16)
+    return
   }
+
+  const requestId = stringField(data, 'requestId')
+  const capability = stringField(data, 'capability')
+  const status = stringField(data, 'status')
+  if (!REQUEST_ID.test(requestId)) {
+    throw new MqttContractError('Invalid command result request ID.', 'invalid-payload')
+  }
+  if (!MQTT_COMMAND_CAPABILITIES.includes(capability as MqttCommandCapability)) {
+    throw new MqttContractError('Unknown command result capability.', 'schema-drift')
+  }
+  if (!MQTT_RESULT_STATUSES.has(status as MqttCommandResultData['status'])) {
+    throw new MqttContractError('Unknown command result status.', 'schema-drift')
+  }
+  numberField(data, 'observedAt', { integer: true, min: 0 })
+  numberField(data, 'expiresAt', { integer: true, min: 0 })
+  booleanField(data, 'duplicate')
+  stringField(data, 'message', { maxLength: 512 })
 }
 
 export function parseMqttCloudEvent<T extends MqttPayloadData>(
@@ -1254,6 +1477,13 @@ export function parseMqttCloudEvent<T extends MqttPayloadData>(
   ]) {
     stringField(parsed, key)
   }
+  optionalStringField(parsed, 'subject')
+  if (!['D0', 'D1', 'D2', 'D3', 'D4', 'D5'].includes(parsed.privacyclass as string)) {
+    throw new MqttContractError('Invalid MQTT privacy class.', 'invalid-payload')
+  }
+  booleanField(parsed, 'stale')
+  booleanField(parsed, 'derived')
+  booleanField(parsed, 'gap')
   if (!isRecord(parsed.data)) throw new MqttContractError('MQTT envelope data must be an object.', 'invalid-payload')
   validatePayloadData(kind, parsed.data)
   return parsed as unknown as MqttCloudEvent<T>

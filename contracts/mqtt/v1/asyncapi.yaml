@@ -136,9 +136,10 @@ components:
     localRolePassword:
       type: userPassword
       description: >-
-        App-generated local role access. Publisher access is OS-protected;
-        client role files stay in the owner-local runtime bundle. No secret
-        appears in MQTT payloads or app settings.
+        App-generated local role access. Password files use PBKDF2-HMAC-SHA512
+        with 210,000 iterations. Publisher access is OS-protected; client role
+        files stay in the owner-local runtime bundle. No secret appears in MQTT
+        payloads or app settings.
   parameters:
     instanceId:
       description: Local app instance identifier.
@@ -225,7 +226,7 @@ components:
         sessionid:
           type: string
         producerid:
-          type: string
+          const: ultimate-sim.mqtt-target.v1
         schemafp:
           type: string
           pattern: '^[a-f0-9]{64}$'
@@ -236,7 +237,7 @@ components:
         privacyclass:
           enum: [D0, D1, D2, D3, D4, D5]
         rolepolicyid:
-          type: string
+          const: mqtt.local.connector.v1
         capgrantid:
           type: string
         consentepoch:
