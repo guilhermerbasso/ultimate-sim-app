@@ -180,12 +180,18 @@ components:
         - datacontenttype
         - dataschema
         - sequence
+        - sourcetick
         - monotonicns
+        - sessionid
         - producerid
         - schemafp
+        - correlationid
+        - causationid
         - privacyclass
         - rolepolicyid
         - capgrantid
+        - consentepoch
+        - approvalid
         - partitionkey
         - partitionseq
         - stale

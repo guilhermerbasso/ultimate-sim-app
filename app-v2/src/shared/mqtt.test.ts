@@ -251,6 +251,11 @@ describe('local MQTT v1 contracts', () => {
       asyncapi?: string
       servers?: Record<string, { host?: string }>
       channels?: Record<string, { address?: string }>
+      components?: {
+        schemas?: {
+          cloudEvent?: { required?: string[] }
+        }
+      }
     }
     expect(document.asyncapi).toBe('3.0.0')
     expect(Object.values(document.servers ?? {}).every((server) => server.host?.startsWith('127.0.0.1:'))).toBe(true)
@@ -258,5 +263,15 @@ describe('local MQTT v1 contracts', () => {
     expect(document.channels?.event?.address).toContain('/event/')
     expect(source).not.toContain('0.0.0.0')
     expect(source).toContain('type: userPassword')
+    expect(document.components?.schemas?.cloudEvent?.required).toEqual(
+      expect.arrayContaining([
+        'sourcetick',
+        'sessionid',
+        'correlationid',
+        'causationid',
+        'consentepoch',
+        'approvalid'
+      ])
+    )
   })
 })
