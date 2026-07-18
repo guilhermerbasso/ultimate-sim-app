@@ -192,13 +192,24 @@ export function inferBuiltInDashboardIds(
       // A broken preset is validated elsewhere; it cannot classify stored data.
     }
   }
+  const candidates = dashboards.map((dashboard) => ({
+    dashboard,
+    fingerprint: dashboardBuiltinFingerprint(dashboard),
+    identity: dashboardBuiltinIdentity(dashboard)
+  }))
+  const identitiesWithExactCandidates = new Set(
+    candidates
+      .filter(({ fingerprint }) => presetFingerprints.has(fingerprint))
+      .map(({ identity }) => identity)
+  )
   const matches = new Map<string, Dashboard[]>()
-  for (const dashboard of dashboards) {
-    const fingerprint = dashboardBuiltinFingerprint(dashboard)
-    const identity = dashboardBuiltinIdentity(dashboard)
+  for (const { dashboard, fingerprint, identity } of candidates) {
     const matchKey = presetFingerprints.has(fingerprint)
       ? `fingerprint:${fingerprint}`
-      : !dashboard.thirdParty && !dashboard.previewPng && presetIdentities.has(identity)
+      : !identitiesWithExactCandidates.has(identity) &&
+          !dashboard.thirdParty &&
+          !dashboard.previewPng &&
+          presetIdentities.has(identity)
         ? `identity:${identity}`
         : null
     if (!matchKey) continue
