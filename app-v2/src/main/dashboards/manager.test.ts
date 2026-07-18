@@ -9,7 +9,9 @@ import { buttonPanelPlaylistItem } from '../../shared/touch-panel'
 import type { ModuleContext } from '../module-context'
 import {
   applyThirdPartyImportMetadata,
+  dashboardBuiltinFingerprint,
   DashboardManager,
+  inferBuiltInDashboardIds,
   openablePlaylistItems,
   resolveCycleStep,
   sameCockpitTarget,
@@ -333,6 +335,39 @@ function storageIoError(code: string, message: string): NodeJS.ErrnoException {
   return Object.assign(new Error(message), { code })
 }
 
+describe('dashboard origin classification', () => {
+  it('classifies only the oldest exact built-in copy without mutating dashboards', () => {
+    const seeded: Dashboard = {
+      id: 'seeded',
+      name: 'Built-in',
+      width: 1024,
+      height: 600,
+      bg: '#000000',
+      elements: [],
+      createdAt: 10,
+      updatedAt: 10
+    }
+    const duplicated: Dashboard = {
+      ...structuredClone(seeded),
+      id: 'duplicated',
+      createdAt: 20,
+      updatedAt: 20
+    }
+    const original = structuredClone([seeded, duplicated])
+    const preset = {
+      id: 'preset',
+      name: 'Built-in',
+      build: () => ({ ...structuredClone(seeded), id: 'fresh', createdAt: 30, updatedAt: 30 })
+    }
+
+    expect(dashboardBuiltinFingerprint(seeded)).toBe(dashboardBuiltinFingerprint(preset.build()))
+    expect(inferBuiltInDashboardIds([seeded, duplicated], [preset])).toEqual(new Set(['seeded']))
+    expect(inferBuiltInDashboardIds([{ ...seeded, id: 'older-version', bg: '#111111' }], [preset]))
+      .toEqual(new Set(['older-version']))
+    expect([seeded, duplicated]).toEqual(original)
+  })
+})
+
 describe('DashboardManager restart restoration', () => {
   let userData: string
 
@@ -342,6 +377,30 @@ describe('DashboardManager restart restoration', () => {
 
   afterEach(() => {
     rmSync(userData, { recursive: true, force: true })
+  })
+
+  it('persists built-in origin separately and treats an explicit save as user-added', async () => {
+    const dashboard = raceTrafficAttack()
+    persistDashboard(userData, dashboard)
+    const originsDir = join(userData, 'dashboards', '.dashboard-metadata')
+    mkdirSync(originsDir, { recursive: true })
+    writeFileSync(join(originsDir, 'dashboard-origins.json'), JSON.stringify({
+      schemaVersion: 1,
+      builtInIds: [dashboard.id]
+    }), 'utf8')
+
+    const manager = makeHeadlessManager(userData)
+    await manager.load()
+    expect(manager.list().find((item) => item.id === dashboard.id)?.builtIn).toBe(true)
+
+    await manager.save({ ...dashboard, name: `${dashboard.name} saved` })
+    expect(manager.list().find((item) => item.id === dashboard.id)?.builtIn).toBe(false)
+    const persistedDashboard = JSON.parse(readFileSync(join(userData, 'dashboards', `${dashboard.id}.json`), 'utf8')) as Dashboard
+    expect(persistedDashboard).not.toHaveProperty('builtIn')
+
+    const restarted = makeHeadlessManager(userData)
+    await restarted.load()
+    expect(restarted.list().find((item) => item.id === dashboard.id)?.builtIn).toBe(false)
   })
 
   it('restores Race Traffic Attack overlay widgets without rewriting persisted data', async () => {

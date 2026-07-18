@@ -550,6 +550,8 @@ export interface DashboardSummary extends DashboardStorageMetadata {
   createdAt?: number
   updatedAt?: number
   hidden?: boolean
+  /** Registry metadata only; never persisted into the dashboard document. */
+  builtIn?: boolean
 }
 
 export interface DashboardDisplayInfo {
