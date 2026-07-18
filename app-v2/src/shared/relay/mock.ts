@@ -5,6 +5,7 @@ import {
   RELAY_EVENT_KINDS,
   RELAY_PROVIDER_CONTRACT,
   RELAY_SCHEMA_VERSION,
+  type RelayAdmissionReceipt,
   type RelayCanonicalTuple,
   type RelayCapability,
   type RelayCapabilityEnvelope,
@@ -32,7 +33,9 @@ import {
 } from './contracts'
 import {
   RelayPolicyError,
+  assertRelayAdmissionReceiptShape,
   assertRelayEnvelopeShape,
+  requiredCapabilityForEvent,
   validateEnvelopeDataPolicy,
   validateRelayDraft
 } from './policy'
@@ -197,9 +200,63 @@ function measureRelayEnvelope(envelope: RelaySyncEnvelope): RelayEnvelopeMeasure
   }
 }
 
+function quotaUsageAfter(
+  usageBefore: RelayQuotaUsage,
+  measurement: RelayEnvelopeMeasurement
+): RelayQuotaUsage {
+  return {
+    tenantObjects: usageBefore.tenantObjects + 1,
+    deviceObjects: usageBefore.deviceObjects + 1,
+    documentObjects: usageBefore.documentObjects + 1,
+    tenantStoredBytes: usageBefore.tenantStoredBytes + measurement.envelopeBytes
+  }
+}
+
+function quotaAllows(
+  limits: RelayQuotaPolicy,
+  usageAfter: RelayQuotaUsage,
+  measurement: RelayEnvelopeMeasurement
+): boolean {
+  return usageAfter.tenantObjects <= limits.maxObjectsPerTenant &&
+    usageAfter.deviceObjects <= limits.maxObjectsPerDevice &&
+    usageAfter.documentObjects <= limits.maxObjectsPerDocument &&
+    usageAfter.tenantStoredBytes <= limits.maxStoredBytesPerTenant &&
+    measurement.envelopeBytes <= limits.maxEnvelopeBytes &&
+    measurement.referenceCount <= limits.maxReferenceCount &&
+    measurement.referenceBytes <= limits.maxReferenceBytes
+}
+
+function admissionReceiptId(
+  receipt: Omit<RelayAdmissionReceipt, 'receiptId' | 'signature'>
+): string {
+  return `admission-${deterministicDigest(stableSerialize(receipt)).slice(0, 32)}`
+}
+
+function assertAdmissionRecordBinding(
+  envelope: RelaySyncEnvelope,
+  admission: unknown,
+  storedAt: number
+): asserts admission is RelayAdmissionReceipt {
+  assertRelayAdmissionReceiptShape(admission)
+  if (admission.envelopeId !== envelope.envelopeId ||
+      admission.envelopeDigest !== deterministicDigest(stableSerialize(envelope)) ||
+      admission.tenantId !== envelope.tenantId ||
+      admission.documentId !== envelope.documentId ||
+      admission.senderDeviceId !== envelope.senderDeviceId ||
+      admission.senderSigningKeyId !== envelope.senderSigningKeyId ||
+      admission.admittedAt !== storedAt) {
+    throw new RelayPolicyError(
+      'admission-proof-invalid',
+      'Admission receipt is not bound to this exact stored envelope and admission time.'
+    )
+  }
+}
+
 export class DeterministicRelaySecurity {
   private readonly authorityKeyId = 'mock-authority-key-v1'
   private readonly authoritySecret = 'test-only-authority-secret'
+  private readonly admissionAuthorityKeyId = 'mock-admission-authority-key-v1'
+  private readonly admissionAuthoritySecret = 'test-only-admission-authority-secret'
   private readonly identities = new Map<string, MockIdentityRegistryEntry>()
   private readonly identityByDevice = new Map<string, RelayIdentityEnvelope>()
   private readonly documents = new Map<string, MockDocumentSecurityState>()
@@ -478,6 +535,127 @@ export class DeterministicRelaySecurity {
     return envelope
   }
 
+  issueAdmissionReceipt(
+    envelope: RelaySyncEnvelope,
+    admittedAt: number,
+    limits: RelayQuotaPolicy,
+    usageBefore: RelayQuotaUsage,
+    priorReplayCounter: number
+  ): RelayAdmissionReceipt {
+    const validatedEnvelope = this.validateEnvelope(envelope, admittedAt)
+    if (validatedEnvelope.replayCounter <= priorReplayCounter) {
+      throw new RelayPolicyError('replay', 'Replay counter is not greater than the last accepted counter.')
+    }
+    const state = this.requireDocument(validatedEnvelope.documentId)
+    const measurement = measureRelayEnvelope(validatedEnvelope)
+    const usageAfter = quotaUsageAfter(usageBefore, measurement)
+    if (!quotaAllows(limits, usageAfter, measurement)) {
+      throw new RelayPolicyError('quota-exceeded', 'Relay quota denied the write before provider storage.')
+    }
+
+    const policy = {
+      identityEpoch: validatedEnvelope.identity.identityEpoch,
+      capabilityGrantId: validatedEnvelope.capability.grantId,
+      capabilityDigest: deterministicDigest(stableSerialize(validatedEnvelope.capability)),
+      membershipEpoch: validatedEnvelope.membershipEpoch,
+      keyEpoch: validatedEnvelope.keyEpoch,
+      documentConsentEpoch: state.consentEpoch,
+      capabilityConsentEpoch: validatedEnvelope.capability.consentEpoch,
+      requiredCapability: requiredCapabilityForEvent(validatedEnvelope.eventKind),
+      replayCounter: validatedEnvelope.replayCounter,
+      priorReplayCounter,
+      identityActive: true as const,
+      memberAtAdmission: true as const,
+      consentGrantedAtAdmission: state.consentGranted
+    }
+    const quota = {
+      limits: cloneJson(limits),
+      limitsDigest: deterministicDigest(stableSerialize(limits)),
+      usageBefore: cloneJson(usageBefore),
+      usageAfter,
+      envelopeBytes: measurement.envelopeBytes,
+      referenceCount: measurement.referenceCount,
+      referenceBytes: measurement.referenceBytes
+    }
+    const core: Omit<RelayAdmissionReceipt, 'receiptId' | 'signature'> = {
+      schemaVersion: RELAY_SCHEMA_VERSION,
+      providerContract: RELAY_PROVIDER_CONTRACT,
+      envelopeId: validatedEnvelope.envelopeId,
+      envelopeDigest: deterministicDigest(stableSerialize(validatedEnvelope)),
+      tenantId: validatedEnvelope.tenantId,
+      documentId: validatedEnvelope.documentId,
+      senderDeviceId: validatedEnvelope.senderDeviceId,
+      senderSigningKeyId: validatedEnvelope.senderSigningKeyId,
+      admittedAt,
+      policy,
+      quota,
+      issuerKeyId: this.admissionAuthorityKeyId
+    }
+    const unsigned: Omit<RelayAdmissionReceipt, 'signature'> = {
+      ...core,
+      receiptId: admissionReceiptId(core)
+    }
+    return {
+      ...unsigned,
+      signature: deterministicSign(unsigned, this.admissionAuthoritySecret)
+    }
+  }
+
+  validateAdmissionReceipt(
+    value: unknown,
+    envelope: RelaySyncEnvelope,
+    storedAt: number
+  ): RelayAdmissionReceipt {
+    assertAdmissionRecordBinding(envelope, value, storedAt)
+    const admission = value
+    const { receiptId: _receiptId, signature: _signature, ...core } = admission
+    const measurement = measureRelayEnvelope(envelope)
+    const expectedUsageAfter = quotaUsageAfter(admission.quota.usageBefore, measurement)
+    const policyMatchesEnvelope =
+      admission.policy.identityEpoch === envelope.identity.identityEpoch &&
+      admission.policy.capabilityGrantId === envelope.capability.grantId &&
+      admission.policy.capabilityDigest === deterministicDigest(stableSerialize(envelope.capability)) &&
+      admission.policy.membershipEpoch === envelope.membershipEpoch &&
+      admission.policy.keyEpoch === envelope.keyEpoch &&
+      admission.policy.capabilityConsentEpoch === envelope.capability.consentEpoch &&
+      admission.policy.requiredCapability === requiredCapabilityForEvent(envelope.eventKind) &&
+      admission.policy.replayCounter === envelope.replayCounter &&
+      admission.policy.replayCounter > admission.policy.priorReplayCounter &&
+      admission.policy.identityActive === true &&
+      admission.policy.memberAtAdmission === true
+    const consentWasValid = envelope.dataClass !== 'D3' ||
+      (admission.policy.consentGrantedAtAdmission &&
+        admission.policy.documentConsentEpoch === admission.policy.capabilityConsentEpoch)
+    const quotaMetadataValid =
+      admission.quota.limitsDigest === deterministicDigest(stableSerialize(admission.quota.limits)) &&
+      admission.quota.envelopeBytes === measurement.envelopeBytes &&
+      admission.quota.referenceCount === measurement.referenceCount &&
+      admission.quota.referenceBytes === measurement.referenceBytes &&
+      stableSerialize(admission.quota.usageAfter) === stableSerialize(expectedUsageAfter) &&
+      quotaAllows(admission.quota.limits, admission.quota.usageAfter, measurement)
+    const timingValid =
+      admission.admittedAt >= envelope.createdAt &&
+      admission.admittedAt >= envelope.identity.issuedAt &&
+      admission.admittedAt >= envelope.capability.issuedAt &&
+      admission.admittedAt < envelope.identity.expiresAt &&
+      admission.admittedAt < envelope.capability.expiresAt &&
+      admission.admittedAt < envelope.expiresAt
+
+    if (admission.issuerKeyId !== this.admissionAuthorityKeyId ||
+        admission.receiptId !== admissionReceiptId(core) ||
+        deterministicSign(withoutSignature(admission), this.admissionAuthoritySecret) !== admission.signature ||
+        !policyMatchesEnvelope ||
+        !consentWasValid ||
+        !quotaMetadataValid ||
+        !timingValid) {
+      throw new RelayPolicyError(
+        'admission-proof-invalid',
+        'Stored relay envelope lacks a valid authenticated gateway admission receipt.'
+      )
+    }
+    return admission
+  }
+
   rotateDocumentKey(documentId: string, reason: string, issuedAt: number): RelayRotationCertificate {
     const state = this.requireDocument(documentId)
     const previousKeyEpoch = state.keyEpoch
@@ -651,17 +829,39 @@ export class DeterministicMockRelayProvider implements RelayProviderAdapter {
     this.leaderIds = [`${providerId}-leader-1`]
   }
 
-  write(envelope: RelaySyncEnvelope, storedAt: number): RelayStoredEnvelope {
+  write(
+    envelope: RelaySyncEnvelope,
+    admission: RelayAdmissionReceipt,
+    storedAt: number
+  ): RelayStoredEnvelope {
     const health = this.health(envelope.tenantId)
     if (health.status === 'offline') throw new RelayPolicyError('provider-offline', 'Mock relay provider is offline.')
     if (health.status === 'split-brain') {
       throw new RelayPolicyError('provider-split-brain', 'Mock relay provider has multiple writers.')
     }
-    const record: RelayStoredEnvelope = {
+    assertAdmissionRecordBinding(envelope, admission, storedAt)
+    return this.appendRecord(envelope, storedAt, admission)
+  }
+
+  injectUntrustedEnvelope(
+    envelope: RelaySyncEnvelope,
+    storedAt: number,
+    admission?: RelayAdmissionReceipt
+  ): RelayStoredEnvelope {
+    return this.appendRecord(envelope, storedAt, admission)
+  }
+
+  private appendRecord(
+    envelope: RelaySyncEnvelope,
+    storedAt: number,
+    admission?: RelayAdmissionReceipt
+  ): RelayStoredEnvelope {
+    const record = {
       cursor: this.nextCursor,
       storedAt,
-      envelope: cloneJson(envelope)
-    }
+      envelope: cloneJson(envelope),
+      ...(admission ? { admission: cloneJson(admission) } : {})
+    } as RelayStoredEnvelope
     this.nextCursor += 1
     const records = this.recordsByTenant.get(envelope.tenantId) ?? []
     records.push(record)
@@ -715,7 +915,15 @@ export class DeterministicMockRelayProvider implements RelayProviderAdapter {
     }
     let previousCursor = 0
     for (const record of snapshot.records) {
-      assertRelayEnvelopeShape(record.envelope)
+      try {
+        assertRelayEnvelopeShape(record.envelope)
+        assertAdmissionRecordBinding(record.envelope, record.admission, record.storedAt)
+      } catch {
+        throw new RelayPolicyError(
+          'backup-integrity-failed',
+          'Relay snapshot record lacks a structurally valid bound admission receipt.'
+        )
+      }
       if (record.envelope.tenantId !== snapshot.tenantId ||
           !Number.isInteger(record.cursor) ||
           record.cursor <= previousCursor ||
@@ -810,19 +1018,9 @@ export class DeterministicRelayGateway {
         return this.result('rejected', 'replay', 'Replay counter is not greater than the last accepted counter.', envelope.envelopeId)
       }
 
-      const usage = this.quotaUsage(envelope)
-      const measurement = measureRelayEnvelope(envelope)
-      if (usage.tenantObjects + 1 > this.quotas.maxObjectsPerTenant ||
-          usage.deviceObjects + 1 > this.quotas.maxObjectsPerDevice ||
-          usage.documentObjects + 1 > this.quotas.maxObjectsPerDocument ||
-          usage.tenantStoredBytes + measurement.envelopeBytes > this.quotas.maxStoredBytesPerTenant ||
-          measurement.envelopeBytes > this.quotas.maxEnvelopeBytes ||
-          measurement.referenceCount > this.quotas.maxReferenceCount ||
-          measurement.referenceBytes > this.quotas.maxReferenceBytes) {
-        return this.result('rejected', 'quota-exceeded', 'Relay quota denied the write before provider storage.', envelope.envelopeId)
-      }
-
-      const stored = this.provider.write(envelope, now)
+      const usage = this.quotaUsage(envelope, storedScan.records)
+      const admission = this.security.issueAdmissionReceipt(envelope, now, this.quotas, usage, priorCounter)
+      const stored = this.provider.write(envelope, admission, now)
       this.replayCounters.set(replayKey, envelope.replayCounter)
       this.security.noteAccepted(envelope)
       return {
@@ -853,6 +1051,7 @@ export class DeterministicRelayGateway {
     for (const record of providerRecords) {
       try {
         const envelope = this.security.validateEnvelope(record.envelope, now, 'stored')
+        this.security.validateAdmissionReceipt(record.admission, envelope, record.storedAt)
         const replayKey = `${envelope.documentId}|${envelope.senderSigningKeyId}`
         const priorCounter = replayCounters.get(replayKey) ?? 0
         if (envelopeIds.has(envelope.envelopeId) || envelope.replayCounter <= priorCounter) {
@@ -996,8 +1195,10 @@ export class DeterministicRelayGateway {
     }
   }
 
-  private quotaUsage(envelope: RelaySyncEnvelope): RelayQuotaUsage {
-    const records = this.provider.list(envelope.tenantId)
+  private quotaUsage(
+    envelope: RelaySyncEnvelope,
+    records: readonly RelayStoredEnvelope[]
+  ): RelayQuotaUsage {
     return {
       tenantObjects: records.length,
       deviceObjects: records.filter((record) =>
@@ -1020,7 +1221,8 @@ export class DeterministicRelayGateway {
     if (error instanceof RelayPolicyError) {
       const status = error.code === 'signature-invalid' ||
         error.code === 'ciphertext-hash-mismatch' ||
-        error.code === 'key-envelope-hash-mismatch'
+        error.code === 'key-envelope-hash-mismatch' ||
+        error.code === 'admission-proof-invalid'
         ? 'quarantined'
         : 'rejected'
       return this.result(status, error.code, error.message)

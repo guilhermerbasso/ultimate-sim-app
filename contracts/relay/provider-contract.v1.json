@@ -102,10 +102,43 @@
   "revocationPolicy": {
     "documentMember": "removes access and rotates only the selected document",
     "device": "revokes the signing identity and removes the device from every document",
-    "history": "previously accepted signed history remains verifiable"
+    "history": "previously admitted signed history remains verifiable"
+  },
+  "storedRecordAdmission": {
+    "required": true,
+    "issuer": "authenticated relay gateway admission authority",
+    "binding": [
+      "exact full-envelope digest",
+      "envelope ID",
+      "tenant ID",
+      "document ID",
+      "sender device ID",
+      "sender signing key ID",
+      "admission timestamp"
+    ],
+    "policyMetadata": [
+      "identity epoch and active status",
+      "capability grant and digest",
+      "required operation capability",
+      "accepted replay counter and prior authenticated replay watermark",
+      "membership epoch and membership authorization",
+      "document key epoch",
+      "document and capability consent epochs",
+      "consent state at admission"
+    ],
+    "quotaMetadata": [
+      "signed quota limits and limits digest",
+      "tenant/device/document usage before admission",
+      "tenant/device/document usage after admission",
+      "full serialized envelope bytes",
+      "causal reference count",
+      "causal reference bytes"
+    ],
+    "failure": "missing, malformed, mismatched, forged, or quota-inconsistent admission proof is quarantined",
+    "import": "snapshots preserve admission receipts; structurally unbound records are rejected before import and cryptographic proof is verified before merge/resync"
   },
   "replayPolicy": {
-    "watermarkSource": "verified unique provider records only",
+    "watermarkSource": "unique records with valid envelope signatures and authenticated admission receipts only",
     "duplicates": "same envelope ID or non-increasing signer/document counter is quarantined"
   },
   "quotaDimensions": [

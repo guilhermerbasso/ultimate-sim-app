@@ -235,6 +235,60 @@ describe('optional relay foundation deterministic mocks', () => {
     ])
   })
 
+  it('stores authenticated admission-time policy and quota metadata with every accepted envelope', () => {
+    const fixture = createFixture()
+    const envelope = seal(fixture, fixture.alice, fixture.aliceCapability, 1)
+
+    expect(fixture.gateway.submit(envelope, NOW + 10).code).toBe('accepted')
+    const [record] = fixture.provider.list(TENANT_ID)
+
+    expect(record.admission).toEqual(expect.objectContaining({
+      envelopeId: envelope.envelopeId,
+      admittedAt: NOW + 10,
+      policy: expect.objectContaining({
+        identityEpoch: fixture.alice.identityEpoch,
+        capabilityGrantId: fixture.aliceCapability.grantId,
+        membershipEpoch: 1,
+        keyEpoch: 1,
+        documentConsentEpoch: 1,
+        capabilityConsentEpoch: fixture.aliceCapability.consentEpoch,
+        requiredCapability: 'document:append',
+        replayCounter: 1,
+        priorReplayCounter: 0,
+        identityActive: true,
+        memberAtAdmission: true,
+        consentGrantedAtAdmission: true
+      }),
+      quota: expect.objectContaining({
+        usageBefore: {
+          tenantObjects: 0,
+          deviceObjects: 0,
+          documentObjects: 0,
+          tenantStoredBytes: 0
+        },
+        usageAfter: {
+          tenantObjects: 1,
+          deviceObjects: 1,
+          documentObjects: 1,
+          tenantStoredBytes: serializedByteLength(envelope)
+        },
+        envelopeBytes: serializedByteLength(envelope)
+      })
+    }))
+    expect(fixture.gateway.verifyStored(TENANT_ID, NOW + 20)).toHaveLength(1)
+
+    fixture.provider.clearTenant(TENANT_ID)
+    fixture.provider.injectUntrustedEnvelope(envelope, record.storedAt, {
+      ...record.admission,
+      signature: `${record.admission.signature}-forged`
+    })
+    expect(fixture.gateway.verifyStored(TENANT_ID, NOW + 21)).toHaveLength(0)
+    expect(fixture.gateway.quarantine()).toContainEqual(expect.objectContaining({
+      envelopeId: envelope.envelopeId,
+      code: 'admission-proof-invalid'
+    }))
+  })
+
   it('rejects undeclared envelope fields and prohibited data before provider storage', () => {
     const fixture = createFixture()
     const envelope = seal(fixture, fixture.alice, fixture.aliceCapability, 1)
@@ -327,10 +381,13 @@ describe('optional relay foundation deterministic mocks', () => {
   it('uses only verified replay watermarks and verifies duplicate signed envelopes once', () => {
     const fixture = createFixture()
     const envelope = seal(fixture, fixture.alice, fixture.aliceCapability, 1)
-    fixture.provider.write({ ...envelope, replayCounter: 999 }, NOW + 5)
+    fixture.provider.injectUntrustedEnvelope({ ...envelope, replayCounter: 999 }, NOW + 5)
 
-    expect(fixture.gateway.submit(envelope, NOW + 10).code).toBe('accepted')
-    fixture.provider.write(envelope, NOW + 11)
+    const accepted = fixture.gateway.submit(envelope, NOW + 10)
+    expect(accepted.code).toBe('accepted')
+    const admitted = fixture.provider.list(TENANT_ID)
+      .find((record) => record.cursor === accepted.cursor)!
+    fixture.provider.injectUntrustedEnvelope(envelope, admitted.storedAt, admitted.admission)
     expect(fixture.gateway.verifyStored(TENANT_ID, NOW + 12).map((record) => record.envelope.envelopeId)).toEqual([
       envelope.envelopeId
     ])
@@ -504,6 +561,74 @@ describe('optional relay foundation deterministic mocks', () => {
     })
     client.setCapability(refreshedCapability)
     expect(client.publish(raceNoteDraft('fresh-consent'), NOW + 22).code).toBe('accepted')
+  })
+
+  it('quarantines a validly signed envelope inserted after its signer was revoked without admission proof', () => {
+    const fixture = createFixture()
+    const pending = seal(fixture, fixture.alice, fixture.aliceCapability, 1)
+    fixture.security.revokeDevice(fixture.alice.deviceId, 'device compromise', NOW + 2)
+
+    expect(fixture.gateway.submit(pending, NOW + 3)).toEqual(
+      expect.objectContaining({ status: 'rejected', code: 'signer-revoked' })
+    )
+    fixture.provider.injectUntrustedEnvelope(pending, NOW + 4)
+
+    expect(fixture.gateway.verifyStored(TENANT_ID, NOW + 5)).toHaveLength(0)
+    expect(fixture.gateway.quarantine()).toContainEqual(expect.objectContaining({
+      envelopeId: pending.envelopeId,
+      code: 'admission-proof-invalid'
+    }))
+  })
+
+  it('quarantines a validly signed D3 envelope inserted after consent withdrawal without admission proof', () => {
+    const fixture = createFixture()
+    const pending = seal(
+      fixture,
+      fixture.alice,
+      fixture.aliceCapability,
+      1,
+      raceNoteDraft('withdrawn-direct-insert')
+    )
+    fixture.security.updateDocumentConsent(DOCUMENT_ID, false)
+
+    expect(fixture.gateway.submit(pending, NOW + 3)).toEqual(
+      expect.objectContaining({ status: 'rejected', code: 'consent-required' })
+    )
+    fixture.provider.injectUntrustedEnvelope(pending, NOW + 4)
+
+    expect(fixture.gateway.verifyStored(TENANT_ID, NOW + 5)).toHaveLength(0)
+    expect(fixture.gateway.quarantine()).toContainEqual(expect.objectContaining({
+      envelopeId: pending.envelopeId,
+      code: 'admission-proof-invalid'
+    }))
+  })
+
+  it('quarantines an oversized quota-rejected envelope inserted directly by the provider', () => {
+    const fixture = createFixture()
+    const oversized = seal(fixture, fixture.alice, fixture.aliceCapability, 1)
+    const quotas: RelayQuotaPolicy = {
+      maxObjectsPerTenant: 10,
+      maxObjectsPerDevice: 10,
+      maxObjectsPerDocument: 10,
+      maxStoredBytesPerTenant: 1_000_000,
+      maxEnvelopeBytes: serializedByteLength(oversized) - 1,
+      maxReferenceCount: 100,
+      maxReferenceBytes: 100_000,
+      maxOfflineQueueItems: 10,
+      maxOfflineQueueBytes: 1_000_000
+    }
+    const gateway = new DeterministicRelayGateway(fixture.provider, fixture.security, quotas)
+
+    expect(gateway.submit(oversized, NOW + 10)).toEqual(
+      expect.objectContaining({ status: 'rejected', code: 'quota-exceeded' })
+    )
+    fixture.provider.injectUntrustedEnvelope(oversized, NOW + 11)
+
+    expect(gateway.verifyStored(TENANT_ID, NOW + 12)).toHaveLength(0)
+    expect(gateway.quarantine()).toContainEqual(expect.objectContaining({
+      envelopeId: oversized.envelopeId,
+      code: 'admission-proof-invalid'
+    }))
   })
 
   it('enforces per-tenant quota before a second ciphertext write', () => {

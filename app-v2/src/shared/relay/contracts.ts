@@ -122,6 +122,49 @@ export interface RelaySyncEnvelope extends RelayCanonicalTuple {
   signature: string
 }
 
+export interface RelayAdmissionPolicyMetadata {
+  identityEpoch: number
+  capabilityGrantId: string
+  capabilityDigest: string
+  membershipEpoch: number
+  keyEpoch: number
+  documentConsentEpoch: number
+  capabilityConsentEpoch: number
+  requiredCapability: RelayCapability
+  replayCounter: number
+  priorReplayCounter: number
+  identityActive: true
+  memberAtAdmission: true
+  consentGrantedAtAdmission: boolean
+}
+
+export interface RelayAdmissionQuotaMetadata {
+  limits: RelayQuotaPolicy
+  limitsDigest: string
+  usageBefore: RelayQuotaUsage
+  usageAfter: RelayQuotaUsage
+  envelopeBytes: number
+  referenceCount: number
+  referenceBytes: number
+}
+
+export interface RelayAdmissionReceipt {
+  schemaVersion: typeof RELAY_SCHEMA_VERSION
+  providerContract: typeof RELAY_PROVIDER_CONTRACT
+  receiptId: string
+  envelopeId: string
+  envelopeDigest: string
+  tenantId: string
+  documentId: string
+  senderDeviceId: string
+  senderSigningKeyId: string
+  admittedAt: number
+  policy: RelayAdmissionPolicyMetadata
+  quota: RelayAdmissionQuotaMetadata
+  issuerKeyId: string
+  signature: string
+}
+
 export interface RelayDocumentDraft {
   tenantId: string
   documentId: string
@@ -152,6 +195,7 @@ export type RelayRejectionCode =
   | 'stale-key'
   | 'stale-membership'
   | 'quota-exceeded'
+  | 'admission-proof-invalid'
   | 'provider-offline'
   | 'provider-split-brain'
   | 'backup-integrity-failed'
@@ -169,6 +213,7 @@ export interface RelayStoredEnvelope {
   cursor: number
   storedAt: number
   envelope: RelaySyncEnvelope
+  admission: RelayAdmissionReceipt
 }
 
 export interface RelayProviderHealth {
@@ -200,7 +245,11 @@ export interface RelayProviderImportResult {
 export interface RelayProviderAdapter {
   readonly providerId: string
   readonly contractVersion: typeof RELAY_PROVIDER_CONTRACT
-  write(envelope: RelaySyncEnvelope, storedAt: number): RelayStoredEnvelope
+  write(
+    envelope: RelaySyncEnvelope,
+    admission: RelayAdmissionReceipt,
+    storedAt: number
+  ): RelayStoredEnvelope
   list(tenantId: string): readonly RelayStoredEnvelope[]
   health(tenantId: string): RelayProviderHealth
   exportSnapshot(tenantId: string, createdAt: number): RelayProviderSnapshot

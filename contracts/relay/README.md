@@ -25,8 +25,12 @@ IDs, digests, timestamps, epochs, and signatures.
 - D3 submissions must match the exact current granted document consent epoch.
 - Read-only capabilities cannot persist resync markers; only changes/snapshots mutate document heads.
 - Replay state is derived from verified unique records, and quotas include full metadata/references.
+- Every stored/imported record requires an admission-authority signature bound to the exact envelope,
+  admission time, accepted identity/capability/consent epochs, and quota limits/usage.
+- Provider-injected records without valid admission proof are quarantined and never influence replay
+  watermarks, quota usage, document heads, or resync.
 - Relay records contain ciphertext, public identity/capability material, hashes, epochs, counters,
-  causal references, and sender signatures; never plaintext or private keys.
+  causal references, sender signatures, and admission receipts; never plaintext or private keys.
 - The deterministic mock crypto profile proves validation flow, not cryptographic strength.
 - A future live adapter must implement the production crypto profile and pass an independent security
   review before any hosting or credentials are introduced.

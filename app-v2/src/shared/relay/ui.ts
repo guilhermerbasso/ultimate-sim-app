@@ -39,7 +39,7 @@ export const RELAY_CAPABILITY_STATUS_MATRIX: readonly RelayCapabilityMatrixRow[]
     local: 'mock-verified',
     selfHosted: 'not-configured',
     managed: 'not-configured',
-    detail: 'Strict document/event contracts, sender signatures, hashes, epochs, and replay counters are modeled.'
+    detail: 'Strict contracts, sender signatures, epochs, replay counters, and gateway admission receipts are modeled.'
   },
   {
     id: 'identity-capability',
@@ -87,7 +87,7 @@ export const RELAY_CAPABILITY_STATUS_MATRIX: readonly RelayCapabilityMatrixRow[]
     local: 'mock-verified',
     selfHosted: 'not-configured',
     managed: 'not-configured',
-    detail: 'Migration verifies record count and ciphertext digest without changing the source.'
+    detail: 'Migration preserves admission receipts and verifies record count/digest without changing the source.'
   },
   {
     id: 'd3',

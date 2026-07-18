@@ -6,6 +6,7 @@ import {
   RELAY_EVENT_KINDS,
   RELAY_PROVIDER_CONTRACT,
   RELAY_SCHEMA_VERSION,
+  type RelayAdmissionReceipt,
   type RelayCapability,
   type RelayDataClass,
   type RelayDocumentDraft,
@@ -198,6 +199,68 @@ const KEY_ENVELOPE_KEYS = [
   'wrappedDocumentKey'
 ] as const
 
+const ADMISSION_RECEIPT_KEYS = [
+  'schemaVersion',
+  'providerContract',
+  'receiptId',
+  'envelopeId',
+  'envelopeDigest',
+  'tenantId',
+  'documentId',
+  'senderDeviceId',
+  'senderSigningKeyId',
+  'admittedAt',
+  'policy',
+  'quota',
+  'issuerKeyId',
+  'signature'
+] as const
+
+const ADMISSION_POLICY_KEYS = [
+  'identityEpoch',
+  'capabilityGrantId',
+  'capabilityDigest',
+  'membershipEpoch',
+  'keyEpoch',
+  'documentConsentEpoch',
+  'capabilityConsentEpoch',
+  'requiredCapability',
+  'replayCounter',
+  'priorReplayCounter',
+  'identityActive',
+  'memberAtAdmission',
+  'consentGrantedAtAdmission'
+] as const
+
+const ADMISSION_QUOTA_KEYS = [
+  'limits',
+  'limitsDigest',
+  'usageBefore',
+  'usageAfter',
+  'envelopeBytes',
+  'referenceCount',
+  'referenceBytes'
+] as const
+
+const QUOTA_POLICY_KEYS = [
+  'maxObjectsPerTenant',
+  'maxObjectsPerDevice',
+  'maxObjectsPerDocument',
+  'maxStoredBytesPerTenant',
+  'maxEnvelopeBytes',
+  'maxReferenceCount',
+  'maxReferenceBytes',
+  'maxOfflineQueueItems',
+  'maxOfflineQueueBytes'
+] as const
+
+const QUOTA_USAGE_KEYS = [
+  'tenantObjects',
+  'deviceObjects',
+  'documentObjects',
+  'tenantStoredBytes'
+] as const
+
 export class RelayPolicyError extends Error {
   readonly code: RelayRejectionCode
   readonly path: string
@@ -214,20 +277,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function assertRecord(value: unknown, path: string): asserts value is Record<string, unknown> {
-  if (!isRecord(value)) throw new RelayPolicyError('undeclared-field', `${path} must be an object.`, path)
+function assertRecord(
+  value: unknown,
+  path: string,
+  code: RelayRejectionCode = 'undeclared-field'
+): asserts value is Record<string, unknown> {
+  if (!isRecord(value)) throw new RelayPolicyError(code, `${path} must be an object.`, path)
 }
 
-function assertExactKeys(value: Record<string, unknown>, allowed: readonly string[], path: string): void {
+function assertExactKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  path: string,
+  code: RelayRejectionCode = 'undeclared-field'
+): void {
   const allowedSet = new Set(allowed)
   for (const key of Object.keys(value)) {
     if (!allowedSet.has(key)) {
-      throw new RelayPolicyError('undeclared-field', `${path}.${key} is not declared by relay contract v1.`, `${path}.${key}`)
+      throw new RelayPolicyError(code, `${path}.${key} is not declared by relay contract v1.`, `${path}.${key}`)
     }
   }
   for (const key of allowed) {
     if (!(key in value)) {
-      throw new RelayPolicyError('undeclared-field', `${path}.${key} is required by relay contract v1.`, `${path}.${key}`)
+      throw new RelayPolicyError(code, `${path}.${key} is required by relay contract v1.`, `${path}.${key}`)
     }
   }
 }
@@ -241,15 +313,34 @@ function assertNoExtraKeys(value: Record<string, unknown>, allowed: readonly str
   }
 }
 
-function assertString(value: unknown, path: string): asserts value is string {
+function assertString(
+  value: unknown,
+  path: string,
+  code: RelayRejectionCode = 'undeclared-field'
+): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) {
-    throw new RelayPolicyError('undeclared-field', `${path} must be a non-empty string.`, path)
+    throw new RelayPolicyError(code, `${path} must be a non-empty string.`, path)
   }
 }
 
-function assertInteger(value: unknown, path: string, minimum = 0): asserts value is number {
+function assertInteger(
+  value: unknown,
+  path: string,
+  minimum = 0,
+  code: RelayRejectionCode = 'undeclared-field'
+): asserts value is number {
   if (!Number.isInteger(value) || Number(value) < minimum) {
-    throw new RelayPolicyError('undeclared-field', `${path} must be an integer >= ${minimum}.`, path)
+    throw new RelayPolicyError(code, `${path} must be an integer >= ${minimum}.`, path)
+  }
+}
+
+function assertBoolean(
+  value: unknown,
+  path: string,
+  code: RelayRejectionCode = 'undeclared-field'
+): asserts value is boolean {
+  if (typeof value !== 'boolean') {
+    throw new RelayPolicyError(code, `${path} must be a boolean.`, path)
   }
 }
 
@@ -441,6 +532,67 @@ export function assertRelayEnvelopeShape(value: unknown): asserts value is Relay
     )
     assertString(entry.wrappedDocumentKey, `$.keyEnvelopes[${index}].wrappedDocumentKey`)
   })
+}
+
+export function assertRelayAdmissionReceiptShape(value: unknown): asserts value is RelayAdmissionReceipt {
+  const code: RelayRejectionCode = 'admission-proof-invalid'
+  assertRecord(value, '$.admission', code)
+  assertExactKeys(value, ADMISSION_RECEIPT_KEYS, '$.admission', code)
+  assertRecord(value.policy, '$.admission.policy', code)
+  assertExactKeys(value.policy, ADMISSION_POLICY_KEYS, '$.admission.policy', code)
+  assertRecord(value.quota, '$.admission.quota', code)
+  assertExactKeys(value.quota, ADMISSION_QUOTA_KEYS, '$.admission.quota', code)
+  assertRecord(value.quota.limits, '$.admission.quota.limits', code)
+  assertExactKeys(value.quota.limits, QUOTA_POLICY_KEYS, '$.admission.quota.limits', code)
+  assertRecord(value.quota.usageBefore, '$.admission.quota.usageBefore', code)
+  assertExactKeys(value.quota.usageBefore, QUOTA_USAGE_KEYS, '$.admission.quota.usageBefore', code)
+  assertRecord(value.quota.usageAfter, '$.admission.quota.usageAfter', code)
+  assertExactKeys(value.quota.usageAfter, QUOTA_USAGE_KEYS, '$.admission.quota.usageAfter', code)
+
+  if (value.schemaVersion !== RELAY_SCHEMA_VERSION || value.providerContract !== RELAY_PROVIDER_CONTRACT) {
+    throw new RelayPolicyError(code, 'Admission receipt schema/provider contract version is unsupported.')
+  }
+  assertString(value.receiptId, '$.admission.receiptId', code)
+  assertString(value.envelopeId, '$.admission.envelopeId', code)
+  assertString(value.envelopeDigest, '$.admission.envelopeDigest', code)
+  assertString(value.tenantId, '$.admission.tenantId', code)
+  assertString(value.documentId, '$.admission.documentId', code)
+  assertString(value.senderDeviceId, '$.admission.senderDeviceId', code)
+  assertString(value.senderSigningKeyId, '$.admission.senderSigningKeyId', code)
+  assertInteger(value.admittedAt, '$.admission.admittedAt', 0, code)
+  assertString(value.issuerKeyId, '$.admission.issuerKeyId', code)
+  assertString(value.signature, '$.admission.signature', code)
+
+  assertInteger(value.policy.identityEpoch, '$.admission.policy.identityEpoch', 1, code)
+  assertString(value.policy.capabilityGrantId, '$.admission.policy.capabilityGrantId', code)
+  assertString(value.policy.capabilityDigest, '$.admission.policy.capabilityDigest', code)
+  assertInteger(value.policy.membershipEpoch, '$.admission.policy.membershipEpoch', 1, code)
+  assertInteger(value.policy.keyEpoch, '$.admission.policy.keyEpoch', 1, code)
+  assertInteger(value.policy.documentConsentEpoch, '$.admission.policy.documentConsentEpoch', 1, code)
+  assertInteger(value.policy.capabilityConsentEpoch, '$.admission.policy.capabilityConsentEpoch', 0, code)
+  assertKnownValue(
+    value.policy.requiredCapability,
+    RELAY_CAPABILITIES,
+    code,
+    '$.admission.policy.requiredCapability'
+  )
+  assertInteger(value.policy.replayCounter, '$.admission.policy.replayCounter', 1, code)
+  assertInteger(value.policy.priorReplayCounter, '$.admission.policy.priorReplayCounter', 0, code)
+  assertBoolean(value.policy.identityActive, '$.admission.policy.identityActive', code)
+  assertBoolean(value.policy.memberAtAdmission, '$.admission.policy.memberAtAdmission', code)
+  assertBoolean(value.policy.consentGrantedAtAdmission, '$.admission.policy.consentGrantedAtAdmission', code)
+
+  for (const key of QUOTA_POLICY_KEYS) {
+    assertInteger(value.quota.limits[key], `$.admission.quota.limits.${key}`, 0, code)
+  }
+  assertString(value.quota.limitsDigest, '$.admission.quota.limitsDigest', code)
+  for (const key of QUOTA_USAGE_KEYS) {
+    assertInteger(value.quota.usageBefore[key], `$.admission.quota.usageBefore.${key}`, 0, code)
+    assertInteger(value.quota.usageAfter[key], `$.admission.quota.usageAfter.${key}`, 0, code)
+  }
+  assertInteger(value.quota.envelopeBytes, '$.admission.quota.envelopeBytes', 1, code)
+  assertInteger(value.quota.referenceCount, '$.admission.quota.referenceCount', 0, code)
+  assertInteger(value.quota.referenceBytes, '$.admission.quota.referenceBytes', 0, code)
 }
 
 export function validateEnvelopeDataPolicy(envelope: RelaySyncEnvelope): void {
