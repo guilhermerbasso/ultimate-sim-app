@@ -8,7 +8,7 @@ import { isIP, type AddressInfo } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import QRCode from 'qrcode'
 import type { DriverEntry, RadarCarEntry, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
-import type { StreamingAccessMode, StreamingDashboardPayload, StreamingLayoutKind, StreamingSelfTestResult, StreamingStartArgs, StreamingStartResult, StreamingStatus, StreamingTelemetryFrame } from '../../shared/streaming'
+import type { StreamingAccessMode, StreamingDashboardPayload, StreamingLayoutKind, StreamingProfile, StreamingSelfTestResult, StreamingStartArgs, StreamingStartResult, StreamingStatus, StreamingTelemetryFrame } from '../../shared/streaming'
 import { STREAMING_CHANNELS, STREAMING_EXPRESSION_EXCLUSION_MESSAGE } from '../../shared/streaming'
 import type { ModuleContext } from '../module-context'
 import { getDashboardManager } from './dashboards'
@@ -53,6 +53,7 @@ interface StreamingSession {
 }
 
 interface StreamingState {
+  profile: StreamingProfile
   server: Server | null
   port: number | null
   token: string | null
@@ -79,9 +80,12 @@ interface StreamingState {
   authFailures: Map<string, { count: number; resetAt: number }>
   sessions: Map<string, StreamingSession>
   nextClientId: number
+  bindAddress: '127.0.0.1' | '0.0.0.0' | null
+  portMode: 'ephemeral' | 'explicit' | null
 }
 
 const state: StreamingState = {
+  profile: 'general',
   server: null,
   port: null,
   token: null,
@@ -107,7 +111,9 @@ const state: StreamingState = {
   clients: new Map(),
   authFailures: new Map(),
   sessions: new Map(),
-  nextClientId: 1
+  nextClientId: 1,
+  bindAddress: null,
+  portMode: null
 }
 
 function isValidLayoutId(value: unknown): value is string {
@@ -146,6 +152,18 @@ function requestedPort(value: unknown): number {
   if (typeof value !== 'number' || !Number.isInteger(value)) return 0
   if (value < 0 || value > 65535) return 0
   return value
+}
+
+function resolvedListenPort(value: unknown, profile: StreamingProfile): { port: number; mode: 'ephemeral' | 'explicit' } {
+  if (profile !== 'obs-local') {
+    const port = requestedPort(value)
+    return { port, mode: port === 0 ? 'ephemeral' : 'explicit' }
+  }
+  if (value === undefined) return { port: 0, mode: 'ephemeral' }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 65535) {
+    throw new Error('OBS Browser Source port override must be an integer from 1 to 65535.')
+  }
+  return { port: value, mode: 'explicit' }
 }
 
 function generateToken(): string {
@@ -1048,11 +1066,12 @@ async function refreshQrCodes(): Promise<void> {
   state.touchQrDataUrl = touchUrl ? await QRCode.toDataURL(touchUrl) : null
 }
 
-async function status(): Promise<StreamingStatus> {
-  if (state.server) await refreshQrCodes()
+export async function status(refreshCodes = true): Promise<StreamingStatus> {
+  if (state.server && refreshCodes) await refreshQrCodes()
   const url = dashboardUrl()
   const touchUrl = touchControlsUrl()
   return {
+    profile: state.profile,
     running: state.server !== null,
     url,
     lanUrl: advertisedLanUrl(),
@@ -1084,7 +1103,11 @@ async function status(): Promise<StreamingStatus> {
     autoTunnelAvailable: resolveCloudflaredBinary() !== null,
     autoTunnelEnabled: state.autoTunnelEnabled,
     autoTunnelRunning: state.autoTunnelProcess !== null && state.autoTunnelUrl !== null,
-    autoTunnelMessage: state.autoTunnelMessage
+    autoTunnelMessage: state.autoTunnelMessage,
+    bindAddress: state.bindAddress,
+    portMode: state.portMode,
+    allowedLayoutIds: state.server ? [state.layoutId] : [],
+    readOnly: true
   }
 }
 
@@ -1739,13 +1762,14 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
   }
 }
 
-async function stop(): Promise<StreamingStatus> {
+export async function stop(): Promise<StreamingStatus> {
   closeAllClients()
   await stopAutoTunnelProcess()
   const server = state.server
   const firewallPort = state.port
   const hadLanListener = state.accessMode !== 'local'
   state.server = null
+  state.profile = 'general'
   state.port = null
   state.token = null
   state.passwordHash = null
@@ -1767,6 +1791,8 @@ async function stop(): Promise<StreamingStatus> {
   state.autoTunnelStopRequested = false
   state.authFailures.clear()
   state.sessions.clear()
+  state.bindAddress = null
+  state.portMode = null
   if (server) {
     await new Promise<void>((resolveClose) => server.close(() => resolveClose()))
     logger.info('streaming', 'server stopped', {})
@@ -1895,20 +1921,37 @@ async function removeWindowsFirewallRule(port: number): Promise<void> {
   logger.info('streaming', 'firewall rule cleanup completed', { port })
 }
 
-async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise<StreamingStartResult> {
+export async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise<StreamingStartResult> {
   if (state.server || state.autoTunnelProcess) await stop()
+  const profile: StreamingProfile = args.profile === 'obs-local' ? 'obs-local' : 'general'
+  if (profile === 'obs-local') {
+    if (args.layoutKind === 'touch' || args.touchPanelId) {
+      throw new Error('The OBS Browser Source certification feed supports read-only dashboards only.')
+    }
+    if (args.lanEnabled ||
+        (args.accessMode !== undefined && args.accessMode !== 'local') ||
+        args.publicBaseUrl ||
+        args.autoTunnel ||
+        normalizePassword(args.password) !== null) {
+      throw new Error('The OBS Browser Source certification feed is loopback-only and cannot enable LAN, tunnel, public access, or shared passwords.')
+    }
+  }
   const target = resolveStreamTarget(args)
+  const listen = resolvedListenPort(args.port, profile)
+  state.profile = profile
   state.layoutId = target.id
   state.layoutKind = target.kind
   state.touchPanelId = target.touchPanelId
-  state.streamSafe = args.streamSafe ?? true
+  state.streamSafe = profile === 'obs-local' ? true : args.streamSafe ?? true
   state.token = generateToken()
-  state.accessMode = args.accessMode === 'internet' || args.accessMode === 'lan'
+  state.accessMode = profile === 'obs-local'
+    ? 'local'
+    : args.accessMode === 'internet' || args.accessMode === 'lan'
     ? args.accessMode
     : args.lanEnabled
       ? 'lan'
       : 'local'
-  const password = normalizePassword(args.password)
+  const password = profile === 'obs-local' ? null : normalizePassword(args.password)
   if (state.accessMode !== 'local' && !password) {
     state.token = null
     throw new Error('LAN/Internet streaming requires a password in addition to the token.')
@@ -1953,7 +1996,9 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
   })
   state.server = server
   const listenHost = state.accessMode !== 'local' ? LAN_HOST : HOST
-  const listenPort = requestedPort(args.port)
+  const listenPort = listen.port
+  state.bindAddress = listenHost
+  state.portMode = listen.mode
   logger.info('streaming', 'server starting', {
     host: listenHost,
     requestedPort: listenPort,
@@ -2015,6 +2060,7 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
   }
   await refreshQrCodes()
   return {
+    profile: state.profile,
     url: dashboardUrl() ?? '',
     lanUrl: advertisedLanUrl(),
     touchUrl: touchControlsUrl(),
@@ -2033,7 +2079,11 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
     autoTunnelAvailable: resolveCloudflaredBinary() !== null,
     autoTunnelEnabled: state.autoTunnelEnabled,
     autoTunnelRunning: state.autoTunnelProcess !== null && state.autoTunnelUrl !== null,
-    autoTunnelMessage: state.autoTunnelMessage
+    autoTunnelMessage: state.autoTunnelMessage,
+    bindAddress: state.bindAddress,
+    portMode: state.portMode,
+    allowedLayoutIds: [state.layoutId],
+    readOnly: true
   }
 }
 

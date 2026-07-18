@@ -567,6 +567,36 @@ describe('streaming authenticated server', () => {
     expect(result.message).toMatch(/public HTTPS endpoint/i)
     expect(result.url).not.toContain('token=')
   })
+
+  it('keeps the obs-local certification profile loopback-only and dashboard-only', async () => {
+    ctx = fakeContext()
+    register(ctx)
+
+    await expect(invoke(ctx, STREAMING_CHANNELS.start, {
+      profile: 'obs-local',
+      layoutKind: 'touch',
+      layoutId: 'pit',
+      touchPanelId: 'pit'
+    })).rejects.toThrow(/read-only dashboards only/i)
+
+    await expect(invoke(ctx, STREAMING_CHANNELS.start, {
+      profile: 'obs-local',
+      layoutId: 'race',
+      accessMode: 'lan'
+    })).rejects.toThrow(/loopback-only/i)
+
+    await expect(invoke(ctx, STREAMING_CHANNELS.start, {
+      profile: 'obs-local',
+      layoutId: 'race',
+      publicBaseUrl: 'https://stream.example.test'
+    })).rejects.toThrow(/loopback-only/i)
+
+    await expect(invoke(ctx, STREAMING_CHANNELS.start, {
+      profile: 'obs-local',
+      layoutId: 'race',
+      password: 'must-not-be-shared'
+    })).rejects.toThrow(/shared passwords/i)
+  })
 })
 
 describe('streaming public endpoint selection', () => {

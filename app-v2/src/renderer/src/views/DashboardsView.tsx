@@ -58,6 +58,7 @@ import { WidgetGallery, variantToElement } from './dashboard/widget-catalog'
 import type { WidgetVariant } from './dashboard/widget-catalog'
 import { PresetGallery } from './dashboard/preset-gallery'
 import StreamingPanel from '../components/StreamingPanel'
+import ObsLocalPanel from '../components/ObsLocalPanel'
 import { tt } from '../i18n'
 import '../dashboard/dashboard-runtime.css'
 import { consumeEditorTarget } from '../lib/app-navigation'
@@ -1290,6 +1291,7 @@ export default function DashboardsView({ showToast, language }: AppViewProps): R
       <ThirdPartyDashboardCatalog onError={(message) => showToast(message, 'error')} />
 
       <StreamingPanel language={language} />
+      <ObsLocalPanel language={language} />
 
       <section style={panel()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
