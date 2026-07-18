@@ -1,4 +1,4 @@
-import { SerialPort } from 'serialport'
+import { SerialPort } from '../serial/serialport-runtime'
 import { COMPANION_BAUD, COMPANION_QUERY_COMMAND } from '../../shared/companion'
 import type { FlashProgress } from '../../shared/setup'
 import type { ModuleContext } from '../module-context'

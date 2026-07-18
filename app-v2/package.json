@@ -1,6 +1,6 @@
 {
   "name": "ultimate-sim-app",
-  "version": "2.52.0",
+  "version": "2.53.1",
   "description": "Ultimate Sim App — Windows desktop companion for sim racing: telemetry, overlays, dashboards, strategy, and the SIM-X ButtonBox.",
   "main": "out/main/index.js",
   "author": "Guilherme Basso",
@@ -14,6 +14,7 @@
     "verify:win-package": "bash scripts/fetch-win-cloudflared.sh --verify-package",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.json",
+    "dashboard:identity-catalog": "node scripts/generate-dashboard-identity-catalog.mjs",
     "palette": "node scripts/extract-palette.mjs",
     "assets:instruments": "bash scripts/gen-instrument-assets.sh",
     "visual:diff": "node scripts/visual-regression.mjs",

@@ -1,5 +1,80 @@
 # Ultimate Sim App — Release Notes
 
+## v2.53.1 — SerialPort startup hotfix
+
+Version 2.53.1 fixes the JavaScript error shown immediately after installing v2.53.0:
+Electron could not resolve `serialport` from the packaged `app.asar`.
+
+### Fixed
+- The main process now loads SerialPort through an ASAR-aware CommonJS `createRequire` bridge,
+  avoiding Electron's failing ESM resolution for the unpacked native package.
+- Windows package verification now inspects the packaged main bundle, resolves SerialPort with the
+  packaged Electron runtime, and fails the release when the bridge or native binding is unusable.
+
+### Upgrade
+Install `Ultimate-Sim-App-2.53.1-x64.exe` over v2.53.0. User settings and saved data remain in the
+separate app-data directory.
+
+**Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.53.0...v2.53.1
+
+## v2.53.0 — Restart-safe dashboards, telemetry truth & governed visual foundations
+
+Release 2.53 focuses on trustworthy race data and dependable saved dashboards. It fixes the
+reported black-dashboard-after-restart failure, aligns fuel and alert behavior across every visual
+surface, and ships the governance foundations for the next visual program without presenting
+planned dashboards or images as finished work.
+
+### Highlights
+- 🖥️ **Saved dashboards restore safely after restart** — every supported element, including
+  `overlaywidget` compositions, survives canonical validation and legacy migration. Invalid files
+  are preserved in quarantine, replacement is atomic, and storage/render failures surface
+  diagnostics instead of a black window.
+- ⛽ **Litre-canonical fuel truth** — fuel range and fuel-to-finish use litres consistently, while
+  startup, partial, and refuelling laps no longer pollute the consumption average.
+- 🚨 **One alert policy on every surface** — serialized configuration and shared trigger logic keep
+  Alerts, overlays, dashboards, and widgets aligned. Shift Point uses native shift state or
+  RPM/max-RPM and respects disabled policies and simulator coverage.
+- 🧭 **Telemetry provenance is explicit** — engine map is distinct from throttle map, garage cold
+  pressure is not shown as live tyre pressure, and opponent steering remains unsupported rather
+  than synthesized.
+- 🧪 **Governed visual foundations** — PRs #60, #61, and #63 add an immutable 50-dashboard brief
+  portfolio, structural/perceptual clone rejection, and a 143-concept registry with 142 currently
+  visualizable concepts plus 45 trigger-only families.
+
+### In development — not included in this release
+- The separate Phase 02 program targets **50 newly produced dashboards and 16,600 individually
+  evidenced visual artifacts**.
+- Version 2.53.0 includes the briefs, registry, provenance, and quality gates only. It does **not**
+  ship those generated reference images or completed dashboard outputs.
+
+### Reliability and compatibility
+- Persisted dashboard operations are serialized and race-safe across load failures, renderer
+  crashes, queued opens, close/delete, and concurrent saves.
+- Newest configuration wins during hydration, while telemetry disconnect/reconnect emissions stay
+  ordered; persisted revisions remain monotonic even with clock rollback or future-dated files.
+- Windows 10/11 x64 remains the supported release target. iRacing has the deepest normalized
+  telemetry; other simulator coverage varies by provider.
+- Full-profile import remains disabled for configuration safety; per-section import/export and
+  full-profile export remain available.
+
+### Validation
+- Full test suite: **3,821 tests passing across 295 files. Typecheck clean.**
+- Updater/package metadata contract: **3 targeted tests passing**.
+- Current React view harness: **34/34 real UI captures**, with no render-boundary failures.
+- Production GT3 dashboard renderer: targeted Endurance Stint Core capture passes.
+- Production build and the **47-file streaming resource graph** pass.
+
+_Release artifact names: `Ultimate-Sim-App-2.53.0-x64.exe` (NSIS, x64) + portable `.zip` + blockmap + `latest.yml`._
+
+### What's Changed
+- [#60](https://github.com/guilhermerbasso/ultimate-sim-app/pull/60) — add the immutable 50-dashboard portfolio registry (foundation only).
+- [#61](https://github.com/guilhermerbasso/ultimate-sim-app/pull/61) — enforce structural and perceptual dashboard differentiation (foundation only).
+- [#62](https://github.com/guilhermerbasso/ultimate-sim-app/pull/62) — align runtime fuel, pressure, map, Shift Point, and alert truth.
+- [#63](https://github.com/guilhermerbasso/ultimate-sim-app/pull/63) — add the governed telemetry and trigger-only registries (foundation only).
+- [#64](https://github.com/guilhermerbasso/ultimate-sim-app/pull/64) — restore saved dashboard windows safely after restart.
+
+**Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.52.0...v2.53.0
+
 ## v2.52.0 — Semantic controls, expression destinations, secure streaming & synchronized speech
 
 Release 2.52 brings the Release B foundations into the Windows app: richer cockpit controls,

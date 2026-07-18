@@ -12,6 +12,7 @@ import type { TelemetrySnapshot } from '../../../shared/telemetry'
 import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, mergeHifiOverlayConfigs, resolveOverlayTrigger, shouldRenderOverlayRuntime } from './hifi-overlays'
 import { resolveWidgetComponent } from './widgets'
 import { useOverlayTriggerController } from './useOverlayTriggerController'
+import { useAlertsConfig } from '../lib/alerts-config'
 import './overlay-runtime.css'
 
 const RESIZE_DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
@@ -92,7 +93,8 @@ export function CompositorRoot() {
   const configRef = useRef(config)
   const lastHitRef = useRef<boolean | null>(null)
   const hitHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const triggerController = useOverlayTriggerController(snapshot)
+  const alertsConfig = useAlertsConfig()
+  const triggerController = useOverlayTriggerController(snapshot, alertsConfig)
 
   useEffect(() => {
     configRef.current = config
@@ -275,7 +277,12 @@ export function CompositorRoot() {
                   {definition.title} · compositor · drag to move
                 </div>
               )}
-              <Widget snapshot={snapshot} config={widgetConfig} visibility={visibility} />
+              <Widget
+                snapshot={snapshot}
+                config={widgetConfig}
+                visibility={visibility}
+                alertsConfig={alertsConfig}
+              />
               {!widgetConfig.locked &&
                 RESIZE_DIRS.map((dir) => (
                   <div

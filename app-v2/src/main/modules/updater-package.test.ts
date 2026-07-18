@@ -33,15 +33,45 @@ describe('Windows updater package safety', () => {
     })
   })
 
-  it('keeps package and lockfile versions aligned at 2.52.0', () => {
+  it('unpacks the SerialPort runtime used by the ASAR-aware CommonJS bridge', () => {
+    const config = YAML.parse(readFileSync(join(root, 'electron-builder.yml'), 'utf8'))
+    const unpack = config.asarUnpack as string[]
+
+    expect(unpack).toContain('**/node_modules/@serialport/**')
+    expect(unpack).toContain('**/node_modules/serialport/**')
+  })
+
+  it('routes every main-process SerialPort import through the ASAR-aware bridge', () => {
+    const directImport = /from\s*['"]serialport['"]|import\s*\(\s*['"]serialport['"]\s*\)/
+    const consumers = [
+      join(root, 'src', 'main', 'serial', 'hub.ts'),
+      join(root, 'src', 'main', 'serial', 'device.ts'),
+      join(root, 'src', 'main', 'devices', 'flasher.ts'),
+      join(root, 'src', 'main', 'modules', 'esp32-wifi.ts'),
+      join(root, 'src', 'main', 'modules', 'arduino-setup.ts')
+    ]
+
+    for (const file of consumers) {
+      expect(readFileSync(file, 'utf8')).not.toMatch(directImport)
+    }
+
+    const bridge = readFileSync(
+      join(root, 'src', 'main', 'serial', 'serialport-runtime.ts'),
+      'utf8'
+    )
+    expect(bridge).toContain('createRequire(import.meta.url)')
+    expect(bridge).toContain("runtimeRequire('serialport')")
+  })
+
+  it('keeps package and lockfile versions aligned at 2.53.1', () => {
     const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string }
     const packageLock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8')) as {
       version: string
       packages: Record<string, { version?: string }>
     }
 
-    expect(packageJson.version).toBe('2.52.0')
-    expect(packageLock.version).toBe('2.52.0')
-    expect(packageLock.packages['']?.version).toBe('2.52.0')
+    expect(packageJson.version).toBe('2.53.1')
+    expect(packageLock.version).toBe('2.53.1')
+    expect(packageLock.packages['']?.version).toBe('2.53.1')
   })
 })

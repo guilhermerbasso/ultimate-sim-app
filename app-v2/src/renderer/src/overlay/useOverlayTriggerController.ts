@@ -4,6 +4,7 @@ import {
   type OverlayTrigger,
   type OverlayTriggerResult
 } from '../../../shared/overlays'
+import type { AlertsConfig } from '../../../shared/alerts'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
 
 export function overlayMonotonicNow(): number {
@@ -12,7 +13,10 @@ export function overlayMonotonicNow(): number {
     : Date.now()
 }
 
-export function useOverlayTriggerController(snapshot: TelemetrySnapshot | null) {
+export function useOverlayTriggerController(
+  snapshot: TelemetrySnapshot | null,
+  alertsConfig: AlertsConfig
+) {
   const controller = useRef<OverlayTriggerController | null>(null)
   if (!controller.current) controller.current = new OverlayTriggerController()
   const [, tick] = useReducer((value: number) => value + 1, 0)
@@ -29,7 +33,7 @@ export function useOverlayTriggerController(snapshot: TelemetrySnapshot | null) 
   return {
     controller: controller.current,
     evaluate(key: string, trigger: OverlayTrigger | null | undefined): OverlayTriggerResult {
-      return controller.current!.evaluate(key, trigger, snapshot, now)
+      return controller.current!.evaluate(key, trigger, snapshot, now, alertsConfig)
     }
   }
 }

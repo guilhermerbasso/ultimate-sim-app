@@ -6,6 +6,7 @@
 // array; the registry aggregates them WITHOUT touching any shared union, so groups
 // can be built fully in parallel with zero registration conflicts.
 import type { ReactElement } from 'react'
+import type { AlertsConfig } from '../../../../shared/alerts'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
 import type {
   OverlayRole,
@@ -13,8 +14,10 @@ import type {
   OverlayTriggerResult
 } from '../../../../shared/overlays'
 import type { UnitSystem } from '../../../../shared/units'
+import type { TelemetryRequirement } from '../../../../shared/sim-coverage'
 
 export type TelemetryField = keyof TelemetrySnapshot
+export type HifiTelemetryRequirement = TelemetryRequirement
 
 /** Severity used by AI coach findings / alerts. */
 export type HifiAiSeverity = 'low' | 'med' | 'high'
@@ -52,6 +55,8 @@ export interface HifiWidgetProps {
   unitSystem?: UnitSystem
   /** Runtime trigger phase; preview/runtime controllers are isolated. */
   visibility?: OverlayTriggerResult
+  /** Persisted alert policy used by trigger-aware widgets. */
+  alertsConfig?: AlertsConfig
 }
 
 export interface HifiWidgetModule {
@@ -67,7 +72,9 @@ export interface HifiWidgetModule {
    *  automatically from `requires` by the registry. */
   tags: string[]
   /** Telemetry fields used → drives auto yes-tags and the per-yes availability. */
-  requires: TelemetryField[]
+  requires: HifiTelemetryRequirement[]
+  /** Alternative AND-groups. The widget is available when `requires` OR any group is covered. */
+  alternativeRequires?: HifiTelemetryRequirement[][]
   /** Logical aspect (used for default overlay/widget size). */
   defaultSize: { w: number; h: number }
   /** v4: default visibility trigger for spotter-style trigger-only overlays. When

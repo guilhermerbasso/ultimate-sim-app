@@ -57,7 +57,9 @@ describe('IR_DERIVED_WIDGETS', () => {
     expect(byId.get('steeringLock')).toEqual(['steerAngleDeg', 'steeringAngleMaxDeg'])
     expect(byId.get('rotationRates')).toEqual(['yawRateRadSec', 'pitchRateRadSec', 'rollRateRadSec'])
     expect(byId.get('carAttitude')).toEqual(['pitchRad', 'rollRad', 'yawRad'])
-    expect(byId.get('fuelLapsLeft')).toEqual(['fuelLiters', 'fuelPerLapKg'])
+    expect(byId.get('fuelLapsLeft')).toEqual(['fuelLapsRemaining'])
+    expect(IR_DERIVED_WIDGETS.find((widget) => widget.id === 'fuelLapsLeft')?.alternativeRequires)
+      .toEqual([['fuelLiters', 'fuelPerLapLiters']])
     expect(byId.get('sunPosition')).toEqual(['solarAltitudeRad', 'solarAzimuthRad'])
     expect(byId.get('gpsHeading')).toEqual(['lat', 'lon', 'yawNorth'])
     expect(byId.get('raceControlFlags')).toEqual(['sessionFlagsRaw'])
@@ -125,5 +127,20 @@ describe('IR_DERIVED_WIDGETS', () => {
     expect(tag).toBeTruthy()
     expect(Number(tag?.[1])).toBeGreaterThanOrEqual(48)
     expect(Number(tag?.[1])).toBeLessThanOrEqual(51)
+  })
+
+  it('uses canonical litres-per-lap instead of an implicit kg density conversion', () => {
+    const widget = IR_DERIVED_WIDGETS.find((candidate) => candidate.id === 'fuelLapsLeft')
+    expect(widget).toBeTruthy()
+    if (!widget) return
+    const markup = renderWidget(widget, {
+      ...baseSnapshot(),
+      fuelLiters: 10,
+      fuelPerLapKg: 1,
+      fuelPerLapLiters: 2,
+      fuelLapsRemaining: undefined
+    } as TelemetrySnapshot)
+    expect(markup).toContain('5.0')
+    expect(markup).not.toContain('7.5')
   })
 })

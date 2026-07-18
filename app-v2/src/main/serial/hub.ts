@@ -1,10 +1,10 @@
 import { EventEmitter } from 'node:events'
-import { SerialPort } from 'serialport'
 import type { PortInfo } from '../../shared/ipc'
 import type { SerialDeviceKind, SerialDeviceSummary } from '../../shared/arduino'
 import { isLikelySimXPort } from '../protocol'
 import { SerialDevice } from './device'
 import { logger } from '../modules/logger'
+import { SerialPort } from './serialport-runtime'
 
 // Stable id reserved for the SIM-X box. Pre-existing code (revlights, OLED,
 // arduino, buttonbox IPC) talks to this device through ctx.serialManager,

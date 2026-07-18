@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { createDefaultOverlayStyle, DEFAULT_OVERLAY_STYLE_PRESET, type OverlayWidgetConfig, type OverlayWidgetId } from '../../../shared/overlays'
 import { HIFI_WIDGETS, hifiWidgetTags } from '../hifi/widgets/registry'
 import { HifiWidgetHost, resolveWidgetComponent } from './widgets'
+import { PLAYABLE_SIMS, widgetSupportedSims } from '../../../shared/sim-coverage'
 import {
   createDefaultOverlaysConfigWithHifi,
   HIFI_OVERLAY_DEFS,
@@ -24,6 +25,17 @@ describe('hi-fi overlay bridge', () => {
       const def = HIFI_OVERLAY_DEFS.find((item) => item.id === `hifi:${module.id}`)
       expect(def?.tags).toEqual(expect.arrayContaining(hifiWidgetTags(module)))
     }
+  })
+
+  it('preserves alternative telemetry requirements for shift alerts', () => {
+    const module = HIFI_WIDGETS.find((entry) => entry.id === 'alertShiftFlash')
+    const definition = HIFI_OVERLAY_DEFS.find((entry) => entry.id === 'hifi:alertShiftFlash')
+    expect(definition?.requires).toEqual(module?.requires)
+    expect(definition?.alternativeRequires).toEqual(module?.alternativeRequires)
+    expect(widgetSupportedSims(
+      definition?.requires,
+      definition?.alternativeRequires
+    )).toEqual([...PLAYABLE_SIMS])
   })
 
   it('enforces the alert-role invariant across current and generated visual families', () => {

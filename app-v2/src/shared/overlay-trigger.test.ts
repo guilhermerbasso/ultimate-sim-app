@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_ALERTS_CONFIG } from './alerts'
 import {
+  defaultTriggerForHifiModule,
   evaluateOverlayTrigger,
   hifiModuleRole,
   MonotonicTemporalTriggerEngine,
   OverlayTriggerController,
   semanticOverlayTrigger,
-  semanticTriggerForHifiModule
+  semanticTriggerForHifiModule,
+  simulateOverlayTriggerSnapshot
 } from './overlay-trigger'
 import type { TelemetrySnapshot } from './telemetry'
 
@@ -143,16 +146,40 @@ describe('OverlayTriggerController semantic policies', () => {
     expect(active('replayTimeline', { replayPlaying: true, replayFrameNum: 1 })).toBe(true)
   })
 
-  it('keeps the existing alerts2 thresholds unchanged', () => {
-    const active = (semantic: Parameters<typeof semanticOverlayTrigger>[0], partial: Partial<TelemetrySnapshot>) =>
-      evaluateOverlayTrigger(semanticOverlayTrigger(semantic), snapshot(partial))
+  it('uses SDK warning bits and configured tyre/brake policy without universal thresholds', () => {
+    const config = {
+      ...DEFAULT_ALERTS_CONFIG,
+      tyreTemp: { ...DEFAULT_ALERTS_CONFIG.tyreTemp!, maxC: 130 },
+      brakePressureLow: { brakeInputMin: 0.5, maxLinePressureBar: 40 }
+    }
+    const active = (
+      semantic: Parameters<typeof semanticOverlayTrigger>[0],
+      partial: Partial<TelemetrySnapshot>
+    ) => evaluateOverlayTrigger(semanticOverlayTrigger(semantic), snapshot(partial), config)
+    const noWarnings = {
+      waterTemp: false,
+      fuelPressure: false,
+      oilPressure: false,
+      oilTemp: false,
+      stalled: false,
+      pitLimiter: false,
+      revLimiter: false,
+      mandRepair: false,
+      optRepair: false
+    }
 
-    expect(active('alert2WaterTempCritical', { waterTempC: 104.9 })).toBe(false)
-    expect(active('alert2WaterTempCritical', { waterTempC: 105 })).toBe(true)
-    expect(active('alert2OilTempCritical', { oilTempC: 124.9 })).toBe(false)
-    expect(active('alert2OilTempCritical', { oilTempC: 125 })).toBe(true)
-    expect(active('alert2OilPressureLow', { oilPressureKpa: 140.1 })).toBe(false)
-    expect(active('alert2OilPressureLow', { oilPressureKpa: 140 })).toBe(true)
+    expect(active('alert2WaterTempCritical', { waterTempC: 200 })).toBe(false)
+    expect(active('alert2WaterTempCritical', {
+      engineWarnings: { ...noWarnings, waterTemp: true }
+    })).toBe(true)
+    expect(active('alert2OilTempCritical', { oilTempC: 200 })).toBe(false)
+    expect(active('alert2OilTempCritical', {
+      engineWarnings: { ...noWarnings, oilTemp: true }
+    })).toBe(true)
+    expect(active('alert2OilPressureLow', { oilPressureKpa: 0 })).toBe(false)
+    expect(active('alert2OilPressureLow', {
+      engineWarnings: { ...noWarnings, oilPressure: true }
+    })).toBe(true)
     expect(active('alert2BadSurface', { trackSurfaceMaterial: 1 })).toBe(false)
     expect(active('alert2BadSurface', { trackSurfaceMaterial: 15 })).toBe(true)
     expect(active('alert2BlueFlag', { flags: {
@@ -161,19 +188,50 @@ describe('OverlayTriggerController semantic policies', () => {
       greenWhiteCheckered: false
     } })).toBe(true)
     expect(active('alert2TyreTempCritical', {
-      tyres: { lf: { tempC: 114.9 }, rf: {}, lr: {}, rr: {} }
+      tyres: { lf: { tempC: 129.9 }, rf: {}, lr: {}, rr: {} }
     })).toBe(false)
     expect(active('alert2TyreTempCritical', {
-      tyres: { lf: { tempC: 115 }, rf: {}, lr: {}, rr: {} }
+      tyres: { lf: { tempC: 130 }, rf: {}, lr: {}, rr: {} }
+    })).toBe(false)
+    expect(active('alert2TyreTempCritical', {
+      tyres: { lf: { tempC: 130.1 }, rf: {}, lr: {}, rr: {} }
     })).toBe(true)
     expect(active('alert2BrakePressureLow', {
-      brake: 0.349,
-      brakeLinePressBar: { lf: 18, rf: 17, lr: 14, rr: 13 }
+      brake: 0.49,
+      brakeLinePressBar: { lf: 39, rf: 38, lr: 37, rr: 36 }
     })).toBe(false)
     expect(active('alert2BrakePressureLow', {
-      brake: 0.35,
-      brakeLinePressBar: { lf: 24.9, rf: 20, lr: 18, rr: 16 }
+      brake: 0.5,
+      brakeLinePressBar: { lf: 39.9, rf: 38, lr: 37, rr: 36 }
     })).toBe(true)
+    expect(active('alert2BrakePressureLow', {
+      brake: 0.8,
+      brakeLinePressBar: undefined
+    })).toBe(false)
+  })
+
+  it('simulates configured low-fuel and shift thresholds for previews', () => {
+    const config = {
+      ...DEFAULT_ALERTS_CONFIG,
+      lowFuel: { ...DEFAULT_ALERTS_CONFIG.lowFuel, lapsThreshold: 5 },
+      shiftPoint: {
+        ...DEFAULT_ALERTS_CONFIG.shiftPoint,
+        shiftIndicatorPct: 0.8,
+        rpmPct: 0.9
+      }
+    }
+    const lowFuelTrigger = defaultTriggerForHifiModule('alertLowFuel')
+    const shiftTrigger = defaultTriggerForHifiModule('alertShiftFlash')
+    const base = snapshot({ rpm: 6000, maxRpm: 8000 })
+
+    const lowFuel = simulateOverlayTriggerSnapshot(base, lowFuelTrigger, true, config)
+    expect(lowFuel.fuelPerLapLiters).toBe(2)
+    expect(lowFuel.fuelLapsRemaining).toBe(4.5)
+    expect(evaluateOverlayTrigger(lowFuelTrigger, lowFuel, config)).toBe(true)
+
+    const shift = simulateOverlayTriggerSnapshot(base, shiftTrigger, true, config)
+    expect(shift.shiftIndicatorPct).toBe(0.8)
+    expect(evaluateOverlayTrigger(shiftTrigger, shift, config)).toBe(true)
   })
 
   it('holds PACE CLEAR for exactly 5 seconds after the real pace car enters pits', () => {

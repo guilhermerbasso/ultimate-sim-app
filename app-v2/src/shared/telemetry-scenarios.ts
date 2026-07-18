@@ -8,6 +8,7 @@
 // `TelemetrySnapshot` (e.g. a preview harness), or extend the mock provider to call
 // a scenario's `frame()` instead of its built-in lap.
 
+import { DEFAULT_ALERTS_CONFIG } from './alerts'
 import type { Corners, Flags, TelemetrySnapshot } from './telemetry'
 
 const NEUTRAL_FLAGS: Flags = {
@@ -128,6 +129,8 @@ export function baseSnapshot(): TelemetrySnapshot {
     replayFrameEnd: 360000,
     fuelLiters: 48,
     fuelPerLap: 2.9,
+    fuelPerLapLiters: 2.9,
+    fuelLapsRemaining: 48 / 2.9,
     fuelCapacityLiters: 120,
     tyres: {
       lf: { tempC: 90, tempLeftC: 88, tempMiddleC: 90, tempRightC: 92, surfaceTempLeftC: 91, surfaceTempMiddleC: 93, surfaceTempRightC: 95, pressureKpa: 165, wearPct: 0.8, wearLeftPct: 0.82, wearMiddlePct: 0.8, wearRightPct: 0.78 },
@@ -269,7 +272,13 @@ export const TELEMETRY_SCENARIOS: Record<TelemetryScenarioId, TelemetryScenario>
       s.speedKmh = lerp(120, 265, t)
       s.gear = 4
       s.throttle = 1
-      s.revLights = { pct: t, blink: t >= 0.97, firstRpm: 6800, shiftRpm: 8000, lastRpm: 8200 }
+      s.revLights = {
+        pct: t,
+        blink: t >= DEFAULT_ALERTS_CONFIG.shiftPoint.shiftIndicatorPct,
+        firstRpm: 6800,
+        shiftRpm: 8000,
+        lastRpm: 8200
+      }
       return withTimestamp(s, t, 3)
     }
   },
@@ -282,6 +291,8 @@ export const TELEMETRY_SCENARIOS: Record<TelemetryScenarioId, TelemetryScenario>
       s.fuelLiters = lerp(6.5, 0.6, t)
       s.lapsRemaining = Math.max(0, Math.round(lerp(2, 0, t)))
       s.fuelPerLap = 2.9
+      s.fuelPerLapLiters = 2.9
+      s.fuelLapsRemaining = s.fuelLiters / 2.9
       s.lapDistPct = (t * 2) % 1
       return withTimestamp(s, t, 90)
     }

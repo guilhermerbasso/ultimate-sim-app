@@ -158,6 +158,18 @@ describe('planAdaptiveDashboard — dynamic overrides', () => {
     const plan = planAdaptiveDashboard(snap({ sessionType: 'Qualify', currentLap: 2, fuelLiters: 2, fuelPerLap: 1.5 }))
     expect(plan.byConcept.fuel).toBe('emphasize')
   })
+
+  it('uses the configured low-fuel threshold for dynamic emphasis', () => {
+    const telemetry = snap({
+      sessionType: 'Qualify',
+      currentLap: 2,
+      fuelLapsRemaining: 4
+    })
+    expect(planAdaptiveDashboard(telemetry, { lowFuelLapsThreshold: 3 }).reason)
+      .not.toContain('low fuel')
+    expect(planAdaptiveDashboard(telemetry, { lowFuelLapsThreshold: 5 }).reason)
+      .toContain('low fuel')
+  })
 })
 
 describe('applyAdaptivePlan', () => {
