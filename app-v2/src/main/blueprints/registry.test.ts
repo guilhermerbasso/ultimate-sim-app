@@ -5,6 +5,7 @@ import {
   RACEOPS_BLUEPRINT_RUNTIME_VERSION,
   RACEOPS_EVIDENCE_SCHEMA_VERSION,
   canonicalJson,
+  createRaceOpsBlueprintSelectionRequest,
   parseSignedRaceOpsBlueprintFeed,
   type CuratedRaceOpsFeedPin,
   type RaceOpsBlueprintFeedPayload,
@@ -34,13 +35,29 @@ interface TestSigner {
   publicKeySpki: string
 }
 
-function createSigner(): TestSigner {
+function createSigner(keyId = 'test-raceops-root'): TestSigner {
   const { privateKey, publicKey } = generateKeyPairSync('ed25519')
   return {
-    keyId: 'test-raceops-root',
+    keyId,
     privateKey,
     publicKeySpki: publicKey.export({ type: 'spki', format: 'der' }).toString('base64')
   }
+}
+
+function requestFor(
+  feed: { envelope: SignedRaceOpsBlueprintFeed },
+  parameters: Record<string, unknown> = {}
+) {
+  const entry = feed.envelope.payload.entries[0]
+  return createRaceOpsBlueprintSelectionRequest(
+    {
+      feedId: feed.envelope.payload.feedId,
+      blueprintId: entry.id,
+      blueprintVersion: entry.version,
+      manifestSha256: entry.manifestSha256
+    },
+    parameters
+  )
 }
 
 function makeSignedFeed(
@@ -196,9 +213,100 @@ describe('signed curated RaceOps feeds', () => {
     })
     await expect(reopened.getSnapshot()).rejects.toMatchObject({ code: 'TAMPERED' })
   })
+
+  it('quarantines a stale cache during legitimate pin rotation and continues with the current feed', async () => {
+    const oldSigner = createSigner('old-raceops-root')
+    const currentSigner = createSigner('current-raceops-root')
+    const oldFeed = makeSignedFeed(oldSigner, {
+      feedId: 'rotating-feed',
+      sequence: 1
+    })
+    const currentFeed = makeSignedFeed(currentSigner, {
+      feedId: 'rotating-feed',
+      sequence: 2
+    })
+    const storage = createMemoryRaceOpsRegistryStorage()
+    const oldRegistry = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [oldFeed.pin],
+      trustedKeys: oldFeed.trustedKeys,
+      fetchFeed: async () => oldFeed.envelope,
+      now: () => NOW
+    })
+    await oldRegistry.refreshFeed(oldFeed.pin.feedId)
+    await oldRegistry.dryRun(requestFor(oldFeed))
+
+    const rotated = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [currentFeed.pin],
+      trustedKeys: currentFeed.trustedKeys,
+      bundledFeeds: { [currentFeed.pin.feedId]: currentFeed.envelope },
+      now: () => NOW
+    })
+    const snapshot = await rotated.getSnapshot()
+    expect(snapshot.feeds[0].envelopeSha256).toBe(currentFeed.pin.envelopeSha256)
+    expect(snapshot.blueprints[0].compatibilityStatus).toBe('stale')
+
+    const persisted = storage.dump() as {
+      schemaVersion: number
+      quarantinedFeeds: Array<{
+        reason: string
+        cached: { envelopeSha256: string }
+        currentPinSha256: string
+      }>
+    }
+    expect(persisted.schemaVersion).toBe(3)
+    expect(persisted.quarantinedFeeds).toEqual([
+      expect.objectContaining({
+        reason: 'pin-rotation',
+        currentPinSha256: currentFeed.pin.envelopeSha256,
+        cached: expect.objectContaining({ envelopeSha256: oldFeed.pin.envelopeSha256 })
+      })
+    ])
+  })
 })
 
 describe('RaceOps registry lifecycle', () => {
+  it('requires exact operation identity and a matching request fingerprint', async () => {
+    const signer = createSigner()
+    const feed = makeSignedFeed(signer, { feedId: 'exact-operation' })
+    const registry = new RaceOpsBlueprintRegistry({
+      storage: createMemoryRaceOpsRegistryStorage(),
+      appVersion: '2.53.1',
+      pins: [feed.pin],
+      trustedKeys: feed.trustedKeys,
+      bundledFeeds: { [feed.pin.feedId]: feed.envelope },
+      now: () => NOW
+    })
+
+    const valid = requestFor(feed)
+    const response = await registry.dryRun(valid)
+    expect(response.requestFingerprint).toBe(valid.requestFingerprint)
+
+    await expect(
+      registry.dryRun({ ...valid, blueprintVersion: '9.0.0' })
+    ).rejects.toMatchObject({ code: 'STALE_REQUEST' })
+
+    const wrongVersion = createRaceOpsBlueprintSelectionRequest(
+      { ...valid, blueprintVersion: '9.0.0' },
+      valid.parameters
+    )
+    await expect(registry.dryRun(wrongVersion)).rejects.toMatchObject({
+      code: 'STALE_REQUEST'
+    })
+
+    const wrongHash = createRaceOpsBlueprintSelectionRequest(
+      { ...valid, manifestSha256: 'f'.repeat(64) },
+      valid.parameters
+    )
+    await expect(registry.dryRun(wrongHash)).rejects.toMatchObject({ code: 'STALE_REQUEST' })
+    await expect(
+      registry.dryRun({ ...valid, unexpected: true } as typeof valid)
+    ).rejects.toMatchObject({ code: 'INVALID_SCHEMA' })
+  })
+
   it('changes compatibility badges only after publisher evidence exists', async () => {
     const signer = createSigner()
     const feed = makeSignedFeed(signer, { feedId: 'evidence-view' })
@@ -212,15 +320,11 @@ describe('RaceOps registry lifecycle', () => {
     })
 
     expect((await registry.getSnapshot()).blueprints[0].compatibilityStatus).toBe('unverified')
-    await registry.dryRun({
-      feedId: feed.pin.feedId,
-      blueprintId: 'test-blueprint',
-      parameters: { procedure: 'prepare-slow-zone' }
-    })
+    await registry.dryRun(requestFor(feed, { procedure: 'prepare-slow-zone' }))
     expect((await registry.getSnapshot()).blueprints[0].compatibilityStatus).toBe('compatible')
   })
 
-  it('migrates v1 install history into the versioned v2 registry state', () => {
+  it('migrates v1 install history into the versioned v3 registry state', () => {
     const migrated = migrateRaceOpsRegistryState({
       schemaVersion: 1,
       cachedFeeds: [],
@@ -230,10 +334,23 @@ describe('RaceOps registry lifecycle', () => {
       ],
       evidence: []
     })
-    expect(migrated.schemaVersion).toBe(2)
+    expect(migrated.schemaVersion).toBe(3)
     expect(migrated.installs['migrated-blueprint'].active.blueprintVersion).toBe('2.0.0')
     expect(migrated.installs['migrated-blueprint'].history).toHaveLength(1)
     expect(migrated.installs['migrated-blueprint'].history[0].blueprintVersion).toBe('1.0.0')
+    expect(migrated.quarantinedFeeds).toEqual([])
+  })
+
+  it('migrates schema v2 state to v3 without trusting unknown quarantine data', () => {
+    const migrated = migrateRaceOpsRegistryState({
+      schemaVersion: 2,
+      feeds: {},
+      installs: {},
+      evidence: [],
+      quarantinedFeeds: [{ reason: 'forged' }]
+    })
+    expect(migrated.schemaVersion).toBe(3)
+    expect(migrated.quarantinedFeeds).toEqual([])
   })
 
   it('publishes incompatible evidence and refuses to stage unsupported app versions', async () => {
@@ -252,11 +369,7 @@ describe('RaceOps registry lifecycle', () => {
       now: () => NOW
     })
 
-    const response = await registry.stage({
-      feedId: feed.pin.feedId,
-      blueprintId: 'test-blueprint',
-      parameters: {}
-    })
+    const response = await registry.stage(requestFor(feed))
     expect(response.installed).toBe(false)
     expect(response.ok).toBe(false)
     expect(response.evidence.status).toBe('incompatible-app')
@@ -295,32 +408,110 @@ describe('RaceOps registry lifecycle', () => {
 
     expect(
       (
-        await registry.stage({
-          feedId: v1.pin.feedId,
-          blueprintId: 'rollback-blueprint',
-          parameters: {}
-        })
+        await registry.stage(requestFor(v1))
       ).installed
     ).toBe(true)
     expect(
       (
-        await registry.stage({
-          feedId: v2.pin.feedId,
-          blueprintId: 'rollback-blueprint',
-          parameters: {}
-        })
+        await registry.stage(requestFor(v2))
       ).installed
     ).toBe(true)
 
     let snapshot = await registry.getSnapshot()
     expect(snapshot.installed[0].blueprintVersion).toBe('2.0.0')
-    expect(snapshot.blueprints.some((entry) => entry.rollbackAvailable)).toBe(true)
+    expect(
+      snapshot.blueprints.find((entry) => entry.feedId === v2.pin.feedId)?.rollbackAvailable
+    ).toBe(true)
+    expect(
+      snapshot.blueprints.find((entry) => entry.feedId === v1.pin.feedId)?.rollbackAvailable
+    ).toBe(false)
 
-    const rolledBack = await registry.rollback('rollback-blueprint')
+    const rolledBack = await registry.rollback({
+      feedId: v2.pin.feedId,
+      blueprintId: 'rollback-blueprint',
+      blueprintVersion: '2.0.0',
+      manifestSha256: v2.envelope.payload.entries[0].manifestSha256
+    })
     expect(rolledBack.installed).toBe(true)
     expect(rolledBack.evidence.operation).toBe('rollback')
     snapshot = await registry.getSnapshot()
     expect(snapshot.installed[0].blueprintVersion).toBe('1.0.0')
+  })
+
+  it('rejects rollback when the UI operation identity is stale', async () => {
+    const signer = createSigner()
+    const v1 = makeSignedFeed(signer, {
+      feedId: 'rollback-stale-v1',
+      blueprintId: 'rollback-stale',
+      version: '1.0.0'
+    })
+    const v2 = makeSignedFeed(signer, {
+      feedId: 'rollback-stale-v2',
+      blueprintId: 'rollback-stale',
+      version: '2.0.0'
+    })
+    const registry = new RaceOpsBlueprintRegistry({
+      storage: createMemoryRaceOpsRegistryStorage(),
+      appVersion: '2.53.1',
+      pins: [v1.pin, v2.pin],
+      trustedKeys: v1.trustedKeys,
+      bundledFeeds: {
+        [v1.pin.feedId]: v1.envelope,
+        [v2.pin.feedId]: v2.envelope
+      },
+      now: () => NOW
+    })
+    await registry.stage(requestFor(v1))
+    await registry.stage(requestFor(v2))
+
+    await expect(
+      registry.rollback({
+        feedId: v1.pin.feedId,
+        blueprintId: 'rollback-stale',
+        blueprintVersion: '1.0.0',
+        manifestSha256: v1.envelope.payload.entries[0].manifestSha256
+      })
+    ).rejects.toMatchObject({ code: 'STALE_REQUEST' })
+  })
+
+  it('invalidates evidence across app and runtime upgrades', async () => {
+    const signer = createSigner()
+    const feed = makeSignedFeed(signer, { feedId: 'upgrade-evidence' })
+    const storage = createMemoryRaceOpsRegistryStorage()
+    const original = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [feed.pin],
+      trustedKeys: feed.trustedKeys,
+      bundledFeeds: { [feed.pin.feedId]: feed.envelope },
+      now: () => NOW
+    })
+    await original.dryRun(requestFor(feed))
+    expect((await original.getSnapshot()).blueprints[0].compatibilityStatus).toBe('compatible')
+
+    const appUpgrade = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.54.0',
+      pins: [feed.pin],
+      trustedKeys: feed.trustedKeys,
+      bundledFeeds: { [feed.pin.feedId]: feed.envelope },
+      now: () => NOW
+    })
+    expect((await appUpgrade.getSnapshot()).blueprints[0].compatibilityStatus).toBe('stale')
+
+    const runtimeUpgrade = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      runtimeVersion: 2,
+      pins: [feed.pin],
+      trustedKeys: feed.trustedKeys,
+      bundledFeeds: { [feed.pin.feedId]: feed.envelope },
+      now: () => NOW
+    })
+    expect((await runtimeUpgrade.getSnapshot()).blueprints[0].compatibilityStatus).toBe('stale')
+    const incompatible = await runtimeUpgrade.dryRun(requestFor(feed))
+    expect(incompatible.ok).toBe(false)
+    expect(incompatible.evidence.status).toBe('incompatible-runtime')
   })
 
   it('serves a previously verified feed from cache when refresh is offline', async () => {

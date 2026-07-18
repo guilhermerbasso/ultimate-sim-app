@@ -4,9 +4,13 @@ import {
   RACEOPS_BLUEPRINT_SCHEMA_VERSION,
   assertRaceOpsAppVersionCompatible,
   canonicalJson,
+  compareRaceOpsSemver,
+  createRaceOpsBlueprintSelectionRequest,
   dryRunRaceOpsBlueprint,
+  fingerprintRaceOpsBlueprintRequest,
   migrateRaceOpsBlueprintManifest,
   parseRaceOpsBlueprintManifest,
+  parseRaceOpsRfc3339,
   parseSignedRaceOpsBlueprintFeed,
   resolveRaceOpsBlueprintParameters
 } from './raceops-blueprints'
@@ -134,5 +138,86 @@ describe('RaceOps declarative blueprints', () => {
     expect(() =>
       resolveRaceOpsBlueprintParameters(pitWindow, { undeclared: true })
     ).toThrowError(expect.objectContaining({ code: 'INVALID_PARAMETER' }))
+  })
+})
+
+describe('RaceOps standards and operation identity', () => {
+  it('implements SemVer 2.0.0 prerelease precedence and ignores build metadata', () => {
+    const precedence = [
+      '1.0.0-alpha',
+      '1.0.0-alpha.1',
+      '1.0.0-alpha.beta',
+      '1.0.0-beta',
+      '1.0.0-beta.2',
+      '1.0.0-beta.11',
+      '1.0.0-rc.1',
+      '1.0.0'
+    ]
+    for (let index = 1; index < precedence.length; index += 1) {
+      expect(compareRaceOpsSemver(precedence[index - 1], precedence[index])).toBeLessThan(0)
+    }
+    expect(compareRaceOpsSemver('1.0.0+build.1', '1.0.0+build.99')).toBe(0)
+    expect(compareRaceOpsSemver('999999999999999999999.0.0', '2.0.0')).toBeGreaterThan(0)
+  })
+
+  it('rejects non-compliant SemVer forms', () => {
+    for (const invalid of ['01.0.0', '1.0', '1.0.0-alpha.01', '1.0.0-', ' 1.0.0']) {
+      expect(() => compareRaceOpsSemver(invalid, '1.0.0'), invalid).toThrow(
+        /SemVer|leading zero|exact non-empty/
+      )
+    }
+  })
+
+  it('accepts strict RFC3339 offsets and rejects normalized or timezone-less dates', () => {
+    expect(parseRaceOpsRfc3339('2026-07-18T10:00:00Z')).toBe(
+      parseRaceOpsRfc3339('2026-07-18T07:00:00-03:00')
+    )
+    expect(parseRaceOpsRfc3339('2016-12-31T23:59:60Z')).toBe(
+      parseRaceOpsRfc3339('2017-01-01T00:00:00Z')
+    )
+    for (const invalid of [
+      '2026-02-30T10:00:00Z',
+      '2026-07-18 10:00:00Z',
+      '2026-07-18T10:00:00',
+      '2026-07-18T24:00:00Z',
+      '2026-07-18T10:00:00+24:00',
+      '2026-07-18T10:00:60Z',
+      ' 2026-07-18T10:00:00Z'
+    ]) {
+      expect(() => parseRaceOpsRfc3339(invalid), invalid).toThrow(
+        /RFC3339|calendar|component|exact non-empty|leap second/
+      )
+    }
+    const invalidFeed = structuredClone(curatedFeed)
+    invalidFeed.payload.issuedAt = '2026-02-30T10:00:00Z'
+    expect(() => parseSignedRaceOpsBlueprintFeed(invalidFeed)).toThrow(/calendar/)
+  })
+
+  it('binds request fingerprints to exact version, manifest hash, and parameters', () => {
+    const identity = {
+      feedId: 'feed',
+      blueprintId: 'blueprint',
+      blueprintVersion: '1.0.0',
+      manifestSha256: 'a'.repeat(64)
+    }
+    const request = createRaceOpsBlueprintSelectionRequest(identity, { b: true, a: 2 })
+    expect(request.requestFingerprint).toBe(
+      fingerprintRaceOpsBlueprintRequest({ ...identity, parameters: { a: 2, b: true } })
+    )
+    expect(
+      createRaceOpsBlueprintSelectionRequest(
+        { ...identity, blueprintVersion: '1.0.1' },
+        { a: 2, b: true }
+      ).requestFingerprint
+    ).not.toBe(request.requestFingerprint)
+    expect(
+      createRaceOpsBlueprintSelectionRequest(
+        { ...identity, manifestSha256: 'b'.repeat(64) },
+        { a: 2, b: true }
+      ).requestFingerprint
+    ).not.toBe(request.requestFingerprint)
+    expect(
+      createRaceOpsBlueprintSelectionRequest(identity, { a: 3, b: true }).requestFingerprint
+    ).not.toBe(request.requestFingerprint)
   })
 })

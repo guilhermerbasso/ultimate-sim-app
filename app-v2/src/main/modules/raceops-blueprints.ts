@@ -1,5 +1,6 @@
 import {
   RACEOPS_BLUEPRINT_CHANNELS,
+  type RaceOpsBlueprintRollbackRequest,
   type RaceOpsBlueprintSelectionRequest
 } from '../../shared/raceops-blueprints'
 import {
@@ -44,9 +45,8 @@ export function register(ctx: ModuleContext): RaceOpsBlueprintRegistry {
     (_event, request: RaceOpsBlueprintSelectionRequest) =>
       broadcastChanged(registry.stage(request))
   )
-  ctx.ipcMain.handle(RACEOPS_BLUEPRINT_CHANNELS.rollback, (_event, blueprintId: unknown) => {
-    if (typeof blueprintId !== 'string') throw new Error('Invalid blueprint id.')
-    return broadcastChanged(registry.rollback(blueprintId))
+  ctx.ipcMain.handle(RACEOPS_BLUEPRINT_CHANNELS.rollback, (_event, request: RaceOpsBlueprintRollbackRequest) => {
+    return broadcastChanged(registry.rollback(request))
   })
 
   void registry.getSnapshot().catch((error) => {

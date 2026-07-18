@@ -14,7 +14,10 @@ import {
   assertRaceOpsAppVersionCompatible,
   canonicalJson,
   compareRaceOpsSemver,
+  createRaceOpsBlueprintSelectionRequest,
   dryRunRaceOpsBlueprint,
+  fingerprintRaceOpsBlueprintRequest,
+  parseRaceOpsRfc3339,
   parseSignedRaceOpsBlueprintFeed,
   resolveRaceOpsBlueprintParameters,
   sameRaceOpsFeedSource,
@@ -22,7 +25,9 @@ import {
   type RaceOpsBlueprintCatalogEntry,
   type RaceOpsBlueprintDryRunResponse,
   type RaceOpsBlueprintFeedEntry,
+  type RaceOpsBlueprintOperationIdentity,
   type RaceOpsBlueprintRegistrySnapshot,
+  type RaceOpsBlueprintRollbackRequest,
   type RaceOpsBlueprintSelectionRequest,
   type RaceOpsBlueprintStageResponse,
   type RaceOpsCompatibilityEvidence,
@@ -36,6 +41,7 @@ const MAX_FEED_BYTES = 1024 * 1024
 const FETCH_TIMEOUT_MS = 8_000
 const MAX_EVIDENCE_RECORDS = 500
 const MAX_INSTALL_HISTORY = 20
+const MAX_QUARANTINED_FEEDS = 20
 
 export class RaceOpsFeedTransportError extends Error {
   constructor(message: string, options?: ErrorOptions) {
@@ -71,6 +77,12 @@ function isEvidenceValid(value: unknown): value is RaceOpsCompatibilityEvidence 
     evidence.publisher !== 'ultimate-sim-app/local-conformance-v1' ||
     typeof evidence.id !== 'string'
   ) {
+    return false
+  }
+  try {
+    parseRaceOpsRfc3339(evidence.publishedAt, 'evidence.publishedAt')
+    compareRaceOpsSemver(evidence.appVersion, evidence.appVersion)
+  } catch {
     return false
   }
   const { id: _id, ...core } = evidence
@@ -146,11 +158,20 @@ export interface RaceOpsInstallRecord {
   quarantined: RaceOpsInstalledBlueprint[]
 }
 
+export interface QuarantinedRaceOpsFeed {
+  feedId: string
+  cached: CachedRaceOpsFeed
+  currentPinSha256: string
+  quarantinedAt: string
+  reason: 'pin-rotation' | 'cache-invalid'
+}
+
 export interface RaceOpsRegistryState {
   schemaVersion: typeof RACEOPS_REGISTRY_SCHEMA_VERSION
   feeds: Record<string, CachedRaceOpsFeed>
   installs: Record<string, RaceOpsInstallRecord>
   evidence: RaceOpsCompatibilityEvidence[]
+  quarantinedFeeds: QuarantinedRaceOpsFeed[]
 }
 
 function emptyState(): RaceOpsRegistryState {
@@ -158,7 +179,8 @@ function emptyState(): RaceOpsRegistryState {
     schemaVersion: RACEOPS_REGISTRY_SCHEMA_VERSION,
     feeds: {},
     installs: {},
-    evidence: []
+    evidence: [],
+    quarantinedFeeds: []
   }
 }
 
@@ -178,13 +200,23 @@ function isSafeRaceOpsId(value: unknown): value is string {
   )
 }
 
+function isRfc3339(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  try {
+    parseRaceOpsRfc3339(value)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function normalizeCachedFeed(value: unknown): CachedRaceOpsFeed | null {
   const record = asObject(value)
   if (
     !record ||
     !isSafeRaceOpsId(record.feedId) ||
     typeof record.envelopeSha256 !== 'string' ||
-    typeof record.verifiedAt !== 'string' ||
+    !isRfc3339(record.verifiedAt) ||
     (record.origin !== 'bundled' && record.origin !== 'network')
   ) {
     return null
@@ -207,13 +239,36 @@ function normalizeInstalled(value: unknown): RaceOpsInstalledBlueprint | null {
     typeof record.manifestSha256 !== 'string' ||
     typeof record.feedId !== 'string' ||
     typeof record.evidenceId !== 'string' ||
-    typeof record.stagedAt !== 'string' ||
+    !isRfc3339(record.stagedAt) ||
     record.execution !== 'disabled-trust-gate' ||
     !asObject(record.parameters)
   ) {
     return null
   }
   return record as unknown as RaceOpsInstalledBlueprint
+}
+
+function normalizeQuarantinedFeed(value: unknown): QuarantinedRaceOpsFeed | null {
+  const record = asObject(value)
+  const cached = normalizeCachedFeed(record?.cached)
+  if (
+    !record ||
+    !cached ||
+    record.feedId !== cached.feedId ||
+    typeof record.currentPinSha256 !== 'string' ||
+    !/^[a-f0-9]{64}$/i.test(record.currentPinSha256) ||
+    !isRfc3339(record.quarantinedAt) ||
+    (record.reason !== 'pin-rotation' && record.reason !== 'cache-invalid')
+  ) {
+    return null
+  }
+  return {
+    feedId: cached.feedId,
+    cached,
+    currentPinSha256: record.currentPinSha256.toLowerCase(),
+    quarantinedAt: record.quarantinedAt,
+    reason: record.reason
+  }
 }
 
 function normalizeInstallRecord(value: unknown): RaceOpsInstallRecord | null {
@@ -256,7 +311,10 @@ export function migrateRaceOpsRegistryState(value: unknown): RaceOpsRegistryStat
       byBlueprint.set(item.blueprintId, list)
     }
     for (const [blueprintId, versions] of byBlueprint) {
-      versions.sort((left, right) => Date.parse(left.stagedAt) - Date.parse(right.stagedAt))
+      versions.sort(
+        (left, right) =>
+          parseRaceOpsRfc3339(left.stagedAt) - parseRaceOpsRfc3339(right.stagedAt)
+      )
       const active = versions.at(-1)
       if (!active) continue
       state.installs[blueprintId] = {
@@ -271,7 +329,7 @@ export function migrateRaceOpsRegistryState(value: unknown): RaceOpsRegistryStat
     return state
   }
 
-  if (record.schemaVersion !== RACEOPS_REGISTRY_SCHEMA_VERSION) {
+  if (record.schemaVersion !== 2 && record.schemaVersion !== RACEOPS_REGISTRY_SCHEMA_VERSION) {
     throw new RaceOpsBlueprintError(
       'UNSUPPORTED_VERSION',
       `Unsupported RaceOps registry schema version ${record.schemaVersion}.`
@@ -292,6 +350,11 @@ export function migrateRaceOpsRegistryState(value: unknown): RaceOpsRegistryStat
   state.evidence = Array.isArray(record.evidence)
     ? record.evidence.filter(isEvidenceValid).slice(-MAX_EVIDENCE_RECORDS)
     : []
+  if (record.schemaVersion === RACEOPS_REGISTRY_SCHEMA_VERSION && Array.isArray(record.quarantinedFeeds)) {
+    state.quarantinedFeeds = record.quarantinedFeeds
+      .map(normalizeQuarantinedFeed)
+      .filter((item): item is QuarantinedRaceOpsFeed => Boolean(item))
+  }
   return state
 }
 
@@ -306,6 +369,7 @@ export function verifyPinnedRaceOpsFeed(
   trustedKeys: Readonly<Record<string, string>>,
   nowMs: number
 ): VerifiedRaceOpsFeed {
+  parseRaceOpsRfc3339(pin.reviewedAt, `curated feed ${pin.feedId} reviewedAt`)
   let endpoint: URL
   try {
     endpoint = new URL(pin.endpoint)
@@ -358,8 +422,8 @@ export function verifyPinnedRaceOpsFeed(
     throw new RaceOpsBlueprintError('TAMPERED', `Curated feed ${pin.feedId} signature is invalid.`)
   }
 
-  const issuedAt = Date.parse(envelope.payload.issuedAt)
-  const expiresAt = Date.parse(envelope.payload.expiresAt)
+  const issuedAt = parseRaceOpsRfc3339(envelope.payload.issuedAt)
+  const expiresAt = parseRaceOpsRfc3339(envelope.payload.expiresAt)
   if (issuedAt > nowMs + 5 * 60 * 1000) {
     throw new RaceOpsBlueprintError('TAMPERED', `Curated feed ${pin.feedId} is issued in the future.`)
   }
@@ -468,6 +532,7 @@ export interface RaceOpsBlueprintRegistryOptions {
   bundledFeeds?: Readonly<Record<string, unknown>>
   fetchFeed?: (pin: CuratedRaceOpsFeedPin) => Promise<unknown>
   now?: () => number
+  runtimeVersion?: number
 }
 
 interface Candidate {
@@ -483,6 +548,7 @@ export class RaceOpsBlueprintRegistry {
   private readonly bundledFeeds: Readonly<Record<string, unknown>>
   private readonly fetchFeed: (pin: CuratedRaceOpsFeedPin) => Promise<unknown>
   private readonly now: () => number
+  private readonly runtimeVersion: number
   private readonly runtimeStatus = new Map<string, FeedRuntimeStatus>()
   private state: RaceOpsRegistryState | null = null
   private initialized = false
@@ -496,6 +562,10 @@ export class RaceOpsBlueprintRegistry {
     this.bundledFeeds = options.bundledFeeds ?? {}
     this.fetchFeed = options.fetchFeed ?? fetchPinnedRaceOpsFeed
     this.now = options.now ?? Date.now
+    this.runtimeVersion = options.runtimeVersion ?? RACEOPS_BLUEPRINT_RUNTIME_VERSION
+    if (!Number.isSafeInteger(this.runtimeVersion) || this.runtimeVersion < 1) {
+      throw new RaceOpsBlueprintError('INVALID_SCHEMA', 'Invalid RaceOps runtime version.')
+    }
   }
 
   async getSnapshot(): Promise<RaceOpsBlueprintRegistrySnapshot> {
@@ -541,7 +611,7 @@ export class RaceOpsBlueprintRegistry {
   async dryRun(request: RaceOpsBlueprintSelectionRequest): Promise<RaceOpsBlueprintDryRunResponse> {
     await this.ensureLoaded()
     const validatedRequest = this.validateSelectionRequest(request)
-    const candidate = this.findCandidate(validatedRequest.feedId, validatedRequest.blueprintId)
+    const candidate = this.findCandidate(validatedRequest)
     const response = this.evaluate(candidate, validatedRequest, 'dry-run')
     this.appendEvidence(response.evidence)
     await this.persist()
@@ -551,7 +621,7 @@ export class RaceOpsBlueprintRegistry {
   async stage(request: RaceOpsBlueprintSelectionRequest): Promise<RaceOpsBlueprintStageResponse> {
     await this.ensureLoaded()
     const validatedRequest = this.validateSelectionRequest(request)
-    const candidate = this.findCandidate(validatedRequest.feedId, validatedRequest.blueprintId)
+    const candidate = this.findCandidate(validatedRequest)
     const evaluated = this.evaluate(candidate, validatedRequest, 'stage')
     this.appendEvidence(evaluated.evidence)
     if (!evaluated.ok || !evaluated.result) {
@@ -578,6 +648,8 @@ export class RaceOpsBlueprintRegistry {
       }
     } else {
       const unchanged =
+        existing.active.feedId === staged.feedId &&
+        existing.active.blueprintVersion === staged.blueprintVersion &&
         existing.active.manifestSha256 === staged.manifestSha256 &&
         canonicalJson(existing.active.parameters) === canonicalJson(staged.parameters)
       if (!unchanged) {
@@ -590,11 +662,20 @@ export class RaceOpsBlueprintRegistry {
     return { ...evaluated, installed: true, staged }
   }
 
-  async rollback(blueprintId: string): Promise<RaceOpsBlueprintStageResponse> {
+  async rollback(request: RaceOpsBlueprintRollbackRequest): Promise<RaceOpsBlueprintStageResponse> {
     await this.ensureLoaded()
-    if (!isSafeRaceOpsId(blueprintId)) {
-      throw new RaceOpsBlueprintError('INVALID_SCHEMA', 'Invalid blueprint id.')
+    if (
+      !request ||
+      typeof request !== 'object' ||
+      Object.keys(request).some(
+        (key) =>
+          !['feedId', 'blueprintId', 'blueprintVersion', 'manifestSha256'].includes(key)
+      )
+    ) {
+      throw new RaceOpsBlueprintError('INVALID_SCHEMA', 'Invalid rollback operation request.')
     }
+    const identity = this.validateOperationIdentity(request)
+    const blueprintId = identity.blueprintId
     const install = this.requireState().installs[blueprintId]
     if (!install || install.history.length === 0) {
       throw new RaceOpsBlueprintError(
@@ -602,18 +683,33 @@ export class RaceOpsBlueprintRegistry {
         `No previous validated version is available for ${blueprintId}.`
       )
     }
+    if (
+      install.active.feedId !== identity.feedId ||
+      install.active.blueprintVersion !== identity.blueprintVersion ||
+      !safeHexEqual(install.active.manifestSha256, identity.manifestSha256)
+    ) {
+      throw new RaceOpsBlueprintError(
+        'STALE_REQUEST',
+        `Rollback identity no longer matches active ${blueprintId}.`
+      )
+    }
     const previous = install.history.at(-1)
     if (!previous) {
       throw new RaceOpsBlueprintError('ROLLBACK_UNAVAILABLE', `Rollback is unavailable for ${blueprintId}.`)
     }
     const candidate = this.findInstalledCandidate(previous)
-    const evaluated = this.evaluate(
-      candidate,
+    const rollbackRequest = createRaceOpsBlueprintSelectionRequest(
       {
         feedId: previous.feedId,
         blueprintId: previous.blueprintId,
-        parameters: previous.parameters
+        blueprintVersion: previous.blueprintVersion,
+        manifestSha256: previous.manifestSha256
       },
+      previous.parameters
+    )
+    const evaluated = this.evaluate(
+      candidate,
+      rollbackRequest,
       'rollback'
     )
     this.appendEvidence(evaluated.evidence)
@@ -648,12 +744,18 @@ export class RaceOpsBlueprintRegistry {
 
     try {
       assertRaceOpsAppVersionCompatible(candidate.entry.manifest, this.appVersion)
-      result = dryRunRaceOpsBlueprint(candidate.entry.manifest, resolvedParameters)
-      if (!result.matchesExpected) {
+      if (candidate.entry.manifest.compatibility.runtime !== this.runtimeVersion) {
+        status = 'incompatible-runtime'
+        reasons.push(
+          `Blueprint runtime ${candidate.entry.manifest.compatibility.runtime} does not match app runtime ${this.runtimeVersion}.`
+        )
+      } else {
+        result = dryRunRaceOpsBlueprint(candidate.entry.manifest, resolvedParameters)
+      }
+      if (result && !result.matchesExpected) {
         status = 'trace-mismatch'
         reasons.push('dry-run trace differs from the signed expected trace')
       }
-
     } catch (error) {
       if (error instanceof RaceOpsBlueprintError && error.code === 'INCOMPATIBLE_APP') {
         status = 'incompatible-app'
@@ -676,7 +778,7 @@ export class RaceOpsBlueprintRegistry {
       parametersSha256: sha256RaceOpsCanonical(resolvedParameters),
       traceSha256: sha256RaceOpsCanonical(result?.trace ?? []),
       appVersion: this.appVersion,
-      runtimeVersion: RACEOPS_BLUEPRINT_RUNTIME_VERSION,
+      runtimeVersion: this.runtimeVersion,
       publisher: 'ultimate-sim-app/local-conformance-v1',
       operation,
       status,
@@ -686,6 +788,7 @@ export class RaceOpsBlueprintRegistry {
     const evidence: RaceOpsCompatibilityEvidence = { id: evidenceId(core), ...core }
     return {
       ok: status === 'compatible',
+      requestFingerprint: request.requestFingerprint,
       ...(result ? { result } : {}),
       evidence
     }
@@ -694,16 +797,60 @@ export class RaceOpsBlueprintRegistry {
   private validateSelectionRequest(
     request: RaceOpsBlueprintSelectionRequest
   ): RaceOpsBlueprintSelectionRequest {
+    const identity = this.validateOperationIdentity(request)
     if (
       !request ||
       typeof request !== 'object' ||
-      !isSafeRaceOpsId(request.feedId) ||
-      !isSafeRaceOpsId(request.blueprintId) ||
-      !asObject(request.parameters)
+      !asObject(request.parameters) ||
+      typeof request.requestFingerprint !== 'string' ||
+      Object.keys(request).some(
+        (key) =>
+          ![
+            'feedId',
+            'blueprintId',
+            'blueprintVersion',
+            'manifestSha256',
+            'parameters',
+            'requestFingerprint'
+          ].includes(key)
+      )
     ) {
       throw new RaceOpsBlueprintError('INVALID_SCHEMA', 'Invalid blueprint selection request.')
     }
-    return request
+    const expectedFingerprint = fingerprintRaceOpsBlueprintRequest({
+      ...identity,
+      parameters: request.parameters
+    })
+    if (request.requestFingerprint !== expectedFingerprint) {
+      throw new RaceOpsBlueprintError(
+        'STALE_REQUEST',
+        'Blueprint request fingerprint does not match its operation identity and parameters.'
+      )
+    }
+    return { ...request, ...identity }
+  }
+
+  private validateOperationIdentity(
+    identity: RaceOpsBlueprintOperationIdentity
+  ): RaceOpsBlueprintOperationIdentity {
+    if (
+      !identity ||
+      typeof identity !== 'object' ||
+      !isSafeRaceOpsId(identity.feedId) ||
+      !isSafeRaceOpsId(identity.blueprintId) ||
+      typeof identity.blueprintVersion !== 'string' ||
+      typeof identity.manifestSha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/i.test(identity.manifestSha256)
+    ) {
+      throw new RaceOpsBlueprintError('INVALID_SCHEMA', 'Invalid blueprint operation identity.')
+    }
+    compareRaceOpsSemver(identity.blueprintVersion, identity.blueprintVersion)
+    return {
+      feedId: identity.feedId,
+      blueprintId: identity.blueprintId,
+      blueprintVersion: identity.blueprintVersion,
+      manifestSha256: identity.manifestSha256.toLowerCase()
+    }
   }
 
   private async ensureLoaded(): Promise<void> {
@@ -717,28 +864,57 @@ export class RaceOpsBlueprintRegistry {
   }
 
   private async initialize(): Promise<void> {
-    this.state = migrateRaceOpsRegistryState(await this.storage.read())
-    let changed = false
-
-    for (const [feedId, cached] of Object.entries(this.state.feeds)) {
-      const pin = this.pins.get(feedId)
-      if (!pin) {
-        throw new RaceOpsBlueprintError('TAMPERED', `Cached feed ${feedId} is no longer curated.`)
-      }
-      const verified = verifyPinnedRaceOpsFeed(pin, cached.envelope, this.trustedKeys, this.now())
-      if (!safeHexEqual(cached.envelopeSha256, verified.envelopeSha256)) {
-        throw new RaceOpsBlueprintError('TAMPERED', `Cached feed ${feedId} hash metadata is inconsistent.`)
-      }
-      this.runtimeStatus.set(feedId, { fromCache: true, offline: false })
-    }
+    const stored = await this.storage.read()
+    this.state = migrateRaceOpsRegistryState(stored)
+    let changed =
+      stored !== undefined &&
+      asObject(stored)?.schemaVersion !== RACEOPS_REGISTRY_SCHEMA_VERSION
+    const verifiedBundled = new Map<string, VerifiedRaceOpsFeed>()
 
     for (const [feedId, raw] of Object.entries(this.bundledFeeds)) {
-      if (this.state.feeds[feedId]) continue
       const pin = this.pins.get(feedId)
       if (!pin) {
         throw new RaceOpsBlueprintError('INVALID_SCHEMA', `Bundled feed ${feedId} has no curated pin.`)
       }
       const verified = verifyPinnedRaceOpsFeed(pin, raw, this.trustedKeys, this.now())
+      verifiedBundled.set(feedId, verified)
+    }
+
+    for (const [feedId, cached] of Object.entries(this.state.feeds)) {
+      const pin = this.pins.get(feedId)
+      if (!pin) {
+        this.quarantineCachedFeed(cached, 'pin-rotation', '0'.repeat(64))
+        delete this.state.feeds[feedId]
+        changed = true
+        continue
+      }
+      try {
+        const verified = verifyPinnedRaceOpsFeed(pin, cached.envelope, this.trustedKeys, this.now())
+        if (!safeHexEqual(cached.envelopeSha256, verified.envelopeSha256)) {
+          throw new RaceOpsBlueprintError(
+            'TAMPERED',
+            `Cached feed ${feedId} hash metadata is inconsistent.`
+          )
+        }
+        this.runtimeStatus.set(feedId, { fromCache: true, offline: false })
+      } catch (error) {
+        const current = verifiedBundled.get(feedId)
+        const actualCachedHash = sha256RaceOpsCanonical(cached.envelope)
+        const selfConsistent = safeHexEqual(actualCachedHash, cached.envelopeSha256)
+        const pinRotated = !safeHexEqual(cached.envelopeSha256, pin.envelopeSha256)
+        if (!current && (!selfConsistent || !pinRotated)) throw error
+        this.quarantineCachedFeed(
+          cached,
+          selfConsistent && pinRotated ? 'pin-rotation' : 'cache-invalid',
+          pin.envelopeSha256
+        )
+        delete this.state.feeds[feedId]
+        changed = true
+      }
+    }
+
+    for (const [feedId, verified] of verifiedBundled) {
+      if (this.state.feeds[feedId]) continue
       this.state.feeds[feedId] = {
         feedId,
         envelope: verified.envelope,
@@ -752,6 +928,29 @@ export class RaceOpsBlueprintRegistry {
 
     if (changed) await this.persist()
     this.initialized = true
+  }
+
+  private quarantineCachedFeed(
+    cached: CachedRaceOpsFeed,
+    reason: QuarantinedRaceOpsFeed['reason'],
+    currentPinSha256: string
+  ): void {
+    const state = this.requireState()
+    const duplicate = state.quarantinedFeeds.some(
+      (item) =>
+        item.feedId === cached.feedId &&
+        safeHexEqual(item.cached.envelopeSha256, cached.envelopeSha256) &&
+        safeHexEqual(item.currentPinSha256, currentPinSha256)
+    )
+    if (duplicate) return
+    state.quarantinedFeeds.push({
+      feedId: cached.feedId,
+      cached,
+      currentPinSha256,
+      quarantinedAt: new Date(this.now()).toISOString(),
+      reason
+    })
+    state.quarantinedFeeds = state.quarantinedFeeds.slice(-MAX_QUARANTINED_FEEDS)
   }
 
   private requireState(): RaceOpsRegistryState {
@@ -782,18 +981,21 @@ export class RaceOpsBlueprintRegistry {
     })
   }
 
-  private findCandidate(feedId: string, blueprintId: string): Candidate {
-    const feed = this.verifiedFeeds().find((candidate) => candidate.feedId === feedId)
+  private findCandidate(identity: RaceOpsBlueprintOperationIdentity): Candidate {
+    const feed = this.verifiedFeeds().find((candidate) => candidate.feedId === identity.feedId)
     if (!feed) {
-      throw new RaceOpsBlueprintError('OFFLINE', `Verified feed ${feedId} is unavailable.`)
+      throw new RaceOpsBlueprintError('OFFLINE', `Verified feed ${identity.feedId} is unavailable.`)
     }
-    const entry = feed.envelope.payload.entries
-      .filter((candidate) => candidate.id === blueprintId)
-      .sort((left, right) => compareRaceOpsSemver(right.version, left.version))[0]
+    const entry = feed.envelope.payload.entries.find(
+      (candidate) =>
+        candidate.id === identity.blueprintId &&
+        candidate.version === identity.blueprintVersion &&
+        safeHexEqual(candidate.manifestSha256, identity.manifestSha256)
+    )
     if (!entry) {
       throw new RaceOpsBlueprintError(
-        'INVALID_SCHEMA',
-        `Blueprint ${blueprintId} is not present in verified feed ${feedId}.`
+        'STALE_REQUEST',
+        `Blueprint ${identity.blueprintId}@${identity.blueprintVersion} no longer matches verified feed ${identity.feedId}.`
       )
     }
     return { feed, entry }
@@ -801,6 +1003,7 @@ export class RaceOpsBlueprintRegistry {
 
   private findInstalledCandidate(installed: RaceOpsInstalledBlueprint): Candidate {
     for (const feed of this.verifiedFeeds()) {
+      if (feed.feedId !== installed.feedId) continue
       const entry = feed.envelope.payload.entries.find(
         (candidate) =>
           candidate.id === installed.blueprintId &&
@@ -818,7 +1021,8 @@ export class RaceOpsBlueprintRegistry {
   private buildSnapshot(): RaceOpsBlueprintRegistrySnapshot {
     const feeds = this.verifiedFeeds()
     const evidence = [...this.requireState().evidence].sort(
-      (left, right) => Date.parse(right.publishedAt) - Date.parse(left.publishedAt)
+      (left, right) =>
+        parseRaceOpsRfc3339(right.publishedAt) - parseRaceOpsRfc3339(left.publishedAt)
     )
     const feedStatuses: RaceOpsFeedStatus[] = feeds.map((feed) => {
       const runtime = this.runtimeStatus.get(feed.feedId) ?? { fromCache: true, offline: false }
@@ -845,16 +1049,13 @@ export class RaceOpsBlueprintRegistry {
     for (const feed of feeds) {
       for (const entry of feed.envelope.payload.entries) {
         const exactEvidence = evidence.find(
-          (item) =>
-            item.blueprintId === entry.id &&
-            item.blueprintVersion === entry.version &&
-            safeHexEqual(item.manifestSha256, entry.manifestSha256)
+          (item) => this.evidenceMatchesCandidate(item, feed, entry)
         )
         const staleEvidence = evidence.some(
           (item) =>
             item.blueprintId === entry.id &&
             item.blueprintVersion === entry.version &&
-            !safeHexEqual(item.manifestSha256, entry.manifestSha256)
+            !this.evidenceMatchesCandidate(item, feed, entry)
         )
         const compatibilityStatus: RaceOpsCompatibilityStatus = exactEvidence
           ? exactEvidence.status
@@ -862,6 +1063,13 @@ export class RaceOpsBlueprintRegistry {
             ? 'stale'
             : 'unverified'
         const install = this.requireState().installs[entry.id]
+        const installed =
+          install &&
+          install.active.feedId === feed.feedId &&
+          install.active.blueprintVersion === entry.version &&
+          safeHexEqual(install.active.manifestSha256, entry.manifestSha256)
+            ? install
+            : undefined
         blueprints.push({
           feedId: feed.feedId,
           feedTitle: feed.envelope.payload.title,
@@ -876,8 +1084,8 @@ export class RaceOpsBlueprintRegistry {
           manifestSha256: entry.manifestSha256,
           compatibilityStatus,
           ...(exactEvidence ? { evidence: exactEvidence } : {}),
-          ...(install ? { installed: install.active } : {}),
-          rollbackAvailable: Boolean(install?.history.length)
+          ...(installed ? { installed: installed.active } : {}),
+          rollbackAvailable: Boolean(installed?.history.length)
         })
       }
     }
@@ -891,5 +1099,22 @@ export class RaceOpsBlueprintRegistry {
       installed: Object.values(this.requireState().installs).map((record) => record.active),
       evidence
     }
+  }
+
+  private evidenceMatchesCandidate(
+    evidence: RaceOpsCompatibilityEvidence,
+    feed: CachedRaceOpsFeed,
+    entry: RaceOpsBlueprintFeedEntry
+  ): boolean {
+    return (
+      evidence.appVersion === this.appVersion &&
+      evidence.runtimeVersion === this.runtimeVersion &&
+      evidence.feedId === feed.feedId &&
+      safeHexEqual(evidence.feedEnvelopeSha256, feed.envelopeSha256) &&
+      evidence.signerKeyId === feed.envelope.signature.keyId &&
+      evidence.blueprintId === entry.id &&
+      evidence.blueprintVersion === entry.version &&
+      safeHexEqual(evidence.manifestSha256, entry.manifestSha256)
+    )
   }
 }

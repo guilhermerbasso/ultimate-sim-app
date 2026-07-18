@@ -4,12 +4,16 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState
 } from 'react'
 import {
   RACEOPS_BLUEPRINT_CHANNELS,
+  createRaceOpsBlueprintSelectionRequest,
+  raceOpsBlueprintOperationKey,
   type RaceOpsBlueprintCatalogEntry,
   type RaceOpsBlueprintDryRunResponse,
+  type RaceOpsBlueprintOperationIdentity,
   type RaceOpsBlueprintParameter,
   type RaceOpsBlueprintRegistrySnapshot,
   type RaceOpsBlueprintStageResponse,
@@ -91,7 +95,13 @@ function formatDate(value: string): string {
 
 function statusColor(status: RaceOpsCompatibilityStatus): string {
   if (status === 'compatible') return 'var(--accent-success)'
-  if (status === 'incompatible-app' || status === 'trace-mismatch') return 'var(--text-danger)'
+  if (
+    status === 'incompatible-app' ||
+    status === 'incompatible-runtime' ||
+    status === 'trace-mismatch'
+  ) {
+    return 'var(--text-danger)'
+  }
   if (status === 'stale') return 'var(--accent-warning)'
   return 'var(--text-muted)'
 }
@@ -123,6 +133,28 @@ function StatusBadge({
 
 function parameterDefaults(parameters: RaceOpsBlueprintParameter[]): Record<string, RaceOpsScalar> {
   return Object.fromEntries(parameters.map((parameter) => [parameter.id, parameter.default]))
+}
+
+export function raceOpsCatalogEntryIdentity(
+  entry: RaceOpsBlueprintCatalogEntry
+): RaceOpsBlueprintOperationIdentity {
+  return {
+    feedId: entry.feedId,
+    blueprintId: entry.id,
+    blueprintVersion: entry.version,
+    manifestSha256: entry.manifestSha256
+  }
+}
+
+export function raceOpsCatalogEntryKey(entry: RaceOpsBlueprintCatalogEntry): string {
+  return raceOpsBlueprintOperationKey(raceOpsCatalogEntryIdentity(entry))
+}
+
+export function isCurrentRaceOpsResponse(
+  currentFingerprint: string,
+  response: RaceOpsBlueprintDryRunResponse
+): boolean {
+  return Boolean(currentFingerprint) && response.requestFingerprint === currentFingerprint
 }
 
 function ParameterField({
@@ -218,6 +250,7 @@ export default function RaceOpsBlueprintsView({
   const [parameters, setParameters] = useState<Record<string, RaceOpsScalar>>({})
   const [run, setRun] = useState<RaceOpsBlueprintDryRunResponse | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const currentFingerprintRef = useRef('')
 
   const loadSnapshot = useCallback(async (): Promise<RaceOpsBlueprintRegistrySnapshot> => {
     const next = await window.ipc.invoke<RaceOpsBlueprintRegistrySnapshot>(
@@ -241,18 +274,18 @@ export default function RaceOpsBlueprintsView({
       return
     }
     const stillExists = snapshot.blueprints.some(
-      (entry) => `${entry.feedId}:${entry.id}` === selectedKey
+      (entry) => raceOpsCatalogEntryKey(entry) === selectedKey
     )
     if (!stillExists) {
       const first = snapshot.blueprints[0]
-      setSelectedKey(`${first.feedId}:${first.id}`)
+      setSelectedKey(raceOpsCatalogEntryKey(first))
     }
   }, [selectedKey, snapshot])
 
   const selected = useMemo<RaceOpsBlueprintCatalogEntry | null>(() => {
     if (!snapshot) return null
     return (
-      snapshot.blueprints.find((entry) => `${entry.feedId}:${entry.id}` === selectedKey) ??
+      snapshot.blueprints.find((entry) => raceOpsCatalogEntryKey(entry) === selectedKey) ??
       null
     )
   }, [selectedKey, snapshot])
@@ -265,18 +298,35 @@ export default function RaceOpsBlueprintsView({
     }
     setParameters(parameterDefaults(selected.parameters))
     setRun(null)
-  }, [selected?.feedId, selected?.id, selected?.version])
+  }, [selected?.feedId, selected?.id, selected?.version, selected?.manifestSha256])
+
+  const currentRequest = useMemo(
+    () =>
+      selected
+        ? createRaceOpsBlueprintSelectionRequest(
+            raceOpsCatalogEntryIdentity(selected),
+            parameters
+          )
+        : null,
+    [parameters, selected]
+  )
+
+  useEffect(() => {
+    currentFingerprintRef.current = currentRequest?.requestFingerprint ?? ''
+    setRun(null)
+  }, [currentRequest?.requestFingerprint])
 
   const invokeSelection = useCallback(
-    async <T,>(channel: string): Promise<T> => {
-      if (!selected) throw new Error('No blueprint selected.')
-      return window.ipc.invoke<T>(channel, {
-        feedId: selected.feedId,
-        blueprintId: selected.id,
-        parameters
-      })
+    async <T,>(
+      channel: string
+    ): Promise<{ request: NonNullable<typeof currentRequest>; response: T }> => {
+      if (!currentRequest) throw new Error('No blueprint selected.')
+      return {
+        request: currentRequest,
+        response: await window.ipc.invoke<T>(channel, currentRequest)
+      }
     },
-    [parameters, selected]
+    [currentRequest]
   )
 
   async function refreshFeed(feedId: string): Promise<void> {
@@ -298,9 +348,16 @@ export default function RaceOpsBlueprintsView({
   async function dryRun(): Promise<void> {
     setBusy('dry-run')
     try {
-      const response = await invokeSelection<RaceOpsBlueprintDryRunResponse>(
+      const { request, response } = await invokeSelection<RaceOpsBlueprintDryRunResponse>(
         RACEOPS_BLUEPRINT_CHANNELS.dryRun
       )
+      if (
+        !isCurrentRaceOpsResponse(currentFingerprintRef.current, response) ||
+        response.requestFingerprint !== request.requestFingerprint
+      ) {
+        showToast(tt(language, 'blueprints.staleResponse'), 'info')
+        return
+      }
       setRun(response)
       await loadSnapshot()
     } catch (error) {
@@ -313,9 +370,17 @@ export default function RaceOpsBlueprintsView({
   async function stage(): Promise<void> {
     setBusy('stage')
     try {
-      const response = await invokeSelection<RaceOpsBlueprintStageResponse>(
+      const { request, response } = await invokeSelection<RaceOpsBlueprintStageResponse>(
         RACEOPS_BLUEPRINT_CHANNELS.stage
       )
+      if (
+        !isCurrentRaceOpsResponse(currentFingerprintRef.current, response) ||
+        response.requestFingerprint !== request.requestFingerprint
+      ) {
+        showToast(tt(language, 'blueprints.staleResponse'), 'info')
+        await loadSnapshot()
+        return
+      }
       setRun(response)
       await loadSnapshot()
       showToast(
@@ -330,14 +395,14 @@ export default function RaceOpsBlueprintsView({
   }
 
   async function rollback(): Promise<void> {
-    if (!selected) return
+    if (!selected?.installed) return
     setBusy('rollback')
     try {
       const response = await window.ipc.invoke<RaceOpsBlueprintStageResponse>(
         RACEOPS_BLUEPRINT_CHANNELS.rollback,
-        selected.id
+        raceOpsCatalogEntryIdentity(selected)
       )
-      setRun(response)
+      setRun(null)
       await loadSnapshot()
       showToast(
         tt(language, response.installed ? 'blueprints.rolledBack' : 'blueprints.notStaged'),
@@ -452,7 +517,7 @@ export default function RaceOpsBlueprintsView({
             <p style={muted}>{tt(language, 'blueprints.catalogEmpty')}</p>
           ) : (
             snapshot?.blueprints.map((entry) => {
-              const key = `${entry.feedId}:${entry.id}`
+              const key = raceOpsCatalogEntryKey(entry)
               const active = key === selectedKey
               return (
                 <button

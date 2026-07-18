@@ -3,7 +3,7 @@ export const RACEOPS_BLUEPRINT_LEGACY_SCHEMA_VERSION = 1 as const
 export const RACEOPS_BLUEPRINT_RUNTIME_VERSION = 1 as const
 export const RACEOPS_FIXTURE_SCHEMA_VERSION = 1 as const
 export const RACEOPS_FEED_SCHEMA_VERSION = 1 as const
-export const RACEOPS_REGISTRY_SCHEMA_VERSION = 2 as const
+export const RACEOPS_REGISTRY_SCHEMA_VERSION = 3 as const
 export const RACEOPS_EVIDENCE_SCHEMA_VERSION = 1 as const
 
 export const RACEOPS_BLUEPRINT_CHANNELS = {
@@ -47,11 +47,13 @@ export type RaceOpsBlueprintErrorCode =
   | 'UNKNOWN_CAPABILITY'
   | 'UNDECLARED_ACCESS'
   | 'INCOMPATIBLE_APP'
+  | 'INCOMPATIBLE_RUNTIME'
   | 'INVALID_PARAMETER'
   | 'TRACE_MISMATCH'
   | 'TAMPERED'
   | 'UNKNOWN_SIGNATURE'
   | 'OFFLINE'
+  | 'STALE_REQUEST'
   | 'ROLLBACK_UNAVAILABLE'
 
 export class RaceOpsBlueprintError extends Error {
@@ -260,6 +262,7 @@ export interface CuratedRaceOpsFeedPin {
 export type RaceOpsCompatibilityStatus =
   | 'compatible'
   | 'incompatible-app'
+  | 'incompatible-runtime'
   | 'trace-mismatch'
   | 'unverified'
   | 'stale'
@@ -277,7 +280,7 @@ export interface RaceOpsCompatibilityEvidence {
   parametersSha256: string
   traceSha256: string
   appVersion: string
-  runtimeVersion: typeof RACEOPS_BLUEPRINT_RUNTIME_VERSION
+  runtimeVersion: number
   publisher: 'ultimate-sim-app/local-conformance-v1'
   operation: 'dry-run' | 'stage' | 'rollback'
   status: Exclude<RaceOpsCompatibilityStatus, 'unverified' | 'stale'>
@@ -328,6 +331,13 @@ export interface RaceOpsBlueprintCatalogEntry {
   rollbackAvailable: boolean
 }
 
+export interface RaceOpsBlueprintOperationIdentity {
+  feedId: string
+  blueprintId: string
+  blueprintVersion: string
+  manifestSha256: string
+}
+
 export interface RaceOpsBlueprintRegistrySnapshot {
   appVersion: string
   executionEnabled: false
@@ -338,14 +348,19 @@ export interface RaceOpsBlueprintRegistrySnapshot {
   evidence: RaceOpsCompatibilityEvidence[]
 }
 
-export interface RaceOpsBlueprintSelectionRequest {
-  feedId: string
-  blueprintId: string
+export interface RaceOpsBlueprintSelectionPayload extends RaceOpsBlueprintOperationIdentity {
   parameters: Record<string, unknown>
 }
 
+export interface RaceOpsBlueprintSelectionRequest extends RaceOpsBlueprintSelectionPayload {
+  requestFingerprint: string
+}
+
+export type RaceOpsBlueprintRollbackRequest = RaceOpsBlueprintOperationIdentity
+
 export interface RaceOpsBlueprintDryRunResponse {
   ok: boolean
+  requestFingerprint: string
   result?: RaceOpsDryRunResult
   evidence: RaceOpsCompatibilityEvidence
 }
@@ -404,29 +419,220 @@ function asScalar(value: unknown, label: string): RaceOpsScalar {
   return invalid(`${label} must be a string, number, or boolean.`)
 }
 
-function asIsoDate(value: unknown, label: string): string {
-  const date = asString(value, label, 64)
-  if (!Number.isFinite(Date.parse(date))) invalid(`${label} must be an ISO date.`)
-  return date
+function asExactString(value: unknown, label: string, maxLength: number): string {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > maxLength ||
+    value.trim() !== value
+  ) {
+    invalid(`${label} must be an exact non-empty string.`)
+  }
+  return value
 }
 
-function parseSemver(value: unknown, label: string): [number, number, number, string | null] {
-  const version = asString(value, label, 64)
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(version)
-  if (!match) invalid(`${label} must be a semantic version.`)
-  return [Number(match[1]), Number(match[2]), Number(match[3]), match[4] ?? null]
+const RFC3339_LEAP_SECOND_DATES = new Set([
+  '1972-06-30',
+  '1972-12-31',
+  '1973-12-31',
+  '1974-12-31',
+  '1975-12-31',
+  '1976-12-31',
+  '1977-12-31',
+  '1978-12-31',
+  '1979-12-31',
+  '1981-06-30',
+  '1982-06-30',
+  '1983-06-30',
+  '1985-06-30',
+  '1987-12-31',
+  '1989-12-31',
+  '1990-12-31',
+  '1992-06-30',
+  '1993-06-30',
+  '1994-06-30',
+  '1995-12-31',
+  '1997-06-30',
+  '1998-12-31',
+  '2005-12-31',
+  '2008-12-31',
+  '2012-06-30',
+  '2015-06-30',
+  '2016-12-31'
+])
+
+export function parseRaceOpsRfc3339(value: string, label = 'timestamp'): number {
+  const timestamp = asExactString(value, label, 64)
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:([Zz])|([+-])(\d{2}):(\d{2}))$/.exec(
+      timestamp
+    )
+  if (!match) invalid(`${label} must be an RFC3339 timestamp with an explicit offset.`)
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const hour = Number(match[4])
+  const minute = Number(match[5])
+  const second = Number(match[6])
+  const fraction = match[7] ?? ''
+  const offsetHour = match[10] === undefined ? 0 : Number(match[10])
+  const offsetMinute = match[11] === undefined ? 0 : Number(match[11])
+  if (
+    year === 0 ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 60 ||
+    offsetHour > 23 ||
+    offsetMinute > 59
+  ) {
+    invalid(`${label} contains an invalid RFC3339 date or time component.`)
+  }
+
+  const milliseconds = Number((fraction.slice(0, 3) + '000').slice(0, 3))
+  const validationDate = new Date(0)
+  validationDate.setUTCFullYear(year, month - 1, day)
+  validationDate.setUTCHours(hour, minute, Math.min(second, 59), milliseconds)
+  if (
+    validationDate.getUTCFullYear() !== year ||
+    validationDate.getUTCMonth() !== month - 1 ||
+    validationDate.getUTCDate() !== day ||
+    validationDate.getUTCHours() !== hour ||
+    validationDate.getUTCMinutes() !== minute
+  ) {
+    invalid(`${label} contains an invalid Gregorian calendar date.`)
+  }
+
+  const offsetSign = match[9] === '-' ? -1 : 1
+  const offsetMs = offsetSign * (offsetHour * 60 + offsetMinute) * 60_000
+  const utcBaseMs = validationDate.getTime() - offsetMs
+  if (second === 60) {
+    const utcBase = new Date(utcBaseMs)
+    const dateKey = [
+      utcBase.getUTCFullYear().toString().padStart(4, '0'),
+      (utcBase.getUTCMonth() + 1).toString().padStart(2, '0'),
+      utcBase.getUTCDate().toString().padStart(2, '0')
+    ].join('-')
+    if (
+      utcBase.getUTCHours() !== 23 ||
+      utcBase.getUTCMinutes() !== 59 ||
+      utcBase.getUTCSeconds() !== 59 ||
+      !RFC3339_LEAP_SECOND_DATES.has(dateKey)
+    ) {
+      invalid(`${label} declares a leap second that is not valid in UTC.`)
+    }
+    return utcBaseMs + 1_000
+  }
+  return utcBaseMs
+}
+
+function asRfc3339(value: unknown, label: string): string {
+  const timestamp = asExactString(value, label, 64)
+  parseRaceOpsRfc3339(timestamp, label)
+  return timestamp
+}
+
+interface ParsedRaceOpsSemver {
+  major: bigint
+  minor: bigint
+  patch: bigint
+  prerelease: string[] | null
+}
+
+function parseSemver(value: unknown, label: string): ParsedRaceOpsSemver {
+  const version = asExactString(value, label, 128)
+  const match =
+    /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(
+      version
+    )
+  if (!match) invalid(`${label} must be a SemVer 2.0.0 version.`)
+  const prerelease = match[4]?.split('.') ?? null
+  if (
+    prerelease?.some(
+      (identifier) =>
+        /^\d+$/.test(identifier) &&
+        identifier.length > 1 &&
+        identifier.startsWith('0')
+    )
+  ) {
+    invalid(`${label} contains a numeric prerelease identifier with a leading zero.`)
+  }
+  return {
+    major: BigInt(match[1]),
+    minor: BigInt(match[2]),
+    patch: BigInt(match[3]),
+    prerelease
+  }
 }
 
 export function compareRaceOpsSemver(a: string, b: string): number {
   const av = parseSemver(a, 'version')
   const bv = parseSemver(b, 'version')
-  for (let index = 0; index < 3; index += 1) {
-    if (av[index] !== bv[index]) return (av[index] as number) - (bv[index] as number)
+  for (const key of ['major', 'minor', 'patch'] as const) {
+    if (av[key] < bv[key]) return -1
+    if (av[key] > bv[key]) return 1
   }
-  if (av[3] === bv[3]) return 0
-  if (av[3] === null) return 1
-  if (bv[3] === null) return -1
-  return av[3].localeCompare(bv[3])
+  if (av.prerelease === null && bv.prerelease === null) return 0
+  if (av.prerelease === null) return 1
+  if (bv.prerelease === null) return -1
+  const length = Math.max(av.prerelease.length, bv.prerelease.length)
+  for (let index = 0; index < length; index += 1) {
+    const left = av.prerelease[index]
+    const right = bv.prerelease[index]
+    if (left === undefined) return -1
+    if (right === undefined) return 1
+    if (left === right) continue
+    const leftNumeric = /^\d+$/.test(left)
+    const rightNumeric = /^\d+$/.test(right)
+    if (leftNumeric && rightNumeric) {
+      const leftNumber = BigInt(left)
+      const rightNumber = BigInt(right)
+      return leftNumber < rightNumber ? -1 : 1
+    }
+    if (leftNumeric !== rightNumeric) return leftNumeric ? -1 : 1
+    return left < right ? -1 : 1
+  }
+  return 0
+}
+
+export function raceOpsBlueprintOperationKey(
+  identity: RaceOpsBlueprintOperationIdentity
+): string {
+  return canonicalJson({
+    feedId: identity.feedId,
+    blueprintId: identity.blueprintId,
+    blueprintVersion: identity.blueprintVersion,
+    manifestSha256: identity.manifestSha256
+  })
+}
+
+export function fingerprintRaceOpsBlueprintRequest(
+  payload: RaceOpsBlueprintSelectionPayload
+): string {
+  return `raceops-request:${canonicalJson({
+    operation: raceOpsBlueprintOperationKey(payload),
+    parameters: payload.parameters
+  })}`
+}
+
+export function createRaceOpsBlueprintSelectionRequest(
+  identity: RaceOpsBlueprintOperationIdentity,
+  parameters: Record<string, unknown>
+): RaceOpsBlueprintSelectionRequest {
+  const payload: RaceOpsBlueprintSelectionPayload = {
+    feedId: identity.feedId,
+    blueprintId: identity.blueprintId,
+    blueprintVersion: identity.blueprintVersion,
+    manifestSha256: identity.manifestSha256,
+    parameters
+  }
+  return {
+    ...payload,
+    requestFingerprint: fingerprintRaceOpsBlueprintRequest(payload)
+  }
 }
 
 export function canonicalJson(value: unknown): string {
@@ -836,8 +1042,8 @@ export function parseRaceOpsBlueprintManifest(value: unknown): RaceOpsBlueprintM
   }
   const appRecord = asRecord(compatibilityRecord.app, 'compatibility.app')
   exactKeys(appRecord, ['min', 'max'], 'compatibility.app')
-  const minVersion = asString(appRecord.min, 'compatibility.app.min', 64)
-  const maxVersion = asString(appRecord.max, 'compatibility.app.max', 64)
+  const minVersion = asExactString(appRecord.min, 'compatibility.app.min', 128)
+  const maxVersion = asExactString(appRecord.max, 'compatibility.app.max', 128)
   parseSemver(minVersion, 'compatibility.app.min')
   parseSemver(maxVersion, 'compatibility.app.max')
   if (compareRaceOpsSemver(minVersion, maxVersion) > 0) invalid('compatibility app range is inverted.')
@@ -881,7 +1087,7 @@ export function parseRaceOpsBlueprintManifest(value: unknown): RaceOpsBlueprintM
   const manifest: RaceOpsBlueprintManifest = {
     schemaVersion: RACEOPS_BLUEPRINT_SCHEMA_VERSION,
     id: asSlug(migrated.id, 'manifest.id'),
-    version: asString(migrated.version, 'manifest.version', 64),
+    version: asExactString(migrated.version, 'manifest.version', 128),
     title: asString(migrated.title, 'manifest.title', 120),
     summary: asString(migrated.summary, 'manifest.summary', 360),
     author: asString(migrated.author, 'manifest.author', 120),
@@ -1156,7 +1362,7 @@ export function parseSignedRaceOpsBlueprintFeed(value: unknown): SignedRaceOpsBl
     }
     const manifest = parseRaceOpsBlueprintManifest(manifestRecord)
     const id = asSlug(entryRecord.id, `${label}.id`)
-    const version = asString(entryRecord.version, `${label}.version`, 64)
+    const version = asExactString(entryRecord.version, `${label}.version`, 128)
     if (id !== manifest.id || version !== manifest.version) invalid(`${label} identity does not match its manifest.`)
     const manifestSha256 = asString(entryRecord.manifestSha256, `${label}.manifestSha256`, 64).toLowerCase()
     if (!/^[a-f0-9]{64}$/.test(manifestSha256)) invalid(`${label}.manifestSha256 is invalid.`)
@@ -1173,9 +1379,11 @@ export function parseSignedRaceOpsBlueprintFeed(value: unknown): SignedRaceOpsBl
   const signatureValue = asString(signatureRecord.value, 'feed.signature.value', 512)
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(signatureValue)) invalid('feed.signature.value is not base64.')
 
-  const issuedAt = asIsoDate(payloadRecord.issuedAt, 'feed.payload.issuedAt')
-  const expiresAt = asIsoDate(payloadRecord.expiresAt, 'feed.payload.expiresAt')
-  if (Date.parse(expiresAt) <= Date.parse(issuedAt)) invalid('feed expiry must be after issue time.')
+  const issuedAt = asRfc3339(payloadRecord.issuedAt, 'feed.payload.issuedAt')
+  const expiresAt = asRfc3339(payloadRecord.expiresAt, 'feed.payload.expiresAt')
+  if (parseRaceOpsRfc3339(expiresAt) <= parseRaceOpsRfc3339(issuedAt)) {
+    invalid('feed expiry must be after issue time.')
+  }
 
   return {
     payload: {

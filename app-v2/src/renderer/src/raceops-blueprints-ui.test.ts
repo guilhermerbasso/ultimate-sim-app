@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { tt, translateView } from './i18n'
 import { navSections } from './navigation/navModel'
+import {
+  isCurrentRaceOpsResponse,
+  raceOpsCatalogEntryKey
+} from './views/RaceOpsBlueprintsView'
 import { viewRegistry } from './views/registry'
+import type {
+  RaceOpsBlueprintCatalogEntry,
+  RaceOpsBlueprintDryRunResponse
+} from '../../shared/raceops-blueprints'
 
 describe('RaceOps blueprints UI registration', () => {
   it('registers the view in navigation with localized metadata', () => {
@@ -14,5 +22,29 @@ describe('RaceOps blueprints UI registration', () => {
   it('provides localized trust-gate and offline-cache copy', () => {
     expect(tt('en', 'blueprints.executionDisabled')).toContain('Wasmtime')
     expect(tt('pt-BR', 'blueprints.offlineCache')).toContain('cache verificado')
+  })
+
+  it('keys selections by feed, id, version, and manifest hash', () => {
+    const base = {
+      feedId: 'feed',
+      id: 'blueprint',
+      version: '1.0.0',
+      manifestSha256: 'a'.repeat(64)
+    } as RaceOpsBlueprintCatalogEntry
+    expect(raceOpsCatalogEntryKey(base)).not.toBe(
+      raceOpsCatalogEntryKey({ ...base, version: '2.0.0' })
+    )
+    expect(raceOpsCatalogEntryKey(base)).not.toBe(
+      raceOpsCatalogEntryKey({ ...base, manifestSha256: 'b'.repeat(64) })
+    )
+  })
+
+  it('rejects stale responses after the request fingerprint changes', () => {
+    const response = {
+      requestFingerprint: 'raceops-request-old'
+    } as RaceOpsBlueprintDryRunResponse
+    expect(isCurrentRaceOpsResponse('raceops-request-old', response)).toBe(true)
+    expect(isCurrentRaceOpsResponse('raceops-request-new', response)).toBe(false)
+    expect(isCurrentRaceOpsResponse('', response)).toBe(false)
   })
 })
