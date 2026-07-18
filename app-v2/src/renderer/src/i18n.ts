@@ -6853,6 +6853,7 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
     tire: { label: 'Tyres', eyebrow: 'Strategy', description: 'Tyre wear, per-lap rate, and pit window.' },
     search: { label: 'Semantic Search', eyebrow: 'Local AI', description: 'Meaning-based search for setups, ghosts, notes, and findings.' },
     alerts: { label: 'Alerts', eyebrow: 'Warnings', description: 'Pit limiter, flags, fuel, and shift warnings.' },
+    'story-engine': { label: 'Story Engine', eyebrow: 'Post-race', description: 'Evidence-linked local story cards with destination previews and mandatory human approval.' },
     expr: { label: 'Expressions', eyebrow: 'Custom', description: 'Custom fields and conditions.' },
     'race-profiles': { label: 'Race Profiles', eyebrow: 'Car/Track', description: 'Car/track profiles with automatic switching.' },
     sounds: { label: 'Sounds', eyebrow: 'Audio', description: 'Soundshift, incident, ABS, and TCS audio cues.' },
@@ -6903,6 +6904,10 @@ function patchViewText(language: ResolvedLanguage, patches: Record<string, Parti
   }
 }
 
+patchViewText('pt-BR', {
+  'story-engine': { label: 'Story Engine', eyebrow: 'Pós-corrida', description: 'Cards locais ligados a evidências, com preview de destino e aprovação humana obrigatória.' }
+})
+
 patchViewText('es', {
   telemetry: { label: 'Telemetría', description: 'Fuente de telemetría en vivo y vista general.' },
   dashboards: { label: 'Dashboards', description: 'Ventanas de monitor, importación .simhubdash y constructor.' },
@@ -6910,6 +6915,7 @@ patchViewText('es', {
   fuel: { label: 'Combustible' },
   tire: { label: 'Neumáticos' },
   alerts: { label: 'Alerts' },
+  'story-engine': { label: 'Motor de historias', eyebrow: 'Poscarrera', description: 'Tarjetas locales vinculadas a evidencia con vista previa y aprobación humana obligatoria.' },
   engineer: { label: 'Ingeniero IA' },
   coach: { label: 'Coach IA' },
   haptics: { label: 'Háptica' },
@@ -6926,6 +6932,7 @@ patchViewText('fr', {
   fuel: { label: 'Carburant' },
   tire: { label: 'Tires' },
   alerts: { label: 'Alertes' },
+  'story-engine': { label: 'Moteur de récits', eyebrow: 'Après-course', description: 'Cartes locales liées aux preuves avec aperçu de destination et validation humaine obligatoire.' },
   engineer: { label: 'Ingénieur IA' },
   coach: { label: 'Coach IA' },
   haptics: { label: 'Haptique' },
@@ -6943,6 +6950,7 @@ patchViewText('de', {
   fuel: { label: 'Kraftstoff' },
   tire: { label: 'Reifen' },
   alerts: { label: 'Warnungen' },
+  'story-engine': { label: 'Story Engine', eyebrow: 'Nach dem Rennen', description: 'Lokale evidenzgebundene Story-Karten mit Zielvorschau und verpflichtender menschlicher Freigabe.' },
   engineer: { label: 'KI-Ingenieur' },
   coach: { label: 'KI-Coach' },
   haptics: { label: 'Haptik' },
@@ -6962,6 +6970,7 @@ patchViewText('zh', {
   fuel: { label: '燃油', eyebrow: '策略' },
   tire: { label: '轮胎', eyebrow: '策略' },
   alerts: { label: '警报' },
+  'story-engine': { label: '故事引擎', eyebrow: '赛后', description: '基于证据的本地故事卡，包含目标预览并强制人工批准。' },
   engineer: { label: 'AI 工程师' },
   coach: { label: 'AI 教练' },
   strategy: { label: '策略' },
@@ -6981,6 +6990,7 @@ patchViewText('ja', {
   fuel: { label: '燃料', eyebrow: '戦略' },
   tire: { label: 'タイヤ', eyebrow: '戦略' },
   alerts: { label: 'アラート' },
+  'story-engine': { label: 'ストーリーエンジン', eyebrow: 'レース後', description: '証拠に紐づくローカルカード、公開先プレビュー、必須の人間承認。' },
   engineer: { label: 'AI エンジニア' },
   coach: { label: 'AI コーチ' },
   strategy: { label: '戦略' },
