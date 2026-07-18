@@ -329,12 +329,15 @@ describe('StoryEngineStore human decisions and restart', () => {
   it('exports only approved sanitized cards to an offline package and consumes approval', () => {
     const dir = testDir()
     let now = 20_000
+    const smtpUtf8Mailbox = 'josé/ops@example.com'
+    const punycodeMailbox = 'racer@example.xn--p1ai'
+    const statement = `Alice Example reached the podium. Contact ${smtpUtf8Mailbox} or ${punycodeMailbox}.`
     const store = new StoryEngineStore(dir, {
       now: () => now,
       approvalId: () => 'approval-export'
     })
     const piiEvidence = fixtureEvidence({
-      statement: 'Alice Example, alice@example.com.',
+      statement,
       eventType: 'explicit',
       privacyClass: 'D3',
       consent: { state: 'granted', subjectRef: 'driver-1', epoch: 2, checkedAt: 1_000 },
@@ -344,7 +347,7 @@ describe('StoryEngineStore human decisions and restart', () => {
       facts: {
         rank: 0.9,
         title: 'Podium for Alice Example',
-        statement: 'Alice Example reached the podium. Contact alice@example.com.'
+        statement
       }
     })
     const piiEvent = fixtureEvent({
@@ -353,7 +356,7 @@ describe('StoryEngineStore human decisions and restart', () => {
       claim: { subjectRef: 'driver-1', predicate: 'podium', value: true },
       facts: { rank: 0.9 },
       title: 'Podium for Alice Example',
-      statement: 'Alice Example reached the podium. Contact alice@example.com.'
+      statement
     })
     let state = store.generate(fixtureTimeline('race-export', piiEvidence, piiEvent))
     const card = state.cards[0]
@@ -383,8 +386,12 @@ describe('StoryEngineStore human decisions and restart', () => {
     expect(payload.offlineOnly).toBe(true)
     expect(payload.publication).toBe('not-performed')
     expect(content).not.toContain('Alice Example')
-    expect(content).not.toContain('alice@example.com')
+    expect(content).not.toContain(smtpUtf8Mailbox)
+    expect(content).not.toContain('josé/')
+    expect(content).not.toContain(punycodeMailbox)
+    expect(content).not.toContain('--p1ai')
     expect(payload.cards[0].title).toContain('[driver]')
+    expect(payload.cards[0].body).toBe('[driver] reached the podium. Contact [email] or [email].')
     state = store.getState()
     expect(state.cards[0]).toMatchObject({
       status: 'exported',

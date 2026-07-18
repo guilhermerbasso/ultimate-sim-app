@@ -418,6 +418,40 @@ describe('evidence-linked story generation', () => {
     expect(storyPreview(card, 'internet')?.status).toBe('blocked')
   })
 
+  it('redacts complete SMTPUTF8 and punycode mailbox tokens from destination previews', () => {
+    const smtpUtf8Mailbox = 'josé/ops@example.com'
+    const punycodeMailbox = 'racer@example.xn--p1ai'
+    const statement = `Alice can be reached at ${smtpUtf8Mailbox} or ${punycodeMailbox}.`
+    const piiEvidence = evidence('evidence-mailboxes', {
+      statement,
+      eventType: 'explicit',
+      privacyClass: 'D3',
+      consent: { state: 'unknown', subjectRef: 'driver-1', epoch: 1, checkedAt: NOW },
+      pii: [{ kind: 'name', value: 'Alice' }],
+      piiAttestation: { status: 'pii-declared', method: 'fixture-mailbox-review-v1', checkedAt: NOW },
+      claim: { subjectRef: 'driver-1', predicate: 'contact-card', value: true },
+      facts: { rank: 0.8, title: 'Contact Alice', statement }
+    })
+    const piiEvent = event('event-mailboxes', {
+      type: 'explicit',
+      evidenceRefs: ['evidence-mailboxes'],
+      assertionId: 'contact-card',
+      claim: { subjectRef: 'driver-1', predicate: 'contact-card', value: true },
+      facts: { rank: 0.8 },
+      title: 'Contact Alice',
+      statement
+    })
+
+    const [card] = generateStoryCards(timeline([piiEvent], [piiEvidence]), NOW).candidates
+    const expectedBody = '[driver] can be reached at [email] or [email].'
+    expect(card.body).toBe(expectedBody)
+    expect(storyPreview(card, 'local')?.body).toBe(expectedBody)
+    expect(card.body).not.toContain(smtpUtf8Mailbox)
+    expect(card.body).not.toContain('josé/')
+    expect(card.body).not.toContain(punycodeMailbox)
+    expect(card.body).not.toContain('--p1ai')
+  })
+
   it('fails closed when evidence has no PII attestation', () => {
     const unattested = evidence('evidence-unattested', {
       piiAttestation: undefined as never

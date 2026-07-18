@@ -1058,12 +1058,26 @@ function normalizeAutomaticPiiScanText(text: string): string {
   return text.normalize('NFC').replace(/\p{Pd}/gu, '-')
 }
 
+const EMAIL_ATEXT_SOURCE = String.raw`[\p{L}\p{M}\p{N}!#$%&'*+/=?^_\x60{|}~-]`
+const EMAIL_DOMAIN_CHAR_SOURCE = String.raw`[\p{L}\p{M}\p{N}]`
+const EMAIL_DOMAIN_LABEL_SOURCE =
+  String.raw`${EMAIL_DOMAIN_CHAR_SOURCE}(?:[\p{L}\p{M}\p{N}-]{0,61}${EMAIL_DOMAIN_CHAR_SOURCE})?`
+const EMAIL_TLD_SOURCE =
+  String.raw`(?:xn--${EMAIL_DOMAIN_CHAR_SOURCE}(?:[\p{L}\p{M}\p{N}-]{0,57}${EMAIL_DOMAIN_CHAR_SOURCE})?|[\p{L}\p{M}]{2,})`
+
+function completeMailboxPattern(): RegExp {
+  return new RegExp(
+    String.raw`(?<![\p{L}\p{M}\p{N}!#$%&'*+/=?^_\x60{|}~.-])${EMAIL_ATEXT_SOURCE}+(?:\.${EMAIL_ATEXT_SOURCE}+)*@(?:${EMAIL_DOMAIN_LABEL_SOURCE}\.)+${EMAIL_TLD_SOURCE}(?![\p{L}\p{M}\p{N}-])`,
+    'giu'
+  )
+}
+
 function automaticRedactionRules(text = ''): RedactionRule[] {
   const normalized = text.normalize('NFC')
   return [
     {
       kind: 'email',
-      pattern: /[\p{L}\p{M}\p{N}._%+-]+@(?:[\p{L}\p{M}\p{N}-]+\.)+[\p{L}\p{M}]{2,}/giu,
+      pattern: completeMailboxPattern(),
       replacement: '[email]',
       reason: 'pattern-detected',
       priority: 90
