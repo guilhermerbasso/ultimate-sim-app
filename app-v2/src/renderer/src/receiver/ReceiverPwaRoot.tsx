@@ -160,19 +160,37 @@ export function ReceiverPwaRoot(): ReactElement {
         .catch(() => undefined)
     }
     let alive = true
-    void fetch(endpoint('status'), {
-      credentials: 'same-origin',
-      cache: 'no-store',
-      headers: { Accept: 'application/json' }
-    })
-      .then(async (response) => {
+    let checking = false
+    const checkAuthorization = async (): Promise<void> => {
+      if (!alive || checking) return
+      if (!navigator.onLine) {
+        setPhase('offline')
+        return
+      }
+      checking = true
+      setPhase('checking')
+      try {
+        const requestStatus = (): Promise<Response> => fetch(endpoint('status'), {
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: { Accept: 'application/json' }
+        })
+        let response = await requestStatus()
+        if (response.status === 403) {
+          const bootstrap = await fetch(receiverBaseUrl(), {
+            credentials: 'same-origin',
+            cache: 'no-store',
+            headers: { Accept: 'text/html' }
+          })
+          if (!bootstrap.ok) throw new Error(`Receiver bootstrap failed with HTTP ${bootstrap.status}.`)
+          response = await requestStatus()
+        }
         if (!response.ok) throw new Error(`Receiver session failed with HTTP ${response.status}.`)
         const body = await response.json() as unknown
         if (!isPairStatus(body)) throw new Error('Receiver status failed its versioned schema check.')
-        return body
-      })
-      .then((status) => {
+        const status = body
         if (!alive) return
+        setError(null)
         if (status.authenticated) {
           setAuthorized(true)
           setPhase('connecting')
@@ -187,16 +205,29 @@ export function ReceiverPwaRoot(): ReactElement {
         if (status.passwordRequired) {
           setPhase('pairing')
         } else {
-          void pairReceiver()
+          await pairReceiver()
         }
-      })
-      .catch((reason) => {
+      } catch (reason) {
         if (!alive) return
         setError(reason instanceof Error ? reason.message : String(reason))
         setPhase(navigator.onLine ? 'blocked' : 'offline')
-      })
+      } finally {
+        checking = false
+      }
+    }
+    const handleOnline = (): void => {
+      void checkAuthorization()
+    }
+    const handleOffline = (): void => {
+      setPhase('offline')
+    }
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+    void checkAuthorization()
     return () => {
       alive = false
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
     }
   }, [])
 

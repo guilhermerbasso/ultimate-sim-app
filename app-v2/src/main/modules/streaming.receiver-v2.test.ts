@@ -218,7 +218,11 @@ function openReceiverSocket(baseUrl: URL, sessionCookie: string, origin = baseUr
   })
 }
 
-function hello(resumeFrom?: number, protocolVersions = [RECEIVER_PROTOCOL_VERSION]): string {
+function hello(
+  resumeFrom?: number,
+  protocolVersions = [RECEIVER_PROTOCOL_VERSION],
+  clientId = 'vitest-browser'
+): string {
   return JSON.stringify({
     type: 'hello',
     protocolVersions,
@@ -227,7 +231,7 @@ function hello(resumeFrom?: number, protocolVersions = [RECEIVER_PROTOCOL_VERSIO
     requestedHz: 20,
     maxPayloadBytes: 8_192,
     ...(resumeFrom === undefined ? {} : { resumeFrom }),
-    client: { id: 'vitest-browser', name: 'Vitest', version: '1' }
+    client: { id: clientId, name: 'Vitest', version: '1' }
   })
 }
 
@@ -352,6 +356,61 @@ describe('streaming receiver v2 certification target', () => {
     valid.socket.send(JSON.stringify({ type: 'command', action: 'control-pc' }))
     const diodeError = await valid.inbox.next((message) => message.type === 'error')
     expect(diodeError).toMatchObject({ type: 'error', code: 'data_diode', retryable: false })
+  })
+
+  it('keeps browser tabs and the installed PWA connected on one receiver session', async () => {
+    const started = await invoke<StreamingStartResult>(ctx!, STREAMING_CHANNELS.start, { layoutId: 'default' })
+    const paired = await bootstrapAndPair(started)
+    const browserTab = await openReceiverSocket(paired.baseUrl, paired.sessionCookie)
+    browserTab.socket.send(hello(undefined, [RECEIVER_PROTOCOL_VERSION], 'browser-tab'))
+    await browserTab.inbox.next((message) => message.type === 'welcome')
+    await browserTab.inbox.next((message) => message.type === 'snapshot')
+
+    const installedPwa = await openReceiverSocket(paired.baseUrl, paired.sessionCookie)
+    installedPwa.socket.send(hello(undefined, [RECEIVER_PROTOCOL_VERSION], 'installed-pwa'))
+    await installedPwa.inbox.next((message) => message.type === 'welcome')
+    await installedPwa.inbox.next((message) => message.type === 'snapshot')
+
+    const [browserFrame, pwaFrame] = await Promise.all([
+      browserTab.inbox.next((message) => message.type === 'telemetry'),
+      installedPwa.inbox.next((message) => message.type === 'telemetry')
+    ])
+    expect(browserFrame.type).toBe('telemetry')
+    expect(pwaFrame.type).toBe('telemetry')
+    expect(browserTab.socket.readyState).toBe(WebSocket.OPEN)
+    expect(installedPwa.socket.readyState).toBe(WebSocket.OPEN)
+
+    const status = await invoke<StreamingStatus>(ctx!, STREAMING_CHANNELS.status)
+    expect(status.receiverV2.clients).toHaveLength(2)
+    expect(new Set(status.receiverV2.clients.map((client) => client.id)).size).toBe(2)
+
+    browserTab.socket.close(1000, 'browser test complete')
+    installedPwa.socket.close(1000, 'pwa test complete')
+  })
+
+  it('uses a reconnectable close code for retryable receiver errors', async () => {
+    const started = await invoke<StreamingStartResult>(ctx!, STREAMING_CHANNELS.start, { layoutId: 'default' })
+    const paired = await bootstrapAndPair(started)
+    const receiver = await openReceiverSocket(paired.baseUrl, paired.sessionCookie)
+    receiver.socket.send(hello())
+    await receiver.inbox.next((message) => message.type === 'welcome')
+    const snapshot = await receiver.inbox.next((message) => message.type === 'snapshot')
+    const afterSequence = snapshot.type === 'snapshot' ? snapshot.highWater : 0
+    const closed = new Promise<number>((resolveClose) => {
+      receiver.socket.once('close', (code) => resolveClose(code))
+    })
+
+    for (let index = 0; index < 9; index += 1) {
+      receiver.socket.send(JSON.stringify({ type: 'resync', afterSequence, reason: 'manual' }))
+    }
+
+    const retryableError = await receiver.inbox.next((message) => message.type === 'error')
+    expect(retryableError).toMatchObject({
+      type: 'error',
+      code: 'resync_rate_limit',
+      retryable: true
+    })
+    await expect(closed).resolves.toBe(1013)
   })
 
   it('reconnects with a cursor, replays bounded frames, resyncs, and records local latency', async () => {

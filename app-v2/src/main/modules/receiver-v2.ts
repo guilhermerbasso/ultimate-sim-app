@@ -71,12 +71,13 @@ interface ReceiverPartition {
   nextSendAt: number
   history: StoredFrame[]
   historyBytes: number
-  connection: ReceiverConnection | null
+  connections: Set<ReceiverConnection>
   disconnectedAt: number | null
   readyOnce: boolean
 }
 
 interface ReceiverConnection {
+  publicId: string
   socket: WebSocket
   partition: ReceiverPartition
   address: string
@@ -84,6 +85,7 @@ interface ReceiverConnection {
   connectedAt: number
   clientName: string | null
   phase: 'hello' | 'ready'
+  requestedRateHz: number
   maxPayloadBytes: number
   lastAckSequence: number
   lastPongAt: number
@@ -230,7 +232,7 @@ export class ReceiverV2Gateway {
     return [...this.connections.values()]
       .filter((connection) => connection.phase === 'ready')
       .map((connection) => ({
-        id: connection.partition.publicId,
+        id: connection.publicId,
         address: connection.address,
         userAgent: connection.userAgent,
         connectedAt: connection.connectedAt,
@@ -279,18 +281,12 @@ export class ReceiverV2Gateway {
   private accept(socket: WebSocket, context: ReceiverUpgradeContext): void {
     const now = this.now()
     const partition = this.partition(context.sessionId)
-    if (partition.connection) {
-      try {
-        partition.connection.socket.close(4001, 'Receiver session moved to a new connection')
-      } catch {
-        partition.connection.socket.terminate()
-      }
-    }
     const helloTimer = setTimeout(() => {
       this.closeWithError(connection, 'hello_timeout', 'Receiver hello timed out.', false, 1008)
     }, HELLO_TIMEOUT_MS)
     helloTimer.unref?.()
     const connection: ReceiverConnection = {
+      publicId: `${partition.publicId}-${randomBytes(6).toString('base64url')}`,
       socket,
       partition,
       address: context.address,
@@ -298,6 +294,7 @@ export class ReceiverV2Gateway {
       connectedAt: now,
       clientName: null,
       phase: 'hello',
+      requestedRateHz: RECEIVER_DEFAULT_HZ,
       maxPayloadBytes: RECEIVER_MAX_SERVER_MESSAGE_BYTES,
       lastAckSequence: 0,
       lastPongAt: now,
@@ -307,7 +304,7 @@ export class ReceiverV2Gateway {
       deliveredAt: new Map(),
       helloTimer
     }
-    partition.connection = connection
+    partition.connections.add(connection)
     partition.disconnectedAt = null
     this.connections.set(socket, connection)
     this.connectionsTotal += 1
@@ -341,7 +338,7 @@ export class ReceiverV2Gateway {
       nextSendAt: 0,
       history: [],
       historyBytes: 0,
-      connection: null,
+      connections: new Set(),
       disconnectedAt: null,
       readyOnce: false
     }
@@ -355,7 +352,7 @@ export class ReceiverV2Gateway {
       return
     }
     if (!this.consumeControlBudget(connection)) {
-      this.closeWithError(connection, 'control_rate_limit', 'Receiver control rate limit exceeded.', true, 1008)
+      this.closeWithError(connection, 'control_rate_limit', 'Receiver control rate limit exceeded.', true, 1013)
       return
     }
     const parsed = parseReceiverClientMessage(rawDataBytes(data))
@@ -396,7 +393,7 @@ export class ReceiverV2Gateway {
     }
     connection.resyncRequests += 1
     if (connection.resyncRequests > MAX_RESYNC_REQUESTS_PER_WINDOW) {
-      this.closeWithError(connection, 'resync_rate_limit', 'Too many resync requests.', true, 1008)
+      this.closeWithError(connection, 'resync_rate_limit', 'Too many resync requests.', true, 1013)
       return
     }
     this.resyncs += 1
@@ -419,8 +416,9 @@ export class ReceiverV2Gateway {
     clearTimeout(connection.helloTimer)
     connection.phase = 'ready'
     connection.clientName = hello.client.name ?? hello.client.id
+    connection.requestedRateHz = negotiateReceiverRate(hello.requestedHz)
     connection.maxPayloadBytes = Math.min(hello.maxPayloadBytes, RECEIVER_MAX_SERVER_MESSAGE_BYTES)
-    connection.partition.rateHz = negotiateReceiverRate(hello.requestedHz)
+    this.recomputePartitionRate(connection.partition, 'negotiated', connection)
     connection.partition.nextSendAt = this.now()
     connection.partition.readyOnce = true
     if (hello.resumeFrom !== undefined) this.reconnects += 1
@@ -541,11 +539,39 @@ export class ReceiverV2Gateway {
     })
   }
 
+  private setPartitionRate(
+    partition: ReceiverPartition,
+    rateHz: number,
+    reason: 'negotiated' | 'backpressure',
+    exclude: ReceiverConnection | null = null
+  ): void {
+    const nextRate = negotiateReceiverRate(rateHz)
+    if (partition.rateHz === nextRate) return
+    partition.rateHz = nextRate
+    partition.nextSendAt = this.now()
+    for (const connection of partition.connections) {
+      if (connection === exclude || connection.phase !== 'ready') continue
+      this.send(connection, { type: 'rate', rateHz: nextRate, reason })
+    }
+  }
+
+  private recomputePartitionRate(
+    partition: ReceiverPartition,
+    reason: 'negotiated' | 'backpressure',
+    exclude: ReceiverConnection | null = null
+  ): void {
+    const ready = [...partition.connections].filter((connection) => connection.phase === 'ready')
+    const rateHz = ready.length === 0
+      ? RECEIVER_DEFAULT_HZ
+      : Math.min(...ready.map((connection) => connection.requestedRateHz))
+    this.setPartitionRate(partition, rateHz, reason, exclude)
+  }
+
   private sample(): void {
     const now = this.now()
     const data = createReceiverTelemetryData(this.getSnapshot(), now)
     for (const [sessionId, partition] of this.partitions) {
-      if (!partition.connection && (
+      if (partition.connections.size === 0 && (
         !partition.readyOnce ||
         partition.disconnectedAt === null ||
         now - partition.disconnectedAt > RECONNECT_GRACE_MS
@@ -576,24 +602,22 @@ export class ReceiverV2Gateway {
         const removed = partition.history.shift()
         if (removed) partition.historyBytes -= removed.bytes
       }
-      const connection = partition.connection
-      if (!connection || connection.phase !== 'ready') continue
-      if (connection.socket.bufferedAmount > HARD_BUFFERED_BYTES) {
-        this.droppedFrames += 1
-        this.slowConsumerDisconnects += 1
-        this.closeWithError(connection, 'slow_consumer', 'Receiver could not keep up with the bounded stream.', true, 1013)
-        continue
-      }
-      if (connection.socket.bufferedAmount > SOFT_BUFFERED_BYTES) {
-        this.droppedFrames += 1
-        if (partition.rateHz > RECEIVER_MIN_HZ) {
-          partition.rateHz = RECEIVER_MIN_HZ
-          this.send(connection, { type: 'rate', rateHz: partition.rateHz, reason: 'backpressure' })
+      for (const connection of partition.connections) {
+        if (connection.phase !== 'ready') continue
+        if (connection.socket.bufferedAmount > HARD_BUFFERED_BYTES) {
+          this.droppedFrames += 1
+          this.slowConsumerDisconnects += 1
+          this.closeWithError(connection, 'slow_consumer', 'Receiver could not keep up with the bounded stream.', true, 1013)
+          continue
         }
-        continue
+        if (connection.socket.bufferedAmount > SOFT_BUFFERED_BYTES) {
+          this.droppedFrames += 1
+          this.setPartitionRate(partition, RECEIVER_MIN_HZ, 'backpressure')
+          continue
+        }
+        if (this.send(connection, message)) this.telemetryFrames += 1
+        else this.droppedFrames += 1
       }
-      if (this.send(connection, message)) this.telemetryFrames += 1
-      else this.droppedFrames += 1
     }
   }
 
@@ -650,8 +674,11 @@ export class ReceiverV2Gateway {
   ): void {
     const error: ReceiverErrorMessage = { type: 'error', code, message, retryable }
     this.send(connection, error)
+    const effectiveCloseCode = retryable && [1002, 1003, 1008, 1009].includes(closeCode)
+      ? 1013
+      : closeCode
     try {
-      connection.socket.close(closeCode, code.slice(0, 100))
+      connection.socket.close(effectiveCloseCode, code.slice(0, 100))
     } catch {
       connection.socket.terminate()
     }
@@ -660,13 +687,15 @@ export class ReceiverV2Gateway {
   private onClose(connection: ReceiverConnection): void {
     clearTimeout(connection.helloTimer)
     this.connections.delete(connection.socket)
-    if (connection.partition.connection === connection) {
-      connection.partition.connection = null
+    connection.partition.connections.delete(connection)
+    if (connection.partition.connections.size === 0) {
       if (connection.partition.readyOnce) {
         connection.partition.disconnectedAt = this.now()
       } else {
         this.partitions.delete(connection.partition.sessionId)
       }
+    } else {
+      this.recomputePartitionRate(connection.partition, 'negotiated')
     }
     this.log.info('receiver websocket disconnected', {
       id: connection.partition.publicId,

@@ -136,4 +136,12 @@ const receiverWorker = readFileSync(resolve(rendererRoot, 'receiver', 'v2', 'ser
 if (!/url\.search/.test(receiverWorker)) {
   throw new Error('Receiver service worker does not explicitly reject query-bearing cache entries.')
 }
+if (!/cacheReceiverShell/.test(receiverWorker) || !/htmlResources/.test(receiverWorker) ||
+    !/moduleDependencies/.test(receiverWorker) || !/cssDependencies/.test(receiverWorker)) {
+  throw new Error('Receiver service worker does not precache the application shell and hashed resource graph.')
+}
+if (!/key\.startsWith\(CACHE_PREFIX\)/.test(receiverWorker) ||
+    /filter\(\(key\)\s*=>\s*key\s*!==\s*CACHE_NAME\)/.test(receiverWorker)) {
+  throw new Error('Receiver service worker cache cleanup is not isolated to receiver-owned caches.')
+}
 console.log('Verified receiver v2 PWA shell, secret handling, and offline resources.')
