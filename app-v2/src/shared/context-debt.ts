@@ -19,10 +19,11 @@ import {
 import {
   OVERLAY_WIDGETS,
   type OverlayTrigger,
+  type OverlayWidgetDefinition,
   type OverlayWidgetConfig,
   type OverlaysConfig
 } from './overlays'
-import type { RaceProfile } from './raceprofiles'
+import { sanitizeRaceProfileSnapshot, type RaceProfile } from './raceprofiles'
 import { CALLOUT_CATALOG, type CalloutId, type SpotterConfig } from './spotter'
 import type { Spotter3DConfig } from './spotter3d'
 import type { SoundsConfig } from './soundshift'
@@ -270,6 +271,19 @@ export interface ContextDebtConfigSnapshot {
   coach?: CoachConfig | null
 }
 
+export interface ContextDebtSourceSnapshotMap {
+  alerts: AlertsConfig
+  overlays: OverlaysConfig
+  sounds: SoundsConfig
+  haptics: HapticsConfig
+  zonalHaptics: HapticsZonalConfig
+  controls: ActionBinding[]
+  spotter: SpotterConfig
+  spotter3d: Spotter3DConfig
+  engineer: EngineerConfig
+  coach: CoachConfig
+}
+
 const EXPECTED_SOURCES: readonly ContextDebtSourceFamily[] = [
   'alerts',
   'overlays',
@@ -309,6 +323,64 @@ const ALERT_RULES: ReadonlyArray<{
 ]
 
 const OVERLAY_DEFINITION_BY_ID = new Map(OVERLAY_WIDGETS.map((definition) => [definition.id, definition]))
+
+const OVERLAY_SIGNAL_BY_EXACT_METADATA = new Map<string, string>([
+  ['fuel', 'fuel'],
+  ['stint', 'fuel'],
+  ['flag', 'flags'],
+  ['flags', 'flags'],
+  ['pace', 'flags'],
+  ['race-control', 'flags'],
+  ['shift', 'shift'],
+  ['rev', 'shift'],
+  ['revs', 'shift'],
+  ['revlights', 'shift'],
+  ['rpm', 'shift'],
+  ['gear', 'shift'],
+  ['sessionbanner', 'flags'],
+  ['pacerestart', 'flags'],
+  ['proximity', 'proximity'],
+  ['radar', 'proximity'],
+  ['relative', 'proximity'],
+  ['traffic', 'proximity'],
+  ['sidecar', 'proximity'],
+  ['sideproximity', 'proximity'],
+  ['tyre-pressure', 'tyre-pressure'],
+  ['tire-pressure', 'tyre-pressure'],
+  ['tyrepressure', 'tyre-pressure'],
+  ['tirepressure', 'tyre-pressure'],
+  ['coldpressure', 'tyre-pressure'],
+  ['tyre', 'tyres'],
+  ['tire', 'tyres'],
+  ['tyres', 'tyres'],
+  ['tires', 'tyres'],
+  ['brake-temperature', 'brake-temperature'],
+  ['brake-temp', 'brake-temperature'],
+  ['brake-heat', 'brake-temperature'],
+  ['braketemp', 'brake-temperature'],
+  ['brakeheat', 'brake-temperature'],
+  ['abs', 'abs'],
+  ['tc', 'traction-control'],
+  ['traction-control', 'traction-control'],
+  ['tractioncontrol', 'traction-control'],
+  ['engine', 'engine'],
+  ['weather', 'weather'],
+  ['wet', 'weather'],
+  ['rain', 'weather'],
+  ['surface', 'weather']
+])
+
+const OVERLAY_SIGNAL_BY_EXACT_ID = new Map<string, string>([
+  ['revlights', 'shift'],
+  ['sessionbanner', 'flags'],
+  ['pacerestart', 'flags'],
+  ['sideproximity', 'proximity'],
+  ['percornertyrepressure', 'tyre-pressure'],
+  ['braketempcorners', 'brake-temperature'],
+  ['fueldeltatile', 'fuel'],
+  ['shiftpointbar', 'shift'],
+  ['enginevitalsdial', 'engine']
+])
 
 const CRITICAL_SIGNAL_IDS = new Set([
   'flags',
@@ -614,20 +686,44 @@ function signalFromOverlayTrigger(trigger: OverlayTrigger | null | undefined): s
   }
 }
 
-function signalFromOverlayId(id: string, category?: string): string {
-  const normalized = id.toLowerCase()
-  if (/(fuel|stint)/.test(normalized)) return 'fuel'
-  if (/(flag|sessionbanner|pace)/.test(normalized)) return 'flags'
-  if (/(shift|rev|gear)/.test(normalized)) return 'shift'
-  if (/(proximity|radar|sidecar|sideproximity|relative)/.test(normalized)) return 'proximity'
-  if (/(tyrepressure|tirepressure|coldpressure)/.test(normalized)) return 'tyre-pressure'
-  if (/(tyre|tire)/.test(normalized)) return 'tyres'
-  if (/(braketemp|brakeheat)/.test(normalized)) return 'brake-temperature'
-  if (/(abs)/.test(normalized)) return 'abs'
-  if (/(tc|traction)/.test(normalized)) return 'traction-control'
-  if (/(engine|oil|water)/.test(normalized)) return 'engine'
-  if (/(weather|wet|rain|surface)/.test(normalized)) return 'weather'
-  if (category) return category
+function overlayClassificationTokens(value: string): string[] {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+}
+
+function signalFromOverlayId(
+  id: string,
+  definition?: Pick<OverlayWidgetDefinition, 'category' | 'tags'>
+): string {
+  const metadata = [definition?.category, ...(definition?.tags ?? [])]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  for (const value of metadata) {
+    const signal = OVERLAY_SIGNAL_BY_EXACT_METADATA.get(slug(value))
+    if (signal) return signal
+  }
+
+  const normalizedId = id.trim().toLowerCase()
+  const exactIdSignal = OVERLAY_SIGNAL_BY_EXACT_ID.get(normalizedId)
+  if (exactIdSignal) return exactIdSignal
+
+  const tokens = new Set([id, ...metadata].flatMap(overlayClassificationTokens))
+  const has = (...values: string[]): boolean => values.some((value) => tokens.has(value))
+  if (has('tyre', 'tire') && has('pressure')) return 'tyre-pressure'
+  if (has('coldpressure', 'tyrepressure', 'tirepressure')) return 'tyre-pressure'
+  if (has('brake') && has('temp', 'temperature', 'heat')) return 'brake-temperature'
+  if (has('braketemp', 'brakeheat')) return 'brake-temperature'
+  if (has('traction') && has('control')) return 'traction-control'
+  if (has('tractioncontrol')) return 'traction-control'
+
+  for (const token of tokens) {
+    const signal = OVERLAY_SIGNAL_BY_EXACT_METADATA.get(token)
+    if (signal) return signal
+  }
+  if (definition?.category) return slug(definition.category)
   return `overlay-${slug(id)}`
 }
 
@@ -635,10 +731,10 @@ function overlayRoute(
   id: string,
   label: string,
   config: Pick<OverlayWidgetConfig, 'role' | 'trigger' | 'display' | 'favorite'>,
-  category?: string
+  definition?: Pick<OverlayWidgetDefinition, 'category' | 'tags'>
 ): ContextDebtRoute {
   const triggerSignal = signalFromOverlayTrigger(config.trigger)
-  const signalId = triggerSignal ?? signalFromOverlayId(id, category)
+  const signalId = triggerSignal ?? signalFromOverlayId(id, definition)
   const displayId = config.display?.id
   const critical = config.role === 'alert' || isSemanticCriticalSignal(signalId)
   return {
@@ -664,7 +760,7 @@ function addOverlayRoutes(input: OverlaysConfig, routes: ContextDebtRoute[]): nu
     if (!config?.enabled) continue
     count += 1
     const definition = OVERLAY_DEFINITION_BY_ID.get(config.id)
-    routes.push(overlayRoute(config.id, definition?.title ?? config.id, config, definition?.category))
+    routes.push(overlayRoute(config.id, definition?.title ?? config.id, config, definition))
   }
 
   for (const custom of input.customOverlays ?? []) {
@@ -1118,7 +1214,7 @@ function routesToRemoveForCue(routes: ContextDebtRoute[], thresholds: ContextDeb
   }
   for (const route of sorted) {
     if (keep.length >= thresholds.maxRoutesPerCue) break
-    if (!keep.includes(route)) keep.push(route)
+    if (!keep.includes(route) && modalities.has(route.modality)) keep.push(route)
   }
   const keepIds = new Set(keep.map((route) => route.id))
   return sorted.filter((route) => !keepIds.has(route.id))
@@ -1283,7 +1379,9 @@ export function analyzeContextDebt(input: ContextDebtAnalysisInput): ContextDebt
     })
 
     if (!group.some((route) => route.critical)) {
-      const sorted = [...group].sort(routePrioritySort)
+      const sorted = group
+        .filter((route) => !suggestedRouteIds.has(route.id))
+        .sort(routePrioritySort)
       const remove = sorted.slice(1).filter((route) => !suggestedRouteIds.has(route.id))
       if (remove.length > 0) {
         remove.forEach((route) => suggestedRouteIds.add(route.id))
@@ -1331,9 +1429,10 @@ export function analyzeContextDebt(input: ContextDebtAnalysisInput): ContextDebt
     })
 
     if (group.some((route) => route.critical)) continue
-    const remove = routesToRemoveForCue(group, thresholds)
-      .filter((route) => !suggestedRouteIds.has(route.id))
+    const remainingGroup = group.filter((route) => !suggestedRouteIds.has(route.id))
+    const remove = routesToRemoveForCue(remainingGroup, thresholds)
     if (remove.length === 0) continue
+    const alreadySuggested = group.length - remainingGroup.length
     remove.forEach((route) => suggestedRouteIds.add(route.id))
     addRouteSuggestionsByOwner(suggestions, {
       id: `trim-cue:${slug(signalId)}`,
@@ -1343,7 +1442,7 @@ export function analyzeContextDebt(input: ContextDebtAnalysisInput): ContextDebt
       details: {
         signal: signalId,
         before: group.length,
-        after: group.length - remove.length
+        after: group.length - alreadySuggested - remove.length
       }
     })
   }
@@ -1463,9 +1562,11 @@ export function analyzeContextDebt(input: ContextDebtAnalysisInput): ContextDebt
     })
 
     if (!check.suggestionKind) continue
-    const needed = check.actual - check.limit
-    const removable = [...check.candidates]
-      .filter((route) => !route.critical && !suggestedRouteIds.has(route.id))
+    const remainingCandidates = check.candidates.filter((route) => !suggestedRouteIds.has(route.id))
+    const alreadySuggested = check.candidates.length - remainingCandidates.length
+    const needed = Math.max(0, check.actual - alreadySuggested - check.limit)
+    const removable = remainingCandidates
+      .filter((route) => !route.critical)
       .sort((a, b) => a.priority - b.priority || a.id.localeCompare(b.id))
       .slice(0, needed)
     if (removable.length === 0) continue
@@ -1615,27 +1716,123 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function isOptionalBoolean(value: unknown): boolean {
+  return value === undefined || typeof value === 'boolean'
+}
+
+function isOptionalString(value: unknown): boolean {
+  return value === undefined || typeof value === 'string'
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isAlertOutputLike(value: unknown): value is AlertOutput {
+  if (!isRecord(value) || !isOptionalBoolean(value.enabled)) return false
+  switch (value.kind) {
+    case 'buttonbox':
+      return typeof value.preset === 'string'
+    case 'serial':
+      return typeof value.template === 'string' && isOptionalString(value.deviceId)
+    case 'secondScreen':
+      return typeof value.slot === 'string'
+    case 'sound':
+      return true
+    default:
+      return false
+  }
+}
+
+function isAlertRuleLike(value: unknown): value is AlertRuleConfig {
+  if (!isRecord(value) || typeof value.enabled !== 'boolean') return false
+  if (
+    value.severity !== undefined &&
+    value.severity !== 'info' &&
+    value.severity !== 'warning' &&
+    value.severity !== 'critical'
+  ) {
+    return false
+  }
+  return value.outputs === undefined || (
+    Array.isArray(value.outputs) &&
+    value.outputs.every(isAlertOutputLike)
+  )
+}
+
 function isAlertsConfigLike(value: unknown): value is AlertsConfig {
   if (!isRecord(value) || typeof value.audioEnabled !== 'boolean') return false
-  return ['pitLimiter', 'flags', 'lowFuel', 'shiftPoint', 'incidentLimit'].every((key) => {
-    const rule = value[key]
-    return isRecord(rule) && typeof rule.enabled === 'boolean'
-  })
+  const requiredRules = ['pitLimiter', 'flags', 'lowFuel', 'shiftPoint', 'incidentLimit']
+  if (!requiredRules.every((key) => isAlertRuleLike(value[key]))) return false
+  return ALERT_RULES.every(({ key }) => value[key] === undefined || isAlertRuleLike(value[key]))
+}
+
+const OVERLAY_TRIGGER_KINDS = new Set([
+  'always',
+  'never',
+  'semantic',
+  'carLeft',
+  'carRight',
+  'carLeftOrRight',
+  'proximity',
+  'shiftPoint',
+  'pitLimiter',
+  'flag',
+  'lowFuel'
+])
+
+function isOverlayTriggerLike(value: unknown): value is OverlayTrigger {
+  if (!isRecord(value) || typeof value.kind !== 'string' || !OVERLAY_TRIGGER_KINDS.has(value.kind)) {
+    return false
+  }
+  return value.kind !== 'semantic' || (typeof value.semantic === 'string' && value.semantic.length > 0)
+}
+
+function isOverlayConfigLike(value: unknown): boolean {
+  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.enabled !== 'boolean') return false
+  if (!isOptionalBoolean(value.favorite)) return false
+  if (value.role !== undefined && value.role !== 'alert' && value.role !== 'ordinary') return false
+  if (value.trigger !== undefined && value.trigger !== null && !isOverlayTriggerLike(value.trigger)) return false
+  if (value.display !== undefined && value.display !== null) {
+    if (!isRecord(value.display) || !isFiniteNumber(value.display.id)) return false
+  }
+  return true
 }
 
 function isOverlaysConfigLike(value: unknown): value is OverlaysConfig {
-  return isRecord(value) && isRecord(value.widgets) && Array.isArray(value.customOverlays)
+  return (
+    isRecord(value) &&
+    isRecord(value.widgets) &&
+    Object.values(value.widgets).every(isOverlayConfigLike) &&
+    Array.isArray(value.customOverlays) &&
+    value.customOverlays.every(isOverlayConfigLike)
+  )
 }
 
 function isActionBindingLike(value: unknown): value is ActionBinding {
   if (!isRecord(value) || typeof value.id !== 'string' || typeof value.enabled !== 'boolean') return false
-  if (!isRecord(value.control) || typeof value.control.buttonIndex !== 'number') return false
+  if (
+    !isRecord(value.control) ||
+    value.control.source !== 'gamepad' ||
+    !isFiniteNumber(value.control.buttonIndex) ||
+    !isOptionalString(value.control.gamepadId) ||
+    (value.control.gamepadIndex !== undefined && !isFiniteNumber(value.control.gamepadIndex))
+  ) {
+    return false
+  }
   if (!isRecord(value.action) || typeof value.action.type !== 'string' || !isRecord(value.action.command)) return false
   switch (value.action.type) {
     case 'keyboard':
-      return Array.isArray(value.action.command.keys) && typeof value.action.command.mode === 'string'
+      return (
+        Array.isArray(value.action.command.keys) &&
+        value.action.command.keys.every((key) => typeof key === 'string') &&
+        typeof value.action.command.mode === 'string'
+      )
     case 'gamepad':
-      return value.action.command.button !== undefined && typeof value.action.command.mode === 'string'
+      return (
+        (typeof value.action.command.button === 'number' || typeof value.action.command.button === 'string') &&
+        typeof value.action.command.mode === 'string'
+      )
     case 'iracing':
       return typeof value.action.command.name === 'string'
     case 'app':
@@ -1645,16 +1842,199 @@ function isActionBindingLike(value: unknown): value is ActionBinding {
   }
 }
 
+function isSoundsConfigLike(value: unknown): value is SoundsConfig {
+  if (!isRecord(value) || !isOptionalString(value.outputDeviceId)) return false
+  return ['soundshift', 'incident', 'abs', 'tcs'].every((key) => {
+    const config = value[key]
+    return isRecord(config) && typeof config.enabled === 'boolean'
+  })
+}
+
+function isHapticsConfigLike(value: unknown): value is HapticsConfig {
+  if (
+    !isRecord(value) ||
+    typeof value.enabled !== 'boolean' ||
+    typeof value.muted !== 'boolean' ||
+    !isFiniteNumber(value.masterGain) ||
+    !isOptionalString(value.outputDeviceId) ||
+    !isRecord(value.effects) ||
+    !isRecord(value.arduino) ||
+    typeof value.arduino.enabled !== 'boolean' ||
+    !isOptionalString(value.arduino.deviceId)
+  ) {
+    return false
+  }
+  const effects = value.effects as Record<string, unknown>
+  return HAPTICS_EFFECT_IDS.every((id) => {
+    const effect = effects[id]
+    return (
+      isRecord(effect) &&
+      typeof effect.enabled === 'boolean' &&
+      isFiniteNumber(effect.intensity) &&
+      typeof effect.arduino === 'boolean'
+    )
+  })
+}
+
+function isZonalHapticsConfigLike(value: unknown): value is HapticsZonalConfig {
+  if (
+    !isRecord(value) ||
+    typeof value.enabled !== 'boolean' ||
+    typeof value.muted !== 'boolean' ||
+    !isFiniteNumber(value.masterGain) ||
+    !isRecord(value.events) ||
+    !isRecord(value.zones) ||
+    !isRecord(value.arduino) ||
+    typeof value.arduino.enabled !== 'boolean' ||
+    !isOptionalString(value.arduino.deviceId)
+  ) {
+    return false
+  }
+  const events = value.events as Record<string, unknown>
+  const zones = value.zones as Record<string, unknown>
+  if (!HAPTIC_ZONE_IDS.every((id) => {
+    const zone = zones[id]
+    return isRecord(zone) && typeof zone.enabled === 'boolean' && isFiniteNumber(zone.gain)
+  })) {
+    return false
+  }
+  return HAPTIC_EVENT_IDS.every((id) => {
+    const event = events[id]
+    const eventZones = isRecord(event) && isRecord(event.zones)
+      ? event.zones as Record<string, unknown>
+      : null
+    return (
+      isRecord(event) &&
+      typeof event.enabled === 'boolean' &&
+      isFiniteNumber(event.gain) &&
+      eventZones !== null &&
+      HAPTIC_ZONE_IDS.every((zoneId) => isFiniteNumber(eventZones[zoneId]))
+    )
+  })
+}
+
+function isSpotterConfigLike(value: unknown): value is SpotterConfig {
+  if (
+    !isRecord(value) ||
+    typeof value.enabled !== 'boolean' ||
+    typeof value.muted !== 'boolean' ||
+    !isFiniteNumber(value.masterVolume) ||
+    !isOptionalString(value.outputDeviceId) ||
+    !isRecord(value.callouts)
+  ) {
+    return false
+  }
+  const callouts = value.callouts as Record<string, unknown>
+  return CALLOUT_CATALOG.every(({ id }) => {
+    const callout = callouts[id]
+    return (
+      isRecord(callout) &&
+      typeof callout.enabled === 'boolean' &&
+      isFiniteNumber(callout.volume) &&
+      isFiniteNumber(callout.priority)
+    )
+  })
+}
+
+function isSpotter3dConfigLike(value: unknown): value is Spotter3DConfig {
+  return (
+    isRecord(value) &&
+    typeof value.enabled === 'boolean' &&
+    isFiniteNumber(value.masterVolume)
+  )
+}
+
+function isEngineerButtonBindingLike(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isFiniteNumber(value.buttonIndex) &&
+    isOptionalString(value.gamepadId) &&
+    (value.gamepadIndex === undefined || isFiniteNumber(value.gamepadIndex))
+  )
+}
+
+function isEngineerConfigLike(value: unknown): value is EngineerConfig {
+  if (
+    !isRecord(value) ||
+    typeof value.enabled !== 'boolean' ||
+    typeof value.proactiveCoaching !== 'boolean' ||
+    !Array.isArray(value.presetQuestions) ||
+    !isRecord(value.buttonBindings) ||
+    !isRecord(value.buttonBindings.presets)
+  ) {
+    return false
+  }
+  if (
+    value.buttonBindings.pushToTalk !== null &&
+    !isEngineerButtonBindingLike(value.buttonBindings.pushToTalk)
+  ) {
+    return false
+  }
+  if (!Object.values(value.buttonBindings.presets).every(isEngineerButtonBindingLike)) return false
+  return value.presetQuestions.every((preset) => (
+    isRecord(preset) &&
+    typeof preset.id === 'string' &&
+    typeof preset.label === 'string'
+  ))
+}
+
+function isCoachConfigLike(value: unknown): value is CoachConfig {
+  return (
+    isRecord(value) &&
+    typeof value.enabled === 'boolean' &&
+    typeof value.speakTopTip === 'boolean'
+  )
+}
+
+function isContextDebtSourceSnapshotLike(
+  source: ContextDebtSourceFamily,
+  value: unknown
+): boolean {
+  switch (source) {
+    case 'alerts':
+      return isAlertsConfigLike(value)
+    case 'overlays':
+      return isOverlaysConfigLike(value)
+    case 'sounds':
+      return isSoundsConfigLike(value)
+    case 'haptics':
+      return isHapticsConfigLike(value)
+    case 'zonalHaptics':
+      return isZonalHapticsConfigLike(value)
+    case 'controls':
+      return Array.isArray(value) && value.every(isActionBindingLike)
+    case 'spotter':
+      return isSpotterConfigLike(value)
+    case 'spotter3d':
+      return isSpotter3dConfigLike(value)
+    case 'engineer':
+      return isEngineerConfigLike(value)
+    case 'coach':
+      return isCoachConfigLike(value)
+  }
+}
+
+export function sanitizeContextDebtSourceSnapshot<Source extends ContextDebtSourceFamily>(
+  source: Source,
+  value: unknown
+): ContextDebtSourceSnapshotMap[Source] | undefined {
+  const sanitized = sanitizeRaceProfileSnapshot(value)
+  if (sanitized === undefined || !isContextDebtSourceSnapshotLike(source, sanitized)) return undefined
+  return sanitized as ContextDebtSourceSnapshotMap[Source]
+}
+
 function withProfileHapticsGains(
   haptics: HapticsConfig | null | undefined,
   gains: RaceProfile['hapticsGains']
 ): HapticsConfig | null | undefined {
   if (!haptics || !gains) return haptics
+  const sanitized = sanitizeRaceProfileSnapshot(gains)
+  if (!isRecord(sanitized)) return haptics
   const effects = { ...haptics.effects }
-  for (const [id, intensity] of Object.entries(gains)) {
+  for (const [id, intensity] of Object.entries(sanitized)) {
     if (!(id in effects) || typeof intensity !== 'number' || !Number.isFinite(intensity)) continue
     const effectId = id as HapticsEffectId
-    effects[effectId] = { ...effects[effectId], intensity }
+    effects[effectId] = { ...effects[effectId], intensity: Math.max(0, Math.min(1, intensity)) }
   }
   return { ...haptics, effects }
 }
@@ -1664,13 +2044,14 @@ export function selectContextDebtProfileSnapshot(
   profile: RaceProfile | null | undefined
 ): ContextDebtConfigSnapshot {
   if (!profile) return live
+  const alerts = sanitizeContextDebtSourceSnapshot('alerts', profile.alerts)
+  const overlays = sanitizeContextDebtSourceSnapshot('overlays', profile.overlays)
+  const bindings = sanitizeContextDebtSourceSnapshot('controls', profile.bindings)
   return {
     ...live,
-    alerts: isAlertsConfigLike(profile.alerts) ? profile.alerts : live.alerts,
-    overlays: isOverlaysConfigLike(profile.overlays) ? profile.overlays : live.overlays,
-    bindings: Array.isArray(profile.bindings)
-      ? profile.bindings.filter(isActionBindingLike)
-      : live.bindings,
+    alerts: alerts ?? live.alerts,
+    overlays: overlays ?? live.overlays,
+    bindings: bindings ?? live.bindings,
     haptics: withProfileHapticsGains(live.haptics, profile.hapticsGains)
   }
 }

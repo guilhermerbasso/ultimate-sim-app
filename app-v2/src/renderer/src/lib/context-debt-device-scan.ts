@@ -2,6 +2,8 @@ import type {
   ContextDebtDeviceKind,
   ContextDebtScanStatus
 } from '../../../shared/context-debt'
+import type { SerialDeviceSummary } from '../../../shared/arduino'
+import type { DeviceInfo } from '../../../shared/ipc'
 
 export interface ContextDebtDeviceScanDependencies {
   refreshAudioOutputs(): Promise<boolean>
@@ -13,6 +15,22 @@ export interface ContextDebtDeviceScanDependencies {
 export interface ContextDebtDeviceScanResult {
   scanStatus: Record<ContextDebtDeviceKind, ContextDebtScanStatus>
   gamepadIds: string[]
+}
+
+export function contextDebtSerialDeviceIds(
+  serialDevices: readonly SerialDeviceSummary[],
+  primaryDevice: DeviceInfo | null
+): string[] {
+  const ids = new Set<string>()
+  if (primaryDevice || serialDevices.some((device) => device.kind === 'sim-x' && device.connected)) {
+    ids.add('primary')
+  }
+  for (const device of serialDevices) {
+    const id = device.id.trim()
+    if (device.kind === 'sim-x' || !device.connected || !id) continue
+    ids.add(id)
+  }
+  return [...ids].sort()
 }
 
 export async function scanContextDebtDevices(

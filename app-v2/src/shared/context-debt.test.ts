@@ -17,7 +17,7 @@ import {
 import { DEFAULT_ENGINEER_CONFIG } from './engineer-ipc'
 import { DEFAULT_HAPTICS_CONFIG } from './haptics'
 import { DEFAULT_HAPTICS_ZONAL_CONFIG } from './haptics-zonal'
-import { createDefaultOverlaysConfig } from './overlays'
+import { createDefaultOverlaysConfig, type OverlaysConfig } from './overlays'
 import type { RaceProfile } from './raceprofiles'
 import { DEFAULT_SPOTTER_CONFIG } from './spotter'
 import { DEFAULT_SPOTTER_3D_CONFIG } from './spotter3d'
@@ -169,6 +169,46 @@ describe('SP-07 context-debt analysis', () => {
     expect(locked.every((route) => !suggested.has(route.id))).toBe(true)
   })
 
+  it('classifies overlay ids by exact metadata and whole tokens without substring collisions', () => {
+    const overlays = createDefaultOverlaysConfig()
+    overlays.widgets.engineerFeed = { ...overlays.widgets.engineerFeed, enabled: true }
+    const base = overlays.widgets.customValue
+    const customOverlay = (
+      id: string
+    ): OverlaysConfig['customOverlays'][number] => ({
+      ...base,
+      id,
+      title: id,
+      enabled: true,
+      elements: []
+    })
+    overlays.customOverlays = [
+      customOverlay('custom:absolute-timing'),
+      customOverlay('custom:watch-panel'),
+      customOverlay('custom:flagship-store'),
+      customOverlay('custom:refuelish'),
+      customOverlay('custom:brake-temp-warning'),
+      customOverlay('custom:tc-warning')
+    ]
+
+    const report = analyzeContextDebt(baseInput({ overlays }))
+    const signals = Object.fromEntries(
+      report.routes
+        .filter((route) => route.source === 'overlay')
+        .map((route) => [route.sourceId, route.signalId])
+    )
+
+    expect(signals).toMatchObject({
+      engineerFeed: 'overlay-engineerfeed',
+      'custom:absolute-timing': 'overlay-custom-absolute-timing',
+      'custom:watch-panel': 'overlay-custom-watch-panel',
+      'custom:flagship-store': 'overlay-custom-flagship-store',
+      'custom:refuelish': 'overlay-custom-refuelish',
+      'custom:brake-temp-warning': 'brake-temperature',
+      'custom:tc-warning': 'traction-control'
+    })
+  })
+
   it('reports configured routes that target an unknown device without disabling them', () => {
     const report = analyzeContextDebt(baseInput({
       sounds: {
@@ -243,6 +283,9 @@ describe('SP-07 context-debt analysis', () => {
   it('uses saved profile snapshots without mutating the live configuration', () => {
     const liveAlerts = disabledAlerts()
     const profileAlerts = { ...disabledAlerts(), flags: { enabled: true } }
+    const liveOverlays = createDefaultOverlaysConfig()
+    const profileOverlays = createDefaultOverlaysConfig()
+    profileOverlays.widgets.revlights = { ...profileOverlays.widgets.revlights, enabled: true }
     const liveBindings: ActionBinding[] = []
     const profileBindings: ActionBinding[] = [{
       id: 'profile-action',
@@ -257,6 +300,7 @@ describe('SP-07 context-debt analysis', () => {
       id: 'race-a',
       name: 'Race A',
       alerts: profileAlerts,
+      overlays: profileOverlays,
       bindings: profileBindings,
       hapticsGains: { engine: 0.25 }
     }
@@ -268,12 +312,16 @@ describe('SP-07 context-debt analysis', () => {
       }
     }
     const selected = selectContextDebtProfileSnapshot(
-      { alerts: liveAlerts, bindings: liveBindings, haptics: liveHaptics },
+      { alerts: liveAlerts, overlays: liveOverlays, bindings: liveBindings, haptics: liveHaptics },
       profile
     )
 
-    expect(selected.alerts).toBe(profileAlerts)
+    expect(selected.alerts).toEqual(profileAlerts)
+    expect(selected.alerts).not.toBe(profileAlerts)
+    expect(selected.overlays).toEqual(profileOverlays)
+    expect(selected.overlays).not.toBe(profileOverlays)
     expect(selected.bindings).toStrictEqual(profileBindings)
+    expect(selected.bindings).not.toBe(profileBindings)
     expect(selected.haptics?.effects.engine.intensity).toBe(0.25)
     expect(liveHaptics.effects.engine.intensity).toBe(0.75)
     expect(liveAlerts.flags.enabled).toBe(false)
@@ -297,6 +345,44 @@ describe('SP-07 context-debt analysis', () => {
     expect(selected.overlays).toBe(liveOverlays)
     expect(selected.alerts).toBe(liveAlerts)
     expect(selected.bindings).toEqual([])
+  })
+
+  it('falls back atomically when a nested profile snapshot contains unsafe route data', () => {
+    const liveAlerts = disabledAlerts()
+    const liveOverlays = createDefaultOverlaysConfig()
+    const selected = selectContextDebtProfileSnapshot(
+      { alerts: liveAlerts, overlays: liveOverlays, bindings: [] },
+      {
+        id: 'nested-broken',
+        name: 'Nested broken import',
+        alerts: {
+          ...disabledAlerts(),
+          flags: {
+            enabled: true,
+            outputs: [{ kind: 'serial', template: 123 }]
+          }
+        },
+        overlays: {
+          ...createDefaultOverlaysConfig(),
+          customOverlays: [{
+            id: 'custom:unsafe',
+            enabled: true,
+            trigger: { kind: 'semantic', semantic: 42 }
+          }]
+        },
+        bindings: [{
+          id: 'unsafe-binding',
+          enabled: true,
+          control: { source: 'gamepad', buttonIndex: Number.NaN },
+          action: { type: 'app', command: { name: 'dash:cycleNext' } }
+        }]
+      } as unknown as RaceProfile
+    )
+
+    expect(selected.alerts).toBe(liveAlerts)
+    expect(selected.overlays).toBe(liveOverlays)
+    expect(selected.bindings).toEqual([])
+    expect(() => analyzeContextDebt(baseInput(selected))).not.toThrow()
   })
 
   it('treats thresholds as explicit boundaries rather than universal limits', () => {
@@ -454,6 +540,85 @@ describe('SP-07 context-debt analysis', () => {
       )
       expect(owners).toEqual(new Set([plan.navigateTo]))
     }
+  })
+
+  it('enforces the modality cap even when the per-cue route cap is higher', () => {
+    const overlays = createDefaultOverlaysConfig()
+    overlays.widgets.revlights = { ...overlays.widgets.revlights, enabled: true }
+    const effects = Object.fromEntries(
+      Object.entries(DEFAULT_HAPTICS_CONFIG.effects).map(([id, effect]) => [
+        id,
+        { ...effect, enabled: id === 'gearShift', intensity: 1 }
+      ])
+    ) as typeof DEFAULT_HAPTICS_CONFIG.effects
+    const report = analyzeContextDebt(baseInput({
+      overlays,
+      sounds: {
+        ...DEFAULT_SOUNDS_CONFIG,
+        soundshift: { ...DEFAULT_SOUNDS_CONFIG.soundshift, enabled: true }
+      },
+      haptics: {
+        ...DEFAULT_HAPTICS_CONFIG,
+        enabled: true,
+        muted: false,
+        masterGain: 1,
+        effects
+      },
+      thresholds: {
+        maxRoutesPerCue: 4,
+        maxModalitiesPerCue: 2,
+        maxOverlays: 30,
+        maxAudioRoutes: 60,
+        maxHapticRoutes: 30,
+        maxTotalRoutes: 120
+      }
+    }))
+    const trimIds = report.suggestions
+      .filter((suggestion) => suggestion.kind === 'trim-cue' && suggestion.signalId === 'shift')
+      .map((suggestion) => suggestion.id)
+    const preview = previewContextDebtSuggestions(report, trimIds)
+    const remainingModalities = new Set(
+      report.routes
+        .filter((route) => route.signalId === 'shift')
+        .filter((route) => !preview.removedRoutes.some((removed) => removed.id === route.id))
+        .map((route) => route.modality)
+    )
+
+    expect(trimIds.length).toBeGreaterThan(0)
+    expect(remainingModalities.size).toBeLessThanOrEqual(2)
+  })
+
+  it('recomputes later suggestion passes from routes already planned for removal', () => {
+    const alerts = disabledAlerts()
+    alerts.audioEnabled = true
+    alerts.shiftPoint = { ...alerts.shiftPoint, enabled: true }
+    const report = analyzeContextDebt(baseInput({
+      alerts,
+      sounds: {
+        ...DEFAULT_SOUNDS_CONFIG,
+        soundshift: { ...DEFAULT_SOUNDS_CONFIG.soundshift, enabled: true }
+      },
+      thresholds: {
+        maxRoutesPerCue: 2,
+        maxModalitiesPerCue: 2,
+        maxAudioRoutes: 1
+      }
+    }))
+    const plannedIds = report.suggestions.flatMap((suggestion) => suggestion.routeIds)
+    const plannedAudioIds = plannedIds.filter((id) =>
+      report.routes.find((route) => route.id === id)?.modality === 'audio'
+    )
+    const preview = previewContextDebtSuggestions(
+      report,
+      report.suggestions.map((suggestion) => suggestion.id)
+    )
+
+    expect(new Set(plannedAudioIds).size).toBe(1)
+    expect(preview.afterRouteCount).toBe(report.routes.length - 1)
+    expect(report.routes.filter((route) =>
+      route.modality === 'audio' &&
+      !preview.removedRoutes.some((removed) => removed.id === route.id)
+    )).toHaveLength(1)
   })
 
   it('fingerprints route priorities and complete suggestion contents', () => {

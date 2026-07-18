@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { RaceProfile } from '../../shared/raceprofiles'
+import { sanitizeRaceProfileSnapshot, type RaceProfile } from '../../shared/raceprofiles'
 
 interface RaceProfilesFile {
   version: 1
@@ -100,52 +100,76 @@ export class RaceProfileStore {
 
 function normalizeStore(raw: unknown): RaceProfilesFile {
   if (!isRecord(raw)) return { ...DEFAULT_STORE, profiles: [] }
-  const rawProfiles = Array.isArray(raw.profiles) ? raw.profiles : []
+  const rawProfilesValue = ownDataValue(raw, 'profiles')
+  const rawProfiles = Array.isArray(rawProfilesValue) ? rawProfilesValue : []
+  const profiles: RaceProfile[] = []
+  for (const profile of rawProfiles) {
+    try {
+      profiles.push(normalizeProfile(profile))
+    } catch {
+      // A malformed imported entry must not discard every other saved profile.
+    }
+  }
   return {
     version: 1,
-    autoSwitch: raw.autoSwitch === true,
-    profiles: rawProfiles.map((profile) => normalizeProfile(profile)).filter(Boolean)
+    autoSwitch: ownDataValue(raw, 'autoSwitch') === true,
+    profiles
   }
 }
 
 export function normalizeProfile(raw: unknown): RaceProfile {
   if (!isRecord(raw)) throw new Error('Invalid race profile.')
-  const name = asTrimmedString(raw.name)
+  const name = asTrimmedString(ownDataValue(raw, 'name'))
   if (!name) throw new Error('Enter a name for the race profile.')
 
-  const id = asTrimmedString(raw.id) || createProfileId()
-  const match = isRecord(raw.match)
+  const id = asTrimmedString(ownDataValue(raw, 'id')) || createProfileId()
+  const rawMatch = ownDataValue(raw, 'match')
+  const match = isRecord(rawMatch)
     ? {
-        carName: asOptionalString(raw.match.carName),
-        trackName: asOptionalString(raw.match.trackName)
+        carName: asOptionalString(ownDataValue(rawMatch, 'carName')),
+        trackName: asOptionalString(ownDataValue(rawMatch, 'trackName'))
       }
     : undefined
-  const hapticsGains = normalizeHapticsGains(raw.hapticsGains)
+  const hapticsGains = normalizeHapticsGains(ownDataValue(raw, 'hapticsGains'))
+  const buttonboxProfile = asOptionalString(ownDataValue(raw, 'buttonboxProfile'))
+  const oled = sanitizeRaceProfileSnapshot(ownDataValue(raw, 'oled'))
+  const overlays = sanitizeRaceProfileSnapshot(ownDataValue(raw, 'overlays'))
+  const alerts = sanitizeRaceProfileSnapshot(ownDataValue(raw, 'alerts'))
+  const bindings = sanitizeRaceProfileSnapshot(ownDataValue(raw, 'bindings'))
 
   return {
     id,
     name,
     ...(match && (match.carName || match.trackName) ? { match } : {}),
-    ...(asOptionalString(raw.buttonboxProfile) ? { buttonboxProfile: asOptionalString(raw.buttonboxProfile) } : {}),
-    ...(raw.oled !== undefined ? { oled: raw.oled } : {}),
-    ...(raw.overlays !== undefined ? { overlays: raw.overlays } : {}),
-    ...(raw.alerts !== undefined ? { alerts: raw.alerts } : {}),
-    ...(raw.bindings !== undefined ? { bindings: raw.bindings } : {}),
+    ...(buttonboxProfile ? { buttonboxProfile } : {}),
+    ...(oled !== undefined ? { oled } : {}),
+    ...(overlays !== undefined ? { overlays } : {}),
+    ...(alerts !== undefined ? { alerts } : {}),
+    ...(bindings !== undefined ? { bindings } : {}),
     ...(hapticsGains ? { hapticsGains } : {})
   }
 }
 
 function normalizeHapticsGains(value: unknown): Record<string, number> | undefined {
   if (!isRecord(value)) return undefined
-  const gains = Object.fromEntries(
-    Object.entries(value)
-      .filter((entry): entry is [string, number] => (
-        entry[0].trim().length > 0 &&
-        typeof entry[1] === 'number' &&
-        Number.isFinite(entry[1])
-      ))
-      .map(([id, intensity]) => [id, Math.max(0, Math.min(1, intensity))])
-  )
+  let descriptors: Record<string, PropertyDescriptor>
+  try {
+    descriptors = Object.getOwnPropertyDescriptors(value)
+  } catch {
+    return undefined
+  }
+  const gains = Object.fromEntries(Object.entries(descriptors).flatMap(([id, descriptor]) => {
+    if (
+      !descriptor.enumerable ||
+      !('value' in descriptor) ||
+      id.trim().length === 0 ||
+      typeof descriptor.value !== 'number' ||
+      !Number.isFinite(descriptor.value)
+    ) {
+      return []
+    }
+    return [[id, Math.max(0, Math.min(1, descriptor.value))]]
+  }))
   return Object.keys(gains).length > 0 ? gains : undefined
 }
 
@@ -178,6 +202,21 @@ function asOptionalString(value: unknown): string | undefined {
   return normalized || undefined
 }
 
+function ownDataValue(record: Record<string, unknown>, key: string): unknown {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(record, key)
+    return descriptor && 'value' in descriptor ? descriptor.value : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  try {
+    const prototype = Object.getPrototypeOf(value)
+    return prototype === Object.prototype || prototype === null
+  } catch {
+    return false
+  }
 }

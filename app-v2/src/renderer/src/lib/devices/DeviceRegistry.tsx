@@ -166,6 +166,13 @@ function mapAudioOutputs(list: MediaDeviceInfo[]): AudioOutputDeviceInfo[] {
   return outputs
 }
 
+export function isAudioOutputScanComplete(
+  outputs: readonly AudioOutputDeviceInfo[],
+  requestLabels: boolean
+): boolean {
+  return requestLabels || outputs.some((output) => output.deviceId.trim().length > 0)
+}
+
 // On-demand getUserMedia({audio}) bootstrap. Chromium only exposes audiooutput
 // labels/ids AFTER a media-permission grant; requesting an audio stream once (then
 // immediately stopping its tracks) unlocks them for enumerateDevices. We only do
@@ -244,15 +251,16 @@ export function DeviceRegistryProvider({ children }: { children: ReactNode }): R
           ? `Found ${outputs.length} audio output device${outputs.length === 1 ? '' : 's'}.`
           : 'No dedicated audio outputs found; using system default.'
       )
-      return true
+      return isAudioOutputScanComplete(outputs, requestLabels)
     } catch (error) {
       setAudioOutputsStatus(
         `Could not refresh labels: ${getErrorMessage(error)}. Showing available outputs if labels are already unlocked.`
       )
       try {
         const fallback = await navigator.mediaDevices.enumerateDevices()
-        setAudioOutputs(mapAudioOutputs(fallback))
-        return true
+        const outputs = mapAudioOutputs(fallback)
+        setAudioOutputs(outputs)
+        return isAudioOutputScanComplete(outputs, requestLabels)
       } catch {
         setAudioOutputs([])
         return false

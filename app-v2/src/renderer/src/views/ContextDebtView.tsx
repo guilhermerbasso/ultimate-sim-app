@@ -53,7 +53,11 @@ import {
   type ContextDebtDecision,
   type ContextDebtExperimentState
 } from '../lib/context-debt-storage'
-import { scanContextDebtDevices } from '../lib/context-debt-device-scan'
+import {
+  contextDebtSerialDeviceIds,
+  scanContextDebtDevices
+} from '../lib/context-debt-device-scan'
+import { recoverContextDebtSource } from '../lib/context-debt-recovery'
 import { useDevices } from '../lib/devices/DeviceRegistry'
 import { listConnectedGamepads } from '../lib/gamepad'
 import './context-debt.css'
@@ -190,7 +194,8 @@ export default function ContextDebtView({ showToast, language }: AppViewProps): 
     refreshAudioOutputs,
     refreshDisplays,
     refreshFleet,
-    serialDevices
+    serialDevices,
+    primaryDevice
   } = useDevices()
   const [snapshot, setSnapshot] = useState<LoadedContextDebtSnapshot | null>(null)
   const [selectedProfileKey, setSelectedProfileKey] = useState(LIVE_PROFILE_KEY)
@@ -299,17 +304,23 @@ export default function ContextDebtView({ showToast, language }: AppViewProps): 
   }, [selectedProfileKey, snapshot])
 
   useEffect(() => {
-    const patch = <K extends keyof LoadedContextDebtSnapshot>(key: K, value: LoadedContextDebtSnapshot[K]): void => {
-      setSnapshot((current) => current ? { ...current, [key]: value } : current)
+    if (snapshot && Object.values(snapshot.sourceAvailability).every((available) => available === true)) {
+      setLoadError(null)
+    }
+  }, [snapshot])
+
+  useEffect(() => {
+    const recover = (source: ContextDebtSourceFamily, value: unknown): void => {
+      setSnapshot((current) => recoverContextDebtSource(current, source, value))
     }
     const unsubscribers = [
-      window.ipc.subscribe<AlertsConfig>('alerts:config', (value) => patch('alerts', value)),
-      window.ipc.subscribe<SoundsConfig>(SOUNDSHIFT_CHANNELS.configEvent, (value) => patch('sounds', value)),
-      window.ipc.subscribe<HapticsConfig>(HAPTICS_CHANNELS.configEvent, (value) => patch('haptics', value)),
-      window.ipc.subscribe<HapticsZonalConfig>(HAPTICS_ZONAL_CHANNELS.configEvent, (value) => patch('zonalHaptics', value)),
-      window.ipc.subscribe<SpotterConfig>(SPOTTER_CHANNELS.configEvent, (value) => patch('spotter', value)),
-      window.ipc.subscribe<Spotter3DConfig>(SPOTTER_3D_CHANNELS.configEvent, (value) => patch('spotter3d', value)),
-      window.ipc.subscribe<CoachConfig>(COACH_CHANNELS.configEvent, (value) => patch('coach', value))
+      window.ipc.subscribe<AlertsConfig>('alerts:config', (value) => recover('alerts', value)),
+      window.ipc.subscribe<SoundsConfig>(SOUNDSHIFT_CHANNELS.configEvent, (value) => recover('sounds', value)),
+      window.ipc.subscribe<HapticsConfig>(HAPTICS_CHANNELS.configEvent, (value) => recover('haptics', value)),
+      window.ipc.subscribe<HapticsZonalConfig>(HAPTICS_ZONAL_CHANNELS.configEvent, (value) => recover('zonalHaptics', value)),
+      window.ipc.subscribe<SpotterConfig>(SPOTTER_CHANNELS.configEvent, (value) => recover('spotter', value)),
+      window.ipc.subscribe<Spotter3DConfig>(SPOTTER_3D_CHANNELS.configEvent, (value) => recover('spotter3d', value)),
+      window.ipc.subscribe<CoachConfig>(COACH_CHANNELS.configEvent, (value) => recover('coach', value))
     ]
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe())
   }, [])
@@ -331,7 +342,7 @@ export default function ContextDebtView({ showToast, language }: AppViewProps): 
         : { key: LIVE_PROFILE_KEY, name: tt(language, 'contextDebt.currentSetup'), source: 'live' },
       devices: {
         audioOutputIds: audioOutputs.map((device) => device.deviceId),
-        serialDeviceIds: serialDevices.map((device) => device.id),
+        serialDeviceIds: contextDebtSerialDeviceIds(serialDevices, primaryDevice),
         displayIds: displays.map((display) => display.id),
         gamepadIds,
         scanStatus: deviceScanStatus
@@ -346,6 +357,7 @@ export default function ContextDebtView({ showToast, language }: AppViewProps): 
     displays,
     gamepadIds,
     language,
+    primaryDevice,
     selectedProfile,
     serialDevices,
     snapshot,
