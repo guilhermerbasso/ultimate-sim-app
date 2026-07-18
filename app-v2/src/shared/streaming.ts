@@ -16,6 +16,7 @@ export interface StreamingStartArgs {
   streamSafe?: boolean
   layoutId?: string
   layoutKind?: StreamingLayoutKind
+  presentationProfileId?: string
   port?: number
   lanEnabled?: boolean
   accessMode?: StreamingAccessMode
@@ -58,6 +59,7 @@ export interface StreamingStartResult {
   autoTunnelEnabled: boolean
   autoTunnelRunning: boolean
   autoTunnelMessage: string | null
+  presentationProfileId: string | null
 }
 
 export interface StreamingSelfTestResult {
@@ -115,6 +117,7 @@ export interface StreamingStatus {
   autoTunnelEnabled: boolean
   autoTunnelRunning: boolean
   autoTunnelMessage: string | null
+  presentationProfileId: string | null
 }
 
 export interface StreamingTelemetryFrame {

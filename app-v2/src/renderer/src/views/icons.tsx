@@ -46,6 +46,13 @@ const iconMap: Record<string, () => ReactElement> = {
       <path d="M13 13l4 1.5-1.7.8 1.4 2.4-1.4.8-1.4-2.4-1.2 1.4z" fill="currentColor" stroke="none" />
     </Svg>
   ),
+  'streaming-mobile-editor': () => (
+    <Svg>
+      <rect x="6" y="2.5" width="10" height="17" rx="2.2" />
+      <path d="M8.5 6h5M8.5 9h5M8.5 12h3" />
+      <path d="M3 7.5v-3h3M19 14.5v3h-3" />
+    </Svg>
+  ),
   'oled-dash': () => (
     <Svg>
       {/* wide OLED panel with data lines + vertical readout */}

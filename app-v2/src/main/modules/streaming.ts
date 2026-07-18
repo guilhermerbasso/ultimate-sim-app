@@ -10,10 +10,12 @@ import QRCode from 'qrcode'
 import type { DriverEntry, RadarCarEntry, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
 import type { StreamingAccessMode, StreamingDashboardPayload, StreamingLayoutKind, StreamingSelfTestResult, StreamingStartArgs, StreamingStartResult, StreamingStatus, StreamingTelemetryFrame } from '../../shared/streaming'
 import { STREAMING_CHANNELS, STREAMING_EXPRESSION_EXCLUSION_MESSAGE } from '../../shared/streaming'
+import type { StreamPresentationProfileListItem } from '../../shared/stream-presentation'
 import type { ModuleContext } from '../module-context'
 import { getDashboardManager } from './dashboards'
 import { logger } from './logger'
 import { getTouchPanelManager } from '../touchpanel/manager'
+import { getStreamPresentationProfileForRuntime } from './stream-presentation'
 
 const HOST = '127.0.0.1'
 const LAN_HOST = '0.0.0.0'
@@ -61,6 +63,7 @@ interface StreamingState {
   layoutId: string
   layoutKind: StreamingLayoutKind
   touchPanelId: string | null
+  presentationProfileId: string | null
   firewallMessage: string | null
   streamSafe: boolean
   lanEnabled: boolean
@@ -90,6 +93,7 @@ const state: StreamingState = {
   layoutId: DEFAULT_LAYOUT,
   layoutKind: 'dashboard',
   touchPanelId: null,
+  presentationProfileId: null,
   firewallMessage: null,
   streamSafe: true,
   lanEnabled: false,
@@ -111,7 +115,11 @@ const state: StreamingState = {
 }
 
 function isValidLayoutId(value: unknown): value is string {
-  return typeof value === 'string' && /^[a-zA-Z0-9_-]{1,48}$/.test(value)
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
+}
+
+function isValidPresentationProfileId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
 }
 
 function normalizeLayoutKind(value: unknown): StreamingLayoutKind {
@@ -125,21 +133,39 @@ function firstDashboardId(): string | null {
   return manager?.list().find((item) => !item.hidden && isValidLayoutId(item.id))?.id ?? null
 }
 
-function resolveStreamTarget(args: StreamingStartArgs): { kind: StreamingLayoutKind; id: string; touchPanelId: string | null } {
+async function resolveStreamTarget(
+  args: StreamingStartArgs
+): Promise<{ kind: StreamingLayoutKind; id: string; touchPanelId: string | null; presentationProfileId: string | null }> {
+  if (isValidPresentationProfileId(args.presentationProfileId)) {
+    const item = await getStreamPresentationProfileForRuntime(args.presentationProfileId)
+    if (!item) throw new Error(`Stream presentation profile not found: ${args.presentationProfileId}`)
+    if (item.targetState === 'missing') {
+      throw new Error(`Stream presentation target not found: ${item.profile.target.kind}:${item.profile.target.id}`)
+    }
+    if (item.targetState === 'stale') {
+      throw new Error(`Stream presentation target changed: refresh profile ${item.profile.id} before streaming.`)
+    }
+    return {
+      kind: item.profile.target.kind,
+      id: item.profile.target.id,
+      touchPanelId: item.profile.target.kind === 'touch' ? item.profile.target.id : null,
+      presentationProfileId: item.profile.id
+    }
+  }
   const kind = normalizeLayoutKind(args.layoutKind)
   if (kind === 'touch') {
     const requested = isValidLayoutId(args.layoutId) ? args.layoutId : isValidLayoutId(args.touchPanelId) ? args.touchPanelId : null
     if (!requested) throw new Error('Select a valid touch controls panel to stream.')
     const manager = getTouchPanelManager()
     if (!manager?.has(requested)) throw new Error(`Touch controls panel not found: ${requested}`)
-    return { kind, id: requested, touchPanelId: requested }
+    return { kind, id: requested, touchPanelId: requested, presentationProfileId: null }
   }
   const requested = isValidLayoutId(args.layoutId) ? args.layoutId : firstDashboardId()
-  if (!getDashboardManager()) return { kind, id: requested ?? DEFAULT_LAYOUT, touchPanelId: null }
+  if (!getDashboardManager()) return { kind, id: requested ?? DEFAULT_LAYOUT, touchPanelId: null, presentationProfileId: null }
   if (!requested) throw new Error('Select a valid dashboard to stream.')
   const manager = getDashboardManager()
   if (!manager?.getDashboard(requested)) throw new Error(`Dashboard not found: ${requested}`)
-  return { kind, id: requested, touchPanelId: null }
+  return { kind, id: requested, touchPanelId: null, presentationProfileId: null }
 }
 
 function requestedPort(value: unknown): number {
@@ -817,12 +843,35 @@ async function exchangePasswordSession(
   response.end(JSON.stringify({ authenticated: true }))
 }
 
-function serveSelectedDashboard(id: string, request: IncomingMessage, response: ServerResponse): void {
+async function activePresentationProfile(
+  response: ServerResponse
+): Promise<StreamPresentationProfileListItem | null | false> {
+  if (!state.presentationProfileId) return null
+  const item = await getStreamPresentationProfileForRuntime(state.presentationProfileId)
+  if (!item) {
+    send(response, 404, 'Stream presentation profile not found')
+    return false
+  }
+  if (item.targetState !== 'current') {
+    send(
+      response,
+      item.targetState === 'missing' ? 404 : 409,
+      item.targetState === 'missing'
+        ? 'Stream presentation target not found'
+        : 'Stream presentation target changed; refresh the profile before streaming'
+    )
+    return false
+  }
+  return item
+}
+
+async function serveSelectedDashboard(id: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
   if (state.layoutKind !== 'dashboard' || id !== state.layoutId) {
     logger.error('streaming', 'dashboard api rejected non-selected id', { requestedId: id, selectedId: state.layoutId, layoutKind: state.layoutKind })
     send(response, 404, 'Not found')
     return
   }
+  if (await activePresentationProfile(response) === false) return
   const dashboard = getDashboardManager()?.getDashboard(id)
   if (!dashboard) {
     logger.error('streaming', 'dashboard api selected id missing', { id })
@@ -839,12 +888,13 @@ function serveSelectedDashboard(id: string, request: IncomingMessage, response: 
   sendJson(response, payload, request.method)
 }
 
-function serveSelectedTouchPanel(id: string, request: IncomingMessage, response: ServerResponse): void {
+async function serveSelectedTouchPanel(id: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
   if (state.layoutKind !== 'touch' || id !== state.layoutId) {
     logger.error('streaming', 'touch api rejected non-selected id', { requestedId: id, selectedId: state.layoutId, layoutKind: state.layoutKind })
     send(response, 404, 'Not found')
     return
   }
+  if (await activePresentationProfile(response) === false) return
   const panel = getTouchPanelManager()?.getPanel(id)
   if (!panel) {
     logger.error('streaming', 'touch api selected id missing', { id })
@@ -852,6 +902,20 @@ function serveSelectedTouchPanel(id: string, request: IncomingMessage, response:
     return
   }
   sendJson(response, panel, request.method)
+}
+
+async function serveSelectedPresentationProfile(
+  id: string,
+  request: IncomingMessage,
+  response: ServerResponse
+): Promise<void> {
+  if (!state.presentationProfileId || id !== state.presentationProfileId) {
+    send(response, 404, 'Not found')
+    return
+  }
+  const item = await activePresentationProfile(response)
+  if (!item) return
+  sendJson(response, item.profile, request.method)
 }
 
 function maskName(name: string | undefined, index: number): string {
@@ -1002,6 +1066,7 @@ function dashboardUrl(origin?: string | null): string | null {
   url.searchParams.set('kind', state.layoutKind)
   if (state.layoutKind === 'touch') url.searchParams.set('panel', state.layoutId)
   else url.searchParams.set('dash', state.layoutId)
+  if (state.presentationProfileId) url.searchParams.set('profile', state.presentationProfileId)
   // Password is intentionally NOT embedded in the shareable URL/QR.
   // The stream page will prompt the user to enter it separately.
   return url.toString()
@@ -1084,7 +1149,8 @@ async function status(): Promise<StreamingStatus> {
     autoTunnelAvailable: resolveCloudflaredBinary() !== null,
     autoTunnelEnabled: state.autoTunnelEnabled,
     autoTunnelRunning: state.autoTunnelProcess !== null && state.autoTunnelUrl !== null,
-    autoTunnelMessage: state.autoTunnelMessage
+    autoTunnelMessage: state.autoTunnelMessage,
+    presentationProfileId: state.presentationProfileId
   }
 }
 
@@ -1690,7 +1756,12 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
       return
     }
 
-    if (pathname.startsWith('/assets/') || pathname.startsWith('/api/dashboard/') || pathname.startsWith('/api/touch/panel/')) {
+    if (
+      pathname.startsWith('/assets/') ||
+      pathname.startsWith('/api/dashboard/') ||
+      pathname.startsWith('/api/touch/panel/') ||
+      pathname.startsWith('/api/presentation/')
+    ) {
       if (!activeSession) {
         send(response, 403, 'Forbidden')
         return
@@ -1702,7 +1773,7 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
           send(response, 404, 'Not found')
           return
         }
-        serveSelectedDashboard(id, request, response)
+        await serveSelectedDashboard(id, request, response)
         return
       }
       if (pathname.startsWith('/api/touch/panel/')) {
@@ -1712,7 +1783,16 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
           send(response, 404, 'Not found')
           return
         }
-        serveSelectedTouchPanel(id, request, response)
+        await serveSelectedTouchPanel(id, request, response)
+        return
+      }
+      if (pathname.startsWith('/api/presentation/')) {
+        const id = decodeURIComponent(pathname.slice('/api/presentation/'.length))
+        if (!isValidPresentationProfileId(id)) {
+          send(response, 404, 'Not found')
+          return
+        }
+        await serveSelectedPresentationProfile(id, request, response)
         return
       }
       serveStatic(pathname, request, response)
@@ -1752,6 +1832,7 @@ async function stop(): Promise<StreamingStatus> {
   state.passwordPlaintext = null
   state.layoutKind = 'dashboard'
   state.layoutId = DEFAULT_LAYOUT
+  state.presentationProfileId = null
   state.lanEnabled = false
   state.accessMode = 'local'
   state.lanAddress = null
@@ -1897,10 +1978,11 @@ async function removeWindowsFirewallRule(port: number): Promise<void> {
 
 async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise<StreamingStartResult> {
   if (state.server || state.autoTunnelProcess) await stop()
-  const target = resolveStreamTarget(args)
+  const target = await resolveStreamTarget(args)
   state.layoutId = target.id
   state.layoutKind = target.kind
   state.touchPanelId = target.touchPanelId
+  state.presentationProfileId = target.presentationProfileId
   state.streamSafe = args.streamSafe ?? true
   state.token = generateToken()
   state.accessMode = args.accessMode === 'internet' || args.accessMode === 'lan'
@@ -1959,7 +2041,8 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
     requestedPort: listenPort,
     mode: state.accessMode,
     layoutId: state.layoutId,
-    layoutKind: state.layoutKind
+    layoutKind: state.layoutKind,
+    presentationProfileId: state.presentationProfileId
   })
   try {
     await new Promise<void>((resolveListen, rejectListen) => {
@@ -2033,7 +2116,8 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
     autoTunnelAvailable: resolveCloudflaredBinary() !== null,
     autoTunnelEnabled: state.autoTunnelEnabled,
     autoTunnelRunning: state.autoTunnelProcess !== null && state.autoTunnelUrl !== null,
-    autoTunnelMessage: state.autoTunnelMessage
+    autoTunnelMessage: state.autoTunnelMessage,
+    presentationProfileId: state.presentationProfileId
   }
 }
 

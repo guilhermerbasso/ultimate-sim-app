@@ -35,6 +35,7 @@ const SoundsView = lazy(() => import('./SoundsView'))
 const TelemetryView = lazy(() => import('./TelemetryView'))
 const TireStrategyView = lazy(() => import('./TireStrategyView'))
 const TouchControlsView = lazy(() => import('./TouchControlsView'))
+const StreamingMobileEditorView = lazy(() => import('./StreamingMobileEditorView'))
 
 type ViewComponent = LazyExoticComponent<ComponentType<AppViewProps>>
 export interface ViewDef {
@@ -53,6 +54,7 @@ export const viewRegistry: ViewDef[] = [
   { id: 'telemetry', group: 'Sim Racing', label: 'Telemetry', eyebrow: 'Sim', description: 'Live telemetry source and overview.', shortcut: 'T1', Component: TelemetryView },
   { id: 'dashboards', group: 'Sim Racing', label: 'Dashboards', eyebrow: 'Monitor', description: 'Windows on displays 1/2, .simhubdash import, and basic builder.', shortcut: 'T0', Component: DashboardsView },
   { id: 'touch-controls', group: 'Sim Racing', label: 'Touch Controls Dash', eyebrow: 'Cockpit', description: 'Touch pit panel and editable RGB button boxes for the cockpit screen.', shortcut: 'TT', Component: TouchControlsView },
+  { id: 'streaming-mobile-editor', group: 'Streaming', label: 'Mobile Stream Editor', eyebrow: 'Device preview', description: 'Non-destructive phone and tablet presentation profiles for saved dashboards and Touch Controls.', shortcut: 'TO', Component: StreamingMobileEditorView },
   { id: 'oled-dash', group: 'Sim Racing', label: 'OLED Dashboard', eyebrow: 'Display', description: 'iRacing information presets on the OLED.', shortcut: 'T2', Component: OledDashboardView },
   { id: 'overlays', group: 'Sim Racing', label: 'Overlays', eyebrow: 'Screen', description: 'Transparent overlays over the game.', shortcut: 'T3', Component: OverlaysView },
   { id: 'fuel', group: 'Sim Racing', label: 'Fuel', eyebrow: 'Strategy', description: 'Fuel calculation and strategy.', shortcut: 'T4', Component: FuelStrategyView },
