@@ -28,6 +28,7 @@ describe('PiperVoiceRepairCoordinator', () => {
 
     const first = coordinator.ensure('voice-a')
     const second = coordinator.ensure('voice-a')
+    await Promise.resolve()
     expect(install).toHaveBeenCalledTimes(1)
     pending.resolve({
       ok: true,

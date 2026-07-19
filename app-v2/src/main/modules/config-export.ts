@@ -31,6 +31,7 @@ import {
   importAccessibilityCueConfig,
   resetAccessibilityCueConfig
 } from './accessibility-cues'
+import { validateAccessibilityCueStoreImport } from '../../shared/accessibility-cues'
 
 export const FULL_IMPORT_DISABLED = 'FULL_IMPORT_DISABLED' as const
 
@@ -320,12 +321,38 @@ function assertSectionDistributionAllowed(sectionId: string, data: unknown): voi
 }
 
 function prepareSectionData(sectionId: string, data: unknown): PreparedSectionData {
+  if (sectionId === 'accessibility-cues') {
+    return { data: validateAccessibilityCueStoreImport(data) }
+  }
   if (sectionId !== 'rgb-matrix') return { data }
   const parsed = parseRgbMatrixProfilesPayload(data)
   return {
     data: parsed.payload,
     detail: { itemCount: parsed.profileCount }
   }
+}
+
+function validateAccessibilityImportContainer(payload: unknown): unknown {
+  if (isConfigSectionExport(payload)) {
+    if (payload.sectionId !== 'accessibility-cues') return payload
+    return {
+      ...payload,
+      data: validateAccessibilityCueStoreImport(payload.data)
+    }
+  }
+  if (isConfigBundle(payload)) {
+    if (!('accessibility-cues' in payload.sections)) return payload
+    return {
+      ...payload,
+      sections: {
+        ...payload.sections,
+        'accessibility-cues': validateAccessibilityCueStoreImport(
+          payload.sections['accessibility-cues']
+        )
+      }
+    }
+  }
+  return validateAccessibilityCueStoreImport(payload)
 }
 
 export function buildRegistry(storage: ConfigStorage): Record<string, SectionAccessor> {
@@ -733,12 +760,16 @@ export function register(ctx: ModuleContext): void {
       const result = await showOpen(importDialogOpts())
       if (result.canceled || result.filePaths.length === 0) return { canceled: true }
       const raw = await readImportPayload(result.filePaths[0])
+      const validated =
+        sectionId === 'accessibility-cues'
+          ? validateAccessibilityImportContainer(raw)
+          : raw
       const summary =
         sectionId === 'accessibility-cues'
           ? await importAccessibilityCueConfig(() =>
-              engine.importSection(sectionId, raw)
+              engine.importSection(sectionId, validated)
             )
-          : await engine.importSection(sectionId, raw)
+          : await engine.importSection(sectionId, validated)
       await emitReload(summary)
       ctx.broadcast(CONFIG_IO_CHANNELS.imported, summary)
       return { canceled: false, summary }

@@ -9,7 +9,9 @@ export class PiperVoiceRepairCoordinator {
 
   constructor(
     private readonly health: PiperEngineHealth,
-    private readonly isInstalled: (voiceId: string) => boolean,
+    private readonly isInstalled: (
+      voiceId: string
+    ) => boolean | Promise<boolean>,
     private readonly install: (
       voiceId: string
     ) => Promise<EnsureVoiceResult>
@@ -18,25 +20,23 @@ export class PiperVoiceRepairCoordinator {
   ensure(voiceId: string): Promise<EnsureVoiceResult> {
     const existing = this.inflight.get(voiceId)
     if (existing) return existing
-    if (
-      this.isInstalled(voiceId) &&
-      !this.health.needsRepair(voiceId)
-    ) {
-      return Promise.resolve({
-        ok: true,
-        voiceId,
-        installed: true
-      })
-    }
-
-    const repair = this.install(voiceId)
-      .then((result) => {
-        if (result.ok && result.installed) {
-          this.health.resetVoice(voiceId)
+    const repair = (async () => {
+      if (
+        await this.isInstalled(voiceId) &&
+        !this.health.needsRepair(voiceId)
+      ) {
+        return {
+          ok: true,
+          voiceId,
+          installed: true
         }
-        return result
-      })
-      .finally(() => {
+      }
+      const result = await this.install(voiceId)
+      if (result.ok && result.installed) {
+        this.health.resetVoice(voiceId)
+      }
+      return result
+    })().finally(() => {
         this.inflight.delete(voiceId)
       })
     this.inflight.set(voiceId, repair)

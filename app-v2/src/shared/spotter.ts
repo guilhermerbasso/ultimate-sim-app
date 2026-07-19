@@ -311,6 +311,9 @@ export interface PiperVoiceInfo {
   lang: 'pt-BR' | 'en-US'
   quality: 'low' | 'medium' | 'high'
   installed: boolean
+  downloadSupported: boolean
+  repairSupported: boolean
+  unavailableReason: string | null
   /** Approx size of the extracted `model.onnx` — drives the post-extract size-verify gate. */
   onnxBytes?: number
   /** Approx size of the downloaded `.tar.bz2` sherpa bundle — drives the download progress bar. */
@@ -332,16 +335,30 @@ export interface PiperVoiceInfo {
 // `bundleBytes` are the real GitHub-release `content-length` of each `.tar.bz2`
 // (verified via curl -sIL) → the download progress total. `onnxBytes` are the
 // extracted `model.onnx` size → the 90% size-verify gate after extraction.
-export const PIPER_VOICE_CATALOG: PiperVoiceInfo[] = [
-  { id: 'pt_BR-faber-medium',    name: 'Faber (pt-BR)',    lang: 'pt-BR', quality: 'medium', installed: false, onnxBytes: 63_201_294, bundleBytes: 67_209_996 },
-  { id: 'pt_BR-cadu-medium',     name: 'Cadu (pt-BR)',     lang: 'pt-BR', quality: 'medium', installed: false, onnxBytes: 62_946_444, bundleBytes: 67_229_060 },
-  { id: 'pt_BR-jeff-medium',     name: 'Jeff (pt-BR)',     lang: 'pt-BR', quality: 'medium', installed: false, onnxBytes: 62_950_044, bundleBytes: 67_230_851 },
-  { id: 'pt_BR-edresson-low',    name: 'Edresson (pt-BR)', lang: 'pt-BR', quality: 'low',    installed: false, onnxBytes: 63_104_660, bundleBytes: 67_103_760 },
-  { id: 'en_US-lessac-medium',   name: 'Lessac (en-US)',   lang: 'en-US', quality: 'medium', installed: false, onnxBytes: 63_201_425, bundleBytes: 67_230_653 },
-  { id: 'en_US-amy-medium',      name: 'Amy (en-US)',      lang: 'en-US', quality: 'medium', installed: false, onnxBytes: 63_201_425, bundleBytes: 67_223_746 },
-  { id: 'en_US-amy-low',         name: 'Amy (en-US, leve)', lang: 'en-US', quality: 'low',   installed: false, onnxBytes: 63_104_657, bundleBytes: 67_095_344 },
-  { id: 'en_US-ryan-medium',     name: 'Ryan (en-US)',     lang: 'en-US', quality: 'medium', installed: false, onnxBytes: 63_201_425, bundleBytes: 67_213_100 }
+const PIPER_VOICE_CATALOG_SEEDS: Array<
+  Omit<
+    PiperVoiceInfo,
+    'installed' | 'downloadSupported' | 'repairSupported' | 'unavailableReason'
+  >
+> = [
+  { id: 'pt_BR-faber-medium', name: 'Faber (pt-BR)', lang: 'pt-BR', quality: 'medium', onnxBytes: 63_201_294, bundleBytes: 67_209_996 },
+  { id: 'pt_BR-cadu-medium', name: 'Cadu (pt-BR)', lang: 'pt-BR', quality: 'medium', onnxBytes: 62_946_444, bundleBytes: 67_229_060 },
+  { id: 'pt_BR-jeff-medium', name: 'Jeff (pt-BR)', lang: 'pt-BR', quality: 'medium', onnxBytes: 62_950_044, bundleBytes: 67_230_851 },
+  { id: 'pt_BR-edresson-low', name: 'Edresson (pt-BR)', lang: 'pt-BR', quality: 'low', onnxBytes: 63_104_660, bundleBytes: 67_103_760 },
+  { id: 'en_US-lessac-medium', name: 'Lessac (en-US)', lang: 'en-US', quality: 'medium', onnxBytes: 63_201_425, bundleBytes: 67_230_653 },
+  { id: 'en_US-amy-medium', name: 'Amy (en-US)', lang: 'en-US', quality: 'medium', onnxBytes: 63_201_425, bundleBytes: 67_223_746 },
+  { id: 'en_US-amy-low', name: 'Amy (en-US, leve)', lang: 'en-US', quality: 'low', onnxBytes: 63_104_657, bundleBytes: 67_095_344 },
+  { id: 'en_US-ryan-medium', name: 'Ryan (en-US)', lang: 'en-US', quality: 'medium', onnxBytes: 63_201_425, bundleBytes: 67_213_100 }
 ]
+
+export const PIPER_VOICE_CATALOG: PiperVoiceInfo[] =
+  PIPER_VOICE_CATALOG_SEEDS.map((voice) => ({
+    ...voice,
+    installed: false,
+    downloadSupported: false,
+    repairSupported: false,
+    unavailableReason: 'Runtime trust status has not been loaded.'
+  }))
 
 // sherpa-onnx hosts ready-made TTS voice bundles on its GitHub releases under the
 // `tts-models` tag. Each `vits-piper-<id>.tar.bz2` contains `<id>.onnx`,

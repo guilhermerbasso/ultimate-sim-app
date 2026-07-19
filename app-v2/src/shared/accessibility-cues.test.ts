@@ -20,6 +20,7 @@ import {
   semanticCueEventFromAlert,
   serializeAccessibilityCueStore,
   upsertCueProfile,
+  validateAccessibilityCueStoreImport,
   type CueCapabilities,
   type CueProfile,
   type CueSource,
@@ -360,6 +361,50 @@ describe('boundaries, hardware availability, and semantic payloads', () => {
 })
 
 describe('versioned profile persistence and migration', () => {
+  it.each([
+    {},
+    {
+      version: 2,
+      activeProfileId: 'standard',
+      profiles: [],
+      unknown: true
+    },
+    {
+      version: 2,
+      activeProfileId: 'standard',
+      profiles: [{ version: 2, id: 'standard', modalities: {} }]
+    }
+  ])('rejects malformed strict imports without normalizing defaults', (value) => {
+    expect(() => validateAccessibilityCueStoreImport(value)).toThrow(
+      /Invalid accessibility cue import/
+    )
+  })
+
+  it('strictly accepts and migrates a valid v1 import', () => {
+    const restored = validateAccessibilityCueStoreImport({
+      version: 1,
+      activeProfileId: 'standard',
+      profiles: [
+        {
+          ...STANDARD_CUE_PROFILE,
+          version: 1,
+          modalities: {
+            caption: false,
+            audio: true,
+            symbol: true,
+            led: false,
+            haptic: false
+          }
+        }
+      ]
+    })
+
+    expect(getActiveCueProfile(restored).modalities).toMatchObject({
+      caption: 'off',
+      audio: 'on'
+    })
+  })
+
   it('round-trips revisions, active profile, and overrides', () => {
     const customized = upsertCueProfile(
       DEFAULT_ACCESSIBILITY_CUE_STORE,

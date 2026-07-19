@@ -781,6 +781,251 @@ export function normalizeAccessibilityCueStore(value: unknown): AccessibilityCue
   }
 }
 
+function accessibilityImportError(path: string, message: string): Error {
+  return Object.assign(
+    new Error(`Invalid accessibility cue import at ${path}: ${message}`),
+    { code: 'ACCESSIBILITY_CUE_INVALID_IMPORT', path }
+  )
+}
+
+function assertImportKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  path: string
+): void {
+  const allowedKeys = new Set(allowed)
+  const unknown = Object.keys(value).find((key) => !allowedKeys.has(key))
+  if (unknown) {
+    throw accessibilityImportError(path, `unknown field "${unknown}".`)
+  }
+}
+
+function assertImportNumber(
+  value: unknown,
+  min: number,
+  max: number,
+  path: string
+): void {
+  if (
+    typeof value !== 'number' ||
+    !Number.isFinite(value) ||
+    value < min ||
+    value > max
+  ) {
+    throw accessibilityImportError(
+      path,
+      `expected a number from ${min} to ${max}.`
+    )
+  }
+}
+
+function validateImportedProfile(
+  value: unknown,
+  index: number
+): Record<string, unknown> {
+  const path = `profiles[${index}]`
+  if (!isRecord(value)) {
+    throw accessibilityImportError(path, 'expected an object.')
+  }
+  assertImportKeys(
+    value,
+    [
+      'version',
+      'id',
+      'kind',
+      'name',
+      'modalities',
+      'textScale',
+      'highContrast',
+      'spatialAudio',
+      'persistentCaptions',
+      'captionDurationMs',
+      'reducedMotion',
+      'hapticIntensity',
+      'overrides',
+      'updatedAt'
+    ],
+    path
+  )
+  if (value.version !== 1 && value.version !== 2) {
+    throw accessibilityImportError(`${path}.version`, 'expected version 1 or 2.')
+  }
+  if (
+    typeof value.id !== 'string' ||
+    !normalizeProfileId(value.id, '')
+  ) {
+    throw accessibilityImportError(`${path}.id`, 'expected a valid profile id.')
+  }
+  if (value.kind !== undefined && !isCueProfileKind(value.kind)) {
+    throw accessibilityImportError(`${path}.kind`, 'unknown profile kind.')
+  }
+  if (value.name !== undefined && typeof value.name !== 'string') {
+    throw accessibilityImportError(`${path}.name`, 'expected text.')
+  }
+  if (!isRecord(value.modalities)) {
+    throw accessibilityImportError(`${path}.modalities`, 'expected an object.')
+  }
+  assertImportKeys(value.modalities, CUE_MODALITIES, `${path}.modalities`)
+  for (const modality of CUE_MODALITIES) {
+    const policy = value.modalities[modality]
+    if (
+      !isCueModalityPolicy(policy) &&
+      typeof policy !== 'boolean'
+    ) {
+      throw accessibilityImportError(
+        `${path}.modalities.${modality}`,
+        'expected inherit/on/off or a legacy boolean.'
+      )
+    }
+  }
+  if (value.textScale !== undefined) {
+    assertImportNumber(value.textScale, 0.8, 2, `${path}.textScale`)
+  }
+  for (const key of [
+    'highContrast',
+    'spatialAudio',
+    'persistentCaptions',
+    'reducedMotion'
+  ] as const) {
+    if (value[key] !== undefined && typeof value[key] !== 'boolean') {
+      throw accessibilityImportError(`${path}.${key}`, 'expected a boolean.')
+    }
+  }
+  if (value.captionDurationMs !== undefined) {
+    assertImportNumber(
+      value.captionDurationMs,
+      2_000,
+      30_000,
+      `${path}.captionDurationMs`
+    )
+  }
+  if (value.hapticIntensity !== undefined) {
+    assertImportNumber(
+      value.hapticIntensity,
+      0,
+      1,
+      `${path}.hapticIntensity`
+    )
+  }
+  if (value.updatedAt !== undefined) {
+    assertImportNumber(
+      value.updatedAt,
+      0,
+      Number.MAX_SAFE_INTEGER,
+      `${path}.updatedAt`
+    )
+  }
+  if (value.overrides !== undefined) {
+    if (!isRecord(value.overrides)) {
+      throw accessibilityImportError(`${path}.overrides`, 'expected an object.')
+    }
+    for (const [eventId, override] of Object.entries(value.overrides)) {
+      if (!getCueManifest(eventId)) {
+        throw accessibilityImportError(
+          `${path}.overrides.${eventId}`,
+          'unknown cue event.'
+        )
+      }
+      if (!isRecord(override)) {
+        throw accessibilityImportError(
+          `${path}.overrides.${eventId}`,
+          'expected an object.'
+        )
+      }
+      assertImportKeys(
+        override,
+        ['modalities'],
+        `${path}.overrides.${eventId}`
+      )
+      if (!isRecord(override.modalities)) {
+        throw accessibilityImportError(
+          `${path}.overrides.${eventId}.modalities`,
+          'expected an object.'
+        )
+      }
+      assertImportKeys(
+        override.modalities,
+        CUE_MODALITIES,
+        `${path}.overrides.${eventId}.modalities`
+      )
+      for (const [modality, enabled] of Object.entries(
+        override.modalities
+      )) {
+        if (typeof enabled !== 'boolean') {
+          throw accessibilityImportError(
+            `${path}.overrides.${eventId}.modalities.${modality}`,
+            'expected a boolean.'
+          )
+        }
+      }
+    }
+  }
+  return value
+}
+
+export function validateAccessibilityCueStoreImport(
+  value: unknown
+): AccessibilityCueStore {
+  if (!isRecord(value)) {
+    throw accessibilityImportError('store', 'expected an object.')
+  }
+  assertImportKeys(
+    value,
+    ['version', 'revision', 'activeProfileId', 'profiles', 'updatedAt'],
+    'store'
+  )
+  if (value.version !== 1 && value.version !== 2) {
+    throw accessibilityImportError('store.version', 'expected version 1 or 2.')
+  }
+  if (
+    typeof value.activeProfileId !== 'string' ||
+    !normalizeProfileId(value.activeProfileId, '')
+  ) {
+    throw accessibilityImportError(
+      'store.activeProfileId',
+      'expected a valid profile id.'
+    )
+  }
+  if (!Array.isArray(value.profiles) || value.profiles.length === 0) {
+    throw accessibilityImportError(
+      'store.profiles',
+      'expected at least one profile.'
+    )
+  }
+  if (value.revision !== undefined) {
+    assertImportNumber(
+      value.revision,
+      0,
+      Number.MAX_SAFE_INTEGER,
+      'store.revision'
+    )
+  }
+  if (value.updatedAt !== undefined) {
+    assertImportNumber(
+      value.updatedAt,
+      0,
+      Number.MAX_SAFE_INTEGER,
+      'store.updatedAt'
+    )
+  }
+  const profiles = value.profiles.map(validateImportedProfile)
+  const ids = profiles.map((profile) => normalizeProfileId(profile.id, ''))
+  if (new Set(ids).size !== ids.length) {
+    throw accessibilityImportError('store.profiles', 'duplicate profile ids.')
+  }
+  const knownIds = new Set([
+    ...BUILTIN_CUE_PROFILES.map((profile) => profile.id),
+    ...ids
+  ])
+  if (!knownIds.has(value.activeProfileId)) {
+    throw accessibilityImportError(
+      'store.activeProfileId',
+      'profile does not exist.'
+    )
+  }
+  return normalizeAccessibilityCueStore(value)
+}
+
 export function parseAccessibilityCueStore(text: string): AccessibilityCueStore {
   try {
     return normalizeAccessibilityCueStore(JSON.parse(text) as unknown)

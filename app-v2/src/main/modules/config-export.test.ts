@@ -67,6 +67,7 @@ import type { ModuleContext } from '../module-context'
 import { RgbMatrixModule } from './rgb-matrix'
 import { parseRgbMatrixProfilesPayload } from './rgb-matrix-profile-store'
 import { normalizeThirdPartyImportMetadata } from '../../shared/third-party-dashboard-catalog'
+import { DEFAULT_ACCESSIBILITY_CUE_STORE } from '../../shared/accessibility-cues'
 
 const SEEDED_RGB_PAYLOAD = parseRgbMatrixProfilesPayload({
   version: RGB_MATRIX_PROFILE_VERSION,
@@ -314,6 +315,29 @@ describe('section registry round-trip (export -> import)', () => {
 // fresh `createConfigEngine` over the SAME storage models the live module
 // re-reading its file after the import-reload signal fires.
 describe('import hot-apply round-trip (a fresh read returns the imported data, not stale)', () => {
+  it.each([
+    {},
+    { version: 2, activeProfileId: 'standard', profiles: [], unknown: true },
+    {
+      version: 2,
+      activeProfileId: 'standard',
+      profiles: [{ version: 2, id: 'standard', modalities: {} }]
+    }
+  ])('rejects invalid accessibility data atomically before storage write', async (invalid) => {
+    const storage = createMemoryStorage({
+      'accessibility-cues.json': DEFAULT_ACCESSIBILITY_CUE_STORE
+    })
+    const engine = createConfigEngine(storage)
+    const before = await engine.exportSection('accessibility-cues')
+
+    await expect(
+      engine.importSection('accessibility-cues', invalid)
+    ).rejects.toThrow(/Invalid accessibility cue import/)
+    const after = await engine.exportSection('accessibility-cues')
+
+    expect(after.data).toEqual(before.data)
+  })
+
   it('file section: a fresh read after importSection returns the imported FULL payload object, not the stale one', async () => {
     // Destination already holds STALE rgb-matrix data on disk.
     const stalePayload = parseRgbMatrixProfilesPayload({
