@@ -14,6 +14,7 @@ import type {
   StreamingAccessMode,
   StreamingDashboardPayload,
   StreamingLayoutKind,
+  StreamingProfile,
   StreamingSelfTestResult,
   StreamingStartArgs,
   StreamingStartResult,
@@ -165,6 +166,7 @@ interface ReceiverPairing {
 }
 
 interface StreamingState {
+  profile: StreamingProfile
   server: Server | null
   stopping: boolean
   port: number | null
@@ -190,7 +192,8 @@ interface StreamingState {
   autoTunnelUrl: string | null
   autoTunnelCandidateUrl: string | null
   autoTunnelMessage: string | null
-  bindAddress: string | null
+  bindAddress: '127.0.0.1' | '0.0.0.0' | null
+  portMode: 'ephemeral' | 'explicit' | null
   receiverGateway: ReceiverV2Gateway | null
   receiverPairing: ReceiverPairing | null
   webSocketServer: WebSocketServer | null
@@ -206,6 +209,7 @@ interface StreamingState {
 }
 
 const state: StreamingState = {
+  profile: 'general',
   server: null,
   stopping: false,
   port: null,
@@ -243,12 +247,53 @@ const state: StreamingState = {
   sessionCleanupPromises: new Set(),
   interactionHealth: 'read-only',
   lastInteractionFeedback: null,
-  nextClientId: 1
+  nextClientId: 1,
+  portMode: null
 }
 
 let autoTunnelSupervisor: CloudflaredTunnelSupervisor | null = null
 let qrRefreshGeneration = 0
-let stopPromise: Promise<StreamingStatus> | null = null
+
+class StreamingStartCancelledError extends Error {
+  constructor() {
+    super('Streaming startup was cancelled.')
+    this.name = 'StreamingStartCancelledError'
+  }
+}
+
+interface StreamingStartOperation {
+  profile: StreamingProfile
+  cancelled: boolean
+  cancelListen: (() => void) | null
+}
+
+interface StreamingStopOperation {
+  expectedProfile: StreamingProfile | null
+  promise: Promise<StreamingStatus>
+}
+
+let lifecycleTail: Promise<void> = Promise.resolve()
+let startOperation: StreamingStartOperation | null = null
+let startPromise: Promise<StreamingStartResult> | null = null
+let stopOperation: StreamingStopOperation | null = null
+
+function enqueueLifecycle<T>(task: () => Promise<T>): Promise<T> {
+  const result = lifecycleTail.then(task, task)
+  lifecycleTail = result.then(
+    () => undefined,
+    () => undefined
+  )
+  return result
+}
+
+function cancelStart(operation: StreamingStartOperation): void {
+  operation.cancelled = true
+  operation.cancelListen?.()
+}
+
+function throwIfStartCancelled(operation: StreamingStartOperation): void {
+  if (operation.cancelled) throw new StreamingStartCancelledError()
+}
 
 function isValidLayoutId(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
@@ -310,7 +355,23 @@ function requestedPort(value: unknown): number {
   return value
 }
 
-export function streamingListenHost(accessMode: StreamingAccessMode, autoTunnel: boolean, hasManualFallback = false): string {
+function resolvedListenPort(value: unknown, profile: StreamingProfile): { port: number; mode: 'ephemeral' | 'explicit' } {
+  if (profile !== 'obs-local') {
+    const port = requestedPort(value)
+    return { port, mode: port === 0 ? 'ephemeral' : 'explicit' }
+  }
+  if (value === undefined) return { port: 0, mode: 'ephemeral' }
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 65535) {
+    throw new Error('OBS Browser Source port override must be an integer from 1 to 65535.')
+  }
+  return { port: value, mode: 'explicit' }
+}
+
+export function streamingListenHost(
+  accessMode: StreamingAccessMode,
+  autoTunnel: boolean,
+  hasManualFallback = false
+): typeof HOST | typeof LAN_HOST {
   if (accessMode === 'local' || (accessMode === 'internet' && autoTunnel && !hasManualFallback)) return HOST
   return LAN_HOST
 }
@@ -2898,11 +2959,12 @@ async function refreshQrCodes(): Promise<void> {
   state.touchQrSourceUrl = touchUrl
 }
 
-async function status(): Promise<StreamingStatus> {
-  if (state.server) await refreshQrCodes()
+export async function status(refreshCodes = true): Promise<StreamingStatus> {
+  if (state.server && refreshCodes) await refreshQrCodes()
   const url = dashboardUrl()
   const touchUrl = touchControlsUrl()
   return {
+    profile: state.profile,
     running: state.server !== null,
     url,
     lanUrl: advertisedLanUrl(),
@@ -2935,6 +2997,10 @@ async function status(): Promise<StreamingStatus> {
     autoTunnelEnabled: state.autoTunnelEnabled,
     autoTunnelRunning: autoTunnelSupervisor?.snapshot.phase === 'online' && state.autoTunnelUrl !== null,
     autoTunnelMessage: state.autoTunnelMessage,
+    bindAddress: state.bindAddress,
+    portMode: state.portMode,
+    allowedLayoutIds: state.server ? [state.layoutId] : [],
+    readOnly: true,
     receiverV2: receiverStatus(),
     presentationProfileId: state.presentationProfileId,
     interactive: state.layoutKind === 'touch',
@@ -3940,6 +4006,45 @@ function handleReceiverUpgrade(
   }
 }
 
+function isServerNotRunningError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error &&
+    (error as Error & { code?: string }).code === 'ERR_SERVER_NOT_RUNNING'
+}
+
+function closeHttpServer(server: Server, forceConnections: boolean): Promise<void> {
+  return new Promise((resolveClose, rejectClose) => {
+    if (!server.listening) {
+      if (forceConnections) server.closeAllConnections()
+      resolveClose()
+      return
+    }
+    try {
+      server.close((error) => {
+        if (error && !isServerNotRunningError(error)) rejectClose(error)
+        else resolveClose()
+      })
+      if (forceConnections) server.closeAllConnections()
+    } catch (error) {
+      if (isServerNotRunningError(error)) resolveClose()
+      else rejectClose(error)
+    }
+  })
+}
+
+function closeWebSocketServer(server: WebSocketServer): Promise<void> {
+  return new Promise((resolveClose, rejectClose) => {
+    try {
+      server.close((error) => {
+        if (error && !isServerNotRunningError(error)) rejectClose(error)
+        else resolveClose()
+      })
+    } catch (error) {
+      if (isServerNotRunningError(error)) resolveClose()
+      else rejectClose(error)
+    }
+  })
+}
+
 async function stopStreaming(): Promise<StreamingStatus> {
   const server = state.server
   const receiverGateway = state.receiverGateway
@@ -3949,14 +4054,7 @@ async function stopStreaming(): Promise<StreamingStatus> {
   state.server = null
   state.webSocketServer = null
   receiverGateway?.stop()
-  const serverClosed = server
-    ? new Promise<void>((resolveClose, rejectClose) => {
-        server.close((error) => {
-          if (error) rejectClose(error)
-          else resolveClose()
-        })
-      })
-    : Promise.resolve()
+  const serverClosed = server ? closeHttpServer(server, false) : Promise.resolve()
   const tunnelStopped: Promise<Error | null> = stopAutoTunnelProcess().then(
     () => null as Error | null,
     (error) => {
@@ -3971,6 +4069,7 @@ async function stopStreaming(): Promise<StreamingStatus> {
   closeAllClients()
   server?.closeAllConnections()
   const tunnelCleanupError = await tunnelStopped
+  state.profile = 'general'
   state.port = null
   state.token = null
   state.passwordHash = null
@@ -4001,8 +4100,9 @@ async function stopStreaming(): Promise<StreamingStatus> {
   state.interactionRates.clear()
   state.interactionHealth = 'read-only'
   state.lastInteractionFeedback = null
+  state.portMode = null
   if (webSocketServer) {
-    await new Promise<void>((resolveClose) => webSocketServer.close(() => resolveClose()))
+    await closeWebSocketServer(webSocketServer)
   }
   await serverClosed
   if (server) logger.info('streaming', 'server stopped', {})
@@ -4010,19 +4110,59 @@ async function stopStreaming(): Promise<StreamingStatus> {
   if (tunnelCleanupError) {
     throw new Error(`Streaming stopped locally, but cloudflared cleanup could not be confirmed: ${tunnelCleanupError.message}`)
   }
-  return status()
+  return status(false)
 }
 
-function stop(): Promise<StreamingStatus> {
-  if (stopPromise) return stopPromise
+async function stopStreamingLifecycle(): Promise<StreamingStatus> {
   qrRefreshGeneration += 1
   state.stopping = true
-  let tracked!: Promise<StreamingStatus>
-  tracked = stopStreaming().finally(() => {
-    if (stopPromise === tracked) stopPromise = null
+  try {
+    return await stopStreaming()
+  } finally {
     state.stopping = false
+  }
+}
+
+async function stopForProfile(expectedProfile: StreamingProfile | null): Promise<StreamingStatus> {
+  if (expectedProfile && state.profile !== expectedProfile) return status(false)
+  if (
+    !state.server &&
+    !autoTunnelSupervisor &&
+    state.sessions.size === 0 &&
+    state.sessionCleanupPromises.size === 0 &&
+    state.clients.size === 0
+  ) {
+    return status(false)
+  }
+  return stopStreamingLifecycle()
+}
+
+export function stop(expectedProfile?: StreamingProfile): Promise<StreamingStatus> {
+  const requestedProfile = expectedProfile ?? null
+  if (startOperation && (requestedProfile === null || startOperation.profile === requestedProfile)) {
+    cancelStart(startOperation)
+  }
+  if (stopOperation) {
+    if (
+      requestedProfile === null ||
+      (stopOperation.expectedProfile !== null && stopOperation.expectedProfile !== requestedProfile)
+    ) {
+      stopOperation.expectedProfile = null
+      if (startOperation) cancelStart(startOperation)
+    }
+    return stopOperation.promise
+  }
+
+  const operation = {
+    expectedProfile: requestedProfile,
+    promise: null as unknown as Promise<StreamingStatus>
+  }
+  let tracked!: Promise<StreamingStatus>
+  tracked = enqueueLifecycle(() => stopForProfile(operation.expectedProfile)).finally(() => {
+    if (stopOperation === operation) stopOperation = null
   })
-  stopPromise = tracked
+  operation.promise = tracked
+  stopOperation = operation
   return tracked
 }
 
@@ -4146,10 +4286,141 @@ async function removeWindowsFirewallRule(port: number): Promise<void> {
   logger.info('streaming', 'firewall rule cleanup completed', { port })
 }
 
-async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise<StreamingStartResult> {
-  if (stopPromise) await stopPromise
-  if (state.server || autoTunnelSupervisor || state.sessions.size > 0) await stop()
+function waitForServerListen(
+  server: Server,
+  port: number,
+  host: '127.0.0.1' | '0.0.0.0',
+  operation: StreamingStartOperation
+): Promise<void> {
+  return new Promise((resolveListen, rejectListen) => {
+    let settled = false
+    const abortController = new AbortController()
+    const cleanup = (): void => {
+      server.off('error', onError)
+      server.off('listening', onListening)
+      if (operation.cancelListen === cancel) operation.cancelListen = null
+    }
+    const rejectOnce = (error: Error): void => {
+      if (settled) return
+      settled = true
+      cleanup()
+      rejectListen(error)
+    }
+    const onError = (error: Error): void => {
+      logger.error('streaming', 'server listen failed', {
+        host,
+        requestedPort: port,
+        message: error.message
+      })
+      rejectOnce(error)
+    }
+    const onListening = (): void => {
+      if (operation.cancelled) {
+        rejectOnce(new StreamingStartCancelledError())
+        void closeHttpServer(server, true).catch(() => undefined)
+        return
+      }
+      if (settled) return
+      settled = true
+      cleanup()
+      resolveListen()
+    }
+    function cancel(): void {
+      if (settled) return
+      server.once('error', () => undefined)
+      abortController.abort()
+      rejectOnce(new StreamingStartCancelledError())
+      void closeHttpServer(server, true).catch(() => undefined)
+    }
+
+    operation.cancelListen = cancel
+    if (operation.cancelled) {
+      cancel()
+      return
+    }
+    server.once('error', onError)
+    server.once('listening', onListening)
+    try {
+      server.listen({ port, host, signal: abortController.signal })
+    } catch (error) {
+      onError(error instanceof Error ? error : new Error(String(error)))
+    }
+  })
+}
+
+async function cleanupUnpublishedStart(
+  server: Server,
+  receiverGateway: ReceiverV2Gateway,
+  webSocketServer: WebSocketServer
+): Promise<void> {
+  receiverGateway.stop()
+  await Promise.allSettled([
+    closeWebSocketServer(webSocketServer),
+    closeHttpServer(server, true)
+  ])
+  await stopStreamingLifecycle()
+}
+
+async function startStreaming(
+  ctx: ModuleContext,
+  args: StreamingStartArgs,
+  profile: StreamingProfile,
+  operation: StreamingStartOperation
+): Promise<StreamingStartResult> {
+  throwIfStartCancelled(operation)
+  if (state.server && state.profile !== profile) {
+    const active = state.profile === 'obs-local' ? 'OBS Browser Source feed' : 'general streaming server'
+    const requested = profile === 'obs-local' ? 'OBS Browser Source feed' : 'general streaming server'
+    throw new Error(`Cannot start the ${requested} while the ${active} is running. Stop it first.`)
+  }
+  if (profile === 'obs-local') {
+    if (args.layoutKind === 'touch' || args.touchPanelId) {
+      throw new Error('The OBS Browser Source certification feed supports read-only dashboards only.')
+    }
+    if (args.lanEnabled ||
+        (args.accessMode !== undefined && args.accessMode !== 'local') ||
+        args.publicBaseUrl ||
+        args.autoTunnel ||
+        normalizePassword(args.password) !== null) {
+      throw new Error('The OBS Browser Source certification feed is loopback-only and cannot enable LAN, tunnel, public access, or shared passwords.')
+    }
+  }
   const target = await resolveStreamTarget(args)
+  throwIfStartCancelled(operation)
+  if (state.server || autoTunnelSupervisor || state.sessions.size > 0) {
+    await stopStreamingLifecycle()
+    throwIfStartCancelled(operation)
+  }
+  const listen = resolvedListenPort(args.port, profile)
+  const touchPanel = target.kind === 'touch' ? getTouchPanelManager()?.getPanel(target.id) ?? null : null
+  if (target.kind === 'touch' && !touchPanel) {
+    throw new Error(`Touch controls panel not found: ${target.id}`)
+  }
+  const accessMode: StreamingAccessMode = profile === 'obs-local'
+    ? 'local'
+    : args.accessMode === 'internet' || args.accessMode === 'lan'
+      ? args.accessMode
+      : args.lanEnabled
+        ? 'lan'
+        : 'local'
+  const password = profile === 'obs-local' ? null : normalizePassword(args.password)
+  if (accessMode !== 'local' && !password) {
+    throw new Error('LAN/Internet streaming requires a password in addition to the token.')
+  }
+  const manualPublicBaseUrl = accessMode === 'internet' ? normalizePublicBaseUrl(args.publicBaseUrl) : null
+  let autoTunnelEnabled = accessMode === 'internet' && args.autoTunnel === true
+  let autoTunnelMessage: string | null = null
+  if (accessMode === 'internet' && !manualPublicBaseUrl && !autoTunnelEnabled) {
+    throw new Error('Internet streaming requires a public HTTPS tunnel/base URL or Auto-tunnel.')
+  }
+  const cloudflaredLocation = autoTunnelEnabled ? locateCloudflaredBinary() : null
+  if (autoTunnelEnabled && !cloudflaredLocation?.available) {
+    autoTunnelMessage = cloudflaredLocation?.diagnostic ?? autoTunnelUnavailableMessage()
+    autoTunnelEnabled = false
+    if (!manualPublicBaseUrl) throw new Error(autoTunnelMessage)
+  }
+
+  state.profile = profile
   state.layoutId = target.id
   state.layoutKind = target.kind
   state.touchPanelId = target.touchPanelId
@@ -4157,48 +4428,20 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
   state.touchCapabilities.clear()
   state.interactionRates.clear()
   state.lastInteractionFeedback = null
-  if (target.kind === 'touch') {
-    const panel = getTouchPanelManager()?.getPanel(target.id)
-    if (!panel) throw new Error(`Touch controls panel not found: ${target.id}`)
-    rebuildTouchCapabilities(panel)
+  if (touchPanel) {
+    rebuildTouchCapabilities(touchPanel)
   } else {
     state.interactionHealth = 'read-only'
   }
-  state.streamSafe = args.streamSafe ?? true
+  state.streamSafe = profile === 'obs-local' ? true : args.streamSafe ?? true
   state.token = generateToken()
-  state.accessMode = args.accessMode === 'internet' || args.accessMode === 'lan'
-    ? args.accessMode
-    : args.lanEnabled
-      ? 'lan'
-      : 'local'
-  const password = normalizePassword(args.password)
-  if (state.accessMode !== 'local' && !password) {
-    state.token = null
-    throw new Error('LAN/Internet streaming requires a password in addition to the token.')
-  }
+  state.accessMode = accessMode
   state.passwordPlaintext = password
   state.passwordHash = passwordHash(password ?? undefined)
-  state.manualPublicBaseUrl = state.accessMode === 'internet' ? normalizePublicBaseUrl(args.publicBaseUrl) : null
-  state.publicBaseUrl = state.manualPublicBaseUrl
-  state.autoTunnelEnabled = state.accessMode === 'internet' && args.autoTunnel === true
-  state.autoTunnelMessage = null
-  if (state.accessMode === 'internet' && !state.publicBaseUrl && !state.autoTunnelEnabled) {
-    state.token = null
-    state.passwordPlaintext = null
-    state.passwordHash = null
-    throw new Error('Internet streaming requires a public HTTPS tunnel/base URL or Auto-tunnel.')
-  }
-  const cloudflaredLocation = state.autoTunnelEnabled ? locateCloudflaredBinary() : null
-  if (state.autoTunnelEnabled && !cloudflaredLocation?.available) {
-    state.autoTunnelMessage = cloudflaredLocation?.diagnostic ?? autoTunnelUnavailableMessage()
-    state.autoTunnelEnabled = false
-    if (!state.publicBaseUrl) {
-      state.token = null
-      state.passwordPlaintext = null
-      state.passwordHash = null
-      throw new Error(state.autoTunnelMessage)
-    }
-  }
+  state.manualPublicBaseUrl = manualPublicBaseUrl
+  state.publicBaseUrl = manualPublicBaseUrl
+  state.autoTunnelEnabled = autoTunnelEnabled
+  state.autoTunnelMessage = autoTunnelMessage
   const listenHost = streamingListenHost(state.accessMode, state.autoTunnelEnabled, state.manualPublicBaseUrl !== null)
   state.lanEnabled = listenHost === LAN_HOST
   state.lanAddress = state.lanEnabled ? primaryLanAddress() : null
@@ -4236,11 +4479,9 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
     }
     handleWebSocketUpgrade(ctx, request, socket, head)
   })
-  state.server = server
-  state.receiverGateway = receiverGateway
   state.bindAddress = listenHost
-  state.webSocketServer = webSocketServer
-  const listenPort = requestedPort(args.port)
+  state.portMode = listen.mode
+  const listenPort = listen.port
   logger.info('streaming', 'server starting', {
     host: listenHost,
     requestedPort: listenPort,
@@ -4250,94 +4491,119 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
     presentationProfileId: state.presentationProfileId
   })
   try {
-    await new Promise<void>((resolveListen, rejectListen) => {
-      const onError = (error: Error): void => {
-        logger.error('streaming', 'server listen failed', {
-          host: listenHost,
-          requestedPort: listenPort,
-          message: error instanceof Error ? error.message : String(error)
-        })
-        state.server = null
-        rejectListen(error)
-      }
-      server.once('error', onError)
-      server.listen(listenPort, listenHost, () => {
-        server.off('error', onError)
-        resolveListen()
-      })
-    })
+    await waitForServerListen(server, listenPort, listenHost, operation)
+    throwIfStartCancelled(operation)
   } catch (error) {
-    await stop()
+    await cleanupUnpublishedStart(server, receiverGateway, webSocketServer)
     throw error
   }
-  state.port = (server.address() as AddressInfo).port
-  state.receiverPairing = createReceiverPairing()
-  receiverGateway.start()
-  logger.info('streaming', 'server listening', {
-    host: listenHost,
-    port: state.port,
-    mode: state.accessMode,
-    layoutId: state.layoutId,
-    layoutKind: state.layoutKind,
-    lanAddress: state.lanAddress,
-    lanOrigin: lanOrigin()
-  })
-  if (state.lanEnabled) {
-    state.firewallMessage = await allowWindowsFirewallPort(state.port)
-  }
-  if (state.autoTunnelEnabled) {
-    try {
-      await launchAutoTunnel()
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      state.autoTunnelMessage = message
-      logger.warn('streaming', 'auto-tunnel start failed', {
-        message,
-        manualUrlAvailable: state.manualPublicBaseUrl !== null
-      })
-      state.autoTunnelEnabled = false
-      try {
-        await stopAutoTunnelProcess()
-      } catch (cleanupError) {
-        const cleanupMessage = cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
-        let shutdownMessage = ''
-        try {
-          await stop()
-        } catch (shutdownError) {
-          shutdownMessage = ` ${shutdownError instanceof Error ? shutdownError.message : String(shutdownError)}`
-        }
-        throw new Error(`${message} Cleanup could not be confirmed: ${cleanupMessage}. Manual fallback was not activated.${shutdownMessage}`)
-      }
-      if (!state.manualPublicBaseUrl) {
-        await stop()
-        throw new Error(message)
-      }
+  state.server = server
+  state.receiverGateway = receiverGateway
+  state.webSocketServer = webSocketServer
+  try {
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('Streaming server did not publish a TCP listen address.')
+    state.port = (address as AddressInfo).port
+    state.receiverPairing = createReceiverPairing()
+    receiverGateway.start()
+    throwIfStartCancelled(operation)
+    logger.info('streaming', 'server listening', {
+      host: listenHost,
+      port: state.port,
+      mode: state.accessMode,
+      layoutId: state.layoutId,
+      layoutKind: state.layoutKind,
+      lanAddress: state.lanAddress,
+      lanOrigin: lanOrigin()
+    })
+    if (state.lanEnabled) {
+      state.firewallMessage = await allowWindowsFirewallPort(state.port)
+      throwIfStartCancelled(operation)
     }
+    if (state.autoTunnelEnabled) {
+      try {
+        await launchAutoTunnel()
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        state.autoTunnelMessage = message
+        logger.warn('streaming', 'auto-tunnel start failed', {
+          message,
+          manualUrlAvailable: state.manualPublicBaseUrl !== null
+        })
+        state.autoTunnelEnabled = false
+        try {
+          await stopAutoTunnelProcess()
+        } catch (cleanupError) {
+          const cleanupMessage = cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+          throw new Error(`${message} Cleanup could not be confirmed: ${cleanupMessage}. Manual fallback was not activated.`)
+        }
+        if (!state.manualPublicBaseUrl) throw new Error(message)
+      }
+      throwIfStartCancelled(operation)
+    }
+    await refreshQrCodes()
+    throwIfStartCancelled(operation)
+    return {
+      profile: state.profile,
+      url: dashboardUrl() ?? '',
+      lanUrl: advertisedLanUrl(),
+      touchUrl: touchControlsUrl(),
+      qrDataUrl: state.qrDataUrl,
+      touchQrDataUrl: state.touchQrDataUrl,
+      port: state.port,
+      token: state.token,
+      lanEnabled: state.lanEnabled,
+      accessMode: state.accessMode,
+      lanAddress: state.lanAddress,
+      publicBaseUrl: state.publicBaseUrl,
+      password: state.passwordPlaintext,
+      localTestUrl: localTestUrl(),
+      firewallMessage: state.firewallMessage,
+      warning: warning(),
+      autoTunnelAvailable: resolveCloudflaredBinary() !== null,
+      autoTunnelEnabled: state.autoTunnelEnabled,
+      autoTunnelRunning: autoTunnelSupervisor?.snapshot.phase === 'online' && state.autoTunnelUrl !== null,
+      autoTunnelMessage: state.autoTunnelMessage,
+      bindAddress: state.bindAddress,
+      portMode: state.portMode,
+      allowedLayoutIds: [state.layoutId],
+      readOnly: true,
+      receiverV2: receiverStatus(),
+      presentationProfileId: state.presentationProfileId
+    }
+  } catch (error) {
+    let cleanupError: Error | null = null
+    try {
+      await stopStreamingLifecycle()
+    } catch (reason) {
+      cleanupError = reason instanceof Error ? reason : new Error(String(reason))
+    }
+    if (cleanupError) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(`${message} Streaming cleanup failed: ${cleanupError.message}`)
+    }
+    throw error
   }
-  await refreshQrCodes()
-  return {
-    url: dashboardUrl() ?? '',
-    lanUrl: advertisedLanUrl(),
-    touchUrl: touchControlsUrl(),
-    qrDataUrl: state.qrDataUrl,
-    touchQrDataUrl: state.touchQrDataUrl,
-    port: state.port,
-    token: state.token,
-    lanEnabled: state.lanEnabled,
-    accessMode: state.accessMode,
-    lanAddress: state.lanAddress,
-    publicBaseUrl: state.publicBaseUrl,
-    password: state.passwordPlaintext,
-    localTestUrl: localTestUrl(),
-    firewallMessage: state.firewallMessage,
-    warning: warning(),
-    autoTunnelAvailable: resolveCloudflaredBinary() !== null,
-    autoTunnelEnabled: state.autoTunnelEnabled,
-    autoTunnelRunning: autoTunnelSupervisor?.snapshot.phase === 'online' && state.autoTunnelUrl !== null,
-    autoTunnelMessage: state.autoTunnelMessage,
-    receiverV2: receiverStatus(),
-    presentationProfileId: state.presentationProfileId
+}
+
+export function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise<StreamingStartResult> {
+  const profile: StreamingProfile = args.profile === 'obs-local' ? 'obs-local' : 'general'
+  if (startPromise) {
+    return Promise.reject(new Error('A streaming server startup is already in progress.'))
   }
+  const operation: StreamingStartOperation = {
+    profile,
+    cancelled: false,
+    cancelListen: null
+  }
+  startOperation = operation
+  let tracked!: Promise<StreamingStartResult>
+  tracked = enqueueLifecycle(() => startStreaming(ctx, args, profile, operation)).finally(() => {
+    if (startOperation === operation) startOperation = null
+    if (startPromise === tracked) startPromise = null
+  })
+  startPromise = tracked
+  return tracked
 }
 
 async function startAutoTunnel(): Promise<StreamingStatus> {
@@ -4403,8 +4669,10 @@ async function rotateReceiverPairing(): Promise<StreamingStatus> {
 }
 
 export function register(ctx: ModuleContext): void {
-  ctx.ipcMain.handle(STREAMING_CHANNELS.start, (_event, args?: StreamingStartArgs) => start(ctx, args))
-  ctx.ipcMain.handle(STREAMING_CHANNELS.stop, () => stop())
+  ctx.ipcMain.handle(STREAMING_CHANNELS.start, (_event, args?: StreamingStartArgs) => {
+    return start(ctx, { ...args, profile: 'general' })
+  })
+  ctx.ipcMain.handle(STREAMING_CHANNELS.stop, () => stop('general'))
   ctx.ipcMain.handle(STREAMING_CHANNELS.status, () => status())
   ctx.ipcMain.handle(STREAMING_CHANNELS.selfTest, () => selfTest())
   ctx.ipcMain.handle(STREAMING_CHANNELS.startTunnel, () => startAutoTunnel())
