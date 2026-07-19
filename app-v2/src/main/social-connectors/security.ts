@@ -21,6 +21,9 @@ const DISCORD_BOT_TOKEN =
 const DISCORD_MFA_TOKEN = /^mfa\.[A-Za-z0-9_-]{40,100}$/
 const DISCORD_BOT_HEADER =
   /^bot\s+[A-Za-z0-9_-]{23,30}\.[A-Za-z0-9_-]{6,8}\.[A-Za-z0-9_-]{25,40}$/i
+const MAX_SAFE_SOCIAL_JSON_NODES = 8_192
+const MAX_SAFE_SOCIAL_JSON_CONTAINER_ENTRIES = 4_096
+const MAX_SAFE_SOCIAL_JSON_STRING_LENGTH = 64 * 1024
 
 const PROVIDER_VALUE_PATTERNS: Readonly<Record<SocialProvider, readonly RegExp[]>> = {
   twitch: [TWITCH_OAUTH],
@@ -53,6 +56,10 @@ interface SocialJsonCloneFailure {
 }
 
 type SocialJsonCloneResult = SocialJsonCloneSuccess | SocialJsonCloneFailure
+
+interface SocialJsonCloneBudget {
+  nodes: number
+}
 
 function isForbiddenCredentialKey(key: string): boolean {
   const normalized = key
@@ -131,7 +138,12 @@ export function readSocialDataRecord(value: unknown): Readonly<Record<string, un
     const prototype = Object.getPrototypeOf(value)
     if (prototype !== Object.prototype && prototype !== null) return null
     const keys = Reflect.ownKeys(value)
-    if (keys.some((key) => typeof key !== 'string')) return null
+    if (
+      keys.length > MAX_SAFE_SOCIAL_JSON_CONTAINER_ENTRIES ||
+      keys.some((key) => typeof key !== 'string')
+    ) {
+      return null
+    }
     const descriptors = Object.getOwnPropertyDescriptors(value)
     const record: Record<string, unknown> = Object.create(null)
     for (const key of keys as string[]) {
@@ -148,32 +160,55 @@ export function readSocialDataRecord(value: unknown): Readonly<Record<string, un
 function cloneSafeSocialJsonValue(
   value: unknown,
   seen: Set<object>,
-  depth = 0
+  depth: number,
+  budget: SocialJsonCloneBudget
 ): SocialJsonCloneResult {
-  if (depth > 64) return { ok: false }
+  budget.nodes += 1
+  if (depth > 64 || budget.nodes > MAX_SAFE_SOCIAL_JSON_NODES) return { ok: false }
   if (
     value === null ||
     typeof value === 'boolean' ||
-    typeof value === 'string' ||
     (typeof value === 'number' && Number.isFinite(value))
   ) {
     return { ok: true, value }
+  }
+  if (typeof value === 'string') {
+    return value.length <= MAX_SAFE_SOCIAL_JSON_STRING_LENGTH
+      ? { ok: true, value }
+      : { ok: false }
   }
   if (typeof value !== 'object' || seen.has(value)) return { ok: false }
 
   let prototype: object | null
   let keys: readonly PropertyKey[]
   let descriptors: PropertyDescriptorMap
+  let isArray: boolean
   try {
+    isArray = Array.isArray(value)
     prototype = Object.getPrototypeOf(value)
+    if (isArray) {
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, 'length')
+      const length =
+        lengthDescriptor && 'value' in lengthDescriptor ? lengthDescriptor.value : undefined
+      if (
+        !Number.isSafeInteger(length) ||
+        length < 0 ||
+        length > MAX_SAFE_SOCIAL_JSON_CONTAINER_ENTRIES
+      ) {
+        return { ok: false }
+      }
+    }
     keys = Reflect.ownKeys(value)
+    if (keys.length > MAX_SAFE_SOCIAL_JSON_CONTAINER_ENTRIES + (isArray ? 1 : 0)) {
+      return { ok: false }
+    }
     descriptors = Object.getOwnPropertyDescriptors(value)
   } catch {
     return { ok: false }
   }
 
   seen.add(value)
-  if (Array.isArray(value)) {
+  if (isArray) {
     if (prototype !== Array.prototype || keys.some((key) => typeof key !== 'string')) {
       seen.delete(value)
       return { ok: false }
@@ -208,7 +243,7 @@ function cloneSafeSocialJsonValue(
         seen.delete(value)
         return { ok: false }
       }
-      const cloned = cloneSafeSocialJsonValue(descriptor.value, seen, depth + 1)
+      const cloned = cloneSafeSocialJsonValue(descriptor.value, seen, depth + 1, budget)
       if (!cloned.ok) {
         seen.delete(value)
         return cloned
@@ -233,7 +268,7 @@ function cloneSafeSocialJsonValue(
       seen.delete(value)
       return { ok: false }
     }
-    const cloned = cloneSafeSocialJsonValue(descriptor.value, seen, depth + 1)
+    const cloned = cloneSafeSocialJsonValue(descriptor.value, seen, depth + 1, budget)
     if (!cloned.ok) {
       seen.delete(value)
       return cloned
@@ -247,7 +282,7 @@ function cloneSafeSocialJsonValue(
 export function sanitizeSocialJsonRecord(
   value: unknown
 ): Readonly<Record<string, SocialJsonValue>> | null {
-  const cloned = cloneSafeSocialJsonValue(value, new Set())
+  const cloned = cloneSafeSocialJsonValue(value, new Set(), 0, { nodes: 0 })
   if (!cloned.ok || cloned.value === null || Array.isArray(cloned.value)) return null
   if (typeof cloned.value !== 'object') return null
   return cloned.value as Readonly<Record<string, SocialJsonValue>>

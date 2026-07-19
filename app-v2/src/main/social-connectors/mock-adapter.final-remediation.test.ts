@@ -823,6 +823,26 @@ describe('malformed untrusted adapter inputs', () => {
     ).toMatchObject({ outcome: 'denied', reasonCode: 'validation.malformed_payload' })
   })
 
+  it('rejects oversized dense arrays and records before cloning their contents', () => {
+    const target = connector('twitch')
+    const oversizedArray = Array.from({ length: 4_097 }, () => 'fixture')
+    const oversizedRecord = Object.fromEntries(
+      Array.from({ length: 4_097 }, (_, index) => [`field${index}`, 'fixture'])
+    )
+
+    for (const oversized of [oversizedArray, oversizedRecord]) {
+      expect(
+        target.execute(
+          {
+            ...action('twitch', 'twitch.marker.create', { marker: 'safe' }, 'oversized-json'),
+            payload: { marker: 'safe', oversized }
+          },
+          OPERATOR
+        )
+      ).toMatchObject({ outcome: 'denied', reasonCode: 'validation.malformed_payload' })
+    }
+  })
+
   it('rejects excessively deep payloads before recursive serialization', () => {
     const target = connector('twitch')
     let nested: Record<string, unknown> = { value: 'leaf' }
