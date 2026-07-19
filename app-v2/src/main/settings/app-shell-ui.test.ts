@@ -73,4 +73,21 @@ describe('app settings IPC', () => {
     expect((saved as AppSettings).defaultTelemetrySource).toBe('iracing')
     expect(setSource).toHaveBeenLastCalledWith('iracing')
   })
+
+  it('does not restart telemetry when only stream target profiles change', async () => {
+    const { ctx, handlers, setSource } = createContext(tempDir())
+    register(ctx)
+    setSource.mockClear()
+
+    const handler = handlers.get('app:setSettings')
+    await handler?.({}, {
+      streamTargets: {
+        schemaVersion: 1,
+        profiles: [{ id: 'profile-one', kind: 'dashboard', sourceId: 'dash-one', label: 'OBS' }],
+        selectedProfileId: 'profile-one'
+      }
+    })
+
+    expect(setSource).not.toHaveBeenCalled()
+  })
 })
