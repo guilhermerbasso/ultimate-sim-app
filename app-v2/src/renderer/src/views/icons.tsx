@@ -118,6 +118,13 @@ const iconMap: Record<string, () => ReactElement> = {
       <path d="M9 17v1a2 2 0 0 0 4 0v-1" />
     </Svg>
   ),
+  'story-engine': () => (
+    <Svg>
+      <rect x="3" y="4" width="16" height="14" rx="2" />
+      <path d="M7 8h8M7 11h6M7 14h4" />
+      <path d="M16 13l1 1 2-3" />
+    </Svg>
+  ),
   'context-debt': () => (
     <Svg>
       {/* signal loom: shared source rail feeding three cue modalities */}

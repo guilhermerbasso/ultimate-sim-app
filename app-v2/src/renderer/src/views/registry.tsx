@@ -38,6 +38,7 @@ const SoundsView = lazy(() => import('./SoundsView'))
 const TelemetryView = lazy(() => import('./TelemetryView'))
 const TireStrategyView = lazy(() => import('./TireStrategyView'))
 const TouchControlsView = lazy(() => import('./TouchControlsView'))
+const StoryEngineView = lazy(() => import('./StoryEngineView'))
 const StreamingMobileEditorView = lazy(() => import('./StreamingMobileEditorView'))
 const MissionRehearsalView = lazy(() => import('./MissionRehearsalView'))
 
@@ -66,6 +67,7 @@ export const viewRegistry: ViewDef[] = [
   { id: 'tire', group: 'Sim Racing', label: 'Tires', eyebrow: 'Strategy', description: 'Tire wear, per-lap rate, and pit window.', shortcut: 'TC', Component: TireStrategyView },
   { id: 'search', group: 'Sim Racing', label: 'Semantic Search', eyebrow: 'Local AI', description: 'Meaning-based search across setups, ghosts, notes, and findings; keyword fallback.', shortcut: 'TS', Component: SemanticSearchView },
   { id: 'alerts', group: 'Sim Racing', label: 'Alerts', eyebrow: 'Warnings', description: 'Pit limiter, flags, fuel, shifting.', shortcut: 'T7', Component: AlertsView },
+  { id: 'story-engine', group: 'Sim Racing', label: 'Story Engine', eyebrow: 'Post-race', description: 'Evidence-linked local story cards with destination previews and mandatory human approval.', shortcut: 'TY', Component: StoryEngineView },
   { id: 'context-debt', group: 'Sim Racing', label: 'Context-Debt Meter', eyebrow: 'SP-07 · N=0', description: 'Local pre-race audit of competing cues, routes, devices, and controls.', shortcut: 'TQ', Component: ContextDebtView },
   { id: 'expr', group: 'Sim Racing', label: 'Expressions', eyebrow: 'Custom', description: 'Custom fields and conditions.', shortcut: 'T8', Component: ExpressionsView },
   { id: 'race-profiles', group: 'Sim Racing', label: 'Race Profiles', eyebrow: 'Car/Track', description: 'Profiles by car/track with auto-switching.', shortcut: 'T9', Component: RaceProfilesView },
