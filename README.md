@@ -42,6 +42,7 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 - **Exercise Twitch, YouTube, and Discord workflows without contacting them** ([#93](https://github.com/guilhermerbasso/ultimate-sim-app/pull/93)): deterministic local simulations cover chat, events, polls, moderation, markers, clips, broadcasts, commands, and room policies with zero live egress, no live credentials, and no claim of production adapter support or platform certification.
 - **Use saved Touch Controls securely from a phone or tablet** ([#94](https://github.com/guilhermerbasso/ultimate-sim-app/pull/94)): authenticated, target-bound capabilities allow only governed simulator actions, require CSRF/nonces/origin checks and a live receiver lease, and fail closed while releasing every hold or latch safely.
 - **Review league incidents with evidence and human-owned verdicts** ([#95](https://github.com/guilhermerbasso/ultimate-sim-app/pull/95)): the local Steward Desk preserves verified case history, rules, dissent and appeals, anonymizes exported evidence, gates redistribution rights, and never adjudicates or applies penalties automatically.
+- **Keep completed recordings, sidecars, learned pace data, and debrief language durable** ([#97](https://github.com/guilhermerbasso/ultimate-sim-app/pull/97)): atomic finalization, bounded retry/backoff, explicit dropped-sample accounting, and scoped ended-session evidence prevent shutdown, context changes, or transient storage failures from silently hiding data.
 - **Training stays separate from racing:** rehearsal events never enter real telemetry or session history, and rehearsal decisions cannot actuate live race controls.
 
 ### 2.53.1 — SerialPort startup hotfix
@@ -128,6 +129,9 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 
 - iRacing telemetry is classified as confirmed live, replay, or unknown. Live-only Coach/Engineer findings, predictions, fuel/tyre/lap strategy, adaptive moments, biometrics, community capture, Team Fuel, alerts, SoundShift, and track-map learning reset or pause outside confirmed live telemetry.
 - Returning to live starts from reset or seeded state to avoid stale findings and duplicate alerts.
+- Recording metadata, track sidecars, pace-model state, and language-aware Stint Debriefs persist
+  through bounded retryable shutdown and context transitions, while replay evidence remains scoped
+  to the ended car, track, layout, session type, identity, and track condition.
 - Full-profile export remains available. Full-profile import is temporarily disabled to protect existing configuration; use per-section import controls instead. Credentials, tokens, sessions, logs, recordings, and track-map caches are excluded from configuration exports.
 - These controls are live-data safety boundaries, not a claim that replay analysis is complete.
 

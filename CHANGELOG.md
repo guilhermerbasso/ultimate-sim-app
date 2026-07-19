@@ -64,6 +64,10 @@
   adapters. Capability allowlists, credential-shaped key/value scans, monotonic consent epochs,
   approval/policy gates, replay protection, event deduplication, bounded fixtures, and sanitized
   receipts fail closed on malformed or unauthorized input.
+- Recording finalization, track sidecars, and learned pace data now use atomic writes and bounded,
+  cancellable retries across live, suspended, disconnected, context-transition, and shutdown paths.
+  Persistent sample failures are capped and surfaced, newer pace payloads drain after in-flight
+  writes, and saved debriefs retain and speak their recorded language.
 - Mission Rehearsal synthetic events are isolated from live telemetry and real session history, and
   rehearsal decisions cannot actuate live race controls.
 

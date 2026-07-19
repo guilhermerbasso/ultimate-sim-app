@@ -96,6 +96,17 @@ offline race-operation rehearsal.
 - 📦 Fixture bodies, signatures, sanitized JSON depth/count/size, policy allowlists, and exported
   status snapshots are bounded and validated before simulation.
 
+### Durable replay, recording, and debrief persistence
+- 💾 **Completed recordings and final `session.json` metadata are written atomically**, with bounded
+  retryable finalization retained after transient storage failures instead of being silently lost.
+- 🔁 Cancellable exponential-backoff retries cover recorder metadata, track sidecars, and pace-model
+  persistence across live, suspended, disconnected, context-transition, and shutdown paths.
+- 📉 Repeated sample-write failures are capped, appends pause safely, and dropped-sample counts remain
+  visible; newer learned pace payloads drain after earlier in-flight writes finish.
+- 🗣️ Persisted Stint Debriefs validate, migrate, reload, and speak in their recorded language, while
+  Coach/Engineer evidence stays scoped to the ended car, track, layout, session type, canonical
+  identity, and track condition.
+
 ### Evidence-safe Steward Desk
 - ⚖️ **League incident review remains explicitly human-owned** through versioned rules, verdicts,
   dissent, appeals, and authoritative local re-adjudication; the app never assigns penalties
@@ -168,6 +179,8 @@ _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.z
   lease-bound interactive Touch Controls with fail-closed ownership and teardown.
 - [#95](https://github.com/guilhermerbasso/ultimate-sim-app/pull/95) — add the local, evidence-safe
   Steward Desk with human-owned verdicts, appeals, privacy, and rights gates.
+- [#97](https://github.com/guilhermerbasso/ultimate-sim-app/pull/97) — make recording, sidecar,
+  pace-model, and language-aware debrief persistence retryable and shutdown-safe.
 
 **Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.53.1...v2.54.0
 
