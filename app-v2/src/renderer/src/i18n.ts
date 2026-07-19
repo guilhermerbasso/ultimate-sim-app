@@ -6848,6 +6848,7 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
     dashboards: { label: 'Dashboards', eyebrow: 'Monitor', description: 'Monitor windows, .simhubdash import, and dashboard builder.' },
     streaming: { label: 'Streaming', eyebrow: 'Broadcast', description: 'Named read-only dashboard and touch-panel targets for OBS, phones, and tablets.' },
     'touch-controls': { label: 'Touch Controls Dash', eyebrow: 'Cockpit', description: 'Touch pit panel and editable RGB button boxes for the cockpit screen.' },
+    'streaming-mobile-editor': { label: 'Mobile Stream Editor', eyebrow: 'Device preview', description: 'Non-destructive phone and tablet presentation profiles for saved dashboards and Touch Controls.' },
     'oled-dash': { label: 'OLED Dashboard', eyebrow: 'Display', description: 'iRacing information presets for the OLED.' },
     overlays: { label: 'Overlays', eyebrow: 'Screen', description: 'Transparent overlays on top of the simulator.' },
     fuel: { label: 'Fuel', eyebrow: 'Strategy', description: 'Fuel calculation and strategy.' },
@@ -7012,10 +7013,30 @@ patchViewText('ja', {
   about: { label: '概要 / クレジット' }
 })
 
+patchViewText('pt-BR', {
+  'streaming-mobile-editor': { label: 'Editor de Streaming Mobile', eyebrow: 'Preview do dispositivo', description: 'Perfis não destrutivos para dashboards salvos e Touch Controls em celulares e tablets.' }
+})
+patchViewText('es', {
+  'streaming-mobile-editor': { label: 'Editor de Streaming Móvil', eyebrow: 'Vista del dispositivo', description: 'Perfiles no destructivos para dashboards guardados y Touch Controls en teléfonos y tablets.' }
+})
+patchViewText('fr', {
+  'streaming-mobile-editor': { label: 'Éditeur de Streaming Mobile', eyebrow: 'Aperçu appareil', description: 'Profils non destructifs pour tableaux de bord enregistrés et Touch Controls sur téléphone et tablette.' }
+})
+patchViewText('de', {
+  'streaming-mobile-editor': { label: 'Mobiler Streaming-Editor', eyebrow: 'Gerätevorschau', description: 'Nicht-destruktive Handy- und Tablet-Profile für gespeicherte Dashboards und Touch Controls.' }
+})
+patchViewText('zh', {
+  'streaming-mobile-editor': { label: '移动端串流编辑器', eyebrow: '设备预览', description: '为已保存的仪表盘和触控面板创建非破坏性的手机和平板呈现配置。' }
+})
+patchViewText('ja', {
+  'streaming-mobile-editor': { label: 'モバイル配信エディター', eyebrow: '端末プレビュー', description: '保存済みダッシュボードと Touch Controls 向けの非破壊的なスマホ・タブレット表示プロファイル。' }
+})
+
 const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
-  'pt-BR': {},
+  'pt-BR': { Streaming: 'Streaming' },
   en: {
-    'IA & Coaching': 'AI & Coaching'
+    'IA & Coaching': 'AI & Coaching',
+    Streaming: 'Streaming'
   },
   es: {
     'Race Hub': 'Centro de carrera',
@@ -7024,7 +7045,8 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     Strategy: 'Estrategia',
     Garage: 'Garaje',
     Hardware: 'Hardware',
-    System: 'Sistema'
+    System: 'Sistema',
+    Streaming: 'Streaming'
   },
   fr: {
     'Race Hub': 'Centre de course',
@@ -7033,7 +7055,8 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     Strategy: 'Stratégie',
     Garage: 'Garage',
     Hardware: 'Matériel',
-    System: 'Système'
+    System: 'Système',
+    Streaming: 'Streaming'
   },
   de: {
     'Race Hub': 'Race Hub',
@@ -7042,7 +7065,8 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     Strategy: 'Strategie',
     Garage: 'Garage',
     Hardware: 'Hardware',
-    System: 'System'
+    System: 'System',
+    Streaming: 'Streaming'
   },
   zh: {
     'Race Hub': '比赛中心',
@@ -7051,7 +7075,8 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     Strategy: '策略',
     Garage: '车库',
     Hardware: '硬件',
-    System: '系统'
+    System: '系统',
+    Streaming: '串流'
   },
   ja: {
     'Race Hub': 'レースハブ',
@@ -7060,41 +7085,48 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     Strategy: '戦略',
     Garage: 'ガレージ',
     Hardware: 'ハードウェア',
-    System: 'システム'
+    System: 'システム',
+    Streaming: 'ストリーミング'
   }
 }
 
 const GROUP_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
-  'pt-BR': {},
+  'pt-BR': { Streaming: 'Streaming' },
   en: {
     'Sim Racing': 'Sim Racing',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: 'Streaming'
   },
   es: {
     'Sim Racing': 'Sim Racing',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: 'Streaming'
   },
   fr: {
     'Sim Racing': 'Sim Racing',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: 'Streaming'
   },
   de: {
     'Sim Racing': 'Sim Racing',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: 'Streaming'
   },
   zh: {
     'Sim Racing': 'Sim Racing',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: '串流'
   },
   ja: {
     'Sim Racing': 'Sim Racing',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: 'ストリーミング'
   }
 }
 
