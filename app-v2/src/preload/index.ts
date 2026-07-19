@@ -115,6 +115,7 @@ const ALLOWED_PREFIXES = [
   'steward:',
   'story:',
   'community:',
+  'collaboration:',
   'dashai:',
   'bio:',
   'hapticsZonal:',
