@@ -1,8 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
 import { OverlayManager } from './manager'
-import { OVERLAY_WIDGETS } from '../../shared/overlays'
+import { OVERLAY_WIDGETS, type OverlaysConfig } from '../../shared/overlays'
+import {
+  OVERLAY_EDITOR_PREVIEW_CHANNELS,
+  type OverlayEditorPreviewState
+} from '../../shared/overlay-editor-preview'
 import { ALL_VARIANTS, variantToElement } from '../../renderer/src/views/dashboard/widget-catalog-data'
 import type { ModuleContext } from '../module-context'
 
@@ -17,6 +22,9 @@ interface ManagerInternals {
     setIgnoreMouseEvents(ignore: boolean, options: { forward: boolean }): void
     webContents: { send(...args: unknown[]): void }
   }>
+  config: OverlaysConfig
+  runtimeHiddenAlerts: Set<string>
+  editorTriggerPreviewActive: boolean
   saveTimer: ReturnType<typeof setTimeout> | null
   resetPending: boolean
   isDisposing: boolean
@@ -26,6 +34,7 @@ interface ManagerInternals {
   registerScreenListeners(): void
   createWindow(id: string): void
   setRuntimeVisibility(id: string, visible: boolean): void
+  setEditorPreviewActive(active: boolean): void
 }
 
 function internals(mgr: OverlayManager): ManagerInternals {
@@ -52,6 +61,88 @@ function makeHeadlessManager(userData: string): OverlayManager {
   internals(manager).registerScreenListeners = () => {}
   internals(manager).createWindow = () => {}
   return manager
+}
+
+interface PreviewOwnerWebContents extends EventEmitter {
+  id: number
+  destroyed: boolean
+  loadingMainFrame: boolean
+  isDestroyed(): boolean
+  isLoadingMainFrame(): boolean
+}
+
+interface PreviewOwnerWindow extends EventEmitter {
+  webContents: PreviewOwnerWebContents
+  destroyed: boolean
+  visible: boolean
+  isDestroyed(): boolean
+  isVisible(): boolean
+}
+
+interface PreviewLifecycleHarness {
+  manager: OverlayManager
+  state: ManagerInternals
+  mainWindow: PreviewOwnerWindow
+  owner: PreviewOwnerWebContents
+  ignored: boolean[]
+  sent: Array<[string, unknown]>
+  triggerBefore: unknown
+  setActive(active: boolean): boolean
+}
+
+function makePreviewLifecycleHarness(userData: string): PreviewLifecycleHarness {
+  const handlers = new Map<string, (...args: unknown[]) => unknown>()
+  const owner = new EventEmitter() as PreviewOwnerWebContents
+  owner.id = 701
+  owner.destroyed = false
+  owner.loadingMainFrame = false
+  owner.isDestroyed = () => owner.destroyed
+  owner.isLoadingMainFrame = () => owner.loadingMainFrame
+
+  const mainWindow = new EventEmitter() as PreviewOwnerWindow
+  mainWindow.webContents = owner
+  mainWindow.destroyed = false
+  mainWindow.visible = true
+  mainWindow.isDestroyed = () => mainWindow.destroyed
+  mainWindow.isVisible = () => mainWindow.visible
+
+  const manager = new OverlayManager({
+    app: { getPath: () => userData },
+    broadcast: () => {},
+    getMainWindow: () => mainWindow,
+    ipcMain: {
+      handle: (channel: string, handler: (...args: unknown[]) => unknown) => {
+        handlers.set(channel, handler)
+      }
+    }
+  } as unknown as ModuleContext)
+  const state = internals(manager)
+  const ignored: boolean[] = []
+  const sent: Array<[string, unknown]> = []
+  state.windows.set('flags', {
+    isDestroyed: () => false,
+    setIgnoreMouseEvents: (ignore) => ignored.push(ignore),
+    webContents: {
+      send: (...args: unknown[]) => sent.push([String(args[0]), args[1]])
+    }
+  })
+  state.config.configMode = true
+  const triggerBefore = structuredClone(state.config.widgets.flags.trigger)
+  state.setRuntimeVisibility('flags', false)
+  manager.registerIpc()
+  const handler = handlers.get(OVERLAY_EDITOR_PREVIEW_CHANNELS.setActive)
+  if (!handler) throw new Error('Editor preview IPC handler was not registered')
+
+  return {
+    manager,
+    state,
+    mainWindow,
+    owner,
+    ignored,
+    sent,
+    triggerBefore,
+    setActive: (active) => Boolean(handler({ sender: owner }, active))
+  }
 }
 
 interface IdentityWidget { widgetId?: string; hifiModuleId?: string }
@@ -340,6 +431,195 @@ describe('OverlayManager inactive alert hit testing', () => {
     internals(manager).setRuntimeVisibility('gearSpeed', false)
     expect(ignored).toEqual([])
   })
+
+  it('uses an isolated editor ghost channel for inactive draggable positioning', () => {
+    const manager = makeHeadlessManager(root)
+    const state = internals(manager)
+    const ignored: boolean[] = []
+    const sent: Array<[string, unknown]> = []
+    state.windows.set('flags', {
+      isDestroyed: () => false,
+      setIgnoreMouseEvents: (ignore) => ignored.push(ignore),
+      webContents: {
+        send: (...args: unknown[]) => sent.push([String(args[0]), args[1]])
+      }
+    })
+    state.config.configMode = true
+    const triggerBefore = structuredClone(state.config.widgets.flags.trigger)
+
+    state.setRuntimeVisibility('flags', false)
+    expect(state.runtimeHiddenAlerts.has('flags')).toBe(true)
+    expect(ignored.at(-1)).toBe(true)
+
+    state.setEditorPreviewActive(true)
+    expect(state.runtimeHiddenAlerts.has('flags')).toBe(true)
+    expect(state.editorTriggerPreviewActive).toBe(true)
+    expect(ignored.at(-1)).toBe(false)
+    const previewStates = sent
+      .filter(([channel]) => channel === OVERLAY_EDITOR_PREVIEW_CHANNELS.state)
+      .map(([, payload]) => payload as OverlayEditorPreviewState)
+    expect(previewStates.at(-1)).toEqual({ active: true })
+    expect(sent.some(([channel]) => channel.includes('compositor'))).toBe(false)
+    expect(state.config.widgets.flags.trigger).toEqual(triggerBefore)
+
+    state.setEditorPreviewActive(false)
+    expect(state.runtimeHiddenAlerts.has('flags')).toBe(true)
+    expect(ignored.at(-1)).toBe(true)
+    expect(
+      sent
+        .filter(([channel]) => channel === OVERLAY_EDITOR_PREVIEW_CHANNELS.state)
+        .at(-1)?.[1]
+    ).toEqual({ active: false })
+    expect(existsSync(join(root, 'overlays.json'))).toBe(false)
+  })
+})
+
+describe('OverlayManager editor preview ownership lifecycle', () => {
+  let root: string
+
+  beforeEach(() => {
+    root = mkdtempSync(join(process.cwd(), 'overlays-preview-owner-test-'))
+  })
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  it('mounts one owner lifecycle and removes it when the renderer releases preview', () => {
+    const harness = makePreviewLifecycleHarness(root)
+
+    expect(harness.setActive(true)).toBe(true)
+    expect(harness.setActive(true)).toBe(true)
+    expect(harness.state.editorTriggerPreviewActive).toBe(true)
+    expect(harness.mainWindow.listenerCount('hide')).toBe(1)
+    expect(harness.mainWindow.listenerCount('closed')).toBe(1)
+    expect(harness.owner.listenerCount('did-start-navigation')).toBe(1)
+    expect(harness.owner.listenerCount('render-process-gone')).toBe(1)
+    expect(harness.owner.listenerCount('destroyed')).toBe(1)
+
+    expect(harness.setActive(false)).toBe(true)
+    expect(harness.state.editorTriggerPreviewActive).toBe(false)
+    expect(harness.mainWindow.listenerCount('hide')).toBe(0)
+    expect(harness.mainWindow.listenerCount('closed')).toBe(0)
+    expect(harness.owner.listenerCount('did-start-navigation')).toBe(0)
+    expect(harness.owner.listenerCount('render-process-gone')).toBe(0)
+    expect(harness.owner.listenerCount('destroyed')).toBe(0)
+  })
+
+  it('rejects stale activation while the main window is hidden or reloading', () => {
+    const harness = makePreviewLifecycleHarness(root)
+
+    expect(harness.setActive(true)).toBe(true)
+    harness.mainWindow.visible = false
+    expect(harness.setActive(true)).toBe(false)
+    expect(harness.state.editorTriggerPreviewActive).toBe(false)
+
+    harness.mainWindow.visible = true
+    expect(harness.setActive(true)).toBe(true)
+    harness.owner.loadingMainFrame = true
+    expect(harness.setActive(true)).toBe(false)
+    expect(harness.state.editorTriggerPreviewActive).toBe(false)
+    expect(harness.mainWindow.listenerCount('hide')).toBe(0)
+    expect(harness.owner.listenerCount('did-start-navigation')).toBe(0)
+  })
+
+  it('restores the isolated ghost after a tray hide and show re-publishes the active preference', () => {
+    const harness = makePreviewLifecycleHarness(root)
+    expect(harness.setActive(true)).toBe(true)
+
+    harness.mainWindow.visible = false
+    harness.mainWindow.emit('hide')
+    expect(harness.state.editorTriggerPreviewActive).toBe(false)
+    expect(harness.ignored.at(-1)).toBe(true)
+
+    harness.mainWindow.visible = true
+    harness.mainWindow.emit('show')
+    expect(harness.setActive(true)).toBe(true)
+
+    expect(harness.state.editorTriggerPreviewActive).toBe(true)
+    expect(harness.state.runtimeHiddenAlerts.has('flags')).toBe(true)
+    expect(harness.ignored.at(-1)).toBe(false)
+    expect(harness.state.config.widgets.flags.trigger).toEqual(harness.triggerBefore)
+    expect(
+      harness.sent
+        .filter(([channel]) => channel === OVERLAY_EDITOR_PREVIEW_CHANNELS.state)
+        .map(([, payload]) => payload)
+        .slice(-3)
+    ).toEqual([{ active: true }, { active: false }, { active: true }])
+    expect(harness.sent.some(([channel]) => channel.includes('compositor'))).toBe(false)
+    expect(existsSync(join(root, 'overlays.json'))).toBe(false)
+    expect(harness.mainWindow.listenerCount('hide')).toBe(1)
+    expect(harness.owner.listenerCount('did-start-navigation')).toBe(1)
+  })
+
+  it('ignores subframe navigation but clears on main-frame navigation/reload', () => {
+    const harness = makePreviewLifecycleHarness(root)
+    expect(harness.setActive(true)).toBe(true)
+
+    harness.owner.emit('did-start-navigation', {}, 'file://subframe', false, false)
+    expect(harness.state.editorTriggerPreviewActive).toBe(true)
+
+    harness.owner.emit('did-start-navigation', {}, 'file://main', false, true)
+    expect(harness.state.editorTriggerPreviewActive).toBe(false)
+  })
+
+  const ownerLossCases: Array<{
+    name: string
+    emit(harness: PreviewLifecycleHarness): void
+  }> = [
+    {
+      name: 'main-window hide',
+      emit: ({ mainWindow }) => {
+        mainWindow.visible = false
+        mainWindow.emit('hide')
+      }
+    },
+    {
+      name: 'main-frame navigation/reload',
+      emit: ({ owner }) => owner.emit('did-start-navigation', {}, 'file://main', false, true)
+    },
+    {
+      name: 'renderer process loss/crash',
+      emit: ({ owner }) => owner.emit('render-process-gone', {}, { reason: 'crashed' })
+    },
+    {
+      name: 'renderer destruction',
+      emit: ({ owner }) => owner.emit('destroyed')
+    },
+    {
+      name: 'main-window destruction',
+      emit: ({ mainWindow }) => mainWindow.emit('closed')
+    }
+  ]
+
+  it.each(ownerLossCases)(
+    'clears the ghost on $name without touching runtime state, saved rules, or compositor',
+    ({ emit }) => {
+      const harness = makePreviewLifecycleHarness(root)
+      expect(harness.setActive(true)).toBe(true)
+      expect(harness.state.editorTriggerPreviewActive).toBe(true)
+      expect(harness.ignored.at(-1)).toBe(false)
+
+      emit(harness)
+
+      expect(harness.state.editorTriggerPreviewActive).toBe(false)
+      expect(harness.state.runtimeHiddenAlerts.has('flags')).toBe(true)
+      expect(harness.ignored.at(-1)).toBe(true)
+      expect(harness.state.config.widgets.flags.trigger).toEqual(harness.triggerBefore)
+      expect(
+        harness.sent
+          .filter(([channel]) => channel === OVERLAY_EDITOR_PREVIEW_CHANNELS.state)
+          .at(-1)?.[1]
+      ).toEqual({ active: false })
+      expect(harness.sent.some(([channel]) => channel.includes('compositor'))).toBe(false)
+      expect(existsSync(join(root, 'overlays.json'))).toBe(false)
+      expect(harness.mainWindow.listenerCount('hide')).toBe(0)
+      expect(harness.mainWindow.listenerCount('closed')).toBe(0)
+      expect(harness.owner.listenerCount('did-start-navigation')).toBe(0)
+      expect(harness.owner.listenerCount('render-process-gone')).toBe(0)
+      expect(harness.owner.listenerCount('destroyed')).toBe(0)
+    }
+  )
 })
 
 describe('OverlayManager custom overlay creation metadata', () => {

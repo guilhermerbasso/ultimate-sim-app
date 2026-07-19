@@ -9,11 +9,22 @@ import {
   isRichCustomOverlay
 } from '../../../shared/overlays'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
+import {
+  OVERLAY_EDITOR_PREVIEW_CHANNELS,
+  type OverlayEditorPreviewState
+} from '../../../shared/overlay-editor-preview'
 import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, mergeHifiOverlayConfigs, resolveOverlayTrigger, shouldRenderOverlayRuntime } from './hifi-overlays'
 import { resolveWidgetComponent } from './widgets'
+import { HifiWidgetHost } from './widgets/HifiWidgetHost'
 import { CustomOverlayWidget } from './widgets/CustomOverlayWidget'
 import { useOverlayTriggerController } from './useOverlayTriggerController'
 import { useAlertsConfig } from '../lib/alerts-config'
+import { PREVIEW_SNAPSHOT } from '../dashboard/widgets/gt3-theme'
+import {
+  createEditorTriggerPreviewFrame,
+  isTriggerOnlyPreview,
+  resolveEditorPreviewTrigger
+} from './editor-trigger-preview'
 import './overlay-runtime.css'
 
 const RESIZE_DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
@@ -48,6 +59,7 @@ export function OverlayRoot() {
   const isCustom = useMemo(() => isCustomOverlayId(widgetId), [widgetId])
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const [widgetConfig, setWidgetConfig] = useState<OverlayWidgetConfig & { configMode?: boolean; title?: string }>(() => defaultWidgetConfig(widgetId))
+  const [editorPreviewActive, setEditorPreviewActive] = useState(false)
   const definition = ALL_OVERLAY_WIDGETS.find((item) => item.id === widgetId)
   const Widget = isCustom ? CustomOverlayWidget : resolveWidgetComponent(widgetId as OverlayWidgetId)
   const headerTitle = definition?.title ?? widgetConfig.title ?? widgetId
@@ -67,6 +79,23 @@ export function OverlayRoot() {
   const overlayTrigger = resolveOverlayTrigger(definition, widgetConfig)
   const triggerState = triggerController.evaluate(widgetId, overlayTrigger)
   const triggerHidden = !shouldRenderOverlayRuntime(definition, widgetConfig, triggerState)
+  const previewTrigger = resolveEditorPreviewTrigger(
+    overlayTrigger,
+    definition?.defaultTrigger
+  )
+  const editorGhost =
+    editorPreviewActive &&
+    editable &&
+    triggerHidden &&
+    isTriggerOnlyPreview(definition?.role, previewTrigger)
+      ? createEditorTriggerPreviewFrame(
+          snapshot ?? PREVIEW_SNAPSHOT,
+          previewTrigger,
+          true,
+          alertsConfig,
+          `positioning:${widgetId}`
+        )
+      : null
   const positionRef = useRef<OverlayPosition>(widgetConfig.position)
   useEffect(() => {
     positionRef.current = widgetConfig.position
@@ -149,6 +178,10 @@ export function OverlayRoot() {
     const offMode = window.ipc.subscribe<OverlayWidgetConfig & { configMode: boolean }>('overlays:configMode', (payload) => {
       setWidgetConfig((current) => ({ ...current, ...payload }))
     })
+    const offEditorPreview = window.ipc.subscribe<OverlayEditorPreviewState>(
+      OVERLAY_EDITOR_PREVIEW_CHANNELS.state,
+      (payload) => setEditorPreviewActive(Boolean(payload?.active))
+    )
     void window.ipc.invoke<TelemetrySnapshot | null>('telemetry:getLatest').then(setSnapshot).catch(() => setSnapshot(null))
     if (custom) {
       void window.ipc.invoke<CustomOverlayDef | null>('overlays:getCustom', widgetId)
@@ -165,6 +198,7 @@ export function OverlayRoot() {
     return () => {
       offTelemetry()
       offMode()
+      offEditorPreview()
     }
   }, [widgetId])
 
@@ -173,13 +207,26 @@ export function OverlayRoot() {
     void window.ipc.invoke('overlays:setRuntimeVisibility', widgetId, !triggerHidden).catch(() => undefined)
   }, [definition?.role, triggerHidden, widgetId])
 
-  if (definition?.role === 'alert' && triggerHidden) return null
+  if (definition?.role === 'alert' && triggerHidden && !editorGhost) return null
+
+  const renderSnapshot = editorGhost?.snapshot ?? snapshot
+  const renderVisibility = editorGhost?.visibility ?? triggerState
+  const renderAlertsConfig = editorGhost?.alertsConfig ?? alertsConfig
 
   return (
     <main
       className={`overlay-shell${configMode ? ' config-mode' : ''}${movable ? ' draggable' : ''}${isRich ? ' rich-overlay' : ''}`}
-      style={shellStyle}
+      style={{
+        ...shellStyle,
+        ...(editorGhost
+          ? {
+              boxShadow:
+                'inset 0 0 0 2px rgba(255, 176, 0, 0.9), inset 0 0 28px rgba(255, 176, 0, 0.16)'
+            }
+          : {})
+      }}
       onMouseDown={(event) => beginGesture(event, 'move', '')}
+      data-overlay-editor-ghost={editorGhost ? 'true' : undefined}
     >
       {editable && (
         <div className={movable ? 'overlay-drag-handle' : 'overlay-drag-handle locked'}>
@@ -187,13 +234,54 @@ export function OverlayRoot() {
           {movable ? ' — edit: drag to move — edges resize' : ' · pinned'}
         </div>
       )}
-      {!triggerHidden && (
-        <ResolvedWidget
-          snapshot={snapshot}
-          config={widgetConfig}
-          visibility={triggerState}
-          alertsConfig={alertsConfig}
-        />
+      {editorGhost ? (
+        widgetId.startsWith('hifi:') ? (
+          <HifiWidgetHost
+            snapshot={renderSnapshot}
+            config={widgetConfig}
+            visibility={renderVisibility}
+            alertsConfig={renderAlertsConfig}
+            preview="inert"
+          />
+        ) : (
+          <ResolvedWidget
+            snapshot={renderSnapshot}
+            config={widgetConfig}
+            visibility={renderVisibility}
+            alertsConfig={renderAlertsConfig}
+          />
+        )
+      ) : (
+        !triggerHidden && (
+          <ResolvedWidget
+            snapshot={renderSnapshot}
+            config={widgetConfig}
+            visibility={renderVisibility}
+            alertsConfig={renderAlertsConfig}
+          />
+        )
+      )}
+      {editorGhost && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            right: 8,
+            bottom: 8,
+            zIndex: 20,
+            padding: '3px 7px',
+            borderRadius: 5,
+            background: 'rgba(8, 10, 14, 0.86)',
+            border: '1px solid rgba(255, 176, 0, 0.72)',
+            color: '#ffb000',
+            fontSize: 10,
+            fontWeight: 800,
+            letterSpacing: '0.08em',
+            pointerEvents: 'none'
+          }}
+        >
+          TRIGGER PREVIEW · EDIT ONLY
+        </div>
       )}
       {movable &&
         RESIZE_DIRS.map((dir) => (

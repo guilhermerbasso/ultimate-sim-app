@@ -94,6 +94,36 @@ describe('iRacing telemetry provider parsing', () => {
     expect(setup).toMatchObject({ firstRpm: 6000, shiftRpm: 7600, lastRpm: 7800, blinkRpm: 7900, fuelCapacityLiters: 100 })
     expect(__iracingTelemetryTest.revLights(7900, setup)).toMatchObject({ pct: 1, blink: true })
   })
+
+  it('preserves the live GR86 DriverCarSL values without a hardcoded profile', () => {
+    const setup = __iracingTelemetryTest.driverCarSetup({
+      DriverInfo: {
+        DriverCarSLFirstRPM: 6130,
+        DriverCarSLShiftRPM: 6690,
+        DriverCarSLLastRPM: 6800,
+        DriverCarSLBlinkRPM: 7210,
+        DriverCarRedLine: 7500
+      }
+    })
+
+    expect(setup).toMatchObject({
+      firstRpm: 6130,
+      shiftRpm: 6690,
+      lastRpm: 6800,
+      blinkRpm: 7210,
+      redlineRpm: 7500
+    })
+    expect(__iracingTelemetryTest.shiftBand(6130, setup, setup.redlineRpm)).toMatchObject({ pct: 0, blink: false })
+    expect(__iracingTelemetryTest.shiftBand(6690, setup, setup.redlineRpm)).toMatchObject({ pct: 1, blink: true })
+    expect(__iracingTelemetryTest.shiftBand(6800, setup, setup.redlineRpm)).toMatchObject({ pct: 1, blink: true })
+    expect(__iracingTelemetryTest.shiftBand(7210, setup, setup.redlineRpm)).toMatchObject({ pct: 1, blink: true })
+  })
+
+  it('rejects a zero YAML redline so live PlayerCarRedLine can remain the fallback', () => {
+    expect(__iracingTelemetryTest.driverCarSetup({
+      DriverInfo: { DriverCarRedLine: 0 }
+    }).redlineRpm).toBeUndefined()
+  })
 })
 
 describe('iRacing shift-light band (shiftBand)', () => {
@@ -384,6 +414,39 @@ function pollSustained(
 }
 
 describe('iRacing new-channel snapshot mapping (poll)', () => {
+  it('publishes raw GR86 shift metadata while preferring positive DriverCarRedLine for maxRpm', () => {
+    const sessionInfo = {
+      DriverInfo: {
+        DriverCarSLFirstRPM: 6130,
+        DriverCarSLShiftRPM: 6690,
+        DriverCarSLLastRPM: 6800,
+        DriverCarSLBlinkRPM: 7210,
+        DriverCarRedLine: 7500
+      }
+    }
+    const snap = pollWith({
+      Speed: 40,
+      RPM: 6690,
+      Gear: 3,
+      PlayerCarRedLine: 6800,
+      ShiftIndicatorPct: 0.2
+    }, sessionInfo)
+
+    expect(snap).toMatchObject({
+      maxRpm: 7500,
+      shiftRpm: 6690,
+      shiftIndicatorPct: 1,
+      revLights: {
+        firstRpm: 6130,
+        shiftRpm: 6690,
+        lastRpm: 6800,
+        blinkRpm: 7210,
+        pct: 1,
+        blink: true
+      }
+    })
+  })
+
   it.each([
     [0, 0, false],
     [1, 1, false],

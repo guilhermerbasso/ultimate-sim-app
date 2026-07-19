@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ultimate-sim:mqtt:v1:availability",
+  "title": "Ultimate Sim MQTT Availability v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "instanceId", "observedAt", "expiresAt", "generation"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "status": { "enum": ["online", "offline"] },
+    "instanceId": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9_-]{0,30}[a-z0-9])?$" },
+    "observedAt": { "type": "integer", "minimum": 0 },
+    "expiresAt": { "type": "integer", "minimum": 0 },
+    "generation": { "type": "integer", "minimum": 0 }
+  }
+}

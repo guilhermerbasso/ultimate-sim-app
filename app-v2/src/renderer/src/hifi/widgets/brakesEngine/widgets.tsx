@@ -257,7 +257,7 @@ function LevelWidget({ snapshot, width, height, label, field, accent }: HifiWidg
   const controlLabel = field === 'engineMap' ? 'MAP' : label
   return (
     <Tile label={label} width={width} height={height} accent={accent}>
-      <LedRow x={76} y={74} w={268} h={4} f={parsed == null ? 0 : parsed / 10} count={12} />
+      <LedRow x={76} y={74} w={268} h={4} f={parsed == null ? 0 : parsed / 10} count={12} blink={false} />
       <text x={210} y={116} textAnchor="middle" fill={accent} fontFamily={FONT_LABEL} fontSize={28} fontWeight={900} letterSpacing={5} {...LEGIBLE}>
         {controlLabel}
       </text>

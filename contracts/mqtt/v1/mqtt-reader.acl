@@ -1,0 +1,7 @@
+user ultimate-sim-reader
+topic read ultimate-sim/v1/simrig/availability
+topic read ultimate-sim/v1/simrig/state/+
+topic read ultimate-sim/v1/simrig/event/+
+topic read ultimate-sim/v1/simrig/health
+topic read ultimate-sim/v1/simrig/schema/announcement
+topic read ultimate-sim/v1/simrig/result/+

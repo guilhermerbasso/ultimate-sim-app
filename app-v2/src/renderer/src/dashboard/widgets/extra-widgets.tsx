@@ -400,7 +400,7 @@ export function LinearMeter({ element, snapshot, unitSystem = 'metric' }: ExtraW
   const max = s.gaugeMax ?? defaultMax(element.binding)
   const frac = clamp01(((value ?? min) - min) / Math.max(1e-6, max - min))
   if (usesInstrument(element)) {
-    return <RevInstrument element={element} frac={frac} />
+    return <RevInstrument element={element} frac={frac} snapshot={snapshot} />
   }
   const skin = resolveElementSkin(s)
   const color = rampToken(frac, s, skin, accentOf(s, skin))
@@ -865,7 +865,7 @@ export function SegmentBars({ element, snapshot, unitSystem = 'metric' }: ExtraW
   const r = resolveBinding(element.binding, snapshot, unitSystem)
   const frac = clamp01(r.pct ?? num(element.binding, snapshot) ?? 0)
   if (usesInstrument(element)) {
-    return <RevInstrument element={element} frac={frac} />
+    return <RevInstrument element={element} frac={frac} snapshot={snapshot} />
   }
   const skin = resolveElementSkin(s)
   const segments = Math.max(5, Math.min(40, s.segments ?? 16))
@@ -979,7 +979,7 @@ export function LedBar({ element, snapshot, unitSystem = 'metric' }: ExtraWidget
   const r = resolveBinding(element.binding, snapshot, unitSystem)
   const frac = clamp01(r.pct ?? num(element.binding, snapshot) ?? 0)
   if (usesInstrument(element)) {
-    return <RevInstrument element={element} frac={frac} />
+    return <RevInstrument element={element} frac={frac} snapshot={snapshot} />
   }
   const skin = resolveElementSkin(s)
   const segments = Math.max(6, Math.min(32, s.segments ?? 16))
