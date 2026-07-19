@@ -357,7 +357,11 @@ describe('racecraft question routing', () => {
     'Please explain whether to lower tyre pressure.',
     'Explain what tyre pressure to run.',
     'Explain which compound is best.',
-    'Explain whether lowering tyre pressure is a good idea.'
+    'Explain whether lowering tyre pressure is a good idea.',
+    'Explique quando trocar pneus.',
+    'Explique cuándo cambiar neumáticos.',
+    'Explique quand changer les pneus.',
+    'Können Sie mir erklären, wann Reifen wechseln?'
   ])('does not mistake ordinary words for definition markers: %s', (question) => {
     expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
     expect(controlledDefinitionResponse(question, 'en-US')).toBeNull()

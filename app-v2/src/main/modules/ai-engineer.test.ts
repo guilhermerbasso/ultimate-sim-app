@@ -610,7 +610,11 @@ describe('createEngineerOrchestrator.ask', () => {
     'Please explain whether to lower tyre pressure.',
     'Explain what tyre pressure to run.',
     'Explain which compound is best.',
-    'Explain whether lowering tyre pressure is a good idea.'
+    'Explain whether lowering tyre pressure is a good idea.',
+    'Explique quando trocar pneus.',
+    'Explique cuándo cambiar neumáticos.',
+    'Explique quand changer les pneus.',
+    'Können Sie mir erklären, wann Reifen wechseln?'
   ])('does not bypass caution safety through ordinary words: %s', async (question) => {
     const harness = makeHarness({
       racecraftContext: {
