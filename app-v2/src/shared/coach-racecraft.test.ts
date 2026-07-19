@@ -313,7 +313,10 @@ describe('racecraft question routing', () => {
     'Give me the meaning of change tyres.',
     'How is change tyres defined?',
     'Could change tyres be explained?',
-    'What does "change tyres" mean?'
+    'What does "change tyres" mean?',
+    'What is the definition of change tyres?',
+    'Could you define change tyres?',
+    'Please explain the meaning of change tyres.'
   ])('keeps telemetry-noun definitions inside the controlled glossary: %s', (question) => {
     expect(parseDefinitionQuestion(question)).toMatchObject({ pure: true })
     expect(controlledDefinitionResponse(question, 'en-US')).toContain(
@@ -334,7 +337,10 @@ describe('racecraft question routing', () => {
     'Explain which tyre compound I should pick.',
     'What is the tyre pressure I should run?',
     'What is the compound I should choose?',
-    'Define how I should conserve fuel.'
+    'Define how I should conserve fuel.',
+    'Could you explain what tyre pressure we should run?',
+    'Explain which compound would be best.',
+    'Please explain whether to lower tyre pressure.'
   ])('does not mistake ordinary words for definition markers: %s', (question) => {
     expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
     expect(controlledDefinitionResponse(question, 'en-US')).toBeNull()
