@@ -2,7 +2,7 @@ import type { ResolvedLanguage } from '../i18n'
 
 const en = {
   'steward.owner.title': 'Human decision owner',
-  'steward.owner.body': 'Steward Desk packages evidence and history. Main-owned identities control audit ownership; renderer labels are untrusted notes. It never issues automatic penalties or changes a verdict automatically.',
+  'steward.owner.body': 'Steward Desk packages evidence and history. Main-owned identities control audit ownership; renderer labels are untrusted notes. Local-user sealing detects corruption and renderer tampering but does not authenticate app origin or another process under the same Windows user, so authoritative verdicts require explicit manual review. It never issues automatic penalties or changes a verdict automatically.',
   'steward.toolbarAria': 'Steward Desk controls',
   'steward.caseAria': 'Selected steward case',
   'steward.stewardName': 'Untrusted steward label',
@@ -82,6 +82,7 @@ const en = {
   'steward.verdict.ruleRefs': 'Rule versions used',
   'steward.verdict.evidenceRefs': 'Evidence used',
   'steward.verdict.record': 'Record human verdict',
+  'steward.verdict.manualReview': 'I manually reviewed the selected evidence and its local-user/import trust limits.',
   'steward.verdict.choose': 'Choose a verdict',
   'steward.governance.title': 'Dissent and appeal history',
   'steward.dissent.title': 'Dissent',
@@ -175,6 +176,8 @@ const en = {
   'steward.details.evidenceRefs': 'Evidence references',
   'steward.details.supersedes': 'Supersedes verdict',
   'steward.details.authority': 'Authority',
+  'steward.details.trust': 'Evidence trust',
+  'steward.details.manualReview': 'Manual review confirmed',
   'steward.details.decidedAt': 'Decided at',
   'steward.details.decidedBy': 'Decided by',
   'steward.details.verdictId': 'Verdict id',
@@ -226,6 +229,7 @@ const keys: Partial<Record<ResolvedLanguage, Record<string, string>>> = {
     'steward.integrity.evidence-missing': 'Evidência bloqueada ausente · em quarentena',
     'steward.integrity.evidence-corrupt': 'Evidência bloqueada corrompida · em quarentena',
     'steward.verdict.record': 'Registrar veredito humano',
+    'steward.verdict.manualReview': 'Revisei manualmente as evidências selecionadas e seus limites de confiança local/importada.',
     'steward.dissent.record': 'Registrar dissenso',
     'steward.appeal.file': 'Protocolar recurso',
     'steward.toast.exported': 'Pacote do steward exportado.',

@@ -40,6 +40,7 @@ import {
   type StewardEvidenceDetails,
   type StewardEvidenceLockInput,
   type StewardEvidenceProvenance,
+  type StewardEvidenceTrust,
   type StewardExportBundle,
   type StewardExportEvidence,
   type StewardExportEvent,
@@ -108,6 +109,18 @@ const FINDINGS = new Set<StewardVerdictFinding>([
   'procedural'
 ])
 const RESOLUTIONS = new Set(['upheld', 'modified', 'remanded', 'dismissed'])
+const EVIDENCE_TRUST = new Set<StewardEvidenceTrust>([
+  'local-user-sealed',
+  'manual-unverified',
+  'imported-source-claim'
+])
+const STEWARD_EXPORT_TRUST_MODEL: StewardExportBundle['trustModel'] = Object.freeze({
+  clipSeal: 'local-user-sealed',
+  corruptionAndRendererTamperProtected: true,
+  appOriginAuthenticated: false,
+  sameUserProcessAuthenticity: false,
+  authoritativeVerdictsRequireManualReview: true
+})
 
 type StewardEventRecord = StewardExportEvent
 
@@ -423,7 +436,8 @@ function evidenceProvenance(value: unknown): StewardEvidenceProvenance {
     'sessionRef',
     'captureRange',
     'transform',
-    'notes'
+    'notes',
+    'trust'
   ])
   const sourceKind = text(source.sourceKind, 'evidence.provenance.sourceKind', 40)
   if (![
@@ -439,6 +453,10 @@ function evidenceProvenance(value: unknown): StewardEvidenceProvenance {
   const captureRange = optionalText(source.captureRange, 'evidence.provenance.captureRange', 300)
   const transform = optionalText(source.transform, 'evidence.provenance.transform', 300)
   const notes = optionalText(source.notes, 'evidence.provenance.notes', 1_000)
+  const trust = source.trust === undefined
+    ? 'manual-unverified'
+    : text(source.trust, 'evidence.provenance.trust', 40) as StewardEvidenceTrust
+  if (!EVIDENCE_TRUST.has(trust)) throw new Error('evidence.provenance.trust is not supported.')
   return {
     sourceKind: sourceKind as StewardEvidenceProvenance['sourceKind'],
     sourceRef: text(source.sourceRef, 'evidence.provenance.sourceRef', 500),
@@ -448,7 +466,8 @@ function evidenceProvenance(value: unknown): StewardEvidenceProvenance {
     ...(sessionRef ? { sessionRef } : {}),
     ...(captureRange ? { captureRange } : {}),
     ...(transform ? { transform } : {}),
-    ...(notes ? { notes } : {})
+    ...(notes ? { notes } : {}),
+    trust
   }
 }
 
@@ -537,6 +556,7 @@ function verdictRecord(value: unknown): StewardHumanVerdict {
     'evidenceIds',
     'supersedesVerdictId',
     'authority',
+    'manualReviewConfirmed',
     'decidedAt',
     'decidedBy'
   ])
@@ -547,6 +567,12 @@ function verdictRecord(value: unknown): StewardHumanVerdict {
     ? undefined
     : identifier(source.supersedesVerdictId, 'verdict.supersedesVerdictId')
   const authority = recordAuthority(source.authority, 'verdict.authority')
+  const manualReviewConfirmed = source.manualReviewConfirmed === undefined
+    ? authority === 'local-trusted'
+    : source.manualReviewConfirmed === true
+  if (authority === 'local-trusted' && !manualReviewConfirmed) {
+    throw new Error('Trusted local verdict requires explicit manual evidence review confirmation.')
+  }
   const decidedBy = authority === 'imported-source-claim'
     ? actor(source.decidedBy, 'verdict.decidedBy')
     : decisionActor(source.decidedBy, 'verdict.decidedBy')
@@ -565,6 +591,7 @@ function verdictRecord(value: unknown): StewardHumanVerdict {
     evidenceIds: stringIds(source.evidenceIds, 'verdict.evidenceIds'),
     ...(supersedesVerdictId ? { supersedesVerdictId } : {}),
     authority,
+    manualReviewConfirmed,
     decidedAt: numberValue(source.decidedAt, 'verdict.decidedAt'),
     decidedBy
   }
@@ -1160,6 +1187,7 @@ function anonymizeCase(
         producer: 'producer-redacted',
         producerVersion: 'redacted',
         capturedAt: relativeTime(entry.provenance.capturedAt),
+        trust: entry.provenance.trust ?? 'manual-unverified',
         ...(entry.provenance.sourceKind === 'incident-recorder'
           ? { sessionRef: anonymizedSessionId }
           : {}),
@@ -1326,7 +1354,8 @@ function assertAnonymizedCaseSchema(value: StewardPortableCase): void {
       (entry.provenance.captureRange !== undefined &&
         entry.provenance.captureRange !== '[normalized]') ||
       (entry.provenance.transform !== undefined && entry.provenance.transform !== 'redacted') ||
-      entry.provenance.notes !== undefined
+      entry.provenance.notes !== undefined ||
+      !EVIDENCE_TRUST.has(entry.provenance.trust ?? 'manual-unverified')
     ) {
       throw new Error('Anonymized evidence metadata contains non-allowlisted free-form data.')
     }
@@ -1479,6 +1508,7 @@ function normalizeImportedSourceClaims(
         }).slice(0, 16)}`,
         producer: 'Imported source claim',
         producerVersion: 'untrusted',
+        trust: 'imported-source-claim',
         ...(entry.provenance.sessionRef ? { sessionRef: value.identity.sessionId } : {})
       },
       lockedBy: normalizeActor(entry.lockedBy)
@@ -1490,6 +1520,7 @@ function normalizeImportedSourceClaims(
     verdicts: value.verdicts.map((entry) => ({
       ...entry,
       authority: 'imported-source-claim',
+      manualReviewConfirmed: false,
       decidedBy: normalizeActor(entry.decidedBy)
     })),
     dissents: value.dissents.map((entry) => ({
@@ -1793,7 +1824,7 @@ export class StewardCaseStore {
     if (provenance.sourceKind === 'incident-recorder') {
       throw new Error('Incident-recorder evidence must be derived from a verified persisted clip.')
     }
-    return this.lockEvidenceRecord(input, provenance)
+    return this.lockEvidenceRecord(input, { ...provenance, trust: 'manual-unverified' })
   }
 
   private lockEvidenceRecord(
@@ -1843,7 +1874,8 @@ export class StewardCaseStore {
       capturedAt: numberValue(clip.createdAt, 'incident clip.createdAt'),
       sessionRef: capture.captureSession.captureSessionId,
       captureRange: `${clip.window[0]?.t ?? clip.at}-${clip.window.at(-1)?.t ?? clip.at}`,
-      transform: 'incident-recorder.v1'
+      transform: 'incident-recorder.v1',
+      trust: 'local-user-sealed'
     })
     return this.lockEvidenceRecord({
       caseId,
@@ -1889,6 +1921,9 @@ export class StewardCaseStore {
     const owner = decisionActor(input.actor)
     const current = this.mutableCase(input.caseId)
     if (!FINDINGS.has(input.finding)) throw new Error('Unsupported verdict finding.')
+    if (input.manualReviewConfirmed !== true) {
+      throw new Error('A trusted local verdict requires explicit manual review of evidence provenance.')
+    }
     const ruleCitationIds = stringIds(input.ruleCitationIds, 'ruleCitationIds')
     const evidenceIds = stringIds(input.evidenceIds, 'evidenceIds')
     const verdictId = input.verdictId ? identifier(input.verdictId, 'verdictId') : this.newId('verdict')
@@ -1908,6 +1943,7 @@ export class StewardCaseStore {
       evidenceIds,
       ...(supersedesVerdictId ? { supersedesVerdictId } : {}),
       authority: 'local-trusted',
+      manualReviewConfirmed: true,
       decidedAt: Math.trunc(this.now()),
       decidedBy: owner
     }
@@ -2044,6 +2080,7 @@ export class StewardCaseStore {
         integrityState: 'unanchored' as const,
         eventCount: events.length
       },
+      trustModel: STEWARD_EXPORT_TRUST_MODEL,
       case: projected.caseValue,
       events,
       evidence: projected.evidence,
@@ -2179,6 +2216,7 @@ export class StewardCaseStore {
       'profile',
       'exportedAt',
       'source',
+      'trustModel',
       'case',
       'events',
       'evidence',
@@ -2198,6 +2236,25 @@ export class StewardCaseStore {
     const sourceCaseRef = text(source.caseRef, 'package.source.caseRef', 160)
     if (source.integrityState !== 'unanchored') throw new Error('Steward package integrity state must be unanchored.')
     const sourceEventCount = numberValue(source.eventCount, 'package.source.eventCount')
+    const trustModel = bundle.trustModel === undefined
+      ? STEWARD_EXPORT_TRUST_MODEL
+      : plain(bundle.trustModel, 'package.trustModel')
+    onlyKeys(trustModel, 'package.trustModel', [
+      'clipSeal',
+      'corruptionAndRendererTamperProtected',
+      'appOriginAuthenticated',
+      'sameUserProcessAuthenticity',
+      'authoritativeVerdictsRequireManualReview'
+    ])
+    if (
+      trustModel.clipSeal !== 'local-user-sealed' ||
+      trustModel.corruptionAndRendererTamperProtected !== true ||
+      trustModel.appOriginAuthenticated !== false ||
+      trustModel.sameUserProcessAuthenticity !== false ||
+      trustModel.authoritativeVerdictsRequireManualReview !== true
+    ) {
+      throw new Error('Steward package trust model overstates local clip authenticity.')
+    }
     const caseValue = this.validatePortableCase(bundle.case)
     if (bundle.profile === 'anonymized') assertAnonymizedCaseSchema(caseValue)
     if (sourceCaseRef !== caseValue.caseId) throw new Error('Steward package source case reference mismatch.')
@@ -2244,6 +2301,7 @@ export class StewardCaseStore {
     }
     return {
       ...bundle,
+      trustModel: STEWARD_EXPORT_TRUST_MODEL,
       case: caseValue,
       events,
       evidence: evidenceValues,

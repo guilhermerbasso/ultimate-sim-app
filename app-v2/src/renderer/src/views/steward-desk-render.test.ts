@@ -226,4 +226,17 @@ describe('StewardDeskView', () => {
       { caseId: current.caseId, evidenceId: 'evidence-1' }
     )
   })
+
+  it('requires explicit manual provenance review before enabling an authoritative verdict', async () => {
+    renderDesk([fixture('case-review', 'Manual review case')])
+    await screen.findByRole('heading', { name: 'Manual review case' })
+    const submit = screen.getByRole('button', { name: 'Record human verdict' }) as HTMLButtonElement
+    const confirmation = screen.getByRole('checkbox', {
+      name: /manually reviewed the selected evidence/i
+    })
+
+    expect(submit.disabled).toBe(true)
+    fireEvent.click(confirmation)
+    expect(submit.disabled).toBe(false)
+  })
 })

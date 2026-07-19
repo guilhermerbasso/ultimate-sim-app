@@ -75,9 +75,14 @@ export interface StewardEvidenceProvenance {
   captureRange?: string
   transform?: string
   notes?: string
+  trust?: StewardEvidenceTrust
 }
 
 export type StewardEvidenceState = 'available' | 'missing' | 'corrupt' | 'redacted'
+export type StewardEvidenceTrust =
+  | 'local-user-sealed'
+  | 'manual-unverified'
+  | 'imported-source-claim'
 
 export interface StewardEvidenceLock {
   evidenceId: string
@@ -119,6 +124,7 @@ export interface StewardHumanVerdict {
   evidenceIds: string[]
   supersedesVerdictId?: string
   authority?: StewardRecordAuthority
+  manualReviewConfirmed?: boolean
   decidedAt: number
   decidedBy: StewardActor
 }
@@ -278,6 +284,7 @@ export interface StewardVerdictInput {
   ruleCitationIds: string[]
   evidenceIds: string[]
   supersedesVerdictId?: string
+  manualReviewConfirmed?: boolean
 }
 
 export interface StewardDissentInput {
@@ -340,6 +347,13 @@ export interface StewardExportBundle {
     headHash: string
     integrityState: 'unanchored'
     eventCount: number
+  }
+  trustModel: {
+    clipSeal: 'local-user-sealed'
+    corruptionAndRendererTamperProtected: true
+    appOriginAuthenticated: false
+    sameUserProcessAuthenticity: false
+    authoritativeVerdictsRequireManualReview: true
   }
   case: StewardPortableCase
   events: StewardExportEvent[]

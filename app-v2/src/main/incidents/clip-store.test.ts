@@ -6,7 +6,7 @@ import {
   rmSync,
   writeFileSync
 } from 'node:fs'
-import { createHmac, timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { IncidentClip } from '../../shared/incidents'
@@ -17,6 +17,7 @@ import {
   incidentClipFileName,
   type IncidentClipIntegrityCodec
 } from './clip-store'
+import { canonicalStringify } from '../steward-desk/canonical'
 
 const roots: string[] = []
 
@@ -24,9 +25,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-class TestIntegrityCodec implements IncidentClipIntegrityCodec {
-  private readonly key = 'test-only-incident-integrity-key'
-
+class SameUserSafeStorageSemanticsCodec implements IncidentClipIntegrityCodec {
   available(): boolean {
     return true
   }
@@ -34,14 +33,14 @@ class TestIntegrityCodec implements IncidentClipIntegrityCodec {
   seal(plainText: string): Buffer {
     return Buffer.from(JSON.stringify({
       plainText,
-      mac: createHmac('sha256', this.key).update(plainText).digest('hex')
+      digest: createHash('sha256').update(plainText).digest('hex')
     }), 'utf8')
   }
 
   open(sealed: Buffer): string {
-    const parsed = JSON.parse(sealed.toString('utf8')) as { plainText: string; mac: string }
-    const actual = Buffer.from(createHmac('sha256', this.key).update(parsed.plainText).digest('hex'), 'hex')
-    const expected = Buffer.from(parsed.mac, 'hex')
+    const parsed = JSON.parse(sealed.toString('utf8')) as { plainText: string; digest: string }
+    const actual = Buffer.from(createHash('sha256').update(parsed.plainText).digest('hex'), 'hex')
+    const expected = Buffer.from(parsed.digest, 'hex')
     if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
       throw new Error('test integrity mismatch')
     }
@@ -53,7 +52,7 @@ function harness(name: string): { root: string; store: IncidentClipStore } {
   const root = join(process.cwd(), `.incident-clip-store-${name}-${process.pid}-${roots.length}`)
   mkdirSync(root, { recursive: true })
   roots.push(root)
-  return { root, store: new IncidentClipStore(root, new TestIntegrityCodec()) }
+  return { root, store: new IncidentClipStore(root, new SameUserSafeStorageSemanticsCodec()) }
 }
 
 function clip(id = 'inc-100-contact'): IncidentClip {
@@ -85,8 +84,8 @@ function sealedPath(root: string, id = 'inc-100-contact'): string {
   return join(root, incidentClipFileName(id))
 }
 
-function rewritePlainKeepingMac(path: string, mutate: (value: Record<string, unknown>) => void): void {
-  const envelope = JSON.parse(readFileSync(path, 'utf8')) as { plainText: string; mac: string }
+function rewritePlainKeepingSeal(path: string, mutate: (value: Record<string, unknown>) => void): void {
+  const envelope = JSON.parse(readFileSync(path, 'utf8')) as { plainText: string; digest: string }
   const value = JSON.parse(envelope.plainText) as Record<string, unknown>
   mutate(value)
   envelope.plainText = JSON.stringify(value)
@@ -101,6 +100,14 @@ describe('IncidentClipStore', () => {
     expect(assertVerifiedIncidentClip(verified)).toMatchObject({
       id: 'inc-100-contact',
       captureSession: { lifecycleGeneration: 1 }
+    })
+    expect(verified.trust).toEqual({
+      boundary: 'local-windows-user',
+      protection: 'electron-safe-storage',
+      corruptionDetected: true,
+      rendererTamperProtected: true,
+      appOriginAuthenticated: false,
+      sameUserProcessAuthenticity: false
     })
     expect(existsSync(sealedPath(test.root))).toBe(true)
     expect(readdirSync(test.root).some((name) => name.endsWith('.tmp'))).toBe(false)
@@ -117,7 +124,7 @@ describe('IncidentClipStore', () => {
       const test = harness(name)
       test.store.save(clip(`inc-${name}`))
       const path = sealedPath(test.root, `inc-${name}`)
-      rewritePlainKeepingMac(path, mutate)
+      rewritePlainKeepingSeal(path, mutate)
 
       expect(() => test.store.getVerified(`inc-${name}`)).toThrowError(IncidentClipIntegrityError)
       expect(existsSync(path)).toBe(false)
@@ -131,6 +138,24 @@ describe('IncidentClipStore', () => {
     bytes[bytes.length - 1] ^= 0xff
     writeFileSync(path, bytes)
     expect(() => test.store.getVerified('inc-bytes')).toThrow(/integrity verification failed/i)
+  })
+
+  it('does not claim app origin when another same-user process can reseal changed content', () => {
+    const test = harness('same-user')
+    test.store.save(clip('inc-same-user'))
+    const path = sealedPath(test.root, 'inc-same-user')
+    const envelope = JSON.parse(readFileSync(path, 'utf8')) as { plainText: string; digest: string }
+    const changed = JSON.parse(envelope.plainText) as Record<string, unknown>
+    changed.summary = 'Content resealed by another process under the same Windows user.'
+    writeFileSync(
+      path,
+      new SameUserSafeStorageSemanticsCodec().seal(canonicalStringify(changed))
+    )
+
+    const verified = test.store.getVerified('inc-same-user')
+    expect(verified?.clip.summary).toContain('another process')
+    expect(verified?.trust.appOriginAuthenticated).toBe(false)
+    expect(verified?.trust.sameUserProcessAuthenticity).toBe(false)
   })
 
   it('quarantines legacy unverified clips and interrupted atomic writes', () => {

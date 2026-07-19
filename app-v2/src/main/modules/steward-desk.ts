@@ -140,8 +140,26 @@ export function register(ctx: ModuleContext, options: StewardDeskModuleOptions =
     authorize(ctx, event)
     return mutate(() => store.citeRule({ ...input, actor: trustedStewardActor() }))
   })
-  ctx.ipcMain.handle(STEWARD_CHANNELS.recordVerdict, (event, input: StewardVerdictInput) => {
+  ctx.ipcMain.handle(STEWARD_CHANNELS.recordVerdict, async (event, input: StewardVerdictInput) => {
     authorize(ctx, event)
+    if (input?.manualReviewConfirmed !== true) {
+      throw new Error('Manual evidence provenance review was not confirmed.')
+    }
+    const confirmation = {
+      type: 'warning' as const,
+      title: 'Confirm manual evidence review',
+      message: 'Confirm that you manually reviewed the selected evidence and its trust limits.',
+      detail: 'Local-user sealing detects corruption and renderer tampering, but it does not authenticate app origin or another process under the same Windows user.',
+      buttons: ['Confirm manual review', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true
+    }
+    const main = ctx.getMainWindow()
+    const result = main
+      ? await dialog.showMessageBox(main, confirmation)
+      : await dialog.showMessageBox(confirmation)
+    if (result.response !== 0) throw new Error('Manual evidence provenance review was not confirmed.')
     return mutate(() => store.recordVerdict({ ...input, actor: trustedStewardActor() }))
   })
   ctx.ipcMain.handle(STEWARD_CHANNELS.recordDissent, (event, input: StewardDissentInput) => {

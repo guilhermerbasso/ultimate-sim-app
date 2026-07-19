@@ -153,7 +153,8 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
   const [verdict, setVerdict] = useState({
     finding: 'insufficient-evidence' as StewardVerdictFinding,
     decisionText: '',
-    actionText: ''
+    actionText: '',
+    manualReviewConfirmed: false
   })
   const [dissent, setDissent] = useState({ verdictId: '', statement: '', grounds: '' })
   const [appeal, setAppeal] = useState({ verdictId: '', grounds: '', requestedRemedy: '' })
@@ -181,7 +182,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       Object.values(bookmark).some(Boolean) ||
       Object.values(manualEvidence).some(Boolean) ||
       Object.values(rule).some(Boolean) ||
-      Boolean(verdict.decisionText || verdict.actionText) ||
+      Boolean(verdict.decisionText || verdict.actionText || verdict.manualReviewConfirmed) ||
       Boolean(dissent.statement || dissent.grounds) ||
       Boolean(appeal.grounds || appeal.requestedRemedy) ||
       Boolean(resolution.reasoning) ||
@@ -213,7 +214,12 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
     setBookmark({ sourceId: '', label: '', lap: '', sessionTimeSec: '', replayFrame: '' })
     setManualEvidence({ summary: '', sourceRef: '', content: '' })
     setRule({ rulesetId: '', version: '', section: '', title: '', text: '', source: '' })
-    setVerdict({ finding: 'insufficient-evidence', decisionText: '', actionText: '' })
+    setVerdict({
+      finding: 'insufficient-evidence',
+      decisionText: '',
+      actionText: '',
+      manualReviewConfirmed: false
+    })
     setDissent({ verdictId: latestVerdict, statement: '', grounds: '' })
     setAppeal({ verdictId: latestVerdict, grounds: '', requestedRemedy: '' })
     setResolution({ appealId: firstOpenAppeal, resolution: 'upheld', reasoning: '' })
@@ -467,7 +473,14 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
       },
       'steward.toast.verdict'
     )
-    if (next) setVerdict({ finding: 'insufficient-evidence', decisionText: '', actionText: '' })
+    if (next) {
+      setVerdict({
+        finding: 'insufficient-evidence',
+        decisionText: '',
+        actionText: '',
+        manualReviewConfirmed: false
+      })
+    }
   }
 
   async function recordDissent(event: FormEvent): Promise<void> {
@@ -910,6 +923,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                               [tt(language, 'steward.details.sessionRef'), entry.provenance.sessionRef],
                               [tt(language, 'steward.details.captureRange'), entry.provenance.captureRange],
                               [tt(language, 'steward.details.transform'), entry.provenance.transform],
+                              [tt(language, 'steward.details.trust'), entry.provenance.trust ?? 'manual-unverified'],
                               [tt(language, 'steward.details.notes'), entry.provenance.notes],
                               [tt(language, 'steward.details.lockedAt'), formatDate(entry.lockedAt, language)],
                               [tt(language, 'steward.details.lockedBy'), `${entry.lockedBy.displayName} · ${entry.lockedBy.id} · ${entry.lockedBy.role}`]
@@ -1045,6 +1059,7 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                             [tt(language, 'steward.details.evidenceRefs'), entry.evidenceIds.join(', ')],
                             [tt(language, 'steward.details.supersedes'), entry.supersedesVerdictId],
                             [tt(language, 'steward.details.authority'), entry.authority ?? 'local-trusted'],
+                            [tt(language, 'steward.details.manualReview'), entry.manualReviewConfirmed ? 'yes' : 'no'],
                             [tt(language, 'steward.details.decidedAt'), formatDate(entry.decidedAt, language)],
                             [tt(language, 'steward.details.decidedBy'), `${entry.decidedBy.displayName} · ${entry.decidedBy.id} · ${entry.decidedBy.role}${entry.decidedBy.claimedRole ? ` · claimed ${entry.decidedBy.claimedRole}` : ''}`]
                           ]} />
@@ -1094,7 +1109,22 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                   <Field label={tt(language, 'steward.field.manualAction')} hint={tt(language, 'steward.field.manualActionHint')}>
                     <textarea disabled={!healthy} rows={2} value={verdict.actionText} onChange={(event) => setVerdict({ ...verdict, actionText: event.target.value })} />
                   </Field>
-                  <button className="steward-primary" type="submit" disabled={!healthy || busy}>
+                  <label className="steward-check">
+                    <input
+                      type="checkbox"
+                      checked={verdict.manualReviewConfirmed}
+                      onChange={(event) => setVerdict({
+                        ...verdict,
+                        manualReviewConfirmed: event.target.checked
+                      })}
+                    />
+                    {tt(language, 'steward.verdict.manualReview')}
+                  </label>
+                  <button
+                    className="steward-primary"
+                    type="submit"
+                    disabled={!healthy || busy || !verdict.manualReviewConfirmed}
+                  >
                     {tt(language, 'steward.verdict.record')}
                   </button>
                 </form>

@@ -52,6 +52,15 @@ export interface IncidentCaptureSessionIdentity {
   trackConfigName?: string
 }
 
+export interface IncidentClipSealTrust {
+  boundary: 'local-windows-user'
+  protection: 'electron-safe-storage'
+  corruptionDetected: true
+  rendererTamperProtected: true
+  appOriginAuthenticated: false
+  sameUserProcessAuthenticity: false
+}
+
 export interface IncidentDetectionConfig {
   /** Yaw-rate magnitude (rad/s) that flags a spin while moving. */
   spinYawRateRadSec: number

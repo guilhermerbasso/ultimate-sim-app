@@ -20,6 +20,7 @@ import {
   type IncidentCaptureSessionIdentity,
   type IncidentClip,
   type IncidentClipMeta,
+  type IncidentClipSealTrust,
   type IncidentSeverity,
   type IncidentType
 } from '../../shared/incidents'
@@ -87,8 +88,18 @@ export interface IncidentClipIntegrityCodec {
 export interface VerifiedIncidentClip {
   readonly clip: IncidentClip
   readonly contentHash: string
+  readonly trust: IncidentClipSealTrust
   readonly [VERIFIED_CLIP]: true
 }
+
+export const LOCAL_USER_SEALED_CLIP_TRUST: IncidentClipSealTrust = Object.freeze({
+  boundary: 'local-windows-user',
+  protection: 'electron-safe-storage',
+  corruptionDetected: true,
+  rendererTamperProtected: true,
+  appOriginAuthenticated: false,
+  sameUserProcessAuthenticity: false
+})
 
 export interface IncidentClipRepository {
   load(): void
@@ -289,6 +300,7 @@ function verifiedClip(clip: IncidentClip, canonical: string): VerifiedIncidentCl
   return Object.freeze({
     clip: Object.freeze(clip),
     contentHash: clipHash(canonical),
+    trust: LOCAL_USER_SEALED_CLIP_TRUST,
     [VERIFIED_CLIP]: true as const
   })
 }

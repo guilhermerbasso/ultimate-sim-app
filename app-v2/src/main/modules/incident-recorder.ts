@@ -176,6 +176,7 @@ export function register(ctx: ModuleContext, options: IncidentRecorderOptions = 
 
     const previousCaptureSession = captureSession
     const session = sessionLifecycle.observe(snapshot)
+    if (session.tentative) return
     if (session.changed) {
       if (previousCaptureSession) finalizeReady(Number.MAX_SAFE_INTEGER)
       ring = []

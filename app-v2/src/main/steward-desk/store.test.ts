@@ -211,7 +211,8 @@ function seedDecision(store: StewardCaseStore, current: StewardCase): {
     decisionText: 'Human steward found avoidable contact after reviewing the locked clip.',
     actionText: 'Manual league action: review with the chief steward.',
     ruleCitationIds: [rule.citationId],
-    evidenceIds: [evidenceId]
+    evidenceIds: [evidenceId],
+    manualReviewConfirmed: true
   })
   return { current: next, evidenceId, rule, verdict: next.verdicts[0] }
 }
@@ -340,6 +341,8 @@ describe('StewardCaseStore', () => {
     const exactNow = 1_752_000_000_000
     const test = harness('redaction', exactNow)
     const seeded = seedDecision(test.store, test.store.createCase(caseInput()))
+    expect(seeded.current.evidence[0].provenance.trust).toBe('local-user-sealed')
+    expect(seeded.verdict.manualReviewConfirmed).toBe(true)
     const withDissent = test.store.recordDissent({
       caseId: seeded.current.caseId,
       actor: participant,
@@ -491,7 +494,8 @@ describe('StewardCaseStore', () => {
       decisionText: 'Chief steward recorded a replacement human decision after appeal.',
       ruleCitationIds: [seeded.rule.citationId],
       evidenceIds: [seeded.evidenceId],
-      supersedesVerdictId: seeded.verdict.verdictId
+      supersedesVerdictId: seeded.verdict.verdictId,
+      manualReviewConfirmed: true
     })
     expect(current.verdicts).toHaveLength(2)
     expect(current.verdicts[1].supersedesVerdictId).toBe(seeded.verdict.verdictId)
@@ -509,6 +513,13 @@ describe('StewardCaseStore', () => {
     })
     const bundle = source.store.exportCase(seeded.current.caseId, 'full-local')
     const raw = serializeStewardExportBundle(bundle)
+    expect(bundle.trustModel).toEqual({
+      clipSeal: 'local-user-sealed',
+      corruptionAndRendererTamperProtected: true,
+      appOriginAuthenticated: false,
+      sameUserProcessAuthenticity: false,
+      authoritativeVerdictsRequireManualReview: true
+    })
     expect(bundle.events).toHaveLength(bundle.source.eventCount)
     expect(bundle.events.at(-1)?.eventHash).toBe(bundle.source.headHash)
 
@@ -526,6 +537,8 @@ describe('StewardCaseStore', () => {
     expect(imported.status).toBe('under-review')
     expect(imported.verdicts[0].authority).toBe('imported-source-claim')
     expect(imported.appeals[0].authority).toBe('imported-source-claim')
+    expect(imported.verdicts[0].manualReviewConfirmed).toBe(false)
+    expect(imported.evidence[0].provenance.trust).toBe('imported-source-claim')
     expect(imported.integrity.state).toBe('unanchored')
     expect(imported.importCompleted).toBe(true)
     expect(imported.history.at(-1)?.type).toBe('import-completed')
@@ -551,6 +564,18 @@ describe('StewardCaseStore', () => {
     const tampered = JSON.parse(raw) as Record<string, unknown>
     ;(tampered.case as Record<string, unknown>).title = 'Changed after export'
     expect(() => parseStewardExportBundle(JSON.stringify(tampered))).toThrow(/hash mismatch/i)
+
+    const overstated = JSON.parse(raw) as StewardExportBundle
+    ;(overstated.trustModel as { appOriginAuthenticated: boolean }).appOriginAuthenticated = true
+    expect(() => harness('overstated-trust-target').store.importCase(
+      serializeStewardExportBundle(rehashPackage(overstated))
+    )).toThrow(/overstates local clip authenticity/i)
+
+    const legacyV2 = JSON.parse(raw) as StewardExportBundle
+    delete (legacyV2 as unknown as Record<string, unknown>).trustModel
+    expect(harness('legacy-v2-trust-target').store.importCase(
+      serializeStewardExportBundle(rehashPackage(legacyV2))
+    ).importCompleted).toBe(true)
   })
 
   it('rejects rehashed packages whose event chain or case state is not canonical', () => {
@@ -602,6 +627,7 @@ describe('StewardCaseStore', () => {
     })
     expect(imported.verdicts[0]).toMatchObject({
       authority: 'imported-source-claim',
+      manualReviewConfirmed: false,
       decidedBy: {
         role: 'source-claim',
         claimedRole: 'league-admin'
@@ -609,6 +635,7 @@ describe('StewardCaseStore', () => {
     })
     expect(imported.verdicts[0].decidedBy.displayName).not.toContain('Forged Race Director')
     expect(imported.evidence[0].provenance.sourceKind).toBe('import')
+    expect(imported.evidence[0].provenance.trust).toBe('imported-source-claim')
     expect(() => target.store.fileAppeal({
       caseId: imported.caseId,
       actor: participant,
@@ -617,6 +644,16 @@ describe('StewardCaseStore', () => {
       requestedRemedy: 'Reject.'
     })).toThrow(/local trusted re-adjudication/i)
 
+    expect(() => target.store.recordVerdict({
+      caseId: imported.caseId,
+      actor: steward,
+      finding: 'procedural',
+      decisionText: 'Attempt without explicit provenance review.',
+      ruleCitationIds: imported.verdicts[0].ruleCitationIds,
+      evidenceIds: imported.verdicts[0].evidenceIds,
+      supersedesVerdictId: imported.verdicts[0].verdictId
+    })).toThrow(/manual review of evidence provenance/i)
+
     imported = target.store.recordVerdict({
       caseId: imported.caseId,
       actor: steward,
@@ -624,10 +661,12 @@ describe('StewardCaseStore', () => {
       decisionText: 'A local trusted steward independently re-adjudicated the imported claim.',
       ruleCitationIds: imported.verdicts[0].ruleCitationIds,
       evidenceIds: imported.verdicts[0].evidenceIds,
-      supersedesVerdictId: imported.verdicts[0].verdictId
+      supersedesVerdictId: imported.verdicts[0].verdictId,
+      manualReviewConfirmed: true
     })
     expect(imported.verdicts.at(-1)).toMatchObject({
       authority: 'local-trusted',
+      manualReviewConfirmed: true,
       decidedBy: { role: 'steward' }
     })
     expect(imported.status).toBe('decided')

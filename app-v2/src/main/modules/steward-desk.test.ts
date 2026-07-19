@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { IpcMainInvokeEvent } from 'electron'
+import { dialog, type IpcMainInvokeEvent } from 'electron'
 import type { ModuleContext } from '../module-context'
 import { STEWARD_CHANNELS, type StewardCase } from '../../shared/steward-desk'
 import type { IncidentClip } from '../../shared/incidents'
@@ -13,7 +13,8 @@ import {
 vi.mock('electron', () => ({
   dialog: {
     showOpenDialog: vi.fn(),
-    showSaveDialog: vi.fn()
+    showSaveDialog: vi.fn(),
+    showMessageBox: vi.fn(async () => ({ response: 0 }))
   },
   safeStorage: {
     isEncryptionAvailable: () => true,
@@ -228,5 +229,22 @@ describe('Steward Desk IPC trust boundary', () => {
         sessionRef: 'forged'
       }
     })).toThrow(/trusted incident evidence channel/i)
+  })
+
+  it('requires a main-process native confirmation before authoritative adjudication', async () => {
+    const test = harness('manual-review')
+    vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({
+      response: 1,
+      checkboxChecked: false
+    })
+
+    await expect(test.handlers.get(STEWARD_CHANNELS.recordVerdict)!(test.event, {
+      caseId: 'renderer-cannot-bypass',
+      finding: 'procedural',
+      decisionText: 'Forged renderer decision.',
+      ruleCitationIds: ['rule'],
+      evidenceIds: ['evidence'],
+      manualReviewConfirmed: true
+    })).rejects.toThrow(/manual evidence provenance review was not confirmed/i)
   })
 })
