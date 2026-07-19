@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createElement } from 'react'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   RECEIVER_CAPABILITIES,
@@ -101,7 +101,7 @@ class MockWebSocket {
   }
 }
 
-async function renderOpenReceiverSocket(): Promise<MockWebSocket> {
+async function renderOpenReceiver(): Promise<{ socket: MockWebSocket; unmount(): void }> {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
     ok: true,
     status: 200,
@@ -123,11 +123,15 @@ async function renderOpenReceiverSocket(): Promise<MockWebSocket> {
   vi.stubGlobal('WebSocket', MockWebSocket as unknown as typeof WebSocket)
 
   const { ReceiverPwaRoot } = await import('./ReceiverPwaRoot')
-  render(createElement(ReceiverPwaRoot))
+  const rendered = render(createElement(ReceiverPwaRoot))
   await waitFor(() => expect(MockWebSocket.instances).toHaveLength(1))
   const socket = MockWebSocket.instances[0]
   socket.open()
-  return socket
+  return { socket, unmount: rendered.unmount }
+}
+
+async function renderOpenReceiverSocket(): Promise<MockWebSocket> {
+  return (await renderOpenReceiver()).socket
 }
 
 function welcomeMessage(): Record<string, unknown> {
@@ -203,6 +207,94 @@ describe('receiver PWA recovery', () => {
       { type: 'resync', afterSequence: 0, reason: 'gap' },
       { type: 'resync', afterSequence: 3, reason: 'gap' }
     ])
+  })
+
+  it('deduplicates reconnect triggers without moving the original deadline', async () => {
+    const socket = await renderOpenReceiverSocket()
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        socket.close(1012, 'service_restart')
+        window.dispatchEvent(new Event('online'))
+      })
+
+      expect(screen.getByText('1 / 0')).toBeTruthy()
+      expect(vi.getTimerCount()).toBe(1)
+      await act(async () => vi.advanceTimersByTimeAsync(249))
+      expect(MockWebSocket.instances).toHaveLength(1)
+      await act(async () => vi.advanceTimersByTimeAsync(1))
+      expect(MockWebSocket.instances).toHaveLength(2)
+      await act(async () => vi.advanceTimersByTimeAsync(250))
+      expect(MockWebSocket.instances).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels a pending reconnect while offline and reconnects later with backoff', async () => {
+    const socket = await renderOpenReceiverSocket()
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        socket.close(1012, 'service_restart')
+        window.dispatchEvent(new Event('offline'))
+      })
+
+      expect(vi.getTimerCount()).toBe(0)
+      await act(async () => vi.advanceTimersByTimeAsync(1_000))
+      expect(MockWebSocket.instances).toHaveLength(1)
+      await act(async () => {
+        window.dispatchEvent(new Event('online'))
+      })
+      expect(screen.getByText('2 / 0')).toBeTruthy()
+      await act(async () => vi.advanceTimersByTimeAsync(499))
+      expect(MockWebSocket.instances).toHaveLength(1)
+      await act(async () => vi.advanceTimersByTimeAsync(1))
+      expect(MockWebSocket.instances).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('cancels a pending reconnect on unmount without leaking a later socket', async () => {
+    const { socket, unmount } = await renderOpenReceiver()
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        socket.close(1012, 'service_restart')
+        unmount()
+        window.dispatchEvent(new Event('online'))
+      })
+
+      expect(vi.getTimerCount()).toBe(0)
+      await act(async () => vi.advanceTimersByTimeAsync(5_000))
+      expect(MockWebSocket.instances).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('uses the next backoff delay after a genuine later disconnect', async () => {
+    const first = await renderOpenReceiverSocket()
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        first.close(1012, 'service_restart')
+        await vi.advanceTimersByTimeAsync(250)
+      })
+      expect(MockWebSocket.instances).toHaveLength(2)
+
+      await act(async () => {
+        MockWebSocket.instances[1].close(1012, 'service_restart')
+      })
+      expect(screen.getByText('2 / 0')).toBeTruthy()
+      await act(async () => vi.advanceTimersByTimeAsync(499))
+      expect(MockWebSocket.instances).toHaveLength(2)
+      await act(async () => vi.advanceTimersByTimeAsync(1))
+      expect(MockWebSocket.instances).toHaveLength(3)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('clears a retryable server error after the next successful welcome', async () => {
