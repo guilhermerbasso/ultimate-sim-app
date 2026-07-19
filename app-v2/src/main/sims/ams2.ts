@@ -12,6 +12,18 @@ function validLapSeconds(value: unknown): number | undefined {
   return n !== undefined && n > 0 ? n : undefined
 }
 
+function ams2SessionType(value: unknown): string | undefined {
+  switch (Math.trunc(num(value, 0))) {
+    case 1: return 'Practice'
+    case 2: return 'Test'
+    case 3: return 'Qualifying'
+    case 4: return 'Formation Lap'
+    case 5: return 'Race'
+    case 6: return 'Time Attack'
+    default: return undefined
+  }
+}
+
 export class AMS2Provider implements TelemetryProvider {
   readonly id = 'ams2' as const
   private koffi: any | null = null
@@ -39,6 +51,8 @@ export class AMS2Provider implements TelemetryProvider {
     if (!this.isConnected()) return null
     const data = this.memory?.view
     if (!data) return null
+    const completedLaps = Math.max(0, Math.trunc(num(data.mLapsCompleted, 0)))
+    const scheduledLaps = Math.max(0, Math.trunc(num(data.mLapsInEvent, 0)))
     return {
       sim: 'ams2',
       connected: true,
@@ -51,11 +65,13 @@ export class AMS2Provider implements TelemetryProvider {
       brake: num(data.mBrake),
       clutch: num(data.mClutch),
       steerAngleDeg: num(data.mSteering) * 450,
-      sessionType: String(data.mSessionState ?? ''),
+      sessionType: ams2SessionType(data.mSessionState),
       carName: firstString(data.mCarName),
       trackName: firstString(data.mTrackLocation) ?? firstString(data.mTrackVariation),
       sessionTimeRemainingSec: optionalNum(data.mEventTimeRemaining),
-      currentLap: Math.trunc(num(data.mLapsCompleted, 0)) + 1,
+      currentLap: completedLaps + 1,
+      completedLaps,
+      lapsRemaining: scheduledLaps > 0 ? Math.max(0, scheduledLaps - completedLaps) : undefined,
       lapDistPct: optionalNum(data.mLapDistance) === undefined ? undefined : num(data.mLapDistance) / Math.max(1, num(data.mTrackLength, 1)),
       lastLapTimeSec: validLapSeconds(data.mLastLapTime),
       bestLapTimeSec: validLapSeconds(data.mBestLapTime),
