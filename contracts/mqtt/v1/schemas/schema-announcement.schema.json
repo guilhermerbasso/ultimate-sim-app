@@ -14,6 +14,48 @@
       "type": "array",
       "minItems": 8,
       "maxItems": 8,
+      "allOf": [
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "availability" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "telemetry" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "session" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "event" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "health" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "announcement" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "command" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": { "type": "object", "properties": { "kind": { "const": "result" } }, "required": ["kind"] },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ],
       "items": {
         "type": "object",
         "additionalProperties": false,

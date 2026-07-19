@@ -16,6 +16,7 @@ import {
   createMqttCapabilityGrant,
   emptyMqttHealthMetrics,
   mqttSchemaAnnouncement,
+  mqttBrokerUrls,
   mqttTopics,
   normalizeMqttLocalConfig,
   parseMqttCloudEvent,
@@ -114,6 +115,9 @@ describe('local MQTT v1 contracts', () => {
     expect(() => normalizeMqttLocalConfig({ host: '192.168.1.10' })).toThrow(/loopback/i)
     expect(normalizeMqttLocalConfig({ instanceId: 'rig-1' }).instanceId).toBe('rig-1')
     expect(normalizeMqttLocalConfig({ instanceId: 'rig_' }).instanceId).toBe('simrig')
+    expect(
+      mqttBrokerUrls(normalizeMqttLocalConfig({ host: '::1' })).publisher
+    ).toBe('mqtt://[::1]:1883')
     expect(() => normalizeMqttLocalConfig({ password: 'do-not-serialize' })).toThrow(MqttContractError)
     expect(stableMqttJson(config)).not.toMatch(/password|token|secret|credential/i)
   })
@@ -463,7 +467,10 @@ describe('local MQTT v1 contracts', () => {
     )
     const document = YAML.parse(source) as {
       asyncapi?: string
-      servers?: Record<string, { host?: string }>
+      servers?: Record<string, {
+        host?: string
+        variables?: Record<string, { default?: string; enum?: string[] }>
+      }>
       channels?: Record<string, { address?: string }>
       components?: {
         schemas?: {

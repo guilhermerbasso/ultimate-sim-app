@@ -526,6 +526,45 @@ describe('MQTT certification target conformance', () => {
     expect(session.data.sessionRef).toBe('iracing:session-99')
   })
 
+  it('counts noncritical capacity independently from reserved critical entries', async () => {
+    vi.useFakeTimers()
+    let now = 950_000
+    const config = normalizeMqttLocalConfig({
+      enabled: true,
+      instanceId: 'rig-capacity',
+      retainedMaxAgeMs: 5_000
+    })
+    const broker = new InMemoryMqttBroker(() => now)
+    const target = new MqttCertificationTarget(broker.transportFactory, {
+      now: () => now,
+      monotonicNs: () => BigInt(now) * 1_000_000n
+    })
+    let release: (() => void) | undefined
+    try {
+      await target.start(config)
+      target.ingestTelemetry(snapshot(now, { sessionUniqueId: 100 }))
+      await settle(target)
+
+      release = broker.pausePublishing()
+      now += 5_000
+      vi.advanceTimersByTime(5_000)
+      await Promise.resolve()
+      for (let index = 0; index < 60; index += 1) {
+        target.publishRaceEvent(raceEvent(index, now))
+      }
+
+      expect(target.getStatus().queueDepth).toBe(63)
+      expect(target.getStatus().metrics.overloadDropped).toBe(0)
+      release()
+      release = undefined
+      await settle(target)
+    } finally {
+      release?.()
+      await target.stop()
+      vi.useRealTimers()
+    }
+  })
+
   it('drops command completions from an obsolete configuration epoch', async () => {
     let now = 1_000_000
     let completeHandler: ((message: string) => void) | undefined
