@@ -270,7 +270,9 @@ export interface GenericSerialDeviceConfig {
   // Stable USB identity captured when the device was added/connected. Used to
   // re-match the SAME physical device after Windows reassigns it to a different
   // COM port: `path` is only the (updatable) connect target — identity is the
-  // real key. Absent for adapters that expose no USB ids.
+  // real key. Absent for adapters that expose no USB ids; such legacy/serial-less
+  // entries remain usable but Rig Preflight treats them as unverified unless an
+  // existing governed waiver explicitly covers the risk.
   vendorId?: string
   productId?: string
   serialNumber?: string

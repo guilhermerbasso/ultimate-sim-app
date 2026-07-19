@@ -252,6 +252,13 @@ const iconMap: Record<string, () => ReactElement> = {
   ),
 
   // ── ButtonBox ────────────────────────────────────────────────
+  'rig-preflight': () => (
+    <Svg>
+      <path d="M5 3h12v16H5z" />
+      <path d="M8 7h6M8 11h3" />
+      <path d="m12 15 2 2 4-5" />
+    </Svg>
+  ),
   devices: () => (
     <Svg>
       {/* USB plug: two prongs, connector body, cable, socket */}

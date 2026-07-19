@@ -1026,6 +1026,15 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
   const [addPath, setAddPath] = useState('')
   const [addLabel, setAddLabel] = useState('')
   const [addBaud, setAddBaud] = useState(GENERIC_DEVICE_DEFAULT_BAUD)
+  const addPort = useMemo(
+    () => ports.find((port) => port.path === addPath),
+    [addPath, ports]
+  )
+  const addPortHasStableIdentity = Boolean(
+    addPort?.vendorId &&
+    addPort.productId &&
+    addPort.serialNumber
+  )
 
   // Persisted devices not currently open on the hub (so the user can
   // reconnect them manually).
@@ -1073,6 +1082,7 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
                 {(port.vendorId || port.productId) && (
                   <small>
                     VID:{port.vendorId || '?'} · PID:{port.productId || '?'}
+                    {port.serialNumber ? ` · Serial:${port.serialNumber}` : ''}
                   </small>
                 )}
               </span>
@@ -1191,6 +1201,11 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
                 {offlinePersisted.map((config) => (
                   <li key={`${config.path}-${config.id ?? ''}`}>
                     <code>{config.path}</code> · {config.label} · {config.baud} baud
+                    <small style={{ display: 'block', color: config.vendorId && config.productId && config.serialNumber ? 'var(--accent)' : 'var(--warning)' }}>
+                      {config.vendorId && config.productId && config.serialNumber
+                        ? `Preflight identity bound: VID ${config.vendorId}, PID ${config.productId}, serial ${config.serialNumber}.`
+                        : 'Preflight identity incomplete: reconnect or re-add this device. COM path or hub ID alone cannot certify hardware.'}
+                    </small>
                     {config.id && (
                       <button
                         className="ghost-action compact"
@@ -1224,6 +1239,13 @@ function DevicesPanel(props: DevicesPanelProps): ReactElement {
         <div className="config-block">
           <strong>{tt(language, 'arduinos.devices.addGeneric')}</strong>
           <small>Use the companion protocol (T/N/R/B/M/L/C → device; B/E/A → app).</small>
+          {addPath && (
+            <small style={{ display: 'block', marginTop: 6, color: addPortHasStableIdentity ? 'var(--accent)' : 'var(--warning)' }}>
+              {addPortHasStableIdentity
+                ? `Preflight will bind VID ${addPort!.vendorId}, PID ${addPort!.productId}, and serial ${addPort!.serialNumber}.`
+                : 'This port does not expose complete VID/PID/serial identity. It will remain unverified in Rig Preflight unless an existing governed, time-bounded waiver is approved.'}
+            </small>
+          )}
           <form
             className="command-row"
             style={{ flexWrap: 'wrap', gap: 8, position: 'relative', zIndex: 1 }}
