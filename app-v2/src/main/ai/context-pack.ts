@@ -197,15 +197,18 @@ export function deriveTyres(snapshot: TelemetrySnapshot | null, tire?: TireStrat
   const corners: Array<'lf' | 'rf' | 'lr' | 'rr'> = ['lf', 'rf', 'lr', 'rr']
   const out: PackTyres = { estimated: tire?.estimated ?? undefined }
   for (const id of corners) {
-    const temp = tyreTemp(snapshot?.tyres?.[id])
+    const info = snapshot?.tyres?.[id]
+    const temp = tyreTemp(info)
+    const pressureKpa = info?.pressureKpa
     // Strategy wear is a 0..100 "remaining life" scale; snapshot wearPct is 0..1.
     const stratWear = tire?.corners?.[id]?.wearPct
     const snapWear = snapshot?.tyres?.[id]?.wearPct
     const wearPct = isFiniteNum(stratWear) ? stratWear : isFiniteNum(snapWear) ? round(snapWear * 100, 0) : undefined
-    if (isFiniteNum(temp) || isFiniteNum(wearPct)) {
+    if (isFiniteNum(temp) || isFiniteNum(wearPct) || isFiniteNum(pressureKpa)) {
       out[id] = {
         tempC: isFiniteNum(temp) ? round(temp, 0) : undefined,
-        wearPct: isFiniteNum(wearPct) ? round(wearPct, 0) : undefined
+        wearPct: isFiniteNum(wearPct) ? round(wearPct, 0) : undefined,
+        pressureKpa: isFiniteNum(pressureKpa) ? round(pressureKpa, 1) : undefined
       }
     }
   }
@@ -504,6 +507,15 @@ function renderLines(pack: ContextPack, unitSystem: UnitSystem): string[] {
     const corner = ty[id]
     if (!corner) continue
     const bits: string[] = []
+    if (isFiniteNum(corner.pressureKpa)) {
+      bits.push(
+        formatMeasurement(corner.pressureKpa, 'pressure-kpa', unitSystem, {
+          decimals: 1,
+          trimTrailingZeros: true,
+          includeUnit: true
+        }).display
+      )
+    }
     if (isFiniteNum(corner.tempC)) bits.push(formatMeasurement(corner.tempC, 'temperature-c', unitSystem, { decimals: 0, includeUnit: true }).display)
     if (isFiniteNum(corner.wearPct)) bits.push(`${corner.wearPct}%`)
     if (bits.length) tyParts.push(`${id.toUpperCase()} ${bits.join('/')}`)

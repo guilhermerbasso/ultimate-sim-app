@@ -8,6 +8,7 @@ import {
   buildRacecraftHistoryEvidence,
   classifyCoachTrackCondition,
   comparableCoachLaps,
+  controlledDefinitionResponse,
   detectRacecraftQuestion,
   detectRacecraftQuestionWithLanguage,
   detectRacecraftLikeQuestionLanguage,
@@ -223,6 +224,27 @@ describe('racecraft question routing', () => {
     'Explain apex and which apex to take to overtake here.'
   ])('does not allowlist actionable or ambiguous driving wording: %s', (question) => {
     expect(isExplicitSafeInformationalQuestion(question)).toBe(false)
+  })
+
+  it.each([
+    ['Define divebomb.', 'en-US', 'controlled glossary'],
+    ['Defina cambagem.', 'pt-BR', 'glossário controlado'],
+    ['Define aerodinámica activa.', 'es', 'glosario controlado'],
+    ['Explique le bump steer.', 'fr', 'glossaire contrôlé'],
+    ['Definiere Bumpsteer.', 'de', 'kontrollierten Glossar'],
+    ['主动空气动力学是什么', 'zh', '受控术语表'],
+    ['主动空气动力学是什么？', 'zh', '受控术语表'],
+    ['ダイブボムとは何', 'ja', '用語集'],
+    ['ダイブボムとは？', 'ja', '用語集']
+  ] as Array<[string, CoachAdviceLanguage, string]>)(
+    'returns a localized controlled response for unsupported definition %s',
+    (question, language, marker) => {
+      expect(controlledDefinitionResponse(question, language)).toContain(marker)
+    }
+  )
+
+  it('does not classify ordinary free-form prose as a definition request', () => {
+    expect(controlledDefinitionResponse('Tell me about my race.', 'en-US')).toBeNull()
   })
 
   it.each([
@@ -895,6 +917,18 @@ describe('qualifying comparable history', () => {
   it('separates dry, wet, intermediate, and drying conditions deterministically', () => {
     expect(classifyCoachTrackCondition({})).toBe('unknown')
     expect(classifyCoachTrackCondition({ isRaining: false })).toBe('unknown')
+    expect(
+      classifyCoachTrackCondition({
+        isRaining: false,
+        previousTrackWetnessPct: 0.7
+      })
+    ).toBe('unknown')
+    expect(
+      classifyCoachTrackCondition({
+        isRaining: false,
+        weatherDeclaredWet: false
+      })
+    ).toBe('unknown')
     expect(classifyCoachTrackCondition({ trackWetnessPct: 0, isRaining: false })).toBe('dry')
     expect(classifyCoachTrackCondition({ trackWetnessPct: 0.2, isRaining: true })).toBe('intermediate')
     expect(classifyCoachTrackCondition({ trackWetnessPct: 0.75, isRaining: true })).toBe('wet')

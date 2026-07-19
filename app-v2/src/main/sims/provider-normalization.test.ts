@@ -22,6 +22,19 @@ describe('ACC weather normalization', () => {
     expect(weather.trackWetnessPct).toBeUndefined()
     expect(classifyCoachTrackCondition(weather)).toBe('intermediate')
   })
+
+  it('uses explicit ACC surface state for dry, damp, and wet tri-state evidence', () => {
+    const dry = accWeatherFromGraphics(0, 0.99, 2)
+    const damp = accWeatherFromGraphics(0, 0.9, 4)
+    const wet = accWeatherFromGraphics(0, 0.75, 5)
+    const unsupported = accWeatherFromGraphics(0, 0.95, 99)
+
+    expect(dry.trackWetnessPct).toBe(0)
+    expect(classifyCoachTrackCondition(dry)).toBe('dry')
+    expect(classifyCoachTrackCondition(damp)).toBe('intermediate')
+    expect(classifyCoachTrackCondition(wet)).toBe('wet')
+    expect(classifyCoachTrackCondition(unsupported)).toBe('unknown')
+  })
 })
 
 describe('AMS2 weather and layout normalization', () => {

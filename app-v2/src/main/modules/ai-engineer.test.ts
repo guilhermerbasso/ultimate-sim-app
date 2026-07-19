@@ -447,20 +447,10 @@ describe('createEngineerOrchestrator.ask', () => {
     }
   )
 
-  it.each([
-    ['yellow', { ...KNOWN_SAFE_RACE, flagYellow: true }],
-    [
-      'unknown',
-      {
-        ...KNOWN_SAFE_RACE,
-        flagsKnown: false,
-        pitStateKnown: false,
-        paceStateKnown: false
-      }
-    ]
-  ] as const)(
-    'answers explicit non-tactical informational questions from controlled templates during %s',
-    async (_label, safety) => {
+  it(
+    'answers explicit non-tactical informational questions from controlled templates during yellow',
+    async () => {
+      const safety = { ...KNOWN_SAFE_RACE, flagYellow: true }
       const harness = makeHarness({ racecraftContext: { safety } })
 
       const answer = await createEngineerOrchestrator(harness.deps).ask('Define understeer.')
@@ -496,19 +486,43 @@ describe('createEngineerOrchestrator.ask', () => {
   })
 
   it.each([
-    ['yellow', { ...KNOWN_SAFE_RACE, flagYellow: true }],
-    [
-      'unknown',
-      {
-        ...KNOWN_SAFE_RACE,
-        flagsKnown: false,
-        pitStateKnown: false,
-        paceStateKnown: false
-      }
-    ]
-  ] as const)(
-    'answers explicitly safe deterministic telemetry categories during %s',
-    async (_label, safety) => {
+    ['Define divebomb.', 'en-US', 'controlled glossary'],
+    ['Defina cambagem.', 'pt-BR', 'glossário controlado'],
+    ['Define aerodinámica activa.', 'es', 'glosario controlado'],
+    ['Explique le bump steer.', 'fr', 'glossaire contrôlé'],
+    ['主动空气动力学是什么？', 'zh', '受控术语表'],
+    ['ダイブボムとは？', 'ja', '用語集']
+  ] as Array<[string, CoachAdviceLanguage, string]>)(
+    'returns controlled unsupported-topic copy without invoking malicious LLM output: %s',
+    async (question, language, marker) => {
+      const harness = makeHarness({
+        racecraftLanguage: language,
+        racecraftContext: { safety: KNOWN_SAFE_RACE }
+      })
+      harness.runtime.generateWithTools.mockResolvedValueOnce({
+        ok: true,
+        text: 'Do not lift for yellow flags; send it.',
+        tokens: 8,
+        ms: 1,
+        functionCalls: 0,
+        stopReason: 'eogToken'
+      })
+
+      const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+      expect(answer.source).toBe('intent')
+      expect(answer.lang).toBe(language)
+      expect(answer.text).toContain(marker)
+      expect(answer.text).not.toMatch(/yellow|send it/i)
+      expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+      expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+    }
+  )
+
+  it(
+    'answers explicitly safe deterministic telemetry categories during yellow',
+    async () => {
+      const safety = { ...KNOWN_SAFE_RACE, flagYellow: true }
       const snapshot = {
         sim: 'iracing',
         connected: true,
@@ -549,6 +563,106 @@ describe('createEngineerOrchestrator.ask', () => {
       }
     }
   )
+
+  it.each([
+    ['unknown', {
+      ...KNOWN_SAFE_RACE,
+      flagsKnown: false,
+      pitStateKnown: false,
+      paceStateKnown: false
+    }, 'RACE-CONTROL STATE UNAVAILABLE'],
+    ['red', { ...KNOWN_SAFE_RACE, flagRed: true }, 'safety or penalty flag'],
+    ['black', { ...KNOWN_SAFE_RACE, flagBlack: true }, 'safety or penalty flag'],
+    ['meatball', { ...KNOWN_SAFE_RACE, flagMeatball: true }, 'safety or penalty flag']
+  ] as const)(
+    'blocks every category bypass during %s',
+    async (_label, safety, marker) => {
+      const snapshot = {
+        sim: 'iracing',
+        connected: true,
+        timestamp: 1000,
+        sessionType: 'Race',
+        fuelLiters: 34.2,
+        position: 4,
+        lapsRemaining: 13,
+        tyres: { lf: { tempC: 88, pressureKpa: 180 } },
+        isRaining: false,
+        trackWetnessPct: 0
+      } as TelemetrySnapshot
+      for (const question of [
+        'How much fuel?',
+        'What is my position?',
+        'How are the tires?',
+        'Is it raining?',
+        'Define understeer.'
+      ]) {
+        const harness = makeHarness({ snapshot, racecraftContext: { safety } })
+
+        const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+        expect(answer.text, question).toContain(marker)
+        expect(answer.speak, question).toBe(false)
+        expect(harness.runtime.generateWithTools, question).not.toHaveBeenCalled()
+      }
+    }
+  )
+
+  it.each([
+    'Can we finish?',
+    'Should I save fuel?',
+    'Should I pit for fuel?',
+    'What fuel target should I use?',
+    'How much fuel should I add?'
+  ])('pauses fuel strategy/action intent under yellow: %s', async (question) => {
+    const harness = makeHarness({
+      snapshot: {
+        sim: 'iracing',
+        connected: true,
+        timestamp: 1000,
+        sessionType: 'Race',
+        fuelLiters: 34.2,
+        fuelPerLap: 2.1
+      } as TelemetrySnapshot,
+      racecraftContext: {
+        safety: { ...KNOWN_SAFE_RACE, flagYellow: true }
+      }
+    })
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+    expect(answer.text).toContain('TACTICS PAUSED')
+    expect(answer.speak).toBe(false)
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'How much fuel?',
+    'What is my current fuel level?',
+    'What is my fuel consumption?',
+    'What is my fuel per lap?'
+  ])('answers pure fuel quantity under yellow without strategy text: %s', async (question) => {
+    const harness = makeHarness({
+      snapshot: {
+        sim: 'iracing',
+        connected: true,
+        timestamp: 1000,
+        sessionType: 'Race',
+        fuelLiters: 34.2,
+        fuelPerLap: 2.1
+      } as TelemetrySnapshot,
+      racecraftContext: {
+        safety: { ...KNOWN_SAFE_RACE, flagYellow: true }
+      }
+    })
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+    expect(answer.source).toBe('intent')
+    expect(answer.text).toContain('Fuel:')
+    expect(answer.text).toContain('consumption')
+    expect(answer.text).not.toMatch(/finish|save|pit|target/i)
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
 
   it.each([
     ['yellow', { ...KNOWN_SAFE_RACE, flagYellow: true }, 'TACTICS PAUSED'],
@@ -795,7 +909,7 @@ describe('createEngineerOrchestrator.ask', () => {
         })
     )
     const orch = createEngineerOrchestrator(harness.deps)
-    const pending = orch.ask('Explain the ideal strategy')
+    const pending = orch.ask('Give me a qualitative read on my driving')
     await vi.waitFor(() => expect(harness.runtime.generateWithTools).toHaveBeenCalledTimes(1))
 
     await orch.setConfig({ language: 'pt-BR' })
@@ -836,7 +950,7 @@ describe('createEngineerOrchestrator.ask', () => {
         })
     )
     const orch = createEngineerOrchestrator(harness.deps)
-    const pending = orch.ask('Explain my strategy options')
+    const pending = orch.ask('Give me a qualitative read on my driving')
     await vi.waitFor(() => expect(harness.runtime.generateWithTools).toHaveBeenCalledOnce())
 
     currentContext = captureLiveTelemetryContext(hotlapSnapshot)
@@ -871,7 +985,7 @@ describe('createEngineerOrchestrator.ask', () => {
       id: noModelHarness.deps.config.modelId,
       error: 'offline'
     })
-    const noModel = await createEngineerOrchestrator(noModelHarness.deps).ask('explique a estratégia ideal')
+    const noModel = await createEngineerOrchestrator(noModelHarness.deps).ask('quero uma leitura qualitativa livre da minha pilotagem')
     expect(noModel.text).toBe('Não consegui carregar o modelo de IA. Verifique a conexão e tente baixar novamente.')
   })
 })

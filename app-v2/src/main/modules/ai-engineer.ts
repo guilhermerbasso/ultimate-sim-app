@@ -38,8 +38,10 @@ import type {
 import {
   buildRacecraftAdvice,
   coachAdviceLanguageFromAppLanguage,
+  controlledDefinitionResponse,
   detectRacecraftLikeQuestionLanguage,
   detectRacecraftQuestionWithLanguage,
+  isPureDefinitionRequest,
   racecraftClarificationText,
   racecraftSafetyFromSnapshot,
   racecraftSafetyMessage,
@@ -66,7 +68,7 @@ import {
 } from '../../shared/engineer-ipc'
 import type { Logger } from '../../shared/logger'
 import { speechLanguageFromAppLanguage } from '../../shared/tts-voice'
-import { buildContextPack, renderContextText } from '../ai/context-pack'
+import { buildContextPack, deriveFuel, renderContextText } from '../ai/context-pack'
 import { routeIntent } from '../ai/intent-router'
 import { getLlmRuntime } from '../ai/llm-runtime'
 import { getModelManager } from '../ai/model-manager'
@@ -75,7 +77,7 @@ import { settingsEvents } from '../settings/events'
 import { logger } from './logger'
 import { getLatestPredictions } from './predictions'
 import { getLatestCoachFindings, getLatestCoachRacecraftContext } from './proactive-engineer'
-import type { UnitSystem } from '../../shared/units'
+import { formatMeasurement, type UnitSystem } from '../../shared/units'
 import {
   captureLiveTelemetryContext,
   LiveTelemetryGate,
@@ -98,12 +100,80 @@ const ASK_LOG_THROTTLE_MS = 4000
 const MAX_LOG_ENTRIES = 50
 let liveContextRejectionSeq = 0
 const SAFE_DETERMINISTIC_INTENT_CATEGORIES = new Set<IntentCategory>([
-  'fuel',
   'position',
   'tyres',
   'weather',
   'laps'
 ])
+const CRITICAL_SAFETY_REASONS = new Set<RacecraftSafetyReason>([
+  'race-control-unknown',
+  'red-flag',
+  'black-flag',
+  'meatball',
+  'repair',
+  'disqualify',
+  'checkered',
+  'replay',
+  'not-on-track'
+])
+
+function isReadOnlyFuelQuantityQuestion(question: string): boolean {
+  const q = question
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (
+    /\b(save|saving|finish|make it|pit|stop|target|add|need|strategy|margin|stretch|lift and coast|can we|should i)\b/.test(q)
+  ) return false
+  return /\b(how much fuel|current fuel|fuel level|fuel in the tank|fuel remaining|fuel consumption|fuel burn|fuel per lap|liters left|litres left|quanto combustivel|nivel de combustivel|consumo de combustivel|combustivel por volta)\b/.test(q)
+}
+
+function isSafeDeterministicAnswer(
+  category: IntentCategory,
+  question: string
+): boolean {
+  return category === 'fuel'
+    ? isReadOnlyFuelQuantityQuestion(question)
+    : SAFE_DETERMINISTIC_INTENT_CATEGORIES.has(category)
+}
+
+function fuelQuantityAnswer(
+  context: EngineerContext,
+  language: EngineerMessageLanguage,
+  unitSystem: UnitSystem
+): string {
+  const fuel = deriveFuel(context.getSnapshot(), context.getFuelState?.())
+  const parts: string[] = []
+  if (typeof fuel.liters === 'number' && Number.isFinite(fuel.liters)) {
+    parts.push(
+      `${language === 'pt-BR' ? 'Combustível' : 'Fuel'}: ${
+        formatMeasurement(fuel.liters, 'fuel-volume-l', unitSystem, {
+          decimals: 1,
+          trimTrailingZeros: true,
+          includeUnit: true
+        }).display
+      }`
+    )
+  }
+  if (typeof fuel.perLap === 'number' && Number.isFinite(fuel.perLap)) {
+    parts.push(
+      `${language === 'pt-BR' ? 'consumo' : 'consumption'} ${
+        formatMeasurement(fuel.perLap, 'fuel-per-lap-l', unitSystem, {
+          decimals: 2,
+          trimTrailingZeros: true,
+          includeUnit: true
+        }).display
+      }`
+    )
+  }
+  if (parts.length > 0) return `${parts.join(' · ')}.`
+  return language === 'pt-BR'
+    ? 'Ainda não há quantidades de combustível disponíveis.'
+    : 'Fuel quantities are not available yet.'
+}
 
 // ─── Injectable dependency seams (tests pass fakes) ───────────────────────────
 
@@ -455,7 +525,8 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     source: EngineerAnswerSource,
     command?: EngineerCommandDirective,
     language: EngineerMessageLanguage = config.language,
-    speechText?: string
+    speechText?: string,
+    speakOverride?: boolean
   ): EngineerAnswer {
     const answer: EngineerAnswer = {
       id: nextId(),
@@ -463,7 +534,7 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       question,
       text,
       speechText,
-      speak: config.speakAnswers && text.length > 0,
+      speak: speakOverride ?? (config.speakAnswers && text.length > 0),
       lang: language,
       kind,
       source,
@@ -492,10 +563,20 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     command: EngineerCommandDirective | undefined,
     context: LiveTelemetryContext | null,
     language?: EngineerMessageLanguage,
-    speechText?: string
+    speechText?: string,
+    speakOverride?: boolean
   ): EngineerAnswer {
     if (!contextIsCurrent(context)) return rejectedAnswer(question)
-    return publishAnswer(question, text, kind, source, command, language, speechText)
+    return publishAnswer(
+      question,
+      text,
+      kind,
+      source,
+      command,
+      language,
+      speechText,
+      speakOverride
+    )
   }
 
   function applyRuntimeOptions(): void {
@@ -688,6 +769,34 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       carName: snapshot?.carName,
       carPath: snapshot?.carPath
     })
+    const supportedDefinition = safeInformationalDefinition(question, adviceLanguage)
+    const controlledDefinition =
+      supportedDefinition ??
+      controlledDefinitionResponse(question, adviceLanguage)
+    if (
+      controlledDefinition &&
+      isPureDefinitionRequest(question)
+    ) {
+      const definitionSafety =
+        deps.racecraftContext?.()?.safety ??
+        makeFallbackContext().safety
+      const definitionSafetyReason = racecraftSafetyReason(definitionSafety)
+      if (
+        !definitionSafetyReason ||
+        !CRITICAL_SAFETY_REASONS.has(definitionSafetyReason)
+      ) {
+        return finalize(
+          question,
+          controlledDefinition,
+          'answer',
+          'intent',
+          undefined,
+          context,
+          adviceLanguage,
+          controlledDefinition
+        )
+      }
+    }
     if (deps.getLiveContext && !context) {
       if (detectedRacecraft) {
         const advice = buildRacecraftAdvice(detectedRacecraft.intent, makeFallbackContext(), {
@@ -701,7 +810,8 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
           'intent',
           undefined,
           adviceLanguage,
-          advice.speechText
+          advice.speechText,
+          advice.suppressedReason ? false : undefined
         )
       }
       if (racecraftLikeLanguage) {
@@ -717,7 +827,8 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
           'intent',
           undefined,
           adviceLanguage,
-          text
+          text,
+          safetyReason ? false : undefined
         )
       }
       return rejectedAnswer(question)
@@ -737,7 +848,8 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         undefined,
         context,
         adviceLanguage,
-        advice.speechText
+        advice.speechText,
+        advice.suppressedReason ? false : undefined
       )
     }
     if (racecraftLikeLanguage) {
@@ -757,7 +869,8 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         undefined,
         context,
         adviceLanguage,
-        text
+        text,
+        safetyReason ? false : undefined
       )
     }
 
@@ -765,29 +878,37 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     if (intent.type === 'command') {
       return runCommand(question, intent.kind, intent.speak, intent.args, context)
     }
+    const freeFormSafety =
+      deps.racecraftContext?.()?.safety ??
+      makeFallbackContext().safety
+    const freeFormSafetyReason = racecraftSafetyReason(freeFormSafety)
     if (
-      intent.type === 'answer' &&
-      SAFE_DETERMINISTIC_INTENT_CATEGORIES.has(intent.category)
+      freeFormSafetyReason &&
+      CRITICAL_SAFETY_REASONS.has(freeFormSafetyReason)
     ) {
-      return finalize(question, intent.text, 'answer', 'intent', undefined, context)
-    }
-    const definition = safeInformationalDefinition(question, adviceLanguage)
-    if (definition) {
+      const text = racecraftSafetyMessage(freeFormSafetyReason, adviceLanguage)
       return finalize(
         question,
-        definition,
+        text,
         'answer',
         'intent',
         undefined,
         context,
         adviceLanguage,
-        definition
+        text,
+        false
       )
     }
-    const freeFormSafety =
-      deps.racecraftContext?.()?.safety ??
-      makeFallbackContext().safety
-    const freeFormSafetyReason = racecraftSafetyReason(freeFormSafety)
+    if (
+      intent.type === 'answer' &&
+      isSafeDeterministicAnswer(intent.category, question)
+    ) {
+      const text =
+        intent.category === 'fuel'
+          ? fuelQuantityAnswer(deps.context, config.language, unitSystem)
+          : intent.text
+      return finalize(question, text, 'answer', 'intent', undefined, context)
+    }
     if (freeFormSafetyReason) {
       const text = racecraftSafetyMessage(freeFormSafetyReason, adviceLanguage)
       return finalize(
@@ -798,7 +919,21 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
         undefined,
         context,
         adviceLanguage,
-        text
+        text,
+        false
+      )
+    }
+    const definition = controlledDefinition
+    if (definition) {
+      return finalize(
+        question,
+        definition,
+        'answer',
+        'intent',
+        undefined,
+        context,
+        adviceLanguage,
+        definition
       )
     }
     if (intent.type === 'answer') {

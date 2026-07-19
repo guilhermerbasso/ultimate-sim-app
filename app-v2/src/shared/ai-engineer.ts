@@ -74,6 +74,7 @@ export interface PackFuel {
 export interface PackTyreCorner {
   tempC?: number
   wearPct?: number
+  pressureKpa?: number
 }
 
 export interface PackTyres {

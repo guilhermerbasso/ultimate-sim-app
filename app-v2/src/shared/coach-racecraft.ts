@@ -734,6 +734,53 @@ export function safeInformationalDefinition(
   return definitions[topic][language]
 }
 
+export function controlledDefinitionResponse(
+  question: string,
+  language: CoachAdviceLanguage
+): string | null {
+  const supported = safeInformationalDefinition(question, language)
+  if (supported) return supported
+  const q = normalize(question)
+    .replace(/[’']/g, ' ')
+    .replace(/[?？。！!]+$/u, '')
+    .trim()
+  const definitionForm =
+    isExplicitDefinitionCommand(question) ||
+    /^(?:what (?:is|are)|what does .+ mean|tell me what .+ means|o que e|que es|qu est ce que|was ist)\b/.test(q)
+  if (!definitionForm) return null
+  return localized(language, {
+    'en-US': 'That topic is not available in the controlled glossary yet.',
+    'pt-BR': 'Esse tema ainda não está disponível no glossário controlado.',
+    es: 'Ese tema todavía no está disponible en el glosario controlado.',
+    fr: 'Ce sujet n’est pas encore disponible dans le glossaire contrôlé.',
+    de: 'Dieses Thema ist im kontrollierten Glossar noch nicht verfügbar.',
+    zh: '该主题尚未收录在受控术语表中。',
+    ja: 'その項目はまだ管理対象の用語集に登録されていません。'
+  })
+}
+
+export function isExplicitDefinitionCommand(question: string): boolean {
+  const q = normalize(question)
+    .replace(/[’']/g, ' ')
+    .replace(/[?？。！!]+$/u, '')
+    .trim()
+  return /^(?:define|explain|defina|explique|explica|definis|definiere|erklare)\b/.test(q) ||
+    /(?:是什么|是什么意思|とは何|とは)$/.test(q)
+}
+
+export function isPureDefinitionRequest(question: string): boolean {
+  const q = normalize(question)
+    .replace(/[’']/g, ' ')
+    .replace(/[?？。！!]+$/u, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const definitionForm =
+    isExplicitDefinitionCommand(question) ||
+    /^(?:what (?:is|are)|what does .+ mean|tell me what .+ means|o que e|que es|qu est ce que|was ist)\b/.test(q)
+  if (!definitionForm) return false
+  return !/\b(my|current|next|now|this lap|best way|how i|how do|how should|should i|can i|could i|then|and then|so i|into (?:turn|t\d+)|racing line|fuel level|position|gap|target|pit|save fuel|finish the race|attack the|pass the|overtake the)\b/.test(q)
+}
+
 export function detectRacecraftQuestionWithLanguage(question: string): DetectedRacecraftQuestion | null {
   const q = normalize(question).replace(/[’']/g, ' ')
   if (!q) return null

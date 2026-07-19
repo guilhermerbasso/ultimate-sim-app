@@ -79,7 +79,7 @@ describe('ACC v1.8.12 binary layout', () => {
       bestLapTimeSec: 90.5,
       precipitationPct: 0.4,
       isRaining: true,
-      trackWetnessPct: undefined,
+      trackWetnessPct: 0,
       airTempC: 24,
       trackTempC: 36
     })

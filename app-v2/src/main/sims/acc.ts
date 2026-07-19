@@ -273,9 +273,28 @@ function accRainIntensityPct(value: number): number {
   return Math.max(0, Math.min(1, Math.trunc(value) / 5))
 }
 
+function accTrackWetnessFromGripStatus(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  switch (Math.trunc(value)) {
+    case 0:
+    case 1:
+    case 2:
+      return 0
+    case 4:
+      return 0.25
+    case 5:
+      return 0.65
+    case 6:
+      return 1
+    default:
+      return undefined
+  }
+}
+
 export function accWeatherFromGraphics(
   rainIntensity: unknown,
-  surfaceGrip: unknown
+  surfaceGrip: unknown,
+  trackGripStatus?: unknown
 ): Pick<TelemetrySnapshot, 'precipitationPct' | 'isRaining' | 'trackWetnessPct' | 'gripPct'> {
   const rain = typeof rainIntensity === 'number' && Number.isFinite(rainIntensity)
     ? rainIntensity
@@ -284,10 +303,11 @@ export function accWeatherFromGraphics(
     ? surfaceGrip
     : undefined
   const precipitationPct = accRainIntensityPct(rain)
+  const trackWetnessPct = accTrackWetnessFromGripStatus(trackGripStatus)
   return {
     precipitationPct,
     isRaining: precipitationPct > 0,
-    trackWetnessPct: undefined,
+    trackWetnessPct,
     gripPct: grip !== undefined ? Math.max(0, Math.min(1, grip)) : undefined
   }
 }
@@ -411,7 +431,11 @@ export function accSnapshotFromPages(
   const rawSession = graphics.session
   const completedLaps = Math.max(0, graphics.completedLaps)
   const scheduledLaps = Math.max(0, graphics.numberOfLaps)
-  const weather = accWeatherFromGraphics(graphics.rainIntensity, graphics.surfaceGrip)
+  const weather = accWeatherFromGraphics(
+    graphics.rainIntensity,
+    graphics.surfaceGrip,
+    graphics.trackGripStatus
+  )
   const onPitRoad = graphics.isInPit !== 0 || graphics.isInPitLane !== 0
   const normalizedCarPosition =
     graphics.normalizedCarPosition >= 0 && graphics.normalizedCarPosition <= 1
