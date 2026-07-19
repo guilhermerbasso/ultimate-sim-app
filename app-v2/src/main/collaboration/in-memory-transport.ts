@@ -41,6 +41,9 @@ export class InMemoryCollaborationTransport {
     const source = this.requireNode(sourcePeerId)
     const target = this.requireNode(targetPeerId)
     if (!source.online || !target.online) return { accepted: 0, replayed: 0 }
+    if (!hasPeer(source.replica, targetPeerId) || !hasPeer(target.replica, sourcePeerId)) {
+      return { accepted: 0, replayed: 0 }
+    }
     const bundle = source.replica.exportBundleForPeer(targetPeerId)
     return target.replica.mergeBundleFromPeer(sourcePeerId, bundle)
   }

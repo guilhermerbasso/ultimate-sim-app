@@ -530,4 +530,19 @@ describe('LocalCollaborationReplica', () => {
     changes.get('change-0')!.parents = ['change-9999']
     expect(() => assertCollaborationCausalGraphAcyclic(changes, 'max-chain')).toThrow(/causal cycle/)
   })
+
+  it('synchronize returns zero result and does not throw when replicas are not mutually registered', () => {
+    const a = replica(ACTOR_A, 'unregistered-a')
+    const b = replica(ACTOR_B, 'unregistered-b')
+    const transport = new InMemoryCollaborationTransport()
+    transport.attach('a', a)
+    transport.attach('b', b)
+
+    expect(() => transport.synchronize('a', 'b')).not.toThrow()
+    expect(transport.synchronize('a', 'b')).toEqual({ accepted: 0, replayed: 0 })
+
+    a.registerPeer({ id: 'b', actor: ACTOR_B, capabilities: allCapabilities(), connected: true })
+    expect(() => transport.synchronize('a', 'b')).not.toThrow()
+    expect(transport.synchronize('a', 'b')).toEqual({ accepted: 0, replayed: 0 })
+  })
 })
