@@ -40,8 +40,9 @@ interface Esp32Status {
 async function bounded<T>(promise: Promise<T>, timeoutMs = IPC_TIMEOUT_MS): Promise<T | null> {
   let timer: ReturnType<typeof setTimeout> | null = null
   try {
+    const guarded = promise.catch(() => null)
     return await Promise.race([
-      promise,
+      guarded,
       new Promise<null>((resolve) => {
         timer = setTimeout(() => resolve(null), timeoutMs)
       })
