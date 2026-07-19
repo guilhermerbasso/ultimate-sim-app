@@ -3,6 +3,10 @@ import {
   type AuthenticatedPrincipalVerifier,
   type EvidenceAttestationBinding,
   type EvidenceAttestationVerifier,
+  type LedgerFinalizationAuthority,
+  type LedgerFinalizationAuthorityCommit,
+  type LedgerFinalizationOperation,
+  type LedgerFinalizationRecord,
   type OpaqueAttestation,
   type PromptApprovalCheckpoint,
   type PromptApprovalCheckpointBinding,
@@ -16,7 +20,7 @@ import {
   type SchedulerServiceReceiptBinding,
   type SchedulerServiceReceiptVerifier
 } from './authorities'
-import { sha256Hex } from './canonical'
+import { cloneCanonical, deepFreeze, sha256Hex } from './canonical'
 import {
   VisualArtifactLedger,
   type ArtifactEvidence,
@@ -31,6 +35,7 @@ import {
 } from './plan'
 import {
   ValidatedImageScheduler,
+  computeSchedulerApprovalDependencyHash,
   schedulerGenesisPrincipalBinding,
   type ImageFailureReason,
   type ImageSchedulingPolicy,
@@ -191,6 +196,115 @@ export class TestAttestationAuthority
   }
 }
 
+export class TestLedgerFinalizationAuthority
+  implements LedgerFinalizationAuthority
+{
+  readonly authorityId: string
+  private loseNextResponse = false
+  private readonly records = new Map<string, LedgerFinalizationRecord>()
+  private readonly recoverableOperationHashes = new Set<string>()
+
+  constructor(authorityId = 'test-ledger-finalization-authority') {
+    this.authorityId = authorityId
+  }
+
+  simulateLostNextResponse(): void {
+    this.loseNextResponse = true
+  }
+
+  private commitToken(
+    commit: Omit<LedgerFinalizationAuthorityCommit, 'attestation'>
+  ): OpaqueAttestation {
+    const token = `final:${sha256Hex({
+      domain: 'test-ledger-finalization-commit-v1',
+      secret: 'test-only-finalization-secret',
+      commit
+    })}`
+    return { token: token.padEnd(88, 'x') }
+  }
+
+  commit(
+    operation: LedgerFinalizationOperation
+  ): LedgerFinalizationAuthorityCommit {
+    if (operation.authorityId !== this.authorityId) {
+      throw new Error('wrong ledger finalization authority')
+    }
+    const existing = this.records.get(operation.planHash)
+    if (existing) {
+      if (existing.operation.operationHash === operation.operationHash) {
+        return existing.commit
+      }
+      throw new Error('stale shared ledger finalization CAS')
+    }
+    const unsigned = {
+      authorityId: this.authorityId,
+      version: 1 as const,
+      committedAt: operation.occurredAt,
+      previousRootHash: ZERO_HASH,
+      rootHash: sha256Hex({
+        domain: 'visual-artifact-finalization-authority-root-v1',
+        authorityId: this.authorityId,
+        version: 1,
+        previousRootHash: ZERO_HASH,
+        operationHash: operation.operationHash,
+        committedAt: operation.occurredAt
+      }),
+      operationHash: operation.operationHash
+    }
+    const commit = deepFreeze({
+      ...unsigned,
+      attestation: this.commitToken(unsigned)
+    })
+    this.records.set(
+      operation.planHash,
+      deepFreeze({
+        operation: cloneCanonical(operation),
+        commit: cloneCanonical(commit)
+      })
+    )
+    if (this.loseNextResponse) {
+      this.loseNextResponse = false
+      this.recoverableOperationHashes.add(operation.operationHash)
+      throw new Error('simulated lost finalization response after durable commit')
+    }
+    return commit
+  }
+
+  recover(
+    operation: LedgerFinalizationOperation
+  ): LedgerFinalizationAuthorityCommit | undefined {
+    if (!this.recoverableOperationHashes.delete(operation.operationHash)) {
+      return undefined
+    }
+    const record = this.records.get(operation.planHash)
+    return record?.operation.operationHash === operation.operationHash
+      ? record.commit
+      : undefined
+  }
+
+  current(planHash: string): LedgerFinalizationRecord | undefined {
+    const record = this.records.get(planHash)
+    return record === undefined
+      ? undefined
+      : deepFreeze(cloneCanonical(record))
+  }
+
+  verifyCommit(
+    commit: LedgerFinalizationAuthorityCommit,
+    operation: LedgerFinalizationOperation
+  ): boolean {
+    const { attestation: _attestation, ...unsigned } = commit
+    return (
+      commit.authorityId === this.authorityId &&
+      commit.version === 1 &&
+      commit.committedAt === operation.occurredAt &&
+      commit.previousRootHash === ZERO_HASH &&
+      commit.operationHash === operation.operationHash &&
+      commit.attestation.token === this.commitToken(unsigned).token
+    )
+  }
+}
+
 interface AuthorityCall {
   status:
     | 'reserved'
@@ -263,6 +377,7 @@ export class TestSchedulerAuthority implements SchedulerAuthority {
 
   commit(operation: SchedulerAuthorityOperation): SchedulerAuthorityCommit {
     if (
+      operation.authorityId !== this.authorityId ||
       operation.expectedVersion !== this.version ||
       operation.previousRootHash !== this.rootHash
     ) {
@@ -278,6 +393,12 @@ export class TestSchedulerAuthority implements SchedulerAuthority {
     } else {
       if (!this.configured) throw new Error('scheduler is not configured')
       if (operation.action === 'reserve') {
+        if (
+          operation.approvalDependencyHash !==
+          computeSchedulerApprovalDependencyHash(operation)
+        ) {
+          throw new Error('stale scheduler approval dependency fence')
+        }
         if (this.circuitOpen) throw new Error('global circuit is open')
         if (this.calls.has(operation.callId)) throw new Error('duplicate call')
         if (
@@ -409,6 +530,7 @@ export class TestSchedulerAuthority implements SchedulerAuthority {
 export interface TestGovernance {
   readonly attestations: TestAttestationAuthority
   readonly schedulerAuthority: TestSchedulerAuthority
+  readonly finalizationAuthority: TestLedgerFinalizationAuthority
   readonly schedulerDependencies: SchedulerAuthorityDependencies
   ledgerDependencies(scheduler?: ValidatedImageScheduler): VisualArtifactLedgerDependencies
 }
@@ -419,9 +541,13 @@ export function makeGovernance(
 ): TestGovernance {
   const attestations = new TestAttestationAuthority()
   const schedulerAuthority = new TestSchedulerAuthority(authorityClock, authorityId)
+  const finalizationAuthority = new TestLedgerFinalizationAuthority(
+    `ledger-final:${sha256Hex(authorityId).slice(0, 32)}`
+  )
   return {
     attestations,
     schedulerAuthority,
+    finalizationAuthority,
     schedulerDependencies: {
       authority: schedulerAuthority,
       principalVerifier: attestations,
@@ -433,6 +559,7 @@ export function makeGovernance(
       principalVerifier: attestations,
       evidenceVerifier: attestations,
       rootVerifier: attestations,
+      finalizationAuthority,
       ...(scheduler ? { scheduler } : {})
     })
   }

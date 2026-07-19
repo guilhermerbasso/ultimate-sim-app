@@ -12,11 +12,16 @@ import {
 } from './constants'
 import {
   parseImageScheduler,
+  schedulerGenesisPrincipalBinding,
   serializeImageScheduler,
   ValidatedImageScheduler,
   type ImageSchedulingPolicy,
   type SerializedImageScheduler
 } from './scheduler'
+import type {
+  SchedulerAuthorityDependencies,
+  SchedulerAuthorityOperation
+} from './authorities'
 import { VisualArtifactLedger } from './ledger'
 import { createArtifactPlan, expectedArtifactIds } from './plan'
 import {
@@ -384,6 +389,168 @@ describe('externally authoritative image scheduler', () => {
       parseImageScheduler('{}', null)
     ).toThrow(/plain object|canonical/i)
     expect(genesis.actorId).toBe('scheduler-control')
+  })
+
+  it('rejects dependency getters and proxies without invoking attacker code', () => {
+    const governance = makeGovernance()
+    let getterReads = 0
+    const dependencies = {
+      get authority() {
+        getterReads += 1
+        return governance.schedulerAuthority
+      },
+      principalVerifier: governance.attestations,
+      approvalVerifier: governance.attestations,
+      serviceReceiptVerifier: governance.attestations,
+      rootVerifier: governance.attestations
+    } as unknown as SchedulerAuthorityDependencies
+    expect(() =>
+      ValidatedImageScheduler.create(
+        DEFAULT_POLICY,
+        { actorId: 'scheduler-control' },
+        dependencies,
+        { token: 'untrusted' }
+      )
+    ).toThrow(/plain object|getter-free|data field/i)
+    expect(getterReads).toBe(0)
+
+    let proxyTraps = 0
+    const proxy = new Proxy(governance.schedulerDependencies, {
+      get: (target, key, receiver) => {
+        proxyTraps += 1
+        return Reflect.get(target, key, receiver)
+      },
+      ownKeys: (target) => {
+        proxyTraps += 1
+        return Reflect.ownKeys(target)
+      }
+    })
+    expect(() =>
+      ValidatedImageScheduler.create(
+        DEFAULT_POLICY,
+        { actorId: 'scheduler-control' },
+        proxy,
+        { token: 'untrusted' }
+      )
+    ).toThrow(/plain object|Proxy/i)
+    expect(proxyTraps).toBe(0)
+  })
+
+  it('commits one immutable approval dependency fence despite verifier-side mutation', () => {
+    const governance = makeGovernance()
+    let mutableCheckpoint: PromptApprovedContext['approvalCheckpoint']
+    let reservedOperation: SchedulerAuthorityOperation | undefined
+    const authority = {
+      authorityId: governance.schedulerAuthority.authorityId,
+      commit: (operation: SchedulerAuthorityOperation) => {
+        expect(Object.isFrozen(operation)).toBe(true)
+        if (operation.action === 'reserve') reservedOperation = operation
+        return governance.schedulerAuthority.commit(operation)
+      },
+      recover: (operation: SchedulerAuthorityOperation) =>
+        governance.schedulerAuthority.recover(operation),
+      verifyCommit: (
+        commit: Parameters<typeof governance.schedulerAuthority.verifyCommit>[0],
+        operation: SchedulerAuthorityOperation
+      ) => governance.schedulerAuthority.verifyCommit(commit, operation)
+    }
+    const approvalVerifier = {
+      verifyPromptApprovalCheckpoint: (
+        attestation: Parameters<
+          typeof governance.attestations.verifyPromptApprovalCheckpoint
+        >[0],
+        binding: Parameters<
+          typeof governance.attestations.verifyPromptApprovalCheckpoint
+        >[1]
+      ) => {
+        const accepted =
+          governance.attestations.verifyPromptApprovalCheckpoint(
+            attestation,
+            binding
+          )
+        if (mutableCheckpoint) {
+          ;(
+            mutableCheckpoint as {
+              ledgerSequence: number
+              ledgerRootHash: string
+            }
+          ).ledgerSequence += 100
+          ;(
+            mutableCheckpoint as {
+              ledgerSequence: number
+              ledgerRootHash: string
+            }
+          ).ledgerRootHash = hashNumber(999_999)
+        }
+        return accepted
+      }
+    }
+    const dependencies: SchedulerAuthorityDependencies = {
+      authority,
+      principalVerifier: governance.attestations,
+      approvalVerifier,
+      serviceReceiptVerifier: governance.attestations,
+      rootVerifier: governance.attestations
+    }
+    const genesis = { actorId: 'scheduler-control' }
+    const scheduler = ValidatedImageScheduler.create(
+      DEFAULT_POLICY,
+      genesis,
+      dependencies,
+      governance.attestations.issuePrincipal(
+        schedulerGenesisPrincipalBinding(
+          DEFAULT_POLICY,
+          genesis,
+          authority.authorityId
+        )
+      )
+    )
+    const plan = makePlan()
+    const ledger = VisualArtifactLedger.create(
+      plan,
+      governance.ledgerDependencies(scheduler)
+    )
+    const context = appendPromptApproved(
+      ledger,
+      governance,
+      expectedArtifactIds(plan)[0],
+      1,
+      new HashPool(),
+      new TestClock(1_000_000)
+    )
+    mutableCheckpoint = structuredClone(context.approvalCheckpoint)
+    const originalSequence = mutableCheckpoint!.ledgerSequence
+    const originalRoot = mutableCheckpoint!.ledgerRootHash
+    governance.schedulerAuthority.ensureAfter(context.promptApprovedAt)
+    const input = {
+      actorId: 'scheduler-control',
+      callId: 'immutable-dependency-fence',
+      artifactId: context.artifactId,
+      revision: context.revision,
+      attempt: 1,
+      promptHash: context.promptHash,
+      promptApprovalHash: context.promptApprovalHash,
+      approvalCheckpoint: mutableCheckpoint,
+      requestHash: hashNumber(555_000),
+      retryOfCallId: null,
+      retryReason: null
+    }
+    scheduler.reserve(
+      input,
+      governance.attestations.issuePrincipal(
+        scheduler.principalBindingFor('reserve', input)
+      )
+    )
+    expect(reservedOperation?.action).toBe('reserve')
+    if (reservedOperation?.action !== 'reserve') {
+      throw new Error('Expected a reserved authority operation.')
+    }
+    expect(reservedOperation.approvalLedgerSequence).toBe(originalSequence)
+    expect(reservedOperation.approvalLedgerRootHash).toBe(originalRoot)
+    expect(scheduler.getCall(input.callId)?.approvalLedgerSequence).toBe(
+      originalSequence
+    )
+    expect(mutableCheckpoint!.ledgerSequence).not.toBe(originalSequence)
   })
 
   it('uses one shared durable CAS/quota authority across forked scheduler instances', () => {

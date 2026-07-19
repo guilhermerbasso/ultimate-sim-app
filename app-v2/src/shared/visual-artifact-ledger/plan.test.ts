@@ -84,6 +84,82 @@ describe('complete governed artifact plan', () => {
     ).toThrow(/unknown field "alias"/i)
   })
 
+  it('rejects accessor-backed and proxied identity arrays without invoking attacker code', () => {
+    const plan = makePlan()
+    const accessorStyles = [...plan.styles]
+    let getterReads = 0
+    Object.defineProperty(accessorStyles, 0, {
+      enumerable: true,
+      configurable: true,
+      get: () => {
+        getterReads += 1
+        return plan.styles[0]
+      }
+    })
+
+    expect(() =>
+      createArtifactPlan({
+        registryHash: plan.registryHash,
+        styles: accessorStyles,
+        concepts: plan.concepts,
+        triggerFamilies: plan.triggerFamilies
+      })
+    ).toThrow(/data fields/i)
+    expect(getterReads).toBe(0)
+
+    let proxyTraps = 0
+    const proxiedConcepts = new Proxy([...plan.concepts], {
+      get: (target, property, receiver) => {
+        proxyTraps += 1
+        return Reflect.get(target, property, receiver)
+      }
+    })
+    expect(() =>
+      createArtifactPlan({
+        registryHash: plan.registryHash,
+        styles: plan.styles,
+        concepts: proxiedConcepts,
+        triggerFamilies: plan.triggerFamilies
+      })
+    ).toThrow(/proxi/i)
+    expect(proxyTraps).toBe(0)
+  })
+
+  it('builds the plan without consulting inherited array iteration', () => {
+    const plan = makePlan()
+    const iteratorDescriptor = Object.getOwnPropertyDescriptor(
+      Array.prototype,
+      Symbol.iterator
+    )!
+    let iteratorCalls = 0
+    let recreatedHash = ''
+    Object.defineProperty(Array.prototype, Symbol.iterator, {
+      configurable: true,
+      writable: true,
+      value: () => {
+        iteratorCalls += 1
+        throw new Error('inherited array iterator executed')
+      }
+    })
+    try {
+      recreatedHash = createArtifactPlan({
+        registryHash: plan.registryHash,
+        styles: plan.styles,
+        concepts: plan.concepts,
+        triggerFamilies: plan.triggerFamilies
+      }).planHash
+    } finally {
+      Object.defineProperty(
+        Array.prototype,
+        Symbol.iterator,
+        iteratorDescriptor
+      )
+    }
+
+    expect(recreatedHash).toBe(plan.planHash)
+    expect(iteratorCalls).toBe(0)
+  })
+
   it('rejects incomplete trigger coverage and plans above resource limits', () => {
     const plan = makePlan()
     expect(() =>

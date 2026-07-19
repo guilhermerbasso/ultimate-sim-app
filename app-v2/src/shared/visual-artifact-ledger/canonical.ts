@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { Buffer } from 'node:buffer'
+import { types as utilTypes } from 'node:util'
 import {
   MAX_CANONICAL_DEPTH,
   MAX_CANONICAL_NODES,
@@ -14,10 +15,124 @@ import { fail } from './errors'
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue }
 
+const INTRINSIC_ARRAY_IS_ARRAY = Array.isArray
+const INTRINSIC_ARRAY_JOIN = Array.prototype.join
+const INTRINSIC_ARRAY_SORT = Array.prototype.sort
+const INTRINSIC_ARRAY_PROTOTYPE = Array.prototype
+const INTRINSIC_APPLY = Reflect.apply
+const INTRINSIC_BUFFER_BYTE_LENGTH = Buffer.byteLength
+const INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR = Object.getOwnPropertyDescriptor
+const INTRINSIC_GET_PROTOTYPE_OF = Object.getPrototypeOf
+const INTRINSIC_IS_FROZEN = Object.isFrozen
+const INTRINSIC_FREEZE = Object.freeze
+const INTRINSIC_OBJECT_CREATE = Object.create
+const INTRINSIC_OBJECT_PROTOTYPE = Object.prototype
+const INTRINSIC_SET_PROTOTYPE_OF = Object.setPrototypeOf
+const INTRINSIC_JSON_PARSE = JSON.parse
+const INTRINSIC_JSON_STRINGIFY = JSON.stringify
+const INTRINSIC_NUMBER_IS_FINITE = Number.isFinite
+const INTRINSIC_NUMBER_IS_SAFE_INTEGER = Number.isSafeInteger
+const INTRINSIC_OWN_KEYS = Reflect.ownKeys
+const INTRINSIC_SET = Set
+const INTRINSIC_IS_PROXY = utilTypes.isProxy
+const CANONICAL_ARRAY_INDEX = /^(0|[1-9]\d*)$/
+const INTRINSIC_REGEXP_TEST = Function.prototype.call.bind(
+  RegExp.prototype.test
+) as (expression: RegExp, value: string) => boolean
+const INTRINSIC_SET_ADD = Function.prototype.call.bind(
+  Set.prototype.add
+) as (target: Set<string>, value: string) => Set<string>
+const INTRINSIC_SET_HAS = Function.prototype.call.bind(
+  Set.prototype.has
+) as (target: Set<string>, value: string) => boolean
+const INTRINSIC_STRING_CHAR_CODE_AT = Function.prototype.call.bind(
+  String.prototype.charCodeAt
+) as (value: string, index: number) => number
+
+function arrayDataValue<T>(
+  values: readonly T[],
+  index: number,
+  _label: string
+): T {
+  return values[index]
+}
+
+function appendArrayData<T>(values: T[], value: T): void {
+  values[values.length] = value
+}
+
+function createInternalArray<T>(): T[] {
+  const values: T[] = []
+  INTRINSIC_SET_PROTOTYPE_OF(values, null)
+  return values
+}
+
+function addStringsToSet(
+  target: Set<string>,
+  values: readonly string[]
+): void {
+  for (let index = 0; index < values.length; index += 1) {
+    INTRINSIC_SET_ADD(
+      target,
+      arrayDataValue(values, index, 'Trusted key list entry')
+    )
+  }
+}
+
+function safeOwnKeys(value: object, label: string): readonly PropertyKey[] {
+  if (INTRINSIC_IS_PROXY(value)) fail('SCHEMA', `${label} cannot be a Proxy.`)
+  try {
+    return INTRINSIC_OWN_KEYS(value)
+  } catch {
+    fail('SCHEMA', `${label} own fields cannot be inspected safely.`)
+  }
+}
+
+function ownDataDescriptor(
+  value: object,
+  key: PropertyKey,
+  label: string,
+  requireEnumerable = true
+): PropertyDescriptor {
+  let descriptor: PropertyDescriptor | undefined
+  try {
+    descriptor = INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR(value, key)
+  } catch {
+    fail('SCHEMA', `${label} cannot be inspected safely.`)
+  }
+  if (
+    !descriptor ||
+    !('value' in descriptor) ||
+    (requireEnumerable && !descriptor.enumerable)
+  ) {
+    fail('SCHEMA', `${label} must be an own enumerable data field.`)
+  }
+  return descriptor
+}
+
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-  const prototype = Object.getPrototypeOf(value)
-  return prototype === Object.prototype || prototype === null
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    INTRINSIC_IS_PROXY(value) ||
+    INTRINSIC_ARRAY_IS_ARRAY(value)
+  ) {
+    return false
+  }
+  try {
+    const prototype = INTRINSIC_GET_PROTOTYPE_OF(value)
+    if (prototype !== INTRINSIC_OBJECT_PROTOTYPE && prototype !== null) return false
+    const keys = INTRINSIC_OWN_KEYS(value)
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = arrayDataValue(keys, index, 'Plain object key')
+      if (typeof key !== 'string') return false
+      const descriptor = INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR(value, key)
+      if (!descriptor?.enumerable || !('value' in descriptor)) return false
+    }
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function assertPlainObject(value: unknown, label: string): asserts value is Record<string, unknown> {
@@ -29,13 +144,19 @@ export function assertExactKeys(
   expected: readonly string[],
   label: string
 ): void {
-  const expectedSet = new Set(expected)
-  const actual = Object.keys(value)
-  for (const key of actual) {
-    if (!expectedSet.has(key)) fail('SCHEMA', `${label} contains unknown field "${key}".`)
+  const expectedSet = new INTRINSIC_SET<string>()
+  addStringsToSet(expectedSet, expected)
+  const actual = safeOwnKeys(value, label)
+  for (let index = 0; index < actual.length; index += 1) {
+    const key = arrayDataValue(actual, index, `${label} key`)
+    if (typeof key !== 'string') fail('SCHEMA', `${label} contains a symbol field.`)
+    if (!INTRINSIC_SET_HAS(expectedSet, key)) {
+      fail('SCHEMA', `${label} contains unknown field "${key}".`)
+    }
   }
-  for (const key of expected) {
-    if (!Object.prototype.hasOwnProperty.call(value, key)) {
+  for (let index = 0; index < expected.length; index += 1) {
+    const key = arrayDataValue(expected, index, `${label} expected key`)
+    if (!INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR(value, key)) {
       fail('SCHEMA', `${label} is missing required field "${key}".`)
     }
   }
@@ -47,15 +168,32 @@ export function assertOptionalExactKeys(
   optional: readonly string[],
   label: string
 ): void {
-  const allowed = new Set([...required, ...optional])
-  for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) fail('SCHEMA', `${label} contains unknown field "${key}".`)
+  const allowed = new INTRINSIC_SET<string>()
+  addStringsToSet(allowed, required)
+  addStringsToSet(allowed, optional)
+  const actual = safeOwnKeys(value, label)
+  for (let index = 0; index < actual.length; index += 1) {
+    const key = arrayDataValue(actual, index, `${label} key`)
+    if (typeof key !== 'string') fail('SCHEMA', `${label} contains a symbol field.`)
+    if (!INTRINSIC_SET_HAS(allowed, key)) {
+      fail('SCHEMA', `${label} contains unknown field "${key}".`)
+    }
   }
-  for (const key of required) {
-    if (!Object.prototype.hasOwnProperty.call(value, key)) {
+  for (let index = 0; index < required.length; index += 1) {
+    const key = arrayDataValue(required, index, `${label} required key`)
+    if (!INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR(value, key)) {
       fail('SCHEMA', `${label} is missing required field "${key}".`)
     }
   }
+}
+
+export function ownDataValue(
+  value: Record<string, unknown>,
+  key: string,
+  label: string
+): unknown {
+  if (INTRINSIC_IS_PROXY(value)) fail('SCHEMA', `${label} cannot be a Proxy.`)
+  return ownDataDescriptor(value, key, label).value
 }
 
 export function assertString(
@@ -164,24 +302,37 @@ function addCanonicalStringBudget(value: string, budget: CanonicalBudget): void 
   let characters = 2
   let bytes = 2
   for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index)
-    if (code === 0x22 || code === 0x5c || code === 0x08 || code === 0x09 ||
-        code === 0x0a || code === 0x0c || code === 0x0d) {
+    const code = INTRINSIC_STRING_CHAR_CODE_AT(value, index)
+    if (
+      code === 0x22 ||
+      code === 0x5c ||
+      code === 0x08 ||
+      code === 0x09 ||
+      code === 0x0a ||
+      code === 0x0c ||
+      code === 0x0d
+    ) {
       characters += 2
       bytes += 2
     } else if (code <= 0x1f || code === 0x2028 || code === 0x2029) {
       characters += 6
       bytes += 6
     } else if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(index + 1)
+      const next = INTRINSIC_STRING_CHAR_CODE_AT(value, index + 1)
       if (!(next >= 0xdc00 && next <= 0xdfff)) {
-        fail('SCHEMA', 'Canonical strings cannot contain unpaired UTF-16 surrogates.')
+        fail(
+          'SCHEMA',
+          'Canonical strings cannot contain unpaired UTF-16 surrogates.'
+        )
       }
       characters += 2
       bytes += 4
       index += 1
     } else if (code >= 0xdc00 && code <= 0xdfff) {
-      fail('SCHEMA', 'Canonical strings cannot contain unpaired UTF-16 surrogates.')
+      fail(
+        'SCHEMA',
+        'Canonical strings cannot contain unpaired UTF-16 surrogates.'
+      )
     } else if (code <= 0x7f) {
       characters += 1
       bytes += 1
@@ -218,37 +369,119 @@ function normalizeCanonical(
     return value
   }
   if (typeof value === 'number') {
-    if (!Number.isFinite(value)) fail('SCHEMA', 'Canonical values cannot contain non-finite numbers.')
-    addCanonicalBudget(budget, JSON.stringify(value).length)
+    if (!INTRINSIC_NUMBER_IS_FINITE(value)) fail('SCHEMA', 'Canonical values cannot contain non-finite numbers.')
+    addCanonicalBudget(budget, INTRINSIC_JSON_STRINGIFY(value).length)
     return value
   }
-  if (Array.isArray(value)) {
-    const normalized: JsonValue[] = []
+  if (typeof value === 'object' && value !== null && INTRINSIC_IS_PROXY(value)) {
+    fail('SCHEMA', 'Canonical values cannot contain Proxies.')
+  }
+  if (INTRINSIC_ARRAY_IS_ARRAY(value)) {
+    if (INTRINSIC_GET_PROTOTYPE_OF(value) !== INTRINSIC_ARRAY_PROTOTYPE) {
+      fail('SCHEMA', 'Canonical arrays must use the standard Array prototype.')
+    }
+    const lengthDescriptor = ownDataDescriptor(value, 'length', 'Canonical array length', false)
+    const length = lengthDescriptor.value
+    if (!INTRINSIC_NUMBER_IS_SAFE_INTEGER(length) || length < 0) {
+      fail('SCHEMA', 'Canonical array length is invalid.')
+    }
+    const keys = INTRINSIC_OWN_KEYS(value)
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = arrayDataValue(keys, index, 'Canonical array key')
+      if (typeof key !== 'string') fail('SCHEMA', 'Canonical arrays cannot contain symbol fields.')
+      if (key === 'length') continue
+      if (
+        !INTRINSIC_REGEXP_TEST(CANONICAL_ARRAY_INDEX, key) ||
+        Number(key) >= length
+      ) {
+        fail('SCHEMA', 'Canonical arrays cannot contain custom fields.')
+      }
+    }
+    const normalized = createInternalArray<JsonValue>()
     addCanonicalBudget(budget, 2)
-    for (let index = 0; index < value.length; index += 1) {
-      if (!Object.prototype.hasOwnProperty.call(value, index)) {
-        fail('SCHEMA', 'Canonical arrays cannot be sparse.')
+    for (let index = 0; index < length; index += 1) {
+      const descriptor = INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR(value, String(index))
+      if (!descriptor) fail('SCHEMA', 'Canonical arrays cannot be sparse.')
+      if (!descriptor.enumerable || !('value' in descriptor)) {
+        fail('SCHEMA', 'Canonical array entries must be own enumerable data fields.')
       }
       if (index > 0) addCanonicalBudget(budget, 1)
-      normalized.push(normalizeCanonical(value[index], budget, depth + 1))
+      appendArrayData(
+        normalized,
+        normalizeCanonical(descriptor.value, budget, depth + 1)
+      )
     }
     return normalized
   }
-  if (!isPlainObject(value)) fail('SCHEMA', 'Canonical values must contain only JSON-compatible plain objects.')
+  if (typeof value !== 'object' || value === null) {
+    fail(
+      'SCHEMA',
+      'Canonical values must contain only JSON-compatible plain objects.'
+    )
+  }
+  const prototype = INTRINSIC_GET_PROTOTYPE_OF(value)
+  if (prototype !== INTRINSIC_OBJECT_PROTOTYPE && prototype !== null) {
+    fail(
+      'SCHEMA',
+      'Canonical values must contain only JSON-compatible plain objects.'
+    )
+  }
 
-  const normalized = Object.create(null) as Record<string, JsonValue>
+  const normalized = INTRINSIC_OBJECT_CREATE(null) as Record<string, JsonValue>
   addCanonicalBudget(budget, 2)
-  const keys = Object.keys(value).sort()
+  const keys = INTRINSIC_OWN_KEYS(value)
+  const sortedKeys = createInternalArray<string>()
   for (let index = 0; index < keys.length; index += 1) {
-    const key = keys[index]
+    const key = arrayDataValue(keys, index, 'Canonical object key')
+    if (typeof key !== 'string') {
+      fail('SCHEMA', 'Canonical objects cannot contain symbol fields.')
+    }
+    appendArrayData(
+      sortedKeys,
+      key
+    )
+  }
+  INTRINSIC_APPLY(INTRINSIC_ARRAY_SORT, sortedKeys, [])
+  for (let index = 0; index < sortedKeys.length; index += 1) {
+    const key = arrayDataValue(sortedKeys, index, 'Sorted canonical object key')
     if (index > 0) addCanonicalBudget(budget, 1)
     addCanonicalStringBudget(key, budget)
     addCanonicalBudget(budget, 1)
-    const entry = value[key]
+    const entry = ownDataDescriptor(value, key, `Canonical field "${key}"`).value
     if (entry === undefined) fail('SCHEMA', `Canonical field "${key}" cannot be undefined.`)
     normalized[key] = normalizeCanonical(entry, budget, depth + 1)
   }
   return normalized
+}
+
+function encodeCanonical(value: JsonValue): string {
+  if (value === null) return 'null'
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'string' || typeof value === 'number') {
+    return INTRINSIC_JSON_STRINGIFY(value)
+  }
+  if (INTRINSIC_ARRAY_IS_ARRAY(value)) {
+    const entries = createInternalArray<string>()
+    for (let index = 0; index < value.length; index += 1) {
+      appendArrayData(
+        entries,
+        encodeCanonical(value[index])
+      )
+    }
+    return `[${INTRINSIC_APPLY(INTRINSIC_ARRAY_JOIN, entries, [','])}]`
+  }
+  const keys = INTRINSIC_OWN_KEYS(value) as readonly string[]
+  const objectValue = value as { readonly [key: string]: JsonValue }
+  const fields = createInternalArray<string>()
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index]
+    const entry = objectValue[key]
+    appendArrayData(
+      fields,
+      `${INTRINSIC_JSON_STRINGIFY(key)}:${encodeCanonical(entry)}`
+    )
+  }
+  return `{${INTRINSIC_APPLY(INTRINSIC_ARRAY_JOIN, fields, [','])}}`
 }
 
 export function canonicalStringify(value: unknown): string {
@@ -257,7 +490,7 @@ export function canonicalStringify(value: unknown): string {
     { nodes: 0, characters: 0, bytes: 0 },
     0
   )
-  const serialized = JSON.stringify(normalized)
+  const serialized = encodeCanonical(normalized)
   assertSerializedTextWithinRuntimeCeiling(serialized, 'Canonical JSON')
   return serialized
 }
@@ -271,7 +504,7 @@ export function sha256Text(value: string): string {
 }
 
 export function utf8ByteLength(value: string): number {
-  return Buffer.byteLength(value, 'utf8')
+  return INTRINSIC_BUFFER_BYTE_LENGTH(value, 'utf8')
 }
 
 export function assertSerializedLengthsWithinRuntimeCeiling(
@@ -303,14 +536,25 @@ export function assertSerializedTextWithinRuntimeCeiling(
 }
 
 export function deepFreeze<T>(value: T): T {
-  if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value
-  Object.freeze(value)
-  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child)
+  if (typeof value !== 'object' || value === null) return value
+  if (INTRINSIC_IS_PROXY(value)) fail('SCHEMA', 'Cannot freeze a Proxy-backed value.')
+  if (INTRINSIC_IS_FROZEN(value)) return value
+  INTRINSIC_FREEZE(value)
+  const keys = INTRINSIC_OWN_KEYS(value)
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = arrayDataValue(keys, index, 'Frozen value key')
+    const descriptor = INTRINSIC_GET_OWN_PROPERTY_DESCRIPTOR(value, key)
+    if (descriptor && 'value' in descriptor) deepFreeze(descriptor.value)
+  }
   return value
 }
 
 export function cloneCanonical<T>(value: T): T {
-  return JSON.parse(canonicalStringify(value)) as T
+  return INTRINSIC_JSON_PARSE(canonicalStringify(value)) as T
+}
+
+export function parseJson(value: string): unknown {
+  return INTRINSIC_JSON_PARSE(value) as unknown
 }
 
 export function compareIso(left: string, right: string): number {

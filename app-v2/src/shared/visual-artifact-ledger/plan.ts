@@ -20,6 +20,24 @@ import {
 } from './canonical'
 import { fail } from './errors'
 
+const INTRINSIC_ARRAY_SORT = Array.prototype.sort
+const INTRINSIC_ARRAY_IS_ARRAY = Array.isArray
+const INTRINSIC_APPLY = Reflect.apply
+const INTRINSIC_DEFINE_PROPERTY = Object.defineProperty
+const INTRINSIC_SET = Set
+const INTRINSIC_SET_ADD = Set.prototype.add
+const INTRINSIC_SET_HAS = Set.prototype.has
+const INTRINSIC_STRING_SPLIT = String.prototype.split
+
+function appendArrayData<T>(values: T[], value: T): void {
+  INTRINSIC_DEFINE_PROPERTY(values, String(values.length), {
+    configurable: true,
+    enumerable: true,
+    writable: true,
+    value
+  })
+}
+
 export type ArtifactKind = 'dashboard' | 'widget' | 'ordinary-overlay' | 'trigger'
 export type ArtifactId =
   | `va2:d:${string}`
@@ -58,6 +76,15 @@ export interface ArtifactPlan {
   readonly planHash: string
 }
 
+const COUNT_KEYS = [
+  'dashboards',
+  'widgets',
+  'ordinaryOverlays',
+  'triggers',
+  'base',
+  'total'
+] as const satisfies readonly (keyof ArtifactPlanCounts)[]
+
 const PLAN_KEYS = [
   'schemaVersion',
   'registryHash',
@@ -73,33 +100,41 @@ function normalizeIdentities(
   label: string,
   exactCount?: number
 ): readonly PlanIdentity[] {
-  if (!Array.isArray(value)) fail('SCHEMA', `${label} must be an array.`)
-  if (value.length > MAX_ARTIFACTS) fail('CARDINALITY', `${label} exceeds the identity limit.`)
-  if (exactCount !== undefined && value.length !== exactCount) {
+  const snapshot = cloneCanonical(value)
+  if (!INTRINSIC_ARRAY_IS_ARRAY(snapshot)) fail('SCHEMA', `${label} must be an array.`)
+  if (snapshot.length > MAX_ARTIFACTS) fail('CARDINALITY', `${label} exceeds the identity limit.`)
+  if (exactCount !== undefined && snapshot.length !== exactCount) {
     fail('SCHEMA', `${label} must contain exactly ${exactCount} identities.`)
   }
-  for (let index = 0; index < value.length; index += 1) {
-    if (!Object.prototype.hasOwnProperty.call(value, index)) {
-      fail('SCHEMA', `${label} cannot be sparse.`)
-    }
-  }
-
-  const identities = value.map((entry, index) => {
+  const identities: PlanIdentity[] = []
+  for (let index = 0; index < snapshot.length; index += 1) {
+    const entry = snapshot[index]
     assertPlainObject(entry, `${label}[${index}]`)
     assertExactKeys(entry, ['id', 'ordinal'], `${label}[${index}]`)
-    return {
+    appendArrayData(identities, {
       id: assertSlug(entry.id, `${label}[${index}].id`),
-      ordinal: assertSafeInteger(entry.ordinal, `${label}[${index}].ordinal`, 1, MAX_ARTIFACTS)
-    }
-  })
-  identities.sort((left, right) => left.ordinal - right.ordinal || left.id.localeCompare(right.id))
+      ordinal: assertSafeInteger(
+        entry.ordinal,
+        `${label}[${index}].ordinal`,
+        1,
+        MAX_ARTIFACTS
+      )
+    })
+  }
+  INTRINSIC_APPLY(INTRINSIC_ARRAY_SORT, identities, [
+    (left: PlanIdentity, right: PlanIdentity) =>
+      left.ordinal - right.ordinal ||
+      (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
+  ])
 
-  const ids = new Set<string>()
+  const ids = new INTRINSIC_SET<string>()
   for (let index = 0; index < identities.length; index += 1) {
     const identity = identities[index]
     if (identity.ordinal !== index + 1) fail('SCHEMA', `${label} ordinals must be contiguous from 1.`)
-    if (ids.has(identity.id)) fail('SCHEMA', `${label} contains duplicate id "${identity.id}".`)
-    ids.add(identity.id)
+    if (INTRINSIC_APPLY(INTRINSIC_SET_HAS, ids, [identity.id])) {
+      fail('SCHEMA', `${label} contains duplicate id "${identity.id}".`)
+    }
+    INTRINSIC_APPLY(INTRINSIC_SET_ADD, ids, [identity.id])
   }
   return identities
 }
@@ -173,10 +208,12 @@ export function parseArtifactPlan(value: unknown): ArtifactPlan {
   assertPlainObject(value.counts, 'Artifact plan counts')
   assertExactKeys(
     value.counts,
-    ['dashboards', 'widgets', 'ordinaryOverlays', 'triggers', 'base', 'total'],
+    COUNT_KEYS,
     'Artifact plan counts'
   )
-  for (const [name, expected] of Object.entries(recreated.counts)) {
+  for (let index = 0; index < COUNT_KEYS.length; index += 1) {
+    const name = COUNT_KEYS[index]
+    const expected = recreated.counts[name]
     if (value.counts[name] !== expected) fail('INTEGRITY', `Artifact plan count "${name}" is incorrect.`)
   }
   const suppliedHash = assertSha256(value.planHash, 'Artifact plan planHash')
@@ -207,15 +244,53 @@ export function artifactIdForTrigger(styleId: string, triggerFamilyId: string): 
 export function expectedArtifactIds(plan: ArtifactPlan): readonly ArtifactId[] {
   const parsed = parseArtifactPlan(plan)
   const ids: ArtifactId[] = []
-  for (const style of parsed.styles) ids.push(artifactIdForDashboard(style.id))
-  for (const style of parsed.styles) {
-    for (const concept of parsed.concepts) ids.push(artifactIdForWidget(style.id, concept.id))
+  for (let styleIndex = 0; styleIndex < parsed.styles.length; styleIndex += 1) {
+    appendArrayData(
+      ids,
+      artifactIdForDashboard(parsed.styles[styleIndex].id)
+    )
   }
-  for (const style of parsed.styles) {
-    for (const concept of parsed.concepts) ids.push(artifactIdForOverlay(style.id, concept.id))
+  for (let styleIndex = 0; styleIndex < parsed.styles.length; styleIndex += 1) {
+    const style = parsed.styles[styleIndex]
+    for (
+      let conceptIndex = 0;
+      conceptIndex < parsed.concepts.length;
+      conceptIndex += 1
+    ) {
+      appendArrayData(
+        ids,
+        artifactIdForWidget(style.id, parsed.concepts[conceptIndex].id)
+      )
+    }
   }
-  for (const style of parsed.styles) {
-    for (const trigger of parsed.triggerFamilies) ids.push(artifactIdForTrigger(style.id, trigger.id))
+  for (let styleIndex = 0; styleIndex < parsed.styles.length; styleIndex += 1) {
+    const style = parsed.styles[styleIndex]
+    for (
+      let conceptIndex = 0;
+      conceptIndex < parsed.concepts.length;
+      conceptIndex += 1
+    ) {
+      appendArrayData(
+        ids,
+        artifactIdForOverlay(style.id, parsed.concepts[conceptIndex].id)
+      )
+    }
+  }
+  for (let styleIndex = 0; styleIndex < parsed.styles.length; styleIndex += 1) {
+    const style = parsed.styles[styleIndex]
+    for (
+      let triggerIndex = 0;
+      triggerIndex < parsed.triggerFamilies.length;
+      triggerIndex += 1
+    ) {
+      appendArrayData(
+        ids,
+        artifactIdForTrigger(
+          style.id,
+          parsed.triggerFamilies[triggerIndex].id
+        )
+      )
+    }
   }
   return deepFreeze(ids)
 }
@@ -236,7 +311,7 @@ export interface ParsedArtifactId {
 
 export function parseArtifactId(value: unknown): ParsedArtifactId {
   if (typeof value !== 'string' || value.length > 200) fail('SCHEMA', 'Artifact id is invalid.')
-  const parts = value.split(':')
+  const parts = INTRINSIC_APPLY(INTRINSIC_STRING_SPLIT, value, [':'])
   if (parts.length < 3 || parts[0] !== 'va2') fail('SCHEMA', 'Artifact id is not canonical V2.')
   const styleId = assertSlug(parts[2], 'Artifact style id')
   if (parts[1] === 'd' && parts.length === 3) {

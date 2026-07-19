@@ -1,13 +1,19 @@
 import {
   type AuthenticatedPrincipalBinding,
+  type AuthenticatedPrincipalVerifier,
   type GovernanceRole,
   type OpaqueAttestation,
   type PromptApprovalCheckpoint,
   type PromptApprovalCheckpointBinding,
+  type PromptApprovalCheckpointVerifier,
+  type RootAttestationVerifier,
+  type SchedulerAuthority,
   type SchedulerAuthorityCommit,
   type SchedulerAuthorityDependencies,
   type SchedulerAuthorityOperation,
+  type SchedulerReserveOperation,
   type SchedulerServiceReceiptBinding,
+  type SchedulerServiceReceiptVerifier,
   invokeSynchronousVerifier,
   parseOpaqueAttestation
 } from './authorities'
@@ -26,6 +32,8 @@ import {
   cloneCanonical,
   compareIso,
   deepFreeze,
+  ownDataValue,
+  parseJson,
   sha256Hex,
   utf8ByteLength
 } from './canonical'
@@ -46,6 +54,7 @@ import {
 } from './constants'
 import { fail } from './errors'
 import { parseArtifactId, type ArtifactId } from './plan'
+import { types as utilTypes } from 'node:util'
 
 export interface ImageSchedulingPolicy {
   readonly windowMs: number
@@ -195,6 +204,7 @@ interface MutableCallState {
   approvalPlanHash: string
   promptApprovedAt: string
   approvalCheckpointAttestation: OpaqueAttestation
+  approvalDependencyHash: string
   requestHash: string
   idempotencyKey: string
   policyHash: string
@@ -234,6 +244,7 @@ export interface SchedulerCallSnapshot {
   readonly approvalLedgerSequence: number
   readonly approvalPlanHash: string
   readonly promptApprovedAt: string
+  readonly approvalDependencyHash: string
   readonly requestHash: string
   readonly idempotencyKey: string
   readonly policyHash: string
@@ -270,6 +281,7 @@ export interface SchedulerReceipt {
   readonly approvalLedgerSequence: number
   readonly approvalPlanHash: string
   readonly promptApprovedAt: string
+  readonly approvalDependencyHash: string
   readonly requestHash: string
   readonly idempotencyKey: string
   readonly policyHash: string
@@ -384,24 +396,154 @@ const CANCELLATION_REASONS: readonly ReservationCancellationReason[] = [
   'superseded'
 ]
 
+interface SchedulerDependencySnapshot {
+  readonly authority: SchedulerAuthority
+  readonly authorityId: string
+  readonly authorityCommit: SchedulerAuthority['commit']
+  readonly authorityRecover: SchedulerAuthority['recover']
+  readonly authorityVerifyCommit: SchedulerAuthority['verifyCommit']
+  readonly principalVerifier: AuthenticatedPrincipalVerifier
+  readonly verifyPrincipal: AuthenticatedPrincipalVerifier['verifyPrincipal']
+  readonly approvalVerifier: PromptApprovalCheckpointVerifier
+  readonly verifyPromptApprovalCheckpoint:
+    PromptApprovalCheckpointVerifier['verifyPromptApprovalCheckpoint']
+  readonly serviceReceiptVerifier: SchedulerServiceReceiptVerifier
+  readonly verifyServiceReceipt: SchedulerServiceReceiptVerifier['verifyServiceReceipt']
+  readonly rootVerifier: RootAttestationVerifier
+  readonly verifyRoot: RootAttestationVerifier['verifyRoot']
+}
+
+function dependencyMethod<T extends object>(
+  target: T,
+  key: PropertyKey,
+  label: string
+): (...args: never[]) => unknown {
+  if (utilTypes.isProxy(target)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
+  let owner: object | null = target
+  while (owner !== null) {
+    if (utilTypes.isProxy(owner)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
+    const descriptor = Object.getOwnPropertyDescriptor(owner, key)
+    if (descriptor) {
+      if (!('value' in descriptor) || typeof descriptor.value !== 'function') {
+        fail('TRUST', `${label} must be a getter-free data method.`)
+      }
+      return descriptor.value as (...args: never[]) => unknown
+    }
+    owner = Object.getPrototypeOf(owner)
+  }
+  fail('TRUST', `${label} must be a function.`)
+}
+
+function dependencyIdentity(target: object, key: string, label: string): string {
+  if (utilTypes.isProxy(target)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
+  const descriptor = Object.getOwnPropertyDescriptor(target, key)
+  if (!descriptor?.enumerable || !('value' in descriptor)) {
+    fail('TRUST', `${label} must be an own enumerable data field.`)
+  }
+  return assertIdentifier(descriptor.value, label)
+}
+
 function assertDependencies(
   dependencies: SchedulerAuthorityDependencies
-): SchedulerAuthorityDependencies {
+): SchedulerDependencySnapshot {
+  if (typeof dependencies !== 'object' || dependencies === null) {
+    fail('TRUST', 'Scheduler requires explicit trusted authority and verifier dependencies.')
+  }
+  assertPlainObject(dependencies, 'Scheduler dependencies')
+  assertExactKeys(
+    dependencies,
+    [
+      'authority',
+      'principalVerifier',
+      'approvalVerifier',
+      'serviceReceiptVerifier',
+      'rootVerifier'
+    ],
+    'Scheduler dependencies'
+  )
+  const authority = ownDataValue(
+    dependencies,
+    'authority',
+    'Scheduler dependencies.authority'
+  ) as SchedulerAuthority
+  const principalVerifier = ownDataValue(
+    dependencies,
+    'principalVerifier',
+    'Scheduler dependencies.principalVerifier'
+  ) as AuthenticatedPrincipalVerifier
+  const approvalVerifier = ownDataValue(
+    dependencies,
+    'approvalVerifier',
+    'Scheduler dependencies.approvalVerifier'
+  ) as PromptApprovalCheckpointVerifier
+  const serviceReceiptVerifier = ownDataValue(
+    dependencies,
+    'serviceReceiptVerifier',
+    'Scheduler dependencies.serviceReceiptVerifier'
+  ) as SchedulerServiceReceiptVerifier
+  const rootVerifier = ownDataValue(
+    dependencies,
+    'rootVerifier',
+    'Scheduler dependencies.rootVerifier'
+  ) as RootAttestationVerifier
   if (
-    typeof dependencies !== 'object' ||
-    dependencies === null ||
-    typeof dependencies.authority?.commit !== 'function' ||
-    typeof dependencies.authority?.recover !== 'function' ||
-    typeof dependencies.authority?.verifyCommit !== 'function' ||
-    typeof dependencies.principalVerifier?.verifyPrincipal !== 'function' ||
-    typeof dependencies.approvalVerifier?.verifyPromptApprovalCheckpoint !== 'function' ||
-    typeof dependencies.serviceReceiptVerifier?.verifyServiceReceipt !== 'function' ||
-    typeof dependencies.rootVerifier?.verifyRoot !== 'function'
+    (typeof authority !== 'object' && typeof authority !== 'function') ||
+    authority === null ||
+    (typeof principalVerifier !== 'object' && typeof principalVerifier !== 'function') ||
+    principalVerifier === null ||
+    (typeof approvalVerifier !== 'object' && typeof approvalVerifier !== 'function') ||
+    approvalVerifier === null ||
+    (typeof serviceReceiptVerifier !== 'object' &&
+      typeof serviceReceiptVerifier !== 'function') ||
+    serviceReceiptVerifier === null ||
+    (typeof rootVerifier !== 'object' && typeof rootVerifier !== 'function') ||
+    rootVerifier === null
   ) {
     fail('TRUST', 'Scheduler requires explicit trusted authority and verifier dependencies.')
   }
-  assertIdentifier(dependencies.authority.authorityId, 'Scheduler authority id')
-  return dependencies
+  return Object.freeze({
+    authority,
+    authorityId: dependencyIdentity(authority, 'authorityId', 'Scheduler authority id'),
+    authorityCommit: dependencyMethod(
+      authority,
+      'commit',
+      'Scheduler authority commit'
+    ) as SchedulerAuthority['commit'],
+    authorityRecover: dependencyMethod(
+      authority,
+      'recover',
+      'Scheduler authority recovery'
+    ) as SchedulerAuthority['recover'],
+    authorityVerifyCommit: dependencyMethod(
+      authority,
+      'verifyCommit',
+      'Scheduler authority commit verifier'
+    ) as SchedulerAuthority['verifyCommit'],
+    principalVerifier,
+    verifyPrincipal: dependencyMethod(
+      principalVerifier,
+      'verifyPrincipal',
+      'Scheduler principal verifier'
+    ) as AuthenticatedPrincipalVerifier['verifyPrincipal'],
+    approvalVerifier,
+    verifyPromptApprovalCheckpoint: dependencyMethod(
+      approvalVerifier,
+      'verifyPromptApprovalCheckpoint',
+      'Prompt approval checkpoint verifier'
+    ) as PromptApprovalCheckpointVerifier['verifyPromptApprovalCheckpoint'],
+    serviceReceiptVerifier,
+    verifyServiceReceipt: dependencyMethod(
+      serviceReceiptVerifier,
+      'verifyServiceReceipt',
+      'Scheduler service receipt verifier'
+    ) as SchedulerServiceReceiptVerifier['verifyServiceReceipt'],
+    rootVerifier,
+    verifyRoot: dependencyMethod(
+      rootVerifier,
+      'verifyRoot',
+      'Scheduler root verifier'
+    ) as RootAttestationVerifier['verifyRoot']
+  })
 }
 
 function assertFailureReason(value: unknown, label: string): ImageFailureReason {
@@ -496,6 +638,36 @@ function logicalAttemptKey(
   return `${revisionKey(planHash, artifactId, revision)}#${attempt}`
 }
 
+type SchedulerApprovalDependencyFields = Pick<
+  SchedulerReserveOperation,
+  | 'artifactId'
+  | 'revision'
+  | 'approvalLedgerRootHash'
+  | 'approvalLedgerSequence'
+  | 'approvalPlanHash'
+  | 'promptApprovedAt'
+  | 'promptHash'
+  | 'promptApprovalHash'
+  | 'approvalCheckpointAttestation'
+>
+
+export function computeSchedulerApprovalDependencyHash(
+  input: SchedulerApprovalDependencyFields
+): string {
+  return sha256Hex({
+    domain: 'scheduler-approval-dependency-v1',
+    artifactId: input.artifactId,
+    revision: input.revision,
+    approvalLedgerRootHash: input.approvalLedgerRootHash,
+    approvalLedgerSequence: input.approvalLedgerSequence,
+    approvalPlanHash: input.approvalPlanHash,
+    promptApprovedAt: input.promptApprovedAt,
+    promptHash: input.promptHash,
+    promptApprovalHash: input.promptApprovalHash,
+    approvalCheckpointAttestation: input.approvalCheckpointAttestation
+  })
+}
+
 function idempotencyKeyFor(input: {
   artifactId: ArtifactId
   revision: number
@@ -506,6 +678,7 @@ function idempotencyKeyFor(input: {
   approvalLedgerSequence: number
   approvalPlanHash: string
   promptApprovedAt: string
+  approvalDependencyHash: string
   requestHash: string
   policyHash: string
 }): string {
@@ -559,6 +732,7 @@ function receiptFromCall(call: MutableCallState, authorityId: string): Scheduler
     approvalLedgerRootHash: call.approvalLedgerRootHash,
     approvalLedgerSequence: call.approvalLedgerSequence,
     approvalPlanHash: call.approvalPlanHash,
+    approvalDependencyHash: call.approvalDependencyHash,
     promptApprovedAt: call.promptApprovedAt,
     requestHash: call.requestHash,
     idempotencyKey: call.idempotencyKey,
@@ -834,11 +1008,11 @@ export class ValidatedImageScheduler {
 
   private constructor(
     policy: ImageSchedulingPolicy,
-    private readonly dependencies: SchedulerAuthorityDependencies
+    private readonly dependencies: SchedulerDependencySnapshot
   ) {
     this.policy = policy
     this.policyHash = computeImageSchedulingPolicyHash(policy)
-    this.authorityId = dependencies.authority.authorityId
+    this.authorityId = dependencies.authorityId
   }
 
   static create(
@@ -936,7 +1110,7 @@ export class ValidatedImageScheduler {
       contextVersion: this.authorityVersion
     }
     invokeSynchronousVerifier(
-      this.dependencies.principalVerifier.verifyPrincipal,
+      this.dependencies.verifyPrincipal,
       this.dependencies.principalVerifier,
       [attestation, binding],
       `Scheduler principal verifier for ${action}`
@@ -955,6 +1129,8 @@ export class ValidatedImageScheduler {
       authorityLatestCommittedAt?: string
       authorityLeaseExpiresAt?: string
       authorityCancellationReason?: string
+      approvalCheckpoint?: PromptApprovalCheckpoint
+      approvalDependencyHash?: string
     },
     principalAttestation: OpaqueAttestation
   ): SchedulerAuthorityOperation {
@@ -965,9 +1141,11 @@ export class ValidatedImageScheduler {
       principalAttestation,
       expectedVersion: this.authorityVersion,
       previousRootHash: this.authorityRootHash,
-      policyHash: this.policyHash
+      policyHash: this.policyHash,
+      authorityId: this.authorityId
     })
     const common = {
+      authorityId: this.authorityId,
       expectedVersion: this.authorityVersion,
       previousRootHash: this.authorityRootHash,
       policyHash: this.policyHash,
@@ -977,15 +1155,16 @@ export class ValidatedImageScheduler {
       principalAttestation
     }
     if (action === 'configure') {
-      return {
+      return deepFreeze({
         ...common,
         action,
         windowMs: this.policy.windowMs,
         requestLimit: this.policy.requestLimit
-      }
+      })
     }
     if (action === 'reserve') {
-      return {
+      const checkpoint = normalized.approvalCheckpoint!
+      return deepFreeze({
         ...common,
         action,
         windowMs: this.policy.windowMs,
@@ -999,33 +1178,56 @@ export class ValidatedImageScheduler {
             .authorityNotBefore ?? null,
         leaseMs: this.policy.reservationLeaseMs,
         latestCommittedAt: normalized.authorityLatestCommittedAt!,
-        maxReservationReleases: MAX_RESERVATION_RELEASES
-      }
+        maxReservationReleases: MAX_RESERVATION_RELEASES,
+        approvalDependencyHash: normalized.approvalDependencyHash!,
+        approvalLedgerRootHash: checkpoint.ledgerRootHash,
+        approvalLedgerSequence: checkpoint.ledgerSequence,
+        approvalPlanHash: checkpoint.planHash,
+        promptApprovedAt: checkpoint.promptApprovedAt,
+        promptHash: checkpoint.promptHash,
+        promptApprovalHash: checkpoint.promptApprovalEventHash,
+        approvalCheckpointAttestation: checkpoint.attestation
+      })
     }
     if (action === 'fail') {
-      return {
+      return deepFreeze({
         ...common,
         action,
         callId: normalized.callId!,
         latestCommittedAt: normalized.authorityLatestCommittedAt!
-      }
+      })
     }
     if (action === 'cancel' || action === 'expire') {
-      return {
+      return deepFreeze({
         ...common,
         action,
         callId: normalized.callId!,
         leaseExpiresAt: normalized.authorityLeaseExpiresAt!,
         cancellationReason: normalized.authorityCancellationReason!
-      }
+      })
     }
-    return { ...common, action, callId: normalized.callId! }
+    return deepFreeze({ ...common, action, callId: normalized.callId! })
   }
 
   private commitOperation(
     operation: SchedulerAuthorityOperation,
     replayCommit?: SchedulerAuthorityCommit
   ): SchedulerAuthorityCommit {
+    if (
+      operation.authorityId !== this.authorityId ||
+      operation.expectedVersion !== this.authorityVersion ||
+      operation.previousRootHash !== this.authorityRootHash ||
+      operation.policyHash !== this.policyHash
+    ) {
+      fail('CAS', 'Scheduler operation dependency identity/version fence is stale.')
+    }
+    if (
+      operation.action === 'reserve' &&
+      operation.approvalDependencyHash !==
+        computeSchedulerApprovalDependencyHash(operation)
+    ) {
+      fail('TRUST', 'Scheduler reservation approval dependency fence is invalid.')
+    }
     if (
       this.eventLog.length >= MAX_SCHEDULER_EVENTS ||
       this.authorityVersion >= MAX_SCHEDULER_EVENTS
@@ -1037,9 +1239,17 @@ export class ValidatedImageScheduler {
       commit = replayCommit
     } else {
       try {
-        commit = this.dependencies.authority.commit(operation)
+        commit = Reflect.apply(
+          this.dependencies.authorityCommit,
+          this.dependencies.authority,
+          [operation]
+        ) as SchedulerAuthorityCommit
       } catch (error) {
-        const recovered = this.dependencies.authority.recover(operation)
+        const recovered = Reflect.apply(
+          this.dependencies.authorityRecover,
+          this.dependencies.authority,
+          [operation]
+        ) as SchedulerAuthorityCommit | undefined
         if (recovered) {
           commit = recovered
         } else {
@@ -1098,7 +1308,7 @@ export class ValidatedImageScheduler {
       fail('TRUST', 'Scheduler authority returned an invalid or stale committed operation.')
     }
     invokeSynchronousVerifier(
-      this.dependencies.authority.verifyCommit,
+      this.dependencies.authorityVerifyCommit,
       this.dependencies.authority,
       [normalizedCommit, operation],
       'Scheduler authority commit verifier'
@@ -1285,7 +1495,7 @@ export class ValidatedImageScheduler {
       fail('TRUST', 'Image reservation requires a trusted committed prompt-approval checkpoint.')
     }
     invokeSynchronousVerifier(
-      this.dependencies.approvalVerifier.verifyPromptApprovalCheckpoint,
+      this.dependencies.verifyPromptApprovalCheckpoint,
       this.dependencies.approvalVerifier,
       [checkpoint.attestation, checkpointBinding(checkpoint)],
       'Prompt approval checkpoint verifier'
@@ -1352,6 +1562,19 @@ export class ValidatedImageScheduler {
       )
     }
 
+    const approvalDependency = {
+      artifactId: input.artifactId,
+      revision: input.revision,
+      approvalLedgerRootHash: checkpoint.ledgerRootHash,
+      approvalLedgerSequence: checkpoint.ledgerSequence,
+      approvalPlanHash: checkpoint.planHash,
+      promptApprovedAt: checkpoint.promptApprovedAt,
+      promptHash: checkpoint.promptHash,
+      promptApprovalHash: checkpoint.promptApprovalEventHash,
+      approvalCheckpointAttestation: checkpoint.attestation
+    }
+    const approvalDependencyHash =
+      computeSchedulerApprovalDependencyHash(approvalDependency)
     const idempotencyKey = idempotencyKeyFor({
       artifactId: input.artifactId,
       revision: input.revision,
@@ -1362,6 +1585,7 @@ export class ValidatedImageScheduler {
       approvalLedgerSequence: checkpoint.ledgerSequence,
       approvalPlanHash: checkpoint.planHash,
       promptApprovedAt: checkpoint.promptApprovedAt,
+      approvalDependencyHash,
       requestHash: input.requestHash,
       policyHash: this.policyHash
     })
@@ -1399,6 +1623,8 @@ export class ValidatedImageScheduler {
       'reserve',
       {
         ...input,
+        approvalCheckpoint: checkpoint,
+        approvalDependencyHash,
         authorityNotBefore,
         authorityLatestCommittedAt: new Date(
           8_640_000_000_000_000 - this.policy.reservationLeaseMs
@@ -1449,6 +1675,7 @@ export class ValidatedImageScheduler {
       approvalPlanHash: checkpoint.planHash,
       promptApprovedAt: checkpoint.promptApprovedAt,
       approvalCheckpointAttestation: checkpoint.attestation,
+      approvalDependencyHash,
       requestHash: input.requestHash,
       idempotencyKey,
       policyHash: this.policyHash,
@@ -1699,6 +1926,7 @@ export class ValidatedImageScheduler {
       approvalLedgerRootHash: call.approvalLedgerRootHash,
       approvalLedgerSequence: call.approvalLedgerSequence,
       approvalPlanHash: call.approvalPlanHash,
+      approvalDependencyHash: call.approvalDependencyHash,
       promptApprovedAt: call.promptApprovedAt,
       leaseExpiresAt: call.leaseExpiresAt,
       requestHash: call.requestHash,
@@ -1727,7 +1955,7 @@ export class ValidatedImageScheduler {
     }
     const serviceBinding = this.serviceReceiptBinding(input.callId, input.imageHash)
     invokeSynchronousVerifier(
-      this.dependencies.serviceReceiptVerifier.verifyServiceReceipt,
+      this.dependencies.verifyServiceReceipt,
       this.dependencies.serviceReceiptVerifier,
       [input.serviceReceiptAttestation, serviceBinding],
       'Scheduler service receipt verifier'
@@ -1946,8 +2174,12 @@ export class ValidatedImageScheduler {
 
   verifyRootAttestation(attestationValue: unknown): void {
     const attestation = parseOpaqueAttestation(attestationValue, 'Scheduler root attestation')
+    this.verifyRootAttestationSnapshot(attestation)
+  }
+
+  private verifyRootAttestationSnapshot(attestation: OpaqueAttestation): void {
     invokeSynchronousVerifier(
-      this.dependencies.rootVerifier.verifyRoot,
+      this.dependencies.verifyRoot,
       this.dependencies.rootVerifier,
       [attestation, {
         domain: 'image-scheduler',
@@ -1967,7 +2199,11 @@ export class ValidatedImageScheduler {
     if (!(scheduler instanceof ValidatedImageScheduler)) {
       fail('SCHEMA', 'Only a validated scheduler instance can be serialized.')
     }
-    scheduler.verifyRootAttestation(rootAttestationValue)
+    const rootAttestation = parseOpaqueAttestation(
+      rootAttestationValue,
+      'Scheduler root attestation'
+    )
+    scheduler.verifyRootAttestationSnapshot(rootAttestation)
     const policyBytes = utf8ByteLength(canonicalStringify(scheduler.policy))
     const estimatedCharacters =
       policyBytes +
@@ -1984,10 +2220,7 @@ export class ValidatedImageScheduler {
       policy: cloneCanonical(scheduler.policy),
       policyHash: scheduler.policyHash,
       authorityId: scheduler.authorityId,
-      rootAttestation: parseOpaqueAttestation(
-        rootAttestationValue,
-        'Scheduler root attestation'
-      ),
+      rootAttestation,
       events: scheduler.events()
     })
   }
@@ -2030,7 +2263,7 @@ export class ValidatedImageScheduler {
     )
     let parsed: unknown
     try {
-      parsed = JSON.parse(serialized)
+      parsed = parseJson(serialized)
     } catch {
       fail('SCHEMA', 'Serialized scheduler is not valid JSON.')
     }
@@ -2062,7 +2295,7 @@ export class ValidatedImageScheduler {
       fail('POLICY', 'Scheduler policy drifted from the externally trusted policy hash.')
     }
     const authorityId = assertIdentifier(parsed.authorityId, 'Serialized scheduler authorityId')
-    if (authorityId !== dependencies.authority.authorityId) {
+    if (authorityId !== dependencies.authorityId) {
       fail('TRUST', 'Serialized scheduler belongs to a different authority.')
     }
     if (!Array.isArray(parsed.events) || parsed.events.length < 1) {

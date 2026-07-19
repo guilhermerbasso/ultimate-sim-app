@@ -27,6 +27,14 @@ SHA-256. Its in-memory indexes update only the affected artifact revision, evide
 chain, and scheduler receipt lookup. Full replay is intentionally limited to parsing and
 finalization.
 
+Finalization is also committed through one injected shared `LedgerFinalizationAuthority`. The
+authority atomically compares the exact pre-final sequence/root and durably publishes one
+plan-bound operation/commit record. Its operation parser independently requires the exact 16,600
+count, a complete-event floor, and checkpoint/event/root coherence. Stale complete instances adopt
+that same committed event; different concurrent heads fail CAS. `DurableLedgerFinalizationAuthority`
+uses a fully flushed same-directory temporary file plus atomic exclusive hard-link publication, so
+process races and restart recovery cannot overwrite the winning record.
+
 Each revision must proceed through research, prompt draft, independent prompt QA, scheduler-backed
 image generation, independent image QA, implementation, independent render QA, and acceptance.
 Rejected or exhausted revisions are immutable. Supersession starts the next contiguous revision with
@@ -36,6 +44,8 @@ Evidence is exact-key, content-addressed, creator-bound, subject-bound, revision
 unique, and accepted only with an injected external evidence attestation. Every event likewise
 requires an authenticated-principal attestation bound to its role, payload, prior root, and sequence.
 Prompt bodies, arbitrary metadata, URLs, and secret-like values have no schema location.
+Attestations and dependency containers must be getter-free own data, cannot be proxies, and are
+validated/deep-copied once before verification, hashing, authority commit, or persistence.
 Every verifier is synchronous and succeeds only by returning the primitive boolean `true`; promises,
 thenables, truthy objects/strings/numbers, and `false` fail closed.
 Verifier implementations are trusted in-process code and must be isolated by the host if their own
@@ -55,6 +65,9 @@ committed by an injected shared `SchedulerAuthority`, which owns the durable CAS
 monotonic time, six-request rolling window, outstanding reservations, and global ambiguity circuit.
 Forked scheduler instances therefore contend on one external version/root instead of independent
 local quota counters.
+Reservation operations additionally carry an immutable hash of the prompt-approval plan, artifact,
+revision, ledger root/sequence, event, time, prompt, and attestation. The shared authority rechecks
+that dependency fence inside the same version/root CAS that admits quota.
 Reservations carry an authority-time lease. Capacity is released only by an authority-committed
 manual cancellation or lease-expiry event; caller timestamps never expire reservations, and
 cancel/expiry transitions replay through the same CAS/root chain. A released pre-dispatch attempt
@@ -86,3 +99,6 @@ attestations, and pre-commit per-revision/per-attempt budgets. Plan, envelope, a
 JSON framing are included. The single-string parser/serializer ceiling is derived at runtime as 85%
 of Node/V8 `MAX_STRING_LENGTH`, with both UTF-16 character and UTF-8 byte checks before allocation.
 Parsers accept only byte-for-byte canonical JSON, which also rejects duplicate keys.
+Canonical hashing uses its own deterministic encoder over validated own enumerable data fields;
+proxies, accessors, sparse/custom arrays, symbol fields, and non-plain objects are rejected, while
+inherited/prototype `toJSON` hooks are never observed.

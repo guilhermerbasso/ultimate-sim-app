@@ -2,7 +2,8 @@ import {
   assertExactKeys,
   assertPlainObject,
   assertString,
-  deepFreeze
+  deepFreeze,
+  ownDataValue
 } from './canonical'
 import { fail } from './errors'
 import { types as utilTypes } from 'node:util'
@@ -31,7 +32,11 @@ export interface OpaqueAttestation {
 export function parseOpaqueAttestation(value: unknown, label: string): OpaqueAttestation {
   assertPlainObject(value, label)
   assertExactKeys(value, ['token'], label)
-  const token = assertString(value.token, `${label}.token`, 88)
+  const token = assertString(
+    ownDataValue(value, 'token', `${label}.token`),
+    `${label}.token`,
+    88
+  )
   if (!/^[A-Za-z0-9._:-]+$/.test(token)) {
     fail('SCHEMA', `${label}.token must use bounded ASCII attestation encoding.`)
   }
@@ -284,6 +289,7 @@ export interface SchedulerServiceReceiptBinding {
   readonly approvalLedgerRootHash: string
   readonly approvalLedgerSequence: number
   readonly approvalPlanHash: string
+  readonly approvalDependencyHash: string
   readonly promptApprovedAt: string
   readonly leaseExpiresAt: string
   readonly requestHash: string
@@ -300,6 +306,7 @@ export interface SchedulerServiceReceiptVerifier {
 }
 
 interface SchedulerAuthorityOperationBase {
+  readonly authorityId: string
   readonly expectedVersion: number
   readonly previousRootHash: string
   readonly policyHash: string
@@ -327,6 +334,14 @@ export interface SchedulerReserveOperation extends SchedulerAuthorityOperationBa
   readonly leaseMs: number
   readonly latestCommittedAt: string
   readonly maxReservationReleases: number
+  readonly approvalDependencyHash: string
+  readonly approvalLedgerRootHash: string
+  readonly approvalLedgerSequence: number
+  readonly approvalPlanHash: string
+  readonly promptApprovedAt: string
+  readonly promptHash: string
+  readonly promptApprovalHash: string
+  readonly approvalCheckpointAttestation: OpaqueAttestation
 }
 
 export interface SchedulerCallOperation extends SchedulerAuthorityOperationBase {
@@ -367,6 +382,10 @@ export interface SchedulerAuthorityCommit {
 
 export interface SchedulerAuthority {
   readonly authorityId: string
+  /**
+   * Atomically compare authorityId/version/root and persist the exact operation,
+   * including a reserve operation's immutable approval dependency fence.
+   */
   commit(operation: SchedulerAuthorityOperation): SchedulerAuthorityCommit
   /** Recover only a commit whose response was ambiguous for this exact in-flight operation. */
   recover(operation: SchedulerAuthorityOperation): SchedulerAuthorityCommit | undefined
@@ -376,10 +395,58 @@ export interface SchedulerAuthority {
   ): unknown
 }
 
+export interface LedgerFinalizationOperation {
+  readonly authorityId: string
+  readonly expectedLedgerSequence: number
+  readonly expectedLedgerRootHash: string
+  readonly planHash: string
+  readonly registryHash: string
+  readonly artifactCount: number
+  readonly artifactSetHash: string
+  readonly occurredAt: string
+  readonly actorId: string
+  readonly trustedCheckpointSequence: number
+  readonly trustedCheckpointEventHash: string
+  readonly trustedCheckpointRootHash: string
+  readonly trustedCheckpointAttestation: OpaqueAttestation
+  readonly principalAttestation: OpaqueAttestation
+  readonly operationHash: string
+}
+
+export interface LedgerFinalizationAuthorityCommit {
+  readonly authorityId: string
+  readonly version: 1
+  readonly committedAt: string
+  readonly previousRootHash: string
+  readonly rootHash: string
+  readonly operationHash: string
+  readonly attestation: OpaqueAttestation
+}
+
+export interface LedgerFinalizationRecord {
+  readonly operation: LedgerFinalizationOperation
+  readonly commit: LedgerFinalizationAuthorityCommit
+}
+
+export interface LedgerFinalizationAuthority {
+  readonly authorityId: string
+  /** Atomically publish the unique finalization for one plan/head. */
+  commit(operation: LedgerFinalizationOperation): LedgerFinalizationAuthorityCommit
+  /** Recover only the exact operation whose durable response was lost. */
+  recover(operation: LedgerFinalizationOperation): LedgerFinalizationAuthorityCommit | undefined
+  /** Read the unique authoritative record for a plan after restart or on a stale fork. */
+  current(planHash: string): LedgerFinalizationRecord | undefined
+  verifyCommit(
+    commit: LedgerFinalizationAuthorityCommit,
+    operation: LedgerFinalizationOperation
+  ): unknown
+}
+
 export interface LedgerAuthorityDependencies {
   readonly principalVerifier: AuthenticatedPrincipalVerifier
   readonly evidenceVerifier: EvidenceAttestationVerifier
   readonly rootVerifier: RootAttestationVerifier
+  readonly finalizationAuthority: LedgerFinalizationAuthority
 }
 
 export interface SchedulerAuthorityDependencies {

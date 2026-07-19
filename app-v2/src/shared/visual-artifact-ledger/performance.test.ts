@@ -23,7 +23,7 @@ import {
 describe('16,600-artifact exact contract performance', () => {
   it(
     'creates, accepts, finalizes, serializes, and replays the approved exact plan',
-    { timeout: 300_000 },
+    { timeout: 360_000 },
     () => {
       const planStartedAt = performance.now()
       const plan = makePlan(45)
@@ -71,6 +71,34 @@ describe('16,600-artifact exact contract performance', () => {
           { start: false, specificationHash: specificationHashes[index] }
         )
       }
+      const replacementArtifactId = ids[0]
+      const priorRevisionRootHash =
+        ledger.getArtifact(replacementArtifactId)!.revisions[0].rootHash
+      const replacementSpecificationHash = hashes.next()
+      appendLedger(ledger, governance, {
+        type: 'artifact-revision-superseded',
+        occurredAt: ledgerClock.next(),
+        actorId: 'planner',
+        artifactId: replacementArtifactId,
+        revision: 2,
+        priorRevision: 1,
+        priorRevisionRootHash,
+        specificationHash: replacementSpecificationHash,
+        planHash: plan.planHash
+      })
+      appendAcceptedArtifact(
+        ledger,
+        scheduler,
+        governance,
+        replacementArtifactId,
+        2,
+        hashes,
+        ledgerClock,
+        {
+          start: false,
+          specificationHash: replacementSpecificationHash
+        }
+      )
       const lifecycleMs = performance.now() - lifecycleStartedAt
       const preFinalizationEvents = ledger.eventCount
       const checkpoint = ledger.createCheckpoint()
@@ -81,6 +109,16 @@ describe('16,600-artifact exact contract performance', () => {
         version: checkpoint.sequence,
         contextHash: plan.planHash
       })
+      let preFinalizationSerialized = ledger.serialize({
+        rootAttestation: ledgerRootAttestation(ledger, governance)
+      })
+      const staleFork = parseVisualArtifactLedger(
+        preFinalizationSerialized,
+        {
+          dependencies: governance.ledgerDependencies(scheduler)
+        }
+      )
+      preFinalizationSerialized = ''
 
       const finalizationStartedAt = performance.now()
       const finalization = {
@@ -91,6 +129,7 @@ describe('16,600-artifact exact contract performance', () => {
         trustedCheckpoint: checkpoint,
         trustedCheckpointAttestation: checkpointAttestation
       }
+      governance.finalizationAuthority.simulateLostNextResponse()
       ledger.finalize(
         finalization,
         governance.attestations.issuePrincipal(
@@ -99,6 +138,8 @@ describe('16,600-artifact exact contract performance', () => {
       )
       const finalizationMs = performance.now() - finalizationStartedAt
       const finalizedRoot = ledger.rootHash
+      expect(staleFork.rootHash).toBe(finalizedRoot)
+      expect(staleFork.isFinalized).toBe(true)
       const finalRootAttestation = ledgerRootAttestation(ledger, governance)
 
       const roundTripStartedAt = performance.now()
@@ -121,11 +162,18 @@ describe('16,600-artifact exact contract performance', () => {
       expect(ids).toHaveLength(APPROVED_EXACT_ARTIFACT_COUNT)
       expect(ledger.artifactCount).toBe(APPROVED_EXACT_ARTIFACT_COUNT)
       expect(ledger.acceptedArtifactCount).toBe(APPROVED_EXACT_ARTIFACT_COUNT)
-      expect(preFinalizationEvents).toBe(APPROVED_EXACT_ARTIFACT_COUNT * 9)
+      expect(preFinalizationEvents).toBe(
+        APPROVED_EXACT_ARTIFACT_COUNT * 9 + 9
+      )
       expect(ledger.eventCount).toBe(preFinalizationEvents + 1)
       expect(ledger.isFinalized).toBe(true)
       expect(reparsed.rootHash).toBe(finalizedRoot)
       expect(reparsed.isFinalized).toBe(true)
+      expect(
+        reparsed.getArtifact(replacementArtifactId)?.revisions.map(
+          (revision) => revision.status
+        )
+      ).toEqual(['accepted', 'accepted'])
       expect(serializedBytes).toBeLessThanOrEqual(
         ids.length * MAX_SERIALIZED_BYTES_PER_ARTIFACT_REVISION +
           MAX_SERIALIZED_LEDGER_FRAMING_BYTES

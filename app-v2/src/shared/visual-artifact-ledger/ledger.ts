@@ -1,10 +1,17 @@
 import {
   type AuthenticatedPrincipalBinding,
+  type AuthenticatedPrincipalVerifier,
   type EvidenceAttestationBinding,
+  type EvidenceAttestationVerifier,
   type GovernanceRole,
+  type LedgerFinalizationAuthority,
+  type LedgerFinalizationAuthorityCommit,
+  type LedgerFinalizationOperation,
+  type LedgerFinalizationRecord,
   type LedgerAuthorityDependencies,
   type OpaqueAttestation,
   type PromptApprovalCheckpointBinding,
+  type RootAttestationVerifier,
   invokeSynchronousVerifier,
   parseOpaqueAttestation
 } from './authorities'
@@ -12,6 +19,7 @@ import {
   assertExactKeys,
   assertIdentifier,
   assertIsoTimestamp,
+  assertOptionalExactKeys,
   assertPlainObject,
   assertSafeInteger,
   assertSerializedLengthsWithinRuntimeCeiling,
@@ -21,6 +29,8 @@ import {
   cloneCanonical,
   compareIso,
   deepFreeze,
+  ownDataValue,
+  parseJson,
   sha256Hex,
   utf8ByteLength
 } from './canonical'
@@ -38,6 +48,11 @@ import {
 } from './constants'
 import { fail } from './errors'
 import {
+  computeLedgerFinalizationOperationHash,
+  normalizeLedgerFinalizationCommit,
+  normalizeLedgerFinalizationOperation
+} from './finalization-authority'
+import {
   expectedArtifactIds,
   expectedArtifactSetHash,
   parseArtifactId,
@@ -50,6 +65,7 @@ import {
   type ImageFailureReason,
   type SchedulerReceipt
 } from './scheduler'
+import { types as utilTypes } from 'node:util'
 
 export type EvidenceKind =
   | 'research'
@@ -221,6 +237,12 @@ export interface LedgerFinalizedEvent extends ArtifactEventHeader {
   readonly trustedCheckpointSequence: number
   readonly trustedCheckpointRootHash: string
   readonly trustedCheckpointAttestation: OpaqueAttestation
+  readonly finalizationAuthorityId: string
+  readonly finalizationAuthorityVersion: 1
+  readonly finalizationAuthorityPreviousRootHash: string
+  readonly finalizationAuthorityRootHash: string
+  readonly finalizationAuthorityOperationHash: string
+  readonly finalizationAuthorityAttestation: OpaqueAttestation
 }
 
 export type ArtifactEvent =
@@ -808,25 +830,183 @@ function revisionIsTerminal(status: ArtifactRevisionStatus): boolean {
   return status === 'accepted' || status === 'rejected' || status === 'exhausted'
 }
 
+interface LedgerDependencySnapshot {
+  readonly principalVerifier: AuthenticatedPrincipalVerifier
+  readonly verifyPrincipal: AuthenticatedPrincipalVerifier['verifyPrincipal']
+  readonly evidenceVerifier: EvidenceAttestationVerifier
+  readonly verifyEvidence: EvidenceAttestationVerifier['verifyEvidence']
+  readonly rootVerifier: RootAttestationVerifier
+  readonly verifyRoot: RootAttestationVerifier['verifyRoot']
+  readonly finalizationAuthority: LedgerFinalizationAuthority
+  readonly finalizationAuthorityId: string
+  readonly finalizationCommit: LedgerFinalizationAuthority['commit']
+  readonly finalizationRecover: LedgerFinalizationAuthority['recover']
+  readonly finalizationCurrent: LedgerFinalizationAuthority['current']
+  readonly verifyFinalizationCommit: LedgerFinalizationAuthority['verifyCommit']
+  readonly scheduler?: ValidatedImageScheduler
+}
+
+function ledgerDependencyMethod<T extends object>(
+  target: T,
+  key: PropertyKey,
+  label: string
+): (...args: never[]) => unknown {
+  if (utilTypes.isProxy(target)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
+  let owner: object | null = target
+  while (owner !== null) {
+    if (utilTypes.isProxy(owner)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
+    const descriptor = Object.getOwnPropertyDescriptor(owner, key)
+    if (descriptor) {
+      if (!('value' in descriptor) || typeof descriptor.value !== 'function') {
+        fail('TRUST', `${label} must be a getter-free data method.`)
+      }
+      return descriptor.value as (...args: never[]) => unknown
+    }
+    owner = Object.getPrototypeOf(owner)
+  }
+  fail('TRUST', `${label} must be a function.`)
+}
+
+function ledgerDependencyIdentity(
+  target: object,
+  key: string,
+  label: string
+): string {
+  if (utilTypes.isProxy(target)) fail('TRUST', `${label} cannot be supplied by a Proxy.`)
+  const descriptor = Object.getOwnPropertyDescriptor(target, key)
+  if (!descriptor?.enumerable || !('value' in descriptor)) {
+    fail('TRUST', `${label} must be an own enumerable data field.`)
+  }
+  return assertIdentifier(descriptor.value, label)
+}
+
 function assertLedgerDependencies(
   dependencies: VisualArtifactLedgerDependencies
-): VisualArtifactLedgerDependencies {
+): LedgerDependencySnapshot {
+  assertPlainObject(dependencies, 'Ledger dependencies')
+  assertOptionalExactKeys(
+    dependencies,
+    [
+      'principalVerifier',
+      'evidenceVerifier',
+      'rootVerifier',
+      'finalizationAuthority'
+    ],
+    ['scheduler'],
+    'Ledger dependencies'
+  )
+  const principalVerifier = ownDataValue(
+    dependencies,
+    'principalVerifier',
+    'Ledger dependencies.principalVerifier'
+  ) as AuthenticatedPrincipalVerifier
+  const evidenceVerifier = ownDataValue(
+    dependencies,
+    'evidenceVerifier',
+    'Ledger dependencies.evidenceVerifier'
+  ) as EvidenceAttestationVerifier
+  const rootVerifier = ownDataValue(
+    dependencies,
+    'rootVerifier',
+    'Ledger dependencies.rootVerifier'
+  ) as RootAttestationVerifier
+  const finalizationAuthority = ownDataValue(
+    dependencies,
+    'finalizationAuthority',
+    'Ledger dependencies.finalizationAuthority'
+  ) as LedgerFinalizationAuthority
+  const schedulerDescriptor = Object.getOwnPropertyDescriptor(
+    dependencies,
+    'scheduler'
+  )
+  const scheduler = schedulerDescriptor && 'value' in schedulerDescriptor
+    ? schedulerDescriptor.value
+    : undefined
   if (
-    typeof dependencies !== 'object' ||
-    dependencies === null ||
-    typeof dependencies.principalVerifier?.verifyPrincipal !== 'function' ||
-    typeof dependencies.evidenceVerifier?.verifyEvidence !== 'function' ||
-    typeof dependencies.rootVerifier?.verifyRoot !== 'function'
+    (typeof principalVerifier !== 'object' && typeof principalVerifier !== 'function') ||
+    principalVerifier === null ||
+    (typeof evidenceVerifier !== 'object' && typeof evidenceVerifier !== 'function') ||
+    evidenceVerifier === null ||
+    (typeof rootVerifier !== 'object' && typeof rootVerifier !== 'function') ||
+    rootVerifier === null ||
+    (typeof finalizationAuthority !== 'object' &&
+      typeof finalizationAuthority !== 'function') ||
+    finalizationAuthority === null
   ) {
-    fail('TRUST', 'Ledger requires explicit principal, evidence, and root verifier dependencies.')
+    fail(
+      'TRUST',
+      'Ledger requires explicit principal, evidence, root, and finalization authority dependencies.'
+    )
   }
   if (
-    dependencies.scheduler !== undefined &&
-    !(dependencies.scheduler instanceof ValidatedImageScheduler)
+    scheduler !== undefined &&
+    !(scheduler instanceof ValidatedImageScheduler)
   ) {
     fail('SCHEMA', 'Ledger scheduler must be a validated authoritative scheduler instance.')
   }
-  return dependencies
+  return Object.freeze({
+    principalVerifier,
+    verifyPrincipal: ledgerDependencyMethod(
+      principalVerifier,
+      'verifyPrincipal',
+      'Ledger principal verifier'
+    ) as AuthenticatedPrincipalVerifier['verifyPrincipal'],
+    evidenceVerifier,
+    verifyEvidence: ledgerDependencyMethod(
+      evidenceVerifier,
+      'verifyEvidence',
+      'Ledger evidence verifier'
+    ) as EvidenceAttestationVerifier['verifyEvidence'],
+    rootVerifier,
+    verifyRoot: ledgerDependencyMethod(
+      rootVerifier,
+      'verifyRoot',
+      'Ledger root verifier'
+    ) as RootAttestationVerifier['verifyRoot'],
+    finalizationAuthority,
+    finalizationAuthorityId: ledgerDependencyIdentity(
+      finalizationAuthority,
+      'authorityId',
+      'Ledger finalization authority id'
+    ),
+    finalizationCommit: ledgerDependencyMethod(
+      finalizationAuthority,
+      'commit',
+      'Ledger finalization authority commit'
+    ) as LedgerFinalizationAuthority['commit'],
+    finalizationRecover: ledgerDependencyMethod(
+      finalizationAuthority,
+      'recover',
+      'Ledger finalization authority recovery'
+    ) as LedgerFinalizationAuthority['recover'],
+    finalizationCurrent: ledgerDependencyMethod(
+      finalizationAuthority,
+      'current',
+      'Ledger finalization authority current record'
+    ) as LedgerFinalizationAuthority['current'],
+    verifyFinalizationCommit: ledgerDependencyMethod(
+      finalizationAuthority,
+      'verifyCommit',
+      'Ledger finalization authority commit verifier'
+    ) as LedgerFinalizationAuthority['verifyCommit'],
+    ...(scheduler === undefined
+      ? {}
+      : { scheduler: scheduler as ValidatedImageScheduler })
+  })
+}
+
+function externalLedgerDependencies(
+  dependencies: LedgerDependencySnapshot
+): VisualArtifactLedgerDependencies {
+  return {
+    principalVerifier: dependencies.principalVerifier,
+    evidenceVerifier: dependencies.evidenceVerifier,
+    rootVerifier: dependencies.rootVerifier,
+    finalizationAuthority: dependencies.finalizationAuthority,
+    ...(dependencies.scheduler
+      ? { scheduler: dependencies.scheduler }
+      : {})
+  }
 }
 
 function roleForArtifactEvent(type: ArtifactEventType): GovernanceRole {
@@ -865,6 +1045,48 @@ interface EvidenceExpectation {
   contentHash: string
 }
 
+interface NormalizedLedgerFinalizationInput {
+  readonly occurredAt: string
+  readonly actorId: string
+  readonly planHash: string
+  readonly registryHash: string
+  readonly trustedCheckpoint: LedgerCheckpoint
+  readonly trustedCheckpointAttestation: OpaqueAttestation
+}
+
+const FINALIZATION_INPUT_KEYS = [
+  'occurredAt',
+  'actorId',
+  'planHash',
+  'registryHash',
+  'trustedCheckpoint',
+  'trustedCheckpointAttestation'
+] as const
+
+function normalizeLedgerFinalizationInput(
+  value: unknown
+): NormalizedLedgerFinalizationInput {
+  assertPlainObject(value, 'Ledger finalization')
+  assertExactKeys(value, FINALIZATION_INPUT_KEYS, 'Ledger finalization')
+  return deepFreeze({
+    occurredAt: assertIsoTimestamp(
+      value.occurredAt,
+      'Ledger finalization occurredAt'
+    ),
+    actorId: assertIdentifier(value.actorId, 'Ledger finalization actorId'),
+    planHash: assertSha256(value.planHash, 'Ledger finalization planHash'),
+    registryHash: assertSha256(
+      value.registryHash,
+      'Ledger finalization registryHash'
+    ),
+    trustedCheckpoint: checkpointFromUnknown(value.trustedCheckpoint),
+    trustedCheckpointAttestation: parseOpaqueAttestation(
+      value.trustedCheckpointAttestation,
+      'Ledger finalization checkpoint attestation'
+    )
+  })
+}
+
 export class VisualArtifactLedger {
   readonly plan: ArtifactPlan
 
@@ -880,11 +1102,14 @@ export class VisualArtifactLedger {
   private acceptedCurrentCount = 0
   private hasAcceptedHistory = false
   private finalized = false
+  private finalizationEvent?: LedgerFinalizedEvent
+  private synchronizingFinalization = false
+  private authoritativeSynchronizationSuppressed = false
   private serializedEventBytes = 0
 
   private constructor(
     plan: ArtifactPlan,
-    private readonly dependencies: VisualArtifactLedgerDependencies
+    private readonly dependencies: LedgerDependencySnapshot
   ) {
     this.plan = plan
     this.expectedIds = expectedArtifactIds(plan)
@@ -902,11 +1127,126 @@ export class VisualArtifactLedger {
     )
   }
 
+  private localRootHash(): string {
+    return computeVisualArtifactLedgerRootHash(
+      this.plan.planHash,
+      this.eventLog.length,
+      this.lastEventHash
+    )
+  }
+
+  private externalDependencies(): VisualArtifactLedgerDependencies {
+    return externalLedgerDependencies(this.dependencies)
+  }
+
+  private normalizeFinalizationRecord(value: unknown): LedgerFinalizationRecord {
+    assertPlainObject(value, 'Ledger finalization authority record')
+    assertExactKeys(
+      value,
+      ['operation', 'commit'],
+      'Ledger finalization authority record'
+    )
+    const operation = normalizeLedgerFinalizationOperation(value.operation)
+    const commit = normalizeLedgerFinalizationCommit(value.commit)
+    if (
+      operation.authorityId !== this.dependencies.finalizationAuthorityId ||
+      operation.planHash !== this.plan.planHash ||
+      operation.registryHash !== this.plan.registryHash ||
+      commit.authorityId !== this.dependencies.finalizationAuthorityId ||
+      commit.operationHash !== operation.operationHash
+    ) {
+      fail('TRUST', 'Ledger finalization authority record does not belong to this ledger.')
+    }
+    invokeSynchronousVerifier(
+      this.dependencies.verifyFinalizationCommit,
+      this.dependencies.finalizationAuthority,
+      [commit, operation],
+      'Ledger finalization authority commit verifier'
+    )
+    return deepFreeze({ operation, commit })
+  }
+
+  private currentFinalizationRecord(): LedgerFinalizationRecord | undefined {
+    const record = Reflect.apply(
+      this.dependencies.finalizationCurrent,
+      this.dependencies.finalizationAuthority,
+      [this.plan.planHash]
+    ) as LedgerFinalizationRecord | undefined
+    return record === undefined
+      ? undefined
+      : this.normalizeFinalizationRecord(record)
+  }
+
+  private synchronizeAuthoritativeFinalization(): void {
+    if (
+      this.authoritativeSynchronizationSuppressed ||
+      this.synchronizingFinalization ||
+      (!this.finalized &&
+        this.acceptedCurrentCount !== this.expectedIds.length)
+    ) {
+      return
+    }
+    this.synchronizingFinalization = true
+    try {
+      const record = this.currentFinalizationRecord()
+      if (!record) {
+        if (this.finalized) {
+          fail('TRUST', 'Finalized ledger is missing its authoritative CAS record.')
+        }
+        return
+      }
+      if (this.finalized) {
+        if (
+          !this.finalizationEvent ||
+          this.finalizationEvent.finalizationAuthorityOperationHash !==
+            record.operation.operationHash ||
+          this.finalizationEvent.finalizationAuthorityRootHash !==
+            record.commit.rootHash
+        ) {
+          fail('CAS', 'Ledger finalization authority exposes a split finalized head.')
+        }
+        return
+      }
+      if (
+        record.operation.expectedLedgerSequence !== this.eventLog.length ||
+        record.operation.expectedLedgerRootHash !== this.localRootHash()
+      ) {
+        fail('CAS', 'Ledger head diverged from the authoritative finalized head.')
+      }
+      this.appendFinalization(
+        {
+          occurredAt: record.operation.occurredAt,
+          actorId: record.operation.actorId,
+          planHash: record.operation.planHash,
+          registryHash: record.operation.registryHash,
+          trustedCheckpoint: {
+            schemaVersion: VISUAL_ARTIFACT_LEDGER_VERSION,
+            sequence: record.operation.trustedCheckpointSequence,
+            eventHash: record.operation.trustedCheckpointEventHash,
+            rootHash: record.operation.trustedCheckpointRootHash,
+            planHash: record.operation.planHash,
+            registryHash: record.operation.registryHash
+          },
+          trustedCheckpointAttestation:
+            record.operation.trustedCheckpointAttestation
+        },
+        record.operation.principalAttestation,
+        true,
+        record.operation,
+        record.commit
+      )
+    } finally {
+      this.synchronizingFinalization = false
+    }
+  }
+
   get sequence(): number {
+    this.synchronizeAuthoritativeFinalization()
     return this.eventLog.length
   }
 
   get eventCount(): number {
+    this.synchronizeAuthoritativeFinalization()
     return this.eventLog.length
   }
 
@@ -923,11 +1263,13 @@ export class VisualArtifactLedger {
   }
 
   get isFinalized(): boolean {
+    this.synchronizeAuthoritativeFinalization()
     return this.finalized
   }
 
   get rootHash(): string {
-    return computeVisualArtifactLedgerRootHash(this.plan.planHash, this.sequence, this.lastEventHash)
+    this.synchronizeAuthoritativeFinalization()
+    return this.localRootHash()
   }
 
   principalBindingFor(value: unknown): AuthenticatedPrincipalBinding {
@@ -989,7 +1331,7 @@ export class VisualArtifactLedger {
       contextVersion: this.sequence
     }
     invokeSynchronousVerifier(
-      this.dependencies.principalVerifier.verifyPrincipal,
+      this.dependencies.verifyPrincipal,
       this.dependencies.principalVerifier,
       [attestation, binding],
       `Principal verifier for ${input.type}`
@@ -997,6 +1339,7 @@ export class VisualArtifactLedger {
   }
 
   private assertWritable(): void {
+    this.synchronizeAuthoritativeFinalization()
     if (this.finalized) fail('FINALIZATION', 'A finalized visual artifact ledger is immutable.')
     if (this.eventLog.length >= MAX_LEDGER_EVENTS) {
       fail('CARDINALITY', `Ledger event limit ${MAX_LEDGER_EVENTS} reached.`)
@@ -1069,7 +1412,7 @@ export class VisualArtifactLedger {
       ledgerSequence: this.sequence + 1
     }
     invokeSynchronousVerifier(
-      this.dependencies.evidenceVerifier.verifyEvidence,
+      this.dependencies.verifyEvidence,
       this.dependencies.evidenceVerifier,
       [evidence.attestation, binding],
       `Evidence verifier for "${evidence.evidenceId}"`
@@ -1526,6 +1869,7 @@ export class VisualArtifactLedger {
   }
 
   events(): readonly ArtifactEvent[] {
+    this.synchronizeAuthoritativeFinalization()
     return deepFreeze(cloneCanonical(this.eventLog))
   }
 
@@ -1557,11 +1901,12 @@ export class VisualArtifactLedger {
   }
 
   createCheckpoint(): LedgerCheckpoint {
+    this.synchronizeAuthoritativeFinalization()
     return deepFreeze({
       schemaVersion: VISUAL_ARTIFACT_LEDGER_VERSION,
-      sequence: this.sequence,
+      sequence: this.eventLog.length,
       eventHash: this.lastEventHash,
-      rootHash: this.rootHash,
+      rootHash: this.localRootHash(),
       planHash: this.plan.planHash,
       registryHash: this.plan.registryHash
     })
@@ -1575,7 +1920,9 @@ export class VisualArtifactLedger {
     ) {
       fail('TRUST', 'Trusted checkpoint plan or registry hash does not match this ledger.')
     }
-    if (checkpoint.sequence > this.sequence) fail('TRUST', 'Trusted checkpoint is beyond ledger history.')
+    if (checkpoint.sequence > this.eventLog.length) {
+      fail('TRUST', 'Trusted checkpoint is beyond ledger history.')
+    }
     const eventHash =
       checkpoint.sequence === 0 ? ZERO_HASH : this.eventLog[checkpoint.sequence - 1].eventHash
     const rootHash = computeVisualArtifactLedgerRootHash(
@@ -1586,7 +1933,7 @@ export class VisualArtifactLedger {
     if (checkpoint.eventHash !== eventHash || checkpoint.rootHash !== rootHash) {
       fail('TRUST', 'Trusted checkpoint does not match the ledger prefix.')
     }
-    if (requireCurrent && checkpoint.sequence !== this.sequence) {
+    if (requireCurrent && checkpoint.sequence !== this.eventLog.length) {
       fail('TRUST', 'Trusted checkpoint must cover the entire accepted ledger.')
     }
     return checkpoint
@@ -1619,27 +1966,31 @@ export class VisualArtifactLedger {
   }
 
   private appendFinalization(
-    value: {
-      occurredAt: string
-      actorId: string
-      planHash: string
-      registryHash: string
-      trustedCheckpoint: LedgerCheckpoint
-      trustedCheckpointAttestation: OpaqueAttestation
-    },
+    value: NormalizedLedgerFinalizationInput,
     principalAttestation: OpaqueAttestation,
-    skipFullReplay: boolean
+    skipFullReplay: boolean,
+    replayOperation?: LedgerFinalizationOperation,
+    replayCommit?: LedgerFinalizationAuthorityCommit
   ): LedgerFinalizedEvent {
-    this.assertWritable()
-    const occurredAt = assertIsoTimestamp(value.occurredAt, 'Ledger finalization occurredAt')
+    if (replayOperation) {
+      if (this.finalized) {
+        fail('FINALIZATION', 'A finalized visual artifact ledger is immutable.')
+      }
+      if (this.eventLog.length >= MAX_LEDGER_EVENTS) {
+        fail('CARDINALITY', `Ledger event limit ${MAX_LEDGER_EVENTS} reached.`)
+      }
+    } else {
+      this.assertWritable()
+    }
+    const occurredAt = value.occurredAt
     this.assertTimestamp(occurredAt)
-    const actorId = assertIdentifier(value.actorId, 'Ledger finalization actorId')
+    const actorId = value.actorId
     if (value.planHash !== this.plan.planHash || value.registryHash !== this.plan.registryHash) {
       fail('FINALIZATION', 'Finalization planHash or registryHash is not exact.')
     }
     const checkpoint = this.verifyCheckpoint(value.trustedCheckpoint, true)
     invokeSynchronousVerifier(
-      this.dependencies.rootVerifier.verifyRoot,
+      this.dependencies.verifyRoot,
       this.dependencies.rootVerifier,
       [value.trustedCheckpointAttestation, {
         domain: 'visual-artifact-ledger',
@@ -1650,40 +2001,104 @@ export class VisualArtifactLedger {
       }],
       'Finalization checkpoint root verifier'
     )
-    const principalBinding: AuthenticatedPrincipalBinding = {
-      domain: 'visual-artifact-ledger',
-      principalId: actorId,
-      role: 'release-owner',
-      action: 'ledger-finalized',
-      actionHash: sha256Hex({
-        domain: 'visual-artifact-principal-action-v1',
-        event: {
-          type: 'ledger-finalized',
-          occurredAt,
-          actorId,
-          planHash: this.plan.planHash,
-          registryHash: this.plan.registryHash,
-          trustedCheckpoint: checkpoint,
-          trustedCheckpointAttestation: value.trustedCheckpointAttestation
-        }
-      }),
-      contextRootHash: this.rootHash,
-      contextVersion: this.sequence
-    }
+    const principalBinding = this.finalizationPrincipalBinding(value)
     invokeSynchronousVerifier(
-      this.dependencies.principalVerifier.verifyPrincipal,
+      this.dependencies.verifyPrincipal,
       this.dependencies.principalVerifier,
       [principalAttestation, principalBinding],
       'Finalization principal verifier'
     )
     if (!skipFullReplay) {
-      const replayed = replayLedgerEvents(this.plan, this.eventLog, this.dependencies)
+      const replayed = replayLedgerEvents(
+        this.plan,
+        this.eventLog,
+        this.externalDependencies()
+      )
       replayed.assertCompleteAcceptedPlan()
     }
     this.assertCompleteAcceptedPlan()
 
+    const operationWithoutHash = {
+      authorityId: this.dependencies.finalizationAuthorityId,
+      expectedLedgerSequence: this.eventLog.length,
+      expectedLedgerRootHash: this.localRootHash(),
+      planHash: this.plan.planHash,
+      registryHash: this.plan.registryHash,
+      artifactCount: this.expectedIds.length,
+      artifactSetHash: expectedArtifactSetHash(this.plan),
+      occurredAt,
+      actorId,
+      trustedCheckpointSequence: checkpoint.sequence,
+      trustedCheckpointEventHash: checkpoint.eventHash,
+      trustedCheckpointRootHash: checkpoint.rootHash,
+      trustedCheckpointAttestation: value.trustedCheckpointAttestation,
+      principalAttestation
+    }
+    const expectedOperation = deepFreeze({
+      ...operationWithoutHash,
+      operationHash:
+        computeLedgerFinalizationOperationHash(operationWithoutHash)
+    })
+    const operation = replayOperation
+      ? normalizeLedgerFinalizationOperation(replayOperation)
+      : expectedOperation
+    if (
+      canonicalStringify(operation) !== canonicalStringify(expectedOperation)
+    ) {
+      fail('CAS', 'Ledger finalization operation does not match the local certified head.')
+    }
+    let authorityCommit: LedgerFinalizationAuthorityCommit
+    if (replayCommit) {
+      authorityCommit = normalizeLedgerFinalizationCommit(replayCommit)
+    } else {
+      try {
+        authorityCommit = normalizeLedgerFinalizationCommit(
+          Reflect.apply(
+            this.dependencies.finalizationCommit,
+            this.dependencies.finalizationAuthority,
+            [operation]
+          )
+        )
+      } catch (error) {
+        const recovered = Reflect.apply(
+          this.dependencies.finalizationRecover,
+          this.dependencies.finalizationAuthority,
+          [operation]
+        ) as LedgerFinalizationAuthorityCommit | undefined
+        if (!recovered) {
+          const message = error instanceof Error ? error.message : String(error)
+          fail('CAS', `Ledger finalization authority rejected atomic commit: ${message}`)
+        }
+        authorityCommit = normalizeLedgerFinalizationCommit(recovered)
+      }
+    }
+    if (
+      authorityCommit.authorityId !==
+        this.dependencies.finalizationAuthorityId ||
+      authorityCommit.version !== 1 ||
+      authorityCommit.committedAt !== occurredAt ||
+      authorityCommit.operationHash !== operation.operationHash
+    ) {
+      fail('TRUST', 'Ledger finalization authority returned an invalid commit.')
+    }
+    invokeSynchronousVerifier(
+      this.dependencies.verifyFinalizationCommit,
+      this.dependencies.finalizationAuthority,
+      [authorityCommit, operation],
+      'Ledger finalization authority commit verifier'
+    )
+    const authoritative = this.currentFinalizationRecord()
+    if (
+      !authoritative ||
+      authoritative.operation.operationHash !== operation.operationHash ||
+      canonicalStringify(authoritative.commit) !==
+        canonicalStringify(authorityCommit)
+    ) {
+      fail('CAS', 'Ledger finalization authority did not durably publish the committed head.')
+    }
+
     const input = {
-      sequence: this.sequence + 1,
+      sequence: this.eventLog.length + 1,
       type: 'ledger-finalized' as const,
       occurredAt,
       actorId,
@@ -1691,10 +2106,17 @@ export class VisualArtifactLedger {
       planHash: this.plan.planHash,
       registryHash: this.plan.registryHash,
       artifactCount: this.expectedIds.length,
-      artifactSetHash: expectedArtifactSetHash(this.plan),
+      artifactSetHash: operation.artifactSetHash,
       trustedCheckpointSequence: checkpoint.sequence,
       trustedCheckpointRootHash: checkpoint.rootHash,
       trustedCheckpointAttestation: value.trustedCheckpointAttestation,
+      finalizationAuthorityId: authorityCommit.authorityId,
+      finalizationAuthorityVersion: authorityCommit.version,
+      finalizationAuthorityPreviousRootHash:
+        authorityCommit.previousRootHash,
+      finalizationAuthorityRootHash: authorityCommit.rootHash,
+      finalizationAuthorityOperationHash: authorityCommit.operationHash,
+      finalizationAuthorityAttestation: authorityCommit.attestation,
       previousEventHash: this.lastEventHash
     }
     const event = deepFreeze({
@@ -1707,82 +2129,74 @@ export class VisualArtifactLedger {
     this.lastTimestamp = occurredAt
     this.lastEventHash = event.eventHash
     this.finalized = true
+    this.finalizationEvent = event
     return event
   }
 
-  finalizationPrincipalBindingFor(value: unknown): AuthenticatedPrincipalBinding {
-    assertPlainObject(value, 'Ledger finalization')
-    assertExactKeys(
-      value,
-      [
-        'occurredAt',
-        'actorId',
-        'planHash',
-        'registryHash',
-        'trustedCheckpoint',
-        'trustedCheckpointAttestation'
-      ],
-      'Ledger finalization'
-    )
-    const occurredAt = assertIsoTimestamp(value.occurredAt, 'Ledger finalization occurredAt')
-    const actorId = assertIdentifier(value.actorId, 'Ledger finalization actorId')
-    const checkpoint = checkpointFromUnknown(value.trustedCheckpoint)
-    const checkpointAttestation = parseOpaqueAttestation(
-      value.trustedCheckpointAttestation,
-      'Ledger finalization checkpoint attestation'
-    )
+  private finalizationPrincipalBinding(
+    value: NormalizedLedgerFinalizationInput
+  ): AuthenticatedPrincipalBinding {
     return deepFreeze({
       domain: 'visual-artifact-ledger',
-      principalId: actorId,
+      principalId: value.actorId,
       role: 'release-owner',
       action: 'ledger-finalized',
       actionHash: sha256Hex({
         domain: 'visual-artifact-principal-action-v1',
         event: {
           type: 'ledger-finalized',
-          occurredAt,
-          actorId,
-          planHash: assertSha256(value.planHash, 'Ledger finalization planHash'),
-          registryHash: assertSha256(value.registryHash, 'Ledger finalization registryHash'),
-          trustedCheckpoint: checkpoint,
-          trustedCheckpointAttestation: checkpointAttestation
+          occurredAt: value.occurredAt,
+          actorId: value.actorId,
+          planHash: value.planHash,
+          registryHash: value.registryHash,
+          trustedCheckpoint: value.trustedCheckpoint,
+          trustedCheckpointAttestation:
+            value.trustedCheckpointAttestation
         }
       }),
-      contextRootHash: this.rootHash,
-      contextVersion: this.sequence
+      contextRootHash: this.localRootHash(),
+      contextVersion: this.eventLog.length
     })
   }
 
+  finalizationPrincipalBindingFor(value: unknown): AuthenticatedPrincipalBinding {
+    this.synchronizeAuthoritativeFinalization()
+    return this.finalizationPrincipalBinding(
+      normalizeLedgerFinalizationInput(value)
+    )
+  }
+
   finalize(value: unknown, principalAttestationValue: unknown): LedgerFinalizedEvent {
-    this.finalizationPrincipalBindingFor(value)
-    assertPlainObject(value, 'Ledger finalization')
+    const normalized = normalizeLedgerFinalizationInput(value)
+    const principalAttestation = parseOpaqueAttestation(
+      principalAttestationValue,
+      'Finalization principal attestation'
+    )
     return this.appendFinalization(
-      {
-        occurredAt: assertIsoTimestamp(value.occurredAt, 'Ledger finalization occurredAt'),
-        actorId: assertIdentifier(value.actorId, 'Ledger finalization actorId'),
-        planHash: assertSha256(value.planHash, 'Ledger finalization planHash'),
-        registryHash: assertSha256(value.registryHash, 'Ledger finalization registryHash'),
-        trustedCheckpoint: checkpointFromUnknown(value.trustedCheckpoint),
-        trustedCheckpointAttestation: parseOpaqueAttestation(
-          value.trustedCheckpointAttestation,
-          'Ledger finalization checkpoint attestation'
-        )
-      },
-      parseOpaqueAttestation(principalAttestationValue, 'Finalization principal attestation'),
+      normalized,
+      principalAttestation,
       false
     )
   }
 
   verifyRootAttestation(attestationValue: unknown): void {
     const attestation = parseOpaqueAttestation(attestationValue, 'Ledger root attestation')
+    this.verifyRootAttestationSnapshot(attestation)
+  }
+
+  private verifyRootAttestationSnapshot(
+    attestation: OpaqueAttestation,
+    synchronize = true
+  ): void {
+    if (synchronize) this.synchronizeAuthoritativeFinalization()
     invokeSynchronousVerifier(
-      this.dependencies.rootVerifier.verifyRoot,
+      this.dependencies.verifyRoot,
       this.dependencies.rootVerifier,
       [attestation, {
         domain: 'visual-artifact-ledger',
         purpose: 'envelope',
-        rootHash: this.rootHash,
-        version: this.sequence,
+        rootHash: this.localRootHash(),
+        version: this.eventLog.length,
         contextHash: this.plan.planHash
       }],
       'Ledger envelope root verifier'
@@ -1792,7 +2206,11 @@ export class VisualArtifactLedger {
   serialize(optionsValue: unknown): string {
     assertPlainObject(optionsValue, 'Ledger serialization options')
     assertExactKeys(optionsValue, ['rootAttestation'], 'Ledger serialization options')
-    this.verifyRootAttestation(optionsValue.rootAttestation)
+    const rootAttestation = parseOpaqueAttestation(
+      optionsValue.rootAttestation,
+      'Ledger root attestation'
+    )
+    this.verifyRootAttestationSnapshot(rootAttestation)
     const planBytes = utf8ByteLength(canonicalStringify(this.plan))
     const estimatedCharacters =
       planBytes +
@@ -1807,10 +2225,7 @@ export class VisualArtifactLedger {
     return canonicalStringify({
       schemaVersion: VISUAL_ARTIFACT_LEDGER_VERSION,
       plan: cloneCanonical(this.plan),
-      rootAttestation: parseOpaqueAttestation(
-        optionsValue.rootAttestation,
-        'Ledger root attestation'
-      ),
+      rootAttestation,
       events: this.events()
     })
   }
@@ -1923,23 +2338,37 @@ function replayLedgerEvents(
     fail('CARDINALITY', `Ledger history exceeds ${MAX_LEDGER_EVENTS} events.`)
   }
   const ledger = VisualArtifactLedger.create(plan, dependencies)
+  const replayControl = ledger as unknown as {
+    authoritativeSynchronizationSuppressed: boolean
+  }
+  replayControl.authoritativeSynchronizationSuppressed = true
   let previousHash = ZERO_HASH
-  for (let index = 0; index < events.length; index += 1) {
-    const stored = events[index]
-    if (
-      typeof stored === 'object' &&
-      stored !== null &&
-      !Array.isArray(stored) &&
-      (stored as { type?: unknown }).type === 'ledger-finalized'
-    ) {
-      fail('FINALIZATION', 'Finalization must be the unique last event.')
+  try {
+    for (let index = 0; index < events.length; index += 1) {
+      const stored = events[index]
+      if (
+        typeof stored === 'object' &&
+        stored !== null &&
+        !Array.isArray(stored) &&
+        (stored as { type?: unknown }).type === 'ledger-finalized'
+      ) {
+        fail('FINALIZATION', 'Finalization must be the unique last event.')
+      }
+      const storedInput = storedEventToInput(stored, index + 1, previousHash)
+      const generated = ledger.append(
+        storedInput.input,
+        storedInput.principalAttestation
+      )
+      if (canonicalStringify(stored) !== canonicalStringify(generated)) {
+        fail(
+          'INTEGRITY',
+          `Artifact event ${index + 1} hash or derived content does not match replay.`
+        )
+      }
+      previousHash = generated.eventHash
     }
-    const storedInput = storedEventToInput(stored, index + 1, previousHash)
-    const generated = ledger.append(storedInput.input, storedInput.principalAttestation)
-    if (canonicalStringify(stored) !== canonicalStringify(generated)) {
-      fail('INTEGRITY', `Artifact event ${index + 1} hash or derived content does not match replay.`)
-    }
-    previousHash = generated.eventHash
+  } finally {
+    replayControl.authoritativeSynchronizationSuppressed = false
   }
   return ledger
 }
@@ -1961,7 +2390,13 @@ function appendStoredFinalization(
       'artifactSetHash',
       'trustedCheckpointSequence',
       'trustedCheckpointRootHash',
-      'trustedCheckpointAttestation'
+      'trustedCheckpointAttestation',
+      'finalizationAuthorityId',
+      'finalizationAuthorityVersion',
+      'finalizationAuthorityPreviousRootHash',
+      'finalizationAuthorityRootHash',
+      'finalizationAuthorityOperationHash',
+      'finalizationAuthorityAttestation'
     ],
     `Artifact event ${sequence}`
   )
@@ -1991,6 +2426,40 @@ function appendStoredFinalization(
     planHash: ledger.plan.planHash,
     registryHash: ledger.plan.registryHash
   }
+  const checkpointAttestation = parseOpaqueAttestation(
+    value.trustedCheckpointAttestation,
+    'Stored finalization checkpoint attestation'
+  )
+  const principalAttestation = parseOpaqueAttestation(
+    value.principalAttestation,
+    'Stored finalization principal attestation'
+  )
+  const operation = normalizeLedgerFinalizationOperation({
+    authorityId: value.finalizationAuthorityId,
+    expectedLedgerSequence: sequence - 1,
+    expectedLedgerRootHash: checkpoint.rootHash,
+    planHash: ledger.plan.planHash,
+    registryHash: ledger.plan.registryHash,
+    artifactCount: value.artifactCount,
+    artifactSetHash: value.artifactSetHash,
+    occurredAt: value.occurredAt,
+    actorId: value.actorId,
+    trustedCheckpointSequence: checkpoint.sequence,
+    trustedCheckpointEventHash: checkpoint.eventHash,
+    trustedCheckpointRootHash: checkpoint.rootHash,
+    trustedCheckpointAttestation: checkpointAttestation,
+    principalAttestation,
+    operationHash: value.finalizationAuthorityOperationHash
+  })
+  const commit = normalizeLedgerFinalizationCommit({
+    authorityId: value.finalizationAuthorityId,
+    version: value.finalizationAuthorityVersion,
+    committedAt: value.occurredAt,
+    previousRootHash: value.finalizationAuthorityPreviousRootHash,
+    rootHash: value.finalizationAuthorityRootHash,
+    operationHash: value.finalizationAuthorityOperationHash,
+    attestation: value.finalizationAuthorityAttestation
+  })
   const generated = (
     ledger as unknown as {
       appendFinalization(
@@ -2003,7 +2472,9 @@ function appendStoredFinalization(
           trustedCheckpointAttestation: OpaqueAttestation
         },
         principalAttestation: OpaqueAttestation,
-        skipFullReplay: boolean
+        skipFullReplay: boolean,
+        replayOperation: LedgerFinalizationOperation,
+        replayCommit: LedgerFinalizationAuthorityCommit
       ): LedgerFinalizedEvent
     }
   ).appendFinalization(
@@ -2013,16 +2484,12 @@ function appendStoredFinalization(
       planHash: ledger.plan.planHash,
       registryHash: ledger.plan.registryHash,
       trustedCheckpoint: checkpoint,
-      trustedCheckpointAttestation: parseOpaqueAttestation(
-        value.trustedCheckpointAttestation,
-        'Stored finalization checkpoint attestation'
-      )
+      trustedCheckpointAttestation: checkpointAttestation
     },
-    parseOpaqueAttestation(
-      value.principalAttestation,
-      'Stored finalization principal attestation'
-    ),
-    true
+    principalAttestation,
+    true,
+    operation,
+    commit
   )
   if (canonicalStringify(value) !== canonicalStringify(generated)) {
     fail('INTEGRITY', 'Stored finalization hash or derived content does not match replay.')
@@ -2036,7 +2503,7 @@ export function parseVisualArtifactLedger(
   assertSerializedTextWithinRuntimeCeiling(serialized, 'Serialized visual artifact ledger')
   let parsed: unknown
   try {
-    parsed = JSON.parse(serialized)
+    parsed = parseJson(serialized)
   } catch {
     fail('SCHEMA', 'Serialized visual artifact ledger is not valid JSON.')
   }
@@ -2085,12 +2552,39 @@ export function parseVisualArtifactLedger(
   const ledger = replayLedgerEvents(
     plan,
     artifactEvents as ArtifactEvent[],
-    dependencies
+    externalLedgerDependencies(dependencies)
   )
   if (finalization !== undefined) {
-    appendStoredFinalization(ledger, finalization, parsed.events.length, ledger.createCheckpoint().eventHash)
+    const previousHash =
+      artifactEvents.length === 0
+        ? ZERO_HASH
+        : assertSha256(
+            (artifactEvents[artifactEvents.length - 1] as ArtifactEvent)
+              .eventHash,
+            'Stored pre-finalization eventHash'
+          )
+    appendStoredFinalization(
+      ledger,
+      finalization,
+      parsed.events.length,
+      previousHash
+    )
+    ledger.verifyRootAttestation(parsed.rootAttestation)
+  } else {
+    const preFinalizationAttestation = parseOpaqueAttestation(
+      parsed.rootAttestation,
+      'Ledger root attestation'
+    )
+    ;(
+      ledger as unknown as {
+        verifyRootAttestationSnapshot(
+          attestation: OpaqueAttestation,
+          synchronize: boolean
+        ): void
+      }
+    ).verifyRootAttestationSnapshot(preFinalizationAttestation, false)
+    void ledger.rootHash
   }
-  ledger.verifyRootAttestation(parsed.rootAttestation)
   return ledger
 }
 

@@ -509,6 +509,75 @@ describe('externally attested visual artifact ledger', () => {
     ).toThrow(/runtime-safe single-string ceiling/i)
   })
 
+  it('rejects attestation accessors and proxies before hashing or committing', () => {
+    const { governance, ledger, ids, clock, hashes } = setup()
+    const input = {
+      type: 'artifact-revision-started' as const,
+      occurredAt: clock.next(),
+      actorId: 'planner',
+      artifactId: ids[0],
+      revision: 1,
+      specificationHash: hashes.next(),
+      planHash: ledger.plan.planHash
+    }
+    let reads = 0
+    const accessorAttestation = {} as Record<string, unknown>
+    Object.defineProperty(accessorAttestation, 'token', {
+      enumerable: true,
+      get: () => {
+        reads += 1
+        return governance.attestations.issuePrincipal(
+          ledger.principalBindingFor(input)
+        ).token
+      }
+    })
+    expect(() => ledger.append(input, accessorAttestation)).toThrow(
+      /plain object/i
+    )
+    expect(reads).toBe(0)
+    expect(ledger.eventCount).toBe(0)
+
+    const checkpoint = ledger.createCheckpoint()
+    const checkpointAttestation = governance.attestations.issueRoot({
+      domain: 'visual-artifact-ledger',
+      purpose: 'finalization-checkpoint',
+      rootHash: checkpoint.rootHash,
+      version: checkpoint.sequence,
+      contextHash: ledger.plan.planHash
+    })
+    const finalization = {
+      occurredAt: clock.next(),
+      actorId: 'release-owner',
+      planHash: ledger.plan.planHash,
+      registryHash: ledger.plan.registryHash,
+      trustedCheckpoint: checkpoint
+    } as Record<string, unknown>
+    Object.defineProperty(finalization, 'trustedCheckpointAttestation', {
+      enumerable: true,
+      get: () => {
+        reads += 1
+        return checkpointAttestation
+      }
+    })
+    expect(() =>
+      ledger.finalizationPrincipalBindingFor(finalization)
+    ).toThrow(/plain object/i)
+    expect(reads).toBe(0)
+    expect(governance.finalizationAuthority.current(ledger.plan.planHash))
+      .toBeUndefined()
+
+    const proxy = new Proxy(checkpointAttestation, {
+      get: (target, key, receiver) => {
+        reads += 1
+        return Reflect.get(target, key, receiver)
+      }
+    })
+    expect(() =>
+      ledger.verifyRootAttestation(proxy)
+    ).toThrow(/plain object/i)
+    expect(reads).toBe(0)
+  })
+
   it('domain-separates finalization checkpoints from serialized envelope trust', () => {
     const { governance, ledger, ids, clock, hashes } = setup()
     appendPromptApproved(ledger, governance, ids[0], 1, hashes, clock, {
