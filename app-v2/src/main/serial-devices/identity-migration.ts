@@ -30,7 +30,7 @@ export interface SerialIdentityMigrationRecord {
 }
 
 export interface SerialIdentityMigrationResult {
-  state: 'verified' | 'unverified' | 'mismatch' | 'missing'
+  state: 'verified' | 'unverified' | 'mismatch' | 'missing' | 'replaced'
   message: string
   record: SerialIdentityMigrationRecord | null
 }
@@ -46,6 +46,28 @@ export function profileCanMigrateWithSerialIdentity(
     (!profile.deviceId || idMatches) &&
     (!profile.port || pathMatches)
   )
+}
+
+export function findSavedSerialBinding(
+  configured: readonly SavedSerialIdentity[],
+  port: EnumeratedSerialPort
+): SavedSerialIdentity | undefined {
+  const observed = {
+    vendorId: normalizeUsbId(port.vendorId),
+    productId: normalizeUsbId(port.productId),
+    serialNumber: serial(port.serialNumber)
+  }
+  const stableMatches = configured.filter((saved) => {
+    const known = [
+      [normalizeUsbId(saved.vendorId), observed.vendorId],
+      [normalizeUsbId(saved.productId), observed.productId],
+      [serial(saved.serialNumber)?.toLowerCase(), observed.serialNumber?.toLowerCase()]
+    ].filter(([expected]) => expected !== undefined)
+    return known.length > 0 && known.every(([expected, actual]) => expected === actual)
+  })
+  if (stableMatches.length === 1) return stableMatches[0]
+  return stableMatches.find((saved) => saved.path === port.path) ??
+    configured.find((saved) => saved.path === port.path)
 }
 
 function serial(value: unknown): string | undefined {
@@ -70,6 +92,7 @@ export function resolveConnectedSerialIdentityMigration(input: {
   live: readonly ConnectedSerialSummary[]
   ports: readonly EnumeratedSerialPort[]
   allowUnboundMigration: boolean
+  allowReplacement?: boolean
 }): SerialIdentityMigrationResult {
   const connected = input.live.find(
     (device) => device.id === input.deviceId && device.connected
@@ -86,6 +109,13 @@ export function resolveConnectedSerialIdentityMigration(input: {
     vendorId: normalizeUsbId(port?.vendorId),
     productId: normalizeUsbId(port?.productId),
     serialNumber: serial(port?.serialNumber)
+  }
+  const observedRecord: SerialIdentityMigrationRecord = {
+    id: connected.id,
+    path: connected.path,
+    vendorId: observed.vendorId,
+    productId: observed.productId,
+    serialNumber: observed.serialNumber
   }
   const saved = input.saved
     ? {
@@ -111,6 +141,13 @@ export function resolveConnectedSerialIdentityMigration(input: {
     if (
       descriptor.normalize(descriptor.saved) !== descriptor.normalize(descriptor.observed)
     ) {
+      if (input.allowReplacement && hasCompleteIdentity(observed)) {
+        return {
+          state: 'replaced',
+          message: `Explicit replacement authorized after ${descriptor.label} mismatch.`,
+          record: observedRecord
+        }
+      }
       return {
         state: 'mismatch',
         message: `The observed ${descriptor.label} does not match the saved identity; no configuration was updated.`,
@@ -130,8 +167,7 @@ export function resolveConnectedSerialIdentityMigration(input: {
     }
   }
   const record: SerialIdentityMigrationRecord = {
-    id: connected.id,
-    path: connected.path,
+    ...observedRecord,
     vendorId: saved.vendorId ?? observed.vendorId,
     productId: saved.productId ?? observed.productId,
     serialNumber: saved.serialNumber ?? observed.serialNumber

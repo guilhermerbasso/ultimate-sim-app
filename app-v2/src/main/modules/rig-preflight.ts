@@ -36,6 +36,7 @@ import {
 
 const STORE_FILE = 'rig-preflight.json'
 const DRIFT_POLL_MS = 5_000
+let activeService: RigPreflightService | null = null
 
 function number(value: unknown, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
@@ -304,6 +305,7 @@ export function register(ctx: ModuleContext): void {
     persistence,
     collectObservation: (profile, client) => collectObservation(ctx, profile, client)
   })
+  activeService = service
   let expiryScheduler: RigPreflightExpiryScheduler
   let evidenceWatchdog: RigPreflightExpiryScheduler
   const publishState = async (): Promise<void> => {
@@ -472,5 +474,10 @@ export function register(ctx: ModuleContext): void {
     evidenceWatchdog.dispose()
     ctx.serialHub.off('device-removed', onSerialRemoved)
     screen.off('display-removed', onDisplayRemoved)
+    if (activeService === service) activeService = null
   })
+}
+
+export function getRigPreflightService(): RigPreflightService | null {
+  return activeService
 }

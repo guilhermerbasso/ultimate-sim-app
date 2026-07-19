@@ -31,9 +31,14 @@ const WAIVER_LIMIT = 100
 const MAX_WAIVER_MS = 30 * 24 * 60 * 60_000
 export const LEGACY_UNBOUND_PROFILE_HASH = '0'.repeat(64)
 
+export interface RigPreflightWriteResult {
+  committed: true
+  cleanupWarning?: string
+}
+
 export interface RigPreflightPersistence {
   read(): Promise<string | null>
-  write(content: string): Promise<void>
+  write(content: string): Promise<void | RigPreflightWriteResult>
   quarantine?(reason: string): Promise<string | null>
 }
 
@@ -1221,14 +1226,14 @@ export class RigPreflightService {
 
   private async commit(previous: RigPreflightPersistedState, recoverStorage = false): Promise<void> {
     try {
-      await this.persist()
+      const result = await this.persist()
       if (recoverStorage || !this.storage.blocked) {
         this.storage = {
           state: 'ok',
           blocked: false,
-          message: null,
+          message: result?.cleanupWarning ?? null,
           quarantinePath: this.storage.quarantinePath,
-          occurredAt: null
+          occurredAt: result?.cleanupWarning ? this.now() : null
         }
       }
       this.generation += 1
@@ -1248,7 +1253,7 @@ export class RigPreflightService {
     }
   }
 
-  private persist(): Promise<void> {
+  private persist(): Promise<void | RigPreflightWriteResult> {
     const content = `${JSON.stringify(this.state, null, 2)}\n`
     return this.options.persistence.write(content)
   }

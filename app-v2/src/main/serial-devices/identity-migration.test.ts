@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  findSavedSerialBinding,
   profileCanMigrateWithSerialIdentity,
   resolveConnectedSerialIdentityMigration
 } from './identity-migration'
@@ -236,5 +237,68 @@ describe('connected serial identity migration', () => {
       { deviceId: 'iflag', port: 'COM12' },
       saved
     )).toBe(false)
+  })
+
+  it('captures a pre-flash saved binding across restart ID reuse and path reuse', () => {
+    const reusedPath = findSavedSerialBinding(
+      [saved],
+      {
+        path: 'COM7',
+        vendorId: '9999',
+        productId: '9999',
+        serialNumber: 'SWAPPED-BOARD'
+      }
+    )
+    expect(reusedPath).toBe(saved)
+    const normalSetup = resolveConnectedSerialIdentityMigration({
+      deviceId: 'reused-runtime-id',
+      saved: reusedPath,
+      live: [{ id: 'reused-runtime-id', path: 'COM7', connected: true }],
+      ports: [{
+        path: 'COM7',
+        vendorId: '9999',
+        productId: '9999',
+        serialNumber: 'SWAPPED-BOARD'
+      }],
+      allowUnboundMigration: true
+    })
+    expect(normalSetup.state).toBe('mismatch')
+    expect(normalSetup.record).toBeNull()
+  })
+
+  it('supports only an explicit replacement for a mismatched saved binding', () => {
+    const result = resolveConnectedSerialIdentityMigration({
+      deviceId: 'replacement',
+      saved,
+      live: [{ id: 'replacement', path: 'COM7', connected: true }],
+      ports: [{
+        path: 'COM7',
+        vendorId: '9999',
+        productId: '9999',
+        serialNumber: 'NEW-BOARD'
+      }],
+      allowUnboundMigration: true,
+      allowReplacement: true
+    })
+
+    expect(result.state).toBe('replaced')
+    expect(result.record).toMatchObject({
+      id: 'replacement',
+      vendorId: '9999',
+      productId: '9999',
+      serialNumber: 'NEW-BOARD'
+    })
+  })
+
+  it('returns no saved binding when Setup sees a genuinely new device', () => {
+    expect(findSavedSerialBinding(
+      [saved],
+      {
+        path: 'COM20',
+        vendorId: '1209',
+        productId: '0001',
+        serialNumber: 'NEW-DEVICE'
+      }
+    )).toBeUndefined()
   })
 })
