@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ultimate-sim:mqtt:v1:race-event",
+  "title": "Ultimate Sim MQTT Race Event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "eventType",
+    "observedAt",
+    "expiresAt",
+    "severity",
+    "sessionRef",
+    "dedupeKey",
+    "facts"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "eventId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "eventType": { "enum": ["flag", "pit", "warning", "disconnect", "session"] },
+    "observedAt": { "type": "integer", "minimum": 0 },
+    "expiresAt": { "type": "integer", "minimum": 0 },
+    "severity": { "enum": ["info", "notice", "warning"] },
+    "sessionRef": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "dedupeKey": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "facts": {
+      "type": "object",
+      "maxProperties": 24,
+      "additionalProperties": { "type": ["string", "number", "boolean"] }
+    }
+  }
+}

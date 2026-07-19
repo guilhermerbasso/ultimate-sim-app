@@ -1,0 +1,114 @@
+.stream-presentation-renderer {
+  position: relative;
+  isolation: isolate;
+  flex: 0 0 auto;
+  overflow: hidden;
+  box-sizing: border-box;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(54, 214, 197, 0.09), transparent 42%),
+    #02080d;
+  color: #eef8fb;
+}
+
+.stream-presentation-renderer.is-preview {
+  border: 1px solid rgba(130, 181, 198, 0.62);
+  border-radius: 26px;
+  box-shadow:
+    0 0 0 7px #07131d,
+    0 0 0 8px rgba(130, 181, 198, 0.32),
+    0 28px 90px rgba(0, 0, 0, 0.46);
+}
+
+.stream-presentation-renderer.is-preview::before,
+.stream-presentation-renderer.is-preview::after {
+  content: '';
+  position: absolute;
+  z-index: 20;
+  width: 52px;
+  height: 52px;
+  pointer-events: none;
+}
+
+.stream-presentation-renderer.is-preview::before {
+  inset: 11px auto auto 11px;
+  border-top: 3px solid #ffb454;
+  border-left: 3px solid #ffb454;
+}
+
+.stream-presentation-renderer.is-preview::after {
+  inset: auto 11px 11px auto;
+  border-right: 3px solid #ffb454;
+  border-bottom: 3px solid #ffb454;
+}
+
+.stream-presentation-content {
+  position: absolute;
+  z-index: 2;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: #000;
+}
+
+.stream-presentation-content > .dashboard-shell,
+.stream-presentation-content > .bb-stage {
+  width: 100%;
+  height: 100%;
+}
+
+.stream-presentation-touch-stage {
+  position: absolute;
+  transform-origin: top left;
+}
+
+.stream-presentation-touch-stage > .bb-stage {
+  width: 100%;
+  height: 100%;
+}
+
+.stream-presentation-safe-mask {
+  position: absolute;
+  z-index: 10;
+  border: 1px dashed rgba(54, 214, 197, 0.82);
+  box-shadow: 0 0 0 5000px rgba(3, 12, 19, 0.38);
+  pointer-events: none;
+}
+
+.stream-presentation-safe-label {
+  position: absolute;
+  z-index: 11;
+  top: 12px;
+  left: 50%;
+  translate: -50% 0;
+  padding: 5px 9px;
+  border: 1px solid rgba(54, 214, 197, 0.44);
+  border-radius: 999px;
+  background: rgba(2, 10, 16, 0.86);
+  color: #8df3e8;
+  font: 700 12px/1 "Chakra Petch", "Segoe UI", sans-serif;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.stream-presentation-empty {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  padding: 24px;
+  box-sizing: border-box;
+  color: #a8bdc6;
+  font: 700 16px/1.4 "Chakra Petch", "Segoe UI", sans-serif;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream-presentation-renderer *,
+  .stream-presentation-renderer *::before,
+  .stream-presentation-renderer *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

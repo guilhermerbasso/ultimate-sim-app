@@ -34,6 +34,7 @@ import { register as diagnosticsLog } from './diagnostics-log'
 import { register as revlights } from './revlights'
 import { register as setups } from './setups'
 import { register as setupManager } from './setup-manager'
+import { register as setupExperiment } from './setup-experiment'
 import { register as simProviders } from './sim-providers'
 import { register as soundshift } from './soundshift'
 import { register as telemetry } from './telemetry'
@@ -59,6 +60,7 @@ import { register as strategy } from './strategy'
 import { register as stintPassport } from './stint-passport'
 import { register as stintDebrief } from './stint-debrief'
 import { register as incidentRecorder } from './incident-recorder'
+import { register as storyEngine } from './story-engine'
 import { register as communityLocal } from './community-local'
 import { register as semanticSearch } from './semantic-search'
 import { register as dashboardAi } from './dashboard-ai'
@@ -68,13 +70,18 @@ import { register as spotter3d } from './spotter3d'
 import { register as stt } from './stt'
 import { register as iflagDynamic } from './iflag-dynamic'
 import { register as streaming } from './streaming'
+import { register as rigPreflight } from './rig-preflight'
+import { register as stewardDesk } from './steward-desk'
+import { register as streamPresentation } from './stream-presentation'
 import { register as simhubImport } from './simhub-import'
 import { register as configExport } from './config-export'
 import { register as diagnosticLogger } from './logger'
 import { register as bugReport } from './bug-report'
 import { register as updater } from './updater'
+import { register as localCollaboration } from './local-collaboration'
 import { register as pitPanel } from '../pitpanel/window'
 import { register as touchPanel } from '../touchpanel/manager'
+import { register as mqttTarget } from './mqtt-target'
 
 // Registro central dos módulos. A telemetria vem primeiro (todos dependem dela).
 // expressionEngine e outputRouter ficam fora do loop porque o orquestrador
@@ -106,6 +113,7 @@ const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   soundshift,
   setups,
   setupManager,
+  setupExperiment,
   customCatalog,
   pinoutFirmware,
   esp32Wifi,
@@ -116,6 +124,8 @@ const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   haptics,
   teamFuel,
   tradingPaints,
+  // Must snapshot and persist the ended-session debrief before Coach/Predictions clear caches.
+  stintDebrief,
   coach,
   predictions,
   paceModel,
@@ -123,8 +133,8 @@ const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   proactiveEngineer,
   strategy,
   stintPassport,
-  stintDebrief,
   incidentRecorder,
+  storyEngine,
   communityLocal,
   semanticSearch,
   dashboardAi,
@@ -133,13 +143,18 @@ const moduleRegistrars: Array<(ctx: ModuleContext) => void> = [
   spotter3d,
   stt,
   streaming,
+  rigPreflight,
+  stewardDesk,
+  mqttTarget,
   simhubImport,
   configExport,
+  localCollaboration,
   updater,
   diagnosticLogger,
   bugReport,
   pitPanel,
-  touchPanel
+  touchPanel,
+  streamPresentation
 ]
 
 export interface RegisteredModules {

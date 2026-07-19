@@ -1076,9 +1076,9 @@ Object.assign(UI_TEXT.en, {
   'alerts.rule.flags.title': 'Flags',
   'alerts.rule.flags.desc': 'Blue, yellow, black, and black/orange.',
   'alerts.rule.lowFuel.title': 'Low fuel',
-  'alerts.rule.lowFuel.desc': 'Warns when crossing below the number of laps.',
+  'alerts.rule.lowFuel.desc': 'Warns below the configured laps remaining from litre-based consumption.',
   'alerts.rule.shiftPoint.title': 'Shift point',
-  'alerts.rule.shiftPoint.desc': 'Uses shiftIndicatorPct or RPM/maxRpm.',
+  'alerts.rule.shiftPoint.desc': 'Uses the configured shiftIndicatorPct or RPM/maxRpm thresholds.',
   'alerts.rule.incidentLimit.title': 'Incidents',
   'alerts.rule.incidentLimit.desc': 'Warns when only a few incidents remain before the limit.',
   'alerts.rule.tyrePressure.title': 'Tyre pressure',
@@ -1108,6 +1108,10 @@ Object.assign(UI_TEXT.en, {
   'alerts.minKpa': 'Min (kPa)',
   'alerts.maxKpa': 'Max (kPa)',
   'alerts.maxC': 'Max (°C)',
+  'alerts.policy.brakePressure.title': 'Brake pressure overlay policy',
+  'alerts.policy.brakePressure.desc': 'Compatibility defaults for the low-pressure overlay; configure them for the car and pedal trace.',
+  'alerts.brakeInputMin': 'Brake input min (%)',
+  'alerts.maxBrakePressureBar': 'Low below (bar)',
   'alerts.outputs': 'Outputs',
   'alerts.secondScreen': '2nd screen',
   'alerts.sound': 'Sound',
@@ -1196,9 +1200,9 @@ Object.assign(UI_TEXT['pt-BR'], {
   'alerts.rule.flags.title': 'Bandeiras',
   'alerts.rule.flags.desc': 'Azul, amarela, preta e preta/laranja.',
   'alerts.rule.lowFuel.title': 'Combustível baixo',
-  'alerts.rule.lowFuel.desc': 'Avisa ao cruzar abaixo do número de voltas.',
+  'alerts.rule.lowFuel.desc': 'Avisa abaixo das voltas configuradas usando consumo medido em litros.',
   'alerts.rule.shiftPoint.title': 'Ponto de troca',
-  'alerts.rule.shiftPoint.desc': 'Usa shiftIndicatorPct ou RPM/maxRpm.',
+  'alerts.rule.shiftPoint.desc': 'Usa os limites configurados de shiftIndicatorPct ou RPM/maxRpm.',
   'alerts.rule.incidentLimit.title': 'Incidents',
   'alerts.rule.incidentLimit.desc': 'Avisa quando faltam poucos incidentes para o limite.',
   'alerts.rule.tyrePressure.title': 'Pressão de pneu',
@@ -1228,6 +1232,10 @@ Object.assign(UI_TEXT['pt-BR'], {
   'alerts.minKpa': 'Mín (kPa)',
   'alerts.maxKpa': 'Máx (kPa)',
   'alerts.maxC': 'Máx (°C)',
+  'alerts.policy.brakePressure.title': 'Política do overlay de pressão de freio',
+  'alerts.policy.brakePressure.desc': 'Padrões de compatibilidade do overlay de baixa pressão; ajuste-os ao carro e ao traço do pedal.',
+  'alerts.brakeInputMin': 'Entrada mín. de freio (%)',
+  'alerts.maxBrakePressureBar': 'Baixa abaixo de (bar)',
   'alerts.outputs': 'Saídas',
   'alerts.secondScreen': '2ª tela',
   'alerts.sound': 'Som',
@@ -6834,21 +6842,29 @@ export function tt(language: ResolvedLanguage | undefined, key: string, vars: Re
 type ViewText = Pick<ViewDef, 'group' | 'label' | 'eyebrow' | 'description'>
 
 const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
-  'pt-BR': {},
+  'pt-BR': {
+    'rig-preflight': { label: 'Preflight do Rig', eyebrow: 'Evidência', description: 'Readiness local com desejado/reportado/delta, certificados com prazo, dispensas e testes de falha.' },
+    'setup-experiment': { label: 'Experimento de Setup', eyebrow: 'A-B-A', description: 'Blocos locais de uma variável com gates ambientais, bootstrap, repetição e abstenção.' }
+  },
   en: {
     telemetry: { label: 'Telemetry', eyebrow: 'Sim', description: 'Live telemetry source and overview.' },
     dashboards: { label: 'Dashboards', eyebrow: 'Monitor', description: 'Monitor windows, .simhubdash import, and dashboard builder.' },
+    streaming: { label: 'Streaming', eyebrow: 'Broadcast', description: 'Named read-only dashboard and touch-panel targets for OBS, phones, and tablets.' },
     'touch-controls': { label: 'Touch Controls Dash', eyebrow: 'Cockpit', description: 'Touch pit panel and editable RGB button boxes for the cockpit screen.' },
+    'streaming-mobile-editor': { label: 'Mobile Stream Editor', eyebrow: 'Device preview', description: 'Non-destructive phone and tablet presentation profiles for saved dashboards and Touch Controls.' },
     'oled-dash': { label: 'OLED Dashboard', eyebrow: 'Display', description: 'iRacing information presets for the OLED.' },
     overlays: { label: 'Overlays', eyebrow: 'Screen', description: 'Transparent overlays on top of the simulator.' },
     fuel: { label: 'Fuel', eyebrow: 'Strategy', description: 'Fuel calculation and strategy.' },
     tire: { label: 'Tyres', eyebrow: 'Strategy', description: 'Tyre wear, per-lap rate, and pit window.' },
     search: { label: 'Semantic Search', eyebrow: 'Local AI', description: 'Meaning-based search for setups, ghosts, notes, and findings.' },
     alerts: { label: 'Alerts', eyebrow: 'Warnings', description: 'Pit limiter, flags, fuel, and shift warnings.' },
+    'story-engine': { label: 'Story Engine', eyebrow: 'Post-race', description: 'Evidence-linked local story cards with destination previews and mandatory human approval.' },
+    'context-debt': { label: 'Context-Debt Meter', eyebrow: 'SP-07 · N=0', description: 'Local pre-race audit of competing cues, routes, devices, and controls.' },
     expr: { label: 'Expressions', eyebrow: 'Custom', description: 'Custom fields and conditions.' },
     'race-profiles': { label: 'Race Profiles', eyebrow: 'Car/Track', description: 'Car/track profiles with automatic switching.' },
     sounds: { label: 'Sounds', eyebrow: 'Audio', description: 'Soundshift, incident, ABS, and TCS audio cues.' },
     setups: { label: 'Setups', eyebrow: 'iRacing', description: 'Auto-install .sto setups from a folder or URL.' },
+    'setup-experiment': { label: 'Setup Experiment', eyebrow: 'A-B-A', description: 'Local one-variable setup blocks with environment gates, bootstrap uncertainty, repeats, and abstention.' },
     career: { label: 'Career & Ratings', eyebrow: 'iRacing', description: 'iRating, Safety Rating, licenses, incidents, and results.' },
     engineer: { label: 'AI Engineer', eyebrow: 'Local LLM', description: 'Text race engineer for fuel, tyres, gaps, and strategy. Includes Voice Spotter.' },
     coach: { label: 'AI Coach', eyebrow: 'Local AI', description: 'Driving coach and lap analysis with corner findings, track map, and setup suggestions.' },
@@ -6858,9 +6874,11 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
     'dashboard-adaptive': { label: 'Adaptive Dashboard', eyebrow: 'Live', description: 'A single dashboard that reorganizes by session phase and lap moment.' },
     biometrics: { label: 'Biometrics', eyebrow: 'HR/AR', description: 'Heart rate, stress vs pace, and AR HUD.' },
     community: { label: 'Community', eyebrow: 'Local-first', description: 'Ghosts, telemetry, and setups via .simshare files.' },
+    'steward-desk': { label: 'Steward Desk', eyebrow: 'Human decision', description: 'Local evidence cases with rule versions, dissent, appeals, and anonymized export.' },
     'haptics-zonal': { label: 'Zonal Haptics', eyebrow: 'Zones', description: 'Events to zones plus visual simulator.' },
     haptics: { label: 'Haptics', eyebrow: 'Bass shaker', description: 'ShakeIt-style tactile feedback: bass shaker audio plus haptics.' },
     'spotter-3d': { label: '3D Spotter', eyebrow: 'Spatial audio', description: 'HRTF positional cues for nearby cars.' },
+    'rig-preflight': { label: 'Rig Preflight', eyebrow: 'Evidence', description: 'Local desired/reported/delta readiness with expiring certificates, waivers, and fault drills.' },
     devices: { label: 'Devices', eyebrow: 'Connection', description: 'USB/serial detection and ButtonBox selection.' },
     arduinos: { label: 'Arduinos', eyebrow: 'Hardware', description: 'SimHub-style hardware hub for RGB, matrix, displays, gauges, controls, pinout, and firmware.' },
     revlights: { label: 'Rev Lights', eyebrow: 'LEDs', description: 'Rev light configuration and presets.' },
@@ -6896,18 +6914,38 @@ function patchViewText(language: ResolvedLanguage, patches: Record<string, Parti
   }
 }
 
+patchViewText('pt-BR', {
+  'steward-desk': {
+    label: 'Mesa dos Comissários',
+    eyebrow: 'Decisão humana',
+    description: 'Casos locais com evidências, regras versionadas, dissenso, recurso e exportação anonimizada.'
+  },
+  streaming: { label: 'Streaming', eyebrow: 'Transmissão', description: 'Destinos nomeados e somente leitura de dashboards e painéis touch para OBS, celulares e tablets.' },
+  'story-engine': { label: 'Story Engine', eyebrow: 'Pós-corrida', description: 'Cards locais ligados a evidências, com preview de destino e aprovação humana obrigatória.' },
+  'context-debt': {
+    label: 'Medidor de dívida de contexto',
+    eyebrow: 'SP-07 · N=0',
+    description: 'Auditoria local pré-corrida de cues, rotas, dispositivos e controles concorrentes.'
+  }
+})
+
 patchViewText('es', {
   telemetry: { label: 'Telemetría', description: 'Fuente de telemetría en vivo y vista general.' },
   dashboards: { label: 'Dashboards', description: 'Ventanas de monitor, importación .simhubdash y constructor.' },
+  streaming: { label: 'Streaming', eyebrow: 'Emisión', description: 'Destinos de dashboards y paneles táctiles de solo lectura para OBS, móviles y tabletas.' },
   overlays: { label: 'Overlays', eyebrow: 'Pantalla', description: 'Overlays transparentes sobre el simulador.' },
   fuel: { label: 'Combustible' },
   tire: { label: 'Neumáticos' },
+  'setup-experiment': { label: 'Experimento de setup', description: 'Experimentos locales A-B-A de una variable con comparabilidad e incertidumbre.' },
   alerts: { label: 'Alerts' },
+  'story-engine': { label: 'Motor de historias', eyebrow: 'Poscarrera', description: 'Tarjetas locales vinculadas a evidencia con vista previa y aprobación humana obligatoria.' },
+  'context-debt': { label: 'Medidor de deuda de contexto', eyebrow: 'SP-07 · N=0', description: 'Auditoría local previa a la carrera de señales, rutas, dispositivos y controles en competencia.' },
   engineer: { label: 'Ingeniero IA' },
   coach: { label: 'Coach IA' },
   haptics: { label: 'Háptica' },
   'haptics-zonal': { label: 'Háptica zonal' },
   strategy: { label: 'Estrategia' },
+  'steward-desk': { label: 'Mesa de comisarios', eyebrow: 'Decisión humana', description: 'Casos locales con evidencia, reglas versionadas, disenso, recursos y exportación anonimizada.' },
   devices: { label: 'Devices' },
   settings: { label: 'Configuración', description: 'Autoarranque, telemetría, idioma y tema.' },
   about: { label: 'Acerca de / Créditos' }
@@ -6923,15 +6961,20 @@ patchViewText('pt-BR', {
 
 patchViewText('fr', {
   telemetry: { label: 'Télémétrie', description: 'Source de télémétrie en direct et vue d’ensemble.' },
+  streaming: { label: 'Streaming', eyebrow: 'Diffusion', description: 'Cibles nommées en lecture seule pour tableaux de bord et panneaux tactiles.' },
   overlays: { label: 'Overlays', eyebrow: 'Écran', description: 'Overlays transparents au-dessus du simulateur.' },
   fuel: { label: 'Carburant' },
   tire: { label: 'Tires' },
+  'setup-experiment': { label: 'Expérience de réglage', description: 'Expériences locales A-B-A à une variable avec comparabilité et incertitude.' },
   alerts: { label: 'Alertes' },
+  'story-engine': { label: 'Moteur de récits', eyebrow: 'Après-course', description: 'Cartes locales liées aux preuves avec aperçu de destination et validation humaine obligatoire.' },
+  'context-debt': { label: 'Mesure de dette de contexte', eyebrow: 'SP-07 · N=0', description: 'Audit local avant course des signaux, routes, appareils et commandes concurrents.' },
   engineer: { label: 'Ingénieur IA' },
   coach: { label: 'Coach IA' },
   haptics: { label: 'Haptique' },
   'haptics-zonal': { label: 'Haptique zonale' },
   strategy: { label: 'Stratégie' },
+  'steward-desk': { label: 'Bureau des commissaires', eyebrow: 'Décision humaine', description: 'Dossiers locaux avec preuves, règles versionnées, dissidence, appels et export anonymisé.' },
   devices: { label: 'Appareils' },
   settings: { label: 'Paramètres', description: 'Démarrage auto, télémétrie, langue et thème.' },
   about: { label: 'À propos / Crédits' }
@@ -6940,15 +6983,20 @@ patchViewText('fr', {
 patchViewText('de', {
   telemetry: { label: 'Telemetrie', description: 'Live-Telemetriequelle und Überblick.' },
   dashboards: { label: 'Dashboards' },
+  streaming: { label: 'Streaming', eyebrow: 'Übertragung', description: 'Benannte schreibgeschützte Dashboard- und Touchpanel-Ziele für OBS, Smartphones und Tablets.' },
   overlays: { label: 'Overlays', eyebrow: 'Anzeige', description: 'Transparente Overlays über dem Simulator.' },
   fuel: { label: 'Kraftstoff' },
   tire: { label: 'Reifen' },
+  'setup-experiment': { label: 'Setup-Experiment', description: 'Lokale A-B-A-Experimente mit einer Variable, Vergleichbarkeit und Unsicherheit.' },
   alerts: { label: 'Warnungen' },
+  'story-engine': { label: 'Story Engine', eyebrow: 'Nach dem Rennen', description: 'Lokale evidenzgebundene Story-Karten mit Zielvorschau und verpflichtender menschlicher Freigabe.' },
+  'context-debt': { label: 'Kontextschuld-Messer', eyebrow: 'SP-07 · N=0', description: 'Lokale Vorabprüfung konkurrierender Hinweise, Routen, Geräte und Steuerungen.' },
   engineer: { label: 'KI-Ingenieur' },
   coach: { label: 'KI-Coach' },
   haptics: { label: 'Haptik' },
   'haptics-zonal': { label: 'Zonen-Haptik' },
   strategy: { label: 'Strategie' },
+  'steward-desk': { label: 'Steward Desk', eyebrow: 'Menschliche Entscheidung', description: 'Lokale Beweisfälle mit Regelversionen, Widerspruch, Berufung und anonymisiertem Export.' },
   devices: { label: 'Geräte' },
   settings: { label: 'Einstellungen', description: 'Autostart, Telemetriequelle, Sprache und Theme.' },
   about: { label: 'Über / Credits' }
@@ -6957,15 +7005,20 @@ patchViewText('de', {
 patchViewText('zh', {
   telemetry: { label: '遥测', eyebrow: '模拟器', description: '实时遥测源与总览。' },
   dashboards: { label: '仪表盘', eyebrow: '监视', description: '监视窗口、.simhubdash 导入与仪表盘构建器。' },
+  streaming: { label: '串流', eyebrow: '直播', description: '面向 OBS、手机和平板的命名只读仪表盘与触控面板目标。' },
   'touch-controls': { label: '触控仪表盘', eyebrow: '座舱' },
   'oled-dash': { label: 'OLED 仪表盘', eyebrow: '显示' },
   overlays: { label: '叠加层', eyebrow: '屏幕', description: '模拟器之上的透明叠加层。' },
   fuel: { label: '燃油', eyebrow: '策略' },
   tire: { label: '轮胎', eyebrow: '策略' },
+  'setup-experiment': { label: '设置实验', description: '具有可比性与不确定性保护的本地单变量 A-B-A 实验。' },
   alerts: { label: '警报' },
+  'story-engine': { label: '故事引擎', eyebrow: '赛后', description: '基于证据的本地故事卡，包含目标预览并强制人工批准。' },
+  'context-debt': { label: '上下文负债计', eyebrow: 'SP-07 · N=0', description: '本地赛前审计相互竞争的提示、路由、设备和控制。' },
   engineer: { label: 'AI 工程师' },
   coach: { label: 'AI 教练' },
   strategy: { label: '策略' },
+  'steward-desk': { label: '赛事裁判台', eyebrow: '人工裁决', description: '本地证据案件、规则版本、异议、申诉与匿名导出。' },
   haptics: { label: '触觉反馈' },
   'haptics-zonal': { label: '分区触觉' },
   devices: { label: '设备' },
@@ -6976,15 +7029,20 @@ patchViewText('zh', {
 patchViewText('ja', {
   telemetry: { label: 'テレメトリー', eyebrow: 'シム', description: 'ライブのテレメトリーソースと概要。' },
   dashboards: { label: 'ダッシュボード', eyebrow: 'モニター', description: 'モニターウィンドウ、.simhubdash インポート、ビルダー。' },
+  streaming: { label: 'ストリーミング', eyebrow: '配信', description: 'OBS、スマートフォン、タブレット向けの名前付き読み取り専用ターゲット。' },
   'touch-controls': { label: 'タッチダッシュ', eyebrow: 'コックピット' },
   'oled-dash': { label: 'OLED ダッシュ', eyebrow: 'ディスプレイ' },
   overlays: { label: 'オーバーレイ', eyebrow: '画面', description: 'シミュレーターの上に表示する透明オーバーレイ。' },
   fuel: { label: '燃料', eyebrow: '戦略' },
   tire: { label: 'タイヤ', eyebrow: '戦略' },
+  'setup-experiment': { label: 'セットアップ実験', description: '比較可能性と不確実性を扱うローカル単一変数 A-B-A 実験。' },
   alerts: { label: 'アラート' },
+  'story-engine': { label: 'ストーリーエンジン', eyebrow: 'レース後', description: '証拠に紐づくローカルカード、公開先プレビュー、必須の人間承認。' },
+  'context-debt': { label: 'コンテキスト負債メーター', eyebrow: 'SP-07 · N=0', description: '競合するキュー、ルート、デバイス、操作をローカルでレース前監査します。' },
   engineer: { label: 'AI エンジニア' },
   coach: { label: 'AI コーチ' },
   strategy: { label: '戦略' },
+  'steward-desk': { label: 'スチュワードデスク', eyebrow: '人間による判断', description: 'ローカル証拠ケース、規則バージョン、異議、上訴、匿名エクスポート。' },
   haptics: { label: 'ハプティクス' },
   'haptics-zonal': { label: 'ゾーンハプティクス' },
   devices: { label: 'デバイス' },
@@ -6992,10 +7050,34 @@ patchViewText('ja', {
   about: { label: '概要 / クレジット' }
 })
 
+patchViewText('pt-BR', {
+  'streaming-mobile-editor': { label: 'Editor de Streaming Mobile', eyebrow: 'Preview do dispositivo', description: 'Perfis não destrutivos para dashboards salvos e Touch Controls em celulares e tablets.' }
+})
+patchViewText('es', {
+  'streaming-mobile-editor': { label: 'Editor de Streaming Móvil', eyebrow: 'Vista del dispositivo', description: 'Perfiles no destructivos para dashboards guardados y Touch Controls en teléfonos y tablets.' }
+})
+patchViewText('fr', {
+  'streaming-mobile-editor': { label: 'Éditeur de Streaming Mobile', eyebrow: 'Aperçu appareil', description: 'Profils non destructifs pour tableaux de bord enregistrés et Touch Controls sur téléphone et tablette.' }
+})
+patchViewText('de', {
+  'streaming-mobile-editor': { label: 'Mobiler Streaming-Editor', eyebrow: 'Gerätevorschau', description: 'Nicht-destruktive Handy- und Tablet-Profile für gespeicherte Dashboards und Touch Controls.' }
+})
+patchViewText('zh', {
+  'streaming-mobile-editor': { label: '移动端串流编辑器', eyebrow: '设备预览', description: '为已保存的仪表盘和触控面板创建非破坏性的手机和平板呈现配置。' }
+})
+patchViewText('ja', {
+  'streaming-mobile-editor': { label: 'モバイル配信エディター', eyebrow: '端末プレビュー', description: '保存済みダッシュボードと Touch Controls 向けの非破壊的なスマホ・タブレット表示プロファイル。' }
+})
+
 const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
-  'pt-BR': {},
+  'pt-BR': {
+    'League Ops': 'Operações da liga',
+    Streaming: 'Streaming'
+  },
   en: {
-    'IA & Coaching': 'AI & Coaching'
+    'IA & Coaching': 'AI & Coaching',
+    'League Ops': 'League Ops',
+    Streaming: 'Streaming'
   },
   es: {
     'Race Hub': 'Centro de carrera',
@@ -7003,8 +7085,10 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     'IA & Coaching': 'IA y coaching',
     Strategy: 'Estrategia',
     Garage: 'Garaje',
+    'League Ops': 'Operaciones de liga',
     Hardware: 'Hardware',
-    System: 'Sistema'
+    System: 'Sistema',
+    Streaming: 'Streaming'
   },
   fr: {
     'Race Hub': 'Centre de course',
@@ -7012,8 +7096,10 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     'IA & Coaching': 'IA et coaching',
     Strategy: 'Stratégie',
     Garage: 'Garage',
+    'League Ops': 'Opérations de ligue',
     Hardware: 'Matériel',
-    System: 'Système'
+    System: 'Système',
+    Streaming: 'Streaming'
   },
   de: {
     'Race Hub': 'Race Hub',
@@ -7021,8 +7107,10 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     'IA & Coaching': 'KI & Coaching',
     Strategy: 'Strategie',
     Garage: 'Garage',
+    'League Ops': 'Liga-Betrieb',
     Hardware: 'Hardware',
-    System: 'System'
+    System: 'System',
+    Streaming: 'Streaming'
   },
   zh: {
     'Race Hub': '比赛中心',
@@ -7030,8 +7118,10 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     'IA & Coaching': 'AI 与教练',
     Strategy: '策略',
     Garage: '车库',
+    'League Ops': '联赛运营',
     Hardware: '硬件',
-    System: '系统'
+    System: '系统',
+    Streaming: '串流'
   },
   ja: {
     'Race Hub': 'レースハブ',
@@ -7039,42 +7129,59 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     'IA & Coaching': 'AI とコーチング',
     Strategy: '戦略',
     Garage: 'ガレージ',
+    'League Ops': 'リーグ運営',
     Hardware: 'ハードウェア',
-    System: 'システム'
+    System: 'システム',
+    Streaming: 'ストリーミング'
   }
 }
 
 const GROUP_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
-  'pt-BR': {},
+  'pt-BR': {
+    'League Ops': 'Operações da liga',
+    Streaming: 'Streaming'
+  },
   en: {
     'Sim Racing': 'Sim Racing',
+    'League Ops': 'League Ops',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: 'Streaming'
   },
   es: {
     'Sim Racing': 'Sim Racing',
+    'League Ops': 'Operaciones de liga',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: 'Streaming'
   },
   fr: {
     'Sim Racing': 'Sim Racing',
+    'League Ops': 'Opérations de ligue',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: 'Streaming'
   },
   de: {
     'Sim Racing': 'Sim Racing',
+    'League Ops': 'Liga-Betrieb',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: 'Streaming'
   },
   zh: {
     'Sim Racing': 'Sim Racing',
+    'League Ops': '联赛运营',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: '串流'
   },
   ja: {
     'Sim Racing': 'Sim Racing',
+    'League Ops': 'リーグ運営',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: 'ストリーミング'
   }
 }
 
@@ -7087,9 +7194,16 @@ export function translateGroupTitle(title: string, language: ResolvedLanguage): 
 }
 
 export function translateView(view: ViewDef, language: ResolvedLanguage): ViewDef {
+  const external: Partial<ViewText> = {}
+  for (const field of ['group', 'label', 'eyebrow', 'description'] as const) {
+    const key = `view.${view.id}.${field}`
+    const value = UI_TEXT[language][key] ?? UI_TEXT.en[key]
+    if (value) external[field] = value
+  }
   return {
     ...view,
     group: translateGroupTitle(view.group, language),
+    ...external,
     ...(VIEW_TEXT[language][view.id] ?? {})
   }
 }

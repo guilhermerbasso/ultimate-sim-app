@@ -1,5 +1,4 @@
 import { EventEmitter } from 'node:events'
-import { ReadlineParser, SerialPort } from 'serialport'
 import type { DeviceInfo, EncoderEvent } from '../../shared/ipc'
 import type {
   SerialDeviceKind,
@@ -18,6 +17,7 @@ import {
 import { COMPANION_V2_MAX_COMMAND_LEN, COMPANION_V2_MAX_STREAM_LEN } from '../../shared/companion'
 import { isBenignSerialError, serialErrorMessage } from './errors'
 import { logger } from '../modules/logger'
+import { ReadlineParser, SerialPort } from './serialport-runtime'
 
 // A `P` pixel-stream frame can be 385 chars; truncate verbose TX logs to a small
 // prefix + length so the diagnostic capture stays readable on the hot path.

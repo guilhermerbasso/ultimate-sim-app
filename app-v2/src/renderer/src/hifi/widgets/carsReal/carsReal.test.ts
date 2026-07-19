@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { baseSnapshot } from '../../../../../shared/telemetry-scenarios'
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
+import { SHIFT_STROBE_BLUE } from '../../../lib/rev-lights'
 import { CARS_REAL_WIDGETS } from './index'
 
 const badTokens = /NaN|undefined|Infinity/
@@ -68,5 +69,82 @@ describe('CARS_REAL_WIDGETS', () => {
     const markup = renderWidget('f488Position', { ...baseSnapshot(), position: 4, totalCars: 24 } as TelemetrySnapshot)
     expect(markup).toContain('P4 / 24')
     expect(markup).not.toContain('>POS</text>')
+  })
+
+  it('uses provider blink across every car-real rev/shift renderer', () => {
+    const ids = [
+      'f296Dash', 'f296RevLights', 'f296RpmBar',
+      'pcupDash', 'pcupRevBar',
+      'gtdDash', 'gtdArcTach',
+      'cvDash', 'cvRevLights', 'cvRpmBar',
+      'lhDash', 'lhRevLights', 'lhRpm',
+      'f488Dash', 'f488RevLights', 'f488RpmBar'
+    ]
+    const providerOff = {
+      ...baseSnapshot(),
+      rpm: 8400,
+      maxRpm: 8500,
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    } as TelemetrySnapshot
+    const providerOn = {
+      ...baseSnapshot(),
+      rpm: 2000,
+      maxRpm: 8500,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    } as TelemetrySnapshot
+    const revPctOnlyOff = { ...providerOff, shiftIndicatorPct: undefined } as TelemetrySnapshot
+    const revPctOnlyOn = { ...providerOn, shiftIndicatorPct: undefined } as TelemetrySnapshot
+
+    for (const [source, normalSnapshot, shiftedSnapshot] of [
+      ['shiftIndicatorPct', providerOff, providerOn],
+      ['revLights.pct fallback', revPctOnlyOff, revPctOnlyOn]
+    ] as const) {
+      for (const id of ids) {
+        const normal = renderWidget(id, normalSnapshot)
+        const shifted = renderWidget(id, shiftedSnapshot)
+        const label = `${id} (${source})`
+        expect(normal, label).not.toContain('repeatCount="indefinite"')
+        expect(shifted, label).toContain(SHIFT_STROBE_BLUE)
+        expect(shifted, label).toContain('repeatCount="indefinite"')
+        expect(
+          (shifted.match(new RegExp(SHIFT_STROBE_BLUE, 'g')) ?? []).length,
+          label
+        ).toBeGreaterThan((normal.match(new RegExp(SHIFT_STROBE_BLUE, 'g')) ?? []).length)
+      }
+    }
+  })
+
+  it('keeps car-real RPM gauges calibrated independently from provider shift blink', () => {
+    const providerOn = {
+      ...baseSnapshot(),
+      rpm: 4250,
+      maxRpm: 8500,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    } as TelemetrySnapshot
+    const providerOff = {
+      ...providerOn,
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    } as TelemetrySnapshot
+    const expectedLit: Record<string, number | undefined> = {
+      f296RpmBar: 16,
+      cvRpmBar: 21,
+      f488RpmBar: 14,
+      lhRpm: undefined,
+      gtdArcTach: undefined
+    }
+
+    for (const [id, lit] of Object.entries(expectedLit)) {
+      for (const snapshot of [providerOn, providerOff]) {
+        const markup = renderWidget(id, snapshot)
+        expect(markup, id).toContain('data-rpm-pct="0.5000"')
+        if (lit !== undefined) {
+          expect(markup, id).toContain(`data-rpm-lit="${lit}"`)
+        }
+      }
+    }
   })
 })

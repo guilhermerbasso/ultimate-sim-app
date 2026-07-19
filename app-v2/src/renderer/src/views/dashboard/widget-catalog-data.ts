@@ -26,7 +26,8 @@ import {
 import {
   ALL_FIELDS,
   widgetSupportedSims,
-  type CoverageSimId
+  type CoverageSimId,
+  type TelemetryRequirement
 } from '../../../../shared/sim-coverage'
 import type { TelemetrySnapshot } from '../../../../shared/telemetry'
 import { compareCatalogEntries } from '../../../../shared/catalog-order'
@@ -84,6 +85,10 @@ export interface WidgetVariant {
   widgetId?: OverlayWidgetId
   /** Dynamic hi-fi module id for `widgetId: hifi:<id>` overlay widgets. */
   hifiModuleId?: string
+  /** Explicit coverage requirements for composite/hi-fi widgets. */
+  telemetryRequires?: TelemetryRequirement[]
+  /** Alternative AND-groups; support requires the primary group OR any alternative. */
+  telemetryAlternativeRequires?: TelemetryRequirement[][]
   /** Generated/secondary entry (raw iRacing channel tile) demoted behind the
    *  collapsed "Advanced iRacing Channels" section in the gallery. */
   advanced?: boolean
@@ -193,7 +198,21 @@ export function variantRequiredField(variant: { binding?: string; type?: Dashboa
  *  An `ir:<id>` binding whose iRacing variable has NO unified telemetryField is an
  *  iRacing-exclusive channel (only the iRacing provider fills the `var:` namespace it
  *  reads), so it is restricted to iRacing rather than mislabeled "all sims". */
-export function variantSupportedSims(variant: { binding?: string; type?: DashboardElementType }): CoverageSimId[] {
+export function variantSupportedSims(variant: {
+  binding?: string
+  type?: DashboardElementType
+  telemetryRequires?: TelemetryRequirement[]
+  telemetryAlternativeRequires?: TelemetryRequirement[][]
+}): CoverageSimId[] {
+  if (
+    (variant.telemetryRequires?.length ?? 0) > 0 ||
+    (variant.telemetryAlternativeRequires?.length ?? 0) > 0
+  ) {
+    return widgetSupportedSims(
+      variant.telemetryRequires,
+      variant.telemetryAlternativeRequires
+    )
+  }
   const field = variantRequiredField(variant)
   if (field) return widgetSupportedSims([field])
   const binding = variant.binding
@@ -693,6 +712,8 @@ function toHifiCatalogVariant(module: (typeof HIFI_WIDGETS)[number]): WidgetVari
     widgetId: `hifi:${module.id}`,
     hifiModuleId: module.id,
     binding: module.requires[0],
+    telemetryRequires: [...module.requires],
+    telemetryAlternativeRequires: module.alternativeRequires?.map((group) => [...group]),
     w: Math.max(160, Math.round(module.defaultSize.w)),
     h: Math.max(70, Math.round(module.defaultSize.h)),
     category: HIFI_CATEGORY_MAP[module.category] ?? 'Digital',

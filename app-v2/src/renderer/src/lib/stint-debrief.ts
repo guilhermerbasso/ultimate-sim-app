@@ -1,10 +1,9 @@
 // STINT DEBRIEF — renderer helper (WS-I).
 //
-// Thin client for the `debrief:` module. It gathers the live Coach findings
-// (`coach:lastFindings`) + the latest PredictionsSnapshot (`predictions:get`) +
-// a little session context (telemetry store), hands them to `debrief:generate`,
-// and lets the view subscribe to fresh debriefs. The main module auto-fires
-// `debrief:trigger` at a stint/session boundary; we respond by generating one.
+// Thin client for the `debrief:` module. Manual requests gather the live Coach
+// findings (`coach:lastFindings`) + latest PredictionsSnapshot (`predictions:get`)
+// and hand them to `debrief:generate`. Automatic boundary debriefs are composed
+// and persisted in main, so renderer mounting never controls their lifecycle.
 //
 // All composition is deterministic in shared/stint-debrief.ts; `useLlm` only
 // asks the local model to PHRASE, always falling back to the deterministic text.
@@ -15,6 +14,7 @@ import {
   DEBRIEF_CHANNELS,
   type DebriefReason,
   type DebriefSessionInfo,
+  type DebriefTriggerPayload,
   type StintDebrief
 } from '../../../shared/stint-debrief'
 import { getTelemetryStoreSnapshot } from './telemetry'
@@ -58,6 +58,8 @@ export interface GenerateDebriefOptions {
   useLlm?: boolean
   /** Why we are generating — defaults to 'manual'. */
   reason?: DebriefReason
+  /** Immutable ended-session snapshot supplied by the main-process boundary detector. */
+  trigger?: DebriefTriggerPayload
 }
 
 /**
@@ -65,13 +67,15 @@ export interface GenerateDebriefOptions {
  * process. Returns the composed debrief (also broadcast on `debrief:updated`).
  */
 export async function generateDebrief(options: GenerateDebriefOptions = {}): Promise<StintDebrief | null> {
-  const reason = options.reason ?? 'manual'
-  const [findings, predictions] = await Promise.all([gatherFindings(), gatherPredictions()])
+  const reason = options.trigger?.reason ?? options.reason ?? 'manual'
+  const [findings, predictions] = options.trigger
+    ? [options.trigger.findings, options.trigger.predictions]
+    : await Promise.all([gatherFindings(), gatherPredictions()])
   try {
     return await invoke<StintDebrief>(DEBRIEF_CHANNELS.generate, {
       findings,
       predictions,
-      sessionInfo: currentSessionInfo(reason),
+      sessionInfo: options.trigger?.sessionInfo ?? currentSessionInfo(reason),
       useLlm: options.useLlm === true
     })
   } catch {
@@ -92,11 +96,11 @@ export function subscribeDebrief(callback: (debrief: StintDebrief) => void): () 
 }
 
 /**
- * Subscribe to stint/session-end triggers. The view typically auto-generates a
- * debrief in response. Returns the unsubscribe fn.
+ * Subscribe to the immutable ended-session payload for compatibility/diagnostics.
+ * Main has already generated the deterministic debrief before this is observed.
  */
-export function subscribeDebriefTrigger(callback: (reason: DebriefReason) => void): () => void {
-  return window.ipc.subscribe<{ reason?: DebriefReason }>(DEBRIEF_CHANNELS.trigger, (payload) => {
-    callback(payload?.reason ?? 'stint-end')
+export function subscribeDebriefTrigger(callback: (payload: DebriefTriggerPayload) => void): () => void {
+  return window.ipc.subscribe<DebriefTriggerPayload>(DEBRIEF_CHANNELS.trigger, (payload) => {
+    if (payload) callback(payload)
   })
 }

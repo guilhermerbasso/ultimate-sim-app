@@ -41,9 +41,9 @@ export class MockProvider implements TelemetryProvider {
     const waterTempC = 92 + Math.sin(t * 0.05) * 3
     const oilTempC = 108 + Math.sin(t * 0.07) * 4
 
-    const fuelPerLap = 2.6
+    const fuelPerLapLiters = 2.6
     const fuelCapacity = 90
-    const fuelLiters = Math.max(0, fuelCapacity - fuelPerLap * (t / lapSeconds))
+    const fuelLiters = Math.max(0, fuelCapacity - fuelPerLapLiters * (t / lapSeconds))
 
     // Caminho fechado e suave parametrizado por lapPct, para o track-map learner
     // poder reconstruir um traçado plausível 100% no Mac. Periódico em 2π → fecha
@@ -138,7 +138,11 @@ export class MockProvider implements TelemetryProvider {
       sessionState: 'racing',
       paceMode: 'notPacing',
       paceFlags: [],
+      carName: 'Mock GT3',
+      carPath: 'mock-gt3',
       trackName: 'Okayama International Circuit - Full Course',
+      trackConfigName: 'Full Course',
+      sessionUniqueId: 1,
       sessionTimeRemainingSec: Math.max(0, 3600 - t),
       lapsRemaining: Math.max(0, 24 - lap),
       currentLap: lap,
@@ -154,7 +158,10 @@ export class MockProvider implements TelemetryProvider {
       totalCars: drivers.length,
       strengthOfField: 3200,
       fuelLiters,
-      fuelPerLap,
+      fuelMassKg: fuelLiters * 0.75,
+      fuelPerLap: fuelPerLapLiters,
+      fuelPerLapLiters,
+      fuelLapsRemaining: fuelLiters / fuelPerLapLiters,
       fuelCapacityLiters: fuelCapacity,
       tyres: {
         lf: { tempC: 82 + brake * 20, pressureKpa: 165, wearPct: 1 - (t / lapSeconds) * 0.012 },
@@ -169,7 +176,13 @@ export class MockProvider implements TelemetryProvider {
       },
       pitLimiter: false,
       onPitRoad: false,
+      pitStopActive: false,
+      pit: { inPitStall: false, repairNeeded: false, optRepairNeeded: false, pitsOpen: true },
+      refuelServiceActive: false,
+      pitServiceFlags: [],
+      pitFuelToAddL: 0,
       incidentCount: 4,
+      incidentCountMy: 4,
       incidentLimit: 17,
       fastRepairsUsed: 0,
       fastRepairsAvailable: 1,
@@ -178,6 +191,12 @@ export class MockProvider implements TelemetryProvider {
       trackWetnessPct: 0,
       isRaining: false,
       gripPct: 0.96,
+      tyreStatePct: 1 - (t / lapSeconds) * 0.0115,
+      trafficDensity: radarCars.length / 10,
+      flagStateIndex: 0,
+      damagePct: 0,
+      lapValidity: 'valid',
+      towReset: false,
       playerCarIdx: 0,
       // Brief spotter window: two cars stacking up on the left through one phase of the
       // lap so the count (2 = LR2CarsLeft) and side decode exercise downstream consumers.

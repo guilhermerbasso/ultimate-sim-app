@@ -1,0 +1,19 @@
+{
+  "name": "Ultimate Sim Receiver",
+  "short_name": "Sim Receiver",
+  "description": "Read-only local telemetry receiver for Ultimate Sim App.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#07111d",
+  "theme_color": "#07111d",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

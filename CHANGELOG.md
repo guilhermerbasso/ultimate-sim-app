@@ -6,6 +6,107 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
+## 2.54.0 — managed streaming, local integrations, and offline race preparation
+
+### Added
+- **Loopback-only MQTT certification target**, disabled by default, with authenticated publisher,
+  reader, and command roles, narrow topic permissions, retained health/session state, and commands
+  disabled unless explicitly enabled.
+- **User-managed Streaming targets** in a dedicated Streaming area, with persistent dashboard and
+  Touch Controls profiles. Edited dashboard copies remain selectable after migration and restart.
+- **Mobile presentation editor** for saved dashboards and Touch Controls, with phone/tablet presets,
+  orientation, safe areas, fit/fill rules, minimum touch sizing, and revision-bound profiles that do
+  not modify the source layout.
+- **Secure interactive Touch Controls receivers** for allowlisted pit actions, radio holds, toggles,
+  selectors, rotaries, and simulator actions, using authenticated target-bound capabilities, CSRF protection,
+  one-time nonces, origin binding, rate limits, and a live receiver lease.
+- **Editor-only trigger previews** that reveal inactive trigger-only overlays and dashboard widgets
+  for positioning without changing their live visibility rules.
+- **Experimental local Context-Debt meter** for auditing competing cues, invalid routes, and
+  unavailable devices before a race. It remains an N=0 experiment, not a validated demand or
+  predictive-accuracy claim.
+- **Local Setup Experiment Twin** for controlled one-variable A-B-A/B-A-B setup comparisons, with
+  manual setup confirmation, matched-block evidence, uncertainty reporting, persistence recovery,
+  and honest abstention instead of automatic setup application or causal claims.
+- **Signed offline workspace collaboration** for deterministic local setup sharing without network
+  transport, using Ed25519 actor signatures, canonical CRDT ordering/checksums, and bounded import
+  and causal-validation rules.
+- **Local-first Steward Desk** for evidence-backed league incident review, versioned rules, human
+  verdicts, dissent, appeals, and rights-gated case exchange. Penalties and final decisions remain
+  explicitly human-owned.
+- **Offline Mission Rehearsal** with branching scenarios, assigned roles, checkpoints, resumable
+  runs, repeat comparisons, and scored blameless debriefs.
+
+### Changed
+- Internet streaming can start the bundled, checksum-verified Cloudflare quick tunnel automatically,
+  establish the authenticated viewer session, report receiver health, and recover with bounded
+  retries without changing local or LAN streaming.
+- Trigger preview ownership is released on hide, reload, or renderer loss and restored after a tray
+  reopen, while compositor, streaming, saved rules, and live Coach/Engineer/Alerts IPC stay isolated.
+- Context-Debt audits fail closed on malformed profiles and incomplete audio/serial inventories, and
+  suggestions respect per-cue route and modality limits.
+- PWA receiver reconnects preserve the first pending 250 ms deadline, deduplicate overlapping
+  close/online triggers and metrics, and cancel pending reconnects while offline or unmounted.
+- Interactive Touch ownership drains safely on disconnect or stop: holds and mixed latches release
+  in order, configured OFF runs exactly once, cleanup is idempotent, admission is revoked
+  synchronously, and auth, target, connectivity, or teardown changes fail closed.
+- Steward evidence uses a canonical verified event chain, session-bound atomic clip storage,
+  fail-closed corruption/decryption/hash quarantine, allowlisted anonymization, provenance and
+  redistribution-rights gates, and trusted local re-review before imported verdicts become
+  authoritative.
+- Collaboration mutations, synchronization, export, and persistence roll back atomically on
+  failure; imports enforce the exact 8 MiB boundary and reject prototype-sensitive paths or JSON
+  keys before state can change.
+- Mission Rehearsal synthetic events are isolated from live telemetry and real session history, and
+  rehearsal decisions cannot actuate live race controls.
+
+## 2.53.1 — SerialPort startup hotfix
+
+### Fixed
+- Restored packaged-app startup on Windows by routing `serialport` through an ASAR-aware CommonJS
+  `createRequire` bridge instead of Electron's failing ESM package resolution.
+- Added Windows package verification that inspects the packaged main bundle and runs a packaged
+  Electron resolver smoke test before release assets can be accepted.
+
+## 2.53.0 — restart-safe dashboards, telemetry truth, and governed visual foundations
+
+### Added
+- **Dashboard storage health and recovery diagnostics** with canonical validation, legacy identity
+  migration, byte-preserving quarantine for invalid files, duplicate/version resolution, and
+  renderer error containment.
+- **Phase 02 dashboard portfolio foundation** with exactly 50 immutable briefs across 10 families,
+  deterministic processing order, controlled tags, research sources, telemetry requirements, and
+  per-dashboard image-prompt constraints.
+- **Dashboard differentiation gate** with canonical structural fingerprints, a hard clone-rejection
+  threshold, anti-evasion checks, and pair-scoped perceptual evidence across eight governed
+  telemetry states.
+- **Governed telemetry registry** for 143 ordinary concepts: 142 currently visualizable, 141 using
+  the existing three-variant framework, one dedicated shift-light implementation, one explicitly
+  unsupported opponent-steering concept, and 45 separate trigger-only families.
+
+### Changed
+- Fuel range and fuel-to-finish calculations are litre-canonical. Startup, partial, and refuelling
+  laps are excluded from consumption samples.
+- Engine map and throttle map remain distinct, iRacing garage cold pressure is not exposed as live
+  tyre pressure, and Shift Point uses native shift state or RPM/max-RPM while honoring disabled
+  policies and simulator coverage.
+- Alert configuration updates are serialized, and configured trigger behavior is shared
+  consistently by alerts, overlays, dashboards, and widgets.
+- Persisted dashboard restoration separates newest-wins configuration hydration from
+  emission-ordered telemetry reconnect handling and uses monotonic revisions that tolerate
+  future-dated files or clock rollback.
+
+### Fixed
+- Saved dashboard windows, including `overlaywidget` compositions, no longer reopen as black
+  windows after an app restart.
+- Dashboard replacement and queued open/close/delete/save operations are atomic and race-safe
+  across load failures and renderer crashes.
+
+### In development
+- The separate Phase 02 production program targets **50 newly produced dashboards and 16,600
+  individually evidenced visual artifacts**. Version 2.53.0 ships the portfolio, registry, and
+  quality gates, not those generated images or dashboard outputs.
+
 ## 2.52.0 — semantic controls, expression destinations, secure streaming, and synchronized speech
 
 ### Added

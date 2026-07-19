@@ -90,7 +90,8 @@ let tray: Tray | null = null
 let isQuitting = false
 let registered: RegisteredModules | null = null
 const gracefulTeardownTasks = new GracefulTeardownRegistry()
-const QUIESCE_TIMEOUT_MS = 1_000
+// Includes streaming's 3s cloudflared grace period plus 1s force-kill confirmation.
+const QUIESCE_TIMEOUT_MS = 5_000
 const HARDWARE_OPERATION_TIMEOUT_MS = 1_000
 const RGB_MATRIX_ALL_OFF_TIMEOUT_MS = 2_000
 const PERSISTENCE_TIMEOUT_MS = 2_500
