@@ -195,6 +195,14 @@ const iconMap: Record<string, () => ReactElement> = {
       <path d="M14.5 18a4.5 4.5 0 0 1 5.5-4.4" />
     </Svg>
   ),
+  'social-connectors': () => (
+    <Svg>
+      <circle cx="5" cy="11" r="2.5" />
+      <circle cx="17" cy="6" r="2.5" />
+      <circle cx="17" cy="16" r="2.5" />
+      <path d="M7.5 10l7-3M7.5 12l7 3" />
+    </Svg>
+  ),
   'steward-desk': () => (
     <Svg>
       <path d="M6 3h10v16H6z" />
