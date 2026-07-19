@@ -458,6 +458,47 @@ describe('evidence-linked story generation', () => {
     expect(card.body).not.toContain('l\u00B7l.cat')
   })
 
+  it('does not let an explicit suffix mailbox preempt automatic whole-token redaction', () => {
+    const declaredSuffix = 'ops@example.com'
+    const completeMailbox = 'josé/ops@example.com'
+    const statement = `Alice can be reached at ${completeMailbox}.`
+    const piiEvidence = evidence('evidence-overlapping-mailbox', {
+      statement,
+      eventType: 'explicit',
+      privacyClass: 'D3',
+      consent: { state: 'unknown', subjectRef: 'driver-1', epoch: 1, checkedAt: NOW },
+      pii: [
+        { kind: 'name', value: 'Alice' },
+        { kind: 'email', value: declaredSuffix }
+      ],
+      piiAttestation: { status: 'pii-declared', method: 'fixture-overlap-review-v1', checkedAt: NOW },
+      claim: { subjectRef: 'driver-1', predicate: 'overlap-contact-card', value: true },
+      facts: { rank: 0.8, title: 'Contact Alice', statement }
+    })
+    const piiEvent = event('event-overlapping-mailbox', {
+      type: 'explicit',
+      evidenceRefs: ['evidence-overlapping-mailbox'],
+      assertionId: 'overlap-contact-card',
+      claim: { subjectRef: 'driver-1', predicate: 'overlap-contact-card', value: true },
+      facts: { rank: 0.8 },
+      title: 'Contact Alice',
+      statement
+    })
+
+    const [card] = generateStoryCards(timeline([piiEvent], [piiEvidence]), NOW).candidates
+    const internetPreview = storyPreview(card, 'internet')
+    expect(card.body).toBe('[driver] can be reached at [email].')
+    expect(card.body).not.toContain('josé/')
+    expect(card.redactions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'email', reason: 'pattern-detected' })
+    ]))
+    expect(card.redactions.some((redaction) =>
+      redaction.kind === 'email' && redaction.reason === 'explicit-pii'
+    )).toBe(false)
+    expect(internetPreview?.status).toBe('blocked')
+    expect(internetPreview?.body).toBe('[driver] can be reached at [email].')
+  })
+
   it('redacts all UTF8 atext and prioritizes explicit whole mailboxes before internet preview', () => {
     const unicodeAtextMailbox = 'maría\u2019team@example.com'
     const explicitUnicodeMailbox = 'maría\u2011team@example.com'

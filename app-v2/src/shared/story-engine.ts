@@ -992,7 +992,9 @@ function explicitRedactionRules(evidence: readonly StoryEvidence[]): RedactionRu
             : `[${pii.kind}]`
     rules.push({
       kind: pii.kind,
-      pattern: new RegExp(escapeRegExp(value), 'gi'),
+      pattern: pii.kind === 'email'
+        ? explicitMailboxPattern(value)
+        : new RegExp(escapeRegExp(value), 'gi'),
       replacement,
       reason: 'explicit-pii',
       evidenceRef: opaqueRef('evidence', evidenceId),
@@ -1073,10 +1075,19 @@ const EMAIL_U_LABEL_TLD_SOURCE =
   String.raw`${EMAIL_DOMAIN_EDGE_SOURCE}${EMAIL_DOMAIN_INTERIOR_SOURCE}{0,61}${EMAIL_DOMAIN_EDGE_SOURCE}`
 const EMAIL_TLD_SOURCE =
   String.raw`(?:xn--[A-Z0-9](?:[A-Z0-9-]{0,57}[A-Z0-9])?|${EMAIL_U_LABEL_TLD_SOURCE})`
+const EMAIL_EXPLICIT_DOMAIN_CONTINUATION_SOURCE =
+  String.raw`(?:[\p{L}\p{M}\p{N}\u00B7-]|\.(?=[\p{L}\p{M}\p{N}]))`
 
 function completeMailboxPattern(): RegExp {
   return new RegExp(
     String.raw`(?<!${EMAIL_LOCAL_BOUNDARY_SOURCE})${EMAIL_ATEXT_SOURCE}+(?:\.${EMAIL_ATEXT_SOURCE}+)*@(?:${EMAIL_DOMAIN_LABEL_SOURCE}\.)+${EMAIL_TLD_SOURCE}(?![\p{L}\p{M}\p{N}\u00B7-])`,
+    'giu'
+  )
+}
+
+function explicitMailboxPattern(value: string): RegExp {
+  return new RegExp(
+    String.raw`(?<!${EMAIL_LOCAL_BOUNDARY_SOURCE})${escapeRegExp(value)}(?!${EMAIL_EXPLICIT_DOMAIN_CONTINUATION_SOURCE})`,
     'giu'
   )
 }

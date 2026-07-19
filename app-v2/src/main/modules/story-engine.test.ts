@@ -347,7 +347,8 @@ describe('StoryEngineStore human decisions and restart', () => {
       consent: { state: 'granted', subjectRef: 'driver-1', epoch: 2, checkedAt: 1_000 },
       pii: [
         { kind: 'name', value: 'Alice Example', replacement: '[driver]' },
-        { kind: 'email', value: explicitUnicodeMailbox }
+        { kind: 'email', value: explicitUnicodeMailbox },
+        { kind: 'email', value: 'ops@example.com' }
       ],
       piiAttestation: { status: 'pii-declared', method: 'fixture-pii-review-v1', checkedAt: 1_000 },
       claim: { subjectRef: 'driver-1', predicate: 'podium', value: true },
