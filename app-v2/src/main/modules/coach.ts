@@ -441,9 +441,12 @@ export class LiveCoachEngine {
     return this.findings.filter((f) => f.sector === sector && f.corner === undefined)
   }
 
-  private adviceFor(where: { corner?: number; sector?: number }): ComposedCornerAdvice | null {
+  private adviceFor(
+    where: { corner?: number; sector?: number },
+    language: SpeechLanguage = this.deps.getLanguage?.() ?? 'pt-BR'
+  ): ComposedCornerAdvice | null {
     const fs = where.corner !== undefined ? this.findingsForCorner(where.corner) : this.findingsForSector(where.sector ?? 0)
-    return composeCornerAdvice(fs, where, { maxDims: MAX_CORNER_DIMS })
+    return composeCornerAdvice(fs, where, { maxDims: MAX_CORNER_DIMS, language })
   }
 
   private speakSegment(where: { corner?: number; sector?: number }): void {
@@ -451,13 +454,13 @@ export class LiveCoachEngine {
     // In a RACE the proactive engineer owns the audio (corner-numbered call-outs);
     // muting the live coach here avoids double-speak. Practice/qualy keep speaking.
     if (this.lastSessionKind === 'race') return
-    const advice = this.adviceFor(where)
+    const lang = this.deps.getLanguage?.() ?? 'pt-BR'
+    const advice = this.adviceFor(where, lang)
     if (!advice) return
     if (advice.worstLossSec < MIN_SPEAK_LOSS_SEC) return
     const now = this.now()
     if (now - this.lastSpeakAt < SPEAK_COOLDOWN_MS) return
     this.lastSpeakAt = now
-    const lang = this.deps.getLanguage?.() ?? 'pt-BR'
     const payload: CoachSpeakEvent = {
       text: advice.text,
       priority: advice.severity === 'high' ? 8 : 5,
@@ -585,6 +588,7 @@ export interface LapCoachDeps {
   }) => Promise<{ ok: boolean; text?: string }>
   setModel?: (modelPath: string, modelId: string) => void
   getUnitSystem?: () => UnitSystem
+  getLanguage?: () => SpeechLanguage
 }
 
 export class LapCoachAnalyzer {
@@ -723,11 +727,15 @@ export class LapCoachAnalyzer {
   }
 
   async explain(req: CoachExplainRequest): Promise<CoachExplainResult> {
+    const language = this.deps.getLanguage?.() ?? 'pt-BR'
     const finding = this.findFinding(req)
     if (!finding) {
-      return { text: 'No coaching data to explain yet. Complete a lap first.', source: 'deterministic' }
+      return {
+        text: language === 'pt-BR' ? 'Ainda não há dados de coaching para explicar. Complete uma volta primeiro.' : 'No coaching data to explain yet. Complete a lap first.',
+        source: 'deterministic'
+      }
     }
-    const deterministic = deterministicPhrasing(finding)
+    const deterministic = deterministicPhrasing(finding, language)
     if (!req.useLlm || !this.deps.generate || !this.deps.getModelPath) {
       return { text: deterministic, source: 'deterministic', findingId: finding.id }
     }
@@ -746,7 +754,9 @@ export class LapCoachAnalyzer {
       const result = await this.deps
         .generate({
           system:
-            'You are an objective, practical driving coach. Rewrite the technical observation in 1 to 2 short, direct American English sentences telling the driver what to do. Do not invent data; use only the provided numbers.',
+            language === 'pt-BR'
+              ? 'Você é um coach de pilotagem objetivo e prático. Reescreva a observação técnica em 1 ou 2 frases curtas e diretas em português do Brasil, dizendo ao piloto o que fazer. Não invente dados; use somente os números fornecidos.'
+              : 'You are an objective, practical driving coach. Rewrite the technical observation in 1 to 2 short, direct American English sentences telling the driver what to do. Do not invent data; use only the provided numbers.',
           prompt: explainPrompt(finding),
           maxTokens: EXPLAIN_MAX_TOKENS,
           temperature: 0.3,
@@ -987,6 +997,7 @@ export function register(ctx: ModuleContext): void {
     getModelId: () => tryModelManager()?.getActiveModelId() ?? '',
     setModel: (modelPath) => tryRuntime()?.setOptions({ modelPath }),
     getUnitSystem: () => unitSystem,
+    getLanguage: () => speechLanguage,
     generate: async (request) => {
       const runtime = tryRuntime()
       if (!runtime) return { ok: false }

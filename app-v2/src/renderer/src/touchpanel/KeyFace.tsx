@@ -17,6 +17,8 @@ export interface KeyFaceProps {
   iconColor: string
   /** Place a label-only key's text in the bottom band (for images / rotary knobs). */
   bottomLabel?: boolean
+  /** Place a label-only face in the top band (selectors/value/status/rockers). */
+  topLabel?: boolean
   /** Soft upper bound for the label font (the user's chosen size); never overflows. */
   maxFont?: number
 }
@@ -26,7 +28,7 @@ interface Size {
   h: number
 }
 
-export function KeyFace({ label, icon, textColor, iconColor, bottomLabel = false, maxFont }: KeyFaceProps): ReactElement {
+export function KeyFace({ label, icon, textColor, iconColor, bottomLabel = false, topLabel = false, maxFont }: KeyFaceProps): ReactElement {
   const wrapRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState<Size>({ w: 200, h: 120 })
 
@@ -95,21 +97,22 @@ export function KeyFace({ label, icon, textColor, iconColor, bottomLabel = false
       />
     )
   } else if (showLabel) {
-    const bottom = bottomLabel
-    const labelH = bottom ? Math.max(14, Math.min(h * 0.34, h * 0.42)) : h * 0.66
+    const edgeLabel = bottomLabel || topLabel
+    const labelH = edgeLabel ? Math.max(14, Math.min(h * 0.3, h * 0.38)) : h * 0.66
+    const labelY = topLabel ? labelH / 2 + pad * 0.8 : bottomLabel ? h - labelH / 2 - pad * 0.25 : h / 2
     nodes.push(
       <FitText
         key="l"
         x={w / 2}
-        y={bottom ? h - labelH / 2 - pad * 0.25 : h / 2}
-        boxW={w * 0.9}
-        boxH={bottom ? labelH * 0.9 : h * 0.66}
+        y={labelY}
+        boxW={w * 0.86}
+        boxH={edgeLabel ? labelH * 0.82 : h * 0.66}
         text={label}
         fontFamily={LABEL_FONT}
         fill={textColor}
         weight={800}
         minFontPx={10}
-        maxFontPx={cap(bottom ? labelH : h)}
+        maxFontPx={cap(edgeLabel ? labelH : h)}
         anchor="middle"
         baseline="middle"
       />

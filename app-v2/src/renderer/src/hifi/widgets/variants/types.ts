@@ -1,4 +1,5 @@
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
+import type { OverlayTriggerResult, OverlayVisibilityMetadata } from '../../../../../shared/overlays'
 import type { TelemetryField } from '../types'
 
 export const TELEMETRY_VARIANTS = ['competition', 'futuristic', 'ddu'] as const
@@ -39,6 +40,7 @@ export interface TelemetryDescriptor {
   focus: string
   requires: readonly TelemetryField[]
   tags?: readonly string[]
+  visibility?: OverlayVisibilityMetadata
   read: (snapshot: TelemetrySnapshot | null) => TelemetryDatum
   numeric?: (
     datum: TelemetryDatum,
@@ -46,7 +48,8 @@ export interface TelemetryDescriptor {
   ) => number | undefined
   format?: (
     datum: TelemetryDatum,
-    snapshot: TelemetrySnapshot | null
+    snapshot: TelemetrySnapshot | null,
+    visibility?: OverlayTriggerResult
   ) => string
   active?: (
     datum: TelemetryDatum,

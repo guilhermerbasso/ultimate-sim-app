@@ -147,7 +147,8 @@ function toneFor(
 export function prepareTelemetryReading(
   descriptor: TelemetryDescriptor,
   snapshot: HifiWidgetProps['snapshot'],
-  unitSystem: UnitSystem = DEFAULT_UNIT_SYSTEM
+  unitSystem: UnitSystem = DEFAULT_UNIT_SYSTEM,
+  visibility?: HifiWidgetProps['visibility']
 ): PreparedTelemetryReading {
   let datum: TelemetryDatum
   try {
@@ -177,7 +178,7 @@ export function prepareTelemetryReading(
       } else {
         display = safeText(
           descriptor.format
-            ? descriptor.format(datum, snapshot)
+            ? descriptor.format(datum, snapshot, visibility)
             : defaultFormat(descriptor, datum)
         )
       }
@@ -1119,7 +1120,8 @@ function renderVariant(
   const reading = prepareTelemetryReading(
     descriptor,
     props.snapshot,
-    props.unitSystem ?? DEFAULT_UNIT_SYSTEM
+    props.unitSystem ?? DEFAULT_UNIT_SYSTEM,
+    props.visibility
   )
   let children: ReactElement[]
   if (variant === 'competition') {

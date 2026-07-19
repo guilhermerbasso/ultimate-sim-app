@@ -64,6 +64,8 @@ const MAX_REFERENCE_SAMPLES = 2500
 const REFERENCES_FILE = 'references.json'
 const RECORDING_CONFIG_FILE = 'recording-config.json'
 const AUTO_RECORD_SAMPLE_RATE_HZ = 15
+const FINALIZATION_RETRY_BASE_MS = 1_000
+const FINALIZATION_RETRY_MAX_MS = 30_000
 
 function recordingsDir(userData: string): string {
   return join(userData, 'recordings')
@@ -733,6 +735,10 @@ export class RecordingLifecycleCoordinator {
   private seedNextStart = false
   private pendingFinalizationSessionId: string | null = null
   private pendingFinalizationFailure: unknown
+  private pendingRecorderFailure: unknown
+  private recorderFinalizationRetryAttempt = 0
+  private nextRecorderFinalizationRetryAt = 0
+  private recorderFinalizationRetryTimer: NodeJS.Timeout | null = null
   private readonly terminalFailures: unknown[] = []
 
   constructor(
@@ -790,6 +796,7 @@ export class RecordingLifecycleCoordinator {
   quiesce(): void {
     if (this.closed) return
     this.closed = true
+    this.clearRecorderFinalizationRetry()
     this.recorder.quiesce()
     this.enricher.closeIntake()
     this.recorder.cancelPendingStart()
@@ -822,12 +829,19 @@ export class RecordingLifecycleCoordinator {
     } catch (error) {
       enricherFailure = error
     }
-    if (this.recorder.status().recording || this.pendingFinalizationSessionId) {
-      enricherFailure ??= this.pendingFinalizationFailure ??
-        new Error('Active recording metadata or sidecar could not be finalized during teardown.')
-    }
     const failures = [...this.terminalFailures]
-    if (enricherFailure) failures.push(enricherFailure)
+    const addFailure = (failure: unknown): void => {
+      if (failure !== undefined && !failures.includes(failure)) failures.push(failure)
+    }
+    addFailure(enricherFailure)
+    if (this.recorder.status().recording) addFailure(this.pendingRecorderFailure)
+    if (this.pendingFinalizationSessionId) addFailure(this.pendingFinalizationFailure)
+    if (
+      (this.recorder.status().recording || this.pendingFinalizationSessionId) &&
+      failures.length === 0
+    ) {
+      addFailure(new Error('Active recording metadata or sidecar could not be finalized during teardown.'))
+    }
     if (failures.length > 0) {
       throw new AggregateError(failures, 'Recording persistence teardown failed.')
     }
@@ -848,6 +862,28 @@ export class RecordingLifecycleCoordinator {
     force: boolean
   ): Promise<RecordingStatus> | undefined {
     if (this.closed) return undefined
+    if (
+      automatic &&
+      (
+        this.pendingRecorderFailure !== undefined ||
+        this.pendingFinalizationFailure !== undefined
+      ) &&
+      Date.now() < this.nextRecorderFinalizationRetryAt
+    ) {
+      this.desired = {
+        ...target,
+        context: target.context ? { ...target.context } : null,
+        automatic,
+        operation
+      }
+      return undefined
+    }
+    if (
+      this.pendingRecorderFailure !== undefined ||
+      this.pendingFinalizationFailure !== undefined
+    ) {
+      this.clearRecorderFinalizationRetry()
+    }
     const previous = this.desired
     const changed = !sameRecordingTarget(previous, target)
     const shouldQueue = changed || force || (!this.lifecycleQueue && !this.targetSatisfied(target))
@@ -877,11 +913,17 @@ export class RecordingLifecycleCoordinator {
   }
 
   private targetSatisfied(target: RecordingReconcileTarget): boolean {
-    if (target.mode === 'suspended') return true
+    if (target.mode === 'suspended') {
+      return (
+        this.pendingRecorderFailure === undefined &&
+        !this.pendingFinalizationSessionId
+      )
+    }
     if (target.mode === 'stopped' || !target.recording) {
       return !this.recorder.status().recording && !this.pendingFinalizationSessionId
     }
     return (
+      this.pendingRecorderFailure === undefined &&
       !this.pendingFinalizationSessionId &&
       this.recorder.status().recording &&
       sameRecordingSessionContext(this.activeContext, target.context)
@@ -930,6 +972,12 @@ export class RecordingLifecycleCoordinator {
   }
 
   private async reconcile(target: DesiredRecordingTarget, version: number): Promise<void> {
+    if (
+      this.pendingRecorderFailure !== undefined ||
+      this.pendingFinalizationSessionId
+    ) {
+      await this.stopAndFinalize()
+    }
     if (target.mode === 'suspended') {
       this.recorder.cancelPendingStart()
       await this.recorder.settlePendingStart()
@@ -942,7 +990,6 @@ export class RecordingLifecycleCoordinator {
     }
     if (!target.context || !target.snapshot) return
 
-    if (this.pendingFinalizationSessionId) await this.stopAndFinalize()
     if (
       this.recorder.status().recording &&
       !sameRecordingSessionContext(this.activeContext, target.context)
@@ -1004,6 +1051,13 @@ export class RecordingLifecycleCoordinator {
     }
 
     const stopped = !this.recorder.status().recording
+    if (stopFailure && !stopped) {
+      this.pendingRecorderFailure = stopFailure
+      this.scheduleRecorderFinalizationRetryBackoff()
+    } else if (stopped) {
+      this.pendingRecorderFailure = undefined
+      if (!this.pendingFinalizationSessionId) this.resetRecorderFinalizationRetry()
+    }
     if (stopped) this.activeContext = null
     if (previous && stopped) {
       this.pendingFinalizationSessionId = previous
@@ -1011,9 +1065,11 @@ export class RecordingLifecycleCoordinator {
         await this.enricher.finalize(previous)
         this.pendingFinalizationSessionId = null
         this.pendingFinalizationFailure = undefined
+        this.resetRecorderFinalizationRetry()
       } catch (error) {
         finalizeFailure = error
         this.pendingFinalizationFailure = error
+        this.scheduleRecorderFinalizationRetryBackoff()
       }
     }
     this.broadcastStatus()
@@ -1021,6 +1077,52 @@ export class RecordingLifecycleCoordinator {
     if (stopFailure && stopped) this.rememberTerminalFailure(stopFailure)
     if (stopFailure) throw stopFailure
     if (finalizeFailure) throw finalizeFailure
+  }
+
+  private scheduleRecorderFinalizationRetry(delayMs: number): void {
+    if (this.closed) return
+    this.clearRecorderFinalizationRetry()
+    const timer = setTimeout(() => {
+      if (this.recorderFinalizationRetryTimer !== timer) return
+      this.recorderFinalizationRetryTimer = null
+      this.nextRecorderFinalizationRetryAt = 0
+      if (
+        this.closed ||
+        (
+          this.pendingRecorderFailure === undefined &&
+          this.pendingFinalizationFailure === undefined
+        )
+      ) {
+        return
+      }
+      this.desiredVersion += 1
+      this.launchWorker()
+    }, delayMs)
+    timer.unref?.()
+    this.recorderFinalizationRetryTimer = timer
+  }
+
+  private scheduleRecorderFinalizationRetryBackoff(): void {
+    if (this.closed) return
+    this.recorderFinalizationRetryAttempt += 1
+    const retryDelay = Math.min(
+      FINALIZATION_RETRY_MAX_MS,
+      FINALIZATION_RETRY_BASE_MS * 2 ** (this.recorderFinalizationRetryAttempt - 1)
+    )
+    this.nextRecorderFinalizationRetryAt = Date.now() + retryDelay
+    this.scheduleRecorderFinalizationRetry(retryDelay)
+  }
+
+  private resetRecorderFinalizationRetry(): void {
+    this.recorderFinalizationRetryAttempt = 0
+    this.nextRecorderFinalizationRetryAt = 0
+    this.clearRecorderFinalizationRetry()
+  }
+
+  private clearRecorderFinalizationRetry(): void {
+    if (!this.recorderFinalizationRetryTimer) return
+    clearTimeout(this.recorderFinalizationRetryTimer)
+    this.recorderFinalizationRetryTimer = null
   }
 
   private rememberTerminalFailure(error: unknown): void {

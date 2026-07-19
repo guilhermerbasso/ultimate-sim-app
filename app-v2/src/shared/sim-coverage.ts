@@ -24,6 +24,8 @@ import type { SimId, TelemetrySnapshot } from './telemetry'
 export type CoverageSimId = SimId | 'lmu'
 
 type Field = keyof TelemetrySnapshot
+export type TelemetryCapability = 'liveTyrePressureKpa'
+export type TelemetryRequirement = Field | TelemetryCapability
 
 // ─── Full field universe ─────────────────────────────────────────────────────
 // A `Record<keyof TelemetrySnapshot, true>` so the COMPILER guarantees this list is
@@ -52,6 +54,7 @@ const ALL_FIELD_FLAGS: Record<Field, true> = {
   vertAccelG: true,
   yawRateRadSec: true,
   drs: true,
+  drsState: true,
   absActive: true,
   absEnabled: true,
   absLevel: true,
@@ -115,6 +118,8 @@ const ALL_FIELD_FLAGS: Record<Field, true> = {
   powerAdjustPct: true,
   fuelLiters: true,
   fuelPerLap: true,
+  fuelPerLapLiters: true,
+  fuelLapsRemaining: true,
   fuelUsePerHourKg: true,
   fuelPerLapKg: true,
   fuelCapacityLiters: true,
@@ -193,7 +198,7 @@ const ALL_FIELD_FLAGS: Record<Field, true> = {
 
 export const ALL_FIELDS: readonly Field[] = Object.keys(ALL_FIELD_FLAGS) as Field[]
 
-function fieldSet(fields: readonly Field[]): ReadonlySet<Field> {
+function fieldSet(fields: readonly TelemetryRequirement[]): ReadonlySet<TelemetryRequirement> {
   return new Set(fields)
 }
 
@@ -203,18 +208,16 @@ function fieldSet(fields: readonly Field[]): ReadonlySet<Field> {
 // the actual snapshot mapping minus `engineRunning` (iRacing has no reliable
 // ignition var — the flip-cover derives "engine running" from an rpm proxy).
 //
-// TYRE PRESSURE NUANCE: iRacing exposes the `tyres` field (carcass/surface temps +
-// wear), but it has NO LIVE (hot) tyre pressure telemetry. The `tyres[*].pressureKpa`
-// it reports is the GARAGE COLD pressure, also surfaced via `tireColdPressuresKpa`.
-// So iRacing covers `tyres` and `tireColdPressuresKpa`, but its pressure is COLD,
-// unlike ACC/LMU which publish live hot pressure. (see provider.ts tyreTemps()).
-const IRACING_FIELDS: readonly Field[] = [
+// TYRE PRESSURE NUANCE: iRacing exposes `tyres` for carcass/surface temperatures
+// and wear, plus a separate `tireColdPressuresKpa` garage setup field. It does NOT
+// satisfy the `liveTyrePressureKpa` capability used by live-pressure widgets/alerts.
+const IRACING_FIELDS: readonly TelemetryRequirement[] = [
   'sim', 'connected', 'timestamp',
   'speedKmh', 'rpm', 'gear', 'maxRpm', 'shiftIndicatorPct', 'shiftRpm', 'revLights',
   'throttle', 'brake', 'clutch', 'steerAngleDeg',
   'latAccelG', 'longAccelG', 'vertAccelG', 'yawRateRadSec',
   'pitchRad', 'rollRad', 'yawRad', 'pitchRateRadSec', 'rollRateRadSec', 'altitudeM', 'velocityZ',
-  'drs', 'absActive', 'absEnabled', 'absLevel', 'absCutPct', 'engineWarnings',
+  'drs', 'drsState', 'absActive', 'absEnabled', 'absLevel', 'absCutPct', 'engineWarnings',
   'tcActive', 'tcEnabled', 'tcLevel',
   'engineMap', 'throttleMap', 'engineBraking', 'antiRollFront', 'antiRollRear', 'weightJackerRight',
   'brakeBiasPct', 'handbrake',
@@ -228,7 +231,8 @@ const IRACING_FIELDS: readonly Field[] = [
   'position', 'classPosition', 'totalCars', 'strengthOfField',
   'sessionUniqueId', 'driverName', 'sessionTimeOfDay', 'onTrack', 'cameraCarIdx',
   'replayPlaying', 'replayFrameNum', 'replayFrameEnd', 'replayContext', 'weightPenaltyKg', 'powerAdjustPct',
-  'fuelLiters', 'fuelPerLap', 'fuelUsePerHourKg', 'fuelPerLapKg', 'fuelCapacityLiters',
+  'fuelLiters', 'fuelPerLap', 'fuelPerLapLiters', 'fuelLapsRemaining',
+  'fuelUsePerHourKg', 'fuelPerLapKg', 'fuelCapacityLiters',
   'tyres', 'brakeTempC', 'tireColdPressuresKpa', 'pitTyreTargetsKpa',
   'flags', 'sessionFlagsRaw', 'pitLimiter', 'onPitRoad', 'pitServiceFlags',
   'pitFuelToAddL', 'repairTimeSec', 'optionalRepairTimeSec', 'pitStopActive', 'pit',
@@ -249,7 +253,7 @@ const IRACING_FIELDS: readonly Field[] = [
 // Core car + timing + single-car `position` + fuel + LIVE tyres (hot pressure from
 // wheelsPressure + core temp) + weather (air/track temp, rain). Has on/off abs/tc
 // flags but no levels, and NO standings array / deltas / cold pressures.
-const ACC_FIELDS: readonly Field[] = [
+const ACC_FIELDS: readonly TelemetryRequirement[] = [
   'sim', 'connected', 'timestamp',
   'speedKmh', 'rpm', 'gear', 'maxRpm',
   'throttle', 'brake', 'clutch', 'steerAngleDeg',
@@ -258,7 +262,7 @@ const ACC_FIELDS: readonly Field[] = [
   'currentLap', 'lapDistPct', 'lastLapTimeSec', 'bestLapTimeSec', 'currentLapTimeSec',
   'position',
   'fuelLiters', 'fuelCapacityLiters',
-  'tyres',
+  'tyres', 'liveTyrePressureKpa',
   'airTempC', 'trackTempC', 'isRaining', 'trackWetnessPct'
 ]
 
@@ -266,7 +270,7 @@ const ACC_FIELDS: readonly Field[] = [
 // More limited than ACC: core car + timing + `position` + `totalCars` + fuel.
 // Its poll() does NOT map tyres, weather, or abs/tc (despite the struct carrying
 // some of that data) — so coverage excludes them.
-const AC_FIELDS: readonly Field[] = [
+const AC_FIELDS: readonly TelemetryRequirement[] = [
   'sim', 'connected', 'timestamp',
   'speedKmh', 'rpm', 'gear', 'maxRpm',
   'throttle', 'brake', 'clutch', 'steerAngleDeg',
@@ -280,7 +284,7 @@ const AC_FIELDS: readonly Field[] = [
 // Core car + timing + `position` + fuel. Like AC but without `totalCars`, and its
 // poll() likewise does NOT map tyres/weather/oil-water temps (the PCARS2 struct has
 // them, but they are not surfaced in the snapshot today).
-const AMS2_FIELDS: readonly Field[] = [
+const AMS2_FIELDS: readonly TelemetryRequirement[] = [
   'sim', 'connected', 'timestamp',
   'speedKmh', 'rpm', 'gear', 'maxRpm',
   'throttle', 'brake', 'clutch', 'steerAngleDeg',
@@ -294,12 +298,12 @@ const AMS2_FIELDS: readonly Field[] = [
 // Planned provider. CORE set per the rF2 shared-memory plan: car + LIVE tyres (hot
 // pressure + temp), water/oil temp + oil pressure, single-car position, timing,
 // weather (air/track temp) and flags. No standings array / deltas / radar yet.
-const LMU_FIELDS: readonly Field[] = [
+const LMU_FIELDS: readonly TelemetryRequirement[] = [
   'connected', 'sim', 'timestamp',
   'speedKmh', 'rpm', 'gear', 'maxRpm',
   'throttle', 'brake', 'clutch', 'steerAngleDeg',
   'fuelLiters', 'waterTempC', 'oilTempC',
-  'tyres',
+  'tyres', 'liveTyrePressureKpa',
   'position', 'currentLap', 'lapDistPct',
   'lastLapTimeSec', 'bestLapTimeSec', 'currentLapTimeSec',
   'sessionType', 'sessionTimeRemainingSec',
@@ -311,7 +315,7 @@ const LMU_FIELDS: readonly Field[] = [
 // A replay feeds back whatever was recorded; we model it as a MINIMAL guaranteed
 // core (the fields every provider always sets) so coverage never over-claims. Replay
 // is not a live sim and is excluded from PLAYABLE_SIMS.
-const REPLAY_FIELDS: readonly Field[] = [
+const REPLAY_FIELDS: readonly TelemetryRequirement[] = [
   'sim', 'connected', 'timestamp',
   'speedKmh', 'rpm', 'gear',
   'throttle', 'brake', 'clutch',
@@ -324,13 +328,13 @@ const REPLAY_FIELDS: readonly Field[] = [
  * `replay` is a minimal recorded-core. Keyed by {@link CoverageSimId} so the planned
  * `lmu` provider is covered without editing the canonical `SimId` union.
  */
-export const SIM_FIELD_COVERAGE: Record<CoverageSimId, ReadonlySet<Field>> = {
+export const SIM_FIELD_COVERAGE: Record<CoverageSimId, ReadonlySet<TelemetryRequirement>> = {
   iracing: fieldSet(IRACING_FIELDS),
   acc: fieldSet(ACC_FIELDS),
   ac: fieldSet(AC_FIELDS),
   ams2: fieldSet(AMS2_FIELDS),
   lmu: fieldSet(LMU_FIELDS),
-  mock: fieldSet(ALL_FIELDS),
+  mock: fieldSet([...ALL_FIELDS, 'liveTyrePressureKpa']),
   replay: fieldSet(REPLAY_FIELDS),
   none: fieldSet([])
 }
@@ -361,11 +365,18 @@ export function simLabel(sim: CoverageSimId): string {
  * - `requires` containing a field no playable sim publishes → `[]`.
  * Mock/replay/none are intentionally excluded (only real sims are returned).
  */
-export function widgetSupportedSims(requires: readonly Field[] | undefined): CoverageSimId[] {
-  if (!requires || requires.length === 0) return [...PLAYABLE_SIMS]
+export function widgetSupportedSims(
+  requires: readonly TelemetryRequirement[] | undefined,
+  alternativeRequires: readonly (readonly TelemetryRequirement[])[] = []
+): CoverageSimId[] {
+  const groups = [
+    ...(requires && requires.length > 0 ? [requires] : []),
+    ...alternativeRequires.filter((group) => group.length > 0)
+  ]
+  if (groups.length === 0) return [...PLAYABLE_SIMS]
   return PLAYABLE_SIMS.filter((sim) => {
     const coverage = SIM_FIELD_COVERAGE[sim]
-    return requires.every((field) => coverage.has(field))
+    return groups.some((group) => group.every((field) => coverage.has(field)))
   })
 }
 
@@ -378,8 +389,11 @@ export function widgetSupportedSims(requires: readonly Field[] | undefined): Cov
  *   it prepends cleanly to a widget title.
  * - supported by NO playable sim → `"(—) "` to flag "no live sim provides this".
  */
-export function simSupportPrefix(requires: readonly Field[] | undefined): string {
-  const supported = widgetSupportedSims(requires)
+export function simSupportPrefix(
+  requires: readonly TelemetryRequirement[] | undefined,
+  alternativeRequires: readonly (readonly TelemetryRequirement[])[] = []
+): string {
+  const supported = widgetSupportedSims(requires, alternativeRequires)
   if (supported.length === PLAYABLE_SIMS.length) return ''
   if (supported.length === 0) return '(—) '
   return `(${supported.map(simLabel).join('/')}) `

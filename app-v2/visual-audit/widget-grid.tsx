@@ -27,7 +27,7 @@ const STATES: Record<string, () => TelemetrySnapshot> = {
   yellow: () => createMockSnapshot({ flags: flagsYellowGreen() }),
   blue: () => createMockSnapshot({ flags: flagsBlue() }),
   pit: () =>
-    createMockSnapshot({ onPitRoad: true, pitLimiter: true, fuelLevel: 3.4, speedKmh: 58, gear: 1 }),
+    createMockSnapshot({ onPitRoad: true, pitLimiter: true, fuelLiters: 3.4, speedKmh: 58, gear: 1 }),
   // Worst-case string lengths + critical thresholds to exercise overflow guards.
   extreme: () =>
     createMockSnapshot({
@@ -37,7 +37,7 @@ const STATES: Record<string, () => TelemetrySnapshot> = {
       shiftIndicatorPct: 1,
       waterTempC: 145,
       oilTempC: 138,
-      fuelLevel: 1.2,
+      fuelLiters: 1.2,
       deltaToBestSec: -99.999,
       deltaToSessionBestSec: 99.999
     })

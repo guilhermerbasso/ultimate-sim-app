@@ -45,6 +45,7 @@ describe('formatLapTime', () => {
   it('formats seconds as m:ss,mmm', () => {
     expect(formatLapTime(83.456)).toBe('1:23,456')
     expect(formatLapTime(5.2)).toBe('0:05,200')
+    expect(formatLapTime(83.456, 'en-US')).toBe('1:23.456')
   })
   it('returns dash for invalid', () => {
     expect(formatLapTime(undefined)).toBe('—')
@@ -76,25 +77,26 @@ describe('finding classification', () => {
   })
 
   it('locates by corner (WS-E) then sector', () => {
-    expect(findingLocation(loss({ sector: 2, corner: 5 } as Partial<CoachFinding>))).toBe('Turn 5')
-    expect(findingLocation(loss({ sector: 3 }))).toBe('Sector 3')
+    expect(findingLocation(loss({ sector: 2, corner: 5 } as Partial<CoachFinding>))).toBe('Curva 5')
+    expect(findingLocation(loss({ sector: 3 }))).toBe('Setor 3')
+    expect(findingLocation(loss({ sector: 2, corner: 5 } as Partial<CoachFinding>), 'en-US')).toBe('Turn 5')
   })
 })
 
 describe('strategyNote', () => {
   it('summarizes fuel/tyre/pace', () => {
     const note = strategyNote(fullPredictions)
-    expect(note).toContain('fuel')
-    expect(note).toContain('margin of 2,4 laps')
-    expect(note).toContain('tire')
-    expect(note).toContain('until drop-off')
-    expect(note).toContain('projected pace 1:23,456')
+    expect(note).toContain('combustível')
+    expect(note).toContain('margem de 2,4 voltas')
+    expect(note).toContain('pneus')
+    expect(note).toContain('até a queda')
+    expect(note).toContain('ritmo projetado 1:23,456')
   })
 
   it('flags a fuel deficit', () => {
     const note = strategyNote({ ...fullPredictions, fuel: { lapsLeftAtPace: 8, finishMarginLaps: -1.5, finishMarginL: -2 } })
-    expect(note).toContain('deficit')
-    expect(note).toContain('saving')
+    expect(note).toContain('déficit')
+    expect(note).toContain('economizar')
   })
 
   it('returns null with no signal', () => {
@@ -118,11 +120,11 @@ describe('composeDebrief', () => {
     ]
     const out = composeDebrief(findings, fullPredictions, { trackName: 'Interlagos', lapsCompleted: 14 })
 
-    expect(out.text).toContain('Where you lost time')
-    expect(out.text).toContain('Where you did well')
+    expect(out.text).toContain('Onde perdeu tempo')
+    expect(out.text).toContain('Onde foi bem')
     expect(out.text).toContain('Interlagos')
     // Biggest loss ranked first.
-    expect(out.text.indexOf('Braked late')).toBeLessThan(out.text.indexOf('Got on throttle early'))
+    expect(out.text.indexOf('freie antes')).toBeLessThan(out.text.indexOf('confie no acelerador'))
 
     const lossBullets = out.bullets.filter((b) => b.startsWith('⚠'))
     const gainBullets = out.bullets.filter((b) => b.startsWith('✅'))
@@ -136,29 +138,29 @@ describe('composeDebrief', () => {
   it('handles empty findings + no predictions gracefully', () => {
     const out = composeDebrief([], null)
     expect(out.bullets).toEqual([])
-    expect(out.text).toContain('Not enough data')
+    expect(out.text).toContain('Ainda não há dados suficientes')
   })
 
   it('still composes with only predictions (no findings)', () => {
     const out = composeDebrief([], fullPredictions)
-    expect(out.text).toContain('Strategy')
+    expect(out.text).toContain('Estratégia')
     expect(out.bullets.some((b) => b.startsWith('📊'))).toBe(true)
     // Clean stint message when there are no losses.
-    expect(out.text).toContain('clean stint')
+    expect(out.text).toContain('stint limpo')
   })
 
   it('includes fuel + tyre notes in the strategy line', () => {
     const out = composeDebrief([loss({ estTimeLossSec: 0.3 })], fullPredictions)
     const strat = out.bullets.find((b) => b.startsWith('📊')) ?? ''
-    expect(strat).toContain('fuel')
-    expect(strat).toContain('tire')
-    expect(strat).toContain('low pressure')
-    expect(strat).toContain('hot temp')
+    expect(strat).toContain('combustível')
+    expect(strat).toContain('pneus')
+    expect(strat).toContain('pressão baixa')
+    expect(strat).toContain('temperatura quente')
   })
 
   it('tolerates null/garbage findings input', () => {
     const out = composeDebrief(null, null)
-    expect(out.text).toContain('Not enough data')
+    expect(out.text).toContain('Ainda não há dados suficientes')
     expect(out.bullets).toEqual([])
   })
 
@@ -178,5 +180,23 @@ describe('composeDebrief', () => {
     const facts = debriefLlmFacts(out)
     expect(facts).toContain(out.text)
     expect(facts.split('\n').length).toBeGreaterThan(1)
+  })
+
+  it('composes a matching English debrief when English is active', () => {
+    const out = composeDebrief(
+      [loss({ estTimeLossSec: 0.3, corner: 4 } as Partial<CoachFinding>)],
+      fullPredictions,
+      { trackName: 'Spa', lapsCompleted: 8 },
+      'metric',
+      'en-US'
+    )
+    expect(out.text).toContain('Where you lost time')
+    expect(out.text).toContain('Turn 4')
+    expect(out.text).toContain('Strategy')
+    expect(out.text).toContain('2.4 laps')
+    expect(out.text).toContain('0.08 s/lap')
+    expect(out.text).toContain('1:23.456')
+    expect(out.bullets.join(' ')).toContain('−0.30 s')
+    expect(out.text).not.toContain('Onde perdeu tempo')
   })
 })

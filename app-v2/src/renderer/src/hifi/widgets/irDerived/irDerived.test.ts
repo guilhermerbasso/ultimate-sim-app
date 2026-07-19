@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { baseSnapshot } from '../../../../../shared/telemetry-scenarios'
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
+import { SHIFT_STROBE_BLUE } from '../../../lib/rev-lights'
 import { IR_DERIVED_WIDGETS } from './index'
 
 const badTokens = /NaN|undefined|Infinity/
@@ -31,6 +32,8 @@ function dataSnapshot(): TelemetrySnapshot {
     shiftRpm: 7200,
     rpm: 7300,
     maxRpm: 7800,
+    shiftIndicatorPct: 0.2,
+    revLights: { pct: 0.2, blink: true },
     engineRunning: true,
     carLeftRightRaw: 5,
     sessionUniqueId: 123456
@@ -57,11 +60,13 @@ describe('IR_DERIVED_WIDGETS', () => {
     expect(byId.get('steeringLock')).toEqual(['steerAngleDeg', 'steeringAngleMaxDeg'])
     expect(byId.get('rotationRates')).toEqual(['yawRateRadSec', 'pitchRateRadSec', 'rollRateRadSec'])
     expect(byId.get('carAttitude')).toEqual(['pitchRad', 'rollRad', 'yawRad'])
-    expect(byId.get('fuelLapsLeft')).toEqual(['fuelLiters', 'fuelPerLapKg'])
+    expect(byId.get('fuelLapsLeft')).toEqual(['fuelLapsRemaining'])
+    expect(IR_DERIVED_WIDGETS.find((widget) => widget.id === 'fuelLapsLeft')?.alternativeRequires)
+      .toEqual([['fuelLiters', 'fuelPerLapLiters']])
     expect(byId.get('sunPosition')).toEqual(['solarAltitudeRad', 'solarAzimuthRad'])
     expect(byId.get('gpsHeading')).toEqual(['lat', 'lon', 'yawNorth'])
     expect(byId.get('raceControlFlags')).toEqual(['sessionFlagsRaw'])
-    expect(byId.get('shiftPoint')).toEqual(['shiftRpm', 'rpm', 'maxRpm'])
+    expect(byId.get('shiftPoint')).toEqual(['shiftRpm', 'rpm', 'maxRpm', 'revLights'])
     expect(byId.get('engineTelltale')).toEqual(['engineRunning', 'rpm'])
     expect(byId.get('spotterRaw')).toEqual(['carLeftRightRaw'])
     expect(byId.get('sessionTag')).toEqual(['sessionUniqueId'])
@@ -102,6 +107,42 @@ describe('IR_DERIVED_WIDGETS', () => {
     }
   })
 
+  it('keeps live RPM calibration while uniformly strobing the bar, marker, and SHIFT cue', () => {
+    const widget = IR_DERIVED_WIDGETS.find((candidate) => candidate.id === 'shiftPoint')!
+    const providerOff = renderWidget(widget, {
+      ...dataSnapshot(),
+      rpm: 3900,
+      maxRpm: 7800,
+      shiftRpm: 6000,
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    })
+    expect(providerOff).toContain('data-shift-cue="ir-derived-rpm-bar-marker-shift"')
+    expect(providerOff).toContain('data-shift-active="false"')
+    expect(providerOff).toContain('data-rpm-pct="0.5000"')
+    expect(providerOff).toContain('data-shift-rpm-pct="0.7692"')
+    expect(providerOff).not.toContain('>SHIFT<')
+    expect(providerOff).not.toContain('dur="0.14s"')
+
+    const providerOn = renderWidget(widget, {
+      ...dataSnapshot(),
+      rpm: 3900,
+      maxRpm: 7800,
+      shiftRpm: 6000,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    })
+    expect(providerOn).toContain('data-shift-active="true"')
+    expect(providerOn).toContain('data-rpm-pct="0.5000"')
+    expect(providerOn).toContain('data-shift-rpm-pct="0.7692"')
+    for (const part of ['shift-label', 'rpm-bar', 'marker']) {
+      expect(providerOn).toContain(`data-shift-part="${part}"`)
+    }
+    expect(providerOn).toContain('>SHIFT<')
+    expect(providerOn.match(/dur="0\.14s"/g)).toHaveLength(1)
+    expect((providerOn.match(new RegExp(SHIFT_STROBE_BLUE, 'g')) ?? []).length).toBeGreaterThanOrEqual(3)
+  })
+
   it('shows expected derived data states and neutral/null states', () => {
     const withData = renderAll(dataSnapshot()).join('\n')
     expect(withData).toContain('LAPS LEFT')
@@ -113,5 +154,32 @@ describe('IR_DERIVED_WIDGETS', () => {
 
     const nullMarkup = renderAll(null).join('\n')
     expect(nullMarkup).toContain('—')
+  })
+
+  it('fits the six-digit session id inside its tag backing', () => {
+    const widget = IR_DERIVED_WIDGETS.find((candidate) => candidate.id === 'sessionTag')
+    expect(widget).toBeTruthy()
+    if (!widget) return
+
+    const markup = renderWidget(widget, { ...baseSnapshot(), sessionUniqueId: 990217 } as TelemetrySnapshot)
+    const tag = markup.match(/<text[^>]*y="142"[^>]*font-size="([^"]+)"[^>]*>#990217<\/text>/)
+    expect(tag).toBeTruthy()
+    expect(Number(tag?.[1])).toBeGreaterThanOrEqual(48)
+    expect(Number(tag?.[1])).toBeLessThanOrEqual(51)
+  })
+
+  it('uses canonical litres-per-lap instead of an implicit kg density conversion', () => {
+    const widget = IR_DERIVED_WIDGETS.find((candidate) => candidate.id === 'fuelLapsLeft')
+    expect(widget).toBeTruthy()
+    if (!widget) return
+    const markup = renderWidget(widget, {
+      ...baseSnapshot(),
+      fuelLiters: 10,
+      fuelPerLapKg: 1,
+      fuelPerLapLiters: 2,
+      fuelLapsRemaining: undefined
+    } as TelemetrySnapshot)
+    expect(markup).toContain('5.0')
+    expect(markup).not.toContain('7.5')
   })
 })

@@ -12,6 +12,7 @@ CLOUDFLARED_URL="https://github.com/cloudflare/cloudflared/releases/download/${C
 DEST="resources/cloudflared"
 BIN="cloudflared.exe"
 TARGET="$DEST/$BIN"
+CONFIG="$DEST/quick-tunnel.yml"
 
 hash_file() {
   node -e 'const fs=require("node:fs"),crypto=require("node:crypto");console.log(crypto.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' "$1"
@@ -32,22 +33,67 @@ verify_file() {
   echo "[fetch-win-cloudflared] verified $file ($CLOUDFLARED_VERSION, sha256:$actual)"
 }
 
+verify_nonempty() {
+  local file="$1"
+  if [ ! -s "$file" ]; then
+    echo "[fetch-win-cloudflared] ERROR: missing or empty package file: $file" >&2
+    return 1
+  fi
+}
+
+verify_quick_tunnel_config() {
+  local file="$1"
+  node -e '
+    const fs = require("node:fs");
+    const entries = fs.readFileSync(process.argv[1], "utf8")
+      .split(/\r?\n/)
+      .map((line) => line.replace(/#.*$/, "").trim())
+      .filter(Boolean);
+    if (entries.length !== 1 || entries[0] !== "no-autoupdate: true") {
+      console.error(`[fetch-win-cloudflared] ERROR: invalid isolated quick-tunnel config: ${process.argv[1]}`);
+      process.exit(1);
+    }
+  ' "$file"
+}
+
 verify_package() {
-  local version stem latest_version artifact
+  local version stem latest_version admin_required artifact
   version="$(node -p "require('./package.json').version")"
   stem="dist-win/Ultimate-Sim-App-${version}-x64"
   verify_file "dist-win/win-unpacked/resources/cloudflared/$BIN"
+  verify_quick_tunnel_config "dist-win/win-unpacked/resources/cloudflared/quick-tunnel.yml"
+  for artifact in \
+    "dist-win/win-unpacked/Ultimate Sim App.exe" \
+    "dist-win/win-unpacked/icudtl.dat" \
+    "dist-win/win-unpacked/resources.pak" \
+    "dist-win/win-unpacked/snapshot_blob.bin" \
+    "dist-win/win-unpacked/v8_context_snapshot.bin" \
+    "dist-win/win-unpacked/locales/en-US.pak" \
+    "dist-win/win-unpacked/resources/app.asar" \
+    "dist-win/win-unpacked/resources/elevate.exe" \
+    "dist-win/win-unpacked/resources/whisper/whisper-cli.exe" \
+    "dist-win/win-unpacked/resources/whisper/whisper.dll" \
+    "dist-win/win-unpacked/resources/whisper/ggml.dll" \
+    "dist-win/win-unpacked/resources/whisper/ggml-base.dll" \
+    "dist-win/win-unpacked/resources/whisper/ggml-cpu-x64.dll"; do
+    verify_nonempty "$artifact"
+  done
   for artifact in "dist-win/latest.yml" "$stem.exe" "$stem.exe.blockmap" "$stem.zip"; do
-    if [ ! -s "$artifact" ]; then
-      echo "[fetch-win-cloudflared] ERROR: missing or empty package artifact: $artifact" >&2
-      return 1
-    fi
+    verify_nonempty "$artifact"
   done
   latest_version="$(node -e 'const fs=require("node:fs"),yaml=require("yaml");process.stdout.write(String(yaml.parse(fs.readFileSync("dist-win/latest.yml","utf8")).version))')"
   if [ "$latest_version" != "$version" ]; then
     echo "[fetch-win-cloudflared] ERROR: latest.yml version $latest_version != package version $version" >&2
     return 1
   fi
+  admin_required="$(node -e 'const fs=require("node:fs"),yaml=require("yaml");const latest=yaml.parse(fs.readFileSync("dist-win/latest.yml","utf8"));const exe=(latest.files||[]).find((file)=>String(file.url||"").endsWith(".exe"));process.stdout.write(String(exe?.isAdminRightsRequired===true))')"
+  if [ "$admin_required" != "true" ]; then
+    echo "[fetch-win-cloudflared] ERROR: latest.yml EXE must require admin rights for the per-machine update" >&2
+    return 1
+  fi
+  node scripts/verify-win-node-modules.mjs
+  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+    -File scripts/run-packaged-serialport-smoke.ps1
   echo "[fetch-win-cloudflared] verified Windows package artifacts for $version"
 }
 
@@ -55,6 +101,7 @@ case "${1:-}" in
   --verify)
     [ "$#" -le 2 ] || { echo "usage: $0 --verify [path]" >&2; exit 2; }
     verify_file "${2:-$TARGET}"
+    verify_quick_tunnel_config "$CONFIG"
     exit
     ;;
   --verify-package)
@@ -70,6 +117,7 @@ case "${1:-}" in
     ;;
 esac
 
+verify_quick_tunnel_config "$CONFIG"
 mkdir -p "$DEST"
 if [ -e "$TARGET" ] && verify_file "$TARGET"; then
   exit 0

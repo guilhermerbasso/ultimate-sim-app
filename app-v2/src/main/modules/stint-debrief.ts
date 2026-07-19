@@ -30,6 +30,7 @@ import { getModelManager } from '../ai/model-manager'
 import { logger } from './logger'
 import { settingsEvents } from '../settings/events'
 import { LiveTelemetryGate } from '../../shared/replay'
+import { speechLanguageFromAppLanguage, type SpeechLanguage } from '../../shared/tts-voice'
 import { getLatestPredictions } from './predictions'
 import { getLatestCoachFindings } from './proactive-engineer'
 
@@ -84,14 +85,24 @@ async function tryLlmPhrase(system: string, prompt: string): Promise<string | nu
   }
 }
 
-function phrasePrompt(facts: string, unitSystem: UnitSystem): { system: string; prompt: string } {
-  const units = unitSystem === 'imperial' ? 'Use US customary units only.' : 'Use metric units only.'
-  const system =
-    'You are a race engineer on the radio. Rewrite the debrief below in ' +
-    'American English, in 2 to 4 short sentences, with a calm, executive, ' +
-    'encouraging tone. Mention where the driver lost time, where they did well, and the ' +
-    `strategy points. Do NOT invent numbers or turns — use only the given facts. ${units}`
-  return { system, prompt: `${facts}\n\nDebrief:` }
+function phrasePrompt(
+  facts: string,
+  unitSystem: UnitSystem,
+  language: SpeechLanguage
+): { system: string; prompt: string } {
+  const pt = language === 'pt-BR'
+  const units =
+    unitSystem === 'imperial'
+      ? pt
+        ? 'Use somente unidades imperiais dos EUA.'
+        : 'Use US customary units only.'
+      : pt
+        ? 'Use somente unidades métricas.'
+        : 'Use metric units only.'
+  const system = pt
+    ? `Você é um engenheiro de corrida no rádio. Reescreva o resumo abaixo em português do Brasil, em 2 a 4 frases curtas, com tom calmo, executivo e encorajador. Diga onde o piloto perdeu tempo, onde foi bem e os pontos de estratégia. Não invente números nem curvas — use somente os fatos fornecidos. ${units}`
+    : `You are a race engineer on the radio. Rewrite the debrief below in American English, in 2 to 4 short sentences, with a calm, executive, encouraging tone. Mention where the driver lost time, where they did well, and the strategy points. Do NOT invent numbers or turns — use only the given facts. ${units}`
+  return { system, prompt: `${facts}\n\n${pt ? 'Resumo' : 'Debrief'}:` }
 }
 
 // ─── stint/session boundary detection (telemetry-driven) ──────────────────────
@@ -103,6 +114,15 @@ interface BoundaryState {
   prevTrackName?: string
   lapAtStintStart: number
   lastLap: number
+}
+
+interface DebriefSnapshotMetadata {
+  trackName?: string
+  carName?: string
+  sessionType?: string
+  completedLaps?: number
+  currentLap?: number
+  bestLapTimeSec?: number
 }
 
 function newBoundaryState(): BoundaryState {
@@ -127,6 +147,15 @@ function detectBoundary(state: BoundaryState, snap: TelemetrySnapshot | null): E
   }
 
   const lap = finite(snap.currentLap) ? snap.currentLap : state.lastLap
+  if (!state.prevConnected) {
+    state.prevOnPitRoad = snap.onPitRoad === true
+    state.prevConnected = snap.connected !== false
+    state.prevSessionType = snap.sessionType
+    state.prevTrackName = snap.trackName
+    state.lapAtStintStart = lap
+    state.lastLap = lap
+    return null
+  }
   let reason: Exclude<DebriefReason, 'manual'> | null = null
 
   // Session/track CHANGED (new session, switched track) → session boundary.
@@ -159,21 +188,35 @@ function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
-function isStintDebrief(value: unknown): value is StintDebrief {
-  if (!value || typeof value !== 'object') return false
+function normalizePersistedStintDebrief(value: unknown): StintDebrief | null {
+  if (!value || typeof value !== 'object') return null
   const candidate = value as Partial<StintDebrief>
-  return (
-    typeof candidate.generatedAt === 'number' &&
-    typeof candidate.text === 'string' &&
-    Array.isArray(candidate.bullets) &&
-    (candidate.source === 'deterministic' || candidate.source === 'llm') &&
-    (candidate.reason === 'manual' || candidate.reason === 'stint-end' || candidate.reason === 'session-end')
-  )
+  if (
+    !finite(candidate.generatedAt) ||
+    typeof candidate.text !== 'string' ||
+    !Array.isArray(candidate.bullets) ||
+    !candidate.bullets.every((bullet) => typeof bullet === 'string') ||
+    (candidate.source !== 'deterministic' && candidate.source !== 'llm') ||
+    (candidate.reason !== 'manual' && candidate.reason !== 'stint-end' && candidate.reason !== 'session-end')
+  ) {
+    return null
+  }
+  if (
+    candidate.language !== undefined &&
+    candidate.language !== 'pt-BR' &&
+    candidate.language !== 'en-US'
+  ) {
+    return null
+  }
+  return {
+    ...(cloneJson(candidate) as StintDebrief),
+    language: candidate.language ?? 'en-US'
+  }
 }
 
 function triggerPayload(
   reason: Exclude<DebriefReason, 'manual'>,
-  snapshot: TelemetrySnapshot | null
+  snapshot: DebriefSnapshotMetadata | null
 ): DebriefTriggerPayload {
   return {
     reason,
@@ -190,6 +233,17 @@ function triggerPayload(
   }
 }
 
+function debriefSnapshotMetadata(snapshot: TelemetrySnapshot): DebriefSnapshotMetadata {
+  return {
+    trackName: snapshot.trackName,
+    carName: snapshot.carName,
+    sessionType: snapshot.sessionType,
+    completedLaps: snapshot.completedLaps,
+    currentLap: snapshot.currentLap,
+    bestLapTimeSec: snapshot.bestLapTimeSec
+  }
+}
+
 // ─── registration ─────────────────────────────────────────────────────────────
 
 export function register(ctx: ModuleContext, dependencies: StintDebriefDependencies = {}): void {
@@ -197,6 +251,7 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
   let latestVersion = 0
   let latestAcceptedVersion = 0
   let unitSystem: UnitSystem = 'metric'
+  let language: SpeechLanguage = 'en-US'
   let intakeClosed = false
   let closing = false
   let writeSequence = 0
@@ -212,6 +267,7 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
   const filePath = join(ctx.app.getPath('userData'), LAST_DEBRIEF_FILE)
   settingsEvents.onChanged((settings) => {
     unitSystem = settings.unitSystem
+    language = speechLanguageFromAppLanguage(settings.language, ctx.app.getLocale())
   })
 
   const beginVisibilityAttempt = (visibility: DebriefVisibility): void => {
@@ -253,7 +309,8 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
       : readFile(filePath, 'utf8').then((raw) => JSON.parse(raw) as unknown)
   )
     .then((parsed) => {
-      if (latestVersion === 0 && isStintDebrief(parsed)) latest = cloneJson(parsed)
+      const persisted = normalizePersistedStintDebrief(parsed)
+      if (latestVersion === 0 && persisted) latest = persisted
     })
     .catch((error: unknown) => {
       if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') return
@@ -356,11 +413,13 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
     visibility: DebriefVisibility
   ): Promise<StintDebrief> => {
     const reason: DebriefReason = immutableRequest.sessionInfo?.reason ?? 'manual'
+    const compositionLanguage = language
     const composition = composeDebrief(
       immutableRequest.findings,
       immutableRequest.predictions,
       immutableRequest.sessionInfo,
-      unitSystem
+      unitSystem,
+      compositionLanguage
     )
 
     let text = composition.text
@@ -369,7 +428,7 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
     if (!automatic && immutableRequest.useLlm === true) {
       const facts = debriefLlmFacts(composition)
       if (facts.trim().length > 0) {
-        const { system, prompt } = phrasePrompt(facts, unitSystem)
+        const { system, prompt } = phrasePrompt(facts, unitSystem, compositionLanguage)
         const llmText = await (dependencies.phrase ?? tryLlmPhrase)(system, prompt)
         if (llmText) {
           text = llmText
@@ -383,6 +442,7 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
       text,
       bullets: [...composition.bullets],
       source,
+      language: compositionLanguage,
       reason,
       sessionInfo: immutableRequest.sessionInfo ? cloneJson(immutableRequest.sessionInfo) : undefined
     }
@@ -451,7 +511,7 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
 
   const boundary = newBoundaryState()
   const liveGate = new LiveTelemetryGate()
-  let lastLiveSnapshot: TelemetrySnapshot | null = null
+  let lastLiveSnapshot: DebriefSnapshotMetadata | null = null
   let suspendedTrigger: DebriefTriggerPayload | null = null
   const emitTrigger = (payload: DebriefTriggerPayload): void => {
     if (intakeClosed) return
@@ -487,6 +547,7 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
       if (live.boundary) Object.assign(boundary, newBoundaryState())
       return
     }
+    if (!snapshot) return
     if (live.boundary) {
       if (live.sessionChanged) {
         if (suspendedTrigger) emitTrigger(suspendedTrigger)
@@ -499,9 +560,12 @@ export function register(ctx: ModuleContext, dependencies: StintDebriefDependenc
     }
     const reason = detectBoundary(boundary, snapshot)
     if (reason) {
-      emitTrigger(triggerPayload(reason, reason === 'session-end' ? lastLiveSnapshot : snapshot))
+      emitTrigger(triggerPayload(
+        reason,
+        reason === 'session-end' ? lastLiveSnapshot : debriefSnapshotMetadata(snapshot)
+      ))
     }
-    lastLiveSnapshot = cloneJson(snapshot)
+    lastLiveSnapshot = debriefSnapshotMetadata(snapshot)
   })
 
   ctx.ipcMain.handle(

@@ -400,7 +400,7 @@ export function LinearMeter({ element, snapshot, unitSystem = 'metric' }: ExtraW
   const max = s.gaugeMax ?? defaultMax(element.binding)
   const frac = clamp01(((value ?? min) - min) / Math.max(1e-6, max - min))
   if (usesInstrument(element)) {
-    return <RevInstrument element={element} frac={frac} />
+    return <RevInstrument element={element} frac={frac} snapshot={snapshot} />
   }
   const skin = resolveElementSkin(s)
   const color = rampToken(frac, s, skin, accentOf(s, skin))
@@ -865,7 +865,7 @@ export function SegmentBars({ element, snapshot, unitSystem = 'metric' }: ExtraW
   const r = resolveBinding(element.binding, snapshot, unitSystem)
   const frac = clamp01(r.pct ?? num(element.binding, snapshot) ?? 0)
   if (usesInstrument(element)) {
-    return <RevInstrument element={element} frac={frac} />
+    return <RevInstrument element={element} frac={frac} snapshot={snapshot} />
   }
   const skin = resolveElementSkin(s)
   const segments = Math.max(5, Math.min(40, s.segments ?? 16))
@@ -979,7 +979,7 @@ export function LedBar({ element, snapshot, unitSystem = 'metric' }: ExtraWidget
   const r = resolveBinding(element.binding, snapshot, unitSystem)
   const frac = clamp01(r.pct ?? num(element.binding, snapshot) ?? 0)
   if (usesInstrument(element)) {
-    return <RevInstrument element={element} frac={frac} />
+    return <RevInstrument element={element} frac={frac} snapshot={snapshot} />
   }
   const skin = resolveElementSkin(s)
   const segments = Math.max(6, Math.min(32, s.segments ?? 16))
@@ -1099,7 +1099,21 @@ function lampState(kind: string | undefined, snapshot: TelemetrySnapshot | null)
 
 export function StatusLamp({ element, snapshot }: ExtraWidgetProps): ReactElement {
   const s = element.style
-  const st = lampState(s.statusKind, snapshot)
+  const bound = element.binding ? resolveBinding(element.binding, snapshot) : null
+  const boundOn = bound
+    ? bound.numeric !== undefined
+      ? bound.numeric !== 0
+      : !['', '0', 'false', 'off', 'no', '—'].includes(bound.text.trim().toLowerCase())
+    : undefined
+  const base = lampState(s.statusKind, snapshot)
+  const st = boundOn === undefined
+    ? base
+    : {
+        tag: s.label ? String(s.label) : base.tag,
+        on: boundOn,
+        color: s.fillColor ?? s.accentColor ?? base.color,
+        state: boundOn ? (s.statusOnText ?? 'ON') : (s.statusOffText ?? 'OFF')
+      }
   if (usesInstrument(element)) {
     const iconByKind: Record<string, TelltaleLamp['icon']> = {
       tc: 'tc', drs: 'drs', pit: 'pit-limiter', limiter: 'pit-limiter',

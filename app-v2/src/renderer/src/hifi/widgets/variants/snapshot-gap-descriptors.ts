@@ -1,4 +1,5 @@
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
+import { semanticAlertVisibility } from '../../../../../shared/overlays'
 import type { TelemetryField } from '../types'
 import type { TelemetryDatum, TelemetryDescriptor } from './types'
 
@@ -154,6 +155,7 @@ export const SNAPSHOT_GAP_DESCRIPTORS: TelemetryDescriptor[] = [
     archetype: 'digital',
     category: 'pit',
     focus: 'strategy',
+    visibility: semanticAlertVisibility('optionalRepairTime'),
     format: formatRepair,
     tags: ['pit', 'repair', 'clock']
   }),
@@ -168,6 +170,7 @@ export const SNAPSHOT_GAP_DESCRIPTORS: TelemetryDescriptor[] = [
     archetype: 'linear',
     category: 'pit',
     focus: 'strategy',
+    visibility: semanticAlertVisibility('pitFuelToAdd'),
     tags: ['pit', 'fuel', 'strategy']
   }),
   numericField(
@@ -183,6 +186,7 @@ export const SNAPSHOT_GAP_DESCRIPTORS: TelemetryDescriptor[] = [
       archetype: 'linear',
       category: 'weather',
       focus: 'weather',
+      visibility: semanticAlertVisibility('precipitation'),
       tags: ['weather', 'rain', 'wetness']
     },
     (value) => value * 100
@@ -195,6 +199,7 @@ export const SNAPSHOT_GAP_DESCRIPTORS: TelemetryDescriptor[] = [
     archetype: 'digital',
     category: 'pit',
     focus: 'strategy',
+    visibility: semanticAlertVisibility('repairTime'),
     format: formatRepair,
     tags: ['pit', 'repair', 'clock']
   }),
@@ -208,8 +213,9 @@ export const SNAPSHOT_GAP_DESCRIPTORS: TelemetryDescriptor[] = [
     archetype: 'linear',
     category: 'session',
     focus: 'session',
-    requires: ['replayFrameNum', 'replayFrameEnd'],
+    requires: ['replayFrameNum', 'replayFrameEnd', 'replayPlaying', 'replayContext'],
     tags: ['replay', 'timeline'],
+    visibility: semanticAlertVisibility('replayTimeline'),
     read: (snapshot) => finite(snapshot?.replayFrameNum),
     format: (datum, snapshot) => {
       const current = numberDatum(datum)

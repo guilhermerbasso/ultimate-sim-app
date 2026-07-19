@@ -158,8 +158,28 @@ describe('createEngineerOrchestrator.ask', () => {
     expect(h.broadcast).toHaveBeenCalledWith(ENGINEER_CHANNELS.answer, expect.objectContaining({ source: 'intent' }))
   })
 
+  it('returns the local empty fallback without consulting live context', async () => {
+    const getLiveContext = vi.fn(() => null)
+    const harness = makeHarness({ getLiveContext })
+    const orch = createEngineerOrchestrator(harness.deps)
+
+    const answer = await orch.ask('   ')
+
+    expect(answer).toMatchObject({
+      question: '',
+      text: 'Can you repeat the question?',
+      kind: 'answer',
+      source: 'system'
+    })
+    expect(answer.id).not.toContain('live-context-reset')
+    expect(getLiveContext).not.toHaveBeenCalled()
+    expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
   it('keeps same-millisecond live-context rejection ids unique and deterministic', async () => {
-    const harness = makeHarness({ getLiveContext: () => null })
+    const getLiveContext = vi.fn(() => null)
+    const harness = makeHarness({ getLiveContext })
     const orch = createEngineerOrchestrator(harness.deps)
 
     const first = await orch.ask('first rejected question')
@@ -181,6 +201,7 @@ describe('createEngineerOrchestrator.ask', () => {
         source: 'system'
       })
     }
+    expect(getLiveContext).toHaveBeenCalledTimes(2)
     expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
   })
@@ -317,11 +338,16 @@ describe('createEngineerOrchestrator.ask', () => {
   })
 
   it('short-circuits with a friendly note when disabled', async () => {
-    const harness = makeHarness({ config: { enabled: false } })
+    const getLiveContext = vi.fn(() => null)
+    const harness = makeHarness({ config: { enabled: false }, getLiveContext })
     const orch = createEngineerOrchestrator(harness.deps)
     const answer = await orch.ask('boxes agora?')
 
     expect(answer.kind).toBe('disabled')
+    expect(answer.source).toBe('system')
+    expect(answer.id).not.toContain('live-context-reset')
+    expect(getLiveContext).not.toHaveBeenCalled()
+    expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
     expect(answer.text).toContain('turned off')
   })
@@ -335,6 +361,48 @@ describe('createEngineerOrchestrator.ask', () => {
     expect(answer.kind).toBe('error')
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
     expect(answer.text.length).toBeGreaterThan(0)
+  })
+
+  it('cancels an in-flight English generation instead of relabeling it as Portuguese', async () => {
+    const harness = makeHarness({ config: { language: 'en-US', speakAnswers: true } })
+    let resolveGeneration!: (result: GenerateResult) => void
+    harness.runtime.generateWithTools.mockImplementationOnce(
+      () =>
+        new Promise<GenerateResult>((resolve) => {
+          resolveGeneration = resolve
+        })
+    )
+    const orch = createEngineerOrchestrator(harness.deps)
+    const pending = orch.ask('Explain the ideal strategy')
+    await vi.waitFor(() => expect(harness.runtime.generateWithTools).toHaveBeenCalledTimes(1))
+
+    await orch.setConfig({ language: 'pt-BR' })
+    resolveGeneration({ ok: true, text: 'Stay out for two more laps.', tokens: 8, ms: 10, functionCalls: 0, stopReason: 'eogToken' })
+
+    const answer = await pending
+    expect(answer.lang).toBe('pt-BR')
+    expect(answer.speak).toBe(false)
+    expect(answer.text).toBe('Solicitação cancelada porque a configuração de idioma mudou. Tente novamente.')
+    expect(answer.text).not.toContain('Stay out')
+  })
+
+  it('keeps every fallback response in PT-BR when Portuguese is configured', async () => {
+    const noCommandHarness = makeHarness({ config: { language: 'pt-BR' } })
+    const noCommand = await createEngineerOrchestrator(noCommandHarness.deps).ask('salvar setup')
+    expect(noCommand.text).toBe('Ainda não consigo fazer isso por aqui.')
+
+    const disabledHarness = makeHarness({ config: { language: 'pt-BR', enabled: false } })
+    const disabled = await createEngineerOrchestrator(disabledHarness.deps).ask('boxes agora?')
+    expect(disabled.text).toBe('O engenheiro de IA está desativado. Ative-o nas configurações.')
+
+    const noModelHarness = makeHarness({ config: { language: 'pt-BR' } })
+    noModelHarness.modelManager.ensureModel.mockResolvedValueOnce({
+      ok: false,
+      id: noModelHarness.deps.config.modelId,
+      error: 'offline'
+    })
+    const noModel = await createEngineerOrchestrator(noModelHarness.deps).ask('explique a estratégia ideal')
+    expect(noModel.text).toBe('Não consegui carregar o modelo de IA. Verifique a conexão e tente baixar novamente.')
   })
 })
 

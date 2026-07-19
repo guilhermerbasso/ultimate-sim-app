@@ -8,6 +8,14 @@ import { DEFAULT_HAPTICS_ZONAL_CONFIG } from '@shared/haptics-zonal'
 import { DEFAULT_SETUPS_CONFIG } from '@shared/setups'
 import { DEFAULT_ENGINEER_CONFIG } from '@shared/engineer-ipc'
 import { DEFAULT_SPOTTER_CONFIG } from '@shared/spotter'
+import { EXPR_CHANNELS, type ExpressionResultsBatch } from '@shared/expr'
+import {
+  resolveExpressionDestinationPlacements,
+  type ExpressionPlacementRequest,
+  type ExpressionStudioSnapshot
+} from '@shared/expression-studio'
+import { summarizeButtonBoxPanel } from '@shared/touch-panel'
+import { TOUCH_PANEL_PRESETS } from '@shared/touch-panel-presets'
 import { createMockSnapshot } from './mock-telemetry'
 
 type AnyFn = (...args: unknown[]) => unknown
@@ -24,6 +32,105 @@ const settings = {
   ...DEFAULT_APP_SETTINGS,
   language: 'en',
   defaultTelemetrySource: 'mock'
+}
+
+const touchDisplay = {
+  id: 1,
+  label: 'Cockpit touch display · 1280×800',
+  width: 1280,
+  height: 800,
+  primary: true
+}
+const touchPanel = TOUCH_PANEL_PRESETS[0]
+const touchPanelSummary = touchPanel ? summarizeButtonBoxPanel(touchPanel) : null
+
+const expressionStudio: ExpressionStudioSnapshot = {
+  version: 3,
+  revision: 7,
+  expressions: [
+    {
+      id: 'attack-window',
+      name: 'Attack window',
+      expr: 'speedKmh > 200 ? "PUSH" : "HOLD"'
+    }
+  ],
+  enabledVars: [],
+  outputs: [],
+  destinations: [
+    {
+      id: 'attack-window-dashboard',
+      source: { expressionId: 'attack-window' },
+      surface: 'dashboard',
+      targetId: 'gt3_dense50_race_final_stint_fuel',
+      presentation: 'status',
+      geometry: { x: 760, y: 64, width: 220, height: 96 },
+      format: {
+        label: 'Attack window',
+        trueText: 'PUSH',
+        falseText: 'HOLD',
+        color: '#14ffec'
+      },
+      enabled: true
+    }
+  ],
+  updatedAt: '2026-07-15T00:00:00.000Z',
+  capabilities: [
+    {
+      surface: 'dashboard',
+      available: true,
+      presentations: ['value', 'bar', 'gauge', 'status'],
+      targets: [
+        {
+          id: 'gt3_dense50_race_final_stint_fuel',
+          label: 'GT3 · Final stint fuel',
+          width: 1024,
+          height: 600,
+          kind: 'dashboard'
+        }
+      ]
+    },
+    {
+      surface: 'overlay',
+      available: true,
+      presentations: ['value', 'bar', 'gauge', 'status'],
+      targets: [
+        {
+          id: 'visual-audit-overlay',
+          label: 'Race engineer overlay',
+          width: 420,
+          height: 140,
+          kind: 'custom-overlay'
+        }
+      ]
+    },
+    {
+      surface: 'oled',
+      available: false,
+      reason: 'OLED destinations are reserved for a later release.',
+      presentations: ['value', 'status'],
+      targets: []
+    },
+    {
+      surface: 'touch',
+      available: false,
+      reason: 'Touch destinations are reserved for a later release.',
+      presentations: ['value', 'status'],
+      targets: []
+    }
+  ],
+  destinationStatuses: [
+    {
+      destinationId: 'attack-window-dashboard',
+      status: 'ready'
+    }
+  ]
+}
+
+const expressionResults: ExpressionResultsBatch['results'] = {
+  'attack-window': {
+    name: 'Attack window',
+    value: 'PUSH'
+  }
 }
 
 const fuelState = {
@@ -78,6 +185,9 @@ function channelDefault(channel: string, args: unknown[]): unknown {
   if (channel === 'app:getSettings') return settings
   if (channel === 'app:setSettings') return { ...settings, ...(args[0] as object | undefined) }
   if (channel === 'app:openUserData' || channel === 'app:openRecordings') return ''
+  if (channel === 'app:touchpanel:listDisplays') return [touchDisplay]
+  if (channel === 'app:touchpanel:list') return touchPanelSummary ? [touchPanelSummary] : []
+  if (channel === 'app:touchpanel:get') return args[0] === touchPanel?.id ? touchPanel : null
   if (channel.includes('listDisplays') || channel === 'overlays:getDisplays') return displays
   if (channel === 'oled:getPresets') return OLED_PRESETS
   if (channel === 'revlights:getPresets') return REVLIGHTS_PRESETS
@@ -129,8 +239,25 @@ function channelDefault(channel: string, args: unknown[]): unknown {
   }
   if (channel.startsWith('teamfuel:')) return []
   if (channel.startsWith('alerts:')) return DEFAULT_ALERTS_CONFIG
-  if (channel === 'expr:getExpressions' || channel === 'expr:setExpressions') return []
-  if (channel === 'expr:getEnabledVars' || channel === 'expr:setEnabledVars') return []
+  if (channel === EXPR_CHANNELS.getStudio) return expressionStudio
+  if (channel === EXPR_CHANNELS.mutateStudio) return { ...expressionStudio, revision: expressionStudio.revision + 1 }
+  if (channel === EXPR_CHANNELS.getPlacements) {
+    const request = args[0] as Partial<ExpressionPlacementRequest> | undefined
+    if (
+      (request?.surface === 'dashboard' || request?.surface === 'overlay') &&
+      typeof request.targetId === 'string'
+    ) {
+      return resolveExpressionDestinationPlacements(
+        expressionStudio,
+        expressionStudio.capabilities,
+        request as ExpressionPlacementRequest
+      )
+    }
+    return []
+  }
+  if (channel === EXPR_CHANNELS.getResults) return expressionResults
+  if (channel === EXPR_CHANNELS.getExpressions || channel === EXPR_CHANNELS.setExpressions) return expressionStudio.expressions
+  if (channel === EXPR_CHANNELS.getEnabledVars || channel === EXPR_CHANNELS.setEnabledVars) return expressionStudio.enabledVars
   if (channel.startsWith('outputs:')) return []
   if (channel === 'actions:emulationStatus') return emulationStatus
   if (channel.startsWith('actions:')) return []
@@ -142,7 +269,7 @@ function channelDefault(channel: string, args: unknown[]): unknown {
   if (channel.startsWith('esp32:')) return channel.includes('discover') ? [] : { devices: [], connected: false }
   if (channel.startsWith('overlays:')) return channel.includes('Config') ? {} : []
   if (channel.startsWith('app:dash:')) return []
-  if (channel.startsWith('app:touchpanel:')) return channel.endsWith(':get') ? null : []
+  if (channel.startsWith('app:touchpanel:')) return []
   if (channel.startsWith('app:pitpanel:')) return false
   if (channel === 'setups:env') return { supported: true, platform: 'win32', setupsDir: 'C:\\iRacing\\setups' }
   if (channel === 'setups:listCarFolders') return []

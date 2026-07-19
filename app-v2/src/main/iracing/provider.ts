@@ -1,6 +1,7 @@
 import type { Corners, DriverEntry, Flags, IRacingDiagnostics, IRacingMmfDiagnostics, PitStatus, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
-import { carLeftRightStateFromEnum, carLeftRightCountFromEnum, engineWarningsFromBitfield, sessionStateLabel, paceModeLabel, paceFlagsList, deriveTcActive, tcOptionsForSensitivity, tcLatchTimingsForSensitivity, TcLatch, TC_ACTIVE_DERIVED, type TcSensitivity } from '../../shared/telemetry'
+import { carLeftRightStateFromEnum, carLeftRightCountFromEnum, drsStateFromRaw, engineWarningsFromBitfield, sessionStateLabel, paceModeLabel, paceFlagsList, deriveTcActive, tcOptionsForSensitivity, tcLatchTimingsForSensitivity, TcLatch, TC_ACTIVE_DERIVED, type TcSensitivity } from '../../shared/telemetry'
 import { ReplayContextTracker } from '../../shared/replay'
+import { FuelLapEstimator } from '../../shared/fuel'
 import { inHgToKpa, mss2ToG } from '../../shared/units'
 import { FALLBACK_SHIFT_BLINK_PCT, redlineBandPct } from '../../shared/revlights'
 import { IRacingMemoryMap } from './irsdk-mmf'
@@ -25,6 +26,7 @@ type DriverStaticEntry = Pick<
   | 'teamName'
   | 'carPath'
   | 'carNumberRaw'
+  | 'isPaceCar'
 > & {
   fallbackPosition: number
   fallbackClassPosition: number
@@ -38,6 +40,7 @@ type DriverCarShiftLights = {
 }
 
 type DriverCarSetup = DriverCarShiftLights & {
+  redlineRpm?: number
   fuelCapacityLiters?: number
 }
 
@@ -190,11 +193,6 @@ function tyreTemps(values: AnyRecord): TelemetrySnapshot['tyres'] | undefined {
     [values.LRtempL, values.LRtempM, values.LRtempR],
     [values.RRtempL, values.RRtempM, values.RRtempR]
   ].map((corner) => corner.map(celsius))
-  // iRacing exposes NO live (hot) tyre pressure — only the garage COLD pressures. Show
-  // those so the pressure readout isn't permanently blank; it's the only pressure the
-  // sim provides. (Real GT3 dashes show live hot pressure; iRacing can't.)
-  const cold = coldPressures(values)
-  const pressures: Array<number | undefined> = [cold?.lf, cold?.rf, cold?.lr, cold?.rr]
   const wear = [
     [values.LFwearL, values.LFwearM, values.LFwearR],
     [values.RFwearL, values.RFwearM, values.RFwearR],
@@ -202,7 +200,7 @@ function tyreTemps(values: AnyRecord): TelemetrySnapshot['tyres'] | undefined {
     [values.RRwearL, values.RRwearM, values.RRwearR]
   ].map((corner) => corner.map(optionalNum))
   const allTemps = [...carcass.flat(), ...surface.flat()]
-  if ([...allTemps, ...pressures, ...wear.flat()].every((value) => value === undefined)) return undefined
+  if ([...allTemps, ...wear.flat()].every((value) => value === undefined)) return undefined
   const info = (index: number) => ({
     // Prefer the carcass temp; fall back to the surface temp so a car/session that only
     // reports one of the two still shows a tyre temperature instead of "—".
@@ -213,7 +211,6 @@ function tyreTemps(values: AnyRecord): TelemetrySnapshot['tyres'] | undefined {
     surfaceTempLeftC: surface[index][0],
     surfaceTempMiddleC: surface[index][1],
     surfaceTempRightC: surface[index][2],
-    pressureKpa: pressures[index],
     wearPct: wear[index][1] ?? wear[index][0] ?? wear[index][2],
     wearLeftPct: wear[index][0],
     wearMiddlePct: wear[index][1],
@@ -313,6 +310,7 @@ function buildDriverStatic(sessionInfo: any): DriverStaticEntry[] | undefined {
       teamName: typeof driver.TeamName === 'string' && driver.TeamName ? driver.TeamName : undefined,
       carPath: typeof driver.CarPath === 'string' && driver.CarPath ? driver.CarPath : undefined,
       carNumberRaw: optionalNum(driver.CarNumberRaw),
+      isPaceCar: optionalBool(driver.CarIsPaceCar),
       fallbackPosition: result?.position ?? num(driver.CarIdxPosition, 0),
       fallbackClassPosition: result?.classPosition ?? num(driver.CarIdxClassPosition, 0)
     }
@@ -348,6 +346,7 @@ function driverCarSetup(sessionInfo: any): DriverCarSetup {
     shiftRpm: optionalNum(driverInfo?.DriverCarSLShiftRPM),
     lastRpm: optionalNum(driverInfo?.DriverCarSLLastRPM),
     blinkRpm: optionalNum(driverInfo?.DriverCarSLBlinkRPM),
+    redlineRpm: positiveNum(driverInfo?.DriverCarRedLine),
     fuelCapacityLiters: optionalNum(driverInfo?.DriverCarFuelMaxLtr)
   }
 }
@@ -429,23 +428,18 @@ function hasUsableLatLon(lat: number | undefined, lon: number | undefined): bool
 
 // Canonical iRacing shift-light model. iRacing exposes four per-car RPMs:
 //   DriverCarSLFirstRPM  → the first shift light turns on
-//   DriverCarSLShiftRPM  → OPTIMAL upshift point ("shift NOW")
-//   DriverCarSLLastRPM   → every shift light is on (≈ the limiter)
-//   DriverCarSLBlinkRPM  → lights blink (over-rev), ≈ SLLastRPM
+//   DriverCarSLShiftRPM  → authoritative shift-now RPM
+//   DriverCarSLLastRPM   → every shift light is on
+//   DriverCarSLBlinkRPM  → the native lights' later blink point
 // …plus the LIVE telemetry var ShiftIndicatorPct (0..1), iRacing's OWN per-car
 // shift-light fill. CONFIRMED: ShiftIndicatorPct only reaches 1.0 at SLLastRPM (all
 // lights on = at the limiter), which is TOO LATE for cars whose SLShiftRPM < SLLastRPM
-// — the lights fill to the limiter instead of the optimal upshift. So we anchor the
-// per-car fill First→Shift: the bar is FULL at DriverCarSLShiftRPM, i.e. "all lights
-// on = shift NOW (optimal)". The fill must stay DARK below SLFirstRPM and is FULL at/
-// after SLShiftRPM — it tracks the shift-light BAND, never rpm/maxRpm (maxRpm is the
-// limiter, so a 0..maxRpm fill lights the bar at idle: the bug this replaces).
+// — the lights fill to the limiter instead of the raw SDK upshift. First→Shift reaches
+// FULL at DriverCarSLShiftRPM while the fill stays DARK below SLFirstRPM.
 //
 // Priority for the 0..1 fill (so every car's lights reach full at its own optimal
 // shift point):
-//   1. Per-car SL band (SLFirstRPM→SLShiftRPM) — PRIMARY whenever the session YAML
-//      publishes First+Shift. Reaches 1.0 at the OPTIMAL upshift, 0 below the first
-//      light (never lit at idle).
+//   1. Raw per-car band (first→shift). Reaches 1.0 at DriverCarSLShiftRPM.
 //   2. LIVE ShiftIndicatorPct — only when no SL band exists (car doesn't publish
 //      First/Shift). Mirrors the sim, but fills to the limiter (SLLast); it's all we
 //      have for those cars. Still 0 below the first light.
@@ -456,9 +450,7 @@ type ShiftBand = { pct: number | undefined; blink: boolean | undefined; source: 
 
 function shiftBand(rpm: number, setup: DriverCarShiftLights, redlineRpm?: number, iracingShiftPct?: number): ShiftBand {
   const first = setup.firstRpm
-  // The OPTIMAL upshift is DriverCarSLShiftRPM ("all lights on = shift NOW"), NOT
-  // SLLastRPM (the limiter). Anchor the full fill there so cars with SLShift < SLLast
-  // light up at the right moment instead of all the way to the rev limiter.
+  // `setup.shiftRpm` is the raw DriverCarSLShiftRPM upshift target.
   const shift = setup.shiftRpm
   // Deterministic per-car SL band from the session YAML, anchored First→Shift. Require
   // first > 0 (a car reporting SLFirstRPM=0 would otherwise make the band start at idle,
@@ -469,8 +461,7 @@ function shiftBand(rpm: number, setup: DriverCarShiftLights, redlineRpm?: number
   let pctValue: number | undefined
   let source: ShiftSource = 'none'
   if (slPct !== undefined) {
-    // PRIMARY: the per-car SL band reaches 1.0 at the OPTIMAL shift point (SLShiftRPM),
-    // so "all lights on" means "shift now (optimal)", never "you've hit the limiter".
+    // PRIMARY: the raw SDK band reaches 1.0 at the actual shift-now target.
     pctValue = slPct
     source = 'sl-band'
   } else if (iracingShiftPct !== undefined && iracingShiftPct > 0) {
@@ -485,21 +476,19 @@ function shiftBand(rpm: number, setup: DriverCarShiftLights, redlineRpm?: number
 
   // The live ShiftIndicatorPct path (cars without an SL band) can cap BELOW 1.0 even at
   // the limiter. Once RPM reaches the genuine per-car over-rev point (blink ≈ last),
-  // force the fill to FULL so the shift-now triggers that key off the pct (the iFlag
-  // redline effect at ≥0.97, the soundshift beep, the spotter callout) still fire. This
-  // clamps only the TOP at a real per-car RPM — it never widens the band at idle, so it
-  // cannot reintroduce the rpm/maxRpm idle-glow. (The SL band already reaches 1.0 at
+  // force the fill to FULL so shift-now consumers using their configured pct threshold
+  // (iFlag, soundshift, overlays) still fire. Note: the spotter uses its own hardcoded
+  // SHIFT_PCT threshold and is not wired to AlertsConfig.shiftPoint.shiftIndicatorPct.
+  // This clamps only the TOP at a real per-car RPM — it never widens the band at idle, so
+  // it cannot reintroduce the rpm/maxRpm idle-glow. (The SL band already reaches 1.0 at
   // SLShiftRPM, so this only matters for the live fallback.)
   if (source === 'iracing-live' && pctValue !== undefined && pctValue < 1) {
     const topRpm = setup.blinkRpm ?? setup.lastRpm ?? setup.shiftRpm
     if (topRpm !== undefined && rpm >= topRpm) pctValue = 1
   }
 
-  // Blink = the "shift NOW" cue. Fire it at the OPTIMAL upshift (DriverCarSLShiftRPM)
-  // so it lands exactly at each car's shift point — NOT at SLBlinkRPM, which is the
-  // over-rev limiter (past optimal). For the user's car (SLShift 7200, SLBlink 7700)
-  // this moves the most attention-grabbing cue 500 rpm earlier, onto the real shift
-  // point. Falls back to blink/last RPM, then a pct threshold for SL-band-less cars.
+  // Blink = the "shift NOW" cue at raw DriverCarSLShiftRPM. SLBlink remains an
+  // overdue warning/fallback, not the default optimum.
   const shiftNowRpm = setup.shiftRpm ?? setup.blinkRpm ?? setup.lastRpm
   const blink = shiftNowRpm !== undefined
     ? rpm >= shiftNowRpm
@@ -750,6 +739,7 @@ export class IRacingProvider implements TelemetryProvider {
   // frame-to-frame as longAccelG oscillates around 0 on corner exits. Window tracks the
   // sensitivity (lower = longer hold). Re-created whenever the sensitivity changes.
   private tcLatch = new TcLatch(tcLatchTimingsForSensitivity('medium'))
+  private fuelLapEstimator = new FuelLapEstimator()
 
   // Live-updates the TC-active derivation sensitivity from the settings store, so a change
   // in the UI takes effect on the next poll without restarting the provider. Rebuilds the
@@ -781,6 +771,7 @@ export class IRacingProvider implements TelemetryProvider {
     this.sessionDiagKey = ''
     this.lastTapAt = 0
     this.tcLatch.reset()
+    this.fuelLapEstimator.reset()
     this.mmf.stop()
   }
 
@@ -792,6 +783,7 @@ export class IRacingProvider implements TelemetryProvider {
       this.resetReplayTracker()
       this.lastSnapshot = null
       this.reusedLastSnapshot = false
+      this.fuelLapEstimator.reset()
     }
     return connected
   }
@@ -804,6 +796,7 @@ export class IRacingProvider implements TelemetryProvider {
       this.driverStaticKey = ''
       this.driverStaticSessionInfo = null
       this.driverStatic = undefined
+      this.fuelLapEstimator.reset()
       return null
     }
     const read = this.mmf.read()
@@ -824,17 +817,21 @@ export class IRacingProvider implements TelemetryProvider {
     const drivers = parseDrivers(sessionInfo, values, staticDrivers)
     const speedKmh = num(values.Speed) * 3.6
     const rpm = num(values.RPM)
-    // maxRpm = the REAL redline. iRacing's PlayerCarRedLine is the true rev limiter
-    // (where the lights blink, ≈7700+), whereas SLLastRPM is only "all shift lights on"
-    // (≈7200) and pinning maxRpm to it pegs the RPM gauges early. Prefer the real
-    // redline, falling back to SLLast/SLShift for cars/replays that don't publish it.
-    const maxRpm = optionalNum(values.PlayerCarRedLine) ?? carSetup.lastRpm ?? carSetup.shiftRpm
+    // DriverCarRedLine is the session-YAML engine limit. PlayerCarRedLine can alias a
+    // shift-light stage for some cars (the GR86 reports 6800 despite a 7500 RPM limit).
+    const maxRpm =
+      carSetup.redlineRpm ??
+      positiveNum(values.PlayerCarRedLine) ??
+      positiveNum(carSetup.lastRpm) ??
+      positiveNum(carSetup.shiftRpm)
     const sessionLapsRemain = num(values.SessionLapsRemainEx ?? values.SessionLapsRemain, Number.NaN)
     const trackWetness = iracingTrackWetnessPct(values.TrackWetness) ?? pct(values.TrackWetnessPct)
     const precipitation = pct(values.Precipitation)
     const absLevel = firstDefined(values.dcABS, values.dcABS1, values.dcAntiLockBrake)
     const tcLevel = firstDefined(values.dcTractionControl, values.dcTractionControl2)
-    const engineMap = firstDefined(values.dcFuelMixture, values.dcEnginePower, values.dcThrottleShape, values.dcBoostLevel)
+    const engineMap =
+      optionalSetting(values.dcFuelMixture) ??
+      optionalSetting(values.dcEnginePower)
     const throttleMap = optionalSetting(values.dcThrottleShape)
     const engineBraking = optionalSetting(values.dcEngineBraking)
     const antiRollFront = optionalSetting(values.dcAntiRollFront)
@@ -852,7 +849,7 @@ export class IRacingProvider implements TelemetryProvider {
     const band = shiftBand(rpm, carSetup, maxRpm, iracingShiftPct)
     const shiftIndicatorPct = band.pct
     this.logShiftDiagnostics(carSetup, maxRpm, band.source)
-    // DriverCarSLShiftRPM = engine RPM where iRacing's shift lights reach the upshift point.
+    // Preserve iRacing's raw DriverCarSLShiftRPM as the public upshift RPM.
     const shiftRpm = carSetup.shiftRpm
     const fuelUsePerHourKg = optionalNum(values.FuelUsePerHour)
     const fuelPerLapKg = fuelUsePerHourKg !== undefined && fuelLapTimeSec !== undefined ? (fuelUsePerHourKg / 3600) * fuelLapTimeSec : undefined
@@ -883,6 +880,7 @@ export class IRacingProvider implements TelemetryProvider {
     const pushToPass = optionalBool(firstDefined(values.P2P_Status, values.PushToPass))
     const pushToPassCount = optionalInt(values.P2P_Count)
     const weatherDeclaredWet = optionalBool(values.WeatherDeclaredWet)
+    const drsState = drsStateFromRaw(values.DRS_Status)
     const trackSurfaceMaterial = optionalInt(values.PlayerTrackSurfaceMaterial)
     // New SDK-gap channels (all OPTIONAL / undefined-safe). EngineWarnings is the
     // dashboard tell-tale bitfield; BrakeABSCutPct is the % of brake pressure the ABS
@@ -896,6 +894,8 @@ export class IRacingProvider implements TelemetryProvider {
     const carLeftRightCount = carLeftRightCountFromEnum(optionalNum(values.CarLeftRight))
     const weightPenaltyKg = optionalNum(values.PlayerCarWeightPenalty)
     const powerAdjustPct = optionalNum(values.PlayerCarPowerAdjust)
+    const currentLap = optionalInt(values.Lap)
+    const fuelLiters = optionalNum(values.FuelLevel)
     const sessionTimeOfDay = optionalNum(values.SessionTimeOfDay)
     const pit = pitStatus(values)
     const tireColdPressuresKpa = coldPressures(values)
@@ -913,6 +913,12 @@ export class IRacingProvider implements TelemetryProvider {
     }, {
       sessionIdentity: replaySessionIdentity(sessionInfo, values),
       connectionEpoch: this.replayConnectionEpoch
+    })
+    const fuelEstimate = this.fuelLapEstimator.update({
+      sessionIdentity: replayContext.sessionIdentity,
+      live: replayContext.state === 'live',
+      currentLap,
+      fuelLiters
     })
 
     this.logSessionDiagnostics(sessionInfo, values, carSetup, maxRpm)
@@ -961,6 +967,7 @@ export class IRacingProvider implements TelemetryProvider {
       altitudeM: optionalNum(values.Alt),
       velocityZ: optionalNum(values.VelocityZ),
       drs: values.DRS_Status !== undefined ? num(values.DRS_Status, 0) >= 2 : bool(values.DRS_Active),
+      drsState,
       absActive: optionalBool(values.BrakeABSactive),
       absEnabled: bool(values.BrakeABSactive) || num(absLevel, 0) > 0,
       absLevel: typeof absLevel === 'number' || typeof absLevel === 'string' ? absLevel : undefined,
@@ -971,7 +978,7 @@ export class IRacingProvider implements TelemetryProvider {
       tcActive: undefined,
       tcEnabled: bool(values.dcTractionControlToggle) || num(tcLevel, 0) > 0,
       tcLevel: typeof tcLevel === 'number' || typeof tcLevel === 'string' ? tcLevel : undefined,
-      engineMap: typeof engineMap === 'number' || typeof engineMap === 'string' ? engineMap : undefined,
+      engineMap,
       throttleMap,
       engineBraking,
       antiRollFront,
@@ -1036,8 +1043,10 @@ export class IRacingProvider implements TelemetryProvider {
       replayContext,
       weightPenaltyKg,
       powerAdjustPct,
-      fuelLiters: optionalNum(values.FuelLevel),
-      fuelPerLap: fuelPerLapKg,
+      fuelLiters,
+      fuelPerLap: fuelEstimate.fuelPerLapLiters,
+      fuelPerLapLiters: fuelEstimate.fuelPerLapLiters,
+      fuelLapsRemaining: fuelEstimate.fuelLapsRemaining,
       fuelUsePerHourKg,
       fuelPerLapKg,
       fuelCapacityLiters: carSetup.fuelCapacityLiters ?? (num(values.FuelLevelPct, 0) > 0 ? num(values.FuelLevel) / num(values.FuelLevelPct) : undefined),

@@ -1,4 +1,4 @@
-import { createButtonBoxPanel, type ButtonAction, type ButtonBoxButton, type ButtonBoxPanel, type KeyMaterial } from './touch-panel'
+import { createButtonBoxPanel, type ButtonAction, type ButtonBoxButton, type ButtonBoxButtonInput, type ButtonBoxPanel, type KeyMaterial } from './touch-panel'
 
 type MacroMode = 'press' | 'chord' | 'sequence' | 'hold' | 'toggle' | 'repeat'
 type Palette = {
@@ -24,9 +24,10 @@ function button(
   icon: string | undefined,
   palette: Palette,
   action: ButtonAction,
-  options: Partial<ButtonBoxButton> = {}
-): Partial<ButtonBoxButton> {
+  options: ButtonBoxButtonInput = {}
+): ButtonBoxButtonInput {
   return {
+    ...options,
     label,
     material,
     icon,
@@ -66,14 +67,14 @@ function panelTags(palette: Palette, extra: string[]): string[] {
   return [...baseTags, ...palette.tags, ...extra]
 }
 
-function themedButtons(palette: Palette): Partial<ButtonBoxButton>[] {
+function themedButtons(palette: Palette): ButtonBoxButtonInput[] {
   return [
     button('PIT', 'rgb', 'pit-sign', palette, key(['P']), { bodyColor: palette.dark, borderColor: palette.accent, fontSize: 30 }),
     button('LIMITER', 'backlit', 'limiter', palette, key(['L'], 'toggle'), { fontSize: 23 }),
     button('TC+', 'toggle', 'settings', palette, key(['PageUp']), { bodyColor: palette.dark, borderColor: palette.accent }),
-    button('TC−', 'rocker', undefined, palette, key(['PageDown']), { bodyColor: palette.dark, borderColor: palette.accent, fontSize: 30 }),
-    button('ABS', 'rotary', 'brake-bias', palette, overlay(`${palette.car.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-abs`), { borderColor: palette.accent2 }),
-    button('MAP 1-6', 'selector', 'map', palette, key(['6']), { bodyColor: palette.dark, borderColor: palette.accent2 }),
+    button('TC', 'rocker', undefined, palette, key(['PageDown']), { bodyColor: palette.dark, borderColor: palette.accent, fontSize: 30, control: { kind: 'two-position-rocker', negativeAction: key(['PageDown']), positiveAction: key(['PageUp']), negativeLabel: 'TC decrease', positiveLabel: 'TC increase', repeat: { delayMs: 420, intervalMs: 120 } } }),
+    button('ABS', 'rotary', 'brake-bias', palette, key([']']), { borderColor: palette.accent2, control: { kind: 'rotary', decrementAction: key(['[']), incrementAction: key([']']), decrementLabel: 'ABS decrease', incrementLabel: 'ABS increase', repeat: { delayMs: 420, intervalMs: 120 } } }),
+    button('MAP 1-6', 'selector', 'map', palette, key(['1']), { bodyColor: palette.dark, borderColor: palette.accent2, control: { kind: 'selector', initialChoiceId: 'map-1', choices: [1, 2, 3, 4, 5, 6].map((value) => ({ id: 'map-' + value, label: 'MAP ' + value, value: String(value), action: key([String(value)]) })) } }),
     button('RADIO', 'led_ring', 'radio', palette, key(['V'], 'hold'), { bodyColor: palette.dark, borderColor: palette.accent2 }),
     button('BOOST', 'guarded', 'flash', palette, key(['B']), { bodyColor: '#2a1202', borderColor: palette.accent2 }),
     button('WIPER', 'toggle', 'wiper', palette, key(['W'], 'toggle'), { bodyColor: palette.dark }),
@@ -94,13 +95,13 @@ export const TOUCH_PRESETS_THEMED: ButtonBoxPanel[] = [
     tags: panelTags(referencePalette, ['round', 'momentary', 'toggle', 'rocker', 'rotary', 'led-ring', 'guarded', 'selector']),
     buttons: [
       button('PIT', 'rgb', 'pit-sign', referencePalette, key(['P']), { bodyColor: '#041015', borderColor: '#22d3ee', fontSize: 30 }),
-      button('LIMITER', 'backlit', 'limiter', referencePalette, key(['L']), { bodyColor: '#07151b', borderColor: '#22d3ee', fontSize: 23 }),
+      button('LIMITER', 'backlit', 'limiter', referencePalette, key(['L'], 'toggle'), { bodyColor: '#07151b', borderColor: '#22d3ee', fontSize: 23, control: { kind: 'latching-toggle', onAction: key(['L'], 'toggle'), offAction: key(['L'], 'toggle') } }),
       button('TC+', 'toggle', 'settings', referencePalette, key(['PageUp']), { bodyColor: '#07151b', borderColor: '#22d3ee' }),
-      button('TC−', 'rocker', undefined, referencePalette, key(['PageDown']), { bodyColor: '#07151b', borderColor: '#22d3ee', fontSize: 32 }),
-      button('ABS', 'rotary', 'brake-bias', referencePalette, key(['A']), { bodyColor: '#090d12', borderColor: '#22d3ee' }),
+      button('TC', 'rocker', undefined, referencePalette, key(['PageDown']), { bodyColor: '#07151b', borderColor: '#22d3ee', fontSize: 32, control: { kind: 'two-position-rocker', negativeAction: key(['PageDown']), positiveAction: key(['PageUp']), negativeLabel: 'TC decrease', positiveLabel: 'TC increase', repeat: { delayMs: 420, intervalMs: 120 } } }),
+      button('ABS', 'rotary', 'brake-bias', referencePalette, key([']']), { bodyColor: '#090d12', borderColor: '#22d3ee', control: { kind: 'rotary', decrementAction: key(['[']), incrementAction: key([']']), decrementLabel: 'ABS decrease', incrementLabel: 'ABS increase', repeat: { delayMs: 420, intervalMs: 120 } } }),
       button('RADIO', 'led_ring', 'radio', referencePalette, key(['V'], 'hold'), { bodyColor: '#160d03', borderColor: '#f59e0b' }),
       button('BOOST', 'guarded', 'flash', referencePalette, key(['B']), { bodyColor: '#1a0b02', borderColor: '#f59e0b' }),
-      button('MAP 1-6', 'selector', 'map', referencePalette, key(['6']), { bodyColor: '#090d12', borderColor: '#22d3ee', fontSize: 22 })
+      button('MAP 1-6', 'selector', 'map', referencePalette, key(['1']), { bodyColor: '#090d12', borderColor: '#22d3ee', fontSize: 22, control: { kind: 'selector', initialChoiceId: 'map-1', choices: [1, 2, 3, 4, 5, 6].map((value) => ({ id: 'map-' + value, label: 'MAP ' + value, value: String(value), action: key([String(value)]) })) } })
     ]
   }),
   ...carPalettes.map((palette) =>

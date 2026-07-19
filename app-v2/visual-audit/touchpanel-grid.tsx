@@ -9,6 +9,7 @@ import { createRoot } from 'react-dom/client'
 import {
   createButtonBoxPanel,
   KEY_MATERIALS,
+  type ButtonAction,
   type ButtonBoxPanel,
   type KeyMaterial
 } from '@shared/touch-panel'
@@ -40,6 +41,27 @@ function materialDemo(m: KeyMaterial): ButtonBoxPanel {
   })
 }
 
+function semanticDemo(): ButtonBoxPanel {
+  const key = (name: string, mode: 'press' | 'hold' = 'press'): ButtonAction => ({ kind: 'keyboard', command: { mode, keys: [name] } })
+  return createButtonBoxPanel({
+    id: 'semantic-controls',
+    name: 'Semantic controls · all kinds / states',
+    columns: 4,
+    rows: 2,
+    gap: 12,
+    background: '#05070d',
+    buttons: [
+      { id: 'sem-momentary', label: 'RADIO', material: 'led_ring', shape: 'round', control: { kind: 'momentary', action: key('V', 'hold') } },
+      { id: 'sem-toggle', label: 'LIMITER', material: 'toggle', shape: 'pill', state: { active: true }, activeColor: '#16a34a', activeTextColor: '#ffffff', control: { kind: 'latching-toggle', onAction: key('L'), offAction: key('L') } },
+      { id: 'sem-rocker', label: 'TC', material: 'rocker', shape: 'rocker', control: { kind: 'two-position-rocker', negativeAction: key('PageDown'), positiveAction: key('PageUp'), negativeLabel: 'TC down', positiveLabel: 'TC up', repeat: { delayMs: 420, intervalMs: 120 } } },
+      { id: 'sem-guard', label: 'IGNITION', material: 'guarded', shape: 'guarded', control: { kind: 'guarded-two-step', action: key('I'), armTimeoutMs: 4000 } },
+      { id: 'sem-rotary', label: 'ABS', material: 'rotary', shape: 'rotary', control: { kind: 'rotary', decrementAction: key('['), incrementAction: key(']'), decrementLabel: 'ABS down', incrementLabel: 'ABS up', repeat: { delayMs: 420, intervalMs: 120 } } },
+      { id: 'sem-selector', label: 'MAP', material: 'selector', shape: 'rotary', control: { kind: 'selector', initialChoiceId: 'map-1', choices: [{ id: 'map-1', label: 'MAP 1', value: '1', action: key('1') }, { id: 'map-2', label: 'MAP 2', value: '2', action: key('2') }] } },
+      { id: 'sem-status', label: 'ENGINE', material: 'led_status', shape: 'status', state: { warning: true }, warningColor: '#b91c1c', control: { kind: 'status-led', value: 'HOT' } },
+      { id: 'sem-value', label: 'FUEL', material: 'glass', shape: 'wide', state: { disabled: true }, control: { kind: 'value-tile', value: '52.1', unit: 'L' } }
+    ]
+  })
+}
 // The full button catalog, chunked into 5-wide grids.
 function catalogPanels(): ButtonBoxPanel[] {
   const per = 10
@@ -72,7 +94,7 @@ interface Cell {
 }
 
 function buildCells(filter: string): Cell[] {
-  const cells: Cell[] = []
+  const cells: Cell[] = [{ id: 'semantic-controls', name: 'Semantic controls', cat: 'semantics', panel: semanticDemo() }]
   for (const m of KEY_MATERIALS) cells.push({ id: `mat-${m}`, name: `Material · ${m}`, cat: 'materials', panel: materialDemo(m) })
   for (const p of catalogPanels()) cells.push({ id: p.id, name: p.name, cat: 'catalog', panel: p })
   for (const p of TOUCH_PANEL_PRESETS) {

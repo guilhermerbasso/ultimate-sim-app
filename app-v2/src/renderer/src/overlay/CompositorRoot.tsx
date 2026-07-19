@@ -9,9 +9,10 @@ import type {
   OverlaysConfig
 } from '../../../shared/overlays'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
-import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, HIFI_DEFAULT_TRIGGERS, mergeHifiOverlayConfigs } from './hifi-overlays'
-import { evaluateOverlayTrigger } from '../../../shared/overlays'
+import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, mergeHifiOverlayConfigs, resolveOverlayTrigger, shouldRenderOverlayRuntime } from './hifi-overlays'
 import { resolveWidgetComponent } from './widgets'
+import { useOverlayTriggerController } from './useOverlayTriggerController'
+import { useAlertsConfig } from '../lib/alerts-config'
 import './overlay-runtime.css'
 
 const RESIZE_DIRS = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const
@@ -62,6 +63,10 @@ function configFromItems(items: OverlayListItem[], current: OverlaysConfig): Ove
         opacity: item.opacity,
         stylePreset: item.stylePreset,
         style: item.style,
+        hidden: item.hidden,
+        role: item.role,
+        trigger: item.trigger,
+        hifiModuleId: item.hifiModuleId,
         display: item.display
       }]))
     } as OverlaysConfig['widgets']
@@ -88,6 +93,8 @@ export function CompositorRoot() {
   const configRef = useRef(config)
   const lastHitRef = useRef<boolean | null>(null)
   const hitHeartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const alertsConfig = useAlertsConfig()
+  const triggerController = useOverlayTriggerController(snapshot, alertsConfig)
 
   useEffect(() => {
     configRef.current = config
@@ -104,13 +111,15 @@ export function CompositorRoot() {
       .filter((layer) => overlapsDisplay(layer.config.position, display))
   }, [config.widgets, display])
 
-  // Spotter-style trigger-only overlays: an overlay whose trigger is set (and not
-  // 'always') is only painted while its condition fires against live telemetry.
-  // Falls back to the module's defaultTrigger when the user has not set one.
-  const isTriggered = useCallback((layerConfig: OverlayWidgetConfig): boolean => {
-    const trigger = layerConfig.trigger ?? HIFI_DEFAULT_TRIGGERS[layerConfig.id] ?? null
-    return evaluateOverlayTrigger(trigger, snapshot)
-  }, [snapshot])
+  const runtimeLayers = enabledLayers
+    .map((layer) => {
+      const trigger = resolveOverlayTrigger(layer.definition, layer.config)
+      const visibility = triggerController.evaluate(layer.definition.id, trigger)
+      return shouldRenderOverlayRuntime(layer.definition, layer.config, visibility)
+        ? { ...layer, visibility }
+        : null
+    })
+    .filter((layer): layer is NonNullable<typeof layer> => Boolean(layer))
 
   const reportHit = useCallback((interactive: boolean): void => {
     const sendHit = (): void => {
@@ -133,18 +142,26 @@ export function CompositorRoot() {
     sendHit()
   }, [display.id])
 
+  const runtimeHitKey = runtimeLayers
+    .map((layer) => `${layer.definition.id}:${layer.config.locked ? 'locked' : 'editable'}`)
+    .join('|')
+
+  useEffect(() => {
+    reportHit(false)
+  }, [reportHit, runtimeHitKey])
+
   const hitTest = useCallback((clientX: number, clientY: number): boolean => {
     const screenX = display.x + clientX
     const screenY = display.y + clientY
-    for (let index = enabledLayers.length - 1; index >= 0; index -= 1) {
-      const layer = enabledLayers[index]
+    for (let index = runtimeLayers.length - 1; index >= 0; index -= 1) {
+      const layer = runtimeLayers[index]
       const { position } = layer.config
       const inside = screenX >= position.x && screenX <= position.x + position.width &&
         screenY >= position.y && screenY <= position.y + position.height
       if (inside) return !layer.config.locked
     }
     return false
-  }, [display.x, display.y, enabledLayers])
+  }, [display.x, display.y, runtimeLayers])
 
   const beginGesture = useCallback(
     (event: ReactMouseEvent, id: OverlayWidgetId, mode: 'move' | 'resize', dir: string): void => {
@@ -233,12 +250,9 @@ export function CompositorRoot() {
       onMouseMove={(event) => reportHit(hitTest(event.clientX, event.clientY))}
       onMouseLeave={() => reportHit(false)}
     >
-      {enabledLayers.map(({ definition, config: widgetConfig }) => {
+      {runtimeLayers.map(({ definition, config: widgetConfig, visibility }) => {
         const Widget = resolveWidgetComponent(definition.id)
         if (!Widget) return null
-        // Trigger-only overlays are condition-gated ONLY once locked (racing). While
-        // unlocked (editing) they always show so the user can position/style them.
-        if (widgetConfig.locked && !isTriggered(widgetConfig)) return null
         const layerStyle: CSSProperties = {
           position: 'absolute',
           left: widgetConfig.position.x - display.x,
@@ -263,7 +277,12 @@ export function CompositorRoot() {
                   {definition.title} · compositor · drag to move
                 </div>
               )}
-              <Widget snapshot={snapshot} config={widgetConfig} />
+              <Widget
+                snapshot={snapshot}
+                config={widgetConfig}
+                visibility={visibility}
+                alertsConfig={alertsConfig}
+              />
               {!widgetConfig.locked &&
                 RESIZE_DIRS.map((dir) => (
                   <div

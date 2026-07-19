@@ -8,14 +8,10 @@ import { overlayDesignFamily } from '../../../../shared/overlays'
 import type { WidgetProps } from './types'
 import './redesign-detail.css'
 
-// Generic overlay slot that surfaces a single routed output value (var) so
-// expressions / dashboardVar routes can be displayed without authoring a
-// bespoke widget. The configured name can come from:
-//   1. (config as any).name — wherever the future config editor stores it
-//   2. URL query param `?name=<key>` on the overlay window
-//   3. fallback: first available output value in the live snapshot
+// Generic legacy overlay slot for one explicitly configured routed value.
+// It never guesses from another route when the exact name is absent.
 
-interface CachedValue {
+export interface CachedValue {
   name: string
   value: string
   numeric?: number
@@ -37,6 +33,14 @@ function toCached(update: OutputValueUpdate): CachedValue {
   return { name: update.name, value: update.value, numeric }
 }
 
+export function selectConfiguredValue(
+  values: Record<string, CachedValue>,
+  wanted: string | undefined
+): CachedValue | null {
+  if (!wanted) return null
+  return values[wanted] ?? null
+}
+
 export function CustomValueWidget({ config }: WidgetProps) {
   const family = overlayDesignFamily(config?.stylePreset)
   const wanted = useMemo(() => configuredName(config), [config])
@@ -54,6 +58,7 @@ export function CustomValueWidget({ config }: WidgetProps) {
         const next: Record<string, CachedValue> = {}
         for (const update of Object.values(snapshot)) {
           if (!update || typeof update.name !== 'string' || update.name.length === 0) continue
+          if (update.deleted) continue
           next[update.name] = toCached(update)
         }
         setValues((current) => ({ ...current, ...next }))
@@ -66,6 +71,10 @@ export function CustomValueWidget({ config }: WidgetProps) {
         const next = { ...current }
         for (const update of batch.updates) {
           if (!update || typeof update.name !== 'string' || update.name.length === 0) continue
+          if (update.deleted) {
+            delete next[update.name]
+            continue
+          }
           next[update.name] = toCached(update)
         }
         return next
@@ -79,15 +88,12 @@ export function CustomValueWidget({ config }: WidgetProps) {
   }, [])
 
   const display = useMemo<CachedValue | null>(() => {
-    if (wanted && values[wanted]) return values[wanted]
-    if (wanted) return null
-    const first = Object.values(values)[0]
-    return first ?? null
+    return selectConfiguredValue(values, wanted)
   }, [values, wanted])
 
   const label = wanted ?? display?.name ?? 'valor'
   const empty = !display
-  const emptyMsg = wanted ? `waiting for "${wanted}"` : '? no metric ?'
+  const emptyMsg = wanted ? `waiting for "${wanted}"` : 'configure an exact source'
   const shown = empty ? emptyMsg : (display?.value ?? '—')
   const valCls = empty ? ' rd2-cv-empty-val' : ''
   const root = `overlay-card rd2-card rd2-fam-${family} rd2-cv rd2-cv-${family}${empty ? ' rd2-cv-is-empty' : ''}`

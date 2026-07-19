@@ -25,6 +25,7 @@ function log(...a) {
 }
 
 function categoryOf(id) {
+  if (id.startsWith('semantic-')) return 'semantics'
   if (id.startsWith('mat-')) return 'materials'
   if (id.startsWith('cat-')) return 'catalog'
   if (id.startsWith('tp-a')) return 'panels-a'
@@ -71,6 +72,9 @@ async function main() {
 
   const shot = new Set()
   let fitFailures = []
+  let targetFailures = []
+  let semanticKinds = []
+  let missingStateCues = []
 
   try {
     const url = new URL(`touchpanel-grid.html${filter ? `?filter=${encodeURIComponent(filter)}` : ''}`, base).href
@@ -86,7 +90,22 @@ async function main() {
     await page.waitForTimeout(700)
 
     fitFailures = await page.evaluate(() => window.__tpFit || [])
-
+    const semanticAudit = await page.evaluate(() => {
+      const targetFailures = Array.from(document.querySelectorAll('.bb-hit')).flatMap((element) => {
+        const rect = element.getBoundingClientRect()
+        if (rect.width >= 44 && rect.height >= 44) return []
+        const owner = element.closest('[data-control-id]')
+        return [`${owner?.getAttribute('data-control-id') || '?'}:${Math.round(rect.width)}x${Math.round(rect.height)}`]
+      })
+      const semanticKinds = Array.from(new Set(Array.from(document.querySelectorAll('[data-control-kind]')).map((element) => element.getAttribute('data-control-kind')).filter(Boolean))).sort()
+      const missingStateCues = Array.from(document.querySelectorAll('[data-state-warning="true"], [data-state-disabled="true"], [data-state-active="true"]')).flatMap((element) =>
+        element.querySelector('.bb-state-cue') ? [] : [element.getAttribute('data-control-id') || '?']
+      )
+      return { targetFailures, semanticKinds, missingStateCues }
+    })
+    targetFailures = semanticAudit.targetFailures
+    semanticKinds = semanticAudit.semanticKinds
+    missingStateCues = semanticAudit.missingStateCues
     const cells = await page.$$('[data-tp-id]')
     log(`${cells.length} panel cells`)
     for (const cell of cells) {
@@ -151,6 +170,9 @@ async function main() {
     generatedAt: new Date().toISOString(),
     cellsShot: shot.size,
     fitFailures,
+    targetFailures,
+    semanticKinds,
+    missingStateCues,
     pageErrors,
     categories: Object.fromEntries(Object.entries(groups).map(([k, v]) => [k, v.length]))
   }
@@ -160,11 +182,16 @@ async function main() {
   console.log(`  cells shot: ${shot.size}`)
   console.log(`  by category: ${Object.entries(report.categories).map(([k, v]) => `${k}=${v}`).join(', ')}`)
   console.log(`  label fit failures: ${fitFailures.length ? fitFailures.join(', ') : 'none ✓'}`)
+  console.log(`  sub-44px targets: ${targetFailures.length ? targetFailures.join(', ') : 'none ✓'}`)
+  console.log(`  semantic kinds: ${semanticKinds.join(', ')}`)
+  console.log(`  missing non-color cues: ${missingStateCues.length ? missingStateCues.join(', ') : 'none ✓'}`)
   console.log(`  page errors: ${pageErrors.length ? pageErrors.length : 'none ✓'}`)
   console.log(`  contact sheets → ${CONTACT}/`)
   console.log(`  report → ${REPORT}`)
   console.log('──────────────────────────────────────────\n')
-  if (pageErrors.length) process.exit(1)
+  const requiredKinds = ['momentary', 'latching-toggle', 'two-position-rocker', 'guarded-two-step', 'rotary', 'selector', 'status-led', 'value-tile']
+  const missingKinds = requiredKinds.filter((kind) => !semanticKinds.includes(kind))
+  if (pageErrors.length || targetFailures.length || missingStateCues.length || missingKinds.length) process.exit(1)
 }
 
 main().catch((err) => {

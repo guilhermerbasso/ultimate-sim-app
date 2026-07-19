@@ -1,0 +1,271 @@
+:root {
+  color: #edf7ff;
+  background: #07111d;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 280px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(118, 247, 189, 0.12), transparent 32rem),
+    linear-gradient(160deg, #07111d, #091827 55%, #06101a);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.receiver-shell {
+  width: min(920px, 100%);
+  margin: 0 auto;
+  padding: clamp(18px, 4vw, 40px);
+}
+
+.receiver-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.receiver-kicker {
+  margin: 0 0 6px;
+  color: #76f7bd;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+h1,
+h2 {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(1.8rem, 7vw, 3.2rem);
+}
+
+.receiver-state {
+  border: 1px solid rgba(154, 176, 202, 0.38);
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: #b8c7d8;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.receiver-state-live {
+  border-color: rgba(118, 247, 189, 0.6);
+  color: #76f7bd;
+}
+
+.receiver-state-blocked,
+.receiver-state-offline {
+  border-color: rgba(251, 113, 133, 0.65);
+  color: #fda4af;
+}
+
+.receiver-security,
+.receiver-error,
+.receiver-pair,
+.receiver-diagnostics {
+  border: 1px solid rgba(138, 164, 200, 0.26);
+  border-radius: 16px;
+  background: rgba(7, 17, 29, 0.82);
+}
+
+.receiver-security {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+}
+
+.receiver-security strong {
+  color: #76f7bd;
+}
+
+.receiver-security span {
+  color: #aebed0;
+  line-height: 1.45;
+}
+
+.receiver-error {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-color: rgba(251, 113, 133, 0.5);
+  color: #fecdd3;
+}
+
+.receiver-pair {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 16px;
+}
+
+.receiver-pair input {
+  min-height: 44px;
+  border: 1px solid rgba(138, 164, 200, 0.46);
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: #fff;
+  background: #07111d;
+}
+
+.receiver-pair button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 10px;
+  padding: 10px 16px;
+  color: #04110c;
+  background: #76f7bd;
+  font-weight: 900;
+}
+
+.receiver-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  transition: opacity 160ms ease;
+}
+
+.receiver-grid.is-stale {
+  opacity: 0.62;
+}
+
+.receiver-card {
+  min-height: 132px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  border: 1px solid rgba(138, 164, 200, 0.28);
+  border-radius: 18px;
+  padding: 18px;
+  background: linear-gradient(145deg, rgba(16, 35, 55, 0.94), rgba(7, 17, 29, 0.94));
+}
+
+.receiver-card span,
+.receiver-card small {
+  color: #9fb1c5;
+}
+
+.receiver-card strong {
+  font-size: clamp(1.7rem, 7vw, 3.2rem);
+  line-height: 1;
+}
+
+.receiver-card-primary {
+  border-color: rgba(118, 247, 189, 0.42);
+}
+
+.receiver-card-primary strong {
+  color: #76f7bd;
+}
+
+.receiver-flag-yellow strong {
+  color: #fde047;
+}
+
+.receiver-flag-red strong {
+  color: #fb7185;
+}
+
+.receiver-flag-blue strong {
+  color: #60a5fa;
+}
+
+.receiver-flag-green strong {
+  color: #4ade80;
+}
+
+.receiver-diagnostics {
+  margin-top: 16px;
+  padding: 18px;
+}
+
+.receiver-diagnostics h2 {
+  margin-bottom: 12px;
+  font-size: 1rem;
+}
+
+.receiver-diagnostics dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 18px;
+  margin: 0;
+}
+
+.receiver-diagnostics dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(138, 164, 200, 0.16);
+  padding: 8px 0;
+}
+
+.receiver-diagnostics dt {
+  color: #9fb1c5;
+}
+
+.receiver-diagnostics dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 700px) {
+  .receiver-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .receiver-diagnostics dl {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 420px) {
+  .receiver-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .receiver-state {
+    align-self: flex-start;
+  }
+
+  .receiver-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .receiver-card,
+  .receiver-security,
+  .receiver-error,
+  .receiver-pair,
+  .receiver-diagnostics {
+    border: 1px solid CanvasText;
+  }
+}

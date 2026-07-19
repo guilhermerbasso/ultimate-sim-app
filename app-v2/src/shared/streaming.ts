@@ -1,4 +1,6 @@
+import type { Dashboard } from './dashboards'
 import type { TelemetrySnapshot } from './telemetry'
+import type { ReceiverV2Status } from './receiver-v2'
 
 export const STREAMING_CHANNELS = {
   start: 'streaming:start',
@@ -6,7 +8,8 @@ export const STREAMING_CHANNELS = {
   status: 'streaming:status',
   selfTest: 'streaming:selftest',
   startTunnel: 'streaming:tunnel:start',
-  stopTunnel: 'streaming:tunnel:stop'
+  stopTunnel: 'streaming:tunnel:stop',
+  rotateReceiverPairing: 'streaming:receiver:pairing:rotate'
 } as const
 
 export type StreamingLayoutKind = 'dashboard' | 'touch'
@@ -15,6 +18,7 @@ export interface StreamingStartArgs {
   streamSafe?: boolean
   layoutId?: string
   layoutKind?: StreamingLayoutKind
+  presentationProfileId?: string
   port?: number
   lanEnabled?: boolean
   accessMode?: StreamingAccessMode
@@ -25,6 +29,17 @@ export interface StreamingStartArgs {
 }
 
 export type StreamingAccessMode = 'local' | 'lan' | 'internet'
+
+export const STREAMING_EXPRESSION_EXCLUSION_MESSAGE =
+  'Expression placements and resolved expression values are excluded from browser streaming.'
+
+export interface StreamingDashboardPayload {
+  dashboard: Dashboard
+  expressionContent: {
+    mode: 'excluded'
+    message: string
+  }
+}
 
 export interface StreamingStartResult {
   url: string
@@ -46,6 +61,8 @@ export interface StreamingStartResult {
   autoTunnelEnabled: boolean
   autoTunnelRunning: boolean
   autoTunnelMessage: string | null
+  receiverV2: ReceiverV2Status
+  presentationProfileId: string | null
 }
 
 export interface StreamingSelfTestResult {
@@ -53,7 +70,21 @@ export interface StreamingSelfTestResult {
   statusCode: number | null
   message: string
   url: string | null
+  stage: StreamingSelfTestStage
+  resourceCount?: number
 }
+
+export type StreamingSelfTestStage =
+  | 'server'
+  | 'document'
+  | 'session'
+  | 'assets'
+  | 'ping'
+  | 'authentication'
+  | 'target'
+  | 'receiver'
+  | 'sse'
+  | 'complete'
 
 export interface StreamingClientInfo {
   id: number
@@ -90,6 +121,8 @@ export interface StreamingStatus {
   autoTunnelEnabled: boolean
   autoTunnelRunning: boolean
   autoTunnelMessage: string | null
+  receiverV2: ReceiverV2Status
+  presentationProfileId: string | null
 }
 
 export interface StreamingTelemetryFrame {

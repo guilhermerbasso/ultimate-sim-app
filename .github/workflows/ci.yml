@@ -12,6 +12,33 @@ permissions:
   contents: read
 
 jobs:
+  contracts:
+    name: Contract checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+
+      - name: Setup Buf
+        uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1
+        with:
+          version: 1.71.0
+          checksum: d3de2838c68a5759ca276884254bc70df4e4ad185d6ed5f65f327b6ce6363eab
+          setup_only: true
+
+      - name: Verify Phase 02 contracts
+        env:
+          CONTRACT_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node scripts/verify-phase02-contracts.mjs
+
   app:
     name: App checks
     runs-on: windows-latest

@@ -1,8 +1,12 @@
 import { mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
-import { TelemetryRecorder } from './recorder'
+import {
+  TelemetryRecorder,
+  type TelemetryRecorderPersistence
+} from './recorder'
 
 const scratchDirs: string[] = []
 
@@ -53,48 +57,66 @@ function replaceFileWithDirectory(path: string): void {
   mkdirSync(path)
 }
 
+function persistenceWithRename(
+  renameFile: TelemetryRecorderPersistence['rename']
+): TelemetryRecorderPersistence {
+  return {
+    mkdir: (path) => mkdir(path, { recursive: true }).then(() => undefined),
+    writeFile: (path, payload) => writeFile(path, payload, 'utf8'),
+    rename: renameFile,
+    remove: (path) => rm(path, { force: true })
+  }
+}
+
 describe('TelemetryRecorder stop durability', () => {
-  it('clears failed metadata state and starts a clean replacement recording', async () => {
+  it('retains final metadata after a transient failure and retries without duplicate samples', async () => {
     const root = scratch('metadata-failure')
-    const recorder = new TelemetryRecorder(root)
+    let failNextRename = false
+    const recorder = new TelemetryRecorder(
+      root,
+      undefined,
+      persistenceWithRename(async (from, to) => {
+        if (failNextRename) {
+          failNextRename = false
+          throw new Error('transient rename failure')
+        }
+        await rename(from, to)
+      })
+    )
     const started = await recorder.start({ sampleRateHz: 15 })
     const failedSessionId = started.activeSession?.id
     expect(failedSessionId).toBeTruthy()
 
-    replaceFileWithDirectory(
-      join(root, 'recordings', failedSessionId as string, 'session.json')
-    )
-
-    await expect(recorder.stop()).rejects.toThrow('Recording metadata persistence failed')
-    expect(recorder.status()).toEqual({ recording: false, activeSession: null })
-
-    const restarted = await recorder.start({ sampleRateHz: 30 })
-    expect(restarted).toMatchObject({
-      recording: true,
-      activeSession: {
-        sampleRateHz: 30,
+    recorder.onSnapshot(snapshot('recording', 'Track A', 1_000))
+    const metadataPath = join(root, 'recordings', failedSessionId as string, 'session.json')
+    await vi.waitFor(() => {
+      expect(JSON.parse(readFileSync(metadataPath, 'utf8'))).toMatchObject({
         sampleCount: 0,
-        lapCount: 0,
-        laps: []
-      }
+        lapCount: 1
+      })
     })
-    const replacementSessionId = restarted.activeSession?.id
-    expect(replacementSessionId).toBeTruthy()
-    expect(replacementSessionId).not.toBe(failedSessionId)
+    failNextRename = true
+    await expect(recorder.stop()).rejects.toThrow('Recording metadata persistence failed')
+    expect(recorder.status()).toMatchObject({
+      recording: true,
+      activeSession: { id: failedSessionId, sampleCount: 1, endedAt: expect.any(Number) }
+    })
 
-    recorder.onSnapshot(snapshot('replacement', 'Track B', 2_000))
+    await expect(new TelemetryRecorder(root).listSessions()).resolves.toEqual([
+      expect.objectContaining({ id: failedSessionId, lapCount: 1 })
+    ])
+    const samplesPath = join(root, 'recordings', failedSessionId as string, 'samples.jsonl')
+    expect(readFileSync(samplesPath, 'utf8').trim().split('\n')).toHaveLength(1)
+
     await expect(recorder.stop()).resolves.toEqual({ recording: false, activeSession: null })
-
-    expect(JSON.parse(readFileSync(
-      join(root, 'recordings', replacementSessionId as string, 'session.json'),
-      'utf8'
-    ))).toMatchObject({
-      id: replacementSessionId,
+    expect(JSON.parse(readFileSync(metadataPath, 'utf8'))).toMatchObject({
+      id: failedSessionId,
       source: 'iracing',
       sampleCount: 1,
       lapCount: 1,
       endedAt: expect.any(Number)
     })
+    expect(readFileSync(samplesPath, 'utf8').trim().split('\n')).toHaveLength(1)
   })
 
   it('aggregates queued sample and final metadata durability failures', async () => {
@@ -137,6 +159,16 @@ describe('TelemetryRecorder stop durability', () => {
         message: expect.stringContaining('Recording metadata persistence failed')
       })
     ]))
+    expect(recorder.status()).toMatchObject({
+      recording: true,
+      activeSession: { id: sessionId, endedAt: expect.any(Number) }
+    })
+
+    rmSync(join(root, 'recordings', sessionId as string, 'session.json'), {
+      recursive: true,
+      force: true
+    })
+    await expect(recorder.stop()).rejects.toThrow('Recording I/O failed')
     expect(recorder.status()).toEqual({ recording: false, activeSession: null })
   })
 })

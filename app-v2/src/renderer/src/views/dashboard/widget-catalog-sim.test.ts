@@ -99,6 +99,11 @@ describe('catalog variants carry computed supportedSims', () => {
     expect(byId.get('ir-LFcoldPressure')?.supportedSims).toEqual(['iracing'])
     expect(byId.get('ir-StrengthOfField')?.supportedSims).toEqual(['iracing'])
   })
+
+  it('models composite hi-fi requirements as OR groups', () => {
+    expect(byId.get('hifi-alertShiftFlash')?.supportedSims).toEqual([...ALL_SIMS])
+    expect(byId.get('hifi-tyrePressure')?.supportedSims).toEqual(['acc', 'lmu'])
+  })
 })
 
 describe('filterVariants — per-yes facet (additive to search/category/style)', () => {
@@ -113,6 +118,8 @@ describe('filterVariants — per-yes facet (additive to search/category/style)',
     expect(ids.has('ir-Speed')).toBe(true) // speedKmh → every yes
     expect(ids.has('ir-StrengthOfField')).toBe(false) // standings → iRacing only
     expect(ids.has('ir-LFcoldPressure')).toBe(false) // cold pressure → iRacing only
+    expect(ids.has('hifi-alertShiftFlash')).toBe(true) // rpm + maxRpm fallback
+    expect(ids.has('hifi-tyrePressure')).toBe(false) // no live pressure in AMS2
     for (const v of ams2) expect(v.supportedSims).toContain('ams2')
   })
 
@@ -120,6 +127,7 @@ describe('filterVariants — per-yes facet (additive to search/category/style)',
     const ids = new Set(filterVariants(ALL_VARIANTS, { yes: 'iracing' }).map((v) => v.id))
     expect(ids.has('ir-StrengthOfField')).toBe(true)
     expect(ids.has('ir-LFcoldPressure')).toBe(true)
+    expect(ids.has('hifi-tyrePressure')).toBe(false)
   })
 
   it('intersects the yes facet with the category facet', () => {

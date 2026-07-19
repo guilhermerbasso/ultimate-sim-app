@@ -2,13 +2,15 @@
 
 import { Component, Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactElement, ReactNode, RefObject } from 'react'
+import type { AlertsConfig } from '../../../../shared/alerts'
 import type { Dashboard, DashboardPreset } from '../../../../shared/dashboards'
-import { DEFAULT_DASHBOARD_PRESET_PRIORITY, sortElementsByZ } from '../../../../shared/dashboards'
+import { sortElementsByZ } from '../../../../shared/dashboards'
 import { renderDashboardElement } from '../../dashboard/DashboardRoot'
 import { PREVIEW_SNAPSHOT } from '../../dashboard/widgets/gt3-theme'
 import { TagFilter, filterByTags } from '../../components/TagFilter'
 import { APP_SETTINGS_CHANGED_EVENT, resolveAppLanguage, type ResolvedLanguage } from '../../i18n'
 import type { AppSettings } from '../../../../shared/settings'
+import { compareCatalogEntries } from '../../../../shared/catalog-order'
 import '../../overlay/overlay-view.css'
 
 const ACCENT = 'var(--accent-primary)'
@@ -20,10 +22,6 @@ export type PresetEntry = DashboardPreset
 
 const THUMB_W = 248
 const THUMB_H = 140
-
-function presetPriority(entry: PresetEntry): number {
-  return Number.isFinite(entry.priority) ? entry.priority as number : DEFAULT_DASHBOARD_PRESET_PRIORITY
-}
 
 class PresetThumbBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -63,7 +61,15 @@ function usePreviewVisible(): [RefObject<HTMLDivElement | null>, boolean] {
   return [ref, visible]
 }
 
-function PresetThumb({ dash }: { dash: Dashboard }): ReactElement {
+function PresetThumb({
+  dash,
+  showTriggerOnlyActive,
+  alertsConfig
+}: {
+  dash: Dashboard
+  showTriggerOnlyActive: boolean
+  alertsConfig?: AlertsConfig
+}): ReactElement {
   const safeWidth = Math.max(1, dash.width)
   const safeHeight = Math.max(1, dash.height)
   const scale = Math.min(THUMB_W / safeWidth, THUMB_H / safeHeight)
@@ -93,7 +99,13 @@ function PresetThumb({ dash }: { dash: Dashboard }): ReactElement {
                 .filter((element) => element.visible !== false)
                 .map((element) => (
                   <Fragment key={element.id}>
-                    {renderDashboardElement({ element, snapshot: PREVIEW_SNAPSHOT, preview: 'inert' })}
+                    {renderDashboardElement({
+                      element,
+                      snapshot: PREVIEW_SNAPSHOT,
+                      preview: 'inert',
+                      alertsConfig,
+                      forceTriggerActive: showTriggerOnlyActive
+                    })}
                   </Fragment>
                 ))}
             </PresetThumbBoundary>
@@ -104,13 +116,29 @@ function PresetThumb({ dash }: { dash: Dashboard }): ReactElement {
   )
 }
 
-function PresetCard({ entry, busy, onPick }: { entry: PresetEntry; busy?: boolean; onPick(id: string): void }): ReactElement {
+function PresetCard({
+  entry,
+  busy,
+  onPick,
+  showTriggerOnlyActive,
+  alertsConfig
+}: {
+  entry: PresetEntry
+  busy?: boolean
+  onPick(id: string): void
+  showTriggerOnlyActive: boolean
+  alertsConfig?: AlertsConfig
+}): ReactElement {
   const dash = useMemo(() => entry.build(), [entry])
   const isGt3 = entry.tags?.includes('GT3')
   const isAdaptive = entry.tags?.includes('adaptive')
   return (
     <div style={cardStyle}>
-      <PresetThumb dash={dash} />
+      <PresetThumb
+        dash={dash}
+        showTriggerOnlyActive={showTriggerOnlyActive}
+        alertsConfig={alertsConfig}
+      />
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8 }}>
         {isAdaptive && <span style={adaptiveBadge}>Adaptive</span>}
         {isGt3 && <span style={gt3Badge}>GT3</span>}
@@ -141,11 +169,15 @@ function PresetCard({ entry, busy, onPick }: { entry: PresetEntry; busy?: boolea
 export function PresetGallery({
   presets,
   busy,
-  onPick
+  onPick,
+  showTriggerOnlyActive = false,
+  alertsConfig
 }: {
   presets: PresetEntry[]
   busy?: boolean
   onPick(id: string): void
+  showTriggerOnlyActive?: boolean
+  alertsConfig?: AlertsConfig
 }): ReactElement {
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   // Resolve language via DOM attribute + events only — no IPC — so inert previews stay silent.
@@ -161,10 +193,7 @@ export function PresetGallery({
     return () => window.removeEventListener(APP_SETTINGS_CHANGED_EVENT, onSettingsChanged)
   }, [])
   const orderedPresets = useMemo(
-    () => presets
-      .map((preset, index) => ({ preset, index }))
-      .sort((a, b) => presetPriority(a.preset) - presetPriority(b.preset) || a.index - b.index)
-      .map(({ preset }) => preset),
+    () => [...presets].sort(compareCatalogEntries),
     [presets]
   )
   const filtered = useMemo(() => filterByTags(orderedPresets, selectedTags, (preset) => preset.tags), [orderedPresets, selectedTags])
@@ -180,7 +209,14 @@ export function PresetGallery({
       />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(264px, 1fr))', gap: 12 }}>
         {filtered.map((p) => (
-          <PresetCard key={p.id} entry={p} busy={busy} onPick={onPick} />
+          <PresetCard
+            key={p.id}
+            entry={p}
+            busy={busy}
+            onPick={onPick}
+            showTriggerOnlyActive={showTriggerOnlyActive}
+            alertsConfig={alertsConfig}
+          />
         ))}
       </div>
     </div>

@@ -15,7 +15,7 @@ describe('iRacing telemetry provider parsing', () => {
       DriverInfo: {
         DriverCarIdx: 1,
         Drivers: [
-          { CarIdx: 0, UserName: 'Ahead Driver', CarNumber: '12', CarClassID: 7, CarClassShortName: 'GT3', CarClassColor: '49c5b1', IRating: 3200, LicString: 'A 4.99', UserID: 100 },
+          { CarIdx: 0, UserName: 'Ahead Driver', CarNumber: '12', CarClassID: 7, CarClassShortName: 'GT3', CarClassColor: '49c5b1', IRating: 3200, LicString: 'A 4.99', UserID: 100, CarIsPaceCar: 1 },
           { CarIdx: 1, UserName: 'Player Driver', CarNumber: '7', CarClassID: 7, CarClassShortName: 'GT3', CarClassColor: '49c5b1', IRating: 3000, LicString: 'A 4.50', UserID: 101 },
           { CarIdx: 2, UserName: 'Behind Driver', CarNumber: '3', CarClassID: 7, CarClassShortName: 'GT3', CarClassColor: '49c5b1', IRating: 2800, LicString: 'B 3.80', UserID: 102 }
         ]
@@ -52,7 +52,7 @@ describe('iRacing telemetry provider parsing', () => {
       CarIdxPaceRow: [1, 2, 3]
     }, statics)
 
-    expect(drivers?.[0]).toMatchObject({ name: 'Ahead Driver', position: 1, classPosition: 1, gapToPlayerSec: 2, relativeTimeSec: 2, completedLaps: 9, estimatedTimeSec: 84, gear: 5, rpm: 7100, trackLocation: 3, trackSurfaceMaterial: 1, bestLapTimeSec: 89.8, bestLapNum: 7, pushToPassActive: false, pushToPassCount: 3, paceLine: 0, paceRow: 1, isPlayer: false })
+    expect(drivers?.[0]).toMatchObject({ name: 'Ahead Driver', position: 1, classPosition: 1, gapToPlayerSec: 2, relativeTimeSec: 2, completedLaps: 9, estimatedTimeSec: 84, gear: 5, rpm: 7100, trackLocation: 3, trackSurfaceMaterial: 1, bestLapTimeSec: 89.8, bestLapNum: 7, pushToPassActive: false, pushToPassCount: 3, paceLine: 0, paceRow: 1, isPlayer: false, isPaceCar: true })
     expect(drivers?.[1]).toMatchObject({ name: 'Player Driver', position: 2, classPosition: 2, gapToPlayerSec: 0, relativeTimeSec: 0, pushToPassActive: true, paceFlags: ['freePass'], isPlayer: true })
     expect(drivers?.[2]).toMatchObject({ name: 'Behind Driver', position: 3, classPosition: 3, gapToPlayerSec: -2, relativeTimeSec: -2, inPits: true, paceFlags: ['endOfLine'] })
   })
@@ -93,6 +93,36 @@ describe('iRacing telemetry provider parsing', () => {
 
     expect(setup).toMatchObject({ firstRpm: 6000, shiftRpm: 7600, lastRpm: 7800, blinkRpm: 7900, fuelCapacityLiters: 100 })
     expect(__iracingTelemetryTest.revLights(7900, setup)).toMatchObject({ pct: 1, blink: true })
+  })
+
+  it('preserves the live GR86 DriverCarSL values without a hardcoded profile', () => {
+    const setup = __iracingTelemetryTest.driverCarSetup({
+      DriverInfo: {
+        DriverCarSLFirstRPM: 6130,
+        DriverCarSLShiftRPM: 6690,
+        DriverCarSLLastRPM: 6800,
+        DriverCarSLBlinkRPM: 7210,
+        DriverCarRedLine: 7500
+      }
+    })
+
+    expect(setup).toMatchObject({
+      firstRpm: 6130,
+      shiftRpm: 6690,
+      lastRpm: 6800,
+      blinkRpm: 7210,
+      redlineRpm: 7500
+    })
+    expect(__iracingTelemetryTest.shiftBand(6130, setup, setup.redlineRpm)).toMatchObject({ pct: 0, blink: false })
+    expect(__iracingTelemetryTest.shiftBand(6690, setup, setup.redlineRpm)).toMatchObject({ pct: 1, blink: true })
+    expect(__iracingTelemetryTest.shiftBand(6800, setup, setup.redlineRpm)).toMatchObject({ pct: 1, blink: true })
+    expect(__iracingTelemetryTest.shiftBand(7210, setup, setup.redlineRpm)).toMatchObject({ pct: 1, blink: true })
+  })
+
+  it('rejects a zero YAML redline so live PlayerCarRedLine can remain the fallback', () => {
+    expect(__iracingTelemetryTest.driverCarSetup({
+      DriverInfo: { DriverCarRedLine: 0 }
+    }).redlineRpm).toBeUndefined()
   })
 })
 
@@ -166,7 +196,7 @@ describe('iRacing shift-light band (shiftBand)', () => {
   it('forces the live fallback fill to FULL at the over-rev RPM even if ShiftIndicatorPct caps below 1.0', () => {
     // Only the LIVE path (no SL band) can cap below 1.0. A car that drives
     // ShiftIndicatorPct but caps it at 0.9 must still hit 1.0 at/after its blink RPM so
-    // the pct≥0.97 shift-now triggers fire. Top-only clamp at a real per-car RPM.
+    // configured shift-now thresholds can fire. Top-only clamp at a real per-car RPM.
     const noSl = { blinkRpm: 7900 } // blink RPM present, but no First/Shift band → live path
     const r = __iracingTelemetryTest.shiftBand(8000, noSl, 8000, 0.9) // 8000 ≥ blink 7900
     expect(r).toMatchObject({ pct: 1, blink: true, source: 'iracing-live' })
@@ -286,6 +316,21 @@ describe('iRacing cold tyre pressures (coldPressures)', () => {
   it('returns undefined when no cold-pressure var is present', () => {
     expect(__iracingTelemetryTest.coldPressures({ Speed: 50 })).toBeUndefined()
   })
+
+  it('never copies garage cold pressure into generic live tyre pressure', () => {
+    expect(__iracingTelemetryTest.tyreTemps({
+      LFtempCL: 80,
+      LFtempCM: 82,
+      LFtempCR: 84,
+      LFcoldPressure: 138
+    })?.lf.pressureKpa).toBeUndefined()
+    expect(__iracingTelemetryTest.tyreTemps({
+      LFcoldPressure: 138,
+      RFcoldPressure: 140,
+      LRcoldPressure: 135,
+      RRcoldPressure: 137
+    })).toBeUndefined()
+  })
 })
 
 // ─── New iRacing channels: end-to-end var → snapshot mapping through poll() ──────
@@ -302,6 +347,42 @@ function pollWith(values: Record<string, unknown>, sessionInfo: unknown = undefi
   ;(provider as unknown as { mmf: unknown }).mmf = stubMmf
   ;(provider as unknown as { started: boolean }).started = true
   return provider.poll()
+}
+
+function fuelPoller(initialValues: Record<string, unknown>) {
+  let values: Record<string, unknown> = {
+    Speed: 50,
+    RPM: 7000,
+    Gear: 3,
+    FuelUsePerHour: 36,
+    LapLastLapTime: 100,
+    IsReplayPlaying: false,
+    ReplaySessionNum: -1,
+    ReplayFrameNum: 100,
+    ReplayFrameNumEnd: 0,
+    SessionTime: 100,
+    ReplaySessionTime: 100,
+    SessionUniqueID: 44,
+    SessionNum: 0,
+    ...initialValues
+  }
+  const provider = new IRacingProvider()
+  ;(provider as unknown as { mmf: unknown }).mmf = {
+    start() {},
+    stop() {},
+    isOpen: () => true,
+    isConnected: () => true,
+    read: (): StubReadResult => ({
+      values,
+      sessionInfo: { WeekendInfo: { SimMode: 'full', SessionID: 10 } },
+      sessionInfoYaml: ''
+    })
+  }
+  ;(provider as unknown as { started: boolean }).started = true
+  return (nextValues: Record<string, unknown> = {}) => {
+    values = { ...values, ...nextValues }
+    return provider.poll()
+  }
 }
 
 // Like pollWith but drives the SAME provider across several polls with an advancing clock,
@@ -333,6 +414,57 @@ function pollSustained(
 }
 
 describe('iRacing new-channel snapshot mapping (poll)', () => {
+  it('publishes raw GR86 shift metadata while preferring positive DriverCarRedLine for maxRpm', () => {
+    const sessionInfo = {
+      DriverInfo: {
+        DriverCarSLFirstRPM: 6130,
+        DriverCarSLShiftRPM: 6690,
+        DriverCarSLLastRPM: 6800,
+        DriverCarSLBlinkRPM: 7210,
+        DriverCarRedLine: 7500
+      }
+    }
+    const snap = pollWith({
+      Speed: 40,
+      RPM: 6690,
+      Gear: 3,
+      PlayerCarRedLine: 6800,
+      ShiftIndicatorPct: 0.2
+    }, sessionInfo)
+
+    expect(snap).toMatchObject({
+      maxRpm: 7500,
+      shiftRpm: 6690,
+      shiftIndicatorPct: 1,
+      revLights: {
+        firstRpm: 6130,
+        shiftRpm: 6690,
+        lastRpm: 6800,
+        blinkRpm: 7210,
+        pct: 1,
+        blink: true
+      }
+    })
+  })
+
+  it.each([
+    [0, 0, false],
+    [1, 1, false],
+    [2, 2, true],
+    [3, 3, true],
+    [7, undefined, true]
+  ] as const)('normalizes DRS_Status=%s without changing the legacy boolean', (raw, state, legacy) => {
+    const snap = pollWith({ Speed: 50, RPM: 7000, Gear: 3, DRS_Status: raw })
+    expect(snap?.drsState).toBe(state)
+    expect(snap?.drs).toBe(legacy)
+  })
+
+  it('preserves the legacy DRS_Active fallback when DRS_Status is absent', () => {
+    const snap = pollWith({ Speed: 50, RPM: 7000, Gear: 3, DRS_Active: true })
+    expect(snap?.drsState).toBeUndefined()
+    expect(snap?.drs).toBe(true)
+  })
+
   it('maps every new field from its verified irSDK var', () => {
     const snap = pollWith({
       Speed: 50, RPM: 7000, Gear: 3,
@@ -361,6 +493,7 @@ describe('iRacing new-channel snapshot mapping (poll)', () => {
     expect(snap?.sessionTimeOfDay).toBe(3661)
     expect(snap?.pit).toEqual({ repairNeeded: true, optRepairNeeded: false, pitsOpen: true, inPitStall: false, svStatus: 1 })
     expect(snap?.tireColdPressuresKpa).toEqual({ lf: 138, rf: 140, lr: 135, rr: 137 })
+    expect(snap?.tyres).toBeUndefined()
   })
 
   it('falls back to P2P_Status for pushToPass when PushToPass is absent', () => {
@@ -506,6 +639,87 @@ describe('iRacing B2 channels (ABS/TC fix + SDK-gap fields) snapshot mapping', (
 })
 
 describe('iRacing remaining widget-channel snapshot mapping', () => {
+  it('keeps engineMap separate from throttleMap and hides unsupported fallbacks', () => {
+    const throttleOnly = pollWith({
+      Speed: 50,
+      RPM: 7000,
+      Gear: 3,
+      dcThrottleShape: 4,
+      dcBoostLevel: 5
+    })
+    expect(throttleOnly?.throttleMap).toBe(4)
+    expect(throttleOnly?.engineMap).toBeUndefined()
+
+    const mapped = pollWith({
+      Speed: 50,
+      RPM: 7000,
+      Gear: 3,
+      dcThrottleShape: 4,
+      dcFuelMixture: 2
+    })
+    expect(mapped).toMatchObject({ throttleMap: 4, engineMap: 2 })
+
+    expect(pollWith({
+      Speed: 50,
+      RPM: 7000,
+      Gear: 3,
+      dcFuelMixture: '',
+      dcEnginePower: 3
+    })?.engineMap).toBe(3)
+  })
+
+  it('discards the first transition after attach before sampling a full lap', () => {
+    const poll = fuelPoller({ Lap: 4, FuelLevel: 20 })
+    const first = poll()
+    expect(first?.fuelPerLapKg).toBeCloseTo(1, 5)
+    expect(first?.fuelPerLapLiters).toBeUndefined()
+    expect(first?.fuelLapsRemaining).toBeUndefined()
+    expect(first?.fuelPerLap).toBeUndefined()
+
+    const firstTransition = poll({ Lap: 5, FuelLevel: 18.8 })
+    expect(firstTransition?.fuelPerLapLiters).toBeUndefined()
+    expect(firstTransition?.fuelLapsRemaining).toBeUndefined()
+
+    const second = poll({ Lap: 6, FuelLevel: 16.8 })
+    expect(second?.fuelPerLapKg).toBeCloseTo(1, 5)
+    expect(second?.fuelPerLapLiters).toBeCloseTo(2, 5)
+    expect(second?.fuelPerLap).toBeCloseTo(2, 5)
+    expect(second?.fuelLapsRemaining).toBeCloseTo(8.4, 5)
+  })
+
+  it('discards a boundary-to-boundary lap containing an observed refuel', () => {
+    const poll = fuelPoller({ Lap: 4, FuelLevel: 20 })
+    poll()
+    poll({ Lap: 5, FuelLevel: 18 })
+    poll({ Lap: 5, FuelLevel: 17 })
+    poll({ Lap: 5, FuelLevel: 25 })
+
+    const refueledLap = poll({ Lap: 6, FuelLevel: 23 })
+    expect(refueledLap?.fuelPerLapLiters).toBeUndefined()
+    expect(refueledLap?.fuelLapsRemaining).toBeUndefined()
+
+    const cleanLap = poll({ Lap: 7, FuelLevel: 21 })
+    expect(cleanLap?.fuelPerLapLiters).toBeCloseTo(2, 5)
+    expect(cleanLap?.fuelLapsRemaining).toBeCloseTo(10.5, 5)
+  })
+
+  it('discards a lap when the refuel first appears at the boundary', () => {
+    const poll = fuelPoller({ Lap: 4, FuelLevel: 24 })
+    poll()
+    poll({ Lap: 5, FuelLevel: 22 })
+    const firstCleanLap = poll({ Lap: 6, FuelLevel: 20 })
+    expect(firstCleanLap?.fuelPerLapLiters).toBeCloseTo(2, 5)
+    poll({ Lap: 6, FuelLevel: 10 })
+
+    const boundaryRefuel = poll({ Lap: 7, FuelLevel: 17 })
+    expect(boundaryRefuel?.fuelPerLapLiters).toBeCloseTo(2, 5)
+    expect(boundaryRefuel?.fuelLapsRemaining).toBeCloseTo(8.5, 5)
+
+    const cleanLap = poll({ Lap: 8, FuelLevel: 15 })
+    expect(cleanLap?.fuelPerLapLiters).toBeCloseTo(2, 5)
+    expect(cleanLap?.fuelLapsRemaining).toBeCloseTo(7.5, 5)
+  })
+
   it('maps scalar, replay, pit, weather, setup, vector, and map fields without inventing defaults', () => {
     const snap = pollWith({
       Speed: 50,
@@ -579,12 +793,13 @@ describe('iRacing remaining widget-channel snapshot mapping', () => {
   it('keeps every new optional channel undefined when the SDK omits it', () => {
     const snap = pollWith({ Speed: 50, RPM: 7000, Gear: 3 })
     const fields = [
-      'velocityZ', 'throttleMap', 'engineBraking', 'antiRollFront', 'antiRollRear',
+      'velocityZ', 'engineMap', 'throttleMap', 'engineBraking', 'antiRollFront', 'antiRollRear',
       'weightJackerRight', 'sessionNumber', 'sessionTimeSec', 'completedLaps',
       'lapDistanceM', 'bestNLapLap', 'bestNLapTimeSec', 'onTrack', 'cameraCarIdx',
       'replayPlaying', 'replayFrameNum', 'replayFrameEnd', 'pitTyreTargetsKpa',
       'pitFuelToAddL', 'repairTimeSec', 'optionalRepairTimeSec', 'pitStopActive',
-      'precipitationPct', 'airDensityKgM3', 'airPressureKpa', 'airPressureHg', 'weatherType', 'trackLengthKm'
+      'precipitationPct', 'airDensityKgM3', 'airPressureKpa', 'airPressureHg', 'weatherType', 'trackLengthKm',
+      'fuelPerLapLiters', 'fuelLapsRemaining'
     ] as const
     for (const field of fields) expect(snap?.[field]).toBeUndefined()
   })

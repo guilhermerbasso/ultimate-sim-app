@@ -118,7 +118,7 @@ export async function settleBoundedTeardownOperation(
       // Error reporting must not prevent the remaining teardown stages.
     }
   } finally {
-    if (timeout) clearTimeout(timeout)
+    if (timeout !== null) clearTimeout(timeout)
   }
 }
 

@@ -1,6 +1,6 @@
 import { type ReactElement } from 'react'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
-import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, frac, gearLabel, lapTime, legibleStroke, num, revFill, signed } from '../kit'
+import { C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, ShiftStrobe, atShiftPoint, condColor, fixed, gearLabel, lapTime, legibleStroke, num, resolveRevLightPct, revFill, signed } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'
 
 const DASH_W = 1024
@@ -14,12 +14,15 @@ const RECESS = '#161616'
 const TAGS = ['porsche', 'porsche-911-gt3-cup', 'gt3-cup', 'car', 'ir'] as const
 
 function shiftFrac(snapshot: HifiWidgetProps['snapshot']): { f: number; missing: boolean; flash: boolean } {
-  const pct = num(snapshot?.shiftIndicatorPct)
-  if (pct != null) return { f: frac(pct, 0, 1), missing: false, flash: pct >= 0.96 || snapshot?.revLights?.blink === true }
   const rpm = num(snapshot?.rpm)
   const max = num(snapshot?.maxRpm)
-  if (rpm != null && max != null && max > 0) return { f: frac(rpm, 0, max), missing: false, flash: rpm >= max * 0.96 }
-  return { f: 0, missing: true, flash: false }
+  const missing =
+    snapshot == null ||
+    (num(snapshot.shiftIndicatorPct) == null &&
+      num(snapshot.revLights?.pct) == null &&
+      !(rpm != null && max != null && max > 0))
+  const f = resolveRevLightPct(snapshot)
+  return { f, missing, flash: !missing && atShiftPoint(f, snapshot?.revLights?.blink, 0.96) }
 }
 
 function segmentColor(i: number, count: number): string {
@@ -47,7 +50,7 @@ function SegmentRevBar({
   dim?: string
 }): ReactElement {
   const { f, missing, flash } = shiftFrac(snapshot)
-  const shift = atShiftPoint(f)
+  const shift = atShiftPoint(f, snapshot?.revLights?.blink)
   const lit = shift ? count : missing ? 0 : Math.round(f * count)
   const gap = Math.max(3, w * 0.004)
   const cell = (w - gap * (count - 1)) / count
@@ -93,19 +96,19 @@ function PcupDash({ snapshot, width, height, unitSystem = 'metric' }: HifiWidget
     <CleanTile width={width ?? DASH_W} height={height ?? DASH_H}>
       <rect width={DASH_W} height={DASH_H} fill={DARK} />
       <SegmentRevBar snapshot={snapshot} x={40} y={30} w={944} h={52} count={20} dim="#080808" />
-      <text x={512} y={360} textAnchor="middle" fill={gear == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={270} {...legibleStroke(270)}>{gearLabel(gear)}</text>
-      <text x={512} y={458} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={84} {...legibleStroke(84)}>{speedReading.display}</text>
-      <text x={512} y={492} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={600} fontSize={27} letterSpacing={1} {...legibleStroke(27)}>{speedReading.unit}</text>
-      <rect x={18} y={510} width={988} height={1.8} fill={WHITE} opacity={0.95} />
-      <text x={46} y={558} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={700} fontSize={38} letterSpacing={2} {...legibleStroke(38)}>FUEL</text>
-      <text x={230} y={558} textAnchor="end" fill={fuel == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={44} {...legibleStroke(44)}>{fuelReading.display}</text>
-      <text x={256} y={558} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={600} fontSize={28} {...legibleStroke(28)}>{fuelReading.unit}</text>
-      <text x={46} y={596} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={700} fontSize={38} letterSpacing={2} {...legibleStroke(38)}>OIL</text>
-      <text x={230} y={596} textAnchor="end" fill={oil == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={44} {...legibleStroke(44)}>{oilReading.display}</text>
-      <text x={256} y={596} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={600} fontSize={28} {...legibleStroke(28)}>{oilReading.unit}</text>
-      <text x={790} y={552} textAnchor="end" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={700} fontSize={38} letterSpacing={2} {...legibleStroke(38)}>LAP</text>
-      <text x={972} y={552} textAnchor="end" fill={lap === '—' ? C.dim : WHITE} fontFamily={FONT_NUM} fontWeight={400} fontSize={38} {...legibleStroke(38)}>{lap}</text>
-      <text x={973} y={599} textAnchor="end" fill={delta == null ? C.dim : RED} fontFamily={FONT_BIG} fontWeight={400} fontSize={54} {...legibleStroke(54)}>{signed(delta, 2)}</text>
+      <text x={512} y={300} textAnchor="middle" fill={gear == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={220} {...legibleStroke(220)}>{gearLabel(gear)}</text>
+      <text x={512} y={445} textAnchor="middle" fill={speed == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={68} {...legibleStroke(68)}>{speedReading.display}</text>
+      <text x={512} y={493} textAnchor="middle" fill={WHITE} fontFamily={FONT_LABEL} fontWeight={600} fontSize={24} letterSpacing={1} {...legibleStroke(24)}>{speedReading.unit}</text>
+      <rect x={18} y={506} width={988} height={1.8} fill={WHITE} opacity={0.95} />
+      <text x={48} y={543} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={700} fontSize={24} letterSpacing={2} {...legibleStroke(24)}>FUEL</text>
+      <text x={300} y={543} textAnchor="end" fill={fuel == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={30} {...legibleStroke(30)}>{fuelReading.display}</text>
+      <text x={322} y={543} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={600} fontSize={20} {...legibleStroke(20)}>{fuelReading.unit}</text>
+      <text x={48} y={588} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={700} fontSize={24} letterSpacing={2} {...legibleStroke(24)}>OIL</text>
+      <text x={300} y={588} textAnchor="end" fill={oil == null ? C.dim : WHITE} fontFamily={FONT_BIG} fontWeight={400} fontSize={30} {...legibleStroke(30)}>{oilReading.display}</text>
+      <text x={322} y={588} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={600} fontSize={20} {...legibleStroke(20)}>{oilReading.unit}</text>
+      <text x={660} y={543} fill={WHITE} fontFamily={FONT_LABEL} fontWeight={700} fontSize={24} letterSpacing={2} {...legibleStroke(24)}>LAP</text>
+      <text x={974} y={543} textAnchor="end" fill={lap === '—' ? C.dim : WHITE} fontFamily={FONT_NUM} fontWeight={400} fontSize={30} {...legibleStroke(30)}>{lap}</text>
+      <text x={974} y={588} textAnchor="end" fill={delta == null ? C.dim : RED} fontFamily={FONT_BIG} fontWeight={400} fontSize={34} {...legibleStroke(34)}>{signed(delta, 2)}</text>
     </CleanTile>
   )
 }

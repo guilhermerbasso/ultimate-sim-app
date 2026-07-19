@@ -6,6 +6,100 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
+## 2.54.0 — managed streaming, secure Internet sharing, and offline Mission Rehearsal
+
+### Added
+- **User-managed Streaming targets** in a dedicated Streaming area, with persistent dashboard and
+  Touch Controls profiles. Edited dashboard copies remain selectable after migration and restart.
+- **Offline Mission Rehearsal** with branching scenarios, assigned roles, checkpoints, resumable
+  runs, repeat comparisons, and scored blameless debriefs.
+
+### Changed
+- Internet streaming can start the bundled, checksum-verified Cloudflare quick tunnel automatically,
+  establish the authenticated viewer session, report receiver health, and recover with bounded
+  retries without changing local or LAN streaming.
+- Mission Rehearsal synthetic events are isolated from live telemetry and real session history, and
+  rehearsal decisions cannot actuate live race controls.
+
+## 2.53.1 — SerialPort startup hotfix
+
+### Fixed
+- Restored packaged-app startup on Windows by routing `serialport` through an ASAR-aware CommonJS
+  `createRequire` bridge instead of Electron's failing ESM package resolution.
+- Added Windows package verification that inspects the packaged main bundle and runs a packaged
+  Electron resolver smoke test before release assets can be accepted.
+
+## 2.53.0 — restart-safe dashboards, telemetry truth, and governed visual foundations
+
+### Added
+- **Dashboard storage health and recovery diagnostics** with canonical validation, legacy identity
+  migration, byte-preserving quarantine for invalid files, duplicate/version resolution, and
+  renderer error containment.
+- **Phase 02 dashboard portfolio foundation** with exactly 50 immutable briefs across 10 families,
+  deterministic processing order, controlled tags, research sources, telemetry requirements, and
+  per-dashboard image-prompt constraints.
+- **Dashboard differentiation gate** with canonical structural fingerprints, a hard clone-rejection
+  threshold, anti-evasion checks, and pair-scoped perceptual evidence across eight governed
+  telemetry states.
+- **Governed telemetry registry** for 143 ordinary concepts: 142 currently visualizable, 141 using
+  the existing three-variant framework, one dedicated shift-light implementation, one explicitly
+  unsupported opponent-steering concept, and 45 separate trigger-only families.
+
+### Changed
+- Fuel range and fuel-to-finish calculations are litre-canonical. Startup, partial, and refuelling
+  laps are excluded from consumption samples.
+- Engine map and throttle map remain distinct, iRacing garage cold pressure is not exposed as live
+  tyre pressure, and Shift Point uses native shift state or RPM/max-RPM while honoring disabled
+  policies and simulator coverage.
+- Alert configuration updates are serialized, and configured trigger behavior is shared
+  consistently by alerts, overlays, dashboards, and widgets.
+- Persisted dashboard restoration separates newest-wins configuration hydration from
+  emission-ordered telemetry reconnect handling and uses monotonic revisions that tolerate
+  future-dated files or clock rollback.
+
+### Fixed
+- Saved dashboard windows, including `overlaywidget` compositions, no longer reopen as black
+  windows after an app restart.
+- Dashboard replacement and queued open/close/delete/save operations are atomic and race-safe
+  across load failures and renderer crashes.
+
+### In development
+- The separate Phase 02 production program targets **50 newly produced dashboards and 16,600
+  individually evidenced visual artifacts**. Version 2.53.0 ships the portfolio, registry, and
+  quality gates, not those generated images or dashboard outputs.
+
+## 2.52.0 — semantic controls, expression destinations, secure streaming, and synchronized speech
+
+### Added
+- **Touch Controls schema v2** with momentary, latching toggle, two-position rocker, guarded
+  two-step, rotary, selector, status-LED, and value-tile controls. Controls support
+  expression-driven active/pressed/disabled/warning/value states and accessible interaction.
+- **Expression Studio visualization destinations** for placing expressions or mapped iRacing
+  variables on a selected dashboard or custom overlay as a value, bar, gauge, or status.
+- **Trigger-only overlay lifecycle** with rising/falling edges, pulses, TTL windows, preview
+  isolation, DRS state normalization, and replay/session/connection reset boundaries.
+- **Streaming resource graph verification** for packaged HTML, JavaScript, CSS, dynamic imports,
+  preloads, and nested assets.
+
+### Changed
+- Streaming viewer sessions are HttpOnly, authentication attempts are throttled, token bootstrap
+  cannot evict authenticated viewers, public Internet mode requires active HTTPS, and browser
+  Touch Controls fail closed.
+- Expression imports are transaction-safe and revision-checked; legacy route state, deletion
+  tombstones, unsaved drafts, and newest duplicate output values are preserved.
+- Touch holds and latches are owned per pointer and renderer generation, with cleanup on unmount,
+  close, reload, navigation, renderer loss, live semantic edits, disabled-state transitions, and
+  app teardown.
+- Newly released overlays, widgets, and dashboards sort ahead of older catalog entries.
+
+### Fixed
+- Spotter, Live Coach, deterministic/proactive Engineer, voice previews, and Stint Debrief now
+  compose spoken text and language atomically. Language changes cancel current speech, queues,
+  recognition, and stale Engineer generations.
+- Steady green is treated as normal running and no longer activates race-control alert overlays.
+- Nineteen release-blocking widget layouts no longer clip, overlap, or overflow in the validated
+  telemetry states.
+
 ## 2.47.0 — per-car themed telemetry widgets, car-fidelity images, more i18n
 
 ### Added

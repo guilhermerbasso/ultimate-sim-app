@@ -2,8 +2,15 @@ import type { OledDashboardConfig } from '../../shared/oled'
 import type { ModuleContext } from '../module-context'
 import { OledDashboardEngine } from '../oled/engine'
 
+let liveEngine: OledDashboardEngine | null = null
+
+export function getOledDashboardEngine(): OledDashboardEngine | null {
+  return liveEngine
+}
+
 export function register(ctx: ModuleContext): void {
   const engine = new OledDashboardEngine(ctx)
+  liveEngine = engine
   void engine.initialize().catch((error) => {
     console.error('[oled-dashboard] Failed to initialize:', error)
   })
@@ -17,5 +24,6 @@ export function register(ctx: ModuleContext): void {
 
   ctx.app.once('before-quit', () => {
     void engine.dispose()
+    if (liveEngine === engine) liveEngine = null
   })
 }

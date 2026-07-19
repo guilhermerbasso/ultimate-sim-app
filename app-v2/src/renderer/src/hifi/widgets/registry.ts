@@ -5,6 +5,15 @@
 // agents only edit their own `<group>/index.ts`.
 import type { HifiWidgetModule } from './types'
 import { mergeTags } from '../../../../shared/tags'
+import {
+  RELEASE_A_CATALOG_ORDER,
+  RELEASE_A_RELEASED_AT,
+  RELEASE_A_TAG
+} from '../../../../shared/catalog-order'
+import {
+  overlayTriggerTags,
+  semanticTriggerForHifiModule
+} from '../../../../shared/overlays'
 import { INPUTS_WIDGETS } from './inputs'
 import { DRIVE_WIDGETS } from './drive'
 import { TIMING_WIDGETS } from './timing'
@@ -76,7 +85,7 @@ export const HIFI_WIDGET_GROUPS = {
 } as const
 
 /** Every hi-fi per-telemetry widget/overlay. */
-export const HIFI_WIDGETS: HifiWidgetModule[] = [
+const RAW_HIFI_WIDGETS: HifiWidgetModule[] = [
   ...INPUTS_WIDGETS,
   ...DRIVE_WIDGETS,
   ...TIMING_WIDGETS,
@@ -109,11 +118,36 @@ export const HIFI_WIDGETS: HifiWidgetModule[] = [
   ...ALL_TELEMETRY_VARIANT_WIDGETS
 ]
 
+function normalizeHifiWidget(module: HifiWidgetModule): HifiWidgetModule {
+  const semanticTrigger = semanticTriggerForHifiModule(module.id)
+  const alertFamily = module.category === 'alerts' || module.category === 'alerts2'
+  const role = module.role ?? (semanticTrigger || alertFamily ? 'alert' : undefined)
+  const defaultTrigger = semanticTrigger ?? module.defaultTrigger
+  if (role !== 'alert') return module
+  return {
+    ...module,
+    role,
+    defaultTrigger,
+    preview: module.preview ?? 'simulated-active-sequence',
+    catalogOrder: module.catalogOrder ?? RELEASE_A_CATALOG_ORDER,
+    releasedAt: module.releasedAt ?? RELEASE_A_RELEASED_AT,
+    tags: [
+      ...new Set([
+        ...module.tags,
+        ...overlayTriggerTags(defaultTrigger),
+        RELEASE_A_TAG
+      ])
+    ]
+  }
+}
+
+export const HIFI_WIDGETS: HifiWidgetModule[] = RAW_HIFI_WIDGETS.map(normalizeHifiWidget)
+
 export const HIFI_WIDGETS_BY_ID: Record<string, HifiWidgetModule> = Object.fromEntries(
   HIFI_WIDGETS.map((w) => [w.id, w])
 )
 
 /** Full tag set for a module: its manual tags + category + auto yes tags (from requires). */
 export function hifiWidgetTags(m: HifiWidgetModule): string[] {
-  return mergeTags(m.tags, m.requires, m.category)
+  return mergeTags(m.tags, m.requires, m.category, m.alternativeRequires)
 }

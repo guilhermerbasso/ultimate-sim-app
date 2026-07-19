@@ -27,6 +27,8 @@ const STORE_VERSION = 1 as const
 const MIN_CONFIDENCE = 0.35
 /** Debounce window for persisting the learners after a learning update. */
 const SAVE_DEBOUNCE_MS = 2_000
+const FLUSH_DRAIN_LIMIT = 8
+const DISPOSE_PERSIST_ATTEMPTS = 3
 
 export const PACE_MODEL_CHANNELS = {
   /** Renderer → main: fetch a small status snapshot of the learners. */
@@ -124,6 +126,7 @@ export class PaceModelStore {
   private writeSequence = 0
   private latestPayloadVersion = 0
   private persistedPayloadVersion = 0
+  private retainedPersistenceFailure: { version: number; error: unknown } | null = null
   private liveContextActive = false
   private ingestionClosed = false
 
@@ -316,7 +319,7 @@ export class PaceModelStore {
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null
       if (!this.liveContextActive || this.ingestionClosed) return
-      void this.flush()
+      void this.flush().catch(() => undefined)
     }, SAVE_DEBOUNCE_MS)
     if (typeof this.saveTimer === 'object' && this.saveTimer && 'unref' in this.saveTimer) {
       ;(this.saveTimer as { unref?: () => void }).unref?.()
@@ -324,11 +327,26 @@ export class PaceModelStore {
   }
 
   async flush(): Promise<void> {
-    const pending = this.dirtyPayload
-    if (!pending) {
-      await this.writeQueue
-      return
+    for (let drained = 0; drained < FLUSH_DRAIN_LIMIT; drained += 1) {
+      const pending = this.dirtyPayload
+      if (!pending) {
+        await this.writeQueue
+        if (this.dirtyPayload) continue
+        if (
+          this.retainedPersistenceFailure &&
+          this.retainedPersistenceFailure.version > this.persistedPayloadVersion
+        ) {
+          throw this.retainedPersistenceFailure.error
+        }
+        return
+      }
+      await this.persistPayload(pending)
     }
+    throw this.retainedPersistenceFailure?.error ??
+      new Error(`Pace model persistence remained dirty after ${FLUSH_DRAIN_LIMIT} drain attempts.`)
+  }
+
+  private async persistPayload(pending: VersionedPacePayload): Promise<void> {
     this.dirtyPayload = null
     const tempPath = `${this.filePath}.${process.pid}.${++this.writeSequence}.tmp`
     const persist = async (): Promise<void> => {
@@ -337,6 +355,12 @@ export class PaceModelStore {
         await this.persistence.writeFile(tempPath, pending.json)
         await this.persistence.rename(tempPath, this.filePath)
         this.persistedPayloadVersion = Math.max(this.persistedPayloadVersion, pending.version)
+        if (
+          this.retainedPersistenceFailure &&
+          this.retainedPersistenceFailure.version <= pending.version
+        ) {
+          this.retainedPersistenceFailure = null
+        }
       } catch (error) {
         if (
           pending.version === this.latestPayloadVersion &&
@@ -345,14 +369,25 @@ export class PaceModelStore {
         ) {
           this.dirtyPayload = pending
         }
+        if (
+          !this.retainedPersistenceFailure ||
+          pending.version >= this.retainedPersistenceFailure.version
+        ) {
+          this.retainedPersistenceFailure = { version: pending.version, error }
+        }
         await this.persistence.remove(tempPath).catch(() => undefined)
         logger.warn('pacemodel', 'failed to persist models', {
           message: error instanceof Error ? error.message : String(error)
         })
+        throw error
       }
     }
-    this.writeQueue = this.writeQueue.then(persist, persist)
-    await this.writeQueue
+    const operation = this.writeQueue.then(persist, persist)
+    this.writeQueue = operation.then(
+      () => undefined,
+      () => undefined
+    )
+    await operation
   }
 
   private serializeModels(): string {
@@ -378,10 +413,31 @@ export class PaceModelStore {
 
   async dispose(): Promise<void> {
     this.quiesce()
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      await this.flush()
-      if (!this.dirtyPayload) break
+    let lastError: unknown
+    for (let attempt = 0; attempt < DISPOSE_PERSIST_ATTEMPTS; attempt += 1) {
+      try {
+        await this.flush()
+      } catch (error) {
+        lastError = error
+      }
+      if (
+        !this.dirtyPayload &&
+        (
+          !this.retainedPersistenceFailure ||
+          this.retainedPersistenceFailure.version <= this.persistedPayloadVersion
+        )
+      ) {
+        return
+      }
     }
+    const error = this.retainedPersistenceFailure?.error ?? lastError ??
+      new Error('Pace model persistence remains dirty.')
+    throw new Error(
+      `Pace model persistence failed after ${DISPOSE_PERSIST_ATTEMPTS} attempts: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      { cause: error }
+    )
   }
 
   status(): PaceModelStatus {

@@ -59,6 +59,7 @@ import {
   type BezelKind,
   type MaterialKind
 } from '../../instruments'
+import { atShiftPoint } from '../../lib/rev-lights'
 import { resolveElementSkin, FitText, makeGrid, zoneColor } from '../../skins'
 import type { SkinToken, Rect } from '../../skins'
 
@@ -123,6 +124,7 @@ export function revLedPropsFor(
   dangerAt: number
   flashAt: number
   flashOn: boolean
+  shiftActive: boolean
   glow: boolean
   bloom?: number
   colors?: Partial<InstrumentColors>
@@ -131,7 +133,7 @@ export function revLedPropsFor(
   const segments = Math.max(4, Math.min(32, led?.segments ?? s.segments ?? 12))
   const shape = (led?.shape ?? s.segmentShape ?? 'led') as LedShape
   const flashAt = led?.flashAt ?? s.flashAt ?? 0.97
-  const blink = Boolean(opts.blink) || shiftPct >= flashAt
+  const shiftActive = atShiftPoint(shiftPct, opts.blink, flashAt)
   const gap = Math.max(2, Math.round(opts.width / segments / 8))
   const colors = instrumentColorsFor(s)
   if (opts.pit) {
@@ -150,7 +152,8 @@ export function revLedPropsFor(
     warnAt: led?.warnAt ?? s.warnAt ?? 0.6,
     dangerAt: led?.dangerAt ?? s.dangerAt ?? 0.85,
     flashAt,
-    flashOn: blink,
+    flashOn: shiftActive,
+    shiftActive,
     glow: instrumentGlow(s),
     bloom: led?.bloom,
     colors: Object.keys(colors).length ? colors : undefined
@@ -315,6 +318,8 @@ function StatCell({
   labelFont = FONT_CONDENSED,
   labelFrac = 0.3,
   valueMaxPx,
+  unitMaxPx,
+  unitFrac,
   minPx = 11
 }: {
   rect: Rect
@@ -329,6 +334,8 @@ function StatCell({
   labelFont?: string
   labelFrac?: number
   valueMaxPx?: number
+  unitMaxPx?: number
+  unitFrac?: number
   minPx?: number
 }): ReactElement {
   const { x, y, w, h } = rect
@@ -338,8 +345,8 @@ function StatCell({
   const valH = Math.max(1, h - labelH)
   const cx = x + w / 2
   const hasUnit = Boolean(unit && unit.length)
-  const unitFrac = hasUnit && (unit as string).length >= 6 ? 0.52 : 0.34
-  const vBoxW = hasUnit ? w * (1 - unitFrac) : w
+  const resolvedUnitFrac = unitFrac ?? (hasUnit && (unit as string).length >= 6 ? 0.52 : 0.34)
+  const vBoxW = hasUnit ? w * (1 - resolvedUnitFrac) : w
   const uBoxW = hasUnit ? w - vBoxW : 0
   const vMax = Math.max(minPx, valueMaxPx !== undefined ? Math.min(valueMaxPx, valH) : valH * 0.8)
   return (
@@ -382,7 +389,7 @@ function StatCell({
           fontFamily={labelFont}
           fill={unitColor ?? labelColor ?? skin.palette.textDim}
           minFontPx={minPx}
-          maxFontPx={Math.max(minPx, valH * 0.5)}
+          maxFontPx={Math.max(minPx, Math.min(unitMaxPx ?? valH * 0.5, valH * 0.5))}
           anchor="start"
           baseline="central"
         />
@@ -889,7 +896,7 @@ export function ShiftBar({ element, snapshot }: WidgetProps): ReactElement {
   // so segments fill across the real band — never proportionally to RPM.
   const shift = pct(element.binding ?? 'shiftPct', snapshot)
   const flashAt = s.instrument?.parts?.led?.flashAt ?? s.flashAt ?? 0.975
-  const flashing = Boolean(snapshot?.revLights?.blink) || shift >= flashAt
+  const flashing = atShiftPoint(shift, snapshot?.revLights?.blink, flashAt)
   const pit = s.pitLimiterOverride !== false && Boolean(snapshot?.pitLimiter)
   const shape = (s.instrument?.parts?.led?.shape ?? s.segmentShape ?? 'led') as LedShape
   const pad = Math.max(4, element.h * 0.12)
@@ -897,7 +904,7 @@ export function ShiftBar({ element, snapshot }: WidgetProps): ReactElement {
   const scaleH = Math.max(8, Math.round(element.h * 0.16))
   const railW = Math.max(8, element.w - pad * 2)
   const railH = Math.max(8, element.h - pad * 2 - scaleH)
-  const ledProps = revLedPropsFor(s, shift, { width: railW, height: railH, blink: flashing, pit })
+  const ledProps = revLedPropsFor(s, shift, { width: railW, height: railH, blink: snapshot?.revLights?.blink, pit })
 
   return (
     <Shell element={element} chrome={panelChrome(s, { radius: s.radius ?? 10, glow: flashing ? GT3.whiteFlash : undefined })} padding={pad} className={`gt3-shiftbar gt3-shape-${shape}${flashing ? ' gt3-shiftbar-flashing' : ''}`}>
@@ -923,7 +930,7 @@ export function GearCluster({ element, snapshot, unitSystem = 'metric' }: Widget
   const rpm = resolveBinding('rpm', snapshot).text
   const rpmNumeric = resolveBinding('rpm', snapshot).numeric ?? 0
   const maxRpm = resolveBinding('maxRpm', snapshot).numeric ?? 8000
-  const flash = shift >= (s.flashAt ?? 0.95)
+  const flash = atShiftPoint(shift, snapshot?.revLights?.blink, s.flashAt ?? 0.95)
   const gearColor = resolveSlotStyle(s, 'gear', { color: flash ? GT3.whiteFlash : skin.palette.text }).color ?? (flash ? GT3.whiteFlash : skin.palette.text)
   const speedColor = resolveSlotStyle(s, 'speed', { color: skin.palette.text }).color ?? skin.palette.text
   const speedUnit = speedReading.unit.toUpperCase()
@@ -1224,6 +1231,8 @@ export function CornerStack({ element, snapshot, unitSystem = 'metric' }: Widget
   )
 }
 
+const FUEL_STINT_PER_LAP_UNIT_FRAC = 0.55
+
 export function FuelStint({ element, snapshot, unitSystem = 'metric' }: WidgetProps): ReactElement {
   const s = element.style
   const skin = resolveElementSkin(s)
@@ -1246,15 +1255,16 @@ export function FuelStint({ element, snapshot, unitSystem = 'metric' }: WidgetPr
   const perLapText = perLapReading.display
   const addText = needed === undefined ? '—' : needed > 0 ? `+${addReading.display}` : 'OK'
   const addColor = needed !== undefined && needed > 0 ? skin.palette.warn : skin.palette.ok
-  const pad = Math.max(5, Math.round(Math.min(W, H) * 0.06))
-  const innerW = W - pad * 2
-  const innerH = H - pad * 2
-  const barH = Math.max(6, Math.min(innerH * 0.2, 14))
-  const topH = Math.max(14, innerH - barH - 6)
-  const lapsW = innerW * 0.42
-  const sideX = pad + lapsW + 8
-  const sideW = W - pad - sideX
-  const halfSide = (sideW - 6) / 2
+  const {
+    pad,
+    innerW,
+    barH,
+    topH,
+    lapsW,
+    sideX,
+    columnGap,
+    halfSide
+  } = computeFuelStintLayout(W, H)
   return (
     <SvgRoot element={element} skin={skin} panel="panel" className="gt3-fuelstint">
       <StatCell
@@ -1279,9 +1289,12 @@ export function FuelStint({ element, snapshot, unitSystem = 'metric' }: WidgetPr
         labelColor={skin.palette.textDim}
         skin={skin}
         labelFrac={0.3}
+        unitFrac={FUEL_STINT_PER_LAP_UNIT_FRAC}
+        unitMaxPx={Math.max(13, Math.min(16, topH * 0.24))}
+        minPx={13}
       />
       <StatCell
-        rect={{ x: sideX + halfSide + 6, y: pad, w: halfSide, h: topH }}
+        rect={{ x: sideX + halfSide + columnGap, y: pad, w: halfSide, h: topH }}
         label="ADD"
         value={addText}
         unit={needed !== undefined && needed > 0 ? addReading.unit : undefined}
@@ -1305,6 +1318,45 @@ export function FuelStint({ element, snapshot, unitSystem = 'metric' }: WidgetPr
       />
     </SvgRoot>
   )
+}
+
+export function computeFuelStintLayout(W: number, H: number): {
+  pad: number
+  innerW: number
+  barH: number
+  topH: number
+  lapsW: number
+  sideX: number
+  columnGap: number
+  halfSide: number
+  perLapUnitBoxW: number
+  perLapUnitBoxH: number
+} {
+  const pad = Math.max(5, Math.round(Math.min(W, H) * 0.06))
+  const innerW = W - pad * 2
+  const innerH = H - pad * 2
+  const barH = Math.max(6, Math.min(innerH * 0.2, 14))
+  const topH = Math.max(14, innerH - barH - 6)
+  const lapsW = innerW * 0.42
+  const sideX = pad + lapsW + 8
+  const sideW = W - pad - sideX
+  const columnGap = Math.max(12, Math.min(18, Math.round(innerW * 0.05)))
+  const halfSide = (sideW - columnGap) / 2
+  const labelH = Math.max(15, Math.min(topH * 0.3, topH * 0.5))
+  const valueH = Math.max(1, topH - labelH)
+
+  return {
+    pad,
+    innerW,
+    barH,
+    topH,
+    lapsW,
+    sideX,
+    columnGap,
+    halfSide,
+    perLapUnitBoxW: Math.max(1, halfSide * FUEL_STINT_PER_LAP_UNIT_FRAC - 2),
+    perLapUnitBoxH: valueH * 0.6
+  }
 }
 
 export function DeltaTile({ element, snapshot }: WidgetProps): ReactElement {
@@ -2331,7 +2383,18 @@ function ValueWidget({ element, snapshot, unitSystem = 'metric', mode }: WidgetP
   const value = body === '—' ? '—' : `${s.prefix ?? ''}${body}`
   const label = (s.label ?? s.title ?? '').toString()
   const unit = (r.unit ?? s.suffix ?? '').toString()
-  const ratio = clamp01(r.pct ?? 0)
+  const rangeMin = s.gaugeMin
+  const rangeMax = s.gaugeMax
+  const rangedRatio =
+    r.numeric !== undefined &&
+    rangeMin !== undefined &&
+    rangeMax !== undefined &&
+    Number.isFinite(rangeMin) &&
+    Number.isFinite(rangeMax) &&
+    rangeMax > rangeMin
+      ? (r.numeric - rangeMin) / (rangeMax - rangeMin)
+      : undefined
+  const ratio = clamp01(rangedRatio ?? r.pct ?? 0)
   const accent = resolveCssColor(s.accentColor, skin.palette.accent)
   const valueColor = resolveCssColor(s.color, skin.palette.text)
   // Content-aware VALUE font: numeric readouts render in DSEG (FONT_MONO),

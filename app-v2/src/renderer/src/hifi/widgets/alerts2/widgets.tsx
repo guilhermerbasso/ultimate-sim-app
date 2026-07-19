@@ -1,6 +1,16 @@
 import { type ReactElement } from 'react'
+import {
+  DEFAULT_ALERTS_CONFIG,
+  type AlertsConfig
+} from '../../../../../shared/alerts'
 import { trackSurfaceMaterialLabel, type TelemetrySnapshot, type TyreInfo } from '../../../../../shared/telemetry'
 import type { HifiWidgetModule, HifiWidgetProps } from '../types'
+import {
+  evaluateOverlayTrigger,
+  semanticOverlayTrigger,
+  type OverlaySemanticTriggerId,
+  type OverlayTriggerResult
+} from '../../../../../shared/overlays'
 import { Bar, C, CleanTile, FONT_BIG, FONT_LABEL, FONT_NUM, fixed, frac, legibleStroke, num } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'
 
@@ -78,6 +88,20 @@ function brakeLineValues(snapshot: TelemetrySnapshot | null): number[] {
   return [num(p.lf), num(p.rf), num(p.lr), num(p.rr)].filter((v): v is number => v != null)
 }
 
+function policyActive(
+  semantic: OverlaySemanticTriggerId,
+  snapshot: TelemetrySnapshot | null,
+  visibility: OverlayTriggerResult | undefined,
+  alertsConfig: AlertsConfig | undefined
+): boolean {
+  if (visibility) return visibility.visible
+  return evaluateOverlayTrigger(
+    semanticOverlayTrigger(semantic),
+    snapshot,
+    alertsConfig ?? DEFAULT_ALERTS_CONFIG
+  )
+}
+
 function Alert2EngineWarning({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const w = width ?? 380
   const h = height ?? 190
@@ -85,31 +109,52 @@ function Alert2EngineWarning({ snapshot, width, height }: HifiWidgetProps): Reac
   return warningLamp({ width: w, height: h, color: RED, label: 'ENGINE', value: 'WARN', icon: '!' })
 }
 
-function Alert2WaterTempCritical({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
+function Alert2WaterTempCritical({
+  snapshot,
+  width,
+  height,
+  unitSystem = 'metric',
+  visibility,
+  alertsConfig
+}: HifiWidgetProps): ReactElement {
   const w = width ?? 360
   const h = height ?? 190
   const temp = num(snapshot?.waterTempC)
-  const active = snapshot?.engineWarnings?.waterTemp === true || (temp != null && temp >= 105)
+  const active = policyActive('alert2WaterTempCritical', snapshot, visibility, alertsConfig)
   if (!active) return empty(w, h)
   const reading = formatMeasurement(temp, 'temperature-c', unitSystem, { decimals: 0 })
   return warningLamp({ width: w, height: h, color: RED, label: 'WATER', value: reading.display, unit: reading.unit, icon: '~' })
 }
 
-function Alert2OilTempCritical({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
+function Alert2OilTempCritical({
+  snapshot,
+  width,
+  height,
+  unitSystem = 'metric',
+  visibility,
+  alertsConfig
+}: HifiWidgetProps): ReactElement {
   const w = width ?? 360
   const h = height ?? 190
   const temp = num(snapshot?.oilTempC)
-  const active = snapshot?.engineWarnings?.oilTemp === true || (temp != null && temp >= 125)
+  const active = policyActive('alert2OilTempCritical', snapshot, visibility, alertsConfig)
   if (!active) return empty(w, h)
   const reading = formatMeasurement(temp, 'temperature-c', unitSystem, { decimals: 0 })
   return warningLamp({ width: w, height: h, color: RED, label: 'OIL TEMP', value: reading.display, unit: reading.unit, icon: '°' })
 }
 
-function Alert2OilPressureLow({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
+function Alert2OilPressureLow({
+  snapshot,
+  width,
+  height,
+  unitSystem = 'metric',
+  visibility,
+  alertsConfig
+}: HifiWidgetProps): ReactElement {
   const w = width ?? 380
   const h = height ?? 190
   const pressure = num(snapshot?.oilPressureKpa)
-  const active = snapshot?.engineWarnings?.oilPressure === true || (pressure != null && pressure <= 140)
+  const active = policyActive('alert2OilPressureLow', snapshot, visibility, alertsConfig)
   if (!active) return empty(w, h)
   const reading = formatMeasurement(pressure, 'pressure-kpa', unitSystem, { decimals: unitSystem === 'imperial' ? 1 : 0 })
   return warningLamp({ width: w, height: h, color: RED, label: `OIL ${reading.unit.toUpperCase()}`, value: reading.display, unit: reading.unit.toUpperCase(), icon: '!' })
@@ -147,11 +192,23 @@ function Alert2BlueFlag({ snapshot, width, height }: HifiWidgetProps): ReactElem
   )
 }
 
-function Alert2TyreTempCritical({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
+function Alert2TyreTempCritical({
+  snapshot,
+  width,
+  height,
+  unitSystem = 'metric',
+  visibility,
+  alertsConfig
+}: HifiWidgetProps): ReactElement {
   const w = width ?? 380
   const h = height ?? 200
   const hottest = hottestTyre(snapshot)
-  if (!hottest || hottest.temp < 115) return empty(w, h)
+  if (
+    !hottest ||
+    !policyActive('alert2TyreTempCritical', snapshot, visibility, alertsConfig)
+  ) {
+    return empty(w, h)
+  }
   const reading = formatMeasurement(hottest.temp, 'temperature-c', unitSystem, { decimals: 0 })
   return (
     <CleanTile width={w} height={h}>
@@ -176,13 +233,19 @@ function Alert2TyreTempCritical({ snapshot, width, height, unitSystem = 'metric'
   )
 }
 
-function Alert2BrakePressureLow({ snapshot, width, height, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
+function Alert2BrakePressureLow({
+  snapshot,
+  width,
+  height,
+  unitSystem = 'metric',
+  visibility,
+  alertsConfig
+}: HifiWidgetProps): ReactElement {
   const w = width ?? 420
   const h = height ?? 190
-  const brake = num(snapshot?.brake)
   const values = brakeLineValues(snapshot)
   const maxPressure = values.length > 0 ? Math.max(...values) : undefined
-  const active = brake != null && brake >= 0.35 && maxPressure != null && maxPressure < 25
+  const active = policyActive('alert2BrakePressureLow', snapshot, visibility, alertsConfig)
   if (!active) return empty(w, h)
   const reading = formatMeasurement(maxPressure, 'pressure-bar', unitSystem, { decimals: unitSystem === 'imperial' ? 0 : 1 })
   return warningLamp({ width: w, height: h, color: AMBER, label: `BRAKE ${reading.unit.toUpperCase()}`, value: reading.display, unit: reading.unit.toUpperCase(), icon: '!' })
@@ -196,43 +259,43 @@ export const alert2EngineWarningWidget: HifiWidgetModule = {
   tags: ['alert', 'trigger', 'clean', 'engine', 'warning'],
   requires: ['engineWarnings'],
   defaultSize: { w: 380, h: 190 },
-  defaultTrigger: { kind: 'always' },
+  defaultTrigger: semanticOverlayTrigger('alert2EngineWarning'),
   render: Alert2EngineWarning
 }
 
 export const alert2WaterTempCriticalWidget: HifiWidgetModule = {
   id: 'alert2WaterTempCritical',
   title: 'Alert2 Water Temp Critical',
-  description: 'Trigger-only coolant overheat overlay using water temperature and tell-tale state.',
+  description: 'Trigger-only coolant warning gated by the SDK tell-tale; shows the live reading when available.',
   category: 'alerts2',
   tags: ['alert', 'trigger', 'clean', 'water', 'temperature'],
   requires: ['waterTempC', 'engineWarnings'],
   defaultSize: { w: 360, h: 190 },
-  defaultTrigger: { kind: 'always' },
+  defaultTrigger: semanticOverlayTrigger('alert2WaterTempCritical'),
   render: Alert2WaterTempCritical
 }
 
 export const alert2OilTempCriticalWidget: HifiWidgetModule = {
   id: 'alert2OilTempCritical',
   title: 'Alert2 Oil Temp Critical',
-  description: 'Trigger-only oil overheat overlay using oil temperature and tell-tale state.',
+  description: 'Trigger-only oil-temperature warning gated by the SDK tell-tale; shows the live reading when available.',
   category: 'alerts2',
   tags: ['alert', 'trigger', 'clean', 'oil', 'temperature'],
   requires: ['oilTempC', 'engineWarnings'],
   defaultSize: { w: 360, h: 190 },
-  defaultTrigger: { kind: 'always' },
+  defaultTrigger: semanticOverlayTrigger('alert2OilTempCritical'),
   render: Alert2OilTempCritical
 }
 
 export const alert2OilPressureLowWidget: HifiWidgetModule = {
   id: 'alert2OilPressureLow',
   title: 'Alert2 Oil Pressure Low',
-  description: 'Trigger-only low oil-pressure overlay using pressure telemetry and tell-tale state.',
+  description: 'Trigger-only oil-pressure warning gated by the SDK tell-tale; shows the live reading when available.',
   category: 'alerts2',
   tags: ['alert', 'trigger', 'clean', 'oil', 'pressure'],
   requires: ['oilPressureKpa', 'engineWarnings'],
   defaultSize: { w: 380, h: 190 },
-  defaultTrigger: { kind: 'always' },
+  defaultTrigger: semanticOverlayTrigger('alert2OilPressureLow'),
   render: Alert2OilPressureLow
 }
 
@@ -244,7 +307,7 @@ export const alert2BadSurfaceWidget: HifiWidgetModule = {
   tags: ['alert', 'trigger', 'clean', 'surface', 'off-track'],
   requires: ['trackSurfaceMaterial'],
   defaultSize: { w: 420, h: 190 },
-  defaultTrigger: { kind: 'always' },
+  defaultTrigger: semanticOverlayTrigger('alert2BadSurface'),
   render: Alert2BadSurface
 }
 
@@ -256,30 +319,30 @@ export const alert2BlueFlagWidget: HifiWidgetModule = {
   tags: ['alert', 'trigger', 'clean', 'flag', 'blue-flag'],
   requires: ['flags'],
   defaultSize: { w: 360, h: 210 },
-  defaultTrigger: { kind: 'flag' },
+  defaultTrigger: semanticOverlayTrigger('alert2BlueFlag'),
   render: Alert2BlueFlag
 }
 
 export const alert2TyreTempCriticalWidget: HifiWidgetModule = {
   id: 'alert2TyreTempCritical',
   title: 'Alert2 Tyre Temp Critical',
-  description: 'Trigger-only tyre overheat overlay for the hottest live tyre channel.',
+  description: 'Trigger-only tyre overheat overlay using the configured alert-policy threshold.',
   category: 'alerts2',
   tags: ['alert', 'trigger', 'clean', 'tyre', 'temperature'],
   requires: ['tyres'],
   defaultSize: { w: 380, h: 200 },
-  defaultTrigger: { kind: 'always' },
+  defaultTrigger: semanticOverlayTrigger('alert2TyreTempCritical'),
   render: Alert2TyreTempCritical
 }
 
 export const alert2BrakePressureLowWidget: HifiWidgetModule = {
   id: 'alert2BrakePressureLow',
   title: 'Alert2 Brake Pressure Low',
-  description: 'Trigger-only low hydraulic brake-line pressure overlay while the brake pedal is applied.',
+  description: 'Trigger-only low brake-line pressure overlay using configured pedal and pressure thresholds.',
   category: 'alerts2',
   tags: ['alert', 'trigger', 'clean', 'brake', 'pressure'],
   requires: ['brake', 'brakeLinePressBar'],
   defaultSize: { w: 420, h: 190 },
-  defaultTrigger: { kind: 'always' },
+  defaultTrigger: semanticOverlayTrigger('alert2BrakePressureLow'),
   render: Alert2BrakePressureLow
 }

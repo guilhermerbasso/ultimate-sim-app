@@ -45,7 +45,7 @@ export function register(ctx: ModuleContext): void {
     applyActiveLanguage(speechLanguageFromAppLanguage(settings.language, ctx.app.getLocale()))
   })
 
-  void loadConfig(configPath).then((loaded) => {
+  const initialConfigReady = loadConfig(configPath).then((loaded) => {
     const language = activeSpeechLanguage
     config =
       language && loaded.language !== language
@@ -56,9 +56,13 @@ export function register(ctx: ModuleContext): void {
     ctx.broadcast(SPOTTER_CHANNELS.configEvent, config)
   })
 
-  ctx.ipcMain.handle(SPOTTER_CHANNELS.getConfig, () => config)
+  ctx.ipcMain.handle(SPOTTER_CHANNELS.getConfig, async () => {
+    await initialConfigReady
+    return config
+  })
 
   ctx.ipcMain.handle(SPOTTER_CHANNELS.setConfig, async (_event, patch: SpotterConfigPatch) => {
+    await initialConfigReady
     config = mergeSpotterConfig(config, {
       ...(patch ?? {}),
       ...(activeSpeechLanguage ? { language: activeSpeechLanguage } : {})

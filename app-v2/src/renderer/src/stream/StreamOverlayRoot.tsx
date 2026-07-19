@@ -3,8 +3,14 @@ import type { CSSProperties, ReactElement } from 'react'
 import type { Dashboard } from '../../../shared/dashboards'
 import type { OverlayWidgetConfig, OverlayWidgetId } from '../../../shared/overlays'
 import { createDefaultOverlaysConfig, createDefaultOverlayStyle, DEFAULT_OVERLAY_STYLE_PRESET } from '../../../shared/overlays'
-import type { StreamingLayoutKind, StreamingTelemetryFrame } from '../../../shared/streaming'
+import type { StreamingDashboardPayload, StreamingLayoutKind, StreamingTelemetryFrame } from '../../../shared/streaming'
+import { STREAMING_EXPRESSION_EXCLUSION_MESSAGE } from '../../../shared/streaming'
+import {
+  normalizeStreamPresentationProfile,
+  type StreamPresentationProfile
+} from '../../../shared/stream-presentation'
 import type { TelemetrySnapshot } from '../../../shared/telemetry'
+import { parseButtonBoxPanel, type ButtonBoxPanel } from '../../../shared/touch-panel'
 import { DashboardCanvas } from '../dashboard/DashboardRoot'
 import { CompactHudWidget, COMPACT_HUD_STREAM_SAFE } from '../overlay/widgets/CompactHudWidget'
 import { DeltaLapWidget } from '../overlay/widgets/DeltaLapWidget'
@@ -14,6 +20,9 @@ import { GT3ClusterWidget, GT3_CLUSTER_STREAM_SAFE } from '../overlay/widgets/GT
 import { RelativeWidget } from '../overlay/widgets/RelativeWidget'
 import type { WidgetProps } from '../overlay/widgets/types'
 import { TouchPanelWindowRoot } from '../touchpanel/TouchPanelWindowRoot'
+import { fetchStreamPanel } from '../touchpanel/runtime'
+import { StreamPresentationRenderer } from '../stream-presentation/StreamPresentationRenderer'
+import { streamEndpoint } from './urls'
 import '../dashboard/dashboard-runtime.css'
 import '../touchpanel/buttonbox.css'
 
@@ -29,39 +38,51 @@ const WIDGETS: Array<{ id: OverlayWidgetId; title: string; className: string; st
 const DESIGN_WIDTH = 1024
 const DESIGN_HEIGHT = 600
 
-function sseUrl(password: string): string {
-  const url = new URL(window.location.href)
-  const token = url.searchParams.get('token') ?? ''
-  const sse = new URL('/sse', url.origin)
-  sse.searchParams.set('token', token)
-  if (password) sse.searchParams.set('password', password)
-  return sse.toString()
+function sseUrl(): string {
+  return streamEndpoint('sse').toString()
+}
+
+function webSocketUrl(): string {
+  const url = streamEndpoint('ws')
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return url.toString()
+}
+
+export function streamTelemetryTransport(href: string): 'sse' | 'websocket' {
+  // TryCloudflare Quick Tunnels do not support SSE, but do proxy WebSocket upgrades.
+  return new URL(href).protocol === 'https:' ? 'websocket' : 'sse'
 }
 
 function pingUrl(): string {
-  const url = new URL(window.location.href)
-  const token = url.searchParams.get('token') ?? ''
-  const ping = new URL('/ping', url.origin)
-  ping.searchParams.set('token', token)
-  return ping.toString()
+  return streamEndpoint('ping').toString()
 }
 
-function streamTarget(): { kind: StreamingLayoutKind; id: string | null } {
+function authSessionUrl(): string {
+  return streamEndpoint('auth/session').toString()
+}
+
+function streamTarget(): { kind: StreamingLayoutKind; id: string | null; profileId: string | null } {
   try {
     const url = new URL(window.location.href)
     const kind = url.searchParams.get('kind') === 'touch' ? 'touch' : 'dashboard'
     const queryId = kind === 'touch' ? url.searchParams.get('panel') : url.searchParams.get('dash')
-    const pathId = url.pathname.match(/^\/obs\/([^/]+)$/)?.[1]
-    return { kind, id: queryId || (pathId ? decodeURIComponent(pathId) : null) }
+    const pathId = url.pathname.match(/\/obs\/([^/]+)$/)?.[1]
+    return {
+      kind,
+      id: queryId || (pathId ? decodeURIComponent(pathId) : null),
+      profileId: url.searchParams.get('profile')
+    }
   } catch {
-    return { kind: 'dashboard', id: null }
+    return { kind: 'dashboard', id: null, profileId: null }
   }
 }
 
 function dashboardApiUrl(id: string): string {
-  const url = new URL(`/api/dashboard/${encodeURIComponent(id)}`, window.location.origin)
-  url.searchParams.set('token', new URLSearchParams(window.location.search).get('token') ?? '')
-  return url.toString()
+  return streamEndpoint(`api/dashboard/${encodeURIComponent(id)}`).toString()
+}
+
+function presentationApiUrl(id: string): string {
+  return streamEndpoint(`api/presentation/${encodeURIComponent(id)}`).toString()
 }
 
 function widgetConfig(id: OverlayWidgetId): OverlayWidgetConfig {
@@ -85,17 +106,29 @@ function LoadingState({ label }: { label: string }): ReactElement {
   )
 }
 
+export function StreamExpressionNotice({ message = STREAMING_EXPRESSION_EXCLUSION_MESSAGE }: { message?: string }): ReactElement {
+  return (
+    <div className="stream-expression-notice" role="status" data-stream-expression-content="excluded">
+      {message}
+    </div>
+  )
+}
+
 export function StreamOverlayRoot() {
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot | null>(null)
   const [connected, setConnected] = useState(false)
   const [streamSafe, setStreamSafe] = useState(true)
   const [scale, setScale] = useState(1)
-  // Password gate: null = checking, false = not required, string = password entered or not required
+  // Password gate: null = checking, true = exchange required, false = session ready.
   const [passwordRequired, setPasswordRequired] = useState<boolean | null>(null)
-  const [password, setPassword] = useState('')
   const [passwordInput, setPasswordInput] = useState('')
-  const [passwordError, setPasswordError] = useState(false)
+  const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [authenticating, setAuthenticating] = useState(false)
+  const [sessionError, setSessionError] = useState<string | null>(null)
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
+  const [touchPanel, setTouchPanel] = useState<ButtonBoxPanel | null>(null)
+  const [presentationProfile, setPresentationProfile] = useState<StreamPresentationProfile | null>(null)
+  const [expressionNotice, setExpressionNotice] = useState(STREAMING_EXPRESSION_EXCLUSION_MESSAGE)
   const [targetError, setTargetError] = useState<string | null>(null)
   const target = useMemo(streamTarget, [])
   const configs = useMemo(() => Object.fromEntries(WIDGETS.map((item) => [item.id, widgetConfig(item.id)])) as Record<OverlayWidgetId, OverlayWidgetConfig>, [])
@@ -108,52 +141,138 @@ export function StreamOverlayRoot() {
     '--overlay-content-opacity': '1'
   } as CSSProperties
 
-  // On mount, check if a password is required (token-only /ping call).
+  // The document token exchange establishes an HttpOnly bootstrap session before
+  // this module loads. Ping reports whether that session still needs a password.
   useEffect(() => {
-    fetch(pingUrl(), { method: 'GET', cache: 'no-store' })
+    fetch(pingUrl(), { method: 'GET', cache: 'no-store', credentials: 'same-origin' })
       .then((res) => {
-        if (!res.ok) {
-          setPasswordRequired(false) // can't reach server — proceed without password gate
-          return
-        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json() as Promise<{ passwordRequired: boolean }>
       })
       .then((data) => {
-        if (data?.passwordRequired) {
-          setPasswordRequired(true)
-        } else {
-          setPasswordRequired(false)
-          setPassword('') // no password needed
-        }
+        if (typeof data?.passwordRequired !== 'boolean') throw new Error('Invalid ping response')
+        setPasswordRequired(data.passwordRequired)
       })
-      .catch(() => setPasswordRequired(false))
+      .catch((error) => {
+        setSessionError(`Stream authentication failed: ${error instanceof Error ? error.message : String(error)}`)
+        setPasswordRequired(false)
+      })
   }, [])
 
   useEffect(() => {
-    if (passwordRequired === null || passwordRequired === true) return // wait for password
-    const source = new EventSource(sseUrl(password))
-    source.onopen = () => {
-      setConnected(true)
-      setPasswordError(false)
-    }
-    source.onerror = () => {
-      setConnected(false)
-      // If we had a password and it still fails, mark as error
-      if (password) setPasswordError(true)
-    }
-    source.addEventListener('telemetry', (event) => {
+    if (passwordRequired !== false || sessionError) return
+    const applyFrame = (raw: string): boolean => {
       try {
-        const frame = JSON.parse((event as MessageEvent).data) as StreamingTelemetryFrame
+        const frame = JSON.parse(raw) as StreamingTelemetryFrame
         setSnapshot(frame.snapshot)
         setStreamSafe(frame.streamSafe)
         setConnected(true)
-        setPasswordError(false)
+        setPasswordError(null)
+        return true
       } catch {
         setConnected(false)
+        return false
       }
-    })
-    return () => source.close()
-  }, [password, passwordRequired])
+    }
+    if (streamTelemetryTransport(window.location.href) === 'sse') {
+      const source = new EventSource(sseUrl())
+      source.onopen = () => {
+        setConnected(true)
+        setPasswordError(null)
+      }
+      source.onerror = () => {
+        setConnected(false)
+      }
+      source.addEventListener('telemetry', (event) => {
+        applyFrame((event as MessageEvent).data)
+      })
+      return () => source.close()
+    }
+
+    let disposed = false
+    let retryAttempt = 0
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null
+    let socket: WebSocket | null = null
+    let source: EventSource | null = null
+    const scheduleWebSocket = (): void => {
+      if (disposed || retryTimer) return
+      const delayMs = Math.min(1_000 * (2 ** retryAttempt), 10_000)
+      retryAttempt += 1
+      retryTimer = setTimeout(() => {
+        retryTimer = null
+        connectWebSocket()
+      }, delayMs)
+    }
+    const connectSseFallback = (): void => {
+      if (disposed) return
+      const candidate = new EventSource(sseUrl())
+      source = candidate
+      let receivedFrame = false
+      fallbackTimer = setTimeout(() => {
+        if (source !== candidate || receivedFrame) return
+        candidate.close()
+        source = null
+        scheduleWebSocket()
+      }, 3_000)
+      candidate.onopen = () => {
+        setConnected(true)
+        setPasswordError(null)
+      }
+      candidate.addEventListener('telemetry', (event) => {
+        receivedFrame = applyFrame((event as MessageEvent).data)
+        if (receivedFrame) {
+          retryAttempt = 0
+          if (fallbackTimer) clearTimeout(fallbackTimer)
+          fallbackTimer = null
+        }
+      })
+      candidate.onerror = () => {
+        setConnected(false)
+        if (receivedFrame || source !== candidate) return
+        candidate.close()
+        source = null
+        if (fallbackTimer) clearTimeout(fallbackTimer)
+        fallbackTimer = null
+        scheduleWebSocket()
+      }
+    }
+    const connectWebSocket = (): void => {
+      if (disposed) return
+      source?.close()
+      source = null
+      const candidate = new WebSocket(webSocketUrl())
+      socket = candidate
+      let receivedFrame = false
+      candidate.onopen = () => {
+        setConnected(true)
+        setPasswordError(null)
+      }
+      candidate.onmessage = (event) => {
+        receivedFrame = applyFrame(String(event.data))
+        if (receivedFrame) retryAttempt = 0
+      }
+      candidate.onerror = () => {
+        setConnected(false)
+        candidate.close()
+      }
+      candidate.onclose = () => {
+        if (socket === candidate) socket = null
+        setConnected(false)
+        if (disposed) return
+        if (receivedFrame) scheduleWebSocket()
+        else connectSseFallback()
+      }
+    }
+    connectWebSocket()
+    return () => {
+      disposed = true
+      if (retryTimer) clearTimeout(retryTimer)
+      if (fallbackTimer) clearTimeout(fallbackTimer)
+      socket?.close()
+      source?.close()
+    }
+  }, [passwordRequired, sessionError])
 
   useEffect(() => {
     if (target.kind !== 'dashboard') return
@@ -161,17 +280,74 @@ export function StreamOverlayRoot() {
       return
     }
     let alive = true
-    fetch(dashboardApiUrl(target.id), { cache: 'no-store' })
+    fetch(dashboardApiUrl(target.id), { cache: 'no-store', credentials: 'same-origin' })
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json() as Promise<Dashboard>
+        return res.json() as Promise<StreamingDashboardPayload>
       })
-      .then((dash) => {
+      .then((payload) => {
         if (!alive) return
-        setDashboard(dash)
+        if (!payload?.dashboard || payload.expressionContent?.mode !== 'excluded') {
+          throw new Error('Invalid dashboard streaming payload.')
+        }
+        setDashboard(payload.dashboard)
+        setExpressionNotice(payload.expressionContent.message || STREAMING_EXPRESSION_EXCLUSION_MESSAGE)
       })
       .catch((err) => {
         if (alive) setTargetError(err instanceof Error ? err.message : 'Failed to load dashboard.')
+      })
+    return () => {
+      alive = false
+    }
+  }, [target])
+
+  useEffect(() => {
+    if (!target.profileId) {
+      setPresentationProfile(null)
+      return
+    }
+    let alive = true
+    fetch(presentationApiUrl(target.profileId), { cache: 'no-store', credentials: 'same-origin' })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json() as Promise<unknown>
+      })
+      .then((raw) => {
+        if (!alive) return
+        const profile = normalizeStreamPresentationProfile(raw)
+        if (
+          !profile ||
+          profile.id !== target.profileId ||
+          profile.target.kind !== target.kind ||
+          profile.target.id !== target.id
+        ) {
+          throw new Error('Invalid stream presentation profile.')
+        }
+        setPresentationProfile(profile)
+      })
+      .catch((err) => {
+        if (alive) setTargetError(err instanceof Error ? err.message : 'Failed to load stream presentation profile.')
+      })
+    return () => {
+      alive = false
+    }
+  }, [target])
+
+  useEffect(() => {
+    if (target.kind !== 'touch' || !target.id || !target.profileId) {
+      setTouchPanel(null)
+      return
+    }
+    let alive = true
+    fetchStreamPanel(target.id)
+      .then((raw) => {
+        if (!alive) return
+        const panel = parseButtonBoxPanel(raw)
+        if (!panel) throw new Error('Invalid touch controls panel.')
+        setTouchPanel(panel)
+      })
+      .catch((err) => {
+        if (alive) setTargetError(err instanceof Error ? err.message : 'Failed to load touch controls.')
       })
     return () => {
       alive = false
@@ -192,11 +368,42 @@ export function StreamOverlayRoot() {
     }
   }, [])
 
-  const showPasswordForm = passwordRequired === true || (passwordError && password.length > 0)
+  async function authenticateSession(): Promise<void> {
+    setAuthenticating(true)
+    setPasswordError(null)
+    try {
+      const response = await fetch(authSessionUrl(), {
+        method: 'POST',
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: passwordInput })
+      })
+      if (!response.ok) {
+        throw new Error(response.status === 429 ? 'Too many failed attempts. Try again in one minute.' : 'Incorrect password.')
+      }
+      setPasswordInput('')
+      setPasswordRequired(false)
+    } catch (error) {
+      setPasswordError(error instanceof Error ? error.message : 'Authentication failed.')
+    } finally {
+      setAuthenticating(false)
+    }
+  }
+
+  const showPasswordForm = passwordRequired === true
   const hasSelectedTarget = target.id !== null
 
   if (passwordRequired === null) {
     return <LoadingState label="Connecting…" />
+  }
+
+  if (sessionError) {
+    return (
+      <div className="stream-viewport">
+        <div style={{ color: '#fca5a5', fontFamily: 'Segoe UI, system-ui, sans-serif', padding: 24 }}>{sessionError}</div>
+      </div>
+    )
   }
 
   if (showPasswordForm) {
@@ -206,9 +413,7 @@ export function StreamOverlayRoot() {
           style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 24, background: 'rgba(5,10,18,0.9)', borderRadius: 16, minWidth: 280 }}
           onSubmit={(e) => {
             e.preventDefault()
-            setPassword(passwordInput)
-            setPasswordError(false)
-            setPasswordRequired(false)
+            void authenticateSession()
           }}
         >
           <div style={{ color: '#fdf7f0', fontWeight: 700, fontSize: 16 }}>Password required</div>
@@ -219,10 +424,11 @@ export function StreamOverlayRoot() {
             value={passwordInput}
             onChange={(e) => setPasswordInput(e.target.value)}
             placeholder="Enter password"
+            disabled={authenticating}
             style={{ padding: '8px 12px', borderRadius: 8, border: passwordError ? '1px solid #fb7185' : '1px solid rgba(138,164,200,0.4)', background: '#0a0f1a', color: '#fdf7f0', fontSize: 14 }}
           />
-          {passwordError ? <div style={{ color: '#fb7185', fontSize: 12 }}>Incorrect password</div> : null}
-          <button type="submit" style={{ padding: '8px 16px', borderRadius: 8, background: '#ff6a00', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}>Connect</button>
+          {passwordError ? <div style={{ color: '#fb7185', fontSize: 12 }}>{passwordError}</div> : null}
+          <button disabled={authenticating || !passwordInput} type="submit" style={{ padding: '8px 16px', borderRadius: 8, background: '#ff6a00', color: '#fff', border: 'none', fontWeight: 700, cursor: 'pointer' }}>{authenticating ? 'Connecting…' : 'Connect'}</button>
         </form>
       </div>
     )
@@ -236,10 +442,43 @@ export function StreamOverlayRoot() {
     )
   }
 
-  if (hasSelectedTarget && target.kind === 'touch') return <TouchPanelWindowRoot />
+  if (hasSelectedTarget && target.kind === 'touch') {
+    if (!target.profileId) return <TouchPanelWindowRoot />
+    if (presentationProfile && touchPanel) {
+      return (
+        <StreamPresentationRenderer
+          profile={presentationProfile}
+          touchPanel={touchPanel}
+          snapshot={snapshot}
+          mode="runtime"
+          interactiveTouch={false}
+          ariaLabel="Mobile touch controls stream"
+        />
+      )
+    }
+    return <LoadingState label="Loading touch presentation…" />
+  }
 
   if (hasSelectedTarget && target.kind === 'dashboard') {
-    if (dashboard) return <DashboardCanvas dashboard={dashboard} snapshot={snapshot} />
+    if (dashboard) {
+      if (target.profileId && !presentationProfile) return <LoadingState label="Loading stream presentation…" />
+      return (
+        <>
+          {presentationProfile ? (
+            <StreamPresentationRenderer
+              profile={presentationProfile}
+              dashboard={dashboard}
+              snapshot={snapshot}
+              mode="runtime"
+              ariaLabel="Mobile dashboard stream"
+            />
+          ) : (
+            <DashboardCanvas dashboard={dashboard} snapshot={snapshot} />
+          )}
+          <StreamExpressionNotice message={expressionNotice} />
+        </>
+      )
+    }
     return <LoadingState label="Loading dashboard…" />
   }
 

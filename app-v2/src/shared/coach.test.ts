@@ -442,8 +442,14 @@ describe('deterministicPhrasing', () => {
     ])
     const coast = analyzeLap(lap).find((f) => f.kind === 'coast')!
     const text = deterministicPhrasing(coast)
-    expect(text).toContain(coast.title)
+    expect(text).toContain('Não deixe o carro rolar')
     expect(text).toMatch(/Perda estimada/i)
+    expect(text).not.toMatch(/\b(do not|estimated loss|turn|sector)\b/i)
+
+    const english = deterministicPhrasing(coast, 'en-US')
+    expect(english).toContain('Do not coast')
+    expect(english).toContain('Estimated loss')
+    expect(english).not.toContain('Perda estimada')
   })
 })
 
@@ -828,22 +834,28 @@ describe('coachDimensionForKind — driving-dimension grouping', () => {
 
 describe('coachComposeAction — terse antes/depois corrections', () => {
   it('uses the directional antes/depois wording the driver asked for', () => {
-    expect(coachComposeAction('brake-late')).toBe('brake earlier')
-    expect(coachComposeAction('brake-early')).toBe('brake later')
-    expect(coachComposeAction('steering-late')).toBe('turn in earlier')
+    expect(coachComposeAction('brake-late')).toBe('freie antes')
+    expect(coachComposeAction('brake-early')).toBe('freie mais tarde')
+    expect(coachComposeAction('steering-late')).toBe('vire antes')
     expect(coachComposeAction('steering-early')).toBe('vire depois')
     expect(coachComposeAction('throttle-late')).toBe('acelere antes')
-    expect(coachComposeAction('throttle-early')).toBe('throttle later')
+    expect(coachComposeAction('throttle-early')).toBe('acelere mais tarde')
   })
 
   it('phrases the steering ANGLE dimension distinctly from timing', () => {
-    expect(coachComposeAction('steering-insufficient')).toBe('more steering')
-    expect(coachComposeAction('steering-busy')).toBe('steering mais suave')
+    expect(coachComposeAction('steering-insufficient')).toBe('vire mais o volante')
+    expect(coachComposeAction('steering-busy')).toBe('faça menos correções no volante')
+  })
+
+  it('keeps the English corrections when requested', () => {
+    expect(coachComposeAction('brake-late', 'en-US')).toBe('brake earlier')
+    expect(coachComposeAction('steering-late', 'en-US')).toBe('turn in earlier')
+    expect(coachComposeAction('throttle-early', 'en-US')).toBe('throttle later')
   })
 })
 
 describe('composeCornerAdvice — multi-dimension per-corner line', () => {
-  it('combines brake + turn-in + throttle into ONE "Turn N: …" line, worst-first', () => {
+  it('combines brake + turn-in + throttle into ONE "Curva N: …" line, worst-first', () => {
     const advice = composeCornerAdvice(
       [
         mkFinding({ kind: 'steering-late', estTimeLossSec: 0.18 }),
@@ -853,7 +865,7 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       { corner: 3 }
     )
     expect(advice).not.toBeNull()
-    expect(advice!.text).toBe('Turn 3 (Sector 1): brake earlier, turn in earlier, throttle later.')
+    expect(advice!.text).toBe('Curva 3 (Setor 1): freie antes, vire antes, acelere mais tarde.')
     expect(advice!.kinds).toEqual(['brake-late', 'steering-late', 'throttle-early'])
     expect(advice!.worstLossSec).toBeCloseTo(0.30, 5)
     expect(advice!.totalLossSec).toBeCloseTo(0.58, 5)
@@ -867,8 +879,8 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       ],
       { corner: 5 }
     )
-    expect(advice!.actions).toEqual(['brake later'])
-    expect(advice!.text).toBe('Turn 5 (Sector 1): brake later.')
+    expect(advice!.actions).toEqual(['freie mais tarde'])
+    expect(advice!.text).toBe('Curva 5 (Setor 1): freie mais tarde.')
   })
 
   it('surfaces BOTH steering dimensions — turn-in timing AND angle — together', () => {
@@ -879,17 +891,17 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       ],
       { corner: 7 }
     )
-    expect(advice!.text).toBe('Turn 7 (Sector 1): turn in earlier, more steering.')
+    expect(advice!.text).toBe('Curva 7 (Setor 1): vire antes, vire mais o volante.')
   })
 
   it('falls back to "Sector N:" when no corner is given', () => {
     const advice = composeCornerAdvice([mkFinding({ kind: 'brake-late' })], { sector: 2 })
-    expect(advice!.text).toBe('Sector 2: brake earlier.')
+    expect(advice!.text).toBe('Setor 2: freie antes.')
   })
 
   it('derives the sector from the worst finding when callers only pass findings', () => {
     const advice = composeCornerAdvice([mkFinding({ kind: 'brake-late', sector: 3 })])
-    expect(advice!.text).toBe('Sector 3: brake earlier.')
+    expect(advice!.text).toBe('Setor 3: freie antes.')
   })
 
   it('caps the line at maxDims dimensions (no firehose)', () => {
@@ -903,7 +915,7 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       { corner: 1 },
       { maxDims: 2 }
     )
-    expect(advice!.actions).toEqual(['brake earlier', 'turn in earlier'])
+    expect(advice!.actions).toEqual(['freie antes', 'vire antes'])
   })
 
   it('ignores gains / good / zero-loss findings and returns null when nothing actionable', () => {
@@ -926,7 +938,7 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       { corner: 4 }
     )
     expect(advice).not.toBeNull()
-    expect(advice!.text).toBe('Turn 4 (Sector 1): find more time here.')
+    expect(advice!.text).toBe('Curva 4 (Setor 1): ganhe mais tempo aqui.')
     expect(advice!.kinds).toEqual(['time-loss'])
     expect(advice!.worstLossSec).toBeCloseTo(0.22, 5)
   })
@@ -941,14 +953,26 @@ describe('composeCornerAdvice — multi-dimension per-corner line', () => {
       ],
       { corner: 6 }
     )
-    expect(advice!.text).toBe('Turn 6 (Sector 1): brake earlier.')
+    expect(advice!.text).toBe('Curva 6 (Setor 1): freie antes.')
     expect(advice!.kinds).toEqual(['brake-late'])
-    expect(advice!.text).not.toContain('find more time here')
+    expect(advice!.text).not.toContain('ganhe mais tempo aqui')
   })
 
-  it('speaks the SECTOR time-loss zone ("Sector N: find more time here") fallback', () => {
+  it('speaks the SECTOR time-loss zone in Portuguese', () => {
     const advice = composeCornerAdvice([mkFinding({ kind: 'time-loss', estTimeLossSec: 0.3 })], { sector: 2 })
-    expect(advice!.text).toBe('Sector 2: find more time here.')
+    expect(advice!.text).toBe('Setor 2: ganhe mais tempo aqui.')
+  })
+
+  it('composes the same advice in English when requested', () => {
+    const advice = composeCornerAdvice(
+      [
+        mkFinding({ kind: 'brake-late', estTimeLossSec: 0.3 }),
+        mkFinding({ kind: 'steering-late', estTimeLossSec: 0.2 })
+      ],
+      { corner: 3 },
+      { language: 'en-US' }
+    )
+    expect(advice!.text).toBe('Turn 3 (Sector 1): brake earlier, turn in earlier.')
   })
 })
 

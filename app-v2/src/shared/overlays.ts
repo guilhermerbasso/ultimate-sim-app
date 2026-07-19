@@ -1,6 +1,44 @@
 import type { DashboardElement } from './dashboards'
 import type { TelemetrySnapshot } from './telemetry'
-import { simSupportPrefix } from './sim-coverage'
+import {
+  semanticAlertVisibility as createSemanticAlertVisibility,
+  type OverlayRole,
+  type OverlaySemanticTriggerId,
+  type OverlayTrigger
+} from './overlay-trigger'
+import {
+  simSupportPrefix,
+  type TelemetryRequirement
+} from './sim-coverage'
+import {
+  RELEASE_A_CATALOG_ORDER,
+  RELEASE_A_RELEASED_AT
+} from './catalog-order'
+export {
+  OverlayTriggerController,
+  MonotonicTemporalTriggerEngine,
+  defaultTriggerForHifiModule,
+  evaluateOverlayTrigger,
+  isSemanticTriggerWithEdges,
+  isSemanticTriggerWithHold,
+  hifiModuleRole,
+  overlayTriggerTags,
+  sanitizeOverlayTrigger,
+  sanitizeOverlayTriggerForRole,
+  semanticAlertVisibility,
+  semanticOverlayTrigger,
+  semanticTriggerForHifiModule,
+  simulateOverlayTriggerSnapshot
+} from './overlay-trigger'
+export type {
+  OverlayRole,
+  OverlaySemanticTriggerId,
+  OverlayTrigger,
+  OverlayTriggerKind,
+  OverlayTriggerResult,
+  OverlayVisibilityMetadata,
+  TemporalTriggerMode
+} from './overlay-trigger'
 
 export type OverlayWidgetId =
   | 'revlights'
@@ -220,118 +258,37 @@ export interface OverlayWidgetDefinition {
   defaultPosition: OverlayPosition
   /** Telemetry fields this widget needs LIVE. Drives the per-sim availability filter
    *  + the computed "(IR/ACC/LMU)" prefix. Omitted/empty = available on every sim. */
-  requires?: (keyof TelemetrySnapshot)[]
+  requires?: TelemetryRequirement[]
+  /** Alternative AND-groups; support requires the primary group OR any alternative. */
+  alternativeRequires?: TelemetryRequirement[][]
   /** Function/category tag (e.g. 'delta', 'fuel', 'tyres', 'inputs', 'map'). */
   category?: string
   /** Free-form tags for filtering (style + category). Sim tags (IR/ACC/…) are
    *  derived automatically from `requires` and merged by the tag helper. */
   tags?: string[]
+  role?: OverlayRole
+  defaultTrigger?: OverlayTrigger
+  catalogOrder?: number
+  releasedAt?: string
+  priority?: number
 }
 
 /** Display title with the computed multi-sim support prefix, e.g. "(IR/ACC/LMU) Tyres". */
 export function overlayWidgetDisplayTitle(def: OverlayWidgetDefinition): string {
-  return `${simSupportPrefix(def.requires)}${def.title}`
+  return `${simSupportPrefix(def.requires, def.alternativeRequires)}${def.title}`
 }
 
-// ─── Overlay visibility triggers (v4) ─────────────────────────────────────────
-// An overlay whose `trigger` is set (and not 'always') stays HIDDEN until its
-// condition fires against the live telemetry — spotter-style overlays that only
-// appear when relevant (car left/right arrow, radar-on-proximity, shift-LED
-// flash, pit-limiter, flag, low-fuel). `evaluateOverlayTrigger` is pure + tested.
-export type OverlayTriggerKind =
-  | 'always'
-  | 'carLeft'
-  | 'carRight'
-  | 'carLeftOrRight'
-  | 'proximity'
-  | 'shiftPoint'
-  | 'pitLimiter'
-  | 'flag'
-  | 'lowFuel'
-
-export interface OverlayTrigger {
-  kind: OverlayTriggerKind
-  /** proximity: fire when the nearest car (ahead/behind/radar) is within this many seconds. Default 0.5. */
-  thresholdSec?: number
-  /** shiftPoint: fire when shiftIndicatorPct >= this 0..1 fraction. Default 0.97. */
-  shiftPct?: number
-  /** lowFuel: fire when estimated laps-to-empty <= this. Default 2. */
-  lapsToEmpty?: number
-}
-
-/** Pure, testable trigger evaluation. `always`/null => always visible. */
-export function evaluateOverlayTrigger(
-  trigger: OverlayTrigger | null | undefined,
-  snapshot: TelemetrySnapshot | null | undefined
-): boolean {
-  if (!trigger || trigger.kind === 'always') return true
-  if (!snapshot) return false
-  switch (trigger.kind) {
-    case 'carLeft':
-      return snapshot.carLeftRight === 'left' || snapshot.carLeftRight === 'both'
-    case 'carRight':
-      return snapshot.carLeftRight === 'right' || snapshot.carLeftRight === 'both'
-    case 'carLeftOrRight':
-      return snapshot.carLeftRight === 'left' || snapshot.carLeftRight === 'right' || snapshot.carLeftRight === 'both'
-    case 'proximity': {
-      const t = trigger.thresholdSec ?? 0.5
-      const gaps: number[] = []
-      const ahead = snapshot.relatives?.ahead?.gapSec
-      const behind = snapshot.relatives?.behind?.gapSec
-      if (typeof ahead === 'number' && Number.isFinite(ahead)) gaps.push(Math.abs(ahead))
-      if (typeof behind === 'number' && Number.isFinite(behind)) gaps.push(Math.abs(behind))
-      for (const car of snapshot.radarCars ?? []) {
-        if (typeof car.gapSec === 'number' && Number.isFinite(car.gapSec)) gaps.push(Math.abs(car.gapSec))
-      }
-      return gaps.some((g) => g <= t)
-    }
-    case 'shiftPoint': {
-      const p = trigger.shiftPct ?? 0.97
-      return Number.isFinite(snapshot.shiftIndicatorPct) && (snapshot.shiftIndicatorPct as number) >= p
-    }
-    case 'pitLimiter':
-      return snapshot.pitLimiter === true
-    case 'flag': {
-      const f = snapshot.flags
-      if (!f) return false
-      return Boolean(
-        f.yellow || f.blue || f.red || f.black || f.meatball || f.white || f.checkered || f.disqualify || f.greenWhiteCheckered
-      )
-    }
-    case 'lowFuel': {
-      const laps = trigger.lapsToEmpty ?? 2
-      const fuel = snapshot.fuelLiters
-      const per = snapshot.fuelPerLap
-      if (typeof fuel !== 'number' || typeof per !== 'number' || !Number.isFinite(fuel) || !Number.isFinite(per) || per <= 0) return false
-      return fuel / per <= laps
-    }
-    default:
-      return true
+function releaseAAlertMetadata(semantic: OverlaySemanticTriggerId): Pick<
+  OverlayWidgetDefinition,
+  'role' | 'defaultTrigger' | 'catalogOrder' | 'releasedAt'
+> {
+  const visibility = createSemanticAlertVisibility(semantic)
+  return {
+    role: visibility.role,
+    defaultTrigger: visibility.trigger,
+    catalogOrder: RELEASE_A_CATALOG_ORDER,
+    releasedAt: RELEASE_A_RELEASED_AT
   }
-}
-
-const OVERLAY_TRIGGER_KINDS: OverlayTriggerKind[] = [
-  'always',
-  'carLeft',
-  'carRight',
-  'carLeftOrRight',
-  'proximity',
-  'shiftPoint',
-  'pitLimiter',
-  'flag',
-  'lowFuel'
-]
-
-/** Structural sanitize for a persisted trigger; returns null when invalid/absent. */
-export function sanitizeOverlayTrigger(value: unknown): OverlayTrigger | null {
-  if (!value || typeof value !== 'object') return null
-  const v = value as Record<string, unknown>
-  if (typeof v.kind !== 'string' || !OVERLAY_TRIGGER_KINDS.includes(v.kind as OverlayTriggerKind)) return null
-  const out: OverlayTrigger = { kind: v.kind as OverlayTriggerKind }
-  if (typeof v.thresholdSec === 'number' && Number.isFinite(v.thresholdSec)) out.thresholdSec = v.thresholdSec
-  if (typeof v.shiftPct === 'number' && Number.isFinite(v.shiftPct)) out.shiftPct = v.shiftPct
-  if (typeof v.lapsToEmpty === 'number' && Number.isFinite(v.lapsToEmpty)) out.lapsToEmpty = v.lapsToEmpty
-  return out
 }
 
 export interface OverlayWidgetConfig {
@@ -347,6 +304,7 @@ export interface OverlayWidgetConfig {
   style: OverlayWidgetStyle
   // v4: user-hidden (moved to the "Hidden" section). Does NOT delete the config.
   hidden?: boolean
+  role?: OverlayRole
   // v4: visibility trigger — when set (and not 'always'), the overlay is shown
   // ONLY while evaluateOverlayTrigger(trigger, snapshot) is true (spotter-style).
   trigger?: OverlayTrigger | null
@@ -411,6 +369,8 @@ export interface CustomOverlayDef {
   stylePreset: OverlayStylePresetId
   style: OverlayWidgetStyle
   hidden?: boolean
+  createdAt?: number
+  updatedAt?: number
   trigger?: OverlayTrigger | null
   display?: OverlayDisplayRef | null
   // LEGACY content (expression/channel text cards). Kept for back-compat.
@@ -615,6 +575,7 @@ export function createCustomOverlayElement(partial: Partial<CustomOverlayElement
 
 export function createCustomOverlayDef(partial: Partial<CustomOverlayDef> = {}): CustomOverlayDef {
   const stylePreset = getOverlayStylePreset(partial.stylePreset).id
+  const now = Date.now()
   const def: CustomOverlayDef = {
     id: partial.id ?? `${CUSTOM_OVERLAY_ID_PREFIX}${Date.now().toString(36)}`,
     title: partial.title ?? 'Custom overlay',
@@ -626,6 +587,8 @@ export function createCustomOverlayDef(partial: Partial<CustomOverlayDef> = {}):
     stylePreset,
     style: partial.style ? { ...partial.style } : createDefaultOverlayStyle(stylePreset),
     hidden: partial.hidden ?? false,
+    createdAt: partial.createdAt ?? now,
+    updatedAt: partial.updatedAt ?? partial.createdAt ?? now,
     trigger: partial.trigger ?? null,
     display: partial.display ?? null,
     elements: (partial.elements ?? []).map((element) => createCustomOverlayElement(element))
@@ -1086,7 +1049,9 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
     title: 'Flags',
     description: 'Track state and driving alerts.',
     defaultPosition: { x: 760, y: 820, width: 420, height: 92 },
-    requires: ['flags']
+    requires: ['flags'],
+    tags: ['flags', 'race-control', 'trigger-only', 'release-a'],
+    ...releaseAAlertMetadata('raceControlFlags')
   },
   {
     id: 'tyresBrakes',
@@ -1221,7 +1186,9 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
     title: 'Side Radar Glyph',
     description: 'Top silhouette with green sides when clear and red sides when alongside.',
     defaultPosition: { x: 830, y: 310, width: 260, height: 260 },
-    requires: ['carLeftRight']
+    requires: ['carLeftRight'],
+    tags: ['radar', 'traffic', 'trigger-only', 'release-a'],
+    ...releaseAAlertMetadata('sideProximity')
   },
   {
     id: 'orbitRadar',
@@ -1340,7 +1307,9 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
     title: 'Flag Icon Stack',
     description: 'Stack of glowing icons for flags, pit limiter, and alerts.',
     defaultPosition: { x: 720, y: 850, width: 480, height: 88 },
-    requires: ['flags']
+    requires: ['flags'],
+    tags: ['flags', 'race-control', 'trigger-only', 'release-a'],
+    ...releaseAAlertMetadata('raceControlFlags')
   },
   {
     id: 'gapAhead',
@@ -1376,7 +1345,9 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
     title: 'Push-to-Pass HUD',
     description: 'Highlighted P2P boost — green when ready, pulsing orange when active, with remaining uses.',
     defaultPosition: { x: 840, y: 300, width: 220, height: 160 },
-    requires: ['pushToPass', 'pushToPassCount']
+    requires: ['pushToPass', 'pushToPassCount'],
+    tags: ['push-to-pass', 'strategy', 'trigger-only', 'release-a'],
+    ...releaseAAlertMetadata('pushToPassState')
   },
   {
     id: 'pitStatusHud',
@@ -1468,7 +1439,9 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
     title: 'Wet Tag',
     description: 'DRY/WET chip with wetness percentage ? green when dry, amber/red when wet.',
     defaultPosition: { x: 1280, y: 960, width: 220, height: 100 },
-    requires: ['trackWetnessPct']
+    requires: ['trackWetnessPct'],
+    tags: ['weather', 'wetness', 'trigger-only', 'release-a'],
+    ...releaseAAlertMetadata('trackWetness')
   },
   {
     id: 'surfaceTag',
@@ -1571,9 +1544,9 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
   // members AND WIDGET_COMPONENTS entries (overlay/widgets/index.ts) intentionally
   // STAY so the dashboard embed can still resolve each component by id.
   ,
-  { id: 'perCornerTyrePressure', title: 'Tire pressure (corners)', description: 'Pressure by corner (2?2) with target band. Live (ACC/LMU) or cold (iRacing).', defaultPosition: { x: 1500, y: 60, width: 300, height: 200 }, requires: ['tyres'] },
+  { id: 'perCornerTyrePressure', title: 'Tire pressure (corners)', description: 'Pressure by corner (2×2) with target band. Live on ACC/LMU; explicitly cold-labelled on iRacing.', defaultPosition: { x: 1500, y: 60, width: 300, height: 200 }, requires: ['liveTyrePressureKpa'], alternativeRequires: [['tireColdPressuresKpa']] },
   { id: 'brakeTempCorners', title: 'Brake temperature (corners)', description: 'Disc temperature by corner (2×2) with cold/optimal/hot bands + peak.', defaultPosition: { x: 1500, y: 280, width: 300, height: 200 }, requires: ['brakeTempC'] },
-  { id: 'fuelDeltaTile', title: 'Fuel delta', description: 'Lap margin, L/lap, laps to empty, and liters delta to target.', defaultPosition: { x: 1500, y: 500, width: 300, height: 180 }, requires: ['fuelLiters', 'fuelPerLap'] },
+  { id: 'fuelDeltaTile', title: 'Fuel delta', description: 'Lap margin, L/lap, laps to empty, and liters delta to target.', defaultPosition: { x: 1500, y: 500, width: 300, height: 180 }, requires: ['fuelLiters', 'fuelPerLapLiters'] },
   { id: 'shiftPointBar', title: 'Shift point', description: 'Large LED shift bar + RPM/gear, with redline flash.', defaultPosition: { x: 560, y: 40, width: 800, height: 90 }, requires: ['shiftIndicatorPct'] },
   { id: 'engineVitalsDial', title: 'Engine vitals (dials)', description: 'Water/oil gauges (?C) and oil pressure (bar).', defaultPosition: { x: 60, y: 500, width: 360, height: 180 }, requires: ['waterTempC'] },
   { id: 'sessionInfoTile', title: 'Session info', description: 'Session type, time remaining, laps, position, and incidents.', defaultPosition: { x: 60, y: 60, width: 360, height: 150 }, requires: ['sessionType'] }
@@ -1584,14 +1557,18 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
     title: 'Engine warnings',
     description: 'FIA lamp panel: oil pressure/temperature and water, fuel, rev/pit limiter, engine stopped, and required/optional repair.',
     defaultPosition: { x: 60, y: 240, width: 360, height: 200 },
-    requires: ['engineWarnings']
+    requires: ['engineWarnings'],
+    tags: ['engine', 'warning', 'trigger-only', 'release-a'],
+    ...releaseAAlertMetadata('engineWarnings')
   },
   {
     id: 'absCut',
     title: 'ABS cut',
     description: 'ABS brake pressure cut bar (BrakeABSCutPct, 0?100%). Complements the ABS lamp.',
     defaultPosition: { x: 60, y: 460, width: 300, height: 96 },
-    requires: ['absCutPct']
+    requires: ['absCutPct'],
+    tags: ['abs', 'intervention', 'trigger-only', 'release-a'],
+    ...releaseAAlertMetadata('absCut')
   },
   {
     id: 'sessionBanner',
@@ -1605,14 +1582,18 @@ export const OVERLAY_WIDGETS: OverlayWidgetDefinition[] = [
     title: 'Pace / restart',
     description: 'Pace mode (single/double-file start/restart, not pacing) + active flags (end of line / free pass / waved around).',
     defaultPosition: { x: 700, y: 170, width: 360, height: 150 },
-    requires: ['paceMode']
+    requires: ['paceMode'],
+    tags: ['pace', 'race-control', 'trigger-only', 'release-a'],
+    ...releaseAAlertMetadata('paceMode')
   },
   {
     id: 'sideProximity',
     title: 'Side proximity (2-car)',
     description: 'Side blind spot: distinguishes one car alongside from TWO (CAR LEFT vs 2 LEFT / 3-wide) using carLeftRightCount.',
     defaultPosition: { x: 800, y: 600, width: 320, height: 140 },
-    requires: ['carLeftRightCount']
+    requires: ['carLeftRight', 'carLeftRightCount'],
+    tags: ['radar', 'traffic', 'trigger-only', 'release-a'],
+    ...releaseAAlertMetadata('sideProximity')
   },
   // ─── T4: GT3 instrument-style cluster widgets (brand-neutral) ───────────────
   // Each is BOTH a floating overlay (here) AND a dashboard-catalog widget. `requires`
@@ -1678,6 +1659,8 @@ export function createDefaultOverlaysConfig(): OverlaysConfig {
           opacity: 100,
           stylePreset: DEFAULT_OVERLAY_STYLE_PRESET,
           style: createDefaultOverlayStyle(),
+          ...(widget.role ? { role: widget.role } : {}),
+          ...(widget.defaultTrigger ? { trigger: widget.defaultTrigger } : {}),
           display: null
         }
       ])

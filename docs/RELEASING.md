@@ -11,6 +11,8 @@ How to cut a GitHub Release so the in-app **auto-update works**.
 
 - [ ] Bump `version` in `app-v2/package.json` (e.g. `2.49.0` → `2.50.0`). The tag is `v<version>`.
 - [ ] Build on Windows x64: `cd app-v2 && npm run dist:win`.
+- [ ] Confirm the NSIS package is per-machine/elevated and the update feed marks the EXE
+      `isAdminRightsRequired: true`.
 - [ ] Attach **all four** artifacts from `app-v2/dist-win/` to the Release:
   - `latest.yml` ← **required for auto-update**
   - `Ultimate-Sim-App-<version>-x64.exe`
@@ -41,6 +43,9 @@ This fetches the local llama/whisper/sherpa/tts binaries, runs `electron-vite bu
 It also downloads the official Cloudflare Windows amd64 `cloudflared` asset pinned in
 `scripts/fetch-win-cloudflared.sh`. The script verifies the pinned SHA-256 before an atomic
 install and never executes the binary. An existing file is reused only when its hash matches.
+Packaging also includes the isolated `resources/cloudflared/quick-tunnel.yml`; runtime startup
+re-verifies the executable hash before every initial launch or reconnect and refuses to spawn a
+replacement until the prior process has exited.
 To perform a no-network verification:
 
 ```bash
@@ -48,8 +53,33 @@ bash scripts/fetch-win-cloudflared.sh --verify
 ```
 
 Both Windows workflows run `npm run verify:win-package` before any upload. That gate verifies
-the unpacked `resources/cloudflared/cloudflared.exe`, all four release artifacts, and that
-`latest.yml` matches the package version.
+the unpacked Electron runtime, `resources/elevate.exe`, Cloudflared, Whisper CPU runtime,
+all four release artifacts, that `latest.yml` matches the package version, and that its EXE
+entry requires administrator rights.
+
+### Safe updater/NSIS ordering
+
+The app uses an ordered `before-quit` teardown for hardware, serial ports and persistence.
+Never call `quitAndInstall()` directly from the UI handler: electron-updater starts NSIS before
+calling `app.quit()`, which can race that teardown. The UI requests a normal app quit and
+electron-updater installs from its final quit hook.
+
+`app-v2/build/installer.nsh` may wait for an updating app to exit, but it must never uninstall or
+recursively delete the existing installation from `customInit`. The stock electron-builder
+`_CHECK_APP_RUNNING` and upgrade logic own process termination and old-version removal.
+
+For the per-machine Program Files install, keep these NSIS settings together:
+
+```yaml
+oneClick: false
+perMachine: true
+allowElevation: true
+packElevateHelper: true
+```
+
+If a previously interrupted update leaves a startup error mentioning `icudtl.dat`, run the full
+installer manually as administrator. User data under `%APPDATA%\ultimate-sim-app` is separate from
+the program directory and must not be deleted during repair.
 
 **If it fails on `vigemclient`** (`Error: Could not find any Visual Studio installation`): that
 optional gamepad/ViGEm native module needs Visual Studio to rebuild. On a machine without VS you can

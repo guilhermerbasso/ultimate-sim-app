@@ -1,6 +1,7 @@
 ﻿import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import { DEFAULT_ALERTS_CONFIG, type AlertsConfig } from '../../../../../shared/alerts'
 import { baseSnapshot } from '../../../../../shared/telemetry-scenarios'
 import type { TelemetrySnapshot } from '../../../../../shared/telemetry'
 import { ALERTS2_WIDGETS } from './index'
@@ -37,8 +38,17 @@ function dataSnapshot(): TelemetrySnapshot {
   }
 }
 
-function renderWidget(widget: (typeof ALERTS2_WIDGETS)[number], snapshot: TelemetrySnapshot | null): string {
-  return renderToStaticMarkup(createElement(widget.render, { snapshot, width: widget.defaultSize.w, height: widget.defaultSize.h }))
+function renderWidget(
+  widget: (typeof ALERTS2_WIDGETS)[number],
+  snapshot: TelemetrySnapshot | null,
+  alertsConfig?: AlertsConfig
+): string {
+  return renderToStaticMarkup(createElement(widget.render, {
+    snapshot,
+    width: widget.defaultSize.w,
+    height: widget.defaultSize.h,
+    alertsConfig
+  }))
 }
 
 function renderAll(snapshot: TelemetrySnapshot | null): string[] {
@@ -63,12 +73,17 @@ describe('ALERTS2_WIDGETS', () => {
     expect(byId.get('alert2BrakePressureLow')).toEqual(['brake', 'brakeLinePressBar'])
   })
 
-  it('uses existing overlay trigger kinds only', () => {
-    const byId = new Map(ALERTS2_WIDGETS.map((w) => [w.id, w.defaultTrigger?.kind]))
-    expect(byId.get('alert2BlueFlag')).toBe('flag')
-    for (const widget of ALERTS2_WIDGETS.filter((w) => w.id !== 'alert2BlueFlag')) {
-      expect(widget.defaultTrigger?.kind).toBe('always')
-    }
+  it('uses a dedicated non-always semantic trigger for every alert', () => {
+    const byId = new Map(ALERTS2_WIDGETS.map((widget) => [widget.id, widget.defaultTrigger]))
+    for (const widget of ALERTS2_WIDGETS) expect(widget.defaultTrigger?.kind).toBe('semantic')
+    expect(byId.get('alert2EngineWarning')?.semantic).toBe('alert2EngineWarning')
+    expect(byId.get('alert2WaterTempCritical')?.semantic).toBe('alert2WaterTempCritical')
+    expect(byId.get('alert2OilTempCritical')?.semantic).toBe('alert2OilTempCritical')
+    expect(byId.get('alert2OilPressureLow')?.semantic).toBe('alert2OilPressureLow')
+    expect(byId.get('alert2BadSurface')?.semantic).toBe('alert2BadSurface')
+    expect(byId.get('alert2BlueFlag')?.semantic).toBe('alert2BlueFlag')
+    expect(byId.get('alert2TyreTempCritical')?.semantic).toBe('alert2TyreTempCritical')
+    expect(byId.get('alert2BrakePressureLow')?.semantic).toBe('alert2BrakePressureLow')
   })
 
   it('renders base, null, data, and extreme invalid snapshots without unsafe tokens', () => {
@@ -106,5 +121,39 @@ describe('ALERTS2_WIDGETS', () => {
     expect(withData).toContain('BLUE FLAG')
     expect(withData).toContain('TYRE TEMP')
     expect(withData).toContain('BRAKE BAR')
+  })
+
+  it('uses warning bits and configured tyre/brake thresholds without duplicate fallbacks', () => {
+    const byId = new Map(ALERTS2_WIDGETS.map((widget) => [widget.id, widget]))
+    const numericOnly = {
+      ...dataSnapshot(),
+      engineWarnings: undefined,
+      waterTempC: 200,
+      oilTempC: 200,
+      oilPressureKpa: 0
+    }
+    expect(renderWidget(byId.get('alert2WaterTempCritical')!, numericOnly)).not.toContain('WATER')
+    expect(renderWidget(byId.get('alert2OilTempCritical')!, numericOnly)).not.toContain('OIL TEMP')
+    expect(renderWidget(byId.get('alert2OilPressureLow')!, numericOnly)).not.toContain('OIL KPA')
+
+    const strict = {
+      ...DEFAULT_ALERTS_CONFIG,
+      tyreTemp: { ...DEFAULT_ALERTS_CONFIG.tyreTemp!, maxC: 120 },
+      brakePressureLow: { brakeInputMin: 0.7, maxLinePressureBar: 10 }
+    }
+    expect(renderWidget(byId.get('alert2TyreTempCritical')!, dataSnapshot(), strict))
+      .not.toContain('TYRE TEMP')
+    expect(renderWidget(byId.get('alert2BrakePressureLow')!, dataSnapshot(), strict))
+      .not.toContain('BRAKE BAR')
+
+    const permissive = {
+      ...strict,
+      tyreTemp: { ...strict.tyreTemp, maxC: 117 },
+      brakePressureLow: { brakeInputMin: 0.7, maxLinePressureBar: 20 }
+    }
+    expect(renderWidget(byId.get('alert2TyreTempCritical')!, dataSnapshot(), permissive))
+      .toContain('TYRE TEMP')
+    expect(renderWidget(byId.get('alert2BrakePressureLow')!, dataSnapshot(), permissive))
+      .toContain('BRAKE BAR')
   })
 })

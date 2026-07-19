@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import type { ExpressionValue } from '../../shared/expr'
@@ -39,6 +39,9 @@ export interface ExpressionResolver {
 
 export interface OutputRouterApi {
   setExpressionResolver(resolver: ExpressionResolver | null): void
+  setExpressionRoutes(routes: OutputRoute[], activeExpressionIds?: readonly string[]): void
+  getLegacyExpressionRoutes(): Promise<OutputRoute[]>
+  removeLegacyExpressionRoutes(routeIds: readonly string[]): Promise<void>
   // Read-only snapshot of the last computed value per route id.
   getValuesSnapshot(): Record<string, OutputValueUpdate>
   getRoutes(): OutputRoute[]
@@ -56,7 +59,12 @@ export function register(ctx: ModuleContext): OutputRouterApi {
 }
 
 class OutputRouter {
+  // Routes persisted by the general Output Routing screen.
   private routes: OutputRoute[] = []
+  // Expression-owned v3 outputs live atomically in expressions.json and are
+  // injected here at runtime. They never get copied back to output-routes.json.
+  private expressionRoutes: OutputRoute[] = []
+  private activeExpressionIds: Set<string> | null = null
   private loaded = false
   private loadPromise: Promise<void> | null = null
 
@@ -103,8 +111,18 @@ class OutputRouter {
       setExpressionResolver: (resolver) => {
         this.resolver = resolver ?? null
       },
+      setExpressionRoutes: (routes, activeExpressionIds = []) => {
+        this.expressionRoutes = normalizeRoutes(routes)
+        this.activeExpressionIds = new Set(activeExpressionIds)
+        this.pruneStaleState(new Set(this.effectiveRoutes().map((route) => route.id)))
+        this.lastSerialAt.clear()
+        this.lastSerialPayload.clear()
+        this.ctx.broadcast(OUTPUTS_CHANNELS.routesChanged, { routes: this.effectiveRoutes() })
+      },
+      getLegacyExpressionRoutes: () => this.getLegacyExpressionRoutes(),
+      removeLegacyExpressionRoutes: (routeIds) => this.removeLegacyExpressionRoutes(routeIds),
       getValuesSnapshot: () => Object.fromEntries(this.values),
-      getRoutes: () => this.routes.slice()
+      getRoutes: () => this.effectiveRoutes()
     }
   }
 
@@ -113,21 +131,33 @@ class OutputRouter {
   private registerIpc(): void {
     this.ctx.ipcMain.handle(OUTPUTS_CHANNELS.getRoutes, async () => {
       await this.ensureLoaded()
-      return this.routes
+      return this.effectiveRoutes()
     })
     this.ctx.ipcMain.handle(OUTPUTS_CHANNELS.setRoutes, async (_event, input: unknown) => {
       await this.ensureLoaded()
       const next = normalizeRoutes(input)
-      this.routes = next
-      this.pruneStaleState(new Set(next.map((route) => route.id)))
+      const managedIds = new Set(this.expressionRoutes.map((route) => route.id))
+      const protectedLegacy = this.routes.filter(isLegacyExpressionManagedRoute)
+      const merged = new Map(
+        next
+          .filter((route) => !managedIds.has(route.id) && !isLegacyExpressionManagedRoute(route))
+          .map((route) => [route.id, route])
+      )
+      for (const route of protectedLegacy) {
+        if (!merged.has(route.id)) merged.set(route.id, route)
+      }
+      const nextRoutes = [...merged.values()]
+      const nextEffective = this.effectiveRoutesFor(nextRoutes)
+      await this.saveRoutes(nextRoutes)
+      this.routes = nextRoutes
+      this.pruneStaleState(new Set(nextEffective.map((route) => route.id)))
       // A route's serial target (deviceId/template) can change while keeping its
       // id — drop ALL serial dedup/throttle state so retargeted routes re-send to
       // the new device/template on the next tick instead of being skipped.
       this.lastSerialAt.clear()
       this.lastSerialPayload.clear()
-      await this.saveRoutes()
-      this.ctx.broadcast(OUTPUTS_CHANNELS.routesChanged, { routes: next })
-      return next
+      this.ctx.broadcast(OUTPUTS_CHANNELS.routesChanged, { routes: nextEffective })
+      return nextEffective
     })
     this.ctx.ipcMain.handle(OUTPUTS_CHANNELS.getValues, async () => {
       await this.ensureLoaded()
@@ -139,9 +169,10 @@ class OutputRouter {
 
   private onSnapshot(snapshot: TelemetrySnapshot | null): void {
     if (!this.loaded) return
-    if (this.routes.length === 0) return
+    const routes = this.effectiveRoutes()
+    if (routes.length === 0) return
 
-    for (const route of this.routes) {
+    for (const route of routes) {
       if (!route.enabled) continue
       const raw = this.evaluateSource(route.source, snapshot)
       if (raw === undefined) {
@@ -330,19 +361,41 @@ class OutputRouter {
     }
   }
 
-  private async saveRoutes(): Promise<void> {
+  private async saveRoutes(routes: readonly OutputRoute[] = this.routes): Promise<void> {
     const payload: OutputRoutesPayload = {
       version: 1,
-      routes: this.routes,
+      routes: [...routes],
       updatedAt: new Date().toISOString()
     }
     await mkdir(dirname(this.storePath), { recursive: true })
-    await writeFile(this.storePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
+    const temporaryPath = `${this.storePath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`
+    try {
+      await writeFile(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8')
+      try {
+        await rename(temporaryPath, this.storePath)
+      } catch (renameError: unknown) {
+        const code = (renameError as NodeJS.ErrnoException).code
+        if (code !== 'EPERM' && code !== 'EEXIST') throw renameError
+        await rm(this.storePath, { force: true })
+        await rename(temporaryPath, this.storePath)
+      }
+    } catch (error) {
+      await rm(temporaryPath, { force: true }).catch(() => undefined)
+      throw error
+    }
   }
 
   private pruneStaleState(activeIds: Set<string>): void {
-    for (const id of [...this.values.keys()]) {
-      if (!activeIds.has(id)) this.values.delete(id)
+    for (const [id, previous] of [...this.values.entries()]) {
+      if (!activeIds.has(id)) {
+        this.values.delete(id)
+        this.pendingUpdates.set(id, {
+          routeId: id,
+          name: previous.name,
+          value: '',
+          deleted: true
+        })
+      }
     }
     for (const id of [...this.lastSerialAt.keys()]) {
       if (!activeIds.has(id)) this.lastSerialAt.delete(id)
@@ -354,8 +407,71 @@ class OutputRouter {
       if (!activeIds.has(id)) this.lastDashboardActive.delete(id)
     }
     for (const id of [...this.pendingUpdates.keys()]) {
-      if (!activeIds.has(id)) this.pendingUpdates.delete(id)
+      const pending = this.pendingUpdates.get(id)
+      if (!activeIds.has(id) && pending && !pending.deleted) {
+        this.pendingUpdates.set(id, {
+          routeId: id,
+          name: pending.name,
+          value: '',
+          deleted: true
+        })
+      }
     }
+  }
+
+  private effectiveRoutes(): OutputRoute[] {
+    return this.effectiveRoutesFor(this.routes)
+  }
+
+  private effectiveRoutesFor(routes: readonly OutputRoute[]): OutputRoute[] {
+    const merged = new Map<string, OutputRoute>()
+    const legacyById = new Map<string, OutputRoute>()
+    for (const route of routes) {
+      if (isLegacyExpressionManagedRoute(route)) legacyById.set(route.id, route)
+      if (
+        route.source.kind === 'expression' &&
+        this.activeExpressionIds &&
+        !this.activeExpressionIds.has(route.source.exprId)
+      ) {
+        continue
+      }
+      merged.set(route.id, route)
+    }
+    for (const route of this.expressionRoutes) {
+      const legacy = legacyById.get(route.id)
+      merged.set(route.id, legacy ? {
+        ...route,
+        enabled: legacy.enabled,
+        format: legacy.format ? { ...legacy.format } : undefined,
+        updatedAt: legacy.updatedAt
+      } : route)
+    }
+    return [...merged.values()]
+  }
+
+  private async getLegacyExpressionRoutes(): Promise<OutputRoute[]> {
+    await this.ensureLoaded()
+    return this.routes
+      .filter(isLegacyExpressionManagedRoute)
+      .map((route) => ({
+        ...route,
+        source: { ...route.source },
+        target: { ...route.target } as OutputTarget,
+        format: route.format ? { ...route.format } : undefined
+      }))
+  }
+
+  private async removeLegacyExpressionRoutes(routeIds: readonly string[]): Promise<void> {
+    await this.ensureLoaded()
+    const ids = new Set(routeIds)
+    if (ids.size === 0) return
+    const next = this.routes.filter((route) => !(ids.has(route.id) && isLegacyExpressionManagedRoute(route)))
+    if (next.length === this.routes.length) return
+    await this.saveRoutes(next)
+    this.routes = next
+    const effective = this.effectiveRoutes()
+    this.pruneStaleState(new Set(effective.map((route) => route.id)))
+    this.ctx.broadcast(OUTPUTS_CHANNELS.routesChanged, { routes: effective })
   }
 }
 
@@ -406,6 +522,10 @@ function normalizeRoutes(input: unknown): OutputRoute[] {
 function ensureString(value: unknown, message: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(message)
   return value.trim()
+}
+
+function isLegacyExpressionManagedRoute(route: OutputRoute): boolean {
+  return route.id.startsWith('expr:') && route.source.kind === 'expression'
 }
 
 function sourceFieldName(source: OutputSource): string | undefined {

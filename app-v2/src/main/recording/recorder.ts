@@ -1,6 +1,6 @@
-import { mkdir, readFile, readdir, rm, writeFile, appendFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { TelemetrySnapshot } from '../../shared/telemetry'
 import type {
   RecordingLapSummary,
@@ -24,9 +24,23 @@ export interface TelemetryRecorderLifecycle {
   removeSession(dir: string): Promise<void>
 }
 
+export interface TelemetryRecorderPersistence {
+  mkdir(path: string): Promise<void>
+  writeFile(path: string, payload: string): Promise<void>
+  rename(from: string, to: string): Promise<void>
+  remove(path: string): Promise<void>
+}
+
 const DEFAULT_LIFECYCLE: TelemetryRecorderLifecycle = {
   prepareSession: (dir) => mkdir(dir, { recursive: true }).then(() => undefined),
   removeSession: (dir) => rm(dir, { recursive: true, force: true })
+}
+
+const DEFAULT_PERSISTENCE: TelemetryRecorderPersistence = {
+  mkdir: (path) => mkdir(path, { recursive: true }).then(() => undefined),
+  writeFile: (path, payload) => writeFile(path, payload, 'utf8'),
+  rename,
+  remove: (path) => rm(path, { force: true })
 }
 
 function clampSampleRate(rate?: number): number {
@@ -77,10 +91,17 @@ export class TelemetryRecorder {
     promise: Promise<RecordingStatus>
   } | null = null
   private accepting = true
+  private metadataWriteSequence = 0
+  private finalization: {
+    session: RecordingSessionSummary
+    failures: Error[]
+    pendingWriteFailures: Error[]
+  } | null = null
 
   constructor(
     userDataPath: string,
-    private readonly lifecycle: TelemetryRecorderLifecycle = DEFAULT_LIFECYCLE
+    private readonly lifecycle: TelemetryRecorderLifecycle = DEFAULT_LIFECYCLE,
+    private readonly persistence: TelemetryRecorderPersistence = DEFAULT_PERSISTENCE
   ) {
     this.recordingsDir = join(userDataPath, 'recordings')
   }
@@ -173,6 +194,7 @@ export class TelemetryRecorder {
       this.writeQueue = Promise.resolve()
       this.metadataQueue = Promise.resolve()
       this.pendingWriteFailures = []
+      this.finalization = null
       await this.enqueueMetadataPersist(pending)
       if (!this.startIsCurrent(generation, isCurrent)) {
         await this.lifecycle.removeSession(this.sessionDir(id))
@@ -196,12 +218,12 @@ export class TelemetryRecorder {
     this.cancelPendingStart()
     await this.settlePendingStart()
     if (!this.active) return this.status()
-    const session = this.active
-    const pendingWriteFailures = this.pendingWriteFailures
-    const failures: Error[] = []
-    let metadataFailure: Error | null = null
-    this.stopping = true
-    try {
+    let finalization = this.finalization
+    if (!finalization || finalization.session !== this.active) {
+      const session = this.active
+      const pendingWriteFailures = this.pendingWriteFailures
+      const failures: Error[] = []
+      this.stopping = true
       try {
         session.endedAt = Date.now()
         const lap = session.laps[this.currentLapIndex]
@@ -214,20 +236,29 @@ export class TelemetryRecorder {
       } catch (error) {
         failures.push(recordingFailure('Recording sample queue drain failed', error))
       }
-      try {
-        await this.enqueueMetadataPersist(session)
-      } catch (error) {
-        metadataFailure = recordingFailure('Recording metadata persistence failed', error)
-      }
-    } finally {
-      this.clearStoppedSession(session, pendingWriteFailures)
-      failures.push(...pendingWriteFailures)
-      if (metadataFailure) failures.push(metadataFailure)
+      finalization = { session, failures, pendingWriteFailures }
+      this.finalization = finalization
     }
-    if (failures.length === 1) throw failures[0]
-    if (failures.length > 1) {
+
+    try {
+      await this.enqueueMetadataPersist(finalization.session)
+    } catch (error) {
+      const failures = [
+        ...finalization.failures,
+        ...finalization.pendingWriteFailures,
+        recordingFailure('Recording metadata persistence failed', error)
+      ]
+      if (failures.length === 1) throw failures[0]
       throw new AggregateError(failures, 'Recording persistence failed.')
     }
+
+    const failures = [
+      ...finalization.failures,
+      ...finalization.pendingWriteFailures
+    ]
+    this.clearStoppedSession(finalization.session, finalization.pendingWriteFailures)
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) throw new AggregateError(failures, 'Recording persistence failed.')
     return this.status()
   }
 
@@ -244,6 +275,7 @@ export class TelemetryRecorder {
       this.boundaryPending = false
       this.writeQueue = Promise.resolve()
       this.metadataQueue = Promise.resolve()
+      this.finalization = null
     }
     if (this.pendingWriteFailures === pendingWriteFailures) this.pendingWriteFailures = []
     this.stopping = false
@@ -427,15 +459,24 @@ export class TelemetryRecorder {
 
   private enqueueMetadataPersist(session: RecordingSessionSummary | null = this.active): Promise<void> {
     if (!session) return this.metadataQueue
-    const sessionDir = this.sessionDir(session.id)
+    const targetPath = join(this.sessionDir(session.id), 'session.json')
     const payload = `${JSON.stringify(session, null, 2)}\n`
     this.metadataQueue = this.metadataQueue
       .catch(() => undefined)
-      .then(async () => {
-        await mkdir(sessionDir, { recursive: true })
-        await writeFile(join(sessionDir, 'session.json'), payload, 'utf8')
-      })
+      .then(() => this.persistMetadataAtomically(targetPath, payload))
     return this.metadataQueue
+  }
+
+  private async persistMetadataAtomically(targetPath: string, payload: string): Promise<void> {
+    const tempPath = `${targetPath}.${process.pid}.${++this.metadataWriteSequence}.tmp`
+    try {
+      await this.persistence.mkdir(dirname(targetPath))
+      await this.persistence.writeFile(tempPath, payload)
+      await this.persistence.rename(tempPath, targetPath)
+    } catch (error) {
+      await this.persistence.remove(tempPath).catch(() => undefined)
+      throw error
+    }
   }
 
   private async readSession(sessionId: string): Promise<RecordingSessionSummary> {

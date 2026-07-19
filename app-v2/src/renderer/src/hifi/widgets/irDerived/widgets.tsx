@@ -9,7 +9,7 @@
 //   steeringLock     ← steerAngleDeg + steeringAngleMaxDeg (% of available lock)
 //   rotationRates    ← yaw/pitch/rollRateRadSec        (3-axis body rates, °/s)
 //   carAttitude      ← pitchRad + rollRad + yawRad      (artificial horizon + hdg)
-//   fuelLapsLeft     ← fuelLiters + fuelPerLapKg        (estimated laps to empty)
+//   fuelLapsLeft     ← canonical fuelLapsRemaining / litres-per-lap
 //   sunPosition      ← solarAltitudeRad + solarAzimuthRad (sky-dome sun plot)
 //   gpsHeading       ← lat + lon + yawNorth             (GPS fix + compass heading)
 //   raceControlFlags ← sessionFlagsRaw                  (decoded flag lamp panel)
@@ -30,12 +30,19 @@ import {
   LEGIBLE,
   SHIFT_STROBE_BLUE,
   ShiftStrobe,
+  atShiftPoint,
   clamp01,
   fixed,
   legibleStroke,
-  num
+  num,
+  resolveRevLightPct,
+  resolveRpmGaugePct
 } from '../kit'
 import { formatMeasurement } from '../../../../../shared/units'
+import {
+  fuelLapsRemainingOf,
+  fuelPerLapLitersOf
+} from '../../../../../shared/telemetry'
 
 const W = 420
 const H = 240
@@ -184,20 +191,18 @@ function CarAttitude({ width, height, snapshot }: HifiWidgetProps): ReactElement
   )
 }
 
-// ── Fuel laps-left (liters ÷ per-lap kg → estimated laps) ─────────────────────
+// ── Fuel laps-left (canonical litres-based estimate) ──────────────────────────
 function FuelLapsLeft({ width, height, snapshot, unitSystem = 'metric' }: HifiWidgetProps): ReactElement {
-  const liters = num(snapshot?.fuelLiters)
-  const perLapKg = num(snapshot?.fuelPerLapKg)
-  const perLapL = perLapKg != null && perLapKg > 0 ? perLapKg / 0.75 : undefined
-  const laps = liters != null && perLapL != null && perLapL > 0 ? liters / perLapL : undefined
+  const laps = fuelLapsRemainingOf(snapshot)
+  const perLapLiters = fuelPerLapLitersOf(snapshot)
   const color = laps == null ? C.dim : laps < 2 ? C.red : laps < 4 ? C.amber : C.green
-  const perLapReading = formatMeasurement(perLapKg, 'mass-per-lap-kg', unitSystem, { decimals: 2 })
+  const perLapReading = formatMeasurement(perLapLiters, 'fuel-per-lap-l', unitSystem, { decimals: 2 })
   return (
     <Root width={width} height={height} snapshot={snapshot}>
       <BigNum x={W / 2} y={128} value={laps == null ? '—' : fixed(laps, 1)} color={color} size={104} />
       <text x={W / 2} y={168} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={24} fontWeight={800} letterSpacing={3} {...LEGIBLE}>LAPS LEFT</text>
       <text x={W / 2} y={210} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={20} fontWeight={700} {...LEGIBLE}>
-        {perLapKg == null ? '—' : `${perLapReading.display} ${perLapReading.unit}`}
+        {perLapLiters == null ? '—' : `${perLapReading.display} ${perLapReading.unit}`}
       </text>
     </Root>
   )
@@ -325,10 +330,12 @@ function ShiftPoint({ width, height, snapshot }: HifiWidgetProps): ReactElement 
   const shiftRpm = num(snapshot?.shiftRpm)
   const rpm = num(snapshot?.rpm)
   const maxRpm = num(snapshot?.maxRpm)
-  const f = rpm != null && maxRpm != null && maxRpm > 0 ? clamp01(rpm / maxRpm) : 0
+  const rpmPct = resolveRpmGaugePct(snapshot)
+  const shiftPct = resolveRevLightPct(snapshot)
+  // Keep the raw DriverCarSLShiftRPM marker authoritative on the tach scale.
   const shiftF = shiftRpm != null && maxRpm != null && maxRpm > 0 ? clamp01(shiftRpm / maxRpm) : undefined
-  const upshift = shiftRpm != null && rpm != null && rpm >= shiftRpm
-  const near = shiftRpm != null && rpm != null && rpm >= shiftRpm * 0.95
+  const upshift = atShiftPoint(shiftPct, snapshot?.revLights?.blink)
+  const near = shiftPct >= 0.95
   const color = upshift ? SHIFT_STROBE_BLUE : near ? C.amber : C.green
   const barX = 40
   const barY = 150
@@ -336,12 +343,21 @@ function ShiftPoint({ width, height, snapshot }: HifiWidgetProps): ReactElement 
   const markX = shiftF == null ? undefined : barX + barW * shiftF
   return (
     <Root width={width} height={height} snapshot={snapshot}>
-      <g>
-        {upshift ? <ShiftStrobe active={upshift} /> : null}
-        <BigNum x={W / 2} y={104} value={upshift ? 'SHIFT' : shiftRpm == null ? '—' : fixed(shiftRpm, 0)} unit={upshift ? undefined : 'rpm'} color={color} size={upshift ? 86 : 66} />
+      <g
+        data-shift-cue="ir-derived-rpm-bar-marker-shift"
+        data-shift-active={upshift ? 'true' : 'false'}
+        data-rpm-pct={rpmPct.toFixed(4)}
+        data-shift-rpm-pct={shiftF?.toFixed(4)}
+      >
+        <ShiftStrobe active={upshift} />
+        <g data-shift-part="shift-label">
+          <BigNum x={W / 2} y={104} value={upshift ? 'SHIFT' : shiftRpm == null ? '—' : fixed(shiftRpm, 0)} unit={upshift ? undefined : 'rpm'} color={color} size={upshift ? 86 : 66} />
+        </g>
+        <g data-shift-part="rpm-bar">
+          <Bar x={barX} y={barY} w={barW} h={18} f={rpmPct} color={color} />
+        </g>
+        {markX != null ? <rect data-shift-part="marker" x={markX - 2} y={barY - 8} width={4} height={34} rx={2} fill={SHIFT_STROBE_BLUE} /> : null}
       </g>
-      <Bar x={barX} y={barY} w={barW} h={18} f={f} color={color} />
-      {markX != null ? <rect x={markX - 2} y={barY - 8} width={4} height={34} rx={2} fill={SHIFT_STROBE_BLUE} /> : null}
       <text x={W / 2} y={206} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={20} fontWeight={800} letterSpacing={2} {...LEGIBLE}>
         {rpm == null ? 'UPSHIFT' : `${fixed(rpm, 0)} rpm`}
       </text>
@@ -395,6 +411,11 @@ function SpotterRaw({ width, height, snapshot }: HifiWidgetProps): ReactElement 
 }
 
 // ── Session tag (unique session identity) ─────────────────────────────────────
+function sessionTagSize(tag: string): number {
+  if (tag === '—') return 72
+  return Math.max(32, Math.min(72, (W - 96) / (tag.length * 0.92)))
+}
+
 function SessionTag({ width, height, snapshot }: HifiWidgetProps): ReactElement {
   const id = num(snapshot?.sessionUniqueId)
   const tag = id == null ? '—' : `#${Math.trunc(id)}`
@@ -402,7 +423,7 @@ function SessionTag({ width, height, snapshot }: HifiWidgetProps): ReactElement 
   return (
     <Root width={width} height={height} snapshot={snapshot}>
       <rect x={40} y={70} width={W - 80} height={100} rx={16} fill="rgba(255,255,255,0.04)" stroke={C.stroke} strokeWidth={1.5} />
-      <BigNum x={W / 2} y={142} value={tag} color={color} size={id != null && tag.length > 7 ? 56 : 72} />
+      <BigNum x={W / 2} y={142} value={tag} color={color} size={sessionTagSize(tag)} />
       <text x={W / 2} y={196} textAnchor="middle" fill={C.dim} fontFamily={FONT_LABEL} fontSize={22} fontWeight={800} letterSpacing={4} {...LEGIBLE}>SESSION ID</text>
     </Root>
   )
@@ -458,7 +479,8 @@ export const fuelLapsLeftWidget: HifiWidgetModule = {
   description: 'Estimated laps to empty from tank litres and fuel used per lap.',
   category: 'fuel',
   tags: ['fuel', 'laps', 'range', 'strategy', 'derived', 'clean'],
-  requires: ['fuelLiters', 'fuelPerLapKg'],
+  requires: ['fuelLapsRemaining'],
+  alternativeRequires: [['fuelLiters', 'fuelPerLapLiters']],
   defaultSize: { w: W, h: H },
   render: (props) => <FuelLapsLeft {...props} />
 }
@@ -502,7 +524,7 @@ export const shiftPointWidget: HifiWidgetModule = {
   description: 'Optimal upshift RPM cue with a live RPM bar and a strong-blue SHIFT prompt.',
   category: 'engine',
   tags: ['shift', 'upshift', 'rpm', 'engine', 'derived', 'clean'],
-  requires: ['shiftRpm', 'rpm', 'maxRpm'],
+  requires: ['shiftRpm', 'rpm', 'maxRpm', 'revLights'],
   defaultSize: { w: W, h: H },
   render: (props) => <ShiftPoint {...props} />
 }

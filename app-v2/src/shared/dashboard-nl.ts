@@ -37,6 +37,8 @@ export interface CatalogWidget {
   label?: string
   name?: string
   binding?: string
+  widgetId?: DashboardElement['widgetId']
+  hifiModuleId?: string
   category?: string
   tags?: readonly string[]
 }
@@ -408,6 +410,8 @@ export function packWidgetsIntoGrid(widgets: readonly CatalogWidget[], opts: Pac
       h: cellH,
       binding: widget.binding,
       name: widget.name ?? widget.label,
+      ...(widget.widgetId ? { widgetId: widget.widgetId } : {}),
+      ...(widget.hifiModuleId ? { hifiModuleId: widget.hifiModuleId } : {}),
       style: { ...widget.style }
     }
   })

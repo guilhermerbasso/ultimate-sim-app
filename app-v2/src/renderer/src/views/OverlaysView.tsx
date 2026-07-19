@@ -1,19 +1,41 @@
 import { Component, useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ErrorInfo, ReactElement } from 'react'
 import type { CustomOverlayDef, CustomOverlayElement, CustomOverlayElementAlign, CustomOverlayListItem, IracingGraphicsStatus, FixIracingFullscreenResult, OverlayListItem, OverlayPosition, OverlayWidgetId, OverlayWidgetStyle, OverlaysConfig } from '../../../shared/overlays'
-import { createCustomOverlayDef, createCustomOverlayElement, createRichCustomOverlayDef, isRichCustomOverlay, OVERLAY_FORMS, overlayDesignFamily, overlayWidgetDisplayTitle } from '../../../shared/overlays'
+import {
+  createCustomOverlayDef,
+  createCustomOverlayElement,
+  createRichCustomOverlayDef,
+  isRichCustomOverlay,
+  OVERLAY_FORMS,
+  overlayDesignFamily,
+  overlayWidgetDisplayTitle,
+  type OverlayWidgetDefinition
+} from '../../../shared/overlays'
 import type { Corners, DriverEntry, Flags, PitStatus, RadarCarEntry, RelativeCars, SimId, TelemetrySnapshot, TyreInfo } from '../../../shared/telemetry'
 import { PLAYABLE_SIMS, simLabel, widgetSupportedSims } from '../../../shared/sim-coverage'
+import { compareCatalogEntries, compareCreatedAtEntries } from '../../../shared/catalog-order'
 import { OverlayWidgetBuilder } from './overlay/OverlayWidgetBuilder'
+import { consumeEditorTarget } from '../lib/app-navigation'
 import { EXPR_CHANNELS, type ExpressionDef } from '../../../shared/expr'
 import { IRACING_VARIABLES, IRACING_VAR_CATEGORY_LABELS, IRACING_VAR_CATEGORY_ORDER } from '../../../shared/iracing-vars'
 import type { AppViewProps } from '../App'
+import type { AlertsConfig } from '../../../shared/alerts'
 import { tt } from '../i18n'
 import { useDevices } from '../lib/devices/DeviceRegistry'
 import { SectionExportImport } from '../components/SectionExportImport'
+import {
+  TriggerPreviewToggle,
+  useEditorTriggerPreviewPreference,
+  useOverlayPositioningPreviewChannel
+} from '../components/TriggerPreviewToggle'
 import { TagFilter, filterByTags } from '../components/TagFilter'
-import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, hasAllHifiOverlayConfigs, mergeHifiOverlayConfigs, mergeHifiOverlayItems } from '../overlay/hifi-overlays'
-import { resolveWidgetComponent } from '../overlay/widgets'
+import { ALL_OVERLAY_WIDGETS, createDefaultOverlaysConfigWithHifi, hasAllHifiOverlayConfigs, mergeHifiOverlayConfigs, mergeHifiOverlayItems, resolveOverlayTrigger } from '../overlay/hifi-overlays'
+import { HifiWidgetHost, resolveWidgetComponent } from '../overlay/widgets'
+import { useAlertsConfig } from '../lib/alerts-config'
+import {
+  createEditorTriggerPreviewFrame,
+  resolveEditorPreviewTrigger
+} from '../overlay/editor-trigger-preview'
 import '../overlay/overlay-runtime.css'
 import '../overlay/overlay-view.css'
 
@@ -258,6 +280,8 @@ function configModeFrom(items: OverlayListItem[], fallback: OverlaysConfig): Ove
         stylePreset: item.stylePreset,
         style: item.style,
         hidden: item.hidden,
+        role: item.role,
+        trigger: item.trigger,
         hifiModuleId: item.hifiModuleId
       }]))
     } as OverlaysConfig['widgets']
@@ -271,15 +295,12 @@ function definitionTags(def: { category?: string; tags?: string[] } | undefined)
 
 // Configuration-list ordering is intentionally independent from enabled state:
 // toggling an overlay must not move its card and make the page jump.
-function sortOverlayEntries<T extends { enabled: boolean; favorite?: boolean }>(entries: T[]): T[] {
-  return entries
-    .map((entry, index) => ({ entry, index }))
-    .sort((a, b) => {
-      const favoriteRank = (a.entry.favorite ? 0 : 1) - (b.entry.favorite ? 0 : 1)
-      if (favoriteRank !== 0) return favoriteRank
-      return a.index - b.index
-    })
-    .map((item) => item.entry)
+function sortOverlayEntries<T extends OverlayListItem>(entries: T[]): T[] {
+  return [...entries].sort((left, right) => compareCatalogEntries(left, right, true))
+}
+
+function sortCustomOverlayEntries<T extends CustomOverlayListItem>(entries: T[]): T[] {
+  return [...entries].sort(compareCreatedAtEntries)
 }
 
 class OverlayPreviewErrorBoundary extends Component<
@@ -313,8 +334,35 @@ function overlayShellVars(config: OverlayListItem): CSSProperties {
   } as CSSProperties
 }
 
-function OverlayRuntimePreview({ item, fallback }: { item: OverlayListItem; fallback: string }): ReactElement {
+export function OverlayRuntimePreview({
+  item,
+  definition,
+  fallback,
+  alertsConfig,
+  showTriggerOnlyActive
+}: {
+  item: OverlayListItem
+  definition: OverlayWidgetDefinition | undefined
+  fallback: string
+  alertsConfig: AlertsConfig
+  showTriggerOnlyActive: boolean
+}): ReactElement {
+  const isHifi = item.id.startsWith('hifi:')
   const Widget = resolveWidgetComponent(item.id)
+  const runtimeTrigger = resolveOverlayTrigger(definition, item)
+  const trigger = showTriggerOnlyActive
+    ? resolveEditorPreviewTrigger(runtimeTrigger, definition?.defaultTrigger)
+    : runtimeTrigger
+  const triggerPreview = createEditorTriggerPreviewFrame(
+    OVERLAY_PREVIEW_SNAPSHOT,
+    trigger,
+    showTriggerOnlyActive && definition?.role === 'alert',
+    alertsConfig,
+    `preview:${item.id}`,
+  )
+  const previewSnapshot = triggerPreview.snapshot
+  const visibility = triggerPreview.visibility
+  const renderWidget = definition?.role !== 'alert' || visibility.visible
   const natW = Math.max(1, item.position.width)
   const natH = Math.max(1, item.position.height)
   const scale = Math.min(1, PREVIEW_MAX_W / natW, PREVIEW_MAX_H / natH)
@@ -339,6 +387,9 @@ function OverlayRuntimePreview({ item, fallback }: { item: OverlayListItem; fall
 
   return (
     <div
+      data-overlay-card-hifi-preview={isHifi ? 'inert' : undefined}
+      data-trigger-preview-visible={visibility.visible ? 'true' : 'false'}
+      data-trigger-preview-forced={triggerPreview.forced ? 'true' : 'false'}
       style={{
         display: 'grid',
         placeItems: 'center',
@@ -358,7 +409,32 @@ function OverlayRuntimePreview({ item, fallback }: { item: OverlayListItem; fall
       <div style={stageStyle}>
         <main className="overlay-shell" style={shellStyle}>
           <OverlayPreviewErrorBoundary id={item.id} fallback={fallback}>
-            {Widget ? <Widget snapshot={OVERLAY_PREVIEW_SNAPSHOT} config={item} /> : <div>{fallback}</div>}
+            <>
+              {Widget && renderWidget
+                ? (
+                    isHifi
+                      ? (
+                          <HifiWidgetHost
+                            snapshot={previewSnapshot}
+                            config={item}
+                            visibility={visibility}
+                            alertsConfig={triggerPreview.alertsConfig}
+                            preview="inert"
+                          />
+                        )
+                      : (
+                          <Widget
+                            snapshot={previewSnapshot}
+                            config={item}
+                            visibility={visibility}
+                            alertsConfig={triggerPreview.alertsConfig}
+                          />
+                        )
+                  )
+                : Widget
+                  ? null
+                  : <div>{fallback}</div>}
+            </>
           </OverlayPreviewErrorBoundary>
         </main>
       </div>
@@ -395,6 +471,8 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
   const [builderOpen, setBuilderOpen] = useState(false)
   const [builderEditingId, setBuilderEditingId] = useState<string | null>(null)
   const [builderDraft, setBuilderDraft] = useState<CustomOverlayDef | null>(null)
+  const [editorTargetId, setEditorTargetId] = useState<string | null>(() => consumeEditorTarget('overlay'))
+  const alertsConfig = useAlertsConfig()
   const enabledCount = useMemo(() => items.filter((item) => item.enabled).length, [items])
   const sortedItems = useMemo(() => sortOverlayEntries(items), [items])
   const [selectedWidgetIds, setSelectedWidgetIds] = useState<Set<string>>(() => new Set())
@@ -404,6 +482,9 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
   // shows everything. The title is prefixed "(IR/ACC/LMU)" with its supported sims.
   const [simFilter, setSimFilter] = useState<SimId | 'all'>('all')
   const [tagFilters, setTagFilters] = useState<string[]>([])
+  const [showTriggerOnlyActive, setShowTriggerOnlyActive] =
+    useEditorTriggerPreviewPreference()
+  useOverlayPositioningPreviewChannel(showTriggerOnlyActive)
   const tr = useCallback((key: string, vars: Record<string, string | number> = {}) => tt(language, `overlays.${key}`, vars), [language])
   const defById = useMemo(() => new Map(ALL_OVERLAY_WIDGETS.map((def) => [def.id, def])), [])
   const displayTitleFor = useCallback(
@@ -417,14 +498,16 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
     return sortedItems.filter((item) => {
       if (item.hidden) return false
       const def = defById.get(item.id as OverlayWidgetId)
-      return simFilter === 'all' || !def || widgetSupportedSims(def.requires).includes(simFilter)
+      return simFilter === 'all' ||
+        !def ||
+        widgetSupportedSims(def.requires, def.alternativeRequires).includes(simFilter)
     })
   }, [sortedItems, simFilter, defById])
   const hiddenItems = useMemo(() => sortedItems.filter((item) => item.hidden), [sortedItems])
   const visibleItems = useMemo(() => {
     return filterByTags(simFilteredItems, tagFilters, (item) => definitionTags(defById.get(item.id as OverlayWidgetId)))
   }, [simFilteredItems, tagFilters, defById])
-  const sortedCustomOverlays = useMemo(() => sortOverlayEntries(customOverlays), [customOverlays])
+  const sortedCustomOverlays = useMemo(() => sortCustomOverlayEntries(customOverlays), [customOverlays])
   const visibleCustomOverlays = useMemo(() => sortedCustomOverlays.filter((overlay) => !overlay.hidden), [sortedCustomOverlays])
   const hiddenCustomOverlays = useMemo(() => sortedCustomOverlays.filter((overlay) => overlay.hidden), [sortedCustomOverlays])
   const activeOverlays = useMemo<ActiveOverlayEntry[]>(() => [
@@ -814,6 +897,14 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
     else openDesignerForEdit(overlay)
   }
 
+  useEffect(() => {
+    if (!editorTargetId) return
+    const overlay = customOverlays.find((item) => item.id === editorTargetId)
+    if (!overlay) return
+    editCustomOverlay(overlay)
+    setEditorTargetId(null)
+  }, [customOverlays, editorTargetId])
+
   return (
     <div className="overlays-view">
       <section className="panel overlays-header">
@@ -908,6 +999,12 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
         <p className="overlay-help" style={{ marginTop: 8 }}>
           {tr('compositorHelp')}
         </p>
+        <TriggerPreviewToggle
+          checked={showTriggerOnlyActive}
+          onChange={setShowTriggerOnlyActive}
+          language={language}
+          style={{ marginTop: 12 }}
+        />
       </section>
 
       <section className="panel">
@@ -1151,7 +1248,13 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
               </div>
             </div>
 
-            <OverlayRuntimePreview item={item} fallback={tr('previewUnavailable')} />
+            <OverlayRuntimePreview
+              item={item}
+              definition={defById.get(item.id)}
+              fallback={tr('previewUnavailable')}
+              alertsConfig={alertsConfig}
+              showTriggerOnlyActive={showTriggerOnlyActive}
+            />
 
             <div className="overlay-toggles">
               <button
@@ -1536,6 +1639,11 @@ export default function OverlaysView({ language }: AppViewProps): ReactElement {
           initial={builderDraft}
           editing={Boolean(builderEditingId)}
           busy={busy}
+          showTriggerOnlyActive={showTriggerOnlyActive}
+          onShowTriggerOnlyActiveChange={setShowTriggerOnlyActive}
+          triggerPreviewLabel={tt(language, 'triggerPreview.label')}
+          triggerPreviewHelp={tt(language, 'triggerPreview.help')}
+          alertsConfig={alertsConfig}
           onSave={saveBuilder}
           onCancel={closeBuilder}
         />

@@ -36,15 +36,16 @@ function signedValue(v: number | undefined, digits: number): string {
 function StrengthOfField({ snapshot, width, height }: HifiWidgetProps): ReactElement {
   const sof = num(snapshot?.strengthOfField)
   const display = sof == null ? '—' : fixed(Math.round(sof), 0)
+  const valueSize = display === '—' ? 108 : Math.max(48, Math.min(108, (W - 72) / (display.length * 0.9)))
   return (
     <Root snapshot={snapshot} width={width} height={height}>
       <Glow color={C.cyan} />
-      <text x={57} y={71} fill={C.dim} fontFamily={FONT_LABEL} fontSize={30} fontWeight={800} letterSpacing={3} {...LEGIBLE}>
+      <text x={48} y={44} fill={C.dim} fontFamily={FONT_LABEL} fontSize={26} fontWeight={800} letterSpacing={3} {...LEGIBLE}>
         SoF
       </text>
       <text
         x={W / 2}
-        y={161}
+        y={166}
         textAnchor="middle"
         fill="rgba(255,255,255,0.08)"
         stroke={C.cyan}
@@ -52,13 +53,13 @@ function StrengthOfField({ snapshot, width, height }: HifiWidgetProps): ReactEle
         paintOrder="stroke"
         strokeLinejoin="round"
         fontFamily={FONT_BIG}
-        fontSize={118}
+        fontSize={valueSize}
         fontWeight={900}
         filter="url(#glow-22c3ff)"
       >
         {display}
       </text>
-      <Hairline x={70} y={184} len={280} opacity={0.2} />
+      <Hairline x={70} y={205} len={280} opacity={0.2} />
     </Root>
   )
 }

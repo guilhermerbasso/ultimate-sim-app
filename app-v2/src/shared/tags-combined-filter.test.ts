@@ -93,8 +93,8 @@ describe('controlled tag vocabulary', () => {
 
   it('covers every implemented telemetry variant without duplicate or uncontrolled tags', () => {
     expect(telemetryWidgets.length).toBeGreaterThan(0)
-    expect(telemetryCatalogVariants.map((variant) => variant.hifiModuleId)).toEqual(
-      telemetryWidgets.map((widget) => widget.id)
+    expect(telemetryCatalogVariants.map((variant) => variant.hifiModuleId).sort()).toEqual(
+      telemetryWidgets.map((widget) => widget.id).sort()
     )
 
     for (const widget of telemetryWidgets) {

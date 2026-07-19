@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ALL_VARIANTS } from '../renderer/src/views/dashboard/widget-catalog-data'
+import { ALL_VARIANTS, variantToElement } from '../renderer/src/views/dashboard/widget-catalog-data'
 import {
   buildDashboardFromBlueprint,
   selectVariantForConcept,
@@ -19,7 +19,12 @@ import {
 } from './dashboard-layout'
 import { getBlueprint, DASHBOARD_BLUEPRINTS } from './dashboard-blueprints'
 import { OVERLAY_DESIGN_FAMILIES } from './overlays'
-import type { DashboardElement } from './dashboards'
+import {
+  BUILTIN_PRESETS,
+  dashboardValidationError,
+  type Dashboard,
+  type DashboardElement
+} from './dashboards'
 
 const CATALOG = ALL_VARIANTS as readonly LayoutCatalogWidget[]
 const BOX: CanvasBox = { width: 1024, height: 600, margin: 16 }
@@ -107,15 +112,76 @@ describe('validateLayout + repairLayout', () => {
 })
 
 describe('buildDashboardFromBlueprint — end to end', () => {
-  it('produces a valid dashboard for every blueprint × family', () => {
+  it('validates all 288 blueprint × family × detail layouts and preserves catalog identities', () => {
+    const details = ['auto', 'clean', 'elaborate'] as const
+    const catalogById = new Map(CATALOG.map((variant) => [variant.id, variant]))
+    const failures: string[] = []
+    let valid = 0
+    let total = 0
     for (const bp of DASHBOARD_BLUEPRINTS) {
       for (const family of OVERLAY_DESIGN_FAMILIES) {
-        const { dashboard, widgetIds } = buildDashboardFromBlueprint(bp, { family, catalog: CATALOG })
-        expect(dashboard.elements.length).toBe(widgetIds.length)
-        expect(validateLayout(dashboard.elements, BOX)).toEqual([])
-        for (const id of widgetIds) expect(CATALOG.some((w) => w.id === id)).toBe(true)
+        for (const detail of details) {
+          total += 1
+          const { dashboard, widgetIds } = buildDashboardFromBlueprint(bp, { family, detail, catalog: CATALOG })
+          const key = `${bp.id}/${family}/${detail}`
+          const error = dashboardValidationError(dashboard)
+          const layoutIssues = validateLayout(dashboard.elements, { width: bp.width, height: bp.height, margin: 16 })
+          if (dashboard.elements.length !== widgetIds.length) failures.push(`${key}: element/widget count mismatch`)
+          if (error) failures.push(`${key}: ${error}`)
+          if (layoutIssues.length > 0) failures.push(`${key}: ${layoutIssues.map((issue) => issue.kind).join(', ')}`)
+          for (let index = 0; index < widgetIds.length; index += 1) {
+            const source = catalogById.get(widgetIds[index])
+            const element = dashboard.elements[index]
+            if (!source || !element) {
+              failures.push(`${key}: missing catalog/element at ${index}`)
+              continue
+            }
+            if (typeof element.binding === 'string' && !element.binding.trim()) {
+              failures.push(`${key}: blank binding for ${source.id}`)
+            }
+            if (element.widgetId !== source.widgetId || element.hifiModuleId !== source.hifiModuleId) {
+              failures.push(`${key}: lost identity for ${source.id}`)
+            }
+          }
+          if (!error && layoutIssues.length === 0 && dashboard.elements.length === widgetIds.length) valid += 1
+        }
       }
     }
+    expect(failures, `${valid}/${total} generated dashboards validated`).toEqual([])
+    expect({ valid, total }).toEqual({ valid: 288, total: 288 })
+  }, 20_000)
+
+  it('validates every built-in and every catalog-produced dashboard (N/N)', () => {
+    const failures: string[] = []
+    let validBuiltins = 0
+    for (const preset of BUILTIN_PRESETS) {
+      const error = dashboardValidationError(preset.build())
+      if (error) failures.push(`builtin ${preset.id}: ${error}`)
+      else validBuiltins += 1
+    }
+
+    let validCatalog = 0
+    for (let index = 0; index < ALL_VARIANTS.length; index += 1) {
+      const variant = ALL_VARIANTS[index]
+      const element = variantToElement(variant, 0, 0)
+      const dashboard: Dashboard = {
+        id: `catalog-${index}`,
+        name: variant.label,
+        width: Math.max(1024, Math.ceil(element.w)),
+        height: Math.max(600, Math.ceil(element.h)),
+        bg: '#000000',
+        elements: [element]
+      }
+      const error = dashboardValidationError(dashboard)
+      if (error) failures.push(`catalog ${variant.id}: ${error}`)
+      else validCatalog += 1
+    }
+    expect(
+      failures,
+      `${validBuiltins}/${BUILTIN_PRESETS.length} built-ins; ${validCatalog}/${ALL_VARIANTS.length} catalog dashboards validated`
+    ).toEqual([])
+    expect(validBuiltins).toBe(BUILTIN_PRESETS.length)
+    expect(validCatalog).toBe(ALL_VARIANTS.length)
   })
 
   it('dense emphasis adds widgets without overlaps', () => {

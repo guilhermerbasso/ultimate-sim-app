@@ -66,6 +66,8 @@ export interface DriverEntry {
   carPath?: string // pasta do carro p/ paints (ex.: 'rt2000')
   carNumberRaw?: number
   isPlayer: boolean
+  /** DriverInfo.Drivers[].CarIsPaceCar from the iRacing session YAML. */
+  isPaceCar?: boolean
   inPits?: boolean
   lap?: number
   completedLaps?: number
@@ -115,6 +117,14 @@ export interface RadarCarEntry {
 // reverse-engineered from per-car radar positions (which, for iRacing, are only
 // a coarse parity-based approximation used to place radar dots).
 export type CarLeftRightState = 'clear' | 'left' | 'right' | 'both'
+
+/** iRacing DRS_Status values used by the overlay state machine. Unknown values stay absent. */
+export type DrsState = 0 | 1 | 2 | 3
+
+export function drsStateFromRaw(raw: unknown): DrsState | undefined {
+  if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0 || raw > 3) return undefined
+  return raw as DrsState
+}
 
 // Maps the raw iRacing CarLeftRight enum into the decided side:
 //   0=Off, 1=Clear(no cars)        → 'clear'
@@ -534,8 +544,8 @@ export interface TelemetrySnapshot {
   // Este campo opcional fica reservado para providers que exponham um sinal real de
   // ignição/motor — quando presente, tem prioridade sobre o proxy de rpm.
   engineRunning?: boolean
-  shiftIndicatorPct?: number // 0..1 ao longo da BANDA de shift-lights do carro (DriverCarSLFirstRPM→SLLastRPM); ShiftIndicatorPct do iRacing como fallback, nunca rpm/maxRpm
-  shiftRpm?: number // RPM de upshift optimal do sim (iRacing PlayerCarSLShiftRPM), quando dispolevel
+  shiftIndicatorPct?: number // 0..1 ao longo da BANDA de shift-lights do carro (DriverCarSLFirstRPM→DriverCarSLShiftRPM); ShiftIndicatorPct do iRacing como fallback, nunca rpm/maxRpm
+  shiftRpm?: number // RPM de upshift do sim (iRacing DriverCarSLShiftRPM), quando disponível
   revLights?: {
     firstRpm?: number
     shiftRpm?: number
@@ -566,13 +576,17 @@ export interface TelemetrySnapshot {
   rollRateRadSec?: number
   altitudeM?: number
   velocityZ?: number
+  /** Legacy DRS boolean kept for existing dashboards/expressions. */
   drs?: boolean
+  /** Raw iRacing DRS_Status normalized only when it is one of the documented 0..3 states. */
+  drsState?: DrsState
   absActive?: boolean
   absEnabled?: boolean
   absLevel?: number | string
   tcActive?: boolean
   tcEnabled?: boolean
   tcLevel?: number | string
+  // Genuine fuel-mixture / engine-power setting only. Never aliases throttleMap.
   engineMap?: number | string
   throttleMap?: number | string
   engineBraking?: number | string
@@ -661,7 +675,10 @@ export interface TelemetrySnapshot {
 
   // Fuel
   fuelLiters?: number
+  /** @deprecated Ambiguous legacy field. Use fuelPerLapLiters or fuelPerLapKg. */
   fuelPerLap?: number
+  fuelPerLapLiters?: number // observed FuelLevel delta averaged across completed laps
+  fuelLapsRemaining?: number // fuelLiters / fuelPerLapLiters
   fuelUsePerHourKg?: number
   fuelPerLapKg?: number
   fuelCapacityLiters?: number
@@ -747,6 +764,36 @@ export interface TelemetrySnapshot {
   velocityX?: number // m/s — frame do carro/mundo conforme o sim (iRacing: car frame)
   velocityY?: number // m/s — frame do carro/mundo conforme o sim
   yawNorth?: number // rad — yaw relativo ao Norte (iRacing YawNorth)
+}
+
+export function fuelPerLapLitersOf(snapshot: TelemetrySnapshot | null | undefined): number | undefined {
+  const explicit = snapshot?.fuelPerLapLiters
+  if (typeof explicit === 'number' && Number.isFinite(explicit) && explicit > 0) return explicit
+
+  const legacy = snapshot?.fuelPerLap
+  const legacyIsFinite = typeof legacy === 'number' && Number.isFinite(legacy) && legacy > 0
+  const legacyIsKnownMass =
+    snapshot?.sim === 'iracing' &&
+    typeof snapshot.fuelPerLapKg === 'number' &&
+    Number.isFinite(snapshot.fuelPerLapKg)
+  return legacyIsFinite && !legacyIsKnownMass ? legacy : undefined
+}
+
+export function fuelLapsRemainingOf(snapshot: TelemetrySnapshot | null | undefined): number | undefined {
+  const direct = snapshot?.fuelLapsRemaining
+  if (typeof direct === 'number' && Number.isFinite(direct) && direct >= 0) return direct
+
+  const fuelLiters = snapshot?.fuelLiters
+  const fuelPerLapLiters = fuelPerLapLitersOf(snapshot)
+  if (
+    typeof fuelLiters !== 'number' ||
+    !Number.isFinite(fuelLiters) ||
+    fuelLiters < 0 ||
+    fuelPerLapLiters === undefined
+  ) {
+    return undefined
+  }
+  return fuelLiters / fuelPerLapLiters
 }
 
 export interface TelemetryStatus {

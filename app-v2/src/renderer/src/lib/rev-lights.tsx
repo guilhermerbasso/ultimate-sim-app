@@ -1,7 +1,13 @@
 import { type ReactElement } from 'react'
+import { DEFAULT_ALERTS_CONFIG } from '../../../shared/alerts'
+import type { TelemetrySnapshot } from '../../../shared/telemetry'
+import {
+  resolveShiftIndicatorPct,
+  resolveShiftNow
+} from '../../../shared/revlights'
 
 export const SHIFT_STROBE_BLUE = '#1e63ff'
-export const SHIFT_PCT = 0.97
+export const SHIFT_PCT = DEFAULT_ALERTS_CONFIG.shiftPoint.shiftIndicatorPct
 
 export interface RevLightState {
   pct: number
@@ -16,18 +22,45 @@ export function clampRevLightPct(value: number | null | undefined): number {
   return Math.max(0, Math.min(1, finiteOr(value, 0)))
 }
 
+export function resolveRevLightPct(
+  snapshot: Pick<TelemetrySnapshot, 'shiftIndicatorPct' | 'revLights' | 'rpm' | 'maxRpm'> | null | undefined
+): number {
+  return resolveShiftIndicatorPct(snapshot)
+}
+
+export function resolveRpmGaugePct(
+  snapshot: Pick<TelemetrySnapshot, 'rpm' | 'maxRpm'> | null | undefined
+): number {
+  const rpm = snapshot?.rpm
+  const maxRpm = snapshot?.maxRpm
+  if (
+    typeof rpm !== 'number' ||
+    !Number.isFinite(rpm) ||
+    typeof maxRpm !== 'number' ||
+    !Number.isFinite(maxRpm) ||
+    maxRpm <= 0
+  ) {
+    return 0
+  }
+  return clampRevLightPct(rpm / maxRpm)
+}
+
 export function resolveRevLightState(
   value: number | null | undefined,
-  blink = false,
+  blink?: boolean | null,
   shiftPct = SHIFT_PCT
 ): RevLightState {
   const pct = clampRevLightPct(value)
   const threshold = clampRevLightPct(finiteOr(shiftPct, SHIFT_PCT))
-  return { pct, atShiftPoint: blink === true || pct >= threshold }
+  return { pct, atShiftPoint: resolveShiftNow(blink, pct >= threshold) }
 }
 
-export function atShiftPoint(value: number | null | undefined, shiftPct = SHIFT_PCT): boolean {
-  return resolveRevLightState(value, false, shiftPct).atShiftPoint
+export function atShiftPoint(
+  value: number | null | undefined,
+  blink?: boolean | null,
+  shiftPct = SHIFT_PCT
+): boolean {
+  return resolveRevLightState(value, blink, shiftPct).atShiftPoint
 }
 
 export function revFill(baseColor: string, atShift: boolean): string {

@@ -1,42 +1,101 @@
-import { execFile, spawn, type ChildProcess } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
-import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { createServer, request as nodeHttpRequest, type IncomingHttpHeaders, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { request as nodeHttpsRequest } from 'node:https'
 import { extname, join, normalize, relative, resolve, sep } from 'node:path'
-import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto'
 import { isIP, type AddressInfo } from 'node:net'
 import { networkInterfaces } from 'node:os'
+import type { Duplex } from 'node:stream'
 import QRCode from 'qrcode'
+import WebSocket, { WebSocketServer } from 'ws'
 import type { DriverEntry, RadarCarEntry, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
-import type { StreamingAccessMode, StreamingLayoutKind, StreamingSelfTestResult, StreamingStartArgs, StreamingStartResult, StreamingStatus, StreamingTelemetryFrame } from '../../shared/streaming'
-import { STREAMING_CHANNELS } from '../../shared/streaming'
+import type { StreamingAccessMode, StreamingDashboardPayload, StreamingLayoutKind, StreamingSelfTestResult, StreamingStartArgs, StreamingStartResult, StreamingStatus, StreamingTelemetryFrame } from '../../shared/streaming'
+import { STREAMING_CHANNELS, STREAMING_EXPRESSION_EXCLUSION_MESSAGE } from '../../shared/streaming'
+import {
+  RECEIVER_CAPABILITIES,
+  RECEIVER_HEARTBEAT_MS,
+  RECEIVER_LATENCY_BUDGET_MS,
+  RECEIVER_MAX_HZ,
+  RECEIVER_MAX_SERVER_MESSAGE_BYTES,
+  RECEIVER_MIN_HZ,
+  RECEIVER_PROTOCOL_VERSION,
+  RECEIVER_RELIABILITY_TARGET_PCT,
+  RECEIVER_SCHEMA_VERSION,
+  RECEIVER_SETUP_BUDGET_MS,
+  type ReceiverPairStatusResponse,
+  type ReceiverTransportProfile,
+  type ReceiverV2Status
+} from '../../shared/receiver-v2'
+import type { StreamPresentationProfileListItem } from '../../shared/stream-presentation'
 import type { ModuleContext } from '../module-context'
 import { getDashboardManager } from './dashboards'
 import { logger } from './logger'
+import { ReceiverV2Gateway } from './receiver-v2'
 import { getTouchPanelManager } from '../touchpanel/manager'
+import { getStreamPresentationProfileForRuntime } from './stream-presentation'
+import {
+  CloudflaredTunnelSupervisor,
+  inspectCloudflaredBinary,
+  locateCloudflaredBinary,
+  type CloudflaredTunnelSnapshot
+} from './cloudflared-tunnel'
 
 const HOST = '127.0.0.1'
 const LAN_HOST = '0.0.0.0'
 const DEFAULT_LAYOUT = 'default'
 const SSE_INTERVAL_MS = 67
 const TOKEN_BYTES = 24
+const SESSION_BYTES = 32
+const SESSION_COOKIE_NAME = 'ultimate_sim_stream_session'
+const RECEIVER_SESSION_COOKIE_NAME = 'ultimate_sim_receiver_session'
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000
+const RECEIVER_BOOTSTRAP_TTL_MS = 10 * 60 * 1000
+const RECEIVER_SESSION_TTL_MS = 60 * 60 * 1000
+const RECEIVER_PAIRING_BYTES = 24
+const RECEIVER_PAIRING_TTL_MS = 5 * 60 * 1000
+const MAX_BOOTSTRAP_SESSIONS = 64
+const MAX_AUTHENTICATED_SESSIONS = 64
 const AUTH_FAILURE_WINDOW_MS = 60_000
 const AUTH_FAILURE_LIMIT = 10
-const MAX_SSE_CLIENTS = 12
-const CLOUDFLARED_RESOURCE_DIR = 'cloudflared'
-const CLOUDFLARED_START_TIMEOUT_MS = 30_000
-const CLOUDFLARED_OUTPUT_LIMIT = 16_384
+const MAX_STREAM_CLIENTS = 12
+const MAX_WEBSOCKET_BUFFERED_BYTES = 1_048_576
+const SELF_TEST_TIMEOUT_MS = 5_000
+const SELF_TEST_MAX_RESOURCES = 512
+const SELF_TEST_MAX_BODY_BYTES = 16 * 1024 * 1024
 
-interface SseClient {
+interface StreamingClient {
   id: number
-  response: ServerResponse
   timer: ReturnType<typeof setInterval>
   address: string
   userAgent: string | null
   connectedAt: number
+  transport: 'sse' | 'websocket'
+  close: () => void
+}
+
+type StreamingSessionAccess = 'bootstrap' | 'authenticated'
+type StreamingSessionScope = 'stream' | 'receiver'
+
+interface StreamingSession {
+  access: StreamingSessionAccess
+  scope: StreamingSessionScope
+  basePath: string
+  origin: string | null
+  expiresAt: number
+}
+
+interface ReceiverPairing {
+  secret: string | null
+  digest: Buffer
+  createdAt: number
+  expiresAt: number
+  consumedAt: number | null
 }
 
 interface StreamingState {
   server: Server | null
+  stopping: boolean
   port: number | null
   token: string | null
   passwordHash: string | null
@@ -44,6 +103,7 @@ interface StreamingState {
   layoutId: string
   layoutKind: StreamingLayoutKind
   touchPanelId: string | null
+  presentationProfileId: string | null
   firewallMessage: string | null
   streamSafe: boolean
   lanEnabled: boolean
@@ -52,19 +112,26 @@ interface StreamingState {
   publicBaseUrl: string | null
   manualPublicBaseUrl: string | null
   qrDataUrl: string | null
+  qrSourceUrl: string | null
   touchQrDataUrl: string | null
+  touchQrSourceUrl: string | null
   autoTunnelEnabled: boolean
-  autoTunnelProcess: ChildProcess | null
   autoTunnelUrl: string | null
+  autoTunnelCandidateUrl: string | null
   autoTunnelMessage: string | null
-  autoTunnelStopRequested: boolean
-  clients: Map<number, SseClient>
+  bindAddress: string | null
+  receiverGateway: ReceiverV2Gateway | null
+  receiverPairing: ReceiverPairing | null
+  webSocketServer: WebSocketServer | null
+  clients: Map<number, StreamingClient>
   authFailures: Map<string, { count: number; resetAt: number }>
+  sessions: Map<string, StreamingSession>
   nextClientId: number
 }
 
 const state: StreamingState = {
   server: null,
+  stopping: false,
   port: null,
   token: null,
   passwordHash: null,
@@ -72,6 +139,7 @@ const state: StreamingState = {
   layoutId: DEFAULT_LAYOUT,
   layoutKind: 'dashboard',
   touchPanelId: null,
+  presentationProfileId: null,
   firewallMessage: null,
   streamSafe: true,
   lanEnabled: false,
@@ -80,19 +148,32 @@ const state: StreamingState = {
   publicBaseUrl: null,
   manualPublicBaseUrl: null,
   qrDataUrl: null,
+  qrSourceUrl: null,
   touchQrDataUrl: null,
+  touchQrSourceUrl: null,
   autoTunnelEnabled: false,
-  autoTunnelProcess: null,
   autoTunnelUrl: null,
+  autoTunnelCandidateUrl: null,
   autoTunnelMessage: null,
-  autoTunnelStopRequested: false,
+  bindAddress: null,
+  receiverGateway: null,
+  receiverPairing: null,
+  webSocketServer: null,
   clients: new Map(),
   authFailures: new Map(),
+  sessions: new Map(),
   nextClientId: 1
 }
 
+let autoTunnelSupervisor: CloudflaredTunnelSupervisor | null = null
+let qrRefreshGeneration = 0
+
 function isValidLayoutId(value: unknown): value is string {
-  return typeof value === 'string' && /^[a-zA-Z0-9_-]{1,48}$/.test(value)
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
+}
+
+function isValidPresentationProfileId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
 }
 
 function normalizeLayoutKind(value: unknown): StreamingLayoutKind {
@@ -106,21 +187,39 @@ function firstDashboardId(): string | null {
   return manager?.list().find((item) => !item.hidden && isValidLayoutId(item.id))?.id ?? null
 }
 
-function resolveStreamTarget(args: StreamingStartArgs): { kind: StreamingLayoutKind; id: string; touchPanelId: string | null } {
+async function resolveStreamTarget(
+  args: StreamingStartArgs
+): Promise<{ kind: StreamingLayoutKind; id: string; touchPanelId: string | null; presentationProfileId: string | null }> {
+  if (isValidPresentationProfileId(args.presentationProfileId)) {
+    const item = await getStreamPresentationProfileForRuntime(args.presentationProfileId)
+    if (!item) throw new Error(`Stream presentation profile not found: ${args.presentationProfileId}`)
+    if (item.targetState === 'missing') {
+      throw new Error(`Stream presentation target not found: ${item.profile.target.kind}:${item.profile.target.id}`)
+    }
+    if (item.targetState === 'stale') {
+      throw new Error(`Stream presentation target changed: refresh profile ${item.profile.id} before streaming.`)
+    }
+    return {
+      kind: item.profile.target.kind,
+      id: item.profile.target.id,
+      touchPanelId: item.profile.target.kind === 'touch' ? item.profile.target.id : null,
+      presentationProfileId: item.profile.id
+    }
+  }
   const kind = normalizeLayoutKind(args.layoutKind)
   if (kind === 'touch') {
     const requested = isValidLayoutId(args.layoutId) ? args.layoutId : isValidLayoutId(args.touchPanelId) ? args.touchPanelId : null
     if (!requested) throw new Error('Select a valid touch controls panel to stream.')
     const manager = getTouchPanelManager()
     if (!manager?.has(requested)) throw new Error(`Touch controls panel not found: ${requested}`)
-    return { kind, id: requested, touchPanelId: requested }
+    return { kind, id: requested, touchPanelId: requested, presentationProfileId: null }
   }
   const requested = isValidLayoutId(args.layoutId) ? args.layoutId : firstDashboardId()
-  if (!getDashboardManager()) return { kind, id: requested ?? DEFAULT_LAYOUT, touchPanelId: null }
+  if (!getDashboardManager()) return { kind, id: requested ?? DEFAULT_LAYOUT, touchPanelId: null, presentationProfileId: null }
   if (!requested) throw new Error('Select a valid dashboard to stream.')
   const manager = getDashboardManager()
   if (!manager?.getDashboard(requested)) throw new Error(`Dashboard not found: ${requested}`)
-  return { kind, id: requested, touchPanelId: null }
+  return { kind, id: requested, touchPanelId: null, presentationProfileId: null }
 }
 
 function requestedPort(value: unknown): number {
@@ -129,8 +228,39 @@ function requestedPort(value: unknown): number {
   return value
 }
 
+export function streamingListenHost(accessMode: StreamingAccessMode, autoTunnel: boolean, hasManualFallback = false): string {
+  if (accessMode === 'local' || (accessMode === 'internet' && autoTunnel && !hasManualFallback)) return HOST
+  return LAN_HOST
+}
+
 function generateToken(): string {
   return randomBytes(TOKEN_BYTES).toString('base64url')
+}
+
+function receiverPairingDigest(secret: string): Buffer {
+  return createHash('sha256').update(secret, 'utf8').digest()
+}
+
+function createReceiverPairing(now = Date.now()): ReceiverPairing {
+  const secret = randomBytes(RECEIVER_PAIRING_BYTES).toString('base64url')
+  return {
+    secret,
+    digest: receiverPairingDigest(secret),
+    createdAt: now,
+    expiresAt: now + RECEIVER_PAIRING_TTL_MS,
+    consumedAt: null
+  }
+}
+
+function receiverPairingMatches(pairing: ReceiverPairing, secret: string): boolean {
+  const incoming = receiverPairingDigest(secret)
+  return incoming.length === pairing.digest.length && timingSafeEqual(incoming, pairing.digest)
+}
+
+function receiverPairingAvailable(now = Date.now()): ReceiverPairing | null {
+  const pairing = state.receiverPairing
+  if (!pairing || !pairing.secret || pairing.consumedAt !== null || pairing.expiresAt <= now) return null
+  return pairing
 }
 
 function passwordHash(value: string | undefined): string | null {
@@ -234,8 +364,61 @@ export function isLocalNetworkAddress(value: string | undefined): boolean {
   return false
 }
 
+export function isReceiverLoopbackAddress(value: string | undefined): boolean {
+  if (value?.trim().toLowerCase() === 'localhost') return true
+  const address = normalizeRemoteAddress(value)
+  return address === '127.0.0.1' || address === '::1'
+}
+
 function isLocalNetworkRequest(request: IncomingMessage): boolean {
   return isLocalNetworkAddress(request.socket.remoteAddress)
+}
+
+function requestHost(request: IncomingMessage): string {
+  return firstForwardedValue(headerValue(request, 'x-forwarded-host') ?? headerValue(request, 'host')).toLowerCase()
+}
+
+function isForwardedHttpsReceiverRequest(request: IncomingMessage): boolean {
+  if (!state.publicBaseUrl || !isReceiverLoopbackAddress(request.socket.remoteAddress)) return false
+  let publicHost = ''
+  try {
+    publicHost = new URL(state.publicBaseUrl).host.toLowerCase()
+  } catch {
+    return false
+  }
+  return firstForwardedValue(headerValue(request, 'x-forwarded-proto')).toLowerCase() === 'https' &&
+    requestHost(request) === publicHost
+}
+
+function receiverTransportForRequest(request: IncomingMessage): ReceiverTransportProfile {
+  if ((request.socket as typeof request.socket & { encrypted?: boolean }).encrypted === true) return 'https-wss'
+  if (isForwardedHttpsReceiverRequest(request)) return 'https-wss'
+  if (state.accessMode === 'internet') return 'blocked'
+  if (isReceiverLoopbackAddress(request.socket.remoteAddress)) return 'local-development'
+  return 'blocked'
+}
+
+function receiverOriginAllowed(request: IncomingMessage, profile: ReceiverTransportProfile): boolean {
+  const rawOrigin = headerValue(request, 'origin')
+  if (!rawOrigin) return false
+  try {
+    const origin = new URL(rawOrigin)
+    if (origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) return false
+    if (profile === 'https-wss') {
+      return Boolean(state.publicBaseUrl) && origin.origin === new URL(state.publicBaseUrl!).origin
+    }
+    if (origin.protocol !== 'http:' && origin.protocol !== 'https:') return false
+    return isReceiverLoopbackAddress(origin.hostname) &&
+      (state.port === null || origin.port === String(state.port))
+  } catch {
+    return false
+  }
+}
+
+function normalizedBasePath(pathname: string): string {
+  const withLeadingSlash = pathname.startsWith('/') ? pathname : `/${pathname}`
+  const trimmed = withLeadingSlash.replace(/\/+$/, '')
+  return trimmed && trimmed !== '/' ? `${trimmed}/` : '/'
 }
 
 function normalizePublicBaseUrl(value: unknown): string | null {
@@ -244,173 +427,345 @@ function normalizePublicBaseUrl(value: unknown): string | null {
   if (!trimmed) return null
   try {
     const parsed = new URL(trimmed)
-    if (parsed.protocol !== 'https:') return null
-    return parsed.origin
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return null
+    parsed.search = ''
+    parsed.hash = ''
+    const basePath = normalizedBasePath(parsed.pathname)
+    return basePath === '/' ? parsed.origin : `${parsed.origin}${basePath.slice(0, -1)}`
   } catch {
     return null
   }
 }
 
-function cloudflaredBinaryCandidates(): string[] {
-  const binaryName = process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared'
-  const candidates: string[] = []
-  if (typeof process.resourcesPath === 'string' && process.resourcesPath) {
-    candidates.push(join(process.resourcesPath, CLOUDFLARED_RESOURCE_DIR, binaryName))
+function basePathFromUrl(value: string | null): string {
+  if (!value) return '/'
+  try {
+    return normalizedBasePath(new URL(value).pathname)
+  } catch {
+    return '/'
   }
-  candidates.push(join(process.cwd(), 'resources', CLOUDFLARED_RESOURCE_DIR, binaryName))
-  return [...new Set(candidates)]
+}
+
+function urlFromBase(baseUrl: string, relativePath: string): URL {
+  const base = new URL(baseUrl)
+  base.pathname = normalizedBasePath(base.pathname)
+  base.search = ''
+  base.hash = ''
+  return new URL(relativePath.replace(/^\/+/, ''), base)
 }
 
 export function resolveCloudflaredBinary(): string | null {
-  for (const candidate of cloudflaredBinaryCandidates()) {
-    try {
-      if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
-    } catch {
-      // Try the next packaged/dev candidate.
-    }
-  }
-  return null
+  const location = locateCloudflaredBinary()
+  return location.available ? location.path : null
 }
 
 function autoTunnelUnavailableMessage(): string {
-  return 'Auto-tunnel is unavailable because cloudflared is not bundled. Run scripts/fetch-win-cloudflared.sh before packaging, or turn off Auto-tunnel and enter a public HTTPS URL manually.'
+  return inspectCloudflaredBinary().diagnostic
 }
 
-function parseCloudflaredUrl(output: string): string | null {
-  const match = output.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com\b/i)
-  return match ? normalizePublicBaseUrl(match[0]) : null
-}
-
-function trimTunnelOutput(output: string): string {
-  return output.length <= CLOUDFLARED_OUTPUT_LIMIT ? output : output.slice(-CLOUDFLARED_OUTPUT_LIMIT)
+export function publicBaseUrlAfterTunnelStops(
+  currentPublicBaseUrl: string | null,
+  tunnelUrl: string | null,
+  manualPublicBaseUrl: string | null
+): string | null {
+  return tunnelUrl && currentPublicBaseUrl === tunnelUrl ? manualPublicBaseUrl : currentPublicBaseUrl
 }
 
 async function stopAutoTunnelProcess(): Promise<void> {
-  const child = state.autoTunnelProcess
+  const supervisor = autoTunnelSupervisor
   const tunnelUrl = state.autoTunnelUrl
-  state.autoTunnelProcess = null
+  clearSessionsForPublicOrigin(tunnelUrl)
   state.autoTunnelUrl = null
-  if (tunnelUrl && state.publicBaseUrl === tunnelUrl) state.publicBaseUrl = state.manualPublicBaseUrl
-  if (!child || child.exitCode !== null) return
-
-  state.autoTunnelStopRequested = true
-  await new Promise<void>((resolveStop) => {
-    let resolved = false
-    const finish = (): void => {
-      if (resolved) return
-      resolved = true
-      resolveStop()
-    }
-    child.once('close', finish)
-    try {
-      child.kill()
-    } catch {
-      finish()
-      return
-    }
-    const timer = setTimeout(finish, 3_000)
-    timer.unref()
-  })
-  state.autoTunnelStopRequested = false
+  state.autoTunnelCandidateUrl = null
+  state.publicBaseUrl = publicBaseUrlAfterTunnelStops(state.publicBaseUrl, tunnelUrl, state.manualPublicBaseUrl)
+  if (!supervisor) return
+  await supervisor.stop()
+  if (autoTunnelSupervisor === supervisor) autoTunnelSupervisor = null
 }
 
 async function launchAutoTunnel(): Promise<string> {
   if (!state.server || !state.port) throw new Error('Start the streaming server before starting Auto-tunnel.')
   if (state.accessMode !== 'internet') throw new Error('Auto-tunnel is only available in Internet mode.')
-  if (state.autoTunnelProcess) {
-    if (state.autoTunnelUrl) return state.autoTunnelUrl
+  if (!state.passwordHash || !state.passwordPlaintext || !state.token) {
+    throw new Error('Auto-tunnel requires an active token and password-protected streaming session.')
+  }
+  if (autoTunnelSupervisor) {
+    if (autoTunnelSupervisor.snapshot.phase === 'online' && state.autoTunnelUrl) return state.autoTunnelUrl
     throw new Error('Auto-tunnel is already starting.')
   }
 
-  const binary = resolveCloudflaredBinary()
-  if (!binary) throw new Error(autoTunnelUnavailableMessage())
-
-  const localOrigin = `http://localhost:${state.port}`
-  const args = ['tunnel', '--url', localOrigin, '--no-autoupdate']
-  logger.info('streaming', 'auto-tunnel starting', { binary, localOrigin })
-
-  const child = spawn(binary, args, {
-    windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, NO_COLOR: '1' }
-  })
-  state.autoTunnelProcess = child
+  const inspection = inspectCloudflaredBinary()
+  if (!inspection.available) throw new Error(inspection.diagnostic)
+  const localOrigin = `http://${HOST}:${state.port}`
   state.autoTunnelUrl = null
-  state.autoTunnelStopRequested = false
   state.autoTunnelMessage = 'Starting Cloudflare quick tunnel…'
-
-  return new Promise<string>((resolveUrl, rejectUrl) => {
-    let output = ''
-    let settled = false
-    let published = false
-    let timer: ReturnType<typeof setTimeout>
-
-    const rejectStart = (message: string): void => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      state.autoTunnelMessage = message
-      rejectUrl(new Error(message))
+  let verifiedInspection: ReturnType<typeof inspectCloudflaredBinary> | null = inspection
+  let supervisor!: CloudflaredTunnelSupervisor
+  const updateTunnelState = (snapshot: CloudflaredTunnelSnapshot): void => {
+    if (autoTunnelSupervisor !== supervisor) return
+    const previousUrl = state.autoTunnelUrl
+    let qrChanged = false
+    state.autoTunnelMessage = snapshot.message
+    const logDetails = { phase: snapshot.phase, attempt: snapshot.attempt, url: snapshot.url, message: snapshot.message }
+    if (snapshot.phase === 'failed' || snapshot.phase === 'reconnecting') {
+      logger.warn('streaming', 'auto-tunnel state changed', logDetails)
+    } else {
+      logger.info('streaming', 'auto-tunnel state changed', logDetails)
     }
-
-    const consume = (source: 'stdout' | 'stderr', chunk: Buffer | string): void => {
-      const text = chunk.toString()
-      output = trimTunnelOutput(output + text)
-      for (const line of text.split(/\r?\n/).map((value) => value.trim()).filter(Boolean)) {
-        logger.info('streaming', 'cloudflared output', { source, line: line.slice(0, 500) })
-      }
-      const publicUrl = parseCloudflaredUrl(output)
-      if (!publicUrl || settled) return
-      settled = true
-      published = true
-      clearTimeout(timer)
-      state.autoTunnelUrl = publicUrl
-      state.publicBaseUrl = publicUrl
-      state.autoTunnelMessage = `Auto-tunnel is online at ${publicUrl}`
-      logger.info('streaming', 'auto-tunnel ready', { localOrigin, publicUrl })
-      resolveUrl(publicUrl)
+    if (snapshot.phase === 'online' && snapshot.url) {
+      state.autoTunnelUrl = snapshot.url
+      state.autoTunnelCandidateUrl = null
+      state.publicBaseUrl = snapshot.url
+      qrChanged = previousUrl !== snapshot.url
+      logger.info('streaming', 'auto-tunnel ready', { localOrigin, publicUrl: snapshot.url, message: snapshot.message })
+    } else if (previousUrl) {
+      clearSessionsForPublicOrigin(previousUrl)
+      state.autoTunnelUrl = null
+      state.publicBaseUrl = publicBaseUrlAfterTunnelStops(state.publicBaseUrl, previousUrl, state.manualPublicBaseUrl)
+      qrChanged = true
+      logger.warn('streaming', 'auto-tunnel public URL cleared', { phase: snapshot.phase, message: snapshot.message })
     }
-
-    child.stdout?.on('data', (chunk: Buffer) => consume('stdout', chunk))
-    child.stderr?.on('data', (chunk: Buffer) => consume('stderr', chunk))
-    child.once('error', (error) => {
-      rejectStart(`Auto-tunnel could not start: ${error.message}`)
-    })
-    child.once('close', (code, signal) => {
-      const expectedStop = state.autoTunnelStopRequested
-      if (state.autoTunnelProcess === child) {
-        state.autoTunnelProcess = null
-        const tunnelUrl = state.autoTunnelUrl
-        state.autoTunnelUrl = null
-        if (tunnelUrl && state.publicBaseUrl === tunnelUrl) state.publicBaseUrl = state.manualPublicBaseUrl
-      }
-      if (!settled) {
-        const detail = output.trim().split(/\r?\n/).filter(Boolean).slice(-1)[0]
-        rejectStart(`Auto-tunnel exited before publishing a URL (code ${code ?? 'unknown'}${signal ? `, signal ${signal}` : ''})${detail ? `: ${detail}` : '.'}`)
-        return
-      }
-      if (published && !expectedStop && state.server) {
-        state.autoTunnelEnabled = false
-        state.autoTunnelMessage = `Auto-tunnel stopped unexpectedly (code ${code ?? 'unknown'}). Start it again, or stop streaming and restart with a manual public HTTPS URL.`
-        logger.warn('streaming', 'auto-tunnel stopped unexpectedly', { code, signal })
-      }
-    })
-
-    timer = setTimeout(() => {
-      rejectStart('Auto-tunnel timed out before Cloudflare published a public HTTPS URL. Check internet access, then retry or use a manual URL.')
-      state.autoTunnelStopRequested = true
+    if (qrChanged && !state.stopping) {
+      void refreshQrCodes().catch((error) => {
+        logger.warn('streaming', 'auto-tunnel QR refresh failed', {
+          message: error instanceof Error ? error.message : String(error)
+        })
+      })
+    }
+  }
+  supervisor = new CloudflaredTunnelSupervisor({
+    localOrigin,
+    inspectBinary: () => {
+      const current = verifiedInspection ?? inspectCloudflaredBinary()
+      verifiedInspection = null
+      return current
+    },
+    verifyReceiver: async (publicUrl) => {
+      state.autoTunnelCandidateUrl = publicUrl
       try {
-        child.kill()
-      } catch {
-        // The close/error handlers already report the actionable failure.
+        const result = await selfTest(publicUrl, 'websocket')
+        return {
+          reachable: result.reachable,
+          stage: result.stage,
+          message: result.message
+        }
+      } finally {
+        if (state.autoTunnelCandidateUrl === publicUrl) state.autoTunnelCandidateUrl = null
       }
-    }, CLOUDFLARED_START_TIMEOUT_MS)
-    timer.unref()
+    },
+    shouldReconnect: () => (
+      autoTunnelSupervisor === supervisor &&
+      state.server !== null &&
+      state.accessMode === 'internet' &&
+      state.autoTunnelEnabled
+    ),
+    onSnapshot: updateTunnelState,
+    onOutput: (source, line) => logger.info('streaming', 'cloudflared output', { source, line })
   })
+  autoTunnelSupervisor = supervisor
+  logger.info('streaming', 'auto-tunnel supervisor starting', {
+    binary: inspection.path,
+    expectedSha256: inspection.expectedSha256,
+    actualSha256: inspection.actualSha256,
+    localOrigin
+  })
+  try {
+    return await supervisor.start()
+  } catch (error) {
+    try {
+      await supervisor.stop()
+    } catch (stopError) {
+      const startMessage = error instanceof Error ? error.message : String(error)
+      const stopMessage = stopError instanceof Error ? stopError.message : String(stopError)
+      const message = `${startMessage} Cleanup failed: ${stopMessage} The process guard remains active; restart the app before retrying Internet streaming.`
+      state.autoTunnelMessage = message
+      logger.error('streaming', 'failed to clean up cloudflared after start failure', { message })
+      throw new Error(message)
+    }
+    if (autoTunnelSupervisor === supervisor) autoTunnelSupervisor = null
+    throw error
+  }
 }
 
-function isRateLimited(request: IncomingMessage): boolean {
-  const key = normalizeRemoteAddress(request.socket.remoteAddress)
+interface StreamingRequestRoute {
+  url: URL
+  pathname: string
+  externalBasePath: string
+  externalOrigin: string | null
+}
+
+function firstForwardedValue(value: string | null): string {
+  return value?.split(',', 1)[0]?.trim() ?? ''
+}
+
+function requestRoute(request: IncomingMessage): StreamingRequestRoute {
+  const url = new URL(request.url ?? '/', state.port ? `http://${HOST}:${state.port}` : `http://${HOST}`)
+  const requestHost = firstForwardedValue(headerValue(request, 'x-forwarded-host') ?? headerValue(request, 'host')).toLowerCase()
+  let configuredPublicBaseUrl = state.publicBaseUrl
+  if (state.autoTunnelCandidateUrl) {
+    try {
+      if (new URL(state.autoTunnelCandidateUrl).host.toLowerCase() === requestHost) {
+        configuredPublicBaseUrl = state.autoTunnelCandidateUrl
+      }
+    } catch {
+      // The candidate is created by the strict cloudflared URL parser.
+    }
+  }
+  const configuredBasePath = basePathFromUrl(configuredPublicBaseUrl)
+  let pathname = url.pathname
+  let externalBasePath = '/'
+  let externalOrigin: string | null = null
+  if (state.accessMode === 'internet' && configuredPublicBaseUrl) {
+    try {
+      externalOrigin = new URL(configuredPublicBaseUrl).origin
+    } catch {
+      externalOrigin = null
+    }
+  }
+
+  if (configuredBasePath !== '/') {
+    const prefix = configuredBasePath.slice(0, -1)
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
+      pathname = pathname.slice(prefix.length) || '/'
+      externalBasePath = configuredBasePath
+    } else {
+      const forwardedPrefix = normalizedBasePath(firstForwardedValue(headerValue(request, 'x-forwarded-prefix')) || '/')
+      const forwardedProto = firstForwardedValue(headerValue(request, 'x-forwarded-proto')).toLowerCase()
+      let publicHost = ''
+      try {
+        publicHost = configuredPublicBaseUrl ? new URL(configuredPublicBaseUrl).host.toLowerCase() : ''
+      } catch {
+        publicHost = ''
+      }
+      if (forwardedPrefix === configuredBasePath || forwardedProto === 'https' || (publicHost && requestHost === publicHost)) {
+        externalBasePath = configuredBasePath
+      }
+    }
+  }
+
+  return { url, pathname, externalBasePath, externalOrigin }
+}
+
+function cleanupExpiredSessions(now = Date.now()): void {
+  for (const [id, session] of state.sessions) {
+    if (session.expiresAt <= now) state.sessions.delete(id)
+  }
+}
+
+function sessionCookieName(scope: StreamingSessionScope): string {
+  return scope === 'receiver' ? RECEIVER_SESSION_COOKIE_NAME : SESSION_COOKIE_NAME
+}
+
+function clearSessionsForPublicOrigin(value: string | null): void {
+  if (!value) return
+  let origin: string
+  try {
+    origin = new URL(value).origin
+  } catch {
+    return
+  }
+  let removed = 0
+  for (const [id, session] of state.sessions) {
+    if (session.origin !== origin) continue
+    state.sessions.delete(id)
+    removed += 1
+  }
+  if (removed > 0) {
+    logger.info('streaming', 'retired public tunnel sessions cleared', { origin, removed })
+  }
+}
+
+function serializeSessionCookie(
+  sessionId: string,
+  basePath: string,
+  scope: StreamingSessionScope,
+  ttlMs: number
+): string {
+  const attributes = [
+    `${sessionCookieName(scope)}=${sessionId}`,
+    `Path=${basePath}`,
+    `Max-Age=${Math.floor(ttlMs / 1000)}`,
+    'HttpOnly',
+    'SameSite=Strict'
+  ]
+  if (state.accessMode === 'internet') attributes.push('Secure')
+  return attributes.join('; ')
+}
+
+function sessionCount(access: StreamingSessionAccess, scope: StreamingSessionScope): number {
+  let count = 0
+  for (const session of state.sessions.values()) {
+    if (session.access === access && session.scope === scope) count += 1
+  }
+  return count
+}
+
+function oldestSessionId(access: StreamingSessionAccess, scope: StreamingSessionScope): string | null {
+  for (const [id, session] of state.sessions) {
+    if (session.access === access && session.scope === scope) return id
+  }
+  return null
+}
+
+function createSession(
+  route: StreamingRequestRoute,
+  access: StreamingSessionAccess,
+  scope: StreamingSessionScope,
+  ttlMs = scope === 'receiver' ? RECEIVER_BOOTSTRAP_TTL_MS : SESSION_TTL_MS
+): { id: string; cookie: string } | null {
+  cleanupExpiredSessions()
+  if (access === 'bootstrap') {
+    while (sessionCount('bootstrap', scope) >= MAX_BOOTSTRAP_SESSIONS) {
+      const oldestBootstrap = oldestSessionId('bootstrap', scope)
+      if (!oldestBootstrap) break
+      state.sessions.delete(oldestBootstrap)
+    }
+  } else if (sessionCount('authenticated', scope) >= MAX_AUTHENTICATED_SESSIONS) {
+    return null
+  }
+  const id = randomBytes(SESSION_BYTES).toString('base64url')
+  state.sessions.set(id, {
+    access,
+    scope,
+    basePath: route.externalBasePath,
+    origin: route.externalOrigin,
+    expiresAt: Date.now() + ttlMs
+  })
+  return { id, cookie: serializeSessionCookie(id, route.externalBasePath, scope, ttlMs) }
+}
+
+function cookieValue(request: IncomingMessage, name: string): string | null {
+  const raw = headerValue(request, 'cookie')
+  if (!raw) return null
+  for (const pair of raw.split(';')) {
+    const separator = pair.indexOf('=')
+    if (separator < 0) continue
+    if (pair.slice(0, separator).trim() === name) return pair.slice(separator + 1).trim()
+  }
+  return null
+}
+
+function sessionForRequest(
+  request: IncomingMessage,
+  route: StreamingRequestRoute,
+  scope: StreamingSessionScope
+): { id: string; session: StreamingSession } | null {
+  cleanupExpiredSessions()
+  const id = cookieValue(request, sessionCookieName(scope))
+  if (!id || !/^[A-Za-z0-9_-]{32,128}$/.test(id)) return null
+  const session = state.sessions.get(id)
+  if (!session || session.scope !== scope || session.basePath !== route.externalBasePath || session.origin !== route.externalOrigin) return null
+  return { id, session }
+}
+
+type AuthenticationAttemptKind = 'token' | 'password' | 'pairing'
+
+function authFailureKey(request: IncomingMessage, kind: AuthenticationAttemptKind): string {
+  return `${normalizeRemoteAddress(request.socket.remoteAddress)}:${kind}`
+}
+
+function isRateLimited(request: IncomingMessage, kind: AuthenticationAttemptKind): boolean {
+  const key = authFailureKey(request, kind)
   const now = Date.now()
   const current = state.authFailures.get(key)
   if (!current || current.resetAt <= now) {
@@ -420,8 +775,8 @@ function isRateLimited(request: IncomingMessage): boolean {
   return current.count >= AUTH_FAILURE_LIMIT
 }
 
-function recordAuthFailure(request: IncomingMessage): void {
-  const key = normalizeRemoteAddress(request.socket.remoteAddress)
+function recordAuthFailure(request: IncomingMessage, kind: AuthenticationAttemptKind): void {
+  const key = authFailureKey(request, kind)
   const now = Date.now()
   const current = state.authFailures.get(key)
   if (!current || current.resetAt <= now) {
@@ -431,11 +786,14 @@ function recordAuthFailure(request: IncomingMessage): void {
   current.count += 1
 }
 
-function clearAuthFailure(request: IncomingMessage): void {
-  state.authFailures.delete(normalizeRemoteAddress(request.socket.remoteAddress))
+function clearAuthFailure(request: IncomingMessage, kind: AuthenticationAttemptKind): void {
+  state.authFailures.delete(authFailureKey(request, kind))
 }
 
 function rendererDir(): string {
+  if (process.env.NODE_ENV === 'test' && process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR) {
+    return resolve(process.env.ULTIMATE_SIM_STREAM_RENDERER_DIR)
+  }
   return resolve(__dirname, '../renderer')
 }
 
@@ -464,19 +822,25 @@ function contentType(filePath: string): string {
     case '.jpg':
     case '.jpeg': return 'image/jpeg'
     case '.webp': return 'image/webp'
+    case '.avif': return 'image/avif'
+    case '.gif': return 'image/gif'
+    case '.ico': return 'image/x-icon'
     case '.json': return 'application/json; charset=utf-8'
+    case '.webmanifest': return 'application/manifest+json; charset=utf-8'
     case '.wasm': return 'application/wasm'
+    case '.woff': return 'font/woff'
+    case '.woff2': return 'font/woff2'
+    case '.ttf': return 'font/ttf'
+    case '.otf': return 'font/otf'
     default: return 'application/octet-stream'
   }
 }
 
 function applyCors(response: ServerResponse): void {
-  response.setHeader('Access-Control-Allow-Origin', '*')
   response.setHeader('Access-Control-Allow-Methods', 'GET, HEAD')
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Stream-Token, X-Stream-Password')
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type')
   response.setHeader('X-Content-Type-Options', 'nosniff')
-  response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin')
-  // Don't leak the token/password in the URL to any linked origin.
+  response.setHeader('Cross-Origin-Resource-Policy', 'same-origin')
   response.setHeader('Referrer-Policy', 'no-referrer')
 }
 
@@ -493,21 +857,8 @@ function send(response: ServerResponse, statusCode: number, body: string): void 
   response.end(body)
 }
 
-function hasValidAuth(url: URL, request: IncomingMessage): boolean {
-  const tokenOk = safeTokenEqual(authValue(url, request, 'token'), state.token)
-  if (state.accessMode === 'local') return tokenOk
-  return tokenOk && verifyPassword(authValue(url, request, 'password'), state.passwordHash)
-}
-
-/** Token-only auth: used for the stream page HTML/assets and /ping so that a
- *  shareable URL that contains only the token can load the page, which then
- *  prompts the user to enter the password before connecting to the SSE stream. */
 function hasValidToken(url: URL, request: IncomingMessage): boolean {
-  return safeTokenEqual(authValue(url, request, 'token'), state.token)
-}
-
-function authValue(url: URL, request: IncomingMessage, key: 'token' | 'password'): string | null {
-  return url.searchParams.get(key) ?? headerValue(request, `x-stream-${key}`)
+  return safeTokenEqual(url.searchParams.get('token') ?? headerValue(request, 'x-stream-token'), state.token)
 }
 
 function headerValue(request: IncomingMessage, name: string): string | null {
@@ -544,31 +895,76 @@ function safeStaticPath(pathname: string): string | null {
   return target
 }
 
-function authSearchParams(): string {
-  const params = new URLSearchParams()
-  // Only embed the token in asset sub-request URLs; the password is entered by the
-  // user in the stream page and is only used for the /sse connection.
-  if (state.token) params.set('token', state.token)
-  return params.toString()
+interface ReceiverAssetGraphCache {
+  rendererRoot: string
+  htmlPath: string | null
+  htmlModifiedMs: number
+  paths: Set<string>
 }
 
-function addAuthToAssetUrls(html: string): string {
-  const auth = authSearchParams()
-  if (!auth) return html
-  return html
-    .replace(/(\s(?:src|href)=['"])(\/assets\/[^'"?#]+)([^'"]*)(['"])/g, (_match, prefix: string, path: string, suffix: string, quote: string) => {
-      const joiner = suffix.includes('?') ? '&' : '?'
-      return `${prefix}${path}${suffix}${joiner}${auth}${quote}`
+let receiverAssetGraphCache: ReceiverAssetGraphCache | null = null
+
+function receiverAssetPaths(): ReadonlySet<string> {
+  const rendererRoot = rendererDir()
+  const htmlPath = process.env.ELECTRON_RENDERER_URL ? null : findRendererHtml('receiver.html')
+  let htmlModifiedMs = 0
+  try {
+    if (htmlPath) htmlModifiedMs = statSync(htmlPath).mtimeMs
+  } catch {
+    // The graph loader below fails closed if the document disappears or is unreadable.
+  }
+  if (receiverAssetGraphCache?.rendererRoot === rendererRoot &&
+      receiverAssetGraphCache.htmlPath === htmlPath &&
+      receiverAssetGraphCache.htmlModifiedMs === htmlModifiedMs) {
+    return receiverAssetGraphCache.paths
+  }
+
+  const paths = new Set<string>()
+  receiverAssetGraphCache = { rendererRoot, htmlPath, htmlModifiedMs, paths }
+  if (!htmlPath) return paths
+
+  try {
+    const documentUrl = new URL('http://receiver.invalid/receiver/v2/')
+    const graph = htmlResourceGraph(readFileSync(htmlPath, 'utf8'), documentUrl)
+    const queue = [...graph.resources]
+    for (const source of graph.inlineModules) queue.push(...moduleDependencies(source, graph.baseUrl))
+
+    while (queue.length > 0) {
+      const resource = queue.shift()!
+      if (resource.origin !== documentUrl.origin ||
+          resource.search ||
+          !resource.pathname.startsWith('/assets/') ||
+          paths.has(resource.pathname)) continue
+      paths.add(resource.pathname)
+      if (paths.size > SELF_TEST_MAX_RESOURCES) {
+        throw new Error(`Receiver asset graph exceeded ${SELF_TEST_MAX_RESOURCES} files.`)
+      }
+
+      const target = safeStaticPath(resource.pathname)
+      if (!target || !existsSync(target) || !statSync(target).isFile()) continue
+      const extension = extname(target).toLowerCase()
+      if (extension === '.js' || extension === '.mjs' || extension === '.cjs') {
+        queue.push(...moduleDependencies(readFileSync(target, 'utf8'), resource))
+      } else if (extension === '.css') {
+        queue.push(...cssDependencies(readFileSync(target, 'utf8'), resource))
+      }
+    }
+  } catch (error) {
+    paths.clear()
+    logger.warn('streaming', 'receiver asset graph could not be loaded', {
+      message: error instanceof Error ? error.message : String(error)
     })
+  }
+  return paths
 }
 
-function addAuthToCssUrls(css: string): string {
-  const auth = authSearchParams()
-  if (!auth) return css
-  return css.replace(/url\((['"]?)(?!data:|https?:|#)([^'")]+)(['"]?)\)/gi, (_match, open: string, assetPath: string, close: string) => {
-    const joiner = assetPath.includes('?') ? '&' : '?'
-    return `url(${open}${assetPath}${joiner}${auth}${close})`
-  })
+function isReceiverAssetPath(pathname: string): boolean {
+  return receiverAssetPaths().has(pathname)
+}
+
+function ensureStreamBaseHref(html: string): string {
+  if (/<base\b[^>]*href=/i.test(html)) return html
+  return html.replace(/<head(\s[^>]*)?>/i, (head) => `${head}<base href="../" />`)
 }
 
 function devFallbackHtml(): string {
@@ -577,18 +973,152 @@ function devFallbackHtml(): string {
     return '<!doctype html><html><body style="margin:0;background:#05070d;color:white;font-family:sans-serif">stream page not built yet</body></html>'
   }
   const origin = new URL(devUrl).origin
-  return `<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><title>Ultimate Sim App Stream</title></head><body><div id="root"></div><script type="module" src="${origin}/src/stream/main.tsx"></script></body></html>`
+  return `<!doctype html><html><head><base href="../"><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><title>Ultimate Sim App Stream</title></head><body><div id="root"></div><script type="module" src="${origin}/src/stream/main.tsx"></script></body></html>`
 }
 
-function serveHtml(request: IncomingMessage, response: ServerResponse): void {
+function replaceBaseHref(html: string, href: string): string {
+  if (/<base\b[^>]*href=/i.test(html)) {
+    return html.replace(/<base\b[^>]*href=(['"]).*?\1[^>]*>/i, `<base href="${href}" />`)
+  }
+  return html.replace(/<head(\s[^>]*)?>/i, (head) => `${head}<base href="${href}" />`)
+}
+
+function devReceiverFallbackHtml(): string {
+  const devUrl = process.env.ELECTRON_RENDERER_URL
+  const moduleScript = devUrl
+    ? `<script type="module" src="${new URL('/src/receiver/main.tsx', devUrl).toString()}"></script>`
+    : ''
+  return `<!doctype html><html lang="en"><head><base href="../../"><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><meta name="theme-color" content="#07111d"><link rel="manifest" href="receiver/v2/manifest.webmanifest"><title>Ultimate Sim Receiver</title></head><body><div id="root">Receiver shell is not built yet.</div>${moduleScript}</body></html>`
+}
+
+function ensureReceiverBootstrap(html: string): string {
+  if (/receiver\/v2\/bootstrap\.js/i.test(html)) return html
+  const bootstrap = '<script src="receiver/v2/bootstrap.js"></script>'
+  if (/<script\b[^>]*type=(['"])module\1/i.test(html)) {
+    return html.replace(/<script\b[^>]*type=(['"])module\1/i, (script) => `${bootstrap}${script}`)
+  }
+  return html.replace(/<\/head>/i, `${bootstrap}</head>`)
+}
+
+function receiverCspSources(): { script: string; connect: string; style: string } {
+  const script = new Set(["'self'"])
+  const connect = new Set(["'self'"])
+  const style = new Set(["'self'"])
+  if (state.port) {
+    connect.add(`ws://127.0.0.1:${state.port}`)
+    connect.add(`ws://localhost:${state.port}`)
+  }
+  if (state.publicBaseUrl) {
+    try {
+      const publicUrl = new URL(state.publicBaseUrl)
+      connect.add(`wss://${publicUrl.host}`)
+    } catch {
+      // The public URL is validated before it reaches state.
+    }
+  }
+  if (process.env.ELECTRON_RENDERER_URL) {
+    try {
+      const devOrigin = new URL(process.env.ELECTRON_RENDERER_URL).origin
+      script.add(devOrigin)
+      style.add(devOrigin)
+      style.add("'unsafe-inline'")
+      connect.add(devOrigin)
+      const devSocket = new URL(devOrigin)
+      devSocket.protocol = devSocket.protocol === 'https:' ? 'wss:' : 'ws:'
+      connect.add(devSocket.origin)
+    } catch {
+      // A malformed dev URL will fail to load without weakening the policy.
+    }
+  }
+  return {
+    script: [...script].join(' '),
+    connect: [...connect].join(' '),
+    style: [...style].join(' ')
+  }
+}
+
+function applyReceiverBrowserControls(response: ServerResponse): void {
+  applyCors(response)
+  const csp = receiverCspSources()
+  response.setHeader(
+    'Content-Security-Policy',
+    `default-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; script-src ${csp.script}; style-src ${csp.style}; connect-src ${csp.connect}; img-src 'self' data:; font-src 'self'; manifest-src 'self'; worker-src 'self'`
+  )
+  response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), usb=(), serial=(), bluetooth=(), payment=(), fullscreen=(self), display-capture=(), clipboard-read=(), clipboard-write=()')
+  response.setHeader('Cross-Origin-Opener-Policy', 'same-origin')
+  response.setHeader('X-Frame-Options', 'DENY')
+}
+
+function serveReceiverHtml(request: IncomingMessage, response: ServerResponse, sessionCookie: string): void {
+  const htmlPath = process.env.ELECTRON_RENDERER_URL ? null : findRendererHtml('receiver.html')
+  const html = ensureReceiverBootstrap(
+    replaceBaseHref(htmlPath ? readFileSync(htmlPath, 'utf8') : devReceiverFallbackHtml(), '../../')
+  )
+  applyReceiverBrowserControls(response)
+  response.setHeader('Set-Cookie', sessionCookie)
+  response.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'private, no-cache'
+  })
+  response.end(request.method === 'HEAD' ? undefined : html)
+}
+
+const RECEIVER_PUBLIC_FILES = new Set([
+  'bootstrap.js',
+  'service-worker.js',
+  'manifest.webmanifest',
+  'icon.svg'
+])
+
+function receiverPublicFile(fileName: string): string | null {
+  if (!RECEIVER_PUBLIC_FILES.has(fileName)) return null
+  const candidates = [
+    join(rendererDir(), 'receiver', 'v2', fileName),
+    join(process.cwd(), 'out', 'renderer', 'receiver', 'v2', fileName),
+    join(process.cwd(), 'src', 'renderer', 'public', 'receiver', 'v2', fileName)
+  ]
+  for (const candidate of candidates) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate
+  }
+  return null
+}
+
+function serveReceiverPublic(
+  route: StreamingRequestRoute,
+  fileName: string,
+  request: IncomingMessage,
+  response: ServerResponse
+): void {
+  const target = receiverPublicFile(fileName)
+  if (!target) {
+    send(response, 404, 'Not found')
+    return
+  }
+  applyReceiverBrowserControls(response)
+  if (fileName === 'service-worker.js') {
+    response.setHeader('Service-Worker-Allowed', `${route.externalBasePath}receiver/v2/`)
+  }
+  response.writeHead(200, {
+    'Content-Type': contentType(target),
+    'Cache-Control': fileName === 'service-worker.js' ? 'no-cache' : 'public, max-age=300'
+  })
+  if (request.method === 'HEAD') {
+    response.end()
+    return
+  }
+  createReadStream(target).pipe(response)
+}
+
+function serveHtml(request: IncomingMessage, response: ServerResponse, sessionCookie?: string): void {
   // In dev (electron-vite sets ELECTRON_RENDERER_URL), serve a shim that loads the
   // transpiled stream entry from the vite origin; the raw source stream.html would
   // otherwise 404 its .tsx <script>. In production we serve the built stream.html.
   const htmlPath = process.env.ELECTRON_RENDERER_URL ? null : findRendererHtml('stream.html')
   const html = htmlPath ? readFileSync(htmlPath, 'utf8') : devFallbackHtml()
   applyCors(response)
+  if (sessionCookie) response.setHeader('Set-Cookie', sessionCookie)
   response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
-  response.end(request.method === 'HEAD' ? undefined : addAuthToAssetUrls(html))
+  response.end(request.method === 'HEAD' ? undefined : ensureStreamBaseHref(html))
 }
 
 function serveStatic(pathname: string, request: IncomingMessage, response: ServerResponse): void {
@@ -603,10 +1133,6 @@ function serveStatic(pathname: string, request: IncomingMessage, response: Serve
     response.end()
     return
   }
-  if (contentType(target).startsWith('text/css')) {
-    response.end(addAuthToCssUrls(readFileSync(target, 'utf8')))
-    return
-  }
   createReadStream(target).pipe(response)
 }
 
@@ -616,27 +1142,243 @@ function sendJson(response: ServerResponse, body: unknown, method: string | unde
   response.end(method === 'HEAD' ? undefined : JSON.stringify(body))
 }
 
-function serveSelectedDashboard(id: string, request: IncomingMessage, response: ServerResponse): void {
+async function readRequestBody(request: IncomingMessage, limit = 4_096): Promise<string> {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+    size += buffer.length
+    if (size > limit) throw new Error('Request body is too large.')
+    chunks.push(buffer)
+  }
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+async function exchangePasswordSession(
+  request: IncomingMessage,
+  response: ServerResponse,
+  route: StreamingRequestRoute
+): Promise<void> {
+  const active = sessionForRequest(request, route, 'stream')
+  if (!active) {
+    send(response, 403, 'Forbidden')
+    return
+  }
+  if (isRateLimited(request, 'password')) {
+    send(response, 429, 'Too many failed authentication attempts')
+    return
+  }
+  if (!/^application\/json(?:;|$)/i.test(headerValue(request, 'content-type') ?? '')) {
+    send(response, 415, 'Expected application/json')
+    return
+  }
+
+  let password: string | null = null
+  try {
+    const parsed = JSON.parse(await readRequestBody(request)) as { password?: unknown }
+    password = typeof parsed.password === 'string' ? parsed.password : null
+  } catch (error) {
+    send(response, error instanceof SyntaxError ? 400 : 413, error instanceof SyntaxError ? 'Invalid JSON' : 'Request body is too large')
+    return
+  }
+
+  if (state.passwordHash && !verifyPassword(password, state.passwordHash)) {
+    recordAuthFailure(request, 'password')
+    send(response, 403, 'Forbidden')
+    return
+  }
+
+  clearAuthFailure(request, 'password')
+  if (active.session.access === 'bootstrap' && sessionCount('authenticated', 'stream') >= MAX_AUTHENTICATED_SESSIONS) {
+    send(response, 503, 'Too many authenticated streaming sessions')
+    return
+  }
+  active.session.access = 'authenticated'
+  active.session.expiresAt = Date.now() + SESSION_TTL_MS
+  applyCors(response)
+  response.setHeader('Set-Cookie', serializeSessionCookie(active.id, active.session.basePath, 'stream', SESSION_TTL_MS))
+  response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+  response.end(JSON.stringify({ authenticated: true }))
+}
+
+function receiverPairStatus(
+  active: { id: string; session: StreamingSession },
+  request: IncomingMessage
+): ReceiverPairStatusResponse {
+  return {
+    authenticated: active.session.access === 'authenticated',
+    passwordRequired: state.passwordHash !== null && active.session.access !== 'authenticated',
+    protocolVersion: RECEIVER_PROTOCOL_VERSION,
+    schemaVersion: RECEIVER_SCHEMA_VERSION,
+    capabilities: [...RECEIVER_CAPABILITIES],
+    minHz: RECEIVER_MIN_HZ,
+    maxHz: RECEIVER_MAX_HZ,
+    maxPayloadBytes: RECEIVER_MAX_SERVER_MESSAGE_BYTES,
+    heartbeatMs: RECEIVER_HEARTBEAT_MS,
+    transportProfile: receiverTransportForRequest(request),
+    readOnly: true,
+    commandsEnabled: false
+  }
+}
+
+function serveReceiverPairStatus(
+  request: IncomingMessage,
+  response: ServerResponse,
+  route: StreamingRequestRoute
+): void {
+  const active = sessionForRequest(request, route, 'receiver')
+  if (!active) {
+    send(response, 403, 'Forbidden')
+    return
+  }
+  applyReceiverBrowserControls(response)
+  response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+  response.end(request.method === 'HEAD' ? undefined : JSON.stringify(receiverPairStatus(active, request)))
+}
+
+async function exchangeReceiverPairing(
+  request: IncomingMessage,
+  response: ServerResponse,
+  route: StreamingRequestRoute
+): Promise<void> {
+  const active = sessionForRequest(request, route, 'receiver')
+  if (!active || active.session.access !== 'bootstrap') {
+    send(response, 403, 'Forbidden')
+    return
+  }
+  const transport = receiverTransportForRequest(request)
+  if (transport === 'blocked' || !receiverOriginAllowed(request, transport)) {
+    send(response, 403, 'Receiver origin rejected')
+    return
+  }
+  if (isRateLimited(request, 'pairing')) {
+    send(response, 429, 'Too many failed pairing attempts')
+    return
+  }
+  if (!/^application\/json(?:;|$)/i.test(headerValue(request, 'content-type') ?? '')) {
+    send(response, 415, 'Expected application/json')
+    return
+  }
+  let pairingCode: string | null = null
+  let password: string | null = null
+  try {
+    const parsed = JSON.parse(await readRequestBody(request, 1_024)) as unknown
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      Array.isArray(parsed) ||
+      Object.keys(parsed).some((key) => key !== 'pairingCode' && key !== 'password')
+    ) {
+      send(response, 400, 'Invalid pairing request')
+      return
+    }
+    const body = parsed as { pairingCode?: unknown; password?: unknown }
+    pairingCode = typeof body.pairingCode === 'string' && /^[A-Za-z0-9_-]{32,128}$/.test(body.pairingCode)
+      ? body.pairingCode
+      : null
+    password = typeof body.password === 'string' && body.password.length <= 256 ? body.password : null
+  } catch (error) {
+    send(response, error instanceof SyntaxError ? 400 : 413, error instanceof SyntaxError ? 'Invalid JSON' : 'Request body is too large')
+    return
+  }
+  const pairing = state.receiverPairing
+  if (!pairing || !pairingCode) {
+    recordAuthFailure(request, 'pairing')
+    send(response, 403, 'Forbidden')
+    return
+  }
+  const pairingMatches = receiverPairingMatches(pairing, pairingCode)
+  if (pairing.consumedAt !== null) {
+    if (pairingMatches) {
+      send(response, 409, 'Pairing code has already been used')
+      return
+    }
+    recordAuthFailure(request, 'pairing')
+    send(response, 403, 'Forbidden')
+    return
+  }
+  if (pairing.expiresAt <= Date.now()) {
+    recordAuthFailure(request, 'pairing')
+    send(response, 410, 'Pairing code expired')
+    return
+  }
+  if (!pairingMatches || (state.passwordHash !== null && !verifyPassword(password, state.passwordHash))) {
+    recordAuthFailure(request, 'pairing')
+    send(response, 403, 'Forbidden')
+    return
+  }
+  if (sessionCount('authenticated', 'receiver') >= MAX_AUTHENTICATED_SESSIONS) {
+    send(response, 503, 'Too many authenticated receiver sessions')
+    return
+  }
+  clearAuthFailure(request, 'pairing')
+  const now = Date.now()
+  pairing.secret = null
+  pairing.consumedAt = now
+  active.session.access = 'authenticated'
+  active.session.expiresAt = now + RECEIVER_SESSION_TTL_MS
+  state.receiverGateway?.markPaired()
+  applyReceiverBrowserControls(response)
+  response.setHeader(
+    'Set-Cookie',
+    serializeSessionCookie(active.id, active.session.basePath, 'receiver', RECEIVER_SESSION_TTL_MS)
+  )
+  response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+  response.end(JSON.stringify({ authenticated: true, readOnly: true, commandsEnabled: false }))
+}
+
+async function activePresentationProfile(
+  response: ServerResponse
+): Promise<StreamPresentationProfileListItem | null | false> {
+  if (!state.presentationProfileId) return null
+  const item = await getStreamPresentationProfileForRuntime(state.presentationProfileId)
+  if (!item) {
+    send(response, 404, 'Stream presentation profile not found')
+    return false
+  }
+  if (item.targetState !== 'current') {
+    send(
+      response,
+      item.targetState === 'missing' ? 404 : 409,
+      item.targetState === 'missing'
+        ? 'Stream presentation target not found'
+        : 'Stream presentation target changed; refresh the profile before streaming'
+    )
+    return false
+  }
+  return item
+}
+
+async function serveSelectedDashboard(id: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
   if (state.layoutKind !== 'dashboard' || id !== state.layoutId) {
     logger.error('streaming', 'dashboard api rejected non-selected id', { requestedId: id, selectedId: state.layoutId, layoutKind: state.layoutKind })
     send(response, 404, 'Not found')
     return
   }
+  if (await activePresentationProfile(response) === false) return
   const dashboard = getDashboardManager()?.getDashboard(id)
   if (!dashboard) {
     logger.error('streaming', 'dashboard api selected id missing', { id })
     send(response, 404, 'Not found')
     return
   }
-  sendJson(response, dashboard, request.method)
+  const payload: StreamingDashboardPayload = {
+    dashboard,
+    expressionContent: {
+      mode: 'excluded',
+      message: STREAMING_EXPRESSION_EXCLUSION_MESSAGE
+    }
+  }
+  sendJson(response, payload, request.method)
 }
 
-function serveSelectedTouchPanel(id: string, request: IncomingMessage, response: ServerResponse): void {
+async function serveSelectedTouchPanel(id: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
   if (state.layoutKind !== 'touch' || id !== state.layoutId) {
     logger.error('streaming', 'touch api rejected non-selected id', { requestedId: id, selectedId: state.layoutId, layoutKind: state.layoutKind })
     send(response, 404, 'Not found')
     return
   }
+  if (await activePresentationProfile(response) === false) return
   const panel = getTouchPanelManager()?.getPanel(id)
   if (!panel) {
     logger.error('streaming', 'touch api selected id missing', { id })
@@ -644,6 +1386,20 @@ function serveSelectedTouchPanel(id: string, request: IncomingMessage, response:
     return
   }
   sendJson(response, panel, request.method)
+}
+
+async function serveSelectedPresentationProfile(
+  id: string,
+  request: IncomingMessage,
+  response: ServerResponse
+): Promise<void> {
+  if (!state.presentationProfileId || id !== state.presentationProfileId) {
+    send(response, 404, 'Not found')
+    return
+  }
+  const item = await activePresentationProfile(response)
+  if (!item) return
+  sendJson(response, item.profile, request.method)
 }
 
 function maskName(name: string | undefined, index: number): string {
@@ -699,8 +1455,16 @@ function currentFrame(ctx: ModuleContext): StreamingTelemetryFrame {
   }
 }
 
-function writeSse(response: ServerResponse, frame: StreamingTelemetryFrame): void {
-  response.write(`event: telemetry\ndata: ${JSON.stringify(frame)}\n\n`)
+function writeSse(response: ServerResponse, frame: StreamingTelemetryFrame): boolean {
+  return response.write(`event: telemetry\ndata: ${JSON.stringify(frame)}\n\n`)
+}
+
+export function isWebSocketBackpressured(bufferedAmount: number): boolean {
+  return !Number.isFinite(bufferedAmount) || bufferedAmount > MAX_WEBSOCKET_BUFFERED_BYTES
+}
+
+export function isSseBackpressured(writableLength: number): boolean {
+  return !Number.isFinite(writableLength) || writableLength > MAX_WEBSOCKET_BUFFERED_BYTES
 }
 
 function openSse(ctx: ModuleContext, request: IncomingMessage, response: ServerResponse): void {
@@ -710,7 +1474,7 @@ function openSse(ctx: ModuleContext, request: IncomingMessage, response: ServerR
     response.end()
     return
   }
-  if (state.clients.size >= MAX_SSE_CLIENTS) {
+  if (state.clients.size >= MAX_STREAM_CLIENTS) {
     send(response, 503, 'Too many streaming clients')
     return
   }
@@ -722,35 +1486,102 @@ function openSse(ctx: ModuleContext, request: IncomingMessage, response: ServerR
   })
   response.write(': connected\n\n')
   const id = state.nextClientId++
-  const timer = setInterval(() => writeSse(response, currentFrame(ctx)), SSE_INTERVAL_MS)
-  const client: SseClient = {
+  const sendFrame = (): void => {
+    if (response.destroyed || response.writableEnded) return
+    if (isSseBackpressured(response.writableLength)) {
+      logger.warn('streaming', 'slow SSE receiver terminated', {
+        id,
+        address: normalizeRemoteAddress(request.socket.remoteAddress),
+        writableLength: response.writableLength,
+        limit: MAX_WEBSOCKET_BUFFERED_BYTES
+      })
+      closeClient(id)
+      return
+    }
+    if (response.writableNeedDrain) return
+    writeSse(response, currentFrame(ctx))
+  }
+  const timer = setInterval(sendFrame, SSE_INTERVAL_MS)
+  const client: StreamingClient = {
     id,
-    response,
     timer,
     address: normalizeRemoteAddress(request.socket.remoteAddress),
     userAgent: headerValue(request, 'user-agent'),
-    connectedAt: Date.now()
+    connectedAt: Date.now(),
+    transport: 'sse',
+    close: () => {
+      if (!response.destroyed) response.end()
+    }
   }
   state.clients.set(id, client)
   logger.info('streaming', 'client connected', {
     id,
     address: client.address,
     userAgent: client.userAgent,
+    transport: client.transport,
     count: state.clients.size
   })
-  writeSse(response, currentFrame(ctx))
+  sendFrame()
   request.on('close', () => closeClient(id))
+}
+
+function openWebSocket(ctx: ModuleContext, request: IncomingMessage, socket: WebSocket): void {
+  if (state.clients.size >= MAX_STREAM_CLIENTS) {
+    socket.close(1013, 'Too many streaming clients')
+    return
+  }
+  const id = state.nextClientId++
+  const writeFrame = (): void => {
+    if (socket.readyState !== WebSocket.OPEN) return
+    if (isWebSocketBackpressured(socket.bufferedAmount)) {
+      logger.warn('streaming', 'slow websocket receiver terminated', {
+        id,
+        address: normalizeRemoteAddress(request.socket.remoteAddress),
+        bufferedAmount: socket.bufferedAmount,
+        limit: MAX_WEBSOCKET_BUFFERED_BYTES
+      })
+      socket.terminate()
+      return
+    }
+    socket.send(JSON.stringify(currentFrame(ctx)))
+  }
+  const timer = setInterval(writeFrame, SSE_INTERVAL_MS)
+  const client: StreamingClient = {
+    id,
+    timer,
+    address: normalizeRemoteAddress(request.socket.remoteAddress),
+    userAgent: headerValue(request, 'user-agent'),
+    connectedAt: Date.now(),
+    transport: 'websocket',
+    close: () => {
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.terminate()
+      }
+    }
+  }
+  state.clients.set(id, client)
+  logger.info('streaming', 'client connected', {
+    id,
+    address: client.address,
+    userAgent: client.userAgent,
+    transport: client.transport,
+    count: state.clients.size
+  })
+  writeFrame()
+  socket.on('close', () => closeClient(id))
+  socket.on('error', () => closeClient(id))
 }
 
 function closeClient(id: number): void {
   const client = state.clients.get(id)
   if (!client) return
-  clearInterval(client.timer)
-  if (!client.response.destroyed) client.response.end()
   state.clients.delete(id)
+  clearInterval(client.timer)
+  client.close()
   logger.info('streaming', 'client disconnected', {
     id,
     address: client.address,
+    transport: client.transport,
     count: state.clients.size
   })
 }
@@ -759,29 +1590,225 @@ function closeAllClients(): void {
   for (const id of [...state.clients.keys()]) closeClient(id)
 }
 
-function baseOrigin(): string {
-  if (state.accessMode === 'internet' && state.publicBaseUrl) return state.publicBaseUrl
-  const host = state.accessMode !== 'local' && state.lanAddress ? state.lanAddress : HOST
-  return `http://${host}:${state.port}`
+function rejectWebSocketUpgrade(socket: Duplex, statusCode: number, message: string): void {
+  if (socket.destroyed) return
+  const body = `${message}\n`
+  socket.write(
+    `HTTP/1.1 ${statusCode} ${message}\r\n` +
+    'Connection: close\r\n' +
+    'Content-Type: text/plain; charset=utf-8\r\n' +
+    `Content-Length: ${Buffer.byteLength(body)}\r\n\r\n` +
+    body
+  )
+  socket.destroy()
+}
+
+function handleWebSocketUpgrade(ctx: ModuleContext, request: IncomingMessage, socket: Duplex, head: Buffer): void {
+  const webSocketServer = state.webSocketServer
+  if (!webSocketServer || !state.server) {
+    rejectWebSocketUpgrade(socket, 503, 'Service Unavailable')
+    return
+  }
+  try {
+    const route = requestRoute(request)
+    if (route.pathname !== '/ws') {
+      rejectWebSocketUpgrade(socket, 404, 'Not Found')
+      return
+    }
+    if (state.accessMode === 'lan' && !isLocalNetworkRequest(request)) {
+      rejectWebSocketUpgrade(socket, 403, 'Forbidden')
+      return
+    }
+    const session = sessionForRequest(request, route, 'stream')
+    if (!session || session.session.access !== 'authenticated') {
+      rejectWebSocketUpgrade(socket, 403, 'Forbidden')
+      return
+    }
+    const originHeader = headerValue(request, 'origin')
+    const expectedOrigin = route.externalOrigin ?? (() => {
+      const host = firstForwardedValue(headerValue(request, 'host'))
+      if (!host) return null
+      try {
+        return new URL(`http://${host}`).origin
+      } catch {
+        return null
+      }
+    })()
+    let normalizedOrigin: string | null = null
+    try {
+      normalizedOrigin = originHeader ? new URL(originHeader).origin : null
+    } catch {
+      normalizedOrigin = null
+    }
+    if (!expectedOrigin || normalizedOrigin !== expectedOrigin) {
+      logger.warn('streaming', 'websocket origin rejected', {
+        expectedOrigin,
+        receivedOrigin: originHeader,
+        remoteAddress: normalizeRemoteAddress(request.socket.remoteAddress)
+      })
+      rejectWebSocketUpgrade(socket, 403, 'Forbidden')
+      return
+    }
+    if (state.clients.size >= MAX_STREAM_CLIENTS) {
+      rejectWebSocketUpgrade(socket, 503, 'Service Unavailable')
+      return
+    }
+    webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
+      openWebSocket(ctx, request, webSocket)
+    })
+  } catch (error) {
+    logger.warn('streaming', 'websocket upgrade rejected', {
+      message: error instanceof Error ? error.message : String(error),
+      remoteAddress: normalizeRemoteAddress(request.socket.remoteAddress)
+    })
+    rejectWebSocketUpgrade(socket, 400, 'Bad Request')
+  }
+}
+
+export function resolveStreamingBaseOrigin(
+  accessMode: StreamingAccessMode,
+  publicBaseUrl: string | null,
+  port: number | null,
+  lanAddress: string | null
+): string | null {
+  if (!port) return null
+  if (accessMode === 'internet') {
+    if (!publicBaseUrl) return null
+    try {
+      return new URL(publicBaseUrl).protocol === 'https:' ? publicBaseUrl : null
+    } catch {
+      return null
+    }
+  }
+  const host = accessMode === 'lan' && lanAddress ? lanAddress : HOST
+  return `http://${host}:${port}`
+}
+
+function baseOrigin(): string | null {
+  return resolveStreamingBaseOrigin(state.accessMode, state.publicBaseUrl, state.port, state.lanAddress)
 }
 
 function lanOrigin(): string | null {
   return state.port && state.lanAddress ? `http://${state.lanAddress}:${state.port}` : null
 }
 
-function dashboardUrl(origin = baseOrigin()): string | null {
-  if (!state.port || !state.token) return null
-  const url = new URL(`/obs/${state.layoutId}`, origin)
+function dashboardUrl(origin?: string | null): string | null {
+  const resolvedOrigin = origin === undefined ? baseOrigin() : origin
+  if (!state.port || !state.token || !resolvedOrigin) return null
+  const url = urlFromBase(resolvedOrigin, `obs/${state.layoutId}`)
   url.searchParams.set('token', state.token)
   url.searchParams.set('kind', state.layoutKind)
   if (state.layoutKind === 'touch') url.searchParams.set('panel', state.layoutId)
   else url.searchParams.set('dash', state.layoutId)
+  if (state.presentationProfileId) url.searchParams.set('profile', state.presentationProfileId)
   // Password is intentionally NOT embedded in the shareable URL/QR.
   // The stream page will prompt the user to enter it separately.
   return url.toString()
 }
 
-function touchControlsUrl(origin = baseOrigin()): string | null {
+function advertisedLanUrl(): string | null {
+  if (state.accessMode !== 'lan') return null
+  const origin = lanOrigin()
+  return origin ? dashboardUrl(origin) : null
+}
+
+function localTestUrl(): string | null {
+  if (!state.port || state.accessMode === 'internet') return null
+  return dashboardUrl(`http://127.0.0.1:${state.port}`)
+}
+
+function receiverBaseUrl(origin: string): string {
+  const url = urlFromBase(origin, 'receiver/v2/')
+  url.search = ''
+  url.hash = ''
+  return url.toString()
+}
+
+function receiverPairingUrl(origin: string, pairing: ReceiverPairing | null): string | null {
+  if (!pairing?.secret) return null
+  const url = new URL(receiverBaseUrl(origin))
+  url.hash = `pair=${encodeURIComponent(pairing.secret)}`
+  return url.toString()
+}
+
+function receiverLocalOrigin(): string | null {
+  return state.port ? `http://127.0.0.1:${state.port}` : null
+}
+
+function receiverPreferredOrigin(): string | null {
+  if (state.accessMode === 'internet') return state.publicBaseUrl
+  return receiverLocalOrigin()
+}
+
+function emptyReceiverMetrics(): ReceiverV2Status['metrics'] {
+  return {
+    startedAt: null,
+    firstPairedAt: null,
+    firstReadyAt: null,
+    setupTimeMs: null,
+    setupBudgetMs: RECEIVER_SETUP_BUDGET_MS,
+    setupBudgetPassed: null,
+    activeClients: 0,
+    connections: 0,
+    reconnects: 0,
+    resyncs: 0,
+    replayedFrames: 0,
+    telemetryFrames: 0,
+    droppedFrames: 0,
+    slowConsumerDisconnects: 0,
+    latencySamples: 0,
+    latencyP50Ms: null,
+    latencyP95Ms: null,
+    latencyMaxMs: null,
+    latencyBudgetMs: RECEIVER_LATENCY_BUDGET_MS,
+    latencyBudgetPassed: null,
+    reliabilityPct: 100,
+    reliabilityTargetPct: RECEIVER_RELIABILITY_TARGET_PCT,
+    reliabilityPassed: null
+  }
+}
+
+function receiverStatus(): ReceiverV2Status {
+  const running = state.server !== null && state.receiverGateway !== null
+  const pairing = receiverPairingAvailable()
+  const localOrigin = receiverLocalOrigin()
+  const preferredOrigin = receiverPreferredOrigin()
+  const transportProfile: ReceiverTransportProfile = !running
+    ? 'blocked'
+    : state.accessMode === 'internet' && state.publicBaseUrl
+      ? 'https-wss'
+      : 'local-development'
+  const blockedReason = !running
+    ? 'Receiver v2 is stopped.'
+    : state.accessMode === 'lan'
+      ? 'Plain HTTP on a private LAN is blocked for Receiver v2. Use the loopback PWA on this PC or an explicit HTTPS/WSS reverse proxy.'
+      : state.accessMode === 'internet' && !state.publicBaseUrl
+        ? 'Receiver v2 requires an active HTTPS/WSS public base URL in Internet mode.'
+        : null
+  return {
+    enabled: running,
+    protocolVersion: RECEIVER_PROTOCOL_VERSION,
+    schemaVersion: RECEIVER_SCHEMA_VERSION,
+    capabilities: [...RECEIVER_CAPABILITIES],
+    minHz: RECEIVER_MIN_HZ,
+    maxHz: RECEIVER_MAX_HZ,
+    transportProfile,
+    bindAddress: state.bindAddress,
+    baseUrl: preferredOrigin ? receiverBaseUrl(preferredOrigin) : null,
+    pairingUrl: preferredOrigin ? receiverPairingUrl(preferredOrigin, pairing) : null,
+    localPairingUrl: state.accessMode !== 'internet' && localOrigin ? receiverPairingUrl(localOrigin, pairing) : null,
+    pairingExpiresAt: state.receiverPairing?.expiresAt ?? null,
+    pairingConsumed: state.receiverPairing?.consumedAt != null,
+    blockedReason,
+    readOnly: true,
+    commandsEnabled: false,
+    secretInQuery: false,
+    clients: state.receiverGateway?.clients() ?? [],
+    metrics: state.receiverGateway?.metrics() ?? emptyReceiverMetrics()
+  }
+}
+
+function touchControlsUrl(origin?: string | null): string | null {
   void origin
   return null
 }
@@ -804,11 +1831,19 @@ function warning(): string | null {
 
 async function refreshQrCodes(): Promise<void> {
   // Suppress QR codes when there's no usable LAN/public origin; localhost QRs won't work for phones/tablets.
+  const generation = ++qrRefreshGeneration
   const shouldGenerateQr = state.accessMode === 'local' || (state.accessMode === 'lan' && state.lanAddress) || (state.accessMode === 'internet' && state.publicBaseUrl)
   const url = shouldGenerateQr ? dashboardUrl() : null
   const touchUrl = shouldGenerateQr ? touchControlsUrl() : null
-  state.qrDataUrl = url ? await QRCode.toDataURL(url) : null
-  state.touchQrDataUrl = touchUrl ? await QRCode.toDataURL(touchUrl) : null
+  const [qrDataUrl, touchQrDataUrl] = await Promise.all([
+    url === state.qrSourceUrl ? state.qrDataUrl : url ? QRCode.toDataURL(url) : null,
+    touchUrl === state.touchQrSourceUrl ? state.touchQrDataUrl : touchUrl ? QRCode.toDataURL(touchUrl) : null
+  ])
+  if (generation !== qrRefreshGeneration) return
+  state.qrDataUrl = qrDataUrl
+  state.qrSourceUrl = url
+  state.touchQrDataUrl = touchQrDataUrl
+  state.touchQrSourceUrl = touchUrl
 }
 
 async function status(): Promise<StreamingStatus> {
@@ -818,7 +1853,7 @@ async function status(): Promise<StreamingStatus> {
   return {
     running: state.server !== null,
     url,
-    lanUrl: state.lanEnabled && lanOrigin() ? dashboardUrl(lanOrigin()!) : null,
+    lanUrl: advertisedLanUrl(),
     touchUrl,
     qrDataUrl: state.qrDataUrl,
     touchQrDataUrl: state.touchQrDataUrl,
@@ -840,150 +1875,975 @@ async function status(): Promise<StreamingStatus> {
     accessMode: state.accessMode,
     publicBaseUrl: state.publicBaseUrl,
     password: state.passwordPlaintext,
-    localTestUrl: state.port ? dashboardUrl(`http://127.0.0.1:${state.port}`) : null,
+    localTestUrl: localTestUrl(),
     firewallMessage: state.firewallMessage,
     passwordEnabled: state.passwordHash !== null,
     warning: warning(),
     autoTunnelAvailable: resolveCloudflaredBinary() !== null,
     autoTunnelEnabled: state.autoTunnelEnabled,
-    autoTunnelRunning: state.autoTunnelProcess !== null && state.autoTunnelUrl !== null,
-    autoTunnelMessage: state.autoTunnelMessage
+    autoTunnelRunning: autoTunnelSupervisor?.snapshot.phase === 'online' && state.autoTunnelUrl !== null,
+    autoTunnelMessage: state.autoTunnelMessage,
+    receiverV2: receiverStatus(),
+    presentationProfileId: state.presentationProfileId
   }
 }
 
-async function selfTest(): Promise<StreamingSelfTestResult> {
-  const url = state.port ? dashboardUrl(`http://127.0.0.1:${state.port}`) : null
-  if (!url) return { reachable: false, statusCode: null, url, message: 'Streaming server is not running.' }
-  return new Promise((resolveResult) => {
-    const startedAt = Date.now()
-    const req = httpRequest(url, { method: 'HEAD', timeout: 4_000 }, (res) => {
-      res.resume()
-      const statusCode = res.statusCode ?? null
-      const reachable = statusCode !== null && statusCode >= 200 && statusCode < 400
-      const message = reachable
-        ? `Reachable from this PC (HTTP ${statusCode}) in ${Date.now() - startedAt} ms.`
-        : `Reached server but got HTTP ${statusCode ?? 'unknown'}.`
-      logger.info('streaming', 'self-test completed', { reachable, statusCode, url })
-      resolveResult({ reachable, statusCode, url, message })
+interface ProbeResponse {
+  statusCode: number
+  headers: IncomingHttpHeaders
+  body: Buffer
+}
+
+interface ProbeCookie {
+  pair: string
+  origin: string
+  path: string
+  secure: boolean
+  httpOnly: boolean
+  sameSiteStrict: boolean
+}
+
+class SelfTestStageError extends Error {
+  constructor(
+    readonly stage: StreamingSelfTestResult['stage'],
+    message: string,
+    readonly statusCode: number | null = null
+  ) {
+    super(message)
+  }
+}
+
+function displayUrl(value: string | URL): string {
+  const url = typeof value === 'string' ? new URL(value) : new URL(value.toString())
+  url.search = ''
+  url.hash = ''
+  return url.toString()
+}
+
+function probeCookieHeader(cookie: ProbeCookie, url: URL): string | null {
+  if (url.origin !== cookie.origin || !url.pathname.startsWith(cookie.path)) return null
+  if (cookie.secure && url.protocol !== 'https:') return null
+  return cookie.pair
+}
+
+function parseProbeCookie(headers: IncomingHttpHeaders, documentUrl: URL): ProbeCookie | null {
+  const values = headers['set-cookie']
+  const candidates = Array.isArray(values) ? values : values ? [values] : []
+  const raw = candidates.find((value) => value.startsWith(`${SESSION_COOKIE_NAME}=`))
+  if (!raw) return null
+  const parts = raw.split(';').map((part) => part.trim())
+  const pair = parts[0]
+  const attributes = parts.slice(1)
+  const pathAttribute = attributes.find((part) => /^path=/i.test(part))
+  return {
+    pair,
+    origin: documentUrl.origin,
+    path: pathAttribute?.slice(pathAttribute.indexOf('=') + 1) ?? '/',
+    secure: attributes.some((part) => /^secure$/i.test(part)),
+    httpOnly: attributes.some((part) => /^httponly$/i.test(part)),
+    sameSiteStrict: attributes.some((part) => /^samesite=strict$/i.test(part))
+  }
+}
+
+function probeSessionId(cookie: ProbeCookie): string | null {
+  const separator = cookie.pair.indexOf('=')
+  if (separator < 0 || cookie.pair.slice(0, separator) !== SESSION_COOKIE_NAME) return null
+  return cookie.pair.slice(separator + 1) || null
+}
+
+function performProbeRequest(
+  url: URL,
+  options: { method?: string; headers?: Record<string, string>; body?: string } = {}
+): Promise<ProbeResponse> {
+  return new Promise((resolveResult, rejectResult) => {
+    const requestFn = url.protocol === 'https:' ? nodeHttpsRequest : url.protocol === 'http:' ? nodeHttpRequest : null
+    if (!requestFn) {
+      rejectResult(new Error(`Unsupported protocol ${url.protocol}`))
+      return
+    }
+    const body = options.body
+    const headers: Record<string, string> = { 'Accept-Encoding': 'identity', ...options.headers }
+    if (body !== undefined) headers['Content-Length'] = String(Buffer.byteLength(body))
+    const request = requestFn(url, {
+      method: options.method ?? 'GET',
+      headers,
+      timeout: SELF_TEST_TIMEOUT_MS
+    }, (response) => {
+      const chunks: Buffer[] = []
+      let size = 0
+      response.on('data', (chunk: Buffer | string) => {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+        size += buffer.length
+        if (size > SELF_TEST_MAX_BODY_BYTES) {
+          request.destroy(new Error(`Response exceeded ${SELF_TEST_MAX_BODY_BYTES} bytes`))
+          return
+        }
+        chunks.push(buffer)
+      })
+      response.on('end', () => {
+        resolveResult({
+          statusCode: response.statusCode ?? 0,
+          headers: response.headers,
+          body: Buffer.concat(chunks)
+        })
+      })
+      response.on('error', rejectResult)
     })
-    req.on('timeout', () => req.destroy(new Error('Self-test timed out')))
-    req.on('error', (error) => {
-      logger.error('streaming', 'self-test failed', { message: error.message, url })
-      resolveResult({ reachable: false, statusCode: null, url, message: `Self-test failed: ${error.message}` })
-    })
-    req.end()
+    request.on('timeout', () => request.destroy(new Error(`Timed out after ${SELF_TEST_TIMEOUT_MS} ms`)))
+    request.on('error', rejectResult)
+    if (body !== undefined) request.write(body)
+    request.end()
   })
 }
 
-async function handleRequest(ctx: ModuleContext, request: IncomingMessage, response: ServerResponse): Promise<void> {
+async function performStageProbe(
+  stage: StreamingSelfTestResult['stage'],
+  url: URL,
+  options: { method?: string; headers?: Record<string, string>; body?: string } = {}
+): Promise<ProbeResponse> {
   try {
-    const url = new URL(request.url ?? '/', state.port ? baseOrigin() : `http://${HOST}`)
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-      rejectMethod(response)
+    return await performProbeRequest(url, options)
+  } catch (error) {
+    if (error instanceof SelfTestStageError) throw error
+    throw new SelfTestStageError(stage, `${displayUrl(url)} could not be loaded: ${error instanceof Error ? error.message : String(error)}.`)
+  }
+}
+
+function expectProbeSuccess(stage: StreamingSelfTestResult['stage'], url: URL, response: ProbeResponse): void {
+  if (response.statusCode < 200 || response.statusCode >= 300) {
+    throw new SelfTestStageError(stage, `${displayUrl(url)} returned HTTP ${response.statusCode}.`, response.statusCode)
+  }
+}
+
+function htmlAttribute(tag: string, name: string): string | null {
+  const match = new RegExp(`\\b${name}\\s*=\\s*(['"])(.*?)\\1`, 'i').exec(tag)
+  return match?.[2] ?? null
+}
+
+function resourceUrl(value: string, base: URL): URL | null {
+  const trimmed = value.trim()
+  if (!trimmed || /^(?:data:|blob:|javascript:|#)/i.test(trimmed)) return null
+  const url = new URL(trimmed, base)
+  url.hash = ''
+  return url
+}
+
+function isHtmlTagNameChar(value: string | undefined): boolean {
+  if (!value) return false
+  const code = value.charCodeAt(0)
+  return (
+    (code >= 48 && code <= 57) ||
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122) ||
+    value === ':' ||
+    value === '_' ||
+    value === '-'
+  )
+}
+
+function findHtmlTagEnd(html: string, start: number): number {
+  let quote = ''
+  for (let index = start; index < html.length; index += 1) {
+    const char = html[index]
+    if (quote) {
+      if (char === quote) quote = ''
+      continue
+    }
+    if (char === '"' || char === "'") {
+      quote = char
+      continue
+    }
+    if (char === '>') return index
+  }
+  return -1
+}
+
+function inlineModuleScripts(html: string): Array<{ attributes: string; source: string }> {
+  const lower = html.toLowerCase()
+  const scripts: Array<{ attributes: string; source: string }> = []
+  let cursor = 0
+
+  while (cursor < html.length) {
+    const openStart = lower.indexOf('<script', cursor)
+    if (openStart < 0) break
+    const openNameEnd = openStart + '<script'.length
+    if (isHtmlTagNameChar(lower[openNameEnd])) {
+      cursor = openNameEnd
+      continue
+    }
+    const openEnd = findHtmlTagEnd(html, openNameEnd)
+    if (openEnd < 0) break
+
+    let closeStart = lower.indexOf('</script', openEnd + 1)
+    while (closeStart >= 0 && isHtmlTagNameChar(lower[closeStart + '</script'.length])) {
+      closeStart = lower.indexOf('</script', closeStart + '</script'.length)
+    }
+    if (closeStart < 0) break
+    const closeEnd = findHtmlTagEnd(html, closeStart + '</script'.length)
+    if (closeEnd < 0) break
+
+    scripts.push({
+      attributes: html.slice(openNameEnd, openEnd),
+      source: html.slice(openEnd + 1, closeStart)
+    })
+    cursor = closeEnd + 1
+  }
+
+  return scripts
+}
+
+function htmlResourceGraph(html: string, documentUrl: URL): { baseUrl: URL; resources: URL[]; inlineModules: string[] } {
+  const baseTag = html.match(/<base\b[^>]*>/i)?.[0]
+  const baseHref = baseTag ? htmlAttribute(baseTag, 'href') : null
+  const baseUrl = baseHref ? new URL(baseHref, documentUrl) : new URL(documentUrl.toString())
+  const resources: URL[] = []
+  const inlineModules: string[] = []
+
+  for (const match of html.matchAll(/<(script|link)\b[^>]*>/gi)) {
+    const tag = match[0]
+    if (match[1].toLowerCase() === 'script') {
+      const src = htmlAttribute(tag, 'src')
+      const resolved = src ? resourceUrl(src, baseUrl) : null
+      if (resolved) resources.push(resolved)
+      continue
+    }
+    const rel = (htmlAttribute(tag, 'rel') ?? '').toLowerCase()
+    if (!/\b(?:stylesheet|modulepreload|preload|icon)\b/.test(rel)) continue
+    const href = htmlAttribute(tag, 'href')
+    const resolved = href ? resourceUrl(href, baseUrl) : null
+    if (resolved) resources.push(resolved)
+  }
+
+  for (const script of inlineModuleScripts(html)) {
+    if (/\btype\s*=\s*(['"])module\1/i.test(script.attributes) && !/\bsrc\s*=/i.test(script.attributes)) {
+      inlineModules.push(script.source)
+    }
+  }
+  return { baseUrl, resources, inlineModules }
+}
+
+function moduleDependencies(source: string, baseUrl: URL): URL[] {
+  const javascript = source.replace(/\/\*[\s\S]*?\*\//g, '')
+  const values = new Set<string>()
+  const patterns = [
+    /\b(?:import|export)\s*(?:[^;'"]*?\sfrom\s*)?["']((?:\.{1,2}\/|\/)[^"']+)["']/g,
+    /\bimport\s*\(\s*["']((?:\.{1,2}\/|\/)[^"']+)["']\s*\)/g,
+    /\bnew\s+URL\s*\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)/g
+  ]
+  for (const pattern of patterns) {
+    for (const match of javascript.matchAll(pattern)) values.add(match[1])
+  }
+  return [...values].map((value) => resourceUrl(value, baseUrl)).filter((url): url is URL => url !== null)
+}
+
+function cssDependencies(source: string, baseUrl: URL): URL[] {
+  const css = source.replace(/\/\*[\s\S]*?\*\//g, '')
+  const values = new Set<string>()
+  for (const match of css.matchAll(/@import\s+(?:url\(\s*)?(['"]?)([^'")\s;]+)\1\s*\)?/gi)) values.add(match[2])
+  for (const match of css.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi)) values.add(match[2])
+  return [...values].map((value) => resourceUrl(value, baseUrl)).filter((url): url is URL => url !== null)
+}
+
+function isJavaScriptResource(url: URL, contentTypeHeader: string): boolean {
+  return /\.(?:m?js|cjs)$/i.test(url.pathname) || /javascript|ecmascript/i.test(contentTypeHeader)
+}
+
+function isCssResource(url: URL, contentTypeHeader: string): boolean {
+  return /\.css$/i.test(url.pathname) || /text\/css/i.test(contentTypeHeader)
+}
+
+async function verifyResourceGraph(documentUrl: URL, html: string, cookie: ProbeCookie): Promise<number> {
+  const graph = htmlResourceGraph(html, documentUrl)
+  if (graph.resources.length === 0 && graph.inlineModules.length === 0) {
+    throw new SelfTestStageError('assets', 'The stream document did not declare any JavaScript or CSS resources.')
+  }
+  const queue = [...graph.resources]
+  for (const inlineModule of graph.inlineModules) queue.push(...moduleDependencies(inlineModule, graph.baseUrl))
+  const seen = new Set<string>()
+  let javascriptCount = graph.inlineModules.length
+  let cssCount = 0
+  const allowedOrigins = new Set([documentUrl.origin])
+  const expectedAssetPath = `${normalizedBasePath(new URL('../', documentUrl).pathname)}assets/`
+  if (process.env.ELECTRON_RENDERER_URL) {
+    try {
+      allowedOrigins.add(new URL(process.env.ELECTRON_RENDERER_URL).origin)
+    } catch {
+      // An invalid dev renderer URL will fail when its resource is resolved.
+    }
+  }
+
+  while (queue.length > 0) {
+    const batch: URL[] = []
+    while (queue.length > 0 && batch.length < 6) {
+      const candidate = queue.shift()!
+      const key = candidate.toString()
+      if (seen.has(key)) continue
+      if (candidate.searchParams.has('token') || candidate.searchParams.has('password')) {
+        throw new SelfTestStageError('assets', `Resource URL still contains a secret query parameter: ${displayUrl(candidate)}.`)
+      }
+      if (!allowedOrigins.has(candidate.origin)) {
+        throw new SelfTestStageError('assets', `Resource graph left the trusted stream origin: ${displayUrl(candidate)}.`)
+      }
+      if (!process.env.ELECTRON_RENDERER_URL && candidate.origin === documentUrl.origin && !candidate.pathname.startsWith(expectedAssetPath)) {
+        throw new SelfTestStageError('assets', `Packaged resource escaped the scoped asset root ${expectedAssetPath}: ${displayUrl(candidate)}.`)
+      }
+      if (/\/obs\/assets\//.test(candidate.pathname)) {
+        throw new SelfTestStageError('assets', `Resource resolved below /obs instead of the stream root: ${displayUrl(candidate)}.`)
+      }
+      seen.add(key)
+      if (seen.size > SELF_TEST_MAX_RESOURCES) {
+        throw new SelfTestStageError('assets', `Resource graph exceeded ${SELF_TEST_MAX_RESOURCES} files.`)
+      }
+      batch.push(candidate)
+    }
+
+    const fetched = await Promise.all(batch.map(async (assetUrl) => {
+      const cookieHeader = probeCookieHeader(cookie, assetUrl)
+      const response = await performStageProbe('assets', assetUrl, {
+        headers: cookieHeader ? { Cookie: cookieHeader } : undefined
+      })
+      expectProbeSuccess('assets', assetUrl, response)
+      const contentTypeHeader = String(response.headers['content-type'] ?? '')
+      const javascript = isJavaScriptResource(assetUrl, contentTypeHeader)
+      const css = isCssResource(assetUrl, contentTypeHeader)
+      if (javascript && !/javascript|ecmascript/i.test(contentTypeHeader)) {
+        throw new SelfTestStageError('assets', `${displayUrl(assetUrl)} did not return JavaScript content (got ${contentTypeHeader || 'no Content-Type'}).`)
+      }
+      if (css && !/text\/css/i.test(contentTypeHeader)) {
+        throw new SelfTestStageError('assets', `${displayUrl(assetUrl)} did not return CSS content (got ${contentTypeHeader || 'no Content-Type'}).`)
+      }
+      if (javascript) javascriptCount += 1
+      if (css) cssCount += 1
+      const source = response.body.toString('utf8')
+      return javascript
+        ? moduleDependencies(source, assetUrl)
+        : css
+          ? cssDependencies(source, assetUrl)
+          : []
+    }))
+    for (const dependencies of fetched) queue.push(...dependencies)
+  }
+  if (!process.env.ELECTRON_RENDERER_URL && (javascriptCount === 0 || cssCount === 0)) {
+    throw new SelfTestStageError('assets', `Packaged resource graph is incomplete (${javascriptCount} JavaScript, ${cssCount} CSS resources).`)
+  }
+  return seen.size
+}
+
+function probeSseHandshake(url: URL, cookie: ProbeCookie): Promise<void> {
+  return new Promise((resolveResult, rejectResult) => {
+    const requestFn = url.protocol === 'https:' ? nodeHttpsRequest : url.protocol === 'http:' ? nodeHttpRequest : null
+    if (!requestFn) {
+      rejectResult(new Error(`Unsupported protocol ${url.protocol}`))
       return
     }
+    const cookieHeader = probeCookieHeader(cookie, url)
+    const request = requestFn(url, {
+      method: 'GET',
+      timeout: SELF_TEST_TIMEOUT_MS,
+      headers: {
+        Accept: 'text/event-stream',
+        ...(cookieHeader ? { Cookie: cookieHeader } : {})
+      }
+    }, (response) => {
+      const statusCode = response.statusCode ?? 0
+      if (statusCode < 200 || statusCode >= 300) {
+        response.resume()
+        rejectResult(new SelfTestStageError('receiver', `${displayUrl(url)} returned HTTP ${statusCode}.`, statusCode))
+        return
+      }
+      const contentTypeHeader = String(response.headers['content-type'] ?? '')
+      if (!/text\/event-stream/i.test(contentTypeHeader)) {
+        response.resume()
+        rejectResult(new SelfTestStageError('receiver', `${displayUrl(url)} returned ${contentTypeHeader || 'no Content-Type'} instead of text/event-stream.`))
+        return
+      }
+      let settled = false
+      let received = ''
+      const finish = (error?: Error): void => {
+        if (settled) return
+        settled = true
+        response.destroy()
+        if (error) rejectResult(error)
+        else resolveResult()
+      }
+      response.on('data', (chunk: Buffer | string) => {
+        received += chunk.toString()
+        if (received.includes(': connected\n\n') || received.includes('event: telemetry')) finish()
+        else if (received.length > 16_384) finish(new SelfTestStageError('receiver', 'SSE endpoint did not send a connection handshake.'))
+      })
+      response.on('end', () => finish(new SelfTestStageError('receiver', 'SSE endpoint closed before sending a connection handshake.')))
+      response.on('error', (error) => finish(error))
+    })
+    request.on('timeout', () => request.destroy(new Error(`Timed out after ${SELF_TEST_TIMEOUT_MS} ms`)))
+    request.on('error', rejectResult)
+    request.end()
+  })
+}
+
+function probeWebSocketHandshake(url: URL, cookie: ProbeCookie): Promise<void> {
+  return new Promise((resolveResult, rejectResult) => {
+    const webSocketUrl = new URL(url)
+    webSocketUrl.protocol = webSocketUrl.protocol === 'https:' ? 'wss:' : 'ws:'
+    const cookieHeader = probeCookieHeader(cookie, url)
+    let settled = false
+    const socket = new WebSocket(webSocketUrl, {
+      handshakeTimeout: SELF_TEST_TIMEOUT_MS,
+      headers: {
+        Origin: url.origin,
+        ...(cookieHeader ? { Cookie: cookieHeader } : {})
+      },
+      maxPayload: SELF_TEST_MAX_BODY_BYTES
+    })
+    const finish = (error?: Error): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.terminate()
+      if (error) rejectResult(error)
+      else resolveResult()
+    }
+    const timer = setTimeout(() => {
+      finish(new SelfTestStageError('receiver', `WebSocket receiver timed out after ${SELF_TEST_TIMEOUT_MS} ms.`))
+    }, SELF_TEST_TIMEOUT_MS)
+    timer.unref()
+    socket.on('message', (data) => {
+      try {
+        const frame = JSON.parse(data.toString()) as Partial<StreamingTelemetryFrame>
+        if (typeof frame.timestamp !== 'number' || typeof frame.streamSafe !== 'boolean') {
+          throw new Error('invalid telemetry frame')
+        }
+        finish()
+      } catch {
+        finish(new SelfTestStageError('receiver', 'WebSocket receiver returned an invalid telemetry frame.'))
+      }
+    })
+    socket.on('unexpected-response', (_request, response) => {
+      response.resume()
+      finish(new SelfTestStageError('receiver', `${displayUrl(url)} WebSocket upgrade returned HTTP ${response.statusCode ?? 0}.`, response.statusCode ?? null))
+    })
+    socket.on('error', (error) => {
+      finish(new SelfTestStageError('receiver', `${displayUrl(url)} WebSocket handshake failed: ${error.message}.`))
+    })
+    socket.on('close', () => {
+      if (!settled) finish(new SelfTestStageError('receiver', 'WebSocket receiver closed before sending a telemetry frame.'))
+    })
+  })
+}
+
+export function streamingReceiverTransport(accessMode: StreamingAccessMode): 'sse' | 'websocket' {
+  return accessMode === 'internet' ? 'websocket' : 'sse'
+}
+
+export async function probeStreamingReceiver(
+  preference: 'auto' | 'sse' | 'websocket',
+  probeWebSocket: () => Promise<void>,
+  probeSse: () => Promise<void>
+): Promise<'sse' | 'websocket'> {
+  if (preference === 'websocket') {
+    await probeWebSocket()
+    return 'websocket'
+  }
+  if (preference === 'sse') {
+    await probeSse()
+    return 'sse'
+  }
+  try {
+    await probeWebSocket()
+    return 'websocket'
+  } catch (webSocketError) {
+    try {
+      await probeSse()
+      return 'sse'
+    } catch (sseError) {
+      const webSocketMessage = webSocketError instanceof Error ? webSocketError.message : String(webSocketError)
+      const sseMessage = sseError instanceof Error ? sseError.message : String(sseError)
+      throw new Error(`WebSocket failed (${webSocketMessage}); SSE fallback failed (${sseMessage}).`)
+    }
+  }
+}
+
+async function selfTest(
+  publicOrigin?: string,
+  receiverPreference: 'auto' | 'sse' | 'websocket' = publicOrigin
+    ? 'websocket'
+    : state.accessMode === 'internet'
+      ? 'auto'
+      : 'sse'
+): Promise<StreamingSelfTestResult> {
+  const requestUrl = state.port
+    ? publicOrigin
+      ? dashboardUrl(publicOrigin)
+      : state.accessMode === 'internet'
+        ? dashboardUrl()
+      : dashboardUrl(`http://127.0.0.1:${state.port}`)
+    : null
+  const safeUrl = requestUrl ? displayUrl(requestUrl) : null
+  if (!requestUrl) {
+    const message = state.server && state.accessMode === 'internet'
+      ? 'No active public HTTPS endpoint is available for Internet streaming.'
+      : 'Streaming server is not running.'
+    return { reachable: false, statusCode: null, url: safeUrl, stage: 'server', message }
+  }
+
+  const startedAt = Date.now()
+  const documentUrl = new URL(requestUrl)
+  const endpointLabel = state.accessMode === 'internet' ? 'public HTTPS endpoint' : 'local loopback endpoint'
+  let selfTestSessionId: string | null = null
+  try {
+    const documentResponse = await performStageProbe('document', documentUrl)
+    expectProbeSuccess('document', documentUrl, documentResponse)
+    if (!/text\/html/i.test(String(documentResponse.headers['content-type'] ?? ''))) {
+      throw new SelfTestStageError('document', `${safeUrl} did not return an HTML document.`)
+    }
+
+    let cookie = parseProbeCookie(documentResponse.headers, documentUrl)
+    if (!cookie) throw new SelfTestStageError('session', 'The stream document did not establish an authenticated asset session.')
+    selfTestSessionId = probeSessionId(cookie)
+    const expectedCookiePath = normalizedBasePath(new URL('../', documentUrl).pathname)
+    if (!cookie.httpOnly || !cookie.sameSiteStrict || cookie.path !== expectedCookiePath) {
+      throw new SelfTestStageError('session', `The stream session cookie is not scoped correctly (expected HttpOnly, SameSite=Strict, Path=${expectedCookiePath}).`)
+    }
+    if (state.accessMode === 'internet' && !cookie.secure) {
+      throw new SelfTestStageError('session', 'The public stream session cookie is missing the Secure attribute.')
+    }
+
+    const html = documentResponse.body.toString('utf8')
+    const resourceCount = await verifyResourceGraph(documentUrl, html, cookie)
+    const baseUrl = new URL('../', documentUrl)
+
+    const pingUrl = new URL('ping', baseUrl)
+    const pingCookie = probeCookieHeader(cookie, pingUrl)
+    const pingResponse = await performStageProbe('ping', pingUrl, { headers: pingCookie ? { Cookie: pingCookie } : undefined })
+    expectProbeSuccess('ping', pingUrl, pingResponse)
+    let ping: { passwordRequired?: unknown }
+    try {
+      ping = JSON.parse(pingResponse.body.toString('utf8')) as { passwordRequired?: unknown }
+    } catch {
+      throw new SelfTestStageError('ping', 'Ping endpoint did not return valid JSON.')
+    }
+    if (typeof ping.passwordRequired !== 'boolean') {
+      throw new SelfTestStageError('ping', 'Ping endpoint did not report password/session state.')
+    }
+
+    if (ping.passwordRequired) {
+      if (!state.passwordPlaintext) throw new SelfTestStageError('authentication', 'Password authentication is required, but no test credential is available.')
+      const authUrl = new URL('auth/session', baseUrl)
+      const authCookie = probeCookieHeader(cookie, authUrl)
+      const authResponse = await performStageProbe('authentication', authUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(authCookie ? { Cookie: authCookie } : {})
+        },
+        body: JSON.stringify({ password: state.passwordPlaintext })
+      })
+      expectProbeSuccess('authentication', authUrl, authResponse)
+      cookie = parseProbeCookie(authResponse.headers, authUrl) ?? cookie
+      selfTestSessionId = probeSessionId(cookie) ?? selfTestSessionId
+    }
+
+    const targetPath = state.layoutKind === 'touch'
+      ? `api/touch/panel/${encodeURIComponent(state.layoutId)}`
+      : `api/dashboard/${encodeURIComponent(state.layoutId)}`
+    const targetUrl = new URL(targetPath, baseUrl)
+    const targetCookie = probeCookieHeader(cookie, targetUrl)
+    const targetResponse = await performStageProbe('target', targetUrl, { headers: targetCookie ? { Cookie: targetCookie } : undefined })
+    expectProbeSuccess('target', targetUrl, targetResponse)
+    try {
+      const target = JSON.parse(targetResponse.body.toString('utf8')) as {
+        id?: unknown
+        dashboard?: { id?: unknown }
+        expressionContent?: { mode?: unknown; message?: unknown }
+      }
+      const targetId = state.layoutKind === 'dashboard' ? target.dashboard?.id : target.id
+      if (targetId !== state.layoutId) {
+        throw new SelfTestStageError('target', `Target API returned ${String(targetId ?? 'no id')} instead of ${state.layoutId}.`)
+      }
+      if (state.layoutKind === 'dashboard' && (
+        target.expressionContent?.mode !== 'excluded' ||
+        typeof target.expressionContent.message !== 'string' ||
+        target.expressionContent.message.length === 0
+      )) {
+        throw new SelfTestStageError('target', 'Dashboard target did not declare how expression-backed content is handled.')
+      }
+    } catch (error) {
+      if (error instanceof SelfTestStageError) throw error
+      throw new SelfTestStageError('target', 'Target API did not return valid JSON.')
+    }
+
+    const webSocketUrl = new URL('ws', baseUrl)
+    const sseUrl = new URL('sse', baseUrl)
+    let receiverLabel: 'WebSocket receiver' | 'SSE receiver'
+    try {
+      const receiverTransport = await probeStreamingReceiver(
+        receiverPreference,
+        () => probeWebSocketHandshake(webSocketUrl, cookie),
+        () => probeSseHandshake(sseUrl, cookie)
+      )
+      receiverLabel = receiverTransport === 'websocket' ? 'WebSocket receiver' : 'SSE receiver'
+    } catch (error) {
+      if (error instanceof SelfTestStageError) throw error
+      throw new SelfTestStageError('receiver', error instanceof Error ? error.message : String(error))
+    }
+    const elapsedMs = Date.now() - startedAt
+    const message = `Complete stream self-test passed against the ${endpointLabel}: document, ${resourceCount} resources, ping, ${state.layoutKind} target, authentication, and ${receiverLabel} (${elapsedMs} ms).`
+    logger.info('streaming', 'self-test completed', {
+      reachable: true,
+      statusCode: documentResponse.statusCode,
+      stage: 'complete',
+      endpoint: safeUrl,
+      resourceCount,
+      elapsedMs
+    })
+    return { reachable: true, statusCode: documentResponse.statusCode, url: safeUrl, stage: 'complete', message, resourceCount }
+  } catch (error) {
+    const failure = error instanceof SelfTestStageError
+      ? error
+      : new SelfTestStageError('document', error instanceof Error ? error.message : String(error))
+    const message = `${failure.stage} stage failed against the ${endpointLabel}: ${failure.message}`
+    logger.error('streaming', 'self-test failed', {
+      stage: failure.stage,
+      statusCode: failure.statusCode,
+      endpoint: safeUrl,
+      message: failure.message
+    })
+    return { reachable: false, statusCode: failure.statusCode, url: safeUrl, stage: failure.stage, message }
+  } finally {
+    if (selfTestSessionId) state.sessions.delete(selfTestSessionId)
+  }
+}
+
+async function handleRequest(ctx: ModuleContext, request: IncomingMessage, response: ServerResponse): Promise<void> {
+  let requestPath = '/'
+  try {
+    if (state.stopping) {
+      send(response, 503, 'Streaming server is stopping')
+      return
+    }
+    const route = requestRoute(request)
+    const { url, pathname } = route
+    requestPath = pathname
     if (state.accessMode === 'lan' && !isLocalNetworkRequest(request)) {
       logger.warn('streaming', 'LAN request rejected because the source address is not private/local', {
         remoteAddress: request.socket.remoteAddress ?? 'unknown',
         normalizedAddress: normalizeRemoteAddress(request.socket.remoteAddress),
-        path: url.pathname
+        path: pathname
       })
       send(response, 403, 'Forbidden')
       return
     }
-    if (isRateLimited(request)) {
-      send(response, 429, 'Too many failed auth attempts')
-      return
-    }
-    // /ping and the page/assets use token-only auth so the shareable URL (which
-    // contains only the token) can load the stream page. The page then prompts for
-    // the password, which is used only for the /sse data stream.
-    if (url.pathname === '/ping') {
-      if (!hasValidToken(url, request)) {
-        recordAuthFailure(request)
-        send(response, 403, 'Forbidden')
+
+    if (pathname === '/receiver/v2' || pathname.startsWith('/receiver/v2/')) {
+      if (receiverTransportForRequest(request) === 'blocked') {
+        logger.warn('streaming', 'receiver v2 rejected insecure non-loopback request', {
+          remoteAddress: normalizeRemoteAddress(request.socket.remoteAddress),
+          path: pathname
+        })
+        send(response, 403, 'Receiver v2 requires loopback HTTP/WS or HTTPS/WSS')
         return
       }
-      clearAuthFailure(request)
-      applyCors(response)
-      response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
-      response.end(request.method === 'HEAD' ? undefined : JSON.stringify({ passwordRequired: state.passwordHash !== null }))
-      return
-    }
-    if (url.pathname.startsWith('/obs/') || url.pathname.startsWith('/assets/') || url.pathname.startsWith('/api/dashboard/') || url.pathname.startsWith('/api/touch/panel/')) {
-      if (!hasValidToken(url, request)) {
-        recordAuthFailure(request)
-        logger.error('streaming', 'request auth failed', { path: url.pathname, remoteAddress: normalizeRemoteAddress(request.socket.remoteAddress) })
-        send(response, 403, 'Forbidden')
-        return
-      }
-      clearAuthFailure(request)
-      if (url.pathname.startsWith('/obs/')) {
-        const layoutId = url.pathname.slice('/obs/'.length)
-        if (!isValidLayoutId(layoutId) || layoutId !== state.layoutId) {
-          logger.error('streaming', 'obs route rejected layout id', { requestedId: layoutId, selectedId: state.layoutId })
-          send(response, 404, 'Not found')
+      if (pathname === '/receiver/v2/pair') {
+        if (request.method !== 'POST') {
+          applyReceiverBrowserControls(response)
+          response.setHeader('Allow', 'POST')
+          response.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' })
+          response.end('Method not allowed')
           return
         }
-        serveHtml(request, response)
+        await exchangeReceiverPairing(request, response, route)
         return
       }
-      if (url.pathname.startsWith('/api/dashboard/')) {
-        const id = decodeURIComponent(url.pathname.slice('/api/dashboard/'.length))
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        rejectMethod(response)
+        return
+      }
+      if (pathname === '/receiver/v2' || pathname === '/receiver/v2/') {
+        let active = sessionForRequest(request, route, 'receiver')
+        let sessionCookie: string
+        if (!active) {
+          const created = createSession(route, 'bootstrap', 'receiver', RECEIVER_BOOTSTRAP_TTL_MS)
+          if (!created) {
+            send(response, 503, 'Too many receiver sessions')
+            return
+          }
+          active = { id: created.id, session: state.sessions.get(created.id)! }
+          sessionCookie = created.cookie
+        } else {
+          const remainingTtl = Math.max(1_000, active.session.expiresAt - Date.now())
+          sessionCookie = serializeSessionCookie(active.id, active.session.basePath, 'receiver', remainingTtl)
+        }
+        serveReceiverHtml(request, response, sessionCookie)
+        return
+      }
+      if (pathname === '/receiver/v2/status') {
+        serveReceiverPairStatus(request, response, route)
+        return
+      }
+      if (pathname === '/receiver/v2/ws') {
+        applyReceiverBrowserControls(response)
+        response.writeHead(426, {
+          'Content-Type': 'text/plain; charset=utf-8',
+          Upgrade: 'websocket',
+          Connection: 'Upgrade'
+        })
+        response.end('WebSocket upgrade required')
+        return
+      }
+      const publicFile = pathname.slice('/receiver/v2/'.length)
+      if (RECEIVER_PUBLIC_FILES.has(publicFile)) {
+        serveReceiverPublic(route, publicFile, request, response)
+        return
+      }
+      send(response, 404, 'Not found')
+      return
+    }
+
+    if (pathname === '/auth/session') {
+      if (request.method !== 'POST') {
+        applyCors(response)
+        response.setHeader('Allow', 'POST')
+        response.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' })
+        response.end('Method not allowed')
+        return
+      }
+      await exchangePasswordSession(request, response, route)
+      return
+    }
+
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      rejectMethod(response)
+      return
+    }
+
+    if (pathname.startsWith('/obs/')) {
+      let sessionCookie: string | undefined
+      if (!sessionForRequest(request, route, 'stream')) {
+        const tokenPresented = url.searchParams.has('token') || headerValue(request, 'x-stream-token') !== null
+        if (!tokenPresented) {
+          send(response, 403, 'Forbidden')
+          return
+        }
+        if (isRateLimited(request, 'token')) {
+          send(response, 429, 'Too many failed authentication attempts')
+          return
+        }
+        if (!hasValidToken(url, request)) {
+          recordAuthFailure(request, 'token')
+          logger.warn('streaming', 'stream document token exchange failed', {
+            path: pathname,
+            remoteAddress: normalizeRemoteAddress(request.socket.remoteAddress)
+          })
+          send(response, 403, 'Forbidden')
+          return
+        }
+        clearAuthFailure(request, 'token')
+        const session = createSession(route, state.accessMode === 'local' ? 'authenticated' : 'bootstrap', 'stream')
+        if (!session) {
+          send(response, 503, 'Too many authenticated streaming sessions')
+          return
+        }
+        sessionCookie = session.cookie
+      }
+      const layoutId = pathname.slice('/obs/'.length)
+      if (!isValidLayoutId(layoutId) || layoutId !== state.layoutId) {
+        logger.error('streaming', 'obs route rejected layout id', { requestedId: layoutId, selectedId: state.layoutId })
+        send(response, 404, 'Not found')
+        return
+      }
+      serveHtml(request, response, sessionCookie)
+      return
+    }
+
+    const activeStreamSession = sessionForRequest(request, route, 'stream')
+    const activeReceiverSession = sessionForRequest(request, route, 'receiver')
+    if (pathname === '/ping') {
+      if (!activeStreamSession) {
+        send(response, 403, 'Forbidden')
+        return
+      }
+      applyCors(response)
+      response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+      response.end(request.method === 'HEAD' ? undefined : JSON.stringify({
+        passwordRequired: state.passwordHash !== null && activeStreamSession.session.access !== 'authenticated'
+      }))
+      return
+    }
+
+    if (
+      pathname.startsWith('/assets/') ||
+      pathname.startsWith('/api/dashboard/') ||
+      pathname.startsWith('/api/touch/panel/') ||
+      pathname.startsWith('/api/presentation/')
+    ) {
+      if (pathname.startsWith('/assets/')) {
+        if (!activeStreamSession && !activeReceiverSession) {
+          send(response, 403, 'Forbidden')
+          return
+        }
+        if (!activeStreamSession && activeReceiverSession && !isReceiverAssetPath(pathname)) {
+          send(response, 403, 'Forbidden')
+          return
+        }
+        serveStatic(pathname, request, response)
+        return
+      }
+      if (!activeStreamSession) {
+        send(response, 403, 'Forbidden')
+        return
+      }
+      if (pathname.startsWith('/api/dashboard/')) {
+        const id = decodeURIComponent(pathname.slice('/api/dashboard/'.length))
         if (!isValidLayoutId(id)) {
           logger.error('streaming', 'dashboard api invalid id', { id })
           send(response, 404, 'Not found')
           return
         }
-        serveSelectedDashboard(id, request, response)
+        await serveSelectedDashboard(id, request, response)
         return
       }
-      if (url.pathname.startsWith('/api/touch/panel/')) {
-        const id = decodeURIComponent(url.pathname.slice('/api/touch/panel/'.length))
+      if (pathname.startsWith('/api/touch/panel/')) {
+        const id = decodeURIComponent(pathname.slice('/api/touch/panel/'.length))
         if (!isValidLayoutId(id)) {
           logger.error('streaming', 'touch api invalid id', { id })
           send(response, 404, 'Not found')
           return
         }
-        serveSelectedTouchPanel(id, request, response)
+        await serveSelectedTouchPanel(id, request, response)
         return
       }
-      serveStatic(url.pathname, request, response)
-      return
+      if (pathname.startsWith('/api/presentation/')) {
+        const id = decodeURIComponent(pathname.slice('/api/presentation/'.length))
+        if (!isValidPresentationProfileId(id)) {
+          send(response, 404, 'Not found')
+          return
+        }
+        await serveSelectedPresentationProfile(id, request, response)
+        return
+      }
     }
-    // /sse requires full auth (token + password) to protect the live telemetry stream.
-    if (!hasValidAuth(url, request)) {
-      recordAuthFailure(request)
-      send(response, 403, 'Forbidden')
-      return
-    }
-    clearAuthFailure(request)
-    if (url.pathname === '/sse') {
+
+    if (pathname === '/sse') {
+      if (!activeStreamSession || activeStreamSession.session.access !== 'authenticated') {
+        send(response, 403, 'Forbidden')
+        return
+      }
       openSse(ctx, request, response)
       return
     }
+
     send(response, 404, 'Not found')
   } catch (error) {
     logger.error('streaming', 'request failed', {
       message: error instanceof Error ? error.message : String(error),
-      url: request.url,
+      path: requestPath,
       remoteAddress: normalizeRemoteAddress(request.socket.remoteAddress)
     })
     send(response, 400, 'Bad request')
   }
 }
 
+function rejectReceiverUpgrade(
+  socket: { write(chunk: string): unknown; destroy(): void },
+  statusCode: number,
+  statusText: string
+): void {
+  const body = `${statusText}\n`
+  try {
+    socket.write(
+      `HTTP/1.1 ${statusCode} ${statusText}\r\n` +
+      'Connection: close\r\n' +
+      'Content-Type: text/plain; charset=utf-8\r\n' +
+      `Content-Length: ${Buffer.byteLength(body)}\r\n\r\n` +
+      body
+    )
+  } finally {
+    socket.destroy()
+  }
+}
+
+function handleReceiverUpgrade(
+  request: IncomingMessage,
+  socket: Duplex,
+  head: Buffer
+): void {
+  try {
+    const route = requestRoute(request)
+    if (route.pathname !== '/receiver/v2/ws') {
+      rejectReceiverUpgrade(socket, 404, 'Not Found')
+      return
+    }
+    const transport = receiverTransportForRequest(request)
+    if (transport === 'blocked') {
+      rejectReceiverUpgrade(socket, 403, 'Secure receiver transport required')
+      return
+    }
+    if (!receiverOriginAllowed(request, transport)) {
+      logger.warn('streaming', 'receiver websocket origin rejected', {
+        origin: headerValue(request, 'origin'),
+        remoteAddress: normalizeRemoteAddress(request.socket.remoteAddress)
+      })
+      rejectReceiverUpgrade(socket, 403, 'Receiver origin rejected')
+      return
+    }
+    const active = sessionForRequest(request, route, 'receiver')
+    if (!active || active.session.access !== 'authenticated') {
+      rejectReceiverUpgrade(socket, 401, 'Receiver authentication required')
+      return
+    }
+    if (!state.receiverGateway) {
+      rejectReceiverUpgrade(socket, 503, 'Receiver gateway unavailable')
+      return
+    }
+    state.receiverGateway.handleUpgrade(request, socket, head, {
+      sessionId: active.id,
+      address: normalizeRemoteAddress(request.socket.remoteAddress),
+      userAgent: headerValue(request, 'user-agent')
+    })
+  } catch (error) {
+    logger.warn('streaming', 'receiver websocket upgrade failed', {
+      message: error instanceof Error ? error.message : String(error)
+    })
+    rejectReceiverUpgrade(socket, 400, 'Bad Request')
+  }
+}
+
 async function stop(): Promise<StreamingStatus> {
-  closeAllClients()
-  await stopAutoTunnelProcess()
+  qrRefreshGeneration += 1
+  state.stopping = true
   const server = state.server
+  const receiverGateway = state.receiverGateway
+  const webSocketServer = state.webSocketServer
+  const firewallPort = state.port
+  const hadLanListener = state.lanEnabled
   state.server = null
+  state.webSocketServer = null
+  const serverClosed = server
+    ? new Promise<void>((resolveClose, rejectClose) => {
+        server.close((error) => {
+          if (error) rejectClose(error)
+          else resolveClose()
+        })
+      })
+    : Promise.resolve()
+  closeAllClients()
+  server?.closeAllConnections()
+  let tunnelCleanupError: Error | null = null
+  try {
+    await stopAutoTunnelProcess()
+  } catch (error) {
+    tunnelCleanupError = error instanceof Error ? error : new Error(String(error))
+    logger.error('streaming', 'auto-tunnel cleanup failed while stopping streaming', {
+      message: tunnelCleanupError.message
+    })
+  }
+  closeAllClients()
   state.port = null
   state.token = null
   state.passwordHash = null
   state.passwordPlaintext = null
   state.layoutKind = 'dashboard'
   state.layoutId = DEFAULT_LAYOUT
+  state.presentationProfileId = null
   state.lanEnabled = false
   state.accessMode = 'local'
   state.lanAddress = null
@@ -992,15 +2852,31 @@ async function stop(): Promise<StreamingStatus> {
   state.touchPanelId = null
   state.firewallMessage = null
   state.qrDataUrl = null
+  state.qrSourceUrl = null
   state.touchQrDataUrl = null
+  state.touchQrSourceUrl = null
   state.autoTunnelEnabled = false
   state.autoTunnelUrl = null
+  state.autoTunnelCandidateUrl = null
   state.autoTunnelMessage = null
-  state.autoTunnelStopRequested = false
+  state.bindAddress = null
+  state.receiverGateway = null
+  state.receiverPairing = null
   state.authFailures.clear()
-  if (server) {
-    await new Promise<void>((resolveClose) => server.close(() => resolveClose()))
-    logger.info('streaming', 'server stopped', {})
+  state.sessions.clear()
+  receiverGateway?.stop()
+  try {
+    if (webSocketServer) {
+      await new Promise<void>((resolveClose) => webSocketServer.close(() => resolveClose()))
+    }
+    await serverClosed
+    if (server) logger.info('streaming', 'server stopped', {})
+    if (hadLanListener && firewallPort) await removeWindowsFirewallRule(firewallPort)
+  } finally {
+    state.stopping = false
+  }
+  if (tunnelCleanupError) {
+    throw new Error(`Streaming stopped locally, but cloudflared cleanup could not be confirmed: ${tunnelCleanupError.message}`)
   }
   return status()
 }
@@ -1030,7 +2906,7 @@ function netshOutputIndicatesFailure(output: string): boolean {
 }
 
 async function allowWindowsFirewallPort(port: number): Promise<string | null> {
-  if (process.platform !== 'win32') return null
+  if (process.platform !== 'win32' || process.env.NODE_ENV === 'test') return null
 
   // Delete any existing rule with the stable name first to avoid accumulating stale rules.
   const deleted = await runNetsh(
@@ -1055,8 +2931,12 @@ async function allowWindowsFirewallPort(port: number): Promise<string | null> {
     'dir=in',
     'action=allow',
     'enable=yes',
+    'profile=private',
     'protocol=TCP',
-    `localport=${port}`
+    `localport=${port}`,
+    'remoteip=localsubnet',
+    `program=${process.execPath}`,
+    'edge=no'
   ]
   const added = await runNetsh(args, 7_500)
   const addOutput = `${added.stdout}\n${added.stderr}`.trim()
@@ -1102,12 +2982,32 @@ async function allowWindowsFirewallPort(port: number): Promise<string | null> {
   return null
 }
 
+async function removeWindowsFirewallRule(port: number): Promise<void> {
+  if (process.platform !== 'win32' || process.env.NODE_ENV === 'test') return
+  const removed = await runNetsh(
+    ['advfirewall', 'firewall', 'delete', 'rule', `name=${STABLE_FIREWALL_RULE_NAME}`, `program=${process.execPath}`, 'protocol=TCP', `localport=${port}`],
+    5_000
+  )
+  const output = `${removed.stdout}\n${removed.stderr}`.trim()
+  if (removed.error && !/no rules match|nenhuma regra|keine regeln/i.test(output)) {
+    logger.warn('streaming', 'firewall rule cleanup failed', {
+      port,
+      message: removed.error.message,
+      stdout: removed.stdout,
+      stderr: removed.stderr
+    })
+    return
+  }
+  logger.info('streaming', 'firewall rule cleanup completed', { port })
+}
+
 async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise<StreamingStartResult> {
-  if (state.server || state.autoTunnelProcess) await stop()
-  const target = resolveStreamTarget(args)
+  if (state.server || autoTunnelSupervisor) await stop()
+  const target = await resolveStreamTarget(args)
   state.layoutId = target.id
   state.layoutKind = target.kind
   state.touchPanelId = target.touchPanelId
+  state.presentationProfileId = target.presentationProfileId
   state.streamSafe = args.streamSafe ?? true
   state.token = generateToken()
   state.accessMode = args.accessMode === 'internet' || args.accessMode === 'lan'
@@ -1122,8 +3022,6 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
   }
   state.passwordPlaintext = password
   state.passwordHash = passwordHash(password ?? undefined)
-  state.lanEnabled = state.accessMode !== 'local'
-  state.lanAddress = state.accessMode !== 'local' ? primaryLanAddress() : null
   state.manualPublicBaseUrl = state.accessMode === 'internet' ? normalizePublicBaseUrl(args.publicBaseUrl) : null
   state.publicBaseUrl = state.manualPublicBaseUrl
   state.autoTunnelEnabled = state.accessMode === 'internet' && args.autoTunnel === true
@@ -1134,8 +3032,9 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
     state.passwordHash = null
     throw new Error('Internet streaming requires a public HTTPS tunnel/base URL or Auto-tunnel.')
   }
-  if (state.autoTunnelEnabled && !resolveCloudflaredBinary()) {
-    state.autoTunnelMessage = autoTunnelUnavailableMessage()
+  const cloudflaredLocation = state.autoTunnelEnabled ? locateCloudflaredBinary() : null
+  if (state.autoTunnelEnabled && !cloudflaredLocation?.available) {
+    state.autoTunnelMessage = cloudflaredLocation?.diagnostic ?? autoTunnelUnavailableMessage()
     state.autoTunnelEnabled = false
     if (!state.publicBaseUrl) {
       state.token = null
@@ -1144,8 +3043,11 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
       throw new Error(state.autoTunnelMessage)
     }
   }
+  const listenHost = streamingListenHost(state.accessMode, state.autoTunnelEnabled, state.manualPublicBaseUrl !== null)
+  state.lanEnabled = listenHost === LAN_HOST
+  state.lanAddress = state.lanEnabled ? primaryLanAddress() : null
   state.firewallMessage = null
-  if (state.accessMode !== 'local') {
+  if (state.lanEnabled) {
     if (state.lanAddress) {
       logger.info('streaming', 'private LAN IPv4 selected', { address: state.lanAddress })
     } else {
@@ -1158,15 +3060,38 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
   const server = createServer((request, response) => {
     void handleRequest(ctx, request, response)
   })
+  const receiverGateway = new ReceiverV2Gateway({
+    getSnapshot: () => ctx.telemetryHub.getLatest(),
+    logger: {
+      info: (message, data) => logger.info('receiver-v2', message, data ?? {}),
+      warn: (message, data) => logger.warn('receiver-v2', message, data ?? {}),
+      error: (message, data) => logger.error('receiver-v2', message, data ?? {})
+    }
+  })
+  const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 })
+  server.on('upgrade', (request, socket, head) => {
+    try {
+      if (requestRoute(request).pathname === '/receiver/v2/ws') {
+        handleReceiverUpgrade(request, socket, head)
+        return
+      }
+    } catch {
+      // Let the legacy websocket handler reject malformed upgrade requests.
+    }
+    handleWebSocketUpgrade(ctx, request, socket, head)
+  })
   state.server = server
-  const listenHost = state.accessMode !== 'local' ? LAN_HOST : HOST
+  state.receiverGateway = receiverGateway
+  state.bindAddress = listenHost
+  state.webSocketServer = webSocketServer
   const listenPort = requestedPort(args.port)
   logger.info('streaming', 'server starting', {
     host: listenHost,
     requestedPort: listenPort,
     mode: state.accessMode,
     layoutId: state.layoutId,
-    layoutKind: state.layoutKind
+    layoutKind: state.layoutKind,
+    presentationProfileId: state.presentationProfileId
   })
   try {
     await new Promise<void>((resolveListen, rejectListen) => {
@@ -1190,6 +3115,8 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
     throw error
   }
   state.port = (server.address() as AddressInfo).port
+  state.receiverPairing = createReceiverPairing()
+  receiverGateway.start()
   logger.info('streaming', 'server listening', {
     host: listenHost,
     port: state.port,
@@ -1199,10 +3126,10 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
     lanAddress: state.lanAddress,
     lanOrigin: lanOrigin()
   })
-  if (state.accessMode !== 'local') {
+  if (state.lanEnabled) {
     state.firewallMessage = await allowWindowsFirewallPort(state.port)
   }
-  if (state.autoTunnelEnabled && resolveCloudflaredBinary()) {
+  if (state.autoTunnelEnabled) {
     try {
       await launchAutoTunnel()
     } catch (error) {
@@ -1213,7 +3140,18 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
         manualUrlAvailable: state.manualPublicBaseUrl !== null
       })
       state.autoTunnelEnabled = false
-      await stopAutoTunnelProcess()
+      try {
+        await stopAutoTunnelProcess()
+      } catch (cleanupError) {
+        const cleanupMessage = cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+        let shutdownMessage = ''
+        try {
+          await stop()
+        } catch (shutdownError) {
+          shutdownMessage = ` ${shutdownError instanceof Error ? shutdownError.message : String(shutdownError)}`
+        }
+        throw new Error(`${message} Cleanup could not be confirmed: ${cleanupMessage}. Manual fallback was not activated.${shutdownMessage}`)
+      }
       if (!state.manualPublicBaseUrl) {
         await stop()
         throw new Error(message)
@@ -1223,7 +3161,7 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
   await refreshQrCodes()
   return {
     url: dashboardUrl() ?? '',
-    lanUrl: state.lanEnabled && lanOrigin() ? dashboardUrl(lanOrigin()!) : null,
+    lanUrl: advertisedLanUrl(),
     touchUrl: touchControlsUrl(),
     qrDataUrl: state.qrDataUrl,
     touchQrDataUrl: state.touchQrDataUrl,
@@ -1234,13 +3172,15 @@ async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise
     lanAddress: state.lanAddress,
     publicBaseUrl: state.publicBaseUrl,
     password: state.passwordPlaintext,
-    localTestUrl: state.port ? dashboardUrl(`http://127.0.0.1:${state.port}`) : null,
+    localTestUrl: localTestUrl(),
     firewallMessage: state.firewallMessage,
     warning: warning(),
     autoTunnelAvailable: resolveCloudflaredBinary() !== null,
     autoTunnelEnabled: state.autoTunnelEnabled,
-    autoTunnelRunning: state.autoTunnelProcess !== null && state.autoTunnelUrl !== null,
-    autoTunnelMessage: state.autoTunnelMessage
+    autoTunnelRunning: autoTunnelSupervisor?.snapshot.phase === 'online' && state.autoTunnelUrl !== null,
+    autoTunnelMessage: state.autoTunnelMessage,
+    receiverV2: receiverStatus(),
+    presentationProfileId: state.presentationProfileId
   }
 }
 
@@ -1257,18 +3197,52 @@ async function startAutoTunnel(): Promise<StreamingStatus> {
     state.autoTunnelEnabled = false
     state.autoTunnelMessage = message
     logger.warn('streaming', 'auto-tunnel IPC start failed', { message })
-    await stopAutoTunnelProcess()
+    try {
+      await stopAutoTunnelProcess()
+    } catch (cleanupError) {
+      const cleanupMessage = cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+      let shutdownMessage = ''
+      try {
+        await stop()
+      } catch (shutdownError) {
+        shutdownMessage = ` ${shutdownError instanceof Error ? shutdownError.message : String(shutdownError)}`
+      }
+      throw new Error(`${message} Cleanup could not be confirmed, so streaming was stopped instead of leaving a public orphan: ${cleanupMessage}.${shutdownMessage}`)
+    }
     throw new Error(message)
   }
 }
 
 async function stopAutoTunnel(): Promise<StreamingStatus> {
   state.autoTunnelEnabled = false
-  await stopAutoTunnelProcess()
+  try {
+    await stopAutoTunnelProcess()
+  } catch (cleanupError) {
+    const cleanupMessage = cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+    let containmentMessage = 'Streaming was stopped locally.'
+    try {
+      await stop()
+    } catch (stopError) {
+      containmentMessage = stopError instanceof Error ? stopError.message : String(stopError)
+    }
+    throw new Error(`Auto-tunnel cleanup could not be confirmed: ${cleanupMessage} ${containmentMessage}`)
+  }
   state.autoTunnelMessage = state.server
     ? 'Auto-tunnel stopped. Start it again, or stop streaming and restart with a manual public HTTPS URL.'
     : null
   await refreshQrCodes()
+  return status()
+}
+
+async function rotateReceiverPairing(): Promise<StreamingStatus> {
+  if (!state.server || !state.receiverGateway) {
+    throw new Error('Start streaming before creating a PWA receiver pairing link.')
+  }
+  state.receiverPairing = createReceiverPairing()
+  logger.info('receiver-v2', 'one-use receiver pairing rotated', {
+    expiresAt: state.receiverPairing.expiresAt,
+    transportProfile: receiverStatus().transportProfile
+  })
   return status()
 }
 
@@ -1279,7 +3253,8 @@ export function register(ctx: ModuleContext): void {
   ctx.ipcMain.handle(STREAMING_CHANNELS.selfTest, () => selfTest())
   ctx.ipcMain.handle(STREAMING_CHANNELS.startTunnel, () => startAutoTunnel())
   ctx.ipcMain.handle(STREAMING_CHANNELS.stopTunnel, () => stopAutoTunnel())
-  ctx.app.once('before-quit', () => {
-    void stop()
-  })
+  ctx.ipcMain.handle(STREAMING_CHANNELS.rotateReceiverPairing, () => rotateReceiverPairing())
+  ctx.registerGracefulTeardown(async () => {
+    await stop()
+  }, 'quiesce')
 }

@@ -291,6 +291,8 @@ describe('canonical replay boundaries for live analytics', () => {
     registerFuelStrategy(fuel.ctx)
     fuel.emit(snap('live', 0, { currentLap: 1, fuelLiters: 40 }))
     fuel.emit(snap('live', 0, { timestamp: 2_000, currentLap: 2, fuelLiters: 37, lastLapTimeSec: 90 }))
+    expect(fuel.handlers.get('fuel:get')?.().samples).toHaveLength(0)
+    fuel.emit(snap('live', 0, { timestamp: 3_000, currentLap: 3, fuelLiters: 34, lastLapTimeSec: 90 }))
     expect(fuel.handlers.get('fuel:get')?.().samples).toHaveLength(1)
     fuel.broadcast.mockClear()
     const replay = snap('replay', 1, { currentLap: 99, fuelLiters: 1 })
@@ -419,7 +421,7 @@ describe('canonical replay boundaries for live analytics', () => {
     await store.load()
     store.onSnapshot(snap('live', 0, { currentLap: 1, incidentCountMy: 0 }))
     store.onSnapshot(snap('live', 0, { currentLap: 2, lastLapTimeSec: 91, incidentCountMy: 0 }))
-    await store.flush()
+    await expect(store.flush()).rejects.toThrow()
     expect(existsSync(file)).toBe(false)
 
     rmSync(blocked, { force: true })
