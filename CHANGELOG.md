@@ -6,6 +6,21 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
+## 2.54.0 — managed streaming, secure Internet sharing, and offline rehearsal
+
+### Added
+- **User-managed Streaming targets** in a dedicated Streaming area, with persistent dashboard and
+  Touch Controls profiles. Edited dashboard copies remain selectable after migration and restart.
+- **Offline Mission Rehearsal** with branching scenarios, assigned roles, checkpoints, resumable
+  runs, repeat comparisons, and scored blameless debriefs.
+
+### Changed
+- Internet streaming can start the bundled, checksum-verified Cloudflare Quick Tunnel automatically,
+  establish the authenticated viewer session, report receiver health, and recover with bounded
+  retries without changing local or LAN streaming.
+- Mission Rehearsal synthetic events are isolated from live telemetry and real session history, and
+  rehearsal decisions cannot actuate live race controls.
+
 ## 2.53.1 — SerialPort startup hotfix
 
 ### Fixed
