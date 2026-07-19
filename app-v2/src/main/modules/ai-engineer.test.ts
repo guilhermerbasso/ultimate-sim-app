@@ -569,7 +569,10 @@ describe('createEngineerOrchestrator.ask', () => {
     'Please explain the meaning of change tyres.',
     'Explain the term change tyres.',
     'Explain the definition of change tyres.',
-    'Tell me about the concept of change tyres.'
+    'Tell me about the concept of change tyres.',
+    'Defina trocar pneus.',
+    'Definissez changer les pneus.',
+    'Definiere Reifen wechseln.'
   ])('never sends explicit telemetry-noun definitions to the LLM: %s', async (question) => {
     const harness = makeHarness()
 

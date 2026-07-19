@@ -723,6 +723,7 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:qual e o )?(?:significado|conceito|definicao|explicacao) de (.+)$/
       ],
       meaningPatterns: [
+        /^(?:(?:por favor )?(?:(?:pode|poderia) (?:voce )?)?)defina (?:o )?(?:termo |conceito )?(.+)$/,
         /^(?:por favor )?(?:(?:a |o )?(?:definicao|significado|explicacao)(?: de)?|me de (?:a |o )?(?:definicao|significado|explicacao) de) (.+)$/,
         /^(?:qual e o )?(?:significado|conceito|definicao|explicacao) de (.+)$/
       ]
@@ -756,6 +757,8 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:podria|puede|puedes|podrias) definirme (?:el )?(.+)$/
       ],
       meaningPatterns: [
+        /^(?:(?:por favor )?(?:(?:puedes|podrias) )?)define (?:el )?(?:termino |concepto )?(.+)$/,
+        /^(?:podria|puede|puedes|podrias) definirme (?:el )?(.+)$/,
         /^(?:por favor )?(?:(?:la |el )?(?:definicion|significado|explicacion)(?: de)?|dame (?:la |el )?(?:definicion|significado|explicacion) de) (.+)$/
       ]
     },
@@ -782,6 +785,9 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^definissez (?:le )?(.+)$/
       ],
       meaningPatterns: [
+        /^(?:(?:s il vous plait )?(?:(?:peux tu|pourrais tu) )?)definis (?:le )?(?:terme |concept )?(.+)$/,
+        /^(?:(?:pouvez vous|pourriez vous) )definir (?:le )?(.+)$/,
+        /^definissez (?:le )?(.+)$/,
         /^(?:s il vous plait )?(?:(?:la |le )?(?:definition|signification|explication)(?: de)?|donne moi (?:la |le )?(?:definition|signification|explication) de) (.+)$/
       ]
     },
@@ -807,6 +813,8 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:(?:bitte )?(?:konnen sie|kannst du) )(.+) definieren$/
       ],
       meaningPatterns: [
+        /^(?:(?:bitte )?(?:(?:kannst|konntest) du )?)definiere (?:den )?(?:begriff |konzept )?(.+)$/,
+        /^(?:(?:bitte )?(?:konnen sie|kannst du) )(.+) definieren$/,
         /^(?:bitte )?(?:(?:die |der |das )?(?:definition|bedeutung|erklarung)(?: von)?|gib mir (?:die |der |das )?(?:definition|bedeutung|erklarung) von) (.+)$/
       ]
     },
@@ -834,7 +842,8 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
     {
       language: 'zh',
       command: true,
-      patterns: [/^(?:请)?定义(.+)$/, /^(?:请)?解释(.+)$/]
+      patterns: [/^(?:请)?定义(.+)$/, /^(?:请)?解释(.+)$/],
+      meaningPatterns: [/^(?:请)?定义(.+)$/]
     },
     {
       language: 'ja',
@@ -848,7 +857,8 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
       patterns: [
         /^(.+?)を(?:定義|説明)して(?:ください)?$/,
         /^(.+?)について説明して(?:ください)?$/
-      ]
+      ],
+      meaningPatterns: [/^(.+?)を定義して(?:ください)?$/]
     }
   ]
   for (const form of forms) {
