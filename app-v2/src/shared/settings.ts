@@ -1,6 +1,7 @@
 import type { TelemetrySource } from './telemetry'
 import type { TcSensitivity } from './telemetry'
 import type { UnitSystem } from './units'
+import { emptyStreamTargetSettings, type StreamTargetSettings } from './stream-targets'
 
 export const APP_TELEMETRY_SOURCES = ['off', 'auto', 'mock', 'iracing', 'acc', 'ac', 'ams2', 'lmu'] as const
 export const APP_LANGUAGES = ['auto', 'pt-BR', 'en', 'es', 'fr', 'de', 'zh', 'ja'] as const
@@ -101,6 +102,9 @@ export interface AppSettings {
   // TC-active var). 'off' disables the derivation (tcActive stays undefined); 'low' only
   // lights on strong wheelspin, 'high' is the most eager. See tcOptionsForSensitivity.
   tcSensitivity: TcSensitivity
+  // User-curated, ordered stream target profiles. Runtime streaming state remains
+  // owned by the streaming module; this only persists the menu's target choices.
+  streamTargets: StreamTargetSettings
 }
 
 export const APP_THEME_PRESETS: Record<Exclude<AppTheme, 'custom'>, AppThemeTokens> = {
@@ -578,7 +582,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   accentColor: APP_THEME_PRESETS.midnight.accent,
   defaultTelemetrySource: 'off',
   unitSystem: 'metric',
-  tcSensitivity: 'medium'
+  tcSensitivity: 'medium',
+  streamTargets: emptyStreamTargetSettings()
 }
 
 export function isAppTelemetrySource(value: unknown): value is AppTelemetrySource {
