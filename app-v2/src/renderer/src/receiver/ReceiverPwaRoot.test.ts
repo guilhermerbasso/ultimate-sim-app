@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createElement } from 'react'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   RECEIVER_CAPABILITIES,
@@ -203,6 +203,22 @@ describe('receiver PWA recovery', () => {
       { type: 'resync', afterSequence: 0, reason: 'gap' },
       { type: 'resync', afterSequence: 3, reason: 'gap' }
     ])
+  })
+
+  it('keeps only one reconnect timer pending across repeated triggers', async () => {
+    const socket = await renderOpenReceiverSocket()
+    vi.useFakeTimers()
+    try {
+      await act(async () => {
+        socket.close(1012, 'service_restart')
+        window.dispatchEvent(new Event('online'))
+        await vi.advanceTimersByTimeAsync(600)
+      })
+
+      expect(MockWebSocket.instances).toHaveLength(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('clears a retryable server error after the next successful welcome', async () => {

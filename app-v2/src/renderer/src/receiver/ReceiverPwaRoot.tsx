@@ -242,6 +242,10 @@ export function ReceiverPwaRoot(): ReactElement {
     let resyncInFlight = false
 
     const scheduleReconnect = (): void => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer)
+        reconnectTimer = null
+      }
       if (stopped || !navigator.onLine) {
         setPhase('offline')
         return
@@ -250,7 +254,10 @@ export function ReceiverPwaRoot(): ReactElement {
       setMetrics((current) => ({ ...current, reconnects: current.reconnects + 1 }))
       setPhase('reconnecting')
       const delay = Math.min(5_000, 250 * (2 ** Math.min(5, reconnectAttempt - 1)))
-      reconnectTimer = setTimeout(connect, delay)
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null
+        connect()
+      }, delay)
     }
 
     const send = (body: unknown): void => {
