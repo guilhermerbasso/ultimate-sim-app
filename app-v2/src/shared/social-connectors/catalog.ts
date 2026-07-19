@@ -4,6 +4,8 @@ import {
   SOCIAL_CONNECTOR_SCHEMA,
   type SocialCapabilityId,
   type SocialCapabilityMatrixRowV1,
+  type SocialCapabilityPayloadFieldKind,
+  type SocialCapabilityPayloadFieldV1,
   type SocialCapabilityV1,
   type SocialConnectorManifestV1,
   type SocialConnectorStatusV1,
@@ -23,6 +25,7 @@ interface CapabilityDefinition {
   readonly direction: SocialCapabilityV1['direction']
   readonly effect: SocialCapabilityV1['effect']
   readonly destination: SocialDestination
+  readonly payloadFields: readonly SocialCapabilityPayloadFieldV1[]
   readonly scopes: readonly string[]
   readonly entitlementKey: string
   readonly approval: SocialCapabilityV1['approval']
@@ -31,8 +34,16 @@ interface CapabilityDefinition {
   readonly quotaCost?: number
 }
 
+function payloadFields(
+  ...entries: readonly (readonly [string, SocialCapabilityPayloadFieldKind])[]
+): readonly SocialCapabilityPayloadFieldV1[] {
+  return Object.freeze(
+    entries.map(([name, kind]) => Object.freeze({ name, kind }))
+  )
+}
+
 function capability(definition: CapabilityDefinition): SocialCapabilityV1 {
-  return {
+  return Object.freeze({
     schema: SOCIAL_CAPABILITY_SCHEMA,
     contractVersion: SOCIAL_CONNECTOR_CONTRACT_VERSION,
     id: definition.id,
@@ -42,6 +53,7 @@ function capability(definition: CapabilityDefinition): SocialCapabilityV1 {
     direction: definition.direction,
     effect: definition.effect,
     destination: definition.destination,
+    payloadFields: definition.payloadFields,
     requiredScopes: definition.scopes,
     entitlementKey: definition.entitlementKey,
     approval: definition.approval,
@@ -53,10 +65,10 @@ function capability(definition: CapabilityDefinition): SocialCapabilityV1 {
       quotaCost: definition.quotaCost ?? 1
     },
     supportedInMock: true
-  }
+  })
 }
 
-export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
+export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = Object.freeze([
   capability({
     id: 'twitch.eventsub.ingest',
     provider: 'twitch',
@@ -65,6 +77,14 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'ingress',
     effect: 'read',
     destination: 'twitch.channel',
+    payloadFields: payloadFields(
+      ['eventId', 'string'],
+      ['source', 'string'],
+      ['type', 'string'],
+      ['message', 'string'],
+      ['eventType', 'string'],
+      ['broadcasterId', 'string']
+    ),
     scopes: ['fixture:twitch:eventsub.read'],
     entitlementKey: 'fixture:twitch:channel',
     approval: 'never',
@@ -80,6 +100,15 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'ingress',
     effect: 'read',
     destination: 'twitch.channel',
+    payloadFields: payloadFields(
+      ['eventId', 'string'],
+      ['source', 'string'],
+      ['type', 'string'],
+      ['message', 'string'],
+      ['messageId', 'string'],
+      ['userId', 'string'],
+      ['userDisplayName', 'string']
+    ),
     scopes: ['fixture:twitch:chat.read'],
     entitlementKey: 'fixture:twitch:channel',
     approval: 'never',
@@ -95,6 +124,7 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'egress',
     effect: 'write',
     destination: 'twitch.channel',
+    payloadFields: payloadFields(['message', 'string'], ['replyToMessageId', 'string']),
     scopes: ['fixture:twitch:chat.write'],
     entitlementKey: 'fixture:twitch:channel',
     approval: 'required',
@@ -109,6 +139,13 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'egress',
     effect: 'manage',
     destination: 'twitch.channel',
+    payloadFields: payloadFields(
+      ['title', 'string'],
+      ['options', 'string-array'],
+      ['durationSeconds', 'finite-number'],
+      ['action', 'string'],
+      ['pollId', 'string']
+    ),
     scopes: ['fixture:twitch:poll.manage'],
     entitlementKey: 'fixture:twitch:polls',
     approval: 'required',
@@ -124,6 +161,12 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'egress',
     effect: 'moderate',
     destination: 'twitch.channel',
+    payloadFields: payloadFields(
+      ['action', 'string'],
+      ['targetUserId', 'string'],
+      ['reason', 'string'],
+      ['durationSeconds', 'finite-number']
+    ),
     scopes: ['fixture:twitch:moderation.manage'],
     entitlementKey: 'fixture:twitch:moderation',
     approval: 'required',
@@ -138,6 +181,11 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'egress',
     effect: 'create',
     destination: 'twitch.channel',
+    payloadFields: payloadFields(
+      ['description', 'string'],
+      ['marker', 'string'],
+      ['positionSeconds', 'finite-number']
+    ),
     scopes: ['fixture:twitch:marker.create'],
     entitlementKey: 'fixture:twitch:markers',
     approval: 'required',
@@ -152,6 +200,7 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'egress',
     effect: 'create',
     destination: 'twitch.channel',
+    payloadFields: payloadFields(['incidentRef', 'string'], ['title', 'string']),
     scopes: ['fixture:twitch:clip.create'],
     entitlementKey: 'fixture:twitch:clips',
     approval: 'required',
@@ -167,6 +216,12 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'egress',
     effect: 'manage',
     destination: 'youtube.broadcast',
+    payloadFields: payloadFields(
+      ['transition', 'string'],
+      ['broadcastId', 'string'],
+      ['title', 'string'],
+      ['privacyStatus', 'string']
+    ),
     scopes: ['fixture:youtube:broadcast.manage'],
     entitlementKey: 'fixture:youtube:broadcast',
     approval: 'required',
@@ -182,6 +237,15 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'ingress',
     effect: 'read',
     destination: 'youtube.broadcast',
+    payloadFields: payloadFields(
+      ['eventId', 'string'],
+      ['source', 'string'],
+      ['type', 'string'],
+      ['message', 'string'],
+      ['status', 'string'],
+      ['bitrateKbps', 'finite-number'],
+      ['droppedFrames', 'finite-number']
+    ),
     scopes: ['fixture:youtube:health.read'],
     entitlementKey: 'fixture:youtube:broadcast',
     approval: 'never',
@@ -197,6 +261,15 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'ingress',
     effect: 'read',
     destination: 'youtube.broadcast',
+    payloadFields: payloadFields(
+      ['eventId', 'string'],
+      ['source', 'string'],
+      ['type', 'string'],
+      ['message', 'string'],
+      ['messageId', 'string'],
+      ['channelId', 'string'],
+      ['authorDisplayName', 'string']
+    ),
     scopes: ['fixture:youtube:chat.read'],
     entitlementKey: 'fixture:youtube:broadcast',
     approval: 'never',
@@ -212,6 +285,7 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'egress',
     effect: 'write',
     destination: 'youtube.broadcast',
+    payloadFields: payloadFields(['message', 'string'], ['replyToMessageId', 'string']),
     scopes: ['fixture:youtube:chat.write'],
     entitlementKey: 'fixture:youtube:broadcast',
     approval: 'required',
@@ -226,6 +300,13 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'egress',
     effect: 'manage',
     destination: 'youtube.broadcast',
+    payloadFields: payloadFields(
+      ['title', 'string'],
+      ['options', 'string-array'],
+      ['durationSeconds', 'finite-number'],
+      ['action', 'string'],
+      ['pollId', 'string']
+    ),
     scopes: ['fixture:youtube:poll.manage'],
     entitlementKey: 'fixture:youtube:polls',
     approval: 'required',
@@ -241,6 +322,18 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'ingress',
     effect: 'read',
     destination: 'discord.guild',
+    payloadFields: payloadFields(
+      ['eventId', 'string'],
+      ['source', 'string'],
+      ['type', 'string'],
+      ['message', 'string'],
+      ['commandName', 'string'],
+      ['interactionId', 'string'],
+      ['guildId', 'string'],
+      ['channelId', 'string'],
+      ['actorRef', 'string'],
+      ['arguments', 'string-array']
+    ),
     scopes: ['fixture:discord:command.receive'],
     entitlementKey: 'fixture:discord:guild',
     approval: 'never',
@@ -256,6 +349,11 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'egress',
     effect: 'write',
     destination: 'discord.guild',
+    payloadFields: payloadFields(
+      ['recipientActorRef', 'string'],
+      ['message', 'string'],
+      ['interactionId', 'string']
+    ),
     scopes: ['fixture:discord:response.ephemeral'],
     entitlementKey: 'fixture:discord:guild',
     approval: 'required',
@@ -270,6 +368,11 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'egress',
     effect: 'create',
     destination: 'discord.guild',
+    payloadFields: payloadFields(
+      ['roomName', 'string'],
+      ['allowedRoleIds', 'string-array'],
+      ['topic', 'string']
+    ),
     scopes: ['fixture:discord:room.create'],
     entitlementKey: 'fixture:discord:rooms',
     approval: 'required',
@@ -285,13 +388,14 @@ export const SOCIAL_CAPABILITIES: readonly SocialCapabilityV1[] = [
     direction: 'egress',
     effect: 'manage',
     destination: 'discord.guild',
+    payloadFields: payloadFields(['roomId', 'string'], ['reason', 'string']),
     scopes: ['fixture:discord:room.close'],
     entitlementKey: 'fixture:discord:rooms',
     approval: 'required',
     review: 'required',
     maxRequests: 8
   })
-]
+])
 
 const PROVIDER_NAMES: Readonly<Record<SocialProvider, string>> = {
   twitch: 'Twitch',
@@ -299,22 +403,26 @@ const PROVIDER_NAMES: Readonly<Record<SocialProvider, string>> = {
   discord: 'Discord'
 }
 
-export const SOCIAL_CONNECTOR_MANIFESTS: readonly SocialConnectorManifestV1[] = (
-  ['twitch', 'youtube', 'discord'] as const
-).map((provider) => ({
-  schema: SOCIAL_CONNECTOR_SCHEMA,
-  contractVersion: SOCIAL_CONNECTOR_CONTRACT_VERSION,
-  connectorId: `mock.${provider}.social.v1`,
-  provider,
-  displayName: `${PROVIDER_NAMES[provider]} mock conformance`,
-  adapterKind: 'mock-conformance',
-  transport: 'none',
-  networkAccess: false,
-  credentialInput: 'forbidden',
-  platformCertificationClaim: 'none',
-  capabilities: SOCIAL_CAPABILITIES.filter((entry) => entry.provider === provider),
-  webhookReplayWindowMs: 5 * MINUTE_MS
-}))
+export const SOCIAL_CONNECTOR_MANIFESTS: readonly SocialConnectorManifestV1[] = Object.freeze(
+  (['twitch', 'youtube', 'discord'] as const).map((provider) =>
+    Object.freeze({
+      schema: SOCIAL_CONNECTOR_SCHEMA,
+      contractVersion: SOCIAL_CONNECTOR_CONTRACT_VERSION,
+      connectorId: `mock.${provider}.social.v1`,
+      provider,
+      displayName: `${PROVIDER_NAMES[provider]} mock conformance`,
+      adapterKind: 'mock-conformance',
+      transport: 'none',
+      networkAccess: false,
+      credentialInput: 'forbidden',
+      platformCertificationClaim: 'none',
+      capabilities: Object.freeze(
+        SOCIAL_CAPABILITIES.filter((entry) => entry.provider === provider)
+      ),
+      webhookReplayWindowMs: 5 * MINUTE_MS
+    })
+  )
+)
 
 export function socialManifestFor(provider: SocialProvider): SocialConnectorManifestV1 {
   const manifest = SOCIAL_CONNECTOR_MANIFESTS.find((entry) => entry.provider === provider)

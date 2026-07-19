@@ -24,12 +24,18 @@ const LIVE_EGRESS_PATTERNS: readonly EgressPattern[] = [
   },
   {
     label: 'network client package',
-    pattern: /(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"](?:axios|got|undici|ws)['"]/
+    pattern:
+      /(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"](?:axios|got|node-fetch|socket\.io-client|superagent|undici|ws)['"]/
+  },
+  {
+    label: 'Electron network surface',
+    pattern: /(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"]electron['"]/
   },
   { label: 'fetch', pattern: /\bfetch\s*\(/ },
   { label: 'WebSocket', pattern: /\b(?:new\s+)?WebSocket\s*\(/ },
   { label: 'EventSource', pattern: /\b(?:new\s+)?EventSource\s*\(/ },
   { label: 'XMLHttpRequest', pattern: /\b(?:new\s+)?XMLHttpRequest\s*\(/ },
+  { label: 'sendBeacon', pattern: /\bnavigator\.sendBeacon\s*\(/ },
   { label: 'Electron network request', pattern: /\b(?:net|electronNet)\.(?:fetch|request)\s*\(/ }
 ]
 

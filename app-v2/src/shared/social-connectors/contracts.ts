@@ -42,6 +42,11 @@ export type SocialActorRole =
 
 export type SocialCapabilityDirection = 'ingress' | 'egress'
 export type SocialCapabilityEffect = 'read' | 'write' | 'moderate' | 'create' | 'manage'
+export type SocialCapabilityPayloadFieldKind =
+  | 'string'
+  | 'finite-number'
+  | 'boolean'
+  | 'string-array'
 export type SocialApprovalRequirement = 'never' | 'required'
 export type SocialConsentRequirement = 'never' | 'required'
 export type SocialReviewRequirement = 'not-required' | 'required'
@@ -66,6 +71,11 @@ export interface SocialRateLimitV1 {
   readonly quotaCost: number
 }
 
+export interface SocialCapabilityPayloadFieldV1 {
+  readonly name: string
+  readonly kind: SocialCapabilityPayloadFieldKind
+}
+
 export interface SocialCapabilityV1 {
   readonly schema: typeof SOCIAL_CAPABILITY_SCHEMA
   readonly contractVersion: typeof SOCIAL_CONNECTOR_CONTRACT_VERSION
@@ -76,6 +86,7 @@ export interface SocialCapabilityV1 {
   readonly direction: SocialCapabilityDirection
   readonly effect: SocialCapabilityEffect
   readonly destination: SocialDestination
+  readonly payloadFields: readonly SocialCapabilityPayloadFieldV1[]
   readonly requiredScopes: readonly string[]
   readonly entitlementKey: string
   readonly approval: SocialApprovalRequirement

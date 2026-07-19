@@ -9,6 +9,7 @@ import {
   type MockWebhookFixtureV1,
   type SocialActionIntentV1,
   type SocialActionResultV1,
+  type SocialActorRole,
   type SocialActorV1,
   type SocialApprovalQueueV1,
   type SocialAuditDecision,
@@ -33,20 +34,23 @@ import { DeterministicSocialApprovalQueue } from './approval-queue'
 import { FixedSocialClock, type SocialClockV1 } from './clock'
 import { verifyMockWebhookFixtureSignature } from './fixture-signature'
 import {
-  assertNoCredentialMaterial,
   cloneSocialValue,
+  findCredentialMaterial,
+  readSocialDataRecord,
+  sanitizeSocialJsonRecord,
   serializePublicSocialRecord,
   socialHash,
-  stableSocialJson
+  stableSocialJson,
+  type SocialJsonValue
 } from './security'
 import {
   assertFiniteNumber,
   assertFiniteTimestamp,
   assertNonEmptyString,
   assertNonNegativeFinite,
+  assertNonNegativeSafeInteger,
   assertPositiveFinite,
   assertPositiveInteger,
-  assertSocialActor,
   sameSocialActor
 } from './validation'
 
@@ -62,6 +66,7 @@ type MutableStatus = Omit<
   | 'consent'
   | 'operatorControl'
   | 'policyState'
+  | 'updatedAtMs'
 > & {
   lifecycle: SocialConnectorStatusV1['lifecycle']
   scopes: Record<string, SocialScopeState>
@@ -74,6 +79,7 @@ type MutableStatus = Omit<
   }
   operatorControl: SocialOperatorControlState
   policyState: SocialConnectorStatusV1['policyState']
+  updatedAtMs: number
   quota: {
     state: SocialQuotaSnapshotV1['state']
     limit: number
@@ -169,6 +175,38 @@ interface ReceiptInput {
   readonly retryAfterMs?: number
 }
 
+interface RuntimeWebhookFixture {
+  readonly schema: string
+  readonly contractVersion: string
+  readonly provider: string
+  readonly capabilityId: string
+  readonly deliveryId: string
+  readonly eventId: string
+  readonly occurredAtMs: number
+  readonly keyId: string
+  readonly algorithm: string
+  readonly body: string
+  readonly signature: unknown
+}
+
+interface RuntimeActionIntent {
+  readonly schema: string
+  readonly contractVersion: string
+  readonly intentId: string
+  readonly provider: string
+  readonly capabilityId: string
+  readonly destination: string
+  readonly actor: unknown
+  readonly idempotencyKey: string
+  readonly sourceProvider?: string
+  readonly payload: unknown
+  readonly enqueuedPolicy?: SocialActionIntentV1['enqueuedPolicy']
+  readonly consentEpoch: number
+  readonly approvalRef?: string
+  readonly createdAtMs: number
+  readonly deadlineMs: number
+}
+
 const DEFAULT_POLICY_ROLES: Readonly<Record<SocialProvider, readonly SocialDestinationPolicyV1['allowedActorRoles'][number][]>> = {
   twitch: ['operator', 'broadcaster', 'creator', 'moderator'],
   youtube: ['operator', 'broadcaster', 'creator'],
@@ -179,6 +217,197 @@ const PROVIDER_DESTINATION: Readonly<Record<SocialProvider, SocialDestinationPol
   twitch: 'twitch.channel',
   youtube: 'youtube.broadcast',
   discord: 'discord.guild'
+}
+
+const SOCIAL_PROVIDERS = new Set<SocialProvider>(['twitch', 'youtube', 'discord'])
+const SOCIAL_CONSENT_STATES = new Set<SocialConsentState>([
+  'granted',
+  'revoked',
+  'expired',
+  'missing'
+])
+const SOCIAL_ACTOR_ROLES = new Set<SocialActorRole>([
+  'operator',
+  'broadcaster',
+  'creator',
+  'moderator',
+  'team-manager',
+  'engineer',
+  'spotter',
+  'driver',
+  'steward',
+  'spectator',
+  'connector'
+])
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0
+}
+
+function isSocialProvider(value: string): value is SocialProvider {
+  return SOCIAL_PROVIDERS.has(value as SocialProvider)
+}
+
+function hasOnlyKeys(
+  record: Readonly<Record<string, unknown>>,
+  allowedKeys: ReadonlySet<string>
+): boolean {
+  return Object.keys(record).every((key) => allowedKeys.has(key))
+}
+
+function runtimeWebhookFixture(value: unknown): RuntimeWebhookFixture | null {
+  const record = readSocialDataRecord(value)
+  const allowedKeys = new Set([
+    'schema',
+    'contractVersion',
+    'provider',
+    'capabilityId',
+    'deliveryId',
+    'eventId',
+    'occurredAtMs',
+    'keyId',
+    'algorithm',
+    'body',
+    'signature'
+  ])
+  if (
+    !record ||
+    !hasOnlyKeys(record, allowedKeys) ||
+    !isNonEmptyString(record.schema) ||
+    !isNonEmptyString(record.contractVersion) ||
+    !isNonEmptyString(record.provider) ||
+    !isNonEmptyString(record.capabilityId) ||
+    !isNonEmptyString(record.deliveryId) ||
+    !isNonEmptyString(record.eventId) ||
+    typeof record.occurredAtMs !== 'number' ||
+    !isNonEmptyString(record.keyId) ||
+    !isNonEmptyString(record.algorithm) ||
+    typeof record.body !== 'string'
+  ) {
+    return null
+  }
+  return {
+    schema: record.schema,
+    contractVersion: record.contractVersion,
+    provider: record.provider,
+    capabilityId: record.capabilityId,
+    deliveryId: record.deliveryId,
+    eventId: record.eventId,
+    occurredAtMs: record.occurredAtMs,
+    keyId: record.keyId,
+    algorithm: record.algorithm,
+    body: record.body,
+    signature: record.signature
+  }
+}
+
+function runtimeActionIntent(value: unknown): RuntimeActionIntent | null {
+  const record = readSocialDataRecord(value)
+  const allowedKeys = new Set([
+    'schema',
+    'contractVersion',
+    'intentId',
+    'provider',
+    'capabilityId',
+    'destination',
+    'actor',
+    'idempotencyKey',
+    'sourceProvider',
+    'payload',
+    'enqueuedPolicy',
+    'consentEpoch',
+    'approvalRef',
+    'createdAtMs',
+    'deadlineMs'
+  ])
+  if (
+    !record ||
+    !hasOnlyKeys(record, allowedKeys) ||
+    !isNonEmptyString(record.schema) ||
+    !isNonEmptyString(record.contractVersion) ||
+    !isNonEmptyString(record.intentId) ||
+    !isNonEmptyString(record.provider) ||
+    !isNonEmptyString(record.capabilityId) ||
+    !isNonEmptyString(record.destination) ||
+    !isNonEmptyString(record.idempotencyKey) ||
+    typeof record.consentEpoch !== 'number' ||
+    typeof record.createdAtMs !== 'number' ||
+    typeof record.deadlineMs !== 'number' ||
+    (record.sourceProvider !== undefined && !isNonEmptyString(record.sourceProvider)) ||
+    (record.approvalRef !== undefined && !isNonEmptyString(record.approvalRef))
+  ) {
+    return null
+  }
+
+  let enqueuedPolicy: SocialActionIntentV1['enqueuedPolicy']
+  if (record.enqueuedPolicy !== undefined) {
+    const policy = readSocialDataRecord(record.enqueuedPolicy)
+    if (
+      !policy ||
+      !hasOnlyKeys(policy, new Set(['policyId', 'revision'])) ||
+      !isNonEmptyString(policy.policyId) ||
+      typeof policy.revision !== 'number' ||
+      !Number.isFinite(policy.revision)
+    ) {
+      return null
+    }
+    enqueuedPolicy = { policyId: policy.policyId, revision: policy.revision }
+  }
+
+  return {
+    schema: record.schema,
+    contractVersion: record.contractVersion,
+    intentId: record.intentId,
+    provider: record.provider,
+    capabilityId: record.capabilityId,
+    destination: record.destination,
+    actor: record.actor,
+    idempotencyKey: record.idempotencyKey,
+    sourceProvider: record.sourceProvider as string | undefined,
+    payload: record.payload,
+    enqueuedPolicy,
+    consentEpoch: record.consentEpoch,
+    approvalRef: record.approvalRef as string | undefined,
+    createdAtMs: record.createdAtMs,
+    deadlineMs: record.deadlineMs
+  }
+}
+
+function runtimeSocialActor(value: unknown): SocialActorV1 | null {
+  const actor = readSocialDataRecord(value)
+  if (
+    !actor ||
+    !hasOnlyKeys(actor, new Set(['actorRef', 'role'])) ||
+    !isNonEmptyString(actor.actorRef) ||
+    !isNonEmptyString(actor.role) ||
+    !SOCIAL_ACTOR_ROLES.has(actor.role as SocialActorRole)
+  ) {
+    return null
+  }
+  return { actorRef: actor.actorRef, role: actor.role as SocialActorRole }
+}
+
+function payloadFieldMatches(
+  kind: SocialCapabilityV1['payloadFields'][number]['kind'],
+  value: SocialJsonValue
+): boolean {
+  if (kind === 'string') return typeof value === 'string'
+  if (kind === 'finite-number') return typeof value === 'number' && Number.isFinite(value)
+  if (kind === 'boolean') return typeof value === 'boolean'
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string')
+}
+
+function capabilityPayloadFailure(
+  capability: SocialCapabilityV1,
+  payload: Readonly<Record<string, SocialJsonValue>>
+): 'payload.field_not_allowed' | 'payload.invalid_field' | null {
+  const fields = new Map(capability.payloadFields.map((field) => [field.name, field.kind]))
+  for (const [key, value] of Object.entries(payload)) {
+    const kind = fields.get(key)
+    if (!kind) return 'payload.field_not_allowed'
+    if (!payloadFieldMatches(kind, value)) return 'payload.invalid_field'
+  }
+  return null
 }
 
 function validateRateLimit(rateLimit: SocialRateLimitV1, label: string): void {
@@ -200,8 +429,11 @@ function validateStatus(status: SocialConnectorStatusV1): void {
   assertNonNegativeFinite(status.quota.limit, 'status.quota.limit')
   assertNonNegativeFinite(status.quota.remaining, 'status.quota.remaining')
   assertFiniteTimestamp(status.quota.resetAtMs, 'status.quota.resetAtMs')
-  assertFiniteNumber(status.consent.epoch, 'status.consent.epoch')
+  assertNonNegativeSafeInteger(status.consent.epoch, 'status.consent.epoch')
   assertFiniteTimestamp(status.consent.expiresAtMs, 'status.consent.expiresAtMs')
+  if (!SOCIAL_CONSENT_STATES.has(status.consent.state)) {
+    throw new Error('status.consent.state is invalid')
+  }
   if (status.quota.remaining > status.quota.limit) {
     throw new Error('status.quota.remaining cannot exceed status.quota.limit')
   }
@@ -289,11 +521,6 @@ function capabilityScopeStates(
   )
 }
 
-function objectRecord(value: unknown): Readonly<Record<string, unknown>> | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  return value as Readonly<Record<string, unknown>>
-}
-
 function stringArray(value: unknown): string[] | null {
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) return null
   return [...new Set(value)]
@@ -315,6 +542,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
   readonly #rateLimitOverrides: Readonly<Partial<Record<SocialCapabilityId, SocialRateLimitV1>>>
   readonly #storageLimits: MockSocialConnectorStorageLimits
   #policy: SocialDestinationPolicyV1 | null
+  #consentAuthority: MutableStatus['consent']
   #auditSequence = 0
   #lastNowMs: number | null = null
 
@@ -338,6 +566,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       options.status ?? createMockConnectorStatus(options.provider, authorityNowMs)
     validateStatus(sourceStatus)
     this.#status = cloneSocialValue(sourceStatus) as MutableStatus
+    this.#consentAuthority = cloneSocialValue(this.#status.consent)
     this.#rateLimitOverrides = cloneSocialValue(options.rateLimitOverrides ?? {})
     for (const [capabilityId, rateLimit] of Object.entries(this.#rateLimitOverrides)) {
       if (rateLimit) validateRateLimit(rateLimit, `rateLimits.${capabilityId}`)
@@ -347,6 +576,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       ...(options.storageLimits ?? {})
     }
     validateStorageLimits(this.#storageLimits)
+    this.#refreshAuthorityState(authorityNowMs)
   }
 
   get approvalQueue(): SocialApprovalQueueV1 {
@@ -354,6 +584,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
   }
 
   getStatus(): SocialConnectorStatusV1 {
+    this.#refreshAuthorityState(this.#now())
     return cloneSocialValue(this.#status)
   }
 
@@ -368,17 +599,17 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
 
   setScopeState(scope: string, state: SocialScopeState): void {
     this.#status.scopes[scope] = state
-    this.#refreshLifecycle()
+    this.#refreshAuthorityState(this.#now())
   }
 
   setEntitlementState(entitlementKey: string, state: SocialEntitlementState): void {
     this.#status.entitlements[entitlementKey] = state
-    this.#refreshLifecycle()
+    this.#refreshAuthorityState(this.#now())
   }
 
   setReviewState(capabilityId: SocialCapabilityId, state: SocialReviewState): void {
     this.#status.reviews[capabilityId] = state
-    this.#refreshLifecycle()
+    this.#refreshAuthorityState(this.#now())
   }
 
   setQuota(quota: SocialQuotaSnapshotV1): void {
@@ -387,56 +618,87 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     assertFiniteTimestamp(quota.resetAtMs, 'quota.resetAtMs')
     if (quota.remaining > quota.limit) throw new Error('quota.remaining cannot exceed quota.limit')
     this.#status.quota = cloneSocialValue(quota) as MutableStatus['quota']
-    this.#refreshLifecycle()
+    this.#refreshAuthorityState(this.#now())
   }
 
   setConsent(state: SocialConsentState, epoch: number, expiresAtMs: number): void {
-    assertFiniteNumber(epoch, 'consent.epoch')
+    if (!SOCIAL_CONSENT_STATES.has(state)) throw new Error('consent.state is invalid')
+    assertNonNegativeSafeInteger(epoch, 'consent.epoch')
     assertFiniteTimestamp(expiresAtMs, 'consent.expiresAtMs')
-    this.#status.consent = { state, epoch, expiresAtMs }
-    this.#refreshLifecycle()
+    const current = this.#consentAuthority
+    if (epoch < current.epoch) throw new Error('stale consent epoch cannot overwrite current state')
+    if (epoch === current.epoch) {
+      if (state !== current.state || expiresAtMs !== current.expiresAtMs) {
+        throw new Error('consent epoch conflict')
+      }
+      this.#refreshAuthorityState(this.#now())
+      return
+    }
+    this.#consentAuthority = { state, epoch, expiresAtMs }
+    this.#refreshAuthorityState(this.#now())
   }
 
   setOperatorControl(state: SocialOperatorControlState): void {
     this.#status.operatorControl = state
-    this.#refreshLifecycle()
+    this.#refreshAuthorityState(this.#now())
   }
 
   setPolicy(policy: SocialDestinationPolicyV1 | null): void {
     if (policy) validateDestinationPolicy(policy, this.manifest.provider)
     this.#policy = policy ? cloneSocialValue(policy) : null
-    this.#status.policyState = policy ? 'current' : 'missing'
-    this.#refreshLifecycle()
+    this.#refreshAuthorityState(this.#now())
   }
 
   ingestFixture(fixture: MockWebhookFixtureV1): SocialInboundResultV1 {
     const nowMs = this.#now()
     this.#pruneStorage(nowMs)
-    const capability = socialCapabilityFor(this.manifest.provider, fixture.capabilityId)
+    this.#refreshAuthorityState(nowMs)
+    const fallbackCapability = this.#auditCapability('ingress')
+    const malformedReceipt = {
+      operation: 'ingress' as const,
+      capabilityId: fallbackCapability.id,
+      atMs: nowMs,
+      scopeStates: capabilityScopeStates(fallbackCapability, this.#status)
+    }
+    const runtimeFixture = runtimeWebhookFixture(fixture)
+    if (!runtimeFixture) {
+      return this.#inboundDenied(malformedReceipt, 'validation.malformed_fixture')
+    }
+
+    const capability = socialCapabilityFor(
+      this.manifest.provider,
+      runtimeFixture.capabilityId as SocialCapabilityId
+    )
+    const auditCapability =
+      capability?.direction === 'ingress' ? capability : fallbackCapability
     const baseReceipt = {
       operation: 'ingress' as const,
-      capabilityId: fixture.capabilityId,
+      capabilityId: auditCapability.id,
       atMs: nowMs,
-      eventIdHash: socialHash(fixture.eventId),
-      deliveryIdHash: socialHash(fixture.deliveryId),
-      payloadHash: socialHash(fixture.body),
-      scopeStates: capabilityScopeStates(capability, this.#status)
+      eventIdHash: socialHash(runtimeFixture.eventId),
+      deliveryIdHash: socialHash(runtimeFixture.deliveryId),
+      scopeStates: capabilityScopeStates(auditCapability, this.#status)
     }
+
+    if (!Number.isFinite(runtimeFixture.occurredAtMs)) {
+      return this.#inboundDenied(baseReceipt, 'validation.non_finite_time')
+    }
+
     const deliveryKey = socialHash({
-      provider: fixture.provider,
-      deliveryId: fixture.deliveryId
+      provider: runtimeFixture.provider,
+      deliveryId: runtimeFixture.deliveryId
     })
     const deliveryContentFingerprint = socialHash({
-      schema: fixture.schema,
-      contractVersion: fixture.contractVersion,
-      provider: fixture.provider,
-      capabilityId: fixture.capabilityId,
-      deliveryId: fixture.deliveryId,
-      eventId: fixture.eventId,
-      occurredAtMs: fixture.occurredAtMs,
-      keyId: fixture.keyId,
-      algorithm: fixture.algorithm,
-      body: fixture.body
+      schema: runtimeFixture.schema,
+      contractVersion: runtimeFixture.contractVersion,
+      provider: runtimeFixture.provider,
+      capabilityId: runtimeFixture.capabilityId,
+      deliveryId: runtimeFixture.deliveryId,
+      eventId: runtimeFixture.eventId,
+      occurredAtMs: runtimeFixture.occurredAtMs,
+      keyId: runtimeFixture.keyId,
+      algorithm: runtimeFixture.algorithm,
+      body: runtimeFixture.body
     })
     const replayedDelivery = this.#webhookDeliveries.get(deliveryKey)
     if (replayedDelivery) {
@@ -455,22 +717,39 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       return { outcome: 'replay', reasonCode: 'webhook.replay', receipt }
     }
 
-    if (!Number.isFinite(fixture.occurredAtMs)) {
-      return this.#inboundDenied(baseReceipt, 'validation.non_finite_time')
-    }
     if (
-      fixture.provider !== this.manifest.provider ||
+      runtimeFixture.provider !== this.manifest.provider ||
       !capability ||
       capability.direction !== 'ingress'
     ) {
       return this.#inboundDenied(baseReceipt, 'capability.unsupported')
     }
-    if (Math.abs(nowMs - fixture.occurredAtMs) > this.manifest.webhookReplayWindowMs) {
+    if (
+      Math.abs(nowMs - runtimeFixture.occurredAtMs) >
+      this.manifest.webhookReplayWindowMs
+    ) {
       return this.#inboundDenied(baseReceipt, 'webhook.stale')
+    }
+    if (typeof runtimeFixture.signature !== 'string') {
+      return this.#inboundDenied(baseReceipt, 'validation.malformed_fixture')
+    }
+    const normalizedFixture: MockWebhookFixtureV1 = {
+      schema: runtimeFixture.schema as MockWebhookFixtureV1['schema'],
+      contractVersion:
+        runtimeFixture.contractVersion as MockWebhookFixtureV1['contractVersion'],
+      provider: runtimeFixture.provider,
+      capabilityId: runtimeFixture.capabilityId as SocialCapabilityId,
+      deliveryId: runtimeFixture.deliveryId,
+      eventId: runtimeFixture.eventId,
+      occurredAtMs: runtimeFixture.occurredAtMs,
+      keyId: runtimeFixture.keyId,
+      algorithm: runtimeFixture.algorithm as MockWebhookFixtureV1['algorithm'],
+      body: runtimeFixture.body,
+      signature: runtimeFixture.signature
     }
     if (
       !verifyMockWebhookFixtureSignature(
-        fixture,
+        normalizedFixture,
         this.#fixtureKeyId,
         this.#fixtureKeyMaterial
       )
@@ -515,12 +794,9 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     }
     rateWindow.used += 1
 
-    let providerPayload: Readonly<Record<string, unknown>>
+    let parsedPayload: unknown
     try {
-      const parsed = objectRecord(JSON.parse(fixture.body))
-      if (!parsed) throw new Error('Webhook fixture body must be a JSON object')
-      assertNoCredentialMaterial(parsed)
-      providerPayload = cloneSocialValue(parsed)
+      parsedPayload = JSON.parse(runtimeFixture.body)
     } catch {
       const denied = this.#inboundDenied(baseReceipt, 'webhook.invalid_payload')
       this.#storeWebhookDelivery(
@@ -532,24 +808,41 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       return denied
     }
 
+    const providerPayload = sanitizeSocialJsonRecord(parsedPayload)
+    if (
+      !providerPayload ||
+      findCredentialMaterial(providerPayload) ||
+      capabilityPayloadFailure(capability, providerPayload)
+    ) {
+      const denied = this.#inboundDenied(baseReceipt, 'webhook.invalid_payload')
+      this.#storeWebhookDelivery(
+        deliveryKey,
+        deliveryContentFingerprint,
+        denied.receipt.receiptId,
+        nowMs
+      )
+      return denied
+    }
+
     const providerPayloadHash = socialHash(providerPayload)
+    const payloadReceipt = { ...baseReceipt, payloadHash: providerPayloadHash }
     const eventKey = socialHash({
-      provider: fixture.provider,
-      capabilityId: fixture.capabilityId,
-      eventId: fixture.eventId
+      provider: runtimeFixture.provider,
+      capabilityId: runtimeFixture.capabilityId,
+      eventId: runtimeFixture.eventId
     })
     const eventFingerprint = socialHash({
-      provider: fixture.provider,
-      capabilityId: fixture.capabilityId,
-      eventId: fixture.eventId,
-      occurredAtMs: fixture.occurredAtMs,
+      provider: runtimeFixture.provider,
+      capabilityId: runtimeFixture.capabilityId,
+      eventId: runtimeFixture.eventId,
+      occurredAtMs: runtimeFixture.occurredAtMs,
       providerPayloadHash
     })
     const existing = this.#events.get(eventKey)
     if (existing) {
       if (existing.eventFingerprint !== eventFingerprint) {
         const denied = this.#inboundDenied(
-          { ...baseReceipt, replayedReceiptId: existing.receiptId },
+          { ...payloadReceipt, replayedReceiptId: existing.receiptId },
           'event.conflict'
         )
         this.#storeWebhookDelivery(
@@ -561,7 +854,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
         return denied
       }
       const receipt = this.#recordReceipt({
-        ...baseReceipt,
+        ...payloadReceipt,
         decision: 'duplicate',
         reasonCode: 'event.duplicate',
         replayedReceiptId: existing.receiptId
@@ -580,7 +873,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       }
     }
     if (this.#events.size >= this.#storageLimits.maxEvents) {
-      const denied = this.#inboundDenied(baseReceipt, 'storage.event_capacity')
+      const denied = this.#inboundDenied(payloadReceipt, 'storage.event_capacity')
       this.#storeWebhookDelivery(
         deliveryKey,
         deliveryContentFingerprint,
@@ -591,17 +884,17 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     }
 
     const event: SocialInboundEventV1 = {
-      eventId: fixture.eventId,
-      provider: fixture.provider,
-      capabilityId: fixture.capabilityId,
-      sourceLabel: fixture.provider,
-      occurredAtMs: fixture.occurredAtMs,
+      eventId: runtimeFixture.eventId,
+      provider: runtimeFixture.provider,
+      capabilityId: runtimeFixture.capabilityId as SocialCapabilityId,
+      sourceLabel: runtimeFixture.provider,
+      occurredAtMs: runtimeFixture.occurredAtMs,
       receivedAtMs: nowMs,
       providerPayload,
       providerPayloadHash
     }
     const receipt = this.#recordReceipt({
-      ...baseReceipt,
+      ...payloadReceipt,
       decision: 'accepted',
       reasonCode: 'fixture.accepted'
     })
@@ -626,79 +919,125 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
   ): SocialActionResultV1 {
     const nowMs = this.#now()
     this.#pruneStorage(nowMs)
-    const capability = socialCapabilityFor(this.manifest.provider, intent.capabilityId)
-    const payloadHash = socialHash(intent.payload)
-    const idempotencyKeyHash = socialHash(intent.idempotencyKey)
+    this.#refreshAuthorityState(nowMs)
+    const fallbackCapability = this.#auditCapability('egress')
+    const malformedReceipt = {
+      operation: 'egress' as const,
+      capabilityId: fallbackCapability.id,
+      destination: fallbackCapability.destination,
+      atMs: nowMs,
+      scopeStates: capabilityScopeStates(fallbackCapability, this.#status)
+    }
+    const runtimeIntent = runtimeActionIntent(intent)
+    if (!runtimeIntent) {
+      return this.#actionDenied(malformedReceipt, 'validation.malformed_intent')
+    }
+
+    const capability = socialCapabilityFor(
+      this.manifest.provider,
+      runtimeIntent.capabilityId as SocialCapabilityId
+    )
+    const auditCapability =
+      capability?.direction === 'egress' ? capability : fallbackCapability
     const baseReceipt = {
       operation: 'egress' as const,
-      capabilityId: intent.capabilityId,
-      destination: intent.destination,
+      capabilityId: auditCapability.id,
+      destination: auditCapability.destination,
       atMs: nowMs,
-      actorRole:
-        typeof (intent.actor as Partial<SocialActorV1> | undefined)?.role === 'string'
-          ? intent.actor.role
-          : undefined,
-      actorRefHash:
-        typeof (intent.actor as Partial<SocialActorV1> | undefined)?.actorRef === 'string'
-          ? socialHash(intent.actor.actorRef)
-          : undefined,
-      idempotencyKeyHash,
-      payloadHash,
-      scopeStates: capabilityScopeStates(capability, this.#status)
+      idempotencyKeyHash: socialHash(runtimeIntent.idempotencyKey),
+      scopeStates: capabilityScopeStates(auditCapability, this.#status)
     }
 
     if (
-      !Number.isFinite(intent.createdAtMs) ||
-      !Number.isFinite(intent.deadlineMs) ||
-      !Number.isFinite(intent.consentEpoch)
+      !Number.isFinite(runtimeIntent.createdAtMs) ||
+      !Number.isFinite(runtimeIntent.deadlineMs)
     ) {
       return this.#actionDenied(baseReceipt, 'validation.non_finite_time')
     }
+    if (!Number.isSafeInteger(runtimeIntent.consentEpoch) || runtimeIntent.consentEpoch < 0) {
+      return this.#actionDenied(baseReceipt, 'validation.invalid_consent_epoch')
+    }
     if (
-      intent.schema !== SOCIAL_CONNECTOR_SCHEMA ||
-      intent.contractVersion !== SOCIAL_CONNECTOR_CONTRACT_VERSION ||
-      intent.provider !== this.manifest.provider ||
+      runtimeIntent.schema !== SOCIAL_CONNECTOR_SCHEMA ||
+      runtimeIntent.contractVersion !== SOCIAL_CONNECTOR_CONTRACT_VERSION ||
+      runtimeIntent.provider !== this.manifest.provider ||
       !capability ||
       capability.direction !== 'egress' ||
-      intent.destination !== capability.destination
+      runtimeIntent.destination !== capability.destination
     ) {
       return this.#actionDenied(baseReceipt, 'capability.unsupported')
     }
+    if (
+      runtimeIntent.sourceProvider !== undefined &&
+      !isSocialProvider(runtimeIntent.sourceProvider)
+    ) {
+      return this.#actionDenied(baseReceipt, 'validation.malformed_intent')
+    }
 
-    try {
-      assertSocialActor(intent.actor, 'intent.actor')
-      assertSocialActor(authenticatedActor, 'authenticatedActor')
-      assertNonEmptyString(intent.idempotencyKey, 'intent.idempotencyKey')
-    } catch {
+    const actor = runtimeSocialActor(runtimeIntent.actor)
+    const verifiedActor = runtimeSocialActor(authenticatedActor)
+    if (!actor || !verifiedActor) {
       return this.#actionDenied(baseReceipt, 'actor.invalid')
     }
-    if (!sameSocialActor(intent.actor, authenticatedActor)) {
-      return this.#actionDenied(baseReceipt, 'actor.authenticated_mismatch')
+    const actorReceipt = {
+      ...baseReceipt,
+      actorRole: actor.role,
+      actorRefHash: socialHash(actor.actorRef)
+    }
+    if (!sameSocialActor(actor, verifiedActor)) {
+      return this.#actionDenied(actorReceipt, 'actor.authenticated_mismatch')
     }
 
-    try {
-      assertNoCredentialMaterial(intent.payload)
-    } catch {
-      return this.#actionDenied(baseReceipt, 'payload.credential_material')
+    const payload = sanitizeSocialJsonRecord(runtimeIntent.payload)
+    if (!payload) {
+      return this.#actionDenied(actorReceipt, 'validation.malformed_payload')
+    }
+    if (findCredentialMaterial(payload)) {
+      return this.#actionDenied(actorReceipt, 'payload.credential_material')
+    }
+    const payloadFailure = capabilityPayloadFailure(capability, payload)
+    if (payloadFailure) return this.#actionDenied(actorReceipt, payloadFailure)
+
+    const payloadHash = socialHash(payload)
+    const normalizedIntent: SocialActionIntentV1 = {
+      schema: SOCIAL_CONNECTOR_SCHEMA,
+      contractVersion: SOCIAL_CONNECTOR_CONTRACT_VERSION,
+      intentId: runtimeIntent.intentId,
+      provider: this.manifest.provider,
+      capabilityId: capability.id,
+      destination: capability.destination,
+      actor,
+      idempotencyKey: runtimeIntent.idempotencyKey,
+      sourceProvider: runtimeIntent.sourceProvider as SocialProvider | undefined,
+      payload,
+      enqueuedPolicy: runtimeIntent.enqueuedPolicy,
+      consentEpoch: runtimeIntent.consentEpoch,
+      approvalRef: runtimeIntent.approvalRef,
+      createdAtMs: runtimeIntent.createdAtMs,
+      deadlineMs: runtimeIntent.deadlineMs
     }
     const requestFingerprint = socialHash({
-      schema: intent.schema,
-      contractVersion: intent.contractVersion,
-      intentId: intent.intentId,
-      provider: intent.provider,
-      capabilityId: intent.capabilityId,
-      destination: intent.destination,
-      actor: intent.actor,
-      idempotencyKey: intent.idempotencyKey,
-      sourceProvider: intent.sourceProvider ?? null,
+      schema: normalizedIntent.schema,
+      contractVersion: normalizedIntent.contractVersion,
+      intentId: normalizedIntent.intentId,
+      provider: normalizedIntent.provider,
+      capabilityId: normalizedIntent.capabilityId,
+      destination: normalizedIntent.destination,
+      actor: normalizedIntent.actor,
+      idempotencyKey: normalizedIntent.idempotencyKey,
+      sourceProvider: normalizedIntent.sourceProvider ?? null,
       payloadHash,
-      enqueuedPolicy: intent.enqueuedPolicy ?? null,
-      consentEpoch: intent.consentEpoch,
-      createdAtMs: intent.createdAtMs,
-      deadlineMs: intent.deadlineMs
+      enqueuedPolicy: normalizedIntent.enqueuedPolicy ?? null,
+      consentEpoch: normalizedIntent.consentEpoch,
+      createdAtMs: normalizedIntent.createdAtMs,
+      deadlineMs: normalizedIntent.deadlineMs
     })
-    const fingerprintedReceipt = { ...baseReceipt, requestFingerprint }
-    const actionKey = `${intent.provider}:${intent.idempotencyKey}`
+    const fingerprintedReceipt = {
+      ...actorReceipt,
+      payloadHash,
+      requestFingerprint
+    }
+    const actionKey = `${normalizedIntent.provider}:${normalizedIntent.idempotencyKey}`
     const existing = this.#actions.get(actionKey)
     if (existing) {
       if (existing.requestFingerprint !== requestFingerprint) {
@@ -720,16 +1059,19 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       }
     }
 
-    if (nowMs > intent.deadlineMs || intent.deadlineMs <= intent.createdAtMs) {
+    if (
+      nowMs > normalizedIntent.deadlineMs ||
+      normalizedIntent.deadlineMs <= normalizedIntent.createdAtMs
+    ) {
       return this.#actionDenied(fingerprintedReceipt, 'intent.expired')
     }
 
-    const policyFailure = this.#policyFailure(intent, capability, nowMs)
+    const policyFailure = this.#policyFailure(normalizedIntent, capability, nowMs)
     if (policyFailure) return this.#actionDenied(fingerprintedReceipt, policyFailure)
 
     const accessFailure = this.#capabilityAccessFailure(capability)
     if (accessFailure) return this.#actionDenied(fingerprintedReceipt, accessFailure)
-    const consentFailure = this.#consentFailure(intent, capability, nowMs)
+    const consentFailure = this.#consentFailure(normalizedIntent, capability, nowMs)
     if (consentFailure) return this.#actionDenied(fingerprintedReceipt, consentFailure)
     if (this.#status.operatorControl !== 'enabled') {
       return this.#actionDenied(fingerprintedReceipt, 'operator_override.blocked')
@@ -762,18 +1104,18 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
 
     let approvalRef: string | undefined
     if (capability.approval === 'required') {
-      if (!intent.approvalRef) {
+      if (!normalizedIntent.approvalRef) {
         return this.#actionDenied(
           { ...fingerprintedReceipt, quotaBefore, quotaAfter: quotaBefore },
           'approval.missing'
         )
       }
       const approval = this.#approvalQueue.consume({
-        approvalRef: intent.approvalRef,
-        provider: intent.provider,
-        capabilityId: intent.capabilityId,
-        destination: intent.destination,
-        authenticatedActor,
+        approvalRef: normalizedIntent.approvalRef,
+        provider: normalizedIntent.provider,
+        capabilityId: normalizedIntent.capabilityId,
+        destination: normalizedIntent.destination,
+        authenticatedActor: verifiedActor,
         payloadHash,
         nowMs
       })
@@ -795,7 +1137,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
       this.#status.quota.remaining > 0 ? 'available' : 'exhausted'
     this.#refreshLifecycle()
 
-    const mockProviderRef = `mock:${intent.provider}:${socialHash({
+    const mockProviderRef = `mock:${normalizedIntent.provider}:${socialHash({
       requestFingerprint
     }).slice('sha256:'.length, 'sha256:'.length + 20)}`
     const receipt = this.#recordReceipt({
@@ -840,23 +1182,9 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     nowMs: number
   ): string | null {
     const policy = this.#policy
-    if (!policy) {
-      this.#status.policyState = 'missing'
-      this.#refreshLifecycle()
-      return 'policy.missing'
-    }
-    if (
-      policy.schema !== SOCIAL_POLICY_SCHEMA ||
-      policy.contractVersion !== SOCIAL_CONNECTOR_CONTRACT_VERSION ||
-      (policy.provider === 'twitch' && policy.twitchMergedChatOutput !== 'block') ||
-      nowMs < policy.validFromMs ||
-      nowMs > policy.validUntilMs
-    ) {
-      this.#status.policyState = 'stale'
-      this.#refreshLifecycle()
-      return 'policy.stale'
-    }
-    this.#status.policyState = 'current'
+    this.#refreshPolicyState(nowMs)
+    if (!policy || this.#status.policyState === 'missing') return 'policy.missing'
+    if (this.#status.policyState !== 'current') return 'policy.stale'
     if (
       policy.provider !== intent.provider ||
       policy.destination !== intent.destination ||
@@ -922,13 +1250,7 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
     nowMs: number
   ): string | null {
     if (capability.consent === 'never') return null
-    if (
-      this.#status.consent.state === 'granted' &&
-      nowMs > this.#status.consent.expiresAtMs
-    ) {
-      this.#status.consent.state = 'expired'
-      this.#refreshLifecycle()
-    }
+    this.#refreshConsentState(nowMs)
     if (this.#status.consent.state !== 'granted') {
       return `consent.${this.#status.consent.state}`
     }
@@ -939,10 +1261,52 @@ export class DeterministicMockSocialConnector implements SocialConnectorV1 {
   #refreshQuota(nowMs: number): number {
     if (nowMs >= this.#status.quota.resetAtMs && this.#status.quota.limit >= 0) {
       this.#status.quota.remaining = this.#status.quota.limit
-      this.#status.quota.state = this.#status.quota.limit > 0 ? 'available' : 'exhausted'
       this.#status.quota.resetAtMs = nowMs + 60 * 60 * 1000
     }
+    this.#status.quota.state =
+      this.#status.quota.remaining > 0 ? 'available' : 'exhausted'
     return this.#status.quota.remaining
+  }
+
+  #refreshPolicyState(nowMs: number): void {
+    const policy = this.#policy
+    if (!policy) {
+      this.#status.policyState = 'missing'
+      return
+    }
+    this.#status.policyState =
+      policy.schema !== SOCIAL_POLICY_SCHEMA ||
+      policy.contractVersion !== SOCIAL_CONNECTOR_CONTRACT_VERSION ||
+      policy.provider !== this.manifest.provider ||
+      (policy.provider === 'twitch' && policy.twitchMergedChatOutput !== 'block') ||
+      nowMs < policy.validFromMs ||
+      nowMs >= policy.validUntilMs
+        ? 'stale'
+        : 'current'
+  }
+
+  #refreshConsentState(nowMs: number): void {
+    this.#status.consent = { ...this.#consentAuthority }
+    if (
+      this.#status.consent.state === 'granted' &&
+      nowMs >= this.#status.consent.expiresAtMs
+    ) {
+      this.#status.consent.state = 'expired'
+    }
+  }
+
+  #refreshAuthorityState(nowMs: number): void {
+    this.#refreshPolicyState(nowMs)
+    this.#refreshConsentState(nowMs)
+    this.#refreshQuota(nowMs)
+    this.#refreshLifecycle()
+    this.#status.updatedAtMs = nowMs
+  }
+
+  #auditCapability(direction: 'ingress' | 'egress'): SocialCapabilityV1 {
+    const capability = this.manifest.capabilities.find((entry) => entry.direction === direction)
+    if (!capability) throw new Error(`Missing ${direction} audit capability`)
+    return capability
   }
 
   #rateLimitFor(capability: SocialCapabilityV1): SocialRateLimitV1 {

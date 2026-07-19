@@ -1,9 +1,28 @@
 import { createHash } from 'node:crypto'
 
 const FORBIDDEN_NORMALIZED_KEY_FRAGMENT =
-  /(?:authorization|accesstoken|refreshtoken|authtoken|bearertoken|sessiontoken|idtoken|oauth|clientsecret|sharedsecret|signingsecret|webhooksecret|apisecret|password|passphrase|webhookurl|streamkey|privatekey|credential|apikey|apitoken)/
-const FORBIDDEN_COMMON_NORMALIZED_KEYS = new Set(['token', 'tokens', 'secret', 'secrets'])
-const FORBIDDEN_VALUE = /(?:\bbearer\s+[a-z0-9._~+/=-]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
+  /(?:authorization|authheader|authentication|oauth|password|passwd|passphrase|webhookurl|streamkey|privatekey|credential|apikey|sessionid|sessionidentifier|sessioncookie|sessionkey)/
+const FORBIDDEN_VALUE =
+  /(?:\bbearer\s+[a-z0-9._~+/=-]{8,}|\b(?:authorization|cookie|set-cookie)\s*:|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i
+
+export type SocialJsonValue =
+  | null
+  | boolean
+  | string
+  | number
+  | readonly SocialJsonValue[]
+  | Readonly<{ [key: string]: SocialJsonValue }>
+
+interface SocialJsonCloneSuccess {
+  readonly ok: true
+  readonly value: SocialJsonValue
+}
+
+interface SocialJsonCloneFailure {
+  readonly ok: false
+}
+
+type SocialJsonCloneResult = SocialJsonCloneSuccess | SocialJsonCloneFailure
 
 function isForbiddenCredentialKey(key: string): boolean {
   const normalized = key
@@ -11,9 +30,141 @@ function isForbiddenCredentialKey(key: string): boolean {
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '')
   return (
-    FORBIDDEN_COMMON_NORMALIZED_KEYS.has(normalized) ||
-    FORBIDDEN_NORMALIZED_KEY_FRAGMENT.test(normalized)
+    FORBIDDEN_NORMALIZED_KEY_FRAGMENT.test(normalized) ||
+    normalized.includes('cookie') ||
+    normalized.includes('session') ||
+    normalized.includes('token') ||
+    normalized.includes('secret')
   )
+}
+
+export function readSocialDataRecord(value: unknown): Readonly<Record<string, unknown>> | null {
+  if (value === null || typeof value !== 'object') return null
+  try {
+    if (Array.isArray(value)) return null
+    const prototype = Object.getPrototypeOf(value)
+    if (prototype !== Object.prototype && prototype !== null) return null
+    const keys = Reflect.ownKeys(value)
+    if (keys.some((key) => typeof key !== 'string')) return null
+    const descriptors = Object.getOwnPropertyDescriptors(value)
+    const record: Record<string, unknown> = Object.create(null)
+    for (const key of keys as string[]) {
+      const descriptor = descriptors[key]
+      if (!descriptor?.enumerable || !('value' in descriptor)) return null
+      record[key] = descriptor.value
+    }
+    return record
+  } catch {
+    return null
+  }
+}
+
+function cloneSafeSocialJsonValue(
+  value: unknown,
+  seen: Set<object>,
+  depth = 0
+): SocialJsonCloneResult {
+  if (depth > 64) return { ok: false }
+  if (
+    value === null ||
+    typeof value === 'boolean' ||
+    typeof value === 'string' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  ) {
+    return { ok: true, value }
+  }
+  if (typeof value !== 'object' || seen.has(value)) return { ok: false }
+
+  let prototype: object | null
+  let keys: readonly PropertyKey[]
+  let descriptors: PropertyDescriptorMap
+  try {
+    prototype = Object.getPrototypeOf(value)
+    keys = Reflect.ownKeys(value)
+    descriptors = Object.getOwnPropertyDescriptors(value)
+  } catch {
+    return { ok: false }
+  }
+
+  seen.add(value)
+  if (Array.isArray(value)) {
+    if (prototype !== Array.prototype || keys.some((key) => typeof key !== 'string')) {
+      seen.delete(value)
+      return { ok: false }
+    }
+    const lengthDescriptor = descriptors.length
+    const length =
+      lengthDescriptor && 'value' in lengthDescriptor ? lengthDescriptor.value : undefined
+    if (!Number.isSafeInteger(length) || length < 0) {
+      seen.delete(value)
+      return { ok: false }
+    }
+    if (
+      keys.length !== length + 1 ||
+      keys.some((key) => {
+        if (key === 'length') return false
+        const index = Number(key)
+        return (
+          !Number.isSafeInteger(index) ||
+          index < 0 ||
+          index >= length ||
+          String(index) !== key
+        )
+      })
+    ) {
+      seen.delete(value)
+      return { ok: false }
+    }
+    const entries: SocialJsonValue[] = []
+    for (let index = 0; index < length; index += 1) {
+      const descriptor = descriptors[String(index)]
+      if (!descriptor?.enumerable || !('value' in descriptor)) {
+        seen.delete(value)
+        return { ok: false }
+      }
+      const cloned = cloneSafeSocialJsonValue(descriptor.value, seen, depth + 1)
+      if (!cloned.ok) {
+        seen.delete(value)
+        return cloned
+      }
+      entries.push(cloned.value)
+    }
+    seen.delete(value)
+    return { ok: true, value: entries }
+  }
+
+  if (
+    (prototype !== Object.prototype && prototype !== null) ||
+    keys.some((key) => typeof key !== 'string')
+  ) {
+    seen.delete(value)
+    return { ok: false }
+  }
+  const record: Record<string, SocialJsonValue> = Object.create(null)
+  for (const key of keys as string[]) {
+    const descriptor = descriptors[key]
+    if (!descriptor?.enumerable || !('value' in descriptor)) {
+      seen.delete(value)
+      return { ok: false }
+    }
+    const cloned = cloneSafeSocialJsonValue(descriptor.value, seen, depth + 1)
+    if (!cloned.ok) {
+      seen.delete(value)
+      return cloned
+    }
+    record[key] = cloned.value
+  }
+  seen.delete(value)
+  return { ok: true, value: record }
+}
+
+export function sanitizeSocialJsonRecord(
+  value: unknown
+): Readonly<Record<string, SocialJsonValue>> | null {
+  const cloned = cloneSafeSocialJsonValue(value, new Set())
+  if (!cloned.ok || cloned.value === null || Array.isArray(cloned.value)) return null
+  if (typeof cloned.value !== 'object') return null
+  return cloned.value as Readonly<Record<string, SocialJsonValue>>
 }
 
 function normalizeForStableJson(value: unknown, seen: Set<object>): unknown {

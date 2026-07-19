@@ -27,6 +27,15 @@ export function assertPositiveInteger(value: unknown, label: string): asserts va
   if (!Number.isSafeInteger(value)) throw new Error(`${label} must be a safe integer`)
 }
 
+export function assertNonNegativeSafeInteger(
+  value: unknown,
+  label: string
+): asserts value is number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative safe integer`)
+  }
+}
+
 export function assertNonEmptyString(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) {
     throw new Error(`${label} must be a non-empty string`)

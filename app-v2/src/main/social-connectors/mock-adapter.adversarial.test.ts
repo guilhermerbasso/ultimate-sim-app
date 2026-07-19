@@ -257,7 +257,7 @@ describe('webhook replay and event identity adversarial gates', () => {
         body: JSON.stringify({
           eventId: first.eventId,
           source: 'twitch',
-          variant: 'changed'
+          eventType: 'changed'
         })
       },
       KEY_ID,
@@ -370,14 +370,14 @@ describe('immutable Twitch destination guard', () => {
 })
 
 describe('idempotency request fingerprinting', () => {
-  it('returns the prior simulated result for a canonical exact duplicate', () => {
+  it('returns a fresh duplicate receipt for a canonical exact duplicate', () => {
     const target = connector('twitch')
     const approved = approve(
       target,
       action(
         'twitch',
         'twitch.marker.create',
-        { alpha: 1, beta: 2 },
+        { description: 'canonical duplicate', positionSeconds: 12 },
         'canonical-duplicate'
       ),
       'canonical-duplicate'
@@ -385,7 +385,10 @@ describe('idempotency request fingerprinting', () => {
 
     const first = target.execute(approved, OPERATOR)
     const duplicate = target.execute(
-      { ...approved, payload: { beta: 2, alpha: 1 } },
+      {
+        ...approved,
+        payload: { positionSeconds: 12, description: 'canonical duplicate' }
+      },
       OPERATOR
     )
 
