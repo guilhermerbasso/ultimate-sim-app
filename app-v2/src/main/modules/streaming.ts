@@ -10,7 +10,23 @@ import type { Duplex } from 'node:stream'
 import QRCode from 'qrcode'
 import WebSocket, { WebSocketServer } from 'ws'
 import type { DriverEntry, RadarCarEntry, RelativeCarEntry, TelemetrySnapshot } from '../../shared/telemetry'
-import type { StreamingAccessMode, StreamingDashboardPayload, StreamingLayoutKind, StreamingSelfTestResult, StreamingStartArgs, StreamingStartResult, StreamingStatus, StreamingTelemetryFrame } from '../../shared/streaming'
+import type {
+  StreamingAccessMode,
+  StreamingDashboardPayload,
+  StreamingLayoutKind,
+  StreamingSelfTestResult,
+  StreamingStartArgs,
+  StreamingStartResult,
+  StreamingStatus,
+  StreamingTelemetryFrame,
+  StreamingTouchActionRequest,
+  StreamingTouchActionResponse,
+  StreamingTouchCapability,
+  StreamingTouchHealth,
+  StreamingTouchHealthResponse,
+  StreamingTouchPanelPayload,
+  StreamingTouchRole
+} from '../../shared/streaming'
 import { STREAMING_CHANNELS, STREAMING_EXPRESSION_EXCLUSION_MESSAGE } from '../../shared/streaming'
 import {
   RECEIVER_CAPABILITIES,
@@ -28,6 +44,13 @@ import {
   type ReceiverV2Status
 } from '../../shared/receiver-v2'
 import type { StreamPresentationProfileListItem } from '../../shared/stream-presentation'
+import {
+  normalizeTouchSemanticActionRequest,
+  type ButtonAction,
+  type ButtonBoxButton,
+  type ButtonBoxPanel,
+  type TouchActionPhase
+} from '../../shared/touch-panel'
 import type { ModuleContext } from '../module-context'
 import { getDashboardManager } from './dashboards'
 import { logger } from './logger'
@@ -40,6 +63,12 @@ import {
   locateCloudflaredBinary,
   type CloudflaredTunnelSnapshot
 } from './cloudflared-tunnel'
+import {
+  executeTouchSemanticCleanupAction,
+  executeTouchSemanticAction,
+  hasTouchSemanticActionRuntime,
+  releaseTouchSemanticActionOwner
+} from '../actions/touch-owner'
 
 const HOST = '127.0.0.1'
 const LAN_HOST = '0.0.0.0'
@@ -47,9 +76,14 @@ const DEFAULT_LAYOUT = 'default'
 const SSE_INTERVAL_MS = 67
 const TOKEN_BYTES = 24
 const SESSION_BYTES = 32
+const CSRF_BYTES = 24
+const NONCE_BYTES = 18
+const CAPABILITY_BYTES = 18
 const SESSION_COOKIE_NAME = 'ultimate_sim_stream_session'
+const LOCAL_SESSION_TTL_MS = 60 * 60 * 1000
+const REMOTE_SESSION_TTL_MS = 15 * 60 * 1000
+const RECEIVER_LEASE_TTL_MS = 25_000
 const RECEIVER_SESSION_COOKIE_NAME = 'ultimate_sim_receiver_session'
-const SESSION_TTL_MS = 8 * 60 * 60 * 1000
 const RECEIVER_BOOTSTRAP_TTL_MS = 10 * 60 * 1000
 const RECEIVER_SESSION_TTL_MS = 60 * 60 * 1000
 const RECEIVER_PAIRING_BYTES = 24
@@ -60,6 +94,10 @@ const AUTH_FAILURE_WINDOW_MS = 60_000
 const AUTH_FAILURE_LIMIT = 10
 const MAX_STREAM_CLIENTS = 12
 const MAX_WEBSOCKET_BUFFERED_BYTES = 1_048_576
+const INTERACTION_BURST_WINDOW_MS = 1_000
+const INTERACTION_BURST_LIMIT = 30
+const INTERACTION_SUSTAINED_WINDOW_MS = 60_000
+const INTERACTION_SUSTAINED_LIMIT = 300
 const SELF_TEST_TIMEOUT_MS = 5_000
 const SELF_TEST_MAX_RESOURCES = 512
 const SELF_TEST_MAX_BODY_BYTES = 16 * 1024 * 1024
@@ -72,17 +110,50 @@ interface StreamingClient {
   connectedAt: number
   transport: 'sse' | 'websocket'
   close: () => void
+  sessionId: string
 }
 
 type StreamingSessionAccess = 'bootstrap' | 'authenticated'
 type StreamingSessionScope = 'stream' | 'receiver'
 
+interface StreamingLatchState {
+  offCapability: StreamingTouchCapabilityEntry
+  teardownCapability: StreamingTouchCapabilityEntry | null
+  teardownComplete: boolean
+}
+
 interface StreamingSession {
   access: StreamingSessionAccess
+  role: StreamingTouchRole
   scope: StreamingSessionScope
   basePath: string
-  origin: string | null
+  origin: string
+  targetKind: StreamingLayoutKind
+  targetId: string
   expiresAt: number
+  csrfToken: string
+  replayNonce: string
+  activeTokens: Set<string>
+  activeLatches: Map<string, StreamingLatchState>
+  lastFeedback: string | null
+  expiryTimer: ReturnType<typeof setTimeout> | null
+  receiverLeaseExpiresAt: number
+  receiverLeaseTimer: ReturnType<typeof setTimeout> | null
+  tokenOperations: Map<string, Promise<void>>
+  releasePromise: Promise<void> | null
+  ownershipClosing: boolean
+  deleted: boolean
+}
+
+interface StreamingTouchCapabilityEntry extends StreamingTouchCapability {
+  action: ButtonAction
+  token: string
+  fingerprint: string
+  executePhases: TouchActionPhase[]
+}
+
+interface InteractionRateState {
+  timestamps: number[]
 }
 
 interface ReceiverPairing {
@@ -126,6 +197,11 @@ interface StreamingState {
   clients: Map<number, StreamingClient>
   authFailures: Map<string, { count: number; resetAt: number }>
   sessions: Map<string, StreamingSession>
+  touchCapabilities: Map<string, StreamingTouchCapabilityEntry>
+  interactionRates: Map<string, InteractionRateState>
+  sessionCleanupPromises: Set<Promise<void>>
+  interactionHealth: StreamingTouchHealth
+  lastInteractionFeedback: string | null
   nextClientId: number
 }
 
@@ -162,11 +238,17 @@ const state: StreamingState = {
   clients: new Map(),
   authFailures: new Map(),
   sessions: new Map(),
+  touchCapabilities: new Map(),
+  interactionRates: new Map(),
+  sessionCleanupPromises: new Set(),
+  interactionHealth: 'read-only',
+  lastInteractionFeedback: null,
   nextClientId: 1
 }
 
 let autoTunnelSupervisor: CloudflaredTunnelSupervisor | null = null
 let qrRefreshGeneration = 0
+let stopPromise: Promise<StreamingStatus> | null = null
 
 function isValidLayoutId(value: unknown): value is string {
   return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value)
@@ -235,6 +317,275 @@ export function streamingListenHost(accessMode: StreamingAccessMode, autoTunnel:
 
 function generateToken(): string {
   return randomBytes(TOKEN_BYTES).toString('base64url')
+}
+
+function generateSecret(bytes: number): string {
+  return randomBytes(bytes).toString('base64url')
+}
+
+function configuredSessionTtlMs(): number {
+  const fallback = state.accessMode === 'local' ? LOCAL_SESSION_TTL_MS : REMOTE_SESSION_TTL_MS
+  if (process.env.NODE_ENV !== 'test') return fallback
+  const configured = Number(process.env.ULTIMATE_SIM_STREAM_SESSION_TTL_MS)
+  return Number.isFinite(configured) && configured >= 50 ? Math.floor(configured) : fallback
+}
+
+function configuredReceiverLeaseTtlMs(): number {
+  if (process.env.NODE_ENV !== 'test') return RECEIVER_LEASE_TTL_MS
+  const configured = Number(process.env.ULTIMATE_SIM_STREAM_RECEIVER_LEASE_MS)
+  return Number.isFinite(configured) && configured >= 50
+    ? Math.floor(configured)
+    : RECEIVER_LEASE_TTL_MS
+}
+
+function actionFingerprint(action: ButtonAction): string {
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical)
+    if (!value || typeof value !== 'object') return value
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, canonical(child)])
+    )
+  }
+  return JSON.stringify(canonical(action))
+}
+
+function isStreamCapabilityAction(
+  action: ButtonAction,
+  phase: TouchActionPhase = action.kind === 'keyboard' && action.command.mode === 'hold'
+    ? 'begin'
+    : 'trigger'
+): boolean {
+  if (action.kind === 'none' || action.kind === 'app') return false
+  return normalizeTouchSemanticActionRequest({
+    action,
+    phase,
+    token: 'stream:validation',
+    zone: 'validation'
+  }) !== null
+}
+
+function publicCapabilityAction(action: ButtonAction): ButtonAction {
+  if (!isStreamCapabilityAction(action)) return { kind: 'none' }
+  if (action.kind === 'iracing') {
+    return { kind: 'iracing', command: { group: 'blackBox', name: 'blackBox:next' } }
+  }
+  if (action.kind !== 'keyboard') return { kind: 'none' }
+  return {
+    kind: 'keyboard',
+    command: {
+      mode: action.command.mode,
+      keys: ['StreamCapability'],
+      ...(action.command.repeatMs !== undefined ? { repeatMs: action.command.repeatMs } : {})
+    }
+  }
+}
+
+interface TouchCapabilitySpec {
+  controlId: string
+  zone: string
+  action: ButtonAction
+  token: string
+  phases: TouchActionPhase[]
+  executePhases: TouchActionPhase[]
+}
+
+type TouchCapabilityLifecycle = 'continuous' | 'discrete' | 'teardown'
+
+function capabilityPhases(
+  action: ButtonAction,
+  lifecycle: TouchCapabilityLifecycle
+): Pick<TouchCapabilitySpec, 'phases' | 'executePhases'> {
+  if (lifecycle === 'discrete') {
+    return {
+      phases: ['trigger'],
+      executePhases: ['trigger']
+    }
+  }
+  if (lifecycle === 'teardown') {
+    return {
+      phases: ['cancel'],
+      executePhases: ['cancel']
+    }
+  }
+  if (action.kind === 'keyboard' && action.command.mode === 'hold') {
+    return {
+      phases: ['begin', 'end', 'cancel'],
+      executePhases: ['begin', 'end', 'cancel']
+    }
+  }
+  if (action.kind === 'keyboard' && action.command.mode === 'toggle') {
+    return {
+      phases: ['trigger', 'cancel'],
+      executePhases: ['trigger', 'cancel']
+    }
+  }
+  return {
+    phases: ['trigger', 'end', 'cancel'],
+    executePhases: ['trigger']
+  }
+}
+
+function capabilitySpec(
+  button: ButtonBoxButton,
+  zone: string,
+  action: ButtonAction,
+  tokenZone = zone,
+  lifecycle: TouchCapabilityLifecycle = 'continuous'
+): TouchCapabilitySpec | null {
+  const phaseConfig = capabilityPhases(action, lifecycle)
+  if (!isStreamCapabilityAction(action, phaseConfig.executePhases[0])) return null
+  return {
+    controlId: button.id,
+    zone,
+    action,
+    token: `${button.id}:${tokenZone}`,
+    ...phaseConfig
+  }
+}
+
+function capabilitySpecsForButton(button: ButtonBoxButton): TouchCapabilitySpec[] {
+  const control = button.control
+  switch (control.kind) {
+    case 'momentary': {
+      const spec = capabilitySpec(button, 'main', control.action)
+      return spec ? [spec] : []
+    }
+    case 'latching-toggle': {
+      const on = capabilitySpec(button, 'on', control.onAction, 'latching', 'discrete')
+      const off = capabilitySpec(button, 'off', control.offAction, 'latching', 'discrete')
+      if (!on || !off) return []
+      const teardown = control.onAction.kind === 'keyboard' && control.onAction.command.mode === 'toggle'
+        ? capabilitySpec(button, 'teardown', control.onAction, 'latching', 'teardown')
+        : null
+      return [on, off, teardown].filter((value): value is TouchCapabilitySpec => value !== null)
+    }
+    case 'two-position-rocker':
+      return [
+        capabilitySpec(button, 'negative', control.negativeAction),
+        capabilitySpec(button, 'positive', control.positiveAction)
+      ].filter((value): value is TouchCapabilitySpec => value !== null)
+    case 'guarded-two-step': {
+      const spec = capabilitySpec(button, 'guarded', control.action)
+      return spec ? [spec] : []
+    }
+    case 'rotary':
+      return [
+        capabilitySpec(button, 'decrement', control.decrementAction),
+        capabilitySpec(button, 'increment', control.incrementAction)
+      ].filter((value): value is TouchCapabilitySpec => value !== null)
+    case 'selector':
+      return control.choices
+        .map((choice) => capabilitySpec(button, `choice:${choice.id}`, choice.action, `choice:${choice.id}`, 'discrete'))
+        .filter((value): value is TouchCapabilitySpec => value !== null)
+    case 'status-led':
+    case 'value-tile':
+      return []
+  }
+}
+
+function rebuildTouchCapabilities(panel: ButtonBoxPanel): void {
+  state.touchCapabilities.clear()
+  for (const button of panel.buttons) {
+    for (const spec of capabilitySpecsForButton(button)) {
+      const id = generateSecret(CAPABILITY_BYTES)
+      state.touchCapabilities.set(id, {
+        id,
+        ...spec,
+        fingerprint: actionFingerprint(spec.action)
+      })
+    }
+  }
+  state.interactionHealth = hasTouchSemanticActionRuntime() && state.touchCapabilities.size > 0
+    ? 'ready'
+    : 'degraded'
+}
+
+function capabilityFor(
+  controlId: string,
+  zone: string,
+  action?: ButtonAction
+): StreamingTouchCapabilityEntry | null {
+  return [...state.touchCapabilities.values()].find((entry) =>
+    entry.controlId === controlId &&
+    entry.zone === zone &&
+    (action === undefined || entry.fingerprint === actionFingerprint(action))
+  ) ?? null
+}
+
+function projectTouchPanelForStreaming(panel: ButtonBoxPanel): ButtonBoxPanel {
+  const buttons = panel.buttons.map((button): ButtonBoxButton => {
+    const project = (zone: string, action: ButtonAction): ButtonAction =>
+      capabilityFor(button.id, zone, action) ? publicCapabilityAction(action) : { kind: 'none' }
+    let control = button.control
+    switch (control.kind) {
+      case 'momentary':
+        control = { ...control, action: project('main', control.action) }
+        break
+      case 'latching-toggle':
+        control = {
+          ...control,
+          onAction: project('on', control.onAction),
+          offAction: project('off', control.offAction)
+        }
+        break
+      case 'two-position-rocker':
+        control = {
+          ...control,
+          negativeAction: project('negative', control.negativeAction),
+          positiveAction: project('positive', control.positiveAction)
+        }
+        break
+      case 'guarded-two-step':
+        control = { ...control, action: project('guarded', control.action) }
+        break
+      case 'rotary':
+        control = {
+          ...control,
+          decrementAction: project('decrement', control.decrementAction),
+          incrementAction: project('increment', control.incrementAction)
+        }
+        break
+      case 'selector':
+        control = {
+          ...control,
+          choices: control.choices.map((choice) => ({
+            ...choice,
+            action: project(`choice:${choice.id}`, choice.action)
+          }))
+        }
+        break
+      case 'status-led':
+      case 'value-tile':
+        break
+    }
+    const interactiveControl = control.kind !== 'status-led' && control.kind !== 'value-tile'
+    const enabled = capabilitySpecsForButton(button).some((spec) =>
+      capabilityFor(spec.controlId, spec.zone, spec.action) !== null
+    )
+    return {
+      ...button,
+      control,
+      state: interactiveControl && !enabled
+        ? { ...button.state, disabled: true }
+        : button.state
+    }
+  })
+  return { ...panel, buttons }
+}
+
+function currentCapabilityAction(entry: StreamingTouchCapabilityEntry): ButtonAction | null {
+  const panel = getTouchPanelManager()?.getPanel(state.layoutId)
+  const button = panel?.buttons.find((candidate) => candidate.id === entry.controlId)
+  if (!button) return null
+  const current = capabilitySpecsForButton(button).find((spec) =>
+    spec.controlId === entry.controlId &&
+    spec.zone === entry.zone &&
+    spec.token === entry.token
+  )
+  if (!current || actionFingerprint(current.action) !== entry.fingerprint) return null
+  return current.action
 }
 
 function receiverPairingDigest(secret: string): Buffer {
@@ -646,9 +997,229 @@ function requestRoute(request: IncomingMessage): StreamingRequestRoute {
   return { url, pathname, externalBasePath, externalOrigin }
 }
 
+function normalizedRequestOrigin(request: IncomingMessage): string | null {
+  if (state.accessMode === 'internet') {
+    if (!state.publicBaseUrl) return null
+    const publicUrl = new URL(state.publicBaseUrl)
+    const forwardedProto = firstForwardedValue(headerValue(request, 'x-forwarded-proto')).toLowerCase()
+    const forwardedHost = firstForwardedValue(headerValue(request, 'x-forwarded-host')).toLowerCase()
+    const requestHost = firstForwardedValue(headerValue(request, 'host')).toLowerCase()
+    const effectiveHost = forwardedHost || requestHost
+    if (effectiveHost && effectiveHost !== publicUrl.host.toLowerCase()) return null
+    if (forwardedProto && forwardedProto !== 'https') return null
+    return publicUrl.origin
+  }
+
+  const host = firstForwardedValue(headerValue(request, 'host'))
+  if (!host) return null
+  try {
+    const origin = new URL(`http://${host}`)
+    const hostname = origin.hostname.toLowerCase()
+    const allowed = hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '[::1]' ||
+      hostname === '::1' ||
+      (state.lanAddress !== null && hostname === state.lanAddress.toLowerCase())
+    if (!allowed) return null
+    if (state.port && origin.port && Number(origin.port) !== state.port) return null
+    return origin.origin
+  } catch {
+    return null
+  }
+}
+
+function hasBoundInteractionOrigin(request: IncomingMessage, session: StreamingSession): boolean {
+  const value = headerValue(request, 'origin')
+  if (!value || value === 'null') return false
+  try {
+    return new URL(value).origin === session.origin
+  } catch {
+    return false
+  }
+}
+
+function streamSessionOwnerKey(sessionId: string): string {
+  return `stream-session-${sessionId}`
+}
+
+function removeInteractionRatesForSession(sessionId: string): void {
+  for (const key of state.interactionRates.keys()) {
+    if (key.startsWith(`session:${sessionId}:`)) state.interactionRates.delete(key)
+  }
+}
+
+function hasConnectedReceiver(sessionId: string): boolean {
+  return [...state.clients.values()].some((client) => client.sessionId === sessionId)
+}
+
+function hasLiveReceiverLease(
+  sessionId: string,
+  session: StreamingSession,
+  now = Date.now()
+): boolean {
+  return !session.deleted && (
+    hasConnectedReceiver(sessionId) ||
+    session.receiverLeaseExpiresAt > now
+  )
+}
+
+function clearReceiverLeaseTimer(session: StreamingSession): void {
+  if (session.receiverLeaseTimer) clearTimeout(session.receiverLeaseTimer)
+  session.receiverLeaseTimer = null
+}
+
+function scheduleReceiverLeaseExpiry(sessionId: string, session: StreamingSession): void {
+  clearReceiverLeaseTimer(session)
+  if (session.deleted || hasConnectedReceiver(sessionId)) return
+  session.receiverLeaseTimer = setTimeout(() => {
+    const current = state.sessions.get(sessionId)
+    if (current !== session || session.deleted) return
+    session.receiverLeaseTimer = null
+    if (hasConnectedReceiver(sessionId)) return
+    if (session.receiverLeaseExpiresAt > Date.now()) {
+      scheduleReceiverLeaseExpiry(sessionId, session)
+      return
+    }
+    session.receiverLeaseExpiresAt = 0
+    void releaseSessionInteraction(sessionId, session, 'receiver-lease-expired')
+  }, Math.max(1, session.receiverLeaseExpiresAt - Date.now()))
+  session.receiverLeaseTimer.unref?.()
+}
+
+function renewReceiverLease(sessionId: string, session: StreamingSession): boolean {
+  if (state.stopping || session.deleted || state.sessions.get(sessionId) !== session) return false
+  session.receiverLeaseExpiresAt = Date.now() + configuredReceiverLeaseTtlMs()
+  scheduleReceiverLeaseExpiry(sessionId, session)
+  if (!session.releasePromise) session.ownershipClosing = false
+  return true
+}
+
+function queueSessionTokenOperation<T>(
+  session: StreamingSession,
+  token: string,
+  operation: () => Promise<T>
+): Promise<T> {
+  const previous = session.tokenOperations.get(token) ?? Promise.resolve()
+  const current = previous
+    .catch(() => undefined)
+    .then(operation)
+  const drained = current.then(() => undefined, () => undefined)
+  session.tokenOperations.set(token, drained)
+  void drained.then(() => {
+    if (session.tokenOperations.get(token) === drained) session.tokenOperations.delete(token)
+  })
+  return current
+}
+
+async function releaseSessionInteraction(sessionId: string, session: StreamingSession, reason: string): Promise<void> {
+  if (session.releasePromise) return session.releasePromise
+  session.ownershipClosing = true
+  removeInteractionRatesForSession(sessionId)
+  let release!: Promise<void>
+  release = (async () => {
+    try {
+      const touchController = session.targetKind === 'touch' && session.role === 'touch-controller'
+      const releaseOwner = touchController
+        ? releaseTouchSemanticActionOwner(streamSessionOwnerKey(sessionId))
+        : Promise.resolve()
+      const results = await Promise.allSettled([
+        releaseOwner,
+        ...session.tokenOperations.values()
+      ])
+      const cleanupFailures: string[] = []
+      let executedLatchCleanup = false
+      for (const [token, latch] of [...session.activeLatches]) {
+        if (session.activeLatches.get(token) !== latch) continue
+        executedLatchCleanup = true
+        const result = await executeLogicalLatchCleanup(
+          sessionId,
+          session,
+          token,
+          latch,
+          true
+        )
+        if (!result.ok) cleanupFailures.push(result.message)
+      }
+      const finalOwnerRelease = touchController && executedLatchCleanup
+        ? await Promise.allSettled([
+            releaseTouchSemanticActionOwner(streamSessionOwnerKey(sessionId))
+          ])
+        : []
+      session.activeTokens.clear()
+      for (const token of session.activeLatches.keys()) session.activeTokens.add(token)
+      if (touchController) {
+        const ownerRelease = results[0]
+        if (ownerRelease.status === 'rejected') throw ownerRelease.reason
+        const finalRelease = finalOwnerRelease[0]
+        if (finalRelease?.status === 'rejected') throw finalRelease.reason
+        if (cleanupFailures.length > 0) throw new Error(cleanupFailures.join('; '))
+        logger.info('streaming', 'interactive touch owner released', { reason })
+      }
+    } catch (error) {
+      state.interactionHealth = 'degraded'
+      state.lastInteractionFeedback = 'A held Touch control could not be released cleanly.'
+      logger.error('streaming', 'interactive touch owner release failed', {
+        reason,
+        message: error instanceof Error ? error.message : String(error)
+      })
+    } finally {
+      if (session.releasePromise === release) session.releasePromise = null
+      if (!session.deleted && hasLiveReceiverLease(sessionId, session)) {
+        session.ownershipClosing = false
+      }
+    }
+  })()
+  session.releasePromise = release
+  return release
+}
+
+function invalidateReceiverLease(
+  sessionId: string,
+  session: StreamingSession,
+  reason: string
+): Promise<void> {
+  session.receiverLeaseExpiresAt = 0
+  clearReceiverLeaseTimer(session)
+  return releaseSessionInteraction(sessionId, session, reason)
+}
+
+function scheduleSessionExpiry(sessionId: string, session: StreamingSession): void {
+  if (session.expiryTimer) clearTimeout(session.expiryTimer)
+  session.expiryTimer = setTimeout(() => {
+    const current = state.sessions.get(sessionId)
+    if (current !== session) return
+    if (current.expiresAt > Date.now()) {
+      scheduleSessionExpiry(sessionId, current)
+      return
+    }
+    void deleteStreamingSession(sessionId, 'session-expired')
+  }, Math.max(1, session.expiresAt - Date.now()))
+  session.expiryTimer.unref?.()
+}
+
+function deleteStreamingSession(sessionId: string, reason: string): Promise<void> {
+  const session = state.sessions.get(sessionId)
+  if (!session) return Promise.resolve()
+  session.deleted = true
+  state.sessions.delete(sessionId)
+  if (session.expiryTimer) clearTimeout(session.expiryTimer)
+  session.expiryTimer = null
+  clearReceiverLeaseTimer(session)
+  for (const client of [...state.clients.values()]) {
+    if (client.sessionId === sessionId) closeClient(client.id)
+  }
+  const cleanup = releaseSessionInteraction(sessionId, session, reason)
+  state.sessionCleanupPromises.add(cleanup)
+  void cleanup.then(
+    () => state.sessionCleanupPromises.delete(cleanup),
+    () => state.sessionCleanupPromises.delete(cleanup)
+  )
+  return cleanup
+}
+
 function cleanupExpiredSessions(now = Date.now()): void {
   for (const [id, session] of state.sessions) {
-    if (session.expiresAt <= now) state.sessions.delete(id)
+    if (session.expiresAt <= now) void deleteStreamingSession(id, 'session-expired')
   }
 }
 
@@ -667,7 +1238,7 @@ function clearSessionsForPublicOrigin(value: string | null): void {
   let removed = 0
   for (const [id, session] of state.sessions) {
     if (session.origin !== origin) continue
-    state.sessions.delete(id)
+    void deleteStreamingSession(id, 'public-origin-retired')
     removed += 1
   }
   if (removed > 0) {
@@ -675,16 +1246,12 @@ function clearSessionsForPublicOrigin(value: string | null): void {
   }
 }
 
-function serializeSessionCookie(
-  sessionId: string,
-  basePath: string,
-  scope: StreamingSessionScope,
-  ttlMs: number
-): string {
+function serializeSessionCookie(sessionId: string, session: StreamingSession): string {
+  const maxAgeSeconds = Math.max(1, Math.ceil((session.expiresAt - Date.now()) / 1_000))
   const attributes = [
-    `${sessionCookieName(scope)}=${sessionId}`,
-    `Path=${basePath}`,
-    `Max-Age=${Math.floor(ttlMs / 1000)}`,
+    `${sessionCookieName(session.scope)}=${sessionId}`,
+    `Path=${session.basePath}`,
+    `Max-Age=${maxAgeSeconds}`,
     'HttpOnly',
     'SameSite=Strict'
   ]
@@ -708,30 +1275,53 @@ function oldestSessionId(access: StreamingSessionAccess, scope: StreamingSession
 }
 
 function createSession(
+  request: IncomingMessage,
   route: StreamingRequestRoute,
   access: StreamingSessionAccess,
   scope: StreamingSessionScope,
-  ttlMs = scope === 'receiver' ? RECEIVER_BOOTSTRAP_TTL_MS : SESSION_TTL_MS
+  ttlMs = scope === 'receiver' ? RECEIVER_BOOTSTRAP_TTL_MS : configuredSessionTtlMs()
 ): { id: string; cookie: string } | null {
+  if (state.stopping) return null
   cleanupExpiredSessions()
   if (access === 'bootstrap') {
     while (sessionCount('bootstrap', scope) >= MAX_BOOTSTRAP_SESSIONS) {
       const oldestBootstrap = oldestSessionId('bootstrap', scope)
       if (!oldestBootstrap) break
-      state.sessions.delete(oldestBootstrap)
+      void deleteStreamingSession(oldestBootstrap, 'bootstrap-evicted')
     }
   } else if (sessionCount('authenticated', scope) >= MAX_AUTHENTICATED_SESSIONS) {
     return null
   }
+  const origin = route.externalOrigin ?? normalizedRequestOrigin(request)
+  if (!origin) return null
   const id = randomBytes(SESSION_BYTES).toString('base64url')
-  state.sessions.set(id, {
+  const session: StreamingSession = {
     access,
+    role: scope === 'stream' && access === 'authenticated' && state.layoutKind === 'touch'
+      ? 'touch-controller'
+      : 'viewer',
     scope,
     basePath: route.externalBasePath,
-    origin: route.externalOrigin,
-    expiresAt: Date.now() + ttlMs
-  })
-  return { id, cookie: serializeSessionCookie(id, route.externalBasePath, scope, ttlMs) }
+    origin,
+    targetKind: state.layoutKind,
+    targetId: state.layoutId,
+    expiresAt: Date.now() + ttlMs,
+    csrfToken: generateSecret(CSRF_BYTES),
+    replayNonce: generateSecret(NONCE_BYTES),
+    activeTokens: new Set(),
+    activeLatches: new Map(),
+    lastFeedback: null,
+    expiryTimer: null,
+    receiverLeaseExpiresAt: 0,
+    receiverLeaseTimer: null,
+    tokenOperations: new Map(),
+    releasePromise: null,
+    ownershipClosing: false,
+    deleted: false
+  }
+  state.sessions.set(id, session)
+  scheduleSessionExpiry(id, session)
+  return { id, cookie: serializeSessionCookie(id, session) }
 }
 
 function cookieValue(request: IncomingMessage, name: string): string | null {
@@ -754,7 +1344,17 @@ function sessionForRequest(
   const id = cookieValue(request, sessionCookieName(scope))
   if (!id || !/^[A-Za-z0-9_-]{32,128}$/.test(id)) return null
   const session = state.sessions.get(id)
-  if (!session || session.scope !== scope || session.basePath !== route.externalBasePath || session.origin !== route.externalOrigin) return null
+  const requestOrigin = route.externalOrigin ?? normalizedRequestOrigin(request)
+  if (
+    !session ||
+    session.scope !== scope ||
+    session.basePath !== route.externalBasePath ||
+    session.origin !== requestOrigin ||
+    (
+      scope === 'stream' &&
+      (session.targetKind !== state.layoutKind || session.targetId !== state.layoutId)
+    )
+  ) return null
   return { id, session }
 }
 
@@ -1137,8 +1737,17 @@ function serveStatic(pathname: string, request: IncomingMessage, response: Serve
 }
 
 function sendJson(response: ServerResponse, body: unknown, method: string | undefined): void {
+  sendJsonStatus(response, 200, body, method)
+}
+
+function sendJsonStatus(
+  response: ServerResponse,
+  statusCode: number,
+  body: unknown,
+  method?: string
+): void {
   applyCors(response)
-  response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+  response.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
   response.end(method === 'HEAD' ? undefined : JSON.stringify(body))
 }
 
@@ -1181,6 +1790,10 @@ async function exchangePasswordSession(
     send(response, error instanceof SyntaxError ? 400 : 413, error instanceof SyntaxError ? 'Invalid JSON' : 'Request body is too large')
     return
   }
+  if (state.stopping) {
+    send(response, 503, 'Streaming server is stopping')
+    return
+  }
 
   if (state.passwordHash && !verifyPassword(password, state.passwordHash)) {
     recordAuthFailure(request, 'password')
@@ -1194,9 +1807,13 @@ async function exchangePasswordSession(
     return
   }
   active.session.access = 'authenticated'
-  active.session.expiresAt = Date.now() + SESSION_TTL_MS
+  active.session.role = active.session.targetKind === 'touch' ? 'touch-controller' : 'viewer'
+  active.session.expiresAt = Date.now() + configuredSessionTtlMs()
+  active.session.csrfToken = generateSecret(CSRF_BYTES)
+  active.session.replayNonce = generateSecret(NONCE_BYTES)
+  scheduleSessionExpiry(active.id, active.session)
   applyCors(response)
-  response.setHeader('Set-Cookie', serializeSessionCookie(active.id, active.session.basePath, 'stream', SESSION_TTL_MS))
+  response.setHeader('Set-Cookie', serializeSessionCookie(active.id, active.session))
   response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
   response.end(JSON.stringify({ authenticated: true }))
 }
@@ -1317,11 +1934,12 @@ async function exchangeReceiverPairing(
   pairing.consumedAt = now
   active.session.access = 'authenticated'
   active.session.expiresAt = now + RECEIVER_SESSION_TTL_MS
+  scheduleSessionExpiry(active.id, active.session)
   state.receiverGateway?.markPaired()
   applyReceiverBrowserControls(response)
   response.setHeader(
     'Set-Cookie',
-    serializeSessionCookie(active.id, active.session.basePath, 'receiver', RECEIVER_SESSION_TTL_MS)
+    serializeSessionCookie(active.id, active.session)
   )
   response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
   response.end(JSON.stringify({ authenticated: true, readOnly: true, commandsEnabled: false }))
@@ -1372,10 +1990,80 @@ async function serveSelectedDashboard(id: string, request: IncomingMessage, resp
   sendJson(response, payload, request.method)
 }
 
-async function serveSelectedTouchPanel(id: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+function publicTouchCapabilities(): StreamingTouchCapability[] {
+  return [...state.touchCapabilities.values()]
+    .filter((entry) => currentCapabilityAction(entry) !== null)
+    .map(({ id, controlId, zone, phases }) => ({
+      id,
+      controlId,
+      zone,
+      phases: [...phases]
+    }))
+}
+
+function resolvedInteractionHealth(
+  sessionId?: string,
+  session?: StreamingSession
+): StreamingTouchHealth {
+  if (state.layoutKind !== 'touch') return 'read-only'
+  if (
+    sessionId &&
+    session &&
+    (session.ownershipClosing || !hasLiveReceiverLease(sessionId, session))
+  ) return 'degraded'
+  return hasTouchSemanticActionRuntime() ? state.interactionHealth : 'degraded'
+}
+
+function interactionSessionPayload(
+  sessionId: string,
+  session: StreamingSession
+): StreamingTouchPanelPayload['interaction'] {
+  return {
+    interactive: session.role === 'touch-controller',
+    indicator: 'INTERACTIVE TOUCH',
+    role: session.role,
+    health: resolvedInteractionHealth(sessionId, session),
+    targetId: session.targetId,
+    csrfToken: session.csrfToken,
+    nonce: session.replayNonce,
+    expiresAt: session.expiresAt,
+    leaseExpiresAt: session.receiverLeaseExpiresAt,
+    capabilities: publicTouchCapabilities(),
+    activeControls: session.activeTokens.size,
+    lastFeedback: session.lastFeedback
+  }
+}
+
+function interactionHealthPayload(
+  sessionId: string,
+  session: StreamingSession
+): StreamingTouchHealthResponse {
+  return {
+    interactive: session.role === 'touch-controller',
+    indicator: 'INTERACTIVE TOUCH',
+    role: session.role,
+    health: resolvedInteractionHealth(sessionId, session),
+    targetId: session.targetId,
+    expiresAt: session.expiresAt,
+    leaseExpiresAt: session.receiverLeaseExpiresAt,
+    activeControls: session.activeTokens.size,
+    lastFeedback: session.lastFeedback
+  }
+}
+
+async function serveSelectedTouchPanel(
+  id: string,
+  request: IncomingMessage,
+  response: ServerResponse,
+  activeSession: { id: string; session: StreamingSession }
+): Promise<void> {
   if (state.layoutKind !== 'touch' || id !== state.layoutId) {
     logger.error('streaming', 'touch api rejected non-selected id', { requestedId: id, selectedId: state.layoutId, layoutKind: state.layoutKind })
     send(response, 404, 'Not found')
+    return
+  }
+  if (activeSession.session.access !== 'authenticated' || activeSession.session.role !== 'touch-controller') {
+    send(response, 403, 'Forbidden')
     return
   }
   if (await activePresentationProfile(response) === false) return
@@ -1385,7 +2073,346 @@ async function serveSelectedTouchPanel(id: string, request: IncomingMessage, res
     send(response, 404, 'Not found')
     return
   }
-  sendJson(response, panel, request.method)
+  renewReceiverLease(activeSession.id, activeSession.session)
+  const payload: StreamingTouchPanelPayload = {
+    panel: projectTouchPanelForStreaming(panel),
+    interaction: interactionSessionPayload(activeSession.id, activeSession.session)
+  }
+  sendJson(response, payload, request.method)
+}
+
+function consumeInteractionRate(key: string, now: number): boolean {
+  const current = state.interactionRates.get(key) ?? { timestamps: [] }
+  current.timestamps = current.timestamps.filter((timestamp) => now - timestamp < INTERACTION_SUSTAINED_WINDOW_MS)
+  const burstCount = current.timestamps.filter((timestamp) => now - timestamp < INTERACTION_BURST_WINDOW_MS).length
+  if (
+    burstCount >= INTERACTION_BURST_LIMIT ||
+    current.timestamps.length >= INTERACTION_SUSTAINED_LIMIT
+  ) {
+    state.interactionRates.set(key, current)
+    return true
+  }
+  current.timestamps.push(now)
+  state.interactionRates.set(key, current)
+  return false
+}
+
+function isInteractionRateLimited(
+  sessionId: string,
+  request: IncomingMessage,
+  now = Date.now()
+): boolean {
+  const address = normalizeRemoteAddress(request.socket.remoteAddress)
+  return consumeInteractionRate(`session:${sessionId}:${address}`, now) ||
+    consumeInteractionRate(`ip:${address}`, now)
+}
+
+function updateActiveInteraction(
+  session: StreamingSession,
+  capability: StreamingTouchCapabilityEntry,
+  phase: TouchActionPhase
+): void {
+  if (capability.zone === 'on') {
+    const offCapability = [...state.touchCapabilities.values()].find((candidate) =>
+      candidate.token === capability.token && candidate.zone === 'off'
+    )
+    const teardownCapability = [...state.touchCapabilities.values()].find((candidate) =>
+      candidate.token === capability.token && candidate.zone === 'teardown'
+    ) ?? null
+    const needsSeparateTeardown = capability.action.kind === 'keyboard' &&
+      capability.action.command.mode === 'toggle' &&
+      !(
+        offCapability?.action.kind === 'keyboard' &&
+        offCapability.action.command.mode === 'toggle'
+      )
+    if (offCapability) {
+      session.activeLatches.set(capability.token, {
+        offCapability,
+        teardownCapability: needsSeparateTeardown ? teardownCapability : null,
+        teardownComplete: false
+      })
+    }
+    session.activeTokens.add(capability.token)
+    return
+  }
+  if (capability.zone === 'off') {
+    session.activeLatches.delete(capability.token)
+    session.activeTokens.delete(capability.token)
+    return
+  }
+  if (capability.zone === 'teardown') {
+    const latch = session.activeLatches.get(capability.token)
+    if (latch) latch.teardownComplete = true
+    return
+  }
+  if (capability.action.kind !== 'keyboard') return
+  const mode = capability.action.command.mode
+  if (mode === 'hold') {
+    if (phase === 'begin') session.activeTokens.add(capability.token)
+    if (phase === 'end' || phase === 'cancel') session.activeTokens.delete(capability.token)
+    return
+  }
+  if (mode !== 'toggle') return
+  if (phase === 'cancel') {
+    session.activeLatches.delete(capability.token)
+    session.activeTokens.delete(capability.token)
+    return
+  }
+  if (session.activeTokens.has(capability.token)) session.activeTokens.delete(capability.token)
+  else session.activeTokens.add(capability.token)
+}
+
+function isCleanupCapabilityRequest(
+  capability: StreamingTouchCapabilityEntry,
+  phase: TouchActionPhase
+): boolean {
+  return phase === 'end' ||
+    phase === 'cancel' ||
+    capability.zone === 'off' ||
+    capability.zone === 'teardown'
+}
+
+function touchActionPayload(
+  sessionId: string,
+  session: StreamingSession,
+  result: { ok: boolean; message: string },
+  capability?: StreamingTouchCapabilityEntry,
+  phase?: TouchActionPhase
+): StreamingTouchActionResponse {
+  return {
+    ok: result.ok,
+    message: result.message,
+    health: resolvedInteractionHealth(sessionId, session),
+    nextNonce: session.replayNonce,
+    leaseExpiresAt: session.receiverLeaseExpiresAt,
+    ...(capability ? { controlId: capability.controlId } : {}),
+    ...(phase ? { phase } : {}),
+    activeControls: session.activeTokens.size
+  }
+}
+
+async function executeCapabilityOperation(
+  sessionId: string,
+  session: StreamingSession,
+  capability: StreamingTouchCapabilityEntry,
+  phase: TouchActionPhase,
+  action: ButtonAction,
+  cleanupDuringTeardown = false
+): Promise<{ ok: boolean; message: string }> {
+  let result = { ok: true, message: `${capability.controlId} ${phase} acknowledged.` }
+  if (capability.executePhases.includes(phase)) {
+    const semanticRequest = normalizeTouchSemanticActionRequest({
+      action,
+      phase,
+      token: capability.token,
+      zone: capability.zone
+    })
+    if (!semanticRequest) {
+      result = { ok: false, message: 'Touch capability failed semantic validation.' }
+    } else {
+      try {
+        result = cleanupDuringTeardown
+          ? await executeTouchSemanticCleanupAction(semanticRequest, streamSessionOwnerKey(sessionId))
+          : await executeTouchSemanticAction(semanticRequest, streamSessionOwnerKey(sessionId))
+      } catch (error) {
+        result = {
+          ok: false,
+          message: error instanceof Error ? error.message : 'Touch action execution failed.'
+        }
+      }
+    }
+  }
+
+  if (result.ok) {
+    updateActiveInteraction(session, capability, phase)
+    state.interactionHealth = 'ready'
+  } else {
+    state.interactionHealth = 'degraded'
+  }
+  session.lastFeedback = result.message
+  state.lastInteractionFeedback = result.message
+  return result
+}
+
+async function executeLogicalLatchCleanup(
+  sessionId: string,
+  session: StreamingSession,
+  token: string,
+  latch: StreamingLatchState,
+  cleanupDuringTeardown: boolean
+): Promise<{ ok: boolean; message: string }> {
+  if (latch.teardownCapability && !latch.teardownComplete) {
+    const teardownResult = await executeCapabilityOperation(
+      sessionId,
+      session,
+      latch.teardownCapability,
+      'cancel',
+      latch.teardownCapability.action,
+      cleanupDuringTeardown
+    )
+    if (!teardownResult.ok) return teardownResult
+  }
+  if (session.activeLatches.get(token) !== latch) {
+    return { ok: true, message: `${latch.offCapability.controlId} is already released.` }
+  }
+  return executeCapabilityOperation(
+    sessionId,
+    session,
+    latch.offCapability,
+    'trigger',
+    latch.offCapability.action,
+    cleanupDuringTeardown
+  )
+}
+
+function isStreamingTouchActionRequest(value: unknown): value is StreamingTouchActionRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const request = value as Record<string, unknown>
+  if (!Object.keys(request).every((key) => ['targetId', 'capabilityId', 'phase', 'nonce'].includes(key))) return false
+  return (
+    typeof request.targetId === 'string' &&
+    isValidLayoutId(request.targetId) &&
+    typeof request.capabilityId === 'string' &&
+    /^[A-Za-z0-9_-]{16,128}$/.test(request.capabilityId) &&
+    ['trigger', 'begin', 'end', 'cancel'].includes(String(request.phase)) &&
+    typeof request.nonce === 'string' &&
+    /^[A-Za-z0-9_-]{16,128}$/.test(request.nonce)
+  )
+}
+
+async function executeTouchInteraction(
+  request: IncomingMessage,
+  response: ServerResponse,
+  route: StreamingRequestRoute,
+  id: string
+): Promise<void> {
+  const active = sessionForRequest(request, route, 'stream')
+  if (!active || active.session.access !== 'authenticated') {
+    send(response, 403, 'Forbidden')
+    return
+  }
+  const session = active.session
+  if (
+    state.layoutKind !== 'touch' ||
+    id !== state.layoutId ||
+    session.role !== 'touch-controller' ||
+    session.targetKind !== 'touch' ||
+    session.targetId !== id
+  ) {
+    send(response, 403, 'Interactive Touch role required')
+    return
+  }
+  if (!hasBoundInteractionOrigin(request, session)) {
+    send(response, 403, 'Forbidden origin')
+    return
+  }
+  if (!safeTokenEqual(headerValue(request, 'x-stream-csrf'), session.csrfToken)) {
+    send(response, 403, 'Invalid CSRF token')
+    return
+  }
+  if (!/^application\/json(?:;|$)/i.test(headerValue(request, 'content-type') ?? '')) {
+    send(response, 415, 'Expected application/json')
+    return
+  }
+
+  let body: unknown
+  try {
+    body = JSON.parse(await readRequestBody(request, 2_048))
+  } catch (error) {
+    send(response, error instanceof SyntaxError ? 400 : 413, error instanceof SyntaxError ? 'Invalid JSON' : 'Request body is too large')
+    return
+  }
+  if (!isStreamingTouchActionRequest(body) || body.targetId !== id) {
+    send(response, 400, 'Invalid Touch capability request')
+    return
+  }
+  if (state.stopping) {
+    send(response, 503, 'Streaming server is stopping')
+    return
+  }
+  const capability = state.touchCapabilities.get(body.capabilityId)
+  if (!capability || !capability.phases.includes(body.phase)) {
+    send(response, 403, 'Touch capability is not allowed')
+    return
+  }
+  const cleanupRequest = isCleanupCapabilityRequest(capability, body.phase)
+  const currentAction = currentCapabilityAction(capability)
+  if (!cleanupRequest && !currentAction) {
+    send(response, 403, 'Touch capability is not allowed')
+    return
+  }
+
+  if (cleanupRequest) {
+    if (session.releasePromise || !hasLiveReceiverLease(active.id, session)) {
+      await (session.releasePromise ?? releaseSessionInteraction(active.id, session, 'cleanup-without-live-receiver'))
+      const payload = touchActionPayload(
+        active.id,
+        session,
+        { ok: true, message: `${capability.controlId} is already released.` },
+        capability,
+        body.phase
+      )
+      sendJsonStatus(response, 200, payload)
+      return
+    }
+    const result = await queueSessionTokenOperation(session, capability.token, async () => {
+      if (session.deleted || session.ownershipClosing || !session.activeTokens.has(capability.token)) {
+        return { ok: true, message: `${capability.controlId} is already released.` }
+      }
+      const latch = session.activeLatches.get(capability.token)
+      return latch
+        ? executeLogicalLatchCleanup(active.id, session, capability.token, latch, false)
+        : executeCapabilityOperation(
+            active.id,
+            session,
+            capability,
+            body.phase,
+            currentAction ?? capability.action
+          )
+    })
+    const payload = touchActionPayload(active.id, session, result, capability, body.phase)
+    sendJsonStatus(response, result.ok ? 200 : 422, payload)
+    return
+  }
+
+  if (!hasLiveReceiverLease(active.id, session) || session.ownershipClosing) {
+    const unavailable = touchActionPayload(
+      active.id,
+      session,
+      { ok: false, message: 'Interactive Touch receiver lease expired; reconnect or wait for heartbeat.' },
+      capability,
+      body.phase
+    )
+    sendJsonStatus(response, 409, unavailable)
+    return
+  }
+  if (!safeTokenEqual(body.nonce, session.replayNonce)) {
+    const replay: StreamingTouchActionResponse = {
+      ok: false,
+      message: 'Replay or stale interaction nonce rejected.',
+      health: resolvedInteractionHealth(active.id, session),
+      nextNonce: session.replayNonce,
+      leaseExpiresAt: session.receiverLeaseExpiresAt,
+      activeControls: session.activeTokens.size
+    }
+    sendJsonStatus(response, 409, replay)
+    return
+  }
+
+  if (isInteractionRateLimited(active.id, request)) {
+    send(response, 429, 'Touch interaction rate limit exceeded')
+    return
+  }
+  renewReceiverLease(active.id, session)
+  session.replayNonce = generateSecret(NONCE_BYTES)
+  const result = await queueSessionTokenOperation(session, capability.token, async () => {
+    if (session.deleted || session.ownershipClosing || !hasLiveReceiverLease(active.id, session)) {
+      return { ok: false, message: 'Interactive Touch receiver lease ended before execution.' }
+    }
+    return executeCapabilityOperation(active.id, session, capability, body.phase, currentAction!)
+  })
+  const payload = touchActionPayload(active.id, session, result, capability, body.phase)
+  sendJsonStatus(response, result.ok ? 200 : 422, payload)
 }
 
 async function serveSelectedPresentationProfile(
@@ -1467,7 +2494,13 @@ export function isSseBackpressured(writableLength: number): boolean {
   return !Number.isFinite(writableLength) || writableLength > MAX_WEBSOCKET_BUFFERED_BYTES
 }
 
-function openSse(ctx: ModuleContext, request: IncomingMessage, response: ServerResponse): void {
+function openSse(
+  ctx: ModuleContext,
+  request: IncomingMessage,
+  response: ServerResponse,
+  sessionId: string,
+  session: StreamingSession
+): void {
   if (request.method === 'HEAD') {
     applyCors(response)
     response.writeHead(200, { 'Cache-Control': 'no-store' })
@@ -1511,9 +2544,11 @@ function openSse(ctx: ModuleContext, request: IncomingMessage, response: ServerR
     transport: 'sse',
     close: () => {
       if (!response.destroyed) response.end()
-    }
+    },
+    sessionId
   }
   state.clients.set(id, client)
+  renewReceiverLease(sessionId, session)
   logger.info('streaming', 'client connected', {
     id,
     address: client.address,
@@ -1525,7 +2560,13 @@ function openSse(ctx: ModuleContext, request: IncomingMessage, response: ServerR
   request.on('close', () => closeClient(id))
 }
 
-function openWebSocket(ctx: ModuleContext, request: IncomingMessage, socket: WebSocket): void {
+function openWebSocket(
+  ctx: ModuleContext,
+  request: IncomingMessage,
+  socket: WebSocket,
+  sessionId: string,
+  session: StreamingSession
+): void {
   if (state.clients.size >= MAX_STREAM_CLIENTS) {
     socket.close(1013, 'Too many streaming clients')
     return
@@ -1557,9 +2598,11 @@ function openWebSocket(ctx: ModuleContext, request: IncomingMessage, socket: Web
       if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
         socket.terminate()
       }
-    }
+    },
+    sessionId
   }
   state.clients.set(id, client)
+  renewReceiverLease(sessionId, session)
   logger.info('streaming', 'client connected', {
     id,
     address: client.address,
@@ -1578,6 +2621,13 @@ function closeClient(id: number): void {
   state.clients.delete(id)
   clearInterval(client.timer)
   client.close()
+  const sessionStillConnected = [...state.clients.values()].some((candidate) =>
+    candidate.sessionId === client.sessionId
+  )
+  if (!sessionStillConnected) {
+    const session = state.sessions.get(client.sessionId)
+    if (session) void invalidateReceiverLease(client.sessionId, session, 'receiver-disconnected')
+  }
   logger.info('streaming', 'client disconnected', {
     id,
     address: client.address,
@@ -1654,7 +2704,7 @@ function handleWebSocketUpgrade(ctx: ModuleContext, request: IncomingMessage, so
       return
     }
     webSocketServer.handleUpgrade(request, socket, head, (webSocket) => {
-      openWebSocket(ctx, request, webSocket)
+      openWebSocket(ctx, request, webSocket, session.id, session.session)
     })
   } catch (error) {
     logger.warn('streaming', 'websocket upgrade rejected', {
@@ -1809,22 +2859,24 @@ function receiverStatus(): ReceiverV2Status {
 }
 
 function touchControlsUrl(origin?: string | null): string | null {
-  void origin
-  return null
+  return state.layoutKind === 'touch' ? dashboardUrl(origin) : null
 }
 
 function warning(): string | null {
+  const interaction = state.layoutKind === 'touch'
+    ? 'Only allowlisted controls in this selected Touch panel are interactive; all other stream surfaces stay read-only.'
+    : 'Dashboard streaming is telemetry-only and read-only.'
   if (state.accessMode === 'internet') {
     if (!state.publicBaseUrl) {
       return state.autoTunnelMessage ?? 'No public HTTPS URL is active. Start Auto-tunnel or enter a manual public HTTPS URL.'
     }
-    return state.firewallMessage ?? 'Internet mode is read-only and requires the token plus password. Use a trusted HTTPS tunnel/public URL that forwards only this stream port.'
+    return state.firewallMessage ?? `Internet mode requires the token plus password. ${interaction} Use a trusted HTTPS tunnel/public URL that forwards only this stream port.`
   }
   if (state.accessMode === 'lan') {
     if (!state.lanAddress) {
       return 'No private LAN IPv4 address was found. The server is running, but phone/tablet QR access is unavailable. Connect this PC to Wi-Fi/Ethernet, then restart streaming.'
     }
-    return state.firewallMessage ?? `LAN streaming is available over HTTP at ${state.lanAddress}:${state.port ?? 'unknown port'} and still requires the token plus password.`
+    return state.firewallMessage ?? `LAN streaming is available over HTTP at ${state.lanAddress}:${state.port ?? 'unknown port'} and still requires the token plus password. ${interaction}`
   }
   return null
 }
@@ -1884,7 +2936,12 @@ async function status(): Promise<StreamingStatus> {
     autoTunnelRunning: autoTunnelSupervisor?.snapshot.phase === 'online' && state.autoTunnelUrl !== null,
     autoTunnelMessage: state.autoTunnelMessage,
     receiverV2: receiverStatus(),
-    presentationProfileId: state.presentationProfileId
+    presentationProfileId: state.presentationProfileId,
+    interactive: state.layoutKind === 'touch',
+    interactionHealth: resolvedInteractionHealth(),
+    interactiveCapabilities: publicTouchCapabilities().length,
+    activeInteractions: [...state.sessions.values()].reduce((count, session) => count + session.activeTokens.size, 0),
+    lastInteractionFeedback: state.lastInteractionFeedback
   }
 }
 
@@ -2452,12 +3509,21 @@ async function selfTest(
     try {
       const target = JSON.parse(targetResponse.body.toString('utf8')) as {
         id?: unknown
+        panel?: { id?: unknown }
+        interaction?: { interactive?: unknown; role?: unknown; health?: unknown }
         dashboard?: { id?: unknown }
         expressionContent?: { mode?: unknown; message?: unknown }
       }
-      const targetId = state.layoutKind === 'dashboard' ? target.dashboard?.id : target.id
+      const targetId = state.layoutKind === 'dashboard' ? target.dashboard?.id : target.panel?.id ?? target.id
       if (targetId !== state.layoutId) {
         throw new SelfTestStageError('target', `Target API returned ${String(targetId ?? 'no id')} instead of ${state.layoutId}.`)
+      }
+      if (state.layoutKind === 'touch' && (
+        target.interaction?.interactive !== true ||
+        target.interaction.role !== 'touch-controller' ||
+        !['ready', 'degraded'].includes(String(target.interaction.health))
+      )) {
+        throw new SelfTestStageError('target', 'Touch target did not establish an interactive controller session.')
       }
       if (state.layoutKind === 'dashboard' && (
         target.expressionContent?.mode !== 'excluded' ||
@@ -2509,7 +3575,9 @@ async function selfTest(
     })
     return { reachable: false, statusCode: failure.statusCode, url: safeUrl, stage: failure.stage, message }
   } finally {
-    if (selfTestSessionId) state.sessions.delete(selfTestSessionId)
+    if (selfTestSessionId) {
+      await deleteStreamingSession(selfTestSessionId, 'self-test-complete')
+    }
   }
 }
 
@@ -2561,7 +3629,7 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
         let active = sessionForRequest(request, route, 'receiver')
         let sessionCookie: string
         if (!active) {
-          const created = createSession(route, 'bootstrap', 'receiver', RECEIVER_BOOTSTRAP_TTL_MS)
+          const created = createSession(request, route, 'bootstrap', 'receiver', RECEIVER_BOOTSTRAP_TTL_MS)
           if (!created) {
             send(response, 503, 'Too many receiver sessions')
             return
@@ -2569,8 +3637,7 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
           active = { id: created.id, session: state.sessions.get(created.id)! }
           sessionCookie = created.cookie
         } else {
-          const remainingTtl = Math.max(1_000, active.session.expiresAt - Date.now())
-          sessionCookie = serializeSessionCookie(active.id, active.session.basePath, 'receiver', remainingTtl)
+          sessionCookie = serializeSessionCookie(active.id, active.session)
         }
         serveReceiverHtml(request, response, sessionCookie)
         return
@@ -2610,6 +3677,23 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
       return
     }
 
+    if (pathname.startsWith('/api/touch/action/')) {
+      if (request.method !== 'POST') {
+        applyCors(response)
+        response.setHeader('Allow', 'POST')
+        response.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' })
+        response.end('Method not allowed')
+        return
+      }
+      const id = decodeURIComponent(pathname.slice('/api/touch/action/'.length))
+      if (!isValidLayoutId(id)) {
+        send(response, 404, 'Not found')
+        return
+      }
+      await executeTouchInteraction(request, response, route, id)
+      return
+    }
+
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       rejectMethod(response)
       return
@@ -2637,7 +3721,16 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
           return
         }
         clearAuthFailure(request, 'token')
-        const session = createSession(route, state.accessMode === 'local' ? 'authenticated' : 'bootstrap', 'stream')
+        if (!normalizedRequestOrigin(request)) {
+          send(response, 403, 'Forbidden origin')
+          return
+        }
+        const session = createSession(
+          request,
+          route,
+          state.accessMode === 'local' ? 'authenticated' : 'bootstrap',
+          'stream'
+        )
         if (!session) {
           send(response, 503, 'Too many authenticated streaming sessions')
           return
@@ -2673,7 +3766,8 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
       pathname.startsWith('/assets/') ||
       pathname.startsWith('/api/dashboard/') ||
       pathname.startsWith('/api/touch/panel/') ||
-      pathname.startsWith('/api/presentation/')
+      pathname.startsWith('/api/presentation/') ||
+      pathname.startsWith('/api/touch/health/')
     ) {
       if (pathname.startsWith('/assets/')) {
         if (!activeStreamSession && !activeReceiverSession) {
@@ -2708,7 +3802,7 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
           send(response, 404, 'Not found')
           return
         }
-        await serveSelectedTouchPanel(id, request, response)
+        await serveSelectedTouchPanel(id, request, response, activeStreamSession)
         return
       }
       if (pathname.startsWith('/api/presentation/')) {
@@ -2720,6 +3814,29 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
         await serveSelectedPresentationProfile(id, request, response)
         return
       }
+      if (pathname.startsWith('/api/touch/health/')) {
+        const id = decodeURIComponent(pathname.slice('/api/touch/health/'.length))
+        if (
+          !isValidLayoutId(id) ||
+          id !== state.layoutId ||
+          state.layoutKind !== 'touch' ||
+          activeStreamSession.session.access !== 'authenticated' ||
+          activeStreamSession.session.role !== 'touch-controller' ||
+          !safeTokenEqual(headerValue(request, 'x-stream-csrf'), activeStreamSession.session.csrfToken)
+        ) {
+          send(response, 403, 'Forbidden')
+          return
+        }
+        renewReceiverLease(activeStreamSession.id, activeStreamSession.session)
+        sendJson(
+          response,
+          interactionHealthPayload(activeStreamSession.id, activeStreamSession.session),
+          request.method
+        )
+        return
+      }
+      serveStatic(pathname, request, response)
+      return
     }
 
     if (pathname === '/sse') {
@@ -2727,7 +3844,7 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
         send(response, 403, 'Forbidden')
         return
       }
-      openSse(ctx, request, response)
+      openSse(ctx, request, response, activeStreamSession.id, activeStreamSession.session)
       return
     }
 
@@ -2739,6 +3856,18 @@ async function handleRequest(ctx: ModuleContext, request: IncomingMessage, respo
       remoteAddress: normalizeRemoteAddress(request.socket.remoteAddress)
     })
     send(response, 400, 'Bad request')
+  }
+}
+
+async function drainStreamingSessions(reason: string): Promise<void> {
+  while (state.sessions.size > 0) {
+    await Promise.all(
+      [...state.sessions.keys()].map((id) => deleteStreamingSession(id, reason))
+    )
+  }
+  while (state.sessionCleanupPromises.size > 0) {
+    await Promise.allSettled([...state.sessionCleanupPromises])
+    await Promise.resolve()
   }
 }
 
@@ -2766,6 +3895,10 @@ function handleReceiverUpgrade(
   socket: Duplex,
   head: Buffer
 ): void {
+  if (state.stopping || !state.server) {
+    rejectReceiverUpgrade(socket, 503, 'Service Unavailable')
+    return
+  }
   try {
     const route = requestRoute(request)
     if (route.pathname !== '/receiver/v2/ws') {
@@ -2807,9 +3940,7 @@ function handleReceiverUpgrade(
   }
 }
 
-async function stop(): Promise<StreamingStatus> {
-  qrRefreshGeneration += 1
-  state.stopping = true
+async function stopStreaming(): Promise<StreamingStatus> {
   const server = state.server
   const receiverGateway = state.receiverGateway
   const webSocketServer = state.webSocketServer
@@ -2817,6 +3948,7 @@ async function stop(): Promise<StreamingStatus> {
   const hadLanListener = state.lanEnabled
   state.server = null
   state.webSocketServer = null
+  receiverGateway?.stop()
   const serverClosed = server
     ? new Promise<void>((resolveClose, rejectClose) => {
         server.close((error) => {
@@ -2825,18 +3957,20 @@ async function stop(): Promise<StreamingStatus> {
         })
       })
     : Promise.resolve()
+  const tunnelStopped: Promise<Error | null> = stopAutoTunnelProcess().then(
+    () => null as Error | null,
+    (error) => {
+      const cleanupError = error instanceof Error ? error : new Error(String(error))
+      logger.error('streaming', 'auto-tunnel cleanup failed while stopping streaming', {
+        message: cleanupError.message
+      })
+      return cleanupError
+    }
+  )
+  await drainStreamingSessions('stream-stopped')
   closeAllClients()
   server?.closeAllConnections()
-  let tunnelCleanupError: Error | null = null
-  try {
-    await stopAutoTunnelProcess()
-  } catch (error) {
-    tunnelCleanupError = error instanceof Error ? error : new Error(String(error))
-    logger.error('streaming', 'auto-tunnel cleanup failed while stopping streaming', {
-      message: tunnelCleanupError.message
-    })
-  }
-  closeAllClients()
+  const tunnelCleanupError = await tunnelStopped
   state.port = null
   state.token = null
   state.passwordHash = null
@@ -2863,22 +3997,33 @@ async function stop(): Promise<StreamingStatus> {
   state.receiverGateway = null
   state.receiverPairing = null
   state.authFailures.clear()
-  state.sessions.clear()
-  receiverGateway?.stop()
-  try {
-    if (webSocketServer) {
-      await new Promise<void>((resolveClose) => webSocketServer.close(() => resolveClose()))
-    }
-    await serverClosed
-    if (server) logger.info('streaming', 'server stopped', {})
-    if (hadLanListener && firewallPort) await removeWindowsFirewallRule(firewallPort)
-  } finally {
-    state.stopping = false
+  state.touchCapabilities.clear()
+  state.interactionRates.clear()
+  state.interactionHealth = 'read-only'
+  state.lastInteractionFeedback = null
+  if (webSocketServer) {
+    await new Promise<void>((resolveClose) => webSocketServer.close(() => resolveClose()))
   }
+  await serverClosed
+  if (server) logger.info('streaming', 'server stopped', {})
+  if (hadLanListener && firewallPort) await removeWindowsFirewallRule(firewallPort)
   if (tunnelCleanupError) {
     throw new Error(`Streaming stopped locally, but cloudflared cleanup could not be confirmed: ${tunnelCleanupError.message}`)
   }
   return status()
+}
+
+function stop(): Promise<StreamingStatus> {
+  if (stopPromise) return stopPromise
+  qrRefreshGeneration += 1
+  state.stopping = true
+  let tracked!: Promise<StreamingStatus>
+  tracked = stopStreaming().finally(() => {
+    if (stopPromise === tracked) stopPromise = null
+    state.stopping = false
+  })
+  stopPromise = tracked
+  return tracked
 }
 
 const STABLE_FIREWALL_RULE_NAME = 'Ultimate Sim App Streaming'
@@ -3002,12 +4147,23 @@ async function removeWindowsFirewallRule(port: number): Promise<void> {
 }
 
 async function start(ctx: ModuleContext, args: StreamingStartArgs = {}): Promise<StreamingStartResult> {
-  if (state.server || autoTunnelSupervisor) await stop()
+  if (stopPromise) await stopPromise
+  if (state.server || autoTunnelSupervisor || state.sessions.size > 0) await stop()
   const target = await resolveStreamTarget(args)
   state.layoutId = target.id
   state.layoutKind = target.kind
   state.touchPanelId = target.touchPanelId
   state.presentationProfileId = target.presentationProfileId
+  state.touchCapabilities.clear()
+  state.interactionRates.clear()
+  state.lastInteractionFeedback = null
+  if (target.kind === 'touch') {
+    const panel = getTouchPanelManager()?.getPanel(target.id)
+    if (!panel) throw new Error(`Touch controls panel not found: ${target.id}`)
+    rebuildTouchCapabilities(panel)
+  } else {
+    state.interactionHealth = 'read-only'
+  }
   state.streamSafe = args.streamSafe ?? true
   state.token = generateToken()
   state.accessMode = args.accessMode === 'internet' || args.accessMode === 'lan'
