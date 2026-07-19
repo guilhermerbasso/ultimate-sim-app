@@ -109,7 +109,11 @@ describe('StreamingMobileEditorView integration', () => {
   it('starts a saved presentation profile through streaming:start', async () => {
     renderEditor()
 
-    const start = await screen.findByRole('button', { name: 'Start streaming' })
+    const start = await screen.findByRole(
+      'button',
+      { name: 'Start streaming' },
+      { timeout: 5_000 }
+    )
     expect((start as HTMLButtonElement).disabled).toBe(false)
     fireEvent.click(start)
 

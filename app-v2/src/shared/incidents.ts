@@ -37,6 +37,29 @@ export type IncidentChannel = (typeof INCIDENT_CHANNELS)[keyof typeof INCIDENT_C
 
 export type IncidentType = 'spin' | 'off-track' | 'contact' | 'lockup'
 export type IncidentSeverity = 'minor' | 'moderate' | 'major'
+export const INCIDENT_CAPTURE_SESSION_SCHEMA_VERSION = 1 as const
+
+export interface IncidentCaptureSessionIdentity {
+  schemaVersion: typeof INCIDENT_CAPTURE_SESSION_SCHEMA_VERSION
+  captureSessionId: string
+  sim: TelemetrySnapshot['sim']
+  startedAt: number
+  lifecycleGeneration?: number
+  sessionUniqueId?: number
+  sessionNumber?: number
+  sessionType?: string
+  trackName?: string
+  trackConfigName?: string
+}
+
+export interface IncidentClipSealTrust {
+  boundary: 'local-windows-user'
+  protection: 'electron-safe-storage'
+  corruptionDetected: true
+  rendererTamperProtected: true
+  appOriginAuthenticated: false
+  sameUserProcessAuthenticity: false
+}
 
 export interface IncidentDetectionConfig {
   /** Yaw-rate magnitude (rad/s) that flags a spin while moving. */
@@ -118,6 +141,8 @@ export interface IncidentClip extends IncidentEvent {
   /** Index of the trigger sample within `window`. */
   triggerIndex: number
   createdAt: number
+  /** Immutable session identity captured by the main process at incident time. */
+  captureSession?: IncidentCaptureSessionIdentity
 }
 
 export type IncidentClipMeta = Omit<IncidentClip, 'window'> & { sampleCount: number }
@@ -126,6 +151,55 @@ export type IncidentClipMeta = Omit<IncidentClip, 'window'> & { sampleCount: num
 
 function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+function normalizedSessionPart(value: string | undefined): string {
+  return value?.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase() ?? ''
+}
+
+export function incidentCaptureSessionKey(snapshot: TelemetrySnapshot): string {
+  if (finite(snapshot.sessionUniqueId)) {
+    return `${snapshot.sim}:unique:${Math.trunc(snapshot.sessionUniqueId as number)}`
+  }
+  return [
+    snapshot.sim,
+    'fallback',
+    finite(snapshot.sessionNumber) ? Math.trunc(snapshot.sessionNumber as number) : '',
+    normalizedSessionPart(snapshot.sessionType),
+    normalizedSessionPart(snapshot.trackName),
+    normalizedSessionPart(snapshot.trackConfigName)
+  ].join(':')
+}
+
+export function createIncidentCaptureSessionIdentity(
+  snapshot: TelemetrySnapshot,
+  startedAt = snapshot.timestamp,
+  lifecycleGeneration?: number
+): IncidentCaptureSessionIdentity {
+  const sessionUniqueId = finite(snapshot.sessionUniqueId)
+    ? Math.trunc(snapshot.sessionUniqueId as number)
+    : undefined
+  const sessionNumber = finite(snapshot.sessionNumber)
+    ? Math.trunc(snapshot.sessionNumber as number)
+    : undefined
+  const stableId = sessionUniqueId === undefined
+    ? `${incidentCaptureSessionKey(snapshot)}:generation:${lifecycleGeneration ?? 1}:${Math.trunc(startedAt)}`
+    : incidentCaptureSessionKey(snapshot)
+  const captureSessionId = `capture-${stableId}`
+    .replace(/[^A-Za-z0-9._:@-]/g, '-')
+    .slice(0, 200)
+  return {
+    schemaVersion: INCIDENT_CAPTURE_SESSION_SCHEMA_VERSION,
+    captureSessionId,
+    sim: snapshot.sim,
+    startedAt: Math.trunc(startedAt),
+    ...(lifecycleGeneration === undefined ? {} : { lifecycleGeneration }),
+    ...(sessionUniqueId === undefined ? {} : { sessionUniqueId }),
+    ...(sessionNumber === undefined ? {} : { sessionNumber }),
+    ...(snapshot.sessionType ? { sessionType: snapshot.sessionType } : {}),
+    ...(snapshot.trackName ? { trackName: snapshot.trackName } : {}),
+    ...(snapshot.trackConfigName ? { trackConfigName: snapshot.trackConfigName } : {})
+  }
 }
 
 function abs(value: number | undefined): number {
@@ -318,6 +392,7 @@ export interface DetectIncidentsOptions {
   postMs?: number
   /** Stable id prefix for generated clips. */
   idPrefix?: string
+  captureSession?: IncidentCaptureSessionIdentity
 }
 
 // Scan an ORDERED buffer of snapshots, returning every detected incident as a
@@ -347,7 +422,8 @@ export function detectIncidents(samples: TelemetrySnapshot[], options: DetectInc
       id: `${idPrefix}-${event.at}-${event.type}`,
       window,
       triggerIndex,
-      createdAt: event.at
+      createdAt: event.at,
+      ...(options.captureSession ? { captureSession: options.captureSession } : {})
     })
   }
   return clips
