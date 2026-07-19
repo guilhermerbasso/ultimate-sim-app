@@ -68,5 +68,7 @@ describe('Steward Desk navigation and accessibility', () => {
     expect(contrast('#e86920', '#2f180b')).toBeGreaterThanOrEqual(3)
     expect(css).toContain('border: 1px solid var(--steward-control-border)')
     expect(css).toContain('border-color: var(--accent-primary)')
+    expect(css).not.toContain('align-items: end')
+    expect(css.match(/align-items:\s*flex-end/g)?.length).toBeGreaterThanOrEqual(2)
   })
 })
