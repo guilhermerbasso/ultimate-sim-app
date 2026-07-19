@@ -59,8 +59,12 @@ describe('ACC v1.8.12 binary layout', () => {
     const snapshot = accSnapshotFromPages(physics!, graphics!, staticInfo!, 1234)
     expect(snapshot).toMatchObject({
       timestamp: 1234,
+      sessionType: 'Qualifying',
       sessionKind: 'qualify',
       currentLap: 5,
+      completedLaps: 4,
+      lapsRemaining: 6,
+      totalCars: 24,
       lapDistPct: 0.5,
       sessionTimeRemainingSec: 600,
       currentLapTimeSec: 90,
@@ -106,6 +110,7 @@ describe('AMS2 Project CARS 2 v13/v14 binary layout', () => {
       carName: 'Porsche 911 GT3 R',
       trackLocation: 'Spa-Francorchamps',
       trackVariation: '2022 GP',
+      lapsInEvent: 12,
       sequenceNumber: 10,
       participant: {
         currentLapDistance: 3500,
@@ -118,9 +123,12 @@ describe('AMS2 Project CARS 2 v13/v14 binary layout', () => {
     const snapshot = ams2SnapshotFromPage(page!, 5678)
     expect(snapshot).toMatchObject({
       timestamp: 5678,
+      sessionType: 'Race',
       sessionKind: 'race',
       speedKmh: 180,
       currentLap: 6,
+      completedLaps: 5,
+      lapsRemaining: 7,
       lapDistPct: 0.5,
       position: 2,
       fuelLiters: 50,

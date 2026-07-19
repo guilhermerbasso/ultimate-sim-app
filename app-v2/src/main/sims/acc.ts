@@ -48,6 +48,7 @@ export const ACC_LAYOUT = {
     iBestTime: 148,
     sessionTimeLeft: 152,
     isInPit: 160,
+    numberOfLaps: 172,
     normalizedCarPosition: 248,
     flag: 1224,
     penalty: 1228,
@@ -65,6 +66,7 @@ export const ACC_LAYOUT = {
   staticInfo: {
     smVersion: 0,
     acVersion: 30,
+    numCars: 64,
     carModel: 68,
     track: 134,
     maxRpm: 412,
@@ -101,6 +103,7 @@ export interface ACCGraphicsPage {
   iBestTime: number
   sessionTimeLeft: number
   isInPit: number
+  numberOfLaps: number
   normalizedCarPosition: number
   flag: number
   penalty: number
@@ -119,6 +122,7 @@ export interface ACCGraphicsPage {
 export interface ACCStaticPage {
   smVersion: string
   acVersion: string
+  numCars: number
   carModel?: string
   track?: string
   maxRpm: number
@@ -214,6 +218,7 @@ export function decodeACCGraphicsPage(buffer: Buffer): ACCGraphicsPage | null {
     iBestTime: readInt32(buffer, ACC_LAYOUT.graphics.iBestTime),
     sessionTimeLeft,
     isInPit: readInt32(buffer, ACC_LAYOUT.graphics.isInPit),
+    numberOfLaps: readInt32(buffer, ACC_LAYOUT.graphics.numberOfLaps),
     normalizedCarPosition,
     flag: readInt32(buffer, ACC_LAYOUT.graphics.flag),
     penalty: readInt32(buffer, ACC_LAYOUT.graphics.penalty),
@@ -239,6 +244,7 @@ export function decodeACCStaticPage(buffer: Buffer): ACCStaticPage | null {
   return {
     smVersion,
     acVersion,
+    numCars: readInt32(buffer, ACC_LAYOUT.staticInfo.numCars),
     carModel: readUtf16(buffer, ACC_LAYOUT.staticInfo.carModel, 33) || undefined,
     track: readUtf16(buffer, ACC_LAYOUT.staticInfo.track, 33) || undefined,
     maxRpm: readInt32(buffer, ACC_LAYOUT.staticInfo.maxRpm),
@@ -314,6 +320,22 @@ function stablePacket<T extends { packetId: number }>(
   return second && second.packetId === first.packetId ? second : null
 }
 
+function assettoSessionType(value: unknown): string | undefined {
+  const session = typeof value === 'number' && Number.isFinite(value)
+    ? Math.trunc(value)
+    : -1
+  switch (session) {
+    case 0: return 'Practice'
+    case 1: return 'Qualifying'
+    case 2: return 'Race'
+    case 3: return 'Hotlap'
+    case 4: return 'Time Attack'
+    case 5: return 'Drift'
+    case 6: return 'Drag'
+    default: return undefined
+  }
+}
+
 export function accSnapshotFromPages(
   physics: ACCPhysicsPage,
   graphics: ACCGraphicsPage,
@@ -322,6 +344,8 @@ export function accSnapshotFromPages(
 ): TelemetrySnapshot | null {
   if (graphics.status === 0) return null
   const rawSession = graphics.session
+  const completedLaps = Math.max(0, graphics.completedLaps)
+  const scheduledLaps = Math.max(0, graphics.numberOfLaps)
   const weather = accWeatherFromGraphics(graphics.rainIntensity, graphics.surfaceGrip)
   const onPitRoad = graphics.isInPit !== 0 || graphics.isInPitLane !== 0
   const normalizedCarPosition =
@@ -343,19 +367,23 @@ export function accSnapshotFromPages(
     steerAngleDeg: normalizedSteerToDeg(physics.steerAngle),
     absActive: physics.absInAction !== 0,
     tcActive: physics.tcInAction !== 0,
-    sessionType: String(rawSession),
+    sessionType: assettoSessionType(rawSession),
     sessionKind: sessionKindFromProvider('acc', rawSession),
     carName: staticInfo.carModel,
     trackName: staticInfo.track,
     sessionTimeRemainingSec:
       graphics.sessionTimeLeft >= 0 ? graphics.sessionTimeLeft / 1000 : undefined,
-    currentLap: Math.max(1, graphics.completedLaps + 1),
+    currentLap: completedLaps + 1,
+    completedLaps,
+    lapsRemaining:
+      scheduledLaps > 0 ? Math.max(0, scheduledLaps - completedLaps) : undefined,
     lapDistPct: normalizedCarPosition,
     lastLapTimeSec: validLapMsToSeconds(graphics.iLastTime),
     bestLapTimeSec: validLapMsToSeconds(graphics.iBestTime),
     currentLapTimeSec: currentLapMsToSeconds(graphics.iCurrentTime),
     lapValidity: graphics.isValidLap === 0 ? 'invalid' : 'valid',
     position: graphics.position > 0 ? graphics.position : undefined,
+    totalCars: staticInfo.numCars > 0 ? staticInfo.numCars : undefined,
     onTrack: graphics.status === 2,
     onPitRoad,
     pit: {

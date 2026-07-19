@@ -17,6 +17,19 @@ function normalizedSteerToDeg(value: unknown): number {
   return num(value) * NOMINAL_STEER_LOCK_DEG
 }
 
+function assettoSessionType(value: unknown): string | undefined {
+  switch (Math.trunc(num(value, -1))) {
+    case 0: return 'Practice'
+    case 1: return 'Qualifying'
+    case 2: return 'Race'
+    case 3: return 'Hotlap'
+    case 4: return 'Time Attack'
+    case 5: return 'Drift'
+    case 6: return 'Drag'
+    default: return undefined
+  }
+}
+
 export class ACProvider implements TelemetryProvider {
   readonly id = 'ac' as const
   private koffi: any | null = null
@@ -55,6 +68,8 @@ export class ACProvider implements TelemetryProvider {
     if (!physics || !graphics) return null
     const staticInfo = this.staticInfo?.view ?? {}
     const rawSession = graphics.session
+    const completedLaps = Math.max(0, Math.trunc(num(graphics.completedLaps, 0)))
+    const scheduledLaps = Math.max(0, Math.trunc(num(graphics.numberOfLaps, 0)))
     return {
       sim: 'ac',
       connected: true,
@@ -67,12 +82,14 @@ export class ACProvider implements TelemetryProvider {
       brake: num(physics.brake),
       clutch: num(physics.clutch),
       steerAngleDeg: normalizedSteerToDeg(physics.steerAngle),
-      sessionType: String(rawSession ?? ''),
+      sessionType: assettoSessionType(rawSession),
       sessionKind: sessionKindFromProvider('ac', rawSession),
       carName: firstString(staticInfo.carModel),
       trackName: firstString(staticInfo.track),
       sessionTimeRemainingSec: msToSeconds(graphics.sessionTimeLeft),
-      currentLap: Math.trunc(num(graphics.completedLaps, 0)) + 1,
+      currentLap: completedLaps + 1,
+      completedLaps,
+      lapsRemaining: scheduledLaps > 0 ? Math.max(0, scheduledLaps - completedLaps) : undefined,
       lapDistPct: optionalNum(graphics.normalizedCarPosition),
       lastLapTimeSec: validLapMsToSeconds(graphics.iLastTime),
       bestLapTimeSec: validLapMsToSeconds(graphics.iBestTime),

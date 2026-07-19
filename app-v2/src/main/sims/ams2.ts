@@ -29,6 +29,7 @@ export const AMS2_LAYOUT = {
   viewedParticipantIndex: 20,
   numParticipants: 24,
   carName: 6444,
+  lapsInEvent: 6572,
   trackLocation: 6576,
   trackVariation: 6640,
   trackLength: 6704,
@@ -84,6 +85,7 @@ export interface AMS2SharedMemoryPage {
   numParticipants: number
   participant?: AMS2ParticipantPage
   carName?: string
+  lapsInEvent: number
   trackLocation?: string
   trackVariation?: string
   trackLength: number
@@ -201,6 +203,7 @@ export function decodeAMS2SharedMemoryPage(buffer: Buffer): AMS2SharedMemoryPage
     numParticipants,
     participant: decodeParticipant(buffer, viewedParticipantIndex, numParticipants),
     carName: readAscii(buffer, AMS2_LAYOUT.carName, 64),
+    lapsInEvent: readUInt32(buffer, AMS2_LAYOUT.lapsInEvent),
     trackLocation: readAscii(buffer, AMS2_LAYOUT.trackLocation, 64),
     trackVariation: readAscii(buffer, AMS2_LAYOUT.trackVariation, 64),
     trackLength: floats.trackLength as number,
@@ -300,15 +303,29 @@ function stableSequence(handle: SharedMemoryBufferHandle | null): AMS2SharedMemo
   return coherentAMS2PagePair(first, second)
 }
 
+function ams2SessionType(value: number): string | undefined {
+  switch (Math.trunc(value)) {
+    case 1: return 'Practice'
+    case 2: return 'Test'
+    case 3: return 'Qualifying'
+    case 4: return 'Formation Lap'
+    case 5: return 'Race'
+    case 6: return 'Time Attack'
+    default: return undefined
+  }
+}
+
 export function ams2SnapshotFromPage(
   data: AMS2SharedMemoryPage,
   timestamp = Date.now()
 ): TelemetrySnapshot | null {
   if (data.gameState === 0) return null
   const rawSession = data.sessionState
+  const participant = data.participant
+  const completedLaps = Math.max(0, participant?.lapsCompleted ?? 0)
+  const scheduledLaps = Math.max(0, data.lapsInEvent)
   const track = ams2TrackIdentity(data.trackLocation, data.trackVariation)
   const weather = ams2WeatherFromRainDensity(data.rainDensity)
-  const participant = data.participant
   const lapDistPct =
     participant &&
     participant.currentLapDistance >= 0 &&
@@ -337,15 +354,18 @@ export function ams2SnapshotFromPage(
     steerAngleDeg: data.steering * 450,
     absActive: data.antiLockActive,
     tcActive: (data.carFlags & (1 << 6)) !== 0,
-    sessionType: String(rawSession),
+    sessionType: ams2SessionType(rawSession),
     sessionKind: sessionKindFromProvider('ams2', rawSession),
     carName: data.carName,
     ...track,
     sessionTimeRemainingSec:
       data.eventTimeRemaining >= 0 ? data.eventTimeRemaining / 1000 : undefined,
-    currentLap: participant
-      ? Math.max(1, participant.lapsCompleted + 1)
-      : undefined,
+    currentLap: participant ? completedLaps + 1 : undefined,
+    completedLaps: participant ? completedLaps : undefined,
+    lapsRemaining:
+      participant && scheduledLaps > 0
+        ? Math.max(0, scheduledLaps - completedLaps)
+        : undefined,
     lapDistPct,
     lastLapTimeSec: validLapSeconds(data.lastLapTime),
     lapValidity: data.lapInvalidated ? 'invalid' : 'valid',
