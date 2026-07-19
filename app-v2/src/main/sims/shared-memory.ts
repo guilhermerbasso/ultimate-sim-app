@@ -7,6 +7,11 @@ export type SharedMemoryHandle = {
   close(): void
 }
 
+export type SharedMemoryBufferHandle = {
+  view: Buffer | null
+  close(): void
+}
+
 export function loadKoffi(): any | null {
   try {
     return require('koffi')
@@ -31,10 +36,49 @@ export function openSharedMemory(koffi: any, name: string, struct: any): SharedM
       CloseHandle(handle)
       return null
     }
+
     return {
       get view(): any {
         try {
           return koffi.decode(pointer, struct)
+        } catch {
+          return null
+        }
+      },
+      close(): void {
+        UnmapViewOfFile(pointer)
+        CloseHandle(handle)
+      }
+    }
+  } catch {
+    return null
+  }
+}
+
+export function openSharedMemoryBuffer(
+  koffi: any,
+  name: string,
+  byteLength: number
+): SharedMemoryBufferHandle | null {
+  if (process.platform !== 'win32' || !Number.isSafeInteger(byteLength) || byteLength <= 0) return null
+  try {
+    const kernel32 = koffi.load('kernel32.dll')
+    const OpenFileMappingW = kernel32.func('OpenFileMappingW', 'void*', ['uint32', 'bool', 'str16'])
+    const MapViewOfFile = kernel32.func('MapViewOfFile', 'void*', ['void*', 'uint32', 'uint32', 'uint32', 'size_t'])
+    const UnmapViewOfFile = kernel32.func('UnmapViewOfFile', 'bool', ['void*'])
+    const CloseHandle = kernel32.func('CloseHandle', 'bool', ['void*'])
+    const FILE_MAP_READ = 0x0004
+    const handle = OpenFileMappingW(FILE_MAP_READ, false, name)
+    if (!handle) return null
+    const pointer = MapViewOfFile(handle, FILE_MAP_READ, 0, 0, byteLength)
+    if (!pointer) {
+      CloseHandle(handle)
+      return null
+    }
+    return {
+      get view(): Buffer | null {
+        try {
+          return Buffer.from(koffi.decode(pointer, 'uint8_t', byteLength))
         } catch {
           return null
         }

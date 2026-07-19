@@ -18,6 +18,7 @@ import type {
 } from './telemetry'
 import { sessionKindForSnapshot, sessionKindFromText } from './telemetry'
 import { formatMeasurement, type UnitSystem } from './units'
+import type { LiveTelemetryContext } from './replay'
 
 export type RacecraftQuestionIntent = 'overtake' | 'pull-away'
 export type RacecraftAdviceMode = 'overtake' | 'defend' | 'lap-improvement' | 'suppressed'
@@ -100,6 +101,7 @@ export interface RacecraftAdviceContext {
   carName?: string
   carPath?: string
   condition?: CoachTrackCondition
+  liveContext?: LiveTelemetryContext
 }
 
 export interface RacecraftAdviceEvidence {
@@ -175,6 +177,9 @@ export interface CoachLapHistoryEntry {
   sessionId?: number
   sessionKey?: string
   sessionBoundaryMs?: number
+  connectionEpoch?: number
+  liveSessionIdentity?: string
+  insertionOrder?: number
   sessionKind?: SessionKind
   sessionType?: string
   lapNumber?: number
@@ -480,14 +485,24 @@ export function coachLapHistoryEntry(
   identity = coachComparableIdentityFromSnapshot(snapshot),
   sessionKey?: string,
   sessionBoundaryMs?: number,
-  verification: CoachLapVerification = 'unverified'
+  verification: CoachLapVerification = 'unverified',
+  liveContext?: LiveTelemetryContext,
+  insertionOrder?: number
 ): CoachLapHistoryEntry {
   return {
-    id: `${snapshot.sessionUniqueId ?? 'session'}:${report.lapNumber ?? at}`,
+    id: [
+      snapshot.sessionUniqueId ?? sessionKey ?? 'session',
+      report.lapNumber ?? at,
+      liveContext?.connectionEpoch ?? 'epoch',
+      insertionOrder ?? 'order'
+    ].join(':'),
     at,
     sessionId: finite(snapshot.sessionUniqueId) ? snapshot.sessionUniqueId : undefined,
     sessionKey,
     sessionBoundaryMs,
+    connectionEpoch: liveContext?.connectionEpoch,
+    liveSessionIdentity: liveContext?.sessionIdentity,
+    insertionOrder,
     sessionKind: sessionKindForSnapshot(snapshot),
     sessionType: snapshot.sessionType,
     lapNumber: report.lapNumber,

@@ -456,6 +456,14 @@ export interface EngineerProactiveEvent {
   lang: EngineerMessageLanguage
   /** Which subsystem produced this call-out (for the TTS/observability log). */
   source?: 'engineer'
+  /** Telemetry epoch/revision that authorized this emission. */
+  telemetryContext?: {
+    state: 'live' | 'replay' | 'unknown'
+    connectionEpoch: number
+    revision: number
+    token: string
+    sessionIdentity?: string
+  }
   /** 1-based corner number this call-out is about, when corner-scoped (Turn N). */
   corner?: number
 }

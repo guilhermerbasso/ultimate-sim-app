@@ -1972,8 +1972,9 @@ export function deterministicPhrasing(
 // ─── coach:explain IPC contract ─────────────────────────────────────────────────
 
 export interface CoachExplainRequest {
-  /** Either a finding id from the latest report, or an inline finding. */
+  /** Finding id from the latest live report. Inline data is accepted only as an id hint. */
   findingId?: string
+  /** Legacy transport shape; the main process resolves the canonical latest-report finding by id. */
   finding?: CoachFinding
   /** Try the local LLM to phrase it (falls back to deterministic when off/slow). */
   useLlm?: boolean

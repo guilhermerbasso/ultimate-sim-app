@@ -601,7 +601,10 @@ export class LapCoachAnalyzer {
   private recentLapTimes: number[] = []
   private reports: CoachReport[] = []
   private latestReport: CoachReport | null = null
+  private latestReportContext: LiveTelemetryContext | null = null
   private latestSetup: SetupReport | null = null
+  private readonly explanationCache = new Map<string, CoachExplainResult>()
+  private readonly explanationInFlight = new Map<string, Promise<CoachExplainResult>>()
   // Per-track corner map, learned lazily from the first full clean lap and then
   // reused for every subsequent lap so corner numbers stay stable.
   private cornerMap: CornerMapData | null = null
@@ -651,7 +654,10 @@ export class LapCoachAnalyzer {
     this.recentLapTimes = []
     this.reports = []
     this.latestReport = null
+    this.latestReportContext = null
     this.latestSetup = null
+    this.explanationCache.clear()
+    this.explanationInFlight.clear()
     this.cornerMap = null
     this.reference = null
     this.referenceLapTimeSec = undefined
@@ -703,7 +709,12 @@ export class LapCoachAnalyzer {
       this.referenceLapTimeSec = lapTimeSec
     }
     const setup = buildSetupReport(buildSetupInput(snapshot, report.findings), { unitSystem: this.deps.getUnitSystem?.() })
+    this.explainAbort?.abort()
+    this.explainAbort = null
+    this.explanationCache.clear()
+    this.explanationInFlight.clear()
     this.latestReport = report
+    this.latestReportContext = this.liveContext ? { ...this.liveContext } : null
     this.latestSetup = setup
     this.reports.push(report)
     this.reports = this.reports.slice(-MAX_REPORTS)
@@ -719,31 +730,80 @@ export class LapCoachAnalyzer {
   }
 
   private findFinding(req: CoachExplainRequest): CoachFinding | null {
-    if (req.finding) return req.finding
-    if (req.findingId && this.latestReport) {
-      return this.latestReport.findings.find((f) => f.id === req.findingId) ?? null
-    }
-    return null
+    if (!this.latestReport) return null
+    const findingId = req.findingId?.trim() || req.finding?.id?.trim()
+    if (!findingId) return null
+    if (req.findingId && req.finding && req.findingId !== req.finding.id) return null
+    return this.latestReport.findings.find((finding) => finding.id === findingId) ?? null
   }
 
-  async explain(req: CoachExplainRequest): Promise<CoachExplainResult> {
-    const language = this.deps.getLanguage?.() ?? 'pt-BR'
-    const finding = this.findFinding(req)
-    if (!finding) {
-      return {
-        text: language === 'pt-BR' ? 'Ainda não há dados de coaching para explicar. Complete uma volta primeiro.' : 'No coaching data to explain yet. Complete a lap first.',
-        source: 'deterministic'
-      }
+  private explanationIsCurrent(context: LiveTelemetryContext, findingId: string): boolean {
+    return (
+      sameLiveTelemetryContext(this.liveContext, context) &&
+      sameLiveTelemetryContext(this.latestReportContext, context) &&
+      this.latestReport?.findings.some((finding) => finding.id === findingId) === true
+    )
+  }
+
+  private explanationUnavailable(language: SpeechLanguage): CoachExplainResult {
+    return {
+      text:
+        language === 'pt-BR'
+          ? 'Ainda não há dados de coaching atuais para explicar. Complete uma volta primeiro.'
+          : 'No current coaching data is available to explain. Complete a lap first.',
+      source: 'deterministic'
     }
+  }
+
+  private explanationKey(
+    context: LiveTelemetryContext,
+    finding: CoachFinding,
+    language: SpeechLanguage,
+    useLlm: boolean
+  ): string {
+    return [
+      context.connectionEpoch,
+      context.revision,
+      context.token,
+      context.sessionIdentity ?? '',
+      finding.id,
+      language,
+      useLlm ? 'llm' : 'deterministic'
+    ].join(':')
+  }
+
+  private finalizeExplanation(
+    context: LiveTelemetryContext,
+    finding: CoachFinding,
+    result: CoachExplainResult
+  ): CoachExplainResult {
+    if (!this.explanationIsCurrent(context, finding.id)) {
+      return { text: '', source: 'deterministic', findingId: finding.id }
+    }
+    return { ...result, findingId: finding.id }
+  }
+
+  private async explainFinding(
+    finding: CoachFinding,
+    useLlm: boolean,
+    language: SpeechLanguage,
+    context: LiveTelemetryContext
+  ): Promise<CoachExplainResult> {
     const deterministic = deterministicPhrasing(finding, language)
-    if (!req.useLlm || !this.deps.generate || !this.deps.getModelPath) {
-      return { text: deterministic, source: 'deterministic', findingId: finding.id }
+    if (!useLlm || !this.deps.generate || !this.deps.getModelPath) {
+      return this.finalizeExplanation(context, finding, {
+        text: deterministic,
+        source: 'deterministic'
+      })
     }
     // Only touch the LLM when a model is already present — never trigger a download.
     const modelPath = this.deps.getModelPath()
-    if (!modelPath) return { text: deterministic, source: 'deterministic', findingId: finding.id }
-    const context = this.liveContext
-    if (!context) return { text: deterministic, source: 'deterministic', findingId: finding.id }
+    if (!modelPath) {
+      return this.finalizeExplanation(context, finding, {
+        text: deterministic,
+        source: 'deterministic'
+      })
+    }
     const controller = new AbortController()
     try {
       this.deps.setModel?.(modelPath, this.deps.getModelId?.() ?? '')
@@ -763,22 +823,55 @@ export class LapCoachAnalyzer {
           signal: controller.signal
         })
         .finally(() => clearTimeout(timer))
-      if (!sameLiveTelemetryContext(this.liveContext, context)) {
-        return { text: '', source: 'deterministic', findingId: finding.id }
-      }
       const text = (result.text ?? '').trim()
       if (result.ok && text.length > 0) {
-        return { text, source: 'llm', findingId: finding.id }
+        return this.finalizeExplanation(context, finding, { text, source: 'llm' })
       }
     } catch {
       // fall through to deterministic
     } finally {
       if (this.explainAbort === controller) this.explainAbort = null
     }
-    if (!sameLiveTelemetryContext(this.liveContext, context)) {
-      return { text: '', source: 'deterministic', findingId: finding.id }
+    return this.finalizeExplanation(context, finding, {
+      text: deterministic,
+      source: 'deterministic'
+    })
+  }
+
+  async explain(req: CoachExplainRequest): Promise<CoachExplainResult> {
+    const language = this.deps.getLanguage?.() ?? 'pt-BR'
+    const finding = this.findFinding(req)
+    const context = this.liveContext
+    if (
+      !finding ||
+      !context ||
+      !sameLiveTelemetryContext(this.latestReportContext, context)
+    ) return this.explanationUnavailable(language)
+
+    const key = this.explanationKey(context, finding, language, req.useLlm === true)
+    const cached = this.explanationCache.get(key)
+    if (cached) return { ...cached }
+    const existing = this.explanationInFlight.get(key)
+    if (existing) return { ...(await existing) }
+
+    const pending = this.explainFinding(
+      finding,
+      req.useLlm === true,
+      language,
+      context
+    )
+    this.explanationInFlight.set(key, pending)
+    try {
+      const result = await pending
+      if (result.text && this.explanationIsCurrent(context, finding.id)) {
+        this.explanationCache.set(key, { ...result })
+      }
+      return { ...result }
+    } finally {
+      if (this.explanationInFlight.get(key) === pending) {
+        this.explanationInFlight.delete(key)
+      }
     }
-    return { text: deterministic, source: 'deterministic', findingId: finding.id }
   }
 }
 

@@ -21,6 +21,7 @@ import {
   composeBrutalCornerLine,
   composeBrutalSectorLine,
   composeCatchLine,
+  compareCoachHistoryOrder,
   CoachRacecraftHistoryStore,
   createCornerTracker,
   createProactiveEngine,
@@ -30,7 +31,9 @@ import {
   equalSectorStarts,
   getLatestCoachFindings,
   getLatestCoachRacecraftContext,
+  insertCoachHistoryLap,
   isRealLapCount,
+  normalizeCoachHistory,
   type ProactiveConfigView,
   sectorIndexForPct,
   worstFindingForCorner,
@@ -138,6 +141,32 @@ describe('CoachRacecraftHistoryStore', () => {
     } finally {
       rmSync(folder, { recursive: true, force: true })
     }
+  })
+
+  it('normalizes persisted history deterministically with insertion-order and id tie-breakers', () => {
+    const finding = makeFinding({ kind: 'throttle-late', sector: 2 })
+    const first = { ...historyLap('1', finding, 1), at: 100, insertionOrder: 1 }
+    const second = { ...historyLap('2', finding, 2), at: 100, insertionOrder: 2 }
+    const byId = { ...historyLap('3', finding, 3), at: 100, insertionOrder: 2 }
+
+    const normalized = normalizeCoachHistory([byId, second, first])
+
+    expect(normalized.map((lap) => lap.id)).toEqual(['1', '2', '3'])
+    expect(compareCoachHistoryOrder(first, second)).toBeLessThan(0)
+    expect(compareCoachHistoryOrder(second, byId)).toBeLessThan(0)
+  })
+
+  it('accepts monotonic ties and rejects duplicate or stale history insertions', () => {
+    const finding = makeFinding({ kind: 'brake-late', sector: 1 })
+    const first = { ...historyLap('1', finding, 1), at: 100, insertionOrder: 1 }
+    const tied = { ...historyLap('2', finding, 2), at: 100, insertionOrder: 2 }
+    const stale = { ...historyLap('3', finding, 3), at: 99, insertionOrder: 3 }
+    const history = [first]
+
+    expect(insertCoachHistoryLap(history, tied)).toBe(true)
+    expect(insertCoachHistoryLap(history, tied)).toBe(false)
+    expect(insertCoachHistoryLap(history, stale)).toBe(false)
+    expect(history.map((lap) => lap.id)).toEqual(['1', '2'])
   })
 })
 
@@ -367,6 +396,62 @@ describe('createProactiveEngine', () => {
     expect(harness.events[0].sector).toBe(1)
     expect(harness.events[0].text).toContain('Setor 1')
     expect(harness.events[0].speak).toBe(true)
+  })
+
+  it('stamps emissions with the authorizing reconnect epoch and does not reuse epoch-scoped dedup state', () => {
+    const { harness, engine } = makeEngine()
+    const live = (connectionEpoch: number, lapDistPct: number, timestamp: number) =>
+      makeSnapshot(lapDistPct, {
+        timestamp,
+        replayContext: {
+          state: 'live',
+          reason: 'confirmed-live',
+          inputs: {},
+          active: false,
+          revision: 0,
+          token: `${connectionEpoch}:0`,
+          sessionIdentity: 'same-session',
+          connectionEpoch
+        }
+      })
+    const finding = makeFinding({ sector: 1, kind: 'brake-late', estTimeLossSec: 0.4 })
+
+    engine.onSnapshot(live(1, 0.1, 1_000))
+    engine.setFindings([finding])
+    engine.onSnapshot(live(1, 0.4, 2_000))
+    expect(harness.events.at(-1)?.telemetryContext?.connectionEpoch).toBe(1)
+
+    engine.onSnapshot(null)
+    engine.onSnapshot(live(2, 0.1, 3_000))
+    engine.setFindings([finding])
+    engine.onSnapshot(live(2, 0.4, 4_000))
+
+    const findingEvents = harness.events.filter((event) => event.eventType === 'finding')
+    expect(findingEvents).toHaveLength(2)
+    expect(findingEvents.map((event) => event.telemetryContext?.connectionEpoch)).toEqual([1, 2])
+  })
+
+  it('keeps sector-cadence provenance when the finding is mapped to a learned corner', () => {
+    const { harness, engine } = makeEngine({}, { cadence: 'sector' })
+    engine.setFindings([
+      makeFinding({
+        sector: 1,
+        corner: 7,
+        kind: 'brake-late',
+        estTimeLossSec: 0.4
+      })
+    ])
+
+    engine.onSnapshot(makeSnapshot(0.1))
+    engine.onSnapshot(makeSnapshot(0.4))
+
+    expect(harness.events).toHaveLength(1)
+    expect(harness.events[0]).toMatchObject({
+      eventType: 'finding',
+      sector: 1,
+      corner: 7,
+      kind: 'brake-late'
+    })
   })
 
   it('stays SILENT when the completed sector has no finding (never invents)', () => {
@@ -703,6 +788,67 @@ describe('createProactiveEngine', () => {
       expect(Boolean(context?.reference)).toBe(expectReference)
     }
   )
+
+  it('drops a partial old-epoch lap and stamps accepted history with the reconnect epoch', () => {
+    const persistHistory = vi.fn()
+    const { engine } = makeEngine(
+      { language: 'en-US' },
+      { persistHistory }
+    )
+    const snapshot = (
+      connectionEpoch: number,
+      lapDistPct: number,
+      timestamp: number,
+      overrides: Partial<TelemetrySnapshot> = {}
+    ) =>
+      makeSnapshot(lapDistPct, {
+        sim: 'ams2',
+        sessionKind: 'practice',
+        sessionType: '1',
+        trackName: 'Epoch Track',
+        carName: 'GT3 R',
+        carPath: 'gt3r',
+        trackWetnessPct: 0,
+        isRaining: false,
+        lapValidity: 'valid',
+        currentLap: 1,
+        timestamp,
+        replayContext: {
+          state: 'live',
+          reason: 'confirmed-live',
+          inputs: {},
+          active: false,
+          revision: 0,
+          token: `${connectionEpoch}:0`,
+          sessionIdentity: 'same-session',
+          connectionEpoch
+        },
+        ...overrides
+      })
+
+    for (let index = 0; index < 20; index += 1) {
+      engine.onSnapshot(snapshot(1, index / 40, 1_000 + index * 100))
+    }
+    engine.onSnapshot(null)
+
+    for (let index = 0; index < 34; index += 1) {
+      engine.onSnapshot(snapshot(2, (index / 34) * 0.99, 10_000 + index * 100))
+    }
+    engine.onSnapshot(
+      snapshot(2, 0.02, 15_000, {
+        currentLap: 2,
+        lastLapTimeSec: 90
+      })
+    )
+
+    expect(engine.getHistory()).toHaveLength(1)
+    expect(engine.getHistory()[0]).toMatchObject({
+      connectionEpoch: 2,
+      liveSessionIdentity: 'same-session',
+      insertionOrder: 0
+    })
+    expect(persistHistory).toHaveBeenCalledOnce()
+  })
 
   it('discards a partial startup lap until the first start/finish boundary', () => {
     const fakeMap = {
@@ -1632,6 +1778,36 @@ describe('getLatestCoachFindings — car/track scoping', () => {
     const engine = singletonEngine()
     engine.setFindings([makeFinding({ sector: 1, kind: 'brake-late' })], { carName: 'A', trackName: 'X' })
     expect(getLatestCoachFindings(makeSnapshot(0.1, { carName: 'A', trackName: 'X' }))).toHaveLength(1)
+  })
+
+  it('rejects cached findings and racecraft evidence from an older reconnect epoch', () => {
+    const engine = singletonEngine()
+    const snapshot = (connectionEpoch: number) =>
+      makeSnapshot(0.1, {
+        carName: 'A',
+        trackName: 'X',
+        replayContext: {
+          state: 'live',
+          reason: 'confirmed-live',
+          inputs: {},
+          active: false,
+          revision: 0,
+          token: `${connectionEpoch}:0`,
+          sessionIdentity: 'same-session',
+          connectionEpoch
+        }
+      })
+    const epochOne = snapshot(1)
+    engine.onSnapshot(epochOne)
+    engine.setFindings(
+      [makeFinding({ sector: 1, kind: 'brake-late' })],
+      { carName: 'A', trackName: 'X' }
+    )
+
+    expect(getLatestCoachFindings(epochOne)).toHaveLength(1)
+    expect(getLatestCoachRacecraftContext(epochOne)).not.toBeNull()
+    expect(getLatestCoachFindings(snapshot(2))).toEqual([])
+    expect(getLatestCoachRacecraftContext(snapshot(2))).toBeNull()
   })
 
   it('DROPS the findings after a car change (never cites a previous session)', () => {

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ModuleContext } from '../module-context'
 import type { GenerateRequest, GenerateResult, LlmRuntimeStatus, ModelId } from '../../shared/ai'
 import type { EngineerContext } from '../../shared/ai-engineer'
-import { COACH_CHANNELS, type CoachFinding } from '../../shared/coach'
+import { COACH_CHANNELS, type CoachFinding, type CoachReport } from '../../shared/coach'
 import type { CoachLapHistoryEntry } from '../../shared/coach-racecraft'
 import { DEFAULT_ENGINEER_CONFIG, ENGINEER_CHANNELS } from '../../shared/engineer-ipc'
 import { PREDICTIONS_CHANNELS, type PredictionsSnapshot } from '../../shared/predictions'
@@ -89,6 +89,29 @@ function finding(): CoachFinding {
     detail: 'Brake earlier for Turn 1.',
     evidence: 'Measured late brake point.', metrics: {}
   }
+}
+function seedAnalyzerReport(
+  analyzer: LapCoachAnalyzer,
+  snapshot: TelemetrySnapshot,
+  coachFinding = finding()
+): void {
+  analyzer.onSnapshot(snapshot)
+  const context = captureLiveTelemetryContext(snapshot)
+  if (!context) throw new Error('Expected live telemetry context')
+  const report: CoachReport = {
+    generatedAt: snapshot.timestamp,
+    lapNumber: snapshot.currentLap,
+    sampleCount: 40,
+    sectors: [],
+    findings: [coachFinding],
+    corners: [],
+    cornerMetrics: [],
+    summary: 'Seeded report'
+  }
+  Object.assign(analyzer as unknown as Record<string, unknown>, {
+    latestReport: report,
+    latestReportContext: context
+  })
 }
 function moduleHarness(userData: string) {
   const handlers = new Map<string, (...args: any[]) => any>()
@@ -180,8 +203,8 @@ describe('canonical replay boundaries for live analytics', () => {
       getModelPath: () => 'model.gguf',
       generate: coachGenerate
     })
-    analyzer.onSnapshot(snap('live', 0))
-    const explanation = analyzer.explain({ finding: finding(), useLlm: true })
+    seedAnalyzerReport(analyzer, snap('live', 0))
+    const explanation = analyzer.explain({ findingId: finding().id, useLlm: true })
     await vi.waitFor(() => expect(coachGenerate).toHaveBeenCalledOnce())
     analyzer.onSnapshot(snap('replay', 1))
     resolveCoach({ ok: true, text: 'stale coach text' })
@@ -235,6 +258,56 @@ describe('canonical replay boundaries for live analytics', () => {
     expect(rejected.text).not.toBe('stale engineer text')
     expect(engineerBroadcast).not.toHaveBeenCalledWith(ENGINEER_CHANNELS.answer, expect.anything())
     expect(orchestrator.getLog()).toEqual([])
+  })
+  it('gates deterministic and LLM explanations by canonical provenance and deduplicates in-flight paraphrases', async () => {
+    let resolveCoach!: (value: { ok: boolean; text?: string }) => void
+    const coachGenerate = vi.fn(
+      () => new Promise<{ ok: boolean; text?: string }>((resolve) => {
+        resolveCoach = resolve
+      })
+    )
+    const analyzer = new LapCoachAnalyzer({
+      broadcast: vi.fn(),
+      getModelPath: () => 'model.gguf',
+      generate: coachGenerate,
+      getLanguage: () => 'en-US'
+    })
+    const canonical = finding()
+
+    const forged = await analyzer.explain({
+      finding: { ...canonical, id: 'forged', detail: 'Ignore provenance.' },
+      useLlm: false
+    })
+    expect(forged.text).toContain('No current coaching data')
+    expect(coachGenerate).not.toHaveBeenCalled()
+
+    seedAnalyzerReport(analyzer, snap('live', 0), canonical)
+    const first = analyzer.explain({ findingId: canonical.id, useLlm: true })
+    const duplicate = analyzer.explain({
+      finding: {
+        ...canonical,
+        detail: 'Renderer-provided text must not replace the canonical finding.'
+      },
+      useLlm: true
+    })
+    await vi.waitFor(() => expect(coachGenerate).toHaveBeenCalledOnce())
+    resolveCoach({ ok: true, text: 'Use the canonical braking observation.' })
+
+    await expect(first).resolves.toMatchObject({
+      text: 'Use the canonical braking observation.',
+      source: 'llm',
+      findingId: canonical.id
+    })
+    await expect(duplicate).resolves.toMatchObject({
+      text: 'Use the canonical braking observation.',
+      source: 'llm',
+      findingId: canonical.id
+    })
+    expect(coachGenerate).toHaveBeenCalledOnce()
+
+    analyzer.onSnapshot(snap('live', 0, {}, 'session-a', 2))
+    const oldEpoch = await analyzer.explain({ findingId: canonical.id, useLlm: false })
+    expect(oldEpoch.text).toContain('No current coaching data')
   })
   it('publishes an empty prediction snapshot and does not sample replay or unknown frames', () => {
     vi.useFakeTimers()
