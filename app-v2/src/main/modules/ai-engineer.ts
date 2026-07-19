@@ -29,19 +29,26 @@ import {
   type ModelStatus,
   defineTool
 } from '../../shared/ai'
-import type { EngineerContext, EngineerToolset, IntentCommandKind } from '../../shared/ai-engineer'
+import type {
+  EngineerContext,
+  EngineerToolset,
+  IntentCategory,
+  IntentCommandKind
+} from '../../shared/ai-engineer'
 import {
   buildRacecraftAdvice,
   coachAdviceLanguageFromAppLanguage,
   detectRacecraftLikeQuestionLanguage,
   detectRacecraftQuestionWithLanguage,
-  isExplicitSafeInformationalQuestion,
   racecraftClarificationText,
   racecraftSafetyFromSnapshot,
   racecraftSafetyMessage,
   racecraftSafetyReason,
+  safeInformationalDefinition,
   type CoachAdviceLanguage,
-  type RacecraftAdviceContext
+  type RacecraftAdviceContext,
+  type RacecraftSafetyContext,
+  type RacecraftSafetyReason
 } from '../../shared/coach-racecraft'
 import {
   DEFAULT_ENGINEER_CONFIG,
@@ -90,6 +97,13 @@ const ASK_LOG_THROTTLE_MS = 4000
 // Keep the most recent Q&A pairs in memory (the renderer keeps its own scrollback).
 const MAX_LOG_ENTRIES = 50
 let liveContextRejectionSeq = 0
+const SAFE_DETERMINISTIC_INTENT_CATEGORIES = new Set<IntentCategory>([
+  'fuel',
+  'position',
+  'tyres',
+  'weather',
+  'laps'
+])
 
 // ─── Injectable dependency seams (tests pass fakes) ───────────────────────────
 
@@ -135,6 +149,7 @@ export interface EngineerOrchestrator {
   getConfig(): EngineerConfig
   setConfig(patch: EngineerConfigPatch): Promise<EngineerConfig>
   cancel(): void
+  observeSafety(): void
   resetLiveContext(): void
   getLog(): EngineerAnswer[]
 }
@@ -304,6 +319,9 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
   const recent: EngineerAnswer[] = []
   let currentAbort: AbortController | null = null
   let configRevision = 0
+  let languageRevision = 0
+  let safetyRevision = 0
+  let lastSafetyKey: string | undefined
   let seq = 0
   let lastAskLogAt = 0
 
@@ -329,6 +347,81 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       at,
       question,
       text: isPt(config) ? 'Telemetria ao vivo indisponível.' : 'Live telemetry is unavailable.',
+      speak: false,
+      lang: config.language,
+      kind: 'disabled',
+      source: 'system'
+    }
+  }
+
+  function generationSafetyContext(): RacecraftSafetyContext {
+    const snapshot = deps.context.getSnapshot()
+    if (snapshot) return racecraftSafetyFromSnapshot(snapshot)
+    const published = deps.racecraftContext?.()
+    return published?.safety ??
+      { connected: false, onTrack: false, replayState: 'unknown' }
+  }
+
+  function generationSafetyKey(safety: RacecraftSafetyContext): string {
+    return JSON.stringify([
+      safety.connected,
+      safety.onTrack,
+      safety.onPitRoad,
+      safety.flagYellow,
+      safety.flagBlue,
+      safety.flagRed,
+      safety.flagBlack,
+      safety.flagMeatball,
+      safety.flagRepair,
+      safety.flagDisqualify,
+      safety.flagCheckered,
+      safety.flagsKnown,
+      safety.raceControlUnknownReason,
+      safety.pitStateKnown,
+      safety.paceStateKnown,
+      safety.caution,
+      safety.paceMode,
+      safety.sessionState,
+      safety.sessionKind,
+      safety.replayState,
+      safety.carLeftRight,
+      (safety.carsAlongsideCount ?? 0) > 0,
+      safety.radarClosestMeters !== undefined && safety.radarClosestMeters <= 8,
+      safety.gapAheadSec !== undefined && safety.gapAheadSec <= 0.35,
+      safety.gapBehindSec !== undefined && safety.gapBehindSec <= 0.35
+    ])
+  }
+
+  function observeGenerationSafety(): {
+    key: string
+    revision: number
+    reason?: RacecraftSafetyReason
+  } {
+    const safety = generationSafetyContext()
+    const key = generationSafetyKey(safety)
+    if (lastSafetyKey === undefined) {
+      lastSafetyKey = key
+    } else if (lastSafetyKey !== key) {
+      lastSafetyKey = key
+      safetyRevision += 1
+      currentAbort?.abort()
+    }
+    return {
+      key,
+      revision: safetyRevision,
+      reason: racecraftSafetyReason(safety)
+    }
+  }
+
+  function safetyChangedAnswer(question: string): EngineerAnswer {
+    return {
+      id: nextId(),
+      at: now(),
+      question,
+      text:
+        config.language === 'pt-BR'
+          ? 'A condição de segurança mudou. Faça a pergunta novamente quando a telemetria estabilizar.'
+          : 'The safety state changed. Ask again after live telemetry stabilizes.',
       speak: false,
       lang: config.language,
       kind: 'disabled',
@@ -429,18 +522,38 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     currentAbort = controller
     const requestConfig = config
     const requestRevision = configRevision
+    const requestLanguageRevision = languageRevision
+    const requestSafety = observeGenerationSafety()
     const requestConfigIsCurrent = (): boolean => configRevision === requestRevision
+    const requestLanguageIsCurrent = (): boolean =>
+      languageRevision === requestLanguageRevision
+    const requestSafetyIsCurrent = (): boolean => {
+      const current = observeGenerationSafety()
+      return (
+        current.revision === requestSafety.revision &&
+        current.key === requestSafety.key &&
+        current.reason === undefined
+      )
+    }
+    if (requestSafety.reason !== undefined) return safetyChangedAnswer(question)
     try {
       // Lazy model resolution (download-on-first-run with progress + cancellable).
       const ensured = await deps.modelManager.ensureModel(
         requestConfig.modelId,
         (progress) => {
-          if (contextIsCurrent(context) && requestConfigIsCurrent()) deps.broadcast(ENGINEER_CHANNELS.modelProgress, progress)
+          if (
+            contextIsCurrent(context) &&
+            requestConfigIsCurrent() &&
+            requestLanguageIsCurrent() &&
+            requestSafetyIsCurrent()
+          ) deps.broadcast(ENGINEER_CHANNELS.modelProgress, progress)
         },
         controller.signal
       )
       if (!contextIsCurrent(context)) return rejectedAnswer(question)
       if (!requestConfigIsCurrent()) return cancelledForConfigChange(question)
+      if (!requestLanguageIsCurrent()) return cancelledForConfigChange(question)
+      if (!requestSafetyIsCurrent()) return safetyChangedAnswer(question)
       if (!ensured.ok) {
         log?.warn(LOG_AREA, 'ensureModel failed', { modelId: requestConfig.modelId, error: ensured.error })
         return finalize(question, pick(requestConfig, FALLBACK.noModel), 'error', 'llm', undefined, context)
@@ -481,6 +594,8 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       })
       if (!contextIsCurrent(context)) return rejectedAnswer(question)
       if (!requestConfigIsCurrent()) return cancelledForConfigChange(question)
+      if (!requestLanguageIsCurrent()) return cancelledForConfigChange(question)
+      if (!requestSafetyIsCurrent()) return safetyChangedAnswer(question)
       if (!result.ok) {
         log?.warn(LOG_AREA, 'generate failed', { code: result.code })
         return finalize(question, pick(requestConfig, FALLBACK.llmError), 'error', 'llm', undefined, context)
@@ -491,6 +606,8 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
       // The runtime never throws, but keep the orchestrator bullet-proof regardless.
       if (!contextIsCurrent(context)) return rejectedAnswer(question)
       if (!requestConfigIsCurrent()) return cancelledForConfigChange(question)
+      if (!requestLanguageIsCurrent()) return cancelledForConfigChange(question)
+      if (!requestSafetyIsCurrent()) return safetyChangedAnswer(question)
       log?.error(LOG_AREA, 'generate threw', { message: error instanceof Error ? error.message : String(error) })
       return finalize(question, pick(requestConfig, FALLBACK.llmError), 'error', 'llm', undefined, context)
     } finally {
@@ -648,14 +765,30 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     if (intent.type === 'command') {
       return runCommand(question, intent.kind, intent.speak, intent.args, context)
     }
+    if (
+      intent.type === 'answer' &&
+      SAFE_DETERMINISTIC_INTENT_CATEGORIES.has(intent.category)
+    ) {
+      return finalize(question, intent.text, 'answer', 'intent', undefined, context)
+    }
+    const definition = safeInformationalDefinition(question, adviceLanguage)
+    if (definition) {
+      return finalize(
+        question,
+        definition,
+        'answer',
+        'intent',
+        undefined,
+        context,
+        adviceLanguage,
+        definition
+      )
+    }
     const freeFormSafety =
       deps.racecraftContext?.()?.safety ??
       makeFallbackContext().safety
     const freeFormSafetyReason = racecraftSafetyReason(freeFormSafety)
-    if (
-      freeFormSafetyReason &&
-      !isExplicitSafeInformationalQuestion(question)
-    ) {
+    if (freeFormSafetyReason) {
       const text = racecraftSafetyMessage(freeFormSafetyReason, adviceLanguage)
       return finalize(
         question,
@@ -693,8 +826,10 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
 
   async function setConfig(patch: EngineerConfigPatch): Promise<EngineerConfig> {
     const previousModel = config.modelId
+    const previousLanguage = config.language
     config = mergeEngineerConfig(config, { ...patch, updatedAt: now() })
     configRevision += 1
+    if (config.language !== previousLanguage) languageRevision += 1
     currentAbort?.abort()
     deps.onConfigChange?.(config)
     await deps.saveConfig(config)
@@ -716,6 +851,10 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     currentAbort?.abort()
   }
 
+  function observeSafety(): void {
+    observeGenerationSafety()
+  }
+
   function resetLiveContext(): void {
     currentAbort?.abort()
     currentAbort = null
@@ -729,6 +868,7 @@ export function createEngineerOrchestrator(deps: EngineerOrchestratorDeps): Engi
     getConfig: () => config,
     setConfig,
     cancel,
+    observeSafety,
     resetLiveContext,
     getLog: () => recent.slice()
   }
@@ -814,6 +954,7 @@ export function register(ctx: ModuleContext): void {
 
   const liveGate = new LiveTelemetryGate()
   ctx.telemetryHub.on('snapshot', (snapshot) => {
+    orchestrator.observeSafety()
     const decision = liveGate.observe(snapshot)
     currentLiveContext = decision.context
     if (decision.boundary) orchestrator.resetLiveContext()

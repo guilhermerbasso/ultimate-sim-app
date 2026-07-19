@@ -11,6 +11,7 @@ import type { EngineerContext } from '../../shared/ai-engineer'
 import type { CoachFinding } from '../../shared/coach'
 import {
   MAX_RACECRAFT_SPEECH_LENGTH,
+  safeInformationalDefinition,
   type CoachAdviceLanguage,
   type RacecraftAdviceContext
 } from '../../shared/coach-racecraft'
@@ -458,30 +459,123 @@ describe('createEngineerOrchestrator.ask', () => {
       }
     ]
   ] as const)(
-    'allows explicit non-tactical informational questions through during %s',
+    'answers explicit non-tactical informational questions from controlled templates during %s',
     async (_label, safety) => {
       const harness = makeHarness({ racecraftContext: { safety } })
 
       const answer = await createEngineerOrchestrator(harness.deps).ask('Define understeer.')
 
-      expect(answer.source).toBe('llm')
-      expect(harness.runtime.generateWithTools).toHaveBeenCalledOnce()
+      expect(answer.source).toBe('intent')
+      expect(answer.text).toBe(safeInformationalDefinition('Define understeer.', 'en-US'))
+      expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+      expect(harness.modelManager.ensureModel).not.toHaveBeenCalled()
     }
   )
 
-  it('keeps safe non-tactical racecraft definitions eligible for the LLM', async () => {
+  it('never publishes raw LLM prose for safe racecraft definitions', async () => {
     const harness = makeHarness({
       racecraftContext: {
         findings: [racecraftFinding()],
         safety: KNOWN_SAFE_RACE
       }
     })
-
+    harness.runtime.generateWithTools.mockResolvedValueOnce({
+      ok: true,
+      text: 'An overtake means send it under yellow.',
+      tokens: 8,
+      ms: 1,
+      functionCalls: 0,
+      stopReason: 'eogToken'
+    })
     const answer = await createEngineerOrchestrator(harness.deps).ask('What is an overtake?')
 
-    expect(answer.source).toBe('llm')
-    expect(harness.runtime.generateWithTools).toHaveBeenCalledOnce()
+    expect(answer.source).toBe('intent')
+    expect(answer.text).toBe(safeInformationalDefinition('What is an overtake?', 'en-US'))
+    expect(answer.text).not.toContain('send it')
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
   })
+
+  it.each([
+    ['yellow', { ...KNOWN_SAFE_RACE, flagYellow: true }],
+    [
+      'unknown',
+      {
+        ...KNOWN_SAFE_RACE,
+        flagsKnown: false,
+        pitStateKnown: false,
+        paceStateKnown: false
+      }
+    ]
+  ] as const)(
+    'answers explicitly safe deterministic telemetry categories during %s',
+    async (_label, safety) => {
+      const snapshot = {
+        sim: 'iracing',
+        connected: true,
+        timestamp: 1000,
+        sessionType: 'Race',
+        fuelLiters: 34.2,
+        position: 4,
+        totalCars: 20,
+        lapsRemaining: 13,
+        tyres: {
+          lf: { tempC: 88, pressureKpa: 180 },
+          rf: { tempC: 95, pressureKpa: 181 },
+          lr: { tempC: 86, pressureKpa: 178 },
+          rr: { tempC: 90, pressureKpa: 179 }
+        },
+        isRaining: false,
+        trackWetnessPct: 0
+      } as TelemetrySnapshot
+      const questions = [
+        'How much fuel?',
+        'What is my position?',
+        'How are the tires?',
+        'Is it raining?',
+        'Quantas laps fhighm?'
+      ]
+      for (const question of questions) {
+        const harness = makeHarness({
+          snapshot,
+          racecraftContext: { safety }
+        })
+
+        const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+        expect(answer.source, question).toBe('intent')
+        expect(answer.text, question).not.toMatch(/TACTICS PAUSED|RACE-CONTROL STATE UNAVAILABLE/)
+        expect(harness.runtime.generateWithTools, question).not.toHaveBeenCalled()
+        expect(harness.modelManager.ensureModel, question).not.toHaveBeenCalled()
+      }
+    }
+  )
+
+  it.each([
+    ['yellow', { ...KNOWN_SAFE_RACE, flagYellow: true }, 'TACTICS PAUSED'],
+    [
+      'unknown',
+      {
+        ...KNOWN_SAFE_RACE,
+        flagsKnown: false,
+        pitStateKnown: false,
+        paceStateKnown: false
+      },
+      'RACE-CONTROL STATE UNAVAILABLE'
+    ]
+  ] as const)(
+    'keeps tactical deterministic categories paused during %s',
+    async (_label, safety, marker) => {
+      for (const question of ['How is my pace?', 'Gap ahead?']) {
+        const harness = makeHarness({ racecraftContext: { safety } })
+
+        const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+        expect(answer.source, question).toBe('intent')
+        expect(answer.text, question).toContain(marker)
+        expect(harness.runtime.generateWithTools, question).not.toHaveBeenCalled()
+      }
+    }
+  )
 
   it('returns deterministic safety suppression for replay racecraft questions without the LLM', async () => {
     const snapshot = {
@@ -562,6 +656,51 @@ describe('createEngineerOrchestrator.ask', () => {
     expect(answer.text).toBe('engineer response')
     // The answer carries its language so the renderer can pick the right TTS voice.
     expect(answer.lang).toBe('en-US')
+  })
+
+  it('rejects green-start LLM completion after race control turns yellow without publishing speech', async () => {
+    const racecraftContext: RacecraftAdviceContext = {
+      safety: { ...KNOWN_SAFE_RACE }
+    }
+    const harness = makeHarness({ racecraftContext })
+    let resolveGeneration!: (result: GenerateResult) => void
+    harness.runtime.generateWithTools.mockImplementationOnce(
+      () =>
+        new Promise<GenerateResult>((resolve) => {
+          resolveGeneration = resolve
+        })
+    )
+    const orchestrator = createEngineerOrchestrator(harness.deps)
+    const pending = orchestrator.ask('What do you think of my race so far?')
+    await vi.waitFor(() => expect(harness.runtime.generateWithTools).toHaveBeenCalledOnce())
+
+    racecraftContext.safety = {
+      ...KNOWN_SAFE_RACE,
+      flagYellow: true
+    }
+    orchestrator.observeSafety()
+    resolveGeneration({
+      ok: true,
+      text: 'Push harder and pass the car ahead.',
+      tokens: 8,
+      ms: 1,
+      functionCalls: 0,
+      stopReason: 'eogToken'
+    })
+
+    const answer = await pending
+    expect(answer).toMatchObject({
+      kind: 'disabled',
+      source: 'system',
+      speak: false
+    })
+    expect(answer.text).toContain('safety state changed')
+    expect(answer.text).not.toContain('Push harder')
+    expect(harness.broadcast).not.toHaveBeenCalledWith(
+      ENGINEER_CHANNELS.answer,
+      expect.anything()
+    )
+    expect(orchestrator.getLog()).toEqual([])
   })
 
   it('selects an English persona for en-US LLM answers', async () => {

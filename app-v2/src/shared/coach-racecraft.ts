@@ -623,7 +623,7 @@ export function isExplicitSafeInformationalQuestion(question: string): boolean {
     .trim()
   if (!q) return false
   const englishTopic =
-    '(?:understeer|oversteer|abs|anti lock|traction control|brake bias|camber|caster|toe|downforce|apex|slipstream|draft|dirty air|telemetry|lap delta|tire pressure|tyre pressure|fuel delta|pit limiter|yellow flag|red flag|blue flag|black flag|meatball flag|safety car|virtual safety car|vsc|overtake|racecraft)'
+    '(?:understeer|oversteer|abs|anti lock braking|traction control|yellow flag|safety car|overtake)'
   const english = new RegExp(
     `^(?:(?:what is|define) (?:an? |the )?${englishTopic}|` +
     `explain (?:the )?(?:(?:term|concept|meaning of) )?(?:an? |the )?${englishTopic}|` +
@@ -631,11 +631,107 @@ export function isExplicitSafeInformationalQuestion(question: string): boolean {
     `tell me what (?:the )?${englishTopic} means)$`
   )
   if (english.test(q)) return true
-  return /^(?:o que e|defina|explique(?: o (?:termo|conceito))?) (?:a |o )?(?:subviragem|sobreviragem|abs|controle de tracao|pressao dos pneus|bandeira amarela|safety car)$/.test(q) ||
-    /^(?:que es|define|explica(?: el (?:termino|concepto))?) (?:el |la )?(?:subviraje|sobreviraje|abs|control de traccion|presion de neumaticos|bandera amarilla|coche de seguridad)$/.test(q) ||
-    /^(?:qu est ce que|definis|explique(?: le (?:terme|concept))?) (?:le |la |un |une )?(?:sous virage|survirage|abs|controle de traction|pression des pneus|drapeau jaune|voiture de securite)$/.test(q) ||
-    /^(?:was ist|definiere|erklare(?: den (?:begriff|konzept))?) (?:der |die |das |ein )?(?:untersteuern|ubersteuern|abs|traktionskontrolle|reifendruck|gelbe flagge|sicherheitsauto|safety car)$/.test(q) ||
-    /^(?:(?:转向不足|转向过度|防抱死|牵引力控制|黄旗|红旗|安全车)(?:是什么|是什么意思)|(?:アンダーステア|オーバーステア|イエローフラッグ|セーフティカー)とは(?:何)?)$/.test(q)
+  return /^(?:o que e|defina|explique(?: o (?:termo|conceito))?) (?:a |o )?(?:subviragem|sobreviragem|abs|controle de tracao|bandeira amarela|safety car|ultrapassagem)$/.test(q) ||
+    /^(?:que es|define|explica(?: el (?:termino|concepto))?) (?:el |la )?(?:subviraje|sobreviraje|abs|control de traccion|bandera amarilla|coche de seguridad|adelantamiento)$/.test(q) ||
+    /^(?:qu est ce que|definis|explique(?: le (?:terme|concept))?) (?:le |la |un |une )?(?:sous virage|survirage|abs|controle de traction|drapeau jaune|voiture de securite|depassement)$/.test(q) ||
+    /^(?:was ist|definiere|erklare(?: den (?:begriff|konzept))?) (?:der |die |das |ein )?(?:untersteuern|ubersteuern|abs|traktionskontrolle|gelbe flagge|sicherheitsauto|safety car|uberholvorgang)$/.test(q) ||
+    /^(?:(?:转向不足|转向过度|防抱死|牵引力控制|黄旗|安全车)(?:是什么|是什么意思)|(?:アンダーステア|オーバーステア|イエローフラッグ|セーフティカー)とは(?:何)?)$/.test(q)
+}
+
+type SafeInformationalTopic =
+  | 'understeer'
+  | 'oversteer'
+  | 'abs'
+  | 'traction-control'
+  | 'yellow-flag'
+  | 'safety-car'
+  | 'overtake'
+
+function safeInformationalTopic(question: string): SafeInformationalTopic | null {
+  if (!isExplicitSafeInformationalQuestion(question)) return null
+  const q = normalize(question)
+  if (/(understeer|subviragem|subviraje|sous virage|untersteuern|转向不足|アンダーステア)/.test(q)) return 'understeer'
+  if (/(oversteer|sobreviragem|sobreviraje|survirage|ubersteuern|转向过度|オーバーステア)/.test(q)) return 'oversteer'
+  if (/\b(abs|anti lock braking)\b|防抱死/.test(q)) return 'abs'
+  if (/(traction control|controle de tracao|control de traccion|controle de traction|traktionskontrolle|牵引力控制)/.test(q)) return 'traction-control'
+  if (/(yellow flag|bandeira amarela|bandera amarilla|drapeau jaune|gelbe flagge|黄旗|イエローフラッグ)/.test(q)) return 'yellow-flag'
+  if (/(safety car|coche de seguridad|voiture de securite|sicherheitsauto|安全车|セーフティカー)/.test(q)) return 'safety-car'
+  if (/(overtake|ultrapassagem|adelantamiento|depassement|uberholvorgang)/.test(q)) return 'overtake'
+  return null
+}
+
+export function safeInformationalDefinition(
+  question: string,
+  language: CoachAdviceLanguage
+): string | null {
+  const topic = safeInformationalTopic(question)
+  if (!topic) return null
+  const definitions: Record<SafeInformationalTopic, Record<CoachAdviceLanguage, string>> = {
+    understeer: {
+      'en-US': 'Understeer is when the front tires run out of grip and the car turns less than requested.',
+      'pt-BR': 'Subviragem acontece quando os pneus dianteiros perdem aderência e o carro vira menos do que o solicitado.',
+      es: 'El subviraje ocurre cuando los neumáticos delanteros pierden agarre y el coche gira menos de lo solicitado.',
+      fr: 'Le sous-virage se produit quand les pneus avant perdent de l’adhérence et que la voiture tourne moins que demandé.',
+      de: 'Untersteuern entsteht, wenn die Vorderreifen Grip verlieren und das Auto weniger stark einlenkt als gewünscht.',
+      zh: '转向不足是指前轮失去抓地力，车辆实际转向小于驾驶者的转向需求。',
+      ja: 'アンダーステアは、前輪のグリップが不足して車が要求より曲がらない状態です。'
+    },
+    oversteer: {
+      'en-US': 'Oversteer is when the rear tires lose grip and the car rotates more than requested.',
+      'pt-BR': 'Sobreviragem acontece quando os pneus traseiros perdem aderência e o carro gira mais do que o solicitado.',
+      es: 'El sobreviraje ocurre cuando los neumáticos traseros pierden agarre y el coche gira más de lo solicitado.',
+      fr: 'Le survirage se produit quand les pneus arrière perdent de l’adhérence et que la voiture tourne plus que demandé.',
+      de: 'Übersteuern entsteht, wenn die Hinterreifen Grip verlieren und sich das Auto stärker dreht als gewünscht.',
+      zh: '转向过度是指后轮失去抓地力，车辆旋转超过驾驶者的转向需求。',
+      ja: 'オーバーステアは、後輪のグリップが不足して車が要求以上に旋回する状態です。'
+    },
+    abs: {
+      'en-US': 'ABS modulates brake pressure to reduce wheel lock during braking.',
+      'pt-BR': 'O ABS modula a pressão de freio para reduzir o travamento das rodas.',
+      es: 'El ABS modula la presión de freno para reducir el bloqueo de las ruedas.',
+      fr: 'L’ABS module la pression de freinage pour limiter le blocage des roues.',
+      de: 'ABS regelt den Bremsdruck, um ein Blockieren der Räder zu verringern.',
+      zh: 'ABS 通过调节制动压力来减少车轮抱死。',
+      ja: 'ABS はブレーキ圧を調整してタイヤのロックを抑えます。'
+    },
+    'traction-control': {
+      'en-US': 'Traction control limits driven-wheel slip by reducing delivered torque.',
+      'pt-BR': 'O controle de tração limita a patinagem das rodas motrizes reduzindo o torque entregue.',
+      es: 'El control de tracción limita el deslizamiento de las ruedas motrices reduciendo el par entregado.',
+      fr: 'Le contrôle de traction limite le patinage des roues motrices en réduisant le couple transmis.',
+      de: 'Die Traktionskontrolle begrenzt den Schlupf der Antriebsräder durch Reduzierung des abgegebenen Drehmoments.',
+      zh: '牵引力控制通过降低输出扭矩来限制驱动轮打滑。',
+      ja: 'トラクションコントロールは駆動トルクを抑えて駆動輪の空転を制限します。'
+    },
+    'yellow-flag': {
+      'en-US': 'A yellow flag warns of a hazard; follow race-control restrictions until the course is clear.',
+      'pt-BR': 'A bandeira amarela avisa sobre um perigo; siga as restrições da direção de prova até a pista estar liberada.',
+      es: 'La bandera amarilla avisa de un peligro; sigue las restricciones de control de carrera hasta que la pista quede libre.',
+      fr: 'Le drapeau jaune signale un danger ; respecte les restrictions de la direction de course jusqu’à la libération de la piste.',
+      de: 'Die gelbe Flagge warnt vor einer Gefahr; befolge die Vorgaben der Rennleitung, bis die Strecke frei ist.',
+      zh: '黄旗表示赛道存在危险；在赛道恢复安全前必须遵守赛会限制。',
+      ja: 'イエローフラッグは危険を示します。コースが安全になるまでレースコントロールの制限に従います。'
+    },
+    'safety-car': {
+      'en-US': 'A safety car neutralizes the race and controls field speed and spacing.',
+      'pt-BR': 'O safety car neutraliza a corrida e controla a velocidade e o espaçamento do pelotão.',
+      es: 'El coche de seguridad neutraliza la carrera y controla la velocidad y separación del pelotón.',
+      fr: 'La voiture de sécurité neutralise la course et contrôle la vitesse et l’espacement du peloton.',
+      de: 'Das Safety Car neutralisiert das Rennen und kontrolliert Geschwindigkeit und Abstände des Feldes.',
+      zh: '安全车会中和比赛并控制车阵速度与间距。',
+      ja: 'セーフティカーはレースを中立化し、隊列の速度と間隔を管理します。'
+    },
+    overtake: {
+      'en-US': 'An overtake is a rules-compliant pass of another car for track position.',
+      'pt-BR': 'Uma ultrapassagem é a passagem regulamentar por outro carro para ganhar posição na pista.',
+      es: 'Un adelantamiento es superar reglamentariamente a otro coche para ganar posición en pista.',
+      fr: 'Un dépassement consiste à passer réglementairement une autre voiture pour gagner une position.',
+      de: 'Ein Überholvorgang ist das regelkonforme Passieren eines anderen Autos um eine Position.',
+      zh: '超车是在规则允许范围内超过另一辆赛车以取得赛道位置。',
+      ja: 'オーバーテイクは、規則に従って他車を抜きコース上の順位を得ることです。'
+    }
+  }
+  return definitions[topic][language]
 }
 
 export function detectRacecraftQuestionWithLanguage(question: string): DetectedRacecraftQuestion | null {
