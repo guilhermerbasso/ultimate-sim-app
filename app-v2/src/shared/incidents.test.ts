@@ -4,7 +4,9 @@ import {
   DEFAULT_INCIDENT_CONFIG,
   buildIncidentWindow,
   classifyIncident,
+  createIncidentCaptureSessionIdentity,
   detectIncidents,
+  incidentCaptureSessionKey,
   summarizeIncident,
   toClipMeta,
   toIncidentSample,
@@ -147,6 +149,29 @@ describe('detectIncidents', () => {
     const clips = detectIncidents(samples)
     const types = clips.map((c) => c.type).sort()
     expect(types).toEqual(['off-track', 'spin'])
+  })
+
+  it('binds generated clips to an immutable capture-session identity', () => {
+    const session = createIncidentCaptureSessionIdentity(snap({
+      timestamp: 1_000,
+      sim: 'iracing',
+      sessionUniqueId: 4242,
+      sessionNumber: 3,
+      sessionType: 'Race',
+      trackName: 'Spa'
+    }))
+    const clips = detectIncidents([
+      snap({ timestamp: 1_000, speedKmh: 200 }),
+      snap({ timestamp: 1_033, speedKmh: 160 })
+    ], { captureSession: session })
+
+    expect(clips[0].captureSession).toEqual(session)
+    expect(incidentCaptureSessionKey(snap({
+      timestamp: 9_999,
+      sim: 'iracing',
+      sessionUniqueId: 4242,
+      trackName: 'Changed display label'
+    }))).toBe('iracing:unique:4242')
   })
 })
 
