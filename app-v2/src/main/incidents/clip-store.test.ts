@@ -158,6 +158,24 @@ describe('IncidentClipStore', () => {
     expect(verified?.trust.sameUserProcessAuthenticity).toBe(false)
   })
 
+  it('rejects a same-user reseal that injects an unsupported simulator id', () => {
+    const test = harness('invalid-sim')
+    test.store.save(clip('inc-invalid-sim'))
+    const path = sealedPath(test.root, 'inc-invalid-sim')
+    const envelope = JSON.parse(readFileSync(path, 'utf8')) as { plainText: string; digest: string }
+    const changed = JSON.parse(envelope.plainText) as {
+      captureSession: { sim: string }
+    }
+    changed.captureSession.sim = 'unexpected-sim'
+    writeFileSync(
+      path,
+      new SameUserSafeStorageSemanticsCodec().seal(canonicalStringify(changed))
+    )
+
+    expect(() => test.store.getVerified('inc-invalid-sim')).toThrow(/captureSession\.sim.*unsupported/i)
+    expect(existsSync(path)).toBe(false)
+  })
+
   it('quarantines legacy unverified clips and interrupted atomic writes', () => {
     const test = harness('recovery')
     writeFileSync(join(test.root, 'legacy.json'), JSON.stringify(clip('legacy')), 'utf8')

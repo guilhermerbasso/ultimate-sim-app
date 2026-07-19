@@ -24,6 +24,7 @@ import {
   type IncidentSeverity,
   type IncidentType
 } from '../../shared/incidents'
+import type { SimId } from '../../shared/telemetry'
 import { canonicalStringify, isPlainObject } from '../steward-desk/canonical'
 
 const VERIFIED_CLIP = Symbol('verified-incident-clip')
@@ -60,6 +61,16 @@ const SAMPLE_KEYS = new Set([
   'surface',
   'onPitRoad'
 ])
+const CLIP_SIM_IDS = {
+  iracing: true,
+  acc: true,
+  ac: true,
+  ams2: true,
+  lmu: true,
+  mock: true,
+  replay: true,
+  none: true
+} satisfies Record<SimId, true>
 
 export type IncidentClipIntegrityErrorCode =
   | 'integrity-unavailable'
@@ -192,10 +203,14 @@ function parseCaptureSession(value: unknown): IncidentCaptureSessionIdentity {
   )
   const sessionUniqueId = optionalFinite(value.sessionUniqueId, 'captureSession.sessionUniqueId', 0)
   const sessionNumber = optionalFinite(value.sessionNumber, 'captureSession.sessionNumber', 0)
+  const sim = text(value.sim, 'captureSession.sim', 80)
+  if (!Object.prototype.hasOwnProperty.call(CLIP_SIM_IDS, sim)) {
+    throw new IncidentClipIntegrityError('clip-invalid', `captureSession.sim "${sim}" is unsupported.`)
+  }
   return {
     schemaVersion: INCIDENT_CAPTURE_SESSION_SCHEMA_VERSION,
     captureSessionId: text(value.captureSessionId, 'captureSession.captureSessionId', 200),
-    sim: text(value.sim, 'captureSession.sim', 80) as IncidentCaptureSessionIdentity['sim'],
+    sim: sim as SimId,
     startedAt: finite(value.startedAt, 'captureSession.startedAt', 0),
     ...(lifecycleGeneration === undefined ? {} : { lifecycleGeneration: Math.trunc(lifecycleGeneration) }),
     ...(sessionUniqueId === undefined ? {} : { sessionUniqueId: Math.trunc(sessionUniqueId) }),
