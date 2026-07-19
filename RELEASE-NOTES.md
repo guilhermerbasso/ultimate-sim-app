@@ -79,7 +79,7 @@ offline race-operation rehearsal.
   dissent, appeals, and authoritative local re-adjudication; the app never assigns penalties
   automatically.
 - 🔗 Cases preserve a canonical verified event chain, while incident clips are bound to debounced
-  provider session epochs and stored atomically with fail-closed corruption, decrypt, and hash
+  provider session epochs and stored atomically with fail-closed corruption, decryption, and hash
   quarantine.
 - 🛡️ Stable main-process actor identities remain authoritative; renderer labels are untrusted notes,
   and imported or legacy-unconfirmed verdicts stay non-authoritative until trusted local review.

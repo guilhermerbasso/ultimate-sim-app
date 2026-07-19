@@ -19,7 +19,7 @@
   not modify the source layout.
 - **Secure interactive Touch Controls receivers** for allowlisted pit, radio, toggle, selector,
   rotary, and simulator actions, using authenticated target-bound capabilities, CSRF protection,
-  one-time nonces, origin binding, rate limits, and a live controller lease.
+  one-time nonces, origin binding, rate limits, and a live receiver lease.
 - **Editor-only trigger previews** that reveal inactive trigger-only overlays and dashboard widgets
   for positioning without changing their live visibility rules.
 - **Experimental local Context-Debt meter** for auditing competing cues, invalid routes, and
