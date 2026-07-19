@@ -6843,6 +6843,7 @@ type ViewText = Pick<ViewDef, 'group' | 'label' | 'eyebrow' | 'description'>
 
 const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
   'pt-BR': {
+    'rig-preflight': { label: 'Preflight do Rig', eyebrow: 'Evidência', description: 'Readiness local com desejado/reportado/delta, certificados com prazo, dispensas e testes de falha.' },
     'setup-experiment': { label: 'Experimento de Setup', eyebrow: 'A-B-A', description: 'Blocos locais de uma variável com gates ambientais, bootstrap, repetição e abstenção.' }
   },
   en: {
@@ -6872,9 +6873,11 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
     'dashboard-adaptive': { label: 'Adaptive Dashboard', eyebrow: 'Live', description: 'A single dashboard that reorganizes by session phase and lap moment.' },
     biometrics: { label: 'Biometrics', eyebrow: 'HR/AR', description: 'Heart rate, stress vs pace, and AR HUD.' },
     community: { label: 'Community', eyebrow: 'Local-first', description: 'Ghosts, telemetry, and setups via .simshare files.' },
+    'steward-desk': { label: 'Steward Desk', eyebrow: 'Human decision', description: 'Local evidence cases with rule versions, dissent, appeals, and anonymized export.' },
     'haptics-zonal': { label: 'Zonal Haptics', eyebrow: 'Zones', description: 'Events to zones plus visual simulator.' },
     haptics: { label: 'Haptics', eyebrow: 'Bass shaker', description: 'ShakeIt-style tactile feedback: bass shaker audio plus haptics.' },
     'spotter-3d': { label: '3D Spotter', eyebrow: 'Spatial audio', description: 'HRTF positional cues for nearby cars.' },
+    'rig-preflight': { label: 'Rig Preflight', eyebrow: 'Evidence', description: 'Local desired/reported/delta readiness with expiring certificates, waivers, and fault drills.' },
     devices: { label: 'Devices', eyebrow: 'Connection', description: 'USB/serial detection and ButtonBox selection.' },
     arduinos: { label: 'Arduinos', eyebrow: 'Hardware', description: 'SimHub-style hardware hub for RGB, matrix, displays, gauges, controls, pinout, and firmware.' },
     revlights: { label: 'Rev Lights', eyebrow: 'LEDs', description: 'Rev light configuration and presets.' },
@@ -6913,6 +6916,11 @@ function patchViewText(language: ResolvedLanguage, patches: Record<string, Parti
 
 patchViewText('pt-BR', {
   'accessibility-cues': { label: 'Cues de acessibilidade', eyebrow: 'Multimodal', description: 'Perfis semânticos de caption, áudio, símbolo, LED e háptica.' },
+  'steward-desk': {
+    label: 'Mesa dos Comissários',
+    eyebrow: 'Decisão humana',
+    description: 'Casos locais com evidências, regras versionadas, dissenso, recurso e exportação anonimizada.'
+  },
   streaming: { label: 'Streaming', eyebrow: 'Transmissão', description: 'Destinos nomeados e somente leitura de dashboards e painéis touch para OBS, celulares e tablets.' },
   'story-engine': { label: 'Story Engine', eyebrow: 'Pós-corrida', description: 'Cards locais ligados a evidências, com preview de destino e aprovação humana obrigatória.' },
   'context-debt': {
@@ -6938,6 +6946,7 @@ patchViewText('es', {
   haptics: { label: 'Háptica' },
   'haptics-zonal': { label: 'Háptica zonal' },
   strategy: { label: 'Estrategia' },
+  'steward-desk': { label: 'Mesa de comisarios', eyebrow: 'Decisión humana', description: 'Casos locales con evidencia, reglas versionadas, disenso, recursos y exportación anonimizada.' },
   devices: { label: 'Devices' },
   'accessibility-cues': { label: 'Señales de accesibilidad', description: 'Perfiles semánticos de subtítulos, audio, símbolos, LED y háptica.' },
   settings: { label: 'Configuración', description: 'Autoarranque, telemetría, idioma y tema.' },
@@ -6959,6 +6968,7 @@ patchViewText('fr', {
   haptics: { label: 'Haptique' },
   'haptics-zonal': { label: 'Haptique zonale' },
   strategy: { label: 'Stratégie' },
+  'steward-desk': { label: 'Bureau des commissaires', eyebrow: 'Décision humaine', description: 'Dossiers locaux avec preuves, règles versionnées, dissidence, appels et export anonymisé.' },
   devices: { label: 'Appareils' },
   'accessibility-cues': { label: 'Signaux d’accessibilité', description: 'Profils sémantiques de sous-titres, audio, symboles, LED et haptique.' },
   settings: { label: 'Paramètres', description: 'Démarrage auto, télémétrie, langue et thème.' },
@@ -6981,6 +6991,7 @@ patchViewText('de', {
   haptics: { label: 'Haptik' },
   'haptics-zonal': { label: 'Zonen-Haptik' },
   strategy: { label: 'Strategie' },
+  'steward-desk': { label: 'Steward Desk', eyebrow: 'Menschliche Entscheidung', description: 'Lokale Beweisfälle mit Regelversionen, Widerspruch, Berufung und anonymisiertem Export.' },
   devices: { label: 'Geräte' },
   'accessibility-cues': { label: 'Barrierefreiheits-Hinweise', description: 'Semantische Profile für Untertitel, Audio, Symbole, LED und Haptik.' },
   settings: { label: 'Einstellungen', description: 'Autostart, Telemetriequelle, Sprache und Theme.' },
@@ -7003,6 +7014,7 @@ patchViewText('zh', {
   engineer: { label: 'AI 工程师' },
   coach: { label: 'AI 教练' },
   strategy: { label: '策略' },
+  'steward-desk': { label: '赛事裁判台', eyebrow: '人工裁决', description: '本地证据案件、规则版本、异议、申诉与匿名导出。' },
   haptics: { label: '触觉反馈' },
   'haptics-zonal': { label: '分区触觉' },
   devices: { label: '设备' },
@@ -7027,6 +7039,7 @@ patchViewText('ja', {
   engineer: { label: 'AI エンジニア' },
   coach: { label: 'AI コーチ' },
   strategy: { label: '戦略' },
+  'steward-desk': { label: 'スチュワードデスク', eyebrow: '人間による判断', description: 'ローカル証拠ケース、規則バージョン、異議、上訴、匿名エクスポート。' },
   haptics: { label: 'ハプティクス' },
   'haptics-zonal': { label: 'ゾーンハプティクス' },
   devices: { label: 'デバイス' },
@@ -7055,9 +7068,13 @@ patchViewText('ja', {
 })
 
 const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
-  'pt-BR': { Streaming: 'Streaming' },
+  'pt-BR': {
+    'League Ops': 'Operações da liga',
+    Streaming: 'Streaming'
+  },
   en: {
     'IA & Coaching': 'AI & Coaching',
+    'League Ops': 'League Ops',
     Streaming: 'Streaming'
   },
   es: {
@@ -7066,6 +7083,7 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     'IA & Coaching': 'IA y coaching',
     Strategy: 'Estrategia',
     Garage: 'Garaje',
+    'League Ops': 'Operaciones de liga',
     Hardware: 'Hardware',
     System: 'Sistema',
     Streaming: 'Streaming'
@@ -7076,6 +7094,7 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     'IA & Coaching': 'IA et coaching',
     Strategy: 'Stratégie',
     Garage: 'Garage',
+    'League Ops': 'Opérations de ligue',
     Hardware: 'Matériel',
     System: 'Système',
     Streaming: 'Streaming'
@@ -7086,6 +7105,7 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     'IA & Coaching': 'KI & Coaching',
     Strategy: 'Strategie',
     Garage: 'Garage',
+    'League Ops': 'Liga-Betrieb',
     Hardware: 'Hardware',
     System: 'System',
     Streaming: 'Streaming'
@@ -7096,6 +7116,7 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     'IA & Coaching': 'AI 与教练',
     Strategy: '策略',
     Garage: '车库',
+    'League Ops': '联赛运营',
     Hardware: '硬件',
     System: '系统',
     Streaming: '串流'
@@ -7106,6 +7127,7 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     'IA & Coaching': 'AI とコーチング',
     Strategy: '戦略',
     Garage: 'ガレージ',
+    'League Ops': 'リーグ運営',
     Hardware: 'ハードウェア',
     System: 'システム',
     Streaming: 'ストリーミング'
@@ -7113,39 +7135,48 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
 }
 
 const GROUP_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
-  'pt-BR': { Streaming: 'Streaming' },
+  'pt-BR': {
+    'League Ops': 'Operações da liga',
+    Streaming: 'Streaming'
+  },
   en: {
     'Sim Racing': 'Sim Racing',
+    'League Ops': 'League Ops',
     ButtonBox: 'ButtonBox',
     App: 'App',
     Streaming: 'Streaming'
   },
   es: {
     'Sim Racing': 'Sim Racing',
+    'League Ops': 'Operaciones de liga',
     ButtonBox: 'ButtonBox',
     App: 'App',
     Streaming: 'Streaming'
   },
   fr: {
     'Sim Racing': 'Sim Racing',
+    'League Ops': 'Opérations de ligue',
     ButtonBox: 'ButtonBox',
     App: 'App',
     Streaming: 'Streaming'
   },
   de: {
     'Sim Racing': 'Sim Racing',
+    'League Ops': 'Liga-Betrieb',
     ButtonBox: 'ButtonBox',
     App: 'App',
     Streaming: 'Streaming'
   },
   zh: {
     'Sim Racing': 'Sim Racing',
+    'League Ops': '联赛运营',
     ButtonBox: 'ButtonBox',
     App: 'App',
     Streaming: '串流'
   },
   ja: {
     'Sim Racing': 'Sim Racing',
+    'League Ops': 'リーグ運営',
     ButtonBox: 'ButtonBox',
     App: 'App',
     Streaming: 'ストリーミング'
