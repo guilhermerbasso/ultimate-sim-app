@@ -231,6 +231,18 @@ describe('Steward Desk IPC trust boundary', () => {
     })).toThrow(/trusted incident evidence channel/i)
   })
 
+  it('reports the correct missing id field at the evidence-details IPC boundary', () => {
+    const test = harness('evidence-id')
+    expect(() => test.handlers.get(STEWARD_CHANNELS.getEvidenceDetails)!(test.event, {
+      caseId: 'case-1',
+      evidenceId: '   '
+    })).toThrow(/steward evidence id is required/i)
+    expect(() => test.handlers.get(STEWARD_CHANNELS.getEvidenceDetails)!(test.event, {
+      caseId: '',
+      evidenceId: 'evidence-1'
+    })).toThrow(/steward case id is required/i)
+  })
+
   it('requires a main-process native confirmation before authoritative adjudication', async () => {
     const test = harness('manual-review')
     vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({

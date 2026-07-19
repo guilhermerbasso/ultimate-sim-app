@@ -40,10 +40,15 @@ function authorize(ctx: ModuleContext, event: IpcMainInvokeEvent): void {
   }
 }
 
-function caseId(value: unknown): string {
-  if (typeof value !== 'string' || !value.trim()) throw new Error('A steward case id is required.')
+function requiredId(value: unknown, field: 'case' | 'evidence'): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`A steward ${field} id is required.`)
+  }
   return value
 }
+
+const caseId = (value: unknown): string => requiredId(value, 'case')
+const evidenceId = (value: unknown): string => requiredId(value, 'evidence')
 
 function exportProfile(value: unknown): StewardExportProfile {
   if (value === 'full-local' || value === 'anonymized') return value
@@ -83,7 +88,7 @@ export function register(ctx: ModuleContext, options: StewardDeskModuleOptions =
     STEWARD_CHANNELS.getEvidenceDetails,
     (event, request: StewardEvidenceDetailsRequest) => {
       authorize(ctx, event)
-      return store.getEvidenceDetails(caseId(request?.caseId), caseId(request?.evidenceId))
+      return store.getEvidenceDetails(caseId(request?.caseId), evidenceId(request?.evidenceId))
     }
   )
   ctx.ipcMain.handle(STEWARD_CHANNELS.createCase, (event, input: StewardCaseCreateInput) => {

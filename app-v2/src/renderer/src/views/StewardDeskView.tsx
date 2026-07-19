@@ -177,6 +177,26 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
     (entry.authority === undefined || entry.authority === 'local-trusted') &&
     entry.status === 'open') ?? []
   const statusLockedByAppeal = openAppeals.length > 0
+  const verdictMissingRequirements = [
+    ...(selectedEvidenceIds.length === 0
+      ? [tt(language, 'steward.verdict.requirement.evidence')]
+      : []),
+    ...(selectedRuleIds.length === 0
+      ? [tt(language, 'steward.verdict.requirement.rule')]
+      : []),
+    ...(!verdict.decisionText.trim()
+      ? [tt(language, 'steward.verdict.requirement.decision')]
+      : []),
+    ...(!verdict.manualReviewConfirmed
+      ? [tt(language, 'steward.verdict.requirement.review')]
+      : [])
+  ]
+  const verdictReady = Boolean(healthy) &&
+    !busy &&
+    verdictMissingRequirements.length === 0
+  const verdictRequirementsMessage = verdictMissingRequirements.length > 0
+    ? `${tt(language, 'steward.verdict.requirementsMissing')}: ${verdictMissingRequirements.join(', ')}`
+    : tt(language, 'steward.verdict.requirementsReady')
   const caseDraftDirty = useMemo(
     () =>
       referencesDirty ||
@@ -1137,10 +1157,20 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                     />
                     {tt(language, 'steward.verdict.manualReview')}
                   </label>
+                  <p
+                    className="steward-verified-note"
+                    id="steward-verdict-requirements"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {verdictRequirementsMessage}
+                  </p>
                   <button
                     className="steward-primary"
                     type="submit"
-                    disabled={!healthy || busy || !verdict.manualReviewConfirmed}
+                    disabled={!verdictReady}
+                    aria-describedby="steward-verdict-requirements"
+                    title={verdictRequirementsMessage}
                   >
                     {tt(language, 'steward.verdict.record')}
                   </button>

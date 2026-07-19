@@ -227,17 +227,77 @@ describe('StewardDeskView', () => {
     )
   })
 
-  it('requires explicit manual provenance review before enabling an authoritative verdict', async () => {
-    renderDesk([fixture('case-review', 'Manual review case')])
-    await screen.findByRole('heading', { name: 'Manual review case' })
+  it('keeps verdict submission disabled when evidence and rule selections are empty', async () => {
+    const empty = fixture('case-empty-review', 'Empty review case')
+    empty.evidence = []
+    empty.rules = []
+    empty.verdicts = []
+    renderDesk([empty])
+    await screen.findByRole('heading', { name: 'Empty review case' })
     const submit = screen.getByRole('button', { name: 'Record human verdict' }) as HTMLButtonElement
     const confirmation = screen.getByRole('checkbox', {
       name: /manually reviewed the selected evidence/i
     })
 
-    expect(submit.disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText('Human decision'), {
+      target: { value: 'Reviewed the available case record.' }
+    })
     fireEvent.click(confirmation)
-    expect(submit.disabled).toBe(false)
+    expect(submit.disabled).toBe(true)
+    expect(submit.title).toMatch(/evidence item/i)
+    expect(screen.getByText(/select at least one available evidence item/i)).toBeTruthy()
+    expect(screen.getByText(/select at least one rule citation/i)).toBeTruthy()
+  })
+
+  it('updates verdict button state when evidence or rule selections become partial', async () => {
+    renderDesk([fixture('case-partial-review', 'Partial review case')])
+    await screen.findByRole('heading', { name: 'Partial review case' })
+    const submit = screen.getByRole('button', { name: 'Record human verdict' }) as HTMLButtonElement
+    const confirmation = screen.getByRole('checkbox', {
+      name: /manually reviewed the selected evidence/i
+    })
+    const verdictForm = submit.closest('form') as HTMLFormElement
+    const evidence = within(verdictForm).getByLabelText('Evidence summary') as HTMLInputElement
+    const rule = within(verdictForm).getByLabelText('sporting-code 2026.1 · 4.2') as HTMLInputElement
+
+    await waitFor(() => {
+      expect(evidence.checked).toBe(true)
+      expect(rule.checked).toBe(true)
+    })
+    fireEvent.change(screen.getByLabelText('Human decision'), {
+      target: { value: 'Reviewed evidence and rule.' }
+    })
+    fireEvent.click(confirmation)
+    await waitFor(() => expect(submit.disabled).toBe(false))
+
+    fireEvent.click(evidence)
+    expect(submit.disabled).toBe(true)
+    expect(submit.title).toMatch(/evidence item/i)
+    expect(screen.getByText(/select at least one available evidence item/i)).toBeTruthy()
+
+    fireEvent.click(evidence)
+    await waitFor(() => expect(submit.disabled).toBe(false))
+    expect(submit.title).toMatch(/requirements are satisfied/i)
+    fireEvent.click(rule)
+    expect(submit.disabled).toBe(true)
+    expect(screen.getByText(/select at least one rule citation/i)).toBeTruthy()
+  })
+
+  it('enables verdict submission only after complete selections and manual review', async () => {
+    renderDesk([fixture('case-complete-review', 'Complete review case')])
+    await screen.findByRole('heading', { name: 'Complete review case' })
+    const submit = screen.getByRole('button', { name: 'Record human verdict' }) as HTMLButtonElement
+
+    expect(submit.disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText('Human decision'), {
+      target: { value: 'Complete human decision.' }
+    })
+    fireEvent.click(screen.getByRole('checkbox', {
+      name: /manually reviewed the selected evidence/i
+    }))
+
+    await waitFor(() => expect(submit.disabled).toBe(false))
+    expect(screen.getByText(/all verdict requirements are satisfied/i)).toBeTruthy()
   })
 
   it('shows legacy verdicts as requiring re-review without claiming confirmation', async () => {
