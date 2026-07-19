@@ -1,9 +1,10 @@
 # Ultimate Sim App — Release Notes
 
-## v2.54.0 — Managed streaming, secure Internet sharing & offline Mission Rehearsal
+## v2.54.0 — Managed streaming, safe trigger previews & offline Mission Rehearsal
 
-Version 2.54.0 makes it easier to choose what spectators see, open a secure public viewer without
-manual tunnel setup, and rehearse race operations without touching a live session.
+Version 2.54.0 makes it easier to choose what spectators see, position trigger-based visuals before
+they fire, open a secure public viewer without manual tunnel setup, and rehearse race operations
+without touching a live session.
 
 ### Streaming targets you control
 - 📺 **A dedicated Streaming area** stores the dashboard and Touch Controls targets you choose
@@ -20,6 +21,15 @@ manual tunnel setup, and rehearse race operations without touching a live sessio
   tunnel processes, and reconnect with bounded retries.
 - 🏠 Local and LAN streaming continue to work independently of the Internet tunnel.
 
+### Safe trigger-only editor previews
+- 👁️ **An editor-only toggle reveals inactive trigger-only overlays and dashboard widgets** so they
+  can be positioned without waiting for their race condition to occur.
+- 🧷 Preview state is immutable and isolated: saved rules, live visibility, compositor output, and
+  streaming behavior remain unchanged.
+- 🧹 Preview ownership is released on hide, reload, or renderer loss and restored after a tray
+  reopen. HiFi preview cards remain inert and do not subscribe to live Coach, Engineer, or Alerts
+  IPC.
+
 ### Offline Mission Rehearsal
 - 🏁 **Build and run branching race-operation scenarios offline** with assigned roles, checkpoints,
   deterministic decisions, resumable runs, and archive recovery.
@@ -29,17 +39,17 @@ manual tunnel setup, and rehearse race operations without touching a live sessio
   decisions cannot actuate live race controls.
 
 ### Validation
-- Full test suite: **3,945 tests passing across 308 files. Typecheck clean.**
-- Merged-feature suite: **142 tests passing across 11 files**; updater/package release gate:
-  **5 tests passing**.
-- Production build: **349 main-process modules, 8 preload modules, and 2,348 renderer modules**;
-  the **48-file streaming resource graph** passes with 22 JavaScript and 5 CSS files.
+- Full test suite: **4,139 tests passing across 331 files. Typecheck clean.**
+- Merged-feature suite: **200 tests passing across 19 files**, including the Electron browser
+  lifecycle regression; updater/package release gate: **5 tests passing**.
+- Production build: **362 main-process modules, 8 preload modules, and 2,373 renderer modules**;
+  the **55-file streaming resource graph** passes with 28 JavaScript and 6 CSS files.
 - The final `npm run dist:win` and `npm run verify:win-package` runs passed. Packaging used the
   documented fallback for the optional ViGEm module because the host has no Visual Studio Build
   Tools.
 - The verifier accepted the unpacked Electron runtime, elevated NSIS helper, packaged SerialPort,
   Cloudflare tunnel, Whisper runtime, and the exact four updater artifacts. `latest.yml` identifies
-  `Ultimate-Sim-App-2.54.0-x64.exe` at **317,890,721 bytes** with its matching SHA-512 and
+  `Ultimate-Sim-App-2.54.0-x64.exe` with its matching size and SHA-512 and
   `isAdminRightsRequired: true`.
 
 _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.zip` + blockmap +
@@ -52,6 +62,8 @@ _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.z
   Internet auto-tunnel streaming.
 - [#73](https://github.com/guilhermerbasso/ultimate-sim-app/pull/73) — add offline Mission
   Rehearsal with isolated synthetic events and recovery-safe runs.
+- [#75](https://github.com/guilhermerbasso/ultimate-sim-app/pull/75) — add safe editor-only
+  positioning previews for trigger-based overlays and dashboard widgets.
 
 **Full Changelog:** https://github.com/guilhermerbasso/ultimate-sim-app/compare/v2.53.1...v2.54.0
 

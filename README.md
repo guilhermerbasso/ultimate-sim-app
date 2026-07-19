@@ -27,11 +27,12 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 ## What's new
 
 <!-- WHATS_NEW:START -->
-### 2.54.0 — managed streaming, secure Internet sharing, and offline Mission Rehearsal
+### 2.54.0 — managed streaming, safe trigger previews, and offline Mission Rehearsal
 
 - **Choose and keep your own Streaming targets** ([#71](https://github.com/guilhermerbasso/ultimate-sim-app/pull/71)): the dedicated Streaming area stores dashboard and Touch Controls profiles, and edited dashboard copies remain available after migration and restart.
 - **Share securely over the Internet without manual tunnel setup** ([#72](https://github.com/guilhermerbasso/ultimate-sim-app/pull/72)): Internet mode can start the bundled checksum-verified Cloudflare quick tunnel, establish the authenticated viewer session, show receiver health, and reconnect with bounded retries.
 - **Practice race operations completely offline** ([#73](https://github.com/guilhermerbasso/ultimate-sim-app/pull/73)): Mission Rehearsal supports branching scenarios, assigned roles, checkpoints, resume/archive recovery, repeat comparisons, and scored blameless debriefs.
+- **Position trigger-only visuals before they fire** ([#75](https://github.com/guilhermerbasso/ultimate-sim-app/pull/75)): an editor-only toggle reveals inactive trigger-based overlays and dashboard widgets without changing saved rules, live visibility, compositor output, or streams.
 - **Training stays separate from racing:** rehearsal events never enter real telemetry or session history, and rehearsal decisions cannot actuate live race controls.
 
 ### 2.53.1 — SerialPort startup hotfix
@@ -98,7 +99,7 @@ Ultimate Sim App brings live race telemetry, dashboard composition, transparent 
 ### Overlays and race awareness
 
 - Transparent overlay windows for gear/speed, delta, inputs, fuel, relative/standings, flags, tyres, brakes, weather, radar, rev lights, and telemetry widgets.
-- **Trigger-only condition overlays** for spotter/proximity, pace-car and pits-open messages, DRS, pit service, repairs, weather, race-control flags, incidents, shift flash, pit limiter, and low fuel, with pulse/TTL behavior and replay/session-safe resets.
+- **Trigger-only condition overlays** for spotter/proximity, pace-car and pits-open messages, DRS, pit service, repairs, weather, race-control flags, incidents, shift flash, pit limiter, and low fuel, with pulse/TTL behavior, replay/session-safe resets, and an isolated editor-only preview toggle for positioning inactive visuals.
 - **Interactive 3D Waze-style navigation map** with follow-camera track-up behavior, zoom, pan/rotate, recenter, layout-specific learned outlines/corners, replay-safe learning pauses, and a 2D fallback where WebGL is unavailable.
 - Overlay editing, positioning, import/export, and compositor mode for one transparent window per display.
 

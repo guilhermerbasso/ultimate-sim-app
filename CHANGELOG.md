@@ -6,11 +6,13 @@
 - Added repository documentation, contribution guidance, security policy, and Apache-2.0 licensing.
 - Cleaned project identity and public metadata for community distribution.
 
-## 2.54.0 — managed streaming, secure Internet sharing, and offline Mission Rehearsal
+## 2.54.0 — managed streaming, safe trigger previews, and offline Mission Rehearsal
 
 ### Added
 - **User-managed Streaming targets** in a dedicated Streaming area, with persistent dashboard and
   Touch Controls profiles. Edited dashboard copies remain selectable after migration and restart.
+- **Editor-only trigger previews** that reveal inactive trigger-only overlays and dashboard widgets
+  for positioning without changing their live visibility rules.
 - **Offline Mission Rehearsal** with branching scenarios, assigned roles, checkpoints, resumable
   runs, repeat comparisons, and scored blameless debriefs.
 
@@ -18,6 +20,8 @@
 - Internet streaming can start the bundled, checksum-verified Cloudflare quick tunnel automatically,
   establish the authenticated viewer session, report receiver health, and recover with bounded
   retries without changing local or LAN streaming.
+- Trigger preview ownership is released on hide, reload, or renderer loss and restored after a tray
+  reopen, while compositor, streaming, saved rules, and live Coach/Engineer/Alerts IPC stay isolated.
 - Mission Rehearsal synthetic events are isolated from live telemetry and real session history, and
   rehearsal decisions cannot actuate live race controls.
 
