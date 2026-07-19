@@ -351,6 +351,34 @@ describe('SetupExperimentView revision arbitration', () => {
     expect(screen.queryByText('PERSISTED REVISION 9')).not.toBeNull()
   })
 
+  it('clears the paused persistence alert on the subscribed clean recovery broadcast', async () => {
+    const initial = deferred<SetupExperimentSnapshot>()
+    const target = await renderView(initial)
+    await hydrate(initial, namedSnapshot(9, 'persisting-9', 'PERSISTED REVISION 9'))
+    const failed = namedSnapshot(9, 'persisting-9', 'PERSISTED REVISION 9')
+    failed.activeCapture = {
+      experimentId: 'persisting-9',
+      runId: 'pending-run',
+      arm: 'A1',
+      pendingLapCount: 1,
+      persistenceError: 'fixed EIO before recovery'
+    }
+    await emit(target.listener(), failed)
+    expect(screen.queryByRole('alert')?.textContent).toContain('fixed EIO before recovery')
+
+    const recovered = namedSnapshot(10, 'persisting-9', 'PERSISTED REVISION 10')
+    recovered.activeCapture = {
+      experimentId: 'persisting-9',
+      runId: 'pending-run',
+      arm: 'A1',
+      pendingLapCount: 0
+    }
+    await emit(target.listener(), recovered)
+
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText('PERSISTED REVISION 10')).not.toBeNull()
+  })
+
   it('ignores an older broadcast delivered after a newer revision', async () => {
     const initial = deferred<SetupExperimentSnapshot>()
     const target = await renderView(initial)

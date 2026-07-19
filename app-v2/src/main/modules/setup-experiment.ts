@@ -123,6 +123,7 @@ interface ActiveCapture {
 
 interface CommitOptions {
   nextActive?: ActiveCapture | null
+  beforeBroadcast?: () => void
 }
 
 export class JsonSetupExperimentPersistence implements SetupExperimentPersistence {
@@ -682,6 +683,12 @@ export class SetupExperimentService {
       active.flushingPending = true
       const batch = [...active.pendingLaps]
       const ids = new Set(batch.map((lap) => lap.id))
+      const clearPersistedBatch = (): void => {
+        if (this.active?.runId !== active.runId) return
+        this.active.pendingLaps = this.active.pendingLaps.filter((lap) => !ids.has(lap.id))
+        this.active.persistenceError = undefined
+        this.active.flushingPending = false
+      }
       const persist = () => this.commit((draft) => {
         const experiment = this.experiment(draft, active.experimentId)
         const run = experiment.runs.find((candidate) => candidate.id === active.runId)
@@ -695,7 +702,7 @@ export class SetupExperimentService {
           experiment.updatedAt,
           ...batch.map((lap) => lap.capturedAt)
         )
-      })
+      }, { beforeBroadcast: clearPersistedBatch })
       return this.enqueue(async () => {
         try {
           await persist()
@@ -713,9 +720,6 @@ export class SetupExperimentService {
         }
       }).then(() => {
         if (this.active?.runId !== active.runId) return
-        this.active.pendingLaps = this.active.pendingLaps.filter((lap) => !ids.has(lap.id))
-        this.active.persistenceError = undefined
-        this.active.flushingPending = false
         if (this.active.pendingLaps.length > 0) {
           void this.flushPendingLaps(this.active).catch(() => {})
         }
@@ -780,6 +784,7 @@ export class SetupExperimentService {
     if (Object.prototype.hasOwnProperty.call(options, 'nextActive')) {
       this.active = options.nextActive ?? null
     }
+    options.beforeBroadcast?.()
     const snapshot = this.buildSnapshot()
     this.deps.broadcast(snapshot)
     return snapshot

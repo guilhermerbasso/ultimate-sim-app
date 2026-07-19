@@ -1779,11 +1779,43 @@ describe('SetupExperimentService Phase 2 red regressions', () => {
     expect(target.broadcasts.map((snapshot) =>
       snapshot.state.experiments[0]?.runs[0]?.laps.length ?? 0
     )).toEqual([0, 0, 0])
+    expect(target.broadcasts.at(-1)).toMatchObject({
+      state: { revision: 2 },
+      activeCapture: {
+        experimentId,
+        arm: 'A1',
+        pendingLapCount: 1,
+        persistenceError: expect.stringMatching(/fixed EIO/i)
+      }
+    })
 
     target.service.onSnapshot(crossing)
     await persistence.waitForAttempt(5)
-    const recovered = await target.service.snapshot()
-    expect(recovered.activeCapture?.pendingLapCount).toBe(0)
+    await target.service.snapshot()
+    const recoveryBroadcasts = target.broadcasts.slice(-2).map((snapshot) => ({
+      revision: phase2Revision(snapshot),
+      persistedLapCount: snapshot.state.experiments[0]?.runs[0]?.laps.length ?? 0,
+      pendingLapCount: snapshot.activeCapture?.pendingLapCount ?? null,
+      persistenceError: snapshot.activeCapture?.persistenceError ?? null,
+      arm: snapshot.activeCapture?.arm ?? null
+    }))
+    expect(recoveryBroadcasts).toEqual([
+      {
+        revision: 2,
+        persistedLapCount: 0,
+        pendingLapCount: 1,
+        persistenceError: 'fixed EIO on save 4',
+        arm: 'A1'
+      },
+      {
+        revision: 3,
+        persistedLapCount: 1,
+        pendingLapCount: 0,
+        persistenceError: null,
+        arm: 'A1'
+      }
+    ])
+    expect(persistence.attemptedStates).toHaveLength(5)
     expect(persistence.state.experiments[0].runs[0].laps).toHaveLength(1)
   })
 
