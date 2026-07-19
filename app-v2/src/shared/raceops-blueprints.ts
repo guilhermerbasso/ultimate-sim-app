@@ -3,7 +3,7 @@ export const RACEOPS_BLUEPRINT_LEGACY_SCHEMA_VERSION = 1 as const
 export const RACEOPS_BLUEPRINT_RUNTIME_VERSION = 1 as const
 export const RACEOPS_FIXTURE_SCHEMA_VERSION = 1 as const
 export const RACEOPS_FEED_SCHEMA_VERSION = 1 as const
-export const RACEOPS_REGISTRY_SCHEMA_VERSION = 3 as const
+export const RACEOPS_REGISTRY_SCHEMA_VERSION = 4 as const
 export const RACEOPS_EVIDENCE_SCHEMA_VERSION = 1 as const
 
 export const RACEOPS_BLUEPRINT_CHANNELS = {

@@ -94,31 +94,95 @@ export interface RaceOpsRegistryStorage {
   write(value: unknown): Promise<void>
 }
 
-export function createFileRaceOpsRegistryStorage(userDataPath: string): RaceOpsRegistryStorage {
+export interface RaceOpsRegistryFileOperations {
+  mkdir(path: string): Promise<void>
+  readFile(path: string): Promise<string>
+  rename(from: string, to: string): Promise<void>
+  remove(path: string): Promise<void>
+  writeFile(path: string, value: string): Promise<void>
+}
+
+const DEFAULT_REGISTRY_FILE_OPERATIONS: RaceOpsRegistryFileOperations = {
+  async mkdir(path) {
+    await mkdir(path, { recursive: true })
+  },
+  readFile: (path) => readFile(path, 'utf8'),
+  rename,
+  async remove(path) {
+    await rm(path, { force: true })
+  },
+  async writeFile(path, value) {
+    await writeFile(path, value, 'utf8')
+  }
+}
+
+function isMissingFile(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException).code === 'ENOENT'
+}
+
+async function readRegistryFile(
+  fileOperations: RaceOpsRegistryFileOperations,
+  path: string
+): Promise<unknown | undefined> {
+  try {
+    return JSON.parse(await fileOperations.readFile(path)) as unknown
+  } catch (error) {
+    if (isMissingFile(error)) return undefined
+    throw error
+  }
+}
+
+export function createFileRaceOpsRegistryStorage(
+  userDataPath: string,
+  fileOperations: RaceOpsRegistryFileOperations = DEFAULT_REGISTRY_FILE_OPERATIONS
+): RaceOpsRegistryStorage {
   const filePath = join(userDataPath, 'raceops-blueprints', 'registry.json')
+  const previousPath = `${filePath}.previous`
   const nextPath = `${filePath}.next`
   let writeQueue: Promise<void> = Promise.resolve()
   return {
     async read() {
-      try {
-        return JSON.parse(await readFile(filePath, 'utf8')) as unknown
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
-        throw error
-      }
+      const current = await readRegistryFile(fileOperations, filePath)
+      if (current !== undefined) return current
+      const previous = await readRegistryFile(fileOperations, previousPath)
+      if (previous !== undefined) return previous
+      return readRegistryFile(fileOperations, nextPath)
     },
     async write(value) {
       const serialized = `${JSON.stringify(value, null, 2)}\n`
       const write = writeQueue.then(async () => {
-        await mkdir(dirname(filePath), { recursive: true })
-        await writeFile(nextPath, serialized, 'utf8')
+        await fileOperations.mkdir(dirname(filePath))
+        await fileOperations.writeFile(nextPath, serialized)
+        let movedCurrent = false
         try {
-          await rename(nextPath, filePath)
+          try {
+            await fileOperations.rename(filePath, previousPath)
+            movedCurrent = true
+          } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code
+            if (code === 'EEXIST' || code === 'EPERM') {
+              await fileOperations.remove(previousPath)
+              await fileOperations.rename(filePath, previousPath)
+              movedCurrent = true
+            } else if (!isMissingFile(error)) {
+              throw error
+            }
+          }
+          await fileOperations.rename(nextPath, filePath)
         } catch (error) {
-          const code = (error as NodeJS.ErrnoException).code
-          if (code !== 'EEXIST' && code !== 'EPERM') throw error
-          await rm(filePath, { force: true })
-          await rename(nextPath, filePath)
+          if (movedCurrent) {
+            try {
+              await fileOperations.rename(previousPath, filePath)
+            } catch {
+              // The prior committed state remains recoverable from .previous.
+            }
+          }
+          try {
+            await fileOperations.remove(nextPath)
+          } catch {
+            // A stale .next file is never preferred over committed state.
+          }
+          throw error
         }
       })
       writeQueue = write.catch(() => undefined)
@@ -169,6 +233,7 @@ export interface QuarantinedRaceOpsFeed {
 export interface RaceOpsRegistryState {
   schemaVersion: typeof RACEOPS_REGISTRY_SCHEMA_VERSION
   feeds: Record<string, CachedRaceOpsFeed>
+  feedSequenceHighWaterMarks: Record<string, number>
   installs: Record<string, RaceOpsInstallRecord>
   evidence: RaceOpsCompatibilityEvidence[]
   quarantinedFeeds: QuarantinedRaceOpsFeed[]
@@ -178,6 +243,7 @@ function emptyState(): RaceOpsRegistryState {
   return {
     schemaVersion: RACEOPS_REGISTRY_SCHEMA_VERSION,
     feeds: {},
+    feedSequenceHighWaterMarks: {},
     installs: {},
     evidence: [],
     quarantinedFeeds: []
@@ -228,6 +294,27 @@ function normalizeCachedFeed(value: unknown): CachedRaceOpsFeed | null {
     verifiedAt: record.verifiedAt,
     origin: record.origin
   }
+}
+
+function normalizeFeedSequenceHighWaterMarks(value: unknown): Record<string, number> {
+  const record = asObject(value)
+  if (!record) {
+    throw new RaceOpsBlueprintError(
+      'INVALID_SCHEMA',
+      'RaceOps feed sequence high-water marks are invalid.'
+    )
+  }
+  const highWaterMarks: Record<string, number> = {}
+  for (const [feedId, sequence] of Object.entries(record)) {
+    if (!isSafeRaceOpsId(feedId) || !Number.isSafeInteger(sequence) || (sequence as number) < 1) {
+      throw new RaceOpsBlueprintError(
+        'INVALID_SCHEMA',
+        `RaceOps feed sequence high-water mark for ${feedId} is invalid.`
+      )
+    }
+    highWaterMarks[feedId] = sequence as number
+  }
+  return highWaterMarks
 }
 
 function normalizeInstalled(value: unknown): RaceOpsInstalledBlueprint | null {
@@ -329,7 +416,11 @@ export function migrateRaceOpsRegistryState(value: unknown): RaceOpsRegistryStat
     return state
   }
 
-  if (record.schemaVersion !== 2 && record.schemaVersion !== RACEOPS_REGISTRY_SCHEMA_VERSION) {
+  if (
+    record.schemaVersion !== 2 &&
+    record.schemaVersion !== 3 &&
+    record.schemaVersion !== RACEOPS_REGISTRY_SCHEMA_VERSION
+  ) {
     throw new RaceOpsBlueprintError(
       'UNSUPPORTED_VERSION',
       `Unsupported RaceOps registry schema version ${record.schemaVersion}.`
@@ -342,6 +433,11 @@ export function migrateRaceOpsRegistryState(value: unknown): RaceOpsRegistryStat
     const feed = normalizeCachedFeed(candidate)
     if (feed) state.feeds[feed.feedId] = feed
   }
+  if (record.schemaVersion === RACEOPS_REGISTRY_SCHEMA_VERSION) {
+    state.feedSequenceHighWaterMarks = normalizeFeedSequenceHighWaterMarks(
+      record.feedSequenceHighWaterMarks
+    )
+  }
   const installsRecord = asObject(record.installs) ?? {}
   for (const [blueprintId, candidate] of Object.entries(installsRecord)) {
     const install = normalizeInstallRecord(candidate)
@@ -350,12 +446,69 @@ export function migrateRaceOpsRegistryState(value: unknown): RaceOpsRegistryStat
   state.evidence = Array.isArray(record.evidence)
     ? record.evidence.filter(isEvidenceValid).slice(-MAX_EVIDENCE_RECORDS)
     : []
-  if (record.schemaVersion === RACEOPS_REGISTRY_SCHEMA_VERSION && Array.isArray(record.quarantinedFeeds)) {
+  if (
+    (record.schemaVersion === 3 || record.schemaVersion === RACEOPS_REGISTRY_SCHEMA_VERSION) &&
+    Array.isArray(record.quarantinedFeeds)
+  ) {
     state.quarantinedFeeds = record.quarantinedFeeds
       .map(normalizeQuarantinedFeed)
       .filter((item): item is QuarantinedRaceOpsFeed => Boolean(item))
   }
   return state
+}
+
+function cloneRaceOpsRegistryState(state: RaceOpsRegistryState): RaceOpsRegistryState {
+  return structuredClone(state)
+}
+
+function assertFeedSequenceNotRolledBack(
+  state: RaceOpsRegistryState,
+  feedId: string,
+  sequence: number
+): void {
+  const highWaterMark = state.feedSequenceHighWaterMarks[feedId]
+  if (highWaterMark !== undefined && sequence < highWaterMark) {
+    throw new RaceOpsBlueprintError(
+      'TAMPERED',
+      `Curated feed ${feedId} sequence ${sequence} is below persisted high-water mark ${highWaterMark}.`
+    )
+  }
+}
+
+function recordFeedSequenceHighWaterMark(
+  state: RaceOpsRegistryState,
+  feedId: string,
+  sequence: number
+): boolean {
+  assertFeedSequenceNotRolledBack(state, feedId, sequence)
+  const previous = state.feedSequenceHighWaterMarks[feedId]
+  if (previous !== undefined && previous >= sequence) return false
+  state.feedSequenceHighWaterMarks[feedId] = sequence
+  return true
+}
+
+function seedFeedSequenceHighWaterMarks(state: RaceOpsRegistryState): boolean {
+  let changed = false
+  const persistedFeeds = [
+    ...Object.values(state.feeds),
+    ...state.quarantinedFeeds.map((entry) => entry.cached)
+  ]
+  for (const cached of persistedFeeds) {
+    try {
+      if (!safeHexEqual(sha256RaceOpsCanonical(cached.envelope), cached.envelopeSha256)) continue
+      const envelope = parseSignedRaceOpsBlueprintFeed(cached.envelope)
+      if (envelope.payload.feedId !== cached.feedId) continue
+      changed =
+        recordFeedSequenceHighWaterMark(
+          state,
+          cached.feedId,
+          envelope.payload.sequence
+        ) || changed
+    } catch {
+      // Invalid legacy cache entries are handled by normal verification and quarantine.
+    }
+  }
+  return changed
 }
 
 export interface VerifiedRaceOpsFeed {
@@ -553,6 +706,7 @@ export class RaceOpsBlueprintRegistry {
   private state: RaceOpsRegistryState | null = null
   private initialized = false
   private loadPromise: Promise<void> | null = null
+  private mutationQueue: Promise<void> = Promise.resolve()
 
   constructor(options: RaceOpsBlueprintRegistryOptions) {
     this.storage = options.storage
@@ -570,7 +724,7 @@ export class RaceOpsBlueprintRegistry {
 
   async getSnapshot(): Promise<RaceOpsBlueprintRegistrySnapshot> {
     await this.ensureLoaded()
-    return this.buildSnapshot()
+    return this.buildSnapshot(this.requireState())
   }
 
   async refreshFeed(feedId: string): Promise<RaceOpsBlueprintRegistrySnapshot> {
@@ -582,151 +736,163 @@ export class RaceOpsBlueprintRegistry {
     try {
       const raw = await this.fetchFeed(pin)
       const verified = verifyPinnedRaceOpsFeed(pin, raw, this.trustedKeys, this.now())
-      const cached = this.requireState().feeds[feedId]
-      if (cached) {
-        const previous = verifyPinnedRaceOpsFeed(pin, cached.envelope, this.trustedKeys, this.now())
-        if (verified.envelope.payload.sequence < previous.envelope.payload.sequence) {
-          throw new RaceOpsBlueprintError('TAMPERED', `Curated feed ${feedId} attempted a metadata rollback.`)
+      return this.commitMutation((candidateState) => {
+        assertFeedSequenceNotRolledBack(
+          candidateState,
+          feedId,
+          verified.envelope.payload.sequence
+        )
+        candidateState.feeds[feedId] = {
+          feedId,
+          envelope: verified.envelope,
+          envelopeSha256: verified.envelopeSha256,
+          verifiedAt: new Date(this.now()).toISOString(),
+          origin: 'network'
         }
-      }
-      this.requireState().feeds[feedId] = {
-        feedId,
-        envelope: verified.envelope,
-        envelopeSha256: verified.envelopeSha256,
-        verifiedAt: new Date(this.now()).toISOString(),
-        origin: 'network'
-      }
-      this.runtimeStatus.set(feedId, { fromCache: false, offline: false })
-      await this.persist()
+        recordFeedSequenceHighWaterMark(
+          candidateState,
+          feedId,
+          verified.envelope.payload.sequence
+        )
+        return () => {
+          this.runtimeStatus.set(feedId, { fromCache: false, offline: false })
+          return this.buildSnapshot(candidateState)
+        }
+      })
     } catch (error) {
       if (!(error instanceof RaceOpsFeedTransportError)) throw error
-      const cached = this.requireState().feeds[feedId]
-      if (!cached) throw error
-      verifyPinnedRaceOpsFeed(pin, cached.envelope, this.trustedKeys, this.now())
-      this.runtimeStatus.set(feedId, { fromCache: true, offline: true })
+      return this.runExclusive(() => {
+        const state = this.requireState()
+        const cached = state.feeds[feedId]
+        if (!cached) throw error
+        const verified = verifyPinnedRaceOpsFeed(pin, cached.envelope, this.trustedKeys, this.now())
+        assertFeedSequenceNotRolledBack(state, feedId, verified.envelope.payload.sequence)
+        this.runtimeStatus.set(feedId, { fromCache: true, offline: true })
+        return this.buildSnapshot(state)
+      })
     }
-    return this.buildSnapshot()
   }
 
   async dryRun(request: RaceOpsBlueprintSelectionRequest): Promise<RaceOpsBlueprintDryRunResponse> {
     await this.ensureLoaded()
-    const validatedRequest = this.validateSelectionRequest(request)
-    const candidate = this.findCandidate(validatedRequest)
-    const response = this.evaluate(candidate, validatedRequest, 'dry-run')
-    this.appendEvidence(response.evidence)
-    await this.persist()
-    return response
+    return this.commitMutation((candidateState) => {
+      const validatedRequest = this.validateSelectionRequest(request)
+      const candidate = this.findCandidate(validatedRequest, candidateState)
+      const response = this.evaluate(candidate, validatedRequest, 'dry-run')
+      this.appendEvidence(candidateState, response.evidence)
+      return () => response
+    })
   }
 
   async stage(request: RaceOpsBlueprintSelectionRequest): Promise<RaceOpsBlueprintStageResponse> {
     await this.ensureLoaded()
-    const validatedRequest = this.validateSelectionRequest(request)
-    const candidate = this.findCandidate(validatedRequest)
-    const evaluated = this.evaluate(candidate, validatedRequest, 'stage')
-    this.appendEvidence(evaluated.evidence)
-    if (!evaluated.ok || !evaluated.result) {
-      await this.persist()
-      return { ...evaluated, installed: false }
-    }
+    return this.commitMutation<RaceOpsBlueprintStageResponse>((candidateState) => {
+      const validatedRequest = this.validateSelectionRequest(request)
+      const candidate = this.findCandidate(validatedRequest, candidateState)
+      const evaluated = this.evaluate(candidate, validatedRequest, 'stage')
+      this.appendEvidence(candidateState, evaluated.evidence)
+      if (!evaluated.ok || !evaluated.result) {
+        return () => ({ ...evaluated, installed: false })
+      }
 
-    const staged: RaceOpsInstalledBlueprint = {
-      blueprintId: candidate.entry.id,
-      blueprintVersion: candidate.entry.version,
-      manifestSha256: candidate.entry.manifestSha256,
-      feedId: candidate.feed.feedId,
-      parameters: evaluated.result.parameters,
-      evidenceId: evaluated.evidence.id,
-      stagedAt: new Date(this.now()).toISOString(),
-      execution: 'disabled-trust-gate'
-    }
-    const existing = this.requireState().installs[staged.blueprintId]
-    if (!existing) {
-      this.requireState().installs[staged.blueprintId] = {
-        active: staged,
-        history: [],
-        quarantined: []
+      const staged: RaceOpsInstalledBlueprint = {
+        blueprintId: candidate.entry.id,
+        blueprintVersion: candidate.entry.version,
+        manifestSha256: candidate.entry.manifestSha256,
+        feedId: candidate.feed.feedId,
+        parameters: evaluated.result.parameters,
+        evidenceId: evaluated.evidence.id,
+        stagedAt: new Date(this.now()).toISOString(),
+        execution: 'disabled-trust-gate'
       }
-    } else {
-      const unchanged =
-        existing.active.feedId === staged.feedId &&
-        existing.active.blueprintVersion === staged.blueprintVersion &&
-        existing.active.manifestSha256 === staged.manifestSha256 &&
-        canonicalJson(existing.active.parameters) === canonicalJson(staged.parameters)
-      if (!unchanged) {
-        existing.history.push(existing.active)
-        existing.history = existing.history.slice(-MAX_INSTALL_HISTORY)
+      const existing = candidateState.installs[staged.blueprintId]
+      if (!existing) {
+        candidateState.installs[staged.blueprintId] = {
+          active: staged,
+          history: [],
+          quarantined: []
+        }
+      } else {
+        const unchanged =
+          existing.active.feedId === staged.feedId &&
+          existing.active.blueprintVersion === staged.blueprintVersion &&
+          existing.active.manifestSha256 === staged.manifestSha256 &&
+          canonicalJson(existing.active.parameters) === canonicalJson(staged.parameters)
+        if (!unchanged) {
+          existing.history.push(existing.active)
+          existing.history = existing.history.slice(-MAX_INSTALL_HISTORY)
+        }
+        existing.active = staged
       }
-      existing.active = staged
-    }
-    await this.persist()
-    return { ...evaluated, installed: true, staged }
+      return () => ({ ...evaluated, installed: true, staged })
+    })
   }
 
   async rollback(request: RaceOpsBlueprintRollbackRequest): Promise<RaceOpsBlueprintStageResponse> {
     await this.ensureLoaded()
-    if (
-      !request ||
-      typeof request !== 'object' ||
-      Object.keys(request).some(
-        (key) =>
-          !['feedId', 'blueprintId', 'blueprintVersion', 'manifestSha256'].includes(key)
+    return this.commitMutation<RaceOpsBlueprintStageResponse>((candidateState) => {
+      if (
+        !request ||
+        typeof request !== 'object' ||
+        Object.keys(request).some(
+          (key) =>
+            !['feedId', 'blueprintId', 'blueprintVersion', 'manifestSha256'].includes(key)
+        )
+      ) {
+        throw new RaceOpsBlueprintError('INVALID_SCHEMA', 'Invalid rollback operation request.')
+      }
+      const identity = this.validateOperationIdentity(request)
+      const blueprintId = identity.blueprintId
+      const install = candidateState.installs[blueprintId]
+      if (!install || install.history.length === 0) {
+        throw new RaceOpsBlueprintError(
+          'ROLLBACK_UNAVAILABLE',
+          `No previous validated version is available for ${blueprintId}.`
+        )
+      }
+      if (
+        install.active.feedId !== identity.feedId ||
+        install.active.blueprintVersion !== identity.blueprintVersion ||
+        !safeHexEqual(install.active.manifestSha256, identity.manifestSha256)
+      ) {
+        throw new RaceOpsBlueprintError(
+          'STALE_REQUEST',
+          `Rollback identity no longer matches active ${blueprintId}.`
+        )
+      }
+      const previous = install.history.at(-1)
+      if (!previous) {
+        throw new RaceOpsBlueprintError(
+          'ROLLBACK_UNAVAILABLE',
+          `Rollback is unavailable for ${blueprintId}.`
+        )
+      }
+      const candidate = this.findInstalledCandidate(previous, candidateState)
+      const rollbackRequest = createRaceOpsBlueprintSelectionRequest(
+        {
+          feedId: previous.feedId,
+          blueprintId: previous.blueprintId,
+          blueprintVersion: previous.blueprintVersion,
+          manifestSha256: previous.manifestSha256
+        },
+        previous.parameters
       )
-    ) {
-      throw new RaceOpsBlueprintError('INVALID_SCHEMA', 'Invalid rollback operation request.')
-    }
-    const identity = this.validateOperationIdentity(request)
-    const blueprintId = identity.blueprintId
-    const install = this.requireState().installs[blueprintId]
-    if (!install || install.history.length === 0) {
-      throw new RaceOpsBlueprintError(
-        'ROLLBACK_UNAVAILABLE',
-        `No previous validated version is available for ${blueprintId}.`
-      )
-    }
-    if (
-      install.active.feedId !== identity.feedId ||
-      install.active.blueprintVersion !== identity.blueprintVersion ||
-      !safeHexEqual(install.active.manifestSha256, identity.manifestSha256)
-    ) {
-      throw new RaceOpsBlueprintError(
-        'STALE_REQUEST',
-        `Rollback identity no longer matches active ${blueprintId}.`
-      )
-    }
-    const previous = install.history.at(-1)
-    if (!previous) {
-      throw new RaceOpsBlueprintError('ROLLBACK_UNAVAILABLE', `Rollback is unavailable for ${blueprintId}.`)
-    }
-    const candidate = this.findInstalledCandidate(previous)
-    const rollbackRequest = createRaceOpsBlueprintSelectionRequest(
-      {
-        feedId: previous.feedId,
-        blueprintId: previous.blueprintId,
-        blueprintVersion: previous.blueprintVersion,
-        manifestSha256: previous.manifestSha256
-      },
-      previous.parameters
-    )
-    const evaluated = this.evaluate(
-      candidate,
-      rollbackRequest,
-      'rollback'
-    )
-    this.appendEvidence(evaluated.evidence)
-    if (!evaluated.ok || !evaluated.result) {
-      await this.persist()
-      return { ...evaluated, installed: false }
-    }
+      const evaluated = this.evaluate(candidate, rollbackRequest, 'rollback')
+      this.appendEvidence(candidateState, evaluated.evidence)
+      if (!evaluated.ok || !evaluated.result) {
+        return () => ({ ...evaluated, installed: false })
+      }
 
-    install.history.pop()
-    install.quarantined.push(install.active)
-    install.active = {
-      ...previous,
-      evidenceId: evaluated.evidence.id,
-      stagedAt: new Date(this.now()).toISOString()
-    }
-    await this.persist()
-    return { ...evaluated, installed: true, staged: install.active }
+      install.history.pop()
+      install.quarantined.push(install.active)
+      install.active = {
+        ...previous,
+        evidenceId: evaluated.evidence.id,
+        stagedAt: new Date(this.now()).toISOString()
+      }
+      const staged = install.active
+      return () => ({ ...evaluated, installed: true, staged })
+    })
   }
 
   private evaluate(
@@ -865,11 +1031,16 @@ export class RaceOpsBlueprintRegistry {
 
   private async initialize(): Promise<void> {
     const stored = await this.storage.read()
-    this.state = migrateRaceOpsRegistryState(stored)
+    const candidateState = migrateRaceOpsRegistryState(stored)
+    const storedSchemaVersion = asObject(stored)?.schemaVersion
     let changed =
       stored !== undefined &&
-      asObject(stored)?.schemaVersion !== RACEOPS_REGISTRY_SCHEMA_VERSION
+      storedSchemaVersion !== RACEOPS_REGISTRY_SCHEMA_VERSION
+    if (stored !== undefined && storedSchemaVersion !== RACEOPS_REGISTRY_SCHEMA_VERSION) {
+      changed = seedFeedSequenceHighWaterMarks(candidateState) || changed
+    }
     const verifiedBundled = new Map<string, VerifiedRaceOpsFeed>()
+    const runtimeStatus = new Map<string, FeedRuntimeStatus>()
 
     for (const [feedId, raw] of Object.entries(this.bundledFeeds)) {
       const pin = this.pins.get(feedId)
@@ -877,14 +1048,24 @@ export class RaceOpsBlueprintRegistry {
         throw new RaceOpsBlueprintError('INVALID_SCHEMA', `Bundled feed ${feedId} has no curated pin.`)
       }
       const verified = verifyPinnedRaceOpsFeed(pin, raw, this.trustedKeys, this.now())
+      assertFeedSequenceNotRolledBack(
+        candidateState,
+        feedId,
+        verified.envelope.payload.sequence
+      )
       verifiedBundled.set(feedId, verified)
     }
 
-    for (const [feedId, cached] of Object.entries(this.state.feeds)) {
+    for (const [feedId, cached] of Object.entries(candidateState.feeds)) {
       const pin = this.pins.get(feedId)
       if (!pin) {
-        this.quarantineCachedFeed(cached, 'pin-rotation', '0'.repeat(64))
-        delete this.state.feeds[feedId]
+        this.quarantineCachedFeed(
+          candidateState,
+          cached,
+          'pin-rotation',
+          '0'.repeat(64)
+        )
+        delete candidateState.feeds[feedId]
         changed = true
         continue
       }
@@ -896,7 +1077,18 @@ export class RaceOpsBlueprintRegistry {
             `Cached feed ${feedId} hash metadata is inconsistent.`
           )
         }
-        this.runtimeStatus.set(feedId, { fromCache: true, offline: false })
+        assertFeedSequenceNotRolledBack(
+          candidateState,
+          feedId,
+          verified.envelope.payload.sequence
+        )
+        changed =
+          recordFeedSequenceHighWaterMark(
+            candidateState,
+            feedId,
+            verified.envelope.payload.sequence
+          ) || changed
+        runtimeStatus.set(feedId, { fromCache: true, offline: false })
       } catch (error) {
         const current = verifiedBundled.get(feedId)
         const actualCachedHash = sha256RaceOpsCanonical(cached.envelope)
@@ -904,38 +1096,52 @@ export class RaceOpsBlueprintRegistry {
         const pinRotated = !safeHexEqual(cached.envelopeSha256, pin.envelopeSha256)
         if (!current && (!selfConsistent || !pinRotated)) throw error
         this.quarantineCachedFeed(
+          candidateState,
           cached,
           selfConsistent && pinRotated ? 'pin-rotation' : 'cache-invalid',
           pin.envelopeSha256
         )
-        delete this.state.feeds[feedId]
+        delete candidateState.feeds[feedId]
         changed = true
       }
     }
 
     for (const [feedId, verified] of verifiedBundled) {
-      if (this.state.feeds[feedId]) continue
-      this.state.feeds[feedId] = {
+      if (candidateState.feeds[feedId]) continue
+      assertFeedSequenceNotRolledBack(
+        candidateState,
+        feedId,
+        verified.envelope.payload.sequence
+      )
+      candidateState.feeds[feedId] = {
         feedId,
         envelope: verified.envelope,
         envelopeSha256: verified.envelopeSha256,
         verifiedAt: new Date(this.now()).toISOString(),
         origin: 'bundled'
       }
-      this.runtimeStatus.set(feedId, { fromCache: true, offline: false })
+      recordFeedSequenceHighWaterMark(
+        candidateState,
+        feedId,
+        verified.envelope.payload.sequence
+      )
+      runtimeStatus.set(feedId, { fromCache: true, offline: false })
       changed = true
     }
 
-    if (changed) await this.persist()
+    if (changed) await this.storage.write(candidateState)
+    this.state = candidateState
+    this.runtimeStatus.clear()
+    for (const [feedId, status] of runtimeStatus) this.runtimeStatus.set(feedId, status)
     this.initialized = true
   }
 
   private quarantineCachedFeed(
+    state: RaceOpsRegistryState,
     cached: CachedRaceOpsFeed,
     reason: QuarantinedRaceOpsFeed['reason'],
     currentPinSha256: string
   ): void {
-    const state = this.requireState()
     const duplicate = state.quarantinedFeeds.some(
       (item) =>
         item.feedId === cached.feedId &&
@@ -958,31 +1164,65 @@ export class RaceOpsBlueprintRegistry {
     return this.state
   }
 
-  private appendEvidence(evidence: RaceOpsCompatibilityEvidence): void {
-    const state = this.requireState()
+  private runExclusive<T>(operation: () => T | Promise<T>): Promise<T> {
+    const run = this.mutationQueue.then(operation)
+    this.mutationQueue = run.then(
+      () => undefined,
+      () => undefined
+    )
+    return run
+  }
+
+  private commitMutation<T>(
+    mutate: (candidateState: RaceOpsRegistryState) => (() => T) | Promise<() => T>
+  ): Promise<T> {
+    return this.runExclusive(async () => {
+      const candidateState = cloneRaceOpsRegistryState(this.requireState())
+      const complete = await mutate(candidateState)
+      await this.storage.write(candidateState)
+      this.state = candidateState
+      return complete()
+    })
+  }
+
+  private appendEvidence(
+    state: RaceOpsRegistryState,
+    evidence: RaceOpsCompatibilityEvidence
+  ): void {
     state.evidence = [
       ...state.evidence.filter((item) => item.id !== evidence.id),
       evidence
     ].slice(-MAX_EVIDENCE_RECORDS)
   }
 
-  private async persist(): Promise<void> {
-    await this.storage.write(this.requireState())
-  }
-
-  private verifiedFeeds(): CachedRaceOpsFeed[] {
-    return Object.values(this.requireState().feeds).map((cached) => {
+  private verifiedFeeds(state: RaceOpsRegistryState): CachedRaceOpsFeed[] {
+    return Object.values(state.feeds).map((cached) => {
       const pin = this.pins.get(cached.feedId)
       if (!pin) {
         throw new RaceOpsBlueprintError('TAMPERED', `Cached feed ${cached.feedId} is no longer curated.`)
       }
-      verifyPinnedRaceOpsFeed(pin, cached.envelope, this.trustedKeys, this.now())
+      const verified = verifyPinnedRaceOpsFeed(
+        pin,
+        cached.envelope,
+        this.trustedKeys,
+        this.now()
+      )
+      assertFeedSequenceNotRolledBack(
+        state,
+        cached.feedId,
+        verified.envelope.payload.sequence
+      )
       return cached
     })
   }
 
-  private findCandidate(identity: RaceOpsBlueprintOperationIdentity): Candidate {
-    const feed = this.verifiedFeeds().find((candidate) => candidate.feedId === identity.feedId)
+  private findCandidate(
+    identity: RaceOpsBlueprintOperationIdentity,
+    state: RaceOpsRegistryState
+  ): Candidate {
+    const feed = this.verifiedFeeds(state).find(
+      (candidate) => candidate.feedId === identity.feedId
+    )
     if (!feed) {
       throw new RaceOpsBlueprintError('OFFLINE', `Verified feed ${identity.feedId} is unavailable.`)
     }
@@ -1001,8 +1241,11 @@ export class RaceOpsBlueprintRegistry {
     return { feed, entry }
   }
 
-  private findInstalledCandidate(installed: RaceOpsInstalledBlueprint): Candidate {
-    for (const feed of this.verifiedFeeds()) {
+  private findInstalledCandidate(
+    installed: RaceOpsInstalledBlueprint,
+    state: RaceOpsRegistryState
+  ): Candidate {
+    for (const feed of this.verifiedFeeds(state)) {
       if (feed.feedId !== installed.feedId) continue
       const entry = feed.envelope.payload.entries.find(
         (candidate) =>
@@ -1018,9 +1261,9 @@ export class RaceOpsBlueprintRegistry {
     )
   }
 
-  private buildSnapshot(): RaceOpsBlueprintRegistrySnapshot {
-    const feeds = this.verifiedFeeds()
-    const evidence = [...this.requireState().evidence].sort(
+  private buildSnapshot(state: RaceOpsRegistryState): RaceOpsBlueprintRegistrySnapshot {
+    const feeds = this.verifiedFeeds(state)
+    const evidence = [...state.evidence].sort(
       (left, right) =>
         parseRaceOpsRfc3339(right.publishedAt) - parseRaceOpsRfc3339(left.publishedAt)
     )
@@ -1062,7 +1305,7 @@ export class RaceOpsBlueprintRegistry {
           : staleEvidence
             ? 'stale'
             : 'unverified'
-        const install = this.requireState().installs[entry.id]
+        const install = state.installs[entry.id]
         const installed =
           install &&
           install.active.feedId === feed.feedId &&
@@ -1096,7 +1339,7 @@ export class RaceOpsBlueprintRegistry {
       trustGate: 'conformance-required',
       feeds: feedStatuses,
       blueprints: blueprints.sort((left, right) => left.title.localeCompare(right.title)),
-      installed: Object.values(this.requireState().installs).map((record) => record.active),
+      installed: Object.values(state.installs).map((record) => record.active),
       evidence
     }
   }

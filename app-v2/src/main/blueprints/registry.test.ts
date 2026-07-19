@@ -1,5 +1,5 @@
 import { generateKeyPairSync, sign, type KeyObject } from 'node:crypto'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import curatedFeed from '../../../resources/raceops/curated-feed.json'
 import {
   RACEOPS_BLUEPRINT_RUNTIME_VERSION,
@@ -20,10 +20,13 @@ import {
 import {
   RaceOpsBlueprintRegistry,
   RaceOpsFeedTransportError,
+  createFileRaceOpsRegistryStorage,
   createMemoryRaceOpsRegistryStorage,
   migrateRaceOpsRegistryState,
   sha256RaceOpsCanonical,
-  verifyPinnedRaceOpsFeed
+  verifyPinnedRaceOpsFeed,
+  type RaceOpsRegistryFileOperations,
+  type RaceOpsRegistryStorage
 } from './registry'
 
 const NOW = Date.parse('2026-07-17T15:00:00.000Z')
@@ -140,6 +143,139 @@ function installed(
   }
 }
 
+function createFailingStorage(seed?: unknown): RaceOpsRegistryStorage & {
+  dump(): unknown
+  failNextWrite(error?: Error): void
+} {
+  let value = seed === undefined ? undefined : structuredClone(seed)
+  let nextWriteError: Error | null = null
+  return {
+    async read() {
+      return value === undefined ? undefined : structuredClone(value)
+    },
+    async write(next) {
+      if (nextWriteError) {
+        const error = nextWriteError
+        nextWriteError = null
+        throw error
+      }
+      value = structuredClone(next)
+    },
+    dump() {
+      return value === undefined ? undefined : structuredClone(value)
+    },
+    failNextWrite(error = new Error('injected registry write failure')) {
+      nextWriteError = error
+    }
+  }
+}
+
+function createGatedStorage(seed?: unknown): RaceOpsRegistryStorage & {
+  dump(): unknown
+  pendingWrites(): number
+  releaseNextWrite(): void
+  maxConcurrentWrites(): number
+} {
+  let value = seed === undefined ? undefined : structuredClone(seed)
+  let activeWrites = 0
+  let maxConcurrentWrites = 0
+  const releases: Array<() => void> = []
+  return {
+    async read() {
+      return value === undefined ? undefined : structuredClone(value)
+    },
+    async write(next) {
+      activeWrites += 1
+      maxConcurrentWrites = Math.max(maxConcurrentWrites, activeWrites)
+      await new Promise<void>((resolve) => releases.push(resolve))
+      value = structuredClone(next)
+      activeWrites -= 1
+    },
+    dump() {
+      return value === undefined ? undefined : structuredClone(value)
+    },
+    pendingWrites() {
+      return releases.length
+    },
+    releaseNextWrite() {
+      const release = releases.shift()
+      if (!release) throw new Error('No pending registry write.')
+      release()
+    },
+    maxConcurrentWrites() {
+      return maxConcurrentWrites
+    }
+  }
+}
+
+function fileOperationError(code: string, message: string): NodeJS.ErrnoException {
+  const error = new Error(message) as NodeJS.ErrnoException
+  error.code = code
+  return error
+}
+
+class VirtualWindowsRegistryFiles implements RaceOpsRegistryFileOperations {
+  readonly files = new Map<string, string>()
+  readonly removedPaths: string[] = []
+  private readonly failures: Array<{
+    operation: 'writeFile' | 'rename' | 'remove'
+    matches: (paths: readonly string[]) => boolean
+    error: NodeJS.ErrnoException
+  }> = []
+
+  failNext(
+    operation: 'writeFile' | 'rename' | 'remove',
+    matches: (paths: readonly string[]) => boolean,
+    code = 'EIO'
+  ): void {
+    this.failures.push({
+      operation,
+      matches,
+      error: fileOperationError(code, `Injected ${operation} failure.`)
+    })
+  }
+
+  async mkdir(): Promise<void> {}
+
+  async readFile(path: string): Promise<string> {
+    const value = this.files.get(path)
+    if (value === undefined) throw fileOperationError('ENOENT', `Missing ${path}.`)
+    return value
+  }
+
+  async rename(from: string, to: string): Promise<void> {
+    this.maybeFail('rename', [from, to])
+    const value = this.files.get(from)
+    if (value === undefined) throw fileOperationError('ENOENT', `Missing ${from}.`)
+    if (this.files.has(to)) throw fileOperationError('EEXIST', `Existing ${to}.`)
+    this.files.set(to, value)
+    this.files.delete(from)
+  }
+
+  async remove(path: string): Promise<void> {
+    this.maybeFail('remove', [path])
+    this.removedPaths.push(path)
+    this.files.delete(path)
+  }
+
+  async writeFile(path: string, value: string): Promise<void> {
+    this.maybeFail('writeFile', [path])
+    this.files.set(path, value)
+  }
+
+  private maybeFail(
+    operation: 'writeFile' | 'rename' | 'remove',
+    paths: readonly string[]
+  ): void {
+    const index = this.failures.findIndex(
+      (failure) => failure.operation === operation && failure.matches(paths)
+    )
+    if (index < 0) return
+    const [failure] = this.failures.splice(index, 1)
+    throw failure.error
+  }
+}
+
 describe('signed curated RaceOps feeds', () => {
   it('verifies the bundled signed/hash-pinned feed and rejects tampering', () => {
     expect(() =>
@@ -214,7 +350,7 @@ describe('signed curated RaceOps feeds', () => {
     await expect(reopened.getSnapshot()).rejects.toMatchObject({ code: 'TAMPERED' })
   })
 
-  it('quarantines a stale cache during legitimate pin rotation and continues with the current feed', async () => {
+  it('accepts a higher-sequence pin rotation and quarantines the stale cache', async () => {
     const oldSigner = createSigner('old-raceops-root')
     const currentSigner = createSigner('current-raceops-root')
     const oldFeed = makeSignedFeed(oldSigner, {
@@ -251,13 +387,15 @@ describe('signed curated RaceOps feeds', () => {
 
     const persisted = storage.dump() as {
       schemaVersion: number
+      feedSequenceHighWaterMarks: Record<string, number>
       quarantinedFeeds: Array<{
         reason: string
         cached: { envelopeSha256: string }
         currentPinSha256: string
       }>
     }
-    expect(persisted.schemaVersion).toBe(3)
+    expect(persisted.schemaVersion).toBe(4)
+    expect(persisted.feedSequenceHighWaterMarks[oldFeed.pin.feedId]).toBe(2)
     expect(persisted.quarantinedFeeds).toEqual([
       expect.objectContaining({
         reason: 'pin-rotation',
@@ -265,6 +403,299 @@ describe('signed curated RaceOps feeds', () => {
         cached: expect.objectContaining({ envelopeSha256: oldFeed.pin.envelopeSha256 })
       })
     ])
+  })
+
+  it('rejects a sequence-2 to sequence-1 pin rotation before replacing committed cache', async () => {
+    const sequenceTwoSigner = createSigner('sequence-two-root')
+    const sequenceOneSigner = createSigner('sequence-one-root')
+    const sequenceTwo = makeSignedFeed(sequenceTwoSigner, {
+      feedId: 'rollback-resistant-feed',
+      sequence: 2
+    })
+    const sequenceOne = makeSignedFeed(sequenceOneSigner, {
+      feedId: 'rollback-resistant-feed',
+      sequence: 1
+    })
+    const storage = createMemoryRaceOpsRegistryStorage()
+    const current = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [sequenceTwo.pin],
+      trustedKeys: sequenceTwo.trustedKeys,
+      fetchFeed: async () => sequenceTwo.envelope,
+      now: () => NOW
+    })
+    await current.refreshFeed(sequenceTwo.pin.feedId)
+
+    const rotatedBack = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [sequenceOne.pin],
+      trustedKeys: sequenceOne.trustedKeys,
+      bundledFeeds: { [sequenceOne.pin.feedId]: sequenceOne.envelope },
+      now: () => NOW
+    })
+    await expect(rotatedBack.getSnapshot()).rejects.toMatchObject({ code: 'TAMPERED' })
+
+    const persisted = storage.dump() as {
+      feeds: Record<string, { envelopeSha256: string }>
+      feedSequenceHighWaterMarks: Record<string, number>
+      quarantinedFeeds: unknown[]
+    }
+    expect(persisted.feeds[sequenceTwo.pin.feedId].envelopeSha256).toBe(
+      sequenceTwo.pin.envelopeSha256
+    )
+    expect(persisted.feedSequenceHighWaterMarks[sequenceTwo.pin.feedId]).toBe(2)
+    expect(persisted.quarantinedFeeds).toEqual([])
+  })
+
+  it('keeps the sequence high-water mark across cache quarantine and restart', async () => {
+    const oldSigner = createSigner('restart-old-root')
+    const currentSigner = createSigner('restart-current-root')
+    const oldFeed = makeSignedFeed(oldSigner, {
+      feedId: 'restart-rotation-feed',
+      sequence: 2
+    })
+    const currentFeed = makeSignedFeed(currentSigner, {
+      feedId: 'restart-rotation-feed',
+      sequence: 3
+    })
+    const storage = createMemoryRaceOpsRegistryStorage()
+    const oldRegistry = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [oldFeed.pin],
+      trustedKeys: oldFeed.trustedKeys,
+      fetchFeed: async () => oldFeed.envelope,
+      now: () => NOW
+    })
+    await oldRegistry.refreshFeed(oldFeed.pin.feedId)
+
+    const rotated = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [currentFeed.pin],
+      trustedKeys: currentFeed.trustedKeys,
+      bundledFeeds: { [currentFeed.pin.feedId]: currentFeed.envelope },
+      now: () => NOW
+    })
+    expect((await rotated.getSnapshot()).feeds[0].sequence).toBe(3)
+
+    const restarted = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [currentFeed.pin],
+      trustedKeys: currentFeed.trustedKeys,
+      now: () => NOW
+    })
+    expect((await restarted.getSnapshot()).feeds[0].sequence).toBe(3)
+    const persisted = storage.dump() as {
+      feedSequenceHighWaterMarks: Record<string, number>
+      quarantinedFeeds: unknown[]
+    }
+    expect(persisted.feedSequenceHighWaterMarks[currentFeed.pin.feedId]).toBe(3)
+    expect(persisted.quarantinedFeeds).toHaveLength(1)
+  })
+
+  it('derives the high-water mark from quarantined v3 cache during migration', async () => {
+    const oldSigner = createSigner('migration-old-root')
+    const lowerSigner = createSigner('migration-lower-root')
+    const oldFeed = makeSignedFeed(oldSigner, {
+      feedId: 'migration-quarantine-feed',
+      sequence: 2
+    })
+    const lowerFeed = makeSignedFeed(lowerSigner, {
+      feedId: 'migration-quarantine-feed',
+      sequence: 1
+    })
+    const cached = {
+      feedId: oldFeed.pin.feedId,
+      envelope: oldFeed.envelope,
+      envelopeSha256: oldFeed.pin.envelopeSha256,
+      verifiedAt: new Date(NOW).toISOString(),
+      origin: 'network'
+    }
+    const storage = createMemoryRaceOpsRegistryStorage({
+      schemaVersion: 3,
+      feeds: {},
+      installs: {},
+      evidence: [],
+      quarantinedFeeds: [
+        {
+          feedId: oldFeed.pin.feedId,
+          cached,
+          currentPinSha256: 'f'.repeat(64),
+          quarantinedAt: new Date(NOW).toISOString(),
+          reason: 'pin-rotation'
+        }
+      ]
+    })
+    const migrated = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [lowerFeed.pin],
+      trustedKeys: lowerFeed.trustedKeys,
+      bundledFeeds: { [lowerFeed.pin.feedId]: lowerFeed.envelope },
+      now: () => NOW
+    })
+
+    await expect(migrated.getSnapshot()).rejects.toMatchObject({ code: 'TAMPERED' })
+  })
+
+  it('serializes concurrent refresh commits without losing the high-water mark', async () => {
+    const signer = createSigner()
+    const feed = makeSignedFeed(signer, {
+      feedId: 'concurrent-refresh',
+      sequence: 2
+    })
+    const storage = createGatedStorage()
+    const registry = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [feed.pin],
+      trustedKeys: feed.trustedKeys,
+      fetchFeed: async () => feed.envelope,
+      now: () => NOW
+    })
+
+    const first = registry.refreshFeed(feed.pin.feedId)
+    const second = registry.refreshFeed(feed.pin.feedId)
+    await vi.waitFor(() => expect(storage.pendingWrites()).toBe(1))
+    expect(storage.maxConcurrentWrites()).toBe(1)
+    storage.releaseNextWrite()
+    await vi.waitFor(() => expect(storage.pendingWrites()).toBe(1))
+    expect(storage.maxConcurrentWrites()).toBe(1)
+    storage.releaseNextWrite()
+
+    const snapshots = await Promise.all([first, second])
+    expect(snapshots.every((snapshot) => snapshot.feeds[0].sequence === 2)).toBe(true)
+    const persisted = storage.dump() as {
+      feedSequenceHighWaterMarks: Record<string, number>
+    }
+    expect(persisted.feedSequenceHighWaterMarks[feed.pin.feedId]).toBe(2)
+  })
+})
+
+describe('RaceOps registry file storage', () => {
+  it('keeps the last committed file through write and rename fail steps', async () => {
+    const steps: Array<{
+      name: string
+      arm(
+        files: VirtualWindowsRegistryFiles,
+        paths: { current: string; previous: string; next: string }
+      ): void
+    }> = [
+      {
+        name: 'next write',
+        arm(files, paths) {
+          files.failNext('writeFile', ([path]) => path === paths.next)
+        }
+      },
+      {
+        name: 'current rotation',
+        arm(files, paths) {
+          files.failNext(
+            'rename',
+            ([from, to]) => from === paths.current && to === paths.previous
+          )
+        }
+      },
+      {
+        name: 'candidate promotion',
+        arm(files, paths) {
+          files.failNext(
+            'rename',
+            ([from, to]) => from === paths.next && to === paths.current
+          )
+        }
+      }
+    ]
+
+    for (const step of steps) {
+      const files = new VirtualWindowsRegistryFiles()
+      const storage = createFileRaceOpsRegistryStorage(
+        `C:\\raceops-storage-${step.name.replace(' ', '-')}`,
+        files
+      )
+      const committed = { revision: 1, step: step.name }
+      await storage.write(committed)
+      const current = [...files.files.keys()].find((path) => path.endsWith('registry.json'))
+      expect(current).toBeDefined()
+      if (!current) continue
+      const paths = {
+        current,
+        previous: `${current}.previous`,
+        next: `${current}.next`
+      }
+      step.arm(files, paths)
+
+      await expect(storage.write({ revision: 2, step: step.name })).rejects.toThrow(
+        `Injected ${step.name === 'next write' ? 'writeFile' : 'rename'} failure.`
+      )
+      expect(await storage.read(), step.name).toEqual(committed)
+      expect(files.removedPaths, step.name).not.toContain(current)
+    }
+  })
+
+  it('recovers .previous after interrupted Windows promotion and restore', async () => {
+    const files = new VirtualWindowsRegistryFiles()
+    const storage = createFileRaceOpsRegistryStorage('C:\\raceops-storage-recovery', files)
+    const committed = { revision: 1 }
+    await storage.write(committed)
+    const current = [...files.files.keys()].find((path) => path.endsWith('registry.json'))
+    expect(current).toBeDefined()
+    if (!current) return
+    const previous = `${current}.previous`
+    const next = `${current}.next`
+    files.failNext('rename', ([from, to]) => from === next && to === current)
+    files.failNext('rename', ([from, to]) => from === previous && to === current)
+
+    await expect(storage.write({ revision: 2 })).rejects.toThrow(
+      'Injected rename failure.'
+    )
+    expect(files.files.has(current)).toBe(false)
+    expect(files.files.has(previous)).toBe(true)
+    expect(files.removedPaths).not.toContain(current)
+
+    const restarted = createFileRaceOpsRegistryStorage(
+      'C:\\raceops-storage-recovery',
+      files
+    )
+    expect(await restarted.read()).toEqual(committed)
+  })
+
+  it('uses a complete .next only when no committed current or previous file survives', async () => {
+    const files = new VirtualWindowsRegistryFiles()
+    const storage = createFileRaceOpsRegistryStorage('C:\\raceops-storage-next-recovery', files)
+    await storage.write({ revision: 1 })
+    const current = [...files.files.keys()].find((path) => path.endsWith('registry.json'))
+    expect(current).toBeDefined()
+    if (!current) return
+    const previous = `${current}.previous`
+    const next = `${current}.next`
+
+    files.files.delete(current)
+    files.files.set(next, JSON.stringify({ revision: 2 }))
+    expect(await storage.read()).toEqual({ revision: 2 })
+
+    files.files.set(previous, JSON.stringify({ revision: 1 }))
+    expect(await storage.read()).toEqual({ revision: 1 })
+  })
+
+  it('rotates .previous under Windows EEXIST semantics without deleting current', async () => {
+    const files = new VirtualWindowsRegistryFiles()
+    const storage = createFileRaceOpsRegistryStorage('C:\\raceops-storage-windows', files)
+    await storage.write({ revision: 1 })
+    await storage.write({ revision: 2 })
+    await storage.write({ revision: 3 })
+
+    const current = [...files.files.keys()].find((path) => path.endsWith('registry.json'))
+    expect(current).toBeDefined()
+    if (!current) return
+    expect(await storage.read()).toEqual({ revision: 3 })
+    expect(JSON.parse(await files.readFile(`${current}.previous`))).toEqual({ revision: 2 })
+    expect(files.removedPaths).toContain(`${current}.previous`)
+    expect(files.removedPaths).not.toContain(current)
   })
 })
 
@@ -324,7 +755,7 @@ describe('RaceOps registry lifecycle', () => {
     expect((await registry.getSnapshot()).blueprints[0].compatibilityStatus).toBe('compatible')
   })
 
-  it('migrates v1 install history into the versioned v3 registry state', () => {
+  it('migrates v1 install history into the versioned v4 registry state', () => {
     const migrated = migrateRaceOpsRegistryState({
       schemaVersion: 1,
       cachedFeeds: [],
@@ -334,14 +765,15 @@ describe('RaceOps registry lifecycle', () => {
       ],
       evidence: []
     })
-    expect(migrated.schemaVersion).toBe(3)
+    expect(migrated.schemaVersion).toBe(4)
+    expect(migrated.feedSequenceHighWaterMarks).toEqual({})
     expect(migrated.installs['migrated-blueprint'].active.blueprintVersion).toBe('2.0.0')
     expect(migrated.installs['migrated-blueprint'].history).toHaveLength(1)
     expect(migrated.installs['migrated-blueprint'].history[0].blueprintVersion).toBe('1.0.0')
     expect(migrated.quarantinedFeeds).toEqual([])
   })
 
-  it('migrates schema v2 state to v3 without trusting unknown quarantine data', () => {
+  it('migrates schema v2 state to v4 without trusting unknown quarantine data', () => {
     const migrated = migrateRaceOpsRegistryState({
       schemaVersion: 2,
       feeds: {},
@@ -349,7 +781,8 @@ describe('RaceOps registry lifecycle', () => {
       evidence: [],
       quarantinedFeeds: [{ reason: 'forged' }]
     })
-    expect(migrated.schemaVersion).toBe(3)
+    expect(migrated.schemaVersion).toBe(4)
+    expect(migrated.feedSequenceHighWaterMarks).toEqual({})
     expect(migrated.quarantinedFeeds).toEqual([])
   })
 
@@ -436,6 +869,177 @@ describe('RaceOps registry lifecycle', () => {
     expect(rolledBack.evidence.operation).toBe('rollback')
     snapshot = await registry.getSnapshot()
     expect(snapshot.installed[0].blueprintVersion).toBe('1.0.0')
+  })
+
+  it('keeps memory and disk on the prior committed state when staging persistence fails', async () => {
+    const signer = createSigner()
+    const v1 = makeSignedFeed(signer, {
+      feedId: 'atomic-stage-v1',
+      blueprintId: 'atomic-stage',
+      version: '1.0.0'
+    })
+    const v2 = makeSignedFeed(signer, {
+      feedId: 'atomic-stage-v2',
+      blueprintId: 'atomic-stage',
+      version: '2.0.0'
+    })
+    const storage = createFailingStorage()
+    const options = {
+      storage,
+      appVersion: '2.53.1',
+      pins: [v1.pin, v2.pin],
+      trustedKeys: v1.trustedKeys,
+      bundledFeeds: {
+        [v1.pin.feedId]: v1.envelope,
+        [v2.pin.feedId]: v2.envelope
+      },
+      now: () => NOW
+    }
+    const registry = new RaceOpsBlueprintRegistry(options)
+    await registry.stage(requestFor(v1))
+    const committed = storage.dump()
+
+    storage.failNextWrite()
+    await expect(registry.stage(requestFor(v2))).rejects.toThrow(
+      'injected registry write failure'
+    )
+    expect((await registry.getSnapshot()).installed[0].blueprintVersion).toBe('1.0.0')
+    expect(storage.dump()).toEqual(committed)
+
+    const restarted = new RaceOpsBlueprintRegistry(options)
+    expect((await restarted.getSnapshot()).installed[0].blueprintVersion).toBe('1.0.0')
+    expect((await registry.stage(requestFor(v2))).installed).toBe(true)
+  })
+
+  it('does not publish a staged candidate while its durable write is pending', async () => {
+    const signer = createSigner()
+    const v1 = makeSignedFeed(signer, {
+      feedId: 'pending-stage-v1',
+      blueprintId: 'pending-stage',
+      version: '1.0.0'
+    })
+    const v2 = makeSignedFeed(signer, {
+      feedId: 'pending-stage-v2',
+      blueprintId: 'pending-stage',
+      version: '2.0.0'
+    })
+    const bundledFeeds = {
+      [v1.pin.feedId]: v1.envelope,
+      [v2.pin.feedId]: v2.envelope
+    }
+    const seedStorage = createMemoryRaceOpsRegistryStorage()
+    const seedRegistry = new RaceOpsBlueprintRegistry({
+      storage: seedStorage,
+      appVersion: '2.53.1',
+      pins: [v1.pin, v2.pin],
+      trustedKeys: v1.trustedKeys,
+      bundledFeeds,
+      now: () => NOW
+    })
+    await seedRegistry.stage(requestFor(v1))
+
+    const storage = createGatedStorage(seedStorage.dump())
+    const registry = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [v1.pin, v2.pin],
+      trustedKeys: v1.trustedKeys,
+      bundledFeeds,
+      now: () => NOW
+    })
+    const staging = registry.stage(requestFor(v2))
+    await vi.waitFor(() => expect(storage.pendingWrites()).toBe(1))
+
+    expect((await registry.getSnapshot()).installed[0].blueprintVersion).toBe('1.0.0')
+    storage.releaseNextWrite()
+    expect((await staging).installed).toBe(true)
+    expect((await registry.getSnapshot()).installed[0].blueprintVersion).toBe('2.0.0')
+  })
+
+  it('keeps rollback atomic across write failure, restart, and retry', async () => {
+    const signer = createSigner()
+    const v1 = makeSignedFeed(signer, {
+      feedId: 'atomic-rollback-v1',
+      blueprintId: 'atomic-rollback',
+      version: '1.0.0'
+    })
+    const v2 = makeSignedFeed(signer, {
+      feedId: 'atomic-rollback-v2',
+      blueprintId: 'atomic-rollback',
+      version: '2.0.0'
+    })
+    const storage = createFailingStorage()
+    const options = {
+      storage,
+      appVersion: '2.53.1',
+      pins: [v1.pin, v2.pin],
+      trustedKeys: v1.trustedKeys,
+      bundledFeeds: {
+        [v1.pin.feedId]: v1.envelope,
+        [v2.pin.feedId]: v2.envelope
+      },
+      now: () => NOW
+    }
+    const registry = new RaceOpsBlueprintRegistry(options)
+    await registry.stage(requestFor(v1))
+    await registry.stage(requestFor(v2))
+    const rollbackRequest = {
+      feedId: v2.pin.feedId,
+      blueprintId: 'atomic-rollback',
+      blueprintVersion: '2.0.0',
+      manifestSha256: v2.envelope.payload.entries[0].manifestSha256
+    }
+    const committed = storage.dump()
+
+    storage.failNextWrite()
+    await expect(registry.rollback(rollbackRequest)).rejects.toThrow(
+      'injected registry write failure'
+    )
+    expect((await registry.getSnapshot()).installed[0].blueprintVersion).toBe('2.0.0')
+    expect(storage.dump()).toEqual(committed)
+
+    const restarted = new RaceOpsBlueprintRegistry(options)
+    expect((await restarted.getSnapshot()).installed[0].blueprintVersion).toBe('2.0.0')
+    expect((await restarted.rollback(rollbackRequest)).installed).toBe(true)
+    expect((await restarted.getSnapshot()).installed[0].blueprintVersion).toBe('1.0.0')
+  })
+
+  it('serializes concurrent stages without losing install history or evidence', async () => {
+    const signer = createSigner()
+    const v1 = makeSignedFeed(signer, {
+      feedId: 'concurrent-stage-v1',
+      blueprintId: 'concurrent-stage',
+      version: '1.0.0'
+    })
+    const v2 = makeSignedFeed(signer, {
+      feedId: 'concurrent-stage-v2',
+      blueprintId: 'concurrent-stage',
+      version: '2.0.0'
+    })
+    const storage = createMemoryRaceOpsRegistryStorage()
+    const registry = new RaceOpsBlueprintRegistry({
+      storage,
+      appVersion: '2.53.1',
+      pins: [v1.pin, v2.pin],
+      trustedKeys: v1.trustedKeys,
+      bundledFeeds: {
+        [v1.pin.feedId]: v1.envelope,
+        [v2.pin.feedId]: v2.envelope
+      },
+      now: () => NOW
+    })
+
+    await Promise.all([registry.stage(requestFor(v1)), registry.stage(requestFor(v2))])
+
+    const snapshot = await registry.getSnapshot()
+    expect(snapshot.installed[0].blueprintVersion).toBe('2.0.0')
+    expect(snapshot.evidence).toHaveLength(2)
+    const persisted = storage.dump() as {
+      installs: Record<string, { history: RaceOpsInstalledBlueprint[] }>
+    }
+    expect(persisted.installs['concurrent-stage'].history).toEqual([
+      expect.objectContaining({ blueprintVersion: '1.0.0' })
+    ])
   })
 
   it('rejects rollback when the UI operation identity is stale', async () => {
