@@ -288,7 +288,10 @@ export const TTS_CHANNELS = {
   // Renderer → Main: self-test of the neural (sherpa) engine. Reports whether the
   // engine is present/usable so the UI can warn when synth silently falls back to
   // OS voices (e.g. onnxruntime 0xC0000005 on some Windows CPUs).
-  engineStatus: 'tts:engineStatus'
+  engineStatus: 'tts:engineStatus',
+  // Main → Renderer: emitted immediately when runtime synthesis changes engine
+  // health so capability leases stop advertising a crashed/disabled Piper path.
+  engineStatusEvent: 'tts:engineStatusEvent'
 } as const
 
 // Result of the neural-engine self-test (TTS_CHANNELS.engineStatus):

@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { tt } from './i18n'
-import { ACCESSIBILITY_CUE_REQUIRED_TRANSLATED_KEYS } from './i18n-extra/accessibility-cues'
+import {
+  ACCESSIBILITY_CUE_ALL_KEYS
+} from './i18n-extra/accessibility-cues'
 
 describe('i18n-extra merge', () => {
   it('merges per-zone modules into UI_TEXT', () => {
@@ -35,9 +38,28 @@ describe('i18n-extra merge', () => {
 
   it('does not accept English fallback for required accessibility controls and live alerts', () => {
     for (const language of ['es', 'fr', 'de', 'zh', 'ja'] as const) {
-      for (const key of ACCESSIBILITY_CUE_REQUIRED_TRANSLATED_KEYS) {
+      for (const key of ACCESSIBILITY_CUE_ALL_KEYS) {
         expect(tt(language, key), `${language}:${key}`).not.toBe(tt('en', key))
       }
+    }
+  })
+
+  it('covers every literal accessibility key rendered by the view, layer, and localizer', () => {
+    const sources = [
+      './views/AccessibilityCuesView.tsx',
+      './components/AccessibilityCueLayer.tsx',
+      './lib/accessibility-cue-localization.ts'
+    ].map((path) => readFileSync(new URL(path, import.meta.url), 'utf8'))
+    const renderedKeys = new Set(
+      sources.flatMap((source) =>
+        [...source.matchAll(/accessibilityCues\.[A-Za-z0-9.-]+/g)]
+          .map(([key]) => key)
+          .filter((key) => !key.endsWith('.'))
+      )
+    )
+
+    for (const key of renderedKeys) {
+      expect(ACCESSIBILITY_CUE_ALL_KEYS, key).toContain(key)
     }
   })
 

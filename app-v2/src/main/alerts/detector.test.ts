@@ -126,6 +126,63 @@ describe('AlertsDetector threshold truth', () => {
         expect(repeat[0].severity).toBe(severity)
       }
     )
+
+    it('emits warning-to-critical incident escalation inside cooldown and repeats critical', () => {
+      const detector = new AlertsDetector(config({
+        incidentLimit: {
+          ...DEFAULT_ALERTS_CONFIG.incidentLimit,
+          enabled: true,
+          remainingThreshold: 4,
+          cooldownMs: 5_000,
+          repeatMs: 1_000
+        }
+      }))
+
+      const warning = detector.process(
+        snapshot(1_000, { incidentCount: 7, incidentLimit: 10 })
+      )
+      const critical = detector.process(
+        snapshot(1_100, { incidentCount: 9, incidentLimit: 10 })
+      )
+      const repeat = detector.process(
+        snapshot(6_100, { incidentCount: 9, incidentLimit: 10 })
+      )
+
+      expect(warning).toHaveLength(1)
+      expect(warning[0].severity).toBe('warning')
+      expect(critical).toHaveLength(1)
+      expect(critical[0].severity).toBe('critical')
+      expect(repeat).toHaveLength(1)
+      expect(repeat[0].severity).toBe('critical')
+    })
+
+    it('keeps a cooldown-blocked warning transition pending until it emits', () => {
+      const detector = new AlertsDetector(config({
+        incidentLimit: {
+          ...DEFAULT_ALERTS_CONFIG.incidentLimit,
+          enabled: true,
+          remainingThreshold: 4,
+          cooldownMs: 5_000,
+          repeatMs: 0
+        }
+      }))
+
+      expect(detector.process(
+        snapshot(1_000, { incidentCount: 6, incidentLimit: 10 })
+      )).toHaveLength(1)
+      expect(detector.process(
+        snapshot(1_100, { incidentCount: 7, incidentLimit: 10 })
+      )).toEqual([])
+      const admitted = detector.process(
+        snapshot(6_000, { incidentCount: 7, incidentLimit: 10 })
+      )
+
+      expect(admitted).toHaveLength(1)
+      expect(admitted[0]).toMatchObject({
+        severity: 'warning',
+        context: { count: 7, remaining: 3 }
+      })
+    })
   })
 
   it('does not treat kg/lap as litres/lap and hides missing or invalid fuel data', () => {

@@ -55,6 +55,61 @@ describe('accessibility haptic zero-intensity safety', () => {
     ).toBe(true)
   })
 
+  it.each([
+    [0, 0, null],
+    [0.25, 0.25, 74],
+    [0.5, 0.5, 93],
+    [1, 1, 130]
+  ] as const)(
+    'scales Arduino magnitude by cue intensity × master gain %s',
+    async (masterGain, expectedIntensity, expectedDuration) => {
+      const { DEFAULT_HAPTICS_CONFIG } = await import('../../shared/haptics')
+      const {
+        accessibilityHapticPulseDuration,
+        effectiveAccessibilityHapticIntensity
+      } = await import('./haptics')
+      const config = {
+        ...DEFAULT_HAPTICS_CONFIG,
+        masterGain,
+        effects: {
+          ...DEFAULT_HAPTICS_CONFIG.effects,
+          impact: {
+            ...DEFAULT_HAPTICS_CONFIG.effects.impact,
+            intensity: 1
+          }
+        }
+      }
+      const effective = effectiveAccessibilityHapticIntensity(1, config)
+
+      expect(effective).toBe(expectedIntensity)
+      if (expectedDuration === null) {
+        expect(effective).toBe(0)
+      } else {
+        expect(
+          accessibilityHapticPulseDuration('single', effective)
+        ).toBe(expectedDuration)
+      }
+    }
+  )
+
+  it('also applies the configured impact-effect gain before Arduino duration', async () => {
+    const { DEFAULT_HAPTICS_CONFIG } = await import('../../shared/haptics')
+    const { effectiveAccessibilityHapticIntensity } = await import('./haptics')
+    const config = {
+      ...DEFAULT_HAPTICS_CONFIG,
+      masterGain: 0.5,
+      effects: {
+        ...DEFAULT_HAPTICS_CONFIG.effects,
+        impact: {
+          ...DEFAULT_HAPTICS_CONFIG.effects.impact,
+          intensity: 0.5
+        }
+      }
+    }
+
+    expect(effectiveAccessibilityHapticIntensity(1, config)).toBe(0.25)
+  })
+
   it('never schedules hardware actuation for zero intensity', async () => {
     const handlers = new Map<string, (...args: any[]) => any>()
     const device = {

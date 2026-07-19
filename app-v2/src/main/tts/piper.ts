@@ -24,6 +24,7 @@ import {
   extractSherpaVoiceBundle,
   evictTtsCache
 } from './sherpa'
+import { PiperEngineHealth } from './piper-engine-health'
 
 // Neural TTS main-process module — engine = sherpa-onnx (VITS), replacing piper.exe
 // which hard-crashed (0xC0000005) on many Windows CPUs and made tts:synth return
@@ -48,6 +49,8 @@ import {
 //   tts:voiceProgress (main → renderer)  download progress events
 
 const TEMP_DIR_NAME = 'sherpa-tts'
+const ENGINE_MAX_CRASHES = 2
+const engineHealth = new PiperEngineHealth(ENGINE_MAX_CRASHES)
 
 // A downloaded model.onnx smaller than this (or this fraction of its catalog size)
 // is treated as truncated/absent so a half-written file never poisons the next run.
@@ -223,7 +226,10 @@ export function register(ctx: ModuleContext): void {
     return PIPER_VOICE_CATALOG.map((voice) => ({
       ...voice,
       // A voice is usable only when the native engine is also present.
-      installed: engineReady && resolveVoiceModel(ctx.app, voice.id) !== null
+      installed:
+        engineReady &&
+        !engineHealth.isDisabled(voice.id) &&
+        resolveVoiceModel(ctx.app, voice.id) !== null
     }))
   })
 
@@ -239,6 +245,11 @@ export function register(ctx: ModuleContext): void {
         return null
       }
       if (!isSherpaEngineReady()) {
+        updateEngineStatus(ctx, {
+          engine: 'none',
+          ok: false,
+          reason: 'Native sherpa engine is unavailable.'
+        })
         logger.info('tts', 'synth fallback: engine unavailable', {
           voiceId,
           reason: 'engine-missing'
@@ -255,13 +266,23 @@ export function register(ctx: ModuleContext): void {
       }
       const dataDir = resolveDataDir()
       if (!dataDir) {
+        updateEngineStatus(ctx, {
+          engine: 'sherpa',
+          ok: false,
+          reason: 'espeak-ng-data is unavailable.'
+        })
         logger.info('tts', 'synth fallback: espeak-ng-data (dataDir) absent', {
           voiceId,
           reason: 'datadir-missing'
         })
         return null
       }
-      if ((engineCrashCount.get(voiceId) ?? 0) >= ENGINE_MAX_CRASHES) {
+      if (engineHealth.isDisabled(voiceId)) {
+        updateEngineStatus(ctx, {
+          engine: 'sherpa',
+          ok: false,
+          reason: `Piper is disabled for ${voiceId} after repeated runtime failures.`
+        })
         logger.info('tts', 'synth fallback: engine disabled for this voice after repeated failures', {
           voiceId,
           reason: 'engine-crash-disabled'
@@ -282,7 +303,9 @@ export function register(ctx: ModuleContext): void {
           outDir: tempDir
         })
         if (!wav) throw new Error('engine returned no audio')
-        engineCrashCount.delete(voiceId)
+        const previousStatus = engineHealth.cachedStatus
+        const status = engineHealth.recordSuccess(voiceId)
+        broadcastEngineStatusIfChanged(ctx, previousStatus, status)
         logger.debug('tts', 'synth ok (sherpa)', {
           voiceId,
           engine: 'sherpa',
@@ -293,12 +316,17 @@ export function register(ctx: ModuleContext): void {
         })
         return wav
       } catch (error) {
-        engineCrashCount.set(voiceId, (engineCrashCount.get(voiceId) ?? 0) + 1)
+        const reason = error instanceof Error ? error.message : String(error)
+        const previousStatus = engineHealth.cachedStatus
+        const failure = engineHealth.recordFailure(voiceId, reason)
+        broadcastEngineStatusIfChanged(ctx, previousStatus, failure.status)
         logger.warn('tts', 'synth fallback: sherpa synth failed', {
           voiceId,
           reason: 'synth-error',
           modelPath: model,
-          error: error instanceof Error ? error.message : String(error)
+          error: reason,
+          crashCount: failure.count,
+          disabled: failure.disabled
         })
         return null
       }
@@ -332,14 +360,36 @@ export function register(ctx: ModuleContext): void {
   // worker so we catch CPUs where onnxruntime hard-crashes (0xC0000005). The result
   // is cached so the probe (and its child process) runs at most once per app run.
   ctx.ipcMain.handle(TTS_CHANNELS.engineStatus, async (): Promise<TtsEngineStatus> => {
-    if (engineStatusCache) return engineStatusCache
-    engineStatusCache = await probeEngineStatus(ctx, tempDir)
-    return engineStatusCache
+    if (engineHealth.cachedStatus) return engineHealth.cachedStatus
+    const status = await probeEngineStatus(ctx, tempDir)
+    updateEngineStatus(ctx, status)
+    return status
   })
 }
 
-// Cached once per app run: the probe may spawn a child synth, so we never repeat it.
-let engineStatusCache: TtsEngineStatus | null = null
+function updateEngineStatus(
+  ctx: ModuleContext,
+  status: TtsEngineStatus
+): void {
+  const previousStatus = engineHealth.cachedStatus
+  engineHealth.setProbeStatus(status)
+  broadcastEngineStatusIfChanged(ctx, previousStatus, status)
+}
+
+function broadcastEngineStatusIfChanged(
+  ctx: ModuleContext,
+  previous: TtsEngineStatus | null,
+  next: TtsEngineStatus
+): void {
+  if (
+    previous?.engine === next.engine &&
+    previous.ok === next.ok &&
+    previous.reason === next.reason
+  ) {
+    return
+  }
+  ctx.broadcast(TTS_CHANNELS.engineStatusEvent, next)
+}
 
 async function probeEngineStatus(ctx: ModuleContext, tempDir: string): Promise<TtsEngineStatus> {
   // 1. Cheapest signal: are the native engine files present on disk at all?
@@ -477,7 +527,7 @@ async function ensureVoice(
     logger.info('tts', 'voice downloaded', { voiceId, engine: 'sherpa', onnxPath, bytes: extracted.onnx.length })
     // A fresh (re)download supersedes a corrupt model that hit the crash cap, so
     // clear the sticky guard and let this voice try the neural engine again.
-    engineCrashCount.delete(voiceId)
+    engineHealth.resetVoice(voiceId)
     return { ok: true, voiceId, installed: true }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -496,11 +546,3 @@ async function ensureVoice(
     await rm(`${bundlePath}.part`, { force: true }).catch(() => undefined)
   }
 }
-
-// The engine can still fail for a specific voice on some machines (corrupt model,
-// unsupported op, OOM). Each failure logs + wastes CPU, and the proactive engineer +
-// spotter retry every few seconds. After a couple of failures for a given voice we
-// stop calling the engine for it and go straight to the distinct-OS-voice fallback.
-// Reset on a later success. (Engine-neutral rename of the old PIPER_MAX_CRASHES.)
-const ENGINE_MAX_CRASHES = 2
-const engineCrashCount = new Map<string, number>()

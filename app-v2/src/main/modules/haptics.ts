@@ -90,6 +90,38 @@ export function canDeliverAccessibilityHaptic(
   )
 }
 
+export function effectiveAccessibilityHapticIntensity(
+  cueIntensity: number,
+  hapticsConfig: HapticsConfig
+): number {
+  if (
+    !isActuatingHapticIntensity(cueIntensity) ||
+    !isActuatingHapticIntensity(hapticsConfig.masterGain) ||
+    !isActuatingHapticIntensity(
+      hapticsConfig.effects.impact.intensity
+    )
+  ) {
+    return 0
+  }
+  return clamp(
+    cueIntensity *
+      hapticsConfig.masterGain *
+      hapticsConfig.effects.impact.intensity,
+    0,
+    1,
+    0
+  )
+}
+
+export function accessibilityHapticPulseDuration(
+  pattern: CueHapticPattern,
+  effectiveIntensity: number
+): number {
+  return pattern === 'long'
+    ? Math.round(180 + effectiveIntensity * 100)
+    : Math.round(55 + effectiveIntensity * 75)
+}
+
 export function isAccessibilityHapticsAvailable(
   ctx: ModuleContext,
   profileIntensity: number
@@ -98,7 +130,11 @@ export function isAccessibilityHapticsAvailable(
     config,
     profileIntensity,
     isAccessibilityCueRendererHapticAvailable(),
-    Boolean(config.arduino.enabled && resolveArduinoDevice(ctx))
+    Boolean(
+      config.arduino.enabled &&
+      effectiveAccessibilityHapticIntensity(profileIntensity, config) > 0 &&
+      resolveArduinoDevice(ctx)
+    )
   )
 }
 
@@ -114,17 +150,24 @@ export function dispatchAccessibilityCueHaptic(
   if (!config.arduino.enabled) return rendererAvailable
   const device = resolveArduinoDevice(ctx)
   if (!device) return rendererAvailable
+  const effectiveIntensity = effectiveAccessibilityHapticIntensity(
+    intensity,
+    config
+  )
+  if (!isActuatingHapticIntensity(effectiveIntensity)) {
+    return rendererAvailable
+  }
   if (priority < accessibilityBuzzPriority) return rendererAvailable
   cancelAccessibilityBuzz()
   accessibilityBuzzPriority = priority
   const generation = ++accessibilityBuzzGeneration
 
   const effect = config.effects.impact
-  const safeIntensity = clamp(intensity, 0, 1, 0.7)
   const pulseCount = pattern === 'triple' ? 3 : pattern === 'double' ? 2 : 1
-  const pulseDuration = pattern === 'long'
-    ? Math.round(180 + safeIntensity * 100)
-    : Math.round(55 + safeIntensity * 75)
+  const pulseDuration = accessibilityHapticPulseDuration(
+    pattern,
+    effectiveIntensity
+  )
   const spacingMs = pulseDuration + 70
 
   for (let index = 0; index < pulseCount; index += 1) {

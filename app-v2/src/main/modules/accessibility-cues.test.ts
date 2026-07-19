@@ -19,7 +19,9 @@ import {
 
 const memoryFs = vi.hoisted(() => ({
   files: new Map<string, string>(),
-  readBlock: null as Promise<void> | null
+  readBlock: null as Promise<void> | null,
+  writeBlock: null as Promise<void> | null,
+  onWrite: null as (() => void) | null
 }))
 
 vi.mock('node:fs/promises', () => ({
@@ -33,6 +35,8 @@ vi.mock('node:fs/promises', () => ({
     return value
   }),
   writeFile: vi.fn(async (path: string, value: unknown) => {
+    memoryFs.onWrite?.()
+    if (memoryFs.writeBlock) await memoryFs.writeBlock
     memoryFs.files.set(String(path), String(value))
   }),
   rm: vi.fn(async (path: string) => {
@@ -85,9 +89,31 @@ function blockRead(): () => void {
   }
 }
 
+function blockWrite(): { started: Promise<void>; release: () => void } {
+  let release = (): void => undefined
+  let markStarted = (): void => undefined
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve
+  })
+  memoryFs.writeBlock = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  memoryFs.onWrite = markStarted
+  return {
+    started,
+    release: () => {
+      memoryFs.writeBlock = null
+      memoryFs.onWrite = null
+      release()
+    }
+  }
+}
+
 beforeEach(() => {
   memoryFs.files.clear()
   memoryFs.readBlock = null
+  memoryFs.writeBlock = null
+  memoryFs.onWrite = null
   vi.resetModules()
 })
 
@@ -261,6 +287,95 @@ describe('accessibility cue profile readiness and versioning', () => {
         null,
         expect.objectContaining({ sectionId: 'accessibility-cues' })
       )
+    )
+  })
+
+  it('serializes an imported profile after an in-flight save so import wins', async () => {
+    const testHarness = harness()
+    const module = await import('./accessibility-cues')
+    module.register(testHarness.ctx)
+    const initial = await testHarness.handlers
+      .get(ACCESSIBILITY_CUE_CHANNELS.getState)
+      ?.() as AccessibilityCueStateEnvelope
+    const blocked = blockWrite()
+    const save = testHarness.handlers.get(ACCESSIBILITY_CUE_CHANNELS.saveProfile)
+    const savePromise = save?.(undefined, {
+      protocolVersion: ACCESSIBILITY_CUE_PROTOCOL_VERSION,
+      expectedRevision: initial.revision,
+      profile: {
+        ...DEAF_HOH_CUE_PROFILE,
+        textScale: 1.6
+      }
+    }) as Promise<AccessibilityCueStateEnvelope>
+    await blocked.started
+
+    const imported = cloneAccessibilityCueStore(DEFAULT_ACCESSIBILITY_CUE_STORE)
+    imported.activeProfileId = DEAF_HOH_CUE_PROFILE.id
+    const importOperation = vi.fn(async () => {
+      memoryFs.files.set(
+        'C:\\cue-profile-user\\accessibility-cues.json',
+        serializeAccessibilityCueStore(imported)
+      )
+      return 'imported'
+    })
+    const importPromise = module.importAccessibilityCueConfig(importOperation)
+    expect(importOperation).not.toHaveBeenCalled()
+
+    blocked.release()
+    await savePromise
+    await expect(importPromise).resolves.toBe('imported')
+    const finalState = await testHarness.handlers
+      .get(ACCESSIBILITY_CUE_CHANNELS.getState)
+      ?.() as AccessibilityCueStateEnvelope
+
+    expect(importOperation).toHaveBeenCalledTimes(1)
+    expect(finalState.state.activeProfileId).toBe(DEAF_HOH_CUE_PROFILE.id)
+    expect(testHarness.broadcast).toHaveBeenLastCalledWith(
+      ACCESSIBILITY_CUE_CHANNELS.stateEvent,
+      finalState
+    )
+  })
+
+  it('serializes reset after an in-flight selection so defaults and deletion win', async () => {
+    const testHarness = harness()
+    const module = await import('./accessibility-cues')
+    module.register(testHarness.ctx)
+    const initial = await testHarness.handlers
+      .get(ACCESSIBILITY_CUE_CHANNELS.getState)
+      ?.() as AccessibilityCueStateEnvelope
+    const blocked = blockWrite()
+    const selectPromise = testHarness.handlers
+      .get(ACCESSIBILITY_CUE_CHANNELS.setActiveProfile)
+      ?.(undefined, {
+        protocolVersion: ACCESSIBILITY_CUE_PROTOCOL_VERSION,
+        expectedRevision: initial.revision,
+        profileId: DEAF_HOH_CUE_PROFILE.id
+      }) as Promise<AccessibilityCueStateEnvelope>
+    await blocked.started
+
+    const resetOperation = vi.fn(async () => {
+      memoryFs.files.delete(
+        'C:\\cue-profile-user\\accessibility-cues.json'
+      )
+      return 'reset'
+    })
+    const resetPromise = module.resetAccessibilityCueConfig(resetOperation)
+    expect(resetOperation).not.toHaveBeenCalled()
+
+    blocked.release()
+    await selectPromise
+    await expect(resetPromise).resolves.toBe('reset')
+    const finalState = await testHarness.handlers
+      .get(ACCESSIBILITY_CUE_CHANNELS.getState)
+      ?.() as AccessibilityCueStateEnvelope
+
+    expect(finalState.state.activeProfileId).toBe('standard')
+    expect(
+      memoryFs.files.has('C:\\cue-profile-user\\accessibility-cues.json')
+    ).toBe(false)
+    expect(testHarness.broadcast).toHaveBeenLastCalledWith(
+      ACCESSIBILITY_CUE_CHANNELS.stateEvent,
+      finalState
     )
   })
 

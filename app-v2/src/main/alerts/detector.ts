@@ -45,6 +45,7 @@ interface DetectorState {
   shiftActive?: boolean
   incidentRemaining?: number
   incidentCount?: number
+  incidentSeverity?: AlertSeverity
   drsAvailable?: boolean
   blueFlagActive?: boolean
   flags: Partial<Record<keyof Flags, boolean>>
@@ -219,6 +220,7 @@ export class AlertsDetector {
     if (snapshot.incidentCount === undefined || snapshot.incidentLimit === undefined) {
       this.state.incidentRemaining = undefined
       this.state.incidentCount = undefined
+      this.state.incidentSeverity = undefined
       this.state.activeNow.set(key, false)
       return
     }
@@ -232,7 +234,10 @@ export class AlertsDetector {
     this.state.activeNow.set(key, rule.enabled && within)
     if (rule.enabled && within && (crossedThreshold || countChanged)) {
       const severity: AlertSeverity = remaining <= 1 ? 'critical' : 'warning'
-      this.fire(
+      const severityEscalated =
+        severity === 'critical' &&
+        this.state.incidentSeverity !== 'critical'
+      const emitted = this.fire(
         rule,
         'incidentLimit',
         `Incidentes perto do limite: ${snapshot.incidentCount}/${snapshot.incidentLimit}x`,
@@ -247,12 +252,21 @@ export class AlertsDetector {
           limit: snapshot.incidentLimit,
           remaining,
           unit: 'incidents'
-        }
+        },
+        false,
+        severityEscalated
       )
+      if (emitted) {
+        this.state.incidentRemaining = remaining
+        this.state.incidentCount = snapshot.incidentCount
+        this.state.incidentSeverity = severity
+      }
+      return
     }
 
     this.state.incidentRemaining = remaining
     this.state.incidentCount = snapshot.incidentCount
+    if (!within) this.state.incidentSeverity = undefined
   }
 
   private detectTyrePressure(snapshot: TelemetrySnapshot, events: AlertEvent[]): void {
@@ -470,12 +484,19 @@ export class AlertsDetector {
     events: AlertEvent[],
     defaultSeverity?: AlertSeverity,
     context?: AlertEventContext,
-    isRepeat = false
-  ): void {
+    isRepeat = false,
+    bypassCooldown = false
+  ): boolean {
     const defaults = ALERT_TYPE_DEFAULTS[type]
     const cooldownMs = rule.cooldownMs ?? defaults.cooldownMs
     const lastAt = this.state.lastFiredAt.get(key)
-    if (lastAt !== undefined && timestamp - lastAt < cooldownMs) return
+    if (
+      !bypassCooldown &&
+      lastAt !== undefined &&
+      timestamp - lastAt < cooldownMs
+    ) {
+      return false
+    }
 
     const severity = rule.severity ?? defaultSeverity ?? defaults.severity
     const event: AlertEvent = {
@@ -507,5 +528,6 @@ export class AlertsDetector {
         })
       }
     }
+    return true
   }
 }

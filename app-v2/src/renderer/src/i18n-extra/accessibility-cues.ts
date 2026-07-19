@@ -1,4 +1,11 @@
 import type { ResolvedLanguage } from '../i18n'
+import {
+  accessibilityCueCompleteDe,
+  accessibilityCueCompleteEs,
+  accessibilityCueCompleteFr,
+  accessibilityCueCompleteJa,
+  accessibilityCueCompleteZh
+} from './accessibility-cues-complete-locales'
 
 const en: Record<string, string> = {
   'accessibilityCues.title': 'Accessibility cue profiles',
@@ -142,6 +149,8 @@ const en: Record<string, string> = {
   'accessibilityCues.example.alert.blueFlag': 'Blue flag warning.'
 }
 
+export const ACCESSIBILITY_CUE_ALL_KEYS = Object.freeze(Object.keys(en))
+
 const ptBR: Record<string, string> = {
   ...en,
   'accessibilityCues.title': 'Perfis de cues de acessibilidade',
@@ -259,55 +268,9 @@ const ptBR: Record<string, string> = {
   'accessibilityCues.example.alert.lowFuel': 'Margem de combustível crítica. Revise o alerta de combustível existente.'
 }
 
-export const ACCESSIBILITY_CUE_REQUIRED_TRANSLATED_KEYS = [
-  'accessibilityCues.title',
-  'accessibilityCues.intro',
-  'accessibilityCues.activeProfile',
-  'accessibilityCues.profileHeading',
-  'accessibilityCues.globalModalities',
-  'accessibilityCues.policy.inherit',
-  'accessibilityCues.policy.on',
-  'accessibilityCues.policy.off',
-  'accessibilityCues.modality.caption',
-  'accessibilityCues.modality.audio',
-  'accessibilityCues.modality.symbol',
-  'accessibilityCues.modality.led',
-  'accessibilityCues.modality.haptic',
-  'accessibilityCues.presentation',
-  'accessibilityCues.persistentCaptions',
-  'accessibilityCues.hapticIntensity',
-  'accessibilityCues.available',
-  'accessibilityCues.unavailable',
-  'accessibilityCues.resetProfile',
-  'accessibilityCues.previewHeading',
-  'accessibilityCues.previewHelp',
-  'accessibilityCues.runPreview',
-  'accessibilityCues.overridesHeading',
-  'accessibilityCues.severity.info',
-  'accessibilityCues.severity.warning',
-  'accessibilityCues.severity.critical',
-  'accessibilityCues.dismiss',
-  'accessibilityCues.liveRegion',
-  'accessibilityCues.live.alert.pitLimiter',
-  'accessibilityCues.live.alert.flag.blue',
-  'accessibilityCues.live.alert.flag.yellow',
-  'accessibilityCues.live.alert.flag.black',
-  'accessibilityCues.live.alert.flag.meatball',
-  'accessibilityCues.live.alert.flag',
-  'accessibilityCues.live.alert.lowFuel',
-  'accessibilityCues.live.alert.shiftPoint',
-  'accessibilityCues.live.alert.incidentLimit',
-  'accessibilityCues.live.alert.tyrePressure.low',
-  'accessibilityCues.live.alert.tyrePressure.high',
-  'accessibilityCues.live.alert.tyrePressure',
-  'accessibilityCues.live.alert.tyreTemp',
-  'accessibilityCues.live.alert.brakeTemp',
-  'accessibilityCues.live.alert.drsAvailable',
-  'accessibilityCues.live.alert.blueFlag'
-] as const
-
 const es: Record<string, string> = {
   ...en,
+  ...accessibilityCueCompleteEs,
   'accessibilityCues.title': 'Perfiles de señales de accesibilidad',
   'accessibilityCues.intro': 'Envía las alertas semánticas existentes mediante subtítulos, voz local, símbolos de texto, LED y patrones hápticos. Los perfiles solo cambian la presentación; nunca toman decisiones de carrera ni conducen el coche.',
   'accessibilityCues.activeProfile': 'Perfil activo',
@@ -393,6 +356,7 @@ const es: Record<string, string> = {
 
 const fr: Record<string, string> = {
   ...en,
+  ...accessibilityCueCompleteFr,
   'accessibilityCues.title': 'Profils de signaux d’accessibilité',
   'accessibilityCues.intro': 'Transmettez les alertes sémantiques existantes par sous-titres, voix locale, symboles textuels, LED et motifs haptiques. Les profils ne changent que la présentation ; ils ne prennent jamais de décision de course et ne conduisent pas la voiture.',
   'accessibilityCues.activeProfile': 'Profil actif',
@@ -478,6 +442,7 @@ const fr: Record<string, string> = {
 
 const de: Record<string, string> = {
   ...en,
+  ...accessibilityCueCompleteDe,
   'accessibilityCues.title': 'Profile für Barrierefreiheits-Hinweise',
   'accessibilityCues.intro': 'Gibt vorhandene semantische Warnungen als Untertitel, lokale Sprache, Textsymbole, LED- und Haptikmuster aus. Profile ändern nur die Darstellung; sie treffen keine Rennentscheidungen und steuern das Fahrzeug nicht.',
   'accessibilityCues.activeProfile': 'Aktives Profil',
@@ -502,7 +467,7 @@ const de: Record<string, string> = {
   'accessibilityCues.captionDuration': 'Untertiteldauer',
   'accessibilityCues.hapticIntensity': 'Haptikintensität',
   'accessibilityCues.hardwareStatus': 'Optionale Hardware',
-  'accessibilityCues.ledStatus': 'SIM-X LED/OLED: {status}',
+  'accessibilityCues.ledStatus': 'SIM-X-Leuchten/OLED: {status}',
   'accessibilityCues.hapticStatus': 'Haptiksteuerung: {status}',
   'accessibilityCues.available': 'verfügbar',
   'accessibilityCues.unavailable': 'nicht verfügbar — sichere Alternative wird verwendet',
@@ -546,7 +511,7 @@ const de: Record<string, string> = {
   'accessibilityCues.live.alert.blueFlag': 'Blaue Flagge: Ein schnelleres Fahrzeug nähert sich.',
   'accessibilityCues.overrideAria': '{modality} für {event}',
   'accessibilityCues.inherit': 'Übernehmen',
-  'accessibilityCues.profile.standard': 'Standard multimodal',
+  'accessibilityCues.profile.standard': 'Multimodales Standardprofil',
   'accessibilityCues.profile.low-vision-blind': 'Sehbehinderung / Blindheit',
   'accessibilityCues.profile.deaf-hoh': 'Gehörlos / schwerhörig',
   'accessibilityCues.event.alert.pitLimiter': 'Boxengassenbegrenzer',
@@ -563,6 +528,7 @@ const de: Record<string, string> = {
 
 const zh: Record<string, string> = {
   ...en,
+  ...accessibilityCueCompleteZh,
   'accessibilityCues.title': '无障碍提示配置',
   'accessibilityCues.intro': '通过字幕、本地语音、文字符号、LED 和触觉模式呈现现有语义警报。配置只改变呈现方式；不会作出比赛决策，也不会驾驶车辆。',
   'accessibilityCues.activeProfile': '当前配置',
@@ -648,6 +614,7 @@ const zh: Record<string, string> = {
 
 const ja: Record<string, string> = {
   ...en,
+  ...accessibilityCueCompleteJa,
   'accessibilityCues.title': 'アクセシビリティ・キュープロファイル',
   'accessibilityCues.intro': '既存のセマンティック警告を字幕、ローカル音声、文字符号、LED、ハプティクスで提示します。プロファイルは表示方法だけを変更し、レース判断や車両操作は行いません。',
   'accessibilityCues.activeProfile': '有効なプロファイル',

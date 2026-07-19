@@ -50,6 +50,7 @@ import {
   dispatchAccessibilityCueHaptic,
   isAccessibilityHapticsAvailable
 } from './haptics'
+import { PendingAccessibilityCueQueue } from './accessibility-cue-startup-queue'
 
 const CONFIG_FILE = 'alerts-config.json'
 const ACCESSIBILITY_STARTUP_QUEUE_MAX = 32
@@ -142,7 +143,9 @@ export function register(ctx: ModuleContext): void {
   let observedLive = false
   let configReady = false
   let pendingLive: { snapshot: TelemetrySnapshot; context: LiveTelemetryContext } | null = null
-  const pendingAccessibilityEvents: AlertEvent[] = []
+  const pendingAccessibilityEvents = new PendingAccessibilityCueQueue(
+    ACCESSIBILITY_STARTUP_QUEUE_MAX
+  )
   let accessibilityProfileReady = false
   let stopped = false
   hardwareEffectsEnabled = true
@@ -168,7 +171,7 @@ export function register(ctx: ModuleContext): void {
     accessibilityProfileReady = true
     const profile = getActiveAccessibilityCueProfile()
     if (!profile) return
-    for (const event of pendingAccessibilityEvents.splice(0)) {
+    for (const event of pendingAccessibilityEvents.drain()) {
       dispatchAccessibilityCue(ctx, event, profile, cueAdmission)
     }
   })
@@ -192,7 +195,7 @@ export function register(ctx: ModuleContext): void {
       detector.reset()
       cueAdmission.reset()
       lastSerialSendAt.clear()
-      pendingAccessibilityEvents.length = 0
+      pendingAccessibilityEvents.clear()
     }
     if (!live.live || !snapshot || !live.context) {
       pendingLive = null
@@ -212,10 +215,7 @@ export function register(ctx: ModuleContext): void {
       ctx.broadcast('alerts:event', eventWithSound)
       dispatchOutputs(ctx, eventWithSound)
       if (!accessibilityProfileReady) {
-        if (pendingAccessibilityEvents.length >= ACCESSIBILITY_STARTUP_QUEUE_MAX) {
-          pendingAccessibilityEvents.shift()
-        }
-        pendingAccessibilityEvents.push(eventWithSound)
+        pendingAccessibilityEvents.enqueue(eventWithSound)
       } else {
         const profile = getActiveAccessibilityCueProfile()
         if (profile) {
@@ -256,7 +256,7 @@ export function register(ctx: ModuleContext): void {
     hardwareEffectsEnabled = false
     stopped = true
     pendingLive = null
-    pendingAccessibilityEvents.length = 0
+    pendingAccessibilityEvents.clear()
     ctx.serialHub?.off?.('device-added', retryOnReconnect)
     ctx.serialHub?.off?.('device-updated', retryOnReconnect)
     await drainHardwareNeutralization(ctx)

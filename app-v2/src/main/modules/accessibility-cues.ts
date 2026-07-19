@@ -37,6 +37,12 @@ let state: AccessibilityCueStore = cloneAccessibilityCueStore(
 let ready = false
 let capabilityLeases = new AccessibilityCueCapabilityLeaseRegistry()
 let resolveReady: (() => void) | null = null
+let runConfigImportMutation: (
+  operation: () => Promise<unknown>
+) => Promise<unknown> = (operation) => operation()
+let runConfigResetMutation: (
+  operation: () => Promise<unknown>
+) => Promise<unknown> = (operation) => operation()
 let readyPromise: Promise<void> = new Promise<void>((resolve) => {
   resolveReady = resolve
 })
@@ -85,6 +91,18 @@ export function isAccessibilityCueAudioAvailable(): boolean {
 
 export function isAccessibilityCueRendererHapticAvailable(): boolean {
   return capabilityLeases.available('haptic')
+}
+
+export async function importAccessibilityCueConfig<T>(
+  operation: () => Promise<T>
+): Promise<T> {
+  return await runConfigImportMutation(operation) as T
+}
+
+export async function resetAccessibilityCueConfig<T>(
+  operation: () => Promise<T>
+): Promise<T> {
+  return await runConfigResetMutation(operation) as T
 }
 
 function revisionConflict(expected: number): Error {
@@ -161,6 +179,60 @@ export function register(ctx: ModuleContext): void {
     })
   }
 
+  const reloadStateFromDisk = async (): Promise<ConfigSectionReloadResult> => {
+    const previousRevision = state.revision
+    const loaded = await loadState(configPath)
+    state = {
+      ...loaded,
+      revision: Math.max(1, previousRevision + 1, loaded.revision)
+    }
+    markReady()
+    ctx.broadcast(
+      ACCESSIBILITY_CUE_CHANNELS.stateEvent,
+      getAccessibilityCueStateEnvelope()
+    )
+    return {
+      sectionId: 'accessibility-cues',
+      itemCount: state.profiles.length,
+      hotAppliedCount: state.profiles.length,
+      unmatchedItemCount: 0
+    }
+  }
+
+  const resetStateAfterDelete = async (): Promise<ConfigSectionReloadResult> => {
+    await rm(configPath, { force: true }).catch(() => undefined)
+    const nextRevision = Math.max(1, state.revision + 1)
+    state = {
+      ...cloneAccessibilityCueStore(DEFAULT_ACCESSIBILITY_CUE_STORE),
+      revision: nextRevision,
+      updatedAt: Date.now()
+    }
+    markReady()
+    ctx.broadcast(
+      ACCESSIBILITY_CUE_CHANNELS.stateEvent,
+      getAccessibilityCueStateEnvelope()
+    )
+    return {
+      sectionId: 'accessibility-cues',
+      itemCount: state.profiles.length,
+      hotAppliedCount: state.profiles.length,
+      unmatchedItemCount: 0
+    }
+  }
+
+  runConfigImportMutation = (operation) =>
+    enqueue(async () => {
+      const result = await operation()
+      await reloadStateFromDisk()
+      return result
+    })
+  runConfigResetMutation = (operation) =>
+    enqueue(async () => {
+      const result = await operation()
+      await resetStateAfterDelete()
+      return result
+    })
+
   ctx.ipcMain.handle(ACCESSIBILITY_CUE_CHANNELS.getState, async () => {
     await stateQueue
     return getAccessibilityCueStateEnvelope()
@@ -232,23 +304,7 @@ export function register(ctx: ModuleContext): void {
     done?: ConfigSectionReloadCallback
   ): void => {
     if (sectionId !== 'accessibility-cues') return
-    const operation = enqueue(async (): Promise<ConfigSectionReloadResult> => {
-      const previousRevision = state.revision
-      const loaded = await loadState(configPath)
-      state = {
-        ...loaded,
-        revision: Math.max(1, previousRevision + 1, loaded.revision)
-      }
-      markReady()
-      const envelope = getAccessibilityCueStateEnvelope()
-      ctx.broadcast(ACCESSIBILITY_CUE_CHANNELS.stateEvent, envelope)
-      return {
-        sectionId,
-        itemCount: state.profiles.length,
-        hotAppliedCount: state.profiles.length,
-        unmatchedItemCount: 0
-      }
-    })
+    const operation = enqueue(reloadStateFromDisk)
     void operation.then(
       (result) => done?.(null, result),
       (error) =>
@@ -262,26 +318,7 @@ export function register(ctx: ModuleContext): void {
     done?: ConfigSectionReloadCallback
   ): void => {
     if (sectionId !== 'accessibility-cues') return
-    const operation = enqueue(async (): Promise<ConfigSectionReloadResult> => {
-      await rm(configPath, { force: true }).catch(() => undefined)
-      const nextRevision = Math.max(1, state.revision + 1)
-      state = {
-        ...cloneAccessibilityCueStore(DEFAULT_ACCESSIBILITY_CUE_STORE),
-        revision: nextRevision,
-        updatedAt: Date.now()
-      }
-      markReady()
-      ctx.broadcast(
-        ACCESSIBILITY_CUE_CHANNELS.stateEvent,
-        getAccessibilityCueStateEnvelope()
-      )
-      return {
-        sectionId,
-        itemCount: state.profiles.length,
-        hotAppliedCount: state.profiles.length,
-        unmatchedItemCount: 0
-      }
-    })
+    const operation = enqueue(resetStateAfterDelete)
     void operation.then(
       (result) => done?.(null, result),
       (error) =>
