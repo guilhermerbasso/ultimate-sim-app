@@ -19,7 +19,11 @@
 // cache and tears down audio on unmount. Renders nothing. Because `speakViaTts` is a
 // free function, code running WITHOUT a view open can still speak.
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import {
+  ACCESSIBILITY_CUE_CAPABILITY_HEARTBEAT_MS,
+  type CueCapabilityLeaseAck
+} from '../../../shared/accessibility-cues'
 import {
   TTS_CHANNELS,
   isValidPiperVoiceId,
@@ -27,14 +31,20 @@ import {
   fallbackVoiceProsody,
   piperVoiceLang,
   type EnsureVoiceResult,
+  type TtsEngineStatus,
   type PiperVoiceInfo,
   type PiperVoiceProgress
 } from '../../../shared/spotter'
 import {
+  accessibilitySpeechLocale,
   defaultPiperVoiceIdForLanguage,
-  resolvePiperVoice
+  piperLanguageForAccessibilityLocale,
+  resolvePiperVoice,
+  voiceMatchesAccessibilityLocale
 } from '../../../shared/tts-voice'
+import { CueCapabilityLeasePublisher } from './accessibility-cue-capability-client'
 import { logClient } from './log-client'
+import { getSharedWebSpeechScheduler } from './web-speech-scheduler'
 
 // ─── Renderer-local config (PURE helpers — unit-tested in node) ──────────────────
 
@@ -46,6 +56,13 @@ export interface TtsPref {
   voiceId: string
   /** Playback rate 0.5..2.0 (applied via audio.playbackRate / utterance.rate). */
   rate: number
+}
+
+export interface TtsAudioAvailability {
+  available: boolean
+  selectedEngine: TtsEngine
+  piperAvailable: boolean
+  webSpeechAvailable: boolean
 }
 
 export const DEFAULT_TTS_VOICE_ID = defaultPiperVoiceIdForLanguage('en-US')
@@ -148,6 +165,36 @@ export function subscribeTtsPref(cb: (pref: TtsPref) => void): () => void {
   }
 }
 
+export function resolveTtsAudioAvailability(
+  pref: TtsPref,
+  language: string | null | undefined,
+  voices: readonly PiperVoiceInfo[],
+  webSpeechAvailable: boolean,
+  piperPlaybackAvailable: boolean
+): TtsAudioAvailability {
+  const speechLocale = accessibilitySpeechLocale(language)
+  const piperLanguage =
+    piperLanguageForAccessibilityLocale(speechLocale)
+  const resolvedVoice = piperLanguage
+    ? resolvePiperVoice(piperLanguage, pref.voiceId)
+    : null
+  const piperAvailable =
+    resolvedVoice !== null &&
+    piperPlaybackAvailable &&
+    voices.some(
+      (voice) => voice.id === resolvedVoice.voiceId && voice.installed
+    )
+  return {
+    available:
+      pref.engine === 'webspeech'
+        ? webSpeechAvailable
+        : piperAvailable || webSpeechAvailable,
+    selectedEngine: pref.engine,
+    piperAvailable,
+    webSpeechAvailable
+  }
+}
+
 // ─── Text chunking (PURE — long answers start speaking sooner) ───────────────────
 
 export const TTS_CHUNK_MAX_CHARS = 240
@@ -190,6 +237,7 @@ let currentObjectUrl: string | null = null
 // reliably (same API already used by soundshift/spotter3d). One source plays at a time.
 let audioCtx: AudioContext | null = null
 let currentSource: AudioBufferSourceNode | null = null
+let currentSpatialNode: StereoPannerNode | null = null
 // Bumped on every new speak/stop; an in-flight call whose seq is stale aborts so a
 // newer callout immediately supersedes an older one (barge-in, like a real spotter).
 let speakSeq = 0
@@ -199,6 +247,122 @@ let speakingCount = 0
 // this, `isTtsSpeaking()` only reflected THIS module's `speakingCount`, so the mic
 // stayed open while the spotter spoke and transcribed its own callouts (M4).
 let externalSpeakingCount = 0
+
+export type IsolatedTtsChannelId =
+  | 'accessibility-live'
+  | 'accessibility-preview'
+
+export class TtsTaskQueue {
+  private tail: Promise<void> = Promise.resolve()
+
+  enqueue(task: () => Promise<void>): Promise<void> {
+    const result = this.tail.then(task)
+    this.tail = result.catch(() => undefined)
+    return result
+  }
+}
+
+interface IsolatedTtsChannelState {
+  queue: TtsTaskQueue
+  generation: number
+  context: AudioContext | null
+  source: AudioBufferSourceNode | null
+  spatialNode: StereoPannerNode | null
+}
+
+const isolatedTtsChannels = new Map<IsolatedTtsChannelId, IsolatedTtsChannelState>()
+
+function isolatedChannel(channel: IsolatedTtsChannelId): IsolatedTtsChannelState {
+  const existing = isolatedTtsChannels.get(channel)
+  if (existing) return existing
+  const created: IsolatedTtsChannelState = {
+    queue: new TtsTaskQueue(),
+    generation: 0,
+    context: null,
+    source: null,
+    spatialNode: null
+  }
+  isolatedTtsChannels.set(channel, created)
+  return created
+}
+
+function ensureIsolatedContext(state: IsolatedTtsChannelState): AudioContext | null {
+  if (typeof window === 'undefined') return null
+  const Ctor =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  if (!Ctor) return null
+  if (!state.context) state.context = new Ctor()
+  return state.context
+}
+
+async function playIsolatedWav(
+  state: IsolatedTtsChannelState,
+  bytes: Uint8Array,
+  rate: number,
+  generation: number,
+  spatialPanValue?: number
+): Promise<boolean> {
+  if (generation !== state.generation || bytes.byteLength === 0) return true
+  const context = ensureIsolatedContext(state)
+  if (!context) return false
+  try {
+    if (context.state === 'suspended') await context.resume()
+    const decoded = await context.decodeAudioData(toAudioBuffer(bytes))
+    if (generation !== state.generation) return true
+    return await new Promise<boolean>((resolve) => {
+      const source = context.createBufferSource()
+      source.buffer = decoded
+      source.playbackRate.value = Math.max(0.25, Math.min(4, rate))
+      const pan = clampSpatialPan(spatialPanValue)
+      const spatialNode = pan === undefined ? null : context.createStereoPanner()
+      if (spatialNode && pan !== undefined) {
+        spatialNode.pan.value = pan
+        source.connect(spatialNode)
+        spatialNode.connect(context.destination)
+      } else {
+        source.connect(context.destination)
+      }
+      state.source = source
+      state.spatialNode = spatialNode
+      source.onended = () => {
+        if (state.source === source) state.source = null
+        if (state.spatialNode === spatialNode) state.spatialNode = null
+        spatialNode?.disconnect()
+        resolve(true)
+      }
+      source.start()
+    })
+  } catch {
+    return false
+  }
+}
+
+function stopIsolatedChannelState(channel: IsolatedTtsChannelId): void {
+  const state = isolatedTtsChannels.get(channel)
+  if (!state) return
+  state.generation += 1
+  try {
+    state.source?.stop()
+  } catch {
+    // already stopped
+  }
+  state.source = null
+  state.spatialNode?.disconnect()
+  state.spatialNode = null
+}
+
+export function stopIsolatedTts(channel: IsolatedTtsChannelId): void {
+  stopIsolatedChannelState(channel)
+  getSharedWebSpeechScheduler()?.cancelChannel(channel)
+}
+
+function stopAllIsolatedTts(): void {
+  for (const channel of isolatedTtsChannels.keys()) {
+    stopIsolatedChannelState(channel)
+  }
+  getSharedWebSpeechScheduler()?.cancelAll()
+}
 
 /**
  * Register/unregister an EXTERNAL speech channel (e.g. the Voice Spotter) as a
@@ -233,6 +397,20 @@ export function isWebSpeechAvailable(): boolean {
   )
 }
 
+export function isAudioContextAvailable(): boolean {
+  if (typeof window === 'undefined') return false
+  return Boolean(
+    window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext
+  )
+}
+
+export function clampSpatialPan(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  return Math.max(-1, Math.min(1, value))
+}
+
 // Resolves once the async OS voice list is populated (or after a short grace
 // period), so the first fallback utterance can honor a DISTINCT voice instead of
 // collapsing to the engine default.
@@ -262,31 +440,59 @@ function ensureWebVoices(timeoutMs = 400): Promise<void> {
   })
 }
 
-async function webSpeechSpeak(
+export async function hasUsableWebSpeechVoice(
+  language: string | null | undefined
+): Promise<boolean> {
+  if (!isWebSpeechAvailable()) return false
+  if (window.speechSynthesis.getVoices().length === 0) {
+    await ensureWebVoices()
+  }
+  const locale = accessibilitySpeechLocale(language)
+  return window.speechSynthesis
+    .getVoices()
+    .some((voice) => voiceMatchesAccessibilityLocale(voice.lang, locale))
+}
+
+async function runWebSpeech(
   text: string,
   lang: string | undefined,
   rate: number,
-  seq: number,
-  seedVoiceId?: string
-): Promise<void> {
-  if (!isWebSpeechAvailable() || !text || seq !== speakSeq) return
+  seedVoiceId: string | undefined,
+  channel: string,
+  generation: number,
+  semanticKey: string,
+  priority: number,
+  isCurrent: () => boolean
+): Promise<boolean> {
+  if (!isWebSpeechAvailable() || !text || !isCurrent()) return false
   // Warm the async OS voice list before picking so the FIRST utterance honors a
   // distinct voice rather than collapsing to the engine default.
-  if (seedVoiceId && window.speechSynthesis.getVoices().length === 0) await ensureWebVoices()
-  if (seq !== speakSeq) return
-  return new Promise<void>((resolve) => {
+  if (window.speechSynthesis.getVoices().length === 0) await ensureWebVoices()
+  if (!isCurrent()) return false
+  const locale = accessibilitySpeechLocale(lang)
+  const voices = window.speechSynthesis.getVoices()
+  const matchingVoices = voices.filter((voice) =>
+    voiceMatchesAccessibilityLocale(voice.lang, locale)
+  )
+  if (matchingVoices.length === 0) return false
+  return new Promise<boolean>((resolve) => {
     try {
       const utterance = new SpeechSynthesisUtterance(text)
       utterance.rate = rate
-      if (lang) {
-        utterance.lang = lang
-        const voices = window.speechSynthesis.getVoices()
+      utterance.lang = locale
+      if (locale) {
         // A neural seed → DISTINCT same-language OS voice (deterministic per id) so
         // different requested voices don't all collapse to the one language default.
         const seedLang = seedVoiceId ? piperVoiceLang(seedVoiceId) : null
-        const distinct = seedLang ? pickDistinctOsVoice(seedVoiceId as string, voices, seedLang) : null
-        const prefix = lang.slice(0, 2).toLowerCase()
-        const voice = distinct ?? voices.find((v) => (v.lang ?? '').toLowerCase().startsWith(prefix))
+        const distinct =
+          seedLang && voiceMatchesAccessibilityLocale(seedLang, locale)
+            ? pickDistinctOsVoice(
+                seedVoiceId as string,
+                matchingVoices,
+                seedLang
+              )
+            : null
+        const voice = distinct ?? matchingVoices[0]
         if (voice) utterance.voice = voice
       }
       // Single-OS-voice languages collapse distinct voices to one; nudge pitch/rate
@@ -296,19 +502,74 @@ async function webSpeechSpeak(
         utterance.pitch = prosody.pitch
         utterance.rate = rate * prosody.rate
       }
-      let settled = false
-      const done = (): void => {
-        if (settled) return
-        settled = true
-        resolve()
+      if (!isCurrent()) {
+        resolve(false)
+        return
       }
-      utterance.onend = done
-      utterance.onerror = done
-      window.speechSynthesis.speak(utterance)
+      const scheduler = getSharedWebSpeechScheduler()
+      if (!scheduler) {
+        resolve(false)
+        return
+      }
+      void scheduler
+        .enqueue({
+          channel,
+          generation,
+          semanticKey,
+          priority,
+          utterance
+        })
+        .then(resolve)
     } catch {
-      resolve()
+      resolve(false)
     }
   })
+}
+
+async function webSpeechSpeak(
+  text: string,
+  lang: string | undefined,
+  rate: number,
+  seq: number,
+  seedVoiceId: string | undefined,
+  semanticKey: string,
+  priority: number
+): Promise<boolean> {
+  return runWebSpeech(
+    text,
+    lang,
+    rate,
+    seedVoiceId,
+    'general',
+    seq,
+    semanticKey,
+    priority,
+    () => seq === speakSeq
+  )
+}
+
+async function isolatedWebSpeechSpeak(
+  state: IsolatedTtsChannelState,
+  channel: IsolatedTtsChannelId,
+  text: string,
+  lang: string | undefined,
+  rate: number,
+  generation: number,
+  seedVoiceId: string | undefined,
+  semanticKey: string,
+  priority: number
+): Promise<boolean> {
+  return runWebSpeech(
+    text,
+    lang,
+    rate,
+    seedVoiceId,
+    channel,
+    generation,
+    semanticKey,
+    priority,
+    () => generation === state.generation
+  )
 }
 
 // ─── WAV playback ─────────────────────────────────────────────────────────────────
@@ -328,6 +589,14 @@ function disposeCurrentAudio(): void {
       // ignore
     }
     currentSource = null
+  }
+  if (currentSpatialNode) {
+    try {
+      currentSpatialNode.disconnect()
+    } catch {
+      // ignore
+    }
+    currentSpatialNode = null
   }
   if (currentAudio) {
     currentAudio.onended = null
@@ -366,7 +635,12 @@ function ensureAudioCtx(): AudioContext | null {
 
 // Play a neural WAV via Web Audio. Resolves TRUE on successful end, FALSE on
 // decode/play failure so the caller can fall back to web-speech (never go silent).
-async function playWav(bytes: Uint8Array, rate: number, seq: number): Promise<boolean> {
+async function playWav(
+  bytes: Uint8Array,
+  rate: number,
+  seq: number,
+  spatialPanValue?: number
+): Promise<boolean> {
   if (seq !== speakSeq || bytes.byteLength === 0) return true
   const ctx = ensureAudioCtx()
   if (!ctx) return false
@@ -384,10 +658,21 @@ async function playWav(bytes: Uint8Array, rate: number, seq: number): Promise<bo
       const source = ctx.createBufferSource()
       source.buffer = audioBuffer
       source.playbackRate.value = Math.max(0.25, Math.min(4, rate))
-      source.connect(ctx.destination)
+      const pan = clampSpatialPan(spatialPanValue)
+      const spatialNode = pan === undefined ? null : ctx.createStereoPanner()
+      if (spatialNode && pan !== undefined) {
+        spatialNode.pan.value = pan
+        source.connect(spatialNode)
+        spatialNode.connect(ctx.destination)
+      } else {
+        source.connect(ctx.destination)
+      }
       currentSource = source
+      currentSpatialNode = spatialNode
       source.onended = () => {
         if (currentSource === source) currentSource = null
+        if (currentSpatialNode === spatialNode) currentSpatialNode = null
+        spatialNode?.disconnect()
         resolve(true)
       }
       source.start()
@@ -412,13 +697,7 @@ async function synthesize(text: string, voiceId: string, rate: number): Promise<
 export function stopTts(): void {
   speakSeq += 1
   disposeCurrentAudio()
-  if (isWebSpeechAvailable()) {
-    try {
-      window.speechSynthesis.cancel()
-    } catch {
-      // ignore
-    }
-  }
+  getSharedWebSpeechScheduler()?.cancelChannel('general')
 }
 
 export interface SpeakOptions {
@@ -432,6 +711,129 @@ export interface SpeakOptions {
   tipId?: string
   /** 1-based corner number the line is about, when corner-scoped. */
   corner?: number
+  /** Optional -1..1 stereo position for an accessibility cue. Piper WAV only. */
+  spatialPan?: number
+  /** Stable semantic identity used to replace queued duplicate Web Speech work. */
+  semanticKey?: string
+  /** Scheduler priority: critical live cues use a higher value than preview. */
+  priority?: number
+}
+
+export async function speakViaIsolatedTts(
+  channel: IsolatedTtsChannelId,
+  text: string,
+  options: SpeakOptions = {}
+): Promise<void> {
+  const content = (text ?? '').trim()
+  if (!content) return
+  const state = isolatedChannel(channel)
+  const requestedGeneration = state.generation
+  return state.queue.enqueue(async () => {
+    if (requestedGeneration !== state.generation) return
+    const generation = requestedGeneration
+    const pref = getTtsPref()
+    const speechLocale = accessibilitySpeechLocale(options.lang)
+    const piperLanguage =
+      piperLanguageForAccessibilityLocale(speechLocale)
+    const resolvedVoice = piperLanguage
+      ? resolvePiperVoice(
+          piperLanguage,
+          options.voiceId ?? pref.voiceId
+        )
+      : null
+    const voiceId = resolvedVoice?.voiceId ?? pref.voiceId
+    const webSpeechSeed = resolvedVoice?.voiceId
+    const rate = pref.rate
+    const usePiper =
+      resolvedVoice !== null &&
+      (options.voiceId
+        ? resolvedVoice.overrideHonored
+        : pref.engine === 'piper')
+    const fallbackLang = speechLocale
+    const semanticKey =
+      options.semanticKey ??
+      options.tipId ??
+      `${channel}:${generation}`
+    const requestedPriority = options.priority ?? 0
+    const priority =
+      channel === 'accessibility-preview'
+        ? 0
+        : requestedPriority >= 2
+          ? 1_000
+          : requestedPriority >= 1
+            ? 600
+            : 400
+    speakingCount += 1
+    try {
+      let engineUnavailable = !usePiper
+      for (const chunk of chunkText(content)) {
+        if (generation !== state.generation) return
+        if (engineUnavailable) {
+          const spoken = await isolatedWebSpeechSpeak(
+            state,
+            channel,
+            chunk,
+            fallbackLang,
+            rate,
+            generation,
+            webSpeechSeed,
+            semanticKey,
+            priority
+          )
+          if (generation !== state.generation) return
+          if (!spoken) {
+            logClient.warn('tts', 'isolated accessibility TTS unavailable', {
+              channel,
+              source: options.source ?? 'unknown',
+              tipId: options.tipId ?? null,
+              requestedEngine: pref.engine,
+              voiceId
+            })
+            return
+          }
+          continue
+        }
+        const wav = await synthesize(chunk, voiceId, rate)
+        if (generation !== state.generation) return
+        if (wav && wav.byteLength > 0) {
+          const played = await playIsolatedWav(
+            state,
+            wav,
+            rate,
+            generation,
+            options.spatialPan
+          )
+          if (played) continue
+        }
+
+        engineUnavailable = true
+        const spoken = await isolatedWebSpeechSpeak(
+          state,
+          channel,
+          chunk,
+          fallbackLang,
+          rate,
+          generation,
+          webSpeechSeed,
+          semanticKey,
+          priority
+        )
+        if (generation !== state.generation) return
+        if (!spoken) {
+          logClient.warn('tts', 'isolated accessibility TTS unavailable', {
+            channel,
+            source: options.source ?? 'unknown',
+            tipId: options.tipId ?? null,
+            requestedEngine: pref.engine,
+            voiceId
+          })
+          return
+        }
+      }
+    } finally {
+      speakingCount = Math.max(0, speakingCount - 1)
+    }
+  })
 }
 
 export function piperSupportsLanguage(language: string | null | undefined): boolean {
@@ -456,34 +858,45 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
   if (!content) return
 
   const pref = getTtsPref()
-  const resolvedVoice = resolvePiperVoice(options.lang, options.voiceId ?? pref.voiceId)
-  const voiceId = resolvedVoice.voiceId
+  const speechLocale = accessibilitySpeechLocale(options.lang)
+  const piperLanguage =
+    piperLanguageForAccessibilityLocale(speechLocale)
+  const resolvedVoice = piperLanguage
+    ? resolvePiperVoice(
+        piperLanguage,
+        options.voiceId ?? pref.voiceId
+      )
+    : null
+  const voiceId = resolvedVoice?.voiceId ?? pref.voiceId
+  const webSpeechSeed = resolvedVoice?.voiceId
   const rate = pref.rate
   // NEURAL is the primary path: a preview (explicit voiceId) ALWAYS tries Piper, and
   // every other call uses Piper unless the user has explicitly forced OS Web Speech.
   // OS Web Speech remains only as a manual override or as the synth-null fallback.
   const usePiper =
-    options.voiceId ? true : pref.engine !== 'webspeech' && piperSupportsLanguage(options.lang)
-  const fallbackLang = options.lang?.trim() || resolvedVoice.language
-  const fallbackSeedVoiceId = piperSupportsLanguage(options.lang) ? voiceId : undefined
+    resolvedVoice !== null &&
+    (options.voiceId
+      ? resolvedVoice.overrideHonored
+      : pref.engine !== 'webspeech')
+  const fallbackLang = speechLocale
   // Observability: tag every utterance with its SOURCE (coach / engineer / …) + the
   // originating tip so a spoken line is never an anonymous "via piper" in the log.
   const diag = {
     source: options.source ?? 'unknown',
     tipId: options.tipId ?? null,
-    corner: options.corner ?? null
+    corner: options.corner ?? null,
+    spatialPan: clampSpatialPan(options.spatialPan) ?? null
   }
 
   const seq = ++speakSeq
+  const semanticKey =
+    options.semanticKey ??
+    options.tipId ??
+    `general:${seq}`
+  const priority = 100 + Math.max(0, options.priority ?? 0)
   // Supersede any current/queued speech (latest callout wins) WITHOUT bumping seq again.
   disposeCurrentAudio()
-  if (isWebSpeechAvailable()) {
-    try {
-      window.speechSynthesis.cancel()
-    } catch {
-      // ignore
-    }
-  }
+  getSharedWebSpeechScheduler()?.cancelChannel('general')
 
   // Mark "speaking" for the whole synth/play lifetime so the wake-word mic can skip
   // capture (never transcribe the engineer's own voice). Always cleared in finally.
@@ -496,7 +909,15 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
         lang: fallbackLang ?? null,
         ...diag
       })
-      await webSpeechSpeak(content, fallbackLang, rate, seq, fallbackSeedVoiceId)
+      await webSpeechSpeak(
+        content,
+        fallbackLang,
+        rate,
+        seq,
+        webSpeechSeed,
+        semanticKey,
+        priority
+      )
       return
     }
 
@@ -508,7 +929,15 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
     for (const chunk of chunks) {
       if (seq !== speakSeq) return
       if (engineUnavailable) {
-        await webSpeechSpeak(chunk, fallbackLang, rate, seq, fallbackSeedVoiceId)
+        await webSpeechSpeak(
+          chunk,
+          fallbackLang,
+          rate,
+          seq,
+          webSpeechSeed,
+          semanticKey,
+          priority
+        )
         continue
       }
       const wav = await synthesize(chunk, voiceId, rate)
@@ -521,7 +950,7 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
           logClient.info('tts', 'speakViaTts via piper', { engine: 'piper', voiceId, lang: fallbackLang ?? null, ...diag })
           loggedPath = true
         }
-        const played = await playWav(wav, rate, seq)
+        const played = await playWav(wav, rate, seq, options.spatialPan)
         if (seq !== speakSeq) return
         if (played) continue
         // Neural bytes wouldn't decode/play → fall back so we never go silent.
@@ -533,7 +962,15 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
           lang: fallbackLang ?? null,
           ...diag
         })
-        await webSpeechSpeak(chunk, fallbackLang, rate, seq, fallbackSeedVoiceId)
+        await webSpeechSpeak(
+          chunk,
+          fallbackLang,
+          rate,
+          seq,
+          webSpeechSeed,
+          semanticKey,
+          priority
+        )
         continue
       }
       // Engine/voice missing → fall back for THIS and the remaining chunks (same language).
@@ -545,7 +982,15 @@ export async function speakViaTts(text: string, options: SpeakOptions = {}): Pro
         lang: fallbackLang ?? null,
         ...diag
       })
-      await webSpeechSpeak(chunk, fallbackLang, rate, seq, fallbackSeedVoiceId)
+      await webSpeechSpeak(
+        chunk,
+        fallbackLang,
+        rate,
+        seq,
+        webSpeechSeed,
+        semanticKey,
+        priority
+      )
     }
   } finally {
     speakingCount -= 1
@@ -560,6 +1005,22 @@ export async function listPiperVoices(): Promise<PiperVoiceInfo[]> {
     return (await window.ipc.invoke<PiperVoiceInfo[]>(TTS_CHANNELS.listVoices)) ?? []
   } catch {
     return []
+  }
+}
+
+export async function getTtsEngineStatus(): Promise<TtsEngineStatus> {
+  try {
+    const status = await window.ipc.invoke<TtsEngineStatus>(
+      TTS_CHANNELS.engineStatus
+    )
+    if (status && typeof status.ok === 'boolean') return status
+    return { engine: 'none', ok: false, reason: 'Invalid TTS engine status.' }
+  } catch (error) {
+    return {
+      engine: 'none',
+      ok: false,
+      reason: error instanceof Error ? error.message : String(error)
+    }
   }
 }
 
@@ -581,6 +1042,85 @@ export function subscribeVoiceProgress(cb: (progress: PiperVoiceProgress) => voi
   }
 }
 
+export async function detectTtsAudioAvailability(
+  language?: string
+): Promise<TtsAudioAvailability> {
+  const pref = getTtsPref()
+  const speechLocale = accessibilitySpeechLocale(language)
+  const webSpeechAvailable = await hasUsableWebSpeechVoice(speechLocale)
+  if (pref.engine === 'webspeech') {
+    return resolveTtsAudioAvailability(
+      pref,
+      language,
+      [],
+      webSpeechAvailable,
+      false
+    )
+  }
+  if (!piperLanguageForAccessibilityLocale(speechLocale)) {
+    return {
+      available: webSpeechAvailable,
+      selectedEngine: pref.engine,
+      piperAvailable: false,
+      webSpeechAvailable
+    }
+  }
+  if (webSpeechAvailable) {
+    return {
+      available: true,
+      selectedEngine: pref.engine,
+      piperAvailable: false,
+      webSpeechAvailable: true
+    }
+  }
+  const [voices, engineStatus] = await Promise.all([
+    listPiperVoices(),
+    getTtsEngineStatus()
+  ])
+  return resolveTtsAudioAvailability(
+    pref,
+    language,
+    voices,
+    webSpeechAvailable,
+    isAudioContextAvailable() && engineStatus.ok
+  )
+}
+
+export function useTtsAudioAvailability(language?: string): boolean {
+  const [available, setAvailable] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    let requestGeneration = 0
+    const refresh = (): void => {
+      const generation = ++requestGeneration
+      void detectTtsAudioAvailability(language).then((next) => {
+        if (active && generation === requestGeneration) {
+          setAvailable(next.available)
+        }
+      })
+    }
+    refresh()
+    const offPref = subscribeTtsPref(refresh)
+    const offProgress = subscribeVoiceProgress((progress) => {
+      if (progress.phase === 'done' || progress.phase === 'error') refresh()
+    })
+    const offEngineStatus = window.ipc.subscribe<TtsEngineStatus>(
+      TTS_CHANNELS.engineStatusEvent,
+      refresh
+    )
+    return () => {
+      active = false
+      requestGeneration += 1
+      offPref()
+      offProgress()
+      offEngineStatus()
+    }
+  }, [language])
+
+  return available
+}
+
 // ─── Global mount hook ───────────────────────────────────────────────────────────
 
 let mountCount = 0
@@ -594,12 +1134,51 @@ export function useTtsRuntime(language?: string): void {
     if (mountCount === 1) getTtsPref() // warm cache from localStorage
     return () => {
       mountCount -= 1
-      if (mountCount === 0) stopTts()
+      if (mountCount === 0) {
+        stopTts()
+        stopAllIsolatedTts()
+      }
     }
   }, [])
 
   useEffect(() => {
-    if (previousLanguage.current && language && previousLanguage.current !== language) stopTts()
+    if (previousLanguage.current && language && previousLanguage.current !== language) {
+      stopTts()
+      stopAllIsolatedTts()
+    }
     previousLanguage.current = language
+  }, [language])
+
+  useEffect(() => {
+    const publisher = new CueCapabilityLeasePublisher(
+      'audio',
+      (channel, request) =>
+        window.ipc.invoke<CueCapabilityLeaseAck>(channel, request)
+    )
+    const refresh = (): void => {
+      void publisher.refresh(async () =>
+        (await detectTtsAudioAvailability(language)).available
+      )
+    }
+    refresh()
+    const timer = setInterval(
+      refresh,
+      ACCESSIBILITY_CUE_CAPABILITY_HEARTBEAT_MS
+    )
+    const offPref = subscribeTtsPref(refresh)
+    const offProgress = subscribeVoiceProgress((progress) => {
+      if (progress.phase === 'done' || progress.phase === 'error') refresh()
+    })
+    const offEngineStatus = window.ipc.subscribe<TtsEngineStatus>(
+      TTS_CHANNELS.engineStatusEvent,
+      refresh
+    )
+    return () => {
+      clearInterval(timer)
+      offPref()
+      offProgress()
+      offEngineStatus()
+      publisher.dispose()
+    }
   }, [language])
 }

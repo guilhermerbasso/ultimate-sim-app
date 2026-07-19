@@ -57,6 +57,171 @@ describe('AlertsDetector threshold truth', () => {
     })
   })
 
+  describe('AlertsDetector repeat severity', () => {
+    it.each([
+      ['info', 1, 'critical'],
+      ['warning', 1, 'critical'],
+      ['critical', 1, 'critical'],
+      ['info', 3, 'warning'],
+      ['warning', 3, 'warning'],
+      ['critical', 3, 'critical']
+    ] as const)(
+      'uses max severity for configured %s with %i incident remaining',
+      (configuredSeverity, remaining, expectedSeverity) => {
+        const detector = new AlertsDetector(config({
+          incidentLimit: {
+            ...DEFAULT_ALERTS_CONFIG.incidentLimit,
+            enabled: true,
+            severity: configuredSeverity,
+            remainingThreshold: 4,
+            cooldownMs: 1_000,
+            repeatMs: 1_000
+          }
+        }))
+        const incidentLimit = 10
+        const incidentCount = incidentLimit - remaining
+
+        const initial = detector.process(
+          snapshot(1_000, { incidentCount, incidentLimit })
+        )
+        const repeat = detector.process(
+          snapshot(2_000, { incidentCount, incidentLimit })
+        )
+
+        expect(initial).toHaveLength(1)
+        expect(repeat).toHaveLength(1)
+        expect(initial[0].severity).toBe(expectedSeverity)
+        expect(repeat[0].severity).toBe(expectedSeverity)
+      }
+    )
+
+    it.each([
+      ['black', 'critical'],
+      ['meatball', 'critical'],
+      ['yellow', 'warning']
+    ] as const)('preserves %s flag severity from initial event to repeat', (flag, severity) => {
+      const detector = new AlertsDetector(config({
+        flags: {
+          ...DEFAULT_ALERTS_CONFIG.flags,
+          enabled: true,
+          cooldownMs: 0,
+          repeatMs: 1_000
+        }
+      }))
+      const flags = {
+        green: false,
+        yellow: false,
+        blue: false,
+        white: false,
+        checkered: false,
+        red: false,
+        black: false,
+        meatball: false,
+        repair: false,
+        disqualify: false,
+        greenWhiteCheckered: false,
+        [flag]: true
+      }
+
+      const initial = detector.process(snapshot(1_000, { flags }))
+      const repeat = detector.process(snapshot(2_000, { flags }))
+
+      expect(initial).toHaveLength(1)
+      expect(repeat).toHaveLength(1)
+      expect(initial[0].severity).toBe(severity)
+      expect(repeat[0].severity).toBe(severity)
+    })
+
+    it.each([
+      [1, 'critical'],
+      [3, 'warning']
+    ] as const)(
+      'preserves incident-limit severity with %i remaining from initial event to repeat',
+      (remaining, severity) => {
+        const detector = new AlertsDetector(config({
+          incidentLimit: {
+            ...DEFAULT_ALERTS_CONFIG.incidentLimit,
+            enabled: true,
+            remainingThreshold: 4,
+            cooldownMs: 0,
+            repeatMs: 1_000
+          }
+        }))
+        const incidentLimit = 10
+        const incidentCount = incidentLimit - remaining
+
+        const initial = detector.process(
+          snapshot(1_000, { incidentCount, incidentLimit })
+        )
+        const repeat = detector.process(
+          snapshot(2_000, { incidentCount, incidentLimit })
+        )
+
+        expect(initial).toHaveLength(1)
+        expect(repeat).toHaveLength(1)
+        expect(initial[0].severity).toBe(severity)
+        expect(repeat[0].severity).toBe(severity)
+      }
+    )
+
+    it('emits warning-to-critical incident escalation inside cooldown and repeats critical', () => {
+      const detector = new AlertsDetector(config({
+        incidentLimit: {
+          ...DEFAULT_ALERTS_CONFIG.incidentLimit,
+          enabled: true,
+          remainingThreshold: 4,
+          cooldownMs: 5_000,
+          repeatMs: 1_000
+        }
+      }))
+
+      const warning = detector.process(
+        snapshot(1_000, { incidentCount: 7, incidentLimit: 10 })
+      )
+      const critical = detector.process(
+        snapshot(1_100, { incidentCount: 9, incidentLimit: 10 })
+      )
+      const repeat = detector.process(
+        snapshot(6_100, { incidentCount: 9, incidentLimit: 10 })
+      )
+
+      expect(warning).toHaveLength(1)
+      expect(warning[0].severity).toBe('warning')
+      expect(critical).toHaveLength(1)
+      expect(critical[0].severity).toBe('critical')
+      expect(repeat).toHaveLength(1)
+      expect(repeat[0].severity).toBe('critical')
+    })
+
+    it('keeps a cooldown-blocked warning transition pending until it emits', () => {
+      const detector = new AlertsDetector(config({
+        incidentLimit: {
+          ...DEFAULT_ALERTS_CONFIG.incidentLimit,
+          enabled: true,
+          remainingThreshold: 4,
+          cooldownMs: 5_000,
+          repeatMs: 0
+        }
+      }))
+
+      expect(detector.process(
+        snapshot(1_000, { incidentCount: 6, incidentLimit: 10 })
+      )).toHaveLength(1)
+      expect(detector.process(
+        snapshot(1_100, { incidentCount: 7, incidentLimit: 10 })
+      )).toEqual([])
+      const admitted = detector.process(
+        snapshot(6_000, { incidentCount: 7, incidentLimit: 10 })
+      )
+
+      expect(admitted).toHaveLength(1)
+      expect(admitted[0]).toMatchObject({
+        severity: 'warning',
+        context: { count: 7, remaining: 3 }
+      })
+    })
+  })
+
   it('does not treat kg/lap as litres/lap and hides missing or invalid fuel data', () => {
     const detector = new AlertsDetector(config({
       lowFuel: { ...DEFAULT_ALERTS_CONFIG.lowFuel, enabled: true, lapsThreshold: 3 }
@@ -141,7 +306,13 @@ describe('AlertsDetector threshold truth', () => {
     }))).toEqual([
       expect.objectContaining({
         type: 'tyrePressure',
-        context: { corner: 'lf', value: 140, threshold: 150, unit: 'kPa' }
+        context: {
+          corner: 'lf',
+          direction: 'low',
+          value: 140,
+          threshold: 150,
+          unit: 'kPa'
+        }
       })
     ])
   })

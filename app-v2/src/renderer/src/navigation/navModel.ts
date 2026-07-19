@@ -13,5 +13,5 @@ export const navSections: NavSection[] = [
   { title: 'Garage', viewIds: ['setups', 'setup-experiment', 'race-profiles', 'community'] },
   { title: 'League Ops', viewIds: ['steward-desk'] },
   { title: 'Hardware', viewIds: ['rig-preflight', 'devices', 'arduinos', 'revlights', 'inputs', 'controls', 'pinout'] },
-  { title: 'System', viewIds: ['settings', 'collaboration', 'about', 'expr', 'profiles', 'career'] }
+  { title: 'System', viewIds: ['accessibility-cues', 'settings', 'collaboration', 'about', 'expr', 'profiles', 'career'] }
 ]

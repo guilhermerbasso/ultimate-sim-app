@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest'
 import {
   DEFAULT_TTS_PREF,
   DEFAULT_TTS_VOICE_ID,
+  clampSpatialPan,
   clampTtsRate,
   mergeTtsPref,
   chunkText,
   TTS_CHUNK_MAX_CHARS,
+  TtsTaskQueue,
   isTtsSpeaking,
   notifyExternalSpeaking,
   externalSpeakingDepth,
@@ -27,6 +29,57 @@ describe('clampTtsRate', () => {
     expect(clampTtsRate(0.1)).toBe(0.5)
     expect(clampTtsRate(5)).toBe(2)
     expect(clampTtsRate(1.25)).toBe(1.25)
+  })
+
+  describe('clampSpatialPan', () => {
+    it('clamps explicit spatial cue positions and rejects unknown values', () => {
+      expect(clampSpatialPan(-2)).toBe(-1)
+      expect(clampSpatialPan(0.4)).toBe(0.4)
+      expect(clampSpatialPan(2)).toBe(1)
+      expect(clampSpatialPan(Number.NaN)).toBeUndefined()
+      expect(clampSpatialPan('left')).toBeUndefined()
+    })
+
+    describe('isolated accessibility TTS queues', () => {
+      it('keeps preview work independent from a blocked live speech queue', async () => {
+        let releaseLive = (): void => undefined
+        const liveGate = new Promise<void>((resolve) => {
+          releaseLive = resolve
+        })
+        const liveQueue = new TtsTaskQueue()
+        const previewQueue = new TtsTaskQueue()
+        const order: string[] = []
+
+        const live = liveQueue.enqueue(async () => {
+          order.push('live-start')
+          await liveGate
+          order.push('live-end')
+        })
+        const preview = previewQueue.enqueue(async () => {
+          order.push('preview')
+        })
+
+        await preview
+        expect(order).toEqual(['live-start', 'preview'])
+        releaseLive()
+        await live
+        expect(order).toEqual(['live-start', 'preview', 'live-end'])
+      })
+
+      it('serializes tasks within one modality channel', async () => {
+        const queue = new TtsTaskQueue()
+        const order: number[] = []
+        await Promise.all([
+          queue.enqueue(async () => {
+            order.push(1)
+          }),
+          queue.enqueue(async () => {
+            order.push(2)
+          })
+        ])
+        expect(order).toEqual([1, 2])
+      })
+    })
   })
 
   it('falls back to the default for non-finite / non-number input', () => {
