@@ -641,7 +641,7 @@ const DEFINITION_PERSONAL_CONTEXT =
   /\b(?:my|current|next|now|this lap|last lap|lap \d+|turn \d+|best way|then|and then|so i|into (?:turn|t\d+)|racing line|car ahead|car behind|driver ahead|driver behind|the leader|leader|p\d+|meu|minha|volta \d+|curva \d+|carro a frente|carro atras|lider|mi|vuelta \d+|mon|ma|tour \d+|virage \d+|mein|meine|runde \d+|kurve \d+)\b/
 
 const DEFINITION_RECOMMENDATION_CLAUSE =
-  /\b(?:how to|how i|how do|how should|should i|can i|could i|need to|want to|i should|i can|i could|i need|i must|we should|we need|we must|would be best|whether to|whether i|whether we|what .+ should|which .+ should|como faco|como posso|devo|preciso|deveria|nos devemos|como puedo|debo|necesito|deberia|debemos|dois je|devrais je|nous devons|serait mieux|wie ich|wie kann|soll ich|muss ich|wir sollten|wir mussen|ware am besten)\b/
+  /\b(?:how to|how i|how do|how should|should i|can i|could i|need to|want to|i should|i can|i could|i need|i must|we should|we need|we must|would be best|is best|whether to|whether i|whether we|whether .+ (?:is|would be) (?:a )?good idea|what .+ should|which .+ should|what .+ to (?:run|use|choose|set|change|lower|raise|reduce|increase)|como faco|como posso|devo|preciso|deveria|nos devemos|como puedo|debo|necesito|deberia|debemos|dois je|devrais je|nous devons|serait mieux|wie ich|wie kann|soll ich|muss ich|wir sollten|wir mussen|ware am besten)\b/
 
 const DEFINITION_ACTION_PHRASE =
   /\b(?:save fuel|conserve fuel|finish the race|pit now|attack (?:the )?|pass (?:the )?|overtake the|reduce (?:the )?(?:tyre |tire )?pressure|increase (?:the )?(?:tyre |tire )?pressure|set (?:the )?(?:tyre |tire )?pressure|change (?:the )?(?:tyre|tyres|tire|tires)|replace (?:the )?(?:tyre|tyres|tire|tires)|choose (?:a |the )?(?:tyre|tire|compound)|use (?:a |the )?(?:tyre|tire|compound)|economizar combustivel|terminar a corrida|trocar (?:o |os )?pneus|reduzir (?:a )?pressao|aumentar (?:a )?pressao|usar (?:o |os )?pneus|ahorrar combustible|cambiar (?:el |los )?neumaticos|reducir (?:la )?presion|usar (?:el |los )?neumaticos|economiser (?:du )?carburant|changer (?:le |les )?pneus|reduire (?:la )?pression|utiliser (?:le |les )?pneus|kraftstoff sparen|reifen wechseln|reifendruck reduzieren|reifen verwenden)\b/
@@ -688,8 +688,10 @@ export function parseDefinitionQuestion(question: string): ParsedDefinitionQuest
         /^(?:(?:please )?(?:(?:can|could|would) you )?)define (?:the )?(?:term |concept )?(.+)$/,
         /^(?:please )?(?:(?:the |an? )?(?:definition|meaning|explanation)(?: of)?|give me (?:the )?(?:definition|meaning|explanation) of) (.+)$/,
         /^(?:(?:can|could|would) )(.+) be explained$/,
+        /^(?:(?:please )?(?:(?:can|could|would) you )?)explain (?:the )?(?:term|concept|definition of|meaning of) (.+)$/,
         /^(?:(?:please )?(?:(?:can|could|would) you )?)explain (?:the )?meaning of (.+)$/,
-        /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me (?:the )?(?:definition|meaning|explanation) of (.+)$/
+        /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me (?:the )?(?:definition|meaning|explanation) of (.+)$/,
+        /^(?:(?:please )?(?:(?:can|could|would) you )?)tell me about (?:the )?concept of (.+)$/
       ]
     },
     {
