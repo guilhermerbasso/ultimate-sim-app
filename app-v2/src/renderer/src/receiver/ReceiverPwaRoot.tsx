@@ -238,19 +238,30 @@ export function ReceiverPwaRoot(): ReactElement {
     let socket: WebSocket | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let reconnectAttempt = 0
+    let browserOnline = navigator.onLine
     let messageCountSinceAck = 0
     let resyncInFlight = false
 
+    const cancelReconnect = (): void => {
+      if (reconnectTimer === null) return
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+
     const scheduleReconnect = (): void => {
-      if (stopped || !navigator.onLine) {
+      if (stopped || !browserOnline) {
         setPhase('offline')
         return
       }
+      if (reconnectTimer !== null) return
       reconnectAttempt += 1
       setMetrics((current) => ({ ...current, reconnects: current.reconnects + 1 }))
       setPhase('reconnecting')
       const delay = Math.min(5_000, 250 * (2 ** Math.min(5, reconnectAttempt - 1)))
-      reconnectTimer = setTimeout(connect, delay)
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null
+        connect()
+      }, delay)
     }
 
     const send = (body: unknown): void => {
@@ -264,7 +275,7 @@ export function ReceiverPwaRoot(): ReactElement {
     }
 
     const connect = (): void => {
-      if (stopped || !navigator.onLine) return
+      if (stopped || !browserOnline) return
       resyncInFlight = false
       setPhase(reconnectAttempt > 0 ? 'reconnecting' : 'connecting')
       socket = new WebSocket(websocketUrl(), RECEIVER_SUBPROTOCOL)
@@ -369,15 +380,18 @@ export function ReceiverPwaRoot(): ReactElement {
         scheduleReconnect()
       })
       socket.addEventListener('error', () => {
-        setPhase(navigator.onLine ? 'reconnecting' : 'offline')
+        setPhase(browserOnline ? 'reconnecting' : 'offline')
       })
     }
 
     const handleOffline = (): void => {
+      browserOnline = false
+      cancelReconnect()
       setPhase('offline')
       socket?.close(1001, 'browser_offline')
     }
     const handleOnline = (): void => {
+      browserOnline = true
       if (!socket || socket.readyState === WebSocket.CLOSED) scheduleReconnect()
     }
     window.addEventListener('offline', handleOffline)
@@ -385,7 +399,7 @@ export function ReceiverPwaRoot(): ReactElement {
     connect()
     return () => {
       stopped = true
-      if (reconnectTimer) clearTimeout(reconnectTimer)
+      cancelReconnect()
       window.removeEventListener('offline', handleOffline)
       window.removeEventListener('online', handleOnline)
       socket?.close(1000, 'receiver_unmounted')
