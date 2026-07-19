@@ -71,9 +71,8 @@ trigger previews, an experimental pre-race Context-Debt audit, and offline race-
   documented fallback for the optional ViGEm module because the host has no Visual Studio Build
   Tools.
 - The verifier accepted the unpacked Electron runtime, elevated NSIS helper, packaged SerialPort,
-  Cloudflare tunnel, Whisper runtime, and the exact four updater artifacts. `latest.yml` identifies
-  `Ultimate-Sim-App-2.54.0-x64.exe`, records its matching size and SHA-512, and sets
-  `isAdminRightsRequired: true`.
+  Cloudflare tunnel, Whisper runtime, and the exact four updater artifacts. `latest.yml` contains the
+  installer size and SHA-512, and its EXE entry sets the `isAdminRightsRequired: true` metadata flag.
 
 _Release artifacts: `Ultimate-Sim-App-2.54.0-x64.exe` (NSIS, x64) + portable `.zip` + blockmap +
 `latest.yml`._
