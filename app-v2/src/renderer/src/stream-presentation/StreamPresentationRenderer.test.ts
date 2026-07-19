@@ -103,4 +103,30 @@ describe('stream presentation renderer parity', () => {
     expect(limiter.getAttribute('aria-pressed')).toBe('true')
     expect(invoke).not.toHaveBeenCalled()
   })
+
+  it('forwards runtime touch actions when an authenticated receiver enables interaction', () => {
+    const { profile, panel } = fixture()
+    const limiter = panel.buttons.find((button) => button.id === 'limiter')
+    if (!limiter || limiter.control.kind !== 'latching-toggle') throw new Error('limiter fixture missing')
+    limiter.control.onAction = { kind: 'keyboard', command: { mode: 'press', keys: ['L'] } }
+    limiter.control.offAction = { kind: 'keyboard', command: { mode: 'press', keys: ['O'] } }
+    const onTouchAction = vi.fn().mockResolvedValue({ ok: true })
+    render(createElement(StreamPresentationRenderer, {
+      profile,
+      touchPanel: panel,
+      mode: 'runtime',
+      interactiveTouch: true,
+      onTouchAction,
+      reportTouchLifecycle: true
+    }))
+
+    const control = screen.getByRole('button', { name: /limiter/i })
+    fireEvent.keyDown(control, { key: 'Enter' })
+    fireEvent.keyUp(control, { key: 'Enter' })
+    expect(onTouchAction).toHaveBeenCalledWith(expect.objectContaining({
+      button: expect.objectContaining({ id: 'limiter' }),
+      phase: 'trigger',
+      zone: 'on'
+    }))
+  })
 })
