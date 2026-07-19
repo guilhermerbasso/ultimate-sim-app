@@ -42,7 +42,7 @@ function errorMessage(error: unknown): string {
 
 function latestTrustedVerdictId(value: StewardCase | null | undefined): string {
   return value?.verdicts.filter((entry) =>
-    entry.authority !== 'imported-source-claim').at(-1)?.verdictId ?? ''
+    entry.authority === undefined || entry.authority === 'local-trusted').at(-1)?.verdictId ?? ''
 }
 
 function Field({
@@ -174,7 +174,8 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
   )
   const healthy = selected?.integrity.state === 'unanchored'
   const openAppeals = selected?.appeals.filter((entry) =>
-    entry.authority !== 'imported-source-claim' && entry.status === 'open') ?? []
+    (entry.authority === undefined || entry.authority === 'local-trusted') &&
+    entry.status === 'open') ?? []
   const statusLockedByAppeal = openAppeals.length > 0
   const caseDraftDirty = useMemo(
     () =>
@@ -210,7 +211,8 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
   function resetCaseDrafts(caseValue: StewardCase | null): void {
     const latestVerdict = latestTrustedVerdictId(caseValue)
     const firstOpenAppeal = caseValue?.appeals.find((entry) =>
-      entry.authority !== 'imported-source-claim' && entry.status === 'open')?.appealId ?? ''
+      (entry.authority === undefined || entry.authority === 'local-trusted') &&
+      entry.status === 'open')?.appealId ?? ''
     setBookmark({ sourceId: '', label: '', lap: '', sessionTimeSec: '', replayFrame: '' })
     setManualEvidence({ summary: '', sourceRef: '', content: '' })
     setRule({ rulesetId: '', version: '', section: '', title: '', text: '', source: '' })
@@ -759,6 +761,13 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                 <code>{selected.integrity.headHash?.slice(0, 12) ?? '—'}</code>
               </div>
 
+              {selected.manualReviewMigration?.pendingVerdictIds.length ? (
+                <div className="steward-owner-banner" role="status">
+                  <strong>{tt(language, 'steward.review.required')}</strong>
+                  <span>{tt(language, 'steward.review.legacyBanner')}</span>
+                </div>
+              ) : null}
+
               <header className="steward-case-header">
                 <div>
                   <span className="section-eyebrow">{selected.caseId}</span>
@@ -1059,7 +1068,15 @@ export default function StewardDeskView({ showToast, language }: AppViewProps): 
                             [tt(language, 'steward.details.evidenceRefs'), entry.evidenceIds.join(', ')],
                             [tt(language, 'steward.details.supersedes'), entry.supersedesVerdictId],
                             [tt(language, 'steward.details.authority'), entry.authority ?? 'local-trusted'],
-                            [tt(language, 'steward.details.manualReview'), entry.manualReviewConfirmed ? 'yes' : 'no'],
+                            [
+                              tt(language, 'steward.details.reviewStatus'),
+                              tt(
+                                language,
+                                entry.manualReviewConfirmed
+                                  ? 'steward.review.confirmed'
+                                  : 'steward.review.required'
+                              )
+                            ],
                             [tt(language, 'steward.details.decidedAt'), formatDate(entry.decidedAt, language)],
                             [tt(language, 'steward.details.decidedBy'), `${entry.decidedBy.displayName} · ${entry.decidedBy.id} · ${entry.decidedBy.role}${entry.decidedBy.claimedRole ? ` · claimed ${entry.decidedBy.claimedRole}` : ''}`]
                           ]} />

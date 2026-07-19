@@ -238,6 +238,32 @@ function rehashEventChain(bundle: StewardExportBundle): StewardExportBundle {
   return rehashPackage(clone)
 }
 
+function rewriteStoredVerdictAsLegacy(
+  root: string,
+  store: StewardCaseStore,
+  caseId: string
+): { path: string; bytes: string } {
+  const path = join(root, 'cases', store.caseFileName(caseId))
+  const records = readFileSync(path, 'utf8')
+    .trim()
+    .split(/\r?\n/)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+  const verdictRecord = records.find((entry) => entry.type === 'human-verdict-recorded')
+  const payload = verdictRecord?.payload as { verdict?: Record<string, unknown> } | undefined
+  if (!payload?.verdict) throw new Error('Missing verdict event in test chain.')
+  delete payload.verdict.manualReviewConfirmed
+  let previousHash = '0'.repeat(64)
+  for (const record of records) {
+    record.previousHash = previousHash
+    const { eventHash: _eventHash, ...unsigned } = record
+    record.eventHash = sha256Canonical(unsigned)
+    previousHash = record.eventHash as string
+  }
+  const bytes = `${records.map((entry) => JSON.stringify(entry)).join('\n')}\n`
+  writeFileSync(path, bytes, 'utf8')
+  return { path, bytes }
+}
+
 function rewriteActorClaims(value: unknown, actor: StewardActor): void {
   if (Array.isArray(value)) {
     value.forEach((entry) => rewriteActorClaims(entry, actor))
@@ -303,6 +329,99 @@ describe('StewardCaseStore', () => {
     expect(changed.rules.map((entry) => entry.version)).toEqual(['2026.1', '2026.2'])
     expect(changed.rules[0].contentHash).not.toBe(changed.rules[1].contentHash)
     expect(changed.verdicts[0].ruleCitationIds).toEqual([seeded.rule.citationId])
+  })
+
+  it('loads a pre-remediation verdict as legacy-unconfirmed without silently rewriting its chain', () => {
+    const test = harness('legacy-load')
+    const seeded = seedDecision(test.store, test.store.createCase(caseInput()))
+    const legacy = rewriteStoredVerdictAsLegacy(test.root, test.store, seeded.current.caseId)
+
+    const loaded = test.store.getCase(seeded.current.caseId) as StewardCase
+    expect(loaded.integrity.state).toBe('unanchored')
+    expect(loaded.status).toBe('under-review')
+    expect(loaded.verdicts[0]).toMatchObject({
+      authority: 'legacy-unconfirmed',
+      manualReviewConfirmed: false
+    })
+    expect(loaded.manualReviewMigration).toEqual({
+      reason: 'legacy-verdict-missing-native-confirmation',
+      legacyVerdictIds: [loaded.verdicts[0].verdictId],
+      pendingVerdictIds: [loaded.verdicts[0].verdictId],
+      resolvedByVerdictIds: [],
+      derivedFromCanonicalChain: true
+    })
+
+    const bundle = test.store.exportCase(loaded.caseId, 'full-local')
+    expect(bundle.case.manualReviewMigration).toEqual(loaded.manualReviewMigration)
+    expect(bundle.case.verdicts[0].manualReviewConfirmed).toBe(false)
+    expect(readFileSync(legacy.path, 'utf8')).toBe(legacy.bytes)
+  })
+
+  it('round-trips legacy review provenance as an untrusted imported claim', () => {
+    const source = harness('legacy-export')
+    const seeded = seedDecision(source.store, source.store.createCase(caseInput()))
+    rewriteStoredVerdictAsLegacy(source.root, source.store, seeded.current.caseId)
+    const raw = serializeStewardExportBundle(source.store.exportCase(seeded.current.caseId, 'full-local'))
+
+    const target = harness('legacy-import', 10_000)
+    const imported = target.store.importCase(raw)
+    expect(imported.status).toBe('under-review')
+    expect(imported.verdicts[0]).toMatchObject({
+      authority: 'imported-source-claim',
+      manualReviewConfirmed: false
+    })
+    expect(imported.importProvenance?.sourceManualReviewMigration).toMatchObject({
+      reason: 'legacy-verdict-missing-native-confirmation',
+      pendingVerdictIds: [seeded.verdict.verdictId]
+    })
+  })
+
+  it('denies legacy authority until an explicitly confirmed local re-adjudication supersedes it', () => {
+    const test = harness('legacy-recovery')
+    const seeded = seedDecision(test.store, test.store.createCase(caseInput()))
+    rewriteStoredVerdictAsLegacy(test.root, test.store, seeded.current.caseId)
+    let current = test.store.getCase(seeded.current.caseId) as StewardCase
+    const legacyVerdict = current.verdicts[0]
+
+    expect(() => test.store.fileAppeal({
+      caseId: current.caseId,
+      actor: participant,
+      verdictId: legacyVerdict.verdictId,
+      grounds: 'Legacy verdict must not be appeal-authoritative.',
+      requestedRemedy: 'Re-adjudicate.'
+    })).toThrow(/trusted re-adjudication/i)
+    expect(() => test.store.setStatus({
+      caseId: current.caseId,
+      actor: steward,
+      status: 'decided'
+    })).toThrow(/trusted local re-adjudication/i)
+
+    current = test.store.recordVerdict({
+      caseId: current.caseId,
+      actor: steward,
+      finding: 'procedural',
+      decisionText: 'Native-confirmed local re-adjudication of the legacy verdict.',
+      ruleCitationIds: legacyVerdict.ruleCitationIds,
+      evidenceIds: legacyVerdict.evidenceIds,
+      supersedesVerdictId: legacyVerdict.verdictId,
+      manualReviewConfirmed: true
+    })
+    expect(current.status).toBe('decided')
+    expect(current.verdicts.at(-1)).toMatchObject({
+      authority: 'local-trusted',
+      manualReviewConfirmed: true,
+      supersedesVerdictId: legacyVerdict.verdictId
+    })
+    expect(current.manualReviewMigration).toMatchObject({
+      legacyVerdictIds: [legacyVerdict.verdictId],
+      pendingVerdictIds: [],
+      resolvedByVerdictIds: [current.verdicts.at(-1)?.verdictId]
+    })
+    const casePath = join(test.root, 'cases', test.store.caseFileName(current.caseId))
+    const lastRecord = JSON.parse(readFileSync(casePath, 'utf8').trim().split(/\r?\n/).at(-1)!) as {
+      payload: { verdict: { manualReviewConfirmed: boolean } }
+    }
+    expect(lastRecord.payload.verdict.manualReviewConfirmed).toBe(true)
   })
 
   it('rejects duplicate primary incidents and idempotently ignores a duplicate bookmark', () => {

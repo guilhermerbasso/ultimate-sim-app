@@ -247,4 +247,45 @@ describe('Steward Desk IPC trust boundary', () => {
       manualReviewConfirmed: true
     })).rejects.toThrow(/manual evidence provenance review was not confirmed/i)
   })
+
+  it('records local-trusted authority only after the native confirmation succeeds', async () => {
+    const test = harness('confirmed-review')
+    const created = test.handlers.get(STEWARD_CHANNELS.createCase)!(test.event, createInput()) as StewardCase
+    const withEvidence = test.handlers.get(STEWARD_CHANNELS.lockEvidence)!(test.event, {
+      caseId: created.caseId,
+      summary: 'Manual evidence',
+      mediaType: 'application/json',
+      content: { sample: 1 },
+      provenance: {
+        sourceKind: 'document',
+        sourceRef: 'manual',
+        producer: 'Local reviewer',
+        producerVersion: '1',
+        capturedAt: 1
+      }
+    }) as StewardCase
+    const withRule = test.handlers.get(STEWARD_CHANNELS.citeRule)!(test.event, {
+      caseId: created.caseId,
+      rulesetId: 'rules',
+      version: '1',
+      section: '1',
+      title: 'Rule',
+      text: 'Rule text',
+      source: 'local'
+    }) as StewardCase
+
+    const decided = await test.handlers.get(STEWARD_CHANNELS.recordVerdict)!(test.event, {
+      caseId: created.caseId,
+      finding: 'procedural',
+      decisionText: 'Native-confirmed decision.',
+      ruleCitationIds: [withRule.rules[0].citationId],
+      evidenceIds: [withEvidence.evidence[0].evidenceId],
+      manualReviewConfirmed: true
+    }) as StewardCase
+    expect(dialog.showMessageBox).toHaveBeenCalled()
+    expect(decided.verdicts[0]).toMatchObject({
+      authority: 'local-trusted',
+      manualReviewConfirmed: true
+    })
+  })
 })

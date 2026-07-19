@@ -49,6 +49,7 @@ import {
   type StewardImportProvenance,
   type StewardIncidentBookmark,
   type StewardIncidentBookmarkInput,
+  type StewardManualReviewMigration,
   type StewardPortableCase,
   type StewardRaceSessionIdentity,
   type StewardRecordAuthority,
@@ -180,7 +181,11 @@ function hash(value: unknown, label: string): string {
 
 function recordAuthority(value: unknown, label: string): StewardRecordAuthority {
   if (value === undefined) return 'local-trusted'
-  if (value === 'local-trusted' || value === 'imported-source-claim') return value
+  if (
+    value === 'local-trusted' ||
+    value === 'imported-source-claim' ||
+    value === 'legacy-unconfirmed'
+  ) return value
   throw new Error(`${label} is not supported.`)
 }
 
@@ -566,19 +571,18 @@ function verdictRecord(value: unknown): StewardHumanVerdict {
   const supersedesVerdictId = source.supersedesVerdictId === undefined
     ? undefined
     : identifier(source.supersedesVerdictId, 'verdict.supersedesVerdictId')
-  const authority = recordAuthority(source.authority, 'verdict.authority')
-  const manualReviewConfirmed = source.manualReviewConfirmed === undefined
-    ? authority === 'local-trusted'
-    : source.manualReviewConfirmed === true
-  if (authority === 'local-trusted' && !manualReviewConfirmed) {
-    throw new Error('Trusted local verdict requires explicit manual evidence review confirmation.')
-  }
+  const declaredAuthority = recordAuthority(source.authority, 'verdict.authority')
+  const explicitManualReview = source.manualReviewConfirmed === true
+  const authority = declaredAuthority === 'local-trusted' && !explicitManualReview
+    ? 'legacy-unconfirmed'
+    : declaredAuthority
+  const manualReviewConfirmed = authority === 'local-trusted' && explicitManualReview
   const decidedBy = authority === 'imported-source-claim'
     ? actor(source.decidedBy, 'verdict.decidedBy')
     : decisionActor(source.decidedBy, 'verdict.decidedBy')
   if (
     (authority === 'imported-source-claim' && decidedBy.role !== 'source-claim') ||
-    (authority === 'local-trusted' && decidedBy.role === 'source-claim')
+    (authority !== 'imported-source-claim' && decidedBy.role === 'source-claim')
   ) {
     throw new Error('Verdict authority does not match its actor trust.')
   }
@@ -637,7 +641,7 @@ function resolutionRecord(value: unknown): StewardAppealResolution {
     : decisionActor(source.resolvedBy, 'appeal.resolution.resolvedBy')
   if (
     (authority === 'imported-source-claim' && resolvedBy.role !== 'source-claim') ||
-    (authority === 'local-trusted' && resolvedBy.role === 'source-claim')
+    (authority !== 'imported-source-claim' && resolvedBy.role === 'source-claim')
   ) {
     throw new Error('Appeal resolution authority does not match its actor trust.')
   }
@@ -696,6 +700,39 @@ function appealRecord(value: unknown): StewardAppeal {
   }
 }
 
+function manualReviewMigrationRecord(value: unknown): StewardManualReviewMigration {
+  const source = plain(value, 'manualReviewMigration')
+  onlyKeys(source, 'manualReviewMigration', [
+    'reason',
+    'legacyVerdictIds',
+    'pendingVerdictIds',
+    'resolvedByVerdictIds',
+    'derivedFromCanonicalChain'
+  ])
+  if (
+    source.reason !== 'legacy-verdict-missing-native-confirmation' ||
+    source.derivedFromCanonicalChain !== true
+  ) {
+    throw new Error('Manual review migration provenance is invalid.')
+  }
+  const legacyVerdictIds = stringIds(source.legacyVerdictIds, 'manualReviewMigration.legacyVerdictIds')
+  const pendingVerdictIds = stringIds(source.pendingVerdictIds, 'manualReviewMigration.pendingVerdictIds')
+  const resolvedByVerdictIds = stringIds(
+    source.resolvedByVerdictIds,
+    'manualReviewMigration.resolvedByVerdictIds'
+  )
+  if (pendingVerdictIds.some((id) => !legacyVerdictIds.includes(id))) {
+    throw new Error('Manual review migration pending ids are not legacy verdicts.')
+  }
+  return {
+    reason: 'legacy-verdict-missing-native-confirmation',
+    legacyVerdictIds,
+    pendingVerdictIds,
+    resolvedByVerdictIds,
+    derivedFromCanonicalChain: true
+  }
+}
+
 function importProvenanceRecord(value: unknown): StewardImportProvenance {
   const source = plain(value, 'importProvenance')
   onlyKeys(source, 'importProvenance', [
@@ -703,7 +740,8 @@ function importProvenanceRecord(value: unknown): StewardImportProvenance {
     'sourceHeadHash',
     'sourceCaseRef',
     'profile',
-    'importedAt'
+    'importedAt',
+    'sourceManualReviewMigration'
   ])
   const profile = text(source.profile, 'importProvenance.profile', 20)
   if (profile !== 'full-local' && profile !== 'anonymized') {
@@ -714,7 +752,10 @@ function importProvenanceRecord(value: unknown): StewardImportProvenance {
     sourceHeadHash: hash(source.sourceHeadHash, 'importProvenance.sourceHeadHash'),
     sourceCaseRef: text(source.sourceCaseRef, 'importProvenance.sourceCaseRef', 160),
     profile,
-    importedAt: numberValue(source.importedAt, 'importProvenance.importedAt')
+    importedAt: numberValue(source.importedAt, 'importProvenance.importedAt'),
+    ...(source.sourceManualReviewMigration
+      ? { sourceManualReviewMigration: manualReviewMigrationRecord(source.sourceManualReviewMigration) }
+      : {})
   }
 }
 
@@ -803,11 +844,11 @@ function assertVerdictInvariants(
 }
 
 function isTrustedLocalVerdict(value: StewardHumanVerdict): boolean {
-  return value.authority !== 'imported-source-claim'
+  return value.authority === 'local-trusted'
 }
 
 function isTrustedLocalAppeal(value: StewardAppeal): boolean {
-  return value.authority !== 'imported-source-claim'
+  return value.authority === 'local-trusted'
 }
 
 function requireDecisionOrImportedClaimEventActor(
@@ -820,6 +861,48 @@ function requireDecisionOrImportedClaimEventActor(
     return
   }
   decisionActor(value, label)
+}
+
+function deriveManualReviewMigration(
+  verdicts: readonly StewardHumanVerdict[]
+): StewardManualReviewMigration | undefined {
+  const legacyVerdicts = verdicts.filter((entry) => entry.authority === 'legacy-unconfirmed')
+  if (legacyVerdicts.length === 0) return undefined
+  const byId = new Map(verdicts.map((entry) => [entry.verdictId, entry]))
+  const resolved = new Set<string>()
+  for (const verdict of verdicts.filter(isTrustedLocalVerdict)) {
+    let supersededId = verdict.supersedesVerdictId
+    const visited = new Set<string>()
+    while (supersededId && !visited.has(supersededId)) {
+      visited.add(supersededId)
+      const superseded = byId.get(supersededId)
+      if (!superseded) break
+      if (superseded.authority === 'legacy-unconfirmed') resolved.add(superseded.verdictId)
+      supersededId = superseded.supersedesVerdictId
+    }
+  }
+  const legacyVerdictIds = legacyVerdicts.map((entry) => entry.verdictId)
+  return {
+    reason: 'legacy-verdict-missing-native-confirmation',
+    legacyVerdictIds,
+    pendingVerdictIds: legacyVerdictIds.filter((id) => !resolved.has(id)),
+    resolvedByVerdictIds: verdicts
+      .filter(isTrustedLocalVerdict)
+      .filter((entry) => {
+        let supersededId = entry.supersedesVerdictId
+        const visited = new Set<string>()
+        while (supersededId && !visited.has(supersededId)) {
+          visited.add(supersededId)
+          const superseded = byId.get(supersededId)
+          if (!superseded) return false
+          if (superseded.authority === 'legacy-unconfirmed') return true
+          supersededId = superseded.supersedesVerdictId
+        }
+        return false
+      })
+      .map((entry) => entry.verdictId),
+    derivedFromCanonicalChain: true
+  }
 }
 
 function emptyIntegrity(failures: string[], checkedEvents: number, headHash?: string): StewardCaseIntegrity {
@@ -1257,6 +1340,7 @@ function anonymizeCase(
       resolvedBy: actorAlias(resolution.resolvedBy)
     }))
   }))
+  const manualReviewMigration = deriveManualReviewMigration(verdicts)
   return {
     caseValue: {
       schemaVersion: STEWARD_CASE_SCHEMA_VERSION,
@@ -1273,7 +1357,8 @@ function anonymizeCase(
       rules,
       verdicts,
       dissents,
-      appeals
+      appeals,
+      ...(manualReviewMigration ? { manualReviewMigration } : {})
     },
     evidence: anonymizedEvidence,
     redactions: [
@@ -1488,8 +1573,12 @@ function normalizeImportedSourceClaims(
     aliases.set(key, alias)
     return cloneJson(alias)
   }
+  const {
+    manualReviewMigration: _sourceManualReviewMigration,
+    ...sourceWithoutMigration
+  } = cloneJson(value, PACKAGE_MAX_CANONICAL_BYTES)
   return {
-    ...cloneJson(value, PACKAGE_MAX_CANONICAL_BYTES),
+    ...sourceWithoutMigration,
     createdBy: normalizeActor(value.createdBy),
     ...(value.assignedTo ? { assignedTo: normalizeActor(value.assignedTo) } : {}),
     bookmarks: value.bookmarks.map((entry) => ({
@@ -1787,6 +1876,12 @@ export class StewardCaseStore {
     const current = this.mutableCase(input.caseId)
     if (!CASE_STATUSES.has(input.status)) throw new Error('Unsupported steward case status.')
     if (
+      current.value.manualReviewMigration?.pendingVerdictIds.length &&
+      (input.status === 'decided' || input.status === 'appealed' || input.status === 'closed')
+    ) {
+      throw new Error('Legacy verdicts require trusted local re-adjudication before authoritative status.')
+    }
+    if (
       current.value.appeals.some((entry) => isTrustedLocalAppeal(entry) && entry.status === 'open') &&
       input.status !== 'appealed'
     ) {
@@ -1961,8 +2056,8 @@ export class StewardCaseStore {
     if (!verdict) {
       throw new Error(`Verdict ${verdictId} does not exist.`)
     }
-    if (verdict.authority === 'imported-source-claim') {
-      throw new Error('Imported verdict claims require local trusted re-adjudication before dissent.')
+    if (!isTrustedLocalVerdict(verdict)) {
+      throw new Error('Unconfirmed verdicts require local trusted re-adjudication before dissent.')
     }
     const dissentId = input.dissentId ? identifier(input.dissentId, 'dissentId') : this.newId('dissent')
     if (current.value.dissents.some((entry) => entry.dissentId === dissentId)) {
@@ -1989,8 +2084,8 @@ export class StewardCaseStore {
     if (!verdict) {
       throw new Error(`Verdict ${verdictId} does not exist.`)
     }
-    if (verdict.authority === 'imported-source-claim') {
-      throw new Error('Imported verdict claims require local trusted re-adjudication before appeal.')
+    if (!isTrustedLocalVerdict(verdict)) {
+      throw new Error('Unconfirmed verdicts require local trusted re-adjudication before appeal.')
     }
     const appealId = input.appealId ? identifier(input.appealId, 'appealId') : this.newId('appeal')
     if (current.value.appeals.some((entry) => entry.appealId === appealId)) {
@@ -2017,8 +2112,8 @@ export class StewardCaseStore {
     const appealId = identifier(input.appealId, 'appealId')
     const appeal = current.value.appeals.find((entry) => entry.appealId === appealId)
     if (!appeal) throw new Error(`Appeal ${appealId} does not exist.`)
-    if (appeal.authority === 'imported-source-claim') {
-      throw new Error('Imported appeal claims require local trusted re-adjudication.')
+    if (!isTrustedLocalAppeal(appeal)) {
+      throw new Error('Unconfirmed appeal claims require local trusted re-adjudication.')
     }
     if (appeal.status !== 'open') throw new Error(`Appeal ${appealId} is already resolved.`)
     if (!RESOLUTIONS.has(input.resolution)) throw new Error('Unsupported appeal resolution.')
@@ -2142,7 +2237,10 @@ export class StewardCaseStore {
       sourceHeadHash: bundle.source.headHash,
       sourceCaseRef: bundle.source.caseRef,
       profile: bundle.profile,
-      importedAt: Math.trunc(this.now())
+      importedAt: Math.trunc(this.now()),
+      ...(packageCase.manualReviewMigration
+        ? { sourceManualReviewMigration: packageCase.manualReviewMigration }
+        : {})
     }
     const stateEvents = portableCaseEventSpecs(importedCase)
     const baseEvents: StewardEventSpec[] = [
@@ -2378,6 +2476,7 @@ export class StewardCaseStore {
       'verdicts',
       'dissents',
       'appeals',
+      'manualReviewMigration',
       'importProvenance',
       'importCompleted'
     ])
@@ -2409,6 +2508,16 @@ export class StewardCaseStore {
     }
     for (const appeal of appeals) {
       if (!verdictIds.has(appeal.verdictId)) throw new Error('Appeal references an unknown verdict.')
+    }
+    const manualReviewMigration = deriveManualReviewMigration(verdicts)
+    if (source.manualReviewMigration !== undefined) {
+      const packagedMigration = manualReviewMigrationRecord(source.manualReviewMigration)
+      if (
+        canonicalStringify(packagedMigration) !==
+        canonicalStringify(manualReviewMigration)
+      ) {
+        throw new Error('Manual review migration provenance does not match legacy verdict state.')
+      }
     }
     if (appeals.some((entry) => isTrustedLocalAppeal(entry) && entry.status === 'open') && status !== 'appealed') {
       throw new Error('A packaged steward case must remain appealed while any appeal is open.')
@@ -2457,6 +2566,7 @@ export class StewardCaseStore {
       verdicts,
       dissents,
       appeals,
+      ...(manualReviewMigration ? { manualReviewMigration } : {}),
       ...(importProvenance ? { importProvenance } : {}),
       ...(importCompleted ? { importCompleted } : {})
     }
@@ -2697,15 +2807,29 @@ export class StewardCaseStore {
         }
         case 'appeal-filed': {
           onlyKeys(payload, 'appeal-filed payload', ['appeal'])
-          const appeal = appealRecord(payload.appeal)
+          let appeal = appealRecord(payload.appeal)
           if (appeal.authority === 'imported-source-claim') {
             requireDecisionOrImportedClaimEventActor(record.actor, value.importProvenance, 'appeal-filed actor')
           } else if (record.actor.role === 'source-claim') {
             throw new Error('Trusted local appeal cannot be filed by a source claim.')
           }
           requireMatchingActor(record.actor, appeal.filedBy, 'appeal-filed')
-          if (!value.verdicts.some((entry) => entry.verdictId === appeal.verdictId)) {
+          const targetVerdict = value.verdicts.find((entry) => entry.verdictId === appeal.verdictId)
+          if (!targetVerdict) {
             throw new Error(`appeal references unknown verdict ${appeal.verdictId}`)
+          }
+          if (
+            targetVerdict.authority === 'legacy-unconfirmed' &&
+            appeal.authority === 'local-trusted'
+          ) {
+            appeal = {
+              ...appeal,
+              authority: 'legacy-unconfirmed',
+              resolutions: appeal.resolutions.map((entry) => ({
+                ...entry,
+                authority: 'legacy-unconfirmed'
+              }))
+            }
           }
           value.appeals.push(appeal)
           if (isTrustedLocalAppeal(appeal)) value.status = 'appealed'
@@ -2717,7 +2841,13 @@ export class StewardCaseStore {
           const target = value.appeals.find((entry) => entry.appealId === appealId)
           if (!target) throw new Error(`appeal resolution references unknown appeal ${appealId}`)
           if (target.status !== 'open') throw new Error(`appeal ${appealId} is already resolved`)
-          const resolution = resolutionRecord(payload.resolution)
+          let resolution = resolutionRecord(payload.resolution)
+          if (
+            target.authority === 'legacy-unconfirmed' &&
+            resolution.authority === 'local-trusted'
+          ) {
+            resolution = { ...resolution, authority: 'legacy-unconfirmed' }
+          }
           if (resolution.authority === 'imported-source-claim') {
             requireDecisionOrImportedClaimEventActor(record.actor, value.importProvenance, 'appeal-resolved actor')
           } else {
@@ -2758,6 +2888,11 @@ export class StewardCaseStore {
     assertUnique(value.verdicts, (entry) => entry.verdictId, 'verdicts')
     assertUnique(value.dissents, (entry) => entry.dissentId, 'dissents')
     assertUnique(value.appeals, (entry) => entry.appealId, 'appeals')
+    const manualReviewMigration = deriveManualReviewMigration(value.verdicts)
+    if (manualReviewMigration) {
+      value.manualReviewMigration = manualReviewMigration
+      if (manualReviewMigration.pendingVerdictIds.length > 0) value.status = 'under-review'
+    }
     if (value.appeals.some((entry) => isTrustedLocalAppeal(entry) && entry.status === 'open')) {
       value.status = 'appealed'
     }

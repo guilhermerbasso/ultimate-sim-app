@@ -22,7 +22,10 @@ export interface StewardActor {
   claimedRole?: StewardClaimedActorRole
 }
 
-export type StewardRecordAuthority = 'local-trusted' | 'imported-source-claim'
+export type StewardRecordAuthority =
+  | 'local-trusted'
+  | 'imported-source-claim'
+  | 'legacy-unconfirmed'
 
 export type StewardCaseStatus = 'triage' | 'under-review' | 'decided' | 'appealed' | 'closed'
 
@@ -202,6 +205,15 @@ export interface StewardImportProvenance {
   sourceCaseRef: string
   profile: StewardExportProfile
   importedAt: number
+  sourceManualReviewMigration?: StewardManualReviewMigration
+}
+
+export interface StewardManualReviewMigration {
+  reason: 'legacy-verdict-missing-native-confirmation'
+  legacyVerdictIds: string[]
+  pendingVerdictIds: string[]
+  resolvedByVerdictIds: string[]
+  derivedFromCanonicalChain: true
 }
 
 export interface StewardCase {
@@ -220,6 +232,7 @@ export interface StewardCase {
   verdicts: StewardHumanVerdict[]
   dissents: StewardDissent[]
   appeals: StewardAppeal[]
+  manualReviewMigration?: StewardManualReviewMigration
   importProvenance?: StewardImportProvenance
   importCompleted?: boolean
   history: StewardCaseEventSummary[]

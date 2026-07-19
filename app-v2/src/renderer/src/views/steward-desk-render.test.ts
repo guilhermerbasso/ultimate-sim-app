@@ -239,4 +239,24 @@ describe('StewardDeskView', () => {
     fireEvent.click(confirmation)
     expect(submit.disabled).toBe(false)
   })
+
+  it('shows legacy verdicts as requiring re-review without claiming confirmation', async () => {
+    const legacy = fixture('case-legacy', 'Legacy verdict case')
+    legacy.status = 'under-review'
+    legacy.verdicts[0].authority = 'legacy-unconfirmed'
+    legacy.verdicts[0].manualReviewConfirmed = false
+    legacy.manualReviewMigration = {
+      reason: 'legacy-verdict-missing-native-confirmation',
+      legacyVerdictIds: ['verdict-1'],
+      pendingVerdictIds: ['verdict-1'],
+      resolvedByVerdictIds: [],
+      derivedFromCanonicalChain: true
+    }
+    renderDesk([legacy])
+    await screen.findByRole('heading', { name: 'Legacy verdict case' })
+
+    expect(screen.getAllByText('Re-review required').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Manual review confirmed')).toBeNull()
+    expect(screen.getByText(/predate native manual-review confirmation/i)).toBeTruthy()
+  })
 })
