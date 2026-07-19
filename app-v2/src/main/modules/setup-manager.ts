@@ -82,7 +82,7 @@ async function readSetupFile(ctx: ModuleContext, filePath: string): Promise<Setu
   return { path: safePath, text: await readFile(safePath, 'utf8') }
 }
 
-async function compareSetups(ctx: ModuleContext, args: SetupCompareArgs): Promise<SetupCompareResult> {
+export async function compareSetups(ctx: ModuleContext, args: SetupCompareArgs): Promise<SetupCompareResult> {
   const [leftPath, rightPath] = await Promise.all([validateSetupPath(ctx, args?.leftPath), validateSetupPath(ctx, args?.rightPath)])
   const rootReal = await getExistingRoot(ctx)
   const [left, right, leftText, rightText] = await Promise.all([
