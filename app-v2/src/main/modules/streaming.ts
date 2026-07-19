@@ -1493,7 +1493,7 @@ function handleWebSocketUpgrade(ctx: ModuleContext, request: IncomingMessage, so
       rejectWebSocketUpgrade(socket, 403, 'Forbidden')
       return
     }
-    const session = sessionForRequest(request, route)
+    const session = sessionForRequest(request, route, 'stream')
     if (!session || session.session.access !== 'authenticated') {
       rejectWebSocketUpgrade(socket, 403, 'Forbidden')
       return
