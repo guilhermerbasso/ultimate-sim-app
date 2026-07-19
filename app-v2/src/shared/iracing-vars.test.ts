@@ -28,4 +28,29 @@ describe('iRacing expression DRS compatibility', () => {
       DRS_State: 3
     })
   })
+
+  describe('iRacing shift RPM mapping', () => {
+    it('maps DriverCarSLShiftRPM to raw shiftRpm instead of maxRpm', () => {
+      const shift = IRACING_VARIABLES.find((variable) => variable.id === 'DriverCarSLShiftRPM')
+      expect(shift?.telemetryField).toBe('shiftRpm')
+
+      const snapshot = {
+        sim: 'iracing',
+        connected: true,
+        timestamp: 1,
+        speedKmh: 0,
+        rpm: 6690,
+        gear: 3,
+        throttle: 0,
+        brake: 0,
+        clutch: 0,
+        shiftRpm: 6690,
+        maxRpm: 7500
+      } satisfies TelemetrySnapshot
+
+      expect(buildIracingExpressionScope(snapshot, ['DriverCarSLShiftRPM'])).toEqual({
+        DriverCarSLShiftRPM: 6690
+      })
+    })
+  })
 })

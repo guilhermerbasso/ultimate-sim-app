@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { LocalCollaborationService } from './service'
 
 const cleanup: string[] = []
+const MAX_COLLABORATION_BUNDLE_BYTES = 8 * 1024 * 1024
 
 afterEach(() => {
   for (const directory of cleanup.splice(0)) {
@@ -192,4 +193,66 @@ describe('LocalCollaborationService', () => {
     const reopened = await LocalCollaborationService.open(file, { maxPersistedBytes: maximum })
     expect((await reopened.getDocument(document.id)).data.entries).toBeUndefined()
   })
+
+  it('rolls back a set that crosses the 8 MiB online export boundary and remains flushable', async () => {
+    const files = new Map<string, string>()
+    const persistence = {
+      readText: async (path: string): Promise<string> => {
+        const value = files.get(path)
+        if (value === undefined) throw Object.assign(new Error(`Missing ${path}`), { code: 'ENOENT' })
+        return value
+      },
+      ensureDirectory: async (): Promise<void> => {},
+      writeText: async (path: string, value: string): Promise<void> => {
+        files.set(path, value)
+      },
+      replace: async (from: string, to: string): Promise<void> => {
+        const value = files.get(from)
+        if (value === undefined) throw new Error(`Missing staged workspace ${from}`)
+        files.set(to, value)
+        files.delete(from)
+      },
+      remove: async (path: string): Promise<void> => {
+        files.delete(path)
+      }
+    }
+    const file = 'memory-collaboration-workspace.json'
+    const service = await LocalCollaborationService.open(file, { persistence })
+    const document = await service.create({ kind: 'accessibility-profile', title: 'Boundary profile' })
+    await service.setOnline(false)
+
+    const padding = 'x'.repeat(240_000)
+    let bundleBytes = Buffer.byteLength(await service.exportBundle(), 'utf8')
+    while (MAX_COLLABORATION_BUNDLE_BYTES - bundleBytes > 260_000) {
+      await service.set({
+        documentId: document.id,
+        path: '/preferences/padding',
+        value: padding
+      })
+      bundleBytes = Buffer.byteLength(await service.exportBundle(), 'utf8')
+    }
+    expect(bundleBytes).toBeLessThanOrEqual(MAX_COLLABORATION_BUNDLE_BYTES)
+    expect(MAX_COLLABORATION_BUNDLE_BYTES - bundleBytes).toBeLessThanOrEqual(260_000)
+
+    await service.setOnline(true)
+    const beforeDocument = await service.getDocument(document.id)
+    const beforeState = await service.getWorkspaceState()
+    const beforeBundle = await service.exportBundle()
+
+    await expect(service.set({
+      documentId: document.id,
+      path: '/preferences/padding',
+      value: 'y'.repeat(261_000)
+    })).rejects.toThrow(`Collaboration bundle exceeds ${MAX_COLLABORATION_BUNDLE_BYTES} bytes`)
+
+    const afterDocument = await service.getDocument(document.id)
+    expect(afterDocument.changeCount).toBe(beforeDocument.changeCount)
+    expect(afterDocument).toEqual(beforeDocument)
+    expect(await service.getWorkspaceState()).toEqual(beforeState)
+    expect(await service.exportBundle()).toBe(beforeBundle)
+    await expect(service.flush()).resolves.toBeUndefined()
+
+    const reopened = await LocalCollaborationService.open(file, { persistence })
+    expect(await reopened.getDocument(document.id)).toEqual(beforeDocument)
+  }, 30_000)
 })

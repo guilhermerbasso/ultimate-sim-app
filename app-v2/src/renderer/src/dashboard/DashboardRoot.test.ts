@@ -148,6 +148,28 @@ describe('dashboard-embedded alert policy', () => {
     }, alertsConfig)).not.toContain(SHIFT_STROBE_BLUE)
   })
 
+  it('uses provider blink for the shift alert overlay', () => {
+    const providerOff = {
+      ...PREVIEW_SNAPSHOT,
+      shiftIndicatorPct: 0.999,
+      rpm: 7999,
+      maxRpm: 8000,
+      revLights: { pct: 0.999, blink: false }
+    }
+    expect(dashboardAlertMarkup('alertShiftFlash', providerOff, DEFAULT_ALERTS_CONFIG))
+      .not.toContain(SHIFT_STROBE_BLUE)
+
+    const providerOn = {
+      ...PREVIEW_SNAPSHOT,
+      shiftIndicatorPct: 0.2,
+      rpm: 2000,
+      maxRpm: 8000,
+      revLights: { pct: 0.2, blink: true }
+    }
+    expect(dashboardAlertMarkup('alertShiftFlash', providerOn, DEFAULT_ALERTS_CONFIG))
+      .toContain(SHIFT_STROBE_BLUE)
+  })
+
   it('uses configured low-fuel lapsThreshold', () => {
     const snapshot = {
       ...PREVIEW_SNAPSHOT,
@@ -245,6 +267,28 @@ describe('builtin shiftlights element renders a RevLedBar', () => {
 
   it('is NaN-safe without telemetry', () => {
     expect(markup('shiftlights', {}, 'shiftPct', null)).not.toMatch(/NaN|undefined/)
+  })
+
+  it('uses provider blink before its configured percentage fallback', () => {
+    const providerOff = {
+      ...PREVIEW_SNAPSHOT,
+      shiftIndicatorPct: 0.999,
+      revLights: { pct: 0.999, blink: false }
+    } as typeof PREVIEW_SNAPSHOT
+    const providerOn = {
+      ...PREVIEW_SNAPSHOT,
+      shiftIndicatorPct: 0.2,
+      revLights: { pct: 0.2, blink: true }
+    } as typeof PREVIEW_SNAPSHOT
+
+    expect(markup('shiftlights', {}, 'shiftPct', providerOff)).not.toContain(SHIFT_STROBE_BLUE)
+    expect(markup('shiftlights', {}, 'shiftPct', providerOn)).toContain(SHIFT_STROBE_BLUE)
+    expect(markup('shiftlights', {}, 'shiftPct', providerOn)).toContain('repeatCount="indefinite"')
+    expect(markup('shiftlights', {}, 'shiftPct', {
+      ...PREVIEW_SNAPSHOT,
+      shiftIndicatorPct: 1,
+      revLights: { pct: 1 }
+    } as typeof PREVIEW_SNAPSHOT)).toContain(SHIFT_STROBE_BLUE)
   })
 })
 

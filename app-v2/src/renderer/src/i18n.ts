@@ -6846,13 +6846,16 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
   en: {
     telemetry: { label: 'Telemetry', eyebrow: 'Sim', description: 'Live telemetry source and overview.' },
     dashboards: { label: 'Dashboards', eyebrow: 'Monitor', description: 'Monitor windows, .simhubdash import, and dashboard builder.' },
+    streaming: { label: 'Streaming', eyebrow: 'Broadcast', description: 'Named read-only dashboard and touch-panel targets for OBS, phones, and tablets.' },
     'touch-controls': { label: 'Touch Controls Dash', eyebrow: 'Cockpit', description: 'Touch pit panel and editable RGB button boxes for the cockpit screen.' },
+    'streaming-mobile-editor': { label: 'Mobile Stream Editor', eyebrow: 'Device preview', description: 'Non-destructive phone and tablet presentation profiles for saved dashboards and Touch Controls.' },
     'oled-dash': { label: 'OLED Dashboard', eyebrow: 'Display', description: 'iRacing information presets for the OLED.' },
     overlays: { label: 'Overlays', eyebrow: 'Screen', description: 'Transparent overlays on top of the simulator.' },
     fuel: { label: 'Fuel', eyebrow: 'Strategy', description: 'Fuel calculation and strategy.' },
     tire: { label: 'Tyres', eyebrow: 'Strategy', description: 'Tyre wear, per-lap rate, and pit window.' },
     search: { label: 'Semantic Search', eyebrow: 'Local AI', description: 'Meaning-based search for setups, ghosts, notes, and findings.' },
     alerts: { label: 'Alerts', eyebrow: 'Warnings', description: 'Pit limiter, flags, fuel, and shift warnings.' },
+    'context-debt': { label: 'Context-Debt Meter', eyebrow: 'SP-07 · N=0', description: 'Local pre-race audit of competing cues, routes, devices, and controls.' },
     expr: { label: 'Expressions', eyebrow: 'Custom', description: 'Custom fields and conditions.' },
     'race-profiles': { label: 'Race Profiles', eyebrow: 'Car/Track', description: 'Car/track profiles with automatic switching.' },
     sounds: { label: 'Sounds', eyebrow: 'Audio', description: 'Soundshift, incident, ABS, and TCS audio cues.' },
@@ -6903,13 +6906,24 @@ function patchViewText(language: ResolvedLanguage, patches: Record<string, Parti
   }
 }
 
+patchViewText('pt-BR', {
+  streaming: { label: 'Streaming', eyebrow: 'Transmissão', description: 'Destinos nomeados e somente leitura de dashboards e painéis touch para OBS, celulares e tablets.' },
+  'context-debt': {
+    label: 'Medidor de dívida de contexto',
+    eyebrow: 'SP-07 · N=0',
+    description: 'Auditoria local pré-corrida de cues, rotas, dispositivos e controles concorrentes.'
+  }
+})
+
 patchViewText('es', {
   telemetry: { label: 'Telemetría', description: 'Fuente de telemetría en vivo y vista general.' },
   dashboards: { label: 'Dashboards', description: 'Ventanas de monitor, importación .simhubdash y constructor.' },
+  streaming: { label: 'Streaming', eyebrow: 'Emisión', description: 'Destinos de dashboards y paneles táctiles de solo lectura para OBS, móviles y tabletas.' },
   overlays: { label: 'Overlays', eyebrow: 'Pantalla', description: 'Overlays transparentes sobre el simulador.' },
   fuel: { label: 'Combustible' },
   tire: { label: 'Neumáticos' },
   alerts: { label: 'Alerts' },
+  'context-debt': { label: 'Medidor de deuda de contexto', eyebrow: 'SP-07 · N=0', description: 'Auditoría local previa a la carrera de señales, rutas, dispositivos y controles en competencia.' },
   engineer: { label: 'Ingeniero IA' },
   coach: { label: 'Coach IA' },
   haptics: { label: 'Háptica' },
@@ -6922,10 +6936,12 @@ patchViewText('es', {
 
 patchViewText('fr', {
   telemetry: { label: 'Télémétrie', description: 'Source de télémétrie en direct et vue d’ensemble.' },
+  streaming: { label: 'Streaming', eyebrow: 'Diffusion', description: 'Cibles nommées en lecture seule pour tableaux de bord et panneaux tactiles.' },
   overlays: { label: 'Overlays', eyebrow: 'Écran', description: 'Overlays transparents au-dessus du simulateur.' },
   fuel: { label: 'Carburant' },
   tire: { label: 'Tires' },
   alerts: { label: 'Alertes' },
+  'context-debt': { label: 'Mesure de dette de contexte', eyebrow: 'SP-07 · N=0', description: 'Audit local avant course des signaux, routes, appareils et commandes concurrents.' },
   engineer: { label: 'Ingénieur IA' },
   coach: { label: 'Coach IA' },
   haptics: { label: 'Haptique' },
@@ -6939,10 +6955,12 @@ patchViewText('fr', {
 patchViewText('de', {
   telemetry: { label: 'Telemetrie', description: 'Live-Telemetriequelle und Überblick.' },
   dashboards: { label: 'Dashboards' },
+  streaming: { label: 'Streaming', eyebrow: 'Übertragung', description: 'Benannte schreibgeschützte Dashboard- und Touchpanel-Ziele für OBS, Smartphones und Tablets.' },
   overlays: { label: 'Overlays', eyebrow: 'Anzeige', description: 'Transparente Overlays über dem Simulator.' },
   fuel: { label: 'Kraftstoff' },
   tire: { label: 'Reifen' },
   alerts: { label: 'Warnungen' },
+  'context-debt': { label: 'Kontextschuld-Messer', eyebrow: 'SP-07 · N=0', description: 'Lokale Vorabprüfung konkurrierender Hinweise, Routen, Geräte und Steuerungen.' },
   engineer: { label: 'KI-Ingenieur' },
   coach: { label: 'KI-Coach' },
   haptics: { label: 'Haptik' },
@@ -6956,12 +6974,14 @@ patchViewText('de', {
 patchViewText('zh', {
   telemetry: { label: '遥测', eyebrow: '模拟器', description: '实时遥测源与总览。' },
   dashboards: { label: '仪表盘', eyebrow: '监视', description: '监视窗口、.simhubdash 导入与仪表盘构建器。' },
+  streaming: { label: '串流', eyebrow: '直播', description: '面向 OBS、手机和平板的命名只读仪表盘与触控面板目标。' },
   'touch-controls': { label: '触控仪表盘', eyebrow: '座舱' },
   'oled-dash': { label: 'OLED 仪表盘', eyebrow: '显示' },
   overlays: { label: '叠加层', eyebrow: '屏幕', description: '模拟器之上的透明叠加层。' },
   fuel: { label: '燃油', eyebrow: '策略' },
   tire: { label: '轮胎', eyebrow: '策略' },
   alerts: { label: '警报' },
+  'context-debt': { label: '上下文负债计', eyebrow: 'SP-07 · N=0', description: '本地赛前审计相互竞争的提示、路由、设备和控制。' },
   engineer: { label: 'AI 工程师' },
   coach: { label: 'AI 教练' },
   strategy: { label: '策略' },
@@ -6975,12 +6995,14 @@ patchViewText('zh', {
 patchViewText('ja', {
   telemetry: { label: 'テレメトリー', eyebrow: 'シム', description: 'ライブのテレメトリーソースと概要。' },
   dashboards: { label: 'ダッシュボード', eyebrow: 'モニター', description: 'モニターウィンドウ、.simhubdash インポート、ビルダー。' },
+  streaming: { label: 'ストリーミング', eyebrow: '配信', description: 'OBS、スマートフォン、タブレット向けの名前付き読み取り専用ターゲット。' },
   'touch-controls': { label: 'タッチダッシュ', eyebrow: 'コックピット' },
   'oled-dash': { label: 'OLED ダッシュ', eyebrow: 'ディスプレイ' },
   overlays: { label: 'オーバーレイ', eyebrow: '画面', description: 'シミュレーターの上に表示する透明オーバーレイ。' },
   fuel: { label: '燃料', eyebrow: '戦略' },
   tire: { label: 'タイヤ', eyebrow: '戦略' },
   alerts: { label: 'アラート' },
+  'context-debt': { label: 'コンテキスト負債メーター', eyebrow: 'SP-07 · N=0', description: '競合するキュー、ルート、デバイス、操作をローカルでレース前監査します。' },
   engineer: { label: 'AI エンジニア' },
   coach: { label: 'AI コーチ' },
   strategy: { label: '戦略' },
@@ -6991,10 +7013,30 @@ patchViewText('ja', {
   about: { label: '概要 / クレジット' }
 })
 
+patchViewText('pt-BR', {
+  'streaming-mobile-editor': { label: 'Editor de Streaming Mobile', eyebrow: 'Preview do dispositivo', description: 'Perfis não destrutivos para dashboards salvos e Touch Controls em celulares e tablets.' }
+})
+patchViewText('es', {
+  'streaming-mobile-editor': { label: 'Editor de Streaming Móvil', eyebrow: 'Vista del dispositivo', description: 'Perfiles no destructivos para dashboards guardados y Touch Controls en teléfonos y tablets.' }
+})
+patchViewText('fr', {
+  'streaming-mobile-editor': { label: 'Éditeur de Streaming Mobile', eyebrow: 'Aperçu appareil', description: 'Profils non destructifs pour tableaux de bord enregistrés et Touch Controls sur téléphone et tablette.' }
+})
+patchViewText('de', {
+  'streaming-mobile-editor': { label: 'Mobiler Streaming-Editor', eyebrow: 'Gerätevorschau', description: 'Nicht-destruktive Handy- und Tablet-Profile für gespeicherte Dashboards und Touch Controls.' }
+})
+patchViewText('zh', {
+  'streaming-mobile-editor': { label: '移动端串流编辑器', eyebrow: '设备预览', description: '为已保存的仪表盘和触控面板创建非破坏性的手机和平板呈现配置。' }
+})
+patchViewText('ja', {
+  'streaming-mobile-editor': { label: 'モバイル配信エディター', eyebrow: '端末プレビュー', description: '保存済みダッシュボードと Touch Controls 向けの非破壊的なスマホ・タブレット表示プロファイル。' }
+})
+
 const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
-  'pt-BR': {},
+  'pt-BR': { Streaming: 'Streaming' },
   en: {
-    'IA & Coaching': 'AI & Coaching'
+    'IA & Coaching': 'AI & Coaching',
+    Streaming: 'Streaming'
   },
   es: {
     'Race Hub': 'Centro de carrera',
@@ -7003,7 +7045,8 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     Strategy: 'Estrategia',
     Garage: 'Garaje',
     Hardware: 'Hardware',
-    System: 'Sistema'
+    System: 'Sistema',
+    Streaming: 'Streaming'
   },
   fr: {
     'Race Hub': 'Centre de course',
@@ -7012,7 +7055,8 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     Strategy: 'Stratégie',
     Garage: 'Garage',
     Hardware: 'Matériel',
-    System: 'Système'
+    System: 'Système',
+    Streaming: 'Streaming'
   },
   de: {
     'Race Hub': 'Race Hub',
@@ -7021,7 +7065,8 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     Strategy: 'Strategie',
     Garage: 'Garage',
     Hardware: 'Hardware',
-    System: 'System'
+    System: 'System',
+    Streaming: 'Streaming'
   },
   zh: {
     'Race Hub': '比赛中心',
@@ -7030,7 +7075,8 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     Strategy: '策略',
     Garage: '车库',
     Hardware: '硬件',
-    System: '系统'
+    System: '系统',
+    Streaming: '串流'
   },
   ja: {
     'Race Hub': 'レースハブ',
@@ -7039,41 +7085,48 @@ const NAV_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
     Strategy: '戦略',
     Garage: 'ガレージ',
     Hardware: 'ハードウェア',
-    System: 'システム'
+    System: 'システム',
+    Streaming: 'ストリーミング'
   }
 }
 
 const GROUP_TITLES: Record<ResolvedLanguage, Record<string, string>> = {
-  'pt-BR': {},
+  'pt-BR': { Streaming: 'Streaming' },
   en: {
     'Sim Racing': 'Sim Racing',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: 'Streaming'
   },
   es: {
     'Sim Racing': 'Sim Racing',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: 'Streaming'
   },
   fr: {
     'Sim Racing': 'Sim Racing',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: 'Streaming'
   },
   de: {
     'Sim Racing': 'Sim Racing',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: 'Streaming'
   },
   zh: {
     'Sim Racing': 'Sim Racing',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: '串流'
   },
   ja: {
     'Sim Racing': 'Sim Racing',
     ButtonBox: 'ButtonBox',
-    App: 'App'
+    App: 'App',
+    Streaming: 'ストリーミング'
   }
 }
 
@@ -7086,9 +7139,16 @@ export function translateGroupTitle(title: string, language: ResolvedLanguage): 
 }
 
 export function translateView(view: ViewDef, language: ResolvedLanguage): ViewDef {
+  const external: Partial<ViewText> = {}
+  for (const field of ['group', 'label', 'eyebrow', 'description'] as const) {
+    const key = `view.${view.id}.${field}`
+    const value = UI_TEXT[language][key] ?? UI_TEXT.en[key]
+    if (value) external[field] = value
+  }
   return {
     ...view,
     group: translateGroupTitle(view.group, language),
+    ...external,
     ...(VIEW_TEXT[language][view.id] ?? {})
   }
 }

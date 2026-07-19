@@ -38,6 +38,11 @@ import { useEngineerFeed } from '../lib/engineer-feed'
 import { useTelemetrySelector } from '../lib/telemetry'
 import { tt } from '../i18n'
 import { useUnitSystem } from '../lib/units'
+import { useAlertsConfig } from '../lib/alerts-config'
+import {
+  TriggerPreviewToggle,
+  useEditorTriggerPreviewPreference
+} from '../components/TriggerPreviewToggle'
 
 const CHROME = 'var(--accent-primary)'
 const AMBER = 'var(--accent-warning)'
@@ -834,6 +839,9 @@ function FrameEditorModal({
   onSave: (frame: AdaptiveMomentFrame) => void
   t: TFunc
 }): ReactElement {
+  const alertsConfig = useAlertsConfig()
+  const [showTriggerOnlyActive, setShowTriggerOnlyActive] =
+    useEditorTriggerPreviewPreference()
   // Seed from an existing frame, else from the BASE dashboard layout (clone), so
   // the user starts from the current dashboard and tweaks per moment.
   const [board, setBoard] = useState<EditableBoard>(() => ({
@@ -891,11 +899,27 @@ function FrameEditorModal({
           </button>
         </div>
 
-        <DashboardCanvasEditor board={board} onChange={setBoard} />
+        <TriggerPreviewToggle
+          checked={showTriggerOnlyActive}
+          onChange={setShowTriggerOnlyActive}
+          label={t('triggerPreview.label')}
+          help={t('triggerPreview.help')}
+        />
+
+        <DashboardCanvasEditor
+          board={board}
+          onChange={setBoard}
+          showTriggerOnlyActive={showTriggerOnlyActive}
+          alertsConfig={alertsConfig}
+        />
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{t('adaptive.framePreview')}</span>
-          <DashboardCanvasSurface board={board} />
+          <DashboardCanvasSurface
+            board={board}
+            showTriggerOnlyActive={showTriggerOnlyActive}
+            alertsConfig={alertsConfig}
+          />
         </div>
       </div>
     </div>

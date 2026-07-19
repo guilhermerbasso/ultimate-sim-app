@@ -71,6 +71,7 @@ interface ServiceRuntimeSnapshot {
   transport: InMemoryCollaborationTransportState
   online: boolean
   lastSavedAt: number | null
+  lastError?: string
 }
 
 export class LocalCollaborationService {
@@ -361,22 +362,22 @@ export class LocalCollaborationService {
   }
 
   private async persist(): Promise<void> {
-    const savedAt = Date.now()
-    const body: StoredWorkspaceBody = {
-      format: WORKSPACE_FORMAT,
-      version: COLLABORATION_VERSION,
-      savedAt,
-      localActor: { ...this.replica.localActor },
-      localPrivateKey: this.localPrivateKey,
-      online: this.online,
-      bundle: this.replica.exportBundle()
-    }
-    const stored: StoredWorkspace = {
-      ...body,
-      checksum: { algorithm: 'sha256', value: hashCanonical(body) }
-    }
     const temporaryPath = `${this.filePath}.${randomUUID()}.next`
     try {
+      const savedAt = Date.now()
+      const body: StoredWorkspaceBody = {
+        format: WORKSPACE_FORMAT,
+        version: COLLABORATION_VERSION,
+        savedAt,
+        localActor: { ...this.replica.localActor },
+        localPrivateKey: this.localPrivateKey,
+        online: this.online,
+        bundle: this.replica.exportBundle()
+      }
+      const stored: StoredWorkspace = {
+        ...body,
+        checksum: { algorithm: 'sha256', value: hashCanonical(body) }
+      }
       const serialized = `${canonicalStringify(stored)}\n`
       assertPersistedSize(serialized, this.maxPersistedBytes)
       await this.persistence.ensureDirectory(dirname(this.filePath))
@@ -397,13 +398,13 @@ export class LocalCollaborationService {
   ): Promise<T> {
     return this.mutate(async () => {
       const snapshot = this.captureRuntimeState()
-      await operation()
       try {
+        await operation()
         await this.persist()
       } catch (error) {
-        const saveError = this.lastError
+        const failureError = this.lastError
         this.restoreRuntimeState(snapshot)
-        this.lastError = saveError
+        if (failureError !== snapshot.lastError) this.lastError = failureError
         throw error
       }
       return result()
@@ -421,7 +422,8 @@ export class LocalCollaborationService {
       ),
       transport: this.transport.captureState(),
       online: this.online,
-      lastSavedAt: this.lastSavedAt
+      lastSavedAt: this.lastSavedAt,
+      lastError: this.lastError
     }
   }
 
@@ -435,6 +437,7 @@ export class LocalCollaborationService {
     this.transport.restoreState(snapshot.transport)
     this.online = snapshot.online
     this.lastSavedAt = snapshot.lastSavedAt
+    this.lastError = snapshot.lastError
   }
 
   private mutate<T>(operation: () => Promise<T>): Promise<T> {

@@ -43,11 +43,9 @@ const MAX_CANONICAL_NODES = 1_000_000
 const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/
 const SAFE_PATH_SEGMENT = /^[A-Za-z0-9._-]{1,128}$/
 const DOCUMENT_KIND_SET = new Set<string>(COLLABORATION_DOCUMENT_KINDS)
+const PROTOTYPE_RELATED_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
 
 const FORBIDDEN_KEYS = new Set([
-  '__proto__',
-  'prototype',
-  'constructor',
   'telemetry',
   'telemetryframe',
   'telemetryframes',
@@ -1005,7 +1003,7 @@ function inspectJson(root: unknown): void {
     let telemetrySignals = 0
     for (const key of keys) {
       const normalized = normalizeKey(key)
-      if (FORBIDDEN_KEYS.has(normalized)) {
+      if (PROTOTYPE_RELATED_KEYS.has(key) || FORBIDDEN_KEYS.has(normalized)) {
         throw new CollaborationValidationError(`Field ${key} is not allowed in collaboration documents.`)
       }
       if (TELEMETRY_SIGNAL_KEYS.has(normalized)) telemetrySignals += 1
@@ -1351,7 +1349,12 @@ function parsePath(path: string): string[] {
     throw new CollaborationValidationError('Collaboration path must be an absolute JSON pointer.')
   }
   const segments = path.slice(1).split('/')
-  if (segments.some((segment) => !segment || segment.includes('~') || !SAFE_PATH_SEGMENT.test(segment))) {
+  if (segments.some((segment) =>
+    !segment ||
+    segment.includes('~') ||
+    !SAFE_PATH_SEGMENT.test(segment) ||
+    PROTOTYPE_RELATED_KEYS.has(segment)
+  )) {
     throw new CollaborationValidationError(`Unsafe collaboration path ${path}.`)
   }
   return segments

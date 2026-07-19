@@ -129,6 +129,15 @@ function signedChange(body: CollaborationChangeBody, privateKey: KeyObject): Col
   }
 }
 
+function thrownMessage(action: () => unknown): string {
+  try {
+    action()
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error)
+  }
+  throw new Error('Expected action to throw.')
+}
+
 describe('LocalCollaborationReplica', () => {
   it('converges deterministic concurrent edits and exposes the conflict', () => {
     const { a, b, transport } = pair()
@@ -240,6 +249,75 @@ describe('LocalCollaborationReplica', () => {
     viewer.importBundle(a.exportBundle())
     viewer.setValue(document.id, '/entries/viewer', note('viewer', 'Unauthorized write'), undefined, 32)
     expect(() => a.mergeBundleFromPeer('viewer', viewer.exportBundle())).toThrow(/lacks race-notes:write/)
+  })
+
+  it('rejects prototype-related local paths without changing materialized state or inheritance', () => {
+    const target = replica(ACTOR_A, 'prototype-local')
+    const document = target.createDocument({
+      kind: 'accessibility-profile',
+      title: 'Prototype-safe profile',
+      createdAt: 33
+    })
+    target.setValue(document.id, '/preferences/safe', { enabled: true }, undefined, 34)
+    const before = target.getDocument(document.id)
+    const dangerousSegments = ['__proto__', 'prototype', 'constructor']
+
+    for (const segment of dangerousSegments) {
+      const path = `/preferences/${segment}`
+      const expected = `Unsafe collaboration path ${path}.`
+      expect(thrownMessage(() =>
+        target.setValue(document.id, path, { collaborationInherited: true }, undefined, 35)
+      )).toBe(expected)
+      expect(thrownMessage(() =>
+        target.deleteValue(document.id, path, undefined, 35)
+      )).toBe(expected)
+    }
+
+    const ownPrototypeKey = JSON.parse('{"__proto__":{"collaborationInherited":true}}')
+    expect(thrownMessage(() =>
+      target.setValue(document.id, '/preferences/value', ownPrototypeKey, undefined, 35)
+    )).toBe('Field __proto__ is not allowed in collaboration documents.')
+
+    const after = target.getDocument(document.id)
+    const preferences = after.data.preferences as Record<string, unknown>
+    expect(after).toEqual(before)
+    expect(Object.getPrototypeOf(preferences)).toBe(Object.prototype)
+    expect('collaborationInherited' in preferences).toBe(false)
+    expect(({} as Record<string, unknown>).collaborationInherited).toBeUndefined()
+  })
+
+  it('rejects signed imports with prototype-related paths deterministically before materialization', () => {
+    const source = replica(ACTOR_A, 'prototype-import')
+    source.createDocument({
+      kind: 'accessibility-profile',
+      title: 'Imported profile',
+      createdAt: 36
+    })
+    const baseBundle = source.exportBundle()
+
+    for (const segment of ['__proto__', 'prototype', 'constructor']) {
+      const path = `/preferences/${segment}`
+      const expected = `Unsafe collaboration path ${path}.`
+      const maliciousBundle = rewriteBundle(baseBundle, (bundle) => {
+        const change = bundle.documents[0].changes[0]
+        Object.assign(change, signedChange({
+          ...changeBody(change),
+          operation: {
+            type: 'set',
+            path,
+            value: { collaborationInherited: true }
+          }
+        }, PRIVATE_KEY_OBJECTS.get(ACTOR_A.id)!))
+      })
+      const target = replica(ACTOR_C, `unused-${segment}`)
+
+      expect(thrownMessage(() => target.importBundle(maliciousBundle))).toBe(expected)
+      expect(target.listDocuments()).toEqual([])
+      expect(target.getQuarantine()).toEqual([
+        expect.objectContaining({ reason: expected })
+      ])
+      expect(({} as Record<string, unknown>).collaborationInherited).toBeUndefined()
+    }
   })
 
   it('deduplicates replayed changes without duplicating history', () => {

@@ -70,7 +70,7 @@ export function zoneColorAt(frac: number, zones: LedShiftZone[] = DEFAULT_SHIFT_
 export function LedShiftBar({
   pct,
   segments = 15,
-  blink = false,
+  blink,
   zones = DEFAULT_SHIFT_ZONES,
   dimOpacity = 0.16,
   height = 16,
