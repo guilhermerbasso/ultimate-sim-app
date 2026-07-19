@@ -247,6 +247,53 @@ describe('routeIntent -- PT-BR questions', () => {
     expect(r.text).toContain('Track')
   })
 
+  it.each([
+    'Quanto combustível tenho?',
+    'Quanto combustivel tenho?',
+    'Qual o nível de combustível?',
+    'Qual o nivel de combustivel?',
+    'Qual o consumo de combustível?'
+  ])('routes native fuel quantity wording: %s', (question) => {
+    const r = routeIntent(question, ctx(), 'pt')
+    expect(r.type).toBe('answer')
+    if (r.type !== 'answer') return
+    expect(r.category).toBe('fuel')
+    expect(r.text).toContain('Combustível')
+  })
+
+  it.each([
+    'Como estão os pneus?',
+    'Como estao os pneus?',
+    'Qual a pressão dos pneus?',
+    'Qual a pressao dos pneus?',
+    'Qual a temperatura e desgaste dos pneus?'
+  ])('routes native tyre status wording: %s', (question) => {
+    const r = routeIntent(question, ctx(snapshot({
+      tyres: {
+        lf: { pressureKpa: 180, tempC: 88, wearPct: 0.92 },
+        rf: { pressureKpa: 181, tempC: 95, wearPct: 0.85 },
+        lr: { pressureKpa: 178, tempC: 86, wearPct: 0.9 },
+        rr: { pressureKpa: 179, tempC: 90, wearPct: 0.89 }
+      }
+    })), 'pt')
+    expect(r.type).toBe('answer')
+    if (r.type !== 'answer') return
+    expect(r.category).toBe('tyres')
+    expect(r.text).toContain('Pneus')
+  })
+
+  it.each([
+    'Quantas voltas faltam?',
+    'Quantas voltas restam?',
+    'Voltas restantes?'
+  ])('routes native remaining-laps wording: %s', (question) => {
+    const r = routeIntent(question, ctx(), 'pt')
+    expect(r.type).toBe('answer')
+    if (r.type !== 'answer') return
+    expect(r.category).toBe('laps')
+    expect(r.text).toContain('voltas')
+  })
+
   it('reports unknown surface instead of dry when rain is false but wetness is absent', () => {
     const r = routeIntent(
       'Is it raining?',

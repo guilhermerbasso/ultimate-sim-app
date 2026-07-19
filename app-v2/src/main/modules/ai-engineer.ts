@@ -149,10 +149,10 @@ function isReadOnlyFuelQuantityQuestion(question: string): boolean {
   ]
   const portuguese = [
     /^(?:combustivel|combustivel atual|nivel de combustivel|combustivel restante)$/,
-    /^quanto combustivel(?: resta)?$/,
+    /^quanto combustivel(?: resta| tenho| ha no tanque)?$/,
     /^qual (?:e )?o (?:meu )?(?:combustivel atual|nivel de combustivel|combustivel restante)$/,
     /^(?:consumo de combustivel|combustivel por volta)$/,
-    /^qual (?:e )?o meu (?:consumo de combustivel|combustivel por volta)$/
+    /^qual (?:e )?o (?:meu )?(?:consumo de combustivel|combustivel por volta)$/
   ]
   return [...english, ...portuguese].some((pattern) => pattern.test(q))
 }

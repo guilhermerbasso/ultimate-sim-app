@@ -56,8 +56,8 @@ function has(text: string, ...subs: string[]): boolean {
 }
 
 const PT_MARKERS = [
-  'fuel', 'gasolina', 'tanque', 'boxes', 'frente', 'atras', 'traseira', 'posicao', 'lugar',
-  'colocado', 'tire', 'tires', 'borracha', 'rain', 'chovendo', 'weather', 'lap', 'laps', 'proximo',
+  'fuel', 'gasolina', 'combustivel', 'tanque', 'nivel', 'boxes', 'frente', 'atras', 'traseira', 'posicao', 'lugar',
+  'colocado', 'tire', 'tires', 'pneu', 'pneus', 'pressao', 'temperatura', 'desgaste', 'borracha', 'rain', 'chovendo', 'weather', 'lap', 'laps', 'volta', 'voltas', 'faltam', 'restam', 'proximo',
   'anterior', 'salvar', 'salva', 'marcar', 'marca', 'resetar', 'reseta', 'ativar', 'ativa', 'desativar',
   'desativa', 'quanto', 'devo', 'preciso', 'consigo', 'terminar', 'meu', 'minha', 'qual', 'agora', 'pace'
 ]
@@ -122,7 +122,7 @@ function matchCommand(text: string, lang: IntentLang): IntentCommand | null {
   }
 
   // Reset fuel calculation
-  if (hasWord(text, 'resetar', 'reseta', 'resete', 'zerar', 'zera', 'reset', 'limpar', 'limpa') && has(text, 'fuel', 'fuel', 'gasolina', 'tanque')) {
+  if (hasWord(text, 'resetar', 'reseta', 'resete', 'zerar', 'zera', 'reset', 'limpar', 'limpa') && has(text, 'fuel', 'fuel', 'gasolina', 'combustivel', 'tanque')) {
     return command('fuel.reset', lang, 'Cálculo de combustível reiniciado.', 'Fuel calculation reset.', 'fuel:reset')
   }
 
@@ -157,8 +157,8 @@ function matchQuestion(text: string, lang: IntentLang, ctx: EngineerContext, uni
   const noData = lang === 'en' ? NO_DATA_EN : NO_DATA_PT
 
   // FUEL (level / can I finish)
-  const isFinishQ = has(text, 'da pra terminar', 'da para terminar', 'consigo terminar', 'can we finish', 'can i finish', 'finish the race', 'make it to the end', 'make the finish', 'will i finish', 'enough fuel')
-  if (isFinishQ || (hasWord(text, 'fuel', 'fuel', 'gasolina', 'tanque', 'gas') )) {
+  const isFinishQ = has(text, 'da pra terminar', 'da para terminar', 'consigo terminar', 'tenho combustivel para terminar', 'combustivel para terminar', 'can we finish', 'can i finish', 'finish the race', 'make it to the end', 'make the finish', 'will i finish', 'enough fuel')
+  if (isFinishQ || (hasWord(text, 'fuel', 'fuel', 'gasolina', 'combustivel', 'tanque', 'gas') )) {
     if (!snapshot?.connected) return answer('fuel', lang, noData)
     return answer('fuel', lang, buildFuelAnswer(ctx, lang, isFinishQ, unitSystem))
   }
@@ -204,7 +204,13 @@ function matchQuestion(text: string, lang: IntentLang, ctx: EngineerContext, uni
       'laps to go',
       'laps remaining',
       'laps left',
-      'laps are left'
+      'laps are left',
+      'quantas voltas faltam',
+      'quantas voltas restam',
+      'voltas restantes',
+      'voltas faltando',
+      'voltas para acabar',
+      'voltas ate o fim'
     )
   ) {
     if (!snapshot?.connected) return answer('laps', lang, noData)
@@ -212,7 +218,7 @@ function matchQuestion(text: string, lang: IntentLang, ctx: EngineerContext, uni
   }
 
   // TYRES
-  if (hasWord(text, 'tire', 'tires', 'tyre', 'tyres', 'tire', 'tires', 'borracha')) {
+  if (hasWord(text, 'tire', 'tires', 'tyre', 'tyres', 'pneu', 'pneus', 'borracha')) {
     if (!snapshot?.connected) return answer('tyres', lang, noData)
     return answer('tyres', lang, buildTyresAnswer(ctx, lang, unitSystem))
   }

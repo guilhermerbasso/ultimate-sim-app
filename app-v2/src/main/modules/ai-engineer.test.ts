@@ -452,6 +452,73 @@ describe('createEngineerOrchestrator.ask', () => {
   })
 
   it.each([
+    'Quanto combustível tenho?',
+    'Qual o nível de combustível?',
+    'Como estão os pneus?',
+    'Qual a pressão dos pneus?',
+    'Qual a temperatura e desgaste dos pneus?',
+    'Quantas voltas faltam?',
+    'Quantas voltas restam?'
+  ])('answers native PT-BR read-only status under yellow: %s', async (question) => {
+    const harness = makeHarness({
+      config: { language: 'pt-BR' },
+      snapshot: {
+        sim: 'iracing',
+        connected: true,
+        timestamp: 1000,
+        sessionType: 'Race',
+        fuelLiters: 34.2,
+        fuelPerLap: 2.1,
+        lapsRemaining: 13,
+        tyres: {
+          lf: { pressureKpa: 180, tempC: 88, wearPct: 0.92 },
+          rf: { pressureKpa: 181, tempC: 95, wearPct: 0.85 },
+          lr: { pressureKpa: 178, tempC: 86, wearPct: 0.9 },
+          rr: { pressureKpa: 179, tempC: 90, wearPct: 0.89 }
+        }
+      } as TelemetrySnapshot,
+      racecraftContext: {
+        safety: { ...KNOWN_SAFE_RACE, flagYellow: true }
+      }
+    })
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+    expect(answer.source).toBe('intent')
+    expect(answer.lang).toBe('pt-BR')
+    expect(answer.text).not.toContain('TÁTICA PAUSADA')
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'Tenho combustível para terminar?',
+    'Devo economizar combustível?',
+    'Qual alvo de combustível?',
+    'Devo parar nos boxes para abastecer?'
+  ])('pauses native PT-BR fuel strategy under yellow: %s', async (question) => {
+    const harness = makeHarness({
+      config: { language: 'pt-BR' },
+      snapshot: {
+        sim: 'iracing',
+        connected: true,
+        timestamp: 1000,
+        sessionType: 'Race',
+        fuelLiters: 34.2,
+        fuelPerLap: 2.1
+      } as TelemetrySnapshot,
+      racecraftContext: {
+        safety: { ...KNOWN_SAFE_RACE, flagYellow: true }
+      }
+    })
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+    expect(answer.text).toContain('TÁTICA PAUSADA')
+    expect(answer.speak).toBe(false)
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
+  it.each([
     ['yellow', { flagYellow: true }, 'Can I pass on the next corner?', 'TACTICS PAUSED'],
     ['red', { flagRed: true }, 'C.a.n I p@ss on the next c0rner?', 'safety or penalty flag'],
     ['safety car', { paceMode: 'singleFileRestart' as const }, 'Should I push past this car after the restart?', 'TACTICS PAUSED'],
@@ -559,7 +626,11 @@ describe('createEngineerOrchestrator.ask', () => {
 
   it.each([
     ['Define divebomb.', 'en-US', 'controlled glossary'],
+    ['Please define divebomb.', 'en-US', 'controlled glossary'],
+    ['Could you explain active aero?', 'en-US', 'controlled glossary'],
+    ["What's bump steer?", 'en-US', 'controlled glossary'],
     ['Defina cambagem.', 'pt-BR', 'glossário controlado'],
+    ['Por favor, poderia você explicar cambagem?', 'pt-BR', 'glossário controlado'],
     ['Define aerodinámica activa.', 'es', 'glosario controlado'],
     ['Explique le bump steer.', 'fr', 'glossaire contrôlé'],
     ['主动空气动力学是什么？', 'zh', '受控术语表'],

@@ -254,7 +254,17 @@ describe('racecraft question routing', () => {
     ['Tell me about the concept of ABS', 'abs'],
     ['What is traction control?', 'traction-control'],
     ['Que significa bandera amarilla?', 'yellow-flag'],
-    ['O que é safety car?', 'safety-car']
+    ['O que é safety car?', 'safety-car'],
+    ["What's understeer?", 'understeer'],
+    ['Please define oversteer.', 'oversteer'],
+    ['Could you explain ABS?', 'abs'],
+    ['Can you tell me what traction control means?', 'traction-control'],
+    ['Definition: yellow flag.', 'yellow-flag'],
+    ['Tell me about the concept of safety car.', 'safety-car'],
+    ['Por favor, poderia você explicar subviragem?', 'understeer'],
+    ['¿Podrías explicar el sobreviraje?', 'oversteer'],
+    ['Peux-tu expliquer le sous-virage ?', 'understeer'],
+    ['Bitte kannst du ABS erklären?', 'abs']
   ] as const)('parses localized definition form %s', (question, topic) => {
     expect(parseDefinitionQuestion(question)).toMatchObject({
       pure: true,
