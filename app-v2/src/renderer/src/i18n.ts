@@ -6843,7 +6843,8 @@ type ViewText = Pick<ViewDef, 'group' | 'label' | 'eyebrow' | 'description'>
 
 const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
   'pt-BR': {
-    'rig-preflight': { label: 'Preflight do Rig', eyebrow: 'Evidência', description: 'Readiness local com desejado/reportado/delta, certificados com prazo, dispensas e testes de falha.' }
+    'rig-preflight': { label: 'Preflight do Rig', eyebrow: 'Evidência', description: 'Readiness local com desejado/reportado/delta, certificados com prazo, dispensas e testes de falha.' },
+    'setup-experiment': { label: 'Experimento de Setup', eyebrow: 'A-B-A', description: 'Blocos locais de uma variável com gates ambientais, bootstrap, repetição e abstenção.' }
   },
   en: {
     telemetry: { label: 'Telemetry', eyebrow: 'Sim', description: 'Live telemetry source and overview.' },
@@ -6863,6 +6864,7 @@ const VIEW_TEXT: Record<ResolvedLanguage, Record<string, Partial<ViewText>>> = {
     'race-profiles': { label: 'Race Profiles', eyebrow: 'Car/Track', description: 'Car/track profiles with automatic switching.' },
     sounds: { label: 'Sounds', eyebrow: 'Audio', description: 'Soundshift, incident, ABS, and TCS audio cues.' },
     setups: { label: 'Setups', eyebrow: 'iRacing', description: 'Auto-install .sto setups from a folder or URL.' },
+    'setup-experiment': { label: 'Setup Experiment', eyebrow: 'A-B-A', description: 'Local one-variable setup blocks with environment gates, bootstrap uncertainty, repeats, and abstention.' },
     career: { label: 'Career & Ratings', eyebrow: 'iRacing', description: 'iRating, Safety Rating, licenses, incidents, and results.' },
     engineer: { label: 'AI Engineer', eyebrow: 'Local LLM', description: 'Text race engineer for fuel, tyres, gaps, and strategy. Includes Voice Spotter.' },
     coach: { label: 'AI Coach', eyebrow: 'Local AI', description: 'Driving coach and lap analysis with corner findings, track map, and setup suggestions.' },
@@ -6927,6 +6929,7 @@ patchViewText('es', {
   overlays: { label: 'Overlays', eyebrow: 'Pantalla', description: 'Overlays transparentes sobre el simulador.' },
   fuel: { label: 'Combustible' },
   tire: { label: 'Neumáticos' },
+  'setup-experiment': { label: 'Experimento de setup', description: 'Experimentos locales A-B-A de una variable con comparabilidad e incertidumbre.' },
   alerts: { label: 'Alerts' },
   'story-engine': { label: 'Motor de historias', eyebrow: 'Poscarrera', description: 'Tarjetas locales vinculadas a evidencia con vista previa y aprobación humana obligatoria.' },
   'context-debt': { label: 'Medidor de deuda de contexto', eyebrow: 'SP-07 · N=0', description: 'Auditoría local previa a la carrera de señales, rutas, dispositivos y controles en competencia.' },
@@ -6946,6 +6949,7 @@ patchViewText('fr', {
   overlays: { label: 'Overlays', eyebrow: 'Écran', description: 'Overlays transparents au-dessus du simulateur.' },
   fuel: { label: 'Carburant' },
   tire: { label: 'Tires' },
+  'setup-experiment': { label: 'Expérience de réglage', description: 'Expériences locales A-B-A à une variable avec comparabilité et incertitude.' },
   alerts: { label: 'Alertes' },
   'story-engine': { label: 'Moteur de récits', eyebrow: 'Après-course', description: 'Cartes locales liées aux preuves avec aperçu de destination et validation humaine obligatoire.' },
   'context-debt': { label: 'Mesure de dette de contexte', eyebrow: 'SP-07 · N=0', description: 'Audit local avant course des signaux, routes, appareils et commandes concurrents.' },
@@ -6966,6 +6970,7 @@ patchViewText('de', {
   overlays: { label: 'Overlays', eyebrow: 'Anzeige', description: 'Transparente Overlays über dem Simulator.' },
   fuel: { label: 'Kraftstoff' },
   tire: { label: 'Reifen' },
+  'setup-experiment': { label: 'Setup-Experiment', description: 'Lokale A-B-A-Experimente mit einer Variable, Vergleichbarkeit und Unsicherheit.' },
   alerts: { label: 'Warnungen' },
   'story-engine': { label: 'Story Engine', eyebrow: 'Nach dem Rennen', description: 'Lokale evidenzgebundene Story-Karten mit Zielvorschau und verpflichtender menschlicher Freigabe.' },
   'context-debt': { label: 'Kontextschuld-Messer', eyebrow: 'SP-07 · N=0', description: 'Lokale Vorabprüfung konkurrierender Hinweise, Routen, Geräte und Steuerungen.' },
@@ -6988,6 +6993,7 @@ patchViewText('zh', {
   overlays: { label: '叠加层', eyebrow: '屏幕', description: '模拟器之上的透明叠加层。' },
   fuel: { label: '燃油', eyebrow: '策略' },
   tire: { label: '轮胎', eyebrow: '策略' },
+  'setup-experiment': { label: '设置实验', description: '具有可比性与不确定性保护的本地单变量 A-B-A 实验。' },
   alerts: { label: '警报' },
   'story-engine': { label: '故事引擎', eyebrow: '赛后', description: '基于证据的本地故事卡，包含目标预览并强制人工批准。' },
   'context-debt': { label: '上下文负债计', eyebrow: 'SP-07 · N=0', description: '本地赛前审计相互竞争的提示、路由、设备和控制。' },
@@ -7010,6 +7016,7 @@ patchViewText('ja', {
   overlays: { label: 'オーバーレイ', eyebrow: '画面', description: 'シミュレーターの上に表示する透明オーバーレイ。' },
   fuel: { label: '燃料', eyebrow: '戦略' },
   tire: { label: 'タイヤ', eyebrow: '戦略' },
+  'setup-experiment': { label: 'セットアップ実験', description: '比較可能性と不確実性を扱うローカル単一変数 A-B-A 実験。' },
   alerts: { label: 'アラート' },
   'story-engine': { label: 'ストーリーエンジン', eyebrow: 'レース後', description: '証拠に紐づくローカルカード、公開先プレビュー、必須の人間承認。' },
   'context-debt': { label: 'コンテキスト負債メーター', eyebrow: 'SP-07 · N=0', description: '競合するキュー、ルート、デバイス、操作をローカルでレース前監査します。' },

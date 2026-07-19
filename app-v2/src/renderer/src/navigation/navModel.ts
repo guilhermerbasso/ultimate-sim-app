@@ -9,7 +9,7 @@ export const navSections: NavSection[] = [
   { title: 'Streaming', viewIds: ['streaming-mobile-editor'] },
   { title: 'IA & Coaching', viewIds: ['engineer', 'coach', 'mission-rehearsal', 'dashboard-builder', 'voice', 'search'] },
   { title: 'Strategy', viewIds: ['fuel', 'tire', 'strategy'] },
-  { title: 'Garage', viewIds: ['setups', 'race-profiles', 'community'] },
+  { title: 'Garage', viewIds: ['setups', 'setup-experiment', 'race-profiles', 'community'] },
   { title: 'Hardware', viewIds: ['rig-preflight', 'devices', 'arduinos', 'revlights', 'inputs', 'controls', 'pinout'] },
   { title: 'System', viewIds: ['settings', 'about', 'expr', 'profiles', 'career'] }
 ]
