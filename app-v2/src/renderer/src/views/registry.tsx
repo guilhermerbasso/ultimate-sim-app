@@ -22,6 +22,7 @@ const SettingsView = lazy(() => import('./SettingsView'))
 const VoiceSettingsView = lazy(() => import('./VoiceSettingsView'))
 const SemanticSearchView = lazy(() => import('./SemanticSearchView'))
 const SetupsView = lazy(() => import('./SetupsView'))
+const SetupExperimentView = lazy(() => import('./SetupExperimentView'))
 const CareerView = lazy(() => import('./CareerView'))
 const EngineerView = lazy(() => import('./EngineerView'))
 const CoachView = lazy(() => import('./CoachView'))
@@ -73,6 +74,7 @@ export const viewRegistry: ViewDef[] = [
   { id: 'race-profiles', group: 'Sim Racing', label: 'Race Profiles', eyebrow: 'Car/Track', description: 'Profiles by car/track with auto-switching.', shortcut: 'T9', Component: RaceProfilesView },
   { id: 'sounds', group: 'Sim Racing', label: 'Sounds', eyebrow: 'Audio', description: 'Soundshift (shift beep), Incident, ABS, and TCS.', shortcut: 'TA', Component: SoundsView },
   { id: 'setups', group: 'Sim Racing', label: 'Setups', eyebrow: 'iRacing', description: 'Auto-install setups (.sto) from folder or URL.', shortcut: 'TB', Component: SetupsView },
+  { id: 'setup-experiment', group: 'Sim Racing', label: 'Setup Experiment', eyebrow: 'A-B-A', description: 'Local one-variable setup blocks with environment gates, bootstrap uncertainty, repeats, and abstention.', shortcut: 'TE', Component: SetupExperimentView },
   { id: 'career', group: 'Sim Racing', label: 'Career & Ratings', eyebrow: 'iRacing', description: 'iRating, Safety Rating, licenses, incidents, and results.', shortcut: 'TD', Component: CareerView },
   { id: 'engineer', group: 'Sim Racing', label: 'AI Engineer', eyebrow: 'LLM local', description: 'Race engineer with local AI (text): ask about fuel, tires, gaps, and strategy. Includes Voice Spotter (spoken alerts).', shortcut: 'TG', Component: EngineerView },
   { id: 'haptics', group: 'Sim Racing', label: 'Haptics', eyebrow: 'Bass shaker', description: 'ShakeIt-style haptic feedback: bass shaker (audio) + haptics.', shortcut: 'TF', Component: HapticsView },
