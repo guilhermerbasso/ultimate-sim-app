@@ -13,13 +13,9 @@ export interface AppNavigateDetail {
 
 export function navigateToView(viewId: string): void {
   if (!viewId) return
-<<<<<<< HEAD
-  window.dispatchEvent(new CustomEvent<AppNavigateDetail>(APP_NAVIGATE_EVENT, { detail: { viewId } }))
-=======
   window.dispatchEvent(new CustomEvent<AppNavigateDetail>(APP_NAVIGATE_EVENT, {
     detail: { viewId }
   }))
->>>>>>> origin/main
 }
 
 export function navigateToEditor(surface: EditorSurface, targetId: string): void {

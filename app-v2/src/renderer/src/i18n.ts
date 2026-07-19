@@ -6906,15 +6906,12 @@ function patchViewText(language: ResolvedLanguage, patches: Record<string, Parti
 }
 
 patchViewText('pt-BR', {
-<<<<<<< HEAD
+  streaming: { label: 'Streaming', eyebrow: 'Transmissão', description: 'Destinos nomeados e somente leitura de dashboards e painéis touch para OBS, celulares e tablets.' },
   'context-debt': {
     label: 'Medidor de dívida de contexto',
     eyebrow: 'SP-07 · N=0',
     description: 'Auditoria local pré-corrida de cues, rotas, dispositivos e controles concorrentes.'
   }
-=======
-  streaming: { label: 'Streaming', eyebrow: 'Transmissão', description: 'Destinos nomeados e somente leitura de dashboards e painéis touch para OBS, celulares e tablets.' }
->>>>>>> origin/main
 })
 
 patchViewText('es', {
