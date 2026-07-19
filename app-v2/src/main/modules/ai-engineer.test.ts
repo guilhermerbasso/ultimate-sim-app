@@ -553,8 +553,25 @@ describe('createEngineerOrchestrator.ask', () => {
   })
 
   it.each([
+    'Define tyre compound.',
+    'What does tyre compound mean?',
+    'Explain tyre pressure.'
+  ])('never sends explicit telemetry-noun definitions to the LLM: %s', async (question) => {
+    const harness = makeHarness()
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask(question)
+
+    expect(answer.source).toBe('intent')
+    expect(answer.text).toContain('controlled glossary')
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
+  it.each([
     'I definitely need to save fuel.',
-    'Give me explicit fuel data.'
+    'Give me explicit fuel data.',
+    'How do I save fuel? Explain.',
+    'Please save fuel and explain why.',
+    'What tyre pressure should I use? Explain.'
   ])('does not bypass caution safety through ordinary words: %s', async (question) => {
     const harness = makeHarness({
       racecraftContext: {
@@ -566,6 +583,18 @@ describe('createEngineerOrchestrator.ask', () => {
 
     expect(answer.text).toContain('TACTICS PAUSED')
     expect(answer.speak).toBe(false)
+    expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
+  })
+
+  it('answers a natural Portuguese definition without invoking the LLM', async () => {
+    const harness = makeHarness({ config: { language: 'pt-BR' } })
+
+    const answer = await createEngineerOrchestrator(harness.deps).ask(
+      'O que significa subviragem?'
+    )
+
+    expect(answer.source).toBe('intent')
+    expect(answer.text).toContain('Subviragem')
     expect(harness.runtime.generateWithTools).not.toHaveBeenCalled()
   })
 

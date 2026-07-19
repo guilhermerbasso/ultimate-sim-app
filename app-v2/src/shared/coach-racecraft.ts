@@ -638,7 +638,7 @@ function definitionTopic(body: string): SafeInformationalTopic | null {
 }
 
 const DEFINITION_LIVE_CONTEXT =
-  /\b(?:my|current|next|now|this lap|last lap|lap \d+|turn \d+|best way|how i|how do|how should|should i|can i|could i|need to|then|and then|so i|into (?:turn|t\d+)|racing line|fuel|save|finish|position|gap|target|pit|attack|pass|overtake the|tyre|tyres|tire|tires|pressure|compound|change|use|car ahead|car behind|driver ahead|driver behind|the leader|leader|p\d+|meu|minha|como|como faco|como posso|devo|preciso|melhorar|combustivel|economizar|terminar|pneu|pneus|pressao|composto|trocar|usar|alvo|volta \d+|curva \d+|carro a frente|carro atras|lider|mi|como puedo|debo|necesito|mejorar|combustible|neumatico|neumaticos|presion|compuesto|cambiar|usar|objetivo|vuelta \d+|mon|ma|dois je|ameliorer|carburant|pneu|pneus|pression|composer|changer|utiliser|tour \d+|virage \d+|mein|meine|wie|wie kann|soll ich|muss ich|kraftstoff|reifen|reifendruck|mischung|wechseln|verwenden|runde \d+|kurve \d+)\b/
+  /\b(?:my|current|next|now|this lap|last lap|lap \d+|turn \d+|best way|how i|how do|how should|should i|can i|could i|need to|then|and then|so i|into (?:turn|t\d+)|racing line|save|finish|pit|attack|pass|overtake the|change|use|car ahead|car behind|driver ahead|driver behind|the leader|leader|p\d+|meu|minha|como faco|como posso|devo|preciso|melhorar|economizar|terminar|trocar|usar|volta \d+|curva \d+|carro a frente|carro atras|lider|mi|como puedo|debo|necesito|mejorar|cambiar|usar|vuelta \d+|mon|ma|dois je|ameliorer|changer|utiliser|tour \d+|virage \d+|mein|meine|wie ich|wie kann|soll ich|muss ich|wechseln|verwenden|runde \d+|kurve \d+)\b/
 
 function isPureDefinitionBody(body: string): boolean {
   return !DEFINITION_LIVE_CONTEXT.test(body)

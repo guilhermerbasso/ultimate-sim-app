@@ -267,6 +267,7 @@ describe('racecraft question routing', () => {
     ['Pode me explicar subviragem?', 'understeer'],
     ['Você pode me explicar subviragem?', 'understeer'],
     ['Qual é o significado de subviragem?', 'understeer'],
+    ['O que significa subviragem?', 'understeer'],
     ['Me explique sobreviragem.', 'oversteer'],
     ['¿Podrías explicar el sobreviraje?', 'oversteer'],
     ['¿Puedes explicarme el subviraje?', 'understeer'],
@@ -302,10 +303,24 @@ describe('racecraft question routing', () => {
   })
 
   it.each([
+    'Define tyre compound.',
+    'What does tyre compound mean?',
+    'Explain tyre pressure.'
+  ])('keeps telemetry-noun definitions inside the controlled glossary: %s', (question) => {
+    expect(parseDefinitionQuestion(question)).toMatchObject({ pure: true })
+    expect(controlledDefinitionResponse(question, 'en-US')).toContain(
+      'controlled glossary'
+    )
+  })
+
+  it.each([
     'I definitely need to save fuel.',
-    'Give me explicit fuel data.'
+    'Give me explicit fuel data.',
+    'How do I save fuel? Explain.',
+    'Please save fuel and explain why.',
+    'What tyre pressure should I use? Explain.'
   ])('does not mistake ordinary words for definition markers: %s', (question) => {
-    expect(parseDefinitionQuestion(question)).toBeNull()
+    expect(parseDefinitionQuestion(question)?.pure ?? false).toBe(false)
     expect(controlledDefinitionResponse(question, 'en-US')).toBeNull()
   })
 
