@@ -524,7 +524,11 @@ describe('createEngineerOrchestrator.ask', () => {
     'Explíqueme el subviraje.',
     'Expliquez-moi le sous-virage.',
     'Pouvez-vous définir le sous-virage?',
-    'Was heißt Untersteuern?'
+    'Was heißt Untersteuern?',
+    'Could understeer be explained?',
+    '¿Podría definirme el subviraje?',
+    'Définissez le sous-virage.',
+    'Können Sie Untersteuern definieren?'
   ])('never invokes the LLM for inflected definition wording: %s', async (question) => {
     const harness = makeHarness()
 

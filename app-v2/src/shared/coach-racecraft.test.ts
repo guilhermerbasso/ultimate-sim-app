@@ -283,6 +283,10 @@ describe('racecraft question routing', () => {
     ['Expliquez-moi le sous-virage.', 'understeer'],
     ['Pouvez-vous définir le sous-virage?', 'understeer'],
     ['Was heißt Untersteuern?', 'understeer'],
+    ['Could understeer be explained?', 'understeer'],
+    ['¿Podría definirme el subviraje?', 'understeer'],
+    ['Définissez le sous-virage.', 'understeer'],
+    ['Können Sie Untersteuern definieren?', 'understeer'],
     ['アンダーステアについて説明してください', 'understeer']
   ] as const)('parses localized definition form %s', (question, topic) => {
     expect(parseDefinitionQuestion(question)).toMatchObject({
