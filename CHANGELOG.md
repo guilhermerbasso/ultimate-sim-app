@@ -48,7 +48,7 @@
   in order, configured OFF runs exactly once, cleanup is idempotent, admission is revoked
   synchronously, and auth, target, connectivity, or teardown changes fail closed.
 - Steward evidence uses a canonical verified event chain, session-bound atomic clip storage,
-  fail-closed corruption/decrypt/hash quarantine, allowlisted anonymization, provenance and
+  fail-closed corruption/decryption/hash quarantine, allowlisted anonymization, provenance and
   redistribution-rights gates, and trusted local re-review before imported verdicts become
   authoritative.
 - Mission Rehearsal synthetic events are isolated from live telemetry and real session history, and
