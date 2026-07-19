@@ -37,6 +37,8 @@ describe('i18n text helpers', () => {
     expect(tt('en', 'rigPreflight.title')).toBe('Rig Twin & Preflight')
     expect(tt('pt-BR', 'rigPreflight.title')).toBe('Gêmeo do Rig e Preflight')
     expect(tt('ja', 'rigPreflight.title')).toBe('Rig Twin & Preflight')
+    expect(tt('en', 'contextDebt.title')).toBe('Context-Debt Meter')
+    expect(tt('pt-BR', 'contextDebt.title')).toBe('Medidor de dívida de contexto')
   })
 
   it('translates known navigation section titles', () => {
@@ -70,6 +72,7 @@ describe('migrated view i18n coverage', () => {
       'DevicesView.tsx',
       'CommunityView.tsx',
       'ControlsView.tsx',
+      'ContextDebtView.tsx',
       'CoachView.tsx',
       '../components/SavedConfigsPanel.tsx',
       '../components/WakeWordIndicator.tsx',
